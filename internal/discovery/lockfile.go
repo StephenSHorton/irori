@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/StephenSHorton/irori/internal/proc"
 )
@@ -55,7 +56,22 @@ func write(dir string, lf Lockfile) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(name, filepath.Join(dir, FileName))
+	return renameRetry(name, filepath.Join(dir, FileName))
+}
+
+// renameRetry retries a refused rename for up to a second. On Windows the
+// rename fails while a reader (an `irori mcp` dialing in) has the target open
+// without delete sharing, which Go's os.Open doesn't grant; readers hold it
+// for microseconds, so a short retry always gets through.
+func renameRetry(from, to string) error {
+	var err error
+	for wait := 5 * time.Millisecond; wait < time.Second; wait *= 2 {
+		if err = os.Rename(from, to); err == nil {
+			return nil
+		}
+		time.Sleep(wait)
+	}
+	return os.Rename(from, to)
 }
 
 // load reads the file without looking at its pid.

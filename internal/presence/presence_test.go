@@ -115,7 +115,7 @@ func TestReadSessionFixtures(t *testing.T) {
 		t.Fatalf("13704 times: %v %v", s.StartedAt, s.UpdatedAt)
 	}
 
-	// 39668.json has unescaped Windows backslashes; it must still read.
+	// 39668.json is a bg session with an escaped Windows cwd.
 	f, err = os.Open(filepath.Join("testdata", "sessions", "39668.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -373,5 +373,14 @@ func TestSubscribeAddedThenRemoved(t *testing.T) {
 		// Drain anything buffered; the channel must close after ctx ends.
 		for range ch {
 		}
+	}
+}
+
+// Invalid session JSON is skipped, never guessed at: a repair would turn the
+// "\t" in C:\Users\4step\tools into a TAB.
+func TestReadSessionRejectsInvalidJSON(t *testing.T) {
+	raw := `{"pid":5,"sessionId":"a","cwd":"C:` + "\\" + `Users` + "\\" + `4step` + "\\" + `tools"}`
+	if _, ok := readSession(strings.NewReader(raw)); ok {
+		t.Fatal("invalid JSON was accepted")
 	}
 }

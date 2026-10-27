@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/StephenSHorton/irori/internal/core"
 	"github.com/StephenSHorton/irori/internal/device"
@@ -45,5 +46,30 @@ func (r *RosterService) Recent(limit int) ([]store.Event, error) {
 func (r *RosterService) pump(ctx context.Context, app *application.App) {
 	for ch := range r.core.Changes(ctx) {
 		app.Event.Emit(EventRosterChanged, RosterChange{Change: ch, Agents: r.core.Agents()})
+	}
+}
+
+// trayStatus keeps the tray's status line at "N agents (M busy)".
+func (r *RosterService) trayStatus(ctx context.Context, tray *TrayController) {
+	set := func() {
+		agents := r.core.Agents()
+		busy := 0
+		for _, a := range agents {
+			if a.Status == "busy" {
+				busy++
+			}
+		}
+		switch len(agents) {
+		case 0:
+			tray.SetStatus("No agents running")
+		case 1:
+			tray.SetStatus(fmt.Sprintf("1 agent (%d busy)", busy))
+		default:
+			tray.SetStatus(fmt.Sprintf("%d agents (%d busy)", len(agents), busy))
+		}
+	}
+	set()
+	for range r.core.Changes(ctx) {
+		set()
 	}
 }

@@ -2,6 +2,7 @@ import { AppHeader } from "@/components/roster/app-header"
 import { ActivityPanel } from "@/components/roster/activity-panel"
 import { RosterList } from "@/components/roster/roster-list"
 import { useNow, useRoster } from "@/lib/irori"
+import { UpdateBanner } from "@/updater"
 
 // App is the v0.1 screen: who is running on this device, and what the log saw.
 export function App() {
@@ -12,8 +13,7 @@ export function App() {
     <div className="min-h-svh bg-background">
       <AppHeader roster={roster} />
       <main className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6 sm:px-6">
-        {/* UPDATE-BANNER SLOT: the integrator mounts <UpdateBanner /> from
-            src/updater here, above everything else in the main column. */}
+        <UpdateBanner />
 
         {roster.error && (
           <p className="rounded-lg bg-destructive/10 px-4 py-2 text-sm text-destructive">

@@ -9,14 +9,19 @@ import { Create as $Create } from "@wailsio/runtime";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as main$0 from "../../../../StephenSHorton/irori/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as update$0 from "../../../../StephenSHorton/irori/internal/update/models.js";
 
 function configure() {
     Object.freeze(Object.assign($Create.Events, {
         "roster:changed": $$createType0,
+        "update:status": $$createType1,
     }));
 }
 
 // Private type creation functions
 const $$createType0 = main$0.RosterChange.createFrom;
+const $$createType1 = update$0.Status.createFrom;
 
 configure();

@@ -84,7 +84,9 @@ function CwdLabel({ cwd }: { cwd: string }) {
 
 function AgentRow({ agent, now }: { agent: AgentCard; now: Date }) {
   const name = plainLine(agent.name) || agent.sessionId.slice(0, 8)
-  const title = plainLine(agent.title)
+  const rawTitle = plainLine(agent.title)
+  // Claude Code often names a session after its title; show it once.
+  const title = rawTitle.toLowerCase() === name.toLowerCase() ? "" : rawTitle
   const text = plainLine(agent.lastText)
   const last = parseTime(agent.lastActivity) ?? parseTime(agent.updatedAt)
 

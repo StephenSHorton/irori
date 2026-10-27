@@ -8,11 +8,16 @@ import type { Events } from "@wailsio/runtime";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import type * as main$0 from "../../../../StephenSHorton/irori/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import type * as update$0 from "../../../../StephenSHorton/irori/internal/update/models.js";
 
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
             "roster:changed": main$0.RosterChange;
+            "settings:launch-at-login": boolean;
+            "update:status": update$0.Status;
         }
     }
 }

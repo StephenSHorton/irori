@@ -64,9 +64,11 @@ export function GetVersion(): $CancellablePromise<string> {
 }
 
 /**
- * RestartToUpdate launches the ready installer silently and quits Irori so the
- * exe is unlocked. The installer waits for the exit, installs, and relaunches
- * Irori (build/windows/nsis/project.nsi).
+ * RestartToUpdate launches the ready installer silently and quits Irori. The
+ * installer waits for this process to exit (/WAITPID), installs (renaming the
+ * old exe aside if `irori mcp`/`serve` still hold it), and relaunches Irori. If
+ * it cannot install at all it relaunches the old exe, so "Restart now" never
+ * leaves Irori closed (build/windows/nsis/project.nsi).
  */
 export function RestartToUpdate(): $CancellablePromise<void> {
     return $Call.ByID(2734443635);

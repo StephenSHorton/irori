@@ -50,11 +50,10 @@ func readSession(r io.Reader) (session, bool) {
 		return session{}, false
 	}
 	var m map[string]any
+	// Invalid JSON is unreadable. Don't try to repair it: in a Windows path
+	// "\t" or "\n" is path text, so any guess would corrupt cwd.
 	if err := json.Unmarshal(raw, &m); err != nil {
-		// Seen in the wild: Windows paths written with single backslashes.
-		if err := json.Unmarshal(repairEscapes(raw), &m); err != nil {
-			return session{}, false
-		}
+		return session{}, false
 	}
 	s := session{
 		PID:          int(num(m["pid"])),
@@ -82,51 +81,6 @@ func readSession(r io.Reader) (session, bool) {
 		return session{}, false
 	}
 	return s, true
-}
-
-// repairEscapes doubles every backslash inside a JSON string that doesn't
-// start a valid escape, so "C:\Users" reads as the path it was meant to be.
-func repairEscapes(raw []byte) []byte {
-	out := make([]byte, 0, len(raw)+16)
-	inStr := false
-	for i := 0; i < len(raw); i++ {
-		c := raw[i]
-		switch {
-		case !inStr:
-			if c == '"' {
-				inStr = true
-			}
-		case c == '"':
-			inStr = false
-		case c == '\\':
-			if i+1 < len(raw) && validEscape(raw[i+1:]) {
-				out = append(out, c, raw[i+1])
-				i++
-				continue
-			}
-			out = append(out, '\\')
-		}
-		out = append(out, c)
-	}
-	return out
-}
-
-func validEscape(rest []byte) bool {
-	switch rest[0] {
-	case '"', '\\', '/', 'b', 'f', 'n', 'r', 't':
-		return true
-	case 'u':
-		if len(rest) < 5 {
-			return false
-		}
-		for _, h := range rest[1:5] {
-			if !strings.ContainsRune("0123456789abcdefABCDEF", rune(h)) {
-				return false
-			}
-		}
-		return true
-	}
-	return false
 }
 
 func str(v any) string {
