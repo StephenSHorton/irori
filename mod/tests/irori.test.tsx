@@ -2,6 +2,8 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { On, PromptOrigin } from 'claude-code'
 
+import { SUBMIT_ACCEPT_MS } from '../hooks/lib'
+
 // The test runtime has timers; the mod's lib (es2023, no DOM) doesn't declare them.
 declare function setTimeout(fn: () => void, ms: number): unknown
 const pause = (ms: number) => new Promise<void>(resolve => setTimeout(() => resolve(), ms))
@@ -71,7 +73,7 @@ function makeChild() {
 type Call = { url: string; method: string; headers: Record<string, string>; body?: string }
 
 /** The engine beneath the mod: spawn, fetch, submit, register, toast. */
-function world(on: On, opts: { exitCode?: number } = {}) {
+function world(on: On, opts: { exitCode?: number; holdSubmit?: Promise<void> } = {}) {
   const children: Array<ReturnType<typeof makeChild>> = []
   const spawned: Array<readonly string[]> = []
   const calls: Call[] = []
@@ -91,8 +93,11 @@ function world(on: On, opts: { exitCode?: number } = {}) {
     registered.push(e as never)
     return { value: undefined } as never
   })
-  on('prompt.submit', ($, e) => {
+  on('prompt.submit', async ($, e) => {
     submitted.push(e.text)
+    // A held submit is a prompt queued behind a running turn: it resolves
+    // only when its own turn starts, as it did live.
+    if (opts.holdSubmit) await opts.holdSubmit
     return { drop: 'recorded by the test' }
   })
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
@@ -196,6 +201,36 @@ describe('attach', () => {
     w.children[0]!.write(line({ type: 'moved', deliveryId: 'del_3', to: 'front desk' }))
     await until(() => w.toasts.some(t => t.includes('front desk')), 'moved toast')
     expect(w.toasts.some(t => t.includes('held a message from grok-1 (bypass_receiver)'))).toBe(true)
+    expect(w.submitted.length).toBe(1)
+  })
+
+  test('a submit still queued behind a long turn is reported delivered before its turn starts', OPTIONS, async ($, on) => {
+    // Regression: delivered used to wait for submit to resolve, which happens at
+    // the prompt's own turn start; past ReattachGrace the Core reclaimed the wake
+    // and woke the same deliveries again under a second token.
+    const clock = mock.clock(on)
+    let release = () => {}
+    const holdSubmit = new Promise<void>(resolve => (release = resolve))
+    const w = world(on, { holdSubmit })
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    const prompt = `${TOKEN}
+hi`
+    w.children[0]!.write(line(hello) + line({ type: 'deliver', token: TOKEN, deliveryIds: ['del_1'], prompt, from: 'bob' }))
+    await until(() => w.submitted.length === 1, 'submit')
+    await clock.settle()
+    expect(posts(w.calls, '/v1/deliveries/delivered')).toEqual([])
+    await clock.advance(SUBMIT_ACCEPT_MS)
+    await until(() => posts(w.calls, '/v1/deliveries/delivered').length === 1, 'delivered while the submit is pending')
+    expect(posts(w.calls, '/v1/deliveries/engaged')).toEqual([])
+
+    // Its turn starts (and the submit resolves): engaged, and no second delivered.
+    await $.turn.start({ text: `The irori plugin sent a message:
+${prompt}`, turnId: 'turn-1' })
+    release()
+    await until(() => posts(w.calls, '/v1/deliveries/engaged').length === 1, 'engaged')
+    await pause(50)
+    expect(posts(w.calls, '/v1/deliveries/delivered').length).toBe(1)
     expect(w.submitted.length).toBe(1)
   })
 

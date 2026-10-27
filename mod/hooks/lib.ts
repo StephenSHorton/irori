@@ -15,6 +15,13 @@ export const BACKOFF_MAX_MS = 16_000
 
 /** Wakes the mod remembers (newest kept), for token matching and dedupe. */
 export const MAX_WAKES = 50
+/**
+ * How long `$.prompt.submit` may stay pending before the mod reports the wake
+ * delivered anyway. A submit made during a running turn is queued and its
+ * promise resolves only when its own turn starts; still pending after this
+ * long, it was accepted into the queue (a refusal comes back at once).
+ */
+export const SUBMIT_ACCEPT_MS = 3_000
 
 export const NO_PATH_ERROR = 'set iroriPath in /plugin settings (the absolute path to irori.exe)'
 

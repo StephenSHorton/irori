@@ -15,6 +15,7 @@ import {
   MOD_VERSION,
   NO_PATH_ERROR,
   POLICY_VERBS,
+  SUBMIT_ACCEPT_MS,
   USAGE,
   bandText,
   bareToolName,
@@ -148,7 +149,7 @@ async function loadTools($: EngineInterface) {
   }
 }
 
-/** Submits a wake's prompt, then tells the Core it was handed over. */
+/** Submits a wake's prompt, then tells the Core it was handed over (accepted into the queue). */
 async function onDeliver($: EngineInterface, e: AttachEvent) {
   const token = String(e.token ?? '')
   const prompt = String(e.prompt ?? '')
@@ -172,15 +173,33 @@ async function onDeliver($: EngineInterface, e: AttachEvent) {
   }
   await update($, wakesAtom, list => [...list.filter(w => w.token !== token), wake].slice(-MAX_WAKES))
   if (!e.reminder) $.ui.toast(`irori: message from ${e.from || 'another agent'}`)
-  try {
-    await $.prompt.submit({ text: prompt })
-  } catch (err) {
-    $.ui.log(`irori: prompt.submit failed: ${err instanceof Error ? err.message : String(err)}`, { to: 'debug' })
-    // Forget it, so the Core's re-send (on reattach) submits it again.
-    await update($, wakesAtom, list => list.filter(w => w.token !== token))
-    return
-  }
+  // `delivered` means accepted into Claude Code's queue, not "its turn started".
+  // A submit made during a running turn resolves only when its own turn starts,
+  // which can be past the Core's ReattachGrace; waiting for it would let the
+  // Core reclaim the wake and wake the same deliveries again under a new token.
+  // So a submit still pending after SUBMIT_ACCEPT_MS counts as queued.
+  const submitted = $.prompt.submit({ text: prompt }).then(
+    () => ({ failed: false as const }),
+    (err: unknown) => ({ failed: true as const, err }),
+  )
+  let markQueued: () => void = () => {}
+  const queued = new Promise<null>(resolve => (markQueued = () => resolve(null)))
+  const timer = $.clock.after(SUBMIT_ACCEPT_MS, () => markQueued())
+  const first = await Promise.race([submitted, queued])
+  timer.cancel()
+  if (first?.failed) return forgetWake($, token, first.err)
   if (await report($, '/v1/deliveries/delivered', { token })) await patchWake($, token, { delivered: true })
+  if (first === null) {
+    // Reported while still queued; a later refusal still forgets the wake.
+    const outcome = await submitted
+    if (outcome.failed) await forgetWake($, token, outcome.err)
+  }
+}
+
+/** A submit that failed: forget the wake, so the Core's re-send (on reattach) submits it again. */
+async function forgetWake($: EngineInterface, token: string, err: unknown) {
+  $.ui.log(`irori: prompt.submit failed: ${err instanceof Error ? err.message : String(err)}`, { to: 'debug' })
+  await update($, wakesAtom, list => list.filter(w => w.token !== token))
 }
 
 async function onHello($: EngineInterface, e: AttachEvent) {

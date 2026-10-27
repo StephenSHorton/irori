@@ -35,10 +35,12 @@ There is no default, because the desktop app's PATH isn't reliable. While it's e
 ## What it does
 
 - **Attach.** At session start the mod spawns `irori attach --session <id> --cwd <cwd> --mod-version 0.2.0` and reads its NDJSON stream.
+  - The child's stdin is closed from the start: `$.process.spawn` can't keep it open (its `input` is written and then closed). `irori attach` must not treat stdin EOF as the end of the session. The mod ends the child itself, by killing it, when the mod unloads or the session ends.
   - If the child exits, the mod restarts it with backoff (1 s, doubling to 16 s).
   - A newer attach for the same session (a reload, or a second window on the same session) sends `superseded`. The older copy then stops quietly.
 - **Wake.** A `deliver` event carries a prompt the Core has already built and fenced. The mod submits it with `$.prompt.submit`, so the model reads it as "The irori plugin sent a message:", never as you.
-  - The mod then reports `delivered`. When the turn carrying the wake's token starts it reports `engaged`, and when that turn ends, `turn-ended`.
+  - The mod then reports `delivered`, which means *accepted into Claude Code's queue*: as soon as the submit resolves, or after 3 s if it is still pending (a submit made during a running turn is queued and resolves only when its own turn starts). Waiting for the turn would let the Core's ReattachGrace sweep reclaim the wake during a long turn and wake the same deliveries again under a new token. A submit that fails later still makes the mod forget the wake, so a re-send submits it again.
+  - When the turn carrying the wake's token starts it reports `engaged`, and when that turn ends, `turn-ended`.
   - Subagent turns are ignored.
   - Reminder wakes (`[irori-reminder:…]`) are submitted but never engaged.
   - A wake the Core hands over twice is submitted once.
@@ -109,6 +111,8 @@ curl -X POST "http://127.0.0.1:47811/ctl/deliver?text=hello"
 
 - The mod loads and the band draws. With no `iroriPath`, the red band shows and nothing is spawned.
 - `$.http.fetch` to `127.0.0.1` sends **no `Origin` header**, and `headers.authorization` arrives as given (User-Agent `Bun/1.4.4`).
-- `$.prompt.submit` during a running turn is **queued, not rejected**. Its promise resolves only when its own turn starts (about 21 s later in the test, right before `turn.start`). So `delivered` reaches the Core moments before `engaged`, not when the prompt is queued.
+- `$.prompt.submit` during a running turn is **queued, not rejected**. Its promise resolves only when its own turn starts (about 21 s later in the test, right before `turn.start`). That is why the mod reports `delivered` after 3 s of a pending submit rather than waiting for it (the live run predates that change; the engine suite covers it).
 - `$.tool.register` after `session.start` has returned (once `hello` arrives) works. The model found `mcp__irori__echo` through ToolSearch and called it, and the `tool.call` hook with the matcher `{ tool: /^mcp__irori__/ }` served it.
 - When the child is killed, it restarts after 1 s. After `superseded`, no restart.
+
+These checks ran against `mod/dev/fakeirori`, which never reads stdin, not the real `irori attach`. The real runner as of w2/api exits when stdin closes, so with it a session restarts forever and never stays attached. That needs the runner changed (see the stdin note under **Attach**); the attach, restart and `superseded` checks are owed again with the real `irori.exe` after it is.
