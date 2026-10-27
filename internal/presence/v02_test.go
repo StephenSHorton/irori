@@ -200,7 +200,7 @@ func TestChangedSeesV02Fields(t *testing.T) {
 }
 
 // Cold start: a fresh watcher whose tail window holds no mode row still finds
-// the newest one further back, and a later scan doesn't rescan.
+// the newest one further back, and records that it looked.
 func TestColdStartFindsModeBeyondTail(t *testing.T) {
 	dir := t.TempDir()
 	cwd := `C:\work\cold`
@@ -251,7 +251,7 @@ func TestScanMode(t *testing.T) {
 		t.Errorf("row on boundary: %q", got)
 	}
 	cut := pad + far[3:] + pad
-	if got := scanMode(strings.NewReader(cut), int64(len(cut)), int64(len(cut)-len(pad))); got != "" {
+	if got := scanMode(strings.NewReader(cut), int64(len(cut)), int64(len(cut)-len(pad)-2)); got != "" {
 		t.Errorf("partial line parsed: %q", got)
 	}
 	newest := modeRow("default") + far + `{"type":"user","isSidechain":true,"permissionMode":"bypassPermissions"}` + "\n" + pad
