@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 
 	"github.com/StephenSHorton/irori/internal/core"
+	"github.com/StephenSHorton/irori/internal/discovery"
 	"github.com/StephenSHorton/irori/internal/update"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -13,6 +15,9 @@ import (
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+// singleInstanceID is shared by the app and handOff so a second launch reaches the first.
+const singleInstanceID = "com.stephenshorton.irori"
 
 func init() {
 	application.RegisterEvent[RosterChange](EventRosterChanged)
@@ -29,6 +34,11 @@ func runGUI(args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	c, err := core.Start(ctx, opts)
+	if errors.Is(err, core.ErrAlreadyRunning) {
+		if lf, rerr := discovery.Read(opts.DataDir); rerr == nil && !lf.Headless {
+			return handOff()
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("start: %w", err)
 	}
@@ -69,7 +79,7 @@ func runGUI(args []string) error {
 		// A second launch (desktop icon while the login copy sits in the
 		// tray) surfaces the running window instead of a second Core.
 		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID:               "com.stephenshorton.irori",
+			UniqueID:               singleInstanceID,
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) { show() },
 		},
 	})
@@ -93,5 +103,18 @@ func runGUI(args []string) error {
 	setupUpdater(app, upd, tray)
 	go roster.pump(ctx, app)
 	go roster.trayStatus(ctx, tray)
+	return app.Run()
+}
+
+// handOff runs when another desktop Irori already holds the Core: a bare app
+// with the same single-instance id, so Wails passes the launch to the running
+// copy (which shows its window) and exits this process.
+func handOff() error {
+	app := application.New(application.Options{
+		Name: "Irori",
+		SingleInstance: &application.SingleInstanceOptions{
+			UniqueID: singleInstanceID,
+		},
+	})
 	return app.Run()
 }
