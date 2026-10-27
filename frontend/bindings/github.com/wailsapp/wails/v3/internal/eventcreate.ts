@@ -15,15 +15,17 @@ import * as update$0 from "../../../../StephenSHorton/irori/internal/update/mode
 
 function configure() {
     Object.freeze(Object.assign($Create.Events, {
-        "inbox:changed": $$createType0,
-        "roster:changed": $$createType1,
-        "update:status": $$createType2,
+        "capture:changed": $$createType0,
+        "inbox:changed": $$createType1,
+        "roster:changed": $$createType2,
+        "update:status": $$createType3,
     }));
 }
 
 // Private type creation functions
-const $$createType0 = main$0.InboxCounts.createFrom;
-const $$createType1 = main$0.RosterChange.createFrom;
-const $$createType2 = update$0.Status.createFrom;
+const $$createType0 = main$0.CaptureChange.createFrom;
+const $$createType1 = main$0.InboxCounts.createFrom;
+const $$createType2 = main$0.RosterChange.createFrom;
+const $$createType3 = update$0.Status.createFrom;
 
 configure();

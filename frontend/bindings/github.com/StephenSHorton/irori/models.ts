@@ -13,6 +13,96 @@ import * as presence$0 from "./internal/presence/models.js";
 import * as time$0 from "../../../time/models.js";
 
 /**
+ * CaptureChange is the capture:changed payload: what moved since the last
+ * event. Kinds are capture.ChangeKind values (turn, edit, commit, decision,
+ * pr, open); Keys are agent keys and RepoKeys repo keys, each deduplicated.
+ */
+export class CaptureChange {
+    "kinds": string[];
+    "keys": string[];
+    "repoKeys": string[];
+
+    /** Creates a new CaptureChange instance. */
+    constructor($$source: Partial<CaptureChange> = {}) {
+        if (!("kinds" in $$source)) {
+            this["kinds"] = [];
+        }
+        if (!("keys" in $$source)) {
+            this["keys"] = [];
+        }
+        if (!("repoKeys" in $$source)) {
+            this["repoKeys"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CaptureChange instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CaptureChange {
+        const $$createField0_0 = $$createType0;
+        const $$createField1_0 = $$createType0;
+        const $$createField2_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("kinds" in $$parsedSource) {
+            $$parsedSource["kinds"] = $$createField0_0($$parsedSource["kinds"]);
+        }
+        if ("keys" in $$parsedSource) {
+            $$parsedSource["keys"] = $$createField1_0($$parsedSource["keys"]);
+        }
+        if ("repoKeys" in $$parsedSource) {
+            $$parsedSource["repoKeys"] = $$createField2_0($$parsedSource["repoKeys"]);
+        }
+        return new CaptureChange($$parsedSource as Partial<CaptureChange>);
+    }
+}
+
+/**
+ * CaptureRepo is one repo capture has seen.
+ */
+export class CaptureRepo {
+    "repoKey": string;
+
+    /**
+     * worktree roots seen, sorted
+     */
+    "roots": string[];
+
+    /**
+     * a live agent is working in it
+     */
+    "live": boolean;
+
+    /** Creates a new CaptureRepo instance. */
+    constructor($$source: Partial<CaptureRepo> = {}) {
+        if (!("repoKey" in $$source)) {
+            this["repoKey"] = "";
+        }
+        if (!("roots" in $$source)) {
+            this["roots"] = [];
+        }
+        if (!("live" in $$source)) {
+            this["live"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CaptureRepo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CaptureRepo {
+        const $$createField1_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("roots" in $$parsedSource) {
+            $$parsedSource["roots"] = $$createField1_0($$parsedSource["roots"]);
+        }
+        return new CaptureRepo($$parsedSource as Partial<CaptureRepo>);
+    }
+}
+
+/**
  * GoneSession is a recently gone Claude Code session the person may revive.
  */
 export class GoneSession {
@@ -140,8 +230,8 @@ export class RosterChange {
      * Creates a new RosterChange instance from a string or object.
      */
     static createFrom($$source: any = {}): RosterChange {
-        const $$createField0_0 = $$createType0;
-        const $$createField1_0 = $$createType2;
+        const $$createField0_0 = $$createType1;
+        const $$createField1_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("change" in $$parsedSource) {
             $$parsedSource["change"] = $$createField0_0($$parsedSource["change"]);
@@ -154,6 +244,7 @@ export class RosterChange {
 }
 
 // Private type creation functions
-const $$createType0 = presence$0.Change.createFrom;
-const $$createType1 = presence$0.AgentCard.createFrom;
-const $$createType2 = $Create.Array($$createType1);
+const $$createType0 = $Create.Array($Create.Any);
+const $$createType1 = presence$0.Change.createFrom;
+const $$createType2 = presence$0.AgentCard.createFrom;
+const $$createType3 = $Create.Array($$createType2);
