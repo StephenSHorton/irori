@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/StephenSHorton/irori/internal/capture"
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/presence"
@@ -51,6 +52,9 @@ type Backend interface {
 	Events(ctx context.Context, f store.Filter) ([]store.Event, error)
 	Inbox() *inbox.Inbox
 	Coord() *coord.Coord
+	// Capture serves timeline, why, decision_record and decisions (v0.3). A
+	// nil Capture makes those tools answer "Error: capture is off".
+	Capture() *capture.Capture
 }
 
 // Set is the tool registry.

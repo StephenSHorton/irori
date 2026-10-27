@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/api"
+	"github.com/StephenSHorton/irori/internal/capture"
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/device"
 	"github.com/StephenSHorton/irori/internal/discovery"
@@ -250,3 +251,6 @@ func (c *Core) Changes(ctx context.Context) <-chan presence.Change {
 }
 
 var _ api.Backend = (*Core)(nil)
+
+// Capture is the capture service (v0.3); nil until wired.
+func (c *Core) Capture() *capture.Capture { return nil }

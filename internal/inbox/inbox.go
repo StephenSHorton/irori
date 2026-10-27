@@ -69,6 +69,11 @@ const (
 	ToAgent AddressKind = "agent" // key, key prefix (>= MinKeyPrefixLen), name or alias
 	ToRepo  AddressKind = "repo"  // repo_key; goes to that repo's front desk
 	ToReply AddressKind = "reply" // a message id; goes to that message's sender
+	// ToPR is a ledger key "pr:<owner/name>#<n>" (v0.3, design v0.3 §6): the
+	// best-ranked live owner from Options.PROwners, else the front desk of
+	// repo "remote:github.com/<owner/name>" (the delivery note names the owner
+	// it would have gone to), else queued unowned like a repo with no desk.
+	ToPR AddressKind = "pr"
 )
 
 // Address is a message's target before routing.
@@ -216,6 +221,9 @@ type Roster interface {
 type Options struct {
 	DeviceID string
 	Now      func() time.Time // default time.Now
+	// PROwners lists a PR's owner agent keys, best first (capture's ledger).
+	// Nil makes every ToPR send fall through to the repo's front desk.
+	PROwners func(prKey string) []string
 	// Overrides for tests; zero means the constant above.
 	UnengagedLimit, GoneGrace, QuietLimit, ReattachGrace time.Duration
 }

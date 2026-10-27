@@ -21,6 +21,7 @@ import (
 	"errors"
 	"net"
 
+	"github.com/StephenSHorton/irori/internal/capture"
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/device"
 	"github.com/StephenSHorton/irori/internal/discovery"
@@ -55,6 +56,10 @@ type Backend interface {
 	// (false). The member's synthetic card stays listed while a stream is
 	// open and for inbox.ReattachGrace after.
 	MemberStream(key string, open bool)
+
+	// v0.3 (routes_v03.go). nil when capture is off; the v0.3 routes then
+	// answer 503.
+	Capture() *capture.Capture
 }
 
 // Member is a bound Grok member.

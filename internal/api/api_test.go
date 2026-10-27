@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/capture"
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/device"
 	"github.com/StephenSHorton/irori/internal/discovery"
@@ -47,9 +48,10 @@ func (f *fakeBackend) Events(_ context.Context, flt store.Filter) ([]store.Event
 }
 
 // v0.1 tests run without messaging: the v0.2 routes answer 503.
-func (f *fakeBackend) Inbox() *inbox.Inbox { return nil }
-func (f *fakeBackend) Coord() *coord.Coord { return nil }
-func (f *fakeBackend) Tools() *tools.Set   { return nil }
+func (f *fakeBackend) Inbox() *inbox.Inbox       { return nil }
+func (f *fakeBackend) Coord() *coord.Coord       { return nil }
+func (f *fakeBackend) Capture() *capture.Capture { return nil }
+func (f *fakeBackend) Tools() *tools.Set         { return nil }
 func (f *fakeBackend) JoinMember(context.Context, string, string) (Member, error) {
 	return Member{}, errors.New("no members")
 }

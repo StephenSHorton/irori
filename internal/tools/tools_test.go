@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/capture"
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/inbox"
@@ -79,8 +80,9 @@ type backend struct {
 func (b *backend) Events(ctx context.Context, f store.Filter) ([]store.Event, error) {
 	return b.st.List(ctx, f)
 }
-func (b *backend) Inbox() *inbox.Inbox { return b.ib }
-func (b *backend) Coord() *coord.Coord { return b.co }
+func (b *backend) Inbox() *inbox.Inbox       { return b.ib }
+func (b *backend) Coord() *coord.Coord       { return b.co }
+func (b *backend) Capture() *capture.Capture { return nil }
 
 type harness struct {
 	t   *testing.T
