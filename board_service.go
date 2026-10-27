@@ -9,6 +9,8 @@ import (
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/core"
 	"github.com/StephenSHorton/irori/internal/inbox"
+	"github.com/StephenSHorton/irori/internal/ledger"
+	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -100,10 +102,20 @@ type BoardService struct {
 	coord *coord.Coord
 	user  inbox.Sender
 	route noticeRouter
+	// agents is the roster the cards read names and live status from; nil
+	// is an empty roster.
+	agents func() []presence.AgentCard
+	// prs is capture's PR ledger for a GitHub "owner/name"; nil when
+	// capture is off.
+	prs func(repo string) []ledger.Entry
 }
 
 func newBoardService(c *core.Core) *BoardService {
-	return &BoardService{coord: c.Coord(), user: c.UserSender(), route: c.RouteNotices}
+	b := &BoardService{coord: c.Coord(), user: c.UserSender(), route: c.RouteNotices, agents: c.Agents}
+	if cp := c.Capture(); cp != nil {
+		b.prs = cp.PRs
+	}
+	return b
 }
 
 // Board returns the lanes for repoKey ("" = every repo), with Needs you

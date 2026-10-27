@@ -15,7 +15,10 @@ const (
 	// task.left and a task.status by the assignee take it off Assigned.
 	KindTaskAssigned = "task.assigned"
 	// {taskId, state, note, by}; the Board adds {reason?, blockedBy?} when
-	// state is "blocked". Leaving blocked clears reason and blockedBy.
+	// state is "blocked", and the cards add {blocker?: {id, question,
+	// context?, options?}} (cards.go): the item the row raises. A blocked
+	// row without blocker folds to an item made from its reason. Leaving
+	// blocked clears reason and blockedBy and closes every open item.
 	KindTaskState = "task.status"
 	KindLeaseAcq  = "lease.acquired" // Lease
 	KindLeaseRel  = "lease.released" // {resource, holder, reason, by}
@@ -33,4 +36,14 @@ const (
 	KindBlockerClosed = "blocker.closed"
 	// KindLeaseRefused is a refused Acquire: Refusal.
 	KindLeaseRefused = "lease.refused"
+
+	// Cards (cards.go).
+	KindBlockerOption = "blocker.option" // {taskId, blockerId, answer, why?, by}
+	// KindBlockerResolved is Answer: {taskId, blockerId, answer, option
+	// (index or -1), by, restored?}. restored is set when it resolved the
+	// last open item: the state the task leaves Blocked for.
+	KindBlockerResolved = "blocker.resolved"
+	KindTaskSteps       = "task.steps"   // {taskId, steps: []Step, by}: the whole list
+	KindTaskStep        = "task.step"    // {taskId, stepId, done?, doing?, by}
+	KindTaskWatched     = "task.watched" // {taskId, who, watching, by}
 )

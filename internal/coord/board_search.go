@@ -31,7 +31,7 @@ func (c *coord) searchDocs(since time.Time, limit int) []search.Doc {
 		out = append(out, search.Doc{
 			Ref: search.Ref(search.KindTask, t.ID), Kind: search.KindTask,
 			At: t.CreatedAt, Updated: t.UpdatedAt, Title: t.Title,
-			Body:  joinNonEmpty("\n", t.Objective, t.DoneCriteria, t.Note, t.Reason),
+			Body:  joinNonEmpty("\n", t.Objective, t.DoneCriteria, t.Note, t.Reason, cardText(t)),
 			Agent: t.Holder, RepoKey: t.RepoKey,
 		})
 	}
@@ -60,6 +60,23 @@ func (c *coord) searchDocs(since time.Time, limit int) []search.Doc {
 		out = out[:limit:limit]
 	}
 	return out
+}
+
+// cardText is what search finds of a task's steps and open blocker items.
+func cardText(t *Task) string {
+	var parts []string
+	for _, s := range t.Steps {
+		parts = append(parts, s.Text)
+	}
+	for _, b := range t.Blockers {
+		if b.Open() && b.Question != t.Reason {
+			parts = append(parts, b.Question)
+		}
+		if b.Open() && b.Context != "" {
+			parts = append(parts, b.Context)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func joinNonEmpty(sep string, parts ...string) string {
@@ -144,8 +161,49 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 		}
 		line("blocked", bl)
 	}
+	line("watching", strings.Join(t.Watchers, ", "))
 	line("scope", strings.Join(t.Scope, ", "))
 	line("note", t.Note)
+	if len(t.Steps) > 0 {
+		d, n := t.Progress()
+		fmt.Fprintf(&b, "\nsteps (%d/%d done):\n", d, n)
+		for _, s := range t.Steps {
+			mark := "[ ]"
+			switch {
+			case s.Done:
+				mark = "[x]"
+			case s.Doing:
+				mark = "[>]"
+			}
+			fmt.Fprintf(&b, "- %s %s %s\n", mark, s.ID, s.Text)
+		}
+	}
+	if len(t.Blockers) > 0 {
+		b.WriteString("\nblockers:\n")
+		for _, bl := range t.Blockers {
+			state := "open"
+			if r := bl.Resolved; r != nil {
+				state = "answered by " + r.By + ": " + r.Answer
+				if r.Closed {
+					state = "closed by " + r.By
+					if r.Answer != "" {
+						state += ": " + r.Answer
+					}
+				}
+			}
+			fmt.Fprintf(&b, "- %s (%s) %s, raised by %s at %s\n", bl.ID, state, bl.Question, bl.RaisedBy, bl.At.Format(time.RFC3339))
+			if bl.Context != "" {
+				fmt.Fprintf(&b, "  context: %s\n", bl.Context)
+			}
+			for i, o := range bl.Options {
+				fmt.Fprintf(&b, "  option %d: %s (recommended by %s)", i+1, o.Answer, o.By)
+				if o.Why != "" {
+					fmt.Fprintf(&b, ": %s", o.Why)
+				}
+				b.WriteString("\n")
+			}
+		}
+	}
 	if t.Objective != "" {
 		fmt.Fprintf(&b, "\nobjective:\n%s\n", t.Objective)
 	}

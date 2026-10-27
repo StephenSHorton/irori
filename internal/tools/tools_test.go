@@ -257,7 +257,8 @@ func TestSpecs(t *testing.T) {
 	}
 	want := []string{"overview", "search", "show", "agents", "events", "send", "reply", "inbox", "defer", "skip", "notify",
 		"board", "board_create", "board_comment", "board_block", "board_unblock", "board_join", "board_leave",
-		"board_assign", "board_status", "board_link", "lease", "leases", "release",
+		"board_assign", "board_status", "board_link", "board_steps", "board_step", "board_recommend", "board_watch", "board_unwatch",
+		"lease", "leases", "release",
 		"timeline", "why", "commits", "prs"}
 	for _, n := range want {
 		if !slices.Contains(cl, n) || !slices.Contains(gr, n) {
@@ -383,7 +384,8 @@ func TestUnboundCaller(t *testing.T) {
 	// they would read as the person (Viewer ""), who sees every message.
 	for _, name := range []string{"inbox", "send", "reply", "ack", "defer", "skip", "board", "board_create",
 		"board_comment", "board_block", "board_unblock", "board_join", "board_leave", "board_assign", "board_status",
-		"board_link", "lease", "release", "timeline", "overview", "search", "show"} {
+		"board_link", "board_steps", "board_step", "board_recommend", "board_watch", "board_unwatch",
+		"lease", "release", "timeline", "overview", "search", "show"} {
 		out := h.fails(none, name, `{}`, "join first")
 		hasNot(t, out, "secret unowned work")
 	}

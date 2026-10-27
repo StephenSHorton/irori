@@ -80,11 +80,18 @@ type Task struct {
 	// the latest move. Comments don't set it.
 	UpdatedBy string `json:"updatedBy,omitempty"`
 	// Reason and BlockedBy are set while State is Blocked and cleared when
-	// it leaves Blocked.
+	// it leaves Blocked. Reason is the first open blocker item's reason (its
+	// question, or the text Block was given), kept for v0.2 readers.
 	Reason    string     `json:"reason,omitempty"`
 	BlockedBy *BlockedBy `json:"blockedBy,omitempty"`
 	Links     []Link     `json:"links,omitempty"`    // board.md "Links out"; <= MaxLinks
 	Comments  int        `json:"comments,omitempty"` // how many; read them with Comments
+	// Cards (cards.go). Steps in order; Blockers are the open items and
+	// the newest KeepResolved resolved ones, in the order raised; Watchers
+	// are agent keys, in the order they started watching.
+	Steps    []Step    `json:"steps,omitempty"`
+	Blockers []Blocker `json:"blockers,omitempty"`
+	Watchers []string  `json:"watchers,omitempty"`
 }
 
 // NewTask is CreateTask's input.
@@ -120,7 +127,7 @@ type Lease struct {
 type ChangeKind string
 
 const (
-	TaskChanged  ChangeKind = "task"          // created, claimed, assigned, joined, left, shared, linked, blocked, unblocked or a state change
+	TaskChanged  ChangeKind = "task"          // created, claimed, assigned, joined, left, shared, linked, blocked, unblocked, a state change, steps, blocker items or watchers
 	LeaseChanged ChangeKind = "lease"         // acquired, renewed, stolen or released
 	LeaseExpired ChangeKind = "lease_expired" // a lease ran out
 	LeaseRefused ChangeKind = "lease_refused" // a lease.refused row; Resource and Holder (the refused caller) set

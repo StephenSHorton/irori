@@ -77,13 +77,54 @@ func (s *set) cardLine(t coord.Task, last *coord.Comment, n names, now time.Time
 	if t.Comments > 0 {
 		fmt.Fprintf(&b, "; %d comments", t.Comments)
 	}
+	if len(t.Watchers) > 0 {
+		var ws []string
+		for _, w := range t.Watchers {
+			ws = append(ws, n.who(w))
+		}
+		b.WriteString("; watched by " + strings.Join(ws, ", "))
+	}
 	b.WriteString("; updated " + ago(now, t.UpdatedAt) + "\n")
-	if t.State == coord.Blocked {
-		fmt.Fprintf(&b, "  blocked: %s", quoted(t.Reason, maxFieldRunes))
-		if bb := t.BlockedBy; bb != nil {
-			fmt.Fprintf(&b, " (on %s %s)", oneLine(string(bb.Kind), 20), oneLine(bb.Ref, 160))
+	if done, total := t.Progress(); total > 0 {
+		fmt.Fprintf(&b, "  steps %d/%d", done, total)
+		for _, st := range t.Steps {
+			if st.Doing {
+				fmt.Fprintf(&b, ", now %s %s", oneLine(st.ID, 20), quoted(oneLine(st.Text, 120), 120))
+			}
 		}
 		b.WriteString("\n")
+	}
+	if t.State == coord.Blocked {
+		open := t.OpenBlockers()
+		if len(open) == 0 {
+			// A blocked task always has an item; this is only for safety.
+			open = []coord.Blocker{{Question: t.Reason}}
+		}
+		on := ""
+		if bb := t.BlockedBy; bb != nil {
+			on = fmt.Sprintf(" (on %s %s)", oneLine(string(bb.Kind), 20), oneLine(bb.Ref, 160))
+		}
+		for i, bl := range open {
+			fmt.Fprintf(&b, "  blocked")
+			if bl.ID != "" {
+				fmt.Fprintf(&b, " [%s]", oneLine(bl.ID, 20))
+			}
+			fmt.Fprintf(&b, ": %s", quoted(bl.Question, maxFieldRunes))
+			if i == 0 {
+				b.WriteString(on)
+			}
+			if bl.RaisedBy != "" {
+				b.WriteString(" raised by " + n.short(bl.RaisedBy))
+			}
+			b.WriteString("\n")
+			for j, o := range bl.Options {
+				fmt.Fprintf(&b, "    %d. %s (%s)", j+1, quoted(o.Answer, 160), n.short(o.By))
+				if o.Why != "" {
+					b.WriteString(": " + quoted(o.Why, 160))
+				}
+				b.WriteString("\n")
+			}
+		}
 	}
 	if last != nil {
 		fmt.Fprintf(&b, "  last: comment:%s by %s %s: %s\n", oneLine(last.ID, 80), n.who(last.By), ago(now, last.At), quoted(last.Text, 160))
@@ -302,9 +343,15 @@ func (s *set) boardComment(ctx context.Context, c Caller, raw json.RawMessage) s
 // --- board_block / board_unblock ---
 
 type boardBlockArgs struct {
-	TaskID string `json:"task_id"`
-	Reason string `json:"reason"`
-	On     string `json:"on"`
+	TaskID   string `json:"task_id"`
+	Question string `json:"question"`
+	Reason   string `json:"reason"` // the old reason-only form: an alias of question
+	Context  string `json:"context"`
+	Options  []struct {
+		Answer string `json:"answer"`
+		Why    string `json:"why"`
+	} `json:"options"`
+	On string `json:"on"`
 }
 
 // parseOn reads board_block's on: "<kind> <ref>" or "<kind>:<ref>".
@@ -357,18 +404,50 @@ func (s *set) boardBlock(ctx context.Context, c Caller, raw json.RawMessage) str
 	if id == "" {
 		return needTaskID()
 	}
-	if strings.TrimSpace(a.Reason) == "" {
-		return errText("give reason: what is in the way.")
+	q, reason := strings.TrimSpace(a.Question), strings.TrimSpace(a.Reason)
+	if q == "" && reason == "" {
+		return errText("give question: the decision or thing in the way, one line, written for someone new to the work.")
+	}
+	if q != "" && reason != "" && q != reason {
+		return errText("give question or reason, not both (reason is the old name for question).")
 	}
 	bb, msg := s.parseOn(a.On)
 	if msg != "" {
 		return msg
 	}
-	t, err := s.b.Coord().Block(ctx, c.Sender.Key, id, strings.TrimSpace(a.Reason), bb)
+	co := s.b.Coord()
+	var t coord.Task
+	var item coord.Blocker
+	var err error
+	if q == "" && strings.TrimSpace(a.Context) == "" && len(a.Options) == 0 {
+		// The old reason-only form: one item that blocking again replaces.
+		t, err = co.Block(ctx, c.Sender.Key, id, reason, bb)
+		if err == nil {
+			if open := t.OpenBlockers(); len(open) > 0 {
+				item = open[0]
+			}
+		}
+	} else {
+		if q == "" {
+			q = reason
+		}
+		var opts []coord.Option
+		for _, o := range a.Options {
+			opts = append(opts, coord.Option{Answer: o.Answer, Why: o.Why})
+		}
+		t, item, err = co.Raise(ctx, c.Sender.Key, id, coord.NewBlocker{Question: q, Context: a.Context, Options: opts, BlockedBy: bb})
+	}
 	if err != nil {
 		return mapErr(err)
 	}
-	out := "Blocked task:" + t.ID + "."
+	out := "Blocked task:" + t.ID
+	if item.ID != "" {
+		out += " on blocker " + item.ID
+	}
+	out += "."
+	if len(item.Options) == 0 {
+		out += " Add your recommended answer with board_recommend so whoever decides can pick it."
+	}
 	if bb != nil && (bb.Kind == coord.BlockedOnLease || bb.Kind == coord.BlockedOnTask) {
 		out += " It unblocks by itself when that " + string(bb.Kind) + " goes away."
 	} else {
@@ -378,8 +457,10 @@ func (s *set) boardBlock(ctx context.Context, c Caller, raw json.RawMessage) str
 }
 
 type boardUnblockArgs struct {
-	TaskID string `json:"task_id"`
-	Note   string `json:"note"`
+	TaskID    string `json:"task_id"`
+	Note      string `json:"note"`
+	BlockerID string `json:"blocker_id"`
+	Pick      int    `json:"pick"`
 }
 
 func (s *set) boardUnblock(ctx context.Context, c Caller, raw json.RawMessage) string {
@@ -391,6 +472,26 @@ func (s *set) boardUnblock(ctx context.Context, c Caller, raw json.RawMessage) s
 	if id == "" {
 		return needTaskID()
 	}
+	if bid := strings.TrimSpace(a.BlockerID); bid != "" {
+		if a.Pick == 0 && strings.TrimSpace(a.Note) == "" {
+			return errText("to resolve one blocker give pick (the number of a recommended answer) or note (your answer).")
+		}
+		t, notice, err := s.b.Coord().Answer(ctx, c.Sender.Key, id, bid, coord.BlockerAnswer{Pick: a.Pick, Text: a.Note})
+		if err != nil {
+			return mapErr(err)
+		}
+		n := s.roster()
+		out := "Resolved blocker " + oneLine(bid, 20) + " on task:" + t.ID + "; "
+		if t.State == coord.Blocked {
+			out += fmt.Sprintf("%d still open.", len(t.OpenBlockers()))
+		} else {
+			out += "it is " + string(t.State) + " again."
+		}
+		return out + s.told(RouteNotice(ctx, s.b.Inbox(), c.Sender, notice), n) + "\n" + s.cardLine(t, nil, n, s.now())
+	}
+	if a.Pick != 0 {
+		return errText("pick needs blocker_id: which blocker it answers.")
+	}
 	t, notice, err := s.b.Coord().Unblock(ctx, c.Sender.Key, id, strings.TrimSpace(a.Note))
 	if err != nil {
 		return mapErr(err)
@@ -398,6 +499,168 @@ func (s *set) boardUnblock(ctx context.Context, c Caller, raw json.RawMessage) s
 	n := s.roster()
 	return "Unblocked task:" + t.ID + "; it is " + string(t.State) + " again." +
 		s.told(RouteNotice(ctx, s.b.Inbox(), c.Sender, notice), n) + "\n" + s.cardLine(t, nil, n, s.now())
+}
+
+// --- board_recommend ---
+
+type boardRecommendArgs struct {
+	TaskID    string `json:"task_id"`
+	BlockerID string `json:"blocker_id"`
+	Answer    string `json:"answer"`
+	Why       string `json:"why"`
+}
+
+func (s *set) boardRecommend(ctx context.Context, c Caller, raw json.RawMessage) string {
+	var a boardRecommendArgs
+	if err := decode(raw, &a); err != nil {
+		return badArgs(err)
+	}
+	id := taskID(a.TaskID)
+	if id == "" {
+		return needTaskID()
+	}
+	if strings.TrimSpace(a.BlockerID) == "" {
+		return errText("give blocker_id: the blocker's id as the board tool shows it ([b1]).")
+	}
+	if strings.TrimSpace(a.Answer) == "" {
+		return errText("give answer: the answer you recommend, one line.")
+	}
+	t, err := s.b.Coord().Recommend(ctx, c.Sender.Key, id, strings.TrimSpace(a.BlockerID), a.Answer, a.Why)
+	if err != nil {
+		return mapErr(err)
+	}
+	return "Recommended on blocker " + oneLine(a.BlockerID, 20) + " of task:" + t.ID + ". Whoever decides sees it beside the question.\n" +
+		s.cardLine(t, nil, s.roster(), s.now())
+}
+
+// --- board_steps / board_step ---
+
+// stepArg is one step: an object, or just its text.
+type stepArg struct {
+	ID    string `json:"id"`
+	Text  string `json:"text"`
+	Done  bool   `json:"done"`
+	Doing bool   `json:"doing"`
+}
+
+func (st *stepArg) UnmarshalJSON(b []byte) error {
+	var text string
+	if json.Unmarshal(b, &text) == nil {
+		*st = stepArg{Text: text}
+		return nil
+	}
+	type plain stepArg
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	*st = stepArg(p)
+	return nil
+}
+
+type boardStepsArgs struct {
+	TaskID string    `json:"task_id"`
+	Steps  []stepArg `json:"steps"`
+}
+
+func (s *set) boardSteps(ctx context.Context, c Caller, raw json.RawMessage) string {
+	var a boardStepsArgs
+	if err := decode(raw, &a); err != nil {
+		return badArgs(err)
+	}
+	id := taskID(a.TaskID)
+	if id == "" {
+		return needTaskID()
+	}
+	steps := make([]coord.Step, 0, len(a.Steps))
+	for _, st := range a.Steps {
+		steps = append(steps, coord.Step{ID: st.ID, Text: st.Text, Done: st.Done, Doing: st.Doing})
+	}
+	t, err := s.b.Coord().SetSteps(ctx, c.Sender.Key, id, steps)
+	if err != nil {
+		return mapErr(err)
+	}
+	var b strings.Builder
+	d, n := t.Progress()
+	fmt.Fprintf(&b, "task:%s has %d steps, %d done. Tick them with board_step as you go.\n", t.ID, n, d)
+	for _, st := range t.Steps {
+		mark := "[ ]"
+		switch {
+		case st.Done:
+			mark = "[x]"
+		case st.Doing:
+			mark = "[>]"
+		}
+		fmt.Fprintf(&b, "- %s %s %s\n", mark, oneLine(st.ID, 20), quoted(st.Text, maxFieldRunes))
+	}
+	return b.String()
+}
+
+type boardStepArgs struct {
+	TaskID string `json:"task_id"`
+	StepID string `json:"step_id"`
+	Done   *bool  `json:"done"`
+	Doing  *bool  `json:"doing"`
+}
+
+func (s *set) boardStep(ctx context.Context, c Caller, raw json.RawMessage) string {
+	var a boardStepArgs
+	if err := decode(raw, &a); err != nil {
+		return badArgs(err)
+	}
+	id := taskID(a.TaskID)
+	if id == "" {
+		return needTaskID()
+	}
+	if strings.TrimSpace(a.StepID) == "" {
+		return errText("give step_id: the step's id as board_steps or the board tool shows it (s1).")
+	}
+	if a.Done == nil && a.Doing == nil {
+		return errText("give done (true ticks it, false unticks it) or doing (true makes it the current step).")
+	}
+	t, err := s.b.Coord().SetStep(ctx, c.Sender.Key, id, strings.TrimSpace(a.StepID), coord.StepUpdate{Done: a.Done, Doing: a.Doing})
+	if err != nil {
+		return mapErr(err)
+	}
+	d, n := t.Progress()
+	return fmt.Sprintf("task:%s: steps %d/%d done.\n", t.ID, d, n) + s.cardLine(t, nil, s.roster(), s.now())
+}
+
+// --- board_watch / board_unwatch ---
+
+func (s *set) boardWatch(ctx context.Context, c Caller, raw json.RawMessage) string {
+	return s.boardWatching(ctx, c, raw, true)
+}
+
+func (s *set) boardUnwatch(ctx context.Context, c Caller, raw json.RawMessage) string {
+	return s.boardWatching(ctx, c, raw, false)
+}
+
+func (s *set) boardWatching(ctx context.Context, c Caller, raw json.RawMessage, on bool) string {
+	var a boardTaskArgs
+	if err := decode(raw, &a); err != nil {
+		return badArgs(err)
+	}
+	id := taskID(a.TaskID)
+	if id == "" {
+		return needTaskID()
+	}
+	co := s.b.Coord()
+	var t coord.Task
+	var err error
+	if on {
+		t, err = co.Watch(ctx, c.Sender.Key, id)
+	} else {
+		t, err = co.Unwatch(ctx, c.Sender.Key, id)
+	}
+	if err != nil {
+		return mapErr(err)
+	}
+	out := "You watch task:" + t.ID + " now: you hear at your next turn when its state, steps, blockers or PR links change."
+	if !on {
+		out = "You no longer watch task:" + t.ID + "."
+	}
+	return out + "\n" + s.cardLine(t, nil, s.roster(), s.now())
 }
 
 // --- board_join / board_leave / board_assign ---

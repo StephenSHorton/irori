@@ -247,19 +247,11 @@ func (c *coord) block(ctx context.Context, by, id, reason string, bb *BlockedBy)
 	if !mayManage(t, by) {
 		return Task{}, fmt.Errorf("%w: block task %s", ErrNotAllowed, id)
 	}
-	nb, err := c.checkBlocker(bb, id)
-	if err != nil {
-		return Task{}, err
-	}
-	if t.State == Blocked && t.Reason == reason && sameBlocker(t.BlockedBy, nb) {
-		return copyTask(t), nil
-	}
-	if err := c.write(ctx, by, KindTaskState, taskStateRow{
-		TaskID: id, State: Blocked, Note: t.Note, Reason: reason, BlockedBy: nb, By: by, At: c.stamp(),
-	}); err != nil {
-		return Task{}, err
-	}
-	return copyTask(t), nil
+	// Block is Raise with the reason as the question (cards.go); a reason
+	// longer than a question goes whole into the item's context.
+	q, cx := blockQuestion(reason)
+	out, _, err := c.raiseLocked(ctx, by, t, reason, q, cx, nil, bb, true, c.stamp())
+	return out, err
 }
 
 func sameBlocker(a, b *BlockedBy) bool {
@@ -739,5 +731,7 @@ func (c *coord) sweepNotices(ctx context.Context) ([]Notice, error) {
 		}
 		out = append(out, n)
 	}
-	return out, nil
+	// Watchers hear what changed on their cards since the last sweep
+	// (cards.go), including the closes above.
+	return append(out, c.watchNotices()...), nil
 }

@@ -35,6 +35,59 @@ export class BlockedBy {
 }
 
 /**
+ * Blocker is one item of what blocks a task. Ids are short ("b1", "b2",
+ * ...), minted per task and never reused.
+ */
+export class Blocker {
+    "id": string;
+    "question": string;
+
+    /**
+     * Context is written for someone who has never been there: enough to
+     * decide quickly.
+     */
+    "context"?: string;
+    "raisedBy": string;
+    "at": time$0.Time;
+    "options"?: Option[];
+    "resolved"?: Resolution | null;
+
+    /** Creates a new Blocker instance. */
+    constructor($$source: Partial<Blocker> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("question" in $$source)) {
+            this["question"] = "";
+        }
+        if (!("raisedBy" in $$source)) {
+            this["raisedBy"] = "";
+        }
+        if (!("at" in $$source)) {
+            this["at"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Blocker instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Blocker {
+        const $$createField5_0 = $$createType1;
+        const $$createField6_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("options" in $$parsedSource) {
+            $$parsedSource["options"] = $$createField5_0($$parsedSource["options"]);
+        }
+        if ("resolved" in $$parsedSource) {
+            $$parsedSource["resolved"] = $$createField6_0($$parsedSource["resolved"]);
+        }
+        return new Blocker($$parsedSource as Partial<Blocker>);
+    }
+}
+
+/**
  * BlockerKind says what a blocked task waits on.
  */
 export enum BlockerKind {
@@ -129,12 +182,12 @@ export class BoardView {
      * Creates a new BoardView instance from a string or object.
      */
     static createFrom($$source: any = {}): BoardView {
-        const $$createField0_0 = $$createType1;
-        const $$createField1_0 = $$createType1;
-        const $$createField2_0 = $$createType1;
-        const $$createField3_0 = $$createType1;
-        const $$createField4_0 = $$createType1;
-        const $$createField6_0 = $$createType3;
+        const $$createField0_0 = $$createType5;
+        const $$createField1_0 = $$createType5;
+        const $$createField2_0 = $$createType5;
+        const $$createField3_0 = $$createType5;
+        const $$createField4_0 = $$createType5;
+        const $$createField6_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("needsYou" in $$parsedSource) {
             $$parsedSource["needsYou"] = $$createField0_0($$parsedSource["needsYou"]);
@@ -213,7 +266,8 @@ export class Card {
 
     /**
      * Reason and BlockedBy are set while State is Blocked and cleared when
-     * it leaves Blocked.
+     * it leaves Blocked. Reason is the first open blocker item's reason (its
+     * question, or the text Block was given), kept for v0.2 readers.
      */
     "reason"?: string;
     "blockedBy"?: BlockedBy | null;
@@ -227,6 +281,15 @@ export class Card {
      * how many; read them with Comments
      */
     "comments"?: number;
+
+    /**
+     * Cards (cards.go). Steps in order; Blockers are the open items and
+     * the newest KeepResolved resolved ones, in the order raised; Watchers
+     * are agent keys, in the order they started watching.
+     */
+    "steps"?: Step[];
+    "blockers"?: Blocker[];
+    "watchers"?: string[];
     "lastComment"?: Comment | null;
 
     /**
@@ -273,13 +336,16 @@ export class Card {
      * Creates a new Card instance from a string or object.
      */
     static createFrom($$source: any = {}): Card {
-        const $$createField5_0 = $$createType4;
-        const $$createField8_0 = $$createType4;
-        const $$createField9_0 = $$createType4;
-        const $$createField17_0 = $$createType6;
-        const $$createField18_0 = $$createType8;
-        const $$createField20_0 = $$createType10;
-        const $$createField22_0 = $$createType4;
+        const $$createField5_0 = $$createType8;
+        const $$createField8_0 = $$createType8;
+        const $$createField9_0 = $$createType8;
+        const $$createField17_0 = $$createType10;
+        const $$createField18_0 = $$createType12;
+        const $$createField20_0 = $$createType14;
+        const $$createField21_0 = $$createType16;
+        const $$createField22_0 = $$createType8;
+        const $$createField23_0 = $$createType18;
+        const $$createField25_0 = $$createType8;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
             $$parsedSource["scope"] = $$createField5_0($$parsedSource["scope"]);
@@ -296,11 +362,20 @@ export class Card {
         if ("links" in $$parsedSource) {
             $$parsedSource["links"] = $$createField18_0($$parsedSource["links"]);
         }
+        if ("steps" in $$parsedSource) {
+            $$parsedSource["steps"] = $$createField20_0($$parsedSource["steps"]);
+        }
+        if ("blockers" in $$parsedSource) {
+            $$parsedSource["blockers"] = $$createField21_0($$parsedSource["blockers"]);
+        }
+        if ("watchers" in $$parsedSource) {
+            $$parsedSource["watchers"] = $$createField22_0($$parsedSource["watchers"]);
+        }
         if ("lastComment" in $$parsedSource) {
-            $$parsedSource["lastComment"] = $$createField20_0($$parsedSource["lastComment"]);
+            $$parsedSource["lastComment"] = $$createField23_0($$parsedSource["lastComment"]);
         }
         if ("overlaps" in $$parsedSource) {
-            $$parsedSource["overlaps"] = $$createField22_0($$parsedSource["overlaps"]);
+            $$parsedSource["overlaps"] = $$createField25_0($$parsedSource["overlaps"]);
         }
         return new Card($$parsedSource as Partial<Card>);
     }
@@ -402,8 +477,8 @@ export class LeaseCard {
      * Creates a new LeaseCard instance from a string or object.
      */
     static createFrom($$source: any = {}): LeaseCard {
-        const $$createField5_0 = $$createType12;
-        const $$createField6_0 = $$createType4;
+        const $$createField5_0 = $$createType20;
+        const $$createField6_0 = $$createType8;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("refused" in $$parsedSource) {
             $$parsedSource["refused"] = $$createField5_0($$parsedSource["refused"]);
@@ -482,6 +557,40 @@ export enum LinkKind {
 };
 
 /**
+ * Option is one recommended answer to a blocker, from an agent involved
+ * (the raiser in Raise, or a holder or watcher through Recommend).
+ */
+export class Option {
+    "answer": string;
+    "why"?: string;
+    "by": string;
+    "at": time$0.Time;
+
+    /** Creates a new Option instance. */
+    constructor($$source: Partial<Option> = {}) {
+        if (!("answer" in $$source)) {
+            this["answer"] = "";
+        }
+        if (!("by" in $$source)) {
+            this["by"] = "";
+        }
+        if (!("at" in $$source)) {
+            this["at"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Option instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Option {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Option($$parsedSource as Partial<Option>);
+    }
+}
+
+/**
  * Refusal is one lease.refused row: by asked for resource and heldBy had it.
  * It is active while heldBy still holds a lease that conflicts with
  * resource and by hasn't since acquired it; that is derived on read, with no
@@ -541,6 +650,89 @@ export class Refusal {
 }
 
 /**
+ * Resolution is how a blocker item was resolved.
+ */
+export class Resolution {
+    "answer": string;
+
+    /**
+     * Option is the index of the picked Option, or -1 for an answer in the
+     * answerer's own words (and for a close).
+     */
+    "option": number;
+    "by": string;
+    "at": time$0.Time;
+
+    /**
+     * Closed: resolved without an answer to the question, by Unblock, by a
+     * state change through SetTaskState, or by the sweeper when the lease or
+     * task it waited on went away. Answer then holds the note, if any.
+     */
+    "closed"?: boolean;
+
+    /** Creates a new Resolution instance. */
+    constructor($$source: Partial<Resolution> = {}) {
+        if (!("answer" in $$source)) {
+            this["answer"] = "";
+        }
+        if (!("option" in $$source)) {
+            this["option"] = 0;
+        }
+        if (!("by" in $$source)) {
+            this["by"] = "";
+        }
+        if (!("at" in $$source)) {
+            this["at"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Resolution instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Resolution {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Resolution($$parsedSource as Partial<Resolution>);
+    }
+}
+
+/**
+ * Step is one ordered step of a task. At most one step is Doing (the
+ * current one); a Done step is never Doing. Ids are short ("s1", "s2", ...),
+ * minted per task and never reused.
+ */
+export class Step {
+    "id": string;
+    "text": string;
+    "done": boolean;
+    "doing"?: boolean;
+
+    /** Creates a new Step instance. */
+    constructor($$source: Partial<Step> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("text" in $$source)) {
+            this["text"] = "";
+        }
+        if (!("done" in $$source)) {
+            this["done"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Step instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Step {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Step($$parsedSource as Partial<Step>);
+    }
+}
+
+/**
  * Task is the folded view of one task.
  */
 export class Task {
@@ -595,7 +787,8 @@ export class Task {
 
     /**
      * Reason and BlockedBy are set while State is Blocked and cleared when
-     * it leaves Blocked.
+     * it leaves Blocked. Reason is the first open blocker item's reason (its
+     * question, or the text Block was given), kept for v0.2 readers.
      */
     "reason"?: string;
     "blockedBy"?: BlockedBy | null;
@@ -609,6 +802,15 @@ export class Task {
      * how many; read them with Comments
      */
     "comments"?: number;
+
+    /**
+     * Cards (cards.go). Steps in order; Blockers are the open items and
+     * the newest KeepResolved resolved ones, in the order raised; Watchers
+     * are agent keys, in the order they started watching.
+     */
+    "steps"?: Step[];
+    "blockers"?: Blocker[];
+    "watchers"?: string[];
 
     /** Creates a new Task instance. */
     constructor($$source: Partial<Task> = {}) {
@@ -641,11 +843,14 @@ export class Task {
      * Creates a new Task instance from a string or object.
      */
     static createFrom($$source: any = {}): Task {
-        const $$createField5_0 = $$createType4;
-        const $$createField8_0 = $$createType4;
-        const $$createField9_0 = $$createType4;
-        const $$createField17_0 = $$createType6;
-        const $$createField18_0 = $$createType8;
+        const $$createField5_0 = $$createType8;
+        const $$createField8_0 = $$createType8;
+        const $$createField9_0 = $$createType8;
+        const $$createField17_0 = $$createType10;
+        const $$createField18_0 = $$createType12;
+        const $$createField20_0 = $$createType14;
+        const $$createField21_0 = $$createType16;
+        const $$createField22_0 = $$createType8;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
             $$parsedSource["scope"] = $$createField5_0($$parsedSource["scope"]);
@@ -661,6 +866,15 @@ export class Task {
         }
         if ("links" in $$parsedSource) {
             $$parsedSource["links"] = $$createField18_0($$parsedSource["links"]);
+        }
+        if ("steps" in $$parsedSource) {
+            $$parsedSource["steps"] = $$createField20_0($$parsedSource["steps"]);
+        }
+        if ("blockers" in $$parsedSource) {
+            $$parsedSource["blockers"] = $$createField21_0($$parsedSource["blockers"]);
+        }
+        if ("watchers" in $$parsedSource) {
+            $$parsedSource["watchers"] = $$createField22_0($$parsedSource["watchers"]);
         }
         return new Task($$parsedSource as Partial<Task>);
     }
@@ -696,16 +910,24 @@ export enum TaskState {
 };
 
 // Private type creation functions
-const $$createType0 = Card.createFrom;
+const $$createType0 = Option.createFrom;
 const $$createType1 = $Create.Array($$createType0);
-const $$createType2 = LeaseCard.createFrom;
-const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = $Create.Array($Create.Any);
-const $$createType5 = BlockedBy.createFrom;
-const $$createType6 = $Create.Nullable($$createType5);
-const $$createType7 = Link.createFrom;
-const $$createType8 = $Create.Array($$createType7);
-const $$createType9 = Comment.createFrom;
+const $$createType2 = Resolution.createFrom;
+const $$createType3 = $Create.Nullable($$createType2);
+const $$createType4 = Card.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = LeaseCard.createFrom;
+const $$createType7 = $Create.Array($$createType6);
+const $$createType8 = $Create.Array($Create.Any);
+const $$createType9 = BlockedBy.createFrom;
 const $$createType10 = $Create.Nullable($$createType9);
-const $$createType11 = Refusal.createFrom;
+const $$createType11 = Link.createFrom;
 const $$createType12 = $Create.Array($$createType11);
+const $$createType13 = Step.createFrom;
+const $$createType14 = $Create.Array($$createType13);
+const $$createType15 = Blocker.createFrom;
+const $$createType16 = $Create.Array($$createType15);
+const $$createType17 = Comment.createFrom;
+const $$createType18 = $Create.Nullable($$createType17);
+const $$createType19 = Refusal.createFrom;
+const $$createType20 = $Create.Array($$createType19);

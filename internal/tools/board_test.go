@@ -176,9 +176,9 @@ func TestBoardBlockUnblockStatus(t *testing.T) {
 	id := h.newCard(callA, map[string]any{"title": "migrate", "done_when": "tests pass", "shared": true})
 	has(t, h.ok(callA, "board_join", map[string]any{"task_id": id}), "You hold task:"+id)
 	has(t, h.ok(callB, "board_join", map[string]any{"task_id": id}), "with the others on it", "shared")
-	h.fails(callA, "board_block", map[string]any{"task_id": id}, "give reason")
+	h.fails(callA, "board_block", map[string]any{"task_id": id}, "give question")
 	has(t, h.ok(callA, "board_block", map[string]any{"task_id": id, "reason": "need the schema", "on": "person"}),
-		`blocked: "need the schema"`)
+		`blocked [b1]: "need the schema"`)
 	has(t, h.ok(callC, "board", map[string]any{"repo": "*"}), "Blocked (1)")
 
 	// Anyone may unblock; the holders other than gamma hear at their next turn.
@@ -236,6 +236,75 @@ func TestBoardShowsBlockingLease(t *testing.T) {
 	if v := h.b.co.Board(coord.BoardFilter{}); len(v.Leases) != 1 {
 		t.Fatalf("leases %+v", v.Leases)
 	}
+}
+
+// The cards: steps, blockers with recommended answers, watchers.
+func TestBoardCards(t *testing.T) {
+	h := newHarness(t)
+	id := h.newCard(callA, map[string]any{"title": "Ship v0.6.0"})
+	h.ok(callA, "board_join", map[string]any{"task_id": id})
+
+	// Steps: strings or objects; the result lists their ids.
+	out := h.ok(callA, "board_steps", map[string]any{"task_id": id, "steps": []any{
+		map[string]any{"text": "notes", "done": true}, map[string]any{"text": "co-op check", "doing": true}, "tag"}})
+	has(t, out, "3 steps, 1 done", `[x] s1 "notes"`, `[>] s2 "co-op check"`, `[ ] s3 "tag"`)
+	h.fails(callA, "board_steps", map[string]any{"task_id": id, "steps": []any{
+		map[string]any{"text": "a", "doing": true}, map[string]any{"text": "b", "doing": true}}}, "only one step")
+	h.fails(callC, "board_steps", map[string]any{"task_id": id, "steps": []any{"x"}}, "holder")
+	h.fails(callA, "board_step", map[string]any{"task_id": id, "step_id": "s2"}, "give done")
+	h.fails(callA, "board_step", map[string]any{"task_id": id, "step_id": "s9", "done": true}, "no step")
+	has(t, h.ok(callA, "board_step", map[string]any{"task_id": id, "step_id": "s2", "done": true}), "steps 2/3 done")
+
+	// Watching.
+	has(t, h.ok(callB, "board_watch", map[string]any{"task_id": id}), "You watch task:"+id, "watched by beta")
+
+	// A blocker with context and options; beta recommends, gamma (not on it) can't.
+	h.fails(callA, "board_block", map[string]any{"task_id": id, "question": "a", "reason": "b"}, "not both")
+	out = h.ok(callA, "board_block", map[string]any{"task_id": id, "question": "Ship today, or wait for the check?",
+		"context": "Every automated check passes; the co-op check needs both PCs.",
+		"options": []any{map[string]any{"answer": "Wait, ship tonight", "why": "the temple is the headline"}}})
+	has(t, out, "Blocked task:"+id+" on blocker b1", `blocked [b1]: "Ship today, or wait for the check?"`,
+		`1. "Wait, ship tonight" (alpha): "the temple is the headline"`)
+	hasNot(t, out, "board_recommend so") // it gave an option
+	has(t, h.ok(callB, "board_recommend", map[string]any{"task_id": id, "blocker_id": "b1", "answer": "Ship now, mark experimental", "why": "fixes today"}),
+		"Recommended on blocker b1", `2. "Ship now, mark experimental" (beta)`)
+	h.fails(callC, "board_recommend", map[string]any{"task_id": id, "blocker_id": "b1", "answer": "x"}, "watch it first")
+	h.fails(callB, "board_recommend", map[string]any{"task_id": id, "blocker_id": "b9", "answer": "x"}, "no blocker")
+	out = h.ok(callC, "board", map[string]any{"repo": "*"})
+	has(t, out, "steps 2/3", "watched by beta", "[b1]", "Wait, ship tonight", "Ship now, mark experimental")
+
+	// The watcher's digest goes out on the sweep; the raiser hears of beta's recommendation.
+	ns, err := h.b.co.SweepNotices(bg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range ns {
+		RouteNotice(bg, h.b.ib, inbox.SystemSender(), n)
+	}
+	if got := h.notices(keyB); len(got) != 1 || got[0].Mode != inbox.ModeNextTurn {
+		t.Fatalf("beta's watch notices %+v", got)
+	} else {
+		has(t, got[0].Message.Text, "raised a blocker: Ship today")
+		hasNot(t, got[0].Message.Text, "ticked", "recommended") // before it watched; its own
+	}
+	if got := h.notices(keyA); len(got) != 1 {
+		t.Fatalf("alpha's notices %+v", got)
+	} else {
+		has(t, got[0].Message.Text, "recommended “Ship now, mark experimental”")
+	}
+
+	// gamma answers b1 by picking beta's option: alpha (the raiser) hears.
+	h.fails(callC, "board_unblock", map[string]any{"task_id": id, "blocker_id": "b1"}, "give pick")
+	h.fails(callC, "board_unblock", map[string]any{"task_id": id, "pick": 1}, "pick needs blocker_id")
+	out = h.ok(callC, "board_unblock", map[string]any{"task_id": id, "blocker_id": "b1", "pick": 2})
+	has(t, out, "Resolved blocker b1", "working again", "Told at their next turn: alpha")
+	got := h.notices(keyA)
+	var texts []string
+	for _, d := range got {
+		texts = append(texts, d.Message.Text)
+	}
+	has(t, strings.Join(texts, " | "), "Answer: Ship now, mark experimental", "That is the answer")
+	has(t, h.ok(callB, "board_unwatch", map[string]any{"task_id": id}), "no longer watch")
 }
 
 func TestTaskIDPrefix(t *testing.T) {

@@ -33,11 +33,24 @@ export function AddLink(id: string, link: string): $CancellablePromise<coord$0.T
 }
 
 /**
+ * Answer resolves one blocker as the person: option is the index of the
+ * recommended answer picked, or -1 to answer with text. The answer reaches
+ * the agent that raised it (decision 18): a wake when wake is true (the
+ * window's default, since that agent is blocked on the person), else at
+ * its next turn. The card leaves blocked when no blocker is left open.
+ */
+export function Answer(taskID: string, blockerID: string, option: number, text: string, wake: boolean): $CancellablePromise<$models.AnswerResult> {
+    return $Call.ByID(4076228687, taskID, blockerID, option, text, wake).then(($result: any) => {
+        return $$createType1($result);
+    });
+}
+
+/**
  * Assign gives a task to an agent, who hears at its next turn (decision 21).
  */
 export function Assign(id: string, to: string): $CancellablePromise<$models.TaskResult> {
     return $Call.ByID(4055826140, id, to).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType2($result);
     });
 }
 
@@ -57,7 +70,28 @@ export function Block(id: string, reason: string, on: coord$0.BlockerKind, ref: 
  */
 export function Board(repoKey: string, doneLimit: number): $CancellablePromise<coord$0.BoardView> {
     return $Call.ByID(4134002171, repoKey, doneLimit).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
+    });
+}
+
+/**
+ * Card opens one card: goal, steps, blockers with their recommended answers
+ * and resolutions, who is on it, PRs, recent activity and comments. Any
+ * card can be opened, done ones too.
+ */
+export function Card(id: string): $CancellablePromise<$models.CardDetail> {
+    return $Call.ByID(2434738959, id).then(($result: any) => {
+        return $$createType4($result);
+    });
+}
+
+/**
+ * Cards lists every live card (not completed, failed or canceled) for the
+ * grid: cards waiting on a decision first, then the newest change first.
+ */
+export function Cards(): $CancellablePromise<$models.CardSummary[]> {
+    return $Call.ByID(4027675700).then(($result: any) => {
+        return $$createType6($result);
     });
 }
 
@@ -67,7 +101,7 @@ export function Board(repoKey: string, doneLimit: number): $CancellablePromise<c
  */
 export function Comment(id: string, text: string, tell: string): $CancellablePromise<$models.CommentResult> {
     return $Call.ByID(1436059054, id, text, tell).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType7($result);
     });
 }
 
@@ -77,7 +111,7 @@ export function Comment(id: string, text: string, tell: string): $CancellablePro
  */
 export function Create($in: $models.NewCard): $CancellablePromise<$models.TaskResult> {
     return $Call.ByID(1341008237, $in).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType2($result);
     });
 }
 
@@ -112,7 +146,7 @@ export function SetDone(id: string, canceled: boolean): $CancellablePromise<coor
  */
 export function Task(id: string): $CancellablePromise<$models.TaskDetail> {
     return $Call.ByID(3092636668, id).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType8($result);
     });
 }
 
@@ -122,13 +156,17 @@ export function Task(id: string): $CancellablePromise<$models.TaskDetail> {
  */
 export function Unblock(id: string, note: string): $CancellablePromise<$models.TaskResult> {
     return $Call.ByID(2978177871, id, note).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType2($result);
     });
 }
 
 // Private type creation functions
 const $$createType0 = coord$0.Task.createFrom;
-const $$createType1 = $models.TaskResult.createFrom;
-const $$createType2 = coord$0.BoardView.createFrom;
-const $$createType3 = $models.CommentResult.createFrom;
-const $$createType4 = $models.TaskDetail.createFrom;
+const $$createType1 = $models.AnswerResult.createFrom;
+const $$createType2 = $models.TaskResult.createFrom;
+const $$createType3 = coord$0.BoardView.createFrom;
+const $$createType4 = $models.CardDetail.createFrom;
+const $$createType5 = $models.CardSummary.createFrom;
+const $$createType6 = $Create.Array($$createType5);
+const $$createType7 = $models.CommentResult.createFrom;
+const $$createType8 = $models.TaskDetail.createFrom;

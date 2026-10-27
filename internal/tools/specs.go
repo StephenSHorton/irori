@@ -29,7 +29,10 @@ const BoardInstructions = "The Irori Board is a shared scratch pad for live coor
 	"what you are working on now, what blocks you, and hand-offs. Keep cards short. " +
 	"Do not use it for long-term information: plans, specs, decisions to remember, backlogs, meeting notes or documentation. " +
 	"Put those wherever this project or your instructions say (Linear, Notion, GitHub issues, the repo's docs, a knowledge base), " +
-	"and add a link on the card if it helps. When a card's work is done, mark it done; don't keep it as a record."
+	"and add a link on the card if it helps. When a card's work is done, mark it done; don't keep it as a record. " +
+	"Post a card for work others should see (the person's window shows only cards); if it fits another agent's work better, " +
+	"ask that agent to put it up. Raise blockers with enough context that someone who has never been there can decide, " +
+	"and give your recommended answer(s)."
 
 // Sentences some descriptions share.
 const (
@@ -176,7 +179,8 @@ var specList = []Spec{
 	{
 		Name: "board",
 		Description: "List the Board for your repo (or repo, or every repo), grouped: needs you (from any repo), blocked, working, open, leases that block " +
-			"something, and done (collapsed). One line per card with its ref; show task:<id> for its comments and links. " + BoardInstructions,
+			"something, and done (collapsed). Each card shows its ref, who holds and watches it, its steps progress, and its open blockers " +
+			"with their ids and recommended answers; show task:<id> for context, comments and links. " + BoardInstructions,
 		InputSchema: schema(
 			`"repo":{"type":"string","description":"A repoKey from the agents tool, or * for every repo. Default: your own repo."},` +
 				`"done":{"type":"boolean","description":"List the newest done cards too (default false: only their count)."}`),
@@ -209,18 +213,71 @@ var specList = []Spec{
 	},
 	{
 		Name: "board_block",
-		Description: "Mark a card blocked, with the reason and optionally what it waits on. Anyone may unblock it, and a lease or task blocker " +
-			"closes by itself when it goes away. " + BoardInstructions,
+		Description: "Raise a blocker on a card: a question someone must decide, or a thing in the way. The card is blocked until every " +
+			"blocker is answered; a card can carry several. Write the context for someone who has never seen the work, and give " +
+			"your recommended answer(s) with why: the person picks one or answers in their own words, and the answer reaches you. " +
+			"Anyone may answer, and a lease or task blocker closes by itself when it goes away. " + BoardInstructions,
 		InputSchema: schema(propTaskID+`,`+
-			`"reason":{"type":"string","description":"What is in the way, one or two sentences (at most 500 characters)."},`+
+			`"question":{"type":"string","description":"The decision or thing in the way, one line (at most 200 characters), e.g. 'Ship today, or wait for the two-PC check?'."},`+
+			`"reason":{"type":"string","description":"Older name for question; give one of them."},`+
+			`"context":{"type":"string","description":"What a newcomer needs to decide quickly: the facts, what each choice costs (at most 800 characters)."},`+
+			`"options":{"type":"array","maxItems":6,"items":{"type":"object","properties":{"answer":{"type":"string","description":"A recommended answer, one line (at most 200 characters)."},"why":{"type":"string","description":"Why, briefly (at most 400 characters)."}},"required":["answer"],"additionalProperties":false},"description":"Your recommended answers, best first."},`+
 			`"on":{"type":"string","description":"Optional: what it waits on, as <kind> <ref>: lease <resource> (held now), task <id>, person (whoever is at the app), agent <name or key>, or external <text or URL> (CI, a review, a vendor)."}`,
-			"task_id", "reason"),
+			"task_id"),
 		Clients: both,
 	},
 	{
-		Name:        "board_unblock",
-		Description: "Close a card's blocker (anyone may, agent or person): it goes back to working (open when nobody has taken it up), and its holders hear at their next turn. " + BoardInstructions,
-		InputSchema: schema(propTaskID+`,`+propNote, "task_id"),
+		Name: "board_recommend",
+		Description: "Recommend an answer to an open blocker on a card you hold or watch, with why. It shows beside the question for whoever decides, " +
+			"and the agent that raised it hears at its next turn. " + BoardInstructions,
+		InputSchema: schema(propTaskID+`,`+
+			`"blocker_id":{"type":"string","description":"The blocker's id as the board tool shows it, e.g. b1."},`+
+			`"answer":{"type":"string","description":"The answer you recommend, one line (at most 200 characters)."},`+
+			`"why":{"type":"string","description":"Why, briefly (at most 400 characters)."}`,
+			"task_id", "blocker_id", "answer"),
+		Clients: both,
+	},
+	{
+		Name: "board_unblock",
+		Description: "Answer or close a card's blockers (anyone may, agent or person). With blocker_id it answers that one (pick a recommended " +
+			"answer by number, or give note as your answer) and its raiser hears; without, it closes them all. When none are left the card " +
+			"goes back to working (open when nobody has taken it up) and its holders hear at their next turn. " + BoardInstructions,
+		InputSchema: schema(propTaskID+`,`+propNote+`,`+
+			`"blocker_id":{"type":"string","description":"Optional: answer only this blocker (e.g. b1)."},`+
+			`"pick":{"type":"integer","minimum":1,"description":"With blocker_id: the number of the recommended answer to take (1 is the first)."}`,
+			"task_id"),
+		Clients: both,
+	},
+	{
+		Name: "board_steps",
+		Description: "Set a card's steps: the ordered list that shows its progress (done/total) on the person's window. Give the whole list " +
+			"each time; steps keep their ids by id or by the same text. Mark at most one as doing (the current step). Keep it short. " + BoardInstructions,
+		InputSchema: schema(propTaskID+`,`+
+			`"steps":{"type":"array","maxItems":20,"items":{"type":"object","properties":{"text":{"type":"string","description":"The step, one line (at most 200 characters)."},"id":{"type":"string","description":"Optional: an existing step's id, to keep it while renaming."},"done":{"type":"boolean"},"doing":{"type":"boolean","description":"This is the current step."}},"required":["text"],"additionalProperties":false},"description":"Every step, in order."}`,
+			"task_id", "steps"),
+		Clients: both,
+	},
+	{
+		Name:        "board_step",
+		Description: "Tick a card's step as you finish it (done = true), untick it, or mark it the current step (doing = true). " + BoardInstructions,
+		InputSchema: schema(propTaskID+`,`+
+			`"step_id":{"type":"string","description":"The step's id, e.g. s2."},`+
+			`"done":{"type":"boolean","description":"true ticks it, false unticks it."},`+
+			`"doing":{"type":"boolean","description":"true makes it the current step; false stops it being current."}`,
+			"task_id", "step_id"),
+		Clients: both,
+	},
+	{
+		Name: "board_watch",
+		Description: "Watch a card whose work matters to yours: you hear at your next turn when its state, steps, blockers or PR links change, " +
+			"you show on it as watching, and you may recommend answers to its blockers. " + BoardInstructions,
+		InputSchema: schema(propTaskID, "task_id"),
+		Clients:     both,
+	},
+	{
+		Name:        "board_unwatch",
+		Description: "Stop watching a card. " + BoardInstructions,
+		InputSchema: schema(propTaskID, "task_id"),
 		Clients:     both,
 	},
 	{
