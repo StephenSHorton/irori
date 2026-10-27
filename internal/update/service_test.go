@@ -287,6 +287,10 @@ func TestFindUpdateRequiresChecksum(t *testing.T) {
 func TestDownloadVerified(t *testing.T) {
 	g := &fakeGitHub{tag: "v1.2.3", payload: []byte("installer bytes")}
 	s := testService(t, g.serve(t), "1.0.0")
+	stale := filepath.Join(s.dir, "irori-1.1.0-windows-amd64-installer.exe")
+	if err := os.WriteFile(stale, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	info, err := s.findUpdate()
 	if err != nil {
 		t.Fatal(err)
@@ -300,6 +304,9 @@ func TestDownloadVerified(t *testing.T) {
 	}
 	if filepath.Dir(path) != s.dir {
 		t.Fatalf("installer at %s, want inside %s", path, s.dir)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale installer kept (stat err %v)", err)
 	}
 
 	info.SHA256 = strings.Repeat("0", 64)

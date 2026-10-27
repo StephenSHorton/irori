@@ -1,0 +1,151 @@
+name: Release
+
+# Cut a release by pushing a semver tag:  git tag v0.1.0 && git push origin v0.1.0
+# (or run it from the Actions tab with a tag). A tag with a "-" (v0.2.0-rc.1)
+# becomes a prerelease, which the in-app updater ignores (/releases/latest).
+#
+# The updater (internal/update) looks for an asset named
+# irori-<version>-windows-<arch>-installer.exe and REQUIRES a SHA256SUMS asset
+# listing it. Keep those names in step with internal/update/release.go.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write # create the GitHub Release and upload assets
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Install wails3 CLI and NSIS
+        shell: pwsh
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.98
+          "$(go env GOPATH)\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          choco install nsis -y --no-progress
+          "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.inputs.tag || github.ref_name }}"
+          if ($tag -notmatch '^v\d+\.\d+\.\d+') { throw "tag $tag is not vX.Y.Z" }
+          $version = $tag -replace '^v', ''
+          "tag=$tag"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          # The Win32 resource and NSIS want a bare X.Y.Z (no prerelease part).
+          "numeric=$($version -replace '[-+].*$', '')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Releasing $tag (version $version)"
+
+      - name: Test
+        run: go test ./internal/...
+
+      - name: Stamp version into the Win32 resource (info.json)
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.numeric }}"
+          $p = "build/windows/info.json"
+          $j = Get-Content $p -Raw | ConvertFrom-Json
+          $j.fixed.file_version = $v
+          $j.info.'0000'.ProductVersion = $v
+          $j | ConvertTo-Json -Depth 10 | Set-Content $p
+          Get-Content $p
+
+      # The steps below are build/windows/Taskfile.yml's build + package, run
+      # one at a time: the task runner starts bun install and go mod tidy in
+      # parallel, which trips Windows file locks on CI. frontend/bindings is
+      # committed, so it is not regenerated here.
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Build irori.exe (version injected)
+        shell: pwsh
+        run: |
+          Push-Location build
+          wails3 generate syso -arch amd64 -icon windows/icon.ico -manifest windows/wails.exe.manifest -info windows/info.json -out ../wails_windows_amd64.syso
+          Pop-Location
+          $env:CGO_ENABLED = "0"
+          go build -tags production -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui -X main.version=${{ steps.ver.outputs.version }}" -o bin/irori.exe .
+          Remove-Item *.syso
+
+      - name: Build NSIS installer (per-user, no UAC)
+        shell: pwsh
+        run: |
+          $root = (Get-Location).Path
+          wails3 generate webview2bootstrapper -dir build/windows/nsis
+          # Quote each -D: PowerShell otherwise splits "...=0.1.0" at the dots.
+          makensis "-DINFO_PRODUCTVERSION=${{ steps.ver.outputs.numeric }}" "-DWAILS_INSTALL_SCOPE=user" "-DREQUEST_EXECUTION_LEVEL=user" "-DARG_WAILS_AMD64_BINARY=$root\bin\irori.exe" build/windows/nsis/project.nsi
+
+      - name: Assemble assets (installer, portable zip, SHA256SUMS)
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          New-Item -ItemType Directory -Force dist-release | Out-Null
+          $installer = "irori-$v-windows-amd64-installer.exe"
+          $zip       = "irori-$v-windows-amd64.zip"
+          Copy-Item "bin/irori-amd64-installer.exe" "dist-release/$installer"
+          Compress-Archive -Path "bin/irori.exe" -DestinationPath "dist-release/$zip" -Force
+          Get-ChildItem dist-release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: irori-windows-amd64
+          path: dist-release/*
+          if-no-files-found: error
+
+  # TODO(macOS): build the .app with `wails3 task darwin:package`, sign and
+  # notarize it (suzuri's release.yml has the keychain + notarytool steps), and
+  # upload irori-<version>-darwin-universal.zip/.dmg here. The updater reports
+  # "updates not supported on macOS yet" until internal/update grows the Mac
+  # path, so a Mac asset is install-only for now.
+  # macos:
+  #   runs-on: macos-latest
+
+  release:
+    needs: [windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: assets
+        run: |
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.windows.outputs.tag }}
+          name: Irori ${{ needs.windows.outputs.tag }}
+          prerelease: ${{ contains(needs.windows.outputs.tag, '-') }}
+          generate_release_notes: true
+          files: assets/*

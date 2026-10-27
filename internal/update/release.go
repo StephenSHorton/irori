@@ -152,6 +152,14 @@ func (s *UpdateService) downloadVerified(info UpdateInfo) (string, error) {
 	}
 	// The asset name comes from the network: keep only its base name.
 	dst := filepath.Join(s.dir, filepath.Base(info.AssetName))
+	// Installers from earlier updates have done their job; drop them.
+	if old, err := os.ReadDir(s.dir); err == nil {
+		for _, e := range old {
+			if p := filepath.Join(s.dir, e.Name()); p != dst && !e.IsDir() {
+				_ = os.Remove(p)
+			}
+		}
+	}
 	if err := s.download(ctx, info.AssetURL, dst); err != nil {
 		_ = os.Remove(dst)
 		return "", err
