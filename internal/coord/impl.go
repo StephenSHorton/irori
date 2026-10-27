@@ -123,6 +123,14 @@ type coord struct {
 	nextOrder   uint64
 	held        map[string]*leaseRec // by canonical resource
 	firstAbsent map[string]time.Time // holder key -> first seen missing from the roster
+
+	// Subscribe (subscribe.go). Changes queue in pending while c.mu is held
+	// and go out in unlock; replay queues none.
+	subs      map[chan Change]*subscriber
+	pending   []Change
+	replaying bool
+	expiry    *time.Timer // fires at expiryAt, the next lease's Until
+	expiryAt  time.Time
 }
 
 func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() []presence.AgentCard }, opts Options) (*Coord, error) {
@@ -138,6 +146,7 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 		order:       map[string]uint64{},
 		held:        map[string]*leaseRec{},
 		firstAbsent: map[string]time.Time{},
+		subs:        map[chan Change]*subscriber{},
 	}
 	if c.now == nil {
 		c.now = time.Now
@@ -162,6 +171,8 @@ func (c *coord) replay(ctx context.Context) error {
 		seq int64
 	}
 	seen := map[rowID]bool{} // rows at the previous page's last HLC
+	c.replaying = true
+	defer func() { c.replaying = false }()
 	for {
 		evs, err := c.st.List(ctx, f)
 		if err != nil {
@@ -215,6 +226,7 @@ func (c *coord) apply(ev store.Event) {
 			RepoKey: p.RepoKey, Scope: p.Scope, State: Submitted, CreatedBy: p.By,
 			CreatedAt: t, UpdatedAt: t,
 		}
+		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID})
 	case KindTaskClaimed:
 		var p taskClaimedRow
 		if json.Unmarshal(ev.Payload, &p) != nil {
@@ -226,6 +238,7 @@ func (c *coord) apply(ev store.Event) {
 				t.State = Working
 			}
 			t.UpdatedAt = at(p.At)
+			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: p.By})
 		}
 	case KindTaskAssigned:
 		var p taskAssignedRow
@@ -235,6 +248,7 @@ func (c *coord) apply(ev store.Event) {
 		if t := c.tasks[p.TaskID]; t != nil {
 			t.Holder = p.To
 			t.UpdatedAt = at(p.At)
+			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: p.To})
 		}
 	case KindTaskState:
 		var p taskStateRow
@@ -245,6 +259,7 @@ func (c *coord) apply(ev store.Event) {
 			t.State = p.State
 			t.Note = p.Note
 			t.UpdatedAt = at(p.At)
+			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
 		}
 	case KindLeaseAcq:
 		var row leaseAcquiredRow
@@ -252,7 +267,9 @@ func (c *coord) apply(ev store.Event) {
 			return
 		}
 		for _, v := range row.Stolen {
-			c.dropLease(v.Resource, v.Holder)
+			if c.dropLease(v.Resource, v.Holder) {
+				c.note(Change{Kind: LeaseChanged, Resource: v.Resource, Holder: v.Holder, Reason: ReasonStolen})
+			}
 		}
 		p := row.Lease
 		res, err := ParseResource(p.Resource)
@@ -261,24 +278,30 @@ func (c *coord) apply(ev store.Event) {
 		}
 		p.AcquiredAt = at(p.AcquiredAt)
 		c.held[res.Name] = &leaseRec{Lease: p, res: res}
+		c.note(Change{Kind: LeaseChanged, Resource: res.Name, Holder: p.Holder})
 	case KindLeaseRel:
 		var p leaseReleasedRow
 		if json.Unmarshal(ev.Payload, &p) != nil {
 			return
 		}
-		c.dropLease(p.Resource, p.Holder)
+		if c.dropLease(p.Resource, p.Holder) {
+			c.note(Change{Kind: LeaseChanged, Resource: p.Resource, Holder: p.Holder, Reason: p.Reason})
+		}
 	}
 }
 
-// dropLease removes resource's lease if holder still holds it.
-func (c *coord) dropLease(resource, holder string) {
+// dropLease removes resource's lease if holder still holds it, and reports
+// whether it did.
+func (c *coord) dropLease(resource, holder string) bool {
 	name := resource
 	if n, err := NormalizeResource(resource); err == nil {
 		name = n
 	}
 	if l := c.held[name]; l != nil && l.Holder == holder {
 		delete(c.held, name)
+		return true
 	}
+	return false
 }
 
 // prune forgets expired leases so held stays the size of what is live. The
@@ -287,6 +310,7 @@ func (c *coord) prune(now time.Time) {
 	for name, l := range c.held {
 		if !l.Until.After(now) {
 			delete(c.held, name)
+			c.note(Change{Kind: LeaseExpired, Resource: name, Holder: l.Holder})
 		}
 	}
 }
@@ -427,7 +451,7 @@ func (c *coord) createTask(ctx context.Context, by string, nt NewTask) (Task, er
 	}
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.unlock()
 	at := c.stamp()
 	id := newID(at)
 	if err := c.write(ctx, by, KindTaskCreated, taskCreatedRow{
@@ -441,7 +465,7 @@ func (c *coord) createTask(ctx context.Context, by string, nt NewTask) (Task, er
 
 func (c *coord) listTasks(f TaskFilter) []Task {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.unlock()
 	out := []Task{}
 	for _, t := range c.tasks {
 		if f.RepoKey != "" && t.RepoKey != f.RepoKey ||
@@ -467,7 +491,7 @@ func (c *coord) listTasks(f TaskFilter) []Task {
 
 func (c *coord) getTask(id string) (Task, bool) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.unlock()
 	t, ok := c.tasks[id]
 	if !ok {
 		return Task{}, false
@@ -493,7 +517,7 @@ func (c *coord) claimTask(ctx context.Context, by, id string) (Task, error) {
 		return Task{}, fmt.Errorf("%w: no caller", ErrInvalid)
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.unlock()
 	t, err := c.openTask(id)
 	if err != nil {
 		return Task{}, err
@@ -522,7 +546,7 @@ func (c *coord) assignTask(ctx context.Context, by, id, to string) (Task, error)
 		return Task{}, fmt.Errorf("%w: assign needs a caller and an assignee", ErrInvalid)
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.unlock()
 	t, err := c.openTask(id)
 	if err != nil {
 		return Task{}, err
@@ -552,7 +576,7 @@ func (c *coord) setTaskState(ctx context.Context, by, id string, s TaskState, no
 		return Task{}, fmt.Errorf("%w: note longer than %d characters", ErrInvalid, maxObjective)
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.unlock()
 	t, err := c.openTask(id)
 	if err != nil {
 		return Task{}, err
@@ -586,7 +610,7 @@ func (c *coord) acquire(ctx context.Context, holder, resource string, ttl time.D
 	ttl = min(ttl, MaxTTL)
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.unlock()
 	now := c.stamp()
 	c.prune(now)
 	var victims []*leaseRec
@@ -645,7 +669,7 @@ func (c *coord) release(ctx context.Context, by, resource string) error {
 		return err
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.unlock()
 	now := c.stamp()
 	l := c.held[name]
 	if l == nil || !l.Until.After(now) {
@@ -661,7 +685,7 @@ func (c *coord) release(ctx context.Context, by, resource string) error {
 
 func (c *coord) leases() []Lease {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.unlock()
 	now := c.stamp()
 	c.prune(now)
 	out := []Lease{}
@@ -676,7 +700,7 @@ func (c *coord) leases() []Lease {
 
 func (c *coord) sweep(ctx context.Context) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.unlock()
 	now := c.stamp()
 	c.prune(now)
 	c.observe(now)

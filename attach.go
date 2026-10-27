@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"os"
@@ -38,7 +39,10 @@ func runAttach(args []string) error {
 	defer stop()
 	ctx, orphaned := context.WithCancel(ctx)
 	defer orphaned()
-	go watchParent(ctx, os.Getppid(), logger, orphaned)
+	// Our parent started before we did; a process at its pid that started
+	// later is a reuse.
+	self, _ := proc.StartTime(os.Getpid())
+	go watchParent(ctx, os.Getppid(), self, logger, orphaned)
 	return runner.Run(ctx, runner.Options{
 		Session: *session, Cwd: *cwd, ModVersion: *modVersion, DataDir: dir,
 		Stdout: os.Stdout, Logf: logger.Printf,
@@ -47,8 +51,31 @@ func runAttach(args []string) error {
 
 // watchParent cancels when the process that spawned us is gone, so an attach
 // whose Claude Code died without killing it doesn't hold the session's stream.
-func watchParent(ctx context.Context, ppid int, logger *log.Logger, cancel context.CancelFunc) {
-	t := time.NewTicker(5 * time.Second)
+// On Windows it waits on the parent's process handle and reacts the moment
+// it exits; where it can't (another OS, no access) it checks every
+// parentPollEvery. startedBy (our own start; zero if unknown) rules out a
+// reused pid either way.
+func watchParent(ctx context.Context, ppid int, startedBy time.Time, logger *log.Logger, cancel context.CancelFunc) {
+	err := proc.WaitExit(ctx, ppid, startedBy)
+	if ctx.Err() != nil {
+		return
+	}
+	if errors.Is(err, proc.ErrCantWait) {
+		pollParent(ctx, ppid, startedBy)
+		if ctx.Err() != nil {
+			return
+		}
+	}
+	logger.Printf("attach: parent %d is gone; exiting", ppid)
+	cancel()
+}
+
+// parentPollEvery is the fallback check's interval.
+const parentPollEvery = 5 * time.Second
+
+// pollParent returns when ppid is gone (or reused) or ctx ends.
+func pollParent(ctx context.Context, ppid int, startedBy time.Time) {
+	t := time.NewTicker(parentPollEvery)
 	defer t.Stop()
 	for {
 		select {
@@ -56,8 +83,9 @@ func watchParent(ctx context.Context, ppid int, logger *log.Logger, cancel conte
 			return
 		case <-t.C:
 			if !proc.Alive(ppid) {
-				logger.Printf("attach: parent %d is gone; exiting", ppid)
-				cancel()
+				return
+			}
+			if st, ok := proc.StartTime(ppid); ok && !startedBy.IsZero() && st.After(startedBy) {
 				return
 			}
 		}
