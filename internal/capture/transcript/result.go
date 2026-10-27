@@ -119,6 +119,9 @@ func (p *parser) result(r *row, at time.Time, b block, raw json.RawMessage) {
 	id, isErr := b.ToolUseID, b.IsError
 	c := p.calls[id]
 	delete(p.calls, id)
+	if c == nil && p.cur == nil {
+		p.implicit(r, at)
+	}
 	turn := p.cur
 	if c != nil {
 		turn = c.turn
@@ -189,8 +192,9 @@ func (p *parser) result(r *row, at time.Time, b block, raw json.RawMessage) {
 				run.Stdout = clipBytes(*tr.Stdout, MaxStdout)
 			}
 			run.GitOperation = tr.GitOperation
-		case raw != nil:
-			// An error result is a plain string (or, rarely, an array).
+		case len(raw) > 0 && raw[0] == '"':
+			// An error result is a plain string (or, rarely, an array,
+			// which falls back to the block text).
 			run.Stdout = clipBytes(rawString(raw), MaxStdout)
 		default:
 			run.Stdout = clipBytes(blockText(b.Content), MaxStdout)

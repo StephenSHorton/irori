@@ -162,6 +162,10 @@ func TestOrigin(t *testing.T) {
 		{"null origin", "hello", obj{"origin": nil}, "human", ""},
 		{"empty kind", "hello", obj{"origin": obj{"kind": ""}}, "human", ""},
 		{"command not at start", "run <command-name>", nil, "human", ""},
+		{"missing peer", "Another Claude session sent a message:\n<teammate-message from=\"x\">hi</teammate-message>", nil, "peer", ""},
+		{"missing peer tag", " <teammate-message from=\"x\">hi</teammate-message>", nil, "peer", ""},
+		{"peer origin kept", "Another Claude session sent a message: hi", obj{"origin": obj{"kind": "human"}}, "human", ""},
+		{"peer not at start", "see <teammate-message>", nil, "human", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -634,9 +638,19 @@ func TestBash(t *testing.T) {
 			t.Fatal("tool not marked error")
 		}
 	})
-	t.Run("array result", func(t *testing.T) {
-		items, _ := run("x", true, []any{obj{"type": "text", "text": "err"}})
-		if b := bashes(items); len(b) != 1 || b[0].Stdout != "" {
+	t.Run("array result falls back to the block text", func(t *testing.T) {
+		const msg = "Exit code 1\nfatal: boom"
+		items, _ := feed(t, mainSrc(),
+			prompt("u1", "p1", 0, "go", nil),
+			assistant("a1", 1, toolUse("t1", "Bash", obj{"command": "x"})),
+			common("user", "r1", 2, obj{
+				"message": obj{"role": "user", "content": []any{
+					obj{"type": "tool_result", "tool_use_id": "t1", "is_error": true, "content": msg},
+				}},
+				"toolUseResult": []any{obj{"type": "text", "text": msg}},
+			}),
+		)
+		if b := bashes(items); len(b) != 1 || b[0].Stdout != msg || !b[0].IsError {
 			t.Fatalf("bash = %v", kinds(items))
 		}
 	})
@@ -866,5 +880,105 @@ func TestFullSession(t *testing.T) {
 	es := edits(items)
 	if string(es[1].Before) != "# demo\n" || string(es[1].After) != "# Demo\n" {
 		t.Fatalf("edit chain = %q -> %q", es[1].Before, es[1].After)
+	}
+}
+
+func TestSamePromptID(t *testing.T) {
+	peer := "Another Claude session sent a message:\n<teammate-message from=\"other\">status?</teammate-message>"
+	t.Run("follow-up continues the open turn", func(t *testing.T) {
+		items, p := feed(t, mainSrc(),
+			prompt("u1", "p1", 0, "do the thing", obj{"origin": obj{"kind": "human"}}),
+			assistant("a1", 1, textBlock("Doing.")),
+			prompt("u2", "p1", 2, peer, nil),
+			assistant("a2", 3, toolUse("t1", "Bash", obj{"command": "ls"})),
+		)
+		if len(turns(items)) != 0 {
+			t.Fatalf("closed a turn: %v", kinds(items))
+		}
+		o := p.Open()
+		if o == nil || o.ID != "p1" || o.Origin != "human" || o.Prompt != "do the thing" || len(o.Tools) != 1 {
+			t.Fatalf("open = %+v", o)
+		}
+		out := p.Close(at(9), "eof")
+		if len(out) != 1 || !out[0].Turn.StartedAt.Equal(at(0)) {
+			t.Fatalf("Close = %v", kinds(out))
+		}
+	})
+	t.Run("after its turn closed gets its own id", func(t *testing.T) {
+		items, p := feed(t, mainSrc(),
+			prompt("u1", "p1", 0, "do the thing", obj{"origin": obj{"kind": "human"}}),
+			turnDuration("s1", 1),
+			prompt("u2", "p1", 2, peer, nil),
+		)
+		ts := turns(items)
+		if len(ts) != 1 || ts[0].ID != "p1" {
+			t.Fatalf("turns = %v", kinds(items))
+		}
+		o := p.Open()
+		if o == nil || o.ID != "u2" || o.Origin != "peer" {
+			t.Fatalf("open = %+v", o)
+		}
+	})
+	t.Run("local command stdout is not a prompt", func(t *testing.T) {
+		items, p := feed(t, mainSrc(),
+			prompt("u1", "p1", 0, "<command-name>/model</command-name>", nil),
+			prompt("u2", "p1", 3, "<local-command-stdout>Set model</local-command-stdout>", nil),
+			prompt("u3", "p9", 5, "  <local-command-stderr>oops</local-command-stderr>", nil),
+		)
+		if len(items) != 0 {
+			t.Fatalf("items = %v", kinds(items))
+		}
+		o := p.Open()
+		if o == nil || o.ID != "p1" || o.Origin != "command" {
+			t.Fatalf("open = %+v", o)
+		}
+	})
+	t.Run("local command stdout advances the turn end", func(t *testing.T) {
+		items, _ := feed(t, mainSrc(),
+			prompt("u1", "p1", 0, "<command-name>/model</command-name>", nil),
+			prompt("u2", "p1", 3, "<local-command-stdout>Set model</local-command-stdout>", nil),
+			prompt("u3", "p2", 5, "next", nil),
+		)
+		ts := turns(items)
+		if len(ts) != 1 || ts[0].ID != "p1" || !ts[0].EndedAt.Equal(at(3)) {
+			t.Fatalf("turns = %+v", ts)
+		}
+	})
+}
+
+func TestSamePromptIDLater(t *testing.T) {
+	// A row reusing an older turn's promptId while another turn is open.
+	items, p := feed(t, mainSrc(),
+		prompt("u1", "p1", 0, "one", nil),
+		prompt("u2", "p2", 1, "two", nil),
+		prompt("u3", "p1", 2, "Another Claude session sent a message: hi", nil),
+	)
+	ts := turns(items)
+	if len(ts) != 2 || ts[0].ID != "p1" || ts[1].ID != "p2" {
+		t.Fatalf("turns = %v", kinds(items))
+	}
+	if o := p.Open(); o == nil || o.ID != "u3" || o.Origin != "peer" {
+		t.Fatalf("open = %+v", o)
+	}
+}
+
+func TestResultAfterTurnClosed(t *testing.T) {
+	items, p := feed(t, mainSrc(),
+		prompt("u1", "p1", 0, "go", nil),
+		assistant("a1", 1, toolUse("t1", "Bash", obj{"command": "make"})),
+		turnDuration("s1", 2),
+		result("r1", 3, "t1", false, obj{"stdout": "done", "stderr": ""}),
+		prompt("u2", "p2", 4, "next", nil),
+	)
+	ts := turns(items)
+	if len(ts) != 1 || ts[0].ID != "p1" || ts[0].EndReason != "turn_duration" {
+		t.Fatalf("turns = %v", kinds(items))
+	}
+	bs := bashes(items)
+	if len(bs) != 1 || bs[0].TurnID != "p1" {
+		t.Fatalf("bash = %v", kinds(items))
+	}
+	if o := p.Open(); o == nil || o.ID != "p2" {
+		t.Fatalf("open = %+v", o)
 	}
 }

@@ -66,10 +66,11 @@ type parser struct {
 	calls   map[string]*call
 	newest  time.Time
 	pending []Item
+	seen    map[string]bool // ids of turns started
 }
 
 func newParser(src Source) *Parser {
-	return &Parser{impl: &parser{src: src, calls: map[string]*call{}}}
+	return &Parser{impl: &parser{src: src, calls: map[string]*call{}, seen: map[string]bool{}}}
 }
 
 func (p *parser) emit(it Item) { p.pending = append(p.pending, it) }
@@ -174,6 +175,7 @@ func (p *parser) touch(r *row, at time.Time) {
 }
 
 func (p *parser) start(id, origin, originName, prompt string, r *row, at time.Time) {
+	p.seen[id] = true
 	p.cur = &openTurn{
 		t: &Turn{
 			ID:         id,
@@ -191,7 +193,8 @@ func (p *parser) start(id, origin, originName, prompt string, r *row, at time.Ti
 	}
 }
 
-// implicit starts a turn with origin unknown when none is open.
+// implicit starts a turn with origin unknown when none is open: for a
+// tool result or tool_use with no prompt before it.
 func (p *parser) implicit(r *row, at time.Time) {
 	if p.cur == nil {
 		p.start(r.UUID, "unknown", "", "", r, at)
@@ -238,6 +241,19 @@ func joinText(bs []block) string {
 	return strings.Join(parts, "\n")
 }
 
+// isPeer reports a message from another session, in the shape older
+// versions wrote without an origin.
+func isPeer(s string) bool {
+	s = strings.TrimSpace(s)
+	return strings.HasPrefix(s, "Another Claude session sent a message") || strings.HasPrefix(s, "<teammate-message")
+}
+
+// isLocalOutput reports the output row of a local slash command.
+func isLocalOutput(s string) bool {
+	s = strings.TrimSpace(s)
+	return strings.HasPrefix(s, "<local-command-stdout>") || strings.HasPrefix(s, "<local-command-stderr>")
+}
+
 func isInterrupt(s string) bool {
 	s = strings.TrimSpace(s)
 	return s == "[Request interrupted by user]" || s == "[Request interrupted by user for tool use]"
@@ -268,6 +284,8 @@ func origin(r *row, text string) (kind, name string) {
 		return "sdk", ""
 	case strings.HasPrefix(strings.TrimSpace(text), "<command-name>"):
 		return "command", ""
+	case isPeer(text):
+		return "peer", ""
 	}
 	return "human", ""
 }
@@ -290,19 +308,19 @@ func (p *parser) user(r *row, at time.Time) {
 		if len(results) == 0 {
 			return
 		}
-		p.implicit(r, at)
-		p.touch(r, at)
-		for _, b := range bs {
-			if b.Type == "text" && isInterrupt(b.Text) {
-				p.cur.t.Interrupted = true
-			}
-		}
 		for i, b := range results {
 			var res json.RawMessage
 			if hasTUR && i == 0 {
 				res = tur
 			}
 			p.result(r, at, b, res)
+		}
+		// A result for a closed turn leaves no turn open.
+		p.touch(r, at)
+		for _, b := range bs {
+			if b.Type == "text" && isInterrupt(b.Text) && p.cur != nil {
+				p.cur.t.Interrupted = true
+			}
 		}
 		return
 	}
@@ -311,6 +329,11 @@ func (p *parser) user(r *row, at time.Time) {
 		return
 	}
 	if r.IsMeta {
+		return
+	}
+	if isLocalOutput(text) {
+		// A local slash command's output: activity, not a prompt.
+		p.touch(r, at)
 		return
 	}
 	if isInterrupt(text) {
@@ -322,6 +345,16 @@ func (p *parser) user(r *row, at time.Time) {
 	}
 	id := r.PromptID
 	if id == "" {
+		id = r.UUID
+	}
+	if p.cur != nil && id == p.cur.t.ID {
+		// Another row of the same prompt (a queued or peer message):
+		// the turn goes on.
+		p.touch(r, at)
+		return
+	}
+	if p.seen[id] {
+		// Its turn already closed and was emitted: keep ids unique.
 		id = r.UUID
 	}
 	kind, name := origin(r, text)
