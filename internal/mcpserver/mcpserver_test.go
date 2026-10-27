@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -532,7 +533,7 @@ func TestFallbackSpecsValid(t *testing.T) {
 	if !slices.Equal(names, want) {
 		t.Errorf("names %v\nwant  %v", names, want)
 	}
-	if !slices.Equal(ro, []string{"agents", "events", "task_list", "leases"}) {
+	if !slices.Equal(ro, []string{"agents", "events", "inbox", "task_list", "leases"}) {
 		t.Errorf("read-only %v", ro)
 	}
 }
@@ -542,7 +543,19 @@ func TestFallbackSpecsValid(t *testing.T) {
 func TestFallbackMatchesTools(t *testing.T) {
 	served := tools.New(nil).Specs(ClientKind)
 	if len(served) == 0 {
-		t.Skip("internal/tools serves no specs yet (stub); fallback_tools.json is the reference until it does")
+		t.Fatal("internal/tools serves no grok specs")
+	}
+	// IRORI_UPDATE_FALLBACK=1 go test ./internal/mcpserver -run Fallback
+	// rewrites fallback_tools.json from internal/tools.
+	if os.Getenv("IRORI_UPDATE_FALLBACK") == "1" {
+		out, err := json.MarshalIndent(served, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile("fallback_tools.json", append(out, '\n'), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Skip("rewrote fallback_tools.json")
 	}
 	index := func(specs []tools.Spec) map[string]tools.Spec {
 		m := map[string]tools.Spec{}

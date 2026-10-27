@@ -40,7 +40,7 @@ type Options struct {
 	ModVersion string
 	DataDir    string // where the lockfile is (paths.DataDir)
 
-	Stdin  io.Reader // closing it (EOF) ends Run: the session is over
+	Stdin  io.Reader // optional: closing it (EOF) ends Run. `irori attach` leaves it nil, because $.process.spawn closes a child's stdin from the start
 	Stdout io.Writer // event lines only
 	Logf   func(format string, args ...any)
 
