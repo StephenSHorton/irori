@@ -13,12 +13,15 @@ package capture
 //
 //	CREATE VIRTUAL TABLE docs USING fts5(
 //	    ref UNINDEXED, kind UNINDEXED, at UNINDEXED, agent UNINDEXED, repo UNINDEXED,
-//	    title, body, tokenize = 'porter unicode61');
+//	    readers UNINDEXED, title, body, tokenize = 'porter unicode61');
 //
 // upserted by ref (DELETE then INSERT). Query.Text becomes FTS5 syntax by
 // quoting each word ("word") and joining them with AND; the last word gets
 // a prefix star. Ranking is bm25 (title weighted 4x body), then newest At.
-// Kinds, RepoKey, Agent and Before filter in SQL. Snippet is
+// Kinds, RepoKey, Agent and Before filter in SQL; Offset pages (LIMIT ?
+// OFFSET ?, the order made total by rowid). Viewer, when set, keeps only
+// docs whose Readers are empty or name it (a readers UNINDEXED column
+// holding each key wrapped in newlines). Snippet is
 // snippet(docs, -1, '[', ']', '…', 24) cut to one line and MaxSnippet.
 // Empty Text lists newest first.
 //

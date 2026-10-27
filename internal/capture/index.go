@@ -35,7 +35,7 @@ func openIndex() (*ftsIndex, error) {
 	db.SetConnMaxLifetime(0)
 	db.SetConnMaxIdleTime(0)
 	if _, err := db.Exec(`CREATE VIRTUAL TABLE docs USING fts5(
-		ref UNINDEXED, kind UNINDEXED, at UNINDEXED, agent UNINDEXED, repo UNINDEXED,
+		ref UNINDEXED, kind UNINDEXED, at UNINDEXED, agent UNINDEXED, repo UNINDEXED, readers UNINDEXED,
 		title, body, tokenize = 'porter unicode61')`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("capture: search index: %w", err)
@@ -88,10 +88,23 @@ func (x *ftsIndex) put(d search.Doc) error {
 		rid = x.next
 		x.rows[d.Ref] = rid
 	}
-	_, err := ex.Exec(`INSERT INTO docs(rowid, ref, kind, at, agent, repo, title, body) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		rid, d.Ref, string(d.Kind), unixNano(d.At), d.Agent, d.RepoKey,
+	_, err := ex.Exec(`INSERT INTO docs(rowid, ref, kind, at, agent, repo, readers, title, body) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		rid, d.Ref, string(d.Kind), unixNano(d.At), d.Agent, d.RepoKey, readersCol(d.Readers),
 		clipRunes(oneLine(d.Title), search.MaxTitle), d.Body)
 	return err
+}
+
+// readersSep wraps each reader key in the readers column. Keys never hold
+// a newline (refs refuse whitespace), so instr on sep+key+sep matches
+// whole keys only.
+const readersSep = "\n"
+
+// readersCol stores Readers as sep+a+sep+b+sep, or "" for every viewer.
+func readersCol(rs []string) string {
+	if len(rs) == 0 {
+		return ""
+	}
+	return readersSep + strings.Join(rs, readersSep) + readersSep
 }
 
 // size is how many docs the index holds.
@@ -101,7 +114,8 @@ func (x *ftsIndex) size() int {
 	return len(x.rows)
 }
 
-// search runs q (Limit already clamped). Text that leaves no words after
+// search runs q (Limit already clamped). The order is total (rowid breaks
+// ties), so Offset pages without skipping or repeating a hit. Text that leaves no words after
 // cleaning matches nothing.
 func (x *ftsIndex) search(q search.Query) ([]search.Hit, error) {
 	match, hasText := matchExpr(q.Text)
@@ -138,12 +152,16 @@ func (x *ftsIndex) search(q search.Query) ([]search.Hit, error) {
 		where = append(where, `at < ?`)
 		args = append(args, unixNano(q.Before))
 	}
+	if q.Viewer != "" {
+		where = append(where, `(readers = '' OR instr(readers, ?) > 0)`)
+		args = append(args, readersSep+q.Viewer+readersSep)
+	}
 	stmt := `SELECT ` + cols + ` FROM docs`
 	if len(where) > 0 {
 		stmt += ` WHERE ` + strings.Join(where, ` AND `)
 	}
-	stmt += ` ORDER BY ` + order + ` LIMIT ?`
-	args = append(args, q.Limit)
+	stmt += ` ORDER BY ` + order + ` LIMIT ? OFFSET ?`
+	args = append(args, q.Limit, max(0, q.Offset))
 
 	x.mu.Lock()
 	defer x.mu.Unlock()

@@ -4,7 +4,10 @@ package inbox
 // A2). The inbox owns "msg:<messageId>" refs. A message's Doc: Title "<from
 // name> -> <recipient name or repo>" plus its Reason when set, Body = its
 // text, At = SentAt, Agent = the sender's key when an agent (else the first
-// recipient's), RepoKey = the repo it was addressed to, if any. Messages
+// recipient's), RepoKey = the repo it was addressed to, if any, Readers =
+// its agent sender and the agents of its visible deliveries (never empty,
+// so no other agent finds it; SearchShow answers search.ErrNotFound to a
+// Viewer outside them and leaves such messages out of Related). Messages
 // never change, so Updated = SentAt, except that a message becomes
 // searchable only once some delivery of it has left Held: a message that is
 // still held, or was dismissed while held, is never in SearchDocs and

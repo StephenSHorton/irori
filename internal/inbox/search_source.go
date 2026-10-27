@@ -50,7 +50,7 @@ func (x *inbox) msgDoc(m *Message, dels []*drec) (search.Doc, bool) {
 		title += " · " + m.Reason
 	}
 	agent := ""
-	if !m.From.IsUser() && m.From.Kind != "" && m.From.Kind != SystemSender().Kind {
+	if fromAgent(m) {
 		agent = m.From.Key
 	} else {
 		for _, d := range dels {
@@ -73,8 +73,38 @@ func (x *inbox) msgDoc(m *Message, dels []*drec) (search.Doc, bool) {
 	}
 	return search.Doc{
 		Ref: search.Ref(search.KindMsg, m.ID), Kind: search.KindMsg, At: m.SentAt, Updated: upd,
-		Title: title, Body: m.Text, Agent: agent, RepoKey: repo,
+		Title: title, Body: m.Text, Agent: agent, RepoKey: repo, Readers: msgReaders(m, dels),
 	}, true
+}
+
+// fromAgent reports whether an agent (not the person or Irori) sent m.
+func fromAgent(m *Message) bool {
+	return !m.From.IsUser() && m.From.Kind != "" && m.From.Kind != SystemSender().Kind
+}
+
+// msgReaders are the agents that may find a message: its agent sender and
+// the agents of its visible deliveries (a held copy is no reader, as the
+// policy keeps it from them). Never empty, so no other agent reads it; the
+// person reads every message. x.mu is held.
+func msgReaders(m *Message, dels []*drec) []string {
+	var out []string
+	add := func(k string) {
+		if k != "" && !isUserKey(k) && !slices.Contains(out, k) {
+			out = append(out, k)
+		}
+	}
+	if fromAgent(m) {
+		add(m.From.Key)
+	}
+	for _, d := range dels {
+		if visible(d) {
+			add(d.To)
+		}
+	}
+	if len(out) == 0 {
+		out = append(out, SystemKey) // only the person: no agent is ever SystemKey
+	}
+	return out
 }
 
 func (x *inbox) senderName(m *Message) string {
@@ -148,8 +178,15 @@ func (b *Inbox) searchShow(ref string, o search.ShowOptions) (search.Shown, erro
 	}
 	byMsg := x.msgDels()
 	doc, ok := x.msgDoc(m, byMsg[id])
-	if !ok {
-		return search.Shown{}, search.ErrNotFound // still held: search never gets past the policy
+	if !ok || !search.CanRead(o.Viewer, doc.Readers) {
+		// Still held (search never gets past the policy), or not the
+		// viewer's: either way it isn't there for them.
+		return search.Shown{}, search.ErrNotFound
+	}
+	// readable is a related message the viewer may also show.
+	readable := func(r *Message) bool {
+		d, ok := x.msgDoc(r, byMsg[r.ID])
+		return ok && search.CanRead(o.Viewer, d.Readers)
 	}
 	var sb strings.Builder
 	line := func(format string, args ...any) {
@@ -192,7 +229,7 @@ func (b *Inbox) searchShow(ref string, o search.ShowOptions) (search.Shown, erro
 	}
 	if m.ParentID != "" {
 		if p := x.msgs[m.ParentID]; p != nil {
-			if _, ok := x.msgDoc(p, byMsg[p.ID]); ok {
+			if readable(p) {
 				relate(search.Ref(search.KindMsg, p.ID))
 			}
 		}
@@ -200,7 +237,7 @@ func (b *Inbox) searchShow(ref string, o search.ShowOptions) (search.Shown, erro
 	var replies []*Message
 	for _, r := range x.msgs {
 		if r.ParentID == id {
-			if _, ok := x.msgDoc(r, byMsg[r.ID]); ok {
+			if readable(r) {
 				replies = append(replies, r)
 			}
 		}

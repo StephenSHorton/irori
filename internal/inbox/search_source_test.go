@@ -150,3 +150,63 @@ func TestSearchShowMessage(t *testing.T) {
 		t.Errorf("bad ref: %v", err)
 	}
 }
+
+// A message is read by its agent sender and the agents it was delivered
+// to; search and show keep it from every other agent (the person, viewer
+// "", sees all of them).
+func TestSearchMessageReaders(t *testing.T) {
+	h := newHarness(t)
+	h.abc()
+	m1, _ := h.send(claude(keyA, "alpha"), to(keyB), "secret pangolin plan")
+	h.clk.advance(time.Minute)
+	m2, _ := h.send(person(), to(keyC), "check the pen")
+	h.clk.advance(time.Minute)
+	h.deliverEngage(keyB, "turn-1")
+	ds := h.ib.For(keyB, true, 10)
+	rm, _, err := h.ib.Reply(bg, claude(keyB, "beta"), ds[0].ID, "on it")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	readers := map[string][]string{}
+	for _, d := range searchDocs(t, h, time.Time{}) {
+		readers[d.Ref] = slices.Sorted(slices.Values(d.Readers))
+	}
+	ab := slices.Sorted(slices.Values([]string{keyA, keyB}))
+	tests := []struct {
+		ref  string
+		want []string
+	}{
+		{"msg:" + m1.ID, ab},
+		{"msg:" + m2.ID, []string{keyC}}, // the person is no agent reader
+		{"msg:" + rm.ID, ab},
+	}
+	for _, tt := range tests {
+		if !slices.Equal(readers[tt.ref], tt.want) {
+			t.Errorf("%s readers %v, want %v", tt.ref, readers[tt.ref], tt.want)
+		}
+	}
+
+	shows := []struct {
+		viewer string
+		ok     bool
+	}{
+		{"", true}, {keyA, true}, {keyB, true}, {keyC, false},
+	}
+	for _, tt := range shows {
+		sh, err := h.ib.SearchShow(bg, "msg:"+m1.ID, search.ShowOptions{Viewer: tt.viewer})
+		if tt.ok != (err == nil) || (!tt.ok && !errors.Is(err, search.ErrNotFound)) {
+			t.Errorf("viewer %q show: %v", tt.viewer, err)
+		}
+		if tt.ok && !slices.Contains(sh.Related, "msg:"+rm.ID) {
+			t.Errorf("viewer %q related %v", tt.viewer, sh.Related)
+		}
+	}
+	// gamma reads its own message but not the thread it isn't in.
+	if _, err := h.ib.SearchShow(bg, "msg:"+m2.ID, search.ShowOptions{Viewer: keyC}); err != nil {
+		t.Errorf("recipient show: %v", err)
+	}
+	if _, err := h.ib.SearchShow(bg, "msg:"+m2.ID, search.ShowOptions{Viewer: keyA}); !errors.Is(err, search.ErrNotFound) {
+		t.Errorf("outsider show: %v", err)
+	}
+}

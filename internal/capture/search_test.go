@@ -788,3 +788,66 @@ func TestOverviewCapsAndRepoFallback(t *testing.T) {
 		t.Fatalf("no-repo overview %+v", ov)
 	}
 }
+
+// Offset pages ranked and plain results alike: a newer, weaker match and a
+// doc sharing the last hit's At are both reached on the next page.
+func TestSearchOffsetPaging(t *testing.T) {
+	r := newRig(t, nil)
+	r.turn(keyA, repoX, "p1", "wombat wombat", "", at(0))              // strong title match, older
+	r.turn(keyA, repoX, "p2", "feeding time", "a wombat came", at(10)) // weak body match, newer
+	r.turn(keyA, repoX, "p3", "same minute", "", at(10))
+	tests := []struct {
+		name string
+		text string
+	}{
+		{"ranked", "wombat"},
+		{"plain", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			all := refs(r.search(SearchQuery{Text: tt.text}))
+			var paged []string
+			for off := 0; off <= len(all); off++ {
+				paged = append(paged, refs(r.search(SearchQuery{Text: tt.text, Limit: 1, Offset: off}))...)
+			}
+			if !slices.Equal(paged, all) {
+				t.Fatalf("paged %v, want %v", paged, all)
+			}
+		})
+	}
+	if got := len(r.search(SearchQuery{Offset: -4})); got != 3 {
+		t.Fatalf("negative offset: %d hits", got)
+	}
+}
+
+// A doc with Readers is found only by the person ("") and the agents it
+// names; docs without Readers are found by everyone.
+func TestSearchViewer(t *testing.T) {
+	r := newRig(t, nil)
+	src := &fakeSource{kinds: []search.Kind{search.KindMsg}}
+	r.c.AddSource(src)
+	src.set(
+		search.Doc{Ref: "msg:1", At: at(1), Title: "alpha -> beta", Body: "secret pangolin plan", Readers: []string{keyA, keyB}},
+		search.Doc{Ref: "msg:2", At: at(2), Title: "note", Body: "public pangolin note"},
+	)
+	tests := []struct {
+		viewer string
+		want   []string
+	}{
+		{"", []string{"msg:1", "msg:2"}},
+		{keyA, []string{"msg:1", "msg:2"}},
+		{keyB, []string{"msg:1", "msg:2"}},
+		{device + "/sess-c", []string{"msg:2"}},
+		{keyA[:len(keyA)-1], []string{"msg:2"}}, // a prefix of a reader is not that reader
+	}
+	for _, tt := range tests {
+		got := refs(r.search(SearchQuery{Text: "pangolin", Viewer: tt.viewer}))
+		slices.Sort(got)
+		if !slices.Equal(got, tt.want) {
+			t.Errorf("viewer %q: %v, want %v", tt.viewer, got, tt.want)
+		}
+		if got := refs(r.search(SearchQuery{Viewer: tt.viewer})); len(got) != len(tt.want) {
+			t.Errorf("viewer %q listing: %v", tt.viewer, got)
+		}
+	}
+}
