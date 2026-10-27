@@ -46,8 +46,15 @@ type AgentCard struct {
 	LastText     string    `json:"lastText"`     // last assistant prose, <=240 runes, single line
 	Transcript   string    `json:"transcript"`   // absolute path, "" if not found
 	// v0.2 additions.
-	RepoKey        string `json:"repoKey"`        // repo.Resolver.Key(Cwd); "" outside git
-	PermissionMode string `json:"permissionMode"` // newest permission-mode row in the transcript tail ("bypassPermissions", "default", ...); "" unknown
+	RepoKey string `json:"repoKey"` // repo.Resolver.Key(Cwd); "" outside git
+	// PermissionMode is the newest mode row's permissionMode: a
+	// "permission-mode" row, or a non-sidechain "user" row carrying a
+	// top-level permissionMode. It is read from the transcript tail, kept once
+	// its row scrolls out, and on first sight of a transcript whose tail has
+	// none it comes from a bounded backward scan (8 MiB). "" is unknown. The
+	// value set is open ("default", "acceptEdits", "auto", "bypassPermissions",
+	// ...): consumers test == "bypassPermissions", never a fixed list.
+	PermissionMode string `json:"permissionMode"`
 }
 
 // ChangeKind says what happened to a card.

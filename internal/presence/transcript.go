@@ -15,6 +15,11 @@ import (
 // reach hundreds of MB; the roster only needs the last few turns.
 const defaultTailBytes = 256 << 10
 
+// defaultModeScanBytes bounds the one-time backward look for a permission
+// mode on a transcript whose tail window holds no mode row. Real
+// transcripts have been seen with their newest mode row ~600KB from the end.
+const defaultModeScanBytes = 8 << 20
+
 // maxLastText is the longest LastText, in runes.
 const maxLastText = 240
 
@@ -74,19 +79,21 @@ func absPath(p string) string {
 
 // tail is what we learned from the end of one transcript.
 type tail struct {
-	Title        string
-	LastText     string
-	LastActivity time.Time
+	Title          string
+	LastText       string
+	LastActivity   time.Time
+	PermissionMode string
 }
 
 // transcriptRow is the tolerant subset of a transcript line we read.
 type transcriptRow struct {
-	Type        string          `json:"type"`
-	Timestamp   string          `json:"timestamp"`
-	IsSidechain bool            `json:"isSidechain"`
-	AITitle     string          `json:"aiTitle"`
-	CustomTitle string          `json:"customTitle"`
-	Message     json.RawMessage `json:"message"`
+	Type           string          `json:"type"`
+	Timestamp      string          `json:"timestamp"`
+	IsSidechain    bool            `json:"isSidechain"`
+	AITitle        string          `json:"aiTitle"`
+	CustomTitle    string          `json:"customTitle"`
+	PermissionMode string          `json:"permissionMode"` // on "permission-mode" rows and some user rows
+	Message        json.RawMessage `json:"message"`
 }
 
 type contentBlock struct {
@@ -124,6 +131,9 @@ func readTail(f io.ReadSeeker, size, n int64) tail {
 		if ts, err := time.Parse(time.RFC3339Nano, row.Timestamp); err == nil && ts.After(t.LastActivity) {
 			t.LastActivity = ts
 		}
+		if isModeRow(row) {
+			t.PermissionMode = row.PermissionMode
+		}
 		switch row.Type {
 		case "custom-title":
 			if row.CustomTitle != "" {
@@ -148,6 +158,55 @@ func readTail(f io.ReadSeeker, size, n int64) tail {
 		t.Title = ai
 	}
 	return t
+}
+
+// isModeRow reports whether row sets the session's permission mode: a
+// "permission-mode" row, or a non-sidechain "user" row with a top-level
+// permissionMode.
+func isModeRow(row transcriptRow) bool {
+	return row.PermissionMode != "" && !row.IsSidechain &&
+		(row.Type == "permission-mode" || row.Type == "user")
+}
+
+// modeKey pre-filters lines before JSON parsing in scanMode.
+var modeKey = []byte(`"permissionMode"`)
+
+// scanMode is the permission mode of the newest mode row in the last n bytes
+// of f (size bytes long), "" if none. Like readTail it reads one byte early
+// and skips the first, partial line when the window starts mid-file.
+func scanMode(f io.ReadSeeker, size, n int64) string {
+	off := max(size-n-1, 0)
+	if _, err := f.Seek(off, io.SeekStart); err != nil {
+		return ""
+	}
+	buf := make([]byte, size-off)
+	if _, err := io.ReadFull(f, buf); err != nil {
+		return ""
+	}
+	if off > 0 {
+		i := bytes.IndexByte(buf, '\n')
+		if i < 0 {
+			return ""
+		}
+		buf = buf[i+1:]
+	}
+	for len(buf) > 0 {
+		var line []byte
+		if j := bytes.LastIndexByte(buf, '\n'); j >= 0 {
+			line, buf = buf[j+1:], buf[:j]
+		} else {
+			line, buf = buf, nil
+		}
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 || line[0] != '{' || !bytes.Contains(line, modeKey) {
+			continue
+		}
+		var row transcriptRow
+		if json.Unmarshal(line, &row) == nil && isModeRow(row) {
+			return row.PermissionMode
+		}
+	}
+	return ""
 }
 
 // lastTextBlock is the last non-empty text block of an assistant message,

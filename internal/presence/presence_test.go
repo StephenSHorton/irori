@@ -236,6 +236,9 @@ func TestScanNeverOpensKeyFiles(t *testing.T) {
 	if a.Title != "Port the roster" || a.LastText != "Roster card shows the last reply." {
 		t.Errorf("card a tail: %+v", a)
 	}
+	if a.PermissionMode != "bypassPermissions" || b.PermissionMode != "" {
+		t.Errorf("permission modes: a=%q b=%q", a.PermissionMode, b.PermissionMode)
+	}
 	if !filepath.IsAbs(a.Transcript) || !strings.HasSuffix(a.Transcript, filepath.Join("C--Users-4step", fixtureID+".jsonl")) {
 		t.Errorf("transcript a = %q", a.Transcript)
 	}

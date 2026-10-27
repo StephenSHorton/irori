@@ -20,6 +20,9 @@ const (
 type watcher struct {
 	opts      Options
 	tailBytes int64
+	// modeScanBytes bounds the one-time look further back for a permission
+	// mode when the tail window holds none (see refreshTail).
+	modeScanBytes int64
 	// open is how every file's content is read, so tests can prove the
 	// <pid>.<hash>.key secrets are never opened.
 	open func(name string) (*os.File, error)
@@ -28,6 +31,7 @@ type watcher struct {
 
 	scanMu sync.Mutex
 	tails  map[string]*tailCache // by session id; scan-owned
+	repos  map[string]string     // repo key by cwd; scan-owned
 
 	mu    sync.Mutex
 	cards map[string]AgentCard // by Key
@@ -40,6 +44,10 @@ type tailCache struct {
 	size  int64
 	mtime time.Time
 	tail  tail
+	// modeScanned is set once the bounded backward scan for a permission
+	// mode has run on this file, so a file with no mode row isn't rescanned
+	// on every change.
+	modeScanned bool
 }
 
 func newWatcher(opts Options) *Watcher {
@@ -50,13 +58,15 @@ func newWatcher(opts Options) *Watcher {
 		opts.Now = time.Now
 	}
 	return &Watcher{impl: &watcher{
-		opts:      opts,
-		tailBytes: defaultTailBytes,
-		open:      os.Open,
-		live:      live,
-		tails:     map[string]*tailCache{},
-		cards:     map[string]AgentCard{},
-		subs:      map[chan Change]struct{}{},
+		opts:          opts,
+		tailBytes:     defaultTailBytes,
+		modeScanBytes: defaultModeScanBytes,
+		open:          os.Open,
+		live:          live,
+		tails:         map[string]*tailCache{},
+		repos:         map[string]string{},
+		cards:         map[string]AgentCard{},
+		subs:          map[chan Change]struct{}{},
 	}}
 }
 
@@ -107,6 +117,7 @@ func (x *watcher) scan() {
 
 	next := map[string]AgentCard{}
 	seen := map[string]bool{}
+	cwds := map[string]bool{}
 	dir := filepath.Join(x.opts.ClaudeDir, "sessions")
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
@@ -118,12 +129,18 @@ func (x *watcher) scan() {
 			continue
 		}
 		seen[s.ID] = true
+		cwds[s.Cwd] = true
 		c := x.card(s)
 		next[c.Key] = c
 	}
 	for id := range x.tails {
 		if !seen[id] {
 			delete(x.tails, id)
+		}
+	}
+	for cwd := range x.repos {
+		if !cwds[cwd] {
+			delete(x.repos, cwd)
 		}
 	}
 	x.publish(next)
@@ -154,15 +171,31 @@ func (x *watcher) card(s session) AgentCard {
 		PeerFeatures: append([]string{}, s.PeerFeatures...), // [] not null in JSON
 		StartedAt:    s.StartedAt,
 		UpdatedAt:    s.UpdatedAt,
+		RepoKey:      x.repoKey(s.Cwd),
 	}
 	if tc := x.refreshTail(s); tc != nil {
 		c.Transcript = tc.path
 		c.Title = tc.tail.Title
 		c.LastText = tc.tail.LastText
 		c.LastActivity = tc.tail.LastActivity
+		c.PermissionMode = tc.tail.PermissionMode
 	}
 	c.Name = displayName(s, c.Title)
 	return c
+}
+
+// repoKey is Options.RepoKey(cwd), computed once per cwd while any live
+// session uses it (resolving runs git, which is too slow for every scan).
+func (x *watcher) repoKey(cwd string) string {
+	if x.opts.RepoKey == nil || cwd == "" {
+		return ""
+	}
+	if k, ok := x.repos[cwd]; ok {
+		return k
+	}
+	k := x.opts.RepoKey(cwd)
+	x.repos[cwd] = k
+	return k
 }
 
 // refreshTail resolves (once) and re-reads a transcript tail when its size or
@@ -210,9 +243,23 @@ func (x *watcher) refreshTail(s session) *tailCache {
 		if t.LastText == "" {
 			t.LastText = tc.tail.LastText
 		}
+		// Mode rows are written only when the mode is set, so they scroll
+		// out like titles do.
+		if t.PermissionMode == "" {
+			t.PermissionMode = tc.tail.PermissionMode
+		}
 		if t.LastActivity.Before(tc.tail.LastActivity) {
 			t.LastActivity = tc.tail.LastActivity
 		}
+	} else {
+		tc.modeScanned = false // rewritten file: look again
+	}
+	// Cold start (or a rewrite): the tail holds no mode row and nothing is
+	// cached, so look further back once. Unknown would count as non-bypass
+	// and drop the bypass_receiver hold.
+	if t.PermissionMode == "" && !tc.modeScanned {
+		tc.modeScanned = true
+		t.PermissionMode = scanMode(f, fi.Size(), x.modeScanBytes)
 	}
 	tc.size, tc.mtime, tc.tail = fi.Size(), fi.ModTime(), t
 	return tc
@@ -289,7 +336,8 @@ func changed(a, b AgentCard) bool {
 		a.SessionKind != b.SessionKind || a.Entrypoint != b.Entrypoint ||
 		a.Version != b.Version || !slices.Equal(a.PeerFeatures, b.PeerFeatures) ||
 		!a.StartedAt.Equal(b.StartedAt) || !a.UpdatedAt.Equal(b.UpdatedAt) ||
-		a.LastText != b.LastText || a.Transcript != b.Transcript
+		a.LastText != b.LastText || a.Transcript != b.Transcript ||
+		a.RepoKey != b.RepoKey || a.PermissionMode != b.PermissionMode
 }
 
 // sortCards orders by LastActivity (UpdatedAt when there is none), newest
