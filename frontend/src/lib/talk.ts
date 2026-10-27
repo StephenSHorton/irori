@@ -1,4 +1,5 @@
-// v0.2 gateway: the inbox, tasks and leases, and reviving gone sessions.
+// v0.2 gateway: the inbox and reviving gone sessions (the Board has its own
+// gateway in board.ts).
 // Like irori.ts, components import from here, never from bindings/, and in a
 // plain browser everything runs on the sample in sample-talk.ts (actions
 // change that sample in memory so the buttons can be tried).
@@ -9,14 +10,8 @@ import { Events } from "@wailsio/runtime"
 import {
   InboxService,
   RosterService,
-  WorkService,
 } from "../../bindings/github.com/StephenSHorton/irori"
 import type { GoneSession } from "../../bindings/github.com/StephenSHorton/irori/models"
-import {
-  TaskState,
-  type Lease,
-  type Task,
-} from "../../bindings/github.com/StephenSHorton/irori/internal/coord/models"
 import {
   HoldReason,
   State,
@@ -26,12 +21,11 @@ import {
 import { inWails, parseTime, sessionShort } from "./irori"
 import { sampleTalk, type SampleTalk } from "./sample-talk"
 
-export type { Delivery, GoneSession, Lease, Policy, Task }
-export { HoldReason, State, TaskState }
+export type { Delivery, GoneSession, Policy }
+export { HoldReason, State }
 
-// Event names mirror the Go constants in inbox_service.go / work_service.go.
+// Event names mirror the Go constants in inbox_service.go.
 export const EventInboxChanged = "inbox:changed"
-export const EventWorkChanged = "work:changed"
 const EventRosterChanged = "roster:changed"
 
 // InboxLimit is how many deliveries the Inbox tab asks for.
@@ -171,31 +165,6 @@ export const talk = {
     sampleChanged()
   },
 
-  async cancelTask(id: string): Promise<void> {
-    if (inWails()) {
-      await WorkService.CancelTask(id)
-      return
-    }
-    const s = sampleState()
-    s.tasks = s.tasks.map((t) =>
-      t.id === id
-        ? {
-            ...t,
-            state: TaskState.Canceled,
-            updatedAt: new Date().toISOString(),
-          }
-        : t
-    )
-    sampleChanged()
-  },
-
-  async releaseLease(resource: string): Promise<void> {
-    if (inWails()) return WorkService.ReleaseLease(resource)
-    const s = sampleState()
-    s.leases = s.leases.filter((l) => l.resource !== resource)
-    sampleChanged()
-  },
-
   // revive runs claude --bg --resume for a gone session and returns what it
   // printed. The caller confirms first.
   async revive(sessionId: string): Promise<string> {
@@ -211,7 +180,7 @@ export const talk = {
 
 // useLatest runs load and keeps only the newest answer: calls are async and
 // can come back out of order.
-function useLatest<T>(load: () => Promise<T>, initial: T) {
+export function useLatest<T>(load: () => Promise<T>, initial: T) {
   const [state, setState] = useState<{
     value: T
     loading: boolean
@@ -289,65 +258,6 @@ export function useInbox(): InboxState {
   return { ...value, loading, error, reload }
 }
 
-export type WorkState = {
-  tasks: Task[]
-  leases: Lease[]
-  loading: boolean
-  error: string | null
-  reload: () => Promise<void>
-}
-
-type WorkValue = { tasks: Task[]; leases: Lease[] }
-
-async function loadWork(): Promise<WorkValue> {
-  if (!inWails()) {
-    const s = sampleState()
-    return { tasks: s.tasks, leases: s.leases }
-  }
-  const [tasks, leases] = await Promise.all([
-    WorkService.Tasks(false),
-    WorkService.Leases(),
-  ])
-  return { tasks: tasks ?? [], leases: leases ?? [] }
-}
-
-// useWork loads tasks (finished ones too; the tab filters) and leases. It
-// re-reads on work:changed (every task or lease change, lease expiry too),
-// and when the tab opens or the window regains focus.
-// WorkRetryMs is the wait before re-reading after a failed Work read.
-const WorkRetryMs = 4000
-
-export function useWork(active: boolean): WorkState {
-  const { value, loading, error, reload } = useLatest<WorkValue>(loadWork, {
-    tasks: [],
-    leases: [],
-  })
-
-  useEffect(() => {
-    void reload()
-    if (!inWails()) return onSample(() => void reload())
-    return Events.On(EventWorkChanged, () => void reload())
-  }, [reload])
-
-  useEffect(() => {
-    if (!active || !inWails()) return
-    void reload()
-    const onFocus = () => void reload()
-    window.addEventListener("focus", onFocus)
-    return () => window.removeEventListener("focus", onFocus)
-  }, [active, reload])
-
-  // A failed read has no next event to recover it (there is no poll), so
-  // retry once a few seconds later while the tab is open.
-  useEffect(() => {
-    if (!active || !error) return
-    const id = window.setTimeout(() => void reload(), WorkRetryMs)
-    return () => window.clearTimeout(id)
-  }, [active, error, reload])
-
-  return { ...value, loading, error, reload }
-}
-
 async function loadGone(): Promise<GoneSession[]> {
   if (!inWails()) return sampleState().gone
   return (await RosterService.Gone(20)) ?? []
@@ -408,14 +318,5 @@ export function isOpen(s: State): boolean {
     s === State.Delivered ||
     s === State.Engaged ||
     s === State.Deferred
-  )
-}
-
-// taskOpen is true for task states that aren't finished.
-export function taskOpen(s: TaskState): boolean {
-  return (
-    s !== TaskState.Completed &&
-    s !== TaskState.Failed &&
-    s !== TaskState.Canceled
   )
 }

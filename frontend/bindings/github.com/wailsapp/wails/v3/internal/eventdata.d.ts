@@ -15,12 +15,12 @@ import type * as update$0 from "../../../../StephenSHorton/irori/internal/update
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
+            "board:changed": {};
             "capture:changed": main$0.CaptureChange;
             "inbox:changed": main$0.InboxCounts;
             "roster:changed": main$0.RosterChange;
             "settings:launch-at-login": boolean;
             "update:status": update$0.Status;
-            "work:changed": {};
         }
     }
 }

@@ -4,7 +4,7 @@ import { AppHeader } from "@/components/roster/app-header"
 import { ActivityPanel } from "@/components/roster/activity-panel"
 import { RosterList } from "@/components/roster/roster-list"
 import { InboxPanel } from "@/components/inbox/inbox-panel"
-import { WorkPanel } from "@/components/work/work-panel"
+import { BoardPanel } from "@/components/board/board-panel"
 import { DecisionsPanel } from "@/components/capture/decisions-panel"
 import {
   HistoryPanel,
@@ -19,17 +19,16 @@ import {
   isOpen,
   nameLookup,
   State,
-  taskOpen,
   useGone,
   useInbox,
-  useWork,
 } from "@/lib/talk"
+import { useBoard } from "@/lib/board"
 import { UpdateBanner } from "@/updater"
 
 const tabs = [
   "roster",
   "inbox",
-  "work",
+  "board",
   "timeline",
   "history",
   "decisions",
@@ -39,6 +38,8 @@ type Tab = (typeof tabs)[number]
 const tabKey = "irori.tab"
 
 function asTab(v: string | null): Tab | null {
+  // The Board replaced the Work tab (decision 16); a remembered "work" opens it.
+  if (v === "work") return "board"
   return tabs.includes(v as Tab) ? (v as Tab) : null
 }
 
@@ -63,13 +64,14 @@ function writeTab(t: Tab) {
 }
 
 // App is who is running (Roster), what they say to each other (Inbox), what
-// they've claimed (Work), and what they did (Timeline, History, Decisions).
+// they're working on and what's in their way (Board), and what they did
+// (Timeline, History, Decisions).
 export function App() {
   const roster = useRoster()
   const inbox = useInbox()
   const goneState = useGone()
   const [tab, setTabState] = useState<Tab>(readTab)
-  const work = useWork(tab === "work")
+  const board = useBoard(tab === "board")
   const fidelity = useFidelity()
   const { repos } = useRepos()
   const now = useNow()
@@ -102,7 +104,7 @@ export function App() {
     [roster.agents, goneState.gone, inbox.deliveries]
   )
   const held = inbox.deliveries.filter((d) => d.state === State.Held).length
-  const openTasks = work.tasks.filter((t) => taskOpen(t.state)).length
+  const needsYou = board.view.needsYou.length
 
   const goTimeline = (key: string) => {
     setAgentKey(key)
@@ -135,9 +137,9 @@ export function App() {
                 />
               )}
             </TabsTrigger>
-            <TabsTrigger value="work" className="px-3">
-              Work
-              <Count n={openTasks} />
+            <TabsTrigger value="board" className="px-3">
+              Board
+              {needsYou > 0 && <Count n={needsYou} signal />}
             </TabsTrigger>
             <TabsTrigger value="timeline" className="px-3">
               Timeline
@@ -188,9 +190,9 @@ export function App() {
             />
           </TabsContent>
 
-          <TabsContent value="work">
-            <WorkPanel
-              work={work}
+          <TabsContent value="board">
+            <BoardPanel
+              board={board}
               agents={roster.agents}
               gone={goneState.gone}
               now={now}

@@ -7,6 +7,9 @@ import { Create as $Create } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as coord$0 from "./internal/coord/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as presence$0 from "./internal/presence/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -107,6 +110,42 @@ export class CaptureRepo {
             $$parsedSource["roots"] = $$createField1_0($$parsedSource["roots"]);
         }
         return new CaptureRepo($$parsedSource as Partial<CaptureRepo>);
+    }
+}
+
+/**
+ * CommentResult is Comment's answer.
+ */
+export class CommentResult {
+    "comment": coord$0.Comment;
+    "told": Told;
+
+    /** Creates a new CommentResult instance. */
+    constructor($$source: Partial<CommentResult> = {}) {
+        if (!("comment" in $$source)) {
+            this["comment"] = (new coord$0.Comment());
+        }
+        if (!("told" in $$source)) {
+            this["told"] = (new Told());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CommentResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CommentResult {
+        const $$createField0_0 = $$createType1;
+        const $$createField1_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("comment" in $$parsedSource) {
+            $$parsedSource["comment"] = $$createField0_0($$parsedSource["comment"]);
+        }
+        if ("told" in $$parsedSource) {
+            $$parsedSource["told"] = $$createField1_0($$parsedSource["told"]);
+        }
+        return new CommentResult($$parsedSource as Partial<CommentResult>);
     }
 }
 
@@ -215,6 +254,72 @@ export class InboxCounts {
 }
 
 /**
+ * NewCard is the Raise form. A BlockReason makes a blocker (decision 17: a
+ * small task created blocked); BlockedOn and BlockedRef say on what. With
+ * AssignTo set the task goes to that agent, who hears at its next turn.
+ */
+export class NewCard {
+    "title": string;
+    "objective": string;
+    "doneCriteria": string;
+    "repoKey": string;
+    "shared": boolean;
+    "links": string[];
+    "assignTo": string;
+    "blockReason": string;
+    "blockedOn": coord$0.BlockerKind;
+    "blockedRef": string;
+
+    /** Creates a new NewCard instance. */
+    constructor($$source: Partial<NewCard> = {}) {
+        if (!("title" in $$source)) {
+            this["title"] = "";
+        }
+        if (!("objective" in $$source)) {
+            this["objective"] = "";
+        }
+        if (!("doneCriteria" in $$source)) {
+            this["doneCriteria"] = "";
+        }
+        if (!("repoKey" in $$source)) {
+            this["repoKey"] = "";
+        }
+        if (!("shared" in $$source)) {
+            this["shared"] = false;
+        }
+        if (!("links" in $$source)) {
+            this["links"] = [];
+        }
+        if (!("assignTo" in $$source)) {
+            this["assignTo"] = "";
+        }
+        if (!("blockReason" in $$source)) {
+            this["blockReason"] = "";
+        }
+        if (!("blockedOn" in $$source)) {
+            this["blockedOn"] = coord$0.BlockerKind.$zero;
+        }
+        if (!("blockedRef" in $$source)) {
+            this["blockedRef"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new NewCard instance from a string or object.
+     */
+    static createFrom($$source: any = {}): NewCard {
+        const $$createField5_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("links" in $$parsedSource) {
+            $$parsedSource["links"] = $$createField5_0($$parsedSource["links"]);
+        }
+        return new NewCard($$parsedSource as Partial<NewCard>);
+    }
+}
+
+/**
  * RosterChange is the roster:changed payload: the change plus the full roster
  * after it, so the UI never has to merge.
  */
@@ -238,8 +343,8 @@ export class RosterChange {
      * Creates a new RosterChange instance from a string or object.
      */
     static createFrom($$source: any = {}): RosterChange {
-        const $$createField0_0 = $$createType1;
-        const $$createField1_0 = $$createType3;
+        const $$createField0_0 = $$createType3;
+        const $$createField1_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("change" in $$parsedSource) {
             $$parsedSource["change"] = $$createField0_0($$parsedSource["change"]);
@@ -251,8 +356,125 @@ export class RosterChange {
     }
 }
 
+/**
+ * TaskDetail is one card opened: the task and its comments, oldest first.
+ */
+export class TaskDetail {
+    "task": coord$0.Task;
+    "comments": coord$0.Comment[];
+
+    /** Creates a new TaskDetail instance. */
+    constructor($$source: Partial<TaskDetail> = {}) {
+        if (!("task" in $$source)) {
+            this["task"] = (new coord$0.Task());
+        }
+        if (!("comments" in $$source)) {
+            this["comments"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TaskDetail instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TaskDetail {
+        const $$createField0_0 = $$createType6;
+        const $$createField1_0 = $$createType7;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("task" in $$parsedSource) {
+            $$parsedSource["task"] = $$createField0_0($$parsedSource["task"]);
+        }
+        if ("comments" in $$parsedSource) {
+            $$parsedSource["comments"] = $$createField1_0($$parsedSource["comments"]);
+        }
+        return new TaskDetail($$parsedSource as Partial<TaskDetail>);
+    }
+}
+
+/**
+ * TaskResult is a task action's answer: the task, and who heard about it.
+ */
+export class TaskResult {
+    "task": coord$0.Task;
+    "told": Told;
+
+    /** Creates a new TaskResult instance. */
+    constructor($$source: Partial<TaskResult> = {}) {
+        if (!("task" in $$source)) {
+            this["task"] = (new coord$0.Task());
+        }
+        if (!("told" in $$source)) {
+            this["told"] = (new Told());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TaskResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TaskResult {
+        const $$createField0_0 = $$createType6;
+        const $$createField1_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("task" in $$parsedSource) {
+            $$parsedSource["task"] = $$createField0_0($$parsedSource["task"]);
+        }
+        if ("told" in $$parsedSource) {
+            $$parsedSource["told"] = $$createField1_0($$parsedSource["told"]);
+        }
+        return new TaskResult($$parsedSource as Partial<TaskResult>);
+    }
+}
+
+/**
+ * Told says who an action's notice went to.
+ */
+export class Told {
+    /**
+     * agent keys told; empty when nobody was
+     */
+    "to": string[];
+
+    /**
+     * "next_turn" or "wake"; "" when nobody was told
+     */
+    "mode"?: string;
+
+    /**
+     * a recipient couldn't be reached; the action itself stands
+     */
+    "error"?: string;
+
+    /** Creates a new Told instance. */
+    constructor($$source: Partial<Told> = {}) {
+        if (!("to" in $$source)) {
+            this["to"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Told instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Told {
+        const $$createField0_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("to" in $$parsedSource) {
+            $$parsedSource["to"] = $$createField0_0($$parsedSource["to"]);
+        }
+        return new Told($$parsedSource as Partial<Told>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
-const $$createType1 = presence$0.Change.createFrom;
-const $$createType2 = presence$0.AgentCard.createFrom;
-const $$createType3 = $Create.Array($$createType2);
+const $$createType1 = coord$0.Comment.createFrom;
+const $$createType2 = Told.createFrom;
+const $$createType3 = presence$0.Change.createFrom;
+const $$createType4 = presence$0.AgentCard.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = coord$0.Task.createFrom;
+const $$createType7 = $Create.Array($$createType1);

@@ -10,17 +10,371 @@ import { Create as $Create } from "@wailsio/runtime";
 import * as time$0 from "../../../../../time/models.js";
 
 /**
- * Lease is an advisory claim on a resource.
+ * BlockedBy names what is in the way.
  */
-export class Lease {
+export class BlockedBy {
+    "kind": BlockerKind;
+    "ref"?: string;
+
+    /** Creates a new BlockedBy instance. */
+    constructor($$source: Partial<BlockedBy> = {}) {
+        if (!("kind" in $$source)) {
+            this["kind"] = BlockerKind.$zero;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new BlockedBy instance from a string or object.
+     */
+    static createFrom($$source: any = {}): BlockedBy {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new BlockedBy($$parsedSource as Partial<BlockedBy>);
+    }
+}
+
+/**
+ * BlockerKind says what a blocked task waits on.
+ */
+export enum BlockerKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * Ref: a resource (normalized like Acquire)
+     */
+    BlockedOnLease = "lease",
+
+    /**
+     * Ref: a task id
+     */
+    BlockedOnTask = "task",
+
+    /**
+     * Ref: a "user:*" key, or "" for whoever is at the app
+     */
+    BlockedOnPerson = "person",
+
+    /**
+     * Ref: an agent key
+     */
+    BlockedOnAgent = "agent",
+
+    /**
+     * Ref: free text or a URL (CI, a review, a vendor)
+     */
+    BlockedOnExternal = "external",
+};
+
+/**
+ * BoardView is the Board, grouped for the GUI. Each task is in exactly one
+ * group, picked in this order:
+ * 
+ *  1. Done: terminal states, newest UpdatedAt first, at most DoneLimit
+ *     (DoneTotal counts them all). Collapsed in the GUI; never timed out.
+ *  2. NeedsYou: InputRequired; Blocked on a person (Ref "" or For); or
+ *     Holders contains For (when For is a person). For "" is whoever is at
+ *     the app: every person blocker counts. For an agent viewer, NeedsYou
+ *     holds tasks assigned to it that it hasn't taken up yet (For is in
+ *     Assigned; not while Blocked) and tasks Blocked on it
+ *     (BlockedOnAgent, Ref For).
+ *  3. Blocked: every other Blocked task.
+ *  4. Working: has a holder (one working it, or an assignee that hasn't
+ *     claimed yet).
+ *  5. Open: no holder.
+ * 
+ * Groups 2-5 are newest UpdatedAt first. Leases are LeaseCards, soonest
+ * expiry first; the GUI shows them with Blocked.
+ */
+export class BoardView {
+    "needsYou": Card[];
+    "blocked": Card[];
+    "working": Card[];
+    "open": Card[];
+    "done": Card[];
+    "doneTotal": number;
+    "leases": LeaseCard[];
+
+    /** Creates a new BoardView instance. */
+    constructor($$source: Partial<BoardView> = {}) {
+        if (!("needsYou" in $$source)) {
+            this["needsYou"] = [];
+        }
+        if (!("blocked" in $$source)) {
+            this["blocked"] = [];
+        }
+        if (!("working" in $$source)) {
+            this["working"] = [];
+        }
+        if (!("open" in $$source)) {
+            this["open"] = [];
+        }
+        if (!("done" in $$source)) {
+            this["done"] = [];
+        }
+        if (!("doneTotal" in $$source)) {
+            this["doneTotal"] = 0;
+        }
+        if (!("leases" in $$source)) {
+            this["leases"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new BoardView instance from a string or object.
+     */
+    static createFrom($$source: any = {}): BoardView {
+        const $$createField0_0 = $$createType1;
+        const $$createField1_0 = $$createType1;
+        const $$createField2_0 = $$createType1;
+        const $$createField3_0 = $$createType1;
+        const $$createField4_0 = $$createType1;
+        const $$createField6_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("needsYou" in $$parsedSource) {
+            $$parsedSource["needsYou"] = $$createField0_0($$parsedSource["needsYou"]);
+        }
+        if ("blocked" in $$parsedSource) {
+            $$parsedSource["blocked"] = $$createField1_0($$parsedSource["blocked"]);
+        }
+        if ("working" in $$parsedSource) {
+            $$parsedSource["working"] = $$createField2_0($$parsedSource["working"]);
+        }
+        if ("open" in $$parsedSource) {
+            $$parsedSource["open"] = $$createField3_0($$parsedSource["open"]);
+        }
+        if ("done" in $$parsedSource) {
+            $$parsedSource["done"] = $$createField4_0($$parsedSource["done"]);
+        }
+        if ("leases" in $$parsedSource) {
+            $$parsedSource["leases"] = $$createField6_0($$parsedSource["leases"]);
+        }
+        return new BoardView($$parsedSource as Partial<BoardView>);
+    }
+}
+
+/**
+ * Card is one task on the Board.
+ */
+export class Card {
+    "id": string;
+    "title": string;
+    "objective": string;
+    "doneCriteria"?: string;
+    "repoKey"?: string;
+
+    /**
+     * path globs
+     */
+    "scope"?: string[];
+    "state": TaskState;
+
+    /**
+     * Holder is Holders[0], or "". It is kept so v0.2 readers (observe,
+     * tools, the GUI) keep working, and is derived: the fold maintains
+     * Holders and copies the first one here.
+     */
+    "holder"?: string;
+
+    /**
+     * Holders are who work it: agent keys, or a person's "user:*" key when
+     * it was assigned to a person. A task that isn't Shared has at most one;
+     * a Shared task has any number and any of them may work it (decision
+     * 20). Join order, no duplicates. The fold, observe (gone tracking),
+     * TaskFilter.Holder and every permission check iterate Holders; Holder
+     * is only for readers.
+     */
+    "holders"?: string[];
+
+    /**
+     * Assigned are the Holders that were assigned and haven't taken the
+     * task up yet (claimed, joined, or posted its state). An assignee is
+     * told by a notice and sees the task in its NeedsYou until then; Holders
+     * minus Assigned are who actually work it.
+     */
+    "assigned"?: string[];
+    "shared"?: boolean;
+    "createdBy": string;
+    "note"?: string;
+    "createdAt": time$0.Time;
+    "updatedAt": time$0.Time;
+
+    /**
+     * Reason and BlockedBy are set while State is Blocked and cleared when
+     * it leaves Blocked.
+     */
+    "reason"?: string;
+    "blockedBy"?: BlockedBy | null;
+
+    /**
+     * board.md "Links out"; <= MaxLinks
+     */
+    "links"?: Link[];
+
+    /**
+     * how many; read them with Comments
+     */
+    "comments"?: number;
+    "lastComment"?: Comment | null;
+
+    /**
+     * Resolved: the task is Blocked and its BlockedBy has gone away (the
+     * lease is no longer held, the task is terminal). SweepNotices closes
+     * such blockers; Resolved shows the gap until it runs.
+     */
+    "resolved"?: boolean;
+
+    /**
+     * Overlaps, on a Shared task, lists pairs "<resource> ~ <resource>" of
+     * its holders' leases that overlap (decision 20's warning).
+     */
+    "overlaps"?: string[];
+
+    /** Creates a new Card instance. */
+    constructor($$source: Partial<Card> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("title" in $$source)) {
+            this["title"] = "";
+        }
+        if (!("objective" in $$source)) {
+            this["objective"] = "";
+        }
+        if (!("state" in $$source)) {
+            this["state"] = TaskState.$zero;
+        }
+        if (!("createdBy" in $$source)) {
+            this["createdBy"] = "";
+        }
+        if (!("createdAt" in $$source)) {
+            this["createdAt"] = null;
+        }
+        if (!("updatedAt" in $$source)) {
+            this["updatedAt"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Card instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Card {
+        const $$createField5_0 = $$createType4;
+        const $$createField8_0 = $$createType4;
+        const $$createField9_0 = $$createType4;
+        const $$createField16_0 = $$createType6;
+        const $$createField17_0 = $$createType8;
+        const $$createField19_0 = $$createType10;
+        const $$createField21_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("scope" in $$parsedSource) {
+            $$parsedSource["scope"] = $$createField5_0($$parsedSource["scope"]);
+        }
+        if ("holders" in $$parsedSource) {
+            $$parsedSource["holders"] = $$createField8_0($$parsedSource["holders"]);
+        }
+        if ("assigned" in $$parsedSource) {
+            $$parsedSource["assigned"] = $$createField9_0($$parsedSource["assigned"]);
+        }
+        if ("blockedBy" in $$parsedSource) {
+            $$parsedSource["blockedBy"] = $$createField16_0($$parsedSource["blockedBy"]);
+        }
+        if ("links" in $$parsedSource) {
+            $$parsedSource["links"] = $$createField17_0($$parsedSource["links"]);
+        }
+        if ("lastComment" in $$parsedSource) {
+            $$parsedSource["lastComment"] = $$createField19_0($$parsedSource["lastComment"]);
+        }
+        if ("overlaps" in $$parsedSource) {
+            $$parsedSource["overlaps"] = $$createField21_0($$parsedSource["overlaps"]);
+        }
+        return new Card($$parsedSource as Partial<Card>);
+    }
+}
+
+/**
+ * Comment is one task.comment row. Comments are their own rows, never
+ * folded into the task (Task.Comments is only a count).
+ */
+export class Comment {
+    /**
+     * newID, like task ids; ref "comment:<id>"
+     */
+    "id": string;
+    "taskId": string;
+
+    /**
+     * agent key or "user:*"
+     */
+    "by": string;
+    "text": string;
+
+    /**
+     * the author asked to wake the holders (decision 18)
+     */
+    "wake": boolean;
+    "at": time$0.Time;
+
+    /** Creates a new Comment instance. */
+    constructor($$source: Partial<Comment> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("taskId" in $$source)) {
+            this["taskId"] = "";
+        }
+        if (!("by" in $$source)) {
+            this["by"] = "";
+        }
+        if (!("text" in $$source)) {
+            this["text"] = "";
+        }
+        if (!("wake" in $$source)) {
+            this["wake"] = false;
+        }
+        if (!("at" in $$source)) {
+            this["at"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Comment instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Comment {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Comment($$parsedSource as Partial<Comment>);
+    }
+}
+
+/**
+ * LeaseCard is a lease shown on the Board because it blocks something: a
+ * blocked task names it (BlockedOnLease) or a refusal is active against it.
+ * It goes away when the lease is released or expires.
+ */
+export class LeaseCard {
     "resource": string;
     "holder": string;
     "until": time$0.Time;
     "stolenFrom"?: string;
     "acquiredAt": time$0.Time;
+    "refused"?: Refusal[];
 
-    /** Creates a new Lease instance. */
-    constructor($$source: Partial<Lease> = {}) {
+    /**
+     * ids of tasks blocked on it
+     */
+    "blocks"?: string[];
+
+    /** Creates a new LeaseCard instance. */
+    constructor($$source: Partial<LeaseCard> = {}) {
         if (!("resource" in $$source)) {
             this["resource"] = "";
         }
@@ -38,11 +392,144 @@ export class Lease {
     }
 
     /**
-     * Creates a new Lease instance from a string or object.
+     * Creates a new LeaseCard instance from a string or object.
      */
-    static createFrom($$source: any = {}): Lease {
+    static createFrom($$source: any = {}): LeaseCard {
+        const $$createField5_0 = $$createType12;
+        const $$createField6_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new Lease($$parsedSource as Partial<Lease>);
+        if ("refused" in $$parsedSource) {
+            $$parsedSource["refused"] = $$createField5_0($$parsedSource["refused"]);
+        }
+        if ("blocks" in $$parsedSource) {
+            $$parsedSource["blocks"] = $$createField6_0($$parsedSource["blocks"]);
+        }
+        return new LeaseCard($$parsedSource as Partial<LeaseCard>);
+    }
+}
+
+/**
+ * Link is one link out from a card (board.md "Links out"). Irori only
+ * points: it never syncs or mirrors what a link names.
+ */
+export class Link {
+    "kind": LinkKind;
+
+    /**
+     * the URL, path or sha
+     */
+    "ref": string;
+
+    /**
+     * LinkLabel(Ref), what the chip shows
+     */
+    "label": string;
+
+    /** Creates a new Link instance. */
+    constructor($$source: Partial<Link> = {}) {
+        if (!("kind" in $$source)) {
+            this["kind"] = LinkKind.$zero;
+        }
+        if (!("ref" in $$source)) {
+            this["ref"] = "";
+        }
+        if (!("label" in $$source)) {
+            this["label"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Link instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Link {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Link($$parsedSource as Partial<Link>);
+    }
+}
+
+/**
+ * LinkKind says what a card's link points at.
+ */
+export enum LinkKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * http(s) URL: Linear, Notion, a GitHub issue or PR, anything
+     */
+    LinkURL = "url",
+
+    /**
+     * a repo path, forward slashes
+     */
+    LinkPath = "path",
+
+    /**
+     * a commit sha (7-40 hex, lowercased)
+     */
+    LinkCommit = "commit",
+};
+
+/**
+ * Refusal is one lease.refused row: by asked for resource and heldBy had it.
+ * It is active while heldBy still holds a lease that conflicts with
+ * resource and by hasn't since acquired it; that is derived on read, with no
+ * timer. Acquire writes at most one row per (resource, by, heldBy) while an
+ * earlier one is active.
+ */
+export class Refusal {
+    /**
+     * what by asked for (normalized)
+     */
+    "resource": string;
+    "by": string;
+    "heldBy": string;
+
+    /**
+     * the conflicting lease's resource (may differ: overlapping globs)
+     */
+    "held": string;
+
+    /**
+     * the conflicting lease's Until when refused
+     */
+    "until": time$0.Time;
+    "at": time$0.Time;
+
+    /** Creates a new Refusal instance. */
+    constructor($$source: Partial<Refusal> = {}) {
+        if (!("resource" in $$source)) {
+            this["resource"] = "";
+        }
+        if (!("by" in $$source)) {
+            this["by"] = "";
+        }
+        if (!("heldBy" in $$source)) {
+            this["heldBy"] = "";
+        }
+        if (!("held" in $$source)) {
+            this["held"] = "";
+        }
+        if (!("until" in $$source)) {
+            this["until"] = null;
+        }
+        if (!("at" in $$source)) {
+            this["at"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Refusal instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Refusal {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Refusal($$parsedSource as Partial<Refusal>);
     }
 }
 
@@ -63,13 +550,51 @@ export class Task {
     "state": TaskState;
 
     /**
-     * the single writer (agent key)
+     * Holder is Holders[0], or "". It is kept so v0.2 readers (observe,
+     * tools, the GUI) keep working, and is derived: the fold maintains
+     * Holders and copies the first one here.
      */
     "holder"?: string;
+
+    /**
+     * Holders are who work it: agent keys, or a person's "user:*" key when
+     * it was assigned to a person. A task that isn't Shared has at most one;
+     * a Shared task has any number and any of them may work it (decision
+     * 20). Join order, no duplicates. The fold, observe (gone tracking),
+     * TaskFilter.Holder and every permission check iterate Holders; Holder
+     * is only for readers.
+     */
+    "holders"?: string[];
+
+    /**
+     * Assigned are the Holders that were assigned and haven't taken the
+     * task up yet (claimed, joined, or posted its state). An assignee is
+     * told by a notice and sees the task in its NeedsYou until then; Holders
+     * minus Assigned are who actually work it.
+     */
+    "assigned"?: string[];
+    "shared"?: boolean;
     "createdBy": string;
     "note"?: string;
     "createdAt": time$0.Time;
     "updatedAt": time$0.Time;
+
+    /**
+     * Reason and BlockedBy are set while State is Blocked and cleared when
+     * it leaves Blocked.
+     */
+    "reason"?: string;
+    "blockedBy"?: BlockedBy | null;
+
+    /**
+     * board.md "Links out"; <= MaxLinks
+     */
+    "links"?: Link[];
+
+    /**
+     * how many; read them with Comments
+     */
+    "comments"?: number;
 
     /** Creates a new Task instance. */
     constructor($$source: Partial<Task> = {}) {
@@ -102,17 +627,33 @@ export class Task {
      * Creates a new Task instance from a string or object.
      */
     static createFrom($$source: any = {}): Task {
-        const $$createField5_0 = $$createType0;
+        const $$createField5_0 = $$createType4;
+        const $$createField8_0 = $$createType4;
+        const $$createField9_0 = $$createType4;
+        const $$createField16_0 = $$createType6;
+        const $$createField17_0 = $$createType8;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
             $$parsedSource["scope"] = $$createField5_0($$parsedSource["scope"]);
+        }
+        if ("holders" in $$parsedSource) {
+            $$parsedSource["holders"] = $$createField8_0($$parsedSource["holders"]);
+        }
+        if ("assigned" in $$parsedSource) {
+            $$parsedSource["assigned"] = $$createField9_0($$parsedSource["assigned"]);
+        }
+        if ("blockedBy" in $$parsedSource) {
+            $$parsedSource["blockedBy"] = $$createField16_0($$parsedSource["blockedBy"]);
+        }
+        if ("links" in $$parsedSource) {
+            $$parsedSource["links"] = $$createField17_0($$parsedSource["links"]);
         }
         return new Task($$parsedSource as Partial<Task>);
     }
 }
 
 /**
- * TaskState is an A2A TaskState subset.
+ * TaskState is an A2A TaskState subset, plus Blocked (decision 17).
  */
 export enum TaskState {
     /**
@@ -122,11 +663,35 @@ export enum TaskState {
 
     Submitted = "submitted",
     Working = "working",
+
+    /**
+     * waiting on a person's answer
+     */
     InputRequired = "input_required",
     Completed = "completed",
     Failed = "failed",
     Canceled = "canceled",
+
+    /**
+     * Blocked: something is in the way (Task.Reason, Task.BlockedBy). Entered
+     * only through Block or NewTask.BlockReason (SetTaskState refuses it, so
+     * a blocked task always has a reason) and left through Unblock or a later
+     * SetTaskState. Not terminal.
+     */
+    Blocked = "blocked",
 };
 
 // Private type creation functions
-const $$createType0 = $Create.Array($Create.Any);
+const $$createType0 = Card.createFrom;
+const $$createType1 = $Create.Array($$createType0);
+const $$createType2 = LeaseCard.createFrom;
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = $Create.Array($Create.Any);
+const $$createType5 = BlockedBy.createFrom;
+const $$createType6 = $Create.Nullable($$createType5);
+const $$createType7 = Link.createFrom;
+const $$createType8 = $Create.Array($$createType7);
+const $$createType9 = Comment.createFrom;
+const $$createType10 = $Create.Nullable($$createType9);
+const $$createType11 = Refusal.createFrom;
+const $$createType12 = $Create.Array($$createType11);

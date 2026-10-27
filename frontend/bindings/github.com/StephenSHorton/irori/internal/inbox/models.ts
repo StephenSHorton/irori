@@ -82,6 +82,11 @@ export class Delivery {
      */
     "to": string;
     "repoKey"?: string;
+
+    /**
+     * "" = ModeWake (old rows)
+     */
+    "mode"?: DeliveryMode;
     "state": State;
     "hold"?: HoldReason;
 
@@ -153,14 +158,49 @@ export class Delivery {
      * Creates a new Delivery instance from a string or object.
      */
     static createFrom($$source: any = {}): Delivery {
-        const $$createField15_0 = $$createType0;
+        const $$createField16_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("message" in $$parsedSource) {
-            $$parsedSource["message"] = $$createField15_0($$parsedSource["message"]);
+            $$parsedSource["message"] = $$createField16_0($$parsedSource["message"]);
         }
         return new Delivery($$parsedSource as Partial<Delivery>);
     }
 }
+
+/**
+ * DeliveryMode is how a delivery reaches a Claude session (decision 18,
+ * spike 04). It is per delivery and fixed at send.
+ */
+export enum DeliveryMode {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * ModeWake submits a prompt: a full turn starts now (design v0.2 §4).
+     */
+    ModeWake = "wake",
+
+    /**
+     * ModeNextTurn never starts a turn. On the mod path it goes out as an
+     * append (NextAppend: $.session.append, a meta user row the model reads
+     * on its next request); it also rides along in any wake that goes out
+     * first. On the channel path (Grok, which can't append silently) it is
+     * pushed like a wake, with meta mode=next_turn. Rules:
+     *   - delivered = the append resolved (MarkDelivered with its token);
+     *   - engaged = the next main-loop turn.start of that session after
+     *     delivery, whoever started it (the mod reports MarkEngaged with the
+     *     append token); an append made mid-turn may be read sooner, which is
+     *     fine; an engaged append sets no running wake (hop stays 0: the
+     *     person, not the message, started that turn);
+     *   - the sweeper never moves a next_turn delivery for being unengaged
+     *     (UnengagedLimit) and never sends it a reminder (QuietLimit); the
+     *     gone-move for repo work still applies;
+     *   - nothing about next_turn ever wakes.
+     */
+    ModeNextTurn = "next_turn",
+};
 
 /**
  * HoldReason says why a delivery is held.
@@ -200,6 +240,18 @@ export class Message {
     "hop": number;
     "trust": Trust;
     "sentAt": time$0.Time;
+
+    /**
+     * Ref is what the message is about, from SendOptions.Ref ("task:<id>",
+     * "comment:<id>", ...). The fence prints it as ref="..." so the
+     * recipient can show it.
+     */
+    "ref"?: string;
+
+    /**
+     * Notice is SendOptions.Notice: a Board notice that needs no reply.
+     */
+    "notice"?: boolean;
 
     /** Creates a new Message instance. */
     constructor($$source: Partial<Message> = {}) {

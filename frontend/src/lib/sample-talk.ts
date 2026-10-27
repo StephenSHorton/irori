@@ -1,13 +1,8 @@
-// The built-in inbox, tasks, leases and gone sessions shown when the page
+// The built-in inbox and gone sessions shown when the page
 // runs in a plain browser, next to the sample roster in sample.ts. Every
 // value is made up and says so. Add ?empty to the URL for the empty states.
 
 import { GoneSession } from "../../bindings/github.com/StephenSHorton/irori/models"
-import {
-  Lease,
-  Task,
-  TaskState,
-} from "../../bindings/github.com/StephenSHorton/irori/internal/coord/models"
 import {
   AddressKind,
   Delivery,
@@ -31,8 +26,6 @@ const repo = "github.com/sample-org/example-app"
 export type SampleTalk = {
   deliveries: Delivery[]
   policy: Policy
-  tasks: Task[]
-  leases: Lease[]
   gone: GoneSession[]
 }
 
@@ -100,7 +93,7 @@ const seeds: Seed[] = [
   },
 ]
 
-// sampleTalk builds the synthetic inbox and work state relative to now.
+// sampleTalk builds the synthetic inbox relative to now.
 export function sampleTalk(now: Date): SampleTalk {
   const at = (agoSec: number) =>
     new Date(now.getTime() - agoSec * 1000).toISOString()
@@ -111,7 +104,7 @@ export function sampleTalk(now: Date): SampleTalk {
     allow: [],
     paused: false,
   })
-  if (empty) return { deliveries: [], policy, tasks: [], leases: [], gone: [] }
+  if (empty) return { deliveries: [], policy, gone: [] }
 
   const deliveries = seeds.map((s, i) => {
     const id = `sample-delivery-${i + 1}`
@@ -140,58 +133,6 @@ export function sampleTalk(now: Date): SampleTalk {
     })
   })
 
-  const tasks = [
-    new Task({
-      id: "sample-task-1",
-      title: "Sample: fix the example parser's third case",
-      objective: "Sample objective.",
-      repoKey: repo,
-      state: TaskState.Working,
-      holder: otter,
-      createdBy: heron,
-      createdAt: at(3600),
-      updatedAt: at(120),
-    }),
-    new Task({
-      id: "sample-task-2",
-      title: "Sample: review the placeholder docs",
-      objective: "Sample objective.",
-      repoKey: "root:5a3c1e0b9d7f2a4c6e8b0d1f3a5c7e9b1d3f5a7c",
-      state: TaskState.Submitted,
-      createdBy: you.key,
-      createdAt: at(1800),
-      updatedAt: at(1800),
-    }),
-    new Task({
-      id: "sample-task-3",
-      title: "Sample: rename the made-up module",
-      objective: "Sample objective.",
-      repoKey: repo,
-      state: TaskState.Completed,
-      holder: heron,
-      createdBy: heron,
-      createdAt: at(7200),
-      updatedAt: at(5400),
-    }),
-  ]
-
-  const until = (sec: number) =>
-    new Date(now.getTime() + sec * 1000).toISOString()
-  const leases = [
-    new Lease({
-      resource: `path:${repo}:src/parser/**`,
-      holder: otter,
-      until: until(60 * 24),
-      acquiredAt: at(360),
-    }),
-    new Lease({
-      resource: "port:8799",
-      holder: heron,
-      until: until(60 * 3 + 20),
-      acquiredAt: at(60 * 27),
-    }),
-  ]
-
   const goneList = [
     new GoneSession({
       key: gone,
@@ -207,5 +148,5 @@ export function sampleTalk(now: Date): SampleTalk {
     }),
   ]
 
-  return { deliveries, policy, tasks, leases, gone: goneList }
+  return { deliveries, policy, gone: goneList }
 }
