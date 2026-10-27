@@ -44,7 +44,7 @@ func (b *inbox) sendLocked(ctx context.Context, from Sender, to Address, text, r
 	}
 
 	// Route to exactly one recipient ("" = repo work with no desk yet).
-	var recipient, repo, replyTo string
+	var recipient, repo, replyTo, note string
 	addr := Address{Kind: to.Kind, Value: strings.TrimSpace(to.Value)}
 	switch to.Kind {
 	case ToAgent:
@@ -68,6 +68,12 @@ func (b *inbox) sendLocked(ctx context.Context, from Sender, to Address, text, r
 			return Message{}, Delivery{}, ErrSelf
 		}
 		recipient, replyTo = orig.From.Key, orig.ID
+	case ToPR:
+		r, err := b.routePR(from.Key, addr.Value, cards, now)
+		if err != nil {
+			return Message{}, Delivery{}, err
+		}
+		addr.Value, recipient, repo, note = r.key, r.to, r.repo, r.note
 	default:
 		return Message{}, Delivery{}, fmt.Errorf("inbox: unknown address kind %q", to.Kind)
 	}
@@ -111,7 +117,7 @@ func (b *inbox) sendLocked(ctx context.Context, from Sender, to Address, text, r
 	if err := b.emit(ctx, from.Key, KindMessageSent, m); err != nil {
 		return Message{}, Delivery{}, err
 	}
-	r := placed(deliveryRow{DeliveryID: "dlv_" + b.ids.next(now), MessageID: m.ID, To: recipient, RepoKey: repo}, b.hold(&m, recipient, cards))
+	r := placed(deliveryRow{DeliveryID: "dlv_" + b.ids.next(now), MessageID: m.ID, To: recipient, RepoKey: repo, Note: note}, b.hold(&m, recipient, cards))
 	if err := b.putDelivery(ctx, r, from.Key); err != nil {
 		return Message{}, Delivery{}, err
 	}

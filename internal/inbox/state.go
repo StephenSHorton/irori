@@ -19,6 +19,8 @@ import (
 var (
 	ErrSelf  = errors.New("inbox: that's you; address another agent")
 	ErrEmpty = errors.New("inbox: give the message text")
+	// ErrBadPR: a ToPR address that isn't a PR.
+	ErrBadPR = errors.New("inbox: not a pull request address")
 )
 
 // MaxNote caps defer/skip notes and send reasons (runes).
@@ -133,6 +135,7 @@ type inbox struct {
 	mu     sync.Mutex
 	st     *store.Store
 	roster Roster
+	owners func(prKey string) []string // Options.PROwners; nil = no ledger
 	dev    string
 	now    func() time.Time
 	lim    limits
@@ -181,7 +184,7 @@ func newInbox(ctx context.Context, st *store.Store, roster Roster, opts Options)
 		return def
 	}
 	b := &inbox{
-		st: st, roster: roster, dev: opts.DeviceID, now: now,
+		st: st, roster: roster, owners: opts.PROwners, dev: opts.DeviceID, now: now,
 		lim: limits{
 			unengaged: pick(opts.UnengagedLimit, UnengagedLimit),
 			gone:      pick(opts.GoneGrace, GoneGrace),
