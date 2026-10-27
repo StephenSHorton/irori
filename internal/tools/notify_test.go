@@ -175,3 +175,18 @@ func TestNotifyRefusals(t *testing.T) {
 	h.fails(a, "notify", map[string]any{"text": "x"}, "turned off")
 	h.fails(Caller{}, "notify", map[string]any{"text": "x"}, "isn't bound")
 }
+
+// A caller that has never sent or received a message and is gone by the
+// time the person answers (a Grok member whose stream closed) still hears.
+func TestNotifyAnswerAfterCallerLeft(t *testing.T) {
+	h := newHarness(t)
+	c := withCards(h)
+	h.ok(claude(keyG, "grokker"), "notify", map[string]any{"text": "Ship?", "actions": []string{"Yes", "No"}})
+	h.b.roster.mu.Lock()
+	delete(h.b.roster.cards, keyG)
+	h.b.roster.mu.Unlock()
+	c.last(t).Actions[0].Run()
+	if got := answerFor(t, h, keyG).Message.Text; got != "You asked the person: Ship?. They chose: Yes" {
+		t.Fatalf("answer = %q", got)
+	}
+}

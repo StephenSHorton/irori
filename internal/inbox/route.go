@@ -266,6 +266,19 @@ func (b *Inbox) Reachable(agent string) (mod, channel bool) {
 	return false, false
 }
 
+// RecordRoster logs the live roster's names the way every send does, so an
+// agent live now stays addressable by key after it goes. A caller that
+// will send to an agent later (the notify tool's answer, after the person
+// chooses) calls it while that agent is still here: a Grok member's card
+// is not presence, so nothing else may have recorded it.
+func (b *Inbox) RecordRoster(ctx context.Context) error {
+	x := b.impl
+	x.mu.Lock()
+	defer x.unlock()
+	_, err := x.liveCards(ctx)
+	return err
+}
+
 // FrontDesk reports the agent that repo-addressed work for repoKey goes to
 // now, or "" when no live agent in that repo is reachable.
 func (b *Inbox) FrontDesk(repoKey string) string {

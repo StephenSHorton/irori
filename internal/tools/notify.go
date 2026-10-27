@@ -142,6 +142,13 @@ func (s *set) notify(ctx context.Context, c Caller, raw json.RawMessage) string 
 			answer(fmt.Sprintf("No answer: the card went away after %s without a choice.", humanWait(wait)))
 		}
 		note.Expire = wait
+		// The answer may come after the caller has gone; record it now
+		// so its key still resolves then.
+		if ib := s.b.Inbox(); ib != nil {
+			if err := ib.RecordRoster(ctx); err != nil {
+				return mapErr(err)
+			}
+		}
 	}
 	if !n.Post(note) {
 		return errText("the card couldn't be shown (notifications may have just been turned off).")
