@@ -98,6 +98,13 @@ type capture struct {
 	noisePaths  map[string]map[string]bool // turnKey -> editPathKey -> dropped (true) or kept
 	ignores     ignoreCache
 
+	// Search (search.go): the index, plus what Show needs that the fold
+	// above doesn't keep in a findable shape.
+	idx      *ftsIndex
+	turnByID map[string]*TurnRow       // TurnRow.ID
+	prAll    map[string][]ledger.Entry // ledger key -> every entry, best first (the ledger's view ages out)
+	srcs     sources
+
 	subMu sync.Mutex
 	subs  map[chan Change]struct{}
 
@@ -151,8 +158,13 @@ func newCapture(ctx context.Context, st *store.Store, roster Roster, opts Option
 		files: map[string]*tfile{}, reflogs: map[string]*reflogState{},
 		firstSize: map[string]int64{}, noisePaths: map[string]map[string]bool{},
 		subs: map[chan Change]struct{}{}, backfilling: true, firstPass: true,
+		turnByID: map[string]*TurnRow{}, prAll: map[string][]ledger.Entry{},
+	}
+	if c.idx, err = openIndex(); err != nil {
+		return nil, err
 	}
 	if err := c.replay(ctx); err != nil {
+		c.idx.close()
 		return nil, err
 	}
 	return &Capture{impl: c}, nil
@@ -162,6 +174,12 @@ func newCapture(ctx context.Context, st *store.Store, roster Roster, opts Option
 func (c *capture) replay(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.idx.begin()
+	defer func() {
+		if err := c.idx.commit(); err != nil {
+			c.lastErr = "capture: search index: " + err.Error()
+		}
+	}()
 	var after hlc.Timestamp
 	for {
 		evs, err := c.st.List(ctx, store.Filter{Kinds: replayKinds, AfterHLC: after, Limit: store.MaxListLimit})
@@ -224,6 +242,8 @@ func (c *capture) apply(ev store.Event) (*Change, error) {
 		}
 		c.ids[r.ID] = true
 		c.turns[r.Key] = append(c.turns[r.Key], &r)
+		c.turnByID[r.ID] = &r
+		c.index(turnDoc(&r))
 		return &Change{Kind: ChangedTurn, Key: r.Key, RepoKey: r.RepoKey}, nil
 	case KindEdit:
 		var r EditRow
@@ -245,6 +265,7 @@ func (c *capture) apply(ev store.Event) (*Change, error) {
 			}
 			c.pool[r.RepoKey][r.ID] = true
 		}
+		c.index(editDoc(e))
 		return &Change{Kind: ChangedEdit, Key: r.Key, RepoKey: r.RepoKey}, nil
 	case KindSummary:
 		var r SummaryRow
@@ -274,6 +295,10 @@ func (c *capture) apply(ev store.Event) (*Change, error) {
 		if !c.ledger.Add(e) {
 			return nil, nil
 		}
+		es := append(c.prAll[e.Key], e)
+		sortOwners(es)
+		c.prAll[e.Key] = es
+		c.index(prDoc(es))
 		return &Change{Kind: ChangedPR, Key: e.Session, RepoKey: ledger.RepoKey(e.Repo)}, nil
 	case KindRepoSeen:
 		var r repoSeen
@@ -295,6 +320,7 @@ func (c *capture) apply(ev store.Event) (*Change, error) {
 			return nil, nil
 		}
 		c.commitMap[k] = &commitRec{row: r, seenAt: ev.HLC.Wall()}
+		c.index(commitDoc(c.commitMap[k]))
 		return &Change{Kind: ChangedCommit, RepoKey: r.RepoKey}, nil
 	case KindCommitLink:
 		var l CommitLink
@@ -317,6 +343,7 @@ func (c *capture) apply(ev store.Event) (*Change, error) {
 				}
 			}
 		}
+		c.index(commitDoc(rec))
 		return &Change{Kind: ChangedCommit, RepoKey: l.RepoKey}, nil
 	case KindDecision:
 		var d decision.Decision
@@ -324,6 +351,9 @@ func (c *capture) apply(ev store.Event) (*Change, error) {
 			return nil, err
 		}
 		c.dview.Add(d)
+		if got, ok := c.dview.Get(d.ID); ok {
+			c.index(decisionDoc(got))
+		}
 		rk := ""
 		if d.Anchor != nil {
 			rk = d.Anchor.RepoKey

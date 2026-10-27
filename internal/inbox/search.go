@@ -26,12 +26,12 @@ func (b *Inbox) SearchKinds() []search.Kind { return []search.Kind{search.KindMs
 
 // SearchDocs implements search.Source.
 func (b *Inbox) SearchDocs(ctx context.Context, since time.Time, limit int) ([]search.Doc, error) {
-	return nil, nil
+	return b.searchDocs(ctx, since, limit)
 }
 
 // SearchShow implements search.Source.
 func (b *Inbox) SearchShow(ctx context.Context, ref string, o search.ShowOptions) (search.Shown, error) {
-	return search.Shown{}, ErrUnimplemented
+	return b.searchShow(ref, o)
 }
 
 var _ search.Source = (*Inbox)(nil)

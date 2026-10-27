@@ -269,12 +269,12 @@ func (c *Coord) SearchKinds() []search.Kind {
 
 // SearchDocs implements search.Source.
 func (c *Coord) SearchDocs(ctx context.Context, since time.Time, limit int) ([]search.Doc, error) {
-	return nil, nil
+	return c.searchDocs(ctx, since, limit)
 }
 
 // SearchShow implements search.Source.
 func (c *Coord) SearchShow(ctx context.Context, ref string, o search.ShowOptions) (search.Shown, error) {
-	return search.Shown{}, ErrUnimplemented
+	return c.searchShow(ref, o)
 }
 
 var _ search.Source = (*Coord)(nil)
