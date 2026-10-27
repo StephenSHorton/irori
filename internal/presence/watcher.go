@@ -2,6 +2,7 @@ package presence
 
 import (
 	"context"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,8 +12,12 @@ import (
 )
 
 const (
-	defaultInterval = 2 * time.Second
-	subBuffer       = 64
+	defaultInterval       = 2 * time.Second
+	defaultSafetyInterval = 30 * time.Second
+	// defaultSettle gathers a burst of file events (a streaming reply
+	// appends many rows) into one scan.
+	defaultSettle = 100 * time.Millisecond
+	subBuffer     = 64
 )
 
 // watcher is the Watcher's state. Scans are serialized by scanMu; mu guards
@@ -28,10 +33,16 @@ type watcher struct {
 	open func(name string) (*os.File, error)
 	// live decides whether a session's process is still the one that wrote it.
 	live func(pid int, procStart uint64) bool
+	// watch and watchExit are the event sources (fswatch and process-exit
+	// waits), swappable in tests.
+	watch     func(ctx context.Context, root string, recursive bool) (eventSource, error)
+	watchExit func(pid int, onExit func()) (stop func(), ok bool)
+	settle    time.Duration
 
-	scanMu sync.Mutex
-	tails  map[string]*tailCache // by session id; scan-owned
-	repos  map[string]string     // repo key by cwd; scan-owned
+	scanMu   sync.Mutex
+	tails    map[string]*tailCache // by session id; scan-owned
+	sessions map[string]session    // live sessions by id; scan-owned
+	repos    map[string]string     // repo key by cwd; scan-owned
 
 	mu    sync.Mutex
 	cards map[string]AgentCard // by Key
@@ -54,6 +65,9 @@ func newWatcher(opts Options) *Watcher {
 	if opts.Interval <= 0 {
 		opts.Interval = defaultInterval
 	}
+	if opts.SafetyInterval <= 0 {
+		opts.SafetyInterval = defaultSafetyInterval
+	}
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
@@ -63,24 +77,15 @@ func newWatcher(opts Options) *Watcher {
 		modeScanBytes: defaultModeScanBytes,
 		open:          os.Open,
 		live:          live,
+		watch:         watchFS,
+		watchExit:     watchExit,
+		settle:        defaultSettle,
 		tails:         map[string]*tailCache{},
+		sessions:      map[string]session{},
 		repos:         map[string]string{},
 		cards:         map[string]AgentCard{},
 		subs:          map[chan Change]struct{}{},
 	}}
-}
-
-func (w *Watcher) run(ctx context.Context) error {
-	t := time.NewTicker(w.impl.opts.Interval)
-	defer t.Stop()
-	for {
-		w.impl.scan()
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-t.C:
-		}
-	}
 }
 
 func (w *Watcher) snapshot() []AgentCard {
@@ -116,7 +121,7 @@ func (x *watcher) scan() {
 	defer x.scanMu.Unlock()
 
 	next := map[string]AgentCard{}
-	seen := map[string]bool{}
+	seen := map[string]session{}
 	cwds := map[string]bool{}
 	dir := filepath.Join(x.opts.ClaudeDir, "sessions")
 	entries, _ := os.ReadDir(dir)
@@ -128,22 +133,59 @@ func (x *watcher) scan() {
 		if !ok || !x.live(s.PID, s.ProcStart) {
 			continue
 		}
-		seen[s.ID] = true
+		seen[s.ID] = s
 		cwds[s.Cwd] = true
 		c := x.card(s)
 		next[c.Key] = c
 	}
 	for id := range x.tails {
-		if !seen[id] {
+		if _, ok := seen[id]; !ok {
 			delete(x.tails, id)
 		}
 	}
+	x.sessions = seen
 	for cwd := range x.repos {
 		if !cwds[cwd] {
 			delete(x.repos, cwd)
 		}
 	}
 	x.publish(next)
+}
+
+// rescanTails rebuilds only the cards of the given session ids from their
+// last-read session file, for a transcript change. Ids that are not live are
+// ignored.
+func (x *watcher) rescanTails(ids map[string]bool) {
+	x.scanMu.Lock()
+	defer x.scanMu.Unlock()
+	var fresh []AgentCard
+	for id := range ids {
+		if s, ok := x.sessions[id]; ok {
+			fresh = append(fresh, x.card(s))
+		}
+	}
+	if len(fresh) == 0 {
+		return
+	}
+	// publish treats a missing key as Removed, so start from every card.
+	x.mu.Lock()
+	next := maps.Clone(x.cards)
+	x.mu.Unlock()
+	for _, c := range fresh {
+		next[c.Key] = c
+	}
+	x.publish(next)
+}
+
+// livePIDs is the pids of the sessions the last scan found live.
+func (x *watcher) livePIDs() map[int]bool {
+	x.scanMu.Lock()
+	defer x.scanMu.Unlock()
+	pids := map[int]bool{}
+	for _, s := range x.sessions {
+		pids[s.PID] = true
+	}
+	return pids
 }
 
 func (x *watcher) readSessionFile(path string) (session, bool) {
