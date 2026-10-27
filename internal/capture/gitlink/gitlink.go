@@ -137,7 +137,8 @@ type CommitCmd struct {
 	Key    string // agent key
 	TurnID string
 	Cwd    string
-	At     time.Time
+	At     time.Time // when the command finished
+	Start  time.Time // when it started; zero means At
 }
 
 // IsCommitCommand reports whether a Bash command line can create commits:

@@ -95,12 +95,21 @@ func committer(c Commit, root string, cmds []CommitCmd) *CommitCmd {
 		}
 		// Bound-check before subtracting: Sub saturates for times centuries
 		// apart (a zero At), and negating math.MinInt64 stays negative.
-		if cmd.At.Before(c.At.Add(-CommitterWindow)) || cmd.At.After(c.At.Add(CommitterWindow)) {
+		// The command ran over [Start, At]; a commit inside that span is
+		// distance 0, else the distance to the nearer end.
+		start := cmd.Start
+		if start.IsZero() || start.After(cmd.At) {
+			start = cmd.At
+		}
+		if cmd.At.Before(c.At.Add(-CommitterWindow)) || start.After(c.At.Add(CommitterWindow)) {
 			continue
 		}
-		d := cmd.At.Sub(c.At)
-		if d < 0 {
-			d = -d
+		var d time.Duration
+		switch {
+		case c.At.Before(start):
+			d = start.Sub(c.At)
+		case c.At.After(cmd.At):
+			d = c.At.Sub(cmd.At)
 		}
 		if best < 0 || d < bestD || (d == bestD && cmd.At.After(cmds[best].At)) {
 			best, bestD = i, d

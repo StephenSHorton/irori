@@ -805,3 +805,39 @@ func TestRepoPassBudget(t *testing.T) {
 		seen[row.SHA] = true
 	}
 }
+
+// A long command (`git commit && gh pr checks --watch`) writes its result
+// minutes after the commit, so the commit is linked before the command is
+// read. When the command arrives, the commit gets its committer.
+func TestLateCommitCommandSetsCommitter(t *testing.T) {
+	r := newRig(t, nil)
+	dir := newRepo(t, "false")
+	w := r.session(sidA, dir)
+	foo := filepath.Join(dir, "foo.go")
+	start := time.Now().Add(-5 * time.Second)
+	cmd := "python - <<'EOF'\nprint(1)\nEOF\ngit add foo.go && git commit -m 'add foo' && gh pr checks x --watch"
+	w.write(flat(
+		[]obj{w.prompt("p1", "add foo", start)},
+		w.writeTool("w1", foo, "package foo\n", nil, start.Add(time.Second)),
+		[]obj{w.toolUse("b1", "Bash", obj{"command": cmd, "description": "commit and watch"}, start.Add(2*time.Second))},
+	)...)
+	gitCmd(t, dir, "add", "foo.go")
+	gitCmd(t, dir, "commit", "-q", "-m", "add foo")
+	sha := head(t, dir)
+	r.tail()
+	r.repos()
+	cv, ok := r.c.Commit(sha)
+	if !ok || cv.Link == nil || cv.Link.Committer != nil {
+		t.Fatalf("before the result: %+v ok=%v (want linked, no committer yet)", cv.Link, ok)
+	}
+	// The watch ends three minutes later.
+	w.write(w.result("b1", obj{"stdout": "all checks passed\n", "stderr": "", "interrupted": false, "isImage": false}, time.Now().Add(3*time.Minute)))
+	r.tail()
+	cv, _ = r.c.Commit(sha)
+	if cv.Link == nil || cv.Link.Committer == nil || cv.Link.Committer.Key != device+"/"+sidA {
+		t.Fatalf("after the result: committer = %+v", cv.Link)
+	}
+	if len(cv.Link.Files) != 1 || cv.Link.Files[0].Link != "exact" {
+		t.Fatalf("relink lost the files: %+v", cv.Link.Files)
+	}
+}

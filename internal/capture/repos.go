@@ -322,12 +322,8 @@ func (c *capture) linkCommit(ctx context.Context, row CommitRow) error {
 	cands := c.candidates(row)
 	var cmds []gitlink.CommitCmd
 	for _, cmd := range c.cmds {
-		d := cmd.At.Sub(row.At)
-		if d < 0 {
-			d = -d
-		}
-		if d <= 2*gitlink.CommitterWindow {
-			cmds = append(cmds, gitlink.CommitCmd{Key: cmd.Key, TurnID: cmd.TurnID, Cwd: commandDir(cmd.Command, cmd.Cwd), At: cmd.At})
+		if cmd.spans(row.At) {
+			cmds = append(cmds, cmd.ref())
 		}
 	}
 	c.mu.RUnlock()
@@ -523,4 +519,46 @@ func reflogOffsetSince(path string, size int64, since time.Time) (int64, bool) {
 		data, off = data[i+1:], off+int64(i+1)
 	}
 	return 0, false
+}
+
+// relinkCommitter gives a commit command that arrived after its commit was
+// linked (a long `git commit && gh pr checks --watch` writes its result only
+// when the whole command ends) the commits it may have made: linked commits
+// with no committer, under its dir and inside its span, get a new
+// commit.linked with the same files and the committer worked out again.
+func (c *capture) relinkCommitter(ctx context.Context, cmd CommitCmdRow) error {
+	ref := cmd.ref()
+	c.mu.RLock()
+	var todo []commitRec
+	for _, rec := range c.commitMap {
+		if rec.link == nil || rec.link.Committer != nil || !cmd.spans(rec.row.At) {
+			continue
+		}
+		if gitlink.Committer(rec.row.Commit, rec.row.Root, []gitlink.CommitCmd{ref}) == nil {
+			continue
+		}
+		todo = append(todo, *rec)
+	}
+	var cmds []gitlink.CommitCmd
+	for _, rec := range todo {
+		for _, other := range c.cmds {
+			if other.spans(rec.row.At) {
+				cmds = append(cmds, other.ref())
+			}
+		}
+	}
+	c.mu.RUnlock()
+	for _, rec := range todo {
+		who := gitlink.Committer(rec.row.Commit, rec.row.Root, cmds)
+		if who == nil {
+			continue
+		}
+		link := *rec.link
+		link.Committer = &Committer{Key: who.Key, TurnID: who.TurnID}
+		link.At = c.now()
+		if err := c.emit(ctx, "irori", KindCommitLink, link); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -162,6 +162,10 @@ type BashRun struct {
 	GitOperation json.RawMessage `json:"gitOperation,omitempty"`
 	IsError      bool            `json:"isError,omitempty"`
 	At           time.Time       `json:"at"` // the result row's timestamp
+	// StartedAt is the tool_use row's timestamp (zero when the call wasn't
+	// seen). A long command (git commit && gh pr checks --watch) finishes
+	// minutes after the commit it made, so committer matching uses the span.
+	StartedAt time.Time `json:"startedAt,omitempty"`
 }
 
 // Item is one parser output; exactly one field is set.

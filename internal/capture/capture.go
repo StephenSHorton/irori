@@ -131,6 +131,10 @@ type CommitCmdRow struct {
 	Cwd       string    `json:"cwd"`
 	Command   string    `json:"command"` // scrubbed, first line, <= 300 runes
 	At        time.Time `json:"at"`
+	StartedAt time.Time `json:"startedAt,omitempty"` // the tool call's start
+	// Dir is where git really ran: the `git -C` / leading cd the full command
+	// names, else Cwd (Command keeps only the first line).
+	Dir string `json:"dir,omitempty"`
 }
 
 // CommitRow is one commit.seen payload.

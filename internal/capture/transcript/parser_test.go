@@ -371,7 +371,7 @@ func TestSidechain(t *testing.T) {
 			t.Fatalf("edits = %v", kinds(items))
 		}
 		o := p.Open()
-		if o.ID != "pp" || o.AgentID != "agent1" || o.SessionID != fxSession || o.Origin != "human" {
+		if o.ID != "pp" || o.AgentID != "agent1" || o.SessionID != fxSession || o.Origin != "agent" {
 			t.Fatalf("open = %+v", o)
 		}
 		if !p.LastActivity().Equal(at(4)) {

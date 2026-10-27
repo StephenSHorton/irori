@@ -187,6 +187,9 @@ func (p *parser) result(r *row, at time.Time, b block, raw json.RawMessage) {
 			IsError:   isErr,
 			At:        at,
 		}
+		if c != nil {
+			run.StartedAt = c.at
+		}
 		switch {
 		case isObj:
 			if tr.Stdout != nil {

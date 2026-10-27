@@ -50,7 +50,8 @@ type call struct {
 	name  string
 	input json.RawMessage
 	turn  *openTurn
-	index int // in turn.t.Tools, -1 when past MaxToolsShown
+	index int       // in turn.t.Tools, -1 when past MaxToolsShown
+	at    time.Time // the tool_use row's timestamp
 }
 
 // openTurn is the turn being built and its bookkeeping.
@@ -358,6 +359,11 @@ func (p *parser) user(r *row, at time.Time) {
 		id = r.UUID
 	}
 	kind, name := origin(r, text)
+	if kind == "human" && p.src.AgentID != "" && len(bytes.TrimSpace(r.Origin)) == 0 {
+		// A subagent's or workflow agent's prompts carry no origin: they
+		// come from the conversation that spawned it, not the person.
+		kind = "agent"
+	}
 	if p.cur != nil {
 		end := p.cur.last
 		if end.IsZero() {
@@ -379,7 +385,7 @@ func (p *parser) assistant(r *row, at time.Time) {
 		case "tool_use":
 			p.implicit(r, at)
 			t := p.cur.t
-			c := &call{name: b.Name, input: b.Input, turn: p.cur, index: -1}
+			c := &call{name: b.Name, input: b.Input, turn: p.cur, index: -1, at: at}
 			if len(t.Tools) < MaxToolsShown {
 				c.index = len(t.Tools)
 				t.Tools = append(t.Tools, ToolCall{

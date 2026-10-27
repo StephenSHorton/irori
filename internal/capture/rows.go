@@ -259,8 +259,12 @@ func (c *capture) onBash(ctx context.Context, f *tfile, b *transcript.BashRun) e
 			row := CommitCmdRow{
 				Key: f.key, AgentID: b.AgentID, TurnID: b.TurnID, ToolUseID: b.ToolUseID,
 				Cwd: b.Cwd, Command: clipRunes(c.scrub.String(firstLine(b.Command)), maxCommand), At: b.At,
+				StartedAt: b.StartedAt, Dir: commandDir(b.Command, b.Cwd),
 			}
 			if err := c.emit(ctx, agentActor(f.key), KindCommitCmd, row); err != nil {
+				return err
+			}
+			if err := c.relinkCommitter(ctx, row); err != nil {
 				return err
 			}
 		}

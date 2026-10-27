@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/StephenSHorton/irori/internal/capture/gitlink"
 )
 
 // commitSubcommands are the git subcommands that can make a commit.
@@ -173,4 +176,25 @@ func isAbsAnyOS(p string) bool {
 		return true
 	}
 	return len(p) >= 3 && p[1] == ':' && (p[2] == '\\' || p[2] == '/')
+}
+
+// spans reports whether a commit at t could be this command's: inside its
+// [StartedAt, At] span, give or take twice the committer window.
+func (r CommitCmdRow) spans(t time.Time) bool {
+	start := r.StartedAt
+	if start.IsZero() || start.After(r.At) {
+		start = r.At
+	}
+	w := 2 * gitlink.CommitterWindow
+	return !t.Before(start.Add(-w)) && !t.After(r.At.Add(w))
+}
+
+// ref is the row as gitlink.Committer sees it. Rows logged before Dir
+// existed fall back to parsing their first line.
+func (r CommitCmdRow) ref() gitlink.CommitCmd {
+	dir := r.Dir
+	if dir == "" {
+		dir = commandDir(r.Command, r.Cwd)
+	}
+	return gitlink.CommitCmd{Key: r.Key, TurnID: r.TurnID, Cwd: dir, At: r.At, Start: r.StartedAt}
 }
