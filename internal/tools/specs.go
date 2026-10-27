@@ -187,6 +187,54 @@ var specList = []Spec{
 		Clients:     both,
 	},
 	{
+		Name: "timeline",
+		Description: peer + "What an agent has been doing, newest first: its turns (prompt and reply excerpts, tool counts, edited paths), " +
+			"the commits and pull requests linked to it, and the Irori messages it sent or received. agent defaults to you. " +
+			"Page back with before = the value a (more: before=...) hint gives. " + warn,
+		InputSchema: schema(
+			`"agent":{"type":"string","description":"The agent: its name or key from the agents tool (a key prefix of 8+ characters works too). Default: you."},` +
+				`"limit":{"type":"integer","minimum":1,"maximum":50,"description":"Most turns to show (default 10, max 50)."},` +
+				`"before":{"type":"string","description":"Only entries before this time (RFC 3339), e.g. the before= value of a (more: ...) hint."}`),
+		ReadOnly: true, Clients: both,
+	},
+	{
+		Name: "why",
+		Description: peer + "Why a file (or one line of it) is the way it is: for a committed line, git blame's commit and the sessions and turns " +
+			"that produced it; for uncommitted lines or a whole file, the newest recorded edits; always the decisions anchored there. " +
+			"path is absolute or relative to your working directory; repo picks another repo by its repoKey. " + warn,
+		InputSchema: schema(
+			`"path":{"type":"string","description":"The file: absolute, or relative to your working directory (or to repo's root when repo is given)."},`+
+				`"line":{"type":"integer","minimum":1,"description":"Optional 1-based line number."},`+
+				`"repo":{"type":"string","description":"Optional repoKey from the agents tool; default: the repo of your working directory."}`,
+			"path"),
+		ReadOnly: true, Clients: both,
+	},
+	{
+		Name: "decision_record",
+		Description: peer + "Write down a decision so other agents and the person can find it later (decisions, why). " +
+			"Optionally anchor it to code with path and lines; the anchor is re-checked whenever it is read. " +
+			"supersedes lists ids of decisions this one replaces (only their author or the person may). Returns the decision id.",
+		InputSchema: schema(
+			`"statement":{"type":"string","description":"The decision, one or two sentences (at most 500 characters)."},`+
+				`"why":{"type":"string","description":"Optional reasoning (at most 2000 characters)."},`+
+				`"path":{"type":"string","description":"Optional file to anchor it to: absolute, or relative to your working directory."},`+
+				`"lines":{"type":"string","description":"Optional lines of path, \"40\" or \"40-52\"; without it the anchor is the whole file."},`+
+				`"supersedes":{"type":"array","items":{"type":"string"},"description":"Optional ids of decisions this one replaces."}`,
+			"statement"),
+		Clients: both,
+	},
+	{
+		Name: "decisions",
+		Description: peer + "List recorded decisions, newest first, with their anchor status (ok, moved, changed, gone, unknown). " +
+			"Superseded ones are hidden unless all = true. " + warn,
+		InputSchema: schema(
+			`"repo":{"type":"string","description":"Only decisions anchored in this repoKey. Default: every repo."},` +
+				`"path":{"type":"string","description":"Only decisions anchored at this file: absolute, or relative to your working directory (repo-relative when repo is given)."},` +
+				`"query":{"type":"string","description":"Only decisions whose statement or reasoning contains this text (case-insensitive)."},` +
+				`"all":{"type":"boolean","description":"Include superseded decisions (default false)."}`),
+		ReadOnly: true, Clients: both,
+	},
+	{
 		Name: "join",
 		Description: peer + "Join Irori as a named member so other agents can message you and you can send, reply and take tasks. " +
 			"Call it once at the start; the name is how others address you.",

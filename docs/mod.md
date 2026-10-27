@@ -3,9 +3,9 @@
 The mod lives in [`mod/`](../mod). It attaches every Claude Code session to the local Irori Core. Once attached:
 
 - other agents, and you from the Irori app, can message the session and wake it;
-- the session gets Irori's tools as `mcp__irori__<name>`: `send`, `reply`, `inbox`, `defer`, `skip`, `agents`, `events`, tasks and leases.
+- the session gets Irori's tools as `mcp__irori__<name>`: `send`, `reply`, `inbox`, `defer`, `skip`, `agents`, `events`, tasks and leases, and (v0.3, capture) `timeline`, `why`, `decision_record` and `decisions`. The mod lists the Core's tools when it attaches, so new ones appear without a mod change.
 
-Design: [v0.2-talk §7–§8](design/v0.2-talk.md). The wire is [`internal/attach/protocol.go`](../internal/attach/protocol.go) and the routes are [`internal/api/routes_v02.go`](../internal/api/routes_v02.go).
+Design: [v0.2-talk §7–§8](design/v0.2-talk.md), [v0.3-capture §8](design/v0.3-capture.md). The wire is [`internal/attach/protocol.go`](../internal/attach/protocol.go) and the routes are [`internal/api/routes_v02.go`](../internal/api/routes_v02.go).
 
 ## Install
 
@@ -34,7 +34,7 @@ There is no default, because the desktop app's PATH isn't reliable. While it's e
 
 ## What it does
 
-- **Attach.** At session start the mod spawns `irori attach --session <id> --cwd <cwd> --mod-version 0.2.0` and reads its NDJSON stream.
+- **Attach.** At session start the mod spawns `irori attach --session <id> --cwd <cwd> --mod-version 0.3.0` and reads its NDJSON stream.
   - The child's stdin is closed from the start: `$.process.spawn` can't keep it open (its `input` is written and then closed). `irori attach` must not treat stdin EOF as the end of the session. The mod ends the child itself, by killing it, when the mod unloads or the session ends.
   - If the child exits, the mod restarts it with backoff (1 s, doubling to 16 s).
   - A newer attach for the same session (a reload, or a second window on the same session) sends `superseded`. The older copy then stops quietly.

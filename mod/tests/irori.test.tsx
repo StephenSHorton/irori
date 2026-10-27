@@ -139,7 +139,7 @@ describe('attach', () => {
       await band.unmount()
     }
     const ran = await $.command.run(irori(''))
-    expect(ran.text).toContain('irori mod 0.2.0')
+    expect(ran.text).toContain('irori mod 0.3.0')
     expect(ran.text).toContain('set iroriPath')
   })
 
@@ -147,7 +147,7 @@ describe('attach', () => {
     const w = world(on)
     await $.session.start({ cwd: 'C:/work/api', surface: 'terminal', isInteractive: true })
     await until(() => w.children.length === 1, 'spawn')
-    expect(w.spawned[0]).toEqual([IRORI, 'attach', '--session', SESSION, '--cwd', 'C:/work/api', '--mod-version', '0.2.0'])
+    expect(w.spawned[0]).toEqual([IRORI, 'attach', '--session', SESSION, '--cwd', 'C:/work/api', '--mod-version', '0.3.0'])
 
     // hello split across two pieces, a blank keepalive, and a stray log line.
     const h = line(hello)
@@ -316,7 +316,7 @@ describe('/irori', () => {
     }
     expect(w.calls.filter(c => c.url.endsWith('/v1/policy'))).toEqual([])
     const status = await $.command.run(irori(''))
-    expect(status.text).toContain('irori mod 0.2.0')
+    expect(status.text).toContain('irori mod 0.3.0')
     expect(status.text).toContain('Attached as api work')
   })
 
