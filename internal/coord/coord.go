@@ -100,7 +100,9 @@ func (c *Coord) CreateTask(ctx context.Context, by string, t NewTask) (Task, err
 func (c *Coord) ListTasks(f TaskFilter) []Task  { return c.impl.listTasks(f) }
 func (c *Coord) GetTask(id string) (Task, bool) { return c.impl.getTask(id) }
 
-// ClaimTask makes by the holder. Fails with ErrHeld if another live holder has it.
+// ClaimTask makes by the holder and moves a submitted task to working (also
+// when by was assigned it). Fails with ErrHeld if another live holder has it;
+// a holder counts as gone after GoneGrace absent from the roster (see Sweep).
 func (c *Coord) ClaimTask(ctx context.Context, by, id string) (Task, error) {
 	return c.impl.claimTask(ctx, by, id)
 }
@@ -131,7 +133,9 @@ func (c *Coord) Release(ctx context.Context, by, resource string) error {
 func (c *Coord) Leases() []Lease { return c.impl.leases() }
 
 // Sweep releases leases whose holder has been gone for GoneGrace. Core calls it
-// with the inbox sweep.
+// with the inbox sweep, and must call it every few seconds: a holder that left
+// the roster without a "gone" card starts its grace clock only when Sweep (or
+// ClaimTask on its task) first sees it missing.
 func (c *Coord) Sweep(ctx context.Context) error { return c.impl.sweep(ctx) }
 
 // Overlaps reports whether two path globs can match a common path.
