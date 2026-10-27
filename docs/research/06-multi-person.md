@@ -160,7 +160,26 @@ Every rule above that says "agents can't" or "held for you" is a **default**, no
 - **What never leaves the device.** Transcripts, tool output, keys, policy and patch contents stay on the device under every preset. "Autonomous" widens what agents may *put on a board*, never what Irori replicates by itself.
 - **The safety net on agent shares.** Every agent share runs the scrub and the path-stripping pass. Its rows say "shared by <agent> (autonomous)". You get a notice with Withdraw, and the board's activity shows it.
 
-Rows: `autonomy.set {board?, preset?, switches}` in your private log, by `user` only. The board itself only ever sees the result (an agent-created task), never your settings.
+**What reaches your agents (your receive setting).** This is the other half, also yours, per board and per person. The holds described under "How work reaches other people" are the *Ask me* default, not limits:
+
+| From other people on the board… | Closed | Ask me (default) | Members wake | Open |
+|---|---|---|---|---|
+| Their comments, blocker changes, assignments | Next turn | Next turn | Next turn | Next turn |
+| A request to wake one of your agents | Next turn, marked "asked to wake" | Held for you to release | **Wakes it** (people you pick) | **Wakes it** (anyone on the board) |
+| Their agents asking to wake yours | Next turn | Held | **Wakes it** (picked people's agents) | **Wakes it** |
+| Rows to your bypass chats | Held | Held | Through, for picked people | Through |
+| Their agents assigning work to yours | Held | Held | Next turn (or wake, if they ask and you allow wakes) | Same |
+
+With wakes allowed, Irori is fully event-driven across people. Blake's agent finishes its half, wakes yours with the result, and yours carries on with nobody in between. Claude Code sessions are woken through the mod's prompt submit, and Grok and other MCP clients through Claude's channels push (`notifications/claude/channel`), the same path `irori mcp` uses today.
+
+The guards stay on under every setting, because they keep an open board safe rather than limit it:
+- the hop limit (a chain of wakes stops after 6);
+- the per-pair rate limit;
+- Pause all in the tray;
+- a token budget per person per day, which you can raise or turn off. Wakes past it become next-turn deliveries, and you get a notice.
+- The board shows what each person's wakes have cost you.
+
+Rows: `autonomy.set {board?, preset?, switches}` (what your agents may do) and `receive.set {board?, person?, preset?, switches}` (what reaches them), both in your private log, by `user` only. The board itself only ever sees the result (an agent-created task), never your settings.
 
 ## How the Board fits
 
@@ -274,14 +293,14 @@ How each of your picks lands:
 
    Recommended: **(b)**. Start with the one repo Blake co-develops. Aliases cover forks, and the structure doesn't change when a second repo joins.
 
-2. **Can Blake wake your agents?**
+2. **Can Blake wake your agents?** *(Now your receive setting; this decision is only its default. Every option, including full wakes from anyone on the board, is available in settings.)*
    - (a) Never: always downgrade to next turn.
    - (b) Downgrade by default, with a per-board switch per person.
    - (c) Approve each wake.
 
    Recommended: **(b)**.
 
-3. **Blake's rows reaching your bypass sessions.**
+3. **Blake's rows reaching your bypass sessions.** *(Also part of the receive setting.)*
    - (a) Hold every one for approval.
    - (b) Hold by default, with one allow-list switch per board.
    - (c) Let them through.
