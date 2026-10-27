@@ -159,9 +159,9 @@ Every rule above that says "agents can't" or "held for you" is a **default**, no
 - **What never leaves the device.** Transcripts, tool output, keys, policy and patch contents stay on the device under every preset. "Autonomous" widens what agents may *put on a board*, never what Irori replicates by itself.
 - **The safety net on agent shares.** Every agent share runs the scrub and the path-stripping pass. Its rows say "shared by <agent> (autonomous)". You get a notice with Withdraw, and the board's activity shows it.
 
-**What reaches your agents (your receive setting).** This is the other half, also yours, per board and per person. The holds described under "How work reaches other people" are the *Ask me* default, not limits:
+**What reaches your agents (your receive setting).** This is the other half, also yours, per board and per person. The holds described under "How work reaches other people" are the *Ask me* setting, not limits. The default is *Open* (decision 24):
 
-| From other people on the board… | Closed | Ask me (default) | Members wake | Open |
+| From other people on the board… | Closed | Ask me | Members wake | Open (default, decision 24) |
 |---|---|---|---|---|
 | Their comments, blocker changes, assignments | Next turn | Next turn | Next turn | Next turn |
 | A request to wake one of your agents | Next turn, marked "asked to wake" | Held for you to release | **Wakes it** (people you pick) | **Wakes it** (anyone on the board) |
