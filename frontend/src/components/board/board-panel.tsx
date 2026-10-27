@@ -158,7 +158,12 @@ export function BoardPanel({
         </p>
       )}
 
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+      <div
+        className={cn(
+          "grid items-start gap-4",
+          !empty && "lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]"
+        )}
+      >
         <Panel size="sm" className="gap-0 py-0!">
           <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2.5">
             <div

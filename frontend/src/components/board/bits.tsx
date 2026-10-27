@@ -16,9 +16,9 @@ import {
 
 // Inputs share the Inbox composer's look.
 export const fieldClass =
-  "h-8 min-w-0 rounded-lg border border-input bg-white/70 px-2 text-sm text-ink outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-white/5"
+  "h-8 min-w-0 rounded-lg border border-input bg-white/70 px-2 text-sm text-ink outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
 export const textareaClass =
-  "w-full resize-y rounded-lg border border-input bg-white/70 px-2.5 py-2 text-sm text-ink outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-white/5"
+  "w-full resize-y rounded-lg border border-input bg-white/70 px-2.5 py-2 text-sm text-ink outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
 
 type Tone = "you" | "block" | "task" | "done" | "shared" | "plain"
 
@@ -27,7 +27,7 @@ const tones: Record<Tone, string> = {
   block: "bg-warning-foreground text-warning",
   task: "bg-info-foreground text-info",
   done: "bg-success-foreground text-success",
-  shared: "bg-violet-500/12 text-violet-700 dark:text-violet-300",
+  shared: "bg-[#ede4fe] text-[#6d28d9]",
   plain: "bg-muted text-muted-foreground",
 }
 
