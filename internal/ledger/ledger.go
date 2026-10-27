@@ -53,8 +53,8 @@ func New() *Ledger { return newLedger() }
 
 // Add merges e on the identity (Key, Session, Role): a new identity is added;
 // an existing one keeps the earliest At and the first non-empty URL. It
-// reports whether the view changed. Entries with an empty Key, Session or an
-// unknown Role are ignored.
+// reports whether the view changed. Entries with an empty Key, Session, a
+// zero At (it could never show in the view) or an unknown Role are ignored.
 func (l *Ledger) Add(e Entry) bool { return l.impl.add(e) }
 
 // Owners lists a PR's entries younger than Keep at now, best first: by role
