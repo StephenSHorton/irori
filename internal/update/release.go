@@ -78,11 +78,10 @@ func (s *UpdateService) findUpdate() (*UpdateInfo, error) {
 	var installer ghAsset
 	var sumsURL string
 	for _, a := range rel.Assets {
-		n := strings.ToLower(a.Name)
-		if strings.HasSuffix(n, "-installer.exe") && strings.Contains(n, "windows") {
+		if isInstallerAsset(a.Name) {
 			installer = a
 		}
-		if n == "sha256sums" {
+		if isChecksumAsset(a.Name) {
 			sumsURL = a.URL
 		}
 	}
@@ -106,6 +105,17 @@ func (s *UpdateService) findUpdate() (*UpdateInfo, error) {
 		PublishedAt: rel.PublishedAt,
 	}, nil
 }
+
+// isInstallerAsset reports whether a release asset is the Windows NSIS
+// installer. release.yml names it irori-<version>-windows-<arch>-installer.exe;
+// TestReleaseWorkflowAssetNames keeps the two in step.
+func isInstallerAsset(name string) bool {
+	n := strings.ToLower(name)
+	return strings.HasSuffix(n, "-installer.exe") && strings.Contains(n, "windows")
+}
+
+// isChecksumAsset reports whether a release asset is the SHA256SUMS file.
+func isChecksumAsset(name string) bool { return strings.EqualFold(name, "SHA256SUMS") }
 
 // fetchChecksum reads a SHA256SUMS file ("<hex>  <name>" lines, an optional
 // '*' before the name) and returns the hash listed for name.
