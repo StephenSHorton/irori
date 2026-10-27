@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -532,7 +533,15 @@ func reflogOffsetSince(path string, size int64, since time.Time) (int64, bool) {
 // when the whole command ends) the commits it may have made: linked commits
 // with no committer, under its dir and inside its span, get a new
 // commit.linked with the same files and the committer worked out again.
+//
+// At most one row per commit per change: relinkMu makes the decide-and-emit
+// atomic against another call, and just before each emit the commit's
+// current link is checked again (still no committer, and the new link
+// differs from it), so two late commands for one commit, or a commit that
+// appears twice, never log the same link twice.
 func (c *capture) relinkCommitter(ctx context.Context, cmd CommitCmdRow) error {
+	c.relinkMu.Lock()
+	defer c.relinkMu.Unlock()
 	ref := cmd.ref()
 	c.mu.RLock()
 	var todo []commitRec
@@ -554,17 +563,40 @@ func (c *capture) relinkCommitter(ctx context.Context, cmd CommitCmdRow) error {
 		}
 	}
 	c.mu.RUnlock()
+	done := map[string]bool{}
 	for _, rec := range todo {
+		k := commitKey(rec.link.RepoKey, rec.link.SHA)
+		if done[k] {
+			continue
+		}
 		who := gitlink.Committer(rec.row.Commit, rec.row.Root, cmds)
 		if who == nil {
 			continue
 		}
-		link := *rec.link
-		link.Committer = &Committer{Key: who.Key, TurnID: who.TurnID}
+		c.mu.RLock()
+		cur := c.commitMap[k]
+		var link CommitLink
+		fresh := cur != nil && cur.link != nil && cur.link.Committer == nil
+		if fresh {
+			link = *cur.link
+			link.Committer = &Committer{Key: who.Key, TurnID: who.TurnID}
+			fresh = !sameLink(link, *cur.link)
+		}
+		c.mu.RUnlock()
+		if !fresh {
+			continue
+		}
+		done[k] = true
 		link.At = c.now()
 		if err := c.emit(ctx, "irori", KindCommitLink, link); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// sameLink reports whether two links say the same thing (At aside).
+func sameLink(a, b CommitLink) bool {
+	a.At, b.At = time.Time{}, time.Time{}
+	return reflect.DeepEqual(a, b)
 }

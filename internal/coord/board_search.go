@@ -1,0 +1,186 @@
+package coord
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/StephenSHorton/irori/internal/search"
+)
+
+// search.Source for task: and comment: refs (contract in board.go).
+
+const (
+	defaultDocPage = 500 // SearchDocs limit when none is given
+	showComments   = 10  // newest comments a task's Show renders
+	showCommentCut = 600 // runes of each comment in a task's Show
+)
+
+func (c *coord) searchDocs(since time.Time, limit int) []search.Doc {
+	if limit <= 0 {
+		limit = defaultDocPage
+	}
+	c.mu.Lock()
+	defer c.unlock()
+	var out []search.Doc
+	for _, t := range c.tasks {
+		if t.UpdatedAt.Before(since) {
+			continue
+		}
+		out = append(out, search.Doc{
+			Ref: search.Ref(search.KindTask, t.ID), Kind: search.KindTask,
+			At: t.CreatedAt, Updated: t.UpdatedAt, Title: t.Title,
+			Body:  joinNonEmpty("\n", t.Objective, t.DoneCriteria, t.Note, t.Reason),
+			Agent: t.Holder, RepoKey: t.RepoKey,
+		})
+	}
+	for _, cm := range c.comments {
+		if cm.At.Before(since) {
+			continue
+		}
+		t := c.tasks[cm.TaskID]
+		d := search.Doc{
+			Ref: search.Ref(search.KindComment, cm.ID), Kind: search.KindComment,
+			At: cm.At, Updated: cm.At, Title: "comment on " + t.Title, Body: cm.Text,
+			RepoKey: t.RepoKey,
+		}
+		if !IsPerson(cm.By) {
+			d.Agent = cm.By
+		}
+		out = append(out, d)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].Updated.Equal(out[j].Updated) {
+			return out[i].Updated.Before(out[j].Updated)
+		}
+		return out[i].Ref < out[j].Ref
+	})
+	if len(out) > limit {
+		out = out[:limit:limit]
+	}
+	return out
+}
+
+func joinNonEmpty(sep string, parts ...string) string {
+	var keep []string
+	for _, p := range parts {
+		if p != "" {
+			keep = append(keep, p)
+		}
+	}
+	return strings.Join(keep, sep)
+}
+
+func (c *coord) searchShow(ref string, o search.ShowOptions) (search.Shown, error) {
+	kind, id, err := search.ParseRef(ref)
+	if err != nil {
+		return search.Shown{}, err
+	}
+	c.mu.Lock()
+	defer c.unlock()
+	var sh search.Shown
+	var full string
+	switch kind {
+	case search.KindTask:
+		t := c.tasks[id]
+		if t == nil {
+			return search.Shown{}, fmt.Errorf("%w: %s", search.ErrNotFound, ref)
+		}
+		full, sh.Related = c.renderTask(t)
+		sh.Title = cut(t.Title, search.MaxTitle)
+	case search.KindComment:
+		cm := c.comments[id]
+		if cm == nil {
+			return search.Shown{}, fmt.Errorf("%w: %s", search.ErrNotFound, ref)
+		}
+		t := c.tasks[cm.TaskID]
+		var b strings.Builder
+		fmt.Fprintf(&b, "Comment by %s on %q (task:%s), %s", cm.By, t.Title, t.ID, cm.At.Format(time.RFC3339))
+		if cm.Wake {
+			b.WriteString(", wake")
+		}
+		b.WriteString("\n\n")
+		b.WriteString(cm.Text)
+		b.WriteString("\n")
+		full = b.String()
+		sh.Title = cut("comment on "+t.Title, search.MaxTitle)
+		sh.Related = []string{search.Ref(search.KindTask, t.ID)}
+	default:
+		return search.Shown{}, fmt.Errorf("%w: coord has no %s refs", search.ErrNotFound, kind)
+	}
+	sh.Ref, sh.Kind = search.Ref(kind, id), kind
+	sh.Text, sh.More, sh.Next = search.Page(full, o)
+	return sh, nil
+}
+
+// renderTask is a task's Show text and Related refs. The caller holds c.mu.
+func (c *coord) renderTask(t *Task) (string, []string) {
+	var b strings.Builder
+	line := func(label, v string) {
+		if v != "" {
+			fmt.Fprintf(&b, "%s: %s\n", label, v)
+		}
+	}
+	fmt.Fprintf(&b, "Task %q (task:%s)\n", t.Title, t.ID)
+	state := string(t.State)
+	if t.Shared {
+		state += ", shared"
+	}
+	line("state", state)
+	line("repo", t.RepoKey)
+	line("holders", strings.Join(t.Holders, ", "))
+	line("created", t.CreatedBy+" at "+t.CreatedAt.Format(time.RFC3339))
+	line("updated", t.UpdatedAt.Format(time.RFC3339))
+	if t.State == Blocked {
+		bl := t.Reason
+		if bb := t.BlockedBy; bb != nil {
+			on := string(bb.Kind)
+			if bb.Ref != "" {
+				on += " " + bb.Ref
+			}
+			bl += " (on " + on + ")"
+		}
+		line("blocked", bl)
+	}
+	line("scope", strings.Join(t.Scope, ", "))
+	line("note", t.Note)
+	if t.Objective != "" {
+		fmt.Fprintf(&b, "\nobjective:\n%s\n", t.Objective)
+	}
+	if t.DoneCriteria != "" {
+		fmt.Fprintf(&b, "\ndone when:\n%s\n", t.DoneCriteria)
+	}
+	if len(t.Links) > 0 {
+		b.WriteString("\nlinks:\n")
+		for _, l := range t.Links {
+			fmt.Fprintf(&b, "- %s: %s\n", l.Label, l.Ref)
+		}
+	}
+	var related []string
+	if bb := t.BlockedBy; t.State == Blocked && bb != nil && bb.Kind == BlockedOnTask {
+		related = append(related, search.Ref(search.KindTask, bb.Ref))
+	}
+	ids := c.byTask[t.ID]
+	if len(ids) > 0 {
+		shown := ids[max(0, len(ids)-showComments):]
+		older := ids[:len(ids)-len(shown)]
+		fmt.Fprintf(&b, "\ncomments (%d", len(ids))
+		if len(older) > 0 {
+			fmt.Fprintf(&b, ", newest %d shown; Related has older ones", len(shown))
+		}
+		b.WriteString("):\n")
+		for _, id := range shown {
+			cm := c.comments[id]
+			text := cut(cm.Text, showCommentCut)
+			if text != cm.Text {
+				text += " (show comment:" + cm.ID + " for all of it)"
+			}
+			fmt.Fprintf(&b, "- %s %s: %s\n", cm.At.Format(time.RFC3339), cm.By, text)
+		}
+		for i := len(older) - 1; i >= 0 && len(related) < search.MaxRelated; i-- {
+			related = append(related, search.Ref(search.KindComment, older[i]))
+		}
+	}
+	return b.String(), related
+}

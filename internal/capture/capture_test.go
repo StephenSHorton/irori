@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -839,5 +840,81 @@ func TestLateCommitCommandSetsCommitter(t *testing.T) {
 	}
 	if len(cv.Link.Files) != 1 || cv.Link.Files[0].Link != "exact" {
 		t.Fatalf("relink lost the files: %+v", cv.Link.Files)
+	}
+}
+
+// Two late commit commands for one commit, read in the same pass, give it
+// one new commit.linked, and calls racing on the same command can't log the
+// same link twice (seen live: two identical rows for one commit).
+func TestLateCommitCommandsLinkOnce(t *testing.T) {
+	r := newRig(t, nil)
+	dir := newRepo(t, "false")
+	w := r.session(sidA, dir)
+	foo := filepath.Join(dir, "foo.go")
+	start := time.Now().Add(-5 * time.Second)
+	cmd := "git add foo.go && git commit -m 'add foo' && gh pr checks x --watch"
+	w.write(flat(
+		[]obj{w.prompt("p1", "add foo", start)},
+		w.writeTool("w1", foo, "package foo\n", nil, start.Add(time.Second)),
+		[]obj{w.toolUse("b1", "Bash", obj{"command": cmd, "description": "commit and watch"}, start.Add(2*time.Second))},
+		[]obj{w.toolUse("b2", "Bash", obj{"command": cmd, "description": "commit and watch"}, start.Add(2*time.Second))},
+	)...)
+	gitCmd(t, dir, "add", "foo.go")
+	gitCmd(t, dir, "commit", "-q", "-m", "add foo")
+	sha := head(t, dir)
+	r.tail()
+	r.repos()
+	links := func() []CommitLink {
+		var out []CommitLink
+		for _, raw := range r.rows(KindCommitLink) {
+			if l := decode[CommitLink](t, raw); l.SHA == sha {
+				out = append(out, l)
+			}
+		}
+		return out
+	}
+	first := links()
+	if len(first) != 1 || first[0].Committer != nil {
+		t.Fatalf("before the results: %+v", first)
+	}
+	done := time.Now().Add(3 * time.Minute)
+	res := obj{"stdout": "ok\n", "stderr": "", "interrupted": false, "isImage": false}
+	w.write(w.result("b1", res, done), w.result("b2", res, done))
+	r.tail()
+	if got := links(); len(got) != 2 || got[1].Committer == nil {
+		t.Fatalf("after both results: %d links %+v", len(got), got)
+	}
+
+	// Race two calls on a commit that has lost its committer again.
+	c := r.c.impl
+	c.mu.Lock()
+	rec := c.commitMap[commitKey(first[0].RepoKey, sha)]
+	before := first[0]
+	rec.link = &before
+	cmds := append([]CommitCmdRow(nil), c.cmds...)
+	c.mu.Unlock()
+	if len(cmds) < 2 {
+		t.Fatalf("commands = %d", len(cmds))
+	}
+	var wg sync.WaitGroup
+	for _, cm := range cmds[:2] {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := c.relinkCommitter(r.ctx, cm); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if got := links(); len(got) != 3 {
+		t.Fatalf("racing calls: %d links, want 3", len(got))
+	}
+	// Once it has a committer, another late command adds nothing.
+	if err := c.relinkCommitter(r.ctx, cmds[0]); err != nil {
+		t.Fatal(err)
+	}
+	if got := links(); len(got) != 3 {
+		t.Fatalf("repeat: %d links, want 3", len(got))
 	}
 }
