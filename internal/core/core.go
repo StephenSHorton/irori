@@ -14,10 +14,13 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/api"
+	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/device"
 	"github.com/StephenSHorton/irori/internal/discovery"
 	"github.com/StephenSHorton/irori/internal/hlc"
+	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/presence"
+	"github.com/StephenSHorton/irori/internal/repo"
 	"github.com/StephenSHorton/irori/internal/store"
 )
 
@@ -38,6 +41,9 @@ type Core struct {
 	device   device.Identity
 	store    *store.Store
 	presence *presence.Watcher
+	repos    *repo.Resolver
+	inbox    *inbox.Inbox
+	coord    *coord.Coord
 	cancel   context.CancelFunc
 	done     chan struct{} // closed when the service goroutines finish; nil before they start
 }
@@ -60,18 +66,30 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		cancel()
 		return nil, fmt.Errorf("open event log: %w", err)
 	}
+	repos := repo.New()
 	c := &Core{
-		opts:     opts,
-		device:   id,
-		store:    st,
-		presence: presence.New(presence.Options{ClaudeDir: opts.ClaudeDir, DeviceID: id.ID}),
-		cancel:   cancel,
+		opts:   opts,
+		device: id,
+		store:  st,
+		presence: presence.New(presence.Options{
+			ClaudeDir: opts.ClaudeDir, DeviceID: id.ID, RepoKey: repos.Key,
+		}),
+		repos:  repos,
+		cancel: cancel,
 	}
 	if _, err := st.Append(ctx, "irori", store.KindDeviceStarted, map[string]any{
 		"name": id.Name, "os": id.OS, "version": opts.Version, "headless": opts.Headless,
 	}); err != nil {
 		c.Close()
 		return nil, err
+	}
+	if c.inbox, err = inbox.New(ctx, st, c, inbox.Options{DeviceID: id.ID}); err != nil {
+		c.Close()
+		return nil, fmt.Errorf("inbox: %w", err)
+	}
+	if c.coord, err = coord.New(ctx, st, c, coord.Options{}); err != nil {
+		c.Close()
+		return nil, fmt.Errorf("coord: %w", err)
 	}
 
 	token, err := discovery.NewToken()
@@ -95,6 +113,7 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 			}
 		}()
 		go c.record(ctx, changes)
+		go c.sweep(ctx)
 		if err := srv.Serve(ctx, ln); err != nil && ctx.Err() == nil {
 			log.Printf("api: %v", err)
 		}
@@ -159,6 +178,36 @@ func (c *Core) record(ctx context.Context, changes <-chan presence.Change) {
 			log.Printf("record %s: %v", ch.Kind, err)
 		}
 	}
+}
+
+// sweep runs the inbox and coord sweepers every inbox.SweepInterval.
+func (c *Core) sweep(ctx context.Context) {
+	t := time.NewTicker(inbox.SweepInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if err := c.inbox.Sweep(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("inbox sweep: %v", err)
+		}
+		if err := c.coord.Sweep(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("coord sweep: %v", err)
+		}
+	}
+}
+
+// Inbox is the messaging core.
+func (c *Core) Inbox() *inbox.Inbox { return c.inbox }
+
+// Coord holds tasks and leases.
+func (c *Core) Coord() *coord.Coord { return c.coord }
+
+// UserSender is the person at this device's GUI.
+func (c *Core) UserSender() inbox.Sender {
+	return inbox.Sender{Key: "user:" + c.device.ID, Name: "you", Kind: "user"}
 }
 
 // Version implements api.Backend.
