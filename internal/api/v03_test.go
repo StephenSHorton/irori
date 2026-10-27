@@ -488,3 +488,30 @@ func TestV03Why(t *testing.T) {
 		t.Fatalf("client why no repo: %v", err)
 	}
 }
+
+// GET /v1/why is a read: a git repo capture has never seen is 404, and the
+// query does not add it to the known repos (no repo.seen, no reflog watch).
+func TestV03WhyUnknownRepoIsReadOnly(t *testing.T) {
+	f := newCapFixture(t)
+	before := f.c.Repos()
+
+	other := canonDir(t, t.TempDir())
+	git(t, other, "init", "-q")
+	git(t, other, "config", "core.autocrlf", "false")
+	if err := os.WriteFile(filepath.Join(other, "b.txt"), []byte("b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, other, "add", "b.txt")
+	git(t, other, "commit", "-q", "-m", "add b")
+	wantStatus(t, f.port, "/v1/why?line=1&path="+url.QueryEscape(filepath.Join(other, "b.txt")), http.StatusNotFound)
+	wantStatus(t, f.port, "/v1/why?path=b.txt&cwd="+url.QueryEscape(other), http.StatusNotFound)
+
+	// A repo with no commits (no repo key) is not a known repo either.
+	empty := canonDir(t, t.TempDir())
+	git(t, empty, "init", "-q")
+	wantStatus(t, f.port, "/v1/why?path=c.txt&cwd="+url.QueryEscape(empty), http.StatusNotFound)
+
+	if after := f.c.Repos(); len(after) != len(before) {
+		t.Fatalf("why added repos: before %v after %v", before, after)
+	}
+}

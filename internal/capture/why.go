@@ -19,24 +19,29 @@ import (
 // maxWhy caps WhyResult's Edits and Turns.
 const maxWhy = 10
 
+// resolver maps a directory to its worktree root and repo key: repoFor
+// (which logs repo.seen for a new root) on writes, knownRoot on reads.
+type resolver func(ctx context.Context, dir string) (root, repoKey string)
+
 // locate resolves a path (absolute, or relative to cwd or to repoKey's
 // root) to its worktree root, repo key, absolute and repo-relative forms.
-func (c *capture) locate(ctx context.Context, path, cwd, repoKey string) (root, rk, abs, rel string, err error) {
+// Roots come from resolve, so a read passes knownRoot and stays a read.
+func (c *capture) locate(ctx context.Context, resolve resolver, path, cwd, repoKey string) (root, rk, abs, rel string, err error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return "", "", "", "", ErrNoRepo
 	}
 	if filepath.IsAbs(filepath.FromSlash(path)) {
 		abs = filepath.Clean(filepath.FromSlash(path))
-		root, rk = c.repoFor(ctx, filepath.Dir(abs))
+		root, rk = resolve(ctx, filepath.Dir(abs))
 	} else {
 		cwdRoot := ""
 		if cwd != "" {
-			cwdRoot, rk = c.repoFor(ctx, cwd)
+			cwdRoot, rk = resolve(ctx, cwd)
 			root = cwdRoot
 		}
 		if repoKey != "" && rk != repoKey {
-			root, rk = c.rootOf(ctx, repoKey), repoKey
+			root, rk = c.rootOf(ctx, resolve, repoKey), repoKey
 		}
 		if root == "" {
 			return "", "", "", "", ErrNoRepo
@@ -63,12 +68,12 @@ func (c *capture) locate(ctx context.Context, path, cwd, repoKey string) (root, 
 
 // rootOf is an existing worktree root for a repo key: a live card's, else
 // any seen root that is still on disk.
-func (c *capture) rootOf(ctx context.Context, repoKey string) string {
+func (c *capture) rootOf(ctx context.Context, resolve resolver, repoKey string) string {
 	for _, card := range c.liveCards() {
 		if card.Cwd == "" || (card.RepoKey != "" && card.RepoKey != repoKey) {
 			continue
 		}
-		if root, rk := c.repoFor(ctx, card.Cwd); root != "" && rk == repoKey {
+		if root, rk := resolve(ctx, card.Cwd); root != "" && rk == repoKey {
 			return root
 		}
 	}
@@ -90,7 +95,7 @@ func (c *capture) rootOf(ctx context.Context, repoKey string) string {
 }
 
 func (c *capture) why(ctx context.Context, q WhyQuery) (WhyResult, error) {
-	root, rk, _, rel, err := c.locate(ctx, q.Path, q.Cwd, q.RepoKey)
+	root, rk, _, rel, err := c.locate(ctx, c.knownRoot, q.Path, q.Cwd, q.RepoKey)
 	if err != nil {
 		return WhyResult{}, err
 	}
@@ -264,7 +269,7 @@ func (c *capture) recordDecision(ctx context.Context, in DecisionInput) (decisio
 		if err != nil {
 			return decision.Decision{}, err
 		}
-		root, rk, abs, _, err := c.locate(ctx, in.Path, in.Cwd, "")
+		root, rk, abs, _, err := c.locate(ctx, c.repoFor, in.Path, in.Cwd, "")
 		if err != nil {
 			return decision.Decision{}, err
 		}
@@ -328,7 +333,7 @@ func (c *capture) liveRootOf(ctx context.Context, repoKey string) string {
 		if card.Cwd == "" || (card.RepoKey != "" && card.RepoKey != repoKey) {
 			continue
 		}
-		if root, rk := c.repoFor(ctx, card.Cwd); root != "" && rk == repoKey {
+		if root, rk := c.knownRoot(ctx, card.Cwd); root != "" && rk == repoKey {
 			return root
 		}
 	}
