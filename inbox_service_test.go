@@ -56,6 +56,16 @@ func TestInboxOneScanPerChange(t *testing.T) {
 	if src.lists != 2 {
 		t.Fatalf("List called %d times for two changes, want 2", src.lists)
 	}
+
+	// The person's own action drops the snapshot, so the next read is live.
+	s.acted(nil)
+	src.dels = nil
+	if h := s.Held(); len(h) != 0 {
+		t.Fatalf("held after the person's action = %+v, want none", h)
+	}
+	if src.lists != 3 {
+		t.Fatalf("List called %d times, want a rescan after the action", src.lists)
+	}
 }
 
 // Before the pump's first scan, Held and Counts scan on demand.

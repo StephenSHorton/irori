@@ -267,9 +267,10 @@ async function loadInbox(): Promise<InboxValue> {
     InboxService.Policy(),
   ])
   // Held items older than the newest InboxLimit still need the person, so
-  // they are merged in, newest first.
+  // they are merged in, newest first. Held is as of the last inbox:changed
+  // and List is live, so List's copy wins.
   const byId = new Map<string, Delivery>()
-  for (const d of [...(recent ?? []), ...(held ?? [])]) byId.set(d.id, d)
+  for (const d of [...(held ?? []), ...(recent ?? [])]) byId.set(d.id, d)
   const created = (d: Delivery) => parseTime(d.createdAt)?.getTime() ?? 0
   const deliveries = [...byId.values()].sort((a, b) => created(b) - created(a))
   return { deliveries, policy }

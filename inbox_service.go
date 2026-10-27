@@ -108,12 +108,12 @@ func (s *InboxService) Send(to, repo, text string) (inbox.Message, error) {
 
 // Release delivers a held delivery past the policy (the person's Deliver).
 func (s *InboxService) Release(deliveryID string) error {
-	return s.core.Inbox().Release(context.Background(), deliveryID, s.by())
+	return s.acted(s.core.Inbox().Release(context.Background(), deliveryID, s.by()))
 }
 
 // Dismiss closes a held delivery without delivering it.
 func (s *InboxService) Dismiss(deliveryID string) error {
-	return s.core.Inbox().Dismiss(context.Background(), deliveryID, s.by())
+	return s.acted(s.core.Inbox().Dismiss(context.Background(), deliveryID, s.by()))
 }
 
 // AllowAndRelease adds the held delivery's sender to the allow list, then
@@ -151,11 +151,22 @@ func (s *InboxService) Policy() inbox.Policy { return s.core.Inbox().Policy() }
 
 // SetPolicy replaces the wake policy as the person.
 func (s *InboxService) SetPolicy(p inbox.Policy) error {
-	if err := s.core.Inbox().SetPolicy(context.Background(), p, s.by()); err != nil {
+	if err := s.acted(s.core.Inbox().SetPolicy(context.Background(), p, s.by())); err != nil {
 		return err
 	}
 	s.nudge()
 	return nil
+}
+
+// acted drops the snapshot after the person's own change succeeded, so a
+// read right after it is live rather than up to inboxEmitEvery old.
+func (s *InboxService) acted(err error) error {
+	if err == nil {
+		s.mu.Lock()
+		s.snap = nil
+		s.mu.Unlock()
+	}
+	return err
 }
 
 // SetPaused turns pause-all on or off, keeping the rest of the policy.
