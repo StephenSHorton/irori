@@ -63,7 +63,8 @@ func (s *Store) Append(ctx context.Context, actor, kind string, payload any) (Ev
 }
 
 // Insert stores a row replicated from another device. It is idempotent on
-// (DeviceID, Seq), observes ev.HLC on the clock, and refuses this device's own id.
+// (DeviceID, Seq), observes ev.HLC on the clock once the row commits, and
+// refuses this device's own id, HLCs past MaxReplicatedHLC and invalid JSON.
 func (s *Store) Insert(ctx context.Context, ev Event) error { return s.insert(ctx, ev) }
 
 // Vector reports the max seq held per device.

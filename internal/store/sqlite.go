@@ -22,6 +22,11 @@ import (
 // int64(ts), which keeps ordering as long as the top bit is clear. The wall part
 // is milliseconds<<16, so the top bit stays clear until 2^47 ms after 1970, a few
 // thousand years out. Insert refuses anything larger rather than wrap it.
+//
+// Replicated rows must also sit at or below MaxReplicatedHLC. Observing a row
+// near MaxInt64 would leave the clock no room, and every later Append would
+// fail; the ceiling leaves 2^62 readings of headroom past the highest row any
+// peer can hand us.
 
 // Errors callers may want to match.
 var (
@@ -33,6 +38,10 @@ var (
 	// ErrClosed: the store was closed.
 	ErrClosed = errors.New("store: closed")
 )
+
+// MaxReplicatedHLC is the highest HLC Insert accepts: a wall part of 2^46 ms,
+// about the year 4199.
+const MaxReplicatedHLC hlc.Timestamp = 1 << 62
 
 const (
 	// DefaultListLimit and MaxListLimit bound Filter.Limit.
@@ -74,6 +83,7 @@ type db struct {
 	subMu  sync.Mutex
 	subs   map[*subscriber]struct{}
 	closed bool
+	done   chan struct{} // closed by close(), ends subscriber goroutines
 }
 
 type subscriber struct {
@@ -104,7 +114,15 @@ func open(ctx context.Context, path, deviceID string, clock *hlc.Clock) (*Store,
 		sdb.Close()
 		return nil, err
 	}
-	return &Store{impl: &db{sql: sdb, deviceID: deviceID, clock: clock, subs: map[*subscriber]struct{}{}}}, nil
+	// Seed the clock with the newest row held, so own rows stamped after a
+	// restart still sort after everything this device already has.
+	var top int64
+	if err := sdb.QueryRowContext(ctx, `SELECT COALESCE(MAX(hlc), 0) FROM events WHERE hlc <= ?`, int64(MaxReplicatedHLC)).Scan(&top); err != nil {
+		sdb.Close()
+		return nil, err
+	}
+	clock.Observe(hlc.Timestamp(top))
+	return &Store{impl: &db{sql: sdb, deviceID: deviceID, clock: clock, subs: map[*subscriber]struct{}{}, done: make(chan struct{})}}, nil
 }
 
 // SchemaVersion is the schema version this build writes.
@@ -152,6 +170,7 @@ func (s *Store) close() error {
 		close(sub.ch)
 	}
 	d.subs = nil
+	close(d.done)
 	d.subMu.Unlock()
 	return d.sql.Close()
 }
@@ -205,13 +224,15 @@ func (s *Store) insert(ctx context.Context, ev Event) error {
 		return fmt.Errorf("store: replicated row %s/%d has seq < 1", ev.DeviceID, ev.Seq)
 	case ev.Kind == "":
 		return fmt.Errorf("store: replicated row %s/%d has no kind", ev.DeviceID, ev.Seq)
-	case uint64(ev.HLC) > math.MaxInt64:
-		return fmt.Errorf("store: replicated row %s/%d has hlc %d past int64", ev.DeviceID, ev.Seq, ev.HLC)
+	case ev.HLC > MaxReplicatedHLC:
+		return fmt.Errorf("store: replicated row %s/%d has hlc %d past the %d ceiling", ev.DeviceID, ev.Seq, ev.HLC, MaxReplicatedHLC)
 	}
 	if len(ev.Payload) == 0 {
 		ev.Payload = json.RawMessage("null")
 	}
-	d.clock.Observe(ev.HLC)
+	if !json.Valid(ev.Payload) {
+		return fmt.Errorf("store: replicated row %s/%d has a payload that is not valid JSON", ev.DeviceID, ev.Seq)
+	}
 
 	d.writeMu.Lock()
 	defer d.writeMu.Unlock()
@@ -239,6 +260,8 @@ func (s *Store) insert(ctx context.Context, ev Event) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	// Only a committed row moves the clock; refused or re-delivered copies do not.
+	d.clock.Observe(ev.HLC)
 	d.notify(ev)
 	return nil
 }
@@ -389,7 +412,10 @@ func (s *Store) subscribe(ctx context.Context) <-chan Event {
 	d.subs[sub] = struct{}{}
 	d.subMu.Unlock()
 	go func() {
-		<-ctx.Done()
+		select {
+		case <-ctx.Done():
+		case <-d.done:
+		}
 		d.subMu.Lock()
 		defer d.subMu.Unlock()
 		if _, ok := d.subs[sub]; ok {

@@ -7,6 +7,7 @@ import (
 	"math"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -152,7 +153,7 @@ func TestHLCRoundTripsAsInt64(t *testing.T) {
 	ctx := context.Background()
 	// Year 3000 still fits: ms<<16 stays under 2^63.
 	y3000 := hlc.Timestamp(time.Date(3000, 1, 1, 0, 0, 0, 0, time.UTC).UnixMilli()) << 16
-	stamps := []hlc.Timestamp{1, hlc.Timestamp(time.Now().UnixMilli()) << 16, y3000, math.MaxInt64}
+	stamps := []hlc.Timestamp{1, hlc.Timestamp(time.Now().UnixMilli()) << 16, y3000, MaxReplicatedHLC}
 	for i, ts := range stamps {
 		ev := Event{DeviceID: "dev-b", Seq: int64(i + 1), HLC: ts, Kind: KindAgentSeen}
 		if err := s.Insert(ctx, ev); err != nil {
@@ -168,13 +169,110 @@ func TestHLCRoundTripsAsInt64(t *testing.T) {
 			t.Fatalf("row %d hlc %d, want %d", i, ev.HLC, stamps[i])
 		}
 	}
-	over := Event{DeviceID: "dev-b", Seq: 5, HLC: math.MaxInt64 + 1, Kind: KindAgentSeen}
-	if err := s.Insert(ctx, over); err == nil {
-		t.Fatal("insert past int64 accepted")
+	// The clock observed the ceiling and still has room to stamp own rows.
+	ev, err := s.Append(ctx, "irori", KindAgentSeen, nil)
+	if err != nil {
+		t.Fatalf("append after ceiling row: %v", err)
 	}
-	// The clock observed MaxInt64, so its next reading would wrap; Append refuses it.
-	if _, err := s.Append(ctx, "irori", KindAgentSeen, nil); err == nil {
-		t.Fatal("append past int64 accepted")
+	if ev.HLC <= MaxReplicatedHLC {
+		t.Fatalf("append hlc %d not past observed %d", ev.HLC, MaxReplicatedHLC)
+	}
+}
+
+func TestInsertRefusesHLCPastCeiling(t *testing.T) {
+	s := openTest(t, t.TempDir(), "dev-a")
+	ctx := context.Background()
+	for _, ts := range []hlc.Timestamp{MaxReplicatedHLC + 1, math.MaxInt64, math.MaxInt64 + 1, math.MaxUint64} {
+		if err := s.Insert(ctx, Event{DeviceID: "dev-b", Seq: 1, HLC: ts, Kind: KindAgentSeen}); err == nil {
+			t.Fatalf("insert with hlc %d accepted", ts)
+		}
+	}
+	ev, err := s.Append(ctx, "irori", KindAgentSeen, nil)
+	if err != nil {
+		t.Fatalf("append after refused rows: %v", err)
+	}
+	if ev.HLC >= MaxReplicatedHLC {
+		t.Fatalf("refused rows moved the clock: append hlc %d", ev.HLC)
+	}
+}
+
+func TestRefusedInsertDoesNotMoveClock(t *testing.T) {
+	s := openTest(t, t.TempDir(), "dev-a")
+	ctx := context.Background()
+	future := hlc.Timestamp(time.Date(3000, 1, 1, 0, 0, 0, 0, time.UTC).UnixMilli()) << 16
+	// Seq 5 on an empty device is a gap.
+	if err := s.Insert(ctx, Event{DeviceID: "dev-b", Seq: 5, HLC: future, Kind: KindAgentSeen}); !errors.Is(err, ErrGap) {
+		t.Fatalf("got %v, want ErrGap", err)
+	}
+	// Already held: seq 1 commits, a re-delivered copy with a later HLC is ignored.
+	if err := s.Insert(ctx, Event{DeviceID: "dev-b", Seq: 1, HLC: 1 << 16, Kind: KindAgentSeen}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Insert(ctx, Event{DeviceID: "dev-b", Seq: 1, HLC: future, Kind: KindAgentSeen}); err != nil {
+		t.Fatal(err)
+	}
+	ev, err := s.Append(ctx, "irori", KindAgentSeen, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.HLC >= future {
+		t.Fatalf("refused or re-delivered row moved the clock: append hlc %d >= %d", ev.HLC, future)
+	}
+}
+
+func TestOpenSeedsClockFromHeldRows(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	future := hlc.Timestamp(time.Date(3000, 1, 1, 0, 0, 0, 0, time.UTC).UnixMilli()) << 16
+	s := openTest(t, dir, "dev-a")
+	if err := s.Insert(ctx, Event{DeviceID: "dev-b", Seq: 1, HLC: future, Kind: KindAgentSeen}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s2 := openTest(t, dir, "dev-a")
+	ev, err := s2.Append(ctx, "irori", KindAgentSeen, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.HLC <= future {
+		t.Fatalf("reopened clock not seeded: append hlc %d <= %d", ev.HLC, future)
+	}
+}
+
+func TestInsertRefusesInvalidJSONPayload(t *testing.T) {
+	s := openTest(t, t.TempDir(), "dev-a")
+	ctx := context.Background()
+	bad := Event{DeviceID: "dev-b", Seq: 1, HLC: 1 << 16, Kind: KindAgentSeen, Payload: json.RawMessage(`{not json`)}
+	if err := s.Insert(ctx, bad); err == nil {
+		t.Fatal("invalid JSON payload accepted")
+	}
+	good := bad
+	good.Payload = json.RawMessage(`{"ok":true}`)
+	if err := s.Insert(ctx, good); err != nil {
+		t.Fatal(err)
+	}
+	evs, err := s.List(ctx, Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := json.Marshal(evs); err != nil {
+		t.Fatalf("marshal list: %v", err)
+	}
+}
+
+func TestSubscribeGoroutineEndsOnClose(t *testing.T) {
+	s := openTest(t, t.TempDir(), "dev-a")
+	before := runtime.NumGoroutine()
+	for range 100 {
+		s.Subscribe(context.Background())
+	}
+	s.Close()
+	deadline := time.Now().Add(2 * time.Second)
+	for runtime.NumGoroutine() > before+10 {
+		if time.Now().After(deadline) {
+			t.Fatalf("goroutines %d after close, started with %d", runtime.NumGoroutine(), before)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
