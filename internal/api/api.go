@@ -15,6 +15,9 @@
 //	               &device=       -> only that device's rows
 //	GET /v1/events/stream         -> NDJSON of store.Event (routes_events.go)
 //
+// v0.2 routes are in routes_v02.go, v0.3 in routes_v03.go, and the Board
+// and browsing reads (board, tasks, search, show, overview) in routes_board.go.
+//
 // CONTRACT (implemented by the discovery/api work package; keep these signatures):
 package api
 
