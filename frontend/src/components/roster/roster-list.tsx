@@ -1,5 +1,7 @@
-import { FolderIcon, FlameIcon } from "lucide-react"
+import { useState } from "react"
+import { FolderGitIcon, FolderIcon, FlameIcon, HistoryIcon } from "lucide-react"
 
+import { ConfirmButton } from "@/components/common/confirm-button"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import {
@@ -9,80 +11,139 @@ import {
 } from "@/components/ui/tooltip"
 import {
   parseTime,
+  plainBlock,
   plainLine,
   relativeTime,
   shortPath,
+  shortRepo,
   type AgentCard,
 } from "@/lib/irori"
+import { talk, type AgentCounts, type GoneSession } from "@/lib/talk"
 
-type Group = { cwd: string; agents: AgentCard[]; newest: number }
+type Group = {
+  id: string // repoKey, else cwd
+  repoKey: string
+  cwds: string[]
+  agents: AgentCard[]
+  newest: number
+}
 
 function activityOf(a: AgentCard): number {
   return (parseTime(a.lastActivity) ?? parseTime(a.updatedAt))?.getTime() ?? 0
 }
 
-// groupByCwd buckets agents by working directory; groups and the agents in
-// them are ordered newest activity first.
-export function groupByCwd(agents: AgentCard[]): Group[] {
-  const byCwd = new Map<string, Group>()
+// groupAgents buckets agents by repoKey, falling back to the working
+// directory outside git; groups and the agents in them are ordered newest
+// activity first.
+export function groupAgents(agents: AgentCard[]): Group[] {
+  const byId = new Map<string, Group>()
   for (const a of agents) {
-    const g = byCwd.get(a.cwd) ?? { cwd: a.cwd, agents: [], newest: 0 }
+    const id = a.repoKey ? `repo:${a.repoKey}` : `cwd:${a.cwd}`
+    const g = byId.get(id) ?? {
+      id,
+      repoKey: a.repoKey,
+      cwds: [],
+      agents: [],
+      newest: 0,
+    }
     g.agents.push(a)
+    if (!g.cwds.includes(a.cwd)) g.cwds.push(a.cwd)
     g.newest = Math.max(g.newest, activityOf(a))
-    byCwd.set(a.cwd, g)
+    byId.set(id, g)
   }
-  const groups = [...byCwd.values()]
+  const groups = [...byId.values()]
   for (const g of groups) g.agents.sort((x, y) => activityOf(y) - activityOf(x))
   return groups.sort((x, y) => y.newest - x.newest)
 }
 
-// RosterList shows every live agent, grouped by working directory.
+// RosterList shows every live agent grouped by repo, then the sessions that
+// left recently with a Revive button.
 export function RosterList({
   agents,
+  counts,
+  gone,
+  goneError,
   now,
 }: {
   agents: AgentCard[]
+  counts: Map<string, AgentCounts>
+  gone: GoneSession[]
+  goneError: string | null
   now: Date
 }) {
-  if (agents.length === 0) return <EmptyState />
   return (
     <div className="flex flex-col gap-6">
-      {groupByCwd(agents).map((g) => (
-        <section key={g.cwd} aria-label={g.cwd || "no directory"}>
-          <h2 className="mb-2 flex items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground">
-            <FolderIcon className="size-3.5" aria-hidden />
-            <CwdLabel cwd={g.cwd} />
-            <span className="tabular-nums">· {g.agents.length}</span>
-          </h2>
-          <Card size="sm" className="gap-0 py-0!">
-            <ul className="divide-y divide-border">
-              {g.agents.map((a) => (
-                <AgentRow key={a.key} agent={a} now={now} />
-              ))}
-            </ul>
-          </Card>
-        </section>
-      ))}
+      {agents.length === 0 ? (
+        <EmptyState />
+      ) : (
+        groupAgents(agents).map((g) => (
+          <section
+            key={g.id}
+            aria-label={g.repoKey || g.cwds[0] || "no directory"}
+          >
+            <h2 className="mb-2 flex items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground">
+              {g.repoKey ? (
+                <FolderGitIcon className="size-3.5" aria-hidden />
+              ) : (
+                <FolderIcon className="size-3.5" aria-hidden />
+              )}
+              <GroupLabel g={g} />
+              <span className="tabular-nums">· {g.agents.length}</span>
+            </h2>
+            <Card size="sm" className="gap-0 py-0!">
+              <ul className="divide-y divide-border">
+                {g.agents.map((a) => (
+                  <AgentRow
+                    key={a.key}
+                    agent={a}
+                    counts={counts.get(a.key)}
+                    showCwd={g.cwds.length > 1}
+                    now={now}
+                  />
+                ))}
+              </ul>
+            </Card>
+          </section>
+        ))
+      )}
+
+      {(gone.length > 0 || goneError) && (
+        <GoneList gone={gone} error={goneError} now={now} />
+      )}
     </div>
   )
 }
 
-function CwdLabel({ cwd }: { cwd: string }) {
+function GroupLabel({ g }: { g: Group }) {
+  const label = g.repoKey ? shortRepo(g.repoKey) : shortPath(g.cwds[0] ?? "")
   return (
     <Tooltip>
       <TooltipTrigger
         render={<span className="truncate font-mono text-ink-2" tabIndex={0} />}
       >
-        {shortPath(cwd)}
+        {label}
       </TooltipTrigger>
       <TooltipContent className="max-w-md font-mono break-all">
-        {cwd || "(no directory)"}
+        {g.repoKey && <div>{g.repoKey}</div>}
+        {g.cwds.map((c) => (
+          <div key={c}>{c || "(no directory)"}</div>
+        ))}
       </TooltipContent>
     </Tooltip>
   )
 }
 
-function AgentRow({ agent, now }: { agent: AgentCard; now: Date }) {
+function AgentRow({
+  agent,
+  counts,
+  showCwd,
+  now,
+}: {
+  agent: AgentCard
+  counts?: AgentCounts
+  showCwd: boolean
+  now: Date
+}) {
   const name = plainLine(agent.name) || agent.sessionId.slice(0, 8)
   const rawTitle = plainLine(agent.title)
   // Claude Code often names a session after its title; show it once.
@@ -100,6 +161,16 @@ function AgentRow({ agent, now }: { agent: AgentCard; now: Date }) {
           </span>
         )}
         <span className="ml-auto flex shrink-0 items-center gap-2">
+          {counts && counts.unread > 0 && (
+            <Badge variant="info" title="Messages waiting for this agent">
+              {counts.unread} unread
+            </Badge>
+          )}
+          {counts && counts.held > 0 && (
+            <Badge variant="warning" title="Messages held for you in the Inbox">
+              {counts.held} held
+            </Badge>
+          )}
           <time
             className="text-xs text-muted-foreground tabular-nums"
             dateTime={last?.toISOString()}
@@ -120,10 +191,24 @@ function AgentRow({ agent, now }: { agent: AgentCard; now: Date }) {
       >
         {text || "No reply yet"}
       </p>
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
         <span>{kindLabel(agent.sessionKind)}</span>
         {agent.entrypoint && <span>· {agent.entrypoint}</span>}
-        <span className="ml-auto font-mono">pid {agent.pid}</span>
+        {agent.permissionMode === "bypassPermissions" && (
+          <Badge
+            variant="slate"
+            className="h-4.5 px-1.5 text-[11px]"
+            title="Runs with bypassed permissions: messages from agents that don't are held"
+          >
+            bypass permissions
+          </Badge>
+        )}
+        {showCwd && (
+          <span className="truncate font-mono" title={agent.cwd}>
+            · {shortPath(agent.cwd)}
+          </span>
+        )}
+        <span className="ml-auto shrink-0 font-mono">pid {agent.pid}</span>
       </div>
     </li>
   )
@@ -150,6 +235,98 @@ export function StatusBadge({ status }: { status: string }) {
   }
   if (status === "idle") return <Badge variant="slate">idle</Badge>
   return <Badge variant="warning">{plainLine(status) || "unknown"}</Badge>
+}
+
+// GoneList is the sessions that left the roster recently. Revive runs
+// claude --bg --resume in the session's folder after a confirm.
+function GoneList({
+  gone,
+  error,
+  now,
+}: {
+  gone: GoneSession[]
+  error: string | null
+  now: Date
+}) {
+  return (
+    <section aria-labelledby="gone-h">
+      <h2
+        id="gone-h"
+        className="mb-2 flex items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground"
+      >
+        <HistoryIcon className="size-3.5" aria-hidden />
+        Recently gone
+        <span className="tabular-nums">· {gone.length}</span>
+      </h2>
+      {error && (
+        <p className="mb-2 px-1 text-xs text-destructive">
+          Could not read recent sessions: {error}
+        </p>
+      )}
+      <Card size="sm" className="gap-0 py-0!">
+        <ul className="divide-y divide-border">
+          {gone.map((g) => (
+            <GoneRow key={g.key} g={g} now={now} />
+          ))}
+        </ul>
+      </Card>
+    </section>
+  )
+}
+
+function GoneRow({ g, now }: { g: GoneSession; now: Date }) {
+  const [output, setOutput] = useState<string | null>(null)
+  const name = plainLine(g.name) || g.sessionId.slice(0, 8)
+  const at = parseTime(g.goneAt)
+  const where = shortPath(g.cwd)
+
+  return (
+    <li className="flex flex-col gap-1 px-4 py-2.5">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="truncate font-medium text-ink-2">{name}</span>
+        <span
+          className="truncate font-mono text-xs text-muted-foreground"
+          title={g.cwd}
+        >
+          {where}
+        </span>
+        <span className="ml-auto flex shrink-0 items-center gap-2">
+          <time
+            className="text-xs text-muted-foreground tabular-nums"
+            dateTime={at?.toISOString()}
+            title={at?.toLocaleString()}
+          >
+            left {relativeTime(at, now)}
+          </time>
+          {g.transcript ? (
+            <ConfirmButton
+              label="Revive"
+              question={
+                <>
+                  Run <code className="font-mono">claude --bg --resume</code> in{" "}
+                  <span className="font-mono">{where}</span>?
+                  {!g.trusted && (
+                    <span className="block text-warning">
+                      Claude Code may refuse: this folder isn't marked trusted.
+                    </span>
+                  )}
+                </>
+              }
+              confirmLabel="Revive"
+              onConfirm={async () => setOutput(await talk.revive(g.sessionId))}
+            />
+          ) : (
+            <span className="text-xs text-muted-foreground">no transcript</span>
+          )}
+        </span>
+      </div>
+      {output !== null && (
+        <div className="rounded-lg bg-muted/60 px-3 py-2 font-mono text-xs whitespace-pre-wrap text-ink-2">
+          {plainBlock(output) || "Started."}
+        </div>
+      )}
+    </li>
+  )
 }
 
 // EmptyState explains where the roster comes from when nothing is running.

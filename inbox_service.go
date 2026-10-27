@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,10 @@ const EventInboxChanged = "inbox:changed"
 
 // inboxEmitEvery bounds inbox:changed to 4 events a second.
 const inboxEmitEvery = 250 * time.Millisecond
+
+// scanAll is the List limit for a pass over every delivery; List(0) means
+// the default page of 50, not all.
+const scanAll = 1 << 30
 
 func init() {
 	application.RegisterEvent[InboxCounts](EventInboxChanged)
@@ -63,7 +68,7 @@ func (s *InboxService) List(limit int) []inbox.Delivery {
 // Held returns every delivery waiting on the person, newest first.
 func (s *InboxService) Held() []inbox.Delivery {
 	out := []inbox.Delivery{}
-	for _, d := range s.core.Inbox().List(0) {
+	for _, d := range s.core.Inbox().List(scanAll) {
 		if d.State == inbox.Held {
 			out = append(out, d)
 		}
@@ -108,6 +113,11 @@ func (s *InboxService) AllowAndRelease(deliveryID string) error {
 	}
 	if d.State != inbox.Held {
 		return inbox.ErrBadState
+	}
+	// Allow only lifts these two holds. A block outranks the allow list, and
+	// a pause or hop limit isn't about the sender: use Release for those.
+	if d.Hold != inbox.HoldNotAllowed && d.Hold != inbox.HoldBypassReceiver {
+		return fmt.Errorf("%w: allowing the sender doesn't lift a %q hold", inbox.ErrBadState, d.Hold)
 	}
 	key := d.Message.From.Key
 	if key == "" {
@@ -161,7 +171,7 @@ func (s *InboxService) onCounts(fn func(InboxCounts)) {
 
 func (s *InboxService) counts() InboxCounts {
 	c := InboxCounts{Paused: s.core.Inbox().Policy().Paused}
-	for _, d := range s.core.Inbox().List(0) {
+	for _, d := range s.core.Inbox().List(scanAll) {
 		switch d.State {
 		case inbox.Queued, inbox.Delivered:
 			c.Unread++
