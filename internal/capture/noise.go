@@ -15,7 +15,8 @@ import (
 // Heuristic (Bash/PowerShell bashEditDiff) edits are mostly build output: a
 // `dotnet build` reports every .dll it wrote. Before a heuristic edit is
 // logged it must name a file inside a known repo that git doesn't ignore and
-// whose extension isn't a binary or build artifact; at most maxShellEdits of
+// whose extension isn't a binary or build artifact, and it must add or remove
+// a line (a shell call that only touched a file reports +0-0); at most maxShellEdits of
 // one shell call's edits survive. When git can't say which repo owns a file
 // (see noiseRoot) the edit is kept. Exact edits (Edit, Write, NotebookEdit)
 // are never filtered.
@@ -60,6 +61,7 @@ type Dropped struct {
 	OutsideRepo int `json:"outsideRepo"` // not inside a known git worktree
 	Ignored     int `json:"ignored"`     // git check-ignore says the path is ignored
 	OverCap     int `json:"overCap"`     // past maxShellEdits in one shell call
+	Unchanged   int `json:"unchanged"`   // no lines added or removed (a shell call touched the file)
 }
 
 // isArtifact reports a path capture never keeps a heuristic edit for.
@@ -209,6 +211,11 @@ func (c *capture) dropNoise(ctx context.Context, f *tfile, items []transcript.It
 			mark(i)
 			continue
 		}
+		if e.Adds == 0 && e.Dels == 0 {
+			stats.Unchanged++
+			mark(i)
+			continue
+		}
 		root, unsure := c.noiseRoot(ctx, e.Cwd, abs)
 		if unsure {
 			continue
@@ -260,6 +267,7 @@ func (c *capture) dropNoise(ctx context.Context, f *tfile, items []transcript.It
 	c.dropped.OutsideRepo += stats.OutsideRepo
 	c.dropped.Ignored += stats.Ignored
 	c.dropped.OverCap += stats.OverCap
+	c.dropped.Unchanged += stats.Unchanged
 	c.mu.Unlock()
 	return drop
 }

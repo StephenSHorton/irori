@@ -27,12 +27,33 @@ const device = "dev1"
 type fakeRoster struct {
 	mu    sync.Mutex
 	cards []presence.AgentCard
+	gate  chan struct{} // non-nil: Agents blocks until it is closed
 }
 
 func (r *fakeRoster) Agents() []presence.AgentCard {
 	r.mu.Lock()
+	gate := r.gate
+	r.mu.Unlock()
+	if gate != nil {
+		<-gate
+	}
+	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]presence.AgentCard(nil), r.cards...)
+}
+
+// hold makes Agents block until the returned release is called.
+func (r *fakeRoster) hold() (release func()) {
+	gate := make(chan struct{})
+	r.mu.Lock()
+	r.gate = gate
+	r.mu.Unlock()
+	return sync.OnceFunc(func() {
+		r.mu.Lock()
+		r.gate = nil
+		r.mu.Unlock()
+		close(gate)
+	})
 }
 
 func (r *fakeRoster) set(cards ...presence.AgentCard) {

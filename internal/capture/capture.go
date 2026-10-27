@@ -44,6 +44,7 @@ const (
 const (
 	DefaultScanInterval     = 3 * time.Second
 	DefaultRepoInterval     = 5 * time.Second
+	DefaultSafetyInterval   = time.Minute
 	DefaultQuietAfter       = 2 * time.Minute
 	DefaultBackfillWindow   = 72 * time.Hour
 	DefaultBackfillMaxBytes = 64 << 20
@@ -72,8 +73,15 @@ type Options struct {
 	// RepoKey maps a worktree root to its repo_key (repo.Resolver.Key).
 	RepoKey func(dir string) string
 	Scrub   *scrub.Scrubber // default scrub.New()
-	// Zero means the Default constant.
+	// Zero means the Default constant. Run reacts to file-change events
+	// (internal/fswatch): a transcript append tails that file, a logs/HEAD
+	// append reads that root's reflog. SafetyInterval is its slow full rescan
+	// (notifications can be lost). ScanInterval and RepoInterval are the
+	// polling periods used where events aren't available: on an OS without a
+	// watcher, and while a directory can't be watched yet (no projects dir,
+	// a repo with no reflog).
 	ScanInterval, RepoInterval, QuietAfter, BackfillWindow time.Duration
+	SafetyInterval                                         time.Duration
 	BackfillMaxBytes                                       int64
 }
 

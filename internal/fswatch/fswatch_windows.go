@@ -90,6 +90,10 @@ func watch(ctx context.Context, root string, recursive bool, debounce time.Durat
 		defer windows.CloseHandle(stopEv)
 		defer windows.CloseHandle(ioEv)
 		defer windows.CloseHandle(h)
+		// Use up once before stopEv closes, so a later Close or ctx cancel
+		// can't SetEvent a handle value Windows has since given to someone
+		// else.
+		defer once.Do(func() {})
 		for {
 			w, _ := windows.WaitForMultipleObjects([]windows.Handle{ioEv, stopEv}, false, windows.INFINITE)
 			if w != windows.WAIT_OBJECT_0 {
