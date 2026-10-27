@@ -444,7 +444,7 @@ func TestServerInfoAndCapabilities(t *testing.T) {
 			if v, ok := ir.Capabilities.Experimental[ChannelCapability]; !ok || !reflect.DeepEqual(v, map[string]any{}) {
 				t.Errorf("claude/channel = %#v", v)
 			}
-			for _, want := range []string{"untrusted", "irori_join", "irori_reply", "delivery_id", "Irori mod"} {
+			for _, want := range []string{"untrusted", "irori_join", "irori_reply", "delivery_id", "Irori mod", "overview", "show <ref>"} {
 				if !strings.Contains(ir.Instructions, want) {
 					t.Errorf("instructions lack %q", want)
 				}
@@ -534,13 +534,15 @@ func TestFallbackSpecsValid(t *testing.T) {
 			ro = append(ro, s.Name)
 		}
 	}
-	want := []string{"agents", "events", "send", "reply", "inbox", "ack", "defer", "skip",
-		"task_create", "task_list", "task_claim", "task_assign", "task_status", "lease", "leases", "release",
-		"timeline", "why", "decision_record", "decisions", "join"}
+	want := []string{"overview", "search", "show", "agents", "events", "send", "reply", "inbox", "ack", "defer", "skip",
+		"board", "board_create", "board_comment", "board_block", "board_unblock", "board_join", "board_leave",
+		"board_assign", "board_status", "board_link", "lease", "leases", "release",
+		"timeline", "why", "commits", "prs", "decision_record", "decisions", "join"}
 	if !slices.Equal(names, want) {
 		t.Errorf("names %v\nwant  %v", names, want)
 	}
-	if !slices.Equal(ro, []string{"agents", "events", "inbox", "task_list", "leases", "timeline", "why", "decisions"}) {
+	if !slices.Equal(ro, []string{"overview", "search", "show", "agents", "events", "inbox", "board", "leases",
+		"timeline", "why", "commits", "prs", "decisions"}) {
 		t.Errorf("read-only %v", ro)
 	}
 }

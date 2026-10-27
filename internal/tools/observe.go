@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/capture"
+	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/store"
@@ -23,7 +25,7 @@ type agentsArgs struct {
 	Cwd    string `json:"cwd"`
 }
 
-func (s *set) agents(_ context.Context, c Caller, raw json.RawMessage) string {
+func (s *set) agents(ctx context.Context, c Caller, raw json.RawMessage) string {
 	var a agentsArgs
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
@@ -36,6 +38,7 @@ func (s *set) agents(_ context.Context, c Caller, raw json.RawMessage) string {
 		return strings.Compare(x.Key, y.Key)
 	})
 	now := s.now()
+	doing := s.doing(ctx, c)
 	var b strings.Builder
 	shown := 0
 	for _, card := range cards {
@@ -43,7 +46,7 @@ func (s *set) agents(_ context.Context, c Caller, raw json.RawMessage) string {
 			continue
 		}
 		shown++
-		writeAgent(&b, card, c.Sender.Key, now)
+		writeAgent(&b, card, c.Sender.Key, now, doing[card.Key])
 	}
 	head := fmt.Sprintf("%d of %d agents on this device%s.", shown, len(cards), describeAgentFilter(a))
 	if shown == 0 {
@@ -78,7 +81,24 @@ func describeAgentFilter(a agentsArgs) string {
 	return " matching " + strings.Join(parts, ", ")
 }
 
-func writeAgent(b *strings.Builder, c presence.AgentCard, self string, now time.Time) {
+// doing is each live agent's one line from capture's overview (nil with
+// capture off): its open turn's prompt, the card it holds, or its last reply.
+func (s *set) doing(ctx context.Context, c Caller) map[string]capture.Line {
+	cp := s.b.Capture()
+	if cp == nil {
+		return nil
+	}
+	ov := cp.Overview(ctx, c.Sender.Key, capture.OverviewInput{
+		Current: current(s.b.Coord().ListTasks(coord.TaskFilter{Open: true})),
+	})
+	out := map[string]capture.Line{}
+	for _, a := range ov.Agents {
+		out[a.Key] = a.Doing
+	}
+	return out
+}
+
+func writeAgent(b *strings.Builder, c presence.AgentCard, self string, now time.Time, doing capture.Line) {
 	// Every field here can come from a file a peer agent wrote, so all of
 	// them go through oneLine, not only the free-text ones.
 	key := oneLine(c.Key, 120)
@@ -106,6 +126,9 @@ func writeAgent(b *strings.Builder, c presence.AgentCard, self string, now time.
 		repo = "none (not in a git repo)"
 	}
 	fmt.Fprintf(b, "  repoKey: %s\n", repo)
+	if d := oneLine(doing.Text, capture.OverviewLineMax); d != "" {
+		fmt.Fprintf(b, "  doing: %s (%s)\n", quoted(d, capture.OverviewLineMax), oneLine(doing.Ref, 200))
+	}
 	mode := oneLine(c.PermissionMode, 60)
 	switch {
 	case c.Agent == "grok":

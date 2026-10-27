@@ -3,7 +3,14 @@
 The mod lives in [`mod/`](../mod). It attaches every Claude Code session to the local Irori Core. Once attached:
 
 - other agents, and you from the Irori app, can message the session and wake it;
-- the session gets Irori's tools as `mcp__irori__<name>`: `send`, `reply`, `inbox`, `defer`, `skip`, `agents`, `events`, tasks and leases, and (v0.3, capture) `timeline`, `why`, `decision_record` and `decisions`. The mod lists the Core's tools when it attaches, so new ones appear without a mod change.
+- the session gets Irori's tools as `mcp__irori__<name>`. The mod lists the Core's tools when it attaches, so new ones appear without a mod change:
+  - **finding things** (progressive disclosure: overview, then lists with refs, then `show <ref>`): `overview`, `search`, `show`, `agents`, `timeline`, `why`, `commits`, `prs`, `events`;
+  - **messages**: `send`, `reply`, `inbox`, `defer`, `skip`;
+  - **the Board** ([design/board.md](design/board.md), a scratch pad for live coordination, not a tracker): `board`, `board_create`, `board_comment`, `board_block`, `board_unblock`, `board_join`, `board_leave`, `board_assign`, `board_status`, `board_link`; comments and other Board notices reach an agent at its next turn unless the author asks to wake it;
+  - **leases**: `lease`, `leases`, `release`;
+  - **decisions about the code**: `decision_record`, `decisions`.
+
+  What every tool shares (what Irori is, refs and paging, untrusted text) is said once, in `tools.Instructions` (`internal/tools/specs.go`), not in each description. `irori mcp` sends it as its server instructions; the board tools' descriptions also carry the Board's agent instructions.
 
 Design: [v0.2-talk §7–§8](design/v0.2-talk.md), [v0.3-capture §8](design/v0.3-capture.md). The wire is [`internal/attach/protocol.go`](../internal/attach/protocol.go) and the routes are [`internal/api/routes_v02.go`](../internal/api/routes_v02.go).
 

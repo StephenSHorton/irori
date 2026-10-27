@@ -108,6 +108,8 @@ func withCapture(t *testing.T, seed func(r *capRig)) *capRig {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cp.AddSource(h.b.co)
+	cp.AddSource(h.b.ib)
 	h.b.cp = cp
 	return r
 }

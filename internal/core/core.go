@@ -220,12 +220,13 @@ func (c *Core) record(ctx context.Context, changes <-chan presence.Change) {
 	}
 }
 
-// coordSweepInterval: coord.Sweep starts a vanished holder's grace clock
-// only when it runs, so it runs more often than the inbox sweeper.
+// coordSweepInterval: coord's sweeper starts a vanished holder's grace
+// clock only when it runs, so it runs more often than the inbox sweeper.
 const coordSweepInterval = 5 * time.Second
 
 // sweep runs the inbox sweeper every inbox.SweepInterval and the coord
-// sweeper every coordSweepInterval.
+// sweeper (SweepNotices, its notices routed: sweepCoord) every
+// coordSweepInterval.
 func (c *Core) sweep(ctx context.Context) {
 	t := time.NewTicker(inbox.SweepInterval)
 	defer t.Stop()
@@ -240,7 +241,7 @@ func (c *Core) sweep(ctx context.Context) {
 				log.Printf("inbox sweep: %v", err)
 			}
 		case <-ct.C:
-			if err := c.coord.Sweep(ctx); err != nil && ctx.Err() == nil {
+			if err := c.sweepCoord(ctx); err != nil && ctx.Err() == nil {
 				log.Printf("coord sweep: %v", err)
 			}
 		}

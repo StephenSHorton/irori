@@ -15,7 +15,11 @@ import (
 	"github.com/StephenSHorton/irori/internal/decision"
 	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/presence"
+	"github.com/StephenSHorton/irori/internal/search"
 )
+
+// callerReads are the read-only tools that read as the caller.
+var callerReads = []string{"inbox", "timeline", "overview", "search", "show", "board"}
 
 // ErrNotObject means the args weren't a JSON object (Call's non-nil error).
 var ErrNotObject = errors.New("tools: args must be a JSON object")
@@ -34,26 +38,36 @@ type set struct {
 func newSet(b Backend) *Set {
 	s := &set{b: b, now: time.Now}
 	s.handlers = map[string]handler{
-		"agents":      s.agents,
-		"events":      s.events,
-		"send":        s.send,
-		"reply":       s.reply,
-		"inbox":       s.inbox,
-		"ack":         s.ack,
-		"defer":       s.deferTool,
-		"skip":        s.skip,
-		"task_create": s.taskCreate,
-		"task_list":   s.taskList,
-		"task_claim":  s.taskClaim,
-		"task_assign": s.taskAssign,
-		"task_status": s.taskStatus,
-		"lease":       s.lease,
-		"leases":      s.leases,
-		"release":     s.release,
-		"timeline":    s.timeline,
-		"why":         s.why,
-		"decisions":   s.decisions,
-		"join":        s.join,
+		"agents":        s.agents,
+		"events":        s.events,
+		"send":          s.send,
+		"reply":         s.reply,
+		"inbox":         s.inbox,
+		"ack":           s.ack,
+		"defer":         s.deferTool,
+		"skip":          s.skip,
+		"overview":      s.overview,
+		"search":        s.search,
+		"show":          s.show,
+		"board":         s.board,
+		"board_create":  s.boardCreate,
+		"board_comment": s.boardComment,
+		"board_block":   s.boardBlock,
+		"board_unblock": s.boardUnblock,
+		"board_join":    s.boardJoin,
+		"board_leave":   s.boardLeave,
+		"board_assign":  s.boardAssign,
+		"board_status":  s.boardStatus,
+		"board_link":    s.boardLink,
+		"commits":       s.commits,
+		"prs":           s.prs,
+		"lease":         s.lease,
+		"leases":        s.leases,
+		"release":       s.release,
+		"timeline":      s.timeline,
+		"why":           s.why,
+		"decisions":     s.decisions,
+		"join":          s.join,
 
 		"decision_record": s.decisionRecord,
 	}
@@ -62,9 +76,11 @@ func newSet(b Backend) *Set {
 		if _, ok := s.handlers[sp.Name]; !ok {
 			panic("tools: no handler for " + sp.Name)
 		}
-		// task_list reads for the caller only with mine; it checks itself.
-		// timeline defaults to the caller and shows the caller's messages.
-		if !sp.ReadOnly || sp.Name == "inbox" || sp.Name == "timeline" {
+		// Reads for the caller: inbox and timeline show its messages; board
+		// groups "needs you" for it; overview, search and show pass it as
+		// the Viewer, so they must never run as nobody (Viewer "" is the
+		// person, who sees every message).
+		if !sp.ReadOnly || slices.Contains(callerReads, sp.Name) {
 			s.needsCaller[sp.Name] = true
 		}
 	}
@@ -161,7 +177,17 @@ func mapErr(err error) string {
 	case errors.Is(err, inbox.ErrBadState):
 		return errText(err.Error() + ". The inbox tool (all = true) shows each delivery's state.")
 	case errors.Is(err, coord.ErrNotFound):
-		return errText(err.Error() + ". task_list and leases show what exists.")
+		return errText(err.Error() + ". The board and leases tools show what exists.")
+	case errors.Is(err, coord.ErrNotAllowed):
+		return errText(err.Error() + ". show task:<id> lists its holders and creator; comment on it or message them instead.")
+	case errors.Is(err, coord.ErrHeld):
+		return errText(err.Error() + ". Comment on the card or message its holder; or wait for it to come free.")
+	case errors.Is(err, coord.ErrInvalid):
+		return errText(err.Error() + ".")
+	case errors.Is(err, search.ErrBadRef):
+		return errText(err.Error() + ". Copy a ref exactly as a list line printed it.")
+	case errors.Is(err, search.ErrNotFound):
+		return errText(err.Error() + " that you may read. search finds refs; messages show only to their sender and recipients.")
 	case errors.Is(err, capture.ErrNoRepo):
 		return errText(err.Error() + ". Give an absolute path, or repo = a repoKey from the agents tool.")
 	case errors.Is(err, decision.ErrBadPath), errors.Is(err, decision.ErrNoFile):
