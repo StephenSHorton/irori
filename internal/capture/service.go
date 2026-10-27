@@ -295,7 +295,7 @@ func (c *capture) apply(ev store.Event) (*Change, error) {
 		if !c.ledger.Add(e) {
 			return nil, nil
 		}
-		es := append(c.prAll[e.Key], e)
+		es := mergeOwner(c.prAll[e.Key], e)
 		sortOwners(es)
 		c.prAll[e.Key] = es
 		c.index(prDoc(es))

@@ -108,6 +108,19 @@ func refs(hits []Hit) []string {
 	return out
 }
 
+func TestMergeOwner(t *testing.T) {
+	e := func(session string, role ledger.Role, min int, url string) ledger.Entry {
+		return ledger.Entry{Key: "pr:a/b#1", Session: session, Role: role, At: at(min), URL: url}
+	}
+	es := mergeOwner(nil, e(keyA, ledger.Author, 5, ""))
+	es = mergeOwner(es, e(keyA, ledger.Author, 2, "u1")) // earlier, first URL
+	es = mergeOwner(es, e(keyA, ledger.Author, 9, "u2")) // later, URL kept
+	es = mergeOwner(es, e(keyA, ledger.Reviewer, 1, "")) // another role
+	if len(es) != 2 || !es[0].At.Equal(at(2)) || es[0].URL != "u1" || es[1].Role != ledger.Reviewer {
+		t.Fatalf("merged %+v", es)
+	}
+}
+
 func TestMatchExpr(t *testing.T) {
 	tests := []struct {
 		text, want string

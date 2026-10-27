@@ -287,6 +287,23 @@ func sortOwners(es []ledger.Entry) {
 	})
 }
 
+// mergeOwner folds e into a PR's entries as the ledger does: one entry per
+// (Session, Role), keeping the earliest At and the first non-empty URL.
+func mergeOwner(es []ledger.Entry, e ledger.Entry) []ledger.Entry {
+	for i := range es {
+		if es[i].Session == e.Session && es[i].Role == e.Role {
+			if e.At.Before(es[i].At) {
+				es[i].At = e.At
+			}
+			if es[i].URL == "" {
+				es[i].URL = e.URL
+			}
+			return es
+		}
+	}
+	return append(es, e)
+}
+
 // prDoc builds a PR's doc from all its entries, best owner first. At is the
 // newest entry, so a PR someone just touched lists as recent.
 func prDoc(es []ledger.Entry) search.Doc {
