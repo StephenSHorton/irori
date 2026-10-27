@@ -347,10 +347,15 @@ func TestReplyHopWithoutRunningTurn(t *testing.T) {
 func TestReplyErrors(t *testing.T) {
 	h := newHarness(t)
 	h.abc()
+	// A reply to a still-queued delivery answers it (a Grok push, an inbox read).
+	_, d0 := h.send(claude(keyA, "alpha"), to("beta"), "seen it?")
+	if _, _, err := h.ib.Reply(bg, claude(keyB, "beta"), d0.ID, "yes"); err != nil {
+		t.Fatal(err)
+	}
+	h.wantState(d0.ID, Answered)
+
 	_, d := h.send(claude(keyA, "alpha"), to("beta"), "q")
-	_, _, err := h.ib.Reply(bg, claude(keyB, "beta"), d.ID, "too early") // still queued
-	wantErr(t, err, ErrBadState)
-	_, _, err = h.ib.Reply(bg, claude(keyC, "gamma"), d.ID, "not mine")
+	_, _, err := h.ib.Reply(bg, claude(keyC, "gamma"), d.ID, "not mine")
 	wantErr(t, err, ErrNotYours)
 	_, _, err = h.ib.Reply(bg, claude(keyB, "beta"), "dlv_nope", "x")
 	wantErr(t, err, ErrNotFound)

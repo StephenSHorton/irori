@@ -161,7 +161,10 @@ func (b *inbox) reply(ctx context.Context, from Sender, deliveryID, text string)
 		return Message{}, Delivery{}, err
 	}
 	switch d.State {
-	case Delivered, Engaged, Deferred:
+	// Queued counts: a reply proves the recipient has the message, which is how
+	// a Grok push (never "delivered" by itself, design §4) or an inbox read
+	// gets answered.
+	case Queued, Delivered, Engaged, Deferred:
 	default:
 		return Message{}, Delivery{}, badState(d, "reply to")
 	}
