@@ -501,6 +501,12 @@ func TestGrokMember(t *testing.T) {
 		t.Fatalf("retired member secret: %d, want 403", code)
 	}
 
+	for _, c := range r.core.Agents() {
+		if c.Key == m.Key {
+			t.Fatalf("grok card listed after a join with no stream: %+v", c)
+		}
+	}
+
 	s, code := r.open("member=" + m.Secret)
 	if code != 200 {
 		t.Fatalf("member stream: %d", code)

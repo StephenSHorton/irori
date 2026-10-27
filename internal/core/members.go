@@ -24,7 +24,8 @@ type member struct {
 	key, name, secret string
 	joinedAt          time.Time
 	open              int       // open member streams, counted per stream (2 while a supersede settles)
-	lastSeen          time.Time // join, or the last stream close
+	lastSeen          time.Time // join, or the last stream open or close
+	streamed          bool      // a member stream has opened at least once
 }
 
 type members struct {
@@ -76,12 +77,14 @@ func (m *members) join(name, session string) (api.Member, error) {
 	now := m.now()
 	rec := m.byKey[key]
 	if rec == nil {
-		rec = &member{key: key, joinedAt: now}
+		rec = &member{key: key, joinedAt: now, lastSeen: now}
 		m.byKey[key] = rec
 	} else {
 		delete(m.bySecret, rec.secret) // a rejoin retires the old secret
 	}
-	rec.name, rec.secret, rec.lastSeen = name, secret, now
+	// A join alone lists no card (and a rejoin doesn't extend the grace):
+	// the card shows while a stream is open and for the grace after it closes.
+	rec.name, rec.secret = name, secret
 	m.bySecret[secret] = rec
 	return api.Member{Key: key, Secret: secret, Name: name}, nil
 }
@@ -108,6 +111,7 @@ func (m *members) stream(key string, open bool) {
 	}
 	if open {
 		rec.open++
+		rec.streamed = true
 	} else if rec.open > 0 {
 		rec.open--
 	}
@@ -115,14 +119,15 @@ func (m *members) stream(key string, open bool) {
 }
 
 // cards are the synthetic presence cards for members with an open stream,
-// or one closed (or a join) less than the grace ago.
+// or whose last stream closed less than the grace ago. A member that joined
+// but never streamed has no card.
 func (m *members) cards() []presence.AgentCard {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := m.now()
 	var out []presence.AgentCard
 	for _, rec := range m.byKey {
-		if rec.open == 0 && now.Sub(rec.lastSeen) >= m.grace {
+		if rec.open == 0 && (!rec.streamed || now.Sub(rec.lastSeen) >= m.grace) {
 			continue
 		}
 		sid := rec.key[len(m.deviceID)+1:]
