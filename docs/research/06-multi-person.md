@@ -110,7 +110,6 @@ All existing v0.2 §5 policy then applies (hop limit, DIRECT_LIMIT, Pause all, h
 - **Next turn by default.** A comment or assignment is delivered as `mode: next_turn`, queued and folded into the agent's next turn. Next-turn items are batched under the same 16 KB cap, and overflow is summarized as refs.
 - **Wakes from other people are downgraded.** `wake: true` from another person becomes next-turn with a note ("Blake asked to wake"), held with reason `member_wake`, unless you allow-listed that person for that board.
 - **The bypass rule doesn't cross people.** "Sender also in bypass" never lets a row through across persons, because your bypass sessions and Blake's are two separate trust domains. Remote senders count as non-bypass, so rows from Blake's agents to your bypass sessions are held (`cross_person`) until you allow him per board.
-- **Cross-person assignment** is held with reason `member_assign`, unless allow-listed.
 - **Rate limits per remote person.** DIRECT_LIMIT is also counted per remote person and board.
 - **Revive needs approval.** Reviving a closed session because of another person's row always goes to the approval queue.
 
@@ -125,7 +124,7 @@ Board actions:
 | Comment on a shared task | Yes; can set Wake per comment | Yes | Yes. Reaches your agents next turn; a wake is downgraded unless allow-listed |
 | Mark a task blocked, or close a blocker | Yes | Yes | Yes (pick 3). Recorded with `by` and shown on the card |
 | Join and work a shared task | Yes | Yes (pick 4) | Yes. Files are still guarded by mirrored leases |
-| Assign a task to an agent | Yes, to any agent card on the board | Yes. Same person: next turn | Delivered at next turn, held as `member_assign` on your side unless allow-listed; never wakes |
+| Assign a task to an agent | Yes, to any agent card on the board | Yes, next turn | Yes. Delivered per your receive setting: on Open (the default) at the next turn, or as a wake if asked |
 | Wake an agent now | Own agents only | Own person's agents, under v0.2 rules | Never by default; only through your per-board allow-list |
 | Take or release a lease | Own agents' leases | Own leases | Can't release yours. A "close" on your lease card sends your holder a next-turn release request (held as `member_lease`) |
 | Force-release a lease | Only one whose holder is gone, or is their own agent | No | No |
@@ -149,7 +148,7 @@ Every rule above that says "agents can't" or "held for you" is a **default**, no
 | Comment, close blockers, work shared tasks | Yes | Yes | Yes |
 | Create new tasks on the board | Request, held for you | Yes | Yes |
 | Share one of your private tasks to the board | No | Request, held for you | Yes, after scrub; you get a notice and can withdraw |
-| Assign work to other people's agents | Next turn, held on their side | Next turn | Next turn |
+| Assign work to other people's agents | Yes | Yes | Yes |
 | Mirror all their leases on the board's repos (not just shared-task ones) | No | No | Yes |
 | Ask to wake another person's agents | Never wakes: next turn, marked "asked to wake" | Same | Same, and it wakes if that person allow-listed you |
 
@@ -167,7 +166,7 @@ Every rule above that says "agents can't" or "held for you" is a **default**, no
 | A request to wake one of your agents | Next turn, marked "asked to wake" | Held for you to release | **Wakes it** (people you pick) | **Wakes it** (anyone on the board) |
 | Their agents asking to wake yours | Next turn | Held | **Wakes it** (picked people's agents) | **Wakes it** |
 | Rows to your bypass chats | Held | Held | Through, for picked people | Through |
-| Their agents assigning work to yours | Held | Held | Next turn (or wake, if they ask and you allow wakes) | Same |
+| Their agents assigning work to yours | Next turn | Held | Next turn, or a wake if asked | Next turn, or a wake if asked |
 
 With wakes allowed, Irori is fully event-driven across people. Blake's agent finishes its half, wakes yours with the result, and yours carries on with nobody in between. Claude Code sessions are woken through the mod's prompt submit, and Grok and other MCP clients through Claude's channels push (`notifications/claude/channel`), the same path `irori mcp` uses today.
 
@@ -246,7 +245,7 @@ How each of your picks lands:
 
 **Before v0.4 (one person, no network)**
 1. **Next-turn delivery spike.** Test mod `turn.start` injection first, with a UserPromptSubmit hook as the fallback. Then add a delivery `mode: next_turn|wake` to the inbox fold, with the 16 KB batching cap. Pick 2 depends on this whether or not anyone else joins.
-2. **Owner split.** Add `isOwner` everywhere a `user:` prefix check sits today, with a test for each exemption. Add the hold reasons `member_wake`, `member_assign`, `member_lease` and `cross_person`. They stay unused until people join.
+2. **Owner split.** Add `isOwner` everywhere a `user:` prefix check sits today, with a test for each exemption. Add the hold reasons `member_wake`, `member_lease` and `cross_person` (used only by the stricter receive settings). They stay unused until people join.
 3. **Board on one machine.** In coord: state `blocked` with reason and blockedBy, `blocker.closed`, `task.joined` with a holders list, `task.comment {wake}`, next-turn assignment notices, and `lease.refused` rows. Then the Board tab with the lease-card view, Private badges and the per-comment Wake toggle. Remove the Work tab.
 
 **v0.4 Devices (own devices, as planned, with identity shaped for people)**
@@ -276,7 +275,7 @@ How each of your picks lands:
     - a mirrored lease blocks across people and shows as a card.
 16. **Live run with Blake.** Use his real machine and one shared repo over n0 relays:
     - he comments, once next-turn and once asking to wake;
-    - your agent assigns to his (held, then approved);
+    - your agent assigns to his, and his agent picks it up;
     - a lease blocks a shared task;
     - then he is removed, and his new rows are refused.
 
@@ -303,12 +302,7 @@ How each of your picks lands:
 
    Recommended: **(b)**. Flipping the switch is a deliberate trust decision.
 
-4. **Cross-person assignment.**
-   - (a) Held for your approval.
-   - (b) Delivered at next turn without asking.
-   - (c) Assignments to a specific agent go next turn; assignments to "Stephen + repo" land on your Board for you to route.
-
-   Recommended: **(c)**. Treat (b) as an allow-list option per board.
+4. **Cross-person assignment.** *(Settled: assignments follow the receive setting. On Open, the default, they are delivered like any other row. Stephen, 2026-10-27.)*
 
 5. **Can agents create board tasks?** *(Now a per-board autonomy setting; this decision is its default.)*
    - (a) Off, with `share_request` held for you.
