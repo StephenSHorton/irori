@@ -1,5 +1,7 @@
 import * as React from "react"
 
+import { isFormControlTarget } from "@/lib/hotkey-target"
+
 type Theme = "dark" | "light" | "system"
 type ResolvedTheme = "dark" | "light"
 
@@ -55,25 +57,6 @@ function disableTransitionsTemporarily() {
       })
     })
   }
-}
-
-function isEditableTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) {
-    return false
-  }
-
-  if (target.isContentEditable) {
-    return true
-  }
-
-  const editableParent = target.closest(
-    "input, textarea, select, [contenteditable='true']"
-  )
-  if (editableParent) {
-    return true
-  }
-
-  return false
 }
 
 export function ThemeProvider({
@@ -148,7 +131,7 @@ export function ThemeProvider({
         return
       }
 
-      if (isEditableTarget(event.target)) {
+      if (isFormControlTarget(event.target)) {
         return
       }
 
