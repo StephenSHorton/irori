@@ -290,6 +290,8 @@ func (c *coord) apply(ev store.Event) {
 		}
 		if t := c.tasks[p.TaskID]; t != nil && p.By != "" {
 			addHolder(t, p.By)
+			t.Assigned = removeStr(t.Assigned, p.By)
+			syncHolder(t)
 			if t.State == Submitted {
 				t.State = Working
 			}
@@ -302,7 +304,12 @@ func (c *coord) apply(ev store.Event) {
 			return
 		}
 		if t := c.tasks[p.TaskID]; t != nil && p.To != "" {
+			engaged := isHolder(t, p.To) && !contains(t.Assigned, p.To)
 			addHolder(t, p.To)
+			if !engaged && !contains(t.Assigned, p.To) {
+				t.Assigned = append(t.Assigned, p.To)
+			}
+			syncHolder(t)
 			t.UpdatedAt = at(p.At)
 			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: p.To})
 		}
@@ -314,6 +321,8 @@ func (c *coord) apply(ev store.Event) {
 		if t := c.tasks[p.TaskID]; t != nil && ValidState(p.State) {
 			t.State = p.State
 			t.Note = p.Note
+			t.Assigned = removeStr(t.Assigned, p.By)
+			syncHolder(t)
 			t.Reason, t.BlockedBy = "", nil
 			if p.State == Blocked {
 				t.Reason = p.Reason
@@ -344,6 +353,7 @@ func (c *coord) apply(ev store.Event) {
 		} else {
 			t.Holders = removeStr(t.Holders, p.Who)
 		}
+		t.Assigned = removeStr(t.Assigned, p.Who)
 		syncHolder(t)
 		t.UpdatedAt = at(p.At)
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: p.Who})
@@ -495,8 +505,15 @@ func addHolder(t *Task, who string) {
 	syncHolder(t)
 }
 
-// syncHolder keeps Holder = Holders[0].
+// syncHolder keeps Holder = Holders[0] and Assigned a subset of Holders.
 func syncHolder(t *Task) {
+	var keep []string
+	for _, a := range t.Assigned {
+		if isHolder(t, a) {
+			keep = append(keep, a)
+		}
+	}
+	t.Assigned = keep
 	if len(t.Holders) == 0 {
 		t.Holders, t.Holder = nil, ""
 		return
@@ -512,13 +529,22 @@ func mayManage(t *Task, by string) bool {
 	return by == t.CreatedBy || isHolder(t, by) || IsPerson(by)
 }
 
-// restoreState is where Unblock leaves a task: Working with holders, else
-// Submitted.
+// restoreState is where Unblock leaves a task: Working when a holder has
+// taken it up, else Submitted (no holders, or only assignees that haven't
+// claimed: a submitted task stays submitted until its assignee claims).
 func restoreState(t *Task) TaskState {
-	if len(t.Holders) > 0 {
-		return Working
+	for _, h := range t.Holders {
+		if !contains(t.Assigned, h) {
+			return Working
+		}
 	}
 	return Submitted
+}
+
+// engaged reports whether key holds t and has taken it up (not only been
+// assigned it).
+func engaged(t *Task, key string) bool {
+	return isHolder(t, key) && !contains(t.Assigned, key)
 }
 
 func removeStr(xs []string, x string) []string {
@@ -573,6 +599,9 @@ func copyTask(t *Task) Task {
 	}
 	if t.Holders != nil {
 		out.Holders = append([]string(nil), t.Holders...)
+	}
+	if t.Assigned != nil {
+		out.Assigned = append([]string(nil), t.Assigned...)
 	}
 	if t.Links != nil {
 		out.Links = append([]Link(nil), t.Links...)
@@ -800,9 +829,9 @@ func (c *coord) claimTask(ctx context.Context, by, id string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	// An assignee claiming a still-submitted task writes the claimed row,
-	// which moves it to working.
-	if isHolder(t, by) && t.State != Submitted {
+	// An assignee claiming writes the claimed row (which moves a submitted
+	// task to working and takes the assignee off Assigned).
+	if engaged(t, by) && t.State != Submitted {
 		return copyTask(t), nil
 	}
 	now := c.stamp()
@@ -836,6 +865,9 @@ func (c *coord) assign(ctx context.Context, by, id, to string, wide bool) (Task,
 	by, to = strings.TrimSpace(by), strings.TrimSpace(to)
 	if by == "" || to == "" {
 		return Task{}, false, fmt.Errorf("%w: assign needs a caller and an assignee", ErrInvalid)
+	}
+	if err := checkKey(to); err != nil {
+		return Task{}, false, err
 	}
 	c.mu.Lock()
 	defer c.unlock()

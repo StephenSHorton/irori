@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -60,8 +61,14 @@ func (c *coord) checkBlocker(bb *BlockedBy, self string) (*BlockedBy, error) {
 		if out.Ref == "" || out.Ref == self {
 			return nil, fmt.Errorf("%w: blocked on a task needs another task's id", ErrInvalid)
 		}
-		if c.tasks[out.Ref] == nil {
+		o := c.tasks[out.Ref]
+		if o == nil {
 			return nil, fmt.Errorf("%w: blocked on task %q", ErrNotFound, out.Ref)
+		}
+		// SweepNotices closes a task blocker once that task is terminal, so
+		// a done task can't block.
+		if IsTerminal(o.State) {
+			return nil, fmt.Errorf("%w: task %s is already %s", ErrInvalid, out.Ref, o.State)
 		}
 	case BlockedOnPerson:
 		if out.Ref != "" && !IsPerson(out.Ref) {
@@ -84,6 +91,18 @@ func (c *coord) anyTask(id string) (*Task, error) {
 		return t, nil
 	}
 	return nil, fmt.Errorf("%w: task %q", ErrNotFound, id)
+}
+
+// checkKey validates a key that becomes a holder (an assignee, a joiner):
+// one line, at most MaxKey runes, and not Irori's own.
+func checkKey(k string) error {
+	if k == sweeper {
+		return fmt.Errorf("%w: %q is Irori itself", ErrInvalid, k)
+	}
+	if utf8.RuneCountInString(k) > MaxKey || strings.IndexFunc(k, unicode.IsControl) >= 0 {
+		return fmt.Errorf("%w: a key longer than %d characters or with control characters", ErrInvalid, MaxKey)
+	}
+	return nil
 }
 
 func callers(by string, more ...string) (string, []string, error) {
@@ -134,6 +153,9 @@ func (c *coord) join(ctx context.Context, by, id, who string) (Task, error) {
 		return Task{}, err
 	}
 	who = w[0]
+	if err := checkKey(who); err != nil {
+		return Task{}, err
+	}
 	if by != who && !IsPerson(by) {
 		return Task{}, fmt.Errorf("%w: only %s or a person may add %s", ErrNotAllowed, who, who)
 	}
@@ -146,7 +168,7 @@ func (c *coord) join(ctx context.Context, by, id, who string) (Task, error) {
 	if !t.Shared {
 		return Task{}, fmt.Errorf("%w: task %s isn't shared; claim it instead", ErrNotAllowed, id)
 	}
-	if isHolder(t, who) && t.State != Submitted {
+	if engaged(t, who) && t.State != Submitted {
 		return copyTask(t), nil
 	}
 	if err := c.write(ctx, by, KindTaskJoined, taskMemberRow{TaskID: id, Who: who, By: by, At: c.stamp()}); err != nil {
@@ -681,7 +703,7 @@ func needsYou(t *Task, viewer string, agentViewer bool) bool {
 		bb = nil
 	}
 	if agentViewer {
-		return t.State == Submitted && isHolder(t, viewer) ||
+		return t.State != Blocked && isHolder(t, viewer) && !engaged(t, viewer) ||
 			bb != nil && bb.Kind == BlockedOnAgent && bb.Ref == viewer
 	}
 	switch {

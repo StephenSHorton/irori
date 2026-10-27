@@ -845,7 +845,8 @@ func TestLateCommitCommandSetsCommitter(t *testing.T) {
 
 // Two late commit commands for one commit, read in the same pass, give it
 // one new commit.linked, and calls racing on the same command can't log the
-// same link twice (seen live: two identical rows for one commit).
+// same link twice. (Production makes these calls serially; this doesn't
+// reproduce the duplicate rows once seen live.)
 func TestLateCommitCommandsLinkOnce(t *testing.T) {
 	r := newRig(t, nil)
 	dir := newRepo(t, "false")

@@ -7,10 +7,12 @@ const (
 	// under one lock.
 	KindTaskCreated = "task.created"
 	// {taskId, by}. Not shared: by replaces Holders. Shared: by is appended
-	// to Holders (claiming a shared task is joining it).
+	// to Holders (claiming a shared task is joining it). by leaves Assigned.
 	KindTaskClaimed = "task.claimed"
 	// {taskId, to, by}. Not shared: to replaces Holders. Shared: to is
-	// appended. A submitted task stays submitted until the assignee claims.
+	// appended. Either way to joins Assigned. A submitted task stays
+	// submitted until the assignee claims; task.claimed, task.joined,
+	// task.left and a task.status by the assignee take it off Assigned.
 	KindTaskAssigned = "task.assigned"
 	// {taskId, state, note, by}; the Board adds {reason?, blockedBy?} when
 	// state is "blocked". Leaving blocked clears reason and blockedBy.

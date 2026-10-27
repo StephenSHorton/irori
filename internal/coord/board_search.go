@@ -130,6 +130,7 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 	line("state", state)
 	line("repo", t.RepoKey)
 	line("holders", strings.Join(t.Holders, ", "))
+	line("assigned, not claimed yet", strings.Join(t.Assigned, ", "))
 	line("created", t.CreatedBy+" at "+t.CreatedAt.Format(time.RFC3339))
 	line("updated", t.UpdatedAt.Format(time.RFC3339))
 	if t.State == Blocked {

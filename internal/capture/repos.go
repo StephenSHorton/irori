@@ -534,11 +534,12 @@ func reflogOffsetSince(path string, size int64, since time.Time) (int64, bool) {
 // with no committer, under its dir and inside its span, get a new
 // commit.linked with the same files and the committer worked out again.
 //
-// At most one row per commit per change: relinkMu makes the decide-and-emit
-// atomic against another call, and just before each emit the commit's
-// current link is checked again (still no committer, and the new link
-// differs from it), so two late commands for one commit, or a commit that
-// appears twice, never log the same link twice.
+// Just before each emit the commit's current link is checked again (still
+// no committer, and the new link differs from it), and relinkMu makes that
+// check-and-emit atomic against another call. Capture calls this from one
+// goroutine and emit folds before it returns, so this is defense in depth:
+// it is not the cause of the duplicate commit.linked rows once seen live,
+// which is still unexplained.
 func (c *capture) relinkCommitter(ctx context.Context, cmd CommitCmdRow) error {
 	c.relinkMu.Lock()
 	defer c.relinkMu.Unlock()

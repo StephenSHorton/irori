@@ -28,6 +28,7 @@ const (
 	MaxComment      = 4000 // runes in a comment
 	MaxReason       = 500  // runes in a block reason or unblock note
 	MaxRef          = 300  // runes in BlockedBy.Ref
+	MaxKey          = 200  // runes in an assignee's or joiner's key
 	DefaultDoneCard = 20   // Done cards Board() returns by default
 	MaxDoneCard     = 200
 )
@@ -149,10 +150,12 @@ type LeaseCard struct {
 //  2. NeedsYou: InputRequired; Blocked on a person (Ref "" or For); or
 //     Holders contains For (when For is a person). For "" is whoever is at
 //     the app: every person blocker counts. For an agent viewer, NeedsYou
-//     holds tasks assigned to it that it hasn't claimed yet (still
-//     submitted) and tasks Blocked on it (BlockedOnAgent, Ref For).
+//     holds tasks assigned to it that it hasn't taken up yet (For is in
+//     Assigned; not while Blocked) and tasks Blocked on it
+//     (BlockedOnAgent, Ref For).
 //  3. Blocked: every other Blocked task.
-//  4. Working: has a holder (Working, or Submitted with an assignee).
+//  4. Working: has a holder (one working it, or an assignee that hasn't
+//     claimed yet).
 //  5. Open: no holder.
 //
 // Groups 2-5 are newest UpdatedAt first. Leases are LeaseCards, soonest
@@ -170,7 +173,10 @@ type BoardView struct {
 // Assign gives task id to `to` (an agent key or a person's "user:*" key).
 // Any agent may assign (decision 21): by may be the creator, a holder, a
 // person, or anyone when the task has no holder. On a task that isn't
-// Shared, to replaces the holder; on a Shared task, to is added. Assigning
+// Shared, to replaces the holder; on a Shared task, to is added. Either way
+// to is in Assigned until it claims, joins or posts the task's state, so an
+// assignment nobody picked up shows. to is an agent key or "user:*" (one
+// line, at most MaxKey runes, never "irori"; else ErrInvalid). Assigning
 // to the current (or an existing) holder is a no-op with no notice. The
 // notice is NoticeAssigned to `to` (no recipients when to is a person, or
 // when by assigned itself).
@@ -179,7 +185,8 @@ func (c *Coord) Assign(ctx context.Context, by, id, to string) (Task, Notice, er
 }
 
 // Join adds who to a Shared task's holders (by is who, or a person adding
-// someone). ErrNotAllowed on a task that isn't Shared: claim it instead.
+// someone; who is checked like Assign's to). An assignee joining takes the
+// task up: it leaves Assigned and the row is written. ErrNotAllowed on a task that isn't Shared: claim it instead.
 // Joining moves a Submitted task to Working.
 func (c *Coord) Join(ctx context.Context, by, id, who string) (Task, error) {
 	return c.impl.join(ctx, by, id, who)
@@ -202,7 +209,8 @@ func (c *Coord) SetShared(ctx context.Context, by, id string, shared bool) (Task
 // MaxReason runes) and optionally what blocks it. The holder(s), the
 // creator or a person may. BlockedBy is checked: a lease ref must parse as a
 // resource that someone holds now (else ErrInvalid: SweepNotices would close
-// it at once), a task ref must name another task, a person ref must be "" or
+// it at once), a task ref must name another task that isn't terminal (same
+// reason), a person ref must be "" or
 // "user:*" (an agent ref must be non-empty; an external one may be empty).
 // Blocking a blocked task again replaces the reason. No notice.
 func (c *Coord) Block(ctx context.Context, by, id, reason string, blockedBy *BlockedBy) (Task, error) {
@@ -210,8 +218,8 @@ func (c *Coord) Block(ctx context.Context, by, id, reason string, blockedBy *Blo
 }
 
 // Unblock closes a task's blocker: anyone, agent or person, may (decision
-// 19). It writes blocker.closed and restores Working when the task has
-// holders, else Submitted. note is optional (<= MaxReason). The notice is
+// 19). It writes blocker.closed and restores Working when a holder has
+// taken the task up (one not in Assigned), else Submitted. note is optional (<= MaxReason). The notice is
 // NoticeUnblocked to the holders other than by. ErrBadState when the task
 // isn't Blocked.
 func (c *Coord) Unblock(ctx context.Context, by, id, note string) (Task, Notice, error) {
