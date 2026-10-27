@@ -185,8 +185,56 @@ func TestEventWorktreeRemovable(t *testing.T) {
 	r.start()
 	r.waitInitial()
 	r.waitFor("worktree watched", func() bool { return r.c.Status().Repos == 1 })
+	// Only an event brings this commit in, so the logs handle is open.
+	writeFile(t, filepath.Join(wt, "w.txt"), "w\n")
+	gitCmd(t, wt, "add", "w.txt")
+	gitCmd(t, wt, "commit", "-q", "-m", "w")
+	sha := head(t, wt)
+	r.waitFor("worktree commit", func() bool { _, ok := r.c.Commit(sha); return ok })
 	gitCmd(t, main, "worktree", "remove", "--force", wt)
 	if _, err := os.Stat(filepath.Join(main, ".git", "worktrees", "wt")); !os.IsNotExist(err) {
 		t.Fatalf("worktree gitdir still there: %v", err)
+	}
+}
+
+// A reflog pass that moved nothing (here a failing git) is retried after
+// RepoInterval, not in a loop; one cut by the budget resumes at once.
+func TestEventReflogFollowUp(t *testing.T) {
+	g := &flakyGit{sub: "rev-list", left: 1 << 20}
+	r := newRig(t, func(o *Options) { o.Git = g; o.RepoInterval = time.Hour })
+	dir := newRepo(t, "false")
+	r.roster.set(liveCard(sidA, dir, "idle"))
+	r.repos()
+	writeFile(t, filepath.Join(dir, "a.txt"), "a\n")
+	gitCmd(t, dir, "add", "a.txt")
+	gitCmd(t, dir, "commit", "-q", "-m", "a")
+	root := r.c.impl.repoRoots[normRoot(dir)]
+	l := &loop{c: r.c.impl, ctx: r.ctx, pending: map[string]bool{}}
+
+	l.readRoots([]repoSeen{root})
+	if at, ok := l.followUp(); !ok || time.Until(at) < 59*time.Minute {
+		t.Fatalf("failed line: follow-up at %v (%v), want after RepoInterval", at, ok)
+	}
+
+	g.mu.Lock()
+	g.left = 0
+	g.mu.Unlock()
+	old := repoBudget
+	repoBudget = -time.Second
+	defer func() { repoBudget = old }()
+	gitCmd(t, dir, "commit", "-q", "--allow-empty", "-m", "b")
+	l.readRoots([]repoSeen{root})
+	if at, ok := l.followUp(); !ok || time.Until(at) > time.Second {
+		t.Fatalf("over budget: follow-up at %v (%v), want now", at, ok)
+	}
+	repoBudget = old
+	for range 5 {
+		l.readRoots(l.takePending())
+	}
+	if _, ok := l.followUp(); ok {
+		t.Fatalf("still pending: %v", l.pending)
+	}
+	if _, ok := r.c.Commit(head(t, dir)); !ok {
+		t.Fatal("commit b not imported")
 	}
 }

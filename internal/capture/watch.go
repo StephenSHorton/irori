@@ -51,7 +51,7 @@ type loop struct {
 	logs     map[string]*logsWatch
 	polled   []repoSeen      // roots whose logs directory can't be watched (none yet: no commits); read every RepoInterval
 	gen      int             // c.rootsGen the logs watchers were last synced with; -1 forces
-	pending  map[string]bool // normRoot -> its reflog is behind and is read again
+	pending  map[string]bool // normRoot -> its reflog is behind; true: read again at once, false: after RepoInterval
 }
 
 // runEvents is run on a file watcher: transcripts are tailed when they
@@ -277,13 +277,17 @@ func (l *loop) readRoots(roots []repoSeen) {
 		if l.ctx.Err() != nil {
 			return
 		}
+		n := normRoot(r.Root)
+		before := c.reflogOffset(n)
 		c.repoDeadline = time.Now().Add(repoBudget)
 		c.watchRoot(l.ctx, r)
-		if c.reflogBehind(r) {
-			l.pending[normRoot(r.Root)] = true
-		} else {
-			delete(l.pending, normRoot(r.Root))
+		if !c.reflogBehind(r) {
+			delete(l.pending, n)
+			continue
 		}
+		// Cut short by the budget or the read cap: resume at once. A pass
+		// that moved nothing (a failed line, an unreadable log) waits.
+		l.pending[n] = l.pending[n] || time.Now().After(c.repoDeadline) || c.reflogOffset(n) > before
 	}
 	c.saveCursors()
 }
@@ -303,22 +307,28 @@ func (l *loop) takePending() []repoSeen {
 	return out
 }
 
-// followUp is when the queued roots are read again: now when one simply ran
-// out of budget, RepoInterval from now when every one is retrying a failed
-// line.
+// followUp is when the queued roots are read again: now when one made
+// progress last time, else RepoInterval from now.
 func (l *loop) followUp() (time.Time, bool) {
 	if len(l.pending) == 0 {
 		return time.Time{}, false
 	}
-	c := l.c
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	for n := range l.pending {
-		if st := c.reflogs[n]; st == nil || st.fails == 0 {
+	for _, now := range l.pending {
+		if now {
 			return time.Now(), true
 		}
 	}
-	return time.Now().Add(c.opts.RepoInterval), true
+	return time.Now().Add(l.c.opts.RepoInterval), true
+}
+
+// reflogOffset is how far a root's reflog has been read (-1: not yet).
+func (c *capture) reflogOffset(n string) int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if st := c.reflogs[n]; st != nil {
+		return st.offset
+	}
+	return -1
 }
 
 // reflogBehind reports a root whose logs/HEAD holds lines not read yet.
