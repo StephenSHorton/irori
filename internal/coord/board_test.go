@@ -141,6 +141,7 @@ func TestObserveTracksEveryHolder(t *testing.T) {
 
 func TestCreateTaskBoardFields(t *testing.T) {
 	e := newEnv(t)
+	must[Lease](t)(e.c.Acquire(ctx, carol, "port:5173", time.Hour, false))
 	other := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "other"}))
 	got := must[Task](t)(e.c.CreateTask(ctx, user, NewTask{
 		Title: "port 5173 is taken", Shared: true,
@@ -343,6 +344,7 @@ func TestBlockValidation(t *testing.T) {
 	e := newEnv(t)
 	task := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "t"}))
 	other := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "o"}))
+	must[Lease](t)(e.c.Acquire(ctx, dave, pathRes("src/**"), time.Hour, false))
 	cases := []struct {
 		name    string
 		by      string
@@ -358,6 +360,7 @@ func TestBlockValidation(t *testing.T) {
 		{"lease normalized", alice, "r", &BlockedBy{Kind: BlockedOnLease, Ref: "path:" + repoA + ":./src/"}, nil, &BlockedBy{Kind: BlockedOnLease, Ref: pathRes("src/**")}},
 		{"lease bad", alice, "r", &BlockedBy{Kind: BlockedOnLease, Ref: "path:x"}, ErrInvalid, nil},
 		{"lease empty", alice, "r", &BlockedBy{Kind: BlockedOnLease}, ErrInvalid, nil},
+		{"lease nobody holds", alice, "r", &BlockedBy{Kind: BlockedOnLease, Ref: "port:9"}, ErrInvalid, nil},
 		{"task", alice, "r", &BlockedBy{Kind: BlockedOnTask, Ref: other.ID}, nil, &BlockedBy{Kind: BlockedOnTask, Ref: other.ID}},
 		{"task self", alice, "r", &BlockedBy{Kind: BlockedOnTask, Ref: task.ID}, ErrInvalid, nil},
 		{"task missing", alice, "r", &BlockedBy{Kind: BlockedOnTask, Ref: "nope"}, ErrNotFound, nil},
@@ -798,8 +801,12 @@ func TestBoardCardsAndLeases(t *testing.T) {
 	e.clk.add(time.Second)
 	blocked := must[Task](t)(e.c.CreateTask(ctx, carol, NewTask{Title: "needs src", RepoKey: repoA, BlockReason: "bob has it",
 		BlockedBy: &BlockedBy{Kind: BlockedOnLease, Ref: pathRes("src/a.go")}}))
-	gone := must[Task](t)(e.c.CreateTask(ctx, carol, NewTask{Title: "needs gpu", BlockReason: "nobody has it",
+	must[Lease](t)(e.c.Acquire(ctx, dave, "gpu/qwen", time.Hour, false))
+	gone := must[Task](t)(e.c.CreateTask(ctx, carol, NewTask{Title: "needs gpu", BlockReason: "dave has it",
 		BlockedBy: &BlockedBy{Kind: BlockedOnLease, Ref: "gpu/qwen"}}))
+	if err := e.c.Release(ctx, dave, "gpu/qwen"); err != nil {
+		t.Fatal(err)
+	}
 	must[Lease](t)(e.c.Acquire(ctx, dave, "port:8080", 30*time.Minute, false))
 	_, _ = e.c.Acquire(ctx, carol, "port:8080", 0, false)
 	e.clk.add(time.Second)
@@ -1084,10 +1091,10 @@ func TestBoardReplayEquality(t *testing.T) {
 	must[Task](t)(c.RemoveLink(ctx, bob, sh.ID, "docs/a.md"))
 	step()
 	_, _, _ = c.AddComment(ctx, user, sh.ID, "hello", true)
+	must[Lease](t)(c.Acquire(ctx, alice, "port:5173", time.Hour, false))
 	un := must[Task](t)(c.CreateTask(ctx, bob, NewTask{Title: "un", BlockReason: "port", BlockedBy: &BlockedBy{Kind: BlockedOnLease, Ref: "port:5173"}}))
 	mustN(t)(c.Assign(ctx, carol, un.ID, dave))
 	must[Task](t)(c.SetShared(ctx, dave, un.ID, true))
-	must[Lease](t)(c.Acquire(ctx, alice, "port:5173", time.Hour, false))
 	_, _ = c.Acquire(ctx, bob, "port:5173", 0, false)
 	must[Lease](t)(c.Acquire(ctx, alice, "gpu/x", time.Hour, false))
 	_, _ = c.Acquire(ctx, carol, "gpu/x", 0, false)

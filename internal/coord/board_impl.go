@@ -49,6 +49,12 @@ func (c *coord) checkBlocker(bb *BlockedBy, self string) (*BlockedBy, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%w: blocked on a lease: %v", ErrInvalid, err)
 		}
+		// SweepNotices closes a lease blocker once nothing holds the lease,
+		// so a lease nobody holds can't block (a port held by a process
+		// outside Irori is BlockedOnExternal).
+		if !c.leaseHeld(n, c.stamp()) {
+			return nil, fmt.Errorf("%w: nobody leases %s; block on external or a person instead", ErrInvalid, n)
+		}
 		out.Ref = n
 	case BlockedOnTask:
 		if out.Ref == "" || out.Ref == self {

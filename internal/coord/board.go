@@ -201,7 +201,8 @@ func (c *Coord) SetShared(ctx context.Context, by, id string, shared bool) (Task
 // Block moves an open task to Blocked with a reason (required, at most
 // MaxReason runes) and optionally what blocks it. The holder(s), the
 // creator or a person may. BlockedBy is checked: a lease ref must parse as a
-// resource, a task ref must name another task, a person ref must be "" or
+// resource that someone holds now (else ErrInvalid: SweepNotices would close
+// it at once), a task ref must name another task, a person ref must be "" or
 // "user:*" (an agent ref must be non-empty; an external one may be empty).
 // Blocking a blocked task again replaces the reason. No notice.
 func (c *Coord) Block(ctx context.Context, by, id, reason string, blockedBy *BlockedBy) (Task, error) {
