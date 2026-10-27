@@ -75,6 +75,23 @@ export class AgentCard {
      */
     "transcript": string;
 
+    /**
+     * v0.2 additions.
+     * repo.Resolver.Key(Cwd); "" outside git
+     */
+    "repoKey": string;
+
+    /**
+     * PermissionMode is the newest mode row's permissionMode: a
+     * "permission-mode" row, or a non-sidechain "user" row carrying a
+     * top-level permissionMode. It is read from the transcript tail, kept once
+     * its row scrolls out, and on first sight of a transcript whose tail has
+     * none it comes from a bounded backward scan (8 MiB). "" is unknown. The
+     * value set is open ("default", "acceptEdits", "auto", "bypassPermissions",
+     * ...): consumers test == "bypassPermissions", never a fixed list.
+     */
+    "permissionMode": string;
+
     /** Creates a new AgentCard instance. */
     constructor($$source: Partial<AgentCard> = {}) {
         if (!("key" in $$source)) {
@@ -130,6 +147,12 @@ export class AgentCard {
         }
         if (!("transcript" in $$source)) {
             this["transcript"] = "";
+        }
+        if (!("repoKey" in $$source)) {
+            this["repoKey"] = "";
+        }
+        if (!("permissionMode" in $$source)) {
+            this["permissionMode"] = "";
         }
 
         Object.assign(this, $$source);

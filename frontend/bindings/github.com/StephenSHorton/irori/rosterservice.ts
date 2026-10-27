@@ -20,6 +20,10 @@ import * as presence$0 from "./internal/presence/models.js";
 // @ts-ignore: Unused imports
 import * as store$0 from "./internal/store/models.js";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as $models from "./models.js";
+
 /**
  * Agents returns the live agents on this device, newest activity first.
  */
@@ -39,12 +43,35 @@ export function Device(): $CancellablePromise<device$0.Identity> {
 }
 
 /**
+ * Gone returns sessions that left the roster recently (newest first, at most
+ * limit, default 20) and aren't live again, from the log's agent.gone rows.
+ * Only Claude sessions are listed; Grok members can't be resumed.
+ */
+export function Gone(limit: number): $CancellablePromise<$models.GoneSession[]> {
+    return $Call.ByID(1221968945, limit).then(($result: any) => {
+        return $$createType4($result);
+    });
+}
+
+/**
  * Recent returns the newest log rows (newest first), at most limit (default 100).
  */
 export function Recent(limit: number): $CancellablePromise<store$0.Event[]> {
     return $Call.ByID(1547186909, limit).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType6($result);
     });
+}
+
+/**
+ * Revive runs `claude --bg --resume <sessionId>` in the session's last
+ * working directory and returns what it printed. The UI confirms first; this
+ * only refuses: a live session, an id never seen on this device, or a
+ * session whose transcript is gone (Claude Code would start an empty session
+ * under that id instead of failing). The cwd comes from the log, never from
+ * the caller.
+ */
+export function Revive(sessionID: string): $CancellablePromise<string> {
+    return $Call.ByID(3622376147, sessionID);
 }
 
 /**
@@ -58,5 +85,7 @@ export function Version(): $CancellablePromise<string> {
 const $$createType0 = presence$0.AgentCard.createFrom;
 const $$createType1 = $Create.Array($$createType0);
 const $$createType2 = device$0.Identity.createFrom;
-const $$createType3 = store$0.Event.createFrom;
+const $$createType3 = $models.GoneSession.createFrom;
 const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = store$0.Event.createFrom;
+const $$createType6 = $Create.Array($$createType5);
