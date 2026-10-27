@@ -9,3 +9,4 @@
 {"type":"mode","mode":"normal","sessionId":"f749a456-093f-4fa1-a63a-da64e6d59e95"}
 not json at all
 {"type":"user","timestamp":"2026-10-26T10:03:00.000Z","sessionId":"f749a456-093f-4fa1-a63a-da64e6d59e95","message":{"role":"user","content":"thanks"}}
+{"type":"permission-mode","permissionMode":"bypassPermissions","sessionId":"f749a456-093f-4fa1-a63a-da64e6d59e95"}
