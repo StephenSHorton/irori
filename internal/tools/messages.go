@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/inbox"
-	"github.com/StephenSHorton/irori/internal/ledger"
 )
 
 const (
@@ -52,15 +51,15 @@ func (s *set) send(ctx context.Context, c Caller, raw json.RawMessage) string {
 	return "Sent message " + m.ID + " " + s.outcome(d)
 }
 
-// isPRTarget: to names a pull request ("pr:..." or a GitHub PR URL) rather
-// than an agent. A malformed "pr:" value still counts, so the inbox explains
-// the PR forms instead of saying there's no agent by that name.
+// isPRTarget: to names a pull request ("pr:..." or a GitHub URL) rather
+// than an agent. A malformed "pr:" value or github.com URL still counts (no
+// agent name or key holds "github.com/"), so the inbox explains the PR
+// forms instead of saying there's no agent by that name.
 func isPRTarget(to string) bool {
 	if len(to) >= 3 && strings.EqualFold(to[:3], "pr:") {
 		return true
 	}
-	_, ok := ledger.ParseTarget(to)
-	return ok && strings.Contains(strings.ToLower(to), "github.com/")
+	return strings.Contains(strings.ToLower(to), "github.com/")
 }
 
 type replyArgs struct {
@@ -121,8 +120,8 @@ func (s *set) outcome(d inbox.Delivery) string {
 		b.WriteString(string(d.State) + ".")
 	}
 	// A PR message its owner couldn't take says who it was for.
-	if note := oneLine(d.Note, maxFieldRunes); pr && note != "" {
-		b.WriteString(" It went to the repo instead: " + note + ".")
+	if owner := oneLine(d.For, maxFieldRunes); pr && owner != "" {
+		b.WriteString(" It went to the repo instead: its owner " + owner + " isn't running now.")
 	}
 	return b.String()
 }
@@ -244,6 +243,9 @@ func inboxRow(n names, now time.Time, d inbox.Delivery, textCap int) string {
 		fmt.Fprintf(&b, "  to repo: %s\n", oneLine(m.To.Value, 160))
 	case inbox.ToPR:
 		fmt.Fprintf(&b, "  about PR: %s\n", oneLine(m.To.Value, 160))
+		if owner := oneLine(d.For, maxFieldRunes); owner != "" {
+			fmt.Fprintf(&b, "  for: %s, the PR's owner, who isn't running now\n", owner)
+		}
 	}
 	if m.ReplyTo != "" {
 		fmt.Fprintf(&b, "  in reply to message: %s\n", oneLine(m.ReplyTo, 80))

@@ -93,6 +93,11 @@ export class Delivery {
     "note"?: string;
 
     /**
+     * PR work its owner couldn't take: that owner, "name (key)"
+     */
+    "for"?: string;
+
+    /**
      * deferral due time
      */
     "until"?: time$0.Time;

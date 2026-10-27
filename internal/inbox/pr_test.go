@@ -80,22 +80,22 @@ func TestPRRouting(t *testing.T) {
 		from     string
 		wantTo   string
 		wantRepo string
-		wantNote []string // substrings; nil = no note
+		wantFor  []string // substrings; nil = no For
 	}{
 		{name: "live author", owners: []string{keyA, keyB}, live: []string{keyA, keyB}, desk: true, wantTo: keyA},
 		{name: "author gone, toucher live", owners: []string{keyA, keyB}, live: []string{keyB}, desk: true, wantTo: keyB},
 		{name: "order is the ledger's: reviewer ranked first wins", owners: []string{keyC, keyB}, live: []string{keyB, keyC}, wantTo: keyC},
 		{name: "a gone card isn't live", owners: []string{keyA, keyB}, live: []string{keyB}, goneCard: []string{keyA}, wantTo: keyB},
 		{name: "owner is not reachable but live: still the owner", owners: []string{keyB}, live: []string{keyB}, desk: true, wantTo: keyB},
-		{name: "all owners gone: desk, note names the author", owners: []string{keyA, keyB}, desk: true,
-			wantTo: keyD, wantRepo: prRepo, wantNote: []string{"alpha (" + keyA + ")", prKey}},
-		{name: "owner never seen: note has its key", owners: []string{keyGone}, desk: true,
-			wantTo: keyD, wantRepo: prRepo, wantNote: []string{keyGone}},
-		{name: "no owners: desk, no note", owners: []string{}, desk: true, wantTo: keyD, wantRepo: prRepo},
+		{name: "all owners gone: desk, For names the author", owners: []string{keyA, keyB}, desk: true,
+			wantTo: keyD, wantRepo: prRepo, wantFor: []string{"alpha (" + keyA + ")"}},
+		{name: "owner never seen: For has its key", owners: []string{keyGone}, desk: true,
+			wantTo: keyD, wantRepo: prRepo, wantFor: []string{keyGone}},
+		{name: "no owners: desk, no For", owners: []string{}, desk: true, wantTo: keyD, wantRepo: prRepo},
 		{name: "no ledger (nil owners): desk", desk: true, wantTo: keyD, wantRepo: prRepo},
 		{name: "sender owns it: passed over", owners: []string{keyA, keyB}, live: []string{keyA, keyB}, from: keyA, wantTo: keyB},
 		{name: "sender is the only owner and the desk: unowned", owners: []string{keyD}, desk: true, from: keyD, wantRepo: prRepo},
-		{name: "no desk: unowned with a note", owners: []string{keyA}, wantRepo: prRepo, wantNote: []string{"alpha"}},
+		{name: "no desk: unowned with For", owners: []string{keyA}, wantRepo: prRepo, wantFor: []string{"alpha"}},
 	}
 	names := map[string]string{keyA: "alpha", keyB: "beta", keyC: "gamma"}
 	for _, tc := range tests {
@@ -136,12 +136,12 @@ func TestPRRouting(t *testing.T) {
 			if d.State != wantState || d.Hold != wantHold {
 				t.Fatalf("state %s hold %q", d.State, d.Hold)
 			}
-			if tc.wantNote == nil && d.Note != "" {
-				t.Fatalf("unexpected note %q", d.Note)
+			if tc.wantFor == nil && d.For != "" {
+				t.Fatalf("unexpected For %q", d.For)
 			}
-			for _, s := range tc.wantNote {
-				if !strings.Contains(d.Note, s) {
-					t.Fatalf("note %q lacks %q", d.Note, s)
+			for _, s := range tc.wantFor {
+				if !strings.Contains(d.For, s) {
+					t.Fatalf("For %q lacks %q", d.For, s)
 				}
 			}
 		})
@@ -163,11 +163,11 @@ func TestPRInvalidTargets(t *testing.T) {
 }
 
 // Unowned PR work waits, survives a restart without the ledger, and goes to
-// the first desk that appears, keeping its note.
+// the first desk that appears, keeping who it was for (For).
 func TestPRUnownedThenDesk(t *testing.T) {
 	h := prHarness(t, []string{keyGone}, false)
 	_, u := h.send(claude(keyS, "sigma"), toPR("acme/app#7"), "who has this?")
-	if u.To != "" || u.State != Held || u.Hold != HoldUnowned || u.RepoKey != prRepo || !strings.Contains(u.Note, keyGone) {
+	if u.To != "" || u.State != Held || u.Hold != HoldUnowned || u.RepoKey != prRepo || !strings.Contains(u.For, keyGone) {
 		t.Fatalf("unowned %+v", u)
 	}
 	wantErr(t, h.ib.Release(bg, u.ID, user), ErrBadState)
@@ -176,7 +176,7 @@ func TestPRUnownedThenDesk(t *testing.T) {
 	h.owners = nil
 	h.reopen()
 	got := h.wantState(u.ID, Held)
-	if got.RepoKey != prRepo || got.Note != u.Note || got.Message.To.Value != prKey {
+	if got.RepoKey != prRepo || got.For != u.For || got.Message.To.Value != prKey {
 		t.Fatalf("after replay %+v", got)
 	}
 
@@ -184,7 +184,7 @@ func TestPRUnownedThenDesk(t *testing.T) {
 	h.ib.SetReachable(keyD, PathMod, true)
 	h.sweep()
 	got = h.wantState(u.ID, Queued)
-	if got.To != keyD || got.Note != u.Note {
+	if got.To != keyD || got.For != u.For {
 		t.Fatalf("assigned %+v", got)
 	}
 	w := h.wake(keyD)
@@ -194,11 +194,11 @@ func TestPRUnownedThenDesk(t *testing.T) {
 }
 
 // Desk-routed PR work whose desk goes moves on like repo work and keeps the
-// note naming its owner.
+// For naming its owner.
 func TestPRDeskGoneKeepsNote(t *testing.T) {
 	h := prHarness(t, []string{keyGone}, true)
 	_, d := h.send(claude(keyS, "sigma"), toPR(prKey), "who has this?")
-	if d.To != keyD || d.Note == "" {
+	if d.To != keyD || d.For == "" {
 		t.Fatalf("routed %+v", d)
 	}
 	h.ros.remove(keyD)
@@ -212,7 +212,7 @@ func TestPRDeskGoneKeepsNote(t *testing.T) {
 			next = x
 		}
 	}
-	if moved.MovedTo != "" || next.State != Held || next.Hold != HoldUnowned || next.Note != d.Note || next.RepoKey != prRepo {
+	if moved.MovedTo != "" || next.State != Held || next.Hold != HoldUnowned || next.For != d.For || next.RepoKey != prRepo {
 		t.Fatalf("moved %+v, next %+v", moved, next)
 	}
 }
@@ -261,5 +261,91 @@ func TestPRPolicyAndRate(t *testing.T) {
 	_, d, err = h2.ib.Send(bg, from, toPR(prKey), "blocked?", "")
 	if err != nil || d.State != Held || d.Hold != HoldBlocked || d.To != keyD {
 		t.Fatalf("blocked send %+v %v", d, err)
+	}
+}
+
+// The wake that carries PR work names the PR and, for work its owner
+// couldn't take, who it was for.
+func TestPRWakeNamesPRAndOwner(t *testing.T) {
+	h := prHarness(t, []string{keyGone}, true)
+	h.send(claude(keyS, "sigma"), toPR("acme/app#7"), "who has this?")
+	p := h.wake(keyD).Prompt
+	for _, s := range []string{`pr="` + prKey + `"`, `for="` + keyGone, "who has this?"} {
+		if !strings.Contains(p, s) {
+			t.Fatalf("wake lacks %q:\n%s", s, p)
+		}
+	}
+
+	h = prHarness(t, []string{keyA}, true)
+	h.ros.put(card(keyA, "alpha", prRepo, BypassMode))
+	h.send(claude(keyS, "sigma"), toPR(prKey), "rebase please")
+	p = h.wake(keyA).Prompt
+	if !strings.Contains(p, `pr="`+prKey+`"`) || strings.Contains(p, ` for="`) {
+		t.Fatalf("owner wake:\n%s", p)
+	}
+}
+
+// An owner that goes for good hands its PR work to the repo's front desk,
+// and the moved work says who it was for.
+func TestPROwnerGoneMovesToDesk(t *testing.T) {
+	h := prHarness(t, []string{keyA}, true)
+	h.ros.put(card(keyA, "alpha", prRepo, BypassMode))
+	_, d := h.send(claude(keyS, "sigma"), toPR(prKey), "rebase please")
+	if d.To != keyA {
+		t.Fatalf("routed %+v", d)
+	}
+	h.ros.remove(keyA)
+	h.sweep()
+	h.clk.advance(GoneGrace + time.Hour)
+	h.sweep()
+	h.wantState(d.ID, Moved)
+	var next Delivery
+	for _, x := range h.ib.List(0) {
+		if x.MessageID == d.MessageID && x.ID != d.ID {
+			next = x
+		}
+	}
+	if next.To != keyD || next.State != Queued || next.RepoKey != prRepo || !strings.Contains(next.For, "alpha ("+keyA+")") {
+		t.Fatalf("next %+v", next)
+	}
+	if p := h.wake(keyD).Prompt; !strings.Contains(p, "rebase please") || !strings.Contains(p, keyA) {
+		t.Fatalf("desk wake:\n%s", p)
+	}
+}
+
+// Defer and skip notes don't replace who the PR work was for, and a move
+// after a defer carries the owner, not the defer note.
+func TestPRDeferKeepsOwner(t *testing.T) {
+	h := prHarness(t, []string{keyGone}, true)
+	_, d := h.send(claude(keyS, "sigma"), toPR(prKey), "who has this?")
+	h.deliverEngage(keyD, "t1")
+	if err := h.ib.Defer(bg, keyD, d.ID, 5, "later"); err != nil {
+		t.Fatal(err)
+	}
+	got := h.state(d.ID)
+	if got.Note != "later" || got.For != d.For || !strings.Contains(d.For, keyGone) {
+		t.Fatalf("after defer %+v (sent %+v)", got, d)
+	}
+	h.ros.remove(keyD)
+	h.sweep()
+	h.clk.advance(GoneGrace + time.Second)
+	h.sweep()
+	var next Delivery
+	for _, x := range h.ib.List(0) {
+		if x.MessageID == d.MessageID && x.ID != d.ID {
+			next = x
+		}
+	}
+	if next.For != d.For || next.Note != "" || next.State != Held {
+		t.Fatalf("moved %+v", next)
+	}
+
+	h = prHarness(t, []string{keyGone}, true)
+	_, d = h.send(claude(keyS, "sigma"), toPR(prKey), "who has this?")
+	if err := h.ib.Skip(bg, keyD, d.ID, "not mine"); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.state(d.ID); got.Note != "not mine" || got.For != d.For {
+		t.Fatalf("after skip %+v", got)
 	}
 }

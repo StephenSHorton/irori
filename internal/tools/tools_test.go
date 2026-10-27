@@ -475,7 +475,7 @@ func TestSendPR(t *testing.T) {
 	out := h.ok(callC, "send", map[string]any{"to": pr, "text": "anyone on #7?"})
 	has(t, out, "to alpha ("+keyA+") about "+pr, "went to the repo instead", "beta ("+keyB+")")
 	did := field(t, out, "(delivery")
-	has(t, h.ok(callA, "inbox", nil), "delivery "+did, "about PR: "+pr, "note: for beta")
+	has(t, h.ok(callA, "inbox", nil), "delivery "+did, "about PR: "+pr, "for: beta ("+keyB+")")
 
 	// Nobody in the repo: it waits unowned.
 	out = h.ok(callC, "send", map[string]any{"to": "pr:acme/none#1", "text": "hello?"})
@@ -484,6 +484,9 @@ func TestSendPR(t *testing.T) {
 	// Bad PR addresses say what a PR address looks like.
 	h.fails(callC, "send", map[string]any{"to": "pr:acme#7", "text": "x"}, "not a pull request", "pr:<owner>/<name>#<number>")
 	h.fails(callC, "send", map[string]any{"to": "pr:", "text": "x"}, "not a pull request")
+	for _, bad := range []string{"https://github.com/acme/app/pull/0", "https://github.com/acme/app/pull/abc", "github.com/acme/app/pulls/7"} {
+		h.fails(callC, "send", map[string]any{"to": bad, "text": "x"}, "not a pull request", "pr:<owner>/<name>#<number>")
+	}
 	// An agent name is still an agent.
 	has(t, h.ok(callC, "send", map[string]any{"to": "alpha", "text": "x"}), "to alpha")
 }
