@@ -47,8 +47,21 @@ func (s *set) boardView(repo, viewer string, doneLimit int) coord.BoardView {
 }
 
 // cardLine is one card as one list line (two when it is blocked or has a
-// last comment), every untrusted field folded.
+// last comment), every untrusted field folded, with every open blocker item.
 func (s *set) cardLine(t coord.Task, last *coord.Comment, n names, now time.Time) string {
+	return s.cardText(t, last, n, now, false)
+}
+
+// Board list lines show this much of a blocked card; the rest is counted.
+const (
+	listItems   = 1 // open blocker items per card
+	listOptions = 3 // recommended answers per item
+)
+
+// cardText is cardLine; brief (the board list) shows only the first open
+// item and its first options, so one heavily blocked card can't fill the
+// list's budget and push every other card off it.
+func (s *set) cardText(t coord.Task, last *coord.Comment, n names, now time.Time, brief bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "- task:%s [%s] %s", oneLine(t.ID, 80), oneLine(string(t.State), 30), quoted(oneLine(t.Title, maxCardTitle), maxCardTitle))
 	var holders []string
@@ -104,7 +117,11 @@ func (s *set) cardLine(t coord.Task, last *coord.Comment, n names, now time.Time
 		if bb := t.BlockedBy; bb != nil {
 			on = fmt.Sprintf(" (on %s %s)", oneLine(string(bb.Kind), 20), oneLine(bb.Ref, 160))
 		}
-		for i, bl := range open {
+		more := 0
+		if brief && len(open) > listItems {
+			more = len(open) - listItems
+		}
+		for i, bl := range open[:len(open)-more] {
 			fmt.Fprintf(&b, "  blocked")
 			if bl.ID != "" {
 				fmt.Fprintf(&b, " [%s]", oneLine(bl.ID, 20))
@@ -117,13 +134,27 @@ func (s *set) cardLine(t coord.Task, last *coord.Comment, n names, now time.Time
 				b.WriteString(" raised by " + n.short(bl.RaisedBy))
 			}
 			b.WriteString("\n")
-			for j, o := range bl.Options {
+			opts := bl.Options
+			if brief && len(opts) > listOptions {
+				opts = opts[:listOptions]
+			}
+			for j, o := range opts {
 				fmt.Fprintf(&b, "    %d. %s (%s)", j+1, quoted(o.Answer, 160), n.short(o.By))
 				if o.Why != "" {
 					b.WriteString(": " + quoted(o.Why, 160))
 				}
 				b.WriteString("\n")
 			}
+			if len(opts) < len(bl.Options) {
+				fmt.Fprintf(&b, "    (+%d more answers)\n", len(bl.Options)-len(opts))
+			}
+		}
+		if more > 0 {
+			var ids []string
+			for _, bl := range open[len(open)-more:] {
+				ids = append(ids, oneLine(bl.ID, 20))
+			}
+			fmt.Fprintf(&b, "  +%d more open items (%s); show task:%s lists them all\n", more, strings.Join(ids, ", "), oneLine(t.ID, 80))
 		}
 	}
 	if last != nil {
@@ -178,7 +209,7 @@ func (s *set) board(_ context.Context, c Caller, raw json.RawMessage) string {
 		}
 		fmt.Fprintf(&b, "\n%s (%d):\n", name, len(cards))
 		for _, cd := range cards {
-			line := s.cardLine(cd.Task, cd.LastComment, n, now)
+			line := s.cardText(cd.Task, cd.LastComment, n, now, true)
 			if repo != "" && cd.RepoKey != repo {
 				where := "no repo"
 				if cd.RepoKey != "" {
@@ -192,7 +223,7 @@ func (s *set) board(_ context.Context, c Caller, raw json.RawMessage) string {
 			if len(cd.Overlaps) > 0 {
 				line += "  holders' leases overlap: " + oneLine(strings.Join(cd.Overlaps, "; "), maxFieldRunes) + "\n"
 			}
-			if cut > 0 || b.Len()+len(line) > budget {
+			if b.Len()+len(line) > budget { // skip it, but later shorter cards still fit
 				cut++
 				continue
 			}

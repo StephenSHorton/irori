@@ -314,3 +314,23 @@ func TestTaskIDPrefix(t *testing.T) {
 		}
 	}
 }
+
+// One heavily blocked card must not push every other card off the board:
+// a list line shows the first open item and counts the rest.
+func TestBoardBlockedCardFitsTheList(t *testing.T) {
+	h := newHarness(t)
+	h.newCard(callA, map[string]any{"title": "Small card"})
+	big := h.newCard(callA, map[string]any{"title": "Big card"})
+	h.ok(callA, "board_join", map[string]any{"task_id": big})
+	long := strings.Repeat("x", 150)
+	for i := range coord.MaxOpenBlockers {
+		var opts []any
+		for j := range coord.MaxOptions {
+			opts = append(opts, map[string]any{"answer": long + string(rune('a'+j)), "why": long + string(rune('a'+i))})
+		}
+		h.ok(callA, "board_block", map[string]any{"task_id": big, "question": string(rune('a'+i)) + strings.Repeat("q", 190), "options": opts})
+	}
+	out := h.ok(callA, "board", map[string]any{"repo": "*"})
+	has(t, out, "Small card", "Big card", "[b1]", "7 more open items")
+	hasNot(t, out, "not shown", "[b2]")
+}
