@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -57,8 +56,10 @@ func (s *Server) serve(ctx context.Context, ln net.Listener) error {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    64 << 10,
-		ErrorLog:          log.New(discard{}, "", 0), // TLS-probe and reset noise
 	}
+	// Cancel on return too, so the shutdown goroutine never outlives a failed Serve.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
@@ -76,10 +77,6 @@ func (s *Server) serve(ctx context.Context, ln net.Listener) error {
 	}
 	return err
 }
-
-type discard struct{}
-
-func (discard) Write(p []byte) (int, error) { return len(p), nil }
 
 // allowedHosts are the Host headers a local client sends. Anything else
 // (a rebinding attacker's domain pointing at 127.0.0.1) is refused.
