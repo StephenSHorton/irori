@@ -45,14 +45,31 @@ type InboxCounts struct {
 // JS binding name: InboxService.*
 type InboxService struct {
 	core *core.Core
+	src  inboxSource // c.Inbox(); a seam for tests
 
 	mu      sync.Mutex
 	onCount []func(InboxCounts) // tray and other in-process listeners
 	kick    chan struct{}       // nudges the pump after a GUI-side policy change
+	snap    *inboxSnapshot      // the pump's last scan; nil before the first
+}
+
+// inboxSource is the part of *inbox.Inbox a scan reads.
+type inboxSource interface {
+	List(limit int) []inbox.Delivery
+	Policy() inbox.Policy
+}
+
+// inboxSnapshot is one pass over every delivery: the counts and the held
+// deliveries. The inbox has no counts or held-only query, so a pass copies
+// every delivery; the pump makes one per coalesced change and Counts and
+// Held serve it, instead of each making its own.
+type inboxSnapshot struct {
+	counts InboxCounts
+	held   []inbox.Delivery
 }
 
 func newInboxService(c *core.Core) *InboxService {
-	return &InboxService{core: c, kick: make(chan struct{}, 1)}
+	return &InboxService{core: c, src: c.Inbox(), kick: make(chan struct{}, 1)}
 }
 
 // List returns recent deliveries across every recipient, newest first; at
@@ -65,19 +82,15 @@ func (s *InboxService) List(limit int) []inbox.Delivery {
 	return nonNil(s.core.Inbox().List(limit))
 }
 
-// Held returns every delivery waiting on the person, newest first.
+// Held returns every delivery waiting on the person, newest first, as of
+// the last inbox:changed.
 func (s *InboxService) Held() []inbox.Delivery {
-	out := []inbox.Delivery{}
-	for _, d := range s.core.Inbox().List(scanAll) {
-		if d.State == inbox.Held {
-			out = append(out, d)
-		}
-	}
-	return out
+	return append([]inbox.Delivery{}, s.snapshot().held...)
 }
 
-// Counts returns the unread and held numbers and whether wakes are paused.
-func (s *InboxService) Counts() InboxCounts { return s.counts() }
+// Counts returns the unread and held numbers and whether wakes are paused,
+// as of the last inbox:changed.
+func (s *InboxService) Counts() InboxCounts { return s.snapshot().counts }
 
 // Send sends text from the person. With repo set it goes to that repo's
 // front desk; otherwise to is an agent key, key prefix or name.
@@ -166,20 +179,37 @@ func (s *InboxService) onCounts(fn func(InboxCounts)) {
 	s.mu.Lock()
 	s.onCount = append(s.onCount, fn)
 	s.mu.Unlock()
-	fn(s.counts())
+	fn(s.snapshot().counts)
 }
 
-func (s *InboxService) counts() InboxCounts {
-	c := InboxCounts{Paused: s.core.Inbox().Policy().Paused}
-	for _, d := range s.core.Inbox().List(scanAll) {
+// snapshot returns the last scan, scanning first if there is none yet.
+func (s *InboxService) snapshot() *inboxSnapshot {
+	s.mu.Lock()
+	snap := s.snap
+	s.mu.Unlock()
+	if snap != nil {
+		return snap
+	}
+	return s.refresh()
+}
+
+// refresh scans every delivery once and keeps the result for Counts and
+// Held until the next change.
+func (s *InboxService) refresh() *inboxSnapshot {
+	snap := &inboxSnapshot{counts: InboxCounts{Paused: s.src.Policy().Paused}, held: []inbox.Delivery{}}
+	for _, d := range s.src.List(scanAll) {
 		switch d.State {
 		case inbox.Queued, inbox.Delivered:
-			c.Unread++
+			snap.counts.Unread++
 		case inbox.Held:
-			c.Held++
+			snap.counts.Held++
+			snap.held = append(snap.held, d)
 		}
 	}
-	return c
+	s.mu.Lock()
+	s.snap = snap
+	s.mu.Unlock()
+	return snap
 }
 
 // nudge asks the pump to emit, for changes that may not reach Subscribe
@@ -202,7 +232,7 @@ func (s *InboxService) pump(ctx context.Context, app *application.App) {
 	emit := func() {
 		pending = false
 		last = time.Now()
-		c := s.counts()
+		c := s.refresh().counts
 		app.Event.Emit(EventInboxChanged, c)
 		s.mu.Lock()
 		fns := append([]func(InboxCounts){}, s.onCount...)

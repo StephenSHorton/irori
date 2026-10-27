@@ -298,7 +298,11 @@ function GoneRow({ g, now }: { g: GoneSession; now: Date }) {
           >
             left {relativeTime(at, now)}
           </time>
-          {g.transcript ? (
+          {output !== null ? (
+            // Revived: no second button, or a quick second click could start
+            // the same session again before the row drops off the list.
+            <span className="text-xs text-muted-foreground">revived</span>
+          ) : g.transcript ? (
             <ConfirmButton
               label="Revive"
               question={

@@ -19,6 +19,7 @@ import (
 
 	"github.com/StephenSHorton/irori/internal/core"
 	"github.com/StephenSHorton/irori/internal/device"
+	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/paths"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/store"
@@ -38,6 +39,9 @@ type RosterChange struct {
 // RosterService is the UI's view of who is running. JS binding name: RosterService.*
 type RosterService struct {
 	core *core.Core
+
+	cards   cardIndex   // agent.seen cards on this device, for Gone and Revive
+	revives reviveGuard // sessions revived a moment ago
 }
 
 // Agents returns the live agents on this device, newest activity first.
@@ -138,7 +142,7 @@ func (r *RosterService) Gone(limit int) ([]GoneSession, error) {
 			trust = loadTrust()
 		}
 		c, ok := cards[p.Key]
-		if !ok || c.Agent != "claude" || !validSessionID(c.SessionID) {
+		if !ok || c.Agent != "claude" || !validSessionID(c.SessionID) || r.revives.recent(c.SessionID, ev.HLC.Wall()) {
 			continue
 		}
 		out = append(out, GoneSession{
@@ -153,33 +157,121 @@ func (r *RosterService) Gone(limit int) ([]GoneSession, error) {
 	return out, nil
 }
 
-// seenCards maps agent key to the newest agent.seen card on this device.
+// seenCards maps agent key to the newest agent.seen card on this device,
+// for every session ever seen here, not only recent ones.
 func (r *RosterService) seenCards(ctx context.Context) (map[string]presence.AgentCard, error) {
-	rows, err := r.core.Events(ctx, store.Filter{
-		Kinds: []string{store.KindAgentSeen}, DeviceID: r.core.Device().ID, Limit: 1000, Desc: true,
-	})
-	if err != nil {
-		return nil, err
+	return r.cards.update(ctx, r.core.Events, r.core.Device().ID)
+}
+
+// cardIndex keeps the newest agent.seen card per key. Each update reads only
+// the rows appended since the last one, paging oldest first, so the first
+// call walks the whole history once and later calls are cheap. agent.seen is
+// written once per appearance of a session, so the map stays one card per
+// session ever seen on this device.
+type cardIndex struct {
+	mu     sync.Mutex
+	cursor hlc.Timestamp
+	cards  map[string]presence.AgentCard
+}
+
+// update reads new agent.seen rows for deviceID and returns a copy of the
+// index. A failed read keeps what was already read, so the next call resumes.
+func (x *cardIndex) update(ctx context.Context, events func(context.Context, store.Filter) ([]store.Event, error), deviceID string) (map[string]presence.AgentCard, error) {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if x.cards == nil {
+		x.cards = map[string]presence.AgentCard{}
 	}
-	cards := map[string]presence.AgentCard{}
-	for _, ev := range rows {
-		var c presence.AgentCard
-		if json.Unmarshal(ev.Payload, &c) != nil || c.Key == "" {
-			continue
+	for {
+		rows, err := events(ctx, store.Filter{
+			Kinds: []string{store.KindAgentSeen}, DeviceID: deviceID, AfterHLC: x.cursor, Limit: store.MaxListLimit,
+		})
+		if err != nil {
+			return nil, err
 		}
-		if _, ok := cards[c.Key]; !ok {
-			cards[c.Key] = c
+		for _, ev := range rows {
+			x.cursor = ev.HLC
+			var c presence.AgentCard
+			if json.Unmarshal(ev.Payload, &c) != nil || c.Key == "" {
+				continue
+			}
+			x.cards[c.Key] = c // oldest first, so the newest card wins
+		}
+		if len(rows) < store.MaxListLimit {
+			break
 		}
 	}
-	return cards, nil
+	out := make(map[string]presence.AgentCard, len(x.cards))
+	for k, c := range x.cards {
+		out[k] = c
+	}
+	return out, nil
+}
+
+// reviveWindow is how long a revived session stays claimed: long enough for
+// claude --bg to start it and presence to list it, so a second click (or a
+// stale Recently gone row) can't start the same session twice.
+const reviveWindow = time.Minute
+
+// reviveGuard refuses a second Revive of a session that was revived, or is
+// being revived, within reviveWindow.
+type reviveGuard struct {
+	mu  sync.Mutex
+	at  map[string]time.Time
+	now func() time.Time // default time.Now
+}
+
+func (g *reviveGuard) clock() time.Time {
+	if g.now != nil {
+		return g.now()
+	}
+	return time.Now()
+}
+
+// claim marks sessionID as revived now. It fails, with how long ago the
+// earlier claim was, when one is still inside the window.
+func (g *reviveGuard) claim(sessionID string) (time.Duration, bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	now := g.clock()
+	if g.at == nil {
+		g.at = map[string]time.Time{}
+	}
+	for id, t := range g.at {
+		if now.Sub(t) >= reviveWindow {
+			delete(g.at, id)
+		}
+	}
+	if t, ok := g.at[sessionID]; ok {
+		return now.Sub(t), false
+	}
+	g.at[sessionID] = now
+	return 0, true
+}
+
+// release drops a claim whose revive never started a session, so the person
+// can try again at once.
+func (g *reviveGuard) release(sessionID string) {
+	g.mu.Lock()
+	delete(g.at, sessionID)
+	g.mu.Unlock()
+}
+
+// recent reports whether sessionID was revived inside the window after at,
+// so Gone can drop a row whose session is starting up again.
+func (g *reviveGuard) recent(sessionID string, after time.Time) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	t, ok := g.at[sessionID]
+	return ok && t.After(after) && g.clock().Sub(t) < reviveWindow
 }
 
 // Revive runs `claude --bg --resume <sessionId>` in the session's last
 // working directory and returns what it printed. The UI confirms first; this
 // only refuses: a live session, an id never seen on this device, or a
 // session whose transcript is gone (Claude Code would start an empty session
-// under that id instead of failing). The cwd comes from the log, never from
-// the caller.
+// under that id instead of failing), or one revived within reviveWindow. The
+// cwd comes from the log, never from the caller.
 func (r *RosterService) Revive(sessionID string) (string, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if !validSessionID(sessionID) {
@@ -190,13 +282,22 @@ func (r *RosterService) Revive(sessionID string) (string, error) {
 			return "", fmt.Errorf("%s is still running", displayName(a))
 		}
 	}
+	if ago, ok := r.revives.claim(sessionID); !ok {
+		return "", fmt.Errorf("that session was revived %s ago; it should show up on the roster shortly", ago.Round(time.Second))
+	}
+	started := false
+	defer func() {
+		if !started {
+			r.revives.release(sessionID)
+		}
+	}()
 	cards, err := r.seenCards(context.Background())
 	if err != nil {
 		return "", err
 	}
 	c, ok := cards[r.core.Device().ID+"/"+sessionID]
 	if !ok || c.Agent != "claude" {
-		return "", errors.New("no Claude Code session with that id has run on this device")
+		return "", errors.New("no Claude Code session with that id has been seen on this device")
 	}
 	if !hasTranscript(c) {
 		return "", errors.New("that session's transcript is gone, so there is nothing to resume")
@@ -219,6 +320,9 @@ func (r *RosterService) Revive(sessionID string) (string, error) {
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("start claude: %w", err)
 	}
+	// From here a session may be starting, even if claude reports an error,
+	// so the claim stands until reviveWindow passes.
+	started = true
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	select {
