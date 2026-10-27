@@ -1,279 +1,108 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
-import { AppHeader } from "@/components/roster/app-header"
-import { ActivityPanel } from "@/components/roster/activity-panel"
-import { RosterList } from "@/components/roster/roster-list"
-import { InboxPanel } from "@/components/inbox/inbox-panel"
-import { BoardPanel } from "@/components/board/board-panel"
-import { DecisionsPanel } from "@/components/capture/decisions-panel"
+import { AppHeader } from "@/components/app-header"
+import { CardPanel } from "@/components/cards/card-detail"
 import {
-  HistoryPanel,
-  type HistoryFocus,
-} from "@/components/capture/history-panel"
-import { TimelinePanel } from "@/components/capture/timeline-panel"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useFidelity, useRepos } from "@/lib/capture"
+  CardGrid,
+  EmptyCards,
+  FilterBar,
+  matches,
+  type Filter,
+} from "@/components/cards/card-grid"
+import { useCard, useCards } from "@/lib/cards"
 import { useNow, useRoster } from "@/lib/irori"
-import {
-  countsByAgent,
-  isOpen,
-  nameLookup,
-  State,
-  useGone,
-  useInbox,
-} from "@/lib/talk"
-import { useBoard } from "@/lib/board"
 import { onOpen } from "@/lib/settings"
+import { useGone } from "@/lib/talk"
 import { UpdateBanner } from "@/updater"
 
-const tabs = [
-  "roster",
-  "inbox",
-  "board",
-  "timeline",
-  "history",
-  "decisions",
-] as const
-type Tab = (typeof tabs)[number]
+// narrow mirrors the layout breakpoint: below it the card opens under the
+// grid instead of beside it.
+const narrow = "(max-width: 979px)"
 
-const tabKey = "irori.tab"
-
-function asTab(v: string | null): Tab | null {
-  // The Board replaced the Work tab (decision 16); a remembered "work" opens it.
-  if (v === "work") return "board"
-  return tabs.includes(v as Tab) ? (v as Tab) : null
-}
-
-function readTab(): Tab {
-  // ?tab=inbox opens a tab directly (screenshots, links from the tray).
-  const q = asTab(new URLSearchParams(window.location.search).get("tab"))
-  if (q) return q
-  try {
-    return asTab(localStorage.getItem(tabKey)) ?? "roster"
-  } catch {
-    // Remembering the tab is a convenience only.
-    return "roster"
-  }
-}
-
-function writeTab(t: Tab) {
-  try {
-    localStorage.setItem(tabKey, t)
-  } catch {
-    // ignore
-  }
-}
-
-// App is who is running (Roster), what they say to each other (Inbox), what
-// they're working on and what's in their way (Board), and what they did
-// (Timeline, History, Decisions).
+// App is the whole window (docs/design/v0.4-devices.md §9): cards of shared
+// work, and the one opened beside them. Messages, capture and the roster
+// keep running underneath for agents and routing; the person reaches them
+// through cards and notifications.
 export function App() {
   const roster = useRoster()
-  const inbox = useInbox()
-  const goneState = useGone()
-  const [tab, setTabState] = useState<Tab>(readTab)
-  const board = useBoard(tab === "board")
-  const fidelity = useFidelity()
-  const { repos } = useRepos()
+  const { gone } = useGone()
+  const { cards, loading, error } = useCards()
   const now = useNow()
-  // Cross-tab jumps: a roster card's Timeline link, a commit chip.
-  const [agentKey, setAgentKey] = useState("")
-  const [focus, setFocus] = useState<{ n: number; f: HistoryFocus | null }>({
-    n: 0,
-    f: null,
-  })
+  const [filter, setFilter] = useState<Filter>("all")
+  // picked is the person's choice; until there is one the first card opens.
+  const [picked, setPicked] = useState("")
+  const selected = picked || cards[0]?.id || ""
+  const { detail, error: detailError } = useCard(selected)
+  const detailRef = useRef<HTMLDivElement>(null)
 
-  // A notification's Open or Answer: the tab, and what to select there.
-  // n remounts the panel so the selection and its filters start fresh.
-  const [opened, setOpened] = useState<{ n: number; ref: string }>({
-    n: 0,
-    ref: "",
-  })
-
-  const setTab = (t: Tab) => {
-    setTabState(t)
-    writeTab(t)
+  const select = (id: string) => {
+    setPicked(id)
+    if (window.matchMedia(narrow).matches)
+      requestAnimationFrame(() =>
+        detailRef.current?.scrollIntoView({ block: "start" })
+      )
   }
 
+  // A notification's Open: every target lands on the cards, and a task
+  // ref opens that card (with the filter cleared so it can be seen).
+  // Held messages keep Release and Dismiss on the notification itself.
   useEffect(
     () =>
       onOpen((target) => {
-        const t = asTab(target.tab)
-        if (!t) return
-        setOpened((o) => ({ n: o.n + 1, ref: target.ref ?? "" }))
-        setTabState(t)
-        writeTab(t)
+        const ref = target.ref ?? ""
+        if (!ref.startsWith("task:")) return
+        setFilter("all")
+        setPicked(ref.slice("task:".length))
       }),
     []
   )
 
-  const counts = useMemo(
-    () => countsByAgent(inbox.deliveries),
-    [inbox.deliveries]
-  )
-  const name = useMemo(
-    () =>
-      nameLookup(
-        roster.agents.map((a): [string, string] => [a.key, a.name]),
-        goneState.gone.map((g): [string, string] => [g.key, g.name]),
-        inbox.deliveries.map((d): [string, string] => [
-          d.message.from.key,
-          d.message.from.name ?? "",
-        ])
-      ),
-    [roster.agents, goneState.gone, inbox.deliveries]
-  )
-  const held = inbox.deliveries.filter((d) => d.state === State.Held).length
-  const needsYou = board.view.needsYou.length
-
-  const goTimeline = (key: string) => {
-    setAgentKey(key)
-    setTab("timeline")
-  }
+  const shown = cards.filter((c) => matches(c, filter))
+  const decide = cards.filter((c) => c.openBlockers > 0).length
 
   return (
     <div className="min-h-svh bg-background">
       <AppHeader roster={roster} />
-      <main className="mx-auto flex max-w-5xl flex-col gap-5 px-4 py-5 sm:px-6">
+      <main className="mx-auto flex max-w-7xl flex-col gap-3.5 px-4 pt-[18px] pb-10 sm:px-6">
         <UpdateBanner />
-
-        <Tabs
-          value={tab}
-          onValueChange={(v) => setTab(v as Tab)}
-          className="gap-5"
-        >
-          <TabsList className="self-start">
-            <TabsTrigger value="roster" className="px-3">
-              Roster
-              <Count n={roster.agents.length} />
-            </TabsTrigger>
-            <TabsTrigger value="inbox" className="px-3">
-              Inbox
-              {held > 0 ? (
-                <Count n={held} signal />
+        {error && (
+          <p className="rounded-lg bg-destructive/10 px-4 py-2 text-sm text-destructive">
+            Could not load the cards: {error}
+          </p>
+        )}
+        {loading && cards.length === 0 ? (
+          <p className="px-1 text-sm text-muted-foreground">Loading cards…</p>
+        ) : cards.length === 0 ? (
+          <EmptyCards />
+        ) : (
+          <>
+            <FilterBar filter={filter} onFilter={setFilter} decide={decide} />
+            <div className="grid items-start gap-4 min-[980px]:grid-cols-[minmax(0,1fr)_minmax(0,520px)]">
+              {shown.length ? (
+                <CardGrid cards={shown} selected={selected} onSelect={select} />
               ) : (
-                <Count
-                  n={inbox.deliveries.filter((d) => isOpen(d.state)).length}
-                />
+                <p className="px-1 text-[12.5px] text-muted-foreground">
+                  Nothing here with this filter.
+                </p>
               )}
-            </TabsTrigger>
-            <TabsTrigger value="board" className="px-3">
-              Board
-              {needsYou > 0 && <Count n={needsYou} signal />}
-            </TabsTrigger>
-            <TabsTrigger value="timeline" className="px-3">
-              Timeline
-            </TabsTrigger>
-            <TabsTrigger value="history" className="px-3">
-              History
-            </TabsTrigger>
-            <TabsTrigger value="decisions" className="px-3">
-              Decisions
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="roster" className="flex flex-col gap-6">
-            {roster.error && (
-              <p className="rounded-lg bg-destructive/10 px-4 py-2 text-sm text-destructive">
-                Could not load the roster: {roster.error}
-              </p>
-            )}
-            {roster.loading ? (
-              <p className="px-1 text-sm text-muted-foreground">
-                Looking for agents…
-              </p>
-            ) : (
-              <RosterList
-                agents={roster.agents}
-                counts={counts}
-                gone={goneState.gone}
-                goneError={goneState.error}
-                fidelity={fidelity}
-                onTimeline={goTimeline}
-                now={now}
-              />
-            )}
-            <ActivityPanel
-              events={roster.recent}
-              agents={roster.agents}
-              error={roster.recentError}
-              now={now}
-            />
-          </TabsContent>
-
-          <TabsContent value="inbox">
-            <InboxPanel
-              key={`inbox-${opened.n}`}
-              inbox={inbox}
-              agents={roster.agents}
-              gone={goneState.gone}
-              now={now}
-              focusId={opened.ref}
-            />
-          </TabsContent>
-
-          <TabsContent value="board">
-            <BoardPanel
-              key={`board-${opened.n}`}
-              board={board}
-              agents={roster.agents}
-              gone={goneState.gone}
-              now={now}
-              focusId={opened.ref.replace(/^task:/, "")}
-            />
-          </TabsContent>
-
-          <TabsContent value="timeline">
-            <TimelinePanel
-              agentKey={agentKey}
-              onAgent={setAgentKey}
-              agents={roster.agents}
-              gone={goneState.gone}
-              deliveries={inbox.deliveries}
-              repos={repos}
-              now={now}
-              onCommit={(c) => {
-                setFocus((f) => ({
-                  n: f.n + 1,
-                  f: { repoKey: c.repoKey, sha: c.sha },
-                }))
-                setTab("history")
-              }}
-            />
-          </TabsContent>
-
-          <TabsContent value="history">
-            <HistoryPanel
-              key={focus.n}
-              repos={repos}
-              focus={focus.f}
-              name={name}
-              onTimeline={goTimeline}
-              now={now}
-            />
-          </TabsContent>
-
-          <TabsContent value="decisions">
-            <DecisionsPanel repos={repos} now={now} />
-          </TabsContent>
-        </Tabs>
+              <div
+                ref={detailRef}
+                className="min-w-0 scroll-mt-16 min-[980px]:sticky min-[980px]:top-[4.5rem]"
+              >
+                {selected && (
+                  <CardPanel
+                    detail={detail}
+                    error={detailError}
+                    gone={gone}
+                    now={now}
+                  />
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </main>
     </div>
-  )
-}
-
-// Count is a tab's number; signal marks one that wants the person.
-function Count({ n, signal }: { n: number; signal?: boolean }) {
-  return (
-    <span
-      className={
-        signal
-          ? "rounded-full bg-warning-foreground px-1.5 text-[11px] text-warning tabular-nums"
-          : "text-xs text-muted-foreground tabular-nums"
-      }
-    >
-      {n}
-    </span>
   )
 }
 

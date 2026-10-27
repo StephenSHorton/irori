@@ -10,7 +10,7 @@ export function AppHeader({ roster }: { roster: Roster }) {
 
   return (
     <header className="sticky top-0 z-20 border-b border-(--topbar-border) bg-(--topbar-bg) shadow-(--topbar-shadow) backdrop-blur-xl">
-      <div className="mx-auto flex h-14 max-w-5xl items-center gap-3 px-4 sm:px-6">
+      <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4 sm:px-6">
         <div className="flex items-baseline gap-2">
           <span className="text-[15px] font-semibold tracking-tight text-ink">
             Irori
