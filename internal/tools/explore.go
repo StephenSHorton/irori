@@ -415,20 +415,31 @@ func (s *set) commits(_ context.Context, c Caller, raw json.RawMessage) string {
 	now := s.now()
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d commits in %s, newest first. %s\n", len(list), where, capturedUntrusted)
-	for _, cv := range list {
-		fmt.Fprintf(&b, "- commit:%s %s %s", oneLine(cv.SHA, 64), short2(now, cv.At), quoted(cv.Subject, 160))
+	budget := MaxResult - 240
+	cut := 0
+	for i, cv := range list {
+		var line strings.Builder
+		fmt.Fprintf(&line, "- commit:%s %s %s", oneLine(cv.SHA, 64), short2(now, cv.At), quoted(cv.Subject, 160))
 		if br := oneLine(cv.Branch, 80); br != "" {
-			b.WriteString(" on " + br)
+			line.WriteString(" on " + br)
 		}
 		if au := oneLine(cv.Author, 80); au != "" {
-			b.WriteString(", author " + au)
+			line.WriteString(", author " + au)
 		}
 		if cv.Link != nil && cv.Link.Committer != nil {
-			b.WriteString(", committed by " + n.who(cv.Link.Committer.Key))
+			line.WriteString(", committed by " + n.who(cv.Link.Committer.Key))
 		}
-		b.WriteString("\n")
+		line.WriteString("\n")
+		if b.Len()+line.Len() > budget {
+			cut = len(list) - i
+			break
+		}
+		b.WriteString(line.String())
 	}
-	if more {
+	switch {
+	case cut > 0:
+		fmt.Fprintf(&b, "(%d more not shown; narrow with path, or search kinds=[\"commit\"] with words from the subject)\n", cut)
+	case more:
 		fmt.Fprintf(&b, "(more: raise limit, up to %d; or search kinds=[\"commit\"] with words from the subject)\n", maxCommitLimit)
 	}
 	b.WriteString("show commit:<sha> for its files and the turns behind it.\n")
