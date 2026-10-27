@@ -238,15 +238,20 @@ func (s *CaptureService) fidelity(a presence.AgentCard) string {
 	return FidelityPassive
 }
 
-// rootFor is a working directory inside repoKey: a live agent's cwd in it,
-// else a seen worktree root that is still on disk, else "".
+// rootFor is a worktree root of repoKey: the one holding a live agent's cwd,
+// else a seen root that is still on disk, else "". It is a root, never the
+// agent's cwd itself: capture resolves a relative path against the cwd
+// first, and the person's paths are repo-relative, so an agent working in
+// sub/ must not turn README.md into sub/README.md.
 func (s *CaptureService) rootFor(repoKey string) string {
 	if repoKey == "" {
 		return ""
 	}
 	for _, a := range s.agents() {
 		if a.RepoKey == repoKey && a.Cwd != "" && isDir(a.Cwd) {
-			return a.Cwd
+			if r := worktreeRoot(a.Cwd); r != "" {
+				return r
+			}
 		}
 	}
 	roots := slices.Clone(s.cap.Repos()[repoKey])
@@ -268,6 +273,22 @@ func explainNoRepo(err error, repoKey string) error {
 		return fmt.Errorf("%w: pick a repo, or give an absolute path", err)
 	}
 	return fmt.Errorf("%w: no worktree of %s is on this device", err, repoKey)
+}
+
+// worktreeRoot is the nearest directory at or above dir holding a .git
+// entry (a directory, or the file a linked worktree or submodule has), or "".
+func worktreeRoot(dir string) string {
+	dir = filepath.Clean(dir)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		up := filepath.Dir(dir)
+		if up == dir {
+			return ""
+		}
+		dir = up
+	}
 }
 
 func isDir(p string) bool {

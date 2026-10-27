@@ -140,6 +140,62 @@ func TestCaptureRecordDecisionAsPerson(t *testing.T) {
 	}
 }
 
+// A live agent working in a subdirectory still resolves the person's
+// repo-relative paths against the worktree root, not its cwd: the Why box
+// and the decision form take paths in the repo, like edit and commit rows.
+func TestCaptureRepoPathsFromAgentInSubdir(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(root, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{filepath.Join(root, "README.md"), filepath.Join(sub, "README.md")} {
+		if err := os.WriteFile(f, []byte("# sample\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, args := range [][]string{
+		{"init", "-q"}, {"config", "user.email", "t@example.invalid"}, {"config", "user.name", "t"},
+		{"add", "."}, {"commit", "-q", "-m", "first"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	rk := repo.New().Key(root)
+	if rk == "" {
+		t.Fatal("no repo key for the temp repo")
+	}
+	roster := &staticRoster{cards: []presence.AgentCard{{Key: "dev1/s1", Agent: "claude", Cwd: sub, RepoKey: rk}}}
+	s := newTestCapture(t, roster, nil)
+
+	w, err := s.Why("README.md", 1, rk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Path != "README.md" {
+		t.Fatalf("why path = %q, want README.md at the repo root", w.Path)
+	}
+	d, err := s.RecordDecision("Keep the readme short", "", "README.md", "1", rk, nil, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Anchor == nil || d.Anchor.Path != "README.md" {
+		t.Fatalf("anchor = %+v, want README.md at the repo root", d.Anchor)
+	}
+	// A path given from the subdirectory's own view still works by spelling
+	// it out from the root.
+	if w, err := s.Why("sub/README.md", 0, rk); err != nil || w.Path != "sub/README.md" {
+		t.Fatalf("why sub = %+v, %v", w, err)
+	}
+}
+
 func TestCaptureTimelineAndLookups(t *testing.T) {
 	roster := &staticRoster{cards: []presence.AgentCard{
 		{Key: "dev1/a", Agent: "claude"},
