@@ -209,6 +209,9 @@ func (c *capture) apply(ev store.Event) (*Change, error) {
 		if r.Turn.ID == "" {
 			r.Turn.ID = r.TurnID
 		}
+		if c.ids[r.ID] {
+			return nil, nil
+		}
 		c.ids[r.ID] = true
 		c.turns[r.Key] = append(c.turns[r.Key], &r)
 		return &Change{Kind: ChangedTurn, Key: r.Key, RepoKey: r.RepoKey}, nil
@@ -237,6 +240,9 @@ func (c *capture) apply(ev store.Event) (*Change, error) {
 		var r SummaryRow
 		if err := json.Unmarshal(ev.Payload, &r); err != nil {
 			return nil, err
+		}
+		if c.ids[r.ID] {
+			return nil, nil
 		}
 		c.ids[r.ID] = true
 		c.summaries[r.Key] = append(c.summaries[r.Key], &r)

@@ -145,9 +145,11 @@ func (c *capture) importEntry(ctx context.Context, st *reflogState, e gitlink.Re
 		defer c.mu.RUnlock()
 		return c.commitMap[commitKey(st.repoKey, sha)] != nil
 	}
+	// Each git run gets its own timeout: a long walk (a pull or a
+	// fast-forward of many commits) must not share one budget.
 	cctx, cancel := context.WithTimeout(ctx, gitTimeout)
-	defer cancel()
 	shas, skipped, err := gitlink.NewCommits(cctx, c.git, st.root, e, seen)
+	cancel()
 	if err != nil {
 		return err
 	}
@@ -158,13 +160,23 @@ func (c *capture) importEntry(ctx context.Context, st *reflogState, e gitlink.Re
 		branch = ""
 	}
 	op, _, _ := strings.Cut(e.Message, ":")
+	var firstErr error
 	for _, sha := range shas {
 		if seen(sha) {
 			continue
 		}
-		com, err := gitlink.Describe(cctx, c.git, st.root, sha)
+		dctx, cancel := context.WithTimeout(ctx, gitTimeout)
+		com, err := gitlink.Describe(dctx, c.git, st.root, sha)
+		cancel()
 		if err != nil {
-			return err
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// One unreadable commit doesn't lose the rest of the walk.
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
 		row := CommitRow{RepoKey: st.repoKey, Root: st.root, Op: strings.TrimSpace(op), Branch: branch, Commit: com}
 		if err := c.emit(ctx, "irori", KindCommitSeen, row); err != nil {
@@ -174,7 +186,7 @@ func (c *capture) importEntry(ctx context.Context, st *reflogState, e gitlink.Re
 			return err
 		}
 	}
-	return nil
+	return firstErr
 }
 
 // candidates are the repo's uncommitted edits a commit can link; c.mu held.

@@ -110,7 +110,6 @@ func (c *capture) why(ctx context.Context, q WhyQuery) (WhyResult, error) {
 	}
 
 	c.mu.RLock()
-	defer c.mu.RUnlock()
 	var turnKeys []string // turnKey(...) of the turns to show
 	addTurn := func(key, agent, turn string) {
 		if k := turnKey(key, agent, turn); !slices.Contains(turnKeys, k) {
@@ -182,6 +181,8 @@ func (c *capture) why(ctx context.Context, q WhyQuery) (WhyResult, error) {
 			res.Turns = append(res.Turns, cloneTurn(t))
 		}
 	}
+	c.mu.RUnlock()
+	// Anchor checks read files: done without holding the state lock.
 	for _, d := range c.dview.List(decision.Filter{RepoKey: rk, Path: rel, Limit: 500}) {
 		a := d.Anchor
 		if q.Line > 0 && a.Start > 0 && (q.Line < a.Start || q.Line > a.End) {
@@ -222,8 +223,9 @@ func (c *capture) findTurn(tk string) *TurnRow {
 	return nil
 }
 
-// checkDecision re-checks a decision's anchor. root is a worktree known to
-// hold the repo ("" to look one up); c.mu is read-locked.
+// checkDecision re-checks a decision's anchor against its recorded root if
+// that still exists, else root ("" gives Unknown). It reads files, so c.mu
+// must not be held.
 func (c *capture) checkDecision(d decision.Listed, root string) DecisionView {
 	v := DecisionView{Listed: d}
 	if d.Anchor == nil {
@@ -306,8 +308,6 @@ func (c *capture) decisions(f decision.Filter) []DecisionView {
 			fallback[d.Anchor.RepoKey] = c.liveRootOf(ctx, d.Anchor.RepoKey)
 		}
 	}
-	c.mu.RLock()
-	defer c.mu.RUnlock()
 	out := make([]DecisionView, 0, len(list))
 	for _, d := range list {
 		root := ""
