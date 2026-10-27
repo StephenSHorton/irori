@@ -301,6 +301,8 @@ func (b *Inbox) Dismiss(ctx context.Context, deliveryID, by string) error {
 }
 
 // For lists deliveries addressed to agent: open ones, or all recent when all.
+// It is the recipient's own view, so deliveries held from it (or dismissed
+// while held) are left out; only List shows them.
 func (b *Inbox) For(agent string, all bool, limit int) []Delivery {
 	return b.impl.forAgent(agent, all, limit)
 }

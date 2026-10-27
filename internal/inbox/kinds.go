@@ -11,9 +11,12 @@ const (
 	// until?, movedTo?, movedFrom?, reminded?, engagedOnce?, by, at}.
 	// movedFrom names the delivery a move replaced; engagedOnce is set once
 	// the recipient engaged or deferred it.
-	KindDelivery    = "delivery.state"
-	KindWakeIssued  = "wake.issued"  // {wakeId, to, token, reminder, deliveryIds, path?, at}
-	KindAlias       = "agent.alias"  // {key, alias, at}
+	KindDelivery   = "delivery.state"
+	KindWakeIssued = "wake.issued" // {wakeId, to, token, reminder, deliveryIds, path?, at}
+	KindAlias      = "agent.alias" // {key, alias, at}
+	// KindAgentName records the card name presence showed for a key when the
+	// inbox first saw it, or saw it change: {key, name (lowercased), at}.
+	KindAgentName   = "agent.name"
 	KindPolicySet   = "policy.set"   // Policy + {by, at}
 	KindTurnEngaged = "turn.engaged" // {agent, wakeId, turnId, at}
 	KindTurnEnded   = "turn.ended"   // {agent, wakeId, turnId, at}

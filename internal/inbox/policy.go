@@ -12,18 +12,35 @@ import (
 // BypassMode is the PermissionMode value that means permissions are bypassed.
 const BypassMode = "bypassPermissions"
 
-// listed reports whether the policy list names sender: its key, its name,
-// or one of its aliases (names compare case-insensitively).
-func (b *inbox) listed(list []string, from Sender) bool {
-	name := strings.ToLower(strings.TrimSpace(from.Name))
+// listed reports whether the policy list names sender by its key or by a
+// name (names compare case-insensitively). Block (strict) also matches the
+// names the sender sent under: that only holds more. Allow matches the card
+// name presence shows for the key (or the last one known), never a name the
+// sender chose for itself, so nobody gets allowed by claiming a name.
+func (b *inbox) listed(list []string, from Sender, cards map[string]presence.AgentCard, strict bool) bool {
+	var names []string
+	if c, ok := cards[from.Key]; ok {
+		names = append(names, strings.ToLower(strings.TrimSpace(c.Name)))
+	} else if n := b.known[from.Key]; n != "" {
+		names = append(names, n)
+	}
+	if strict {
+		names = append(names, strings.ToLower(strings.TrimSpace(from.Name)))
+		names = append(names, b.aliases[from.Key]...)
+	}
 	for _, e := range list {
 		e = strings.TrimSpace(e)
 		if e == "" {
 			continue
 		}
-		le := strings.ToLower(e)
-		if strings.EqualFold(e, from.Key) || (name != "" && le == name) || slices.Contains(b.aliases[from.Key], le) {
+		if strings.EqualFold(e, from.Key) {
 			return true
+		}
+		le := strings.ToLower(e)
+		for _, n := range names {
+			if n != "" && n == le {
+				return true
+			}
 		}
 	}
 	return false
@@ -44,9 +61,9 @@ func (b *inbox) hold(m *Message, recipient string, cards map[string]presence.Age
 		return HoldUnowned
 	}
 	if !m.From.IsUser() {
-		allowed := b.listed(b.pol.Allow, m.From)
+		allowed := b.listed(b.pol.Allow, m.From, cards, false)
 		switch {
-		case b.listed(b.pol.Block, m.From):
+		case b.listed(b.pol.Block, m.From, cards, true):
 			return HoldBlocked
 		case b.pol.Mode == Allowlist && !allowed:
 			return HoldNotAllowed
@@ -107,7 +124,10 @@ func (b *inbox) setPolicy(ctx context.Context, p Policy, by string) error {
 		return nil
 	}
 	// Unpaused: run what's left of the policy over every paused hold.
-	cards := b.liveCards()
+	cards, err := b.liveCards(ctx)
+	if err != nil {
+		return err
+	}
 	for _, id := range b.order {
 		d := b.dels[id]
 		if d.State != Held || d.Hold != HoldPaused {

@@ -1,6 +1,7 @@
 package inbox
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -9,16 +10,36 @@ import (
 	"github.com/StephenSHorton/irori/internal/presence"
 )
 
-// liveCards is the roster minus gone cards, by key. Keys and names it shows
-// are remembered so they stay addressable after the agent goes.
-func (b *inbox) liveCards() map[string]presence.AgentCard {
+// liveCards is the roster minus gone cards, by key. A card name the inbox
+// hasn't recorded for its key is logged (KindAgentName), so it stays
+// addressable after the agent goes, the same before and after a restart.
+func (b *inbox) liveCards(ctx context.Context) (map[string]presence.AgentCard, error) {
+	out := b.rosterCards()
+	keys := make([]string, 0, len(out))
+	for k := range out {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	for _, k := range keys {
+		name := strings.ToLower(strings.TrimSpace(out[k].Name))
+		if n, ok := b.known[k]; ok && n == name {
+			continue
+		}
+		if err := b.emit(ctx, "irori", KindAgentName, nameRow{Key: k, Name: name, At: b.now()}); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// rosterCards is the roster minus gone cards, by key, recording nothing.
+func (b *inbox) rosterCards() map[string]presence.AgentCard {
 	out := map[string]presence.AgentCard{}
 	for _, c := range b.roster.Agents() {
 		if c.Key == "" || c.Status == "gone" {
 			continue
 		}
 		out[c.Key] = c
-		b.known[c.Key] = strings.ToLower(strings.TrimSpace(c.Name))
 	}
 	return out
 }
@@ -49,8 +70,9 @@ func (b *inbox) describe(key string, cards map[string]presence.AgentCard) string
 
 // resolveAgent turns a key, key prefix, name or alias into one agent key.
 // Exact key beats a unique prefix (>= MinKeyPrefixLen, of the key or its
-// session id), which beats name/alias. Live agents win over gone ones; an
-// agent that has gone but was seen before is still a valid target.
+// session id), which beats a card name, which beats an alias. Live agents
+// win over gone ones; an agent that has gone but was seen before is still a
+// valid target.
 func (b *inbox) resolveAgent(self, value string, cards map[string]presence.AgentCard) (string, error) {
 	wanted := strings.ToLower(strings.TrimSpace(value))
 	if wanted == "" {
@@ -107,32 +129,35 @@ func (b *inbox) resolveAgent(self, value string, cards map[string]presence.Agent
 			return key, err
 		}
 	}
-	// 3. Name or alias: live agents first, then ones that have gone.
-	named := func(k string) bool {
-		if c, ok := cards[k]; ok && strings.ToLower(strings.TrimSpace(c.Name)) == wanted {
-			return true
+	// 3. Name, then alias: an agent's card name (live, else the last one
+	// known) beats a name some agent sent under, so nobody takes over
+	// another agent's name by sending as it. Within each, live agents come
+	// before ones that have gone.
+	cardNamed := func(k string) bool {
+		if c, ok := cards[k]; ok {
+			return strings.ToLower(strings.TrimSpace(c.Name)) == wanted
 		}
-		if _, live := cards[k]; !live && b.known[k] == wanted {
-			return true
-		}
-		return slices.Contains(b.aliases[k], wanted)
+		return b.known[k] == wanted
 	}
-	var live, gone []string
+	aliased := func(k string) bool { return slices.Contains(b.aliases[k], wanted) }
 	sawSelf := false
-	for k := range all {
-		switch {
-		case !named(k):
-		case k == self:
-			sawSelf = true
-		case cards[k].Key != "":
-			live = append(live, k)
-		default:
-			gone = append(gone, k)
+	for _, named := range []func(string) bool{cardNamed, aliased} {
+		var live, gone []string
+		for k := range all {
+			switch {
+			case !named(k):
+			case k == self:
+				sawSelf = true
+			case cards[k].Key != "":
+				live = append(live, k)
+			default:
+				gone = append(gone, k)
+			}
 		}
-	}
-	for _, m := range [][]string{live, gone} {
-		if key, err := pick(m); err != nil || key != "" {
-			return key, err
+		for _, m := range [][]string{live, gone} {
+			if key, err := pick(m); err != nil || key != "" {
+				return key, err
+			}
 		}
 	}
 	if sawSelf {
@@ -217,10 +242,10 @@ func (b *inbox) desks(repo string, cards map[string]presence.AgentCard, now time
 	return out
 }
 
-// desk is the first candidate that isn't exclude, or "".
-func (b *inbox) desk(repo, exclude string, cards map[string]presence.AgentCard, now time.Time) string {
+// desk is the first candidate that isn't one of exclude, or "".
+func (b *inbox) desk(repo string, cards map[string]presence.AgentCard, now time.Time, exclude ...string) string {
 	for _, k := range b.desks(repo, cards, now) {
-		if k != exclude {
+		if !slices.Contains(exclude, k) {
 			return k
 		}
 	}
@@ -233,5 +258,5 @@ func (b *Inbox) FrontDesk(repoKey string) string {
 	x := b.impl
 	x.mu.Lock()
 	defer x.mu.Unlock()
-	return x.desk(repoKey, "", x.liveCards(), x.now())
+	return x.desk(repoKey, x.rosterCards(), x.now())
 }

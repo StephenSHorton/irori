@@ -12,6 +12,7 @@ import (
 type sweepItem struct {
 	ID          string
 	To          string
+	From        string // the message's sender: repo work never goes back to it
 	Repo        string // "" = agent-addressed work
 	State       State
 	Hold        HoldReason
@@ -32,7 +33,7 @@ type sweepEnv struct {
 	Paused                        bool
 	GoneFor                       func(agent string) time.Duration // 0 while around
 	Reachable                     func(agent string) bool
-	Desk                          func(repo, exclude string) string // next front-desk candidate, "" if none
+	Desk                          func(repo string, exclude ...string) string // next front-desk candidate not in exclude, "" if none
 }
 
 type actionKind int
@@ -71,7 +72,7 @@ func planOne(it sweepItem, env sweepEnv) (sweepAction, bool) {
 	case Held:
 		// Only unowned repo work moves on its own; a person decides the rest.
 		if it.Hold == HoldUnowned && it.Repo != "" {
-			if to := env.Desk(it.Repo, ""); to != "" {
+			if to := env.Desk(it.Repo, it.From); to != "" {
 				return act(actAssign, to)
 			}
 		}
@@ -84,7 +85,7 @@ func planOne(it sweepItem, env sweepEnv) (sweepAction, bool) {
 	// Repo work whose holder has really gone moves, whatever its state;
 	// agent work stays for the agent (it may come back or be revived).
 	if it.Repo != "" && it.To != "" && env.GoneFor(it.To) > env.Gone {
-		return act(actMove, env.Desk(it.Repo, it.To))
+		return act(actMove, env.Desk(it.Repo, it.To, it.From))
 	}
 	if it.InFlight && env.Now.Sub(it.IssuedAt) > env.Grace {
 		return act(actReclaim, "")
@@ -100,7 +101,7 @@ func planOne(it sweepItem, env sweepEnv) (sweepAction, bool) {
 	if it.Repo != "" && !it.EngagedOnce && (it.State == Queued || it.State == Delivered) &&
 		env.Now.Sub(it.AssignedAt) > env.Unengaged {
 		if !it.MovedFrom {
-			if to := env.Desk(it.Repo, it.To); to != "" {
+			if to := env.Desk(it.Repo, it.To, it.From); to != "" {
 				return act(actMove, to)
 			}
 		}
@@ -109,8 +110,15 @@ func planOne(it sweepItem, env sweepEnv) (sweepAction, bool) {
 		}
 		return sweepAction{}, false
 	}
-	// Engaged with no reply and no deferral for an hour: one reminder.
-	if it.State == Engaged && !it.Reminded && !env.Paused && env.Now.Sub(it.UpdatedAt) > env.Quiet && env.Reachable(it.To) {
+	// One reminder for work left open: engaged with no reply and no deferral
+	// for an hour, or delivered and never engaged (the host may have dropped
+	// the prompt) past the unengaged limit, or an hour once it was engaged.
+	quiet := env.Quiet
+	if it.State == Delivered && !it.EngagedOnce {
+		quiet = env.Unengaged
+	}
+	if (it.State == Engaged || it.State == Delivered) && !it.Reminded && !env.Paused &&
+		env.Now.Sub(it.UpdatedAt) > quiet && env.Reachable(it.To) {
 		return act(actRemind, it.To)
 	}
 	return sweepAction{}, false
@@ -120,7 +128,10 @@ func (b *inbox) sweep(ctx context.Context) error {
 	b.mu.Lock()
 	defer b.unlock()
 	now := b.now()
-	cards := b.liveCards()
+	cards, err := b.liveCards(ctx)
+	if err != nil {
+		return err
+	}
 
 	// Track how long each recipient has been gone: not live in presence, or
 	// no wake path (past the reattach grace).
@@ -158,7 +169,7 @@ func (b *inbox) sweep(ctx context.Context) error {
 			return 0
 		},
 		Reachable: func(a string) bool { return b.reachable(a, now) },
-		Desk:      func(repo, exclude string) string { return b.desk(repo, exclude, cards, now) },
+		Desk:      func(repo string, exclude ...string) string { return b.desk(repo, cards, now, exclude...) },
 	}
 	items := make([]sweepItem, 0, len(b.open))
 	for _, id := range b.order {
@@ -170,6 +181,9 @@ func (b *inbox) sweep(ctx context.Context) error {
 			ID: d.ID, To: d.To, Repo: d.RepoKey, State: d.State, Hold: d.Hold,
 			AssignedAt: d.assignedAt, UpdatedAt: d.UpdatedAt, Until: d.Until,
 			MovedFrom: d.movedFrom != "", EngagedOnce: d.engagedOnce, Reminded: d.Reminded,
+		}
+		if m := b.msgs[d.MessageID]; m != nil {
+			it.From = m.From.Key
 		}
 		if d.State == Queued && d.WakeID != "" {
 			if w := b.wakes[d.WakeID]; w != nil && !w.Reminder {

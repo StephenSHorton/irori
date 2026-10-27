@@ -1,6 +1,7 @@
 package inbox
 
 import (
+	"slices"
 	"testing"
 	"time"
 )
@@ -15,9 +16,9 @@ func TestPlanSweep(t *testing.T) {
 			Now: t0, Unengaged: UnengagedLimit, Gone: GoneGrace, Quiet: QuietLimit, Grace: ReattachGrace,
 			GoneFor:   func(a string) time.Duration { return gone[a] },
 			Reachable: func(a string) bool { return reach[a] },
-			Desk: func(repo, exclude string) string {
+			Desk: func(repo string, exclude ...string) string {
 				for _, k := range desks[repo] {
-					if k != exclude {
+					if !slices.Contains(exclude, k) {
 						return k
 					}
 				}

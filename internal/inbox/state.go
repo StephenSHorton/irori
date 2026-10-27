@@ -27,10 +27,11 @@ const MaxNote = 500
 // subBuffer is each subscriber's channel size.
 const subBuffer = 64
 
-// replayKinds are the rows New folds. agent.seen is read only to learn the
-// keys and names of agents that have since gone, so they stay addressable.
+// replayKinds are the rows New folds. agent.seen and agent.name are read
+// only to learn the keys and names of agents that have since gone, so they
+// stay addressable.
 var replayKinds = []string{
-	KindMessageSent, KindDelivery, KindWakeIssued, KindAlias,
+	KindMessageSent, KindDelivery, KindWakeIssued, KindAlias, KindAgentName,
 	KindPolicySet, KindTurnEngaged, KindTurnEnded, store.KindAgentSeen,
 }
 
@@ -99,6 +100,12 @@ type aliasRow struct {
 	Key   string    `json:"key"`
 	Alias string    `json:"alias"`
 	At    time.Time `json:"at,omitzero"`
+}
+
+type nameRow struct {
+	Key  string    `json:"key"`
+	Name string    `json:"name"`
+	At   time.Time `json:"at,omitzero"`
 }
 
 type policyRow struct {
@@ -372,6 +379,15 @@ func (b *inbox) apply(ev store.Event) error {
 			return err
 		}
 		b.addAlias(r.Key, r.Alias)
+
+	case KindAgentName:
+		var r nameRow
+		if err := json.Unmarshal(ev.Payload, &r); err != nil {
+			return err
+		}
+		if r.Key != "" {
+			b.known[r.Key] = strings.ToLower(strings.TrimSpace(r.Name))
+		}
 
 	case KindPolicySet:
 		var r policyRow

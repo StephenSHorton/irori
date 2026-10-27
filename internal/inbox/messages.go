@@ -38,7 +38,10 @@ func (b *inbox) sendLocked(ctx context.Context, from Sender, to Address, text, r
 		return Message{}, Delivery{}, fmt.Errorf("%w: %d characters; at most %d", ErrTooLong, n, MaxText)
 	}
 	now := b.now()
-	cards := b.liveCards()
+	cards, err := b.liveCards(ctx)
+	if err != nil {
+		return Message{}, Delivery{}, err
+	}
 
 	// Route to exactly one recipient ("" = repo work with no desk yet).
 	var recipient, repo, replyTo string
@@ -55,7 +58,7 @@ func (b *inbox) sendLocked(ctx context.Context, from Sender, to Address, text, r
 			return Message{}, Delivery{}, fmt.Errorf("inbox: say which repo")
 		}
 		repo = addr.Value
-		recipient = b.desk(repo, from.Key, cards, now)
+		recipient = b.desk(repo, cards, now, from.Key)
 	case ToReply:
 		orig := b.msgs[addr.Value]
 		if orig == nil {
@@ -243,7 +246,8 @@ func (b *inbox) deferDelivery(ctx context.Context, agent, deliveryID string, min
 	default:
 		return badState(d, "defer")
 	}
-	dur := min(time.Duration(minutes)*time.Minute, MaxDefer)
+	// Clamp before multiplying: a huge minutes would overflow the Duration.
+	dur := time.Duration(min(minutes, int(MaxDefer/time.Minute))) * time.Minute
 	r := d.row()
 	r.State, r.Until, r.Note, r.WakeID = Deferred, b.now().Add(dur), clip(note, MaxNote), ""
 	r.EngagedOnce = true
@@ -284,7 +288,15 @@ func (b *inbox) release(ctx context.Context, deliveryID, by string) error {
 	}
 	r := d.row()
 	if r.To == "" {
-		r.To = b.desk(d.RepoKey, "", b.liveCards(), b.now())
+		cards, err := b.liveCards(ctx)
+		if err != nil {
+			return err
+		}
+		sender := ""
+		if m := b.msgs[d.MessageID]; m != nil {
+			sender = m.From.Key
+		}
+		r.To = b.desk(d.RepoKey, cards, b.now(), sender) // never back to its sender
 		if r.To == "" {
 			return fmt.Errorf("%w: no agent in that repo can take it yet", ErrBadState)
 		}
@@ -325,10 +337,17 @@ func (b *inbox) newestFirst(keep func(*drec) bool, limit int) []Delivery {
 	return out
 }
 
+// forAgent is the recipient's own view: what a hold kept from it (held,
+// or dismissed by the person) never shows, text included.
 func (b *inbox) forAgent(agent string, all bool, limit int) []Delivery {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.newestFirst(func(d *drec) bool { return d.To == agent && (all || d.State.Open()) }, limit)
+	return b.newestFirst(func(d *drec) bool {
+		if d.To != agent || d.State == Held || d.State == Dismissed {
+			return false
+		}
+		return all || d.State.Open()
+	}, limit)
 }
 
 func (b *inbox) list(limit int) []Delivery {
