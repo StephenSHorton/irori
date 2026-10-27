@@ -38,6 +38,18 @@ func prevBlocks(s string, p int, extra string) bool {
 	return isWordByte(c) || strings.IndexByte(extra, c) >= 0
 }
 
+// validSegment reports whether s is a usable owner or repo name: GitHub
+// never allows one made only of dots, such as "." or "..".
+func validSegment(s string) bool {
+	return s != "" && strings.Trim(s, ".") != ""
+}
+
+// validRepo reports whether repo is "owner/name" with valid segments.
+func validRepo(repo string) bool {
+	o, n, ok := strings.Cut(repo, "/")
+	return ok && validSegment(o) && validSegment(n) && !strings.Contains(n, "/")
+}
+
 // prNumber reads a PR number; 0, overflow and junk are not PRs.
 func prNumber(s string) (int, bool) {
 	n, err := strconv.Atoi(s)
@@ -53,7 +65,7 @@ func extractRefs(text string, o RefOptions) []Ref {
 	seen := map[string]bool{}
 	add := func(repo, digits string) {
 		n, ok := prNumber(digits)
-		if !ok || repo == "" {
+		if !ok || !validRepo(repo) {
 			return
 		}
 		k := key(repo, n)
@@ -113,7 +125,7 @@ func extractRefs(text string, o RefOptions) []Ref {
 func parseTarget(s string) (Ref, bool) {
 	s = strings.TrimSpace(s)
 	if m := targetURL.FindStringSubmatch(s); m != nil {
-		if n, ok := prNumber(m[3]); ok {
+		if n, ok := prNumber(m[3]); ok && validSegment(m[1]) && validSegment(m[2]) {
 			return Ref{Repo: m[1] + "/" + m[2], Number: n}, true
 		}
 		return Ref{}, false
@@ -122,7 +134,7 @@ func parseTarget(s string) (Ref, bool) {
 		s = s[3:]
 	}
 	if m := targetName.FindStringSubmatch(s); m != nil {
-		if n, ok := prNumber(m[3]); ok {
+		if n, ok := prNumber(m[3]); ok && validSegment(m[1]) && validSegment(m[2]) {
 			return Ref{Repo: m[1] + "/" + m[2], Number: n}, true
 		}
 	}

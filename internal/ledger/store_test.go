@@ -92,6 +92,7 @@ func TestAdd(t *testing.T) {
 			add:     with(func(e *Entry) { e.At = time.Time{} }),
 			changed: false, wantAt: "2026-10-09T12:00:00Z", count: 1,
 		},
+		{name: "zero at ignored", add: with(func(e *Entry) { e.At = time.Time{} }), changed: false, count: 0},
 		{
 			name: "first non-empty url is taken", first: &base,
 			add:     with(func(e *Entry) { e.URL = "https://github.com/acme/webapp/pull/1437" }),

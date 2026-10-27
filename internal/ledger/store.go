@@ -24,7 +24,7 @@ func identity(e Entry) string {
 }
 
 func (l *ledger) add(e Entry) bool {
-	if e.Key == "" || e.Session == "" {
+	if e.Key == "" || e.Session == "" || e.At.IsZero() {
 		return false
 	}
 	if _, ok := roleRank[e.Role]; !ok {
@@ -41,7 +41,7 @@ func (l *ledger) add(e Entry) bool {
 	}
 	old := &l.entries[i]
 	changed := false
-	if earlier(e.At, old.At) {
+	if e.At.Before(old.At) {
 		old.At = e.At
 		changed = true
 	}
@@ -50,15 +50,6 @@ func (l *ledger) add(e Entry) bool {
 		changed = true
 	}
 	return changed
-}
-
-// earlier reports whether a should replace b as the earliest time. A zero
-// time is unknown: it never wins over a known one.
-func earlier(a, b time.Time) bool {
-	if a.IsZero() {
-		return false
-	}
-	return b.IsZero() || a.Before(b)
 }
 
 // live reports whether e is still in the view at now. Like tsukumo, an entry

@@ -38,6 +38,7 @@ func TestExtractRefs(t *testing.T) {
 		},
 		{name: "bare #N with a default repo", text: "REVIEW-PLEASE #492", o: RefOptions{DefaultRepo: web}, want: []string{"pr:acme/webapp#492"}},
 		{name: "owner/repo#N", text: "APPROVED acme/webapp#1407", want: []string{"pr:acme/webapp#1407"}},
+		{name: "dot-only repo segments are not PRs", text: "acme/..#12 and github.com/../x/pull/3 then acme/webapp#4", want: []string{"pr:acme/webapp#4"}},
 		{name: "PR#N and pull#N", text: "PR#1407 and pull#1408", o: RefOptions{DefaultRepo: web}, want: []string{"pr:acme/webapp#1407", "pr:acme/webapp#1408"}},
 		{
 			name: "code spans and long numbers",
@@ -144,6 +145,13 @@ func TestParseTarget(t *testing.T) {
 		{"see https://github.com/acme/webapp/pull/12", Ref{}, false},
 		{"pr:https://github.com/acme/webapp/pull/12", Ref{}, false},
 		{"", Ref{}, false},
+		{"../..#1", Ref{}, false},
+		{"pr:acme/..#1", Ref{}, false},
+		{"./webapp#1", Ref{}, false},
+		{"https://github.com/../../pull/1", Ref{}, false},
+		{"https://github.com/acme/.../pull/1", Ref{}, false},
+		{"acme/.github#4", Ref{"acme/.github", 4}, true},
+		{"acme/web..app#4", Ref{"acme/web..app", 4}, true},
 	}
 	for _, tt := range tests {
 		got, ok := ParseTarget(tt.in)

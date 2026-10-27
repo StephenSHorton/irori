@@ -102,7 +102,7 @@ func TestFromBash(t *testing.T) {
 		{
 			name: "review by url without scheme",
 			b:    BashResult{Command: "gh pr review github.com/acme/webapp/pull/12/files --comment -b ok"},
-			want: []BashRef{reviewer(web, 12, "https://github.com/acme/webapp/pull/12/files")},
+			want: []BashRef{reviewer(web, 12, "https://github.com/acme/webapp/pull/12")},
 		},
 		{
 			name: "review by number with -R",
@@ -140,11 +140,6 @@ func TestFromBash(t *testing.T) {
 			want: nil,
 		},
 		{
-			name: "review with a flag first is skipped",
-			b:    BashResult{Command: "gh pr review --approve 12", DefaultRepo: web},
-			want: nil,
-		},
-		{
 			name: "review of a branch name is skipped",
 			b:    BashResult{Command: "gh pr review feat/x --approve", DefaultRepo: web},
 			want: nil,
@@ -158,6 +153,161 @@ func TestFromBash(t *testing.T) {
 			name: "reviews across CRLF lines",
 			b:    BashResult{Command: "gh pr review 12 --approve\r\ngh pr review 13 -R acme/storefront\r\n", DefaultRepo: web},
 			want: []BashRef{reviewer(web, 12, ""), reviewer("acme/storefront", 13, "")},
+		},
+		{
+			name: "review -R with a github.com host",
+			b:    BashResult{Command: "gh pr review 12 -R github.com/acme/storefront --approve", DefaultRepo: web},
+			want: []BashRef{reviewer("acme/storefront", 12, "")},
+		},
+		{
+			name: "review --repo with a github.com host",
+			b:    BashResult{Command: "gh pr review 12 --repo GitHub.com/acme/storefront", DefaultRepo: web},
+			want: []BashRef{reviewer("acme/storefront", 12, "")},
+		},
+		{
+			name: "review --repo= with a github.com host",
+			b:    BashResult{Command: "gh pr review 12 --repo=github.com/acme/storefront", DefaultRepo: web},
+			want: []BashRef{reviewer("acme/storefront", 12, "")},
+		},
+		{
+			name: "review leading -R with a github.com host",
+			b:    BashResult{Command: "gh pr review -R github.com/acme/storefront 12"},
+			want: []BashRef{reviewer("acme/storefront", 12, "")},
+		},
+		{
+			name: "review -R on another host is skipped",
+			b:    BashResult{Command: "gh pr review 12 -R ghe.example.com/acme/storefront", DefaultRepo: web},
+			want: nil,
+		},
+		{
+			name: "review -R glued to its value",
+			b:    BashResult{Command: "gh pr review 12 -Racme/storefront", DefaultRepo: web},
+			want: []BashRef{reviewer("acme/storefront", 12, "")},
+		},
+		{
+			name: "review -R with a quoted value",
+			b:    BashResult{Command: `gh pr review 12 -R "acme/storefront"`, DefaultRepo: web},
+			want: []BashRef{reviewer("acme/storefront", 12, "")},
+		},
+		{
+			name: "review -R with a bad value is skipped",
+			b:    BashResult{Command: "gh pr review 12 -R acme", DefaultRepo: web},
+			want: nil,
+		},
+		{
+			name: "review separator inside a quoted body",
+			b:    BashResult{Command: `gh pr review 12 --body "ok; fine | done && more" -R acme/other`, DefaultRepo: "acme/def"},
+			want: []BashRef{reviewer("acme/other", 12, "")},
+		},
+		{
+			name: "review -R inside a quoted body is not a flag",
+			b:    BashResult{Command: `gh pr review 12 --body "see --repo acme/x"`, DefaultRepo: "acme/def"},
+			want: []BashRef{reviewer("acme/def", 12, "")},
+		},
+		{
+			name: "review -R inside a single-quoted body is not a flag",
+			b:    BashResult{Command: `gh pr review 12 -b 'use -R acme/x' --approve`, DefaultRepo: "acme/def"},
+			want: []BashRef{reviewer("acme/def", 12, "")},
+		},
+		{
+			name: "review --repo needs a word boundary",
+			b:    BashResult{Command: "gh pr review 12 --body-file x--repo", DefaultRepo: "acme/def"},
+			want: []BashRef{reviewer("acme/def", 12, "")},
+		},
+		{
+			name: "review --approve before the number",
+			b:    BashResult{Command: "gh pr review --approve 12", DefaultRepo: "acme/def"},
+			want: []BashRef{reviewer("acme/def", 12, "")},
+		},
+		{
+			name: "review short boolean flags before the number",
+			b:    BashResult{Command: "gh pr review -a 12; gh pr review -c 13; gh pr review -r 14", DefaultRepo: "acme/def"},
+			want: []BashRef{reviewer("acme/def", 12, ""), reviewer("acme/def", 13, ""), reviewer("acme/def", 14, "")},
+		},
+		{
+			name: "review --comment and --request-changes before the number",
+			b:    BashResult{Command: "gh pr review --comment 12 && gh pr review --request-changes 13", DefaultRepo: "acme/def"},
+			want: []BashRef{reviewer("acme/def", 12, ""), reviewer("acme/def", 13, "")},
+		},
+		{
+			name: "review body flag value before the number is skipped",
+			b:    BashResult{Command: `gh pr review -c -b "looks good" 12`, DefaultRepo: "acme/def"},
+			want: []BashRef{reviewer("acme/def", 12, "")},
+		},
+		{
+			name: "review numeric body value is not the target",
+			b:    BashResult{Command: "gh pr review --body 99 12 --comment", DefaultRepo: "acme/def"},
+			want: []BashRef{reviewer("acme/def", 12, "")},
+		},
+		{
+			name: "review --body-file and -F values before the number",
+			b:    BashResult{Command: "gh pr review --body-file C:\\tmp\\r.md 12 && gh pr review -F ./r.md -R acme/x 13", DefaultRepo: "acme/def"},
+			want: []BashRef{reviewer("acme/def", 12, ""), reviewer("acme/x", 13, "")},
+		},
+		{
+			name: "review --body= before the number",
+			b:    BashResult{Command: `gh pr review --body="a b" 12`, DefaultRepo: "acme/def"},
+			want: []BashRef{reviewer("acme/def", 12, "")},
+		},
+		{
+			name: "review after -- end of flags",
+			b:    BashResult{Command: "gh pr review --approve -- 12", DefaultRepo: "acme/def"},
+			want: []BashRef{reviewer("acme/def", 12, "")},
+		},
+		{
+			name: "review url on a look-alike host is skipped",
+			b:    BashResult{Command: "gh pr review https://evilgithub.com/acme/webapp/pull/3 --approve"},
+			want: nil,
+		},
+		{
+			name: "review url with junk after the number is skipped",
+			b:    BashResult{Command: "gh pr review github.com/acme/webapp/pull/3abc --approve"},
+			want: nil,
+		},
+		{
+			name: "review url is stored canonical",
+			b:    BashResult{Command: "gh pr review HTTP://WWW.GitHub.com/acme/webapp/pull/3?x=1 --approve"},
+			want: []BashRef{reviewer(web, 3, "https://github.com/acme/webapp/pull/3")},
+		},
+		{
+			name: "review url with dot-only segments is skipped",
+			b:    BashResult{Command: "gh pr review https://github.com/../../pull/3"},
+			want: nil,
+		},
+		{
+			name: "review -R with dot-only segments is skipped",
+			b:    BashResult{Command: "gh pr review 3 -R ../..", DefaultRepo: web},
+			want: nil,
+		},
+		{
+			name: "gh pr create stdout on a look-alike host is ignored",
+			b:    BashResult{Command: "gh pr create --fill", Stdout: "https://evilgithub.com/acme/webapp/pull/3\n"},
+			want: nil,
+		},
+		{
+			name: "gh pr create stdout url is stored canonical",
+			b:    BashResult{Command: "gh pr create --fill", Stdout: "https://github.com/acme/webapp/pull/1437/files\n"},
+			want: []BashRef{author(web, 1437, url, "gh")},
+		},
+		{
+			name: "gitOperation url on a look-alike host takes DefaultRepo and no url",
+			b:    BashResult{Command: "gh pr create", GitOperation: []byte(`{"pr":{"number":9,"url":"https://evilgithub.com/x/y/pull/9","action":"created"}}`), DefaultRepo: web},
+			want: []BashRef{author(web, 9, "", "gitOperation")},
+		},
+		{
+			name: "gh pr review quoted in a body is text",
+			b:    BashResult{Command: `gh pr review 12 --body "then run gh pr review 13" --comment`, DefaultRepo: "acme/def"},
+			want: []BashRef{reviewer("acme/def", 12, "")},
+		},
+		{
+			name: "escaped quote inside a double-quoted body",
+			b:    BashResult{Command: `gh pr review 12 -b "say \"hi; -R acme/x\"" -R acme/y`, DefaultRepo: "acme/def"},
+			want: []BashRef{reviewer("acme/y", 12, "")},
+		},
+		{
+			name: "review with no target",
+			b:    BashResult{Command: "gh pr review --approve", DefaultRepo: "acme/def"},
+			want: nil,
 		},
 		{
 			name: "the same review twice is one",
