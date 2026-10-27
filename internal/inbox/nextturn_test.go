@@ -500,3 +500,72 @@ func TestWakeIssuedRowFields(t *testing.T) {
 		t.Fatalf("modes %v delivery %q", modes, dmode)
 	}
 }
+
+// A channel push of next_turn items alone must not hold back a wake that
+// arrives after it: the agent was told it need not act on it now.
+func TestChannelNextTurnPushDoesNotGate(t *testing.T) {
+	h := newHarness(t)
+	h.abc()
+	h.ros.put(grokCard(keyG, "grok", ""))
+	h.ib.SetReachable(keyG, PathChannel, true)
+	fyi := h.sendWith(person(), to("grok"), "fyi", SendOptions{})
+	w, err := h.ib.NextWake(bg, keyG, PathChannel)
+	if err != nil || w == nil || w.Mode != ModeNextTurn {
+		t.Fatalf("push %+v: %v", w, err)
+	}
+	if ow, _ := h.ib.OutstandingWake(keyG); ow != nil {
+		t.Fatalf("next_turn push gates: %+v", ow)
+	}
+	_, urgent := h.send(claude(keyA, "alpha"), to("grok"), "urgent")
+	w2, err := h.ib.NextWake(bg, keyG, PathChannel)
+	if err != nil || w2 == nil {
+		t.Fatalf("urgent wake held back: %v", err)
+	}
+	if w2.Mode != ModeWake || !slices.Equal(w2.DeliveryIDs, []string{urgent.ID}) {
+		t.Fatalf("wake %+v", w2)
+	}
+	// The pushed next_turn item stays with its push, not pushed twice.
+	if got := h.state(fyi.ID); got.WakeID != w.ID {
+		t.Fatalf("fyi moved to %q", got.WakeID)
+	}
+	// And a real wake still gates the next one.
+	h.send(claude(keyA, "alpha"), to("grok"), "urgent 2")
+	if w3, _ := h.ib.NextWake(bg, keyG, PathChannel); w3 != nil {
+		t.Fatalf("wake not gated: %+v", w3)
+	}
+}
+
+// An overflowed notice never reached a prompt, so engaging the append must
+// leave it open for the inbox tool the prompt points to.
+func TestOverflowNoticeStaysOpen(t *testing.T) {
+	h := newHarness(t)
+	h.abc()
+	big := strings.Repeat("n", 7000)
+	notice := SendOptions{Notice: true, Ref: "task:01X"}
+	var ids []string
+	for range 3 {
+		ids = append(ids, h.sendWith(SystemSender(), to("beta"), big, notice).ID)
+	}
+	w := h.appendFor(keyB)
+	if !slices.Equal(w.Overflow, ids[2:]) {
+		t.Fatalf("overflow %v", w.Overflow)
+	}
+	if err := h.ib.MarkDelivered(bg, keyB, w.Token); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.ib.MarkEngaged(bg, keyB, w.Token, "t"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids[:2] {
+		h.wantState(id, Skipped)
+	}
+	h.wantState(ids[2], Engaged)
+	open := h.ib.For(keyB, false, 0)
+	if len(open) != 1 || open[0].ID != ids[2] {
+		t.Fatalf("open %+v", open)
+	}
+	// The agent can still close it itself.
+	if err := h.ib.Skip(bg, keyB, ids[2], ""); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -105,6 +105,11 @@ type wakeRec struct {
 // isAppend: w is a next-turn append (mod path), which never gates wakes.
 func (w *wakeRec) isAppend() bool { return strings.HasPrefix(w.Token, appendTokenPrefix) }
 
+// gates: w holds back agent's next wake until it is delivered and engaged.
+// Reminders, appends and next_turn-only channel pushes never do: none of
+// them asked the agent to act now.
+func (w *wakeRec) gates() bool { return !w.Reminder && !w.isAppend() && w.Mode != ModeNextTurn }
+
 type aliasRow struct {
 	Key   string    `json:"key"`
 	Alias string    `json:"alias"`
@@ -626,7 +631,7 @@ func (b *inbox) outstanding(agent string) (*wakeRec, State) {
 			continue
 		}
 		w := b.wakes[d.WakeID]
-		if w == nil || w.Reminder || w.isAppend() {
+		if w == nil || !w.gates() {
 			continue
 		}
 		switch d.State {

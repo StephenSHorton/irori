@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -146,14 +147,26 @@ func batch(token string, reminder bool, msgs []Delivery) (full []Delivery, overf
 		n++
 	}
 	full = slices.Clone(msgs[:n])
-	base := len(fence(token, reminder, full, nil))
+	// The header counts full and overflow together, so its "%d message%s"
+	// grows with the overflow: measure it at each count.
+	base := len(fence(token, reminder, full, nil)) - countLen(n)
 	for _, d := range msgs[n:] {
-		if base+len(overflowLine(append(slices.Clone(overflow), d.ID))) > MaxWakeBytes {
+		next := append(slices.Clone(overflow), d.ID)
+		if base+countLen(n+len(next))+len(overflowLine(next)) > MaxWakeBytes {
 			break
 		}
-		overflow = append(overflow, d.ID)
+		overflow = next
 	}
 	return full, overflow, fence(token, reminder, full, overflow)
+}
+
+// countLen is the length of fence's "%d message%s" for n messages.
+func countLen(n int) int {
+	l := len(strconv.Itoa(n))
+	if n != 1 {
+		l++
+	}
+	return l
 }
 
 // overflowLine names the deliveries a prompt had no room for.
@@ -219,7 +232,14 @@ func (b *inbox) markEngaged(ctx context.Context, agent, token, turnID string) er
 		if r.Via == "" {
 			r.Via = string(w.path)
 		}
-		if err := b.putDelivery(ctx, b.engaged(d, r), agent); err != nil {
+		// An overflow id was only named, not shown: a notice among them
+		// stays open for the inbox tool the prompt points to.
+		if slices.Contains(w.Overflow, id) {
+			r.EngagedOnce = true
+		} else {
+			r = b.engaged(d, r)
+		}
+		if err := b.putDelivery(ctx, r, agent); err != nil {
 			return err
 		}
 	}

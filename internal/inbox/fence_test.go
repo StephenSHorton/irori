@@ -1,6 +1,7 @@
 package inbox
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -104,5 +105,27 @@ func TestFenceAppendAndAttributes(t *testing.T) {
 	plain := fenced("dlv_9", "alpha", keyA, "hi", Untrusted)
 	if q := FencePrompt("[irori-wake:wake_03]", false, []Delivery{plain}); strings.Contains(q, "mode=") || strings.Contains(q, "ref=") || strings.Contains(q, "notice=") {
 		t.Fatal(q)
+	}
+}
+
+// TestBatchCap: once more than the first message goes in, or any overflow
+// line is added, the prompt never passes MaxWakeBytes, even when the count
+// in the header gains a digit or a plural.
+func TestBatchCap(t *testing.T) {
+	const token = "[irori-wake:wake_01TEST]"
+	for _, total := range []int{2, 3, 9, 11, 12, 30} {
+		for size := 200; size < 9000; size += 7 {
+			msgs := make([]Delivery, total)
+			for i := range msgs {
+				msgs[i] = fenced(fmt.Sprintf("dlv_%02d", i), "alpha", keyA, strings.Repeat("x", size), Untrusted)
+			}
+			full, overflow, p := batch(token, false, msgs)
+			if (len(full) > 1 || len(overflow) > 0) && len(p) > MaxWakeBytes {
+				t.Fatalf("total %d size %d: %d full + %d overflow is %d bytes", total, size, len(full), len(overflow), len(p))
+			}
+			if p != fence(token, false, full, overflow) {
+				t.Fatal("prompt differs from its fence")
+			}
+		}
 	}
 }
