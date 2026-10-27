@@ -17,16 +17,33 @@ func clip(s string, n int) string {
 	return string([]rune(s)[:n])
 }
 
+// MaxRef caps SendOptions.Ref (runes).
+const MaxRef = 200
+
 func (b *inbox) send(ctx context.Context, from Sender, to Address, text, reason string) (Message, Delivery, error) {
-	b.mu.Lock()
-	defer b.unlock()
-	return b.sendLocked(ctx, from, to, text, reason, nil)
+	return b.sendWith(ctx, from, to, text, SendOptions{Reason: reason, Mode: ModeWake})
 }
 
-// sendLocked validates, routes and records one message. replyOf is the
-// message being answered by Reply (its hop parents the new message when no
-// woken turn is running).
-func (b *inbox) sendLocked(ctx context.Context, from Sender, to Address, text, reason string, replyOf *Message) (Message, Delivery, error) {
+func (b *inbox) sendWith(ctx context.Context, from Sender, to Address, text string, o SendOptions) (Message, Delivery, error) {
+	switch o.Mode {
+	case "":
+		o.Mode = ModeWake
+		if from.IsUser() || from.isSystem() {
+			o.Mode = ModeNextTurn
+		}
+	case ModeWake, ModeNextTurn:
+	default:
+		return Message{}, Delivery{}, fmt.Errorf("inbox: unknown delivery mode %q (wake or next_turn)", o.Mode)
+	}
+	b.mu.Lock()
+	defer b.unlock()
+	return b.sendLocked(ctx, from, to, text, o, nil)
+}
+
+// sendLocked validates, routes and records one message; o.Mode is already
+// resolved. replyOf is the message being answered by Reply (its hop parents
+// the new message when no woken turn is running).
+func (b *inbox) sendLocked(ctx context.Context, from Sender, to Address, text string, o SendOptions, replyOf *Message) (Message, Delivery, error) {
 	if strings.TrimSpace(from.Key) == "" {
 		return Message{}, Delivery{}, fmt.Errorf("inbox: no sender; join first")
 	}
@@ -67,6 +84,9 @@ func (b *inbox) sendLocked(ctx context.Context, from Sender, to Address, text, r
 		if orig.From.Key == from.Key {
 			return Message{}, Delivery{}, ErrSelf
 		}
+		if orig.From.isSystem() {
+			return Message{}, Delivery{}, fmt.Errorf("%w: that is Irori's own notice; it needs no reply", ErrBadState)
+		}
 		recipient, replyTo = orig.From.Key, orig.ID
 	case ToPR:
 		r, err := b.routePR(from.Key, addr.Value, cards, now)
@@ -91,7 +111,8 @@ func (b *inbox) sendLocked(ctx context.Context, from Sender, to Address, text, r
 
 	m := Message{
 		ID: "msg_" + b.ids.next(now), From: from, To: addr, Text: text,
-		Reason: clip(reason, MaxNote), ReplyTo: replyTo, Trust: Untrusted, SentAt: now,
+		Reason: clip(o.Reason, MaxNote), ReplyTo: replyTo, Trust: Untrusted, SentAt: now,
+		Ref: clip(o.Ref, MaxRef), Notice: o.Notice,
 	}
 	if from.IsUser() {
 		m.Trust = UserTrust
@@ -107,7 +128,7 @@ func (b *inbox) sendLocked(ctx context.Context, from Sender, to Address, text, r
 	}
 
 	// The sender becomes addressable by the name it sent under.
-	if a := normAlias(from.Name); a != "" && !from.IsUser() {
+	if a := normAlias(from.Name); a != "" && !from.IsUser() && !from.isSystem() {
 		if list := b.aliases[from.Key]; len(list) == 0 || list[len(list)-1] != a {
 			if err := b.emit(ctx, from.Key, KindAlias, aliasRow{Key: from.Key, Alias: a, At: now}); err != nil {
 				return Message{}, Delivery{}, err
@@ -117,7 +138,7 @@ func (b *inbox) sendLocked(ctx context.Context, from Sender, to Address, text, r
 	if err := b.emit(ctx, from.Key, KindMessageSent, m); err != nil {
 		return Message{}, Delivery{}, err
 	}
-	r := placed(deliveryRow{DeliveryID: "dlv_" + b.ids.next(now), MessageID: m.ID, To: recipient, RepoKey: repo, For: forOwner}, b.hold(&m, recipient, cards))
+	r := placed(deliveryRow{DeliveryID: "dlv_" + b.ids.next(now), MessageID: m.ID, To: recipient, RepoKey: repo, Mode: o.Mode, For: forOwner}, b.hold(&m, recipient, cards))
 	if err := b.putDelivery(ctx, r, from.Key); err != nil {
 		return Message{}, Delivery{}, err
 	}
@@ -178,7 +199,7 @@ func (b *inbox) reply(ctx context.Context, from Sender, deliveryID, text string)
 	if orig == nil {
 		return Message{}, Delivery{}, fmt.Errorf("%w: message %q", ErrNotFound, d.MessageID)
 	}
-	m, nd, err := b.sendLocked(ctx, from, Address{Kind: ToReply, Value: orig.ID}, text, "", orig)
+	m, nd, err := b.sendLocked(ctx, from, Address{Kind: ToReply, Value: orig.ID}, text, SendOptions{Mode: ModeWake}, orig)
 	if err != nil {
 		return Message{}, Delivery{}, err
 	}
@@ -214,11 +235,11 @@ func (b *inbox) ack(ctx context.Context, agent, deliveryID string) error {
 		return badState(d, "ack")
 	}
 	r := d.row()
-	r.State, r.EngagedOnce = Engaged, true
+	r.State = Engaged
 	if r.Via == "" {
 		r.Via = string(PathChannel)
 	}
-	return b.putDelivery(ctx, r, agent)
+	return b.putDelivery(ctx, b.engaged(d, r), agent)
 }
 
 // MarkRead records that agent read a queued delivery itself (a channel-path

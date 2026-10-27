@@ -55,8 +55,10 @@ package api
 //	whose mod= version is at least attach.AppendSince also gets append
 //	events: on connect after the deliver re-send it sends
 //	Inbox.OutstandingAppend (same token) or else NextAppend, and on every
-//	AppendReady for its agent (and each keepalive tick, as catch-up) it calls
-//	NextAppend and emits append. The mod confirms an append with the routes
+//	change for its agent (AppendReady among them) and each keepalive tick,
+//	as catch-up, it calls NextAppend and emits append. A deliver carries
+//	mode "next_turn" only on a Grok push of next_turn items alone, and
+//	overflow when some ids didn't fit in the prompt. The mod confirms an append with the routes
 //	above: delivered {token} once $.session.append resolved, engaged {token,
 //	turnId} at the next main-loop turn.start. turn-ended with an append
 //	token is accepted and ignored. Older mods get no append events.

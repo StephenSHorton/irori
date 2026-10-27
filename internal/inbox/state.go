@@ -54,29 +54,30 @@ type drec struct {
 // deliveryRow is the KindDelivery payload: a full snapshot of the delivery's
 // mutable fields, so the fold is a replace.
 type deliveryRow struct {
-	DeliveryID  string     `json:"deliveryId"`
-	MessageID   string     `json:"messageId"`
-	To          string     `json:"to"`
-	RepoKey     string     `json:"repoKey,omitempty"`
-	State       State      `json:"state"`
-	Hold        HoldReason `json:"hold,omitempty"`
-	Via         string     `json:"via,omitempty"`
-	WakeID      string     `json:"wakeId,omitempty"`
-	Note        string     `json:"note,omitempty"`
-	For         string     `json:"for,omitempty"`
-	Until       time.Time  `json:"until,omitzero"`
-	MovedTo     string     `json:"movedTo,omitempty"`
-	MovedFrom   string     `json:"movedFrom,omitempty"`
-	Reminded    bool       `json:"reminded,omitempty"`
-	EngagedOnce bool       `json:"engagedOnce,omitempty"`
-	By          string     `json:"by,omitempty"`
-	At          time.Time  `json:"at,omitzero"`
+	DeliveryID  string       `json:"deliveryId"`
+	MessageID   string       `json:"messageId"`
+	To          string       `json:"to"`
+	RepoKey     string       `json:"repoKey,omitempty"`
+	Mode        DeliveryMode `json:"mode,omitempty"` // "" = ModeWake
+	State       State        `json:"state"`
+	Hold        HoldReason   `json:"hold,omitempty"`
+	Via         string       `json:"via,omitempty"`
+	WakeID      string       `json:"wakeId,omitempty"`
+	Note        string       `json:"note,omitempty"`
+	For         string       `json:"for,omitempty"`
+	Until       time.Time    `json:"until,omitzero"`
+	MovedTo     string       `json:"movedTo,omitempty"`
+	MovedFrom   string       `json:"movedFrom,omitempty"`
+	Reminded    bool         `json:"reminded,omitempty"`
+	EngagedOnce bool         `json:"engagedOnce,omitempty"`
+	By          string       `json:"by,omitempty"`
+	At          time.Time    `json:"at,omitzero"`
 }
 
 // row snapshots d as a deliveryRow, ready to change and append.
 func (d *drec) row() deliveryRow {
 	return deliveryRow{
-		DeliveryID: d.ID, MessageID: d.MessageID, To: d.To, RepoKey: d.RepoKey,
+		DeliveryID: d.ID, MessageID: d.MessageID, To: d.To, RepoKey: d.RepoKey, Mode: d.Mode,
 		State: d.State, Hold: d.Hold, Via: d.Via, WakeID: d.WakeID, Note: d.Note, For: d.For,
 		Until: d.Until, MovedTo: d.MovedTo, MovedFrom: d.movedFrom,
 		Reminded: d.Reminded, EngagedOnce: d.engagedOnce,
@@ -84,13 +85,15 @@ func (d *drec) row() deliveryRow {
 }
 
 type wakeRow struct {
-	WakeID      string    `json:"wakeId"`
-	To          string    `json:"to"`
-	Token       string    `json:"token"`
-	Reminder    bool      `json:"reminder"`
-	DeliveryIDs []string  `json:"deliveryIds"`
-	Path        Path      `json:"path,omitempty"`
-	At          time.Time `json:"at,omitzero"`
+	WakeID      string       `json:"wakeId"`
+	To          string       `json:"to"`
+	Token       string       `json:"token"`
+	Reminder    bool         `json:"reminder"`
+	DeliveryIDs []string     `json:"deliveryIds"`
+	Path        Path         `json:"path,omitempty"`
+	Mode        DeliveryMode `json:"mode,omitempty"` // "next_turn" for an append or a next_turn-only push; "" = wake
+	Overflow    []string     `json:"overflow,omitempty"`
+	At          time.Time    `json:"at,omitzero"`
 }
 
 type wakeRec struct {
@@ -98,6 +101,9 @@ type wakeRec struct {
 	path     Path
 	issuedAt time.Time
 }
+
+// isAppend: w is a next-turn append (mod path), which never gates wakes.
+func (w *wakeRec) isAppend() bool { return strings.HasPrefix(w.Token, appendTokenPrefix) }
 
 type aliasRow struct {
 	Key   string    `json:"key"`
@@ -155,10 +161,15 @@ type inbox struct {
 	running map[string]turnRow     // agent -> the wake whose turn is running
 	pairs   map[string][]time.Time // unordered pair -> send times
 
-	reach     map[string]*reachRec
-	goneSince map[string]time.Time
-	reminders map[string][]string // agent -> delivery ids a reminder wake is due for
-	submit    map[string]bool     // last hasSubmit per agent, for WakeReady edges
+	reach      map[string]*reachRec
+	goneSince  map[string]time.Time
+	reminders  map[string][]string // agent -> delivery ids a reminder wake is due for
+	submit     map[string]bool     // last hasSubmit per agent, for WakeReady edges
+	appendable map[string]bool     // last hasAppend per agent, for AppendReady edges
+	// Search visibility (search.go): when each message first had a delivery
+	// outside Held/Dismissed, and whether one was held before that.
+	visibleAt map[string]time.Time
+	heldFirst map[string]bool
 	subs      map[chan Change]struct{}
 
 	// Per-mutation scratch, flushed by unlock.
@@ -198,7 +209,8 @@ func newInbox(ctx context.Context, st *store.Store, roster Roster, opts Options)
 		pol:     Policy{Mode: Everyone, Block: []string{}, Allow: []string{}},
 		running: map[string]turnRow{}, pairs: map[string][]time.Time{},
 		reach: map[string]*reachRec{}, goneSince: map[string]time.Time{},
-		reminders: map[string][]string{}, submit: map[string]bool{},
+		reminders: map[string][]string{}, submit: map[string]bool{}, appendable: map[string]bool{},
+		visibleAt: map[string]time.Time{}, heldFirst: map[string]bool{},
 		subs: map[chan Change]struct{}{}, touched: map[string]bool{},
 	}
 	if err := b.replay(ctx); err != nil {
@@ -232,6 +244,7 @@ func (b *inbox) replay(ctx context.Context) error {
 	// Baseline for WakeReady edges; replay itself notifies nobody.
 	for agent := range b.agentsWithOpen() {
 		b.submit[agent] = b.hasSubmit(agent)
+		b.appendable[agent] = b.hasAppend(agent)
 	}
 	b.changes = nil
 	clear(b.touched)
@@ -288,7 +301,7 @@ func (b *inbox) apply(ev store.Event) error {
 			return errors.New("message without id")
 		}
 		b.msgs[m.ID] = &m
-		if m.From.Key != "" && !m.From.IsUser() {
+		if m.From.Key != "" && !m.From.IsUser() && !m.From.isSystem() {
 			if _, ok := b.known[m.From.Key]; !ok {
 				b.known[m.From.Key] = ""
 			}
@@ -323,7 +336,10 @@ func (b *inbox) apply(ev store.Event) error {
 				d.assignedAt = at
 			}
 		}
-		d.MessageID, d.To, d.RepoKey = r.MessageID, r.To, r.RepoKey
+		d.MessageID, d.To, d.RepoKey, d.Mode = r.MessageID, r.To, r.RepoKey, r.Mode
+		if d.Mode == "" {
+			d.Mode = ModeWake // rows from before next-turn delivery
+		}
 		d.State, d.Hold, d.Via, d.WakeID = r.State, r.Hold, r.Via, r.WakeID
 		d.Note, d.For, d.Until, d.MovedTo, d.Reminded = r.Note, r.For, r.Until, r.MovedTo, r.Reminded
 		d.movedFrom, d.engagedOnce = r.MovedFrom, r.EngagedOnce
@@ -332,6 +348,14 @@ func (b *inbox) apply(ev store.Event) error {
 			b.open[d.ID] = d
 		} else {
 			delete(b.open, d.ID)
+		}
+		if _, seen := b.visibleAt[d.MessageID]; !seen {
+			switch d.State {
+			case Held, Dismissed:
+				b.heldFirst[d.MessageID] = true
+			default:
+				b.visibleAt[d.MessageID] = at
+			}
 		}
 		if d.To != "" && !isUserKey(d.To) {
 			if _, ok := b.known[d.To]; !ok {
@@ -353,8 +377,13 @@ func (b *inbox) apply(ev store.Event) error {
 		if err := json.Unmarshal(ev.Payload, &r); err != nil {
 			return err
 		}
+		mode := r.Mode
+		if mode == "" {
+			mode = ModeWake
+		}
 		w := &wakeRec{
-			Wake:     Wake{ID: r.WakeID, To: r.To, Token: r.Token, Reminder: r.Reminder, DeliveryIDs: r.DeliveryIDs},
+			Wake: Wake{ID: r.WakeID, To: r.To, Token: r.Token, Reminder: r.Reminder, Mode: mode,
+				DeliveryIDs: r.DeliveryIDs, Overflow: r.Overflow},
 			path:     r.Path,
 			issuedAt: stamp(r.At, ev),
 		}
@@ -497,6 +526,11 @@ func (b *inbox) unlock() {
 			b.changes = append(b.changes, Change{Kind: WakeReady, To: agent})
 		}
 		b.submit[agent] = now
+		app := b.hasAppend(agent)
+		if app && !b.appendable[agent] {
+			b.changes = append(b.changes, Change{Kind: AppendReady, To: agent})
+		}
+		b.appendable[agent] = app
 	}
 	clear(b.touched)
 	for _, c := range b.changes {
@@ -528,7 +562,9 @@ func (b *inbox) agentsWithOpen() map[string]bool {
 	return out
 }
 
-// hasSubmit: NextWake would return a wake for agent right now.
+// hasSubmit: NextWake on the mod path would return a wake for agent right
+// now. Queued next_turn items never count: they make no wake by themselves
+// (a channel stream picks them up on the Updated change that queued them).
 func (b *inbox) hasSubmit(agent string) bool {
 	if agent == "" || b.pol.Paused {
 		return false
@@ -540,12 +576,43 @@ func (b *inbox) hasSubmit(agent string) bool {
 		return true
 	}
 	for _, d := range b.open {
-		if d.To == agent && d.State == Queued && d.WakeID == "" {
+		if d.To == agent && d.State == Queued && d.WakeID == "" && !d.nextTurn() {
 			return true
 		}
 	}
 	return false
 }
+
+// hasAppend: NextAppend would return an append for agent right now.
+func (b *inbox) hasAppend(agent string) bool {
+	if agent == "" || b.pol.Paused || b.pendingAppend(agent) != nil {
+		return false
+	}
+	for _, d := range b.open {
+		if d.To == agent && d.State == Queued && d.WakeID == "" && d.nextTurn() {
+			return true
+		}
+	}
+	return false
+}
+
+// pendingAppend is the append issued to agent and not yet confirmed
+// delivered (some of its deliveries still Queued in it), or nil.
+func (b *inbox) pendingAppend(agent string) *wakeRec {
+	var best *wakeRec
+	for _, d := range b.open {
+		if d.To != agent || d.State != Queued || d.WakeID == "" {
+			continue
+		}
+		if w := b.wakes[d.WakeID]; w != nil && w.isAppend() && (best == nil || w.issuedAt.Before(best.issuedAt)) {
+			best = w
+		}
+	}
+	return best
+}
+
+// nextTurn: d is a next_turn delivery.
+func (d *drec) nextTurn() bool { return d.Mode == ModeNextTurn }
 
 // outstanding is the wake that gates agent: issued and not yet delivered
 // (state Queued), else delivered and not yet engaged (state Delivered). A
@@ -559,7 +626,7 @@ func (b *inbox) outstanding(agent string) (*wakeRec, State) {
 			continue
 		}
 		w := b.wakes[d.WakeID]
-		if w == nil || w.Reminder {
+		if w == nil || w.Reminder || w.isAppend() {
 			continue
 		}
 		switch d.State {
@@ -593,9 +660,10 @@ func pairKey(a, c string) string {
 	return a + "|" + c
 }
 
-// countsForRate: both ends are agents (a person at the GUI is exempt).
+// countsForRate: both ends are agents (a person at the GUI and Irori itself
+// are exempt).
 func countsForRate(from, to string) bool {
-	return from != "" && to != "" && !isUserKey(from) && !isUserKey(to)
+	return from != "" && to != "" && !isUserKey(from) && !isUserKey(to) && from != SystemKey && to != SystemKey
 }
 
 func (b *inbox) subscribe(ctx context.Context) <-chan Change {

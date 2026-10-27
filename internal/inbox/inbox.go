@@ -244,6 +244,10 @@ const SystemKey = "irori"
 // SystemSender is Irori's own sender.
 func SystemSender() Sender { return Sender{Key: SystemKey, Name: "Irori", Kind: "irori"} }
 
+// isSystem reports whether s is SystemSender (the key is the identity; the
+// Core establishes senders, nobody claims one).
+func (s Sender) isSystem() bool { return s.Key == SystemKey }
+
 // Mode is the wake policy mode.
 type Mode string
 
@@ -326,7 +330,7 @@ func (b *Inbox) Send(ctx context.Context, from Sender, to Address, text, reason 
 // SendOptions.Mode), a ref and the notice flag. Send(…, reason) must equal
 // SendWith(…, SendOptions{Reason: reason, Mode: ModeWake}).
 func (b *Inbox) SendWith(ctx context.Context, from Sender, to Address, text string, o SendOptions) (Message, Delivery, error) {
-	return Message{}, Delivery{}, ErrUnimplemented
+	return b.impl.sendWith(ctx, from, to, text, o)
 }
 
 // NextAppend returns the append to make to agent now, or nil when it has no
@@ -337,13 +341,13 @@ func (b *Inbox) SendWith(ctx context.Context, from Sender, to Address, text stri
 // append not confirmed delivered within ReattachGrace is reclaimed like a
 // wake.
 func (b *Inbox) NextAppend(ctx context.Context, agent string) (*Wake, error) {
-	return nil, ErrUnimplemented
+	return b.impl.nextAppend(ctx, agent)
 }
 
 // OutstandingAppend is the append issued to agent and not yet confirmed
 // delivered, rebuilt with its token (a reattached stream sends it again, and
 // the mod dedupes on the token), or nil.
-func (b *Inbox) OutstandingAppend(agent string) *Wake { return nil }
+func (b *Inbox) OutstandingAppend(agent string) *Wake { return b.impl.outstandingAppend(agent) }
 
 // Reply answers a delivery addressed to from: marks it Answered and sends a
 // ToReply message back to its sender.

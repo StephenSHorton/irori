@@ -73,11 +73,15 @@ function makeChild() {
 type Call = { url: string; method: string; headers: Record<string, string>; body?: string }
 
 /** The engine beneath the mod: spawn, fetch, submit, register, toast. */
-function world(on: On, opts: { exitCode?: number; holdSubmit?: Promise<void>; dropSubmit?: boolean } = {}) {
+function world(
+  on: On,
+  opts: { exitCode?: number; holdSubmit?: Promise<void>; dropSubmit?: boolean; appendFails?: () => 'deny' | undefined } = {},
+) {
   const children: Array<ReturnType<typeof makeChild>> = []
   const spawned: Array<readonly string[]> = []
   const calls: Call[] = []
   const submitted: string[] = []
+  const appended: Array<{ type: string; text: string; agentId?: string }> = []
   const registered: Array<{ name: string; description: string; inputSchema?: unknown }> = []
   const toasts: string[] = []
 
@@ -101,6 +105,16 @@ function world(on: On, opts: { exitCode?: number; holdSubmit?: Promise<void>; dr
     if (opts.dropSubmit) return { drop: 'refused by the test' }
     return { text: e.text }
   })
+  // The engine keeps the row (next); the test only watches the mod's own appends.
+  on('session.append', ($, e, next) => {
+    const content = (e.message as { content?: Array<{ text?: string }> }).content ?? []
+    const text = content.map(c => c.text ?? '').join('')
+    if (text.includes('[irori-append:')) {
+      appended.push({ type: String((e.message as { type?: unknown }).type), text, agentId: e.agentId })
+      if (opts.appendFails?.() === 'deny') return { deny: 'refused by the test' } as never
+    }
+    return next(e)
+  })
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }) as never)
   on('http.fetch', ($, e) => {
@@ -122,7 +136,7 @@ function world(on: On, opts: { exitCode?: number; holdSubmit?: Promise<void>; dr
       yield { stream: 'stdout' as const, text }
     }
   })
-  return { children, spawned, calls, submitted, registered, toasts }
+  return { children, spawned, calls, submitted, appended, registered, toasts }
 }
 
 const posts = (calls: Call[], path: string) => calls.filter(c => c.method === 'POST' && c.url === API + path)
@@ -139,7 +153,7 @@ describe('attach', () => {
       await band.unmount()
     }
     const ran = await $.command.run(irori(''))
-    expect(ran.text).toContain('irori mod 0.3.0')
+    expect(ran.text).toContain('irori mod 0.4.0')
     expect(ran.text).toContain('set iroriPath')
   })
 
@@ -147,7 +161,7 @@ describe('attach', () => {
     const w = world(on)
     await $.session.start({ cwd: 'C:/work/api', surface: 'terminal', isInteractive: true })
     await until(() => w.children.length === 1, 'spawn')
-    expect(w.spawned[0]).toEqual([IRORI, 'attach', '--session', SESSION, '--cwd', 'C:/work/api', '--mod-version', '0.3.0'])
+    expect(w.spawned[0]).toEqual([IRORI, 'attach', '--session', SESSION, '--cwd', 'C:/work/api', '--mod-version', '0.4.0'])
 
     // hello split across two pieces, a blank keepalive, and a stray log line.
     const h = line(hello)
@@ -281,6 +295,90 @@ ${prompt}`, turnId: 'turn-1' })
   })
 })
 
+describe('next-turn appends', () => {
+  const APPEND = '[irori-append:wake_A1]'
+  const appendPrompt = `${APPEND} Irori added 1 message for your next turn.\n<irori-message from="you" key="user:dev1" delivery="del_7" trust="user" mode="next_turn">look at the lexer</irori-message>`
+  const appendEvent = { type: 'append', wakeId: 'wake_A1', token: APPEND, deliveryIds: ['del_7'], prompt: appendPrompt, from: 'you', mode: 'next_turn' }
+
+  test('an append is stored as a user row without a turn, delivered, and engaged by the next main turn', OPTIONS, async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line(hello) + line(appendEvent))
+    await until(() => posts(w.calls, '/v1/deliveries/delivered').length === 1, 'delivered')
+    expect(w.appended).toEqual([{ type: 'user', text: appendPrompt, agentId: undefined }])
+    expect(posts(w.calls, '/v1/deliveries/delivered')[0]!.body).toBe(JSON.stringify({ token: APPEND }))
+    // Quiet: no prompt, no toast.
+    expect(w.submitted).toEqual([])
+    expect(w.toasts).toEqual([])
+
+    // Sent again (a reattach): neither appended nor reported twice.
+    w.children[0]!.write(line(appendEvent))
+    await pause(50)
+    expect(w.appended.length).toBe(1)
+    expect(posts(w.calls, '/v1/deliveries/delivered').length).toBe(1)
+
+    // A subagent's turn engages nothing; the next main-loop turn engages it,
+    // whatever its text, and only once.
+    await $.turn.start({ text: 'sub work', turnId: 'turn-sub', agentId: 'agent-1' } as never)
+    await pause(50)
+    expect(posts(w.calls, '/v1/deliveries/engaged')).toEqual([])
+    await $.turn.start({ text: 'what the person typed', turnId: 'turn-p' })
+    await until(() => posts(w.calls, '/v1/deliveries/engaged').length === 1, 'engaged')
+    expect(posts(w.calls, '/v1/deliveries/engaged')[0]!.body).toBe(JSON.stringify({ token: APPEND, turnId: 'turn-p' }))
+    await $.turn.complete({ turnId: 'turn-p', answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as never)
+    await $.turn.start({ text: 'later', turnId: 'turn-q' })
+    await $.turn.complete({ turnId: 'turn-q', answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as never)
+    await pause(50)
+    expect(posts(w.calls, '/v1/deliveries/engaged').length).toBe(1)
+    // An append never ends a turn.
+    expect(posts(w.calls, '/v1/deliveries/turn-ended')).toEqual([])
+  })
+
+  test('an append the host refuses is forgotten, and appended again when re-sent', OPTIONS, async ($, on) => {
+    const outcomes: Array<'deny' | undefined> = ['deny', 'deny', undefined]
+    const w = world(on, { appendFails: () => outcomes.shift() })
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line(hello) + line(appendEvent))
+    await until(() => w.appended.length === 1, 'first append')
+    await pause(50)
+    expect(posts(w.calls, '/v1/deliveries/delivered')).toEqual([])
+    // Not delivered, so a turn start engages nothing.
+    await $.turn.start({ text: 'x', turnId: 'turn-0' })
+    await pause(50)
+    expect(posts(w.calls, '/v1/deliveries/engaged')).toEqual([])
+
+    w.children[0]!.write(line(appendEvent))
+    await until(() => w.appended.length === 2, 'second append')
+    await pause(50)
+    expect(posts(w.calls, '/v1/deliveries/delivered')).toEqual([])
+    w.children[0]!.write(line(appendEvent))
+    await until(() => posts(w.calls, '/v1/deliveries/delivered').length === 1, 'delivered on the third try')
+    expect(w.appended.length).toBe(3)
+    expect(w.submitted).toEqual([])
+  })
+
+  test('a wake and an append keep their own bookkeeping', OPTIONS, async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    const prompt = `${TOKEN} wake text`
+    w.children[0]!.write(line(hello) + line(appendEvent) + line({ type: 'deliver', token: TOKEN, deliveryIds: ['del_1'], prompt, from: 'bob' }))
+    await until(() => posts(w.calls, '/v1/deliveries/delivered').length === 2, 'both delivered')
+    // The wake's own turn engages both: the wake by its token, the append as the next main turn.
+    await $.turn.start({ text: `The irori plugin sent a message:\n${prompt}`, turnId: 'turn-1' })
+    await until(() => posts(w.calls, '/v1/deliveries/engaged').length === 2, 'both engaged')
+    const engaged = posts(w.calls, '/v1/deliveries/engaged').map(c => JSON.parse(c.body!) as { token: string; turnId: string })
+    expect(engaged.map(x => x.token).sort()).toEqual([APPEND, TOKEN].sort())
+    expect(engaged.every(x => x.turnId === 'turn-1')).toBe(true)
+    await $.turn.complete({ turnId: 'turn-1', answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as never)
+    await until(() => posts(w.calls, '/v1/deliveries/turn-ended').length === 1, 'turn-ended')
+    await pause(50)
+    expect(posts(w.calls, '/v1/deliveries/turn-ended').map(c => c.body)).toEqual([JSON.stringify({ token: TOKEN, turnId: 'turn-1' })])
+  })
+})
+
 describe('tools', () => {
   test('a tool call posts its args, without the envelope, as the attached session', OPTIONS, async ($, on) => {
     const w = world(on)
@@ -316,7 +414,7 @@ describe('/irori', () => {
     }
     expect(w.calls.filter(c => c.url.endsWith('/v1/policy'))).toEqual([])
     const status = await $.command.run(irori(''))
-    expect(status.text).toContain('irori mod 0.3.0')
+    expect(status.text).toContain('irori mod 0.4.0')
     expect(status.text).toContain('Attached as api work')
   })
 

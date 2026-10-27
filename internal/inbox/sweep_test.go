@@ -128,6 +128,37 @@ func TestPlanSweep(t *testing.T) {
 			sweepItem{ID: "1", To: "a", Repo: "r", State: Answered, AssignedAt: min(100)},
 			env(map[string]time.Duration{"a": time.Hour}, around, twoDesks), none},
 	}
+	// next_turn waits for the next turn however long it takes: no unengaged
+	// move and no reminder; the gone-move and the reclaim still apply.
+	tests = append(tests, []struct {
+		name string
+		item sweepItem
+		env  sweepEnv
+		want []want
+	}{
+		{"next_turn repo work is never moved for being unengaged",
+			sweepItem{ID: "1", To: "a", Repo: "r", State: Queued, NextTurn: true, AssignedAt: min(600), UpdatedAt: min(600)},
+			env(nil, around, twoDesks), none},
+		{"next_turn delivered and never engaged gets no reminder",
+			sweepItem{ID: "1", To: "a", State: Delivered, NextTurn: true, AssignedAt: min(600), UpdatedAt: min(600)},
+			env(nil, around, nil), none},
+		{"next_turn delivered repo work gets no reminder either",
+			sweepItem{ID: "1", To: "a", Repo: "r", State: Delivered, NextTurn: true, MovedFrom: true, AssignedAt: min(600), UpdatedAt: min(600)},
+			env(nil, around, twoDesks), none},
+		{"next_turn engaged and quiet for hours gets no reminder",
+			sweepItem{ID: "1", To: "a", State: Engaged, NextTurn: true, EngagedOnce: true, UpdatedAt: min(600)},
+			env(nil, around, nil), none},
+		{"next_turn repo work still leaves a gone holder",
+			sweepItem{ID: "1", To: "a", Repo: "r", State: Delivered, NextTurn: true, AssignedAt: min(5), UpdatedAt: min(5)},
+			env(map[string]time.Duration{"a": GoneGrace + time.Second}, around, map[string][]string{"r": {"b"}}),
+			[]want{{actMove, "b"}}},
+		{"an unconfirmed append is reclaimed",
+			sweepItem{ID: "1", To: "a", State: Queued, NextTurn: true, InFlight: true, IssuedAt: min(3), AssignedAt: min(3)},
+			env(nil, around, nil), []want{{actReclaim, ""}}},
+		{"a due next_turn deferral is re-queued",
+			sweepItem{ID: "1", To: "a", State: Deferred, NextTurn: true, Until: min(1)},
+			env(nil, around, nil), []want{{actRequeue, ""}}},
+	}...)
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := planSweep([]sweepItem{tc.item}, tc.env)

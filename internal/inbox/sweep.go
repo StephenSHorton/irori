@@ -25,6 +25,7 @@ type sweepItem struct {
 	MovedFrom   bool      // created by a move: unengaged work never moves twice
 	EngagedOnce bool      // its recipient engaged or deferred it
 	Reminded    bool
+	NextTurn    bool // ModeNextTurn: never moved for being unengaged, never reminded
 }
 
 // sweepEnv is the world planSweep plans against.
@@ -100,6 +101,11 @@ func planOne(it sweepItem, env sweepEnv) (sweepAction, bool) {
 		if !env.Now.Before(it.Until) {
 			return act(actRequeue, "")
 		}
+		return sweepAction{}, false
+	}
+	// A next_turn delivery waits for the recipient's next turn, however long
+	// that is: the rest of the sweep (unengaged moves, reminders) is for wakes.
+	if it.NextTurn {
 		return sweepAction{}, false
 	}
 	// Repo work the holder hasn't started on moves to the next desk, once;
@@ -187,6 +193,7 @@ func (b *inbox) sweep(ctx context.Context) error {
 			ID: d.ID, To: d.To, Repo: d.RepoKey, State: d.State, Hold: d.Hold,
 			AssignedAt: d.assignedAt, UpdatedAt: d.UpdatedAt, Until: d.Until,
 			MovedFrom: d.movedFrom != "", EngagedOnce: d.engagedOnce, Reminded: d.Reminded,
+			NextTurn: d.nextTurn(),
 		}
 		m := b.msgs[d.MessageID]
 		if m != nil {
@@ -247,7 +254,7 @@ func (b *inbox) sweep(ctx context.Context) error {
 // duplicate the work but never drop it.
 func (b *inbox) move(ctx context.Context, d *drec, to string, cards map[string]presence.AgentCard) error {
 	m := b.msgs[d.MessageID]
-	nr := deliveryRow{DeliveryID: "dlv_" + b.ids.next(b.now()), MessageID: d.MessageID, To: to, RepoKey: prFallbackRepo(m, d), MovedFrom: d.ID, For: d.For}
+	nr := deliveryRow{DeliveryID: "dlv_" + b.ids.next(b.now()), MessageID: d.MessageID, To: to, RepoKey: prFallbackRepo(m, d), Mode: d.Mode, MovedFrom: d.ID, For: d.For}
 	if d.RepoKey == "" && nr.RepoKey != "" {
 		nr.For = clip(b.describe(d.To, cards), MaxNote) // owner-routed PR work: its owner has gone
 	}
