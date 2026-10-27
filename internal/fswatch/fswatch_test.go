@@ -1,0 +1,94 @@
+package fswatch
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
+	"testing"
+	"time"
+)
+
+func waitFor(t *testing.T, w *Watcher, path string) {
+	t.Helper()
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case e, ok := <-w.Events():
+			if !ok {
+				t.Fatal("watcher closed")
+			}
+			if e.Path == path || e.Overflow {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("no event for %s", path)
+		}
+	}
+}
+
+func TestWatchSeesCreateAppendAndNested(t *testing.T) {
+	root := t.TempDir()
+	w, err := Watch(context.Background(), root, true, 0)
+	if errors.Is(err, ErrUnsupported) {
+		t.Skip(runtime.GOOS)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+
+	f := filepath.Join(root, "a.jsonl")
+	if err := os.WriteFile(f, []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, w, f)
+
+	// An append that opens and closes the file, the way Claude Code writes
+	// its transcripts and git its reflog. (An append through a handle the
+	// writer keeps open is not reported until that handle closes: NTFS
+	// updates the directory entry lazily. The safety rescan covers that.)
+	h, err := os.OpenFile(f, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.WriteString("two
+"); err != nil {
+		t.Fatal(err)
+	}
+	h.Close()
+	waitFor(t, w, f)
+
+	sub := filepath.Join(root, "s", "subagents")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	g := filepath.Join(sub, "agent-x.jsonl")
+	if err := os.WriteFile(g, []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, w, g)
+}
+
+func TestCloseAndContextStop(t *testing.T) {
+	root := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	w, err := Watch(ctx, root, false, 0)
+	if errors.Is(err, ErrUnsupported) {
+		t.Skip(runtime.GOOS)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	select {
+	case _, ok := <-w.Events():
+		for ok {
+			_, ok = <-w.Events()
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("events not closed after cancel")
+	}
+	w.Close() // idempotent after the context stopped it
+}
