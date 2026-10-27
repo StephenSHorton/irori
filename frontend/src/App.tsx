@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 
 import { AppHeader } from "@/components/app-header"
 import { CardPanel } from "@/components/cards/card-detail"
+import { MessageDialog } from "@/components/cards/message-dialog"
 import {
   CardGrid,
   EmptyCards,
@@ -12,7 +13,7 @@ import {
 import { useCard, useCards } from "@/lib/cards"
 import { useNow, useRoster } from "@/lib/irori"
 import { onOpen } from "@/lib/settings"
-import { useGone } from "@/lib/talk"
+import { nameLookup, useGone } from "@/lib/talk"
 import { UpdateBanner } from "@/updater"
 
 // narrow mirrors the layout breakpoint: below it the card opens under the
@@ -38,6 +39,11 @@ export function App() {
   const selected = picked || first
   const { detail, error: detailError } = useCard(selected)
   const detailRef = useRef<HTMLDivElement>(null)
+  // message is the delivery a notification's Open named, shown in a dialog.
+  const [message, setMessage] = useState("")
+  const name = nameLookup(
+    roster.agents.map((a): [string, string] => [a.key, a.name])
+  )
 
   const select = (id: string) => {
     setPicked(id)
@@ -47,13 +53,17 @@ export function App() {
       )
   }
 
-  // A notification's Open: every target lands on the cards, and a task
-  // ref opens that card (with the filter cleared so it can be seen).
-  // Held messages keep Release and Dismiss on the notification itself.
+  // A notification's Open: a task ref opens that card (with the filter
+  // cleared so it can be seen); a message (held, or sent to the person)
+  // opens in a dialog over the cards.
   useEffect(
     () =>
       onOpen((target) => {
         const ref = target.ref ?? ""
+        if (target.tab === "inbox" && ref) {
+          setMessage(ref)
+          return
+        }
         if (!ref.startsWith("task:")) return
         setFilter("all")
         setPicked(ref.slice("task:".length))
@@ -107,6 +117,15 @@ export function App() {
           </>
         )}
       </main>
+      {message && (
+        <MessageDialog
+          key={message}
+          id={message}
+          name={name}
+          now={now}
+          onClose={() => setMessage("")}
+        />
+      )}
     </div>
   )
 }

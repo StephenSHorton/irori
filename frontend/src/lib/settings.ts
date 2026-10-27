@@ -136,7 +136,15 @@ export function useSettings(active: boolean): SettingsState {
 }
 
 // onOpen runs fn for every app:open (a notification's Open or Answer).
+// In a plain browser, ?open=<tab>:<ref> (say ?open=inbox:sample-delivery-6)
+// sends one, so the dialogs it opens can be tried.
 export function onOpen(fn: (t: Target) => void): () => void {
-  if (!inWails()) return () => {}
+  if (!inWails()) {
+    const open = new URLSearchParams(window.location.search).get("open")
+    if (!open) return () => {}
+    const [tab, ...ref] = open.split(":")
+    const id = window.setTimeout(() => fn({ tab, ref: ref.join(":") }), 0)
+    return () => window.clearTimeout(id)
+  }
   return Events.On(EventOpen, (ev) => fn(ev.data))
 }

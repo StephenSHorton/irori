@@ -85,6 +85,13 @@ const seeds: Seed[] = [
   },
   {
     from: sender(heron, "sample-heron"),
+    to: you.key,
+    state: State.Queued,
+    agoSec: 50,
+    text: "Sample text. The lobby build is on the second PC and both machines see each other's lobby. Before I wire animal sync: the made-up save format keeps animals per player, so a joiner's animals would vanish when the host leaves.\n\nShould a joiner keep their own animals in their own save, or should the host's world own every animal while they're connected?",
+  },
+  {
+    from: sender(heron, "sample-heron"),
     to: otter,
     state: State.Held,
     hold: HoldReason.HoldPaused,
