@@ -22,6 +22,7 @@ import (
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/repo"
 	"github.com/StephenSHorton/irori/internal/store"
+	"github.com/StephenSHorton/irori/internal/tools"
 )
 
 // ErrAlreadyRunning means another Irori on this device holds the lockfile.
@@ -44,6 +45,8 @@ type Core struct {
 	repos    *repo.Resolver
 	inbox    *inbox.Inbox
 	coord    *coord.Coord
+	tools    *tools.Set
+	members  *members
 	cancel   context.CancelFunc
 	done     chan struct{} // closed when the service goroutines finish; nil before they start
 }
@@ -74,8 +77,9 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		presence: presence.New(presence.Options{
 			ClaudeDir: opts.ClaudeDir, DeviceID: id.ID, RepoKey: repos.Key,
 		}),
-		repos:  repos,
-		cancel: cancel,
+		repos:   repos,
+		members: newMembers(id.ID),
+		cancel:  cancel,
 	}
 	if _, err := st.Append(ctx, "irori", store.KindDeviceStarted, map[string]any{
 		"name": id.Name, "os": id.OS, "version": opts.Version, "headless": opts.Headless,
@@ -91,6 +95,7 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		c.Close()
 		return nil, fmt.Errorf("coord: %w", err)
 	}
+	c.tools = tools.New(c)
 
 	token, err := discovery.NewToken()
 	if err != nil {
@@ -180,21 +185,29 @@ func (c *Core) record(ctx context.Context, changes <-chan presence.Change) {
 	}
 }
 
-// sweep runs the inbox and coord sweepers every inbox.SweepInterval.
+// coordSweepInterval: coord.Sweep starts a vanished holder's grace clock
+// only when it runs, so it runs more often than the inbox sweeper.
+const coordSweepInterval = 5 * time.Second
+
+// sweep runs the inbox sweeper every inbox.SweepInterval and the coord
+// sweeper every coordSweepInterval.
 func (c *Core) sweep(ctx context.Context) {
 	t := time.NewTicker(inbox.SweepInterval)
 	defer t.Stop()
+	ct := time.NewTicker(coordSweepInterval)
+	defer ct.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-		}
-		if err := c.inbox.Sweep(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("inbox sweep: %v", err)
-		}
-		if err := c.coord.Sweep(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("coord sweep: %v", err)
+			if err := c.inbox.Sweep(ctx); err != nil && ctx.Err() == nil {
+				log.Printf("inbox sweep: %v", err)
+			}
+		case <-ct.C:
+			if err := c.coord.Sweep(ctx); err != nil && ctx.Err() == nil {
+				log.Printf("coord sweep: %v", err)
+			}
 		}
 	}
 }
@@ -216,8 +229,15 @@ func (c *Core) Version() string { return c.opts.Version }
 // Device implements api.Backend.
 func (c *Core) Device() device.Identity { return c.device }
 
-// Agents implements api.Backend.
-func (c *Core) Agents() []presence.AgentCard { return c.presence.Snapshot() }
+// Agents implements api.Backend: the presence roster plus a synthetic card
+// for each bound Grok member (agent "grok") whose stream is open or closed
+// less than inbox.ReattachGrace ago.
+func (c *Core) Agents() []presence.AgentCard {
+	return append(c.presence.Snapshot(), c.members.cards()...)
+}
+
+// Tools is the agent tool registry served at /v1/tools.
+func (c *Core) Tools() *tools.Set { return c.tools }
 
 // Events implements api.Backend.
 func (c *Core) Events(ctx context.Context, f store.Filter) ([]store.Event, error) {

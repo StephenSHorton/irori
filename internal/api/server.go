@@ -30,17 +30,18 @@ type Health struct {
 }
 
 type server struct {
-	b     Backend
-	token []byte
+	b       Backend
+	token   []byte
+	streams *streams
 }
 
 func newServer(b Backend, token string) *Server {
-	return &Server{impl: &server{b: b, token: []byte(token)}}
+	return &Server{impl: &server{b: b, token: []byte(token), streams: newStreams()}}
 }
 
 // handler serves the routes for a listener on port.
 func (s *Server) handler(port int) http.Handler {
-	return &handler{s: s.impl, hosts: allowedHosts(port)}
+	return &handler{s: s.impl, hosts: allowedHosts(port), port: port}
 }
 
 func (s *Server) serve(ctx context.Context, ln net.Listener) error {
@@ -49,17 +50,20 @@ func (s *Server) serve(ctx context.Context, ln net.Listener) error {
 		ln.Close()
 		return fmt.Errorf("api: listener %s is not TCP", ln.Addr())
 	}
+	// Cancel on return too, so the shutdown goroutine never outlives a failed Serve.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	srv := &http.Server{
 		Handler:           s.handler(tcp.Port),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      30 * time.Second, // attach streams lift it for themselves
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    64 << 10,
+		// Requests (attach streams above all) end when ctx does, so Shutdown
+		// never waits on a stream that is only idling.
+		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
-	// Cancel on return too, so the shutdown goroutine never outlives a failed Serve.
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
@@ -91,6 +95,7 @@ func allowedHosts(port int) map[string]bool {
 type handler struct {
 	s     *server
 	hosts map[string]bool
+	port  int
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -104,9 +109,14 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "bad host")
 		return
 	}
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
-		writeError(w, http.StatusMethodNotAllowed, "only GET is allowed")
+	post := postRoute(r.URL.Path)
+	if r.Method != http.MethodGet && !(post && r.Method == http.MethodPost) {
+		allow := http.MethodGet
+		if post {
+			allow += ", " + http.MethodPost
+		}
+		w.Header().Set("Allow", allow)
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if r.URL.Path == "/v1/health" {
@@ -117,6 +127,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !h.s.authorized(r) {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="irori"`)
 		writeError(w, http.StatusUnauthorized, "missing or wrong token")
+		return
+	}
+	if h.v02(w, r) {
 		return
 	}
 	switch r.URL.Path {

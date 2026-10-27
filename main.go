@@ -45,7 +45,7 @@ func main() {
 	case "mcp":
 		err = runMCP(args)
 	case "attach":
-		err = errors.New("irori attach arrives in v0.2 (the Claude Code mod's wake stream)")
+		err = runAttach(args)
 	case "version":
 		fmt.Println("irori", version)
 	default:
