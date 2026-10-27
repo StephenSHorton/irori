@@ -117,9 +117,21 @@ func TestStaleDeliveredWakeStopsGating(t *testing.T) {
 	if err := h.ib.MarkDelivered(bg, keyB, w.Token); err != nil {
 		t.Fatal(err)
 	}
+	sub := h.ib.Subscribe(t.Context())
 	h.send(claude(keyC, "gamma"), to("beta"), "q2")
 	h.noWake(keyB)
+	if n := count(drain(sub), WakeReady, keyB); n != 0 {
+		t.Fatalf("%d WakeReady while gated", n)
+	}
 	h.clk.advance(UnengagedLimit)
+	h.sweep() // the sweeper notices the gate opened with time
+	if n := count(drain(sub), WakeReady, keyB); n != 1 {
+		t.Fatalf("%d WakeReady after the gate went stale", n)
+	}
+	h.sweep()
+	if n := count(drain(sub), WakeReady, keyB); n != 0 {
+		t.Fatalf("%d repeated WakeReady", n)
+	}
 	if w2 := h.wake(keyB); len(w2.DeliveryIDs) != 1 {
 		t.Fatalf("wake %v", w2.DeliveryIDs)
 	}

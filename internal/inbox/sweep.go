@@ -212,6 +212,11 @@ func (b *inbox) sweep(ctx context.Context) error {
 			}
 		}
 	}
+	// Reconcile WakeReady for everyone: some gates open with time alone (a
+	// delivered wake going stale), with no mutation to notice it.
+	for agent := range b.agentsWithOpen() {
+		b.touch(agent)
+	}
 	return nil
 }
 
