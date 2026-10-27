@@ -120,7 +120,7 @@ export function App() {
           onValueChange={(v) => setTab(v as Tab)}
           className="gap-5"
         >
-          <TabsList className="max-w-full self-start overflow-x-auto">
+          <TabsList className="self-start">
             <TabsTrigger value="roster" className="px-3">
               Roster
               <Count n={roster.agents.length} />

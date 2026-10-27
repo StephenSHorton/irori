@@ -51,7 +51,7 @@ import { nameLookup, type Delivery, type GoneSession } from "@/lib/talk"
 const ToolsShown = 12
 
 type Item =
-  | { kind: "entry"; at: number; entry: Entry }
+  | { kind: "entry"; at: number; entry: Entry; roles?: string[] }
   | { kind: "message"; at: number; d: Delivery }
 
 const ms = (v: unknown) => parseTime(v)?.getTime() ?? 0
@@ -110,11 +110,24 @@ export function TimelinePanel({
   )
 
   const items = useMemo(() => {
-    const out: Item[] = tl.entries.map((entry) => ({
-      kind: "entry",
-      at: ms(entry.at),
-      entry,
-    }))
+    // One row per PR: the ledger has an entry per role (author, touched,
+    // reviewer); the row keeps the newest and lists every role.
+    const prRoles = new Map<string, string[]>()
+    const out: Item[] = []
+    for (const entry of tl.entries) {
+      if (entry.pr) {
+        const roles = prRoles.get(entry.pr.key)
+        if (roles) {
+          if (!roles.includes(entry.pr.role)) roles.push(entry.pr.role)
+          continue
+        }
+        const fresh = [entry.pr.role as string]
+        prRoles.set(entry.pr.key, fresh)
+        out.push({ kind: "entry", at: ms(entry.at), entry, roles: fresh })
+        continue
+      }
+      out.push({ kind: "entry", at: ms(entry.at), entry })
+    }
     // Messages older than the loaded page wait for "Show older", so they
     // don't pile up at the bottom ahead of turns not loaded yet.
     const floor = tl.more ? (out.at(-1)?.at ?? 0) : -Infinity
@@ -224,6 +237,7 @@ export function TimelinePanel({
                 <EntryItem
                   key={entryId(it.entry)}
                   e={it.entry}
+                  roles={it.roles}
                   name={name}
                   now={now}
                   repos={repos}
@@ -265,12 +279,14 @@ function When({ at, now }: { at: unknown; now: Date }) {
 
 function EntryItem({
   e,
+  roles,
   name,
   now,
   repos,
   onCommit,
 }: {
   e: Entry
+  roles?: string[]
   name: (key: string) => string
   now: Date
   repos: CaptureRepo[]
@@ -282,7 +298,9 @@ function EntryItem({
   if (e.kind === EntryKind.EntryCommit && e.commit) {
     return <CommitItem c={e.commit} name={name} now={now} onCommit={onCommit} />
   }
-  if (e.kind === EntryKind.EntryPR && e.pr) return <PRItem p={e.pr} now={now} />
+  if (e.kind === EntryKind.EntryPR && e.pr) {
+    return <PRItem p={e.pr} roles={roles ?? [e.pr.role]} now={now} />
+  }
   if (e.kind === EntryKind.EntrySummary && e.summary) {
     const s = e.summary
     return (
@@ -413,7 +431,7 @@ function TurnItem({
       <p
         className={
           prompt
-            ? "line-clamp-4 text-[13px] whitespace-pre-wrap text-ink"
+            ? `${t.origin === "human" ? "line-clamp-4" : "line-clamp-2"} text-[13px] whitespace-pre-wrap text-ink`
             : "text-[13px] text-muted-foreground italic"
         }
         title={prompt || undefined}
@@ -606,7 +624,7 @@ function CommitItem({
   )
 }
 
-function PRItem({ p, now }: { p: PREntry; now: Date }) {
+function PRItem({ p, roles, now }: { p: PREntry; roles: string[]; now: Date }) {
   return (
     <li className="flex items-center gap-2.5 px-4 py-2.5">
       <GitPullRequestIcon
@@ -619,13 +637,15 @@ function PRItem({ p, now }: { p: PREntry; now: Date }) {
       >
         {plainLine(p.repo)}#{p.number}
       </span>
-      <Badge
-        variant="slate"
-        className="h-4.5 px-1.5 text-[11px]"
-        title={`Source: ${p.source}`}
-      >
-        {plainLine(p.role)}
-      </Badge>
+      {roles.map((r) => (
+        <Badge
+          key={r}
+          variant={r === "author" ? "info" : "slate"}
+          className="h-4.5 px-1.5 text-[11px]"
+        >
+          {plainLine(r)}
+        </Badge>
+      ))}
       <span className="ml-auto">
         <When at={p.at} now={now} />
       </span>

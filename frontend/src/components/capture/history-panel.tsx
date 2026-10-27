@@ -58,7 +58,10 @@ export function HistoryPanel({
   now: Date
 }) {
   const [picked, setPicked] = useState<string | null>(focus?.repoKey ?? null)
-  const repoKey = picked ?? repos[0]?.repoKey ?? ""
+  // The default (the first repo, live ones first) is kept once chosen, so
+  // the list doesn't jump when another repo goes live.
+  if (picked === null && repos.length > 0) setPicked(repos[0].repoKey)
+  const repoKey = picked ?? ""
   const { commits, loading, error } = useCommits(repoKey)
   const [open, setOpen] = useState<Set<string>>(() => new Set())
   const [pinned, setPinned] = useState<CommitView | null>(null)
@@ -91,7 +94,7 @@ export function HistoryPanel({
   }, [jump, commits])
 
   const list = useMemo(() => {
-    if (!pinned || pinned.repoKey !== repoKey) return commits
+    if (!pinned || (repoKey && pinned.repoKey !== repoKey)) return commits
     if (commits.some((c) => c.sha === pinned.sha)) return commits
     return [pinned, ...commits]
   }, [commits, pinned, repoKey])
@@ -107,42 +110,49 @@ export function HistoryPanel({
   const known = !repoKey || repos.some((r) => r.repoKey === repoKey)
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2 px-1">
+        <label htmlFor="history-repo" className="text-sm font-medium text-ink">
+          Repo
+        </label>
+        <select
+          id="history-repo"
+          value={repoKey}
+          onChange={(e) => setPicked(e.target.value)}
+          className={`${fieldClass} flex-1 sm:max-w-md`}
+        >
+          <option value="">All repos</option>
+          {!known && <option value={repoKey}>{shortRepo(repoKey)}</option>}
+          {repos.map((r) => (
+            <option key={r.repoKey} value={r.repoKey}>
+              {shortRepo(r.repoKey)}
+              {r.live ? " · live" : ""}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <WhyBox
         repoKey={repoKey}
         name={name}
         onTimeline={onTimeline}
         now={now}
         onCommit={(c) => {
+          setPicked(c.repoKey)
           setPinned(c)
           setOpen((o) => new Set(o).add(c.sha))
           setJump(c.sha)
         }}
       />
 
-      <section aria-labelledby="commits-h" className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-2 px-1">
+      <section aria-labelledby="commits-h" className="mt-2 flex flex-col gap-2">
+        <div className="flex items-center gap-2 px-1">
           <h2 id="commits-h" className="text-sm font-medium text-ink">
             Commits
           </h2>
           <span className="text-xs text-muted-foreground tabular-nums">
             {list.length}
           </span>
-          <select
-            aria-label="Repo"
-            value={repoKey}
-            onChange={(e) => setPicked(e.target.value)}
-            className={`${fieldClass} ml-auto w-56`}
-          >
-            {repos.length === 0 && <option value="">All repos</option>}
-            {!known && <option value={repoKey}>{shortRepo(repoKey)}</option>}
-            {repos.map((r) => (
-              <option key={r.repoKey} value={r.repoKey}>
-                {shortRepo(r.repoKey)}
-                {r.live ? " · live" : ""}
-              </option>
-            ))}
-          </select>
         </div>
 
         <ErrorLine what="commits" error={error} />

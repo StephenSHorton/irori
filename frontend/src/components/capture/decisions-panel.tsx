@@ -373,7 +373,7 @@ export function DecisionForm({
         />
         <input
           aria-label="Lines"
-          placeholder="Lines, e.g. 40-52"
+          placeholder="lines 40-52"
           value={lines}
           disabled={!path.trim()}
           onChange={(e) => setLines(e.target.value)}
