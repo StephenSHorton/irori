@@ -74,19 +74,23 @@ func absPath(p string) string {
 
 // tail is what we learned from the end of one transcript.
 type tail struct {
-	Title        string
-	LastText     string
-	LastActivity time.Time
+	Title          string
+	LastText       string
+	LastActivity   time.Time
+	PermissionMode string
 }
 
 // transcriptRow is the tolerant subset of a transcript line we read.
 type transcriptRow struct {
-	Type        string          `json:"type"`
-	Timestamp   string          `json:"timestamp"`
-	IsSidechain bool            `json:"isSidechain"`
-	AITitle     string          `json:"aiTitle"`
-	CustomTitle string          `json:"customTitle"`
-	Message     json.RawMessage `json:"message"`
+	Type        string `json:"type"`
+	Timestamp   string `json:"timestamp"`
+	IsSidechain bool   `json:"isSidechain"`
+	AITitle     string `json:"aiTitle"`
+	CustomTitle string `json:"customTitle"`
+	// PermissionMode is carried by "permission-mode" rows and, on newer
+	// versions, by user rows too.
+	PermissionMode string          `json:"permissionMode"`
+	Message        json.RawMessage `json:"message"`
 }
 
 type contentBlock struct {
@@ -123,6 +127,10 @@ func readTail(f io.ReadSeeker, size, n int64) tail {
 		}
 		if ts, err := time.Parse(time.RFC3339Nano, row.Timestamp); err == nil && ts.After(t.LastActivity) {
 			t.LastActivity = ts
+		}
+		if row.PermissionMode != "" && !row.IsSidechain &&
+			(row.Type == "permission-mode" || row.Type == "user") {
+			t.PermissionMode = row.PermissionMode
 		}
 		switch row.Type {
 		case "custom-title":
