@@ -31,7 +31,7 @@ func (h *handler) board(w http.ResponseWriter, r *http.Request) bool {
 	}
 	switch {
 	case p == "/v1/board":
-		h.boardView(w, r, viewer)
+		h.boardView(w, r, h.boardFor(viewer))
 	case strings.HasPrefix(p, "/v1/tasks/"):
 		h.task(w, strings.TrimPrefix(p, "/v1/tasks/"))
 	case p == "/v1/search":
@@ -57,6 +57,16 @@ func (h *handler) viewer(w http.ResponseWriter, r *http.Request) (string, bool) 
 		return "", false
 	}
 	return c.sender.Key, true
+}
+
+// boardFor is BoardFilter.For for a viewer: the agent's key, or for the
+// person the GUI's own key ("user:<device>", Core.UserSender), so tasks
+// assigned to the person land in their NeedsYou as they do in the app.
+func (h *handler) boardFor(viewer string) string {
+	if viewer != "" {
+		return viewer
+	}
+	return "user:" + h.s.b.Device().ID
 }
 
 func (h *handler) coordOr503(w http.ResponseWriter) *coord.Coord {
@@ -90,7 +100,7 @@ func intParam(w http.ResponseWriter, q url.Values, name string, def int) (int, b
 	return n, true
 }
 
-func (h *handler) boardView(w http.ResponseWriter, r *http.Request, viewer string) {
+func (h *handler) boardView(w http.ResponseWriter, r *http.Request, forKey string) {
 	co := h.coordOr503(w)
 	if co == nil {
 		return
@@ -100,7 +110,7 @@ func (h *handler) boardView(w http.ResponseWriter, r *http.Request, viewer strin
 	if !ok {
 		return
 	}
-	v := co.Board(coord.BoardFilter{RepoKey: strings.TrimSpace(q.Get("repo")), For: viewer, DoneLimit: done})
+	v := co.Board(coord.BoardFilter{RepoKey: strings.TrimSpace(q.Get("repo")), For: forKey, DoneLimit: done})
 	writeJSON(w, http.StatusOK, nonNilBoard(v))
 }
 
@@ -197,8 +207,9 @@ func (h *handler) search(w http.ResponseWriter, r *http.Request, viewer string) 
 		if r.Context().Err() != nil {
 			return // the caller went away
 		}
-		// Search fails only on text the index can't parse.
-		writeError(w, http.StatusBadRequest, err.Error())
+		// Words are quoted before FTS5 sees them, and the index has no
+		// sentinel for a parse error: whatever is left is the server's.
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	res := SearchResult{Hits: hits}

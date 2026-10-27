@@ -27,8 +27,11 @@ package api
 //
 //	GET /v1/board?repo=<repoKey>&done=N
 //	    -> coord.BoardView {needsYou, blocked, working, open, done, doneTotal, leases}
-//	    repo "" = every repo. NeedsYou is the viewer's: For = the viewer's
-//	    key, or "" (whoever is at the app) for the person. done caps the Done
+//	    repo "" = every repo. NeedsYou is the viewer's: For = the agent's
+//	    key, or for the person "user:<deviceId>" (Core.UserSender's key, the
+//	    GUI's): tasks held by or blocked on that person, or blocked on a
+//	    person with no ref, plus InputRequired. A blocker naming another
+//	    person's "user:*" key is in Blocked, not NeedsYou. done caps the Done
 //	    group (default coord.DefaultDoneCard, max coord.MaxDoneCard; larger
 //	    is capped).
 //
@@ -45,7 +48,7 @@ package api
 //	    search.MaxLimit (larger is capped). offset >= 0 skips hits already
 //	    shown; more says another page exists and next is its offset. before
 //	    is a time filter, not a pager. Docs the viewer may not read are never
-//	    hits. Text the index can't parse is 400.
+//	    hits. An index failure is 500.
 //
 //	GET /v1/show?ref=<kind:id>&offset=N&limit=N
 //	    -> search.Shown {ref, kind, title, text, more, next, related}
