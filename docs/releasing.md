@@ -138,7 +138,10 @@ them.
 1. Release **vA** (for example `v0.3.0`) and install it from the release
    page by running `irori-0.3.0-windows-amd64-installer.exe`. Check
    `%LOCALAPPDATA%\Programs\Irori\irori.exe version` and the badge in the
-   app header: both say 0.3.0.
+   app header: both say 0.3.0. (`irori.exe` is a GUI-subsystem exe, so the
+   shell does not wait for it: the command-line roles attach to the parent
+   console, and the `irori 0.3.0` line can print just after the next prompt.
+   `irori version | more` waits for it.)
 2. Release **vB** (`v0.3.1`) from a later commit.
 3. Quit Irori vA and start it again (or use Settings > **Check for updates**).
    Within a few seconds:
