@@ -1,0 +1,6 @@
+{
+  "name": "irori-append-spike",
+  "version": "0.0.1",
+  "description": "Irori spike: does $.session.append put a note the model reads at its next turn, without starting a turn?",
+  "author": { "name": "Stephen Horton" }
+}
