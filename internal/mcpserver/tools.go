@@ -209,15 +209,21 @@ func describeAgentFilter(in AgentsInput) string {
 }
 
 func writeAgent(b *strings.Builder, c presence.AgentCard, now time.Time) {
+	// Every field here can come from a file a peer agent wrote, so all of
+	// them go through oneLine, not only the free-text ones.
+	session := oneLine(c.SessionID, 120)
 	name := oneLine(c.Name, maxFieldRunes)
 	if name == "" {
-		name = c.SessionID
+		name = session
 	}
-	agent := c.Agent
+	if name == "" {
+		name = "unnamed"
+	}
+	agent := oneLine(c.Agent, 60)
 	if agent == "" {
 		agent = "agent"
 	}
-	fmt.Fprintf(b, "\n- %s [%s] %s, session %s, pid %d\n", name, oneLine(c.Status, 40), agent, c.SessionID, c.PID)
+	fmt.Fprintf(b, "\n- %s [%s] %s, session %s, pid %d\n", name, oneLine(c.Status, 40), agent, session, c.PID)
 	if title := oneLine(c.Title, maxFieldRunes); title != "" {
 		fmt.Fprintf(b, "  title: %s\n", title)
 	}
@@ -238,9 +244,11 @@ func writeEvent(b *strings.Builder, ev store.Event, now time.Time) {
 	if ev.HLC != 0 {
 		when = at.In(now.Location()).Format("2006-01-02 15:04:05") + " (" + Ago(now, at) + ")"
 	}
-	dev := ev.DeviceID
-	if len(dev) > 8 {
-		dev = dev[:8]
+	// DeviceID can come from other devices' rows: fold it first, then
+	// shorten by runes so a multi-byte rune is never split.
+	dev := oneLine(ev.DeviceID, maxFieldRunes)
+	if r := []rune(dev); len(r) > 8 {
+		dev = string(r[:8])
 	}
 	fmt.Fprintf(b, "- %s %s dev=%s seq=%d actor=%s %s\n", when, oneLine(ev.Kind, 60), dev, ev.Seq,
 		oneLine(ev.Actor, 120), payloadText(ev.Payload))
