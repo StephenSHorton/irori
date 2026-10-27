@@ -37,6 +37,7 @@ type fakeCore struct {
 	mu       sync.Mutex
 	token    string       // bearer token of this Core run
 	runs     int          // restarts so far
+	failJoin int          // answer the next N POST /v1/members with 500
 	specs    []tools.Spec // nil answers 404, like a v0.1 Core
 	calls    []fakeCall
 	joins    []fakeJoin
@@ -143,6 +144,12 @@ func (f *fakeCore) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f.mu.Lock()
+		if f.failJoin > 0 {
+			f.failJoin--
+			f.mu.Unlock()
+			writeJSON(w, 500, map[string]string{"error": "warming up"})
+			return
+		}
 		f.joins = append(f.joins, fakeJoin(in))
 		f.n++
 		key, ok := f.keys[in.Session]

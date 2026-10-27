@@ -370,6 +370,47 @@ func TestStreamCutKeepsSecret(t *testing.T) {
 	}
 }
 
+// After a restart whose first rejoin fails, the old secret meets a Core run
+// that never issued it: its 403 is "unknown", not superseded. Rejoin.
+func TestRestartFailedRejoinRecovers(t *testing.T) {
+	f := newFakeCore(t, testSpecs())
+	h := start(t, New(quick(f)), "")
+	h.call(t, "irori_join", map[string]any{"name": "grok"}, nil)
+	waitStream(t, f)
+	f.forget()
+	f.mu.Lock()
+	f.failJoin = 1
+	f.mu.Unlock()
+	f.cut <- struct{}{}
+	if s := waitStream(t, f); s != "secret-2" {
+		t.Fatalf("stream after restart %q", s)
+	}
+	if _, super := h.srv.secret(); super {
+		t.Fatal("marked superseded after a restart")
+	}
+	if out, _ := h.call(t, "irori_send", map[string]any{"text": "x"}, nil); out != "ok send" {
+		t.Fatalf("send: %q", out)
+	}
+}
+
+// A fresh dial that reaches the same Core run (same token) keeps the secret:
+// rejoining would retire a newer process's secret for the same session.
+func TestFreshDialSameRunNoRejoin(t *testing.T) {
+	f := newFakeCore(t, testSpecs())
+	h := start(t, New(quick(f)), "")
+	h.call(t, "irori_join", map[string]any{"name": "grok"}, nil)
+	waitStream(t, f)
+	if _, err := h.srv.getCore(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	if _, joins := f.snapshot(); len(joins) != 1 {
+		t.Fatalf("fresh dial to the same run rejoined: %+v", joins)
+	}
+	if out, _ := h.call(t, "irori_send", map[string]any{"text": "x"}, nil); out != "ok send" {
+		t.Fatalf("send: %q", out)
+	}
+}
+
 // A url.Error carries the full URL, query included; the member secret must
 // not reach the error text (it gets logged).
 func TestAttachErrorHidesSecret(t *testing.T) {

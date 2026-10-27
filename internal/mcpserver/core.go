@@ -78,6 +78,18 @@ type httpCore struct {
 	http  *http.Client
 }
 
+// runID names the Core run this client talks to. The Core mints a new token
+// on every start, so base+token changes exactly when the Core restarts.
+func (c *httpCore) runID() string { return c.base + "|" + c.token }
+
+// runOf is c's run identity: runID when c has one, else c itself (a fake).
+func runOf(c Core) any {
+	if r, ok := c.(interface{ runID() string }); ok {
+		return r.runID()
+	}
+	return c
+}
+
 func (c *httpCore) Tools(ctx context.Context, client string) ([]tools.Spec, error) {
 	var specs []tools.Spec
 	err := c.do(ctx, http.MethodGet, "/v1/tools", url.Values{"client": {client}}, "", nil, &specs)
