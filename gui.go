@@ -45,6 +45,8 @@ func runGUI(args []string) error {
 	defer c.Close()
 
 	roster := &RosterService{core: c}
+	inboxSvc := newInboxService(c)
+	work := &WorkService{core: c}
 	settings := &SettingsService{}
 	upd := update.New(update.Repo, version)
 
@@ -63,6 +65,8 @@ func runGUI(args []string) error {
 		Description: "A hearth for your coding agents",
 		Services: []application.Service{
 			application.NewService(roster),
+			application.NewService(inboxSvc),
+			application.NewService(work),
 			application.NewService(settings),
 			application.NewService(upd),
 		},
@@ -84,6 +88,7 @@ func runGUI(args []string) error {
 		},
 	})
 	settings.attach(app)
+	work.app = app
 
 	window = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "Irori",
@@ -103,6 +108,9 @@ func runGUI(args []string) error {
 	setupUpdater(app, upd, tray)
 	go roster.pump(ctx, app)
 	go roster.trayStatus(ctx, tray)
+	tray.SetPause(inboxSvc.SetPaused)
+	inboxSvc.onCounts(tray.SetInbox)
+	go inboxSvc.pump(ctx, app)
 	return app.Run()
 }
 

@@ -195,6 +195,47 @@ export function plainLine(s: string): string {
   return out.replace(/\s+/g, " ").trim()
 }
 
+// plainBlock is plainLine for multi-line text shown with pre-wrap: the same
+// characters are neutralised, but newlines and tabs stay so the message
+// keeps its shape. It is still rendered as a text node, never as HTML or
+// markdown.
+export function plainBlock(s: string): string {
+  let out = ""
+  for (const ch of (s ?? "").replace(/\r\n?/g, "\n")) {
+    const c = ch.codePointAt(0) ?? 0
+    out += c === 0x0a || c === 0x09 || !hidden(c) ? ch : " "
+  }
+  return out.replace(/\n{4,}/g, "\n\n\n").trim()
+}
+
+// untilTime formats a future time against now: "in 42s", "in 5m",
+// "in 3h", "in 2d", or "expired".
+export function untilTime(then: Date | null, now: Date): string {
+  if (!then) return "never"
+  const s = Math.round((then.getTime() - now.getTime()) / 1000)
+  if (s <= 0) return "expired"
+  if (s < 60) return `in ${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `in ${m}m`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `in ${h}h ${m % 60}m`
+  return `in ${Math.floor(h / 24)}d`
+}
+
+// shortRepo names a repo_key in a row: "owner/name" for a hosted remote,
+// "local repo 1a2b3c4" for a root-commit key.
+export function shortRepo(key: string): string {
+  if (!key) return ""
+  if (key.startsWith("root:")) return `local repo ${key.slice(5, 12)}`
+  const parts = key.split("/").filter(Boolean)
+  return parts.length > 2 ? parts.slice(-2).join("/") : key
+}
+
+// sessionShort is the first 8 characters of a key's session part.
+export function sessionShort(key: string): string {
+  return (key.split("/").pop() ?? key).slice(0, 8)
+}
+
 // hidden is true for C0/C1 controls, zero-width marks, bidi embeddings,
 // overrides and isolates, and the BOM.
 function hidden(c: number): boolean {

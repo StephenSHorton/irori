@@ -19,6 +19,8 @@ type Seed = {
   entry: string
   agoSec: number
   text: string
+  repoKey: string
+  mode: string
 }
 
 const seeds: Seed[] = [
@@ -32,6 +34,8 @@ const seeds: Seed[] = [
     entry: "cli",
     agoSec: 3,
     text: "Sample text. Running the example test suite; two of five sample cases pass so far.",
+    repoKey: "github.com/sample-org/example-app",
+    mode: "bypassPermissions",
   },
   {
     session: "sample02-synthetic-session",
@@ -43,6 +47,8 @@ const seeds: Seed[] = [
     entry: "cli",
     agoSec: 95,
     text: "Sample text. <b>Tags</b> and **markdown** stay literal here because agent text is untrusted.",
+    repoKey: "github.com/sample-org/example-app",
+    mode: "bypassPermissions",
   },
   {
     session: "sample03-synthetic-session",
@@ -54,6 +60,8 @@ const seeds: Seed[] = [
     entry: "desktop",
     agoSec: 60 * 42,
     text: "Sample text. The placeholder docs are drafted; waiting for a made-up review.",
+    repoKey: "root:5a3c1e0b9d7f2a4c6e8b0d1f3a5c7e9b1d3f5a7c",
+    mode: "default",
   },
   {
     session: "sample04-synthetic-session",
@@ -65,6 +73,8 @@ const seeds: Seed[] = [
     entry: "cli",
     agoSec: 60 * 60 * 5,
     text: "",
+    repoKey: "",
+    mode: "",
   },
 ]
 
@@ -97,6 +107,8 @@ export function sampleRoster(now: Date) {
             lastActivity: at(s.agoSec).toISOString(),
             lastText: s.text,
             transcript: "",
+            repoKey: s.repoKey,
+            permissionMode: s.mode,
           })
       )
 

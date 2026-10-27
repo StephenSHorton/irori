@@ -5,7 +5,9 @@ package main
 
 import (
 	_ "embed"
+	"fmt"
 	"log"
+	"strings"
 	"sync"
 
 	"github.com/StephenSHorton/irori/internal/update"
@@ -27,7 +29,8 @@ func init() {
 //
 //	[Restart to update to vX]   only while an update is ready (SetUpdater)
 //	Open Irori
-//	<status line>               disabled; SetStatus changes it
+//	<status line>               disabled; SetStatus changes it, SetInbox adds unread/held
+//	Pause all wakes             checkbox bound to the inbox policy (SetPause)
 //	Launch at login             checkbox, off until the user ticks it
 //	Quit Irori
 //
@@ -40,9 +43,11 @@ type TrayController struct {
 	version string
 	tray    *application.SystemTray
 
-	mu      sync.Mutex
-	status  string
-	updater *update.UpdateService
+	mu       sync.Mutex
+	status   string
+	updater  *update.UpdateService
+	counts   InboxCounts
+	setPause func(bool) error // nil until SetPause; hides the checkbox
 }
 
 // setupTray installs the tray icon and returns its controller. show opens or
@@ -81,6 +86,44 @@ func (t *TrayController) SetStatus(s string) {
 	t.rebuild()
 }
 
+// SetInbox updates the unread/held suffix of the status line and the pause
+// checkbox. Unchanged counts don't rebuild the menu.
+func (t *TrayController) SetInbox(c InboxCounts) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	same := t.counts == c
+	t.counts = c
+	t.mu.Unlock()
+	if !same {
+		t.rebuild()
+	}
+}
+
+// SetPause shows the "Pause all wakes" checkbox; set turns pause-all on or off.
+func (t *TrayController) SetPause(set func(bool) error) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	t.setPause = set
+	t.mu.Unlock()
+	t.rebuild()
+}
+
+// statusLine is status plus " · N unread · M held" for the nonzero counts.
+func statusLine(status string, c InboxCounts) string {
+	parts := []string{status}
+	if c.Unread > 0 {
+		parts = append(parts, fmt.Sprintf("%d unread", c.Unread))
+	}
+	if c.Held > 0 {
+		parts = append(parts, fmt.Sprintf("%d held", c.Held))
+	}
+	return strings.Join(parts, " · ")
+}
+
 // SetUpdater lets the menu offer "Restart to update" while an update is ready.
 // The tray follows update:status events, so the service must be hooked up
 // (setupUpdater) for the item to appear.
@@ -102,11 +145,12 @@ func (t *TrayController) open() {
 
 func (t *TrayController) rebuild() {
 	t.mu.Lock()
-	status, u := t.status, t.updater
+	status, u, counts, setPause := t.status, t.updater, t.counts, t.setPause
 	t.mu.Unlock()
 	if status == "" {
 		status = versionLine(t.version)
 	}
+	status = statusLine(status, counts)
 
 	menu := application.NewMenu()
 	if u != nil {
@@ -125,6 +169,20 @@ func (t *TrayController) rebuild() {
 	menu.Add("Open Irori").OnClick(func(*application.Context) { t.open() })
 	menu.Add(status).SetEnabled(false)
 	menu.AddSeparator()
+
+	if setPause != nil {
+		menu.AddCheckbox("Pause all wakes", counts.Paused).OnClick(func(ctx *application.Context) {
+			want := ctx.IsChecked()
+			go func() {
+				// The policy change comes back through SetInbox, which
+				// rebuilds the menu; on failure, rebuild to snap it back.
+				if err := setPause(want); err != nil {
+					log.Printf("irori: pause all wakes: %v", err)
+					t.rebuild()
+				}
+			}()
+		})
+	}
 
 	on, err := launchAtLogin(t.app)
 	if err != nil {

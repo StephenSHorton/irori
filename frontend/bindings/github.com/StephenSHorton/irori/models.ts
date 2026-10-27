@@ -8,6 +8,113 @@ import { Create as $Create } from "@wailsio/runtime";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as presence$0 from "./internal/presence/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as time$0 from "../../../time/models.js";
+
+/**
+ * GoneSession is a recently gone Claude Code session the person may revive.
+ */
+export class GoneSession {
+    "key": string;
+    "sessionId": string;
+    "name": string;
+    "title": string;
+    "cwd": string;
+    "repoKey": string;
+    "goneAt": time$0.Time;
+    "reason": string;
+
+    /**
+     * its transcript file still exists, so --resume has something to load
+     */
+    "transcript": boolean;
+
+    /**
+     * Claude Code has accepted the workspace trust dialog for cwd or a parent
+     */
+    "trusted": boolean;
+
+    /** Creates a new GoneSession instance. */
+    constructor($$source: Partial<GoneSession> = {}) {
+        if (!("key" in $$source)) {
+            this["key"] = "";
+        }
+        if (!("sessionId" in $$source)) {
+            this["sessionId"] = "";
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("title" in $$source)) {
+            this["title"] = "";
+        }
+        if (!("cwd" in $$source)) {
+            this["cwd"] = "";
+        }
+        if (!("repoKey" in $$source)) {
+            this["repoKey"] = "";
+        }
+        if (!("goneAt" in $$source)) {
+            this["goneAt"] = null;
+        }
+        if (!("reason" in $$source)) {
+            this["reason"] = "";
+        }
+        if (!("transcript" in $$source)) {
+            this["transcript"] = false;
+        }
+        if (!("trusted" in $$source)) {
+            this["trusted"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GoneSession instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GoneSession {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GoneSession($$parsedSource as Partial<GoneSession>);
+    }
+}
+
+/**
+ * InboxCounts is the inbox:changed payload and the tray's numbers.
+ * 
+ * Unread counts deliveries an agent hasn't picked up yet: queued, or handed
+ * to a wake but not yet engaged (delivered). Held counts deliveries policy
+ * stopped that wait for the person.
+ */
+export class InboxCounts {
+    "unread": number;
+    "held": number;
+    "paused": boolean;
+
+    /** Creates a new InboxCounts instance. */
+    constructor($$source: Partial<InboxCounts> = {}) {
+        if (!("unread" in $$source)) {
+            this["unread"] = 0;
+        }
+        if (!("held" in $$source)) {
+            this["held"] = 0;
+        }
+        if (!("paused" in $$source)) {
+            this["paused"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new InboxCounts instance from a string or object.
+     */
+    static createFrom($$source: any = {}): InboxCounts {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new InboxCounts($$parsedSource as Partial<InboxCounts>);
+    }
+}
 
 /**
  * RosterChange is the roster:changed payload: the change plus the full roster
