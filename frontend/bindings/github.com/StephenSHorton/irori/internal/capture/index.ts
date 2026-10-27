@@ -6,6 +6,7 @@ export {
     CommitView,
     Committer,
     DecisionView,
+    Dropped,
     EditRow,
     Entry,
     EntryKind,

@@ -735,3 +735,29 @@ func TestRunAndSubscribe(t *testing.T) {
 		}
 	}
 }
+
+// The live order on a real machine: the edit is made and committed before
+// the tailer has read the edit, so the root is first seen after its commit.
+// First sight must still pick that commit up and link it exactly.
+func TestCommitBeforeRootFirstSeen(t *testing.T) {
+	r := newRig(t, nil)
+	dir := newRepo(t, "false")
+	w := r.session(sidA, dir)
+	foo := filepath.Join(dir, "foo.go")
+	content := "package foo\n"
+	now := time.Now().Add(-5 * time.Second)
+	w.write(flat(
+		[]obj{w.prompt("p1", "add foo", now)},
+		w.writeTool("w1", foo, content, nil, now.Add(time.Second)),
+	)...)
+	writeFile(t, foo, content)
+	gitCmd(t, dir, "add", "foo.go")
+	gitCmd(t, dir, "commit", "-q", "-m", "add foo")
+	sha := head(t, dir)
+	r.tail()
+	r.repos()
+	cv, ok := r.c.Commit(sha)
+	if !ok || cv.Link == nil || len(cv.Link.Files) != 1 || cv.Link.Files[0].Link != "exact" {
+		t.Fatalf("commit %s = %+v, ok %v", sha, cv, ok)
+	}
+}

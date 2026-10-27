@@ -275,6 +275,57 @@ export class DecisionView {
 }
 
 /**
+ * Dropped counts heuristic edits capture discarded as noise.
+ */
+export class Dropped {
+    /**
+     * binary or build-artifact extension, or under .git/node_modules
+     */
+    "artifact": number;
+
+    /**
+     * not inside a known git worktree
+     */
+    "outsideRepo": number;
+
+    /**
+     * git check-ignore says the path is ignored
+     */
+    "ignored": number;
+
+    /**
+     * past maxShellEdits in one shell call
+     */
+    "overCap": number;
+
+    /** Creates a new Dropped instance. */
+    constructor($$source: Partial<Dropped> = {}) {
+        if (!("artifact" in $$source)) {
+            this["artifact"] = 0;
+        }
+        if (!("outsideRepo" in $$source)) {
+            this["outsideRepo"] = 0;
+        }
+        if (!("ignored" in $$source)) {
+            this["ignored"] = 0;
+        }
+        if (!("overCap" in $$source)) {
+            this["overCap"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Dropped instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Dropped {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Dropped($$parsedSource as Partial<Dropped>);
+    }
+}
+
+/**
  * EditRow is one capture.edit payload.
  */
 export class EditRow {
@@ -446,6 +497,12 @@ export class Status {
     "backfilling": boolean;
     "lastError"?: string;
 
+    /**
+     * Dropped counts heuristic (shell) edits discarded as noise since this
+     * process started; they are never logged, so the counts aren't replayed.
+     */
+    "dropped": Dropped;
+
     /** Creates a new Status instance. */
     constructor($$source: Partial<Status> = {}) {
         if (!("files" in $$source)) {
@@ -463,6 +520,9 @@ export class Status {
         if (!("backfilling" in $$source)) {
             this["backfilling"] = false;
         }
+        if (!("dropped" in $$source)) {
+            this["dropped"] = (new Dropped());
+        }
 
         Object.assign(this, $$source);
     }
@@ -471,7 +531,11 @@ export class Status {
      * Creates a new Status instance from a string or object.
      */
     static createFrom($$source: any = {}): Status {
+        const $$createField6_0 = $$createType24;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("dropped" in $$parsedSource) {
+            $$parsedSource["dropped"] = $$createField6_0($$parsedSource["dropped"]);
+        }
         return new Status($$parsedSource as Partial<Status>);
     }
 }
@@ -574,7 +638,7 @@ export class Timeline {
      * Creates a new Timeline instance from a string or object.
      */
     static createFrom($$source: any = {}): Timeline {
-        const $$createField1_0 = $$createType25;
+        const $$createField1_0 = $$createType26;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("entries" in $$parsedSource) {
             $$parsedSource["entries"] = $$createField1_0($$parsedSource["entries"]);
@@ -684,7 +748,7 @@ export class TurnRow {
      * Creates a new TurnRow instance from a string or object.
      */
     static createFrom($$source: any = {}): TurnRow {
-        const $$createField16_0 = $$createType27;
+        const $$createField16_0 = $$createType28;
         const $$createField18_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tools" in $$parsedSource) {
@@ -804,9 +868,9 @@ export class TurnView {
      * Creates a new TurnView instance from a string or object.
      */
     static createFrom($$source: any = {}): TurnView {
-        const $$createField16_0 = $$createType27;
+        const $$createField16_0 = $$createType28;
         const $$createField18_0 = $$createType4;
-        const $$createField21_0 = $$createType29;
+        const $$createField21_0 = $$createType30;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tools" in $$parsedSource) {
             $$parsedSource["tools"] = $$createField16_0($$parsedSource["tools"]);
@@ -882,9 +946,9 @@ export class WhyResult {
      */
     static createFrom($$source: any = {}): WhyResult {
         const $$createField5_0 = $$createType21;
-        const $$createField6_0 = $$createType29;
-        const $$createField7_0 = $$createType31;
-        const $$createField8_0 = $$createType33;
+        const $$createField6_0 = $$createType30;
+        const $$createField7_0 = $$createType32;
+        const $$createField8_0 = $$createType34;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("commit" in $$parsedSource) {
             $$parsedSource["commit"] = $$createField5_0($$parsedSource["commit"]);
@@ -927,13 +991,14 @@ const $$createType20 = CommitView.createFrom;
 const $$createType21 = $Create.Nullable($$createType20);
 const $$createType22 = ledger$0.Entry.createFrom;
 const $$createType23 = $Create.Nullable($$createType22);
-const $$createType24 = Entry.createFrom;
-const $$createType25 = $Create.Array($$createType24);
-const $$createType26 = transcript$0.ToolCall.createFrom;
-const $$createType27 = $Create.Array($$createType26);
-const $$createType28 = EditRow.createFrom;
-const $$createType29 = $Create.Array($$createType28);
-const $$createType30 = TurnRow.createFrom;
-const $$createType31 = $Create.Array($$createType30);
-const $$createType32 = DecisionView.createFrom;
-const $$createType33 = $Create.Array($$createType32);
+const $$createType24 = Dropped.createFrom;
+const $$createType25 = Entry.createFrom;
+const $$createType26 = $Create.Array($$createType25);
+const $$createType27 = transcript$0.ToolCall.createFrom;
+const $$createType28 = $Create.Array($$createType27);
+const $$createType29 = EditRow.createFrom;
+const $$createType30 = $Create.Array($$createType29);
+const $$createType31 = TurnRow.createFrom;
+const $$createType32 = $Create.Array($$createType31);
+const $$createType33 = DecisionView.createFrom;
+const $$createType34 = $Create.Array($$createType33);

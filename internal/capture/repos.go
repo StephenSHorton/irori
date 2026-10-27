@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/StephenSHorton/irori/internal/capture/gitlink"
 	"github.com/StephenSHorton/irori/internal/capture/transcript"
@@ -80,6 +81,16 @@ func (c *capture) watchRoot(ctx context.Context, r repoSeen) {
 				st.offset = fi.Size()
 				if ok && first <= st.offset {
 					st.offset = first
+				}
+				// The root is usually first seen through an edit that is
+				// tailed seconds after it was made, and backfill sees roots
+				// hours late, so commits made since that root's oldest captured
+				// edit may already be in the log. Start at the first movement
+				// after it instead.
+				if since, ok := c.oldestEditAt(n); ok {
+					if off, ok := reflogOffsetSince(st.logPath, fi.Size(), since.Truncate(time.Second)); ok && off < st.offset {
+						st.offset = off
+					}
 				}
 			}
 			c.cursors.setReflog(n, st.offset)
@@ -432,4 +443,53 @@ func (c *capture) relink(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// oldestEditAt is the time of the oldest captured edit under a root.
+func (c *capture) oldestEditAt(n string) (time.Time, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	var oldest time.Time
+	for _, e := range c.editList {
+		if e.Root != "" && normRoot(e.Root) == n && (oldest.IsZero() || e.At.Before(oldest)) {
+			oldest = e.At
+		}
+	}
+	return oldest, !oldest.IsZero()
+}
+
+// reflogOffsetSince is the byte offset of the first logs/HEAD line at or
+// after since, looking only at the last maxReflogRead bytes. ok is false
+// when no such line is there.
+func reflogOffsetSince(path string, size int64, since time.Time) (int64, bool) {
+	start := max(0, size-maxReflogRead)
+	fh, err := os.Open(path)
+	if err != nil {
+		return 0, false
+	}
+	defer fh.Close()
+	data, err := io.ReadAll(io.NewSectionReader(fh, start, size-start))
+	if err != nil {
+		return 0, false
+	}
+	off := start
+	if start > 0 {
+		// Skip the partial line the window starts in.
+		i := bytes.IndexByte(data, '\n')
+		if i < 0 {
+			return 0, false
+		}
+		data, off = data[i+1:], off+int64(i+1)
+	}
+	for len(data) > 0 {
+		i := bytes.IndexByte(data, '\n')
+		if i < 0 {
+			break
+		}
+		if es, _ := gitlink.ParseReflog(data[:i+1]); len(es) == 1 && !es[0].At.Before(since) {
+			return off, true
+		}
+		data, off = data[i+1:], off+int64(i+1)
+	}
+	return 0, false
 }
