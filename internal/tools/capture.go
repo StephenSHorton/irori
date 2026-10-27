@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -532,35 +533,52 @@ func (s *set) why(ctx context.Context, c Caller, raw json.RawMessage) string {
 	default:
 		b.WriteString("No line given: showing the newest recorded edits of the file. Give line for git blame.\n")
 	}
+	// Design §8: always the decisions anchored there. They are written last
+	// but measured first, so the turns and edits get only the room left and
+	// the generic clip never cuts the decisions off.
+	var dec strings.Builder
+	if len(res.Decisions) > 0 {
+		dec.WriteString("Decisions anchored here:\n")
+		for _, d := range res.Decisions {
+			writeDecision(&dec, n, d, now)
+		}
+	} else {
+		dec.WriteString("No decisions anchored here.\n")
+	}
+	budget := MaxResult - b.Len() - dec.Len() - 160
 	if len(res.Turns) > 0 {
 		b.WriteString("Turns:\n")
-		for _, t := range res.Turns {
-			fmt.Fprintf(&b, "- %s turn %s, %s\n", n.who(t.Key), oneLine(t.TurnID, 80), stamp(now, t.StartedAt))
+		for i, t := range res.Turns {
+			var line strings.Builder
+			fmt.Fprintf(&line, "- %s turn %s, %s\n", n.who(t.Key), oneLine(t.TurnID, 80), stamp(now, t.StartedAt))
 			if p := strings.TrimSpace(t.Prompt); p != "" {
-				fmt.Fprintf(&b, "  prompt: %s\n", quoted(p, maxPromptRunes))
+				fmt.Fprintf(&line, "  prompt: %s\n", quoted(p, maxPromptRunes))
 			}
 			if r := strings.TrimSpace(t.Reply); r != "" {
-				fmt.Fprintf(&b, "  reply: %s\n", quoted(r, maxReplyRunes))
+				fmt.Fprintf(&line, "  reply: %s\n", quoted(r, maxReplyRunes))
 			}
+			if budget -= line.Len(); budget < 0 {
+				fmt.Fprintf(&b, "(%d more turns not shown; the timeline tool has them)\n", len(res.Turns)-i)
+				break
+			}
+			b.WriteString(line.String())
 		}
 	}
 	if len(res.Edits) > 0 {
 		b.WriteString("Edits, newest first:\n")
-		for _, e := range res.Edits {
-			fmt.Fprintf(&b, "- %s %s +%d/-%d (%s) by %s, turn %s\n", stamp(now, e.At), oneLine(e.Tool, 40), e.Adds, e.Dels,
+		for i, e := range res.Edits {
+			line := fmt.Sprintf("- %s %s +%d/-%d (%s) by %s, turn %s\n", stamp(now, e.At), oneLine(e.Tool, 40), e.Adds, e.Dels,
 				oneLine(e.Fidelity, 20), n.who(e.Key), oneLine(e.TurnID, 80))
+			if budget -= len(line); budget < 0 {
+				fmt.Fprintf(&b, "(%d more edits not shown)\n", len(res.Edits)-i)
+				break
+			}
+			b.WriteString(line)
 		}
 	} else if res.BlameSHA == "" {
 		b.WriteString("No recorded edits of this file.\n")
 	}
-	if len(res.Decisions) > 0 {
-		b.WriteString("Decisions anchored here:\n")
-		for _, d := range res.Decisions {
-			writeDecision(&b, n, d, now)
-		}
-	} else {
-		b.WriteString("No decisions anchored here.\n")
-	}
+	b.WriteString(dec.String())
 	return b.String()
 }
 
@@ -605,6 +623,10 @@ func (s *set) decisionRecord(ctx context.Context, c Caller, raw json.RawMessage)
 		Statement: strings.TrimSpace(a.Statement), Why: strings.TrimSpace(a.Why),
 		Path: path, Lines: strings.TrimSpace(a.Lines), Cwd: cwd, Supersedes: sup,
 	})
+	if errors.Is(err, capture.ErrNoRepo) {
+		// No repo argument here, so mapErr's "repo = ..." hint doesn't apply.
+		return errText(err.Error() + ". Give a file inside a git repo (absolute, or relative to your working directory), or leave path out for a decision not anchored to code.")
+	}
 	if err != nil {
 		return mapErr(err)
 	}

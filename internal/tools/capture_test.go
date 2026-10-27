@@ -358,12 +358,52 @@ func TestDecisionRecordErrors(t *testing.T) {
 	r.fails(callA, "decision_record", map[string]any{"statement": "x", "path": "nope.go"}, "no such file")
 	r.fails(callA, "decision_record", map[string]any{"statement": strings.Repeat("x", 501)}, "too long")
 	r.fails(callA, "decision_record", map[string]any{"statement": "x", "supersedes": "d-1"}, "supersedes should be an array")
+	// decision_record has no repo argument, so its no-repo hint mustn't offer one.
+	outside := canonDir(t, t.TempDir())
+	writeFile(t, filepath.Join(outside, "x.txt"), "x\n")
+	out := r.fails(callA, "decision_record", map[string]any{"statement": "x", "path": filepath.Join(outside, "x.txt")}, "not inside a known git repo")
+	hasNot(t, out, "repo =")
+	out = r.fails(callA, "decision_record", map[string]any{"statement": "x", "path": "../x.txt"}, "not inside a known git repo")
+	hasNot(t, out, "repo =")
 	r.grokNoCwd()
 	r.fails(grokCaller(), "decision_record", map[string]any{"statement": "x", "path": "foo.go"}, "no working directory for you", "absolute path")
-	out := r.ok(grokCaller(), "decision_record", map[string]any{"statement": "grok decides", "path": filepath.Join(r.dir, "foo.go")})
+	out = r.ok(grokCaller(), "decision_record", map[string]any{"statement": "grok decides", "path": filepath.Join(r.dir, "foo.go")})
 	has(t, out, "anchored at foo.go in "+r.repoKey)
 	has(t, r.ok(callA, "decisions", nil), "grok decides", "by grokker ("+keyG+")")
 	r.fails(grokCaller(), "decisions", map[string]any{"path": "foo.go"}, "no working directory for you", "repo")
 	has(t, r.ok(grokCaller(), "decisions", map[string]any{"path": "foo.go", "repo": r.repoKey}), "1 current decisions", "grok decides")
 	r.fails(callA, "decisions", map[string]any{"mine": true}, "unknown argument")
+}
+
+// why keeps the decisions anchored at a line even when the turns and edits
+// behind it are big enough to fill the result.
+func TestWhyKeepsDecisionsUnderBigTurns(t *testing.T) {
+	big := strings.Repeat("漢", 300) // 3 bytes a rune, past the excerpt cap
+	r := withCapture(t, func(r *capRig) {
+		t0 := r.clk.now().Add(-time.Hour)
+		edits := []string{r.editID}
+		turns := []string{"p1"}
+		for i := 2; i <= 10; i++ {
+			id, eid := fmt.Sprintf("p%d", i), fmt.Sprintf("e-foo%d", i)
+			at := t0.Add(time.Duration(i) * time.Minute)
+			r.turn(keyA, id, big, big, at, "foo.go")
+			r.append(capture.KindEdit, capture.EditRow{ID: eid, Key: keyA, TurnID: id, ToolUseID: "w" + id, Tool: "Edit",
+				RepoKey: r.repoKey, Root: r.dir, Path: "foo.go", Adds: 1, Fidelity: transcript.Exact, At: at.Add(time.Second)})
+			edits = append(edits, eid)
+			turns = append(turns, id)
+		}
+		r.append(capture.KindCommitLink, capture.CommitLink{RepoKey: r.repoKey, SHA: r.sha,
+			Committer: &capture.Committer{Key: keyA, TurnID: "p1"},
+			Files:     []gitlink.FileLink{{Path: "foo.go", Link: gitlink.LinkExact, Edits: edits}},
+			Sessions:  []string{keyA}, Turns: turns, At: t0.Add(11 * time.Minute)})
+	})
+	for _, s := range []string{"keep A tiny", "and B small"} {
+		r.ok(callA, "decision_record", map[string]any{"statement": s, "why": big, "path": "foo.go", "lines": "3"})
+	}
+	out := r.ok(callA, "why", map[string]any{"path": "foo.go", "line": 3})
+	has(t, out, "Decisions anchored here:", `statement: "keep A tiny"`, `statement: "and B small"`, "Turns:", "not shown")
+	hasNot(t, out, "[truncated:")
+	if len(out) > MaxResult {
+		t.Fatalf("why is %d bytes, over %d", len(out), MaxResult)
+	}
 }
