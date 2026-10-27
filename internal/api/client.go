@@ -123,6 +123,26 @@ func (c *Client) events(ctx context.Context, kinds []string, limit int) ([]store
 	return evs, err
 }
 
+func (c *Client) lastSeq(ctx context.Context, deviceID string) (int64, error) {
+	if deviceID == "" {
+		return 0, errors.New("irori api: LastSeq needs a device id")
+	}
+	// A device's own rows are HLC-ordered by seq, so its newest row has the
+	// top seq.
+	q := url.Values{"device": {deviceID}, "limit": {"1"}}
+	var evs []store.Event
+	if err := c.impl.get(ctx, "/v1/events", q, true, &evs); err != nil {
+		return 0, err
+	}
+	if len(evs) == 0 {
+		return 0, nil
+	}
+	if evs[0].DeviceID != deviceID {
+		return 0, errors.New("irori api: this Core does not filter events by device; update it")
+	}
+	return evs[0].Seq, nil
+}
+
 func (c *client) get(ctx context.Context, path string, q url.Values, auth bool, out any) error {
 	u := c.base + path
 	if len(q) > 0 {

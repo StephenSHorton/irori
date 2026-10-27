@@ -169,6 +169,7 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 			f.Kinds = append(f.Kinds, k)
 		}
 	}
+	f.DeviceID = q.Get("device")
 	if v := q.Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 {

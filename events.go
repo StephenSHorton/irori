@@ -66,40 +66,46 @@ func runEvents(args []string) error {
 		return err
 	}
 	p.self = self.ID
-	last := *since
-	if !*follow || *since < 0 {
-		if *limit > 0 {
-			evs, err := c.Events(ctx, kinds, *limit)
-			if err != nil {
-				return err
-			}
-			slices.Reverse(evs) // the route answers newest first
-			for _, ev := range evs {
-				if err := p.event(ev); err != nil {
-					return err
-				}
-			}
-		}
-		if !*follow {
-			return nil
-		}
-		// Resume after the newest of this device's rows already printed, so
-		// the stream neither repeats nor skips them.
-		last = p.lastSelf
-		if last == 0 {
-			last = api.NoReplay
-		}
+	if !*follow {
+		return p.recent(ctx, c, kinds, *limit)
 	}
-	return followEvents(ctx, dir, c, kinds, last, p)
+	return followEvents(ctx, dir, c, kinds, *since, *limit, p)
 }
 
 // followEvents streams rows until ctx ends, redialling when the Core goes
 // away and reopening after a resync, both resuming after p.lastSelf.
-func followEvents(ctx context.Context, dir string, c *api.Client, kinds []string, since int64, p *eventPrinter) error {
+// since < 0 starts after this device's newest row (looked up first, so a
+// resync before any own row is printed still replays what was dropped) and
+// prints the newest recent rows once the first stream is open, so a row
+// written meanwhile is in the list or the stream and printed once. since >=
+// 0 replays from there and prints no recent rows.
+func followEvents(ctx context.Context, dir string, c *api.Client, kinds []string, since int64, recent int, p *eventPrinter) error {
+	if since < 0 {
+		top, err := c.LastSeq(ctx, p.self)
+		if err != nil {
+			return err
+		}
+		since = top
+	} else {
+		recent = 0
+	}
+	p.lastSelf = max(p.lastSelf, since)
+	opened := func() error { // runs once each stream is open
+		if recent <= 0 {
+			return nil
+		}
+		if err := p.recent(ctx, c, kinds, recent); err != nil {
+			return err
+		}
+		recent = 0
+		return nil
+	}
 	wait := followRetryMin
+	idle := 0 // resyncs in a row that printed nothing and moved no seq
 	for {
 		if c != nil {
-			err := streamOnce(ctx, c, kinds, since, p)
+			from, printed := p.lastSelf, p.printed
+			err := streamOnce(ctx, c, kinds, from, p, opened)
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -110,15 +116,20 @@ func followEvents(ctx context.Context, dir string, c *api.Client, kinds []string
 			if errors.Is(err, errOutput) {
 				return err
 			}
-			if p.lastSelf > 0 {
-				since = p.lastSelf
+			if p.lastSelf != from || p.printed != printed {
+				idle = 0
 			}
 			if errors.Is(err, errResync) {
-				wait = followRetryMin
-				continue // reopen now, resuming from the last seq
+				if idle++; idle == 1 {
+					wait = followRetryMin
+					continue // reopen now, resuming from the last seq
+				}
+				// Resynced again with nothing to show for it: back off
+				// rather than spin on a row that cannot be read.
+			} else {
+				fmt.Fprintf(os.Stderr, "irori events: stream ended (%v); reconnecting\n", errOr(err, "Core closed it"))
+				c, idle = nil, 0
 			}
-			fmt.Fprintf(os.Stderr, "irori events: stream ended (%v); reconnecting\n", errOr(err, "Core closed it"))
-			c = nil
 		}
 		select {
 		case <-ctx.Done():
@@ -126,6 +137,9 @@ func followEvents(ctx context.Context, dir string, c *api.Client, kinds []string
 		case <-time.After(wait):
 		}
 		wait = min(wait*2, followRetryMax)
+		if c != nil {
+			continue
+		}
 		nc, err := api.Dial(ctx, dir)
 		if err != nil {
 			continue
@@ -146,13 +160,18 @@ func errOr(err error, s string) string {
 	return s
 }
 
-// streamOnce runs one stream until it ends. A resync is printed and
-// returned as errResync, so the caller reopens with since.
-func streamOnce(ctx context.Context, c *api.Client, kinds []string, since int64, p *eventPrinter) error {
+// streamOnce runs one stream until it ends, calling opened once it is open.
+// A resync is printed and returned as errResync, so the caller reopens with
+// since; an own row skipped as too long counts as seen, so the reopened
+// stream moves past it.
+func streamOnce(ctx context.Context, c *api.Client, kinds []string, since int64, p *eventPrinter, opened func() error) error {
 	sctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ch, err := c.EventsStream(sctx, kinds, since)
 	if err != nil {
+		return err
+	}
+	if err := opened(); err != nil {
 		return err
 	}
 	for it := range ch {
@@ -160,6 +179,9 @@ func streamOnce(ctx context.Context, c *api.Client, kinds []string, since int64,
 		case it.Err != nil:
 			return it.Err
 		case it.Resync:
+			if it.SkippedDevice == p.self && it.SkippedSeq > p.lastSelf {
+				p.lastSelf = it.SkippedSeq
+			}
 			if p.resync() != nil {
 				return errOutput
 			}
@@ -190,12 +212,25 @@ type eventPrinter struct {
 	json     bool
 	self     string // this device's id; other devices' rows are tagged
 	lastSelf int64
+	printed  int             // rows written so far
+	seen     map[rowKey]bool // recent rows of a follow, skipped when they arrive live
+}
+
+// rowKey names one row of the log.
+type rowKey struct {
+	device string
+	seq    int64
 }
 
 func (p *eventPrinter) event(ev store.Event) error {
+	if k := (rowKey{ev.DeviceID, ev.Seq}); p.seen[k] {
+		delete(p.seen, k)
+		return nil
+	}
 	if ev.DeviceID == p.self && ev.Seq > p.lastSelf {
 		p.lastSelf = ev.Seq
 	}
+	p.printed++
 	if p.json {
 		raw, err := json.Marshal(ev)
 		if err != nil {
@@ -206,6 +241,29 @@ func (p *eventPrinter) event(ev store.Event) error {
 	}
 	_, err := io.WriteString(p.w, formatEvent(ev, p.self, time.Local)+"\n")
 	return err
+}
+
+// recent prints the newest limit rows, oldest first, and remembers them so
+// an open stream does not print them again.
+func (p *eventPrinter) recent(ctx context.Context, c *api.Client, kinds []string, limit int) error {
+	if limit <= 0 {
+		return nil
+	}
+	evs, err := c.Events(ctx, kinds, limit)
+	if err != nil {
+		return err
+	}
+	slices.Reverse(evs) // the route answers newest first
+	if p.seen == nil {
+		p.seen = map[rowKey]bool{}
+	}
+	for _, ev := range evs {
+		if err := p.event(ev); err != nil {
+			return errOutput
+		}
+		p.seen[rowKey{ev.DeviceID, ev.Seq}] = true
+	}
+	return nil
 }
 
 func (p *eventPrinter) resync() error {

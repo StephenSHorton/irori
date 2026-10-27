@@ -12,6 +12,7 @@
 //	GET /v1/device                -> device.Identity
 //	GET /v1/agents                -> []presence.AgentCard
 //	GET /v1/events?kind=&limit=   -> []store.Event (kind may repeat; prefix "agent.")
+//	               &device=       -> only that device's rows
 //	GET /v1/events/stream         -> NDJSON of store.Event (routes_events.go)
 //
 // CONTRACT (implemented by the discovery/api work package; keep these signatures):
@@ -103,4 +104,11 @@ func (c *Client) Device(ctx context.Context) (device.Identity, error)      { ret
 func (c *Client) Agents(ctx context.Context) ([]presence.AgentCard, error) { return c.agents(ctx) }
 func (c *Client) Events(ctx context.Context, kinds []string, limit int) ([]store.Event, error) {
 	return c.events(ctx, kinds, limit)
+}
+
+// LastSeq is the newest seq of deviceID's rows in the log, 0 when it has
+// none. With this device's id it is a since for EventsStream that resumes
+// after every row already written.
+func (c *Client) LastSeq(ctx context.Context, deviceID string) (int64, error) {
+	return c.lastSeq(ctx, deviceID)
 }

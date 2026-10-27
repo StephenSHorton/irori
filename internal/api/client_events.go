@@ -26,10 +26,15 @@ const maxEventLine = 8 << 20
 // StreamItem is one item of EventsStream: an Event, a Resync signal (rows
 // were dropped: re-read with Events), or a final Err just before the
 // channel closes. A clean end (ctx cancelled, server shut down) has no Err.
+// A Resync for a line over maxEventLine names the skipped row in
+// SkippedDevice and SkippedSeq when its head was readable, so a reader
+// resuming with since can move past it instead of being sent it again.
 type StreamItem struct {
-	Event  store.Event
-	Resync bool
-	Err    error
+	Event         store.Event
+	Resync        bool
+	Err           error
+	SkippedDevice string
+	SkippedSeq    int64
 }
 
 // EventsStream opens GET /v1/events/stream (routes_events.go). kinds are
@@ -84,9 +89,13 @@ func (c *Client) EventsStream(ctx context.Context, kinds []string, since int64) 
 		}
 		r := bufio.NewReaderSize(resp.Body, 64<<10)
 		for {
-			line, oversized, err := readEventLine(r)
-			if oversized && !send(StreamItem{Resync: true}) {
-				return
+			line, skipped, err := readEventLine(r)
+			if skipped != nil {
+				it := StreamItem{Resync: true}
+				it.SkippedDevice, it.SkippedSeq = lineHead(skipped)
+				if !send(it) {
+					return
+				}
 			}
 			if len(line) > 0 {
 				it, perr := parseStreamLine(line)
@@ -128,21 +137,66 @@ func parseStreamLine(line []byte) (StreamItem, error) {
 }
 
 // readEventLine returns the next line trimmed of spaces (a keepalive comes
-// back empty). A line over maxEventLine is skipped whole and reported.
-func readEventLine(r *bufio.Reader) (line []byte, oversized bool, err error) {
+// back empty). A line over maxEventLine is skipped whole, and its start (up
+// to the reader's buffer size) comes back as skipped instead.
+func readEventLine(r *bufio.Reader) (line, skipped []byte, err error) {
 	var buf []byte
 	for {
 		chunk, err := r.ReadSlice('\n')
 		if len(buf)+len(chunk) > maxEventLine {
+			head := append(buf[:0:0], buf[:min(len(buf), r.Size())]...)
+			if len(head) == 0 {
+				head = append(head, chunk...)
+			}
 			for errors.Is(err, bufio.ErrBufferFull) {
 				_, err = r.ReadSlice('\n')
 			}
-			return nil, true, err
+			return nil, head, err
 		}
 		buf = append(buf, chunk...)
 		if errors.Is(err, bufio.ErrBufferFull) {
 			continue
 		}
-		return bytes.TrimSpace(buf), false, err
+		return bytes.TrimSpace(buf), nil, err
 	}
+}
+
+// lineHead reads deviceId and seq from the start of a truncated event line.
+// They come before the payload in a store.Event line; "", 0 when the start
+// does not have them.
+func lineHead(head []byte) (deviceID string, seq int64) {
+	dec := json.NewDecoder(bytes.NewReader(head))
+	dec.UseNumber()
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return "", 0
+	}
+	var gotDev, gotSeq bool
+	for !gotDev || !gotSeq {
+		k, err := dec.Token()
+		key, ok := k.(string)
+		if err != nil || !ok {
+			return "", 0
+		}
+		v, err := dec.Token()
+		if err != nil {
+			return "", 0
+		}
+		switch key {
+		case "deviceId":
+			deviceID, gotDev = v.(string)
+		case "seq":
+			n, ok := v.(json.Number)
+			if !ok {
+				return "", 0
+			}
+			if seq, err = n.Int64(); err != nil {
+				return "", 0
+			}
+			gotSeq = true
+		}
+		if _, ok := v.(json.Delim); ok {
+			return "", 0 // a nested value before both fields: give up
+		}
+	}
+	return deviceID, seq
 }

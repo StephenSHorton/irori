@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -257,5 +258,66 @@ func TestEventsStreamRules(t *testing.T) {
 	c := NewClient(discovery.Lockfile{Port: port, Token: "nope"})
 	if _, err := c.EventsStream(context.Background(), nil, NoReplay); err == nil {
 		t.Fatal("EventsStream with a wrong token succeeded")
+	}
+}
+
+func TestLastSeq(t *testing.T) {
+	st, c := startStore(t)
+	ctx := context.Background()
+	if n, err := c.LastSeq(ctx, "dev1"); err != nil || n != 0 {
+		t.Fatalf("empty log: LastSeq = %d, %v; want 0", n, err)
+	}
+	appendKinds(t, st, "agent.seen", "agent.status") // seq 1..2
+	// A newer replicated row must not hide this device's top seq.
+	ev := store.Event{DeviceID: "dev2", Seq: 1, HLC: hlc.New(time.Now).Now(), Actor: "irori", Kind: "agent.seen", Payload: []byte(`{}`)}
+	if err := st.Insert(ctx, ev); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		dev  string
+		want int64
+	}{{"dev1", 2}, {"dev2", 1}, {"dev3", 0}} {
+		if n, err := c.LastSeq(ctx, tc.dev); err != nil || n != tc.want {
+			t.Errorf("LastSeq(%s) = %d, %v; want %d", tc.dev, n, err, tc.want)
+		}
+	}
+}
+
+func TestEventsStreamOversizedNamesRow(t *testing.T) {
+	st, c := startStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	big, err := st.Append(ctx, "irori", "agent.status", map[string]string{"name": strings.Repeat("x", maxEventLine)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendKinds(t, st, "agent.seen")
+	ch, err := c.EventsStream(ctx, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if it := next(t, ch); !it.Resync || it.SkippedDevice != "dev1" || it.SkippedSeq != big.Seq {
+		t.Fatalf("item %+v, want a resync naming dev1/%d", it, big.Seq)
+	}
+	if it := next(t, ch); it.Event.Seq != big.Seq+1 {
+		t.Fatalf("after the skip got %+v, want seq %d", it, big.Seq+1)
+	}
+}
+
+func TestLineHead(t *testing.T) {
+	for _, tc := range []struct {
+		head string
+		dev  string
+		seq  int64
+	}{
+		{`{"deviceId":"dev1","seq":7,"hlc":1,"payload":{"name":"xx`, "dev1", 7},
+		{`{"seq":9,"deviceId":"dev2","pay`, "dev2", 9},
+		{`{"deviceId":"dev1","payload":{"seq":3},"seq":4}`, "", 0},
+		{`{"deviceId":"dev1","se`, "", 0},
+		{`not json`, "", 0},
+	} {
+		if dev, seq := lineHead([]byte(tc.head)); dev != tc.dev || seq != tc.seq {
+			t.Errorf("lineHead(%q) = %q, %d; want %q, %d", tc.head, dev, seq, tc.dev, tc.seq)
+		}
 	}
 }
