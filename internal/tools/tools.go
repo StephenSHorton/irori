@@ -28,7 +28,11 @@ type Spec struct {
 	Name        string          `json:"name"` // bare: "send", "reply", ...
 	Description string          `json:"description"`
 	InputSchema json.RawMessage `json:"inputSchema"` // JSON Schema object
-	ReadOnly    bool            `json:"readOnly"`
+	// ReadOnly means the tool doesn't change shared state, so a front end may
+	// hint it and retry it. One exception: on the channel path (Grok) inbox
+	// marks the queued deliveries it shows in full as delivered (design §4).
+	// That write is idempotent, so a retried inbox read is still safe.
+	ReadOnly bool `json:"readOnly"`
 	// Clients lists who gets it: "claude" (the mod), "grok" (irori mcp). join and
 	// ack are grok-only.
 	Clients []string `json:"clients"`
@@ -57,13 +61,15 @@ type Set struct {
 // New builds the registry over b.
 func New(b Backend) *Set { return newSet(b) }
 
-// Specs lists tools for a client kind ("claude" or "grok").
+// Specs lists tools for a client kind ("claude" or "grok"); "" lists every
+// tool.
 func (s *Set) Specs(client string) []Spec { return s.specs(client) }
 
 // Call runs one tool. The result is text for the model, at most MaxResult
 // bytes; tool-level failures come back as text starting "Error: " with a nil
 // error (models handle those better). A non-nil error means the call itself
-// was malformed (unknown tool, args not an object).
+// was malformed: ErrUnknownTool, or ErrNotObject when args aren't a JSON
+// object.
 func (s *Set) Call(ctx context.Context, c Caller, name string, args json.RawMessage) (string, error) {
 	return s.call(ctx, c, name, args)
 }

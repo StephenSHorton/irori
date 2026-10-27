@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/StephenSHorton/irori/internal/inbox"
 )
@@ -129,39 +130,97 @@ func (s *set) inbox(ctx context.Context, c Caller, raw json.RawMessage) string {
 	if len(ds) == 0 {
 		return fmt.Sprintf("No %s for you.", what)
 	}
+	channel := c.Path == inbox.PathChannel
+	n := s.roster()
+	now := s.now()
+
+	// Fit whole rows into MaxResult before anything is marked read, so a row
+	// the result can't carry is never cut mid-way and never counted as seen.
+	// Rows are sized with the state they will show after MarkRead
+	// ("delivered" is the longest a queued row can become).
+	head := func(shown int) string {
+		if shown == len(ds) {
+			return fmt.Sprintf("%d %s for you, newest first. Answer with reply (delivery_id), or use defer or skip. %s\n", len(ds), what, untrusted)
+		}
+		return fmt.Sprintf("%d %s for you, newest first; showing the first %d. Answer with reply (delivery_id), or use defer or skip. %s\n", len(ds), what, shown, untrusted)
+	}
+	foot := func(more int) string {
+		if more == 0 {
+			return ""
+		}
+		return fmt.Sprintf("\n[%d more not shown; they stay unread. Answer, defer or skip the ones above, then call inbox again.]\n", more)
+	}
+	budget := MaxResult - len(head(0)) - len(foot(len(ds)))
+	type row struct {
+		d       inbox.Delivery
+		textCap int
+	}
+	var rows []row
+	used := 0
+	for _, d := range ds {
+		if channel && d.State == inbox.Queued {
+			d.State = inbox.Delivered
+		}
+		r := row{d, maxListText}
+		size := len(inboxRow(n, now, r.d, r.textCap))
+		// One row with heavily escaped text can outgrow the whole budget;
+		// shorten the first row's text rather than show nothing.
+		for len(rows) == 0 && size > budget && r.textCap > 64 {
+			r.textCap /= 2
+			size = len(inboxRow(n, now, r.d, r.textCap))
+		}
+		if used+size > budget {
+			break
+		}
+		used += size
+		rows = append(rows, r)
+	}
+
 	// A Grok push isn't delivered until the recipient shows it has it
-	// (design §4); reading the inbox does.
-	if c.Path == inbox.PathChannel {
-		for i, d := range ds {
-			if d.State == inbox.Queued && ib.MarkRead(ctx, c.Sender.Key, d.ID) == nil {
-				ds[i].State = inbox.Delivered
+	// (design §4); reading the inbox does, but only for rows shown in full.
+	if channel {
+		for i := range rows {
+			d := &rows[i].d
+			if d.State != inbox.Delivered {
+				continue
+			}
+			orig := ds[i]
+			if orig.State == inbox.Queued && ib.MarkRead(ctx, c.Sender.Key, d.ID) != nil {
+				d.State = orig.State
 			}
 		}
 	}
-	n := s.roster()
-	now := s.now()
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d %s for you, newest first. Answer with reply (delivery_id), or use defer or skip. %s\n", len(ds), what, untrusted)
-	for _, d := range ds {
-		m := d.Message
-		fmt.Fprintf(&b, "\n- delivery %s [%s] from %s, %s, trust %s\n", d.ID, d.State, n.sender(m.From), ago(now, m.SentAt), oneLine(string(m.Trust), 20))
-		if m.To.Kind == inbox.ToRepo {
-			fmt.Fprintf(&b, "  to repo: %s\n", oneLine(m.To.Value, 160))
-		}
-		if m.ReplyTo != "" {
-			fmt.Fprintf(&b, "  in reply to message: %s\n", oneLine(m.ReplyTo, 80))
-		}
-		if d.State == inbox.Deferred && !d.Until.IsZero() {
-			fmt.Fprintf(&b, "  deferred until: %s\n", in(now, d.Until))
-		}
-		if note := oneLine(d.Note, maxFieldRunes); note != "" {
-			fmt.Fprintf(&b, "  note: %s\n", note)
-		}
-		if r := oneLine(m.Reason, maxFieldRunes); r != "" {
-			fmt.Fprintf(&b, "  reason (untrusted): %s\n", r)
-		}
-		fmt.Fprintf(&b, "  text (untrusted): %s\n", quoted(m.Text, maxListText))
+	b.WriteString(head(len(rows)))
+	for _, r := range rows {
+		b.WriteString(inboxRow(n, now, r.d, r.textCap))
 	}
+	b.WriteString(foot(len(ds) - len(rows)))
+	return b.String()
+}
+
+// inboxRow renders one delivery for the inbox list, text clipped to textCap
+// runes.
+func inboxRow(n names, now time.Time, d inbox.Delivery, textCap int) string {
+	var b strings.Builder
+	m := d.Message
+	fmt.Fprintf(&b, "\n- delivery %s [%s] from %s, %s, trust %s\n", d.ID, d.State, n.sender(m.From), ago(now, m.SentAt), oneLine(string(m.Trust), 20))
+	if m.To.Kind == inbox.ToRepo {
+		fmt.Fprintf(&b, "  to repo: %s\n", oneLine(m.To.Value, 160))
+	}
+	if m.ReplyTo != "" {
+		fmt.Fprintf(&b, "  in reply to message: %s\n", oneLine(m.ReplyTo, 80))
+	}
+	if d.State == inbox.Deferred && !d.Until.IsZero() {
+		fmt.Fprintf(&b, "  deferred until: %s\n", in(now, d.Until))
+	}
+	if note := oneLine(d.Note, maxFieldRunes); note != "" {
+		fmt.Fprintf(&b, "  note: %s\n", note)
+	}
+	if r := oneLine(m.Reason, maxFieldRunes); r != "" {
+		fmt.Fprintf(&b, "  reason (untrusted): %s\n", r)
+	}
+	fmt.Fprintf(&b, "  text (untrusted): %s\n", quoted(m.Text, textCap))
 	return b.String()
 }
 

@@ -569,9 +569,10 @@ func TestInboxFoldsAndTruncates(t *testing.T) {
 	if len(out) > MaxResult {
 		t.Fatalf("%d bytes", len(out))
 	}
-	has(t, out, "31 open messages", "[truncated: showing ", "…")
-	if !strings.HasSuffix(strings.TrimSpace(out), "lower limit]") {
-		t.Errorf("truncation note isn't last: %q", out[len(out)-120:])
+	has(t, out, "31 open messages", "showing the first ", "…")
+	hasNot(t, out, "[truncated:")
+	if !strings.HasSuffix(strings.TrimSpace(out), "call inbox again.]") {
+		t.Errorf("more-not-shown note isn't last: %q", out[len(out)-120:])
 	}
 }
 
@@ -628,4 +629,76 @@ func TestLeases(t *testing.T) {
 	has(t, h.ok(callA, "release", map[string]any{"resource": res}), "Released")
 	has(t, h.ok(callA, "leases", nil), "1 current leases")
 	h.fails(callA, "leases", map[string]any{"resource": "x"}, "unknown argument")
+}
+
+// A channel-path inbox read marks deliveries read only for rows the result
+// carries in full; the rest stay queued and the result says so.
+func TestInboxChannelBudgetMarksOnlyShown(t *testing.T) {
+	h := newHarness(t)
+	var ids []string
+	senders := []Caller{callA, callB, callC}
+	for i := range 21 {
+		_, d := h.sendTo(senders[i%3], "grokker", fmt.Sprintf("%02d ", i)+strings.Repeat("x", 1500))
+		ids = append(ids, d)
+	}
+	out := h.ok(grokCaller(), "inbox", nil)
+	if len(out) > MaxResult {
+		t.Fatalf("%d bytes", len(out))
+	}
+	hasNot(t, out, "[truncated:")
+	has(t, out, "20 open messages for you, newest first; showing the first ", "more not shown; they stay unread")
+	shown, queued := 0, 0
+	for _, id := range ids {
+		d, _ := h.b.ib.Get(id)
+		switch d.State {
+		case inbox.Delivered:
+			shown++
+			row := "delivery " + id + " [delivered]"
+			i := strings.Index(out, row)
+			if i < 0 {
+				t.Fatalf("%s is delivered but not in the result:\n%s", id, out)
+			}
+			rest := out[i:]
+			if j := strings.Index(rest[1:], "\n- delivery "); j >= 0 {
+				rest = rest[:j+1]
+			}
+			if !strings.Contains(rest, `text (untrusted): "`) || !strings.Contains(rest, "x…\"\n") {
+				t.Fatalf("%s is delivered but its text isn't shown in full:\n%s", id, rest)
+			}
+		case inbox.Queued:
+			queued++
+			hasNot(t, out, "delivery "+id+" ")
+		default:
+			t.Fatalf("%s: state %s", id, d.State)
+		}
+	}
+	if shown == 0 || shown+queued != 21 || queued <= 1 {
+		t.Fatalf("shown %d, queued %d", shown, queued)
+	}
+	// Closing the shown ones brings the older ones up next time.
+	for _, id := range ids {
+		if d, _ := h.b.ib.Get(id); d.State == inbox.Delivered {
+			h.ok(grokCaller(), "skip", map[string]any{"delivery_id": id})
+		}
+	}
+	out = h.ok(grokCaller(), "inbox", nil)
+	hasNot(t, out, "[truncated:")
+	has(t, out, "[delivered]")
+}
+
+// One row whose escaped text outgrows the whole budget is shortened, not
+// dropped or cut mid-row.
+func TestInboxHugeRowShortened(t *testing.T) {
+	h := newHarness(t)
+	person := inbox.Sender{Key: "user:dev1", Name: "you", Kind: "user"}
+	_, d, err := h.b.ib.Send(bg, person, inbox.Address{Kind: inbox.ToAgent, Value: "grokker"}, "a"+strings.Repeat("󠀁", 1500), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := h.ok(grokCaller(), "inbox", nil)
+	if len(out) > MaxResult {
+		t.Fatalf("%d bytes", len(out))
+	}
+	hasNot(t, out, "[truncated:", "more not shown")
+	has(t, out, "delivery "+d.ID+" [delivered]", `…"`)
 }
