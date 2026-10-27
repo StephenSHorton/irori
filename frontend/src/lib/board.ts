@@ -28,6 +28,7 @@ import {
 } from "../../bindings/github.com/StephenSHorton/irori/internal/coord/models"
 import { inWails } from "./irori"
 import { useLatest } from "./talk"
+import { tellTo } from "./tell"
 import { sampleBoard, sampleLink, type SampleBoard } from "./sample-board"
 
 export type {
@@ -145,9 +146,7 @@ function sampleView(repoKey: string): BoardView {
 }
 
 function sampleNotice(t: Task, wake: boolean): Told {
-  const to = (t.holders ?? []).filter((h) => !h.startsWith("user:"))
-  if (to.length === 0 && t.createdBy && !t.createdBy.startsWith("user:"))
-    to.push(t.createdBy)
+  const to = tellTo(t.holders, t.createdBy)
   return new Told({
     to,
     mode: to.length ? (wake ? "wake" : "next_turn") : "",
@@ -396,12 +395,10 @@ export function isUser(key: string): boolean {
   return key.startsWith("user:")
 }
 
-// tellTargets are the agents a comment on t reaches: its agent holders,
-// else its creator when that is an agent (coord's Notice.To rule).
+// tellTargets are the agents a comment on t reaches (coord's recipients()
+// rule, see tell.ts): a card held only by people reaches no agent.
 export function tellTargets(t: Task): string[] {
-  const hs = (t.holders ?? []).filter((h) => !isUser(h))
-  if (hs.length) return hs
-  return t.createdBy && !isUser(t.createdBy) ? [t.createdBy] : []
+  return tellTo(t.holders, t.createdBy)
 }
 
 // isTerminal is true for finished task states.
