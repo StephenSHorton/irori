@@ -24,7 +24,7 @@ import {
   TaskState,
   type Step,
 } from "../../bindings/github.com/StephenSHorton/irori/internal/coord/models"
-import { inWails } from "./irori"
+import { inWails, plainLine } from "./irori"
 import { useLatest } from "./talk"
 import { sampleCards, sampleYou } from "./sample-cards"
 
@@ -256,4 +256,12 @@ export function initials(name: string): string {
     .filter((w) => /[a-z0-9]/i.test(w))
   if (words.length >= 2) return (words[0][0] + words[1][0]).toLowerCase()
   return (words[0] ?? "?").slice(0, 2).toLowerCase()
+}
+
+// displayName is who a face or line names: the roster name, else (for an
+// agent the roster no longer has) the session part of its key.
+export function displayName(r: AgentRef): string {
+  const n = plainLine(r.name)
+  if (!n || n === r.key) return r.key.split("/").pop() || r.key
+  return n
 }

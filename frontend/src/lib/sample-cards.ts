@@ -86,7 +86,7 @@ export function sampleCards(now: Date): CardDetail[] {
     card({
       id: "sample-card-1",
       title: "Ship example-app v0.6.0",
-      repoKey: "github.com/sample-org/example-app",
+      repoKey: "remote:github.com/sample-org/example-app",
       goal: "Tagged release with final notes and an installer on the release page.",
       working: [otter],
       watching: [heron],
@@ -155,7 +155,7 @@ export function sampleCards(now: Date): CardDetail[] {
     card({
       id: "sample-card-2",
       title: "Replace the third-party VPN with a built-in LAN link",
-      repoKey: "github.com/sample-org/example-net",
+      repoKey: "remote:github.com/sample-org/example-net",
       goal: "Two users on different networks can play LAN games together without the third-party VPN.",
       working: [badger],
       watching: [wren, lark],
@@ -207,7 +207,7 @@ export function sampleCards(now: Date): CardDetail[] {
     card({
       id: "sample-card-3",
       title: "Two-PC lobby join for the multiplayer build",
-      repoKey: "github.com/sample-org/example-game",
+      repoKey: "remote:github.com/sample-org/example-game",
       goal: "Two machines join the same lobby and see each other's animals.",
       working: [heron, wren],
       updatedAt: at(6),
@@ -243,7 +243,7 @@ export function sampleCards(now: Date): CardDetail[] {
     card({
       id: "sample-card-4",
       title: "Pair my devices",
-      repoKey: "github.com/sample-org/example-app",
+      repoKey: "remote:github.com/sample-org/example-app",
       goal: "My laptop and desktop share one roster, cards and wakes.",
       working: [otter],
       watching: [badger],

@@ -1,6 +1,5 @@
 import { Avatar, AvatarBadge, AvatarFallback } from "@/components/ui/avatar"
-import { initials, type AgentRef } from "@/lib/cards"
-import { plainLine } from "@/lib/irori"
+import { displayName, initials, type AgentRef } from "@/lib/cards"
 import { cn } from "@/lib/utils"
 
 // Face is one agent (or the person) on a card: two letters in a rounded
@@ -9,15 +8,17 @@ import { cn } from "@/lib/utils"
 export function Face({
   who,
   watching,
+  noDot,
   className,
 }: {
   who: AgentRef
   watching?: boolean
+  noDot?: boolean
   className?: string
 }) {
   const person = who.status === "person"
   const gone = who.status === "gone"
-  const name = plainLine(who.name) || who.key
+  const name = displayName(who)
   return (
     <Avatar
       size="sm"
@@ -40,7 +41,7 @@ export function Face({
       >
         {person ? "you" : initials(name)}
       </AvatarFallback>
-      {!watching && who.live && !person && (
+      {!watching && !noDot && who.live && !person && (
         <AvatarBadge className="-right-0.5 -bottom-0.5 bg-success" />
       )}
     </Avatar>

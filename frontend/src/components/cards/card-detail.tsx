@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import {
   cards,
+  displayName,
   MaxAnswer,
   percent,
   type AgentRef,
@@ -226,9 +227,7 @@ function Note({ children }: { children: ReactNode }) {
   return <p className="text-[12.5px] text-muted-foreground">{children}</p>
 }
 
-function name(r: AgentRef): string {
-  return plainLine(r.name) || r.key
-}
+const name = displayName
 
 // BlockerItem is one blocker: the question, context for a newcomer, who
 // raised it, and the recommended answers as buttons, with a field for an
@@ -405,7 +404,7 @@ function People({ detail, gone }: { detail: CardDetail; gone: GoneSession[] }) {
           key={`${role}-${w.key}`}
           className="grid grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-2 text-[13px]"
         >
-          <Face who={w} watching={role === "watching"} />
+          <Face who={w} watching={role === "watching"} noDot />
           <span className="min-w-0 truncate">
             <span className="text-ink">{name(w)}</span>{" "}
             <small className="text-xs text-muted-foreground">· {w.where}</small>
