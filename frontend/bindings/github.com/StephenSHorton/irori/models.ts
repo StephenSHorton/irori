@@ -74,6 +74,11 @@ export class CaptureRepo {
      */
     "live": boolean;
 
+    /**
+     * LastCommit is the newest commit capture has seen in it (zero if none).
+     */
+    "lastCommit": time$0.Time;
+
     /** Creates a new CaptureRepo instance. */
     constructor($$source: Partial<CaptureRepo> = {}) {
         if (!("repoKey" in $$source)) {
@@ -84,6 +89,9 @@ export class CaptureRepo {
         }
         if (!("live" in $$source)) {
             this["live"] = false;
+        }
+        if (!("lastCommit" in $$source)) {
+            this["lastCommit"] = null;
         }
 
         Object.assign(this, $$source);

@@ -58,10 +58,15 @@ export function HistoryPanel({
   now: Date
 }) {
   const [picked, setPicked] = useState<string | null>(focus?.repoKey ?? null)
-  // The default (the first repo, live ones first) is kept once chosen, so
-  // the list doesn't jump when another repo goes live.
-  if (picked === null && repos.length > 0) setPicked(repos[0].repoKey)
-  const repoKey = picked ?? ""
+  // The default is the repo with the newest commit (repos come sorted that
+  // way). It is kept once it has commits, so the view doesn't jump when
+  // another repo commits; before that it follows the list, because on a
+  // fresh start commits arrive after the repos do.
+  const fallback = repos.find(hasCommits) ?? repos[0]
+  if (picked === null && fallback && hasCommits(fallback)) {
+    setPicked(fallback.repoKey)
+  }
+  const repoKey = picked ?? fallback?.repoKey ?? ""
   const { commits, loading, error } = useCommits(repoKey)
   const [open, setOpen] = useState<Set<string>>(() => new Set())
   const [pinned, setPinned] = useState<CommitView | null>(null)
@@ -370,6 +375,11 @@ function SessionLink({
       {plainLine(name(k))}
     </button>
   )
+}
+
+// hasCommits: Go sends a zero time ("0001-01-01...") for a repo with none.
+function hasCommits(r: CaptureRepo): boolean {
+  return !!r.lastCommit && !r.lastCommit.startsWith("0001-")
 }
 
 // WhyBox asks what is behind a path (and line) in the picked repo.

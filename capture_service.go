@@ -57,6 +57,8 @@ type CaptureRepo struct {
 	RepoKey string   `json:"repoKey"`
 	Roots   []string `json:"roots"` // worktree roots seen, sorted
 	Live    bool     `json:"live"`  // a live agent is working in it
+	// LastCommit is the newest commit capture has seen in it (zero if none).
+	LastCommit time.Time `json:"lastCommit"`
 }
 
 // CaptureService is the person's view of what agents did: timelines,
@@ -109,7 +111,8 @@ func (s *CaptureService) Commit(sha string) *capture.CommitView {
 	return &v
 }
 
-// Repos lists the repos capture has seen: live ones first, then by key.
+// Repos lists the repos capture has seen: newest commit first, then live
+// ones, then by key.
 func (s *CaptureService) Repos() []CaptureRepo {
 	live := map[string]bool{}
 	for _, a := range s.agents() {
@@ -121,9 +124,18 @@ func (s *CaptureService) Repos() []CaptureRepo {
 	for k, roots := range s.cap.Repos() {
 		rs := slices.Clone(roots)
 		sort.Strings(rs)
-		out = append(out, CaptureRepo{RepoKey: k, Roots: nonNil(rs), Live: live[k]})
+		r := CaptureRepo{RepoKey: k, Roots: nonNil(rs), Live: live[k]}
+		if cs := s.cap.Commits(k, 1); len(cs) > 0 {
+			r.LastCommit = cs[0].At
+		}
+		out = append(out, r)
 	}
+	// Newest commit first (what the person most likely wants to look at),
+	// then live repos, then by key.
 	sort.Slice(out, func(i, j int) bool {
+		if !out[i].LastCommit.Equal(out[j].LastCommit) {
+			return out[i].LastCommit.After(out[j].LastCommit)
+		}
 		if out[i].Live != out[j].Live {
 			return out[i].Live
 		}

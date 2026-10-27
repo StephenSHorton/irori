@@ -761,3 +761,47 @@ func TestCommitBeforeRootFirstSeen(t *testing.T) {
 		t.Fatalf("commit %s = %+v, ok %v", sha, cv, ok)
 	}
 }
+
+// A repo pass over its budget stops after a commit and the next pass carries
+// on from the same reflog line, so tailing is never starved and nothing is
+// lost or doubled.
+func TestRepoPassBudget(t *testing.T) {
+	old := repoBudget
+	repoBudget = 0
+	t.Cleanup(func() { repoBudget = old })
+	r := newRig(t, nil)
+	dir := newRepo(t, "false")
+	w := r.session(sidA, dir)
+	foo := filepath.Join(dir, "foo.go")
+	now := time.Now().Add(-5 * time.Second)
+	w.write(flat(
+		[]obj{w.prompt("p1", "add foo", now)},
+		w.writeTool("w1", foo, "package foo\n", nil, now.Add(time.Second)),
+	)...)
+	writeFile(t, foo, "package foo\n")
+	// One reflog movement (a fast-forward) bringing in three commits.
+	gitCmd(t, dir, "checkout", "-q", "-b", "side")
+	for i, body := range []string{"package foo\n", "package foo\n// b\n", "package foo\n// c\n"} {
+		writeFile(t, foo, body)
+		gitCmd(t, dir, "add", "foo.go")
+		gitCmd(t, dir, "commit", "-q", "--allow-empty", "-m", "c"+itoa(i))
+	}
+	gitCmd(t, dir, "checkout", "-q", "main")
+	r.tail()
+	gitCmd(t, dir, "merge", "-q", "--ff-only", "side")
+	for i := 0; i < 10; i++ {
+		r.repos()
+	}
+	// The repo's initial commit may fall inside the first-sight window too.
+	if n := len(r.rows(KindCommitSeen)); n < 3 {
+		t.Fatalf("commit.seen rows = %d, want the 3 fast-forwarded commits", n)
+	}
+	seen := map[string]bool{}
+	for _, raw := range r.rows(KindCommitSeen) {
+		row := decode[CommitRow](t, raw)
+		if seen[row.SHA] {
+			t.Fatalf("commit %s logged twice", row.SHA)
+		}
+		seen[row.SHA] = true
+	}
+}

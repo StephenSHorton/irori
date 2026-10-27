@@ -470,11 +470,12 @@ export function sampleCapture(now: Date): SampleCapture {
     repos: empty
       ? []
       : [
-          { repoKey: repo, roots: [root], live: true },
+          { repoKey: repo, roots: [root], live: true, lastCommit: c1.at },
           {
             repoKey: localRepo,
             roots: ["/home/sample/src/placeholder-service"],
             live: true,
+            lastCommit: "0001-01-01T00:00:00Z",
           },
         ],
     prs: empty ? [] : [pr],

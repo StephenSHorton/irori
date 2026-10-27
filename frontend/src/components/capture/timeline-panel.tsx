@@ -50,6 +50,10 @@ import { nameLookup, type Delivery, type GoneSession } from "@/lib/talk"
 // ToolsShown is how many tool chips a turn shows before "+N more".
 const ToolsShown = 12
 
+// EditsShown is how many edited files a turn lists before "+N more"; exact
+// edits come first, since heuristic ones are Bash guesses.
+const EditsShown = 8
+
 type Item =
   | { kind: "entry"; at: number; entry: Entry; roles?: string[] }
   | { kind: "message"; at: number; d: Delivery }
@@ -374,11 +378,15 @@ function TurnItem({
   const [diff, setDiff] = useState<EditRow | null>(null)
   const [marking, setMarking] = useState(false)
   const [allTools, setAllTools] = useState(false)
+  const [allEdits, setAllEdits] = useState(false)
   const [marked, setMarked] = useState(false)
   const tools = t.tools ?? []
   const shown = allTools ? tools : tools.slice(0, ToolsShown)
   const hidden = tools.length - shown.length
-  const edits = t.edits ?? []
+  const edits = [...(t.edits ?? [])].sort(
+    (a, b) => Number(a.fidelity !== "exact") - Number(b.fidelity !== "exact")
+  )
+  const shownEdits = allEdits ? edits : edits.slice(0, EditsShown)
   const prompt = plainBlock(t.prompt)
   const reply = plainBlock(t.reply ?? "")
 
@@ -477,7 +485,7 @@ function TurnItem({
 
       {edits.length > 0 && (
         <ul className="flex min-w-0 flex-col gap-0.5">
-          {edits.map((e) => (
+          {shownEdits.map((e) => (
             <li key={e.id} className="min-w-0">
               <button
                 type="button"
@@ -517,6 +525,17 @@ function TurnItem({
               </button>
             </li>
           ))}
+          {edits.length > shownEdits.length && (
+            <li>
+              <button
+                type="button"
+                className="h-5 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-muted"
+                onClick={() => setAllEdits(true)}
+              >
+                +{edits.length - shownEdits.length} more files
+              </button>
+            </li>
+          )}
         </ul>
       )}
 

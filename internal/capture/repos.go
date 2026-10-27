@@ -3,6 +3,7 @@ package capture
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log"
 	"os"
@@ -18,6 +19,15 @@ import (
 
 // maxReflogRead caps one pass's read of a logs/HEAD.
 const maxReflogRead = 4 << 20
+
+// repoBudget bounds one repo pass. A first sight after backfill can walk
+// hundreds of commits per root at two git runs each; transcripts are tailed
+// on the same goroutine, so a pass stops at the budget and the next one
+// carries on from the same reflog line (commits already logged are skipped).
+var repoBudget = 1500 * time.Millisecond
+
+// errRepoBudget stops a pass that used up repoBudget; it is not a failure.
+var errRepoBudget = errors.New("capture: repo pass budget used")
 
 // maxReflogTries is how many repo passes try a reflog line whose import
 // failed (a git timeout, a failed append) before it is skipped.
@@ -35,6 +45,7 @@ type reflogState struct {
 // repoPass checks every known root's reflog and imports new commits.
 func (c *capture) repoPass(ctx context.Context) {
 	c.loadCursors()
+	c.repoDeadline = time.Now().Add(repoBudget)
 	for _, card := range c.liveCards() {
 		if card.Cwd != "" {
 			c.repoFor(ctx, card.Cwd)
@@ -52,6 +63,9 @@ func (c *capture) repoPass(ctx context.Context) {
 			return
 		}
 		c.watchRoot(ctx, r)
+		if time.Now().After(c.repoDeadline) {
+			break
+		}
 	}
 	c.saveCursors()
 	c.linkUnlinked(ctx)
@@ -138,7 +152,7 @@ func (c *capture) watchRoot(ctx context.Context, r repoSeen) {
 				branch = c.branch(ctx, st.root)
 			}
 			if err := c.importEntry(ctx, st, e, branch); err != nil {
-				if ctx.Err() != nil {
+				if ctx.Err() != nil || errors.Is(err, errRepoBudget) {
 					return
 				}
 				lineErr = err
@@ -221,6 +235,10 @@ func (c *capture) importEntry(ctx context.Context, st *reflogState, e gitlink.Re
 		}
 		if err := c.linkCommit(ctx, row); err != nil {
 			return err
+		}
+		// Checked after a commit is in, so every pass makes progress.
+		if time.Now().After(c.repoDeadline) {
+			return errRepoBudget
 		}
 	}
 	return firstErr

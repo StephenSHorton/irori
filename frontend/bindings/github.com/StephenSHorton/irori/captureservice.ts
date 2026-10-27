@@ -108,7 +108,8 @@ export function RecordDecision(statement: string, why: string, path: string, lin
 }
 
 /**
- * Repos lists the repos capture has seen: live ones first, then by key.
+ * Repos lists the repos capture has seen: newest commit first, then live
+ * ones, then by key.
  */
 export function Repos(): $CancellablePromise<$models.CaptureRepo[]> {
     return $Call.ByID(1161972580).then(($result: any) => {
