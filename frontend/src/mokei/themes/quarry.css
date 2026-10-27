@@ -1,0 +1,110 @@
+/*
+ * Quarry theme — Rock-locked palette. Orange and teal are gone.
+ *
+ *   base        warm white     #F7F5F0   primary material / UI surfaces
+ *   accent1     azurite        #2B59E8   features, links, brand, UI primary
+ *   accent2     signal yellow  #F2B705   permission / warning / active only
+ *   accent3     slate          #3B4552   secondary trim
+ *   detail.dark near-black     #1C1F24   dark end of the detail ramp
+ *   ground      sandstone      #E6D5B8   ground and rock faces only
+ *
+ * Signal yellow is a surface, never ink on white. --warning-foreground is
+ * near-black so yellow badges and chips stay readable.
+ */
+html[data-theme='quarry'],
+[data-theme='quarry'] {
+  color-scheme: light;
+
+  --fs: 0.92;
+  --track: -0.012em;
+
+  --ink: #1c1f24;
+  --ink-2: #3b4552;
+  --muted: #6b7280;
+  --muted-2: #8b919a;
+  --hair: rgba(28, 31, 36, 0.14);
+  --blue: #2b59e8;
+  --blue-deep: #1e48c7;
+
+  --glass-bg: rgba(255, 255, 255, 0.9);
+  --glass-border: rgba(255, 255, 255, 0.95);
+  --glass-shadow: 0 1px 2px rgba(28, 31, 36, 0.04), 0 8px 24px rgba(28, 31, 36, 0.08);
+  --glass-blur: 20px;
+  --glass-saturate: 1.25;
+  --topbar-bg: rgba(247, 245, 240, 0.82);
+  --topbar-border: rgba(59, 69, 82, 0.16);
+  --topbar-shadow: 0 6px 20px rgba(28, 31, 36, 0.04);
+
+  --background: #f7f5f0;
+  --foreground: #1c1f24;
+  --card: rgba(255, 255, 255, 0.92);
+  --card-foreground: #1c1f24;
+  --popover: rgba(255, 255, 255, 0.96);
+  --popover-foreground: #1c1f24;
+  --primary: #2b59e8;
+  --primary-foreground: #ffffff;
+  --secondary: #e8e4dc;
+  --secondary-foreground: #3b4552;
+  --muted-surface: #efebe3;
+  --muted-foreground: #5c6570;
+  --accent: #d6e0fb;
+  --accent-foreground: #2b59e8;
+  --destructive: #b42318;
+  --border: rgba(28, 31, 36, 0.14);
+  --input: #e4e0d8;
+  --ring: #2b59e8;
+
+  --radius: 0.75rem;
+
+  --success: #15803d;
+  --success-foreground: #dcf5e3;
+  /* Yellow surface + dark ink. Never yellow text on white. */
+  --warning: #f2b705;
+  --warning-foreground: #1c1f24;
+  --info: #2b59e8;
+  --info-foreground: #d6e0fb;
+
+  --chart-1: #2b59e8;
+  --chart-2: #3b4552;
+  --chart-3: #f2b705;
+  --chart-4: #e6d5b8;
+  --chart-5: #1c1f24;
+
+  --sidebar: rgba(247, 245, 240, 0.82);
+  --sidebar-foreground: #1c1f24;
+  --sidebar-primary: #2b59e8;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e8e4dc;
+  --sidebar-accent-foreground: #3b4552;
+  --sidebar-border: rgba(59, 69, 82, 0.16);
+  --sidebar-ring: #2b59e8;
+
+  --clay-ground: #e6d5b8;
+  --clay-road: #c4a574;
+  --clay-grass: #d5cfc2;
+  --clay-wall: #f7f5f0;
+  --clay-roof: #3b4552;
+  --clay-accent: #2b59e8;
+  --clay-yellow: #f2b705;
+  --clay-cardboard: #c4a07a;
+  --clay-tree: #7a8474;
+  --clay-tire: #1c1f24;
+  --clay-ao: #3b4552;
+  --clay-sky: #eef1f6;
+
+  --mokei-base: #f7f5f0;
+  --mokei-accent-1: #2b59e8;
+  --mokei-accent-2: #f2b705;
+  --mokei-accent-3: #3b4552;
+  --mokei-detail-dark: #1c1f24;
+  --mokei-detail-mid: #696a6b;
+  --mokei-detail-light: #bab9b7;
+  --mokei-ground: #e6d5b8;
+}
+
+/* Warning chips are yellow surfaces with near-black ink, not yellow ink on white. */
+html[data-theme='quarry'] [data-slot='badge'][data-variant='warning'],
+[data-theme='quarry'] [data-slot='badge'][data-variant='warning'] {
+  background-color: var(--warning);
+  color: var(--warning-foreground);
+}

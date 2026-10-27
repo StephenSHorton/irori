@@ -1,0 +1,43 @@
+/*
+ * Blank-diorama theme. Same glass language, warmer near-white clay.
+ * White is still the primary material; sandstone is the muted ground role.
+ */
+html[data-theme='blank'],
+[data-theme='blank'] {
+  --background: #f6efe4;
+  --foreground: #2a241f;
+  --secondary: #f3eadc;
+  --secondary-foreground: #3f2f22;
+  --accent: #f3e0c4;
+  --accent-foreground: #9a3412;
+  --primary: #c2410c;
+  --primary-foreground: #fff7ed;
+  --ring: #c2410c;
+  --blue: #c2410c;
+  --blue-deep: #9a3412;
+  --muted-surface: #efe4d2;
+  --muted-foreground: #6b5b4e;
+  --sidebar-primary: #c2410c;
+  --sidebar-accent: #f3eadc;
+  --clay-ground: #efe4d2;
+  --clay-road: #d4b896;
+  --clay-grass: #d7e3b8;
+  --clay-wall: #f6efe4;
+  --clay-roof: #c2410c;
+  --clay-accent: #c2410c;
+  --clay-yellow: #e2a334;
+  --clay-cardboard: #c4a07a;
+  --clay-tree: #7dae6a;
+  --clay-tire: #2a241f;
+  --clay-ao: #4a3728;
+  --clay-sky: #f3ead8;
+
+  --mokei-base: #f6efe4;
+  --mokei-accent-1: #c2410c;
+  --mokei-accent-2: #e2a334;
+  --mokei-accent-3: #c2410c;
+  --mokei-detail-dark: #2a241f;
+  --mokei-detail-mid: #716b64;
+  --mokei-detail-light: #bdb6ad;
+  --mokei-ground: #efe4d2;
+}

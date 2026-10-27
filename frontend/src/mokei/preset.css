@@ -1,0 +1,90 @@
+/*
+ * Theme-agnostic Tailwind v4 preset. Maps semantic CSS variables onto
+ * Tailwind tokens. Import a theme stylesheet separately:
+ *
+ *   @import 'mokei/theme/preset.css';
+ *   @import 'mokei/themes/yardline.css';
+ *
+ * The playground adds `shadcn/tailwind.css` from src/index.css so HUD
+ * components keep their data-* variants.
+ */
+
+@custom-variant dark (&:is(.dark *));
+
+html.is-apple {
+  --fs: 1;
+  --track: -0.003em;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted-surface);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-hair: var(--hair);
+  --color-blue: var(--blue);
+  --color-blue-deep: var(--blue-deep);
+  --color-clay-ground: var(--clay-ground);
+  --color-clay-road: var(--clay-road);
+  --color-clay-grass: var(--clay-grass);
+  --color-clay-wall: var(--clay-wall);
+  --color-clay-roof: var(--clay-roof);
+  --color-clay-yellow: var(--clay-yellow);
+  --color-clay-cardboard: var(--clay-cardboard);
+  --color-clay-tree: var(--clay-tree);
+
+  --radius-sm: calc(var(--radius) * 0.66);
+  --radius-md: calc(var(--radius) * 0.83);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.33);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  --shadow-glass: var(--glass-shadow);
+  --blur-glass: var(--glass-blur);
+}
+
+@utility glass-panel {
+  background: var(--glass-bg);
+  /* Match main's LightningCSS output: -webkit only, so Linux Chrome does
+   * not frost the scene behind HUD glass. */
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}

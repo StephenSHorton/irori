@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.1.0"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "0.1.0",
+			"CompanyName": "Stephen Horton",
+			"FileDescription": "A hearth for your coding agents",
+			"LegalCopyright": "(c) 2026, Stephen Horton",
+			"ProductName": "Irori",
+			"Comments": "https://github.com/StephenSHorton/irori"
+		}
+	}
+}
