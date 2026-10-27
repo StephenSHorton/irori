@@ -118,6 +118,13 @@ func (c *httpCore) Attach(ctx context.Context, memberSecret string) (io.ReadClos
 	req.Header.Set("Accept", "application/x-ndjson")
 	resp, err := c.http.Do(req)
 	if err != nil {
+		// A *url.Error quotes the whole URL, query (the member secret)
+		// included, and this error gets logged. Keep only its cause, which
+		// still unwraps to the *net.OpError / context error.
+		var uerr *url.Error
+		if errors.As(err, &uerr) {
+			err = uerr.Err
+		}
 		return nil, fmt.Errorf("irori api /v1/attach: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {

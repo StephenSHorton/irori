@@ -249,7 +249,9 @@ func TestReconnectRejoinsSameSession(t *testing.T) {
 	}
 }
 
-func TestForbiddenCallRejoinsAndRetries(t *testing.T) {
+// A restarted Core (new token) answers the old one with 401: redial, rejoin
+// with the same session and retry.
+func TestRestartedCoreCallRejoinsAndRetries(t *testing.T) {
 	f := newFakeCore(t, testSpecs())
 	h := start(t, New(quick(f)), "")
 	h.call(t, "irori_join", map[string]any{"name": "grok"}, nil)
@@ -289,6 +291,99 @@ func TestSuperseded(t *testing.T) {
 	h.call(t, "irori_join", map[string]any{"name": "grok"}, nil)
 	if s := waitStream(t, f); s != "secret-2" {
 		t.Fatalf("stream after rejoin %q", s)
+	}
+}
+
+// waitSuperseded waits until srv has marked its member superseded.
+func waitSuperseded(t *testing.T, srv *Server) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, super := srv.secret(); super {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("not marked superseded")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// Another process joining the same session retires this one's secret. A tool
+// call that then gets 403 from the same Core run must stop, not rejoin and
+// take the member back.
+func TestCallAfterTakeoverStops(t *testing.T) {
+	f := newFakeCore(t, testSpecs())
+	h := start(t, New(quick(f)), "")
+	h.call(t, "irori_join", map[string]any{"name": "grok"}, map[string]any{"session_id": "shared"})
+	waitStream(t, f)
+	f.takeover("secret-1")
+	if out, _ := h.call(t, "irori_send", map[string]any{"text": "x"}, nil); out != SupersededText {
+		t.Fatalf("send after takeover: %q", out)
+	}
+	if _, super := h.srv.secret(); !super {
+		t.Fatal("not marked superseded")
+	}
+	f.cut <- struct{}{} // the stream ends; the loop must not rejoin either
+	time.Sleep(200 * time.Millisecond)
+	if _, joins := f.snapshot(); len(joins) != 1 {
+		t.Fatalf("rejoined after takeover: %+v", joins)
+	}
+	h.call(t, "irori_join", map[string]any{"name": "grok"}, nil)
+	if s := waitStream(t, f); s != "secret-2" {
+		t.Fatalf("stream after explicit join %q", s)
+	}
+}
+
+// The same race on the stream path: the stream ends while another process
+// holds the member, and the reattach gets 403.
+func TestStreamAfterTakeoverStops(t *testing.T) {
+	f := newFakeCore(t, testSpecs())
+	h := start(t, New(quick(f)), "")
+	h.call(t, "irori_join", map[string]any{"name": "grok"}, map[string]any{"session_id": "shared"})
+	waitStream(t, f)
+	f.takeover("secret-1")
+	f.cut <- struct{}{}
+	waitSuperseded(t, h.srv)
+	time.Sleep(200 * time.Millisecond)
+	if _, joins := f.snapshot(); len(joins) != 1 {
+		t.Fatalf("rejoined after takeover: %+v", joins)
+	}
+	if out, _ := h.call(t, "irori_send", map[string]any{"text": "x"}, nil); out != SupersededText {
+		t.Fatalf("send: %q", out)
+	}
+}
+
+// A stream the Core ends cleanly (e.g. a server write deadline) is reopened
+// on the same Core with the same secret: no fresh join.
+func TestStreamCutKeepsSecret(t *testing.T) {
+	f := newFakeCore(t, testSpecs())
+	h := start(t, New(quick(f)), "")
+	h.call(t, "irori_join", map[string]any{"name": "grok"}, nil)
+	waitStream(t, f)
+	f.cut <- struct{}{}
+	if s := waitStream(t, f); s != "secret-1" {
+		t.Fatalf("reattached with %q", s)
+	}
+	if _, joins := f.snapshot(); len(joins) != 1 {
+		t.Fatalf("joins %+v", joins)
+	}
+}
+
+// A url.Error carries the full URL, query included; the member secret must
+// not reach the error text (it gets logged).
+func TestAttachErrorHidesSecret(t *testing.T) {
+	c := HTTPCore("http://127.0.0.1:1", "tok")
+	rc, err := c.Attach(context.Background(), "SUPERSECRET")
+	if err == nil {
+		rc.Close()
+		t.Fatal("attach to a closed port succeeded")
+	}
+	if strings.Contains(err.Error(), "SUPERSECRET") || !strings.Contains(err.Error(), "/v1/attach") {
+		t.Fatalf("error text: %v", err)
+	}
+	if !unsent(err) {
+		t.Errorf("refused dial no longer reads as unsent: %v", err)
 	}
 }
 

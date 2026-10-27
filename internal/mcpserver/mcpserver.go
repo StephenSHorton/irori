@@ -336,14 +336,25 @@ func (s *Server) forward(ctx context.Context, name string, args json.RawMessage)
 		case code == 403 && secret == "":
 			return text(JoinFirstText)
 		case code == 403:
-			// The Core restarted or dropped this member: bind again, retry once.
-			if err2 := s.rejoin(ctx, c); err2 == nil {
-				secret, _ = s.secret()
-				out, err = c.CallTool(ctx, secret, name, args)
+			// The token was accepted, so this is the same Core run (a restart
+			// mints a new token and answers 401), and it only retires a secret
+			// when another join takes this member's session: superseded.
+			// Rejoining here would take the member back from the newer process.
+			if s.markSuperseded(secret) {
+				return text(SupersededText)
 			}
-		case code == 0 && (ro || unsent(err)):
-			// The Core went away; dialing again rejoins. A mutating call is
-			// only retried when it never reached a server.
+			// Our own rejoin replaced the secret meanwhile: retry once with it.
+			if secret, super = s.secret(); secret == "" {
+				if super {
+					return text(SupersededText)
+				}
+				return text(JoinFirstText)
+			}
+			out, err = c.CallTool(ctx, secret, name, args)
+		case code == 401 || (code == 0 && (ro || unsent(err))):
+			// The Core went away or restarted (401: new token); dialing again
+			// rejoins. A mutating call is only retried when it never reached
+			// a server, or was refused before any route ran (401).
 			s.drop(c)
 			if c, err = s.getCore(ctx, false); err == nil {
 				secret, _ = s.secret()
@@ -459,8 +470,10 @@ func (s *Server) setMember(want string, m Member) {
 }
 
 // streamLoop keeps the member's wake stream open while this process is
-// joined, reconnecting with backoff. Each reconnect after a drop dials the
-// Core fresh, which re-reads tools and rejoins with the same session id.
+// joined, reconnecting with backoff. A stream the Core ends cleanly is
+// reopened on the same Core with the same secret. A dial error or 401 (the
+// Core restarted) dials fresh, which re-reads tools and rejoins with the same
+// session id. A 403 means another process took the member: stop.
 func (s *Server) streamLoop(ctx context.Context) {
 	defer s.wg.Done()
 	backoff := s.opts.MinBackoff
@@ -509,13 +522,26 @@ func (s *Server) streamLoop(ctx context.Context) {
 				// Wait at the top for an explicit irori_join; don't redial.
 			case kicked || stale:
 				wait = false // a rejoin replaced the secret: reconnect now
-			case statusCode(err) == 403 || statusCode(err) == 404:
+			case err == nil:
+				// The Core ended the stream (e.g. a write deadline). Reattach to
+				// the same Core with the same secret; a restart shows up there
+				// as a dial error or 401. A fresh dial would rejoin and could
+				// take the member from a newer process.
+			case statusCode(err) == 403:
+				// Same Core run (token accepted) retired the secret: another
+				// process joined this session. Same as the superseded event:
+				// wait at the top for an explicit irori_join, unless our own
+				// rejoin replaced the secret meanwhile (then reconnect now).
+				if !s.markSuperseded(secret) {
+					wait = false
+				}
+			case statusCode(err) == 404:
 				if err := s.rejoin(ctx, c); err != nil {
 					s.log.Warn("rejoin failed", "error", err)
 					fresh = true
 				}
 			default:
-				fresh = true // stream ended or failed: the Core may have restarted
+				fresh = true // dial error or 401: the Core may have restarted
 			}
 			if err != nil {
 				s.log.Info("member stream failed", "error", err)
@@ -547,6 +573,9 @@ func (s *Server) markSuperseded(secret string) bool {
 	}
 	s.superseded = true
 	s.log.Warn("member stream superseded by another process")
+	if s.streamCancel != nil {
+		s.streamCancel() // stop pushing for a member this process no longer holds
+	}
 	return true
 }
 

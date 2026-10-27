@@ -35,6 +35,8 @@ type fakeCore struct {
 	ts *httptest.Server
 
 	mu       sync.Mutex
+	token    string       // bearer token of this Core run
+	runs     int          // restarts so far
 	specs    []tools.Spec // nil answers 404, like a v0.1 Core
 	calls    []fakeCall
 	joins    []fakeJoin
@@ -49,20 +51,40 @@ type fakeCore struct {
 }
 
 func newFakeCore(t *testing.T, specs []tools.Spec) *fakeCore {
-	f := &fakeCore{t: t, specs: specs, secrets: map[string]string{}, keys: map[string]string{},
+	f := &fakeCore{t: t, specs: specs, token: fakeToken, secrets: map[string]string{}, keys: map[string]string{},
 		streamOn: make(chan string, 16), events: make(chan attach.Event, 16), cut: make(chan struct{}, 1)}
 	f.ts = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.ts.Close)
 	return f
 }
 
-func (f *fakeCore) dial(context.Context) (Core, error) { return HTTPCore(f.ts.URL, fakeToken), nil }
+func (f *fakeCore) dial(context.Context) (Core, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return HTTPCore(f.ts.URL, f.token), nil
+}
 
-// forget drops every secret, as a restarted Core would.
+// forget drops every secret and mints a new bearer token, as a restarted
+// Core would (secrets live in memory; the token is new per start).
 func (f *fakeCore) forget() {
 	f.mu.Lock()
 	f.secrets = map[string]string{}
+	f.runs++
+	f.token = fmt.Sprintf("%s-%d", fakeToken, f.runs)
 	f.mu.Unlock()
+}
+
+// takeover acts as another `irori mcp` process joining with the same
+// session id: the Core retires secret and mints a new one for its key.
+func (f *fakeCore) takeover(secret string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key, ok := f.secrets[secret]
+	if !ok {
+		f.t.Fatalf("takeover: %q is not live", secret)
+	}
+	delete(f.secrets, secret)
+	f.secrets["other-"+secret] = key
 }
 
 func (f *fakeCore) snapshot() ([]fakeCall, []fakeJoin) {
@@ -78,7 +100,10 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 }
 
 func (f *fakeCore) serve(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Authorization") != "Bearer "+fakeToken {
+	f.mu.Lock()
+	token := f.token
+	f.mu.Unlock()
+	if r.Header.Get("Authorization") != "Bearer "+token {
 		writeJSON(w, 401, map[string]string{"error": "bad token"})
 		return
 	}
