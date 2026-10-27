@@ -84,9 +84,12 @@ func (s *set) outcome(d inbox.Delivery) string {
 	b.WriteString(" (delivery " + d.ID + "): ")
 	switch d.State {
 	case inbox.Held:
-		if d.Hold == inbox.HoldUnowned {
+		switch d.Hold {
+		case inbox.HoldUnowned:
 			b.WriteString("no agent in that repo can take it yet, so it waits for one to arrive or for the person to route it.")
-		} else {
+		case inbox.HoldPaused:
+			b.WriteString("held because the person paused all wakes; it goes out when they unpause. Don't resend it.")
+		default:
 			b.WriteString("held by the recipient's wake policy (" + string(d.Hold) + "); it waits until the person releases it. Don't resend it.")
 		}
 	case inbox.Queued:
