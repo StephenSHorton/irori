@@ -1,6 +1,9 @@
 import { useState } from "react"
 
+import { ChoiceSelect } from "@/components/common/choice-select"
 import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { cn } from "@/lib/utils"
 import { plainLine, shortRepo, type AgentCard } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
@@ -107,23 +110,19 @@ export function RaiseForm({
         void submit()
       }}
     >
-      <div
-        role="group"
+      <ToggleGroup
         aria-label="Kind of card"
-        className="inline-flex self-start rounded-lg bg-muted p-[3px]"
+        size="sm"
+        value={[kind]}
+        onValueChange={([k]) => k && choose(k)}
+        className="self-start"
       >
         {(["task", "blocker"] as const).map((k) => (
-          <button
-            key={k}
-            type="button"
-            aria-pressed={kind === k}
-            onClick={() => choose(k)}
-            className="flex h-6 items-center rounded-md px-2.5 text-[12.5px] font-medium text-muted-foreground outline-none hover:text-ink focus-visible:ring-3 focus-visible:ring-ring/50 aria-pressed:bg-background aria-pressed:text-ink aria-pressed:shadow-sm"
-          >
+          <ToggleGroupItem key={k} value={k} className="px-2.5 text-[12.5px]">
             {k === "task" ? "Task" : "Blocker"}
-          </button>
+          </ToggleGroupItem>
         ))}
-      </div>
+      </ToggleGroup>
       <input
         autoFocus
         aria-label="Title"
@@ -133,7 +132,7 @@ export function RaiseForm({
         onChange={(e) => setTitle(e.target.value)}
         className={cn(fieldClass, "w-full")}
       />
-      <textarea
+      <Textarea
         aria-label="Details"
         value={body}
         rows={2}
@@ -147,49 +146,44 @@ export function RaiseForm({
         className={textareaClass}
       />
       <div className="flex flex-wrap gap-2">
-        <select
-          aria-label="Repo"
+        <ChoiceSelect
+          label="Repo"
           value={repo}
-          onChange={(e) => setRepo(e.target.value)}
-          className={cn(fieldClass, "flex-1 basis-40")}
-        >
-          <option value="">No repo</option>
-          {repos.map((r) => (
-            <option key={r} value={r}>
-              {shortRepo(r)}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label={kind === "task" ? "For" : "Waiting on"}
+          onValueChange={setRepo}
+          choices={[
+            { value: "", label: "No repo" },
+            ...repos.map((r) => ({ value: r, label: shortRepo(r) })),
+          ]}
+          className="flex-1 basis-40"
+        />
+        <ChoiceSelect
+          label={kind === "task" ? "For" : "Waiting on"}
           value={forWho}
-          onChange={(e) => setForWho(e.target.value)}
-          className={cn(fieldClass, "flex-1 basis-40")}
-        >
-          {kind === "task" ? (
-            <>
-              <option value="">Anyone (open to pick up)</option>
-              <option value="shared">Anyone, shared</option>
-              {agents.map((a) => (
-                <option key={a.key} value={`agent:${a.key}`}>
-                  Assign to {agentName(a)}
-                </option>
-              ))}
-            </>
-          ) : (
-            <>
-              <option value="person">Waiting on: you</option>
-              {agents.map((a) => (
-                <option key={a.key} value={`agent:${a.key}`}>
-                  Waiting on: {agentName(a)}
-                </option>
-              ))}
-              <option value="external">
-                Waiting on: something outside Irori
-              </option>
-            </>
-          )}
-        </select>
+          onValueChange={setForWho}
+          choices={
+            kind === "task"
+              ? [
+                  { value: "", label: "Anyone (open to pick up)" },
+                  { value: "shared", label: "Anyone, shared" },
+                  ...agents.map((a) => ({
+                    value: `agent:${a.key}`,
+                    label: `Assign to ${agentName(a)}`,
+                  })),
+                ]
+              : [
+                  { value: "person", label: "Waiting on: you" },
+                  ...agents.map((a) => ({
+                    value: `agent:${a.key}`,
+                    label: `Waiting on: ${agentName(a)}`,
+                  })),
+                  {
+                    value: "external",
+                    label: "Waiting on: something outside Irori",
+                  },
+                ]
+          }
+          className="flex-1 basis-40"
+        />
       </div>
       <input
         aria-label="Link"

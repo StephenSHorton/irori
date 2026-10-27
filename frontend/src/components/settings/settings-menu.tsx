@@ -1,134 +1,126 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useId, useState, type ReactNode } from "react"
 import { BellIcon, SettingsIcon } from "lucide-react"
 
+import { ChoiceSelect } from "@/components/common/choice-select"
 import { Button } from "@/components/ui/button"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { Slider } from "@/components/ui/slider"
+import { Switch } from "@/components/ui/switch"
 import { corners, useSettings } from "@/lib/settings"
+
+const cornerChoices = corners.map((c) => ({ value: c.id, label: c.label }))
 
 // SettingsMenu is the header's gear: notifications (on or off, sound,
 // volume, corner, a test card) and launch at login, which the tray also
-// offers.
+// offers. It is a Popover so the Corner select's own popup, which portals
+// out of the panel, does not count as a click outside it.
 export function SettingsMenu() {
   const [open, setOpen] = useState(false)
   const s = useSettings(open)
-  const box = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const down = (e: PointerEvent) => {
-      if (box.current && !box.current.contains(e.target as Node)) setOpen(false)
-    }
-    const key = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false)
-    window.addEventListener("pointerdown", down)
-    window.addEventListener("keydown", key)
-    return () => {
-      window.removeEventListener("pointerdown", down)
-      window.removeEventListener("keydown", key)
-    }
-  }, [open])
 
   const n = s.notify
   const off = !n?.enabled
 
   return (
-    <div ref={box} className="relative">
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label="Settings"
-        aria-expanded={open}
-        title="Settings"
-        onClick={() => setOpen(!open)}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Settings"
+            title="Settings"
+          />
+        }
       >
         <SettingsIcon />
-      </Button>
-      {open && (
-        <div
-          role="dialog"
-          aria-label="Settings"
-          className="absolute top-full right-0 z-30 mt-2 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 rounded-xl border border-border bg-popover p-4 text-sm text-popover-foreground shadow-lg"
-        >
-          <h2 className="flex items-center gap-1.5 font-semibold text-ink">
-            <BellIcon className="size-4" aria-hidden />
-            Notifications
-          </h2>
-          {!n ? (
-            <p className="text-muted-foreground">
-              {s.error ? `Could not load: ${s.error}` : "Loading…"}
-            </p>
-          ) : (
-            <>
-              <Toggle
-                label="Show notifications"
-                hint="Held messages, cards blocked on you, and agents asking you to choose."
-                checked={n.enabled}
-                onChange={(v) => s.setNotify({ enabled: v })}
-              />
-              <Toggle
-                label="Sound"
-                checked={n.sound}
-                disabled={off}
-                onChange={(v) => s.setNotify({ sound: v })}
-              />
-              <Row label="Volume">
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={5}
-                  value={Math.round(n.volume * 100)}
-                  disabled={off || !n.sound}
-                  aria-label="Volume"
-                  onChange={(e) =>
-                    s.setNotify({ volume: Number(e.target.value) / 100 })
-                  }
-                  className="w-32 accent-primary disabled:opacity-50"
-                />
-              </Row>
-              <Row label="Corner">
-                <select
-                  value={n.corner}
-                  disabled={off}
-                  aria-label="Corner"
-                  onChange={(e) => s.setNotify({ corner: e.target.value })}
-                  className="h-7 rounded-md border border-border bg-background px-2 text-[13px] text-ink disabled:opacity-50"
-                >
-                  {corners.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.label}
-                    </option>
-                  ))}
-                </select>
-              </Row>
-              <div className="flex flex-col gap-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={off}
-                  onClick={() => void s.test()}
-                >
-                  Send a test notification
-                </Button>
-                {s.tested && (
-                  <p className="text-xs text-muted-foreground">{s.tested}</p>
-                )}
-              </div>
-            </>
-          )}
-          <div className="border-t border-border pt-3">
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        aria-label="Settings"
+        className="w-72 max-w-[calc(100vw-2rem)] gap-3 p-4"
+      >
+        <h2 className="flex items-center gap-1.5 font-semibold text-ink">
+          <BellIcon className="size-4" aria-hidden />
+          Notifications
+        </h2>
+        {!n ? (
+          <p className="text-muted-foreground">
+            {s.error ? `Could not load: ${s.error}` : "Loading…"}
+          </p>
+        ) : (
+          <>
             <Toggle
-              label="Launch at login"
-              hint="Irori starts in the tray when you sign in."
-              checked={Boolean(s.launchAtLogin)}
-              disabled={s.launchAtLogin === null}
-              onChange={(v) => void s.setLaunchAtLogin(v)}
+              label="Show notifications"
+              hint="Held messages, cards blocked on you, and agents asking you to choose."
+              checked={n.enabled}
+              onChange={(v) => s.setNotify({ enabled: v })}
             />
-          </div>
-          {n && s.error && (
-            <p className="text-xs text-destructive">{s.error}</p>
-          )}
+            <Toggle
+              label="Sound"
+              checked={n.sound}
+              disabled={off}
+              onChange={(v) => s.setNotify({ sound: v })}
+            />
+            <Row label="Volume" disabled={off || !n.sound}>
+              <Slider
+                min={0}
+                max={100}
+                step={5}
+                value={[Math.round(n.volume * 100)]}
+                disabled={off || !n.sound}
+                thumbLabel="Volume"
+                onValueChange={(v) =>
+                  s.setNotify({
+                    volume: (Array.isArray(v) ? v[0] : v) / 100,
+                  })
+                }
+                className="w-32"
+              />
+            </Row>
+            <Row label="Corner" disabled={off}>
+              <ChoiceSelect
+                label="Corner"
+                size="sm"
+                value={n.corner}
+                disabled={off}
+                choices={cornerChoices}
+                onValueChange={(v) => s.setNotify({ corner: v })}
+                className="text-[13px]"
+              />
+            </Row>
+            <div className="flex flex-col gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={off}
+                onClick={() => void s.test()}
+              >
+                Send a test notification
+              </Button>
+              {s.tested && (
+                <p className="text-xs text-muted-foreground">{s.tested}</p>
+              )}
+            </div>
+          </>
+        )}
+        <div className="border-t border-border pt-3">
+          <Toggle
+            label="Launch at login"
+            hint="Irori starts in the tray when you sign in."
+            checked={Boolean(s.launchAtLogin)}
+            disabled={s.launchAtLogin === null}
+            onChange={(v) => void s.setLaunchAtLogin(v)}
+          />
         </div>
-      )}
-    </div>
+        {n && s.error && <p className="text-xs text-destructive">{s.error}</p>}
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -145,28 +137,49 @@ function Toggle({
   disabled?: boolean
   onChange: (v: boolean) => void
 }) {
+  const id = useId()
   return (
-    <label
-      className={`flex items-start gap-2.5 ${disabled ? "opacity-50" : "cursor-pointer"}`}
+    <div
+      className={`flex items-start justify-between gap-3 ${disabled ? "opacity-50" : ""}`}
     >
-      <input
-        type="checkbox"
+      <span className="flex flex-col">
+        <label
+          htmlFor={id}
+          className={disabled ? "text-ink" : "cursor-pointer text-ink"}
+        >
+          {label}
+        </label>
+        {hint && (
+          <span id={`${id}-hint`} className="text-xs text-muted-foreground">
+            {hint}
+          </span>
+        )}
+      </span>
+      <Switch
+        id={id}
         checked={checked}
         disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 size-4 accent-primary"
+        aria-describedby={hint ? `${id}-hint` : undefined}
+        onCheckedChange={(v) => onChange(v)}
+        className="mt-0.5"
       />
-      <span className="flex flex-col">
-        <span className="text-ink">{label}</span>
-        {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
-      </span>
-    </label>
+    </div>
   )
 }
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+function Row({
+  label,
+  disabled,
+  children,
+}: {
+  label: string
+  disabled?: boolean
+  children: ReactNode
+}) {
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div
+      className={`flex items-center justify-between gap-3 ${disabled ? "[&>span]:opacity-50" : ""}`}
+    >
       <span className="text-ink">{label}</span>
       {children}
     </div>

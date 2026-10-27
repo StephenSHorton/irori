@@ -6,8 +6,10 @@ import {
   PlusIcon,
 } from "lucide-react"
 
+import { ChoiceSelect } from "@/components/common/choice-select"
 import { Button } from "@/components/ui/button"
 import { Card as Panel } from "@/components/ui/card"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { cn } from "@/lib/utils"
 import {
   parseTime,
@@ -28,7 +30,6 @@ import {
 import {
   blockedLabel,
   displayResource,
-  fieldClass,
   LinkChip,
   Pill,
   repoLabel,
@@ -169,18 +170,16 @@ export function BoardPanel({
       >
         <Panel size="sm" className="gap-0 py-0!">
           <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2.5">
-            <div
-              role="group"
+            <ToggleGroup
               aria-label="Filter cards"
-              className="inline-flex rounded-lg bg-muted p-[3px]"
+              value={[filter]}
+              onValueChange={([v]) => v && setFilter(v)}
             >
               {filters.map((f) => (
-                <button
+                <ToggleGroupItem
                   key={f.id}
-                  type="button"
-                  aria-pressed={filter === f.id}
-                  onClick={() => setFilter(f.id)}
-                  className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[13px] font-medium text-muted-foreground transition-colors outline-none hover:text-ink focus-visible:ring-3 focus-visible:ring-ring/50 aria-pressed:bg-background aria-pressed:text-ink aria-pressed:shadow-sm"
+                  value={f.id}
+                  className="h-7 px-2.5 text-[13px]"
                 >
                   {f.label}
                   {f.id === "you" && view.needsYou.length > 0 && (
@@ -188,23 +187,21 @@ export function BoardPanel({
                       {view.needsYou.length}
                     </span>
                   )}
-                </button>
+                </ToggleGroupItem>
               ))}
-            </div>
+            </ToggleGroup>
             {repos.length > 1 && (
-              <select
-                aria-label="Repo"
+              <ChoiceSelect
+                label="Repo"
+                size="sm"
                 value={repo}
-                onChange={(e) => setRepo(e.target.value)}
-                className={cn(fieldClass, "h-7 max-w-40 text-[13px]")}
-              >
-                <option value="">All repos</option>
-                {repos.map((r) => (
-                  <option key={r} value={r}>
-                    {shortRepo(r)}
-                  </option>
-                ))}
-              </select>
+                onValueChange={setRepo}
+                choices={[
+                  { value: "", label: "All repos" },
+                  ...repos.map((r) => ({ value: r, label: shortRepo(r) })),
+                ]}
+                className="max-w-40 text-[13px]"
+              />
             )}
             <Button
               size="sm"

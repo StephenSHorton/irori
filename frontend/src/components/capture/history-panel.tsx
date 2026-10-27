@@ -16,6 +16,7 @@ import {
   fieldClass,
   LinkChip,
 } from "@/components/capture/bits"
+import { ChoiceSelect } from "@/components/common/choice-select"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -117,24 +118,22 @@ export function HistoryPanel({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2 px-1">
-        <label htmlFor="history-repo" className="text-sm font-medium text-ink">
-          Repo
-        </label>
-        <select
+        <ChoiceSelect
           id="history-repo"
+          label="Repo"
+          showLabel
           value={repoKey}
-          onChange={(e) => setPicked(e.target.value)}
-          className={`${fieldClass} flex-1 sm:max-w-md`}
-        >
-          <option value="">All repos</option>
-          {!known && <option value={repoKey}>{shortRepo(repoKey)}</option>}
-          {repos.map((r) => (
-            <option key={r.repoKey} value={r.repoKey}>
-              {shortRepo(r.repoKey)}
-              {r.live ? " · live" : ""}
-            </option>
-          ))}
-        </select>
+          onValueChange={setPicked}
+          choices={[
+            { value: "", label: "All repos" },
+            ...(known ? [] : [{ value: repoKey, label: shortRepo(repoKey) }]),
+            ...repos.map((r) => ({
+              value: r.repoKey,
+              label: `${shortRepo(r.repoKey)}${r.live ? " · live" : ""}`,
+            })),
+          ]}
+          className="flex-1 sm:max-w-md"
+        />
       </div>
 
       <WhyBox

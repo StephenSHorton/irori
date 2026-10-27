@@ -7,9 +7,12 @@ import {
   PlayIcon,
 } from "lucide-react"
 
+import { ChoiceSelect } from "@/components/common/choice-select"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Textarea } from "@/components/ui/textarea"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import {
   parseTime,
   plainBlock,
@@ -91,18 +94,16 @@ export function InboxPanel({
       <Composer agents={agents} gone={gone} />
 
       <div className="flex flex-wrap items-center gap-2">
-        <div
-          role="group"
+        <ToggleGroup
           aria-label="Filter messages"
-          className="inline-flex rounded-lg bg-muted p-[3px]"
+          value={[filter]}
+          onValueChange={([v]) => v && setFilter(v)}
         >
           {filters.map((f) => (
-            <button
+            <ToggleGroupItem
               key={f.id}
-              type="button"
-              aria-pressed={filter === f.id}
-              onClick={() => setFilter(f.id)}
-              className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[13px] font-medium text-muted-foreground transition-colors outline-none hover:text-ink focus-visible:ring-3 focus-visible:ring-ring/50 aria-pressed:bg-background aria-pressed:text-ink aria-pressed:shadow-sm"
+              value={f.id}
+              className="h-7 px-2.5 text-[13px]"
             >
               {f.label}
               {f.id === "held" && held > 0 && (
@@ -110,9 +111,9 @@ export function InboxPanel({
                   {held}
                 </span>
               )}
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
         <PauseToggle paused={policy?.paused ?? false} />
       </div>
 
@@ -468,50 +469,55 @@ function Composer({
   return (
     <Card size="sm" className="gap-2 px-4">
       <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor="composer-to" className="text-sm font-medium text-ink">
-          Message
-        </label>
-        <select
+        <ChoiceSelect
           id="composer-to"
+          label="Message"
+          showLabel
           value={valid ? target : ""}
-          onChange={(e) => {
-            setTarget(e.target.value)
+          onValueChange={(v) => {
+            setTarget(v)
             setSent(false)
           }}
-          className="h-8 min-w-0 flex-1 rounded-lg border border-input bg-white/70 px-2 text-sm text-ink outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 sm:max-w-sm"
-        >
-          <option value="">Choose an agent or a repo…</option>
-          {agents.length > 0 && (
-            <optgroup label="Agents">
-              {agents.map((a) => (
-                <option key={a.key} value={`agent:${a.key}`}>
-                  {plainLine(a.name) || a.sessionId.slice(0, 8)} ·{" "}
-                  {shortPath(a.cwd)}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {repos.length > 0 && (
-            <optgroup label="Repos (front desk)">
-              {repos.map((r) => (
-                <option key={r} value={`repo:${r}`}>
-                  {shortRepo(r)}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {goneOnly.length > 0 && (
-            <optgroup label="Gone (waits until it's back)">
-              {goneOnly.map((g) => (
-                <option key={g.key} value={`agent:${g.key}`}>
-                  {plainLine(g.name) || g.sessionId.slice(0, 8)}
-                </option>
-              ))}
-            </optgroup>
-          )}
-        </select>
+          choices={[
+            { value: "", label: "Choose an agent or a repo…" },
+            ...(agents.length > 0
+              ? [
+                  {
+                    group: "Agents",
+                    choices: agents.map((a) => ({
+                      value: `agent:${a.key}`,
+                      label: `${plainLine(a.name) || a.sessionId.slice(0, 8)} · ${shortPath(a.cwd)}`,
+                    })),
+                  },
+                ]
+              : []),
+            ...(repos.length > 0
+              ? [
+                  {
+                    group: "Repos (front desk)",
+                    choices: repos.map((r) => ({
+                      value: `repo:${r}`,
+                      label: shortRepo(r),
+                    })),
+                  },
+                ]
+              : []),
+            ...(goneOnly.length > 0
+              ? [
+                  {
+                    group: "Gone (waits until it's back)",
+                    choices: goneOnly.map((g) => ({
+                      value: `agent:${g.key}`,
+                      label: plainLine(g.name) || g.sessionId.slice(0, 8),
+                    })),
+                  },
+                ]
+              : []),
+          ]}
+          className="flex-1 sm:max-w-sm"
+        />
       </div>
-      <textarea
+      <Textarea
         aria-label="Message text"
         value={text}
         rows={3}
@@ -526,7 +532,7 @@ function Composer({
             void send()
           }
         }}
-        className="min-h-18 w-full resize-y rounded-lg border border-input bg-white/70 px-2.5 py-2 text-sm text-ink outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+        className="min-h-18 bg-white/70 text-sm text-ink"
       />
       <div className="flex items-center gap-3">
         <span

@@ -1,9 +1,12 @@
 import { useMemo, useState, type ReactNode } from "react"
 import { LinkIcon, LockIcon } from "lucide-react"
 
+import { ChoiceSelect } from "@/components/common/choice-select"
 import { ConfirmButton } from "@/components/common/confirm-button"
 import { Button } from "@/components/ui/button"
 import { Card as Panel } from "@/components/ui/card"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import {
   parseTime,
@@ -317,12 +320,12 @@ function Actions({
           </Button>
         )}
         {assignable.length > 0 && (
-          <select
-            aria-label="Assign to an agent"
+          <ChoiceSelect
+            label="Assign to an agent"
+            size="sm"
             value=""
             disabled={busy}
-            onChange={(e) => {
-              const to = e.target.value
+            onValueChange={(to) => {
               if (!to) return
               void run(async () => {
                 const r = await board.assign(t.id, to)
@@ -333,18 +336,15 @@ function Actions({
                 )
               })
             }}
-            className={cn(fieldClass, "h-7 max-w-52 text-[13px]")}
-          >
-            <option value="">
-              {t.shared ? "Add an agent…" : "Assign to…"}
-            </option>
-            {assignable.map((a) => (
-              <option key={a.key} value={a.key}>
-                {plainLine(a.name) || a.sessionId.slice(0, 8)}
-                {a.status === "busy" ? " (busy)" : ""}
-              </option>
-            ))}
-          </select>
+            choices={[
+              { value: "", label: t.shared ? "Add an agent…" : "Assign to…" },
+              ...assignable.map((a) => ({
+                value: a.key,
+                label: `${plainLine(a.name) || a.sessionId.slice(0, 8)}${a.status === "busy" ? " (busy)" : ""}`,
+              })),
+            ]}
+            className="max-w-52 text-[13px]"
+          />
         )}
         <span className="ml-auto flex items-center gap-1.5">
           <Button
@@ -438,21 +438,22 @@ function BlockForm({
         className={cn(fieldClass, "w-full")}
       />
       <div className="flex flex-wrap items-center gap-1.5">
-        <select
-          aria-label="Waiting on"
+        <ChoiceSelect
+          label="Waiting on"
+          size="sm"
           value={on}
-          onChange={(e) => setOn(e.target.value)}
-          className={cn(fieldClass, "h-7 text-[13px]")}
-        >
-          <option value="person">Waiting on: you</option>
-          {agents.map((a) => (
-            <option key={a.key} value={`agent:${a.key}`}>
-              Waiting on: {plainLine(a.name) || a.sessionId.slice(0, 8)}
-            </option>
-          ))}
-          <option value="external">Waiting on: something outside Irori</option>
-          <option value="">Nothing named</option>
-        </select>
+          onValueChange={setOn}
+          choices={[
+            { value: "person", label: "Waiting on: you" },
+            ...agents.map((a) => ({
+              value: `agent:${a.key}`,
+              label: `Waiting on: ${plainLine(a.name) || a.sessionId.slice(0, 8)}`,
+            })),
+            { value: "external", label: "Waiting on: something outside Irori" },
+            { value: "", label: "Nothing named" },
+          ]}
+          className="text-[13px]"
+        />
         {on === "external" && (
           <input
             aria-label="What, outside Irori"
@@ -650,7 +651,7 @@ function Compose({
 
   return (
     <div className="flex flex-col gap-2 border-t px-4 pt-3 pb-4">
-      <textarea
+      <Textarea
         aria-label="Comment"
         value={text}
         rows={3}
@@ -668,28 +669,26 @@ function Compose({
         className={cn(textareaClass, "min-h-18")}
       />
       {targets.length > 0 && (
-        <div
-          role="radiogroup"
-          aria-label="When the agent hears it"
-          className="flex flex-wrap items-center gap-1.5 text-[12.5px]"
-        >
+        <div className="flex flex-wrap items-center gap-1.5 text-[12.5px]">
           <span className="text-muted-foreground">Tell the agent</span>
-          {tellOptions.map((o) => (
-            <label
-              key={o.id}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-muted-foreground has-checked:border-primary has-checked:bg-info-foreground has-checked:text-ink has-focus-visible:ring-3 has-focus-visible:ring-ring/50"
-            >
-              <input
-                type="radio"
-                name="tell"
+          <RadioGroup
+            variant="chips"
+            name="tell"
+            aria-label="When the agent hears it"
+            value={tell}
+            onValueChange={(v) => setTell(v as Tell)}
+            className="w-auto"
+          >
+            {tellOptions.map((o) => (
+              <RadioGroupItem
+                key={o.id}
                 value={o.id}
-                checked={tell === o.id}
-                onChange={() => setTell(o.id)}
-                className="m-0 accent-primary"
-              />
-              {o.label}
-            </label>
-          ))}
+                className="h-6 px-2.5 text-[12.5px]"
+              >
+                {o.label}
+              </RadioGroupItem>
+            ))}
+          </RadioGroup>
         </div>
       )}
       <p className="text-xs text-muted-foreground">{hint}</p>

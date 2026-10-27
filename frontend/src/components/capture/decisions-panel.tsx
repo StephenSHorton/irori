@@ -8,9 +8,11 @@ import {
   ErrorLine,
   fieldClass,
 } from "@/components/capture/bits"
+import { ChoiceSelect } from "@/components/common/choice-select"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Textarea } from "@/components/ui/textarea"
 import {
   capture,
   lineRange,
@@ -67,19 +69,19 @@ export function DecisionsPanel({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2 px-1">
-        <select
-          aria-label="Repo"
+        <ChoiceSelect
+          label="Repo"
           value={repoKey}
-          onChange={(e) => setRepoKey(e.target.value)}
-          className={`${fieldClass} w-48`}
-        >
-          <option value="">All repos</option>
-          {repos.map((r) => (
-            <option key={r.repoKey} value={r.repoKey}>
-              {shortRepo(r.repoKey)}
-            </option>
-          ))}
-        </select>
+          onValueChange={setRepoKey}
+          choices={[
+            { value: "", label: "All repos" },
+            ...repos.map((r) => ({
+              value: r.repoKey,
+              label: shortRepo(r.repoKey),
+            })),
+          ]}
+          className="w-48"
+        />
         <input
           type="search"
           aria-label="Search decisions"
@@ -332,7 +334,7 @@ export function DecisionForm({
         void submit()
       }}
     >
-      <textarea
+      <Textarea
         aria-label="Decision"
         value={statement}
         rows={2}
@@ -341,7 +343,7 @@ export function DecisionForm({
         onChange={(e) => setStatement(e.target.value)}
         className={areaClass}
       />
-      <textarea
+      <Textarea
         aria-label="Why"
         value={why}
         rows={2}
@@ -350,20 +352,22 @@ export function DecisionForm({
         className={areaClass}
       />
       <div className="flex flex-wrap items-center gap-2">
-        <select
-          aria-label="Repo"
+        <ChoiceSelect
+          label="Repo"
           value={repoKey}
-          onChange={(e) => setRepoKey(e.target.value)}
-          className={`${fieldClass} w-44`}
-        >
-          <option value="">No repo</option>
-          {!knownRepo && <option value={repoKey}>{shortRepo(repoKey)}</option>}
-          {repos.map((r) => (
-            <option key={r.repoKey} value={r.repoKey}>
-              {shortRepo(r.repoKey)}
-            </option>
-          ))}
-        </select>
+          onValueChange={setRepoKey}
+          choices={[
+            { value: "", label: "No repo" },
+            ...(knownRepo
+              ? []
+              : [{ value: repoKey, label: shortRepo(repoKey) }]),
+            ...repos.map((r) => ({
+              value: r.repoKey,
+              label: shortRepo(r.repoKey),
+            })),
+          ]}
+          className="w-44"
+        />
         <input
           aria-label="Path"
           placeholder="Path to anchor (optional)"

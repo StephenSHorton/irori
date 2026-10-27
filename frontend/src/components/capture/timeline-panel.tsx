@@ -9,14 +9,9 @@ import {
   ScrollTextIcon,
 } from "lucide-react"
 
-import {
-  DiffView,
-  Empty,
-  ErrorLine,
-  fieldClass,
-  LinkChip,
-} from "@/components/capture/bits"
+import { DiffView, Empty, ErrorLine, LinkChip } from "@/components/capture/bits"
 import { DecisionForm } from "@/components/capture/decisions-panel"
+import { ChoiceSelect } from "@/components/common/choice-select"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -168,41 +163,40 @@ export function TimelinePanel({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2 px-1">
-        <label
-          htmlFor="timeline-agent"
-          className="text-sm font-medium text-ink"
-        >
-          Agent
-        </label>
-        <select
+        <ChoiceSelect
           id="timeline-agent"
+          label="Agent"
+          showLabel
           value={key}
-          onChange={(e) => onAgent(e.target.value)}
-          className={`${fieldClass} flex-1 sm:max-w-md`}
-        >
-          {!key && <option value="">No agents yet</option>}
-          {key && !known && <option value={key}>{name(key)}</option>}
-          {agents.length > 0 && (
-            <optgroup label="Live">
-              {agents.map((a) => (
-                <option key={a.key} value={a.key}>
-                  {plainLine(a.name) || a.sessionId.slice(0, 8)} ·{" "}
-                  {shortPath(a.cwd)}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {goneOnly.length > 0 && (
-            <optgroup label="Gone">
-              {goneOnly.map((g) => (
-                <option key={g.key} value={g.key}>
-                  {plainLine(g.name) || g.sessionId.slice(0, 8)} ·{" "}
-                  {shortPath(g.cwd)}
-                </option>
-              ))}
-            </optgroup>
-          )}
-        </select>
+          onValueChange={onAgent}
+          choices={[
+            ...(!key ? [{ value: "", label: "No agents yet" }] : []),
+            ...(key && !known ? [{ value: key, label: name(key) }] : []),
+            ...(agents.length > 0
+              ? [
+                  {
+                    group: "Live",
+                    choices: agents.map((a) => ({
+                      value: a.key,
+                      label: `${plainLine(a.name) || a.sessionId.slice(0, 8)} · ${shortPath(a.cwd)}`,
+                    })),
+                  },
+                ]
+              : []),
+            ...(goneOnly.length > 0
+              ? [
+                  {
+                    group: "Gone",
+                    choices: goneOnly.map((g) => ({
+                      value: g.key,
+                      label: `${plainLine(g.name) || g.sessionId.slice(0, 8)} · ${shortPath(g.cwd)}`,
+                    })),
+                  },
+                ]
+              : []),
+          ]}
+          className="flex-1 sm:max-w-md"
+        />
         <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
           <input
             type="checkbox"
