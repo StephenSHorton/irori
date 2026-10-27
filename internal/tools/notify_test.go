@@ -190,3 +190,57 @@ func TestNotifyAnswerAfterCallerLeft(t *testing.T) {
 		t.Fatalf("answer = %q", got)
 	}
 }
+
+// Parallel calls (Claude Code issues tool calls at once) can't beat the
+// limit: the slot is taken when the count is checked.
+func TestNotifyRateLimitParallel(t *testing.T) {
+	h := newHarness(t)
+	c := withCards(h)
+	a := claude(keyA, "alpha")
+	const calls = 20
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	okN := 0
+	for i := 0; i < calls; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			out := h.call(a, "notify", map[string]any{"text": "card", "actions": []string{"Yes", "No"}})
+			if !strings.HasPrefix(out, "Error: ") {
+				mu.Lock()
+				okN++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	c.mu.Lock()
+	posted := len(c.all)
+	c.mu.Unlock()
+	if okN != NotifyLimit || posted != NotifyLimit {
+		t.Fatalf("%d calls accepted and %d cards posted; the limit is %d", okN, posted, NotifyLimit)
+	}
+}
+
+// A card that couldn't be shown doesn't use up a slot.
+func TestNotifyFailedPostFreesSlot(t *testing.T) {
+	h := newHarness(t)
+	withCards(h)
+	a := claude(keyA, "alpha")
+	for i := 0; i < NotifyLimit-1; i++ {
+		h.ok(a, "notify", map[string]any{"text": "card"})
+	}
+	// A failed Post rolls its reservation back (unreserve); check that
+	// bookkeeping directly.
+	st := &h.set.impl.notifyState
+	now := h.set.impl.now()
+	if !st.reserve(keyA, now) {
+		t.Fatal("the last slot should be free")
+	}
+	if st.reserve(keyA, now) {
+		t.Fatal("a second reservation past the limit was granted")
+	}
+	st.unreserve(keyA, now)
+	h.ok(a, "notify", map[string]any{"text": "fits again"})
+	h.fails(a, "notify", map[string]any{"text": "over"}, "limit")
+}

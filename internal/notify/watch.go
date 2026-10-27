@@ -16,6 +16,7 @@ import (
 type InboxSource interface {
 	Subscribe(ctx context.Context) <-chan inbox.Change
 	Get(deliveryID string) (inbox.Delivery, bool)
+	Open() []inbox.Delivery
 	Release(ctx context.Context, deliveryID, by string) error
 	Dismiss(ctx context.Context, deliveryID, by string) error
 }
@@ -49,15 +50,21 @@ const (
 //   - a held delivery (not one held by Pause all, which the person chose):
 //     "<sender> sent <agent> a message Irori held" with Release and Dismiss,
 //     acting through the inbox as the person; cleared when it leaves Held;
-//   - a Board card that moved into the person's Needs you lane (blocked on
-//     them, waiting on their input, or assigned to them): Answer opens the
-//     Board at the card, Later closes it; cleared when it leaves the lane;
+//   - a Board card that an agent (not the person) moved into the person's
+//     Needs you lane (blocked on them, waiting on their input, or assigned
+//     to them): Answer opens the Board at the card, Later closes it;
+//     cleared when it leaves the lane;
 //   - a message addressed to the person (User): Open shows it in the Inbox;
 //     cleared once it is no longer waiting.
 //
 // What already needed the person when Watch starts doesn't pop up: the
 // Inbox and Board counts and the tray carry it. A card body click opens the
 // window at the card's tab (Notifier.Open).
+//
+// Both streams drop changes for a slow reader (the inbox silently, coord
+// with a Resync), so neither is taken as complete: the Board is reconciled
+// on every coord change, and the inbox against a fresh snapshot of its open
+// deliveries each time the inbox stream has been drained.
 func Watch(ctx context.Context, n *Notifier, s Sources) {
 	if n.Headless() {
 		return
@@ -67,6 +74,7 @@ func Watch(ctx context.Context, n *Notifier, s Sources) {
 	var cch <-chan coord.Change
 	if s.Inbox != nil {
 		ich = s.Inbox.Subscribe(ctx)
+		w.reconcile(ctx, false) // seed, like the Board
 	}
 	if s.Board != nil {
 		cch = s.Board.Subscribe(ctx)
@@ -82,6 +90,9 @@ func Watch(ctx context.Context, n *Notifier, s Sources) {
 				continue
 			}
 			w.inbox(ctx, c)
+			if len(ich) == 0 {
+				w.reconcile(ctx, true)
+			}
 		case _, ok := <-cch:
 			if !ok {
 				cch = nil
@@ -95,8 +106,8 @@ func Watch(ctx context.Context, n *Notifier, s Sources) {
 type watcher struct {
 	n     *Notifier
 	s     Sources
-	held  map[string]bool // delivery ids with a held card posted
-	msgs  map[string]bool // delivery ids to the person with a card posted
+	held  map[string]bool // held delivery ids accounted for (card posted, or seeded)
+	msgs  map[string]bool // delivery ids to the person accounted for (likewise)
 	needs map[string]bool // task ids in Needs you (card posted, or seeded)
 }
 
@@ -121,29 +132,77 @@ func (w *watcher) inbox(ctx context.Context, c inbox.Change) {
 	if !ok {
 		return
 	}
+	w.delivery(ctx, d, c.Kind == inbox.HeldNew, true)
+}
+
+// cardHeld is a hold the person is asked about (Pause all is their own).
+func cardHeld(d inbox.Delivery) bool { return d.State == inbox.Held && d.Hold != inbox.HoldPaused }
+
+// waitingFor is a message to the person they haven't seen yet.
+func (w *watcher) waitingFor(d inbox.Delivery) bool {
+	return w.s.User != "" && d.To == w.s.User && (d.State == inbox.Queued || d.State == inbox.Delivered)
+}
+
+// delivery brings d's cards in line with its state: a card for a hold or a
+// message new to the watcher (posted only when post), the card taken down
+// once it no longer applies. heldAgain reposts a hold already carded (it
+// was held anew, so its reason may differ).
+func (w *watcher) delivery(ctx context.Context, d inbox.Delivery, heldAgain, post bool) {
 	id := d.ID
-	// Held deliveries.
 	switch {
-	case d.State == inbox.Held && d.Hold != inbox.HoldPaused:
-		if c.Kind == inbox.HeldNew || !w.held[id] {
-			w.held[id] = w.n.Post(w.heldNote(ctx, d))
+	case cardHeld(d):
+		if !w.held[id] || heldAgain {
+			w.held[id] = true
+			if post {
+				w.n.Post(w.heldNote(ctx, d))
+			}
 		}
 	case w.held[id]:
 		delete(w.held, id)
 		w.n.Clear(HeldID(id))
 	}
-	// Messages to the person.
-	if w.s.User == "" || d.To != w.s.User {
-		return
-	}
-	waiting := d.State == inbox.Queued || d.State == inbox.Delivered
-	switch {
+	switch waiting := w.waitingFor(d); {
 	case waiting && !w.msgs[id]:
 		w.msgs[id] = true
-		w.n.Post(w.messageNote(d))
+		if post {
+			w.n.Post(w.messageNote(d))
+		}
 	case !waiting && w.msgs[id]:
 		delete(w.msgs, id)
 		w.n.Clear(MessageID(id))
+	}
+}
+
+// reconcile re-reads the inbox's open deliveries, so a change the stream
+// dropped (it drops for a full buffer and doesn't say) can't leave a card up
+// for something resolved, or leave a new hold without one. post false seeds:
+// what is already waiting is accounted for without a card.
+func (w *watcher) reconcile(ctx context.Context, post bool) {
+	open := map[string]bool{}
+	for _, d := range w.s.Inbox.Open() {
+		open[d.ID] = true
+		w.delivery(ctx, d, false, post)
+	}
+	// What left the open set (dismissed, done, gone) is no longer held or
+	// waiting; re-read it to be sure, and take its cards down.
+	for _, m := range []map[string]bool{w.held, w.msgs} {
+		for id := range m {
+			if open[id] {
+				continue
+			}
+			if d, ok := w.s.Inbox.Get(id); ok {
+				w.delivery(ctx, d, false, post)
+				continue
+			}
+			if w.held[id] {
+				delete(w.held, id)
+				w.n.Clear(HeldID(id))
+			}
+			if w.msgs[id] {
+				delete(w.msgs, id)
+				w.n.Clear(MessageID(id))
+			}
+		}
 	}
 }
 
@@ -228,7 +287,7 @@ func (w *watcher) board(post bool) {
 			continue
 		}
 		w.needs[c.ID] = true
-		if post {
+		if post && w.agentMoved(c.Task) {
 			w.n.Post(w.needsNote(c))
 		}
 	}
@@ -240,19 +299,32 @@ func (w *watcher) board(post bool) {
 	}
 }
 
-// needsAgent is the agent a Needs you card is about: its first agent
-// holder, else its creator.
-func (w *watcher) needsAgent(t coord.Task) string {
+// agentMoved says whether t's move into Needs you is news to the person:
+// not their own doing (they claimed it, assigned it to themselves, blocked
+// it on themselves), and about someone besides them.
+func (w *watcher) agentMoved(t coord.Task) bool {
+	if t.UpdatedBy == w.s.User {
+		return false
+	}
+	return w.needsKey(t) != ""
+}
+
+// needsKey is who a Needs you card is about: its first holder that isn't
+// the person, else its creator unless that is the person; "" for neither.
+func (w *watcher) needsKey(t coord.Task) string {
 	for _, h := range t.Holders {
-		if !strings.HasPrefix(h, "user:") {
-			return w.name(h)
+		if h != w.s.User {
+			return h
 		}
 	}
-	if strings.HasPrefix(t.CreatedBy, "user:") {
-		return "You"
+	if t.CreatedBy != w.s.User {
+		return t.CreatedBy
 	}
-	return w.name(t.CreatedBy)
+	return ""
 }
+
+// needsAgent is needsKey's display name.
+func (w *watcher) needsAgent(t coord.Task) string { return w.name(w.needsKey(t)) }
 
 func (w *watcher) needsNote(c coord.Card) Note {
 	t := c.Task

@@ -75,6 +75,10 @@ type Task struct {
 	Note      string    `json:"note,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+	// UpdatedBy is who wrote the row that last changed the task's state,
+	// holders, sharing or links (an agent key or "user:*"): the actor of
+	// the latest move. Comments don't set it.
+	UpdatedBy string `json:"updatedBy,omitempty"`
 	// Reason and BlockedBy are set while State is Blocked and cleared when
 	// it leaves Blocked.
 	Reason    string     `json:"reason,omitempty"`

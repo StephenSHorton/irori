@@ -205,6 +205,13 @@ export class Card {
     "updatedAt": time$0.Time;
 
     /**
+     * UpdatedBy is who wrote the row that last changed the task's state,
+     * holders, sharing or links (an agent key or "user:*"): the actor of
+     * the latest move. Comments don't set it.
+     */
+    "updatedBy"?: string;
+
+    /**
      * Reason and BlockedBy are set while State is Blocked and cleared when
      * it leaves Blocked.
      */
@@ -269,10 +276,10 @@ export class Card {
         const $$createField5_0 = $$createType4;
         const $$createField8_0 = $$createType4;
         const $$createField9_0 = $$createType4;
-        const $$createField16_0 = $$createType6;
-        const $$createField17_0 = $$createType8;
-        const $$createField19_0 = $$createType10;
-        const $$createField21_0 = $$createType4;
+        const $$createField17_0 = $$createType6;
+        const $$createField18_0 = $$createType8;
+        const $$createField20_0 = $$createType10;
+        const $$createField22_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
             $$parsedSource["scope"] = $$createField5_0($$parsedSource["scope"]);
@@ -284,16 +291,16 @@ export class Card {
             $$parsedSource["assigned"] = $$createField9_0($$parsedSource["assigned"]);
         }
         if ("blockedBy" in $$parsedSource) {
-            $$parsedSource["blockedBy"] = $$createField16_0($$parsedSource["blockedBy"]);
+            $$parsedSource["blockedBy"] = $$createField17_0($$parsedSource["blockedBy"]);
         }
         if ("links" in $$parsedSource) {
-            $$parsedSource["links"] = $$createField17_0($$parsedSource["links"]);
+            $$parsedSource["links"] = $$createField18_0($$parsedSource["links"]);
         }
         if ("lastComment" in $$parsedSource) {
-            $$parsedSource["lastComment"] = $$createField19_0($$parsedSource["lastComment"]);
+            $$parsedSource["lastComment"] = $$createField20_0($$parsedSource["lastComment"]);
         }
         if ("overlaps" in $$parsedSource) {
-            $$parsedSource["overlaps"] = $$createField21_0($$parsedSource["overlaps"]);
+            $$parsedSource["overlaps"] = $$createField22_0($$parsedSource["overlaps"]);
         }
         return new Card($$parsedSource as Partial<Card>);
     }
@@ -580,6 +587,13 @@ export class Task {
     "updatedAt": time$0.Time;
 
     /**
+     * UpdatedBy is who wrote the row that last changed the task's state,
+     * holders, sharing or links (an agent key or "user:*"): the actor of
+     * the latest move. Comments don't set it.
+     */
+    "updatedBy"?: string;
+
+    /**
      * Reason and BlockedBy are set while State is Blocked and cleared when
      * it leaves Blocked.
      */
@@ -630,8 +644,8 @@ export class Task {
         const $$createField5_0 = $$createType4;
         const $$createField8_0 = $$createType4;
         const $$createField9_0 = $$createType4;
-        const $$createField16_0 = $$createType6;
-        const $$createField17_0 = $$createType8;
+        const $$createField17_0 = $$createType6;
+        const $$createField18_0 = $$createType8;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
             $$parsedSource["scope"] = $$createField5_0($$parsedSource["scope"]);
@@ -643,10 +657,10 @@ export class Task {
             $$parsedSource["assigned"] = $$createField9_0($$parsedSource["assigned"]);
         }
         if ("blockedBy" in $$parsedSource) {
-            $$parsedSource["blockedBy"] = $$createField16_0($$parsedSource["blockedBy"]);
+            $$parsedSource["blockedBy"] = $$createField17_0($$parsedSource["blockedBy"]);
         }
         if ("links" in $$parsedSource) {
-            $$parsedSource["links"] = $$createField17_0($$parsedSource["links"]);
+            $$parsedSource["links"] = $$createField18_0($$parsedSource["links"]);
         }
         return new Task($$parsedSource as Partial<Task>);
     }

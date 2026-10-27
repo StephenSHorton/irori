@@ -280,7 +280,7 @@ func (c *coord) apply(ev store.Event) {
 		c.tasks[p.TaskID] = &Task{
 			ID: p.TaskID, Title: p.Title, Objective: p.Objective, DoneCriteria: p.DoneCriteria,
 			RepoKey: p.RepoKey, Scope: p.Scope, State: Submitted, CreatedBy: p.By,
-			CreatedAt: t, UpdatedAt: t, Shared: p.Shared, Links: links,
+			CreatedAt: t, UpdatedAt: t, UpdatedBy: p.By, Shared: p.Shared, Links: links,
 		}
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID})
 	case KindTaskClaimed:
@@ -295,7 +295,7 @@ func (c *coord) apply(ev store.Event) {
 			if t.State == Submitted {
 				t.State = Working
 			}
-			t.UpdatedAt = at(p.At)
+			t.UpdatedAt, t.UpdatedBy = at(p.At), p.By
 			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: p.By})
 		}
 	case KindTaskAssigned:
@@ -310,7 +310,7 @@ func (c *coord) apply(ev store.Event) {
 				t.Assigned = append(t.Assigned, p.To)
 			}
 			syncHolder(t)
-			t.UpdatedAt = at(p.At)
+			t.UpdatedAt, t.UpdatedBy = at(p.At), p.By
 			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: p.To})
 		}
 	case KindTaskState:
@@ -331,7 +331,7 @@ func (c *coord) apply(ev store.Event) {
 					t.BlockedBy = &b
 				}
 			}
-			t.UpdatedAt = at(p.At)
+			t.UpdatedAt, t.UpdatedBy = at(p.At), p.By
 			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
 		}
 	case KindTaskJoined, KindTaskLeft:
@@ -355,7 +355,7 @@ func (c *coord) apply(ev store.Event) {
 		}
 		t.Assigned = removeStr(t.Assigned, p.Who)
 		syncHolder(t)
-		t.UpdatedAt = at(p.At)
+		t.UpdatedAt, t.UpdatedBy = at(p.At), p.By
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: p.Who})
 	case KindTaskShared:
 		var p taskSharedRow
@@ -364,7 +364,7 @@ func (c *coord) apply(ev store.Event) {
 		}
 		if t := c.tasks[p.TaskID]; t != nil {
 			t.Shared = p.Shared
-			t.UpdatedAt = at(p.At)
+			t.UpdatedAt, t.UpdatedBy = at(p.At), p.By
 			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
 		}
 	case KindTaskLinked:
@@ -388,7 +388,7 @@ func (c *coord) apply(ev store.Event) {
 		default:
 			return
 		}
-		t.UpdatedAt = at(p.At)
+		t.UpdatedAt, t.UpdatedBy = at(p.At), p.By
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
 	case KindTaskComment:
 		var p taskCommentRow
@@ -424,7 +424,7 @@ func (c *coord) apply(ev store.Event) {
 		if p.Note != "" {
 			t.Note = p.Note
 		}
-		t.UpdatedAt = at(p.At)
+		t.UpdatedAt, t.UpdatedBy = at(p.At), p.By
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
 	case KindLeaseRefused:
 		var r Refusal

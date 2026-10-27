@@ -91,21 +91,19 @@ func (s *set) notify(ctx context.Context, c Caller, raw json.RawMessage) string 
 
 	st := &s.notifyState
 	now := s.now()
-	st.mu.Lock()
-	var kept []time.Time
-	for _, t := range st.posted[c.Sender.Key] {
-		if now.Sub(t) < NotifyWindow {
-			kept = append(kept, t)
-		}
-	}
-	if st.posted != nil {
-		st.posted[c.Sender.Key] = kept
-	}
-	if len(kept) >= NotifyLimit {
-		st.mu.Unlock()
+	key := c.Sender.Key
+	if !st.reserve(key, now) {
 		return errText(fmt.Sprintf("you have shown the person %d notification cards in the last %d minutes, which is the limit. "+
-			"Only notify for what they must see or decide now; put the rest in a message or on the Board.", len(kept), int(NotifyWindow/time.Minute)))
+			"Only notify for what they must see or decide now; put the rest in a message or on the Board.", NotifyLimit, int(NotifyWindow/time.Minute)))
 	}
+	// The slot is taken from here on; a card that isn't shown gives it back.
+	shown := false
+	defer func() {
+		if !shown {
+			st.unreserve(key, now)
+		}
+	}()
+	st.mu.Lock()
 	st.seq++
 	id := notify.AskID(strconv.FormatInt(now.UnixNano(), 36) + "-" + strconv.FormatUint(st.seq, 36))
 	wait := st.answer
@@ -153,12 +151,7 @@ func (s *set) notify(ctx context.Context, c Caller, raw json.RawMessage) string 
 	if !n.Post(note) {
 		return errText("the card couldn't be shown (notifications may have just been turned off).")
 	}
-	st.mu.Lock()
-	if st.posted == nil {
-		st.posted = map[string][]time.Time{}
-	}
-	st.posted[c.Sender.Key] = append(st.posted[c.Sender.Key], now)
-	st.mu.Unlock()
+	shown = true
 
 	if len(labels) == 0 {
 		return "Showed the person a card (" + id + "). No answer comes back for a card without actions."
@@ -166,6 +159,44 @@ func (s *set) notify(ctx context.Context, c Caller, raw json.RawMessage) string 
 	return "Showed the person a card (" + id + ") with " + strings.Join(quotedAll(labels), " and ") +
 		". Their answer (the button, a dismiss, or no answer within " + humanWait(wait) +
 		") reaches you at your next turn as a message from Irori; carry on meanwhile and don't ask again."
+}
+
+// reserve takes one of key's NotifyLimit slots in the window ending at now,
+// or reports that none is free. Checking and taking happen under one lock,
+// so calls made at the same time can't all pass the check.
+func (st *notifyState) reserve(key string, now time.Time) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	var kept []time.Time
+	for _, t := range st.posted[key] {
+		if now.Sub(t) < NotifyWindow {
+			kept = append(kept, t)
+		}
+	}
+	if len(kept) >= NotifyLimit {
+		if st.posted != nil {
+			st.posted[key] = kept
+		}
+		return false
+	}
+	if st.posted == nil {
+		st.posted = map[string][]time.Time{}
+	}
+	st.posted[key] = append(kept, now)
+	return true
+}
+
+// unreserve gives back a slot reserve took at now (its card wasn't shown).
+func (st *notifyState) unreserve(key string, now time.Time) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	ts := st.posted[key]
+	for i := len(ts) - 1; i >= 0; i-- {
+		if ts[i].Equal(now) {
+			st.posted[key] = append(ts[:i:i], ts[i+1:]...)
+			return
+		}
+	}
 }
 
 // notifyAnswer tells the agent that asked what the person did, at its next

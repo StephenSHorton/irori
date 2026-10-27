@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -41,7 +42,11 @@ type rig struct {
 	st     *store.Store
 }
 
-func newRig(t *testing.T) *rig {
+func newRig(t *testing.T) *rig { return newRigNamed(t, nil) }
+
+// newRigNamed is newRig with a Name func wrapped around the usual names
+// (wrap may block, to stall the watcher).
+func newRigNamed(t *testing.T, wrap func(key, name string) string) *rig {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "irori.db"), "dev1", hlc.New(nil))
@@ -65,7 +70,11 @@ func newRig(t *testing.T) *rig {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		Watch(ctx, n, Sources{Inbox: ib, Board: co, User: user, Name: func(k string) string { return names[k] }})
+		name := func(k string) string { return names[k] }
+		if wrap != nil {
+			name = func(k string) string { return wrap(k, names[k]) }
+		}
+		Watch(ctx, n, Sources{Inbox: ib, Board: co, User: user, Name: name})
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -328,5 +337,90 @@ func TestWatchHeadlessReturns(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("Watch on a headless notifier should return at once")
+	}
+}
+
+// The inbox drops changes for a reader whose buffer is full and never says
+// so; the watcher re-reads, so a release or dismiss it didn't hear still
+// takes the card down, and a hold it didn't hear still gets one.
+func TestWatchCatchesUpAfterDroppedChanges(t *testing.T) {
+	var stall atomic.Bool
+	release := make(chan struct{})
+	stalled := make(chan struct{}, 1)
+	r := newRigNamed(t, func(key, name string) string {
+		if stall.CompareAndSwap(true, false) {
+			stalled <- struct{}{}
+			<-release
+		}
+		return name
+	})
+	d := r.heldMessage("first")
+	r.waitPost(HeldID(d.ID))
+
+	stall.Store(true)
+	d2 := r.heldMessage("second") // the watcher stalls building its card
+	select {
+	case <-stalled:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the watcher never stalled")
+	}
+	for i := 0; i < 80; i++ { // more changes than the 64-slot buffer
+		if err := r.ib.SetPolicy(r.ctx, inbox.Policy{Mode: inbox.Everyone, Block: []string{keyA}}, user); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.ib.Dismiss(r.ctx, d.ID, user); err != nil {
+		t.Fatal(err)
+	}
+	_, d3, err := r.ib.Send(r.ctx, alpha, inbox.Address{Kind: inbox.ToAgent, Value: keyB}, "third", "")
+	if err != nil || d3.State != inbox.Held {
+		t.Fatalf("send: %v %s", err, d3.State)
+	}
+	close(release)
+
+	r.waitGone(HeldID(d.ID))
+	for i := 0; i < 300 && !r.fake.isLive(HeldID(d3.ID)); i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !r.fake.isLive(HeldID(d2.ID)) || !r.fake.isLive(HeldID(d3.ID)) {
+		t.Fatalf("held cards: second %v, third %v; want both up", r.fake.isLive(HeldID(d2.ID)), r.fake.isLive(HeldID(d3.ID)))
+	}
+}
+
+// What the person did on the Board themselves doesn't pop a card at them.
+func TestWatchBoardIgnoresThePersonsOwnMoves(t *testing.T) {
+	r := newRig(t)
+	// (a) The person takes a card an agent made.
+	task, err := r.co.CreateTask(r.ctx, keyA, coord.NewTask{Title: "agent work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.co.ClaimTask(r.ctx, user, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	// (b) The person's own card, blocked on them by them.
+	own, err := r.co.CreateTask(r.ctx, user, coord.NewTask{Title: "renew the cert"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.co.Block(r.ctx, user, own.ID, "waiting on vendor", &coord.BlockedBy{Kind: coord.BlockedOnPerson}); err != nil {
+		t.Fatal(err)
+	}
+	if v := r.co.Board(coord.BoardFilter{For: user}); len(v.NeedsYou) < 2 {
+		t.Fatalf("both cards should be in Needs you; got %d", len(v.NeedsYou))
+	}
+	r.noPost(150 * time.Millisecond)
+
+	// An agent handing the person a card still pops one.
+	handed, err := r.co.CreateTask(r.ctx, keyA, coord.NewTask{Title: "review the PR"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.co.AssignTask(r.ctx, keyA, handed.ID, user); err != nil {
+		t.Fatal(err)
+	}
+	r.waitPost(NeedsID(handed.ID))
+	if c := r.fake.card(t, NeedsID(handed.ID)); c.Title != "alpha handed you a card" {
+		t.Fatalf("card = %q", c.Title)
 	}
 }

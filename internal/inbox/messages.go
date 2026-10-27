@@ -386,6 +386,16 @@ func (b *inbox) list(limit int) []Delivery {
 	return b.newestFirst(func(*drec) bool { return true }, limit)
 }
 
+func (b *inbox) openList() []Delivery {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([]Delivery, 0, len(b.open))
+	for _, d := range b.open {
+		out = append(out, b.copyOut(d))
+	}
+	return out
+}
+
 func (b *inbox) get(deliveryID string) (Delivery, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

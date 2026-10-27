@@ -430,6 +430,11 @@ func (b *Inbox) For(agent string, all bool, limit int) []Delivery {
 // List lists recent deliveries across every recipient, newest first (GUI).
 func (b *Inbox) List(limit int) []Delivery { return b.impl.list(limit) }
 
+// Open lists every open delivery (State.Open), held ones included, in no
+// particular order. Subscribe drops changes for a slow reader; a reader
+// that keeps state per delivery re-reads with this.
+func (b *Inbox) Open() []Delivery { return b.impl.openList() }
+
 // Get returns one delivery.
 func (b *Inbox) Get(deliveryID string) (Delivery, bool) { return b.impl.get(deliveryID) }
 
