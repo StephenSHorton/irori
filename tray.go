@@ -16,10 +16,11 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
-// trayIconPNG is the tray icon. Windows decodes PNG bytes and scales the
-// 1024px image down to the small-icon size itself, so no .ico is needed.
+// trayIconPNG is the tray icon: the 囲 logo on a tight white tile, so it
+// stays legible at 16 px (the app icon's wider margin would shrink it).
+// Windows decodes PNG bytes and scales it itself, so no .ico is needed.
 //
-//go:embed build/appicon.png
+//go:embed build/trayicon.png
 var trayIconPNG []byte
 
 func init() {
