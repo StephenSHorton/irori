@@ -143,6 +143,8 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, agents)
 	case "/v1/events":
 		h.events(w, r)
+	case "/v1/events/stream":
+		h.eventsStream(w, r)
 	default:
 		writeError(w, http.StatusNotFound, "no such route")
 	}

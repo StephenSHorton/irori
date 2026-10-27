@@ -12,6 +12,7 @@
 //	GET /v1/device                -> device.Identity
 //	GET /v1/agents                -> []presence.AgentCard
 //	GET /v1/events?kind=&limit=   -> []store.Event (kind may repeat; prefix "agent.")
+//	GET /v1/events/stream         -> NDJSON of store.Event (routes_events.go)
 //
 // CONTRACT (implemented by the discovery/api work package; keep these signatures):
 package api
@@ -40,6 +41,10 @@ type Backend interface {
 	Device() device.Identity
 	Agents() []presence.AgentCard
 	Events(ctx context.Context, f store.Filter) ([]store.Event, error)
+	// SubscribeEvents is store.Subscribe: rows appended or inserted after the
+	// call until ctx ends; a zero Event (Seq 0) means rows were dropped and
+	// the reader should re-read. It feeds GET /v1/events/stream.
+	SubscribeEvents(ctx context.Context) <-chan store.Event
 
 	// v0.2 (routes_v02.go). A backend without messaging returns nil from
 	// Inbox/Tools; the v0.2 routes then answer 503.

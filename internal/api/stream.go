@@ -320,8 +320,11 @@ type lineWriter struct {
 	rc *http.ResponseController
 }
 
-func (l *lineWriter) send(ev attach.Event) error {
-	raw, err := json.Marshal(ev)
+func (l *lineWriter) send(ev attach.Event) error { return l.sendJSON(ev) }
+
+// sendJSON writes v as one line.
+func (l *lineWriter) sendJSON(v any) error {
+	raw, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
@@ -329,6 +332,13 @@ func (l *lineWriter) send(ev attach.Event) error {
 }
 
 func (l *lineWriter) keepalive() error { return l.write([]byte{'\n'}) }
+
+// flush sends the headers (and anything buffered) now.
+func (l *lineWriter) flush() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.rc.Flush()
+}
 
 func (l *lineWriter) write(p []byte) error {
 	l.mu.Lock()

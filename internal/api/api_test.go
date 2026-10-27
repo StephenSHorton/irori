@@ -29,6 +29,16 @@ type fakeBackend struct {
 	mu   sync.Mutex
 	last store.Filter
 	cap  *capture.Capture // nil: the v0.3 routes answer 503
+	live chan store.Event // SubscribeEvents' channel; nil: nothing ever arrives
+}
+
+func (f *fakeBackend) SubscribeEvents(ctx context.Context) <-chan store.Event {
+	if f.live != nil {
+		return f.live
+	}
+	ch := make(chan store.Event)
+	go func() { <-ctx.Done(); close(ch) }()
+	return ch
 }
 
 func (f *fakeBackend) Version() string { return "0.1.0-test" }
