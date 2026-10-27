@@ -62,7 +62,7 @@ func TestExtractRefs(t *testing.T) {
 		{name: "bare #N 6 digits is not a ref", text: "#123456", o: RefOptions{DefaultRepo: web}, want: []string{}},
 		{name: "digits followed by a word char", text: "#12a acme/webapp#3x", o: RefOptions{DefaultRepo: web}, want: []string{}},
 		{name: "digits followed by punctuation", text: "(#12), acme/webapp#3.", o: RefOptions{DefaultRepo: web}, want: []string{"pr:acme/webapp#12", "pr:acme/webapp#3"}},
-		{name: "bare #N after a word char", text: "abc#12", o: RefOptions{DefaultRepo: web}, want: []string{"pr:acme/abc#12"}},
+		{name: "a word before # makes name#N", text: "abc#12", o: RefOptions{DefaultRepo: web}, want: []string{"pr:acme/abc#12"}},
 		{name: "bare #N after a word char only", text: "1#12 _#13", o: RefOptions{DefaultRepo: web}, want: []string{}},
 		{name: "bare #N after slash, <, #, &, @", text: "/#12 <#13 ##14 &#15 @#16", o: RefOptions{DefaultRepo: web}, want: []string{}},
 		{name: "bare #N after dash is allowed", text: "-#12", o: RefOptions{DefaultRepo: web}, want: []string{"pr:acme/webapp#12"}},
