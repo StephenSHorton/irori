@@ -1,6 +1,13 @@
 import { useState } from "react"
-import { FolderGitIcon, FolderIcon, FlameIcon, HistoryIcon } from "lucide-react"
+import {
+  FolderGitIcon,
+  FolderIcon,
+  FlameIcon,
+  HistoryIcon,
+  ListTreeIcon,
+} from "lucide-react"
 
+import { FidelityBadge } from "@/components/capture/bits"
 import { ConfirmButton } from "@/components/common/confirm-button"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
@@ -63,12 +70,16 @@ export function RosterList({
   counts,
   gone,
   goneError,
+  fidelity,
+  onTimeline,
   now,
 }: {
   agents: AgentCard[]
   counts: Map<string, AgentCounts>
   gone: GoneSession[]
   goneError: string | null
+  fidelity: Record<string, string>
+  onTimeline: (key: string) => void
   now: Date
 }) {
   return (
@@ -98,6 +109,8 @@ export function RosterList({
                     agent={a}
                     counts={counts.get(a.key)}
                     showCwd={g.cwds.length > 1}
+                    fidelity={fidelity[a.key]}
+                    onTimeline={onTimeline}
                     now={now}
                   />
                 ))}
@@ -108,7 +121,12 @@ export function RosterList({
       )}
 
       {(gone.length > 0 || goneError) && (
-        <GoneList gone={gone} error={goneError} now={now} />
+        <GoneList
+          gone={gone}
+          error={goneError}
+          onTimeline={onTimeline}
+          now={now}
+        />
       )}
     </div>
   )
@@ -137,11 +155,15 @@ function AgentRow({
   agent,
   counts,
   showCwd,
+  fidelity,
+  onTimeline,
   now,
 }: {
   agent: AgentCard
   counts?: AgentCounts
   showCwd: boolean
+  fidelity?: string
+  onTimeline: (key: string) => void
   now: Date
 }) {
   const name = plainLine(agent.name) || agent.sessionId.slice(0, 8)
@@ -192,6 +214,7 @@ function AgentRow({
         {text || "No reply yet"}
       </p>
       <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+        <FidelityBadge fidelity={fidelity} />
         <span>{kindLabel(agent.sessionKind)}</span>
         {agent.entrypoint && <span>· {agent.entrypoint}</span>}
         {agent.permissionMode === "bypassPermissions" && (
@@ -208,9 +231,27 @@ function AgentRow({
             · {shortPath(agent.cwd)}
           </span>
         )}
-        <span className="ml-auto shrink-0 font-mono">pid {agent.pid}</span>
+        <span className="ml-auto flex shrink-0 items-center gap-2">
+          <TimelineLink onClick={() => onTimeline(agent.key)} />
+          <span className="font-mono">pid {agent.pid}</span>
+        </span>
       </div>
     </li>
+  )
+}
+
+// TimelineLink opens an agent's captured history in the Timeline tab.
+function TimelineLink({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 rounded-md px-1 text-muted-foreground hover:bg-muted hover:text-ink"
+      title="Open this session's timeline"
+    >
+      <ListTreeIcon className="size-3.5" aria-hidden />
+      Timeline
+    </button>
   )
 }
 
@@ -242,10 +283,12 @@ export function StatusBadge({ status }: { status: string }) {
 function GoneList({
   gone,
   error,
+  onTimeline,
   now,
 }: {
   gone: GoneSession[]
   error: string | null
+  onTimeline: (key: string) => void
   now: Date
 }) {
   return (
@@ -266,7 +309,12 @@ function GoneList({
       <Card size="sm" className="gap-0 py-0!">
         <ul className="divide-y divide-border">
           {gone.map((g) => (
-            <GoneRow key={g.key} g={g} now={now} />
+            <GoneRow
+              key={g.key}
+              g={g}
+              onTimeline={() => onTimeline(g.key)}
+              now={now}
+            />
           ))}
         </ul>
       </Card>
@@ -274,7 +322,15 @@ function GoneList({
   )
 }
 
-function GoneRow({ g, now }: { g: GoneSession; now: Date }) {
+function GoneRow({
+  g,
+  onTimeline,
+  now,
+}: {
+  g: GoneSession
+  onTimeline: () => void
+  now: Date
+}) {
   const [output, setOutput] = useState<string | null>(null)
   const name = plainLine(g.name) || g.sessionId.slice(0, 8)
   const at = parseTime(g.goneAt)
@@ -298,6 +354,7 @@ function GoneRow({ g, now }: { g: GoneSession; now: Date }) {
           >
             left {relativeTime(at, now)}
           </time>
+          <TimelineLink onClick={onTimeline} />
           {output !== null ? (
             // Revived: no second button, or a quick second click could start
             // the same session again before the row drops off the list.
