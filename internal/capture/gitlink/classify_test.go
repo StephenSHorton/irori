@@ -182,6 +182,23 @@ func TestClassify(t *testing.T) {
 			want:  "a.go=unattributed[] b.go=unattributed[]",
 		},
 		{name: "no files", root: rootA, want: ""},
+		{
+			name:  "empty root links no partial edits, even ones with an empty Root",
+			files: []FileChange{mod("a.go", blobX)},
+			root:  "",
+			cands: []EditRef{
+				{ID: "e1", Root: "", Path: "a.go", AfterBlob: blobY, At: at(1)},
+				{ID: "e2", Root: "", Path: "a.go", Heuristic: true, At: at(2)},
+			},
+			want: "a.go=unattributed[]",
+		},
+		{
+			name:  "empty root still finds an exact match",
+			files: []FileChange{mod("a.go", blobX)},
+			root:  "",
+			cands: []EditRef{{ID: "b1", Root: rootB, Path: "a.go", AfterBlob: blobX, At: at(1)}},
+			want:  "a.go=exact[b1]",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -409,6 +426,31 @@ func TestCommitter(t *testing.T) {
 			cmds: []CommitCmd{{TurnID: "x", Cwd: `C:\a`, At: at(100)}},
 		},
 		{name: "no commands", root: `C:\a\b`},
+		{
+			name: "zero At never wins over a close command",
+			root: `C:\a\b`,
+			cmds: []CommitCmd{
+				{TurnID: "near", Cwd: `C:\a\b`, At: at(103)},
+				{TurnID: "zero", Cwd: `C:\a\b`},
+			},
+			want: "near",
+		},
+		{
+			name: "zero At alone is outside the window",
+			root: `C:\a\b`,
+			cmds: []CommitCmd{{TurnID: "zero", Cwd: `C:\a\b`}},
+		},
+		{
+			name: "far future At is outside the window",
+			root: `C:\a\b`,
+			cmds: []CommitCmd{{TurnID: "far", Cwd: `C:\a\b`, At: time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)}},
+		},
+		{
+			name: "Git Bash style root with a Windows cwd",
+			root: "/c/a/b",
+			cmds: []CommitCmd{{TurnID: "win", Cwd: `C:\a\b\c`, At: at(100)}},
+			want: "win",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -445,6 +487,10 @@ func TestUnderRoot(t *testing.T) {
 		{"/home/u/Repo", "/home/u/repo", false},
 		{"/x", "/", true},
 		{"", `C:\a`, false},
+		{`C:\a\b\c`, "/c/a/b", true},
+		{`C:\A\b`, "/c/a/b", true},
+		{`D:\a\b`, "/c/a/b", false},
+		{"/c/a/b/c", "/c/a/b", true},
 	}
 	for _, tt := range tests {
 		if got := underRoot(tt.dir, tt.root); got != tt.want {

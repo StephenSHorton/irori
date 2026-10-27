@@ -45,10 +45,13 @@ func classifyFile(f FileChange, root string, cands []EditRef) FileLink {
 		}
 	}
 
+	// An empty root matches no edit's root, not even an empty one: an edit
+	// whose root failed to resolve is not credited to a commit whose root
+	// also failed to.
 	var own []int
 	allHeuristic := true
 	for i, e := range cands {
-		if e.Path == f.Path && sameRoot(e.Root, root) {
+		if root != "" && e.Path == f.Path && sameRoot(e.Root, root) {
 			own = append(own, i)
 			allHeuristic = allHeuristic && e.Heuristic
 		}
@@ -90,12 +93,14 @@ func committer(c Commit, root string, cmds []CommitCmd) *CommitCmd {
 		if !underRoot(cmd.Cwd, root) {
 			continue
 		}
+		// Bound-check before subtracting: Sub saturates for times centuries
+		// apart (a zero At), and negating math.MinInt64 stays negative.
+		if cmd.At.Before(c.At.Add(-CommitterWindow)) || cmd.At.After(c.At.Add(CommitterWindow)) {
+			continue
+		}
 		d := cmd.At.Sub(c.At)
 		if d < 0 {
 			d = -d
-		}
-		if d > CommitterWindow {
-			continue
 		}
 		if best < 0 || d < bestD || (d == bestD && cmd.At.After(cmds[best].At)) {
 			best, bestD = i, d
@@ -110,7 +115,7 @@ func committer(c Commit, root string, cmds []CommitCmd) *CommitCmd {
 
 // underRoot reports whether dir is root or inside it.
 func underRoot(dir, root string) bool {
-	d, r := normPath(dir, root), normPath(root, root)
+	d, r := normPath(dir, root), normPath(root, dir)
 	if d == "" || r == "" {
 		return false
 	}

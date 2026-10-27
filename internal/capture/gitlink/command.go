@@ -25,10 +25,24 @@ var gitArgOptions = map[string]bool{
 // that take one, and the shell keywords a command can follow.
 var wrappers = map[string]bool{
 	"sudo": true, "env": true, "command": true, "time": true, "nohup": true,
-	"exec": true, "xargs": true, "builtin": true,
+	"exec": true, "xargs": true, "builtin": true, "timeout": true, "nice": true,
 	"{": true, "}": true, "!": true, "if": true, "then": true, "else": true,
 	"elif": true, "do": true, "while": true, "until": true,
 }
+
+// wrapperValues are the flags of a wrapper that take the next word as their
+// value, and wrapperPositional how many leading non-flag words it takes
+// before the command (timeout's duration).
+var wrapperValues = map[string]map[string]bool{
+	"sudo":    {"-u": true, "-g": true, "-C": true, "-D": true, "-h": true, "-p": true, "-r": true, "-t": true, "-U": true, "-T": true, "--user": true, "--group": true, "--chdir": true, "--host": true, "--prompt": true, "--role": true, "--type": true, "--other-user": true, "--close-from": true, "--command-timeout": true},
+	"env":     {"-u": true, "-C": true, "--unset": true, "--chdir": true},
+	"nice":    {"-n": true, "--adjustment": true},
+	"timeout": {"-s": true, "-k": true, "--signal": true, "--kill-after": true},
+	"xargs":   {"-a": true, "-d": true, "-E": true, "-I": true, "-L": true, "-n": true, "-P": true, "-s": true, "--arg-file": true, "--delimiter": true, "--max-args": true, "--max-procs": true, "--max-chars": true},
+	"time":    {"-f": true, "-o": true, "--format": true, "--output": true},
+}
+
+var wrapperPositional = map[string]int{"timeout": 1}
 
 // shells run their -c argument as a command line.
 var shells = map[string]bool{"bash": true, "sh": true, "zsh": true, "dash": true}
@@ -57,16 +71,13 @@ func checkLine(line string, depth int) bool {
 }
 
 func checkWords(w []string, depth int) bool {
-	// Skip env assignments and wrappers, with their flags.
+	// Skip env assignments and wrappers, with their flags and values.
 	for len(w) > 0 {
-		switch {
+		switch name := progName(w[0]); {
 		case isAssignment(w[0]):
 			w = w[1:]
-		case wrappers[progName(w[0])]:
-			w = w[1:]
-			for len(w) > 0 && strings.HasPrefix(w[0], "-") {
-				w = w[1:]
-			}
+		case wrappers[name]:
+			w = skipWrapperArgs(name, w[1:])
 		default:
 			goto run
 		}
@@ -90,6 +101,36 @@ run:
 	return false
 }
 
+// skipWrapperArgs drops the flags of wrapper name (and the values of those
+// in wrapperValues), a "--", and its leading positional words.
+func skipWrapperArgs(name string, w []string) []string {
+	for len(w) > 0 && strings.HasPrefix(w[0], "-") {
+		opt := w[0]
+		w = w[1:]
+		if opt == "--" {
+			break
+		}
+		if wrapperValues[name][opt] && len(w) > 0 {
+			w = w[1:]
+		}
+	}
+	for n := wrapperPositional[name]; n > 0 && len(w) > 0; n-- {
+		w = w[1:]
+	}
+	return w
+}
+
+// commitValueOptions are options of the commit-making subcommands whose
+// value is the next word, so a message like "--abort" is not read as one.
+var commitValueOptions = map[string]bool{
+	"-m": true, "-F": true, "-C": true, "-c": true, "-t": true, "-s": true,
+	"-X": true, "-x": true, "--message": true, "--file": true,
+	"--template": true, "--author": true, "--date": true, "--strategy": true,
+	"--strategy-option": true, "--onto": true, "--exec": true,
+	"--reuse-message": true, "--reedit-message": true, "--fixup": true,
+	"--squash": true, "--cleanup": true, "--mainline": true,
+}
+
 func isGitCommit(w []string) bool {
 	for len(w) > 0 && strings.HasPrefix(w[0], "-") {
 		opt := w[0]
@@ -101,9 +142,15 @@ func isGitCommit(w []string) bool {
 	if len(w) == 0 || !commitSubcommands[w[0]] {
 		return false
 	}
-	for _, a := range w[1:] {
-		if a == "--abort" || a == "--quit" || a == "-h" || a == "--help" {
+	args := w[1:]
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--":
+			return true
+		case a == "--abort" || a == "--quit" || a == "-h" || a == "--help":
 			return false
+		case commitValueOptions[a]:
+			i++
 		}
 	}
 	return true
