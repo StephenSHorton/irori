@@ -37,6 +37,7 @@ func main() {
 	if len(args) > 0 && len(args[0]) > 0 && args[0][0] != '-' {
 		cmd, args = args[0], args[1:]
 	}
+	useParentConsole(cmd)
 	var err error
 	switch cmd {
 	case "", "gui":

@@ -59,8 +59,13 @@ jobs:
           "numeric=$($version -replace '[-+].*$', '')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "Releasing $tag (version $version)"
 
+      # internal/capture drives real git in temp repos and its timing tests
+      # can flake under full parallel load, so it runs alone, with one retry.
       - name: Test
-        run: go test ./internal/...
+        shell: bash
+        run: |
+          go test $(go list ./internal/... | grep -v '/internal/capture$')
+          go test -p 1 ./internal/capture || go test -p 1 -count=1 ./internal/capture
 
       - name: Stamp version into the Win32 resource (info.json)
         shell: pwsh

@@ -20,6 +20,7 @@ Irori is a hearth for your coding agents. Every agent you run, on every device y
 - [v0.2 design](docs/design/v0.2-talk.md), [v0.3 design](docs/design/v0.3-capture.md) and [the Claude Code mod](docs/mod.md)
 - [Spike 01: mod wake on Windows](docs/spikes/01-mod-wake-windows.md), [live check 02: v0.2](docs/spikes/02-v0.2-live.md), [live check 03: v0.3](docs/spikes/03-v0.3-live.md)
 - [Research index](docs/research/README.md)
+- [Releasing](docs/releasing.md): cutting a release, the installer, and how updates reach installed copies
 
 ## License
 

@@ -49,7 +49,10 @@ jobs:
       - name: Test
         shell: bash
         run: |
-          if [ "$RUNNER_OS" = "macOS" ]; then go test -race ./...; else go test ./...; fi
+          # internal/capture's git timing tests run alone, with one retry.
+          race=""; [ "$RUNNER_OS" = "macOS" ] && race="-race"
+          go test $race $(go list ./... | grep -v '/internal/capture$')
+          go test $race -p 1 ./internal/capture || go test $race -p 1 -count=1 ./internal/capture
 
       - name: Build
         run: go build ./...

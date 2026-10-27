@@ -123,7 +123,7 @@ func runGUI(args []string) error {
 	})
 
 	tray := setupTray(app, show, version)
-	setupUpdater(app, upd, tray)
+	setupUpdater(app, upd, tray, c.Notifier(), show)
 	go roster.pump(ctx, app)
 	go roster.trayStatus(ctx, tray)
 	tray.SetPause(inboxSvc.SetPaused)
