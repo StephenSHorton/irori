@@ -139,7 +139,7 @@ func (c *coord) assignNotice(ctx context.Context, by, id, to string) (Task, Noti
 	if t.DoneCriteria != "" {
 		fmt.Fprintf(&b, "\nDone when: %s", cut(t.DoneCriteria, maxNoticeField))
 	}
-	if t.State == Submitted {
+	if contains(t.Assigned, to) {
 		b.WriteString("\nClaim it to start.")
 	}
 	b.WriteString(deeper(t.ID))

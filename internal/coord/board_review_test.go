@@ -24,12 +24,12 @@ func boardHas(cs []Card, id string) bool {
 func TestUnblockKeepsUnclaimedAssigneeSubmitted(t *testing.T) {
 	cases := []struct {
 		name  string
-		close func(e *env, id string)
+		close func(t *testing.T, e *env, id string)
 		claim bool // the assignee claims before the block
 		want  TaskState
 	}{
-		{"unblock, never claimed", func(e *env, id string) { mustN(t)(e.c.Unblock(ctx, carol, id, "")) }, false, Submitted},
-		{"sweeper, never claimed", func(e *env, id string) {
+		{"unblock, never claimed", func(t *testing.T, e *env, id string) { mustN(t)(e.c.Unblock(ctx, carol, id, "")) }, false, Submitted},
+		{"sweeper, never claimed", func(t *testing.T, e *env, id string) {
 			if err := e.c.Release(ctx, carol, "port:5173"); err != nil {
 				t.Fatal(err)
 			}
@@ -37,7 +37,7 @@ func TestUnblockKeepsUnclaimedAssigneeSubmitted(t *testing.T) {
 				t.Fatal(err)
 			}
 		}, false, Submitted},
-		{"unblock, claimed", func(e *env, id string) { mustN(t)(e.c.Unblock(ctx, carol, id, "")) }, true, Working},
+		{"unblock, claimed", func(t *testing.T, e *env, id string) { mustN(t)(e.c.Unblock(ctx, carol, id, "")) }, true, Working},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -49,7 +49,7 @@ func TestUnblockKeepsUnclaimedAssigneeSubmitted(t *testing.T) {
 				must[Task](t)(e.c.ClaimTask(ctx, bob, task.ID))
 			}
 			must[Task](t)(e.c.Block(ctx, alice, task.ID, "wait", &BlockedBy{Kind: BlockedOnLease, Ref: "port:5173"}))
-			tc.close(e, task.ID)
+			tc.close(t, e, task.ID)
 			for _, c := range []*Coord{e.c, e.reopen()} {
 				got, _ := c.GetTask(task.ID)
 				if got.State != tc.want || !reflect.DeepEqual(got.Holders, []string{bob}) {
@@ -74,8 +74,8 @@ func TestSharedAssigneeNotEngagedUntilItClaims(t *testing.T) {
 			task := shared(t, e, alice)
 			must[Task](t)(e.c.ClaimTask(ctx, alice, task.ID))
 			got, n := mustN(t)(e.c.Assign(ctx, alice, task.ID, bob))
-			if !reflect.DeepEqual(n.To, []string{bob}) || !reflect.DeepEqual(got.Assigned, []string{bob}) {
-				t.Fatalf("assign: notice to %v, assigned %v", n.To, got.Assigned)
+			if !reflect.DeepEqual(n.To, []string{bob}) || !reflect.DeepEqual(got.Assigned, []string{bob}) || !strings.Contains(n.Text, "Claim it") {
+				t.Fatalf("assign: notice to %v, assigned %v, text %q", n.To, got.Assigned, n.Text)
 			}
 			v := e.c.Board(BoardFilter{For: bob})
 			if !boardHas(v.NeedsYou, task.ID) || boardHas(v.Working, task.ID) {
