@@ -462,14 +462,15 @@ func TestLeaseSteal(t *testing.T) {
 	if len(got) != 2 || got[0].Resource != "path:"+repoA+":docs/x.md" || got[1].Holder != alice {
 		t.Fatalf("leases = %+v", got)
 	}
-	rel := e.rows(KindLeaseRel)
-	if len(rel) != 2 {
+	// The steal is one lease.acquired row naming what it took.
+	if rel := e.rows(KindLeaseRel); len(rel) != 0 {
 		t.Fatalf("release rows = %d", len(rel))
 	}
-	var p leaseReleasedRow
-	_ = json.Unmarshal(rel[0].Payload, &p)
-	if p.Reason != ReasonStolen || p.By != alice || p.Holder != bob {
-		t.Fatalf("release row = %+v", p)
+	acq := e.rows(KindLeaseAcq)
+	var p leaseAcquiredRow
+	_ = json.Unmarshal(acq[len(acq)-1].Payload, &p)
+	if len(p.Stolen) != 2 || p.Stolen[0].Holder != bob || p.Stolen[1].Holder != carol {
+		t.Fatalf("acquired row = %+v", p)
 	}
 	// Exact-resource steal replaces it.
 	l = must[Lease](t)(e.c.Acquire(ctx, bob, "path:"+repoA+":src/**", 0, true))

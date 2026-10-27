@@ -99,7 +99,10 @@ func TestParseResource(t *testing.T) {
 		{"path:remote:github.com/a/b:src/**", "path:remote:github.com/a/b:src/**"},
 		{"path:root:4b825dc642cb6eb9a060e54bf8d69288fbee4904:src/*.go", "path:root:4b825dc642cb6eb9a060e54bf8d69288fbee4904:src/*.go"},
 		{"path:remote:github.com/a/b:./docs/", "path:remote:github.com/a/b:docs/**"},
-		{"path:root:abc:ab:c.txt", "path:root:abc:ab:c.txt"}, // glob may hold ':'
+		{"path:root:abc:ab?c.txt", "path:root:abc:ab?c.txt"}, // ? stands for a ':'
+		{"path:remote:::1/a/b:src", "path:remote:::1/a/b:src"},
+		{"path:remote:host.com/a:b/c:src/", "path:remote:host.com/a:b/c:src/**"},
+		{"path:remote:host.com/my org/repo:x", "path:remote:host.com/my org/repo:x"},
 		{"path:remote:github.com/a/b:**", "path:remote:github.com/a/b:**"},
 		{"  gpu/qwen ", "gpu/qwen"},
 		{"build-cache", "build-cache"},
@@ -114,8 +117,8 @@ func TestParseResource(t *testing.T) {
 			t.Errorf("NormalizeResource(%q) = %q, %v; want %q", c.in, got, err, c.want)
 		}
 	}
-	r, _ := ParseResource("path:root:abc:ab:c.txt")
-	if r.Kind != ResourcePath || r.RepoKey != "root:abc" || r.Glob != "ab:c.txt" {
+	r, _ := ParseResource("path:root:abc:ab?c.txt")
+	if r.Kind != ResourcePath || r.RepoKey != "root:abc" || r.Glob != "ab?c.txt" {
 		t.Errorf("root parse = %+v", r)
 	}
 	r, _ = ParseResource("path:remote:github.com/a/b:src/**")
@@ -137,6 +140,13 @@ func TestParseResource(t *testing.T) {
 		"path:root:abc:./C:/x",
 		"path:root:abc:.//etc/x",
 		"path:root:abc:c:x",
+		"path:root:abc:ab:c.txt", // a glob may not hold ':'
+		"path:root:ABC:x",        // root is lowercase hex
+		"path:root:xyz:x",
+		"path:remote: host/a/b:x",
+		"path:remote:host/a\x01b:x",
+		"path:root:abc:a\nb",
+		"path:root:abc:src/\x00x",
 		"path:root:abc:../x",
 		"path:root:abc:a/../x",
 		"path:root:abc:a/./x",

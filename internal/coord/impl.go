@@ -21,7 +21,10 @@ var (
 	ErrInvalid    = errors.New("coord: invalid argument")
 )
 
-// Release reasons in lease.released rows.
+// Release reasons in lease.released rows. A steal writes no lease.released
+// row: the stealer's lease.acquired row names the leases it takes in
+// "stolen", so a steal is one append and cannot half-happen. ReasonStolen is
+// kept for readers that label those leases.
 const (
 	ReasonReleased   = "released"
 	ReasonStolen     = "stolen"
@@ -91,6 +94,18 @@ type leaseReleasedRow struct {
 	At       time.Time `json:"at"`
 }
 
+// leaseAcquiredRow is a Lease plus the leases a steal took; the fold drops
+// each one that its holder still holds.
+type leaseAcquiredRow struct {
+	Lease
+	Stolen []stolenLease `json:"stolen,omitempty"`
+}
+
+type stolenLease struct {
+	Resource string `json:"resource"`
+	Holder   string `json:"holder"`
+}
+
 type leaseRec struct {
 	Lease
 	res Resource
@@ -104,6 +119,8 @@ type coord struct {
 
 	mu          sync.Mutex
 	tasks       map[string]*Task
+	order       map[string]uint64 // task id -> fold position of its task.created row
+	nextOrder   uint64
 	held        map[string]*leaseRec // by canonical resource
 	firstAbsent map[string]time.Time // holder key -> first seen missing from the roster
 }
@@ -118,6 +135,7 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 		now:         opts.Now,
 		grace:       opts.GoneGrace,
 		tasks:       map[string]*Task{},
+		order:       map[string]uint64{},
 		held:        map[string]*leaseRec{},
 		firstAbsent: map[string]time.Time{},
 	}
@@ -157,6 +175,7 @@ func (c *coord) replay(ctx context.Context) error {
 			progressed = true
 			c.apply(ev)
 		}
+		c.prune(c.stamp())
 		if len(evs) < f.Limit || !progressed {
 			return nil
 		}
@@ -187,6 +206,10 @@ func (c *coord) apply(ev store.Event) {
 			return
 		}
 		t := at(p.At)
+		if _, dup := c.tasks[p.TaskID]; !dup {
+			c.nextOrder++
+			c.order[p.TaskID] = c.nextOrder
+		}
 		c.tasks[p.TaskID] = &Task{
 			ID: p.TaskID, Title: p.Title, Objective: p.Objective, DoneCriteria: p.DoneCriteria,
 			RepoKey: p.RepoKey, Scope: p.Scope, State: Submitted, CreatedBy: p.By,
@@ -224,10 +247,14 @@ func (c *coord) apply(ev store.Event) {
 			t.UpdatedAt = at(p.At)
 		}
 	case KindLeaseAcq:
-		var p Lease
-		if json.Unmarshal(ev.Payload, &p) != nil || p.Resource == "" {
+		var row leaseAcquiredRow
+		if json.Unmarshal(ev.Payload, &row) != nil || row.Resource == "" {
 			return
 		}
+		for _, v := range row.Stolen {
+			c.dropLease(v.Resource, v.Holder)
+		}
+		p := row.Lease
 		res, err := ParseResource(p.Resource)
 		if err != nil {
 			res = Resource{Kind: ResourceNamed, Name: p.Resource}
@@ -239,11 +266,26 @@ func (c *coord) apply(ev store.Event) {
 		if json.Unmarshal(ev.Payload, &p) != nil {
 			return
 		}
-		name := p.Resource
-		if n, err := NormalizeResource(p.Resource); err == nil {
-			name = n
-		}
-		if l := c.held[name]; l != nil && l.Holder == p.Holder {
+		c.dropLease(p.Resource, p.Holder)
+	}
+}
+
+// dropLease removes resource's lease if holder still holds it.
+func (c *coord) dropLease(resource, holder string) {
+	name := resource
+	if n, err := NormalizeResource(resource); err == nil {
+		name = n
+	}
+	if l := c.held[name]; l != nil && l.Holder == holder {
+		delete(c.held, name)
+	}
+}
+
+// prune forgets expired leases so held stays the size of what is live. The
+// caller holds c.mu (or is replaying).
+func (c *coord) prune(now time.Time) {
+	for name, l := range c.held {
+		if !l.Until.After(now) {
 			delete(c.held, name)
 		}
 	}
@@ -285,14 +327,25 @@ func copyTask(t *Task) Task {
 // observe refreshes first-absent times for every holder that matters. A
 // holder is absent when the roster has no card for it or its card is "gone".
 // People are never absent; a nil roster means nobody is.
+//
+// A holder's clock starts when observe first sees it absent, or earlier at a
+// "gone" card's UpdatedAt (presence stamps it when it marks the card gone). A
+// holder with no card at all gets no such seed, and presence.Snapshot drops
+// gone cards rather than keeping them, so with today's roster the grace runs
+// from the first observe (Sweep, or a ClaimTask on its task) after the holder
+// left: Core must call Sweep every few seconds. The clock is in memory and
+// restarts with the process.
 func (c *coord) observe(now time.Time) {
 	if c.roster == nil {
 		return
 	}
 	live := map[string]bool{}
+	goneAt := map[string]time.Time{}
 	for _, a := range c.roster.Agents() {
 		if a.Status != "gone" {
 			live[a.Key] = true
+		} else if !a.UpdatedAt.IsZero() && a.UpdatedAt.Before(now) {
+			goneAt[a.Key] = a.UpdatedAt
 		}
 	}
 	tracked := map[string]bool{}
@@ -314,9 +367,16 @@ func (c *coord) observe(now time.Time) {
 	for k := range tracked {
 		if IsPerson(k) || live[k] {
 			delete(c.firstAbsent, k)
-		} else if _, ok := c.firstAbsent[k]; !ok {
-			c.firstAbsent[k] = now
+			continue
 		}
+		first, ok := c.firstAbsent[k]
+		if !ok {
+			first = now
+		}
+		if g, ok := goneAt[k]; ok && g.Before(first) {
+			first = g
+		}
+		c.firstAbsent[k] = first
 	}
 }
 
@@ -391,9 +451,14 @@ func (c *coord) listTasks(f TaskFilter) []Task {
 		}
 		out = append(out, copyTask(t))
 	}
+	// Creation time, then fold order (ids minted in one millisecond have
+	// random tails), then id.
 	sort.Slice(out, func(i, j int) bool {
 		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
 			return out[i].CreatedAt.Before(out[j].CreatedAt)
+		}
+		if oi, oj := c.order[out[i].ID], c.order[out[j].ID]; oi != oj {
+			return oi < oj
 		}
 		return out[i].ID < out[j].ID
 	})
@@ -433,11 +498,13 @@ func (c *coord) claimTask(ctx context.Context, by, id string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	if t.Holder == by {
+	// An assignee claiming a still-submitted task writes the claimed row,
+	// which moves it to working.
+	if t.Holder == by && t.State != Submitted {
 		return copyTask(t), nil
 	}
 	now := c.stamp()
-	if t.Holder != "" {
+	if t.Holder != "" && t.Holder != by {
 		c.observe(now)
 		if !c.gone(t.Holder, now) {
 			return Task{}, fmt.Errorf("%w: task %s is held by %s", ErrHeld, id, t.Holder)
@@ -521,6 +588,7 @@ func (c *coord) acquire(ctx context.Context, holder, resource string, ttl time.D
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := c.stamp()
+	c.prune(now)
 	var victims []*leaseRec
 	for _, l := range c.held {
 		if l.Holder != holder && l.Until.After(now) && conflicts(l.res, res) {
@@ -534,12 +602,9 @@ func (c *coord) acquire(ctx context.Context, holder, resource string, ttl time.D
 			ErrHeld, v.Resource, v.Holder, v.Until.Format(time.RFC3339))
 	}
 	var from []string
+	var stolen []stolenLease
 	for _, v := range victims {
-		if err := c.write(ctx, holder, KindLeaseRel, leaseReleasedRow{
-			Resource: v.Resource, Holder: v.Holder, Reason: ReasonStolen, By: holder, At: now,
-		}); err != nil {
-			return Lease{}, err
-		}
+		stolen = append(stolen, stolenLease{Resource: v.Resource, Holder: v.Holder})
 		if !contains(from, v.Holder) {
 			from = append(from, v.Holder)
 		}
@@ -554,7 +619,8 @@ func (c *coord) acquire(ctx context.Context, holder, resource string, ttl time.D
 			l.StolenFrom = old.StolenFrom
 		}
 	}
-	if err := c.write(ctx, holder, KindLeaseAcq, l); err != nil {
+	// One row: the fold drops the stolen leases as it takes this one.
+	if err := c.write(ctx, holder, KindLeaseAcq, leaseAcquiredRow{Lease: l, Stolen: stolen}); err != nil {
 		return Lease{}, err
 	}
 	return c.held[res.Name].Lease, nil
@@ -597,6 +663,7 @@ func (c *coord) leases() []Lease {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := c.stamp()
+	c.prune(now)
 	out := []Lease{}
 	for _, l := range c.held {
 		if l.Until.After(now) {
@@ -611,6 +678,7 @@ func (c *coord) sweep(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := c.stamp()
+	c.prune(now)
 	c.observe(now)
 	var gone []*leaseRec
 	for _, l := range c.held {

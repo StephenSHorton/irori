@@ -6,24 +6,27 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // Resource grammar (design §6):
 //
 //	path:<repoKey>:<glob>   repoKey is "remote:<host>/<owner>/<name>" or
 //	                        "root:<sha>" (internal/repo). The value after the
-//	                        repoKey kind never contains ':' (repo strips ports),
-//	                        so the repoKey ends at the third ':' and the glob is
-//	                        everything after it (it may itself contain ':').
+//	                        repoKey kind may contain ':' and spaces (an IPv6
+//	                        host, a decoded "%3A" or "%20" in a remote path),
+//	                        so globs may not contain ':' and the repoKey ends
+//	                        at the last ':'. Use '?' to match a ':' in a name.
 //	port:<n>                1..65535, no leading zeros.
 //	<name>                  ^[a-z0-9][a-z0-9._-]*(/[a-z0-9._-]+)*$, e.g. gpu/qwen.
 //
 // Globs are POSIX, relative to the repo root: '/' separators, '*', '?',
 // '[...]' and a whole-segment '**'. A leading "./" is stripped and a trailing
-// '/' means the directory's contents ("src/" is "src/**"). Rejected: empty,
-// any backslash, absolute paths ("/x", and "C:..." since a single letter then
-// a colon reads as a drive), "." or ".." segments, empty
-// segments ("a//b") and patterns path.Match calls malformed.
+// '/' means the directory's contents ("src/" is "src/**"). A bare name means
+// only that path: "src" does not overlap "src/a.go", so lease a directory as
+// "src/" or "src/**". Rejected: empty, any backslash, ':' or control
+// character, absolute paths ("/x"), "." or ".." segments, empty segments
+// ("a//b") and patterns path.Match calls malformed.
 
 // Resource kinds.
 const (
@@ -53,10 +56,11 @@ func ParseResource(s string) (Resource, error) {
 		if !ok || (kind != "remote" && kind != "root") {
 			return Resource{}, fmt.Errorf("%w: repoKey must start remote: or root: (%q)", ErrBadResource, s)
 		}
-		value, glob, ok := strings.Cut(after, ":")
-		if !ok {
+		i := strings.LastIndexByte(after, ':')
+		if i < 0 {
 			return Resource{}, fmt.Errorf("%w: missing :<glob> after the repoKey (%q)", ErrBadResource, s)
 		}
+		value, glob := after[:i], after[i+1:]
 		repoKey := kind + ":" + value
 		if err := checkRepoKey(repoKey); err != nil {
 			return Resource{}, err
@@ -85,16 +89,30 @@ func NormalizeResource(s string) (string, error) {
 	return r.Name, err
 }
 
-// checkRepoKey accepts "remote:<value>" or "root:<value>" with a non-empty
-// value free of ':', whitespace and backslashes.
+// checkRepoKey accepts "root:<lowercase hex sha>" or "remote:<value>" with a
+// non-empty value that has no backslash, no control character and no space
+// at either end. ':' and inner spaces are allowed in a remote value (see the
+// grammar above).
 func checkRepoKey(k string) error {
 	kind, value, ok := strings.Cut(k, ":")
-	if !ok || (kind != "remote" && kind != "root") || value == "" ||
-		strings.ContainsAny(value, ": \t\r\n\\") {
+	bad := !ok || value == ""
+	switch {
+	case bad:
+	case kind == "root":
+		bad = !rootRE.MatchString(value)
+	case kind == "remote":
+		bad = strings.TrimSpace(value) != value || strings.ContainsRune(value, '\\') ||
+			strings.ContainsFunc(value, unicode.IsControl)
+	default:
+		bad = true
+	}
+	if bad {
 		return fmt.Errorf("%w: bad repoKey %q", ErrBadResource, k)
 	}
 	return nil
 }
+
+var rootRE = regexp.MustCompile(`^[0-9a-f]+$`)
 
 // NormalizeGlob validates a repo-relative POSIX glob and returns its
 // normalized form (see the grammar above). Errors wrap ErrBadResource.
@@ -109,6 +127,10 @@ func NormalizeGlob(g string) (string, error) {
 		return bad("is empty")
 	case strings.Contains(g, `\`):
 		return bad("has a backslash; use /")
+	case strings.Contains(g, ":"):
+		return bad("has a ':'; use ? to match one")
+	case strings.ContainsFunc(g, unicode.IsControl):
+		return bad("has a control character")
 	}
 	for strings.HasPrefix(g, "./") {
 		g = g[2:]
@@ -116,7 +138,7 @@ func NormalizeGlob(g string) (string, error) {
 	switch {
 	case g == "":
 		return bad("is empty")
-	case strings.HasPrefix(g, "/"), len(g) >= 2 && g[1] == ':' && isASCIILetter(g[0]):
+	case strings.HasPrefix(g, "/"):
 		return bad("is absolute; use a path relative to the repo root")
 	}
 	if strings.HasSuffix(g, "/") {
@@ -135,8 +157,6 @@ func NormalizeGlob(g string) (string, error) {
 	}
 	return g, nil
 }
-
-func isASCIILetter(c byte) bool { return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
 
 // conflicts reports whether two parsed resources contend: the same canonical
 // resource, or path globs that overlap within one repoKey.
