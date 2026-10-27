@@ -3,6 +3,7 @@ package decision
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"strconv"
 	"strings"
 	"unicode"
@@ -82,6 +83,12 @@ func normLine(l string) string {
 
 // hashLines is the line-anchor hash of already normalised lines.
 func hashLines(lines []string) string {
-	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
-	return hex.EncodeToString(sum[:])
+	h := sha256.New()
+	for i, l := range lines {
+		if i > 0 {
+			io.WriteString(h, "\n")
+		}
+		io.WriteString(h, l)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
