@@ -318,9 +318,9 @@ func TestAnswer(t *testing.T) {
 		wantOpt   int
 		wantTo    []string
 	}{
-		{"person picks an option, last item", user, "b2", BlockerAnswer{Pick: 2, Wake: true}, nil, Working, "TAP-Windows", 1, []string{bob}},
-		{"own words", user, "b2", BlockerAnswer{Text: " use both "}, nil, Working, "use both", -1, []string{bob}},
-		{"an agent may (decision 19)", carol, "b2", BlockerAnswer{Pick: 1}, nil, Working, "Wintun", 0, []string{bob}},
+		{"person picks an option, last item", user, "b2", BlockerAnswer{Pick: 2, Wake: true}, nil, Working, "TAP-Windows", 1, []string{bob, alice}},
+		{"own words", user, "b2", BlockerAnswer{Text: " use both "}, nil, Working, "use both", -1, []string{bob, alice}},
+		{"an agent may (decision 19)", carol, "b2", BlockerAnswer{Pick: 1}, nil, Working, "Wintun", 0, []string{bob, alice}},
 		{"the raiser itself: holders hear", bob, "b2", BlockerAnswer{Pick: 1}, nil, Working, "Wintun", 0, []string{alice}},
 		{"pick out of range", user, "b2", BlockerAnswer{Pick: 3}, ErrInvalid, "", "", 0, nil},
 		{"negative pick", user, "b2", BlockerAnswer{Pick: -1}, ErrInvalid, "", "", 0, nil},
@@ -347,7 +347,7 @@ func TestAnswer(t *testing.T) {
 			// Resolve b1 first: the task stays blocked on b2.
 			mid, n1 := mustN(t)(e.c.Answer(ctx, user, task.ID, "b1", BlockerAnswer{Pick: 1}))
 			if mid.State != Blocked || mid.Reason != "Which adapter?" || len(mid.OpenBlockers()) != 1 ||
-				!reflect.DeepEqual(n1.To, []string{alice}) || !strings.Contains(n1.Text, "1 more blockers are still open") {
+				!reflect.DeepEqual(n1.To, []string{alice, bob}) || !strings.Contains(n1.Text, "1 more blockers are still open") {
 				t.Fatalf("after b1: %+v notice %+v", mid, n1)
 			}
 			got, n, err := e.c.Answer(ctx, tc.by, task.ID, tc.blocker, tc.a)
@@ -390,6 +390,21 @@ func TestAnswerUnclaimedRestoresSubmitted(t *testing.T) {
 	got, n := mustN(t)(e.c.Answer(ctx, user, task.ID, "b1", BlockerAnswer{Text: "go"}))
 	// The raiser, alice, hears even though she doesn't hold it.
 	if got.State != Submitted || !reflect.DeepEqual(n.To, []string{alice}) {
+		t.Fatalf("got %+v notice %+v", got, n)
+	}
+}
+
+// The holders who were blocked hear the answer, not only the raiser
+// (alice created the card and raised; bob holds it).
+func TestAnswerTellsHolders(t *testing.T) {
+	e := newEnv(t)
+	task := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "db"}))
+	must[Task](t)(e.c.ClaimTask(ctx, bob, task.ID))
+	if _, _, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: "which db?"}); err != nil {
+		t.Fatal(err)
+	}
+	got, n := mustN(t)(e.c.Answer(ctx, user, task.ID, "b1", BlockerAnswer{Text: "postgres", Wake: true}))
+	if got.State != Working || !reflect.DeepEqual(n.To, []string{alice, bob}) || !n.Wake {
 		t.Fatalf("got %+v notice %+v", got, n)
 	}
 }

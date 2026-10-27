@@ -183,8 +183,8 @@ func (c *Coord) Recommend(ctx context.Context, by, id, blockerID, answer, why st
 // picking a recommended option or in their own words. When no open item
 // remains the task leaves Blocked like Unblock (Working when a holder has
 // taken it up, else Submitted). The notice is NoticeAnswered to the raiser
-// when that is an agent other than by (else to the holders other than by),
-// with Wake as the answerer chose. ErrNotFound for no such item; ErrBadState
+// when that is an agent other than by, and to the holders other than by
+// (with no holders, the creator), with Wake as the answerer chose. ErrNotFound for no such item; ErrBadState
 // when it is already resolved.
 func (c *Coord) Answer(ctx context.Context, by, id, blockerID string, a BlockerAnswer) (Task, Notice, error) {
 	return c.impl.answer(ctx, by, id, blockerID, a)

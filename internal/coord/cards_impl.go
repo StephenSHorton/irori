@@ -520,10 +520,14 @@ func (c *coord) answer(ctx context.Context, by, id, bid string, a BlockerAnswer)
 		return Task{}, Notice{}, err
 	}
 	n := Notice{Kind: NoticeAnswered, TaskID: id, Ref: "task:" + id, Title: t.Title, By: by, Wake: a.Wake}
+	// The raiser hears first; the holders (who were blocked) hear too.
 	if r := b.RaisedBy; r != by && r != "" && !IsPerson(r) && r != sweeper {
 		n.To = []string{r}
-	} else {
-		n.To = recipients(t, by)
+	}
+	for _, h := range recipients(t, by) {
+		if !slices.Contains(n.To, h) {
+			n.To = append(n.To, h)
+		}
 	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "%s answered the blocker on %q (task:%s, blocker %s).\nQuestion: %s\nAnswer: %s",
