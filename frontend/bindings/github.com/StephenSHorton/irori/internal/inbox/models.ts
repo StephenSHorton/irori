@@ -60,6 +60,14 @@ export enum AddressKind {
      * a message id; goes to that message's sender
      */
     ToReply = "reply",
+
+    /**
+     * ToPR is a ledger key "pr:<owner/name>#<n>" (v0.3, design v0.3 §6): the
+     * best-ranked live owner from Options.PROwners, else the front desk of
+     * repo "remote:github.com/<owner/name>" (the delivery note names the owner
+     * it would have gone to), else queued unowned like a repo with no desk.
+     */
+    ToPR = "pr",
 };
 
 /**
@@ -145,10 +153,10 @@ export class Delivery {
      * Creates a new Delivery instance from a string or object.
      */
     static createFrom($$source: any = {}): Delivery {
-        const $$createField14_0 = $$createType0;
+        const $$createField15_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("message" in $$parsedSource) {
-            $$parsedSource["message"] = $$createField14_0($$parsedSource["message"]);
+            $$parsedSource["message"] = $$createField15_0($$parsedSource["message"]);
         }
         return new Delivery($$parsedSource as Partial<Delivery>);
     }

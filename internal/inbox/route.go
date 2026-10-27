@@ -252,6 +252,20 @@ func (b *inbox) desk(repo string, cards map[string]presence.AgentCard, now time.
 	return ""
 }
 
+// Reachable reports the wake paths agent has open right now: an attached
+// Irori mod (mod) and a bound Grok member stream (channel). Unlike routing,
+// a mod path that just dropped doesn't count, so the GUI's fidelity badge
+// stops saying "mod" as soon as the attach stream goes away.
+func (b *Inbox) Reachable(agent string) (mod, channel bool) {
+	x := b.impl
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if r := x.reach[agent]; r != nil {
+		return r.mod, r.channel
+	}
+	return false, false
+}
+
 // FrontDesk reports the agent that repo-addressed work for repoKey goes to
 // now, or "" when no live agent in that repo is reachable.
 func (b *Inbox) FrontDesk(repoKey string) string {
