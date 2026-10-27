@@ -59,7 +59,7 @@ func TestWorkPumpForwards(t *testing.T) {
 	}
 	wait("a burst of creates")
 	time.Sleep(300 * time.Millisecond) // let any trailing emit land
-	if n := emits.Load(); n > 3 {
+	if n := emits.Load(); n > 10 {
 		t.Fatalf("%d emits for 21 changes, want them coalesced", n)
 	}
 

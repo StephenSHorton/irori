@@ -35,17 +35,14 @@ func (c *coord) unlock() {
 }
 
 // deliver sends x without blocking. A full channel marks the subscriber
-// lost; its next send that fits is a Resync. A full buffer still wakes the
-// reader, and the state it then reads already has the dropped change.
+// lost; its next send that fits is a Resync in place of the change. A full
+// buffer still wakes the reader, and the state it then reads already has the
+// dropped change.
 func deliver(ch chan Change, s *subscriber, x Change) {
 	if s.lost {
-		select {
-		case ch <- Change{Kind: Resync}:
-			s.lost = false
-		default:
-			return
-		}
+		x = Change{Kind: Resync}
 	}
+	s.lost = false
 	select {
 	case ch <- x:
 	default:

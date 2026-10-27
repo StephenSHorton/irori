@@ -153,10 +153,11 @@ func TestSubscribeSlowReaderResync(t *testing.T) {
 		}
 	}
 	quiet(t, ch)
-	task := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "after"}))
+	must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "after"}))
 	if got := next(t, ch); got.Kind != Resync {
 		t.Fatalf("got %+v, want resync", got)
 	}
+	task := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "caught up"}))
 	if got := next(t, ch); got.TaskID != task.ID {
 		t.Fatalf("got %+v, want task %s", got, task.ID)
 	}
