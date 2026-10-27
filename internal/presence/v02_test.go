@@ -198,3 +198,64 @@ func TestChangedSeesV02Fields(t *testing.T) {
 		t.Error("permissionMode change ignored")
 	}
 }
+
+// Cold start: a fresh watcher whose tail window holds no mode row still finds
+// the newest one further back, and a later scan doesn't rescan.
+func TestColdStartFindsModeBeyondTail(t *testing.T) {
+	dir := t.TempDir()
+	cwd := `C:\work\cold`
+	id := "0b1c2d3e-0000-4000-8000-0000000000bb"
+	writeSession(t, dir, map[string]any{"pid": 42, "sessionId": id, "cwd": cwd, "status": "busy"})
+	tp := filepath.Join(dir, "projects", Slug(cwd), id+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(tp), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	appendFile(t, tp, modeRow("default")+
+		`{"type":"user","timestamp":"2026-10-26T09:59:00Z","permissionMode":"bypassPermissions","message":{"content":"go"}}`+"\n")
+	for i := range 6 {
+		appendFile(t, tp, assistantRow(fmt.Sprintf("2026-10-26T10:0%d:00Z", i), strings.Repeat("x", 80)))
+	}
+	raw, err := os.ReadFile(tp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := readTail(strings.NewReader(string(raw)), int64(len(raw)), 400); got.PermissionMode != "" {
+		t.Fatalf("test setup: window still holds a mode row (%q)", got.PermissionMode)
+	}
+
+	w, _ := testWatcher(dir, true)
+	w.impl.tailBytes = 400
+	w.impl.scan()
+	if cards := w.Snapshot(); len(cards) != 1 || cards[0].PermissionMode != "bypassPermissions" {
+		t.Fatalf("cold start mode: %+v", cards)
+	}
+	if tc := w.impl.tails[id]; tc == nil || !tc.modeScanned {
+		t.Fatalf("scan not recorded: %+v", tc)
+	}
+}
+
+// The backward scan is bounded and skips the partial first line.
+func TestScanMode(t *testing.T) {
+	far := modeRow("acceptEdits")
+	pad := assistantRow("2026-10-26T10:00:00Z", strings.Repeat("y", 200))
+	body := far + pad
+	if got := scanMode(strings.NewReader(body), int64(len(body)), int64(len(body))); got != "acceptEdits" {
+		t.Errorf("whole file: %q", got)
+	}
+	if got := scanMode(strings.NewReader(body), int64(len(body)), int64(len(pad))); got != "" {
+		t.Errorf("row outside bound found: %q", got)
+	}
+	// A window opening exactly on the mode row keeps it.
+	edge := pad + body
+	if got := scanMode(strings.NewReader(edge), int64(len(edge)), int64(len(body))); got != "acceptEdits" {
+		t.Errorf("row on boundary: %q", got)
+	}
+	cut := pad + far[3:] + pad
+	if got := scanMode(strings.NewReader(cut), int64(len(cut)), int64(len(cut)-len(pad))); got != "" {
+		t.Errorf("partial line parsed: %q", got)
+	}
+	newest := modeRow("default") + far + `{"type":"user","isSidechain":true,"permissionMode":"bypassPermissions"}` + "\n" + pad
+	if got := scanMode(strings.NewReader(newest), int64(len(newest)), 1<<20); got != "acceptEdits" {
+		t.Errorf("newest non-sidechain: %q", got)
+	}
+}

@@ -20,6 +20,9 @@ const (
 type watcher struct {
 	opts      Options
 	tailBytes int64
+	// modeScanBytes bounds the one-time look further back for a permission
+	// mode when the tail window holds none (see refreshTail).
+	modeScanBytes int64
 	// open is how every file's content is read, so tests can prove the
 	// <pid>.<hash>.key secrets are never opened.
 	open func(name string) (*os.File, error)
@@ -41,6 +44,10 @@ type tailCache struct {
 	size  int64
 	mtime time.Time
 	tail  tail
+	// modeScanned is set once the bounded backward scan for a permission
+	// mode has run on this file, so a file with no mode row isn't rescanned
+	// on every change.
+	modeScanned bool
 }
 
 func newWatcher(opts Options) *Watcher {
@@ -51,14 +58,15 @@ func newWatcher(opts Options) *Watcher {
 		opts.Now = time.Now
 	}
 	return &Watcher{impl: &watcher{
-		opts:      opts,
-		tailBytes: defaultTailBytes,
-		open:      os.Open,
-		live:      live,
-		tails:     map[string]*tailCache{},
-		repos:     map[string]string{},
-		cards:     map[string]AgentCard{},
-		subs:      map[chan Change]struct{}{},
+		opts:          opts,
+		tailBytes:     defaultTailBytes,
+		modeScanBytes: defaultModeScanBytes,
+		open:          os.Open,
+		live:          live,
+		tails:         map[string]*tailCache{},
+		repos:         map[string]string{},
+		cards:         map[string]AgentCard{},
+		subs:          map[chan Change]struct{}{},
 	}}
 }
 
@@ -243,6 +251,15 @@ func (x *watcher) refreshTail(s session) *tailCache {
 		if t.LastActivity.Before(tc.tail.LastActivity) {
 			t.LastActivity = tc.tail.LastActivity
 		}
+	} else {
+		tc.modeScanned = false // rewritten file: look again
+	}
+	// Cold start (or a rewrite): the tail holds no mode row and nothing is
+	// cached, so look further back once. Unknown would count as non-bypass
+	// and drop the bypass_receiver hold.
+	if t.PermissionMode == "" && !tc.modeScanned {
+		tc.modeScanned = true
+		t.PermissionMode = scanMode(f, fi.Size(), x.modeScanBytes)
 	}
 	tc.size, tc.mtime, tc.tail = fi.Size(), fi.ModTime(), t
 	return tc
