@@ -342,6 +342,8 @@ func (c *Capture) PRs(repo string) []ledger.Entry { return c.impl.prs(repo) }
 
 // Why answers what is behind a path (and line): git blame, the commit's
 // link, recent edits, the turns behind them, and decisions anchored there.
+// It is a read: a path outside the repos capture has already seen is
+// ErrNoRepo, and the query never adds a repo or starts watching one.
 func (c *Capture) Why(ctx context.Context, q WhyQuery) (WhyResult, error) { return c.impl.why(ctx, q) }
 
 // RecordDecision validates, anchors (MakeAnchor against the root of Cwd's

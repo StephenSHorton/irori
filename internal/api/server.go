@@ -129,7 +129,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "missing or wrong token")
 		return
 	}
-	if h.v02(w, r) {
+	if h.v02(w, r) || h.v03(w, r) {
 		return
 	}
 	switch r.URL.Path {
