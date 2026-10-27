@@ -130,14 +130,18 @@ tasks:
       - wails3 generate webview2bootstrapper -dir "{{.ROOT_DIR}}/build/windows/nsis"
       - |
         {{if eq OS "windows"}}
-        makensis -DWAILS_INSTALL_SCOPE={{.INSTALL_SCOPE}} {{if eq .INSTALL_SCOPE "user"}}-DREQUEST_EXECUTION_LEVEL=user {{end}}{{if .VERSION}}-DINFO_PRODUCTVERSION={{.VERSION}} {{end}}-DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}.exe" project.nsi
+        makensis -DWAILS_INSTALL_SCOPE={{.INSTALL_SCOPE}} {{if eq .INSTALL_SCOPE "user"}}-DREQUEST_EXECUTION_LEVEL=user {{end}}{{if .VERSION}}-DINFO_PRODUCTVERSION={{.NUMERIC_VERSION}} {{end}}-DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}.exe" project.nsi
         {{else}}
-        makensis -DWAILS_INSTALL_SCOPE={{.INSTALL_SCOPE}} {{if eq .INSTALL_SCOPE "user"}}-DREQUEST_EXECUTION_LEVEL=user {{end}}{{if .VERSION}}-DINFO_PRODUCTVERSION={{.VERSION}} {{end}}-DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}.exe" project.nsi
+        makensis -DWAILS_INSTALL_SCOPE={{.INSTALL_SCOPE}} {{if eq .INSTALL_SCOPE "user"}}-DREQUEST_EXECUTION_LEVEL=user {{end}}{{if .VERSION}}-DINFO_PRODUCTVERSION={{.NUMERIC_VERSION}} {{end}}-DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}.exe" project.nsi
         {{end}}
     vars:
       ARCH: '{{.ARCH | default ARCH}}'
       ARG_FLAG: '{{if eq .ARCH "amd64"}}AMD64{{else}}ARM64{{end}}'
       INSTALL_SCOPE: '{{.INSTALL_SCOPE | default "user"}}'
+      # VIProductVersion needs a bare X.Y.Z (project.nsi appends ".0"), so drop
+      # any prerelease/build suffix, as release.yml's "numeric" does. The full
+      # VERSION still goes into -X main.version (build task).
+      NUMERIC_VERSION: '{{regexReplaceAll "[-+].*$" (.VERSION | default "") ""}}'
 
   create:msix:package:
     summary: Creates an MSIX package
