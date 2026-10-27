@@ -45,6 +45,9 @@ type AgentCard struct {
 	LastActivity time.Time `json:"lastActivity"` // newest transcript row timestamp
 	LastText     string    `json:"lastText"`     // last assistant prose, <=240 runes, single line
 	Transcript   string    `json:"transcript"`   // absolute path, "" if not found
+	// v0.2 additions.
+	RepoKey        string `json:"repoKey"`        // repo.Resolver.Key(Cwd); "" outside git
+	PermissionMode string `json:"permissionMode"` // newest permission-mode row in the transcript tail ("bypassPermissions", "default", ...); "" unknown
 }
 
 // ChangeKind says what happened to a card.
@@ -68,6 +71,8 @@ type Options struct {
 	DeviceID  string
 	Interval  time.Duration // rescan period; default 2s. fsnotify may wake it sooner.
 	Now       func() time.Time
+	// RepoKey maps a cwd to its repo_key (v0.2). Nil leaves RepoKey empty.
+	RepoKey func(cwd string) string
 }
 
 // Watcher keeps the roster current. Safe for concurrent use.
