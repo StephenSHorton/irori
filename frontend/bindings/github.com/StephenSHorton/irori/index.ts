@@ -15,8 +15,18 @@ export {
 };
 
 export {
+    AgentRef,
+    AnswerResult,
     CaptureChange,
     CaptureRepo,
+    CardActivity,
+    CardBlocker,
+    CardDetail,
+    CardOption,
+    CardPR,
+    CardProgress,
+    CardResolution,
+    CardSummary,
     CommentResult,
     GoneSession,
     InboxCounts,

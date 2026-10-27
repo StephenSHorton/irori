@@ -106,6 +106,27 @@ func (s *InboxService) Send(to, repo, text string) (inbox.Message, error) {
 	return m, err
 }
 
+// Get returns one delivery, for the window's message dialog: a
+// notification's Open names it (a held message, or one sent to the person).
+func (s *InboxService) Get(deliveryID string) (inbox.Delivery, error) {
+	d, ok := s.core.Inbox().Get(strings.TrimSpace(deliveryID))
+	if !ok {
+		return inbox.Delivery{}, fmt.Errorf("%w: delivery %q", inbox.ErrNotFound, deliveryID)
+	}
+	return d, nil
+}
+
+// Reply answers a message sent to the person; the sender is woken with it.
+func (s *InboxService) Reply(deliveryID, text string) error {
+	_, _, err := s.core.Inbox().Reply(context.Background(), s.core.UserSender(), strings.TrimSpace(deliveryID), text)
+	return s.acted(err)
+}
+
+// MarkRead closes a message sent to the person without replying.
+func (s *InboxService) MarkRead(deliveryID string) error {
+	return s.acted(s.core.Inbox().Skip(context.Background(), s.by(), strings.TrimSpace(deliveryID), "read in the Irori window"))
+}
+
 // Release delivers a held delivery past the policy (the person's Deliver).
 func (s *InboxService) Release(deliveryID string) error {
 	return s.acted(s.core.Inbox().Release(context.Background(), deliveryID, s.by()))

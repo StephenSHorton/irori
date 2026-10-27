@@ -16,6 +16,104 @@ import * as presence$0 from "./internal/presence/models.js";
 import * as time$0 from "../../../time/models.js";
 
 /**
+ * AgentRef is someone on a card, as the window shows them.
+ */
+export class AgentRef {
+    "key": string;
+
+    /**
+     * the roster's name, "You" for the person, else the key
+     */
+    "name": string;
+
+    /**
+     * Status is the roster's status ("busy", "idle", ...), "gone" when the
+     * roster has no live card, or "person".
+     */
+    "status": string;
+
+    /**
+     * in the roster and not gone (the live dot)
+     */
+    "live": boolean;
+
+    /**
+     * the machine: "This PC" until devices pair (v0.4)
+     */
+    "where": string;
+
+    /**
+     * Assigned: a holder that was assigned the card and hasn't taken it up.
+     */
+    "assigned"?: boolean;
+
+    /** Creates a new AgentRef instance. */
+    constructor($$source: Partial<AgentRef> = {}) {
+        if (!("key" in $$source)) {
+            this["key"] = "";
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("status" in $$source)) {
+            this["status"] = "";
+        }
+        if (!("live" in $$source)) {
+            this["live"] = false;
+        }
+        if (!("where" in $$source)) {
+            this["where"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AgentRef instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AgentRef {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AgentRef($$parsedSource as Partial<AgentRef>);
+    }
+}
+
+/**
+ * AnswerResult is Answer's reply: the card after the answer, and who heard.
+ */
+export class AnswerResult {
+    "card": CardDetail;
+    "told": Told;
+
+    /** Creates a new AnswerResult instance. */
+    constructor($$source: Partial<AnswerResult> = {}) {
+        if (!("card" in $$source)) {
+            this["card"] = (new CardDetail());
+        }
+        if (!("told" in $$source)) {
+            this["told"] = (new Told());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AnswerResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AnswerResult {
+        const $$createField0_0 = $$createType0;
+        const $$createField1_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("card" in $$parsedSource) {
+            $$parsedSource["card"] = $$createField0_0($$parsedSource["card"]);
+        }
+        if ("told" in $$parsedSource) {
+            $$parsedSource["told"] = $$createField1_0($$parsedSource["told"]);
+        }
+        return new AnswerResult($$parsedSource as Partial<AnswerResult>);
+    }
+}
+
+/**
  * CaptureChange is the capture:changed payload: what moved since the last
  * event. Kinds are capture.ChangeKind values (turn, edit, commit, decision,
  * pr, open); Keys are agent keys and RepoKeys repo keys, each deduplicated.
@@ -44,9 +142,9 @@ export class CaptureChange {
      * Creates a new CaptureChange instance from a string or object.
      */
     static createFrom($$source: any = {}): CaptureChange {
-        const $$createField0_0 = $$createType0;
-        const $$createField1_0 = $$createType0;
-        const $$createField2_0 = $$createType0;
+        const $$createField0_0 = $$createType2;
+        const $$createField1_0 = $$createType2;
+        const $$createField2_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("kinds" in $$parsedSource) {
             $$parsedSource["kinds"] = $$createField0_0($$parsedSource["kinds"]);
@@ -104,12 +202,581 @@ export class CaptureRepo {
      * Creates a new CaptureRepo instance from a string or object.
      */
     static createFrom($$source: any = {}): CaptureRepo {
-        const $$createField1_0 = $$createType0;
+        const $$createField1_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("roots" in $$parsedSource) {
             $$parsedSource["roots"] = $$createField1_0($$parsedSource["roots"]);
         }
         return new CaptureRepo($$parsedSource as Partial<CaptureRepo>);
+    }
+}
+
+/**
+ * CardActivity is one line of Recent: Text is Who's name and what they did.
+ */
+export class CardActivity {
+    "at": time$0.Time;
+    "who": AgentRef;
+    "text": string;
+
+    /** Creates a new CardActivity instance. */
+    constructor($$source: Partial<CardActivity> = {}) {
+        if (!("at" in $$source)) {
+            this["at"] = null;
+        }
+        if (!("who" in $$source)) {
+            this["who"] = (new AgentRef());
+        }
+        if (!("text" in $$source)) {
+            this["text"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CardActivity instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CardActivity {
+        const $$createField1_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("who" in $$parsedSource) {
+            $$parsedSource["who"] = $$createField1_0($$parsedSource["who"]);
+        }
+        return new CardActivity($$parsedSource as Partial<CardActivity>);
+    }
+}
+
+/**
+ * CardBlocker is one blocker item, open or resolved.
+ */
+export class CardBlocker {
+    "id": string;
+    "question": string;
+    "context": string;
+    "raisedBy": AgentRef;
+    "at": time$0.Time;
+    "options": CardOption[];
+
+    /**
+     * null while open
+     */
+    "resolved": CardResolution | null;
+
+    /** Creates a new CardBlocker instance. */
+    constructor($$source: Partial<CardBlocker> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("question" in $$source)) {
+            this["question"] = "";
+        }
+        if (!("context" in $$source)) {
+            this["context"] = "";
+        }
+        if (!("raisedBy" in $$source)) {
+            this["raisedBy"] = (new AgentRef());
+        }
+        if (!("at" in $$source)) {
+            this["at"] = null;
+        }
+        if (!("options" in $$source)) {
+            this["options"] = [];
+        }
+        if (!("resolved" in $$source)) {
+            this["resolved"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CardBlocker instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CardBlocker {
+        const $$createField3_0 = $$createType3;
+        const $$createField5_0 = $$createType5;
+        const $$createField6_0 = $$createType7;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("raisedBy" in $$parsedSource) {
+            $$parsedSource["raisedBy"] = $$createField3_0($$parsedSource["raisedBy"]);
+        }
+        if ("options" in $$parsedSource) {
+            $$parsedSource["options"] = $$createField5_0($$parsedSource["options"]);
+        }
+        if ("resolved" in $$parsedSource) {
+            $$parsedSource["resolved"] = $$createField6_0($$parsedSource["resolved"]);
+        }
+        return new CardBlocker($$parsedSource as Partial<CardBlocker>);
+    }
+}
+
+/**
+ * CardDetail is one card opened beside the grid.
+ */
+export class CardDetail {
+    "id": string;
+    "title": string;
+    "state": coord$0.TaskState;
+    "repoKey": string;
+
+    /**
+     * ScopeMine
+     */
+    "scope": string;
+
+    /**
+     * "My devices"
+     */
+    "scopeLabel": string;
+    "progress": CardProgress;
+
+    /**
+     * OpenBlockers counts the items waiting on a decision; BlockerQuestion
+     * is the first one's question ("" when none).
+     */
+    "openBlockers": number;
+    "blockerQuestion": string;
+
+    /**
+     * holders, in join order
+     */
+    "working": AgentRef[];
+
+    /**
+     * watchers that don't hold it
+     */
+    "watching": AgentRef[];
+    "updatedAt": time$0.Time;
+
+    /**
+     * the objective
+     */
+    "goal": string;
+    "doneWhen": string;
+    "note": string;
+    "steps": coord$0.Step[];
+
+    /**
+     * open first (oldest first), then resolved (newest first)
+     */
+    "blockers": CardBlocker[];
+    "prs": CardPR[];
+
+    /**
+     * every link, PRs too
+     */
+    "links": coord$0.Link[];
+
+    /**
+     * newest first
+     */
+    "recent": CardActivity[];
+    "comments": coord$0.Comment[];
+
+    /** Creates a new CardDetail instance. */
+    constructor($$source: Partial<CardDetail> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("title" in $$source)) {
+            this["title"] = "";
+        }
+        if (!("state" in $$source)) {
+            this["state"] = coord$0.TaskState.$zero;
+        }
+        if (!("repoKey" in $$source)) {
+            this["repoKey"] = "";
+        }
+        if (!("scope" in $$source)) {
+            this["scope"] = "";
+        }
+        if (!("scopeLabel" in $$source)) {
+            this["scopeLabel"] = "";
+        }
+        if (!("progress" in $$source)) {
+            this["progress"] = (new CardProgress());
+        }
+        if (!("openBlockers" in $$source)) {
+            this["openBlockers"] = 0;
+        }
+        if (!("blockerQuestion" in $$source)) {
+            this["blockerQuestion"] = "";
+        }
+        if (!("working" in $$source)) {
+            this["working"] = [];
+        }
+        if (!("watching" in $$source)) {
+            this["watching"] = [];
+        }
+        if (!("updatedAt" in $$source)) {
+            this["updatedAt"] = null;
+        }
+        if (!("goal" in $$source)) {
+            this["goal"] = "";
+        }
+        if (!("doneWhen" in $$source)) {
+            this["doneWhen"] = "";
+        }
+        if (!("note" in $$source)) {
+            this["note"] = "";
+        }
+        if (!("steps" in $$source)) {
+            this["steps"] = [];
+        }
+        if (!("blockers" in $$source)) {
+            this["blockers"] = [];
+        }
+        if (!("prs" in $$source)) {
+            this["prs"] = [];
+        }
+        if (!("links" in $$source)) {
+            this["links"] = [];
+        }
+        if (!("recent" in $$source)) {
+            this["recent"] = [];
+        }
+        if (!("comments" in $$source)) {
+            this["comments"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CardDetail instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CardDetail {
+        const $$createField6_0 = $$createType8;
+        const $$createField9_0 = $$createType9;
+        const $$createField10_0 = $$createType9;
+        const $$createField15_0 = $$createType11;
+        const $$createField16_0 = $$createType13;
+        const $$createField17_0 = $$createType15;
+        const $$createField18_0 = $$createType17;
+        const $$createField19_0 = $$createType19;
+        const $$createField20_0 = $$createType21;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("progress" in $$parsedSource) {
+            $$parsedSource["progress"] = $$createField6_0($$parsedSource["progress"]);
+        }
+        if ("working" in $$parsedSource) {
+            $$parsedSource["working"] = $$createField9_0($$parsedSource["working"]);
+        }
+        if ("watching" in $$parsedSource) {
+            $$parsedSource["watching"] = $$createField10_0($$parsedSource["watching"]);
+        }
+        if ("steps" in $$parsedSource) {
+            $$parsedSource["steps"] = $$createField15_0($$parsedSource["steps"]);
+        }
+        if ("blockers" in $$parsedSource) {
+            $$parsedSource["blockers"] = $$createField16_0($$parsedSource["blockers"]);
+        }
+        if ("prs" in $$parsedSource) {
+            $$parsedSource["prs"] = $$createField17_0($$parsedSource["prs"]);
+        }
+        if ("links" in $$parsedSource) {
+            $$parsedSource["links"] = $$createField18_0($$parsedSource["links"]);
+        }
+        if ("recent" in $$parsedSource) {
+            $$parsedSource["recent"] = $$createField19_0($$parsedSource["recent"]);
+        }
+        if ("comments" in $$parsedSource) {
+            $$parsedSource["comments"] = $$createField20_0($$parsedSource["comments"]);
+        }
+        return new CardDetail($$parsedSource as Partial<CardDetail>);
+    }
+}
+
+/**
+ * CardOption is one recommended answer.
+ */
+export class CardOption {
+    "answer": string;
+    "why": string;
+    "by": AgentRef;
+    "at": time$0.Time;
+
+    /** Creates a new CardOption instance. */
+    constructor($$source: Partial<CardOption> = {}) {
+        if (!("answer" in $$source)) {
+            this["answer"] = "";
+        }
+        if (!("why" in $$source)) {
+            this["why"] = "";
+        }
+        if (!("by" in $$source)) {
+            this["by"] = (new AgentRef());
+        }
+        if (!("at" in $$source)) {
+            this["at"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CardOption instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CardOption {
+        const $$createField2_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("by" in $$parsedSource) {
+            $$parsedSource["by"] = $$createField2_0($$parsedSource["by"]);
+        }
+        return new CardOption($$parsedSource as Partial<CardOption>);
+    }
+}
+
+/**
+ * CardPR is a pull request linked from the card, with what capture's PR
+ * ledger knows: who opened it, reviewed it or otherwise touched it. CI and
+ * review state are not read from GitHub in this release.
+ * TODO(v0.4 People, decision 29): peer review requests to other people's
+ * agents ("Ask for a review") once Shared Boards land.
+ */
+export class CardPR {
+    /**
+     * "owner/name"
+     */
+    "repo": string;
+    "number": number;
+    "url": string;
+
+    /**
+     * "GitHub #57"
+     */
+    "label": string;
+    "openedBy": AgentRef[];
+    "reviewedBy": AgentRef[];
+    "touchedBy": AgentRef[];
+
+    /** Creates a new CardPR instance. */
+    constructor($$source: Partial<CardPR> = {}) {
+        if (!("repo" in $$source)) {
+            this["repo"] = "";
+        }
+        if (!("number" in $$source)) {
+            this["number"] = 0;
+        }
+        if (!("url" in $$source)) {
+            this["url"] = "";
+        }
+        if (!("label" in $$source)) {
+            this["label"] = "";
+        }
+        if (!("openedBy" in $$source)) {
+            this["openedBy"] = [];
+        }
+        if (!("reviewedBy" in $$source)) {
+            this["reviewedBy"] = [];
+        }
+        if (!("touchedBy" in $$source)) {
+            this["touchedBy"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CardPR instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CardPR {
+        const $$createField4_0 = $$createType9;
+        const $$createField5_0 = $$createType9;
+        const $$createField6_0 = $$createType9;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("openedBy" in $$parsedSource) {
+            $$parsedSource["openedBy"] = $$createField4_0($$parsedSource["openedBy"]);
+        }
+        if ("reviewedBy" in $$parsedSource) {
+            $$parsedSource["reviewedBy"] = $$createField5_0($$parsedSource["reviewedBy"]);
+        }
+        if ("touchedBy" in $$parsedSource) {
+            $$parsedSource["touchedBy"] = $$createField6_0($$parsedSource["touchedBy"]);
+        }
+        return new CardPR($$parsedSource as Partial<CardPR>);
+    }
+}
+
+/**
+ * CardProgress is done steps over all steps; Total 0 means no bar.
+ */
+export class CardProgress {
+    "done": number;
+    "total": number;
+
+    /** Creates a new CardProgress instance. */
+    constructor($$source: Partial<CardProgress> = {}) {
+        if (!("done" in $$source)) {
+            this["done"] = 0;
+        }
+        if (!("total" in $$source)) {
+            this["total"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CardProgress instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CardProgress {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new CardProgress($$parsedSource as Partial<CardProgress>);
+    }
+}
+
+/**
+ * CardResolution is how a blocker was resolved.
+ */
+export class CardResolution {
+    "answer": string;
+
+    /**
+     * index into Options, or -1 for own words or a close
+     */
+    "option": number;
+    "by": AgentRef;
+    "at": time$0.Time;
+
+    /**
+     * closed without an answer (unblocked, state change, Irori)
+     */
+    "closed": boolean;
+
+    /** Creates a new CardResolution instance. */
+    constructor($$source: Partial<CardResolution> = {}) {
+        if (!("answer" in $$source)) {
+            this["answer"] = "";
+        }
+        if (!("option" in $$source)) {
+            this["option"] = 0;
+        }
+        if (!("by" in $$source)) {
+            this["by"] = (new AgentRef());
+        }
+        if (!("at" in $$source)) {
+            this["at"] = null;
+        }
+        if (!("closed" in $$source)) {
+            this["closed"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CardResolution instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CardResolution {
+        const $$createField2_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("by" in $$parsedSource) {
+            $$parsedSource["by"] = $$createField2_0($$parsedSource["by"]);
+        }
+        return new CardResolution($$parsedSource as Partial<CardResolution>);
+    }
+}
+
+/**
+ * CardSummary is one card in the grid.
+ */
+export class CardSummary {
+    "id": string;
+    "title": string;
+    "state": coord$0.TaskState;
+    "repoKey": string;
+
+    /**
+     * ScopeMine
+     */
+    "scope": string;
+
+    /**
+     * "My devices"
+     */
+    "scopeLabel": string;
+    "progress": CardProgress;
+
+    /**
+     * OpenBlockers counts the items waiting on a decision; BlockerQuestion
+     * is the first one's question ("" when none).
+     */
+    "openBlockers": number;
+    "blockerQuestion": string;
+
+    /**
+     * holders, in join order
+     */
+    "working": AgentRef[];
+
+    /**
+     * watchers that don't hold it
+     */
+    "watching": AgentRef[];
+    "updatedAt": time$0.Time;
+
+    /** Creates a new CardSummary instance. */
+    constructor($$source: Partial<CardSummary> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("title" in $$source)) {
+            this["title"] = "";
+        }
+        if (!("state" in $$source)) {
+            this["state"] = coord$0.TaskState.$zero;
+        }
+        if (!("repoKey" in $$source)) {
+            this["repoKey"] = "";
+        }
+        if (!("scope" in $$source)) {
+            this["scope"] = "";
+        }
+        if (!("scopeLabel" in $$source)) {
+            this["scopeLabel"] = "";
+        }
+        if (!("progress" in $$source)) {
+            this["progress"] = (new CardProgress());
+        }
+        if (!("openBlockers" in $$source)) {
+            this["openBlockers"] = 0;
+        }
+        if (!("blockerQuestion" in $$source)) {
+            this["blockerQuestion"] = "";
+        }
+        if (!("working" in $$source)) {
+            this["working"] = [];
+        }
+        if (!("watching" in $$source)) {
+            this["watching"] = [];
+        }
+        if (!("updatedAt" in $$source)) {
+            this["updatedAt"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CardSummary instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CardSummary {
+        const $$createField6_0 = $$createType8;
+        const $$createField9_0 = $$createType9;
+        const $$createField10_0 = $$createType9;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("progress" in $$parsedSource) {
+            $$parsedSource["progress"] = $$createField6_0($$parsedSource["progress"]);
+        }
+        if ("working" in $$parsedSource) {
+            $$parsedSource["working"] = $$createField9_0($$parsedSource["working"]);
+        }
+        if ("watching" in $$parsedSource) {
+            $$parsedSource["watching"] = $$createField10_0($$parsedSource["watching"]);
+        }
+        return new CardSummary($$parsedSource as Partial<CardSummary>);
     }
 }
 
@@ -136,8 +803,8 @@ export class CommentResult {
      * Creates a new CommentResult instance from a string or object.
      */
     static createFrom($$source: any = {}): CommentResult {
-        const $$createField0_0 = $$createType1;
-        const $$createField1_0 = $$createType2;
+        const $$createField0_0 = $$createType20;
+        const $$createField1_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("comment" in $$parsedSource) {
             $$parsedSource["comment"] = $$createField0_0($$parsedSource["comment"]);
@@ -310,7 +977,7 @@ export class NewCard {
      * Creates a new NewCard instance from a string or object.
      */
     static createFrom($$source: any = {}): NewCard {
-        const $$createField5_0 = $$createType0;
+        const $$createField5_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("links" in $$parsedSource) {
             $$parsedSource["links"] = $$createField5_0($$parsedSource["links"]);
@@ -343,8 +1010,8 @@ export class RosterChange {
      * Creates a new RosterChange instance from a string or object.
      */
     static createFrom($$source: any = {}): RosterChange {
-        const $$createField0_0 = $$createType3;
-        const $$createField1_0 = $$createType5;
+        const $$createField0_0 = $$createType22;
+        const $$createField1_0 = $$createType24;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("change" in $$parsedSource) {
             $$parsedSource["change"] = $$createField0_0($$parsedSource["change"]);
@@ -379,8 +1046,8 @@ export class TaskDetail {
      * Creates a new TaskDetail instance from a string or object.
      */
     static createFrom($$source: any = {}): TaskDetail {
-        const $$createField0_0 = $$createType6;
-        const $$createField1_0 = $$createType7;
+        const $$createField0_0 = $$createType25;
+        const $$createField1_0 = $$createType21;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("task" in $$parsedSource) {
             $$parsedSource["task"] = $$createField0_0($$parsedSource["task"]);
@@ -415,8 +1082,8 @@ export class TaskResult {
      * Creates a new TaskResult instance from a string or object.
      */
     static createFrom($$source: any = {}): TaskResult {
-        const $$createField0_0 = $$createType6;
-        const $$createField1_0 = $$createType2;
+        const $$createField0_0 = $$createType25;
+        const $$createField1_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("task" in $$parsedSource) {
             $$parsedSource["task"] = $$createField0_0($$parsedSource["task"]);
@@ -460,7 +1127,7 @@ export class Told {
      * Creates a new Told instance from a string or object.
      */
     static createFrom($$source: any = {}): Told {
-        const $$createField0_0 = $$createType0;
+        const $$createField0_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("to" in $$parsedSource) {
             $$parsedSource["to"] = $$createField0_0($$parsedSource["to"]);
@@ -470,11 +1137,29 @@ export class Told {
 }
 
 // Private type creation functions
-const $$createType0 = $Create.Array($Create.Any);
-const $$createType1 = coord$0.Comment.createFrom;
-const $$createType2 = Told.createFrom;
-const $$createType3 = presence$0.Change.createFrom;
-const $$createType4 = presence$0.AgentCard.createFrom;
+const $$createType0 = CardDetail.createFrom;
+const $$createType1 = Told.createFrom;
+const $$createType2 = $Create.Array($Create.Any);
+const $$createType3 = AgentRef.createFrom;
+const $$createType4 = CardOption.createFrom;
 const $$createType5 = $Create.Array($$createType4);
-const $$createType6 = coord$0.Task.createFrom;
-const $$createType7 = $Create.Array($$createType1);
+const $$createType6 = CardResolution.createFrom;
+const $$createType7 = $Create.Nullable($$createType6);
+const $$createType8 = CardProgress.createFrom;
+const $$createType9 = $Create.Array($$createType3);
+const $$createType10 = coord$0.Step.createFrom;
+const $$createType11 = $Create.Array($$createType10);
+const $$createType12 = CardBlocker.createFrom;
+const $$createType13 = $Create.Array($$createType12);
+const $$createType14 = CardPR.createFrom;
+const $$createType15 = $Create.Array($$createType14);
+const $$createType16 = coord$0.Link.createFrom;
+const $$createType17 = $Create.Array($$createType16);
+const $$createType18 = CardActivity.createFrom;
+const $$createType19 = $Create.Array($$createType18);
+const $$createType20 = coord$0.Comment.createFrom;
+const $$createType21 = $Create.Array($$createType20);
+const $$createType22 = presence$0.Change.createFrom;
+const $$createType23 = presence$0.AgentCard.createFrom;
+const $$createType24 = $Create.Array($$createType23);
+const $$createType25 = coord$0.Task.createFrom;

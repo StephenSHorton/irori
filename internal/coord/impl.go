@@ -87,8 +87,11 @@ type taskStateRow struct {
 	// Reason and BlockedBy only when State is Blocked.
 	Reason    string     `json:"reason,omitempty"`
 	BlockedBy *BlockedBy `json:"blockedBy,omitempty"`
-	By        string     `json:"by"`
-	At        time.Time  `json:"at"`
+	// Blocker is the item a blocked row raises (cards.go); absent on rows
+	// written before items, which fold to an item made from Reason.
+	Blocker *blockerRow `json:"blocker,omitempty"`
+	By      string      `json:"by"`
+	At      time.Time   `json:"at"`
 }
 
 // taskMemberRow is task.joined and task.left.
@@ -166,11 +169,15 @@ type coord struct {
 	tasks       map[string]*Task
 	order       map[string]uint64 // task id -> fold position of its task.created row
 	nextOrder   uint64
-	held        map[string]*leaseRec // by canonical resource
-	firstAbsent map[string]time.Time // holder key -> first seen missing from the roster
-	comments    map[string]*Comment  // by comment id
-	byTask      map[string][]string  // task id -> comment ids, fold order
-	refusals    []*refusalRec        // possibly active, fold order (gcRefusals drops the rest)
+	held        map[string]*leaseRec   // by canonical resource
+	firstAbsent map[string]time.Time   // holder key -> first seen missing from the roster
+	comments    map[string]*Comment    // by comment id
+	byTask      map[string][]string    // task id -> comment ids, fold order
+	refusals    []*refusalRec          // possibly active, fold order (gcRefusals drops the rest)
+	blockerSeq  map[string]int         // task id -> highest blocker item number minted
+	stepSeq     map[string]int         // task id -> highest step number minted
+	activity    map[string][]Activity  // task id -> newest MaxActivity lines, oldest first
+	watchq      map[string]*watchQueue // task id -> changes watchers haven't heard (not on replay)
 
 	// Subscribe (subscribe.go). Changes queue in pending while c.mu is held
 	// and go out in unlock; replay queues none.
@@ -196,6 +203,10 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 		firstAbsent: map[string]time.Time{},
 		comments:    map[string]*Comment{},
 		byTask:      map[string][]string{},
+		blockerSeq:  map[string]int{},
+		stepSeq:     map[string]int{},
+		activity:    map[string][]Activity{},
+		watchq:      map[string]*watchQueue{},
 		subs:        map[chan Change]*subscriber{},
 	}
 	if c.now == nil {
@@ -282,6 +293,7 @@ func (c *coord) apply(ev store.Event) {
 			RepoKey: p.RepoKey, Scope: p.Scope, State: Submitted, CreatedBy: p.By,
 			CreatedAt: t, UpdatedAt: t, UpdatedBy: p.By, Shared: p.Shared, Links: links,
 		}
+		c.touch(c.tasks[p.TaskID], t, p.By, "put the card up", false)
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID})
 	case KindTaskClaimed:
 		var p taskClaimedRow
@@ -296,6 +308,7 @@ func (c *coord) apply(ev store.Event) {
 				t.State = Working
 			}
 			t.UpdatedAt, t.UpdatedBy = at(p.At), p.By
+			c.touch(t, t.UpdatedAt, p.By, "took it up", true)
 			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: p.By})
 		}
 	case KindTaskAssigned:
@@ -311,6 +324,7 @@ func (c *coord) apply(ev store.Event) {
 			}
 			syncHolder(t)
 			t.UpdatedAt, t.UpdatedBy = at(p.At), p.By
+			c.touch(t, t.UpdatedAt, p.By, "assigned it to "+p.To, true)
 			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: p.To})
 		}
 	case KindTaskState:
@@ -319,19 +333,25 @@ func (c *coord) apply(ev store.Event) {
 			return
 		}
 		if t := c.tasks[p.TaskID]; t != nil && ValidState(p.State) {
+			was := t.State
+			when := at(p.At)
 			t.State = p.State
 			t.Note = p.Note
 			t.Assigned = removeStr(t.Assigned, p.By)
 			syncHolder(t)
-			t.Reason, t.BlockedBy = "", nil
+			what := ""
 			if p.State == Blocked {
-				t.Reason = p.Reason
-				if p.BlockedBy != nil {
-					b := *p.BlockedBy
-					t.BlockedBy = &b
+				// BlockedBy follows the items (syncReason below).
+				what = c.foldBlocked(t, p, was == Blocked, when)
+			} else {
+				closeOpen(t, p.By, p.Note, when)
+				if was != p.State {
+					what = "set it to " + string(p.State)
 				}
 			}
-			t.UpdatedAt, t.UpdatedBy = at(p.At), p.By
+			syncReason(t)
+			t.UpdatedAt, t.UpdatedBy = when, p.By
+			c.touch(t, when, p.By, what, true)
 			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
 		}
 	case KindTaskJoined, KindTaskLeft:
@@ -343,6 +363,7 @@ func (c *coord) apply(ev store.Event) {
 		if t == nil {
 			return
 		}
+		what := "left it"
 		if ev.Kind == KindTaskJoined {
 			if !contains(t.Holders, p.Who) {
 				t.Holders = append(t.Holders, p.Who)
@@ -350,12 +371,17 @@ func (c *coord) apply(ev store.Event) {
 			if t.State == Submitted {
 				t.State = Working
 			}
+			what = "joined"
 		} else {
 			t.Holders = removeStr(t.Holders, p.Who)
+		}
+		if p.Who != p.By {
+			what += " (" + p.Who + ")"
 		}
 		t.Assigned = removeStr(t.Assigned, p.Who)
 		syncHolder(t)
 		t.UpdatedAt, t.UpdatedBy = at(p.At), p.By
+		c.touch(t, t.UpdatedAt, p.By, what, false)
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: p.Who})
 	case KindTaskShared:
 		var p taskSharedRow
@@ -389,6 +415,12 @@ func (c *coord) apply(ev store.Event) {
 			return
 		}
 		t.UpdatedAt, t.UpdatedBy = at(p.At), p.By
+		_, _, isPR := prLink(p.Link)
+		if p.Removed {
+			c.touch(t, t.UpdatedAt, p.By, "removed the link "+p.Link.Label, isPR)
+		} else {
+			c.touch(t, t.UpdatedAt, p.By, "linked "+p.Link.Label, isPR)
+		}
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
 	case KindTaskComment:
 		var p taskCommentRow
@@ -405,6 +437,7 @@ func (c *coord) apply(ev store.Event) {
 		t.Comments++
 		// A comment is activity on the card: it floats up its Board group.
 		t.UpdatedAt = cm.At
+		c.touch(t, cm.At, cm.By, "commented", false)
 		c.note(Change{Kind: CommentAdded, TaskID: p.TaskID})
 	case KindBlockerClosed:
 		var p blockerClosedRow
@@ -425,7 +458,15 @@ func (c *coord) apply(ev store.Event) {
 			t.Note = p.Note
 		}
 		t.UpdatedAt, t.UpdatedBy = at(p.At), p.By
+		closeOpen(t, p.By, p.Note, t.UpdatedAt)
+		what := "unblocked it"
+		if p.Note != "" {
+			what += ": " + p.Note
+		}
+		c.touch(t, t.UpdatedAt, p.By, what, true)
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
+	case KindBlockerOption, KindBlockerResolved, KindTaskSteps, KindTaskStep, KindTaskWatched:
+		c.applyCard(ev, at)
 	case KindLeaseRefused:
 		var r Refusal
 		if json.Unmarshal(ev.Payload, &r) != nil || r.Resource == "" || r.By == "" || r.HeldBy == "" {
@@ -610,6 +651,18 @@ func copyTask(t *Task) Task {
 		b := *t.BlockedBy
 		out.BlockedBy = &b
 	}
+	if t.Steps != nil {
+		out.Steps = append([]Step(nil), t.Steps...)
+	}
+	if t.Blockers != nil {
+		out.Blockers = make([]Blocker, len(t.Blockers))
+		for i, b := range t.Blockers {
+			out.Blockers[i] = copyBlocker(b)
+		}
+	}
+	if t.Watchers != nil {
+		out.Watchers = append([]string(nil), t.Watchers...)
+	}
 	return out
 }
 
@@ -761,8 +814,10 @@ func (c *coord) createTask(ctx context.Context, by string, nt NewTask) (Task, er
 		return Task{}, err
 	}
 	if reason != "" {
+		q, cx := blockQuestion(reason)
 		if err := c.write(ctx, by, KindTaskState, taskStateRow{
-			TaskID: id, State: Blocked, Reason: reason, BlockedBy: bb, By: by, At: at,
+			TaskID: id, State: Blocked, Reason: reason, BlockedBy: bb,
+			Blocker: &blockerRow{ID: c.nextBlockerID(id), Question: q, Context: cx, ReasonOnly: true, On: bb}, By: by, At: at,
 		}); err != nil {
 			return Task{}, err
 		}

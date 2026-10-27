@@ -39,36 +39,41 @@ type set struct {
 func newSet(b Backend) *Set {
 	s := &set{b: b, now: time.Now}
 	s.handlers = map[string]handler{
-		"agents":        s.agents,
-		"events":        s.events,
-		"send":          s.send,
-		"reply":         s.reply,
-		"inbox":         s.inbox,
-		"ack":           s.ack,
-		"defer":         s.deferTool,
-		"skip":          s.skip,
-		"overview":      s.overview,
-		"search":        s.search,
-		"show":          s.show,
-		"board":         s.board,
-		"board_create":  s.boardCreate,
-		"board_comment": s.boardComment,
-		"board_block":   s.boardBlock,
-		"board_unblock": s.boardUnblock,
-		"board_join":    s.boardJoin,
-		"board_leave":   s.boardLeave,
-		"board_assign":  s.boardAssign,
-		"board_status":  s.boardStatus,
-		"board_link":    s.boardLink,
-		"commits":       s.commits,
-		"prs":           s.prs,
-		"lease":         s.lease,
-		"leases":        s.leases,
-		"release":       s.release,
-		"timeline":      s.timeline,
-		"why":           s.why,
-		"join":          s.join,
-		"notify":        s.notify,
+		"agents":          s.agents,
+		"events":          s.events,
+		"send":            s.send,
+		"reply":           s.reply,
+		"inbox":           s.inbox,
+		"ack":             s.ack,
+		"defer":           s.deferTool,
+		"skip":            s.skip,
+		"overview":        s.overview,
+		"search":          s.search,
+		"show":            s.show,
+		"board":           s.board,
+		"board_create":    s.boardCreate,
+		"board_comment":   s.boardComment,
+		"board_block":     s.boardBlock,
+		"board_unblock":   s.boardUnblock,
+		"board_join":      s.boardJoin,
+		"board_leave":     s.boardLeave,
+		"board_assign":    s.boardAssign,
+		"board_status":    s.boardStatus,
+		"board_link":      s.boardLink,
+		"board_steps":     s.boardSteps,
+		"board_step":      s.boardStep,
+		"board_recommend": s.boardRecommend,
+		"board_watch":     s.boardWatch,
+		"board_unwatch":   s.boardUnwatch,
+		"commits":         s.commits,
+		"prs":             s.prs,
+		"lease":           s.lease,
+		"leases":          s.leases,
+		"release":         s.release,
+		"timeline":        s.timeline,
+		"why":             s.why,
+		"join":            s.join,
+		"notify":          s.notify,
 	}
 	s.needsCaller = map[string]bool{}
 	for _, sp := range specList {
@@ -236,6 +241,20 @@ func (n names) sender(f inbox.Sender) string {
 		return name + " (" + oneLine(f.Key, 120) + ")"
 	}
 	return n.who(f.Key)
+}
+
+// short is a key's name alone when the roster knows it (the person is
+// "the person"), else the key: for lines that repeat who.
+func (n names) short(key string) string {
+	if strings.HasPrefix(key, "user:") {
+		return "the person"
+	}
+	if c, ok := n[key]; ok {
+		if name := oneLine(c.Name, 80); name != "" {
+			return name
+		}
+	}
+	return oneLine(key, 120)
 }
 
 func (n names) live(key string) bool {

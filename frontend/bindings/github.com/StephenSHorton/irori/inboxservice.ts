@@ -47,6 +47,16 @@ export function Dismiss(deliveryID: string): $CancellablePromise<void> {
 }
 
 /**
+ * Get returns one delivery, for the window's message dialog: a
+ * notification's Open names it (a held message, or one sent to the person).
+ */
+export function Get(deliveryID: string): $CancellablePromise<inbox$0.Delivery> {
+    return $Call.ByID(3968418847, deliveryID).then(($result: any) => {
+        return $$createType1($result);
+    });
+}
+
+/**
  * Held returns every delivery waiting on the person, newest first, as of
  * the last inbox:changed.
  */
@@ -64,6 +74,13 @@ export function List(limit: number): $CancellablePromise<inbox$0.Delivery[]> {
     return $Call.ByID(2767030713, limit).then(($result: any) => {
         return $$createType2($result);
     });
+}
+
+/**
+ * MarkRead closes a message sent to the person without replying.
+ */
+export function MarkRead(deliveryID: string): $CancellablePromise<void> {
+    return $Call.ByID(1805511084, deliveryID);
 }
 
 /**
@@ -87,6 +104,13 @@ export function Policy(): $CancellablePromise<inbox$0.Policy> {
  */
 export function Release(deliveryID: string): $CancellablePromise<void> {
     return $Call.ByID(3028751254, deliveryID);
+}
+
+/**
+ * Reply answers a message sent to the person; the sender is woken with it.
+ */
+export function Reply(deliveryID: string, text: string): $CancellablePromise<void> {
+    return $Call.ByID(2503881007, deliveryID, text);
 }
 
 /**

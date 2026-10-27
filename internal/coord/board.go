@@ -124,10 +124,13 @@ type BoardFilter struct {
 type Card struct {
 	Task
 	LastComment *Comment `json:"lastComment,omitempty"`
-	// Resolved: the task is Blocked and its BlockedBy has gone away (the
-	// lease is no longer held, the task is terminal). SweepNotices closes
-	// such blockers; Resolved shows the gap until it runs.
+	// Resolved: the task is Blocked and everything its open items wait on
+	// has gone away (the lease is no longer held, the task is terminal).
+	// SweepNotices closes such blockers; Resolved shows the gap until it runs.
 	Resolved bool `json:"resolved,omitempty"`
+	// Gone: when only some open items' leases or tasks went away, their ids
+	// (the sweep closes just those; the others, a question, still wait).
+	Gone []string `json:"gone,omitempty"`
 	// Overlaps, on a Shared task, lists pairs "<resource> ~ <resource>" of
 	// its holders' leases that overlap (decision 20's warning).
 	Overlaps []string `json:"overlaps,omitempty"`
@@ -213,6 +216,11 @@ func (c *Coord) SetShared(ctx context.Context, by, id string, shared bool) (Task
 // reason), a person ref must be "" or
 // "user:*" (an agent ref must be non-empty; an external one may be empty).
 // Blocking a blocked task again replaces the reason. No notice.
+//
+// Since the cards (cards.go), Block is Raise with the reason as the
+// question (a reason longer than MaxQuestion goes whole into the context):
+// it makes one blocker item, and blocking again through Block replaces that
+// item rather than adding one. Items raised with Raise stay.
 func (c *Coord) Block(ctx context.Context, by, id, reason string, blockedBy *BlockedBy) (Task, error) {
 	return c.impl.block(ctx, by, id, reason, blockedBy)
 }
@@ -221,7 +229,8 @@ func (c *Coord) Block(ctx context.Context, by, id, reason string, blockedBy *Blo
 // 19). It writes blocker.closed and restores Working when a holder has
 // taken the task up (one not in Assigned), else Submitted. note is optional (<= MaxReason). The notice is
 // NoticeUnblocked to the holders other than by. ErrBadState when the task
-// isn't Blocked.
+// isn't Blocked. It resolves every open blocker item as closed, with note
+// as the answer (Answer resolves one).
 func (c *Coord) Unblock(ctx context.Context, by, id, note string) (Task, Notice, error) {
 	return c.impl.unblock(ctx, by, id, note)
 }

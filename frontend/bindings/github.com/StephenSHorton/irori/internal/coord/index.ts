@@ -3,6 +3,7 @@
 
 export {
     BlockedBy,
+    Blocker,
     BlockerKind,
     BoardView,
     Card,
@@ -10,7 +11,10 @@ export {
     LeaseCard,
     Link,
     LinkKind,
+    Option,
     Refusal,
+    Resolution,
+    Step,
     Task,
     TaskState
 } from "./models.js";

@@ -136,6 +136,27 @@ export const talk = {
     sampleChanged()
   },
 
+  // get reads one delivery: the message a notification's Open names.
+  async get(id: string): Promise<Delivery> {
+    if (inWails()) return InboxService.Get(id)
+    return { ...sampleDelivery(id) } as Delivery
+  },
+
+  // reply answers a message sent to the person; its sender is woken.
+  async reply(id: string, text: string): Promise<void> {
+    if (inWails()) return InboxService.Reply(id, text)
+    sampleDelivery(id)
+    if (!text.trim()) throw new Error("inbox: invalid input: write a reply")
+    sampleSetState(id, State.Answered)
+  },
+
+  // markRead closes a message sent to the person without replying.
+  async markRead(id: string): Promise<void> {
+    if (inWails()) return InboxService.MarkRead(id)
+    sampleDelivery(id)
+    sampleSetState(id, State.Skipped)
+  },
+
   async release(id: string): Promise<void> {
     if (inWails()) return InboxService.Release(id)
     sampleDelivery(id)

@@ -3,6 +3,7 @@ package coord
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -247,19 +248,11 @@ func (c *coord) block(ctx context.Context, by, id, reason string, bb *BlockedBy)
 	if !mayManage(t, by) {
 		return Task{}, fmt.Errorf("%w: block task %s", ErrNotAllowed, id)
 	}
-	nb, err := c.checkBlocker(bb, id)
-	if err != nil {
-		return Task{}, err
-	}
-	if t.State == Blocked && t.Reason == reason && sameBlocker(t.BlockedBy, nb) {
-		return copyTask(t), nil
-	}
-	if err := c.write(ctx, by, KindTaskState, taskStateRow{
-		TaskID: id, State: Blocked, Note: t.Note, Reason: reason, BlockedBy: nb, By: by, At: c.stamp(),
-	}); err != nil {
-		return Task{}, err
-	}
-	return copyTask(t), nil
+	// Block is Raise with the reason as the question (cards.go); a reason
+	// longer than a question goes whole into the item's context.
+	q, cx := blockQuestion(reason)
+	out, _, err := c.raiseLocked(ctx, by, t, reason, q, cx, nil, bb, true, c.stamp())
+	return out, err
 }
 
 func sameBlocker(a, b *BlockedBy) bool {
@@ -562,20 +555,35 @@ func (c *coord) leaseHeld(name string, now time.Time) bool {
 // resolved reports why a blocked task's blocker went away by itself ("" if
 // it hasn't). The caller holds c.mu.
 func (c *coord) resolved(t *Task, now time.Time) string {
-	if t.State != Blocked || t.BlockedBy == nil {
-		return ""
-	}
-	switch t.BlockedBy.Kind {
-	case BlockedOnLease:
-		if !c.leaseHeld(t.BlockedBy.Ref, now) {
-			return "lease released"
-		}
-	case BlockedOnTask:
-		if o := c.tasks[t.BlockedBy.Ref]; o != nil && IsTerminal(o.State) {
-			return "task " + string(o.State)
-		}
+	if _, why := c.goneAway(t, now); len(why) > 0 {
+		return why[0]
 	}
 	return ""
+}
+
+// goneAway lists the open items of a blocked task whose lease or task went
+// away, with why for each. The caller holds c.mu.
+func (c *coord) goneAway(t *Task, now time.Time) ([]string, []string) {
+	if t.State != Blocked {
+		return nil, nil
+	}
+	var ids, why []string
+	for _, b := range t.Blockers {
+		if !b.Open() || b.On == nil {
+			continue
+		}
+		switch b.On.Kind {
+		case BlockedOnLease:
+			if !c.leaseHeld(b.On.Ref, now) {
+				ids, why = append(ids, b.ID), append(why, "lease released")
+			}
+		case BlockedOnTask:
+			if o := c.tasks[b.On.Ref]; o != nil && IsTerminal(o.State) {
+				ids, why = append(ids, b.ID), append(why, "task "+string(o.State))
+			}
+		}
+	}
+	return ids, why
 }
 
 // overlapsOf lists pairs of a shared task's holders' leases that overlap.
@@ -626,12 +634,21 @@ func (c *coord) board(f BoardFilter) BoardView {
 			last := *c.comments[ids[len(ids)-1]]
 			card.LastComment = &last
 		}
-		card.Resolved = c.resolved(t, now) != ""
-		if t.State == Blocked && t.BlockedBy != nil && t.BlockedBy.Kind == BlockedOnLease {
-			res, err := ParseResource(t.BlockedBy.Ref)
+		if ids, _ := c.goneAway(t, now); len(ids) > 0 {
+			if len(ids) == countOpen(t) {
+				card.Resolved = true
+			} else {
+				card.Gone = ids
+			}
+		}
+		for _, bl := range t.Blockers {
+			if t.State != Blocked || !bl.Open() || bl.On == nil || bl.On.Kind != BlockedOnLease {
+				continue
+			}
+			res, err := ParseResource(bl.On.Ref)
 			if err == nil {
 				for _, l := range c.held {
-					if l.Until.After(now) && conflicts(l.res, res) {
+					if l.Until.After(now) && conflicts(l.res, res) && !contains(blocks[l], t.ID) {
 						blocks[l] = append(blocks[l], t.ID)
 					}
 				}
@@ -697,20 +714,34 @@ func (c *coord) board(f BoardFilter) BoardView {
 }
 
 // needsYou picks the NeedsYou group (BoardView's rule 2).
+// Any open blocker item counts, not only the first (Task.BlockedBy).
 func needsYou(t *Task, viewer string, agentViewer bool) bool {
-	bb := t.BlockedBy
-	if t.State != Blocked {
-		bb = nil
+	var ons []*BlockedBy
+	if t.State == Blocked {
+		for _, b := range t.Blockers {
+			if b.Open() && b.On != nil {
+				ons = append(ons, b.On)
+			}
+		}
 	}
 	if agentViewer {
-		return t.State != Blocked && isHolder(t, viewer) && !engaged(t, viewer) ||
-			bb != nil && bb.Kind == BlockedOnAgent && bb.Ref == viewer
+		if t.State != Blocked && isHolder(t, viewer) && !engaged(t, viewer) {
+			return true
+		}
+		for _, bb := range ons {
+			if bb.Kind == BlockedOnAgent && bb.Ref == viewer {
+				return true
+			}
+		}
+		return false
 	}
-	switch {
-	case t.State == InputRequired:
+	if t.State == InputRequired {
 		return true
-	case bb != nil && bb.Kind == BlockedOnPerson:
-		return viewer == "" || bb.Ref == "" || bb.Ref == viewer
+	}
+	for _, bb := range ons {
+		if bb.Kind == BlockedOnPerson && (viewer == "" || bb.Ref == "" || bb.Ref == viewer) {
+			return true
+		}
 	}
 	return viewer != "" && isHolder(t, viewer)
 }
@@ -733,11 +764,49 @@ func (c *coord) sweepNotices(ctx context.Context) ([]Notice, error) {
 	sort.Slice(todo, func(i, j int) bool { return todo[i].ID < todo[j].ID })
 	var out []Notice
 	for _, t := range todo {
-		n, err := c.closeBlocker(ctx, sweeper, t, c.resolved(t, now), now)
-		if err != nil {
-			return out, err
+		ids, why := c.goneAway(t, now)
+		if len(ids) == countOpen(t) {
+			// Everything it waited on went away: unblock it.
+			n, err := c.closeBlocker(ctx, sweeper, t, why[0], now)
+			if err != nil {
+				return out, err
+			}
+			out = append(out, n)
+			continue
 		}
-		out = append(out, n)
+		// Other items still wait (a question for the person): close only
+		// these, and the task stays blocked.
+		var raisers []string
+		for _, b := range t.Blockers {
+			if slices.Contains(ids, b.ID) {
+				raisers = append(raisers, b.RaisedBy)
+			}
+		}
+		for i, id := range ids {
+			if err := c.write(ctx, sweeper, KindBlockerResolved, blockerResolvedRow{
+				TaskID: t.ID, BlockerID: id, Answer: why[i], Option: -1, By: sweeper, Closed: true, At: now,
+			}); err != nil {
+				return out, err
+			}
+		}
+		// Its raisers and holders hear, so a freed lease isn't missed.
+		n := Notice{Kind: NoticeAnswered, TaskID: t.ID, Ref: "task:" + t.ID, Title: t.Title, By: sweeper}
+		for _, r := range append(raisers, recipients(t, sweeper)...) {
+			if r != "" && !IsPerson(r) && r != sweeper && !slices.Contains(n.To, r) {
+				n.To = append(n.To, r)
+			}
+		}
+		var items []string
+		for i, id := range ids {
+			items = append(items, id+" ("+why[i]+")")
+		}
+		n.Text = fmt.Sprintf("Irori closed %s on %q (task:%s): what it waited on went away. %d more blockers are still open; board_unblock with blocker_id answers one.%s",
+			strings.Join(items, ", "), t.Title, t.ID, countOpen(t), deeper(t.ID))
+		if len(n.To) > 0 {
+			out = append(out, n)
+		}
 	}
-	return out, nil
+	// Watchers hear what changed on their cards since the last sweep
+	// (cards.go), including the closes above.
+	return append(out, c.watchNotices()...), nil
 }
