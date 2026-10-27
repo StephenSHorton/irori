@@ -55,7 +55,7 @@ The tools enforce what they can:
 ## Build order
 
 1. **Next-turn delivery:** check that the mod can add a comment to a turn the person starts, and if not, fall back to a hook the person approves. Then add a delivery `mode` to the inbox.
-2. **coord:** add the `blocked` state with a reason, close-blocker by anyone, a holders list for shared tasks, comments, assignment notices, links, `lease.refused` rows, and the 24 h / 7 day view rules.
+2. **coord:** add the `blocked` state with a reason, close-blocker by anyone, a holders list for shared tasks, comments, assignment notices, links, and `lease.refused` rows.
 3. **Tools:** the board tools carry the agent instructions above. Replace the task tools rather than adding more beside them.
 4. **GUI:** the Board tab, following the prototype. It replaces Work, adds the Wake choice per comment, and shows link chips.
 5. **Live check:** two connected chats hand a task back and forth, one blocks on you, you answer from the Board, and it carries on.
