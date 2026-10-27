@@ -47,14 +47,17 @@ func (s *scrubber) setExact(exact []string) {
 
 // scrub runs the exact values first (so Irori's own secrets get kind
 // "exact" whatever their shape), then the private-key blocks, then each
-// single-line rule in order, line by line.
+// single-line rule in order, line by line. A nil scrubber has no exact
+// values.
 func (s *scrubber) scrub(in string) string {
 	if in == "" {
 		return in
 	}
 	out := in
-	if r := s.exact.Load(); r != nil {
-		out = r.Replace(out)
+	if s != nil {
+		if r := s.exact.Load(); r != nil {
+			out = r.Replace(out)
+		}
 	}
 	out = scrubPrivateKeys(out)
 	return scrubLines(out)
@@ -226,10 +229,11 @@ var rules = []rule{
 		},
 	},
 	{
-		// scheme://user:password@host. Any password length counts here.
+		// scheme://user:password@host. Any password length counts here. The
+		// password may hold a raw '@': like URL parsers, split at the last one.
 		kind: "assignment",
 		// The user part may itself be a marker from an earlier rule.
-		re:   regexp.MustCompile(`\b[A-Za-z][A-Za-z0-9+.-]*://(?:\[redacted:[a-z-]+\]|[^\s:/@"'<>\[\]]*):([^\s/@"'<>]+)@`),
+		re:   regexp.MustCompile(`\b[A-Za-z][A-Za-z0-9+.-]*://(?:\[redacted:[a-z-]+\]|[^\s:/@"'<>\[\]]*):([^\s/"'<>]+)@`),
 		gate: "://",
 		pick: func(s string, m []int) (int, int, bool) {
 			return m[2], m[3], !strings.HasPrefix(s[m[2]:m[3]], "[redacted:")
@@ -243,48 +247,116 @@ var rules = []rule{
 	},
 }
 
-// assignmentRE matches key = value, key: value, key := value and key =>
-// value, where the key (optionally quoted, as in JSON or escaped JSON)
-// contains a secret word. Group 1 is an escaped-quoted value's body (\"…\"
-// inside a JSON string), group 2 a quoted value's body (backslash escapes
-// allowed), group 3 an unquoted value.
+// assignmentRE matches key = value, key: value, key := value, key => value
+// and the comparisons ==, ===, != and !==, where the key (optionally quoted,
+// as in JSON or escaped JSON) contains a secret word. Group 1 is the
+// separator. Groups 2-6 are a quoted value's body: \"…\" and \'…\' (inside a
+// JSON string), then "…", '…' and `…`. Each ends only at its own quote, so
+// "it's-a-secret" is one value, and backslash escapes are allowed. Group 7
+// is an unquoted value, which runs to whitespace or a quote; pickAssignment
+// trims it.
 // The match starts at the secret word, not the start of the key: only the
 // value is replaced, and a leading [\w.-]* makes the search much slower.
-var assignmentRE = regexp.MustCompile(`(?i)(?:token|secret|password|passwd|api[_-]?key|authorization)[A-Za-z0-9_.\-]*(?:\\?["'])?[ \t]*(?::=|=>|[:=])[ \t]*` +
-	`(?:\\["']((?:[^"'\\\r\n]|\\[^"'\r\n])+?)\\["']` +
-	"|[\"'`]((?:\\\\[^\\r\\n]|[^\"'`\\\\\\r\\n])+)[\"'`]" +
-	"|([^\\s\"'`;,&<>(){}\\[\\]\\\\|]+))")
+var assignmentRE = regexp.MustCompile(`(?i)(?:token|secret|password|passwd|api[_-]?key|authorization)[A-Za-z0-9_.\-]*(?:\\?["'])?[ \t]*(===|!==|==|!=|:=|=>|[:=])[ \t]*` +
+	`(?:\\"((?:[^"\\\r\n]|\\[^"\r\n])+?)\\"` +
+	`|\\'((?:[^'\\\r\n]|\\[^'\r\n])+?)\\'` +
+	`|"((?:\\[^\r\n]|[^"\\\r\n])+)"` +
+	`|'((?:\\[^\r\n]|[^'\\\r\n])+)'` +
+	"|`((?:\\\\[^\\r\\n]|[^`\\\\\\r\\n])+)`" +
+	"|([^\\s\"'`]+))")
 
-// pickAssignment redacts a value of 8 or more characters, except unquoted
-// values that read as code: a call or index (getToken(), cfg[k]), a
-// variable reference ($TOKEN, %TOKEN%), or a dotted name
-// (process.env.GITHUB_TOKEN).
+// pickAssignment redacts a value of 8 or more characters. A comparison
+// (password == x) counts only a quoted literal. An unquoted value loses
+// trailing punctuation and any following query parameter (&state=1), and is
+// left alone when it reads as code (see code).
 func pickAssignment(s string, m []int) (int, int, bool) {
-	for _, g := range []int{1, 2} {
+	for g := 2; g <= 6; g++ {
 		if lo, hi := m[2*g], m[2*g+1]; lo >= 0 {
 			v := s[lo:hi]
 			return lo, hi, len(v) >= 8 && !strings.Contains(v, "[redacted:")
 		}
 	}
-	lo, hi := m[6], m[7]
-	if lo < 0 || hi-lo < 8 {
+	if sep := s[m[2]:m[3]]; sep[0] == '!' || strings.HasPrefix(sep, "==") {
 		return 0, 0, false
 	}
-	v := s[lo:hi]
-	if hi < len(s) && (s[hi] == '(' || s[hi] == '[') {
+	lo, hi := m[14], m[15]
+	if lo < 0 {
 		return 0, 0, false
 	}
-	switch v[0] {
-	case '$', '%', '@', '*':
-		return 0, 0, false
-	}
-	if dottedName.MatchString(v) {
+	v := trimValue(s[lo:hi])
+	hi = lo + len(v)
+	if len(v) < 8 || strings.Contains(v, "[redacted:") || code(v) {
 		return 0, 0, false
 	}
 	return lo, hi, true
 }
 
-var dottedName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
+// queryParam finds "&name=", where a URL's next parameter starts.
+var queryParam = regexp.MustCompile(`&[A-Za-z0-9_.\-\[\]]+=`)
+
+// trimValue cuts an unquoted value at the next query parameter and drops
+// closing punctuation and a trailing backslash (the end of an escaped quote),
+// so f(token=x); keeps its ");".
+func trimValue(v string) string {
+	if loc := queryParam.FindStringIndex(v); loc != nil {
+		v = v[:loc[0]]
+	}
+	return strings.TrimRight(v, `;,)}]>\`)
+}
+
+var (
+	// callOrIndex is a name followed by a call, index or type argument:
+	// getToken(), cfg[k], Record<string, os.Getenv(.
+	callOrIndex = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$.]*[(\[<]`)
+	dottedName  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
+	// shellVar is $NAME or %NAME% with an all-caps name, as environment
+	// variables are written; $ecretPassw0rd is not one.
+	shellVar = regexp.MustCompile(`^(?:\$[A-Z_][A-Z0-9_]*|%[A-Za-z_][A-Za-z0-9_]*%)$`)
+	// scriptVar is a PHP or Perl variable used as a value: $this->token,
+	// $config['password'].
+	scriptVar = regexp.MustCompile(`^\$[A-Za-z_][A-Za-z0-9_]*(?:->|\[|\.)`)
+)
+
+// code reports whether an unquoted value reads as code rather than a
+// literal: a call, index or type (getToken(), cfg[k], Record<…>), a shell
+// expansion (${DB_PASS}, $(cmd), $GITHUB_TOKEN, %GITHUB_TOKEN%), a script
+// variable ($this->token), the word undefined, or a dotted name or pointer
+// dereference that refers to a secret by name or reads the environment
+// (process.env.X, cfg.auth.token, *opts.Token). Anything else, including
+// dotted tokens and values starting with @, * or $, is redacted.
+func code(v string) bool {
+	switch {
+	case v == "undefined",
+		callOrIndex.MatchString(v),
+		strings.HasPrefix(v, "${"), strings.HasPrefix(v, "$("),
+		shellVar.MatchString(v),
+		scriptVar.MatchString(v):
+		return true
+	}
+	name := strings.TrimPrefix(v, "*")
+	deref := name != v
+	if !dottedName.MatchString(name) && !(deref && identifier.MatchString(name)) {
+		return false
+	}
+	return namesSecret(name)
+}
+
+var identifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// namesSecret reports whether a name (cfg.auth.token, tokenPtr) mentions a
+// secret word or has an env/environ segment. A random token almost never
+// spells one of these words, so real dotted tokens are still redacted.
+func namesSecret(name string) bool {
+	if containsAnyFold(name, []string{"token", "secret", "passw", "apikey", "api_key", "auth", "credential"}) {
+		return true
+	}
+	for _, seg := range strings.Split(name, ".") {
+		if strings.EqualFold(seg, "env") || strings.EqualFold(seg, "environ") {
+			return true
+		}
+	}
+	return false
+}
 
 // credential reports whether a word after "Bearer" looks like a token: 8+
 // characters and either not all letters or long.

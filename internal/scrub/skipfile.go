@@ -3,12 +3,21 @@ package scrub
 import "strings"
 
 // skipFile matches on the lowercased base name; either slash separates.
+// The base name is first reduced to the file Windows would open: a drive
+// prefix (C:.env) and an alternate data stream (.env::$DATA,
+// x.pem:Zone.Identifier) are dropped, and so are trailing dots and spaces,
+// which Win32 strips (key.pem. opens key.pem).
 func skipFile(path string) bool {
 	base := path
 	if i := strings.LastIndexAny(base, `/\`); i >= 0 {
 		base = base[i+1:]
+	} else if len(base) >= 2 && base[1] == ':' && isLetter(base[0]) {
+		base = base[2:]
 	}
-	base = strings.ToLower(strings.TrimSpace(base))
+	if i := strings.IndexByte(base, ':'); i >= 0 {
+		base = base[:i]
+	}
+	base = strings.ToLower(strings.TrimRight(strings.TrimSpace(base), ". "))
 	if base == "" {
 		return false
 	}
@@ -31,3 +40,5 @@ func skipFile(path string) bool {
 	}
 	return false
 }
+
+func isLetter(c byte) bool { return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }

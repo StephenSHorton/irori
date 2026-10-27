@@ -55,3 +55,30 @@ func TestSkipFile(t *testing.T) {
 		}
 	}
 }
+
+// TestSkipFileWindowsNames: Win32 drops trailing dots and spaces, and an
+// alternate data stream names the same file.
+func TestSkipFileWindowsNames(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"key.pem.", true},
+		{"key.pem. .", true},
+		{"id_rsa ", true},
+		{".env::$DATA", true},
+		{"x.pem:Zone.Identifier", true},
+		{`C:\repo\.env:stream:$DATA`, true},
+		{"C:.env", true},
+		{"C:key.pem", true},
+		{`C:\repo\notes.txt:secret.pem`, false}, // the file is notes.txt
+		{"..", false},
+		{"C:", false},
+		{"readme.md.", false},
+	}
+	for _, c := range cases {
+		if got := SkipFile(c.path); got != c.want {
+			t.Errorf("SkipFile(%q) = %v, want %v", c.path, got, c.want)
+		}
+	}
+}

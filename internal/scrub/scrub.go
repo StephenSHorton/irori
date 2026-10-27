@@ -21,12 +21,24 @@ type Scrubber struct {
 // bytes) exact values are ignored.
 func New(exact ...string) *Scrubber { return newScrubber(exact) }
 
-// SetExact replaces the exact-value list.
-func (s *Scrubber) SetExact(exact ...string) { s.impl.setExact(exact) }
+// SetExact replaces the exact-value list. On a zero Scrubber the first call
+// sets it up, so make that call before sharing it between goroutines.
+func (s *Scrubber) SetExact(exact ...string) {
+	if s.impl == nil {
+		s.impl = &scrubber{}
+	}
+	s.impl.setExact(exact)
+}
 
 // String returns in with every secret replaced. It never grows a line by more
 // than the marker, and it keeps line breaks, so patch line counts don't change.
-func (s *Scrubber) String(in string) string { return s.impl.scrub(in) }
+// A nil or zero Scrubber applies the patterns with no exact values.
+func (s *Scrubber) String(in string) string {
+	if s == nil {
+		return (*scrubber)(nil).scrub(in)
+	}
+	return s.impl.scrub(in)
+}
 
 // SkipFile reports whether a path's patch must not be stored at all: base
 // names .env and .env.*, *.pem, *.key, *.p12, *.pfx, id_rsa*, id_ed25519*,
