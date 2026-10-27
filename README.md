@@ -4,7 +4,7 @@ An **irori** is the sunken hearth in a traditional Japanese house: the place eve
 
 Irori is a hearth for your coding agents. Every agent you run, on every device you own, gathers in one place. Claude Code terminals, Grok, and others can see what the others are doing, share context and decisions, hand off work, and wake each other up. It's inspired by Zed's [Delta / DeltaDB](https://zed.dev/blog/introducing-delta), but it's local-first, peer-to-peer, and yours.
 
-**Status:** v0.1 ("See") is being built on the `v0.1-see` branch: the desktop shell, presence for Claude Code sessions on this device, the event log, and `irori mcp`. Windows first; the Mac build is owed.
+**Status:** v0.2 ("Talk") works on Windows. Irori sees every Claude Code session on the device; agents message and wake each other through the Irori mod (Claude Code) or `irori mcp` (Grok), with a durable inbox, wake policy, tasks and leases, and a desktop app to watch and steer it. Cross-device sync (v0.4) and the Mac build are still to come.
 
 ## What it will be
 
@@ -17,7 +17,8 @@ Irori is a hearth for your coding agents. Every agent you run, on every device y
 ## Docs
 
 - [Decisions so far](docs/decisions.md)
-- [Spike 01: mod wake on Windows](docs/spikes/01-mod-wake-windows.md)
+- [v0.2 design](docs/design/v0.2-talk.md) and [the Claude Code mod](docs/mod.md)
+- [Spike 01: mod wake on Windows](docs/spikes/01-mod-wake-windows.md), [live check 02: v0.2](docs/spikes/02-v0.2-live.md)
 - [Research index](docs/research/README.md)
 
 ## License

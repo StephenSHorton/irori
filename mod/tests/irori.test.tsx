@@ -73,7 +73,7 @@ function makeChild() {
 type Call = { url: string; method: string; headers: Record<string, string>; body?: string }
 
 /** The engine beneath the mod: spawn, fetch, submit, register, toast. */
-function world(on: On, opts: { exitCode?: number; holdSubmit?: Promise<void> } = {}) {
+function world(on: On, opts: { exitCode?: number; holdSubmit?: Promise<void>; dropSubmit?: boolean } = {}) {
   const children: Array<ReturnType<typeof makeChild>> = []
   const spawned: Array<readonly string[]> = []
   const calls: Call[] = []
@@ -98,7 +98,8 @@ function world(on: On, opts: { exitCode?: number; holdSubmit?: Promise<void> } =
     // A held submit is a prompt queued behind a running turn: it resolves
     // only when its own turn starts, as it did live.
     if (opts.holdSubmit) await opts.holdSubmit
-    return { drop: 'recorded by the test' }
+    if (opts.dropSubmit) return { drop: 'refused by the test' }
+    return { text: e.text }
   })
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }) as never)
@@ -232,6 +233,19 @@ ${prompt}`, turnId: 'turn-1' })
     await pause(50)
     expect(posts(w.calls, '/v1/deliveries/delivered').length).toBe(1)
     expect(w.submitted.length).toBe(1)
+  })
+
+  test('a submit that resolves as a drop is not reported delivered', OPTIONS, async ($, on) => {
+    const w = world(on, { dropSubmit: true })
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line(hello) + line({ type: 'deliver', token: TOKEN, deliveryIds: ['del_1'], prompt: `${TOKEN} hi` }))
+    await until(() => w.submitted.length === 1, 'submit')
+    await pause(100)
+    expect(posts(w.calls, '/v1/deliveries/delivered')).toEqual([])
+    // The Core re-offers it (reclaim or reattach): the mod submits it again.
+    w.children[0]!.write(line({ type: 'deliver', token: TOKEN, deliveryIds: ['del_1'], prompt: `${TOKEN} hi` }))
+    await until(() => w.submitted.length === 2, 'resubmit')
   })
 
   test('a reminder wake is submitted but never engaged', OPTIONS, async ($, on) => {

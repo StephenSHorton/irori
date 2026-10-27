@@ -178,8 +178,13 @@ async function onDeliver($: EngineInterface, e: AttachEvent) {
   // which can be past the Core's ReattachGrace; waiting for it would let the
   // Core reclaim the wake and wake the same deliveries again under a new token.
   // So a submit still pending after SUBMIT_ACCEPT_MS counts as queued.
+  // A submit can also resolve as { drop } (a hook or the engine refused it):
+  // the prompt never entered, so it counts as a failure, not a delivery.
   const submitted = $.prompt.submit({ text: prompt }).then(
-    () => ({ failed: false as const }),
+    r =>
+      typeof r?.drop === 'string'
+        ? { failed: true as const, err: new Error(`prompt dropped: ${r.drop}`) }
+        : { failed: false as const },
     (err: unknown) => ({ failed: true as const, err }),
   )
   let markQueued: () => void = () => {}
@@ -190,7 +195,8 @@ async function onDeliver($: EngineInterface, e: AttachEvent) {
   if (first?.failed) return forgetWake($, token, first.err)
   if (await report($, '/v1/deliveries/delivered', { token })) await patchWake($, token, { delivered: true })
   if (first === null) {
-    // Reported while still queued; a later throw still forgets the wake.
+    // Reported while still queued; a later throw or drop still forgets the wake
+    // (the Core's delivered-but-never-engaged reminder then brings it back).
     const outcome = await submitted
     if (outcome.failed) await forgetWake($, token, outcome.err)
   }
