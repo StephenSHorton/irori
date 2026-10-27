@@ -83,7 +83,7 @@ type Commit struct {
 
 // Describe reads a commit: `git show -s --format=%H%x00%P%x00%ct%x00%an%x00%s
 // <sha>` and `git diff-tree -r --no-commit-id --no-renames --raw --no-abbrev
-// -m --first-parent <sha>` (a root commit: add --root). Paths are unquoted
+// --diff-merges=first-parent <sha>` (a root commit: add --root). Paths are unquoted
 // (core.quotePath) so non-ASCII names come back as UTF-8: pass -z and split
 // on NUL.
 func Describe(ctx context.Context, g Git, root, sha string) (Commit, error) {
