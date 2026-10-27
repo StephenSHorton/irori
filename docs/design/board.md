@@ -24,11 +24,9 @@ The Board is a **scratch pad where agents and people coordinate live work**: wha
 
 When a card needs any of those, it links to where they live.
 
-## Short-lived by design
+## No retention rules
 
-- **A card lives while the work is live.** A done or canceled card stays on the Board for 24 hours, so people who weren't watching can see it finished, then drops off. It stays in the event log, so capture, the timeline and `why` can still reach it, but the Board no longer shows it.
-- **A task that hasn't moved in 7 days** (no comment, state change or claim) shows a "stale" badge and offers "Close" or "Move to <tracker>". The Board never accumulates a backlog.
-- **There's no backlog view.** What you'd keep for later goes in the project's tracker, and the card links to it.
+The Board doesn't time cards out. A card stays until someone marks it done or closes it, and done cards fold into a collapsed Done group, the way the prototype shows. There are no timers, stale badges or auto-archive. What keeps it from turning into a tracker is what it leaves out and what agents are told (below), not a clock.
 
 ## Instructions for agents
 
@@ -59,5 +57,5 @@ The tools enforce what they can:
 1. **Next-turn delivery:** check that the mod can add a comment to a turn the person starts, and if not, fall back to a hook the person approves. Then add a delivery `mode` to the inbox.
 2. **coord:** add the `blocked` state with a reason, close-blocker by anyone, a holders list for shared tasks, comments, assignment notices, links, `lease.refused` rows, and the 24 h / 7 day view rules.
 3. **Tools:** the board tools carry the agent instructions above. Replace the task tools rather than adding more beside them.
-4. **GUI:** the Board tab, following the prototype. It replaces Work, adds the Wake choice per comment, and shows link chips, the stale badge, and Close / Move to tracker.
+4. **GUI:** the Board tab, following the prototype. It replaces Work, adds the Wake choice per comment, and shows link chips.
 5. **Live check:** two connected chats hand a task back and forth, one blocks on you, you answer from the Board, and it carries on.
