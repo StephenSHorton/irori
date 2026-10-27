@@ -30,18 +30,19 @@ func runMCP(args []string) error {
 	defer stop()
 
 	// Dial on demand: Irori may start (or restart on a new port) after the
-	// client has spawned us.
-	src := mcpserver.Redial(func(ctx context.Context) (mcpserver.Source, error) {
+	// client has spawned us. Dial reads the lockfile and checks /v1/health.
+	dial := func(ctx context.Context) (mcpserver.Core, error) {
 		dir, err := paths.DataDir()
 		if err != nil {
 			return nil, err
 		}
 		c, err := api.Dial(ctx, dir)
 		if err != nil {
-			return nil, err // never wrap a nil *api.Client in the interface
+			return nil, err
 		}
-		return c, nil
-	}, logger)
-	srv := mcpserver.New(mcpserver.Options{Source: src, Version: version, Logger: logger})
-	return mcpserver.Serve(ctx, srv, &mcp.StdioTransport{})
+		lf := c.Lockfile()
+		return mcpserver.HTTPCore(mcpserver.LoopbackURL(lf.Port), lf.Token), nil
+	}
+	srv := mcpserver.New(mcpserver.Options{Dial: dial, Version: version, Logger: logger, Getenv: os.Getenv})
+	return srv.Run(ctx, &mcp.StdioTransport{})
 }
