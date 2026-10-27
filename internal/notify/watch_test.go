@@ -424,3 +424,80 @@ func TestWatchBoardIgnoresThePersonsOwnMoves(t *testing.T) {
 		t.Fatalf("card = %q", c.Title)
 	}
 }
+
+// With no inbox in the window, a held message is only reachable through its
+// card: closing the card with its x doesn't drop the message, and its card
+// comes back on the next inbox change, still held.
+func TestWatchHeldCardComesBackAfterDismiss(t *testing.T) {
+	r := newRig(t)
+	d := r.heldMessage("please run the migration")
+	id := HeldID(d.ID)
+	r.waitPost(id)
+	c := r.fake.card(t, id)
+	if c.OnDismiss == nil {
+		t.Fatal("a held card has no dismiss handler")
+	}
+	r.fake.mu.Lock()
+	delete(r.fake.live, id)
+	r.fake.mu.Unlock()
+	c.OnDismiss()
+	if got, _ := r.ib.Get(d.ID); got.State != inbox.Held {
+		t.Fatalf("closing the card changed the delivery to %s", got.State)
+	}
+	time.Sleep(50 * time.Millisecond)
+	person := inbox.Sender{Key: user, Name: "you", Kind: "user"}
+	if _, _, err := r.ib.Send(r.ctx, person, inbox.Address{Kind: inbox.ToAgent, Value: keyB}, "any change", ""); err != nil {
+		t.Fatal(err)
+	}
+	r.waitPost(id)
+}
+
+// A message held, or sent to the person, before the app started gets its
+// card at start: nothing else in the window shows it.
+func TestWatchPostsWaitingMessagesAtStart(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "irori.db"), "dev1", hlc.New(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ro := &roster{cards: []presence.AgentCard{agentCard(keyA, "alpha"), agentCard(keyB, "beta")}}
+	ib, err := inbox.New(ctx, st, ro, inbox.Options{DeviceID: "dev1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ib.SetPolicy(ctx, inbox.Policy{Mode: inbox.Everyone, Block: []string{keyA}}, user); err != nil {
+		t.Fatal(err)
+	}
+	_, held, err := ib.Send(ctx, alpha, inbox.Address{Kind: inbox.ToAgent, Value: keyB}, "held", "")
+	if err != nil || held.State != inbox.Held {
+		t.Fatalf("held: %v %s", err, held.State)
+	}
+	person := inbox.Sender{Key: user, Name: "you", Kind: "user"}
+	m, _, err := ib.Send(ctx, person, inbox.Address{Kind: inbox.ToAgent, Value: keyB}, "status?", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	beta := inbox.Sender{Key: keyB, Name: "beta", Kind: "claude"}
+	_, back, err := ib.Send(ctx, beta, inbox.Address{Kind: inbox.ToReply, Value: m.ID}, "all green", "")
+	if err != nil || back.To != user {
+		t.Fatalf("reply: %v to %q", err, back.To)
+	}
+	f := newFake()
+	n := New(Config{Toaster: f})
+	wctx, cancel := context.WithCancel(ctx)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { defer wg.Done(); Watch(wctx, n, Sources{Inbox: ib, User: user}) }()
+	defer func() { cancel(); wg.Wait() }()
+	want := map[string]bool{HeldID(held.ID): true, MessageID(back.ID): true}
+	deadline := time.After(slow * 3 * time.Second)
+	for len(want) > 0 {
+		select {
+		case id := <-f.posted:
+			delete(want, id)
+		case <-deadline:
+			t.Fatalf("not posted at start: %v", want)
+		}
+	}
+}

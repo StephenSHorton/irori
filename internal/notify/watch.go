@@ -49,17 +49,21 @@ const (
 //
 //   - a held delivery (not one held by Pause all, which the person chose):
 //     "<sender> sent <agent> a message Irori held" with Release and Dismiss,
-//     acting through the inbox as the person; cleared when it leaves Held;
+//     acting through the inbox as the person; cleared when it leaves Held.
+//     Closing the card with its x leaves the message held, and the card
+//     comes back on the next inbox change (the window has no inbox list);
 //   - a Board card that an agent (not the person) moved into the person's
 //     Needs you lane (blocked on them, waiting on their input, or assigned
 //     to them): Answer opens the Board at the card, Later closes it;
 //     cleared when it leaves the lane;
-//   - a message addressed to the person (User): Open shows it in the Inbox;
-//     cleared once it is no longer waiting.
+//   - a message addressed to the person (User): Open shows it in the
+//     window (to read in full and reply); cleared once it is no longer
+//     waiting.
 //
-// What already needed the person when Watch starts doesn't pop up: the
-// Inbox and Board counts and the tray carry it. A card body click opens the
-// window at the card's tab (Notifier.Open).
+// Held messages and messages to the person already waiting when Watch
+// starts get their cards then: the cards are the only way to them. A Board
+// card already in Needs you doesn't pop up, since the window shows it. A
+// card body click opens the window at the card's target (Notifier.Open).
 //
 // Both streams drop changes for a slow reader (the inbox silently, coord
 // with a Resync), so neither is taken as complete: the Board is reconciled
@@ -69,12 +73,13 @@ func Watch(ctx context.Context, n *Notifier, s Sources) {
 	if n.Headless() {
 		return
 	}
-	w := &watcher{n: n, s: s, held: map[string]bool{}, msgs: map[string]bool{}, needs: map[string]bool{}}
+	w := &watcher{n: n, s: s, held: map[string]bool{}, msgs: map[string]bool{}, needs: map[string]bool{},
+		forget: make(chan string, 16)}
 	var ich <-chan inbox.Change
 	var cch <-chan coord.Change
 	if s.Inbox != nil {
 		ich = s.Inbox.Subscribe(ctx)
-		w.reconcile(ctx, false) // seed, like the Board
+		w.reconcile(ctx, true) // what waits from before start gets its card
 	}
 	if s.Board != nil {
 		cch = s.Board.Subscribe(ctx)
@@ -99,6 +104,9 @@ func Watch(ctx context.Context, n *Notifier, s Sources) {
 				continue
 			}
 			w.board(true)
+		case id := <-w.forget:
+			// Its card was closed with the x: the next reconcile posts it again.
+			delete(w.held, id)
 		}
 	}
 }
@@ -109,6 +117,9 @@ type watcher struct {
 	held  map[string]bool // held delivery ids accounted for (card posted, or seeded)
 	msgs  map[string]bool // delivery ids to the person accounted for (likewise)
 	needs map[string]bool // task ids in Needs you (card posted, or seeded)
+	// forget carries held delivery ids whose card the person closed (from
+	// the card's own goroutine to Watch's loop).
+	forget chan string
 }
 
 func (w *watcher) name(key string) string {
@@ -257,6 +268,12 @@ func (w *watcher) heldNote(ctx context.Context, d inbox.Delivery) Note {
 			{Label: "Dismiss", Run: act("dismiss", w.s.Inbox.Dismiss)},
 		},
 		OnClick: func() { w.n.Open(open) },
+		OnDismiss: func() {
+			select {
+			case w.forget <- id:
+			default: // full: it stays held, and its card is back after a restart
+			}
+		},
 	}
 }
 
