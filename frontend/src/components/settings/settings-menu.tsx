@@ -80,7 +80,6 @@ export function SettingsMenu() {
                     volume: (Array.isArray(v) ? v[0] : v) / 100,
                   })
                 }
-                className="w-32"
               />
             </Row>
             <Row label="Corner" disabled={off}>
@@ -161,7 +160,7 @@ function Toggle({
         disabled={disabled}
         aria-describedby={hint ? `${id}-hint` : undefined}
         onCheckedChange={(v) => onChange(v)}
-        className="mt-0.5"
+        className="mt-0.5 dark:*:data-checked:bg-background! dark:data-unchecked:bg-muted-foreground/80 dark:*:data-unchecked:bg-background!"
       />
     </div>
   )

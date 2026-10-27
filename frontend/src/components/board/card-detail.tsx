@@ -363,6 +363,7 @@ function Actions({
             label="Cancel"
             question="Cancel this card?"
             confirmLabel="Cancel card"
+            cancelLabel="Keep it"
             variant="destructive"
             disabled={busy}
             onConfirm={() => board.setDone(t.id, true)}
@@ -814,6 +815,7 @@ export function LeaseDetail({
             label="Release"
             question="Release this lease?"
             confirmLabel="Release"
+            cancelLabel="Keep it"
             variant="destructive"
             onConfirm={() => board.releaseLease(l.resource)}
           />

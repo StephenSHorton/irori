@@ -179,7 +179,7 @@ export function BoardPanel({
                 <ToggleGroupItem
                   key={f.id}
                   value={f.id}
-                  className="h-7 px-2.5 text-[13px]"
+                  className="h-7 px-2.5 text-[13px] dark:data-pressed:border-transparent dark:data-pressed:bg-background"
                 >
                   {f.label}
                   {f.id === "you" && view.needsYou.length > 0 && (

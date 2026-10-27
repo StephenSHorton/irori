@@ -118,7 +118,11 @@ export function RaiseForm({
         className="self-start"
       >
         {(["task", "blocker"] as const).map((k) => (
-          <ToggleGroupItem key={k} value={k} className="px-2.5 text-[12.5px]">
+          <ToggleGroupItem
+            key={k}
+            value={k}
+            className="px-2.5 text-[12.5px] dark:data-pressed:border-transparent dark:data-pressed:bg-background"
+          >
             {k === "task" ? "Task" : "Blocker"}
           </ToggleGroupItem>
         ))}

@@ -13,8 +13,9 @@ import { AnchorState, capture, type DecisionView } from "@/lib/capture"
 export const fieldClass =
   "h-8 min-w-0 rounded-lg border border-input bg-white/70 px-2 text-sm text-ink outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
 
+// areaClass tunes the mokei Textarea, as board/bits textareaClass does.
 export const areaClass =
-  "min-h-14 w-full resize-y rounded-lg border border-input bg-white/70 px-2.5 py-2 text-sm text-ink outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+  "min-h-14 bg-white/70 text-sm text-ink dark:bg-white/70"
 
 const fidelityText: Record<string, string> = {
   mod: "Captured from the transcript, with the Irori mod attached",

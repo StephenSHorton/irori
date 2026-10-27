@@ -17,8 +17,11 @@ import {
 // Inputs share the Inbox composer's look.
 export const fieldClass =
   "h-8 min-w-0 rounded-lg border border-input bg-white/70 px-2 text-sm text-ink outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+// textareaClass tunes the mokei Textarea to match: rows set the height, and
+// the white field holds even when the system theme is dark (Irori's tokens
+// are light-only, but mokei's dark: variants still apply).
 export const textareaClass =
-  "w-full resize-y rounded-lg border border-input bg-white/70 px-2.5 py-2 text-sm text-ink outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+  "min-h-0 bg-white/70 text-sm text-ink dark:bg-white/70"
 
 type Tone = "you" | "block" | "task" | "done" | "shared" | "plain"
 

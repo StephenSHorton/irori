@@ -15,12 +15,14 @@ import { errorText } from "@/lib/talk"
 
 // ConfirmButton asks before it acts: the click opens an alert dialog with
 // the question and Confirm / Cancel. Confirm has focus, so Enter confirms
-// and Escape cancels. It runs onConfirm once and shows its error, if any,
-// under the button until the next try.
+// and Escape cancels. A plain-text question is the dialog's title; a richer
+// one sits under confirmLabel as the description. It runs onConfirm once
+// and shows its error, if any, under the button until the next try.
 export function ConfirmButton({
   label,
   question,
   confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
   variant = "outline",
   disabled,
   onConfirm,
@@ -28,6 +30,7 @@ export function ConfirmButton({
   label: ReactNode
   question: ReactNode
   confirmLabel?: string
+  cancelLabel?: string
   variant?: "outline" | "destructive" | "default"
   disabled?: boolean
   onConfirm: () => Promise<unknown>
@@ -72,17 +75,23 @@ export function ConfirmButton({
         </AlertDialogTrigger>
         <AlertDialogContent initialFocus={confirmRef}>
           <AlertDialogHeader>
-            <AlertDialogTitle>{confirmLabel}</AlertDialogTitle>
-            <AlertDialogDescription render={<div />}>
-              {question}
-            </AlertDialogDescription>
+            {typeof question === "string" ? (
+              <AlertDialogTitle>{question}</AlertDialogTitle>
+            ) : (
+              <>
+                <AlertDialogTitle>{confirmLabel}</AlertDialogTitle>
+                <AlertDialogDescription render={<div />}>
+                  {question}
+                </AlertDialogDescription>
+              </>
+            )}
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogClose
               disabled={busy}
               render={<Button size="sm" variant="ghost" />}
             >
-              Cancel
+              {cancelLabel}
             </AlertDialogClose>
             <Button
               ref={confirmRef}

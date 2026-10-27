@@ -103,7 +103,7 @@ export function InboxPanel({
             <ToggleGroupItem
               key={f.id}
               value={f.id}
-              className="h-7 px-2.5 text-[13px]"
+              className="h-7 px-2.5 text-[13px] dark:data-pressed:border-transparent dark:data-pressed:bg-background"
             >
               {f.label}
               {f.id === "held" && held > 0 && (
@@ -532,7 +532,7 @@ function Composer({
             void send()
           }
         }}
-        className="min-h-18 bg-white/70 text-sm text-ink"
+        className="min-h-18 bg-white/70 text-sm text-ink dark:bg-white/70"
       />
       <div className="flex items-center gap-3">
         <span
