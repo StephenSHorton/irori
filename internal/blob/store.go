@@ -83,7 +83,7 @@ func (s *store) put(data []byte) (string, error) {
 		return "", err
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName) // no-op once renamed
+	defer os.Remove(tmpName) // no-op once renamed; drops a losing temp
 	zw := gzip.NewWriter(tmp)
 	_, err = zw.Write(data)
 	if err == nil {
@@ -107,22 +107,35 @@ func (s *store) put(data []byte) (string, error) {
 // place renames tmp onto final. Blobs are content-addressed, so a final file
 // that already exists (another goroutine or process won the race, and on
 // Windows may still hold it open) holds the same content and counts as
-// success. Other failures are retried briefly, as in discovery's renameRetry.
+// success. It is checked before every rename so a live blob is never
+// replaced: on Windows a replace makes concurrent opens of it fail. Other
+// failures are retried briefly, as in discovery's renameRetry.
 func (s *store) place(tmp, final string) error {
 	var err error
-	for wait := 5 * time.Millisecond; wait < time.Second; wait *= 2 {
-		if err = os.Rename(tmp, final); err == nil {
-			return nil
-		}
+	for wait := 5 * time.Millisecond; ; wait *= 2 {
 		if regular(final) {
 			return nil
 		}
+		if err = os.Rename(tmp, final); err == nil || regular(final) {
+			return nil
+		}
+		if wait >= time.Second {
+			return err
+		}
 		time.Sleep(wait)
 	}
-	if err = os.Rename(tmp, final); err == nil || regular(final) {
-		return nil
+}
+
+// openRetry opens path, retrying briefly while another writer's rename holds
+// it (a Windows sharing violation; see transientOpen).
+func openRetry(path string) (*os.File, error) {
+	for wait := time.Millisecond; ; wait *= 2 {
+		f, err := os.Open(path)
+		if err == nil || !transientOpen(err) || wait >= 500*time.Millisecond {
+			return f, err
+		}
+		time.Sleep(wait)
 	}
-	return err
 }
 
 func regular(path string) bool {
@@ -134,7 +147,7 @@ func (s *store) get(id string) ([]byte, error) {
 	if !validID(id) {
 		return nil, ErrBadID
 	}
-	f, err := os.Open(s.path(id))
+	f, err := openRetry(s.path(id))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, ErrNotFound
 	}
@@ -142,6 +155,12 @@ func (s *store) get(id string) ([]byte, error) {
 		return nil, err
 	}
 	defer f.Close()
+	// Agree with has: only a regular file is a stored blob.
+	if fi, err := f.Stat(); err != nil {
+		return nil, err
+	} else if !fi.Mode().IsRegular() {
+		return nil, ErrNotFound
+	}
 	zr, err := gzip.NewReader(f)
 	if err != nil {
 		return nil, fmt.Errorf("blob: %s is corrupt: %w", id, err)

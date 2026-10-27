@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -470,4 +471,103 @@ func assertNoTemps(t *testing.T, dir string) {
 		}
 		return nil
 	})
+}
+
+func TestGetDirectoryIsNotFound(t *testing.T) {
+	// Has and Get agree: a directory squatting on the blob path is absent.
+	s, dir := newStore(t)
+	id := sha([]byte("dir squatter"))
+	if err := os.MkdirAll(filepath.Join(dir, id[:2], id), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Get(id); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get on a directory = %v, want ErrNotFound", err)
+	}
+}
+
+func TestPlaceNeverReplaces(t *testing.T) {
+	// A placed blob is never replaced: replacing a live file on Windows makes
+	// concurrent readers fail with a sharing violation.
+	s, dir := newStore(t)
+	sub := filepath.Join(dir, "ab")
+	if err := os.MkdirAll(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	final := filepath.Join(sub, "final")
+	tmp := filepath.Join(sub, "final.tmp-test")
+	if err := os.WriteFile(final, []byte("first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tmp, []byte("second"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.impl.place(tmp, final); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(final); string(got) != "first" {
+		t.Fatalf("final = %q, want the first placement kept", got)
+	}
+}
+
+func TestConcurrentPutAndGetStress(t *testing.T) {
+	// Many rounds of separate Stores (processes) putting and reading a fresh
+	// blob at once; every read sees the blob or ErrNotFound, never an error.
+	dir := filepath.Join(t.TempDir(), "blobs")
+	rounds := 200
+	if testing.Short() {
+		rounds = 20
+	}
+	for r := range rounds {
+		data := bytes.Repeat([]byte(fmt.Sprintf("round %d patch line\r\n", r)), 2500)
+		id := sha(data)
+		var wg sync.WaitGroup
+		errs := make(chan error, 16*3)
+		for i := range 16 {
+			st, err := Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if i%2 == 0 {
+					_, err := st.Put(data)
+					errs <- err
+					return
+				}
+				check := func(got []byte, err error) error {
+					if errors.Is(err, ErrNotFound) {
+						return nil
+					}
+					if err == nil && !bytes.Equal(got, data) {
+						return errors.New("wrong content")
+					}
+					return err
+				}
+				// Loop so reads overlap the writers' placements.
+				for range 50 {
+					got, err := st.Get(id)
+					if err = check(got, err); err != nil {
+						errs <- err
+						return
+					}
+				}
+				if st.Has(id) {
+					got, err := st.Get(id)
+					if err == nil && !bytes.Equal(got, data) {
+						err = errors.New("wrong content")
+					}
+					errs <- err
+				}
+			}()
+		}
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			if err != nil {
+				t.Fatalf("round %d: %v", r, err)
+			}
+		}
+	}
+	assertNoTemps(t, dir)
 }
