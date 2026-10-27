@@ -299,7 +299,7 @@ func (c *capture) linkCommit(ctx context.Context, row CommitRow) error {
 			d = -d
 		}
 		if d <= 2*gitlink.CommitterWindow {
-			cmds = append(cmds, gitlink.CommitCmd{Key: cmd.Key, TurnID: cmd.TurnID, Cwd: cmd.Cwd, At: cmd.At})
+			cmds = append(cmds, gitlink.CommitCmd{Key: cmd.Key, TurnID: cmd.TurnID, Cwd: commandDir(cmd.Command, cmd.Cwd), At: cmd.At})
 		}
 	}
 	c.mu.RUnlock()
