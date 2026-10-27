@@ -60,7 +60,7 @@ func needRepo(path string, withRepo bool) string {
 	if withRepo {
 		what = "repo (a repoKey from the agents tool) or an absolute path"
 	}
-	return errText(fmt.Sprintf("you have no working directory on this device (Grok members don't), so %s can't be resolved: give %s.",
+	return errText(fmt.Sprintf("Irori knows no working directory for you (Grok members have none), so %s can't be resolved: give %s.",
 		fmt.Sprintf("%q", oneLine(path, 160)), what))
 }
 

@@ -291,7 +291,7 @@ func TestWhy(t *testing.T) {
 	// Absolute path, from Grok with no cwd.
 	r.grokNoCwd()
 	has(t, r.ok(grokCaller(), "why", map[string]any{"path": filepath.Join(r.dir, "foo.go")}), "Why foo.go in", "No line given")
-	r.fails(grokCaller(), "why", map[string]any{"path": "foo.go"}, "no working directory", "repo")
+	r.fails(grokCaller(), "why", map[string]any{"path": "foo.go"}, "no working directory for you", "repo")
 	has(t, r.ok(grokCaller(), "why", map[string]any{"path": "foo.go", "repo": r.repoKey}), "Why foo.go in "+r.repoKey)
 
 	// An uncommitted line: the edits since the last commit.
@@ -359,11 +359,11 @@ func TestDecisionRecordErrors(t *testing.T) {
 	r.fails(callA, "decision_record", map[string]any{"statement": strings.Repeat("x", 501)}, "too long")
 	r.fails(callA, "decision_record", map[string]any{"statement": "x", "supersedes": "d-1"}, "supersedes should be an array")
 	r.grokNoCwd()
-	r.fails(grokCaller(), "decision_record", map[string]any{"statement": "x", "path": "foo.go"}, "no working directory", "absolute path")
+	r.fails(grokCaller(), "decision_record", map[string]any{"statement": "x", "path": "foo.go"}, "no working directory for you", "absolute path")
 	out := r.ok(grokCaller(), "decision_record", map[string]any{"statement": "grok decides", "path": filepath.Join(r.dir, "foo.go")})
 	has(t, out, "anchored at foo.go in "+r.repoKey)
 	has(t, r.ok(callA, "decisions", nil), "grok decides", "by grokker ("+keyG+")")
-	r.fails(grokCaller(), "decisions", map[string]any{"path": "foo.go"}, "no working directory", "repo")
+	r.fails(grokCaller(), "decisions", map[string]any{"path": "foo.go"}, "no working directory for you", "repo")
 	has(t, r.ok(grokCaller(), "decisions", map[string]any{"path": "foo.go", "repo": r.repoKey}), "1 current decisions", "grok decides")
 	r.fails(callA, "decisions", map[string]any{"mine": true}, "unknown argument")
 }
