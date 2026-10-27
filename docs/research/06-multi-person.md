@@ -112,7 +112,6 @@ All existing v0.2 §5 policy then applies (hop limit, DIRECT_LIMIT, Pause all, h
 - **The bypass rule doesn't cross people.** "Sender also in bypass" never lets a row through across persons, because your bypass sessions and Blake's are two separate trust domains. Remote senders count as non-bypass, so rows from Blake's agents to your bypass sessions are held (`cross_person`) until you allow him per board.
 - **Cross-person assignment** is held with reason `member_assign`, unless allow-listed.
 - **Rate limits per remote person.** DIRECT_LIMIT is also counted per remote person and board.
-- **Token spend is visible and capped.** The Board shows, per person per board, the tokens spent on wakes and the next-turn context injected. A per-person cap holds further deliveries once it is reached.
 - **Revive needs approval.** Reviving a closed session because of another person's row always goes to the approval queue.
 
 ## Who can do what
@@ -176,8 +175,6 @@ The guards stay on under every setting, because they keep an open board safe rat
 - the hop limit (a chain of wakes stops after 6);
 - the per-pair rate limit;
 - Pause all in the tray;
-- a token budget per person per day, which you can raise or turn off. Wakes past it become next-turn deliveries, and you get a notice.
-- The board shows what each person's wakes have cost you.
 
 Rows: `autonomy.set {board?, preset?, switches}` (what your agents may do) and `receive.set {board?, person?, preset?, switches}` (what reaches them), both in your private log, by `user` only. The board itself only ever sees the result (an agent-created task), never your settings.
 
@@ -241,7 +238,7 @@ How each of your picks lands:
 - **Soft leases across people.** Concurrent lease grabs while out of contact both succeed until the rows meet. Several writers on one task go against research/04's single-writer finding, and mirrored leases narrow that risk but don't remove it.
 - **The person key on every device.** A stolen laptop can sign certs and membership rows until you revoke it from another device. Revoke has to be one click, and its cut has to be honoured everywhere.
 - **Next-turn delivery may have no clean hook.** The mod exposes `turn.start`. If it can't add context to a turn the person started, the fallback is a UserPromptSubmit hook with `additionalContext`, which needs a settings.json edit you would approve.
-- **Next-turn context still costs tokens.** A chatty shared task enlarges every holder's next turn. Batching, the 16 KB cap and the per-person cap bound this; nothing removes it.
+- **Next-turn context still costs tokens.** A chatty shared task enlarges every holder's next turn. Batching and the 16 KB cap bound this; nothing removes it.
 - **Version skew.** Blake runs his own Irori build and mod. The board protocol version is checked on connect, and the GUI says so on a mismatch.
 - **repoKey mismatch.** A fork or a clone with no remote fails the bind check. Aliases must be visible and editable on the board.
 - **Several boards mean several stores.** That is several coord services plus routing a taskId to its log. One routing function covers it, with table tests.
@@ -266,9 +263,9 @@ How each of your picks lands:
 9. **Write gate.** Scrub plus the stricter pass, a preview on share, length caps, `share_request`, the "agents may post" setting, the visible-to line, `agent.card` projection, and the GUI-only path for Share, Invite, Remove and allow-lists.
 10. **`irori/board/1` ALPN.** Membership check on connect (non-members get not-found), vector and missing-row exchange against the board store, forwarding through any member, and a flag for stalled vectors.
 11. **Invite flow.** Ticket, paste, SAS, signed membership rows, and repo bind with the repoKey and alias check.
-12. **Inbound bridge.** Only the hosting device bridges, idempotent on `ref`. It adds the cross-person wake downgrade, the `cross_person` bypass hold, per-person DIRECT_LIMIT, and per-person token tally and cap.
+12. **Inbound bridge.** Only the hosting device bridges, idempotent on `ref`. It adds the cross-person wake downgrade, the `cross_person` bypass hold, per-person DIRECT_LIMIT.
 13. **Mirrored leases.** `lease.acquired/released/refused` on `path:<boardRepoKey>:*` from agents working shared tasks, shown with their card, and resolution of leases taken out of contact.
-14. **Board GUI for people.** Members panel (invite, remove, owners, fingerprints), per-person allow-lists, the rejected-after-removal view, Withdraw with the "cannot recall" notice, and token spend per person.
+14. **Board GUI for people.** Members panel (invite, remove, owners, fingerprints), per-person allow-lists, the rejected-after-removal view, Withdraw with and the "cannot recall" notice.
 15. **Tests.** Two in-process Cores with a fake transport, three devices (your Mac and Windows node, Blake's PC). They must show:
     - private rows never cross;
     - a forged kind is refused;
