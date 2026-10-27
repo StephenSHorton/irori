@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      # The frontend builds first: package main embeds frontend/dist, so vet
+      # and test need it. frontend/bindings is committed; after changing a Go
+      # service run `wails3 generate bindings -clean=true -ts` and commit it.
+      - name: Frontend install
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+
+      - name: Frontend build
+        working-directory: frontend
+        run: bun run build
+
+      - name: gofmt
+        shell: bash
+        run: |
+          unformatted=$(gofmt -l $(git ls-files '*.go'))
+          if [ -n "$unformatted" ]; then echo "gofmt needed:"; echo "$unformatted"; exit 1; fi
+
+      - name: Vet
+        run: go vet ./...
+
+      # -race needs cgo; the macOS runner has clang, the Windows one may not.
+      - name: Test
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then go test -race ./...; else go test ./...; fi
+
+      - name: Build
+        run: go build ./...
