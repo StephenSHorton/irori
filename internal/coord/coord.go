@@ -28,16 +28,21 @@ const (
 	GoneGrace  = 3 * time.Minute // holder gone this long releases its leases
 )
 
-// TaskState is an A2A TaskState subset.
+// TaskState is an A2A TaskState subset, plus Blocked (decision 17).
 type TaskState string
 
 const (
 	Submitted     TaskState = "submitted"
 	Working       TaskState = "working"
-	InputRequired TaskState = "input_required"
+	InputRequired TaskState = "input_required" // waiting on a person's answer
 	Completed     TaskState = "completed"
 	Failed        TaskState = "failed"
 	Canceled      TaskState = "canceled"
+	// Blocked: something is in the way (Task.Reason, Task.BlockedBy). Entered
+	// only through Block or NewTask.BlockReason (SetTaskState refuses it, so
+	// a blocked task always has a reason) and left through Unblock or a later
+	// SetTaskState. Not terminal.
+	Blocked TaskState = "blocked"
 )
 
 // Task is the folded view of one task.
@@ -49,24 +54,48 @@ type Task struct {
 	RepoKey      string    `json:"repoKey,omitempty"`
 	Scope        []string  `json:"scope,omitempty"` // path globs
 	State        TaskState `json:"state"`
-	Holder       string    `json:"holder,omitempty"` // the single writer (agent key)
-	CreatedBy    string    `json:"createdBy"`
-	Note         string    `json:"note,omitempty"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	// Holder is Holders[0], or "". It is kept so v0.2 readers (observe,
+	// tools, the GUI) keep working, and is derived: the fold maintains
+	// Holders and copies the first one here.
+	Holder string `json:"holder,omitempty"`
+	// Holders are who work it: agent keys, or a person's "user:*" key when
+	// it was assigned to a person. A task that isn't Shared has at most one;
+	// a Shared task has any number and any of them may work it (decision
+	// 20). Join order, no duplicates. The fold, observe (gone tracking),
+	// TaskFilter.Holder and every permission check iterate Holders; Holder
+	// is only for readers.
+	Holders   []string  `json:"holders,omitempty"`
+	Shared    bool      `json:"shared,omitempty"`
+	CreatedBy string    `json:"createdBy"`
+	Note      string    `json:"note,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	// Reason and BlockedBy are set while State is Blocked and cleared when
+	// it leaves Blocked.
+	Reason    string     `json:"reason,omitempty"`
+	BlockedBy *BlockedBy `json:"blockedBy,omitempty"`
+	Links     []Link     `json:"links,omitempty"`    // board.md "Links out"; <= MaxLinks
+	Comments  int        `json:"comments,omitempty"` // how many; read them with Comments
 }
 
 // NewTask is CreateTask's input.
 type NewTask struct {
 	Title, Objective, DoneCriteria, RepoKey string
 	Scope                                   []string
+	Shared                                  bool
+	Links                                   []string // each one parsed by ParseLink
+	// BlockReason, when set, creates the task already Blocked (decision 17:
+	// a blocker with no task behind it, such as a port held by a dead dev
+	// server, becomes a small blocked task). BlockedBy is optional.
+	BlockReason string
+	BlockedBy   *BlockedBy
 }
 
 // TaskFilter narrows ListTasks; zero values mean any.
 type TaskFilter struct {
 	RepoKey string
-	Holder  string
-	Open    bool // only non-terminal states
+	Holder  string // matches any of Holders
+	Open    bool   // only non-terminal states
 }
 
 // Lease is an advisory claim on a resource.
@@ -82,9 +111,11 @@ type Lease struct {
 type ChangeKind string
 
 const (
-	TaskChanged  ChangeKind = "task"          // created, claimed, assigned or a state change
+	TaskChanged  ChangeKind = "task"          // created, claimed, assigned, joined, left, shared, linked, blocked, unblocked or a state change
 	LeaseChanged ChangeKind = "lease"         // acquired, renewed, stolen or released
 	LeaseExpired ChangeKind = "lease_expired" // a lease ran out
+	LeaseRefused ChangeKind = "lease_refused" // a lease.refused row; Resource and Holder (the refused caller) set
+	CommentAdded ChangeKind = "comment"       // a task.comment row; TaskID set
 	Resync       ChangeKind = "resync"        // changes were dropped: re-read everything
 )
 
@@ -128,18 +159,25 @@ func (c *Coord) ClaimTask(ctx context.Context, by, id string) (Task, error) {
 }
 
 // AssignTask sets the holder to `to` (by may be the creator, the holder, or a person).
+// It is the v0.2 form; new callers use Assign (board.go), which also widens
+// who may assign and returns the notice to route.
 func (c *Coord) AssignTask(ctx context.Context, by, id, to string) (Task, error) {
 	return c.impl.assignTask(ctx, by, id, to)
 }
 
-// SetTaskState: only the holder, the creator or a person ("user:*") may.
+// SetTaskState: only the holder, the creator or a person ("user:*") may (on
+// a Shared task, any holder). Blocked is refused with ErrBadState ("use
+// Block"). Moving a blocked task to another state this way also clears its
+// Reason and BlockedBy.
 func (c *Coord) SetTaskState(ctx context.Context, by, id string, s TaskState, note string) (Task, error) {
 	return c.impl.setTaskState(ctx, by, id, s, note)
 }
 
 // Acquire takes or renews resource for holder. ttl 0 = DefaultTTL, capped at
 // MaxTTL. An unexpired lease held by another (for a path resource: any
-// overlapping glob in the same repo) fails with ErrHeld unless steal.
+// overlapping glob in the same repo) fails with ErrHeld unless steal. A
+// refusal first appends a lease.refused row (Refusal, board.go), at most one
+// per (resource, caller, holder) while that refusal is active.
 func (c *Coord) Acquire(ctx context.Context, holder, resource string, ttl time.Duration, steal bool) (Lease, error) {
 	return c.impl.acquire(ctx, holder, resource, ttl, steal)
 }
@@ -152,7 +190,9 @@ func (c *Coord) Release(ctx context.Context, by, resource string) error {
 // Leases lists unexpired leases.
 func (c *Coord) Leases() []Lease { return c.impl.leases() }
 
-// Sweep releases leases whose holder has been gone for GoneGrace. Core calls it
+// Sweep releases leases whose holder has been gone for GoneGrace, and closes
+// blockers that resolved by themselves; it is SweepNotices with the notices
+// dropped, so Core should call SweepNotices and route them. Core calls it
 // with the inbox sweep, and must call it every few seconds: a holder that left
 // the roster without a "gone" card starts its grace clock only when Sweep (or
 // ClaimTask on its task) first sees it missing.

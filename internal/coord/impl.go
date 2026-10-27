@@ -40,10 +40,10 @@ const (
 // IsTerminal reports whether s closes a task.
 func IsTerminal(s TaskState) bool { return s == Completed || s == Failed || s == Canceled }
 
-// ValidState reports whether s is one of the six task states.
+// ValidState reports whether s is one of the seven task states.
 func ValidState(s TaskState) bool {
 	switch s {
-	case Submitted, Working, InputRequired, Completed, Failed, Canceled:
+	case Submitted, Working, InputRequired, Completed, Failed, Canceled, Blocked:
 		return true
 	}
 	return false
@@ -165,7 +165,7 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 // applied at the boundary HLC; that keeps rows from two devices that share an
 // HLC (possible once rows replicate) from being skipped.
 func (c *coord) replay(ctx context.Context) error {
-	f := store.Filter{Kinds: []string{"task.", "lease."}, Limit: store.MaxListLimit}
+	f := store.Filter{Kinds: []string{"task.", "lease.", "blocker."}, Limit: store.MaxListLimit}
 	type rowID struct {
 		dev string
 		seq int64
@@ -342,6 +342,16 @@ func copyTask(t *Task) Task {
 	out := *t
 	if t.Scope != nil {
 		out.Scope = append([]string(nil), t.Scope...)
+	}
+	if t.Holders != nil {
+		out.Holders = append([]string(nil), t.Holders...)
+	}
+	if t.Links != nil {
+		out.Links = append([]Link(nil), t.Links...)
+	}
+	if t.BlockedBy != nil {
+		b := *t.BlockedBy
+		out.BlockedBy = &b
 	}
 	return out
 }
@@ -570,6 +580,9 @@ func (c *coord) setTaskState(ctx context.Context, by, id string, s TaskState, no
 	}
 	if !ValidState(s) {
 		return Task{}, fmt.Errorf("%w: %q (submitted|working|input_required|completed|failed|canceled)", ErrBadState, s)
+	}
+	if s == Blocked {
+		return Task{}, fmt.Errorf("%w: use Block, which records what is in the way", ErrBadState)
 	}
 	note = strings.TrimSpace(note)
 	if utf8.RuneCountInString(note) > maxObjective {

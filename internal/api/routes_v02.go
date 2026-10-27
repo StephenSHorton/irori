@@ -51,6 +51,16 @@ package api
 //	POST /v1/deliveries/engaged   {"token": "...", "turnId": "..."} (attach only) -> {"ok": true}
 //	POST /v1/deliveries/turn-ended {"token": "...", "turnId": "..."} (attach only) -> {"ok": true}
 //
+//	Next-turn delivery (board.md "Contracts") adds NO routes. A mod stream
+//	whose mod= version is at least attach.AppendSince also gets append
+//	events: on connect after the deliver re-send it sends
+//	Inbox.OutstandingAppend (same token) or else NextAppend, and on every
+//	AppendReady for its agent (and each keepalive tick, as catch-up) it calls
+//	NextAppend and emits append. The mod confirms an append with the routes
+//	above: delivered {token} once $.session.append resolved, engaged {token,
+//	turnId} at the next main-loop turn.start. turn-ended with an append
+//	token is accepted and ignored. Older mods get no append events.
+//
 //	GET  /v1/tools?client=claude|grok   -> []tools.Spec
 //	POST /v1/tools/{name}  {"args": {...}}  -> {"text": "..."}  (attach or member)
 //	     Tool-level failures are 200 with text starting "Error: ".

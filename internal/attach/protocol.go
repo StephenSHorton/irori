@@ -9,13 +9,46 @@
 // CONTRACT (types are shared by the api, mcpserver and the mod; keep them):
 package attach
 
-// Protocol version carried in Hello.V.
-const Version = 1
+// Protocol version carried in Hello.V. 2 adds the append event (next-turn
+// delivery, docs/design/board.md "Contracts"; spike 04).
+const Version = 2
+
+// AppendSince is the first mod version (the mod= query, MOD_VERSION in
+// mod/hooks/lib.ts) that handles append events. The Core sends append only
+// to an attach whose mod version is at least this (a hand-rolled compare of
+// three dot-separated ints, any suffix ignored; no new dependency); an
+// older or unnamed mod gets its next_turn items riding its next deliver, so
+// nothing sits unacked. The Grok path never gets append.
+const AppendSince = "0.4.0"
 
 // Event types.
 const (
-	TypeHello      = "hello"
-	TypeDeliver    = "deliver"
+	TypeHello   = "hello"
+	TypeDeliver = "deliver"
+	// TypeAppend is a next-turn delivery for the mod (inbox.NextAppend). It
+	// carries WakeID, Token ("[irori-append:<id>]"), DeliveryIDs,
+	// MessageIDs, Prompt (the fenced text, built by the Core; every item has
+	// mode="next_turn"), From, Mode "next_turn" and Overflow.
+	//
+	// Mod contract (mod/hooks/register.tsx):
+	//  1. Dedupe on Token against the tracked appends (a reattach re-sends an
+	//     append not yet confirmed, with the same token). A known token that
+	//     isn't confirmed only re-POSTs delivered.
+	//  2. Track it ({token, deliveryIds, delivered:false, engaged:false})
+	//     before calling the host, like a wake.
+	//  3. $.session.append({ message: { type: 'user', content: [{ type:
+	//     'text', text: prompt }] } }). It starts no turn and the row is
+	//     stored as meta (isMeta), so it is never shown as typed by the
+	//     person. No toast: next-turn delivery is meant to be quiet.
+	//  4. When it resolves: POST /v1/deliveries/delivered {token}. If it
+	//     throws: log to debug and forget the token, so the Core's re-send
+	//     (reattach, or the reclaim after ReattachGrace) appends it again.
+	//  5. On the next main-loop turn.start (e.agentId undefined) after step 4,
+	//     whatever started it: POST /v1/deliveries/engaged {token, turnId}
+	//     for every delivered, not yet engaged append. The append's token is
+	//     not in e.text, so this is not a token match. Never POST turn-ended
+	//     for an append.
+	TypeAppend     = "append"
 	TypeHeld       = "held"
 	TypeMoved      = "moved"
 	TypeInbox      = "inbox"
@@ -43,6 +76,14 @@ type Event struct {
 	MessageIDs  []string `json:"messageIds,omitempty"`
 	Prompt      string   `json:"prompt,omitempty"`
 	From        string   `json:"from,omitempty"` // first sender's name, for toasts / channel meta
+	// Mode is "next_turn" on an append, and on a Grok deliver that holds
+	// only next_turn items (irori mcp puts it in the channel meta as
+	// mode=next_turn); "" on every other deliver.
+	Mode string `json:"mode,omitempty"`
+	// Overflow lists the DeliveryIDs that didn't fit in Prompt (16 KB): the
+	// prompt names them in one line for the inbox tool. They are part of
+	// DeliveryIDs and are confirmed with the rest.
+	Overflow []string `json:"overflow,omitempty"`
 
 	// held / moved
 	DeliveryID string `json:"deliveryId,omitempty"`

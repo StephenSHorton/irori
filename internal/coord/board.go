@@ -1,0 +1,280 @@
+package coord
+
+// The Board (docs/design/board.md, decisions 16-25): blocked as a state,
+// shared tasks, comments, assignment notices, links and refused leases.
+//
+// CONTRACT (implemented by the coord work package, A1; keep these
+// signatures). The Board is a scratch pad, not a tracker: there is no field
+// for priority, estimate, label, due date or backlog, and no retention
+// timer: a card stays until it is done or closed, and Board() only
+// collapses the Done group.
+//
+// coord never imports inbox. Every call that someone should hear about
+// returns Notices; the caller (the tools layer, the GUI's BoardService, or
+// Core for SweepNotices) routes each one through inbox.SendWith (see Notice).
+
+import (
+	"context"
+	"time"
+
+	"github.com/StephenSHorton/irori/internal/search"
+)
+
+// Board limits (board.md "Instructions for agents"). A title stays at
+// maxTitle (200). The v0.2 objective cap (maxObjective, 8000) is wider than
+// board.md's 4000; new Board inputs (comments, reasons) use the board.md
+// caps, and the objective cap is left as it is.
+const (
+	MaxComment      = 4000 // runes in a comment
+	MaxReason       = 500  // runes in a block reason or unblock note
+	MaxRef          = 300  // runes in BlockedBy.Ref
+	DefaultDoneCard = 20   // Done cards Board() returns by default
+	MaxDoneCard     = 200
+)
+
+// BlockerKind says what a blocked task waits on.
+type BlockerKind string
+
+const (
+	BlockedOnLease    BlockerKind = "lease"    // Ref: a resource (normalized like Acquire)
+	BlockedOnTask     BlockerKind = "task"     // Ref: a task id
+	BlockedOnPerson   BlockerKind = "person"   // Ref: a "user:*" key, or "" for whoever is at the app
+	BlockedOnAgent    BlockerKind = "agent"    // Ref: an agent key
+	BlockedOnExternal BlockerKind = "external" // Ref: free text or a URL (CI, a review, a vendor)
+)
+
+// BlockedBy names what is in the way.
+type BlockedBy struct {
+	Kind BlockerKind `json:"kind"`
+	Ref  string      `json:"ref,omitempty"`
+}
+
+// Comment is one task.comment row. Comments are their own rows, never
+// folded into the task (Task.Comments is only a count).
+type Comment struct {
+	ID     string    `json:"id"` // newID, like task ids; ref "comment:<id>"
+	TaskID string    `json:"taskId"`
+	By     string    `json:"by"` // agent key or "user:*"
+	Text   string    `json:"text"`
+	Wake   bool      `json:"wake"` // the author asked to wake the holders (decision 18)
+	At     time.Time `json:"at"`
+}
+
+// NoticeKind says why a Notice exists.
+type NoticeKind string
+
+const (
+	NoticeAssigned  NoticeKind = "assigned"  // you were assigned a task (decision 21)
+	NoticeComment   NoticeKind = "comment"   // someone commented on a task you hold
+	NoticeUnblocked NoticeKind = "unblocked" // a task you hold is no longer blocked
+)
+
+// Notice is something coord wants an agent to hear. coord only builds it;
+// the caller routes it, once per recipient:
+//
+//	inbox.SendWith(ctx, sender, inbox.Address{Kind: inbox.ToAgent, Value: to}, n.Text,
+//	    inbox.SendOptions{Mode: next_turn unless n.Wake, Ref: n.Ref, Notice: true})
+//
+// where sender is the caller's own inbox.Sender (the person, or the agent
+// that commented or assigned), or inbox.SystemSender for SweepNotices.
+// Recipients that are people ("user:*") are never in To: the Board itself is
+// how a person hears.
+type Notice struct {
+	Kind   NoticeKind `json:"kind"`
+	TaskID string     `json:"taskId"`
+	Ref    string     `json:"ref"` // "task:<id>", or "comment:<id>" for a comment
+	Title  string     `json:"title"`
+	// To are agent keys: for assigned, the assignee; for comment and
+	// unblocked, the task's agent holders minus By (no holders: its creator,
+	// if that is an agent other than By). Empty means nobody to tell.
+	To []string `json:"to,omitempty"`
+	By string   `json:"by"`
+	// Text is the message body, built by coord, plain and short: what
+	// happened, the task's title and ref, and for assigned its objective and
+	// done criteria (each cut to 600 runes), for comment the comment text.
+	// It ends with how to go deeper ("show task:<id> for the card, its
+	// comments and links").
+	Text string `json:"text"`
+	Wake bool   `json:"wake"` // only a comment's own Wake sets it
+}
+
+// Refusal is one lease.refused row: by asked for resource and heldBy had it.
+// It is active while heldBy still holds a lease that conflicts with
+// resource and by hasn't since acquired it; that is derived on read, with no
+// timer. Acquire writes at most one row per (resource, by, heldBy) while an
+// earlier one is active.
+type Refusal struct {
+	Resource string    `json:"resource"` // what by asked for (normalized)
+	By       string    `json:"by"`
+	HeldBy   string    `json:"heldBy"`
+	Held     string    `json:"held"`  // the conflicting lease's resource (may differ: overlapping globs)
+	Until    time.Time `json:"until"` // the conflicting lease's Until when refused
+	At       time.Time `json:"at"`
+}
+
+// BoardFilter narrows Board.
+type BoardFilter struct {
+	RepoKey   string // "" = every repo, plus tasks with no repo
+	For       string // the viewer ("user:*" or an agent key): who "needs you" means
+	DoneLimit int    // Done cards to return; 0 = DefaultDoneCard, max MaxDoneCard
+}
+
+// Card is one task on the Board.
+type Card struct {
+	Task
+	LastComment *Comment `json:"lastComment,omitempty"`
+	// Resolved: the task is Blocked and its BlockedBy has gone away (the
+	// lease is no longer held, the task is terminal). SweepNotices closes
+	// such blockers; Resolved shows the gap until it runs.
+	Resolved bool `json:"resolved,omitempty"`
+	// Overlaps, on a Shared task, lists pairs "<resource> ~ <resource>" of
+	// its holders' leases that overlap (decision 20's warning).
+	Overlaps []string `json:"overlaps,omitempty"`
+}
+
+// LeaseCard is a lease shown on the Board because it blocks something: a
+// blocked task names it (BlockedOnLease) or a refusal is active against it.
+// It goes away when the lease is released or expires.
+type LeaseCard struct {
+	Lease
+	Refused []Refusal `json:"refused,omitempty"`
+	Blocks  []string  `json:"blocks,omitempty"` // ids of tasks blocked on it
+}
+
+// BoardView is the Board, grouped for the GUI. Each task is in exactly one
+// group, picked in this order:
+//
+//  1. Done: terminal states, newest UpdatedAt first, at most DoneLimit
+//     (DoneTotal counts them all). Collapsed in the GUI; never timed out.
+//  2. NeedsYou: InputRequired; Blocked on a person (Ref "" or For); or
+//     Holders contains For (when For is a person). For an agent viewer,
+//     NeedsYou holds tasks assigned to it that it hasn't claimed yet (still
+//     submitted).
+//  3. Blocked: every other Blocked task.
+//  4. Working: has a holder (Working, or Submitted with an assignee).
+//  5. Open: no holder.
+//
+// Groups 2-5 are newest UpdatedAt first. Leases are LeaseCards, soonest
+// expiry first; the GUI shows them with Blocked.
+type BoardView struct {
+	NeedsYou  []Card      `json:"needsYou"`
+	Blocked   []Card      `json:"blocked"`
+	Working   []Card      `json:"working"`
+	Open      []Card      `json:"open"`
+	Done      []Card      `json:"done"`
+	DoneTotal int         `json:"doneTotal"`
+	Leases    []LeaseCard `json:"leases"`
+}
+
+// Assign gives task id to `to` (an agent key or a person's "user:*" key).
+// Any agent may assign (decision 21): by may be the creator, a holder, a
+// person, or anyone when the task has no holder. On a task that isn't
+// Shared, to replaces the holder; on a Shared task, to is added. Assigning
+// to the current (or an existing) holder is a no-op with no notice. The
+// notice is NoticeAssigned to `to` (no recipients when to is a person).
+func (c *Coord) Assign(ctx context.Context, by, id, to string) (Task, Notice, error) {
+	return Task{}, Notice{}, ErrUnimplemented
+}
+
+// Join adds who to a Shared task's holders (by is who, or a person adding
+// someone). ErrNotAllowed on a task that isn't Shared: claim it instead.
+// Joining moves a Submitted task to Working.
+func (c *Coord) Join(ctx context.Context, by, id, who string) (Task, error) {
+	return Task{}, ErrUnimplemented
+}
+
+// Leave removes who from the task's holders (by is who, or a person). The
+// state is left alone; a task with no holders shows as Open (or in its
+// Blocked/NeedsYou group).
+func (c *Coord) Leave(ctx context.Context, by, id, who string) (Task, error) {
+	return Task{}, ErrUnimplemented
+}
+
+// SetShared turns sharing on or off (the creator, a holder or a person).
+// Turning it off while more than one holds the task is ErrInvalid.
+func (c *Coord) SetShared(ctx context.Context, by, id string, shared bool) (Task, error) {
+	return Task{}, ErrUnimplemented
+}
+
+// Block moves an open task to Blocked with a reason (required, at most
+// MaxReason runes) and optionally what blocks it. The holder(s), the
+// creator or a person may. BlockedBy is checked: a lease ref must parse as a
+// resource, a task ref must name another task, a person ref must be "" or
+// "user:*". Blocking a blocked task again replaces the reason. No notice.
+func (c *Coord) Block(ctx context.Context, by, id, reason string, blockedBy *BlockedBy) (Task, error) {
+	return Task{}, ErrUnimplemented
+}
+
+// Unblock closes a task's blocker: anyone, agent or person, may (decision
+// 19). It writes blocker.closed and restores Working when the task has
+// holders, else Submitted. note is optional (<= MaxReason). The notice is
+// NoticeUnblocked to the holders other than by.
+func (c *Coord) Unblock(ctx context.Context, by, id, note string) (Task, Notice, error) {
+	return Task{}, Notice{}, ErrUnimplemented
+}
+
+// AddComment adds a comment to any task, open or done (anyone may; text
+// 1..MaxComment runes). wake is the author's per-comment choice (decision
+// 18): the notice carries it. The notice is NoticeComment to the holders
+// other than by.
+func (c *Coord) AddComment(ctx context.Context, by, id, text string, wake bool) (Comment, Notice, error) {
+	return Comment{}, Notice{}, ErrUnimplemented
+}
+
+// Comments lists a task's comments, oldest first (nil for no such task).
+func (c *Coord) Comments(taskID string) []Comment { return nil }
+
+// GetComment returns one comment by id.
+func (c *Coord) GetComment(id string) (Comment, bool) { return Comment{}, false }
+
+// AddLink adds a link to a task (anyone may; at most MaxLinks; the same Ref
+// twice is a no-op). link is parsed with ParseLink.
+func (c *Coord) AddLink(ctx context.Context, by, id, link string) (Task, error) {
+	return Task{}, ErrUnimplemented
+}
+
+// RemoveLink drops the link whose Ref equals ref (the creator, a holder or a
+// person). ErrNotFound when there is none.
+func (c *Coord) RemoveLink(ctx context.Context, by, id, ref string) (Task, error) {
+	return Task{}, ErrUnimplemented
+}
+
+// Refusals lists active refusals, newest first.
+func (c *Coord) Refusals() []Refusal { return nil }
+
+// Board groups the tasks for the Board tab and the board tool.
+func (c *Coord) Board(f BoardFilter) BoardView { return BoardView{} }
+
+// SweepNotices is Sweep plus blockers that resolved by themselves: a task
+// Blocked on a lease that is no longer held, or on a task that is now
+// terminal, gets blocker.closed by "irori" (note "lease released" / "task
+// completed") and a NoticeUnblocked for its holders. Core calls it in place
+// of Sweep and routes the notices from inbox.SystemSender.
+func (c *Coord) SweepNotices(ctx context.Context) ([]Notice, error) {
+	return nil, c.impl.sweep(ctx)
+}
+
+// Search (search.Source): coord owns the task and comment refs. A task's
+// Doc has Title = its title, Body = objective, done criteria, note and
+// reason, Agent = Holder, Updated = UpdatedAt; a comment's has Title "comment
+// on <task title>", Body = its text, Agent = its author if an agent. Show
+// renders a task as its fields, links (label and ref), holders, blocker, and
+// its newest 10 comments (Related: "comment:<id>" for older ones); a comment
+// as its text with Related ["task:<id>"].
+
+// SearchKinds implements search.Source.
+func (c *Coord) SearchKinds() []search.Kind {
+	return []search.Kind{search.KindTask, search.KindComment}
+}
+
+// SearchDocs implements search.Source.
+func (c *Coord) SearchDocs(ctx context.Context, since time.Time, limit int) ([]search.Doc, error) {
+	return nil, nil
+}
+
+// SearchShow implements search.Source.
+func (c *Coord) SearchShow(ctx context.Context, ref string, o search.ShowOptions) (search.Shown, error) {
+	return search.Shown{}, ErrUnimplemented
+}
+
+var _ search.Source = (*Coord)(nil)
