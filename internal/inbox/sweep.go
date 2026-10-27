@@ -243,6 +243,9 @@ func (b *inbox) move(ctx context.Context, d *drec, to string, cards map[string]p
 	h := HoldUnowned
 	if m != nil {
 		h = b.hold(m, to, cards)
+		if m.To.Kind == ToPR {
+			nr.Note = d.Note // who the PR work was for goes with it
+		}
 	}
 	if err := b.putDelivery(ctx, placed(nr, h), "irori"); err != nil {
 		return err

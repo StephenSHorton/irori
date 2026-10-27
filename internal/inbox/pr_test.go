@@ -193,6 +193,30 @@ func TestPRUnownedThenDesk(t *testing.T) {
 	}
 }
 
+// Desk-routed PR work whose desk goes moves on like repo work and keeps the
+// note naming its owner.
+func TestPRDeskGoneKeepsNote(t *testing.T) {
+	h := prHarness(t, []string{keyGone}, true)
+	_, d := h.send(claude(keyS, "sigma"), toPR(prKey), "who has this?")
+	if d.To != keyD || d.Note == "" {
+		t.Fatalf("routed %+v", d)
+	}
+	h.ros.remove(keyD)
+	h.sweep()
+	h.clk.advance(GoneGrace + time.Second)
+	h.sweep()
+	moved := h.wantState(d.ID, Moved)
+	var next Delivery
+	for _, x := range h.ib.List(0) {
+		if x.MessageID == d.MessageID && x.ID != d.ID {
+			next = x
+		}
+	}
+	if moved.MovedTo != "" || next.State != Held || next.Hold != HoldUnowned || next.Note != d.Note || next.RepoKey != prRepo {
+		t.Fatalf("moved %+v, next %+v", moved, next)
+	}
+}
+
 // Owner-routed work is the owner's, like an agent-addressed message: the
 // sweeper doesn't move it to the desk when it sits unengaged.
 func TestPROwnerRoutedStaysPut(t *testing.T) {

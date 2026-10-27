@@ -151,7 +151,7 @@ type Delivery struct {
 	Hold      HoldReason `json:"hold,omitempty"`
 	Via       string     `json:"via,omitempty"`    // "mod", "channel", "gui"
 	WakeID    string     `json:"wakeId,omitempty"` // the wake that carried it
-	Note      string     `json:"note,omitempty"`   // defer/skip note
+	Note      string     `json:"note,omitempty"`   // defer/skip note; for PR work its owner couldn't take, who it was for
 	Until     time.Time  `json:"until,omitempty"`  // deferral due time
 	MovedTo   string     `json:"movedTo,omitempty"`
 	Reminded  bool       `json:"reminded"`
