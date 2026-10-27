@@ -153,9 +153,11 @@ func (h *handler) attach(w http.ResponseWriter, r *http.Request) {
 			delete(reg.byKey, st.key)
 			delete(reg.secrets, st.secret)
 			ib.SetReachable(st.key, st.path, false)
-			if st.path == inbox.PathChannel {
-				b.MemberStream(st.key, false)
-			}
+		}
+		// Every member stream opened one count, superseded or not, so every
+		// one closes it; otherwise a supersede leaves the card listed for good.
+		if st.path == inbox.PathChannel {
+			b.MemberStream(st.key, false)
 		}
 		reg.mu.Unlock()
 		select {

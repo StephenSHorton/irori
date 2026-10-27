@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -99,7 +100,7 @@ func (c *Client) OpenStream(ctx context.Context, q url.Values) (io.ReadCloser, e
 	hc.Timeout = 0 // a stream lives as long as ctx
 	resp, err := hc.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("irori api /v1/attach: %w", err)
+		return nil, fmt.Errorf("irori api /v1/attach: %w", withoutQuery(err))
 	}
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
@@ -109,6 +110,21 @@ func (c *Client) OpenStream(ctx context.Context, q url.Values) (io.ReadCloser, e
 		return nil, &StatusError{Path: "/v1/attach", Code: resp.StatusCode, Message: eb.Error}
 	}
 	return resp.Body, nil
+}
+
+// withoutQuery drops the query from a *url.Error's URL: a member stream's
+// query carries the member secret, which must not reach error text or logs.
+func withoutQuery(err error) error {
+	var ue *url.Error
+	if !errors.As(err, &ue) {
+		return err
+	}
+	u, perr := url.Parse(ue.URL)
+	if perr != nil {
+		return ue.Err
+	}
+	u.RawQuery, u.ForceQuery = "", false
+	return &url.Error{Op: ue.Op, URL: u.String(), Err: ue.Err}
 }
 
 // do sends an authenticated request with an optional JSON body.

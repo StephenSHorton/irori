@@ -263,7 +263,9 @@ func (h *handler) setPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ib := h.s.b.Inbox()
-	if err := ib.SetPolicy(r.Context(), p, c.sender.Key); err != nil {
+	// The person at the composer made this change, not the agent (design §5):
+	// a "user:" by makes the row's actor "user" and still names the session.
+	if err := ib.SetPolicy(r.Context(), p, "user:composer@"+c.sender.Key); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}

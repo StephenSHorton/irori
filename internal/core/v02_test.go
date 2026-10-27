@@ -20,6 +20,7 @@ import (
 	"github.com/StephenSHorton/irori/internal/attach/runner"
 	"github.com/StephenSHorton/irori/internal/discovery"
 	"github.com/StephenSHorton/irori/internal/inbox"
+	"github.com/StephenSHorton/irori/internal/store"
 )
 
 const (
@@ -466,6 +467,14 @@ func TestAuth(t *testing.T) {
 	if code != 200 || !strings.Contains(string(raw), `"mode":"allowlist"`) || r.core.Inbox().Policy().Mode != inbox.Allowlist {
 		t.Fatalf("policy from composer: %d %s", code, raw)
 	}
+	// The person at the composer set it, not the attached agent.
+	evs, err := r.core.store.List(context.Background(), store.Filter{Kinds: []string{inbox.KindPolicySet}, Desc: true, Limit: 1})
+	if err != nil || len(evs) != 1 {
+		t.Fatalf("policy.set rows: %v %v", evs, err)
+	}
+	if evs[0].Actor != "user" || !strings.Contains(string(evs[0].Payload), h.AgentKey) {
+		t.Errorf("policy.set actor %q payload %s, want user naming %s", evs[0].Actor, evs[0].Payload, h.AgentKey)
+	}
 	if code, _ := r.do("GET", "/v1/members", nil, nil); code != http.StatusMethodNotAllowed {
 		t.Errorf("GET members: %d, want 405", code)
 	}
@@ -715,4 +724,48 @@ func TestAttachCommand(t *testing.T) {
 	// Closing stdin ends it.
 	p2.stdin.Close()
 	p2.exited(t)
+}
+
+// A superseded member stream must close its own count, or the grok card
+// (and the roster entry inbox and coord read) stays listed for good.
+func TestGrokMemberSupersede(t *testing.T) {
+	r := newRig(t)
+	code, raw := r.do("POST", "/v1/members", nil, map[string]string{"name": "grokky", "session": "grok-session-2"})
+	var m api.Member
+	if code != 200 || json.Unmarshal(raw, &m) != nil || m.Secret == "" {
+		t.Fatalf("join: %d %s", code, raw)
+	}
+	s1, code := r.open("member=" + m.Secret)
+	if code != 200 {
+		t.Fatalf("member stream 1: %d", code)
+	}
+	s1.next(attach.TypeHello)
+	s2, code := r.open("member=" + m.Secret)
+	if code != 200 {
+		t.Fatalf("member stream 2: %d", code)
+	}
+	s2.next(attach.TypeHello)
+	s1.ended(attach.TypeSuperseded)
+	s2.close()
+
+	openCount := func() int {
+		r.core.members.mu.Lock()
+		defer r.core.members.mu.Unlock()
+		return r.core.members.byKey[m.Key].open
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for openCount() != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("open count %d after both member streams closed", openCount())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	r.core.members.mu.Lock()
+	r.core.members.now = func() time.Time { return time.Now().Add(inbox.ReattachGrace + time.Second) }
+	r.core.members.mu.Unlock()
+	for _, c := range r.core.Agents() {
+		if c.Key == m.Key {
+			t.Fatalf("grok card still listed after the grace: %+v", c)
+		}
+	}
 }

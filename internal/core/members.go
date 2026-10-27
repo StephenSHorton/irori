@@ -23,7 +23,7 @@ const KindMemberJoined = "member.joined"
 type member struct {
 	key, name, secret string
 	joinedAt          time.Time
-	open              int       // open member streams (0 or 1 after supersede races settle)
+	open              int       // open member streams, counted per stream (2 while a supersede settles)
 	lastSeen          time.Time // join, or the last stream close
 }
 
