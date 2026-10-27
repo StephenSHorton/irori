@@ -6,6 +6,7 @@ The mod lives in [`mod/`](../mod). It attaches every Claude Code session to the 
 - the session gets Irori's tools as `mcp__irori__<name>`. The mod lists the Core's tools when it attaches, so new ones appear without a mod change:
   - **finding things** (progressive disclosure: overview, then lists with refs, then `show <ref>`): `overview`, `search`, `show`, `agents`, `timeline`, `why`, `commits`, `prs`, `events`;
   - **messages**: `send`, `reply`, `inbox`, `defer`, `skip`;
+  - **the person, now**: `notify` pops a card up in front of the person at this device (only for what they must see or decide now, never progress updates; at most 5 per agent per 10 minutes). With up to two buttons, their answer (the button, a dismiss, or no answer within 5 minutes) reaches the agent at its next turn as a notice from Irori;
   - **the Board** ([design/board.md](design/board.md), a scratch pad for live coordination, not a tracker): `board`, `board_create`, `board_comment`, `board_block`, `board_unblock`, `board_join`, `board_leave`, `board_assign`, `board_status`, `board_link`; comments and other Board notices reach an agent at its next turn unless the author asks to wake it;
   - **leases**: `lease`, `leases`, `release`;
   - **decisions about the code**: `decision_record`, `decisions`.

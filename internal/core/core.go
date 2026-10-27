@@ -21,6 +21,7 @@ import (
 	"github.com/StephenSHorton/irori/internal/discovery"
 	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/inbox"
+	"github.com/StephenSHorton/irori/internal/notify"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/repo"
 	"github.com/StephenSHorton/irori/internal/scrub"
@@ -49,6 +50,7 @@ type Core struct {
 	inbox    *inbox.Inbox
 	coord    *coord.Coord
 	tools    *tools.Set
+	notifier *notify.Notifier
 	members  *members
 	capture  *capture.Capture
 	scrubber *scrub.Scrubber
@@ -120,6 +122,8 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	// Search and show reach the Board and the inbox through capture.
 	c.capture.AddSource(c.coord)
 	c.capture.AddSource(c.inbox)
+	// Cards are the desktop app's; a headless Core's Notifier never shows one.
+	c.notifier = notify.New(notify.Config{Dir: opts.DataDir, Headless: opts.Headless})
 	c.tools = tools.New(c)
 
 	token, err := discovery.NewToken()
@@ -271,6 +275,10 @@ func (c *Core) Device() device.Identity { return c.device }
 func (c *Core) Agents() []presence.AgentCard {
 	return append(c.presence.Snapshot(), c.members.cards()...)
 }
+
+// Notifier shows desktop notification cards (none when headless). The GUI
+// runs notify.Watch over it and gives it the window opener.
+func (c *Core) Notifier() *notify.Notifier { return c.notifier }
 
 // Tools is the agent tool registry served at /v1/tools.
 func (c *Core) Tools() *tools.Set { return c.tools }

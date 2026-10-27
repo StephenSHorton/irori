@@ -58,16 +58,19 @@ export function BoardPanel({
   agents,
   gone,
   now,
+  focusId,
 }: {
   board: BoardState
   agents: AgentCard[]
   gone: GoneSession[]
   now: Date
+  // focusId is a task id to open first (a notification's Answer).
+  focusId?: string
 }) {
   const { view } = state
   const [filter, setFilter] = useState<Filter>("all")
   const [repo, setRepo] = useState("")
-  const [picked, setPicked] = useState("")
+  const [picked, setPicked] = useState(focusId ?? "")
   const [raising, setRaising] = useState(false)
   const [showDone, setShowDone] = useState(false)
 

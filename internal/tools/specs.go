@@ -160,6 +160,20 @@ var specList = []Spec{
 		Clients:     both,
 	},
 	{
+		Name: "notify",
+		Description: "Pop a notification card up in front of the person at this device. Use it only when they must see or decide " +
+			"something now (a choice only they can make, a failure they must know about); never for progress updates or routine news. " +
+			"With actions (up to 2 button labels) the card waits 5 minutes and their answer (the button, a dismiss, or no answer) " +
+			"reaches you at your next turn from Irori: don't wait or ask again. At most 5 cards per agent per 10 minutes.",
+		InputSchema: schema(
+			`"text":{"type":"string","description":"What the person must see or decide, in a sentence or two (at most 500 characters)."},`+
+				`"title":{"type":"string","description":"Optional short headline (at most 80 characters); your name is shown with it."},`+
+				`"level":{"type":"string","enum":["info","success","warn","error"],"description":"The card's color and sound (default info)."},`+
+				`"actions":{"type":"array","items":{"type":"string"},"maxItems":2,"description":"Optional button labels, one or two words each, e.g. [\"Ship it\", \"Hold\"]. The first is the primary button."}`,
+			"text"),
+		Clients: both,
+	},
+	{
 		Name: "board",
 		Description: "List the Board for your repo (or repo, or every repo), grouped: needs you (from any repo), blocked, working, open, leases that block " +
 			"something, and done (collapsed). One line per card with its ref; show task:<id> for its comments and links. " + BoardInstructions,

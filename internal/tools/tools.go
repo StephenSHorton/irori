@@ -15,6 +15,7 @@ import (
 	"github.com/StephenSHorton/irori/internal/capture"
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/inbox"
+	"github.com/StephenSHorton/irori/internal/notify"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/store"
 )
@@ -55,6 +56,9 @@ type Backend interface {
 	// Capture serves timeline, why, decision_record and decisions (v0.3). A
 	// nil Capture makes those tools answer "Error: capture is off".
 	Capture() *capture.Capture
+	// Notifier shows the notify tool's cards to the person at this device.
+	// A headless Core's never shows any (the tool says so).
+	Notifier() *notify.Notifier
 }
 
 // Set is the tool registry.

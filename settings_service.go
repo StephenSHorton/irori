@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/StephenSHorton/irori/internal/notify"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -35,11 +36,48 @@ func startedAtLogin(args []string) bool { return slices.Contains(args, startupAr
 // Wails' AutostartManager: the OS registration is the source of truth, so
 // nothing is persisted beside it. It is OFF by default and only ever turned on
 // by the user (SetLaunchAtLogin(true) from the UI or the tray checkbox).
+// Notification settings are kept in settings.json in Irori's data folder
+// (internal/notify).
 //
 // JS binding name: SettingsService.*
 type SettingsService struct {
+	notifier *notify.Notifier // the Core's; nil is a headless one
+
 	mu  sync.Mutex
 	app *application.App
+}
+
+// GetNotifications returns the notification settings: on or off, sound,
+// volume (0..1) and the screen corner.
+func (s *SettingsService) GetNotifications() notify.Options { return s.notifier.Options() }
+
+// SetNotifications applies and saves the notification settings and returns
+// them as applied (a volume out of range or an unknown corner is fixed).
+func (s *SettingsService) SetNotifications(o notify.Options) (notify.Options, error) {
+	return s.notifier.SetOptions(o)
+}
+
+// TestNotification shows a sample card with two buttons, with the current
+// sound and corner.
+func (s *SettingsService) TestNotification() error {
+	n := s.notifier
+	switch {
+	case n.Headless():
+		return errors.New("this Irori shows no notifications")
+	case !n.Enabled():
+		return errors.New("notifications are off; turn them on first")
+	}
+	n.Post(notify.Note{
+		ID:    notify.TestID,
+		Title: "Irori notifications are on",
+		Body:  "Cards like this show what needs you: held messages, blocked cards, and agents asking you to choose.",
+		Level: notify.Info,
+		Actions: []notify.Action{
+			{Label: "Open Board", Run: func() { n.Open(notify.Target{Tab: notify.TabBoard}) }},
+			{Label: "Close"},
+		},
+	})
+	return nil
 }
 
 // attach injects the app after application.New: the App does not exist yet

@@ -10,11 +10,15 @@ import type { Events } from "@wailsio/runtime";
 import type * as main$0 from "../../../../StephenSHorton/irori/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import type * as notify$0 from "../../../../StephenSHorton/irori/internal/notify/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import type * as update$0 from "../../../../StephenSHorton/irori/internal/update/models.js";
 
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
+            "app:open": notify$0.Target;
             "board:changed": {};
             "capture:changed": main$0.CaptureChange;
             "inbox:changed": main$0.InboxCounts;

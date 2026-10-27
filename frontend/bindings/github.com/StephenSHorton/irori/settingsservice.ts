@@ -6,6 +6,8 @@
  * Wails' AutostartManager: the OS registration is the source of truth, so
  * nothing is persisted beside it. It is OFF by default and only ever turned on
  * by the user (SetLaunchAtLogin(true) from the UI or the tray checkbox).
+ * Notification settings are kept in settings.json in Irori's data folder
+ * (internal/notify).
  * 
  * JS binding name: SettingsService.*
  * @module
@@ -14,6 +16,10 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Create } from "@wailsio/runtime";
+
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as notify$0 from "./internal/notify/models.js";
 
 /**
  * GetLaunchAtLogin reports whether Irori is registered to start at login. It
@@ -24,6 +30,16 @@ export function GetLaunchAtLogin(): $CancellablePromise<boolean> {
 }
 
 /**
+ * GetNotifications returns the notification settings: on or off, sound,
+ * volume (0..1) and the screen corner.
+ */
+export function GetNotifications(): $CancellablePromise<notify$0.Options> {
+    return $Call.ByID(1883929452).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
  * SetLaunchAtLogin registers or removes the login launch. Enabling registers
  * Irori with --startup so the login launch stays in the tray. Re-enabling is
  * safe: the registration is overwritten.
@@ -31,3 +47,24 @@ export function GetLaunchAtLogin(): $CancellablePromise<boolean> {
 export function SetLaunchAtLogin(enabled: boolean): $CancellablePromise<void> {
     return $Call.ByID(1701942847, enabled);
 }
+
+/**
+ * SetNotifications applies and saves the notification settings and returns
+ * them as applied (a volume out of range or an unknown corner is fixed).
+ */
+export function SetNotifications(o: notify$0.Options): $CancellablePromise<notify$0.Options> {
+    return $Call.ByID(2007235048, o).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
+ * TestNotification shows a sample card with two buttons, with the current
+ * sound and corner.
+ */
+export function TestNotification(): $CancellablePromise<void> {
+    return $Call.ByID(3892409479);
+}
+
+// Private type creation functions
+const $$createType0 = notify$0.Options.createFrom;

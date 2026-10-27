@@ -2,9 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/StephenSHorton/irori/internal/core"
 	"github.com/StephenSHorton/irori/internal/discovery"
@@ -18,6 +23,18 @@ var assets embed.FS
 
 // singleInstanceID is shared by the app and handOff so a second launch reaches the first.
 const singleInstanceID = "com.stephenshorton.irori"
+
+// instanceID is singleInstanceID, made distinct per IRORI_HOME so a second
+// Irori with its own data folder (a test copy) runs beside the usual one
+// instead of handing off to it.
+func instanceID() string {
+	home := os.Getenv("IRORI_HOME")
+	if home == "" {
+		return singleInstanceID
+	}
+	sum := sha256.Sum256([]byte(strings.ToLower(filepath.Clean(home))))
+	return singleInstanceID + "." + hex.EncodeToString(sum[:6])
+}
 
 func init() {
 	application.RegisterEvent[RosterChange](EventRosterChanged)
@@ -48,7 +65,7 @@ func runGUI(args []string) error {
 	inboxSvc := newInboxService(c)
 	board := newBoardService(c)
 	captureSvc := newCaptureService(c)
-	settings := &SettingsService{}
+	settings := &SettingsService{notifier: c.Notifier()}
 	upd := update.New(update.Repo, version)
 
 	var window *application.WebviewWindow
@@ -85,7 +102,7 @@ func runGUI(args []string) error {
 		// A second launch (desktop icon while the login copy sits in the
 		// tray) surfaces the running window instead of a second Core.
 		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID:               singleInstanceID,
+			UniqueID:               instanceID(),
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) { show() },
 		},
 	})
@@ -114,6 +131,7 @@ func runGUI(args []string) error {
 	go inboxSvc.pump(ctx, app)
 	go captureSvc.pump(ctx, app)
 	go board.pump(ctx, app)
+	setupNotifications(ctx, app, c, show)
 	return app.Run()
 }
 
@@ -124,7 +142,7 @@ func handOff() error {
 	app := application.New(application.Options{
 		Name: "Irori",
 		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID: singleInstanceID,
+			UniqueID: instanceID(),
 		},
 	})
 	return app.Run()

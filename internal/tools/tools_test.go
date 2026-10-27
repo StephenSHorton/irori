@@ -16,6 +16,7 @@ import (
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/inbox"
+	"github.com/StephenSHorton/irori/internal/notify"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/store"
 )
@@ -76,14 +77,16 @@ type backend struct {
 	ib *inbox.Inbox
 	co *coord.Coord
 	cp *capture.Capture // nil until withCapture: capture is off
+	nf *notify.Notifier // nil: headless
 }
 
 func (b *backend) Events(ctx context.Context, f store.Filter) ([]store.Event, error) {
 	return b.st.List(ctx, f)
 }
-func (b *backend) Inbox() *inbox.Inbox       { return b.ib }
-func (b *backend) Coord() *coord.Coord       { return b.co }
-func (b *backend) Capture() *capture.Capture { return b.cp }
+func (b *backend) Inbox() *inbox.Inbox        { return b.ib }
+func (b *backend) Coord() *coord.Coord        { return b.co }
+func (b *backend) Capture() *capture.Capture  { return b.cp }
+func (b *backend) Notifier() *notify.Notifier { return b.nf }
 
 type harness struct {
 	t   *testing.T
@@ -252,7 +255,7 @@ func TestSpecs(t *testing.T) {
 			t.Errorf("grok specs lack %s", n)
 		}
 	}
-	want := []string{"overview", "search", "show", "agents", "events", "send", "reply", "inbox", "defer", "skip",
+	want := []string{"overview", "search", "show", "agents", "events", "send", "reply", "inbox", "defer", "skip", "notify",
 		"board", "board_create", "board_comment", "board_block", "board_unblock", "board_join", "board_leave",
 		"board_assign", "board_status", "board_link", "lease", "leases", "release",
 		"timeline", "why", "commits", "prs", "decision_record", "decisions"}

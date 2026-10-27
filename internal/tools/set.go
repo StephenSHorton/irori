@@ -33,6 +33,8 @@ type set struct {
 	handlers map[string]handler
 	// needsCaller: tools that act as, or read for, the caller.
 	needsCaller map[string]bool
+	// notifyState is the notify tool's rate window (notify.go).
+	notifyState notifyState
 }
 
 func newSet(b Backend) *Set {
@@ -68,6 +70,7 @@ func newSet(b Backend) *Set {
 		"why":           s.why,
 		"decisions":     s.decisions,
 		"join":          s.join,
+		"notify":        s.notify,
 
 		"decision_record": s.decisionRecord,
 	}

@@ -11,21 +11,26 @@ import { Create as $Create } from "@wailsio/runtime";
 import * as main$0 from "../../../../StephenSHorton/irori/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as notify$0 from "../../../../StephenSHorton/irori/internal/notify/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as update$0 from "../../../../StephenSHorton/irori/internal/update/models.js";
 
 function configure() {
     Object.freeze(Object.assign($Create.Events, {
-        "capture:changed": $$createType0,
-        "inbox:changed": $$createType1,
-        "roster:changed": $$createType2,
-        "update:status": $$createType3,
+        "app:open": $$createType0,
+        "capture:changed": $$createType1,
+        "inbox:changed": $$createType2,
+        "roster:changed": $$createType3,
+        "update:status": $$createType4,
     }));
 }
 
 // Private type creation functions
-const $$createType0 = main$0.CaptureChange.createFrom;
-const $$createType1 = main$0.InboxCounts.createFrom;
-const $$createType2 = main$0.RosterChange.createFrom;
-const $$createType3 = update$0.Status.createFrom;
+const $$createType0 = notify$0.Target.createFrom;
+const $$createType1 = main$0.CaptureChange.createFrom;
+const $$createType2 = main$0.InboxCounts.createFrom;
+const $$createType3 = main$0.RosterChange.createFrom;
+const $$createType4 = update$0.Status.createFrom;
 
 configure();

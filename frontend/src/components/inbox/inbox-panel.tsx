@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowRightIcon,
   ChevronRightIcon,
@@ -54,17 +54,20 @@ function matches(d: Delivery, f: Filter): boolean {
 }
 
 // InboxPanel is every message with its delivery state, the held items that
-// wait on the person, and a composer.
+// wait on the person, and a composer. focusId (a delivery id, from a
+// notification's Open) is scrolled to, opened and marked.
 export function InboxPanel({
   inbox,
   agents,
   gone,
   now,
+  focusId,
 }: {
   inbox: InboxState
   agents: AgentCard[]
   gone: GoneSession[]
   now: Date
+  focusId?: string
 }) {
   const [filter, setFilter] = useState<Filter>("all")
   const { deliveries, policy } = inbox
@@ -133,7 +136,13 @@ export function InboxPanel({
         <Card size="sm" className="gap-0 py-0!">
           <ul className="divide-y divide-border">
             {shown.map((d) => (
-              <DeliveryRow key={d.id} d={d} name={name} now={now} />
+              <DeliveryRow
+                key={d.id}
+                d={d}
+                name={name}
+                now={now}
+                focused={d.id === focusId}
+              />
             ))}
           </ul>
         </Card>
@@ -192,12 +201,18 @@ function DeliveryRow({
   d,
   name,
   now,
+  focused,
 }: {
   d: Delivery
   name: (key: string) => string
   now: Date
+  focused?: boolean
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(Boolean(focused))
+  const row = useRef<HTMLLIElement>(null)
+  useEffect(() => {
+    if (focused) row.current?.scrollIntoView({ block: "center" })
+  }, [focused])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const m = d.message
@@ -229,7 +244,17 @@ function DeliveryRow({
   }
 
   return (
-    <li className={held ? "bg-warning-foreground/35" : undefined}>
+    <li
+      ref={row}
+      className={
+        [
+          held ? "bg-warning-foreground/35" : "",
+          focused ? "ring-2 ring-ring/60 ring-inset" : "",
+        ]
+          .filter(Boolean)
+          .join(" ") || undefined
+      }
+    >
       <button
         type="button"
         aria-expanded={open}

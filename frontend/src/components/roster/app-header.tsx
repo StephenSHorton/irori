@@ -1,7 +1,9 @@
 import { Badge } from "@/components/ui/badge"
+import { SettingsMenu } from "@/components/settings/settings-menu"
 import type { Roster } from "@/lib/irori"
 
-// AppHeader is the top bar: the product mark, this device and the version.
+// AppHeader is the top bar: the product mark, this device, the version and
+// the settings.
 export function AppHeader({ roster }: { roster: Roster }) {
   const { device, version, source, agents } = roster
   const busy = agents.filter((a) => a.status === "busy").length
@@ -37,6 +39,7 @@ export function AppHeader({ roster }: { roster: Roster }) {
                 : `v${version.replace(/^v/, "")}`}
             </Badge>
           )}
+          <SettingsMenu />
         </div>
       </div>
     </header>

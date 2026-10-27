@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { AppHeader } from "@/components/roster/app-header"
 import { ActivityPanel } from "@/components/roster/activity-panel"
@@ -23,6 +23,7 @@ import {
   useInbox,
 } from "@/lib/talk"
 import { useBoard } from "@/lib/board"
+import { onOpen } from "@/lib/settings"
 import { UpdateBanner } from "@/updater"
 
 const tabs = [
@@ -82,10 +83,29 @@ export function App() {
     f: null,
   })
 
+  // A notification's Open or Answer: the tab, and what to select there.
+  // n remounts the panel so the selection and its filters start fresh.
+  const [opened, setOpened] = useState<{ n: number; ref: string }>({
+    n: 0,
+    ref: "",
+  })
+
   const setTab = (t: Tab) => {
     setTabState(t)
     writeTab(t)
   }
+
+  useEffect(
+    () =>
+      onOpen((target) => {
+        const t = asTab(target.tab)
+        if (!t) return
+        setOpened((o) => ({ n: o.n + 1, ref: target.ref ?? "" }))
+        setTabState(t)
+        writeTab(t)
+      }),
+    []
+  )
 
   const counts = useMemo(
     () => countsByAgent(inbox.deliveries),
@@ -183,19 +203,23 @@ export function App() {
 
           <TabsContent value="inbox">
             <InboxPanel
+              key={`inbox-${opened.n}`}
               inbox={inbox}
               agents={roster.agents}
               gone={goneState.gone}
               now={now}
+              focusId={opened.ref}
             />
           </TabsContent>
 
           <TabsContent value="board">
             <BoardPanel
+              key={`board-${opened.n}`}
               board={board}
               agents={roster.agents}
               gone={goneState.gone}
               now={now}
+              focusId={opened.ref.replace(/^task:/, "")}
             />
           </TabsContent>
 
