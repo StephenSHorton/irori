@@ -8,7 +8,10 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ThemeProvider>
+    {/* Light only: Irori has no dark palette yet (its .dark tokens copy the
+        light ones), and under a dark OS theme mokei's dark: styles would
+        grey a light page. The fresh storage key drops any stored "dark". */}
+    <ThemeProvider defaultTheme="light" storageKey="irori-theme">
       <TooltipProvider delay={300}>
         <App />
       </TooltipProvider>
