@@ -9,7 +9,9 @@ import {
   cards,
   displayName,
   MaxAnswer,
+  NoteItem,
   percent,
+  TaskState,
   type AgentRef,
   type CardBlocker,
   type CardDetail,
@@ -29,8 +31,13 @@ import { cn } from "@/lib/utils"
 import { ProgressBar, ScopeBadge } from "./bits"
 import { Face, LiveDot } from "./faces"
 
+// Answered is a note answer the person just sent: the note item leaves the
+// card once answered, so the panel keeps it to show who heard.
+type Answered = { question: string; answer: string; told: Told; to: AgentRef }
+
 // CardPanel is one card opened beside the grid: the goal, its blockers
 // with recommended answers, progress, who's on it, PRs and recent lines.
+// Key it by card id, so a note answer shown here stays with its card.
 export function CardPanel({
   detail,
   error,
@@ -42,6 +49,7 @@ export function CardPanel({
   gone: GoneSession[]
   now: Date
 }) {
+  const [answered, setAnswered] = useState<Answered | null>(null)
   if (!detail)
     return (
       <Card className="px-5 py-6! text-sm text-muted-foreground">
@@ -71,6 +79,12 @@ export function CardPanel({
             {plainBlock(detail.goal)}
           </p>
         )}
+        {detail.note && detail.state !== TaskState.InputRequired && (
+          <p className="max-w-[62ch] text-[12.5px] text-muted-foreground">
+            <span className="font-medium text-ink-2">Note:</span>{" "}
+            {plainLine(detail.note)}
+          </p>
+        )}
         {detail.doneWhen && (
           <p className="max-w-[62ch] text-[12.5px] text-muted-foreground">
             <span className="font-medium text-ink-2">Done when:</span>{" "}
@@ -93,7 +107,7 @@ export function CardPanel({
         </div>
       </div>
 
-      {(detail.blockers.length > 0 || legacy) && (
+      {(detail.blockers.length > 0 || legacy || answered) && (
         <Section title="Blockers">
           {legacy && (
             <div className="grid gap-1.5 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
@@ -106,8 +120,35 @@ export function CardPanel({
               </div>
             </div>
           )}
+          {answered && !open.some((b) => b.id === NoteItem) && (
+            <div className="grid gap-2 rounded-xl border border-border bg-muted/50 p-3 opacity-85">
+              <div className="text-[13.5px] font-semibold text-ink">
+                <span className="text-success" aria-label="Answered: ">
+                  ✓{" "}
+                </span>
+                {plainLine(answered.question)}
+              </div>
+              <div className="text-[11.5px] text-muted-foreground">
+                You answered: “{plainLine(answered.answer)}”
+              </div>
+              <ToldLine told={answered.told} raiser={answered.to} />
+            </div>
+          )}
           {detail.blockers.map((b) => (
-            <BlockerItem key={b.id} cardId={detail.id} blocker={b} now={now} />
+            <BlockerItem
+              key={b.id}
+              cardId={detail.id}
+              blocker={b}
+              now={now}
+              onNoteAnswered={(answer, told) =>
+                setAnswered({
+                  question: b.question,
+                  answer,
+                  told,
+                  to: b.raisedBy,
+                })
+              }
+            />
           ))}
         </Section>
       )}
@@ -237,10 +278,14 @@ function BlockerItem({
   cardId,
   blocker: b,
   now,
+  onNoteAnswered,
 }: {
   cardId: string
   blocker: CardBlocker
   now: Date
+  // The note item (an input_required card's question) leaves the card once
+  // answered; this hands its answer to the panel to show.
+  onNoteAnswered: (answer: string, told: Told) => void
 }) {
   const [text, setText] = useState("")
   const [busy, setBusy] = useState(false)
@@ -259,6 +304,7 @@ function BlockerItem({
     setError(null)
     try {
       const res = await cards.answer(cardId, b.id, option, own)
+      if (b.id === NoteItem) onNoteAnswered(own.trim(), res.told)
       setTold(res.told)
       setText("")
     } catch (err) {

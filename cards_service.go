@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -24,6 +25,11 @@ const (
 	ScopeMineLabel = "My devices"
 	// recentLines is how many activity lines Card returns.
 	recentLines = 8
+	// NoteItem is the blocker id of an input_required card's question: its
+	// note, shown and answered like a blocker item.
+	NoteItem = "note"
+	// noteQuestion stands in for an input_required card with no note.
+	noteQuestion = "The agent on it is waiting on your input."
 )
 
 // AgentRef is someone on a card, as the window shows them.
@@ -185,6 +191,8 @@ func cardSummary(t coord.Task, p people) CardSummary {
 		s.OpenBlockers, s.BlockerQuestion = len(open), open[0].Question
 	} else if t.State == coord.Blocked {
 		s.OpenBlockers, s.BlockerQuestion = 1, t.Reason
+	} else if t.State == coord.InputRequired {
+		s.OpenBlockers, s.BlockerQuestion = 1, cmp.Or(strings.TrimSpace(t.Note), noteQuestion)
 	}
 	for _, h := range t.Holders {
 		r := p.ref(h)
@@ -234,6 +242,10 @@ func (b *BoardService) Card(id string) (CardDetail, error) {
 		Recent: []CardActivity{}, Comments: nonNil(b.coord.Comments(t.ID)),
 	}
 	var resolved []CardBlocker
+	if t.State == coord.InputRequired {
+		d.Blockers = append(d.Blockers, CardBlocker{ID: NoteItem, Question: d.BlockerQuestion,
+			RaisedBy: p.ref(t.UpdatedBy), At: t.UpdatedAt, Options: []CardOption{}})
+	}
 	for _, bl := range t.Blockers {
 		cb := CardBlocker{ID: bl.ID, Question: bl.Question, Context: bl.Context, RaisedBy: p.ref(bl.RaisedBy), At: bl.At, Options: []CardOption{}}
 		for _, o := range bl.Options {
@@ -310,6 +322,9 @@ func (b *BoardService) Answer(taskID, blockerID string, option int, text string,
 		return AnswerResult{}, fmt.Errorf("%w: option is an index or -1", coord.ErrInvalid)
 	}
 	ctx := context.Background()
+	if strings.TrimSpace(blockerID) == NoteItem {
+		return b.answerInput(ctx, strings.TrimSpace(taskID), option, text, wake)
+	}
 	t, n, err := b.coord.Answer(ctx, b.user.Key, strings.TrimSpace(taskID), strings.TrimSpace(blockerID),
 		coord.BlockerAnswer{Pick: option + 1, Text: text, Wake: wake})
 	if err != nil {
@@ -317,6 +332,38 @@ func (b *BoardService) Answer(taskID, blockerID string, option int, text string,
 	}
 	told := b.tell(ctx, n, TellNextTurn)
 	d, err := b.Card(t.ID)
+	if err != nil {
+		return AnswerResult{}, err
+	}
+	return AnswerResult{Card: d, Told: told}, nil
+}
+
+// answerInput answers an input_required card's note: the answer is the
+// person's comment to its holders (a wake when wake), and the card goes
+// back to working (submitted when nobody holds it).
+func (b *BoardService) answerInput(ctx context.Context, id string, option int, text string, wake bool) (AnswerResult, error) {
+	t, ok := b.coord.GetTask(id)
+	switch {
+	case !ok:
+		return AnswerResult{}, fmt.Errorf("%w: task %q", coord.ErrNotFound, id)
+	case t.State != coord.InputRequired:
+		return AnswerResult{}, fmt.Errorf("%w: task %s is %s, not waiting on your input", coord.ErrBadState, id, t.State)
+	case option != -1:
+		return AnswerResult{}, fmt.Errorf("%w: this question has no recommended answers; answer in your own words", coord.ErrInvalid)
+	}
+	_, n, err := b.coord.AddComment(ctx, b.user.Key, id, text, wake)
+	if err != nil {
+		return AnswerResult{}, err
+	}
+	told := b.tell(ctx, n, TellNextTurn)
+	back := coord.Submitted
+	if len(t.Holders) > len(t.Assigned) {
+		back = coord.Working
+	}
+	if _, err := b.coord.SetTaskState(ctx, b.user.Key, id, back, ""); err != nil {
+		return AnswerResult{}, err
+	}
+	d, err := b.Card(id)
 	if err != nil {
 		return AnswerResult{}, err
 	}

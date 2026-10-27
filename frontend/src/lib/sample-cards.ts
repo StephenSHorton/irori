@@ -19,6 +19,10 @@ import {
 
 const dev = "sample-device"
 
+// NoteItem mirrors the Go constant: an input_required card's note, shown
+// as its one open item.
+export const NoteItem = "note"
+
 function agent(session: string, name: string, status: string): AgentRef {
   return new AgentRef({
     key: `${dev}/${session}`,
@@ -211,6 +215,21 @@ export function sampleCards(now: Date): CardDetail[] {
       goal: "Two machines join the same lobby and see each other's animals.",
       working: [heron, wren],
       updatedAt: at(6),
+      // input_required: the note is its question (BoardService.Card's
+      // NoteItem), answered in the person's own words.
+      state: TaskState.InputRequired,
+      note: "Should the lobby list come from Steam, or from our own relay so it works without Steam?",
+      blockers: [
+        new CardBlocker({
+          id: NoteItem,
+          question:
+            "Should the lobby list come from Steam, or from our own relay so it works without Steam?",
+          context: "",
+          raisedBy: heron,
+          at: at(6),
+          options: [],
+        }),
+      ],
       steps: steps([
         ["Lobby create and join", true],
         ["Animal sync", false, true],

@@ -26,7 +26,7 @@ import {
 } from "../../bindings/github.com/StephenSHorton/irori/internal/coord/models"
 import { inWails, plainLine } from "./irori"
 import { useLatest } from "./talk"
-import { sampleCards, sampleYou } from "./sample-cards"
+import { NoteItem, sampleCards, sampleYou } from "./sample-cards"
 
 export type {
   AgentRef,
@@ -40,7 +40,7 @@ export type {
   Step,
   Told,
 }
-export { TaskState }
+export { NoteItem, TaskState }
 
 // EventBoardChanged mirrors the Go constant in board_service.go: it fires on
 // every card change.
@@ -94,6 +94,7 @@ function sampleAnswer(
   wake: boolean
 ): AnswerResult {
   const c = sampleCard(id)
+  if (blockerId === NoteItem) return sampleAnswerNote(c, option, text, wake)
   const b = c.blockers.find((x) => x.id === blockerId)
   if (!b) throw new Error(`coord: no such blocker "${blockerId}"`)
   if (b.resolved) throw new Error("coord: conflict: that blocker is resolved")
@@ -123,6 +124,39 @@ function sampleAnswer(
   return new AnswerResult({
     card: c,
     told: new Told({ to: [b.raisedBy.key], mode: wake ? "wake" : "next_turn" }),
+  })
+}
+
+// sampleAnswerNote is BoardService.answerInput on the sample: a comment to
+// the holders, and the card back to working.
+function sampleAnswerNote(
+  c: CardDetail,
+  option: number,
+  text: string,
+  wake: boolean
+): AnswerResult {
+  if (c.state !== TaskState.InputRequired)
+    throw new Error("coord: conflict: the card isn't waiting on your input")
+  if (option !== -1 || !text.trim())
+    throw new Error("coord: invalid input: answer in your own words")
+  const now = new Date().toISOString()
+  c.state = TaskState.Working
+  c.note = ""
+  c.blockers = c.blockers.filter((x) => x.id !== NoteItem)
+  c.openBlockers = 0
+  c.blockerQuestion = ""
+  c.updatedAt = now
+  c.recent = [
+    { at: now, who: sampleYou, text: `You answered: ${text.trim()}` },
+    ...c.recent,
+  ].slice(0, 8)
+  sampleChanged()
+  return new AnswerResult({
+    card: c,
+    told: new Told({
+      to: c.working.map((w) => w.key),
+      mode: wake ? "wake" : "next_turn",
+    }),
   })
 }
 

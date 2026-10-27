@@ -197,3 +197,48 @@ func TestCardChangesReachThePump(t *testing.T) {
 		t.Fatal("no change")
 	}
 }
+
+// A card set to input_required asks the person its note: it shows as one
+// open item (sorted first, counted as waiting on a decision), and answering
+// it comments to the holder (a wake) and puts the card back to working.
+func TestCardInputRequired(t *testing.T) {
+	ctx := context.Background()
+	b, c, got := cardsBoard(t)
+	heldTask(t, c)
+	tk := heldTask(t, c)
+	if _, err := c.SetTaskState(ctx, agentA, tk.ID, coord.InputRequired, "Which DB should I use?"); err != nil {
+		t.Fatal(err)
+	}
+	grid := b.Cards()
+	if len(grid) != 2 || grid[0].ID != tk.ID || grid[0].OpenBlockers != 1 || grid[0].BlockerQuestion != "Which DB should I use?" {
+		t.Fatalf("grid %+v", grid)
+	}
+	d, err := b.Card(tk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Blockers) != 1 || d.Blockers[0].ID != NoteItem || d.Blockers[0].Question != "Which DB should I use?" ||
+		d.Blockers[0].RaisedBy.Key != agentA || d.Blockers[0].Resolved != nil {
+		t.Fatalf("detail blockers %+v", d.Blockers)
+	}
+	if _, err := b.Answer(tk.ID, NoteItem, 0, "", true); err == nil {
+		t.Fatal("picked an option the note doesn't have")
+	}
+	res, err := b.Answer(tk.ID, NoteItem, -1, "postgres", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Card.State != coord.Working || res.Card.OpenBlockers != 0 || res.Told.Mode != "wake" ||
+		len(res.Told.To) != 1 || res.Told.To[0] != agentA {
+		t.Fatalf("after answer %+v told %+v", res.Card.CardSummary, res.Told)
+	}
+	if len(res.Card.Comments) != 1 || res.Card.Comments[0].Text != "postgres" {
+		t.Fatalf("comments %+v", res.Card.Comments)
+	}
+	if len(*got) != 1 || !strings.Contains((*got)[0].n.Text, "postgres") || !(*got)[0].n.Wake {
+		t.Fatalf("routed %+v", *got)
+	}
+	if _, err := b.Answer(tk.ID, NoteItem, -1, "again", true); err == nil {
+		t.Fatal("answered a note that no longer waits")
+	}
+}

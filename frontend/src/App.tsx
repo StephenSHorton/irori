@@ -95,6 +95,7 @@ export function App() {
               >
                 {selected && (
                   <CardPanel
+                    key={selected}
                     detail={detail}
                     error={detailError}
                     gone={gone}

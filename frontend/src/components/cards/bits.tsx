@@ -36,8 +36,15 @@ export function ProgressBar({
   )
 }
 
-// StatePill is the card's first badge: its blockers, else in progress.
+// StatePill is the card's first badge: waiting on the person's input, its
+// blockers, else in progress.
 export function StatePill({ card }: { card: CardSummary }) {
+  if (card.state === TaskState.InputRequired)
+    return (
+      <Badge variant="destructive" className="rounded-full">
+        Needs your input
+      </Badge>
+    )
   if (card.openBlockers > 0)
     return (
       <Badge variant="destructive" className="rounded-full">
