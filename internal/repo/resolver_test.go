@@ -51,12 +51,22 @@ func testResolver(f *fakeGit, now *time.Time) *Resolver {
 	return r
 }
 
+// absDir is the absolute form of name, the form Key passes to git.
+func absDir(t *testing.T, name string) string {
+	t.Helper()
+	p, err := filepath.Abs(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
 func TestKeyCachesPerDirAndToplevel(t *testing.T) {
-	root := filepath.Clean("/r")
+	root := absDir(t, "r")
 	sub := filepath.Join(root, "sub")
 	f := &fakeGit{answers: map[string]string{
-		"-C " + root + " rev-parse --show-toplevel":     "/r",
-		"-C " + sub + " rev-parse --show-toplevel":      "/r",
+		"-C " + root + " rev-parse --show-toplevel":     root,
+		"-C " + sub + " rev-parse --show-toplevel":      root,
 		"-C " + root + " remote get-url origin":         "git@github.com:Foo/Bar.git",
 		"-C " + root + " rev-list --max-parents=0 HEAD": "abc",
 	}}
@@ -90,10 +100,11 @@ func TestKeyCachesPerDirAndToplevel(t *testing.T) {
 }
 
 func TestKeyFallsBackToRootCommit(t *testing.T) {
+	x := absDir(t, "x")
 	f := &fakeGit{answers: map[string]string{
-		"-C x rev-parse --show-toplevel":     "x",
-		"-C x remote get-url origin":         "../local/clone",
-		"-C x rev-list --max-parents=0 HEAD": "ffff\naaaa\n",
+		"-C " + x + " rev-parse --show-toplevel":     x,
+		"-C " + x + " remote get-url origin":         "../local/clone",
+		"-C " + x + " rev-list --max-parents=0 HEAD": "ffff\naaaa\n",
 	}}
 	now := time.Unix(0, 0)
 	if got := testResolver(f, &now).Key("x"); got != "root:aaaa" {
@@ -101,7 +112,7 @@ func TestKeyFallsBackToRootCommit(t *testing.T) {
 	}
 
 	f = &fakeGit{answers: map[string]string{
-		"-C x rev-parse --show-toplevel": "x",
+		"-C " + x + " rev-parse --show-toplevel": x,
 	}}
 	if got := testResolver(f, &now).Key("x"); got != "" {
 		t.Fatalf("no remote, no commits: got %q", got)
@@ -143,9 +154,10 @@ func TestKeyTimeoutNotCached(t *testing.T) {
 	}
 	f.mu.Lock()
 	f.block = false
+	slow := absDir(t, "slow")
 	f.answers = map[string]string{
-		"-C slow rev-parse --show-toplevel":     "slow",
-		"-C slow rev-list --max-parents=0 HEAD": "abc",
+		"-C " + slow + " rev-parse --show-toplevel":     slow,
+		"-C " + slow + " rev-list --max-parents=0 HEAD": "abc",
 	}
 	f.mu.Unlock()
 	if got := r.Key("slow"); got != "root:abc" {
@@ -154,9 +166,10 @@ func TestKeyTimeoutNotCached(t *testing.T) {
 }
 
 func TestKeyConcurrent(t *testing.T) {
+	a := absDir(t, "a")
 	f := &fakeGit{answers: map[string]string{
-		"-C a rev-parse --show-toplevel":     "a",
-		"-C a rev-list --max-parents=0 HEAD": "abc",
+		"-C " + a + " rev-parse --show-toplevel":     a,
+		"-C " + a + " rev-list --max-parents=0 HEAD": "abc",
 	}}
 	now := time.Unix(0, 0)
 	r := testResolver(f, &now)
@@ -274,5 +287,39 @@ func TestIntegrationEmptyRepo(t *testing.T) {
 	git(t, dir, "remote", "add", "origin", "https://gitlab.com/g/s/n.git")
 	if got := New().Key(dir); got != "remote:gitlab.com/g/s/n" {
 		t.Fatalf("empty repo with remote: got %q", got)
+	}
+}
+
+func TestIntegrationIgnoresInheritedGitDir(t *testing.T) {
+	needGit(t)
+	a := initRepo(t)
+	b := initRepo(t)
+	git(t, b, "remote", "add", "origin", "git@github.com:x/y.git")
+	// As if launched from a git hook in repo a.
+	t.Setenv("GIT_DIR", filepath.Join(a, ".git"))
+	t.Setenv("GIT_WORK_TREE", a)
+	r := New()
+	if got := r.Key(b); got != "remote:github.com/x/y" {
+		t.Fatalf("b: got %q, want remote:github.com/x/y", got)
+	}
+	if ka := r.Key(a); ka == "" || ka == r.Key(b) {
+		t.Fatalf("a: got %q", ka)
+	}
+}
+
+func TestIntegrationRelativeDirFollowsCwd(t *testing.T) {
+	needGit(t)
+	a := initRepo(t)
+	b := initRepo(t)
+	git(t, b, "remote", "add", "origin", "git@github.com:x/y.git")
+	r := New()
+	t.Chdir(a)
+	ka := r.Key(".")
+	if ka == "" || ka == "remote:github.com/x/y" {
+		t.Fatalf("in a: got %q", ka)
+	}
+	t.Chdir(b)
+	if got := r.Key("."); got != "remote:github.com/x/y" {
+		t.Fatalf("in b: got %q, want remote:github.com/x/y", got)
 	}
 }

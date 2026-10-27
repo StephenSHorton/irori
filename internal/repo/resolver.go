@@ -56,7 +56,13 @@ func (r *resolver) key(dir string) string {
 	if dir == "" {
 		return ""
 	}
-	dir = filepath.Clean(dir)
+	// Cache by absolute path: a relative dir means something else once the
+	// process cwd moves.
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return ""
+	}
+	dir = abs
 	if k, ok := r.cached(r.byDir, dir); ok {
 		return k
 	}
@@ -158,7 +164,7 @@ func (r *resolver) store(m map[string]entry, k, key string) {
 // runGit runs git from PATH with no shell and no console window.
 func runGit(ctx context.Context, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0")
+	cmd.Env = append(gitEnv(os.Environ()), "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0")
 	cmd.WaitDelay = 500 * time.Millisecond
 	hideWindow(cmd)
 	var stdout bytes.Buffer
@@ -167,4 +173,31 @@ func runGit(ctx context.Context, args ...string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(stdout.String()), nil
+}
+
+// repoEnvVars point git at one repository regardless of -C. Inherited from a
+// hook or another tool, they would give every directory that repo's key.
+var repoEnvVars = []string{
+	"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+	"GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+	"GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM", "GIT_NAMESPACE",
+}
+
+// gitEnv returns env without the repo-selecting git variables.
+func gitEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		drop := false
+		for _, v := range repoEnvVars {
+			if sameEnvName(name, v) {
+				drop = true
+				break
+			}
+		}
+		if !drop {
+			out = append(out, kv)
+		}
+	}
+	return out
 }

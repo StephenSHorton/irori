@@ -3,6 +3,7 @@ package repo
 import (
 	"net/url"
 	"strings"
+	"unicode"
 )
 
 // remoteSchemes are the URL schemes that name a hosted repository. file://
@@ -24,7 +25,18 @@ func normalizeRemote(raw string) string {
 		if err != nil || !remoteSchemes[strings.ToLower(u.Scheme)] {
 			return ""
 		}
-		host, path = u.Hostname(), u.Path
+		// u.Path is already percent-decoded, so %2F would pass as a separator.
+		// Decode each escaped segment and refuse one that holds a slash.
+		host = u.Hostname()
+		raw := strings.Split(u.EscapedPath(), "/")
+		for i, seg := range raw {
+			dec, err := url.PathUnescape(seg)
+			if err != nil || strings.ContainsAny(dec, "/\\") {
+				return ""
+			}
+			raw[i] = dec
+		}
+		path = strings.Join(raw, "/")
 	} else {
 		// scp-like: [user@]host:path. The colon must come before any slash,
 		// or it's a relative path such as "dir/a:b".
@@ -61,7 +73,7 @@ func normalizeRemote(raw string) string {
 }
 
 // splitPath drops empty segments and a trailing .git. It returns nil for a
-// path with "." or ".." segments.
+// path with "." or ".." segments or with control characters.
 func splitPath(p string) []string {
 	var segs []string
 	for _, seg := range strings.Split(p, "/") {
@@ -69,6 +81,9 @@ func splitPath(p string) []string {
 		case "":
 			continue
 		case ".", "..":
+			return nil
+		}
+		if strings.ContainsFunc(seg, unicode.IsControl) {
 			return nil
 		}
 		segs = append(segs, seg)
@@ -90,6 +105,16 @@ func splitPath(p string) []string {
 // foldAzure maps every Azure DevOps spelling of a repo onto the https shape
 // dev.azure.com/<org>/<project>/_git/<repo>, so ssh and https clones match.
 func foldAzure(host string, segs []string) (string, []string) {
+	host, segs = foldAzureHost(host, segs)
+	// Legacy ssh clones spell the _git segment _ssh:
+	// ssh://org@org.visualstudio.com:22/DefaultCollection/proj/_ssh/repo
+	if n := len(segs); host == "dev.azure.com" && n >= 2 && segs[n-2] == "_ssh" {
+		segs[n-2] = "_git"
+	}
+	return host, segs
+}
+
+func foldAzureHost(host string, segs []string) (string, []string) {
 	switch {
 	case host == "ssh.dev.azure.com" || host == "vs-ssh.visualstudio.com":
 		// git@ssh.dev.azure.com:v3/org/project/repo

@@ -42,6 +42,9 @@ func TestNormalizeRemote(t *testing.T) {
 		{"org@vs-ssh.visualstudio.com:v3/org/proj/repo", "dev.azure.com/org/proj/_git/repo"},
 		{"https://org.visualstudio.com/proj/_git/repo", "dev.azure.com/org/proj/_git/repo"},
 		{"https://org.visualstudio.com/DefaultCollection/proj/_git/repo", "dev.azure.com/org/proj/_git/repo"},
+		{"ssh://org@org.visualstudio.com:22/DefaultCollection/proj/_ssh/repo", "dev.azure.com/org/proj/_git/repo"},
+		{"ssh://org@org.visualstudio.com:22/proj/_ssh/repo", "dev.azure.com/org/proj/_git/repo"},
+		{"https://github.com/o/_ssh/n", "github.com/o/_ssh/n"},
 
 		// Local paths.
 		{"/abs/path/repo.git", ""},
@@ -67,6 +70,13 @@ func TestNormalizeRemote(t *testing.T) {
 		{"https://github.com/o/../n", ""},
 		{"ftp://host.example/o/n", ""},
 		{"https:///o/n", ""},
+		{"https://github.com/o/n%0Ax", ""},
+		{"https://github.com/o/n%00x", ""},
+		{"https://github.com/o/n%2Fx", ""},
+		{"https://github.com/o%2fn", ""},
+		{"https://github.com/o/n%5Cx", ""},
+		{"https://github.com/o/%2E%2E/n", ""},
+		{"git@github.com:o/n", ""},
 	}
 	for _, c := range cases {
 		if got := NormalizeRemote(c.in); got != c.want {
