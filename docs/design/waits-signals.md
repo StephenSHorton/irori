@@ -63,3 +63,11 @@ The GUI gets a "Waits & signals" strip on the Board: what's raised, who's waitin
 2. Waits: rows, a matcher over the store subscription, and firing through the inbox with next-turn delivery. This shares the next-turn delivery work with the Board.
 3. "Finished" detection from the Board's task state, the PR ledger and presence.
 4. GUI strip and "Notify me when…", once notifications exist.
+
+## Notifications (to design after toru-notifications lands)
+
+Requirements gathered so far:
+- **Actionable approvals:** share requests (decision 26), and wake or assignment requests on boards with stricter receive settings. Each shows buttons (Share / Review / No, Release / Dismiss), and answering one clears it on every device.
+- **Waits for people:** "Notify me when…" fires a notification.
+- **Agents notifying a person:** a `notify` tool with a person, all of their devices or one device as the target, text, a level, and up to two actions whose answers come back to the agent at its next turn.
+- **Look and sound:** follow what toru-notifications builds (top-right stack, never steals focus, the s&box sounds), so Stephen's apps feel the same.
