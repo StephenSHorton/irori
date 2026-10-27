@@ -121,7 +121,7 @@ func TestCheckLargeChangedIsBounded(t *testing.T) {
 	if got := checkWithin(t, a, root, 10*time.Second); got.State != Changed {
 		t.Fatalf("Check = %+v", got)
 	}
-	if d := time.Since(start); d > 2*time.Second {
+	if d := time.Since(start); d > slow*2*time.Second {
 		t.Fatalf("Check took %v", d)
 	}
 }

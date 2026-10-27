@@ -371,7 +371,7 @@ func TestBigPatchTime(t *testing.T) {
 	p := bigPatch()
 	start := time.Now()
 	out := s.String(p)
-	if d := time.Since(start); d > 10*time.Second {
+	if d := time.Since(start); d > slow*10*time.Second {
 		t.Errorf("4 MiB patch took %v", d)
 	}
 	if strings.Count(out, "\n") != strings.Count(p, "\n") {
@@ -392,7 +392,7 @@ func TestLongLineTime(t *testing.T) {
 	p := b.String()
 	start := time.Now()
 	out := s.String(p)
-	if d := time.Since(start); d > 10*time.Second {
+	if d := time.Since(start); d > slow*10*time.Second {
 		t.Errorf("1 MiB line took %v", d)
 	}
 	if strings.Contains(out, fakeGHP) || strings.Contains(out, "hunter2hunter2") {

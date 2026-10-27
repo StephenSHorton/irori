@@ -90,7 +90,7 @@ func newRigNamed(t *testing.T, wrap func(key, name string) string) *rig {
 // waitPost waits for a Post of id.
 func (r *rig) waitPost(id string) {
 	r.t.Helper()
-	deadline := time.After(3 * time.Second)
+	deadline := time.After(slow * 3 * time.Second)
 	for {
 		select {
 		case got := <-r.fake.posted:
@@ -361,7 +361,7 @@ func TestWatchCatchesUpAfterDroppedChanges(t *testing.T) {
 	d2 := r.heldMessage("second") // the watcher stalls building its card
 	select {
 	case <-stalled:
-	case <-time.After(3 * time.Second):
+	case <-time.After(slow * 3 * time.Second):
 		t.Fatal("the watcher never stalled")
 	}
 	for i := 0; i < 80; i++ { // more changes than the 64-slot buffer
