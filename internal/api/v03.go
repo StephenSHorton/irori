@@ -72,14 +72,14 @@ func limitParam(w http.ResponseWriter, q url.Values, def, hi int) (int, bool) {
 	return min(n, hi), true
 }
 
-func flag(q url.Values, name string) bool {
+func boolParam(q url.Values, name string) bool {
 	v := q.Get(name)
 	return v == "1" || v == "true"
 }
 
 func (h *handler) timeline(w http.ResponseWriter, r *http.Request, c *capture.Capture) {
 	q := r.URL.Query()
-	tq := capture.TimelineQuery{Key: strings.TrimSpace(q.Get("agent")), Subagents: flag(q, "subagents")}
+	tq := capture.TimelineQuery{Key: strings.TrimSpace(q.Get("agent")), Subagents: boolParam(q, "subagents")}
 	if tq.Key == "" {
 		writeError(w, http.StatusBadRequest, "agent is required")
 		return
@@ -187,7 +187,7 @@ func (h *handler) decisions(w http.ResponseWriter, r *http.Request, c *capture.C
 		RepoKey: strings.TrimSpace(q.Get("repo")),
 		Path:    strings.ReplaceAll(q.Get("path"), `\`, "/"),
 		Query:   q.Get("query"),
-		All:     flag(q, "all"),
+		All:     boolParam(q, "all"),
 	}
 	var ok bool
 	if f.Limit, ok = limitParam(w, q, 50, MaxCaptureLimit); !ok {
