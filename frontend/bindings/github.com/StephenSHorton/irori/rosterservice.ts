@@ -67,8 +67,8 @@ export function Recent(limit: number): $CancellablePromise<store$0.Event[]> {
  * working directory and returns what it printed. The UI confirms first; this
  * only refuses: a live session, an id never seen on this device, or a
  * session whose transcript is gone (Claude Code would start an empty session
- * under that id instead of failing). The cwd comes from the log, never from
- * the caller.
+ * under that id instead of failing), or one revived within reviveWindow. The
+ * cwd comes from the log, never from the caller.
  */
 export function Revive(sessionID: string): $CancellablePromise<string> {
     return $Call.ByID(3622376147, sessionID);

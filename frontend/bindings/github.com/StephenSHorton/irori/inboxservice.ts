@@ -30,7 +30,8 @@ export function AllowAndRelease(deliveryID: string): $CancellablePromise<void> {
 }
 
 /**
- * Counts returns the unread and held numbers and whether wakes are paused.
+ * Counts returns the unread and held numbers and whether wakes are paused,
+ * as of the last inbox:changed.
  */
 export function Counts(): $CancellablePromise<$models.InboxCounts> {
     return $Call.ByID(1601443325).then(($result: any) => {
@@ -46,7 +47,8 @@ export function Dismiss(deliveryID: string): $CancellablePromise<void> {
 }
 
 /**
- * Held returns every delivery waiting on the person, newest first.
+ * Held returns every delivery waiting on the person, newest first, as of
+ * the last inbox:changed.
  */
 export function Held(): $CancellablePromise<inbox$0.Delivery[]> {
     return $Call.ByID(247421174).then(($result: any) => {
