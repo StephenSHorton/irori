@@ -38,6 +38,7 @@ type Filter struct {
 	Kinds    []string // exact kinds, or prefixes ending in "." ("agent.")
 	DeviceID string
 	AfterHLC hlc.Timestamp // strictly after
+	AfterSeq int64         // seq strictly after; meant with DeviceID (one device's rows)
 	Limit    int           // default 200, max 1000
 	Desc     bool          // newest first
 }

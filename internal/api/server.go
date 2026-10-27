@@ -143,6 +143,8 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, agents)
 	case "/v1/events":
 		h.events(w, r)
+	case "/v1/events/stream":
+		h.eventsStream(w, r)
 	default:
 		writeError(w, http.StatusNotFound, "no such route")
 	}
@@ -167,6 +169,7 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 			f.Kinds = append(f.Kinds, k)
 		}
 	}
+	f.DeviceID = q.Get("device")
 	if v := q.Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 {

@@ -351,6 +351,10 @@ func (s *Store) list(ctx context.Context, f Filter) ([]Event, error) {
 		where = append(where, "device_id = ?")
 		args = append(args, f.DeviceID)
 	}
+	if f.AfterSeq > 0 {
+		where = append(where, "seq > ?")
+		args = append(args, f.AfterSeq)
+	}
 	if f.AfterHLC != 0 {
 		if uint64(f.AfterHLC) > math.MaxInt64 {
 			return nil, nil // nothing is stored past int64

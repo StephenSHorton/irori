@@ -276,6 +276,12 @@ func (c *Core) Events(ctx context.Context, f store.Filter) ([]store.Event, error
 	return c.store.List(ctx, f)
 }
 
+// SubscribeEvents implements api.Backend: rows appended or replicated after
+// the call, with a zero Event as the resync signal (store.Subscribe).
+func (c *Core) SubscribeEvents(ctx context.Context) <-chan store.Event {
+	return c.store.Subscribe(ctx)
+}
+
 // Changes streams roster changes for the UI until ctx ends.
 func (c *Core) Changes(ctx context.Context) <-chan presence.Change {
 	return c.presence.Subscribe(ctx)
