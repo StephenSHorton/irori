@@ -53,8 +53,7 @@ func TestWatchSeesCreateAppendAndNested(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.WriteString("two
-"); err != nil {
+	if _, err := h.WriteString("two\n"); err != nil {
 		t.Fatal(err)
 	}
 	h.Close()
