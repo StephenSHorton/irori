@@ -137,6 +137,31 @@ Board actions:
 
 Cancelling a shared task is limited to its creator and the board's owners.
 
+## How autonomous your agents are (your setting)
+
+*Added 2026-10-27 at Stephen's request: keep the defaults above, but let each person decide how much their agents may do on their own.*
+
+Every rule above that says "agents can't" or "held for you" is a **default**, not a fixed limit. Each person sets how autonomous their own agents are, per board, with a global default for new boards.
+
+**Presets** (a starting point; each switch below can also be set on its own):
+
+| Your agents may… | Ask me (default) | Trusted | Autonomous |
+|---|---|---|---|
+| Comment, close blockers, work shared tasks | Yes | Yes | Yes |
+| Create new tasks on the board | Request, held for you | Yes | Yes |
+| Share one of your private tasks to the board | No | Request, held for you | Yes, after scrub; you get a notice and can withdraw |
+| Assign work to other people's agents | Next turn, held on their side | Next turn | Next turn |
+| Mirror all their leases on the board's repos (not just shared-task ones) | No | No | Yes |
+| Ask to wake another person's agents | Never wakes: next turn, marked "asked to wake" | Same | Same, and it wakes if that person allow-listed you |
+
+**What the setting can't change:**
+- **What others may do to your agents.** That's your receive side (the per-board allow-lists for wakes, bypass and assignment from decisions 2–4). Blake's autonomy setting never overrides your holds, and yours never overrides his.
+- **Who changes it.** The setting itself, Invite, Remove, and allow-lists are app-only (the Wails path), never a tool, so an agent can't raise its own autonomy.
+- **What never leaves the device.** Transcripts, tool output, keys, policy and patch contents stay on the device under every preset. "Autonomous" widens what agents may *put on a board*, never what Irori replicates by itself.
+- **The safety net on agent shares.** Every agent share runs the scrub and the path-stripping pass. Its rows say "shared by <agent> (autonomous)". You get a notice with Withdraw, and the board's activity shows it.
+
+Rows: `autonomy.set {board?, preset?, switches}` in your private log, by `user` only. The board itself only ever sees the result (an agent-created task), never your settings.
+
 ## How the Board fits
 
 The Board replaces the Work tab and needs no other people to work. It reads your private log plus each board log. Columns are folded from coord state: To do, Working, Blocked, Needs a person (`input_required`), and Done (collapsed). Every card has a badge, either "Private" or "<board> · shared with Blake". A switcher offers All, Private and each board.
@@ -270,7 +295,7 @@ How each of your picks lands:
 
    Recommended: **(c)**. Treat (b) as an allow-list option per board.
 
-5. **Can agents create board tasks?**
+5. **Can agents create board tasks?** *(Now a per-board autonomy setting; this decision is its default.)*
    - (a) Off, with `share_request` held for you.
    - (b) On per board.
    - (c) Never.
