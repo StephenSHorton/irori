@@ -53,7 +53,7 @@ type Backend interface {
 	Events(ctx context.Context, f store.Filter) ([]store.Event, error)
 	Inbox() *inbox.Inbox
 	Coord() *coord.Coord
-	// Capture serves timeline, why, decision_record and decisions (v0.3). A
+	// Capture serves timeline and why (v0.3). A
 	// nil Capture makes those tools answer "Error: capture is off".
 	Capture() *capture.Capture
 	// Notifier shows the notify tool's cards to the person at this device.

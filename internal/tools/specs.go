@@ -299,7 +299,7 @@ var specList = []Spec{
 	{
 		Name: "why",
 		Description: "Why a file (or one line of it) is the way it is: for a committed line, git blame's commit and the sessions and turns " +
-			"behind it; for uncommitted lines or a whole file, the newest recorded edits; always the decisions anchored there.",
+			"behind it; for uncommitted lines or a whole file, the newest recorded edits.",
 		InputSchema: schema(
 			`"path":{"type":"string","description":"The file: absolute, or relative to your working directory (or to repo's root when repo is given)."},`+
 				`"line":{"type":"integer","minimum":1,"description":"Optional 1-based line number."},`+
@@ -320,30 +320,6 @@ var specList = []Spec{
 		Description: "Pull requests Irori linked to agents in a GitHub repo: who authored, touched or reviewed each. show pr:<owner>/<name>#<n> for one.",
 		InputSchema: schema(`"repo":{"type":"string","description":"A repoKey (remote:github.com/<owner>/<name>) or <owner>/<name>. Default: your own repo."}`),
 		ReadOnly:    true, Clients: both,
-	},
-	{
-		Name: "decision_record",
-		Description: "Record a decision about this code so other agents and the person find it later (decisions, why). Keep it to " +
-			"decisions about this code; record project-level decisions wherever the project keeps them. Anchor it with path and lines; " +
-			"the anchor is re-checked whenever it is read. supersedes lists ids it replaces (only their author or the person may).",
-		InputSchema: schema(
-			`"statement":{"type":"string","description":"The decision, one or two sentences (at most 500 characters)."},`+
-				`"why":{"type":"string","description":"Optional reasoning (at most 2000 characters)."},`+
-				`"path":{"type":"string","description":"Optional file to anchor it to: absolute, or relative to your working directory."},`+
-				`"lines":{"type":"string","description":"Optional lines of path, \"40\" or \"40-52\"; without it the anchor is the whole file."},`+
-				`"supersedes":{"type":"array","items":{"type":"string"},"description":"Optional ids of decisions this one replaces."}`,
-			"statement"),
-		Clients: both,
-	},
-	{
-		Name:        "decisions",
-		Description: "List recorded decisions, newest first, with their anchor status (ok, moved, changed, gone, unknown). Superseded ones are hidden unless all = true.",
-		InputSchema: schema(
-			`"repo":{"type":"string","description":"Only decisions anchored in this repoKey. Default: every repo."},` +
-				`"path":{"type":"string","description":"Only decisions anchored at this file: absolute, or relative to your working directory (repo-relative when repo is given)."},` +
-				`"query":{"type":"string","description":"Only decisions whose statement or reasoning contains this text (case-insensitive)."},` +
-				`"all":{"type":"boolean","description":"Include superseded decisions (default false)."}`),
-		ReadOnly: true, Clients: both,
 	},
 	{
 		Name:        "join",

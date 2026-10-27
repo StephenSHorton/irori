@@ -759,7 +759,7 @@
   },
   {
     "name": "why",
-    "description": "Why a file (or one line of it) is the way it is: for a committed line, git blame's commit and the sessions and turns behind it; for uncommitted lines or a whole file, the newest recorded edits; always the decisions anchored there.",
+    "description": "Why a file (or one line of it) is the way it is: for a committed line, git blame's commit and the sessions and turns behind it; for uncommitted lines or a whole file, the newest recorded edits.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -827,79 +827,6 @@
         "repo": {
           "type": "string",
           "description": "A repoKey (remote:github.com/\u003cowner\u003e/\u003cname\u003e) or \u003cowner\u003e/\u003cname\u003e. Default: your own repo."
-        }
-      },
-      "required": [],
-      "additionalProperties": false
-    },
-    "readOnly": true,
-    "clients": [
-      "claude",
-      "grok"
-    ]
-  },
-  {
-    "name": "decision_record",
-    "description": "Record a decision about this code so other agents and the person find it later (decisions, why). Keep it to decisions about this code; record project-level decisions wherever the project keeps them. Anchor it with path and lines; the anchor is re-checked whenever it is read. supersedes lists ids it replaces (only their author or the person may).",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "statement": {
-          "type": "string",
-          "description": "The decision, one or two sentences (at most 500 characters)."
-        },
-        "why": {
-          "type": "string",
-          "description": "Optional reasoning (at most 2000 characters)."
-        },
-        "path": {
-          "type": "string",
-          "description": "Optional file to anchor it to: absolute, or relative to your working directory."
-        },
-        "lines": {
-          "type": "string",
-          "description": "Optional lines of path, \"40\" or \"40-52\"; without it the anchor is the whole file."
-        },
-        "supersedes": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Optional ids of decisions this one replaces."
-        }
-      },
-      "required": [
-        "statement"
-      ],
-      "additionalProperties": false
-    },
-    "readOnly": false,
-    "clients": [
-      "claude",
-      "grok"
-    ]
-  },
-  {
-    "name": "decisions",
-    "description": "List recorded decisions, newest first, with their anchor status (ok, moved, changed, gone, unknown). Superseded ones are hidden unless all = true.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "repo": {
-          "type": "string",
-          "description": "Only decisions anchored in this repoKey. Default: every repo."
-        },
-        "path": {
-          "type": "string",
-          "description": "Only decisions anchored at this file: absolute, or relative to your working directory (repo-relative when repo is given)."
-        },
-        "query": {
-          "type": "string",
-          "description": "Only decisions whose statement or reasoning contains this text (case-insensitive)."
-        },
-        "all": {
-          "type": "boolean",
-          "description": "Include superseded decisions (default false)."
         }
       },
       "required": [],

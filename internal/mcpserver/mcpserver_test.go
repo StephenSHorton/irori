@@ -537,12 +537,12 @@ func TestFallbackSpecsValid(t *testing.T) {
 	want := []string{"overview", "search", "show", "agents", "events", "send", "reply", "inbox", "ack", "defer", "skip", "notify",
 		"board", "board_create", "board_comment", "board_block", "board_unblock", "board_join", "board_leave",
 		"board_assign", "board_status", "board_link", "lease", "leases", "release",
-		"timeline", "why", "commits", "prs", "decision_record", "decisions", "join"}
+		"timeline", "why", "commits", "prs", "join"}
 	if !slices.Equal(names, want) {
 		t.Errorf("names %v\nwant  %v", names, want)
 	}
 	if !slices.Equal(ro, []string{"overview", "search", "show", "agents", "events", "inbox", "board", "leases",
-		"timeline", "why", "commits", "prs", "decisions"}) {
+		"timeline", "why", "commits", "prs"}) {
 		t.Errorf("read-only %v", ro)
 	}
 }

@@ -151,10 +151,8 @@ func moreBefore(t *testing.T, out string) string {
 func TestCaptureOff(t *testing.T) {
 	h := newHarness(t)
 	for name, args := range map[string]any{
-		"timeline":        nil,
-		"why":             map[string]any{"path": "foo.go"},
-		"decision_record": map[string]any{"statement": "x"},
-		"decisions":       nil,
+		"timeline": nil,
+		"why":      map[string]any{"path": "foo.go"},
 	} {
 		h.fails(callA, name, args, "capture is off")
 	}
@@ -289,7 +287,8 @@ func TestWhy(t *testing.T) {
 	out := r.ok(callA, "why", map[string]any{"path": "foo.go", "line": 3})
 	has(t, out, "Why foo.go:3 in "+r.repoKey, "Last changed by commit "+r.sha[:7]+` "add foo", by Test`,
 		"Sessions behind it: alpha ("+keyA+")", "Committed by alpha ("+keyA+") in turn p1",
-		"Turns:", `prompt: "add foo please"`, "Edits, newest first:", "Write +5/-0 (exact) by alpha", "No decisions anchored here.")
+		"Turns:", `prompt: "add foo please"`, "Edits, newest first:", "Write +5/-0 (exact) by alpha")
+	hasNot(t, out, "ecision")
 	// Absolute path, from Grok with no cwd.
 	r.grokNoCwd()
 	has(t, r.ok(grokCaller(), "why", map[string]any{"path": filepath.Join(r.dir, "foo.go")}), "Why foo.go in", "No line given")
@@ -301,10 +300,14 @@ func TestWhy(t *testing.T) {
 	out = r.ok(callA, "why", map[string]any{"path": "foo.go", "line": 7})
 	has(t, out, "isn't committed yet")
 
-	// A decision anchored there shows with its status.
-	has(t, r.ok(callA, "decision_record", map[string]any{"statement": "keep A tiny", "path": "foo.go", "lines": "3"}), "anchor ok")
-	has(t, r.ok(callB, "why", map[string]any{"path": filepath.Join(r.dir, "foo.go"), "line": 3}),
-		"Decisions anchored here:", "[ok] ", `statement: "keep A tiny"`, "by alpha")
+	// Decision records left the agent tools (decision 27): one already in
+	// the log, anchored right there, is not shown.
+	if _, err := r.b.cp.RecordDecision(bg, capture.DecisionInput{Statement: "keep A tiny", Path: "foo.go", Lines: "3", Cwd: r.dir}); err != nil {
+		t.Fatal(err)
+	}
+	out = r.ok(callB, "why", map[string]any{"path": filepath.Join(r.dir, "foo.go"), "line": 3})
+	has(t, out, "Last changed by commit "+r.sha[:7])
+	hasNot(t, out, "ecision", "keep A tiny")
 
 	r.fails(callA, "why", nil, "give path")
 	r.fails(callA, "why", map[string]any{"path": "foo.go", "line": -1}, "1-based")
@@ -313,73 +316,9 @@ func TestWhy(t *testing.T) {
 	r.fails(callA, "why", map[string]any{"path": filepath.Join(outside, "x.txt")}, "not inside a known git repo", "absolute path")
 }
 
-func TestDecisionRecordAndList(t *testing.T) {
-	r := withCapture(t, nil)
-	out := r.ok(callA, "decision_record", map[string]any{"statement": "Use tabs", "why": "gofmt says so", "path": "foo.go", "lines": "3-5"})
-	has(t, out, "Recorded decision d-", "anchored at foo.go:3-5 in "+r.repoKey, "(anchor ok)")
-	id1 := field(t, out, "decision")
-	if !strings.HasPrefix(id1, "d-") {
-		t.Fatalf("id %q", id1)
-	}
-	out = r.ok(callB, "decision_record", map[string]any{"statement": "Ship on Fridays"})
-	has(t, out, "not anchored to code")
-	idB := field(t, out, "decision")
-
-	// Only the author (or the person) supersedes.
-	r.fails(callA, "decision_record", map[string]any{"statement": "no", "supersedes": []string{idB}}, "only its author", "decisions tool")
-	r.fails(callA, "decision_record", map[string]any{"statement": "no", "supersedes": []string{"d-nope"}}, "no such decision")
-	r.clk.advance(time.Second)
-	out = r.ok(callA, "decision_record", map[string]any{"statement": "Use spaces after all", "supersedes": []string{id1}})
-	has(t, out, "it supersedes "+id1)
-
-	list := r.ok(callC, "decisions", nil)
-	has(t, list, "2 current decisions in every repo", `statement: "Use spaces after all"`, "by alpha ("+keyA+")",
-		`statement: "Ship on Fridays"`, "by beta", "[unanchored]", "supersedes: "+id1)
-	hasNot(t, list, "Use tabs")
-	all := r.ok(callC, "decisions", map[string]any{"all": true})
-	has(t, all, "3 all (superseded too) decisions", "[ok] ", `"Use tabs"`, `why: "gofmt says so"`, "anchor: foo.go:3-5", "superseded by: ")
-	has(t, r.ok(callC, "decisions", map[string]any{"query": "FRIDAY"}), "1 current decisions", "Ship on Fridays")
-	has(t, r.ok(callA, "decisions", map[string]any{"path": "foo.go", "all": true}), "1 all (superseded too) decisions in "+r.repoKey+", path foo.go", "Use tabs")
-	has(t, r.ok(callC, "decisions", map[string]any{"repo": "remote:github.com/acme/none", "path": "src/x.go"}), "0 current decisions in remote:github.com/acme/none, path src/x.go")
-
-	// The anchor moves and changes as the file does.
-	writeFile(t, filepath.Join(r.dir, "foo.go"), "// header\n"+fooGo)
-	has(t, r.ok(callC, "decisions", map[string]any{"all": true}), "[moved to line 4-6]")
-	writeFile(t, filepath.Join(r.dir, "foo.go"), "package foo\n")
-	has(t, r.ok(callC, "decisions", map[string]any{"all": true}), "[changed]")
-	os.Remove(filepath.Join(r.dir, "foo.go"))
-	has(t, r.ok(callC, "decisions", map[string]any{"all": true}), "[gone]")
-}
-
-func TestDecisionRecordErrors(t *testing.T) {
-	r := withCapture(t, nil)
-	r.fails(callA, "decision_record", map[string]any{"statement": "  "}, "give statement")
-	r.fails(callA, "decision_record", map[string]any{"statement": "x", "lines": "3"}, "lines needs path")
-	r.fails(callA, "decision_record", map[string]any{"statement": "x", "path": "foo.go", "lines": "three"}, "lines must look like")
-	r.fails(callA, "decision_record", map[string]any{"statement": "x", "path": "foo.go", "lines": "90-99"}, "past the end")
-	r.fails(callA, "decision_record", map[string]any{"statement": "x", "path": "nope.go"}, "no such file")
-	r.fails(callA, "decision_record", map[string]any{"statement": strings.Repeat("x", 501)}, "too long")
-	r.fails(callA, "decision_record", map[string]any{"statement": "x", "supersedes": "d-1"}, "supersedes should be an array")
-	// decision_record has no repo argument, so its no-repo hint mustn't offer one.
-	outside := canonDir(t, t.TempDir())
-	writeFile(t, filepath.Join(outside, "x.txt"), "x\n")
-	out := r.fails(callA, "decision_record", map[string]any{"statement": "x", "path": filepath.Join(outside, "x.txt")}, "not inside a known git repo")
-	hasNot(t, out, "repo =")
-	out = r.fails(callA, "decision_record", map[string]any{"statement": "x", "path": "../x.txt"}, "not inside a known git repo")
-	hasNot(t, out, "repo =")
-	r.grokNoCwd()
-	r.fails(grokCaller(), "decision_record", map[string]any{"statement": "x", "path": "foo.go"}, "no working directory for you", "absolute path")
-	out = r.ok(grokCaller(), "decision_record", map[string]any{"statement": "grok decides", "path": filepath.Join(r.dir, "foo.go")})
-	has(t, out, "anchored at foo.go in "+r.repoKey)
-	has(t, r.ok(callA, "decisions", nil), "grok decides", "by grokker ("+keyG+")")
-	r.fails(grokCaller(), "decisions", map[string]any{"path": "foo.go"}, "no working directory for you", "repo")
-	has(t, r.ok(grokCaller(), "decisions", map[string]any{"path": "foo.go", "repo": r.repoKey}), "1 current decisions", "grok decides")
-	r.fails(callA, "decisions", map[string]any{"mine": true}, "unknown argument")
-}
-
-// why keeps the decisions anchored at a line even when the turns and edits
-// behind it are big enough to fill the result.
-func TestWhyKeepsDecisionsUnderBigTurns(t *testing.T) {
+// why stays under the result cap, without the generic clip, when the turns
+// and edits behind a line are big enough to fill it.
+func TestWhyCapsBigTurns(t *testing.T) {
 	big := strings.Repeat("漢", 300) // 3 bytes a rune, past the excerpt cap
 	r := withCapture(t, func(r *capRig) {
 		t0 := r.clk.now().Add(-time.Hour)
@@ -399,11 +338,8 @@ func TestWhyKeepsDecisionsUnderBigTurns(t *testing.T) {
 			Files:     []gitlink.FileLink{{Path: "foo.go", Link: gitlink.LinkExact, Edits: edits}},
 			Sessions:  []string{keyA}, Turns: turns, At: t0.Add(11 * time.Minute)})
 	})
-	for _, s := range []string{"keep A tiny", "and B small"} {
-		r.ok(callA, "decision_record", map[string]any{"statement": s, "why": big, "path": "foo.go", "lines": "3"})
-	}
 	out := r.ok(callA, "why", map[string]any{"path": "foo.go", "line": 3})
-	has(t, out, "Decisions anchored here:", `statement: "keep A tiny"`, `statement: "and B small"`, "Turns:", "not shown")
+	has(t, out, "Turns:", "not shown")
 	hasNot(t, out, "[truncated:")
 	if len(out) > MaxResult {
 		t.Fatalf("why is %d bytes, over %d", len(out), MaxResult)

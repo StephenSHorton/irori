@@ -12,7 +12,6 @@ import (
 
 	"github.com/StephenSHorton/irori/internal/capture"
 	"github.com/StephenSHorton/irori/internal/coord"
-	"github.com/StephenSHorton/irori/internal/decision"
 	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/search"
@@ -68,11 +67,8 @@ func newSet(b Backend) *Set {
 		"release":       s.release,
 		"timeline":      s.timeline,
 		"why":           s.why,
-		"decisions":     s.decisions,
 		"join":          s.join,
 		"notify":        s.notify,
-
-		"decision_record": s.decisionRecord,
 	}
 	s.needsCaller = map[string]bool{}
 	for _, sp := range specList {
@@ -193,10 +189,6 @@ func mapErr(err error) string {
 		return errText(err.Error() + " that you may read. search finds refs; messages show only to their sender and recipients.")
 	case errors.Is(err, capture.ErrNoRepo):
 		return errText(err.Error() + ". Give an absolute path, or repo = a repoKey from the agents tool.")
-	case errors.Is(err, decision.ErrBadPath), errors.Is(err, decision.ErrNoFile):
-		return errText(err.Error() + ". Give a file inside the repo: absolute, or relative to your working directory.")
-	case errors.Is(err, decision.ErrSupersede), errors.Is(err, decision.ErrNoDecision):
-		return errText(err.Error() + ". The decisions tool (all = true) lists ids and authors.")
 	case errors.Is(err, coord.ErrBadResource):
 		return errText(err.Error() + ". For files use path:<repoKey>:<glob>, with the repoKey from the agents tool.")
 	}
