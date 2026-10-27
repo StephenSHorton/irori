@@ -287,6 +287,9 @@ type Status struct {
 	LastScan    time.Time `json:"lastScan"`
 	Backfilling bool      `json:"backfilling"` // the first pass hasn't finished
 	LastError   string    `json:"lastError,omitempty"`
+	// Dropped counts heuristic (shell) edits discarded as noise since this
+	// process started; they are never logged, so the counts aren't replayed.
+	Dropped Dropped `json:"dropped"`
 }
 
 // Capture is safe for concurrent use.

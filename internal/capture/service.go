@@ -93,6 +93,9 @@ type capture struct {
 	lastScan    time.Time
 	backfilling bool
 	lastErr     string
+	dropped     Dropped                    // heuristic edits discarded as noise, this process
+	noisePaths  map[string]map[string]bool // turnKey -> editPathKey -> dropped (true) or kept
+	ignores     ignoreCache
 
 	subMu sync.Mutex
 	subs  map[chan Change]struct{}
@@ -142,8 +145,8 @@ func newCapture(ctx context.Context, st *store.Store, roster Roster, opts Option
 		repoRoots: map[string]repoSeen{}, commitMap: map[string]*commitRec{},
 		dview: decision.NewView(), open: map[string]*transcript.Turn{},
 		files: map[string]*tfile{}, reflogs: map[string]*reflogState{},
-		firstSize: map[string]int64{},
-		subs:      map[chan Change]struct{}{}, backfilling: true, firstPass: true,
+		firstSize: map[string]int64{}, noisePaths: map[string]map[string]bool{},
+		subs: map[chan Change]struct{}{}, backfilling: true, firstPass: true,
 	}
 	if err := c.replay(ctx); err != nil {
 		return nil, err
@@ -374,6 +377,7 @@ func (c *capture) status() Status {
 	return Status{
 		Files: len(c.files), Backlog: c.backlog, Repos: len(c.reflogs),
 		LastScan: c.lastScan, Backfilling: c.backfilling, LastError: c.lastErr,
+		Dropped: c.dropped,
 	}
 }
 

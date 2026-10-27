@@ -76,8 +76,10 @@ func (c *capture) timeline(q TimelineQuery) Timeline {
 				continue
 			}
 			root, rk := c.cachedRepo(t.Cwd)
+			clean := *t
+			clean.EditPaths = c.stripNoise(q.Key, clean)
 			tv := &TurnView{
-				TurnRow: TurnRow{ID: turnRowID(q.Key, t.AgentID, t.ID), Key: q.Key, RepoKey: rk, Root: root, TurnID: t.ID, Turn: c.scrubTurn(*t, root)},
+				TurnRow: TurnRow{ID: turnRowID(q.Key, t.AgentID, t.ID), Key: q.Key, RepoKey: rk, Root: root, TurnID: t.ID, Turn: c.scrubTurn(clean, root)},
 				Open:    true,
 				Edits:   c.turnEdits(q.Key, t.AgentID, t.ID),
 			}

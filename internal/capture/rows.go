@@ -21,13 +21,18 @@ const maxCommand = 300
 
 // handle turns parser items into rows. It stops at the first failed append.
 func (c *capture) handle(ctx context.Context, f *tfile, items []transcript.Item) error {
-	for _, it := range items {
+	drop := c.dropNoise(ctx, f, items)
+	for i, it := range items {
 		var err error
 		switch {
 		case it.Turn != nil:
 			err = c.onTurn(ctx, f, it.Turn)
+		case it.Edit != nil && drop[i]:
+			c.notePath(f.key, it.Edit, true)
 		case it.Edit != nil:
-			err = c.onEdit(ctx, f, it.Edit)
+			if err = c.onEdit(ctx, f, it.Edit); err == nil {
+				c.notePath(f.key, it.Edit, false)
+			}
 		case it.Summary != nil:
 			err = c.onSummary(ctx, f, it.Summary)
 		case it.Bash != nil:
@@ -122,8 +127,19 @@ func (c *capture) onTurn(ctx context.Context, f *tfile, t *transcript.Turn) erro
 		return nil
 	}
 	root, rk := c.repoFor(ctx, t.Cwd)
-	row := TurnRow{ID: id, Key: f.key, RepoKey: rk, Root: root, TurnID: t.ID, Turn: c.scrubTurn(*t, root)}
-	return c.emit(ctx, agentActor(f.key), KindTurn, row)
+	tk := turnKey(f.key, t.AgentID, t.ID)
+	clean := *t
+	c.mu.Lock()
+	clean.EditPaths = c.stripNoise(f.key, clean)
+	c.mu.Unlock()
+	row := TurnRow{ID: id, Key: f.key, RepoKey: rk, Root: root, TurnID: t.ID, Turn: c.scrubTurn(clean, root)}
+	if err := c.emit(ctx, agentActor(f.key), KindTurn, row); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	delete(c.noisePaths, tk)
+	c.mu.Unlock()
+	return nil
 }
 
 func (c *capture) onEdit(ctx context.Context, f *tfile, e *transcript.Edit) error {
