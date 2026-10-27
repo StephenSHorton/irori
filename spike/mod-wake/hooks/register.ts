@@ -12,19 +12,21 @@ async function note($: any, line: string) {
 }
 
 let woke = false
+// Tells module instances apart: if two values show up, the module loaded twice.
+const INSTANCE = Math.random().toString(36).slice(2, 8)
 
 export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
-    await note($, `session.start cwd=${(e as any).cwd}`)
+    await note($, `session.start instance=${INSTANCE} session=${await $.session.id()} cwd=${(e as any).cwd}`)
     void (async () => {
       try {
         const child = $.process.spawn({
           argv: ['node', '-e', 'setTimeout(() => console.log("WAKE"), 4000); setInterval(() => {}, 1 << 30)'],
         })
         for await (const { stream, text } of child) {
-          await note($, `spawn ${stream}: ${text.trim()}`)
+          await note($, `spawn instance=${INSTANCE} ${stream}: ${text.trim()}`)
           if (stream === 'stdout' && text.includes('WAKE') && !woke) {
             woke = true
             await $.prompt.submit({ text: 'IRORI_SPIKE wake. Reply with exactly: irori-spike-pong' })
