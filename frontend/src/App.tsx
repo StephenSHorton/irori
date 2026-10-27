@@ -29,9 +29,13 @@ export function App() {
   const { cards, loading, error } = useCards()
   const now = useNow()
   const [filter, setFilter] = useState<Filter>("all")
-  // picked is the person's choice; until there is one the first card opens.
+  // picked is the person's choice; until there is one the first card opens,
+  // and is pinned once shown, so an answer that re-sorts the grid doesn't
+  // swap the open card (and its buttons) under the cursor.
   const [picked, setPicked] = useState("")
-  const selected = picked || cards[0]?.id || ""
+  const first = cards[0]?.id ?? ""
+  if (!picked && first) setPicked(first) // during render: no extra paint
+  const selected = picked || first
   const { detail, error: detailError } = useCard(selected)
   const detailRef = useRef<HTMLDivElement>(null)
 
