@@ -3,10 +3,12 @@ import { BellIcon, SettingsIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { corners, useSettings } from "@/lib/settings"
+import { UpdateStatusLine } from "@/updater"
 
 // SettingsMenu is the header's gear: notifications (on or off, sound,
-// volume, corner, a test card) and launch at login, which the tray also
-// offers.
+// volume, corner, a test card), launch at login, which the tray also
+// offers, and the version line with "Check for updates" (or "Restart now"
+// once an update is ready, so "Later" on the banner or card never strands it).
 export function SettingsMenu() {
   const [open, setOpen] = useState(false)
   const s = useSettings(open)
@@ -122,6 +124,9 @@ export function SettingsMenu() {
               disabled={s.launchAtLogin === null}
               onChange={(v) => void s.setLaunchAtLogin(v)}
             />
+          </div>
+          <div className="border-t border-border pt-3">
+            <UpdateStatusLine />
           </div>
           {n && s.error && (
             <p className="text-xs text-destructive">{s.error}</p>

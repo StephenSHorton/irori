@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/StephenSHorton/irori/internal/notify"
 	"github.com/StephenSHorton/irori/internal/update"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -209,9 +210,17 @@ func (t *TrayController) rebuild() {
 // --startup launch with no window), and install-on-quit. Call it once after
 // application.New and before app.Run; u must also be in Options.Services for
 // the UI to reach it. A nil tray is fine.
-func setupUpdater(app *application.App, u *update.UpdateService, tray *TrayController) {
+//
+// n is the GUI Core's Notifier: once an update is downloaded and verified it
+// posts the update card (update_card.go), and show is the card's body click.
+// A nil n posts nothing.
+func setupUpdater(app *application.App, u *update.UpdateService, tray *TrayController, n *notify.Notifier, show func()) {
 	u.SetHooks(func(name string, data any) { app.Event.Emit(name, data) }, app.Quit)
 	tray.SetUpdater(u)
+	if n != nil {
+		card := &updateCard{n: n, install: u.RestartToUpdate, open: show}
+		u.SetOnChange(card.onStatus)
+	}
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		go u.AutoUpdate() // dev builds and unsupported platforms return at once
 	})
