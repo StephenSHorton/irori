@@ -314,6 +314,9 @@ async function loadWork(): Promise<WorkValue> {
 // useWork loads tasks (finished ones too; the tab filters) and leases. It
 // re-reads on work:changed (every task or lease change, lease expiry too),
 // and when the tab opens or the window regains focus.
+// WorkRetryMs is the wait before re-reading after a failed Work read.
+const WorkRetryMs = 4000
+
 export function useWork(active: boolean): WorkState {
   const { value, loading, error, reload } = useLatest<WorkValue>(loadWork, {
     tasks: [],
@@ -333,6 +336,14 @@ export function useWork(active: boolean): WorkState {
     window.addEventListener("focus", onFocus)
     return () => window.removeEventListener("focus", onFocus)
   }, [active, reload])
+
+  // A failed read has no next event to recover it (there is no poll), so
+  // retry once a few seconds later while the tab is open.
+  useEffect(() => {
+    if (!active || !error) return
+    const id = window.setTimeout(() => void reload(), WorkRetryMs)
+    return () => window.clearTimeout(id)
+  }, [active, error, reload])
 
   return { ...value, loading, error, reload }
 }

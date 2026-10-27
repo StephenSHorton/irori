@@ -17,7 +17,7 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as coord$0 from "./internal/coord/models.js";
 
 /**
- * CancelTask moves a task to canceled.
+ * CancelTask moves a task to canceled; work:changed follows through pump.
  */
 export function CancelTask(id: string): $CancellablePromise<coord$0.Task> {
     return $Call.ByID(2369511139, id).then(($result: any) => {

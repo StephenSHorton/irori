@@ -298,6 +298,11 @@ export class Dropped {
      */
     "overCap": number;
 
+    /**
+     * no lines added or removed (a shell call touched the file)
+     */
+    "unchanged": number;
+
     /** Creates a new Dropped instance. */
     constructor($$source: Partial<Dropped> = {}) {
         if (!("artifact" in $$source)) {
@@ -311,6 +316,9 @@ export class Dropped {
         }
         if (!("overCap" in $$source)) {
             this["overCap"] = 0;
+        }
+        if (!("unchanged" in $$source)) {
+            this["unchanged"] = 0;
         }
 
         Object.assign(this, $$source);
