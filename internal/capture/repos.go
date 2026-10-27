@@ -18,12 +18,17 @@ import (
 // maxReflogRead caps one pass's read of a logs/HEAD.
 const maxReflogRead = 4 << 20
 
+// maxReflogTries is how many repo passes try a reflog line whose import
+// failed (a git timeout, a failed append) before it is skipped.
+const maxReflogTries = 3
+
 // reflogState is one watched worktree root.
 type reflogState struct {
 	root    string
 	repoKey string
 	logPath string
 	offset  int64
+	fails   int // failed imports of the line at offset
 }
 
 // repoPass checks every known root's reflog and imports new commits.
@@ -66,9 +71,16 @@ func (c *capture) watchRoot(ctx context.Context, r repoSeen) {
 		if off, ok := c.cursors.Reflogs[n]; ok {
 			st.offset = off
 		} else {
-			// First sight: only movements from now on, never the history.
+			// First sight: only movements since the root was first seen,
+			// never the history.
+			c.mu.RLock()
+			first, ok := c.firstSize[n]
+			c.mu.RUnlock()
 			if fi, err := os.Stat(st.logPath); err == nil {
 				st.offset = fi.Size()
+				if ok && first <= st.offset {
+					st.offset = first
+				}
 			}
 			c.cursors.setReflog(n, st.offset)
 		}
@@ -109,6 +121,7 @@ func (c *capture) watchRoot(ctx context.Context, r repoSeen) {
 		lineBytes := data[:i+1]
 		data = data[i+1:]
 		entries, _ := gitlink.ParseReflog(lineBytes)
+		var lineErr error
 		for _, e := range entries {
 			if branch == "" {
 				branch = c.branch(ctx, st.root)
@@ -117,10 +130,21 @@ func (c *capture) watchRoot(ctx context.Context, r repoSeen) {
 				if ctx.Err() != nil {
 					return
 				}
-				c.setErr(err)
-				log.Printf("capture: reflog %s: %v", filepath.Base(st.root), err)
+				lineErr = err
 			}
 		}
+		if lineErr != nil {
+			c.setErr(lineErr)
+			st.fails++
+			if st.fails < maxReflogTries {
+				// Keep the offset: the next pass tries the line again, and
+				// the commits it already logged are skipped as seen.
+				log.Printf("capture: reflog %s: %v (will retry)", filepath.Base(st.root), lineErr)
+				return
+			}
+			log.Printf("capture: reflog %s: %v (skipped after %d tries)", filepath.Base(st.root), lineErr, st.fails)
+		}
+		st.fails = 0
 		st.offset += int64(len(lineBytes))
 		c.cursors.setReflog(n, st.offset)
 	}
@@ -172,12 +196,14 @@ func (c *capture) importEntry(ctx context.Context, st *reflogState, e gitlink.Re
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			// One unreadable commit doesn't lose the rest of the walk.
+			// One unreadable commit doesn't stop the rest of the walk; the
+			// error makes watchRoot try the line again.
 			if firstErr == nil {
 				firstErr = err
 			}
 			continue
 		}
+		com.Subject = c.scrub.String(com.Subject)
 		row := CommitRow{RepoKey: st.repoKey, Root: st.root, Op: strings.TrimSpace(op), Branch: branch, Commit: com}
 		if err := c.emit(ctx, "irori", KindCommitSeen, row); err != nil {
 			return err
@@ -189,20 +215,56 @@ func (c *capture) importEntry(ctx context.Context, st *reflogState, e gitlink.Re
 	return firstErr
 }
 
-// candidates are the repo's uncommitted edits a commit can link; c.mu held.
+// candidates are the edits a commit can link; c.mu held. They are the
+// repo's uncommitted edits plus, for a path whose committed blob an already
+// linked edit produced (an amend, cherry-pick or rebase of a linked commit),
+// that edit and the run its link named. Linked edits only enter where exact
+// fires, so they never widen a partial or heuristic link.
 func (c *capture) candidates(row CommitRow) []gitlink.EditRef {
 	cut := c.now().Add(-poolAge)
 	limit := row.At.Add(commitSlack)
+	usable := func(e *EditRow) bool {
+		return e != nil && !e.At.Before(cut) && (row.At.IsZero() || !e.At.After(limit))
+	}
 	var out []gitlink.EditRef
-	for id := range c.pool[row.RepoKey] {
-		e := c.editByID[id]
-		if e == nil || e.At.Before(cut) || (!row.At.IsZero() && e.At.After(limit)) {
-			continue
+	have := map[string]bool{}
+	add := func(e *EditRow) {
+		if have[e.ID] {
+			return
 		}
+		have[e.ID] = true
 		out = append(out, gitlink.EditRef{
 			ID: e.ID, Root: e.Root, Path: e.Path, AfterBlob: e.AfterBlob, AfterBlobLF: e.AfterBlobLF,
 			Heuristic: e.Fidelity == transcript.Heuristic, At: e.At,
 		})
+	}
+	for id := range c.pool[row.RepoKey] {
+		if e := c.editByID[id]; usable(e) {
+			add(e)
+		}
+	}
+	blobs := map[string]string{}
+	for _, f := range row.Files {
+		if f.Blob != "" {
+			blobs[f.Path] = f.Blob
+		}
+	}
+	if len(blobs) > 0 {
+		for _, e := range c.editList {
+			if e.RepoKey != row.RepoKey || !c.linked[e.ID] || e.Fidelity == transcript.Heuristic || !usable(e) {
+				continue
+			}
+			b := blobs[e.Path]
+			if b == "" || !(strings.EqualFold(e.AfterBlob, b) || (e.AfterBlobLF != "" && strings.EqualFold(e.AfterBlobLF, b))) {
+				continue
+			}
+			add(e)
+			for _, id := range c.linkedWith[e.ID] {
+				if r := c.editByID[id]; usable(r) && r.Path == e.Path {
+					add(r)
+				}
+			}
+		}
 	}
 	// Map order is random; Classify keeps candidate order for equal times.
 	sort.Slice(out, func(i, j int) bool {

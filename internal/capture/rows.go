@@ -2,6 +2,9 @@ package capture
 
 import (
 	"context"
+	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
@@ -62,10 +65,33 @@ func (c *capture) noteRoot(ctx context.Context, root string) string {
 	if rk == "" {
 		return ""
 	}
+	c.snapshotReflog(root)
 	if err := c.emit(ctx, "irori", KindRepoSeen, repoSeen{RepoKey: rk, Root: root, At: c.now()}); err != nil {
 		c.setErr(err)
 	}
 	return rk
+}
+
+// snapshotReflog records the size of a new root's logs/HEAD, so the first
+// reflog watch starts from the moment the root was seen, not from the next
+// repo pass (a commit made in between would be skipped otherwise).
+func (c *capture) snapshotReflog(root string) {
+	gd, err := gitlink.GitDir(root)
+	if err != nil {
+		return
+	}
+	var size int64
+	if fi, err := os.Stat(filepath.Join(gd, "logs", "HEAD")); err == nil {
+		size = fi.Size()
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	n := normRoot(root)
+	c.mu.Lock()
+	if _, ok := c.firstSize[n]; !ok {
+		c.firstSize[n] = size
+	}
+	c.mu.Unlock()
 }
 
 // scrubTurn scrubs a turn's text and makes its edit paths repo-relative.

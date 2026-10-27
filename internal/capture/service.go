@@ -77,7 +77,8 @@ type capture struct {
 	editByID    map[string]*EditRow
 	editsByTurn map[string][]*EditRow // turnKey(key, agentID, turnID)
 	pool        map[string]map[string]bool
-	linked      map[string]bool // edit ids some commit.linked names
+	linked      map[string]bool     // edit ids some commit.linked names
+	linkedWith  map[string][]string // edit id -> the file's edits its newest link named
 	summaries   map[string][]*SummaryRow
 	cmds        []CommitCmdRow
 	ledger      *ledger.Ledger
@@ -87,6 +88,7 @@ type capture struct {
 	open        map[string]*transcript.Turn // openKey(key, agentID) -> open turn
 	files       map[string]*tfile
 	reflogs     map[string]*reflogState
+	firstSize   map[string]int64 // normRoot -> logs/HEAD size when noteRoot first saw it
 	backlog     int64
 	lastScan    time.Time
 	backfilling bool
@@ -135,12 +137,13 @@ func newCapture(ctx context.Context, st *store.Store, roster Roster, opts Option
 		scrub: opts.Scrub, blobs: blobs, roots: newRootCache(opts.Git, opts.Now),
 		ids: map[string]bool{}, turns: map[string][]*TurnRow{},
 		editByID: map[string]*EditRow{}, editsByTurn: map[string][]*EditRow{},
-		pool: map[string]map[string]bool{}, linked: map[string]bool{},
+		pool: map[string]map[string]bool{}, linked: map[string]bool{}, linkedWith: map[string][]string{},
 		summaries: map[string][]*SummaryRow{}, ledger: ledger.New(),
 		repoRoots: map[string]repoSeen{}, commitMap: map[string]*commitRec{},
 		dview: decision.NewView(), open: map[string]*transcript.Turn{},
 		files: map[string]*tfile{}, reflogs: map[string]*reflogState{},
-		subs: map[chan Change]struct{}{}, backfilling: true, firstPass: true,
+		firstSize: map[string]int64{},
+		subs:      map[chan Change]struct{}{}, backfilling: true, firstPass: true,
 	}
 	if err := c.replay(ctx); err != nil {
 		return nil, err
@@ -301,6 +304,7 @@ func (c *capture) apply(ev store.Event) (*Change, error) {
 		for _, f := range l.Files {
 			for _, id := range f.Edits {
 				c.linked[id] = true
+				c.linkedWith[id] = f.Edits
 				if p := c.pool[l.RepoKey]; p != nil {
 					delete(p, id)
 				}

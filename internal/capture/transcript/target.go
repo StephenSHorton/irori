@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -74,7 +75,9 @@ func firstLine(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// clip keeps at most n runes of s, ending in "…" when it cut.
+// clip keeps at most n runes of s, ending in "…" when it cut. The cut backs
+// up to whitespace within the last n/2 runes, so a word straddling the cap
+// (a token the scrubber would only match whole) is dropped, not halved.
 func clip(s string, n int) string {
 	if utf8.RuneCountInString(s) <= n {
 		return s
@@ -83,7 +86,16 @@ func clip(s string, n int) string {
 		return ""
 	}
 	r := []rune(s)
-	return string(r[:n-1]) + "…"
+	cut := n - 1
+	if !unicode.IsSpace(r[cut]) {
+		for i := cut - 1; i >= cut-n/2 && i > 0; i-- {
+			if unicode.IsSpace(r[i]) {
+				cut = i
+				break
+			}
+		}
+	}
+	return string(r[:cut]) + "…"
 }
 
 // clipBytes keeps at most n bytes of s without splitting a rune.

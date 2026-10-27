@@ -94,6 +94,12 @@ func TestClip(t *testing.T) {
 		{"日本語テキスト", 4, "日本語…"},
 		{"", 5, ""},
 		{"ab", 0, ""},
+		// a word straddling the cap is dropped whole (a token stays unhalved)
+		{"ab cdef", 6, "ab…"},
+		{"abcd efgh", 5, "abcd…"},
+		{"xy\tsecret", 6, "xy…"},
+		// no whitespace within the last n/2 runes: hard cut
+		{"a bcdefghij", 6, "a bcd…"},
 	}
 	for _, tt := range tests {
 		if got := clip(tt.s, tt.n); got != tt.want {
