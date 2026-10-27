@@ -28,6 +28,7 @@ const testToken = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
 type fakeBackend struct {
 	mu   sync.Mutex
 	last store.Filter
+	cap  *capture.Capture // nil: the v0.3 routes answer 503
 }
 
 func (f *fakeBackend) Version() string { return "0.1.0-test" }
@@ -47,10 +48,11 @@ func (f *fakeBackend) Events(_ context.Context, flt store.Filter) ([]store.Event
 	}, nil
 }
 
-// v0.1 tests run without messaging: the v0.2 routes answer 503.
+// v0.1 tests run without messaging or capture: the v0.2 routes answer 503,
+// and so do the v0.3 routes unless cap is set.
 func (f *fakeBackend) Inbox() *inbox.Inbox       { return nil }
 func (f *fakeBackend) Coord() *coord.Coord       { return nil }
-func (f *fakeBackend) Capture() *capture.Capture { return nil }
+func (f *fakeBackend) Capture() *capture.Capture { return f.cap }
 func (f *fakeBackend) Tools() *tools.Set         { return nil }
 func (f *fakeBackend) JoinMember(context.Context, string, string) (Member, error) {
 	return Member{}, errors.New("no members")
@@ -68,6 +70,12 @@ func (f *fakeBackend) filter() store.Filter {
 func start(t *testing.T) (*fakeBackend, int) {
 	t.Helper()
 	b := &fakeBackend{}
+	return b, startWith(t, b)
+}
+
+// startWith serves b and returns its port.
+func startWith(t *testing.T, b Backend) int {
+	t.Helper()
 	ln, err := Listen()
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +94,7 @@ func start(t *testing.T) (*fakeBackend, int) {
 			t.Error("server did not shut down")
 		}
 	})
-	return b, ln.Addr().(*net.TCPAddr).Port
+	return ln.Addr().(*net.TCPAddr).Port
 }
 
 // do sends a raw request; mod may set headers or Host.
