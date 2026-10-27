@@ -176,27 +176,39 @@ func (s *set) inbox(ctx context.Context, c Caller, raw json.RawMessage) string {
 		rows = append(rows, r)
 	}
 
+	render := func() string {
+		var b strings.Builder
+		b.WriteString(head(len(rows)))
+		for _, r := range rows {
+			b.WriteString(inboxRow(n, now, r.d, r.textCap))
+		}
+		b.WriteString(foot(len(ds) - len(rows)))
+		return b.String()
+	}
+	// The budget is an estimate (header digits vary); check the real result
+	// and drop rows until it fits, so Call's clip never cuts a marked row.
+	out := render()
+	for len(out) > MaxResult && len(rows) > 0 {
+		rows = rows[:len(rows)-1]
+		out = render()
+	}
+
 	// A Grok push isn't delivered until the recipient shows it has it
 	// (design §4); reading the inbox does, but only for rows shown in full.
+	// A failed MarkRead shows "queued", which is shorter, so out still fits.
 	if channel {
+		changed := false
 		for i := range rows {
-			d := &rows[i].d
-			if d.State != inbox.Delivered {
-				continue
-			}
-			orig := ds[i]
-			if orig.State == inbox.Queued && ib.MarkRead(ctx, c.Sender.Key, d.ID) != nil {
-				d.State = orig.State
+			if ds[i].State == inbox.Queued && ib.MarkRead(ctx, c.Sender.Key, ds[i].ID) != nil {
+				rows[i].d.State = inbox.Queued
+				changed = true
 			}
 		}
+		if changed {
+			out = render()
+		}
 	}
-	var b strings.Builder
-	b.WriteString(head(len(rows)))
-	for _, r := range rows {
-		b.WriteString(inboxRow(n, now, r.d, r.textCap))
-	}
-	b.WriteString(foot(len(ds) - len(rows)))
-	return b.String()
+	return out
 }
 
 // inboxRow renders one delivery for the inbox list, text clipped to textCap

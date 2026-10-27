@@ -645,8 +645,6 @@ func TestInboxChannelBudgetMarksOnlyShown(t *testing.T) {
 	if len(out) > MaxResult {
 		t.Fatalf("%d bytes", len(out))
 	}
-	hasNot(t, out, "[truncated:")
-	has(t, out, "20 open messages for you, newest first; showing the first ", "more not shown; they stay unread")
 	shown, queued := 0, 0
 	for _, id := range ids {
 		d, _ := h.b.ib.Get(id)
@@ -675,6 +673,8 @@ func TestInboxChannelBudgetMarksOnlyShown(t *testing.T) {
 	if shown == 0 || shown+queued != 21 || queued <= 1 {
 		t.Fatalf("shown %d, queued %d", shown, queued)
 	}
+	hasNot(t, out, "[truncated:")
+	has(t, out, "20 open messages for you, newest first; showing the first ", "more not shown; they stay unread")
 	// Closing the shown ones brings the older ones up next time.
 	for _, id := range ids {
 		if d, _ := h.b.ib.Get(id); d.State == inbox.Delivered {
