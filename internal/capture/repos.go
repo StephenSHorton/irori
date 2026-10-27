@@ -102,6 +102,11 @@ func (c *capture) watchRoot(ctx context.Context, r repoSeen) {
 				// edit may already be in the log. Start at the first movement
 				// after it instead.
 				if since, ok := c.oldestEditAt(n); ok {
+					// A resumed session can hold edits weeks old; never
+					// reach back past the backfill window.
+					if floor := c.now().Add(-c.opts.BackfillWindow); since.Before(floor) {
+						since = floor
+					}
 					if off, ok := reflogOffsetSince(st.logPath, fi.Size(), since.Truncate(time.Second)); ok && off < st.offset {
 						st.offset = off
 					}
@@ -172,6 +177,11 @@ func (c *capture) watchRoot(ctx context.Context, r repoSeen) {
 		st.fails = 0
 		st.offset += int64(len(lineBytes))
 		c.cursors.setReflog(n, st.offset)
+		// Lines that log nothing (a checkout, an all-seen range) still cost
+		// a rev-list each, so the budget is checked per line too.
+		if time.Now().After(c.repoDeadline) {
+			return
+		}
 	}
 }
 
@@ -480,7 +490,9 @@ func (c *capture) oldestEditAt(n string) (time.Time, bool) {
 // after since, looking only at the last maxReflogRead bytes. ok is false
 // when no such line is there.
 func reflogOffsetSince(path string, size int64, since time.Time) (int64, bool) {
-	start := max(0, size-maxReflogRead)
+	// Read one byte before the window so a window that starts exactly on a
+	// line start isn't taken for a partial line.
+	start := max(0, size-maxReflogRead-1)
 	fh, err := os.Open(path)
 	if err != nil {
 		return 0, false
@@ -492,7 +504,8 @@ func reflogOffsetSince(path string, size int64, since time.Time) (int64, bool) {
 	}
 	off := start
 	if start > 0 {
-		// Skip the partial line the window starts in.
+		// Skip up to the first line start inside the window (the byte read
+		// before it, when that byte is a newline).
 		i := bytes.IndexByte(data, '\n')
 		if i < 0 {
 			return 0, false
