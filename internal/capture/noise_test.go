@@ -2,9 +2,11 @@ package capture
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -176,5 +178,60 @@ func TestIsArtifact(t *testing.T) {
 		if got := isArtifact(p); got != want {
 			t.Errorf("isArtifact(%q) = %v, want %v", p, got, want)
 		}
+	}
+}
+
+// A shell edit inside an agent worktree that has since been deleted must
+// not be judged by the parent repo, which ignores its worktrees directory.
+func TestHeuristicDeletedWorktreeKept(t *testing.T) {
+	r := newRig(t, nil)
+	dir := newRepo(t, "false")
+	writeFile(t, filepath.Join(dir, ".git", "info", "exclude"), ".claude/\n")
+	if err := os.MkdirAll(filepath.Join(dir, ".claude", "worktrees"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gone := filepath.Join(dir, ".claude", "worktrees", "wf-gone") // never created
+	w := r.session(sidA, gone)
+	now := time.Now()
+	w.write(flat(
+		[]obj{w.prompt("p1", "fmt", now)},
+		w.bashDiff("b1", "Bash", []string{filepath.Join(gone, "internal", "main.go")}, now.Add(time.Second)),
+		[]obj{w.done(now.Add(2 * time.Second))},
+	)...)
+	r.tail()
+
+	h := r.editsBy()[transcript.Heuristic]
+	if len(h) != 1 || !strings.HasSuffix(filepath.ToSlash(h[0]), "wf-gone/internal/main.go") {
+		t.Fatalf("heuristic edits = %v, want the deleted worktree's main.go", h)
+	}
+	if d := r.c.Status().Dropped; d != (Dropped{}) {
+		t.Fatalf("dropped = %+v", d)
+	}
+}
+
+// A failed rev-parse inside a repo keeps the edit (without a root) rather
+// than calling it outside every repo.
+func TestHeuristicRevParseFailsOpen(t *testing.T) {
+	g := &flakyGit{sub: "rev-parse", left: 1 << 20}
+	r := newRig(t, func(o *Options) { o.Git = g })
+	dir := newRepo(t, "false")
+	outside := canon(t, t.TempDir())
+	w := r.session(sidA, dir)
+	now := time.Now()
+	w.write(flat(
+		[]obj{w.prompt("p1", "fmt", now)},
+		w.bashDiff("b1", "Bash", []string{
+			filepath.Join(dir, "main.go"),
+			filepath.Join(outside, "notes.txt"), // no .git anywhere above: still outside
+		}, now.Add(time.Second)),
+		[]obj{w.done(now.Add(2 * time.Second))},
+	)...)
+	r.tail()
+
+	if h := r.editsBy()[transcript.Heuristic]; !slices.Equal(h, []string{filepath.Join(dir, "main.go")}) {
+		t.Fatalf("heuristic edits = %v, want main.go", h)
+	}
+	if d := r.c.Status().Dropped; d != (Dropped{OutsideRepo: 1}) {
+		t.Fatalf("dropped = %+v", d)
 	}
 }

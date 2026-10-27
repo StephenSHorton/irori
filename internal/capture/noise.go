@@ -3,6 +3,7 @@ package capture
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -15,8 +16,9 @@ import (
 // `dotnet build` reports every .dll it wrote. Before a heuristic edit is
 // logged it must name a file inside a known repo that git doesn't ignore and
 // whose extension isn't a binary or build artifact; at most maxShellEdits of
-// one shell call's edits survive. Exact edits (Edit, Write, NotebookEdit) are
-// never filtered.
+// one shell call's edits survive. When git can't say which repo owns a file
+// (see noiseRoot) the edit is kept. Exact edits (Edit, Write, NotebookEdit)
+// are never filtered.
 const (
 	// maxShellEdits caps the heuristic edits kept per shell call.
 	maxShellEdits = 50
@@ -207,9 +209,9 @@ func (c *capture) dropNoise(ctx context.Context, f *tfile, items []transcript.It
 			mark(i)
 			continue
 		}
-		root := ""
-		if filepath.IsAbs(abs) {
-			root = c.roots.forFile(ctx, abs)
+		root, unsure := c.noiseRoot(ctx, e.Cwd, abs)
+		if unsure {
+			continue
 		}
 		rel, ok := relTo(root, abs)
 		if !ok {
@@ -260,6 +262,41 @@ func (c *capture) dropNoise(ctx context.Context, f *tfile, items []transcript.It
 	c.dropped.OverCap += stats.OverCap
 	c.mu.Unlock()
 	return drop
+}
+
+// noiseRoot is the worktree root that judges a heuristic edit of abs ("",
+// !unsure: no repo holds it). unsure reports an edit whose owner can't be
+// known, which is kept unfiltered (losing a real edit is worse than keeping
+// noise): a .git sits above it but rev-parse failed, or it lies inside a
+// session cwd that is gone. A gone cwd was most likely an agent worktree,
+// since deleted, whose own repo can't be asked; the nearest existing
+// ancestor is the parent repo, which ignores its worktrees (.claude/).
+func (c *capture) noiseRoot(ctx context.Context, cwd, abs string) (root string, unsure bool) {
+	if !filepath.IsAbs(abs) || !underGit(abs) {
+		return "", false
+	}
+	if cwd != "" && filepath.IsAbs(cwd) && !dirExists(cwd) {
+		if _, in := relTo(cwd, abs); in {
+			return "", true
+		}
+	}
+	root = c.roots.forFile(ctx, abs)
+	return root, root == ""
+}
+
+// underGit reports a .git entry (a repo's directory or a worktree's file)
+// in some directory above path, existing or not.
+func underGit(path string) bool {
+	for d := filepath.Dir(path); ; {
+		if _, err := os.Lstat(filepath.Join(d, ".git")); err == nil {
+			return true
+		}
+		up := filepath.Dir(d)
+		if up == d {
+			return false
+		}
+		d = up
+	}
 }
 
 // notePath records that a turn dropped (noisy) or kept an edit for path.
