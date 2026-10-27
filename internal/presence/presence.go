@@ -76,8 +76,13 @@ type Change struct {
 type Options struct {
 	ClaudeDir string // e.g. paths.ClaudeDir()
 	DeviceID  string
-	Interval  time.Duration // rescan period; default 2s. fsnotify may wake it sooner.
-	Now       func() time.Time
+	// Interval is the rescan period when file events are unavailable
+	// (fswatch unsupported on this OS, or a watched dir missing); default 2s.
+	Interval time.Duration
+	// SafetyInterval is the slow full rescan (session files, liveness, tails)
+	// that backs up file and process-exit events; default 30s.
+	SafetyInterval time.Duration
+	Now            func() time.Time
 	// RepoKey maps a cwd to its repo_key (v0.2). Nil leaves RepoKey empty.
 	RepoKey func(cwd string) string
 }
@@ -90,8 +95,11 @@ type Watcher struct {
 // New makes a watcher; nothing runs until Run.
 func New(opts Options) *Watcher { return newWatcher(opts) }
 
-// Run scans until ctx ends. Changes are reported to subscribers; Updated is
-// sent only when a field other than LastActivity moved by less than a second.
+// Run scans until ctx ends: on file events under ClaudeDir/sessions and
+// ClaudeDir/projects and on session process exit where the OS reports them,
+// else every Interval, with a full rescan every SafetyInterval. Changes are
+// reported to subscribers; Updated is sent only when a field other than
+// LastActivity moved by less than a second.
 func (w *Watcher) Run(ctx context.Context) error { return w.run(ctx) }
 
 // Snapshot returns the live cards, sorted by LastActivity (newest first).
