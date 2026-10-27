@@ -46,7 +46,7 @@ func runGUI(args []string) error {
 
 	roster := &RosterService{core: c}
 	inboxSvc := newInboxService(c)
-	work := &WorkService{core: c}
+	board := newBoardService(c)
 	captureSvc := newCaptureService(c)
 	settings := &SettingsService{}
 	upd := update.New(update.Repo, version)
@@ -67,7 +67,7 @@ func runGUI(args []string) error {
 		Services: []application.Service{
 			application.NewService(roster),
 			application.NewService(inboxSvc),
-			application.NewService(work),
+			application.NewService(board),
 			application.NewService(captureSvc),
 			application.NewService(settings),
 			application.NewService(upd),
@@ -113,7 +113,7 @@ func runGUI(args []string) error {
 	inboxSvc.onCounts(tray.SetInbox)
 	go inboxSvc.pump(ctx, app)
 	go captureSvc.pump(ctx, app)
-	go work.pump(ctx, app)
+	go board.pump(ctx, app)
 	return app.Run()
 }
 

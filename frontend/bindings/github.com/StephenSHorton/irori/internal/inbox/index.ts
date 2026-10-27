@@ -5,6 +5,7 @@ export {
     Address,
     AddressKind,
     Delivery,
+    DeliveryMode,
     HoldReason,
     Message,
     Mode,
