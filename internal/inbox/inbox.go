@@ -152,6 +152,7 @@ type Delivery struct {
 	Via       string     `json:"via,omitempty"`    // "mod", "channel", "gui"
 	WakeID    string     `json:"wakeId,omitempty"` // the wake that carried it
 	Note      string     `json:"note,omitempty"`   // defer/skip note
+	For       string     `json:"for,omitempty"`    // PR work its owner couldn't take: that owner, "name (key)"
 	Until     time.Time  `json:"until,omitempty"`  // deferral due time
 	MovedTo   string     `json:"movedTo,omitempty"`
 	Reminded  bool       `json:"reminded"`

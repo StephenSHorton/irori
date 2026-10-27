@@ -32,12 +32,14 @@ func (s *set) send(ctx context.Context, c Caller, raw json.RawMessage) string {
 	switch {
 	case to != "" && repo != "":
 		return errText("give exactly one of to (an agent) or repo (a repoKey), not both.")
+	case isPRTarget(to):
+		addr = inbox.Address{Kind: inbox.ToPR, Value: to}
 	case to != "":
 		addr = inbox.Address{Kind: inbox.ToAgent, Value: to}
 	case repo != "":
 		addr = inbox.Address{Kind: inbox.ToRepo, Value: repo}
 	default:
-		return errText("say who it's for: to = an agent's name or key, or repo = a repoKey (see the agents tool).")
+		return errText("say who it's for: to = an agent's name or key (or a PR: pr:<owner>/<name>#<number> or its URL), or repo = a repoKey (see the agents tool).")
 	}
 	if strings.TrimSpace(a.Text) == "" {
 		return errText("give the message text.")
@@ -47,6 +49,17 @@ func (s *set) send(ctx context.Context, c Caller, raw json.RawMessage) string {
 		return mapErr(err)
 	}
 	return "Sent message " + m.ID + " " + s.outcome(d)
+}
+
+// isPRTarget: to names a pull request ("pr:..." or a GitHub URL) rather
+// than an agent. A malformed "pr:" value or github.com URL still counts (no
+// agent name or key holds "github.com/"), so the inbox explains the PR
+// forms instead of saying there's no agent by that name.
+func isPRTarget(to string) bool {
+	if len(to) >= 3 && strings.EqualFold(to[:3], "pr:") {
+		return true
+	}
+	return strings.Contains(strings.ToLower(to), "github.com/")
 }
 
 type replyArgs struct {
@@ -82,6 +95,10 @@ func (s *set) outcome(d inbox.Delivery) string {
 	} else {
 		b.WriteString("to repo " + oneLine(d.RepoKey, 160))
 	}
+	pr := d.Message.To.Kind == inbox.ToPR
+	if pr {
+		b.WriteString(" about " + oneLine(d.Message.To.Value, 160))
+	}
 	b.WriteString(" (delivery " + d.ID + "): ")
 	switch d.State {
 	case inbox.Held:
@@ -101,6 +118,10 @@ func (s *set) outcome(d inbox.Delivery) string {
 		}
 	default:
 		b.WriteString(string(d.State) + ".")
+	}
+	// A PR message its owner couldn't take says who it was for.
+	if owner := oneLine(d.For, maxFieldRunes); pr && owner != "" {
+		b.WriteString(" It went to the repo instead: its owner " + owner + " isn't running now.")
 	}
 	return b.String()
 }
@@ -217,8 +238,14 @@ func inboxRow(n names, now time.Time, d inbox.Delivery, textCap int) string {
 	var b strings.Builder
 	m := d.Message
 	fmt.Fprintf(&b, "\n- delivery %s [%s] from %s, %s, trust %s\n", d.ID, d.State, n.sender(m.From), ago(now, m.SentAt), oneLine(string(m.Trust), 20))
-	if m.To.Kind == inbox.ToRepo {
+	switch m.To.Kind {
+	case inbox.ToRepo:
 		fmt.Fprintf(&b, "  to repo: %s\n", oneLine(m.To.Value, 160))
+	case inbox.ToPR:
+		fmt.Fprintf(&b, "  about PR: %s\n", oneLine(m.To.Value, 160))
+		if owner := oneLine(d.For, maxFieldRunes); owner != "" {
+			fmt.Fprintf(&b, "  for: %s, the PR's owner, who isn't running now\n", owner)
+		}
 	}
 	if m.ReplyTo != "" {
 		fmt.Fprintf(&b, "  in reply to message: %s\n", oneLine(m.ReplyTo, 80))

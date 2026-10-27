@@ -286,6 +286,7 @@ function DeliveryRow({
             {d.via && <Meta label="via" value={d.via} />}
             <Meta label="hop" value={String(m.hop)} />
             {d.note && <Meta label="note" value={plainLine(d.note)} />}
+            {d.for && <Meta label="for" value={plainLine(d.for)} />}
             {d.movedTo && <Meta label="moved to" value={name(d.movedTo)} />}
             <Meta label="id" value={d.id} mono />
           </dl>

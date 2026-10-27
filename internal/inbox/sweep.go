@@ -14,6 +14,7 @@ type sweepItem struct {
 	To          string
 	From        string // the message's sender: repo work never goes back to it
 	Repo        string // "" = agent-addressed work
+	GoneRepo    string // owner-routed PR work (Repo ""): the PR's repo, where it goes once its owner has gone for good
 	State       State
 	Hold        HoldReason
 	AssignedAt  time.Time // To last changed
@@ -82,10 +83,15 @@ func planOne(it sweepItem, env sweepEnv) (sweepAction, bool) {
 		return sweepAction{}, false
 	}
 
-	// Repo work whose holder has really gone moves, whatever its state;
-	// agent work stays for the agent (it may come back or be revived).
-	if it.Repo != "" && it.To != "" && env.GoneFor(it.To) > env.Gone {
-		return act(actMove, env.Desk(it.Repo, it.To, it.From))
+	// Repo work (and PR work, owner-routed too) whose holder has really
+	// gone moves, whatever its state; agent work stays for the agent (it may
+	// come back or be revived).
+	gr := it.Repo
+	if gr == "" {
+		gr = it.GoneRepo
+	}
+	if gr != "" && it.To != "" && env.GoneFor(it.To) > env.Gone {
+		return act(actMove, env.Desk(gr, it.To, it.From))
 	}
 	if it.InFlight && env.Now.Sub(it.IssuedAt) > env.Grace {
 		return act(actReclaim, "")
@@ -182,9 +188,11 @@ func (b *inbox) sweep(ctx context.Context) error {
 			AssignedAt: d.assignedAt, UpdatedAt: d.UpdatedAt, Until: d.Until,
 			MovedFrom: d.movedFrom != "", EngagedOnce: d.engagedOnce, Reminded: d.Reminded,
 		}
-		if m := b.msgs[d.MessageID]; m != nil {
+		m := b.msgs[d.MessageID]
+		if m != nil {
 			it.From = m.From.Key
 		}
+		it.GoneRepo = prFallbackRepo(m, d)
 		if d.State == Queued && d.WakeID != "" {
 			if w := b.wakes[d.WakeID]; w != nil && !w.Reminder {
 				it.InFlight, it.IssuedAt = true, w.issuedAt
@@ -239,7 +247,10 @@ func (b *inbox) sweep(ctx context.Context) error {
 // duplicate the work but never drop it.
 func (b *inbox) move(ctx context.Context, d *drec, to string, cards map[string]presence.AgentCard) error {
 	m := b.msgs[d.MessageID]
-	nr := deliveryRow{DeliveryID: "dlv_" + b.ids.next(b.now()), MessageID: d.MessageID, To: to, RepoKey: d.RepoKey, MovedFrom: d.ID}
+	nr := deliveryRow{DeliveryID: "dlv_" + b.ids.next(b.now()), MessageID: d.MessageID, To: to, RepoKey: prFallbackRepo(m, d), MovedFrom: d.ID, For: d.For}
+	if d.RepoKey == "" && nr.RepoKey != "" {
+		nr.For = clip(b.describe(d.To, cards), MaxNote) // owner-routed PR work: its owner has gone
+	}
 	h := HoldUnowned
 	if m != nil {
 		h = b.hold(m, to, cards)

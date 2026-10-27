@@ -19,6 +19,8 @@ import (
 var (
 	ErrSelf  = errors.New("inbox: that's you; address another agent")
 	ErrEmpty = errors.New("inbox: give the message text")
+	// ErrBadPR: a ToPR address that isn't a PR.
+	ErrBadPR = errors.New("inbox: not a pull request address")
 )
 
 // MaxNote caps defer/skip notes and send reasons (runes).
@@ -61,6 +63,7 @@ type deliveryRow struct {
 	Via         string     `json:"via,omitempty"`
 	WakeID      string     `json:"wakeId,omitempty"`
 	Note        string     `json:"note,omitempty"`
+	For         string     `json:"for,omitempty"`
 	Until       time.Time  `json:"until,omitzero"`
 	MovedTo     string     `json:"movedTo,omitempty"`
 	MovedFrom   string     `json:"movedFrom,omitempty"`
@@ -74,7 +77,7 @@ type deliveryRow struct {
 func (d *drec) row() deliveryRow {
 	return deliveryRow{
 		DeliveryID: d.ID, MessageID: d.MessageID, To: d.To, RepoKey: d.RepoKey,
-		State: d.State, Hold: d.Hold, Via: d.Via, WakeID: d.WakeID, Note: d.Note,
+		State: d.State, Hold: d.Hold, Via: d.Via, WakeID: d.WakeID, Note: d.Note, For: d.For,
 		Until: d.Until, MovedTo: d.MovedTo, MovedFrom: d.movedFrom,
 		Reminded: d.Reminded, EngagedOnce: d.engagedOnce,
 	}
@@ -133,6 +136,7 @@ type inbox struct {
 	mu     sync.Mutex
 	st     *store.Store
 	roster Roster
+	owners func(prKey string) []string // Options.PROwners; nil = no ledger
 	dev    string
 	now    func() time.Time
 	lim    limits
@@ -181,7 +185,7 @@ func newInbox(ctx context.Context, st *store.Store, roster Roster, opts Options)
 		return def
 	}
 	b := &inbox{
-		st: st, roster: roster, dev: opts.DeviceID, now: now,
+		st: st, roster: roster, owners: opts.PROwners, dev: opts.DeviceID, now: now,
 		lim: limits{
 			unengaged: pick(opts.UnengagedLimit, UnengagedLimit),
 			gone:      pick(opts.GoneGrace, GoneGrace),
@@ -321,7 +325,7 @@ func (b *inbox) apply(ev store.Event) error {
 		}
 		d.MessageID, d.To, d.RepoKey = r.MessageID, r.To, r.RepoKey
 		d.State, d.Hold, d.Via, d.WakeID = r.State, r.Hold, r.Via, r.WakeID
-		d.Note, d.Until, d.MovedTo, d.Reminded = r.Note, r.Until, r.MovedTo, r.Reminded
+		d.Note, d.For, d.Until, d.MovedTo, d.Reminded = r.Note, r.For, r.Until, r.MovedTo, r.Reminded
 		d.movedFrom, d.engagedOnce = r.MovedFrom, r.EngagedOnce
 		d.UpdatedAt = at
 		if d.State.Open() {

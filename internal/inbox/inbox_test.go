@@ -192,7 +192,7 @@ func TestRouting(t *testing.T) {
 	})
 
 	t.Run("bad address kind and no sender", func(t *testing.T) {
-		if _, _, err := h.ib.Send(bg, claude(keyA, "alpha"), Address{Kind: "pr", Value: "1"}, "x", ""); err == nil {
+		if _, _, err := h.ib.Send(bg, claude(keyA, "alpha"), Address{Kind: "nope", Value: "1"}, "x", ""); err == nil {
 			t.Fatal("want error")
 		}
 		if _, _, err := h.ib.Send(bg, Sender{}, to("beta"), "x", ""); err == nil {

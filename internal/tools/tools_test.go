@@ -89,6 +89,8 @@ type harness struct {
 	b   *backend
 	clk *clock
 	set *Set
+	// owners is the PR ledger the inbox routes ToPR against.
+	owners map[string][]string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -100,7 +102,8 @@ func newHarness(t *testing.T) *harness {
 	}
 	t.Cleanup(func() { st.Close() })
 	r := &roster{cards: map[string]presence.AgentCard{}}
-	ib, err := inbox.New(bg, st, r, inbox.Options{DeviceID: "dev1", Now: clk.now})
+	owners := map[string][]string{} // PR ledger key -> owner keys, best first
+	ib, err := inbox.New(bg, st, r, inbox.Options{DeviceID: "dev1", Now: clk.now, PROwners: func(k string) []string { return owners[k] }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +122,7 @@ func newHarness(t *testing.T) *harness {
 	g := card(keyG, "grokker", "", "")
 	g.Agent = "grok"
 	r.put(g)
-	return &harness{t: t, b: b, clk: clk, set: s}
+	return &harness{t: t, b: b, clk: clk, set: s, owners: owners}
 }
 
 func card(key, name, repo, mode string) presence.AgentCard {
@@ -449,6 +452,43 @@ func TestSendRepo(t *testing.T) {
 	has(t, out, "to alpha ("+keyA+")", "queued")
 	out = h.ok(callC, "send", map[string]any{"repo": "github.com/none/x", "text": "anyone?"})
 	has(t, out, "to repo github.com/none/x", "no agent in that repo")
+}
+
+func TestSendPR(t *testing.T) {
+	h := newHarness(t)
+	const pr = "pr:acme/app#7"
+	h.owners[pr] = []string{keyB}
+
+	// The author is live: it goes to beta, by any of the PR forms.
+	for _, to := range []string{"pr:Acme/App#7", "https://github.com/acme/app/pull/7", "github.com/Acme/App/pull/7/files"} {
+		out := h.ok(callC, "send", map[string]any{"to": to, "text": "is #7 ready?"})
+		has(t, out, "to beta ("+keyB+") about "+pr, "queued")
+		hasNot(t, out, "went to the repo")
+	}
+	has(t, h.ok(callB, "inbox", nil), "about PR: "+pr)
+
+	// The author has gone: the repo's front desk gets it, with a note.
+	h.b.roster.mu.Lock()
+	delete(h.b.roster.cards, keyB)
+	h.b.roster.mu.Unlock()
+	h.b.ib.SetReachable(keyA, inbox.PathMod, true)
+	out := h.ok(callC, "send", map[string]any{"to": pr, "text": "anyone on #7?"})
+	has(t, out, "to alpha ("+keyA+") about "+pr, "went to the repo instead", "beta ("+keyB+")")
+	did := field(t, out, "(delivery")
+	has(t, h.ok(callA, "inbox", nil), "delivery "+did, "about PR: "+pr, "for: beta ("+keyB+")")
+
+	// Nobody in the repo: it waits unowned.
+	out = h.ok(callC, "send", map[string]any{"to": "pr:acme/none#1", "text": "hello?"})
+	has(t, out, "to repo remote:github.com/acme/none about pr:acme/none#1", "no agent in that repo")
+
+	// Bad PR addresses say what a PR address looks like.
+	h.fails(callC, "send", map[string]any{"to": "pr:acme#7", "text": "x"}, "not a pull request", "pr:<owner>/<name>#<number>")
+	h.fails(callC, "send", map[string]any{"to": "pr:", "text": "x"}, "not a pull request")
+	for _, bad := range []string{"https://github.com/acme/app/pull/0", "https://github.com/acme/app/pull/abc", "github.com/acme/app/pulls/7"} {
+		h.fails(callC, "send", map[string]any{"to": bad, "text": "x"}, "not a pull request", "pr:<owner>/<name>#<number>")
+	}
+	// An agent name is still an agent.
+	has(t, h.ok(callC, "send", map[string]any{"to": "alpha", "text": "x"}), "to alpha")
 }
 
 func TestRateLimit(t *testing.T) {

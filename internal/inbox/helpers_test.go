@@ -79,6 +79,8 @@ type harness struct {
 	ros *fakeRoster
 	clk *fakeClock
 	ib  *Inbox
+	// owners is Options.PROwners for the next open (nil = no ledger).
+	owners func(prKey string) []string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -100,7 +102,7 @@ func (h *harness) open() {
 	}
 	h.t.Cleanup(func() { st.Close() })
 	h.st = st
-	ib, err := New(bg, st, h.ros, Options{DeviceID: "dev1", Now: h.clk.now})
+	ib, err := New(bg, st, h.ros, Options{DeviceID: "dev1", Now: h.clk.now, PROwners: h.owners})
 	if err != nil {
 		h.t.Fatal(err)
 	}
