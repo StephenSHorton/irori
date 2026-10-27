@@ -100,6 +100,17 @@ ShowInstDetails show # This will always show the installation details.
 # shortcut the user deleted.
 Var FreshInstall
 
+# Starts $INSTDIR\irori.exe unless the command line has /NORELAUNCH. Used after
+# a silent update and on the silent gave-up path (then it starts the old exe).
+Function IroriRelaunchUnlessNoRelaunch
+    ${GetParameters} $R0
+    ClearErrors
+    ${GetOptions} $R0 "/NORELAUNCH" $R1
+    ${If} ${Errors}
+        Exec '"$INSTDIR\${PRODUCT_EXECUTABLE}"'
+    ${EndIf}
+FunctionEnd
+
 Function .onInit
    !insertmacro wails.checkArchitecture
 FunctionEnd
@@ -109,20 +120,57 @@ Section
 
     !insertmacro wails.webview2runtime
 
-    # AUTO-UPDATE: a SILENT install is launched by the running Irori, which then
-    # quits to release its lock on irori.exe. Wait for that exit so wails.files
-    # can overwrite the exe and the old instance's single-instance lock is gone
-    # before the relaunch below. An interactive install falls straight through.
+    # AUTO-UPDATE: a SILENT install is launched by the running Irori GUI, which
+    # then quits. Two things must hold before wails.files writes irori.exe:
     #
-    # The probe opens the exe for writing (append, no truncation), which is what
-    # File will do. It must NOT be a rename: Windows lets a running exe be
-    # renamed, so a rename probe passes while the old process is still shutting
-    # down, File then fails (silent mode ignores that), and the relaunch hands
-    # off to the dying instance. Toru shipped that bug once.
+    # 1. The GUI process is gone, so its single-instance lock is released and
+    #    the relaunch at the end does not hand off to a dying instance. The GUI
+    #    passes /WAITPID=<its pid> and we wait on that process handle (up to
+    #    60 s). Without /WAITPID we fall back to waiting on the file lock.
     #
-    # Allow up to 60 s. If the exe is still locked after that, abort and change
-    # nothing: the running Irori offers the update again at its next start.
+    # 2. irori.exe is writable. The GUI is NOT the only process running it:
+    #    every agent session runs `irori mcp`, and `irori serve --headless` may
+    #    be up, and each holds the exe image locked for as long as it runs. So
+    #    after the GUI is gone we probe briefly and, if the exe is still locked,
+    #    rename it aside to irori.exe.old (Windows allows renaming a running
+    #    exe; the running processes keep their image) and write the new exe
+    #    under the freed name. Old copies are deleted below on the next install
+    #    and by the app at startup (update.CleanupOldExes) once nothing holds
+    #    them. Running mcp/serve processes stay on the old version until their
+    #    sessions restart.
+    #
+    # The PROBE opens the exe for writing (append, no truncation), which is what
+    # File will do. A rename is no good as a probe: it succeeds while the old
+    # process is still shutting down. Toru shipped that bug once. Renaming as
+    # the SWAP is fine, because by then we know the GUI has exited.
+    #
+    # If the exe can be neither written nor renamed, change nothing: relaunch
+    # the old Irori unless /NORELAUNCH (so "Restart now" never leaves the user
+    # with Irori closed), exit with code 3, and the update is offered again at
+    # the next start.
     ${If} ${Silent}
+        ${GetParameters} $R0
+        ClearErrors
+        ${GetOptions} $R0 "/WAITPID=" $R2
+        ${IfNot} ${Errors}
+        ${AndIf} $R2 != ""
+            # SYNCHRONIZE = 0x00100000. A failed open means the pid is gone.
+            System::Call 'kernel32::OpenProcess(i 0x00100000, i 0, i $R2) p .R3'
+            ${If} $R3 P<> 0
+                System::Call 'kernel32::WaitForSingleObject(p R3, i 60000) i .R4'
+                System::Call 'kernel32::CloseHandle(p R3)'
+                ${If} $R4 <> 0
+                    # WAIT_TIMEOUT / WAIT_FAILED: the GUI never exited.
+                    Goto irori_gave_up
+                ${EndIf}
+            ${EndIf}
+            # The GUI has exited; give the loader a moment to drop its mapping.
+            StrCpy $5 10
+        ${Else}
+            # No pid: wait on the file lock itself, as long as before.
+            StrCpy $5 300
+        ${EndIf}
+
         StrCpy $0 0
         irori_wait_unlock:
             IfFileExists "$INSTDIR\${PRODUCT_EXECUTABLE}" 0 irori_unlocked
@@ -133,14 +181,36 @@ Section
             Goto irori_unlocked
             irori_still_locked:
             IntOp $0 $0 + 1
-            IntCmp $0 300 irori_gave_up 0 irori_gave_up
+            IntCmp $0 $5 irori_swap 0 irori_swap
             Sleep 200
             Goto irori_wait_unlock
+
+        # Still locked by `irori mcp` / `irori serve`: rename it aside. Clear
+        # out copies from earlier swaps first; one still running cannot be
+        # deleted, so try .old, .old1 ... .old9 until a name is free.
+        irori_swap:
+            Delete "$INSTDIR\${PRODUCT_EXECUTABLE}.old*"
+            StrCpy $6 0
+        irori_swap_try:
+            StrCpy $7 "$INSTDIR\${PRODUCT_EXECUTABLE}.old"
+            ${If} $6 <> 0
+                StrCpy $7 "$INSTDIR\${PRODUCT_EXECUTABLE}.old$6"
+            ${EndIf}
+            ClearErrors
+            Rename "$INSTDIR\${PRODUCT_EXECUTABLE}" "$7"
+            IfErrors 0 irori_unlocked
+            IntOp $6 $6 + 1
+            IntCmp $6 10 irori_gave_up irori_swap_try irori_gave_up
+
         irori_gave_up:
+            Call IroriRelaunchUnlessNoRelaunch
             SetErrorLevel 3
-            Abort "irori.exe is still in use; update skipped"
+            Abort "irori.exe is in use and could not be replaced; update skipped"
         irori_unlocked:
     ${EndIf}
+
+    # Leftovers of an earlier swap whose holders have since exited.
+    Delete "$INSTDIR\${PRODUCT_EXECUTABLE}.old*"
 
     # Fresh install or update? Decided before any files land.
     StrCpy $FreshInstall "1"
@@ -171,12 +241,7 @@ Section
     #   quit with update ready  -> installer /S /NORELAUNCH  (stay closed)
     # ${GetParameters}/${GetOptions} come from FileFunc.nsh (wails_tools.nsh).
     ${If} ${Silent}
-        ${GetParameters} $R0
-        ClearErrors
-        ${GetOptions} $R0 "/NORELAUNCH" $R1
-        ${If} ${Errors}
-            Exec '"$INSTDIR\${PRODUCT_EXECUTABLE}"'
-        ${EndIf}
+        Call IroriRelaunchUnlessNoRelaunch
     ${EndIf}
 SectionEnd
 

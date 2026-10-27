@@ -10,6 +10,15 @@
 // (InstallOnExit: silent installer with /NORELAUNCH). Nothing installs or
 // quits behind the user's back, and "dev" builds never offer updates.
 //
+// The GUI is not the only process running irori.exe: every agent session runs
+// `irori mcp` and `irori serve --headless` may be running too, so the exe image
+// can stay locked after the GUI quits. The installer therefore waits for the
+// GUI process itself (/WAITPID=<pid>), and if the exe is still locked it
+// renames it aside to irori.exe.old (Windows allows renaming a running exe)
+// and writes the new one in its place. Those running processes keep the old
+// image until they restart; new sessions get the new exe. CleanupOldExes,
+// called from AutoUpdate, deletes the renamed copies once nothing holds them.
+//
 // Wails v3's own pkg/updater is not used: it swaps the exe in place, which
 // leaves an NSIS install's registry entries, uninstaller and shortcuts stale.
 // Running the real installer keeps the install coherent.
@@ -183,9 +192,52 @@ func (s *UpdateService) AutoUpdate() {
 		log.Printf("irori: %s", errUnsupported)
 		return
 	}
+	if exe, err := os.Executable(); err == nil {
+		CleanupOldExes(exe)
+	}
 	if _, err := s.CheckAndDownload(); err != nil {
 		log.Printf("irori: auto-update failed: %v", err)
 	}
+}
+
+// CleanupOldExes deletes the copies of exe that the installer renamed aside
+// (exe + ".old", ".old1", ...) during an update while `irori mcp` or `irori
+// serve` held the old image. A copy still running fails to delete and is left
+// for the next start. It returns the paths it removed.
+//
+//wails:ignore
+func CleanupOldExes(exe string) []string {
+	dir, prefix := filepath.Dir(exe), strings.ToLower(filepath.Base(exe))+".old"
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var removed []string
+	for _, e := range entries {
+		if e.IsDir() || !isOldCopy(strings.ToLower(e.Name()), prefix) {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		if os.Remove(p) == nil {
+			removed = append(removed, p)
+		}
+	}
+	return removed
+}
+
+// isOldCopy reports whether name is prefix itself or prefix plus digits, the
+// names project.nsi renames the old exe to.
+func isOldCopy(name, prefix string) bool {
+	rest, ok := strings.CutPrefix(name, prefix)
+	if !ok {
+		return false
+	}
+	for _, r := range rest {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // CheckAndDownload is the manual "Check for updates" path: check, download and
@@ -237,9 +289,11 @@ func (s *UpdateService) fail(err error) Status {
 	})
 }
 
-// RestartToUpdate launches the ready installer silently and quits Irori so the
-// exe is unlocked. The installer waits for the exit, installs, and relaunches
-// Irori (build/windows/nsis/project.nsi).
+// RestartToUpdate launches the ready installer silently and quits Irori. The
+// installer waits for this process to exit (/WAITPID), installs (renaming the
+// old exe aside if `irori mcp`/`serve` still hold it), and relaunches Irori. If
+// it cannot install at all it relaunches the old exe, so "Restart now" never
+// leaves Irori closed (build/windows/nsis/project.nsi).
 func (s *UpdateService) RestartToUpdate() error {
 	s.mu.Lock()
 	if s.status.Phase != PhaseReady {
@@ -253,7 +307,7 @@ func (s *UpdateService) RestartToUpdate() error {
 	s.status.Phase = PhaseInstalling
 	s.mu.Unlock()
 
-	if err := s.launch(path, "/S"); err != nil {
+	if err := s.launch(path, "/S", waitPIDArg()); err != nil {
 		s.setStatus(func(st *Status) { st.Phase = PhaseReady })
 		return fmt.Errorf("launch installer: %w", err)
 	}
@@ -267,8 +321,8 @@ func (s *UpdateService) RestartToUpdate() error {
 
 // InstallOnExit belongs in the app's OnShutdown. If an update is ready and
 // nothing is installing, it launches the installer silently with /NORELAUNCH
-// and returns at once: the process exits, the installer waits for the exe
-// lock, installs, and does not bring Irori back (the user chose to quit).
+// and returns at once: the process exits, the installer waits for it
+// (/WAITPID), installs, and does not bring Irori back (the user chose to quit).
 //
 //wails:ignore
 func (s *UpdateService) InstallOnExit() {
@@ -281,12 +335,17 @@ func (s *UpdateService) InstallOnExit() {
 	s.status.Phase = PhaseInstalling
 	s.mu.Unlock()
 
-	if err := s.launch(path, "/S", "/NORELAUNCH"); err != nil {
+	if err := s.launch(path, "/S", "/NORELAUNCH", waitPIDArg()); err != nil {
 		log.Printf("irori: install on exit: launch installer: %v", err)
 		return
 	}
 	log.Printf("irori: installing update on exit (installer %s)", path)
 }
+
+// waitPIDArg tells the installer which process to wait for before it swaps the
+// exe: this one, the GUI. Waiting on the process rather than on the file lock
+// matters because `irori mcp` children may hold the lock indefinitely.
+func waitPIDArg() string { return "/WAITPID=" + strconv.Itoa(os.Getpid()) }
 
 // isNewer reports whether tag (vX.Y.Z) is newer than current. A "dev" or empty
 // current never reports an update, so `wails3 dev` never nags.

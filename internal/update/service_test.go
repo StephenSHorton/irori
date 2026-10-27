@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -80,7 +81,7 @@ func TestRestartToUpdateLaunchesSilent(t *testing.T) {
 	if err := s.RestartToUpdate(); err != nil {
 		t.Fatalf("RestartToUpdate: %v", err)
 	}
-	want := [][]string{{testInstaller, "/S"}}
+	want := [][]string{{testInstaller, "/S", waitPIDArg()}}
 	if !reflect.DeepEqual(f.calls, want) {
 		t.Fatalf("launches = %v, want %v", f.calls, want)
 	}
@@ -136,7 +137,7 @@ func TestRestartToUpdateLaunchFailureRevertsToReady(t *testing.T) {
 func TestInstallOnExitLaunchesNoRelaunch(t *testing.T) {
 	s, f := readyService(t)
 	s.InstallOnExit()
-	want := [][]string{{testInstaller, "/S", "/NORELAUNCH"}}
+	want := [][]string{{testInstaller, "/S", "/NORELAUNCH", waitPIDArg()}}
 	if !reflect.DeepEqual(f.calls, want) {
 		t.Fatalf("launches = %v, want %v", f.calls, want)
 	}
@@ -166,7 +167,7 @@ func TestNeitherLaunchesTwice(t *testing.T) {
 	if err := s.RestartToUpdate(); err == nil {
 		t.Error("second RestartToUpdate should refuse while installing")
 	}
-	if want := [][]string{{testInstaller, "/S"}}; !reflect.DeepEqual(f.calls, want) {
+	if want := [][]string{{testInstaller, "/S", waitPIDArg()}}; !reflect.DeepEqual(f.calls, want) {
 		t.Fatalf("launches = %v, want exactly %v", f.calls, want)
 	}
 
@@ -176,6 +177,41 @@ func TestNeitherLaunchesTwice(t *testing.T) {
 	s.InstallOnExit()
 	if len(f.calls) != 1 {
 		t.Fatalf("launches = %v, want exactly one", f.calls)
+	}
+}
+
+func TestWaitPIDArgIsThisProcess(t *testing.T) {
+	if got, want := waitPIDArg(), "/WAITPID="+strconv.Itoa(os.Getpid()); got != want {
+		t.Fatalf("waitPIDArg() = %q, want %q", got, want)
+	}
+}
+
+// The installer renames a still-locked irori.exe (held by `irori mcp` or
+// `irori serve`) to irori.exe.old, .old1, ...; the next start deletes them and
+// nothing else.
+func TestCleanupOldExes(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "irori.exe")
+	keep := []string{"irori.exe", "irori.exe.older", "irori.exe.old.txt", "uninstall.exe", "other.exe.old"}
+	drop := []string{"irori.exe.old", "irori.exe.old1", "IRORI.EXE.OLD12"}
+	for _, n := range append(append([]string{}, keep...), drop...) {
+		if err := os.WriteFile(filepath.Join(dir, n), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removed := CleanupOldExes(exe)
+	if len(removed) != len(drop) {
+		t.Fatalf("removed %v, want %d files %v", removed, len(drop), drop)
+	}
+	for _, n := range drop {
+		if _, err := os.Stat(filepath.Join(dir, n)); !os.IsNotExist(err) {
+			t.Errorf("%s still present", n)
+		}
+	}
+	for _, n := range keep {
+		if _, err := os.Stat(filepath.Join(dir, n)); err != nil {
+			t.Errorf("%s removed: %v", n, err)
+		}
 	}
 }
 
