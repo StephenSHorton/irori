@@ -32,6 +32,11 @@ func TestPolicyHolds(t *testing.T) {
 		{"paused holds agents", Policy{Paused: true}, claude(keyA, "alpha"), keyB, HoldPaused},
 		{"paused holds the person too", Policy{Paused: true}, person(), keyB, HoldPaused},
 		{"blocked while paused stays blocked", Policy{Paused: true, Block: []string{"alpha"}}, claude(keyA, "alpha"), keyB, HoldBlocked},
+		{"Irori reaches bypass", Policy{}, SystemSender(), keyB, ""},
+		{"Irori passes allowlist mode", Policy{Mode: Allowlist}, SystemSender(), keyB, ""},
+		{"Irori blocked by key", Policy{Block: []string{SystemKey}}, SystemSender(), keyB, HoldBlocked},
+		{"Irori blocked by name", Policy{Block: []string{"IRORI"}}, SystemSender(), keyB, HoldBlocked},
+		{"paused holds Irori", Policy{Paused: true}, SystemSender(), keyB, HoldPaused},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

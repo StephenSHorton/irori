@@ -1,10 +1,10 @@
 // Pure helpers for the Irori mod: no `$`, no engine imports, so `bun test`
 // can cover them as well as `claude plugin test`.
 
-import type { AttachEvent, AttachView, Policy, ToolSpec } from '../types'
+import type { AttachEvent, AttachView, Policy, ToolSpec, TrackedAppend } from '../types'
 
 /** Matches .claude-plugin/plugin.json; sent to `irori attach` and shown by /irori. */
-export const MOD_VERSION = '0.3.0'
+export const MOD_VERSION = '0.4.0'
 
 export const PLUGIN = 'irori'
 export const TOOL_PREFIX = 'mcp__irori__'
@@ -46,6 +46,25 @@ export function takeEvents(buffer: string): { events: AttachEvent[]; rest: strin
     }
   }
   return { events, rest }
+}
+
+/**
+ * The `$.session.append` args for a next-turn delivery (an append event): a
+ * user-role row the person does not see as typed, which the model reads on
+ * its next request. It starts no turn.
+ */
+export function appendArgs(prompt: string) {
+  return { message: { type: 'user' as const, content: [{ type: 'text' as const, text: prompt }] } }
+}
+
+/**
+ * The appends a main-loop turn start engages: every one reported delivered
+ * and not yet engaged (or being engaged by an earlier turn start). The
+ * append's token is never in the turn's text; whatever started the turn
+ * reads it.
+ */
+export function appendsToEngage(list: readonly TrackedAppend[]): TrackedAppend[] {
+  return list.filter(a => a.delivered && !a.engaged && !a.turnId)
 }
 
 export function nextBackoff(ms: number): number {

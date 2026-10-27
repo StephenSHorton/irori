@@ -66,6 +66,9 @@ func channelParams(ev attach.Event) ChannelParams {
 	if ev.Reminder {
 		meta["reminder"] = "true"
 	}
+	if ev.Mode != "" {
+		meta["mode"] = ev.Mode // "next_turn": no need to drop what it is doing
+	}
 	return ChannelParams{Content: ev.Prompt, Meta: cleanMeta(meta)}
 }
 

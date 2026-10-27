@@ -1,6 +1,6 @@
 /** One NDJSON line from `irori attach` (internal/attach/protocol.go Event). */
 export type AttachEvent = {
-  type: 'hello' | 'deliver' | 'held' | 'moved' | 'inbox' | 'superseded' | 'error' | string
+  type: 'hello' | 'deliver' | 'append' | 'held' | 'moved' | 'inbox' | 'superseded' | 'error' | string
   // hello
   v?: number
   session?: string
@@ -16,6 +16,10 @@ export type AttachEvent = {
   messageIds?: string[]
   prompt?: string
   from?: string
+  /** "next_turn" on an append (and a Grok next_turn-only push). */
+  mode?: string
+  /** Delivery ids named in the prompt's last line instead of in full (part of deliveryIds). */
+  overflow?: string[]
   // held / moved
   deliveryId?: string
   why?: string
@@ -69,12 +73,26 @@ export type TrackedWake = {
   ended: boolean
 }
 
+/** A next-turn delivery (append event) this session was handed. */
+export type TrackedAppend = {
+  token: string
+  deliveryIds: string[]
+  /** `$.session.append` resolved: the row is stored. */
+  appended: boolean
+  delivered: boolean
+  /** The main-loop turn start that engages it, once one began to. */
+  turnId?: string
+  engaged: boolean
+}
+
 declare module 'claude-code' {
   interface PluginState {
     irori: {
       attach: AttachView
       /** Newest last; kept across a hot reload so a turn that starts after it still engages. */
       wakes: TrackedWake[]
+      /** Newest last; engaged at the next main-loop turn start after delivery. */
+      appends: TrackedAppend[]
     }
   }
 }

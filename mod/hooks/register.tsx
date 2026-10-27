@@ -1,6 +1,7 @@
 // The Irori mod: attaches this Claude Code session to the local Irori Core
-// through `irori attach`, submits the wakes the Core sends, reports turn
-// boundaries, and serves Irori's tools as mcp__irori__<name>.
+// through `irori attach`, submits the wakes the Core sends, appends its
+// next-turn deliveries without starting a turn, reports turn boundaries, and
+// serves Irori's tools as mcp__irori__<name>.
 // Design: docs/design/v0.2-talk.md §7-§8; routes: internal/api/routes_v02.go.
 //
 // Loader rules (docs/research/v02/mod.md §9): `$` is only passed to top-level
@@ -8,8 +9,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 
-import type { AttachEvent, AttachView, Policy, ToolSpec, TrackedWake } from '../types'
+import type { AttachEvent, AttachView, Policy, ToolSpec, TrackedAppend, TrackedWake } from '../types'
 import {
+  appendArgs,
+  appendsToEngage,
   BACKOFF_MIN_MS,
   MAX_WAKES,
   MOD_VERSION,
@@ -35,6 +38,7 @@ const PERSON_ORIGINS = ['composer']
 const INITIAL_VIEW: AttachView = { status: 'connecting', unread: 0, held: 0 }
 const attachAtom = atom({ plugin: 'irori', key: 'attach' } as const, INITIAL_VIEW)
 const wakesAtom = atom({ plugin: 'irori', key: 'wakes' } as const, [])
+const appendsAtom = atom({ plugin: 'irori', key: 'appends' } as const, [])
 
 // Reset on every (re)load; a reload also ends the running child.
 let pluginOptions: PluginOptions = {}
@@ -202,6 +206,62 @@ async function onDeliver($: EngineInterface, e: AttachEvent) {
   }
 }
 
+async function patchAppend($: EngineInterface, token: string, patch: Partial<TrackedAppend>) {
+  await update($, appendsAtom, list => list.map(a => (a.token === token ? { ...a, ...patch } : a)))
+}
+
+/**
+ * A next-turn delivery (protocol.go TypeAppend): appended to the conversation
+ * as a meta user row, which starts no turn, then reported delivered. No
+ * toast: it is meant to be quiet. Engaged at the next main-loop turn start.
+ */
+async function onAppend($: EngineInterface, e: AttachEvent) {
+  const token = String(e.token ?? '')
+  const prompt = String(e.prompt ?? '')
+  if (!token || !prompt) return
+  const known = (await read($, appendsAtom)).find(a => a.token === token)
+  if (known) {
+    // Sent again (a reattach): appended already, or still being appended.
+    if (known.appended && !known.delivered && (await report($, '/v1/deliveries/delivered', { token }))) {
+      await patchAppend($, token, { delivered: true })
+    }
+    return
+  }
+  const tracked: TrackedAppend = { token, deliveryIds: e.deliveryIds ?? [], appended: false, delivered: false, engaged: false }
+  await update($, appendsAtom, list => [...list.filter(a => a.token !== token), tracked].slice(-MAX_WAKES))
+  let failure: unknown = undefined
+  let failed = false
+  try {
+    // `{ deny }`: a plugin above refused it and nothing was stored.
+    const stored = await $.session.append(appendArgs(prompt))
+    if (typeof stored?.deny === 'string') {
+      failed = true
+      failure = new Error(`append refused: ${stored.deny}`)
+    }
+  } catch (err) {
+    failed = true
+    failure = err
+  }
+  if (failed) {
+    // Forget it, so the Core's re-send (reattach, or its reclaim) appends it again.
+    $.ui.log(`irori: session.append failed: ${failure instanceof Error ? failure.message : String(failure)}`, { to: 'debug' })
+    await update($, appendsAtom, list => list.filter(a => a.token !== token))
+    return
+  }
+  await patchAppend($, token, { appended: true })
+  if (await report($, '/v1/deliveries/delivered', { token })) await patchAppend($, token, { delivered: true })
+}
+
+/** A main-loop turn started: it reads every delivered append, so engage them all. */
+async function markAppendsEngaged($: EngineInterface, turnId: string) {
+  for (const a of appendsToEngage(await read($, appendsAtom))) {
+    await patchAppend($, a.token, { turnId })
+    if (await report($, '/v1/deliveries/engaged', { token: a.token, turnId })) {
+      await patchAppend($, a.token, { engaged: true })
+    }
+  }
+}
+
 /** A submit that failed: forget the wake, so the Core's re-send (on reattach) submits it again. */
 async function forgetWake($: EngineInterface, token: string, err: unknown) {
   $.ui.log(`irori: prompt.submit failed: ${err instanceof Error ? err.message : String(err)}`, { to: 'debug' })
@@ -229,6 +289,9 @@ async function handleEvent($: EngineInterface, e: AttachEvent): Promise<'superse
     case 'deliver':
       // Detached: a submit can wait for the running turn, and other events keep flowing.
       void onDeliver($, e).catch(() => {})
+      return
+    case 'append':
+      void onAppend($, e).catch(() => {})
       return
     case 'held':
       $.ui.toast(`irori: held a message from ${e.from || 'an agent'} (${e.why || 'policy'}). Review it in the Irori app.`)
@@ -403,8 +466,12 @@ export const register: Register = (on, options) => {
 
   on('turn.start', async ($, e, next) => {
     const started = await next(e)
-    // Subagent turns can quote a token; only the main loop engages a wake.
-    if (e.agentId === undefined) void markEngaged($, e.text, e.turnId).catch(() => {})
+    // Subagent turns can quote a token; only the main loop engages a wake,
+    // and only the main loop's turns read appends.
+    if (e.agentId === undefined) {
+      void markEngaged($, e.text, e.turnId).catch(() => {})
+      void markAppendsEngaged($, e.turnId).catch(() => {})
+    }
     return started
   })
 

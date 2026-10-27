@@ -3,6 +3,8 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  appendArgs,
+  appendsToEngage,
   bandText,
   bareToolName,
   describePolicy,
@@ -13,7 +15,7 @@ import {
   toolArgs,
   validSpec,
 } from '../hooks/lib'
-import type { Policy } from '../types'
+import type { Policy, TrackedAppend } from '../types'
 
 const base: Policy = { mode: 'everyone', block: [], allow: [], paused: false }
 
@@ -110,5 +112,31 @@ describe('editPolicy', () => {
   test('describePolicy', () => {
     expect(describePolicy({ ...base, block: ['grok-1'], paused: true })).toBe('Policy: everyone mode, blocked: grok-1 · paused.')
     expect(describePolicy({ ...base, mode: 'allowlist' })).toBe('Policy: allowlist mode, allowed: nobody.')
+  })
+})
+
+describe('appends', () => {
+  test('the append is one user-role text row', () => {
+    expect(appendArgs('[irori-append:w1] hi')).toEqual({ message: { type: 'user', content: [{ type: 'text', text: '[irori-append:w1] hi' }] } })
+  })
+
+  test('a turn start engages delivered appends not yet engaged or being engaged', () => {
+    const a = (token: string, patch: Partial<TrackedAppend>): TrackedAppend => ({
+      token,
+      deliveryIds: [],
+      appended: true,
+      delivered: false,
+      engaged: false,
+      ...patch,
+    })
+    const list = [
+      a('pending', { appended: false }),
+      a('appended', {}),
+      a('delivered', { delivered: true }),
+      a('engaging', { delivered: true, turnId: 't1' }),
+      a('engaged', { delivered: true, engaged: true, turnId: 't1' }),
+    ]
+    expect(appendsToEngage(list).map(x => x.token)).toEqual(['delivered'])
+    expect(appendsToEngage([])).toEqual([])
   })
 })

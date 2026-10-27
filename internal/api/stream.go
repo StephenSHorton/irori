@@ -30,6 +30,9 @@ type stream struct {
 	sender inbox.Sender
 	secret string        // attach secret; "" for member streams (they use the member secret)
 	kick   chan struct{} // closed when a newer stream for key supersedes this one
+	// appends: a mod at attach.AppendSince or later, which takes append
+	// events (next-turn delivery). Older mods and Grok never get them.
+	appends bool
 }
 
 // streams is the registry: one live stream per agent key. mu also
@@ -96,6 +99,7 @@ func (h *handler) attach(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		st.key, st.path, st.secret = key, inbox.PathMod, secret
+		st.appends = attach.ModAtLeast(q.Get("mod"), attach.AppendSince)
 		st.sender = inbox.Sender{Key: key, Name: name, Kind: "claude"}
 		hello.Session, hello.AgentKey, hello.Name, hello.AttachSecret = session, key, name, secret
 	case member != "" && session == "":
@@ -173,7 +177,7 @@ func (h *handler) attach(w http.ResponseWriter, r *http.Request) {
 	// A wake issued to an earlier stream but never confirmed delivered goes
 	// out again with the same token (the mod dedupes on it); a confirmed one
 	// is never re-sent.
-	if !h.wake(ctx, st, out, true) {
+	if !h.wake(ctx, st, out, true) || !h.sendAppend(ctx, st, out, true) {
 		return
 	}
 	counts := h.counts(st.key)
@@ -194,7 +198,7 @@ func (h *handler) attach(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			// Catch up on a dropped notification (slow subscriber).
-			if !h.wake(ctx, st, out, false) {
+			if !h.wake(ctx, st, out, false) || !h.sendAppend(ctx, st, out, false) {
 				return
 			}
 		case ch, ok := <-changes:
@@ -214,7 +218,9 @@ func (h *handler) attach(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
-			if !h.wake(ctx, st, out, false) {
+			// Every change for this agent (AppendReady among them) looks for
+			// a wake and an append; both are nil most of the time.
+			if !h.wake(ctx, st, out, false) || !h.sendAppend(ctx, st, out, false) {
 				return
 			}
 			if c := h.counts(st.key); c.Unread != counts.Unread || c.HeldN != counts.HeldN {
@@ -261,10 +267,55 @@ func (h *handler) wake(ctx context.Context, st *stream, out *lineWriter, resend 
 	return out.send(h.deliverEvent(w)) == nil
 }
 
+// sendAppend issues and sends st's next append (next-turn delivery), if st
+// takes them. resend sends an issued, unconfirmed one again first (same
+// token; the mod dedupes on it). false means the stream is done.
+func (h *handler) sendAppend(ctx context.Context, st *stream, out *lineWriter, resend bool) bool {
+	if !st.appends {
+		return true
+	}
+	ib := h.s.b.Inbox()
+	reg := h.s.streams
+	reg.mu.Lock()
+	if !reg.current(st) {
+		reg.mu.Unlock()
+		return false
+	}
+	var w *inbox.Wake
+	if resend {
+		w = ib.OutstandingAppend(st.key)
+	}
+	if w == nil {
+		var err error
+		if w, err = ib.NextAppend(ctx, st.key); err != nil {
+			reg.mu.Unlock()
+			if ctx.Err() == nil {
+				log.Printf("attach %s: next append: %v", st.key, err)
+			}
+			return true
+		}
+	}
+	reg.mu.Unlock()
+	if w == nil {
+		return true
+	}
+	ev := h.deliverEvent(w)
+	ev.Type, ev.Mode = attach.TypeAppend, string(inbox.ModeNextTurn)
+	return out.send(ev) == nil
+}
+
+// deliverEvent is w on the wire: a deliver (Mode set only on a
+// next_turn-only push), or the body of an append.
 func (h *handler) deliverEvent(w *inbox.Wake) attach.Event {
 	ev := attach.Event{
 		Type: attach.TypeDeliver, WakeID: w.ID, Token: w.Token, Reminder: w.Reminder,
 		DeliveryIDs: append([]string{}, w.DeliveryIDs...), Prompt: w.Prompt,
+	}
+	if w.Mode == inbox.ModeNextTurn {
+		ev.Mode = string(inbox.ModeNextTurn)
+	}
+	if len(w.Overflow) > 0 {
+		ev.Overflow = append([]string{}, w.Overflow...)
 	}
 	ib := h.s.b.Inbox()
 	for _, id := range w.DeliveryIDs {

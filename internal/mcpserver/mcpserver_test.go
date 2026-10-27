@@ -476,11 +476,17 @@ func TestMetaKeys(t *testing.T) {
 	if !reflect.DeepEqual(p.Meta, map[string]string{"trust": "untrusted"}) {
 		t.Errorf("empty event meta %v", p.Meta)
 	}
-	p = channelParams(attach.Event{DeliveryIDs: []string{"a", "b"}, MessageIDs: []string{"m"}, From: "x", Reminder: true})
+	p = channelParams(attach.Event{DeliveryIDs: []string{"a", "b"}, MessageIDs: []string{"m"}, From: "x", Reminder: true, Mode: "next_turn"})
 	for k := range p.Meta {
 		if !ValidMetaKey(k) {
 			t.Errorf("channelParams emits key %q", k)
 		}
+	}
+	if p.Meta["mode"] != "next_turn" {
+		t.Errorf("next_turn push meta %v", p.Meta)
+	}
+	if p = channelParams(attach.Event{Prompt: "p", DeliveryIDs: []string{"a"}}); p.Meta["mode"] != "" {
+		t.Errorf("wake push has mode meta %v", p.Meta)
 	}
 }
 

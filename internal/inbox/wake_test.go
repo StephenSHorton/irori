@@ -1,6 +1,7 @@
 package inbox
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,27 +17,71 @@ func TestWakeBatchingOrderAndSize(t *testing.T) {
 		ids = append(ids, d.ID)
 		h.clk.advance(time.Second)
 	}
+	// Two fit in full; the rest is handed over too, named in the overflow
+	// line for the inbox tool, and confirmed with the rest.
 	w1 := h.deliverEngage(keyB, "t1")
-	if len(w1.Prompt) > MaxWakeBytes || len(w1.DeliveryIDs) != 2 || w1.DeliveryIDs[0] != ids[0] || w1.DeliveryIDs[1] != ids[1] {
-		t.Fatalf("first wake %v (%d bytes)", w1.DeliveryIDs, len(w1.Prompt))
+	if len(w1.Prompt) > MaxWakeBytes || !slices.Equal(w1.DeliveryIDs, ids) || !slices.Equal(w1.Overflow, ids[2:]) {
+		t.Fatalf("first wake %v overflow %v (%d bytes)", w1.DeliveryIDs, w1.Overflow, len(w1.Prompt))
 	}
-	// Engaged frees the gate even while the turn runs.
-	w2 := h.wake(keyB)
-	if len(w2.DeliveryIDs) != 2 || w2.DeliveryIDs[0] != ids[2] || w2.DeliveryIDs[1] != ids[3] {
-		t.Fatalf("second wake %v", w2.DeliveryIDs)
+	if !strings.Contains(w1.Prompt, "4 messages") || !strings.Contains(w1.Prompt, "2 more waiting: read them with the irori inbox tool: "+ids[2]+", "+ids[3]+"\n") ||
+		strings.Contains(w1.Prompt, `delivery="`+ids[2]+`"`) || strings.Contains(w1.Prompt, big+"c") {
+		t.Fatalf("overflow not listed by id only:\n%s", w1.Prompt[len(w1.Prompt)-300:])
 	}
-	if !strings.Contains(w2.Prompt, `trust="user"`) {
-		t.Fatal("person's message not marked user trust")
+	for _, id := range ids {
+		h.wantState(id, Engaged)
 	}
 	h.noWake(keyB)
 
-	// One message bigger than the cap still goes, alone.
+	// One message bigger than the cap still goes in full; nothing else fits,
+	// not even as overflow, so the next one waits for the next wake.
 	huge := strings.Repeat("\U0001F600", MaxText) // 32 KB of text
 	_, d := h.send(claude(keyA, "alpha"), to("gamma"), huge)
-	h.send(claude(keyA, "alpha"), to("gamma"), "small")
-	w := h.wake(keyC)
-	if len(w.DeliveryIDs) != 1 || w.DeliveryIDs[0] != d.ID {
+	_, small := h.send(claude(keyA, "alpha"), to("gamma"), "small")
+	w := h.deliverEngage(keyC, "t2")
+	if len(w.DeliveryIDs) != 1 || w.DeliveryIDs[0] != d.ID || len(w.Overflow) != 0 {
 		t.Fatalf("oversize wake %v", w.DeliveryIDs)
+	}
+	if w2 := h.wake(keyC); !slices.Equal(w2.DeliveryIDs, []string{small.ID}) || !strings.Contains(w2.Prompt, `trust="untrusted"`) {
+		t.Fatalf("second wake %v", w2.DeliveryIDs)
+	}
+}
+
+func TestOverflowCappedAndRebuilt(t *testing.T) {
+	h := newHarness(t)
+	h.abc()
+	// Enough small messages that even their ids don't all fit: the overflow
+	// line stops at the cap and the rest stays queued.
+	big := strings.Repeat("y", 7000)
+	var ids []string
+	for i := range 3 + 600 {
+		text := "s"
+		if i < 3 {
+			text = big
+		}
+		_, d := h.send(person(), to("beta"), text)
+		ids = append(ids, d.ID)
+	}
+	w := h.wake(keyB)
+	if len(w.Prompt) > MaxWakeBytes || len(w.Overflow) == 0 || len(w.DeliveryIDs) >= len(ids) {
+		t.Fatalf("%d ids, %d overflow, %d bytes", len(w.DeliveryIDs), len(w.Overflow), len(w.Prompt))
+	}
+	// A reattach rebuilds the same prompt, overflow line included.
+	ow, st := h.ib.OutstandingWake(keyB)
+	if st != Queued || ow.Prompt != w.Prompt || !slices.Equal(ow.Overflow, w.Overflow) {
+		t.Fatalf("rebuilt %s:\n%q\nwant\n%q", st, ow.Prompt[len(ow.Prompt)-200:], w.Prompt[len(w.Prompt)-200:])
+	}
+	h.reopen()
+	if ow, _ := h.ib.OutstandingWake(keyB); ow == nil || ow.Prompt != w.Prompt {
+		t.Fatal("rebuilt prompt differs after replay")
+	}
+	if err := h.ib.MarkEngaged(bg, keyB, w.Token, "t"); err != nil {
+		t.Fatal(err)
+	}
+	rest := ids[len(w.DeliveryIDs):]
+	h.wantState(rest[0], Queued)
+	w2 := h.wake(keyB)
+	if w2.DeliveryIDs[0] != rest[0] {
+		t.Fatalf("next wake starts at %s, want %s", w2.DeliveryIDs[0], rest[0])
 	}
 }
 

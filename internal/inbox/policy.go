@@ -55,12 +55,17 @@ func bypass(key string, cards map[string]presence.AgentCard) bool {
 
 // hold evaluates the policy for m going to recipient: the hold reason, or
 // "" to queue it. Order: blocked, not_allowed, bypass_receiver, hop_limit,
-// paused. People at the GUI skip all but the pause.
+// paused. People at the GUI skip all but the pause; Irori's own notices
+// (SystemSender) skip all but the block list and the pause.
 func (b *inbox) hold(m *Message, recipient string, cards map[string]presence.AgentCard) HoldReason {
 	if recipient == "" {
 		return HoldUnowned
 	}
-	if !m.From.IsUser() {
+	if m.From.isSystem() {
+		if b.listed(b.pol.Block, m.From, cards, true) {
+			return HoldBlocked
+		}
+	} else if !m.From.IsUser() {
 		allowed := b.listed(b.pol.Allow, m.From, cards, false)
 		switch {
 		case b.listed(b.pol.Block, m.From, cards, true):
