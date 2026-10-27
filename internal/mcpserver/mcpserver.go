@@ -126,7 +126,7 @@ func (r *redial) get(ctx context.Context, fresh bool) (Source, error) {
 		if err == nil {
 			err = errors.New("dial returned no client")
 		}
-		r.log.Info("irori not reachable", "error", err)
+		r.log.Warn("irori not reachable", "error", err)
 		return nil, fmt.Errorf("%w: %v", ErrNotRunning, err)
 	}
 	r.cur = src

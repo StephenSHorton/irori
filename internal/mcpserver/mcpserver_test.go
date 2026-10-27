@@ -315,6 +315,9 @@ func TestRoundTrip(t *testing.T) {
 				if strings.Contains(string(schema), `"required"`) {
 					t.Errorf("%s has required args: %s", tool.Name, schema)
 				}
+				if tool.Name == ToolEvents && !strings.Contains(string(schema), "default 20, max 100") {
+					t.Errorf("limit description lost: %s", schema)
+				}
 				if tool.OutputSchema != nil {
 					t.Errorf("%s has an output schema", tool.Name)
 				}
