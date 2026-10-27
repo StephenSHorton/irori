@@ -234,8 +234,11 @@ type SendOptions struct {
 }
 
 // SystemKey is the sender key for notices Irori itself sends (a blocker
-// that resolved by itself). SystemSender is exempt from the rate limit and
-// arrives as Untrusted (its text quotes agent-written titles).
+// that resolved by itself). SystemSender is exempt from the rate limit, and
+// like a person it passes the bypass-receiver check and allowlist mode
+// (otherwise every notice to a bypass session would be held); Pause all and
+// the block list still apply. It arrives as Untrusted (its text quotes
+// agent-written titles).
 const SystemKey = "irori"
 
 // SystemSender is Irori's own sender.

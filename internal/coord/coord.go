@@ -61,7 +61,9 @@ type Task struct {
 	// Holders are who work it: agent keys, or a person's "user:*" key when
 	// it was assigned to a person. A task that isn't Shared has at most one;
 	// a Shared task has any number and any of them may work it (decision
-	// 20). Join order, no duplicates.
+	// 20). Join order, no duplicates. The fold, observe (gone tracking),
+	// TaskFilter.Holder and every permission check iterate Holders; Holder
+	// is only for readers.
 	Holders   []string  `json:"holders,omitempty"`
 	Shared    bool      `json:"shared,omitempty"`
 	CreatedBy string    `json:"createdBy"`

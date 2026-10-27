@@ -15,7 +15,8 @@ const Version = 2
 
 // AppendSince is the first mod version (the mod= query, MOD_VERSION in
 // mod/hooks/lib.ts) that handles append events. The Core sends append only
-// to an attach whose mod version is at least this (semver compare); an
+// to an attach whose mod version is at least this (a hand-rolled compare of
+// three dot-separated ints, any suffix ignored; no new dependency); an
 // older or unnamed mod gets its next_turn items riding its next deliver, so
 // nothing sits unacked. The Grok path never gets append.
 const AppendSince = "0.4.0"

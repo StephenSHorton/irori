@@ -148,7 +148,8 @@ type LeaseCard struct {
 //     (DoneTotal counts them all). Collapsed in the GUI; never timed out.
 //  2. NeedsYou: InputRequired; Blocked on a person (Ref "" or For); or
 //     Holders contains For (when For is a person). For an agent viewer,
-//     NeedsYou holds tasks assigned to it it hasn't claimed (still submitted).
+//     NeedsYou holds tasks assigned to it that it hasn't claimed yet (still
+//     submitted).
 //  3. Blocked: every other Blocked task.
 //  4. Working: has a holder (Working, or Submitted with an assignee).
 //  5. Open: no holder.
