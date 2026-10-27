@@ -5,6 +5,7 @@ import { ChevronRightIcon } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import {
   hlcWall,
+  plainLine,
   relativeTime,
   type AgentCard,
   type LogEvent,
@@ -28,15 +29,51 @@ function writeOpen(open: boolean) {
   }
 }
 
-// actorLabel names an actor: agents by their roster name when they are still
-// live, otherwise by a short session id.
-function actorLabel(actor: string, names: Map<string, string>): string {
-  if (!actor.startsWith("agent:")) return actor
-  const key = actor.slice("agent:".length)
-  const name = names.get(key)
-  if (name) return name
+// payloadField reads a string field from a log payload. Payloads arrive as
+// parsed JSON, but a raw JSON string is accepted too.
+function payloadField(payload: unknown, field: string): string {
+  let p = payload
+  if (typeof p === "string") {
+    try {
+      p = JSON.parse(p)
+    } catch {
+      return ""
+    }
+  }
+  if (!p || typeof p !== "object") return ""
+  const v = (p as Record<string, unknown>)[field]
+  return typeof v === "string" ? v : ""
+}
+
+// agentLabel names an agent key: by its roster name while it is still live,
+// then by the name the row carried, otherwise by a short session id.
+function agentLabel(
+  key: string,
+  fallback: string,
+  names: Map<string, string>
+): string {
+  const name = names.get(key) || fallback
+  if (name) return plainLine(name)
   const session = key.split("/").pop() ?? key
-  return `agent ${session.slice(0, 8)}`
+  return `agent ${plainLine(session).slice(0, 8)}`
+}
+
+// subjectLabel names who a row is about. Core writes agent rows with actor
+// "irori" and the agent's key in the payload, so the key wins when present;
+// an "agent:<key>" actor is read the same way.
+function subjectLabel(e: LogEvent, names: Map<string, string>): string {
+  const key = payloadField(e.payload, "key")
+  if (key) return agentLabel(key, payloadField(e.payload, "name"), names)
+  if (e.actor.startsWith("agent:")) {
+    return agentLabel(e.actor.slice("agent:".length), "", names)
+  }
+  return plainLine(e.actor)
+}
+
+// subjectTitle is the hover text: the raw actor, plus the agent key if any.
+function subjectTitle(e: LogEvent): string {
+  const key = payloadField(e.payload, "key")
+  return key ? `${e.actor} · ${key}` : e.actor
 }
 
 // ActivityPanel lists the newest log rows. It is collapsible and remembers
@@ -96,9 +133,9 @@ export function ActivityPanel({
                     <span className="font-mono text-ink-2">{e.kind}</span>
                     <span
                       className="truncate text-muted-foreground"
-                      title={e.actor}
+                      title={subjectTitle(e)}
                     >
-                      {actorLabel(e.actor, names)}
+                      {subjectLabel(e, names)}
                     </span>
                     <time
                       className="text-muted-foreground tabular-nums"

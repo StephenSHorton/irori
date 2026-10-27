@@ -101,29 +101,43 @@ export function sampleRoster(now: Date) {
       )
 
   const hlc = (agoSec: number) => at(agoSec).getTime() * 65536
-  const rows: Array<[string, string, number]> = [
-    ["device.started", "irori", 60 * 60 * 6],
-    ...agents.map((a, i): [string, string, number] => [
+  // Core writes every row with actor "irori"; the agent a row is about is
+  // in payload.key, as here.
+  const rows: Array<[string, number, unknown]> = [
+    ["device.started", 60 * 60 * 6, null],
+    ...agents.map((a, i): [string, number, unknown] => [
       "agent.seen",
-      `agent:${a.key}`,
       seeds[i].agoSec + 3600,
+      a,
     ]),
-    ["agent.status", `agent:${deviceId}/${seeds[0].session}`, 3],
-    ["agent.status", `agent:${deviceId}/${seeds[1].session}`, 95],
-    ["agent.gone", `agent:${deviceId}/sample99-synthetic-session`, 60 * 20],
+    [
+      "agent.status",
+      3,
+      { key: agents[0]?.key, status: seeds[0].status, name: seeds[0].name },
+    ],
+    [
+      "agent.status",
+      95,
+      { key: agents[1]?.key, status: seeds[1].status, name: seeds[1].name },
+    ],
+    [
+      "agent.gone",
+      60 * 20,
+      { key: `${deviceId}/sample99-synthetic-session`, reason: "gone" },
+    ],
   ]
   const recent = empty
     ? []
     : rows
         .map(
-          ([kind, actor, ago], i) =>
+          ([kind, ago, payload], i) =>
             new LogEvent({
               deviceId,
               seq: i + 1,
               hlc: hlc(ago),
-              actor,
+              actor: "irori",
               kind,
-              payload: null,
+              payload,
             })
         )
         .sort((a, b) => b.hlc - a.hlc)

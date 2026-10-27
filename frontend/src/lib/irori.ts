@@ -69,24 +69,47 @@ export function useRoster(): Roster {
     recentError: null,
   }))
   const recentTimer = useRef<number | undefined>(undefined)
+  // mounted is false after unmount so late responses are dropped.
+  const mounted = useRef(true)
+  // recentReq numbers Recent() calls; only the newest one's answer is kept,
+  // because responses can arrive out of order.
+  const recentReq = useRef(0)
 
   const loadRecent = useCallback(async () => {
+    const req = ++recentReq.current
     try {
       const recent = (await RosterService.Recent(RecentLimit)) ?? []
+      if (!mounted.current || req !== recentReq.current) return
       setState((s) => ({ ...s, recent, recentError: null }))
     } catch (err) {
+      if (!mounted.current || req !== recentReq.current) return
       setState((s) => ({ ...s, recentError: message(err) }))
     }
   }, [])
 
   useEffect(() => {
+    mounted.current = true
     if (state.source === "sample") {
       const sample = sampleRoster(new Date())
       setState((s) => ({ ...s, ...sample, loading: false }))
-      return undefined
+      return () => {
+        mounted.current = false
+      }
     }
 
     let live = true
+    // Calls go over fetch and events over a separate dispatch path, with no
+    // ordering between them. Once a roster:changed has landed it is newer
+    // than the Agents() snapshot, so that snapshot must not overwrite it.
+    let rosterEvents = 0
+
+    const off = Events.On(EventRosterChanged, (ev) => {
+      rosterEvents++
+      setState((s) => ({ ...s, agents: ev.data?.agents ?? [] }))
+      window.clearTimeout(recentTimer.current)
+      recentTimer.current = window.setTimeout(() => void loadRecent(), 250)
+    })
+
     Promise.all([
       RosterService.Device(),
       RosterService.Version(),
@@ -94,11 +117,12 @@ export function useRoster(): Roster {
     ])
       .then(([device, version, agents]) => {
         if (!live) return
+        const stale = rosterEvents > 0
         setState((s) => ({
           ...s,
           device,
           version,
-          agents: agents ?? [],
+          agents: stale ? s.agents : (agents ?? []),
           loading: false,
           error: null,
         }))
@@ -109,13 +133,9 @@ export function useRoster(): Roster {
       })
     void loadRecent()
 
-    const off = Events.On(EventRosterChanged, (ev) => {
-      setState((s) => ({ ...s, agents: ev.data?.agents ?? [] }))
-      window.clearTimeout(recentTimer.current)
-      recentTimer.current = window.setTimeout(() => void loadRecent(), 250)
-    })
     return () => {
       live = false
+      mounted.current = false
       off()
       window.clearTimeout(recentTimer.current)
     }
