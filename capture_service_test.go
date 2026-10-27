@@ -172,7 +172,7 @@ func TestCaptureRepoPathsFromAgentInSubdir(t *testing.T) {
 	if rk == "" {
 		t.Fatal("no repo key for the temp repo")
 	}
-	roster := &staticRoster{cards: []presence.AgentCard{{Key: "dev1/s1", Agent: "claude", Cwd: sub, RepoKey: rk}}}
+	roster := &staticRoster{cards: []presence.AgentCard{{Key: "dev1/s1", SessionID: "s1", Agent: "claude", Cwd: sub, RepoKey: rk}}}
 	s := newTestCapture(t, roster, nil)
 
 	w, err := s.Why("README.md", 1, rk)

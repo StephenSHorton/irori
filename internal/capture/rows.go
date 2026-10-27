@@ -58,20 +58,35 @@ func (c *capture) repoFor(ctx context.Context, dir string) (root, repoKey string
 }
 
 // knownRoot is repoFor for reads: a directory's worktree root and repo key
-// only when capture has already seen that root, else "", "". It logs nothing
-// and starts no reflog watch.
+// only when capture has already seen that root, or a live agent works in it
+// (capture watches those anyway), else "", "". It logs nothing and starts no
+// reflog watch.
 func (c *capture) knownRoot(ctx context.Context, dir string) (root, repoKey string) {
 	root = c.roots.forDir(ctx, dir)
 	if root == "" {
 		return "", ""
 	}
+	n := normRoot(root)
 	c.mu.RLock()
-	r, ok := c.repoRoots[normRoot(root)]
+	r, ok := c.repoRoots[n]
 	c.mu.RUnlock()
-	if !ok {
-		return "", ""
+	if ok {
+		return root, r.RepoKey
 	}
-	return root, r.RepoKey
+	for _, card := range c.liveCards() {
+		if card.Cwd == "" {
+			continue
+		}
+		if cr := c.roots.forDir(ctx, card.Cwd); cr != "" && normRoot(cr) == n {
+			if c.opts.RepoKey == nil {
+				return "", ""
+			}
+			if rk := c.opts.RepoKey(root); rk != "" {
+				return root, rk
+			}
+		}
+	}
+	return "", ""
 }
 
 // noteRoot returns root's repo key and logs repo.seen for a new root.
