@@ -123,11 +123,14 @@ func (c *capture) scrubTurn(t transcript.Turn, root string) transcript.Turn {
 
 func (c *capture) onTurn(ctx context.Context, f *tfile, t *transcript.Turn) error {
 	id := turnRowID(f.key, t.AgentID, t.ID)
+	tk := turnKey(f.key, t.AgentID, t.ID)
 	if c.has(id) {
+		c.mu.Lock()
+		delete(c.noisePaths, tk)
+		c.mu.Unlock()
 		return nil
 	}
 	root, rk := c.repoFor(ctx, t.Cwd)
-	tk := turnKey(f.key, t.AgentID, t.ID)
 	clean := *t
 	c.mu.Lock()
 	clean.EditPaths = c.stripNoise(f.key, clean)
