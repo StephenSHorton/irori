@@ -10,7 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/capture"
 	"github.com/StephenSHorton/irori/internal/coord"
+	"github.com/StephenSHorton/irori/internal/decision"
 	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/presence"
 )
@@ -48,7 +50,12 @@ func newSet(b Backend) *Set {
 		"lease":       s.lease,
 		"leases":      s.leases,
 		"release":     s.release,
+		"timeline":    s.timeline,
+		"why":         s.why,
+		"decisions":   s.decisions,
 		"join":        s.join,
+
+		"decision_record": s.decisionRecord,
 	}
 	s.needsCaller = map[string]bool{}
 	for _, sp := range specList {
@@ -56,7 +63,8 @@ func newSet(b Backend) *Set {
 			panic("tools: no handler for " + sp.Name)
 		}
 		// task_list reads for the caller only with mine; it checks itself.
-		if !sp.ReadOnly || sp.Name == "inbox" {
+		// timeline defaults to the caller and shows the caller's messages.
+		if !sp.ReadOnly || sp.Name == "inbox" || sp.Name == "timeline" {
 			s.needsCaller[sp.Name] = true
 		}
 	}
@@ -154,6 +162,12 @@ func mapErr(err error) string {
 		return errText(err.Error() + ". The inbox tool (all = true) shows each delivery's state.")
 	case errors.Is(err, coord.ErrNotFound):
 		return errText(err.Error() + ". task_list and leases show what exists.")
+	case errors.Is(err, capture.ErrNoRepo):
+		return errText(err.Error() + ". Give an absolute path, or repo = a repoKey from the agents tool.")
+	case errors.Is(err, decision.ErrBadPath), errors.Is(err, decision.ErrNoFile):
+		return errText(err.Error() + ". Give a file inside the repo: absolute, or relative to your working directory.")
+	case errors.Is(err, decision.ErrSupersede), errors.Is(err, decision.ErrNoDecision):
+		return errText(err.Error() + ". The decisions tool (all = true) lists ids and authors.")
 	case errors.Is(err, coord.ErrBadResource):
 		return errText(err.Error() + ". For files use path:<repoKey>:<glob>, with the repoKey from the agents tool.")
 	}

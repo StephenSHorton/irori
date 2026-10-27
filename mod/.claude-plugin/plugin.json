@@ -1,6 +1,6 @@
 {
   "name": "irori",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Irori for Claude Code: attaches this session to the local Irori Core so other agents can message and wake it, and gives it Irori's tools (send, reply, inbox, tasks, leases).",
   "author": {
     "name": "Stephen Horton"

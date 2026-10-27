@@ -75,6 +75,7 @@ type backend struct {
 	st *store.Store
 	ib *inbox.Inbox
 	co *coord.Coord
+	cp *capture.Capture // nil until withCapture: capture is off
 }
 
 func (b *backend) Events(ctx context.Context, f store.Filter) ([]store.Event, error) {
@@ -82,7 +83,7 @@ func (b *backend) Events(ctx context.Context, f store.Filter) ([]store.Event, er
 }
 func (b *backend) Inbox() *inbox.Inbox       { return b.ib }
 func (b *backend) Coord() *coord.Coord       { return b.co }
-func (b *backend) Capture() *capture.Capture { return nil }
+func (b *backend) Capture() *capture.Capture { return b.cp }
 
 type harness struct {
 	t   *testing.T
@@ -252,7 +253,8 @@ func TestSpecs(t *testing.T) {
 		}
 	}
 	want := []string{"agents", "events", "send", "reply", "inbox", "defer", "skip", "task_create", "task_list",
-		"task_claim", "task_assign", "task_status", "lease", "leases", "release"}
+		"task_claim", "task_assign", "task_status", "lease", "leases", "release",
+		"timeline", "why", "decision_record", "decisions"}
 	for _, n := range want {
 		if !slices.Contains(cl, n) || !slices.Contains(gr, n) {
 			t.Errorf("%s missing from a client", n)
@@ -264,7 +266,7 @@ func TestSpecs(t *testing.T) {
 	if got := s.Specs("other"); len(got) != 0 {
 		t.Errorf("unknown client got %d specs", len(got))
 	}
-	readOnly := []string{"agents", "events", "inbox", "task_list", "leases"}
+	readOnly := []string{"agents", "events", "inbox", "task_list", "leases", "timeline", "why", "decisions"}
 	for _, sp := range s.Specs("") {
 		if sp.ReadOnly != slices.Contains(readOnly, sp.Name) {
 			t.Errorf("%s ReadOnly = %v", sp.Name, sp.ReadOnly)
@@ -359,7 +361,7 @@ func TestUnboundCaller(t *testing.T) {
 	h.ok(callA, "send", map[string]any{"repo": "github.com/nobody/here", "text": "secret unowned work"})
 	none := Caller{}
 	for _, name := range []string{"inbox", "send", "reply", "ack", "defer", "skip", "task_create", "task_claim",
-		"task_assign", "task_status", "lease", "release"} {
+		"task_assign", "task_status", "lease", "release", "timeline", "decision_record"} {
 		out := h.fails(none, name, `{}`, "join first")
 		hasNot(t, out, "secret unowned work")
 	}
