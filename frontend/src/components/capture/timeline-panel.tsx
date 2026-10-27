@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   BookmarkPlusIcon,
   FileDiffIcon,
@@ -93,7 +93,13 @@ export function TimelinePanel({
   onCommit: (c: CommitView) => void
 }) {
   const [subagents, setSubagents] = useState(false)
-  const key = agentKey || defaultAgent(agents, gone)
+  const fallback = defaultAgent(agents, gone)
+  const key = agentKey || fallback
+  // Keep the default once known: busy agents trade "most recent" every few
+  // seconds, and the page shouldn't switch agents under the reader.
+  useEffect(() => {
+    if (!agentKey && fallback) onAgent(fallback)
+  }, [agentKey, fallback, onAgent])
   const tl = useTimeline(key, subagents)
 
   const name = useMemo(

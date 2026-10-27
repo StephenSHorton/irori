@@ -29,6 +29,9 @@ const EventCaptureChanged = "capture:changed"
 // tailer pass, and a backfill appends thousands of rows.
 const captureEmitEvery = 300 * time.Millisecond
 
+// decisionList is how many decisions the Decisions tab gets (decision.List's max).
+const decisionList = 500
+
 func init() {
 	application.RegisterEvent[CaptureChange](EventCaptureChanged)
 }
@@ -160,11 +163,13 @@ func (s *CaptureService) Why(path string, line int, repoKey string) (capture.Why
 	return r, nil
 }
 
-// Decisions lists decisions with their anchors re-checked, newest first.
-// all includes superseded ones.
+// Decisions lists decisions with their anchors re-checked, newest first, at
+// most decisionList. all includes superseded ones (the tab asks for them to
+// show the supersede chain).
 func (s *CaptureService) Decisions(repoKey, path, query string, all bool) []capture.DecisionView {
 	return nonNil(s.cap.Decisions(decision.Filter{
 		RepoKey: strings.TrimSpace(repoKey), Path: strings.TrimSpace(path), Query: strings.TrimSpace(query), All: all,
+		Limit: decisionList,
 	}))
 }
 

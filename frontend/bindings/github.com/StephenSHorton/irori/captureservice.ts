@@ -48,8 +48,9 @@ export function Commits(repoKey: string, limit: number): $CancellablePromise<cap
 }
 
 /**
- * Decisions lists decisions with their anchors re-checked, newest first.
- * all includes superseded ones.
+ * Decisions lists decisions with their anchors re-checked, newest first, at
+ * most decisionList. all includes superseded ones (the tab asks for them to
+ * show the supersede chain).
  */
 export function Decisions(repoKey: string, path: string, query: string, all: boolean): $CancellablePromise<capture$0.DecisionView[]> {
     return $Call.ByID(345298042, repoKey, path, query, all).then(($result: any) => {
