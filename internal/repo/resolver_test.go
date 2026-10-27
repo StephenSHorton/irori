@@ -130,17 +130,15 @@ func TestKeyCachesNegative(t *testing.T) {
 }
 
 func TestKeyTimeoutNotCached(t *testing.T) {
-	if testing.Short() {
-		t.Skip("waits out the git timeout")
-	}
 	f := &fakeGit{block: true}
 	now := time.Unix(0, 0)
 	r := testResolver(f, &now)
+	r.impl.timeout = 50 * time.Millisecond
 	start := time.Now()
 	if got := r.Key("slow"); got != "" {
 		t.Fatalf("got %q", got)
 	}
-	if d := time.Since(start); d > gitTimeout+time.Second {
+	if d := time.Since(start); d > time.Second {
 		t.Fatalf("timeout took %v", d)
 	}
 	f.mu.Lock()

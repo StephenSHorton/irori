@@ -29,9 +29,10 @@ type entry struct {
 }
 
 type resolver struct {
-	now func() time.Time
-	run runFunc
-	ttl time.Duration
+	now     func() time.Time
+	run     runFunc
+	ttl     time.Duration
+	timeout time.Duration
 
 	mu     sync.Mutex
 	byDir  map[string]entry
@@ -40,11 +41,12 @@ type resolver struct {
 
 func newResolver() *Resolver {
 	return &Resolver{impl: &resolver{
-		now:    time.Now,
-		run:    runGit,
-		ttl:    cacheTTL,
-		byDir:  map[string]entry{},
-		byRoot: map[string]entry{},
+		now:     time.Now,
+		run:     runGit,
+		ttl:     cacheTTL,
+		timeout: gitTimeout,
+		byDir:   map[string]entry{},
+		byRoot:  map[string]entry{},
 	}}
 }
 
@@ -124,7 +126,7 @@ func smallestSHA(out string) string {
 }
 
 func (r *resolver) git(args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
 	defer cancel()
 	out, err := r.run(ctx, args...)
 	if ctx.Err() != nil {
