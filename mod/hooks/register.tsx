@@ -190,7 +190,7 @@ async function onDeliver($: EngineInterface, e: AttachEvent) {
   if (first?.failed) return forgetWake($, token, first.err)
   if (await report($, '/v1/deliveries/delivered', { token })) await patchWake($, token, { delivered: true })
   if (first === null) {
-    // Reported while still queued; a later refusal still forgets the wake.
+    // Reported while still queued; a later throw still forgets the wake.
     const outcome = await submitted
     if (outcome.failed) await forgetWake($, token, outcome.err)
   }
