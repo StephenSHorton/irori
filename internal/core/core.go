@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/api"
@@ -22,6 +23,7 @@ import (
 	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/repo"
+	"github.com/StephenSHorton/irori/internal/scrub"
 	"github.com/StephenSHorton/irori/internal/store"
 	"github.com/StephenSHorton/irori/internal/tools"
 )
@@ -48,6 +50,10 @@ type Core struct {
 	coord    *coord.Coord
 	tools    *tools.Set
 	members  *members
+	capture  *capture.Capture
+	scrubber *scrub.Scrubber
+	secretMu sync.Mutex
+	secrets  []string // exact values capture redacts: the lockfile token, member secrets
 	cancel   context.CancelFunc
 	done     chan struct{} // closed when the service goroutines finish; nil before they start
 }
@@ -78,9 +84,10 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		presence: presence.New(presence.Options{
 			ClaudeDir: opts.ClaudeDir, DeviceID: id.ID, RepoKey: repos.Key,
 		}),
-		repos:   repos,
-		members: newMembers(id.ID),
-		cancel:  cancel,
+		repos:    repos,
+		members:  newMembers(id.ID),
+		scrubber: scrub.New(),
+		cancel:   cancel,
 	}
 	if _, err := st.Append(ctx, "irori", store.KindDeviceStarted, map[string]any{
 		"name": id.Name, "os": id.OS, "version": opts.Version, "headless": opts.Headless,
@@ -88,13 +95,27 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		c.Close()
 		return nil, err
 	}
-	if c.inbox, err = inbox.New(ctx, st, c, inbox.Options{DeviceID: id.ID}); err != nil {
+	// The inbox is built before capture: PROwners reads c.capture per call.
+	prOwners := func(prKey string) []string {
+		if c.capture == nil {
+			return nil
+		}
+		return c.capture.PROwners(prKey)
+	}
+	if c.inbox, err = inbox.New(ctx, st, c, inbox.Options{DeviceID: id.ID, PROwners: prOwners}); err != nil {
 		c.Close()
 		return nil, fmt.Errorf("inbox: %w", err)
 	}
 	if c.coord, err = coord.New(ctx, st, c, coord.Options{}); err != nil {
 		c.Close()
 		return nil, fmt.Errorf("coord: %w", err)
+	}
+	if c.capture, err = capture.New(ctx, st, c, capture.Options{
+		ClaudeDir: opts.ClaudeDir, DataDir: opts.DataDir, DeviceID: id.ID,
+		RepoKey: repos.Key, Scrub: c.scrubber,
+	}); err != nil {
+		c.Close()
+		return nil, fmt.Errorf("capture: %w", err)
 	}
 	c.tools = tools.New(c)
 
@@ -103,6 +124,7 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		c.Close()
 		return nil, err
 	}
+	c.addSecret(token)
 	ln, err := api.Listen()
 	if err != nil {
 		c.Close()
@@ -116,6 +138,15 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		go func() {
 			if err := c.presence.Run(ctx); err != nil && ctx.Err() == nil {
 				log.Printf("presence: %v", err)
+			}
+		}()
+		capDone := make(chan struct{})
+		defer func() { <-capDone }() // capture stops appending before the log closes
+		go func() {
+			defer close(capDone)
+			// Backfill runs inside Run, after Start has returned.
+			if err := c.capture.Run(ctx); err != nil && ctx.Err() == nil {
+				log.Printf("capture: %v", err)
 			}
 		}()
 		go c.record(ctx, changes)
@@ -252,5 +283,19 @@ func (c *Core) Changes(ctx context.Context) <-chan presence.Change {
 
 var _ api.Backend = (*Core)(nil)
 
-// Capture is the capture service (v0.3); nil until wired.
-func (c *Core) Capture() *capture.Capture { return nil }
+// Capture is the capture service (v0.3).
+func (c *Core) Capture() *capture.Capture { return c.capture }
+
+// addSecret gives capture's scrubber one more exact value to redact. Values
+// are kept for the Core's life, so a retired member secret that shows up in
+// a transcript later is still redacted. Attach secrets are minted inside
+// the API's stream handler (api/stream.go) and are not passed here.
+func (c *Core) addSecret(v string) {
+	if v == "" {
+		return
+	}
+	c.secretMu.Lock()
+	defer c.secretMu.Unlock()
+	c.secrets = append(c.secrets, v)
+	c.scrubber.SetExact(c.secrets...)
+}

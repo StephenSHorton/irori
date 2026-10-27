@@ -165,7 +165,7 @@ func (p *parser) result(r *row, at time.Time, b block, raw json.RawMessage) {
 		if isObj && !isErr && !tr.Staged && tr.Error == "" {
 			edits = notebookEdit(base, tr, input, r.Cwd)
 		}
-	case "Bash":
+	case "Bash", "PowerShell":
 		if isObj && tr.BashEditDiff != nil {
 			edits = bashEdits(base, tr.BashEditDiff, r.Cwd)
 		}
@@ -175,8 +175,9 @@ func (p *parser) result(r *row, at time.Time, b block, raw json.RawMessage) {
 		p.addPath(turn, e.Path)
 		p.emit(Item{Edit: &e})
 	}
-	if name == "Bash" {
+	if isShell(name) {
 		run := &BashRun{
+			Tool:      name,
 			SessionID: p.src.SessionID,
 			AgentID:   p.src.AgentID,
 			TurnID:    turn.t.ID,
@@ -202,6 +203,10 @@ func (p *parser) result(r *row, at time.Time, b block, raw json.RawMessage) {
 		p.emit(Item{Bash: run})
 	}
 }
+
+// isShell reports the tools whose input.command is a shell command line:
+// Bash, and PowerShell on Windows (same input and result shape).
+func isShell(name string) bool { return name == "Bash" || name == "PowerShell" }
 
 // blockText is a tool_result block's content: a string, or its text blocks joined.
 func blockText(raw json.RawMessage) string {

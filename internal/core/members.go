@@ -147,6 +147,7 @@ func (c *Core) JoinMember(ctx context.Context, name, session string) (api.Member
 	if err != nil {
 		return api.Member{}, err
 	}
+	c.addSecret(mb.Secret)
 	if _, err := c.store.Append(ctx, "irori", KindMemberJoined, map[string]any{
 		"key": mb.Key, "name": mb.Name,
 	}); err != nil {

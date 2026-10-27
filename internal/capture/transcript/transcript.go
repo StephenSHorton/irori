@@ -25,6 +25,10 @@
 //     newLines, lines[]}], replaceAll, userModified, staged?.
 //   - Write toolUseResult: type create|update, filePath, content,
 //     structuredPatch, originalFile (string|null), staged?.
+//   - PowerShell (Windows) has Bash's input {command, description,
+//     timeout?} and result {stdout, stderr, interrupted, isImage}; it gets a
+//     Target and a BashRun like Bash. A result whose tool_use was never
+//     seen is inferred as Bash.
 //   - Bash toolUseResult: stdout, stderr, interrupted, bashEditDiff?
 //     {files[], moreFiles, changedFiles[]}, gitOperation? ({pr:{number,url,
 //     action}}, {push:{branch}}, {branch:{ref,action}}).
@@ -144,8 +148,10 @@ type PRLink struct {
 	At        time.Time `json:"at"`
 }
 
-// BashRun is a finished Bash call, for commit and PR detection.
+// BashRun is a finished Bash or PowerShell call, for commit and PR
+// detection.
 type BashRun struct {
+	Tool         string          `json:"tool"` // "Bash" or "PowerShell"
 	SessionID    string          `json:"sessionId"`
 	AgentID      string          `json:"agentId,omitempty"`
 	TurnID       string          `json:"turnId"`
@@ -202,7 +208,7 @@ func (p *Parser) LastActivity() time.Time { return p.impl.lastActivity() }
 
 // Target labels a tool call from its name, input and the row's cwd: the path
 // for Read/Edit/Write/NotebookEdit (cwd-relative with forward slashes when
-// under cwd), the first line of a Bash command, the pattern for Grep/Glob,
+// under cwd), the first line of a Bash or PowerShell command, the pattern for Grep/Glob,
 // the url for WebFetch, the query for WebSearch, the description for
 // Agent/Task, else "". Clipped to MaxTarget runes with "…".
 func Target(name string, input json.RawMessage, cwd string) string { return target(name, input, cwd) }

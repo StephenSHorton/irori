@@ -34,7 +34,7 @@ func target(name string, input json.RawMessage, cwd string) string {
 		s = relPath(in.FilePath, cwd)
 	case "NotebookEdit":
 		s = relPath(in.NotebookPath, cwd)
-	case "Bash":
+	case "Bash", "PowerShell":
 		s = firstLine(in.Command)
 	case "Grep", "Glob":
 		s = in.Pattern

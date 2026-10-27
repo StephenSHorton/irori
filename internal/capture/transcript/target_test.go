@@ -30,7 +30,7 @@ func TestTarget(t *testing.T) {
 		{"agent", "Agent", `{"description":"Find callers"}`, "", "Find callers"},
 		{"task", "Task", `{"description":"Run tests"}`, "", "Run tests"},
 		{"other tool", "TodoWrite", `{"todos":[]}`, "", ""},
-		{"powershell is not bash", "PowerShell", `{"command":"ls"}`, "", ""},
+		{"powershell first line", "PowerShell", `{"command":"ls\nGet-Item x"}`, "", "ls"},
 		{"bad input", "Read", `not json`, "", ""},
 		{"null input", "Read", `null`, "", ""},
 		{"wrong field type", "Bash", `{"command":5}`, "", ""},

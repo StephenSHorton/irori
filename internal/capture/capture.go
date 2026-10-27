@@ -79,10 +79,14 @@ type Options struct {
 
 // TurnRow is one capture.turn payload: a closed turn.
 type TurnRow struct {
-	ID      string `json:"id"`  // deterministic: "t-" + hex(sha256(key|turnId))[:20]
+	ID      string `json:"id"`  // deterministic: "t-" + hex(sha256(key|turnId))[:20]; key|agentId|turnId for a subagent's turn
 	Key     string `json:"key"` // agent key "<device>/<sessionId>"
 	RepoKey string `json:"repoKey,omitempty"`
 	Root    string `json:"root,omitempty"`
+	// TurnID is the transcript turn id (Turn.ID). It is spelled out because
+	// the row's own "id" hides the embedded Turn's in JSON; readers of the
+	// JSON use "turnId", and the service fills Turn.ID from it on replay.
+	TurnID string `json:"turnId"`
 	transcript.Turn
 	// Tool targets, prompt and reply are scrubbed; EditPaths are made
 	// repo-relative (forward slashes) when under Root, else left absolute.
