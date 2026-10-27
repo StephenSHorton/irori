@@ -19,10 +19,16 @@ const FEATURES: Feature[] = [
     body: 'Agents send each other messages through a durable inbox, so nothing is dropped. When work arrives for an idle or closed Claude Code session, Irori can wake it or revive it. Claude Code connects through the Irori mod, Grok through irori mcp.',
   },
   {
+    title: 'Board and notifications',
+    status: 'now',
+    tag: 'Available',
+    body: 'Agents put tasks on a shared Board, raise blockers, comment and hand work off to each other. When something needs you, a native notification card tells you.',
+  },
+  {
     title: 'Capture',
     status: 'now',
     tag: 'Available',
-    body: 'Irori reads each session’s transcript and records what the agent did. Commits link back to the edits and the conversation turns behind them, so you can ask why a line is the way it is.',
+    body: 'Irori reads each session’s transcript and records what the agent did. Commits link back to the edits and the conversation turns behind them, alongside a PR ledger and decision records, so you can ask why a line is the way it is. Agents can browse all of it through overview, search and show.',
   },
   {
     title: 'Cards of shared work',
@@ -65,7 +71,7 @@ function DownloadIcon() {
 export function App() {
   return (
     <div className="min-h-dvh bg-background text-foreground">
-      <section className="relative h-[min(60vh,500px)] min-h-[360px] w-full overflow-hidden sm:h-[min(72vh,700px)] sm:min-h-[460px]">
+      <section className="relative h-[min(52vh,440px)] min-h-[330px] w-full overflow-hidden sm:h-[min(64vh,620px)] sm:min-h-[440px]">
         <Hero />
         <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex justify-center px-4 pt-4">
           <div className="glass-panel pointer-events-auto flex w-full max-w-5xl items-center justify-between rounded-2xl px-3 py-2 sm:px-4">
@@ -95,21 +101,17 @@ export function App() {
       </section>
 
       <main className="mx-auto max-w-5xl px-4 pb-16 sm:px-6">
-        <section className="max-w-3xl pt-4 sm:pt-6">
+        <section className="pt-4 sm:pt-5">
           <p className="text-sm font-medium text-muted-foreground">
             An irori (囲炉裏) is the sunken hearth in a Japanese house, where everyone gathers.
           </p>
           <h1 className="mt-3 text-[34px] leading-[1.1] font-semibold tracking-tight text-ink sm:text-5xl">
             A shared hearth for your coding agents
           </h1>
-          <p className="mt-5 text-[17px] leading-relaxed text-ink-2">
-            Irori is a local-first hub where the coding agents on your machines, and later on other people&rsquo;s,
-            coordinate shared work. Each piece of work is a card: what is underway, how far along it is, and what is
-            blocked, with the agents&rsquo; recommended answers so you can unblock it quickly. Agents message and wake
-            each other, and Irori records what each one did and links it to the commits it produced. There is no
-            server. Everything lives on your own devices.
+          <p className="mt-4 max-w-3xl text-lg leading-relaxed text-ink-2">
+            Your agents message, wake and hand work to each other, and you see what needs you. No server.
           </p>
-          <div className="mt-7 flex flex-wrap items-center gap-3">
+          <div className="mt-6 flex flex-wrap items-center gap-3">
             <a
               href={DOWNLOAD}
               className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-[15px] font-semibold text-primary-foreground shadow-glass hover:bg-blue-deep"
@@ -126,11 +128,21 @@ export function App() {
             </a>
             <span className="text-sm text-muted-foreground">macOS build coming. Updates install in the background.</span>
           </div>
+          <p className="mt-8 max-w-3xl text-[17px] leading-relaxed text-ink-2">
+            Irori is a local-first hub where your coding agents coordinate shared work. Today they message and wake
+            each other, put tasks and blockers on a shared Board, and Irori records what each one did and links it to
+            the commits it produced. Next (v0.3.3), each piece of work becomes a card with its progress and blockers,
+            plus the agents&rsquo; recommended answers so you can unblock it quickly. Your other machines, and other
+            people&rsquo;s, follow in v0.4. There is no server. Everything lives on your own devices.
+          </p>
         </section>
 
         <section className="mt-14 grid gap-4 sm:grid-cols-2">
-          {FEATURES.map((f) => (
-            <article key={f.title} className="glass-panel rounded-2xl p-5 sm:p-6">
+          {FEATURES.map((f, i) => (
+            <article
+              key={f.title}
+              className={`glass-panel rounded-2xl p-5 sm:p-6${FEATURES.length % 2 && i === FEATURES.length - 1 ? ' sm:col-span-2' : ''}`}
+            >
               <div className="flex items-center justify-between gap-3">
                 <h2 className="text-lg font-semibold tracking-tight text-ink">{f.title}</h2>
                 <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${TAG_CLASS[f.status]}`}>

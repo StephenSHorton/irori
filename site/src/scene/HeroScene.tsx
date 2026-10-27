@@ -1,7 +1,7 @@
-import { Html, OrthographicCamera } from '@react-three/drei'
+import { Html, OrthographicCamera, PerformanceMonitor } from '@react-three/drei'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Lights, Matte, PostFX, RoundCyl, SceneCanvas, SoftBox } from 'mokei/clay'
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   AdditiveBlending,
   BoxGeometry,
@@ -52,16 +52,39 @@ const LED_WORK = new Color('#34c77b')
 const LED_BLOCKED = new Color('#f2b705')
 const LED_IDLE = new Color('#cbd5e1')
 
+/** Which agent sits on each chip. The chip top is tinted by kind. */
+const KIND: Record<Exclude<NodeId, 'hearth'>, 'claude' | 'grok'> = {
+  n0: 'claude',
+  n1: 'grok',
+  n2: 'claude',
+  n3: 'grok',
+  n4: 'claude',
+  n5: 'claude',
+  m0: 'grok',
+  m1: 'claude',
+}
+const KIND_TOP = { claude: '#e2825a', grok: '#4a5468' }
+
 /* ------------------------------------------------------------------ */
 
 /** Stable DOM home for the Html cards, so drei never re-parents them mid-mount. */
 const overlay: { current: HTMLDivElement } = { current: null as unknown as HTMLDivElement }
 
-export default function HeroScene({ still }: { still: boolean }) {
+/** Frame rate (averaged over a few seconds) below which the scene stops animating. */
+const MIN_FPS = 24
+
+export default function HeroScene({ still, paused }: { still: boolean; paused: boolean }) {
+  // A slow GPU that passed the WebGL check still gets a sharp picture, just not a moving one.
+  const [slow, setSlow] = useState(false)
+  const frozen = still || slow
+  const frameloop = paused ? 'never' : frozen ? 'demand' : 'always'
   return (
     <div className="absolute inset-0" aria-hidden>
-      <SceneCanvas quality="medium" frameloop={still ? 'demand' : 'always'} style={{ position: 'absolute', inset: 0 }}>
-        <World still={still} />
+      <SceneCanvas quality="medium" frameloop={frameloop} style={{ position: 'absolute', inset: 0 }}>
+        <PerformanceMonitor bounds={() => [MIN_FPS, 10_000]} flipflops={1} onDecline={() => setSlow(true)}>
+          <World still={frozen} />
+        </PerformanceMonitor>
+        <Kick frameloop={frameloop} />
       </SceneCanvas>
       <div
         ref={(el) => {
@@ -71,6 +94,22 @@ export default function HeroScene({ still }: { still: boolean }) {
       />
     </div>
   )
+}
+
+/**
+ * Outside the always-on loop, a resize or a resume from pause renders a single
+ * frame, and the Html cards read the camera before Rig moves it. Render twice.
+ */
+function Kick({ frameloop }: { frameloop: string }) {
+  const invalidate = useThree((s) => s.invalidate)
+  const size = useThree((s) => s.size)
+  useEffect(() => {
+    if (frameloop !== 'demand') return
+    invalidate()
+    const id = window.setTimeout(() => invalidate(), 120)
+    return () => window.clearTimeout(id)
+  }, [frameloop, size.width, size.height, invalidate])
+  return null
 }
 
 /** Loop time. Reduced motion pins it to one frame that tells the story. */
@@ -119,7 +158,7 @@ function World({ still }: { still: boolean }) {
       <Pulses loopT={loopT} curves={curves} />
       <Cards loopT={loopT} answerArrives={answerArrives} />
       <Html portal={overlay} position={[-BOARD_A_HALF + 1.1, TOP, BOARD_A_HALF - 0.2]} center zIndexRange={[10, 0]}>
-        <div className="scene-tag">laptop</div>
+        <div className="scene-tag wide-only">laptop</div>
       </Html>
       <Html portal={overlay}
         position={[BOARD_B.center[0] + 1.6, TOP, BOARD_B.center[1] + BOARD_B.half - 0.2]}
@@ -145,14 +184,15 @@ function Rig({ still }: { still: boolean }) {
     if (!cam) return
     const t = still ? 0 : clock.elapsedTime
     const wide = size.width / size.height > 1.2
-    const tx = wide ? 3.9 : 0.2
+    // Narrow screens frame the laptop board plus the cable, so the answer pulse stays in view.
+    const tx = wide ? 3.9 : 2.0
     const tz = wide ? -2.4 : -1.5
     const az = (34 + Math.sin(t * 0.07) * 6) * DEG
     const el = (41 + Math.sin(t * 0.045) * 2.5) * DEG
     const dist = 60
     cam.position.set(tx + dist * Math.cos(el) * Math.sin(az), dist * Math.sin(el), tz + dist * Math.cos(el) * Math.cos(az))
     cam.lookAt(tx, 0, tz)
-    const spanW = wide ? 27 : 14
+    const spanW = wide ? 27 : 15.5
     const spanH = wide ? 13.8 : 13.5
     cam.zoom = Math.min(size.width / spanW, size.height / spanH)
     cam.updateProjectionMatrix()
@@ -394,6 +434,25 @@ function Nodes({
   answerArrives: number
 }) {
   const leds = useRef(new Map<string, MeshBasicMaterial>())
+  const glows = useRef(new Map<string, Sprite>())
+  const glowMats = useMemo(
+    () =>
+      new Map(
+        NODES.map((n) => [
+          n.id,
+          new SpriteMaterial({
+            map: getGlowTexture(),
+            color: LED_WORK.clone(),
+            transparent: true,
+            opacity: 0.55,
+            depthWrite: false,
+            blending: AdditiveBlending,
+            toneMapped: false,
+          }),
+        ]),
+      ),
+    [],
+  )
   const ledFor = (id: string) => {
     let m = leds.current.get(id)
     if (!m) {
@@ -427,6 +486,15 @@ function Nodes({
       }
       tmp.copy(base).lerp(COOL, flash * 0.8)
       m.color.copy(tmp)
+      const blocked = base === LED_BLOCKED
+      const g = glows.current.get(n.id)
+      const gm = glowMats.get(n.id)!
+      gm.color.copy(tmp)
+      gm.opacity = blocked ? 0.95 : 0.4 + flash * 0.5
+      if (g) {
+        const sc = blocked ? 1.7 + Math.sin(t * 6) * 0.25 : 0.7 + flash * 0.5
+        g.scale.set(sc, sc, 1)
+      }
     }
   })
 
@@ -435,10 +503,25 @@ function Nodes({
       {NODES.map((n) => (
         <group key={n.id} position={[n.pos[0], TOP, n.pos[1]]}>
           <SoftBox size={[1.36, 0.34, 1.36]} r={0.12} material="base" position={[0, 0.17, 0]} />
-          <SoftBox size={[0.86, 0.08, 0.86]} r={0.06} material="accent1" position={[0, 0.36, 0]} cast={false} />
-          <mesh position={[0.46, 0.37, 0.46]} material={ledFor(n.id)}>
-            <sphereGeometry args={[0.08, 12, 8]} />
+          <SoftBox
+            size={[0.86, 0.08, 0.86]}
+            r={0.06}
+            unsafeColor={KIND_TOP[KIND[n.id]]}
+            position={[0, 0.36, 0]}
+            cast={false}
+          />
+          <mesh position={[0.48, 0.4, 0.48]} material={ledFor(n.id)}>
+            <sphereGeometry args={[0.12, 12, 8]} />
           </mesh>
+          <sprite
+            ref={(g) => void (g ? glows.current.set(n.id, g) : glows.current.delete(n.id))}
+            position={[0.48, 0.46, 0.48]}
+            material={glowMats.get(n.id)}
+            renderOrder={3}
+          />
+          <Html portal={overlay} position={[-0.2, 0, 1.05]} center zIndexRange={[5, 0]}>
+            <div className={`scene-kind scene-kind-${KIND[n.id]} wide-only`}>{KIND[n.id]}</div>
+          </Html>
           {[-0.4, 0, 0.4].map((o) => (
             <group key={o}>
               <mesh geometry={unitBox} material={pinMat} position={[o, 0.06, 0.74]} scale={[0.14, 0.08, 0.16]} />
@@ -455,11 +538,30 @@ function Nodes({
 /* Pulses: messages travelling along traces.                           */
 /* ------------------------------------------------------------------ */
 
+/** Distances (world units) behind the head for the pulse trail. */
+const TRAIL = [0.32, 0.62, 0.9]
+
 function Pulses({ loopT, curves }: { loopT: (e: number) => number; curves: Curves }) {
   const groups = useRef<(Group | null)[]>([])
-  const geo = useMemo(() => new SphereGeometry(0.13, 14, 10), [])
+  const geo = useMemo(() => new SphereGeometry(0.22, 14, 10), [])
   const mats = useMemo(
     () => MESSAGES.map((m) => new MeshBasicMaterial({ color: m.warm ? WARM : COOL, toneMapped: false })),
+    [],
+  )
+  const trailMats = useMemo(
+    () =>
+      MESSAGES.map((m) =>
+        TRAIL.map(
+          (_, k) =>
+            new MeshBasicMaterial({
+              color: m.warm ? WARM : COOL,
+              transparent: true,
+              opacity: 0.55 - k * 0.15,
+              depthWrite: false,
+              toneMapped: false,
+            }),
+        ),
+      ),
     [],
   )
   const haloMats = useMemo(
@@ -493,6 +595,14 @@ function Pulses({ loopT, curves }: { loopT: (e: number) => number; curves: Curve
       g.visible = true
       const p = c.curve.getPointAt(m.reverse ? 1 - u : u)
       g.position.set(p.x, p.y + 0.06, p.z)
+      // the trail sits behind the head, in world space relative to the group
+      TRAIL.forEach((back, k) => {
+        const tm = g.children[2 + k]
+        if (!tm) return
+        const ut = Math.max(0, u - back / c.length)
+        const q = c.curve.getPointAt(m.reverse ? 1 - ut : ut)
+        tm.position.set(q.x - p.x, q.y - p.y, q.z - p.z)
+      })
     })
   })
 
@@ -501,7 +611,10 @@ function Pulses({ loopT, curves }: { loopT: (e: number) => number; curves: Curve
       {MESSAGES.map((_, i) => (
         <group key={i} ref={(g) => void (groups.current[i] = g)} visible={false}>
           <mesh geometry={geo} material={mats[i]} />
-          <sprite scale={[0.9, 0.9, 1]} material={haloMats[i]} renderOrder={3} />
+          <sprite scale={[1.4, 1.4, 1]} material={haloMats[i]} renderOrder={3} />
+          {TRAIL.map((_, k) => (
+            <mesh key={k} geometry={geo} material={trailMats[i][k]} scale={0.75 - k * 0.2} />
+          ))}
         </group>
       ))}
     </group>

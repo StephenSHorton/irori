@@ -1,14 +1,41 @@
-import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
+import { Component, lazy, Suspense, useEffect, useState, type ReactNode, type RefObject, useRef } from 'react'
 
 const HeroScene = lazy(() => import('./scene/HeroScene'))
 
-function hasWebGL() {
+const SOFTWARE_GL = /swiftshader|llvmpipe|softpipe|software|basic render|microsoft basic/i
+
+/**
+ * True only for a hardware WebGL context. Software rasterisers (SwiftShader,
+ * llvmpipe, the Microsoft Basic Render Driver in VMs and RDP sessions) can
+ * create a context but run the scene at a few frames a second, so they get
+ * the static picture instead.
+ */
+function hasFastWebGL() {
   try {
     const c = document.createElement('canvas')
-    return Boolean(c.getContext('webgl2') ?? c.getContext('webgl'))
+    const opts = { failIfMajorPerformanceCaveat: true }
+    const gl = (c.getContext('webgl2', opts) ?? c.getContext('webgl', opts)) as WebGLRenderingContext | null
+    if (!gl) return false
+    const info = gl.getExtension('WEBGL_debug_renderer_info')
+    const renderer = String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER) ?? '')
+    gl.getExtension('WEBGL_lose_context')?.loseContext()
+    return !SOFTWARE_GL.test(renderer)
   } catch {
     return false
   }
+}
+
+/** Whether the element is on screen, so the render loop can stop when it is not. */
+function useOnScreen(ref: RefObject<HTMLElement | null>) {
+  const [on, setOn] = useState(true)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof IntersectionObserver === 'undefined') return
+    const io = new IntersectionObserver(([e]) => setOn(e.isIntersecting), { rootMargin: '80px 0px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [ref])
+  return on
 }
 
 function useReducedMotion() {
@@ -58,16 +85,18 @@ class SceneBoundary extends Component<{ children: ReactNode }, { failed: boolean
 export function Hero() {
   const reduced = useReducedMotion()
   const [webgl, setWebgl] = useState<boolean | null>(null)
-  useEffect(() => setWebgl(hasWebGL()), [])
+  const ref = useRef<HTMLDivElement>(null)
+  const onScreen = useOnScreen(ref)
+  useEffect(() => setWebgl(hasFastWebGL()), [])
 
   return (
-    <div className="absolute inset-0">
+    <div ref={ref} className="absolute inset-0">
       <StaticHero />
       {webgl ? (
         <SceneBoundary>
           <Suspense fallback={null}>
             <div className="absolute inset-0">
-              <HeroScene still={reduced} />
+              <HeroScene still={reduced} paused={!onScreen} />
             </div>
           </Suspense>
         </SceneBoundary>

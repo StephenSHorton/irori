@@ -94,14 +94,36 @@ body {
   user-select: none;
 }
 
+/* Agent kind under each chip. */
+.scene-kind {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+}
+.scene-kind-claude {
+  color: #b4532a;
+}
+.scene-kind-grok {
+  color: #3a4255;
+}
+
 @media (max-width: 640px) {
   .scene-card {
+    max-width: calc(100vw - 32px);
     width: 150px;
     padding: 6px 8px 7px;
     font-size: 10px;
   }
   .scene-card.wide-only,
-  .scene-tag.wide-only {
+  .scene-tag.wide-only,
+  .scene-kind.wide-only {
     display: none;
   }
 }
