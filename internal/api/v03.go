@@ -60,13 +60,18 @@ func (h *handler) v03(w http.ResponseWriter, r *http.Request) bool {
 // limitParam reads ?limit=: def when absent, capped at hi, an error
 // (already written as 400) when not a positive integer.
 func limitParam(w http.ResponseWriter, q url.Values, def, hi int) (int, bool) {
-	v := q.Get("limit")
+	return positiveParam(w, q, "limit", def, hi)
+}
+
+// positiveParam is limitParam for any parameter name.
+func positiveParam(w http.ResponseWriter, q url.Values, name string, def, hi int) (int, bool) {
+	v := q.Get(name)
 	if v == "" {
 		return def, true
 	}
 	n, err := strconv.Atoi(v)
 	if err != nil || n < 1 {
-		writeError(w, http.StatusBadRequest, "limit must be a positive integer")
+		writeError(w, http.StatusBadRequest, name+" must be a positive integer")
 		return 0, false
 	}
 	return min(n, hi), true
