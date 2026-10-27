@@ -230,6 +230,10 @@ func TestBoardViewerHeaders(t *testing.T) {
 		{"unknown attach", map[string]string{attach.HeaderAttach: "stale"}, http.StatusForbidden},
 		{"unknown member", map[string]string{attach.HeaderMember: "stale"}, http.StatusForbidden},
 		{"both", map[string]string{attach.HeaderAttach: f.attach, attach.HeaderMember: memberSecret}, http.StatusForbidden},
+		// A header that is sent is an identity claim even when empty: never
+		// the person's view.
+		{"empty attach", map[string]string{attach.HeaderAttach: ""}, http.StatusForbidden},
+		{"blank member", map[string]string{attach.HeaderMember: " "}, http.StatusForbidden},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -14,6 +14,7 @@ import (
 	"github.com/StephenSHorton/irori/internal/capture/gitlink"
 	"github.com/StephenSHorton/irori/internal/capture/transcript"
 	"github.com/StephenSHorton/irori/internal/decision"
+	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/ledger"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/search"
@@ -848,6 +849,65 @@ func TestSearchViewer(t *testing.T) {
 		}
 		if got := refs(r.search(SearchQuery{Viewer: tt.viewer})); len(got) != len(tt.want) {
 			t.Errorf("viewer %q listing: %v", tt.viewer, got)
+		}
+	}
+}
+
+// A wake's prompt carries the messages it delivered. The turn it starts is
+// the recipient's, but the message text stays with the message: no agent
+// finds it through turns, and only the recipient and the person see it when
+// they show the turn (design/board.md: no other agent finds or shows a
+// message).
+func TestTurnFenceKeepsMessagesPrivate(t *testing.T) {
+	r := newRig(t, nil)
+	prompt := inbox.FencePrompt("[irori-wake:tok1]", false, []inbox.Delivery{{
+		ID: "d-1", MessageID: "m-1", To: keyA, Mode: inbox.ModeWake,
+		Message: inbox.Message{ID: "m-1", From: inbox.Sender{Key: "user:" + device, Name: "Stephen", Kind: "user"},
+			Text: "secret mango for alpha only", Trust: inbox.UserTrust},
+	}})
+	row := r.turn(keyA, repoX, "t-fence", prompt, "on it, peeling now", at(1))
+	ref := search.Ref(search.KindTurn, row.ID)
+
+	for _, viewer := range []string{"", keyA, keyB} {
+		if got := refs(r.search(SearchQuery{Text: "mango", Kinds: []search.Kind{search.KindTurn}, Viewer: viewer})); len(got) != 0 {
+			t.Errorf("viewer %q finds the message text through turns: %v", viewer, got)
+		}
+		for _, h := range r.search(SearchQuery{Kinds: []search.Kind{search.KindTurn}, Viewer: viewer}) {
+			if strings.Contains(h.Snippet+h.Title, "mango") {
+				t.Errorf("viewer %q: hit %s shows the message text: %q", viewer, h.Ref, h.Snippet)
+			}
+		}
+	}
+	// The reply is the agent's own work: still found by everyone.
+	if got := refs(r.search(SearchQuery{Text: "peeling", Viewer: keyB})); !slices.Contains(got, ref) {
+		t.Errorf("reply search for another agent: %v, want %s", got, ref)
+	}
+
+	tests := []struct {
+		viewer string
+		sees   bool
+	}{
+		{"", true},    // the person
+		{keyA, true},  // the recipient, whose turn it is
+		{keyB, false}, // anyone else
+	}
+	for _, tt := range tests {
+		sh, err := r.c.Show(r.ctx, ref, ShowOptions{Viewer: tt.viewer, Limit: search.MaxShow})
+		if err != nil {
+			t.Fatalf("viewer %q: show %s: %v", tt.viewer, ref, err)
+		}
+		if got := strings.Contains(sh.Text, "secret mango"); got != tt.sees {
+			t.Errorf("viewer %q sees the message text: %v, want %v\n%s", tt.viewer, got, tt.sees, sh.Text)
+		}
+		if !strings.Contains(sh.Text, `delivery="d-1"`) || !strings.Contains(sh.Text, "peeling now") {
+			t.Errorf("viewer %q: the turn lost its fence header or reply:\n%s", tt.viewer, sh.Text)
+		}
+		ag, err := r.c.Show(r.ctx, search.Ref(search.KindAgent, keyA), ShowOptions{Viewer: tt.viewer, Limit: search.MaxShow})
+		if err != nil {
+			t.Fatalf("viewer %q: show agent: %v", tt.viewer, err)
+		}
+		if strings.Contains(ag.Text, "mango") {
+			t.Errorf("viewer %q: agent timeline shows the message text:\n%s", tt.viewer, ag.Text)
 		}
 	}
 }

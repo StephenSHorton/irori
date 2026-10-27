@@ -27,7 +27,8 @@ package capture
 //
 // What capture indexes itself, in apply (so a replay rebuilds it):
 //   - turn:<TurnRow.ID>: Title = the prompt's first line, Body = prompt +
-//     reply (already scrubbed), Agent = Key; subagent turns included.
+//     reply (already scrubbed; fenced message text withheld), Agent = Key;
+//     subagent turns included.
 //   - edit:<EditRow.ID>: Title = "<tool> <path> +adds -dels", Body = path,
 //     no patch text.
 //   - commit:<sha>: Title = subject, Body = subject + file paths, Agent =
@@ -43,6 +44,9 @@ package capture
 // Show renderings capture owns (all paged by search.Page):
 //   - turn: prompt, reply, tool targets, its edits (as edit refs), the
 //     commits linked to it; Related: edit and commit refs, agent:<key>.
+//     A prompt that is an Irori fence keeps each message's text only for
+//     the person and the turn's own agent (its recipient); the index and
+//     every other viewer get the tags with the text withheld.
 //   - edit: tool, path, +/-, fidelity, and the patch from the blob store;
 //     Related: its turn, the commit that took it.
 //   - commit: subject, author, branch, files, link fidelity; Related: turns.
@@ -53,6 +57,7 @@ package capture
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -144,7 +149,7 @@ func (c *Capture) Show(ctx context.Context, ref string, o ShowOptions) (Shown, e
 		return Shown{}, err
 	}
 	if slices.Contains(ownKinds, kind) {
-		r, err := c.impl.render(ctx, kind, id)
+		r, err := c.impl.render(ctx, kind, id, o.Viewer)
 		if err != nil {
 			return Shown{}, err
 		}
@@ -216,14 +221,35 @@ func (c *capture) index(d search.Doc) {
 	}
 }
 
+// fencedTextRe matches one message inside an Irori fence (inbox's wake,
+// reminder and append prompts): the opening tag, then the text up to the
+// closing tag. The fence escapes a closing tag inside the text, so the
+// first one ends it.
+var fencedTextRe = regexp.MustCompile(`(?s)(<irori-message\b[^>\n]*>)\n.*?\n(</irori-message>)`)
+
+// fencedWithheld stands in for a fenced message's text where the turn is
+// shown to someone the message isn't for.
+const fencedWithheld = "(message text withheld: it stays with its sender and recipients)"
+
+// withholdMessages drops the text of every message an Irori fence carried
+// into a prompt, keeping each tag (sender, delivery, ref). A message stays
+// with its sender and recipients (design/board.md), so a turn's indexed
+// text never holds it and only the recipient and the person see it there.
+func withholdMessages(prompt string) string {
+	if !strings.Contains(prompt, "<irori-message") {
+		return prompt
+	}
+	return fencedTextRe.ReplaceAllString(prompt, "${1}\n"+fencedWithheld+"\n${2}")
+}
+
 func turnDoc(r *TurnRow) search.Doc {
-	body := r.Prompt
+	body := withholdMessages(r.Prompt)
 	if r.Reply != "" {
 		body += "\n" + r.Reply
 	}
 	return search.Doc{
 		Ref: search.Ref(search.KindTurn, r.ID), Kind: search.KindTurn, At: r.StartedAt,
-		Title: firstLine(r.Prompt), Body: body, Agent: r.Key, RepoKey: r.RepoKey,
+		Title: firstLine(withholdMessages(r.Prompt)), Body: body, Agent: r.Key, RepoKey: r.RepoKey,
 	}
 }
 

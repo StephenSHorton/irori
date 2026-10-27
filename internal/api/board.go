@@ -46,9 +46,10 @@ func (h *handler) board(w http.ResponseWriter, r *http.Request) bool {
 
 // viewer is who a browsing request reads as: "" (the person) with no
 // identity header, else the attached session's or member's key. A header
-// that doesn't resolve is 403 (already written), never the person's view.
+// that is sent but doesn't resolve (empty or blank included) is 403
+// (already written), never the person's view.
 func (h *handler) viewer(w http.ResponseWriter, r *http.Request) (string, bool) {
-	if r.Header.Get(attach.HeaderAttach) == "" && r.Header.Get(attach.HeaderMember) == "" {
+	if len(r.Header.Values(attach.HeaderAttach)) == 0 && len(r.Header.Values(attach.HeaderMember)) == 0 {
 		return "", true
 	}
 	c, ok := h.caller(r)

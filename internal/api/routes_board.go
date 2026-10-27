@@ -16,9 +16,11 @@ package api
 //	neither                         -> the person's view;     Viewer = ""
 //
 // The person's view (bearer token only) is the GUI's: it sees everything,
-// messages included. An identity header that is present but unknown,
-// superseded or closed, or both headers at once, is 403: a stale secret
-// never falls back to the wider person's view.
+// messages included. An identity header that is present but empty, blank,
+// unknown, superseded or closed, or both headers at once, is 403: a stale
+// or unset secret never falls back to the wider person's view. A turn row
+// whose prompt is an Irori fence keeps its messages' text for the person
+// and the turn's own agent only (capture withholds it from everyone else).
 //
 // A route whose service isn't running answers 503 (board and tasks need
 // coord; search, show and overview need capture; overview needs the inbox

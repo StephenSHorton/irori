@@ -168,7 +168,7 @@ func (c *capture) overview(forKey string, in OverviewInput) Overview {
 // holds (in.Current), else its last reply.
 func (c *capture) doing(key string, current map[string]Line) Line {
 	if t := c.open[openKey(key, "")]; t != nil && strings.TrimSpace(t.Prompt) != "" {
-		return Line{Ref: agentRef(key), Text: clipLine(c.scrub.String(t.Prompt)), At: t.StartedAt}
+		return Line{Ref: agentRef(key), Text: clipLine(withholdMessages(c.scrub.String(t.Prompt))), At: t.StartedAt}
 	}
 	if l, ok := current[key]; ok && l.Ref != "" {
 		l.Text = clipLine(l.Text)
