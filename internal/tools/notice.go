@@ -40,11 +40,36 @@ func RouteNotice(ctx context.Context, ib *inbox.Inbox, from inbox.Sender, n coor
 		if to == "" || to == from.Key {
 			continue
 		}
-		_, d, err := ib.SendWith(ctx, from, inbox.Address{Kind: inbox.ToAgent, Value: to}, n.Text,
+		text, earlier := n.Text, ""
+		if n.Kind == coord.NoticeWatched && mode == inbox.ModeNextTurn {
+			text, earlier = mergeWatched(ib, from, to, n)
+		}
+		_, d, err := ib.SendWith(ctx, from, inbox.Address{Kind: inbox.ToAgent, Value: to}, text,
 			inbox.SendOptions{Mode: mode, Ref: n.Ref, Notice: true})
+		if err == nil && earlier != "" {
+			// The new digest carries the earlier one's changes.
+			err = ib.Skip(ctx, to, earlier, "merged into a newer update on the card")
+		}
 		out = append(out, NoticeResult{To: to, Delivery: d, Err: err})
 	}
 	return out
+}
+
+// mergeWatched folds a watch digest still waiting, unread, for to's next
+// turn (same card, same sender) into n's text, so a watcher hears one
+// update per card at its turn, not one per sweep. It returns the text to
+// send and the id of the waiting delivery it replaces ("" for none).
+func mergeWatched(ib *inbox.Inbox, from inbox.Sender, to string, n coord.Notice) (string, string) {
+	for _, d := range ib.For(to, false, 0) {
+		m := d.Message
+		if d.State != inbox.Queued || d.Mode != inbox.ModeNextTurn || !m.Notice || m.Ref != n.Ref || m.From.Key != from.Key {
+			continue
+		}
+		if text, ok := coord.MergeWatch(m.Text, n.Text); ok {
+			return text, d.ID
+		}
+	}
+	return n.Text, ""
 }
 
 // NoticeErr joins the failures in rs (nil when every recipient was told).

@@ -860,3 +860,24 @@ func TestPRLink(t *testing.T) {
 		}
 	}
 }
+
+func TestMergeWatch(t *testing.T) {
+	task := &Task{ID: "T1", Title: "ship", State: Working}
+	var a, b []string
+	for i := range 6 {
+		a = append(a, "a"+string(rune('0'+i)))
+		b = append(b, "b"+string(rune('0'+i)))
+	}
+	got, ok := MergeWatch(watchText(task, a, 2), watchText(task, b, 0))
+	if !ok {
+		t.Fatal("not merged")
+	}
+	// 2 dropped + 12 lines, 8 shown: 6 earlier changes, a4.. then b0..b5.
+	want := watchText(task, append(a[4:], b...), 6)
+	if got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+	if _, ok := MergeWatch("hello", want); ok {
+		t.Fatal("merged a non-digest")
+	}
+}

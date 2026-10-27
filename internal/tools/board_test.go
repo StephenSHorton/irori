@@ -334,3 +334,73 @@ func TestBoardBlockedCardFitsTheList(t *testing.T) {
 	has(t, out, "Small card", "Big card", "[b1]", "7 more open items")
 	hasNot(t, out, "not shown", "[b2]")
 }
+
+// Watch digests from sweeps between the watcher's turns merge into one
+// waiting notice per card, not one per tick.
+func TestWatchDigestsMergeUntilRead(t *testing.T) {
+	h := newHarness(t)
+	id := h.newCard(callA, map[string]any{"title": "Ship v0.6.0"})
+	h.ok(callA, "board_join", map[string]any{"task_id": id})
+	h.ok(callB, "board_watch", map[string]any{"task_id": id})
+	co := h.b.co
+	sweep := func() {
+		t.Helper()
+		ns, err := co.SweepNotices(bg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, n := range ns {
+			if err := NoticeErr(RouteNotice(bg, h.b.ib, inbox.SystemSender(), n)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	yes := true
+	if _, err := co.SetSteps(bg, keyA, id, []coord.Step{{Text: "notes"}, {Text: "build"}, {Text: "tag"}}); err != nil {
+		t.Fatal(err)
+	}
+	sweep()
+	for _, s := range []string{"s1", "s2", "s3"} {
+		if _, err := co.SetStep(bg, keyA, id, s, coord.StepUpdate{Doing: &yes}); err != nil {
+			t.Fatal(err)
+		}
+		sweep()
+		if _, err := co.SetStep(bg, keyA, id, s, coord.StepUpdate{Done: &yes}); err != nil {
+			t.Fatal(err)
+		}
+		sweep()
+	}
+	waiting := func() []inbox.Delivery {
+		var out []inbox.Delivery
+		for _, d := range h.notices(keyB) {
+			if d.State.Open() {
+				out = append(out, d)
+			}
+		}
+		return out
+	}
+	got := waiting()
+	if len(got) != 1 {
+		var texts []string
+		for _, d := range got {
+			texts = append(texts, d.Message.Text)
+		}
+		t.Fatalf("bob has %d waiting notices, want 1:\n%s", len(got), strings.Join(texts, "\n---\n"))
+	}
+	txt := got[0].Message.Text
+	has(t, txt, "set the steps", "“tag” (3/3)", "steps 3/3")
+	if n := strings.Count(txt, "Update on"); n != 1 {
+		t.Fatalf("one header, got %d:\n%s", n, txt)
+	}
+	// Once bob has read it, the next change is a new notice.
+	if err := h.b.ib.Skip(bg, keyB, got[0].ID, "read"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := co.SetTaskState(bg, keyA, id, coord.Completed, ""); err != nil {
+		t.Fatal(err)
+	}
+	sweep()
+	if got := waiting(); len(got) != 1 || strings.Contains(got[0].Message.Text, "set the steps") {
+		t.Fatalf("after reading: %+v", got)
+	}
+}

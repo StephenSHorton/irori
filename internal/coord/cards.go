@@ -17,8 +17,10 @@ package coord
 // Watch notices are not returned by the calls that cause them: coord queues
 // what changed on a watched card (in memory, never on replay) and
 // SweepNotices hands out one NoticeWatched digest per card and watcher, so
-// a watcher hears at its next turn without a notice per tick. A restart
-// drops a digest that hadn't gone out yet.
+// a watcher hears at its next turn without a notice per tick. Routing
+// (tools.RouteNotice) folds a digest into one still waiting, unread, for the
+// same card (MergeWatch), so sweeps between turns add up to one message. A
+// restart drops a digest that hadn't gone out yet.
 
 import (
 	"context"

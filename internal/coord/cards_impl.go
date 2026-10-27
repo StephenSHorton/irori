@@ -786,15 +786,77 @@ func (c *coord) watchNotices() []Notice {
 	return out
 }
 
+const (
+	watchHead     = "Update on "
+	watchHeadEnd  = ", a card you watch or raised a blocker on:\n"
+	watchFoot     = "\nNow: "
+	watchEarlierF = "- (%d earlier changes)\n"
+)
+
+// MergeWatch folds an earlier NoticeWatched text the recipient hasn't read
+// yet into a newer one for the same card: the newer header and "Now:" line,
+// the earlier changes first, at most maxWatchLines (the rest counted). ok is
+// false when either isn't a watch digest.
+func MergeWatch(earlier, newer string) (string, bool) {
+	oLines, oMore, _, _, ok1 := watchParts(earlier)
+	nLines, nMore, head, foot, ok2 := watchParts(newer)
+	if !ok1 || !ok2 {
+		return "", false
+	}
+	lines := append(oLines, nLines...)
+	more := oMore + nMore
+	if len(lines) > maxWatchLines {
+		more += len(lines) - maxWatchLines
+		lines = lines[len(lines)-maxWatchLines:]
+	}
+	var b strings.Builder
+	b.WriteString(head)
+	if more > 0 {
+		fmt.Fprintf(&b, watchEarlierF, more)
+	}
+	for _, l := range lines {
+		b.WriteString(l)
+	}
+	b.WriteString(foot)
+	return b.String(), true
+}
+
+// watchParts splits a watchText result into its change lines (each ending
+// in a newline), the earlier-changes count, the header and the "Now:" tail.
+func watchParts(s string) (lines []string, more int, head, foot string, ok bool) {
+	i, j := strings.Index(s, watchHeadEnd), strings.LastIndex(s, watchFoot)
+	if !strings.HasPrefix(s, watchHead) || i < 0 || j < i+len(watchHeadEnd)-1 {
+		return nil, 0, "", "", false
+	}
+	head, foot = s[:i+len(watchHeadEnd)], s[j+1:]
+	for _, l := range strings.SplitAfter(s[i+len(watchHeadEnd):j+1], "\n") {
+		var n int
+		switch {
+		case l == "":
+		case strings.HasPrefix(l, "- (") && len(lines) == 0 && more == 0:
+			if _, err := fmt.Sscanf(l, watchEarlierF, &n); err == nil {
+				more = n
+				continue
+			}
+			lines = append(lines, l)
+		case !strings.HasPrefix(l, "- ") && len(lines) > 0:
+			lines[len(lines)-1] += l // a change whose text ran onto another line
+		default:
+			lines = append(lines, l)
+		}
+	}
+	return lines, more, head, foot, true
+}
+
 func watchText(t *Task, lines []string, dropped int) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Update on %q (task:%s), a card you watch or raised a blocker on:\n", t.Title, t.ID)
+	fmt.Fprintf(&b, watchHead+"%q (task:%s)"+watchHeadEnd, t.Title, t.ID)
 	shown := lines
 	if len(shown) > maxWatchLines {
 		shown = shown[len(shown)-maxWatchLines:]
 	}
 	if more := len(lines) - len(shown) + dropped; more > 0 {
-		fmt.Fprintf(&b, "- (%d earlier changes)\n", more)
+		fmt.Fprintf(&b, watchEarlierF, more)
 	}
 	for _, l := range shown {
 		b.WriteString("- " + cut(l, maxNoticeField) + "\n")
