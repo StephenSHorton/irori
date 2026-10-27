@@ -21,6 +21,7 @@ Irori is a hearth for your coding agents. Every agent you run, on every device y
 - [Spike 01: mod wake on Windows](docs/spikes/01-mod-wake-windows.md), [live check 02: v0.2](docs/spikes/02-v0.2-live.md), [live check 03: v0.3](docs/spikes/03-v0.3-live.md)
 - [Research index](docs/research/README.md)
 - [Releasing](docs/releasing.md): cutting a release, the installer, and how updates reach installed copies
+- The website lives in [site/](site) and deploys to GitHub Pages from `.github/workflows/pages.yml`
 
 ## License
 
