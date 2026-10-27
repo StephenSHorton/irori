@@ -40,10 +40,6 @@ export const InboxLimit = 200
 // MaxText mirrors inbox.MaxText.
 export const MaxText = 8000
 
-// WorkPollMs is how often the Work tab re-reads while open: coord has no
-// change feed yet, so leases taken by agents only show up this way.
-const WorkPollMs = 5000
-
 // errorText reads a failed call: Wails rejects with an Error or with an
 // object carrying message. Go error text is shown as plain text.
 export function errorText(err: unknown): string {
@@ -316,7 +312,8 @@ async function loadWork(): Promise<WorkValue> {
 }
 
 // useWork loads tasks (finished ones too; the tab filters) and leases. It
-// re-reads on work:changed, and every WorkPollMs while active.
+// re-reads on work:changed (every task or lease change, lease expiry too),
+// and when the tab opens or the window regains focus.
 export function useWork(active: boolean): WorkState {
   const { value, loading, error, reload } = useLatest<WorkValue>(loadWork, {
     tasks: [],
@@ -332,8 +329,9 @@ export function useWork(active: boolean): WorkState {
   useEffect(() => {
     if (!active || !inWails()) return
     void reload()
-    const id = window.setInterval(() => void reload(), WorkPollMs)
-    return () => window.clearInterval(id)
+    const onFocus = () => void reload()
+    window.addEventListener("focus", onFocus)
+    return () => window.removeEventListener("focus", onFocus)
   }, [active, reload])
 
   return { ...value, loading, error, reload }

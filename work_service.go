@@ -3,16 +3,20 @@ package main
 import (
 	"context"
 	"sort"
+	"time"
 
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/core"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// EventWorkChanged fires (no payload) after the person cancels a task or
-// releases a lease from the GUI. Coord has no change feed yet, so the Work
-// tab also polls while it is open.
+// EventWorkChanged fires (no payload) when a task or lease changes, from
+// whoever changed it, and when a lease runs out: coord's Subscribe feed,
+// coalesced like inbox:changed. The Work tab re-reads on it.
 const EventWorkChanged = "work:changed"
+
+// workEmitEvery bounds work:changed to 4 events a second.
+const workEmitEvery = 250 * time.Millisecond
 
 func init() {
 	application.RegisterEvent[struct{}](EventWorkChanged)
@@ -23,7 +27,6 @@ func init() {
 // JS binding name: WorkService.*
 type WorkService struct {
 	core *core.Core
-	app  *application.App // set by gui.go once the app exists; nil in tests
 }
 
 // Tasks lists tasks, newest change first; openOnly leaves out finished ones.
@@ -40,26 +43,47 @@ func (w *WorkService) Leases() []coord.Lease {
 	return ls
 }
 
-// CancelTask moves a task to canceled.
+// CancelTask moves a task to canceled; work:changed follows through pump.
 func (w *WorkService) CancelTask(id string) (coord.Task, error) {
-	t, err := w.core.Coord().SetTaskState(context.Background(), w.core.UserSender().Key, id, coord.Canceled, "canceled from the Irori app")
-	if err == nil {
-		w.changed()
-	}
-	return t, err
+	return w.core.Coord().SetTaskState(context.Background(), w.core.UserSender().Key, id, coord.Canceled, "canceled from the Irori app")
 }
 
 // ReleaseLease drops the lease on resource, whoever holds it.
 func (w *WorkService) ReleaseLease(resource string) error {
-	err := w.core.Coord().Release(context.Background(), w.core.UserSender().Key, resource)
-	if err == nil {
-		w.changed()
-	}
-	return err
+	return w.core.Coord().Release(context.Background(), w.core.UserSender().Key, resource)
 }
 
-func (w *WorkService) changed() {
-	if w.app != nil {
-		w.app.Event.Emit(EventWorkChanged, struct{}{})
+// pump forwards coord changes to the webview as work:changed until ctx ends.
+func (w *WorkService) pump(ctx context.Context, app *application.App) {
+	pumpWork(ctx, w.core.Coord().Subscribe(ctx), workEmitEvery, func() {
+		app.Event.Emit(EventWorkChanged, struct{}{})
+	})
+}
+
+// pumpWork calls emit for changes, coalesced so a burst becomes one call at
+// most every apart. It returns when ctx ends or changes closes.
+func pumpWork(ctx context.Context, changes <-chan coord.Change, every time.Duration, emit func()) {
+	var last time.Time
+	timer := time.NewTimer(time.Hour)
+	timer.Stop()
+	defer timer.Stop()
+	pending := false
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case _, ok := <-changes:
+			if !ok {
+				return
+			}
+			if !pending {
+				pending = true
+				timer.Reset(max(0, every-time.Since(last)))
+			}
+		case <-timer.C:
+			pending = false
+			last = time.Now()
+			emit()
+		}
 	}
 }

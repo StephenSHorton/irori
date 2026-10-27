@@ -90,7 +90,6 @@ func runGUI(args []string) error {
 		},
 	})
 	settings.attach(app)
-	work.app = app
 
 	window = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "Irori",
@@ -114,6 +113,7 @@ func runGUI(args []string) error {
 	inboxSvc.onCounts(tray.SetInbox)
 	go inboxSvc.pump(ctx, app)
 	go captureSvc.pump(ctx, app)
+	go work.pump(ctx, app)
 	return app.Run()
 }
 

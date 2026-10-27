@@ -78,6 +78,26 @@ type Lease struct {
 	AcquiredAt time.Time `json:"acquiredAt"`
 }
 
+// ChangeKind classifies a Subscribe notification.
+type ChangeKind string
+
+const (
+	TaskChanged  ChangeKind = "task"          // created, claimed, assigned or a state change
+	LeaseChanged ChangeKind = "lease"         // acquired, renewed, stolen or released
+	LeaseExpired ChangeKind = "lease_expired" // a lease ran out
+	Resync       ChangeKind = "resync"        // changes were dropped: re-read everything
+)
+
+// Change is a notification for transports and the UI. Reason is the release
+// reason (ReasonReleased, ReasonHolderGone) on a LeaseChanged release.
+type Change struct {
+	Kind     ChangeKind `json:"kind"`
+	TaskID   string     `json:"taskId,omitempty"`
+	Resource string     `json:"resource,omitempty"`
+	Holder   string     `json:"holder,omitempty"`
+	Reason   string     `json:"reason,omitempty"`
+}
+
 // Options configure New.
 type Options struct {
 	Now       func() time.Time
@@ -137,6 +157,13 @@ func (c *Coord) Leases() []Lease { return c.impl.leases() }
 // the roster without a "gone" card starts its grace clock only when Sweep (or
 // ClaimTask on its task) first sees it missing.
 func (c *Coord) Sweep(ctx context.Context) error { return c.impl.sweep(ctx) }
+
+// Subscribe delivers a Change after every task or lease mutation, including
+// the sweeper's releases and a lease running out (noticed by a timer armed
+// for the next expiry while anyone is subscribed), until ctx ends; then the
+// channel closes. It is buffered: a slow reader drops changes and gets one
+// Resync once it has room, so readers should re-read state on any change.
+func (c *Coord) Subscribe(ctx context.Context) <-chan Change { return c.impl.subscribe(ctx) }
 
 // Overlaps reports whether two path globs can match a common path.
 func Overlaps(a, b string) bool { return overlaps(a, b) }
