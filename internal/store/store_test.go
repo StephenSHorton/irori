@@ -172,6 +172,10 @@ func TestHLCRoundTripsAsInt64(t *testing.T) {
 	if err := s.Insert(ctx, over); err == nil {
 		t.Fatal("insert past int64 accepted")
 	}
+	// The clock observed MaxInt64, so its next reading would wrap; Append refuses it.
+	if _, err := s.Append(ctx, "irori", KindAgentSeen, nil); err == nil {
+		t.Fatal("append past int64 accepted")
+	}
 }
 
 // sync copies what dst lacks from src, a page at a time, the way v0.4 replication will.
@@ -417,6 +421,21 @@ func TestSubscribeClosesOnCancelAndClose(t *testing.T) {
 	if _, ok := <-s.Subscribe(context.Background()); ok {
 		t.Fatal("subscribe after Close returned an open channel")
 	}
+	if _, err := s.Append(context.Background(), "irori", KindAgentSeen, nil); !errors.Is(err, ErrClosed) {
+		t.Fatalf("append after Close: err = %v", err)
+	}
+	if err := s.Insert(context.Background(), Event{DeviceID: "dev-b", Seq: 1, Kind: KindAgentSeen}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("insert after Close: err = %v", err)
+	}
+}
+
+func TestOpenCreatesParentDir(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "deeper", "irori.db")
+	s, err := Open(context.Background(), path, "dev-a", hlc.New(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
 }
 
 func TestMigrationsRecorded(t *testing.T) {

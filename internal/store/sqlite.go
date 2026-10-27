@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -86,6 +88,9 @@ func open(ctx context.Context, path, deviceID string, clock *hlc.Clock) (*Store,
 	if clock == nil {
 		return nil, errors.New("store: nil clock")
 	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
 	// A plain path keeps its query for the driver: WAL, wait on locks held by
 	// another process, and BEGIN IMMEDIATE so a write transaction takes the
 	// write lock up front instead of failing to upgrade later.
@@ -163,6 +168,9 @@ func (s *Store) append(ctx context.Context, actor, kind string, payload any) (Ev
 
 	d.writeMu.Lock()
 	defer d.writeMu.Unlock()
+	if d.isClosed() {
+		return Event{}, ErrClosed
+	}
 	tx, err := d.sql.BeginTx(ctx, nil)
 	if err != nil {
 		return Event{}, err
@@ -173,6 +181,9 @@ func (s *Store) append(ctx context.Context, actor, kind string, payload any) (Ev
 		return Event{}, err
 	}
 	ev := Event{DeviceID: d.deviceID, Seq: last + 1, HLC: d.clock.Now(), Actor: actor, Kind: kind, Payload: raw}
+	if uint64(ev.HLC) > math.MaxInt64 {
+		return Event{}, fmt.Errorf("store: clock reached hlc %d, past int64", ev.HLC)
+	}
 	if err := insertRow(ctx, tx, ev); err != nil {
 		return Event{}, err
 	}
@@ -204,6 +215,9 @@ func (s *Store) insert(ctx context.Context, ev Event) error {
 
 	d.writeMu.Lock()
 	defer d.writeMu.Unlock()
+	if d.isClosed() {
+		return ErrClosed
+	}
 	tx, err := d.sql.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -227,6 +241,12 @@ func (s *Store) insert(ctx context.Context, ev Event) error {
 	}
 	d.notify(ev)
 	return nil
+}
+
+func (d *db) isClosed() bool {
+	d.subMu.Lock()
+	defer d.subMu.Unlock()
+	return d.closed
 }
 
 func insertRow(ctx context.Context, tx *sql.Tx, ev Event) error {
