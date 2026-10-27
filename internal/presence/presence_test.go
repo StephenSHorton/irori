@@ -236,7 +236,7 @@ func TestScanNeverOpensKeyFiles(t *testing.T) {
 	if a.Title != "Port the roster" || a.LastText != "Roster card shows the last reply." {
 		t.Errorf("card a tail: %+v", a)
 	}
-	if !strings.HasSuffix(a.Transcript, filepath.Join("C--Users-4step", fixtureID+".jsonl")) {
+	if !filepath.IsAbs(a.Transcript) || !strings.HasSuffix(a.Transcript, filepath.Join("C--Users-4step", fixtureID+".jsonl")) {
 		t.Errorf("transcript a = %q", a.Transcript)
 	}
 	// Found through the projects/*/<id>.jsonl fallback.

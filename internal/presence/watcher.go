@@ -151,7 +151,7 @@ func (x *watcher) card(s session) AgentCard {
 		SessionKind:  s.Kind,
 		Entrypoint:   s.Entrypoint,
 		Version:      s.Version,
-		PeerFeatures: s.PeerFeatures,
+		PeerFeatures: append([]string{}, s.PeerFeatures...), // [] not null in JSON
 		StartedAt:    s.StartedAt,
 		UpdatedAt:    s.UpdatedAt,
 	}

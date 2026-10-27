@@ -55,14 +55,21 @@ func findTranscript(claudeDir, cwd, id string) string {
 	if cwd != "" {
 		p := filepath.Join(projects, Slug(cwd), id+".jsonl")
 		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
-			return p
+			return absPath(p)
 		}
 	}
 	matches, _ := filepath.Glob(filepath.Join(projects, "*", id+".jsonl"))
 	if len(matches) > 0 {
-		return matches[0]
+		return absPath(matches[0])
 	}
 	return ""
+}
+
+func absPath(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
 }
 
 // tail is what we learned from the end of one transcript.
