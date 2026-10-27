@@ -81,7 +81,8 @@ type Task struct {
 	UpdatedBy string `json:"updatedBy,omitempty"`
 	// Reason and BlockedBy are set while State is Blocked and cleared when
 	// it leaves Blocked. Reason is the first open blocker item's reason (its
-	// question, or the text Block was given), kept for v0.2 readers.
+	// question, or the text Block was given), kept for v0.2 readers;
+	// BlockedBy is the On of the first open item that has one.
 	Reason    string     `json:"reason,omitempty"`
 	BlockedBy *BlockedBy `json:"blockedBy,omitempty"`
 	Links     []Link     `json:"links,omitempty"`    // board.md "Links out"; <= MaxLinks

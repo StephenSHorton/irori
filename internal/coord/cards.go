@@ -85,6 +85,11 @@ type Blocker struct {
 	At       time.Time   `json:"at"`
 	Options  []Option    `json:"options,omitempty"`
 	Resolved *Resolution `json:"resolved,omitempty"`
+	// On is what this item waits on. Raise defaults it to a person ("" =
+	// whoever is at the app): a question waits on a decision. Task.BlockedBy
+	// is the first open item's On. An item on a lease or a task is closed by
+	// the sweeper when that goes away; other items stay open.
+	On *BlockedBy `json:"on,omitempty"`
 
 	reason string // the row's reason: Task.Reason while this is the first open item
 	legacy bool   // folded from a reason-only row: a later one replaces it
@@ -96,8 +101,8 @@ func (b Blocker) Open() bool { return b.Resolved == nil }
 // NewBlocker is Raise's input. Question is required (1..MaxQuestion runes);
 // Context at most MaxContext; Options at most MaxOptions, each Answer
 // 1..MaxAnswer and Why at most MaxWhy (their By is the raiser). BlockedBy is
-// optional and checked like Block's; when nil on a task that is already
-// blocked, the task keeps its BlockedBy.
+// the item's On, checked like Block's; nil means a person (whoever is at the
+// app), so the card is in the person's Needs you.
 type NewBlocker struct {
 	Question  string     `json:"question"`
 	Context   string     `json:"context"`

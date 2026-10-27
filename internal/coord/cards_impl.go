@@ -36,6 +36,8 @@ type blockerRow struct {
 	// one, as Block always did.
 	ReasonOnly bool `json:"reasonOnly,omitempty"`
 	Replace    bool `json:"replace,omitempty"`
+	// On is what the item waits on (Blocker.On).
+	On *BlockedBy `json:"on,omitempty"`
 }
 
 type blockerOptionRow struct {
@@ -54,7 +56,10 @@ type blockerResolvedRow struct {
 	Option    int       `json:"option"`
 	By        string    `json:"by"`
 	Restored  TaskState `json:"restored,omitempty"`
-	At        time.Time `json:"at"`
+	// Closed: the sweeper closed the item because what it waited on went
+	// away (Resolution.Closed); Answer is why.
+	Closed bool      `json:"closed,omitempty"`
+	At     time.Time `json:"at"`
 }
 
 type taskStepsRow struct {
@@ -181,15 +186,30 @@ func countOpen(t *Task) int {
 	return n
 }
 
-// syncReason sets Reason to the first open item's reason.
+// syncReason sets Reason to the first open item's reason and BlockedBy to
+// the first open item's On (nil when none has one, or none is open).
 func syncReason(t *Task) {
-	t.Reason = ""
+	t.Reason, t.BlockedBy = "", nil
 	for _, b := range t.Blockers {
-		if b.Open() {
+		if !b.Open() {
+			continue
+		}
+		if t.Reason == "" {
 			t.Reason = b.reason
-			return
+		}
+		if t.BlockedBy == nil && b.On != nil {
+			on := *b.On
+			t.BlockedBy = &on
 		}
 	}
+}
+
+func copyOn(bb *BlockedBy) *BlockedBy {
+	if bb == nil {
+		return nil
+	}
+	b := *bb
+	return &b
 }
 
 // closeOpen resolves every open item as closed, with note as the answer.
@@ -228,9 +248,15 @@ func (c *coord) foldBlocked(t *Task, p taskStateRow, wasBlocked bool, at time.Ti
 		if i := blockerIndex(t, p.Blocker.ID); i >= 0 && p.Blocker.Replace && t.Blockers[i].Open() {
 			b := &t.Blockers[i]
 			b.Question, b.Context, b.reason, b.RaisedBy, b.At = p.Blocker.Question, p.Blocker.Context, cmpStr(p.Reason, p.Blocker.Question), p.By, at
+			b.On = copyOn(p.Blocker.On)
 			return "changed the blocker: " + b.Question
 		}
-		if blockerIndex(t, p.Blocker.ID) >= 0 || openWithQuestion(t, p.Blocker.Question) >= 0 {
+		if blockerIndex(t, p.Blocker.ID) >= 0 {
+			return ""
+		}
+		if i := openWithQuestion(t, p.Blocker.Question); i >= 0 {
+			// The same question again: only what it waits on can change.
+			t.Blockers[i].On = copyOn(p.Blocker.On)
 			return ""
 		}
 		c.blockerSeq[t.ID] = max(c.blockerSeq[t.ID], seqOf(p.Blocker.ID, "b"))
@@ -244,7 +270,7 @@ func (c *coord) foldBlocked(t *Task, p taskStateRow, wasBlocked bool, at time.Ti
 		t.Blockers = append(t.Blockers, Blocker{
 			ID: p.Blocker.ID, Question: p.Blocker.Question, Context: p.Blocker.Context,
 			RaisedBy: p.By, At: at, Options: opts, reason: cmpStr(p.Reason, p.Blocker.Question),
-			legacy: p.Blocker.ReasonOnly,
+			legacy: p.Blocker.ReasonOnly, On: copyOn(p.Blocker.On),
 		})
 		return "raised a blocker: " + p.Blocker.Question
 	}
@@ -258,6 +284,7 @@ func (c *coord) foldBlocked(t *Task, p taskStateRow, wasBlocked bool, at time.Ti
 		for i := range t.Blockers {
 			if b := &t.Blockers[i]; b.Open() && b.legacy {
 				b.Question, b.Context, b.reason, b.RaisedBy, b.At = q, ctxText, p.Reason, p.By, at
+				b.On = copyOn(p.BlockedBy)
 				return "changed the blocker: " + q
 			}
 		}
@@ -265,7 +292,7 @@ func (c *coord) foldBlocked(t *Task, p taskStateRow, wasBlocked bool, at time.Ti
 	c.blockerSeq[t.ID]++
 	t.Blockers = append(t.Blockers, Blocker{
 		ID: "b" + strconv.Itoa(c.blockerSeq[t.ID]), Question: q, Context: ctxText,
-		RaisedBy: p.By, At: at, reason: p.Reason, legacy: true,
+		RaisedBy: p.By, At: at, reason: p.Reason, legacy: true, On: copyOn(p.BlockedBy),
 	})
 	return "raised a blocker: " + q
 }
@@ -359,21 +386,21 @@ func (c *coord) raise(ctx context.Context, by, id string, nb NewBlocker) (Task, 
 }
 
 // raiseLocked checks bb and writes the blocked row that raises an item.
-// reasonOnly is Block: it replaces the open item an earlier Block made and
-// replaces BlockedBy; otherwise a nil bb keeps a blocked t's BlockedBy.
+// reasonOnly is Block: it replaces the open item an earlier Block made, and
+// a nil bb stays nil; otherwise a nil bb means a person.
 func (c *coord) raiseLocked(ctx context.Context, by string, t *Task, reason, q, cx string, opts []Option, bb *BlockedBy, reasonOnly bool, now time.Time) (Task, Blocker, error) {
 	nb, err := c.checkBlocker(bb, t.ID)
 	if err != nil {
 		return Task{}, Blocker{}, err
 	}
-	if nb == nil && !reasonOnly && t.State == Blocked && t.BlockedBy != nil {
-		b := *t.BlockedBy
-		nb = &b
-	}
-	if i := openWithQuestion(t, q); i >= 0 && t.State == Blocked && sameBlocker(t.BlockedBy, nb) {
+	if i := openWithQuestion(t, q); i >= 0 && t.State == Blocked && (nb == nil && !reasonOnly || sameBlocker(t.Blockers[i].On, nb)) {
+		// The same question again, saying nothing new about what it waits on.
 		return copyTask(t), copyBlocker(t.Blockers[i]), nil
 	}
-	row := &blockerRow{ID: c.nextBlockerID(t.ID), Question: q, Context: cx, Options: opts, ReasonOnly: reasonOnly}
+	if nb == nil && !reasonOnly {
+		nb = &BlockedBy{Kind: BlockedOnPerson}
+	}
+	row := &blockerRow{ID: c.nextBlockerID(t.ID), Question: q, Context: cx, Options: opts, ReasonOnly: reasonOnly, On: nb}
 	if reasonOnly && t.State == Blocked {
 		for _, b := range t.Blockers {
 			if b.Open() && b.legacy {
@@ -852,19 +879,22 @@ func (c *coord) applyCard(ev store.Event, at func(time.Time) time.Time) {
 			opt = -1
 		}
 		q := t.Blockers[i].Question
-		t.Blockers[i].Resolved = &Resolution{Answer: p.Answer, Option: opt, By: p.By, At: when}
+		t.Blockers[i].Resolved = &Resolution{Answer: p.Answer, Option: opt, By: p.By, At: when, Closed: p.Closed}
 		if t.State == Blocked && countOpen(t) == 0 {
 			s := p.Restored
 			if !ValidState(s) || s == Blocked || IsTerminal(s) {
 				s = restoreState(t)
 			}
 			t.State = s
-			t.BlockedBy = nil
 		}
 		trimResolved(t)
 		syncReason(t)
 		t.UpdatedAt, t.UpdatedBy = when, p.By
-		c.touch(t, when, p.By, "answered “"+q+"”: "+p.Answer, true)
+		if p.Closed {
+			c.touch(t, when, p.By, "closed “"+q+"”: "+p.Answer, true)
+		} else {
+			c.touch(t, when, p.By, "answered “"+q+"”: "+p.Answer, true)
+		}
 	case KindTaskSteps:
 		var p taskStepsRow
 		if json.Unmarshal(ev.Payload, &p) != nil {
@@ -966,5 +996,6 @@ func copyBlocker(b Blocker) Blocker {
 		r := *b.Resolved
 		b.Resolved = &r
 	}
+	b.On = copyOn(b.On)
 	return b
 }

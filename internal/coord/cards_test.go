@@ -408,16 +408,6 @@ func TestLeavingBlockedClosesItems(t *testing.T) {
 		{"a state change closes them", func(e *env, id string) Task {
 			return must[Task](e.t)(e.c.SetTaskState(ctx, alice, id, Working, "moving on"))
 		}, alice, "moving on"},
-		{"the sweeper, when the lease goes", func(e *env, id string) Task {
-			if err := e.c.Release(ctx, bob, "gpu/qwen"); err != nil {
-				e.t.Fatal(err)
-			}
-			if _, err := e.c.SweepNotices(ctx); err != nil {
-				e.t.Fatal(err)
-			}
-			got, _ := e.c.GetTask(id)
-			return got
-		}, sweeper, "lease released"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -440,6 +430,109 @@ func TestLeavingBlockedClosesItems(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The sweeper closes only the items whose lease or task went away; a
+// question for the person stays open, and the card stays blocked on it.
+func TestSweeperClosesOnlyWhatWentAway(t *testing.T) {
+	cases := []struct {
+		name        string
+		secondOn    *BlockedBy // nil: a question (on a person)
+		wantState   TaskState
+		wantOpen    []string
+		wantNotices int // unblocked notices
+	}{
+		{"a question stays open", nil, Blocked, []string{"b2"}, 0},
+		{"everything went away: unblocked", &BlockedBy{Kind: BlockedOnLease, Ref: "gpu/qwen"}, Working, nil, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			task := claimed(t, e)
+			must[Lease](t)(e.c.Acquire(ctx, bob, "gpu/qwen", time.Hour, false))
+			if _, _, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: "one", BlockedBy: &BlockedBy{Kind: BlockedOnLease, Ref: "gpu/qwen"}}); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: "two", BlockedBy: tc.secondOn}); err != nil {
+				t.Fatal(err)
+			}
+			if v := e.c.Board(BoardFilter{For: user}); len(v.Leases) != 1 || len(v.Leases[0].Blocks) != 1 {
+				t.Fatalf("lease card %+v", v.Leases)
+			}
+			if err := e.c.Release(ctx, bob, "gpu/qwen"); err != nil {
+				t.Fatal(err)
+			}
+			if tc.secondOn == nil && !e.c.Board(BoardFilter{For: user}).NeedsYou[0].Resolved {
+				t.Fatal("the card should show the gap until the sweep")
+			}
+			if _, err := e.c.SweepNotices(ctx); err != nil {
+				t.Fatal(err)
+			}
+			got, _ := e.c.GetTask(task.ID)
+			var open []string
+			for _, b := range got.OpenBlockers() {
+				open = append(open, b.ID)
+			}
+			if got.State != tc.wantState || !reflect.DeepEqual(open, tc.wantOpen) {
+				t.Fatalf("state %s open %v", got.State, open)
+			}
+			if r := got.Blockers[0].Resolved; r == nil || !r.Closed || r.By != sweeper || r.Answer != "lease released" {
+				t.Fatalf("b1 %+v", r)
+			}
+			if tc.secondOn == nil {
+				if got.BlockedBy == nil || got.BlockedBy.Kind != BlockedOnPerson || got.Reason != "two" {
+					t.Fatalf("still blocked on %+v %q", got.BlockedBy, got.Reason)
+				}
+				// It needs the person, and the next sweep has nothing more to close.
+				if v := e.c.Board(BoardFilter{For: user}); len(v.NeedsYou) != 1 || v.NeedsYou[0].Resolved {
+					t.Fatalf("board %+v", v)
+				}
+				if n := len(e.rows(KindBlockerResolved)); n != 1 {
+					t.Fatalf("resolved rows %d", n)
+				}
+				must[[]Notice](t)(e.c.SweepNotices(ctx))
+				if n := len(e.rows(KindBlockerResolved)); n != 1 {
+					t.Fatalf("a second sweep wrote again: %d", n)
+				}
+			}
+		})
+	}
+}
+
+// A raised question waits on a person by default: it is in the person's
+// Needs you, not only in Blocked.
+func TestRaiseDefaultsToPerson(t *testing.T) {
+	e := newEnv(t)
+	task := claimed(t, e)
+	got, b, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: "Ship?"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.On == nil || b.On.Kind != BlockedOnPerson || got.BlockedBy == nil || got.BlockedBy.Kind != BlockedOnPerson {
+		t.Fatalf("on %+v blockedBy %+v", b.On, got.BlockedBy)
+	}
+	if v := e.c.Board(BoardFilter{For: user}); len(v.NeedsYou) != 1 || len(v.Blocked) != 0 {
+		t.Fatalf("board %+v", v)
+	}
+	// An agent's question goes to that agent's Needs you instead.
+	t2 := claimed(t, e)
+	if _, _, err := e.c.Raise(ctx, alice, t2.ID, NewBlocker{Question: "Your API?", BlockedBy: &BlockedBy{Kind: BlockedOnAgent, Ref: bob}}); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.c.Board(BoardFilter{For: bob}); len(v.NeedsYou) != 1 || v.NeedsYou[0].ID != t2.ID {
+		t.Fatalf("bob's board %+v", v.NeedsYou)
+	}
+	// Block keeps its old meaning: no BlockedBy, the Blocked lane.
+	t3 := claimed(t, e)
+	must[Task](t)(e.c.Block(ctx, alice, t3.ID, "ci is red", nil))
+	v := e.c.Board(BoardFilter{For: user})
+	var lane []string
+	for _, cd := range v.Blocked {
+		lane = append(lane, cd.ID)
+	}
+	if len(v.NeedsYou) != 1 || !reflect.DeepEqual(lane, []string{t3.ID, t2.ID}) && !reflect.DeepEqual(lane, []string{t2.ID, t3.ID}) {
+		t.Fatalf("person's lanes: needs you %d, blocked %v", len(v.NeedsYou), lane)
 	}
 }
 

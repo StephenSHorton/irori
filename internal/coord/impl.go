@@ -339,13 +339,9 @@ func (c *coord) apply(ev store.Event) {
 			t.Note = p.Note
 			t.Assigned = removeStr(t.Assigned, p.By)
 			syncHolder(t)
-			t.BlockedBy = nil
 			what := ""
 			if p.State == Blocked {
-				if p.BlockedBy != nil {
-					b := *p.BlockedBy
-					t.BlockedBy = &b
-				}
+				// BlockedBy follows the items (syncReason below).
 				what = c.foldBlocked(t, p, was == Blocked, when)
 			} else {
 				closeOpen(t, p.By, p.Note, when)
@@ -821,7 +817,7 @@ func (c *coord) createTask(ctx context.Context, by string, nt NewTask) (Task, er
 		q, cx := blockQuestion(reason)
 		if err := c.write(ctx, by, KindTaskState, taskStateRow{
 			TaskID: id, State: Blocked, Reason: reason, BlockedBy: bb,
-			Blocker: &blockerRow{ID: c.nextBlockerID(id), Question: q, Context: cx, ReasonOnly: true}, By: by, At: at,
+			Blocker: &blockerRow{ID: c.nextBlockerID(id), Question: q, Context: cx, ReasonOnly: true, On: bb}, By: by, At: at,
 		}); err != nil {
 			return Task{}, err
 		}
