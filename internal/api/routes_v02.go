@@ -22,17 +22,30 @@ package api
 //	     On disconnect: SetReachable(key, mod, false).
 //	     The session must be a live presence card on this device (404 otherwise;
 //	     `irori attach` retries, since presence may lag a new session by ~2 s).
+//	     There is no cwd parameter (`irori attach --cwd` is only logged).
+//	     A wake issued to an earlier stream but never confirmed delivered is
+//	     re-sent on the next stream with the SAME token: the mod and mcp must
+//	     dedupe deliver events on token. A confirmed wake is never re-sent.
+//	     inbox events omit unread/held when they are 0 (omitempty): readers
+//	     treat a missing count as 0.
 //
 //	GET  /v1/attach?member=<memberSecret>
 //	     The same stream for a bound Grok member (path channel). deliver events
 //	     carry the fenced prompt; the member's `irori mcp` turns each into one
 //	     notifications/claude/channel push. Nothing is marked delivered.
+//	     Its hello has session "grok-<id>" (the memberKey's last segment) and
+//	     no attachSecret. There is no ack route of its own: the member acks a
+//	     push with POST /v1/tools/ack (or tools inbox/reply). An unacked push
+//	     stays Queued until the inbox sweeper reclaims it after ReattachGrace;
+//	     each reclaim pushes it again under a new token, so expect repeats.
 //
 //	POST /v1/members              {"name": "...", "session": "<optional client session id>"}
 //	     -> {"memberKey": "<device>/grok-<id>", "memberSecret": "...", "name": "..."}
 //	     Binds a Grok member (the Core adds a synthetic presence card with
-//	     Agent "grok" while its stream is open plus inbox.ReattachGrace). The same
-//	     session id rejoining gets the same memberKey.
+//	     Agent "grok" while its stream is open plus inbox.ReattachGrace after
+//	     it closes; a join with no stream yet lists no card). The same
+//	     session id rejoining gets the same memberKey. Grok cards come from
+//	     Core.Agents(), not presence.Subscribe.
 //
 //	POST /v1/deliveries/delivered {"token": "[irori-wake:...]"}      (attach only) -> {"ok": true}
 //	POST /v1/deliveries/engaged   {"token": "...", "turnId": "..."} (attach only) -> {"ok": true}
@@ -44,6 +57,7 @@ package api
 //
 //	GET  /v1/policy                -> inbox.Policy
 //	POST /v1/policy  inbox.Policy  (attach only, and X-Irori-Origin: composer) -> inbox.Policy
+//	     Recorded as set by the person (by "user:composer@<agentKey>", actor "user").
 //
 //	GET  /v1/inbox?all=1&limit=N   (attach or member) -> []inbox.Delivery for the caller
 //	     (held deliveries never appear; same rule as Inbox.For)

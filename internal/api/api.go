@@ -21,10 +21,13 @@ import (
 	"errors"
 	"net"
 
+	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/device"
 	"github.com/StephenSHorton/irori/internal/discovery"
+	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/store"
+	"github.com/StephenSHorton/irori/internal/tools"
 )
 
 // ErrUnimplemented is returned by skeleton stubs.
@@ -36,6 +39,29 @@ type Backend interface {
 	Device() device.Identity
 	Agents() []presence.AgentCard
 	Events(ctx context.Context, f store.Filter) ([]store.Event, error)
+
+	// v0.2 (routes_v02.go). A backend without messaging returns nil from
+	// Inbox/Tools; the v0.2 routes then answer 503.
+	Inbox() *inbox.Inbox
+	Coord() *coord.Coord
+	Tools() *tools.Set
+	// JoinMember binds a Grok member (POST /v1/members). The same non-empty
+	// session gets the same Key; every join mints a new Secret and the old
+	// one stops working.
+	JoinMember(ctx context.Context, name, session string) (Member, error)
+	// MemberBySecret maps X-Irori-Member (or ?member=) to its member.
+	MemberBySecret(secret string) (Member, bool)
+	// MemberStream reports that key's member stream opened (true) or closed
+	// (false). The member's synthetic card stays listed while a stream is
+	// open and for inbox.ReattachGrace after.
+	MemberStream(key string, open bool)
+}
+
+// Member is a bound Grok member.
+type Member struct {
+	Key    string `json:"memberKey"` // "<device>/grok-<id>"
+	Secret string `json:"memberSecret"`
+	Name   string `json:"name"`
 }
 
 // Server serves Backend on a loopback listener.

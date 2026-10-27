@@ -13,10 +13,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/device"
 	"github.com/StephenSHorton/irori/internal/discovery"
+	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/store"
+	"github.com/StephenSHorton/irori/internal/tools"
 )
 
 const testToken = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -42,6 +45,17 @@ func (f *fakeBackend) Events(_ context.Context, flt store.Filter) ([]store.Event
 		{DeviceID: "dev1", Seq: 1, Kind: "agent.seen", Payload: json.RawMessage(`{}`)},
 	}, nil
 }
+
+// v0.1 tests run without messaging: the v0.2 routes answer 503.
+func (f *fakeBackend) Inbox() *inbox.Inbox { return nil }
+func (f *fakeBackend) Coord() *coord.Coord { return nil }
+func (f *fakeBackend) Tools() *tools.Set   { return nil }
+func (f *fakeBackend) JoinMember(context.Context, string, string) (Member, error) {
+	return Member{}, errors.New("no members")
+}
+func (f *fakeBackend) MemberBySecret(string) (Member, bool) { return Member{}, false }
+func (f *fakeBackend) MemberStream(string, bool)            {}
+
 func (f *fakeBackend) filter() store.Filter {
 	f.mu.Lock()
 	defer f.mu.Unlock()
