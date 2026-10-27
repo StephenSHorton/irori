@@ -82,8 +82,8 @@ type capture struct {
 	summaries   map[string][]*SummaryRow
 	cmds        []CommitCmdRow
 	ledger      *ledger.Ledger
-	repoRoots   map[string]repoSeen // normRoot -> row
-	rootsGen    int                 // bumped when repoRoots gains a root
+	repoRoots   map[string]repoSeen        // normRoot -> row
+	rootUsers   map[string]map[string]bool // normRoot -> session ids seen working in it, this process
 	commitMap   map[string]*commitRec
 	dview       *decision.View
 	open        map[string]*transcript.Turn // openKey(key, agentID) -> open turn
@@ -146,7 +146,7 @@ func newCapture(ctx context.Context, st *store.Store, roster Roster, opts Option
 		editByID: map[string]*EditRow{}, editsByTurn: map[string][]*EditRow{},
 		pool: map[string]map[string]bool{}, linked: map[string]bool{}, linkedWith: map[string][]string{},
 		summaries: map[string][]*SummaryRow{}, ledger: ledger.New(),
-		repoRoots: map[string]repoSeen{}, commitMap: map[string]*commitRec{},
+		repoRoots: map[string]repoSeen{}, rootUsers: map[string]map[string]bool{}, commitMap: map[string]*commitRec{},
 		dview: decision.NewView(), open: map[string]*transcript.Turn{},
 		files: map[string]*tfile{}, reflogs: map[string]*reflogState{},
 		firstSize: map[string]int64{}, noisePaths: map[string]map[string]bool{},
@@ -283,11 +283,7 @@ func (c *capture) apply(ev store.Event) (*Change, error) {
 		if r.Root == "" {
 			return nil, nil
 		}
-		n := normRoot(r.Root)
-		if _, ok := c.repoRoots[n]; !ok {
-			c.rootsGen++
-		}
-		c.repoRoots[n] = r
+		c.repoRoots[normRoot(r.Root)] = r
 		return nil, nil
 	case KindCommitSeen:
 		var r CommitRow

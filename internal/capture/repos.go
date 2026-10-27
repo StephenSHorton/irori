@@ -71,7 +71,8 @@ func (c *capture) repoPass(ctx context.Context) {
 func (c *capture) noteLiveRoots(ctx context.Context) {
 	for _, card := range c.liveCards() {
 		if card.Cwd != "" {
-			c.repoFor(ctx, card.Cwd)
+			root, _ := c.repoFor(ctx, card.Cwd)
+			c.useRoot(root, card.SessionID)
 		}
 	}
 }

@@ -3,6 +3,7 @@ package capture
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -236,5 +237,79 @@ func TestEventReflogFollowUp(t *testing.T) {
 	}
 	if _, ok := r.c.Commit(head(t, dir)); !ok {
 		t.Fatal("commit b not imported")
+	}
+}
+
+// Events that pile up while the loop is busy (a long pass) are either
+// delivered or reported lost, so a transcript written in that window is
+// tailed at once, not at the safety pass.
+func TestEventBusyLoopLosesNothing(t *testing.T) {
+	r := eventRig(t, nil)
+	cwd := canon(t, t.TempDir())
+	r.start()
+	r.waitInitial()
+
+	release := r.roster.hold()
+	defer release()
+	a := r.session(sidA, cwd)
+	now := time.Now()
+	a.write(a.prompt("p1", "one", now), a.done(now)) // the loop stalls tailing this
+	time.Sleep(300 * time.Millisecond)
+
+	// Many files changing while the loop is stuck: far more events than
+	// any buffer between the watcher and the loop holds.
+	flood := filepath.Join(r.claude, "projects", "flood")
+	if err := os.MkdirAll(flood, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for round := range 15 {
+		for i := range 100 {
+			f, err := os.OpenFile(filepath.Join(flood, fmt.Sprintf("f%03d.txt", i)), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fmt.Fprintf(f, "%d\n", round)
+			f.Close()
+		}
+		time.Sleep(70 * time.Millisecond)
+	}
+	const sidB = "bbbbbbbb-1111-2222-3333-444444444444"
+	b := r.session(sidB, cwd)
+	b.write(b.prompt("p2", "two", now), b.done(now))
+	time.Sleep(300 * time.Millisecond)
+	release()
+	r.waitFor("both turns", func() bool { return len(r.rows(KindTurn)) == 2 })
+}
+
+// Only roots a live session works in keep a logs handle open: once the
+// session is gone the repo folder, and the folder holding it, can be
+// renamed again.
+func TestEventGoneRootReleased(t *testing.T) {
+	r := eventRig(t, func(o *Options) { o.SafetyInterval = 200 * time.Millisecond })
+	parent := filepath.Join(canon(t, t.TempDir()), "parent")
+	dir := filepath.Join(parent, "repo")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "init", "-q")
+	gitCmd(t, dir, "config", "core.autocrlf", "false")
+	writeFile(t, filepath.Join(dir, "a.txt"), "a\n")
+	gitCmd(t, dir, "add", "a.txt")
+	gitCmd(t, dir, "commit", "-q", "-m", "a")
+	r.roster.set(liveCard(sidA, dir, "idle"))
+	r.start()
+	r.waitInitial()
+	r.waitFor("root watched", func() bool { return r.c.Status().Repos == 1 })
+	writeFile(t, filepath.Join(dir, "b.txt"), "b\n")
+	gitCmd(t, dir, "add", "b.txt")
+	gitCmd(t, dir, "commit", "-q", "-m", "b")
+	sha := head(t, dir)
+	r.waitFor("commit", func() bool { _, ok := r.c.Commit(sha); return ok })
+
+	r.roster.set() // the session is gone
+	moved := parent + "-moved"
+	r.waitFor("parent folder renamable", func() bool { return os.Rename(parent, moved) == nil })
+	if err := os.Rename(filepath.Join(moved, "repo"), filepath.Join(moved, "repo2")); err != nil {
+		t.Fatal(err)
 	}
 }

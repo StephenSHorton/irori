@@ -49,22 +49,23 @@ type loop struct {
 	projects string           // ClaudeDir/projects, as listFiles spells it
 	tail     *fswatch.Watcher // nil while projects can't be watched
 	logs     map[string]*logsWatch
-	polled   []repoSeen      // roots whose logs directory can't be watched (none yet: no commits); read every RepoInterval
-	gen      int             // c.rootsGen the logs watchers were last synced with; -1 forces
+	polled   []repoSeen      // hot roots whose logs directory can't be watched (none yet: no commits); read every RepoInterval
+	hot      string          // the hot roots the logs watchers were last synced with
+	synced   bool            // hot is set
 	pending  map[string]bool // normRoot -> its reflog is behind; true: read again at once, false: after RepoInterval
 }
 
 // runEvents is run on a file watcher: transcripts are tailed when they
-// change, reflogs read when logs/HEAD changes, open turns closed by a timer
-// armed for the next quiet deadline, and everything rescanned every
-// SafetyInterval. It returns fswatch.ErrUnsupported (having done nothing)
+// change, reflogs of hot roots (see syncLogs) read when logs/HEAD changes,
+// open turns closed by a timer armed for the next quiet deadline, and
+// everything, every root's reflog included, rescanned every SafetyInterval. It returns fswatch.ErrUnsupported (having done nothing)
 // where no watcher exists.
 func (c *capture) runEvents(parent context.Context) error {
 	ctx, cancel := context.WithCancel(parent)
 	l := &loop{
 		c: c, ctx: ctx, events: make(chan watchEvent, 64),
 		projects: filepath.Join(c.opts.ClaudeDir, "projects"),
-		logs:     map[string]*logsWatch{}, pending: map[string]bool{}, gen: -1,
+		logs:     map[string]*logsWatch{}, pending: map[string]bool{},
 	}
 	defer func() {
 		cancel()
@@ -170,7 +171,8 @@ func (l *loop) watchProjects() error {
 }
 
 // forward copies a watcher's events onto the loop's channel, then reports
-// it closed.
+// it closed. It may block while the loop is busy: fswatch then drops events
+// but always delivers an Overflow for them, which is a full pass here.
 func (l *loop) forward(logs string, w *fswatch.Watcher) {
 	l.wg.Add(1)
 	go func() {
@@ -343,25 +345,22 @@ func (c *capture) reflogBehind(r repoSeen) bool {
 	return err == nil && fi.Size() > st.offset
 }
 
-// syncLogs makes the reflog watchers match the known roots: one watcher per
-// logs directory that exists, closed when no root uses it any more (a
-// removed worktree). Without force it only runs when roots were added. A
-// new watcher's roots are read at once, so a movement made before the
-// watch began isn't left for the safety pass.
+// syncLogs makes the reflog watchers match the hot roots: known roots a
+// live session works in. Only those keep a logs handle open, because an
+// open handle stops the repo folder and every folder above it from being
+// renamed or moved (a live session's own process already holds its cwd).
+// Cold roots are read by the safety pass. There is one watcher per logs
+// directory that exists, closed when no hot root uses it any more (a
+// session gone, a removed worktree). Without force it only runs when the
+// hot set changed. A new watcher's roots are read at once, so a movement
+// made before the watch began isn't left for the safety pass.
 func (l *loop) syncLogs(force bool) {
 	c := l.c
-	c.mu.RLock()
-	gen := c.rootsGen
-	if !force && gen == l.gen {
-		c.mu.RUnlock()
+	roots, hot := c.hotRoots()
+	if !force && l.synced && hot == l.hot {
 		return
 	}
-	roots := make([]repoSeen, 0, len(c.repoRoots))
-	for _, r := range c.repoRoots {
-		roots = append(roots, r)
-	}
-	c.mu.RUnlock()
-	l.gen = gen
+	l.hot, l.synced = hot, true
 	want := map[string]*logsWatch{}
 	for _, r := range roots {
 		gd, err := gitlink.GitDir(r.Root)
@@ -399,6 +398,42 @@ func (l *loop) syncLogs(force bool) {
 		fresh = append(fresh, wl.roots...)
 	}
 	l.readRoots(fresh)
+}
+
+// useRoot notes that session sid works in root, which keeps root hot while
+// sid is live.
+func (c *capture) useRoot(root, sid string) {
+	if root == "" || sid == "" {
+		return
+	}
+	n := normRoot(root)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.rootUsers[n] == nil {
+		c.rootUsers[n] = map[string]bool{}
+	}
+	c.rootUsers[n][sid] = true
+}
+
+// hotRoots lists the known roots some live session works in, and a key
+// that changes whenever that set does.
+func (c *capture) hotRoots() ([]repoSeen, string) {
+	live := c.liveCards()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	var roots []repoSeen
+	var keys []string
+	for n, r := range c.repoRoots {
+		for sid := range c.rootUsers[n] {
+			if _, ok := live[sid]; ok {
+				roots = append(roots, r)
+				keys = append(keys, n)
+				break
+			}
+		}
+	}
+	sort.Strings(keys)
+	return roots, strings.Join(keys, "|")
 }
 
 // pollLogs reads the roots whose logs directory couldn't be watched and

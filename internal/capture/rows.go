@@ -163,6 +163,7 @@ func (c *capture) onTurn(ctx context.Context, f *tfile, t *transcript.Turn) erro
 		return nil
 	}
 	root, rk := c.repoFor(ctx, t.Cwd)
+	c.useRoot(root, f.src.SessionID)
 	clean := *t
 	c.mu.Lock()
 	clean.EditPaths = c.stripNoise(f.key, clean)
@@ -196,6 +197,7 @@ func (c *capture) onEdit(ctx context.Context, f *tfile, e *transcript.Edit) erro
 		if rel, ok := relTo(root, abs); ok {
 			row.Root, row.Path = root, rel
 			row.RepoKey = c.noteRoot(ctx, root)
+			c.useRoot(root, f.src.SessionID)
 		}
 	}
 	if e.Before != nil {
@@ -272,7 +274,8 @@ func (c *capture) onBash(ctx context.Context, f *tfile, b *transcript.BashRun) e
 	if len(b.GitOperation) == 0 && !strings.Contains(b.Command, "gh") {
 		return nil // no PR relation possible; skip resolving the cwd's repo
 	}
-	_, rk := c.repoFor(ctx, b.Cwd)
+	broot, rk := c.repoFor(ctx, b.Cwd)
+	c.useRoot(broot, f.src.SessionID)
 	refs := ledger.FromBash(ledger.BashResult{
 		Command: b.Command, Stdout: b.Stdout, GitOperation: b.GitOperation,
 		DefaultRepo: ledger.RepoFromKey(rk),
