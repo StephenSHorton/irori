@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/capture/transcript"
+	"github.com/StephenSHorton/irori/internal/fswatch"
 	"github.com/StephenSHorton/irori/internal/presence"
 )
 
@@ -40,6 +41,9 @@ type tfile struct {
 	saved     int64 // the cursor last handed to the cursor file
 	size      int64
 	lastGrow  time.Time
+	// quietAt postpones the next quiet check of an open turn that stayed
+	// open when it was due (its live card was busy).
+	quietAt time.Time
 }
 
 // cursor is where a restart resumes: the open turn's first line, so the
@@ -54,6 +58,14 @@ func (f *tfile) cursor() int64 {
 
 func (c *capture) run(ctx context.Context) error {
 	c.loadCursors()
+	if err := c.runEvents(ctx); !errors.Is(err, fswatch.ErrUnsupported) {
+		return err
+	}
+	return c.runPolling(ctx)
+}
+
+// runPolling is run where no file watcher exists: every pass on a ticker.
+func (c *capture) runPolling(ctx context.Context) error {
 	c.tailPass(ctx)
 	c.repoPass(ctx)
 	scan := time.NewTicker(c.opts.ScanInterval)
@@ -180,6 +192,36 @@ func (c *capture) tailPass(ctx context.Context) {
 		card, isLive := live[fd.src.SessionID]
 		c.tailFile(ctx, fd, isLive, card)
 	}
+	c.endTail(ctx, true)
+}
+
+// tailPaths reads the new lines of the named transcripts only (paths the
+// watcher reported); anything that isn't a transcript is ignored.
+func (c *capture) tailPaths(ctx context.Context, paths []string) {
+	c.loadCursors()
+	projects := filepath.Join(c.opts.ClaudeDir, "projects")
+	live := c.liveCards()
+	for _, p := range paths {
+		if ctx.Err() != nil {
+			return
+		}
+		src, ok := transcript.SourceFor(projects, p)
+		if !ok {
+			continue
+		}
+		fi, err := os.Stat(p)
+		if err != nil || fi.IsDir() {
+			continue
+		}
+		card, isLive := live[src.SessionID]
+		c.tailFile(ctx, found{path: p, src: src, size: fi.Size(), mod: fi.ModTime()}, isLive, card)
+	}
+	c.endTail(ctx, false)
+}
+
+// endTail saves cursors, relinks and refreshes Status after a tail; full
+// marks a pass over every file (the first one ends the backfill).
+func (c *capture) endTail(ctx context.Context, full bool) {
 	c.saveCursors()
 	c.relink(ctx)
 
@@ -192,7 +234,7 @@ func (c *capture) tailPass(ctx context.Context) {
 	}
 	c.backlog = backlog
 	c.lastScan = c.now()
-	if c.firstPass {
+	if full && c.firstPass {
 		c.firstPass = false
 		c.backfilling = false
 	}

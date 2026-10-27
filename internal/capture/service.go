@@ -83,6 +83,7 @@ type capture struct {
 	cmds        []CommitCmdRow
 	ledger      *ledger.Ledger
 	repoRoots   map[string]repoSeen // normRoot -> row
+	rootsGen    int                 // bumped when repoRoots gains a root
 	commitMap   map[string]*commitRec
 	dview       *decision.View
 	open        map[string]*transcript.Turn // openKey(key, agentID) -> open turn
@@ -128,6 +129,7 @@ func newCapture(ctx context.Context, st *store.Store, roster Roster, opts Option
 	}
 	def(&opts.ScanInterval, DefaultScanInterval)
 	def(&opts.RepoInterval, DefaultRepoInterval)
+	def(&opts.SafetyInterval, DefaultSafetyInterval)
 	def(&opts.QuietAfter, DefaultQuietAfter)
 	def(&opts.BackfillWindow, DefaultBackfillWindow)
 	if opts.BackfillMaxBytes <= 0 {
@@ -281,7 +283,11 @@ func (c *capture) apply(ev store.Event) (*Change, error) {
 		if r.Root == "" {
 			return nil, nil
 		}
-		c.repoRoots[normRoot(r.Root)] = r
+		n := normRoot(r.Root)
+		if _, ok := c.repoRoots[n]; !ok {
+			c.rootsGen++
+		}
+		c.repoRoots[n] = r
 		return nil, nil
 	case KindCommitSeen:
 		var r CommitRow

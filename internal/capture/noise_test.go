@@ -25,10 +25,20 @@ func noisyRepo(t *testing.T) string {
 	return dir
 }
 
-// bashDiff is a shell call whose result carries bashEditDiff.changedFiles.
+// bashDiff is a shell call whose result carries bashEditDiff.changedFiles,
+// each with a one-line hunk.
 func (w *tw) bashDiff(id, tool string, changed []string, at time.Time) []obj {
+	files := []any{}
+	for _, p := range changed {
+		files = append(files, obj{"filePath": p, "hunks": []any{obj{"oldStart": 1, "oldLines": 0, "newStart": 1, "newLines": 1, "lines": []string{"+x"}}}})
+	}
+	return w.bashDiffFiles(id, tool, changed, files, at)
+}
+
+// bashDiffFiles is bashDiff with the files array given.
+func (w *tw) bashDiffFiles(id, tool string, changed []string, files []any, at time.Time) []obj {
 	tur := obj{"stdout": "", "stderr": "", "interrupted": false, "isImage": false,
-		"bashEditDiff": obj{"files": []any{}, "changedFiles": changed}}
+		"bashEditDiff": obj{"files": files, "changedFiles": changed}}
 	return []obj{
 		w.toolUse(id, tool, obj{"command": "build", "description": "run"}, at),
 		w.result(id, tur, at),
@@ -233,5 +243,31 @@ func TestHeuristicRevParseFailsOpen(t *testing.T) {
 	}
 	if d := r.c.Status().Dropped; d != (Dropped{OutsideRepo: 1}) {
 		t.Fatalf("dropped = %+v", d)
+	}
+}
+
+// A shell call that touched a file without changing a line (+0-0) is noise.
+func TestHeuristicUnchangedDropped(t *testing.T) {
+	r := newRig(t, nil)
+	dir := noisyRepo(t)
+	w := r.session(sidA, dir)
+	now := time.Now()
+	w.write(flat(
+		[]obj{w.prompt("p1", "touch", now)},
+		w.bashDiffFiles("b1", "Bash", []string{filepath.Join(dir, "foo.go"), filepath.Join(dir, "bar.go")},
+			[]any{obj{"filePath": filepath.Join(dir, "bar.go"), "hunks": []any{}}}, now.Add(time.Second)),
+		w.bashDiff("b2", "Bash", []string{filepath.Join(dir, "real.go")}, now.Add(2*time.Second)),
+		[]obj{w.done(now.Add(3 * time.Second))},
+	)...)
+	r.tail()
+
+	if h := r.editsBy()[transcript.Heuristic]; !slices.Equal(h, []string{"real.go"}) {
+		t.Fatalf("heuristic edits = %v, want real.go", h)
+	}
+	if d := r.c.Status().Dropped; d != (Dropped{Unchanged: 2}) {
+		t.Fatalf("dropped = %+v", d)
+	}
+	if paths := decode[TurnRow](t, r.rows(KindTurn)[0]).EditPaths; !slices.Equal(paths, []string{"real.go"}) {
+		t.Fatalf("turn edit paths = %v", paths)
 	}
 }

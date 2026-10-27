@@ -46,11 +46,7 @@ type reflogState struct {
 func (c *capture) repoPass(ctx context.Context) {
 	c.loadCursors()
 	c.repoDeadline = time.Now().Add(repoBudget)
-	for _, card := range c.liveCards() {
-		if card.Cwd != "" {
-			c.repoFor(ctx, card.Cwd)
-		}
-	}
+	c.noteLiveRoots(ctx)
 	c.mu.RLock()
 	roots := make([]repoSeen, 0, len(c.repoRoots))
 	for _, r := range c.repoRoots {
@@ -69,6 +65,15 @@ func (c *capture) repoPass(ctx context.Context) {
 	}
 	c.saveCursors()
 	c.linkUnlinked(ctx)
+}
+
+// noteLiveRoots notes the worktree roots live agents work in.
+func (c *capture) noteLiveRoots(ctx context.Context) {
+	for _, card := range c.liveCards() {
+		if card.Cwd != "" {
+			c.repoFor(ctx, card.Cwd)
+		}
+	}
 }
 
 // watchRoot reads a root's new reflog lines.
