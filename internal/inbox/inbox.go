@@ -102,6 +102,12 @@ type Message struct {
 	Hop      int       `json:"hop"`
 	Trust    Trust     `json:"trust"`
 	SentAt   time.Time `json:"sentAt"`
+	// Ref is what the message is about, from SendOptions.Ref ("task:<id>",
+	// "comment:<id>", ...). The fence prints it as ref="..." so the
+	// recipient can show it.
+	Ref string `json:"ref,omitempty"`
+	// Notice is SendOptions.Notice: a Board notice that needs no reply.
+	Notice bool `json:"notice,omitempty"`
 }
 
 // State is a delivery's state (design §4).
@@ -141,36 +147,99 @@ const (
 	HoldUnowned        HoldReason = "unowned" // repo message with no live desk
 )
 
+// DeliveryMode is how a delivery reaches a Claude session (decision 18,
+// spike 04). It is per delivery and fixed at send.
+type DeliveryMode string
+
+const (
+	// ModeWake submits a prompt: a full turn starts now (design v0.2 §4).
+	ModeWake DeliveryMode = "wake"
+	// ModeNextTurn never starts a turn. On the mod path it goes out as an
+	// append (NextAppend: $.session.append, a meta user row the model reads
+	// on its next request); it also rides along in any wake that goes out
+	// first. On the channel path (Grok, which can't append silently) it is
+	// pushed like a wake, with meta mode=next_turn. Rules:
+	//   - delivered = the append resolved (MarkDelivered with its token);
+	//   - engaged = the next main-loop turn.start of that session after
+	//     delivery, whoever started it (the mod reports MarkEngaged with the
+	//     append token); an append made mid-turn may be read sooner, which is
+	//     fine; an engaged append sets no running wake (hop stays 0: the
+	//     person, not the message, started that turn);
+	//   - the sweeper never moves a next_turn delivery for being unengaged
+	//     (UnengagedLimit) and never sends it a reminder (QuietLimit); the
+	//     gone-move for repo work still applies;
+	//   - nothing about next_turn ever wakes.
+	ModeNextTurn DeliveryMode = "next_turn"
+)
+
 // Delivery is one message's journey to one recipient.
 type Delivery struct {
-	ID        string     `json:"id"`
-	MessageID string     `json:"messageId"`
-	To        string     `json:"to"` // agent key; "" while a repo message has no desk
-	RepoKey   string     `json:"repoKey,omitempty"`
-	State     State      `json:"state"`
-	Hold      HoldReason `json:"hold,omitempty"`
-	Via       string     `json:"via,omitempty"`    // "mod", "channel", "gui"
-	WakeID    string     `json:"wakeId,omitempty"` // the wake that carried it
-	Note      string     `json:"note,omitempty"`   // defer/skip note
-	For       string     `json:"for,omitempty"`    // PR work its owner couldn't take: that owner, "name (key)"
-	Until     time.Time  `json:"until,omitempty"`  // deferral due time
-	MovedTo   string     `json:"movedTo,omitempty"`
-	Reminded  bool       `json:"reminded"`
-	CreatedAt time.Time  `json:"createdAt"`
-	UpdatedAt time.Time  `json:"updatedAt"`
-	Message   Message    `json:"message"` // denormalized for callers
+	ID        string       `json:"id"`
+	MessageID string       `json:"messageId"`
+	To        string       `json:"to"` // agent key; "" while a repo message has no desk
+	RepoKey   string       `json:"repoKey,omitempty"`
+	Mode      DeliveryMode `json:"mode,omitempty"` // "" = ModeWake (old rows)
+	State     State        `json:"state"`
+	Hold      HoldReason   `json:"hold,omitempty"`
+	Via       string       `json:"via,omitempty"`    // "mod", "channel", "gui"
+	WakeID    string       `json:"wakeId,omitempty"` // the wake that carried it
+	Note      string       `json:"note,omitempty"`   // defer/skip note
+	For       string       `json:"for,omitempty"`    // PR work its owner couldn't take: that owner, "name (key)"
+	Until     time.Time    `json:"until,omitempty"`  // deferral due time
+	MovedTo   string       `json:"movedTo,omitempty"`
+	Reminded  bool         `json:"reminded"`
+	CreatedAt time.Time    `json:"createdAt"`
+	UpdatedAt time.Time    `json:"updatedAt"`
+	Message   Message      `json:"message"` // denormalized for callers
 }
 
-// Wake is one prompt to submit to a recipient. Prompt is the full text
-// (design §5 fencing), and contains Token exactly once.
+// Wake is one prompt to submit to a recipient, or (Mode ModeNextTurn) one
+// append. Prompt is the full text (design §5 fencing), and contains Token
+// exactly once.
+//
+// Batching: everything queued for the recipient goes out together, up to
+// MaxWakeBytes. A wake carries its wake items first, then every queued
+// next_turn item (each fenced with mode="next_turn"). An append carries
+// only next_turn items. What doesn't fit is still handed over, as Overflow:
+// those ids are listed at the end of Prompt in one line ("N more waiting:
+// read them with the irori inbox tool: <ids>") rather than in full, and are
+// marked delivered and engaged with the rest.
 type Wake struct {
-	ID          string   `json:"id"`
-	To          string   `json:"to"`
-	Token       string   `json:"token"` // "[irori-wake:<id>]" or "[irori-reminder:<id>]"
-	Reminder    bool     `json:"reminder"`
-	DeliveryIDs []string `json:"deliveryIds"`
-	Prompt      string   `json:"prompt"`
+	ID string `json:"id"`
+	To string `json:"to"`
+	// Token is "[irori-wake:<id>]", "[irori-reminder:<id>]", or for an
+	// append "[irori-append:<id>]" (escapeText neutralizes all three forms
+	// in message text).
+	Token       string       `json:"token"`
+	Reminder    bool         `json:"reminder"`
+	Mode        DeliveryMode `json:"mode,omitempty"` // ModeNextTurn: an append (mod) or a next_turn-only push (channel)
+	DeliveryIDs []string     `json:"deliveryIds"`    // includes Overflow
+	Overflow    []string     `json:"overflow,omitempty"`
+	Prompt      string       `json:"prompt"`
 }
+
+// SendOptions are SendWith's choices beyond the text.
+type SendOptions struct {
+	Reason string
+	// Mode "" picks the default: ModeNextTurn when the sender is a person
+	// (IsUser) or SystemSender, ModeWake for an agent. Board comments and
+	// assignments pass ModeNextTurn unless the author chose Wake.
+	Mode DeliveryMode
+	// Ref is what the message is about (a search ref, e.g. "task:<id>").
+	Ref string
+	// Notice marks a Board notice (coord.Notice): it needs no reply, so it
+	// closes as Skipped (note "notice") once engaged, and the fence says no
+	// reply is needed.
+	Notice bool
+}
+
+// SystemKey is the sender key for notices Irori itself sends (a blocker
+// that resolved by itself). SystemSender is exempt from the rate limit and
+// arrives as Untrusted (its text quotes agent-written titles).
+const SystemKey = "irori"
+
+// SystemSender is Irori's own sender.
+func SystemSender() Sender { return Sender{Key: SystemKey, Name: "Irori", Kind: "irori"} }
 
 // Mode is the wake policy mode.
 type Mode string
@@ -201,9 +270,12 @@ type ChangeKind string
 
 const (
 	WakeReady ChangeKind = "wake_ready" // To has something to submit: call NextWake
-	HeldNew   ChangeKind = "held"       // a delivery to To was held
-	MovedAway ChangeKind = "moved"      // a delivery left To
-	Updated   ChangeKind = "updated"    // anything else; UIs refresh
+	// AppendReady: To has next_turn items and no append outstanding: a mod
+	// stream that negotiated appends (attach.Version >= 2) calls NextAppend.
+	AppendReady ChangeKind = "append_ready"
+	HeldNew     ChangeKind = "held"    // a delivery to To was held
+	MovedAway   ChangeKind = "moved"   // a delivery left To
+	Updated     ChangeKind = "updated" // anything else; UIs refresh
 )
 
 // Change is a notification for transports and the UI.
@@ -242,9 +314,33 @@ func New(ctx context.Context, st *store.Store, roster Roster, opts Options) (*In
 // Send routes and records a message and its delivery. Policy, rate limit and
 // hop limit apply (design §5); a held delivery is still a successful send.
 // GUI senders (IsUser) are exempt from the rate limit and arrive as UserTrust.
+// Send is the v0.2 form and always uses ModeWake; new callers use SendWith.
 func (b *Inbox) Send(ctx context.Context, from Sender, to Address, text, reason string) (Message, Delivery, error) {
 	return b.impl.send(ctx, from, to, text, reason)
 }
+
+// SendWith is Send with options: the delivery mode (default by sender, see
+// SendOptions.Mode), a ref and the notice flag. Send(…, reason) must equal
+// SendWith(…, SendOptions{Reason: reason, Mode: ModeWake}).
+func (b *Inbox) SendWith(ctx context.Context, from Sender, to Address, text string, o SendOptions) (Message, Delivery, error) {
+	return Message{}, Delivery{}, ErrUnimplemented
+}
+
+// NextAppend returns the append to make to agent now, or nil when it has no
+// queued next_turn items, when Pause all is on, or while an earlier append
+// to it is issued but not yet delivered. Only the mod path appends; the
+// channel path gets next_turn items from NextWake. The deliveries are
+// recorded as handed to it (a wake.issued row with mode next_turn), and an
+// append not confirmed delivered within ReattachGrace is reclaimed like a
+// wake.
+func (b *Inbox) NextAppend(ctx context.Context, agent string) (*Wake, error) {
+	return nil, ErrUnimplemented
+}
+
+// OutstandingAppend is the append issued to agent and not yet confirmed
+// delivered, rebuilt with its token (a reattached stream sends it again, and
+// the mod dedupes on the token), or nil.
+func (b *Inbox) OutstandingAppend(agent string) *Wake { return nil }
 
 // Reply answers a delivery addressed to from: marks it Answered and sends a
 // ToReply message back to its sender.
@@ -261,18 +357,26 @@ func (b *Inbox) SetReachable(agent string, path Path, on bool) { b.impl.setReach
 // NextWake returns the wake to submit to agent now, or nil when there is
 // nothing queued or a previous wake is still outstanding (delivered, not yet
 // engaged). The returned deliveries are recorded as handed to that wake.
+// On the mod path only queued ModeWake items make a wake; queued next_turn
+// items then ride along (see Wake). On the channel path next_turn items make
+// a push too (Mode ModeNextTurn when it holds nothing else).
 func (b *Inbox) NextWake(ctx context.Context, agent string, path Path) (*Wake, error) {
 	return b.impl.nextWake(ctx, agent, path)
 }
 
-// MarkDelivered: the transport handed the wake over ($.prompt.submit resolved).
-// Idempotent. Not called for channel pushes (see Ack).
+// MarkDelivered: the transport handed the wake over ($.prompt.submit resolved),
+// or an append's $.session.append resolved (append token). Idempotent. Not
+// called for channel pushes (see Ack).
 func (b *Inbox) MarkDelivered(ctx context.Context, agent, token string) error {
 	return b.impl.markDelivered(ctx, agent, token)
 }
 
 // MarkEngaged: a turn whose text contains token started. Reminder tokens are
 // accepted and ignored. Sets agent's running wake (for hop counting).
+// With an append token it means "the first main-loop turn after the append
+// was delivered started": its deliveries go Engaged (Notice ones then
+// Skipped, note "notice"), and no running wake is set. TurnEnded ignores
+// append tokens.
 func (b *Inbox) MarkEngaged(ctx context.Context, agent, token, turnID string) error {
 	return b.impl.markEngaged(ctx, agent, token, turnID)
 }
