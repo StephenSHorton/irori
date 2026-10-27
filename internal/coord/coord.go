@@ -64,7 +64,12 @@ type Task struct {
 	// 20). Join order, no duplicates. The fold, observe (gone tracking),
 	// TaskFilter.Holder and every permission check iterate Holders; Holder
 	// is only for readers.
-	Holders   []string  `json:"holders,omitempty"`
+	Holders []string `json:"holders,omitempty"`
+	// Assigned are the Holders that were assigned and haven't taken the
+	// task up yet (claimed, joined, or posted its state). An assignee is
+	// told by a notice and sees the task in its NeedsYou until then; Holders
+	// minus Assigned are who actually work it.
+	Assigned  []string  `json:"assigned,omitempty"`
 	Shared    bool      `json:"shared,omitempty"`
 	CreatedBy string    `json:"createdBy"`
 	Note      string    `json:"note,omitempty"`

@@ -64,6 +64,8 @@ func TestSubscribeMutations(t *testing.T) {
 		{"renew", func() error { _, err := e.c.Acquire(ctx, alice, "gpu/qwen", time.Hour, false); return err },
 			[]Change{{Kind: LeaseChanged, Resource: "gpu/qwen", Holder: alice}}},
 		{"refused", func() error { _, _ = e.c.Acquire(ctx, bob, "gpu/qwen", 0, false); return nil },
+			[]Change{{Kind: LeaseRefused, Resource: "gpu/qwen", Holder: bob}}},
+		{"refused again: deduped", func() error { _, _ = e.c.Acquire(ctx, bob, "gpu/qwen", 0, false); return nil },
 			nil},
 		{"steal", func() error { _, err := e.c.Acquire(ctx, bob, "gpu/qwen", 0, true); return err },
 			[]Change{

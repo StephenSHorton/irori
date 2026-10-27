@@ -61,6 +61,8 @@ type taskCreatedRow struct {
 	DoneCriteria string    `json:"doneCriteria,omitempty"`
 	RepoKey      string    `json:"repoKey,omitempty"`
 	Scope        []string  `json:"scope,omitempty"`
+	Shared       bool      `json:"shared,omitempty"`
+	Links        []Link    `json:"links,omitempty"`
 	By           string    `json:"by"`
 	At           time.Time `json:"at"`
 }
@@ -82,8 +84,51 @@ type taskStateRow struct {
 	TaskID string    `json:"taskId"`
 	State  TaskState `json:"state"`
 	Note   string    `json:"note,omitempty"`
+	// Reason and BlockedBy only when State is Blocked.
+	Reason    string     `json:"reason,omitempty"`
+	BlockedBy *BlockedBy `json:"blockedBy,omitempty"`
+	By        string     `json:"by"`
+	At        time.Time  `json:"at"`
+}
+
+// taskMemberRow is task.joined and task.left.
+type taskMemberRow struct {
+	TaskID string    `json:"taskId"`
+	Who    string    `json:"who"`
 	By     string    `json:"by"`
 	At     time.Time `json:"at"`
+}
+
+type taskSharedRow struct {
+	TaskID string    `json:"taskId"`
+	Shared bool      `json:"shared"`
+	By     string    `json:"by"`
+	At     time.Time `json:"at"`
+}
+
+type taskLinkedRow struct {
+	TaskID  string    `json:"taskId"`
+	Link    Link      `json:"link"`
+	Removed bool      `json:"removed,omitempty"`
+	By      string    `json:"by"`
+	At      time.Time `json:"at"`
+}
+
+type taskCommentRow struct {
+	TaskID    string    `json:"taskId"`
+	CommentID string    `json:"commentId"`
+	By        string    `json:"by"`
+	Text      string    `json:"text"`
+	Wake      bool      `json:"wake"`
+	At        time.Time `json:"at"`
+}
+
+type blockerClosedRow struct {
+	TaskID   string    `json:"taskId"`
+	By       string    `json:"by"`
+	Note     string    `json:"note,omitempty"`
+	Restored TaskState `json:"restored"`
+	At       time.Time `json:"at"`
 }
 
 type leaseReleasedRow struct {
@@ -123,6 +168,9 @@ type coord struct {
 	nextOrder   uint64
 	held        map[string]*leaseRec // by canonical resource
 	firstAbsent map[string]time.Time // holder key -> first seen missing from the roster
+	comments    map[string]*Comment  // by comment id
+	byTask      map[string][]string  // task id -> comment ids, fold order
+	refusals    []*refusalRec        // possibly active, fold order (gcRefusals drops the rest)
 
 	// Subscribe (subscribe.go). Changes queue in pending while c.mu is held
 	// and go out in unlock; replay queues none.
@@ -146,6 +194,8 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 		order:       map[string]uint64{},
 		held:        map[string]*leaseRec{},
 		firstAbsent: map[string]time.Time{},
+		comments:    map[string]*Comment{},
+		byTask:      map[string][]string{},
 		subs:        map[chan Change]*subscriber{},
 	}
 	if c.now == nil {
@@ -221,10 +271,16 @@ func (c *coord) apply(ev store.Event) {
 			c.nextOrder++
 			c.order[p.TaskID] = c.nextOrder
 		}
+		var links []Link
+		for _, l := range p.Links {
+			if len(links) < MaxLinks && l.Ref != "" && linkIndex(links, l.Ref) < 0 {
+				links = append(links, l)
+			}
+		}
 		c.tasks[p.TaskID] = &Task{
 			ID: p.TaskID, Title: p.Title, Objective: p.Objective, DoneCriteria: p.DoneCriteria,
 			RepoKey: p.RepoKey, Scope: p.Scope, State: Submitted, CreatedBy: p.By,
-			CreatedAt: t, UpdatedAt: t,
+			CreatedAt: t, UpdatedAt: t, Shared: p.Shared, Links: links,
 		}
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID})
 	case KindTaskClaimed:
@@ -232,8 +288,10 @@ func (c *coord) apply(ev store.Event) {
 		if json.Unmarshal(ev.Payload, &p) != nil {
 			return
 		}
-		if t := c.tasks[p.TaskID]; t != nil {
-			t.Holder = p.By
+		if t := c.tasks[p.TaskID]; t != nil && p.By != "" {
+			addHolder(t, p.By)
+			t.Assigned = removeStr(t.Assigned, p.By)
+			syncHolder(t)
 			if t.State == Submitted {
 				t.State = Working
 			}
@@ -245,8 +303,13 @@ func (c *coord) apply(ev store.Event) {
 		if json.Unmarshal(ev.Payload, &p) != nil {
 			return
 		}
-		if t := c.tasks[p.TaskID]; t != nil {
-			t.Holder = p.To
+		if t := c.tasks[p.TaskID]; t != nil && p.To != "" {
+			engaged := isHolder(t, p.To) && !contains(t.Assigned, p.To)
+			addHolder(t, p.To)
+			if !engaged && !contains(t.Assigned, p.To) {
+				t.Assigned = append(t.Assigned, p.To)
+			}
+			syncHolder(t)
 			t.UpdatedAt = at(p.At)
 			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: p.To})
 		}
@@ -258,9 +321,123 @@ func (c *coord) apply(ev store.Event) {
 		if t := c.tasks[p.TaskID]; t != nil && ValidState(p.State) {
 			t.State = p.State
 			t.Note = p.Note
+			t.Assigned = removeStr(t.Assigned, p.By)
+			syncHolder(t)
+			t.Reason, t.BlockedBy = "", nil
+			if p.State == Blocked {
+				t.Reason = p.Reason
+				if p.BlockedBy != nil {
+					b := *p.BlockedBy
+					t.BlockedBy = &b
+				}
+			}
 			t.UpdatedAt = at(p.At)
 			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
 		}
+	case KindTaskJoined, KindTaskLeft:
+		var p taskMemberRow
+		if json.Unmarshal(ev.Payload, &p) != nil || p.Who == "" {
+			return
+		}
+		t := c.tasks[p.TaskID]
+		if t == nil {
+			return
+		}
+		if ev.Kind == KindTaskJoined {
+			if !contains(t.Holders, p.Who) {
+				t.Holders = append(t.Holders, p.Who)
+			}
+			if t.State == Submitted {
+				t.State = Working
+			}
+		} else {
+			t.Holders = removeStr(t.Holders, p.Who)
+		}
+		t.Assigned = removeStr(t.Assigned, p.Who)
+		syncHolder(t)
+		t.UpdatedAt = at(p.At)
+		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: p.Who})
+	case KindTaskShared:
+		var p taskSharedRow
+		if json.Unmarshal(ev.Payload, &p) != nil {
+			return
+		}
+		if t := c.tasks[p.TaskID]; t != nil {
+			t.Shared = p.Shared
+			t.UpdatedAt = at(p.At)
+			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
+		}
+	case KindTaskLinked:
+		var p taskLinkedRow
+		if json.Unmarshal(ev.Payload, &p) != nil || p.Link.Ref == "" {
+			return
+		}
+		t := c.tasks[p.TaskID]
+		if t == nil {
+			return
+		}
+		i := linkIndex(t.Links, p.Link.Ref)
+		switch {
+		case p.Removed && i >= 0:
+			t.Links = append(t.Links[:i:i], t.Links[i+1:]...)
+			if len(t.Links) == 0 {
+				t.Links = nil
+			}
+		case !p.Removed && i < 0 && len(t.Links) < MaxLinks:
+			t.Links = append(t.Links, p.Link)
+		default:
+			return
+		}
+		t.UpdatedAt = at(p.At)
+		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
+	case KindTaskComment:
+		var p taskCommentRow
+		if json.Unmarshal(ev.Payload, &p) != nil || p.CommentID == "" {
+			return
+		}
+		t := c.tasks[p.TaskID]
+		if t == nil || c.comments[p.CommentID] != nil {
+			return
+		}
+		cm := &Comment{ID: p.CommentID, TaskID: p.TaskID, By: p.By, Text: p.Text, Wake: p.Wake, At: at(p.At)}
+		c.comments[cm.ID] = cm
+		c.byTask[t.ID] = append(c.byTask[t.ID], cm.ID)
+		t.Comments++
+		// A comment is activity on the card: it floats up its Board group.
+		t.UpdatedAt = cm.At
+		c.note(Change{Kind: CommentAdded, TaskID: p.TaskID})
+	case KindBlockerClosed:
+		var p blockerClosedRow
+		if json.Unmarshal(ev.Payload, &p) != nil {
+			return
+		}
+		t := c.tasks[p.TaskID]
+		if t == nil || t.State != Blocked {
+			return
+		}
+		s := p.Restored
+		if !ValidState(s) || s == Blocked || IsTerminal(s) {
+			s = restoreState(t)
+		}
+		t.State = s
+		t.Reason, t.BlockedBy = "", nil
+		if p.Note != "" {
+			t.Note = p.Note
+		}
+		t.UpdatedAt = at(p.At)
+		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
+	case KindLeaseRefused:
+		var r Refusal
+		if json.Unmarshal(ev.Payload, &r) != nil || r.Resource == "" || r.By == "" || r.HeldBy == "" {
+			return
+		}
+		res, err := ParseResource(r.Resource)
+		if err != nil {
+			res = Resource{Kind: ResourceNamed, Name: r.Resource}
+		}
+		r.At = at(r.At)
+		c.refusals = append(c.refusals, &refusalRec{Refusal: r, res: res})
+		c.note(Change{Kind: LeaseRefused, Resource: res.Name, Holder: r.By})
 	case KindLeaseAcq:
 		var row leaseAcquiredRow
 		if json.Unmarshal(ev.Payload, &row) != nil || row.Resource == "" {
@@ -313,6 +490,83 @@ func (c *coord) prune(now time.Time) {
 			c.note(Change{Kind: LeaseExpired, Resource: name, Holder: l.Holder})
 		}
 	}
+	c.gcRefusals(now)
+}
+
+// addHolder records who as working t: on a Shared task who is added (once),
+// otherwise who replaces the holder.
+func addHolder(t *Task, who string) {
+	switch {
+	case !t.Shared:
+		t.Holders = []string{who}
+	case !contains(t.Holders, who):
+		t.Holders = append(t.Holders, who)
+	}
+	syncHolder(t)
+}
+
+// syncHolder keeps Holder = Holders[0] and Assigned a subset of Holders.
+func syncHolder(t *Task) {
+	var keep []string
+	for _, a := range t.Assigned {
+		if isHolder(t, a) {
+			keep = append(keep, a)
+		}
+	}
+	t.Assigned = keep
+	if len(t.Holders) == 0 {
+		t.Holders, t.Holder = nil, ""
+		return
+	}
+	t.Holder = t.Holders[0]
+}
+
+// isHolder reports whether key is one of t's holders.
+func isHolder(t *Task, key string) bool { return contains(t.Holders, key) }
+
+// mayManage: the creator, any holder or a person.
+func mayManage(t *Task, by string) bool {
+	return by == t.CreatedBy || isHolder(t, by) || IsPerson(by)
+}
+
+// restoreState is where Unblock leaves a task: Working when a holder has
+// taken it up, else Submitted (no holders, or only assignees that haven't
+// claimed: a submitted task stays submitted until its assignee claims).
+func restoreState(t *Task) TaskState {
+	for _, h := range t.Holders {
+		if !contains(t.Assigned, h) {
+			return Working
+		}
+	}
+	return Submitted
+}
+
+// engaged reports whether key holds t and has taken it up (not only been
+// assigned it).
+func engaged(t *Task, key string) bool {
+	return isHolder(t, key) && !contains(t.Assigned, key)
+}
+
+func removeStr(xs []string, x string) []string {
+	out := xs[:0:0]
+	for _, v := range xs {
+		if v != x {
+			out = append(out, v)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func linkIndex(ls []Link, ref string) int {
+	for i, l := range ls {
+		if l.Ref == ref {
+			return i
+		}
+	}
+	return -1
 }
 
 // write appends a row and folds it. The caller holds c.mu.
@@ -345,6 +599,9 @@ func copyTask(t *Task) Task {
 	}
 	if t.Holders != nil {
 		out.Holders = append([]string(nil), t.Holders...)
+	}
+	if t.Assigned != nil {
+		out.Assigned = append([]string(nil), t.Assigned...)
 	}
 	if t.Links != nil {
 		out.Links = append([]Link(nil), t.Links...)
@@ -384,8 +641,11 @@ func (c *coord) observe(now time.Time) {
 	}
 	tracked := map[string]bool{}
 	for _, t := range c.tasks {
-		if t.Holder != "" && !IsTerminal(t.State) {
-			tracked[t.Holder] = true
+		if IsTerminal(t.State) {
+			continue
+		}
+		for _, h := range t.Holders {
+			tracked[h] = true
 		}
 	}
 	for _, l := range c.held {
@@ -459,16 +719,53 @@ func (c *coord) createTask(ctx context.Context, by string, nt NewTask) (Task, er
 	if len(scope) > maxScope {
 		return Task{}, fmt.Errorf("%w: more than %d scope globs", ErrInvalid, maxScope)
 	}
+	var links []Link
+	for _, s := range nt.Links {
+		if strings.TrimSpace(s) == "" {
+			continue
+		}
+		l, err := ParseLink(s)
+		if err != nil {
+			return Task{}, err
+		}
+		if linkIndex(links, l.Ref) < 0 {
+			links = append(links, l)
+		}
+	}
+	if len(links) > MaxLinks {
+		return Task{}, fmt.Errorf("%w: more than %d links", ErrInvalid, MaxLinks)
+	}
+	reason := strings.TrimSpace(nt.BlockReason)
+	if reason == "" && nt.BlockedBy != nil {
+		return Task{}, fmt.Errorf("%w: BlockedBy needs a BlockReason", ErrInvalid)
+	}
+	if err := checkReason(reason, false); err != nil {
+		return Task{}, err
+	}
 
 	c.mu.Lock()
 	defer c.unlock()
+	var bb *BlockedBy
+	if reason != "" {
+		var err error
+		if bb, err = c.checkBlocker(nt.BlockedBy, ""); err != nil {
+			return Task{}, err
+		}
+	}
 	at := c.stamp()
 	id := newID(at)
 	if err := c.write(ctx, by, KindTaskCreated, taskCreatedRow{
 		TaskID: id, Title: title, Objective: obj, DoneCriteria: done,
-		RepoKey: repoKey, Scope: scope, By: by, At: at,
+		RepoKey: repoKey, Scope: scope, Shared: nt.Shared, Links: links, By: by, At: at,
 	}); err != nil {
 		return Task{}, err
+	}
+	if reason != "" {
+		if err := c.write(ctx, by, KindTaskState, taskStateRow{
+			TaskID: id, State: Blocked, Reason: reason, BlockedBy: bb, By: by, At: at,
+		}); err != nil {
+			return Task{}, err
+		}
 	}
 	return copyTask(c.tasks[id]), nil
 }
@@ -479,7 +776,7 @@ func (c *coord) listTasks(f TaskFilter) []Task {
 	out := []Task{}
 	for _, t := range c.tasks {
 		if f.RepoKey != "" && t.RepoKey != f.RepoKey ||
-			f.Holder != "" && t.Holder != f.Holder ||
+			f.Holder != "" && !isHolder(t, f.Holder) ||
 			f.Open && IsTerminal(t.State) {
 			continue
 		}
@@ -532,16 +829,22 @@ func (c *coord) claimTask(ctx context.Context, by, id string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	// An assignee claiming a still-submitted task writes the claimed row,
-	// which moves it to working.
-	if t.Holder == by && t.State != Submitted {
+	// An assignee claiming writes the claimed row (which moves a submitted
+	// task to working and takes the assignee off Assigned).
+	if engaged(t, by) && t.State != Submitted {
 		return copyTask(t), nil
 	}
 	now := c.stamp()
-	if t.Holder != "" && t.Holder != by {
-		c.observe(now)
-		if !c.gone(t.Holder, now) {
-			return Task{}, fmt.Errorf("%w: task %s is held by %s", ErrHeld, id, t.Holder)
+	// A shared task takes any number of holders: claiming it is joining.
+	if !t.Shared {
+		for _, h := range t.Holders {
+			if h == by {
+				continue
+			}
+			c.observe(now)
+			if !c.gone(h, now) {
+				return Task{}, fmt.Errorf("%w: task %s is held by %s", ErrHeld, id, h)
+			}
 		}
 	}
 	if err := c.write(ctx, by, KindTaskClaimed, taskClaimedRow{TaskID: id, By: by, At: now}); err != nil {
@@ -551,26 +854,37 @@ func (c *coord) claimTask(ctx context.Context, by, id string) (Task, error) {
 }
 
 func (c *coord) assignTask(ctx context.Context, by, id, to string) (Task, error) {
+	t, _, err := c.assign(ctx, by, id, to, false)
+	return t, err
+}
+
+// assign is AssignTask (wide false: the creator, a holder or a person) and
+// Assign (wide: also anyone while the task has no holder). The bool reports
+// whether a row was written.
+func (c *coord) assign(ctx context.Context, by, id, to string, wide bool) (Task, bool, error) {
 	by, to = strings.TrimSpace(by), strings.TrimSpace(to)
 	if by == "" || to == "" {
-		return Task{}, fmt.Errorf("%w: assign needs a caller and an assignee", ErrInvalid)
+		return Task{}, false, fmt.Errorf("%w: assign needs a caller and an assignee", ErrInvalid)
+	}
+	if err := checkKey(to); err != nil {
+		return Task{}, false, err
 	}
 	c.mu.Lock()
 	defer c.unlock()
 	t, err := c.openTask(id)
 	if err != nil {
-		return Task{}, err
+		return Task{}, false, err
 	}
-	if by != t.CreatedBy && by != t.Holder && !IsPerson(by) {
-		return Task{}, fmt.Errorf("%w: assign task %s", ErrNotAllowed, id)
+	if !mayManage(t, by) && !(wide && len(t.Holders) == 0) {
+		return Task{}, false, fmt.Errorf("%w: assign task %s", ErrNotAllowed, id)
 	}
-	if t.Holder == to {
-		return copyTask(t), nil
+	if isHolder(t, to) {
+		return copyTask(t), false, nil
 	}
 	if err := c.write(ctx, by, KindTaskAssigned, taskAssignedRow{TaskID: id, To: to, By: by, At: c.stamp()}); err != nil {
-		return Task{}, err
+		return Task{}, false, err
 	}
-	return copyTask(t), nil
+	return copyTask(t), true, nil
 }
 
 func (c *coord) setTaskState(ctx context.Context, by, id string, s TaskState, note string) (Task, error) {
@@ -594,7 +908,7 @@ func (c *coord) setTaskState(ctx context.Context, by, id string, s TaskState, no
 	if err != nil {
 		return Task{}, err
 	}
-	if by != t.CreatedBy && by != t.Holder && !IsPerson(by) {
+	if !mayManage(t, by) {
 		return Task{}, fmt.Errorf("%w: change task %s", ErrNotAllowed, id)
 	}
 	if t.State == s && t.Note == note {
@@ -635,8 +949,12 @@ func (c *coord) acquire(ctx context.Context, holder, resource string, ttl time.D
 	sort.Slice(victims, func(i, j int) bool { return victims[i].Resource < victims[j].Resource })
 	if len(victims) > 0 && !steal {
 		v := victims[0]
-		return Lease{}, fmt.Errorf("%w: %s is leased by %s until %s (pass steal to take it)",
+		held := fmt.Errorf("%w: %s is leased by %s until %s (pass steal to take it)",
 			ErrHeld, v.Resource, v.Holder, v.Until.Format(time.RFC3339))
+		if err := c.refuse(ctx, holder, res, victims, now); err != nil {
+			return Lease{}, fmt.Errorf("%w (logging the refusal failed: %v)", held, err)
+		}
+		return Lease{}, held
 	}
 	var from []string
 	var stolen []stolenLease
@@ -712,9 +1030,13 @@ func (c *coord) leases() []Lease {
 }
 
 func (c *coord) sweep(ctx context.Context) error {
-	c.mu.Lock()
-	defer c.unlock()
-	now := c.stamp()
+	_, err := c.sweepNotices(ctx)
+	return err
+}
+
+// releaseGone releases the leases of holders gone for the grace period. The
+// caller holds c.mu.
+func (c *coord) releaseGone(ctx context.Context, now time.Time) error {
 	c.prune(now)
 	c.observe(now)
 	var gone []*leaseRec

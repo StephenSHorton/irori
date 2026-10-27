@@ -101,6 +101,8 @@ type capture struct {
 	subMu sync.Mutex
 	subs  map[chan Change]struct{}
 
+	relinkMu sync.Mutex // serializes relinkCommitter's decide-and-emit
+
 	repoDeadline time.Time // end of the current repo pass's budget; run goroutine only
 
 	// tail-pass scratch, owned by the run goroutine
