@@ -82,14 +82,12 @@ type tail struct {
 
 // transcriptRow is the tolerant subset of a transcript line we read.
 type transcriptRow struct {
-	Type        string `json:"type"`
-	Timestamp   string `json:"timestamp"`
-	IsSidechain bool   `json:"isSidechain"`
-	AITitle     string `json:"aiTitle"`
-	CustomTitle string `json:"customTitle"`
-	// PermissionMode is carried by "permission-mode" rows and, on newer
-	// versions, by user rows too.
-	PermissionMode string          `json:"permissionMode"`
+	Type           string          `json:"type"`
+	Timestamp      string          `json:"timestamp"`
+	IsSidechain    bool            `json:"isSidechain"`
+	AITitle        string          `json:"aiTitle"`
+	CustomTitle    string          `json:"customTitle"`
+	PermissionMode string          `json:"permissionMode"` // on "permission-mode" rows and some user rows
 	Message        json.RawMessage `json:"message"`
 }
 
