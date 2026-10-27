@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -81,7 +82,8 @@ func watch(ctx context.Context, root string, recursive bool, debounce time.Durat
 		windows.CloseHandle(h)
 		return nil, err
 	}
-	go coalesce(raw, out, debounce)
+	var rawLost atomic.Bool
+	go coalesce(raw, out, debounce, root, &rawLost)
 	go func() {
 		defer close(done)
 		defer close(raw)
@@ -99,15 +101,15 @@ func watch(ctx context.Context, root string, recursive bool, debounce time.Durat
 			switch {
 			case err == windows.ERROR_NOTIFY_ENUM_DIR || err == nil && n == 0:
 				// The buffer overflowed: changes were lost.
-				send(raw, Event{Path: root, Overflow: true})
+				send(raw, Event{Path: root, Overflow: true}, &rawLost)
 			case err != nil:
-				send(raw, Event{Path: root, Overflow: true})
+				send(raw, Event{Path: root, Overflow: true}, &rawLost)
 				return
 			default:
-				parse(buf[:n], root, raw)
+				parse(buf[:n], root, raw, &rawLost)
 			}
 			if err := arm(); err != nil {
-				send(raw, Event{Path: root, Overflow: true})
+				send(raw, Event{Path: root, Overflow: true}, &rawLost)
 				return
 			}
 		}
@@ -116,7 +118,7 @@ func watch(ctx context.Context, root string, recursive bool, debounce time.Durat
 }
 
 // parse walks FILE_NOTIFY_INFORMATION records.
-func parse(b []byte, root string, raw chan<- Event) {
+func parse(b []byte, root string, raw chan<- Event, lost *atomic.Bool) {
 	for off := 0; off+12 <= len(b); {
 		next := *(*uint32)(unsafe.Pointer(&b[off]))
 		nameLen := *(*uint32)(unsafe.Pointer(&b[off+8]))
@@ -126,7 +128,7 @@ func parse(b []byte, root string, raw chan<- Event) {
 			return
 		}
 		name := windows.UTF16ToString(unsafe.Slice((*uint16)(unsafe.Pointer(&b[start])), nameLen/2))
-		send(raw, Event{Path: filepath.Join(root, name)})
+		send(raw, Event{Path: filepath.Join(root, name)}, lost)
 		if next == 0 {
 			return
 		}
@@ -134,22 +136,27 @@ func parse(b []byte, root string, raw chan<- Event) {
 	}
 }
 
-// send never blocks the OS reader: a full channel becomes an overflow.
-func send(ch chan<- Event, e Event) {
+// send never blocks the OS reader: an event that does not fit is dropped and
+// marks lost, which coalesce turns into an Overflow.
+func send(ch chan<- Event, e Event, lost *atomic.Bool) {
 	select {
 	case ch <- e:
 	default:
+		lost.Store(true)
 	}
 }
 
-// coalesce merges repeats of a path inside debounce and forwards them; a
-// reader that falls behind gets one Overflow.
-func coalesce(in <-chan Event, out chan<- Event, debounce time.Duration) {
+// coalesce merges repeats of a path inside debounce and forwards them. Lost
+// events (a full out, or a full in seen through inLost) leave a sticky
+// Overflow that goes out as soon as out has room, so a reader that falls
+// behind always learns it must rescan.
+func coalesce(in <-chan Event, out chan<- Event, debounce time.Duration, root string, inLost *atomic.Bool) {
 	defer close(out)
 	pending := map[string]Event{}
 	var timer <-chan time.Time
+	lost := false
+	overflow := Event{Path: root, Overflow: true}
 	flush := func() {
-		lost := false
 		for p, e := range pending {
 			select {
 			case out <- e:
@@ -158,20 +165,31 @@ func coalesce(in <-chan Event, out chan<- Event, debounce time.Duration) {
 			}
 			delete(pending, p)
 		}
-		if lost {
-			select {
-			case out <- Event{Overflow: true}:
-			default:
-			}
-		}
 		timer = nil
 	}
 	for {
+		if inLost.Swap(false) {
+			lost = true
+		}
+		var ovOut chan<- Event // nil (never ready) unless an Overflow is owed
+		if lost {
+			ovOut = out
+		}
 		select {
 		case e, ok := <-in:
 			if !ok {
 				flush()
+				if lost || inLost.Load() {
+					select {
+					case out <- overflow:
+					default:
+					}
+				}
 				return
+			}
+			if e.Overflow {
+				lost = true
+				continue
 			}
 			pending[e.Path] = e
 			if timer == nil {
@@ -179,6 +197,8 @@ func coalesce(in <-chan Event, out chan<- Event, debounce time.Duration) {
 			}
 		case <-timer:
 			flush()
+		case ovOut <- overflow:
+			lost = false
 		}
 	}
 }
