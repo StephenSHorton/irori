@@ -55,11 +55,11 @@ func (r *rendering) page(o ShowOptions) Shown {
 	}
 }
 
-// render draws one of capture's own refs.
-func (c *capture) render(ctx context.Context, kind search.Kind, id string) (*rendering, error) {
+// render draws one of capture's own refs for viewer ("" is the person).
+func (c *capture) render(ctx context.Context, kind search.Kind, id, viewer string) (*rendering, error) {
 	switch kind {
 	case search.KindTurn:
-		return c.renderTurn(id)
+		return c.renderTurn(id, viewer)
 	case search.KindEdit:
 		return c.renderEdit(id)
 	case search.KindCommit:
@@ -69,7 +69,7 @@ func (c *capture) render(ctx context.Context, kind search.Kind, id string) (*ren
 	case search.KindDecision:
 		return c.renderDecision(ctx, id)
 	case search.KindAgent:
-		return c.renderAgent(id)
+		return c.renderAgent(id, viewer)
 	}
 	return nil, search.ErrNotFound
 }
@@ -145,13 +145,14 @@ func (c *capture) commitsTaking(edits []string, key, turnID string) []*commitRec
 	return out
 }
 
-func (c *capture) renderTurn(id string) (*rendering, error) {
+func (c *capture) renderTurn(id, viewer string) (*rendering, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	t, ok := c.shownTurn(id)
 	if !ok {
 		return nil, search.ErrNotFound
 	}
+	t.Prompt = hideMessages(t.Prompt, viewer, t.Key)
 	r := &rendering{ref: turnRef(id), kind: search.KindTurn, title: firstLine(t.Prompt)}
 	who := t.Key
 	if t.AgentID != "" {
@@ -424,7 +425,7 @@ func (c *capture) renderDecision(ctx context.Context, id string) (*rendering, er
 	return r, nil
 }
 
-func (c *capture) renderAgent(key string) (*rendering, error) {
+func (c *capture) renderAgent(key, viewer string) (*rendering, error) {
 	cards := c.liveCards()
 	var card *AgentLine
 	for _, cd := range cards {
@@ -453,7 +454,7 @@ func (c *capture) renderAgent(key string) (*rendering, error) {
 			if e.Turn.Open {
 				open = " (open)"
 			}
-			r.line("%s %s%s %s", stamp(e.At), ref, open, clipRunes(firstLine(e.Turn.Prompt), OverviewLineMax))
+			r.line("%s %s%s %s", stamp(e.At), ref, open, clipRunes(firstLine(hideMessages(e.Turn.Prompt, viewer, key)), OverviewLineMax))
 			r.relate(ref)
 		case e.Commit != nil:
 			ref := commitRef(e.Commit.SHA)

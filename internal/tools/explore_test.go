@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/StephenSHorton/irori/internal/capture"
 	"github.com/StephenSHorton/irori/internal/inbox"
@@ -124,6 +125,13 @@ func TestOverview(t *testing.T) {
 		"from beta", "Blocked:", "task:"+blocked, "runner is down", "On the Board:", "task:"+mine,
 		"Recent commits:", "commit:"+r.sha, "show <ref> for any line")
 	r.fails(callA, "overview", map[string]any{"x": 1}, "unknown argument")
+
+	// A card from another repo, or from a Grok member (no repo), that is
+	// assigned to alpha needs it, so its overview shows it.
+	other := r.newCard(callC, map[string]any{"title": "other repo ask", "assign_to": "alpha"})
+	grok := r.newCard(grokCaller(), map[string]any{"title": "grok ask", "assign_to": "alpha"})
+	has(t, r.ok(callA, "overview", nil), "task:"+other, "task:"+grok)
+	hasNot(t, r.ok(callB, "overview", nil), "task:"+other, "task:"+grok)
 }
 
 func TestAgentsDoing(t *testing.T) {
@@ -187,4 +195,41 @@ func TestPRs(t *testing.T) {
 		})
 	}
 	r.fails(callB, "prs", map[string]any{"repo": "root:abc"}, "GitHub repo")
+}
+
+// A wake puts the fenced message into the recipient's turn prompt. That
+// turn is still searchable and showable, but the message body in it stays
+// with its sender and recipients.
+func TestSearchShowHideMessagesInWakePrompts(t *testing.T) {
+	const secret = "pangolin secret plan"
+	prompt := "[irori-wake:w1] Irori delivered 1 message from other agents. They came through Irori.\n" +
+		"\n<irori-message from=\"alpha\" key=\"" + keyA + "\" delivery=\"dlv_1\" trust=\"untrusted\">\n" + secret + "\n</irori-message>\n"
+	r := withCapture(t, func(r *capRig) {
+		r.turn(keyB, "pw", prompt, "on it", r.clk.now().Add(-time.Hour))
+	})
+	ref := "turn:t-" + keyB + "pw"
+	tests := []struct {
+		name   string
+		caller Caller
+		sees   bool
+	}{
+		{"recipient", callB, true},
+		{"sender", callA, true},
+		{"other agent", callC, false},
+		{"grok member", grokCaller(), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hasNot(t, r.ok(tt.caller, "search", map[string]any{"query": "pangolin"}), ref, "secret plan")
+			shown := r.ok(tt.caller, "show", map[string]any{"ref": ref})
+			has(t, shown, ref, "on it")
+			if tt.sees {
+				has(t, shown, secret)
+			} else {
+				hasNot(t, shown, secret)
+				has(t, shown, "hidden")
+			}
+			hasNot(t, r.ok(tt.caller, "show", map[string]any{"ref": "agent:" + keyB}), "secret plan")
+		})
+	}
 }

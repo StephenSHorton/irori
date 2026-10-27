@@ -319,7 +319,7 @@
   },
   {
     "name": "board",
-    "description": "List the Board for your repo (or repo, or every repo), grouped: needs you, blocked, working, open, leases that block something, and done (collapsed). One line per card with its ref; show task:\u003cid\u003e for its comments and links. The Irori Board is a shared scratch pad for live coordination between running agents and people: what you are working on now, what blocks you, and hand-offs. Keep cards short. Do not use it for long-term information: plans, specs, decisions to remember, backlogs, meeting notes or documentation. Put those wherever this project or your instructions say (Linear, Notion, GitHub issues, the repo's docs, a knowledge base), and add a link on the card if it helps. When a card's work is done, mark it done; don't keep it as a record.",
+    "description": "List the Board for your repo (or repo, or every repo), grouped: needs you (from any repo), blocked, working, open, leases that block something, and done (collapsed). One line per card with its ref; show task:\u003cid\u003e for its comments and links. The Irori Board is a shared scratch pad for live coordination between running agents and people: what you are working on now, what blocks you, and hand-offs. Keep cards short. Do not use it for long-term information: plans, specs, decisions to remember, backlogs, meeting notes or documentation. Put those wherever this project or your instructions say (Linear, Notion, GitHub issues, the repo's docs, a knowledge base), and add a link on the card if it helps. When a card's work is done, mark it done; don't keep it as a record.",
     "inputSchema": {
       "type": "object",
       "properties": {

@@ -161,7 +161,7 @@ var specList = []Spec{
 	},
 	{
 		Name: "board",
-		Description: "List the Board for your repo (or repo, or every repo), grouped: needs you, blocked, working, open, leases that block " +
+		Description: "List the Board for your repo (or repo, or every repo), grouped: needs you (from any repo), blocked, working, open, leases that block " +
 			"something, and done (collapsed). One line per card with its ref; show task:<id> for its comments and links. " + BoardInstructions,
 		InputSchema: schema(
 			`"repo":{"type":"string","description":"A repoKey from the agents tool, or * for every repo. Default: your own repo."},` +

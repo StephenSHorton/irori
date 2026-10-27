@@ -33,6 +33,19 @@ func needTaskID() string {
 // callerRepo is the caller's repoKey from its card ("" for Grok members).
 func (s *set) callerRepo(c Caller) string { return s.roster()[c.Sender.Key].RepoKey }
 
+// boardView is the Board for repo ("" every repo) as viewer sees it, with
+// NeedsYou taken across every repo: a card assigned to the viewer, or
+// blocked on it, needs it wherever the card lives (a Grok member's cards
+// have no repo at all).
+func (s *set) boardView(repo, viewer string, doneLimit int) coord.BoardView {
+	co := s.b.Coord()
+	v := co.Board(coord.BoardFilter{RepoKey: repo, For: viewer, DoneLimit: doneLimit})
+	if repo != "" {
+		v.NeedsYou = co.Board(coord.BoardFilter{For: viewer, DoneLimit: 1}).NeedsYou
+	}
+	return v
+}
+
 // cardLine is one card as one list line (two when it is blocked or has a
 // last comment), every untrusted field folded.
 func (s *set) cardLine(t coord.Task, last *coord.Comment, n names, now time.Time) string {
@@ -101,7 +114,7 @@ func (s *set) board(_ context.Context, c Caller, raw json.RawMessage) string {
 	if a.Done {
 		doneLimit = coord.DefaultDoneCard
 	}
-	v := s.b.Coord().Board(coord.BoardFilter{RepoKey: repo, For: c.Sender.Key, DoneLimit: doneLimit})
+	v := s.boardView(repo, c.Sender.Key, doneLimit)
 	where := "every repo"
 	if repo != "" {
 		where = oneLine(repo, 160)
@@ -125,6 +138,13 @@ func (s *set) board(_ context.Context, c Caller, raw json.RawMessage) string {
 		fmt.Fprintf(&b, "\n%s (%d):\n", name, len(cards))
 		for _, cd := range cards {
 			line := s.cardLine(cd.Task, cd.LastComment, n, now)
+			if repo != "" && cd.RepoKey != repo {
+				where := "no repo"
+				if cd.RepoKey != "" {
+					where = "repo " + oneLine(cd.RepoKey, 160)
+				}
+				line += "  from " + where + "\n"
+			}
 			if cd.Resolved {
 				line += "  its blocker has gone away; it closes on the next sweep, or board_unblock now\n"
 			}

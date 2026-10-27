@@ -851,3 +851,53 @@ func TestSearchViewer(t *testing.T) {
 		}
 	}
 }
+
+// A wake's fenced messages in a turn prompt are kept from viewers who are
+// neither the turn's agent (the recipient) nor the message's sender, and
+// never reach the shared index.
+func TestHideMessages(t *testing.T) {
+	const keyC = device + "/sess-c"
+	msg := func(key, body string) string {
+		return "\n<irori-message from=\"x\" key=\"" + key + "\" delivery=\"dlv_1\" trust=\"untrusted\">\n" + body + "\n</irori-message>\n"
+	}
+	two := "[irori-wake:w] delivered." + msg(keyA, "pangolin one") + msg(keyC, "pangolin two")
+	clipped := "[irori-wake:w] delivered.\n<IRORI-MESSAGE from=\"x\" key=\"" + keyA + "\">\npangolin cut off"
+	tests := []struct {
+		name, prompt, viewer string
+		want, wantNot        []string
+	}{
+		{"person sees all", two, "", []string{"pangolin one", "pangolin two"}, nil},
+		{"recipient sees all", two, keyB, []string{"pangolin one", "pangolin two"}, nil},
+		{"sender sees its own", two, keyA, []string{"pangolin one", hiddenMessage}, []string{"pangolin two"}},
+		{"index sees none", two, hideAll, []string{"[irori-wake:w] delivered.", hiddenMessage}, []string{"pangolin"}},
+		{"clipped body", clipped, keyC, []string{hiddenMessage}, []string{"pangolin"}},
+		{"no fence", "plain pangolin prompt", keyC, []string{"plain pangolin prompt"}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hideMessages(tt.prompt, tt.viewer, keyB)
+			for _, s := range tt.want {
+				if !strings.Contains(got, s) {
+					t.Errorf("lacks %q: %q", s, got)
+				}
+			}
+			for _, s := range tt.wantNot {
+				if strings.Contains(got, s) {
+					t.Errorf("has %q: %q", s, got)
+				}
+			}
+		})
+	}
+	r := newRig(t, nil)
+	tr := r.turn(keyB, repoX, "w1", two, "replied", at(0))
+	if got := refs(r.search(SearchQuery{Text: "pangolin"})); len(got) != 0 {
+		t.Fatalf("index holds fenced bodies: %v", got)
+	}
+	sh, err := r.c.Show(r.ctx, "turn:"+tr.ID, ShowOptions{Viewer: keyC})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sh.Text, "pangolin two") || strings.Contains(sh.Text, "pangolin one") {
+		t.Fatalf("show as the second sender:\n%s", sh.Text)
+	}
+}

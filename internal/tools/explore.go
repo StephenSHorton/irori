@@ -95,7 +95,7 @@ func (s *set) overviewInput(c Caller, n names) capture.OverviewInput {
 	all := co.ListTasks(coord.TaskFilter{Open: true})
 	in.BoardCount = len(all)
 	in.Current = current(all)
-	v := co.Board(coord.BoardFilter{RepoKey: repo, For: key, DoneLimit: 1})
+	v := s.boardView(repo, key, 1)
 	var tasks []capture.Line
 	for _, cd := range v.NeedsYou {
 		if cd.State == coord.Blocked {

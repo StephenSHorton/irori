@@ -51,14 +51,23 @@ func TestBoardCreateAndAssign(t *testing.T) {
 	has(t, h.ok(callB, "board", nil), "Working (1)")
 	h.fails(callC, "board_join", map[string]any{"task_id": id}, "held by")
 
-	// board_assign hands it on; gamma is in another repo, so it shows on
-	// every-repo boards only.
+	// board_assign hands it on. gamma is in another repo, but a card that
+	// needs it shows on its own board wherever the card lives.
 	has(t, h.ok(callB, "board_assign", map[string]any{"task_id": id, "to": "GAMMA"}), "Assigned task:"+id+" to gamma", "Told at their next turn: gamma")
 	if len(h.notices(keyC)) != 1 {
 		t.Fatalf("gamma notices %+v", h.notices(keyC))
 	}
-	has(t, h.ok(callC, "board", nil), "Nothing live here")
+	out = h.ok(callC, "board", nil)
+	has(t, out, "Board for remote:github.com/acme/other: 1 open card", "Needs you (1)", "task:"+id, "repo remote:github.com/acme/app")
+	hasNot(t, out, "Nothing live here")
 	has(t, h.ok(callC, "board", map[string]any{"repo": "*"}), "Board for every repo", "Needs you (1)")
+	// The other cards of acme/app stay off gamma's board.
+	hasNot(t, h.ok(callC, "board", nil), "Working (")
+
+	// A Grok member's card has no repo; assigned to gamma, it still needs it.
+	out = h.ok(grokCaller(), "board_create", map[string]any{"title": "grok asks", "assign_to": "gamma"})
+	gid := strings.TrimSuffix(field(t, out, "Created"), ".")
+	has(t, h.ok(callC, "board", nil), "Needs you (2)", gid)
 	h.fails(callA, "board_assign", map[string]any{"task_id": id}, "give to")
 }
 

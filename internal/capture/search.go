@@ -53,6 +53,7 @@ package capture
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -144,7 +145,7 @@ func (c *Capture) Show(ctx context.Context, ref string, o ShowOptions) (Shown, e
 		return Shown{}, err
 	}
 	if slices.Contains(ownKinds, kind) {
-		r, err := c.impl.render(ctx, kind, id)
+		r, err := c.impl.render(ctx, kind, id, o.Viewer)
 		if err != nil {
 			return Shown{}, err
 		}
@@ -217,14 +218,49 @@ func (c *capture) index(d search.Doc) {
 }
 
 func turnDoc(r *TurnRow) search.Doc {
-	body := r.Prompt
+	// The index is shared by every viewer, so a wake's fenced messages are
+	// never in it: they are found through their own msg refs.
+	prompt := hideMessages(r.Prompt, hideAll, r.Key)
+	body := prompt
 	if r.Reply != "" {
 		body += "\n" + r.Reply
 	}
 	return search.Doc{
 		Ref: search.Ref(search.KindTurn, r.ID), Kind: search.KindTurn, At: r.StartedAt,
-		Title: firstLine(r.Prompt), Body: body, Agent: r.Key, RepoKey: r.RepoKey,
+		Title: firstLine(prompt), Body: body, Agent: r.Key, RepoKey: r.RepoKey,
 	}
+}
+
+// hideAll is a viewer no fenced message is shown to (no key holds a NUL).
+const hideAll = "\x00"
+
+// fencedRe matches one <irori-message> block that a wake, reminder or
+// append put in a prompt: the opening tag's attributes, then the body up to
+// the closing tag, or to the end when the prompt was clipped inside it. A
+// body has its own closing tags escaped (inbox.escapeText), so the first
+// one ends it.
+var (
+	fencedRe   = regexp.MustCompile(`(?is)<irori-message\b([^>]*)>.*?(?:</irori-message\s*>|\z)`)
+	fenceKeyRe = regexp.MustCompile(`\bkey="([^"]*)"`)
+)
+
+// hiddenMessage stands in for a fenced message a viewer may not read.
+const hiddenMessage = "[an Irori message, hidden: only its sender and recipients can read it]"
+
+// hideMessages replaces each fenced message in a turn's prompt with
+// hiddenMessage unless viewer may read it: the person (""), the turn's
+// agent (owner, the recipient) or the message's sender (its key attribute).
+func hideMessages(prompt, viewer, owner string) string {
+	if viewer == "" || viewer == owner || !strings.Contains(strings.ToLower(prompt), "<irori-message") {
+		return prompt
+	}
+	return fencedRe.ReplaceAllStringFunc(prompt, func(m string) string {
+		sub := fencedRe.FindStringSubmatch(m)
+		if k := fenceKeyRe.FindStringSubmatch(sub[1]); k != nil && k[1] == viewer {
+			return m
+		}
+		return hiddenMessage
+	})
 }
 
 func editDoc(r *EditRow) search.Doc {
