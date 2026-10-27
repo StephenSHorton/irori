@@ -1,14 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Irori">
-  <!-- Placeholder mark: a square hearth seen from above with an ember at its centre. The real logo replaces this file. -->
-  <defs>
-    <radialGradient id="ember" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#ffd08a" />
-      <stop offset="45%" stop-color="#ff8a3d" />
-      <stop offset="100%" stop-color="#ff6a1f" stop-opacity="0" />
-    </radialGradient>
-  </defs>
-  <rect x="4" y="4" width="56" height="56" rx="14" fill="#f7f9fd" stroke="#2563eb" stroke-width="4" />
-  <rect x="19" y="19" width="26" height="26" rx="5" fill="#1f2533" />
-  <circle cx="32" cy="32" r="12" fill="url(#ember)" />
-  <circle cx="32" cy="32" r="4.5" fill="#ffe2b0" />
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="2" y="2" width="60" height="60" rx="14" fill="#ffffff" stroke="#dbe3f1" stroke-width="1.5"/><path fill="#0f172a" transform="translate(11.895 46.312) scale(0.04009 -0.04009)" d="M558 467V378H448V409V467ZM347 663V562H241V467H347V410L346 378H233V280H331C316 232 287 188 233 154C256 136 291 99 307 76C389 128 424 199 439 280H558V98H663V280H767V378H663V467H763V562H663V663H558V562H448V663ZM73 806V-92H193V-48H804V-92H930V806ZM193 63V695H804V63Z"/></svg>
