@@ -84,11 +84,15 @@ func (b *Inbox) SearchShow(ctx context.Context, ref string, o search.ShowOptions
 	}
 	dels := x.deliveriesOf(id)
 	doc := x.doc(m, up, dels)
+	if !search.CanRead(o.Viewer, doc.Readers) {
+		// Not the viewer's message: as far as they can tell, it isn't there.
+		return search.Shown{}, fmt.Errorf("%w: %s", search.ErrNotFound, ref)
+	}
 	full := x.render(m, doc.Title, dels)
 	text, more, next := search.Page(full, o)
 	return search.Shown{
 		Ref: doc.Ref, Kind: search.KindMsg, Title: doc.Title,
-		Text: text, More: more, Next: next, Related: x.related(m),
+		Text: text, More: more, Next: next, Related: x.related(m, o.Viewer),
 	}, ctx.Err()
 }
 
@@ -157,6 +161,7 @@ func (b *inbox) doc(m *Message, updated time.Time, dels []*drec) search.Doc {
 	d := search.Doc{
 		Ref: search.Ref(search.KindMsg, m.ID), Kind: search.KindMsg,
 		At: m.SentAt, Updated: updated, Title: oneLine(title), Body: m.Text,
+		Readers: b.readers(m, dels),
 	}
 	switch {
 	case m.From.Key != "" && !m.From.IsUser() && !m.From.isSystem():
@@ -219,11 +224,16 @@ func (b *inbox) render(m *Message, title string, dels []*drec) string {
 	return sb.String()
 }
 
-// related: the message m answers, its searchable replies, and its Ref.
-func (b *inbox) related(m *Message) []string {
+// related: the message m answers, its searchable replies, and its Ref,
+// leaving out messages viewer may not read.
+func (b *inbox) related(m *Message, viewer string) []string {
+	readable := func(id string) bool {
+		r := b.msgs[id]
+		return r != nil && search.CanRead(viewer, b.readers(r, b.deliveriesOf(id)))
+	}
 	var out []string
 	if m.ReplyTo != "" {
-		if _, ok := b.searchable(m.ReplyTo); ok {
+		if _, ok := b.searchable(m.ReplyTo); ok && readable(m.ReplyTo) {
 			out = append(out, search.Ref(search.KindMsg, m.ReplyTo))
 		}
 	}
@@ -233,7 +243,7 @@ func (b *inbox) related(m *Message) []string {
 	var replies []string
 	for id, r := range b.msgs {
 		if r.ReplyTo == m.ID {
-			if _, ok := b.searchable(id); ok {
+			if _, ok := b.searchable(id); ok && readable(id) {
 				replies = append(replies, id)
 			}
 		}
@@ -252,3 +262,28 @@ func (b *inbox) related(m *Message) []string {
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 var _ search.Source = (*Inbox)(nil)
+
+// readers are the agents that may find or show a message (v0.2's rule: only
+// its sender and recipients read its text): its agent sender and the agents
+// of its deliveries that aren't held or dismissed. Never empty, so no other
+// agent reads it; the person (viewer "") reads everything. b.mu is held.
+func (b *inbox) readers(m *Message, dels []*drec) []string {
+	var out []string
+	add := func(k string) {
+		if k != "" && !isUserKey(k) && !slices.Contains(out, k) {
+			out = append(out, k)
+		}
+	}
+	if m.From.Key != "" && !m.From.IsUser() && !m.From.isSystem() {
+		add(m.From.Key)
+	}
+	for _, d := range dels {
+		if d.State != Held && d.State != Dismissed {
+			add(d.To)
+		}
+	}
+	if len(out) == 0 {
+		out = append(out, SystemKey) // no agent is ever SystemKey: only the person reads it
+	}
+	return out
+}

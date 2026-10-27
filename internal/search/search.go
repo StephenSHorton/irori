@@ -14,6 +14,7 @@ package search
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 )
@@ -98,6 +99,9 @@ type Doc struct {
 	Body    string    // indexed text (prompt + reply, message text, comment, ...); scrubbed already
 	Agent   string    // agent key it belongs to, if any
 	RepoKey string
+	// Readers, when set, are the only agent keys that may find or show it
+	// (a message: its sender and recipients). Empty: every viewer.
+	Readers []string
 }
 
 // Query selects hits. Zero values mean any.
@@ -106,8 +110,16 @@ type Query struct {
 	Kinds   []Kind    // restrict to these kinds
 	RepoKey string    // restrict to one repo
 	Agent   string    // restrict to one agent key
-	Before  time.Time // only items with At before this (paging: pass the last hit's At)
-	Limit   int       // default DefaultLimit, max MaxLimit
+	Before  time.Time // only items with At strictly before this (a time filter, not a pager)
+	// Offset skips that many hits: page by passing the number already
+	// shown with the same query. Docs added between pages can shift a page
+	// (a hit seen twice; for ranked text, rarely one missed).
+	Offset int
+	Limit  int // default DefaultLimit, max MaxLimit
+	// Viewer is who is asking. "" is the person's view (everything);
+	// otherwise an agent key, and docs whose Readers leave it out are
+	// skipped. Tools must pass the calling agent's key.
+	Viewer string
 }
 
 // Hit is one search result: one line plus a ref to Show.
@@ -125,6 +137,16 @@ type Hit struct {
 type ShowOptions struct {
 	Offset int // byte offset into the rendered text (snapped back to a rune start)
 	Limit  int // bytes; default DefaultShow, max MaxShow
+	// Viewer is who is asking, as in Query: "" is the person, else an
+	// agent key. An item the viewer may not read is ErrNotFound. Tools
+	// must pass the calling agent's key.
+	Viewer string
+}
+
+// CanRead reports whether viewer may see an item read by readers: the
+// person ("") always, an agent when readers is empty or names it.
+func CanRead(viewer string, readers []string) bool {
+	return viewer == "" || len(readers) == 0 || slices.Contains(readers, viewer)
 }
 
 // Shown is one item's detail, rendered as text for a model.
@@ -151,7 +173,8 @@ type Source interface {
 	// index upserts by Ref. Docs are never deleted (the log is append-only):
 	// a changed doc is returned again with its new Updated.
 	SearchDocs(ctx context.Context, since time.Time, limit int) ([]Doc, error)
-	// SearchShow renders one of its refs (ErrNotFound when it has none).
+	// SearchShow renders one of its refs (ErrNotFound when it has none, or
+	// when o.Viewer may not read it).
 	SearchShow(ctx context.Context, ref string, o ShowOptions) (Shown, error)
 }
 

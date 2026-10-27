@@ -117,6 +117,9 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		c.Close()
 		return nil, fmt.Errorf("capture: %w", err)
 	}
+	// Search and show reach the Board and the inbox through capture.
+	c.capture.AddSource(c.coord)
+	c.capture.AddSource(c.inbox)
 	c.tools = tools.New(c)
 
 	token, err := discovery.NewToken()

@@ -195,3 +195,28 @@ func TestSearchShow(t *testing.T) {
 		}
 	}
 }
+
+// v0.2's rule holds in search: only a message's sender and recipients read
+// its text. Another agent neither finds nor shows it; the person sees all.
+func TestSearchReaders(t *testing.T) {
+	h := newHarness(t)
+	h.abc()
+	m, _ := h.send(claude(keyA, "alpha"), to("beta"), "private to beta")
+	ref := search.Ref(search.KindMsg, m.ID)
+	d := h.docs(time.Time{})[ref]
+	if !slices.Contains(d.Readers, keyA) || !slices.Contains(d.Readers, keyB) || slices.Contains(d.Readers, keyC) {
+		t.Fatalf("readers = %v", d.Readers)
+	}
+	for _, tc := range []struct {
+		viewer string
+		ok     bool
+	}{{keyA, true}, {keyB, true}, {keyC, false}, {"", true}} {
+		_, err := h.ib.SearchShow(bg, ref, search.ShowOptions{Viewer: tc.viewer})
+		if (err == nil) != tc.ok {
+			t.Errorf("viewer %q: err %v, want ok=%v", tc.viewer, err, tc.ok)
+		}
+		if err != nil && !errors.Is(err, search.ErrNotFound) {
+			t.Errorf("viewer %q: err %v, want ErrNotFound", tc.viewer, err)
+		}
+	}
+}
