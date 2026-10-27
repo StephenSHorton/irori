@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/StephenSHorton/irori/internal/core"
 	"github.com/StephenSHorton/irori/internal/device"
+	"github.com/StephenSHorton/irori/internal/paths"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/store"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -142,7 +144,7 @@ func (r *RosterService) Gone(limit int) ([]GoneSession, error) {
 		out = append(out, GoneSession{
 			Key: c.Key, SessionID: c.SessionID, Name: c.Name, Title: c.Title,
 			Cwd: c.Cwd, RepoKey: c.RepoKey, GoneAt: ev.HLC.Wall(), Reason: p.Reason,
-			Transcript: fileExists(c.Transcript), Trusted: trust.covers(c.Cwd),
+			Transcript: hasTranscript(c), Trusted: trust.covers(c.Cwd),
 		})
 		if len(out) == limit {
 			break
@@ -196,7 +198,7 @@ func (r *RosterService) Revive(sessionID string) (string, error) {
 	if !ok || c.Agent != "claude" {
 		return "", errors.New("no Claude Code session with that id has run on this device")
 	}
-	if !fileExists(c.Transcript) {
+	if !hasTranscript(c) {
 		return "", errors.New("that session's transcript is gone, so there is nothing to resume")
 	}
 	if st, err := os.Stat(c.Cwd); err != nil || !st.IsDir() {
@@ -254,6 +256,20 @@ func validSessionID(id string) bool {
 		}
 	}
 	return true
+}
+
+// hasTranscript reports whether the session's transcript is on disk. The
+// agent.seen card is written at first sight, sometimes before presence found
+// the transcript, so Claude Code's own location is checked too.
+func hasTranscript(c presence.AgentCard) bool {
+	if fileExists(c.Transcript) {
+		return true
+	}
+	dir, err := paths.ClaudeDir()
+	if err != nil || c.Cwd == "" {
+		return false
+	}
+	return fileExists(filepath.Join(dir, "projects", presence.Slug(c.Cwd), c.SessionID+".jsonl"))
 }
 
 func fileExists(p string) bool {
@@ -321,11 +337,14 @@ func (l *lockedBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// String is the output so far with terminal colour and cursor escapes removed.
 func (l *lockedBuffer) String() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.b.String()
+	return ansiEscape.ReplaceAllString(l.b.String(), "")
 }
+
+var ansiEscape = regexp.MustCompile(`\x1b(?:\[[0-9;?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])`)
 
 // trustSet holds the folders Claude Code's workspace trust dialog was
 // accepted for, from the projects map in .claude.json. Only that field is

@@ -54,7 +54,7 @@ export function ConfirmButton({
       aria-label="Confirm"
       className="flex flex-wrap items-center justify-end gap-1.5 text-xs text-ink-2"
     >
-      <span className="max-w-xs">{question}</span>
+      <span className="max-w-md">{question}</span>
       <Button
         size="xs"
         variant={variant === "outline" ? "default" : variant}

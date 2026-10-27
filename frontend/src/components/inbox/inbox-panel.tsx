@@ -206,7 +206,9 @@ function DeliveryRow({
   const to = d.to
     ? plainLine(name(d.to))
     : d.repoKey
-      ? `repo ${shortRepo(d.repoKey)}`
+      ? d.repoKey.startsWith("root:")
+        ? shortRepo(d.repoKey)
+        : `repo ${shortRepo(d.repoKey)}`
       : "nobody yet"
   const at = parseTime(d.createdAt)
   const preview = plainLine(m.text)
@@ -249,11 +251,6 @@ function DeliveryRow({
           <span className="truncate text-ink-2" title={d.to || d.repoKey}>
             {to}
           </span>
-          {m.trust === "user" && (
-            <Badge variant="outline" className="h-4.5 px-1.5 text-[11px]">
-              from you
-            </Badge>
-          )}
           <span className="ml-auto flex shrink-0 items-center gap-2">
             <time
               className="text-xs text-muted-foreground tabular-nums"
@@ -455,7 +452,7 @@ function Composer({
             setTarget(e.target.value)
             setSent(false)
           }}
-          className="h-8 min-w-0 flex-1 rounded-lg border border-input bg-background px-2 text-sm text-ink outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 sm:max-w-sm"
+          className="h-8 min-w-0 flex-1 rounded-lg border border-input bg-white/70 px-2 text-sm text-ink outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 sm:max-w-sm"
         >
           <option value="">Choose an agent or a repo…</option>
           {agents.length > 0 && (
@@ -503,7 +500,7 @@ function Composer({
             void send()
           }
         }}
-        className="min-h-18 w-full resize-y rounded-lg border border-input bg-background px-2.5 py-2 text-sm text-ink outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+        className="min-h-18 w-full resize-y rounded-lg border border-input bg-white/70 px-2.5 py-2 text-sm text-ink outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
       />
       <div className="flex items-center gap-3">
         <span

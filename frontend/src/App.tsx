@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useNow, useRoster } from "@/lib/irori"
 import {
   countsByAgent,
+  isOpen,
   State,
   taskOpen,
   useGone,
@@ -80,7 +81,13 @@ export function App() {
             </TabsTrigger>
             <TabsTrigger value="inbox" className="px-3">
               Inbox
-              {held > 0 ? <Count n={held} signal /> : null}
+              {held > 0 ? (
+                <Count n={held} signal />
+              ) : (
+                <Count
+                  n={inbox.deliveries.filter((d) => isOpen(d.state)).length}
+                />
+              )}
             </TabsTrigger>
             <TabsTrigger value="work" className="px-3">
               Work
