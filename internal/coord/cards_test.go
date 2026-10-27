@@ -478,11 +478,20 @@ func TestSweeperClosesOnlyWhatWentAway(t *testing.T) {
 			if err := e.c.Release(ctx, bob, "gpu/qwen"); err != nil {
 				t.Fatal(err)
 			}
-			if tc.secondOn == nil && !e.c.Board(BoardFilter{For: user}).NeedsYou[0].Resolved {
-				t.Fatal("the card should show the gap until the sweep")
+			if c := e.c.Board(BoardFilter{For: user}).NeedsYou; tc.secondOn == nil && (c[0].Resolved || !reflect.DeepEqual(c[0].Gone, []string{"b1"})) {
+				// Not Resolved: board_unblock would close the open question too.
+				t.Fatalf("the card should show the partial gap until the sweep: %+v", c[0])
 			}
-			if _, err := e.c.SweepNotices(ctx); err != nil {
+			ns, err := e.c.SweepNotices(ctx)
+			if err != nil {
 				t.Fatal(err)
+			}
+			if tc.secondOn == nil {
+				// alice raised the lease item and holds the card: she hears it freed.
+				if len(ns) != 1 || ns[0].Kind != NoticeAnswered || !reflect.DeepEqual(ns[0].To, []string{alice}) ||
+					!strings.Contains(ns[0].Text, "b1 (lease released)") || !strings.Contains(ns[0].Text, "1 more blockers are still open") {
+					t.Fatalf("notices %+v", ns)
+				}
 			}
 			got, _ := e.c.GetTask(task.ID)
 			var open []string

@@ -220,6 +220,9 @@ func (s *set) board(_ context.Context, c Caller, raw json.RawMessage) string {
 			if cd.Resolved {
 				line += "  its blocker has gone away; it closes on the next sweep, or board_unblock now\n"
 			}
+			if len(cd.Gone) > 0 {
+				line += "  what " + oneLine(strings.Join(cd.Gone, ", "), 80) + " waited on has gone away; the next sweep closes just those, the other items still wait\n"
+			}
 			if len(cd.Overlaps) > 0 {
 				line += "  holders' leases overlap: " + oneLine(strings.Join(cd.Overlaps, "; "), maxFieldRunes) + "\n"
 			}

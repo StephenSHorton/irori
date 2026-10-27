@@ -306,11 +306,17 @@ export class Card {
     "lastComment"?: Comment | null;
 
     /**
-     * Resolved: the task is Blocked and its BlockedBy has gone away (the
-     * lease is no longer held, the task is terminal). SweepNotices closes
-     * such blockers; Resolved shows the gap until it runs.
+     * Resolved: the task is Blocked and everything its open items wait on
+     * has gone away (the lease is no longer held, the task is terminal).
+     * SweepNotices closes such blockers; Resolved shows the gap until it runs.
      */
     "resolved"?: boolean;
+
+    /**
+     * Gone: when only some open items' leases or tasks went away, their ids
+     * (the sweep closes just those; the others, a question, still wait).
+     */
+    "gone"?: string[];
 
     /**
      * Overlaps, on a Shared task, lists pairs "<resource> ~ <resource>" of
@@ -359,6 +365,7 @@ export class Card {
         const $$createField22_0 = $$createType10;
         const $$createField23_0 = $$createType18;
         const $$createField25_0 = $$createType10;
+        const $$createField26_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
             $$parsedSource["scope"] = $$createField5_0($$parsedSource["scope"]);
@@ -387,8 +394,11 @@ export class Card {
         if ("lastComment" in $$parsedSource) {
             $$parsedSource["lastComment"] = $$createField23_0($$parsedSource["lastComment"]);
         }
+        if ("gone" in $$parsedSource) {
+            $$parsedSource["gone"] = $$createField25_0($$parsedSource["gone"]);
+        }
         if ("overlaps" in $$parsedSource) {
-            $$parsedSource["overlaps"] = $$createField25_0($$parsedSource["overlaps"]);
+            $$parsedSource["overlaps"] = $$createField26_0($$parsedSource["overlaps"]);
         }
         return new Card($$parsedSource as Partial<Card>);
     }

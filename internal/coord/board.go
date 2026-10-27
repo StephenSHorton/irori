@@ -124,10 +124,13 @@ type BoardFilter struct {
 type Card struct {
 	Task
 	LastComment *Comment `json:"lastComment,omitempty"`
-	// Resolved: the task is Blocked and its BlockedBy has gone away (the
-	// lease is no longer held, the task is terminal). SweepNotices closes
-	// such blockers; Resolved shows the gap until it runs.
+	// Resolved: the task is Blocked and everything its open items wait on
+	// has gone away (the lease is no longer held, the task is terminal).
+	// SweepNotices closes such blockers; Resolved shows the gap until it runs.
 	Resolved bool `json:"resolved,omitempty"`
+	// Gone: when only some open items' leases or tasks went away, their ids
+	// (the sweep closes just those; the others, a question, still wait).
+	Gone []string `json:"gone,omitempty"`
 	// Overlaps, on a Shared task, lists pairs "<resource> ~ <resource>" of
 	// its holders' leases that overlap (decision 20's warning).
 	Overlaps []string `json:"overlaps,omitempty"`

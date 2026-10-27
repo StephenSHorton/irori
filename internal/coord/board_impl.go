@@ -3,6 +3,7 @@ package coord
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -633,7 +634,13 @@ func (c *coord) board(f BoardFilter) BoardView {
 			last := *c.comments[ids[len(ids)-1]]
 			card.LastComment = &last
 		}
-		card.Resolved = c.resolved(t, now) != ""
+		if ids, _ := c.goneAway(t, now); len(ids) > 0 {
+			if len(ids) == countOpen(t) {
+				card.Resolved = true
+			} else {
+				card.Gone = ids
+			}
+		}
 		for _, bl := range t.Blockers {
 			if t.State != Blocked || !bl.Open() || bl.On == nil || bl.On.Kind != BlockedOnLease {
 				continue
@@ -769,12 +776,34 @@ func (c *coord) sweepNotices(ctx context.Context) ([]Notice, error) {
 		}
 		// Other items still wait (a question for the person): close only
 		// these, and the task stays blocked.
+		var raisers []string
+		for _, b := range t.Blockers {
+			if slices.Contains(ids, b.ID) {
+				raisers = append(raisers, b.RaisedBy)
+			}
+		}
 		for i, id := range ids {
 			if err := c.write(ctx, sweeper, KindBlockerResolved, blockerResolvedRow{
 				TaskID: t.ID, BlockerID: id, Answer: why[i], Option: -1, By: sweeper, Closed: true, At: now,
 			}); err != nil {
 				return out, err
 			}
+		}
+		// Its raisers and holders hear, so a freed lease isn't missed.
+		n := Notice{Kind: NoticeAnswered, TaskID: t.ID, Ref: "task:" + t.ID, Title: t.Title, By: sweeper}
+		for _, r := range append(raisers, recipients(t, sweeper)...) {
+			if r != "" && !IsPerson(r) && r != sweeper && !slices.Contains(n.To, r) {
+				n.To = append(n.To, r)
+			}
+		}
+		var items []string
+		for i, id := range ids {
+			items = append(items, id+" ("+why[i]+")")
+		}
+		n.Text = fmt.Sprintf("Irori closed %s on %q (task:%s): what it waited on went away. %d more blockers are still open; board_unblock with blocker_id answers one.%s",
+			strings.Join(items, ", "), t.Title, t.ID, countOpen(t), deeper(t.ID))
+		if len(n.To) > 0 {
+			out = append(out, n)
 		}
 	}
 	// Watchers hear what changed on their cards since the last sweep
