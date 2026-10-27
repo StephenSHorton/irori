@@ -134,6 +134,8 @@ func TestParseResource(t *testing.T) {
 		`path:remote:github.com/a/b:src\a.go`,
 		"path:remote:github.com/a/b:/etc/passwd",
 		"path:root:abc:C:/Windows/x",
+		"path:root:abc:./C:/x",
+		"path:root:abc:.//etc/x",
 		"path:root:abc:c:x",
 		"path:root:abc:../x",
 		"path:root:abc:a/../x",

@@ -109,14 +109,15 @@ func NormalizeGlob(g string) (string, error) {
 		return bad("is empty")
 	case strings.Contains(g, `\`):
 		return bad("has a backslash; use /")
-	case strings.HasPrefix(g, "/"), len(g) >= 2 && g[1] == ':' && isASCIILetter(g[0]):
-		return bad("is absolute; use a path relative to the repo root")
 	}
 	for strings.HasPrefix(g, "./") {
 		g = g[2:]
 	}
-	if g == "" {
+	switch {
+	case g == "":
 		return bad("is empty")
+	case strings.HasPrefix(g, "/"), len(g) >= 2 && g[1] == ':' && isASCIILetter(g[0]):
+		return bad("is absolute; use a path relative to the repo root")
 	}
 	if strings.HasSuffix(g, "/") {
 		g += "**"
