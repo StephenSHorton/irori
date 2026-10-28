@@ -374,3 +374,64 @@ func TestFreshDatabaseTakesNoBackup(t *testing.T) {
 		t.Fatalf("fresh database backed up: %v", err)
 	}
 }
+
+// Rolled back to v0.3 (the backup copied over irori.db), used, then upgraded
+// again: the second migration's backup is the database it started from,
+// not the first one. No temporary file is left behind.
+func TestBackupRetakenAfterARollback(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "irori.db")
+	orig := v03DB(t, path, "dev-a")
+	sg := newSigner(t)
+	ctx := context.Background()
+	s, err := OpenWith(ctx, path, "dev-a", hlc.New(nil), OpenOptions{Signer: sg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	// Roll back: the backup replaces the database and its WAL.
+	raw, err := os.ReadFile(path + BackupSuffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{path, path + "-wal", path + "-shm"} {
+		if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// v0.3 use: one more row.
+	sdb, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sdb.Exec(`INSERT INTO events (device_id, seq, hlc, actor, kind, payload) VALUES ('dev-a', ?, ?, 'irori', 'agent.seen', '{}')`,
+		len(orig)+1, int64(orig[len(orig)-1].HLC)+1<<16); err != nil {
+		t.Fatal(err)
+	}
+	sdb.Close()
+
+	s, err = OpenWith(ctx, path, "dev-a", hlc.New(nil), OpenOptions{Signer: sg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evs := all(t, s); len(evs) != len(orig)+1 {
+		t.Fatalf("%d rows after the second migration, want %d", len(evs), len(orig)+1)
+	}
+	s.Close()
+	b, err := sql.Open("sqlite", path+BackupSuffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	var n int
+	if err := b.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&n); err != nil || n != len(orig)+1 {
+		t.Fatalf("backup holds %d rows, want %d (err %v)", n, len(orig)+1, err)
+	}
+	if _, err := os.Stat(path + BackupSuffix + ".tmp"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("temporary backup left behind: %v", err)
+	}
+}

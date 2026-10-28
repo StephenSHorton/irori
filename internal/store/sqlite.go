@@ -3,9 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -126,6 +124,7 @@ var migrations = []migration{
 		kind       TEXT    NOT NULL,
 		payload    BLOB,
 		sig        BLOB,
+		reason     TEXT    NOT NULL DEFAULT 'two rows',
 		seen_at    INTEGER NOT NULL DEFAULT (unixepoch()),
 		PRIMARY KEY (device_id, seq, other_hash)
 	) WITHOUT ROWID;`},
@@ -257,9 +256,13 @@ func schemaVersion(ctx context.Context, q interface {
 
 // backupV03 copies a v0.3 database (schema v1 holding rows) to
 // path+BackupSuffix before it is migrated. VACUUM INTO writes one consistent
-// file including rows still in the WAL, which a file copy would miss. An
-// existing backup is never overwritten: if a migration failed halfway, the
-// first copy is the real one.
+// file including rows still in the WAL, which a file copy would miss. The
+// copy is retaken on every start that finds schema v1, replacing an older
+// one: the migration is one transaction, so a failed run leaves the v0.3
+// rows untouched, and a database rolled back to v0.3 and used for a while
+// must not be paired with the backup from before that. VACUUM INTO writes
+// a temporary file that is renamed into place, so a copy that dies partway
+// never stands as the backup.
 func backupV03(ctx context.Context, sdb *sql.DB, path string) error {
 	have, err := schemaVersion(ctx, sdb)
 	if err != nil || have != 1 {
@@ -270,12 +273,16 @@ func backupV03(ctx context.Context, sdb *sql.DB, path string) error {
 		return err
 	}
 	dst := path + BackupSuffix
-	if _, err := os.Stat(dst); err == nil {
-		return nil
-	} else if !errors.Is(err, fs.ErrNotExist) {
+	tmp := dst + ".tmp"
+	if err := os.Remove(tmp); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	if _, err := sdb.ExecContext(ctx, `VACUUM INTO ?`, dst); err != nil {
+	if _, err := sdb.ExecContext(ctx, `VACUUM INTO ?`, tmp); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("store: back up the v0.3 database to %s: %w", dst, err)
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		os.Remove(tmp)
 		return fmt.Errorf("store: back up the v0.3 database to %s: %w", dst, err)
 	}
 	return nil
@@ -624,6 +631,13 @@ func (d *db) insertOne(ctx context.Context, tx *sql.Tx, ev *Event) (stored bool,
 		if sameRow(held, *ev) {
 			return false, nil
 		}
+		// Only a row the device really signed proves a fork (§5.2): a junk
+		// or unsigned copy from a peer or relay is refused, not recorded.
+		if d.verifier != nil {
+			if err := d.verify(*ev); err != nil {
+				return false, err
+			}
+		}
 		if err := recordFork(ctx, tx, *ev); err != nil {
 			return false, err
 		}
@@ -660,13 +674,7 @@ func (d *db) insertOne(ctx context.Context, tx *sql.Tx, ev *Event) (stored bool,
 		return false, fmt.Errorf("%w: %s holds seq %d, got %d", ErrGap, ev.DeviceID, last, ev.Seq)
 	}
 	if d.verifier != nil {
-		if len(ev.Sig) == 0 {
-			return false, fmt.Errorf("%w: %s/%d", ErrUnsigned, ev.DeviceID, ev.Seq)
-		}
-		d.verifyMu.Lock()
-		err := d.verifier.VerifyRow(*ev)
-		d.verifyMu.Unlock()
-		if err != nil {
+		if err := d.verify(*ev); err != nil {
 			return false, err
 		}
 	}
@@ -684,7 +692,72 @@ func (d *db) insertOne(ctx context.Context, tx *sql.Tx, ev *Event) (stored bool,
 	if err := insertRow(ctx, tx, "events", *ev); err != nil {
 		return false, err
 	}
+	if d.verifier != nil {
+		if err := d.checkCutClaims(ctx, tx, ev); err != nil {
+			return false, err
+		}
+	}
 	return true, nil
+}
+
+// verify checks a replicated row's signature: it must have one, and it
+// must verify against its device's cert.
+func (d *db) verify(ev Event) error {
+	if len(ev.Sig) == 0 {
+		return fmt.Errorf("%w: %s/%d", ErrUnsigned, ev.DeviceID, ev.Seq)
+	}
+	d.verifyMu.Lock()
+	defer d.verifyMu.Unlock()
+	return d.verifier.VerifyRow(ev)
+}
+
+// checkCutClaims records a fork wherever an honoured revoke's cutHash names
+// another row than the one held at its cut (§5.5). With only, it checks
+// that one row; otherwise every claim against the rows held in events or
+// refused_events.
+func (d *db) checkCutClaims(ctx context.Context, tx *sql.Tx, only *Event) error {
+	d.verifyMu.Lock()
+	claims := d.verifier.CutClaims()
+	d.verifyMu.Unlock()
+	for _, c := range claims {
+		var held Event
+		switch {
+		case only != nil:
+			if only.DeviceID != c.DeviceID || only.Seq != c.Seq {
+				continue
+			}
+			held = *only
+		default:
+			ev, err := heldRow(ctx, tx, c.DeviceID, c.Seq)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue // not held yet; checked when it arrives
+			}
+			if err != nil {
+				return err
+			}
+			held = ev
+		}
+		if RowHash(held) == c.Hash {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO forks (device_id, seq, other_hash, hlc, actor, kind, reason) VALUES (?, ?, ?, 0, '', '', ?)`,
+			c.DeviceID, c.Seq, c.Hash, ForkCutHash); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// heldRow is the row held at (dev, seq), in events or moved to refused_events.
+func heldRow(ctx context.Context, tx *sql.Tx, dev string, seq int64) (Event, error) {
+	ev, err := scanOne(tx.QueryRowContext(ctx,
+		`SELECT device_id, seq, hlc, actor, kind, payload, sig FROM events WHERE device_id = ? AND seq = ?`, dev, seq))
+	if !errors.Is(err, sql.ErrNoRows) {
+		return ev, err
+	}
+	return scanOne(tx.QueryRowContext(ctx,
+		`SELECT device_id, seq, hlc, actor, kind, payload, sig FROM refused_events WHERE device_id = ? AND seq = ?`, dev, seq))
 }
 
 func sameRow(a, b Event) bool {
@@ -710,10 +783,9 @@ func recordRefused(ctx context.Context, tx *sql.Tx, ev Event, reason string) err
 }
 
 func recordFork(ctx context.Context, tx *sql.Tx, ev Event) error {
-	h := sha256.Sum256(append(SigningBytes(ev), ev.Sig...))
 	_, err := tx.ExecContext(ctx,
-		`INSERT OR IGNORE INTO forks (device_id, seq, other_hash, hlc, actor, kind, payload, sig) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		ev.DeviceID, ev.Seq, hex.EncodeToString(h[:]), int64(ev.HLC), ev.Actor, ev.Kind, []byte(ev.Payload), ev.Sig)
+		`INSERT OR IGNORE INTO forks (device_id, seq, other_hash, hlc, actor, kind, payload, sig, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		ev.DeviceID, ev.Seq, RowHash(ev), int64(ev.HLC), ev.Actor, ev.Kind, []byte(ev.Payload), ev.Sig, ForkTwoRows)
 	return err
 }
 
@@ -764,7 +836,7 @@ func (d *db) applyCuts(ctx context.Context, tx *sql.Tx) (bool, error) {
 		}
 		moved = true
 	}
-	return moved, nil
+	return moved, d.checkCutClaims(ctx, tx, nil)
 }
 
 // loadVerifier folds every held person.* row into the Verifier.
@@ -962,18 +1034,39 @@ func (s *Store) refused(ctx context.Context, limit int) ([]Event, error) {
 }
 
 func (s *Store) forks(ctx context.Context) ([]Fork, error) {
-	others, err := s.query(ctx, `SELECT device_id, seq, hlc, actor, kind, payload, sig FROM forks ORDER BY device_id, seq, seen_at`)
+	rows, err := s.impl.sql.QueryContext(ctx, `SELECT device_id, seq, hlc, actor, kind, payload, sig, other_hash, reason FROM forks ORDER BY device_id, seq, seen_at`)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Fork, 0, len(others))
-	for _, o := range others {
+	var out []Fork
+	for rows.Next() {
+		var f Fork
+		var h int64
+		var payload, sig []byte
+		if err := rows.Scan(&f.Other.DeviceID, &f.Other.Seq, &h, &f.Other.Actor, &f.Other.Kind, &payload, &sig, &f.OtherHash, &f.Reason); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		f.Other.HLC = hlc.Timestamp(h)
+		if len(payload) > 0 {
+			f.Other.Payload = json.RawMessage(payload)
+		}
+		if len(sig) > 0 {
+			f.Other.Sig = sig
+		}
+		out = append(out, f)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
 		held, err := scanOne(s.impl.sql.QueryRowContext(ctx,
-			`SELECT device_id, seq, hlc, actor, kind, payload, sig FROM events WHERE device_id = ? AND seq = ?`, o.DeviceID, o.Seq))
+			`SELECT device_id, seq, hlc, actor, kind, payload, sig FROM events WHERE device_id = ? AND seq = ?`, out[i].Other.DeviceID, out[i].Other.Seq))
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
-		out = append(out, Fork{Stored: held, Other: o})
+		out[i].Stored = held
 	}
 	return out, nil
 }

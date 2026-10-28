@@ -21,8 +21,11 @@ import (
 //     person's rootDeviceId;
 //   - every other cert is valid only when its writer holds a valid cert (the
 //     chain leads back to the root); a device can't certify itself;
-//   - a revoke is honoured when its writer was ever validly certified, and
-//     a device's effective cut is the lowest cut among honoured revokes;
+//   - a revoke is honoured when its writer was ever certified (the chain
+//     back to the root with cuts ignored), and a device's effective cut is
+//     the lowest cut among honoured revokes, each raised to at least the
+//     rows its writer's own cert chain is built from;
+//   - a cert written above its writer's cut doesn't count;
 //   - only rows whose personId is this person's count; others are stored
 //     and inert (a device's first-run person before it joined).
 //
@@ -40,8 +43,9 @@ type Chain struct {
 	bad     int             // person rows for this person that failed their checks
 	seen    map[rowKey]bool // rows folded, so a row learned early and then stored folds once
 
-	valid map[string]Cert // device id -> its first valid cert
-	cuts  map[string]int64
+	valid  map[string]Cert // device id -> its first valid cert
+	cuts   map[string]int64
+	claims []store.CutClaim // honoured revokes' cutHash, for the store's fork check
 }
 
 type rowPos struct {
@@ -89,7 +93,7 @@ func (c *Chain) Reset() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.adds, c.revokes, c.profile, c.bad, c.seen = nil, nil, false, 0, nil
-	c.valid, c.cuts = map[string]Cert{}, map[string]int64{}
+	c.valid, c.cuts, c.claims = map[string]Cert{}, map[string]int64{}, nil
 }
 
 // Observe folds one person.* row (store.Verifier).
@@ -151,70 +155,106 @@ func validPub(h string) bool {
 	return err == nil && len(b) == ed25519.PublicKeySize
 }
 
-// refold recomputes the valid certs and cuts from every observed row. Sets
-// are small (a handful of devices), so this runs to a fixed point.
+// refold recomputes the valid certs and cuts from every observed row. It
+// runs in three steps with no loop between them, so it always settles:
+//
+//  1. ever: the certs that chain back to the pinned root with cuts ignored.
+//     Whether a revoke counts depends only on this (§5.5), never on cuts,
+//     so cuts can't switch off the revokes that make them.
+//  2. cuts: the lowest cut among revokes written by an ever-certified
+//     device. A revoke can't cut below the rows its own writer's cert
+//     chain is made of (the cert that certified it, and up to the root):
+//     such a cut is raised to the highest of those rows, or the revoke
+//     would remove its own writer and leave no device certified.
+//  3. valid: the chain again, now dropping certs written above their
+//     writer's cut (a removed device can't add devices).
 func (c *Chain) refold() {
 	adds := append([]certRow(nil), c.adds...)
 	sort.Slice(adds, func(i, j int) bool { return adds[i].pos.less(adds[j].pos) })
 	revs := append([]revokeRow(nil), c.revokes...)
 	sort.Slice(revs, func(i, j int) bool { return revs[i].pos.less(revs[j].pos) })
 
+	ever := c.certify(adds, nil)
 	cuts := map[string]int64{}
-	var valid map[string]Cert
-	for range 8 { // cuts and validity feed each other; this settles in two or three passes
-		valid = map[string]Cert{}
-		for _, a := range adds {
-			if a.cert.DeviceID == c.rootID && a.pos.writer == c.rootID {
-				if cut, ok := cuts[a.pos.writer]; !ok || a.pos.seq <= cut {
-					valid[c.rootID] = a.cert
-					break
-				}
-			}
+	var claims []store.CutClaim
+	for _, r := range revs {
+		if _, ok := ever[r.pos.writer]; !ok {
+			continue
 		}
-		for changed := true; changed; {
-			changed = false
-			for _, a := range adds {
-				dev, w := a.cert.DeviceID, a.pos.writer
-				if _, have := valid[dev]; have || dev == w {
-					continue
-				}
-				if _, ok := valid[w]; !ok {
-					continue
-				}
-				if cut, ok := cuts[w]; ok && a.pos.seq > cut {
-					continue // written after the writer was removed
-				}
-				valid[dev] = a.cert
-				changed = true
-			}
+		dev := r.revoke.DeviceID
+		cut := r.revoke.Cut
+		if f, ok := c.floor(ever, r.pos.writer, dev); ok && f > cut {
+			cut = f
 		}
-		next := map[string]int64{}
-		for _, r := range revs {
-			if _, ok := valid[r.pos.writer]; !ok {
-				continue
-			}
-			if cur, ok := next[r.revoke.DeviceID]; !ok || r.revoke.Cut < cur {
-				next[r.revoke.DeviceID] = r.revoke.Cut
-			}
+		if cur, ok := cuts[dev]; !ok || cut < cur {
+			cuts[dev] = cut
 		}
-		if mapsEqual(next, cuts) {
-			break
+		if r.revoke.CutHash != "" && r.revoke.Cut > 0 {
+			claims = append(claims, store.CutClaim{DeviceID: dev, Seq: r.revoke.Cut, Hash: r.revoke.CutHash})
 		}
-		cuts = next
 	}
-	c.valid, c.cuts = valid, cuts
+	valid := map[string]Cert{}
+	for dev, a := range c.certify(adds, cuts) {
+		valid[dev] = a.cert
+	}
+	c.valid, c.cuts, c.claims = valid, cuts, claims
 }
 
-func mapsEqual(a, b map[string]int64) bool {
-	if len(a) != len(b) {
-		return false
+// certify folds adds (sorted) into the certs that chain back to the pinned
+// root. With cuts, a cert row above its writer's cut doesn't count.
+func (c *Chain) certify(adds []certRow, cuts map[string]int64) map[string]certRow {
+	within := func(p rowPos) bool {
+		cut, ok := cuts[p.writer]
+		return !ok || p.seq <= cut
 	}
-	for k, v := range a {
-		if w, ok := b[k]; !ok || w != v {
-			return false
+	valid := map[string]certRow{}
+	for _, a := range adds {
+		if a.cert.DeviceID == c.rootID && a.pos.writer == c.rootID && within(a.pos) {
+			valid[c.rootID] = a
+			break
 		}
 	}
-	return true
+	if len(valid) == 0 {
+		return valid
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, a := range adds {
+			dev, w := a.cert.DeviceID, a.pos.writer
+			if _, have := valid[dev]; have || dev == w {
+				continue
+			}
+			if _, ok := valid[w]; !ok || !within(a.pos) {
+				continue
+			}
+			valid[dev] = a
+			changed = true
+		}
+	}
+	return valid
+}
+
+// floor is the highest seq of target's rows on writer's cert chain in ever
+// (the cert rows that lead from writer back to the root). ok is false when
+// target wrote none of them.
+func (c *Chain) floor(ever map[string]certRow, writer, target string) (int64, bool) {
+	var f int64
+	found := false
+	cur := writer
+	for range len(ever) {
+		row, ok := ever[cur]
+		if !ok {
+			break
+		}
+		if row.pos.writer == target && (!found || row.pos.seq > f) {
+			f, found = row.pos.seq, true
+		}
+		if cur == c.rootID {
+			break
+		}
+		cur = row.pos.writer
+	}
+	return f, found
 }
 
 // VerifyRow checks ev's signature against its device's cert (store.Verifier).
@@ -268,6 +308,14 @@ func (c *Chain) Cut(deviceID string) (int64, bool) {
 	defer c.mu.Unlock()
 	cut, ok := c.cuts[deviceID]
 	return cut, ok
+}
+
+// CutClaims lists the row each honoured revoke names by cutHash
+// (store.Verifier): a held row there with other bytes is a fork (§5.5).
+func (c *Chain) CutClaims() []store.CutClaim {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]store.CutClaim(nil), c.claims...)
 }
 
 // Cert returns deviceID's valid cert.

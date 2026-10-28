@@ -191,7 +191,12 @@ func (n *node) certify(t *testing.T, o *node) store.Event {
 
 func (n *node) revoke(t *testing.T, devID string, cut int64) store.Event {
 	t.Helper()
-	r, err := n.id.RevokeOf(devID, cut, "", "test", time.Now())
+	return n.revokeHash(t, devID, cut, "")
+}
+
+func (n *node) revokeHash(t *testing.T, devID string, cut int64, cutHash string) store.Event {
+	t.Helper()
+	r, err := n.id.RevokeOf(devID, cut, cutHash, "test", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -548,4 +553,154 @@ func (id *Identity) dir(t *testing.T) string {
 		t.Fatal("identity has no data dir")
 	}
 	return id.dataDir
+}
+
+// A revoke whose cut is below the row that certified its own writer is
+// raised to that row, so it can't remove its writer too and leave no device
+// certified (it used to flip between two states and settle on the empty one).
+func TestRevokeBelowItsWritersCertIsRaised(t *testing.T) {
+	a := newNode(t, t.TempDir(), nil)
+	for range 3 { // history before the certs, as on a migrated v0.3 root
+		if _, err := a.st.Append(ctx, "irori", "task.created", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := newNode(t, t.TempDir(), a.id)
+	c := newNode(t, t.TempDir(), a.id)
+	certB := a.certify(t, b)
+	a.certify(t, c)
+	for _, n := range []*node{b, c} {
+		if err := copyRows(t, a, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b.revoke(t, a.id.Device.ID, 0)
+	for _, dev := range []string{a.id.Device.ID, b.id.Device.ID} {
+		if _, ok := b.chain.Cert(dev); !ok {
+			t.Fatalf("%s lost its cert on b", dev)
+		}
+	}
+	if cut, ok := b.chain.Cut(a.id.Device.ID); !ok || cut != certB.Seq {
+		t.Fatalf("cut = %d %v, want raised to %d (a's cert of b)", cut, ok, certB.Seq)
+	}
+	// c's cert is a's row above the cut, so it no longer counts.
+	if n := len(b.chain.Devices()); n != 2 {
+		t.Fatalf("%d devices on b, want 2 (a and b)", n)
+	}
+	if _, ok := b.chain.Cert(c.id.Device.ID); ok {
+		t.Fatal("a cert written past its writer's cut still counts")
+	}
+	// b's rows still verify on another device, which reaches the same state.
+	if err := copyRows(t, b, c); err != nil {
+		t.Fatalf("b's rows on c: %v", err)
+	}
+	if _, ok := c.chain.Cut(a.id.Device.ID); !ok {
+		t.Fatal("c did not take the revoke")
+	}
+	if _, ok := c.chain.Cert(b.id.Device.ID); !ok {
+		t.Fatal("b uncertified on c")
+	}
+	if cut, _ := c.chain.Cut(a.id.Device.ID); cut != certB.Seq {
+		t.Fatalf("cut on c = %d, want %d", cut, certB.Seq)
+	}
+	if a.chain.Bad() != 0 || b.chain.Bad() != 0 || c.chain.Bad() != 0 {
+		t.Fatal("rows failed their checks")
+	}
+}
+
+// A revoke whose cutHash names another row than the one held at its cut
+// flags a fork (§5.5), whichever arrives first; a matching hash doesn't.
+func TestCutHashMismatchFlagsAFork(t *testing.T) {
+	a := newNode(t, t.TempDir(), nil)
+	b := newNode(t, t.TempDir(), a.id)
+	a.certify(t, b)
+	if err := copyRows(t, a, b); err != nil {
+		t.Fatal(err)
+	}
+	var bRows []store.Event
+	for i := range 4 {
+		ev, err := b.st.Append(ctx, "irori", "task.created", map[string]int{"i": i})
+		if err != nil {
+			t.Fatal(err)
+		}
+		bRows = append(bRows, ev)
+	}
+	cutRow := bRows[1]
+
+	t.Run("right hash", func(t *testing.T) {
+		if err := copyRows(t, b, a); err != nil {
+			t.Fatal(err)
+		}
+		a.revokeHash(t, b.id.Device.ID, cutRow.Seq, store.RowHash(cutRow))
+		if f, _ := a.st.Forks(ctx); len(f) != 0 {
+			t.Fatalf("forks %+v for a matching cutHash", f)
+		}
+	})
+
+	t.Run("wrong hash, revoke first", func(t *testing.T) {
+		c := newNode(t, t.TempDir(), a.id)
+		a.certify(t, c)
+		if err := copyRows(t, a, c); err != nil {
+			t.Fatal(err)
+		}
+		bogus := c.revokeHash(t, b.id.Device.ID, cutRow.Seq, strings.Repeat("ab", 32))
+		// b's rows arrive after the revoke: rows up to the cut go in, the
+		// one at the cut is checked as it lands, the rest are past the cut.
+		if err := copyRows(t, b, c); !errors.Is(err, store.ErrPastCut) {
+			t.Fatalf("b's rows on c: err = %v, want ErrPastCut", err)
+		}
+		f, err := c.st.Forks(ctx)
+		if err != nil || len(f) != 1 || f[0].Reason != store.ForkCutHash ||
+			f[0].Other.DeviceID != b.id.Device.ID || f[0].Other.Seq != cutRow.Seq || f[0].Stored.Seq != cutRow.Seq {
+			t.Fatalf("forks %+v err %v", f, err)
+		}
+		// Rows held first: the revoke is checked against them when it lands.
+		if err := a.st.Insert(ctx, bogus); err != nil {
+			t.Fatal(err)
+		}
+		if f, _ := a.st.Forks(ctx); len(f) != 1 || f[0].Reason != store.ForkCutHash {
+			t.Fatalf("forks on a %+v", f)
+		}
+	})
+}
+
+// A different copy of a held row is a fork only when its device signed it:
+// a junk or unsigned copy is refused and records nothing, this device's own
+// rows included.
+func TestOnlyASignedCopyIsAFork(t *testing.T) {
+	a := newNode(t, t.TempDir(), nil)
+	b := newNode(t, t.TempDir(), a.id)
+	a.certify(t, b)
+	if err := copyRows(t, a, b); err != nil {
+		t.Fatal(err)
+	}
+	held, err := b.st.List(ctx, store.Filter{DeviceID: a.id.Device.ID})
+	if err != nil || len(held) == 0 {
+		t.Fatalf("a's rows on b: %d err %v", len(held), err)
+	}
+	other := held[0]
+	other.Payload = json.RawMessage(`{"changed":true}`)
+	for _, n := range []*node{b, a} { // a's own row coming back to a, too
+		junk := other
+		junk.Sig = []byte("garbage")
+		if err := n.st.Insert(ctx, junk); !errors.Is(err, store.ErrBadSig) {
+			t.Fatalf("junk copy: err = %v, want ErrBadSig", err)
+		}
+		junk.Sig = nil
+		if err := n.st.Insert(ctx, junk); !errors.Is(err, store.ErrUnsigned) {
+			t.Fatalf("unsigned copy: err = %v, want ErrUnsigned", err)
+		}
+		if f, _ := n.st.Forks(ctx); len(f) != 0 {
+			t.Fatalf("unproven forks recorded: %+v", f)
+		}
+	}
+	// a really signing a second row for that seq is a fork.
+	other.Sig, _ = a.id.SignRow(store.SigningBytes(other))
+	if err := b.st.Insert(ctx, other); !errors.Is(err, store.ErrFork) {
+		t.Fatalf("signed second row: err = %v, want ErrFork", err)
+	}
+	f, err := b.st.Forks(ctx)
+	if err != nil || len(f) != 1 || f[0].Reason != store.ForkTwoRows || f[0].OtherHash != store.RowHash(other) {
+		t.Fatalf("forks %+v err %v", f, err)
+	}
 }

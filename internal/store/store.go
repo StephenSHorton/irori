@@ -18,12 +18,12 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"time"
-
-	"crypto/sha256"
 
 	"github.com/StephenSHorton/irori/internal/hlc"
 )
@@ -92,6 +92,10 @@ type Verifier interface {
 	// Cut is the effective revocation cut of deviceID: rows above it are
 	// refused. ok is false for a device that is not revoked.
 	Cut(deviceID string) (cut int64, ok bool)
+	// CutClaims lists, for every honoured revoke that names one, the row
+	// at its cut by hash (RowHash). A held row there with another hash is
+	// a fork (§5.5).
+	CutClaims() []CutClaim
 	// Observe folds one committed person.* row. The store calls it for every
 	// such row it holds at Open, then for each one appended or inserted.
 	Observe(ev Event)
@@ -150,10 +154,36 @@ var (
 	ErrRestoring = errors.New("store: restoring this device's rows; appends wait")
 )
 
+// CutClaim is a revoke's claim about the row at its cut: (DeviceID, Seq)
+// has RowHash Hash.
+type CutClaim struct {
+	DeviceID string
+	Seq      int64
+	Hash     string
+}
+
+// RowHash is the hex sha256 of ev's signed bytes and signature: what a
+// revoke's cutHash names and what the forks table keys on.
+func RowHash(ev Event) string {
+	h := sha256.Sum256(append(SigningBytes(ev), ev.Sig...))
+	return hex.EncodeToString(h[:])
+}
+
+// Reasons a fork is recorded.
+const (
+	// ForkTwoRows: a second signed row for a held (device, seq); Other is it.
+	ForkTwoRows = "two rows"
+	// ForkCutHash: a revoke's cutHash names another row than the one held
+	// at its cut; Other carries only DeviceID and Seq, OtherHash the hash.
+	ForkCutHash = "cut hash"
+)
+
 // Fork is one row that conflicts with a stored row at the same (device, seq).
 type Fork struct {
-	Stored Event `json:"stored"`
-	Other  Event `json:"other"`
+	Stored    Event  `json:"stored"`
+	Other     Event  `json:"other"`
+	OtherHash string `json:"otherHash"`
+	Reason    string `json:"reason"`
 }
 
 // Store is the event log. Safe for concurrent use.
