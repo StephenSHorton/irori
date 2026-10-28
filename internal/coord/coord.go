@@ -198,7 +198,10 @@ func (c *Coord) AssignTask(ctx context.Context, by, id, to string) (Task, error)
 // SetTaskState: only the holder, the creator or a person ("user:*") may (on
 // a Shared task, any holder). Blocked is refused with ErrBadState ("use
 // Block"). Moving a blocked task to another state this way also clears its
-// Reason and BlockedBy.
+// Reason and BlockedBy. InputRequired is still accepted here (older rows
+// and tests use it), but no caller in Irori sets it: agents reach it only
+// through board_status, which refuses it without open blockers and leaves a
+// card that has them as it is (v0.4.2, one blocker per ask).
 func (c *Coord) SetTaskState(ctx context.Context, by, id string, s TaskState, note string) (Task, error) {
 	return c.impl.setTaskState(ctx, by, id, s, note)
 }
