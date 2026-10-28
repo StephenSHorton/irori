@@ -47,6 +47,18 @@ func TestSearchShowKeepMessagesWithTheirParties(t *testing.T) {
 			hasNot(t, r.ok(tt.caller, "search", map[string]any{"query": "pangolin", "kinds": []string{"msg"}}), ref)
 		})
 	}
+	// A message about a card is on its thread, which anyone reading the card
+	// sees (the sender opted in with task_id); the message itself stays
+	// with its parties.
+	id := r.newCard(callA, map[string]any{"title": "burrow survey"})
+	out := r.ok(callA, "send", map[string]any{"to": "beta", "text": "aardvark tunnel notes", "task_id": id})
+	ref2 := "msg:" + field(t, out, "message")
+	has(t, r.ok(callC, "show", map[string]any{"ref": "task:" + id}), keyA+" -> "+keyB+": aardvark tunnel notes")
+	shown := r.call(callC, "show", map[string]any{"ref": ref2})
+	has(t, shown, "Error: ", "nothing you may read")
+	hasNot(t, shown, "aardvark")
+	has(t, r.ok(callB, "show", map[string]any{"ref": ref2}), "aardvark tunnel notes")
+
 	// The viewer is never an argument.
 	r.fails(callC, "search", map[string]any{"query": "pangolin", "viewer": keyA}, `unknown argument "viewer"`)
 	r.fails(callC, "show", map[string]any{"ref": ref, "viewer": ""}, `unknown argument "viewer"`)

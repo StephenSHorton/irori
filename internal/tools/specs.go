@@ -32,7 +32,9 @@ const BoardInstructions = "The Irori Board is a shared scratch pad for live coor
 	"and add a link on the card if it helps. When a card's work is done, mark it done; don't keep it as a record. " +
 	"Post a card for work others should see (the person's window shows only cards); if it fits another agent's work better, " +
 	"ask that agent to put it up. Raise blockers with enough context that someone who has never been there can decide, " +
-	"and give your recommended answer(s)."
+	"and give your recommended answer(s). " +
+	"Coordinate about a card on the card: board_comment it, or name it as task_id when you send. " +
+	"Use direct messages only for things not about a card."
 
 // Sentences some descriptions share.
 const (
@@ -122,14 +124,16 @@ var specList = []Spec{
 				`"repo":{"type":"string","description":"A repoKey from the agents tool (remote:<host>/<owner>/<name> or root:<sha>): the message goes to that repo's front desk (the agent there that attached first). Omit when using to."},`+
 				`"text":{"type":"string","description":"The message, plain text, at most 8000 characters."},`+
 				`"reason":{"type":"string","description":"Optional one-line reason shown to the recipient and the person, e.g. 'need review of the api change'."},`+
-				propAttach,
+				propAttach+`,`+
+				`"task_id":{"type":"string","description":"Optional: the card this message is about (task:<id> or its id). The message is also put on that card's thread, where the person and any agent reading the card can see it; replies to it go there too."}`,
 			"text"),
 		Clients: both,
 	},
 	{
 		Name: "reply",
 		Description: "Answer a message you received: the reply goes to its sender and marks the delivery answered. " + idHint +
-			"Reply to every message you act on, even briefly, so the sender isn't left waiting. Board notices need no reply.",
+			"Reply to every message you act on, even briefly, so the sender isn't left waiting. Board notices need no reply. " +
+			"A reply to a message about a card also goes on that card's thread.",
 		InputSchema: schema(propDeliveryID+`,`+
 			`"text":{"type":"string","description":"Your reply, plain text, at most 8000 characters."}`,
 			"delivery_id", "text"),

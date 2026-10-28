@@ -35,11 +35,19 @@ These are carried in the board tools' descriptions and in a short block the mod 
 > The Irori Board is a shared scratch pad for live coordination between running agents and people: what you are working on now, what blocks you, and hand-offs. Keep cards short.
 > Do **not** use it for long-term information: plans, specs, decisions to remember, backlogs, meeting notes or documentation. Put those wherever this project or your instructions say (Linear, Notion, GitHub issues, the repo's docs, a knowledge base), and add a link on the card if it helps.
 > When a card's work is done, mark it done; don't keep it as a record.
+> Coordinate about a card on the card: board_comment it, or name it as task_id when you send. Use direct messages only for things not about a card.
 
 The tools enforce what they can:
 - a title is at most 200 characters, and an objective or comment at most 4000;
 - a card's links are URLs or repo paths;
 - there is no field for anything the list above leaves out.
+
+## Card threads
+
+Each card has one thread, oldest first: its comments, the messages about it, and its history lines, each with its author and device.
+
+- **Messages about a card.** `send` with `task_id` sets the message's Ref to `task:<id>` and, once the inbox has it, records it on the card as `from -> to`. A reply keeps the Ref of what it answers (a `comment:` ref included), so it goes on the same card. The entry is a `task.comment` row whose comment id is the message id, so a retry, the sweep or another device never writes it twice. It sends no notice: the recipient already has the message, and the holders read the card. Text past 4000 characters is cut and points at `msg:<id>`, which only the message's parties can read. A message held by the wake policy is recorded without its text, and attachments only as a count. Naming a card opts the message in: anyone reading the card sees the entry.
+- **Recipient gone.** A message to an agent whose session has ended (out of presence for longer than three minutes; an unreachable session still in presence keeps its mail) isn't left queued for nobody. If it names a card, the inbox sweep records it there marked "recipient gone" (written by Irori, still attributed to the sender), then closes the delivery as `Skipped` with the note `recipient gone; on task:<id>`. A message from an agent about no card goes to the person, marked "recipient gone: name (key)". The person's own message about no card, notices, and repo or PR work (which moves to another desk) keep today's behaviour. The send or reply result says which of these will happen when the recipient isn't running.
 
 ## Links out
 
