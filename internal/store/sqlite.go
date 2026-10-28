@@ -882,7 +882,10 @@ func (d *db) resetVerifier(ctx context.Context) {
 	d.verifyMu.Lock()
 	d.verifier.Reset()
 	d.verifyMu.Unlock()
-	_ = d.loadVerifier(ctx)
+	// Not ctx: it is often what just failed (a sync session ending mid
+	// batch), and a canceled reload would leave the verifier empty, with
+	// no device certified until a restart.
+	_ = d.loadVerifier(context.WithoutCancel(ctx))
 }
 
 func (d *db) isClosed() bool {

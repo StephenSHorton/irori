@@ -41,6 +41,7 @@ const (
 	frameDone   = "pair.done"
 	frameFail   = "pair.fail"
 	frameCancel = "pair.cancel"
+	frameKey    = "pair.key" // B: the person typed A's key here
 )
 
 // Modes and states (Status).
@@ -50,7 +51,7 @@ const (
 
 	StateWaiting    = "waiting"   // add: the code is shown; join: looking for the other device
 	StateConfirm    = "confirm"   // add: type the words B shows
-	StateGranted    = "granted"   // add: the words matched; type this device's key on B
+	StateGranted    = "granted"   // add: the words matched; type this device's key on B, then B is certified
 	StateWords      = "words"     // join: read these words out, and type the key A shows
 	StateDone       = "done"      // paired
 	StateFailed     = "failed"    // the window closed (Error says why)
@@ -227,7 +228,9 @@ type session struct {
 	sent    bool // add: the grant went out; join: it was adopted
 	closed  bool
 	granted chan struct{} // add: closed once pair.done arrives
-	keyOK   bool          // join: the person typed A's key
+	keyOK   bool          // join: the person typed A's key; add: B said so (pair.key)
+	wordsOK bool          // add: the person typed B's words
+	giving  bool          // add: the grant is being written
 	pending *frame        // join: A's grant, waiting for the key
 }
 
@@ -345,9 +348,11 @@ func (p *Pairer) Cancel() {
 	}
 }
 
-// Confirm is the person typing B's words into A (§3 step 4). A match
-// certifies B and hands it the person; a miss counts, and the second one
-// closes the window.
+// Confirm is the person typing B's words into A (§3 step 4). A miss
+// counts, and the second one closes the window. A match certifies B and
+// hands it the person once B also said the person typed this device's key
+// there (pair.key); until then A waits in StateGranted, and nothing is
+// written, so a pairing that fails on B's side leaves no cert behind.
 func (p *Pairer) Confirm(ctx context.Context, typed string) error {
 	p.mu.Lock()
 	s := p.cur
@@ -366,6 +371,22 @@ func (p *Pairer) Confirm(ctx context.Context, typed string) error {
 		}
 		return ErrWrongWords
 	}
+	s.wordsOK = true
+	p.st.State = StateGranted
+	p.changed()
+	p.mu.Unlock()
+	return s.maybeGrant(ctx)
+}
+
+// maybeGrant grants once both the words and B's key check are in.
+func (s *session) maybeGrant(ctx context.Context) error {
+	p := s.p
+	p.mu.Lock()
+	if s.closed || !s.add || !s.wordsOK || !s.keyOK || s.giving {
+		p.mu.Unlock()
+		return nil
+	}
+	s.giving = true
 	conn, joiner, hello, role := s.conn, s.joiner, s.hello, s.role
 	pub := s.pinPub
 	p.mu.Unlock()
@@ -406,6 +427,12 @@ func (p *Pairer) ConfirmKey(ctx context.Context, typed string) error {
 	s.pending = nil
 	p.changed()
 	p.mu.Unlock()
+	// A grants only after this (and its own words): nothing is certified
+	// for a pairing B never confirmed.
+	if err := s.send(ctx, conn, frame{Type: frameKey}); err != nil {
+		s.fail(StateFailed, "The other device went away before pairing finished.", "")
+		return err
+	}
 	if g != nil {
 		s.take(ctx, conn, *g)
 	}
@@ -700,6 +727,13 @@ func (s *session) run(c mesh.Conn) {
 			}
 			s.fail(StateFailed, msg, "")
 			return
+		case frameKey:
+			if s.add {
+				p.mu.Lock()
+				s.keyOK = true
+				p.mu.Unlock()
+				go func() { _ = s.maybeGrant(ctx) }()
+			}
 		case frameDone:
 			if s.add {
 				select {

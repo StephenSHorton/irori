@@ -112,6 +112,17 @@ func (n *Node) removalSeen(dev string, known map[string]peerInfo) (seen, of int)
 			revokes = append(revokes, ev)
 		}
 	}
+	if len(revokes) == 0 {
+		// Only a revoke kept in refused_events (one from a device that was
+		// itself removed, §3): it travels loose, outside any vector, so
+		// there is nothing to count; it reads as done.
+		for _, d := range n.o.Chain.Devices() {
+			if !d.Revoked {
+				of++
+			}
+		}
+		return of, of
+	}
 	for _, d := range n.o.Chain.Devices() {
 		id := d.Cert.DeviceID
 		if d.Revoked {

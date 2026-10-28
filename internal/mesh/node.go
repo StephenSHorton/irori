@@ -761,14 +761,16 @@ func (n *Node) synced(peer string) {
 // its appends (a restore) is lifted: they would never reach it.
 func (n *Node) stop(dev, why string) {
 	n.mu.Lock()
-	defer n.mu.Unlock()
 	if _, ok := n.stopped[dev]; !ok {
 		n.stopped[dev] = why
 		n.logf("mesh: %s's stream stopped: %s", dev, why)
 	}
 	if dev == n.self {
-		n.o.Store.HoldAppends(0)
 		n.restoring, n.restoreTo = "", 0
+	}
+	n.mu.Unlock()
+	if dev == n.self {
+		n.o.Store.HoldAppends(0) // outside n.mu: it takes the store's write lock
 	}
 }
 

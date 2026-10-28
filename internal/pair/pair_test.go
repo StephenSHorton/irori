@@ -216,6 +216,9 @@ func pairUp(t *testing.T, a, b *dev) {
 		t.Fatal(err)
 	}
 	eventually(t, "a waits for its key on b", state(a, StateGranted))
+	if _, ok := a.chain.Cert(b.id()); ok {
+		t.Fatal("a certified b before b's person typed a's key")
+	}
 	if err := b.pair.ConfirmKey(context.Background(), a.pair.Status().Fingerprint); err != nil {
 		t.Fatal(err)
 	}
@@ -536,3 +539,29 @@ func TestACodeHolderPosingAsACantHandBAPerson(t *testing.T) {
 }
 
 func hexKey(pub ed25519.PublicKey) string { return hex.EncodeToString(pub) }
+
+// The person mistypes A's key twice on B: the window closes on both, and A
+// wrote no cert for B, so B can simply pair again.
+func TestWrongKeyTwiceLeavesNoCert(t *testing.T) {
+	net := mesh.NewFakeNet()
+	a, b := newDev(t, net, "pc", 0), newDev(t, net, "mac", 0)
+	st, _ := a.pair.Add(identity.RoleDesktop)
+	if _, err := b.pair.Join(st.Code); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "b shows words", state(b, StateWords))
+	eventually(t, "a asks for the words", state(a, StateConfirm))
+	if err := a.pair.Confirm(context.Background(), strings.Join(b.pair.Status().Words, " ")); err != nil {
+		t.Fatal(err)
+	}
+	for range MaxMisses {
+		if err := b.pair.ConfirmKey(context.Background(), "0000 0000 0000 0000"); !errors.Is(err, ErrWrongKey) {
+			t.Fatal(err)
+		}
+	}
+	eventually(t, "a's window closes", state(a, StateFailed))
+	if _, ok := a.chain.Cert(b.id()); ok {
+		t.Fatal("a certified b although b never took the pairing")
+	}
+	pairUp(t, a, b)
+}

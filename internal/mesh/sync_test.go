@@ -17,6 +17,21 @@ import (
 	"github.com/StephenSHorton/irori/internal/store"
 )
 
+// A verifier reset whose context is already done (a sync session that
+// ended mid batch) still reloads every cert: before, it left the chain
+// empty and the device certified nobody until a restart.
+func TestAVerifierResetOnADeadContextKeepsTheCerts(t *testing.T) {
+	net := NewFakeNet()
+	a, b := newDev(t, net, "pc"), newDev(t, net, "mac")
+	b.join(a)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	a.st.ReloadVerifier(ctx)
+	if _, ok := a.chain.Cert(b.id()); !ok {
+		t.Fatal("the reset on a canceled context lost the certs")
+	}
+}
+
 func TestSingleDeviceOpensNothing(t *testing.T) {
 	net := NewFakeNet()
 	a := newDev(t, net, "pc")
@@ -336,6 +351,12 @@ func TestTwoDevicesThatRevokeApartSettleOnOneKey(t *testing.T) {
 		return len(a) == 1 && len(b) == 1 && a[0] == topic && b[0] == topic
 	})
 	e := pc.append(store.KindAgentSeen, map[string]any{"key": pc.id() + "/after"})
+	defer func() {
+		if t.Failed() {
+			t.Logf("DEBUG connected %v; pc %+v; node %+v; pc vector %v; node vector %v",
+				net.Connected(pc.id(), nd.id()), pc.node.Status(), nd.node.Status(), pc.vector(), nd.vector())
+		}
+	}()
 	eventually(t, "sync runs on it", func() bool { return nd.has(e) })
 }
 
