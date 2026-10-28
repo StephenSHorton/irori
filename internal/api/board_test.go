@@ -152,10 +152,10 @@ func (f *boardFixture) openAttach(t *testing.T) string {
 	return hello.AttachSecret
 }
 
-var (
-	asPerson = Identity{}
-	asMember = Identity{Member: memberSecret}
-)
+var asMember = Identity{Member: memberSecret}
+
+// asPerson is the GUI's identity: this run's person secret (D10(a)).
+func (f *boardFixture) asPerson() Identity { return Identity{Person: personOf(f.port)} }
 
 func (f *boardFixture) asClaude() Identity { return Identity{Attach: f.attach} }
 
@@ -224,8 +224,13 @@ func TestBoardViewerHeaders(t *testing.T) {
 		hdr  map[string]string
 		want int
 	}{
-		{"person", nil, http.StatusOK},
+		{"person", map[string]string{HeaderPerson: personOf(f.port)}, http.StatusOK},
 		{"attach", map[string]string{attach.HeaderAttach: f.attach}, http.StatusOK},
+		// The person's secret is the GUI's alone (D10(a)): a wrong or
+		// blank one, or one beside an agent's, never widens the view.
+		{"wrong person", map[string]string{HeaderPerson: "guess"}, http.StatusForbidden},
+		{"blank person", map[string]string{HeaderPerson: ""}, http.StatusForbidden},
+		{"person and attach", map[string]string{HeaderPerson: personOf(f.port), attach.HeaderAttach: f.attach}, http.StatusForbidden},
 		{"member", map[string]string{attach.HeaderMember: memberSecret}, http.StatusOK},
 		{"unknown attach", map[string]string{attach.HeaderAttach: "stale"}, http.StatusForbidden},
 		{"unknown member", map[string]string{attach.HeaderMember: "stale"}, http.StatusForbidden},
@@ -238,7 +243,7 @@ func TestBoardViewerHeaders(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, p := range []string{"/v1/board", "/v1/tasks/" + f.open.ID, "/v1/search?q=mango", "/v1/show?ref=task:" + f.open.ID, "/v1/overview"} {
-				if tc.hdr == nil && p == "/v1/overview" {
+				if tc.name == "person" && p == "/v1/overview" {
 					p += "?agent=" + claudeKey
 				}
 				code, body := f.get(t, p, tc.hdr)
@@ -285,7 +290,7 @@ func TestBoardView(t *testing.T) {
 	}{
 		// The person: an assigned agent's task is someone's work; a blocker
 		// on no one in particular isn't the person's either.
-		{"person", asPerson, []string{}, []string{f.assigned.ID}, []string{f.blocked.ID}, []string{f.open.ID}},
+		{"person", f.asPerson(), []string{}, []string{f.assigned.ID}, []string{f.blocked.ID}, []string{f.open.ID}},
 		// The assignee sees its assignment in NeedsYou.
 		{"assignee", f.asClaude(), []string{f.assigned.ID}, []string{}, []string{f.blocked.ID}, []string{f.open.ID}},
 		{"other agent", asMember, []string{}, []string{f.assigned.ID}, []string{f.blocked.ID}, []string{f.open.ID}},
@@ -329,7 +334,7 @@ func TestBoardView(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	v, err := f.client.Board(ctx, asPerson, coord.BoardFilter{DoneLimit: 1})
+	v, err := f.client.Board(ctx, f.asPerson(), coord.BoardFilter{DoneLimit: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +346,7 @@ func TestBoardView(t *testing.T) {
 func TestBoardTask(t *testing.T) {
 	f := newBoardFixture(t)
 	ctx := context.Background()
-	for _, id := range []Identity{asPerson, f.asClaude(), asMember} {
+	for _, id := range []Identity{f.asPerson(), f.asClaude(), asMember} {
 		d, err := f.client.Task(ctx, id, f.assigned.ID)
 		if err != nil {
 			t.Fatal(err)
@@ -354,7 +359,7 @@ func TestBoardTask(t *testing.T) {
 	if code != http.StatusOK || !strings.Contains(string(body), `"comments":[]`) {
 		t.Errorf("no comments should be []: %d %s", code, body)
 	}
-	if _, err := f.client.Task(ctx, asPerson, "nope"); statusOf(err) != http.StatusNotFound {
+	if _, err := f.client.Task(ctx, f.asPerson(), "nope"); statusOf(err) != http.StatusNotFound {
 		t.Errorf("unknown task: %v, want 404", err)
 	}
 }
@@ -376,7 +381,7 @@ func TestBoardSearchViewerScoping(t *testing.T) {
 		id   Identity
 		want []string
 	}{
-		{"person sees every message", asPerson, []string{mango}},
+		{"person sees every message", f.asPerson(), []string{mango}},
 		{"recipient", asMember, []string{mango}},
 		{"another agent", f.asClaude(), []string{}},
 	}
@@ -398,7 +403,7 @@ func TestBoardSearchFiltersAndPaging(t *testing.T) {
 	ctx := context.Background()
 	task := func(tk coord.Task) string { return search.Ref(search.KindTask, tk.ID) }
 
-	res, err := f.client.Search(ctx, asPerson, search.Query{Text: "pineapple"})
+	res, err := f.client.Search(ctx, f.asPerson(), search.Query{Text: "pineapple"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +427,7 @@ func TestBoardSearchFiltersAndPaging(t *testing.T) {
 
 	// Paging: limit 2 over the three tasks, then the rest at next.
 	q := search.Query{Kinds: []search.Kind{search.KindTask}, Limit: 2}
-	p1, err := f.client.Search(ctx, asPerson, q)
+	p1, err := f.client.Search(ctx, f.asPerson(), q)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -430,7 +435,7 @@ func TestBoardSearchFiltersAndPaging(t *testing.T) {
 		t.Fatalf("page 1 = %v more %v next %d", hitRefs(p1.Hits), p1.More, p1.Next)
 	}
 	q.Offset = p1.Next
-	p2, err := f.client.Search(ctx, asPerson, q)
+	p2, err := f.client.Search(ctx, f.asPerson(), q)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,10 +451,10 @@ func TestBoardSearchFiltersAndPaging(t *testing.T) {
 	}
 
 	// repo and before filter.
-	if r, err := f.client.Search(ctx, asPerson, search.Query{Kinds: []search.Kind{search.KindTask}, RepoKey: "elsewhere"}); err != nil || len(r.Hits) != 0 {
+	if r, err := f.client.Search(ctx, f.asPerson(), search.Query{Kinds: []search.Kind{search.KindTask}, RepoKey: "elsewhere"}); err != nil || len(r.Hits) != 0 {
 		t.Errorf("other repo = %v, %v", r.Hits, err)
 	}
-	if r, err := f.client.Search(ctx, asPerson, search.Query{Before: time.Now().Add(-time.Hour)}); err != nil || len(r.Hits) != 0 {
+	if r, err := f.client.Search(ctx, f.asPerson(), search.Query{Before: time.Now().Add(-time.Hour)}); err != nil || len(r.Hits) != 0 {
 		t.Errorf("before an hour ago = %v, %v", r.Hits, err)
 	}
 	// limit is capped, not refused.
@@ -467,14 +472,14 @@ func TestBoardShowViewerScoping(t *testing.T) {
 		ref  string
 		want int
 	}{
-		{"person reads gamma's", asPerson, mango, http.StatusOK},
+		{"person reads gamma's", f.asPerson(), mango, http.StatusOK},
 		{"gamma reads its own", asMember, mango, http.StatusOK},
 		{"alpha can't read gamma's", f.asClaude(), mango, http.StatusNotFound},
 		{"alpha reads its own", f.asClaude(), kiwi, http.StatusOK},
 		{"gamma can't read alpha's", asMember, kiwi, http.StatusNotFound},
 		{"tasks have no readers", asMember, search.Ref(search.KindTask, f.assigned.ID), http.StatusOK},
-		{"unknown", asPerson, "msg:nope", http.StatusNotFound},
-		{"bad ref", asPerson, "nope", http.StatusBadRequest},
+		{"unknown", f.asPerson(), "msg:nope", http.StatusNotFound},
+		{"bad ref", f.asPerson(), "nope", http.StatusBadRequest},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -498,18 +503,18 @@ func TestBoardShowPaging(t *testing.T) {
 	f := newBoardFixture(t)
 	ctx := context.Background()
 	ref := search.Ref(search.KindTask, f.assigned.ID)
-	full, err := f.client.Show(ctx, asPerson, ref, search.ShowOptions{})
+	full, err := f.client.Show(ctx, f.asPerson(), ref, search.ShowOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	p1, err := f.client.Show(ctx, asPerson, ref, search.ShowOptions{Limit: 10})
+	p1, err := f.client.Show(ctx, f.asPerson(), ref, search.ShowOptions{Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !p1.More || p1.Next == 0 || len(p1.Text) > 10 {
 		t.Fatalf("page 1 = %+v", p1)
 	}
-	p2, err := f.client.Show(ctx, asPerson, ref, search.ShowOptions{Offset: p1.Next, Limit: search.MaxShow})
+	p2, err := f.client.Show(ctx, f.asPerson(), ref, search.ShowOptions{Offset: p1.Next, Limit: search.MaxShow})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -554,7 +559,7 @@ func TestBoardOverview(t *testing.T) {
 	}
 
 	// The person picks the agent; gamma's inbox is gamma's.
-	ov, err := f.client.Overview(ctx, asPerson, grokKey)
+	ov, err := f.client.Overview(ctx, f.asPerson(), grokKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -566,7 +571,7 @@ func TestBoardOverview(t *testing.T) {
 	if _, err := f.client.Overview(ctx, f.asClaude(), grokKey); statusOf(err) != http.StatusForbidden {
 		t.Errorf("alpha reading gamma's overview: %v, want 403", err)
 	}
-	if _, err := f.client.Overview(ctx, asPerson, ""); statusOf(err) != http.StatusBadRequest {
+	if _, err := f.client.Overview(ctx, f.asPerson(), ""); statusOf(err) != http.StatusBadRequest {
 		t.Errorf("person without agent: %v, want 400", err)
 	}
 }
@@ -593,7 +598,7 @@ func TestBoardPersonNeedsYou(t *testing.T) {
 		BlockReason: "their call", BlockedBy: &coord.BlockedBy{Kind: coord.BlockedOnPerson, Ref: "user:dev2"}}); !errors.Is(err, coord.ErrInvalid) {
 		t.Fatalf("blocked on a made-up user: key: err = %v, want ErrInvalid", err)
 	}
-	v, err := f.client.Board(ctx, asPerson, coord.BoardFilter{RepoKey: boardRepo})
+	v, err := f.client.Board(ctx, f.asPerson(), coord.BoardFilter{RepoKey: boardRepo})
 	if err != nil {
 		t.Fatal(err)
 	}

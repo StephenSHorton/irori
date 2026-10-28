@@ -204,18 +204,36 @@ func writeEvent(b *strings.Builder, ev store.Event, now time.Time) {
 		oneLine(ev.Actor, 120), payloadText(redact(ev.Kind, ev.Payload)))
 }
 
-// redact drops message text from rows that carry it. The log holds every
-// message, held ones included; only the recipient's own inbox shows text
-// (Inbox.For), so the events tool must not.
+// Redact is a row as an agent may see it (the events tool, and the
+// loopback API without the GUI's credential, v0.4 §6.8): message text and
+// reasons are left out, and so is a turn's prompt when it is an Irori fence
+// (it quotes the messages it delivered). The log holds every message, held
+// ones included; only the recipient's own inbox shows text (Inbox.For).
+func Redact(kind string, raw json.RawMessage) json.RawMessage { return redact(kind, raw) }
+
+// redact is Redact.
 func redact(kind string, raw json.RawMessage) json.RawMessage {
-	if kind != inbox.KindMessageSent {
+	var fields []string
+	switch kind {
+	case inbox.KindMessageSent:
+		fields = []string{"text", "reason"}
+	case capture.KindTurn:
+		// The stored JSON may escape "<"; read the prompt itself.
+		var t struct {
+			Prompt string `json:"prompt"`
+		}
+		if json.Unmarshal(raw, &t) == nil && !strings.Contains(strings.ToLower(t.Prompt), "<irori-message") {
+			return raw
+		}
+		fields = []string{"prompt"}
+	default:
 		return raw
 	}
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return json.RawMessage(`{"text":"[left out]"}`)
 	}
-	for _, k := range []string{"text", "reason"} {
+	for _, k := range fields {
 		if _, ok := m[k]; ok {
 			m[k] = "[left out]"
 		}

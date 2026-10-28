@@ -49,7 +49,8 @@ export function ConfirmWords(words: string): $CancellablePromise<void> {
 }
 
 /**
- * Devices lists the person's devices, this one first.
+ * Devices lists the person's devices, this one first (the same rows as
+ * GET /v1/devices).
  */
 export function Devices(): $CancellablePromise<$models.DeviceView[]> {
     return $Call.ByID(1642868489).then(($result: any) => {

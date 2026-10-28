@@ -8,12 +8,21 @@
 //
 // Routes (v0.1):
 //
-//	GET /v1/health                -> {"ok":true,"version","deviceId"}   (no token)
-//	GET /v1/device                -> device.Identity
+//	GET /v1/health                -> {"ok":true,"version","deviceId","net"?:{"state","peers"}}   (no token)
+//	GET /v1/device                -> device.Identity (this device)
 //	GET /v1/agents                -> []presence.AgentCard
 //	GET /v1/events?kind=&limit=   -> []store.Event (kind may repeat; prefix "agent.")
 //	               &device=       -> only that device's rows
 //	GET /v1/events/stream         -> NDJSON of store.Event (routes_events.go)
+//	GET /v1/devices[?detail=1]    -> []mesh.DeviceRow, this device first (v0.4 §6.8):
+//	                                 {deviceId, name, role, os, state, warning?}; detail=1
+//	                                 adds detail (path, RTT, skew, refused and held rows).
+//	                                 503 without a mesh. No pairing or revoke routes exist.
+//
+// The person's view (v0.4 decision D10(a)) needs X-Irori-Person, a secret
+// minted per run (Server.PersonSecret) that only the GUI holds in memory.
+// The bearer token alone reads as an unidentified agent: board routes see
+// AgentViewer, and event rows lose message text (routes_events.go).
 //
 // v0.2 routes are in routes_v02.go, v0.3 in routes_v03.go, and the Board
 // and browsing reads (board, tasks, search, show, overview) in routes_board.go.
@@ -83,8 +92,23 @@ type Server struct {
 	impl *server
 }
 
-// New makes a server that checks token on every authenticated route.
+// New makes a server that checks token on every authenticated route. It
+// mints the person's secret for this run (PersonSecret).
 func New(b Backend, token string) *Server { return newServer(b, token) }
+
+// HeaderPerson carries the person's per-run secret (decision D10(a)). Only
+// the GUI holds it, in memory: a request with the bearer token alone reads
+// as AgentViewer, never as the person.
+const HeaderPerson = "X-Irori-Person"
+
+// AgentViewer is who a request with no identity header reads as: an
+// unidentified agent. It is nobody's key, so it reads no message and owns
+// no card.
+const AgentViewer = "api:agent"
+
+// PersonSecret is this run's person secret, for the GUI only. It is never
+// written to disk.
+func (s *Server) PersonSecret() string { return s.personSecret() }
 
 // Serve serves on ln until ctx ends, then shuts down gracefully.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error { return s.serve(ctx, ln) }

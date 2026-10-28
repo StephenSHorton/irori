@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/discovery"
+	"github.com/StephenSHorton/irori/internal/mesh"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/store"
 )
@@ -27,16 +29,59 @@ type Health struct {
 	OK       bool   `json:"ok"`
 	Version  string `json:"version"`
 	DeviceID string `json:"deviceId"`
+	// Net is the mesh (v0.4 §6.8); absent when the backend has none.
+	Net *NetHealth `json:"net,omitempty"`
+}
+
+// NetHealth is the net layer's state (off, on, removed, error) and how
+// many other devices are connected now.
+type NetHealth struct {
+	State string `json:"state"`
+	Peers int    `json:"peers"`
+}
+
+// meshBackend is a backend with v0.4's mesh (core.Core); GET /v1/devices
+// and health's net read it.
+type meshBackend interface {
+	Mesh() *mesh.Node
+}
+
+func (s *server) node() *mesh.Node {
+	if m, ok := s.b.(meshBackend); ok {
+		return m.Mesh()
+	}
+	return nil
 }
 
 type server struct {
-	b       Backend
-	token   []byte
+	b     Backend
+	token []byte
+	// person is the per-run secret of the person's view (decision D10(a)):
+	// minted here, held only in memory and handed to the GUI, never
+	// written to disk or logged.
+	person  []byte
 	streams *streams
 }
 
 func newServer(b Backend, token string) *Server {
-	return &Server{impl: &server{b: b, token: []byte(token), streams: newStreams()}}
+	person, err := discovery.NewToken()
+	if err != nil {
+		panic(fmt.Sprintf("api: no randomness for the person's secret: %v", err))
+	}
+	return &Server{impl: &server{b: b, token: []byte(token), person: []byte(person), streams: newStreams()}}
+}
+
+// personSecret is Server.PersonSecret.
+func (s *Server) personSecret() string { return string(s.impl.person) }
+
+// asPerson reads the person header: present says whether one was sent,
+// ok whether it is this run's secret. Constant-time.
+func (s *server) asPerson(r *http.Request) (present, ok bool) {
+	vals := r.Header.Values(HeaderPerson)
+	if len(vals) == 0 {
+		return false, false
+	}
+	return true, len(vals) == 1 && len(s.person) > 0 && subtle.ConstantTimeCompare([]byte(vals[0]), s.person) == 1
 }
 
 // handler serves the routes for a listener on port.
@@ -120,7 +165,11 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/v1/health" {
-		writeJSON(w, http.StatusOK, Health{OK: true, Version: h.s.b.Version(), DeviceID: h.s.b.Device().ID})
+		hl := Health{OK: true, Version: h.s.b.Version(), DeviceID: h.s.b.Device().ID}
+		if n := h.s.node(); n != nil {
+			hl.Net = &NetHealth{State: n.Status().State, Peers: n.Connected()}
+		}
+		writeJSON(w, http.StatusOK, hl)
 		return
 	}
 	// Auth before routing, so an unauthenticated caller can't map the routes.
@@ -145,6 +194,8 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.events(w, r)
 	case "/v1/events/stream":
 		h.eventsStream(w, r)
+	case "/v1/devices":
+		h.devices(w, r)
 	default:
 		writeError(w, http.StatusNotFound, "no such route")
 	}
@@ -162,6 +213,10 @@ func (s *server) authorized(r *http.Request) bool {
 }
 
 func (h *handler) events(w http.ResponseWriter, r *http.Request) {
+	person, ok := h.rowsView(w, r)
+	if !ok {
+		return
+	}
 	q := r.URL.Query()
 	f := store.Filter{Limit: DefaultEventLimit, Desc: true}
 	for _, k := range q["kind"] {
@@ -186,6 +241,9 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 	if evs == nil {
 		evs = []store.Event{}
 	}
+	for i := range evs {
+		evs[i] = viewRow(evs[i], person)
+	}
 	writeJSON(w, http.StatusOK, evs)
 }
 
@@ -203,4 +261,17 @@ type errorBody struct {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, errorBody{Error: msg})
+}
+
+// devices serves GET /v1/devices[?detail=1]: the person's devices, this one
+// first, as Settings → Devices shows them; detail adds what is behind each
+// state and warning (path, RTT, skew, refused and held rows).
+func (h *handler) devices(w http.ResponseWriter, r *http.Request) {
+	n := h.s.node()
+	if n == nil {
+		writeError(w, http.StatusServiceUnavailable, "this Core has no devices layer")
+		return
+	}
+	d := r.URL.Query().Get("detail")
+	writeJSON(w, http.StatusOK, n.Devices(d == "1" || d == "true"))
 }

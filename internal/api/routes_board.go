@@ -13,12 +13,18 @@ package api
 //
 //	X-Irori-Attach: <attachSecret>  -> that attached session; Viewer = its key
 //	X-Irori-Member: <memberSecret>  -> that Grok member;      Viewer = its key
-//	neither                         -> the person's view;     Viewer = ""
+//	X-Irori-Person: <personSecret>  -> the person's view;     Viewer = ""
+//	none                            -> an unidentified agent; Viewer = AgentViewer
 //
-// The person's view (bearer token only) is the GUI's: it sees everything,
-// messages included. An identity header that is present but empty, blank,
-// unknown, superseded or closed, or both headers at once, is 403: a stale
-// or unset secret never falls back to the wider person's view. A turn row
+// The person's view is the GUI's (v0.4 decision D10(a)): it sees
+// everything, every device's messages included, so it needs the per-run
+// secret only the GUI holds in memory (Server.PersonSecret). The bearer
+// token alone, which any agent can read from irori.json, reads as
+// AgentViewer: nobody's key, so it reads no message, its NeedsYou holds
+// only blockers on no one in particular, and overview is 403. An identity
+// header that is present but empty, blank, unknown, superseded or closed,
+// or two at once, is 403: a stale or unset secret never falls back to a
+// wider view. A turn row
 // whose prompt is an Irori fence keeps its messages' text for the person
 // and the turn's own agent only (capture withholds it from everyone else).
 //
@@ -30,8 +36,8 @@ package api
 //	GET /v1/board?repo=<repoKey>&done=N
 //	    -> coord.BoardView {needsYou, blocked, working, open, done, doneTotal, leases}
 //	    repo "" = every repo. NeedsYou is the viewer's: For = the agent's
-//	    key, or for the person "user:<deviceId>" (Core.UserSender's key, the
-//	    GUI's): tasks held by or blocked on the person (any of their
+//	    key (AgentViewer included), or for the person "user:<deviceId>"
+//	    (Core.UserSender's key, the GUI's): tasks held by or blocked on the person (any of their
 //	    devices' "user:<deviceId>" keys, v0.4), or blocked on a person with
 //	    no ref, plus InputRequired. done caps the Done
 //	    group (default coord.DefaultDoneCard, max coord.MaxDoneCard; larger
@@ -66,7 +72,7 @@ package api
 //	    tasks in its repo, recent commits and PRs. Every line has a ref. An
 //	    identity header picks the agent (agent=, if given, must match it:
 //	    403 otherwise, since the overview carries that agent's inbox). The
-//	    person's view needs agent= (400 without).
+//	    person's view needs agent= (400 without). AgentViewer is 403.
 
 import (
 	"github.com/StephenSHorton/irori/internal/coord"

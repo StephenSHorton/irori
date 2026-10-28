@@ -14,6 +14,7 @@ import (
 
 	"github.com/StephenSHorton/irori/internal/device"
 	"github.com/StephenSHorton/irori/internal/discovery"
+	"github.com/StephenSHorton/irori/internal/mesh"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/store"
 )
@@ -174,4 +175,16 @@ func (c *client) get(ctx context.Context, path string, q url.Values, auth bool, 
 		return fmt.Errorf("irori api %s: bad response: %w", path, err)
 	}
 	return nil
+}
+
+// Devices is GET /v1/devices: the person's devices, this one first; detail
+// adds what is behind each state and warning.
+func (c *Client) Devices(ctx context.Context, detail bool) ([]mesh.DeviceRow, error) {
+	q := url.Values{}
+	if detail {
+		q.Set("detail", "1")
+	}
+	var rows []mesh.DeviceRow
+	err := c.impl.get(ctx, "/v1/devices", q, true, &rows)
+	return rows, err
 }

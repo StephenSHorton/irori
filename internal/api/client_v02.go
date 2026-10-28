@@ -16,13 +16,18 @@ import (
 )
 
 // Identity is the caller header a v0.2 client call carries: exactly one of
-// an attach secret (mod) or a member secret (Grok).
+// an attach secret (mod), a member secret (Grok) or the person's per-run
+// secret (the GUI's, v0.4 D10(a)). None reads as an unidentified agent.
 type Identity struct {
 	Attach string
 	Member string
+	Person string
 }
 
 func (id Identity) set(req *http.Request) {
+	if id.Person != "" {
+		req.Header.Set(HeaderPerson, id.Person)
+	}
 	if id.Attach != "" {
 		req.Header.Set(attach.HeaderAttach, id.Attach)
 	}

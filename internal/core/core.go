@@ -81,10 +81,13 @@ type Core struct {
 	scrubber *scrub.Scrubber
 	secretMu sync.Mutex
 	secrets  []string // exact values capture redacts: the lockfile token, member secrets
-	reviveMu sync.Mutex
-	reviver  func(sessionID string) (string, error) // the GUI's Revive (SetReviver); nil headless
-	cancel   context.CancelFunc
-	done     chan struct{} // closed when the service goroutines finish; nil before they start
+	// personSecret is the loopback API's per-run secret for the person's
+	// view (decision D10(a)): memory only, for the GUI.
+	personSecret string
+	reviveMu     sync.Mutex
+	reviver      func(sessionID string) (string, error) // the GUI's Revive (SetReviver); nil headless
+	cancel       context.CancelFunc
+	done         chan struct{} // closed when the service goroutines finish; nil before they start
 }
 
 // Start brings everything up and writes the lockfile. Close undoes it.
@@ -241,6 +244,7 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		return nil, err
 	}
 	srv := api.New(c, token)
+	c.personSecret = srv.PersonSecret()
 	changes := c.presence.Subscribe(ctx)
 	c.done = make(chan struct{})
 	go func() {
@@ -393,6 +397,11 @@ func (c *Core) sweep(ctx context.Context) {
 		}
 	}
 }
+
+// PersonCredential is this run's secret for the person's view of the
+// loopback API (X-Irori-Person, decision D10(a)). Only the GUI process may
+// hand it on; it is never written to disk.
+func (c *Core) PersonCredential() string { return c.personSecret }
 
 // Inbox is the messaging core.
 func (c *Core) Inbox() *inbox.Inbox { return c.inbox }

@@ -3,10 +3,8 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/StephenSHorton/irori/internal/core"
-	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/pair"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -49,36 +47,14 @@ type DeviceView struct {
 	Warning string `json:"warning,omitempty"`
 }
 
-// Devices lists the person's devices, this one first.
+// Devices lists the person's devices, this one first (the same rows as
+// GET /v1/devices).
 func (s *DevicesService) Devices() []DeviceView {
-	self := s.core.Device()
-	net := s.core.NetStatus()
-	out := []DeviceView{{DeviceID: self.ID, Name: self.Name, Role: identity.RoleDesktop, This: true, State: "this"}}
-	if net.State == "removed" {
-		out[0].Warning = "Removed from your devices. Reset this device to pair it again."
-	} else if net.Restoring != "" {
-		out[0].Warning = "Restoring this device's rows from another device."
-	}
-	for _, d := range s.core.CertifiedDevices() {
-		if d.Cert.DeviceID == self.ID {
-			out[0].Role = d.Cert.Role
-		}
-	}
-	for _, p := range net.Peers {
-		v := DeviceView{DeviceID: p.DeviceID, Name: p.Label, Role: p.Role, State: p.State, Revoked: p.Revoked}
-		switch {
-		case p.Revoked:
-			v.Warning = "Removed."
-		case p.Stopped != "":
-			v.Warning = "It " + p.Stopped + ". Remove it."
-		case p.Old:
-			v.Warning = "It runs an older Irori. Update it."
-		case p.Ahead:
-			v.Warning = "Its clock is ahead: its rows are waiting."
-		case p.Refused > 0:
-			v.Warning = fmt.Sprintf("%d of its rows were refused.", p.Refused)
-		}
-		out = append(out, v)
+	rows := s.core.Mesh().Devices(false)
+	out := make([]DeviceView, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, DeviceView{DeviceID: r.DeviceID, Name: r.Name, Role: r.Role, This: r.This,
+			State: r.State, Revoked: r.Revoked, Warning: r.Warning})
 	}
 	return out
 }

@@ -83,6 +83,16 @@ func start(t *testing.T) (*fakeBackend, int) {
 	return b, startWith(t, b)
 }
 
+// personSecrets maps a test server's port to its person secret (D10(a)).
+var personSecrets sync.Map
+
+// personOf is the person secret of the test server on port.
+func personOf(port int) string {
+	v, _ := personSecrets.Load(port)
+	s, _ := v.(string)
+	return s
+}
+
 // startWith serves b and returns its port.
 func startWith(t *testing.T, b Backend) int {
 	t.Helper()
@@ -92,7 +102,9 @@ func startWith(t *testing.T, b Backend) int {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- New(b, testToken).Serve(ctx, ln) }()
+	srv := New(b, testToken)
+	personSecrets.Store(ln.Addr().(*net.TCPAddr).Port, srv.PersonSecret())
+	go func() { done <- srv.Serve(ctx, ln) }()
 	t.Cleanup(func() {
 		cancel()
 		select {

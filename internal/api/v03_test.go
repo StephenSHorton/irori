@@ -182,7 +182,11 @@ func getJSON(t *testing.T, port int, path string, out any) {
 // wantStatus GETs path with the token and checks a JSON error status.
 func wantStatus(t *testing.T, port int, path string, code int) {
 	t.Helper()
-	resp := do(t, port, "GET", path, bearer(testToken))
+	// As the person: these check routes and parameters, not viewers.
+	resp := do(t, port, "GET", path, func(r *http.Request) {
+		bearer(testToken)(r)
+		r.Header.Set(HeaderPerson, personOf(port))
+	})
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != code {
 		t.Fatalf("GET %s: status %d, want %d: %s", path, resp.StatusCode, code, body)

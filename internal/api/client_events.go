@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -44,13 +45,37 @@ type StreamItem struct {
 // items arrive on the channel, which closes when the stream ends. Cancel
 // ctx to stop it; the reader goroutine exits with it.
 func (c *Client) EventsStream(ctx context.Context, kinds []string, since int64) (<-chan StreamItem, error) {
+	sinceQ := ""
+	if since >= 0 {
+		sinceQ = strconv.FormatInt(since, 10)
+	}
+	return c.eventsStream(ctx, kinds, sinceQ)
+}
+
+// EventsStreamFrom is EventsStream with a vector since (v0.4 §6.8): each
+// device it names is replayed after its seq; the rest arrive live. An
+// empty vector replays nothing.
+func (c *Client) EventsStreamFrom(ctx context.Context, kinds []string, since store.Vector) (<-chan StreamItem, error) {
+	devs := make([]string, 0, len(since))
+	for d := range since {
+		devs = append(devs, d)
+	}
+	sort.Strings(devs)
+	parts := make([]string, len(devs))
+	for i, d := range devs {
+		parts[i] = d + ":" + strconv.FormatInt(since[d], 10)
+	}
+	return c.eventsStream(ctx, kinds, strings.Join(parts, ","))
+}
+
+func (c *Client) eventsStream(ctx context.Context, kinds []string, since string) (<-chan StreamItem, error) {
 	const path = "/v1/events/stream"
 	q := url.Values{}
 	if len(kinds) > 0 {
 		q.Set("kinds", strings.Join(kinds, ","))
 	}
-	if since >= 0 {
-		q.Set("since", strconv.FormatInt(since, 10))
+	if since != "" {
+		q.Set("since", since)
 	}
 	u := c.impl.base + path
 	if len(q) > 0 {

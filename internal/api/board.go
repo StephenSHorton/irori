@@ -44,17 +44,27 @@ func (h *handler) board(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-// viewer is who a browsing request reads as: "" (the person) with no
-// identity header, else the attached session's or member's key. A header
-// that is sent but doesn't resolve (empty or blank included) is 403
-// (already written), never the person's view.
+// viewer is who a browsing request reads as: "" (the person) with this
+// run's person secret, the attached session's or member's key with theirs,
+// and AgentViewer with none (decision D10(a): the bearer token alone is an
+// unidentified agent). A header that is sent but doesn't resolve (empty or
+// blank included), or two at once, is 403 (already written), never a wider
+// view.
 func (h *handler) viewer(w http.ResponseWriter, r *http.Request) (string, bool) {
-	if len(r.Header.Values(attach.HeaderAttach)) == 0 && len(r.Header.Values(attach.HeaderMember)) == 0 {
+	agentHdr := len(r.Header.Values(attach.HeaderAttach)) > 0 || len(r.Header.Values(attach.HeaderMember)) > 0
+	if present, ok := h.s.asPerson(r); present {
+		if !ok || agentHdr {
+			writeError(w, http.StatusForbidden, "wrong "+HeaderPerson+" secret (only the Irori app holds it; send it alone)")
+			return "", false
+		}
 		return "", true
+	}
+	if !agentHdr {
+		return AgentViewer, true
 	}
 	c, ok := h.caller(r)
 	if !ok {
-		writeError(w, http.StatusForbidden, "unknown or superseded "+attach.HeaderAttach+" / "+attach.HeaderMember+" secret (send at most one, or neither for the person's view)")
+		writeError(w, http.StatusForbidden, "unknown or superseded "+attach.HeaderAttach+" / "+attach.HeaderMember+" secret (send at most one)")
 		return "", false
 	}
 	return c.sender.Key, true
@@ -260,6 +270,9 @@ func (h *handler) show(w http.ResponseWriter, r *http.Request, viewer string) {
 func (h *handler) overview(w http.ResponseWriter, r *http.Request, viewer string) {
 	agent := strings.TrimSpace(r.URL.Query().Get("agent"))
 	switch {
+	case viewer == AgentViewer:
+		writeError(w, http.StatusForbidden, "an overview carries an agent's inbox: send that agent's "+attach.HeaderAttach+" or "+attach.HeaderMember+" secret")
+		return
 	case viewer != "" && agent != "" && agent != viewer:
 		writeError(w, http.StatusForbidden, "an agent reads only its own overview")
 		return
