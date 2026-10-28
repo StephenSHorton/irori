@@ -16,14 +16,17 @@ import (
 func (b *inbox) writerOK(ev store.Event) bool {
 	switch ev.Kind {
 	case KindDelivery:
-		var r struct {
-			DeliveryID string `json:"deliveryId"`
-		}
+		var r deliveryRow
 		if json.Unmarshal(ev.Payload, &r) != nil {
 			return true // apply reports it
 		}
 		d := b.dels[r.DeliveryID]
 		switch {
+		case d == nil && r.To != "" && !owner.MayWrite(r.To, ev.DeviceID):
+			// The sender's first row for another device's agent is only a
+			// suggestion (§6.3): queued, with no hold decision and no wake,
+			// so the host's own hold() always runs on it.
+			return r.State == Queued && r.Hold == "" && r.WakeID == ""
 		case d == nil:
 			return true // the first row: the sender's device writes it
 		case d.To != "":

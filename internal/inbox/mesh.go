@@ -61,6 +61,12 @@ func (b *inbox) owns(d *drec) bool {
 // delivery. The Core runs it once.
 func (b *Inbox) Follow(ctx context.Context) { b.impl.follow(ctx) }
 
+// CatchUp folds what other devices wrote and runs this device's owner pass
+// (its own hold policy on their queued deliveries) once, now. The Core runs
+// it before the API serves, so an attach stream can't get a wake for a
+// delivery this device hasn't decided the hold of yet.
+func (b *Inbox) CatchUp(ctx context.Context) { b.impl.catchUp(ctx) }
+
 func (b *inbox) follow(ctx context.Context) {
 	sub := b.st.Subscribe(ctx)
 	b.catchUp(ctx)

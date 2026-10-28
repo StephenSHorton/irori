@@ -68,6 +68,9 @@ type Frame struct {
 	// (its device's earlier rows are missing) is learned (§5.2).
 	Events []Row `json:"events,omitempty"`
 	Loose  bool  `json:"loose,omitempty"`
+	// Batch numbers a rows frame on its connection, and its ack vector
+	// echoes it, so a late ack is never taken for a newer batch's.
+	Batch int64 `json:"batch,omitempty"`
 
 	// ping / pong
 	T int64 `json:"t,omitempty"`

@@ -136,11 +136,10 @@ func (c *Core) attachmentDst(reader, name, to string) (string, error) {
 	}
 	to = filepath.Clean(to)
 	// Resolve what exists of it, so a link can't point the write into the
-	// data dir.
-	parent := filepath.Dir(to)
-	if real, err := filepath.EvalSymlinks(parent); err == nil {
-		parent = real
-	}
+	// data dir: the longest prefix that exists is resolved and the rest
+	// (folders CopyOut will make) joined back on, so a link above a missing
+	// folder is followed too.
+	parent := resolveExisting(filepath.Dir(to))
 	realData := data
 	if real, err := filepath.EvalSymlinks(data); err == nil {
 		realData = real
@@ -149,6 +148,27 @@ func (c *Core) attachmentDst(reader, name, to string) (string, error) {
 		return "", fmt.Errorf("%s is inside Irori's data dir; leave to empty for the default folder", to)
 	}
 	return to, nil
+}
+
+// resolveExisting is p with its longest existing prefix's symlinks
+// resolved and the missing rest joined back on.
+func resolveExisting(p string) string {
+	var rest []string
+	cur := p
+	for {
+		if real, err := filepath.EvalSymlinks(cur); err == nil {
+			for i := len(rest) - 1; i >= 0; i-- {
+				real = filepath.Join(real, rest[i])
+			}
+			return real
+		}
+		up := filepath.Dir(cur)
+		if up == cur {
+			return p
+		}
+		rest = append(rest, filepath.Base(cur))
+		cur = up
+	}
 }
 
 // freeName is dst, or dst with " (2)", " (3)" ... before its extension when

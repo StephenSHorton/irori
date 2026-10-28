@@ -100,14 +100,26 @@ func TestOwnerOnlyRowsFromTheWrongDevice(t *testing.T) {
 	foreign(3, KindTurnEngaged, turnRow{Agent: keyB, WakeID: "w_forged", TurnID: "t"})
 	// A first row for a new delivery is the sender's to write: accepted.
 	foreign(4, KindDelivery, deliveryRow{DeliveryID: "del_from_dev2", MessageID: d.MessageID, To: keyB, State: Queued, By: "dev2/x"})
+	// But only as a suggestion: queued, no hold decision, no wake. One that
+	// skips the host's own hold() is ignored.
+	foreign(5, KindDelivery, deliveryRow{DeliveryID: "del_prewoken", MessageID: d.MessageID, To: keyB, State: Queued, WakeID: "w_x", By: "dev2/x"})
+	foreign(6, KindDelivery, deliveryRow{DeliveryID: "del_delivered", MessageID: d.MessageID, To: keyB, State: Delivered, By: "dev2/x"})
 
 	h.reopen()
 	got, ok := h.ib.Get(d.ID)
 	if !ok || got.State != Queued || got.WakeID == "w_forged" {
 		t.Fatalf("delivery after wrong-device rows: %+v", got)
 	}
-	if n := h.ib.IgnoredRows(); n != 3 {
-		t.Fatalf("ignored %d rows, want 3", n)
+	if n := h.ib.IgnoredRows(); n != 5 {
+		t.Fatalf("ignored %d rows, want 5", n)
+	}
+	if by := h.ib.IgnoredBy(); by["dev2"] != 5 {
+		t.Fatalf("ignored per device %v", by)
+	}
+	for _, id := range []string{"del_prewoken", "del_delivered"} {
+		if _, ok := h.ib.Get(id); ok {
+			t.Fatalf("a first row that skipped the host's hold landed: %s", id)
+		}
 	}
 	if _, ok := h.ib.Get("del_from_dev2"); !ok {
 		t.Fatal("a new delivery's first row from the sender's device was dropped")

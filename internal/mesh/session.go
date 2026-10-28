@@ -37,6 +37,7 @@ type session struct {
 	peerVec   store.Vector
 	sentLoose bool
 	inflight  bool
+	batch     int64 // the number of the rows frame in flight; its ack echoes it
 	sentAt    time.Time
 	extent    map[string][2]int64 // the batch in flight: device -> first, last seq
 	stuck     map[string]bool     // devices the peer didn't take; skipped until the next tick
@@ -268,6 +269,8 @@ func (s *session) next(ctx context.Context) []Frame {
 		ext[r.D] = e
 	}
 	s.mu.Lock()
+	s.batch++
+	f.Batch = s.batch
 	s.inflight, s.sentAt, s.extent = true, s.n.now(), ext
 	s.mu.Unlock()
 	return []Frame{f}
@@ -465,7 +468,9 @@ func (s *session) onVector(f Frame) {
 			delete(s.stuck, d)
 		}
 	}
-	if f.Ack && s.inflight {
+	// An ack for an earlier batch (it came after the resend timeout) says
+	// nothing about the one in flight.
+	if f.Ack && s.inflight && (f.Batch == 0 || f.Batch == s.batch) {
 		for d, ex := range s.extent {
 			got := f.Vector[d]
 			if got < ex[1] && got >= ex[0]-1 {
@@ -514,19 +519,22 @@ func (s *session) onRows(ctx context.Context, f Frame) {
 		}
 	}
 	s.n.synced(s.conn.ID())
-	s.ack(ctx)
+	s.ack(ctx, f.Batch)
 }
 
-func (s *session) ack(ctx context.Context) { s.vector(ctx, true) }
+func (s *session) ack(ctx context.Context, batch int64) { s.vectorFor(ctx, true, batch) }
 
 // vector queues this device's vector; ack marks it as the answer to a rows
 // frame, which the sender's next batch waits for.
-func (s *session) vector(ctx context.Context, ack bool) {
+func (s *session) vector(ctx context.Context, ack bool) { s.vectorFor(ctx, ack, 0) }
+
+// vectorFor is vector, echoing the rows frame's batch number in an ack.
+func (s *session) vectorFor(ctx context.Context, ack bool, batch int64) {
 	v, err := s.n.o.Store.Vector(ctx)
 	if err != nil {
 		return
 	}
-	s.control(Frame{Type: FrameVector, Vector: v, Ack: ack})
+	s.control(Frame{Type: FrameVector, Vector: v, Ack: ack, Batch: batch})
 }
 
 // refusal handles the rest of a device's run after Insert refused rest[0].

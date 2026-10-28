@@ -138,3 +138,21 @@ func TestAttachmentsTravelWithMessagesAndComments(t *testing.T) {
 		t.Fatalf("comment file at %s = %q", p, b)
 	}
 }
+
+// A link to the data dir with a missing folder under it still counts as
+// inside the data dir: what exists of the path is resolved, not only its
+// parent.
+func TestAttachmentDstFollowsALinkAboveAMissingFolder(t *testing.T) {
+	c := startMeshCore(t, nil, t.TempDir())
+	link := filepath.Join(t.TempDir(), "to-data")
+	if err := os.Symlink(c.opts.DataDir, link); err != nil {
+		t.Skipf("can't make a symlink here: %v", err)
+	}
+	if _, err := c.attachmentDst("x/y", "f.txt", filepath.Join(link, "newdir", "f.txt")); err == nil {
+		t.Fatal("a write through a link into the data dir was allowed")
+	}
+	ok := filepath.Join(t.TempDir(), "newdir", "f.txt")
+	if _, err := c.attachmentDst("x/y", "f.txt", ok); err != nil {
+		t.Fatalf("an ordinary new folder: %v", err)
+	}
+}
