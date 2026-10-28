@@ -3,7 +3,7 @@ module github.com/StephenSHorton/irori
 go 1.26.0
 
 require (
-	github.com/StephenSHorton/go-toast v0.1.0
+	github.com/StephenSHorton/go-toast v0.2.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.98
 	golang.org/x/sys v0.49.0
