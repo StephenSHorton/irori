@@ -259,8 +259,9 @@ func runPairReset() error {
 func pairCore(ctx context.Context, opts core.Options) (*core.Core, func(), error) {
 	c, err := core.Start(ctx, opts)
 	if errors.Is(err, core.ErrAlreadyRunning) {
-		// It started between the API check and here.
-		return nil, nil, errors.New("Irori just started on this device: run `irori pair join` again")
+		// It started between the API check and here, or it runs but its
+		// API doesn't answer.
+		return nil, nil, errors.New("Irori is running on this device but didn't answer: run `irori pair join` again, or quit Irori first")
 	}
 	if err != nil {
 		return nil, nil, err
