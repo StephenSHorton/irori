@@ -102,9 +102,11 @@ function DeviceRow({
       ? "removed"
       : d.state === "connected"
         ? "online"
-        : seen
-          ? `offline · seen ${relativeTime(seen, now)}`
-          : "offline · never seen"
+        : d.state === "recent" && seen
+          ? `seen ${relativeTime(seen, now)}`
+          : seen
+            ? `offline · seen ${relativeTime(seen, now)}`
+            : "offline · never seen"
   return (
     <li className="grid grid-cols-[8px_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-0.5 text-[13px]">
       <span

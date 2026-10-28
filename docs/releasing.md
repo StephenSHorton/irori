@@ -312,7 +312,8 @@ has the steps. For releases:
 - A headless node (`irori node install`, which registers
   `irori serve --headless` at logon in Task Scheduler) has no updater:
   replace its `irori.exe` by hand, and run `irori node install` again if
-  the path changed. `irori node uninstall` removes the entry.
+  the path changed. While it runs, the desktop app can't start on that
+  machine; `irori node uninstall` removes the entry.
 - The macOS build is still unsigned (above); pairing a Mac works the same
   way once it opens.
 
