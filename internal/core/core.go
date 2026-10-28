@@ -22,6 +22,8 @@ import (
 	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/inbox"
+	"github.com/StephenSHorton/irori/internal/mesh"
+	"github.com/StephenSHorton/irori/internal/mesh/roomnet"
 	"github.com/StephenSHorton/irori/internal/notify"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/repo"
@@ -42,6 +44,12 @@ type Options struct {
 	// Keystore seals the person and device keys; nil is the OS default
 	// (DPAPI on Windows, the Keychain on macOS). Tests pass a file keystore.
 	Keystore identity.Keystore
+	// Net is the transport the mesh runs on once the person has a second
+	// device (v0.4 §4.5); nil is go-room on the public brokers, with the
+	// relay from relay.json. Tests pass a mesh.FakeNet.
+	Net mesh.Transport
+	// NetIntervals shortens the mesh's timers (tests).
+	NetIntervals mesh.Intervals
 }
 
 // Core is one running Irori.
@@ -59,6 +67,8 @@ type Core struct {
 	notifier *notify.Notifier
 	members  *members
 	capture  *capture.Capture
+	mesh     *mesh.Node
+	netClose func() // stops the default transport's relay; nil for a passed-in one
 	scrubber *scrub.Scrubber
 	secretMu sync.Mutex
 	secrets  []string // exact values capture redacts: the lockfile token, member secrets
@@ -154,6 +164,21 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	c.notifier = notify.New(notify.Config{Dir: opts.DataDir, Headless: opts.Headless})
 	c.tools = tools.New(c)
 
+	// The net layer (v0.4 §4.5) is built here but opens nothing until the
+	// person has a second device: a device on its own makes no broker
+	// connection and binds no UDP socket.
+	tr := opts.Net
+	if tr == nil {
+		relay, err := mesh.LoadRelay(opts.DataDir)
+		if err != nil {
+			log.Printf("relay setting: %v (using Direct only)", err)
+		}
+		rt := roomnet.New(roomnet.Options{Self: id.ID, Relay: relay, Logf: log.Printf})
+		tr, c.netClose = rt, rt.Close
+	}
+	c.mesh = mesh.New(mesh.Options{Store: st, Ident: ident, Chain: chain, Net: tr, Version: opts.Version,
+		Intervals: opts.NetIntervals, Logf: log.Printf})
+
 	token, err := discovery.NewToken()
 	if err != nil {
 		c.Close()
@@ -182,6 +207,16 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 			// Backfill runs inside Run, after Start has returned.
 			if err := c.capture.Run(ctx); err != nil && ctx.Err() == nil {
 				log.Printf("capture: %v", err)
+			}
+		}()
+		meshDone := make(chan struct{})
+		defer func() { <-meshDone }() // the mesh stops inserting before the log closes
+		go func() {
+			defer close(meshDone)
+			// Run waits for a second device before it opens anything; any
+			// failure leaves a working single-device app.
+			if err := c.mesh.Run(ctx); err != nil && ctx.Err() == nil {
+				log.Printf("mesh: %v", err)
 			}
 		}()
 		go c.record(ctx, changes)
@@ -214,6 +249,9 @@ func (c *Core) Close() error {
 		case <-c.done:
 		case <-time.After(5 * time.Second):
 		}
+	}
+	if c.netClose != nil {
+		c.netClose()
 	}
 	_ = discovery.Remove(c.opts.DataDir, os.Getpid())
 	return c.store.Close()
@@ -296,10 +334,18 @@ func (c *Core) UserSender() inbox.Sender {
 func (c *Core) IsOwner(key string) bool { return c.chain.IsOwner(key) }
 
 // Person is this device's person (v0.4 identity).
-func (c *Core) Person() identity.Person { return c.ident.Person }
+func (c *Core) Person() identity.Person { return c.ident.Current() }
 
 // CertifiedDevices lists every device ever certified to the person.
 func (c *Core) CertifiedDevices() []identity.DeviceState { return c.chain.Devices() }
+
+// Mesh is the net layer (v0.4 §4, §5). It runs only once the person has a
+// second device.
+func (c *Core) Mesh() *mesh.Node { return c.mesh }
+
+// NetStatus is the mesh's state and every other device, for Devices and
+// GET /v1/devices.
+func (c *Core) NetStatus() mesh.Status { return c.mesh.Status() }
 
 // Version implements api.Backend.
 func (c *Core) Version() string { return c.opts.Version }
