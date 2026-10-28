@@ -201,7 +201,7 @@ func pairUp(t *testing.T, a, b *dev) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(st.QR, QRPrefix) || st.Code == "" {
+	if !strings.HasPrefix(st.QR, QRPrefix) || st.Code == "" || !strings.HasPrefix(st.QRSVG, "<svg") {
 		t.Fatalf("add status %+v", st)
 	}
 	if _, err := b.pair.Join(strings.ToLower(st.Code)); err != nil {

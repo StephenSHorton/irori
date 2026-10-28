@@ -63,3 +63,25 @@ func (b *Inbox) IgnoredRows() int {
 	defer b.impl.mu.Unlock()
 	return b.impl.ignored
 }
+
+// ignore counts one row of dev ignored by the writer rules (§6.0). b.mu is
+// held.
+func (b *inbox) ignore(dev string) {
+	b.ignored++
+	if b.ignoredBy == nil {
+		b.ignoredBy = map[string]int{}
+	}
+	b.ignoredBy[dev]++
+}
+
+// IgnoredBy counts the ignored rows per writing device, for Devices' warning
+// line (§8, §9).
+func (b *Inbox) IgnoredBy() map[string]int {
+	b.impl.mu.Lock()
+	defer b.impl.mu.Unlock()
+	out := make(map[string]int, len(b.impl.ignoredBy))
+	for d, n := range b.impl.ignoredBy {
+		out[d] = n
+	}
+	return out
+}

@@ -170,13 +170,14 @@ type leaseRec struct {
 }
 
 type coord struct {
-	st      *store.Store
-	roster  interface{ Agents() []presence.AgentCard }
-	now     func() time.Time
-	grace   time.Duration
-	ownerFn func(string) bool // Options.IsOwner
-	revoked func(string) bool // Options.Revoked
-	ignored int               // owner-only rows from the wrong device (v0.4 §6.0)
+	st        *store.Store
+	roster    interface{ Agents() []presence.AgentCard }
+	now       func() time.Time
+	grace     time.Duration
+	ownerFn   func(string) bool // Options.IsOwner
+	revoked   func(string) bool // Options.Revoked
+	ignored   int               // owner-only rows from the wrong device (v0.4 §6.0)
+	ignoredBy map[string]int    // and per writing device
 
 	mu          sync.Mutex
 	tasks       map[string]*Task
@@ -320,7 +321,7 @@ func (c *Coord) IgnoredRows() int {
 // before the append.
 func (c *coord) apply(ev store.Event) {
 	if !c.writerOK(ev) {
-		c.ignored++
+		c.ignore(ev.DeviceID)
 		return
 	}
 	at := func(t time.Time) time.Time {
@@ -1213,4 +1214,26 @@ func (c *coord) releaseGone(ctx context.Context, now time.Time) error {
 		}
 	}
 	return nil
+}
+
+// ignore counts one row of dev ignored by the writer rules (§6.0). c.mu is
+// held (or replay runs).
+func (c *coord) ignore(dev string) {
+	c.ignored++
+	if c.ignoredBy == nil {
+		c.ignoredBy = map[string]int{}
+	}
+	c.ignoredBy[dev]++
+}
+
+// IgnoredBy counts the ignored rows per writing device, for Devices' warning
+// line (§8, §9).
+func (c *Coord) IgnoredBy() map[string]int {
+	c.impl.mu.Lock()
+	defer c.impl.mu.Unlock()
+	out := make(map[string]int, len(c.impl.ignoredBy))
+	for d, n := range c.impl.ignoredBy {
+		out[d] = n
+	}
+	return out
 }

@@ -88,10 +88,12 @@ type Joiner struct {
 
 // Status is the current (or last) pairing, for the Devices dialog.
 type Status struct {
-	Mode    string    `json:"mode"`
-	State   string    `json:"state"`
-	Code    string    `json:"code,omitempty"` // add, while waiting
-	QR      string    `json:"qr,omitempty"`   // add: the QR code's text
+	Mode  string `json:"mode"`
+	State string `json:"state"`
+	Code  string `json:"code,omitempty"` // add, while waiting
+	QR    string `json:"qr,omitempty"`   // add: the QR code's text
+	// QRSVG (add) is QR drawn as an SVG, for the window to show.
+	QRSVG   string    `json:"qrSvg,omitempty"`
 	Expires time.Time `json:"expires,omitzero"`
 	Role    string    `json:"role,omitempty"` // add: the role B gets
 	// Fingerprint (add side) is this device's key, shown beside the code:
@@ -294,7 +296,7 @@ func (p *Pairer) Add(role string) (Status, error) {
 		return Status{}, fmt.Errorf("pair: open the pairing room: %w", err)
 	}
 	p.cur = s
-	p.st = Status{Mode: ModeAdd, State: StateWaiting, Code: code, QR: QR(code), Expires: p.o.Now().Add(p.o.Window), Role: role,
+	p.st = Status{Mode: ModeAdd, State: StateWaiting, Code: code, QR: QR(code), QRSVG: QRSVG(QR(code)), Expires: p.o.Now().Add(p.o.Window), Role: role,
 		Fingerprint: Fingerprint(p.o.Ident.DevicePub())}
 	s.timer = time.AfterFunc(p.o.Window, func() { s.fail(StateExpired, "Nobody used the code in time. Make a new one.", "") })
 	p.changed()
@@ -668,7 +670,7 @@ func (s *session) run(c mesh.Conn) {
 	s.words = words
 	if s.add {
 		p.st.State = StateConfirm
-		p.st.Code, p.st.QR = "", ""
+		p.st.Code, p.st.QR, p.st.QRSVG = "", "", ""
 		j := &Joiner{DeviceID: c.ID(), Name: s.hello.Name, OS: s.hello.OS, Fingerprint: Fingerprint(c.Pub())}
 		if f.Name != "" {
 			j.Name = f.Name
@@ -888,7 +890,7 @@ func (s *session) finish() {
 		return
 	}
 	s.closed = true
-	p.st.State, p.st.Error, p.st.Code, p.st.QR = StateDone, "", "", ""
+	p.st.State, p.st.Error, p.st.Code, p.st.QR, p.st.QRSVG = StateDone, "", "", "", ""
 	p.st.Words = nil
 	if p.cur == s {
 		p.cur = nil
@@ -909,7 +911,7 @@ func (s *session) fail(state, why, tell string) {
 	}
 	s.closed = true
 	conn := s.conn
-	p.st.State, p.st.Error, p.st.Code, p.st.QR = state, why, "", ""
+	p.st.State, p.st.Error, p.st.Code, p.st.QR, p.st.QRSVG = state, why, "", "", ""
 	p.st.Words = nil
 	if p.cur == s {
 		p.cur = nil

@@ -21,8 +21,10 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 
+	"github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/scrypt"
 
 	"github.com/StephenSHorton/irori/internal/mesh"
@@ -105,6 +107,29 @@ func NormalizeCode(in string) (string, bool) {
 
 // QR is the text of code's QR code.
 func QR(code string) string { return QRPrefix + code }
+
+// QRSVG draws text as a QR code, an SVG of dark squares on white, so the
+// window shows the code without it ever passing through the clipboard
+// (§3 step 1). "" if it can't be drawn.
+func QRSVG(text string) string {
+	q, err := qrcode.New(text, qrcode.Medium)
+	if err != nil {
+		return ""
+	}
+	bits := q.Bitmap() // includes the quiet zone
+	n := len(bits)
+	var b strings.Builder
+	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" shape-rendering="crispEdges"><rect width="%d" height="%d" fill="#fff"/><path fill="#000" d="`, n, n, n, n)
+	for y, row := range bits {
+		for x, dark := range row {
+			if dark {
+				fmt.Fprintf(&b, "M%d %dh1v1h-1z", x, y)
+			}
+		}
+	}
+	b.WriteString(`"/></svg>`)
+	return b.String()
+}
 
 // RoomSecret is the pairing room of code: scrypt(code, salt = App), the
 // first 32 bytes the sealing key and the topic App + "/" + hex(the next 16).

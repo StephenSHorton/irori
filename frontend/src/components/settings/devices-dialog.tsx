@@ -418,8 +418,16 @@ function ShowCode({
   return (
     <div className="grid gap-2">
       <p className="text-[13px] text-ink">
-        On the new device, open Settings → Devices → Join with a code and type:
+        On the new device, open Settings → Devices → Join with a code, and
+        scan this or type the code:
       </p>
+      {s.qrSvg && (
+        <img
+          alt="Pairing code as a QR code"
+          className="mx-auto size-36 rounded-md bg-white"
+          src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(s.qrSvg)}`}
+        />
+      )}
       <p className="rounded-lg bg-muted px-3 py-2 text-center font-mono text-lg tracking-widest text-ink select-all">
         {s.code}
       </p>

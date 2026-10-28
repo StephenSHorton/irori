@@ -92,8 +92,11 @@ type Options struct {
 	// and the folds stand alone (§8). Secrets still go only to certified
 	// devices.
 	TrustAnyPeer bool
-	Logf         func(format string, args ...any)
-	Now          func() time.Time
+	// Ignored counts, per writing device, the rows the folds ignored for
+	// the writer rules (§6.0), for Devices' warning line. Nil: none.
+	Ignored func() map[string]int
+	Logf    func(format string, args ...any)
+	Now     func() time.Time
 }
 
 // Node is the Core side of the mesh: it starts the net layer once the
@@ -143,6 +146,7 @@ type peerInfo struct {
 	lastSync     time.Time
 	lastPresence time.Time
 	skew         time.Duration
+	vec          store.Vector // the newest vector it sent (hello or vector)
 	refused      int
 	schemaOld    bool
 }
@@ -1017,10 +1021,15 @@ type PeerState struct {
 	LastSync time.Time     `json:"lastSync,omitzero"`
 	Skew     time.Duration `json:"skew,omitempty"`
 	Refused  int           `json:"refused,omitempty"`
-	Held     int           `json:"held,omitempty"`
-	Stopped  string        `json:"stopped,omitempty"` // why its stream stopped here
-	Ahead    bool          `json:"ahead,omitempty"`   // its rows wait for wall time
-	Old      bool          `json:"old,omitempty"`     // its schema is too old to sync
+	Ignored  int           `json:"ignored,omitempty"` // its rows the folds ignored (§6.0)
+	// Pending (a removed device) is how many of the remaining devices,
+	// this one included, have seen its removal, of Remaining.
+	Pending   int    `json:"pending,omitempty"`
+	Remaining int    `json:"remaining,omitempty"`
+	Held      int    `json:"held,omitempty"`
+	Stopped   string `json:"stopped,omitempty"` // why its stream stopped here
+	Ahead     bool   `json:"ahead,omitempty"`   // its rows wait for wall time
+	Old       bool   `json:"old,omitempty"`     // its schema is too old to sync
 }
 
 // Status is the net layer's state and every other certified device.
@@ -1057,6 +1066,10 @@ func (n *Node) Status() Status {
 		}
 	}
 	n.mu.Unlock()
+	var ignored map[string]int
+	if n.o.Ignored != nil {
+		ignored = n.o.Ignored()
+	}
 	if st.Restoring != "" {
 		if v, err := n.o.Store.Vector(context.Background()); err == nil {
 			if !n.restoringNow(v) {
@@ -1072,7 +1085,10 @@ func (n *Node) Status() Status {
 		k := known[id]
 		ps := PeerState{DeviceID: id, Label: d.Cert.Label, Role: d.Cert.Role, Revoked: d.Revoked, Epoch: k.epoch,
 			LastPing: k.lastPing, LastSync: k.lastSync, Skew: k.skew, Refused: k.refused,
-			Stopped: stopped[id], Ahead: ahead[id], Old: k.schemaOld, State: "offline"}
+			Stopped: stopped[id], Ahead: ahead[id], Old: k.schemaOld, State: "offline", Ignored: ignored[id]}
+		if d.Revoked {
+			ps.Pending, ps.Remaining = n.removalSeen(id, known)
+		}
 		for _, s := range sessions {
 			if s.conn.ID() == id && s.helloDone() {
 				ps.Path, ps.RTT = s.conn.Path(), s.conn.RTT()

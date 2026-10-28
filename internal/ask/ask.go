@@ -133,6 +133,7 @@ type Book struct {
 	answers    map[string][]answer // ask id -> answers, fold order
 	last       map[string]int64
 	ignored    int
+	ignoredBy  map[string]int
 	seq        uint64
 	onResolved []func(Ask)
 	subs       map[chan string]struct{}
@@ -281,7 +282,7 @@ func (b *Book) refoldIfCut(ctx context.Context, vec store.Vector) {
 		for id := range b.asks {
 			was = append(was, id)
 		}
-		b.asks, b.answers, b.last, b.ignored, b.seq = map[string]*Ask{}, map[string][]answer{}, map[string]int64{}, 0, 0
+		b.asks, b.answers, b.last, b.ignored, b.ignoredBy, b.seq = map[string]*Ask{}, map[string][]answer{}, map[string]int64{}, 0, nil, 0
 	}
 	b.mu.Unlock()
 	if !cut {
@@ -308,7 +309,7 @@ func (b *Book) fold(ev store.Event) {
 			return
 		}
 		if a.By != "irori" && owner.DeviceOf(a.By) != ev.DeviceID {
-			b.ignored++ // an agent asks only from its own device
+			b.ignore(ev.DeviceID) // an agent asks only from its own device
 			return
 		}
 		if _, ok := b.asks[a.ID]; ok {
@@ -324,7 +325,7 @@ func (b *Book) fold(ev store.Event) {
 		}
 		// Only the person answers, from a GUI (§2).
 		if ev.Actor != "user" || !b.o.IsOwner(r.By) {
-			b.ignored++
+			b.ignore(ev.DeviceID)
 			return
 		}
 		b.answers[r.AskID] = append(b.answers[r.AskID], answer{answeredRow: r, ref: ev.DeviceID + "/" + strconv.FormatInt(ev.Seq, 10)})
@@ -336,7 +337,7 @@ func (b *Book) fold(ev store.Event) {
 		}
 		a := b.asks[r.AskID]
 		if a == nil || a.Device != ev.DeviceID {
-			b.ignored++ // only the asking device decides (§6.0)
+			b.ignore(ev.DeviceID) // only the asking device decides (§6.0)
 			return
 		}
 		if a.Resolved {
@@ -621,4 +622,26 @@ func (b *Book) Subscribe(ctx context.Context) <-chan string {
 		close(ch)
 	}()
 	return ch
+}
+
+// ignore counts one row of dev ignored by the writer rules (§6.0). b.mu is
+// held.
+func (b *Book) ignore(dev string) {
+	b.ignored++
+	if b.ignoredBy == nil {
+		b.ignoredBy = map[string]int{}
+	}
+	b.ignoredBy[dev]++
+}
+
+// IgnoredBy counts the ignored rows per writing device, for Devices' warning
+// line (§8, §9).
+func (b *Book) IgnoredBy() map[string]int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make(map[string]int, len(b.ignoredBy))
+	for d, n := range b.ignoredBy {
+		out[d] = n
+	}
+	return out
 }

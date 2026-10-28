@@ -51,11 +51,12 @@ type Options struct {
 type Roster struct {
 	o Options
 
-	mu      sync.Mutex
-	cards   map[string]presence.AgentCard // other devices' live cards, by key
-	last    map[string]int64              // device -> highest seq folded
-	ignored int
-	subs    map[chan struct{}]struct{}
+	mu        sync.Mutex
+	cards     map[string]presence.AgentCard // other devices' live cards, by key
+	last      map[string]int64              // device -> highest seq folded
+	ignored   int
+	ignoredBy map[string]int
+	subs      map[chan struct{}]struct{}
 }
 
 // Start replays every other device's agent rows and keeps folding new ones
@@ -107,7 +108,7 @@ func (r *Roster) rebuild(ctx context.Context) error {
 	f := store.Filter{Kinds: kinds, Limit: store.MaxListLimit}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.cards, r.last, r.ignored = cards, last, 0
+	r.cards, r.last, r.ignored, r.ignoredBy = cards, last, 0, nil
 	for {
 		evs, err := r.o.Store.List(ctx, f)
 		if err != nil {
@@ -150,7 +151,7 @@ func (r *Roster) apply(ev store.Event) bool {
 			return false
 		}
 		if owner.DeviceOf(c.Key) != dev {
-			r.ignored++ // a card for another device's agent: only its host writes it
+			r.ignore(dev) // a card for another device's agent: only its host writes it
 			return false
 		}
 		c.DeviceID = dev
@@ -263,4 +264,26 @@ func (r *Roster) notify() {
 		default:
 		}
 	}
+}
+
+// ignore counts one row of dev ignored by the writer rules (§6.0). r.mu is
+// held.
+func (r *Roster) ignore(dev string) {
+	r.ignored++
+	if r.ignoredBy == nil {
+		r.ignoredBy = map[string]int{}
+	}
+	r.ignoredBy[dev]++
+}
+
+// IgnoredBy counts the ignored rows per writing device, for Devices' warning
+// line (§8, §9).
+func (r *Roster) IgnoredBy() map[string]int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(map[string]int, len(r.ignoredBy))
+	for d, n := range r.ignoredBy {
+		out[d] = n
+	}
+	return out
 }

@@ -275,7 +275,19 @@ func TestAnOfflineDeviceGetsTheNewKeyOnThePreviousTopic(t *testing.T) {
 		t.Fatal(err)
 	}
 	eventually(t, "the PC keeps both topics open", func() bool { return len(net.Topics(pc.id())) == 2 })
+	macRow := func() DeviceRow {
+		for _, r := range pc.node.Devices(false) {
+			if r.DeviceID == mac.id() {
+				return r
+			}
+		}
+		return DeviceRow{}
+	}
+	if w := macRow().Warning; w != "Removal pending: seen by 1 of 2 devices." {
+		t.Fatalf("the Mac's line while the node is off: %q", w)
+	}
 	nd.start()
+	eventually(t, "the removal is seen by both", func() bool { return macRow().Warning == "Removed." })
 	eventually(t, "the node adopts epoch 2", func() bool { return nd.ident.Current().Epoch == 2 })
 	eventually(t, "both close the old topic", func() bool {
 		return len(net.Topics(pc.id())) == 1 && len(net.Topics(nd.id())) == 1

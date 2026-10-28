@@ -65,6 +65,8 @@ func (n *Node) Devices(detail bool) []DeviceRow {
 			r.LastSeen = p.LastSync
 		}
 		switch {
+		case p.Revoked && p.Pending < p.Remaining:
+			r.Warning = fmt.Sprintf("Removal pending: seen by %d of %d devices.", p.Pending, p.Remaining)
 		case p.Revoked:
 			r.Warning = "Removed."
 		case p.Stopped != "":
@@ -76,6 +78,9 @@ func (n *Node) Devices(detail bool) []DeviceRow {
 			r.Warning = "Its clock is ahead: its rows are waiting."
 		case p.Refused > 0:
 			r.Warning = fmt.Sprintf("%d of its rows were refused.", p.Refused)
+		case p.Ignored > 0:
+			r.Warning = fmt.Sprintf("%d of its rows were ignored: written by the wrong device. Remove it if you don't know why.", p.Ignored)
+			r.Action = "remove"
 		}
 		if detail {
 			d := p
@@ -84,6 +89,47 @@ func (n *Node) Devices(detail bool) []DeviceRow {
 		out = append(out, r)
 	}
 	return out
+}
+
+// noteVector keeps peer's newest vector, for "Removal pending".
+func (n *Node) noteVector(peer string, v store.Vector) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.info(peer).vec = copyVec(v)
+}
+
+// removalSeen counts the remaining devices (certified, unrevoked, this one
+// included) whose last vector holds a revoke of dev, of how many there are
+// (§3: "Removal pending: seen by 1 of 3 devices"). A device never heard
+// from since counts as not having seen it.
+func (n *Node) removalSeen(dev string, known map[string]peerInfo) (seen, of int) {
+	ctx := context.Background()
+	var revokes []store.Event
+	evs, _ := n.o.Store.List(ctx, store.Filter{Kinds: []string{store.KindPersonDeviceRevoked}, Limit: store.MaxListLimit})
+	for _, ev := range evs {
+		var r identity.DeviceRevoked
+		if json.Unmarshal(ev.Payload, &r) == nil && r.Revoke.DeviceID == dev {
+			revokes = append(revokes, ev)
+		}
+	}
+	for _, d := range n.o.Chain.Devices() {
+		id := d.Cert.DeviceID
+		if d.Revoked {
+			continue
+		}
+		of++
+		if id == n.self {
+			seen++
+			continue
+		}
+		for _, ev := range revokes {
+			if ev.DeviceID == id || known[id].vec[ev.DeviceID] >= ev.Seq {
+				seen++
+				break
+			}
+		}
+	}
+	return seen, of
 }
 
 // revokedBy names the device that wrote the first held revoke of dev (its

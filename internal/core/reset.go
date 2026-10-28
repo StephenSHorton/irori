@@ -84,6 +84,18 @@ func resetIfAsked(dataDir string) error {
 	return nil
 }
 
+// ignoredBy adds up, per writing device, the rows every fold ignored for
+// the writer rules (§6.0): Devices' "rows ignored" line.
+func (c *Core) ignoredBy() map[string]int {
+	out := map[string]int{}
+	for _, m := range []map[string]int{c.inbox.IgnoredBy(), c.coord.IgnoredBy(), c.asks.IgnoredBy(), c.roster.IgnoredBy()} {
+		for d, n := range m {
+			out[d] += n
+		}
+	}
+	return out
+}
+
 // Relay is this device's relay setting and how the relay is doing (§4.4).
 func (c *Core) Relay() (mesh.Relay, mesh.RelayStatus) {
 	r, err := mesh.LoadRelay(c.opts.DataDir)

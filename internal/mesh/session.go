@@ -443,6 +443,7 @@ func (s *session) onHello(ctx context.Context, f Frame) bool {
 	s.mu.Lock()
 	s.helloRecv, s.pEpoch, s.pPub, s.peerVec = true, f.Epoch, f.PersonPub, copyVec(f.Vector)
 	s.mu.Unlock()
+	n.noteVector(peer, f.Vector)
 	n.connected(peer)
 	n.sendSecret(s) // if it is behind, or rotated apart from this device
 	n.Kick()        // its epoch may close or open a topic
@@ -478,6 +479,7 @@ func (s *session) onVector(f Frame) {
 	}
 	s.peerVec = merged
 	s.mu.Unlock()
+	s.n.noteVector(s.conn.ID(), merged)
 	s.poke()
 }
 

@@ -156,7 +156,8 @@ type inbox struct {
 	dev     string
 	ownerFn func(string) bool // Options.IsOwner
 	// ignored counts owner-only rows folded from the wrong device (v0.4 §6.0).
-	ignored int
+	ignored   int
+	ignoredBy map[string]int // and per writing device
 	// Across devices (mesh.go): the highest seq folded per device, the
 	// deliveries whose first request was applied here, and requests folded
 	// at replay that wait for the owner pass.
@@ -356,7 +357,7 @@ func stamp(at time.Time, ev store.Event) time.Time {
 // apply folds one row into memory.
 func (b *inbox) apply(ev store.Event) error {
 	if !b.writerOK(ev) {
-		b.ignored++
+		b.ignore(ev.DeviceID)
 		return nil
 	}
 	switch ev.Kind {
@@ -530,7 +531,7 @@ func (b *inbox) apply(ev store.Event) error {
 		// Only the person decides a held delivery: a request written by
 		// anything but a GUI is ignored and counted.
 		if ev.Actor != "user" || !b.isOwner(r.By) {
-			b.ignored++
+			b.ignore(ev.DeviceID)
 			return nil
 		}
 		if b.replaying {

@@ -314,8 +314,11 @@ has the steps. For releases:
   replace its `irori.exe` by hand, and run `irori node install` again if
   the path changed. While it runs, the desktop app can't start on that
   machine; `irori node uninstall` removes the entry.
-- The macOS build is still unsigned (above); pairing a Mac works the same
-  way once it opens.
+- The macOS build is signed ad hoc until the Apple signing secrets are in
+  the repo (above: release.yml signs and notarizes once they exist);
+  pairing a Mac works the same way once it opens. The first connection to
+  another device raises macOS's Local Network prompt
+  (`NSLocalNetworkUsageDescription`); allow it, or LAN paths are blocked.
 
 ## Test an update end to end
 

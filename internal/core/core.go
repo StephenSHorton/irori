@@ -234,7 +234,7 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	}
 	c.net = tr
 	c.mesh = mesh.New(mesh.Options{Store: st, Ident: ident, Chain: chain, Net: tr, Version: opts.Version,
-		Files: c.files, DataDir: opts.DataDir, Intervals: opts.NetIntervals, Now: opts.Now, Logf: log.Printf})
+		Files: c.files, DataDir: opts.DataDir, Intervals: opts.NetIntervals, Now: opts.Now, Ignored: c.ignoredBy, Logf: log.Printf})
 	// Pairing (v0.4 §3) opens its own room on the same transport, only
 	// while a window is open; GUI and CLI only, never the loopback API.
 	c.pair = pair.New(pair.Options{Net: tr, Ident: ident, Chain: chain, Store: st, DataDir: opts.DataDir,

@@ -150,7 +150,7 @@ func (b *inbox) refold(ctx context.Context) {
 	b.pol = Policy{Mode: Everyone, Block: []string{}, Allow: []string{}}
 	b.running, b.pairs = map[string]turnRow{}, map[string][]time.Time{}
 	b.visibleAt, b.heldFirst = map[string]time.Time{}, map[string]bool{}
-	b.last, b.handled, b.requests, b.ignored = map[string]int64{}, map[string]bool{}, nil, 0
+	b.last, b.handled, b.requests, b.ignored, b.ignoredBy = map[string]int64{}, map[string]bool{}, nil, 0, nil
 	if err := b.replayLocked(ctx); err != nil {
 		log.Printf("inbox: re-fold after a revoke's cut: %v", err)
 	}
