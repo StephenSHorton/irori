@@ -38,3 +38,24 @@ func TestNoStartTimeForMissingPid(t *testing.T) {
 		t.Fatal("start time for a reaped pid")
 	}
 }
+
+// A child that has exited but is not reaped yet (a zombie) is not alive.
+func TestZombieIsNotAlive(t *testing.T) {
+	cmd := exec.Command("/bin/sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Wait() })
+	pid := cmd.Process.Pid
+	if !Alive(pid) {
+		t.Fatal("running child reported dead")
+	}
+	_ = cmd.Process.Kill()
+	deadline := time.Now().Add(3 * time.Second)
+	for Alive(pid) {
+		if time.Now().After(deadline) {
+			t.Fatal("killed, unreaped child still reported alive")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}

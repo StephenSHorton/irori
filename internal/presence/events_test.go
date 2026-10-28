@@ -301,6 +301,7 @@ func TestRunStopsEverything(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if n := runtime.NumGoroutine(); n > base {
-		t.Errorf("%d goroutines after Run, %d before", n, base)
+		buf := make([]byte, 1<<16)
+		t.Errorf("%d goroutines after Run, %d before:\n%s", n, base, buf[:runtime.Stack(buf, true)])
 	}
 }

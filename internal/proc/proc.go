@@ -3,8 +3,9 @@ package proc
 
 import "time"
 
-// Alive reports whether a process with pid exists (a zombie or a process we
-// may not signal still counts as existing).
+// Alive reports whether a process with pid exists (a process we may not
+// signal still counts as existing; so does a zombie, except on macOS, where
+// an exited process waiting for its parent to reap it counts as gone).
 func Alive(pid int) bool {
 	if pid <= 0 {
 		return false
