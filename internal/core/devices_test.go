@@ -22,7 +22,9 @@ import (
 // The multi-Core harness (v0.4 §10): whole Cores (PC, Mac, node) in one
 // process, each with its own data dir, store, keys and fake Claude dir,
 // paired through their own Pairers and joined by FakeNet. Nothing opens a
-// socket beyond each Core's 127.0.0.1 API listener.
+// socket beyond each Core's 127.0.0.1 API listener. home_test.go runs the
+// same harness over go-room: a MemLAN and the home server's real hub and
+// TURN relay on 127.0.0.1.
 
 type hcore struct {
 	t       *testing.T
@@ -34,6 +36,7 @@ type hcore struct {
 	session string // the one Claude session this device hosts, if any
 	dev     string // its device id, kept while it is stopped
 	clk     *clock // its wall clock: real time plus an offset
+	edit    func(*Options)
 }
 
 // clock is a device's wall clock: real time plus an offset tests move.
@@ -74,8 +77,15 @@ func newHCore(t *testing.T, net *mesh.FakeNet, name, session string) *hcore {
 
 func (h *hcore) start() {
 	h.t.Helper()
-	c, err := Start(context.Background(), Options{DataDir: h.data, ClaudeDir: h.claude, Version: "0.4.0-test", Headless: true,
-		Keystore: identity.FileKeystore{}, Net: h.net, NetIntervals: fastNet, Now: h.clk.Now})
+	o := Options{DataDir: h.data, ClaudeDir: h.claude, Version: "0.4.0-test", Headless: true,
+		Keystore: identity.FileKeystore{}, NetIntervals: fastNet, Now: h.clk.Now}
+	if h.net != nil {
+		o.Net = h.net
+	}
+	if h.edit != nil {
+		h.edit(&o) // go-room on 127.0.0.1 instead of FakeNet (home_test.go)
+	}
+	c, err := Start(context.Background(), o)
 	if err != nil {
 		h.t.Fatal(err)
 	}

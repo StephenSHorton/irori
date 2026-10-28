@@ -297,8 +297,22 @@ func (n *Node) accept(peer string, pub ed25519.PublicKey) error {
 	if n.o.TrustAnyPeer {
 		return nil
 	}
-	cert, ok := n.o.Chain.Cert(peer)
-	if !ok || !n.certified(peer) || hex.EncodeToString(pub) != cert.DevicePub {
+	return CheckDevice(n.o.Chain, n.self, peer, pub)
+}
+
+// CheckDevice is the one rule for who gets in, on a connection (§4.3), on
+// the home server's hub and TURN relay, and in a hub's welcome (§4.2): a
+// device other than self with a valid, unrevoked cert for this person
+// whose cert names pub.
+func CheckDevice(ch *identity.Chain, self, id string, pub ed25519.PublicKey) error {
+	if id == self || id == "" {
+		return ErrRefused
+	}
+	cert, ok := ch.Cert(id)
+	if !ok || hex.EncodeToString(pub) != cert.DevicePub {
+		return ErrRefused
+	}
+	if _, revoked := ch.Cut(id); revoked {
 		return ErrRefused
 	}
 	return nil
@@ -480,7 +494,7 @@ func (n *Node) join(epoch int) {
 		// Retried on the next presence tick; the app works alone meanwhile.
 		n.logf("mesh: join epoch %d: %v", epoch, err)
 		n.mu.Lock()
-		n.detail = "Can't reach the signaling servers: " + err.Error()
+		n.detail = "Can't open the network: " + err.Error()
 		n.mu.Unlock()
 		return
 	}

@@ -4,17 +4,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	room "github.com/StephenSHorton/go-room"
-
 	"github.com/StephenSHorton/irori/internal/blob"
-	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/store"
 )
 
@@ -52,24 +48,12 @@ func (d *dev) offered(sha string) bool {
 // while a backfill fills the sync channel (§10, "go-room under Irori").
 func TestAttachmentsCrossGoRoomBothWaysDuringABackfill(t *testing.T) {
 	ctx := context.Background()
-	hub := room.NewMemHub()
+	lan := newTestLAN()
 	a := newDev(t, "pc", "")
 	b := newDev(t, "mac", a.dir)
-	add, err := a.ident.CertFor(b.ident.Device.ID, hex.EncodeToString(b.ident.DevicePub()), "mac", identity.RoleDesktop, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := a.st.Append(ctx, "irori", store.KindPersonDeviceAdded, add); err != nil {
-		t.Fatal(err)
-	}
-	person, _ := a.st.List(ctx, store.Filter{Kinds: []string{"person."}})
-	for range 2 {
-		for _, ev := range person {
-			_ = b.chain.Learn(ev)
-		}
-	}
-	a.start(hub)
-	b.start(hub)
+	certify(t, a, b)
+	a.start(how{lan: lan})
+	b.start(how{lan: lan})
 	fa, da := a.attach(4<<20 + 7)
 	fb, db := b.attach(2<<20 + 3)
 	eventually(t, "the offers cross", 60*time.Second, func() bool { return a.offered(fb.SHA256) && b.offered(fa.SHA256) })

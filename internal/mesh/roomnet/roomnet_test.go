@@ -6,18 +6,18 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	room "github.com/StephenSHorton/go-room"
-	"golang.org/x/crypto/nacl/secretbox"
 
 	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/device"
@@ -27,9 +27,11 @@ import (
 	"github.com/StephenSHorton/irori/internal/store"
 )
 
-// These tests run real pion peers on 127.0.0.1 only: MemHub signaling (no
-// broker), no STUN, loopback candidates. They fail, not skip, when the
-// peers can't connect.
+// These tests run real pion peers on 127.0.0.1 only, with loopback
+// candidates and no STUN. Signaling is a MemLAN (an in-process broadcast
+// domain: no socket) and real hubs listening on 127.0.0.1. Nothing binds a
+// wildcard address, broadcasts or reaches the internet. They fail, not
+// skip, when the peers can't connect.
 
 func TestMeshSecretIsGoRoomsSecretFromKey(t *testing.T) {
 	seed := make([]byte, 32)
@@ -41,60 +43,44 @@ func TestMeshSecretIsGoRoomsSecretFromKey(t *testing.T) {
 	}
 }
 
-// tapLoopback opens every envelope the hub carries on topic (the test has
-// the room key) and fails on an offer or answer with a candidate that isn't
-// on 127.0.0.1.
-func tapLoopback(t *testing.T, hub *room.MemHub, topics func() map[string][32]byte) *int {
-	t.Helper()
-	var mu sync.Mutex
-	seen := new(int)
-	hub.Tap = func(topic string, payload []byte) {
-		key, ok := topics()[topic]
-		if !ok || len(payload) < 24 {
-			return
-		}
-		var nonce [24]byte
-		copy(nonce[:], payload[:24])
-		plain, ok := secretbox.Open(nil, payload[24:], &nonce, &key)
-		if !ok {
-			return
-		}
-		var env room.Envelope
-		if json.Unmarshal(plain, &env) != nil || (env.Type != room.MsgOffer && env.Type != room.MsgAnswer) {
-			return
-		}
-		var body struct{ SDP string }
-		_ = json.Unmarshal(env.Body, &body)
-		for _, line := range strings.Split(body.SDP, "\n") {
-			if !strings.HasPrefix(line, "a=candidate:") {
-				continue
-			}
-			f := strings.Fields(line)
-			if len(f) < 5 {
-				continue
-			}
-			if ip := net.ParseIP(f[4]); ip == nil || !ip.IsLoopback() {
-				t.Errorf("non-loopback candidate: %s", strings.TrimSpace(line))
-			}
-			mu.Lock()
-			*seen++
-			mu.Unlock()
-		}
-	}
-	return seen
+// testLAN is one MemLAN the test devices share.
+type testLAN struct {
+	lan  *room.MemLAN
+	mu   sync.Mutex
+	next byte
+}
+
+func newTestLAN() *testLAN { return &testLAN{lan: room.NewMemLAN()} }
+
+func (l *testLAN) conn() net.PacketConn {
+	l.mu.Lock()
+	l.next++
+	n := l.next
+	l.mu.Unlock()
+	return l.lan.Conn(netip.AddrPortFrom(netip.AddrFrom4([4]byte{10, 0, 0, n}), mesh.LANPort))
+}
+
+// how a test device reaches the others.
+type how struct {
+	lan  *testLAN          // on this LAN; nil: no LAN carrier
+	host bool              // runs a hub on 127.0.0.1, as a home server does
+	dial map[string]string // home servers to dial: device id → address
 }
 
 type dev struct {
-	t     *testing.T
-	name  string
-	dir   string
-	ident *identity.Identity
-	chain *identity.Chain
-	st    *store.Store
-	files *blob.Files
-	node  *mesh.Node
-	tr    *Transport
-	stop  func()
+	t       *testing.T
+	name    string
+	dir     string
+	ident   *identity.Identity
+	chain   *identity.Chain
+	st      *store.Store
+	files   *blob.Files
+	node    *mesh.Node
+	tr      *Transport
+	servers *mesh.Servers
+	hub     *room.Hub
+	hubAddr string
+	stop    func()
 }
 
 func newDev(t *testing.T, name string, personFrom string) *dev {
@@ -136,12 +122,37 @@ func newDev(t *testing.T, name string, personFrom string) *dev {
 	return d
 }
 
-func (d *dev) start(hub *room.MemHub) {
-	d.tr = New(Options{Self: d.ident.Device.ID, Hub: hub, LoopbackOnly: true, Logf: func(f string, a ...any) { d.t.Logf(d.name+": "+f, a...) }})
+func (d *dev) id() string { return d.ident.Device.ID }
+
+func (d *dev) logf(f string, a ...any) { d.t.Logf(d.name+": "+f, a...) }
+
+// start runs the device's net as the Core does: the home server directory
+// following the log, the transport on h's carriers, and the mesh node.
+func (d *dev) start(h how) {
+	ctx, cancel := context.WithCancel(context.Background())
+	d.servers = mesh.NewServers(d.id(), d.chain, "")
+	if err := d.servers.Load(ctx, d.st); err != nil {
+		d.t.Fatal(err)
+	}
+	followDone := make(chan struct{})
+	go func() { defer close(followDone); d.servers.Follow(ctx, d.st) }()
+	for id, addr := range h.dial {
+		d.servers.Hint(id, []string{addr})
+	}
+	o := Options{Self: d.id(), Pub: d.ident.DevicePub(), Sign: d.ident.Sign, Servers: d.servers,
+		Expect:       func(id string, pub ed25519.PublicKey) error { return mesh.CheckDevice(d.chain, d.id(), id, pub) },
+		LoopbackOnly: true, NoLAN: h.lan == nil, Logf: d.logf}
+	if h.lan != nil {
+		o.LANConn = h.lan.conn()
+		o.LANTargets = func() []netip.AddrPort { return []netip.AddrPort{h.lan.lan.Broadcast()} }
+	}
+	d.tr = New(o)
+	if h.host {
+		d.host()
+	}
 	d.node = mesh.New(mesh.Options{Store: d.st, Ident: d.ident, Chain: d.chain, Net: d.tr, Version: "0.4.0-test", Files: d.files,
 		Intervals: mesh.Intervals{Presence: 200 * time.Millisecond, Ping: 200 * time.Millisecond, Vector: 300 * time.Millisecond},
-		Logf:      func(f string, a ...any) { d.t.Logf(d.name+": "+f, a...) }})
-	ctx, cancel := context.WithCancel(context.Background())
+		Logf:      d.logf})
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -150,8 +161,75 @@ func (d *dev) start(hub *room.MemHub) {
 	d.stop = func() {
 		cancel()
 		<-done
+		<-followDone
+		if d.hub != nil {
+			d.hub.Close()
+		}
 		d.tr.Close()
 		d.stop = nil
+	}
+}
+
+// host runs a real hub on 127.0.0.1 for this device's rooms, admitting the
+// person's certified devices and bridging guest topics onto its LAN, as
+// the home server does (internal/home adds TURN and port mapping).
+func (d *dev) host() {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		d.t.Fatal(err)
+	}
+	hub, err := room.NewHub(room.HubConfig{
+		Self:     d.id(),
+		Identity: room.Identity{Pub: d.ident.DevicePub(), Sign: d.ident.Sign},
+		Authorize: func(id string, pub ed25519.PublicKey) error {
+			return mesh.CheckDevice(d.chain, d.id(), id, pub)
+		},
+		Bridge: d.tr.LAN(),
+		Limits: room.HubLimits{FailBackoff: -1},
+		Logf:   d.logf,
+	})
+	if err != nil {
+		d.t.Fatal(err)
+	}
+	go func() { _ = hub.Serve(ln) }()
+	d.tr.SetLocal(hub, nil)
+	d.hub, d.hubAddr = hub, ln.Addr().String()
+}
+
+// writeAddr writes this device's node.addr for its hub, as the home server
+// does, so devices it pairs learn where it is.
+func (d *dev) writeAddr() {
+	_, port, _ := net.SplitHostPort(d.hubAddr)
+	n, _ := strconv.Atoi(port)
+	if _, err := d.st.Append(context.Background(), "irori", store.KindNodeAddr,
+		mesh.NodeAddr{V: 1, Port: n, LAN: []string{"127.0.0.1"}, Reach: mesh.ReachUnmapped, At: time.Now().UnixMilli()}); err != nil {
+		d.t.Fatal(err)
+	}
+}
+
+// certify makes b one of a's person's devices, as pairing does (§3 step
+// 6): b was made with a's person.json, a writes b's cert, b learns the rows.
+func certify(t *testing.T, a, b *dev) {
+	t.Helper()
+	ctx := context.Background()
+	add, err := a.ident.CertFor(b.id(), hex.EncodeToString(b.ident.DevicePub()), b.name, identity.RoleDesktop, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.st.Append(ctx, "irori", store.KindPersonDeviceAdded, add); err != nil {
+		t.Fatal(err)
+	}
+	learn(t, a, b)
+}
+
+// learn folds every person row a holds into b's chain.
+func learn(t *testing.T, a, b *dev) {
+	t.Helper()
+	person, _ := a.st.List(context.Background(), store.Filter{Kinds: []string{"person."}})
+	for range 2 {
+		for _, ev := range person {
+			_ = b.chain.Learn(ev)
+		}
 	}
 }
 
@@ -166,6 +244,15 @@ func (d *dev) vector() store.Vector {
 func (d *dev) has(ev store.Event) bool {
 	evs, err := d.st.List(context.Background(), store.Filter{DeviceID: ev.DeviceID, AfterSeq: ev.Seq - 1, Limit: 1})
 	return err == nil && len(evs) == 1 && evs[0].Seq == ev.Seq
+}
+
+func (d *dev) peerUp(peer string) bool {
+	for _, p := range d.node.Status().Peers {
+		if p.DeviceID == peer && p.State == "connected" && p.Path != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func eventually(t *testing.T, what string, within time.Duration, ok func() bool) {
@@ -192,11 +279,11 @@ func sameVector(a, b store.Vector) bool {
 	return true
 }
 
-// Two Cores' nets in one process on go-room: pair, backfill and live rows
-// both ways, then a revoke closes the connection.
-func TestTwoNodesSyncOverGoRoomOnLoopback(t *testing.T) {
+// Two Cores' nets in one process over a real hub on 127.0.0.1 (the home
+// server's, no LAN): a backfill and live rows both ways, then a revoke
+// closes the connection.
+func TestTwoNodesSyncOverTheHub(t *testing.T) {
 	ctx := context.Background()
-	hub := room.NewMemHub()
 	a := newDev(t, "pc", "")
 	big := strings.Repeat("y", 8000)
 	for i := range 600 { // a backfill bigger than one batch and one MiB
@@ -205,78 +292,95 @@ func TestTwoNodesSyncOverGoRoomOnLoopback(t *testing.T) {
 		}
 	}
 	b := newDev(t, "mac", a.dir)
-	add, err := a.ident.CertFor(b.ident.Device.ID, hex.EncodeToString(b.ident.DevicePub()), "mac", identity.RoleDesktop, time.Now())
+	certify(t, a, b)
+	eb, err := b.st.Append(ctx, "irori", store.KindAgentSeen, map[string]any{"key": b.id() + "/s"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.st.Append(ctx, "irori", store.KindPersonDeviceAdded, add); err != nil {
-		t.Fatal(err)
-	}
-	person, _ := a.st.List(ctx, store.Filter{Kinds: []string{"person."}})
-	for range 2 {
-		for _, ev := range person {
-			_ = b.chain.Learn(ev)
-		}
-	}
-	eb, err := b.st.Append(ctx, "irori", store.KindAgentSeen, map[string]any{"key": b.ident.Device.ID + "/s"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	topics := func() map[string][32]byte {
-		out := map[string][32]byte{}
-		for e := 1; e <= 2; e++ {
-			if seed, ok := a.ident.PersonSeed(e); ok {
-				s := mesh.MeshSecret(seed, a.ident.Person.ID, e)
-				out[s.Topic] = s.Key
-			}
-		}
-		return out
-	}
-	cands := tapLoopback(t, hub, topics)
-	a.start(hub)
-	b.start(hub)
+	a.start(how{host: true})
+	b.start(how{dial: map[string]string{a.id(): a.hubAddr}})
 	eventually(t, "the backfill and b's row cross", 60*time.Second, func() bool {
 		return sameVector(a.vector(), b.vector()) && a.has(eb)
 	})
-	if *cands == 0 {
-		t.Fatal("saw no ICE candidates on the hub")
+	hubs := b.tr.Hubs()
+	if len(hubs) != 1 || hubs[0].ID != a.id() || !hubs[0].Up || hubs[0].Addr != a.hubAddr {
+		t.Fatalf("b's hubs: %+v", hubs)
 	}
-	ea, _ := a.st.Append(ctx, "irori", store.KindAgentSeen, map[string]any{"key": a.ident.Device.ID + "/live"})
+	ea, _ := a.st.Append(ctx, "irori", store.KindAgentSeen, map[string]any{"key": a.id() + "/live"})
 	eventually(t, "a live row crosses", 20*time.Second, func() bool { return b.has(ea) })
 	var connected bool
 	for _, p := range a.node.Status().Peers {
-		connected = connected || (p.DeviceID == b.ident.Device.ID && p.State == "connected" && p.Path == "direct")
+		connected = connected || (p.DeviceID == b.id() && p.State == "connected" && p.Path == "direct")
 	}
 	if !connected {
 		t.Fatalf("a's view of b: %+v", a.node.Status().Peers)
 	}
 	// Revoke b: the connection closes, and b's later rows are refused.
-	if err := a.node.Revoke(ctx, b.ident.Device.ID, "test"); err != nil {
+	if err := a.node.Revoke(ctx, b.id(), "test"); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, "the revoked device drops", 20*time.Second, func() bool {
 		for _, p := range a.node.Status().Peers {
-			if p.DeviceID == b.ident.Device.ID {
+			if p.DeviceID == b.id() {
 				return p.Path == ""
 			}
 		}
 		return false
 	})
-	late, _ := b.st.Append(ctx, "irori", store.KindAgentSeen, map[string]any{"key": b.ident.Device.ID + "/late"})
+	late, _ := b.st.Append(ctx, "irori", store.KindAgentSeen, map[string]any{"key": b.id() + "/late"})
 	time.Sleep(time.Second)
 	if a.has(late) {
 		t.Fatal("a stored a row the revoked device wrote after its cut")
 	}
 }
 
+// Two devices on one network with no home server at all find each other
+// on the LAN carrier and sync (§4.2, §7.1 "the physics").
+func TestTwoNodesSyncOverTheLANAlone(t *testing.T) {
+	ctx := context.Background()
+	lan := newTestLAN()
+	a := newDev(t, "pc", "")
+	b := newDev(t, "mac", a.dir)
+	certify(t, a, b)
+	ea, _ := a.st.Append(ctx, "irori", store.KindAgentSeen, map[string]any{"key": a.id() + "/s"})
+	eb, _ := b.st.Append(ctx, "irori", store.KindAgentSeen, map[string]any{"key": b.id() + "/s"})
+	a.start(how{lan: lan})
+	b.start(how{lan: lan})
+	eventually(t, "rows cross on the LAN", 60*time.Second, func() bool { return a.has(eb) && b.has(ea) })
+	if len(a.tr.Hubs()) != 0 || len(b.tr.Hubs()) != 0 {
+		t.Fatal("a hub was dialed with no home server")
+	}
+}
+
+// Three devices with the one that runs the server stopped: the other two
+// still sync over the LAN (§10).
+func TestServerOffTheOthersStillSyncOnTheLAN(t *testing.T) {
+	ctx := context.Background()
+	lan := newTestLAN()
+	s := newDev(t, "node", "")
+	a := newDev(t, "pc", s.dir)
+	b := newDev(t, "mac", s.dir)
+	certify(t, s, a)
+	certify(t, s, b)
+	learn(t, s, a) // b's cert, written after a learned
+	s.start(how{lan: lan, host: true})
+	s.writeAddr()
+	a.start(how{lan: lan, dial: map[string]string{s.id(): s.hubAddr}})
+	b.start(how{lan: lan, dial: map[string]string{s.id(): s.hubAddr}})
+	eventually(t, "a and b each reach the server", 60*time.Second, func() bool { return s.peerUp(a.id()) && s.peerUp(b.id()) })
+	s.stop()
+	ea, _ := a.st.Append(ctx, "irori", store.KindAgentSeen, map[string]any{"key": a.id() + "/after"})
+	eb, _ := b.st.Append(ctx, "irori", store.KindAgentSeen, map[string]any{"key": b.id() + "/after"})
+	eventually(t, "a and b sync with the server stopped", 60*time.Second, func() bool { return a.has(eb) && b.has(ea) })
+}
+
 // Streams on a real go-room connection move bytes both ways while the sync
 // channel stays live (blobs use them, §4.3).
 func TestConnStreamsOverGoRoomOnLoopback(t *testing.T) {
-	hub := room.NewMemHub()
+	lan := newTestLAN()
 	key := make([]byte, 32)
 	_, _ = rand.Read(key)
 	s := mesh.MeshSecret(key, "p", 1)
-	tapLoopback(t, hub, func() map[string][32]byte { return map[string][32]byte{s.Topic: s.Key} })
 	type side struct {
 		id   string
 		key  ed25519.PrivateKey
@@ -291,7 +395,8 @@ func TestConnStreamsOverGoRoomOnLoopback(t *testing.T) {
 	pubs := map[string]ed25519.PublicKey{x.id: x.key.Public().(ed25519.PublicKey), y.id: y.key.Public().(ed25519.PublicKey)}
 	for _, sd := range []*side{x, y} {
 		sd := sd
-		tr := New(Options{Self: sd.id, Hub: hub, LoopbackOnly: true, Logf: t.Logf})
+		tr := New(Options{Self: sd.id, LoopbackOnly: true, LANConn: lan.conn(),
+			LANTargets: func() []netip.AddrPort { return []netip.AddrPort{lan.lan.Broadcast()} }, Logf: t.Logf})
 		t.Cleanup(tr.Close)
 		r, err := tr.Join(s, mesh.RoomConfig{
 			Self: sd.id, Pub: pubs[sd.id], Sign: func(m []byte) []byte { return ed25519.Sign(sd.key, m) },
@@ -351,4 +456,67 @@ func TestConnStreamsOverGoRoomOnLoopback(t *testing.T) {
 		t.Fatal("no DTLS fingerprints")
 	}
 	time.Sleep(200 * time.Millisecond)
+}
+
+// A lone transport opens nothing until a room is joined: no LAN socket and
+// no hub connection (§4.5).
+func TestNothingOpensBeforeTheFirstJoin(t *testing.T) {
+	var dialed bool
+	conn, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	srv := mesh.NewServers("me", nil, "")
+	srv.Hint("node", []string{"127.0.0.1:1"})
+	tr := New(Options{Self: "me", Servers: srv, LANConn: conn, LANTargets: func() []netip.AddrPort { return nil },
+		Expect: func(string, ed25519.PublicKey) error { return nil },
+		Dial: func(ctx context.Context, addr string) (net.Conn, error) {
+			dialed = true
+			return nil, io.EOF
+		}})
+	time.Sleep(200 * time.Millisecond)
+	if dialed || len(tr.Hubs()) != 0 {
+		t.Fatal("a hub was dialed before any room")
+	}
+	tr.Close()
+}
+
+// The ICE list names only this device's own servers and the advanced
+// relay: never a public STUN server (§4.4).
+func TestICENeverListsPublicSTUN(t *testing.T) {
+	tr := New(Options{Self: "me", NoLAN: true})
+	defer tr.Close()
+	if got := tr.ice(nil); len(got) != 0 {
+		t.Fatalf("ICE with no server: %+v", got)
+	}
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	hub, err := room.NewHub(room.HubConfig{Self: "me", Identity: room.KeyIdentity(key),
+		Authorize: func(string, ed25519.PublicKey) error { return mesh.ErrRefused }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = hub.Serve(ln) }()
+	defer hub.Close()
+	own := []room.ICEServer{{URLs: []string{"stun:127.0.0.1:9"}}}
+	tr.SetLocal(hub, func() []room.ICEServer { return own })
+	got := tr.ice(nil)
+	if len(got) != 1 || got[0].URLs[0] != "stun:127.0.0.1:9" {
+		t.Fatalf("ICE with this device's server: %+v", got)
+	}
+	for _, s := range got {
+		for _, u := range s.URLs {
+			for _, d := range room.DefaultSTUN {
+				for _, du := range d.URLs {
+					if u == du {
+						t.Fatalf("public STUN in the list: %s", u)
+					}
+				}
+			}
+		}
+	}
 }

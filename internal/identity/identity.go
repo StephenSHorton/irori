@@ -120,6 +120,19 @@ func Load(dataDir string, dev device.Identity, ks Keystore) (*Identity, error) {
 	return &Identity{Device: dev, Person: p, deviceKey: dkey, personKey: pkey, older: older, dataDir: dataDir, ks: ks}, nil
 }
 
+// LoadOrCreateSecret reads (or on first use makes) a 32-byte random secret
+// in the data dir, sealed with this device's keystore like device.key (D2).
+// The home server keeps its TURN key this way (turn.key, §4.4).
+func (id *Identity) LoadOrCreateSecret(name string) ([32]byte, error) {
+	var out [32]byte
+	k, err := loadOrCreateSeed(filepath.Join(id.dataDir, name), id.ks)
+	if err != nil {
+		return out, err
+	}
+	copy(out[:], k.Seed())
+	return out, nil
+}
+
 func short(s string) string {
 	if len(s) > 12 {
 		return s[:12]

@@ -37,6 +37,12 @@ const (
 // has the file can serve it. Written by internal/mesh and core.
 const KindAttachOffered = "attach.offered"
 
+// KindNodeAddr: {v, port, lan, v6, public, via, reach, at}: where the
+// writing device's home server can be reached (v0.4 §4.2, decision 33).
+// Only that device writes its own; it is written only when something in it
+// changes. Written by internal/home.
+const KindNodeAddr = "node.addr"
+
 // Device-local kinds, which live in local_events and never replicate (§5.1).
 // They are named here as strings because their packages import store.
 const (
@@ -86,6 +92,8 @@ var kindSides = map[string]Side{
 	"delivery.decided": Replicated, "ask.posted": Replicated, "ask.answered": Replicated,
 	"ask.resolved": Replicated, "revive.requested": Replicated, KindAttachOffered: Replicated,
 	"lease.stolen": Replicated,
+	// home server (decision 33)
+	KindNodeAddr: Replicated,
 }
 
 // KindSide reports kind's side.

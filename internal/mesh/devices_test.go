@@ -10,16 +10,15 @@ import (
 	"github.com/StephenSHorton/irori/internal/store"
 )
 
-// downNet is a transport whose signaling never comes up: no broker is
-// reachable.
+// downNet is a transport whose rooms never open: no carrier can start.
 type downNet struct{ joins atomic.Int32 }
 
 func (d *downNet) Join(Secret, RoomConfig) (Room, error) {
 	d.joins.Add(1)
-	return nil, errors.New("no broker reachable")
+	return nil, errors.New("no carrier could start")
 }
 
-// Single device, §10: with the brokers unreachable the device keeps
+// Single device, §10: with the net layer failing to start the device keeps
 // working on its own, Devices says why, and the join is retried.
 func TestUnreachableSignalingLeavesAWorkingDevice(t *testing.T) {
 	a, b := newDev(t, NewFakeNet(), "pc"), newDev(t, NewFakeNet(), "mac")
@@ -34,11 +33,11 @@ func TestUnreachableSignalingLeavesAWorkingDevice(t *testing.T) {
 
 	eventually(t, "the join is retried", func() bool { return down.joins.Load() >= 3 })
 	st := a.node.Status()
-	if st.State != StateError || !strings.Contains(st.Detail, "Can't reach the signaling servers") {
+	if st.State != StateError || !strings.Contains(st.Detail, "Can't open the network") {
 		t.Fatalf("status = %+v", st)
 	}
 	rows := a.node.Devices(false)
-	if !rows[0].This || !strings.Contains(rows[0].Warning, "Can't reach the signaling servers") {
+	if !rows[0].This || !strings.Contains(rows[0].Warning, "Can't open the network") {
 		t.Fatalf("this device's row = %+v", rows[0])
 	}
 	if len(rows) != 2 || rows[1].DeviceID != b.id() || rows[1].State != "offline" || !rows[1].LastSeen.IsZero() {

@@ -2,9 +2,10 @@
 // the person's other devices on the mesh topic, keeps one authenticated
 // connection to each, and replicates the event log over it.
 //
-// Nothing here talks to pion or MQTT. The Core side of sync (Node) runs on a
-// Transport: go-room's rooms in internal/mesh/roomnet, or FakeNet, an
-// in-memory transport for tests that can partition and drop links.
+// Nothing here talks to pion or go-room. The Core side of sync (Node) runs
+// on a Transport: go-room's rooms in internal/mesh/roomnet (the LAN carrier
+// and the home server's hub, decision 33), or FakeNet, an in-memory
+// transport for tests that can partition and drop links.
 package mesh
 
 import (
@@ -21,7 +22,7 @@ import (
 )
 
 // Secret names one room: the key its envelopes are sealed with and the
-// broker topic it meets on (go-room's room.Secret).
+// topic it meets on (go-room's room.Secret).
 type Secret struct {
 	Key   [32]byte
 	Topic string
@@ -85,6 +86,14 @@ type RoomConfig struct {
 	OnConnect func()
 	// OnPeer gets each connection once it is up.
 	OnPeer func(Conn)
+	// GuestTTL, when set, opens this room's topic to guests on every home
+	// server's hub for that long (the pairing window on A, §3 step 1), so a
+	// joiner that has only the code and a server address gets in.
+	GuestTTL time.Duration
+	// HubAddr, when set, is a home server's address typed on the joining
+	// device (B, §3 step 2): its hub is dialed as a guest of this room's
+	// topic, and its TURN relay is used with guest credentials.
+	HubAddr string
 }
 
 // Transport opens rooms. go-room (roomnet) and FakeNet implement it.

@@ -27,7 +27,7 @@ func startMeshCore(t *testing.T, net mesh.Transport, data string) *Core {
 }
 
 // A Core on its own never starts the net layer (§4.5): no topic joined, so
-// no broker connection and no UDP socket.
+// no hub connection and no UDP socket.
 func TestALoneCoreOpensNoNet(t *testing.T) {
 	net := mesh.NewFakeNet()
 	c := startMeshCore(t, net, t.TempDir())

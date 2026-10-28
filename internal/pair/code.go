@@ -33,7 +33,7 @@ import (
 const App = "irori-pair-v1"
 
 // The room code (go-room's NewCode and NormalizeCode, written out here so
-// only roomnet imports go-room; roomnet's tests check they agree): 16
+// only roomnet and home import go-room; roomnet's tests check they agree): 16
 // symbols of an alphabet with no 0/O or 1/I/L, about 79 bits.
 const (
 	codeAlphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"

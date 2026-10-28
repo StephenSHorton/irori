@@ -21,8 +21,9 @@ import (
 // Window is how long a pairing stays open (§3 step 1): one use, 10 minutes.
 const Window = 10 * time.Minute
 
-// HelloEvery is how often B repeats pair.hello until A connects: envelopes
-// aren't kept by the brokers, so a hello sent before A joined is lost.
+// HelloEvery is how often B repeats pair.hello until A connects: neither
+// the LAN nor a hub keeps envelopes, so a hello sent before A joined is
+// lost.
 const HelloEvery = 2 * time.Second
 
 // MaxMisses is how many wrong typings close the window (§3 step 5).
@@ -89,9 +90,15 @@ type Joiner struct {
 
 // Status is the current (or last) pairing, for the Devices dialog.
 type Status struct {
-	Mode    string    `json:"mode"`
-	State   string    `json:"state"`
-	Code    string    `json:"code,omitempty"` // add, while waiting
+	Mode  string `json:"mode"`
+	State string `json:"state"`
+	Code  string `json:"code,omitempty"` // add, while waiting
+	// ServerAddr (add side) is the home server's address from outside the
+	// home, shown under the code for a device joining from away; "" when
+	// no server is reachable from outside (§3).
+	ServerAddr string `json:"serverAddr,omitempty"`
+	// Via (join side) is the home server address typed, if any.
+	Via     string    `json:"via,omitempty"`
 	Expires time.Time `json:"expires,omitzero"`
 	Role    string    `json:"role,omitempty"` // add: the role B gets
 	// Fingerprint (add side) is this device's key, shown beside the code:
@@ -139,6 +146,16 @@ type Options struct {
 	Logf       func(format string, args ...any)
 	// OnChange is told whenever Status changes (the GUI refreshes).
 	OnChange func(Status)
+	// Notify is also told, for the Core: the home server starts while a
+	// pairing window is open (§4.5).
+	Notify func()
+	// Servers is the home server directory: A hands B the servers it
+	// knows (§3 step 6), and B keeps them until their rows arrive. Nil:
+	// none.
+	Servers *mesh.Servers
+	// ServerAddr is the address a device away from home dials to join
+	// (Status.ServerAddr); nil or "" when there is none.
+	ServerAddr func() string
 }
 
 // Pairer runs at most one pairing at a time, either side.
@@ -179,6 +196,11 @@ func (p *Pairer) Status() Status {
 
 func (p *Pairer) copyStatus() Status {
 	st := p.st
+	if st.Mode == ModeAdd && st.Open() && p.o.ServerAddr != nil {
+		// The home server may come up (or map its port) after the window
+		// opened: the address under the code follows it.
+		st.ServerAddr = p.o.ServerAddr()
+	}
 	if st.Joiner != nil {
 		j := *st.Joiner
 		st.Joiner = &j
@@ -201,6 +223,9 @@ func (p *Pairer) changed() {
 		st := p.copyStatus()
 		go p.o.OnChange(st)
 	}
+	if p.o.Notify != nil {
+		go p.o.Notify()
+	}
 }
 
 // session is one open pairing window.
@@ -209,6 +234,7 @@ type session struct {
 	add    bool
 	secret mesh.Secret
 	role   string
+	via    string // join: a home server address typed
 	room   mesh.Room
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -246,7 +272,12 @@ type frame struct {
 	Person *identity.Person `json:"person,omitempty"`
 	Seed   []byte           `json:"seed,omitempty"`
 	Rows   []mesh.Row       `json:"rows,omitempty"`
-	Reason string           `json:"reason,omitempty"`
+	// Servers (grant) is every home server A knows and where to dial it,
+	// so B finds the server at once (§3 step 6), before sync brings their
+	// node.addr rows. Addresses only: B's hub client still checks the
+	// server's key against its cert.
+	Servers map[string][]string `json:"servers,omitempty"`
+	Reason  string              `json:"reason,omitempty"`
 }
 
 // self is this device's id.
@@ -298,6 +329,9 @@ func (p *Pairer) Add(role string) (Status, error) {
 	p.cur = s
 	p.st = Status{Mode: ModeAdd, State: StateWaiting, Code: code, Expires: p.o.Now().Add(p.o.Window), Role: role,
 		Fingerprint: Fingerprint(p.o.Ident.DevicePub())}
+	if p.o.ServerAddr != nil {
+		p.st.ServerAddr = p.o.ServerAddr()
+	}
 	s.timer = time.AfterFunc(p.o.Window, func() { s.fail(StateExpired, "Nobody used the code in time. Make a new one.", "") })
 	p.changed()
 	return p.copyStatus(), nil
@@ -305,7 +339,12 @@ func (p *Pairer) Add(role string) (Status, error) {
 
 // Join enters a code on this device (B, §3 step 2). It returns at once;
 // Status moves to StateWords when the words are ready to read out.
-func (p *Pairer) Join(code string) (Status, error) {
+func (p *Pairer) Join(code string) (Status, error) { return p.JoinVia(code, "") }
+
+// JoinVia is Join from away from home: server is the home server's address
+// (host:port) as A's Add screen shows it, whose hub admits this device as
+// a guest of the pairing room only (§3). "" is Join: the LAN alone.
+func (p *Pairer) JoinVia(code, server string) (Status, error) {
 	canon, ok := NormalizeCode(code)
 	if !ok {
 		return Status{}, ErrBadCode
@@ -323,12 +362,13 @@ func (p *Pairer) Join(code string) (Status, error) {
 		return Status{}, ErrBusy
 	}
 	s := p.newSession(false, secret, "")
+	s.via = server
 	if err := s.join(); err != nil {
 		s.cancel()
 		return Status{}, fmt.Errorf("pair: open the pairing room: %w", err)
 	}
 	p.cur = s
-	p.st = Status{Mode: ModeJoin, State: StateWaiting, Expires: p.o.Now().Add(p.o.Window)}
+	p.st = Status{Mode: ModeJoin, State: StateWaiting, Expires: p.o.Now().Add(p.o.Window), Via: server}
 	s.timer = time.AfterFunc(p.o.Window, func() { s.fail(StateExpired, "The other device didn't answer in time.", "") })
 	go s.helloLoop()
 	p.changed()
@@ -475,6 +515,10 @@ func (s *session) join() error {
 		Offerer: func(string) bool { return s.add },
 		OnMsg:   s.onMsg,
 		OnPeer:  s.onPeer,
+		// A opens the room to guests on every home server it reaches, so B
+		// can join from away; B dials the address typed, if any (§3).
+		GuestTTL: guestTTL(s.add, p.o.Window),
+		HubAddr:  s.via,
 	})
 	if err != nil {
 		return err
@@ -795,7 +839,7 @@ func (s *session) grant(ctx context.Context, c mesh.Conn, joiner string, pub ed2
 	p.mu.Lock()
 	s.sent = true
 	p.mu.Unlock()
-	if err := s.send(ctx, c, frame{Type: frameGrant, Person: &cur, Seed: seed, Rows: rows}); err != nil {
+	if err := s.send(ctx, c, frame{Type: frameGrant, Person: &cur, Seed: seed, Rows: rows, Servers: p.serverHints()}); err != nil {
 		p.mu.Lock()
 		s.sent = false
 		p.mu.Unlock()
@@ -890,8 +934,29 @@ func (s *session) adopt(ctx context.Context, c mesh.Conn, f frame) error {
 	p.o.Chain.Repin(person.ID, person.RootDeviceID)
 	p.o.Store.ReloadVerifier(ctx)
 	learnAll(p.o.Chain, evs)
+	if p.o.Servers != nil {
+		for id, addrs := range f.Servers {
+			p.o.Servers.Hint(id, addrs)
+		}
+	}
 	p.o.Kick()
 	return nil
+}
+
+// serverHints is what A hands B about the home servers (frame.Servers).
+func (p *Pairer) serverHints() map[string][]string {
+	if p.o.Servers == nil {
+		return nil
+	}
+	return p.o.Servers.Hints()
+}
+
+// guestTTL is how long A's pairing room is open to guests on the hubs.
+func guestTTL(add bool, window time.Duration) time.Duration {
+	if !add {
+		return 0
+	}
+	return window
 }
 
 // learnAll folds rows that aren't stored yet into ch, in as many passes as

@@ -5,6 +5,7 @@ package core
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"log"
@@ -23,6 +24,7 @@ import (
 	"github.com/StephenSHorton/irori/internal/device"
 	"github.com/StephenSHorton/irori/internal/discovery"
 	"github.com/StephenSHorton/irori/internal/hlc"
+	"github.com/StephenSHorton/irori/internal/home"
 	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/mesh"
@@ -50,9 +52,16 @@ type Options struct {
 	// (DPAPI on Windows, the Keychain on macOS). Tests pass a file keystore.
 	Keystore identity.Keystore
 	// Net is the transport the mesh runs on once the person has a second
-	// device (v0.4 §4.5); nil is go-room on the public brokers, with the
-	// relay from relay.json. Tests pass a mesh.FakeNet.
+	// device (v0.4 §4.5); nil is go-room (roomnet) on the LAN carrier and
+	// the home servers' hubs, with the advanced relay from relay.json, and
+	// this device's own home server when it is switched on. Tests pass a
+	// mesh.FakeNet (no home server then).
 	Net mesh.Transport
+	// RoomNet and Home adjust the default transport and the home server
+	// before they start (tests: 127.0.0.1 listeners, a MemLAN, a fake
+	// router, loopback candidates).
+	RoomNet func(*roomnet.Options)
+	Home    func(*home.Config)
 	// NetIntervals shortens the mesh's timers (tests).
 	NetIntervals mesh.Intervals
 	// Now is the wall clock of the log's HLC, the future-row hold, the mesh
@@ -82,6 +91,9 @@ type Core struct {
 	files    *blob.Files // attachments (v0.4 §6.6)
 	netClose func()      // stops the default transport's relay; nil for a passed-in one
 	net      mesh.Transport
+	rt       *roomnet.Transport // the default transport; nil for a passed-in one
+	servers  *mesh.Servers      // the home server directory (node.addr)
+	home     *home.Server       // this device's home server; nil with a passed-in transport
 	scrubber *scrub.Scrubber
 	secretMu sync.Mutex
 	secrets  []string // exact values capture redacts: the lockfile token, member secrets
@@ -218,16 +230,27 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	}
 
 	// The net layer (v0.4 §4.5) is built here but opens nothing until the
-	// person has a second device: a device on its own makes no broker
-	// connection and binds no UDP socket.
+	// person has a second device or a pairing window opens: a device on its
+	// own dials no hub and binds no socket. The home server directory folds
+	// node.addr rows from the log (decision 33).
+	c.servers = mesh.NewServers(id.ID, chain, opts.DataDir)
+	if err := c.servers.Load(ctx, st); err != nil {
+		log.Printf("home servers: %v", err)
+	}
 	tr := opts.Net
 	if tr == nil {
 		relay, err := mesh.LoadRelay(opts.DataDir)
 		if err != nil {
-			log.Printf("relay setting: %v (using Direct only)", err)
+			log.Printf("relay setting: %v (no advanced relay)", err)
 		}
-		rt := roomnet.New(roomnet.Options{Self: id.ID, Relay: relay, Logf: log.Printf})
-		tr, c.netClose = rt, rt.Close
+		ro := roomnet.Options{Self: id.ID, Pub: ident.DevicePub(), Sign: ident.Sign, Servers: c.servers,
+			Expect: func(dev string, pub ed25519.PublicKey) error { return mesh.CheckDevice(chain, id.ID, dev, pub) },
+			Relay:  relay, Logf: log.Printf}
+		if opts.RoomNet != nil {
+			opts.RoomNet(&ro)
+		}
+		c.rt = roomnet.New(ro)
+		tr, c.netClose = c.rt, c.rt.Close
 	}
 	c.net = tr
 	c.mesh = mesh.New(mesh.Options{Store: st, Ident: ident, Chain: chain, Net: tr, Version: opts.Version,
@@ -235,7 +258,17 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	// Pairing (v0.4 §3) opens its own room on the same transport, only
 	// while a window is open; GUI and CLI only, never the loopback API.
 	c.pair = pair.New(pair.Options{Net: tr, Ident: ident, Chain: chain, Store: st, DataDir: opts.DataDir,
-		Kick: c.mesh.Kick, Logf: log.Printf})
+		Kick: c.mesh.Kick, Servers: c.servers, ServerAddr: c.serverAddr, Notify: c.pairingMoved, Logf: log.Printf})
+	if c.rt != nil {
+		// The home server (§7.1): only where it is switched on, and only
+		// once there is another device or a pairing window (§4.5).
+		hc := home.Config{DataDir: opts.DataDir, Ident: ident, Chain: chain, Store: st, Servers: c.servers, Net: c.rt,
+			Wanted: func() bool { return c.mesh.HasPeer() || c.pair.Status().Open() }, Now: opts.Now, Logf: log.Printf}
+		if opts.Home != nil {
+			opts.Home(&hc)
+		}
+		c.home = home.New(hc)
+	}
 
 	token, err := discovery.NewToken()
 	if err != nil {
@@ -284,6 +317,15 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 				log.Printf("mesh: %v", err)
 			}
 		}()
+		go c.servers.Follow(ctx, st)
+		if c.home != nil {
+			homeDone := make(chan struct{})
+			defer func() { <-homeDone }() // node.addr is written before the log closes
+			go func() {
+				defer close(homeDone)
+				c.home.Run(ctx) // removes the port mappings when it stops
+			}()
+		}
 		// Other devices' rows fold into the inbox and coord as the mesh
 		// inserts them (v0.4 §6.1); both write as owners, so they stop
 		// before the log closes.

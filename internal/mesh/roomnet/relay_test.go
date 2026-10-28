@@ -18,7 +18,7 @@ func TestRelayErrorsDropTheURLsQuery(t *testing.T) {
 	tr := New(Options{Self: "me", Relay: mesh.Relay{CredentialURL: "http://127.0.0.1:1/cred?api_key=hunter2"},
 		Logf: func(f string, a ...any) { logged = append(logged, fmt.Sprintf(f, a...)) }})
 	defer tr.Close()
-	_ = tr.servers() // starts the credential loop; port 1 refuses
+	_ = tr.ice(nil) // starts the credential loop; port 1 refuses
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) && tr.RelayStatus().State != room.RelayError {
 		time.Sleep(20 * time.Millisecond)
