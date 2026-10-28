@@ -77,6 +77,8 @@ type env struct {
 	clk *clock
 	ros *roster
 	c   *Coord
+	// owner, when set, is Options.IsOwner (the person's certified devices).
+	owner func(string) bool
 }
 
 func newEnv(t *testing.T) *env {
@@ -94,7 +96,7 @@ func newEnv(t *testing.T) *env {
 
 func (e *env) reopen() *Coord {
 	e.t.Helper()
-	c, err := New(context.Background(), e.st, e.ros, Options{Now: e.clk.now})
+	c, err := New(context.Background(), e.st, e.ros, Options{Now: e.clk.now, IsOwner: e.owner})
 	if err != nil {
 		e.t.Fatal(err)
 	}

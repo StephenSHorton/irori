@@ -201,14 +201,27 @@ func mapErr(err error) string {
 }
 
 // names maps agent keys to display names for results.
-type names map[string]presence.AgentCard
+// owner is the person's rule (coord's isOwner: "user:<device>" for a device
+// certified to them), so a made-up "user:" key is never shown as the person.
+type names struct {
+	cards map[string]presence.AgentCard
+	owner func(string) bool
+}
 
 func (s *set) roster() names {
-	out := names{}
+	out := names{cards: map[string]presence.AgentCard{}, owner: s.isOwner}
 	for _, c := range s.b.Agents() {
-		out[c.Key] = c
+		out.cards[c.Key] = c
 	}
 	return out
+}
+
+// isOwner reports whether key is the person's (v0.4 §2).
+func (s *set) isOwner(key string) bool {
+	if co := s.b.Coord(); co != nil {
+		return co.IsPerson(key)
+	}
+	return false
 }
 
 // who renders an agent key as `name (key)`, folded.
@@ -217,10 +230,10 @@ func (n names) who(key string) string {
 		return "nobody"
 	}
 	k := oneLine(key, 120)
-	if strings.HasPrefix(key, "user:") {
+	if n.owner(key) {
 		return "the person (" + k + ")"
 	}
-	if c, ok := n[key]; ok {
+	if c, ok := n.cards[key]; ok {
 		if name := oneLine(c.Name, 80); name != "" {
 			if c.Status == "gone" {
 				return name + " (" + k + ", gone)"
@@ -234,7 +247,7 @@ func (n names) who(key string) string {
 // sender renders a message's sender: the card name when the agent is on
 // the roster, else the name the Core recorded for it.
 func (n names) sender(f inbox.Sender) string {
-	if _, ok := n[f.Key]; ok || strings.HasPrefix(f.Key, "user:") {
+	if _, ok := n.cards[f.Key]; ok || n.owner(f.Key) {
 		return n.who(f.Key)
 	}
 	if name := oneLine(f.Name, 80); name != "" {
@@ -246,10 +259,10 @@ func (n names) sender(f inbox.Sender) string {
 // short is a key's name alone when the roster knows it (the person is
 // "the person"), else the key: for lines that repeat who.
 func (n names) short(key string) string {
-	if strings.HasPrefix(key, "user:") {
+	if n.owner(key) {
 		return "the person"
 	}
-	if c, ok := n[key]; ok {
+	if c, ok := n.cards[key]; ok {
 		if name := oneLine(c.Name, 80); name != "" {
 			return name
 		}
@@ -258,7 +271,7 @@ func (n names) short(key string) string {
 }
 
 func (n names) live(key string) bool {
-	c, ok := n[key]
+	c, ok := n.cards[key]
 	return ok && c.Status != "gone"
 }
 

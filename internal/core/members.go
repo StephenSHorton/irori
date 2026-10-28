@@ -12,11 +12,13 @@ import (
 	"github.com/StephenSHorton/irori/internal/api"
 	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/presence"
+	"github.com/StephenSHorton/irori/internal/store"
 )
 
 // KindMemberJoined is logged when a Grok member binds: {key, name}. The
-// member secret is never logged.
-const KindMemberJoined = "member.joined"
+// member secret is never logged. It is device-local (v0.4 §5.1): written
+// with AppendLocal, never replicated.
+const KindMemberJoined = store.KindMemberJoined
 
 // member is one bound Grok member. Secrets live only in memory: an Irori
 // restart makes every `irori mcp` join again.
@@ -148,7 +150,7 @@ func (c *Core) JoinMember(ctx context.Context, name, session string) (api.Member
 		return api.Member{}, err
 	}
 	c.addSecret(mb.Secret)
-	if _, err := c.store.Append(ctx, "irori", KindMemberJoined, map[string]any{
+	if _, err := c.store.AppendLocal(ctx, "irori", KindMemberJoined, map[string]any{
 		"key": mb.Key, "name": mb.Name,
 	}); err != nil {
 		return api.Member{}, err

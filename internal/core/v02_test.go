@@ -19,6 +19,7 @@ import (
 	"github.com/StephenSHorton/irori/internal/attach"
 	"github.com/StephenSHorton/irori/internal/attach/runner"
 	"github.com/StephenSHorton/irori/internal/discovery"
+	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/store"
 )
@@ -68,7 +69,7 @@ func newRig(t *testing.T) *rig {
 	cwd := t.TempDir()
 	writeSession(t, sessions, "900001.json", sessA, "alpha", cwd)
 	writeSession(t, sessions, "900002.json", sessB, "beta", cwd)
-	c, err := Start(context.Background(), Options{DataDir: data, ClaudeDir: claude, Version: "0.2.0-test", Headless: true})
+	c, err := Start(context.Background(), Options{DataDir: data, ClaudeDir: claude, Version: "0.2.0-test", Headless: true, Keystore: identity.FileKeystore{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,13 +468,14 @@ func TestAuth(t *testing.T) {
 	if code != 200 || !strings.Contains(string(raw), `"mode":"allowlist"`) || r.core.Inbox().Policy().Mode != inbox.Allowlist {
 		t.Fatalf("policy from composer: %d %s", code, raw)
 	}
-	// The person at the composer set it, not the attached agent.
-	evs, err := r.core.store.List(context.Background(), store.Filter{Kinds: []string{inbox.KindPolicySet}, Desc: true, Limit: 1})
+	// Set at the composer through the API: actor "api:composer@<key>", never
+	// "user" (v0.4 §2), in the device-local table (v0.4 §5.1).
+	evs, err := r.core.store.List(context.Background(), store.Filter{Kinds: []string{inbox.KindPolicySet}, Desc: true, Limit: 1, Local: true})
 	if err != nil || len(evs) != 1 {
 		t.Fatalf("policy.set rows: %v %v", evs, err)
 	}
-	if evs[0].Actor != "user" || !strings.Contains(string(evs[0].Payload), h.AgentKey) {
-		t.Errorf("policy.set actor %q payload %s, want user naming %s", evs[0].Actor, evs[0].Payload, h.AgentKey)
+	if evs[0].Actor != "api:composer@"+h.AgentKey || !strings.Contains(string(evs[0].Payload), h.AgentKey) {
+		t.Errorf("policy.set actor %q payload %s, want api:composer@ naming %s", evs[0].Actor, evs[0].Payload, h.AgentKey)
 	}
 	if code, _ := r.do("GET", "/v1/members", nil, nil); code != http.StatusMethodNotAllowed {
 		t.Errorf("GET members: %d, want 405", code)

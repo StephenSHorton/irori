@@ -31,7 +31,7 @@ func needTaskID() string {
 }
 
 // callerRepo is the caller's repoKey from its card ("" for Grok members).
-func (s *set) callerRepo(c Caller) string { return s.roster()[c.Sender.Key].RepoKey }
+func (s *set) callerRepo(c Caller) string { return s.roster().cards[c.Sender.Key].RepoKey }
 
 // boardView is the Board for repo ("" every repo) as viewer sees it, with
 // NeedsYou taken across every repo: a card assigned to the viewer, or
@@ -334,7 +334,7 @@ func (s *set) boardCreate(ctx context.Context, c Caller, raw json.RawMessage) st
 // assignee resolves an agent name or key (live or gone, the caller too),
 // or passes a person's "user:*" key through.
 func (s *set) assignee(v string) (string, error) {
-	if strings.HasPrefix(v, "user:") {
+	if s.isOwner(v) {
 		return v, nil
 	}
 	return s.resolveAgent(v)
@@ -410,7 +410,7 @@ func (s *set) parseOn(v string) (*coord.BlockedBy, string) {
 			return nil, errText("on = task needs its id, e.g. task 01J….")
 		}
 	case coord.BlockedOnPerson:
-		if ref != "" && !strings.HasPrefix(ref, "user:") {
+		if ref != "" && !s.isOwner(ref) {
 			return nil, errText("on = person takes no name (whoever is at the app), or a user:* key.")
 		}
 	case coord.BlockedOnAgent:

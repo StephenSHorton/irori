@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/store"
 )
@@ -34,8 +33,11 @@ const subBuffer = 64
 // stay addressable.
 var replayKinds = []string{
 	KindMessageSent, KindDelivery, KindWakeIssued, KindAlias, KindAgentName,
-	KindPolicySet, KindTurnEngaged, KindTurnEnded, store.KindAgentSeen,
+	KindTurnEngaged, KindTurnEnded, store.KindAgentSeen,
 }
+
+// localReplayKinds are the device-local rows New folds (local_events).
+var localReplayKinds = []string{KindPolicySet}
 
 // limits are Options' durations with defaults filled in.
 type limits struct {
@@ -49,6 +51,7 @@ type drec struct {
 	movedFrom   string    // the delivery this one replaced (a move); moved work never moves on unengaged again
 	assignedAt  time.Time // when To last changed
 	engagedOnce bool      // the current recipient engaged or deferred it at least once
+	firstWriter string    // the device that wrote its first row: its owner while To is empty (v0.4 §6.0)
 }
 
 // deliveryRow is the KindDelivery payload: a full snapshot of the delivery's
@@ -144,14 +147,17 @@ type reachRec struct {
 }
 
 type inbox struct {
-	mu     sync.Mutex
-	st     *store.Store
-	roster Roster
-	owners func(prKey string) []string // Options.PROwners; nil = no ledger
-	dev    string
-	now    func() time.Time
-	lim    limits
-	ids    idGen
+	mu      sync.Mutex
+	st      *store.Store
+	roster  Roster
+	owners  func(prKey string) []string // Options.PROwners; nil = no ledger
+	dev     string
+	ownerFn func(string) bool // Options.IsOwner
+	// ignored counts owner-only rows folded from the wrong device (v0.4 §6.0).
+	ignored int
+	now     func() time.Time
+	lim     limits
+	ids     idGen
 
 	msgs    map[string]*Message
 	dels    map[string]*drec
@@ -200,8 +206,14 @@ func newInbox(ctx context.Context, st *store.Store, roster Roster, opts Options)
 		}
 		return def
 	}
+	ownerFn := opts.IsOwner
+	if ownerFn == nil {
+		self := "user:" + opts.DeviceID
+		ownerFn = func(k string) bool { return k == self }
+	}
 	b := &inbox{
 		st: st, roster: roster, owners: opts.PROwners, dev: opts.DeviceID, now: now,
+		ownerFn: ownerFn,
 		lim: limits{
 			unengaged: pick(opts.UnengagedLimit, UnengagedLimit),
 			gone:      pick(opts.GoneGrace, GoneGrace),
@@ -230,20 +242,29 @@ func (b *inbox) replay(ctx context.Context) error {
 	defer b.mu.Unlock()
 	b.replaying = true
 	defer func() { b.replaying = false }()
-	var after hlc.Timestamp
-	for {
-		evs, err := b.st.List(ctx, store.Filter{Kinds: replayKinds, AfterHLC: after, Limit: store.MaxListLimit})
-		if err != nil {
-			return fmt.Errorf("inbox: replay: %w", err)
+	// Replicated rows, then this device's policy rows (local_events, v0.4
+	// §5.1). Policy folds as "newest wins" and nothing else reads it while
+	// replaying, so the two passes give the same state as one.
+	for _, local := range []bool{false, true} {
+		kinds := replayKinds
+		if local {
+			kinds = localReplayKinds
 		}
-		for _, ev := range evs {
-			if err := b.apply(ev); err != nil {
-				return fmt.Errorf("inbox: replay %s %s/%d: %w", ev.Kind, ev.DeviceID, ev.Seq, err)
+		var after store.Cursor
+		for {
+			evs, err := b.st.List(ctx, store.Filter{Kinds: kinds, After: after, Limit: store.MaxListLimit, Local: local})
+			if err != nil {
+				return fmt.Errorf("inbox: replay: %w", err)
 			}
-			after = ev.HLC
-		}
-		if len(evs) < store.MaxListLimit {
-			break
+			for _, ev := range evs {
+				if err := b.apply(ev); err != nil {
+					return fmt.Errorf("inbox: replay %s %s/%d: %w", ev.Kind, ev.DeviceID, ev.Seq, err)
+				}
+				after = ev.Cursor()
+			}
+			if len(evs) < store.MaxListLimit {
+				break
+			}
 		}
 	}
 	// Baseline for WakeReady edges; replay itself notifies nobody.
@@ -259,7 +280,7 @@ func (b *inbox) replay(ctx context.Context) error {
 // emit appends one row and folds it. Every mutation goes through here, so
 // live state and replayed state come from the same code.
 func (b *inbox) emit(ctx context.Context, by, kind string, payload any) error {
-	ev, err := b.st.Append(ctx, actorFor(by), kind, payload)
+	ev, err := b.st.Append(ctx, b.actorFor(by), kind, payload)
 	if err != nil {
 		return fmt.Errorf("inbox: append %s: %w", kind, err)
 	}
@@ -273,18 +294,38 @@ func (b *inbox) putDelivery(ctx context.Context, r deliveryRow, by string) error
 	return b.emit(ctx, by, KindDelivery, r)
 }
 
-func actorFor(by string) string {
+// emitLocal appends one device-local row (policy.set) and folds it.
+func (b *inbox) emitLocal(ctx context.Context, by, kind string, payload any) error {
+	ev, err := b.st.AppendLocal(ctx, b.actorFor(by), kind, payload)
+	if err != nil {
+		return fmt.Errorf("inbox: append %s: %w", kind, err)
+	}
+	return b.apply(ev)
+}
+
+// actorFor maps a caller to the store's actor forms. Only the owner's own
+// key (isOwner) makes a "user" row; the loopback API's "api:<sender>" keeps
+// its own actor, and a made-up "user:..." key is just an agent key.
+func (b *inbox) actorFor(by string) string {
 	switch {
 	case by == "" || by == "irori":
 		return "irori"
-	case strings.HasPrefix(by, "user:"):
+	case b.isOwner(by):
 		return "user"
+	case strings.HasPrefix(by, APIKeyPrefix):
+		return by
 	default:
 		return "agent:" + by
 	}
 }
 
-func isUserKey(key string) bool { return strings.HasPrefix(key, "user:") }
+// APIKeyPrefix starts the by of a row the loopback API writes on an
+// agent's behalf ("api:<sender key>"): never a "user" row (v0.4 §2).
+const APIKeyPrefix = "api:"
+
+// isOwner reports whether key is the person's ("user:<deviceId>" for a
+// device certified to them; Options.IsOwner).
+func (b *inbox) isOwner(key string) bool { return b.ownerFn(key) }
 
 // stamp is a row's time: its own "at", else its HLC wall time.
 func stamp(at time.Time, ev store.Event) time.Time {
@@ -296,6 +337,10 @@ func stamp(at time.Time, ev store.Event) time.Time {
 
 // apply folds one row into memory.
 func (b *inbox) apply(ev store.Event) error {
+	if !b.writerOK(ev) {
+		b.ignored++
+		return nil
+	}
 	switch ev.Kind {
 	case KindMessageSent:
 		var m Message
@@ -325,12 +370,13 @@ func (b *inbox) apply(ev store.Event) error {
 		prevTo, prevState := "", State("")
 		if !ok {
 			d = &drec{Delivery: Delivery{ID: r.DeliveryID, CreatedAt: at}}
+			d.firstWriter = ev.DeviceID
 			b.dels[r.DeliveryID] = d
 			b.order = append(b.order, r.DeliveryID)
 			d.assignedAt = at
 			if !b.counted[r.MessageID] {
 				b.counted[r.MessageID] = true
-				if m := b.msgs[r.MessageID]; m != nil && r.MovedFrom == "" && countsForRate(m.From.Key, r.To) {
+				if m := b.msgs[r.MessageID]; m != nil && r.MovedFrom == "" && b.countsForRate(m.From.Key, r.To) {
 					k := pairKey(m.From.Key, r.To)
 					b.pairs[k] = append(b.pairs[k], m.SentAt)
 				}
@@ -362,7 +408,7 @@ func (b *inbox) apply(ev store.Event) error {
 				b.visibleAt[d.MessageID] = at
 			}
 		}
-		if d.To != "" && !isUserKey(d.To) {
+		if d.To != "" && !b.isOwner(d.To) {
 			if _, ok := b.known[d.To]; !ok {
 				b.known[d.To] = ""
 			}
@@ -667,8 +713,8 @@ func pairKey(a, c string) string {
 
 // countsForRate: both ends are agents (a person at the GUI and Irori itself
 // are exempt).
-func countsForRate(from, to string) bool {
-	return from != "" && to != "" && !isUserKey(from) && !isUserKey(to) && from != SystemKey && to != SystemKey
+func (b *inbox) countsForRate(from, to string) bool {
+	return from != "" && to != "" && !b.isOwner(from) && !b.isOwner(to) && from != SystemKey && to != SystemKey
 }
 
 func (b *inbox) subscribe(ctx context.Context) <-chan Change {

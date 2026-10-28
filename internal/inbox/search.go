@@ -166,7 +166,7 @@ func (b *inbox) doc(m *Message, updated time.Time, dels []*drec) search.Doc {
 	switch {
 	case m.From.Key != "" && !m.From.IsUser() && !m.From.isSystem():
 		d.Agent = m.From.Key
-	case len(dels) > 0 && !isUserKey(dels[0].To):
+	case len(dels) > 0 && !b.isOwner(dels[0].To):
 		d.Agent = dels[0].To
 	}
 	switch m.To.Kind {
@@ -270,7 +270,7 @@ var _ search.Source = (*Inbox)(nil)
 func (b *inbox) readers(m *Message, dels []*drec) []string {
 	var out []string
 	add := func(k string) {
-		if k != "" && !isUserKey(k) && !slices.Contains(out, k) {
+		if k != "" && !b.isOwner(k) && !slices.Contains(out, k) {
 			out = append(out, k)
 		}
 	}

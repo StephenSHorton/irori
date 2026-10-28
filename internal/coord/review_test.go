@@ -219,11 +219,12 @@ func TestReplayHLCTieAtPageBoundary(t *testing.T) {
 		t.Fatalf("rows = %d", len(rows))
 	}
 	tie := rows[len(rows)-1].HLC // the last row of the first page
-	for seq := int64(1); seq <= 2; seq++ {
-		id := fmt.Sprintf("B%d", seq)
-		p, _ := json.Marshal(taskCreatedRow{TaskID: id, Title: id, By: "dev-b/s", At: fixedNow})
+	// One row each from two devices: a device's own HLCs only increase.
+	for i, dev := range []string{"dev-b", "dev-c"} {
+		id := fmt.Sprintf("B%d", i+1)
+		p, _ := json.Marshal(taskCreatedRow{TaskID: id, Title: id, By: dev + "/s", At: fixedNow})
 		if err := e.st.Insert(ctx, store.Event{
-			DeviceID: "dev-b", Seq: seq, HLC: tie, Actor: "agent:dev-b/s", Kind: KindTaskCreated, Payload: p,
+			DeviceID: dev, Seq: 1, HLC: tie, Actor: "agent:" + dev + "/s", Kind: KindTaskCreated, Payload: p,
 		}); err != nil {
 			t.Fatal(err)
 		}

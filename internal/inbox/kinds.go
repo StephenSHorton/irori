@@ -1,5 +1,7 @@
 package inbox
 
+import "github.com/StephenSHorton/irori/internal/store"
+
 // Log kinds the inbox writes and replays. Payloads only ever gain fields.
 // Every payload carries "at" (RFC 3339, the inbox clock); readers fall back
 // to the row's HLC wall time when it is missing.
@@ -22,7 +24,7 @@ const (
 	// KindAgentName records the card name presence showed for a key when the
 	// inbox first saw it, or saw it change: {key, name (lowercased), at}.
 	KindAgentName   = "agent.name"
-	KindPolicySet   = "policy.set"   // Policy + {by, at}
-	KindTurnEngaged = "turn.engaged" // {agent, wakeId, turnId, at}
-	KindTurnEnded   = "turn.ended"   // {agent, wakeId, turnId, at}
+	KindPolicySet   = store.KindPolicySet // Policy + {by, at}; device-local (v0.4 §5.1)
+	KindTurnEngaged = "turn.engaged"      // {agent, wakeId, turnId, at}
+	KindTurnEnded   = "turn.ended"        // {agent, wakeId, turnId, at}
 )

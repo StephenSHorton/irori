@@ -65,7 +65,7 @@ func (b *inbox) hold(m *Message, recipient string, cards map[string]presence.Age
 		if b.listed(b.pol.Block, m.From, cards, true) {
 			return HoldBlocked
 		}
-	} else if !m.From.IsUser() {
+	} else if !b.isPerson(m.From) {
 		allowed := b.listed(b.pol.Allow, m.From, cards, false)
 		switch {
 		case b.listed(b.pol.Block, m.From, cards, true):
@@ -122,7 +122,7 @@ func (b *inbox) setPolicy(ctx context.Context, p Policy, by string) error {
 	b.mu.Lock()
 	defer b.unlock()
 	wasPaused := b.pol.Paused
-	if err := b.emit(ctx, by, KindPolicySet, policyRow{Policy: p, By: by, At: b.now()}); err != nil {
+	if err := b.emitLocal(ctx, by, KindPolicySet, policyRow{Policy: p, By: by, At: b.now()}); err != nil {
 		return err
 	}
 	if !wasPaused || p.Paused {

@@ -69,7 +69,7 @@ package api
 //
 //	GET  /v1/policy                -> inbox.Policy
 //	POST /v1/policy  inbox.Policy  (attach only, and X-Irori-Origin: composer) -> inbox.Policy
-//	     Recorded as set by the person (by "user:composer@<agentKey>", actor "user").
+//	     Recorded with by and actor "api:composer@<agentKey>" (never "user": only the GUI makes user rows, v0.4 §2).
 //
 //	GET  /v1/inbox?all=1&limit=N   (attach or member) -> []inbox.Delivery for the caller
 //	     (held deliveries never appear; same rule as Inbox.For)
