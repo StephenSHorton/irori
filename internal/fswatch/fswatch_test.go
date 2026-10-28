@@ -91,3 +91,47 @@ func TestCloseAndContextStop(t *testing.T) {
 	}
 	w.Close() // idempotent after the context stopped it
 }
+
+// A non-recursive watch reports root's direct children and not the files
+// below them.
+func TestNonRecursiveSkipsSubtree(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w, err := Watch(context.Background(), root, false, 0)
+	if errors.Is(err, ErrUnsupported) {
+		t.Skip(runtime.GOOS)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+
+	deep := filepath.Join(sub, "deep.txt")
+	if err := os.WriteFile(deep, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	top := filepath.Join(root, "top.txt")
+	if err := os.WriteFile(top, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case e, ok := <-w.Events():
+			if !ok {
+				t.Fatal("watcher closed")
+			}
+			if e.Path == deep {
+				t.Fatalf("non-recursive watch reported %s", deep)
+			}
+			if e.Path == top {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("no event for %s", top)
+		}
+	}
+}

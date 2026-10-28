@@ -2,15 +2,18 @@
 // presence scanner, the transcript tailer and the reflog watcher run when
 // something happened instead of on a timer.
 //
-// On Windows one ReadDirectoryChangesW handle watches a whole tree. Elsewhere
-// (for now) Watch returns ErrUnsupported and callers keep their interval
-// scan. Notifications are a hint, not a record: the OS can drop them (a full
+// On Windows one ReadDirectoryChangesW handle watches a whole tree; on macOS
+// one FSEvents stream does (file-level events, built with cgo). Elsewhere,
+// and in a macOS build without cgo, Watch returns ErrUnsupported and callers
+// keep their interval scan. Notifications are a hint, not a record: the OS can drop them (a full
 // buffer is reported as Overflow), so callers still do a slow safety rescan
 // and treat Overflow as "rescan everything now". An append through a handle
 // the writer keeps open is reported only when that handle closes (NTFS
 // updates directory entries lazily). Claude Code, git and the session files
 // all open, write and close, so their changes arrive at once: checked live,
-// every transcript that grew in a 90 s window was reported.
+// every transcript that grew in a 90 s window was reported. FSEvents reports
+// symlink-resolved paths (/private/var for /var); events are mapped back
+// under the root the caller passed.
 package fswatch
 
 import (

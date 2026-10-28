@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -69,6 +70,7 @@ func readyService(t *testing.T) (*UpdateService, *fakeLauncher) {
 	s := New("x/y", "1.0.0")
 	f := &fakeLauncher{}
 	s.launch = f.launch
+	s.plat = nsisPlatform(s)
 	s.status = Status{Phase: PhaseReady, Version: "1.2.3", InstallerPath: testInstaller}
 	return s, f
 }
@@ -229,16 +231,24 @@ func TestCheckAndDownloadReturnsReadyStatusWithoutRerun(t *testing.T) {
 	}
 }
 
-// fakeGitHub serves a latest release with one installer and SHA256SUMS on a
-// loopback server. sums overrides the SHA256SUMS body ("" = correct hash,
+// fakeGitHub serves a latest release with one asset (by default the Windows
+// installer) and SHA256SUMS on a loopback server (httptest binds 127.0.0.1). sums overrides the SHA256SUMS body ("" = correct hash,
 // "-" = omit the asset).
 type fakeGitHub struct {
 	tag, sums string
 	payload   []byte
+	asset     string // the asset's name; "" is testAsset
 	hits      atomic.Int32
 }
 
 const testAsset = "irori-1.2.3-windows-amd64-installer.exe"
+
+func (g *fakeGitHub) name() string {
+	if g.asset == "" {
+		return testAsset
+	}
+	return g.asset
+}
 
 func (g *fakeGitHub) serve(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -246,19 +256,19 @@ func (g *fakeGitHub) serve(t *testing.T) *httptest.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/repos/x/y/releases/latest", func(w http.ResponseWriter, r *http.Request) {
 		g.hits.Add(1)
-		assets := []ghAsset{{Name: testAsset, URL: srv.URL + "/dl/" + testAsset}}
+		assets := []ghAsset{{Name: g.name(), URL: srv.URL + "/dl/" + g.name()}}
 		if g.sums != "-" {
 			assets = append(assets, ghAsset{Name: "SHA256SUMS", URL: srv.URL + "/dl/SHA256SUMS"})
 		}
 		_ = json.NewEncoder(w).Encode(ghRelease{TagName: g.tag, Body: "notes", Assets: assets})
 	})
-	mux.HandleFunc("/dl/"+testAsset, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(g.payload) })
+	mux.HandleFunc("/dl/"+g.name(), func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(g.payload) })
 	mux.HandleFunc("/dl/SHA256SUMS", func(w http.ResponseWriter, r *http.Request) {
 		body := g.sums
 		if body == "" {
 			h := sha256.Sum256(g.payload)
 			body = fmt.Sprintf("%s  irori-1.2.3-windows-amd64.zip\n%s  %s\n",
-				strings.Repeat("0", 64), hex.EncodeToString(h[:]), testAsset)
+				strings.Repeat("0", 64), hex.EncodeToString(h[:]), g.name())
 		}
 		_, _ = w.Write([]byte(body))
 	})
@@ -272,6 +282,7 @@ func testService(t *testing.T, srv *httptest.Server, current string) *UpdateServ
 	s := New("x/y", current)
 	s.apiBase = srv.URL
 	s.dir = t.TempDir()
+	s.plat = nsisPlatform(s)
 	return s
 }
 
@@ -354,13 +365,26 @@ func TestDownloadVerified(t *testing.T) {
 	}
 }
 
+// CheckAndDownload with this OS's own platform: Windows downloads the
+// installer, macOS refuses before the network because the test binary is not
+// inside Irori.app, and other systems are unsupported.
 func TestCheckAndDownloadPlatform(t *testing.T) {
 	g := &fakeGitHub{tag: "v1.2.3", payload: []byte("installer bytes")}
 	s := testService(t, g.serve(t), "1.0.0")
+	s.plat = newPlatform(s)
 	var seen []string
 	s.SetOnChange(func(st Status) { seen = append(seen, st.Phase) })
 	st, err := s.CheckAndDownload()
 
+	if runtime.GOOS == "darwin" {
+		if err == nil || st.Phase != PhaseError || !strings.Contains(st.Error, "Irori.app") {
+			t.Fatalf("status %+v err %v, want a not-in-Irori.app error", st, err)
+		}
+		if g.hits.Load() != 0 {
+			t.Fatal("a copy that can't update must not query GitHub")
+		}
+		return
+	}
 	if !supported {
 		if err == nil || st.Phase != PhaseError || !strings.Contains(st.Error, "not supported") {
 			t.Fatalf("status %+v err %v, want an unsupported error", st, err)

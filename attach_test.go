@@ -25,8 +25,8 @@ func TestAttachHelperSleep(t *testing.T) {
 // watchParent notices the parent exit at once instead of on its 5 s poll,
 // and stops when ctx ends while the parent lives.
 func TestWatchParent(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("off Windows watchParent polls every 5 s")
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		t.Skip("here watchParent polls every 5 s")
 	}
 	logger := log.New(io.Discard, "", 0)
 	cases := []struct {

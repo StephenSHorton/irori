@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/attach/runner"
@@ -42,7 +43,13 @@ func runAttach(args []string) error {
 	// Our parent started before we did; a process at its pid that started
 	// later is a reuse.
 	self, _ := proc.StartTime(os.Getpid())
-	go watchParent(ctx, os.Getppid(), self, logger, orphaned)
+	if ppid := os.Getppid(); reparented(ppid) {
+		// Our parent died before we looked: we already belong to launchd.
+		logger.Printf("attach: parent %d is gone; exiting", ppid)
+		orphaned()
+	} else {
+		go watchParent(ctx, ppid, self, logger, orphaned)
+	}
 	return runner.Run(ctx, runner.Options{
 		Session: *session, Cwd: *cwd, ModVersion: *modVersion, DataDir: dir,
 		Stdout: os.Stdout, Logf: logger.Printf,
@@ -51,10 +58,12 @@ func runAttach(args []string) error {
 
 // watchParent cancels when the process that spawned us is gone, so an attach
 // whose Claude Code died without killing it doesn't hold the session's stream.
-// On Windows it waits on the parent's process handle and reacts the moment
-// it exits; where it can't (another OS, no access) it checks every
-// parentPollEvery. startedBy (our own start; zero if unknown) rules out a
-// reused pid either way.
+// On Windows it waits on the parent's process handle and on macOS on a
+// kqueue NOTE_EXIT, and reacts the moment it exits; where it can't (another
+// OS, no access) it checks every parentPollEvery. startedBy (our own start;
+// zero if unknown) rules out a reused pid either way. Off Windows an orphan
+// is reparented (to launchd, pid 1): runAttach checks that before it starts
+// watching, and the poll checks it each round.
 func watchParent(ctx context.Context, ppid int, startedBy time.Time, logger *log.Logger, cancel context.CancelFunc) {
 	err := proc.WaitExit(ctx, ppid, startedBy)
 	if ctx.Err() != nil {
@@ -82,7 +91,7 @@ func pollParent(ctx context.Context, ppid int, startedBy time.Time) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if !proc.Alive(ppid) {
+			if reparented(ppid) || !proc.Alive(ppid) {
 				return
 			}
 			if st, ok := proc.StartTime(ppid); ok && !startedBy.IsZero() && st.After(startedBy) {
@@ -90,4 +99,14 @@ func pollParent(ctx context.Context, ppid int, startedBy time.Time) {
 			}
 		}
 	}
+}
+
+// reparented reports whether the process that spawned us (ppid, read at
+// start) is no longer our parent. Windows never reparents, so there it is
+// always false.
+func reparented(ppid int) bool {
+	if runtime.GOOS == "windows" {
+		return false
+	}
+	return ppid <= 1 || os.Getppid() != ppid
 }

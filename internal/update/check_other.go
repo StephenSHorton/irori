@@ -1,22 +1,18 @@
-//go:build !windows
+//go:build !windows && !darwin
 
 package update
 
 import (
 	"errors"
+	"os/exec"
 	"runtime"
 )
 
-// supported: only Windows updates itself so far. The macOS path (download the
-// .app.zip, swap the bundle, re-sign; see suzuri's internal/update) is owed.
+// supported: only Windows and macOS update themselves so far.
 const supported = false
 
-var errUnsupported = func() error {
-	if runtime.GOOS == "darwin" {
-		return errors.New("updates not supported on macOS yet")
-	}
-	return errors.New("updates not supported on " + runtime.GOOS + " yet")
-}()
+var errUnsupported = errors.New("updates not supported on " + runtime.GOOS + " yet")
 
-// CheckForUpdate always fails here: this platform cannot update itself yet.
-func (s *UpdateService) CheckForUpdate() (*UpdateInfo, error) { return nil, errUnsupported }
+func newPlatform(*UpdateService) platform { return platform{assetKind: runtime.GOOS} }
+
+func detach(*exec.Cmd) {}

@@ -44,6 +44,7 @@ func init() {
 // tray: closing the window hides it, and Quit is in the tray menu. A
 // --startup launch (launch at login) starts with the window hidden.
 func runGUI(args []string) error {
+	fixGUIPath()
 	opts, err := coreOptions(false)
 	if err != nil {
 		return err

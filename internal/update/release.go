@@ -56,10 +56,10 @@ func (s *UpdateService) latestRelease(ctx context.Context) (*ghRelease, error) {
 	return &rel, nil
 }
 
-// findUpdate returns the Windows installer update the latest release offers,
-// or nil when the running version is current (or a dev build, which never
-// touches the network). The release must carry SHA256SUMS with a line for the
-// installer: an unverifiable installer is never offered.
+// findUpdate returns the update the latest release offers for this platform
+// (s.plat.isAsset), or nil when the running version is current (or a dev
+// build, which never touches the network). The release must carry SHA256SUMS
+// with a line for the asset: an unverifiable download is never offered.
 func (s *UpdateService) findUpdate() (*UpdateInfo, error) {
 	if isDev(s.current) {
 		return nil, nil
@@ -78,7 +78,7 @@ func (s *UpdateService) findUpdate() (*UpdateInfo, error) {
 	var installer ghAsset
 	var sumsURL string
 	for _, a := range rel.Assets {
-		if isInstallerAsset(a.Name) {
+		if s.plat.isAsset != nil && s.plat.isAsset(a.Name) {
 			installer = a
 		}
 		if isChecksumAsset(a.Name) {
@@ -86,7 +86,7 @@ func (s *UpdateService) findUpdate() (*UpdateInfo, error) {
 		}
 	}
 	if installer.URL == "" {
-		return nil, fmt.Errorf("release %s has no windows installer asset", rel.TagName)
+		return nil, fmt.Errorf("release %s has no %s asset", rel.TagName, s.plat.assetKind)
 	}
 	if sumsURL == "" {
 		return nil, fmt.Errorf("release %s has no SHA256SUMS asset", rel.TagName)
@@ -112,6 +112,16 @@ func (s *UpdateService) findUpdate() (*UpdateInfo, error) {
 func isInstallerAsset(name string) bool {
 	n := strings.ToLower(name)
 	return strings.HasSuffix(n, "-installer.exe") && strings.Contains(n, "windows")
+}
+
+// isMacAppAsset reports whether a release asset is the zipped Irori.app for
+// arch (runtime.GOARCH) or a universal one. release.yml names it
+// irori-<version>-macos-<arch>.app.zip; the .dmg beside it is for a first
+// install and never picked.
+func isMacAppAsset(name, arch string) bool {
+	n := strings.ToLower(name)
+	return strings.HasPrefix(n, "irori-") &&
+		(strings.HasSuffix(n, "-macos-"+arch+".app.zip") || strings.HasSuffix(n, "-macos-universal.app.zip"))
 }
 
 // isChecksumAsset reports whether a release asset is the SHA256SUMS file.
@@ -145,8 +155,8 @@ func (s *UpdateService) fetchChecksum(ctx context.Context, url, name string) (st
 	return "", fmt.Errorf("SHA256SUMS has no line for %s", name)
 }
 
-// downloadVerified downloads the installer into the update folder and checks
-// its SHA256. It returns the installer path; a mismatch deletes the file.
+// downloadVerified downloads the asset into the update folder and checks its
+// SHA256. It returns the file's path; a mismatch deletes the file.
 func (s *UpdateService) downloadVerified(info UpdateInfo) (string, error) {
 	if info.AssetName == "" || info.AssetURL == "" {
 		return "", errors.New("update has no installer asset")
@@ -162,10 +172,11 @@ func (s *UpdateService) downloadVerified(info UpdateInfo) (string, error) {
 	}
 	// The asset name comes from the network: keep only its base name.
 	dst := filepath.Join(s.dir, filepath.Base(info.AssetName))
-	// Installers from earlier updates have done their job; drop them.
+	// Downloads from earlier updates have done their job; drop them (but
+	// keep the macOS swap helper's update.log).
 	if old, err := os.ReadDir(s.dir); err == nil {
 		for _, e := range old {
-			if p := filepath.Join(s.dir, e.Name()); p != dst && !e.IsDir() {
+			if p := filepath.Join(s.dir, e.Name()); p != dst && !e.IsDir() && filepath.Ext(p) != ".log" {
 				_ = os.Remove(p)
 			}
 		}

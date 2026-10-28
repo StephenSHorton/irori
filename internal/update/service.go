@@ -2,30 +2,39 @@
 // a newer release, announces it, and lets the user pick when to restart.
 //
 // It reads the latest GitHub Release of Repo, compares its tag against the
-// running version (main.version, injected with -ldflags -X), downloads the
-// Windows NSIS installer, verifies it against the release's SHA256SUMS, and
-// parks in the "ready" phase. From there the user restarts right away
-// (RestartToUpdate: silent installer, then quit; the installer relaunches
-// Irori) or keeps working, and the installer runs when Irori quits
-// (InstallOnExit: silent installer with /NORELAUNCH). Nothing installs or
-// quits behind the user's back, and "dev" builds never offer updates.
+// running version (main.version, injected with -ldflags -X), downloads this
+// platform's asset, verifies it against the release's SHA256SUMS, and parks
+// in the "ready" phase. From there the user restarts right away
+// (RestartToUpdate: install, quit, and Irori comes back) or keeps working,
+// and the install runs when Irori quits (InstallOnExit: no relaunch).
+// Nothing installs or quits behind the user's back, and "dev" builds never
+// offer updates. What differs by OS is a platform (nsis.go, mac_darwin.go).
 //
-// The GUI is not the only process running irori.exe: every agent session runs
-// `irori mcp` and `irori serve --headless` may be running too, so the exe image
-// can stay locked after the GUI quits. The installer therefore waits for the
-// GUI process itself (/WAITPID=<pid>), and if the exe is still locked it
-// renames it aside to irori.exe.old (Windows allows renaming a running exe)
-// and writes the new one in its place. Those running processes keep the old
-// image until they restart; new sessions get the new exe. CleanupOldExes,
-// called from AutoUpdate, deletes the renamed copies once nothing holds them.
+// Windows runs the release's NSIS installer. The GUI is not the only process
+// running irori.exe: every agent session runs `irori mcp` and `irori serve
+// --headless` may be running too, so the exe image can stay locked after the
+// GUI quits. The installer therefore waits for the GUI process itself
+// (/WAITPID=<pid>), and if the exe is still locked it renames it aside to
+// irori.exe.old (Windows allows renaming a running exe) and writes the new
+// one in its place. Those running processes keep the old image until they
+// restart; new sessions get the new exe. CleanupOldExes, called from
+// AutoUpdate, deletes the renamed copies once nothing holds them.
+//
+// macOS replaces the whole Irori.app: the release's .app.zip is unpacked,
+// its signature, bundle id and version checked, and copied beside the
+// running bundle as .Irori.app.new while Irori still runs, so "ready" has
+// already proven the folder is writable. A detached helper waits for the GUI
+// to exit, swaps the two bundles with renames (running `irori mcp`
+// processes keep the image they already opened), and reopens Irori unless
+// it was quitting. Moving the signed bundle whole keeps its signature
+// intact, which is why suzuri's re-sign and Info.plist heal steps (needed
+// there because it swaps only the Mach-O) are not ported.
 //
 // Wails v3's own pkg/updater is not used: it swaps the exe in place, which
 // leaves an NSIS install's registry entries, uninstaller and shortcuts stale.
-// Running the real installer keeps the install coherent.
 //
-// Only Windows updates for now. On macOS and Linux the check reports that
-// updates are not supported yet (see check_other.go), so the install paths
-// below are never reached there.
+// Linux cannot update itself yet: the check reports that updates are not
+// supported (check_other.go), so the install paths are never reached there.
 //
 // JS binding name: UpdateService.*
 package update
@@ -106,8 +115,31 @@ type UpdateService struct {
 	onChange func(Status)
 	inFlight atomic.Bool // one check+download at a time
 
-	// launch starts the installer detached. Swapped for a fake in tests.
+	// launch starts the installer (or the macOS swap helper) detached.
+	// Swapped for a fake in tests.
 	launch func(path string, args ...string) error
+
+	// plat is what updating means on this OS (newPlatform).
+	plat platform
+}
+
+// platform is the part of an update that differs by OS.
+type platform struct {
+	// assetKind names the release asset in errors ("windows installer").
+	assetKind string
+	// isAsset picks this platform's asset from a release.
+	isAsset func(name string) bool
+	// precheck, if set, runs before the network check: a reason this copy
+	// of Irori can't update itself (not running from an .app bundle).
+	precheck func() error
+	// stage, if set, turns the verified download into what install takes
+	// (macOS unpacks and checks the .app). Its result is InstallerPath.
+	stage func(downloaded string, info UpdateInfo) (string, error)
+	// install starts installing staged and returns; the caller then quits.
+	// relaunch false means the user is quitting and Irori stays closed.
+	install func(staged string, relaunch bool) error
+	// cleanup removes what an earlier update left behind; AutoUpdate runs it.
+	cleanup func()
 }
 
 // New returns an UpdateService for the given GitHub repo ("owner/repo",
@@ -117,18 +149,39 @@ func New(repo, currentVersion string) *UpdateService {
 	if data, err := paths.DataDir(); err == nil {
 		dir = filepath.Join(data, "updates")
 	}
-	return &UpdateService{
+	s := &UpdateService{
 		repo:    repo,
 		current: currentVersion,
 		client:  &http.Client{Timeout: 30 * time.Second},
 		apiBase: "https://api.github.com",
 		dir:     dir,
 		status:  Status{Phase: PhaseIdle},
-		launch: func(path string, args ...string) error {
-			// Started detached so it outlives our exit.
-			return exec.Command(path, args...).Start()
-		},
 	}
+	s.launch = func(path string, args ...string) error {
+		// Started detached so it outlives our exit.
+		cmd := exec.Command(path, args...)
+		detach(cmd)
+		return cmd.Start()
+	}
+	s.plat = newPlatform(s)
+	return s
+}
+
+// CheckForUpdate returns the available update, or nil if Irori is up to date
+// (or a "dev" build, which never reports updates).
+func (s *UpdateService) CheckForUpdate() (*UpdateInfo, error) {
+	if !supported {
+		return nil, errUnsupported
+	}
+	if isDev(s.current) {
+		return nil, nil
+	}
+	if s.plat.precheck != nil {
+		if err := s.plat.precheck(); err != nil {
+			return nil, err
+		}
+	}
+	return s.findUpdate()
 }
 
 // SetHooks connects the running app: emit sends a Wails event (main passes
@@ -156,7 +209,7 @@ func (s *UpdateService) SetOnChange(fn func(Status)) {
 // GetVersion returns the running version string.
 func (s *UpdateService) GetVersion() string { return s.current }
 
-// Supported reports whether this platform can update itself (Windows only for now).
+// Supported reports whether this platform can update itself (Windows and macOS).
 func (s *UpdateService) Supported() bool { return supported }
 
 // GetStatus returns the current updater status.
@@ -192,52 +245,12 @@ func (s *UpdateService) AutoUpdate() {
 		log.Printf("irori: %s", errUnsupported)
 		return
 	}
-	if exe, err := os.Executable(); err == nil {
-		CleanupOldExes(exe)
+	if s.plat.cleanup != nil {
+		s.plat.cleanup()
 	}
 	if _, err := s.CheckAndDownload(); err != nil {
 		log.Printf("irori: auto-update failed: %v", err)
 	}
-}
-
-// CleanupOldExes deletes the copies of exe that the installer renamed aside
-// (exe + ".old", ".old1", ...) during an update while `irori mcp` or `irori
-// serve` held the old image. A copy still running fails to delete and is left
-// for the next start. It returns the paths it removed.
-//
-//wails:ignore
-func CleanupOldExes(exe string) []string {
-	dir, prefix := filepath.Dir(exe), strings.ToLower(filepath.Base(exe))+".old"
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-	var removed []string
-	for _, e := range entries {
-		if e.IsDir() || !isOldCopy(strings.ToLower(e.Name()), prefix) {
-			continue
-		}
-		p := filepath.Join(dir, e.Name())
-		if os.Remove(p) == nil {
-			removed = append(removed, p)
-		}
-	}
-	return removed
-}
-
-// isOldCopy reports whether name is prefix itself or prefix plus digits, the
-// names project.nsi renames the old exe to.
-func isOldCopy(name, prefix string) bool {
-	rest, ok := strings.CutPrefix(name, prefix)
-	if !ok {
-		return false
-	}
-	for _, r := range rest {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 // CheckAndDownload is the manual "Check for updates" path: check, download and
@@ -273,6 +286,11 @@ func (s *UpdateService) CheckAndDownload() (Status, error) {
 	if err != nil {
 		return s.fail(err), err
 	}
+	if s.plat.stage != nil {
+		if path, err = s.plat.stage(path, *info); err != nil {
+			return s.fail(err), err
+		}
+	}
 
 	st := s.setStatus(func(st *Status) {
 		st.Phase, st.InstallerPath, st.Error = PhaseReady, path, ""
@@ -289,11 +307,12 @@ func (s *UpdateService) fail(err error) Status {
 	})
 }
 
-// RestartToUpdate launches the ready installer silently and quits Irori. The
+// RestartToUpdate starts the install and quits Irori. On Windows the silent
 // installer waits for this process to exit (/WAITPID), installs (renaming the
-// old exe aside if `irori mcp`/`serve` still hold it), and relaunches Irori. If
-// it cannot install at all it relaunches the old exe, so "Restart now" never
-// leaves Irori closed (build/windows/nsis/project.nsi).
+// old exe aside if `irori mcp`/`serve` still hold it), and relaunches Irori;
+// if it cannot install at all it relaunches the old exe, so "Restart now"
+// never leaves Irori closed (build/windows/nsis/project.nsi). On macOS the
+// swap helper does the same with the .app bundle (mac_darwin.go).
 func (s *UpdateService) RestartToUpdate() error {
 	s.mu.Lock()
 	if s.status.Phase != PhaseReady {
@@ -307,7 +326,7 @@ func (s *UpdateService) RestartToUpdate() error {
 	s.status.Phase = PhaseInstalling
 	s.mu.Unlock()
 
-	if err := s.launch(path, "/S", waitPIDArg()); err != nil {
+	if err := s.plat.install(path, true); err != nil {
 		s.setStatus(func(st *Status) { st.Phase = PhaseReady })
 		return fmt.Errorf("launch installer: %w", err)
 	}
@@ -320,9 +339,10 @@ func (s *UpdateService) RestartToUpdate() error {
 }
 
 // InstallOnExit belongs in the app's OnShutdown. If an update is ready and
-// nothing is installing, it launches the installer silently with /NORELAUNCH
-// and returns at once: the process exits, the installer waits for it
-// (/WAITPID), installs, and does not bring Irori back (the user chose to quit).
+// nothing is installing, it starts the install without relaunch and returns
+// at once: the process exits, the installer (Windows: /NORELAUNCH) or swap
+// helper (macOS) waits for it, installs, and does not bring Irori back (the
+// user chose to quit).
 //
 //wails:ignore
 func (s *UpdateService) InstallOnExit() {
@@ -335,17 +355,12 @@ func (s *UpdateService) InstallOnExit() {
 	s.status.Phase = PhaseInstalling
 	s.mu.Unlock()
 
-	if err := s.launch(path, "/S", "/NORELAUNCH", waitPIDArg()); err != nil {
+	if err := s.plat.install(path, false); err != nil {
 		log.Printf("irori: install on exit: launch installer: %v", err)
 		return
 	}
 	log.Printf("irori: installing update on exit (installer %s)", path)
 }
-
-// waitPIDArg tells the installer which process to wait for before it swaps the
-// exe: this one, the GUI. Waiting on the process rather than on the file lock
-// matters because `irori mcp` children may hold the lock indefinitely.
-func waitPIDArg() string { return "/WAITPID=" + strconv.Itoa(os.Getpid()) }
 
 // isNewer reports whether tag (vX.Y.Z) is newer than current. A "dev" or empty
 // current never reports an update, so `wails3 dev` never nags.

@@ -22,9 +22,13 @@ type session struct {
 	Entrypoint   string
 	Version      string
 	PeerFeatures []string
-	ProcStart    uint64 // FILETIME ticks on Windows; 0 when absent or unreadable
-	StartedAt    time.Time
-	UpdatedAt    time.Time
+	// ProcStart is when the session's process started, in the unit Claude
+	// Code wrote it: FILETIME ticks on Windows; on macOS and Linux Claude
+	// writes `ps -o lstart=` text (UTC), which readSession turns into Unix
+	// seconds. 0 when absent or unreadable.
+	ProcStart uint64
+	StartedAt time.Time
+	UpdatedAt time.Time
 }
 
 // isSessionFile reports whether name is <digits>.json. The <pid>.<hash>.key
@@ -69,7 +73,11 @@ func readSession(r io.Reader) (session, bool) {
 	}
 	switch v := m["procStart"].(type) {
 	case string:
-		s.ProcStart, _ = strconv.ParseUint(v, 10, 64)
+		if n, err := strconv.ParseUint(v, 10, 64); err == nil {
+			s.ProcStart = n
+		} else if t, ok := parseLstart(v); ok {
+			s.ProcStart = uint64(t.Unix())
+		}
 	case float64:
 		if v > 0 {
 			s.ProcStart = uint64(v)
@@ -115,4 +123,18 @@ func unixMilli(ms float64) time.Time {
 		return time.Time{}
 	}
 	return time.UnixMilli(int64(ms))
+}
+
+// lstartLayout is `ps -o lstart=` under LC_ALL=C, which is how Claude Code
+// records procStart off Windows (with TZ=UTC): "Mon Oct 27 14:29:03 2026".
+const lstartLayout = "Mon Jan _2 15:04:05 2006"
+
+// parseLstart reads an lstart timestamp as UTC.
+func parseLstart(v string) (time.Time, bool) {
+	// Collapsing runs of spaces turns "Oct  7" into "Oct 7", which _2 reads.
+	t, err := time.ParseInLocation(lstartLayout, strings.Join(strings.Fields(v), " "), time.UTC)
+	if err != nil || t.Year() < 2000 {
+		return time.Time{}, false
+	}
+	return t, true
 }

@@ -1,9 +1,10 @@
 # Releasing Irori
 
 Irori ships the way Toru does: a version tag builds a per-user Windows
-installer on GitHub Actions and publishes a GitHub Release, and every
-installed Irori finds that release the next time it starts, downloads it,
-checks it and asks before it restarts.
+installer and a macOS app on GitHub Actions and publishes a GitHub Release,
+and every installed Irori finds that release the next time it starts,
+downloads it, checks it and asks before it restarts. The Mac has its own
+section below ([macOS](#macos)).
 
 ## Cut a release
 
@@ -36,7 +37,7 @@ don't say 0.1.0, but a release does not need them bumped. Do not run
 
 ## What CI produces
 
-`.github/workflows/release.yml` has two jobs.
+`.github/workflows/release.yml` has three jobs.
 
 **windows** (windows-latest):
 
@@ -56,18 +57,39 @@ don't say 0.1.0, but a release does not need them bumped. Do not run
   - `irori-<version>-windows-amd64.zip`, the bare `irori.exe` for portable
     use.
 
-**release** (ubuntu-latest) writes `SHA256SUMS` over both assets and creates
-the GitHub Release `Irori vX.Y.Z` with generated release notes.
+**macos** (macos-latest, Apple silicon) builds `Irori.app` for arm64 and
+uploads `irori-<version>-macos-arm64.dmg` and
+`irori-<version>-macos-arm64.app.zip`; see [macOS](#macos).
+
+**release** (ubuntu-latest) writes `SHA256SUMS` over all four assets and
+creates the GitHub Release `Irori vX.Y.Z` with generated release notes.
 
 The asset names and the `SHA256SUMS` file are a contract with
-`internal/update/release.go`: the updater takes the asset whose name ends in
-`-installer.exe` and contains `windows`, and refuses to offer a release that
-has no `SHA256SUMS` line for it. `TestReleaseWorkflowAssetNames` reads the
-workflow and fails if the two drift apart.
+`internal/update/release.go`: the Windows updater takes the asset whose name
+ends in `-installer.exe` and contains `windows`, the macOS updater the one
+ending in `-macos-<arch>.app.zip` (or `-macos-universal.app.zip`), and both
+refuse to offer a release that has no `SHA256SUMS` line for their asset.
+`TestReleaseWorkflowAssetNames` reads the workflow and fails if they drift
+apart.
 
-There is no code signing yet, so Windows SmartScreen warns on the first
-manual install. Silent updates are not affected. macOS is not built yet (see
-the TODO in the workflow); the Mac app reports "updates not supported".
+There is no Windows code signing yet, so SmartScreen warns on the first
+manual install. Silent updates are not affected.
+
+### Dry run
+
+**Actions > Release > Run workflow** with **dry_run** ticked builds and tests
+both platforms from the branch you pick, runs the macOS smoke test, and keeps
+the assets as workflow artifacts (`irori-windows-amd64`,
+`irori-macos-arm64`) instead of making a release. The tag does not have to
+exist; it only names the version stamped in. From a terminal:
+
+```sh
+gh workflow run release.yml --ref feat/macos -f tag=v0.0.0-macos-test -f dry_run=true
+gh run watch
+```
+
+Use it to try a branch's Mac build on a Mac before tagging: download the
+`irori-macos-arm64` artifact from the run page.
 
 ## What the installer does
 
@@ -129,6 +151,149 @@ they restart. The next install and the next app start delete the `.old`
 copies once nothing holds them. If the exe can be neither written nor
 renamed, the installer changes nothing, starts the old Irori again (unless
 `/NORELAUNCH`), and the update is offered again at the next start.
+
+## macOS
+
+### What the macos job does
+
+- builds the frontend and runs the Go tests (the FSEvents watcher, kqueue
+  process waits and the updater's bundle swap are tested on the runner);
+- builds `bin/irori` with `CGO_ENABLED=1` (Wails' AppKit and WebKit glue and
+  FSEvents need cgo), `GOARCH=arm64`, `MACOSX_DEPLOYMENT_TARGET=12.0` and
+  `-ldflags "-w -s -X main.version=<version>"`;
+- runs `build/darwin/package.sh`, which assembles `Irori.app` by hand
+  (`Contents/MacOS/irori`, `build/darwin/Info.plist` with
+  `CFBundleShortVersionString` and `CFBundleVersion` set to `X.Y.Z`,
+  `icons.icns`, `Assets.car`), signs it, and writes the two assets:
+  - `irori-<version>-macos-arm64.dmg`, the first install: open it and drag
+    Irori to Applications;
+  - `irori-<version>-macos-arm64.app.zip`, `Irori.app` zipped with
+    `ditto`: what the in-app updater downloads (it never takes the dmg);
+- smoke-tests the bundle: `Irori.app/Contents/MacOS/irori version` must print
+  the tag's version, and the desktop app started from the bundle (with a
+  throwaway `IRORI_HOME`) must still be running 20 s later.
+
+It is arm64 only. Intel Macs get no asset, and their updater says the
+release has no macOS amd64 app. A universal build (a second cgo build for
+x86_64 plus `lipo`) is owed.
+
+### Unsigned builds (now)
+
+Without signing secrets the app is signed **ad hoc** (`codesign --sign -`
+with the bundle id `com.stephenshorton.irori`). Apple silicon refuses to run
+an arm64 binary with no signature at all, but Gatekeeper still treats an
+ad hoc app from the internet as unsigned. The first time:
+
+1. Open the dmg and drag **Irori** to **Applications**. (Running it from the
+   dmg or from Downloads makes macOS run a temporary read-only copy, which
+   cannot update itself.)
+2. In Applications, **right-click Irori > Open**, then **Open** in the
+   dialog. If the dialog only offers **Done** (macOS 15 and later), open
+   **System Settings > Privacy & Security**, scroll to the message about
+   Irori, and click **Open Anyway**.
+
+Or clear the quarantine flag from a terminal, after which it opens normally:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Irori.app
+```
+
+This is only for the first install. Updates downloaded by Irori itself carry
+no quarantine flag, so they open without asking.
+
+### Signing and notarization (later)
+
+The job signs with Developer ID and notarizes as soon as the secrets exist,
+with the same names suzuri uses. Add them under **Settings > Secrets and
+variables > Actions**:
+
+| Secret | Value |
+| --- | --- |
+| `MACOS_CERTIFICATE_P12_BASE64` | the Developer ID Application certificate and key exported as .p12, base64 (`base64 -i cert.p12`) |
+| `MACOS_CERTIFICATE_PASSWORD` | the .p12's password |
+| `MACOS_CODESIGN_IDENTITY` | the identity's full name, `Developer ID Application: Stephen Horton (TEAMID)` |
+| `APPLE_TEAM_ID` | the 10-character team id |
+
+and one set of notarization credentials, either an Apple ID:
+
+| Secret | Value |
+| --- | --- |
+| `APPLE_ID` | the Apple ID's email |
+| `APPLE_APP_SPECIFIC_PASSWORD` | an app-specific password from appleid.apple.com |
+
+or (preferred for CI) an App Store Connect API key:
+
+| Secret | Value |
+| --- | --- |
+| `APPLE_API_KEY_ID` | the key id |
+| `APPLE_API_ISSUER_ID` | the issuer id |
+| `APPLE_API_KEY_P8_BASE64` | the .p8 file, base64 |
+
+With them, `package.sh` signs the executable and then the bundle with
+hardened runtime and a secure timestamp, notarizes and staples the app
+(`build/darwin/notarize.sh`, `xcrun notarytool submit --wait`), and signs,
+notarizes and staples the dmg. A Developer ID identity without notarization
+credentials signs and skips notarization. Hardened runtime is on with no
+entitlements file; if notarization or the WebView needs one, add
+`build/darwin/entitlements.plist` and `package.sh` passes it to codesign.
+
+Once a release is Developer ID signed, the updater refuses an update that is
+not (Gatekeeper would call the swapped-in app damaged), so keep the secrets
+once they are in.
+
+### How the updater works on macOS
+
+The same check, card, banner and tray item as on Windows; the install step
+differs.
+
+1. The startup check stops early, with the reason in Settings, when Irori is
+   not running from an `Irori.app` bundle (a bare `bin/irori`), runs from
+   App Translocation's read-only copy (opened from the dmg or Downloads), or
+   the folder holding `Irori.app` is not writable for this user.
+2. It downloads `irori-<version>-macos-arm64.app.zip` into
+   `~/.irori/updates/` and checks it against `SHA256SUMS`.
+3. It unpacks it with `ditto` and checks the bundle id
+   (`com.stephenshorton.irori`), that `CFBundleShortVersionString` is the
+   release's `X.Y.Z`, that the executable is there, and that
+   `codesign --verify --deep --strict` passes. Then it copies the bundle
+   next to the installed app as `.Irori.app.new` (hidden, same folder, same
+   volume). Only then is the update **ready**.
+4. **Install** / **Restart now** starts a detached helper (`/bin/sh`, its
+   output in `~/.irori/updates/update.log`) and quits. The helper waits for
+   the GUI process to exit, renames `Irori.app` to `.Irori.app.old`, renames
+   `.Irori.app.new` to `Irori.app` (putting the old one back if that fails),
+   deletes the old one, and reopens Irori with `open`. Quitting with an
+   update ready runs the same swap without reopening.
+
+`irori mcp` processes started by agent sessions keep running from the old
+bundle's binary after the swap (macOS keeps a deleted file's image alive),
+and new sessions get the new one, so nothing waits for them. The next start
+deletes a `.Irori.app.new` or `.Irori.app.old` that an interrupted update
+left behind. The whole bundle is replaced, signature included, so nothing is
+re-signed on the user's Mac (suzuri swaps only the binary, which is why it
+needs its heal and re-sign steps).
+
+### Other platform notes
+
+- **Launch at login** uses Wails' autostart: on macOS 13+ from a bundle it
+  registers the app with `SMAppService` (System Settings > General > Login
+  Items lists it); otherwise it writes a LaunchAgent plist in
+  `~/Library/LaunchAgents`. `SMAppService` starts the app without
+  arguments, so on macOS 13+ a login launch does not get `--startup` and
+  opens the window instead of staying in the menu bar (owed).
+- **Menu bar**: a monochrome 囲 template image (`build/trayicon-template.png`,
+  rendered from `assets/brand/irori-mark-mono.svg`), so macOS tints it for
+  light and dark menu bars. A click opens the menu; **Open Irori** is its
+  first item.
+- **Notifications**: Irori pins `github.com/StephenSHorton/go-toast` v0.1.0,
+  whose cards are Windows only; on macOS they are silent no-ops until a
+  go-toast release with a macOS backend is pinned.
+- **PATH**: an app opened from Finder gets launchd's short PATH, so at start
+  the desktop app asks the login shell (`$SHELL -ilc`) for its PATH and puts
+  it in front, and `claude`, git and the agents it starts see the user's
+  tools.
+- **Data**: `~/.irori` (the ledger, settings.json, updates) and Claude
+  Code's `~/.claude` (or `CLAUDE_CONFIG_DIR`).
 
 ## Test an update end to end
 
