@@ -22,11 +22,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
 
 	"github.com/StephenSHorton/irori/internal/core"
+	"github.com/StephenSHorton/irori/internal/diag"
 	"github.com/StephenSHorton/irori/internal/paths"
 )
 
@@ -41,6 +43,7 @@ func main() {
 		cmd, args = args[0], args[1:]
 	}
 	useParentConsole(cmd)
+	setupDiagnostics(cmd)
 	var err error
 	switch cmd {
 	case "", "gui":
@@ -66,6 +69,46 @@ func main() {
 		fmt.Fprintln(os.Stderr, "irori:", err)
 		os.Exit(1)
 	}
+}
+
+// setupDiagnostics sends a crash (fatal error or unrecovered panic, every
+// goroutine) to <data>/crash.log for every role. The long-running roles, the
+// app and serve --headless, also write a start line there (which build, which
+// toolchain, when) and copy the log package to the rotated <data>/irori.log:
+// the app has no console, so otherwise a crash leaves nothing behind.
+func setupDiagnostics(cmd string) {
+	role := cmd
+	switch cmd {
+	case "", "gui":
+		role = "gui"
+	case "serve":
+	case "version":
+		return
+	}
+	dir, err := paths.DataDir()
+	if err != nil {
+		return
+	}
+	cf, err := diag.InstallCrashOutput(dir)
+	if err != nil {
+		log.Printf("crash output: %v", err)
+	}
+	if role != "gui" && role != "serve" {
+		return
+	}
+	start := diag.StartLine(role, version)
+	if cf != nil {
+		_, _ = cf.WriteString(start)
+	}
+	l, err := diag.OpenLog(dir)
+	if err != nil {
+		log.Printf("app log: %v", err)
+		return
+	}
+	// The file first: io.MultiWriter stops at the first failing writer, and
+	// a GUI launch's stderr may lead nowhere.
+	log.SetOutput(io.MultiWriter(l, log.Writer()))
+	_, _ = l.Write([]byte(start))
 }
 
 func coreOptions(headless bool) (core.Options, error) {
