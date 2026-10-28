@@ -190,8 +190,9 @@ type people struct {
 	paired bool
 	// conflicts maps a holder to the resource of its contested lease.
 	conflicts map[string]string
-	// unsent holds "<agent>\x00<ref>" for each Board notice still queued
-	// or held for that agent: an assignment that never reached it.
+	// unsent holds "<agent>\x00<ref>" for each assignment notice (reason
+	// "assigned") still queued or held for that agent: an assignment that
+	// never reached it. Later notices on the card don't count.
 	unsent map[string]bool
 }
 
@@ -202,7 +203,8 @@ func (b *BoardService) people() people {
 		names: map[string]string{}, conflicts: map[string]string{}, unsent: map[string]bool{}}
 	if b.deliveries != nil {
 		for _, d := range b.deliveries() {
-			if d.Message.Notice && (d.State == inbox.Queued || d.State == inbox.Held) && strings.HasPrefix(d.Message.Ref, "task:") {
+			m := d.Message
+			if m.Notice && m.Reason == string(coord.NoticeAssigned) && (d.State == inbox.Queued || d.State == inbox.Held) && strings.HasPrefix(m.Ref, "task:") {
 				p.unsent[unsentKey(d.To, d.Message.Ref)] = true
 			}
 		}

@@ -40,7 +40,8 @@ func TestBoardCreateAndAssign(t *testing.T) {
 		"beta (dev1/bbbbbbbb-2222-4222-8222-222222222222) (assigned, not taken up)")
 	id := strings.TrimSuffix(field(t, out, "Created"), ".")[len("task:"):]
 	ns := h.notices(keyB)
-	if len(ns) != 1 || ns[0].Mode != inbox.ModeNextTurn || ns[0].Message.Ref != "task:"+id || ns[0].Message.From.Key != keyA {
+	if len(ns) != 1 || ns[0].Mode != inbox.ModeNextTurn || ns[0].Message.Ref != "task:"+id || ns[0].Message.From.Key != keyA ||
+		ns[0].Message.Reason != string(coord.NoticeAssigned) {
 		t.Fatalf("assign notice %+v", ns)
 	}
 	has(t, ns[0].Message.Text, "tokens expire early", "task:"+id)

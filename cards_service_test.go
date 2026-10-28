@@ -89,7 +89,10 @@ func TestCardHolderLine(t *testing.T) {
 	var open []inbox.Delivery
 	b.deliveries = func() []inbox.Delivery { return open }
 	notice := func(to, ref string, st inbox.State) inbox.Delivery {
-		return inbox.Delivery{To: to, State: st, Message: inbox.Message{Ref: ref, Notice: true}}
+		return inbox.Delivery{To: to, State: st, Message: inbox.Message{Ref: ref, Notice: true, Reason: string(coord.NoticeAssigned)}}
+	}
+	later := func(to, ref string, kind coord.NoticeKind) inbox.Delivery {
+		return inbox.Delivery{To: to, State: inbox.Queued, Message: inbox.Message{Ref: ref, Notice: true, Reason: string(kind)}}
 	}
 	nobody, err := c.CreateTask(ctx, agentA, coord.NewTask{Title: "nobody"})
 	if err != nil {
@@ -127,6 +130,8 @@ func TestCardHolderLine(t *testing.T) {
 		notice(agentB, "task:"+told.ID, inbox.Delivered),
 		notice(agentA, "task:"+told.ID, inbox.Queued),                                     // another agent's notice
 		{To: agentB, State: inbox.Queued, Message: inbox.Message{Ref: "task:" + told.ID}}, // not a Board notice
+		later(agentB, "task:"+told.ID, coord.NoticeUnblocked),                             // a later notice, not the hand-over
+		later(agentB, "task:"+told.ID, coord.NoticeWatched),
 	}
 	byID := map[string]CardSummary{}
 	for _, s := range b.Cards() {
