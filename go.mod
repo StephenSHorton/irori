@@ -1,6 +1,11 @@
 module github.com/StephenSHorton/irori
 
-go 1.26.0
+// go1.26.0 and 1.26.1 corrupt goroutine stacks on Windows UDP receives
+// (golang/go#77975, fixed in 1.26.2); that crashed v0.4.1. The go line is the
+// floor any toolchain must meet; the release workflow reads both lines.
+go 1.26.2
+
+toolchain go1.26.5
 
 require (
 	github.com/StephenSHorton/go-room v0.2.0
