@@ -3,7 +3,7 @@ module github.com/StephenSHorton/irori
 go 1.26.0
 
 require (
-	github.com/StephenSHorton/go-room v0.1.0
+	github.com/StephenSHorton/go-room v0.2.0
 	github.com/StephenSHorton/go-toast v0.2.0
 	github.com/jackpal/gateway v1.1.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0
@@ -78,5 +78,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
-
-replace github.com/StephenSHorton/go-room => ../../../../go-room
