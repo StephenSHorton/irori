@@ -42,10 +42,11 @@ func (c *Core) RequestReset() error {
 }
 
 // Reset moves this device's log and identity aside now (`irori pair
-// reset`). It refuses while a Core runs on dataDir. It returns the folder
-// the files went to.
+// reset`). It refuses while a Core runs on dataDir, this process's own
+// included: macOS lets a rename move a live Core's open database. It
+// returns the folder the files went to.
 func Reset(dataDir string) (string, error) {
-	if lf, err := discovery.Read(dataDir); err == nil && lf.PID != os.Getpid() {
+	if lf, err := discovery.Read(dataDir); err == nil {
 		return "", fmt.Errorf("%w (pid %d): quit it first, or use Reset in Settings → Devices", ErrAlreadyRunning, lf.PID)
 	}
 	return resetNow(dataDir)
