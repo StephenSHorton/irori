@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/store"
 )
@@ -76,6 +77,9 @@ type Options struct {
 	Chain   *identity.Chain
 	Net     Transport
 	Version string
+	// Files is the attachment store blob streams serve from and fetch into
+	// (§6.6); nil serves nothing.
+	Files *blob.Files
 	// Intervals shortens the timers (tests).
 	Intervals Intervals
 	// TrustAnyPeer turns off the handshake's cert check and hello's key
@@ -113,6 +117,7 @@ type Node struct {
 	restoring string // the peer this device's own rows are coming back from
 	restoreTo int64  // and up to which seq
 	retry     map[string]*retryState
+	fetching  map[string]*sync.Mutex // one fetch per attachment at a time
 	wg        sync.WaitGroup
 }
 

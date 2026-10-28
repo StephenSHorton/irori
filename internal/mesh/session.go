@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"io"
 	"math"
 	"sort"
 	"sync"
@@ -83,6 +84,9 @@ func (s *session) heldCount() int {
 func (s *session) run(parent context.Context) {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	// Blob streams the peer opens (§4.3); each is served on its own.
+	peer := s.conn.ID()
+	s.conn.OnStream(func(label string, st io.ReadWriteCloser) { s.n.serveStream(peer, label, st) })
 	go func() {
 		select {
 		case <-s.conn.Done():

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/device"
 	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/identity"
@@ -56,6 +57,7 @@ type dev struct {
 	ident *identity.Identity
 	chain *identity.Chain
 	st    *store.Store
+	files *blob.Files
 	node  *Node
 	trust bool
 
@@ -96,6 +98,9 @@ func (d *dev) open() {
 	if err := d.ident.EnsureSelfCert(ctx, d.st, d.chain, identity.RoleDesktop); err != nil {
 		t.Fatal(err)
 	}
+	if d.files, err = blob.OpenFiles(filepath.Join(d.dir, "files")); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (d *dev) id() string { return d.ident.Device.ID }
@@ -106,7 +111,7 @@ func (d *dev) start() {
 	if d.done != nil {
 		d.t.Fatalf("%s already started", d.name)
 	}
-	d.node = New(Options{Store: d.st, Ident: d.ident, Chain: d.chain, Net: d.net, Version: "0.4.0-test",
+	d.node = New(Options{Store: d.st, Ident: d.ident, Chain: d.chain, Net: d.net, Version: "0.4.0-test", Files: d.files,
 		Intervals: fastIntervals, TrustAnyPeer: d.trust, Now: d.clk.Now, Logf: func(f string, a ...any) { d.t.Logf(d.name+": "+f, a...) }})
 	ctx, cancel := context.WithCancel(context.Background())
 	d.cancel, d.done = cancel, make(chan struct{})

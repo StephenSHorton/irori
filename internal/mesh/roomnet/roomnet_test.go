@@ -19,6 +19,7 @@ import (
 	room "github.com/StephenSHorton/go-room"
 	"golang.org/x/crypto/nacl/secretbox"
 
+	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/device"
 	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/identity"
@@ -90,6 +91,7 @@ type dev struct {
 	ident *identity.Identity
 	chain *identity.Chain
 	st    *store.Store
+	files *blob.Files
 	node  *mesh.Node
 	tr    *Transport
 	stop  func()
@@ -122,6 +124,9 @@ func newDev(t *testing.T, name string, personFrom string) *dev {
 	if err := d.ident.EnsureSelfCert(context.Background(), d.st, d.chain, identity.RoleDesktop); err != nil {
 		t.Fatal(err)
 	}
+	if d.files, err = blob.OpenFiles(filepath.Join(d.dir, "files")); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		if d.stop != nil {
 			d.stop()
@@ -133,7 +138,7 @@ func newDev(t *testing.T, name string, personFrom string) *dev {
 
 func (d *dev) start(hub *room.MemHub) {
 	d.tr = New(Options{Self: d.ident.Device.ID, Hub: hub, LoopbackOnly: true, Logf: func(f string, a ...any) { d.t.Logf(d.name+": "+f, a...) }})
-	d.node = mesh.New(mesh.Options{Store: d.st, Ident: d.ident, Chain: d.chain, Net: d.tr, Version: "0.4.0-test",
+	d.node = mesh.New(mesh.Options{Store: d.st, Ident: d.ident, Chain: d.chain, Net: d.tr, Version: "0.4.0-test", Files: d.files,
 		Intervals: mesh.Intervals{Presence: 200 * time.Millisecond, Ping: 200 * time.Millisecond, Vector: 300 * time.Millisecond},
 		Logf:      func(f string, a ...any) { d.t.Logf(d.name+": "+f, a...) }})
 	ctx, cancel := context.WithCancel(context.Background())

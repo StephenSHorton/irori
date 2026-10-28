@@ -31,6 +31,12 @@ const (
 	KindLocalMoved = "local.moved"
 )
 
+// KindAttachOffered: {sha256, size, name, mime}: the writing device holds
+// this attachment and serves it to the person's other devices (v0.4 §6.6).
+// Written when a file is attached and after every fetch, so any device that
+// has the file can serve it. Written by internal/mesh and core.
+const KindAttachOffered = "attach.offered"
+
 // Device-local kinds, which live in local_events and never replicate (§5.1).
 // They are named here as strings because their packages import store.
 const (
@@ -78,7 +84,7 @@ var kindSides = map[string]Side{
 	"commit.seen": Replicated, "commit.linked": Replicated, "decision.recorded": Replicated,
 	// v0.4 requests and owner rows (§6.0), reserved here so they ship classified.
 	"delivery.decided": Replicated, "ask.posted": Replicated, "ask.answered": Replicated,
-	"ask.resolved": Replicated, "revive.requested": Replicated, "attach.offered": Replicated,
+	"ask.resolved": Replicated, "revive.requested": Replicated, KindAttachOffered: Replicated,
 	"lease.stolen": Replicated,
 }
 
