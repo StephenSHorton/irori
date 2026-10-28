@@ -2,6 +2,7 @@ import { useState, type FormEvent, type ReactNode } from "react"
 import { ExternalLinkIcon } from "lucide-react"
 
 import { ConfirmButton } from "@/components/common/confirm-button"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -454,6 +455,23 @@ function People({ detail, gone }: { detail: CardDetail; gone: GoneSession[] }) {
           <span className="min-w-0 truncate">
             <span className="text-ink">{name(w)}</span>{" "}
             <small className="text-xs text-muted-foreground">· {w.where}</small>
+            {w.offline && (
+              <Badge
+                variant="slate"
+                className="ml-1.5 h-4 px-1.5 text-[10.5px]"
+              >
+                offline
+              </Badge>
+            )}
+            {w.conflict && (
+              <Badge
+                variant="warning"
+                className="ml-1.5 h-4 px-1.5 text-[10.5px]"
+                title={`Two devices leased ${w.conflict} while apart`}
+              >
+                conflict
+              </Badge>
+            )}
           </span>
           <span className="flex items-center gap-2 text-xs text-muted-foreground">
             {w.status === "gone" ? (
@@ -466,7 +484,7 @@ function People({ detail, gone }: { detail: CardDetail; gone: GoneSession[] }) {
                 <span>assigned</span>
               ) : (
                 <>
-                  {w.live && <LiveDot />}
+                  {w.live && !w.offline && <LiveDot />}
                   <span>working</span>
                 </>
               )

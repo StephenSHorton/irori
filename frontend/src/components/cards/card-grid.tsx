@@ -1,5 +1,6 @@
 import { LayersIcon } from "lucide-react"
 
+import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { percent, type CardSummary } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
@@ -114,6 +115,15 @@ function CardTile({
       <span className="flex flex-wrap items-center gap-1.5">
         <StatePill card={card} />
         <ScopeBadge card={card} />
+        {card.working.some((w) => w.conflict) && (
+          <Badge
+            variant="warning"
+            className="rounded-full"
+            title="Two devices leased the same thing while apart"
+          >
+            Lease conflict
+          </Badge>
+        )}
       </span>
       <span className="text-[14.5px] leading-snug font-semibold text-balance text-ink">
         {title}

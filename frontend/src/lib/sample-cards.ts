@@ -37,7 +37,15 @@ export const sampleAgents = {
   otter: agent("sample01-synthetic-session", "sample-otter", "busy"),
   heron: agent("sample02-synthetic-session", "sample-heron", "idle"),
   badger: agent("sample03-synthetic-session", "sample-badger", "busy"),
-  wren: agent("sample04-synthetic-session", "sample-wren", "idle"),
+  // sample-wren is on the sample's paired MacBook, which is offline, so its
+  // face shows the device chip greyed.
+  wren: new AgentRef({
+    ...agent("sample04-synthetic-session", "sample-wren", "idle"),
+    key: "sample-macbook/sample04-synthetic-session",
+    where: "MacBook",
+    device: "MacBook",
+    offline: true,
+  }),
   // sample-lark is in sample-talk.ts's gone list, so its face offers Revive.
   lark: agent("sample99-synthetic-session", "sample-lark", "gone"),
 }
