@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/coord"
+	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/ledger"
 	"github.com/StephenSHorton/irori/internal/presence"
 )
@@ -240,5 +241,72 @@ func TestCardInputRequired(t *testing.T) {
 	}
 	if _, err := b.Answer(tk.ID, NoteItem, -1, "again", true); err == nil {
 		t.Fatal("answered a note that no longer waits")
+	}
+}
+
+// Faces from another device name it, and get the device chip only once the
+// person has a second (unrevoked) device; an offline device's agents show
+// greyed, and a contested lease marks its holder (v0.4 §9).
+func TestCardFacesAcrossDevices(t *testing.T) {
+	b, c, _ := cardsBoard(t)
+	const mac = "dev-b/agent-c"
+	b.self = "dev-a"
+	b.agents = func() []presence.AgentCard {
+		return []presence.AgentCard{
+			{Key: agentA, DeviceID: "dev-a", Name: "ww-release", Status: "busy"},
+			{Key: mac, DeviceID: "dev-b", Name: "mac-agent", Status: "idle", DeviceState: "offline"},
+		}
+	}
+	devs := []identity.DeviceState{
+		{Cert: identity.Cert{DeviceID: "dev-a", Label: "PC"}},
+		{Cert: identity.Cert{DeviceID: "dev-b", Label: "Mac"}, Revoked: true},
+	}
+	b.devices = func() []identity.DeviceState { return devs }
+	b.leases = func() []coord.Lease {
+		return []coord.Lease{{Resource: "port:8799", Holder: mac, Conflict: agentA}, {Resource: "gpu", Holder: agentB}}
+	}
+
+	// One live device: names, but no chips.
+	p := b.people()
+	if r := p.ref(mac); r.Where != "Mac" || r.Device != "" || !r.Offline || r.Conflict != "port:8799" || !r.Live {
+		t.Fatalf("mac face with one device %+v", r)
+	}
+	devs[1].Revoked = false
+	p = b.people()
+	if r := p.ref(mac); r.Where != "Mac" || r.Device != "Mac" || !r.Offline {
+		t.Fatalf("mac face %+v", r)
+	}
+	if r := p.ref(agentA); r.Where != "This PC" || r.Device != "" || r.Offline || r.Conflict != "" {
+		t.Fatalf("this device's face %+v", r)
+	}
+	// An agent the roster no longer has keeps its device from its key.
+	if r := p.ref("dev-b/old"); r.Status != "gone" || r.Device != "Mac" {
+		t.Fatalf("gone mac face %+v", r)
+	}
+	// A key with no device part gets no chip.
+	if r := p.ref("api:composer"); r.Where != "This PC" || r.Device != "" {
+		t.Fatalf("api face %+v", r)
+	}
+	// Cards carry the refs through.
+	tk := heldTask(t, c)
+	if g := b.Cards(); len(g) != 1 || g[0].ID != tk.ID || g[0].Working[0].Where != "This PC" {
+		t.Fatalf("grid %+v", g)
+	}
+}
+
+// The tray's Needs-a-decision count is the cards with an open blocker.
+func TestDecideCount(t *testing.T) {
+	ctx := context.Background()
+	b, c, _ := cardsBoard(t)
+	heldTask(t, c)
+	if n := b.decideCount(); n != 0 {
+		t.Fatalf("decide = %d", n)
+	}
+	tk := heldTask(t, c)
+	if _, _, err := c.Raise(ctx, agentA, tk.ID, coord.NewBlocker{Question: "Ship?"}); err != nil {
+		t.Fatal(err)
+	}
+	if n := b.decideCount(); n != 1 {
+		t.Fatalf("decide = %d", n)
 	}
 }

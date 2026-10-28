@@ -41,7 +41,7 @@ func TestUnreachableSignalingLeavesAWorkingDevice(t *testing.T) {
 	if !rows[0].This || !strings.Contains(rows[0].Warning, "Can't reach the signaling servers") {
 		t.Fatalf("this device's row = %+v", rows[0])
 	}
-	if len(rows) != 2 || rows[1].DeviceID != b.id() || rows[1].State != "offline" {
+	if len(rows) != 2 || rows[1].DeviceID != b.id() || rows[1].State != "offline" || !rows[1].LastSeen.IsZero() {
 		t.Fatalf("the mac's row = %+v", rows)
 	}
 	// The log, and everything on it, still works here.

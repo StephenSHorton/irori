@@ -55,6 +55,10 @@ func TestPairingStartsTheNetAndEarlierRowsReplicate(t *testing.T) {
 	if p := a.peer(b.id()); p.State != "connected" {
 		t.Fatalf("b seen from a: %+v", p)
 	}
+	// Devices shows when b was last heard from.
+	if rows := a.node.Devices(false); len(rows) != 2 || rows[1].LastSeen.IsZero() {
+		t.Fatalf("a's devices: %+v", rows)
+	}
 }
 
 func TestLocalKindsNeverCross(t *testing.T) {

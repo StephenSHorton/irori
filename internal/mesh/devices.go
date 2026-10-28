@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/store"
@@ -23,6 +24,9 @@ type DeviceRow struct {
 	Revoked bool   `json:"revoked,omitempty"`
 	// Warning is the one line shown under a device when something is wrong.
 	Warning string `json:"warning,omitempty"`
+	// LastSeen is the newer of its last ping and its last sync here (zero
+	// for this device, and for one never heard from).
+	LastSeen time.Time `json:"lastSeen,omitzero"`
 	// Detail is what is behind the state and the warning (?detail=1 only).
 	Detail *PeerState `json:"detail,omitempty"`
 }
@@ -46,7 +50,11 @@ func (n *Node) Devices(detail bool) []DeviceRow {
 	}
 	out := []DeviceRow{me}
 	for _, p := range st.Peers {
-		r := DeviceRow{DeviceID: p.DeviceID, Name: p.Label, Role: p.Role, OS: n.deviceOS(p.DeviceID), State: p.State, Revoked: p.Revoked}
+		r := DeviceRow{DeviceID: p.DeviceID, Name: p.Label, Role: p.Role, OS: n.deviceOS(p.DeviceID), State: p.State, Revoked: p.Revoked,
+			LastSeen: p.LastPing}
+		if p.LastSync.After(r.LastSeen) {
+			r.LastSeen = p.LastSync
+		}
 		switch {
 		case p.Revoked:
 			r.Warning = "Removed."

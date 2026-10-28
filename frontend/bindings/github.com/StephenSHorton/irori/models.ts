@@ -38,7 +38,7 @@ export class AgentRef {
     "live": boolean;
 
     /**
-     * the machine: "This PC" until devices pair (v0.4)
+     * the machine: "This PC", or the other device's name (v0.4)
      */
     "where": string;
 
@@ -46,6 +46,24 @@ export class AgentRef {
      * Assigned: a holder that was assigned the card and hasn't taken it up.
      */
     "assigned"?: boolean;
+
+    /**
+     * Device is the device chip on a face from another device: that
+     * device's name, set only once the person has more than one device
+     * (v0.4 §9).
+     */
+    "device"?: string;
+
+    /**
+     * Offline: the host device is offline, so the face shows greyed.
+     */
+    "offline"?: boolean;
+
+    /**
+     * Conflict is the resource this agent leased while partitioned from
+     * another device's holder of it (v0.4 §6.4), for the conflict chip.
+     */
+    "conflict"?: string;
 
     /** Creates a new AgentRef instance. */
     constructor($$source: Partial<AgentRef> = {}) {
@@ -835,6 +853,12 @@ export class DeviceView {
      * Warning is the one line shown under a device when something is wrong.
      */
     "warning"?: string;
+
+    /**
+     * LastSeen is when this device last heard from it (zero: never, or
+     * this device).
+     */
+    "lastSeen"?: time$0.Time;
 
     /** Creates a new DeviceView instance. */
     constructor($$source: Partial<DeviceView> = {}) {

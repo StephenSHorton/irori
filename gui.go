@@ -132,11 +132,11 @@ func runGUI(args []string) error {
 	setupUpdater(app, upd, tray, c.Notifier(), show)
 	go roster.pump(ctx, app)
 	go roster.trayStatus(ctx, tray)
-	tray.SetPause(inboxSvc.SetPaused)
+	tray.SetPause(c.Device().Name, inboxSvc.SetPaused)
 	inboxSvc.onCounts(tray.SetInbox)
 	go inboxSvc.pump(ctx, app)
 	go captureSvc.pump(ctx, app)
-	go board.pump(ctx, app)
+	go board.pump(ctx, app, tray.SetDecide)
 	setupNotifications(ctx, app, c, show)
 	return app.Run()
 }

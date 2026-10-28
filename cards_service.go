@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/coord"
+	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/ledger"
 	"github.com/StephenSHorton/irori/internal/presence"
+	"github.com/StephenSHorton/irori/internal/roster"
 )
 
 // The cards window (docs/design/v0.4-devices.md §9, v0.3.3): BoardService's
@@ -40,9 +42,18 @@ type AgentRef struct {
 	// roster has no live card, or "person".
 	Status string `json:"status"`
 	Live   bool   `json:"live"`  // in the roster and not gone (the live dot)
-	Where  string `json:"where"` // the machine: "This PC" until devices pair (v0.4)
+	Where  string `json:"where"` // the machine: "This PC", or the other device's name (v0.4)
 	// Assigned: a holder that was assigned the card and hasn't taken it up.
 	Assigned bool `json:"assigned,omitempty"`
+	// Device is the device chip on a face from another device: that
+	// device's name, set only once the person has more than one device
+	// (v0.4 §9).
+	Device string `json:"device,omitempty"`
+	// Offline: the host device is offline, so the face shows greyed.
+	Offline bool `json:"offline,omitempty"`
+	// Conflict is the resource this agent leased while partitioned from
+	// another device's holder of it (v0.4 §6.4), for the conflict chip.
+	Conflict string `json:"conflict,omitempty"`
 }
 
 // CardProgress is done steps over all steps; Total 0 means no bar.
@@ -139,19 +150,55 @@ type people struct {
 	user  string
 	// owner is coord's person rule (v0.4 §2); nil is exactly user.
 	owner func(string) bool
+	// self is this device's id; names are the person's devices' labels.
+	self  string
+	names map[string]string
+	// paired: the person has more than one device, so faces from another
+	// device get a device chip (v0.4 §9).
+	paired bool
+	// conflicts maps a holder to the resource of its contested lease.
+	conflicts map[string]string
 }
 
 func (b *BoardService) people() people {
-	p := people{byKey: map[string]presence.AgentCard{}, user: b.user.Key}
+	p := people{byKey: map[string]presence.AgentCard{}, user: b.user.Key, self: b.self,
+		names: map[string]string{}, conflicts: map[string]string{}}
 	if b.coord != nil {
 		p.owner = b.coord.IsPerson
+	}
+	if b.leases != nil {
+		for _, l := range b.leases() {
+			if l.Conflict != "" {
+				p.conflicts[l.Holder] = l.Resource
+			}
+		}
 	}
 	if b.agents != nil {
 		for _, a := range b.agents() {
 			p.byKey[a.Key] = a
 		}
 	}
+	if b.devices != nil {
+		live := 0
+		for _, d := range b.devices() {
+			p.names[d.Cert.DeviceID] = d.Cert.Label
+			if !d.Revoked {
+				live++
+			}
+		}
+		p.paired = live > 1
+	}
 	return p
+}
+
+// where names the device a key lives on: "This PC" for this one (or when
+// this device is unknown, as in a Core-less test), else its label
+// ("Another device" when it has none).
+func (p people) where(dev string) string {
+	if dev == "" || p.self == "" || dev == p.self {
+		return "This PC"
+	}
+	return cmp.Or(p.names[dev], "Another device")
 }
 
 func (p people) ref(key string) AgentRef {
@@ -162,15 +209,26 @@ func (p people) ref(key string) AgentRef {
 		return AgentRef{Key: key, Name: "You", Status: "person", Live: true, Where: "This PC"}
 	case p.owner != nil && p.owner(key):
 		// The person at another of their devices.
-		return AgentRef{Key: key, Name: "You", Status: "person", Live: true, Where: "Another device"}
+		return AgentRef{Key: key, Name: "You", Status: "person", Live: true,
+			Where: p.where(strings.TrimPrefix(key, identity.UserKeyPrefix))}
 	}
-	r := AgentRef{Key: key, Name: key, Status: "gone", Where: "This PC"}
+	dev, _, ok := strings.Cut(key, "/") // "<deviceId>/<sessionId>"
+	if !ok {
+		dev = ""
+	}
+	r := AgentRef{Key: key, Name: key, Status: "gone", Conflict: p.conflicts[key]}
 	if a, ok := p.byKey[key]; ok {
 		if a.Name != "" {
 			r.Name = a.Name
 		}
 		r.Status = a.Status
 		r.Live = a.Status != "gone"
+		r.Offline = a.DeviceState == roster.Offline
+		dev = cmp.Or(a.DeviceID, dev)
+	}
+	r.Where = p.where(dev)
+	if p.paired && dev != "" && dev != p.self {
+		r.Device = r.Where
 	}
 	return r
 }
@@ -229,6 +287,19 @@ func (b *BoardService) Cards() []CardSummary {
 		return out[i].ID > out[j].ID
 	})
 	return out
+}
+
+// decideCount counts the cards waiting on a decision, the Needs a decision
+// filter's number and the tray's. Rows from every device fold into the
+// board, so it covers all of them (v0.4 §9).
+func (b *BoardService) decideCount() int {
+	n := 0
+	for _, t := range b.coord.ListTasks(coord.TaskFilter{Open: true}) {
+		if cardSummary(t, people{}).OpenBlockers > 0 {
+			n++
+		}
+	}
+	return n
 }
 
 // Card opens one card: goal, steps, blockers with their recommended answers

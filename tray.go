@@ -32,8 +32,9 @@ func init() {
 //
 //	[Restart to update to vX]   only while an update is ready (SetUpdater)
 //	Open Irori
-//	<status line>               disabled; SetStatus changes it, SetInbox adds unread/held
-//	Pause all wakes             checkbox bound to the inbox policy (SetPause)
+//	<status line>               disabled; SetStatus changes it, SetInbox adds unread/held,
+//	                            SetDecide the cards waiting on a decision (every device)
+//	Pause wakes on <device>     checkbox bound to this device's inbox policy (SetPause)
 //	Launch at login             checkbox, off until the user ticks it
 //	Quit Irori
 //
@@ -50,6 +51,8 @@ type TrayController struct {
 	status   string
 	updater  *update.UpdateService
 	counts   InboxCounts
+	decide   int              // cards waiting on a decision, across devices
+	device   string           // this device's name, for the pause checkbox
 	setPause func(bool) error // nil until SetPause; hides the checkbox
 }
 
@@ -106,20 +109,50 @@ func (t *TrayController) SetInbox(c InboxCounts) {
 	}
 }
 
-// SetPause shows the "Pause all wakes" checkbox; set turns pause-all on or off.
-func (t *TrayController) SetPause(set func(bool) error) {
+// SetDecide sets the Needs-a-decision count on the status line. The board
+// folds every device's rows, so it covers all of them (v0.4 §9).
+// Unchanged counts don't rebuild the menu.
+func (t *TrayController) SetDecide(n int) {
 	if t == nil {
 		return
 	}
 	t.mu.Lock()
-	t.setPause = set
+	same := t.decide == n
+	t.decide = n
+	t.mu.Unlock()
+	if !same {
+		t.rebuild()
+	}
+}
+
+// SetPause shows the "Pause wakes on <device>" checkbox; set turns
+// pause-all on or off. Pause stays per device (decision D5): it holds
+// wakes of this device's sessions, whoever sent the message.
+func (t *TrayController) SetPause(device string, set func(bool) error) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	t.device, t.setPause = device, set
 	t.mu.Unlock()
 	t.rebuild()
 }
 
-// statusLine is status plus " · N unread · M held" for the nonzero counts.
-func statusLine(status string, c InboxCounts) string {
+// pauseLabel is the pause checkbox's text, naming the device it covers.
+func pauseLabel(device string) string {
+	if device == "" {
+		return "Pause wakes on this device"
+	}
+	return "Pause wakes on " + device
+}
+
+// statusLine is status plus " · N need a decision · N unread · M held" for
+// the nonzero counts.
+func statusLine(status string, c InboxCounts, decide int) string {
 	parts := []string{status}
+	if decide > 0 {
+		parts = append(parts, fmt.Sprintf("%d need a decision", decide))
+	}
 	if c.Unread > 0 {
 		parts = append(parts, fmt.Sprintf("%d unread", c.Unread))
 	}
@@ -150,12 +183,12 @@ func (t *TrayController) open() {
 
 func (t *TrayController) rebuild() {
 	t.mu.Lock()
-	status, u, counts, setPause := t.status, t.updater, t.counts, t.setPause
+	status, u, counts, decide, device, setPause := t.status, t.updater, t.counts, t.decide, t.device, t.setPause
 	t.mu.Unlock()
 	if status == "" {
 		status = versionLine(t.version)
 	}
-	status = statusLine(status, counts)
+	status = statusLine(status, counts, decide)
 
 	menu := application.NewMenu()
 	if u != nil {
@@ -176,7 +209,7 @@ func (t *TrayController) rebuild() {
 	menu.AddSeparator()
 
 	if setPause != nil {
-		menu.AddCheckbox("Pause all wakes", counts.Paused).OnClick(func(ctx *application.Context) {
+		menu.AddCheckbox(pauseLabel(device), counts.Paused).OnClick(func(ctx *application.Context) {
 			want := ctx.IsChecked()
 			go func() {
 				// The policy change comes back through SetInbox, which

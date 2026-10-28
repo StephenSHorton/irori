@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/StephenSHorton/irori/internal/core"
 	"github.com/StephenSHorton/irori/internal/pair"
@@ -45,6 +46,9 @@ type DeviceView struct {
 	Revoked bool   `json:"revoked,omitempty"`
 	// Warning is the one line shown under a device when something is wrong.
 	Warning string `json:"warning,omitempty"`
+	// LastSeen is when this device last heard from it (zero: never, or
+	// this device).
+	LastSeen time.Time `json:"lastSeen,omitzero"`
 }
 
 // Devices lists the person's devices, this one first (the same rows as
@@ -54,7 +58,7 @@ func (s *DevicesService) Devices() []DeviceView {
 	out := make([]DeviceView, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, DeviceView{DeviceID: r.DeviceID, Name: r.Name, Role: r.Role, This: r.This,
-			State: r.State, Revoked: r.Revoked, Warning: r.Warning})
+			State: r.State, Revoked: r.Revoked, Warning: r.Warning, LastSeen: r.LastSeen})
 	}
 	return out
 }

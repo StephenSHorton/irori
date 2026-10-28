@@ -8,6 +8,7 @@ import (
 
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/core"
+	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/ledger"
 	"github.com/StephenSHorton/irori/internal/presence"
@@ -108,10 +109,18 @@ type BoardService struct {
 	// prs is capture's PR ledger for a GitHub "owner/name"; nil when
 	// capture is off.
 	prs func(repo string) []ledger.Entry
+	// self and devices name the device each face is on (v0.4 §9); nil
+	// devices is this device alone.
+	self    string
+	devices func() []identity.DeviceState
+	// leases are coord's leases, read for the conflict chip (a seam for
+	// tests: a partition conflict needs two devices); nil is none.
+	leases func() []coord.Lease
 }
 
 func newBoardService(c *core.Core) *BoardService {
-	b := &BoardService{coord: c.Coord(), user: c.UserSender(), route: c.RouteNotices, agents: c.Agents}
+	b := &BoardService{coord: c.Coord(), user: c.UserSender(), route: c.RouteNotices, agents: c.MeshAgents,
+		self: c.Device().ID, devices: c.CertifiedDevices, leases: c.Coord().Leases}
 	if cp := c.Capture(); cp != nil {
 		b.prs = cp.PRs
 	}
@@ -262,9 +271,13 @@ func dropBlank(ss []string) []string {
 }
 
 // pump forwards coord changes to the webview as board:changed until ctx ends.
-func (b *BoardService) pump(ctx context.Context, app *application.App) {
+// pump emits board:changed and hands decide (the tray) the
+// Needs-a-decision count, once at start and after every change.
+func (b *BoardService) pump(ctx context.Context, app *application.App, decide func(int)) {
+	decide(b.decideCount())
 	pumpBoard(ctx, b.coord.Subscribe(ctx), boardEmitEvery, func() {
 		app.Event.Emit(EventBoardChanged, struct{}{})
+		decide(b.decideCount())
 	})
 }
 
