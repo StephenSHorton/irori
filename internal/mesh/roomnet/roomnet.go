@@ -82,6 +82,7 @@ type hubConn struct {
 	id     string
 	client *room.HubClient
 	relay  *room.Relay
+	since  time.Time // when dialing started
 }
 
 // local is this device's own home server (internal/home): its hub carries
@@ -254,7 +255,7 @@ func (t *Transport) dialHub(id string) *hubConn {
 	})
 	r := room.NewRelay(room.RelayConfig{Fetch: c.TURN, Logf: scrubbed(t.o.Logf)}, t.o.Self, nil)
 	r.Start()
-	return &hubConn{id: id, client: c, relay: r}
+	return &hubConn{id: id, client: c, relay: r, since: time.Now()}
 }
 
 func (h *hubConn) close() {
@@ -313,6 +314,9 @@ type HubState struct {
 	ID   string `json:"id"`
 	Up   bool   `json:"up"`
 	Addr string `json:"addr,omitempty"` // the address the handshake completed on
+	// Since is when this device started dialing it, so a hub that is
+	// still connecting isn't reported as unreachable.
+	Since time.Time `json:"since"`
 }
 
 // Hubs lists the home servers this device dials and whether each is up.
@@ -321,7 +325,7 @@ func (t *Transport) Hubs() []HubState {
 	defer t.mu.Unlock()
 	out := make([]HubState, 0, len(t.hubs))
 	for id, h := range t.hubs {
-		out = append(out, HubState{ID: id, Up: h.client.Up(), Addr: h.client.Addr()})
+		out = append(out, HubState{ID: id, Up: h.client.Up(), Addr: h.client.Addr(), Since: h.since})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out

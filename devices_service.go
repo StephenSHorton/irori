@@ -183,7 +183,7 @@ func (s *DevicesService) HomeServer() HomeServerView {
 	}
 	if s.core.NetStatus().State == mesh.StateOn {
 		for _, r := range s.core.RemoteServers() {
-			if !r.Up {
+			if r.Unreachable {
 				name := r.DeviceID
 				for _, d := range s.core.Mesh().Devices(false) {
 					if d.DeviceID == r.DeviceID && d.Name != "" {

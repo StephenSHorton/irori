@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"time"
 
 	"github.com/StephenSHorton/irori/internal/home"
 )
@@ -49,7 +50,14 @@ func (c *Core) Role() string {
 type RemoteServer struct {
 	DeviceID string `json:"deviceId"`
 	Up       bool   `json:"up"`
+	// Unreachable is true once it has been down past a first connect's
+	// grace, so Devices doesn't flash a warning at every start.
+	Unreachable bool `json:"unreachable,omitempty"`
 }
+
+// reachGrace is how long a hub may take to connect before Devices says it
+// can't be reached.
+const reachGrace = 30 * time.Second
 
 // RemoteServers lists the home servers on other devices this device dials,
 // and whether each hub connection is up (Devices shows one line when one
@@ -60,7 +68,7 @@ func (c *Core) RemoteServers() []RemoteServer {
 	}
 	var out []RemoteServer
 	for _, h := range c.rt.Hubs() {
-		out = append(out, RemoteServer{DeviceID: h.ID, Up: h.Up})
+		out = append(out, RemoteServer{DeviceID: h.ID, Up: h.Up, Unreachable: !h.Up && time.Since(h.Since) > reachGrace})
 	}
 	return out
 }

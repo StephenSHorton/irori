@@ -30,22 +30,22 @@ import (
 // Every listener here is on 127.0.0.1, the router is a fake Gateway in
 // process, and nothing reaches the internet.
 
-// gateway is a fake router: it maps whatever it is asked for, at ext, unless
-// fail is set.
-type gateway struct {
+// router is a fake gateway in process: it maps whatever it is asked for,
+// at ext, unless fail is set.
+type router struct {
 	mu     sync.Mutex
 	ext    netip.Addr
 	fail   error
 	mapped map[string]portmap.Port
 }
 
-func (g *gateway) Method() string { return "upnp" }
-func (g *gateway) ExternalIP(context.Context) (netip.Addr, error) {
+func (g *router) Method() string { return "upnp" }
+func (g *router) ExternalIP(context.Context) (netip.Addr, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.ext, g.fail
 }
-func (g *gateway) Map(_ context.Context, p portmap.Port, life time.Duration) (portmap.Port, time.Duration, error) {
+func (g *router) Map(_ context.Context, p portmap.Port, life time.Duration) (portmap.Port, time.Duration, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.fail != nil {
@@ -60,14 +60,14 @@ func (g *gateway) Map(_ context.Context, p portmap.Port, life time.Duration) (po
 	g.mapped[p.Proto] = p
 	return p, life, nil
 }
-func (g *gateway) Unmap(_ context.Context, p portmap.Port) error {
+func (g *router) Unmap(_ context.Context, p portmap.Port) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	delete(g.mapped, p.Proto)
 	return nil
 }
 
-func (g *gateway) count() int {
+func (g *router) count() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return len(g.mapped)
@@ -82,7 +82,7 @@ type node struct {
 	servers *mesh.Servers
 	tr      *roomnet.Transport
 	srv     *Server
-	gw      *gateway
+	gw      *router
 	wanted  atomic.Bool
 	cancel  context.CancelFunc
 	done    chan struct{}
@@ -90,7 +90,7 @@ type node struct {
 
 func newNode(t *testing.T, edit func(*Config)) *node {
 	t.Helper()
-	n := &node{t: t, dir: t.TempDir(), gw: &gateway{ext: netip.MustParseAddr("203.0.113.7")}}
+	n := &node{t: t, dir: t.TempDir(), gw: &router{ext: netip.MustParseAddr("203.0.113.7")}}
 	n.wanted.Store(true)
 	dv, err := device.LoadOrCreate(n.dir)
 	if err != nil {

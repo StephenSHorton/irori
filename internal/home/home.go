@@ -29,6 +29,7 @@ import (
 
 	room "github.com/StephenSHorton/go-room"
 	"github.com/StephenSHorton/go-room/portmap"
+	"github.com/jackpal/gateway"
 
 	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/mesh"
@@ -708,15 +709,61 @@ func splitPublic(in string, port int) (string, int, error) {
 
 func pickPort() int { return portMin + rand.IntN(portMax-portMin+1) }
 
-// lanAddrs is this machine's private IPv4 addresses on up interfaces.
+// lanAddrs is this machine's private IPv4 addresses on up interfaces, the
+// one on the default gateway's subnet first: TURN relays from the first,
+// and virtual adapters (Hyper-V, WSL, Docker, VPNs) have private addresses
+// too, which devices on the home network can't reach.
 func lanAddrs() []netip.Addr {
 	var out []netip.Addr
-	for _, s := range room.LocalSubnets() {
+	var gwSub []netip.Addr
+	subs := room.LocalSubnets()
+	for _, s := range subs {
 		if a := s.Prefix.Addr(); !slices.Contains(out, a) {
 			out = append(out, a)
 		}
 	}
+	if gw := gatewayFor(out); gw.IsValid() {
+		for _, s := range subs {
+			if s.Prefix.Masked().Contains(gw) {
+				gwSub = append(gwSub, s.Prefix.Addr())
+			}
+		}
+	}
+	slices.SortStableFunc(out, func(a, b netip.Addr) int {
+		ina, inb := slices.Contains(gwSub, a), slices.Contains(gwSub, b)
+		switch {
+		case ina && !inb:
+			return -1
+		case inb && !ina:
+			return 1
+		}
+		return 0
+	})
 	return out
+}
+
+// The default gateway is looked up again only when the addresses change:
+// on Windows it runs `route print`.
+var gwCache struct {
+	sync.Mutex
+	key string
+	gw  netip.Addr
+}
+
+func gatewayFor(addrs []netip.Addr) netip.Addr {
+	key := fmt.Sprint(addrs)
+	gwCache.Lock()
+	defer gwCache.Unlock()
+	if gwCache.key == key {
+		return gwCache.gw
+	}
+	gwCache.key, gwCache.gw = key, netip.Addr{}
+	if ip, err := gateway.DiscoverGateway(); err == nil {
+		if g, ok := netip.AddrFromSlice(ip); ok {
+			gwCache.gw = g.Unmap()
+		}
+	}
+	return gwCache.gw
 }
 
 // v6Addrs is this machine's global IPv6 addresses (not link-local, not

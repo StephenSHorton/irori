@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/StephenSHorton/go-room v0.1.0
 	github.com/StephenSHorton/go-toast v0.2.0
+	github.com/jackpal/gateway v1.1.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.98
 	golang.org/x/crypto v0.50.0
@@ -32,7 +33,6 @@ require (
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/huin/goupnp v1.3.0 // indirect
-	github.com/jackpal/gateway v1.1.1 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
 	github.com/kevinburke/ssh_config v1.4.0 // indirect
