@@ -11,7 +11,9 @@ import (
 // The allow-list matches a sender's key or its card name, never the name it
 // chose to send under.
 func TestAllowListIgnoresSelfChosenName(t *testing.T) {
-	const keyN = "dev1/nnnnnnnn-5555-4555-8555-555555555555"
+	// A Claude session on a device not certified to the person: not one of
+	// the person's own agents, so the bypass hold still applies (decision 34).
+	const keyN = "devX/nnnnnnnn-5555-4555-8555-555555555555"
 	h := newHarness(t)
 	h.abc()
 	h.ros.put(grokCard(keyG, "grok", ""), card(keyN, "normal", "", "default"))

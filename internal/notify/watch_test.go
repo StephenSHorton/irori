@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	toast "github.com/StephenSHorton/go-toast"
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/inbox"
@@ -144,7 +145,7 @@ func (r *rig) heldMessage(text string) inbox.Delivery {
 func TestWatchHeldReleaseActsAsPerson(t *testing.T) {
 	r := newRig(t)
 	d := r.heldMessage("please run the migration")
-	id := HeldID(d.ID)
+	id := HeldID(keyA)
 	r.waitPost(id)
 	c := r.fake.card(t, id)
 	if c.Title != "alpha sent beta a message Irori held" || !strings.Contains(c.Body, "block list") || !strings.Contains(c.Body, "migration") {
@@ -176,7 +177,7 @@ func TestWatchHeldReleaseActsAsPerson(t *testing.T) {
 func TestWatchHeldClearedWhenResolvedElsewhere(t *testing.T) {
 	r := newRig(t)
 	d := r.heldMessage("one")
-	id := HeldID(d.ID)
+	id := HeldID(keyA)
 	r.waitPost(id)
 	// Dismissed from the app, not the card: the card comes down.
 	if err := r.ib.Dismiss(r.ctx, d.ID, user); err != nil {
@@ -186,8 +187,8 @@ func TestWatchHeldClearedWhenResolvedElsewhere(t *testing.T) {
 
 	// The card's Dismiss button acts through the inbox.
 	d2 := r.heldMessage("two")
-	r.waitPost(HeldID(d2.ID))
-	r.fake.press(t, HeldID(d2.ID), "Dismiss")
+	r.waitTitle(id, "alpha sent beta a message Irori held") // the card was down: this is d2's
+	r.fake.press(t, id, "Dismiss")
 	for i := 0; i < 300; i++ {
 		if got, _ := r.ib.Get(d2.ID); got.State == inbox.Dismissed {
 			return
@@ -195,6 +196,103 @@ func TestWatchHeldClearedWhenResolvedElsewhere(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("Dismiss on the card didn't dismiss the delivery")
+}
+
+// heldPosts are the Posts of id so far, oldest first.
+func (f *fakeToaster) heldPosts(id string) []toast.Note {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []toast.Note
+	for _, n := range f.posts {
+		if n.ID == id {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// waitTitle waits for the live card id to read title.
+func (r *rig) waitTitle(id, title string) toast.Note {
+	r.t.Helper()
+	for i := 0; i < 300; i++ {
+		if r.fake.isLive(id) {
+			if c := r.fake.card(r.t, id); c.Title == title {
+				return c
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	r.t.Fatalf("card %q never read %q", id, title)
+	return toast.Note{}
+}
+
+// Held messages coalesce (decision 34): one card per sender, updated in
+// place with the count and without a sound while it is up; Release all
+// acts on every one; a hold leaving updates the count; another sender
+// gets a card of their own.
+func TestWatchHeldCoalescesPerSender(t *testing.T) {
+	r := newRig(t)
+	id := HeldID(keyA)
+	d1 := r.heldMessage("one")
+	r.waitPost(id)
+	d2 := r.heldMessage("two")
+	d3 := r.heldMessage("three")
+	c := r.waitTitle(id, "alpha sent beta 3 messages Irori held")
+	if !strings.Contains(c.Body, "three") || c.Actions[0].Label != "Release all" || c.Actions[1].Label != "Dismiss all" {
+		t.Fatalf("card = %q / %+v", c.Body, c.Actions)
+	}
+	posts := r.fake.heldPosts(id)
+	if posts[0].Silent {
+		t.Fatal("the card's first post made no sound")
+	}
+	for _, p := range posts[1:] {
+		if !p.Silent {
+			t.Fatalf("an update of a card that is up made a sound: %q", p.Title)
+		}
+	}
+	r.fake.mu.Lock()
+	for k := range r.fake.live {
+		if strings.HasPrefix(k, "held:") && k != id {
+			t.Errorf("a second held card %q is up", k)
+		}
+	}
+	r.fake.mu.Unlock()
+
+	// Dismissed in the app: the card counts what is left, quietly.
+	if err := r.ib.Dismiss(r.ctx, d1.ID, user); err != nil {
+		t.Fatal(err)
+	}
+	r.waitTitle(id, "alpha sent beta 2 messages Irori held")
+
+	// Another sender's hold is a card of its own.
+	if err := r.ib.SetPolicy(r.ctx, inbox.Policy{Mode: inbox.Everyone, Block: []string{keyA, keyB}}, user); err != nil {
+		t.Fatal(err)
+	}
+	beta := inbox.Sender{Key: keyB, Name: "beta", Kind: "claude"}
+	if _, _, err := r.ib.Send(r.ctx, beta, inbox.Address{Kind: inbox.ToAgent, Value: keyA}, "from beta", ""); err != nil {
+		t.Fatal(err)
+	}
+	r.waitTitle(HeldID(keyB), "beta sent alpha a message Irori held")
+
+	// Release all releases both of alpha's, and alpha's card goes.
+	r.fake.press(t, id, "Release all")
+	for i := 0; i < 300; i++ {
+		g2, _ := r.ib.Get(d2.ID)
+		g3, _ := r.ib.Get(d3.ID)
+		if g2.State == inbox.Queued && g3.State == inbox.Queued {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for _, d := range []inbox.Delivery{d2, d3} {
+		if got, _ := r.ib.Get(d.ID); got.State != inbox.Queued {
+			t.Fatalf("after Release all %s is %s", d.ID, got.State)
+		}
+	}
+	r.waitGone(id)
+	if !r.fake.isLive(HeldID(keyB)) {
+		t.Fatal("releasing alpha's took beta's card down")
+	}
 }
 
 func TestWatchPausedHoldsStayQuiet(t *testing.T) {
@@ -355,10 +453,11 @@ func TestWatchCatchesUpAfterDroppedChanges(t *testing.T) {
 		return name
 	})
 	d := r.heldMessage("first")
-	r.waitPost(HeldID(d.ID))
+	id := HeldID(keyA)
+	r.waitPost(id)
 
 	stall.Store(true)
-	d2 := r.heldMessage("second") // the watcher stalls building its card
+	r.heldMessage("second") // the watcher stalls building its card
 	select {
 	case <-stalled:
 	case <-time.After(slow * 3 * time.Second):
@@ -378,12 +477,16 @@ func TestWatchCatchesUpAfterDroppedChanges(t *testing.T) {
 	}
 	close(release)
 
-	r.waitGone(HeldID(d.ID))
-	for i := 0; i < 300 && !r.fake.isLive(HeldID(d3.ID)); i++ {
+	// alpha's one card counts the second and third, not the dismissed first.
+	want := "alpha sent beta 2 messages Irori held"
+	for i := 0; i < 300; i++ {
+		if r.fake.isLive(id) && r.fake.card(t, id).Title == want {
+			break
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !r.fake.isLive(HeldID(d2.ID)) || !r.fake.isLive(HeldID(d3.ID)) {
-		t.Fatalf("held cards: second %v, third %v; want both up", r.fake.isLive(HeldID(d2.ID)), r.fake.isLive(HeldID(d3.ID)))
+	if c := r.fake.card(t, id); c.Title != want || !strings.Contains(c.Body, "third") {
+		t.Fatalf("card = %q / %q", c.Title, c.Body)
 	}
 }
 
@@ -431,7 +534,7 @@ func TestWatchBoardIgnoresThePersonsOwnMoves(t *testing.T) {
 func TestWatchHeldCardComesBackAfterDismiss(t *testing.T) {
 	r := newRig(t)
 	d := r.heldMessage("please run the migration")
-	id := HeldID(d.ID)
+	id := HeldID(keyA)
 	r.waitPost(id)
 	c := r.fake.card(t, id)
 	if c.OnDismiss == nil {
@@ -449,7 +552,10 @@ func TestWatchHeldCardComesBackAfterDismiss(t *testing.T) {
 	if _, _, err := r.ib.Send(r.ctx, person, inbox.Address{Kind: inbox.ToAgent, Value: keyB}, "any change", ""); err != nil {
 		t.Fatal(err)
 	}
-	r.waitPost(id)
+	r.waitTitle(id, "alpha sent beta a message Irori held")
+	if p := r.fake.heldPosts(id); !p[len(p)-1].Silent {
+		t.Fatal("a held card back after its x made a sound")
+	}
 }
 
 // A message held, or sent to the person, before the app started gets its
@@ -490,7 +596,7 @@ func TestWatchPostsWaitingMessagesAtStart(t *testing.T) {
 	wg.Add(1)
 	go func() { defer wg.Done(); Watch(wctx, n, Sources{Inbox: ib, User: user}) }()
 	defer func() { cancel(); wg.Wait() }()
-	want := map[string]bool{HeldID(held.ID): true, MessageID(back.ID): true}
+	want := map[string]bool{HeldID(keyA): true, MessageID(back.ID): true}
 	deadline := time.After(slow * 3 * time.Second)
 	for len(want) > 0 {
 		select {
@@ -498,6 +604,81 @@ func TestWatchPostsWaitingMessagesAtStart(t *testing.T) {
 			delete(want, id)
 		case <-deadline:
 			t.Fatalf("not posted at start: %v", want)
+		}
+	}
+}
+
+// A Release that leaves the message held (a repo with no agent to take it
+// yet) puts the card back with the error on it, buttons and all; one that
+// fails only because the message was resolved elsewhere is no error.
+func TestWatchHeldReleaseFailureKeepsTheCard(t *testing.T) {
+	r := newRig(t)
+	_, d, err := r.ib.Send(r.ctx, alpha, inbox.Address{Kind: inbox.ToRepo, Value: "acme/nobody"}, "deploy it", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.State != inbox.Held || d.Hold != inbox.HoldUnowned {
+		t.Fatalf("delivery %s/%s, want held unowned", d.State, d.Hold)
+	}
+	id := HeldID(keyA)
+	r.waitPost(id)
+	r.fake.press(t, id, "Release")
+	var c toast.Note
+	for i := 0; i < 300; i++ {
+		if r.fake.isLive(id) {
+			if c = r.fake.card(t, id); strings.Contains(c.Body, "Couldn't release that message") {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(c.Body, "Couldn't release that message") || !strings.Contains(c.Body, "deploy it") {
+		t.Fatalf("after a failed Release the card reads %q", c.Body)
+	}
+	if len(c.Actions) != 2 || c.Actions[0].Label != "Release" {
+		t.Fatalf("the failed card's actions = %+v", c.Actions)
+	}
+	if p := r.fake.heldPosts(id); !p[len(p)-1].Silent {
+		t.Fatal("the failed card made a sound")
+	}
+	if got, _ := r.ib.Get(d.ID); got.State != inbox.Held {
+		t.Fatalf("the delivery is %s", got.State)
+	}
+
+	// Dismissed elsewhere while the card is up: its Dismiss is no error,
+	// and the card goes.
+	if err := r.ib.Dismiss(r.ctx, d.ID, user); err != nil {
+		t.Fatal(err)
+	}
+	r.waitGone(id)
+	d2 := r.heldMessage("two")
+	r.waitTitle(id, "alpha sent beta a message Irori held")
+	c = r.fake.card(t, id)
+	if err := r.ib.Release(r.ctx, d2.ID, user); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range c.Actions {
+		if a.Label == "Dismiss" {
+			a.Run()
+		}
+	}
+	r.noPostOf(id, 200*time.Millisecond)
+}
+
+// noPostOf fails on a Post of id within d.
+func (r *rig) noPostOf(id string, d time.Duration) {
+	r.t.Helper()
+	deadline := time.After(d)
+	for {
+		select {
+		case got := <-r.fake.posted:
+			if got == id {
+				if c := r.fake.card(r.t, id); strings.Contains(c.Body, "Couldn't") {
+					r.t.Fatalf("an error card %q: %q", c.Title, c.Body)
+				}
+			}
+		case <-deadline:
+			return
 		}
 	}
 }

@@ -83,6 +83,8 @@ type harness struct {
 	owners func(prKey string) []string
 	// isOwner is Options.IsOwner for the next open (nil = exactly user).
 	isOwner func(key string) bool
+	// revoked is Options.Revoked for the next open (nil = none).
+	revoked func(device string) bool
 }
 
 func newHarness(t *testing.T) *harness {
@@ -104,7 +106,7 @@ func (h *harness) open() {
 	}
 	h.t.Cleanup(func() { st.Close() })
 	h.st = st
-	ib, err := New(bg, st, h.ros, Options{DeviceID: "dev1", Now: h.clk.now, PROwners: h.owners, IsOwner: h.isOwner})
+	ib, err := New(bg, st, h.ros, Options{DeviceID: "dev1", Now: h.clk.now, PROwners: h.owners, IsOwner: h.isOwner, Revoked: h.revoked})
 	if err != nil {
 		h.t.Fatal(err)
 	}

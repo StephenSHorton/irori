@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,6 +87,9 @@ func runGUI(args []string) error {
 	app := application.New(application.Options{
 		Name:        "Irori",
 		Description: "A hearth for your coding agents",
+		// Wails' own warnings and errors go to the app log (production
+		// builds otherwise discard them).
+		Logger: slog.New(slog.NewTextHandler(log.Writer(), &slog.HandlerOptions{Level: slog.LevelWarn})),
 		Services: []application.Service{
 			application.NewService(roster),
 			application.NewService(inboxSvc),

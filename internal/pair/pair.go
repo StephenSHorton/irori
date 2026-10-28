@@ -385,6 +385,20 @@ func (p *Pairer) Cancel() {
 	}
 }
 
+// CancelJoin closes the open pairing only when this device is the joining
+// side (B), and reports whether it did. The loopback API cancels with it,
+// so a token holder can't close the person's Add window.
+func (p *Pairer) CancelJoin() bool {
+	p.mu.Lock()
+	s := p.cur
+	p.mu.Unlock()
+	if s == nil || s.add {
+		return false
+	}
+	s.fail(StateCanceled, "Canceled.", frameCancel)
+	return true
+}
+
 // Confirm is the person typing B's words into A (§3 step 4). A miss
 // counts, and the second one closes the window. A match certifies B and
 // hands it the person once B also said the person typed this device's key

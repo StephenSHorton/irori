@@ -7,6 +7,7 @@ import (
 func TestPolicyHolds(t *testing.T) {
 	const keyN = "dev1/nnnnnnnn-5555-4555-8555-555555555555" // a default-mode session
 	const keyU = "dev1/uuuuuuuu-6666-4666-8666-666666666666" // permission mode unknown
+	const keyX = "devX/xxxxxxxx-7777-4777-8777-777777777777" // a device not certified to the person
 	tests := []struct {
 		name   string
 		policy Policy
@@ -16,8 +17,16 @@ func TestPolicyHolds(t *testing.T) {
 	}{
 		{"bypass to bypass flows", Policy{}, claude(keyA, "alpha"), keyB, ""},
 		{"grok to a bypass receiver is held", Policy{}, grok(keyG, "grok"), keyB, HoldBypassReceiver},
-		{"default-mode sender to bypass is held", Policy{}, claude(keyN, "normal"), keyB, HoldBypassReceiver},
-		{"unknown-mode sender counts as non-bypass", Policy{}, claude(keyU, "unknown"), keyB, HoldBypassReceiver},
+		// Decision 34: the person's own Claude agents skip the bypass hold
+		// whatever their mode; a Claude key on an uncertified device doesn't.
+		{"own default-mode sender to bypass flows", Policy{}, claude(keyN, "normal"), keyB, ""},
+		{"own unknown-mode sender to bypass flows", Policy{}, claude(keyU, "unknown"), keyB, ""},
+		{"unknown device's sender to bypass is held", Policy{}, claude(keyX, "stranger"), keyB, HoldBypassReceiver},
+		{"grok under a claude key's device is held", Policy{}, grok("dev1/grok-other", "grok2"), keyB, HoldBypassReceiver},
+		{"a grok card sending as claude is held", Policy{}, claude("dev1/grok-other", "grok2"), keyB, HoldBypassReceiver},
+		{"own sender still blocked", Policy{Block: []string{"normal"}}, claude(keyN, "normal"), keyB, HoldBlocked},
+		{"own sender still paused", Policy{Paused: true}, claude(keyN, "normal"), keyB, HoldPaused},
+		{"own sender still needs the allowlist", Policy{Mode: Allowlist}, claude(keyN, "normal"), keyB, HoldNotAllowed},
 		{"to an unknown-mode receiver flows", Policy{}, grok(keyG, "grok"), keyU, ""},
 		{"to grok flows", Policy{}, claude(keyN, "normal"), keyG, ""},
 		{"allow-listed grok reaches bypass", Policy{Allow: []string{"GROK"}}, grok(keyG, "grok"), keyB, ""},
@@ -42,7 +51,8 @@ func TestPolicyHolds(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
 			h.abc()
-			h.ros.put(grokCard(keyG, "grok", ""), card(keyN, "normal", "", "default"), card(keyU, "unknown", "", ""))
+			h.ros.put(grokCard(keyG, "grok", ""), card(keyN, "normal", "", "default"), card(keyU, "unknown", "", ""),
+				card(keyX, "stranger", "", "default"), grokCard("dev1/grok-other", "grok2", ""))
 			if err := h.ib.SetPolicy(bg, tc.policy, user); err != nil {
 				t.Fatal(err)
 			}

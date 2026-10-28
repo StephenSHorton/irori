@@ -155,6 +155,8 @@ type inbox struct {
 	owners  func(prKey string) []string // Options.PROwners; nil = no ledger
 	dev     string
 	ownerFn func(string) bool // Options.IsOwner
+	// revokedFn is Options.Revoked (nil: no device is revoked).
+	revokedFn func(string) bool
 	// ignored counts owner-only rows folded from the wrong device (v0.4 §6.0).
 	ignored   int
 	ignoredBy map[string]int // and per writing device
@@ -223,7 +225,7 @@ func newInbox(ctx context.Context, st *store.Store, roster Roster, opts Options)
 	}
 	b := &inbox{
 		st: st, roster: roster, owners: opts.PROwners, dev: opts.DeviceID, now: now,
-		ownerFn: ownerFn,
+		ownerFn: ownerFn, revokedFn: opts.Revoked,
 		lim: limits{
 			unengaged: pick(opts.UnengagedLimit, UnengagedLimit),
 			gone:      pick(opts.GoneGrace, GoneGrace),
@@ -369,6 +371,7 @@ func (b *inbox) apply(ev store.Event) error {
 		if m.ID == "" {
 			return errors.New("message without id")
 		}
+		m.writer = ev.DeviceID
 		b.msgs[m.ID] = &m
 		if m.From.Key != "" && !m.From.IsUser() && !m.From.isSystem() {
 			if _, ok := b.known[m.From.Key]; !ok {
