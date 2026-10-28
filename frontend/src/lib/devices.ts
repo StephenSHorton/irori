@@ -8,7 +8,10 @@ import { useCallback, useEffect, useState } from "react"
 import { Events } from "@wailsio/runtime"
 
 import { DevicesService } from "../../bindings/github.com/StephenSHorton/irori"
-import { DeviceView } from "../../bindings/github.com/StephenSHorton/irori/models"
+import {
+  DeviceView,
+  RelayView,
+} from "../../bindings/github.com/StephenSHorton/irori/models"
 import {
   Joiner,
   Status as PairStatus,
@@ -16,7 +19,7 @@ import {
 import { EventRosterChanged, inWails } from "./irori"
 import { useLatest } from "./talk"
 
-export { DeviceView, PairStatus }
+export { DeviceView, PairStatus, RelayView }
 
 // EventPairingChanged mirrors the Go constant in devices_service.go.
 export const EventPairingChanged = "devices:pairing"
@@ -57,6 +60,7 @@ const SampleKey = "3f9a 0c21 77de 41b0"
 let sampleDevices: DeviceView[] | null = null
 let samplePair = new PairStatus({ mode: "", state: "" })
 let sampleTimer: number | undefined
+let sampleRelay = new RelayView({ state: "none" })
 const sampleListeners = new Set<() => void>()
 
 function sampleList(): DeviceView[] {
@@ -227,6 +231,26 @@ export const devices = {
   async cancel(): Promise<void> {
     if (inWails()) return DevicesService.CancelPairing()
     sample.cancel()
+  },
+  // reset makes this device a new one (its log, id and keys move aside;
+  // settings stay). Irori quits, and opening it again finishes it.
+  async reset(): Promise<void> {
+    if (inWails()) return DevicesService.ResetDevice()
+    throw new Error("Reset needs the desktop app")
+  },
+  // relay is the TURN relay setting: state "none" is Direct only.
+  async relay(): Promise<RelayView> {
+    if (inWails()) return DevicesService.Relay()
+    return sampleRelay
+  },
+  // setRelay sets the TURN REST credential URL ("" is Direct only).
+  async setRelay(url: string): Promise<RelayView> {
+    if (inWails()) return DevicesService.SetRelay(url)
+    sampleRelay = new RelayView({
+      credentialUrl: url.replace(/[?#].*$/, "?…") || undefined,
+      state: url ? "pending" : "none",
+    })
+    return sampleRelay
   },
   // remove revokes a device: its later rows are refused everywhere and the
   // person key rotates on the devices that remain (decision D8).

@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/core"
+	"github.com/StephenSHorton/irori/internal/mesh"
 	"github.com/StephenSHorton/irori/internal/pair"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -26,12 +28,14 @@ func init() {
 // JS binding name: DevicesService.*
 type DevicesService struct {
 	core *core.Core
+	app  *application.App
 }
 
 func newDevicesService(c *core.Core) *DevicesService { return &DevicesService{core: c} }
 
 // attach forwards pairing changes to the window.
 func (s *DevicesService) attach(app *application.App) {
+	s.app = app
 	s.core.Pairing().SetOnChange(func(st pair.Status) { app.Event.Emit(EventPairingChanged, st) })
 }
 
@@ -46,6 +50,8 @@ type DeviceView struct {
 	Revoked bool   `json:"revoked,omitempty"`
 	// Warning is the one line shown under a device when something is wrong.
 	Warning string `json:"warning,omitempty"`
+	// Action is what the warning asks for here: "reset" or "remove".
+	Action string `json:"action,omitempty"`
 	// LastSeen is when this device last heard from it (zero: never, or
 	// this device).
 	LastSeen time.Time `json:"lastSeen,omitzero"`
@@ -58,7 +64,7 @@ func (s *DevicesService) Devices() []DeviceView {
 	out := make([]DeviceView, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, DeviceView{DeviceID: r.DeviceID, Name: r.Name, Role: r.Role, This: r.This,
-			State: r.State, Revoked: r.Revoked, Warning: r.Warning, LastSeen: r.LastSeen})
+			State: r.State, Revoked: r.Revoked, Warning: r.Warning, Action: r.Action, LastSeen: r.LastSeen})
 	}
 	return out
 }
@@ -105,4 +111,47 @@ func (s *DevicesService) CancelPairing() { s.core.Pairing().Cancel() }
 // everywhere and the person key rotates.
 func (s *DevicesService) RemoveDevice(deviceID string) error {
 	return s.core.Mesh().Revoke(context.Background(), deviceID, "removed in Settings")
+}
+
+// ResetDevice makes this device a new one (§3, Reset): its log, device id
+// and keys move aside (nothing is deleted) and only the settings stay. It
+// is the way back for a device that was removed or signed two histories.
+// The Reset runs at the next start, so Irori quits now; opening it again
+// finishes it.
+func (s *DevicesService) ResetDevice() error {
+	if err := s.core.RequestReset(); err != nil {
+		return err
+	}
+	if s.app != nil {
+		go func() {
+			time.Sleep(300 * time.Millisecond) // the call returns to the window first
+			s.app.Quit()
+		}()
+	}
+	return nil
+}
+
+// RelayView is the Relay line in Devices (§4.4, §9): "Direct only" when no
+// TURN relay is set; with one, its credential URL and how it is doing.
+type RelayView struct {
+	CredentialURL string `json:"credentialUrl,omitempty"`
+	// State is none (Direct only), pending, ok or error.
+	State  string `json:"state"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// Relay is the relay setting and its status.
+func (s *DevicesService) Relay() RelayView {
+	r, st := s.core.Relay()
+	// The URL's query (often the provider's API key) never reaches the window.
+	return RelayView{CredentialURL: mesh.ScrubURLs(r.CredentialURL), State: st.State, Detail: mesh.ScrubURLs(st.Detail)}
+}
+
+// SetRelay sets the TURN REST credential URL ("" is Direct only). It
+// applies to connections made from now on.
+func (s *DevicesService) SetRelay(credentialURL string) (RelayView, error) {
+	if err := s.core.SetRelay(mesh.Relay{CredentialURL: strings.TrimSpace(credentialURL)}); err != nil {
+		return RelayView{}, err
+	}
+	return s.Relay(), nil
 }

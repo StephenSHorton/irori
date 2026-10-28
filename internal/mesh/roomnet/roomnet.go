@@ -8,7 +8,9 @@ import (
 	"context"
 	"crypto/ed25519"
 	"errors"
+	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,30 +54,60 @@ func New(o Options) *Transport {
 	return &Transport{o: o}
 }
 
-// ice is the ICE server list for each new connection: none on loopback,
-// STUN (go-room's default) when Direct only, and TURN too while the
-// relay's credentials are good.
-func (t *Transport) ice() func() []room.ICEServer {
-	if t.o.LoopbackOnly {
-		return func() []room.ICEServer { return nil }
-	}
+// ice is the ICE server list for each new connection, read when the
+// connection is made, so a relay set later applies to the next one: none
+// on loopback, STUN (go-room's default) when Direct only, and TURN too
+// while the relay's credentials are good.
+func (t *Transport) ice() func() []room.ICEServer { return t.servers }
+
+func (t *Transport) servers() []room.ICEServer {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.o.Relay.Direct() {
-		return nil
-	}
-	if t.relay == nil && !t.closed {
-		t.relay = room.NewRelay(room.RelayConfig{CredentialURL: t.o.Relay.CredentialURL, TurnURLs: t.o.Relay.TurnURLs, Logf: t.o.Logf}, t.o.Self, nil)
-		t.relay.Start()
+	if t.o.Relay.Direct() || t.closed {
+		t.mu.Unlock()
+		if t.o.LoopbackOnly {
+			return nil
+		}
+		return room.DefaultSTUN
 	}
 	if t.relay == nil {
-		return nil
+		t.relay = room.NewRelay(room.RelayConfig{CredentialURL: t.o.Relay.CredentialURL, TurnURLs: t.o.Relay.TurnURLs, Logf: scrubbed(t.o.Logf)}, t.o.Self, nil)
+		t.relay.Start()
 	}
-	return t.relay.Servers
+	r := t.relay
+	t.mu.Unlock()
+	out := r.Servers()
+	if t.o.LoopbackOnly {
+		// Tests: only the relay's own entries, never the public STUN list.
+		var turn []room.ICEServer
+		for _, s := range out {
+			for _, u := range s.URLs {
+				if strings.HasPrefix(u, "turn:") || strings.HasPrefix(u, "turns:") {
+					turn = append(turn, s)
+					break
+				}
+			}
+		}
+		return turn
+	}
+	return out
+}
+
+// SetRelay replaces the relay setting (Settings → Devices → Relay, §4.4).
+// The old credential loop stops; connections made from now on use the new
+// setting, and ones already up keep their path.
+func (t *Transport) SetRelay(r mesh.Relay) {
+	t.mu.Lock()
+	old := t.relay
+	t.o.Relay, t.relay = r, nil
+	t.mu.Unlock()
+	if old != nil {
+		old.Stop()
+	}
 }
 
 // RelayStatus reports the TURN relay: none (Direct only), pending, ok or
-// error.
+// error. Detail never carries a credential URL's query (§8: nothing logs a
+// TURN credential).
 func (t *Transport) RelayStatus() mesh.RelayStatus {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -86,7 +118,15 @@ func (t *Transport) RelayStatus() mesh.RelayStatus {
 		return mesh.RelayStatus{State: room.RelayPending}
 	}
 	st := t.relay.Status()
-	return mesh.RelayStatus{State: st.State, Detail: st.Detail}
+	return mesh.RelayStatus{State: st.State, Detail: mesh.ScrubURLs(st.Detail)}
+}
+
+// scrubbed wraps logf so a credential URL's query never reaches the log: a
+// failed fetch's *url.Error prints the whole URL.
+func scrubbed(logf func(string, ...any)) func(string, ...any) {
+	return func(format string, args ...any) {
+		logf("%s", mesh.ScrubURLs(fmt.Sprintf(format, args...)))
+	}
 }
 
 // Close stops the relay's credential loop. Rooms close on their own.
@@ -139,7 +179,7 @@ func (t *Transport) Join(s mesh.Secret, cfg mesh.RoomConfig) (mesh.Room, error) 
 		ICE:        t.ice(),
 		MaxMessage: mesh.MaxMessage,
 		MaxStreams: 4,
-		Logf:       t.o.Logf,
+		Logf:       scrubbed(t.o.Logf),
 	}
 	if t.o.LoopbackOnly {
 		rc.Tune = room.LoopbackOnly()

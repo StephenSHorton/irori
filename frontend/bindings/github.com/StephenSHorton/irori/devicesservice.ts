@@ -86,6 +86,15 @@ export function PairingStatus(): $CancellablePromise<pair$0.Status> {
 }
 
 /**
+ * Relay is the relay setting and its status.
+ */
+export function Relay(): $CancellablePromise<$models.RelayView> {
+    return $Call.ByID(1142722567).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
+/**
  * RemoveDevice revokes a device (§3, Revoke): its later rows are refused
  * everywhere and the person key rotates.
  */
@@ -93,7 +102,29 @@ export function RemoveDevice(deviceID: string): $CancellablePromise<void> {
     return $Call.ByID(3748202668, deviceID);
 }
 
+/**
+ * ResetDevice makes this device a new one (§3, Reset): its log, device id
+ * and keys move aside (nothing is deleted) and only the settings stay. It
+ * is the way back for a device that was removed or signed two histories.
+ * The Reset runs at the next start, so Irori quits now; opening it again
+ * finishes it.
+ */
+export function ResetDevice(): $CancellablePromise<void> {
+    return $Call.ByID(1236489823);
+}
+
+/**
+ * SetRelay sets the TURN REST credential URL ("" is Direct only). It
+ * applies to connections made from now on.
+ */
+export function SetRelay(credentialURL: string): $CancellablePromise<$models.RelayView> {
+    return $Call.ByID(665358047, credentialURL).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
 // Private type creation functions
 const $$createType0 = pair$0.Status.createFrom;
 const $$createType1 = $models.DeviceView.createFrom;
 const $$createType2 = $Create.Array($$createType1);
+const $$createType3 = $models.RelayView.createFrom;

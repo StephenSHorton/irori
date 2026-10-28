@@ -25,8 +25,11 @@ import (
 // app, and the other device's key here. The code is read from a prompt,
 // never from argv, so it stays out of shell history and process lists.
 func runPair(args []string) error {
+	if len(args) == 1 && args[0] == "reset" {
+		return runPairReset()
+	}
 	if len(args) == 0 || args[0] != "join" {
-		return errors.New("usage: irori pair join (add a device from Settings → Devices in the desktop app)")
+		return errors.New("usage: irori pair join | irori pair reset (add a device from Settings → Devices in the desktop app)")
 	}
 	if len(args) > 1 {
 		return errors.New("usage: irori pair join (it asks for the code; don't pass it as an argument)")
@@ -100,6 +103,28 @@ func runPair(args []string) error {
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
+}
+
+// runPairReset is `irori pair reset` (design §3, Reset): this device's log,
+// device id and keys move aside, and it starts next time as a new device
+// that can pair again. Only the settings stay; nothing is deleted.
+func runPairReset() error {
+	opts, err := coreOptions(true)
+	if err != nil {
+		return err
+	}
+	fmt.Println("This makes this device a new one: its event log, device id and keys move aside, and only the settings stay.")
+	fmt.Print("Type reset to go on: ")
+	line, ok := <-stdinLines()
+	if !ok || strings.TrimSpace(line) != "reset" {
+		return errors.New("not reset")
+	}
+	dst, err := core.Reset(opts.DataDir)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Done. The old files are in %s. Start Irori to pair this device again.\n", dst)
+	return nil
 }
 
 // pairCore starts a headless Core for the pairing commands.

@@ -81,6 +81,7 @@ type Core struct {
 	asks     *ask.Book
 	files    *blob.Files // attachments (v0.4 §6.6)
 	netClose func()      // stops the default transport's relay; nil for a passed-in one
+	net      mesh.Transport
 	scrubber *scrub.Scrubber
 	secretMu sync.Mutex
 	secrets  []string // exact values capture redacts: the lockfile token, member secrets
@@ -100,6 +101,9 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	}
 	if lf, err := discovery.Read(opts.DataDir); err == nil && lf.PID != os.Getpid() {
 		return nil, fmt.Errorf("%w (pid %d)", ErrAlreadyRunning, lf.PID)
+	}
+	if err := resetIfAsked(opts.DataDir); err != nil {
+		return nil, err
 	}
 	id, err := device.LoadOrCreate(opts.DataDir)
 	if err != nil {
@@ -228,6 +232,7 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		rt := roomnet.New(roomnet.Options{Self: id.ID, Relay: relay, Logf: log.Printf})
 		tr, c.netClose = rt, rt.Close
 	}
+	c.net = tr
 	c.mesh = mesh.New(mesh.Options{Store: st, Ident: ident, Chain: chain, Net: tr, Version: opts.Version,
 		Files: c.files, DataDir: opts.DataDir, Intervals: opts.NetIntervals, Now: opts.Now, Logf: log.Printf})
 	// Pairing (v0.4 §3) opens its own room on the same transport, only

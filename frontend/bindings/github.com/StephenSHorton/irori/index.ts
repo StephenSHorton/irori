@@ -34,6 +34,7 @@ export {
     GoneSession,
     InboxCounts,
     NewCard,
+    RelayView,
     RosterChange,
     TaskDetail,
     TaskResult,

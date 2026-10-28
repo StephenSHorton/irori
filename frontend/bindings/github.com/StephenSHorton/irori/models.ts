@@ -855,6 +855,11 @@ export class DeviceView {
     "warning"?: string;
 
     /**
+     * Action is what the warning asks for here: "reset" or "remove".
+     */
+    "action"?: string;
+
+    /**
      * LastSeen is when this device last heard from it (zero: never, or
      * this device).
      */
@@ -1054,6 +1059,37 @@ export class NewCard {
             $$parsedSource["links"] = $$createField5_0($$parsedSource["links"]);
         }
         return new NewCard($$parsedSource as Partial<NewCard>);
+    }
+}
+
+/**
+ * RelayView is the Relay line in Devices (§4.4, §9): "Direct only" when no
+ * TURN relay is set; with one, its credential URL and how it is doing.
+ */
+export class RelayView {
+    "credentialUrl"?: string;
+
+    /**
+     * State is none (Direct only), pending, ok or error.
+     */
+    "state": string;
+    "detail"?: string;
+
+    /** Creates a new RelayView instance. */
+    constructor($$source: Partial<RelayView> = {}) {
+        if (!("state" in $$source)) {
+            this["state"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RelayView instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RelayView {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new RelayView($$parsedSource as Partial<RelayView>);
     }
 }
 

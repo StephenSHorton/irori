@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react"
+import { useEffect, useState, type FormEvent, type ReactNode } from "react"
 
 import { ChoiceSelect } from "@/components/common/choice-select"
 import { ConfirmButton } from "@/components/common/confirm-button"
@@ -20,6 +20,7 @@ import {
   usePairing,
   type DeviceView,
   type PairStatus,
+  type RelayView,
 } from "@/lib/devices"
 import { parseTime, plainLine, relativeTime, useNow } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
@@ -67,6 +68,7 @@ export function DevicesDialog({
           ))}
         </ul>
         {error && <p className="text-xs text-destructive">{error}</p>}
+        <Relay open={open} />
         <div className="border-t border-border pt-3">
           {status?.state ? (
             <Pairing status={status} onDone={() => setStatus(null)} />
@@ -147,11 +149,108 @@ function DeviceRow({
         />
       )}
       {d.warning && (
-        <span className="col-start-2 col-end-4 text-xs text-warning">
-          {plainLine(d.warning)}
+        <span className="col-start-2 col-end-4 flex items-center gap-2 text-xs text-warning">
+          <span className="min-w-0">{plainLine(d.warning)}</span>
+          {d.this && d.action === "reset" && (
+            <ConfirmButton
+              label="Reset"
+              variant="destructive"
+              confirmLabel="Reset and quit"
+              question={
+                <>
+                  Reset this device? Its event log, device id and keys move
+                  aside (nothing is deleted) and only the settings stay. Irori
+                  quits; open it again to pair this device as a new one.
+                </>
+              }
+              onConfirm={() => actions.reset()}
+            />
+          )}
         </span>
       )}
     </li>
+  )
+}
+
+// Relay is the one Relay line (§4.4, §9): "Direct only" with no TURN relay
+// set, else the credential URL (its query hidden); a warning only when the
+// relay is failing. Change opens a field for the credential URL.
+function Relay({ open }: { open: boolean }) {
+  const [relay, setRelay] = useState<RelayView | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [url, setUrl] = useState("")
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    let live = true
+    void actions
+      .relay()
+      .then((r) => live && setRelay(r))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [open])
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    try {
+      setRelay(await actions.setRelay(url.trim()))
+      setEditing(false)
+      setUrl("")
+    } catch (err) {
+      setError(errorText(err))
+    }
+  }
+
+  const direct = !relay || relay.state === "none"
+  return (
+    <div className="grid gap-1 text-[13px]">
+      {editing ? (
+        <form className="flex gap-2" onSubmit={(e) => void save(e)}>
+          <Input
+            autoFocus
+            aria-label="TURN credential URL"
+            placeholder="https://… (empty: Direct only)"
+            value={url}
+            spellCheck={false}
+            autoComplete="off"
+            onChange={(e) => setUrl(e.target.value)}
+          />
+          <Button type="submit" size="sm">
+            Save
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => setEditing(false)}
+          >
+            Back
+          </Button>
+        </form>
+      ) : (
+        <div className="flex items-center justify-between gap-2">
+          <span className="min-w-0 truncate text-muted-foreground">
+            Relay:{" "}
+            <span className="text-ink">
+              {direct ? "Direct only" : plainLine(relay?.credentialUrl ?? "")}
+            </span>
+          </span>
+          <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
+            Change
+          </Button>
+        </div>
+      )}
+      {relay?.state === "error" && (
+        <span className="text-xs text-warning">
+          The relay is failing: {plainLine(relay.detail ?? "")}
+        </span>
+      )}
+      {error && <span className="text-xs text-destructive">{error}</span>}
+    </div>
   )
 }
 

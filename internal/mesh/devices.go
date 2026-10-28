@@ -24,6 +24,9 @@ type DeviceRow struct {
 	Revoked bool   `json:"revoked,omitempty"`
 	// Warning is the one line shown under a device when something is wrong.
 	Warning string `json:"warning,omitempty"`
+	// Action is what the warning asks for, when this dialog can do it:
+	// "reset" (this device) or "remove" (another one).
+	Action string `json:"action,omitempty"`
 	// LastSeen is the newer of its last ping and its last sync here (zero
 	// for this device, and for one never heard from).
 	LastSeen time.Time `json:"lastSeen,omitzero"`
@@ -42,7 +45,13 @@ func (n *Node) Devices(detail bool) []DeviceRow {
 	}
 	switch {
 	case st.State == StateRemoved:
-		me.Warning = "Removed from your devices. Reset this device to pair it again."
+		me.Warning, me.Action = "Removed from your devices. Reset this device to pair it again.", "reset"
+		if by := n.revokedBy(self.ID); by != "" {
+			me.Warning = "Removed from your devices by " + by + ". Reset this device to pair it again."
+		}
+	case n.isStopped(self.ID):
+		me.Warning = "This device signed two different histories (restored from a copy?). Reset it."
+		me.Action = "reset"
 	case st.Restoring != "":
 		me.Warning = "Restoring this device's rows from another device."
 	case st.State == StateError && st.Detail != "":
@@ -60,6 +69,7 @@ func (n *Node) Devices(detail bool) []DeviceRow {
 			r.Warning = "Removed."
 		case p.Stopped != "":
 			r.Warning = "It " + p.Stopped + ". Remove it."
+			r.Action = "remove"
 		case p.Old:
 			r.Warning = "It runs an older Irori. Update it."
 		case p.Ahead:
@@ -74,6 +84,30 @@ func (n *Node) Devices(detail bool) []DeviceRow {
 		out = append(out, r)
 	}
 	return out
+}
+
+// revokedBy names the device that wrote the first held revoke of dev (its
+// label, else its id), or "".
+func (n *Node) revokedBy(dev string) string {
+	ctx := context.Background()
+	evs, _ := n.o.Store.List(ctx, store.Filter{Kinds: []string{store.KindPersonDeviceRevoked}, Limit: store.MaxListLimit})
+	if ref, err := n.o.Store.Refused(ctx, store.MaxListLimit); err == nil {
+		evs = append(evs, ref...)
+	}
+	for _, ev := range evs {
+		if ev.Kind != store.KindPersonDeviceRevoked {
+			continue
+		}
+		var r identity.DeviceRevoked
+		if json.Unmarshal(ev.Payload, &r) != nil || r.Revoke.DeviceID != dev {
+			continue
+		}
+		if cert, ok := n.o.Chain.Cert(ev.DeviceID); ok && cert.Label != "" {
+			return cert.Label
+		}
+		return ev.DeviceID
+	}
+	return ""
 }
 
 // deviceOS is the os its newest device.started row names.

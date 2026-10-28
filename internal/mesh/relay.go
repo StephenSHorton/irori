@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -68,8 +69,23 @@ func LoadRelay(dataDir string) (Relay, error) {
 	return r, nil
 }
 
+// urlQuery is a URL's query string (and fragment), where TURN REST
+// providers often put their API key.
+var urlQuery = regexp.MustCompile(`(https?://[^\s?#"']*)[?#][^\s"']*`)
+
+// ScrubURLs cuts the query off every URL in s, so a credential URL's key
+// never reaches a log, a status line or the window (§8).
+func ScrubURLs(s string) string { return urlQuery.ReplaceAllString(s, "$1?…") }
+
+// RelaySetter is a Transport whose relay can change while it runs, and
+// that reports how the relay is doing (roomnet). FakeNet has no relay.
+type RelaySetter interface {
+	SetRelay(Relay)
+	RelayStatus() RelayStatus
+}
+
 // SaveRelay checks and writes the relay setting; the zero value removes it.
-// It takes effect for connections made after the next net start.
+// A RelaySetter takes the new setting for its next connections.
 func SaveRelay(dataDir string, r Relay) error {
 	if err := r.Check(); err != nil {
 		return err
