@@ -9,7 +9,7 @@ go 1.26.2
 toolchain go1.26.5
 
 require (
-	github.com/StephenSHorton/go-room v0.2.0
+	github.com/StephenSHorton/go-room v0.2.1
 	github.com/StephenSHorton/go-toast v0.2.0
 	github.com/jackpal/gateway v1.1.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0
