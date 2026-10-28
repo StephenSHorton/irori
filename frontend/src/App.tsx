@@ -80,7 +80,7 @@ export function App() {
       <main className="mx-auto flex max-w-7xl flex-col gap-3.5 px-4 pt-[18px] pb-10 sm:px-6">
         <UpdateBanner />
         {error && (
-          <p className="rounded-lg bg-destructive/10 px-4 py-2 text-sm text-destructive">
+          <p className="glass-panel border-destructive/50! px-3 py-2 text-sm text-destructive" role="alert">
             Could not load the cards: {error}
           </p>
         )}

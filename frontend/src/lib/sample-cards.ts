@@ -289,6 +289,38 @@ export function sampleCards(now: Date): CardDetail[] {
         }),
       ],
     }),
+    card({
+      id: "sample-card-5",
+      title: "Sample notes export",
+      repoKey: "remote:github.com/sample-org/example-app",
+      goal: "Notes export to Markdown from the share menu.",
+      state: TaskState.Completed,
+      working: [heron],
+      updatedAt: at(140),
+      steps: steps([
+        ["Export format", true],
+        ["Share menu item", true],
+        ["Docs", true],
+      ]),
+      prs: [
+        new CardPR({
+          repo: "sample-org/example-app",
+          number: 41,
+          url: "https://github.com/sample-org/example-app/pull/41",
+          label: "GitHub #41",
+          openedBy: [heron],
+          reviewedBy: [otter],
+          touchedBy: [],
+        }),
+      ],
+      recent: [
+        new CardActivity({
+          at: at(140),
+          who: heron,
+          text: "sample-heron marked the card done",
+        }),
+      ],
+    }),
   ].map(
     (c) =>
       ({

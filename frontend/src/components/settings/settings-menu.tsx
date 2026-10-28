@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/popover"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
+import { previewFlag } from "@/lib/preview"
 import { corners, useSettings } from "@/lib/settings"
 import { UpdateStatusLine } from "@/updater"
 
@@ -23,8 +24,11 @@ const cornerChoices = corners.map((c) => ({ value: c.id, label: c.label }))
 // it). It is a Popover so the Corner select's own popup, which portals out
 // of the panel, does not count as a click outside it.
 export function SettingsMenu() {
-  const [open, setOpen] = useState(false)
-  const [devicesOpen, setDevicesOpen] = useState(false)
+  // ?settings and ?devices open them in the browser preview.
+  const [open, setOpen] = useState(() => previewFlag("settings") !== null)
+  const [devicesOpen, setDevicesOpen] = useState(
+    () => previewFlag("devices") !== null
+  )
   const s = useSettings(open)
 
   const n = s.notify
@@ -189,7 +193,7 @@ function Toggle({
         disabled={disabled}
         aria-describedby={hint ? `${id}-hint` : undefined}
         onCheckedChange={(v) => onChange(v)}
-        className="mt-0.5 dark:*:data-checked:bg-background! dark:data-unchecked:bg-muted-foreground/80 dark:*:data-unchecked:bg-background!"
+        className="mt-0.5"
       />
     </div>
   )

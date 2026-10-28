@@ -132,7 +132,7 @@ export function MessageDialog({
           )}
         </DialogHeader>
         {d && (
-          <div className="max-h-[50vh] overflow-y-auto rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-[13.5px] whitespace-pre-wrap text-ink">
+          <div className="max-h-[50vh] overflow-y-auto border border-border bg-background/60 px-3 py-2.5 text-[13.5px] whitespace-pre-wrap text-ink">
             {plainBlock(d.message.text)}
           </div>
         )}
@@ -145,7 +145,7 @@ export function MessageDialog({
               placeholder={`Reply to ${from}`}
               aria-label={`Your reply to ${from}`}
               autoSize
-              className="max-h-48 bg-card"
+              className="max-h-48"
               disabled={busy}
             />
           </form>

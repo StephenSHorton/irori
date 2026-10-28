@@ -35,7 +35,7 @@ export function Face({
     <Avatar
       size="sm"
       className={cn(
-        "size-[22px] rounded-[7px] after:rounded-[7px] after:border-0",
+        "size-[22px] rounded-none after:rounded-none after:border-0",
         (gone || who.offline) && "opacity-55",
         who.conflict && "ring-2 ring-warning",
         className
@@ -44,12 +44,12 @@ export function Face({
     >
       <AvatarFallback
         className={cn(
-          "rounded-[7px] font-mono text-[10px] font-semibold",
+          "rounded-none font-mono text-[10px] font-semibold",
           person
-            ? "bg-[#ede4fe] font-sans text-[#6d28d9]"
+            ? "bg-person-surface font-sans text-person"
             : watching
               ? "bg-muted text-muted-foreground ring-1 ring-border ring-inset"
-              : "bg-accent text-primary"
+              : "bg-primary/15 text-primary"
         )}
       >
         {person ? "you" : initials(name)}
@@ -85,7 +85,7 @@ function DeviceChip({ device }: { device: string }) {
   return (
     <span
       aria-hidden
-      className="absolute -top-1.5 -right-1.5 z-10 rounded-[4px] bg-card px-[2px] font-mono text-[8px] leading-[11px] font-semibold text-muted-foreground ring-1 ring-border"
+      className="absolute -top-1.5 -right-1.5 z-10 bg-background px-[2px] font-mono text-[8px] leading-[11px] font-semibold text-muted-foreground ring-1 ring-border"
     >
       {initials(device)}
     </span>

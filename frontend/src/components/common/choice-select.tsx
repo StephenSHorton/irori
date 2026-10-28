@@ -63,7 +63,7 @@ export function ChoiceSelect({
         size={size}
         aria-label={showLabel ? undefined : label}
         className={cn(
-          "min-w-0 bg-white/70 text-ink dark:bg-white/70 dark:hover:bg-white/70",
+          "min-w-0 bg-transparent text-ink",
           className
         )}
       >

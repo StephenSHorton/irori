@@ -72,11 +72,11 @@ export function CardPanel({
             </span>
           )}
         </div>
-        <h2 className="text-[19px] leading-tight font-semibold text-balance text-ink">
+        <h2 className="text-xl leading-tight font-semibold tracking-tight text-balance text-ink">
           {plainLine(detail.title) || "(untitled)"}
         </h2>
         {detail.goal && (
-          <p className="max-w-[62ch] text-[13.5px] whitespace-pre-wrap text-ink-2">
+          <p className="max-w-[62ch] text-sm whitespace-pre-wrap text-muted-foreground">
             {plainBlock(detail.goal)}
           </p>
         )}
@@ -111,7 +111,7 @@ export function CardPanel({
       {(detail.blockers.length > 0 || legacy || answered) && (
         <Section title="Blockers">
           {legacy && (
-            <div className="grid gap-1.5 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+            <div className="grid gap-1.5 border border-destructive/50 bg-destructive/10 p-3">
               <div className="text-[13.5px] font-semibold text-ink">
                 {plainLine(detail.blockerQuestion)}
               </div>
@@ -122,7 +122,7 @@ export function CardPanel({
             </div>
           )}
           {answered && !open.some((b) => b.id === NoteItem) && (
-            <div className="grid gap-2 rounded-xl border border-border bg-muted/50 p-3 opacity-85">
+            <div className="grid gap-2 border border-border bg-muted/40 p-3 opacity-85">
               <div className="text-[13.5px] font-semibold text-ink">
                 <span className="text-success" aria-label="Answered: ">
                   ✓{" "}
@@ -164,10 +164,10 @@ export function CardPanel({
               >
                 <span
                   className={cn(
-                    "mt-0.5 grid size-3.5 place-items-center rounded-[4px] text-[10px]",
+                    "mt-0.5 grid size-3.5 place-items-center text-[10px]",
                     s.done
-                      ? "bg-success text-white"
-                      : "ring-[1.5px] ring-border ring-inset"
+                      ? "bg-success text-background"
+                      : "ring-1 ring-muted-foreground/50 ring-inset"
                   )}
                   aria-hidden
                 >
@@ -257,7 +257,7 @@ function Section({
         !last && "border-b border-border"
       )}
     >
-      <h3 className="text-[11.5px] font-semibold tracking-[.06em] text-muted-foreground uppercase">
+      <h3 className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
         {title}
       </h3>
       {children}
@@ -323,10 +323,10 @@ function BlockerItem({
   return (
     <div
       className={cn(
-        "grid gap-2 rounded-xl border p-3",
+        "grid gap-2 border p-3",
         r
-          ? "border-border bg-muted/50 opacity-85"
-          : "border-destructive/30 bg-destructive/5"
+          ? "border-border bg-muted/40 opacity-85"
+          : "border-destructive/50 bg-destructive/10"
       )}
     >
       <div className="text-[13.5px] font-semibold text-ink">
@@ -372,9 +372,9 @@ function BlockerItem({
                   type="button"
                   disabled={busy}
                   onClick={() => void send(i, "")}
-                  className="grid gap-0.5 rounded-[10px] border border-border bg-card px-2.5 py-2 text-left outline-none hover:border-primary focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
+                  className="grid gap-0.5 border border-border bg-background/60 px-2.5 py-2 text-left transition-[border-color,background-color,transform] duration-100 outline-none hover:border-primary/70 hover:bg-primary/10 focus-visible:ring-1 focus-visible:ring-ring active:scale-[0.99] disabled:opacity-60"
                 >
-                  <span className="text-[13px] font-semibold text-ink">
+                  <span className="text-[13px] font-medium text-ink">
                     {plainLine(o.answer)}
                   </span>
                   <span className="text-xs text-muted-foreground">
@@ -398,10 +398,10 @@ function BlockerItem({
                   : "Answer in your own words"
               }
               aria-label={`Your answer to: ${plainLine(b.question)}`}
-              className="min-w-0 flex-1 bg-card"
+              className="min-w-0 flex-1"
               disabled={busy}
             />
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" size="sm" disabled={busy}>
               {busy ? "Sending…" : "Answer"}
             </Button>
           </form>
@@ -541,7 +541,7 @@ function PRRow({ pr }: { pr: CardPR }) {
   ]
   const known = roles.filter(([, who]) => who.length > 0)
   return (
-    <div className="grid gap-1.5 rounded-xl border border-border px-3 py-2.5">
+    <div className="grid gap-1.5 border border-border bg-background/40 px-3 py-2.5">
       <div className="flex flex-wrap items-center gap-2 text-[13px]">
         <span className="font-mono text-xs text-muted-foreground">
           #{pr.number}

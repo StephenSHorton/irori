@@ -11,3 +11,6 @@ build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
 *.log
 .DS_Store
 node_modules
+
+# browser preview screenshots (frontend/PREVIEW.md)
+frontend/preview-shots/

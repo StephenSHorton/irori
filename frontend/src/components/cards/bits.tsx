@@ -23,11 +23,11 @@ export function ProgressBar({
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={p}
-      className="block h-1.5 overflow-hidden rounded-full bg-muted ring-1 ring-border ring-inset"
+      className="block h-1 overflow-hidden bg-muted"
     >
       <span
         className={cn(
-          "block h-full rounded-full",
+          "block h-full transition-[width] duration-300",
           blocked ? "bg-warning" : "bg-primary"
         )}
         style={{ width: `${p}%` }}
@@ -41,36 +41,36 @@ export function ProgressBar({
 export function StatePill({ card }: { card: CardSummary }) {
   if (card.state === TaskState.InputRequired)
     return (
-      <Badge variant="destructive" className="rounded-full">
+      <Badge variant="destructive">
         Needs your input
       </Badge>
     )
   if (card.openBlockers > 0)
     return (
-      <Badge variant="destructive" className="rounded-full">
+      <Badge variant="destructive">
         {card.openBlockers} {card.openBlockers === 1 ? "blocker" : "blockers"}
       </Badge>
     )
   if (card.state === TaskState.Completed)
     return (
-      <Badge variant="success" className="rounded-full">
+      <Badge variant="success">
         Done
       </Badge>
     )
   if (card.state === TaskState.Canceled || card.state === TaskState.Failed)
     return (
-      <Badge variant="slate" className="rounded-full">
+      <Badge variant="slate">
         {card.state === TaskState.Failed ? "Failed" : "Canceled"}
       </Badge>
     )
   if (card.working.length === 0)
     return (
-      <Badge variant="slate" className="rounded-full">
+      <Badge variant="slate">
         Open
       </Badge>
     )
   return (
-    <Badge variant="info" className="rounded-full">
+    <Badge variant="info">
       In progress
     </Badge>
   )
@@ -81,7 +81,7 @@ export function ScopeBadge({ card }: { card: CardSummary }) {
   return (
     <Badge
       variant="outline"
-      className="rounded-full bg-muted/60 font-normal text-muted-foreground"
+      className="font-normal text-muted-foreground"
     >
       {plainLine(card.scopeLabel) || "My devices"}
     </Badge>
