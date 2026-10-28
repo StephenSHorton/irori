@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/StephenSHorton/irori/internal/ask"
 	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/notify"
 )
@@ -82,10 +83,14 @@ func (s *set) notify(ctx context.Context, c Caller, raw json.RawMessage) string 
 	}
 
 	n := s.b.Notifier()
+	// A card with buttons is an ask row when the backend keeps them (v0.4
+	// §6.7): every desktop device shows it, so a headless device can ask too.
+	book := s.asks()
+	rows := book != nil && len(labels) > 0
 	switch {
-	case n.Headless():
+	case n.Headless() && !rows:
 		return errText("no desktop app runs on this device (Irori is headless), so there is nobody to show a card to. Send a message or use the Board.")
-	case !n.Enabled():
+	case !n.Headless() && !n.Enabled():
 		return errText("the person has notifications turned off. Send a message or use the Board instead.")
 	}
 
@@ -119,6 +124,22 @@ func (s *set) notify(ctx context.Context, c Caller, raw json.RawMessage) string 
 	cardTitle := who
 	if title != "" {
 		cardTitle = who + ": " + title
+	}
+	if rows {
+		if ib := s.b.Inbox(); ib != nil {
+			if err := ib.RecordRoster(ctx); err != nil { // the answer may come after the caller has gone
+				return mapErr(err)
+			}
+		}
+		a, err := book.Post(ctx, ask.Ask{By: key, Name: who, Title: title, Text: text, Level: string(level),
+			Actions: labels, Until: now.Add(wait)})
+		if err != nil {
+			return errText("the card couldn't be recorded: " + err.Error())
+		}
+		shown = true
+		return "Showed the person a card (" + notify.AskID(a.ID) + ") on their desktop devices with " + strings.Join(quotedAll(labels), " and ") +
+			". Their answer (the button, a dismiss, or no answer within " + humanWait(wait) +
+			") reaches you at your next turn as a message from Irori; carry on meanwhile and don't ask again."
 	}
 	note := notify.Note{ID: id, Title: cardTitle, Body: text, Level: level}
 	if len(labels) == 0 {
@@ -197,6 +218,34 @@ func (st *notifyState) unreserve(key string, now time.Time) {
 			return
 		}
 	}
+}
+
+// asks is the backend's ask book, when it keeps asks as rows.
+func (s *set) asks() *ask.Book {
+	if b, ok := s.b.(interface{ Asks() *ask.Book }); ok {
+		return b.Asks()
+	}
+	return nil
+}
+
+// askResolved delivers a resolved ask's answer to the agent that asked, on
+// this device (the asking device decides, §6.7).
+func (s *set) askResolved(a ask.Ask) {
+	if a.By == "" || a.By == "irori" {
+		return
+	}
+	asked := a.Title
+	if asked == "" {
+		asked = oneLine(a.Text, 80)
+	}
+	how := "They chose: " + a.Choice
+	switch {
+	case !a.Answered:
+		how = fmt.Sprintf("No answer: the card went away after %s without a choice.", humanWait(NotifyAnswer))
+	case a.Choice == "":
+		how = "They dismissed it without choosing."
+	}
+	s.notifyAnswer(inbox.Sender{Key: a.By}, notify.AskID(a.ID), "You asked "+notifyPerson+": "+asked+". "+how)
 }
 
 // notifyAnswer tells the agent that asked what the person did, at its next

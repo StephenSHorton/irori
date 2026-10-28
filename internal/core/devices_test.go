@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/ask"
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/inbox"
@@ -435,5 +436,132 @@ func TestAnOfflineDevicesLeaseFreezes(t *testing.T) {
 	mac.start()
 	for _, h := range []*hcore{pc, mac, nd} {
 		wait(t, "the expiry reaches "+h.name, func() bool { return len(h.c.Coord().Leases()) == 0 })
+	}
+}
+
+// An ask posted on the Mac shows on every device; two answers that crossed
+// (PC and node, with the Mac away) give the one ask.resolved names, and the
+// Mac's agent gets that answer.
+func TestAnAskResolvesOnceForEveryDevice(t *testing.T) {
+	ctx := context.Background()
+	net, pc, mac, nd := meshTrio(t)
+	a, err := mac.c.Asks().Post(ctx, ask.Ask{By: mac.agent(), Name: "mac-agent", Title: "Merge?", Text: "Merge the branch now?",
+		Actions: []string{"Merge", "Wait"}, Until: time.Now().Add(time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []*hcore{pc, nd} {
+		wait(t, "the ask shows on "+h.name, func() bool { _, ok := h.c.Asks().Get(a.ID); return ok })
+	}
+	net.Isolate(mac.id())
+	if err := pc.c.Asks().Answer(ctx, a.ID, "Merge", pc.user()); err != nil {
+		t.Fatal(err)
+	}
+	if err := nd.c.Asks().Answer(ctx, a.ID, "Wait", nd.user()); err != nil {
+		t.Fatal(err)
+	}
+	if err := pc.c.Asks().Answer(ctx, a.ID, "Merge", pc.agent()); err == nil {
+		t.Fatal("an agent answered the person's ask")
+	}
+	if got, _ := pc.c.Asks().Get(a.ID); got.Resolved {
+		t.Fatal("a device other than the asker resolved the ask")
+	}
+	net.HealAll()
+	var choice, ref string
+	wait(t, "the mac resolves it", func() bool {
+		got, _ := mac.c.Asks().Get(a.ID)
+		choice, ref = got.Choice, got.AnswerRef
+		return got.Resolved
+	})
+	for _, h := range []*hcore{pc, nd} {
+		wait(t, "the same answer on "+h.name, func() bool {
+			got, _ := h.c.Asks().Get(a.ID)
+			return got.Resolved && got.Choice == choice && got.AnswerRef == ref
+		})
+		if len(h.c.Asks().Open()) != 0 {
+			t.Fatalf("%s still shows an open ask", h.name)
+		}
+	}
+	wait(t, "the mac's agent hears the answer", func() bool {
+		for _, d := range mac.c.Inbox().For(mac.agent(), true, 50) {
+			if d.Message.From.Key == inbox.SystemKey && strings.Contains(d.Message.Text, "They chose: "+choice) {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// A revive asked for from the PC wakes the Mac's session only on a
+// matching answer from the person: an agent's or a mismatched answer, or
+// Not now, wakes nothing.
+func TestACrossDeviceReviveWaitsForAMatchingAnswer(t *testing.T) {
+	ctx := context.Background()
+	_, pc, mac, nd := meshTrio(t)
+	revived := make(chan string, 4)
+	mac.c.SetReviver(func(session string) (string, error) { revived <- session; return "", nil })
+	if err := pc.c.Asks().RequestRevive(ctx, pc.agent(), "dlv_1", pc.user()); err == nil {
+		t.Fatal("a revive request for a session on this device")
+	}
+	if err := pc.c.Asks().RequestRevive(ctx, mac.agent(), "dlv_1", pc.agent()); err == nil {
+		t.Fatal("an agent asked for a revive")
+	}
+	reviveAsk := func(h *hcore, delivery string) (ask.Ask, bool) {
+		for _, a := range h.c.Asks().Open() {
+			if a.Target == mac.agent() && a.DeliveryID == delivery {
+				return a, true
+			}
+		}
+		return ask.Ask{}, false
+	}
+	// Not now: nothing wakes.
+	if err := pc.c.Asks().RequestRevive(ctx, mac.agent(), "dlv_1", pc.user()); err != nil {
+		t.Fatal(err)
+	}
+	var first ask.Ask
+	wait(t, "the mac's revive ask reaches the pc", func() bool { var ok bool; first, ok = reviveAsk(pc, "dlv_1"); return ok })
+	if first.Device != mac.id() {
+		t.Fatalf("the revive ask was posted by %s, not the host", first.Device)
+	}
+	if err := pc.c.Asks().Answer(ctx, first.ID, ask.ChoiceNotNow, pc.user()); err != nil {
+		t.Fatal(err)
+	}
+	wait(t, "resolved", func() bool { a, _ := mac.c.Asks().Get(first.ID); return a.Resolved })
+	// A forged answer (an agent's row) and one naming another delivery.
+	if err := pc.c.Asks().RequestRevive(ctx, mac.agent(), "dlv_2", pc.user()); err != nil {
+		t.Fatal(err)
+	}
+	var second ask.Ask
+	wait(t, "the second revive ask", func() bool { var ok bool; second, ok = reviveAsk(nd, "dlv_2"); return ok })
+	forged := map[string]any{"askId": second.ID, "choice": ask.ChoiceRevive, "target": mac.agent(), "deliveryId": "dlv_2", "by": pc.agent()}
+	if _, err := pc.c.store.Append(ctx, "agent:"+pc.agent(), ask.KindAnswered, forged); err != nil {
+		t.Fatal(err)
+	}
+	wrong := map[string]any{"askId": second.ID, "choice": ask.ChoiceRevive, "target": mac.agent(), "deliveryId": "dlv_other", "by": pc.user()}
+	if _, err := pc.c.store.Append(ctx, "user", ask.KindAnswered, wrong); err != nil {
+		t.Fatal(err)
+	}
+	wait(t, "the second resolves", func() bool { a, _ := mac.c.Asks().Get(second.ID); return a.Resolved })
+	select {
+	case s := <-revived:
+		t.Fatalf("revived %s without a matching answer", s)
+	case <-time.After(300 * time.Millisecond):
+	}
+	// The real thing, answered from the node.
+	if err := pc.c.Asks().RequestRevive(ctx, mac.agent(), "dlv_3", pc.user()); err != nil {
+		t.Fatal(err)
+	}
+	var third ask.Ask
+	wait(t, "the third revive ask", func() bool { var ok bool; third, ok = reviveAsk(nd, "dlv_3"); return ok })
+	if err := nd.c.Asks().Answer(ctx, third.ID, ask.ChoiceRevive, nd.user()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case s := <-revived:
+		if s != mac.session {
+			t.Fatalf("revived %s", s)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the matching answer didn't revive the session")
 	}
 }

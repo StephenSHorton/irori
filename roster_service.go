@@ -342,6 +342,14 @@ func (r *RosterService) Revive(sessionID string) (string, error) {
 	return text, nil
 }
 
+// RequestRevive asks another device to revive one of its gone sessions
+// (v0.4 §6.3), for deliveryID if set: that device shows an approval card
+// on every desktop, and wakes nothing until the person answers Revive.
+// A session on this device is revived with Revive instead.
+func (r *RosterService) RequestRevive(key, deliveryID string) error {
+	return r.core.Asks().RequestRevive(context.Background(), strings.TrimSpace(key), deliveryID, r.core.UserSender().Key)
+}
+
 func displayName(a presence.AgentCard) string {
 	if a.Name != "" {
 		return a.Name

@@ -471,6 +471,12 @@ export class LeaseCard {
     "until": time$0.Time;
     "stolenFrom"?: string;
     "acquiredAt": time$0.Time;
+
+    /**
+     * Conflict names the other holder when two devices took this resource
+     * while partitioned (v0.4 §6.4): the lower device id's lease stands.
+     */
+    "conflict"?: string;
     "refused"?: Refusal[];
 
     /**
@@ -500,14 +506,14 @@ export class LeaseCard {
      * Creates a new LeaseCard instance from a string or object.
      */
     static createFrom($$source: any = {}): LeaseCard {
-        const $$createField5_0 = $$createType20;
-        const $$createField6_0 = $$createType10;
+        const $$createField6_0 = $$createType20;
+        const $$createField7_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("refused" in $$parsedSource) {
-            $$parsedSource["refused"] = $$createField5_0($$parsedSource["refused"]);
+            $$parsedSource["refused"] = $$createField6_0($$parsedSource["refused"]);
         }
         if ("blocks" in $$parsedSource) {
-            $$parsedSource["blocks"] = $$createField6_0($$parsedSource["blocks"]);
+            $$parsedSource["blocks"] = $$createField7_0($$parsedSource["blocks"]);
         }
         return new LeaseCard($$parsedSource as Partial<LeaseCard>);
     }
@@ -638,6 +644,12 @@ export class Refusal {
      */
     "until": time$0.Time;
     "at": time$0.Time;
+
+    /**
+     * Conflict marks by's own lease given up after a partition (v0.4
+     * §6.4): another device's lease on the resource stood.
+     */
+    "conflict"?: boolean;
 
     /** Creates a new Refusal instance. */
     constructor($$source: Partial<Refusal> = {}) {

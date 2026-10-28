@@ -63,6 +63,8 @@ func runGUI(args []string) error {
 	defer c.Close()
 
 	roster := &RosterService{core: c}
+	// A revive another device asked for, once answered, runs here (v0.4 §6.3).
+	c.SetReviver(roster.Revive)
 	inboxSvc := newInboxService(c)
 	board := newBoardService(c)
 	captureSvc := newCaptureService(c)

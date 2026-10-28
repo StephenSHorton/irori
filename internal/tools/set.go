@@ -75,6 +75,11 @@ func newSet(b Backend) *Set {
 		"join":            s.join,
 		"notify":          s.notify,
 	}
+	// The notify tool's asks are rows when the backend keeps them (v0.4
+	// §6.7): the answer comes back from whichever device the person used.
+	if book := s.asks(); book != nil {
+		book.OnResolved(s.askResolved)
+	}
 	s.needsCaller = map[string]bool{}
 	for _, sp := range specList {
 		if _, ok := s.handlers[sp.Name]; !ok {

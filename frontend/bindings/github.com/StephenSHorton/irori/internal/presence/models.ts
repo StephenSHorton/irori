@@ -92,6 +92,12 @@ export class AgentCard {
      */
     "permissionMode": string;
 
+    /**
+     * DeviceState is set on another device's card in the mesh roster (v0.4
+     * §6.2): "connected", "recent" or "offline". "" on this device's own.
+     */
+    "deviceState"?: string;
+
     /** Creates a new AgentCard instance. */
     constructor($$source: Partial<AgentCard> = {}) {
         if (!("key" in $$source)) {

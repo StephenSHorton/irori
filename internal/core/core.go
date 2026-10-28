@@ -11,10 +11,12 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/api"
+	"github.com/StephenSHorton/irori/internal/ask"
 	"github.com/StephenSHorton/irori/internal/capture"
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/device"
@@ -72,10 +74,13 @@ type Core struct {
 	mesh     *mesh.Node
 	pair     *pair.Pairer
 	roster   *roster.Roster
+	asks     *ask.Book
 	netClose func() // stops the default transport's relay; nil for a passed-in one
 	scrubber *scrub.Scrubber
 	secretMu sync.Mutex
 	secrets  []string // exact values capture redacts: the lockfile token, member secrets
+	reviveMu sync.Mutex
+	reviver  func(sessionID string) (string, error) // the GUI's Revive (SetReviver); nil headless
 	cancel   context.CancelFunc
 	done     chan struct{} // closed when the service goroutines finish; nil before they start
 }
@@ -189,6 +194,13 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	c.capture.AddSource(c.inbox)
 	// Cards are the desktop app's; a headless Core's Notifier never shows one.
 	c.notifier = notify.New(notify.Config{Dir: opts.DataDir, Headless: opts.Headless})
+	// Approvals as rows (v0.4 §6.7): every desktop shows them, the asking
+	// device decides, and a revive from another device waits for one.
+	if c.asks, err = ask.Start(ctx, ask.Options{Store: st, Self: id.ID, IsOwner: chain.IsOwner,
+		Revive: c.reviveForAsk, Name: c.agentName}); err != nil {
+		c.Close()
+		return nil, fmt.Errorf("asks: %w", err)
+	}
 	c.tools = tools.New(meshView{c})
 
 	// The net layer (v0.4 §4.5) is built here but opens nothing until the
@@ -438,6 +450,45 @@ func (c *Core) MeshAgents() []presence.AgentCard {
 
 // Roster is the mesh roster (MeshAgents), for its change signal.
 func (c *Core) Roster() *roster.Roster { return c.roster }
+
+// Asks are the person's approvals as rows (v0.4 §6.7).
+func (c *Core) Asks() *ask.Book { return c.asks }
+
+// SetReviver gives the Core the desktop app's Revive (claude --bg --resume),
+// which a revive ask answered from any device runs here (v0.4 §6.3). A
+// headless Core has none, and such an ask resolves without waking anything.
+func (c *Core) SetReviver(fn func(sessionID string) (string, error)) {
+	c.reviveMu.Lock()
+	defer c.reviveMu.Unlock()
+	c.reviver = fn
+}
+
+// reviveForAsk revives target, a session on this device, once its revive
+// ask was answered for exactly it.
+func (c *Core) reviveForAsk(_ context.Context, target string) error {
+	c.reviveMu.Lock()
+	fn := c.reviver
+	c.reviveMu.Unlock()
+	if fn == nil {
+		return errors.New("no desktop app runs on this device to revive it")
+	}
+	dev, session, ok := strings.Cut(target, "/")
+	if !ok || dev != c.device.ID {
+		return fmt.Errorf("%s is not a session on this device", target)
+	}
+	_, err := fn(session)
+	return err
+}
+
+// agentName is an agent key's card name in the mesh roster, or "".
+func (c *Core) agentName(key string) string {
+	for _, a := range c.MeshAgents() {
+		if a.Key == key {
+			return a.Name
+		}
+	}
+	return ""
+}
 
 // meshView is the Core with Agents() as the mesh roster: what the inbox
 // routes against and what the tools show.

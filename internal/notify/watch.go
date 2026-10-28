@@ -6,8 +6,10 @@ import (
 	"log"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
+	"github.com/StephenSHorton/irori/internal/ask"
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/inbox"
 )
@@ -27,10 +29,22 @@ type BoardSource interface {
 	Board(f coord.BoardFilter) coord.BoardView
 }
 
+// AskSource is the part of *ask.Book Watch uses.
+type AskSource interface {
+	Subscribe(ctx context.Context) <-chan string
+	Get(id string) (ask.Ask, bool)
+	Open() []ask.Ask
+	Answer(ctx context.Context, id, choice, by string) error
+}
+
 // Sources are what Watch follows and acts through.
 type Sources struct {
 	Inbox InboxSource
 	Board BoardSource
+	// Asks are the person's approvals as rows (v0.4 §6.7): every desktop
+	// device shows each open one, any of them answers, and the card clears
+	// everywhere once the asking device resolves it.
+	Asks AskSource
 	// User is the person at this device ("user:<device>"): Release and
 	// Dismiss act as them, and the Board's "needs you" means them.
 	User string
@@ -79,9 +93,16 @@ func Watch(ctx context.Context, n *Notifier, s Sources) {
 		return
 	}
 	w := &watcher{n: n, s: s, held: map[string]bool{}, msgs: map[string]bool{}, needs: map[string]bool{},
-		forget: make(chan string, 16)}
+		asks: map[string]bool{}, forget: make(chan string, 16)}
 	var ich <-chan inbox.Change
 	var cch <-chan coord.Change
+	var ach <-chan string
+	if s.Asks != nil {
+		ach = s.Asks.Subscribe(ctx)
+		for _, a := range s.Asks.Open() {
+			w.ask(ctx, a.ID) // waiting asks get their card: it is the only way to them
+		}
+	}
 	if s.Inbox != nil {
 		ich = s.Inbox.Subscribe(ctx)
 		w.reconcile(ctx, true) // what waits from before start gets its card
@@ -90,10 +111,16 @@ func Watch(ctx context.Context, n *Notifier, s Sources) {
 		cch = s.Board.Subscribe(ctx)
 		w.board(false) // seed: what is already waiting stays quiet
 	}
-	for ich != nil || cch != nil {
+	for ich != nil || cch != nil || ach != nil {
 		select {
 		case <-ctx.Done():
 			return
+		case id, ok := <-ach:
+			if !ok {
+				ach = nil
+				continue
+			}
+			w.ask(ctx, id)
 		case c, ok := <-ich:
 			if !ok {
 				ich = nil
@@ -122,6 +149,7 @@ type watcher struct {
 	held  map[string]bool // held delivery ids accounted for (card posted, or seeded)
 	msgs  map[string]bool // delivery ids to the person accounted for (likewise)
 	needs map[string]bool // task ids in Needs you (card posted, or seeded)
+	asks  map[string]bool // ask ids with a card up
 	// forget carries held delivery ids whose card the person closed (from
 	// the card's own goroutine to Watch's loop).
 	forget chan string
@@ -149,6 +177,49 @@ func (w *watcher) inbox(ctx context.Context, c inbox.Change) {
 		return
 	}
 	w.delivery(ctx, d, c.Kind == inbox.HeldNew, true)
+}
+
+// ask brings one ask's card in line: posted while it waits for an answer,
+// cleared once it is resolved (on any device's answer, or at its end).
+func (w *watcher) ask(ctx context.Context, id string) {
+	a, ok := w.s.Asks.Get(id)
+	switch {
+	case !ok:
+		return
+	case a.Resolved:
+		if w.asks[id] {
+			delete(w.asks, id)
+			w.n.Clear(AskID(id))
+		}
+		return
+	case w.asks[id]:
+		return
+	}
+	left := time.Until(a.Until)
+	if left <= 0 {
+		return
+	}
+	w.asks[id] = true
+	title := strings.TrimSpace(a.Name)
+	if title == "" {
+		title = w.name(a.By)
+	}
+	if a.Title != "" {
+		title += ": " + a.Title
+	}
+	level, _ := ParseLevel(a.Level)
+	note := Note{ID: AskID(id), Title: title, Body: a.Text, Level: level, Expire: left}
+	user := w.s.User
+	answer := func(choice string) {
+		if err := w.s.Asks.Answer(ctx, id, choice, user); err != nil && ctx.Err() == nil {
+			log.Printf("irori: answer %s: %v", id, err)
+		}
+	}
+	for _, l := range a.Actions {
+		note.Actions = append(note.Actions, Action{Label: l, Run: func() { answer(l) }})
+	}
+	note.OnDismiss = func() { answer("") }
+	w.n.Post(note)
 }
 
 // cardHeld is a hold the person is asked about (Pause all is their own).

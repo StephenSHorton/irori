@@ -32,6 +32,7 @@ func setupNotifications(ctx context.Context, app *application.App, c *core.Core,
 	go notify.Watch(ctx, n, notify.Sources{
 		Inbox:   c.Inbox(),
 		Board:   c.Coord(),
+		Asks:    c.Asks(),
 		User:    c.UserSender().Key,
 		IsOwner: c.IsOwner,
 		Name:    func(key string) string { return agentName(c, key) },

@@ -25,7 +25,8 @@ import * as store$0 from "./internal/store/models.js";
 import * as $models from "./models.js";
 
 /**
- * Agents returns the live agents on this device, newest activity first.
+ * Agents returns the live agents on every one of the person's devices:
+ * this device's first, then the others' with their device state (v0.4 §6.2).
  */
 export function Agents(): $CancellablePromise<presence$0.AgentCard[]> {
     return $Call.ByID(1469173920).then(($result: any) => {
@@ -60,6 +61,16 @@ export function Recent(limit: number): $CancellablePromise<store$0.Event[]> {
     return $Call.ByID(1547186909, limit).then(($result: any) => {
         return $$createType6($result);
     });
+}
+
+/**
+ * RequestRevive asks another device to revive one of its gone sessions
+ * (v0.4 §6.3), for deliveryID if set: that device shows an approval card
+ * on every desktop, and wakes nothing until the person answers Revive.
+ * A session on this device is revived with Revive instead.
+ */
+export function RequestRevive(key: string, deliveryID: string): $CancellablePromise<void> {
+    return $Call.ByID(997286082, key, deliveryID);
 }
 
 /**
