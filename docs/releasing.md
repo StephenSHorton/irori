@@ -284,7 +284,7 @@ needs its heal and re-sign steps).
 - **Menu bar**: a monochrome 囲 template image (`build/trayicon-template.png`,
   rendered from `assets/brand/irori-mark-mono.svg`), so macOS tints it for
   light and dark menu bars. A click opens the menu; **Open Irori** is in
-  first item.
+  it.
 - **Notifications**: Irori pins `github.com/StephenSHorton/go-toast` v0.1.0,
   whose cards are Windows only; on macOS they are silent no-ops until a
   go-toast release with a macOS backend is pinned.
