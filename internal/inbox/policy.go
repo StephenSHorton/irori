@@ -71,12 +71,19 @@ func (b *inbox) ownAgent(m *Message, cards map[string]presence.AgentCard) bool {
 	}
 	dev := owner.DeviceOf(s.Key)
 	switch {
-	case dev == "" || dev != m.writer:
+	case !m.fromWriter():
 		return false
 	case dev == b.dev:
 		return true
 	}
 	return b.isOwner("user:"+dev) && !b.revoked(dev)
+}
+
+// fromWriter reports whether m's sender key names the device that wrote
+// it: only then does the sender's own card (its mode) speak for it.
+func (m *Message) fromWriter() bool {
+	dev := owner.DeviceOf(m.From.Key)
+	return dev != "" && dev == m.writer
 }
 
 // revoked reports a device removed from the person (Options.Revoked).
@@ -104,7 +111,7 @@ func (b *inbox) hold(m *Message, recipient string, cards map[string]presence.Age
 		case b.pol.Mode == Allowlist && !allowed:
 			return HoldNotAllowed
 		case bypass(recipient, cards) && !allowed && !b.ownAgent(m, cards) &&
-			(m.From.Kind == "grok" || !bypass(m.From.Key, cards)):
+			(m.From.Kind == "grok" || !m.fromWriter() || !bypass(m.From.Key, cards)):
 			return HoldBypassReceiver
 		case m.Hop > MaxHop:
 			return HoldHopLimit
