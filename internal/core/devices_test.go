@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,6 +33,25 @@ type hcore struct {
 	c       *Core
 	session string // the one Claude session this device hosts, if any
 	dev     string // its device id, kept while it is stopped
+	clk     *clock // its wall clock: real time plus an offset
+}
+
+// clock is a device's wall clock: real time plus an offset tests move.
+type clock struct {
+	mu  sync.Mutex
+	off time.Duration
+}
+
+func (c *clock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return time.Now().Add(c.off)
+}
+
+func (c *clock) Set(off time.Duration) {
+	c.mu.Lock()
+	c.off = off
+	c.mu.Unlock()
 }
 
 var fastNet = mesh.Intervals{Presence: 40 * time.Millisecond, Ping: 60 * time.Millisecond, Vector: 80 * time.Millisecond,
@@ -39,7 +59,7 @@ var fastNet = mesh.Intervals{Presence: 40 * time.Millisecond, Ping: 60 * time.Mi
 
 func newHCore(t *testing.T, net *mesh.FakeNet, name, session string) *hcore {
 	t.Helper()
-	h := &hcore{t: t, name: name, data: t.TempDir(), claude: t.TempDir(), net: net, session: session}
+	h := &hcore{t: t, name: name, data: t.TempDir(), claude: t.TempDir(), net: net, session: session, clk: &clock{}}
 	if session != "" {
 		dir := filepath.Join(h.claude, "sessions")
 		if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -55,7 +75,7 @@ func newHCore(t *testing.T, net *mesh.FakeNet, name, session string) *hcore {
 func (h *hcore) start() {
 	h.t.Helper()
 	c, err := Start(context.Background(), Options{DataDir: h.data, ClaudeDir: h.claude, Version: "0.4.0-test", Headless: true,
-		Keystore: identity.FileKeystore{}, Net: h.net, NetIntervals: fastNet})
+		Keystore: identity.FileKeystore{}, Net: h.net, NetIntervals: fastNet, Now: h.clk.Now})
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -613,5 +633,48 @@ func TestRemovingADeviceEndsItsLeasesAndCards(t *testing.T) {
 	for _, h := range []*hcore{pc, nd} {
 		wait(t, "the lease ends on "+h.name, func() bool { return len(h.c.Coord().Leases()) == 0 })
 		wait(t, "the card goes on "+h.name, func() bool { return !hasCard(h, mac.agent(), "") })
+	}
+}
+
+// A clock 10 minutes ahead (§10): the Mac's rows wait on the other
+// devices, then land once their clocks catch up, and nothing it wrote wins
+// an answer: the node's later answer, which arrived first, is the one the
+// asking PC resolves with, on every device.
+func TestAClockAheadWinsNoAnswer(t *testing.T) {
+	ctx := context.Background()
+	_, pc, mac, nd := meshTrio(t)
+	a, err := pc.c.Asks().Post(ctx, ask.Ask{By: pc.agent(), Name: "pc-agent", Title: "Deploy?", Text: "Deploy now?",
+		Actions: []string{"Deploy", "Hold"}, Until: time.Now().Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []*hcore{mac, nd} {
+		wait(t, "the ask shows on "+h.name, func() bool { _, ok := h.c.Asks().Get(a.ID); return ok })
+	}
+	mac.clk.Set(10 * time.Minute)
+	if err := mac.c.Asks().Answer(ctx, a.ID, "Deploy", mac.user()); err != nil {
+		t.Fatal(err)
+	}
+	ahead, _ := mac.c.store.Vector(ctx)
+	stays(t, "the mac's ahead answer lands on the pc", func() bool { return vec(pc)[mac.id()] >= ahead[mac.id()] })
+	if err := nd.c.Asks().Answer(ctx, a.ID, "Hold", nd.user()); err != nil {
+		t.Fatal(err)
+	}
+	wait(t, "the pc resolves with the node's answer", func() bool {
+		got, _ := pc.c.Asks().Get(a.ID)
+		return got.Resolved
+	})
+	if got, _ := pc.c.Asks().Get(a.ID); got.Choice != "Hold" {
+		t.Fatalf("the pc resolved with %q", got.Choice)
+	}
+	// The other clocks catch up: the mac's rows land, and the answer stays.
+	pc.clk.Set(10 * time.Minute)
+	nd.clk.Set(10 * time.Minute)
+	wait(t, "the mac's rows land", func() bool { return vec(pc)[mac.id()] >= ahead[mac.id()] && vec(nd)[mac.id()] >= ahead[mac.id()] })
+	for _, h := range []*hcore{pc, mac, nd} {
+		wait(t, "the node's answer on "+h.name, func() bool {
+			got, _ := h.c.Asks().Get(a.ID)
+			return got.Resolved && got.Choice == "Hold"
+		})
 	}
 }

@@ -55,6 +55,9 @@ type Options struct {
 	Net mesh.Transport
 	// NetIntervals shortens the mesh's timers (tests).
 	NetIntervals mesh.Intervals
+	// Now is the wall clock of the log's HLC, the future-row hold, the mesh
+	// and the asks; nil is time.Now. Tests set a device's clock off.
+	Now func() time.Time
 }
 
 // Core is one running Irori.
@@ -113,8 +116,8 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	ctx, cancel := context.WithCancel(parent)
 	// OpenWith runs the one-time v0.4 migration on a v0.3 log (irori.db is
 	// copied to irori.db.v0.3 first) before anything else reads it.
-	st, err := store.OpenWith(ctx, filepath.Join(opts.DataDir, "irori.db"), id.ID, hlc.New(nil),
-		store.OpenOptions{Signer: ident, Verifier: chain})
+	st, err := store.OpenWith(ctx, filepath.Join(opts.DataDir, "irori.db"), id.ID, hlc.New(opts.Now),
+		store.OpenOptions{Signer: ident, Verifier: chain, Now: opts.Now})
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("open event log: %w", err)
@@ -202,7 +205,7 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	c.notifier = notify.New(notify.Config{Dir: opts.DataDir, Headless: opts.Headless})
 	// Approvals as rows (v0.4 §6.7): every desktop shows them, the asking
 	// device decides, and a revive from another device waits for one.
-	if c.asks, err = ask.Start(ctx, ask.Options{Store: st, Self: id.ID, IsOwner: chain.IsOwner,
+	if c.asks, err = ask.Start(ctx, ask.Options{Store: st, Self: id.ID, IsOwner: chain.IsOwner, Now: opts.Now,
 		Revive: c.reviveForAsk, Name: c.agentName}); err != nil {
 		c.Close()
 		return nil, fmt.Errorf("asks: %w", err)
@@ -226,7 +229,7 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		tr, c.netClose = rt, rt.Close
 	}
 	c.mesh = mesh.New(mesh.Options{Store: st, Ident: ident, Chain: chain, Net: tr, Version: opts.Version,
-		Files: c.files, Intervals: opts.NetIntervals, Logf: log.Printf})
+		Files: c.files, Intervals: opts.NetIntervals, Now: opts.Now, Logf: log.Printf})
 	// Pairing (v0.4 §3) opens its own room on the same transport, only
 	// while a window is open; GUI and CLI only, never the loopback API.
 	c.pair = pair.New(pair.Options{Net: tr, Ident: ident, Chain: chain, Store: st, DataDir: opts.DataDir,
