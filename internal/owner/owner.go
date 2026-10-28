@@ -67,8 +67,8 @@ func DeviceOf(key string) string {
 	if dev, ok := strings.CutPrefix(key, "user:"); ok {
 		return dev
 	}
-	if i := strings.IndexByte(key, '/'); i > 0 {
-		return key[:i]
+	if i := strings.IndexByte(key, '/'); i > 0 && !strings.ContainsRune(key[:i], ':') {
+		return key[:i] // a repo address ("remote:host/...") names no device
 	}
 	return ""
 }

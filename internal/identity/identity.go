@@ -58,6 +58,7 @@ type Identity struct {
 	Person    Person
 	deviceKey ed25519.PrivateKey
 	personKey ed25519.PrivateKey
+	dataDir   string
 }
 
 var _ store.Signer = (*Identity)(nil)
@@ -87,7 +88,7 @@ func Load(dataDir string, dev device.Identity, ks Keystore) (*Identity, error) {
 			return nil, err
 		}
 	}
-	return &Identity{Device: dev, Person: p, deviceKey: dkey, personKey: pkey}, nil
+	return &Identity{Device: dev, Person: p, deviceKey: dkey, personKey: pkey, dataDir: dataDir}, nil
 }
 
 func short(s string) string {
@@ -239,11 +240,26 @@ func (id *Identity) ProfileRow() (Profile, error) {
 // is not the root waits for a cert from pairing (release 3) and writes
 // nothing. role is RoleDesktop or RoleNode.
 func (id *Identity) EnsureSelfCert(ctx context.Context, st *store.Store, ch *Chain, role string) error {
-	if _, ok := ch.Cert(id.Device.ID); ok {
-		return nil
-	}
 	if id.Device.ID != id.Person.RootDeviceID {
 		return nil
+	}
+	// The cert first: it carries the key that verifies it, so it is the row
+	// a peer can check before any other of this device's (Chain.Learn).
+	if _, ok := ch.Cert(id.Device.ID); !ok {
+		label := id.Device.Name
+		if label == "" {
+			label = id.Device.ID
+		}
+		add, err := id.CertFor(id.Device.ID, hex.EncodeToString(id.DevicePub()), label, role, time.Now())
+		if err != nil {
+			return err
+		}
+		if _, err := st.Append(ctx, "irori", store.KindPersonDeviceAdded, add); err != nil {
+			return err
+		}
+		if _, ok := ch.Cert(id.Device.ID); !ok {
+			return errors.New("identity: the self-cert row did not certify this device")
+		}
 	}
 	if !ch.HasProfile() {
 		prof, err := id.ProfileRow()
@@ -253,20 +269,6 @@ func (id *Identity) EnsureSelfCert(ctx context.Context, st *store.Store, ch *Cha
 		if _, err := st.Append(ctx, "irori", store.KindPersonProfile, prof); err != nil {
 			return err
 		}
-	}
-	label := id.Device.Name
-	if label == "" {
-		label = id.Device.ID
-	}
-	add, err := id.CertFor(id.Device.ID, hex.EncodeToString(id.DevicePub()), label, role, time.Now())
-	if err != nil {
-		return err
-	}
-	if _, err := st.Append(ctx, "irori", store.KindPersonDeviceAdded, add); err != nil {
-		return err
-	}
-	if _, ok := ch.Cert(id.Device.ID); !ok {
-		return errors.New("identity: the self-cert row did not certify this device")
 	}
 	return nil
 }

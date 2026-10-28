@@ -541,6 +541,18 @@ func (s *Store) insertBatch(ctx context.Context, evs []Event) (int, error) {
 	for i := range evs {
 		ev := evs[i]
 		stored, err := d.insertOne(ctx, tx, &ev)
+		if errors.Is(err, errHonouredRevoke) {
+			// Kept in refused_events and folded; its cut may move rows out.
+			observed = true
+			r, err := d.applyCuts(ctx, tx)
+			if err != nil {
+				d.resetVerifier(ctx)
+				return 0, err
+			}
+			resync = resync || r
+			applied++
+			continue
+		}
 		if err != nil {
 			rowErr = err
 			break
@@ -617,13 +629,37 @@ func (d *db) insertOne(ctx context.Context, tx *sql.Tx, ev *Event) (stored bool,
 		}
 		return false, fmt.Errorf("%w: %s/%d", ErrFork, ev.DeviceID, ev.Seq)
 	}
+	if d.verifier != nil {
+		// Before the gap check: a revoked device's later rows are refused
+		// whether or not the rows between are held.
+		if cut, ok := d.verifier.Cut(ev.DeviceID); ok && ev.Seq > cut {
+			if ev.Kind == KindPersonDeviceRevoked && len(ev.Sig) > 0 {
+				// A revoke is honoured if its writer was ever certified, even
+				// past the writer's own cut (§3: a mutual revoke removes
+				// both, in either arrival order). It can't join the gapless
+				// log, so it is kept in refused_events, which the Verifier
+				// also folds at Open.
+				d.verifyMu.Lock()
+				err := d.verifier.VerifyRow(*ev)
+				d.verifyMu.Unlock()
+				if err != nil {
+					return false, err
+				}
+				if err := recordRefused(ctx, tx, *ev, refusedRevoke); err != nil {
+					return false, err
+				}
+				d.verifyMu.Lock()
+				d.verifier.Observe(*ev)
+				d.verifyMu.Unlock()
+				return false, errHonouredRevoke
+			}
+			return false, fmt.Errorf("%w: %s/%d (cut %d)", ErrPastCut, ev.DeviceID, ev.Seq, cut)
+		}
+	}
 	if ev.Seq > last+1 {
 		return false, fmt.Errorf("%w: %s holds seq %d, got %d", ErrGap, ev.DeviceID, last, ev.Seq)
 	}
 	if d.verifier != nil {
-		if cut, ok := d.verifier.Cut(ev.DeviceID); ok && ev.Seq > cut {
-			return false, fmt.Errorf("%w: %s/%d (cut %d)", ErrPastCut, ev.DeviceID, ev.Seq, cut)
-		}
 		if len(ev.Sig) == 0 {
 			return false, fmt.Errorf("%w: %s/%d", ErrUnsigned, ev.DeviceID, ev.Seq)
 		}
@@ -654,6 +690,23 @@ func (d *db) insertOne(ctx context.Context, tx *sql.Tx, ev *Event) (stored bool,
 func sameRow(a, b Event) bool {
 	return a.HLC == b.HLC && a.Actor == b.Actor && a.Kind == b.Kind &&
 		bytes.Equal(a.Payload, b.Payload) && bytes.Equal(a.Sig, b.Sig)
+}
+
+// errHonouredRevoke: insertOne kept a revoke past its writer's cut in
+// refused_events and folded it (not an error for the caller).
+var errHonouredRevoke = errors.New("store: revoke past cut honoured")
+
+// Reasons in refused_events.
+const (
+	refusedPastCut = "past cut"
+	refusedRevoke  = "revoke past cut"
+)
+
+func recordRefused(ctx context.Context, tx *sql.Tx, ev Event, reason string) error {
+	_, err := tx.ExecContext(ctx,
+		`INSERT OR IGNORE INTO refused_events (device_id, seq, hlc, actor, kind, payload, sig, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		ev.DeviceID, ev.Seq, int64(ev.HLC), ev.Actor, ev.Kind, []byte(ev.Payload), ev.Sig, reason)
+	return err
 }
 
 func recordFork(ctx context.Context, tx *sql.Tx, ev Event) error {
@@ -702,7 +755,7 @@ func (d *db) applyCuts(ctx context.Context, tx *sql.Tx) (bool, error) {
 		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT OR IGNORE INTO refused_events (device_id, seq, hlc, actor, kind, payload, sig, reason)
-			 SELECT device_id, seq, hlc, actor, kind, payload, sig, 'past cut' FROM events WHERE device_id = ? AND seq > ?`,
+			 SELECT device_id, seq, hlc, actor, kind, payload, sig, ? FROM events WHERE device_id = ? AND seq > ?`, refusedPastCut,
 			t.dev, cut); err != nil {
 			return false, err
 		}
@@ -728,10 +781,24 @@ func (d *db) loadVerifier(ctx context.Context) error {
 		}
 		d.verifyMu.Unlock()
 		if len(evs) < MaxListLimit {
-			return nil
+			break
 		}
 		after = evs[len(evs)-1].Cursor()
 	}
+	// Revokes in refused_events still count: one honoured past its writer's
+	// cut, and one moved there when its writer was revoked in turn (a
+	// revoke counts if its writer was ever certified, §5.5).
+	revs, err := (&Store{impl: d}).query(ctx, `SELECT device_id, seq, hlc, actor, kind, payload, sig FROM refused_events
+		WHERE kind = ? ORDER BY hlc, device_id, seq`, KindPersonDeviceRevoked)
+	if err != nil {
+		return err
+	}
+	d.verifyMu.Lock()
+	for _, ev := range revs {
+		d.verifier.Observe(ev)
+	}
+	d.verifyMu.Unlock()
+	return nil
 }
 
 // resetVerifier rebuilds the Verifier from committed rows after a write that

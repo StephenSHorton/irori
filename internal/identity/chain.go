@@ -37,7 +37,8 @@ type Chain struct {
 	adds    []certRow
 	revokes []revokeRow
 	profile bool
-	bad     int // person rows for this person that failed their checks
+	bad     int             // person rows for this person that failed their checks
+	seen    map[rowKey]bool // rows folded, so a row learned early and then stored folds once
 
 	valid map[string]Cert // device id -> its first valid cert
 	cuts  map[string]int64
@@ -57,6 +58,11 @@ func (a rowPos) less(b rowPos) bool {
 		return a.writer < b.writer
 	}
 	return a.seq < b.seq
+}
+
+type rowKey struct {
+	dev string
+	seq int64
 }
 
 type certRow struct {
@@ -82,7 +88,7 @@ func NewChain(personID, rootDeviceID, selfID string) *Chain {
 func (c *Chain) Reset() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.adds, c.revokes, c.profile, c.bad = nil, nil, false, 0
+	c.adds, c.revokes, c.profile, c.bad, c.seen = nil, nil, false, 0, nil
 	c.valid, c.cuts = map[string]Cert{}, map[string]int64{}
 }
 
@@ -90,6 +96,14 @@ func (c *Chain) Reset() {
 func (c *Chain) Observe(ev store.Event) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.seen == nil {
+		c.seen = map[rowKey]bool{}
+	}
+	if k := (rowKey{ev.DeviceID, ev.Seq}); c.seen[k] {
+		return
+	} else {
+		c.seen[k] = true
+	}
 	pos := rowPos{uint64(ev.HLC), ev.DeviceID, ev.Seq}
 	switch ev.Kind {
 	case store.KindPersonDeviceAdded:
@@ -228,6 +242,23 @@ func (c *Chain) VerifyRow(ev store.Event) error {
 	if !ed25519.Verify(pub, store.SigningBytes(ev), ev.Sig) {
 		return fmt.Errorf("%w: %s/%d", store.ErrBadSig, ev.DeviceID, ev.Seq)
 	}
+	return nil
+}
+
+// Learn folds a person.* row that is not stored yet: the pairing exchange
+// and a sync hello hand these over first (§3 step 6, §5.2). A device's rows
+// are gapless, so its cert can't be inserted ahead of its earlier rows (the
+// root's self-cert comes after its whole v0.3 history); learning the cert
+// first lets those rows verify. The row must verify like any other; when it
+// is later inserted it is not folded twice.
+func (c *Chain) Learn(ev store.Event) error {
+	if !store.IsPersonKind(ev.Kind) {
+		return fmt.Errorf("identity: Learn takes person rows, not %s", ev.Kind)
+	}
+	if err := c.VerifyRow(ev); err != nil {
+		return err
+	}
+	c.Observe(ev)
 	return nil
 }
 
