@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"time"
+
+	"github.com/StephenSHorton/irori/internal/device"
 )
 
 // Current is the person with its current epoch and key, which a rotation
@@ -83,6 +85,43 @@ func (id *Identity) AdoptSecret(epoch int, seed []byte, pubHex string) error {
 		return ErrStaleEpoch
 	}
 	return id.adoptLocked(epoch, key)
+}
+
+// ErrNotThisKey: AdoptPerson's seed doesn't match the person key it names.
+var ErrNotThisKey = errors.New("identity: person secret does not match its key")
+
+// AdoptPerson replaces this device's person with the one pairing handed
+// over (§3 step 6): person.json is rewritten with p and its secret (no
+// previous epoch), and device.json's personId follows. The device key stays.
+// The caller re-pins the Chain to p (Chain.Repin) and reloads the store's
+// verifier.
+func (id *Identity) AdoptPerson(p Person, seed []byte) error {
+	if len(seed) != ed25519.SeedSize {
+		return fmt.Errorf("identity: person secret is %d bytes", len(seed))
+	}
+	if p.ID == "" || p.RootDeviceID == "" || p.Epoch < 1 {
+		return errors.New("identity: incomplete person")
+	}
+	key := ed25519.NewKeyFromSeed(seed)
+	if hex.EncodeToString(key.Public().(ed25519.PublicKey)) != p.Pub {
+		return ErrNotThisKey
+	}
+	ks := id.ks
+	if ks == nil {
+		ks = FileKeystore{}
+	}
+	id.mu.Lock()
+	defer id.mu.Unlock()
+	if err := writePerson(filepath.Join(id.dataDir, PersonFile), ks, p, key, nil); err != nil {
+		return err
+	}
+	dev := id.Device
+	dev.PersonID = p.ID
+	if err := device.Save(id.dataDir, dev); err != nil {
+		return err
+	}
+	id.Device, id.Person, id.personKey, id.prev = dev, p, key, nil
+	return nil
 }
 
 // adoptLocked makes key the person key of epoch, keeps the current one as

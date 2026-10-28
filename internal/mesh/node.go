@@ -402,7 +402,7 @@ func (n *Node) join(epoch int) {
 	if !ok {
 		return
 	}
-	s := MeshSecret(seed, n.o.Ident.Person.ID, epoch)
+	s := MeshSecret(seed, n.o.Ident.Current().ID, epoch)
 	r, err := n.o.Net.Join(s, RoomConfig{
 		Self:      n.self,
 		Pub:       n.o.Ident.DevicePub(),
@@ -785,7 +785,7 @@ func (n *Node) adoptPending() {
 func (n *Node) rotationPub(epoch int) (string, bool) {
 	ctx := context.Background()
 	f := store.Filter{Kinds: []string{store.KindPersonKeyRotated}, Limit: store.MaxListLimit}
-	pid := n.o.Ident.Person.ID
+	pid := n.o.Ident.Current().ID
 	for {
 		evs, err := n.o.Store.List(ctx, f)
 		if err != nil || len(evs) == 0 {

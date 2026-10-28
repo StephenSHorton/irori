@@ -33,6 +33,13 @@ func useParentConsole(cmd string) {
 		os.Stderr = errf
 		log.SetOutput(errf) // the log package captured the old os.Stderr at init
 	}
+	// `irori pair` reads the typed words: a GUI-subsystem exe started from a
+	// prompt has no stdin, so read the console it attached to.
+	if cmd == "pair" && !stdUsable(windows.STD_INPUT_HANDLE) {
+		if in, err := os.OpenFile("CONIN$", os.O_RDONLY, 0); err == nil {
+			os.Stdin = in
+		}
+	}
 }
 
 // stdUsable reports whether the inherited standard handle leads to a console,

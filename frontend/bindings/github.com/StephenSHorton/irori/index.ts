@@ -3,12 +3,14 @@
 
 import * as BoardService from "./boardservice.js";
 import * as CaptureService from "./captureservice.js";
+import * as DevicesService from "./devicesservice.js";
 import * as InboxService from "./inboxservice.js";
 import * as RosterService from "./rosterservice.js";
 import * as SettingsService from "./settingsservice.js";
 export {
     BoardService,
     CaptureService,
+    DevicesService,
     InboxService,
     RosterService,
     SettingsService
@@ -28,6 +30,7 @@ export {
     CardResolution,
     CardSummary,
     CommentResult,
+    DeviceView,
     GoneSession,
     InboxCounts,
     NewCard,

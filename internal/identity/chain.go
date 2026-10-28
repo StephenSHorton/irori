@@ -96,6 +96,24 @@ func (c *Chain) Reset() {
 	c.valid, c.cuts, c.claims = map[string]Cert{}, map[string]int64{}, nil
 }
 
+// Repin points the fold at another person and its pinned root (B adopting
+// A's person in pairing, §3 step 6) and forgets every observed row. The
+// caller then has the store feed its rows again (Store.ReloadVerifier):
+// rows of the old person stay stored and inert.
+func (c *Chain) Repin(personID, rootDeviceID string) {
+	c.mu.Lock()
+	c.personID, c.rootID = personID, rootDeviceID
+	c.mu.Unlock()
+	c.Reset()
+}
+
+// PersonID is the person the fold is pinned to.
+func (c *Chain) PersonID() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.personID
+}
+
 // Observe folds one person.* row (store.Verifier).
 func (c *Chain) Observe(ev store.Event) {
 	c.mu.Lock()
@@ -263,14 +281,15 @@ func (c *Chain) floor(ever map[string]certRow, writer, target string) (int64, bo
 func (c *Chain) VerifyRow(ev store.Event) error {
 	c.mu.Lock()
 	cert, ok := c.valid[ev.DeviceID]
+	personID, rootID := c.personID, c.rootID
 	c.mu.Unlock()
 	pubHex := cert.DevicePub
 	if !ok {
-		if ev.Kind != store.KindPersonDeviceAdded || ev.DeviceID != c.rootID {
+		if ev.Kind != store.KindPersonDeviceAdded || ev.DeviceID != rootID {
 			return fmt.Errorf("%w: %s", store.ErrNoCert, ev.DeviceID)
 		}
 		var p DeviceAdded
-		if json.Unmarshal(ev.Payload, &p) != nil || p.Cert.DeviceID != ev.DeviceID || p.Cert.PersonID != c.personID {
+		if json.Unmarshal(ev.Payload, &p) != nil || p.Cert.DeviceID != ev.DeviceID || p.Cert.PersonID != personID {
 			return fmt.Errorf("%w: %s", store.ErrNoCert, ev.DeviceID)
 		}
 		pubHex = p.Cert.DevicePub

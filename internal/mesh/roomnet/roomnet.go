@@ -135,6 +135,7 @@ func (t *Transport) Join(s mesh.Secret, cfg mesh.RoomConfig) (mesh.Room, error) 
 		Identity:   room.Identity{Pub: cfg.Pub, Sign: cfg.Sign},
 		Accept:     cfg.Accept,
 		Allow:      cfg.Allow,
+		Offerer:    cfg.Offerer,
 		ICE:        t.ice(),
 		MaxMessage: mesh.MaxMessage,
 		MaxStreams: 4,

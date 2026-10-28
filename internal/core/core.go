@@ -25,6 +25,7 @@ import (
 	"github.com/StephenSHorton/irori/internal/mesh"
 	"github.com/StephenSHorton/irori/internal/mesh/roomnet"
 	"github.com/StephenSHorton/irori/internal/notify"
+	"github.com/StephenSHorton/irori/internal/pair"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/repo"
 	"github.com/StephenSHorton/irori/internal/scrub"
@@ -68,6 +69,7 @@ type Core struct {
 	members  *members
 	capture  *capture.Capture
 	mesh     *mesh.Node
+	pair     *pair.Pairer
 	netClose func() // stops the default transport's relay; nil for a passed-in one
 	scrubber *scrub.Scrubber
 	secretMu sync.Mutex
@@ -113,6 +115,11 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		st.Close()
 		cancel()
 		return nil, fmt.Errorf("identity: %w", err)
+	}
+	// A device that paired but stopped before its first sync learns the
+	// person rows it was handed again (pair.RowsFile).
+	if err := pair.LearnSaved(ctx, opts.DataDir, st, chain); err != nil {
+		log.Printf("pairing rows: %v", err)
 	}
 	repos := repo.New()
 	c := &Core{
@@ -178,6 +185,10 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	}
 	c.mesh = mesh.New(mesh.Options{Store: st, Ident: ident, Chain: chain, Net: tr, Version: opts.Version,
 		Intervals: opts.NetIntervals, Logf: log.Printf})
+	// Pairing (v0.4 §3) opens its own room on the same transport, only
+	// while a window is open; GUI and CLI only, never the loopback API.
+	c.pair = pair.New(pair.Options{Net: tr, Ident: ident, Chain: chain, Store: st, DataDir: opts.DataDir,
+		Kick: c.mesh.Kick, Logf: log.Printf})
 
 	token, err := discovery.NewToken()
 	if err != nil {
@@ -243,6 +254,9 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 // Close stops the services, removes the lockfile if it is still ours and
 // closes the log.
 func (c *Core) Close() error {
+	if c.pair != nil {
+		c.pair.Cancel()
+	}
 	c.cancel()
 	if c.done != nil {
 		select {
@@ -342,6 +356,10 @@ func (c *Core) CertifiedDevices() []identity.DeviceState { return c.chain.Device
 // Mesh is the net layer (v0.4 §4, §5). It runs only once the person has a
 // second device.
 func (c *Core) Mesh() *mesh.Node { return c.mesh }
+
+// Pairing is the pairing flow (v0.4 §3). Only Wails bindings and the
+// `irori pair` CLI reach it; it is not on the loopback API.
+func (c *Core) Pairing() *pair.Pairer { return c.pair }
 
 // NetStatus is the mesh's state and every other device, for Devices and
 // GET /v1/devices.

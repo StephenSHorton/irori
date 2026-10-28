@@ -817,6 +817,53 @@ export class CommentResult {
 }
 
 /**
+ * DeviceView is one device in the dialog.
+ */
+export class DeviceView {
+    "deviceId": string;
+    "name": string;
+    "role": string;
+    "this"?: boolean;
+
+    /**
+     * State is connected, recent or offline (this device: "this").
+     */
+    "state": string;
+    "revoked"?: boolean;
+
+    /**
+     * Warning is the one line shown under a device when something is wrong.
+     */
+    "warning"?: string;
+
+    /** Creates a new DeviceView instance. */
+    constructor($$source: Partial<DeviceView> = {}) {
+        if (!("deviceId" in $$source)) {
+            this["deviceId"] = "";
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("role" in $$source)) {
+            this["role"] = "";
+        }
+        if (!("state" in $$source)) {
+            this["state"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new DeviceView instance from a string or object.
+     */
+    static createFrom($$source: any = {}): DeviceView {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new DeviceView($$parsedSource as Partial<DeviceView>);
+    }
+}
+
+/**
  * GoneSession is a recently gone Claude Code session the person may revive.
  */
 export class GoneSession {

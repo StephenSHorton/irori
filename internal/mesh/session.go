@@ -309,7 +309,7 @@ func (s *session) onHello(ctx context.Context, f Frame) bool {
 	case f.V != Protocol:
 		s.conn.Close("version")
 		return false
-	case f.DeviceID != peer || f.PersonID != n.o.Ident.Person.ID:
+	case f.DeviceID != peer || f.PersonID != n.o.Ident.Current().ID:
 		s.conn.Close("person")
 		return false
 	case f.Schema < MinPeerSchema:

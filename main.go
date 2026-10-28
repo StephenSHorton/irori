@@ -7,6 +7,7 @@
 //	irori mcp              stdio MCP server for agents, talking to the running Core
 //	irori attach           the Claude Code mod's event stream (v0.2)
 //	irori events           print or follow (--follow) the event log
+//	irori pair             add a device (pair join <code> on the new one)
 //	irori version
 //
 // The Core (internal/core) is the event log, presence and the loopback API.
@@ -50,10 +51,12 @@ func main() {
 		err = runAttach(args)
 	case "events":
 		err = runEvents(args)
+	case "pair":
+		err = runPair(args)
 	case "version":
 		fmt.Println("irori", version)
 	default:
-		err = fmt.Errorf("unknown command %q (gui, serve, mcp, attach, events, version)", cmd)
+		err = fmt.Errorf("unknown command %q (gui, serve, mcp, attach, events, pair, version)", cmd)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "irori:", err)

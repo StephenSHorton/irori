@@ -75,6 +75,10 @@ type RoomConfig struct {
 	Accept func(peer string, pub ed25519.PublicKey) error
 	// Allow is asked before any connection is attempted with peer.
 	Allow func(peer string) bool
+	// Offerer reports whether this side makes the offer to peer. Nil is the
+	// mesh topic's rule, the lower device id; the pairing room sets it so A
+	// always offers (§3 step 2). Both sides must agree.
+	Offerer func(peer string) bool
 	// OnMsg gets every non-rtc envelope for everyone or for Self.
 	OnMsg func(Envelope)
 	// OnConnect fires when signaling (re)connects: announce presence.

@@ -67,6 +67,7 @@ func runGUI(args []string) error {
 	board := newBoardService(c)
 	captureSvc := newCaptureService(c)
 	settings := &SettingsService{notifier: c.Notifier()}
+	devices := newDevicesService(c)
 	upd := update.New(update.Repo, version)
 
 	var window *application.WebviewWindow
@@ -88,6 +89,7 @@ func runGUI(args []string) error {
 			application.NewService(board),
 			application.NewService(captureSvc),
 			application.NewService(settings),
+			application.NewService(devices),
 			application.NewService(upd),
 		},
 		Assets: application.AssetOptions{
@@ -108,6 +110,7 @@ func runGUI(args []string) error {
 		},
 	})
 	settings.attach(app)
+	devices.attach(app)
 
 	window = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "Irori",

@@ -245,6 +245,15 @@ func (s *Store) InsertBatch(ctx context.Context, evs []Event) (int, error) {
 // held max clears the hold.
 func (s *Store) HoldAppends(seq int64) { s.holdAppends(seq) }
 
+// ReloadVerifier resets the Verifier and feeds it every person.* row held
+// again: after the Chain was re-pinned to another person (pairing, v0.4 §3).
+// A store opened without a Verifier ignores it.
+func (s *Store) ReloadVerifier(ctx context.Context) {
+	if s.impl.verifier != nil {
+		s.impl.resetVerifier(ctx)
+	}
+}
+
 // Vector reports the max seq held per device.
 func (s *Store) Vector(ctx context.Context) (Vector, error) { return s.vector(ctx) }
 
