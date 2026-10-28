@@ -9,7 +9,8 @@ const (
 	KindDeviceStarted = "device.started"
 	// KindAgentSeen: a presence.AgentCard the first time a session is seen.
 	KindAgentSeen = "agent.seen"
-	// KindAgentStatus: {"key","status","name"} when status or name changes.
+	// KindAgentStatus: {"key","status","name","permissionMode"?} when status,
+	// name or the permission mode changes (the mode is omitted when unknown).
 	KindAgentStatus = "agent.status"
 	// KindAgentGone: {"key","reason"} when a session's file disappears or its pid dies.
 	KindAgentGone = "agent.gone"
