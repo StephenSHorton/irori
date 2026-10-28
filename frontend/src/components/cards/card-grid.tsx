@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card"
 import { percent, type CardSummary } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
 import { cn } from "@/lib/utils"
-import { ProgressBar, ScopeBadge, StatePill } from "./bits"
+import { cardTone, ProgressBar, ScopeBadge, StatePill } from "./bits"
 import { Faces } from "./faces"
 
 export type Filter = "all" | "decide" | "mine"
@@ -142,6 +142,7 @@ function CardTile({
       <ProgressBar
         progress={card.progress}
         label={`${p ?? 0}% complete`}
+        tone={cardTone(card)}
       />
       <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
         {p !== null && (

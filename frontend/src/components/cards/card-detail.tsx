@@ -29,7 +29,7 @@ import {
 } from "@/lib/irori"
 import { errorText, talk, type GoneSession } from "@/lib/talk"
 import { cn } from "@/lib/utils"
-import { ProgressBar, ScopeBadge } from "./bits"
+import { cardTone, ProgressBar, ScopeBadge } from "./bits"
 import { Face, LiveDot } from "./faces"
 
 // Answered is a note answer the person just sent: the note item leaves the
@@ -95,6 +95,7 @@ export function CardPanel({
         <ProgressBar
           progress={detail.progress}
           label={`${p ?? 0}% complete`}
+          tone={cardTone({ state: detail.state, openBlockers: open.length, working: detail.working })}
         />
         <div className="flex flex-wrap gap-1.5 text-xs text-muted-foreground">
           {p !== null && <span>{p}% complete</span>}

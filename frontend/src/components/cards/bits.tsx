@@ -2,14 +2,43 @@ import { Badge } from "@/components/ui/badge"
 import { percent, TaskState, type CardSummary } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
 
-// ProgressBar is a card's done steps over all steps, always in the primary
-// blue (the state chip carries the status). Cards without steps show no bar.
+// Tone is a card's status colour, shared by its state chip and its progress
+// bar so the two always agree.
+export type Tone = "destructive" | "success" | "slate" | "info"
+
+const barTone: Record<Tone, string> = {
+  destructive: "bg-destructive",
+  success: "bg-success",
+  slate: "bg-muted-foreground",
+  info: "bg-info",
+}
+
+// cardTone: waiting on the person or blocked is red, done green, canceled,
+// failed or unheld grey, else in progress blue.
+export function cardTone(card: {
+  state: string
+  openBlockers: number
+  working: readonly unknown[]
+}): Tone {
+  if (card.state === TaskState.InputRequired || card.openBlockers > 0)
+    return "destructive"
+  if (card.state === TaskState.Completed) return "success"
+  if (card.state === TaskState.Canceled || card.state === TaskState.Failed)
+    return "slate"
+  if (card.working.length === 0) return "slate"
+  return "info"
+}
+
+// ProgressBar is a card's done steps over all steps, in the card's status
+// colour. Cards without steps show no bar.
 export function ProgressBar({
   progress,
   label,
+  tone = "info",
 }: {
   progress: { done: number; total: number }
   label: string
+  tone?: Tone
 }) {
   const p = percent(progress)
   if (p === null) return null
@@ -23,7 +52,7 @@ export function ProgressBar({
       className="block h-1 overflow-hidden bg-muted"
     >
       <span
-        className="block h-full bg-primary transition-[width] duration-300"
+        className={`block h-full ${barTone[tone]} transition-[width] duration-300`}
         style={{ width: `${p}%` }}
       />
     </span>
