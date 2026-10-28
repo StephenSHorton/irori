@@ -141,15 +141,30 @@ func (t *Transport) start() {
 		return
 	}
 	t.started = true
+	retry := false
+	if !t.o.NoLAN {
+		// Opened under t.mu, so a second caller (LAN, for the server's
+		// bridge) never sees started without the carrier. No room exists
+		// yet: rooms are joined after start.
+		lan, err := room.OpenLAN(room.LANConfig{Port: t.o.LANPort, Conn: t.o.LANConn, Targets: t.o.LANTargets, Logf: t.o.Logf})
+		if err != nil {
+			// The hub still works; Devices says why the LAN is off.
+			t.lanErr = err.Error()
+			t.o.Logf("roomnet: the LAN carrier is off: %v", err)
+			retry = true
+		} else {
+			t.lan = lan
+		}
+	}
 	t.mu.Unlock()
-	if !t.o.NoLAN && !t.openLAN() {
+	if retry {
 		go t.retryLAN()
 	}
 	t.refresh()
 }
 
-// openLAN opens the LAN carrier and adds it to every room; false when it
-// couldn't (the hub still works, and Devices says why the LAN is off).
+// openLAN opens the LAN carrier again after it couldn't (retryLAN) and
+// adds it to every room; false when it still can't.
 func (t *Transport) openLAN() bool {
 	lan, err := room.OpenLAN(room.LANConfig{Port: t.o.LANPort, Conn: t.o.LANConn, Targets: t.o.LANTargets, Logf: t.o.Logf})
 	t.carMu.Lock()
