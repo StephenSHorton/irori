@@ -124,6 +124,7 @@ export function sampleCards(now: Date): CardDetail[] {
               why: "The temple is the release's headline feature; an untested headline is worse than a short delay.",
               by: otter,
               at: at(18),
+              recommended: true,
             }),
             new CardOption({
               answer: "Ship now, mark temple co-op as experimental",
@@ -192,6 +193,7 @@ export function sampleCards(now: Date): CardDetail[] {
               why: "No old driver, one modern signed one; the broadcast relay is the extra work.",
               by: badger,
               at: at(9),
+              recommended: true,
             }),
             new CardOption({
               answer: "TAP-Windows",

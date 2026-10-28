@@ -264,7 +264,7 @@ func TestBoardCards(t *testing.T) {
 		"context": "Every automated check passes; the co-op check needs both PCs.",
 		"options": []any{map[string]any{"answer": "Wait, ship tonight", "why": "the temple is the headline"}}})
 	has(t, out, "Blocked task:"+id+" on blocker b1", `blocked [b1]: "Ship today, or wait for the check?"`,
-		`1. "Wait, ship tonight" (alpha): "the temple is the headline"`)
+		`1. "Wait, ship tonight" (alpha) [recommended]: "the temple is the headline"`) // a lone option is the recommendation
 	hasNot(t, out, "board_recommend so") // it gave an option
 	has(t, h.ok(callB, "board_recommend", map[string]any{"task_id": id, "blocker_id": "b1", "answer": "Ship now, mark experimental", "why": "fixes today"}),
 		"Recommended on blocker b1", `2. "Ship now, mark experimental" (beta)`)
@@ -305,6 +305,47 @@ func TestBoardCards(t *testing.T) {
 	}
 	has(t, strings.Join(texts, " | "), "Answer: Ship now, mark experimental", "That is the answer")
 	has(t, h.ok(callB, "board_unwatch", map[string]any{"task_id": id}), "no longer watch")
+}
+
+// Waiting on the person is one blocker per ask: board_status
+// input_required is refused on a card with no open blocker, and is a no-op
+// (it would close them) on one that has them.
+func TestBoardInputRequiredNeedsBlockers(t *testing.T) {
+	h := newHarness(t)
+	id := h.newCard(callA, map[string]any{"title": "TRELLIS.2 test"})
+	h.ok(callA, "board_join", map[string]any{"task_id": id})
+	note := "request access to dinov3 on huggingface and run hf auth login? may I push mokei-ui? where should the out/ backup go?"
+	h.fails(callA, "board_status", map[string]any{"task_id": id, "state": "input_required", "note": note},
+		"your note asks more than one thing", "its own board_block", "context for a newcomer", "recommended: true")
+	h.fails(callA, "board_status", map[string]any{"task_id": id, "state": "input_required"}, "as a blocker", "board_block")
+	if tk, _ := h.b.co.GetTask(id); tk.State != coord.Working {
+		t.Fatalf("a refused input_required moved the card: %s", tk.State)
+	}
+
+	// Three asks, three blockers; the push one with options and a recommendation.
+	h.ok(callA, "board_block", map[string]any{"task_id": id, "question": "Request access to facebook/dinov3-vitl16-pretrain-lvd1689m",
+		"context": "Meta approves by hand on huggingface.co; then run hf auth login on the Mac."})
+	out := h.ok(callA, "board_block", map[string]any{"task_id": id, "question": "May I push mokei-ui?",
+		"options": []any{
+			map[string]any{"answer": "Push to main", "why": "checks pass", "recommended": true},
+			map[string]any{"answer": "Open a PR first"},
+			map[string]any{"answer": "Hold"}}})
+	has(t, out, "on blocker b2", `1. "Push to main" (alpha) [recommended]: "checks pass"`, `2. "Open a PR first" (alpha)`)
+	hasNot(t, out, "board_recommend", "more than one thing")
+	h.fails(callA, "board_block", map[string]any{"task_id": id, "question": "Where should the out/ backup go?",
+		"options": []any{map[string]any{"answer": "D:", "recommended": true}, map[string]any{"answer": "NAS", "recommended": true}}},
+		"at most one")
+	has(t, h.ok(callA, "board_block", map[string]any{"task_id": id, "question": "Where should the out/ backup go?",
+		"options": []any{map[string]any{"answer": "D:/backup"}, map[string]any{"answer": "The NAS"}}}),
+		"on blocker b3", "None of its options is marked recommended")
+	has(t, h.ok(callA, "board_block", map[string]any{"task_id": id, "question": "Ship? And tag?"}), "asks more than one thing")
+
+	// With open blockers, input_required changes nothing.
+	out = h.ok(callA, "board_status", map[string]any{"task_id": id, "state": "input_required", "note": "see above"})
+	has(t, out, "already waits on 4 open blockers (b1, b2, b3, b4)", "stays blocked", "note was not saved")
+	if tk, _ := h.b.co.GetTask(id); tk.State != coord.Blocked || len(tk.OpenBlockers()) != 4 {
+		t.Fatalf("input_required touched the blockers: %s %d", tk.State, len(tk.OpenBlockers()))
+	}
 }
 
 // board_create takes the card's steps, the same shape board_steps takes.

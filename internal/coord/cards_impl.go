@@ -116,7 +116,13 @@ func cleanOptions(in []Option, by string, at time.Time) ([]Option, error) {
 		return nil, fmt.Errorf("%w: more than %d recommended answers", ErrInvalid, MaxOptions)
 	}
 	var out []Option
+	recommended := 0
 	for _, o := range in {
+		if o.Recommended {
+			if recommended++; recommended > 1 {
+				return nil, fmt.Errorf("%w: mark at most one answer as recommended", ErrInvalid)
+			}
+		}
 		a, why := strings.TrimSpace(o.Answer), strings.TrimSpace(o.Why)
 		if err := checkText("a recommended answer", a, 1, MaxAnswer); err != nil {
 			return nil, err
@@ -124,10 +130,11 @@ func cleanOptions(in []Option, by string, at time.Time) ([]Option, error) {
 		if err := checkText("a recommendation's why", why, 0, MaxWhy); err != nil {
 			return nil, err
 		}
-		if optionIndex(out, a) >= 0 {
+		if j := optionIndex(out, a); j >= 0 {
+			out[j].Recommended = out[j].Recommended || o.Recommended
 			continue
 		}
-		out = append(out, Option{Answer: a, Why: why, By: by, At: at})
+		out = append(out, Option{Answer: a, Why: why, By: by, At: at, Recommended: o.Recommended})
 	}
 	return out, nil
 }
@@ -464,10 +471,9 @@ func (c *coord) recommend(ctx context.Context, by, id, bid, answer, why string) 
 	if !c.mayRecommend(t, b, by) {
 		return Task{}, fmt.Errorf("%w: only its holders, watchers, the raiser, the creator or a person may recommend on task %s; watch it first", ErrNotAllowed, id)
 	}
-	if optionIndex(b.Options, answer) >= 0 {
+	if j := optionIndex(b.Options, answer); j >= 0 && b.Options[j].Recommended {
 		return copyTask(t), nil
-	}
-	if len(b.Options) >= MaxOptions {
+	} else if j < 0 && len(b.Options) >= MaxOptions {
 		return Task{}, fmt.Errorf("%w: blocker %s already has %d recommended answers", ErrInvalid, b.ID, MaxOptions)
 	}
 	if err := c.write(ctx, by, KindBlockerOption, blockerOptionRow{
@@ -498,13 +504,13 @@ func (c *coord) answer(ctx context.Context, by, id, bid string, a BlockerAnswer)
 	if !b.Open() {
 		return Task{}, Notice{}, fmt.Errorf("%w: blocker %s is already resolved", ErrBadState, b.ID)
 	}
-	opt, recBy := -1, ""
+	opt, recBy, rec := -1, "", false
 	switch {
 	case a.Pick < 0 || a.Pick > len(b.Options):
-		return Task{}, Notice{}, fmt.Errorf("%w: blocker %s has %d recommended answers, not %d", ErrInvalid, b.ID, len(b.Options), a.Pick)
+		return Task{}, Notice{}, fmt.Errorf("%w: blocker %s has %d answers to pick from, not %d", ErrInvalid, b.ID, len(b.Options), a.Pick)
 	case a.Pick > 0:
 		opt = a.Pick - 1
-		text, recBy = b.Options[opt].Answer, b.Options[opt].By
+		text, recBy, rec = b.Options[opt].Answer, b.Options[opt].By, b.Options[opt].Recommended
 	default:
 		if err := checkText("the answer", text, 1, MaxOwnAnswer); err != nil {
 			return Task{}, Notice{}, err
@@ -532,8 +538,11 @@ func (c *coord) answer(ctx context.Context, by, id, bid string, a BlockerAnswer)
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "%s answered the blocker on %q (task:%s, blocker %s).\nQuestion: %s\nAnswer: %s",
 		by, t.Title, id, b.ID, b.Question, cut(text, maxNoticeField))
-	if recBy != "" {
+	switch {
+	case recBy != "" && rec:
 		fmt.Fprintf(&sb, "\n(That is the answer %s recommended.)", recBy)
+	case recBy != "":
+		fmt.Fprintf(&sb, "\n(That is option %d, offered by %s.)", opt+1, recBy)
 	}
 	if restored != "" {
 		fmt.Fprintf(&sb, "\nNo blockers remain: it is %s again.", t.State)
@@ -937,12 +946,22 @@ func (c *coord) applyCard(ev store.Event, at func(time.Time) time.Time) {
 			return
 		}
 		i := blockerIndex(t, p.BlockerID)
-		if i < 0 || !t.Blockers[i].Open() || len(t.Blockers[i].Options) >= MaxOptions || optionIndex(t.Blockers[i].Options, p.Answer) >= 0 {
+		if i < 0 || !t.Blockers[i].Open() {
 			return
 		}
 		b := &t.Blockers[i]
 		when := at(p.At)
-		b.Options = append(b.Options, Option{Answer: p.Answer, Why: p.Why, By: p.By, At: when})
+		// A recommendation of an option already there marks it.
+		if j := optionIndex(b.Options, p.Answer); j >= 0 {
+			if b.Options[j].Recommended {
+				return
+			}
+			b.Options[j].Recommended = true
+		} else if len(b.Options) >= MaxOptions {
+			return
+		} else {
+			b.Options = append(b.Options, Option{Answer: p.Answer, Why: p.Why, By: p.By, At: when, Recommended: true})
+		}
 		t.UpdatedAt = when
 		c.touch(t, when, p.By, "recommended “"+p.Answer+"” for “"+b.Question+"”", true, b.RaisedBy)
 	case KindBlockerResolved:

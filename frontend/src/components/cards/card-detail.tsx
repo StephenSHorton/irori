@@ -16,6 +16,7 @@ import {
   type AgentRef,
   type CardBlocker,
   type CardDetail,
+  type CardOption,
   type CardPR,
   type Told,
 } from "@/lib/cards"
@@ -365,22 +366,43 @@ function BlockerItem({
       {!r && (
         <>
           {b.options.length > 0 && (
-            <div className="grid gap-1.5">
-              {b.options.map((o, i) => (
+            <div
+              className="grid gap-1.5"
+              role="group"
+              aria-label={`Answers to: ${plainLine(b.question)}`}
+            >
+              {byRecommendation(b.options).map(([o, i]) => (
                 <button
                   key={i}
                   type="button"
                   disabled={busy}
                   onClick={() => void send(i, "")}
-                  className="grid gap-0.5 rounded-[10px] border border-border bg-card px-2.5 py-2 text-left outline-none hover:border-primary focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
+                  className={cn(
+                    "grid gap-0.5 rounded-[10px] border bg-card px-2.5 py-2 text-left outline-none hover:border-primary focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60",
+                    o.recommended
+                      ? "border-primary/60 bg-accent/40 ring-1 ring-primary/20"
+                      : "border-border"
+                  )}
                 >
-                  <span className="text-[13px] font-semibold text-ink">
+                  <span className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold text-ink">
                     {plainLine(o.answer)}
+                    {o.recommended && (
+                      <Badge
+                        variant="info"
+                        className="h-4 rounded-full px-1.5 text-[10.5px]"
+                      >
+                        Recommended
+                      </Badge>
+                    )}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    <span className="font-medium text-primary">
-                      Recommended by {name(o.by)}.
-                    </span>{" "}
+                    {o.recommended ? (
+                      <span className="font-medium text-primary">
+                        {name(o.by)} recommends this.
+                      </span>
+                    ) : (
+                      <span>Option from {name(o.by)}.</span>
+                    )}{" "}
                     {plainLine(o.why)}
                   </span>
                 </button>
@@ -410,6 +432,16 @@ function BlockerItem({
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   )
+}
+
+// byRecommendation puts recommended options first, keeping each one's
+// index: the answer sends the index, so the order on screen is free.
+function byRecommendation(options: CardOption[]): [CardOption, number][] {
+  const all = options.map((o, i): [CardOption, number] => [o, i])
+  return [
+    ...all.filter(([o]) => o.recommended),
+    ...all.filter(([o]) => !o.recommended),
+  ]
 }
 
 // ToldLine says who heard the answer and how.

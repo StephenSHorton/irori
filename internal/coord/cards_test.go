@@ -1,6 +1,7 @@
 package coord
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -342,6 +343,56 @@ func TestRecommendCap(t *testing.T) {
 	}
 	_, err := e.c.Recommend(ctx, alice, task.ID, "b1", "another", "")
 	wantErr(t, err, ErrInvalid)
+	// Recommending one already offered still works at the cap: it marks it.
+	got := must[Task](t)(e.c.Recommend(ctx, alice, task.ID, "b1", "ooo", ""))
+	if o := got.Blockers[0].Options[2]; !o.Recommended || len(got.Blockers[0].Options) != MaxOptions {
+		t.Fatalf("options %+v", got.Blockers[0].Options)
+	}
+}
+
+// A raise marks at most one option recommended; Recommend adds recommended
+// options or marks an offered one; the flags survive a replay.
+func TestRecommendedFlag(t *testing.T) {
+	e := newEnv(t)
+	task := claimed(t, e)
+	_, _, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: "Which adapter?",
+		Options: []Option{{Answer: "Wintun", Recommended: true}, {Answer: "TAP", Recommended: true}}})
+	wantErr(t, err, ErrInvalid)
+	if n := len(e.rows(KindTaskState)); n != 0 {
+		t.Fatalf("a refused raise wrote %d rows", n)
+	}
+	// A duplicate keeps the flag of either copy.
+	_, b, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: "Which adapter?",
+		Options: []Option{{Answer: "Wintun"}, {Answer: "TAP"}, {Answer: "wintun", Recommended: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Options) != 2 || !b.Options[0].Recommended || b.Options[1].Recommended {
+		t.Fatalf("options %+v", b.Options)
+	}
+	must[Task](t)(e.c.Watch(ctx, bob, task.ID))
+	must[Task](t)(e.c.Recommend(ctx, bob, task.ID, "b1", "TAP", "broadcasts"))
+	must[Task](t)(e.c.Recommend(ctx, bob, task.ID, "b1", "Radmin", ""))
+	n := len(e.rows(KindBlockerOption))
+	must[Task](t)(e.c.Recommend(ctx, bob, task.ID, "b1", "tap", "")) // already recommended: no row
+	if len(e.rows(KindBlockerOption)) != n {
+		t.Fatal("recommending a recommended option wrote a row")
+	}
+	check := func(tk Task) {
+		t.Helper()
+		var got []string
+		for _, o := range tk.Blockers[0].Options {
+			got = append(got, fmt.Sprintf("%s %v %s", o.Answer, o.Recommended, o.By))
+		}
+		want := []string{"Wintun true " + alice, "TAP true " + alice, "Radmin true " + bob}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("options %q, want %q", got, want)
+		}
+	}
+	tk, _ := e.c.GetTask(task.ID)
+	check(tk)
+	back, _ := e.reopen().GetTask(task.ID)
+	check(back)
 }
 
 func TestAnswer(t *testing.T) {
@@ -379,7 +430,7 @@ func TestAnswer(t *testing.T) {
 			task = must[Task](t)(e.c.SetShared(ctx, alice, task.ID, true))
 			must[Task](t)(e.c.Join(ctx, bob, task.ID, bob))
 			if _, _, err := e.c.Raise(ctx, bob, task.ID, NewBlocker{Question: "Which adapter?", Context: "Radmin isn't open source.",
-				Options: []Option{{Answer: "Wintun", Why: "signed, modern"}, {Answer: "TAP-Windows", Why: "broadcasts just work"}}}); err != nil {
+				Options: []Option{{Answer: "Wintun", Why: "signed, modern", Recommended: true}, {Answer: "TAP-Windows", Why: "broadcasts just work"}}}); err != nil {
 				t.Fatal(err)
 			}
 			// Resolve b1 first: the task stays blocked on b2.
@@ -408,8 +459,11 @@ func TestAnswer(t *testing.T) {
 				!strings.Contains(n.Text, "Which adapter?") || !strings.Contains(n.Text, tc.wantAns) || !strings.Contains(n.Text, "working again") {
 				t.Fatalf("notice %+v", n)
 			}
-			if tc.a.Pick > 0 && !strings.Contains(n.Text, "recommended") {
-				t.Fatalf("a picked option should say who recommended it: %q", n.Text)
+			// The recommended option says who recommended it; another
+			// option, who offered it.
+			if tc.a.Pick == 1 && !strings.Contains(n.Text, "the answer "+bob+" recommended") ||
+				tc.a.Pick == 2 && !strings.Contains(n.Text, "option 2, offered by "+bob) {
+				t.Fatalf("a picked option should say whose it is: %q", n.Text)
 			}
 			rows := e.rows(KindBlockerResolved)
 			if p := decodeRow[blockerResolvedRow](t, rows[len(rows)-1].Payload); p.Restored != Working || p.Option != tc.wantOpt {

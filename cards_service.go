@@ -80,12 +80,14 @@ type CardSummary struct {
 	UpdatedAt       time.Time  `json:"updatedAt"`
 }
 
-// CardOption is one recommended answer.
+// CardOption is one answer to pick. Recommended marks the one its agent
+// recommends (the window shows it first-class); others are offered choices.
 type CardOption struct {
-	Answer string    `json:"answer"`
-	Why    string    `json:"why"`
-	By     AgentRef  `json:"by"`
-	At     time.Time `json:"at"`
+	Answer      string    `json:"answer"`
+	Why         string    `json:"why"`
+	By          AgentRef  `json:"by"`
+	At          time.Time `json:"at"`
+	Recommended bool      `json:"recommended"`
 }
 
 // CardResolution is how a blocker was resolved.
@@ -324,7 +326,7 @@ func (b *BoardService) Card(id string) (CardDetail, error) {
 	for _, bl := range t.Blockers {
 		cb := CardBlocker{ID: bl.ID, Question: bl.Question, Context: bl.Context, RaisedBy: p.ref(bl.RaisedBy), At: bl.At, Options: []CardOption{}}
 		for _, o := range bl.Options {
-			cb.Options = append(cb.Options, CardOption{Answer: o.Answer, Why: o.Why, By: p.ref(o.By), At: o.At})
+			cb.Options = append(cb.Options, CardOption{Answer: o.Answer, Why: o.Why, By: p.ref(o.By), At: o.At, Recommended: o.Recommended})
 		}
 		if r := bl.Resolved; r != nil {
 			cb.Resolved = &CardResolution{Answer: r.Answer, Option: r.Option, By: p.ref(r.By), At: r.At, Closed: r.Closed}

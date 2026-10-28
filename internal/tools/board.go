@@ -140,6 +140,9 @@ func (s *set) cardText(t coord.Task, last *coord.Comment, n names, now time.Time
 			}
 			for j, o := range opts {
 				fmt.Fprintf(&b, "    %d. %s (%s)", j+1, quoted(o.Answer, 160), n.short(o.By))
+				if o.Recommended {
+					b.WriteString(" [recommended]")
+				}
 				if o.Why != "" {
 					b.WriteString(": " + quoted(o.Why, 160))
 				}
@@ -394,11 +397,18 @@ type boardBlockArgs struct {
 	Reason   string `json:"reason"` // the old reason-only form: an alias of question
 	Context  string `json:"context"`
 	Options  []struct {
-		Answer string `json:"answer"`
-		Why    string `json:"why"`
+		Answer      string `json:"answer"`
+		Why         string `json:"why"`
+		Recommended bool   `json:"recommended"`
 	} `json:"options"`
 	On string `json:"on"`
 }
+
+// manyQuestions reports text that asks more than one thing: two or more
+// question marks. Each ask belongs in a blocker of its own.
+func manyQuestions(text string) bool { return strings.Count(text, "?") > 1 }
+
+const oneAskEach = "Raise each question with its own board_block (question, context for a newcomer, options when there are real choices, and recommended: true on the one you recommend), so the person can answer them one by one."
 
 // parseOn reads board_block's on: "<kind> <ref>" or "<kind>:<ref>".
 func (s *set) parseOn(v string) (*coord.BlockedBy, string) {
@@ -479,7 +489,10 @@ func (s *set) boardBlock(ctx context.Context, c Caller, raw json.RawMessage) str
 		}
 		var opts []coord.Option
 		for _, o := range a.Options {
-			opts = append(opts, coord.Option{Answer: o.Answer, Why: o.Why})
+			opts = append(opts, coord.Option{Answer: o.Answer, Why: o.Why, Recommended: o.Recommended})
+		}
+		if len(opts) == 1 {
+			opts[0].Recommended = true // a lone answer is the one recommended
 		}
 		t, item, err = co.Raise(ctx, c.Sender.Key, id, coord.NewBlocker{Question: q, Context: a.Context, Options: opts, BlockedBy: bb})
 	}
@@ -491,8 +504,14 @@ func (s *set) boardBlock(ctx context.Context, c Caller, raw json.RawMessage) str
 		out += " on blocker " + item.ID
 	}
 	out += "."
-	if len(item.Options) == 0 {
+	switch {
+	case len(item.Options) == 0:
 		out += " Add your recommended answer with board_recommend so whoever decides can pick it."
+	case !slices.ContainsFunc(item.Options, func(o coord.Option) bool { return o.Recommended }):
+		out += " None of its options is marked recommended: board_recommend with the answer you recommend marks it."
+	}
+	if manyQuestions(item.Question) {
+		out += " Its question asks more than one thing. " + oneAskEach
 	}
 	if bb != nil && (bb.Kind == coord.BlockedOnLease || bb.Kind == coord.BlockedOnTask) {
 		out += " It unblocks by itself when that " + string(bb.Kind) + " goes away."
@@ -823,6 +842,8 @@ func (s *set) boardStatus(ctx context.Context, c Caller, raw json.RawMessage) st
 		return errText("use board_block for blocked: it takes the reason.")
 	case !slices.Contains(boardStates, st):
 		return errText("give state: working, input_required, completed, failed or canceled.")
+	case st == coord.InputRequired:
+		return s.inputRequired(id, strings.TrimSpace(a.Note))
 	}
 	t, err := s.b.Coord().SetTaskState(ctx, c.Sender.Key, id, st, strings.TrimSpace(a.Note))
 	if err != nil {
@@ -831,6 +852,38 @@ func (s *set) boardStatus(ctx context.Context, c Caller, raw json.RawMessage) st
 	out := "task:" + t.ID + " is " + string(t.State) + " now."
 	if coord.IsTerminal(t.State) {
 		out += " It folds into Done on the Board."
+	}
+	return out + "\n" + s.cardLine(t, nil, s.roster(), s.now())
+}
+
+// inputRequired answers board_status input_required. What the person must
+// decide goes on the card as blockers, one per question, so the window can
+// show each with its options and the agent's recommendation; a note holding
+// several asks showed as one fat card. A card with no open blocker is
+// refused with how to raise them. A card that has them is already Blocked
+// and in the person's Needs you, so nothing changes: moving it to
+// input_required would close every open blocker (a state change does).
+func (s *set) inputRequired(id, note string) string {
+	t, ok := s.b.Coord().GetTask(id)
+	if !ok {
+		return mapErr(fmt.Errorf("%w: task %s", coord.ErrNotFound, oneLine(id, 80)))
+	}
+	open := t.OpenBlockers()
+	if len(open) == 0 {
+		msg := "a card needs your question on it as a blocker before it waits on the person: input_required alone shows them one note with nothing to pick. " + oneAskEach
+		if manyQuestions(note) {
+			msg = "your note asks more than one thing; " + msg
+		}
+		return errText(msg)
+	}
+	var ids []string
+	for _, b := range open {
+		ids = append(ids, oneLine(b.ID, 20))
+	}
+	out := fmt.Sprintf("task:%s already waits on %d open blockers (%s); they are in the person's window, each answered on its own, so its state stays %s.",
+		t.ID, len(open), strings.Join(ids, ", "), t.State)
+	if note != "" {
+		out += " The note was not saved: put anything else the person needs to decide in its own board_block, or a board_comment."
 	}
 	return out + "\n" + s.cardLine(t, nil, s.roster(), s.now())
 }

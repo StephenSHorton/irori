@@ -507,13 +507,15 @@ export class CardDetail {
 }
 
 /**
- * CardOption is one recommended answer.
+ * CardOption is one answer to pick. Recommended marks the one its agent
+ * recommends (the window shows it first-class); others are offered choices.
  */
 export class CardOption {
     "answer": string;
     "why": string;
     "by": AgentRef;
     "at": time$0.Time;
+    "recommended": boolean;
 
     /** Creates a new CardOption instance. */
     constructor($$source: Partial<CardOption> = {}) {
@@ -528,6 +530,9 @@ export class CardOption {
         }
         if (!("at" in $$source)) {
             this["at"] = null;
+        }
+        if (!("recommended" in $$source)) {
+            this["recommended"] = false;
         }
 
         Object.assign(this, $$source);

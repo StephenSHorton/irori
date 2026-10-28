@@ -92,7 +92,7 @@ func TestCardDetail(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, _, err := c.Raise(ctx, agentA, tk.ID, coord.NewBlocker{Question: "Which adapter?", Context: "Radmin is closed.",
-		Options: []coord.Option{{Answer: "Wintun", Why: "signed"}}}); err != nil {
+		Options: []coord.Option{{Answer: "Wintun", Why: "signed"}, {Answer: "TAP", Recommended: true}}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := c.Answer(ctx, "user:dev-a", tk.ID, "b1", coord.BlockerAnswer{Text: "yes"}); err != nil {
@@ -106,7 +106,8 @@ func TestCardDetail(t *testing.T) {
 		d.Blockers[1].Resolved == nil || d.Blockers[1].Resolved.By.Name != "You" || d.Blockers[1].Resolved.Answer != "yes" {
 		t.Fatalf("blockers %+v", d.Blockers)
 	}
-	if o := d.Blockers[0].Options; len(o) != 1 || o[0].By.Name != "ww-release" || o[0].Why != "signed" || d.Blockers[0].Context != "Radmin is closed." {
+	if o := d.Blockers[0].Options; len(o) != 2 || o[0].By.Name != "ww-release" || o[0].Why != "signed" || o[0].Recommended ||
+		!o[1].Recommended || d.Blockers[0].Context != "Radmin is closed." {
 		t.Fatalf("options %+v", o)
 	}
 	if len(d.PRs) != 1 || d.PRs[0].Number != 57 || d.PRs[0].Label != "GitHub #57" ||

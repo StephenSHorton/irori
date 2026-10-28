@@ -599,14 +599,18 @@ export enum LinkKind {
 };
 
 /**
- * Option is one recommended answer to a blocker, from an agent involved
- * (the raiser in Raise, or a holder or watcher through Recommend).
+ * Option is one answer to a blocker, from an agent involved (the raiser in
+ * Raise, or a holder or watcher through Recommend). Recommended marks the
+ * one its raiser recommends among the choices (at most one per Raise); an
+ * option added through Recommend is always recommended, and so is every
+ * option of a blocker.option row written before the flag existed.
  */
 export class Option {
     "answer": string;
     "why"?: string;
     "by": string;
     "at": time$0.Time;
+    "recommended"?: boolean;
 
     /** Creates a new Option instance. */
     constructor($$source: Partial<Option> = {}) {

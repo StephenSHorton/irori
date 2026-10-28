@@ -32,8 +32,9 @@ const BoardInstructions = "The Irori Board is a shared scratch pad for live coor
 	"and add a link on the card if it helps. When a card's work is done, mark it done; don't keep it as a record. " +
 	"Post a card for work others should see (the person's window shows only cards); if it fits another agent's work better, " +
 	"ask that agent to put it up. When you take a card, give it steps (board_create's steps, or board_steps) and keep them " +
-	"ticked with board_step: they are how the person sees how far along it is. Raise blockers with enough context that someone who has never been there can decide, " +
-	"and give your recommended answer(s)."
+	"ticked with board_step: they are how the person sees how far along it is. When you need the person (a decision, an access, " +
+	"a permission), raise one board_block per question, never several asks in one note or one blocker: give each enough context that " +
+	"someone who has never been there can decide, give options when there are real choices, and mark your recommendation."
 
 // Sentences some descriptions share.
 const (
@@ -230,22 +231,23 @@ var specList = []Spec{
 	},
 	{
 		Name: "board_block",
-		Description: "Raise a blocker on a card: a question someone must decide, or a thing in the way. The card is blocked until every " +
-			"blocker is answered; a card can carry several. Write the context for someone who has never seen the work, and give " +
-			"your recommended answer(s) with why: the person picks one or answers in their own words, and the answer reaches you. " +
-			"Anyone may answer, and a lease or task blocker closes by itself when it goes away. " + BoardInstructions,
+		Description: "Raise a blocker: one question someone must decide, or one thing in the way. One board_block per question: three asks " +
+			"are three blockers, each answered alone; the card stays blocked until all are. This is how you wait on the person. " +
+			"Write context for a newcomer; give options when there are real choices, with why, and mark your recommendation " +
+			"(recommended: true). The person picks one or answers in their own words, and it reaches you. " +
+			"Anyone may answer; a lease or task blocker closes by itself. " + BoardInstructions,
 		InputSchema: schema(propTaskID+`,`+
 			`"question":{"type":"string","description":"The decision or thing in the way, one line (at most 200 characters), e.g. 'Ship today, or wait for the two-PC check?'."},`+
 			`"reason":{"type":"string","description":"Older name for question; give one of them."},`+
 			`"context":{"type":"string","description":"What a newcomer needs to decide quickly: the facts, what each choice costs (at most 800 characters)."},`+
-			`"options":{"type":"array","maxItems":6,"items":{"type":"object","properties":{"answer":{"type":"string","description":"A recommended answer, one line (at most 200 characters)."},"why":{"type":"string","description":"Why, briefly (at most 400 characters)."}},"required":["answer"],"additionalProperties":false},"description":"Your recommended answers, best first."},`+
+			`"options":{"type":"array","maxItems":6,"items":{"type":"object","properties":{"answer":{"type":"string","description":"One choice, one line (at most 200 characters)."},"why":{"type":"string","description":"Why, or what it costs, briefly (at most 400 characters)."},"recommended":{"type":"boolean","description":"This is the one you recommend. Mark at most one; a lone option counts as recommended."}},"required":["answer"],"additionalProperties":false},"description":"The choices when there are real ones, your recommendation first and marked."},`+
 			`"on":{"type":"string","description":"Optional: what it waits on, as <kind> <ref>: lease <resource> (held now), task <id>, person (whoever is at the app), agent <name or key>, or external <text or URL> (CI, a review, a vendor)."}`,
 			"task_id"),
 		Clients: both,
 	},
 	{
 		Name: "board_recommend",
-		Description: "Recommend an answer to an open blocker on a card you hold or watch, with why. It shows beside the question for whoever decides, " +
+		Description: "Recommend an answer to an open blocker on a card you hold or watch, with why: a new option, or one already offered (it is marked recommended). It shows beside the question for whoever decides, " +
 			"and the agent that raised it hears at its next turn. " + BoardInstructions,
 		InputSchema: schema(propTaskID+`,`+
 			`"blocker_id":{"type":"string","description":"The blocker's id as the board tool shows it, e.g. b1."},`+
@@ -320,8 +322,11 @@ var specList = []Spec{
 		Clients: both,
 	},
 	{
-		Name:        "board_status",
-		Description: "Set a card's state (its holder or creator may) with an optional note: working, input_required, or done as completed, failed or canceled. " + BoardInstructions,
+		Name: "board_status",
+		Description: "Set a card's state (its holder or creator may) with an optional note: working, input_required, or done as completed, failed or canceled. " +
+			"input_required needs at least one open blocker: to wait on the person, raise each question with board_block (one per question, " +
+			"with options when there are real choices and your recommendation marked) instead of putting them in a note; a card with open " +
+			"blockers already waits on them. " + BoardInstructions,
 		InputSchema: schema(propTaskID+`,`+
 			`"state":{"type":"string","enum":["working","input_required","completed","failed","canceled"],"description":"The new state."},`+propNote,
 			"task_id", "state"),

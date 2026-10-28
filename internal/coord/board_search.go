@@ -199,7 +199,11 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 				fmt.Fprintf(&b, "  context: %s\n", bl.Context)
 			}
 			for i, o := range bl.Options {
-				fmt.Fprintf(&b, "  option %d: %s (recommended by %s)", i+1, o.Answer, o.By)
+				if o.Recommended {
+					fmt.Fprintf(&b, "  option %d: %s (recommended by %s)", i+1, o.Answer, o.By)
+				} else {
+					fmt.Fprintf(&b, "  option %d: %s (from %s)", i+1, o.Answer, o.By)
+				}
 				if o.Why != "" {
 					fmt.Fprintf(&b, ": %s", o.Why)
 				}
