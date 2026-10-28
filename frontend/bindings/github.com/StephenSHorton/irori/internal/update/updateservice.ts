@@ -64,18 +64,19 @@ export function GetVersion(): $CancellablePromise<string> {
 }
 
 /**
- * RestartToUpdate launches the ready installer silently and quits Irori. The
+ * RestartToUpdate starts the install and quits Irori. On Windows the silent
  * installer waits for this process to exit (/WAITPID), installs (renaming the
- * old exe aside if `irori mcp`/`serve` still hold it), and relaunches Irori. If
- * it cannot install at all it relaunches the old exe, so "Restart now" never
- * leaves Irori closed (build/windows/nsis/project.nsi).
+ * old exe aside if `irori mcp`/`serve` still hold it), and relaunches Irori;
+ * if it cannot install at all it relaunches the old exe, so "Restart now"
+ * never leaves Irori closed (build/windows/nsis/project.nsi). On macOS the
+ * swap helper does the same with the .app bundle (mac_darwin.go).
  */
 export function RestartToUpdate(): $CancellablePromise<void> {
     return $Call.ByID(2734443635);
 }
 
 /**
- * Supported reports whether this platform can update itself (Windows only for now).
+ * Supported reports whether this platform can update itself (Windows and macOS).
  */
 export function Supported(): $CancellablePromise<boolean> {
     return $Call.ByID(1182024650);
