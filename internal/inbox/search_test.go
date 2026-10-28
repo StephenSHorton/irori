@@ -167,7 +167,8 @@ func TestSearchShow(t *testing.T) {
 		t.Fatalf("related %v, want %v", s.Related, want)
 	}
 	back, err := h.ib.SearchShow(bg, search.Ref(search.KindMsg, r1.MessageID), search.ShowOptions{})
-	if err != nil || !slices.Equal(back.Related, []string{ref}) {
+	// The reply inherited the card ref, so it relates to the card too.
+	if err != nil || !slices.Equal(back.Related, []string{ref, "task:01LEX"}) {
 		t.Fatalf("reply related %v %v", back.Related, err)
 	}
 

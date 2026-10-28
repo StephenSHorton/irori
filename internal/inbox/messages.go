@@ -211,7 +211,9 @@ func (b *inbox) reply(ctx context.Context, from Sender, deliveryID, text string)
 	if orig == nil {
 		return Message{}, Delivery{}, fmt.Errorf("%w: message %q", ErrNotFound, d.MessageID)
 	}
-	m, nd, err := b.sendLocked(ctx, from, Address{Kind: ToReply, Value: orig.ID}, text, SendOptions{Mode: ModeWake}, orig)
+	// The reply is about what the message was about: a card ref (task: or
+	// comment:) keeps the thread on that card, also when its sender has gone.
+	m, nd, err := b.sendLocked(ctx, from, Address{Kind: ToReply, Value: orig.ID}, text, SendOptions{Mode: ModeWake, Ref: orig.Ref}, orig)
 	if err != nil {
 		return Message{}, Delivery{}, err
 	}

@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -93,5 +94,53 @@ func TestRouteNotices(t *testing.T) {
 				t.Fatalf("delivery mode %q notice %v, want %q notice", found.Mode, found.Message.Notice, tc.want)
 			}
 		})
+	}
+}
+
+// recordGone (the inbox's OnRecipientGone) puts a message whose recipient
+// ended on the card its ref names, marked gone; a ref that names no card
+// here is inbox.ErrNoCard, so the inbox sends it to the person instead.
+func TestRecordGoneOnTheCard(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	co := r.core.Coord()
+	task, err := co.CreateTask(ctx, r.keyA, coord.NewTask{Title: "ship"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := inbox.Sender{Key: r.keyB, Name: "beta", Kind: "claude"}
+	send := func(ref string) inbox.Message {
+		t.Helper()
+		m, _, err := r.core.Inbox().SendWith(ctx, from, inbox.Address{Kind: inbox.ToAgent, Value: r.keyA}, "about "+ref, inbox.SendOptions{Ref: ref})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	m := send("task:" + task.ID)
+	tid, err := r.core.recordGone(ctx, m, r.keyA)
+	if err != nil || tid != task.ID {
+		t.Fatalf("recordGone = %q, %v", tid, err)
+	}
+	cm, ok := co.GetComment(m.ID)
+	if !ok || !cm.Gone || cm.MsgID != m.ID || cm.By != r.keyB || cm.To != r.keyA || cm.Text != m.Text {
+		t.Fatalf("on the card %+v", cm)
+	}
+	// Again (the sweep after a crash): nothing new.
+	if _, err := r.core.recordGone(ctx, m, r.keyA); err != nil || len(co.Comments(task.ID)) != 1 {
+		t.Fatalf("again: %v, %d comments", err, len(co.Comments(task.ID)))
+	}
+	// A comment ref goes to the comment's card.
+	c, _, err := co.AddComment(ctx, r.keyA, task.ID, "first", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tid, err := r.core.recordGone(ctx, send("comment:"+c.ID), r.keyA); err != nil || tid != task.ID {
+		t.Fatalf("comment ref = %q, %v", tid, err)
+	}
+	for _, ref := range []string{"task:01NOPE", "comment:01NOPE", "pr:o/r#1", ""} {
+		if _, err := r.core.recordGone(ctx, send(ref), r.keyA); !errors.Is(err, inbox.ErrNoCard) {
+			t.Fatalf("ref %q: %v, want ErrNoCard", ref, err)
+		}
 	}
 }

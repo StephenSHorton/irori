@@ -147,3 +147,50 @@ func TestTheHostHoldsAndAppliesTheFirstRequest(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	h.wantState("dlv_r1", Dismissed)
 }
+
+// A reply is about what its message was about: a card ref (task: or
+// comment:) carries over, in the message.sent row other devices fold.
+func TestReplyInheritsRef(t *testing.T) {
+	h := newHarness(t)
+	h.abc()
+	var replies []string
+	for _, ref := range []string{"task:T1", "comment:C1"} {
+		d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "about "+ref, SendOptions{Mode: ModeWake, Ref: ref})
+		m, nd, err := h.ib.Reply(bg, claude(keyA, "alpha"), d.ID, "on it")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.Ref != ref || nd.Message.Ref != ref || nd.To != keyC {
+			t.Fatalf("reply to %s: ref %q / %q, to %s", ref, m.Ref, nd.Message.Ref, nd.To)
+		}
+		replies = append(replies, nd.ID)
+	}
+	evs, err := h.st.List(bg, store.Filter{Kinds: []string{KindMessageSent}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := map[string]string{}
+	for _, ev := range evs {
+		var m Message
+		if err := json.Unmarshal(ev.Payload, &m); err != nil {
+			t.Fatal(err)
+		}
+		if m.ReplyTo != "" {
+			refs[m.Text+" "+m.Ref] = m.ReplyTo
+		}
+	}
+	if len(refs) != 2 || refs["on it task:T1"] == "" || refs["on it comment:C1"] == "" {
+		t.Fatalf("message.sent rows carry %v", refs)
+	}
+	h.reopen()
+	for i, ref := range []string{"task:T1", "comment:C1"} {
+		if got := h.state(replies[i]); got.Message.Ref != ref {
+			t.Fatalf("after replay the reply's ref is %q, want %q", got.Message.Ref, ref)
+		}
+	}
+	// No ref stays no ref.
+	d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "plain", SendOptions{Mode: ModeWake})
+	if m, _, err := h.ib.Reply(bg, claude(keyA, "alpha"), d.ID, "ok"); err != nil || m.Ref != "" {
+		t.Fatalf("plain reply ref %q, %v", m.Ref, err)
+	}
+}

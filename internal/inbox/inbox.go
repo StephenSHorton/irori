@@ -32,7 +32,16 @@ var (
 	ErrBadState      = errors.New("inbox: not allowed in the delivery's current state")
 	ErrTooLong       = errors.New("inbox: message text is too long")
 	ErrUnimplemented = errors.New("inbox: not implemented yet")
+	// ErrNoCard: Options.OnRecipientGone found no card for the message here
+	// (its ref names none, or the task isn't on this device). The message
+	// then goes to the person instead.
+	ErrNoCard = errors.New("inbox: the message names no card here")
 )
+
+// NoteRecipientGone is the note on a delivery the sweeper took away from a
+// session that ended (Options.OnRecipientGone). Handed to a card, the note
+// is "recipient gone; on task:<id>".
+const NoteRecipientGone = "recipient gone"
 
 // Limits and timings (design §4–§5). Tests may override through Options.
 const (
@@ -188,7 +197,7 @@ type Delivery struct {
 	Via       string       `json:"via,omitempty"`    // "mod", "channel", "gui"
 	WakeID    string       `json:"wakeId,omitempty"` // the wake that carried it
 	Note      string       `json:"note,omitempty"`   // defer/skip note
-	For       string       `json:"for,omitempty"`    // PR work its owner couldn't take: that owner, "name (key)"
+	For       string       `json:"for,omitempty"`    // PR work its owner couldn't take: that owner, "name (key)"; or "recipient gone: name (key)"
 	Until     time.Time    `json:"until,omitempty"`  // deferral due time
 	MovedTo   string       `json:"movedTo,omitempty"`
 	Reminded  bool         `json:"reminded"`
@@ -314,6 +323,13 @@ type Options struct {
 	// IsOwner reports whether a "user:<device>" key is the person's (v0.4
 	// identity.Chain.IsOwner). Nil accepts exactly "user:<DeviceID>".
 	IsOwner func(key string) bool
+	// OnRecipientGone puts a message whose recipient (to) has ended on the
+	// card its Ref names (task: or comment:), returning the task id. The
+	// sweeper calls it without the inbox lock held, then closes the delivery
+	// as Skipped. ErrNoCard sends the message to the person instead; any
+	// other error leaves it for the next sweep. Nil sends card messages to
+	// the person too.
+	OnRecipientGone func(ctx context.Context, m Message, to string) (taskID string, err error)
 	// Overrides for tests; zero means the constant above.
 	UnengagedLimit, GoneGrace, QuietLimit, ReattachGrace time.Duration
 }
@@ -458,9 +474,26 @@ func (b *Inbox) SetPolicy(ctx context.Context, p Policy, by string) error {
 }
 
 // Sweep runs the sweeper once (design §4): reassign, gone-moves, reminders,
-// due deferrals, front-desk succession for unowned repo work. Core calls it
+// due deferrals, front-desk succession for unowned repo work, and agent work
+// whose recipient has ended handed to its card or the person. Core calls it
 // every SweepInterval.
-func (b *Inbox) Sweep(ctx context.Context) error { return b.impl.sweep(ctx) }
+func (b *Inbox) Sweep(ctx context.Context) error {
+	hs, err := b.impl.sweep(ctx)
+	if err != nil {
+		return err
+	}
+	return b.impl.handOff(ctx, hs)
+}
+
+// EndedFor is how long agent has been out of presence, as the sweeper last
+// saw it while it had open work here (0 while it is around, or before a
+// sweep noticed). Past GoneGrace its agent work is handed on.
+func (b *Inbox) EndedFor(agent string) time.Duration {
+	x := b.impl
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	return x.endedFor(agent, x.now())
+}
 
 // Subscribe delivers changes until ctx ends (buffered; slow readers drop and
 // should re-read).

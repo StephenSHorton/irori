@@ -2,7 +2,10 @@ package inbox
 
 import (
 	"context"
+	"errors"
+	"log"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/presence"
@@ -26,6 +29,13 @@ type sweepItem struct {
 	EngagedOnce bool      // its recipient engaged or deferred it
 	Reminded    bool
 	NextTurn    bool // ModeNextTurn: never moved for being unengaged, never reminded
+	// The message: what it is about, and who sent it. Agent work whose
+	// recipient ended goes on the card its Ref names, or to the person;
+	// notices, Irori's own and the person's own about no card stay.
+	Ref        string
+	Notice     bool
+	System     bool // from SystemSender
+	FromPerson bool
 }
 
 // sweepEnv is the world planSweep plans against.
@@ -34,6 +44,8 @@ type sweepEnv struct {
 	Unengaged, Gone, Quiet, Grace time.Duration
 	Paused                        bool
 	GoneFor                       func(agent string) time.Duration // 0 while around
+	EndedFor                      func(agent string) time.Duration // out of presence, however reachable; 0 while around
+	Self                          string                           // this device: ended agent work with no card goes to "user:"+Self
 	Reachable                     func(agent string) bool
 	Desk                          func(repo string, exclude ...string) string // next front-desk candidate not in exclude, "" if none
 }
@@ -41,11 +53,13 @@ type sweepEnv struct {
 type actionKind int
 
 const (
-	actReclaim actionKind = iota // in-flight wake never confirmed: back to queued
-	actRequeue                   // deferral due
-	actMove                      // repo work to another desk (To), or unowned when To == ""
-	actAssign                    // unowned repo work gets its first desk
-	actRemind                    // one reminder wake
+	actReclaim    actionKind = iota // in-flight wake never confirmed: back to queued
+	actRequeue                      // deferral due
+	actMove                         // repo work to another desk (To), or unowned when To == ""
+	actAssign                       // unowned repo work gets its first desk
+	actRemind                       // one reminder wake
+	actGoneCard                     // agent work its recipient ended on, about a card: on the card after the sweep, then Skipped
+	actGonePerson                   // agent work its recipient ended on, from an agent, about no card: to the person (To)
 )
 
 type sweepAction struct {
@@ -85,14 +99,27 @@ func planOne(it sweepItem, env sweepEnv) (sweepAction, bool) {
 	}
 
 	// Repo work (and PR work, owner-routed too) whose holder has really
-	// gone moves, whatever its state; agent work stays for the agent (it may
-	// come back or be revived).
+	// gone moves, whatever its state; agent work stays for the agent while
+	// its session is in presence (it may reattach), until it has ended.
 	gr := it.Repo
 	if gr == "" {
 		gr = it.GoneRepo
 	}
 	if gr != "" && it.To != "" && env.GoneFor(it.To) > env.Gone {
 		return act(actMove, env.Desk(gr, it.To, it.From))
+	}
+	// Agent work whose recipient session has ended (out of presence past the
+	// grace; a live session with no wake path keeps its mail) never waits
+	// for it: it goes on the card it is about, whoever sent it, or else to
+	// the person when an agent sent it. The person's own message about no
+	// card, a notice (its content is on the card) and Irori's own stay.
+	if gr == "" && it.To != "" && !it.Notice && !it.System && env.EndedFor(it.To) > env.Gone {
+		switch {
+		case refNamesCard(it.Ref):
+			return act(actGoneCard, "")
+		case !it.FromPerson:
+			return act(actGonePerson, "user:"+env.Self)
+		}
 	}
 	if it.InFlight && env.Now.Sub(it.IssuedAt) > env.Grace {
 		return act(actReclaim, "")
@@ -136,13 +163,27 @@ func planOne(it sweepItem, env sweepEnv) (sweepAction, bool) {
 	return sweepAction{}, false
 }
 
-func (b *inbox) sweep(ctx context.Context) error {
+// refNamesCard reports whether a message ref names a Board card: a task,
+// or a comment on one.
+func refNamesCard(ref string) bool {
+	return strings.HasPrefix(ref, "task:") || strings.HasPrefix(ref, "comment:")
+}
+
+// handoff is agent work whose recipient ended, for the card its message
+// names: the sweep collects it under b.mu, and handOff records it after.
+type handoff struct {
+	DeliveryID string
+	Message    Message
+	To         string
+}
+
+func (b *inbox) sweep(ctx context.Context) ([]handoff, error) {
 	b.mu.Lock()
 	defer b.unlock()
 	now := b.now()
 	cards, err := b.liveCards(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Track how long each recipient has been gone: not live in presence, or
@@ -166,10 +207,24 @@ func (b *inbox) sweep(ctx context.Context) error {
 		} else {
 			delete(b.goneSince, d.To)
 		}
+		// Ended is presence alone: a session still running with no wake
+		// path (no mod attached) hasn't ended, and keeps its mail.
+		if _, live := cards[d.To]; !live {
+			if _, ok := b.endedSince[d.To]; !ok {
+				b.endedSince[d.To] = now
+			}
+		} else {
+			delete(b.endedSince, d.To)
+		}
 	}
 	for a := range b.goneSince {
 		if !seen[a] {
 			delete(b.goneSince, a)
+		}
+	}
+	for a := range b.endedSince {
+		if !seen[a] {
+			delete(b.endedSince, a)
 		}
 	}
 
@@ -182,6 +237,8 @@ func (b *inbox) sweep(ctx context.Context) error {
 			}
 			return 0
 		},
+		EndedFor:  func(a string) time.Duration { return b.endedFor(a, now) },
+		Self:      b.dev,
 		Reachable: func(a string) bool { return b.reachable(a, now) },
 		Desk:      func(repo string, exclude ...string) string { return b.desk(repo, cards, now, exclude...) },
 	}
@@ -204,6 +261,8 @@ func (b *inbox) sweep(ctx context.Context) error {
 		m := b.msgs[d.MessageID]
 		if m != nil {
 			it.From = m.From.Key
+			it.Ref, it.Notice = m.Ref, m.Notice
+			it.System, it.FromPerson = m.From.isSystem(), b.isOwner(m.From.Key)
 		}
 		it.GoneRepo = prFallbackRepo(m, d)
 		if d.State == Queued && d.WakeID != "" {
@@ -214,6 +273,7 @@ func (b *inbox) sweep(ctx context.Context) error {
 		items = append(items, it)
 	}
 
+	var hs []handoff
 	for _, a := range planSweep(items, env) {
 		d := b.dels[a.DeliveryID]
 		r := d.row()
@@ -221,12 +281,12 @@ func (b *inbox) sweep(ctx context.Context) error {
 		case actReclaim:
 			r.WakeID = ""
 			if err := b.putDelivery(ctx, r, "irori"); err != nil {
-				return err
+				return nil, err
 			}
 		case actRequeue:
 			r.State, r.Until, r.WakeID = Queued, time.Time{}, ""
 			if err := b.putDelivery(ctx, r, "irori"); err != nil {
-				return err
+				return nil, err
 			}
 		case actAssign:
 			r.To = a.To
@@ -234,11 +294,21 @@ func (b *inbox) sweep(ctx context.Context) error {
 				r = placed(r, b.hold(m, a.To, cards))
 			}
 			if err := b.putDelivery(ctx, r, "irori"); err != nil {
-				return err
+				return nil, err
 			}
 		case actMove:
 			if err := b.move(ctx, d, a.To, cards); err != nil {
-				return err
+				return nil, err
+			}
+		case actGoneCard:
+			// The card is written outside b.mu (handOff): coord has its
+			// own lock, and the Board must never wait on the inbox.
+			if m := b.msgs[d.MessageID]; m != nil {
+				hs = append(hs, handoff{DeliveryID: d.ID, Message: *m, To: d.To})
+			}
+		case actGonePerson:
+			if err := b.moveGone(ctx, d, a.To, cards); err != nil {
+				return nil, err
 			}
 		case actRemind:
 			if !slices.Contains(b.reminders[a.To], d.ID) {
@@ -252,18 +322,113 @@ func (b *inbox) sweep(ctx context.Context) error {
 	for agent := range b.agentsWithOpen() {
 		b.touch(agent)
 	}
+	return hs, nil
+}
+
+// endedFor is how long agent has been out of presence, as the sweeper
+// tracks it (endedSince); 0 while it is around.
+func (b *inbox) endedFor(agent string, now time.Time) time.Duration {
+	if t, ok := b.endedSince[agent]; ok {
+		return now.Sub(t)
+	}
+	return 0
+}
+
+// handOff puts the sweep's card handoffs on their cards, with b.mu not
+// held, then closes each delivery. The card goes first, so a crash between
+// the two only repeats an idempotent card write. No card here (ErrNoCard,
+// or no hook) sends the message to the person instead; any other error
+// leaves the delivery open for the next sweep.
+func (b *inbox) handOff(ctx context.Context, hs []handoff) error {
+	for _, h := range hs {
+		if b.onGone != nil {
+			tid, err := b.onGone(ctx, h.Message, h.To)
+			switch {
+			case err == nil:
+				if err := b.closeGone(ctx, h, tid); err != nil {
+					return err
+				}
+				continue
+			case !errors.Is(err, ErrNoCard):
+				log.Printf("inbox: recipient gone: %s to its card: %v", h.DeliveryID, err)
+				continue
+			}
+		}
+		if err := b.moveGoneLocked(ctx, h); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// stillGone is h's delivery if it is still the open, owned work of the
+// same recipient, and that recipient still out of presence past the grace;
+// else nil (it was answered, moved, or its session came back meanwhile).
+// The caller holds b.mu.
+func (b *inbox) stillGone(h handoff) *drec {
+	d := b.open[h.DeliveryID]
+	if d == nil || d.State == Held || !b.owns(d) || d.To != h.To || b.endedFor(d.To, b.now()) <= b.lim.gone {
+		return nil
+	}
+	if _, live := b.rosterCards()[d.To]; live {
+		return nil
+	}
+	return d
+}
+
+// closeGone closes a delivery whose message is now on task taskID's card:
+// Skipped, noting where it went.
+func (b *inbox) closeGone(ctx context.Context, h handoff, taskID string) error {
+	b.mu.Lock()
+	defer b.unlock()
+	d := b.stillGone(h)
+	if d == nil {
+		return nil
+	}
+	r := d.row()
+	r.State, r.Note, r.Until = Skipped, clip(NoteRecipientGone+"; on task:"+taskID, MaxNote), time.Time{}
+	return b.putDelivery(ctx, r, "irori")
+}
+
+// moveGoneLocked is moveGone to the person, for a handoff whose card isn't
+// here, re-checked under b.mu.
+func (b *inbox) moveGoneLocked(ctx context.Context, h handoff) error {
+	b.mu.Lock()
+	defer b.unlock()
+	d := b.stillGone(h)
+	if d == nil {
+		return nil
+	}
+	cards, err := b.liveCards(ctx)
+	if err != nil {
+		return err
+	}
+	return b.moveGone(ctx, d, "user:"+b.dev, cards)
+}
+
+// moveGone hands agent work whose recipient ended to to (the person): the
+// new delivery says who it was for, and d closes Moved, noted
+// NoteRecipientGone.
+func (b *inbox) moveGone(ctx context.Context, d *drec, to string, cards map[string]presence.AgentCard) error {
+	return b.moveWith(ctx, d, to, cards, clip(NoteRecipientGone+": "+b.describe(d.To, cards), MaxNote), NoteRecipientGone)
 }
 
 // move hands d's message to a new delivery for to ("" = unowned), then
 // closes d as Moved. The new row goes first so a crash between them can
 // duplicate the work but never drop it.
 func (b *inbox) move(ctx context.Context, d *drec, to string, cards map[string]presence.AgentCard) error {
-	m := b.msgs[d.MessageID]
-	nr := deliveryRow{DeliveryID: "dlv_" + b.ids.next(b.now()), MessageID: d.MessageID, To: to, RepoKey: prFallbackRepo(m, d), Mode: d.Mode, MovedFrom: d.ID, For: d.For}
-	if d.RepoKey == "" && nr.RepoKey != "" {
-		nr.For = clip(b.describe(d.To, cards), MaxNote) // owner-routed PR work: its owner has gone
+	forText := d.For
+	if d.RepoKey == "" && prFallbackRepo(b.msgs[d.MessageID], d) != "" {
+		forText = clip(b.describe(d.To, cards), MaxNote) // owner-routed PR work: its owner has gone
 	}
+	return b.moveWith(ctx, d, to, cards, forText, "")
+}
+
+// moveWith is move with the new delivery's For, and a note for d ("" keeps
+// d's own).
+func (b *inbox) moveWith(ctx context.Context, d *drec, to string, cards map[string]presence.AgentCard, forText, note string) error {
+	m := b.msgs[d.MessageID]
+	nr := deliveryRow{DeliveryID: "dlv_" + b.ids.next(b.now()), MessageID: d.MessageID, To: to, RepoKey: prFallbackRepo(m, d), Mode: d.Mode, MovedFrom: d.ID, For: forText}
 	h := HoldUnowned
 	switch {
 	case to != "" && !b.local(to):
@@ -276,5 +441,8 @@ func (b *inbox) move(ctx context.Context, d *drec, to string, cards map[string]p
 	}
 	r := d.row()
 	r.State, r.MovedTo, r.WakeID = Moved, to, ""
+	if note != "" {
+		r.Note = note
+	}
 	return b.putDelivery(ctx, r, "irori")
 }
