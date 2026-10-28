@@ -607,3 +607,78 @@ func TestWatchPostsWaitingMessagesAtStart(t *testing.T) {
 		}
 	}
 }
+
+// A Release that leaves the message held (a repo with no agent to take it
+// yet) puts the card back with the error on it, buttons and all; one that
+// fails only because the message was resolved elsewhere is no error.
+func TestWatchHeldReleaseFailureKeepsTheCard(t *testing.T) {
+	r := newRig(t)
+	_, d, err := r.ib.Send(r.ctx, alpha, inbox.Address{Kind: inbox.ToRepo, Value: "acme/nobody"}, "deploy it", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.State != inbox.Held || d.Hold != inbox.HoldUnowned {
+		t.Fatalf("delivery %s/%s, want held unowned", d.State, d.Hold)
+	}
+	id := HeldID(keyA)
+	r.waitPost(id)
+	r.fake.press(t, id, "Release")
+	var c toast.Note
+	for i := 0; i < 300; i++ {
+		if r.fake.isLive(id) {
+			if c = r.fake.card(t, id); strings.Contains(c.Body, "Couldn't release that message") {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(c.Body, "Couldn't release that message") || !strings.Contains(c.Body, "deploy it") {
+		t.Fatalf("after a failed Release the card reads %q", c.Body)
+	}
+	if len(c.Actions) != 2 || c.Actions[0].Label != "Release" {
+		t.Fatalf("the failed card's actions = %+v", c.Actions)
+	}
+	if p := r.fake.heldPosts(id); !p[len(p)-1].Silent {
+		t.Fatal("the failed card made a sound")
+	}
+	if got, _ := r.ib.Get(d.ID); got.State != inbox.Held {
+		t.Fatalf("the delivery is %s", got.State)
+	}
+
+	// Dismissed elsewhere while the card is up: its Dismiss is no error,
+	// and the card goes.
+	if err := r.ib.Dismiss(r.ctx, d.ID, user); err != nil {
+		t.Fatal(err)
+	}
+	r.waitGone(id)
+	d2 := r.heldMessage("two")
+	r.waitTitle(id, "alpha sent beta a message Irori held")
+	c = r.fake.card(t, id)
+	if err := r.ib.Release(r.ctx, d2.ID, user); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range c.Actions {
+		if a.Label == "Dismiss" {
+			a.Run()
+		}
+	}
+	r.noPostOf(id, 200*time.Millisecond)
+}
+
+// noPostOf fails on a Post of id within d.
+func (r *rig) noPostOf(id string, d time.Duration) {
+	r.t.Helper()
+	deadline := time.After(d)
+	for {
+		select {
+		case got := <-r.fake.posted:
+			if got == id {
+				if c := r.fake.card(r.t, id); strings.Contains(c.Body, "Couldn't") {
+					r.t.Fatalf("an error card %q: %q", c.Title, c.Body)
+				}
+			}
+		case <-deadline:
+			return
+		}
+	}
+}
