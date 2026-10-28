@@ -961,6 +961,83 @@ export class GoneSession {
 }
 
 /**
+ * HomeServerView is the Home server section of Devices (§7.1, §9). On the
+ * device that runs it: the switch, "Reachable from outside home", how far
+ * it reaches, and one line only when something is wrong. On the others:
+ * one line only when a home server can't be reached.
+ */
+export class HomeServerView {
+    /**
+     * Can is false where this device can't run one (no go-room transport).
+     */
+    "can": boolean;
+
+    /**
+     * Suggest offers it first: this device's cert says "node".
+     */
+    "suggest"?: boolean;
+
+    /**
+     * Elsewhere is true when another device already runs one: the switch
+     * then stays out of the way unless it is on here.
+     */
+    "elsewhere"?: boolean;
+    "on": boolean;
+    "outside": boolean;
+
+    /**
+     * Public is the address entered by hand for when mapping fails.
+     */
+    "public"?: string;
+    "running": boolean;
+    "port"?: number;
+
+    /**
+     * Reach is "home", "outside", "forward" (a port forward is needed) or
+     * "cgnat" while it runs.
+     */
+    "reach"?: string;
+
+    /**
+     * Address is where a device away from home dials it.
+     */
+    "address"?: string;
+    "line"?: string;
+
+    /**
+     * Remote is the one line about another device's server, when this
+     * device can't reach it.
+     */
+    "remote"?: string;
+
+    /** Creates a new HomeServerView instance. */
+    constructor($$source: Partial<HomeServerView> = {}) {
+        if (!("can" in $$source)) {
+            this["can"] = false;
+        }
+        if (!("on" in $$source)) {
+            this["on"] = false;
+        }
+        if (!("outside" in $$source)) {
+            this["outside"] = false;
+        }
+        if (!("running" in $$source)) {
+            this["running"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new HomeServerView instance from a string or object.
+     */
+    static createFrom($$source: any = {}): HomeServerView {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new HomeServerView($$parsedSource as Partial<HomeServerView>);
+    }
+}
+
+/**
  * InboxCounts is the inbox:changed payload and the tray's numbers.
  * 
  * Unread counts deliveries an agent hasn't picked up yet: queued, or handed
@@ -1063,14 +1140,15 @@ export class NewCard {
 }
 
 /**
- * RelayView is the Relay line in Devices (§4.4, §9): "Direct only" when no
- * TURN relay is set; with one, its credential URL and how it is doing.
+ * RelayView is the advanced relay line in Devices (§4.4, §9): none set, or
+ * a TURN relay you run or rent elsewhere, its credential URL and how it is
+ * doing. It is used beside the home server's relay, never instead of it.
  */
 export class RelayView {
     "credentialUrl"?: string;
 
     /**
-     * State is none (Direct only), pending, ok or error.
+     * State is none (no advanced relay), pending, ok or error.
      */
     "state": string;
     "detail"?: string;

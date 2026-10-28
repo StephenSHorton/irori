@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/core"
+	"github.com/StephenSHorton/irori/internal/mesh/roomnet"
 	"github.com/StephenSHorton/irori/internal/pair"
 )
 
@@ -40,13 +41,24 @@ func runPair(args []string) error {
 	if !ok || strings.TrimSpace(code) == "" {
 		return errors.New("no code typed")
 	}
+	// At home the other device is found on the local network; from away,
+	// the home server's address (shown under the code) gets this device in.
+	fmt.Print("Home server address, only when joining from outside your home (Enter to skip): ")
+	server, _ := <-lines
+	if server = strings.TrimSpace(server); server != "" {
+		hp, err := roomnet.HostPort(server, 0)
+		if err != nil {
+			return errors.New("the home server address is a host and port, like 203.0.113.7:24817")
+		}
+		server = hp
+	}
 	c, ctx, stop, err := pairCore()
 	if err != nil {
 		return err
 	}
 	defer stop()
 	p := c.Pairing()
-	if _, err := p.Join(code); err != nil {
+	if _, err := p.JoinVia(code, server); err != nil {
 		return err
 	}
 	fmt.Println("Looking for the other device...")

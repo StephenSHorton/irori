@@ -68,10 +68,21 @@ export function Devices(): $CancellablePromise<$models.DeviceView[]> {
 }
 
 /**
- * JoinWithCode enters a code from another device (§3 step 2).
+ * HomeServer is the Home server section.
  */
-export function JoinWithCode(code: string): $CancellablePromise<pair$0.Status> {
-    return $Call.ByID(3397656811, code).then(($result: any) => {
+export function HomeServer(): $CancellablePromise<$models.HomeServerView> {
+    return $Call.ByID(10952150).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
+/**
+ * JoinWithCode enters a code from another device (§3 step 2). server is
+ * the home server's address, typed only when joining from away from home
+ * ("" at home: the device is found on the local network).
+ */
+export function JoinWithCode(code: string, server: string): $CancellablePromise<pair$0.Status> {
+    return $Call.ByID(3397656811, code, server).then(($result: any) => {
         return $$createType0($result);
     });
 }
@@ -90,7 +101,7 @@ export function PairingStatus(): $CancellablePromise<pair$0.Status> {
  */
 export function Relay(): $CancellablePromise<$models.RelayView> {
     return $Call.ByID(1142722567).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType4($result);
     });
 }
 
@@ -114,12 +125,24 @@ export function ResetDevice(): $CancellablePromise<void> {
 }
 
 /**
- * SetRelay sets the TURN REST credential URL ("" is Direct only). It
- * applies to connections made from now on.
+ * SetHomeServer switches this device's home server on or off (GUI only),
+ * with "Reachable from outside home" and an optional public address for
+ * when the router can't map ports ("" for none). Windows asks once to
+ * allow irori.exe on private networks; the server needs that.
+ */
+export function SetHomeServer(on: boolean, outside: boolean, $public: string): $CancellablePromise<$models.HomeServerView> {
+    return $Call.ByID(305189678, on, outside, $public).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
+/**
+ * SetRelay sets the advanced relay's TURN REST credential URL ("" removes
+ * it). It applies to connections made from now on.
  */
 export function SetRelay(credentialURL: string): $CancellablePromise<$models.RelayView> {
     return $Call.ByID(665358047, credentialURL).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType4($result);
     });
 }
 
@@ -127,4 +150,5 @@ export function SetRelay(credentialURL: string): $CancellablePromise<$models.Rel
 const $$createType0 = pair$0.Status.createFrom;
 const $$createType1 = $models.DeviceView.createFrom;
 const $$createType2 = $Create.Array($$createType1);
-const $$createType3 = $models.RelayView.createFrom;
+const $$createType3 = $models.HomeServerView.createFrom;
+const $$createType4 = $models.RelayView.createFrom;

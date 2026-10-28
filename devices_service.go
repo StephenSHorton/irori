@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/core"
+	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/mesh"
+	"github.com/StephenSHorton/irori/internal/mesh/roomnet"
 	"github.com/StephenSHorton/irori/internal/pair"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -75,9 +77,19 @@ func (s *DevicesService) AddDevice(role string) (pair.Status, error) {
 	return s.core.Pairing().Add(role)
 }
 
-// JoinWithCode enters a code from another device (§3 step 2).
-func (s *DevicesService) JoinWithCode(code string) (pair.Status, error) {
-	return s.core.Pairing().Join(code)
+// JoinWithCode enters a code from another device (§3 step 2). server is
+// the home server's address, typed only when joining from away from home
+// ("" at home: the device is found on the local network).
+func (s *DevicesService) JoinWithCode(code, server string) (pair.Status, error) {
+	server = strings.TrimSpace(server)
+	if server != "" {
+		hp, err := roomnet.HostPort(server, 0)
+		if err != nil {
+			return pair.Status{}, errors.New("the home server address is a host and port, like 203.0.113.7:24817")
+		}
+		server = hp
+	}
+	return s.core.Pairing().JoinVia(code, server)
 }
 
 // ConfirmWords takes the words the new device shows, typed on this one.
@@ -131,11 +143,78 @@ func (s *DevicesService) ResetDevice() error {
 	return nil
 }
 
-// RelayView is the Relay line in Devices (§4.4, §9): "Direct only" when no
-// TURN relay is set; with one, its credential URL and how it is doing.
+// HomeServerView is the Home server section of Devices (§7.1, §9). On the
+// device that runs it: the switch, "Reachable from outside home", how far
+// it reaches, and one line only when something is wrong. On the others:
+// one line only when a home server can't be reached.
+type HomeServerView struct {
+	// Can is false where this device can't run one (no go-room transport).
+	Can bool `json:"can"`
+	// Suggest offers it first: this device's cert says "node".
+	Suggest bool `json:"suggest,omitempty"`
+	// Elsewhere is true when another device already runs one: the switch
+	// then stays out of the way unless it is on here.
+	Elsewhere bool `json:"elsewhere,omitempty"`
+	On        bool `json:"on"`
+	Outside   bool `json:"outside"`
+	// Public is the address entered by hand for when mapping fails.
+	Public  string `json:"public,omitempty"`
+	Running bool   `json:"running"`
+	Port    int    `json:"port,omitempty"`
+	// Reach is "home", "outside", "forward" (a port forward is needed) or
+	// "cgnat" while it runs.
+	Reach string `json:"reach,omitempty"`
+	// Address is where a device away from home dials it.
+	Address string `json:"address,omitempty"`
+	Line    string `json:"line,omitempty"`
+	// Remote is the one line about another device's server, when this
+	// device can't reach it.
+	Remote string `json:"remote,omitempty"`
+}
+
+// HomeServer is the Home server section.
+func (s *DevicesService) HomeServer() HomeServerView {
+	st := s.core.HomeServer()
+	v := HomeServerView{Can: s.core.CanServe(), Suggest: s.core.Role() == identity.RoleNode, Elsewhere: s.core.OtherServer(),
+		On: st.On, Outside: st.Outside, Public: st.Public, Running: st.Running, Port: st.Port, Reach: st.Reach,
+		Address: st.Address, Line: st.Line}
+	if lanErr := s.core.LANError(); lanErr != "" && v.Line == "" {
+		v.Line = "Devices on this network can't find this one directly: " + lanErr
+	}
+	if s.core.NetStatus().State == mesh.StateOn {
+		for _, r := range s.core.RemoteServers() {
+			if !r.Up {
+				name := r.DeviceID
+				for _, d := range s.core.Mesh().Devices(false) {
+					if d.DeviceID == r.DeviceID && d.Name != "" {
+						name = d.Name
+					}
+				}
+				v.Remote = "Can't reach your home server (" + name + "). Away from home your devices connect through it."
+				break
+			}
+		}
+	}
+	return v
+}
+
+// SetHomeServer switches this device's home server on or off (GUI only),
+// with "Reachable from outside home" and an optional public address for
+// when the router can't map ports ("" for none). Windows asks once to
+// allow irori.exe on private networks; the server needs that.
+func (s *DevicesService) SetHomeServer(on, outside bool, public string) (HomeServerView, error) {
+	if err := s.core.SetHomeServer(on, outside, strings.TrimSpace(public)); err != nil {
+		return HomeServerView{}, err
+	}
+	return s.HomeServer(), nil
+}
+
+// RelayView is the advanced relay line in Devices (§4.4, §9): none set, or
+// a TURN relay you run or rent elsewhere, its credential URL and how it is
+// doing. It is used beside the home server's relay, never instead of it.
 type RelayView struct {
 	CredentialURL string `json:"credentialUrl,omitempty"`
-	// State is none (Direct only), pending, ok or error.
+	// State is none (no advanced relay), pending, ok or error.
 	State  string `json:"state"`
 	Detail string `json:"detail,omitempty"`
 }
@@ -147,8 +226,8 @@ func (s *DevicesService) Relay() RelayView {
 	return RelayView{CredentialURL: mesh.ScrubURLs(r.CredentialURL), State: st.State, Detail: mesh.ScrubURLs(st.Detail)}
 }
 
-// SetRelay sets the TURN REST credential URL ("" is Direct only). It
-// applies to connections made from now on.
+// SetRelay sets the advanced relay's TURN REST credential URL ("" removes
+// it). It applies to connections made from now on.
 func (s *DevicesService) SetRelay(credentialURL string) (RelayView, error) {
 	if err := s.core.SetRelay(mesh.Relay{CredentialURL: strings.TrimSpace(credentialURL)}); err != nil {
 		return RelayView{}, err

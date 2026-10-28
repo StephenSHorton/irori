@@ -32,6 +32,19 @@ func (c *Core) SetHomeServer(on, outside bool, public string) error {
 	return c.home.Set(on, outside, public)
 }
 
+// CanServe reports whether this device can run a home server (it runs on
+// go-room, not a test transport).
+func (c *Core) CanServe() bool { return c.home != nil }
+
+// Role is this device's cert role ("desktop" or "node"; "" before it has
+// a cert): Devices offers the home server first on the node.
+func (c *Core) Role() string {
+	if cert, ok := c.chain.Cert(c.device.ID); ok {
+		return cert.Role
+	}
+	return ""
+}
+
 // RemoteServer is another device's home server as this device reaches it.
 type RemoteServer struct {
 	DeviceID string `json:"deviceId"`
@@ -51,6 +64,10 @@ func (c *Core) RemoteServers() []RemoteServer {
 	}
 	return out
 }
+
+// OtherServer reports whether another of the person's devices runs a home
+// server (its node.addr row, or a pairing hint).
+func (c *Core) OtherServer() bool { return len(c.servers.List()) > 0 }
 
 // LANError says why the LAN carrier is off ("" when it runs).
 func (c *Core) LANError() string {

@@ -18,11 +18,14 @@ Irori is a hearth for your coding agents. Every agent you run, on every device y
 
 From v0.4 your devices join into one Irori: one inbox and one Board, with each device's agents on the cards. Pair from a device that's already set up:
 
-1. On it, open **Settings → Devices → Manage… → Pair a device**. It shows a code. Treat it like a one-use password, good for 10 minutes.
-2. On the new device, open **Settings → Devices → Manage… → Join with a code** and type the code. It shows five words.
-3. Type those words back on the first device. Nothing pairs until they match, so a code someone else copied is useless without the new device's screen.
+1. **Make your always-on PC the home server.** On it, open **Settings → Devices → Manage…** and switch on **Home server: run it on this PC**. Windows asks once to allow `irori.exe` on private networks: allow it, because the server listens for your other devices. Leave **Reachable from outside home** on so your laptop can connect from anywhere. Irori asks your router to forward one port (UPnP or NAT-PMP); if the router won't, Devices tells you which TCP and UDP port to forward by hand.
+2. On a device that's already set up (usually that PC), open **Settings → Devices → Manage… → Pair a device**. It shows a code. Treat it like a one-use password, good for 10 minutes.
+3. On the new device, open **Settings → Devices → Manage… → Join with a code** and type the code. At home that's all. From outside your home, click **Joining from outside your home?** and also type the server address the first device shows under the code. The new device shows five words.
+4. Type those words back on the first device, then type the first device's key (shown beside the code) on the new one. Nothing pairs until both match, so a code someone else copied is useless without the new device's screen.
 
-**Remove** takes a device out: its new rows are refused everywhere and your other devices get a new person key. For an always-on PC, run the normal app minimised to the tray. The headless fallback is `irori pair join` (it asks for the code; adding a device is only in the app) and then `irori node install`, which starts `irori serve --headless` at logon (Windows). A headless node doesn't update itself, and while it runs the desktop app can't start on that machine, so pick one per machine (`irori node uninstall` removes the entry). Devices find each other through sealed messages on public MQTT brokers, which see IP addresses but never content, and then talk over encrypted WebRTC ([go-room](https://github.com/StephenSHorton/go-room)). Irori runs no server of its own. The design is [docs/design/v0.4-devices.md](docs/design/v0.4-devices.md).
+**Remove** takes a device out: its new rows are refused everywhere, the home server drops it, and your other devices get a new person key. For the always-on PC, run the normal app minimised to the tray. The headless fallback is `irori pair join` (it asks for the code and, from away, the server address; adding a device is only in the app) and then `irori node install`, which starts `irori serve --headless` at logon (Windows). A headless node doesn't update itself, and while it runs the desktop app can't start on that machine, so pick one per machine (`irori node uninstall` removes the entry).
+
+**How devices connect.** Devices on the same network find each other directly, even with the home server off. Away from home, a device connects through the home server: it introduces your devices, relays the connection when a network blocks direct paths, and stores nothing. Then the devices talk over encrypted WebRTC ([go-room](https://github.com/StephenSHorton/go-room)). Nothing goes through a third party: there are no public servers. So with the home server off (or unreachable, for example when your internet provider shares your public address) a device away from home can't connect until it's back. The design is [docs/design/v0.4-devices.md](docs/design/v0.4-devices.md).
 
 ## Docs
 
@@ -44,7 +47,11 @@ go vet ./...
 go test $(go list ./... | grep -v '/internal/capture$')   # on macOS add -race
 go test -p 1 -count=1 ./internal/capture   # timing-sensitive; retry up to 3 times
 go build ./...
+GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build ./internal/...   # networking also builds for the Mac
+go list -deps ./... | grep -iE 'paho|go-room/mqtt'   # must print nothing: no public brokers
 ```
+
+The tests listen on 127.0.0.1 only and never reach the internet, so they raise no Windows Firewall dialog.
 
 `frontend/bindings` is committed: after changing a Go service, run `wails3 generate bindings -clean=true -ts` and commit the result. The old CI ran these on both Windows and macOS, so run them on a Mac too when a change touches macOS-only code (`*_darwin.go`, `build/darwin`).
 

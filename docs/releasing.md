@@ -303,6 +303,28 @@ a code** on the new one shows five words, and you type the words back on
 the first. The README's [Pair your devices](../README.md#pair-your-devices)
 has the steps. For releases:
 
+- The always-on PC is the home server (decision 33): **Home server: run
+  it on this PC** in Devices. It listens on one port N (TCP and UDP,
+  picked from 20000-29999 on first start and kept in
+  `home-server.json`), so **Windows asks once to allow `irori.exe` on
+  private networks**; allow it, or nothing reaches the server. Defender's
+  dialog makes a program rule, so the one answer covers every port Irori
+  uses, and an update to the same install path keeps it. The LAN carrier
+  on every device uses UDP 38419 and raises the same dialog on first use.
+- Nothing in Irori talks to a public server: no MQTT brokers and no
+  public STUN. The README's checks include `go list -deps ./... | grep
+  -iE 'paho|go-room/mqtt'`, which must print nothing. go-room's `mqtt`
+  package exists for Toru; Irori never imports it.
+- With **Reachable from outside home** on, the server asks the router for
+  TCP N and UDP N over UPnP-IGD, then NAT-PMP, and removes the mappings
+  on a clean exit. When the router won't, Devices shows the port-forward
+  line (forward TCP and UDP N to the PC's LAN address), or the CGNAT line
+  when the internet provider shares the public address (then only a relay
+  you run elsewhere, under Advanced, helps). There is no dynamic DNS: a
+  public address typed by hand goes stale if the ISP changes it.
+- `go.mod` pins an exact go-room release. A go-room change is a go-room
+  tag and a bump here; a `replace` to a local checkout never ships.
+
 - Pairings survive updates: the person key, device key and certs live in
   the data folder (`%LOCALAPPDATA%\irori` on Windows, `~/.irori` on
   macOS), not in the install.

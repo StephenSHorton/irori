@@ -32,6 +32,7 @@ export {
     CommentResult,
     DeviceView,
     GoneSession,
+    HomeServerView,
     InboxCounts,
     NewCard,
     RelayView,

@@ -15,9 +15,10 @@ import (
 // (§5.1): each device names its own TURN relay, or none.
 const RelayFile = "relay.json"
 
-// Relay is the optional TURN relay setting (§4.4): a TURN REST credential
-// endpoint and, optionally, TURN URLs that replace the ones it returns.
-// The zero value is "Direct only".
+// Relay is the advanced TURN relay setting (§4.4): a relay you run or rent
+// elsewhere, used beside the home server's own, never instead of it. A
+// TURN REST credential endpoint and, optionally, TURN URLs that replace
+// the ones it returns. The zero value is none.
 type Relay struct {
 	CredentialURL string   `json:"credentialUrl,omitempty"`
 	TurnURLs      []string `json:"turnUrls,omitempty"`
@@ -105,7 +106,7 @@ func SaveRelay(dataDir string, r Relay) error {
 	return os.Rename(tmp, path)
 }
 
-// RelayStatus is how the relay is doing: none (Direct only), pending, ok or
+// RelayStatus is how the relay is doing: none (not set), pending, ok or
 // error, with a reason for error.
 type RelayStatus struct {
 	State  string `json:"state"`

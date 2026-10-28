@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
 import {
   devices as actions,
   isOpen,
@@ -19,6 +20,7 @@ import {
   useDevices,
   usePairing,
   type DeviceView,
+  type HomeServerView,
   type PairStatus,
   type RelayView,
 } from "@/lib/devices"
@@ -36,7 +38,9 @@ const roleChoices = [
 // at most one warning line and Remove; then Pair a device (the code, then
 // the words the new device shows, typed here, then this device's key typed
 // there) and Join with a code (the words to type on the other device, and
-// its key typed here). Paths and counters stay in GET /v1/devices?detail=1.
+// its key typed here; from outside the home, the server's address too).
+// The Home server section sits above them (§7.1). Paths and counters stay
+// in GET /v1/devices?detail=1.
 export function DevicesDialog({
   open,
   onOpenChange,
@@ -68,7 +72,7 @@ export function DevicesDialog({
           ))}
         </ul>
         {error && <p className="text-xs text-destructive">{error}</p>}
-        <Relay open={open} />
+        <HomeServer open={open} />
         <div className="border-t border-border pt-3">
           {status?.state ? (
             <Pairing status={status} onDone={() => setStatus(null)} />
@@ -77,11 +81,12 @@ export function DevicesDialog({
           )}
         </div>
         <p className="text-xs text-muted-foreground">
-          Devices find each other through sealed messages on public MQTT
-          brokers, which see IP addresses and when messages pass, never their
-          content; STUN servers see IP addresses. Everything else goes encrypted
-          between your own devices. What reaches another device stays there, so
-          a secret an agent wrote that the scrubber missed is copied for good.
+          Devices find each other on your local network and through your home
+          server, one of your own devices; nothing goes through a public server.
+          Others on a network see that sealed messages pass, never their
+          content, and a relay you add under Advanced sees IP addresses. What
+          reaches another device stays there, so a secret an agent wrote that
+          the scrubber missed is copied for good.
         </p>
       </DialogContent>
     </Dialog>
@@ -172,9 +177,151 @@ function DeviceRow({
   )
 }
 
-// Relay is the one Relay line (§4.4, §9): "Direct only" with no TURN relay
-// set, else the credential URL (its query hidden); a warning only when the
-// relay is failing. Change opens a field for the credential URL.
+// HomeServer is the Home server section (§7.1, §9). On this device: the
+// switch, "Reachable from outside home", how far it reaches, and one line
+// only when something is wrong (with the public address field when mapping
+// failed). Elsewhere: one line only when your home server can't be
+// reached. Advanced holds the relay you run or rent elsewhere.
+function HomeServer({ open }: { open: boolean }) {
+  const [hs, setHs] = useState<HomeServerView | null>(null)
+  const [publicAddr, setPublicAddr] = useState("")
+  const [advanced, setAdvanced] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    let live = true
+    const load = () =>
+      void actions
+        .homeServer()
+        .then((v) => live && setHs(v))
+        .catch(() => {})
+    load()
+    const id = window.setInterval(load, 5000)
+    return () => {
+      live = false
+      window.clearInterval(id)
+    }
+  }, [open])
+
+  const set = async (on: boolean, outside: boolean, pub: string) => {
+    setError(null)
+    try {
+      setHs(await actions.setHomeServer(on, outside, pub))
+    } catch (err) {
+      setError(errorText(err))
+    }
+  }
+
+  if (!hs) return null
+  const reach =
+    hs.reach === "outside"
+      ? "reachable at home and from outside"
+      : hs.reach === "forward"
+        ? "reachable at home; outside needs a port forward"
+        : hs.reach === "cgnat"
+          ? "reachable at home only"
+          : hs.reach === "home"
+            ? "reachable at home"
+            : hs.on
+              ? "starts once you have another device"
+              : ""
+  const askPublic =
+    hs.on && hs.outside && (hs.reach === "forward" || !!hs.public)
+  return (
+    <div className="grid gap-1.5 text-[13px]">
+      {hs.can && (hs.on || hs.suggest || !hs.elsewhere) && (
+        <>
+          <div className="flex items-center justify-between gap-2">
+            <label htmlFor="home-server" className="min-w-0 cursor-pointer">
+              <span className="text-ink">Home server: run it on this PC</span>
+              {reach && (
+                <small className="block text-xs text-muted-foreground">
+                  {reach}
+                  {hs.port ? ` · port ${hs.port}` : ""}
+                </small>
+              )}
+            </label>
+            <Switch
+              id="home-server"
+              checked={hs.on}
+              onCheckedChange={(v) => void set(v, hs.outside, hs.public ?? "")}
+            />
+          </div>
+          {!hs.on && hs.suggest && (
+            <p className="text-xs text-muted-foreground">
+              This is your always-on device: run the server here so your devices
+              reach each other from anywhere. Windows asks once to allow Irori
+              on private networks; the server needs it.
+            </p>
+          )}
+          {hs.on && (
+            <div className="flex items-center justify-between gap-2">
+              <label
+                htmlFor="home-outside"
+                className="cursor-pointer text-muted-foreground"
+              >
+                Reachable from outside home
+              </label>
+              <Switch
+                id="home-outside"
+                size="sm"
+                checked={hs.outside}
+                onCheckedChange={(v) => void set(true, v, hs.public ?? "")}
+              />
+            </div>
+          )}
+          {hs.line && (
+            <p className="text-xs text-warning">{plainLine(hs.line)}</p>
+          )}
+          {askPublic && (
+            <form
+              className="flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault()
+                void set(true, hs.outside, publicAddr.trim())
+              }}
+            >
+              <Input
+                aria-label="Public address"
+                placeholder={
+                  hs.public || "Public address (optional): IP or host name"
+                }
+                value={publicAddr}
+                spellCheck={false}
+                autoComplete="off"
+                onChange={(e) => setPublicAddr(e.target.value)}
+              />
+              <Button type="submit" size="sm" variant="outline">
+                Save
+              </Button>
+            </form>
+          )}
+        </>
+      )}
+      {hs.remote && (
+        <p className="text-xs text-warning">{plainLine(hs.remote)}</p>
+      )}
+      {error && <span className="text-xs text-destructive">{error}</span>}
+      {advanced ? (
+        <Relay open={open} />
+      ) : (
+        <button
+          type="button"
+          className="justify-self-start text-xs text-muted-foreground underline-offset-2 hover:underline"
+          onClick={() => setAdvanced(true)}
+        >
+          Advanced
+        </button>
+      )}
+    </div>
+  )
+}
+
+// Relay is the advanced relay line (§4.4, §9): a TURN relay you run or rent
+// elsewhere, used beside the home server's. "None" with none set, else the
+// credential URL (its query hidden); a warning only when it is failing.
+// Change opens a field for the credential URL.
 function Relay({ open }: { open: boolean }) {
   const [relay, setRelay] = useState<RelayView | null>(null)
   const [editing, setEditing] = useState(false)
@@ -213,7 +360,7 @@ function Relay({ open }: { open: boolean }) {
           <Input
             autoFocus
             aria-label="TURN credential URL"
-            placeholder="https://… (empty: Direct only)"
+            placeholder="https://… TURN credential URL (empty: none)"
             value={url}
             spellCheck={false}
             autoComplete="off"
@@ -234,9 +381,9 @@ function Relay({ open }: { open: boolean }) {
       ) : (
         <div className="flex items-center justify-between gap-2">
           <span className="min-w-0 truncate text-muted-foreground">
-            Relay:{" "}
+            Other relay:{" "}
             <span className="text-ink">
-              {direct ? "Direct only" : plainLine(relay?.credentialUrl ?? "")}
+              {direct ? "none" : plainLine(relay?.credentialUrl ?? "")}
             </span>
           </span>
           <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
@@ -259,6 +406,8 @@ function Start({ onStarted }: { onStarted: (s: PairStatus) => void }) {
   const [role, setRole] = useState("desktop")
   const [joining, setJoining] = useState(false)
   const [code, setCode] = useState("")
+  const [away, setAway] = useState(false)
+  const [server, setServer] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -276,34 +425,56 @@ function Start({ onStarted }: { onStarted: (s: PairStatus) => void }) {
 
   const submitCode = (e: FormEvent) => {
     e.preventDefault()
-    if (code.trim()) void run(() => actions.join(code.trim()))
+    if (code.trim())
+      void run(() => actions.join(code.trim(), away ? server.trim() : ""))
   }
 
   return (
     <div className="grid gap-2">
       {joining ? (
-        <form className="flex gap-2" onSubmit={submitCode}>
-          <Input
-            autoFocus
-            aria-label="Pairing code"
-            placeholder="XXXX-XXXX-XXXX-XXXX"
-            value={code}
-            spellCheck={false}
-            autoComplete="off"
-            className="font-mono uppercase"
-            onChange={(e) => setCode(e.target.value)}
-          />
-          <Button type="submit" size="sm" disabled={busy || !code.trim()}>
-            Join
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={() => setJoining(false)}
-          >
-            Back
-          </Button>
+        <form className="grid gap-2" onSubmit={submitCode}>
+          <div className="flex gap-2">
+            <Input
+              autoFocus
+              aria-label="Pairing code"
+              placeholder="XXXX-XXXX-XXXX-XXXX"
+              value={code}
+              spellCheck={false}
+              autoComplete="off"
+              className="font-mono uppercase"
+              onChange={(e) => setCode(e.target.value)}
+            />
+            <Button type="submit" size="sm" disabled={busy || !code.trim()}>
+              Join
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setJoining(false)}
+            >
+              Back
+            </Button>
+          </div>
+          {away ? (
+            <Input
+              aria-label="Home server address"
+              placeholder="Home server address, like 203.0.113.7:24817"
+              value={server}
+              spellCheck={false}
+              autoComplete="off"
+              className="font-mono"
+              onChange={(e) => setServer(e.target.value)}
+            />
+          ) : (
+            <button
+              type="button"
+              className="justify-self-start text-xs text-muted-foreground underline-offset-2 hover:underline"
+              onClick={() => setAway(true)}
+            >
+              Joining from outside your home?
+            </button>
+          )}
         </form>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
@@ -418,8 +589,8 @@ function ShowCode({
   return (
     <div className="grid gap-2">
       <p className="text-[13px] text-ink">
-        On the new device, open Settings → Devices → Join with a code, and
-        type this code:
+        On the new device, open Settings → Devices → Join with a code, and type
+        this code:
       </p>
       <p className="rounded-lg bg-muted px-3 py-2 text-center font-mono text-lg tracking-widest text-ink select-all">
         {s.code}
@@ -432,6 +603,12 @@ function ShowCode({
         <p className="text-xs text-muted-foreground">
           The new device will ask for this device's key:{" "}
           <span className="font-mono text-ink">{s.fingerprint}</span>
+        </p>
+      )}
+      {s.serverAddr && (
+        <p className="text-xs text-muted-foreground">
+          Joining from outside your home? Server address{" "}
+          <span className="font-mono text-ink select-all">{s.serverAddr}</span>
         </p>
       )}
       {copied && (

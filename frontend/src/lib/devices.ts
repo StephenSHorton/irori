@@ -10,6 +10,7 @@ import { Events } from "@wailsio/runtime"
 import { DevicesService } from "../../bindings/github.com/StephenSHorton/irori"
 import {
   DeviceView,
+  HomeServerView,
   RelayView,
 } from "../../bindings/github.com/StephenSHorton/irori/models"
 import {
@@ -19,7 +20,7 @@ import {
 import { EventRosterChanged, inWails } from "./irori"
 import { useLatest } from "./talk"
 
-export { DeviceView, PairStatus, RelayView }
+export { DeviceView, HomeServerView, PairStatus, RelayView }
 
 // EventPairingChanged mirrors the Go constant in devices_service.go.
 export const EventPairingChanged = "devices:pairing"
@@ -61,6 +62,12 @@ let sampleDevices: DeviceView[] | null = null
 let samplePair = new PairStatus({ mode: "", state: "" })
 let sampleTimer: number | undefined
 let sampleRelay = new RelayView({ state: "none" })
+let sampleHome = new HomeServerView({
+  can: true,
+  suggest: true,
+  on: false,
+  outside: true,
+})
 const sampleListeners = new Set<() => void>()
 
 function sampleList(): DeviceView[] {
@@ -123,6 +130,7 @@ const sample = {
       state: PairState.Waiting,
       code: SampleCode,
       fingerprint: SampleKey,
+      serverAddr: sampleHome.address,
       role,
       expires: new Date(Date.now() + 10 * 60_000).toISOString(),
     })
@@ -139,9 +147,13 @@ const sample = {
     )
     return samplePair
   },
-  join(): PairStatus {
+  join(server: string): PairStatus {
     if (isOpen(samplePair)) throw new Error("a pairing is already open")
-    samplePair = new PairStatus({ mode: "join", state: PairState.Waiting })
+    samplePair = new PairStatus({
+      mode: "join",
+      state: PairState.Waiting,
+      via: server || undefined,
+    })
     sampleLater(() =>
       setSamplePair({
         state: PairState.Words,
@@ -172,7 +184,10 @@ const sample = {
   confirmKey(key: string) {
     if (samplePair.state !== PairState.Words || samplePair.keyOk)
       throw new Error("no pairing is waiting for a key")
-    if (key.replace(/[^0-9a-f]/gi, "").toLowerCase() !== SampleKey.replace(/ /g, "")) {
+    if (
+      key.replace(/[^0-9a-f]/gi, "").toLowerCase() !==
+      SampleKey.replace(/ /g, "")
+    ) {
       const misses = (samplePair.misses ?? 0) + 1
       if (misses >= 2)
         setSamplePair({
@@ -212,10 +227,11 @@ export const devices = {
     if (inWails()) return DevicesService.AddDevice(role)
     return sample.add(role)
   },
-  // join enters a code shown on another device.
-  async join(code: string): Promise<PairStatus> {
-    if (inWails()) return DevicesService.JoinWithCode(code)
-    return sample.join()
+  // join enters a code shown on another device; server is the home
+  // server's address, typed only when joining from outside the home.
+  async join(code: string, server = ""): Promise<PairStatus> {
+    if (inWails()) return DevicesService.JoinWithCode(code, server)
+    return sample.join(server)
   },
   // confirm takes the words the new device shows, typed here.
   async confirm(words: string): Promise<void> {
@@ -238,12 +254,48 @@ export const devices = {
     if (inWails()) return DevicesService.ResetDevice()
     throw new Error("Reset needs the desktop app")
   },
-  // relay is the TURN relay setting: state "none" is Direct only.
+  // homeServer is the Home server section: on this device, the switch
+  // and how far it reaches; on the others, a line when it can't be reached.
+  async homeServer(): Promise<HomeServerView> {
+    if (inWails()) return DevicesService.HomeServer()
+    return sampleHome
+  },
+  // setHomeServer switches this device's home server on or off.
+  async setHomeServer(
+    on: boolean,
+    outside: boolean,
+    publicAddr: string
+  ): Promise<HomeServerView> {
+    if (inWails()) return DevicesService.SetHomeServer(on, outside, publicAddr)
+    sampleHome = new HomeServerView({
+      ...sampleHome,
+      on,
+      outside,
+      public: publicAddr || undefined,
+      running: on,
+      port: 24817,
+      reach: !on
+        ? undefined
+        : publicAddr
+          ? "outside"
+          : outside
+            ? "forward"
+            : "home",
+      address: on && publicAddr ? `${publicAddr}:24817` : undefined,
+      line:
+        on && outside && !publicAddr
+          ? "Away from home your devices can't reach this PC. Turn on UPnP on your router, or forward TCP and UDP port 24817 to 192.168.1.20."
+          : undefined,
+    })
+    return sampleHome
+  },
+  // relay is the advanced TURN relay setting: state "none" is none set.
   async relay(): Promise<RelayView> {
     if (inWails()) return DevicesService.Relay()
     return sampleRelay
   },
-  // setRelay sets the TURN REST credential URL ("" is Direct only).
+  // setRelay sets the advanced relay's TURN REST credential URL ("" removes
+  // it).
   async setRelay(url: string): Promise<RelayView> {
     if (inWails()) return DevicesService.SetRelay(url)
     sampleRelay = new RelayView({

@@ -54,6 +54,18 @@ export class Status {
      * add, while waiting
      */
     "code"?: string;
+
+    /**
+     * ServerAddr (add side) is the home server's address from outside the
+     * home, shown under the code for a device joining from away; "" when
+     * no server is reachable from outside (§3).
+     */
+    "serverAddr"?: string;
+
+    /**
+     * Via (join side) is the home server address typed, if any.
+     */
+    "via"?: string;
     "expires"?: time$0.Time;
 
     /**
@@ -107,14 +119,14 @@ export class Status {
      * Creates a new Status instance from a string or object.
      */
     static createFrom($$source: any = {}): Status {
-        const $$createField6_0 = $$createType1;
-        const $$createField7_0 = $$createType2;
+        const $$createField8_0 = $$createType1;
+        const $$createField9_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("joiner" in $$parsedSource) {
-            $$parsedSource["joiner"] = $$createField6_0($$parsedSource["joiner"]);
+            $$parsedSource["joiner"] = $$createField8_0($$parsedSource["joiner"]);
         }
         if ("words" in $$parsedSource) {
-            $$parsedSource["words"] = $$createField7_0($$parsedSource["words"]);
+            $$parsedSource["words"] = $$createField9_0($$parsedSource["words"]);
         }
         return new Status($$parsedSource as Partial<Status>);
     }

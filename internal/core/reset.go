@@ -112,7 +112,7 @@ func (c *Core) Relay() (mesh.Relay, mesh.RelayStatus) {
 	return r, mesh.RelayStatus{State: "pending"}
 }
 
-// SetRelay saves the relay setting (the zero value is Direct only) and
+// SetRelay saves the advanced relay setting (the zero value is none) and
 // hands it to the transport for its next connections. GUI only.
 func (c *Core) SetRelay(r mesh.Relay) error {
 	if err := mesh.SaveRelay(c.opts.DataDir, r); err != nil {
