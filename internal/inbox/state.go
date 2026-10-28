@@ -250,6 +250,11 @@ func newInbox(ctx context.Context, st *store.Store, roster Roster, opts Options)
 func (b *inbox) replay(ctx context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	return b.replayLocked(ctx)
+}
+
+// replayLocked is replay with b.mu held.
+func (b *inbox) replayLocked(ctx context.Context) error {
 	b.replaying = true
 	defer func() { b.replaying = false }()
 	// Replicated rows, then this device's policy rows (local_events, v0.4

@@ -117,6 +117,7 @@ func (c *coord) catchUp(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	c.refoldIfCut(ctx, vec)
 	for dev, top := range vec {
 		if dev == c.st.DeviceID() {
 			continue
@@ -145,6 +146,33 @@ func (c *coord) catchUp(ctx context.Context) {
 	c.unlock()
 }
 
+// refoldIfCut rebuilds the Board's fold from the log when it now holds
+// fewer of some device's rows than were folded: a revoke's cut moved them
+// to refused_events (§5.5), and the tasks, comments and leases they wrote
+// must stop counting (§6.1). What isn't from rows (gone clocks, watchers'
+// queues, subscribers) stays.
+func (c *coord) refoldIfCut(ctx context.Context, vec store.Vector) {
+	c.mu.Lock()
+	defer c.unlock()
+	cut := false
+	for dev, seq := range c.last {
+		if vec[dev] < seq {
+			cut = true
+		}
+	}
+	if !cut {
+		return
+	}
+	c.tasks, c.order, c.nextOrder = map[string]*Task{}, map[string]uint64{}, 0
+	c.held, c.comments, c.byTask, c.refusals = map[string]*leaseRec{}, map[string]*Comment{}, map[string][]string{}, nil
+	c.blockerSeq, c.stepSeq, c.activity = map[string]int{}, map[string]int{}, map[string][]Activity{}
+	c.last, c.conflicts, c.stolen, c.lapsed, c.ignored = map[string]int64{}, map[string]*leaseRec{}, map[string]bool{}, nil, 0
+	if err := c.replay(ctx); err != nil {
+		log.Printf("coord: re-fold after a revoke's cut: %v", err)
+	}
+	c.note(Change{Kind: Resync})
+}
+
 func (c *coord) applyRemote(ctx context.Context, ev store.Event) {
 	c.mu.Lock()
 	defer c.unlock()
@@ -162,7 +190,11 @@ func (c *coord) applyRemote(ctx context.Context, ev store.Event) {
 func (c *coord) holderDuties(ctx context.Context) {
 	now := c.stamp()
 	for name, l := range c.conflicts {
-		if !c.localKey(l.Holder) || c.refused[name+"\x00"+l.Holder] {
+		// One refusal per lease (its AcquiredAt): a later lease of the same
+		// holder that loses another conflict gets its own. Marked only once
+		// written, so a failed write (appends held) is tried again.
+		key := stolenKey(name, l.Holder, l.AcquiredAt)
+		if !c.localKey(l.Holder) || c.refused[key] {
 			continue
 		}
 		winner := c.held[name]
@@ -170,12 +202,15 @@ func (c *coord) holderDuties(ctx context.Context) {
 		if winner != nil {
 			heldBy = winner.Holder
 		}
-		c.refused[name+"\x00"+l.Holder] = true
 		if err := c.write(ctx, l.Holder, KindLeaseRefused, Refusal{
 			Resource: name, By: l.Holder, HeldBy: heldBy, Held: name, Until: l.Until, At: now, Conflict: true,
-		}); err != nil && ctx.Err() == nil {
-			log.Printf("coord: refuse conflicting lease %s: %v", name, err)
+		}); err != nil {
+			if ctx.Err() == nil {
+				log.Printf("coord: refuse conflicting lease %s: %v", name, err)
+			}
+			continue
 		}
+		c.refused[key] = true
 	}
 	c.prune(now)
 	for _, l := range c.lapsed {
@@ -208,6 +243,17 @@ func (c *coord) conflictOf(rec *leaseRec, stolen []stolenLease) bool {
 	if !c.live(e, c.stamp()) {
 		return false
 	}
+	// Two leases conflict only if their times overlap, give or take the
+	// clock bound (§5.6). A lease that ended before the held one began is
+	// history arriving late (a partition healing): the held one stands, and
+	// nobody is told it lost. One that began after the held one ended takes
+	// its place as usual.
+	switch {
+	case !rec.Until.Add(clockSkew).After(e.AcquiredAt):
+		return true
+	case !e.Until.Add(clockSkew).After(rec.AcquiredAt):
+		return false
+	}
 	winner, loser := e, rec
 	if owner.DeviceOf(rec.Holder) < owner.DeviceOf(e.Holder) {
 		winner, loser = rec, e
@@ -218,6 +264,10 @@ func (c *coord) conflictOf(rec *leaseRec, stolen []stolenLease) bool {
 	c.note(Change{Kind: LeaseChanged, Resource: rec.res.Name, Holder: winner.Holder, Reason: ReasonConflict})
 	return true
 }
+
+// clockSkew is how far two devices' wall clocks may differ (§5.6: a row
+// more than 2 minutes ahead isn't stored yet).
+const clockSkew = 2 * time.Minute
 
 // ReasonConflict marks a lease another device's lease contests (§6.4).
 const ReasonConflict = "conflict"

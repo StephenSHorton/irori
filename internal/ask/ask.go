@@ -235,6 +235,7 @@ func (b *Book) catchUp(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	b.refoldIfCut(ctx, vec)
 	for dev, top := range vec {
 		if dev == b.o.Self {
 			continue
@@ -262,6 +263,36 @@ func (b *Book) catchUp(ctx context.Context) {
 	}
 	b.duties(ctx)
 	b.flush()
+}
+
+// refoldIfCut rebuilds the asks from the log when it now holds fewer of
+// some device's rows than were folded: a revoke's cut moved them to
+// refused_events (§5.5), so the asks and answers they wrote stop counting.
+func (b *Book) refoldIfCut(ctx context.Context, vec store.Vector) {
+	b.mu.Lock()
+	cut := false
+	for dev, seq := range b.last {
+		if vec[dev] < seq {
+			cut = true
+		}
+	}
+	var was []string
+	if cut {
+		for id := range b.asks {
+			was = append(was, id)
+		}
+		b.asks, b.answers, b.last, b.ignored, b.seq = map[string]*Ask{}, map[string][]answer{}, map[string]int64{}, 0, 0
+	}
+	b.mu.Unlock()
+	if !cut {
+		return
+	}
+	if err := b.replay(ctx); err != nil {
+		log.Printf("ask: re-fold after a revoke's cut: %v", err)
+	}
+	b.mu.Lock()
+	b.pending = append(b.pending, was...) // gone or changed: subscribers re-read them
+	b.mu.Unlock()
 }
 
 // fold applies one row. b.mu is held.

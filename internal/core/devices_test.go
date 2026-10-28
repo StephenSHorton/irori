@@ -411,6 +411,44 @@ func TestPartitionedLeasesConflictAndTheLowerDeviceStands(t *testing.T) {
 	}
 }
 
+// A lease that ended while partitioned (its own Core wrote the expiry)
+// arrives after another device took the resource: their times don't
+// overlap, so it is history, not a conflict. The live lease stands on
+// every device and nobody writes a refusal, even when the expired one
+// belongs to the lower device id.
+func TestALateExpiredLeaseIsNotAConflict(t *testing.T) {
+	ctx := context.Background()
+	net, pc, mac, nd := meshTrio(t)
+	lo, hi := pc, mac
+	if mac.id() < pc.id() {
+		lo, hi = mac, pc
+	}
+	net.Isolate(lo.id())
+	lo.clk.Set(-5 * time.Minute) // its lease ran well before the other one
+	if _, err := lo.c.Coord().Acquire(ctx, lo.agent(), "port:8181", 200*time.Millisecond, false); err != nil {
+		t.Fatal(err)
+	}
+	wait(t, "the lower device writes its own expiry", func() bool {
+		evs, _ := lo.c.store.List(ctx, store.Filter{Kinds: []string{coord.KindLeaseRel}, DeviceID: lo.id()})
+		return len(evs) > 0
+	})
+	lo.clk.Set(0)
+	if _, err := hi.c.Coord().Acquire(ctx, hi.agent(), "port:8181", time.Hour, false); err != nil {
+		t.Fatal(err)
+	}
+	net.HealAll()
+	wait(t, "the three converge", synced(pc, mac, nd))
+	for _, h := range []*hcore{pc, mac, nd} {
+		wait(t, "the live lease stands on "+h.name, func() bool {
+			ls := h.c.Coord().Leases()
+			return len(ls) == 1 && ls[0].Holder == hi.agent() && ls[0].Conflict == ""
+		})
+	}
+	if evs, _ := hi.c.store.List(ctx, store.Filter{Kinds: []string{coord.KindLeaseRefused}, DeviceID: hi.id()}); len(evs) != 0 {
+		t.Fatalf("the live lease's device refused it: %d rows", len(evs))
+	}
+}
+
 // A steal that crosses the holder's renewal ends the lease on all three.
 func TestAStealCrossingARenewalEndsTheLease(t *testing.T) {
 	ctx := context.Background()
@@ -637,6 +675,35 @@ func TestRemovingADeviceEndsItsLeasesAndCards(t *testing.T) {
 		wait(t, "the lease ends on "+h.name, func() bool { return len(h.c.Coord().Leases()) == 0 })
 		wait(t, "the card goes on "+h.name, func() bool { return !hasCard(h, mac.agent(), "") })
 	}
+}
+
+// The node folded a task and a message the Mac wrote after the PC's cut
+// (the PC never heard them). When the revoke reaches the node, those rows
+// move to refused_events and the node's Board and inbox drop them: the
+// same state as the PC's (§5.5, §6.1).
+func TestRowsPastARevokesCutAreUnfolded(t *testing.T) {
+	ctx := context.Background()
+	net, pc, mac, nd := meshTrio(t)
+	net.Isolate(pc.id())
+	tk, err := mac.c.Coord().CreateTask(ctx, mac.agent(), coord.NewTask{Title: "after the cut", Shared: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, d, err := mac.c.Inbox().SendWith(ctx, mac.sender(), inbox.Address{Kind: inbox.ToAgent, Value: pc.agent()}, "from past the cut", inbox.SendOptions{Mode: inbox.ModeWake})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait(t, "the node folds them", func() bool {
+		_, ok := nd.c.Coord().GetTask(tk.ID)
+		return ok && deliveryState(nd, d.ID) != ""
+	})
+	net.Isolate(mac.id())
+	net.Heal(pc.id(), nd.id())
+	if err := pc.c.Mesh().Revoke(ctx, mac.id(), "lost"); err != nil {
+		t.Fatal(err)
+	}
+	wait(t, "the node drops the task", func() bool { _, ok := nd.c.Coord().GetTask(tk.ID); return !ok })
+	wait(t, "the node drops the delivery", func() bool { return deliveryState(nd, d.ID) == "" })
 }
 
 // A clock 10 minutes ahead (§10): the Mac's rows wait on the other

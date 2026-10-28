@@ -93,6 +93,9 @@ func (b *inbox) catchUp(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	if b.cutSince(vec) {
+		b.refold(ctx)
+	}
 	for dev, top := range vec {
 		if dev == b.dev {
 			continue
@@ -119,6 +122,39 @@ func (b *inbox) catchUp(ctx context.Context) {
 	b.mu.Lock()
 	defer b.unlock()
 	b.ownerPass(ctx)
+}
+
+// cutSince reports a device whose rows the log now holds fewer of than
+// were folded: a revoke's cut moved them to refused_events (§5.5).
+func (b *inbox) cutSince(vec store.Vector) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for dev, seq := range b.last {
+		if vec[dev] < seq {
+			return true
+		}
+	}
+	return false
+}
+
+// refold rebuilds everything folded from the log, from the log as it is
+// now: rows that moved to refused_events stop counting (§5.5, §6.1). What
+// is not from rows (reachability, gone clocks, reminders, subscribers)
+// stays.
+func (b *inbox) refold(ctx context.Context) {
+	b.mu.Lock()
+	defer b.unlock()
+	b.msgs, b.dels, b.order, b.open = map[string]*Message{}, map[string]*drec{}, nil, map[string]*drec{}
+	b.counted, b.wakes, b.tokens = map[string]bool{}, map[string]*wakeRec{}, map[string]string{}
+	b.aliases, b.known = map[string][]string{}, map[string]string{}
+	b.pol = Policy{Mode: Everyone, Block: []string{}, Allow: []string{}}
+	b.running, b.pairs = map[string]turnRow{}, map[string][]time.Time{}
+	b.visibleAt, b.heldFirst = map[string]time.Time{}, map[string]bool{}
+	b.last, b.handled, b.requests, b.ignored = map[string]int64{}, map[string]bool{}, nil, 0
+	if err := b.replayLocked(ctx); err != nil {
+		log.Printf("inbox: re-fold after a revoke's cut: %v", err)
+	}
+	b.changes = append(b.changes, Change{Kind: Updated}) // after replayLocked cleared them
 }
 
 // applyRemote folds one row of another device and does the owner's part.
