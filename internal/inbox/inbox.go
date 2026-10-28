@@ -112,6 +112,10 @@ type Message struct {
 	// Attachments are files on the message (v0.4 §6.6): refs to the
 	// attaching device's store, fetched on demand with attachment_get.
 	Attachments []blob.FileRef `json:"attachments,omitempty"`
+	// writer is the device that wrote the message.sent row (memory only,
+	// set as it folds): an own-agent exemption needs From's key to be that
+	// device's (decision 34).
+	writer string
 }
 
 // State is a delivery's state (design §4).

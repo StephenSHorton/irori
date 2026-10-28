@@ -54,12 +54,15 @@ func bypass(key string, cards map[string]presence.AgentCard) bool {
 	return ok && c.Agent != "grok" && c.PermissionMode == BypassMode
 }
 
-// ownAgent reports whether s is one of the person's own Claude agents
-// (decision 34): kind "claude", on this device or on a device certified to
-// the person and not revoked. Their messages skip the bypass_receiver hold;
-// Grok members, agents on unknown or removed devices and (with Shared
-// Boards) other people's agents don't.
-func (b *inbox) ownAgent(s Sender, cards map[string]presence.AgentCard) bool {
+// ownAgent reports whether m's sender is one of the person's own Claude
+// agents (decision 34): kind "claude", on this device or on a device
+// certified to the person and not revoked, and the device its key names is
+// the one that wrote the message (a device can't claim another's agent).
+// Their messages skip the bypass_receiver hold; Grok members, agents on
+// unknown or removed devices and (with Shared Boards) other people's agents
+// don't.
+func (b *inbox) ownAgent(m *Message, cards map[string]presence.AgentCard) bool {
+	s := m.From
 	if s.Kind != "claude" || strings.HasPrefix(s.Key, "user:") {
 		return false
 	}
@@ -68,7 +71,7 @@ func (b *inbox) ownAgent(s Sender, cards map[string]presence.AgentCard) bool {
 	}
 	dev := owner.DeviceOf(s.Key)
 	switch {
-	case dev == "":
+	case dev == "" || dev != m.writer:
 		return false
 	case dev == b.dev:
 		return true
@@ -100,7 +103,7 @@ func (b *inbox) hold(m *Message, recipient string, cards map[string]presence.Age
 			return HoldBlocked
 		case b.pol.Mode == Allowlist && !allowed:
 			return HoldNotAllowed
-		case bypass(recipient, cards) && !allowed && !b.ownAgent(m.From, cards) &&
+		case bypass(recipient, cards) && !allowed && !b.ownAgent(m, cards) &&
 			(m.From.Kind == "grok" || !bypass(m.From.Key, cards)):
 			return HoldBypassReceiver
 		case m.Hop > MaxHop:

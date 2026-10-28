@@ -371,6 +371,7 @@ func (b *inbox) apply(ev store.Event) error {
 		if m.ID == "" {
 			return errors.New("message without id")
 		}
+		m.writer = ev.DeviceID
 		b.msgs[m.ID] = &m
 		if m.From.Key != "" && !m.From.IsUser() && !m.From.isSystem() {
 			if _, ok := b.known[m.From.Key]; !ok {

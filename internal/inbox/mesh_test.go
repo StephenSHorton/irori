@@ -176,7 +176,10 @@ func TestTheHostLetsTheOwnersOtherDeviceAgentsThroughBypass(t *testing.T) {
 	send("grok", grok(keyRG, "grok"))
 	send("revoked", claude(keyRev, "old"))
 	send("unknown", claude(keyUnk, "stranger"))
-	for _, id := range []string{"dlv_grok", "dlv_revoked", "dlv_unknown"} {
+	// dev2 claiming an agent of this device's: the key's device didn't
+	// write the message, so it is no own agent.
+	send("spoofed", claude("dev1/ffffffff-cccc-4ccc-8ccc-cccccccccccc", "local"))
+	for _, id := range []string{"dlv_grok", "dlv_revoked", "dlv_unknown", "dlv_spoofed"} {
 		eventually(t, id+" held for bypass", func() bool {
 			d, ok := h.ib.Get(id)
 			return ok && d.State == Held && d.Hold == HoldBypassReceiver
