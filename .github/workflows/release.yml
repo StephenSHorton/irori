@@ -171,10 +171,14 @@ jobs:
           bun run build
 
       # internal/capture's git timing tests run alone, with retries (ci.yml).
+      # The rest gets one retry too: the release job needs this job, so a
+      # known timing flake (notify's TestWatchHeld*) must not hold back a
+      # tagged release on both platforms. A real failure fails twice.
       - name: Test
         shell: bash
         run: |
-          go test $(go list ./... | grep -v '/internal/capture$')
+          pkgs=$(go list ./... | grep -v '/internal/capture$')
+          go test $pkgs || { echo "::warning::go test failed once; retrying"; go test -count=1 $pkgs; }
           for i in 1 2 3; do go test -p 1 -count=1 ./internal/capture && break; [ $i = 3 ] && exit 1; done
 
       # cgo is required (Wails' AppKit and WebKit glue, FSEvents). The
