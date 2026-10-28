@@ -167,6 +167,10 @@ type HomeServerView struct {
 	// Address is where a device away from home dials it.
 	Address string `json:"address,omitempty"`
 	Line    string `json:"line,omitempty"`
+	// LAN is the one line, on any device, when devices on its network
+	// can't find it directly (the LAN carrier couldn't open, or has nowhere
+	// to send).
+	LAN string `json:"lan,omitempty"`
 	// Remote is the one line about another device's server, when this
 	// device can't reach it.
 	Remote string `json:"remote,omitempty"`
@@ -177,25 +181,28 @@ func (s *DevicesService) HomeServer() HomeServerView {
 	st := s.core.HomeServer()
 	v := HomeServerView{Can: s.core.CanServe(), Suggest: s.core.Role() == identity.RoleNode, Elsewhere: s.core.OtherServer(),
 		On: st.On, Outside: st.Outside, Public: st.Public, Running: st.Running, Port: st.Port, Reach: st.Reach,
-		Address: st.Address, Line: st.Line}
-	if lanErr := s.core.LANError(); lanErr != "" && v.Line == "" {
-		v.Line = "Devices on this network can't find this one directly: " + lanErr
-	}
+		Address: st.Address, Line: st.Line, LAN: s.core.LANError()}
 	if s.core.NetStatus().State == mesh.StateOn {
-		for _, r := range s.core.RemoteServers() {
-			if r.Unreachable {
-				name := r.DeviceID
-				for _, d := range s.core.Mesh().Devices(false) {
-					if d.DeviceID == r.DeviceID && d.Name != "" {
-						name = d.Name
-					}
-				}
-				v.Remote = "Can't reach your home server (" + name + "). Away from home your devices connect through it."
-				break
-			}
-		}
+		v.Remote = remoteLine(s.core.RemoteServers(), s.core.Mesh().Devices(false))
 	}
 	return v
+}
+
+// remoteLine is the one line about a home server this device can't reach
+// ("" when it reaches every one).
+func remoteLine(servers []core.RemoteServer, devices []mesh.DeviceRow) string {
+	for _, r := range servers {
+		if r.Unreachable {
+			name := r.DeviceID
+			for _, d := range devices {
+				if d.DeviceID == r.DeviceID && d.Name != "" {
+					name = d.Name
+				}
+			}
+			return "Can't reach your home server (" + name + "). Away from home your devices connect through it."
+		}
+	}
+	return ""
 }
 
 // SetHomeServer switches this device's home server on or off (GUI only),

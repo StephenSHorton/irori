@@ -305,6 +305,15 @@ func TestServerStatusLines(t *testing.T) {
 			t.Fatal("a bad address was taken")
 		}
 	})
+	t.Run("public network", func(t *testing.T) {
+		n := newNode(t, func(c *Config) { c.OnPublicNetwork = func(netip.Addr) bool { return true } })
+		n.run()
+		_ = n.srv.Set(true, false, "")
+		eventually(t, "running", func() bool { return n.srv.Status().Running })
+		if st := n.srv.Status(); !strings.Contains(st.Line, "Public") {
+			t.Fatalf("status %+v", st)
+		}
+	})
 	t.Run("port taken", func(t *testing.T) {
 		busy, err := net.Listen("tcp4", "127.0.0.1:0")
 		if err != nil {
@@ -329,6 +338,27 @@ func TestServerStatusLines(t *testing.T) {
 		if set, _ := LoadSettings(n.dir); set.Port != st.Port {
 			t.Fatalf("the new port isn't saved: %d", set.Port)
 		}
+	})
+}
+
+// Global IPv6 addresses go into node.addr only while "Reachable from
+// outside home" is on.
+func TestIPv6OnlyWithOutside(t *testing.T) {
+	v6 := netip.MustParseAddr("2001:db8::7")
+	n := newNode(t, func(c *Config) { c.V6Addrs = func() []netip.Addr { return []netip.Addr{v6} } })
+	n.run()
+	_ = n.srv.Set(true, false, "")
+	eventually(t, "a home-only row", func() bool {
+		r := n.rows()
+		return len(r) == 1 && r[0].Reach == mesh.ReachUnmapped
+	})
+	if r := n.rows()[0]; len(r.V6) != 0 {
+		t.Fatalf("home-only row lists IPv6: %+v", r)
+	}
+	_ = n.srv.Set(true, true, "")
+	eventually(t, "a row with IPv6", func() bool {
+		r := n.rows()
+		return len(r) == 2 && len(r[1].V6) == 1 && r[1].V6[0] == v6.String()
 	})
 }
 
@@ -378,8 +408,8 @@ func TestRevokeDropsTheHubConnectionAndTURN(t *testing.T) {
 	tctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	creds, err := c.TURN(tctx)
-	if err != nil || !strings.HasSuffix(creds.Username, ":"+other) {
-		t.Fatalf("TURN creds %q %v", creds.Username, err)
+	if err != nil || creds.Username == "" || strings.Contains(creds.Username, other) {
+		t.Fatalf("TURN creds %q %v (the username must not name the device)", creds.Username, err)
 	}
 	if err := n.srv.authorizeTURN(other); err != nil {
 		t.Fatalf("TURN refuses a certified device: %v", err)

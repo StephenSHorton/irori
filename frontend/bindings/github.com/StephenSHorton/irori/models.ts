@@ -1005,6 +1005,13 @@ export class HomeServerView {
     "line"?: string;
 
     /**
+     * LAN is the one line, on any device, when devices on its network
+     * can't find it directly (the LAN carrier couldn't open, or has nowhere
+     * to send).
+     */
+    "lan"?: string;
+
+    /**
      * Remote is the one line about another device's server, when this
      * device can't reach it.
      */

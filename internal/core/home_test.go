@@ -130,6 +130,11 @@ func TestCoresOverTheHomeServer(t *testing.T) {
 	if hs := pc.c.HomeServer(); !hs.Running || hs.Reach != home.ReachOutside || hs.Address != addr {
 		t.Fatalf("home server %+v, add screen %q", hs, addr)
 	}
+	// The address shown is the one the node.addr row gives devices.
+	wait(t, "the add screen's address is the row's", func() bool {
+		row, ok := pc.c.servers.Row(pc.id())
+		return ok && row.Outside() == addr
+	})
 	if _, err := mac.c.Pairing().JoinVia(st.Code, addr); err != nil {
 		t.Fatal(err)
 	}
@@ -188,4 +193,18 @@ func joinWords(w []string) string {
 		out += s
 	}
 	return out
+}
+
+// A hub still connecting within reachGrace isn't unreachable; past it, it
+// is, and an up one never is.
+func TestRemoteServersGrace(t *testing.T) {
+	now := time.Now()
+	got := remoteServers([]roomnet.HubState{
+		{ID: "new", Since: now.Add(-reachGrace / 2)},
+		{ID: "old", Since: now.Add(-2 * reachGrace)},
+		{ID: "up", Up: true, Since: now.Add(-2 * reachGrace)},
+	}, now)
+	if len(got) != 3 || got[0].Unreachable || !got[1].Unreachable || got[2].Unreachable {
+		t.Fatalf("remote servers %+v", got)
+	}
 }

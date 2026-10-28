@@ -64,7 +64,11 @@ func (l *testLAN) conn() net.PacketConn {
 type how struct {
 	lan  *testLAN          // on this LAN; nil: no LAN carrier
 	host bool              // runs a hub on 127.0.0.1, as a home server does
+	turn bool              // the hub's port also runs TURN (UDP, and TCP through SplitTCP)
 	dial map[string]string // home servers to dial: device id → address
+	// relayOnly forces relay-only ICE, so a connection can only come up
+	// through a home server's TURN.
+	relayOnly bool
 }
 
 type dev struct {
@@ -141,14 +145,14 @@ func (d *dev) start(h how) {
 	}
 	o := Options{Self: d.id(), Pub: d.ident.DevicePub(), Sign: d.ident.Sign, Servers: d.servers,
 		Expect:       func(id string, pub ed25519.PublicKey) error { return mesh.CheckDevice(d.chain, d.id(), id, pub) },
-		LoopbackOnly: true, NoLAN: h.lan == nil, Logf: d.logf}
+		LoopbackOnly: true, RelayOnly: h.relayOnly, NoLAN: h.lan == nil, Logf: d.logf}
 	if h.lan != nil {
 		o.LANConn = h.lan.conn()
 		o.LANTargets = func() []netip.AddrPort { return []netip.AddrPort{h.lan.lan.Broadcast()} }
 	}
 	d.tr = New(o)
 	if h.host {
-		d.host()
+		d.host(h.turn)
 	}
 	d.node = mesh.New(mesh.Options{Store: d.st, Ident: d.ident, Chain: d.chain, Net: d.tr, Version: "0.4.0-test", Files: d.files,
 		Intervals: mesh.Intervals{Presence: 200 * time.Millisecond, Ping: 200 * time.Millisecond, Vector: 300 * time.Millisecond},
@@ -172,11 +176,49 @@ func (d *dev) start(h how) {
 
 // host runs a real hub on 127.0.0.1 for this device's rooms, admitting the
 // person's certified devices and bridging guest topics onto its LAN, as
-// the home server does (internal/home adds TURN and port mapping).
-func (d *dev) host() {
-	ln, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		d.t.Fatal(err)
+// the home server does (internal/home adds port mapping). With withTURN,
+// the same port number runs TURN as internal/home sets it up, except that
+// relayed sockets are on 127.0.0.1 and may relay to loopback.
+func (d *dev) host(withTURN bool) {
+	var ln net.Listener
+	var udp net.PacketConn
+	for range 20 {
+		var err error
+		if ln, err = net.Listen("tcp4", "127.0.0.1:0"); err != nil {
+			d.t.Fatal(err)
+		}
+		if !withTURN {
+			break
+		}
+		if udp, err = net.ListenPacket("udp4", ln.Addr().String()); err == nil {
+			break
+		}
+		ln.Close()
+		ln = nil
+	}
+	if ln == nil {
+		d.t.Fatal("no port free for TCP and UDP both")
+	}
+	var ts *room.TURNServer
+	hubLn := ln
+	if withTURN {
+		var turnLn net.Listener
+		hubLn, turnLn = room.SplitTCP(ln)
+		cfg := room.TURNConfig{UDP: udp, TCP: turnLn, RelayIP: netip.MustParseAddr("127.0.0.1"),
+			Authorize: func(user string) error {
+				if _, ok := d.chain.Cert(user); !ok {
+					return mesh.ErrRefused
+				}
+				return nil
+			},
+			AllowPeer: func(string, netip.Addr) bool { return true }, // loopback, for the test
+			Logf:      d.logf}
+		_, _ = rand.Read(cfg.Key[:])
+		var err error
+		if ts, err = room.NewTURN(cfg); err != nil {
+			d.t.Fatal(err)
+		}
+		d.t.Cleanup(ts.Close)
 	}
 	hub, err := room.NewHub(room.HubConfig{
 		Self:     d.id(),
@@ -184,6 +226,7 @@ func (d *dev) host() {
 		Authorize: func(id string, pub ed25519.PublicKey) error {
 			return mesh.CheckDevice(d.chain, d.id(), id, pub)
 		},
+		TURN:   ts,
 		Bridge: d.tr.LAN(),
 		Limits: room.HubLimits{FailBackoff: -1},
 		Logf:   d.logf,
@@ -191,9 +234,18 @@ func (d *dev) host() {
 	if err != nil {
 		d.t.Fatal(err)
 	}
-	go func() { _ = hub.Serve(ln) }()
-	d.tr.SetLocal(hub, nil)
+	go func() { _ = hub.Serve(hubLn) }()
 	d.hub, d.hubAddr = hub, ln.Addr().String()
+	var ice func() []room.ICEServer
+	if ts != nil {
+		addr := d.hubAddr
+		ice = func() []room.ICEServer {
+			c := ts.Issue(d.id())
+			return []room.ICEServer{{URLs: []string{"turn:" + addr + "?transport=udp", "turn:" + addr + "?transport=tcp"},
+				Username: c.Username, Credential: c.Credential}}
+		}
+	}
+	d.tr.SetLocal(hub, ice)
 }
 
 // writeAddr writes this device's node.addr for its hub, as the home server
@@ -518,5 +570,45 @@ func TestICENeverListsPublicSTUN(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// The away-from-home path: with relay-only ICE on both devices, the only
+// way up is through the home server's TURN, with credentials from turn.get
+// over its hub and the URLs roomnet builds from the hub's address.
+func TestTwoNodesConnectThroughTheServersTURN(t *testing.T) {
+	ctx := context.Background()
+	a := newDev(t, "pc", "")
+	b := newDev(t, "mac", a.dir)
+	certify(t, a, b)
+	eb, err := b.st.Append(ctx, "irori", store.KindAgentSeen, map[string]any{"key": b.id() + "/s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.start(how{host: true, turn: true, relayOnly: true})
+	b.start(how{dial: map[string]string{a.id(): a.hubAddr}, relayOnly: true})
+	eventually(t, "b's row crosses a relayed connection", 60*time.Second, func() bool { return a.has(eb) })
+	for _, p := range a.node.Status().Peers {
+		if p.DeviceID == b.id() && p.State == "connected" {
+			if p.Path != "relay" {
+				t.Fatalf("path %q, want relay", p.Path)
+			}
+			return
+		}
+	}
+	t.Fatalf("a's view of b: %+v", a.node.Status().Peers)
+}
+
+// Devices says why the LAN carrier sends nothing.
+func TestLANErrorWithNowhereToSend(t *testing.T) {
+	tr := New(Options{Self: "me", LANConn: room.NewMemLAN().Conn(netip.MustParseAddrPort("10.0.0.9:38419")),
+		LANTargets: func() []netip.AddrPort { return nil }})
+	defer tr.Close()
+	if tr.LANError() != "" {
+		t.Fatal("a LAN error before anything opened the carrier")
+	}
+	_ = tr.LAN()
+	if !strings.Contains(tr.LANError(), "Public") {
+		t.Fatalf("LANError %q", tr.LANError())
 	}
 }

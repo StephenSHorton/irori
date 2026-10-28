@@ -117,10 +117,13 @@ type Config struct {
 	Wanted func() bool
 
 	// Tests replace these. ListenTCP and ListenUDP bind port N (default:
-	// the wildcard address, which is the point of the server); LANAddrs is
-	// this machine's private IPv4 addresses, the first being where TURN
-	// relays from (default: go-room's LocalSubnets); V6Addrs its global
-	// IPv6 addresses; Discover finds the router (default: SSDP, then
+	// the wildcard address, which is the point of the server: IPv4 only
+	// while "Reachable from outside home" is off, IPv4 and IPv6 while it is
+	// on, so global IPv6 addresses take connections only when the person
+	// asked for that); LANAddrs is this machine's private IPv4 addresses on
+	// the home network, the first being where TURN relays from (default:
+	// go-room's LocalSubnets on the default gateway's subnet); V6Addrs its
+	// global IPv6 addresses; Discover finds the router (default: SSDP, then
 	// NAT-PMP at the default gateway); AllowPeer is TURN's peer filter
 	// (default: go-room's private-subnet rule).
 	ListenTCP func(port int) (net.Listener, error)
@@ -129,6 +132,9 @@ type Config struct {
 	V6Addrs   func() []netip.Addr
 	Discover  func(ctx context.Context) ([]portmap.Gateway, error)
 	AllowPeer func(user string, ip netip.Addr) bool
+	// OnPublicNetwork reports an address on a network Windows has on the
+	// Public profile (default: go-room's).
+	OnPublicNetwork func(ip netip.Addr) bool
 	// Every is how often addresses are checked for a change (default 30 s).
 	Every time.Duration
 	Now   func() time.Time
@@ -152,6 +158,7 @@ type Server struct {
 // running is everything a started server holds.
 type running struct {
 	port   int
+	dual   bool // the default listeners took IPv6 too (outside on)
 	lanIP  netip.Addr
 	tcp    net.Listener
 	udp    net.PacketConn
@@ -170,12 +177,6 @@ func New(cfg Config) *Server {
 	}
 	if cfg.Every <= 0 {
 		cfg.Every = 30 * time.Second
-	}
-	if cfg.ListenTCP == nil {
-		cfg.ListenTCP = func(port int) (net.Listener, error) { return net.Listen("tcp", ":"+strconv.Itoa(port)) }
-	}
-	if cfg.ListenUDP == nil {
-		cfg.ListenUDP = func(port int) (net.PacketConn, error) { return net.ListenPacket("udp4", ":"+strconv.Itoa(port)) }
 	}
 	if cfg.LANAddrs == nil {
 		cfg.LANAddrs = lanAddrs
@@ -291,6 +292,11 @@ func (s *Server) reconcile(ctx context.Context) {
 		s.stop()
 		r = nil
 	}
+	if r != nil && s.defaultListen() && r.dual != set.OutsideOn() {
+		// IPv6 is listened on only while outside is on.
+		s.stop()
+		r = nil
+	}
 	if r == nil {
 		if err := s.start(); err != nil {
 			s.cfg.Logf("home: %v", err)
@@ -306,6 +312,35 @@ func (s *Server) reconcile(ctx context.Context) {
 			s.write(ctx, a)
 		}
 	}
+}
+
+func (s *Server) defaultListen() bool { return s.cfg.ListenTCP == nil && s.cfg.ListenUDP == nil }
+
+// listen binds TCP and UDP port N: the configured listeners, or the
+// wildcard address, IPv6 included only when dual.
+func (s *Server) listen(port int, dual bool) (net.Listener, net.PacketConn, error) {
+	tcpNet, udpNet := "tcp4", "udp4"
+	if dual {
+		tcpNet, udpNet = "tcp", "udp"
+	}
+	listenTCP := s.cfg.ListenTCP
+	if listenTCP == nil {
+		listenTCP = func(port int) (net.Listener, error) { return net.Listen(tcpNet, ":"+strconv.Itoa(port)) }
+	}
+	listenUDP := s.cfg.ListenUDP
+	if listenUDP == nil {
+		listenUDP = func(port int) (net.PacketConn, error) { return net.ListenPacket(udpNet, ":"+strconv.Itoa(port)) }
+	}
+	tcp, err := listenTCP(port)
+	if err != nil {
+		return nil, nil, err
+	}
+	udp, err := listenUDP(port)
+	if err != nil {
+		tcp.Close()
+		return nil, nil, err
+	}
+	return tcp, udp, nil
 }
 
 func (s *Server) primary() netip.Addr {
@@ -330,22 +365,14 @@ func (s *Server) start() error {
 	var tcp net.Listener
 	var udp net.PacketConn
 	var lastErr error
+	dual := set.OutsideOn()
 	for try := range 8 {
 		if try > 0 {
 			port = pickPort()
 		}
-		var err error
-		if tcp, err = s.cfg.ListenTCP(port); err != nil {
-			lastErr = err
-			continue
+		if tcp, udp, lastErr = s.listen(port, dual); lastErr == nil {
+			break
 		}
-		if udp, err = s.cfg.ListenUDP(port); err != nil {
-			tcp.Close()
-			lastErr = err
-			continue
-		}
-		lastErr = nil
-		break
 	}
 	if lastErr != nil {
 		return fmt.Errorf("can't listen on a port: %w", lastErr)
@@ -363,7 +390,7 @@ func (s *Server) start() error {
 		}
 	}
 	hubLn, turnLn := room.SplitTCP(tcp)
-	r := &running{port: port, lanIP: s.primary(), tcp: tcp, udp: udp}
+	r := &running{port: port, dual: dual, lanIP: s.primary(), tcp: tcp, udp: udp}
 	self := s.cfg.Ident.Device.ID
 	if r.lanIP.IsValid() {
 		key, err := s.cfg.Ident.LoadOrCreateSecret(KeyFile)
@@ -394,9 +421,10 @@ func (s *Server) start() error {
 		// topics this device's own rooms have open (its mesh topics) and
 		// to open guest topics, so the hub carries nothing it didn't
 		// compute or a certified device didn't open (§8).
-		TURN:   r.turn,
-		Bridge: s.cfg.Net.LAN(),
-		Logf:   s.cfg.Logf,
+		TURN:      r.turn,
+		PublicUDP: func() netip.AddrPort { return s.publicUDP(r) },
+		Bridge:    s.cfg.Net.LAN(),
+		Logf:      s.cfg.Logf,
 	})
 	if err != nil {
 		if r.turn != nil {
@@ -431,6 +459,27 @@ func (s *Server) ice(r *running) []room.ICEServer {
 		{URLs: []string{"stun:" + host}},
 		{URLs: []string{"turn:" + host + "?transport=udp", "turn:" + host + "?transport=tcp"}, Username: c.Username, Credential: c.Credential},
 	}
+}
+
+// publicUDP is where the router mapped TURN's UDP port, for a guest that
+// dialed the public TCP address (go-room puts it in turn.creds).
+func (s *Server) publicUDP(r *running) netip.AddrPort {
+	s.mu.Lock()
+	m := r.mapper
+	s.mu.Unlock()
+	if m == nil {
+		return netip.AddrPort{}
+	}
+	st := m.Status()
+	if st.State != portmap.StateOK || !st.External.IsValid() {
+		return netip.AddrPort{}
+	}
+	for _, p := range st.Ports {
+		if p.Proto == "udp" {
+			return netip.AddrPortFrom(st.External, p.External)
+		}
+	}
+	return netip.AddrPort{}
 }
 
 // authorizeTURN is asked on every authenticated TURN request, the
@@ -494,9 +543,22 @@ func (s *Server) syncMapper() {
 		}
 		return v
 	}
+	// What an earlier run mapped may still be on the router: a crash or a
+	// kill skips the removal, and a permanent lease stays forever. go-room
+	// removes these first, if they still point at this PC as "irori".
+	var stale []portmap.Port
+	for _, p := range []portmap.Port{{Proto: "tcp", External: set.TCPExternal}, {Proto: "udp", External: set.UDPExternal}} {
+		if p.External != 0 {
+			stale = append(stale, p)
+		}
+	}
+	if s.moved != 0 {
+		stale = append(stale, portmap.Port{Proto: "tcp", External: uint16(s.moved)}, portmap.Port{Proto: "udp", External: uint16(s.moved)})
+	}
 	r.mapper = portmap.Start(portmap.Config{
 		Ports:       []portmap.Port{{Proto: "tcp", Internal: n, External: ext(set.TCPExternal)}, {Proto: "udp", Internal: n, External: ext(set.UDPExternal)}},
 		Discover:    s.cfg.Discover,
+		Stale:       stale,
 		Description: "irori",
 		OnChange:    func(portmap.Status) { s.Kick() },
 		Logf:        s.cfg.Logf,
@@ -545,8 +607,12 @@ func (s *Server) addr() (mesh.NodeAddr, bool) {
 			a.LAN = append(a.LAN, ip.String())
 		}
 	}
-	for _, ip := range s.cfg.V6Addrs() {
-		a.V6 = append(a.V6, ip.String())
+	if set.OutsideOn() {
+		// Global IPv6 addresses are dialable from outside: listed (and
+		// listened on) only when the person asked for that.
+		for _, ip := range s.cfg.V6Addrs() {
+			a.V6 = append(a.V6, ip.String())
+		}
 	}
 	switch {
 	case set.Public != "":
@@ -693,7 +759,17 @@ func (s *Server) Status() Status {
 	if moved != 0 && moved != r.port {
 		st.Line = fmt.Sprintf("Port %d was taken, so the server moved to port %d. If you forwarded port %d on your router, forward %d instead.", moved, r.port, moved, r.port)
 	}
+	if r.lanIP.IsValid() && s.onPublic(r.lanIP) {
+		st.Line = "Windows has this network as Public, so it keeps your other devices from reaching this PC. In Windows Settings, open Network & internet and set this network to Private."
+	}
 	return st
+}
+
+func (s *Server) onPublic(ip netip.Addr) bool {
+	if s.cfg.OnPublicNetwork != nil {
+		return s.cfg.OnPublicNetwork(ip)
+	}
+	return room.OnPublicNetwork(ip)
 }
 
 // splitPublic reads a typed public address: host or host:port.
@@ -709,10 +785,11 @@ func splitPublic(in string, port int) (string, int, error) {
 
 func pickPort() int { return portMin + rand.IntN(portMax-portMin+1) }
 
-// lanAddrs is this machine's private IPv4 addresses on up interfaces, the
-// one on the default gateway's subnet first: TURN relays from the first,
-// and virtual adapters (Hyper-V, WSL, Docker, VPNs) have private addresses
-// too, which devices on the home network can't reach.
+// lanAddrs is this machine's private IPv4 addresses on up interfaces on
+// the default gateway's subnet (all of them while the gateway is unknown):
+// TURN relays from the first, and virtual adapters (Hyper-V, WSL, Docker,
+// VPNs) have private addresses too, which devices on the home network
+// can't reach and node.addr needn't carry.
 func lanAddrs() []netip.Addr {
 	var out []netip.Addr
 	var gwSub []netip.Addr
@@ -729,16 +806,9 @@ func lanAddrs() []netip.Addr {
 			}
 		}
 	}
-	slices.SortStableFunc(out, func(a, b netip.Addr) int {
-		ina, inb := slices.Contains(gwSub, a), slices.Contains(gwSub, b)
-		switch {
-		case ina && !inb:
-			return -1
-		case inb && !ina:
-			return 1
-		}
-		return 0
-	})
+	if len(gwSub) > 0 {
+		return gwSub
+	}
 	return out
 }
 
@@ -757,12 +827,17 @@ func gatewayFor(addrs []netip.Addr) netip.Addr {
 	if gwCache.key == key {
 		return gwCache.gw
 	}
-	gwCache.key, gwCache.gw = key, netip.Addr{}
-	if ip, err := gateway.DiscoverGateway(); err == nil {
-		if g, ok := netip.AddrFromSlice(ip); ok {
-			gwCache.gw = g.Unmap()
-		}
+	// A failed lookup isn't cached: the next check (every 30 s) tries
+	// again, or TURN could stay on a virtual adapter's address.
+	ip, err := gateway.DiscoverGateway()
+	if err != nil {
+		return netip.Addr{}
 	}
+	g, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return netip.Addr{}
+	}
+	gwCache.key, gwCache.gw = key, g.Unmap()
 	return gwCache.gw
 }
 

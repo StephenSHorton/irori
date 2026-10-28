@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/home"
+	"github.com/StephenSHorton/irori/internal/mesh/roomnet"
 )
 
 // The home server (v0.4 §7.1, decision 33) as the Devices dialog sees it.
@@ -66,9 +67,15 @@ func (c *Core) RemoteServers() []RemoteServer {
 	if c.rt == nil {
 		return nil
 	}
+	return remoteServers(c.rt.Hubs(), time.Now())
+}
+
+// remoteServers is RemoteServers from the transport's hubs at now: a hub
+// still connecting within reachGrace isn't reported as unreachable.
+func remoteServers(hubs []roomnet.HubState, now time.Time) []RemoteServer {
 	var out []RemoteServer
-	for _, h := range c.rt.Hubs() {
-		out = append(out, RemoteServer{DeviceID: h.ID, Up: h.Up, Unreachable: !h.Up && time.Since(h.Since) > reachGrace})
+	for _, h := range hubs {
+		out = append(out, RemoteServer{DeviceID: h.ID, Up: h.Up, Unreachable: !h.Up && now.Sub(h.Since) > reachGrace})
 	}
 	return out
 }

@@ -178,10 +178,11 @@ function DeviceRow({
 }
 
 // HomeServer is the Home server section (§7.1, §9). On this device: the
-// switch, "Reachable from outside home", how far it reaches, and one line
-// only when something is wrong (with the public address field when mapping
-// failed). Elsewhere: one line only when your home server can't be
-// reached. Advanced holds the relay you run or rent elsewhere.
+// switch, "Reachable from outside home", a word on reach only when it
+// falls short, and one line only when something is wrong (with the public
+// address field when mapping failed). On every device: a line when this
+// one can't be found on its network, and one when your home server can't
+// be reached. Advanced holds the relay you run or rent elsewhere.
 function HomeServer({ open }: { open: boolean }) {
   const [hs, setHs] = useState<HomeServerView | null>(null)
   const [publicAddr, setPublicAddr] = useState("")
@@ -215,17 +216,13 @@ function HomeServer({ open }: { open: boolean }) {
 
   if (!hs) return null
   const reach =
-    hs.reach === "outside"
-      ? "reachable at home and from outside"
-      : hs.reach === "forward"
-        ? "reachable at home; outside needs a port forward"
-        : hs.reach === "cgnat"
-          ? "reachable at home only"
-          : hs.reach === "home"
-            ? "reachable at home"
-            : hs.on
-              ? "starts once you have another device"
-              : ""
+    hs.reach === "forward"
+      ? "reachable at home; outside needs a port forward"
+      : hs.reach === "cgnat"
+        ? "reachable at home only"
+        : hs.on && !hs.running
+          ? "starts once you have another device"
+          : ""
   const askPublic =
     hs.on && hs.outside && (hs.reach === "forward" || !!hs.public)
   return (
@@ -238,7 +235,6 @@ function HomeServer({ open }: { open: boolean }) {
               {reach && (
                 <small className="block text-xs text-muted-foreground">
                   {reach}
-                  {hs.port ? ` · port ${hs.port}` : ""}
                 </small>
               )}
             </label>
@@ -248,11 +244,12 @@ function HomeServer({ open }: { open: boolean }) {
               onCheckedChange={(v) => void set(v, hs.outside, hs.public ?? "")}
             />
           </div>
-          {!hs.on && hs.suggest && (
+          {!hs.on && (
             <p className="text-xs text-muted-foreground">
-              This is your always-on device: run the server here so your devices
-              reach each other from anywhere. Windows asks once to allow Irori
-              on private networks; the server needs it.
+              {hs.suggest &&
+                "This is your always-on device: run the server here so your devices reach each other from anywhere. "}
+              Windows asks once to allow Irori on private networks; the server
+              needs it.
             </p>
           )}
           {hs.on && (
@@ -299,21 +296,20 @@ function HomeServer({ open }: { open: boolean }) {
           )}
         </>
       )}
+      {hs.lan && <p className="text-xs text-warning">{plainLine(hs.lan)}</p>}
       {hs.remote && (
         <p className="text-xs text-warning">{plainLine(hs.remote)}</p>
       )}
       {error && <span className="text-xs text-destructive">{error}</span>}
-      {advanced ? (
-        <Relay open={open} />
-      ) : (
-        <button
-          type="button"
-          className="justify-self-start text-xs text-muted-foreground underline-offset-2 hover:underline"
-          onClick={() => setAdvanced(true)}
-        >
-          Advanced
-        </button>
-      )}
+      <button
+        type="button"
+        aria-expanded={advanced}
+        className="justify-self-start text-xs text-muted-foreground underline-offset-2 hover:underline"
+        onClick={() => setAdvanced((v) => !v)}
+      >
+        {advanced ? "Hide advanced" : "Advanced"}
+      </button>
+      {advanced && <Relay open={open} />}
     </div>
   )
 }

@@ -55,7 +55,10 @@ type Options struct {
 	// LoopbackOnly keeps every candidate on 127.0.0.1 (tests): nothing
 	// binds a LAN address or raises a firewall dialog.
 	LoopbackOnly bool
-	Logf         func(format string, args ...any)
+	// RelayOnly makes every connection go through a TURN relay (tests that
+	// prove the away-from-home path).
+	RelayOnly bool
+	Logf      func(format string, args ...any)
 }
 
 // Transport opens go-room rooms. Nothing touches the network until the
@@ -72,8 +75,18 @@ type Transport struct {
 	hubs    map[string]*hubConn
 	local   *local
 	legs    map[*muxLeg]struct{}
-	guests  map[string]time.Time // pairing topics open to guests, until
-	carMu   sync.Mutex           // serializes adding and removing carriers
+	guests  map[string]guestWindow // pairing topics open to guests
+	carMu   sync.Mutex             // serializes adding and removing carriers
+	quit    chan struct{}          // closed by Close
+}
+
+// guestWindow is one pairing topic open to guests: until when, and the
+// context every hub's guest.open waits under, which closeGuests cancels so
+// a hub that comes up after the pairing closed doesn't open it again.
+type guestWindow struct {
+	until  time.Time
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // hubConn is one home server's hub this device is a member of, and the
@@ -92,7 +105,14 @@ type local struct {
 	ice func() []room.ICEServer
 }
 
-const localKey = "\x00local"
+const (
+	localKey = "\x00local"
+	lanKey   = "\x00lan"
+)
+
+// lanRetry is how often a LAN carrier that couldn't open (its port was
+// taken) is tried again. A variable so tests can run fast.
+var lanRetry = 30 * time.Second
 
 var _ mesh.Transport = (*Transport)(nil)
 
@@ -104,7 +124,8 @@ func New(o Options) *Transport {
 	if o.LANPort == 0 {
 		o.LANPort = mesh.LANPort
 	}
-	t := &Transport{o: o, hubs: map[string]*hubConn{}, legs: map[*muxLeg]struct{}{}, guests: map[string]time.Time{}}
+	t := &Transport{o: o, hubs: map[string]*hubConn{}, legs: map[*muxLeg]struct{}{}, guests: map[string]guestWindow{},
+		quit: make(chan struct{})}
 	if o.Servers != nil {
 		o.Servers.OnChange(t.refresh)
 	}
@@ -120,18 +141,55 @@ func (t *Transport) start() {
 		return
 	}
 	t.started = true
-	if !t.o.NoLAN {
-		lan, err := room.OpenLAN(room.LANConfig{Port: t.o.LANPort, Conn: t.o.LANConn, Targets: t.o.LANTargets, Logf: t.o.Logf})
-		if err != nil {
-			// The hub still works; Devices says why the LAN is off.
-			t.lanErr = err.Error()
+	t.mu.Unlock()
+	if !t.o.NoLAN && !t.openLAN() {
+		go t.retryLAN()
+	}
+	t.refresh()
+}
+
+// openLAN opens the LAN carrier and adds it to every room; false when it
+// couldn't (the hub still works, and Devices says why the LAN is off).
+func (t *Transport) openLAN() bool {
+	lan, err := room.OpenLAN(room.LANConfig{Port: t.o.LANPort, Conn: t.o.LANConn, Targets: t.o.LANTargets, Logf: t.o.Logf})
+	t.carMu.Lock()
+	defer t.carMu.Unlock()
+	t.mu.Lock()
+	if err != nil {
+		if t.lanErr != err.Error() {
 			t.o.Logf("roomnet: the LAN carrier is off: %v", err)
-		} else {
-			t.lan = lan
+		}
+		t.lanErr = err.Error()
+		t.mu.Unlock()
+		return false
+	}
+	if t.closed {
+		t.mu.Unlock()
+		lan.Close()
+		return true
+	}
+	t.lan, t.lanErr = lan, ""
+	legs := t.legList()
+	t.mu.Unlock()
+	for _, l := range legs {
+		l.add(lanKey, lan.Carrier(), "")
+	}
+	return true
+}
+
+// retryLAN tries the LAN carrier again until it opens or the transport
+// closes: a port another program held a moment ago may be free now.
+func (t *Transport) retryLAN() {
+	for {
+		select {
+		case <-t.quit:
+			return
+		case <-time.After(lanRetry):
+		}
+		if t.openLAN() {
+			return
 		}
 	}
-	t.mu.Unlock()
-	t.refresh()
 }
 
 // LAN is the LAN carrier (opening it if nothing has yet), for the home
@@ -143,12 +201,21 @@ func (t *Transport) LAN() *room.LAN {
 	return t.lan
 }
 
-// LANError says why the LAN carrier is off ("" while it runs or before
-// anything opened it).
+// LANError says, in a sentence for Devices, why devices on this network
+// can't find this one directly: the LAN carrier couldn't open, or it has
+// nowhere to send (no private network, or Windows has every one as
+// Public). "" while it works or before anything opened it.
 func (t *Transport) LANError() string {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.lanErr
+	lan, lanErr, started := t.lan, t.lanErr, t.started
+	t.mu.Unlock()
+	switch {
+	case lanErr != "":
+		return fmt.Sprintf("Irori can't use UDP port %d on this device, so devices on this network can't find it directly. Another program may be using it; Irori tries again on its own.", t.o.LANPort)
+	case started && lan != nil && len(lan.Targets()) == 0:
+		return "Devices on this network can't find this one directly: Windows has this network as Public, or this device isn't on a home network. In Windows Settings, open Network & internet and set your home network to Private."
+	}
+	return ""
 }
 
 // SetLocal makes this device's own home server's hub a carrier of every
@@ -174,8 +241,8 @@ func (t *Transport) SetLocal(hub *room.Hub, ice func() []room.ICEServer) {
 		}
 	}
 	if hub != nil && (old == nil || old.hub != hub) {
-		for topic, until := range guests {
-			_ = hub.OpenGuest(topic, time.Until(until))
+		for topic, g := range guests {
+			_ = hub.OpenGuest(topic, time.Until(g.until))
 		}
 	}
 }
@@ -227,8 +294,8 @@ func (t *Transport) refresh() {
 		for _, l := range legs {
 			l.add(h.id, h.client.Carrier(), h.id)
 		}
-		for topic, until := range guests {
-			go openGuest(h.client, topic, until)
+		for topic, g := range guests {
+			go openGuest(g.ctx, h.client, topic, g.until)
 		}
 	}
 }
@@ -236,6 +303,8 @@ func (t *Transport) refresh() {
 // dialHub starts a member connection to server id. t.mu is held.
 func (t *Transport) dialHub(id string) *hubConn {
 	ident := room.Identity{Pub: t.o.Pub, Sign: t.o.Sign}
+	var relay *room.Relay
+	var relayMu sync.Mutex
 	c := room.DialHub(room.HubDialConfig{
 		Self:     t.o.Self,
 		Identity: &ident,
@@ -251,9 +320,22 @@ func (t *Transport) dialHub(id string) *hubConn {
 		},
 		Dial:     t.o.Dial,
 		TURNURIs: func(addr string) []string { return t.turnURIs(id, addr) },
-		Logf:     t.o.Logf,
+		// TURN credentials are fetched again as soon as the hub is back,
+		// not after a backoff that grew while it was down.
+		OnUp: func() {
+			relayMu.Lock()
+			r := relay
+			relayMu.Unlock()
+			if r != nil {
+				r.Kick()
+			}
+		},
+		Logf: t.o.Logf,
 	})
 	r := room.NewRelay(room.RelayConfig{Fetch: c.TURN, Logf: scrubbed(t.o.Logf)}, t.o.Self, nil)
+	relayMu.Lock()
+	relay = r
+	relayMu.Unlock()
 	r.Start()
 	return &hubConn{id: id, client: c, relay: r, since: time.Now()}
 }
@@ -281,12 +363,14 @@ func (t *Transport) turnURIs(id, addr string) []string {
 	return []string{"stun:" + hu, "turn:" + hu + "?transport=udp", "turn:" + addr + "?transport=tcp"}
 }
 
-func openGuest(c *room.HubClient, topic string, until time.Time) {
+// openGuest opens topic to guests on one hub, waiting for its connection
+// until the window ends or ctx (the window's) is cancelled.
+func openGuest(ctx context.Context, c *room.HubClient, topic string, until time.Time) {
 	ttl := time.Until(until)
 	if ttl <= 0 {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), ttl)
+	ctx, cancel := context.WithTimeout(ctx, ttl)
 	defer cancel()
 	_ = c.OpenGuest(ctx, topic, ttl)
 }
@@ -299,10 +383,10 @@ func (t *Transport) legList() []*muxLeg {
 	return out
 }
 
-func (t *Transport) guestList() map[string]time.Time {
-	out := map[string]time.Time{}
+func (t *Transport) guestList() map[string]guestWindow {
+	out := map[string]guestWindow{}
 	for k, v := range t.guests {
-		if time.Until(v) > 0 {
+		if time.Until(v.until) > 0 {
 			out[k] = v
 		}
 	}
@@ -433,6 +517,9 @@ func scrubbed(logf func(string, ...any)) func(string, ...any) {
 func (t *Transport) Close() {
 	t.carMu.Lock()
 	t.mu.Lock()
+	if !t.closed {
+		close(t.quit)
+	}
 	r := t.relay
 	t.closed, t.relay = true, nil
 	hubs := t.hubs
@@ -463,7 +550,6 @@ func (t *Transport) Join(s mesh.Secret, cfg mesh.RoomConfig) (mesh.Room, error) 
 		t.mu.Unlock()
 		return nil, room.ErrClosed
 	}
-	lan := t.lan
 	t.mu.Unlock()
 	r := &roomConn{t: t, topic: s.Topic, ready: make(chan struct{})}
 	so := room.SignalOptions{
@@ -487,23 +573,34 @@ func (t *Transport) Join(s mesh.Secret, cfg mesh.RoomConfig) (mesh.Room, error) 
 			}
 		},
 	}
+	// The LAN carrier and every hub ride in one mux, so carriers that come
+	// later (a hub's row arrives, the LAN port frees up) join this room.
 	carriers := []room.Carrier{muxCarrier{t}}
-	if lan != nil {
-		carriers = append(carriers, lan.Carrier())
-	}
 	var guest *hubConn
 	if cfg.HubAddr != "" {
 		// The joining device away from home: the typed address's hub admits
 		// it as a guest of this pairing room only (§3).
 		addr := cfg.HubAddr
+		var gr *room.Relay
+		var grMu sync.Mutex
 		c := room.DialHub(room.HubDialConfig{
 			Self:       t.o.Self,
 			GuestTopic: s.Topic,
 			Addrs:      func() []string { return []string{addr} },
 			Dial:       t.o.Dial,
-			Logf:       t.o.Logf,
+			OnUp: func() {
+				grMu.Lock()
+				r := gr
+				grMu.Unlock()
+				if r != nil {
+					r.Kick()
+				}
+			},
+			Logf: t.o.Logf,
 		})
-		gr := room.NewRelay(room.RelayConfig{Fetch: c.TURN, Logf: scrubbed(t.o.Logf)}, t.o.Self, nil)
+		grMu.Lock()
+		gr = room.NewRelay(room.RelayConfig{Fetch: c.TURN, Logf: scrubbed(t.o.Logf)}, t.o.Self, nil)
+		grMu.Unlock()
 		gr.Start()
 		guest = &hubConn{client: c, relay: gr}
 		r.guest = guest
@@ -534,6 +631,7 @@ func (t *Transport) Join(s mesh.Secret, cfg mesh.RoomConfig) (mesh.Room, error) 
 	if t.o.LoopbackOnly {
 		rc.Tune = room.LoopbackOnly()
 	}
+	rc.RelayOnly = t.o.RelayOnly
 	m, err := room.NewMesh(sig, rc)
 	if err != nil {
 		sig.Close()
@@ -558,8 +656,13 @@ func (t *Transport) openGuests(topic string, ttl time.Duration) {
 		ttl = room.MaxGuestTTL
 	}
 	until := time.Now().Add(ttl)
+	ctx, cancel := context.WithDeadline(context.Background(), until)
+	g := guestWindow{until: until, ctx: ctx, cancel: cancel}
 	t.mu.Lock()
-	t.guests[topic] = until
+	if old, ok := t.guests[topic]; ok {
+		old.cancel()
+	}
+	t.guests[topic] = g
 	var hubs []*hubConn
 	for _, h := range t.hubs {
 		hubs = append(hubs, h)
@@ -572,12 +675,15 @@ func (t *Transport) openGuests(topic string, ttl time.Duration) {
 		}
 	}
 	for _, h := range hubs {
-		go openGuest(h.client, topic, until)
+		go openGuest(ctx, h.client, topic, until)
 	}
 }
 
 func (t *Transport) closeGuests(topic string) {
 	t.mu.Lock()
+	if g, ok := t.guests[topic]; ok {
+		g.cancel()
+	}
 	delete(t.guests, topic)
 	var hubs []*hubConn
 	for _, h := range t.hubs {
@@ -645,6 +751,9 @@ func (m muxCarrier) Join(topic string, deliver func([]byte, netip.AddrPort), up 
 		c           room.Carrier
 	}
 	var cars []car
+	if t.lan != nil {
+		cars = append(cars, car{lanKey, "", t.lan.Carrier()})
+	}
 	if t.local != nil {
 		cars = append(cars, car{localKey, "", t.local.hub.Local()})
 	}
