@@ -9,11 +9,11 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/api"
 	"github.com/StephenSHorton/irori/internal/core"
-	"github.com/StephenSHorton/irori/internal/discovery"
 	"github.com/StephenSHorton/irori/internal/mesh/roomnet"
 	"github.com/StephenSHorton/irori/internal/pair"
 )
@@ -44,13 +44,15 @@ func runPair(args []string) error {
 	if err != nil {
 		return err
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
 	lines := stdinLines()
 	code, server, err := askJoin(lines, os.Stdout)
 	if err != nil {
 		return err
 	}
+	// Only from here: at the prompts above Ctrl+C ends the command as
+	// usual, and once a join is open it closes that join on the way out.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer stop()
 	side, closeSide, err := openJoin(ctx, opts)
 	if err != nil {
 		return err
@@ -98,7 +100,11 @@ func openJoin(ctx context.Context, opts core.Options) (joinSide, func(), error) 
 	if err == nil {
 		return apiJoin{c}, func() {}, nil
 	}
-	if !errors.Is(err, discovery.ErrNotRunning) {
+	// An Irori that answered with an error is running; anything else (no
+	// lockfile, a dead pid, an unreadable irori.json) goes on to start a
+	// Core, which refuses itself if one does run.
+	var se *api.StatusError
+	if errors.As(err, &se) {
 		return nil, nil, err
 	}
 	pc, stop, err := pairCore(ctx, opts)
@@ -110,21 +116,37 @@ func openJoin(ctx context.Context, opts core.Options) (joinSide, func(), error) 
 
 // joinLoop joins with code, prints the words for the person to type on the
 // other device, takes the other device's key from lines and follows the
-// pairing until it is done, failed or expired.
-func joinLoop(ctx context.Context, side joinSide, code, server string, lines <-chan string, out io.Writer, every time.Duration) error {
-	if _, err := side.Join(ctx, code, server); err != nil {
+// pairing until it is done, failed or expired. Once its join is open, every
+// way out but "Paired." closes it, so the running Core isn't left holding a
+// join nobody follows (and refusing the app's own Add or Join as busy).
+func joinLoop(ctx context.Context, side joinSide, code, server string, lines <-chan string, out io.Writer, every time.Duration) (err error) {
+	first, err := side.Join(ctx, code, server)
+	if err != nil {
 		return err
 	}
+	ours := true
+	defer func() {
+		// Not when the status stopped being this join: that pairing is
+		// someone else's (the app's), and it isn't this command's to close.
+		if err != nil && ours {
+			side.Cancel()
+		}
+	}()
 	fmt.Fprintln(out, "Looking for the other device...")
 	shown := false
 	for {
 		st, err := side.Status(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
-				side.Cancel()
 				return ctx.Err()
 			}
 			return err
+		}
+		// The running Core has one pairing at a time, shared with the app:
+		// once this join ended, the status may be a newer Add or Join.
+		if st.Mode != pair.ModeJoin || !st.Expires.Equal(first.Expires) {
+			ours = false
+			return errors.New("the pairing closed")
 		}
 		switch st.State {
 		case pair.StateWords:
@@ -143,7 +165,6 @@ func joinLoop(ctx context.Context, side joinSide, code, server string, lines <-c
 			select {
 			case line, ok := <-lines:
 				if !ok {
-					side.Cancel()
 					return errors.New("no key typed")
 				}
 				if err := side.Key(ctx, line); errors.Is(err, pair.ErrWrongKey) {
@@ -157,7 +178,6 @@ func joinLoop(ctx context.Context, side joinSide, code, server string, lines <-c
 				}
 				continue
 			case <-ctx.Done():
-				side.Cancel()
 				return ctx.Err()
 			case <-time.After(every):
 			}
@@ -167,6 +187,7 @@ func joinLoop(ctx context.Context, side joinSide, code, server string, lines <-c
 			return nil
 		case pair.StateWaiting:
 		default:
+			ours = false // already closed: nothing to cancel
 			if st.Error == "" {
 				return errors.New("the pairing closed")
 			}
@@ -174,7 +195,6 @@ func joinLoop(ctx context.Context, side joinSide, code, server string, lines <-c
 		}
 		select {
 		case <-ctx.Done():
-			side.Cancel()
 			return ctx.Err()
 		case <-time.After(every):
 		}
