@@ -31,7 +31,8 @@ const BoardInstructions = "The Irori Board is a shared scratch pad for live coor
 	"Put those wherever this project or your instructions say (Linear, Notion, GitHub issues, the repo's docs, a knowledge base), " +
 	"and add a link on the card if it helps. When a card's work is done, mark it done; don't keep it as a record. " +
 	"Post a card for work others should see (the person's window shows only cards); if it fits another agent's work better, " +
-	"ask that agent to put it up. Raise blockers with enough context that someone who has never been there can decide, " +
+	"ask that agent to put it up. When you take a card, give it steps (board_create's steps, or board_steps) and keep them " +
+	"ticked with board_step: they are how the person sees how far along it is. Raise blockers with enough context that someone who has never been there can decide, " +
 	"and give your recommended answer(s)."
 
 // Sentences some descriptions share.
@@ -58,6 +59,7 @@ const (
 	propNote       = `"note":{"type":"string","description":"Optional short note for the sender and the person."}`
 	propRepo       = `"repo":{"type":"string","description":"A repoKey from the agents tool. Default: your own repo."}`
 	propOffset     = `"offset":{"type":"integer","minimum":0,"description":"Skip this many results: the offset= value of a (more: ...) hint."}`
+	propStepFlags  = `"done":{"type":"boolean"},"doing":{"type":"boolean","description":"This is the current step."}`
 	propAttach     = `"attach":{"type":"array","items":{"type":"string"},"maxItems":10,"description":"Optional files to attach: paths (absolute, or relative to your working directory), each at most 256 MiB. The recipient fetches them when needed. Files inside Irori's data dir, .env files, private keys and credential stores are refused."}`
 )
 
@@ -202,7 +204,7 @@ var specList = []Spec{
 	{
 		Name: "board_create",
 		Description: "Put a card on the Board: what you or someone is about to work on now. It starts open; take it up with board_join or " +
-			"hand it over with assign_to. Returns its ref. " + BoardInstructions,
+			"hand it over with assign_to; give its steps when you know them. Returns its ref. " + BoardInstructions,
 		InputSchema: schema(
 			`"title":{"type":"string","description":"Short title (at most 200 characters)."},`+
 				`"objective":{"type":"string","description":"Optional: what needs doing and why, briefly."},`+
@@ -210,7 +212,8 @@ var specList = []Spec{
 				`"repo":{"type":"string","description":"Optional repoKey the card belongs to; default: your own repo."},`+
 				`"shared":{"type":"boolean","description":"Anyone who joins may work it (several holders). Default false: one holder."},`+
 				`"links":{"type":"array","items":{"type":"string"},"description":"Optional links out: URLs (a Linear, Notion or GitHub item) or repo paths, at most 16."},`+
-				`"assign_to":{"type":"string","description":"Optional: hand it to this agent (name or key); they hear at their next turn."}`,
+				`"assign_to":{"type":"string","description":"Optional: hand it to this agent (name or key); they hear at their next turn."},`+
+				`"steps":{"type":"array","maxItems":20,"items":{"type":"object","properties":{"text":{"type":"string","description":"The step, one line (at most 200 characters)."},`+propStepFlags+`},"required":["text"],"additionalProperties":false},"description":"Optional: the card's steps, in order, the same as board_steps takes. Give them when you know the plan; tick them with board_step."}`,
 			"title"),
 		Clients: both,
 	},
@@ -267,7 +270,7 @@ var specList = []Spec{
 		Description: "Set a card's steps: the ordered list that shows its progress (done/total) on the person's window. Give the whole list " +
 			"each time; steps keep their ids by id or by the same text. Mark at most one as doing (the current step). Keep it short. " + BoardInstructions,
 		InputSchema: schema(propTaskID+`,`+
-			`"steps":{"type":"array","maxItems":20,"items":{"type":"object","properties":{"text":{"type":"string","description":"The step, one line (at most 200 characters)."},"id":{"type":"string","description":"Optional: an existing step's id, to keep it while renaming."},"done":{"type":"boolean"},"doing":{"type":"boolean","description":"This is the current step."}},"required":["text"],"additionalProperties":false},"description":"Every step, in order."}`,
+			`"steps":{"type":"array","maxItems":20,"items":{"type":"object","properties":{"text":{"type":"string","description":"The step, one line (at most 200 characters)."},"id":{"type":"string","description":"Optional: an existing step's id, to keep it while renaming."},`+propStepFlags+`},"required":["text"],"additionalProperties":false},"description":"Every step, in order."}`,
 			"task_id", "steps"),
 		Clients: both,
 	},

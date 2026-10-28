@@ -106,6 +106,10 @@ type NewTask struct {
 	// server, becomes a small blocked task). BlockedBy is optional.
 	BlockReason string
 	BlockedBy   *BlockedBy
+	// Steps, when given, are the task's first step list (checked like
+	// SetSteps; ids are minted s1, s2, ... and any given are ignored),
+	// written as a task.steps row right after task.created.
+	Steps []Step
 }
 
 // TaskFilter narrows ListTasks; zero values mean any.

@@ -547,33 +547,52 @@ func (c *coord) answer(ctx context.Context, by, id, bid string, a BlockerAnswer)
 
 // ---- steps ----
 
-func (c *coord) setSteps(ctx context.Context, by, id string, in []Step) (Task, error) {
-	by, _, err := callers(by)
-	if err != nil {
-		return Task{}, err
-	}
+// checkSteps trims a step list in place and checks it: at most MaxSteps,
+// texts 1..MaxStepText runes on one line, at most one Doing, never Done and
+// Doing.
+func checkSteps(in []Step) error {
 	if len(in) > MaxSteps {
-		return Task{}, fmt.Errorf("%w: more than %d steps", ErrInvalid, MaxSteps)
+		return fmt.Errorf("%w: more than %d steps", ErrInvalid, MaxSteps)
 	}
 	doing := 0
 	for i := range in {
 		in[i].Text = strings.TrimSpace(in[i].Text)
 		in[i].ID = strings.TrimSpace(in[i].ID)
 		if err := checkText("a step", in[i].Text, 1, MaxStepText); err != nil {
-			return Task{}, err
+			return err
 		}
 		if strings.ContainsAny(in[i].Text, "\r\n") {
-			return Task{}, fmt.Errorf("%w: a step is one line", ErrInvalid)
+			return fmt.Errorf("%w: a step is one line", ErrInvalid)
 		}
 		if in[i].Done && in[i].Doing {
-			return Task{}, fmt.Errorf("%w: step %q is both done and in progress", ErrInvalid, in[i].Text)
+			return fmt.Errorf("%w: step %q is both done and in progress", ErrInvalid, in[i].Text)
 		}
 		if in[i].Doing {
 			doing++
 		}
 	}
 	if doing > 1 {
-		return Task{}, fmt.Errorf("%w: only one step can be in progress", ErrInvalid)
+		return fmt.Errorf("%w: only one step can be in progress", ErrInvalid)
+	}
+	return nil
+}
+
+// newSteps mints ids s1, s2, ... for a new task's checked steps.
+func newSteps(in []Step) []Step {
+	out := make([]Step, 0, len(in))
+	for i, s := range in {
+		out = append(out, Step{ID: "s" + strconv.Itoa(i+1), Text: s.Text, Done: s.Done, Doing: s.Doing})
+	}
+	return out
+}
+
+func (c *coord) setSteps(ctx context.Context, by, id string, in []Step) (Task, error) {
+	by, _, err := callers(by)
+	if err != nil {
+		return Task{}, err
+	}
+	if err := checkSteps(in); err != nil {
+		return Task{}, err
 	}
 	c.mu.Lock()
 	defer c.unlock()

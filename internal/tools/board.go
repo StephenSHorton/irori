@@ -280,13 +280,14 @@ func (s *set) board(_ context.Context, c Caller, raw json.RawMessage) string {
 // --- board_create ---
 
 type boardCreateArgs struct {
-	Title     string   `json:"title"`
-	Objective string   `json:"objective"`
-	DoneWhen  string   `json:"done_when"`
-	Repo      string   `json:"repo"`
-	Shared    bool     `json:"shared"`
-	Links     []string `json:"links"`
-	AssignTo  string   `json:"assign_to"`
+	Title     string    `json:"title"`
+	Objective string    `json:"objective"`
+	DoneWhen  string    `json:"done_when"`
+	Repo      string    `json:"repo"`
+	Shared    bool      `json:"shared"`
+	Links     []string  `json:"links"`
+	AssignTo  string    `json:"assign_to"`
+	Steps     []stepArg `json:"steps"`
 }
 
 func (s *set) boardCreate(ctx context.Context, c Caller, raw json.RawMessage) string {
@@ -312,12 +313,18 @@ func (s *set) boardCreate(ctx context.Context, c Caller, raw json.RawMessage) st
 	t, err := s.b.Coord().CreateTask(ctx, c.Sender.Key, coord.NewTask{
 		Title: strings.TrimSpace(a.Title), Objective: strings.TrimSpace(a.Objective),
 		DoneCriteria: strings.TrimSpace(a.DoneWhen), RepoKey: repo, Shared: a.Shared, Links: a.Links,
+		Steps: stepsOf(a.Steps),
 	})
 	if err != nil {
 		return mapErr(err)
 	}
 	n := s.roster()
 	out := "Created task:" + t.ID + "."
+	if len(t.Steps) == 0 {
+		out += " Give it steps with board_steps once you know them, so the person sees how far along it is."
+	} else {
+		out += " Tick its steps with board_step as you go."
+	}
 	if to != "" {
 		at, notice, err := s.b.Coord().Assign(ctx, c.Sender.Key, t.ID, to)
 		if err != nil {
@@ -597,6 +604,15 @@ func (st *stepArg) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// stepsOf turns step arguments into coord's steps.
+func stepsOf(in []stepArg) []coord.Step {
+	steps := make([]coord.Step, 0, len(in))
+	for _, st := range in {
+		steps = append(steps, coord.Step{ID: st.ID, Text: st.Text, Done: st.Done, Doing: st.Doing})
+	}
+	return steps
+}
+
 type boardStepsArgs struct {
 	TaskID string    `json:"task_id"`
 	Steps  []stepArg `json:"steps"`
@@ -611,11 +627,7 @@ func (s *set) boardSteps(ctx context.Context, c Caller, raw json.RawMessage) str
 	if id == "" {
 		return needTaskID()
 	}
-	steps := make([]coord.Step, 0, len(a.Steps))
-	for _, st := range a.Steps {
-		steps = append(steps, coord.Step{ID: st.ID, Text: st.Text, Done: st.Done, Doing: st.Doing})
-	}
-	t, err := s.b.Coord().SetSteps(ctx, c.Sender.Key, id, steps)
+	t, err := s.b.Coord().SetSteps(ctx, c.Sender.Key, id, stepsOf(a.Steps))
 	if err != nil {
 		return mapErr(err)
 	}

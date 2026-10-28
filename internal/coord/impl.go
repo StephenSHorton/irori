@@ -892,6 +892,11 @@ func (c *coord) createTask(ctx context.Context, by string, nt NewTask) (Task, er
 	if err := checkReason(reason, false); err != nil {
 		return Task{}, err
 	}
+	steps := append([]Step(nil), nt.Steps...)
+	if err := checkSteps(steps); err != nil {
+		return Task{}, err
+	}
+	steps = newSteps(steps)
 
 	c.mu.Lock()
 	defer c.unlock()
@@ -909,6 +914,11 @@ func (c *coord) createTask(ctx context.Context, by string, nt NewTask) (Task, er
 		RepoKey: repoKey, Scope: scope, Shared: nt.Shared, Links: links, By: by, At: at,
 	}); err != nil {
 		return Task{}, err
+	}
+	if len(steps) > 0 {
+		if err := c.write(ctx, by, KindTaskSteps, taskStepsRow{TaskID: id, Steps: steps, By: by, At: at}); err != nil {
+			return Task{}, err
+		}
 	}
 	if reason != "" {
 		q, cx := blockQuestion(reason)

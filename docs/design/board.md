@@ -93,7 +93,7 @@ The binding signatures and doc comments live in the code; this is the map. Three
 - `Recommend` is for the holders, watchers, the raiser, the creator or a person. `Answer`'s notice goes to the raiser, with the answerer's wake choice.
 - Watch notices are not returned per call: coord queues the card's state, step, blocker and PR-link changes in memory (never on replay) and `SweepNotices` hands out one `watched` digest per card and watcher, routed from Irori at the next turn.
 - New kinds: `blocker.option`, `blocker.resolved`, `task.steps`, `task.step`, `task.watched`; `task.status` gains `blocker`. Older reason-only rows fold to one item.
-- Tools: `board_steps`, `board_step`, `board_recommend`, `board_watch`, `board_unwatch`; `board_block` takes `question` (alias `reason`), `context`, `options`; `board_unblock` takes `blocker_id` and `pick`. The GUI reads `BoardService.Cards`, `Card` and answers with `Answer`.
+- Tools: `board_steps`, `board_step`, `board_recommend`, `board_watch`, `board_unwatch`; `board_create` takes `steps` (v0.4.2: `NewTask.Steps`, a `task.steps` row right after `task.created`); `board_block` takes `question` (alias `reason`), `context`, `options`; `board_unblock` takes `blocker_id` and `pick`. The GUI reads `BoardService.Cards`, `Card` and answers with `Answer`.
 
 **Integration (after A1–A3)**
 - Core: `AddSource(coord)`, `AddSource(inbox)`; call `SweepNotices` in place of `Sweep`; route every `Notice` through `SendWith(…, {Mode: next_turn unless Wake, Ref, Notice: true})`.

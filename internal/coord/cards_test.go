@@ -73,6 +73,44 @@ func TestSetSteps(t *testing.T) {
 	}
 }
 
+// A task can be created with its steps: ids are minted from s1, given ids
+// are ignored, bad lists refuse the whole create, and replay keeps them.
+func TestCreateTaskWithSteps(t *testing.T) {
+	e := newEnv(t)
+	_, err := e.c.CreateTask(ctx, alice, NewTask{Title: "x", Steps: []Step{{Text: "a", Doing: true}, {Text: "b", Doing: true}}})
+	wantErr(t, err, ErrInvalid)
+	_, err = e.c.CreateTask(ctx, alice, NewTask{Title: "x", Steps: []Step{{Text: " "}}})
+	wantErr(t, err, ErrInvalid)
+	if n := len(e.rows(KindTaskCreated)); n != 0 {
+		t.Fatalf("a refused create wrote %d rows", n)
+	}
+	task := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "ship", Steps: []Step{
+		{ID: "s7", Text: " notes ", Done: true}, {Text: "tag", Doing: true}, {Text: "announce"}}}))
+	want := []Step{{ID: "s1", Text: "notes", Done: true}, {ID: "s2", Text: "tag", Doing: true}, {ID: "s3", Text: "announce"}}
+	if !reflect.DeepEqual(task.Steps, want) {
+		t.Fatalf("steps %+v", task.Steps)
+	}
+	if d, n := task.Progress(); d != 1 || n != 3 {
+		t.Fatalf("progress %d/%d", d, n)
+	}
+	// The next new step continues the sequence.
+	got := must[Task](t)(e.c.SetSteps(ctx, alice, task.ID, append(want, Step{Text: "rest"})))
+	if ids := stepIDs(got.Steps); !reflect.DeepEqual(ids, []string{"s1", "s2", "s3", "s4"}) {
+		t.Fatalf("ids %v", ids)
+	}
+	re := e.reopen()
+	if back, _ := re.GetTask(task.ID); !reflect.DeepEqual(stepIDs(back.Steps), []string{"s1", "s2", "s3", "s4"}) {
+		t.Fatalf("replayed %+v", back.Steps)
+	}
+	// Without steps, no steps row.
+	plain := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "plain"}))
+	for _, r := range e.rows(KindTaskSteps) {
+		if strings.Contains(string(r.Payload), plain.ID) {
+			t.Fatal("a create without steps wrote a steps row")
+		}
+	}
+}
+
 func TestSetStepsKeepsIDs(t *testing.T) {
 	e := newEnv(t)
 	task := claimed(t, e)

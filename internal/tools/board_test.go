@@ -307,6 +307,18 @@ func TestBoardCards(t *testing.T) {
 	has(t, h.ok(callB, "board_unwatch", map[string]any{"task_id": id}), "no longer watch")
 }
 
+// board_create takes the card's steps, the same shape board_steps takes.
+func TestBoardCreateWithSteps(t *testing.T) {
+	h := newHarness(t)
+	h.fails(callA, "board_create", map[string]any{"title": "x", "steps": []any{
+		map[string]any{"text": "a", "doing": true}, map[string]any{"text": "b", "doing": true}}}, "only one step")
+	out := h.ok(callA, "board_create", map[string]any{"title": "Release", "steps": []any{
+		map[string]any{"text": "notes", "done": true}, map[string]any{"text": "tag", "doing": true}, "announce"}})
+	has(t, out, "Created task:", "Tick its steps with board_step", "steps 1/3", `now s2 "tag"`)
+	hasNot(t, out, "Give it steps")
+	has(t, h.ok(callA, "board_create", map[string]any{"title": "No plan yet"}), "Give it steps with board_steps")
+}
+
 func TestTaskIDPrefix(t *testing.T) {
 	for in, want := range map[string]string{"task:01J": "01J", "TASK: 01J ": "01J", "01J": "01J", "": "", "comment:01J": "comment:01J"} {
 		if got := taskID(in); got != want {
