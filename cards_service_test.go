@@ -9,6 +9,7 @@ import (
 
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/identity"
+	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/ledger"
 	"github.com/StephenSHorton/irori/internal/presence"
 )
@@ -75,6 +76,93 @@ func TestCardsGrid(t *testing.T) {
 	raw, _ := json.Marshal(got[1])
 	if strings.Contains(string(raw), "null") {
 		t.Fatalf("null in %s", raw)
+	}
+}
+
+// A card's holder line: who holds it and whether that agent is active,
+// idle or gone, and "waiting" for an assignment whose notice never reached
+// its agent.
+func TestCardHolderLine(t *testing.T) {
+	ctx := context.Background()
+	b, c, _ := cardsBoard(t)
+	const gone = "dev-a/agent-gone"
+	var open []inbox.Delivery
+	b.deliveries = func() []inbox.Delivery { return open }
+	notice := func(to, ref string, st inbox.State) inbox.Delivery {
+		return inbox.Delivery{To: to, State: st, Message: inbox.Message{Ref: ref, Notice: true}}
+	}
+	nobody, err := c.CreateTask(ctx, agentA, coord.NewTask{Title: "nobody"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := heldTask(t, c) // agentA: busy
+	idle := heldTask(t, c)
+	if _, _, err := c.Assign(ctx, agentA, idle.ID, agentB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ClaimTask(ctx, agentB, idle.ID); err != nil { // agentB: idle
+		t.Fatal(err)
+	}
+	gn := heldTask(t, c)
+	if _, _, err := c.Assign(ctx, agentA, gn.ID, gone); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ClaimTask(ctx, gone, gn.ID); err != nil { // takes it up, then leaves the roster
+		t.Fatal(err)
+	}
+	queued, err := c.CreateTask(ctx, agentA, coord.NewTask{Title: "queued"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, _ := c.CreateTask(ctx, agentA, coord.NewTask{Title: "held"})
+	told, _ := c.CreateTask(ctx, agentA, coord.NewTask{Title: "told"})
+	for _, tk := range []coord.Task{queued, held, told} {
+		if _, _, err := c.Assign(ctx, agentA, tk.ID, agentB); err != nil {
+			t.Fatal(err)
+		}
+	}
+	open = []inbox.Delivery{
+		notice(agentB, "task:"+queued.ID, inbox.Queued),
+		notice(agentB, "task:"+held.ID, inbox.Held),
+		notice(agentB, "task:"+told.ID, inbox.Delivered),
+		notice(agentA, "task:"+told.ID, inbox.Queued),                                     // another agent's notice
+		{To: agentB, State: inbox.Queued, Message: inbox.Message{Ref: "task:" + told.ID}}, // not a Board notice
+	}
+	byID := map[string]CardSummary{}
+	for _, s := range b.Cards() {
+		byID[s.ID] = s
+	}
+	cases := []struct {
+		name string
+		id   string
+		want Holding
+		who  string
+	}{
+		{"nobody", nobody.ID, HoldNobody, ""},
+		{"busy agent", active.ID, HoldActive, agentA},
+		{"idle agent", idle.ID, HoldIdle, agentB},
+		{"gone agent", gn.ID, HoldGone, gone},
+		{"assignment queued", queued.ID, HoldWaiting, agentB},
+		{"assignment held", held.ID, HoldWaiting, agentB},
+		{"assignment delivered, not taken up", told.ID, HoldAssigned, agentB},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := byID[tc.id].Holder
+			if h.State != tc.want || h.Who.Key != tc.who {
+				t.Fatalf("holder %+v, want %s %s", h, tc.want, tc.who)
+			}
+			if tc.want == HoldWaiting != h.Who.Waiting {
+				t.Fatalf("waiting %+v", h.Who)
+			}
+		})
+	}
+	// Taking it up ends the wait, though the notice is still queued.
+	if _, err := c.ClaimTask(ctx, agentB, queued.ID); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := b.Card(queued.ID); s.Holder.State != HoldIdle || s.Holder.Who.Waiting {
+		t.Fatalf("after claim %+v", s.Holder)
 	}
 }
 

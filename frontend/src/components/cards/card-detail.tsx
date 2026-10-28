@@ -30,7 +30,7 @@ import {
 } from "@/lib/irori"
 import { errorText, talk, type GoneSession } from "@/lib/talk"
 import { cn } from "@/lib/utils"
-import { ProgressBar, ScopeBadge } from "./bits"
+import { HolderLine, ProgressBar, ScopeBadge } from "./bits"
 import { Face, LiveDot } from "./faces"
 
 // Answered is a note answer the person just sent: the note item leaves the
@@ -93,11 +93,15 @@ export function CardPanel({
             {plainLine(detail.doneWhen)}
           </p>
         )}
-        <ProgressBar
-          progress={detail.progress}
-          blocked={detail.openBlockers > 0}
-          label={`${p ?? 0}% complete`}
-        />
+        {p === null ? (
+          <HolderLine holder={detail.holder} />
+        ) : (
+          <ProgressBar
+            progress={detail.progress}
+            blocked={detail.openBlockers > 0}
+            label={`${p ?? 0}% complete`}
+          />
+        )}
         <div className="flex flex-wrap gap-1.5 text-xs text-muted-foreground">
           {p !== null && <span>{p}% complete</span>}
           {p !== null && detail.openBlockers > 0 && <span>·</span>}
@@ -513,7 +517,16 @@ function People({ detail, gone }: { detail: CardDetail; gone: GoneSession[] }) {
               </>
             ) : role === "working" ? (
               w.assigned ? (
-                <span>assigned</span>
+                w.waiting ? (
+                  <span
+                    className="text-warning"
+                    title="The hand-over is still queued or held: it hasn't reached this agent"
+                  >
+                    waiting for it
+                  </span>
+                ) : (
+                  <span>assigned</span>
+                )
               ) : (
                 <>
                   {w.live && !w.offline && <LiveDot />}

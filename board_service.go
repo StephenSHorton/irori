@@ -116,11 +116,17 @@ type BoardService struct {
 	// leases are coord's leases, read for the conflict chip (a seam for
 	// tests: a partition conflict needs two devices); nil is none.
 	leases func() []coord.Lease
+	// deliveries are the inbox's open deliveries, read to tell an
+	// assignment that never reached its agent (queued or held); nil is none.
+	deliveries func() []inbox.Delivery
 }
 
 func newBoardService(c *core.Core) *BoardService {
 	b := &BoardService{coord: c.Coord(), user: c.UserSender(), route: c.RouteNotices, agents: c.MeshAgents,
 		self: c.Device().ID, devices: c.CertifiedDevices, leases: c.Coord().Leases}
+	if ib := c.Inbox(); ib != nil {
+		b.deliveries = ib.Open
+	}
 	if cp := c.Capture(); cp != nil {
 		b.prs = cp.PRs
 	}

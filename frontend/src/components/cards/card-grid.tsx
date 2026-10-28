@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card"
 import { percent, type CardSummary } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
 import { cn } from "@/lib/utils"
-import { ProgressBar, ScopeBadge, StatePill } from "./bits"
+import { HolderLine, ProgressBar, ScopeBadge, StatePill } from "./bits"
 import { Faces } from "./faces"
 
 export type Filter = "all" | "decide" | "mine"
@@ -136,11 +136,15 @@ function CardTile({
           </span>
         </span>
       )}
-      <ProgressBar
-        progress={card.progress}
-        blocked={blocked}
-        label={`${p ?? 0}% complete`}
-      />
+      {p === null ? (
+        <HolderLine holder={card.holder} />
+      ) : (
+        <ProgressBar
+          progress={card.progress}
+          blocked={blocked}
+          label={`${p ?? 0}% complete`}
+        />
+      )}
       <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
         {p !== null && (
           <>
@@ -151,7 +155,13 @@ function CardTile({
         {card.working.length > 0 ? (
           <>
             <Faces who={card.working} />
-            <span>working</span>
+            <span>
+              {card.working.every((w) => w.assigned)
+                ? card.working.some((w) => w.waiting)
+                  ? "not picked up"
+                  : "assigned"
+                : "working"}
+            </span>
           </>
         ) : (
           <span>nobody on it yet</span>

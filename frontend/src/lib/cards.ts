@@ -12,11 +12,13 @@ import {
   AnswerResult,
   CardResolution,
   CardSummary,
+  Holding,
   Told,
   type AgentRef,
   type CardActivity,
   type CardBlocker,
   type CardDetail,
+  type CardHolder,
   type CardOption,
   type CardPR,
 } from "../../bindings/github.com/StephenSHorton/irori/models"
@@ -34,13 +36,14 @@ export type {
   CardActivity,
   CardBlocker,
   CardDetail,
+  CardHolder,
   CardOption,
   CardPR,
   CardSummary,
   Step,
   Told,
 }
-export { NoteItem, TaskState }
+export { Holding, NoteItem, TaskState }
 
 // EventBoardChanged mirrors the Go constant in board_service.go: it fires on
 // every card change.
@@ -82,6 +85,7 @@ function summary(c: CardDetail): CardSummary {
     blockerQuestion: c.blockerQuestion,
     working: c.working,
     watching: c.watching,
+    holder: c.holder,
     updatedAt: c.updatedAt,
   })
 }
