@@ -150,7 +150,8 @@ func (h *handler) pairKey(w http.ResponseWriter, r *http.Request, pr *pair.Paire
 	case errors.Is(err, pair.ErrWrongKey):
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, pair.ErrNotOpen):
-		writeError(w, http.StatusConflict, err.Error())
+		// ErrNotOpen's own text is about words, the adding side's step.
+		writeError(w, http.StatusConflict, "no pairing is waiting for a key")
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, err.Error())
 	default:

@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -115,7 +116,9 @@ func TestJoinThroughTheAPIWrongKeyTwice(t *testing.T) {
 		t.Fatalf("after two wrong keys = %+v", st)
 	}
 	wait(t, "the pc's window closes", func() bool { return !pc.c.Pairing().Status().Open() })
-	if _, err := c.PairKey(ctx, add.Fingerprint); err == nil || !strings.Contains(err.Error(), "409") {
+	_, err = c.PairKey(ctx, add.Fingerprint)
+	var se *api.StatusError
+	if !errors.As(err, &se) || se.Code != http.StatusConflict || se.Message != "no pairing is waiting for a key" {
 		t.Fatalf("a key after the window closed: %v", err)
 	}
 	if pc.c.Pairing().Status().State == pair.StateDone || mac.c.Person().ID == pc.c.Person().ID {
