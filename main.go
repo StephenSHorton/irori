@@ -8,6 +8,7 @@
 //	irori attach           the Claude Code mod's event stream (v0.2)
 //	irori events           print or follow (--follow) the event log
 //	irori pair             add a device (pair join <code> on the new one)
+//	irori node install     run serve --headless at logon (Windows Task Scheduler)
 //	irori version
 //
 // The Core (internal/core) is the event log, presence and the loopback API.
@@ -53,10 +54,12 @@ func main() {
 		err = runEvents(args)
 	case "pair":
 		err = runPair(args)
+	case "node":
+		err = runNode(args)
 	case "version":
 		fmt.Println("irori", version)
 	default:
-		err = fmt.Errorf("unknown command %q (gui, serve, mcp, attach, events, pair, version)", cmd)
+		err = fmt.Errorf("unknown command %q (gui, serve, mcp, attach, events, pair, node, version)", cmd)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "irori:", err)

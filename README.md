@@ -14,6 +14,16 @@ Irori is a hearth for your coding agents. Every agent you run, on every device y
 - **Across devices.** Your devices pair peer-to-peer over WebRTC with [go-room](https://github.com/StephenSHorton/go-room), with an optional always-on node to hold messages while the others are offline.
 - **Consolidation.** Irori replaces tsukumo's routing and waking, suzuri's workspace tools, and aizuchi's Scratch Pad, so these stop being separate tools.
 
+## Pair your devices
+
+From v0.4 your devices join into one Irori: one inbox and one Board, with each device's agents on the cards. Pair from a device that's already set up:
+
+1. On it, open **Settings → Devices → Manage… → Pair a device**. It shows a code. Treat it like a one-use password, good for 10 minutes.
+2. On the new device, open **Settings → Devices → Manage… → Join with a code** and type the code. It shows five words.
+3. Type those words back on the first device. Nothing pairs until they match, so a code someone else copied is useless without the new device's screen.
+
+**Remove** takes a device out: its new rows are refused everywhere and your other devices get a new person key. For an always-on PC, run the normal app minimised to the tray. The headless fallback is `irori pair join <code>` and then `irori node install`, which starts `irori serve --headless` at logon (Windows). A headless node doesn't update itself. Devices find each other through sealed messages on public MQTT brokers, which see IP addresses but never content, and then talk over encrypted WebRTC ([go-room](https://github.com/StephenSHorton/go-room)). Irori runs no server of its own. The design is [docs/design/v0.4-devices.md](docs/design/v0.4-devices.md).
+
 ## Docs
 
 - [Decisions so far](docs/decisions.md)

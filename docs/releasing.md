@@ -295,6 +295,27 @@ needs its heal and re-sign steps).
 - **Data**: `~/.irori` (the ledger, settings.json, updates) and Claude
   Code's `~/.claude` (or `CLAUDE_CONFIG_DIR`).
 
+## Pair your devices
+
+Pairing (v0.4) is in the app, under **Settings → Devices → Manage…**:
+**Pair a device** on one already set up shows a one-use code, **Join with
+a code** on the new one shows five words, and you type the words back on
+the first. The README's [Pair your devices](../README.md#pair-your-devices)
+has the steps. For releases:
+
+- Pairings survive updates: the person key, device key and certs live in
+  the data folder (`%LOCALAPPDATA%\irori` on Windows, `~/.irori` on
+  macOS), not in the install.
+- A device whose sync schema is too old is refused by its peers, and
+  Devices says "It runs an older Irori. Update it." Update every device
+  when a release changes the sync protocol.
+- A headless node (`irori node install`, which registers
+  `irori serve --headless` at logon in Task Scheduler) has no updater:
+  replace its `irori.exe` by hand, and run `irori node install` again if
+  the path changed. `irori node uninstall` removes the entry.
+- The macOS build is still unsigned (above); pairing a Mac works the same
+  way once it opens.
+
 ## Test an update end to end
 
 The updater only reads real GitHub releases, so a full test uses two of
