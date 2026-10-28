@@ -50,7 +50,8 @@ const (
 
 	StateWaiting    = "waiting"   // add: the code is shown; join: looking for the other device
 	StateConfirm    = "confirm"   // add: type the words B shows
-	StateWords      = "words"     // join: read these words out
+	StateGranted    = "granted"   // add: the words matched; type this device's key on B
+	StateWords      = "words"     // join: read these words out, and type the key A shows
 	StateDone       = "done"      // paired
 	StateFailed     = "failed"    // the window closed (Error says why)
 	StateCanceled   = "canceled"  // the person canceled
@@ -63,6 +64,7 @@ const (
 const (
 	ErrTextSomeoneElse = "Someone else tried to use this code. Make a new one."
 	ErrTextCodeUsed    = "That code was already used. Make a new one on the other device."
+	ErrTextNotThatKey  = "That isn't the key the other device shows: someone else may have the code. Make a new one."
 )
 
 // Errors.
@@ -71,6 +73,7 @@ var (
 	ErrInMesh       = errors.New("pair: this device is already one of a person's devices; remove it there or reset it first")
 	ErrNotOpen      = errors.New("pair: no pairing is waiting for words")
 	ErrWrongWords   = errors.New("pair: those aren't the words the other device shows")
+	ErrWrongKey     = errors.New("pair: that isn't the key the other device shows")
 	ErrNotCertified = errors.New("pair: this device isn't certified, so it can't add another")
 )
 
@@ -91,12 +94,19 @@ type Status struct {
 	QR      string    `json:"qr,omitempty"`   // add: the QR code's text
 	Expires time.Time `json:"expires,omitzero"`
 	Role    string    `json:"role,omitempty"` // add: the role B gets
+	// Fingerprint (add side) is this device's key, shown beside the code:
+	// the person types it on B, which takes the grant only from the device
+	// whose handshake proved that key (§3 step 4).
+	Fingerprint string `json:"fingerprint,omitempty"`
 	// Joiner is B (add side) once it connected and proved the code.
 	Joiner *Joiner `json:"joiner,omitempty"`
 	// Words are what B shows (join side) once both proved the code.
 	Words []string `json:"words,omitempty"`
 	// Peer is A's name (join side).
-	Peer   string `json:"peer,omitempty"`
+	Peer string `json:"peer,omitempty"`
+	// KeyOK (join side): the key typed here is the one A's handshake
+	// proved; B now waits for A's grant, or takes the one that came.
+	KeyOK  bool   `json:"keyOk,omitempty"`
 	Misses int    `json:"misses,omitempty"`
 	Error  string `json:"error,omitempty"`
 }
@@ -104,7 +114,7 @@ type Status struct {
 // Open reports whether the pairing is still in progress.
 func (s Status) Open() bool {
 	switch s.State {
-	case StateWaiting, StateConfirm, StateWords:
+	case StateWaiting, StateConfirm, StateGranted, StateWords:
 		return true
 	}
 	return false
@@ -212,9 +222,11 @@ type session struct {
 	conn    mesh.Conn
 	words   []string
 	misses  int
-	sent    bool // add: the grant went out; a closing connection now means done
+	sent    bool // add: the grant went out; join: it was adopted
 	closed  bool
 	granted chan struct{} // add: closed once pair.done arrives
+	keyOK   bool          // join: the person typed A's key
+	pending *frame        // join: A's grant, waiting for the key
 }
 
 type helloBody struct {
@@ -282,7 +294,8 @@ func (p *Pairer) Add(role string) (Status, error) {
 		return Status{}, fmt.Errorf("pair: open the pairing room: %w", err)
 	}
 	p.cur = s
-	p.st = Status{Mode: ModeAdd, State: StateWaiting, Code: code, QR: QR(code), Expires: p.o.Now().Add(p.o.Window), Role: role}
+	p.st = Status{Mode: ModeAdd, State: StateWaiting, Code: code, QR: QR(code), Expires: p.o.Now().Add(p.o.Window), Role: role,
+		Fingerprint: Fingerprint(p.o.Ident.DevicePub())}
 	s.timer = time.AfterFunc(p.o.Window, func() { s.fail(StateExpired, "Nobody used the code in time. Make a new one.", "") })
 	p.changed()
 	return p.copyStatus(), nil
@@ -359,6 +372,63 @@ func (p *Pairer) Confirm(ctx context.Context, typed string) error {
 		return err
 	}
 	return nil
+}
+
+// ConfirmKey is the person typing, on B, the key A shows beside its code
+// (§3 step 4). B takes a grant only from the device whose handshake proved
+// that key: anyone else with the code could offer to B first and hand it a
+// person of its own, and the words alone don't stop that, because only A
+// checks them. A grant that arrived before the key was typed waits for it;
+// a miss counts, and the second one closes the window.
+func (p *Pairer) ConfirmKey(ctx context.Context, typed string) error {
+	p.mu.Lock()
+	s := p.cur
+	if s == nil || s.add || s.conn == nil || p.st.State != StateWords || s.keyOK {
+		p.mu.Unlock()
+		return ErrNotOpen
+	}
+	conn := s.conn
+	if !KeyMatch(Fingerprint(conn.Pub()), typed) {
+		s.misses++
+		p.st.Misses = s.misses
+		miss := s.misses
+		p.changed()
+		p.mu.Unlock()
+		if miss >= MaxMisses {
+			s.fail(StateFailed, ErrTextNotThatKey, frameFail)
+		}
+		return ErrWrongKey
+	}
+	s.keyOK, p.st.KeyOK = true, true
+	g := s.pending
+	s.pending = nil
+	p.changed()
+	p.mu.Unlock()
+	if g != nil {
+		s.take(ctx, conn, *g)
+	}
+	return nil
+}
+
+// take is B adopting A's grant once the key was typed, then telling A.
+func (s *session) take(ctx context.Context, c mesh.Conn, f frame) {
+	if err := s.adopt(ctx, c, f); err != nil {
+		s.p.o.Logf("pair: refusing the grant: %v", err)
+		s.fail(StateFailed, "The other device's answer didn't check out: "+err.Error(), frameFail)
+		return
+	}
+	s.p.mu.Lock()
+	s.sent = true // the person is adopted: the connection closing now is A's
+	s.p.mu.Unlock()
+	// A closes the connection once it reads done; closing first here could
+	// drop done in flight, and A would think B went away.
+	if s.send(ctx, c, frame{Type: frameDone}) == nil {
+		select {
+		case <-c.Done():
+		case <-time.After(3 * time.Second):
+		}
+	}
+	s.finish()
 }
 
 func (p *Pairer) newSession(add bool, secret mesh.Secret, role string) *session {
@@ -565,8 +635,7 @@ func (s *session) run(c mesh.Conn) {
 			sent := s.sent
 			p.mu.Unlock()
 			if sent {
-				s.finish() // B took the grant and closed
-				return
+				return // grant's wait (A) or take (B) finishes it
 			}
 			s.fail(StateFailed, "The other device went away before pairing finished.", "")
 		case <-ctx.Done():
@@ -641,14 +710,18 @@ func (s *session) run(c mesh.Conn) {
 			if s.add {
 				continue
 			}
-			if err := s.adopt(ctx, c, f); err != nil {
-				p.o.Logf("pair: refusing the grant: %v", err)
-				s.fail(StateFailed, "The other device's answer didn't check out: "+err.Error(), frameFail)
+			p.mu.Lock()
+			ok := s.keyOK
+			if !ok {
+				// Held until the person types A's key (ConfirmKey).
+				g := f
+				s.pending = &g
+			}
+			p.mu.Unlock()
+			if ok {
+				s.take(ctx, c, f)
 				return
 			}
-			_ = s.send(ctx, c, frame{Type: frameDone})
-			s.finish()
-			return
 		}
 	}
 }
@@ -696,14 +769,31 @@ func (s *session) grant(ctx context.Context, c mesh.Conn, joiner string, pub ed2
 		return err
 	}
 	p.o.Kick()
-	// B answers done once it adopted the person; the cert is written either
-	// way, so a lost answer only means the pairing connection closes late.
-	select {
-	case <-s.granted:
-	case <-c.Done():
-	case <-time.After(10 * time.Second):
+	p.mu.Lock()
+	if !s.closed {
+		p.st.State = StateGranted
+		p.changed()
 	}
-	s.finish()
+	p.mu.Unlock()
+	// B answers done once the person typed this device's key there and it
+	// adopted the person. The cert is written either way.
+	go func() {
+		select {
+		case <-s.granted:
+			s.finish()
+			return
+		case <-s.ctx.Done():
+			return
+		case <-c.Done():
+		}
+		select { // done may still be on its way when the connection closes
+		case <-s.granted:
+			s.finish()
+		case <-time.After(2 * time.Second):
+			s.fail(StateFailed, "The other device closed before it took the pairing. Pair it again.", "")
+		case <-s.ctx.Done():
+		}
+	}()
 	return nil
 }
 

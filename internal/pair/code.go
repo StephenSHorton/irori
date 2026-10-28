@@ -3,7 +3,9 @@
 // Join) enters it; both meet in a pairing room derived from the code, prove
 // they hold it, and derive five SAS words over both device keys and the DTLS
 // fingerprints of their one connection. B shows the words, the person types
-// them into A, and only then does A certify B and hand it the person.
+// them into A, and only then does A certify B and hand it the person. B in
+// turn takes that grant only once the person typed A's key fingerprint into
+// B, so a code holder that reached B first can't hand it a person of its own.
 //
 // Pairing is GUI-only (and the CLI that starts its own Core): nothing here is
 // on the loopback API, so an agent with a shell can't pair a device.
@@ -15,6 +17,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -206,4 +209,20 @@ func Fingerprint(pub ed25519.PublicKey) string {
 	sum := sha256.Sum256(pub)
 	h := hex.EncodeToString(sum[:8])
 	return h[0:4] + " " + h[4:8] + " " + h[8:12] + " " + h[12:16]
+}
+
+// KeyMatch reports whether typed is the fingerprint want, in any case and
+// with or without its spaces or dashes.
+func KeyMatch(want, typed string) bool {
+	norm := func(s string) string {
+		var b strings.Builder
+		for _, r := range strings.ToLower(s) {
+			if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') {
+				b.WriteRune(r)
+			}
+		}
+		return b.String()
+	}
+	w, t := norm(want), norm(typed)
+	return w != "" && subtle.ConstantTimeCompare([]byte(w), []byte(t)) == 1
 }

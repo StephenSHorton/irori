@@ -7,7 +7,7 @@
 //	irori mcp              stdio MCP server for agents, talking to the running Core
 //	irori attach           the Claude Code mod's event stream (v0.2)
 //	irori events           print or follow (--follow) the event log
-//	irori pair             add a device (pair join <code> on the new one)
+//	irori pair join        join another device's person (add one from the app)
 //	irori node install     run serve --headless at logon (Windows Task Scheduler)
 //	irori version
 //

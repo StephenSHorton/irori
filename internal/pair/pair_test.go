@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -214,6 +215,10 @@ func pairUp(t *testing.T, a, b *dev) {
 	if err := a.pair.Confirm(context.Background(), strings.Join(b.pair.Status().Words, " ")); err != nil {
 		t.Fatal(err)
 	}
+	eventually(t, "a waits for its key on b", state(a, StateGranted))
+	if err := b.pair.ConfirmKey(context.Background(), a.pair.Status().Fingerprint); err != nil {
+		t.Fatal(err)
+	}
 	eventually(t, "a done", state(a, StateDone))
 	eventually(t, "b done", state(b, StateDone))
 }
@@ -240,6 +245,13 @@ func TestPairCopiesThePersonAndSyncs(t *testing.T) {
 	}
 	if s := a.pair.Status(); s.State != StateConfirm || s.Misses != 1 {
 		t.Fatalf("one miss closed the window: %+v", s)
+	}
+	// B's key check can come first: the grant then goes through at once.
+	if err := b.pair.ConfirmKey(context.Background(), "0000 0000 0000 0000"); !errors.Is(err, ErrWrongKey) {
+		t.Fatalf("wrong key: %v", err)
+	}
+	if err := b.pair.ConfirmKey(context.Background(), strings.ToUpper(strings.ReplaceAll(Fingerprint(a.ident.DevicePub()), " ", "-"))); err != nil {
+		t.Fatal(err)
 	}
 	if err := a.pair.Confirm(context.Background(), strings.Join(words, ", ")); err != nil {
 		t.Fatal(err)
@@ -445,3 +457,82 @@ func TestARevokedDeviceCantPairAgain(t *testing.T) {
 		t.Fatalf("a's window after a revoked hello: %+v", s)
 	}
 }
+
+// Someone else with A's code (an agent that read it off the clipboard)
+// reaches B first, posing as A: it proves the code, and hands B a person
+// of its own that certifies B. B holds the grant until the person types
+// A's key, which the impostor's handshake can't prove, so B never adopts.
+func TestACodeHolderPosingAsACantHandBAPerson(t *testing.T) {
+	net := mesh.NewFakeNet()
+	a, b, thief := newDev(t, net, "pc", 0), newDev(t, net, "mac", 0), newDev(t, net, "thief", 0)
+	st, _ := a.pair.Add(identity.RoleDesktop)
+	a.pair.Cancel() // the real A waits elsewhere; only the thief answers
+	secret := mustSecret(t, st.Code)
+	conns := make(chan mesh.Conn, 1)
+	var r mesh.Room
+	r, err := net.Join(secret, mesh.RoomConfig{Self: thief.id(), Pub: thief.ident.DevicePub(), Sign: thief.ident.Sign,
+		Accept: func(string, ed25519.PublicKey) error { return nil }, Offerer: func(string) bool { return true },
+		OnMsg: func(env mesh.Envelope) {
+			if env.Type == MsgHello {
+				go r.Connect(env.From)
+			}
+		},
+		OnPeer: func(c mesh.Conn) { conns <- c }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	before := b.ident.Current()
+	if _, err := b.pair.Join(st.Code); err != nil {
+		t.Fatal(err)
+	}
+	var c mesh.Conn
+	select {
+	case c = <-conns:
+	case <-time.After(5 * time.Second):
+		t.Fatal("b never connected to the thief")
+	}
+	ctx := context.Background()
+	local, remote := c.Fingerprints()
+	info := Info(thief.ident.DevicePub(), c.Pub(), local, remote, thief.id(), b.id())
+	proof, _ := json.Marshal(frame{Type: frameProof, Proof: Proof(secret.Key, 'A', info), Name: "pc"})
+	if err := c.Send(ctx, proof); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "b shows words", state(b, StateWords))
+	add, err := thief.ident.CertFor(b.id(), hexKey(b.ident.DevicePub()), "mac", identity.RoleDesktop, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := thief.st.Append(ctx, "irori", store.KindPersonDeviceAdded, add); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := personRows(ctx, thief.st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur := thief.ident.Current()
+	seed, _ := thief.ident.PersonSeed(cur.Epoch)
+	grant, _ := json.Marshal(frame{Type: frameGrant, Person: &cur, Seed: seed, Rows: rows})
+	if err := c.Send(ctx, grant); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if s := b.pair.Status(); s.State != StateWords || b.ident.Current().ID != before.ID {
+		t.Fatalf("b took a grant before its key was typed: %+v", s)
+	}
+	// The person types the real A's key, twice: the window closes.
+	for range MaxMisses {
+		if err := b.pair.ConfirmKey(ctx, st.Fingerprint); !errors.Is(err, ErrWrongKey) {
+			t.Fatalf("the real A's key against the thief: %v", err)
+		}
+	}
+	if s := b.pair.Status(); s.State != StateFailed || s.Error != ErrTextNotThatKey {
+		t.Fatalf("after two misses: %+v", s)
+	}
+	if b.ident.Current().ID != before.ID {
+		t.Fatal("b adopted the thief's person")
+	}
+}
+
+func hexKey(pub ed25519.PublicKey) string { return hex.EncodeToString(pub) }

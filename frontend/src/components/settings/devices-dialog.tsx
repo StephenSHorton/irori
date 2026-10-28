@@ -33,9 +33,9 @@ const roleChoices = [
 // DevicesDialog is Settings → Devices (docs/design/v0.4-devices.md §3, §9):
 // each device, this one first, with one status dot, when it was last seen,
 // at most one warning line and Remove; then Pair a device (the code, then
-// the words the new device shows, typed here) and Join with a code (the
-// words to type on the other device). Fingerprints, paths and counters
-// stay in GET /v1/devices?detail=1.
+// the words the new device shows, typed here, then this device's key typed
+// there) and Join with a code (the words to type on the other device, and
+// its key typed here). Paths and counters stay in GET /v1/devices?detail=1.
 export function DevicesDialog({
   open,
   onOpenChange,
@@ -270,13 +270,15 @@ function Pairing({
     return <ShowCode status={s} cancel={cancel} />
   if (s.mode === "add" && s.state === PairState.Confirm)
     return <TypeWords status={s} cancel={cancel} />
-  if (s.state === PairState.Words) {
-    const who = plainLine(s.peer ?? "") || "the other device"
+  if (s.mode === "add" && s.state === PairState.Granted) {
+    const who = plainLine(s.joiner?.name ?? "") || "the new device"
     return (
       <div className="grid gap-2">
-        <p className="text-[13px] text-ink">Type these words on {who}:</p>
-        <p className="rounded-lg bg-muted px-3 py-2 font-mono text-base tracking-wide text-ink select-all">
-          {(s.words ?? []).join(" ")}
+        <p className="text-[13px] text-ink">
+          The words match. Now type this device's key on {who}:
+        </p>
+        <p className="rounded-lg bg-muted px-3 py-2 text-center font-mono text-base tracking-widest text-ink select-all">
+          {s.fingerprint}
         </p>
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs text-muted-foreground">
@@ -287,6 +289,8 @@ function Pairing({
       </div>
     )
   }
+  if (s.state === PairState.Words)
+    return <ReadWords status={s} cancel={cancel} />
   return (
     <div className="flex items-center justify-between gap-2">
       <span className="text-[13px] text-muted-foreground">
@@ -324,6 +328,12 @@ function ShowCode({
         Treat it like a one-use password: whoever has it can reach this device
         first.{expires ? ` It works for ${left} more min.` : ""}
       </p>
+      {s.fingerprint && (
+        <p className="text-xs text-muted-foreground">
+          The new device will ask for this device's key:{" "}
+          <span className="font-mono text-ink">{s.fingerprint}</span>
+        </p>
+      )}
       {copied && (
         <p className="text-xs text-warning">
           Copied. Any agent on this machine can read the clipboard.
@@ -402,6 +412,71 @@ function TypeWords({
       {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex justify-end">{cancel}</div>
     </form>
+  )
+}
+
+// ReadWords is the joining device: the words to type on the other device,
+// and the box for that device's key, which it shows beside its code. The
+// pairing is taken only from the device whose connection proved that key,
+// so someone else holding the code can't answer in its place.
+function ReadWords({
+  status: s,
+  cancel,
+}: {
+  status: PairStatus
+  cancel: ReactNode
+}) {
+  const [key, setKey] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const who = plainLine(s.peer ?? "") || "the other device"
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!key.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      await actions.confirmKey(key.trim())
+    } catch (err) {
+      setError(errorText(err))
+      setKey("")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="grid gap-2">
+      <p className="text-[13px] text-ink">Type these words on {who}:</p>
+      <p className="rounded-lg bg-muted px-3 py-2 font-mono text-base tracking-wide text-ink select-all">
+        {(s.words ?? []).join(" ")}
+      </p>
+      {s.keyOk ? (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground">
+            Waiting for {who}…
+          </span>
+          {cancel}
+        </div>
+      ) : (
+        <form className="grid gap-2" onSubmit={(e) => void submit(e)}>
+          <Input
+            aria-label="The other device's key"
+            placeholder={`Then type the key ${who} shows, then Enter`}
+            value={key}
+            disabled={busy}
+            spellCheck={false}
+            autoComplete="off"
+            className="font-mono"
+            aria-invalid={error ? true : undefined}
+            onChange={(e) => setKey(e.target.value)}
+          />
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <div className="flex justify-end">{cancel}</div>
+        </form>
+      )}
+    </div>
   )
 }
 

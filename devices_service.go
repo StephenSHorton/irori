@@ -84,6 +84,17 @@ func (s *DevicesService) ConfirmWords(words string) error {
 	return err
 }
 
+// ConfirmKey takes, on the joining device, the key the other device shows
+// beside its code. The joining device takes the pairing only from the
+// device whose connection proved that key; the second miss closes it.
+func (s *DevicesService) ConfirmKey(key string) error {
+	err := s.core.Pairing().ConfirmKey(context.Background(), key)
+	if errors.Is(err, pair.ErrWrongKey) {
+		return errors.New("that isn't the key the other device shows")
+	}
+	return err
+}
+
 // PairingStatus is the open (or last) pairing.
 func (s *DevicesService) PairingStatus() pair.Status { return s.core.Pairing().Status() }
 

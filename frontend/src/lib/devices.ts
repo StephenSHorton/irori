@@ -25,7 +25,8 @@ export const EventPairingChanged = "devices:pairing"
 export const PairState = {
   Waiting: "waiting", // add: the code is shown; join: looking for the other device
   Confirm: "confirm", // add: type the words the new device shows
-  Words: "words", // join: type these words on the other device
+  Granted: "granted", // add: the words matched; type this device's key there
+  Words: "words", // join: type these words on the other device, and its key here
   Done: "done",
   Failed: "failed",
   Canceled: "canceled",
@@ -42,6 +43,7 @@ export function isOpen(s: PairStatus | null): boolean {
   return (
     s?.state === PairState.Waiting ||
     s?.state === PairState.Confirm ||
+    s?.state === PairState.Granted ||
     s?.state === PairState.Words
   )
 }
@@ -50,6 +52,7 @@ export function isOpen(s: PairStatus | null): boolean {
 
 const SampleWords = ["sample", "words", "for", "this", "browser"]
 const SampleCode = "K7QM-2XWD-9RTF-HB4P"
+const SampleKey = "3f9a 0c21 77de 41b0"
 
 let sampleDevices: DeviceView[] | null = null
 let samplePair = new PairStatus({ mode: "", state: "" })
@@ -89,6 +92,20 @@ function setSamplePair(s: Partial<PairStatus>) {
   for (const fn of sampleListeners) fn()
 }
 
+// sampleJoined is the new device typing this one's key: it joins the list.
+function sampleJoined(name: string) {
+  sampleList().push(
+    new DeviceView({
+      deviceId: "sample-new",
+      name,
+      role: samplePair.role || "desktop",
+      state: "connected",
+      lastSeen: new Date().toISOString(),
+    })
+  )
+  setSamplePair({ state: PairState.Done })
+}
+
 function sampleLater(fn: () => void) {
   window.clearTimeout(sampleTimer)
   sampleTimer = window.setTimeout(fn, 1500)
@@ -101,6 +118,7 @@ const sample = {
       mode: "add",
       state: PairState.Waiting,
       code: SampleCode,
+      fingerprint: SampleKey,
       role,
       expires: new Date(Date.now() + 10 * 60_000).toISOString(),
     })
@@ -144,16 +162,26 @@ const sample = {
       throw new Error("those aren't the words the other device shows")
     }
     const name = samplePair.joiner?.name ?? "New laptop"
-    sampleList().push(
-      new DeviceView({
-        deviceId: "sample-new",
-        name,
-        role: samplePair.role || "desktop",
-        state: "connected",
-        lastSeen: new Date().toISOString(),
-      })
-    )
-    setSamplePair({ state: PairState.Done })
+    setSamplePair({ state: PairState.Granted })
+    sampleLater(() => sampleJoined(name))
+  },
+  confirmKey(key: string) {
+    if (samplePair.state !== PairState.Words || samplePair.keyOk)
+      throw new Error("no pairing is waiting for a key")
+    if (key.replace(/[^0-9a-f]/gi, "").toLowerCase() !== SampleKey.replace(/ /g, "")) {
+      const misses = (samplePair.misses ?? 0) + 1
+      if (misses >= 2)
+        setSamplePair({
+          state: PairState.Failed,
+          misses,
+          error:
+            "That isn't the key the other device shows: someone else may have the code. Make a new one.",
+        })
+      else setSamplePair({ misses })
+      throw new Error("that isn't the key the other device shows")
+    }
+    setSamplePair({ keyOk: true })
+    sampleLater(() => setSamplePair({ state: PairState.Done }))
   },
   cancel() {
     window.clearTimeout(sampleTimer)
@@ -189,6 +217,12 @@ export const devices = {
   async confirm(words: string): Promise<void> {
     if (inWails()) return DevicesService.ConfirmWords(words)
     sample.confirm(words)
+  },
+  // confirmKey takes, on the joining device, the key the other device
+  // shows beside its code: the pairing is taken only from that device.
+  async confirmKey(key: string): Promise<void> {
+    if (inWails()) return DevicesService.ConfirmKey(key)
+    sample.confirmKey(key)
   },
   async cancel(): Promise<void> {
     if (inWails()) return DevicesService.CancelPairing()

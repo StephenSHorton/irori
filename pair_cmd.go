@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -12,90 +11,31 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/core"
-	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/pair"
 )
 
-// runPair is `irori pair` (add a device from this one) and `irori pair join
-// <code>` (join another device's person). It starts its own Core, so it
-// refuses while Irori runs here: pairing is never on the loopback API, and
-// a running app pairs from Settings → Devices. This is the path for a
-// machine without the desktop app (the headless node, design §7).
+// runPair is `irori pair join`: this device joins another device's person,
+// for a machine without the desktop app (the headless node, design §7). It
+// starts its own Core, so it refuses while Irori runs here.
+//
+// There is no Add side here (design §3: an agent with a shell can't pair a
+// device). Adding a device hands it the person secret and every row, and is
+// only in the desktop app's Settings → Devices. Joining is safe to offer:
+// it needs the person to type this device's words into the other device's
+// app, and the other device's key here. The code is read from a prompt,
+// never from argv, so it stays out of shell history and process lists.
 func runPair(args []string) error {
-	if len(args) > 0 && args[0] == "join" {
-		return runPairJoin(args[1:])
+	if len(args) == 0 || args[0] != "join" {
+		return errors.New("usage: irori pair join (add a device from Settings → Devices in the desktop app)")
 	}
-	fs := flag.NewFlagSet("pair", flag.ContinueOnError)
-	role := fs.String("role", identity.RoleDesktop, "the new device's role: desktop or node")
-	if err := fs.Parse(args); err != nil {
-		return err
+	if len(args) > 1 {
+		return errors.New("usage: irori pair join (it asks for the code; don't pass it as an argument)")
 	}
-	if *role != identity.RoleDesktop && *role != identity.RoleNode {
-		return fmt.Errorf("--role is desktop or node")
-	}
-	c, ctx, stop, err := pairCore()
-	if err != nil {
-		return err
-	}
-	defer stop()
-	p := c.Pairing()
-	st, err := p.Add(*role)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Pairing code: %s\n", st.Code)
-	fmt.Println("Treat it like a one-use password: whoever has it can reach this device first.")
-	fmt.Println("On the new device run `irori pair join <code>`, or use Settings → Devices → Join with a code.")
-	fmt.Printf("It works for %d minutes.\n", int(time.Until(st.Expires).Round(time.Minute)/time.Minute))
 	lines := stdinLines()
-	asked := false
-	for {
-		st = p.Status()
-		switch st.State {
-		case pair.StateConfirm:
-			if !asked && st.Joiner != nil {
-				fmt.Printf("\n%s (%s) wants to join. Its key: %s\n", st.Joiner.Name, st.Joiner.OS, st.Joiner.Fingerprint)
-				fmt.Print("Type the words it shows: ")
-				asked = true
-			}
-			select {
-			case line, ok := <-lines:
-				if !ok {
-					p.Cancel()
-					return errors.New("no words typed")
-				}
-				if err := p.Confirm(ctx, line); errors.Is(err, pair.ErrWrongWords) {
-					if p.Status().State == pair.StateConfirm {
-						fmt.Print("Those aren't the words. Try once more: ")
-					}
-				} else if err != nil {
-					return err
-				}
-				continue
-			case <-ctx.Done():
-				p.Cancel()
-				return ctx.Err()
-			case <-time.After(200 * time.Millisecond):
-			}
-		case pair.StateDone:
-			fmt.Println("Paired. Run Irori here (or `irori serve --headless`) to keep the devices in sync.")
-			return nil
-		case pair.StateWaiting:
-		default:
-			return errors.New(st.Error)
-		}
-		select {
-		case <-ctx.Done():
-			p.Cancel()
-			return ctx.Err()
-		case <-time.After(200 * time.Millisecond):
-		}
-	}
-}
-
-func runPairJoin(args []string) error {
-	if len(args) != 1 {
-		return errors.New("usage: irori pair join <code>")
+	fmt.Print("Pairing code (from Settings → Devices → Pair a device on the other device): ")
+	code, ok := <-lines
+	if !ok || strings.TrimSpace(code) == "" {
+		return errors.New("no code typed")
 	}
 	c, ctx, stop, err := pairCore()
 	if err != nil {
@@ -103,7 +43,7 @@ func runPairJoin(args []string) error {
 	}
 	defer stop()
 	p := c.Pairing()
-	if _, err := p.Join(args[0]); err != nil {
+	if _, err := p.Join(code); err != nil {
 		return err
 	}
 	fmt.Println("Looking for the other device...")
@@ -112,14 +52,40 @@ func runPairJoin(args []string) error {
 		st := p.Status()
 		switch st.State {
 		case pair.StateWords:
+			who := st.Peer
+			if who == "" {
+				who = "the other device"
+			}
 			if !shown {
-				who := st.Peer
-				if who == "" {
-					who = "the other device"
-				}
-				fmt.Printf("Type these words on %s:\n\n    %s\n\nWaiting for %s (Ctrl+C cancels).\n", who, strings.Join(st.Words, " "), who)
+				fmt.Printf("Type these words on %s:\n\n    %s\n\n", who, strings.Join(st.Words, " "))
+				fmt.Printf("Then type the key %s shows beside its code: ", who)
 				shown = true
 			}
+			if st.KeyOK {
+				break
+			}
+			select {
+			case line, ok := <-lines:
+				if !ok {
+					p.Cancel()
+					return errors.New("no key typed")
+				}
+				if err := p.ConfirmKey(ctx, line); errors.Is(err, pair.ErrWrongKey) {
+					if p.Status().State == pair.StateWords {
+						fmt.Print("That isn't the key. Try once more: ")
+					}
+				} else if err != nil {
+					return err
+				} else {
+					fmt.Printf("Waiting for %s (Ctrl+C cancels).\n", who)
+				}
+				continue
+			case <-ctx.Done():
+				p.Cancel()
+				return ctx.Err()
+			case <-time.After(200 * time.Millisecond):
+			}
+			continue
 		case pair.StateDone:
 			fmt.Println("Paired. Run Irori here (or `irori serve --headless`) to keep the devices in sync.")
 			return nil

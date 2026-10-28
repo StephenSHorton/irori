@@ -67,6 +67,13 @@ export class Status {
     "role"?: string;
 
     /**
+     * Fingerprint (add side) is this device's key, shown beside the code:
+     * the person types it on B, which takes the grant only from the device
+     * whose handshake proved that key (§3 step 4).
+     */
+    "fingerprint"?: string;
+
+    /**
      * Joiner is B (add side) once it connected and proved the code.
      */
     "joiner"?: Joiner | null;
@@ -80,6 +87,12 @@ export class Status {
      * Peer is A's name (join side).
      */
     "peer"?: string;
+
+    /**
+     * KeyOK (join side): the key typed here is the one A's handshake
+     * proved; B now waits for A's grant, or takes the one that came.
+     */
+    "keyOk"?: boolean;
     "misses"?: number;
     "error"?: string;
 
@@ -99,14 +112,14 @@ export class Status {
      * Creates a new Status instance from a string or object.
      */
     static createFrom($$source: any = {}): Status {
-        const $$createField6_0 = $$createType1;
-        const $$createField7_0 = $$createType2;
+        const $$createField7_0 = $$createType1;
+        const $$createField8_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("joiner" in $$parsedSource) {
-            $$parsedSource["joiner"] = $$createField6_0($$parsedSource["joiner"]);
+            $$parsedSource["joiner"] = $$createField7_0($$parsedSource["joiner"]);
         }
         if ("words" in $$parsedSource) {
-            $$parsedSource["words"] = $$createField7_0($$parsedSource["words"]);
+            $$parsedSource["words"] = $$createField8_0($$parsedSource["words"]);
         }
         return new Status($$parsedSource as Partial<Status>);
     }

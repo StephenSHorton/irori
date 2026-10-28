@@ -135,6 +135,9 @@ func pairCores(t *testing.T, a, b *hcore, role string) {
 	if err := a.c.Pairing().Confirm(context.Background(), strings.Join(b.c.Pairing().Status().Words, " ")); err != nil {
 		t.Fatal(err)
 	}
+	if err := b.c.Pairing().ConfirmKey(context.Background(), st.Fingerprint); err != nil {
+		t.Fatal(err)
+	}
 	wait(t, "paired", func() bool {
 		return a.c.Pairing().Status().State == pair.StateDone && b.c.Pairing().Status().State == pair.StateDone
 	})

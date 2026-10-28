@@ -41,6 +41,15 @@ export function CancelPairing(): $CancellablePromise<void> {
 }
 
 /**
+ * ConfirmKey takes, on the joining device, the key the other device shows
+ * beside its code. The joining device takes the pairing only from the
+ * device whose connection proved that key; the second miss closes it.
+ */
+export function ConfirmKey(key: string): $CancellablePromise<void> {
+    return $Call.ByID(1239039285, key);
+}
+
+/**
  * ConfirmWords takes the words the new device shows, typed on this one.
  * It returns an error for wrong words; the second miss closes the window.
  */

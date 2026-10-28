@@ -84,6 +84,9 @@ func TestPairOverGoRoomOnLoopback(t *testing.T) {
 	if err := pa.Confirm(ctx, strings.Join(pb.Status().Words, " ")); err != nil {
 		t.Fatal(err)
 	}
+	if err := pb.ConfirmKey(ctx, st.Fingerprint); err != nil {
+		t.Fatal(err)
+	}
 	eventually(t, "both paired", 20*time.Second, func() bool {
 		return pa.Status().State == pair.StateDone && pb.Status().State == pair.StateDone
 	})

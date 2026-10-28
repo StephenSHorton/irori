@@ -432,7 +432,7 @@ func (c *Core) CertifiedDevices() []identity.DeviceState { return c.chain.Device
 func (c *Core) Mesh() *mesh.Node { return c.mesh }
 
 // Pairing is the pairing flow (v0.4 §3). Only Wails bindings and the
-// `irori pair` CLI reach it; it is not on the loopback API.
+// `irori pair join` CLI reach it; it is not on the loopback API.
 func (c *Core) Pairing() *pair.Pairer { return c.pair }
 
 // NetStatus is the mesh's state and every other device, for Devices and
