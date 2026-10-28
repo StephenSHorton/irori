@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/StephenSHorton/irori/internal/owner"
 	"github.com/StephenSHorton/irori/internal/presence"
 )
 
@@ -53,10 +54,37 @@ func bypass(key string, cards map[string]presence.AgentCard) bool {
 	return ok && c.Agent != "grok" && c.PermissionMode == BypassMode
 }
 
+// ownAgent reports whether s is one of the person's own Claude agents
+// (decision 34): kind "claude", on this device or on a device certified to
+// the person and not revoked. Their messages skip the bypass_receiver hold;
+// Grok members, agents on unknown or removed devices and (with Shared
+// Boards) other people's agents don't.
+func (b *inbox) ownAgent(s Sender, cards map[string]presence.AgentCard) bool {
+	if s.Kind != "claude" || strings.HasPrefix(s.Key, "user:") {
+		return false
+	}
+	if c, ok := cards[s.Key]; ok && c.Agent == "grok" {
+		return false
+	}
+	dev := owner.DeviceOf(s.Key)
+	switch {
+	case dev == "":
+		return false
+	case dev == b.dev:
+		return true
+	}
+	return b.isOwner("user:"+dev) && !b.revoked(dev)
+}
+
+// revoked reports a device removed from the person (Options.Revoked).
+func (b *inbox) revoked(dev string) bool { return b.revokedFn != nil && b.revokedFn(dev) }
+
 // hold evaluates the policy for m going to recipient: the hold reason, or
 // "" to queue it. Order: blocked, not_allowed, bypass_receiver, hop_limit,
 // paused. People at the GUI skip all but the pause; Irori's own notices
-// (SystemSender) skip all but the block list and the pause.
+// (SystemSender) skip all but the block list and the pause; the person's
+// own Claude agents on any of their devices skip bypass_receiver
+// (decision 34).
 func (b *inbox) hold(m *Message, recipient string, cards map[string]presence.AgentCard) HoldReason {
 	if recipient == "" {
 		return HoldUnowned
@@ -72,7 +100,8 @@ func (b *inbox) hold(m *Message, recipient string, cards map[string]presence.Age
 			return HoldBlocked
 		case b.pol.Mode == Allowlist && !allowed:
 			return HoldNotAllowed
-		case bypass(recipient, cards) && !allowed && (m.From.Kind == "grok" || !bypass(m.From.Key, cards)):
+		case bypass(recipient, cards) && !allowed && !b.ownAgent(m.From, cards) &&
+			(m.From.Kind == "grok" || !bypass(m.From.Key, cards)):
 			return HoldBypassReceiver
 		case m.Hop > MaxHop:
 			return HoldHopLimit

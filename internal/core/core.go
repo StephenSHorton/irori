@@ -195,7 +195,8 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	// The inbox routes against the mesh roster: a message can go to an
 	// agent on another device, and the bypass rule reads the sender's card
 	// wherever it runs.
-	if c.inbox, err = inbox.New(ctx, st, meshView{c}, inbox.Options{DeviceID: id.ID, PROwners: prOwners, IsOwner: chain.IsOwner}); err != nil {
+	if c.inbox, err = inbox.New(ctx, st, meshView{c}, inbox.Options{DeviceID: id.ID, PROwners: prOwners, IsOwner: chain.IsOwner,
+		Revoked: func(dev string) bool { _, revoked := chain.Cut(dev); return revoked }}); err != nil {
 		c.Close()
 		return nil, fmt.Errorf("inbox: %w", err)
 	}

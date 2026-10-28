@@ -314,6 +314,10 @@ type Options struct {
 	// IsOwner reports whether a "user:<device>" key is the person's (v0.4
 	// identity.Chain.IsOwner). Nil accepts exactly "user:<DeviceID>".
 	IsOwner func(key string) bool
+	// Revoked reports a device removed from the person (v0.4 §3): its
+	// agents are no longer the person's own for the bypass rule (decision
+	// 34). Nil revokes none.
+	Revoked func(device string) bool
 	// Overrides for tests; zero means the constant above.
 	UnengagedLimit, GoneGrace, QuietLimit, ReattachGrace time.Duration
 }
