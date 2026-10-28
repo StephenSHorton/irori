@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -194,6 +195,16 @@ type coord struct {
 	replaying bool
 	expiry    *time.Timer // fires at expiryAt, the next lease's Until
 	expiryAt  time.Time
+
+	// Across devices (mesh.go): the highest seq folded per device, leases
+	// that lost a conflict (by resource), conflicts this device already
+	// refused, leases the person stole (by stolenKey), and this device's
+	// own leases that ran out and still need their release row.
+	last      map[string]int64
+	conflicts map[string]*leaseRec
+	refused   map[string]bool
+	stolen    map[string]bool
+	lapsed    []Lease
 }
 
 func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() []presence.AgentCard }, opts Options) (*Coord, error) {
@@ -217,6 +228,10 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 		activity:    map[string][]Activity{},
 		watchq:      map[string]*watchQueue{},
 		subs:        map[chan Change]*subscriber{},
+		last:        map[string]int64{},
+		conflicts:   map[string]*leaseRec{},
+		refused:     map[string]bool{},
+		stolen:      map[string]bool{},
 	}
 	if c.now == nil {
 		c.now = time.Now
@@ -248,6 +263,9 @@ func (c *coord) replay(ctx context.Context) error {
 		}
 		for _, ev := range evs {
 			c.apply(ev)
+			if ev.Seq > c.last[ev.DeviceID] {
+				c.last[ev.DeviceID] = ev.Seq
+			}
 		}
 		c.prune(c.stamp())
 		if len(evs) < f.Limit {
@@ -512,6 +530,9 @@ func (c *coord) apply(ev store.Event) {
 			res = Resource{Kind: ResourceNamed, Name: r.Resource}
 		}
 		r.At = at(r.At)
+		if r.Conflict {
+			c.endConflict(res.Name, r.By)
+		}
 		c.refusals = append(c.refusals, &refusalRec{Refusal: r, res: res})
 		c.note(Change{Kind: LeaseRefused, Resource: res.Name, Holder: r.By})
 	case KindLeaseAcq:
@@ -530,14 +551,36 @@ func (c *coord) apply(ev store.Event) {
 			res = Resource{Kind: ResourceNamed, Name: p.Resource}
 		}
 		p.AcquiredAt = at(p.AcquiredAt)
-		c.held[res.Name] = &leaseRec{Lease: p, res: res}
+		if c.stolen[stolenKey(res.Name, p.Holder, p.AcquiredAt)] {
+			return // a renewal of a lease the person stole doesn't revive it
+		}
+		rec := &leaseRec{Lease: p, res: res}
+		if l := c.conflicts[res.Name]; l != nil && l.Holder == p.Holder {
+			rec.Conflict = l.Conflict // the contested lease renewed: still contested
+			c.conflicts[res.Name] = rec
+			return
+		}
+		if c.conflictOf(rec, row.Stolen) {
+			return
+		}
+		if old := c.held[res.Name]; old != nil && old.Holder == p.Holder {
+			rec.Conflict = old.Conflict
+		}
+		c.held[res.Name] = rec
 		c.note(Change{Kind: LeaseChanged, Resource: res.Name, Holder: p.Holder})
+	case KindLeaseStolen:
+		c.applyStolen(ev)
 	case KindLeaseRel:
 		var p leaseReleasedRow
 		if json.Unmarshal(ev.Payload, &p) != nil {
 			return
 		}
-		if c.dropLease(p.Resource, p.Holder) {
+		name := p.Resource
+		if n, err := NormalizeResource(p.Resource); err == nil {
+			name = n
+		}
+		c.lapsed = slices.DeleteFunc(c.lapsed, func(l Lease) bool { return l.Resource == name && l.Holder == p.Holder })
+		if c.endConflict(name, p.Holder) {
 			c.note(Change{Kind: LeaseChanged, Resource: p.Resource, Holder: p.Holder, Reason: p.Reason})
 		}
 	}
@@ -559,10 +602,18 @@ func (c *coord) dropLease(resource, holder string) bool {
 
 // prune forgets expired leases so held stays the size of what is live. The
 // caller holds c.mu (or is replaying).
+// Only this device's own leases lapse here; another device's ends with a
+// row from its holder's device (v0.4 §6.4). A lapsed own lease is queued
+// for its release row (holderDuties), so other devices end it too.
 func (c *coord) prune(now time.Time) {
 	for name, l := range c.held {
-		if !l.Until.After(now) {
+		if !c.live(l, now) {
 			delete(c.held, name)
+			// At replay only a recent lapse still needs its row: older ones
+			// were never seen by another device as live (before v0.4).
+			if !c.replaying || now.Sub(l.Until) < lapsedWithin {
+				c.lapsed = append(c.lapsed, l.Lease)
+			}
 			c.note(Change{Kind: LeaseExpired, Resource: name, Holder: l.Holder})
 		}
 	}
@@ -739,7 +790,7 @@ func (c *coord) observe(now time.Time) {
 		}
 	}
 	for _, l := range c.held {
-		if l.Until.After(now) {
+		if c.live(l, now) {
 			tracked[l.Holder] = true
 		}
 	}
@@ -749,7 +800,9 @@ func (c *coord) observe(now time.Time) {
 		}
 	}
 	for k := range tracked {
-		if c.isOwner(k) || live[k] {
+		// Another device's agent is never gone by this device's view of it:
+		// its host's Core releases what it held (v0.4 §6.4).
+		if c.isOwner(k) || live[k] || !c.localKey(k) {
 			delete(c.firstAbsent, k)
 			continue
 		}
@@ -1034,7 +1087,7 @@ func (c *coord) acquire(ctx context.Context, holder, resource string, ttl time.D
 	c.prune(now)
 	var victims []*leaseRec
 	for _, l := range c.held {
-		if l.Holder != holder && l.Until.After(now) && conflicts(l.res, res) {
+		if l.Holder != holder && c.live(l, now) && conflicts(l.res, res) {
 			victims = append(victims, l)
 		}
 	}
@@ -1059,7 +1112,7 @@ func (c *coord) acquire(ctx context.Context, holder, resource string, ttl time.D
 	sort.Strings(from)
 
 	l := Lease{Resource: res.Name, Holder: holder, Until: now.Add(ttl), AcquiredAt: now, StolenFrom: strings.Join(from, ",")}
-	if old := c.held[res.Name]; old != nil && old.Holder == holder && old.Until.After(now) {
+	if old := c.held[res.Name]; old != nil && old.Holder == holder && c.live(old, now) {
 		// A renewal keeps when it was first taken and from whom.
 		l.AcquiredAt = old.AcquiredAt
 		if l.StolenFrom == "" {
@@ -1095,11 +1148,16 @@ func (c *coord) release(ctx context.Context, by, resource string) error {
 	defer c.unlock()
 	now := c.stamp()
 	l := c.held[name]
-	if l == nil || !l.Until.After(now) {
+	if l == nil || !c.live(l, now) {
 		return fmt.Errorf("%w: no lease on %s", ErrNotFound, name)
 	}
 	if l.Holder != by && !c.isOwner(by) {
 		return fmt.Errorf("%w: %s is leased by %s", ErrHeld, name, l.Holder)
+	}
+	if !c.localKey(l.Holder) {
+		// Only its holder's device releases a lease; the person ends
+		// another device's with lease.stolen (v0.4 §6.4).
+		return c.steal(ctx, by, l)
 	}
 	return c.write(ctx, by, KindLeaseRel, leaseReleasedRow{
 		Resource: name, Holder: l.Holder, Reason: ReasonReleased, By: by, At: now,
@@ -1113,9 +1171,12 @@ func (c *coord) leases() []Lease {
 	c.prune(now)
 	out := []Lease{}
 	for _, l := range c.held {
-		if l.Until.After(now) {
+		if c.live(l, now) {
 			out = append(out, l.Lease)
 		}
+	}
+	for _, l := range c.conflicts {
+		out = append(out, l.Lease) // contested: both show, marked (§6.4)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Resource < out[j].Resource })
 	return out
@@ -1133,7 +1194,7 @@ func (c *coord) releaseGone(ctx context.Context, now time.Time) error {
 	c.observe(now)
 	var gone []*leaseRec
 	for _, l := range c.held {
-		if l.Until.After(now) && c.gone(l.Holder, now) {
+		if l.Until.After(now) && c.localKey(l.Holder) && c.gone(l.Holder, now) {
 			gone = append(gone, l)
 		}
 	}

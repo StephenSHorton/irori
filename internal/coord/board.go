@@ -111,6 +111,9 @@ type Refusal struct {
 	Held     string    `json:"held"`  // the conflicting lease's resource (may differ: overlapping globs)
 	Until    time.Time `json:"until"` // the conflicting lease's Until when refused
 	At       time.Time `json:"at"`
+	// Conflict marks by's own lease given up after a partition (v0.4
+	// §6.4): another device's lease on the resource stood.
+	Conflict bool `json:"conflict,omitempty"`
 }
 
 // BoardFilter narrows Board.

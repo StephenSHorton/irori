@@ -28,6 +28,7 @@ import (
 	"github.com/StephenSHorton/irori/internal/pair"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/repo"
+	"github.com/StephenSHorton/irori/internal/roster"
 	"github.com/StephenSHorton/irori/internal/scrub"
 	"github.com/StephenSHorton/irori/internal/store"
 	"github.com/StephenSHorton/irori/internal/tools"
@@ -70,6 +71,7 @@ type Core struct {
 	capture  *capture.Capture
 	mesh     *mesh.Node
 	pair     *pair.Pairer
+	roster   *roster.Roster
 	netClose func() // stops the default transport's relay; nil for a passed-in one
 	scrubber *scrub.Scrubber
 	secretMu sync.Mutex
@@ -142,6 +144,21 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		c.Close()
 		return nil, err
 	}
+	// One roster across devices (v0.4 §6.2): this device's presence plus
+	// every other device's agent rows. The mesh node is built below; its
+	// liveness is read per call.
+	if c.roster, err = roster.Start(ctx, roster.Options{Store: st, Self: id.ID, Local: c.LocalAgents,
+		Liveness: func(dev string) string {
+			if c.mesh == nil {
+				return roster.Offline
+			}
+			return c.mesh.Liveness(dev)
+		},
+		Revoked: func(dev string) bool { _, revoked := chain.Cut(dev); return revoked },
+	}); err != nil {
+		c.Close()
+		return nil, fmt.Errorf("roster: %w", err)
+	}
 	// The inbox is built before capture: PROwners reads c.capture per call.
 	prOwners := func(prKey string) []string {
 		if c.capture == nil {
@@ -149,7 +166,10 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		}
 		return c.capture.PROwners(prKey)
 	}
-	if c.inbox, err = inbox.New(ctx, st, c, inbox.Options{DeviceID: id.ID, PROwners: prOwners, IsOwner: chain.IsOwner}); err != nil {
+	// The inbox routes against the mesh roster: a message can go to an
+	// agent on another device, and the bypass rule reads the sender's card
+	// wherever it runs.
+	if c.inbox, err = inbox.New(ctx, st, meshView{c}, inbox.Options{DeviceID: id.ID, PROwners: prOwners, IsOwner: chain.IsOwner}); err != nil {
 		c.Close()
 		return nil, fmt.Errorf("inbox: %w", err)
 	}
@@ -169,7 +189,7 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	c.capture.AddSource(c.inbox)
 	// Cards are the desktop app's; a headless Core's Notifier never shows one.
 	c.notifier = notify.New(notify.Config{Dir: opts.DataDir, Headless: opts.Headless})
-	c.tools = tools.New(c)
+	c.tools = tools.New(meshView{c})
 
 	// The net layer (v0.4 §4.5) is built here but opens nothing until the
 	// person has a second device: a device on its own makes no broker
@@ -230,6 +250,18 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 				log.Printf("mesh: %v", err)
 			}
 		}()
+		// Other devices' rows fold into the inbox and coord as the mesh
+		// inserts them (v0.4 §6.1); both write as owners, so they stop
+		// before the log closes.
+		followDone := make(chan struct{})
+		defer func() { <-followDone }()
+		go func() {
+			defer close(followDone)
+			fd := make(chan struct{})
+			go func() { defer close(fd); c.coord.Follow(ctx) }()
+			c.inbox.Follow(ctx)
+			<-fd
+		}()
 		go c.record(ctx, changes)
 		go c.sweep(ctx)
 		if err := srv.Serve(ctx, ln); err != nil && ctx.Err() == nil {
@@ -282,7 +314,7 @@ func (c *Core) record(ctx context.Context, changes <-chan presence.Change) {
 		switch ch.Kind {
 		case presence.Added:
 			last[card.Key] = card
-			_, err = c.store.Append(ctx, actor, store.KindAgentSeen, card)
+			_, err = c.store.Append(ctx, actor, store.KindAgentSeen, c.rowCard(card))
 		case presence.Updated:
 			prev, ok := last[card.Key]
 			last[card.Key] = card
@@ -302,6 +334,16 @@ func (c *Core) record(ctx context.Context, changes <-chan presence.Change) {
 			log.Printf("record %s: %v", ch.Kind, err)
 		}
 	}
+}
+
+// rowCard is the agent.seen card as it replicates (v0.4 §2): no transcript
+// path or pid (they mean nothing on another machine), no last assistant
+// text (decision D9: it stays in this device's memory), and the title
+// scrubbed, because a replicated row can't be scrubbed later.
+func (c *Core) rowCard(card presence.AgentCard) presence.AgentCard {
+	card.LastText, card.Transcript, card.PID, card.DeviceState = "", "", 0, ""
+	card.Title = c.scrubber.String(card.Title)
+	return card
 }
 
 // coordSweepInterval: coord's sweeper starts a vanished holder's grace
@@ -371,12 +413,37 @@ func (c *Core) Version() string { return c.opts.Version }
 // Device implements api.Backend.
 func (c *Core) Device() device.Identity { return c.device }
 
-// Agents implements api.Backend: the presence roster plus a synthetic card
-// for each bound Grok member (agent "grok") whose stream is open or closed
-// less than inbox.ReattachGrace ago.
-func (c *Core) Agents() []presence.AgentCard {
+// Agents implements api.Backend: LocalAgents. Attach and the API's caller
+// checks only ever concern sessions on this device.
+func (c *Core) Agents() []presence.AgentCard { return c.LocalAgents() }
+
+// LocalAgents is this device's roster (v0.4 §6.2): the presence roster plus
+// a synthetic card for each bound Grok member (agent "grok") whose stream is
+// open or closed less than inbox.ReattachGrace ago. It feeds attach, Revive
+// and presence recording.
+func (c *Core) LocalAgents() []presence.AgentCard {
 	return append(c.presence.Snapshot(), c.members.cards()...)
 }
+
+// MeshAgents is the roster across the person's devices (v0.4 §6.2): this
+// device's cards, then every other device's from their agent rows, each
+// with that device's liveness. It feeds inbox routing, the tools and the
+// GUI.
+func (c *Core) MeshAgents() []presence.AgentCard {
+	if c.roster == nil {
+		return c.LocalAgents()
+	}
+	return c.roster.Agents()
+}
+
+// Roster is the mesh roster (MeshAgents), for its change signal.
+func (c *Core) Roster() *roster.Roster { return c.roster }
+
+// meshView is the Core with Agents() as the mesh roster: what the inbox
+// routes against and what the tools show.
+type meshView struct{ *Core }
+
+func (m meshView) Agents() []presence.AgentCard { return m.MeshAgents() }
 
 // Notifier shows desktop notification cards (none when headless). The GUI
 // runs notify.Watch over it and gives it the window opener.

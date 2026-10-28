@@ -152,8 +152,10 @@ func (b *inbox) sweep(ctx context.Context) error {
 		return !live || !b.reachable(agent, now)
 	}
 	seen := map[string]bool{}
+	// Only this device's own recipients are tracked: another device's
+	// agent isn't in presence here, and its host sweeps its work (§6.3).
 	for _, d := range b.open {
-		if d.To == "" || b.isOwner(d.To) || seen[d.To] {
+		if d.To == "" || b.isOwner(d.To) || seen[d.To] || !b.local(d.To) {
 			continue
 		}
 		seen[d.To] = true
@@ -183,10 +185,14 @@ func (b *inbox) sweep(ctx context.Context) error {
 		Reachable: func(a string) bool { return b.reachable(a, now) },
 		Desk:      func(repo string, exclude ...string) string { return b.desk(repo, cards, now, exclude...) },
 	}
+	// The sweep plans only deliveries this device owns (v0.4 §6.3): a
+	// remote recipient is never moved as gone, and repo work with no owner
+	// yet is assigned only by the device that wrote it. Another device's
+	// work freezes while that device is offline.
 	items := make([]sweepItem, 0, len(b.open))
 	for _, id := range b.order {
 		d := b.open[id]
-		if d == nil {
+		if d == nil || !b.owns(d) {
 			continue
 		}
 		it := sweepItem{
@@ -259,7 +265,10 @@ func (b *inbox) move(ctx context.Context, d *drec, to string, cards map[string]p
 		nr.For = clip(b.describe(d.To, cards), MaxNote) // owner-routed PR work: its owner has gone
 	}
 	h := HoldUnowned
-	if m != nil {
+	switch {
+	case to != "" && !b.local(to):
+		h = "" // its host decides with its own policy (v0.4 §6.3)
+	case m != nil:
 		h = b.hold(m, to, cards)
 	}
 	if err := b.putDelivery(ctx, placed(nr, h), "irori"); err != nil {

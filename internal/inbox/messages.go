@@ -138,7 +138,13 @@ func (b *inbox) sendLocked(ctx context.Context, from Sender, to Address, text st
 	if err := b.emit(ctx, from.Key, KindMessageSent, m); err != nil {
 		return Message{}, Delivery{}, err
 	}
-	r := placed(deliveryRow{DeliveryID: "dlv_" + b.ids.next(now), MessageID: m.ID, To: recipient, RepoKey: repo, Mode: o.Mode, For: forOwner}, b.hold(&m, recipient, cards))
+	// A recipient on another device gets the queued row with no hold
+	// decision: its host decides with its own policy (v0.4 §6.3).
+	h := HoldReason("")
+	if b.local(recipient) || recipient == "" {
+		h = b.hold(&m, recipient, cards)
+	}
+	r := placed(deliveryRow{DeliveryID: "dlv_" + b.ids.next(now), MessageID: m.ID, To: recipient, RepoKey: repo, Mode: o.Mode, For: forOwner}, h)
 	if err := b.putDelivery(ctx, r, from.Key); err != nil {
 		return Message{}, Delivery{}, err
 	}
@@ -306,6 +312,8 @@ func (b *inbox) skip(ctx context.Context, agent, deliveryID, note string) error 
 
 // release is the person's Deliver: a held delivery is queued past the
 // policy. Unowned repo work goes to the front desk if there is one now.
+// On a delivery another device owns, it writes the request its owner
+// applies (v0.4 §6.3).
 func (b *inbox) release(ctx context.Context, deliveryID, by string) error {
 	b.mu.Lock()
 	defer b.unlock()
@@ -316,6 +324,14 @@ func (b *inbox) release(ctx context.Context, deliveryID, by string) error {
 	if d.State != Held {
 		return badState(d, "release")
 	}
+	if !b.owns(d) {
+		return b.request(ctx, d, ChoiceRelease, "", by)
+	}
+	return b.releaseLocked(ctx, d, by)
+}
+
+// releaseLocked queues held d past the policy. b.mu is held.
+func (b *inbox) releaseLocked(ctx context.Context, d *drec, by string) error {
 	r := d.row()
 	if r.To == "" {
 		cards, err := b.liveCards(ctx)
@@ -348,9 +364,10 @@ func (b *inbox) dismiss(ctx context.Context, deliveryID, by string) error {
 	if d.State != Held {
 		return badState(d, "dismiss")
 	}
-	r := d.row()
-	r.State = Dismissed
-	return b.putDelivery(ctx, r, by)
+	if !b.owns(d) {
+		return b.request(ctx, d, ChoiceDismiss, "", by)
+	}
+	return b.putDelivery(ctx, dismissed(d), by)
 }
 
 // newestFirst orders deliveries by creation, newest first.

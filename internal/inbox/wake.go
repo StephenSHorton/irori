@@ -23,7 +23,9 @@ func (b *inbox) nextWake(ctx context.Context, agent string, path Path) (*Wake, e
 	}
 	b.mu.Lock()
 	defer b.unlock()
-	if b.pol.Paused {
+	// Wakes reach only sessions this device hosts (v0.4 §6.3): another
+	// device's agent is woken by its own host.
+	if b.pol.Paused || !b.local(agent) {
 		return nil, nil
 	}
 	if w, _ := b.outstanding(agent); w != nil {
@@ -83,7 +85,7 @@ func (b *inbox) nextAppend(ctx context.Context, agent string) (*Wake, error) {
 	}
 	b.mu.Lock()
 	defer b.unlock()
-	if b.pol.Paused || b.pendingAppend(agent) != nil {
+	if b.pol.Paused || !b.local(agent) || b.pendingAppend(agent) != nil {
 		return nil, nil
 	}
 	var ready []*drec

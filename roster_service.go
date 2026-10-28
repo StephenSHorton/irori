@@ -44,8 +44,9 @@ type RosterService struct {
 	revives reviveGuard // sessions revived a moment ago
 }
 
-// Agents returns the live agents on this device, newest activity first.
-func (r *RosterService) Agents() []presence.AgentCard { return r.core.Agents() }
+// Agents returns the live agents on every one of the person's devices:
+// this device's first, then the others' with their device state (v0.4 §6.2).
+func (r *RosterService) Agents() []presence.AgentCard { return r.core.MeshAgents() }
 
 // Device returns this device's identity.
 func (r *RosterService) Device() device.Identity { return r.core.Device() }
@@ -63,7 +64,7 @@ func (r *RosterService) Recent(limit int) ([]store.Event, error) {
 
 func (r *RosterService) pump(ctx context.Context, app *application.App) {
 	for ch := range r.core.Changes(ctx) {
-		app.Event.Emit(EventRosterChanged, RosterChange{Change: ch, Agents: r.core.Agents()})
+		app.Event.Emit(EventRosterChanged, RosterChange{Change: ch, Agents: r.core.MeshAgents()})
 	}
 }
 

@@ -33,7 +33,7 @@ const subBuffer = 64
 // stay addressable.
 var replayKinds = []string{
 	KindMessageSent, KindDelivery, KindWakeIssued, KindAlias, KindAgentName,
-	KindTurnEngaged, KindTurnEnded, store.KindAgentSeen,
+	KindTurnEngaged, KindTurnEnded, store.KindAgentSeen, KindDecided,
 }
 
 // localReplayKinds are the device-local rows New folds (local_events).
@@ -52,6 +52,8 @@ type drec struct {
 	assignedAt  time.Time // when To last changed
 	engagedOnce bool      // the current recipient engaged or deferred it at least once
 	firstWriter string    // the device that wrote its first row: its owner while To is empty (v0.4 §6.0)
+	lastWriter  string    // the device that wrote its newest row
+	hostChecked bool      // this device, its host, ran hold() on another device's queued row (memory only)
 }
 
 // deliveryRow is the KindDelivery payload: a full snapshot of the delivery's
@@ -155,9 +157,16 @@ type inbox struct {
 	ownerFn func(string) bool // Options.IsOwner
 	// ignored counts owner-only rows folded from the wrong device (v0.4 §6.0).
 	ignored int
-	now     func() time.Time
-	lim     limits
-	ids     idGen
+	// Across devices (mesh.go): the highest seq folded per device, the
+	// deliveries whose first request was applied here, and requests folded
+	// at replay that wait for the owner pass.
+	last     map[string]int64
+	handled  map[string]bool
+	requests []decidedRow
+
+	now func() time.Time
+	lim limits
+	ids idGen
 
 	msgs    map[string]*Message
 	dels    map[string]*drec
@@ -229,6 +238,7 @@ func newInbox(ctx context.Context, st *store.Store, roster Roster, opts Options)
 		reminders: map[string][]string{}, submit: map[string]bool{}, appendable: map[string]bool{},
 		visibleAt: map[string]time.Time{}, heldFirst: map[string]bool{},
 		subs: map[chan Change]struct{}{}, touched: map[string]bool{},
+		last: map[string]int64{}, handled: map[string]bool{},
 	}
 	if err := b.replay(ctx); err != nil {
 		return nil, err
@@ -259,6 +269,9 @@ func (b *inbox) replay(ctx context.Context) error {
 			for _, ev := range evs {
 				if err := b.apply(ev); err != nil {
 					return fmt.Errorf("inbox: replay %s %s/%d: %w", ev.Kind, ev.DeviceID, ev.Seq, err)
+				}
+				if !local && ev.Seq > b.last[ev.DeviceID] {
+					b.last[ev.DeviceID] = ev.Seq
 				}
 				after = ev.Cursor()
 			}
@@ -395,6 +408,7 @@ func (b *inbox) apply(ev store.Event) error {
 		d.Note, d.For, d.Until, d.MovedTo, d.Reminded = r.Note, r.For, r.Until, r.MovedTo, r.Reminded
 		d.movedFrom, d.engagedOnce = r.MovedFrom, r.EngagedOnce
 		d.UpdatedAt = at
+		d.lastWriter = ev.DeviceID
 		if d.State.Open() {
 			b.open[d.ID] = d
 		} else {
@@ -502,6 +516,22 @@ func (b *inbox) apply(ev store.Event) error {
 			delete(b.running, r.Agent)
 		}
 		b.touch(r.Agent)
+
+	case KindDecided:
+		var r decidedRow
+		if err := json.Unmarshal(ev.Payload, &r); err != nil {
+			return err
+		}
+		// Only the person decides a held delivery: a request written by
+		// anything but a GUI is ignored and counted.
+		if ev.Actor != "user" || !b.isOwner(r.By) {
+			b.ignored++
+			return nil
+		}
+		if b.replaying {
+			b.requests = append(b.requests, r)
+		}
+		b.note(Change{Kind: Updated, DeliveryID: r.DeliveryID})
 
 	case store.KindAgentSeen:
 		var c presence.AgentCard
@@ -617,7 +647,7 @@ func (b *inbox) agentsWithOpen() map[string]bool {
 // now. Queued next_turn items never count: they make no wake by themselves
 // (a channel stream picks them up on the Updated change that queued them).
 func (b *inbox) hasSubmit(agent string) bool {
-	if agent == "" || b.pol.Paused {
+	if agent == "" || b.pol.Paused || !b.local(agent) {
 		return false
 	}
 	if w, _ := b.outstanding(agent); w != nil {
@@ -636,7 +666,7 @@ func (b *inbox) hasSubmit(agent string) bool {
 
 // hasAppend: NextAppend would return an append for agent right now.
 func (b *inbox) hasAppend(agent string) bool {
-	if agent == "" || b.pol.Paused || b.pendingAppend(agent) != nil {
+	if agent == "" || b.pol.Paused || !b.local(agent) || b.pendingAppend(agent) != nil {
 		return false
 	}
 	for _, d := range b.open {

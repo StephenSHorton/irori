@@ -38,9 +38,9 @@ func setupNotifications(ctx context.Context, app *application.App, c *core.Core,
 	})
 }
 
-// agentName is an agent key's display name from the live roster, or "".
+// agentName is an agent key's display name from the mesh roster, or "".
 func agentName(c *core.Core, key string) string {
-	for _, a := range c.Agents() {
+	for _, a := range c.MeshAgents() {
 		if a.Key == key {
 			return strings.TrimSpace(a.Name)
 		}

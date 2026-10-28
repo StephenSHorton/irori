@@ -55,6 +55,9 @@ type AgentCard struct {
 	// value set is open ("default", "acceptEdits", "auto", "bypassPermissions",
 	// ...): consumers test == "bypassPermissions", never a fixed list.
 	PermissionMode string `json:"permissionMode"`
+	// DeviceState is set on another device's card in the mesh roster (v0.4
+	// §6.2): "connected", "recent" or "offline". "" on this device's own.
+	DeviceState string `json:"deviceState,omitempty"`
 }
 
 // ChangeKind says what happened to a card.

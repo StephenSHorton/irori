@@ -122,6 +122,9 @@ type Lease struct {
 	Until      time.Time `json:"until"`
 	StolenFrom string    `json:"stolenFrom,omitempty"`
 	AcquiredAt time.Time `json:"acquiredAt"`
+	// Conflict names the other holder when two devices took this resource
+	// while partitioned (v0.4 §6.4): the lower device id's lease stands.
+	Conflict string `json:"conflict,omitempty"`
 }
 
 // ChangeKind classifies a Subscribe notification.

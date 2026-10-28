@@ -58,6 +58,9 @@ func (c *coord) armExpiry() {
 	var next time.Time
 	if len(c.subs) > 0 {
 		for _, l := range c.held {
+			if !c.localKey(l.Holder) {
+				continue // another device's lease never lapses here
+			}
 			if next.IsZero() || l.Until.Before(next) {
 				next = l.Until
 			}

@@ -949,6 +949,34 @@ func (n *Node) Status() Status {
 	return st
 }
 
+// Liveness is one other device's state (§6.2): "connected" when a ping
+// arrived within 45 s on a live connection, "recent" when it synced within
+// 10 minutes, else "offline". It is kept in memory and never logged.
+func (n *Node) Liveness(dev string) string {
+	now := n.now()
+	up := false
+	for _, s := range n.sessionList() {
+		if s.conn.ID() == dev && s.helloDone() {
+			up = true
+			break
+		}
+	}
+	n.mu.Lock()
+	k := n.known[dev]
+	var ping, sync time.Time
+	if k != nil {
+		ping, sync = k.lastPing, k.lastSync
+	}
+	n.mu.Unlock()
+	switch {
+	case up && !ping.IsZero() && now.Sub(ping) < ConnectedWithin:
+		return "connected"
+	case !sync.IsZero() && now.Sub(sync) < RecentWithin:
+		return "recent"
+	}
+	return "offline"
+}
+
 func (n *Node) restoringNow(v store.Vector) bool {
 	n.mu.Lock()
 	defer n.mu.Unlock()
