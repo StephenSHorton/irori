@@ -121,7 +121,7 @@ const (
 	StateOff     = "off"     // no other device: nothing is open
 	StateOn      = "on"      // the net layer runs
 	StateRemoved = "removed" // this device was revoked: it stops syncing
-	StateError   = "error"   // the transport failed; the app works alone
+	StateError   = "error"   // no topic could be joined (Detail says why); retried, and the app works alone
 )
 
 type peerInfo struct {
@@ -238,6 +238,7 @@ func (n *Node) Run(ctx context.Context) error {
 		case <-n.kick:
 			n.personChanged()
 		case <-pres.C:
+			n.ensureRooms() // retries a failed join
 			n.announce()
 		}
 	}
@@ -413,8 +414,11 @@ func (n *Node) join(epoch int) {
 		OnPeer:    func(c Conn) { n.onPeer(epoch, c) },
 	})
 	if err != nil {
+		// Retried on the next presence tick; the app works alone meanwhile.
 		n.logf("mesh: join epoch %d: %v", epoch, err)
-		n.setState(StateError, "Can't reach the signaling servers: "+err.Error())
+		n.mu.Lock()
+		n.detail = "Can't reach the signaling servers: " + err.Error()
+		n.mu.Unlock()
 		return
 	}
 	n.mu.Lock()
@@ -424,6 +428,7 @@ func (n *Node) join(epoch int) {
 		return
 	}
 	n.rooms[epoch] = r
+	n.detail = ""
 	n.mu.Unlock()
 	n.announceIn(epoch)
 }
@@ -893,6 +898,9 @@ func (n *Node) Status() Status {
 	sessions := n.sessionList()
 	n.mu.Lock()
 	st := Status{State: n.state, Detail: n.detail, Epoch: n.o.Ident.Current().Epoch, Topics: len(n.rooms), Restoring: n.restoring}
+	if st.State == StateOn && st.Topics == 0 && st.Detail != "" {
+		st.State = StateError
+	}
 	known := map[string]peerInfo{}
 	for id, k := range n.known {
 		known[id] = *k

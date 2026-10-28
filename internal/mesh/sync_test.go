@@ -138,7 +138,12 @@ func TestForgedRowsAreRefusedEvenWithTheCertCheckOff(t *testing.T) {
 			if _, err := recvFrame(c, FrameVector, 5*time.Second); err != nil {
 				t.Fatal(err)
 			}
-			eventually(t, "the refusals are counted", func() bool { return a.node.Status().Peers != nil })
+			eventually(t, "the refusals are counted", func() bool {
+				a.node.mu.Lock()
+				defer a.node.mu.Unlock()
+				k := a.node.known["ffffffffforger"]
+				return k != nil && k.refused >= 2 // the bad signature and the local kind
+			})
 			never(t, "a forged row is stored", func() bool {
 				v := a.vector()
 				return v["ffffffffforger"] > 0 || v["eeeeeeeeother"] > 0 || v[b.id()] > bv

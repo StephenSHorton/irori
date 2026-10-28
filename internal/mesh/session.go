@@ -404,8 +404,9 @@ func (s *session) onVector(f Frame) {
 // onRows applies a rows frame, then acks with this device's vector.
 func (s *session) onRows(ctx context.Context, f Frame) {
 	if f.Loose {
+		// Not an ack: the sender's batch in flight is a different frame.
 		s.onLoose(ctx, f.Events)
-		s.ack(ctx)
+		s.vector(ctx, false)
 		return
 	}
 	var order []string
