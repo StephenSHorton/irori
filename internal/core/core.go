@@ -198,7 +198,8 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	// The inbox routes against the mesh roster: a message can go to an
 	// agent on another device, and the bypass rule reads the sender's card
 	// wherever it runs.
-	if c.inbox, err = inbox.New(ctx, st, meshView{c}, inbox.Options{DeviceID: id.ID, PROwners: prOwners, IsOwner: chain.IsOwner}); err != nil {
+	if c.inbox, err = inbox.New(ctx, st, meshView{c}, inbox.Options{DeviceID: id.ID, PROwners: prOwners, IsOwner: chain.IsOwner,
+		Revoked: func(dev string) bool { _, revoked := chain.Cut(dev); return revoked }}); err != nil {
 		c.Close()
 		return nil, fmt.Errorf("inbox: %w", err)
 	}
@@ -385,7 +386,12 @@ func (c *Core) Close() error {
 }
 
 // record turns roster changes into log rows. Status rows are written only
-// when status or name changes, so a busy session doesn't flood the log.
+// when status, name or permission mode changes, so a busy session doesn't
+// flood the log. The mode rides on the status row because a session's
+// agent.seen is often written before its transcript holds a mode row (a
+// new session, or a tail with none yet): without it the other devices
+// would show that session's mode as unknown until this Core restarted,
+// and hold its messages to their bypass sessions (decision 10).
 func (c *Core) record(ctx context.Context, changes <-chan presence.Change) {
 	last := map[string]presence.AgentCard{}
 	for ch := range changes {
@@ -399,12 +405,14 @@ func (c *Core) record(ctx context.Context, changes <-chan presence.Change) {
 		case presence.Updated:
 			prev, ok := last[card.Key]
 			last[card.Key] = card
-			if ok && prev.Status == card.Status && prev.Name == card.Name {
+			if ok && prev.Status == card.Status && prev.Name == card.Name && prev.PermissionMode == card.PermissionMode {
 				continue
 			}
-			_, err = c.store.Append(ctx, actor, store.KindAgentStatus, map[string]any{
-				"key": card.Key, "status": card.Status, "name": card.Name,
-			})
+			row := map[string]any{"key": card.Key, "status": card.Status, "name": card.Name}
+			if card.PermissionMode != "" {
+				row["permissionMode"] = card.PermissionMode
+			}
+			_, err = c.store.Append(ctx, actor, store.KindAgentStatus, row)
 		case presence.Removed:
 			delete(last, card.Key)
 			_, err = c.store.Append(ctx, actor, store.KindAgentGone, map[string]any{

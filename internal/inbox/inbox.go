@@ -112,6 +112,10 @@ type Message struct {
 	// Attachments are files on the message (v0.4 §6.6): refs to the
 	// attaching device's store, fetched on demand with attachment_get.
 	Attachments []blob.FileRef `json:"attachments,omitempty"`
+	// writer is the device that wrote the message.sent row (memory only,
+	// set as it folds): an own-agent exemption needs From's key to be that
+	// device's (decision 34).
+	writer string
 }
 
 // State is a delivery's state (design §4).
@@ -314,6 +318,10 @@ type Options struct {
 	// IsOwner reports whether a "user:<device>" key is the person's (v0.4
 	// identity.Chain.IsOwner). Nil accepts exactly "user:<DeviceID>".
 	IsOwner func(key string) bool
+	// Revoked reports a device removed from the person (v0.4 §3): its
+	// agents are no longer the person's own for the bypass rule (decision
+	// 34). Nil revokes none.
+	Revoked func(device string) bool
 	// Overrides for tests; zero means the constant above.
 	UnengagedLimit, GoneGrace, QuietLimit, ReattachGrace time.Duration
 }

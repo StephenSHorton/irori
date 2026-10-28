@@ -148,7 +148,7 @@ func (b *inbox) sendLocked(ctx context.Context, from Sender, to Address, text st
 	// decision: its host decides with its own policy (v0.4 §6.3).
 	h := HoldReason("")
 	if b.local(recipient) || recipient == "" {
-		h = b.hold(&m, recipient, cards)
+		h = b.hold(b.msgs[m.ID], recipient, cards) // as folded: it knows its writer
 	}
 	r := placed(deliveryRow{DeliveryID: "dlv_" + b.ids.next(now), MessageID: m.ID, To: recipient, RepoKey: repo, Mode: o.Mode, For: forOwner}, h)
 	if err := b.putDelivery(ctx, r, from.Key); err != nil {
