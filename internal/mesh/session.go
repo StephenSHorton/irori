@@ -39,6 +39,10 @@ type session struct {
 	held      map[string]map[int64]store.Event
 	heldRows  int
 	heldBytes int
+	// Blob streams being served; run waits for them, so nothing reads the
+	// store after the session ends.
+	serving sync.WaitGroup
+	ended   bool
 }
 
 func newSession(n *Node, epoch int, c Conn) *session {
@@ -84,9 +88,30 @@ func (s *session) heldCount() int {
 func (s *session) run(parent context.Context) {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-	// Blob streams the peer opens (§4.3); each is served on its own.
+	// Blob streams the peer opens (§4.3); each is served on its own, and
+	// closed when the session ends.
 	peer := s.conn.ID()
-	s.conn.OnStream(func(label string, st io.ReadWriteCloser) { s.n.serveStream(peer, label, st) })
+	s.conn.OnStream(func(label string, st io.ReadWriteCloser) {
+		s.mu.Lock()
+		if s.ended {
+			s.mu.Unlock()
+			st.Close()
+			return
+		}
+		s.serving.Add(1)
+		s.mu.Unlock()
+		defer s.serving.Done()
+		stop := context.AfterFunc(ctx, func() { st.Close() })
+		defer stop()
+		s.n.serveStream(peer, label, st)
+	})
+	defer func() {
+		cancel()
+		s.mu.Lock()
+		s.ended = true
+		s.mu.Unlock()
+		s.serving.Wait()
+	}()
 	go func() {
 		select {
 		case <-s.conn.Done():
