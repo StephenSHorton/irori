@@ -31,7 +31,9 @@ const BoardInstructions = "The Irori Board is a shared scratch pad for live coor
 	"Put those wherever this project or your instructions say (Linear, Notion, GitHub issues, the repo's docs, a knowledge base), " +
 	"and add a link on the card if it helps. When a card's work is done, mark it done; don't keep it as a record. " +
 	"Post a card for work others should see (the person's window shows only cards); if it fits another agent's work better, " +
-	"ask that agent to put it up. Raise blockers with enough context that someone who has never been there can decide, " +
+	"ask that agent to put it up. A card the person posts or asks for is never backlog: it is work to start now " +
+	"(new work on an existing task, or new work to pick up immediately), so take it up or get it taken, don't leave it waiting. " +
+	"Raise blockers with enough context that someone who has never been there can decide, " +
 	"and give your recommended answer(s)."
 
 // Sentences some descriptions share.
