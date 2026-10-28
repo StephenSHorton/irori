@@ -24,6 +24,16 @@ export class Identity {
      */
     "os": string;
 
+    /**
+     * PersonID is the person this device belongs to (v0.4, design §2).
+     */
+    "personId"?: string;
+
+    /**
+     * DevicePub is the device's ed25519 public key, hex (v0.4).
+     */
+    "devicePub"?: string;
+
     /** Creates a new Identity instance. */
     constructor($$source: Partial<Identity> = {}) {
         if (!("id" in $$source)) {

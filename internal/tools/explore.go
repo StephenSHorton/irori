@@ -68,7 +68,7 @@ func taskOverviewLine(t coord.Task, n names) capture.Line {
 // inbox and the Board in its repo.
 func (s *set) overviewInput(c Caller, n names) capture.OverviewInput {
 	key := c.Sender.Key
-	repo := n[key].RepoKey
+	repo := n.cards[key].RepoKey
 	ib, co := s.b.Inbox(), s.b.Coord()
 	in := capture.OverviewInput{RepoKey: repo}
 

@@ -48,6 +48,12 @@ func (c *Clock) Observe(remote Timestamp) {
 	}
 }
 
+// ObserveBounded is Observe with remote capped at max, so a peer's row
+// stamped far in the future can never drag this clock with it (v0.4 §5.6).
+func (c *Clock) ObserveBounded(remote, max Timestamp) {
+	c.Observe(min(remote, max))
+}
+
 // Wall is the wall-clock part of t.
 func (t Timestamp) Wall() time.Time { return time.UnixMilli(int64(t >> 16)) }
 

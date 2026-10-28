@@ -204,12 +204,13 @@ func TestRefusedInsertDoesNotMoveClock(t *testing.T) {
 	if err := s.Insert(ctx, Event{DeviceID: "dev-b", Seq: 5, HLC: future, Kind: KindAgentSeen}); !errors.Is(err, ErrGap) {
 		t.Fatalf("got %v, want ErrGap", err)
 	}
-	// Already held: seq 1 commits, a re-delivered copy with a later HLC is ignored.
+	// Already held: seq 1 commits; a different row at the same seq is a
+	// fork (v0.4 §5.2), kept in forks and never stored or observed.
 	if err := s.Insert(ctx, Event{DeviceID: "dev-b", Seq: 1, HLC: 1 << 16, Kind: KindAgentSeen}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Insert(ctx, Event{DeviceID: "dev-b", Seq: 1, HLC: future, Kind: KindAgentSeen}); err != nil {
-		t.Fatal(err)
+	if err := s.Insert(ctx, Event{DeviceID: "dev-b", Seq: 1, HLC: future, Kind: KindAgentSeen}); !errors.Is(err, ErrFork) {
+		t.Fatalf("got %v, want ErrFork", err)
 	}
 	ev, err := s.Append(ctx, "irori", KindAgentSeen, nil)
 	if err != nil {

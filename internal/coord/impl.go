@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/StephenSHorton/irori/internal/owner"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/store"
 )
@@ -49,8 +50,13 @@ func ValidState(s TaskState) bool {
 	return false
 }
 
-// IsPerson reports whether key names a person ("user:<deviceId>").
-func IsPerson(key string) bool { return strings.HasPrefix(key, "user:") }
+// isOwner reports whether key names the person: exactly "user:<deviceId>"
+// for a device certified to them (Options.IsOwner, v0.4 §2). A made-up
+// "user:..." key is not a person.
+func (c *coord) isOwner(key string) bool { return c.ownerFn(key) }
+
+// IsPerson reports whether key is the person's (the rule coord applies).
+func (c *Coord) IsPerson(key string) bool { return c.impl.isOwner(key) }
 
 // Row payloads. Every row carries "at" (this device's clock when it was
 // written) so a replay folds to the same times.
@@ -160,10 +166,12 @@ type leaseRec struct {
 }
 
 type coord struct {
-	st     *store.Store
-	roster interface{ Agents() []presence.AgentCard }
-	now    func() time.Time
-	grace  time.Duration
+	st      *store.Store
+	roster  interface{ Agents() []presence.AgentCard }
+	now     func() time.Time
+	grace   time.Duration
+	ownerFn func(string) bool // Options.IsOwner
+	ignored int               // owner-only rows from the wrong device (v0.4 §6.0)
 
 	mu          sync.Mutex
 	tasks       map[string]*Task
@@ -197,6 +205,7 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 		roster:      roster,
 		now:         opts.Now,
 		grace:       opts.GoneGrace,
+		ownerFn:     opts.IsOwner,
 		tasks:       map[string]*Task{},
 		order:       map[string]uint64{},
 		held:        map[string]*leaseRec{},
@@ -212,6 +221,10 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 	if c.now == nil {
 		c.now = time.Now
 	}
+	if c.ownerFn == nil {
+		self := "user:" + st.DeviceID()
+		c.ownerFn = func(k string) bool { return k == self }
+	}
 	if c.grace <= 0 {
 		c.grace = GoneGrace
 	}
@@ -221,17 +234,11 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 	return &Coord{impl: c}, nil
 }
 
-// replay folds every task./lease. row in HLC order. AfterHLC is strictly
-// after, so each next page starts one tick early and skips rows already
-// applied at the boundary HLC; that keeps rows from two devices that share an
-// HLC (possible once rows replicate) from being skipped.
+// replay folds every task./lease./blocker. row in (hlc, device, seq) order,
+// paging with the store's cursor so rows from two devices that share an HLC
+// (possible once rows replicate) are never skipped at a page boundary.
 func (c *coord) replay(ctx context.Context) error {
 	f := store.Filter{Kinds: []string{"task.", "lease.", "blocker."}, Limit: store.MaxListLimit}
-	type rowID struct {
-		dev string
-		seq int64
-	}
-	seen := map[rowID]bool{} // rows at the previous page's last HLC
 	c.replaying = true
 	defer func() { c.replaying = false }()
 	for {
@@ -239,32 +246,60 @@ func (c *coord) replay(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("coord: replay: %w", err)
 		}
-		progressed := false
 		for _, ev := range evs {
-			if seen[rowID{ev.DeviceID, ev.Seq}] {
-				continue
-			}
-			progressed = true
 			c.apply(ev)
 		}
 		c.prune(c.stamp())
-		if len(evs) < f.Limit || !progressed {
+		if len(evs) < f.Limit {
 			return nil
 		}
-		last := evs[len(evs)-1].HLC
-		clear(seen)
-		for _, ev := range evs {
-			if ev.HLC == last {
-				seen[rowID{ev.DeviceID, ev.Seq}] = true
-			}
-		}
-		f.AfterHLC = last - 1
+		f.After = evs[len(evs)-1].Cursor()
 	}
+}
+
+// writerOK applies the owner table (v0.4 §6.0): lease rows come only from
+// the holder's device (a refusal from the refused acquirer's). A row from
+// any other device is ignored and counted. On one device every holder is
+// this device's, so nothing changes there.
+func (c *coord) writerOK(ev store.Event) bool {
+	switch ev.Kind {
+	case KindLeaseAcq:
+		var row leaseAcquiredRow
+		if json.Unmarshal(ev.Payload, &row) != nil {
+			return true // apply drops it
+		}
+		return owner.MayWrite(row.Holder, ev.DeviceID)
+	case KindLeaseRel:
+		var p leaseReleasedRow
+		if json.Unmarshal(ev.Payload, &p) != nil {
+			return true
+		}
+		return owner.MayWrite(p.Holder, ev.DeviceID)
+	case KindLeaseRefused:
+		var r Refusal
+		if json.Unmarshal(ev.Payload, &r) != nil {
+			return true
+		}
+		return owner.MayWrite(r.By, ev.DeviceID)
+	}
+	return true
+}
+
+// IgnoredRows counts owner-only rows coord ignored because a device other
+// than the owner wrote them.
+func (c *Coord) IgnoredRows() int {
+	c.impl.mu.Lock()
+	defer c.impl.mu.Unlock()
+	return c.impl.ignored
 }
 
 // apply folds one row. Rows are applied as written; validation happened
 // before the append.
 func (c *coord) apply(ev store.Event) {
+	if !c.writerOK(ev) {
+		c.ignored++
+		return
+	}
 	at := func(t time.Time) time.Time {
 		if t.IsZero() {
 			return ev.HLC.Wall().UTC()
@@ -566,8 +601,8 @@ func syncHolder(t *Task) {
 func isHolder(t *Task, key string) bool { return contains(t.Holders, key) }
 
 // mayManage: the creator, any holder or a person.
-func mayManage(t *Task, by string) bool {
-	return by == t.CreatedBy || isHolder(t, by) || IsPerson(by)
+func (c *coord) mayManage(t *Task, by string) bool {
+	return by == t.CreatedBy || isHolder(t, by) || c.isOwner(by)
 }
 
 // restoreState is where Unblock leaves a task: Working when a holder has
@@ -612,7 +647,7 @@ func linkIndex(ls []Link, ref string) int {
 
 // write appends a row and folds it. The caller holds c.mu.
 func (c *coord) write(ctx context.Context, by, kind string, payload any) error {
-	ev, err := c.st.Append(ctx, actorFor(by), kind, payload)
+	ev, err := c.st.Append(ctx, c.actorFor(by), kind, payload)
 	if err != nil {
 		return fmt.Errorf("coord: %w", err)
 	}
@@ -621,12 +656,14 @@ func (c *coord) write(ctx context.Context, by, kind string, payload any) error {
 }
 
 // actorFor maps a caller to the store's actor forms.
-func actorFor(by string) string {
+func (c *coord) actorFor(by string) string {
 	switch {
 	case by == "irori":
 		return "irori"
-	case IsPerson(by):
+	case c.isOwner(by):
 		return "user"
+	case strings.HasPrefix(by, "api:"):
+		return by // the loopback API on an agent's behalf: never "user" (v0.4 §2)
 	}
 	return "agent:" + by
 }
@@ -712,7 +749,7 @@ func (c *coord) observe(now time.Time) {
 		}
 	}
 	for k := range tracked {
-		if IsPerson(k) || live[k] {
+		if c.isOwner(k) || live[k] {
 			delete(c.firstAbsent, k)
 			continue
 		}
@@ -930,7 +967,7 @@ func (c *coord) assign(ctx context.Context, by, id, to string, wide bool) (Task,
 	if err != nil {
 		return Task{}, false, err
 	}
-	if !mayManage(t, by) && !(wide && len(t.Holders) == 0) {
+	if !c.mayManage(t, by) && !(wide && len(t.Holders) == 0) {
 		return Task{}, false, fmt.Errorf("%w: assign task %s", ErrNotAllowed, id)
 	}
 	if isHolder(t, to) {
@@ -963,7 +1000,7 @@ func (c *coord) setTaskState(ctx context.Context, by, id string, s TaskState, no
 	if err != nil {
 		return Task{}, err
 	}
-	if !mayManage(t, by) {
+	if !c.mayManage(t, by) {
 		return Task{}, fmt.Errorf("%w: change task %s", ErrNotAllowed, id)
 	}
 	if t.State == s && t.Note == note {
@@ -1061,7 +1098,7 @@ func (c *coord) release(ctx context.Context, by, resource string) error {
 	if l == nil || !l.Until.After(now) {
 		return fmt.Errorf("%w: no lease on %s", ErrNotFound, name)
 	}
-	if l.Holder != by && !IsPerson(by) {
+	if l.Holder != by && !c.isOwner(by) {
 		return fmt.Errorf("%w: %s is leased by %s", ErrHeld, name, l.Holder)
 	}
 	return c.write(ctx, by, KindLeaseRel, leaseReleasedRow{

@@ -20,6 +20,7 @@ import (
 	"github.com/StephenSHorton/irori/internal/device"
 	"github.com/StephenSHorton/irori/internal/discovery"
 	"github.com/StephenSHorton/irori/internal/hlc"
+	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/notify"
 	"github.com/StephenSHorton/irori/internal/presence"
@@ -38,12 +39,17 @@ type Options struct {
 	ClaudeDir string
 	Version   string
 	Headless  bool
+	// Keystore seals the person and device keys; nil is the OS default
+	// (DPAPI on Windows, the Keychain on macOS). Tests pass a file keystore.
+	Keystore identity.Keystore
 }
 
 // Core is one running Irori.
 type Core struct {
 	opts     Options
 	device   device.Identity
+	ident    *identity.Identity
+	chain    *identity.Chain
 	store    *store.Store
 	presence *presence.Watcher
 	repos    *repo.Resolver
@@ -72,16 +78,38 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	if err != nil {
 		return nil, err
 	}
+	// v0.4 identity (design §2): the device key signs every row; the person
+	// and its cert chain decide which "user:" keys are the owner's.
+	ident, err := identity.Load(opts.DataDir, id, opts.Keystore)
+	if err != nil {
+		return nil, fmt.Errorf("identity: %w", err)
+	}
+	id = ident.Device
+	chain := identity.NewChain(ident.Person.ID, ident.Person.RootDeviceID, id.ID)
 	ctx, cancel := context.WithCancel(parent)
-	st, err := store.Open(ctx, filepath.Join(opts.DataDir, "irori.db"), id.ID, hlc.New(nil))
+	// OpenWith runs the one-time v0.4 migration on a v0.3 log (irori.db is
+	// copied to irori.db.v0.3 first) before anything else reads it.
+	st, err := store.OpenWith(ctx, filepath.Join(opts.DataDir, "irori.db"), id.ID, hlc.New(nil),
+		store.OpenOptions{Signer: ident, Verifier: chain})
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("open event log: %w", err)
+	}
+	role := identity.RoleDesktop
+	if opts.Headless {
+		role = identity.RoleNode
+	}
+	if err := ident.EnsureSelfCert(ctx, st, chain, role); err != nil {
+		st.Close()
+		cancel()
+		return nil, fmt.Errorf("identity: %w", err)
 	}
 	repos := repo.New()
 	c := &Core{
 		opts:   opts,
 		device: id,
+		ident:  ident,
+		chain:  chain,
 		store:  st,
 		presence: presence.New(presence.Options{
 			ClaudeDir: opts.ClaudeDir, DeviceID: id.ID, RepoKey: repos.Key,
@@ -104,11 +132,11 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		}
 		return c.capture.PROwners(prKey)
 	}
-	if c.inbox, err = inbox.New(ctx, st, c, inbox.Options{DeviceID: id.ID, PROwners: prOwners}); err != nil {
+	if c.inbox, err = inbox.New(ctx, st, c, inbox.Options{DeviceID: id.ID, PROwners: prOwners, IsOwner: chain.IsOwner}); err != nil {
 		c.Close()
 		return nil, fmt.Errorf("inbox: %w", err)
 	}
-	if c.coord, err = coord.New(ctx, st, c, coord.Options{}); err != nil {
+	if c.coord, err = coord.New(ctx, st, c, coord.Options{IsOwner: chain.IsOwner}); err != nil {
 		c.Close()
 		return nil, fmt.Errorf("coord: %w", err)
 	}
@@ -262,6 +290,16 @@ func (c *Core) Coord() *coord.Coord { return c.coord }
 func (c *Core) UserSender() inbox.Sender {
 	return inbox.Sender{Key: "user:" + c.device.ID, Name: "you", Kind: "user"}
 }
+
+// IsOwner reports whether key is the person's: exactly "user:<deviceId>" for
+// this device or a device ever certified to the person (v0.4 §2).
+func (c *Core) IsOwner(key string) bool { return c.chain.IsOwner(key) }
+
+// Person is this device's person (v0.4 identity).
+func (c *Core) Person() identity.Person { return c.ident.Person }
+
+// CertifiedDevices lists every device ever certified to the person.
+func (c *Core) CertifiedDevices() []identity.DeviceState { return c.chain.Devices() }
 
 // Version implements api.Backend.
 func (c *Core) Version() string { return c.opts.Version }

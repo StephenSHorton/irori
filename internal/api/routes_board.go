@@ -31,9 +31,9 @@ package api
 //	    -> coord.BoardView {needsYou, blocked, working, open, done, doneTotal, leases}
 //	    repo "" = every repo. NeedsYou is the viewer's: For = the agent's
 //	    key, or for the person "user:<deviceId>" (Core.UserSender's key, the
-//	    GUI's): tasks held by or blocked on that person, or blocked on a
-//	    person with no ref, plus InputRequired. A blocker naming another
-//	    person's "user:*" key is in Blocked, not NeedsYou. done caps the Done
+//	    GUI's): tasks held by or blocked on the person (any of their
+//	    devices' "user:<deviceId>" keys, v0.4), or blocked on a person with
+//	    no ref, plus InputRequired. done caps the Done
 //	    group (default coord.DefaultDoneCard, max coord.MaxDoneCard; larger
 //	    is capped).
 //

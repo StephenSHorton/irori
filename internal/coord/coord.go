@@ -150,6 +150,9 @@ type Change struct {
 type Options struct {
 	Now       func() time.Time
 	GoneGrace time.Duration // test override
+	// IsOwner reports whether a "user:<device>" key is the person's (v0.4
+	// identity.Chain.IsOwner). Nil accepts exactly "user:<store device>".
+	IsOwner func(key string) bool
 }
 
 // Coord holds tasks and leases. Safe for concurrent use.

@@ -87,7 +87,7 @@ func (b *inbox) resolveAgent(self, value string, cards map[string]presence.Agent
 		all[k] = true
 	}
 	for k := range b.aliases {
-		if !isUserKey(k) {
+		if !b.isOwner(k) {
 			all[k] = true
 		}
 	}

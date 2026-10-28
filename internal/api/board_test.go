@@ -572,8 +572,8 @@ func TestBoardOverview(t *testing.T) {
 }
 
 // The person's board is the GUI's: For is "user:<device>", so a task the
-// person holds and one blocked on them are in their NeedsYou; one blocked
-// on another person is not.
+// person holds and one blocked on them are in their NeedsYou. A "user:" key
+// that names no device certified to the person is made up, and refused.
 func TestBoardPersonNeedsYou(t *testing.T) {
 	f := newBoardFixture(t)
 	ctx := context.Background()
@@ -589,20 +589,16 @@ func TestBoardPersonNeedsYou(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := f.b.co.CreateTask(ctx, claudeKey, coord.NewTask{Title: "ask a teammate", RepoKey: boardRepo,
-		BlockReason: "their call", BlockedBy: &coord.BlockedBy{Kind: coord.BlockedOnPerson, Ref: "user:dev2"}})
-	if err != nil {
-		t.Fatal(err)
+	if _, err := f.b.co.CreateTask(ctx, claudeKey, coord.NewTask{Title: "ask a stranger", RepoKey: boardRepo,
+		BlockReason: "their call", BlockedBy: &coord.BlockedBy{Kind: coord.BlockedOnPerson, Ref: "user:dev2"}}); !errors.Is(err, coord.ErrInvalid) {
+		t.Fatalf("blocked on a made-up user: key: err = %v, want ErrInvalid", err)
 	}
 	v, err := f.client.Board(ctx, asPerson, coord.BoardFilter{RepoKey: boardRepo})
 	if err != nil {
 		t.Fatal(err)
 	}
 	needs := cardIDs(v.NeedsYou)
-	if !slices.Contains(needs, mine.ID) || !slices.Contains(needs, onMe.ID) || slices.Contains(needs, other.ID) {
-		t.Errorf("person's NeedsYou = %v, want %s and %s but not %s", needs, mine.ID, onMe.ID, other.ID)
-	}
-	if !slices.Contains(cardIDs(v.Blocked), other.ID) {
-		t.Errorf("blocked = %v, want %s", cardIDs(v.Blocked), other.ID)
+	if !slices.Contains(needs, mine.ID) || !slices.Contains(needs, onMe.ID) {
+		t.Errorf("person's NeedsYou = %v, want %s and %s", needs, mine.ID, onMe.ID)
 	}
 }

@@ -263,9 +263,10 @@ func (h *handler) setPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ib := h.s.b.Inbox()
-	// The person at the composer made this change, not the agent (design §5):
-	// a "user:" by makes the row's actor "user" and still names the session.
-	if err := ib.SetPolicy(r.Context(), p, "user:composer@"+c.sender.Key); err != nil {
+	// Typed at the composer, but through the loopback API: v0.4 (§2) lets
+	// only the GUI mint "user" rows, so the row's actor is "api:composer@<key>",
+	// which still names the session.
+	if err := ib.SetPolicy(r.Context(), p, inbox.APIKeyPrefix+"composer@"+c.sender.Key); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}

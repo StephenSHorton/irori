@@ -15,7 +15,6 @@ import (
 	"github.com/StephenSHorton/irori/internal/capture/gitlink"
 	"github.com/StephenSHorton/irori/internal/capture/transcript"
 	"github.com/StephenSHorton/irori/internal/decision"
-	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/ledger"
 	"github.com/StephenSHorton/irori/internal/repo"
 	"github.com/StephenSHorton/irori/internal/scrub"
@@ -182,9 +181,11 @@ func (c *capture) replay(ctx context.Context) error {
 			c.lastErr = "capture: search index: " + err.Error()
 		}
 	}()
-	var after hlc.Timestamp
+	// The (hlc, device, seq) cursor never drops rows that two devices wrote
+	// at one HLC at a page boundary (v0.4 §5.7).
+	var after store.Cursor
 	for {
-		evs, err := c.st.List(ctx, store.Filter{Kinds: replayKinds, AfterHLC: after, Limit: store.MaxListLimit})
+		evs, err := c.st.List(ctx, store.Filter{Kinds: replayKinds, After: after, Limit: store.MaxListLimit})
 		if err != nil {
 			return fmt.Errorf("capture: replay: %w", err)
 		}
@@ -192,7 +193,7 @@ func (c *capture) replay(ctx context.Context) error {
 			if _, err := c.apply(ev); err != nil {
 				return fmt.Errorf("capture: replay %s %s/%d: %w", ev.Kind, ev.DeviceID, ev.Seq, err)
 			}
-			after = ev.HLC
+			after = ev.Cursor()
 		}
 		if len(evs) < store.MaxListLimit {
 			break

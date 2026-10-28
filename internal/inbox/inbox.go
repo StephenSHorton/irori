@@ -304,6 +304,9 @@ type Options struct {
 	// PROwners lists a PR's owner agent keys, best first (capture's ledger).
 	// Nil makes every ToPR send fall through to the repo's front desk.
 	PROwners func(prKey string) []string
+	// IsOwner reports whether a "user:<device>" key is the person's (v0.4
+	// identity.Chain.IsOwner). Nil accepts exactly "user:<DeviceID>".
+	IsOwner func(key string) bool
 	// Overrides for tests; zero means the constant above.
 	UnengagedLimit, GoneGrace, QuietLimit, ReattachGrace time.Duration
 }

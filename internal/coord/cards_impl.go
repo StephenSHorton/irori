@@ -379,7 +379,7 @@ func (c *coord) raise(ctx context.Context, by, id string, nb NewBlocker) (Task, 
 	if err != nil {
 		return Task{}, Blocker{}, err
 	}
-	if !mayManage(t, by) {
+	if !c.mayManage(t, by) {
 		return Task{}, Blocker{}, fmt.Errorf("%w: raise a blocker on task %s", ErrNotAllowed, id)
 	}
 	return c.raiseLocked(ctx, by, t, q, q, cx, opts, nb.BlockedBy, false, now)
@@ -431,8 +431,8 @@ func (c *coord) raiseLocked(ctx context.Context, by string, t *Task, reason, q, 
 }
 
 // mayRecommend: a holder, a watcher, the raiser, the creator or a person.
-func mayRecommend(t *Task, b Blocker, by string) bool {
-	return mayManage(t, by) || contains(t.Watchers, by) || b.RaisedBy == by
+func (c *coord) mayRecommend(t *Task, b Blocker, by string) bool {
+	return c.mayManage(t, by) || contains(t.Watchers, by) || b.RaisedBy == by
 }
 
 func (c *coord) recommend(ctx context.Context, by, id, bid, answer, why string) (Task, error) {
@@ -461,7 +461,7 @@ func (c *coord) recommend(ctx context.Context, by, id, bid, answer, why string) 
 	if !b.Open() {
 		return Task{}, fmt.Errorf("%w: blocker %s is already resolved", ErrBadState, b.ID)
 	}
-	if !mayRecommend(t, b, by) {
+	if !c.mayRecommend(t, b, by) {
 		return Task{}, fmt.Errorf("%w: only its holders, watchers, the raiser, the creator or a person may recommend on task %s; watch it first", ErrNotAllowed, id)
 	}
 	if optionIndex(b.Options, answer) >= 0 {
@@ -521,10 +521,10 @@ func (c *coord) answer(ctx context.Context, by, id, bid string, a BlockerAnswer)
 	}
 	n := Notice{Kind: NoticeAnswered, TaskID: id, Ref: "task:" + id, Title: t.Title, By: by, Wake: a.Wake}
 	// The raiser hears first; the holders (who were blocked) hear too.
-	if r := b.RaisedBy; r != by && r != "" && !IsPerson(r) && r != sweeper {
+	if r := b.RaisedBy; r != by && r != "" && !c.isOwner(r) && r != sweeper {
 		n.To = []string{r}
 	}
-	for _, h := range recipients(t, by) {
+	for _, h := range c.recipients(t, by) {
 		if !slices.Contains(n.To, h) {
 			n.To = append(n.To, h)
 		}
@@ -581,7 +581,7 @@ func (c *coord) setSteps(ctx context.Context, by, id string, in []Step) (Task, e
 	if err != nil {
 		return Task{}, err
 	}
-	if !mayManage(t, by) {
+	if !c.mayManage(t, by) {
 		return Task{}, fmt.Errorf("%w: set the steps of task %s", ErrNotAllowed, id)
 	}
 	seq := c.stepSeq[id]
@@ -634,7 +634,7 @@ func (c *coord) setStep(ctx context.Context, by, id, sid string, u StepUpdate) (
 	if err != nil {
 		return Task{}, err
 	}
-	if !mayManage(t, by) {
+	if !c.mayManage(t, by) {
 		return Task{}, fmt.Errorf("%w: tick a step of task %s", ErrNotAllowed, id)
 	}
 	i := slices.IndexFunc(t.Steps, func(s Step) bool { return s.ID == sid })
@@ -681,7 +681,7 @@ func (c *coord) watch(ctx context.Context, by, id string, on bool) (Task, error)
 	if err != nil {
 		return Task{}, err
 	}
-	if IsPerson(by) || by == sweeper {
+	if c.isOwner(by) || by == sweeper {
 		return Task{}, fmt.Errorf("%w: people see every card; only agents watch", ErrInvalid)
 	}
 	if err := checkKey(by); err != nil {
@@ -742,7 +742,7 @@ func (c *coord) watchNotices() []Notice {
 		}
 		var who []string
 		add := func(k string) {
-			if k != "" && !IsPerson(k) && k != sweeper && !contains(who, k) {
+			if k != "" && !c.isOwner(k) && k != sweeper && !contains(who, k) {
 				who = append(who, k)
 			}
 		}

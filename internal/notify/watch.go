@@ -34,6 +34,11 @@ type Sources struct {
 	// User is the person at this device ("user:<device>"): Release and
 	// Dismiss act as them, and the Board's "needs you" means them.
 	User string
+	// IsOwner reports whether a key is the person's on any of their devices
+	// (v0.4 identity.Chain.IsOwner): a message to the person on another
+	// device, or a card blocked on them there, is theirs here too. Nil
+	// matches exactly User.
+	IsOwner func(key string) bool
 	// Name shows an agent key as its display name; nil shows the key.
 	Name func(key string) string
 }
@@ -149,9 +154,17 @@ func (w *watcher) inbox(ctx context.Context, c inbox.Change) {
 // cardHeld is a hold the person is asked about (Pause all is their own).
 func cardHeld(d inbox.Delivery) bool { return d.State == inbox.Held && d.Hold != inbox.HoldPaused }
 
+// owner reports whether key is the person's (Sources.IsOwner, else User).
+func (w *watcher) owner(key string) bool {
+	if w.s.IsOwner != nil {
+		return w.s.IsOwner(key)
+	}
+	return w.s.User != "" && key == w.s.User
+}
+
 // waitingFor is a message to the person they haven't seen yet.
 func (w *watcher) waitingFor(d inbox.Delivery) bool {
-	return w.s.User != "" && d.To == w.s.User && (d.State == inbox.Queued || d.State == inbox.Delivered)
+	return w.owner(d.To) && (d.State == inbox.Queued || d.State == inbox.Delivered)
 }
 
 // delivery brings d's cards in line with its state: a card for a hold or a
@@ -320,7 +333,7 @@ func (w *watcher) board(post bool) {
 // not their own doing (they claimed it, assigned it to themselves, blocked
 // it on themselves), and about someone besides them.
 func (w *watcher) agentMoved(t coord.Task) bool {
-	if t.UpdatedBy == w.s.User {
+	if w.owner(t.UpdatedBy) {
 		return false
 	}
 	return w.needsKey(t) != ""
@@ -330,11 +343,11 @@ func (w *watcher) agentMoved(t coord.Task) bool {
 // the person, else its creator unless that is the person; "" for neither.
 func (w *watcher) needsKey(t coord.Task) string {
 	for _, h := range t.Holders {
-		if h != w.s.User {
+		if !w.owner(h) {
 			return h
 		}
 	}
-	if t.CreatedBy != w.s.User {
+	if !w.owner(t.CreatedBy) {
 		return t.CreatedBy
 	}
 	return ""
@@ -359,7 +372,7 @@ func (w *watcher) needsNote(c coord.Card) Note {
 		if t.Note != "" {
 			body += " · " + t.Note
 		}
-	case slices.Contains(t.Holders, w.s.User):
+	case slices.ContainsFunc(t.Holders, w.owner):
 		title, body = agent+" handed you a card", t.Title
 	default:
 		title, body = agent+" needs you", t.Title

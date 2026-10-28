@@ -12,6 +12,7 @@ import (
 
 	"github.com/StephenSHorton/irori/internal/capture"
 	"github.com/StephenSHorton/irori/internal/discovery"
+	"github.com/StephenSHorton/irori/internal/identity"
 )
 
 // Start returns at once over a large transcript: backfill runs inside
@@ -53,7 +54,7 @@ func TestStartWithLargeTranscript(t *testing.T) {
 	f.Close()
 
 	start := time.Now()
-	c, err := Start(context.Background(), Options{DataDir: data, ClaudeDir: claude, Version: "0.3.0-test", Headless: true})
+	c, err := Start(context.Background(), Options{DataDir: data, ClaudeDir: claude, Version: "0.3.0-test", Headless: true, Keystore: identity.FileKeystore{}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -153,7 +153,7 @@ func (b *inbox) sweep(ctx context.Context) error {
 	}
 	seen := map[string]bool{}
 	for _, d := range b.open {
-		if d.To == "" || isUserKey(d.To) || seen[d.To] {
+		if d.To == "" || b.isOwner(d.To) || seen[d.To] {
 			continue
 		}
 		seen[d.To] = true

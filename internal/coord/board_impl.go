@@ -72,11 +72,11 @@ func (c *coord) checkBlocker(bb *BlockedBy, self string) (*BlockedBy, error) {
 			return nil, fmt.Errorf("%w: task %s is already %s", ErrInvalid, out.Ref, o.State)
 		}
 	case BlockedOnPerson:
-		if out.Ref != "" && !IsPerson(out.Ref) {
+		if out.Ref != "" && !c.isOwner(out.Ref) {
 			return nil, fmt.Errorf("%w: blocked on a person needs \"\" or a user: key", ErrInvalid)
 		}
 	case BlockedOnAgent:
-		if out.Ref == "" || IsPerson(out.Ref) {
+		if out.Ref == "" || c.isOwner(out.Ref) {
 			return nil, fmt.Errorf("%w: blocked on an agent needs its key", ErrInvalid)
 		}
 	case BlockedOnExternal:
@@ -129,7 +129,7 @@ func (c *coord) assignNotice(ctx context.Context, by, id, to string) (Task, Noti
 	}
 	by, to = strings.TrimSpace(by), strings.TrimSpace(to)
 	n := Notice{Kind: NoticeAssigned, TaskID: t.ID, Ref: "task:" + t.ID, Title: t.Title, By: by}
-	if !IsPerson(to) && to != by {
+	if !c.isOwner(to) && to != by {
 		n.To = []string{to}
 	}
 	var b strings.Builder
@@ -157,7 +157,7 @@ func (c *coord) join(ctx context.Context, by, id, who string) (Task, error) {
 	if err := checkKey(who); err != nil {
 		return Task{}, err
 	}
-	if by != who && !IsPerson(by) {
+	if by != who && !c.isOwner(by) {
 		return Task{}, fmt.Errorf("%w: only %s or a person may add %s", ErrNotAllowed, who, who)
 	}
 	c.mu.Lock()
@@ -184,7 +184,7 @@ func (c *coord) leave(ctx context.Context, by, id, who string) (Task, error) {
 		return Task{}, err
 	}
 	who = w[0]
-	if by != who && !IsPerson(by) {
+	if by != who && !c.isOwner(by) {
 		return Task{}, fmt.Errorf("%w: only %s or a person may take %s off", ErrNotAllowed, who, who)
 	}
 	c.mu.Lock()
@@ -213,7 +213,7 @@ func (c *coord) setShared(ctx context.Context, by, id string, shared bool) (Task
 	if err != nil {
 		return Task{}, err
 	}
-	if !mayManage(t, by) {
+	if !c.mayManage(t, by) {
 		return Task{}, fmt.Errorf("%w: share task %s", ErrNotAllowed, id)
 	}
 	if t.Shared == shared {
@@ -245,7 +245,7 @@ func (c *coord) block(ctx context.Context, by, id, reason string, bb *BlockedBy)
 	if err != nil {
 		return Task{}, err
 	}
-	if !mayManage(t, by) {
+	if !c.mayManage(t, by) {
 		return Task{}, fmt.Errorf("%w: block task %s", ErrNotAllowed, id)
 	}
 	// Block is Raise with the reason as the question (cards.go); a reason
@@ -297,7 +297,7 @@ func (c *coord) closeBlocker(ctx context.Context, by string, t *Task, note strin
 	}); err != nil {
 		return Notice{}, err
 	}
-	n := Notice{Kind: NoticeUnblocked, TaskID: t.ID, Ref: "task:" + t.ID, Title: t.Title, By: by, To: recipients(t, by)}
+	n := Notice{Kind: NoticeUnblocked, TaskID: t.ID, Ref: "task:" + t.ID, Title: t.Title, By: by, To: c.recipients(t, by)}
 	var b strings.Builder
 	who := by
 	if by == sweeper {
@@ -315,14 +315,14 @@ func (c *coord) closeBlocker(ctx context.Context, by string, t *Task, note strin
 
 // recipients are who hears about t: its agent holders other than by; with
 // no holders, its creator if that is an agent other than by.
-func recipients(t *Task, by string) []string {
+func (c *coord) recipients(t *Task, by string) []string {
 	var to []string
 	for _, h := range t.Holders {
-		if h != by && !IsPerson(h) && h != sweeper {
+		if h != by && !c.isOwner(h) && h != sweeper {
 			to = append(to, h)
 		}
 	}
-	if len(t.Holders) == 0 && t.CreatedBy != by && t.CreatedBy != "" && !IsPerson(t.CreatedBy) && t.CreatedBy != sweeper {
+	if len(t.Holders) == 0 && t.CreatedBy != by && t.CreatedBy != "" && !c.isOwner(t.CreatedBy) && t.CreatedBy != sweeper {
 		to = []string{t.CreatedBy}
 	}
 	return to
@@ -371,7 +371,7 @@ func (c *coord) addComment(ctx context.Context, by, id, text string, wake bool) 
 	cm := *c.comments[cid]
 	n := Notice{
 		Kind: NoticeComment, TaskID: id, Ref: "comment:" + cid, Title: t.Title, By: by,
-		To: recipients(t, by), Wake: wake,
+		To: c.recipients(t, by), Wake: wake,
 		Text: fmt.Sprintf("%s commented on %q (task:%s):\n%s%s", by, t.Title, id, text, deeper(id)),
 	}
 	return cm, n, nil
@@ -440,7 +440,7 @@ func (c *coord) removeLink(ctx context.Context, by, id, ref string) (Task, error
 	if err != nil {
 		return Task{}, err
 	}
-	if !mayManage(t, by) {
+	if !c.mayManage(t, by) {
 		return Task{}, fmt.Errorf("%w: remove a link from task %s", ErrNotAllowed, id)
 	}
 	i := linkIndex(t.Links, ref)
@@ -622,7 +622,7 @@ func (c *coord) board(f BoardFilter) BoardView {
 	}
 	limit = min(limit, MaxDoneCard)
 	viewer := strings.TrimSpace(f.For)
-	agentViewer := viewer != "" && !IsPerson(viewer)
+	agentViewer := viewer != "" && !c.isOwner(viewer)
 
 	blocks := map[*leaseRec][]string{}
 	for _, t := range c.tasks {
@@ -657,7 +657,7 @@ func (c *coord) board(f BoardFilter) BoardView {
 		switch {
 		case IsTerminal(t.State):
 			v.Done = append(v.Done, card)
-		case needsYou(t, viewer, agentViewer):
+		case c.needsYou(t, viewer, agentViewer):
 			v.NeedsYou = append(v.NeedsYou, card)
 		case t.State == Blocked:
 			v.Blocked = append(v.Blocked, card)
@@ -715,7 +715,7 @@ func (c *coord) board(f BoardFilter) BoardView {
 
 // needsYou picks the NeedsYou group (BoardView's rule 2).
 // Any open blocker item counts, not only the first (Task.BlockedBy).
-func needsYou(t *Task, viewer string, agentViewer bool) bool {
+func (c *coord) needsYou(t *Task, viewer string, agentViewer bool) bool {
 	var ons []*BlockedBy
 	if t.State == Blocked {
 		for _, b := range t.Blockers {
@@ -739,11 +739,19 @@ func needsYou(t *Task, viewer string, agentViewer bool) bool {
 		return true
 	}
 	for _, bb := range ons {
-		if bb.Kind == BlockedOnPerson && (viewer == "" || bb.Ref == "" || bb.Ref == viewer) {
+		// The person is one person on every device: a blocker on any of
+		// their owner keys needs them wherever they look (v0.4 §2).
+		if bb.Kind == BlockedOnPerson && (viewer == "" || bb.Ref == "" || bb.Ref == viewer || c.isOwner(bb.Ref) && c.isOwner(viewer)) {
 			return true
 		}
 	}
-	return viewer != "" && isHolder(t, viewer)
+	if viewer == "" {
+		return false
+	}
+	if c.isOwner(viewer) {
+		return slices.ContainsFunc(t.Holders, c.isOwner)
+	}
+	return isHolder(t, viewer)
 }
 
 // ---- sweep ----
@@ -791,8 +799,8 @@ func (c *coord) sweepNotices(ctx context.Context) ([]Notice, error) {
 		}
 		// Its raisers and holders hear, so a freed lease isn't missed.
 		n := Notice{Kind: NoticeAnswered, TaskID: t.ID, Ref: "task:" + t.ID, Title: t.Title, By: sweeper}
-		for _, r := range append(raisers, recipients(t, sweeper)...) {
-			if r != "" && !IsPerson(r) && r != sweeper && !slices.Contains(n.To, r) {
+		for _, r := range append(raisers, c.recipients(t, sweeper)...) {
+			if r != "" && !c.isOwner(r) && r != sweeper && !slices.Contains(n.To, r) {
 				n.To = append(n.To, r)
 			}
 		}

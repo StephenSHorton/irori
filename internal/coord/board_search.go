@@ -45,7 +45,7 @@ func (c *coord) searchDocs(since time.Time, limit int) []search.Doc {
 			At: cm.At, Updated: cm.At, Title: "comment on " + t.Title, Body: cm.Text,
 			RepoKey: t.RepoKey,
 		}
-		if !IsPerson(cm.By) {
+		if !c.isOwner(cm.By) {
 			d.Agent = cm.By
 		}
 		out = append(out, d)

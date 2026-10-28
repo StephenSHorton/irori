@@ -137,10 +137,15 @@ type CardDetail struct {
 type people struct {
 	byKey map[string]presence.AgentCard
 	user  string
+	// owner is coord's person rule (v0.4 §2); nil is exactly user.
+	owner func(string) bool
 }
 
 func (b *BoardService) people() people {
 	p := people{byKey: map[string]presence.AgentCard{}, user: b.user.Key}
+	if b.coord != nil {
+		p.owner = b.coord.IsPerson
+	}
 	if b.agents != nil {
 		for _, a := range b.agents() {
 			p.byKey[a.Key] = a
@@ -153,12 +158,11 @@ func (p people) ref(key string) AgentRef {
 	switch {
 	case key == "irori":
 		return AgentRef{Key: key, Name: "Irori", Status: "irori", Live: true, Where: "This PC"}
-	case coord.IsPerson(key):
-		name := "Someone"
-		if key == p.user {
-			name = "You"
-		}
-		return AgentRef{Key: key, Name: name, Status: "person", Live: true, Where: "This PC"}
+	case key == p.user:
+		return AgentRef{Key: key, Name: "You", Status: "person", Live: true, Where: "This PC"}
+	case p.owner != nil && p.owner(key):
+		// The person at another of their devices.
+		return AgentRef{Key: key, Name: "You", Status: "person", Live: true, Where: "Another device"}
 	}
 	r := AgentRef{Key: key, Name: key, Status: "gone", Where: "This PC"}
 	if a, ok := p.byKey[key]; ok {

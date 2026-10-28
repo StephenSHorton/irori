@@ -689,6 +689,9 @@ func TestRefusalOneRowPerHolder(t *testing.T) {
 
 func TestBoardGroups(t *testing.T) {
 	e := newEnv(t)
+	// dev-b is another of the person's devices; "user:dev-z" is made up.
+	e.owner = func(k string) bool { return k == user || k == "user:dev-b" }
+	e.c = e.reopen()
 	mk := func(title string, nt NewTask) Task {
 		t.Helper()
 		e.clk.add(time.Second)
@@ -706,7 +709,10 @@ func TestBoardGroups(t *testing.T) {
 	must[Task](t)(e.c.ClaimTask(ctx, carol, asks.ID))
 	must[Task](t)(e.c.SetTaskState(ctx, carol, asks.ID, InputRequired, "?"))
 	onAnyone := mk("on anyone", NewTask{BlockReason: "r", BlockedBy: &BlockedBy{Kind: BlockedOnPerson}})
-	onOther := mk("on another person", NewTask{BlockReason: "r", BlockedBy: &BlockedBy{Kind: BlockedOnPerson, Ref: "user:dev-b"}})
+	onOther := mk("on the person at another device", NewTask{BlockReason: "r", BlockedBy: &BlockedBy{Kind: BlockedOnPerson, Ref: "user:dev-b"}})
+	if _, err := e.c.CreateTask(ctx, alice, NewTask{Title: "made up", BlockReason: "r", BlockedBy: &BlockedBy{Kind: BlockedOnPerson, Ref: "user:dev-z"}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a made-up user: key as a person blocker: err = %v", err)
+	}
 	onBob := mk("on bob", NewTask{BlockReason: "r", BlockedBy: &BlockedBy{Kind: BlockedOnAgent, Ref: bob}})
 	ext := mk("external", NewTask{BlockReason: "ci"})
 	var dones []Task
@@ -729,7 +735,7 @@ func TestBoardGroups(t *testing.T) {
 		total                                    int
 	}{
 		{"the person", BoardFilter{For: user},
-			[]string{onAnyone.ID, asks.ID, mine.ID}, []string{ext.ID, onBob.ID, onOther.ID},
+			[]string{onOther.ID, onAnyone.ID, asks.ID, mine.ID}, []string{ext.ID, onBob.ID},
 			[]string{assigned.ID, working.ID}, []string{open.ID},
 			[]string{dones[2].ID, dones[1].ID, dones[0].ID}, 3},
 		{"whoever is at the app", BoardFilter{DoneLimit: 2},

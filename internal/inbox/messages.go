@@ -28,7 +28,7 @@ func (b *inbox) sendWith(ctx context.Context, from Sender, to Address, text stri
 	switch o.Mode {
 	case "":
 		o.Mode = ModeWake
-		if from.IsUser() || from.isSystem() {
+		if b.isPerson(from) || from.isSystem() {
 			o.Mode = ModeNextTurn
 		}
 	case ModeWake, ModeNextTurn:
@@ -99,7 +99,7 @@ func (b *inbox) sendLocked(ctx context.Context, from Sender, to Address, text st
 	}
 
 	// Rate limit per unordered pair, both directions, sliding window.
-	if !from.IsUser() && countsForRate(from.Key, recipient) {
+	if !b.isPerson(from) && b.countsForRate(from.Key, recipient) {
 		pk := pairKey(from.Key, recipient)
 		kept := slices.DeleteFunc(b.pairs[pk], func(t time.Time) bool { return now.Sub(t) >= DirectWindow })
 		b.pairs[pk] = kept
@@ -114,7 +114,7 @@ func (b *inbox) sendLocked(ctx context.Context, from Sender, to Address, text st
 		Reason: clip(o.Reason, MaxNote), ReplyTo: replyTo, Trust: Untrusted, SentAt: now,
 		Ref: clip(o.Ref, MaxRef), Notice: o.Notice,
 	}
-	if from.IsUser() {
+	if b.isPerson(from) {
 		m.Trust = UserTrust
 	}
 	// Hops: a message sent from inside a woken turn continues that wake's chain.
@@ -128,7 +128,7 @@ func (b *inbox) sendLocked(ctx context.Context, from Sender, to Address, text st
 	}
 
 	// The sender becomes addressable by the name it sent under.
-	if a := normAlias(from.Name); a != "" && !from.IsUser() && !from.isSystem() {
+	if a := normAlias(from.Name); a != "" && !b.isPerson(from) && !from.isSystem() {
 		if list := b.aliases[from.Key]; len(list) == 0 || list[len(list)-1] != a {
 			if err := b.emit(ctx, from.Key, KindAlias, aliasRow{Key: from.Key, Alias: a, At: now}); err != nil {
 				return Message{}, Delivery{}, err
