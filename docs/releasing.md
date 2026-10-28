@@ -8,7 +8,7 @@ section below ([macOS](#macos)).
 
 ## Cut a release
 
-1. Make sure `main` is green in CI and has everything the release needs.
+1. Make sure the local checks in the README ([Checks](../README.md#checks-run-locally---no-ci)) pass on `main` and it has everything the release needs.
 2. Tag it and push the tag:
 
    ```sh

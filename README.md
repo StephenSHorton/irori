@@ -23,6 +23,21 @@ Irori is a hearth for your coding agents. Every agent you run, on every device y
 - [Releasing](docs/releasing.md): cutting a release, the installer, and how updates reach installed copies
 - The website lives in [site/](site) and deploys to GitHub Pages from `.github/workflows/pages.yml`
 
+## Checks (run locally - no CI)
+
+There is no CI on pull requests or pushes to `main` (it saves GitHub Actions minutes). Before you open or merge a PR, or push to `main`, run these from the repo root and make sure they pass. Use a bash shell (Git Bash on Windows). The frontend has to build first, because package main embeds `frontend/dist`.
+
+```sh
+(cd frontend && bun install --frozen-lockfile && bun run build)
+gofmt -l $(git ls-files '*.go')   # must print nothing
+go vet ./...
+go test $(go list ./... | grep -v '/internal/capture$')   # on macOS add -race
+go test -p 1 -count=1 ./internal/capture   # timing-sensitive; retry up to 3 times
+go build ./...
+```
+
+`frontend/bindings` is committed: after changing a Go service, run `wails3 generate bindings -clean=true -ts` and commit the result. The old CI ran these on both Windows and macOS, so run them on a Mac too when a change touches macOS-only code (`*_darwin.go`, `build/darwin`).
+
 ## License
 
 [MIT](LICENSE)

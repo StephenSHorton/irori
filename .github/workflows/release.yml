@@ -170,7 +170,7 @@ jobs:
           bun install --frozen-lockfile
           bun run build
 
-      # internal/capture's git timing tests run alone, with retries (ci.yml).
+      # internal/capture's git timing tests run alone, with retries (as in the README's local checks).
       # The rest gets one retry too: the release job needs this job, so a
       # known timing flake (notify's TestWatchHeld*) must not hold back a
       # tagged release on both platforms. A real failure fails twice.
