@@ -93,7 +93,15 @@ func TestStartWithLargeTranscript(t *testing.T) {
 			if strings.Contains(found.Prompt, lf.Token) || !strings.Contains(found.Prompt, "[redacted:exact]") {
 				t.Fatalf("prompt = %q", found.Prompt)
 			}
-			if st := c.Capture().Status(); st.Backfilling || st.Files != 1 {
+			// The turn can be on the timeline a moment before the first
+			// pass is marked done (seen on the macOS runner once FSEvents
+			// drove capture there); wait for it within the deadline.
+			st := c.Capture().Status()
+			for st.Backfilling && time.Now().Before(deadline) {
+				time.Sleep(50 * time.Millisecond)
+				st = c.Capture().Status()
+			}
+			if st.Backfilling || st.Files != 1 {
 				t.Fatalf("status = %+v", st)
 			}
 			return
