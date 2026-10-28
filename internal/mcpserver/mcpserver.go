@@ -314,7 +314,7 @@ func (s *Server) handler(name string) mcp.ToolHandler {
 			meta = req.Params.GetMeta()
 		}
 		if name == toolJoin {
-			return s.join(ctx, args, meta, clientName(req)), nil
+			return s.join(ctx, args, meta), nil
 		}
 		return s.forward(ctx, name, args), nil
 	}
@@ -393,19 +393,7 @@ func (s *Server) failed(tool string, err error) *mcp.CallToolResult {
 // maxNameRunes bounds the irori_join name before the Core sees it.
 const maxNameRunes = 60
 
-// clientName is the MCP client's name from its initialize handshake ("" for
-// a stateless client that never sent one).
-func clientName(req *mcp.CallToolRequest) string {
-	if req == nil || req.Session == nil {
-		return ""
-	}
-	if p := req.Session.InitializeParams(); p != nil && p.ClientInfo != nil {
-		return oneLine(p.ClientInfo.Name, maxSessionLen)
-	}
-	return ""
-}
-
-func (s *Server) join(ctx context.Context, args json.RawMessage, meta map[string]any, client string) *mcp.CallToolResult {
+func (s *Server) join(ctx context.Context, args json.RawMessage, meta map[string]any) *mcp.CallToolResult {
 	var in struct {
 		Name string `json:"name"`
 	}
@@ -425,7 +413,7 @@ func (s *Server) join(ctx context.Context, args json.RawMessage, meta map[string
 			s.session = sessionFromEnv(s.opts.Getenv)
 		}
 		if s.session == "" {
-			s.session = namedSession(client, name)
+			s.session = randomSession()
 		}
 	}
 	session := s.session

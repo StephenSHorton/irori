@@ -1,20 +1,23 @@
 package mcpserver
 
 import (
-	"crypto/sha256"
+	"crypto/rand"
 	"encoding/hex"
 	"strings"
 )
 
 // Session id precedence for irori_join (suzuri.md §3): the call's _meta, then
-// the environment, then one derived from the MCP client's name and the first
-// join name (namedSession), fixed for the process. The Core gives the same
-// session id the same memberKey, so a restarted Core, a reconnect or a new
-// `irori mcp` process joining under the same name rebinds the same member,
-// and a script that posts a card and later updates it keeps the right to.
+// the environment, then a random id fixed for the process. The Core gives the
+// same session id the same memberKey, so a restarted Core or a reconnect
+// rebinds the same member. A sessionless process is its own member: the key
+// is never derived from the join name, which anyone can pick, so a new
+// process under a reused name can't take over another member's cards or
+// inbox. A script that posts a card and later updates it from a new process
+// keeps the right to by setting IRORI_SESSION_ID to an id of its own (a
+// random token it keeps, not a name).
 var (
 	sessionMetaKeys = []string{"session_id", "grok_session_id", "conversation_id", "mcp_session_id"}
-	sessionEnvKeys  = []string{"GROK_SESSION_ID", "XAI_SESSION_ID"}
+	sessionEnvKeys  = []string{"IRORI_SESSION_ID", "GROK_SESSION_ID", "XAI_SESSION_ID"}
 )
 
 // maxSessionLen bounds a client-supplied session id.
@@ -51,11 +54,8 @@ func cleanSession(s string) string {
 	return s
 }
 
-// namedSession is the session id of a member without one of its own: a
-// hash of the MCP client's name and the join name, so every process that
-// joins under that name from that client is the same member. Two live
-// processes doing so share it: the later join takes over (SupersededText).
-func namedSession(client, name string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(client) + "\x00" + strings.TrimSpace(name)))
-	return "named_" + hex.EncodeToString(sum[:12])
+func randomSession() string {
+	b := make([]byte, 12)
+	_, _ = rand.Read(b)
+	return "sess_" + hex.EncodeToString(b)
 }
