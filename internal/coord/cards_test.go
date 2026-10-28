@@ -350,6 +350,21 @@ func TestRecommendCap(t *testing.T) {
 	}
 }
 
+// The same answer given twice, both marked recommended, merges to one
+// recommendation and is not refused.
+func TestRecommendedDuplicateMerges(t *testing.T) {
+	e := newEnv(t)
+	task := claimed(t, e)
+	_, b, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: "Which adapter?",
+		Options: []Option{{Answer: "Wintun", Recommended: true}, {Answer: "TAP"}, {Answer: "wintun", Recommended: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Options) != 2 || !b.Options[0].Recommended || b.Options[1].Recommended {
+		t.Fatalf("options %+v", b.Options)
+	}
+}
+
 // A raise marks at most one option recommended; Recommend adds recommended
 // options or marks an offered one; the flags survive a replay.
 func TestRecommendedFlag(t *testing.T) {

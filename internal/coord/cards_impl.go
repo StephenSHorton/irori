@@ -116,13 +116,7 @@ func cleanOptions(in []Option, by string, at time.Time) ([]Option, error) {
 		return nil, fmt.Errorf("%w: more than %d recommended answers", ErrInvalid, MaxOptions)
 	}
 	var out []Option
-	recommended := 0
 	for _, o := range in {
-		if o.Recommended {
-			if recommended++; recommended > 1 {
-				return nil, fmt.Errorf("%w: mark at most one answer as recommended", ErrInvalid)
-			}
-		}
 		a, why := strings.TrimSpace(o.Answer), strings.TrimSpace(o.Why)
 		if err := checkText("a recommended answer", a, 1, MaxAnswer); err != nil {
 			return nil, err
@@ -135,6 +129,17 @@ func cleanOptions(in []Option, by string, at time.Time) ([]Option, error) {
 			continue
 		}
 		out = append(out, Option{Answer: a, Why: why, By: by, At: at, Recommended: o.Recommended})
+	}
+	// Counted after the merge: the same answer given twice, both marked,
+	// is one recommendation.
+	recommended := 0
+	for _, o := range out {
+		if o.Recommended {
+			recommended++
+		}
+	}
+	if recommended > 1 {
+		return nil, fmt.Errorf("%w: mark at most one answer as recommended", ErrInvalid)
 	}
 	return out, nil
 }
