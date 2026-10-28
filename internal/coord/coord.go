@@ -156,6 +156,9 @@ type Options struct {
 	// IsOwner reports whether a "user:<device>" key is the person's (v0.4
 	// identity.Chain.IsOwner). Nil accepts exactly "user:<store device>".
 	IsOwner func(key string) bool
+	// Revoked reports a removed device (v0.4 §3, Revoke): its leases end
+	// everywhere without a row from it. Nil revokes nobody.
+	Revoked func(device string) bool
 }
 
 // Coord holds tasks and leases. Safe for concurrent use.

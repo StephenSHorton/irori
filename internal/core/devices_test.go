@@ -565,3 +565,53 @@ func TestACrossDeviceReviveWaitsForAMatchingAnswer(t *testing.T) {
 		t.Fatal("the matching answer didn't revive the session")
 	}
 }
+
+// The Board across devices (§6.4): a task created on the Mac shows on the
+// PC, and the PC's agent claiming it shows on the Mac. A next-turn item to
+// a Mac session is appended only by the Mac.
+func TestTheBoardAndNextTurnAcrossDevices(t *testing.T) {
+	ctx := context.Background()
+	_, pc, mac, nd := meshTrio(t)
+	task, err := mac.c.Coord().CreateTask(ctx, mac.agent(), coord.NewTask{Title: "Port the build", Objective: "Make the Mac build work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait(t, "the task shows on the pc", func() bool { _, ok := pc.c.Coord().GetTask(task.ID); return ok })
+	if _, err := pc.c.Coord().ClaimTask(ctx, pc.agent(), task.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []*hcore{mac, nd} {
+		wait(t, "the pc's claim on "+h.name, func() bool { x, _ := h.c.Coord().GetTask(task.ID); return x.Holder == pc.agent() })
+	}
+
+	_, d, err := pc.c.Inbox().SendWith(ctx, pc.c.UserSender(), inbox.Address{Kind: inbox.ToAgent, Value: mac.agent()}, "when you get a moment", inbox.SendOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w, _ := pc.c.Inbox().NextAppend(ctx, mac.agent()); w != nil {
+		t.Fatal("the pc planned an append for the mac's session")
+	}
+	wait(t, "the mac has it", func() bool { return deliveryState(mac, d.ID) == inbox.Queued })
+	w, err := mac.c.Inbox().NextAppend(ctx, mac.agent())
+	if err != nil || w == nil || !strings.Contains(w.Prompt, "when you get a moment") {
+		t.Fatalf("the mac's append: %+v %v", w, err)
+	}
+}
+
+// Removing a device ends its leases and drops its cards everywhere, with no
+// row from it.
+func TestRemovingADeviceEndsItsLeasesAndCards(t *testing.T) {
+	ctx := context.Background()
+	_, pc, mac, nd := meshTrio(t)
+	if _, err := mac.c.Coord().Acquire(ctx, mac.agent(), "port:6000", time.Hour, false); err != nil {
+		t.Fatal(err)
+	}
+	wait(t, "the node sees the lease", func() bool { return len(nd.c.Coord().Leases()) == 1 })
+	if err := pc.c.Mesh().Revoke(ctx, mac.id(), "lost"); err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []*hcore{pc, nd} {
+		wait(t, "the lease ends on "+h.name, func() bool { return len(h.c.Coord().Leases()) == 0 })
+		wait(t, "the card goes on "+h.name, func() bool { return !hasCard(h, mac.agent(), "") })
+	}
+}

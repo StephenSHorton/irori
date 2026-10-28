@@ -178,7 +178,8 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		c.Close()
 		return nil, fmt.Errorf("inbox: %w", err)
 	}
-	if c.coord, err = coord.New(ctx, st, c, coord.Options{IsOwner: chain.IsOwner}); err != nil {
+	if c.coord, err = coord.New(ctx, st, c, coord.Options{IsOwner: chain.IsOwner,
+		Revoked: func(dev string) bool { _, revoked := chain.Cut(dev); return revoked }}); err != nil {
 		c.Close()
 		return nil, fmt.Errorf("coord: %w", err)
 	}

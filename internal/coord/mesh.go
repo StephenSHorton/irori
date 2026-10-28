@@ -57,10 +57,13 @@ func (c *coord) localKey(key string) bool {
 	return dev == "" || dev == c.st.DeviceID()
 }
 
-// live reports whether l still holds at now: by its Until on this device,
-// always for another device's (§6.4).
+// live reports whether l still holds at now: by its Until on this device;
+// another device's always, unless that device was removed (§6.4, §3).
 func (c *coord) live(l *leaseRec, now time.Time) bool {
-	return l.Until.After(now) || !c.localKey(l.Holder)
+	if c.localKey(l.Holder) {
+		return l.Until.After(now)
+	}
+	return c.revoked == nil || !c.revoked(owner.DeviceOf(l.Holder))
 }
 
 // Follow folds other devices' rows as the mesh inserts them, until ctx

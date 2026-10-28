@@ -172,6 +172,7 @@ type coord struct {
 	now     func() time.Time
 	grace   time.Duration
 	ownerFn func(string) bool // Options.IsOwner
+	revoked func(string) bool // Options.Revoked
 	ignored int               // owner-only rows from the wrong device (v0.4 §6.0)
 
 	mu          sync.Mutex
@@ -217,6 +218,7 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 		now:         opts.Now,
 		grace:       opts.GoneGrace,
 		ownerFn:     opts.IsOwner,
+		revoked:     opts.Revoked,
 		tasks:       map[string]*Task{},
 		order:       map[string]uint64{},
 		held:        map[string]*leaseRec{},
@@ -611,7 +613,8 @@ func (c *coord) prune(now time.Time) {
 			delete(c.held, name)
 			// At replay only a recent lapse still needs its row: older ones
 			// were never seen by another device as live (before v0.4).
-			if !c.replaying || now.Sub(l.Until) < lapsedWithin {
+			// A removed device's lease ends with no row at all.
+			if c.localKey(l.Holder) && (!c.replaying || now.Sub(l.Until) < lapsedWithin) {
 				c.lapsed = append(c.lapsed, l.Lease)
 			}
 			c.note(Change{Kind: LeaseExpired, Resource: name, Holder: l.Holder})
