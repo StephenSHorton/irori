@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/StephenSHorton/irori/internal/blob"
+	"github.com/StephenSHorton/irori/internal/store"
 )
 
 // The Board's implementation (board.go has the contract).
@@ -368,18 +369,103 @@ func (c *coord) addComment(ctx context.Context, by, id, text string, wake bool, 
 	}
 	at := c.stamp()
 	cid := newID(at)
-	if err := c.write(ctx, by, KindTaskComment, taskCommentRow{
+	cm, err := c.writeComment(ctx, c.actorFor(by), taskCommentRow{
 		TaskID: id, CommentID: cid, By: by, Text: text, Wake: wake, At: at, Attachments: files,
-	}); err != nil {
+	})
+	if err != nil {
 		return Comment{}, Notice{}, err
 	}
-	cm := *c.comments[cid]
 	n := Notice{
 		Kind: NoticeComment, TaskID: id, Ref: "comment:" + cid, Title: t.Title, By: by,
 		To: c.recipients(t, by), Wake: wake, Attachments: files,
 		Text: fmt.Sprintf("%s commented on %q (task:%s):\n%s%s", by, t.Title, id, text, deeper(id)),
 	}
 	return cm, n, nil
+}
+
+// writeComment appends a task.comment row as actor and returns the comment
+// it folded to. The caller holds c.mu.
+func (c *coord) writeComment(ctx context.Context, actor string, row taskCommentRow) (Comment, error) {
+	if err := c.writeAs(ctx, actor, KindTaskComment, row); err != nil {
+		return Comment{}, err
+	}
+	cm := c.comments[row.CommentID]
+	if cm == nil {
+		return Comment{}, fmt.Errorf("%w: comment %s did not fold", ErrInvalid, row.CommentID)
+	}
+	return *cm, nil
+}
+
+// recordMessage puts an inbox message on its card's thread (contract in
+// board.go). The writer rule is checked first: a row this device may not
+// write would be ignored by its own fold.
+func (c *coord) recordMessage(ctx context.Context, m MessageEntry) (Comment, error) {
+	from, more, err := callers(m.From, m.TaskID)
+	if err != nil {
+		return Comment{}, err
+	}
+	id, to := more[0], strings.TrimSpace(m.To)
+	if !strings.HasPrefix(m.MsgID, "msg_") || len(m.MsgID) == len("msg_") {
+		return Comment{}, fmt.Errorf("%w: message id %q", ErrInvalid, m.MsgID)
+	}
+	text := strings.TrimSpace(m.Text)
+	if m.Held {
+		text = "" // held by the wake policy: naming a card doesn't get it past
+	} else if utf8.RuneCountInString(text) > MaxComment {
+		full := "… (full: msg:" + m.MsgID + ")"
+		text = string([]rune(text)[:MaxComment-utf8.RuneCountInString(full)]) + full
+	}
+	actor := c.actorFor(from)
+	if m.Writer == sweeper {
+		actor = sweeper
+	}
+	c.mu.Lock()
+	defer c.unlock()
+	t, err := c.anyTask(id)
+	if err != nil {
+		return Comment{}, err
+	}
+	if cm := c.comments[m.MsgID]; cm != nil {
+		// Already there: a retry, the sweep, or another device. Only what
+		// the entry lacks is written (the fold merges either order).
+		if m.Gone && cm.Gone || !m.Gone && cm.primary {
+			return *cm, nil
+		}
+	}
+	if !mayRecord(from, to, m.Gone, c.st.DeviceID()) {
+		return Comment{}, fmt.Errorf("%w: %s's message is recorded from its own device", ErrNotAllowed, from)
+	}
+	return c.writeComment(ctx, actor, taskCommentRow{
+		TaskID: t.ID, CommentID: m.MsgID, MsgID: m.MsgID, By: from, To: to, Text: text,
+		Files: max(m.Files, 0), Held: m.Held, Gone: m.Gone, At: c.stamp(),
+	})
+}
+
+// mergeComment folds a row for a comment id already folded. Only a
+// mirrored message has a second row: a gone row ORs Gone in, and the
+// primary (non-gone) row, whichever came first, gives the entry its
+// position, time and text, so the fold doesn't depend on arrival order.
+// Any other duplicate is dropped. The caller holds c.mu.
+func (c *coord) mergeComment(cm *Comment, p taskCommentRow, ev store.Event, at func(time.Time) time.Time) {
+	if cm.MsgID == "" || p.MsgID != cm.MsgID || p.TaskID != cm.TaskID {
+		return
+	}
+	changed := false
+	if p.Gone && !cm.Gone {
+		cm.Gone, changed = true, true
+	}
+	if !p.Gone && !cm.primary {
+		cm.By, cm.To, cm.Text, cm.Wake, cm.At = p.By, p.To, p.Text, p.Wake, at(p.At)
+		cm.Held, cm.Files, cm.Attachments = p.Held, p.Files, p.Attachments
+		cm.Device, cm.HLC, cm.Seq, cm.primary = ev.DeviceID, ev.HLC, ev.Seq, true
+		if t := c.tasks[cm.TaskID]; t != nil {
+			t.UpdatedAt = cm.At
+		}
+		changed = true
+	}
+	if changed {
+		c.note(Change{Kind: CommentAdded, TaskID: cm.TaskID})
+	}
 }
 
 func (c *coord) commentAttachment(sha string) (blob.FileRef, bool) {

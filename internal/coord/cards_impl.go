@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/store"
 )
 
@@ -242,22 +243,23 @@ func trimResolved(t *Task) {
 }
 
 // foldBlocked applies a task.status row with state blocked: it adds (or,
-// for a reason-only row on a task already blocked, replaces) an item.
-func (c *coord) foldBlocked(t *Task, p taskStateRow, wasBlocked bool, at time.Time) string {
+// for a reason-only row on a task already blocked, replaces) an item. It
+// returns the activity phrase and, for a raise, the new item's id.
+func (c *coord) foldBlocked(t *Task, p taskStateRow, wasBlocked bool, at time.Time) (string, string) {
 	if p.Blocker != nil && p.Blocker.ID != "" {
 		if i := blockerIndex(t, p.Blocker.ID); i >= 0 && p.Blocker.Replace && t.Blockers[i].Open() {
 			b := &t.Blockers[i]
 			b.Question, b.Context, b.reason, b.RaisedBy, b.At = p.Blocker.Question, p.Blocker.Context, cmpStr(p.Reason, p.Blocker.Question), p.By, at
 			b.On = copyOn(p.Blocker.On)
-			return "changed the blocker: " + b.Question
+			return "changed the blocker: " + b.Question, ""
 		}
 		if blockerIndex(t, p.Blocker.ID) >= 0 {
-			return ""
+			return "", ""
 		}
 		if i := openWithQuestion(t, p.Blocker.Question); i >= 0 {
 			// The same question again: only what it waits on can change.
 			t.Blockers[i].On = copyOn(p.Blocker.On)
-			return ""
+			return "", ""
 		}
 		c.blockerSeq[t.ID] = max(c.blockerSeq[t.ID], seqOf(p.Blocker.ID, "b"))
 		var opts []Option
@@ -272,7 +274,7 @@ func (c *coord) foldBlocked(t *Task, p taskStateRow, wasBlocked bool, at time.Ti
 			RaisedBy: p.By, At: at, Options: opts, reason: cmpStr(p.Reason, p.Blocker.Question),
 			legacy: p.Blocker.ReasonOnly, On: copyOn(p.Blocker.On),
 		})
-		return "raised a blocker: " + p.Blocker.Question
+		return "raised a blocker: " + p.Blocker.Question, p.Blocker.ID
 	}
 	// A reason-only row (written before items existed): re-blocking
 	// replaced the reason, so it replaces the item it made.
@@ -285,16 +287,17 @@ func (c *coord) foldBlocked(t *Task, p taskStateRow, wasBlocked bool, at time.Ti
 			if b := &t.Blockers[i]; b.Open() && b.legacy {
 				b.Question, b.Context, b.reason, b.RaisedBy, b.At = q, ctxText, p.Reason, p.By, at
 				b.On = copyOn(p.BlockedBy)
-				return "changed the blocker: " + q
+				return "changed the blocker: " + q, ""
 			}
 		}
 	}
 	c.blockerSeq[t.ID]++
+	bid := "b" + strconv.Itoa(c.blockerSeq[t.ID])
 	t.Blockers = append(t.Blockers, Blocker{
-		ID: "b" + strconv.Itoa(c.blockerSeq[t.ID]), Question: q, Context: ctxText,
+		ID: bid, Question: q, Context: ctxText,
 		RaisedBy: p.By, At: at, reason: p.Reason, legacy: true, On: copyOn(p.BlockedBy),
 	})
-	return "raised a blocker: " + q
+	return "raised a blocker: " + q, bid
 }
 
 func cmpStr(s, def string) string {
@@ -325,15 +328,31 @@ func normSteps(ss []Step) []Step {
 	return out
 }
 
-// touch records activity on t and, outside replay, queues a watch line
-// when watch is set.
-func (c *coord) touch(t *Task, at time.Time, by, what string, watch bool, also ...string) {
+// touch records activity on t from row ev and, outside replay, queues a
+// watch line when watch is set.
+func (c *coord) touch(ev store.Event, t *Task, at time.Time, by, what string, watch bool, also ...string) {
+	c.touchLine(t, lineOf(ev, at, by, what), watch, also...)
+}
+
+// lineOf is the activity line row ev makes.
+func lineOf(ev store.Event, at time.Time, by, what string) Activity {
+	return Activity{At: at, By: by, What: what, Kind: ev.Kind, Device: ev.DeviceID, HLC: ev.HLC, Seq: ev.Seq}
+}
+
+// touchLine is touch with the line built. The line goes in at its row's
+// position, and past MaxActivity the lowest positions drop, so a row
+// arriving late from another device lands where replay puts it. The watch
+// queue stays in arrival order.
+func (c *coord) touchLine(t *Task, a Activity, watch bool, also ...string) {
+	by, what := a.By, a.What
 	if what == "" {
 		return
 	}
-	acts := append(c.activity[t.ID], Activity{At: at, By: by, What: what})
-	if len(acts) > MaxActivity {
-		acts = append(acts[:0:0], acts[len(acts)-MaxActivity:]...)
+	acts := c.activity[t.ID]
+	i := sort.Search(len(acts), func(i int) bool { return a.before(acts[i]) })
+	acts = slices.Insert(acts, i, a)
+	if n := len(acts) - MaxActivity; n > 0 {
+		acts = slices.Delete(acts, 0, n)
 	}
 	c.activity[t.ID] = acts
 	if !watch || c.replaying {
@@ -709,6 +728,22 @@ func (c *coord) watch(ctx context.Context, by, id string, on bool) (Task, error)
 
 // ---- activity ----
 
+// before reports whether a's row sorts before b's in the log: (HLC,
+// device, seq).
+func (a Activity) before(b Activity) bool {
+	return posBefore(a.HLC, a.Device, a.Seq, b.HLC, b.Device, b.Seq)
+}
+
+func posBefore(ah hlc.Timestamp, ad string, as int64, bh hlc.Timestamp, bd string, bs int64) bool {
+	if ah != bh {
+		return ah < bh
+	}
+	if ad != bd {
+		return ad < bd
+	}
+	return as < bs
+}
+
 func (c *coord) activityOf(id string) []Activity {
 	c.mu.Lock()
 	defer c.unlock()
@@ -925,7 +960,7 @@ func (c *coord) applyCard(ev store.Event, at func(time.Time) time.Time) {
 		when := at(p.At)
 		b.Options = append(b.Options, Option{Answer: p.Answer, Why: p.Why, By: p.By, At: when})
 		t.UpdatedAt = when
-		c.touch(t, when, p.By, "recommended “"+p.Answer+"” for “"+b.Question+"”", true, b.RaisedBy)
+		c.touch(ev, t, when, p.By, "recommended “"+p.Answer+"” for “"+b.Question+"”", true, b.RaisedBy)
 	case KindBlockerResolved:
 		var p blockerResolvedRow
 		if json.Unmarshal(ev.Payload, &p) != nil {
@@ -957,9 +992,9 @@ func (c *coord) applyCard(ev store.Event, at func(time.Time) time.Time) {
 		syncReason(t)
 		t.UpdatedAt, t.UpdatedBy = when, p.By
 		if p.Closed {
-			c.touch(t, when, p.By, "closed “"+q+"”: "+p.Answer, true)
+			c.touch(ev, t, when, p.By, "closed “"+q+"”: "+p.Answer, true)
 		} else {
-			c.touch(t, when, p.By, "answered “"+q+"”: "+p.Answer, true)
+			c.touch(ev, t, when, p.By, "answered “"+q+"”: "+p.Answer, true)
 		}
 	case KindTaskSteps:
 		var p taskStepsRow
@@ -985,7 +1020,7 @@ func (c *coord) applyCard(ev store.Event, at func(time.Time) time.Time) {
 		when := at(p.At)
 		t.UpdatedAt, t.UpdatedBy = when, p.By
 		d, n := t.Progress()
-		c.touch(t, when, p.By, fmt.Sprintf("set the steps (%d/%d done)", d, n), true)
+		c.touch(ev, t, when, p.By, fmt.Sprintf("set the steps (%d/%d done)", d, n), true)
 	case KindTaskStep:
 		var p taskStepRow
 		if json.Unmarshal(ev.Payload, &p) != nil {
@@ -1019,7 +1054,7 @@ func (c *coord) applyCard(ev store.Event, at func(time.Time) time.Time) {
 			d, n := t.Progress()
 			what += fmt.Sprintf(" (%d/%d)", d, n)
 		}
-		c.touch(t, when, p.By, what, true)
+		c.touch(ev, t, when, p.By, what, true)
 	case KindTaskWatched:
 		var p taskWatchedRow
 		if json.Unmarshal(ev.Payload, &p) != nil || p.Who == "" {
@@ -1036,7 +1071,7 @@ func (c *coord) applyCard(ev store.Event, at func(time.Time) time.Time) {
 		} else {
 			t.Watchers = removeStr(t.Watchers, p.Who)
 		}
-		c.touch(t, at(p.At), p.Who, what, false)
+		c.touch(ev, t, at(p.At), p.Who, what, false)
 	default:
 		return
 	}

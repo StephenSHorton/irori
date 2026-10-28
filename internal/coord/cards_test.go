@@ -828,8 +828,37 @@ func TestActivityCap(t *testing.T) {
 			return Task{}, n, err
 		}())
 	}
-	if a := e.c.Activity(task.ID); len(a) != MaxActivity {
-		t.Fatalf("activity %d", len(a))
+	acts := e.c.Activity(task.ID)
+	if len(acts) != MaxActivity {
+		t.Fatalf("activity %d", len(acts))
+	}
+	// Newest first, by position; the lowest positions ("put the card up",
+	// "took it up") were trimmed.
+	for i, a := range acts {
+		if a.Kind != KindTaskComment || a.Device != "dev-a" || a.What != "commented" || a.HLC == 0 {
+			t.Fatalf("line %d: %+v", i, a)
+		}
+		if i > 0 && !a.before(acts[i-1]) {
+			t.Fatalf("lines %d and %d out of order", i-1, i)
+		}
+	}
+	// A row from another device that arrives late lands at its position
+	// (after the line with its HLC: "dev-b" sorts after "dev-a"), and the
+	// lowest line drops.
+	mid, low := acts[100], acts[len(acts)-1]
+	e.remote("dev-b", 1, mid.HLC, "agent:dev-b/zed", KindTaskComment, taskCommentRow{TaskID: task.ID, CommentID: "c-b1", By: "dev-b/zed", Text: "late", At: fixedNow})
+	acts = e.c.Activity(task.ID)
+	if len(acts) != MaxActivity || acts[100].Device != "dev-b" || acts[100].By != "dev-b/zed" || acts[101] != mid || acts[len(acts)-1] == low {
+		t.Fatalf("late line not placed: %+v / %+v", acts[100], acts[101])
+	}
+	// One below every kept line is dropped at once.
+	e.remote("dev-c", 1, acts[len(acts)-1].HLC-1, "agent:dev-c/yan", KindTaskComment, taskCommentRow{TaskID: task.ID, CommentID: "c-c1", By: "dev-c/yan", Text: "older", At: fixedNow})
+	if got := e.c.Activity(task.ID); !reflect.DeepEqual(got, acts) {
+		t.Fatal("a line below the kept ones was kept")
+	}
+	// Replay keeps the same lines.
+	if got := e.reopen().Activity(task.ID); !reflect.DeepEqual(got, acts) {
+		t.Fatalf("replay keeps other lines")
 	}
 	if e.c.Activity("nope") != nil {
 		t.Fatal("unknown task has activity")

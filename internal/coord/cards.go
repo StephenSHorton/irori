@@ -25,6 +25,8 @@ package coord
 import (
 	"context"
 	"time"
+
+	"github.com/StephenSHorton/irori/internal/hlc"
 )
 
 // Card limits.
@@ -39,7 +41,7 @@ const (
 	KeepResolved    = 10  // resolved blocker items a task keeps (oldest drop first)
 	MaxSteps        = 20  // steps per task
 	MaxStepText     = 200 // runes in a step
-	MaxActivity     = 20  // activity lines a task keeps
+	MaxActivity     = 500 // activity lines a task keeps
 )
 
 // Step is one ordered step of a task. At most one step is Doing (the
@@ -131,12 +133,20 @@ type StepUpdate struct {
 
 // Activity is one line of what happened on a card: By (a key, "irori" for
 // Irori itself) did What, a short phrase without the actor ("raised a
-// blocker: …", "ticked “Tag v0.6.0”"). The fold keeps the newest
-// MaxActivity per task; replay rebuilds them.
+// blocker: …", "ticked “Tag v0.6.0”"). Kind is the row's kind and Device
+// the device that wrote it. Lines are sorted by the row's position in the
+// log, (HLC, Device, Seq), and the fold keeps the highest MaxActivity per
+// task, so live and replay keep the same ones; replay rebuilds them. HLC
+// and Seq never go on the wire (an HLC overflows a JS number).
 type Activity struct {
-	At   time.Time `json:"at"`
-	By   string    `json:"by"`
-	What string    `json:"what"`
+	At        time.Time     `json:"at"`
+	By        string        `json:"by"`
+	What      string        `json:"what"`
+	Kind      string        `json:"kind"`
+	Device    string        `json:"device"`
+	BlockerID string        `json:"blockerId,omitempty"` // the item a raise line raised
+	HLC       hlc.Timestamp `json:"-"`
+	Seq       int64         `json:"-"`
 }
 
 // More notice kinds.

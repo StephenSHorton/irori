@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/blob"
+	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/search"
 )
 
@@ -64,6 +65,34 @@ type Comment struct {
 	// Attachments are files on the comment (v0.4 §6.6), fetched on demand
 	// with the attachment_get tool.
 	Attachments []blob.FileRef `json:"attachments,omitempty"`
+	// A mirrored message (RecordMessage) has MsgID, its inbox message id
+	// (also its ID), and To, who it was sent to. Gone: the recipient had
+	// ended and Irori left it on the card. Held: the wake policy held its
+	// first delivery, so Text is empty. Files counts the message's
+	// attachments; they stay on the message.
+	To    string `json:"to,omitempty"`
+	MsgID string `json:"msgId,omitempty"`
+	Gone  bool   `json:"gone,omitempty"`
+	Held  bool   `json:"held,omitempty"`
+	Files int    `json:"files,omitempty"`
+	// Device wrote the row (from the log, not the payload). HLC and Seq are
+	// its position, (HLC, Device, Seq); they never go on the wire.
+	Device string        `json:"device"`
+	HLC    hlc.Timestamp `json:"-"`
+	Seq    int64         `json:"-"`
+	// primary: a mirrored message's non-gone row has been folded; until
+	// then a gone row stands in for it.
+	primary bool
+}
+
+// MessageEntry is an inbox message about a card, for RecordMessage. From
+// and To are the sender's and recipient's keys; Writer "irori" writes the
+// row as Irori itself (the recipient-gone fallback), else as From.
+type MessageEntry struct {
+	TaskID, MsgID, From, To, Text string
+	Files                         int
+	Held, Gone                    bool
+	Writer                        string
 }
 
 // NoticeKind says why a Notice exists.
@@ -263,6 +292,17 @@ func (c *Coord) AddCommentWith(ctx context.Context, by, id, text string, wake bo
 // have no readers, so any viewer may fetch it.
 func (c *Coord) CommentAttachment(sha string) (blob.FileRef, bool) {
 	return c.impl.commentAttachment(sha)
+}
+
+// RecordMessage puts an inbox message about a card on its thread, as a
+// comment whose ID is the message id (MsgID, "msg_…"): recording the same
+// message again writes nothing, and a Gone record of a message already
+// there only marks it gone. Text over MaxComment is cut and points to
+// msg:<id>; a Held message is recorded without its text; Files is only a
+// count. Any task, done ones too (else ErrNotFound). It returns no Notice:
+// the recipient already has the message, and the holders read the card.
+func (c *Coord) RecordMessage(ctx context.Context, m MessageEntry) (Comment, error) {
+	return c.impl.recordMessage(ctx, m)
 }
 
 // Comments lists a task's comments, oldest first (nil for no such task).

@@ -238,10 +238,24 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 			if text != cm.Text {
 				text += " (show comment:" + cm.ID + " for all of it)"
 			}
+			if cm.Held {
+				text = "(held by the wake policy; text not on the card)"
+			}
 			if n := len(cm.Attachments); n > 0 {
 				text += fmt.Sprintf(" [%d attached: show comment:%s]", n, cm.ID)
 			}
-			fmt.Fprintf(&b, "- %s %s: %s\n", cm.At.Format(time.RFC3339), cm.By, text)
+			if cm.Files > 0 {
+				text += fmt.Sprintf(" [%d files on msg:%s]", cm.Files, cm.MsgID)
+			}
+			who := cm.By
+			if cm.MsgID != "" {
+				// A message about the card: who sent it to whom.
+				who += " -> " + cm.To
+			}
+			if cm.Gone {
+				text += " (recipient gone, left on the card)"
+			}
+			fmt.Fprintf(&b, "- %s %s: %s\n", cm.At.Format(time.RFC3339), who, text)
 		}
 		for i := len(older) - 1; i >= 0 && len(related) < search.MaxRelated; i-- {
 			related = append(related, search.Ref(search.KindComment, older[i]))

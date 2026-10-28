@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/StephenSHorton/irori/internal/search"
 )
@@ -546,6 +547,81 @@ func TestComments(t *testing.T) {
 	}
 	if cs := e.c.Comments(must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "empty"})).ID); cs == nil || len(cs) != 0 {
 		t.Fatalf("no comments = %#v", cs)
+	}
+}
+
+// A message about a card goes on its thread as a comment keyed by the
+// message id: once, with no notice and no activity line of its own.
+func TestRecordMessage(t *testing.T) {
+	e := newEnv(t)
+	task := claimed(t, e)
+	acts := len(e.c.Activity(task.ID))
+	rows := func() int { return len(e.rows(KindTaskComment)) }
+	m := MessageEntry{TaskID: task.ID, MsgID: "msg_1", From: alice, To: bob, Text: " can you look? ", Files: 2}
+	cm, err := e.c.RecordMessage(ctx, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cm.ID != "msg_1" || cm.MsgID != "msg_1" || cm.By != alice || cm.To != bob || cm.Text != "can you look?" ||
+		cm.Device != "dev-a" || cm.HLC == 0 || cm.Seq == 0 || cm.Files != 2 || cm.Attachments != nil || cm.Gone || cm.Held || cm.Wake {
+		t.Fatalf("recorded %+v", cm)
+	}
+	if ev := e.rows(KindTaskComment)[0]; ev.Actor != "agent:"+alice {
+		t.Fatalf("actor %q", ev.Actor)
+	}
+	if n := len(e.c.Activity(task.ID)); n != acts {
+		t.Fatalf("activity %d lines, want %d", n, acts)
+	}
+	// Again (a retry, the sweep): nothing written.
+	if again, err := e.c.RecordMessage(ctx, m); err != nil || !reflect.DeepEqual(again, cm) || rows() != 1 {
+		t.Fatalf("again: %+v %v, %d rows", again, err, rows())
+	}
+	// Gone: one row, as Irori, merged into the entry.
+	g := m
+	g.Gone, g.Writer, g.Text = true, "irori", "other text"
+	for range 2 {
+		got, err := e.c.RecordMessage(ctx, g)
+		if err != nil || !got.Gone || got.Text != "can you look?" || got.HLC != cm.HLC || rows() != 2 {
+			t.Fatalf("gone: %+v %v, %d rows", got, err, rows())
+		}
+	}
+	if ev := e.rows(KindTaskComment)[1]; ev.Actor != "irori" {
+		t.Fatalf("gone row actor %q", ev.Actor)
+	}
+	if cs := e.c.Comments(task.ID); len(cs) != 1 || !cs[0].Gone {
+		t.Fatalf("comments %+v", cs)
+	}
+	// Long text is cut and points at the message.
+	long, err := e.c.RecordMessage(ctx, MessageEntry{TaskID: task.ID, MsgID: "msg_2", From: alice, To: bob, Text: strings.Repeat("x", MaxComment+50)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if utf8.RuneCountInString(long.Text) != MaxComment || !strings.HasSuffix(long.Text, "… (full: msg:msg_2)") {
+		t.Fatalf("cut to %d runes: …%s", utf8.RuneCountInString(long.Text), long.Text[len(long.Text)-40:])
+	}
+	// Held: no text.
+	held, err := e.c.RecordMessage(ctx, MessageEntry{TaskID: task.ID, MsgID: "msg_3", From: alice, To: bob, Text: "secret", Held: true})
+	if err != nil || held.Text != "" || !held.Held {
+		t.Fatalf("held %+v %v", held, err)
+	}
+	// Done cards take them; unknown ones don't.
+	must[Task](t)(e.c.SetTaskState(ctx, alice, task.ID, Completed, ""))
+	if _, err := e.c.RecordMessage(ctx, MessageEntry{TaskID: task.ID, MsgID: "msg_4", From: bob, To: alice, Text: "late"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := e.c.GetTask(task.ID); got.Comments != 4 {
+		t.Fatalf("task %+v", got)
+	}
+	_, err = e.c.RecordMessage(ctx, MessageEntry{TaskID: "nope", MsgID: "msg_5", From: alice, To: bob, Text: "x"})
+	wantErr(t, err, ErrNotFound)
+	_, err = e.c.RecordMessage(ctx, MessageEntry{TaskID: task.ID, MsgID: "01ABC", From: alice, To: bob, Text: "x"})
+	wantErr(t, err, ErrInvalid)
+	// Another device's sender is recorded on its own device; its gone row
+	// may come from the recipient's (this one).
+	_, err = e.c.RecordMessage(ctx, MessageEntry{TaskID: task.ID, MsgID: "msg_6", From: "dev-b/zed", To: alice, Text: "x"})
+	wantErr(t, err, ErrNotAllowed)
+	if _, err := e.c.RecordMessage(ctx, MessageEntry{TaskID: task.ID, MsgID: "msg_6", From: "dev-b/zed", To: alice, Text: "x", Gone: true, Writer: "irori"}); err != nil {
+		t.Fatal(err)
 	}
 }
 

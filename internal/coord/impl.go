@@ -134,6 +134,15 @@ type taskCommentRow struct {
 	At        time.Time `json:"at"`
 	// Attachments: v0.4 §6.6; the refs carry the attaching device.
 	Attachments []blob.FileRef `json:"attachments,omitempty"`
+	// A mirrored inbox message (RecordMessage): commentId == msgId. to is
+	// the recipient; gone is the recipient-gone fallback's row (actor
+	// irori, by the sender); held means the text was left off; files is the
+	// message's attachment count (the refs are never copied).
+	To    string `json:"to,omitempty"`
+	MsgID string `json:"msgId,omitempty"`
+	Gone  bool   `json:"gone,omitempty"`
+	Held  bool   `json:"held,omitempty"`
+	Files int    `json:"files,omitempty"`
 }
 
 type blockerClosedRow struct {
@@ -190,7 +199,7 @@ type coord struct {
 	refusals    []*refusalRec          // possibly active, fold order (gcRefusals drops the rest)
 	blockerSeq  map[string]int         // task id -> highest blocker item number minted
 	stepSeq     map[string]int         // task id -> highest step number minted
-	activity    map[string][]Activity  // task id -> newest MaxActivity lines, oldest first
+	activity    map[string][]Activity  // task id -> top MaxActivity lines by log position, lowest first
 	watchq      map[string]*watchQueue // task id -> changes watchers haven't heard (not on replay)
 
 	// Subscribe (subscribe.go). Changes queue in pending while c.mu is held
@@ -305,8 +314,22 @@ func (c *coord) writerOK(ev store.Event) bool {
 			return true
 		}
 		return owner.MayWrite(r.By, ev.DeviceID)
+	case KindTaskComment:
+		// Only a mirrored message is checked: its sender's device writes
+		// it, and a gone row may also come from the recipient's. Plain
+		// comments are left as they were.
+		var p taskCommentRow
+		if json.Unmarshal(ev.Payload, &p) != nil || p.MsgID == "" {
+			return true
+		}
+		return mayRecord(p.By, p.To, p.Gone, ev.DeviceID)
 	}
 	return true
+}
+
+// mayRecord is the writer rule for a mirrored message's row.
+func mayRecord(by, to string, gone bool, dev string) bool {
+	return owner.MayWrite(by, dev) || gone && owner.MayWrite(to, dev)
 }
 
 // IgnoredRows counts owner-only rows coord ignored because a device other
@@ -352,7 +375,7 @@ func (c *coord) apply(ev store.Event) {
 			RepoKey: p.RepoKey, Scope: p.Scope, State: Submitted, CreatedBy: p.By,
 			CreatedAt: t, UpdatedAt: t, UpdatedBy: p.By, Shared: p.Shared, Links: links,
 		}
-		c.touch(c.tasks[p.TaskID], t, p.By, "put the card up", false)
+		c.touch(ev, c.tasks[p.TaskID], t, p.By, "put the card up", false)
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID})
 	case KindTaskClaimed:
 		var p taskClaimedRow
@@ -367,7 +390,7 @@ func (c *coord) apply(ev store.Event) {
 				t.State = Working
 			}
 			t.UpdatedAt, t.UpdatedBy = at(p.At), p.By
-			c.touch(t, t.UpdatedAt, p.By, "took it up", true)
+			c.touch(ev, t, t.UpdatedAt, p.By, "took it up", true)
 			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: p.By})
 		}
 	case KindTaskAssigned:
@@ -383,7 +406,7 @@ func (c *coord) apply(ev store.Event) {
 			}
 			syncHolder(t)
 			t.UpdatedAt, t.UpdatedBy = at(p.At), p.By
-			c.touch(t, t.UpdatedAt, p.By, "assigned it to "+p.To, true)
+			c.touch(ev, t, t.UpdatedAt, p.By, "assigned it to "+p.To, true)
 			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: p.To})
 		}
 	case KindTaskState:
@@ -398,10 +421,10 @@ func (c *coord) apply(ev store.Event) {
 			t.Note = p.Note
 			t.Assigned = removeStr(t.Assigned, p.By)
 			syncHolder(t)
-			what := ""
+			what, raised := "", ""
 			if p.State == Blocked {
 				// BlockedBy follows the items (syncReason below).
-				what = c.foldBlocked(t, p, was == Blocked, when)
+				what, raised = c.foldBlocked(t, p, was == Blocked, when)
 			} else {
 				closeOpen(t, p.By, p.Note, when)
 				if was != p.State {
@@ -410,7 +433,9 @@ func (c *coord) apply(ev store.Event) {
 			}
 			syncReason(t)
 			t.UpdatedAt, t.UpdatedBy = when, p.By
-			c.touch(t, when, p.By, what, true)
+			line := lineOf(ev, when, p.By, what)
+			line.BlockerID = raised // a raise line names its item
+			c.touchLine(t, line, true)
 			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
 		}
 	case KindTaskJoined, KindTaskLeft:
@@ -440,7 +465,7 @@ func (c *coord) apply(ev store.Event) {
 		t.Assigned = removeStr(t.Assigned, p.Who)
 		syncHolder(t)
 		t.UpdatedAt, t.UpdatedBy = at(p.At), p.By
-		c.touch(t, t.UpdatedAt, p.By, what, false)
+		c.touch(ev, t, t.UpdatedAt, p.By, what, false)
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: p.Who})
 	case KindTaskShared:
 		var p taskSharedRow
@@ -476,9 +501,9 @@ func (c *coord) apply(ev store.Event) {
 		t.UpdatedAt, t.UpdatedBy = at(p.At), p.By
 		_, _, isPR := prLink(p.Link)
 		if p.Removed {
-			c.touch(t, t.UpdatedAt, p.By, "removed the link "+p.Link.Label, isPR)
+			c.touch(ev, t, t.UpdatedAt, p.By, "removed the link "+p.Link.Label, isPR)
 		} else {
-			c.touch(t, t.UpdatedAt, p.By, "linked "+p.Link.Label, isPR)
+			c.touch(ev, t, t.UpdatedAt, p.By, "linked "+p.Link.Label, isPR)
 		}
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
 	case KindTaskComment:
@@ -486,17 +511,33 @@ func (c *coord) apply(ev store.Event) {
 		if json.Unmarshal(ev.Payload, &p) != nil || p.CommentID == "" {
 			return
 		}
-		t := c.tasks[p.TaskID]
-		if t == nil || c.comments[p.CommentID] != nil {
+		if cm := c.comments[p.CommentID]; cm != nil {
+			c.mergeComment(cm, p, ev, at)
 			return
 		}
-		cm := &Comment{ID: p.CommentID, TaskID: p.TaskID, By: p.By, Text: p.Text, Wake: p.Wake, At: at(p.At), Attachments: p.Attachments}
+		t := c.tasks[p.TaskID]
+		if t == nil {
+			return
+		}
+		cm := &Comment{
+			ID: p.CommentID, TaskID: p.TaskID, By: p.By, Text: p.Text, Wake: p.Wake, At: at(p.At), Attachments: p.Attachments,
+			To: p.To, MsgID: p.MsgID, Gone: p.Gone, Held: p.Held, Files: p.Files,
+			Device: ev.DeviceID, HLC: ev.HLC, Seq: ev.Seq, primary: !p.Gone,
+		}
 		c.comments[cm.ID] = cm
 		c.byTask[t.ID] = append(c.byTask[t.ID], cm.ID)
 		t.Comments++
 		// A comment is activity on the card: it floats up its Board group.
-		t.UpdatedAt = cm.At
-		c.touch(t, cm.At, cm.By, "commented", false)
+		// Only a primary row moves it, so a mirrored message's gone row
+		// can't, whichever arrives first.
+		if !p.Gone {
+			t.UpdatedAt = cm.At
+		}
+		// A mirrored message is its own thread entry: no activity line, so
+		// the line's position can't depend on which of its rows came first.
+		if p.MsgID == "" {
+			c.touch(ev, t, cm.At, cm.By, "commented", false)
+		}
 		c.note(Change{Kind: CommentAdded, TaskID: p.TaskID})
 	case KindBlockerClosed:
 		var p blockerClosedRow
@@ -522,7 +563,7 @@ func (c *coord) apply(ev store.Event) {
 		if p.Note != "" {
 			what += ": " + p.Note
 		}
-		c.touch(t, t.UpdatedAt, p.By, what, true)
+		c.touch(ev, t, t.UpdatedAt, p.By, what, true)
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
 	case KindBlockerOption, KindBlockerResolved, KindTaskSteps, KindTaskStep, KindTaskWatched:
 		c.applyCard(ev, at)
@@ -703,9 +744,15 @@ func linkIndex(ls []Link, ref string) int {
 	return -1
 }
 
-// write appends a row and folds it. The caller holds c.mu.
+// write appends a row as by and folds it. The caller holds c.mu.
 func (c *coord) write(ctx context.Context, by, kind string, payload any) error {
-	ev, err := c.st.Append(ctx, c.actorFor(by), kind, payload)
+	return c.writeAs(ctx, c.actorFor(by), kind, payload)
+}
+
+// writeAs is write with the store's actor given ("irori" for a row Irori
+// writes on someone's behalf). The caller holds c.mu.
+func (c *coord) writeAs(ctx context.Context, actor, kind string, payload any) error {
+	ev, err := c.st.Append(ctx, actor, kind, payload)
 	if err != nil {
 		return fmt.Errorf("coord: %w", err)
 	}
