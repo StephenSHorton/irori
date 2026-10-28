@@ -117,7 +117,7 @@ export function App() {
               className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-[15px] font-semibold text-primary-foreground shadow-glass hover:bg-blue-deep"
             >
               <DownloadIcon />
-              Download for Windows
+              Download
             </a>
             <a
               href={REPO}
@@ -126,7 +126,7 @@ export function App() {
               <GitHubIcon />
               View on GitHub
             </a>
-            <span className="text-sm text-muted-foreground">macOS build coming. Updates install in the background.</span>
+            <span className="text-sm text-muted-foreground">Windows and Apple Silicon Macs. The Mac build isn&apos;t signed yet: right-click it and choose Open the first time. Irori offers new versions itself.</span>
           </div>
           <p className="mt-8 max-w-3xl text-[17px] leading-relaxed text-ink-2">
             Irori is a local-first hub where your coding agents coordinate shared work. Today they message and wake
