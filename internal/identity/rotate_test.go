@@ -82,3 +82,67 @@ func TestAdoptSecretChecksTheRotationRow(t *testing.T) {
 		t.Fatalf("after adopt: %+v", b.Current())
 	}
 }
+
+// Every older epoch is kept across rotations and a reload, so a device
+// offline through two revokes still finds a topic, until Forget.
+func TestEveryOlderEpochIsKeptUntilForget(t *testing.T) {
+	dir := t.TempDir()
+	dev, _ := device.LoadOrCreate(dir)
+	id, err := Load(dir, dev, FileKeystore{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed1, _ := id.PersonSeed(1)
+	for range 2 {
+		if _, err := id.Rotate(time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	re, err := Load(dir, id.Device, FileKeystore{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := re.PersonSeed(1); !ok || !bytes.Equal(got, seed1) || re.Current().Epoch != 3 || re.PrevEpoch() != 2 {
+		t.Fatalf("after two rotations: epoch %d prev %d, epoch 1 kept %v", re.Current().Epoch, re.PrevEpoch(), ok)
+	}
+	if err := re.Forget(3); err != nil {
+		t.Fatal(err)
+	}
+	re2, _ := Load(dir, id.Device, FileKeystore{})
+	if _, ok := re2.PersonSeed(1); ok || len(re2.OlderEpochs()) != 0 {
+		t.Fatalf("Forget kept %v", re2.OlderEpochs())
+	}
+}
+
+// The losing side of two rotations to one epoch takes the winner's key in
+// place of its own; anything else is refused.
+func TestReplaceSecretSwapsTheCurrentEpochsKey(t *testing.T) {
+	newID := func() *Identity {
+		dir := t.TempDir()
+		dev, _ := device.LoadOrCreate(dir)
+		id, err := Load(dir, dev, FileKeystore{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	a, b := newID(), newID()
+	ra, _ := a.Rotate(time.Now())
+	if _, err := b.Rotate(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	seed, _ := a.PersonSeed(2)
+	if err := b.ReplaceSecret(2, seed, b.Current().Pub); err == nil {
+		t.Fatal("replaced with a seed that doesn't match the key named")
+	}
+	if err := b.ReplaceSecret(3, seed, ra.PersonPub); !errors.Is(err, ErrStaleEpoch) {
+		t.Fatalf("replace for another epoch: %v", err)
+	}
+	if err := b.ReplaceSecret(2, seed, ra.PersonPub); err != nil {
+		t.Fatal(err)
+	}
+	re, _ := Load(b.dataDir, b.Device, FileKeystore{})
+	if got, _ := re.PersonSeed(2); re.Current().Pub != ra.PersonPub || !bytes.Equal(got, seed) || re.PrevEpoch() != 1 {
+		t.Fatalf("after replace: %+v", re.Current())
+	}
+}

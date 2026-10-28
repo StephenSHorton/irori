@@ -72,8 +72,15 @@ type Frame struct {
 	// ping / pong
 	T int64 `json:"t,omitempty"`
 
-	// person.secret (Epoch too): the new epoch's secret, sealed (§3).
+	// PersonPub (hello) is the sender's person key for its Epoch. Two
+	// devices that rotated to one epoch apart hold different keys, and so
+	// different topics; this is how they see it (§3, Revoke).
+	PersonPub string `json:"personPub,omitempty"`
+
+	// person.secret (Epoch too): the new epoch's secret, sealed (§3) with
+	// the key of epoch From (0: the recipient's current epoch).
 	Sealed []byte `json:"sealed,omitempty"`
+	From   int    `json:"from,omitempty"`
 }
 
 // Row is a log row on the wire. The payload travels as base64 of the

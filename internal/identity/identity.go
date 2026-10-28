@@ -42,12 +42,17 @@ type personFile struct {
 	RootDeviceID string  `json:"rootDeviceId"`
 	PersonPub    string  `json:"personPub"` // hex, the current epoch's key
 	SecretKey    wrapped `json:"secretKey"` // the ed25519 seed, sealed
-	// Prev is the epoch before a rotation, kept so the previous epoch's
-	// mesh topic stays open until every device has the new key (§4.2).
+	// Older are the epochs before the current one, oldest first, kept so a
+	// device that was offline through one or more rotations still finds a
+	// peer on its epoch's topic and gets the new key there (§4.2). They are
+	// dropped once every remaining device has the current one (Forget).
+	Older []prevKey `json:"older,omitempty"`
+	// Prev is the one previous epoch an earlier build kept; read, never
+	// written.
 	Prev *prevKey `json:"prev,omitempty"`
 }
 
-// prevKey is the person key of the epoch before the current one.
+// prevKey is the person key of an epoch before the current one.
 type prevKey struct {
 	Epoch     int     `json:"epoch"`
 	PersonPub string  `json:"personPub"`
@@ -76,7 +81,7 @@ type Identity struct {
 
 	mu        sync.Mutex
 	personKey ed25519.PrivateKey
-	prev      *epochKey // the epoch before the current one, if any
+	older     []epochKey // the epochs before the current one, oldest first
 }
 
 // epochKey is one epoch's person key.
@@ -102,7 +107,7 @@ func Load(dataDir string, dev device.Identity, ks Keystore) (*Identity, error) {
 	if dev.DevicePub != "" && dev.DevicePub != pubHex {
 		return nil, fmt.Errorf("identity: device.json names key %s… but device.key holds %s…; the data dir is mixed from two installs", short(dev.DevicePub), short(pubHex))
 	}
-	p, pkey, prev, err := loadOrCreatePerson(filepath.Join(dataDir, PersonFile), dev.ID, ks)
+	p, pkey, older, err := loadOrCreatePerson(filepath.Join(dataDir, PersonFile), dev.ID, ks)
 	if err != nil {
 		return nil, fmt.Errorf("person: %w", err)
 	}
@@ -112,7 +117,7 @@ func Load(dataDir string, dev device.Identity, ks Keystore) (*Identity, error) {
 			return nil, err
 		}
 	}
-	return &Identity{Device: dev, Person: p, deviceKey: dkey, personKey: pkey, prev: prev, dataDir: dataDir, ks: ks}, nil
+	return &Identity{Device: dev, Person: p, deviceKey: dkey, personKey: pkey, older: older, dataDir: dataDir, ks: ks}, nil
 }
 
 func short(s string) string {
@@ -155,7 +160,7 @@ func loadOrCreateSeed(path string, ks Keystore) (ed25519.PrivateKey, error) {
 	return ed25519.NewKeyFromSeed(seed), nil
 }
 
-func loadOrCreatePerson(path, deviceID string, ks Keystore) (Person, ed25519.PrivateKey, *epochKey, error) {
+func loadOrCreatePerson(path, deviceID string, ks Keystore) (Person, ed25519.PrivateKey, []epochKey, error) {
 	raw, err := os.ReadFile(path)
 	if err == nil {
 		var f personFile
@@ -166,15 +171,19 @@ func loadOrCreatePerson(path, deviceID string, ks Keystore) (Person, ed25519.Pri
 		if err != nil {
 			return Person{}, nil, nil, err
 		}
-		var prev *epochKey
-		if f.Prev != nil {
-			pk, err := unsealPersonKey(ks, f.Prev.SecretKey, f.Prev.PersonPub, path)
+		olds := f.Older
+		if f.Prev != nil && len(olds) == 0 {
+			olds = []prevKey{*f.Prev}
+		}
+		var older []epochKey
+		for _, o := range olds {
+			pk, err := unsealPersonKey(ks, o.SecretKey, o.PersonPub, path)
 			if err != nil {
 				return Person{}, nil, nil, err
 			}
-			prev = &epochKey{epoch: f.Prev.Epoch, key: pk}
+			older = append(older, epochKey{epoch: o.Epoch, key: pk})
 		}
-		return Person{ID: f.PersonID, Name: f.Name, Epoch: f.Epoch, RootDeviceID: f.RootDeviceID, Pub: f.PersonPub}, key, prev, nil
+		return Person{ID: f.PersonID, Name: f.Name, Epoch: f.Epoch, RootDeviceID: f.RootDeviceID, Pub: f.PersonPub}, key, older, nil
 	}
 	if !errors.Is(err, fs.ErrNotExist) {
 		return Person{}, nil, nil, err
@@ -205,8 +214,9 @@ func unsealPersonKey(ks Keystore, w wrapped, pubHex, path string) (ed25519.Priva
 	return key, nil
 }
 
-// writePerson seals key (and prev's) with ks and writes person.json atomically.
-func writePerson(path string, ks Keystore, p Person, key ed25519.PrivateKey, prev *epochKey) error {
+// writePerson seals key (and the older epochs') with ks and writes
+// person.json atomically.
+func writePerson(path string, ks Keystore, p Person, key ed25519.PrivateKey, older []epochKey) error {
 	w, err := seal(ks, key.Seed())
 	if err != nil {
 		return err
@@ -215,12 +225,12 @@ func writePerson(path string, ks Keystore, p Person, key ed25519.PrivateKey, pre
 		PersonID: p.ID, Name: p.Name, Epoch: p.Epoch, RootDeviceID: p.RootDeviceID,
 		PersonPub: p.Pub, SecretKey: w,
 	}
-	if prev != nil {
-		pw, err := seal(ks, prev.key.Seed())
+	for _, o := range older {
+		pw, err := seal(ks, o.key.Seed())
 		if err != nil {
 			return err
 		}
-		f.Prev = &prevKey{Epoch: prev.epoch, PersonPub: hex.EncodeToString(prev.key.Public().(ed25519.PublicKey)), SecretKey: pw}
+		f.Older = append(f.Older, prevKey{Epoch: o.epoch, PersonPub: hex.EncodeToString(o.key.Public().(ed25519.PublicKey)), SecretKey: pw})
 	}
 	out, _ := json.MarshalIndent(f, "", "  ")
 	tmp := path + ".tmp"

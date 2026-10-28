@@ -222,6 +222,7 @@ func TestRevokeConvergesAndRotatesTheKey(t *testing.T) {
 	}
 	eventually(t, "the node hears the Mac's extra rows", func() bool { return nd.has(extra[2]) })
 	net.Partition(nd.id(), mac.id()) // and the Mac goes away
+	seed1 := mustSeed(t, pc, 1)
 	if err := pc.node.Revoke(context.Background(), mac.id(), "lost"); err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +258,7 @@ func TestRevokeConvergesAndRotatesTheKey(t *testing.T) {
 	never(t, "the revoked Mac connects", func() bool {
 		return net.Connected(pc.id(), mac.id()) || net.Connected(nd.id(), mac.id())
 	})
-	old := MeshSecret(mustSeed(t, pc, 1), pc.ident.Person.ID, 1)
+	old := MeshSecret(seed1, pc.ident.Person.ID, 1)
 	r, conns := rawPeer(t, net, old, mac.id()+"x")
 	_ = r
 	never(t, "anyone answers on the old topic", func() bool { return len(conns) > 0 })
@@ -286,6 +287,100 @@ func TestAnOfflineDeviceGetsTheNewKeyOnThePreviousTopic(t *testing.T) {
 	if nd.ident.Current().Epoch != 2 {
 		t.Fatal("the adopted key did not survive a restart")
 	}
+}
+
+// The PC and the node can't reach each other, and the person removes the
+// lost Mac from both. Each rotates to epoch 2 with its own key, so their
+// epoch-2 topics differ. When they reach each other again (on the epoch-1
+// topic) the rotation row of the lower device id wins on both, the other
+// takes its key, and they meet on one topic.
+func TestTwoDevicesThatRevokeApartSettleOnOneKey(t *testing.T) {
+	net := NewFakeNet()
+	pc, mac, nd := trio(t, net)
+	mac.stop()
+	net.Partition(pc.id(), nd.id())
+	if err := pc.node.Revoke(context.Background(), mac.id(), "lost"); err != nil {
+		t.Fatal(err)
+	}
+	if err := nd.node.Revoke(context.Background(), mac.id(), "lost"); err != nil {
+		t.Fatal(err)
+	}
+	if pc.ident.Current().Pub == nd.ident.Current().Pub {
+		t.Fatal("the two rotations made one key")
+	}
+	winner := pc
+	if nd.id() < pc.id() {
+		winner = nd
+	}
+	want := winner.ident.Current().Pub
+	net.Heal(pc.id(), nd.id())
+	eventually(t, "both hold the winning key", func() bool {
+		return pc.ident.Current().Pub == want && nd.ident.Current().Pub == want &&
+			pc.ident.Current().Epoch == 2 && nd.ident.Current().Epoch == 2
+	})
+	topic := MeshSecret(mustSeed(t, winner, 2), pc.ident.Person.ID, 2).Topic
+	eventually(t, "both sit on the one epoch-2 topic only", func() bool {
+		a, b := net.Topics(pc.id()), net.Topics(nd.id())
+		return len(a) == 1 && len(b) == 1 && a[0] == topic && b[0] == topic
+	})
+	e := pc.append(store.KindAgentSeen, map[string]any{"key": pc.id() + "/after"})
+	eventually(t, "sync runs on it", func() bool { return nd.has(e) })
+}
+
+// The node is off through two revokes: it is still on epoch 1, and the PC
+// keeps every older key, so it opens the epoch-1 topic, and the node jumps
+// straight to epoch 3 there.
+func TestADeviceOfflineThroughTwoRevokesCatchesUp(t *testing.T) {
+	net := NewFakeNet()
+	pc, mac, nd := trio(t, net)
+	x := newDev(t, net, "x")
+	x.join(pc)
+	x.start()
+	eventually(t, "x syncs", converged(pc, x))
+	eventually(t, "the node hears x's cert", func() bool { _, ok := nd.chain.Cert(x.id()); return ok })
+	nd.stop()
+	mac.stop()
+	ctx := context.Background()
+	if err := pc.node.Revoke(ctx, x.id(), "lost"); err != nil {
+		t.Fatal(err)
+	}
+	if err := pc.node.Revoke(ctx, mac.id(), "lost"); err != nil {
+		t.Fatal(err)
+	}
+	if pc.ident.Current().Epoch != 3 {
+		t.Fatalf("pc on epoch %d, want 3", pc.ident.Current().Epoch)
+	}
+	if nd.ident.Current().Epoch != 1 {
+		t.Fatal("the node moved while it was off")
+	}
+	nd.start()
+	eventually(t, "the node adopts epoch 3", func() bool {
+		return nd.ident.Current().Epoch == 3 && nd.ident.Current().Pub == pc.ident.Current().Pub
+	})
+	eventually(t, "both close the older topics and forget their keys", func() bool {
+		return len(net.Topics(pc.id())) == 1 && len(net.Topics(nd.id())) == 1 && len(pc.ident.OlderEpochs()) == 0
+	})
+	e := pc.append(store.KindAgentSeen, map[string]any{"key": pc.id() + "/after"})
+	eventually(t, "sync runs on epoch 3", func() bool { return nd.has(e) })
+}
+
+// After a restart the PC still knows the node has the new key, so it
+// doesn't reopen the old topic while the node is away.
+func TestKnownEpochsSurviveARestart(t *testing.T) {
+	net := NewFakeNet()
+	pc, mac, nd := trio(t, net)
+	mac.stop()
+	if err := pc.node.Revoke(context.Background(), mac.id(), "lost"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the node adopts epoch 2 and the old topic closes", func() bool {
+		return nd.ident.Current().Epoch == 2 && len(net.Topics(pc.id())) == 1
+	})
+	nd.stop()
+	pc.stop()
+	pc.start()
+	eventually(t, "the PC is back on its topic", func() bool { return len(net.Topics(pc.id())) == 1 })
+	never(t, "the PC reopens the epoch-1 topic", func() bool { return len(net.Topics(pc.id())) > 1 })
 }
 
 func mustSeed(t *testing.T, d *dev, epoch int) []byte {

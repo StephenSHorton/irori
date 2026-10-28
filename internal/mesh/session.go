@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/store"
 )
 
@@ -30,6 +32,8 @@ type session struct {
 	mu        sync.Mutex
 	helloRecv bool
 	pEpoch    int
+	pPub      string // the person key its hello carried
+	sentKey   string // the epoch/key whose person.secret went to it
 	peerVec   store.Vector
 	sentLoose bool
 	inflight  bool
@@ -77,10 +81,24 @@ func (s *session) helloDone() bool {
 	return s.helloRecv
 }
 
-func (s *session) peerEpoch() int {
+// peerKey is the epoch and person key the peer's hello carried.
+func (s *session) peerKey() (int, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.pEpoch
+	return s.pEpoch, s.pPub
+}
+
+// markSecret records that cur's secret goes to the peer on this
+// connection; false if it already went.
+func (s *session) markSecret(cur identity.Person) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	k := fmt.Sprintf("%d/%s", cur.Epoch, cur.Pub)
+	if s.sentKey == k {
+		return false
+	}
+	s.sentKey = k
+	return true
 }
 
 func (s *session) heldCount() int {
@@ -369,10 +387,14 @@ func (s *session) onHello(ctx context.Context, f Frame) bool {
 	now := n.now()
 	n.mu.Lock()
 	k := n.info(peer)
-	k.epoch, k.lastSync, k.lastPing = f.Epoch, now, now
+	moved := k.epoch != f.Epoch || k.pub != f.PersonPub
+	k.epoch, k.pub, k.lastSync, k.lastPing = f.Epoch, f.PersonPub, now, now
 	k.skew = time.UnixMilli(f.WallMs).Sub(now)
 	k.schemaOld = false
 	n.mu.Unlock()
+	if moved {
+		n.savePeers()
+	}
 	mine, err := n.o.Store.Vector(ctx)
 	if err != nil {
 		mine = store.Vector{}
@@ -419,13 +441,11 @@ func (s *session) onHello(ctx context.Context, f Frame) bool {
 		n.logf("mesh: restoring this device's rows up to %d from %s", at, peer)
 	}
 	s.mu.Lock()
-	s.helloRecv, s.pEpoch, s.peerVec = true, f.Epoch, copyVec(f.Vector)
+	s.helloRecv, s.pEpoch, s.pPub, s.peerVec = true, f.Epoch, f.PersonPub, copyVec(f.Vector)
 	s.mu.Unlock()
 	n.connected(peer)
-	if f.Epoch < n.o.Ident.Current().Epoch {
-		n.sendSecret(s, f.Epoch)
-	}
-	n.Kick() // its epoch may close or open a topic
+	n.sendSecret(s) // if it is behind, or rotated apart from this device
+	n.Kick()        // its epoch may close or open a topic
 	s.poke()
 	return true
 }

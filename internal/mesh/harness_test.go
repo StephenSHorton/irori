@@ -111,7 +111,7 @@ func (d *dev) start() {
 	if d.done != nil {
 		d.t.Fatalf("%s already started", d.name)
 	}
-	d.node = New(Options{Store: d.st, Ident: d.ident, Chain: d.chain, Net: d.net, Version: "0.4.0-test", Files: d.files,
+	d.node = New(Options{Store: d.st, Ident: d.ident, Chain: d.chain, Net: d.net, Version: "0.4.0-test", Files: d.files, DataDir: d.dir,
 		Intervals: fastIntervals, TrustAnyPeer: d.trust, Now: d.clk.Now, Logf: func(f string, a ...any) { d.t.Logf(d.name+": "+f, a...) }})
 	ctx, cancel := context.WithCancel(context.Background())
 	d.cancel, d.done = cancel, make(chan struct{})

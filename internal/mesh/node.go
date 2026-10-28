@@ -80,6 +80,11 @@ type Options struct {
 	// Files is the attachment store blob streams serve from and fetch into
 	// (§6.6); nil serves nothing.
 	Files *blob.Files
+	// DataDir is where the node keeps the epoch each device last said hello
+	// with (PeersFile), so a restart doesn't reopen an older epoch's topic
+	// for devices that already have the current key (§4.2). "" keeps it in
+	// memory only.
+	DataDir string
 	// Intervals shortens the timers (tests).
 	Intervals Intervals
 	// TrustAnyPeer turns off the handshake's cert check and hello's key
@@ -102,13 +107,15 @@ type Node struct {
 	logf func(string, ...any)
 	kick chan struct{}
 
-	roomMu sync.Mutex // serializes ensureRooms: one Join per epoch
+	roomMu  sync.Mutex // serializes ensureRooms: one Join per epoch
+	peersMu sync.Mutex // serializes PeersFile writes
 
 	mu        sync.Mutex
 	ctx       context.Context
 	state     string // StateOff, StateOn, StateRemoved, StateError
 	detail    string
 	rooms     map[int]Room
+	topics    map[int]string // each open room's topic: a replaced key moves it
 	sessions  map[*session]struct{}
 	known     map[string]*peerInfo
 	stopped   map[string]string // device -> why its stream stopped here
@@ -131,6 +138,7 @@ const (
 
 type peerInfo struct {
 	epoch        int
+	pub          string // the person key its hello carried for epoch
 	lastPing     time.Time
 	lastSync     time.Time
 	lastPresence time.Time
@@ -160,6 +168,7 @@ func New(o Options) *Node {
 		kick:     make(chan struct{}, 1),
 		state:    StateOff,
 		rooms:    map[int]Room{},
+		topics:   map[int]string{},
 		sessions: map[*session]struct{}{},
 		known:    map[string]*peerInfo{},
 		stopped:  map[string]string{},
@@ -171,6 +180,9 @@ func New(o Options) *Node {
 	}
 	if n.logf == nil {
 		n.logf = func(string, ...any) {}
+	}
+	for id, e := range loadPeers(o.DataDir) {
+		n.known[id] = &peerInfo{epoch: e.Epoch, pub: e.PersonPub}
 	}
 	return n
 }
@@ -297,17 +309,29 @@ func (n *Node) allow(epoch int, peer string) bool {
 	if !n.o.TrustAnyPeer && !n.certified(peer) {
 		return false
 	}
-	cur := n.o.Ident.Current().Epoch
-	if epoch < cur {
+	cur := n.o.Ident.Current()
+	if epoch < cur.Epoch {
 		n.mu.Lock()
-		k := n.known[peer]
-		ahead := k != nil && k.epoch >= cur
+		has := hasCurrent(n.known[peer], cur)
 		n.mu.Unlock()
-		if ahead {
+		if has {
 			return false
 		}
 	}
 	return true
+}
+
+// hasCurrent reports a device whose last hello carried the current epoch
+// with this device's key for it, or a newer epoch: it meets this device on
+// the current topic, or brings the newer key. Same epoch with another key
+// is behind: the two rotated apart, and one of them takes the other's key
+// over an older topic (§3, Revoke). An unknown key (an older build's
+// hello) counts as the current one.
+func hasCurrent(k *peerInfo, cur identity.Person) bool {
+	if k == nil {
+		return false
+	}
+	return k.epoch > cur.Epoch || (k.epoch == cur.Epoch && (k.pub == "" || k.pub == cur.Pub))
 }
 
 func (n *Node) info(dev string) *peerInfo {
@@ -320,8 +344,9 @@ func (n *Node) info(dev string) *peerInfo {
 }
 
 // personChanged re-reads the cert fold: a removed device stops, revoked
-// peers are dropped, a waiting person.secret may now be adopted, the epoch
-// rooms are opened or closed and held rows are retried.
+// peers are dropped, a waiting person.secret may now be adopted, a peer
+// still behind gets the current key, the epoch rooms are opened or closed
+// and held rows are retried.
 func (n *Node) personChanged() {
 	if n.isRemoved() {
 		n.setState(StateRemoved, "")
@@ -337,6 +362,8 @@ func (n *Node) personChanged() {
 			s.conn.Close("revoked")
 		case s.epoch < cur && !n.allow(s.epoch, peer):
 			s.conn.Close("epoch") // both have the new epoch: the new topic only
+		case s.helloDone():
+			n.sendSecret(s)
 		}
 	}
 	n.ensureRooms()
@@ -347,7 +374,7 @@ func (n *Node) personChanged() {
 
 // ensureRooms keeps the current epoch's room open, and the previous
 // epoch's while any certified device hasn't said hello with the current
-// one (§4.2).
+// one (§4.2): every older epoch a device is still behind on.
 func (n *Node) ensureRooms() {
 	n.roomMu.Lock()
 	defer n.roomMu.Unlock()
@@ -357,21 +384,32 @@ func (n *Node) ensureRooms() {
 		return
 	}
 	n.mu.Unlock()
-	cur := n.o.Ident.Current().Epoch
-	want := map[int]bool{cur: true}
-	if prev := n.o.Ident.PrevEpoch(); prev > 0 && n.someoneBehind(cur) {
-		want[prev] = true
+	cur := n.o.Ident.Current()
+	want := n.wantEpochs(cur)
+	if len(want) == 1 {
+		// Nobody is behind: the older keys have nothing left to open, and a
+		// revoked device that still holds one finds no one there.
+		if err := n.o.Ident.Forget(cur.Epoch); err != nil {
+			n.logf("mesh: forget older person keys: %v", err)
+		}
+	}
+	topics := map[int]string{}
+	for e := range want {
+		if seed, ok := n.o.Ident.PersonSeed(e); ok {
+			topics[e] = MeshSecret(seed, cur.ID, e).Topic
+		}
 	}
 	n.mu.Lock()
 	var closing []Room
 	for e, r := range n.rooms {
-		if !want[e] {
+		// A room whose key changed (ReplaceSecret) is left and opened again.
+		if topics[e] == "" || n.topics[e] != topics[e] {
 			closing = append(closing, r)
 			delete(n.rooms, e)
 		}
 	}
 	var opening []int
-	for e := range want {
+	for e := range topics {
 		if n.rooms[e] == nil {
 			opening = append(opening, e)
 		}
@@ -387,7 +425,18 @@ func (n *Node) ensureRooms() {
 	}
 }
 
-func (n *Node) someoneBehind(cur int) bool {
+// wantEpochs is every epoch whose topic stays open: the current one, and
+// for each certified, unrevoked device that hasn't said hello with the
+// current key, the epoch it last said hello with if this device still
+// holds that key, else the newest older one (it may have heard of a
+// rotation this device never saw, or rotated apart from it).
+func (n *Node) wantEpochs(cur identity.Person) map[int]bool {
+	want := map[int]bool{cur.Epoch: true}
+	held := map[int]bool{}
+	for _, e := range n.o.Ident.OlderEpochs() {
+		held[e] = true
+	}
+	prev := n.o.Ident.PrevEpoch()
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	for _, d := range n.o.Chain.Devices() {
@@ -395,11 +444,16 @@ func (n *Node) someoneBehind(cur int) bool {
 		if id == n.self || d.Revoked {
 			continue
 		}
-		if k := n.known[id]; k == nil || k.epoch < cur {
-			return true
+		k := n.known[id]
+		switch {
+		case hasCurrent(k, cur):
+		case k != nil && k.epoch < cur.Epoch && held[k.epoch]:
+			want[k.epoch] = true
+		case prev > 0:
+			want[prev] = true
 		}
 	}
-	return false
+	return want
 }
 
 func (n *Node) join(epoch int) {
@@ -432,7 +486,7 @@ func (n *Node) join(epoch int) {
 		r.Close()
 		return
 	}
-	n.rooms[epoch] = r
+	n.rooms[epoch], n.topics[epoch] = r, s.Topic
 	n.detail = ""
 	n.mu.Unlock()
 	n.announceIn(epoch)
@@ -659,7 +713,7 @@ func (n *Node) hello(ctx context.Context, peer string) Frame {
 		v = store.Vector{}
 	}
 	cur := n.o.Ident.Current()
-	f := Frame{Type: FrameHello, V: Protocol, DeviceID: n.self, PersonID: cur.ID, Epoch: cur.Epoch,
+	f := Frame{Type: FrameHello, V: Protocol, DeviceID: n.self, PersonID: cur.ID, Epoch: cur.Epoch, PersonPub: cur.Pub,
 		CoreVersion: n.o.Version, Schema: store.SchemaVersion(), WallMs: n.now().UnixMilli(), Vector: v}
 	if ev, ok := n.rowAt(ctx, peer, v[peer]); ok {
 		r := RowOf(ev)
@@ -739,21 +793,38 @@ func (n *Node) isStopped(dev string) bool {
 	return ok
 }
 
-// sendSecret hands s's peer, which said hello with an older epoch, the
-// current person secret (§3, Revoke). Only to certified, unrevoked devices.
-func (n *Node) sendSecret(s *session, peerEpoch int) {
+// sendSecret hands s's peer the current person secret (§3, Revoke) when its
+// hello carried an older epoch, or this epoch with another key (the two
+// rotated apart). Only to certified, unrevoked devices, and only the key
+// the winning rotation row names (rotationPub): a losing key is never
+// handed on. It is sealed straight from the peer's epoch when this device
+// still holds that key, so a device that missed several rotations jumps to
+// the current one.
+func (n *Node) sendSecret(s *session) {
 	peer := s.conn.ID()
 	if !n.certified(peer) {
 		return
 	}
+	peerEpoch, peerPub := s.peerKey()
 	cur := n.o.Ident.Current()
-	if peerEpoch >= cur.Epoch {
+	from := peerEpoch
+	switch {
+	case peerEpoch < cur.Epoch:
+	case peerEpoch == cur.Epoch && peerPub != "" && peerPub != cur.Pub:
+		from = n.o.Ident.PrevEpoch() // the last epoch both held one key for
+	default:
 		return
 	}
-	old, ok := n.o.Ident.PersonSeed(peerEpoch)
-	if !ok {
+	if win, ok := n.rotationPub(cur.Epoch); ok && win != cur.Pub {
+		return // this device lost: it takes the winner's key first
+	}
+	old, ok := n.o.Ident.PersonSeed(from)
+	if !ok || from < 1 {
 		n.logf("mesh: %s is on epoch %d, which this device no longer holds", peer, peerEpoch)
 		return
+	}
+	if !s.markSecret(cur) {
+		return // already sent on this connection
 	}
 	seed, _ := n.o.Ident.PersonSeed(cur.Epoch)
 	sealed, err := sealSecret(old, seed, cur.ID, cur.Epoch, peer)
@@ -761,17 +832,27 @@ func (n *Node) sendSecret(s *session, peerEpoch int) {
 		n.logf("mesh: seal person secret: %v", err)
 		return
 	}
-	s.control(Frame{Type: FramePersonSecret, Epoch: cur.Epoch, Sealed: sealed})
+	s.control(Frame{Type: FramePersonSecret, Epoch: cur.Epoch, From: from, Sealed: sealed})
 }
 
+// maxPending bounds the person secrets held waiting for their rotation row.
+const maxPending = 8
+
 // takeSecret opens a person.secret frame. It is adopted once the matching
-// person.key.rotated row is held (it may still be on its way).
+// person.key.rotated row is held (it may still be on its way) and wins.
 func (n *Node) takeSecret(f Frame) {
 	cur := n.o.Ident.Current()
-	if f.Epoch <= cur.Epoch {
+	if f.Epoch < cur.Epoch {
 		return
 	}
-	old, _ := n.o.Ident.PersonSeed(cur.Epoch)
+	from := f.From
+	if from == 0 {
+		from = cur.Epoch
+	}
+	old, ok := n.o.Ident.PersonSeed(from)
+	if !ok {
+		return
+	}
 	seed, err := openSecret(old, f.Sealed, cur.ID, f.Epoch, n.self)
 	if err != nil {
 		n.logf("mesh: %v", err)
@@ -779,10 +860,17 @@ func (n *Node) takeSecret(f Frame) {
 	}
 	n.mu.Lock()
 	n.pending = append(n.pending, pendingSecret{epoch: f.Epoch, seed: seed})
+	if len(n.pending) > maxPending {
+		n.pending = n.pending[len(n.pending)-maxPending:]
+	}
 	n.mu.Unlock()
 	n.Kick()
 }
 
+// adoptPending takes each held person secret that the winning rotation row
+// of its epoch names: a newer epoch (AdoptSecret), or the current one in
+// place of this device's losing key (ReplaceSecret). A secret whose row
+// isn't held yet, or that doesn't win now, waits for more person rows.
 func (n *Node) adoptPending() {
 	n.mu.Lock()
 	pend := n.pending
@@ -790,15 +878,26 @@ func (n *Node) adoptPending() {
 	n.mu.Unlock()
 	var keep []pendingSecret
 	for _, p := range pend {
-		if p.epoch <= n.o.Ident.Current().Epoch {
+		cur := n.o.Ident.Current()
+		if p.epoch < cur.Epoch || len(p.seed) != ed25519.SeedSize {
 			continue
 		}
-		pub, ok := n.rotationPub(p.epoch)
-		if !ok {
+		pub := hex.EncodeToString(ed25519.NewKeyFromSeed(p.seed).Public().(ed25519.PublicKey))
+		win, ok := n.rotationPub(p.epoch)
+		switch {
+		case p.epoch == cur.Epoch && pub == cur.Pub:
+			continue // already this device's key
+		case !ok || win != pub:
 			keep = append(keep, p)
 			continue
 		}
-		if err := n.o.Ident.AdoptSecret(p.epoch, p.seed, pub); err != nil {
+		var err error
+		if p.epoch == cur.Epoch {
+			err = n.o.Ident.ReplaceSecret(p.epoch, p.seed, pub)
+		} else {
+			err = n.o.Ident.AdoptSecret(p.epoch, p.seed, pub)
+		}
+		if err != nil {
 			n.logf("mesh: adopt person secret: %v", err)
 			continue
 		}
@@ -806,30 +905,46 @@ func (n *Node) adoptPending() {
 	}
 	if len(keep) > 0 {
 		n.mu.Lock()
-		n.pending = append(n.pending, keep...)
+		n.pending = append(keep, n.pending...)
+		if len(n.pending) > maxPending {
+			n.pending = n.pending[len(n.pending)-maxPending:]
+		}
 		n.mu.Unlock()
 	}
 }
 
-// rotationPub finds the person key that a held person.key.rotated row names
-// for epoch. Held rows are verified, so its writer was certified.
+// rotationPub is the person key of epoch: the one the winning held
+// person.key.rotated row for it names. Two devices that revoked while
+// apart both rotate to the same epoch with their own keys; every device
+// picks the same row, the one written by the lower device id (then the
+// lower seq), so they all settle on one key and one topic. Held rows are
+// verified, so each writer was certified.
 func (n *Node) rotationPub(epoch int) (string, bool) {
 	ctx := context.Background()
 	f := store.Filter{Kinds: []string{store.KindPersonKeyRotated}, Limit: store.MaxListLimit}
 	pid := n.o.Ident.Current().ID
+	var best *store.Event
+	pub := ""
 	for {
 		evs, err := n.o.Store.List(ctx, f)
 		if err != nil || len(evs) == 0 {
-			return "", false
+			break
 		}
-		for _, ev := range evs {
+		for i, ev := range evs {
 			var r identity.KeyRotated
-			if json.Unmarshal(ev.Payload, &r) == nil && r.PersonID == pid && r.Epoch == epoch && n.everCertified(ev.DeviceID) {
-				return r.PersonPub, true
+			if json.Unmarshal(ev.Payload, &r) != nil || r.PersonID != pid || r.Epoch != epoch || !n.everCertified(ev.DeviceID) {
+				continue
 			}
+			if best == nil || ev.DeviceID < best.DeviceID || (ev.DeviceID == best.DeviceID && ev.Seq < best.Seq) {
+				best, pub = &evs[i], r.PersonPub
+			}
+		}
+		if len(evs) < f.Limit {
+			break
 		}
 		f.After = evs[len(evs)-1].Cursor()
 	}
+	return pub, best != nil
 }
 
 func (n *Node) everCertified(dev string) bool {
@@ -883,12 +998,7 @@ func (n *Node) Revoke(ctx context.Context, dev, reason string) error {
 	if _, err := n.o.Store.Append(ctx, "irori", store.KindPersonKeyRotated, rot); err != nil {
 		return fmt.Errorf("mesh: record the rotation: %w", err)
 	}
-	n.personChanged()
-	for _, s := range n.sessionList() {
-		if s.conn.ID() != dev {
-			n.sendSecret(s, s.peerEpoch())
-		}
-	}
+	n.personChanged() // drops dev, and hands the new key to everyone else
 	return nil
 }
 
