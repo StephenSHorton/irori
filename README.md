@@ -11,7 +11,7 @@ Irori is a hearth for your coding agents. Every agent you run, on every device y
 - **One desktop app** (Wails v3 + Go + React with the [mokei](https://github.com/StephenSHorton/mokei) design system) for macOS and Windows. It installs from GitHub Releases and updates itself in the background, like [Toru](https://github.com/StephenSHorton/toru).
 - **One place for agent activity.** It records what each agent did and decided, and links each edit to the conversation turn and the commit it ended up in.
 - **Agents talk and wake each other.** Messages go into an inbox and are never dropped. Idle or closed sessions can be woken or revived. There's no Discord in the loop.
-- **Across devices.** Your devices pair peer-to-peer over [iroh](https://iroh.computer), with an optional always-on node to hold messages while the others are offline.
+- **Across devices.** Your devices pair peer-to-peer over WebRTC with [go-room](https://github.com/StephenSHorton/go-room), with an optional always-on node to hold messages while the others are offline.
 - **Consolidation.** Irori replaces tsukumo's routing and waking, suzuri's workspace tools, and aizuchi's Scratch Pad, so these stop being separate tools.
 
 ## Docs
