@@ -505,19 +505,43 @@ func TestSessionPrecedence(t *testing.T) {
 	if sessionFromEnv(nil) != "" {
 		t.Error("nil getenv")
 	}
-	a, b := randomSession(), randomSession()
-	if a == b || !strings.HasPrefix(a, "sess_") {
-		t.Errorf("random %q %q", a, b)
+	a := namedSession("grok", "poster")
+	if a != namedSession(" grok ", "poster") || !strings.HasPrefix(a, "named_") ||
+		a == namedSession("grok", "other") || a == namedSession("claude", "poster") {
+		t.Errorf("named %q", a)
 	}
 
-	// Without meta or env, one random id for the whole process.
+	// Without meta or env, the id comes from the client and the first
+	// name, and stays for the whole process.
 	f := newFakeCore(t, testSpecs())
 	h := start(t, New(quick(f)), "")
 	h.call(t, "irori_join", map[string]any{"name": "one"}, nil)
 	h.call(t, "irori_join", map[string]any{"name": "two"}, map[string]any{"session_id": "late"})
 	_, joins := f.snapshot()
-	if len(joins) != 2 || !strings.HasPrefix(joins[0].Session, "sess_") || joins[1].Session != joins[0].Session {
+	if len(joins) != 2 || joins[0].Session != namedSession("test-client", "one") || joins[1].Session != joins[0].Session {
 		t.Errorf("joins %+v", joins)
+	}
+}
+
+// TestSessionlessMemberKeyStable: a second process joining under the same
+// name with no session id is the same member, so a script that posted a
+// card and later updates it from a new process may still edit it.
+func TestSessionlessMemberKeyStable(t *testing.T) {
+	f := newFakeCore(t, testSpecs())
+	h1 := start(t, New(quick(f)), "")
+	h1.call(t, "irori_join", map[string]any{"name": "poster"}, nil)
+	h2 := start(t, New(quick(f)), "")
+	h2.call(t, "irori_join", map[string]any{"name": "poster"}, nil)
+	h3 := start(t, New(quick(f)), "")
+	h3.call(t, "irori_join", map[string]any{"name": "someone-else"}, nil)
+	h4 := start(t, New(quick(f)), "")
+	h4.call(t, "irori_join", map[string]any{"name": "poster"}, map[string]any{"session_id": "explicit"})
+	_, joins := f.snapshot()
+	if len(joins) != 4 {
+		t.Fatalf("joins %+v", joins)
+	}
+	if joins[0].Session != joins[1].Session || joins[2].Session == joins[0].Session || joins[3].Session != "explicit" {
+		t.Errorf("sessions %q %q %q %q", joins[0].Session, joins[1].Session, joins[2].Session, joins[3].Session)
 	}
 }
 
