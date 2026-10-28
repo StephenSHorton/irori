@@ -21,6 +21,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/device"
@@ -41,6 +42,16 @@ type personFile struct {
 	RootDeviceID string  `json:"rootDeviceId"`
 	PersonPub    string  `json:"personPub"` // hex, the current epoch's key
 	SecretKey    wrapped `json:"secretKey"` // the ed25519 seed, sealed
+	// Prev is the epoch before a rotation, kept so the previous epoch's
+	// mesh topic stays open until every device has the new key (§4.2).
+	Prev *prevKey `json:"prev,omitempty"`
+}
+
+// prevKey is the person key of the epoch before the current one.
+type prevKey struct {
+	Epoch     int     `json:"epoch"`
+	PersonPub string  `json:"personPub"`
+	SecretKey wrapped `json:"secretKey"`
 }
 
 // Person is the public view of person.json.
@@ -53,12 +64,25 @@ type Person struct {
 }
 
 // Identity is this device's keys and person. It is a store.Signer.
+//
+// Person is as loaded; a rotation (Rotate, AdoptSecret) moves its Epoch and
+// Pub under mu, so read those through Current once the mesh runs.
 type Identity struct {
 	Device    device.Identity
 	Person    Person
 	deviceKey ed25519.PrivateKey
-	personKey ed25519.PrivateKey
 	dataDir   string
+	ks        Keystore
+
+	mu        sync.Mutex
+	personKey ed25519.PrivateKey
+	prev      *epochKey // the epoch before the current one, if any
+}
+
+// epochKey is one epoch's person key.
+type epochKey struct {
+	epoch int
+	key   ed25519.PrivateKey
 }
 
 var _ store.Signer = (*Identity)(nil)
@@ -78,7 +102,7 @@ func Load(dataDir string, dev device.Identity, ks Keystore) (*Identity, error) {
 	if dev.DevicePub != "" && dev.DevicePub != pubHex {
 		return nil, fmt.Errorf("identity: device.json names key %s… but device.key holds %s…; the data dir is mixed from two installs", short(dev.DevicePub), short(pubHex))
 	}
-	p, pkey, err := loadOrCreatePerson(filepath.Join(dataDir, PersonFile), dev.ID, ks)
+	p, pkey, prev, err := loadOrCreatePerson(filepath.Join(dataDir, PersonFile), dev.ID, ks)
 	if err != nil {
 		return nil, fmt.Errorf("person: %w", err)
 	}
@@ -88,7 +112,7 @@ func Load(dataDir string, dev device.Identity, ks Keystore) (*Identity, error) {
 			return nil, err
 		}
 	}
-	return &Identity{Device: dev, Person: p, deviceKey: dkey, personKey: pkey, dataDir: dataDir}, nil
+	return &Identity{Device: dev, Person: p, deviceKey: dkey, personKey: pkey, prev: prev, dataDir: dataDir, ks: ks}, nil
 }
 
 func short(s string) string {
@@ -131,50 +155,79 @@ func loadOrCreateSeed(path string, ks Keystore) (ed25519.PrivateKey, error) {
 	return ed25519.NewKeyFromSeed(seed), nil
 }
 
-func loadOrCreatePerson(path, deviceID string, ks Keystore) (Person, ed25519.PrivateKey, error) {
+func loadOrCreatePerson(path, deviceID string, ks Keystore) (Person, ed25519.PrivateKey, *epochKey, error) {
 	raw, err := os.ReadFile(path)
 	if err == nil {
 		var f personFile
 		if err := json.Unmarshal(raw, &f); err != nil || f.PersonID == "" {
-			return Person{}, nil, fmt.Errorf("%s is unreadable", path)
+			return Person{}, nil, nil, fmt.Errorf("%s is unreadable", path)
 		}
-		seed, err := unseal(ks, f.SecretKey)
+		key, err := unsealPersonKey(ks, f.SecretKey, f.PersonPub, path)
 		if err != nil {
-			return Person{}, nil, err
+			return Person{}, nil, nil, err
 		}
-		if len(seed) != ed25519.SeedSize {
-			return Person{}, nil, fmt.Errorf("%s holds a bad person key", path)
+		var prev *epochKey
+		if f.Prev != nil {
+			pk, err := unsealPersonKey(ks, f.Prev.SecretKey, f.Prev.PersonPub, path)
+			if err != nil {
+				return Person{}, nil, nil, err
+			}
+			prev = &epochKey{epoch: f.Prev.Epoch, key: pk}
 		}
-		key := ed25519.NewKeyFromSeed(seed)
-		if hex.EncodeToString(key.Public().(ed25519.PublicKey)) != f.PersonPub {
-			return Person{}, nil, fmt.Errorf("%s: personPub does not match the secret", path)
-		}
-		return Person{ID: f.PersonID, Name: f.Name, Epoch: f.Epoch, RootDeviceID: f.RootDeviceID, Pub: f.PersonPub}, key, nil
+		return Person{ID: f.PersonID, Name: f.Name, Epoch: f.Epoch, RootDeviceID: f.RootDeviceID, Pub: f.PersonPub}, key, prev, nil
 	}
 	if !errors.Is(err, fs.ErrNotExist) {
-		return Person{}, nil, err
+		return Person{}, nil, nil, err
 	}
 	pub, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		return Person{}, nil, err
+		return Person{}, nil, nil, err
 	}
+	p := Person{ID: PersonIDOf(pub), Name: defaultName(), Epoch: 1, RootDeviceID: deviceID, Pub: hex.EncodeToString(pub)}
+	if err := writePerson(path, ks, p, key, nil); err != nil {
+		return Person{}, nil, nil, err
+	}
+	return p, key, nil, nil
+}
+
+func unsealPersonKey(ks Keystore, w wrapped, pubHex, path string) (ed25519.PrivateKey, error) {
+	seed, err := unseal(ks, w)
+	if err != nil {
+		return nil, err
+	}
+	if len(seed) != ed25519.SeedSize {
+		return nil, fmt.Errorf("%s holds a bad person key", path)
+	}
+	key := ed25519.NewKeyFromSeed(seed)
+	if hex.EncodeToString(key.Public().(ed25519.PublicKey)) != pubHex {
+		return nil, fmt.Errorf("%s: personPub does not match the secret", path)
+	}
+	return key, nil
+}
+
+// writePerson seals key (and prev's) with ks and writes person.json atomically.
+func writePerson(path string, ks Keystore, p Person, key ed25519.PrivateKey, prev *epochKey) error {
 	w, err := seal(ks, key.Seed())
 	if err != nil {
-		return Person{}, nil, err
+		return err
 	}
 	f := personFile{
-		PersonID: PersonIDOf(pub), Name: defaultName(), Epoch: 1, RootDeviceID: deviceID,
-		PersonPub: hex.EncodeToString(pub), SecretKey: w,
+		PersonID: p.ID, Name: p.Name, Epoch: p.Epoch, RootDeviceID: p.RootDeviceID,
+		PersonPub: p.Pub, SecretKey: w,
+	}
+	if prev != nil {
+		pw, err := seal(ks, prev.key.Seed())
+		if err != nil {
+			return err
+		}
+		f.Prev = &prevKey{Epoch: prev.epoch, PersonPub: hex.EncodeToString(prev.key.Public().(ed25519.PublicKey)), SecretKey: pw}
 	}
 	out, _ := json.MarshalIndent(f, "", "  ")
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, out, 0o600); err != nil {
-		return Person{}, nil, err
+		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		return Person{}, nil, err
-	}
-	return Person{ID: f.PersonID, Name: f.Name, Epoch: f.Epoch, RootDeviceID: f.RootDeviceID, Pub: f.PersonPub}, key, nil
+	return os.Rename(tmp, path)
 }
 
 // defaultName is the OS user name, without a Windows domain.
@@ -210,6 +263,8 @@ func (id *Identity) signPerson(v any) (pub, sig string, err error) {
 	if err != nil {
 		return "", "", err
 	}
+	id.mu.Lock()
+	defer id.mu.Unlock()
 	return id.Person.Pub, hex.EncodeToString(ed25519.Sign(id.personKey, msg)), nil
 }
 
@@ -229,7 +284,8 @@ func (id *Identity) RevokeOf(deviceID string, cut int64, cutHash, reason string,
 
 // ProfileRow makes the person.profile payload.
 func (id *Identity) ProfileRow() (Profile, error) {
-	b := profileBody{PersonID: id.Person.ID, Name: id.Person.Name, RootDeviceID: id.Person.RootDeviceID, PersonPub: id.Person.Pub}
+	cur := id.Current()
+	b := profileBody{PersonID: cur.ID, Name: cur.Name, RootDeviceID: cur.RootDeviceID, PersonPub: cur.Pub}
 	_, sig, err := id.signPerson(b)
 	return Profile{PersonID: b.PersonID, Name: b.Name, RootDeviceID: b.RootDeviceID, PersonPub: b.PersonPub, PersonSig: sig}, err
 }
