@@ -25,13 +25,13 @@ func TestCodeCodec(t *testing.T) {
 	if len(c) != 19 || strings.Count(c, "-") != 3 {
 		t.Fatalf("code %q", c)
 	}
-	for _, in := range []string{c, strings.ToLower(c), strings.ReplaceAll(c, "-", ""), " " + strings.ReplaceAll(c, "-", " ") + " ", QR(c)} {
+	for _, in := range []string{c, strings.ToLower(c), strings.ReplaceAll(c, "-", ""), " " + strings.ReplaceAll(c, "-", " ") + " "} {
 		got, ok := NormalizeCode(in)
 		if !ok || got != c {
 			t.Fatalf("NormalizeCode(%q) = %q, %v", in, got, ok)
 		}
 	}
-	for _, bad := range []string{"", "ABCD", c + "A", strings.Replace(c, c[:1], "0", 1), "irori-pair:2:" + c} {
+	for _, bad := range []string{"", "ABCD", c + "A", strings.Replace(c, c[:1], "0", 1)} {
 		if _, ok := NormalizeCode(bad); ok {
 			t.Fatalf("NormalizeCode(%q) accepted", bad)
 		}
@@ -201,7 +201,7 @@ func pairUp(t *testing.T, a, b *dev) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(st.QR, QRPrefix) || st.Code == "" || !strings.HasPrefix(st.QRSVG, "<svg") {
+	if st.Code == "" {
 		t.Fatalf("add status %+v", st)
 	}
 	if _, err := b.pair.Join(strings.ToLower(st.Code)); err != nil {

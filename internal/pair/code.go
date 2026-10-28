@@ -21,10 +21,8 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"strings"
 
-	"github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/scrypt"
 
 	"github.com/StephenSHorton/irori/internal/mesh"
@@ -33,10 +31,6 @@ import (
 // App is the pairing room's app name: the scrypt salt and topic prefix
 // (go-room's SecretFromCode("irori-pair-v1", code), §4.2).
 const App = "irori-pair-v1"
-
-// QRPrefix starts the text a pairing QR code holds: "irori-pair:1:<code>",
-// so a later format can be told apart (§3 step 1).
-const QRPrefix = "irori-pair:1:"
 
 // The room code (go-room's NewCode and NormalizeCode, written out here so
 // only roomnet imports go-room; roomnet's tests check they agree): 16
@@ -79,15 +73,9 @@ func formatCode(raw string) string {
 }
 
 // NormalizeCode accepts a code typed or pasted any way (any case, spaces,
-// with or without dashes), or a scanned QR's "irori-pair:1:<code>", and
-// returns its canonical form.
+// with or without dashes) and returns its canonical form.
 func NormalizeCode(in string) (string, bool) {
 	in = strings.TrimSpace(in)
-	if rest, ok := strings.CutPrefix(in, QRPrefix); ok {
-		in = rest
-	} else if strings.HasPrefix(in, "irori-pair:") {
-		return "", false // a later QR format this build can't read
-	}
 	var raw strings.Builder
 	for _, r := range strings.ToUpper(in) {
 		switch {
@@ -103,32 +91,6 @@ func NormalizeCode(in string) (string, bool) {
 		return "", false
 	}
 	return formatCode(raw.String()), true
-}
-
-// QR is the text of code's QR code.
-func QR(code string) string { return QRPrefix + code }
-
-// QRSVG draws text as a QR code, an SVG of dark squares on white, so the
-// window shows the code without it ever passing through the clipboard
-// (§3 step 1). "" if it can't be drawn.
-func QRSVG(text string) string {
-	q, err := qrcode.New(text, qrcode.Medium)
-	if err != nil {
-		return ""
-	}
-	bits := q.Bitmap() // includes the quiet zone
-	n := len(bits)
-	var b strings.Builder
-	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" shape-rendering="crispEdges"><rect width="%d" height="%d" fill="#fff"/><path fill="#000" d="`, n, n, n, n)
-	for y, row := range bits {
-		for x, dark := range row {
-			if dark {
-				fmt.Fprintf(&b, "M%d %dh1v1h-1z", x, y)
-			}
-		}
-	}
-	b.WriteString(`"/></svg>`)
-	return b.String()
 }
 
 // RoomSecret is the pairing room of code: scrypt(code, salt = App), the

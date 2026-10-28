@@ -24,7 +24,7 @@ import * as pair$0 from "./internal/pair/models.js";
 import * as $models from "./models.js";
 
 /**
- * AddDevice opens a pairing window (§3 step 1): the code, the QR text, and
+ * AddDevice opens a pairing window (§3 step 1): the code and
  * the role the new device gets ("desktop" or "node").
  */
 export function AddDevice(role: string): $CancellablePromise<pair$0.Status> {

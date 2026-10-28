@@ -69,7 +69,7 @@ func (s *DevicesService) Devices() []DeviceView {
 	return out
 }
 
-// AddDevice opens a pairing window (§3 step 1): the code, the QR text, and
+// AddDevice opens a pairing window (§3 step 1): the code and
 // the role the new device gets ("desktop" or "node").
 func (s *DevicesService) AddDevice(role string) (pair.Status, error) {
 	return s.core.Pairing().Add(role)
