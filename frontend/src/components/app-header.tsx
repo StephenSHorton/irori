@@ -33,7 +33,7 @@ export function AppHeader({ roster }: { roster: Roster }) {
             {device?.name || "this device"}
           </span>
           {version && (
-            <Badge variant="slate" className="font-mono">
+            <Badge variant="slate" className="font-mono normal-case">
               {version === "dev" || version === "sample"
                 ? version
                 : `v${version.replace(/^v/, "")}`}
