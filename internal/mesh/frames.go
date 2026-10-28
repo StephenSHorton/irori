@@ -19,6 +19,10 @@ const (
 	FramePing         = "ping"
 	FramePong         = "pong"
 	FramePersonSecret = "person.secret"
+	// FrameRowAt asks the peer for its copy of the asker's own row at Seq
+	// (DeviceID is the asker): a restored device checks the last row it
+	// holds against the peer's before it takes the rows after it (§5.2).
+	FrameRowAt = "row.at"
 )
 
 // Limits on a rows frame (§5.2, §8): Go sends at most 500 rows and about
@@ -50,6 +54,13 @@ type Frame struct {
 	// there differs was restored from a copy and wrote over rows it had
 	// already sent: a fork (§5.2). Vectors alone can't see it.
 	Top string `json:"top,omitempty"`
+	// TopRow (hello) is that row itself. When the sender holds more of the
+	// receiver's rows than the receiver does, its signature, by the
+	// receiver's own key, proves the receiver really wrote that far, so a
+	// peer can't hold the receiver's appends with a made-up vector.
+	TopRow *Row `json:"topRow,omitempty"`
+	// Seq (row.at) is the seq asked for.
+	Seq int64 `json:"seq,omitempty"`
 
 	// rows. Loose rows are not in (device, seq) order: the person.* rows a
 	// peer lacks and fork rows, sent first on each connection; each is

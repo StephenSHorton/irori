@@ -421,7 +421,10 @@ func (s *Store) append(ctx context.Context, actor, kind string, payload any) (Ev
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM events WHERE device_id = ?`, d.deviceID).Scan(&last); err != nil {
 		return Event{}, err
 	}
-	if d.holdSeq > 0 {
+	// A revoke and its rotation are never held: removing a device must work
+	// from any other device whatever a peer's vector claims (§8). During a
+	// real restore that costs a fork of this device, which Reset fixes.
+	if d.holdSeq > 0 && kind != KindPersonDeviceRevoked && kind != KindPersonKeyRotated {
 		if last < d.holdSeq {
 			return Event{}, fmt.Errorf("%w (hold %d, have %d)", ErrRestoring, d.holdSeq, last)
 		}

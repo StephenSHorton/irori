@@ -362,6 +362,94 @@ func TestARestoredDeviceThatWroteOverItsRowsIsAFork(t *testing.T) {
 	}
 }
 
+// The restored device wrote fewer rows than it had sent before: the peer
+// holds more of them, so a vector alone says "restoring". The check on its
+// last row finds the fork instead, on both sides, and nothing is spliced.
+func TestARestoredDeviceThatWroteFewerOverItsRowsIsAFork(t *testing.T) {
+	net := NewFakeNet()
+	a, b := newDev(t, net, "pc"), newDev(t, net, "mac")
+	b.join(a)
+	a.start()
+	b.start()
+	eventually(t, "converge", converged(a, b))
+	b.close()
+	backup := t.TempDir()
+	copyDir(t, b.dir, backup)
+	b.open()
+	b.start()
+	var later []store.Event
+	for i := range 3 {
+		later = append(later, b.append(store.KindAgentSeen, map[string]any{"key": b.id() + "/later", "i": i}))
+	}
+	eventually(t, "a has them", func() bool { return a.has(later[2]) })
+	b.close()
+	copyDir(t, backup, b.dir)
+	b.open()
+	other := b.append(store.KindAgentSeen, map[string]any{"key": b.id() + "/other"})
+	if other.Seq != later[0].Seq {
+		t.Fatalf("seq %d, want %d", other.Seq, later[0].Seq)
+	}
+	b.start()
+	eventually(t, "b finds it signed two histories", func() bool { return b.node.isStopped(b.id()) })
+	eventually(t, "a flags b", func() bool { return a.peer(b.id()).Stopped != "" })
+	if b.has(later[1]) || b.has(later[2]) {
+		t.Fatal("b's old rows were stacked on its new ones")
+	}
+	forks, _ := b.st.Forks(context.Background())
+	if len(forks) == 0 {
+		t.Fatal("no fork recorded on b")
+	}
+	// b isn't left restoring for good: it writes.
+	if _, err := b.st.Append(context.Background(), "irori", store.KindAgentSeen, map[string]any{"key": b.id() + "/after"}); err != nil {
+		t.Fatalf("append after the fork: %v", err)
+	}
+}
+
+// A peer's hello that claims more of this device's rows than it holds, with
+// no row of its own key to prove it, doesn't hold its appends: a stolen
+// device can't stop a revoke that way.
+func TestAForgedVectorDoesNotHoldAppends(t *testing.T) {
+	net := NewFakeNet()
+	a, b := newDev(t, net, "pc"), newDev(t, net, "mac")
+	b.join(a)
+	a.trust = true
+	a.start()
+	b.start()
+	eventually(t, "converge", converged(a, b))
+	seed, _ := a.ident.PersonSeed(1)
+	room, conns := rawPeer(t, net, MeshSecret(seed, a.ident.Person.ID, 1), "ffffffffthief")
+	_ = room.Send("", MsgPresence, Presence{DeviceID: "ffffffffthief", Epoch: 1})
+	room.Connect(a.id())
+	var c Conn
+	select {
+	case c = <-conns:
+	case <-time.After(5 * time.Second):
+		t.Fatal("never connected")
+	}
+	// A row "of a's" signed by another key, at the claimed seq.
+	_, fkey, _ := ed25519.GenerateKey(rand.Reader)
+	fake := store.Event{DeviceID: a.id(), Seq: 1 << 40, HLC: hlc.Timestamp(time.Now().UnixMilli()) << 16, Actor: "irori", Kind: store.KindAgentSeen, Payload: []byte(`{}`)}
+	fake.Sig = ed25519.Sign(fkey, store.SigningBytes(fake))
+	r := RowOf(fake)
+	sendFrame(t, c, Frame{Type: FrameHello, V: Protocol, DeviceID: "ffffffffthief", PersonID: a.ident.Person.ID, Epoch: 1,
+		Schema: store.SchemaVersion(), WallMs: time.Now().UnixMilli(), Vector: store.Vector{a.id(): 1 << 40},
+		Top: store.RowHash(fake), TopRow: &r})
+	if _, err := recvFrame(c, FrameVector, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.st.Append(context.Background(), "irori", store.KindAgentSeen, map[string]any{"key": a.id() + "/x"}); err != nil {
+		t.Fatalf("append after a forged claim: %v", err)
+	}
+	if st := a.node.Status(); st.Restoring != "" {
+		t.Fatalf("a says it is restoring: %+v", st)
+	}
+	// And a real hold never blocks a revoke.
+	a.st.HoldAppends(1 << 40)
+	if err := a.node.Revoke(context.Background(), b.id(), "lost"); err != nil {
+		t.Fatalf("revoke while appends are held: %v", err)
+	}
+}
+
 func TestRowsFromAClockTenMinutesAheadWaitThenLand(t *testing.T) {
 	net := NewFakeNet()
 	a, b := newDev(t, net, "pc"), newDev(t, net, "mac")

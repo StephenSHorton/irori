@@ -39,6 +39,10 @@ type session struct {
 	held      map[string]map[int64]store.Event
 	heldRows  int
 	heldBytes int
+	// ownCheck is the seq of this device's last own row, asked of a peer
+	// that holds more of them (row.at): until the peer's copy matches, this
+	// device's own rows from it are held, not inserted (§5.2).
+	ownCheck int64
 	// Blob streams being served; run waits for them, so nothing reads the
 	// store after the session ends.
 	serving sync.WaitGroup
@@ -321,6 +325,13 @@ func (s *session) read(ctx context.Context) {
 			if s.n.certified(s.conn.ID()) {
 				s.n.takeSecret(f)
 			}
+		case FrameRowAt:
+			// Only the asker's own rows: it is checking its own history.
+			if f.DeviceID == s.conn.ID() {
+				if ev, ok := s.n.rowAt(ctx, f.DeviceID, f.Seq); ok {
+					s.control(Frame{Type: FrameRows, Events: []Row{RowOf(ev)}, Loose: true})
+				}
+			}
 		default:
 			// A newer peer's frame: ignored ("payloads only gain fields").
 		}
@@ -370,22 +381,42 @@ func (s *session) onHello(ctx context.Context, f Frame) bool {
 	// that seq. If not, this data dir was restored and wrote over rows it
 	// had already sent: a fork. My row goes to the peer, whose Insert
 	// records it and stops my stream there too (§5.2).
-	if at := f.Vector[n.self]; f.Top != "" && at > 0 && at <= mine[n.self] {
+	at, have := f.Vector[n.self], mine[n.self]
+	if f.Top != "" && at > 0 && at <= have {
 		if ev, ok := n.rowAt(ctx, n.self, at); ok && store.RowHash(ev) != f.Top {
-			n.stop(n.self, "this device signed two different histories (restored from a copy?); reset it")
+			n.stop(n.self, forkedSelf)
 			s.control(Frame{Type: FrameRows, Events: []Row{RowOf(ev)}, Loose: true})
 		}
 	}
 	// My own rows coming back (§5.2): the peer holds more of them than I
 	// do, so this data dir was restored. Appends wait until they are back.
-	if f.Vector[n.self] > mine[n.self] {
-		n.o.Store.HoldAppends(f.Vector[n.self])
+	// Only a claim the peer proves with my own signed row holds them: a
+	// made-up vector could never be met, and would block every Append.
+	switch {
+	case at <= have || n.isStopped(n.self):
+	case !n.provesOwn(f.TopRow, at, f.Top):
 		n.mu.Lock()
-		if f.Vector[n.self] > n.restoreTo {
-			n.restoring, n.restoreTo = peer, f.Vector[n.self]
+		n.info(peer).refused++
+		n.mu.Unlock()
+		n.logf("mesh: %s claims %d of this device's rows without the row to prove it; ignored", peer, at)
+	default:
+		if have > 0 {
+			// The rows after mine are only mine if the peer's copy of my
+			// last row is the one I hold. If this device wrote other rows
+			// since its backup, that's a fork, found before the old rows
+			// are stacked on the new ones.
+			s.mu.Lock()
+			s.ownCheck = have
+			s.mu.Unlock()
+			s.control(Frame{Type: FrameRowAt, DeviceID: n.self, Seq: have})
+		}
+		n.o.Store.HoldAppends(at)
+		n.mu.Lock()
+		if at > n.restoreTo {
+			n.restoring, n.restoreTo = peer, at
 		}
 		n.mu.Unlock()
-		n.logf("mesh: restoring this device's rows up to %d from %s", f.Vector[n.self], peer)
+		n.logf("mesh: restoring this device's rows up to %d from %s", at, peer)
 	}
 	s.mu.Lock()
 	s.helloRecv, s.pEpoch, s.peerVec = true, f.Epoch, copyVec(f.Vector)
@@ -451,7 +482,7 @@ func (s *session) onRows(ctx context.Context, f Frame) {
 		if s.n.isStopped(dev) {
 			continue
 		}
-		if s.hasHeld(dev) {
+		if s.hasHeld(dev) || (dev == s.n.self && s.checkingOwn()) {
 			s.hold(dev, evs)
 			continue
 		}
@@ -486,6 +517,19 @@ func (s *session) refusal(dev string, rest []store.Event, err error) {
 		n.mu.Lock()
 		n.ahead[dev] = n.now()
 		n.mu.Unlock()
+	case dev == n.self && (errors.Is(err, store.ErrFork) || errors.Is(err, store.ErrHLCOrder)):
+		// My own rows from before a restore don't follow the ones I wrote
+		// since: I signed two histories. My copy goes to the peer too, so
+		// it records the fork and stops my stream there (§5.2).
+		n.stop(n.self, forkedSelf)
+		ctx := context.Background()
+		ev, ok := n.rowAt(ctx, n.self, rest[0].Seq)
+		if !ok {
+			ev, ok = n.rowAt(ctx, n.self, rest[0].Seq-1) // an HLC refusal: the row before differs
+		}
+		if ok {
+			s.control(Frame{Type: FrameRows, Events: []Row{RowOf(ev)}, Loose: true})
+		}
 	case errors.Is(err, store.ErrFork):
 		n.stop(dev, "signed two different histories")
 	case errors.Is(err, store.ErrHLCOrder):
@@ -512,6 +556,11 @@ func (s *session) onLoose(ctx context.Context, evs []Row) {
 			continue
 		}
 		err := n.o.Store.Insert(ctx, ev)
+		if ev.DeviceID == n.self && err == nil && s.passOwnCheck(ev.Seq) {
+			// The peer's copy of my last row is mine: the rows after it
+			// are my own history, held until now.
+			go s.retryHeld()
+		}
 		switch {
 		case err == nil:
 		case store.IsPersonKind(ev.Kind) && (errors.Is(err, store.ErrGap) || errors.Is(err, store.ErrNoCert)):
@@ -546,6 +595,23 @@ func (s *session) onLoose(ctx context.Context, evs []Row) {
 	if learned {
 		n.Kick()
 	}
+}
+
+func (s *session) checkingOwn() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ownCheck > 0
+}
+
+// passOwnCheck ends the own-row check if seq is the row it asked for.
+func (s *session) passOwnCheck(seq int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ownCheck == 0 || s.ownCheck != seq {
+		return false
+	}
+	s.ownCheck = 0
+	return true
 }
 
 func (s *session) hasHeld(dev string) bool {
@@ -590,6 +656,15 @@ func (s *session) retryHeld() {
 	}
 	held := s.held
 	s.held, s.heldRows, s.heldBytes = nil, 0, 0
+	if own := held[s.n.self]; own != nil && s.ownCheck > 0 {
+		// Still checking: my own rows stay held.
+		delete(held, s.n.self)
+		s.held = map[string]map[int64]store.Event{s.n.self: own}
+		for _, ev := range own {
+			s.heldRows++
+			s.heldBytes += len(ev.Payload) + len(ev.Sig)
+		}
+	}
 	s.mu.Unlock()
 	any := false
 	devs := make([]string, 0, len(held))

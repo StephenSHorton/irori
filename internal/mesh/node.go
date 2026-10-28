@@ -662,7 +662,8 @@ func (n *Node) hello(ctx context.Context, peer string) Frame {
 	f := Frame{Type: FrameHello, V: Protocol, DeviceID: n.self, PersonID: cur.ID, Epoch: cur.Epoch,
 		CoreVersion: n.o.Version, Schema: store.SchemaVersion(), WallMs: n.now().UnixMilli(), Vector: v}
 	if ev, ok := n.rowAt(ctx, peer, v[peer]); ok {
-		f.Top = store.RowHash(ev)
+		r := RowOf(ev)
+		f.Top, f.TopRow = store.RowHash(ev), &r
 	}
 	return f
 }
@@ -697,6 +698,9 @@ func (n *Node) synced(peer string) {
 
 // stop marks dev's stream stopped on this device: it signed two histories
 // or its clock went backwards (§5.2, §5.3).
+//
+// When dev is this device, its own rows stop coming back too, so a hold on
+// its appends (a restore) is lifted: they would never reach it.
 func (n *Node) stop(dev, why string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -704,6 +708,28 @@ func (n *Node) stop(dev, why string) {
 		n.stopped[dev] = why
 		n.logf("mesh: %s's stream stopped: %s", dev, why)
 	}
+	if dev == n.self {
+		n.o.Store.HoldAppends(0)
+		n.restoring, n.restoreTo = "", 0
+	}
+}
+
+// forkedSelf is why this device's own stream stops when it signed two
+// different histories; the fix is Reset (§3, §5.2).
+const forkedSelf = "this device signed two different histories (restored from a copy?); reset it"
+
+// provesOwn reports whether r is this device's own row at seq, signed by
+// this device's key: what a peer's hello must carry before its vector may
+// hold this device's appends.
+func (n *Node) provesOwn(r *Row, seq int64, top string) bool {
+	if r == nil || r.D != n.self || r.S != seq {
+		return false
+	}
+	ev := r.Event()
+	if top != "" && store.RowHash(ev) != top {
+		return false
+	}
+	return ed25519.Verify(n.o.Ident.DevicePub(), store.SigningBytes(ev), ev.Sig)
 }
 
 func (n *Node) isStopped(dev string) bool {

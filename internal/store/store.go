@@ -242,7 +242,8 @@ func (s *Store) InsertBatch(ctx context.Context, evs []Event) (int, error) {
 
 // HoldAppends blocks Append (ErrRestoring) until this device holds its own
 // rows up to seq (they come back from a peer through Insert). seq <= the
-// held max clears the hold.
+// held max clears the hold, and so does 0. person.device.revoked and
+// person.key.rotated are never held.
 func (s *Store) HoldAppends(seq int64) { s.holdAppends(seq) }
 
 // ReloadVerifier resets the Verifier and feeds it every person.* row held
