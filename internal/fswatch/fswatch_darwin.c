@@ -1,14 +1,20 @@
 //go:build darwin && cgo
 
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <CoreServices/CoreServices.h>
-#include <dispatch/dispatch.h>
 #include "fswatch_darwin.h"
 #include "_cgo_export.h"
 
+// The stream runs on a CFRunLoop of a thread that Go owns (a goroutine
+// locked to it), not on a dispatch queue. Callbacks from GCD's worker
+// threads would each make the Go runtime bind an extra M to that thread for
+// good, which outlives the watcher; on our own thread the callback reuses
+// the M already running there, and the thread ends with the watcher.
 struct fswatchStream {
 	FSEventStreamRef stream;
-	dispatch_queue_t queue;
+	CFRunLoopRef loop;
+	atomic_int stop;
 };
 
 // trampoline hands FSEvents' callback to Go. Without
@@ -21,9 +27,7 @@ static void trampoline(ConstFSEventStreamRef stream, void *info, size_t n,
 	goFSEvents((uintptr_t)info, n, (char **)paths, (uint32_t *)flags);
 }
 
-static void noop(void *ctx) { (void)ctx; }
-
-fswatchStream *fswatchStart(uintptr_t handle, const char *root, double latency) {
+fswatchStream *fswatchCreate(uintptr_t handle, const char *root, double latency) {
 	CFStringRef path = CFStringCreateWithCString(NULL, root, kCFStringEncodingUTF8);
 	if (path == NULL) {
 		return NULL;
@@ -42,33 +46,51 @@ fswatchStream *fswatchStart(uintptr_t handle, const char *root, double latency) 
 	if (stream == NULL) {
 		return NULL;
 	}
-	fswatchStream *s = malloc(sizeof *s);
+	fswatchStream *s = calloc(1, sizeof *s);
 	if (s == NULL) {
 		FSEventStreamRelease(stream);
 		return NULL;
 	}
 	s->stream = stream;
-	s->queue = dispatch_queue_create("irori.fswatch", DISPATCH_QUEUE_SERIAL);
-	FSEventStreamSetDispatchQueue(stream, s->queue);
-	if (!FSEventStreamStart(stream)) {
-		FSEventStreamInvalidate(stream);
-		FSEventStreamRelease(stream);
-		dispatch_release(s->queue);
-		free(s);
-		return NULL;
-	}
+	atomic_init(&s->stop, 0);
 	return s;
 }
 
-// fswatchStop ends the stream. Once it returns no callback is running or
-// will run, so the Go side can drop its handle.
-void fswatchStop(fswatchStream *s) {
+int fswatchStart(fswatchStream *s) {
+	s->loop = (CFRunLoopRef)CFRetain(CFRunLoopGetCurrent());
+	FSEventStreamScheduleWithRunLoop(s->stream, s->loop, kCFRunLoopDefaultMode);
+	if (!FSEventStreamStart(s->stream)) {
+		FSEventStreamInvalidate(s->stream);
+		FSEventStreamRelease(s->stream);
+		s->stream = NULL;
+		return 0;
+	}
+	return 1;
+}
+
+void fswatchLoop(fswatchStream *s) {
+	// The timeout only bounds how late a stop signalled before the loop
+	// started running is noticed; CFRunLoopStop ends a running wait at once.
+	while (!atomic_load(&s->stop)) {
+		CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.25, false);
+	}
 	FSEventStreamStop(s->stream);
-	// The queue is serial: an empty task behind any in-flight callback
-	// returns only after that callback has finished.
-	dispatch_sync_f(s->queue, NULL, noop);
 	FSEventStreamInvalidate(s->stream);
 	FSEventStreamRelease(s->stream);
-	dispatch_release(s->queue);
+	s->stream = NULL;
+}
+
+void fswatchSignalStop(fswatchStream *s) {
+	atomic_store(&s->stop, 1);
+	if (s->loop != NULL) {
+		CFRunLoopStop(s->loop);
+		CFRunLoopWakeUp(s->loop);
+	}
+}
+
+void fswatchFree(fswatchStream *s) {
+	if (s->loop != NULL) {
+		CFRelease(s->loop);
+	}
 	free(s);
 }

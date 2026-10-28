@@ -135,3 +135,30 @@ func TestNonRecursiveSkipsSubtree(t *testing.T) {
 		}
 	}
 }
+
+// Close leaves no goroutine behind, including after events were delivered
+// (on macOS the callbacks arrive on the watcher's own thread).
+func TestCloseLeavesNoGoroutines(t *testing.T) {
+	root := t.TempDir()
+	before := runtime.NumGoroutine()
+	w, err := Watch(context.Background(), root, true, 0)
+	if errors.Is(err, ErrUnsupported) {
+		t.Skip(runtime.GOOS)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := filepath.Join(root, "a.txt")
+	if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, w, f)
+	w.Close()
+	deadline := time.Now().Add(3 * time.Second)
+	for runtime.NumGoroutine() > before {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d goroutines after Close, %d before", runtime.NumGoroutine(), before)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

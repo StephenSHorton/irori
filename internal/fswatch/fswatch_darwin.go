@@ -3,6 +3,7 @@
 package fswatch
 
 /*
+#cgo CFLAGS: -Wno-deprecated-declarations
 #cgo LDFLAGS: -framework CoreServices
 #include <stdlib.h>
 #include "fswatch_darwin.h"
@@ -13,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"runtime"
 	"runtime/cgo"
 	"strings"
 	"sync"
@@ -64,10 +66,32 @@ func watch(ctx context.Context, root string, recursive bool, debounce time.Durat
 	h := cgo.NewHandle(ds)
 	croot := C.CString(real)
 	defer C.free(unsafe.Pointer(croot))
-	s := C.fswatchStart(C.uintptr_t(h), croot, C.double(latency))
+	s := C.fswatchCreate(C.uintptr_t(h), croot, C.double(latency))
 	if s == nil {
 		h.Delete()
 		return nil, errors.New("fswatch: FSEventStreamCreate failed for " + root)
+	}
+
+	// The stream lives on this goroutine's own OS thread (see
+	// fswatch_darwin.c). The thread stays locked, so it exits with the
+	// goroutine once the run loop is done.
+	started := make(chan bool, 1)
+	looped := make(chan struct{})
+	go func() {
+		runtime.LockOSThread()
+		defer close(looped)
+		if C.fswatchStart(s) == 0 {
+			started <- false
+			return
+		}
+		started <- true
+		C.fswatchLoop(s)
+	}()
+	if !<-started {
+		<-looped
+		C.fswatchFree(s)
+		h.Delete()
+		return nil, errors.New("fswatch: FSEventStreamStart failed for " + root)
 	}
 	out := make(chan Event, 1024)
 	go coalesce(ds.raw, out, debounce, root, &lost)
@@ -76,7 +100,9 @@ func watch(ctx context.Context, root string, recursive bool, debounce time.Durat
 	done := make(chan struct{})
 	stop := func() {
 		once.Do(func() {
-			C.fswatchStop(s)
+			C.fswatchSignalStop(s)
+			<-looped // no callback runs after this
+			C.fswatchFree(s)
 			ds.closed.Store(true)
 			h.Delete()
 			close(ds.raw)
