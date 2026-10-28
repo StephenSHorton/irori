@@ -17,7 +17,9 @@
 //	GET /v1/devices[?detail=1]    -> []mesh.DeviceRow, this device first (v0.4 §6.8):
 //	                                 {deviceId, name, role, os, state, warning?}; detail=1
 //	                                 adds detail (path, RTT, skew, refused and held rows).
-//	                                 503 without a mesh. No pairing or revoke routes exist.
+//	                                 503 without a mesh. No revoke route exists.
+//	/v1/pair/{join,status,key,cancel} -> the joining side of pairing only
+//	                                 (routes_pair.go). No Add route exists.
 //
 // The person's view (v0.4 decision D10(a)) needs X-Irori-Person, a secret
 // minted per run (Server.PersonSecret) that only the GUI holds in memory.
@@ -25,7 +27,8 @@
 // AgentViewer, and event rows lose message text (routes_events.go).
 //
 // v0.2 routes are in routes_v02.go, v0.3 in routes_v03.go, and the Board
-// and browsing reads (board, tasks, search, show, overview) in routes_board.go.
+// and browsing reads (board, tasks, search, show, overview) in routes_board.go,
+// and the joining side of pairing in routes_pair.go.
 //
 // CONTRACT (implemented by the discovery/api work package; keep these signatures):
 package api

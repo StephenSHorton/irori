@@ -64,6 +64,9 @@ type Options struct {
 	Home    func(*home.Config)
 	// NetIntervals shortens the mesh's timers (tests).
 	NetIntervals mesh.Intervals
+	// PairWindow shortens how long a pairing stays open (tests); zero is
+	// pair.Window.
+	PairWindow time.Duration
 	// Now is the wall clock of the log's HLC, the future-row hold, the mesh
 	// and the asks; nil is time.Now. Tests set a device's clock off.
 	Now func() time.Time
@@ -256,8 +259,9 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	c.mesh = mesh.New(mesh.Options{Store: st, Ident: ident, Chain: chain, Net: tr, Version: opts.Version,
 		Files: c.files, DataDir: opts.DataDir, Intervals: opts.NetIntervals, Now: opts.Now, Ignored: c.ignoredBy, Logf: log.Printf})
 	// Pairing (v0.4 §3) opens its own room on the same transport, only
-	// while a window is open; GUI and CLI only, never the loopback API.
-	c.pair = pair.New(pair.Options{Net: tr, Ident: ident, Chain: chain, Store: st, DataDir: opts.DataDir,
+	// while a window is open. Add is GUI only; the loopback API reaches
+	// only the joining side (api routes_pair.go, §3).
+	c.pair = pair.New(pair.Options{Net: tr, Ident: ident, Chain: chain, Store: st, DataDir: opts.DataDir, Window: opts.PairWindow,
 		Kick: c.mesh.Kick, Servers: c.servers, ServerAddr: c.serverAddr, Notify: c.pairingMoved, Logf: log.Printf})
 	if c.rt != nil {
 		// The home server (§7.1): only where it is switched on, and only
@@ -476,8 +480,9 @@ func (c *Core) CertifiedDevices() []identity.DeviceState { return c.chain.Device
 // second device.
 func (c *Core) Mesh() *mesh.Node { return c.mesh }
 
-// Pairing is the pairing flow (v0.4 §3). Only Wails bindings and the
-// `irori pair join` CLI reach it; it is not on the loopback API.
+// Pairing is the pairing flow (v0.4 §3). The Wails bindings reach all of
+// it; the loopback API (and so `irori pair join` while Irori runs) only
+// the joining side: join, status, the other device's key and cancel.
 func (c *Core) Pairing() *pair.Pairer { return c.pair }
 
 // NetStatus is the mesh's state and every other device, for Devices and
