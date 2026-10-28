@@ -69,7 +69,8 @@ html[data-theme='toru'],
 
   /* Frost (Toru's .frost) */
   --glass-bg: color-mix(in oklch, var(--card) 60%, transparent);
-  --glass-border: color-mix(in oklch, var(--border) 75%, transparent);
+  /* Toru pairs .frost with border-border on its panels: an opaque line. */
+  --glass-border: var(--border);
   --glass-shadow: 0 8px 30px oklch(0 0 0 / 0.45);
   --glass-blur: 18px;
   --glass-saturate: 1.5;

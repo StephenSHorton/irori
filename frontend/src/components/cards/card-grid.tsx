@@ -141,7 +141,6 @@ function CardTile({
       )}
       <ProgressBar
         progress={card.progress}
-        blocked={blocked}
         label={`${p ?? 0}% complete`}
       />
       <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">

@@ -1,17 +1,14 @@
 import { Badge } from "@/components/ui/badge"
 import { percent, TaskState, type CardSummary } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
-import { cn } from "@/lib/utils"
 
-// ProgressBar is a card's done steps over all steps; amber while the card
-// waits on a decision. Cards without steps show no bar.
+// ProgressBar is a card's done steps over all steps, always in the primary
+// blue (the state chip carries the status). Cards without steps show no bar.
 export function ProgressBar({
   progress,
-  blocked,
   label,
 }: {
   progress: { done: number; total: number }
-  blocked?: boolean
   label: string
 }) {
   const p = percent(progress)
@@ -26,10 +23,7 @@ export function ProgressBar({
       className="block h-1 overflow-hidden bg-muted"
     >
       <span
-        className={cn(
-          "block h-full transition-[width] duration-300",
-          blocked ? "bg-warning" : "bg-primary"
-        )}
+        className="block h-full bg-primary transition-[width] duration-300"
         style={{ width: `${p}%` }}
       />
     </span>

@@ -96,15 +96,7 @@
     }
 }
 
-/* Toru's .frost. Unprefixed too: WebView2 is Chromium, which ignores the
-   -webkit- form, so without it nothing behind a panel would blur. */
-@utility glass-panel {
-    background: var(--glass-bg);
-    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    border: 1px solid var(--glass-border);
-    box-shadow: var(--glass-shadow);
-}
+/* glass-panel (Toru's .frost) lives in mokei/preset.css. */
 
 /* Toru's thin, dark, square scrollbars. */
 ::-webkit-scrollbar {

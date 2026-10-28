@@ -85,7 +85,7 @@ function DeviceChip({ device }: { device: string }) {
   return (
     <span
       aria-hidden
-      className="absolute -top-1.5 -right-1.5 z-10 bg-background px-[2px] font-mono text-[8px] leading-[11px] font-semibold text-muted-foreground ring-1 ring-border"
+      className="absolute -top-2 -right-2 z-10 bg-secondary px-[3px] font-mono text-[9px] leading-3 font-semibold text-foreground ring-1 ring-border"
     >
       {initials(device)}
     </span>

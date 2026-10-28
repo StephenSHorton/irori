@@ -94,7 +94,6 @@ export function CardPanel({
         )}
         <ProgressBar
           progress={detail.progress}
-          blocked={detail.openBlockers > 0}
           label={`${p ?? 0}% complete`}
         />
         <div className="flex flex-wrap gap-1.5 text-xs text-muted-foreground">
@@ -167,15 +166,17 @@ export function CardPanel({
                     "mt-0.5 grid size-3.5 place-items-center text-[10px]",
                     s.done
                       ? "bg-success text-background"
-                      : "ring-1 ring-muted-foreground/50 ring-inset"
+                      : s.doing
+                        ? "ring-1 ring-foreground/70 ring-inset"
+                        : "ring-1 ring-muted-foreground/50 ring-inset"
                   )}
                   aria-hidden
                 >
-                  {s.done ? "✓" : ""}
+                  {s.done ? "✓" : s.doing ? <span className="size-1.5 bg-primary" /> : ""}
                 </span>
                 <span
                   className={cn(
-                    s.doing && !s.done && "font-medium text-primary",
+                    s.doing && !s.done && "font-medium text-foreground",
                     s.done && "text-ink-2"
                   )}
                 >
@@ -183,7 +184,9 @@ export function CardPanel({
                     {s.done ? "Done: " : s.doing ? "In progress: " : "To do: "}
                   </span>
                   {plainLine(s.text)}
-                  {s.doing && !s.done && " · in progress"}
+                  {s.doing && !s.done && (
+                    <span className="font-normal text-muted-foreground"> · in progress</span>
+                  )}
                 </span>
               </li>
             ))}

@@ -9,7 +9,7 @@ export function AppHeader({ roster }: { roster: Roster }) {
   const busy = agents.filter((a) => a.status === "busy").length
 
   return (
-    <header className="sticky top-0 z-20 glass-panel border-x-0 border-t-0">
+    <header className="sticky top-0 z-20 glass-panel border-x-0! border-t-0!">
       <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4 sm:px-6">
         <div className="flex items-baseline gap-2">
           <span className="text-lg font-semibold tracking-tight text-ink">

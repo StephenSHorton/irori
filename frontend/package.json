@@ -10,12 +10,10 @@
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc -b",
-    "preview": "vite preview",
-    "test": "bun test"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
-    "@fontsource-variable/geist": "^5.3.0",
     "@tailwindcss/vite": "^4",
     "@wailsio/runtime": "3.0.0-alpha.97",
     "class-variance-authority": "^0.7.1",
