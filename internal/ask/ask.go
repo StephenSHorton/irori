@@ -137,8 +137,9 @@ type Book struct {
 	onResolved []func(Ask)
 	subs       map[chan string]struct{}
 	replaying  bool
-	pending    []string // ask ids changed, for subscribers
-	revives    bool     // a revive.requested was folded since the last duties
+	done       chan struct{} // closed once run returns: nothing appends after
+	pending    []string      // ask ids changed, for subscribers
+	revives    bool          // a revive.requested was folded since the last duties
 }
 
 // Start replays the asks and keeps folding until ctx ends; as the asking
@@ -151,7 +152,7 @@ func Start(ctx context.Context, o Options) (*Book, error) {
 		self := "user:" + o.Self
 		o.IsOwner = func(k string) bool { return k == self }
 	}
-	b := &Book{o: o, asks: map[string]*Ask{}, answers: map[string][]answer{}, last: map[string]int64{}, subs: map[chan string]struct{}{}, revives: true}
+	b := &Book{o: o, asks: map[string]*Ask{}, answers: map[string][]answer{}, last: map[string]int64{}, subs: map[chan string]struct{}{}, revives: true, done: make(chan struct{})}
 	sub := o.Store.Subscribe(ctx)
 	if err := b.replay(ctx); err != nil {
 		return nil, err
@@ -185,7 +186,11 @@ func (b *Book) replay(ctx context.Context) error {
 	return nil
 }
 
+// Done is closed once the Book stopped writing (its ctx ended).
+func (b *Book) Done() <-chan struct{} { return b.done }
+
 func (b *Book) run(ctx context.Context, sub <-chan store.Event) {
+	defer close(b.done)
 	b.duties(ctx) // what waited while this device was off
 	t := time.NewTicker(time.Second)
 	defer t.Stop()

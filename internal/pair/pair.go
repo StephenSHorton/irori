@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -759,6 +761,7 @@ func (s *session) adopt(ctx context.Context, c mesh.Conn, f frame) error {
 		return err
 	}
 	if err := p.o.Ident.AdoptPerson(person, f.Seed); err != nil {
+		_ = os.Remove(filepath.Join(p.o.DataDir, RowsFile))
 		return err
 	}
 	p.o.Chain.Repin(person.ID, person.RootDeviceID)

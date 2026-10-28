@@ -268,6 +268,7 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		// before the log closes.
 		followDone := make(chan struct{})
 		defer func() { <-followDone }()
+		defer func() { <-c.asks.Done() }() // asks resolve as the asking device
 		go func() {
 			defer close(followDone)
 			fd := make(chan struct{})
