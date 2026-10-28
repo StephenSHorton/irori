@@ -7,6 +7,9 @@ import { Create as $Create } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as blob$0 from "../blob/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as time$0 from "../../../../../time/models.js";
 
 /**
@@ -253,6 +256,12 @@ export class Message {
      */
     "notice"?: boolean;
 
+    /**
+     * Attachments are files on the message (v0.4 §6.6): refs to the
+     * attaching device's store, fetched on demand with attachment_get.
+     */
+    "attachments"?: blob$0.FileRef[];
+
     /** Creates a new Message instance. */
     constructor($$source: Partial<Message> = {}) {
         if (!("id" in $$source)) {
@@ -286,12 +295,16 @@ export class Message {
     static createFrom($$source: any = {}): Message {
         const $$createField1_0 = $$createType1;
         const $$createField2_0 = $$createType2;
+        const $$createField12_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("from" in $$parsedSource) {
             $$parsedSource["from"] = $$createField1_0($$parsedSource["from"]);
         }
         if ("to" in $$parsedSource) {
             $$parsedSource["to"] = $$createField2_0($$parsedSource["to"]);
+        }
+        if ("attachments" in $$parsedSource) {
+            $$parsedSource["attachments"] = $$createField12_0($$parsedSource["attachments"]);
         }
         return new Message($$parsedSource as Partial<Message>);
     }
@@ -341,8 +354,8 @@ export class Policy {
      * Creates a new Policy instance from a string or object.
      */
     static createFrom($$source: any = {}): Policy {
-        const $$createField1_0 = $$createType3;
-        const $$createField2_0 = $$createType3;
+        const $$createField1_0 = $$createType5;
+        const $$createField2_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("block" in $$parsedSource) {
             $$parsedSource["block"] = $$createField1_0($$parsedSource["block"]);
@@ -446,4 +459,6 @@ export enum Trust {
 const $$createType0 = Message.createFrom;
 const $$createType1 = Sender.createFrom;
 const $$createType2 = Address.createFrom;
-const $$createType3 = $Create.Array($Create.Any);
+const $$createType3 = blob$0.FileRef.createFrom;
+const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = $Create.Array($Create.Any);

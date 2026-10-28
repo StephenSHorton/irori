@@ -120,6 +120,9 @@ func (c *coord) searchShow(ref string, o search.ShowOptions) (search.Shown, erro
 		b.WriteString("\n\n")
 		b.WriteString(cm.Text)
 		b.WriteString("\n")
+		for _, f := range cm.Attachments {
+			b.WriteString("attached: " + f.Describe() + " (fetch it with attachment_get)\n")
+		}
 		full = b.String()
 		sh.Title = cut("comment on "+t.Title, search.MaxTitle)
 		sh.Related = []string{search.Ref(search.KindTask, t.ID)}
@@ -234,6 +237,9 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 			text := cut(cm.Text, showCommentCut)
 			if text != cm.Text {
 				text += " (show comment:" + cm.ID + " for all of it)"
+			}
+			if n := len(cm.Attachments); n > 0 {
+				text += fmt.Sprintf(" [%d attached: show comment:%s]", n, cm.ID)
 			}
 			fmt.Fprintf(&b, "- %s %s: %s\n", cm.At.Format(time.RFC3339), cm.By, text)
 		}

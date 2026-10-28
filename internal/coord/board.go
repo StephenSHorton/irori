@@ -17,6 +17,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/search"
 )
 
@@ -26,6 +27,7 @@ import (
 // caps, and the objective cap is left as it is.
 const (
 	MaxComment      = 4000 // runes in a comment
+	MaxAttachments  = 10   // files on one comment (v0.4 §6.6)
 	MaxReason       = 500  // runes in a block reason or unblock note
 	MaxRef          = 300  // runes in BlockedBy.Ref
 	MaxKey          = 200  // runes in an assignee's or joiner's key
@@ -59,6 +61,9 @@ type Comment struct {
 	Text   string    `json:"text"`
 	Wake   bool      `json:"wake"` // the author asked to wake the holders (decision 18)
 	At     time.Time `json:"at"`
+	// Attachments are files on the comment (v0.4 §6.6), fetched on demand
+	// with the attachment_get tool.
+	Attachments []blob.FileRef `json:"attachments,omitempty"`
 }
 
 // NoticeKind says why a Notice exists.
@@ -97,6 +102,8 @@ type Notice struct {
 	// comments and links").
 	Text string `json:"text"`
 	Wake bool   `json:"wake"` // only a comment's own Wake sets it
+	// Attachments are a comment's files; the message carries them too.
+	Attachments []blob.FileRef `json:"attachments,omitempty"`
 }
 
 // Refusal is one lease.refused row: by asked for resource and heldBy had it.
@@ -243,7 +250,19 @@ func (c *Coord) Unblock(ctx context.Context, by, id, note string) (Task, Notice,
 // 18): the notice carries it. The notice is NoticeComment to the holders
 // other than by.
 func (c *Coord) AddComment(ctx context.Context, by, id, text string, wake bool) (Comment, Notice, error) {
-	return c.impl.addComment(ctx, by, id, text, wake)
+	return c.impl.addComment(ctx, by, id, text, wake, nil)
+}
+
+// AddCommentWith is AddComment with files attached (v0.4 §6.6): refs the
+// Core made from paths it checked and stored, at most MaxAttachments.
+func (c *Coord) AddCommentWith(ctx context.Context, by, id, text string, wake bool, files []blob.FileRef) (Comment, Notice, error) {
+	return c.impl.addComment(ctx, by, id, text, wake, files)
+}
+
+// CommentAttachment finds a file attached to any Board comment. Comments
+// have no readers, so any viewer may fetch it.
+func (c *Coord) CommentAttachment(sha string) (blob.FileRef, bool) {
+	return c.impl.commentAttachment(sha)
 }
 
 // Comments lists a task's comments, oldest first (nil for no such task).

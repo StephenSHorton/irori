@@ -74,6 +74,7 @@ func newSet(b Backend) *Set {
 		"why":             s.why,
 		"join":            s.join,
 		"notify":          s.notify,
+		"attachment_get":  s.attachmentGet,
 	}
 	// The notify tool's asks are rows when the backend keeps them (v0.4
 	// §6.7): the answer comes back from whichever device the person used.

@@ -20,6 +20,9 @@ func clip(s string, n int) string {
 // MaxRef caps SendOptions.Ref (runes).
 const MaxRef = 200
 
+// MaxAttachments caps SendOptions.Attachments.
+const MaxAttachments = 10
+
 func (b *inbox) send(ctx context.Context, from Sender, to Address, text, reason string) (Message, Delivery, error) {
 	return b.sendWith(ctx, from, to, text, SendOptions{Reason: reason, Mode: ModeWake})
 }
@@ -34,6 +37,9 @@ func (b *inbox) sendWith(ctx context.Context, from Sender, to Address, text stri
 	case ModeWake, ModeNextTurn:
 	default:
 		return Message{}, Delivery{}, fmt.Errorf("inbox: unknown delivery mode %q (wake or next_turn)", o.Mode)
+	}
+	if len(o.Attachments) > MaxAttachments {
+		return Message{}, Delivery{}, fmt.Errorf("inbox: at most %d attachments on a message", MaxAttachments)
 	}
 	b.mu.Lock()
 	defer b.unlock()
@@ -112,7 +118,7 @@ func (b *inbox) sendLocked(ctx context.Context, from Sender, to Address, text st
 	m := Message{
 		ID: "msg_" + b.ids.next(now), From: from, To: addr, Text: text,
 		Reason: clip(o.Reason, MaxNote), ReplyTo: replyTo, Trust: Untrusted, SentAt: now,
-		Ref: clip(o.Ref, MaxRef), Notice: o.Notice,
+		Ref: clip(o.Ref, MaxRef), Notice: o.Notice, Attachments: o.Attachments,
 	}
 	if b.isPerson(from) {
 		m.Trust = UserTrust

@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/owner"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/store"
@@ -131,6 +132,8 @@ type taskCommentRow struct {
 	Text      string    `json:"text"`
 	Wake      bool      `json:"wake"`
 	At        time.Time `json:"at"`
+	// Attachments: v0.4 §6.6; the refs carry the attaching device.
+	Attachments []blob.FileRef `json:"attachments,omitempty"`
 }
 
 type blockerClosedRow struct {
@@ -486,7 +489,7 @@ func (c *coord) apply(ev store.Event) {
 		if t == nil || c.comments[p.CommentID] != nil {
 			return
 		}
-		cm := &Comment{ID: p.CommentID, TaskID: p.TaskID, By: p.By, Text: p.Text, Wake: p.Wake, At: at(p.At)}
+		cm := &Comment{ID: p.CommentID, TaskID: p.TaskID, By: p.By, Text: p.Text, Wake: p.Wake, At: at(p.At), Attachments: p.Attachments}
 		c.comments[cm.ID] = cm
 		c.byTask[t.ID] = append(c.byTask[t.ID], cm.ID)
 		t.Comments++

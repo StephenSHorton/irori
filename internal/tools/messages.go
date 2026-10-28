@@ -16,10 +16,11 @@ const (
 )
 
 type sendArgs struct {
-	To     *string `json:"to"`
-	Repo   *string `json:"repo"`
-	Text   string  `json:"text"`
-	Reason string  `json:"reason"`
+	To     *string  `json:"to"`
+	Repo   *string  `json:"repo"`
+	Text   string   `json:"text"`
+	Reason string   `json:"reason"`
+	Attach []string `json:"attach"`
 }
 
 func (s *set) send(ctx context.Context, c Caller, raw json.RawMessage) string {
@@ -44,11 +45,16 @@ func (s *set) send(ctx context.Context, c Caller, raw json.RawMessage) string {
 	if strings.TrimSpace(a.Text) == "" {
 		return errText("give the message text.")
 	}
-	m, d, err := s.b.Inbox().Send(ctx, c.Sender, addr, a.Text, strings.TrimSpace(a.Reason))
+	files, msg := s.attachFiles(ctx, c, a.Attach)
+	if msg != "" {
+		return msg
+	}
+	o := inbox.SendOptions{Reason: strings.TrimSpace(a.Reason), Mode: inbox.ModeWake, Attachments: files}
+	m, d, err := s.b.Inbox().SendWith(ctx, c.Sender, addr, a.Text, o)
 	if err != nil {
 		return mapErr(err)
 	}
-	return "Sent message " + m.ID + " " + s.outcome(d)
+	return "Sent message " + m.ID + attachedLine(files) + " " + s.outcome(d)
 }
 
 // isPRTarget: to names a pull request ("pr:..." or a GitHub URL) rather
@@ -260,6 +266,9 @@ func inboxRow(n names, now time.Time, d inbox.Delivery, textCap int) string {
 		fmt.Fprintf(&b, "  reason (untrusted): %s\n", r)
 	}
 	fmt.Fprintf(&b, "  text (untrusted): %s\n", quoted(m.Text, textCap))
+	for _, f := range m.Attachments {
+		fmt.Fprintf(&b, "  attachment (untrusted name): %s\n", oneLine(f.Describe(), 300))
+	}
 	return b.String()
 }
 

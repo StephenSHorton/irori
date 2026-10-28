@@ -7,6 +7,9 @@ import { Create as $Create } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as blob$0 from "../blob/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as time$0 from "../../../../../time/models.js";
 
 /**
@@ -427,6 +430,12 @@ export class Comment {
     "wake": boolean;
     "at": time$0.Time;
 
+    /**
+     * Attachments are files on the comment (v0.4 §6.6), fetched on demand
+     * with the attachment_get tool.
+     */
+    "attachments"?: blob$0.FileRef[];
+
     /** Creates a new Comment instance. */
     constructor($$source: Partial<Comment> = {}) {
         if (!("id" in $$source)) {
@@ -455,7 +464,11 @@ export class Comment {
      * Creates a new Comment instance from a string or object.
      */
     static createFrom($$source: any = {}): Comment {
+        const $$createField6_0 = $$createType20;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("attachments" in $$parsedSource) {
+            $$parsedSource["attachments"] = $$createField6_0($$parsedSource["attachments"]);
+        }
         return new Comment($$parsedSource as Partial<Comment>);
     }
 }
@@ -506,7 +519,7 @@ export class LeaseCard {
      * Creates a new LeaseCard instance from a string or object.
      */
     static createFrom($$source: any = {}): LeaseCard {
-        const $$createField6_0 = $$createType20;
+        const $$createField6_0 = $$createType22;
         const $$createField7_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("refused" in $$parsedSource) {
@@ -965,5 +978,7 @@ const $$createType15 = Blocker.createFrom;
 const $$createType16 = $Create.Array($$createType15);
 const $$createType17 = Comment.createFrom;
 const $$createType18 = $Create.Nullable($$createType17);
-const $$createType19 = Refusal.createFrom;
+const $$createType19 = blob$0.FileRef.createFrom;
 const $$createType20 = $Create.Array($$createType19);
+const $$createType21 = Refusal.createFrom;
+const $$createType22 = $Create.Array($$createType21);

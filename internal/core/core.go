@@ -17,6 +17,7 @@ import (
 
 	"github.com/StephenSHorton/irori/internal/api"
 	"github.com/StephenSHorton/irori/internal/ask"
+	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/capture"
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/device"
@@ -75,7 +76,8 @@ type Core struct {
 	pair     *pair.Pairer
 	roster   *roster.Roster
 	asks     *ask.Book
-	netClose func() // stops the default transport's relay; nil for a passed-in one
+	files    *blob.Files // attachments (v0.4 §6.6)
+	netClose func()      // stops the default transport's relay; nil for a passed-in one
 	scrubber *scrub.Scrubber
 	secretMu sync.Mutex
 	secrets  []string // exact values capture redacts: the lockfile token, member secrets
@@ -203,6 +205,10 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		return nil, fmt.Errorf("asks: %w", err)
 	}
 	c.tools = tools.New(meshView{c})
+	if c.files, err = blob.OpenFiles(filepath.Join(opts.DataDir, "files")); err != nil {
+		c.Close()
+		return nil, fmt.Errorf("attachments: %w", err)
+	}
 
 	// The net layer (v0.4 §4.5) is built here but opens nothing until the
 	// person has a second device: a device on its own makes no broker
@@ -217,7 +223,7 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		tr, c.netClose = rt, rt.Close
 	}
 	c.mesh = mesh.New(mesh.Options{Store: st, Ident: ident, Chain: chain, Net: tr, Version: opts.Version,
-		Intervals: opts.NetIntervals, Logf: log.Printf})
+		Files: c.files, Intervals: opts.NetIntervals, Logf: log.Printf})
 	// Pairing (v0.4 §3) opens its own room on the same transport, only
 	// while a window is open; GUI and CLI only, never the loopback API.
 	c.pair = pair.New(pair.Options{Net: tr, Ident: ident, Chain: chain, Store: st, DataDir: opts.DataDir,

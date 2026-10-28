@@ -17,6 +17,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/store"
 )
@@ -108,6 +109,9 @@ type Message struct {
 	Ref string `json:"ref,omitempty"`
 	// Notice is SendOptions.Notice: a Board notice that needs no reply.
 	Notice bool `json:"notice,omitempty"`
+	// Attachments are files on the message (v0.4 §6.6): refs to the
+	// attaching device's store, fetched on demand with attachment_get.
+	Attachments []blob.FileRef `json:"attachments,omitempty"`
 }
 
 // State is a delivery's state (design §4).
@@ -231,6 +235,9 @@ type SendOptions struct {
 	// closes as Skipped (note "notice") once engaged, and the fence says no
 	// reply is needed.
 	Notice bool
+	// Attachments are files the Core already checked and stored (v0.4
+	// §6.6), at most MaxAttachments.
+	Attachments []blob.FileRef
 }
 
 // SystemKey is the sender key for notices Irori itself sends (a blocker

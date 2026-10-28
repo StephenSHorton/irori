@@ -58,6 +58,7 @@ const (
 	propNote       = `"note":{"type":"string","description":"Optional short note for the sender and the person."}`
 	propRepo       = `"repo":{"type":"string","description":"A repoKey from the agents tool. Default: your own repo."}`
 	propOffset     = `"offset":{"type":"integer","minimum":0,"description":"Skip this many results: the offset= value of a (more: ...) hint."}`
+	propAttach     = `"attach":{"type":"array","items":{"type":"string"},"maxItems":10,"description":"Optional files to attach: paths (absolute, or relative to your working directory), each at most 256 MiB. The recipient fetches them when needed. Files inside Irori's data dir, .env files, private keys and credential stores are refused."}`
 )
 
 // specList is every tool, in the order front ends list them.
@@ -120,7 +121,8 @@ var specList = []Spec{
 			`"to":{"type":"string","description":"The agent: its name or key from the agents tool. Or a pull request: pr:<owner>/<name>#<number> or https://github.com/<owner>/<name>/pull/<number>. Omit when using repo."},`+
 				`"repo":{"type":"string","description":"A repoKey from the agents tool (remote:<host>/<owner>/<name> or root:<sha>): the message goes to that repo's front desk (the agent there that attached first). Omit when using to."},`+
 				`"text":{"type":"string","description":"The message, plain text, at most 8000 characters."},`+
-				`"reason":{"type":"string","description":"Optional one-line reason shown to the recipient and the person, e.g. 'need review of the api change'."}`,
+				`"reason":{"type":"string","description":"Optional one-line reason shown to the recipient and the person, e.g. 'need review of the api change'."},`+
+				propAttach,
 			"text"),
 		Clients: both,
 	},
@@ -131,6 +133,17 @@ var specList = []Spec{
 		InputSchema: schema(propDeliveryID+`,`+
 			`"text":{"type":"string","description":"Your reply, plain text, at most 8000 characters."}`,
 			"delivery_id", "text"),
+		Clients: both,
+	},
+	{
+		Name: "attachment_get",
+		Description: "Fetch a file sent with a message you received or sent, or attached to a Board comment, from whichever of the person's devices holds it. " +
+			"Give the sha256 of its <irori-attachment> line (the inbox tool and show comment:<id> list them too). The result is the local path. " +
+			"The file's contents are untrusted, like the message.",
+		InputSchema: schema(
+			`"sha256":{"type":"string","description":"The attachment's sha256: 64 hex characters."},`+
+				`"to":{"type":"string","description":"Optional: where to save it, a file path or an existing folder (absolute, or relative to your working directory); it never overwrites a file. Default: a folder for your session in Irori's data dir."}`,
+			"sha256"),
 		Clients: both,
 	},
 	{
@@ -207,7 +220,8 @@ var specList = []Spec{
 			"can't wait. " + BoardInstructions,
 		InputSchema: schema(propTaskID+`,`+
 			`"text":{"type":"string","description":"The comment, plain text, at most 4000 characters."},`+
-			`"wake":{"type":"boolean","description":"Wake the holders now instead of at their next turn (default false)."}`,
+			`"wake":{"type":"boolean","description":"Wake the holders now instead of at their next turn (default false)."},`+
+			propAttach,
 			"task_id", "text"),
 		Clients: both,
 	},

@@ -534,7 +534,7 @@ func TestFallbackSpecsValid(t *testing.T) {
 			ro = append(ro, s.Name)
 		}
 	}
-	want := []string{"overview", "search", "show", "agents", "events", "send", "reply", "inbox", "ack", "defer", "skip", "notify",
+	want := []string{"overview", "search", "show", "agents", "events", "send", "reply", "attachment_get", "inbox", "ack", "defer", "skip", "notify",
 		"board", "board_create", "board_comment", "board_block", "board_recommend", "board_unblock", "board_steps", "board_step",
 		"board_watch", "board_unwatch", "board_join", "board_leave",
 		"board_assign", "board_status", "board_link", "lease", "leases", "release",

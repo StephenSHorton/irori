@@ -259,7 +259,7 @@ func TestSpecs(t *testing.T) {
 		"board", "board_create", "board_comment", "board_block", "board_unblock", "board_join", "board_leave",
 		"board_assign", "board_status", "board_link", "board_steps", "board_step", "board_recommend", "board_watch", "board_unwatch",
 		"lease", "leases", "release",
-		"timeline", "why", "commits", "prs"}
+		"timeline", "why", "commits", "prs", "attachment_get"}
 	for _, n := range want {
 		if !slices.Contains(cl, n) || !slices.Contains(gr, n) {
 			t.Errorf("%s missing from a client", n)

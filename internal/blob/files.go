@@ -275,3 +275,43 @@ func mimeOf(path string, head []byte) string {
 	}
 	return http.DetectContentType(head)
 }
+
+// Describe is one line for a model or a person: the safe name, the size,
+// the type, the hash and the attaching device.
+func (r FileRef) Describe() string {
+	var b strings.Builder
+	b.WriteString(SafeName(r.Name, r.SHA256) + " (" + humanSize(r.Size))
+	// Mime and Device come from another device's row: shown only when
+	// plain.
+	if r.Mime != "" && len(r.Mime) <= 100 && plain(r.Mime, "/+.-;= ") {
+		b.WriteString(", " + r.Mime)
+	}
+	b.WriteString(") sha256=" + r.SHA256)
+	if dev := r.Device; dev != "" && plain(dev, "-_") {
+		if len(dev) > 8 {
+			dev = dev[:8]
+		}
+		b.WriteString(" from device " + dev)
+	}
+	return b.String()
+}
+
+func humanSize(n int64) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KiB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d bytes", n)
+}
+
+// plain reports s made only of ASCII letters, digits and extra.
+func plain(s, extra string) bool {
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune(extra, r)) {
+			return false
+		}
+	}
+	return true
+}

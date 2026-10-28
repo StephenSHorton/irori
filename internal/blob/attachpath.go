@@ -124,6 +124,10 @@ func neverLeaves(p string) string {
 	return ""
 }
 
+// Within reports whether p is base or inside it, as CheckAttachPath
+// compares.
+func Within(p, base string) bool { return within(p, base) }
+
 // within reports whether p is base or inside it (case-insensitively on
 // Windows and macOS, whose default file systems are).
 func within(p, base string) bool {

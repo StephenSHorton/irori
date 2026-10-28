@@ -535,7 +535,7 @@ func TestComments(t *testing.T) {
 	if got.Comments != 4 || !got.UpdatedAt.Equal(c4.At) {
 		t.Fatalf("task = %+v", got)
 	}
-	if g, ok := e.c.GetComment(c1.ID); !ok || g != c1 {
+	if g, ok := e.c.GetComment(c1.ID); !ok || !reflect.DeepEqual(g, c1) {
 		t.Fatalf("GetComment = %+v %v", g, ok)
 	}
 	if _, ok := e.c.GetComment("nope"); ok {

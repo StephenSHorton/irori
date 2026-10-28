@@ -9,6 +9,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/StephenSHorton/irori/internal/blob"
 )
 
 // The Board's implementation (board.go has the contract).
@@ -343,7 +345,7 @@ func cut(s string, n int) string {
 
 // ---- comments ----
 
-func (c *coord) addComment(ctx context.Context, by, id, text string, wake bool) (Comment, Notice, error) {
+func (c *coord) addComment(ctx context.Context, by, id, text string, wake bool, files []blob.FileRef) (Comment, Notice, error) {
 	by, _, err := callers(by)
 	if err != nil {
 		return Comment{}, Notice{}, err
@@ -355,6 +357,9 @@ func (c *coord) addComment(ctx context.Context, by, id, text string, wake bool) 
 	if utf8.RuneCountInString(text) > MaxComment {
 		return Comment{}, Notice{}, fmt.Errorf("%w: comment longer than %d characters", ErrInvalid, MaxComment)
 	}
+	if len(files) > MaxAttachments {
+		return Comment{}, Notice{}, fmt.Errorf("%w: at most %d attachments", ErrInvalid, MaxAttachments)
+	}
 	c.mu.Lock()
 	defer c.unlock()
 	t, err := c.anyTask(id)
@@ -364,17 +369,30 @@ func (c *coord) addComment(ctx context.Context, by, id, text string, wake bool) 
 	at := c.stamp()
 	cid := newID(at)
 	if err := c.write(ctx, by, KindTaskComment, taskCommentRow{
-		TaskID: id, CommentID: cid, By: by, Text: text, Wake: wake, At: at,
+		TaskID: id, CommentID: cid, By: by, Text: text, Wake: wake, At: at, Attachments: files,
 	}); err != nil {
 		return Comment{}, Notice{}, err
 	}
 	cm := *c.comments[cid]
 	n := Notice{
 		Kind: NoticeComment, TaskID: id, Ref: "comment:" + cid, Title: t.Title, By: by,
-		To: c.recipients(t, by), Wake: wake,
+		To: c.recipients(t, by), Wake: wake, Attachments: files,
 		Text: fmt.Sprintf("%s commented on %q (task:%s):\n%s%s", by, t.Title, id, text, deeper(id)),
 	}
 	return cm, n, nil
+}
+
+func (c *coord) commentAttachment(sha string) (blob.FileRef, bool) {
+	c.mu.Lock()
+	defer c.unlock()
+	for _, cm := range c.comments {
+		for _, f := range cm.Attachments {
+			if f.SHA256 == sha {
+				return f, true
+			}
+		}
+	}
+	return blob.FileRef{}, false
 }
 
 func (c *coord) listComments(taskID string) []Comment {

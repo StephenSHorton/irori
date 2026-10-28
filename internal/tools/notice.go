@@ -45,7 +45,7 @@ func RouteNotice(ctx context.Context, ib *inbox.Inbox, from inbox.Sender, n coor
 			text, earlier = mergeWatched(ib, from, to, n)
 		}
 		_, d, err := ib.SendWith(ctx, from, inbox.Address{Kind: inbox.ToAgent, Value: to}, text,
-			inbox.SendOptions{Mode: mode, Ref: n.Ref, Notice: true})
+			inbox.SendOptions{Mode: mode, Ref: n.Ref, Notice: true, Attachments: n.Attachments})
 		if err == nil && earlier != "" {
 			// The new digest carries the earlier one's changes.
 			err = ib.Skip(ctx, to, earlier, "merged into a newer update on the card")

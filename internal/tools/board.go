@@ -343,9 +343,10 @@ func (s *set) assignee(v string) (string, error) {
 // --- board_comment ---
 
 type boardCommentArgs struct {
-	TaskID string `json:"task_id"`
-	Text   string `json:"text"`
-	Wake   bool   `json:"wake"`
+	TaskID string   `json:"task_id"`
+	Text   string   `json:"text"`
+	Wake   bool     `json:"wake"`
+	Attach []string `json:"attach"`
 }
 
 func (s *set) boardComment(ctx context.Context, c Caller, raw json.RawMessage) string {
@@ -360,12 +361,16 @@ func (s *set) boardComment(ctx context.Context, c Caller, raw json.RawMessage) s
 	if strings.TrimSpace(a.Text) == "" {
 		return errText("give the comment text.")
 	}
-	cm, notice, err := s.b.Coord().AddComment(ctx, c.Sender.Key, id, strings.TrimSpace(a.Text), a.Wake)
+	files, msg := s.attachFiles(ctx, c, a.Attach)
+	if msg != "" {
+		return msg
+	}
+	cm, notice, err := s.b.Coord().AddCommentWith(ctx, c.Sender.Key, id, strings.TrimSpace(a.Text), a.Wake, files)
 	if err != nil {
 		return mapErr(err)
 	}
 	n := s.roster()
-	out := "Commented comment:" + cm.ID + " on task:" + id + "."
+	out := "Commented comment:" + cm.ID + " on task:" + id + attachedLine(files) + "."
 	if rs := RouteNotice(ctx, s.b.Inbox(), c.Sender, notice); len(rs) > 0 {
 		out += s.told(rs, n)
 	} else {
