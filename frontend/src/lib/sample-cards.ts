@@ -109,6 +109,7 @@ export function sampleCards(now: Date): CardDetail[] {
       comments: [],
       prs: [],
       watching: [],
+      short: (c.id ?? "").replace("sample-card-", ""),
       ...c,
       steps: st,
       blockers: c.blockers ?? [],

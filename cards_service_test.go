@@ -60,7 +60,7 @@ func TestCardsGrid(t *testing.T) {
 	}
 	g := got[0]
 	if g.Progress != (CardProgress{1, 2}) || g.OpenBlockers != 1 || g.BlockerQuestion != "Ship today?" ||
-		g.Scope != ScopeMine || g.ScopeLabel != "My devices" || g.State != coord.Blocked {
+		g.Scope != ScopeMine || g.ScopeLabel != "My devices" || g.State != coord.Blocked || g.Short != "2" || g.ShortWas != "" {
 		t.Fatalf("card %+v", g)
 	}
 	if len(g.Working) != 1 || g.Working[0] != (AgentRef{Key: agentA, Name: "ww-release", Status: "busy", Live: true, Where: "This PC"}) {
@@ -194,6 +194,9 @@ func TestCardDetail(t *testing.T) {
 	d, err := b.Card(tk.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if d.Short != "1" {
+		t.Fatalf("short ref %q", d.Short)
 	}
 	if len(d.Blockers) != 2 || d.Blockers[0].ID != "b2" || d.Blockers[0].Resolved != nil || d.Blockers[1].ID != "b1" ||
 		d.Blockers[1].Resolved == nil || d.Blockers[1].Resolved.By.Name != "You" || d.Blockers[1].Resolved.Answer != "yes" {

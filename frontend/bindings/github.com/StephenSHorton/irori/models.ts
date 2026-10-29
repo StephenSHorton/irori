@@ -340,6 +340,14 @@ export class CardBlocker {
  */
 export class CardDetail {
     "id": string;
+
+    /**
+     * Short is the card's short ref without its "#" ("12", or "12b" for
+     * the later of two cards numbered 12 on devices that were apart);
+     * ShortWas is the number such a card showed before that settled.
+     */
+    "short": string;
+    "shortWas": string;
     "title": string;
     "state": coord$0.TaskState;
     "repoKey": string;
@@ -403,6 +411,12 @@ export class CardDetail {
     constructor($$source: Partial<CardDetail> = {}) {
         if (!("id" in $$source)) {
             this["id"] = "";
+        }
+        if (!("short" in $$source)) {
+            this["short"] = "";
+        }
+        if (!("shortWas" in $$source)) {
+            this["shortWas"] = "";
         }
         if (!("title" in $$source)) {
             this["title"] = "";
@@ -475,46 +489,46 @@ export class CardDetail {
      * Creates a new CardDetail instance from a string or object.
      */
     static createFrom($$source: any = {}): CardDetail {
-        const $$createField6_0 = $$createType8;
-        const $$createField9_0 = $$createType9;
-        const $$createField10_0 = $$createType9;
-        const $$createField11_0 = $$createType10;
-        const $$createField16_0 = $$createType12;
-        const $$createField17_0 = $$createType14;
-        const $$createField18_0 = $$createType16;
-        const $$createField19_0 = $$createType18;
-        const $$createField20_0 = $$createType20;
-        const $$createField21_0 = $$createType22;
+        const $$createField8_0 = $$createType8;
+        const $$createField11_0 = $$createType9;
+        const $$createField12_0 = $$createType9;
+        const $$createField13_0 = $$createType10;
+        const $$createField18_0 = $$createType12;
+        const $$createField19_0 = $$createType14;
+        const $$createField20_0 = $$createType16;
+        const $$createField21_0 = $$createType18;
+        const $$createField22_0 = $$createType20;
+        const $$createField23_0 = $$createType22;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("progress" in $$parsedSource) {
-            $$parsedSource["progress"] = $$createField6_0($$parsedSource["progress"]);
+            $$parsedSource["progress"] = $$createField8_0($$parsedSource["progress"]);
         }
         if ("working" in $$parsedSource) {
-            $$parsedSource["working"] = $$createField9_0($$parsedSource["working"]);
+            $$parsedSource["working"] = $$createField11_0($$parsedSource["working"]);
         }
         if ("watching" in $$parsedSource) {
-            $$parsedSource["watching"] = $$createField10_0($$parsedSource["watching"]);
+            $$parsedSource["watching"] = $$createField12_0($$parsedSource["watching"]);
         }
         if ("holder" in $$parsedSource) {
-            $$parsedSource["holder"] = $$createField11_0($$parsedSource["holder"]);
+            $$parsedSource["holder"] = $$createField13_0($$parsedSource["holder"]);
         }
         if ("steps" in $$parsedSource) {
-            $$parsedSource["steps"] = $$createField16_0($$parsedSource["steps"]);
+            $$parsedSource["steps"] = $$createField18_0($$parsedSource["steps"]);
         }
         if ("blockers" in $$parsedSource) {
-            $$parsedSource["blockers"] = $$createField17_0($$parsedSource["blockers"]);
+            $$parsedSource["blockers"] = $$createField19_0($$parsedSource["blockers"]);
         }
         if ("prs" in $$parsedSource) {
-            $$parsedSource["prs"] = $$createField18_0($$parsedSource["prs"]);
+            $$parsedSource["prs"] = $$createField20_0($$parsedSource["prs"]);
         }
         if ("links" in $$parsedSource) {
-            $$parsedSource["links"] = $$createField19_0($$parsedSource["links"]);
+            $$parsedSource["links"] = $$createField21_0($$parsedSource["links"]);
         }
         if ("recent" in $$parsedSource) {
-            $$parsedSource["recent"] = $$createField20_0($$parsedSource["recent"]);
+            $$parsedSource["recent"] = $$createField22_0($$parsedSource["recent"]);
         }
         if ("comments" in $$parsedSource) {
-            $$parsedSource["comments"] = $$createField21_0($$parsedSource["comments"]);
+            $$parsedSource["comments"] = $$createField23_0($$parsedSource["comments"]);
         }
         return new CardDetail($$parsedSource as Partial<CardDetail>);
     }
@@ -759,6 +773,14 @@ export class CardResolution {
  */
 export class CardSummary {
     "id": string;
+
+    /**
+     * Short is the card's short ref without its "#" ("12", or "12b" for
+     * the later of two cards numbered 12 on devices that were apart);
+     * ShortWas is the number such a card showed before that settled.
+     */
+    "short": string;
+    "shortWas": string;
     "title": string;
     "state": coord$0.TaskState;
     "repoKey": string;
@@ -797,6 +819,12 @@ export class CardSummary {
     constructor($$source: Partial<CardSummary> = {}) {
         if (!("id" in $$source)) {
             this["id"] = "";
+        }
+        if (!("short" in $$source)) {
+            this["short"] = "";
+        }
+        if (!("shortWas" in $$source)) {
+            this["shortWas"] = "";
         }
         if (!("title" in $$source)) {
             this["title"] = "";
@@ -842,22 +870,22 @@ export class CardSummary {
      * Creates a new CardSummary instance from a string or object.
      */
     static createFrom($$source: any = {}): CardSummary {
-        const $$createField6_0 = $$createType8;
-        const $$createField9_0 = $$createType9;
-        const $$createField10_0 = $$createType9;
-        const $$createField11_0 = $$createType10;
+        const $$createField8_0 = $$createType8;
+        const $$createField11_0 = $$createType9;
+        const $$createField12_0 = $$createType9;
+        const $$createField13_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("progress" in $$parsedSource) {
-            $$parsedSource["progress"] = $$createField6_0($$parsedSource["progress"]);
+            $$parsedSource["progress"] = $$createField8_0($$parsedSource["progress"]);
         }
         if ("working" in $$parsedSource) {
-            $$parsedSource["working"] = $$createField9_0($$parsedSource["working"]);
+            $$parsedSource["working"] = $$createField11_0($$parsedSource["working"]);
         }
         if ("watching" in $$parsedSource) {
-            $$parsedSource["watching"] = $$createField10_0($$parsedSource["watching"]);
+            $$parsedSource["watching"] = $$createField12_0($$parsedSource["watching"]);
         }
         if ("holder" in $$parsedSource) {
-            $$parsedSource["holder"] = $$createField11_0($$parsedSource["holder"]);
+            $$parsedSource["holder"] = $$createField13_0($$parsedSource["holder"]);
         }
         return new CardSummary($$parsedSource as Partial<CardSummary>);
     }

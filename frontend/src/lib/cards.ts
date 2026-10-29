@@ -75,6 +75,8 @@ function sampleCard(id: string): CardDetail {
 function summary(c: CardDetail): CardSummary {
   return new CardSummary({
     id: c.id,
+    short: c.short,
+    shortWas: c.shortWas,
     title: c.title,
     state: c.state,
     repoKey: c.repoKey,

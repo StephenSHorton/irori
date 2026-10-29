@@ -5,7 +5,13 @@ import { Card } from "@/components/ui/card"
 import { percent, type CardSummary } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
 import { cn } from "@/lib/utils"
-import { HolderLine, ProgressBar, ScopeBadge, StatePill } from "./bits"
+import {
+  HolderLine,
+  ProgressBar,
+  ScopeBadge,
+  ShortRef,
+  StatePill,
+} from "./bits"
 import { Faces } from "./faces"
 
 export type Filter = "all" | "decide" | "mine"
@@ -113,6 +119,7 @@ function CardTile({
       )}
     >
       <span className="flex flex-wrap items-center gap-1.5">
+        <ShortRef card={card} />
         <StatePill card={card} />
         <ScopeBadge card={card} />
         {card.working.some((w) => w.conflict) && (

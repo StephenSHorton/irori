@@ -167,3 +167,25 @@ export function ScopeBadge({ card }: { card: CardSummary }) {
     </Badge>
   )
 }
+
+// ShortRef is the card's short ref, "#12": what the person says or types to
+// an agent about it. A card renumbered when two devices that were apart
+// both used its number says what it was.
+export function ShortRef({ card }: { card: CardSummary }) {
+  const short = plainLine(card.short)
+  if (!short) return null
+  const was = plainLine(card.shortWas)
+  return (
+    <span
+      className="font-mono text-xs text-muted-foreground tabular-nums"
+      title={
+        was
+          ? `Was #${was}: a card made earlier on another device had #${was} too`
+          : `Agents know this card as #${short}`
+      }
+    >
+      #{short}
+      {was && <span className="ml-1 font-sans">(was #{was})</span>}
+    </span>
+  )
+}

@@ -93,7 +93,12 @@ type CardHolder struct {
 
 // CardSummary is one card in the grid.
 type CardSummary struct {
-	ID         string          `json:"id"`
+	ID string `json:"id"`
+	// Short is the card's short ref without its "#" ("12", or "12b" for
+	// the later of two cards numbered 12 on devices that were apart);
+	// ShortWas is the number such a card showed before that settled.
+	Short      string          `json:"short"`
+	ShortWas   string          `json:"shortWas"`
 	Title      string          `json:"title"`
 	State      coord.TaskState `json:"state"`
 	RepoKey    string          `json:"repoKey"`
@@ -290,7 +295,7 @@ func (p people) refs(keys []string) []AgentRef {
 func cardSummary(t coord.Task, p people) CardSummary {
 	d, n := t.Progress()
 	s := CardSummary{
-		ID: t.ID, Title: t.Title, State: t.State, RepoKey: t.RepoKey,
+		ID: t.ID, Short: t.Short, ShortWas: t.ShortWas, Title: t.Title, State: t.State, RepoKey: t.RepoKey,
 		Scope: ScopeMine, ScopeLabel: ScopeMineLabel,
 		Progress: CardProgress{Done: d, Total: n}, Working: []AgentRef{}, Watching: []AgentRef{},
 		UpdatedAt: t.UpdatedAt,

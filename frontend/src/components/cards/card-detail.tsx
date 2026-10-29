@@ -30,7 +30,7 @@ import {
 } from "@/lib/irori"
 import { errorText, talk, type GoneSession } from "@/lib/talk"
 import { cn } from "@/lib/utils"
-import { HolderLine, ProgressBar, ScopeBadge } from "./bits"
+import { HolderLine, ProgressBar, ScopeBadge, ShortRef } from "./bits"
 import { Face, LiveDot } from "./faces"
 
 // Answered is a note answer the person just sent: the note item leaves the
@@ -66,6 +66,7 @@ export function CardPanel({
     <Card className="gap-0 py-0!">
       <div className="grid gap-2.5 border-b border-border px-5 pt-[18px] pb-3.5">
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+          <ShortRef card={detail} />
           <ScopeBadge card={detail} />
           {detail.repoKey && (
             <span className="font-mono" title={detail.repoKey}>
