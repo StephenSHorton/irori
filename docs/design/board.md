@@ -165,8 +165,8 @@ A card can have a **parent**. A parent's **subtasks** are ordinary cards: each h
   > When a card grows past one agent's piece of work, or you see related cards that are one piece of work, make it a parent: board_split it into subtasks (adopt the related cards), so other agents can take subtasks in parallel. Keep one level: split a subtask into more siblings, not deeper.
 
 **The window.**
-- **The grid.** A parent and its subtasks sit together as one **family**: a thin frame across the grid's width, with the parent's tile first and then its subtasks' tiles, which are smaller and ordered by short ref. The family takes the parent's place in the grid. A completed parent folds into Done with its subtasks. A subtask that's done while its parent is open stays in the family, shown as done.
-- **Filters.** Needs a decision and My devices show a family when any card in it matches. Its other cards stay visible but dimmed, so a blocked subtask is seen in context.
+- **The grid** (Stephen, 2026-10-28: separate tiles, no frame). A subtask is an ordinary tile that follows its parent's tile, ordered by short ref, with a "part of #12" chip in its header. There's no frame and no nesting, so a parent and its subtasks read as a run of tiles that starts with the parent. The parent's tile shows "3 subtasks" beside its bar. A completed parent folds into Done with its subtasks. A subtask that's done while its parent is open stays after the parent, shown as done.
+- **Filters.** Needs a decision and My devices show a subtask that matches with its parent's tile before it, even when the parent itself doesn't match, so a blocked subtask is seen in context.
 - **The parent's page** lists its subtasks in the side column, in place of steps. Each shows its short ref, title, state chip, holder and progress, and opens on a click. The progress bar is the subtask count.
 - **A subtask's page** shows "part of #12 <title>" under its header, linking to the parent.
 - No tree view and no new screen.
@@ -178,7 +178,7 @@ A card can have a **parent**. A parent's **subtasks** are ordinary cards: each h
 - *A stored parent state, written by the parent's holder whenever a subtask changes:* the parent's state would wait for that holder's device to be online.
 - *Any depth:* a tree needs a tree view and pushes the Board toward a tracker. One level answers "this grew, split it" and "these belong together".
 
-**Build** (after #3, in the order agreed with #16 on the cards): coord (`parent` on create, `task.parent`, the one-level rule, derived progress and state, refusals on parents, digest lines) and `CardSummary` (`Parent`, `Subtasks`), then the tools and instructions, then the grid family, the parent page's subtask list and the "part of" link. Tests: arrival-order convergence for links and the derived state, the two-level link from two devices, split moving every open step, cancel cascading. Live check: an agent splits a big card into a parent and three subtasks, two agents take subtasks, the grid shows them in the family, and the parent's progress follows them.
+**Build** (after #3, in the order agreed with #16 on the cards): coord (`parent` on create, `task.parent`, the one-level rule, derived progress and state, refusals on parents, digest lines) and `CardSummary` (`Parent`, `Subtasks`), then the tools and instructions, then the grid order and the "part of" chip, the parent page's subtask list and the "part of" link. Tests: arrival-order convergence for links and the derived state, the two-level link from two devices, split moving every open step, cancel cascading. Live check: an agent splits a big card into a parent and three subtasks, two agents take subtasks, the grid shows them after the parent, and the parent's progress follows them.
 
 ## Where Irori's own long-lived records fit
 
