@@ -86,3 +86,25 @@ func TestNodeAddrSameIgnoresWhen(t *testing.T) {
 		t.Fatal("a new LAN address is the same")
 	}
 }
+
+// A node.addr row written after Load but before Follow has subscribed is
+// still folded: the home server writes its own row as the net starts, and
+// a device it pairs is handed that row's addresses (Hints) to dial its hub.
+func TestServersFollowKeepsARowWrittenBeforeItSubscribed(t *testing.T) {
+	nd := newDev(t, NewFakeNet(), "node")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := NewServers(nd.id(), nd.chain, "")
+	if err := dir.Load(ctx, nd.st); err != nil {
+		t.Fatal(err)
+	}
+	nd.append("node.addr", NodeAddr{V: 1, Port: 24817, LAN: []string{"127.0.0.1"}, Reach: ReachUnmapped, At: 1})
+	done := make(chan struct{})
+	go func() { defer close(done); dir.Follow(ctx, nd.st) }()
+	eventually(t, "the server's own row is folded", func() bool {
+		_, ok := dir.Hints()[nd.id()]
+		return ok
+	})
+	cancel()
+	<-done
+}

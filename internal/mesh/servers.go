@@ -181,9 +181,14 @@ func (s *Servers) Load(ctx context.Context, st *store.Store) error {
 }
 
 // Follow keeps the fold current until ctx ends: node.addr rows as they are
-// appended or inserted, and a reload after a resync.
+// appended or inserted, and a reload after a resync. It folds the log
+// again once it is subscribed: a row written between the caller's Load and
+// the subscription (the home server's own node.addr, written as the net
+// starts) would otherwise be in neither, and a device it pairs would be
+// handed no hub to dial.
 func (s *Servers) Follow(ctx context.Context, st *store.Store) {
 	sub := st.Subscribe(ctx)
+	_ = s.Load(ctx, st)
 	for ev := range sub {
 		switch {
 		case ev.Seq == 0:
