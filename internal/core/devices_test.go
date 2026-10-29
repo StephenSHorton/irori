@@ -221,9 +221,11 @@ func TestDevicesPairThroughTheCoreAndShareOneRoster(t *testing.T) {
 			t.Fatalf("%s's owner key isn't the person's everywhere", h.name)
 		}
 	}
-	if !hasCard(mac, pc.agent(), "connected") || !hasCard(nd, mac.agent(), "") {
-		t.Fatal("a device doesn't see another's session")
-	}
+	// meshTrio waits only for the pc to see the mac; the others' folds of
+	// each other's sessions can land a beat later on a loaded runner.
+	wait(t, "every device sees the others' sessions", func() bool {
+		return hasCard(mac, pc.agent(), "connected") && hasCard(nd, mac.agent(), "")
+	})
 	for _, c := range pc.c.LocalAgents() {
 		if c.Key == mac.agent() {
 			t.Fatal("LocalAgents lists another device's session")
