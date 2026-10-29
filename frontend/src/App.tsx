@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 
 import { AppHeader } from "@/components/app-header"
 import { CardPage } from "@/components/cards/card-detail"
+import { HeldDialog, type HeldTab } from "@/components/cards/held-dialog"
 import { MessageDialog } from "@/components/cards/message-dialog"
 import { AskBox } from "@/components/cards/ask-box"
 import {
@@ -27,7 +28,7 @@ import {
 import { useNow, useRoster } from "@/lib/irori"
 import { previewFlag } from "@/lib/preview"
 import { onOpen } from "@/lib/settings"
-import { nameLookup, useGone } from "@/lib/talk"
+import { nameLookup, useGone, useHeld } from "@/lib/talk"
 import { UpdateBanner } from "@/updater"
 
 // PageState is the history entry of a card's page. fromGrid: the grid is
@@ -95,9 +96,23 @@ export function App() {
   }, [cards, filter])
   // message is the delivery a notification's Open named, shown in a dialog.
   const [message, setMessage] = useState("")
+  // The Held list: open, its tab, and the one sender it shows ("" = all).
+  const [heldOpen, setHeldOpen] = useState(false)
+  const [heldTab, setHeldTab] = useState<HeldTab>("waiting")
+  const [heldFrom, setHeldFrom] = useState("")
+  const held = useHeld(heldOpen && heldTab === "history")
   const name = nameLookup(
-    roster.agents.map((a): [string, string] => [a.key, a.name])
+    roster.agents.map((a): [string, string] => [a.key, a.name]),
+    [...held.held, ...held.history].map((d): [string, string] => [
+      d.message.from.key,
+      d.message.from.name,
+    ])
   )
+  const openHeld = useCallback((from: string) => {
+    setHeldFrom(from)
+    setHeldTab("waiting")
+    setHeldOpen(true)
+  }, [])
 
   // openCard shows card id's page: a new history entry from the grid, the
   // same entry when another card's page is already showing.
@@ -213,6 +228,10 @@ export function App() {
     () =>
       onOpen((target) => {
         const ref = target.ref ?? ""
+        if (target.tab === "held") {
+          openHeld(ref)
+          return
+        }
         if (target.tab === "inbox" && ref) {
           setMessage(ref)
           return
@@ -224,7 +243,7 @@ export function App() {
         if (c && !matches(c, filterNow.current)) setFilter("all")
         openCard(id)
       }),
-    [openCard]
+    [openCard, openHeld]
   )
 
   const chips = deviceChips(cards)
@@ -241,10 +260,22 @@ export function App() {
   )
   const inPinned = new Set(pinnedGroup.map((c) => c.id))
   const decide = cards.filter((c) => c.openBlockers > 0).length
+  // cardLabel names the card a held message is about: "#28", else "a card"
+  // (one not on this board, or not loaded).
+  const cardLabel = (ref: string) => {
+    const id = ref.slice("task:".length)
+    const c =
+      cards.find((x) => x.id === id) ?? done.cards.find((x) => x.id === id)
+    return c?.short ? `#${c.short}` : "a card"
+  }
 
   return (
     <div className="min-h-svh bg-background">
-      <AppHeader roster={roster} />
+      <AppHeader
+        roster={roster}
+        held={held.held.length}
+        onHeld={() => openHeld("")}
+      />
       <main className="mx-auto flex max-w-[1920px] flex-col gap-3.5 px-4 pt-[18px] pb-10 sm:px-6">
         <UpdateBanner />
         {error && (
@@ -337,6 +368,23 @@ export function App() {
           </>
         )}
       </main>
+      {heldOpen && (
+        <HeldDialog
+          state={held}
+          tab={heldTab}
+          onTab={setHeldTab}
+          from={heldFrom}
+          onFrom={setHeldFrom}
+          name={name}
+          cardLabel={cardLabel}
+          onCard={(id) => {
+            setHeldOpen(false)
+            openCard(id)
+          }}
+          now={now}
+          onClose={() => setHeldOpen(false)}
+        />
+      )}
       {message && (
         <MessageDialog
           key={message}

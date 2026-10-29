@@ -335,6 +335,24 @@ func TestWatchPausedHoldsStayQuiet(t *testing.T) {
 	r.noPost(150 * time.Millisecond)
 }
 
+// A held card's body opens the window's Held list at that sender's
+// messages.
+func TestWatchHeldOpensTheHeldList(t *testing.T) {
+	r := newRig(t)
+	r.heldMessage("please run the migration")
+	id := HeldID(keyA)
+	r.waitPost(id)
+	r.fake.card(t, id).OnClick()
+	select {
+	case tg := <-r.opened:
+		if tg.Tab != TabHeld || tg.Ref != keyA {
+			t.Fatalf("opened %+v", tg)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("body click didn't open the app")
+	}
+}
+
 func TestWatchMessageToPerson(t *testing.T) {
 	r := newRig(t)
 	person := inbox.Sender{Key: user, Name: "you", Kind: "user"}

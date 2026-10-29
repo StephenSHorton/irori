@@ -47,7 +47,7 @@ export type ToolSpec = {
 
 /** internal/inbox Policy. */
 export type Policy = {
-  mode: 'everyone' | 'allowlist'
+  mode: 'everyone' | 'allowlist' | 'open'
   block: string[]
   allow: string[]
   paused: boolean

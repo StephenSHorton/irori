@@ -94,7 +94,8 @@ func (b *inbox) revoked(dev string) bool { return b.revokedFn != nil && b.revoke
 // paused. People at the GUI skip all but the pause; Irori's own notices
 // (SystemSender) skip all but the block list and the pause; the person's
 // own Claude agents on any of their devices skip bypass_receiver
-// (decision 34).
+// (decision 34), and in Open mode ("Full auto") nobody is held for it
+// (decision 36).
 func (b *inbox) hold(m *Message, recipient string, cards map[string]presence.AgentCard) HoldReason {
 	if recipient == "" {
 		return HoldUnowned
@@ -110,7 +111,7 @@ func (b *inbox) hold(m *Message, recipient string, cards map[string]presence.Age
 			return HoldBlocked
 		case b.pol.Mode == Allowlist && !allowed:
 			return HoldNotAllowed
-		case bypass(recipient, cards) && !allowed && !b.ownAgent(m, cards) &&
+		case b.pol.Mode != Open && bypass(recipient, cards) && !allowed && !b.ownAgent(m, cards) &&
 			(m.From.Kind == "grok" || !m.fromWriter() || !bypass(m.From.Key, cards)):
 			return HoldBypassReceiver
 		case m.Hop > MaxHop:
@@ -144,9 +145,9 @@ func (b *inbox) setPolicy(ctx context.Context, p Policy, by string) error {
 	switch p.Mode {
 	case "":
 		p.Mode = Everyone
-	case Everyone, Allowlist:
+	case Everyone, Allowlist, Open:
 	default:
-		return fmt.Errorf("inbox: unknown policy mode %q (everyone or allowlist)", p.Mode)
+		return fmt.Errorf("inbox: unknown policy mode %q (everyone, allowlist or open)", p.Mode)
 	}
 	clean := func(in []string) []string {
 		out := []string{}

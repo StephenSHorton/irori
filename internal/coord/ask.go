@@ -66,9 +66,10 @@ const (
 
 // Outcome kinds (ask_close).
 const (
-	OutcomeCard = "card" // the ask became the card, in place
-	OutcomeEdit = "edit" // it changed another card
-	OutcomeNone = "none" // nothing came of it
+	OutcomeCard     = "card"     // the ask became the card, in place
+	OutcomeEdit     = "edit"     // it changed another card
+	OutcomeAnswered = "answered" // the taker answered the person's question
+	OutcomeNone     = "none"     // nothing came of it
 )
 
 // Ask limits and timing.
@@ -95,7 +96,7 @@ const (
 
 // Outcome is how an ask ended (task.status's outcome).
 type Outcome struct {
-	Kind string `json:"kind"`           // OutcomeCard, OutcomeEdit or OutcomeNone
+	Kind string `json:"kind"`           // OutcomeCard, OutcomeEdit, OutcomeAnswered or OutcomeNone
 	Task string `json:"task,omitempty"` // edit: the card it changed
 	Note string `json:"note"`
 }
@@ -1088,7 +1089,9 @@ type AskOutcome struct {
 
 // AskClose ends an open ask with its outcome; only its taker or the person
 // may. card: the ask becomes the card in place, held by the taker. edit:
-// the other card changes and the ask completes. none: it is canceled.
+// the other card changes and the ask completes. answered: the taker
+// answered the person's question, and the ask completes. none: it is
+// canceled.
 func (c *Coord) AskClose(ctx context.Context, by, id string, o AskOutcome) (Task, error) {
 	return c.impl.askClose(ctx, by, id, o)
 }
@@ -1218,13 +1221,18 @@ func (c *coord) askClose(ctx context.Context, by, id string, o AskOutcome) (Task
 			By: by, At: now, Outcome: &Outcome{Kind: OutcomeEdit, Task: target, Note: o.Note}}); err != nil {
 			return Task{}, err
 		}
+	case OutcomeAnswered:
+		if err := c.write(ctx, by, KindTaskState, taskStateRow{TaskID: id, State: Completed, Note: o.Note, By: by, At: now,
+			Outcome: &Outcome{Kind: OutcomeAnswered, Note: o.Note}}); err != nil {
+			return Task{}, err
+		}
 	case OutcomeNone:
 		if err := c.write(ctx, by, KindTaskState, taskStateRow{TaskID: id, State: Canceled, Note: o.Note, By: by, At: now,
 			Outcome: &Outcome{Kind: OutcomeNone, Note: o.Note}}); err != nil {
 			return Task{}, err
 		}
 	default:
-		return Task{}, fmt.Errorf("%w: outcome is card, edit or none, not %q", ErrInvalid, o.Kind)
+		return Task{}, fmt.Errorf("%w: outcome is card, edit, answered or none, not %q", ErrInvalid, o.Kind)
 	}
 	return copyTask(c.tasks[id]), nil
 }

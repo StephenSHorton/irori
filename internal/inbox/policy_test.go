@@ -1,6 +1,7 @@
 package inbox
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -46,6 +47,12 @@ func TestPolicyHolds(t *testing.T) {
 		{"Irori blocked by key", Policy{Block: []string{SystemKey}}, SystemSender(), keyB, HoldBlocked},
 		{"Irori blocked by name", Policy{Block: []string{"IRORI"}}, SystemSender(), keyB, HoldBlocked},
 		{"paused holds Irori", Policy{Paused: true}, SystemSender(), keyB, HoldPaused},
+		// Decision 36: Full auto (Open) never holds for bypass_receiver;
+		// the block list and Pause all still do.
+		{"open: grok to a bypass receiver flows", Policy{Mode: Open}, grok(keyG, "grok"), keyB, ""},
+		{"open: unknown device's sender to bypass flows", Policy{Mode: Open}, claude(keyX, "stranger"), keyB, ""},
+		{"open: blocked grok still held", Policy{Mode: Open, Block: []string{"grok"}}, grok(keyG, "grok"), keyB, HoldBlocked},
+		{"open: paused still holds", Policy{Mode: Open, Paused: true}, grok(keyG, "grok"), keyB, HoldPaused},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -82,6 +89,12 @@ func TestPolicyAliasBlockAndValidation(t *testing.T) {
 	}
 	if err := h.ib.SetPolicy(bg, Policy{Mode: "sometimes"}, user); err == nil {
 		t.Fatal("bad mode accepted")
+	}
+	if err := h.ib.SetPolicy(bg, Policy{Mode: Open, Block: []string{"old name"}}, user); err != nil {
+		t.Fatal(err)
+	}
+	if p := h.ib.Policy(); p.Mode != Open {
+		t.Fatalf("mode %q, want open", p.Mode)
 	}
 	// Policy returns a copy.
 	p := h.ib.Policy()
@@ -138,5 +151,34 @@ func TestReleaseDismissAndUnpause(t *testing.T) {
 	w := h.wake(keyB)
 	if len(w.DeliveryIDs) != 2 || w.DeliveryIDs[0] != d1.ID || w.DeliveryIDs[1] != p1.ID {
 		t.Fatalf("wake %v", w.DeliveryIDs)
+	}
+}
+
+// TestFullAutoKeepsTheHopLimit: in Open mode a reply chain between bypass
+// sessions is still held past MaxHop (decision 36 keeps the loop guard).
+func TestFullAutoKeepsTheHopLimit(t *testing.T) {
+	h := newHarness(t)
+	h.abc()
+	if err := h.ib.SetPolicy(bg, Policy{Mode: Open}, user); err != nil {
+		t.Fatal(err)
+	}
+	agents := []Sender{claude(keyA, "alpha"), claude(keyB, "beta"), claude(keyC, "gamma")}
+	_, d := h.send(agents[0], to(keyB), "hop 0")
+	for i := 1; ; i++ {
+		cur := agents[i%3]
+		if d.State == Held {
+			if d.Hold != HoldHopLimit || d.Message.Hop != MaxHop+1 {
+				t.Fatalf("held %s at hop %d", d.Hold, d.Message.Hop)
+			}
+			break
+		}
+		w := h.deliverEngage(cur.Key, fmt.Sprint("t", i))
+		_, d = h.send(cur, to(agents[(i+1)%3].Key), fmt.Sprint("hop ", i))
+		if err := h.ib.TurnEnded(bg, cur.Key, w.Token, fmt.Sprint("t", i)); err != nil {
+			t.Fatal(err)
+		}
+		if i > MaxHop+2 {
+			t.Fatal("never held")
+		}
 	}
 }

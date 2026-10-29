@@ -7,6 +7,7 @@ import {
   Holding,
   openAsk,
   over,
+  overLabel,
   percent,
   TaskState,
   type AgentRef,
@@ -114,16 +115,10 @@ export function StatePill({ card }: { card: CardSummary }) {
         Waiting on agent
       </Badge>
     )
-  if (card.state === TaskState.Completed)
+  if (over(card))
     return (
-      <Badge variant="success">
-        Done
-      </Badge>
-    )
-  if (card.state === TaskState.Canceled || card.state === TaskState.Failed)
-    return (
-      <Badge variant="slate">
-        {card.state === TaskState.Failed ? "Failed" : "Canceled"}
+      <Badge variant={card.state === TaskState.Completed ? "success" : "slate"}>
+        {overLabel(card)}
       </Badge>
     )
   if (card.working.length === 0)

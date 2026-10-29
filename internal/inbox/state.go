@@ -352,11 +352,12 @@ func (b *inbox) emit(ctx context.Context, by, kind string, payload any) error {
 }
 
 // putDelivery stamps and appends a delivery snapshot. A held delivery let
-// through queues its message's text for its card (passed).
+// through, or a dismissed one released after all, queues its message's
+// text for its card (passed).
 func (b *inbox) putDelivery(ctx context.Context, r deliveryRow, by string) error {
 	wasHeld := false
 	if d := b.dels[r.DeliveryID]; d != nil {
-		wasHeld = d.State == Held
+		wasHeld = d.State == Held || d.State == Dismissed
 	}
 	r.By = by
 	r.At = b.now()
@@ -469,6 +470,12 @@ func (b *inbox) apply(ev store.Event) error {
 		d.MessageID, d.To, d.RepoKey, d.Mode = r.MessageID, r.To, r.RepoKey, r.Mode
 		if d.Mode == "" {
 			d.Mode = ModeWake // rows from before next-turn delivery
+		}
+		if ok && (prevState == Held || prevState == Dismissed) && r.State != prevState {
+			d.DecidedBy, d.DecidedAt = r.By, at
+		}
+		if r.State == Held && r.Hold != "" {
+			d.HeldFor = r.Hold
 		}
 		d.State, d.Hold, d.Via, d.WakeID = r.State, r.Hold, r.Via, r.WakeID
 		d.Note, d.For, d.Until, d.MovedTo, d.Reminded = r.Note, r.For, r.Until, r.MovedTo, r.Reminded
@@ -616,7 +623,7 @@ func (b *inbox) apply(ev store.Event) error {
 }
 
 func normPolicy(p Policy) Policy {
-	if p.Mode != Allowlist {
+	if p.Mode != Allowlist && p.Mode != Open {
 		p.Mode = Everyone
 	}
 	p.Block = slices.Clone(p.Block)

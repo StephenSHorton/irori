@@ -91,6 +91,17 @@ func (s *InboxService) Held() []inbox.Delivery {
 	return append([]inbox.Delivery{}, s.snapshot().held...)
 }
 
+// HeldHistory returns deliveries a hold once kept that are no longer held
+// (released, dismissed, let through by an unpause), the most recently
+// decided first; at most limit (default inbox.DefaultInboxList, max 500).
+// A dismissed one can still be released (Release).
+func (s *InboxService) HeldHistory(limit int) []inbox.Delivery {
+	if limit <= 0 {
+		limit = inbox.DefaultInboxList
+	}
+	return nonNil(s.core.Inbox().HeldHistory(min(limit, 500)))
+}
+
 // Counts returns the unread and held numbers and whether wakes are paused,
 // as of the last inbox:changed.
 func (s *InboxService) Counts() InboxCounts { return s.snapshot().counts }
@@ -139,7 +150,8 @@ func (s *InboxService) MarkRead(deliveryID string) error {
 	return s.acted(s.core.Inbox().Skip(context.Background(), s.by(), strings.TrimSpace(deliveryID), "read in the Irori window"))
 }
 
-// Release delivers a held delivery past the policy (the person's Deliver).
+// Release delivers a held delivery past the policy (the person's Deliver),
+// or a dismissed one after all (the Held list's undo).
 func (s *InboxService) Release(deliveryID string) error {
 	return s.acted(s.core.Inbox().Release(context.Background(), deliveryID, s.by()))
 }

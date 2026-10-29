@@ -62,6 +62,8 @@ Every card in the app (the main window's card, which is also where a notificatio
 - **Who hears it** (`Coord.PersonComment`): the holders that work the card, then any holder still assigned, asked to answer it on the card; then its watchers, told who answers and to answer only if asked. With no holder around, the agent that created the card answers instead, if it is still around. Around means the app's roster has the agent and it isn't gone; an agent on an offline device still counts, as its device gets the delivery when it is back. The person, Irori and the commenter never hear their own comment.
 - **Wake** goes to whoever answers. Watchers hear at their next turn, unless nobody else heard, in which case they carry the wake.
 - **Nobody around:** the `task.comment` row carries `unheard`, and the thread shows "Nobody has heard this yet" under it until an agent writes on the card. Older peers ignore the field.
+- **Not taken up yet** (card #28): while the comment's notice to an agent asked to answer it is still open in this device's inbox, the thread says so under the comment: "queued for <name> (busy)" (or "queued for <name>" when the roster doesn't say busy, at its next turn), "held for <name>" (the wake policy), or "sent to <name>, not read yet" (delivered, its turn hasn't started). The line goes once that agent's turn with it starts (engaged). It is read from this device's inbox (`BoardService.Card`, `CardThreadItem.pending`), so a notice to another device's agent shows nothing here; watchers' notices are left out. The card page re-reads on `inbox:changed` as well as `board:changed`, so the line follows the delivery.
+- **A finished card comes back** (card #28): the person's comment on a done, canceled or failed card held by an agent still around reopens it first, a `task.status` row (working with its holders) with the note "reopened by the person's comment", then the comment; its holders hear as above, told it is open again. A finished card nobody holds, or whose holders have all gone, stays finished (it would sit Working with nobody on it), and the comment goes as before. A parent whose subtasks have all ended stays done (its state follows them). The card page of a finished card also has **Reopen** (`BoardService.Reopen`, `Coord.Reopen`): its creator, a holder or a person may; it writes the same row with the note "reopened", and its holders hear at their next turn (a `reopened` notice; with none, its creator if an agent); reopening a subtask of a finished parent brings the parent back first. The thread's line is "reopened it". Agents can `board_watch` a finished card too.
 - **The answer** is a `board_comment` by whoever was asked; it replicates like any comment and shows in every device's thread. Across devices the notice is a delivery to the other device's agent, which its host wakes (v0.4 §6.3).
 
 ## Holders that go away
@@ -200,7 +202,10 @@ The taker (or the person) ends an ask with `ask_close`. `task.status` gains `out
 |---|---|---|
 | **card**: it becomes the card | on the ask: `task.edited` (title, objective, done-when from the tool), then `task.steps` when steps are given, then `task.claimed` by the taker, then `task.status working {outcome: card}` | the same tile, now an ordinary card: same `#14`, same thread, the taker holding it. The thread has a history line: "became a card". |
 | **edit**: it changes #M | `task.edited` on #M (any fields given), a history line on #M's thread ("from the ask #14: <note>", written by Irori, attributed to the taker), then `task.status completed {outcome: edit, task: M}` on the ask | the ask folds into Done: "Changed #M: <note>", with #M as a link |
-| **none**: nothing comes of it | `task.status canceled {outcome: none}` on the ask | Done: "Closed: <note>" |
+| **answered**: the taker answered the person's question | `task.status completed {outcome: answered}` on the ask | Done, its badge "Answered": "Answered: <note>" |
+| **none**: nothing comes of it | `task.status canceled {outcome: none}` on the ask | Done, its badge "Closed" (not "Canceled"): "Closed: <note>" |
+
+- **answered, not none** (card #28): an ask the taker answered used to close as `none` and read "Canceled". `answered` is for whenever the taker answered the person; `none` only when nothing came of it. A taker whose answer asks the person something doesn't close in the same step: it waits for their reply on the card. The taker still holds a closed ask, so the person's comment on it reopens it for the taker ("Comments from the app").
 
 - **The fold.** Once a `task.status` carrying an outcome has folded, the ask is a card. The take lock stops applying, ordinary holder rules return (the taker's `task.claimed`), and the owner's sweep stops managing it. A `take.state` written after it is ignored.
 - **The person closing** from the window writes `outcome: none` with the note they typed, or "closed by the person".
@@ -235,7 +240,7 @@ There are no blocker or step sections until it becomes a card. There is no new v
 ### Agent tools
 
 - **`ask_claim {task_id}`** is the take lock (above).
-- **`ask_close {task_id, outcome: card|edit|none, note, title?, objective?, done_when?, steps?, task?}`**:
+- **`ask_close {task_id, outcome: card|edit|answered|none, note, title?, objective?, done_when?, steps?, task?}`**:
   - `card` takes `title` (required) and optionally the rest;
   - `edit` takes `task` (#M) and any of `title`, `objective` and `done_when` for it;
   - only the taker or a person may call it.
@@ -244,7 +249,7 @@ There are no blocker or step sections until it becomes a card. There is no new v
   - giving it back is `board_leave`;
   - an open ask's thread is read with `show #14`;
   - `board` lists open asks the caller could take first, under "Asks", followed by asks it has taken.
-- **Instructions** (added to `BoardInstructions` and to the two tools' descriptions): "An ask is the person talking to the room: work to start now, not backlog. If you are free and can take it, ask_claim it. One agent takes it, so if someone else has, leave it unless you have something to add (board_comment). Once you hold an ask: if it isn't clear what's wanted, talk it through with the person on the card first. Then ask_close it with what it became: a card (it becomes the card, and you hold it), a change to an existing card, or nothing, with one line on why."
+- **Instructions** (added to `BoardInstructions` and to the two tools' descriptions): "An ask is the person talking to the room: work to start now, not backlog. If you are free and can take it, ask_claim it. One agent takes it, so if someone else has, leave it unless you have something to add (board_comment). Once you hold an ask: if it isn't clear what's wanted, talk it through with the person on the card first. Then ask_close it with what it became: a card (it becomes the card, and you hold it), a change to an existing card, an answer (you answered the person's question), or nothing, with one line on why. If your answer asks the person something, don't close in the same step: wait for their reply on the card first."
 
 ### Build list
 

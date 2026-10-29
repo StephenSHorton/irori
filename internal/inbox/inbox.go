@@ -212,9 +212,17 @@ type Delivery struct {
 	Until     time.Time    `json:"until,omitempty"`  // deferral due time
 	MovedTo   string       `json:"movedTo,omitempty"`
 	Reminded  bool         `json:"reminded"`
-	CreatedAt time.Time    `json:"createdAt"`
-	UpdatedAt time.Time    `json:"updatedAt"`
-	Message   Message      `json:"message"` // denormalized for callers
+	// HeldFor is the reason a hold last kept it, kept after Release clears
+	// Hold: non-empty on every delivery that was ever held. DecidedBy and
+	// DecidedAt are who moved it out of Held or Dismissed last (the person,
+	// also for an unpause; "irori" for the sweep) and when. All three are folded
+	// from the delivery rows, never written.
+	HeldFor   HoldReason `json:"heldFor,omitempty"`
+	DecidedBy string     `json:"decidedBy,omitempty"`
+	DecidedAt time.Time  `json:"decidedAt,omitzero"`
+	CreatedAt time.Time  `json:"createdAt"`
+	UpdatedAt time.Time  `json:"updatedAt"`
+	Message   Message    `json:"message"` // denormalized for callers
 }
 
 // Wake is one prompt to submit to a recipient, or (Mode ModeNextTurn) one
@@ -281,6 +289,10 @@ type Mode string
 const (
 	Everyone  Mode = "everyone"
 	Allowlist Mode = "allowlist"
+	// Open is "Full auto": like Everyone, but no message is held for
+	// bypass_receiver (decision 36). Block, Pause all and the hop limit
+	// still apply.
+	Open Mode = "open"
 )
 
 // Policy is the per-device wake policy. Block/Allow hold sender keys or names.
@@ -484,7 +496,8 @@ func (b *Inbox) Skip(ctx context.Context, agent, deliveryID, note string) error 
 }
 
 // Release is the person's Deliver on a held delivery: it re-queues it past the
-// policy. by is "user:<device>".
+// policy. A dismissed delivery can be released too, undoing the Dismiss.
+// by is "user:<device>".
 func (b *Inbox) Release(ctx context.Context, deliveryID, by string) error {
 	err := b.impl.release(ctx, deliveryID, by)
 	b.impl.fillCards(ctx)
@@ -505,6 +518,13 @@ func (b *Inbox) For(agent string, all bool, limit int) []Delivery {
 
 // List lists recent deliveries across every recipient, newest first (GUI).
 func (b *Inbox) List(limit int) []Delivery { return b.impl.list(limit) }
+
+// HeldHistory lists deliveries a hold once kept that are no longer held,
+// the most recently decided first (GUI: the Held list's History).
+func (b *Inbox) HeldHistory(limit int) []Delivery { return b.impl.heldHistory(limit) }
+
+// OfMessage lists every delivery of message id, oldest first.
+func (b *Inbox) OfMessage(id string) []Delivery { return b.impl.ofMessage(id) }
 
 // Open lists every open delivery (State.Open), held ones included, in no
 // particular order. Subscribe drops changes for a slow reader; a reader
