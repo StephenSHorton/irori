@@ -526,3 +526,42 @@ export function displayName(r: AgentRef): string {
   if (!n || n === r.key) return r.key.split("/").pop() || r.key
   return n
 }
+
+// busy says an agent holding the card is working on it right now: one of
+// its holders is live, on a device that's online, and its roster status is
+// "busy". A card that waits on the person (its input, a blocker) or is
+// over isn't, whatever its agent is doing elsewhere. The card and its
+// current step show a spinner while it is.
+export function busy(c: {
+  state: string
+  openBlockers: number
+  working: readonly AgentRef[]
+}): boolean {
+  switch (c.state) {
+    case TaskState.Completed:
+    case TaskState.Canceled:
+    case TaskState.Failed:
+    case TaskState.InputRequired:
+      return false
+  }
+  if (c.openBlockers > 0) return false
+  return c.working.some(
+    (w) => w.status === "busy" && w.live && !w.offline && !w.assigned
+  )
+}
+
+// cardHash is the window's address for card id's page, "#card/<id>";
+// cardFromHash reads one back ("" for the grid).
+export function cardHash(id: string): string {
+  return `#card/${encodeURIComponent(id)}`
+}
+
+export function cardFromHash(hash: string): string {
+  const m = /^#card\/(.+)$/.exec(hash)
+  if (!m) return ""
+  try {
+    return decodeURIComponent(m[1])
+  } catch {
+    return ""
+  }
+}

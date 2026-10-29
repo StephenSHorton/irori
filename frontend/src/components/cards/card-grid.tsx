@@ -3,7 +3,7 @@ import { LayersIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { percent, type CardSummary } from "@/lib/cards"
+import { busy, percent, type CardSummary } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
 import { cn } from "@/lib/utils"
 import {
@@ -12,6 +12,7 @@ import {
   ProgressBar,
   ScopeBadge,
   ShortRef,
+  Spinner,
   StatePill,
 } from "./bits"
 import { Faces } from "./faces"
@@ -71,7 +72,9 @@ export function FilterBar({
   )
 }
 
-// CardGrid is the cards of shared work, one button each.
+// CardGrid is the cards of shared work, one button each; a button opens
+// its card's page. selected is the card last opened, marked on the way
+// back so the person can see where they were.
 export function CardGrid({
   cards,
   selected,
@@ -113,6 +116,7 @@ function CardTile({
   return (
     <button
       type="button"
+      data-card={card.id}
       onClick={onSelect}
       aria-current={selected ? "true" : undefined}
       className={cn(
@@ -135,6 +139,7 @@ function CardTile({
             Lease conflict
           </Badge>
         )}
+        {busy(card) && <Spinner className="ml-auto" />}
       </span>
       <span className="text-sm leading-snug font-medium text-balance text-ink">
         {title}

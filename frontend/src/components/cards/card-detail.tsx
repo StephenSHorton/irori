@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from "react"
-import { ExternalLinkIcon } from "lucide-react"
+import { ArrowLeftIcon, ExternalLinkIcon } from "lucide-react"
 
 import { ConfirmButton } from "@/components/common/confirm-button"
 import { Badge } from "@/components/ui/badge"
@@ -10,10 +10,12 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
   BlockerState,
+  busy,
   cards,
   displayName,
   MaxAnswer,
   MaxComment,
+  LinkKind,
   NoteItem,
   percent,
   TaskState,
@@ -23,6 +25,8 @@ import {
   type CardDetail,
   type CardOption,
   type CardPR,
+  type CardSummary,
+  type Step,
   type Told,
 } from "@/lib/cards"
 import {
@@ -35,219 +39,357 @@ import {
 import { errorText, talk, type GoneSession } from "@/lib/talk"
 import { answerable, blockerChip, blockerTone, heardLine } from "@/lib/thread"
 import { cn } from "@/lib/utils"
-import { cardTone, HolderLine, ProgressBar, ScopeBadge, ShortRef } from "./bits"
+import {
+  cardTone,
+  HolderLine,
+  ProgressBar,
+  ScopeBadge,
+  ShortRef,
+  Spinner,
+  StatePill,
+} from "./bits"
 import { Face, LiveDot } from "./faces"
 import { Thread } from "./thread"
 import { AttachmentList } from "@/components/attachments"
+import type { FileRef } from "@/lib/attachments"
 import { LinkChip, RichLine, RichText } from "@/components/common/rich-text"
 
 // Answered is a note answer the person just sent: the note item leaves the
 // card once answered, so the panel keeps it to show who heard.
 type Answered = { question: string; answer: string; told: Told; to: AgentRef }
 
-// CardPanel is one card opened beside the grid: the goal, its blockers
-// with recommended answers, progress, who's on it, PRs and its thread.
-// Key it by card id, so a note answer shown here stays with its card.
-export function CardPanel({
+// CardPage is one card on its own page, in the window's full width: a
+// header (short ref, title, state, scope, Back), a main column with the
+// objective, its blockers and the thread, and a side column with progress,
+// who's on it, PRs, links and files. Narrow (below 900px) it is one column
+// with the side column after the blockers. Key it by card id, so a note
+// answer shown here stays with its card.
+export function CardPage({
+  summary,
   detail,
   error,
   gone,
   now,
+  onBack,
 }: {
+  // summary is the card's grid tile, if the grid has it, for the header
+  // while the full card loads.
+  summary?: CardSummary
   detail: CardDetail | null
   error: string | null
   gone: GoneSession[]
   now: Date
+  onBack: () => void
 }) {
   const [answered, setAnswered] = useState<Answered | null>(null)
+  const back = (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="-ml-2 justify-self-start text-muted-foreground"
+      onClick={onBack}
+      title="Back to the cards (Esc)"
+    >
+      <ArrowLeftIcon aria-hidden />
+      Cards
+    </Button>
+  )
   if (!detail)
     return (
-      <Card className="px-5 py-6! text-sm text-muted-foreground">
-        {error ? `Could not open the card: ${error}` : "Opening the card…"}
-      </Card>
+      <article className="grid gap-3" aria-label="Card">
+        {back}
+        {summary && <PageHeader card={summary} spinning={busy(summary)} />}
+        <Card className="px-5 py-6! text-sm text-muted-foreground">
+          {error ? `Could not open the card: ${error}` : "Opening the card…"}
+        </Card>
+      </article>
     )
   const p = percent(detail.progress)
   const open = detail.blockers.filter((b) => !b.resolved)
   // A card blocked the old way (a reason, no items) has nothing to pick.
   const legacy = detail.openBlockers > 0 && open.length === 0
-  return (
-    <Card className="gap-0 py-0!">
-      <div className="grid gap-2.5 border-b border-border px-5 pt-[18px] pb-3.5">
-        <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-          <ShortRef card={detail} />
-          <ScopeBadge card={detail} />
-          {detail.repoKey && (
-            <span className="font-mono" title={detail.repoKey}>
-              {shortRepo(detail.repoKey)}
-            </span>
-          )}
-        </div>
-        <h2 className="text-xl leading-tight font-semibold tracking-tight text-balance text-ink">
-          {plainLine(detail.title) || "(untitled)"}
-        </h2>
-        {detail.goal && (
-          <RichText
-            text={detail.goal}
-            className="max-w-[62ch] text-sm text-muted-foreground"
-          />
-        )}
-        {detail.note && detail.state !== TaskState.InputRequired && (
-          <p className="max-w-[62ch] text-[12.5px] text-muted-foreground">
-            <span className="font-medium text-ink-2">Note:</span>{" "}
-            <RichLine text={detail.note} />
-          </p>
-        )}
-        {detail.doneWhen && (
-          <p className="max-w-[62ch] text-[12.5px] text-muted-foreground">
-            <span className="font-medium text-ink-2">Done when:</span>{" "}
-            <RichLine text={detail.doneWhen} />
-          </p>
-        )}
-        {p === null ? (
-          <HolderLine holder={detail.holder} />
-        ) : (
-          <ProgressBar
-            progress={detail.progress}
-            label={`${p ?? 0}% complete`}
-            tone={cardTone({ state: detail.state, openBlockers: detail.openBlockers, working: detail.working })}
-          />
-        )}
-        <div className="flex flex-wrap gap-1.5 text-xs text-muted-foreground">
-          {p !== null && <span>{p}% complete</span>}
-          {p !== null && detail.openBlockers > 0 && <span>·</span>}
-          {detail.openBlockers > 0 && (
-            <span className="text-destructive">
-              {detail.openBlockers} waiting on a decision
-            </span>
-          )}
-          {(p !== null || detail.openBlockers > 0) && detail.waiting > 0 && (
-            <span>·</span>
-          )}
-          {detail.waiting > 0 && (
-            <span>{detail.waiting} waiting on an agent</span>
-          )}
-        </div>
-      </div>
-
-      {(detail.blockers.length > 0 || legacy || answered) && (
-        <Section title="Blockers">
-          {legacy && (
-            <div className="grid gap-1.5 border border-destructive/50 bg-destructive/10 p-3">
-              <div className="text-[13.5px] font-semibold text-ink">
-                <RichLine text={detail.blockerQuestion} />
-              </div>
-              <div className="text-xs text-muted-foreground">
-                Raised without recommended answers. The agent on it clears it
-                when it's sorted.
-              </div>
-            </div>
-          )}
-          {answered && !open.some((b) => b.id === NoteItem) && (
-            <div className="grid gap-2 border border-border bg-muted/40 p-3 opacity-85">
-              <div className="text-[13.5px] font-semibold text-ink">
-                <span className="text-success" aria-label="Answered: ">
-                  ✓{" "}
-                </span>
-                {plainLine(answered.question)}
-              </div>
-              <div className="text-[11.5px] text-muted-foreground">
-                You answered: “{plainLine(answered.answer)}”
-              </div>
-              <ToldLine told={answered.told} raiser={answered.to} />
-            </div>
-          )}
-          {detail.blockers.map((b) => (
-            <BlockerItem
-              key={b.id}
-              cardId={detail.id}
-              blocker={b}
-              now={now}
-              onNoteAnswered={(answer, told) =>
-                setAnswered({
-                  question: b.question,
-                  answer,
-                  told,
-                  to: b.raisedBy,
-                })
-              }
-            />
-          ))}
-        </Section>
-      )}
-
-      <Section title="Progress">
-        {detail.steps.length ? (
-          <ul className="grid gap-1.5 text-[13px]">
-            {detail.steps.map((s) => (
-              <li
-                key={s.id}
-                className="grid grid-cols-[16px_minmax(0,1fr)] gap-2"
-              >
-                <span
-                  className={cn(
-                    "mt-0.5 grid size-3.5 place-items-center text-[10px]",
-                    s.done
-                      ? "bg-success text-background"
-                      : s.doing
-                        ? "ring-1 ring-foreground/70 ring-inset"
-                        : "ring-1 ring-muted-foreground/50 ring-inset"
-                  )}
-                  aria-hidden
-                >
-                  {s.done ? "✓" : s.doing ? <span className="size-1.5 bg-primary" /> : ""}
-                </span>
-                <span
-                  className={cn(
-                    s.doing && !s.done && "font-medium text-foreground",
-                    s.done && "text-ink-2"
-                  )}
-                >
-                  <span className="sr-only">
-                    {s.done ? "Done: " : s.doing ? "In progress: " : "To do: "}
-                  </span>
-                  {plainLine(s.text)}
-                  {s.doing && !s.done && (
-                    <span className="font-normal text-muted-foreground"> · in progress</span>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <Note>No steps yet. The agents on it add them as they plan.</Note>
-        )}
-      </Section>
-
-      <Section title="Who's on it">
-        <People detail={detail} gone={gone} />
-      </Section>
-
-      <Section title="Pull requests">
-        {detail.prs.length ? (
-          <div className="grid gap-2">
-            {detail.prs.map((pr) => (
-              <PRRow key={`${pr.repo}#${pr.number}`} pr={pr} />
-            ))}
-          </div>
-        ) : (
-          <Note>
-            No PR yet. The agents working on it link one when they open it.
-          </Note>
-        )}
-      </Section>
-
-      <Section title="Thread" last>
-        <Thread
-          cardId={detail.id}
-          items={detail.thread}
-          now={now}
-          earlier={detail.threadEarlier}
-          historyTrimmed={detail.historyTrimmed}
-          composer={<CommentBox cardId={detail.id} />}
-        />
-      </Section>
-    </Card>
+  const spinning = busy(detail)
+  const prURLs = new Set(detail.prs.map((pr) => pr.url))
+  const links = detail.links.filter(
+    (l) => !(l.kind === LinkKind.LinkURL && prURLs.has(l.ref))
   )
+  const files = cardFiles(detail)
+  const showNote = !!detail.note && detail.state !== TaskState.InputRequired
+  const hasObjective = !!(detail.goal || detail.doneWhen || showNote)
+  const hasBlockers = detail.blockers.length > 0 || legacy || !!answered
+  return (
+    <article className="grid gap-3" aria-label="Card">
+      {back}
+      <PageHeader card={detail} spinning={spinning} />
+      <div className="grid items-start gap-4 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)] min-[900px]:grid-rows-[auto_1fr]">
+        {(hasObjective || hasBlockers) && (
+          <Card className="gap-0 py-0! min-[900px]:col-start-1 min-[900px]:row-start-1">
+            {hasObjective && (
+              <Section title="Objective" last={!hasBlockers}>
+                {detail.goal && (
+                  <RichText
+                    text={detail.goal}
+                    className="max-w-[72ch] text-sm text-ink-2"
+                  />
+                )}
+                {showNote && (
+                  <p className="max-w-[72ch] text-[12.5px] text-muted-foreground">
+                    <span className="font-medium text-ink-2">Note:</span>{" "}
+                    <RichLine text={detail.note} />
+                  </p>
+                )}
+                {detail.doneWhen && (
+                  <p className="max-w-[72ch] text-[12.5px] text-muted-foreground">
+                    <span className="font-medium text-ink-2">Done when:</span>{" "}
+                    <RichLine text={detail.doneWhen} />
+                  </p>
+                )}
+              </Section>
+            )}
+            {hasBlockers && (
+              <Section title="Blockers" last>
+                {legacy && (
+                  <div className="grid gap-1.5 border border-destructive/50 bg-destructive/10 p-3">
+                    <div className="text-[13.5px] font-semibold text-ink">
+                      <RichLine text={detail.blockerQuestion} />
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Raised without recommended answers. The agent on it
+                      clears it when it's sorted.
+                    </div>
+                  </div>
+                )}
+                {answered && !open.some((b) => b.id === NoteItem) && (
+                  <div className="grid gap-2 border border-border bg-muted/40 p-3 opacity-85">
+                    <div className="text-[13.5px] font-semibold text-ink">
+                      <span className="text-success" aria-label="Answered: ">
+                        ✓{" "}
+                      </span>
+                      {plainLine(answered.question)}
+                    </div>
+                    <div className="text-[11.5px] text-muted-foreground">
+                      You answered: “{plainLine(answered.answer)}”
+                    </div>
+                    <ToldLine told={answered.told} raiser={answered.to} />
+                  </div>
+                )}
+                {detail.blockers.map((b) => (
+                  <BlockerItem
+                    key={b.id}
+                    cardId={detail.id}
+                    blocker={b}
+                    now={now}
+                    onNoteAnswered={(answer, told) =>
+                      setAnswered({
+                        question: b.question,
+                        answer,
+                        told,
+                        to: b.raisedBy,
+                      })
+                    }
+                  />
+                ))}
+              </Section>
+            )}
+          </Card>
+        )}
+
+        <aside
+          aria-label="About the card"
+          className="min-w-0 min-[900px]:sticky min-[900px]:top-[4.5rem] min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1"
+        >
+          <Card className="gap-0 py-0!">
+            <Section title="Progress">
+              {p === null ? (
+                <HolderLine holder={detail.holder} />
+              ) : (
+                <ProgressBar
+                  progress={detail.progress}
+                  label={`${p ?? 0}% complete`}
+                  tone={cardTone(detail)}
+                />
+              )}
+              <div className="flex flex-wrap gap-1.5 text-xs text-muted-foreground">
+                {p !== null && <span>{p}% complete</span>}
+                {p !== null && detail.openBlockers > 0 && <span>·</span>}
+                {detail.openBlockers > 0 && (
+                  <span className="text-destructive">
+                    {detail.openBlockers} waiting on a decision
+                  </span>
+                )}
+                {(p !== null || detail.openBlockers > 0) &&
+                  detail.waiting > 0 && <span>·</span>}
+                {detail.waiting > 0 && (
+                  <span>{detail.waiting} waiting on an agent</span>
+                )}
+              </div>
+              {detail.steps.length ? (
+                <Steps steps={detail.steps} spinning={spinning} />
+              ) : (
+                <Note>No steps yet. The agents on it add them as they plan.</Note>
+              )}
+            </Section>
+
+            <Section title="Who's on it">
+              <People detail={detail} gone={gone} />
+            </Section>
+
+            <Section
+              title="Pull requests"
+              last={links.length === 0 && files.length === 0}
+            >
+              {detail.prs.length ? (
+                <div className="grid gap-2">
+                  {detail.prs.map((pr) => (
+                    <PRRow key={`${pr.repo}#${pr.number}`} pr={pr} />
+                  ))}
+                </div>
+              ) : (
+                <Note>
+                  No PR yet. The agents working on it link one when they open
+                  it.
+                </Note>
+              )}
+            </Section>
+
+            {links.length > 0 && (
+              <Section title="Links" last={files.length === 0}>
+                <div className="flex flex-wrap gap-1.5">
+                  {links.map((l) => (
+                    <LinkChip key={`${l.kind}:${l.ref}`} link={l} />
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            {files.length > 0 && (
+              <Section title="Files" last>
+                <AttachmentList attachments={files} />
+              </Section>
+            )}
+          </Card>
+        </aside>
+
+        <Card className="gap-0 py-0! min-[900px]:col-start-1 min-[900px]:row-start-2">
+          <Section title="Thread" last>
+            <Thread
+              cardId={detail.id}
+              items={detail.thread}
+              now={now}
+              earlier={detail.threadEarlier}
+              historyTrimmed={detail.historyTrimmed}
+              composer={<CommentBox cardId={detail.id} />}
+            />
+          </Section>
+        </Card>
+      </div>
+    </article>
+  )
+}
+
+// PageHeader is the card page's title block: its short ref, state, scope
+// and repo over the title, with the spinner while an agent works on it.
+function PageHeader({
+  card,
+  spinning,
+}: {
+  card: CardSummary
+  spinning?: boolean
+}) {
+  return (
+    <header className="grid gap-2">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+        <ShortRef card={card} />
+        <StatePill card={card} />
+        <ScopeBadge card={card} />
+        {card.repoKey && (
+          <span className="font-mono" title={card.repoKey}>
+            {shortRepo(card.repoKey)}
+          </span>
+        )}
+        {spinning && <Spinner className="ml-0.5" />}
+      </div>
+      <h1 className="max-w-[80ch] text-2xl leading-tight font-semibold tracking-tight text-balance text-ink">
+        {plainLine(card.title) || "(untitled)"}
+      </h1>
+    </header>
+  )
+}
+
+// Steps is the card's plan: done ones ticked, the current one marked, and
+// spinning while an agent works on the card.
+function Steps({ steps, spinning }: { steps: Step[]; spinning: boolean }) {
+  return (
+    <ul className="grid gap-1.5 text-[13px]">
+      {steps.map((s) => {
+        const current = s.doing && !s.done
+        return (
+          <li key={s.id} className="grid grid-cols-[16px_minmax(0,1fr)] gap-2">
+            {current && spinning ? (
+              <Spinner className="mt-0.5" label="Being worked on now" />
+            ) : (
+              <span
+                className={cn(
+                  "mt-0.5 grid size-3.5 place-items-center text-[10px]",
+                  s.done
+                    ? "bg-success text-background"
+                    : s.doing
+                      ? "ring-1 ring-foreground/70 ring-inset"
+                      : "ring-1 ring-muted-foreground/50 ring-inset"
+                )}
+                aria-hidden
+              >
+                {s.done ? (
+                  "✓"
+                ) : s.doing ? (
+                  <span className="size-1.5 bg-primary" />
+                ) : (
+                  ""
+                )}
+              </span>
+            )}
+            <span
+              className={cn(
+                current && "font-medium text-foreground",
+                s.done && "text-ink-2"
+              )}
+            >
+              <span className="sr-only">
+                {s.done ? "Done: " : s.doing ? "In progress: " : "To do: "}
+              </span>
+              {plainLine(s.text)}
+              {current && (
+                <span className="font-normal text-muted-foreground">
+                  {" "}
+                  · in progress
+                </span>
+              )}
+            </span>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+// cardFiles is every file on the card, once each: the ones on its
+// blockers and on its thread (blocker replies too).
+function cardFiles(d: CardDetail): FileRef[] {
+  const seen = new Set<string>()
+  const out: FileRef[] = []
+  const add = (fs: FileRef[] | undefined | null) => {
+    for (const f of fs ?? []) {
+      if (seen.has(f.sha256)) continue
+      seen.add(f.sha256)
+      out.push(f)
+    }
+  }
+  for (const b of d.blockers) {
+    add(b.attachments)
+    for (const it of b.thread) add(it.attachments)
+  }
+  for (const it of d.thread) add(it.attachments)
+  return out
 }
 
 function Section({

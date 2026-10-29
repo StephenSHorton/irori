@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 
 import { AppHeader } from "@/components/app-header"
-import { CardPanel } from "@/components/cards/card-detail"
+import { CardPage } from "@/components/cards/card-detail"
 import { MessageDialog } from "@/components/cards/message-dialog"
 import {
   CardGrid,
@@ -10,52 +10,135 @@ import {
   matches,
   type Filter,
 } from "@/components/cards/card-grid"
-import { useCard, useCards } from "@/lib/cards"
+import { cardFromHash, cardHash, useCard, useCards } from "@/lib/cards"
 import { useNow, useRoster } from "@/lib/irori"
 import { onOpen } from "@/lib/settings"
 import { nameLookup, useGone } from "@/lib/talk"
 import { UpdateBanner } from "@/updater"
 
-// narrow mirrors the layout breakpoint: below it the card opens under the
-// grid instead of beside it.
-const narrow = "(max-width: 979px)"
+// PageState is the history entry of a card's page. fromGrid: the grid is
+// the entry behind it, so Back is the browser's back.
+type PageState = { card: string; fromGrid?: boolean }
 
 // App is the whole window (docs/design/v0.4-devices.md §9): cards of shared
-// work, and the one opened beside them. Messages, capture and the roster
-// keep running underneath for agents and routing; the person reaches them
-// through cards and notifications.
+// work, and a card's own page when one is opened. Messages, capture and
+// the roster keep running underneath for agents and routing; the person
+// reaches them through cards and notifications.
+//
+// The open card lives in the address ("#card/<id>"), so the browser's (or
+// the mouse's) back, Esc and the page's Back return to the grid, with its
+// filter and scroll where they were.
 export function App() {
   const roster = useRoster()
   const { gone } = useGone()
   const { cards, loading, error } = useCards()
   const now = useNow()
   const [filter, setFilter] = useState<Filter>("all")
-  // picked is the person's choice; until there is one the first card opens,
-  // and is pinned once shown, so an answer that re-sorts the grid doesn't
-  // swap the open card (and its buttons) under the cursor.
-  const [picked, setPicked] = useState("")
-  const first = cards[0]?.id ?? ""
-  if (!picked && first) setPicked(first) // during render: no extra paint
-  const selected = picked || first
-  const { detail, error: detailError } = useCard(selected)
-  const detailRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(() => cardFromHash(window.location.hash))
+  // last is the card last opened, marked in the grid on the way back.
+  const [last, setLast] = useState(open)
+  const { detail, error: detailError } = useCard(open)
+  // gridScroll is where the grid was scrolled when a card opened.
+  const gridScroll = useRef(0)
   // message is the delivery a notification's Open named, shown in a dialog.
   const [message, setMessage] = useState("")
   const name = nameLookup(
     roster.agents.map((a): [string, string] => [a.key, a.name])
   )
 
-  const select = (id: string) => {
-    setPicked(id)
-    if (window.matchMedia(narrow).matches)
-      requestAnimationFrame(() =>
-        detailRef.current?.scrollIntoView({ block: "start" })
+  // openCard shows card id's page: a new history entry from the grid, the
+  // same entry when another card's page is already showing.
+  const openCard = useCallback((id: string) => {
+    if (!id) return
+    if (cardFromHash(window.location.hash)) {
+      const was = window.history.state as PageState | null
+      window.history.replaceState(
+        { card: id, fromGrid: was?.fromGrid } satisfies PageState,
+        "",
+        cardHash(id)
       )
-  }
+    } else {
+      gridScroll.current = window.scrollY
+      window.history.pushState(
+        { card: id, fromGrid: true } satisfies PageState,
+        "",
+        cardHash(id)
+      )
+    }
+    setOpen(id)
+    setLast(id)
+  }, [])
 
-  // A notification's Open: a task ref opens that card (with the filter
-  // cleared so it can be seen); a message (held, or sent to the person)
-  // opens in a dialog over the cards.
+  // back returns to the grid: the browser's back when the grid is the
+  // entry behind (popstate does the rest), else the same entry without
+  // the card (a page opened from a reload).
+  const back = useCallback(() => {
+    const st = window.history.state as PageState | null
+    if (st?.fromGrid) {
+      window.history.back()
+      return
+    }
+    window.history.replaceState(
+      null,
+      "",
+      window.location.pathname + window.location.search
+    )
+    setOpen("")
+  }, [])
+
+  useEffect(() => {
+    const onPop = () => {
+      const id = cardFromHash(window.location.hash)
+      setOpen(id)
+      if (id) setLast(id)
+    }
+    window.addEventListener("popstate", onPop)
+    return () => window.removeEventListener("popstate", onPop)
+  }, [])
+
+  // A card's page starts at the top; the grid comes back where it was,
+  // with the card it left from focused.
+  const shownOpen = useRef(open)
+  useLayoutEffect(() => {
+    if (shownOpen.current === open) return
+    const wasGrid = !shownOpen.current
+    shownOpen.current = open
+    if (open) {
+      if (wasGrid) window.scrollTo(0, 0)
+      return
+    }
+    window.scrollTo(0, gridScroll.current)
+    document
+      .querySelector<HTMLElement>(`[data-card="${CSS.escape(last)}"]`)
+      ?.focus({ preventScroll: true })
+  }, [open, last])
+
+  // Esc on a card's page is Back, unless a dialog or menu takes it, or it
+  // is in a field (there it leaves the field first, so a draft isn't lost
+  // to a stray key). Capture: it runs before a dialog closes itself.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return
+      if (
+        document.querySelector(
+          '[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"]'
+        )
+      )
+        return
+      const t = e.target instanceof HTMLElement ? e.target : null
+      if (t?.closest("input,textarea,select,[contenteditable]")) {
+        t.blur()
+        return
+      }
+      back()
+    }
+    window.addEventListener("keydown", onKey, true)
+    return () => window.removeEventListener("keydown", onKey, true)
+  }, [open, back])
+
+  // A notification's Open: a task ref opens that card's page; a message
+  // (held, or sent to the person) opens in a dialog over the cards.
   useEffect(
     () =>
       onOpen((target) => {
@@ -65,10 +148,9 @@ export function App() {
           return
         }
         if (!ref.startsWith("task:")) return
-        setFilter("all")
-        setPicked(ref.slice("task:".length))
+        openCard(ref.slice("task:".length))
       }),
-    []
+    [openCard]
   )
 
   const shown = cards.filter((c) => matches(c, filter))
@@ -84,36 +166,30 @@ export function App() {
             Could not load the cards: {error}
           </p>
         )}
-        {loading && cards.length === 0 ? (
+        {open ? (
+          <CardPage
+            key={open}
+            summary={cards.find((c) => c.id === open)}
+            detail={detail}
+            error={detailError}
+            gone={gone}
+            now={now}
+            onBack={back}
+          />
+        ) : loading && cards.length === 0 ? (
           <p className="px-1 text-sm text-muted-foreground">Loading cards…</p>
         ) : cards.length === 0 ? (
           <EmptyCards />
         ) : (
           <>
             <FilterBar filter={filter} onFilter={setFilter} decide={decide} />
-            <div className="grid items-start gap-4 min-[980px]:grid-cols-[minmax(0,1fr)_minmax(0,520px)]">
-              {shown.length ? (
-                <CardGrid cards={shown} selected={selected} onSelect={select} />
-              ) : (
-                <p className="px-1 text-[12.5px] text-muted-foreground">
-                  Nothing here with this filter.
-                </p>
-              )}
-              <div
-                ref={detailRef}
-                className="min-w-0 scroll-mt-16 min-[980px]:sticky min-[980px]:top-[4.5rem]"
-              >
-                {selected && (
-                  <CardPanel
-                    key={selected}
-                    detail={detail}
-                    error={detailError}
-                    gone={gone}
-                    now={now}
-                  />
-                )}
-              </div>
-            </div>
+            {shown.length ? (
+              <CardGrid cards={shown} selected={last} onSelect={openCard} />
+            ) : (
+              <p className="px-1 text-[12.5px] text-muted-foreground">
+                Nothing here with this filter.
+              </p>
+            )}
           </>
         )}
       </main>
