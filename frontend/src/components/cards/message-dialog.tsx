@@ -14,24 +14,12 @@ import { Textarea } from "@/components/ui/textarea"
 import { parseTime, plainBlock, plainLine, relativeTime } from "@/lib/irori"
 import {
   errorText,
-  HoldReason,
+  holdText,
   MaxText,
   State,
   talk,
   type Delivery,
 } from "@/lib/talk"
-
-// holdReasons mirror notify.HoldReason: why Irori held a message.
-const holdReasons: Record<string, string> = {
-  [HoldReason.HoldBlocked]: "The sender is on your block list.",
-  [HoldReason.HoldNotAllowed]: "The sender isn't on your allow list.",
-  [HoldReason.HoldBypassReceiver]:
-    "The recipient runs without permission prompts. Full auto in Settings lets these through.",
-  [HoldReason.HoldHopLimit]:
-    "It is too many hops down a chain of agent messages.",
-  [HoldReason.HoldUnowned]: "No agent in that repo can take it yet.",
-  [HoldReason.HoldPaused]: "Wakes are paused.",
-}
 
 // MessageDialog is one message a notification's Open named (there is no
 // inbox in the window): a message Irori held, with Release and Dismiss, or
@@ -124,7 +112,7 @@ export function MessageDialog({
           </DialogTitle>
           {d && (
             <DialogDescription>
-              {held && (holdReasons[d.hold ?? ""] ?? plainLine(d.hold ?? ""))}{" "}
+              {held && plainLine(holdText(d))}{" "}
               <time
                 dateTime={sent?.toISOString()}
                 title={sent?.toLocaleString()}

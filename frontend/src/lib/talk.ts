@@ -35,6 +35,41 @@ export const InboxLimit = 200
 // MaxText mirrors inbox.MaxText.
 export const MaxText = 8000
 
+// HeldHistoryLimit is how many past held messages the Held list's History
+// asks for.
+export const HeldHistoryLimit = 100
+
+// SystemKey mirrors inbox.SystemKey: Irori itself (an unpause, the sweep).
+export const SystemKey = "irori"
+
+// holdReasons mirror notify.HoldReason: why Irori held a message.
+export const holdReasons: Record<string, string> = {
+  [HoldReason.HoldBlocked]: "The sender is on your block list.",
+  [HoldReason.HoldNotAllowed]: "The sender isn't on your allow list.",
+  [HoldReason.HoldBypassReceiver]:
+    "The recipient runs without permission prompts. Full auto in Settings lets these through.",
+  [HoldReason.HoldHopLimit]:
+    "It is too many hops down a chain of agent messages.",
+  [HoldReason.HoldUnowned]: "No agent in that repo can take it yet.",
+  [HoldReason.HoldPaused]: "Wakes are paused.",
+}
+
+// holdText is why d was (or is) held, in plain words.
+export function holdText(d: Delivery): string {
+  const h = d.hold || d.heldFor || ""
+  return holdReasons[h] ?? h
+}
+
+// allowLifts mirrors InboxService.AllowAndRelease: allowing the sender
+// lifts only these holds.
+export function allowLifts(d: Delivery): boolean {
+  return (
+    d.state === State.Held &&
+    (d.hold === HoldReason.HoldNotAllowed ||
+      d.hold === HoldReason.HoldBypassReceiver)
+  )
+}
+
 // errorText reads a failed call: Wails rejects with an Error or with an
 // object carrying message. Go error text is shown as plain text.
 export function errorText(err: unknown): string {
@@ -91,11 +126,21 @@ function sampleDelivery(id: string): Delivery {
 
 function sampleSetState(id: string, state: State) {
   const s = sampleState()
-  s.deliveries = s.deliveries.map((d) =>
-    d.id === id
-      ? { ...d, state, hold: undefined, updatedAt: new Date().toISOString() }
-      : d
-  )
+  const now = new Date().toISOString()
+  s.deliveries = s.deliveries.map((d) => {
+    if (d.id !== id) return d
+    // As the inbox folds it: the hold is kept in heldFor, and leaving held
+    // or dismissed records who decided.
+    const decided = d.state === State.Held || d.state === State.Dismissed
+    return {
+      ...d,
+      state,
+      hold: state === State.Dismissed ? d.hold : undefined,
+      heldFor: d.hold || d.heldFor,
+      ...(decided ? { decidedBy: `user:sample-device`, decidedAt: now } : {}),
+      updatedAt: now,
+    } as Delivery
+  })
   sampleChanged()
 }
 
@@ -158,9 +203,15 @@ export const talk = {
     sampleSetState(id, State.Skipped)
   },
 
+  // release delivers a held message past the policy, or a dismissed one
+  // after all (the Held list's undo).
   async release(id: string): Promise<void> {
     if (inWails()) return InboxService.Release(id)
-    sampleDelivery(id)
+    const d = sampleDelivery(id)
+    if (d.state !== State.Held && d.state !== State.Dismissed)
+      throw new Error(
+        `inbox: not allowed in the delivery's current state: can't release a ${d.state} delivery`
+      )
     sampleSetState(id, State.Queued)
   },
 
@@ -316,6 +367,62 @@ export function usePolicy(): {
   }, [reload])
 
   return { policy: value, error, reload }
+}
+
+export type HeldState = {
+  // held is every message waiting on the person, Pause all's too, newest
+  // first.
+  held: Delivery[]
+  // history is past held messages, the most recently decided first; only
+  // loaded while asked for.
+  history: Delivery[]
+  error: string | null
+  reload: () => Promise<void>
+}
+
+type HeldValue = { held: Delivery[]; history: Delivery[] }
+
+const created = (d: Delivery) => parseTime(d.createdAt)?.getTime() ?? 0
+const decided = (d: Delivery) =>
+  parseTime(d.decidedAt || d.updatedAt)?.getTime() ?? 0
+
+// useHeld loads the Held list (and, with history, its History), re-read on
+// every inbox:changed.
+export function useHeld(history: boolean): HeldState {
+  const load = useCallback(async (): Promise<HeldValue> => {
+    if (!inWails()) {
+      const all = sampleState().deliveries
+      return {
+        held: all
+          .filter((d) => d.state === State.Held)
+          .sort((a, b) => created(b) - created(a)),
+        history: history
+          ? all
+              .filter((d) => d.heldFor && d.state !== State.Held)
+              .sort((a, b) => decided(b) - decided(a))
+          : [],
+      }
+    }
+    const [held, past] = await Promise.all([
+      InboxService.Held(),
+      history
+        ? InboxService.HeldHistory(HeldHistoryLimit)
+        : Promise.resolve([]),
+    ])
+    return { held: held ?? [], history: past ?? [] }
+  }, [history])
+  const { value, error, reload } = useLatest<HeldValue>(load, {
+    held: [],
+    history: [],
+  })
+
+  useEffect(() => {
+    void reload()
+    if (!inWails()) return onSample(() => void reload())
+    return Events.On(EventInboxChanged, () => void reload())
+  }, [reload])
+
+  return { ...value, error, reload }
 }
 
 async function loadGone(): Promise<GoneSession[]> {

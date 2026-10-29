@@ -92,7 +92,7 @@ type Note struct {
 // Target is where a card's Open takes the person: a tab of the Irori
 // window, and optionally a ref to select there ("task:<id>", a delivery id).
 type Target struct {
-	Tab string `json:"tab"` // "roster", "inbox", "board", ...
+	Tab string `json:"tab"` // "inbox", "board", "held"
 	Ref string `json:"ref,omitempty"`
 }
 

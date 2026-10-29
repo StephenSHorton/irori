@@ -337,9 +337,15 @@ type CardThreadItem struct {
 	// Held: the wake policy hasn't let it through yet, so its text isn't on
 	// the card. Files counts the message's attachments, which stay on the
 	// message. Message opens a message in full.
-	Gone        bool           `json:"gone,omitempty"`
-	Held        bool           `json:"held,omitempty"`
-	Files       int            `json:"files,omitempty"`
+	Gone  bool `json:"gone,omitempty"`
+	Held  bool `json:"held,omitempty"`
+	Files int  `json:"files,omitempty"`
+	// Dismissed: a held message the person dismissed, so its text never
+	// reaches the card unless they release it after all. DeliveryID is the
+	// held or dismissed delivery, for that Release (this device's inbox
+	// only; "" otherwise).
+	Dismissed   bool           `json:"dismissed,omitempty"`
+	DeliveryID  string         `json:"deliveryId,omitempty"`
 	Attachments []blob.FileRef `json:"attachments,omitempty"` // a comment's files
 	// Unheard: the person's comment had no agent around to hear it, and no
 	// agent has written on the card since.
@@ -908,6 +914,10 @@ func (b *BoardService) Card(id string) (CardDetail, error) {
 	acts := b.coord.Activity(t.ID)
 	var byBlocker map[string][]CardThreadItem
 	d.Thread, byBlocker, d.ThreadEarlier = buildThread(d.Comments, acts, t, p)
+	b.heldOnThread(d.Thread)
+	for _, items := range byBlocker {
+		b.heldOnThread(items)
+	}
 	d.HistoryTrimmed = len(acts) == coord.MaxActivity
 	var resolved []CardBlocker
 	if t.State == coord.InputRequired {
@@ -994,6 +1004,30 @@ func (a threadPos) before(b threadPos) bool {
 		return a.dev < b.dev
 	}
 	return a.seq < b.seq
+}
+
+// heldOnThread finds the delivery behind each held message on a thread:
+// one still held, else one the person dismissed (Dismissed), so the
+// thread can say so and offer Release.
+func (b *BoardService) heldOnThread(items []CardThreadItem) {
+	if b.ofMessage == nil {
+		return
+	}
+	for i := range items {
+		it := &items[i]
+		if !it.Held || it.Kind != ThreadMessage {
+			continue
+		}
+		for _, d := range b.ofMessage(it.ID) {
+			if d.State == inbox.Held {
+				it.DeliveryID, it.Dismissed = d.ID, false
+				break
+			}
+			if d.State == inbox.Dismissed && it.DeliveryID == "" {
+				it.DeliveryID, it.Dismissed = d.ID, true
+			}
+		}
+	}
 }
 
 // buildThread merges a card's comments and its activity (newest first, as

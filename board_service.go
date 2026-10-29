@@ -141,6 +141,9 @@ type BoardService struct {
 	// deliveries are the inbox's open deliveries, read to tell an
 	// assignment that never reached its agent (queued or held); nil is none.
 	deliveries func() []inbox.Delivery
+	// ofMessage is every delivery of a message, read to tell a held
+	// message on a card's thread that the person dismissed; nil is none.
+	ofMessage func(id string) []inbox.Delivery
 }
 
 func newBoardService(c *core.Core) *BoardService {
@@ -149,6 +152,7 @@ func newBoardService(c *core.Core) *BoardService {
 	if ib := c.Inbox(); ib != nil {
 		b.deliveries = ib.Open
 		b.message = ib.Message
+		b.ofMessage = ib.OfMessage
 	}
 	if cp := c.Capture(); cp != nil {
 		b.prs = cp.PRs

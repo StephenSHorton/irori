@@ -119,6 +119,17 @@ export class Delivery {
     "until"?: time$0.Time;
     "movedTo"?: string;
     "reminded": boolean;
+
+    /**
+     * HeldFor is the reason a hold last kept it, kept after Release clears
+     * Hold: non-empty on every delivery that was ever held. DecidedBy and
+     * DecidedAt are who moved it out of Held or Dismissed last (the person,
+     * also for an unpause; "irori" for the sweep) and when. All three are folded
+     * from the delivery rows, never written.
+     */
+    "heldFor"?: HoldReason;
+    "decidedBy"?: string;
+    "decidedAt"?: time$0.Time;
     "createdAt": time$0.Time;
     "updatedAt": time$0.Time;
 
@@ -161,10 +172,10 @@ export class Delivery {
      * Creates a new Delivery instance from a string or object.
      */
     static createFrom($$source: any = {}): Delivery {
-        const $$createField16_0 = $$createType0;
+        const $$createField19_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("message" in $$parsedSource) {
-            $$parsedSource["message"] = $$createField16_0($$parsedSource["message"]);
+            $$parsedSource["message"] = $$createField19_0($$parsedSource["message"]);
         }
         return new Delivery($$parsedSource as Partial<Delivery>);
     }

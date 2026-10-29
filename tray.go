@@ -32,8 +32,9 @@ func init() {
 //
 //	[Restart to update to vX]   only while an update is ready (SetUpdater)
 //	Open Irori
-//	<status line>               disabled; SetStatus changes it, SetInbox adds unread/held,
+//	<status line>               disabled; SetStatus changes it, SetInbox adds unread,
 //	                            SetDecide the cards waiting on a decision (every device)
+//	N held messages…            only while some are held; opens the Held list (SetHeldOpener)
 //	Pause wakes on <device>     checkbox bound to this device's inbox policy (SetPause)
 //	Launch at login             checkbox, off until the user ticks it
 //	Quit Irori
@@ -54,6 +55,7 @@ type TrayController struct {
 	decide   int              // cards waiting on a decision, across devices
 	device   string           // this device's name, for the pause checkbox
 	setPause func(bool) error // nil until SetPause; hides the checkbox
+	openHeld func()           // nil until SetHeldOpener; the held line is then disabled
 }
 
 // setupTray installs the tray icon and returns its controller. show opens or
@@ -138,6 +140,18 @@ func (t *TrayController) SetPause(device string, set func(bool) error) {
 	t.rebuild()
 }
 
+// SetHeldOpener makes the "N held messages" line open the window's Held
+// list (fn shows the window there).
+func (t *TrayController) SetHeldOpener(fn func()) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	t.openHeld = fn
+	t.mu.Unlock()
+	t.rebuild()
+}
+
 // pauseLabel is the pause checkbox's text, naming the device it covers.
 func pauseLabel(device string) string {
 	if device == "" {
@@ -146,8 +160,9 @@ func pauseLabel(device string) string {
 	return "Pause wakes on " + device
 }
 
-// statusLine is status plus " · N need a decision · N unread · M held" for
-// the nonzero counts.
+// statusLine is status plus " · N need a decision · N unread" for the
+// nonzero counts. Held messages get their own line (heldLine), which opens
+// the Held list.
 func statusLine(status string, c InboxCounts, decide int) string {
 	parts := []string{status}
 	if decide > 0 {
@@ -156,10 +171,15 @@ func statusLine(status string, c InboxCounts, decide int) string {
 	if c.Unread > 0 {
 		parts = append(parts, fmt.Sprintf("%d unread", c.Unread))
 	}
-	if c.Held > 0 {
-		parts = append(parts, fmt.Sprintf("%d held", c.Held))
-	}
 	return strings.Join(parts, " · ")
+}
+
+// heldLine is the held item's text: "1 held message…", "3 held messages…".
+func heldLine(n int) string {
+	if n == 1 {
+		return "1 held message…"
+	}
+	return fmt.Sprintf("%d held messages…", n)
 }
 
 // SetUpdater lets the menu offer "Restart to update" while an update is ready.
@@ -183,7 +203,7 @@ func (t *TrayController) open() {
 
 func (t *TrayController) rebuild() {
 	t.mu.Lock()
-	status, u, counts, decide, device, setPause := t.status, t.updater, t.counts, t.decide, t.device, t.setPause
+	status, u, counts, decide, device, setPause, openHeld := t.status, t.updater, t.counts, t.decide, t.device, t.setPause, t.openHeld
 	t.mu.Unlock()
 	if status == "" {
 		status = versionLine(t.version)
@@ -206,6 +226,14 @@ func (t *TrayController) rebuild() {
 
 	menu.Add("Open Irori").OnClick(func(*application.Context) { t.open() })
 	menu.Add(status).SetEnabled(false)
+	if counts.Held > 0 {
+		held := menu.Add(heldLine(counts.Held))
+		if openHeld != nil {
+			held.OnClick(func(*application.Context) { openHeld() })
+		} else {
+			held.SetEnabled(false)
+		}
+	}
 	menu.AddSeparator()
 
 	if setPause != nil {

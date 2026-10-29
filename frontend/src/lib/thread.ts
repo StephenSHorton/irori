@@ -35,9 +35,10 @@ export type ThreadLabel = {
 // with "recipient gone" when Irori left it on the card for an ended
 // recipient, "nobody has heard this yet" on the person's comment that no
 // agent was around to hear (until an agent writes on the card), "held" until the wake policy lets it through (its text isn't
-// on the card), the person's comment's pending lines ("queued for Otter
-// (busy)", "sent to Otter, not read yet") until that agent's turn with it
-// starts, and the count of files that stayed on the message. An
+// on the card), "held · dismissed" once the person dismissed it, the
+// person's comment's pending lines ("queued for Otter (busy)", "sent to
+// Otter, not read yet") until that agent's turn with it starts, and the
+// count of files that stayed on the message. An
 // answer or reply on a blocker in the card's own thread (its item is no
 // longer kept) says which item; inBlocker leaves that off, as the entry
 // already sits under its item.
@@ -51,7 +52,11 @@ export function threadLabel(
   if (item.gone) badges.push({ label: "recipient gone", tone: "warning" })
   if (item.unheard)
     badges.push({ label: "nobody has heard this yet", tone: "warning" })
-  if (item.held) badges.push({ label: "held", tone: "slate" })
+  if (item.held)
+    badges.push({
+      label: item.dismissed ? "held · dismissed" : "held",
+      tone: "slate",
+    })
   for (const line of item.pending ?? [])
     badges.push({ label: line, tone: "slate" })
   if (item.files)

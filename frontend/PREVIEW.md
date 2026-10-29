@@ -35,6 +35,8 @@ unchanged.
 | `/?open=board:task:sample-card-5` | a done card with a reviewed PR |
 | `/?open=inbox:sample-delivery-1` | a message Irori held (Release, Dismiss) |
 | `/?open=inbox:sample-delivery-6` | a message an agent sent you (Reply) |
+| `/?open=held` | the Held list: three held (one by Pause all), and History with a dismissed one to release |
+| `/?open=held:sample-device/grok-sample7` | the Held list showing one sender's, as a held notification opens it |
 | `/?devices` | the Devices dialog (this PC, a MacBook, an offline node) |
 | `/?settings` | the settings popover |
 | `/?update=ready` | the update card (`downloading`, `installing` too) |

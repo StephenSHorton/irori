@@ -587,6 +587,48 @@ func TestCardMessage(t *testing.T) {
 	}
 }
 
+// A held message on a card's thread names its delivery: the one still
+// held, else one the person dismissed (Dismissed), so the thread offers
+// Release. One let through, or not in this inbox, names none.
+func TestCardThreadHeldAndDismissed(t *testing.T) {
+	ctx := context.Background()
+	b, c, _ := cardsBoard(t)
+	tk := heldTask(t, c)
+	dels := map[string][]inbox.Delivery{
+		"msg_h": {{ID: "dlv_h", MessageID: "msg_h", State: inbox.Held}},
+		"msg_d": {{ID: "dlv_d", MessageID: "msg_d", State: inbox.Dismissed}},
+		"msg_q": {{ID: "dlv_q", MessageID: "msg_q", State: inbox.Queued}},
+	}
+	b.ofMessage = func(id string) []inbox.Delivery { return dels[id] }
+	for _, id := range []string{"msg_h", "msg_d", "msg_q", "msg_x"} {
+		if _, err := c.RecordMessage(ctx, coord.MessageEntry{TaskID: tk.ID, MsgID: id, From: agentB, To: agentA, Held: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, err := b.Card(tk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct {
+		dlv       string
+		dismissed bool
+	}{"msg_h": {"dlv_h", false}, "msg_d": {"dlv_d", true}, "msg_q": {"", false}, "msg_x": {"", false}}
+	n := 0
+	for _, it := range d.Thread {
+		w, ok := want[it.ID]
+		if !ok {
+			continue
+		}
+		n++
+		if !it.Held || it.DeliveryID != w.dlv || it.Dismissed != w.dismissed {
+			t.Errorf("%s: held %v delivery %q dismissed %v", it.ID, it.Held, it.DeliveryID, it.Dismissed)
+		}
+	}
+	if n != len(want) {
+		t.Fatalf("found %d of the messages on the thread", n)
+	}
+}
+
 // Entries another device wrote carry that device's chip once the person
 // has a second device; this device's never do.
 func TestCardThreadAcrossDevices(t *testing.T) {
