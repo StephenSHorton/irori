@@ -38,11 +38,12 @@ import (
 //     person through a private board.forgot row. With nobody else on the
 //     board there is no other member to wait for (§4.4's "Leaving…").
 //   - Share to board writes a fresh task.created on a board with the
-//     card's scrubbed fields and steps (§5.2), keeps a device-local
-//     shared_copies row, closes the private card with a note naming the
-//     shared copy, and refuses later writes to the private id.
+//     card's scrubbed fields and steps (§5.2), writes a shared_copies row
+//     (private, replicated to the person's devices), closes the private
+//     card with a note naming the shared copy, and refuses later writes to
+//     the private id on every device of the person.
 //   - Withdraw cancels a shared card with withdrawn set (§5.3); its holders
-//     here carry on in a new private card.
+//     carry on in the private card it came from, or a new one.
 //   - Short refs carry the board's tag (`mlg#12`, B3), and TaskRef resolves
 //     a ref across every log this device holds.
 
@@ -67,7 +68,7 @@ type forgottenRow struct {
 	UpTo    uint64 `json:"upTo"` // the newest board.joined HLC it forgot
 }
 
-// sharedCopy is one device-local shared_copies row (store.KindSharedCopy).
+// sharedCopy is one shared_copies row (store.KindSharedCopy).
 type sharedCopy struct {
 	PrivateTaskID string `json:"privateTaskId"`
 	BoardID       string `json:"boardId"`
