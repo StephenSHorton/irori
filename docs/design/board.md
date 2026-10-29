@@ -352,6 +352,11 @@ A card can have a **parent**. A parent's **subtasks** are ordinary cards: each h
 - **A subtask's page** shows "part of #12 <title>" under its header, linking to the parent.
 - No tree view and no new screen.
 
+**Asks.** An ask is outside the family until it becomes a card. An open ask is one with no outcome yet ([Asks](#asks)).
+- **It can't be a subtask or a parent.** `board_create parent=`, `board_split` and `adopt` refuse an open ask in either role, the same way `board_join` and `board_assign` do. The error points to `ask_claim` and `ask_close`. The fold ignores a `task.parent` row that names an open ask as either end. It uses the lock's position rule: such a row counts only when it comes after the ask's closing row, so an older device can't attach an ask around the lock.
+- **`ask_close outcome=card` takes an optional `parent`.** The ask becomes a card and a subtask of that parent in one call: a `task.parent` row follows its `task.status working`. That's how "this belongs under #12" lands without a second step.
+- **An ask closed as edit or none** is a finished record, not a card, so `adopt` refuses it.
+
 **Short refs stay flat.** Subtasks take the next numbers like any card (#13, #14, #15). Rejected: "#12.1" style refs. They'd need a second counter per parent, which clashes across devices the same way short refs do, and an adopted card would have to be renumbered, so a ref someone already saw would change.
 
 **Rejected:**
