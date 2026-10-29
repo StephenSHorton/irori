@@ -580,7 +580,7 @@ export function sampleCards(now: Date): CardDetail[] {
     card({
       // No steps, and its assignment hasn't reached the agent: the tile
       // says "Waiting for", not in progress.
-      id: "sample-card-5",
+      id: "sample-card-6",
       title: "Back up the out/ folder before the re-run",
       repoKey: "remote:github.com/sample-org/example-app",
       goal: "A copy of out/ somewhere safe, so the re-run can overwrite it.",
@@ -602,17 +602,65 @@ export function sampleCards(now: Date): CardDetail[] {
       working: [otter],
       watching: [badger],
       updatedAt: at(3),
+      // Busy: sample-otter is working it right now, so the tile, the page
+      // and the current step show a spinner.
+      doneWhen:
+        "Both devices list each other's agents, and a card made on one shows on the other.",
       steps: steps([
-        ["Design", false, true],
-        ["Identity and pairing", false],
+        ["Design", true],
+        ["Identity and pairing", false, true],
         ["Sync", false],
         ["Cross-device wakes and files", false],
       ]),
+      links: [
+        {
+          kind: LinkKind.LinkPath,
+          ref: "docs/design/pairing.md",
+          label: "docs/design/pairing.md",
+        },
+        {
+          kind: LinkKind.LinkURL,
+          ref: "https://example.com/sample-org/pairing-notes",
+          label: "Pairing notes",
+        },
+      ],
       recent: [
         new CardActivity({
           at: at(3),
           who: otter,
+          text: "sample-otter ticked “Design”",
+        }),
+      ],
+      thread: [
+        new CardThreadItem({
+          id: "sample-4-event-1",
+          kind: "event",
+          at: at(40),
+          who: otter,
           text: "sample-otter set 4 steps",
+        }),
+        new CardThreadItem({
+          id: "sample-4-comment-1",
+          kind: "comment",
+          at: at(12),
+          who: otter,
+          text: "The pairing code screen, as it stands. The code expires after two minutes; the other device shows the same six digits.",
+          attachments: [
+            {
+              sha256: "4".repeat(64),
+              name: "pairing-code.png",
+              size: 61440,
+              mime: "image/png",
+              device: dev,
+            },
+          ],
+        }),
+        new CardThreadItem({
+          id: "sample-4-event-2",
+          kind: "event",
+          at: at(3),
+          who: otter,
+          text: "sample-otter ticked “Design”",
         }),
       ],
     }),
@@ -652,11 +700,15 @@ export function sampleCards(now: Date): CardDetail[] {
     (c) =>
       ({
         ...c,
-        links: c.prs.map((p) => ({
-          kind: LinkKind.LinkURL,
-          ref: p.url,
-          label: p.label,
-        })),
+        // As BoardService.Card: every link, PRs too.
+        links: [
+          ...c.links,
+          ...c.prs.map((p) => ({
+            kind: LinkKind.LinkURL,
+            ref: p.url,
+            label: p.label,
+          })),
+        ],
       }) as CardDetail
   )
 }

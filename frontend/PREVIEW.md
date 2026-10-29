@@ -26,7 +26,9 @@ unchanged.
 
 | URL | Shows |
 | --- | --- |
-| `/` | the cards, the first one open (input needed, a PR) |
+| `/` | the cards; an agent is busy on sample-card-4 (spinner) |
+| `/?open=board:task:sample-card-4` | a card's page: busy agent, spinning step, links, a file |
+| `/?open=board:task:sample-card-1` | a card's page with blockers, a PR and a long thread |
 | `/?open=board:task:sample-card-2` | a blocker with recommended answers |
 | `/?open=board:task:sample-card-5` | a done card with a reviewed PR |
 | `/?open=inbox:sample-delivery-1` | a message Irori held (Release, Dismiss) |
@@ -36,7 +38,9 @@ unchanged.
 | `/?update=ready` | the update card (`downloading`, `installing` too) |
 | `/?empty` | no cards yet |
 
-`?devices`, `?settings` and `?update` live in `src/lib/preview.ts`.
+`?devices`, `?settings` and `?update` live in `src/lib/preview.ts`. An open
+card's page is `#card/<id>` in the address (`/#card/sample-card-4` opens it
+too); its Back, Esc and the browser's back return to the grid.
 
 ## Screenshots
 
