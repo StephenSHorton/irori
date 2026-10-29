@@ -616,7 +616,7 @@ func (b *inbox) apply(ev store.Event) error {
 }
 
 func normPolicy(p Policy) Policy {
-	if p.Mode != Allowlist {
+	if p.Mode != Allowlist && p.Mode != Open {
 		p.Mode = Everyone
 	}
 	p.Block = slices.Clone(p.Block)

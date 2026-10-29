@@ -321,6 +321,13 @@ export enum Mode {
 
     Everyone = "everyone",
     Allowlist = "allowlist",
+
+    /**
+     * Open is "Full auto": like Everyone, but no message is held for
+     * bypass_receiver (decision 36). Block, Pause all and the hop limit
+     * still apply.
+     */
+    Open = "open",
 };
 
 /**

@@ -124,13 +124,14 @@ export function describeAttach(view: AttachView): string {
 export const POLICY_VERBS = ['mode', 'block', 'unblock', 'allow', 'deny', 'pause', 'resume'] as const
 
 export const USAGE = [
-  '/irori                          version and attach status',
-  '/irori mode everyone|allowlist  who may wake this device\'s agents',
-  '/irori block <key or name>      (everyone mode) that sender\'s messages are held',
-  '/irori unblock <key or name>    remove a block',
-  '/irori allow <key or name>      (allowlist mode) let that sender wake agents',
-  '/irori deny <key or name>       remove an allowed sender',
-  '/irori pause | resume           hold every new wake, or let them through again',
+  '/irori                               version and attach status',
+  '/irori mode everyone|allowlist|open  who may wake this device\'s agents',
+  '                                     (open = Full auto: other agents\' messages aren\'t held)',
+  '/irori block <key or name>           (everyone or open mode) that sender\'s messages are held',
+  '/irori unblock <key or name>         remove a block',
+  '/irori allow <key or name>           (allowlist mode) let that sender wake agents',
+  '/irori deny <key or name>            remove an allowed sender',
+  '/irori pause | resume                hold every new wake, or let them through again',
   'Policy changes only work when a person types them.',
 ].join('\n')
 
@@ -144,7 +145,7 @@ export function editPolicy(
   rest: string,
 ): { policy: Policy; text: string } | { error: string } {
   const policy: Policy = {
-    mode: current.mode === 'allowlist' ? 'allowlist' : 'everyone',
+    mode: current.mode === 'allowlist' || current.mode === 'open' ? current.mode : 'everyone',
     block: [...(current.block ?? [])],
     allow: [...(current.allow ?? [])],
     paused: Boolean(current.paused),
@@ -154,14 +155,18 @@ export function editPolicy(
   switch (verb) {
     case 'mode': {
       const mode = who.toLowerCase()
-      if (mode !== 'everyone' && mode !== 'allowlist') return { error: 'Use /irori mode everyone or /irori mode allowlist.' }
+      if (mode !== 'everyone' && mode !== 'allowlist' && mode !== 'open') {
+        return { error: 'Use /irori mode everyone, /irori mode allowlist or /irori mode open.' }
+      }
       policy.mode = mode
       return {
         policy,
         text:
           mode === 'everyone'
             ? 'Every agent may now wake this device\'s agents, except blocked senders (/irori block).'
-            : 'Only allowed senders now wake this device\'s agents (/irori allow); other messages are held.',
+            : mode === 'open'
+              ? 'Full auto: messages from other agents are no longer held. Block, pause and the reply-chain limit still apply.'
+              : 'Only allowed senders now wake this device\'s agents (/irori allow); other messages are held.',
       }
     }
     case 'block':
@@ -200,7 +205,12 @@ export function editPolicy(
 export function describePolicy(p: Policy): string {
   const list = p.mode === 'allowlist' ? p.allow : p.block
   const names = list.length ? list.join(', ') : 'nobody'
-  const who = p.mode === 'allowlist' ? `allowlist mode, allowed: ${names}` : `everyone mode, blocked: ${names}`
+  const who =
+    p.mode === 'allowlist'
+      ? `allowlist mode, allowed: ${names}`
+      : p.mode === 'open'
+        ? `full auto (open mode), blocked: ${names}`
+        : `everyone mode, blocked: ${names}`
   return `Policy: ${who}${p.paused ? ' · paused' : ''}.`
 }
 

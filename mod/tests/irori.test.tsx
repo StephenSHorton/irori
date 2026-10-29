@@ -528,7 +528,7 @@ describe('/irori', () => {
     const paused = await $.command.run(irori('pause', PERSON))
     expect(paused.text).toContain('Paused')
     const bad = await $.command.run(irori('mode sometimes', PERSON))
-    expect(bad.text).toContain('Use /irori mode everyone or /irori mode allowlist.')
+    expect(bad.text).toContain('Use /irori mode everyone, /irori mode allowlist or /irori mode open.')
   })
 })
 
