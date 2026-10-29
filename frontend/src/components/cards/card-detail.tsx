@@ -31,13 +31,14 @@ import { errorText, talk, type GoneSession } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import { ProgressBar, ScopeBadge } from "./bits"
 import { Face, LiveDot } from "./faces"
+import { Thread } from "./thread"
 
 // Answered is a note answer the person just sent: the note item leaves the
 // card once answered, so the panel keeps it to show who heard.
 type Answered = { question: string; answer: string; told: Told; to: AgentRef }
 
 // CardPanel is one card opened beside the grid: the goal, its blockers
-// with recommended answers, progress, who's on it, PRs and recent lines.
+// with recommended answers, progress, who's on it, PRs and its thread.
 // Key it by card id, so a note answer shown here stays with its card.
 export function CardPanel({
   detail,
@@ -211,31 +212,13 @@ export function CardPanel({
         )}
       </Section>
 
-      <Section title="Recent" last>
-        {detail.recent.length ? (
-          <div className="grid gap-1 text-[12.5px]">
-            {detail.recent.map((a, i) => {
-              const at = parseTime(a.at)
-              return (
-                <div
-                  key={`${i}-${String(a.at)}`}
-                  className="grid grid-cols-[56px_minmax(0,1fr)] gap-2"
-                >
-                  <time
-                    className="text-muted-foreground tabular-nums"
-                    dateTime={at?.toISOString()}
-                    title={at?.toLocaleString()}
-                  >
-                    {relativeTime(at, now)}
-                  </time>
-                  <span className="text-ink-2">{plainLine(a.text)}</span>
-                </div>
-              )
-            })}
-          </div>
-        ) : (
-          <Note>Nothing yet.</Note>
-        )}
+      <Section title="Thread" last>
+        <Thread
+          items={detail.thread}
+          now={now}
+          earlier={detail.threadEarlier}
+          historyTrimmed={detail.historyTrimmed}
+        />
       </Section>
     </Card>
   )

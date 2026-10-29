@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -104,6 +105,9 @@ export function MessageDialog({
       d.state === State.Engaged ||
       d.state === State.Deferred)
   const sent = parseTime(d?.message.sentAt)
+  // An agent's message whose recipient had ended came to the person instead
+  // (the inbox's recipient-gone fallback); a reply goes to its sender.
+  const gone = d?.for?.startsWith("recipient gone") ? d.for : ""
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -131,6 +135,14 @@ export function MessageDialog({
             </DialogDescription>
           )}
         </DialogHeader>
+        {gone && (
+          <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+            <Badge variant="warning" className="h-4 px-1.5 text-[10.5px]">
+              Recipient gone
+            </Badge>
+            {plainLine(gone)}
+          </p>
+        )}
         {d && (
           <div className="max-h-[50vh] overflow-y-auto rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-[13.5px] whitespace-pre-wrap text-ink">
             {plainBlock(d.message.text)}

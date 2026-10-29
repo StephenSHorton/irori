@@ -10,6 +10,7 @@ import {
   CardDetail,
   CardOption,
   CardPR,
+  CardThreadItem,
 } from "../../bindings/github.com/StephenSHorton/irori/models"
 import {
   LinkKind,
@@ -67,6 +68,21 @@ function steps(seeds: StepSeed[]): Step[] {
   )
 }
 
+// eventsOf is a thread made of a card's Recent lines (newest first), for
+// the sample cards that seed no thread of their own.
+function eventsOf(recent: CardActivity[]): CardThreadItem[] {
+  return [...recent].reverse().map(
+    (a, i) =>
+      new CardThreadItem({
+        id: `sample-event-${i}`,
+        kind: "event",
+        at: a.at,
+        who: a.who,
+        text: a.text,
+      })
+  )
+}
+
 export function sampleCards(now: Date): CardDetail[] {
   if (new URLSearchParams(window.location.search).has("empty")) return []
   const at = (min: number) =>
@@ -86,6 +102,7 @@ export function sampleCards(now: Date): CardDetail[] {
       prs: [],
       watching: [],
       ...c,
+      thread: c.thread ?? eventsOf(c.recent ?? []),
       steps: st,
       blockers: c.blockers ?? [],
       progress: { done: st.filter((s) => s.done).length, total: st.length },
@@ -252,6 +269,92 @@ export function sampleCards(now: Date): CardDetail[] {
           openedBy: [heron],
           reviewedBy: [],
           touchedBy: [wren],
+        }),
+      ],
+      // The thread: what happened, the person's and agents' comments, and
+      // messages about the card between agents, one from the paired
+      // MacBook, one whose recipient had ended and one the policy held.
+      // This card opens first, so a plain-browser run shows them.
+      thread: [
+        new CardThreadItem({
+          id: "sample-3-e1",
+          kind: "event",
+          at: at(70),
+          who: heron,
+          text: "sample-heron took the card",
+        }),
+        new CardThreadItem({
+          id: "sample-3-e2",
+          kind: "event",
+          at: at(64),
+          who: wren,
+          device: "MacBook",
+          text: "sample-wren joined",
+        }),
+        new CardThreadItem({
+          id: "sample-3-c1",
+          kind: "comment",
+          at: at(50),
+          who: sampleYou,
+          text: "Test the join with the MacBook as the second machine.",
+        }),
+        new CardThreadItem({
+          id: "msg_sample1",
+          kind: "message",
+          at: at(34),
+          who: wren,
+          to: heron,
+          device: "MacBook",
+          text: "Lobby join works from the MacBook build.\nAnimals spawn, but their positions lag by about a second; the capture is attached.",
+          files: 1,
+        }),
+        new CardThreadItem({
+          id: "sample-3-e3",
+          kind: "event",
+          at: at(25),
+          who: heron,
+          text: "sample-heron ticked “Lobby create and join”",
+        }),
+        new CardThreadItem({
+          id: "msg_sample2",
+          kind: "message",
+          at: at(20),
+          who: heron,
+          to: lark,
+          text: "Did your relay spike keep lobby lists working without Steam? If so I'll reuse it.",
+          gone: true,
+        }),
+        new CardThreadItem({
+          id: "sample-3-c2",
+          kind: "comment",
+          at: at(14),
+          who: wren,
+          device: "MacBook",
+          text: "The lag goes away with a 20 Hz sync tick. Pushed to the PR.",
+        }),
+        new CardThreadItem({
+          id: "msg_sample3",
+          kind: "message",
+          at: at(10),
+          who: badger,
+          to: heron,
+          text: "",
+          held: true,
+        }),
+        new CardThreadItem({
+          id: "sample-3-e4",
+          kind: "event",
+          at: at(6),
+          who: wren,
+          device: "MacBook",
+          text: "sample-wren linked GitHub #88",
+        }),
+        new CardThreadItem({
+          id: "sample-3-e5",
+          kind: "event",
+          at: at(6),
+          who: heron,
+          text: "sample-heron set the card to needs your input",
         }),
       ],
       recent: [

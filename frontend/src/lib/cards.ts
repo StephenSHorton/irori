@@ -12,6 +12,7 @@ import {
   AnswerResult,
   CardResolution,
   CardSummary,
+  CardThreadItem,
   Told,
   type AgentRef,
   type CardActivity,
@@ -37,6 +38,7 @@ export type {
   CardOption,
   CardPR,
   CardSummary,
+  CardThreadItem,
   Step,
   Told,
 }
@@ -120,11 +122,30 @@ function sampleAnswer(
     { at: now, who: sampleYou, text: `You answered: ${answer}` },
     ...c.recent,
   ].slice(0, 8)
+  c.thread = sampleThreadLine(c, now, `You answered: ${answer}`)
   sampleChanged()
   return new AnswerResult({
     card: c,
     told: new Told({ to: [b.raisedBy.key], mode: wake ? "wake" : "next_turn" }),
   })
+}
+
+// sampleThreadLine is c's thread with the person's line added at the end.
+function sampleThreadLine(
+  c: CardDetail,
+  at: string,
+  text: string
+): CardThreadItem[] {
+  return [
+    ...c.thread,
+    new CardThreadItem({
+      id: `sample-answer-${c.thread.length}`,
+      kind: "event",
+      at,
+      who: sampleYou,
+      text,
+    }),
+  ]
 }
 
 // sampleAnswerNote is BoardService.answerInput on the sample: a comment to
@@ -150,6 +171,7 @@ function sampleAnswerNote(
     { at: now, who: sampleYou, text: `You answered: ${text.trim()}` },
     ...c.recent,
   ].slice(0, 8)
+  c.thread = sampleThreadLine(c, now, `You answered: ${text.trim()}`)
   sampleChanged()
   return new AnswerResult({
     card: c,

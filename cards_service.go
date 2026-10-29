@@ -9,7 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/coord"
+	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/ledger"
 	"github.com/StephenSHorton/irori/internal/presence"
@@ -27,6 +29,9 @@ const (
 	ScopeMineLabel = "My devices"
 	// recentLines is how many activity lines Card returns.
 	recentLines = 8
+	// MaxThreadView is how many thread entries Card returns, the newest;
+	// ThreadEarlier counts the rest.
+	MaxThreadView = 300
 	// NoteItem is the blocker id of an input_required card's question: its
 	// note, shown and answered like a blocker item.
 	NoteItem = "note"
@@ -130,6 +135,38 @@ type CardActivity struct {
 	Text string    `json:"text"`
 }
 
+// Thread entry kinds: a comment on the card, a message about it (an inbox
+// message mirrored onto the card, From -> To), or one line of what happened.
+const (
+	ThreadComment = "comment"
+	ThreadMessage = "message"
+	ThreadEvent   = "event"
+)
+
+// CardThreadItem is one entry of a card's thread: comments, messages about
+// the card and its activity lines, merged in log order.
+type CardThreadItem struct {
+	ID   string    `json:"id"`
+	Kind string    `json:"kind"` // ThreadComment, ThreadMessage or ThreadEvent
+	At   time.Time `json:"at"`
+	Who  AgentRef  `json:"who"`
+	To   *AgentRef `json:"to,omitempty"` // a message's recipient
+	// Device is the device that wrote the entry, for its chip: "" for this
+	// one, or until the person has a second device.
+	Device string `json:"device,omitempty"`
+	// Text is a comment's or message's body (empty for a held message), or
+	// an event's line, Who's name first.
+	Text      string `json:"text"`
+	BlockerID string `json:"blockerId,omitempty"` // the item a raise line raised
+	// Gone: the recipient had ended, so Irori left the message on the card.
+	// Held: the wake policy held it, so its text isn't on the card. Files
+	// counts the message's attachments, which stay on the message.
+	Gone        bool           `json:"gone,omitempty"`
+	Held        bool           `json:"held,omitempty"`
+	Files       int            `json:"files,omitempty"`
+	Attachments []blob.FileRef `json:"attachments,omitempty"` // a comment's files
+}
+
 // CardDetail is one card opened beside the grid.
 type CardDetail struct {
 	CardSummary
@@ -140,8 +177,15 @@ type CardDetail struct {
 	Blockers []CardBlocker   `json:"blockers"` // open first (oldest first), then resolved (newest first)
 	PRs      []CardPR        `json:"prs"`
 	Links    []coord.Link    `json:"links"`  // every link, PRs too
-	Recent   []CardActivity  `json:"recent"` // newest first
+	Recent   []CardActivity  `json:"recent"` // newest first; the window shows Thread
 	Comments []coord.Comment `json:"comments"`
+	// Thread is comments, messages and activity, oldest first: the newest
+	// MaxThreadView, with ThreadEarlier counting the ones left off.
+	// HistoryTrimmed: the card has more activity than coord keeps, so its
+	// oldest lines are gone.
+	Thread         []CardThreadItem `json:"thread"`
+	ThreadEarlier  int              `json:"threadEarlier"`
+	HistoryTrimmed bool             `json:"historyTrimmed"`
 }
 
 // people resolves keys against the roster once per call.
@@ -201,6 +245,15 @@ func (p people) where(dev string) string {
 	return cmp.Or(p.names[dev], "Another device")
 }
 
+// chip is the device chip for something dev wrote: its name once the
+// person has a second device, "" for this device or while unpaired.
+func (p people) chip(dev string) string {
+	if !p.paired || dev == "" || dev == p.self {
+		return ""
+	}
+	return p.where(dev)
+}
+
 func (p people) ref(key string) AgentRef {
 	switch {
 	case key == "irori":
@@ -227,9 +280,7 @@ func (p people) ref(key string) AgentRef {
 		dev = cmp.Or(a.DeviceID, dev)
 	}
 	r.Where = p.where(dev)
-	if p.paired && dev != "" && dev != p.self {
-		r.Device = r.Where
-	}
+	r.Device = p.chip(dev)
 	return r
 }
 
@@ -316,6 +367,9 @@ func (b *BoardService) Card(id string) (CardDetail, error) {
 		Steps: nonNil(t.Steps), Blockers: []CardBlocker{}, PRs: []CardPR{}, Links: nonNil(t.Links),
 		Recent: []CardActivity{}, Comments: nonNil(b.coord.Comments(t.ID)),
 	}
+	acts := b.coord.Activity(t.ID)
+	d.Thread, d.ThreadEarlier = buildThread(d.Comments, acts, p)
+	d.HistoryTrimmed = len(acts) == coord.MaxActivity
 	var resolved []CardBlocker
 	if t.State == coord.InputRequired {
 		d.Blockers = append(d.Blockers, CardBlocker{ID: NoteItem, Question: d.BlockerQuestion,
@@ -340,7 +394,6 @@ func (b *BoardService) Card(id string) (CardDetail, error) {
 			d.PRs = append(d.PRs, pr)
 		}
 	}
-	acts := b.coord.Activity(t.ID)
 	if len(acts) > recentLines {
 		acts = acts[:recentLines]
 	}
@@ -349,6 +402,76 @@ func (b *BoardService) Card(id string) (CardDetail, error) {
 		d.Recent = append(d.Recent, CardActivity{At: a.At, Who: who, Text: who.Name + " " + a.What})
 	}
 	return d, nil
+}
+
+// threadPos is an entry's place in the log, (HLC, device, seq), the order
+// coord folds in. It stays server-side: an HLC overflows a JS number.
+type threadPos struct {
+	hlc hlc.Timestamp
+	dev string
+	seq int64
+}
+
+func (a threadPos) before(b threadPos) bool {
+	if a.hlc != b.hlc {
+		return a.hlc < b.hlc
+	}
+	if a.dev != b.dev {
+		return a.dev < b.dev
+	}
+	return a.seq < b.seq
+}
+
+// buildThread merges a card's comments and its activity (newest first, as
+// coord.Activity returns it) into one thread in log order, and keeps the
+// newest MaxThreadView; earlier counts the rest. A comment's own
+// "commented" line is left out: the comment is the entry.
+func buildThread(comments []coord.Comment, acts []coord.Activity, p people) (items []CardThreadItem, earlier int) {
+	type entry struct {
+		pos  threadPos
+		item CardThreadItem
+	}
+	all := make([]entry, 0, len(comments)+len(acts))
+	for _, cm := range comments {
+		it := CardThreadItem{ID: cm.ID, Kind: ThreadComment, At: cm.At, Who: p.ref(cm.By),
+			Device: p.chip(cm.Device), Text: cm.Text, Gone: cm.Gone, Held: cm.Held, Files: cm.Files,
+			Attachments: cm.Attachments}
+		if cm.MsgID != "" {
+			it.Kind = ThreadMessage
+		}
+		if cm.To != "" {
+			to := p.ref(cm.To)
+			it.To = &to
+		}
+		all = append(all, entry{threadPos{cm.HLC, cm.Device, cm.Seq}, it})
+	}
+	seen := map[string]int{}
+	for i := len(acts) - 1; i >= 0; i-- { // oldest first, so a row's lines keep their order
+		a := acts[i]
+		if a.Kind == coord.KindTaskComment && a.BlockerID == "" {
+			continue
+		}
+		// One row can fold to more than one line; the id stays unique.
+		id := fmt.Sprintf("%s:%d", a.Device, a.Seq)
+		if n := seen[id]; n > 0 {
+			seen[id]++
+			id = fmt.Sprintf("%s.%d", id, n)
+		} else {
+			seen[id] = 1
+		}
+		who := p.ref(a.By)
+		all = append(all, entry{threadPos{a.HLC, a.Device, a.Seq}, CardThreadItem{ID: id, Kind: ThreadEvent,
+			At: a.At, Who: who, Device: p.chip(a.Device), Text: who.Name + " " + a.What, BlockerID: a.BlockerID}})
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].pos.before(all[j].pos) })
+	if n := len(all) - MaxThreadView; n > 0 {
+		earlier, all = n, all[n:]
+	}
+	items = make([]CardThreadItem, 0, len(all))
+	for _, e := range all {
+		items = append(items, e.item)
+	}
+	return items, earlier
 }
 
 // cardPR reads a GitHub PR link and what the ledger knows of it.

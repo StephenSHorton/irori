@@ -7,6 +7,9 @@ import { Create as $Create } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as blob$0 from "./internal/blob/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as coord$0 from "./internal/coord/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -387,10 +390,20 @@ export class CardDetail {
     "links": coord$0.Link[];
 
     /**
-     * newest first
+     * newest first; the window shows Thread
      */
     "recent": CardActivity[];
     "comments": coord$0.Comment[];
+
+    /**
+     * Thread is comments, messages and activity, oldest first: the newest
+     * MaxThreadView, with ThreadEarlier counting the ones left off.
+     * HistoryTrimmed: the card has more activity than coord keeps, so its
+     * oldest lines are gone.
+     */
+    "thread": CardThreadItem[];
+    "threadEarlier": number;
+    "historyTrimmed": boolean;
 
     /** Creates a new CardDetail instance. */
     constructor($$source: Partial<CardDetail> = {}) {
@@ -457,6 +470,15 @@ export class CardDetail {
         if (!("comments" in $$source)) {
             this["comments"] = [];
         }
+        if (!("thread" in $$source)) {
+            this["thread"] = [];
+        }
+        if (!("threadEarlier" in $$source)) {
+            this["threadEarlier"] = 0;
+        }
+        if (!("historyTrimmed" in $$source)) {
+            this["historyTrimmed"] = false;
+        }
 
         Object.assign(this, $$source);
     }
@@ -474,6 +496,7 @@ export class CardDetail {
         const $$createField18_0 = $$createType17;
         const $$createField19_0 = $$createType19;
         const $$createField20_0 = $$createType21;
+        const $$createField21_0 = $$createType23;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("progress" in $$parsedSource) {
             $$parsedSource["progress"] = $$createField6_0($$parsedSource["progress"]);
@@ -501,6 +524,9 @@ export class CardDetail {
         }
         if ("comments" in $$parsedSource) {
             $$parsedSource["comments"] = $$createField20_0($$parsedSource["comments"]);
+        }
+        if ("thread" in $$parsedSource) {
+            $$parsedSource["thread"] = $$createField21_0($$parsedSource["thread"]);
         }
         return new CardDetail($$parsedSource as Partial<CardDetail>);
     }
@@ -795,6 +821,98 @@ export class CardSummary {
             $$parsedSource["watching"] = $$createField10_0($$parsedSource["watching"]);
         }
         return new CardSummary($$parsedSource as Partial<CardSummary>);
+    }
+}
+
+/**
+ * CardThreadItem is one entry of a card's thread: comments, messages about
+ * the card and its activity lines, merged in log order.
+ */
+export class CardThreadItem {
+    "id": string;
+
+    /**
+     * ThreadComment, ThreadMessage or ThreadEvent
+     */
+    "kind": string;
+    "at": time$0.Time;
+    "who": AgentRef;
+
+    /**
+     * a message's recipient
+     */
+    "to"?: AgentRef | null;
+
+    /**
+     * Device is the device that wrote the entry, for its chip: "" for this
+     * one, or until the person has a second device.
+     */
+    "device"?: string;
+
+    /**
+     * Text is a comment's or message's body (empty for a held message), or
+     * an event's line, Who's name first.
+     */
+    "text": string;
+
+    /**
+     * the item a raise line raised
+     */
+    "blockerId"?: string;
+
+    /**
+     * Gone: the recipient had ended, so Irori left the message on the card.
+     * Held: the wake policy held it, so its text isn't on the card. Files
+     * counts the message's attachments, which stay on the message.
+     */
+    "gone"?: boolean;
+    "held"?: boolean;
+    "files"?: number;
+
+    /**
+     * a comment's files
+     */
+    "attachments"?: blob$0.FileRef[];
+
+    /** Creates a new CardThreadItem instance. */
+    constructor($$source: Partial<CardThreadItem> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("kind" in $$source)) {
+            this["kind"] = "";
+        }
+        if (!("at" in $$source)) {
+            this["at"] = null;
+        }
+        if (!("who" in $$source)) {
+            this["who"] = (new AgentRef());
+        }
+        if (!("text" in $$source)) {
+            this["text"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CardThreadItem instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CardThreadItem {
+        const $$createField3_0 = $$createType3;
+        const $$createField4_0 = $$createType24;
+        const $$createField11_0 = $$createType26;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("who" in $$parsedSource) {
+            $$parsedSource["who"] = $$createField3_0($$parsedSource["who"]);
+        }
+        if ("to" in $$parsedSource) {
+            $$parsedSource["to"] = $$createField4_0($$parsedSource["to"]);
+        }
+        if ("attachments" in $$parsedSource) {
+            $$parsedSource["attachments"] = $$createField11_0($$parsedSource["attachments"]);
+        }
+        return new CardThreadItem($$parsedSource as Partial<CardThreadItem>);
     }
 }
 
@@ -1202,8 +1320,8 @@ export class RosterChange {
      * Creates a new RosterChange instance from a string or object.
      */
     static createFrom($$source: any = {}): RosterChange {
-        const $$createField0_0 = $$createType22;
-        const $$createField1_0 = $$createType24;
+        const $$createField0_0 = $$createType27;
+        const $$createField1_0 = $$createType29;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("change" in $$parsedSource) {
             $$parsedSource["change"] = $$createField0_0($$parsedSource["change"]);
@@ -1238,7 +1356,7 @@ export class TaskDetail {
      * Creates a new TaskDetail instance from a string or object.
      */
     static createFrom($$source: any = {}): TaskDetail {
-        const $$createField0_0 = $$createType25;
+        const $$createField0_0 = $$createType30;
         const $$createField1_0 = $$createType21;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("task" in $$parsedSource) {
@@ -1274,7 +1392,7 @@ export class TaskResult {
      * Creates a new TaskResult instance from a string or object.
      */
     static createFrom($$source: any = {}): TaskResult {
-        const $$createField0_0 = $$createType25;
+        const $$createField0_0 = $$createType30;
         const $$createField1_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("task" in $$parsedSource) {
@@ -1351,7 +1469,12 @@ const $$createType18 = CardActivity.createFrom;
 const $$createType19 = $Create.Array($$createType18);
 const $$createType20 = coord$0.Comment.createFrom;
 const $$createType21 = $Create.Array($$createType20);
-const $$createType22 = presence$0.Change.createFrom;
-const $$createType23 = presence$0.AgentCard.createFrom;
-const $$createType24 = $Create.Array($$createType23);
-const $$createType25 = coord$0.Task.createFrom;
+const $$createType22 = CardThreadItem.createFrom;
+const $$createType23 = $Create.Array($$createType22);
+const $$createType24 = $Create.Nullable($$createType3);
+const $$createType25 = blob$0.FileRef.createFrom;
+const $$createType26 = $Create.Array($$createType25);
+const $$createType27 = presence$0.Change.createFrom;
+const $$createType28 = presence$0.AgentCard.createFrom;
+const $$createType29 = $Create.Array($$createType28);
+const $$createType30 = coord$0.Task.createFrom;

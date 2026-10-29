@@ -3,14 +3,19 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/coord"
+	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/ledger"
 	"github.com/StephenSHorton/irori/internal/presence"
+	"github.com/StephenSHorton/irori/internal/store"
 )
 
 func cardsBoard(t *testing.T) (*BoardService, *coord.Coord, *[]routed) {
@@ -308,5 +313,189 @@ func TestDecideCount(t *testing.T) {
 	}
 	if n := b.decideCount(); n != 1 {
 		t.Fatalf("decide = %d", n)
+	}
+}
+
+// The thread merges comments, messages about the card and activity in log
+// order: a message names its recipient, a comment has no "commented" line
+// of its own, and past MaxThreadView the oldest entries are counted, not
+// sent. A card past coord's activity cap says its history was trimmed.
+func TestCardThread(t *testing.T) {
+	ctx := context.Background()
+	b, c, _ := cardsBoard(t)
+	tk := heldTask(t, c)
+	if _, _, err := c.AddComment(ctx, "user:dev-a", tk.ID, "Use the staging DB.", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.SetSteps(ctx, agentA, tk.ID, []coord.Step{{Text: "migrate"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.RecordMessage(ctx, coord.MessageEntry{TaskID: tk.ID, MsgID: "msg_1", From: agentA, To: agentB,
+		Text: "Can you review the migration?", Files: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.RecordMessage(ctx, coord.MessageEntry{TaskID: tk.ID, MsgID: "msg_2", From: agentB, To: agentA,
+		Held: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.RecordMessage(ctx, coord.MessageEntry{TaskID: tk.ID, MsgID: "msg_3", From: agentA, To: "dev-a/ended",
+		Text: "Still there?", Gone: true, Writer: "irori"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.AddComment(ctx, agentB, tk.ID, "Looks good.", false); err != nil {
+		t.Fatal(err)
+	}
+	d, err := b.Card(tk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds, texts []string
+	for _, it := range d.Thread {
+		kinds = append(kinds, it.Kind)
+		texts = append(texts, it.Text)
+		if it.Kind == ThreadEvent && strings.Contains(it.Text, "commented") {
+			t.Fatalf("a comment's own line is in the thread: %+v", it)
+		}
+		if it.Device != "" {
+			t.Fatalf("device chip with one device: %+v", it)
+		}
+	}
+	// Created, claimed, the person's comment, steps, three messages, a comment.
+	want := []string{ThreadEvent, ThreadEvent, ThreadComment, ThreadEvent, ThreadMessage, ThreadMessage, ThreadMessage, ThreadComment}
+	if !slices.Equal(kinds, want) {
+		t.Fatalf("kinds %v, want %v\ntexts %q", kinds, want, texts)
+	}
+	th := d.Thread
+	if th[2].Who.Name != "You" || th[2].Text != "Use the staging DB." || th[2].To != nil {
+		t.Fatalf("person comment %+v", th[2])
+	}
+	if !strings.HasPrefix(th[3].Text, "ww-release ") {
+		t.Fatalf("event line %+v", th[3])
+	}
+	m := th[4]
+	if m.ID != "msg_1" || m.Who.Name != "ww-release" || m.To == nil || m.To.Name != "ww-multiplayer" ||
+		m.Text != "Can you review the migration?" || m.Files != 2 || m.Gone || m.Held {
+		t.Fatalf("message %+v", m)
+	}
+	if h := th[5]; !h.Held || h.Text != "" || h.Who.Key != agentB || h.To.Key != agentA {
+		t.Fatalf("held message %+v", h)
+	}
+	if g := th[6]; !g.Gone || g.Who.Key != agentA || g.To.Key != "dev-a/ended" || g.To.Status != "gone" {
+		t.Fatalf("gone message %+v", g)
+	}
+	if d.HistoryTrimmed || d.ThreadEarlier != 0 || len(d.Comments) != 5 {
+		t.Fatalf("trimmed %v earlier %d comments %d", d.HistoryTrimmed, d.ThreadEarlier, len(d.Comments))
+	}
+	// No null for the webview's lists.
+	raw, _ := json.Marshal(d.Thread[0])
+	if strings.Contains(string(raw), "null") {
+		t.Fatalf("null in %s", raw)
+	}
+
+	// Enough comments to pass both caps: coord keeps MaxActivity lines,
+	// and the thread sends the newest MaxThreadView.
+	for i := range coord.MaxActivity {
+		if _, _, err := c.AddComment(ctx, agentA, tk.ID, fmt.Sprintf("c%d", i), false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, err = b.Card(tk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := 5 + coord.MaxActivity // every comment and message; the activity lines are all comments' now
+	if !d.HistoryTrimmed || len(d.Thread) != MaxThreadView || d.ThreadEarlier != total-MaxThreadView {
+		t.Fatalf("trimmed %v thread %d earlier %d", d.HistoryTrimmed, len(d.Thread), d.ThreadEarlier)
+	}
+	if last := d.Thread[len(d.Thread)-1]; last.Text != fmt.Sprintf("c%d", coord.MaxActivity-1) {
+		t.Fatalf("newest entry %+v", last)
+	}
+	if len(d.Recent) != recentLines {
+		t.Fatalf("recent %d", len(d.Recent))
+	}
+}
+
+// Entries another device wrote carry that device's chip once the person
+// has a second device; this device's never do.
+func TestCardThreadAcrossDevices(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "irori.db"), "dev-a", hlc.New(time.Now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	open := func() *coord.Coord {
+		t.Helper()
+		c, err := coord.New(ctx, st, nil, coord.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	c := open()
+	tk := heldTask(t, c)
+	const mac = "dev-b/agent-c"
+	later := hlc.Timestamp(time.Now().Add(time.Hour).UnixMilli()) << 16
+	row := func(seq int64, kind string, payload map[string]any) {
+		t.Helper()
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Insert(ctx, store.Event{DeviceID: "dev-b", Seq: seq, HLC: later + hlc.Timestamp(seq),
+			Actor: "agent:" + mac, Kind: kind, Payload: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	row(1, coord.KindTaskWatched, map[string]any{"taskId": tk.ID, "who": mac, "watching": true, "by": mac})
+	row(2, coord.KindTaskComment, map[string]any{"taskId": tk.ID, "commentId": "msg_9", "msgId": "msg_9",
+		"by": mac, "to": agentA, "text": "Port 8799 is mine for a minute.", "at": time.Now()})
+	if _, _, err := c.AddComment(ctx, agentA, tk.ID, "ok", false); err != nil {
+		t.Fatal(err)
+	}
+
+	b, _, _ := cardsBoard(t)
+	b.coord = open() // replay folds dev-b's rows
+	b.self = "dev-a"
+	devs := []identity.DeviceState{
+		{Cert: identity.Cert{DeviceID: "dev-a", Label: "PC"}},
+		{Cert: identity.Cert{DeviceID: "dev-b", Label: "Mac"}},
+	}
+	b.devices = func() []identity.DeviceState { return devs }
+	d, err := b.Card(tk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	find := func(th []CardThreadItem, id string) (int, CardThreadItem) {
+		t.Helper()
+		for i, it := range th {
+			if it.ID == id || it.Text == id {
+				return i, it
+			}
+		}
+		t.Fatalf("no %q in %+v", id, th)
+		return 0, CardThreadItem{}
+	}
+	_, ok := find(d.Thread, "ok")
+	w, watch := find(d.Thread, "dev-b:1")
+	m, msg := find(d.Thread, "msg_9")
+	if m != w+1 {
+		t.Fatalf("dev-b's rows out of order: watch %d, message %d", w, m)
+	}
+	if ok.Kind != ThreadComment || ok.Text != "ok" || ok.Device != "" {
+		t.Fatalf("this device's comment %+v", ok)
+	}
+	if watch.Kind != ThreadEvent || watch.Device != "Mac" || watch.Who.Device != "Mac" {
+		t.Fatalf("mac event %+v", watch)
+	}
+	if msg.Kind != ThreadMessage || msg.Device != "Mac" || msg.Who.Key != mac || msg.Who.Where != "Mac" ||
+		msg.To == nil || msg.To.Name != "ww-release" || msg.To.Device != "" {
+		t.Fatalf("mac message %+v", msg)
+	}
+	// One device again: names stay, chips go.
+	devs[1].Revoked = true
+	d, _ = b.Card(tk.ID)
+	if _, m := find(d.Thread, "msg_9"); m.Device != "" || m.Who.Where != "Mac" {
+		t.Fatalf("unpaired message %+v", m)
 	}
 }

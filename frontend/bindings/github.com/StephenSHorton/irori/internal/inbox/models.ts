@@ -109,7 +109,7 @@ export class Delivery {
     "note"?: string;
 
     /**
-     * PR work its owner couldn't take: that owner, "name (key)"
+     * PR work its owner couldn't take: that owner, "name (key)"; or "recipient gone: name (key)"
      */
     "for"?: string;
 

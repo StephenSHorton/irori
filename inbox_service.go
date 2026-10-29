@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/core"
 	"github.com/StephenSHorton/irori/internal/inbox"
+	"github.com/StephenSHorton/irori/internal/tools"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -117,8 +120,17 @@ func (s *InboxService) Get(deliveryID string) (inbox.Delivery, error) {
 }
 
 // Reply answers a message sent to the person; the sender is woken with it.
+// A reply to a message about a card also goes on that card's thread; that
+// failing is logged, never the reply's error.
 func (s *InboxService) Reply(deliveryID, text string) error {
-	_, _, err := s.core.Inbox().Reply(context.Background(), s.core.UserSender(), strings.TrimSpace(deliveryID), text)
+	ctx := context.Background()
+	m, nd, err := s.core.Inbox().Reply(ctx, s.core.UserSender(), strings.TrimSpace(deliveryID), text)
+	if err == nil && m.Ref != "" {
+		_, rerr := tools.RecordOnCard(ctx, s.core.Coord(), m, nd.To, tools.Record{Held: nd.State == inbox.Held})
+		if rerr != nil && !errors.Is(rerr, tools.ErrNoCard) && !errors.Is(rerr, coord.ErrNotFound) {
+			log.Printf("irori: put the reply on %s: %v", m.Ref, rerr)
+		}
+	}
 	return s.acted(err)
 }
 

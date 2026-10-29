@@ -436,6 +436,25 @@ export class Comment {
      */
     "attachments"?: blob$0.FileRef[];
 
+    /**
+     * A mirrored message (RecordMessage) has MsgID, its inbox message id
+     * (also its ID), and To, who it was sent to. Gone: the recipient had
+     * ended and Irori left it on the card. Held: the wake policy held its
+     * first delivery, so Text is empty. Files counts the message's
+     * attachments; they stay on the message.
+     */
+    "to"?: string;
+    "msgId"?: string;
+    "gone"?: boolean;
+    "held"?: boolean;
+    "files"?: number;
+
+    /**
+     * Device wrote the row (from the log, not the payload). HLC and Seq are
+     * its position, (HLC, Device, Seq); they never go on the wire.
+     */
+    "device": string;
+
     /** Creates a new Comment instance. */
     constructor($$source: Partial<Comment> = {}) {
         if (!("id" in $$source)) {
@@ -455,6 +474,9 @@ export class Comment {
         }
         if (!("at" in $$source)) {
             this["at"] = null;
+        }
+        if (!("device" in $$source)) {
+            this["device"] = "";
         }
 
         Object.assign(this, $$source);

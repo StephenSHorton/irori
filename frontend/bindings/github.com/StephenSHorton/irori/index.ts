@@ -29,6 +29,7 @@ export {
     CardProgress,
     CardResolution,
     CardSummary,
+    CardThreadItem,
     CommentResult,
     DeviceView,
     GoneSession,
