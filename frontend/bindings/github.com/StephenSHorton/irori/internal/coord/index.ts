@@ -5,6 +5,7 @@ export {
     BlockedBy,
     Blocker,
     BlockerKind,
+    BlockerStatus,
     BoardView,
     Card,
     Comment,

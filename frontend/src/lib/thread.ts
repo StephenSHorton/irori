@@ -2,7 +2,13 @@
 // the card and what happened, oldest first. These helpers are pure, so
 // the thread view and its tests share them.
 
-import { displayName, type AgentRef, type CardThreadItem } from "./cards"
+import {
+  BlockerState,
+  displayName,
+  type AgentRef,
+  type CardBlocker,
+  type CardThreadItem,
+} from "./cards"
 
 // ThreadPage is how many of the newest entries show before "Show earlier".
 export const ThreadPage = 50
@@ -28,9 +34,17 @@ export type ThreadLabel = {
 // threadLabel is the header line for one entry: "A -> B" for a message,
 // with "recipient gone" when Irori left it on the card for an ended
 // recipient, "held" until the wake policy lets it through (its text isn't
-// on the card), and the count of files that stayed on the message.
-export function threadLabel(item: CardThreadItem): ThreadLabel {
+// on the card), and the count of files that stayed on the message. An
+// answer or reply on a blocker in the card's own thread (its item is no
+// longer kept) says which item; inBlocker leaves that off, as the entry
+// already sits under its item.
+export function threadLabel(
+  item: CardThreadItem,
+  inBlocker = false
+): ThreadLabel {
   const badges: ThreadBadge[] = []
+  if (item.blockerId && item.kind !== ThreadKind.Event && !inBlocker)
+    badges.push({ label: `on ${item.blockerId}`, tone: "slate" })
   if (item.gone) badges.push({ label: "recipient gone", tone: "warning" })
   if (item.held) badges.push({ label: "held", tone: "slate" })
   if (item.files)
@@ -46,6 +60,8 @@ export function threadLabel(item: CardThreadItem): ThreadLabel {
     badges,
   }
 }
+
+export { BlockerState }
 
 // visible is the entries to show: all of them, or the newest n.
 export function visible<T>(items: T[], showAll: boolean, n = ThreadPage): T[] {
@@ -64,4 +80,50 @@ export function opensInFull(item: CardThreadItem): boolean {
     !!item.files ||
     (item.text ?? "").endsWith(`(full: msg:${item.id})`)
   )
+}
+
+export type BlockerTone = "amber" | "grey" | "green" | "closed"
+
+// blockerTone is how an item looks: amber while it waits on the person,
+// grey once answered (never a check: it isn't resolved), green with the
+// check when resolved, and the closed look. "" is an open item from an
+// older app.
+export function blockerTone(state: string): BlockerTone {
+  switch (state) {
+    case BlockerState.Answered:
+      return "grey"
+    case BlockerState.Resolved:
+      return "green"
+    case BlockerState.Closed:
+      return "closed"
+  }
+  return "amber"
+}
+
+// needsPerson reports whether the item waits on the person: open, or
+// replied (the agent asked back).
+export function needsPerson(state: string): boolean {
+  return blockerTone(state) === "amber"
+}
+
+// answerable reports whether the person can still answer the item:
+// open, answered (to add to their answer) or replied.
+export function answerable(state: string): boolean {
+  return state !== BlockerState.Resolved && state !== BlockerState.Closed
+}
+
+// blockerChip is an item's state chip: "Sent to X" (" · session ended"
+// once X has gone) while answered, "Replied" while back with the person,
+// none otherwise (an open item is amber, a resolved one has its check).
+export function blockerChip(b: CardBlocker): ThreadBadge | null {
+  if (b.state === BlockerState.Answered) {
+    const to = b.sentTo ?? b.raisedBy
+    return {
+      label: `Sent to ${displayName(to)}${to.live ? "" : " · session ended"}`,
+      tone: "slate",
+    }
+  }
+  if (b.state === BlockerState.Replied)
+    return { label: "Replied", tone: "warning" }
+  return null
 }

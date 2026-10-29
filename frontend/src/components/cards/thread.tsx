@@ -24,6 +24,7 @@ export function Thread({
   historyTrimmed,
   empty = "Nothing yet.",
   compact,
+  inBlocker,
   composer,
 }: {
   cardId?: string
@@ -36,6 +37,8 @@ export function Thread({
   historyTrimmed?: boolean
   empty?: ReactNode
   compact?: boolean
+  // inBlocker: the items sit under their blocker, so they don't name it.
+  inBlocker?: boolean
   composer?: ReactNode
 }) {
   const [showAll, setShowAll] = useState(false)
@@ -64,7 +67,13 @@ export function Thread({
       )}
       {shown.length ? (
         shown.map((it) => (
-          <ThreadRow key={it.id} cardId={cardId} item={it} now={now} />
+          <ThreadRow
+            key={it.id}
+            cardId={cardId}
+            item={it}
+            now={now}
+            inBlocker={inBlocker}
+          />
         ))
       ) : (
         <p className="text-muted-foreground">{empty}</p>
@@ -78,10 +87,12 @@ function ThreadRow({
   cardId,
   item,
   now,
+  inBlocker,
 }: {
   cardId?: string
   item: CardThreadItem
   now: Date
+  inBlocker?: boolean
 }) {
   const [full, setFull] = useState<CardMessage | null>(null)
   const [busy, setBusy] = useState(false)
@@ -106,7 +117,7 @@ function ThreadRow({
         </span>
       </div>
     )
-  const l = threadLabel(item)
+  const l = threadLabel(item, inBlocker)
   const body = plainBlock(item.text)
   const open = async () => {
     if (!cardId || busy) return
@@ -173,6 +184,16 @@ function ThreadRow({
               {body}
             </p>
           )
+        )}
+        {!!item.missing?.length && (
+          <div className="grid gap-0.5 text-ink-2">
+            <span className="text-xs text-muted-foreground">Still needed:</span>
+            <ul className="ml-4 list-disc">
+              {item.missing.map((m, i) => (
+                <li key={i}>{plainLine(m)}</li>
+              ))}
+            </ul>
+          </div>
         )}
         {!full && cardId && opensInFull(item) && (
           <Button

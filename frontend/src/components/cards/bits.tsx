@@ -37,7 +37,8 @@ export function ProgressBar({
 }
 
 // StatePill is the card's first badge: waiting on the person's input, its
-// blockers, else in progress.
+// blockers, waiting on an agent to act on the person's answers, else in
+// progress.
 export function StatePill({ card }: { card: CardSummary }) {
   if (card.state === TaskState.InputRequired)
     return (
@@ -49,6 +50,13 @@ export function StatePill({ card }: { card: CardSummary }) {
     return (
       <Badge variant="destructive" className="rounded-full">
         {card.openBlockers} {card.openBlockers === 1 ? "blocker" : "blockers"}
+      </Badge>
+    )
+  // Every open blocker is answered: it waits on the agents, not on you.
+  if (card.waiting > 0)
+    return (
+      <Badge variant="slate" className="rounded-full">
+        Waiting on agent
       </Badge>
     )
   if (card.state === TaskState.Completed)

@@ -10,6 +10,7 @@ import {
   CardDetail,
   CardOption,
   CardPR,
+  CardResolution,
   CardThreadItem,
 } from "../../bindings/github.com/StephenSHorton/irori/models"
 import {
@@ -91,6 +92,8 @@ export function sampleCards(now: Date): CardDetail[] {
   const card = (c: Partial<CardDetail>): CardDetail => {
     const st = c.steps ?? []
     const open = (c.blockers ?? []).filter((b) => !b.resolved)
+    // As cardSummary: an answered item waits on an agent, not the person.
+    const needs = open.filter((b) => b.state !== "answered")
     return new CardDetail({
       scope: "mine",
       scopeLabel: "My devices",
@@ -106,8 +109,9 @@ export function sampleCards(now: Date): CardDetail[] {
       steps: st,
       blockers: c.blockers ?? [],
       progress: { done: st.filter((s) => s.done).length, total: st.length },
-      openBlockers: open.length,
-      blockerQuestion: open[0]?.question ?? "",
+      openBlockers: needs.length,
+      waiting: open.length - needs.length,
+      blockerQuestion: needs[0]?.question ?? "",
     })
   }
 
@@ -150,6 +154,99 @@ export function sampleCards(now: Date): CardDetail[] {
             }),
           ],
           resolved: null,
+          state: "open",
+        }),
+        // Replied: the person answered, the agent asked back with what
+        // the answer still misses, so it is back with the person.
+        new CardBlocker({
+          id: "b2",
+          question: "What goes in the release notes' known-issues list?",
+          context:
+            "Two issues are open against main: the boat sometimes clips the dock, and the log viewer stutters past 50k lines.",
+          raisedBy: otter,
+          at: at(45),
+          options: [],
+          resolved: null,
+          state: "replied",
+          missing: [
+            "Whether the dock clipping counts as known or fixed",
+            "A workaround line for the log viewer",
+          ],
+          thread: [
+            new CardThreadItem({
+              id: "sample-1-b2-a1",
+              kind: "comment",
+              at: at(38),
+              who: sampleYou,
+              to: otter,
+              text: "Both, with a workaround each.",
+              blockerId: "b2",
+            }),
+            new CardThreadItem({
+              id: "sample-1-b2-r1",
+              kind: "comment",
+              at: at(30),
+              who: otter,
+              text: "I can list the log viewer, but I don't have a workaround for it, and the dock fix (#207) may already cover the clipping.",
+              blockerId: "b2",
+              missing: [
+                "Whether the dock clipping counts as known or fixed",
+                "A workaround line for the log viewer",
+              ],
+            }),
+          ],
+        }),
+        // Resolved by the agent with its note; the person's answer stands.
+        new CardBlocker({
+          id: "b3",
+          question: "Tag from main, or from the release branch?",
+          context: "",
+          raisedBy: otter,
+          at: at(90),
+          options: [],
+          state: "resolved",
+          resolved: new CardResolution({
+            answer: "From main; we don't keep release branches.",
+            option: -1,
+            note: "Tagging from main d48bc2f once the co-op check passes.",
+            by: otter,
+            at: at(70),
+            closed: false,
+          }),
+          thread: [
+            new CardThreadItem({
+              id: "sample-1-b3-a1",
+              kind: "comment",
+              at: at(80),
+              who: sampleYou,
+              to: otter,
+              text: "From main; we don't keep release branches.",
+              blockerId: "b3",
+            }),
+          ],
+        }),
+        // Closed without an answer.
+        new CardBlocker({
+          id: "b4",
+          question: "Waiting on the CI runner lease",
+          context: "",
+          raisedBy: heron,
+          at: at(120),
+          options: [],
+          state: "closed",
+          resolved: new CardResolution({
+            answer: "the lease was released",
+            option: -1,
+            by: new AgentRef({
+              key: "irori",
+              name: "Irori",
+              status: "irori",
+              live: true,
+              where: "This PC",
+            }),
+            at: at(110),
+            closed: true,
+          }),
         }),
       ],
       prs: [
@@ -170,6 +267,16 @@ export function sampleCards(now: Date): CardDetail[] {
           text: "sample-otter raised a blocker",
         }),
         new CardActivity({
+          at: at(30),
+          who: otter,
+          text: "sample-otter replied on blocker b2",
+        }),
+        new CardActivity({
+          at: at(38),
+          who: sampleYou,
+          text: "You answered blocker b2",
+        }),
+        new CardActivity({
           at: at(40),
           who: otter,
           text: "sample-otter ticked “Release notes up to main”",
@@ -188,7 +295,7 @@ export function sampleCards(now: Date): CardDetail[] {
       goal: "Two users on different networks can play LAN games together without the third-party VPN.",
       working: [badger],
       watching: [wren, lark],
-      updatedAt: at(9),
+      updatedAt: at(4),
       steps: steps([
         ["Research what the VPN does", true],
         ["LAN build with a virtual adapter", false, true],
@@ -218,9 +325,29 @@ export function sampleCards(now: Date): CardDetail[] {
             }),
           ],
           resolved: null,
+          // Answered: the person's question back went to the raiser, so
+          // it waits on sample-badger (a grey "Waiting on agent" card).
+          state: "answered",
+          sentTo: badger,
+          thread: [
+            new CardThreadItem({
+              id: "sample-2-b1-a1",
+              kind: "comment",
+              at: at(4),
+              who: sampleYou,
+              to: badger,
+              text: "How much work is the broadcast relay? If it's under a day, Wintun.",
+              blockerId: "b1",
+            }),
+          ],
         }),
       ],
       recent: [
+        new CardActivity({
+          at: at(4),
+          who: sampleYou,
+          text: "You answered blocker b1",
+        }),
         new CardActivity({
           at: at(9),
           who: badger,
@@ -253,6 +380,7 @@ export function sampleCards(now: Date): CardDetail[] {
           raisedBy: heron,
           at: at(6),
           options: [],
+          state: "open",
         }),
       ],
       steps: steps([

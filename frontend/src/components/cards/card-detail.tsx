@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import {
+  BlockerState,
   cards,
   displayName,
   MaxAnswer,
@@ -14,6 +15,7 @@ import {
   percent,
   TaskState,
   type AgentRef,
+  type AnswerResult,
   type CardBlocker,
   type CardDetail,
   type CardPR,
@@ -28,6 +30,7 @@ import {
   shortRepo,
 } from "@/lib/irori"
 import { errorText, talk, type GoneSession } from "@/lib/talk"
+import { answerable, blockerChip, blockerTone } from "@/lib/thread"
 import { cn } from "@/lib/utils"
 import { ProgressBar, ScopeBadge } from "./bits"
 import { Face, LiveDot } from "./faces"
@@ -105,6 +108,12 @@ export function CardPanel({
             <span className="text-destructive">
               {detail.openBlockers} waiting on a decision
             </span>
+          )}
+          {(p !== null || detail.openBlockers > 0) && detail.waiting > 0 && (
+            <span>·</span>
+          )}
+          {detail.waiting > 0 && (
+            <span>{detail.waiting} waiting on an agent</span>
           )}
         </div>
       </div>
@@ -256,9 +265,13 @@ function Note({ children }: { children: ReactNode }) {
 const name = displayName
 
 // BlockerItem is one blocker: the question, context for a newcomer, who
-// raised it, and the recommended answers as buttons, with a field for an
-// answer in the person's own words. The answer reaches the raiser as a
-// wake (it is blocked on the person).
+// raised it, its own thread (the person's answers, the agents' replies)
+// and, while the person can answer, the recommended answers as buttons
+// with a field for their own words. By state: open and replied are amber
+// (they wait on the person); answered is grey with who it went to, never
+// a check, the form folded behind "Add to your answer"; resolved has the
+// check and the resolver's note; closed keeps its old look. While
+// answered or replied the person can also mark it resolved.
 function BlockerItem({
   cardId,
   blocker: b,
@@ -273,25 +286,42 @@ function BlockerItem({
   onNoteAnswered: (answer: string, told: Told) => void
 }) {
   const [text, setText] = useState("")
+  const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [told, setTold] = useState<Told | null>(null)
+  const [told, setTold] = useState<Sent | null>(null)
+  const [adding, setAdding] = useState(false)
+  const [resolving, setResolving] = useState(false)
   const raised = parseTime(b.at)
   const r = b.resolved
+  const state = b.state || BlockerState.Open
+  const tone = blockerTone(state)
+  const chip = blockerChip(b)
+  const answered =
+    state === BlockerState.Answered || state === BlockerState.Replied
+  // Answered: the form waits behind "Add to your answer".
+  const showForm =
+    answerable(state) && (state !== BlockerState.Answered || adding)
 
-  const send = async (option: number, own: string) => {
+  // run sends an answer (own is its words, "" for a pick), or with own
+  // null marks the item resolved.
+  const run = async (act: () => Promise<AnswerResult>, own: string | null) => {
     if (busy) return
-    if (option < 0 && !own.trim()) {
-      setError("Write an answer first.")
-      return
-    }
     setBusy(true)
     setError(null)
     try {
-      const res = await cards.answer(cardId, b.id, option, own)
-      if (b.id === NoteItem) onNoteAnswered(own.trim(), res.told)
-      setTold(res.told)
+      const res = await act()
+      if (b.id === NoteItem && own !== null)
+        onNoteAnswered(own.trim(), res.told)
+      // Marked resolved: the check says it all.
+      const after = res.card.blockers.find((x) => x.id === b.id)
+      setTold(
+        own === null ? null : { told: res.told, resolved: !!after?.resolved }
+      )
       setText("")
+      setNote("")
+      setAdding(false)
+      setResolving(false)
     } catch (err) {
       setError(errorText(err))
     } finally {
@@ -299,27 +329,99 @@ function BlockerItem({
     }
   }
 
+  const send = (option: number, own: string) => {
+    if (option < 0 && !own.trim()) {
+      setError("Write an answer first.")
+      return
+    }
+    void run(() => cards.answer(cardId, b.id, option, own), own)
+  }
+
   const submit = (e: FormEvent) => {
     e.preventDefault()
-    void send(-1, text)
+    send(-1, text)
   }
+
+  const markResolved = (e: FormEvent) => {
+    e.preventDefault()
+    void run(() => cards.resolveBlocker(cardId, b.id, note), null)
+  }
+
+  const form = showForm ? (
+    <div className="grid gap-1.5">
+      {b.options.length > 0 && (
+        <div className="grid gap-1.5">
+          {b.options.map((o, i) => (
+            <button
+              key={i}
+              type="button"
+              disabled={busy}
+              onClick={() => send(i, "")}
+              className="grid gap-0.5 rounded-[10px] border border-border bg-card px-2.5 py-2 text-left outline-none hover:border-primary focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
+            >
+              <span className="text-[13px] font-semibold text-ink">
+                {plainLine(o.answer)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                <span className="font-medium text-primary">
+                  Recommended by {name(o.by)}.
+                </span>{" "}
+                {plainLine(o.why)}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      <form className="flex gap-1.5" onSubmit={submit}>
+        <Input
+          value={text}
+          maxLength={MaxAnswer}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={
+            answered
+              ? "Answer again, or add what's missing"
+              : b.options.length
+                ? "Or answer in your own words"
+                : "Answer in your own words"
+          }
+          aria-label={`Your answer to: ${plainLine(b.question)}`}
+          className="min-w-0 flex-1 bg-card"
+          disabled={busy}
+        />
+        <Button type="submit" disabled={busy}>
+          {busy ? "Sending…" : "Answer"}
+        </Button>
+      </form>
+    </div>
+  ) : null
 
   return (
     <div
       className={cn(
         "grid gap-2 rounded-xl border p-3",
-        r
-          ? "border-border bg-muted/50 opacity-85"
-          : "border-destructive/30 bg-destructive/5"
+        tone === "amber" && "border-destructive/30 bg-destructive/5",
+        tone === "grey" && "border-border bg-muted/30",
+        (tone === "green" || tone === "closed") &&
+          "border-border bg-muted/50 opacity-85"
       )}
     >
-      <div className="text-[13.5px] font-semibold text-ink">
-        {r && (
-          <span className="text-success" aria-label="Resolved: ">
-            ✓{" "}
-          </span>
+      <div className="flex flex-wrap items-center gap-1.5 text-[13.5px] font-semibold text-ink">
+        <span>
+          {r && (
+            <span className="text-success" aria-label="Resolved: ">
+              ✓{" "}
+            </span>
+          )}
+          {plainLine(b.question)}
+        </span>
+        {chip && (
+          <Badge
+            variant={chip.tone}
+            className="h-4 px-1.5 text-[10.5px] font-normal"
+          >
+            {plainLine(chip.label)}
+          </Badge>
         )}
-        {plainLine(b.question)}
       </div>
       {b.context && (
         <div className="max-w-[64ch] text-[12.5px] whitespace-pre-wrap text-ink-2">
@@ -338,6 +440,11 @@ function BlockerItem({
               · closed by {name(r.by)}
               {r.answer ? `: “${plainLine(r.answer)}”` : ""}
             </>
+          ) : r.note ? (
+            <>
+              {" "}
+              · resolved by {name(r.by)}: “{plainLine(r.note)}”
+            </>
           ) : (
             <>
               {" "}
@@ -345,63 +452,112 @@ function BlockerItem({
             </>
           ))}
       </div>
-      {told && r && <ToldLine told={told} raiser={b.raisedBy} />}
-      {!r && (
-        <>
-          {b.options.length > 0 && (
-            <div className="grid gap-1.5">
-              {b.options.map((o, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void send(i, "")}
-                  className="grid gap-0.5 rounded-[10px] border border-border bg-card px-2.5 py-2 text-left outline-none hover:border-primary focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
-                >
-                  <span className="text-[13px] font-semibold text-ink">
-                    {plainLine(o.answer)}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    <span className="font-medium text-primary">
-                      Recommended by {name(o.by)}.
-                    </span>{" "}
-                    {plainLine(o.why)}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-          <form className="flex gap-1.5" onSubmit={submit}>
-            <Input
-              value={text}
-              maxLength={MaxAnswer}
-              onChange={(e) => setText(e.target.value)}
-              placeholder={
-                b.options.length
-                  ? "Or answer in your own words"
-                  : "Answer in your own words"
-              }
-              aria-label={`Your answer to: ${plainLine(b.question)}`}
-              className="min-w-0 flex-1 bg-card"
-              disabled={busy}
-            />
-            <Button type="submit" disabled={busy}>
-              {busy ? "Sending…" : "Answer"}
-            </Button>
-          </form>
-        </>
+      {b.thread.length > 0 ? (
+        <Thread
+          compact
+          inBlocker
+          cardId={cardId}
+          items={b.thread}
+          now={now}
+          composer={form}
+        />
+      ) : (
+        form
       )}
+      {answered && !busy && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {state === BlockerState.Answered && !adding && (
+            <Button
+              size="xs"
+              variant="ghost"
+              className="text-muted-foreground"
+              onClick={() => setAdding(true)}
+            >
+              Add to your answer
+            </Button>
+          )}
+          {!resolving && (
+            <Button
+              size="xs"
+              variant="link"
+              className="h-auto px-0 text-muted-foreground"
+              onClick={() => setResolving(true)}
+            >
+              Mark resolved
+            </Button>
+          )}
+        </div>
+      )}
+      {resolving && (
+        <form className="flex gap-1.5" onSubmit={markResolved}>
+          <Input
+            value={note}
+            maxLength={MaxAnswer}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="A note beside the check (optional)"
+            aria-label={`Note on resolving: ${plainLine(b.question)}`}
+            className="min-w-0 flex-1 bg-card"
+            disabled={busy}
+          />
+          <Button type="submit" disabled={busy}>
+            {busy ? "Saving…" : "Mark resolved"}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => setResolving(false)}
+          >
+            Cancel
+          </Button>
+        </form>
+      )}
+      {told &&
+        // Only while it still says what is so: an answer waits on the
+        // raiser until it replies or resolves.
+        (told.resolved ? !!r : state === BlockerState.Answered) && (
+          <ToldLine
+            told={told.told}
+            raiser={b.raisedBy}
+            sent={b.id === NoteItem ? undefined : told.resolved}
+          />
+        )}
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   )
 }
 
-// ToldLine says who heard the answer and how.
-function ToldLine({ told, raiser }: { told: Told; raiser: AgentRef }) {
+// Sent is what an answer did: who heard, and whether the item resolved.
+type Sent = { told: Told; resolved: boolean }
+
+// ToldLine says who heard the answer and how. For a blocker item (sent
+// set), it says whether the answer left it open with the raiser or
+// resolved it because nobody is running to act on it.
+function ToldLine({
+  told,
+  raiser,
+  sent,
+}: {
+  told: Told
+  raiser: AgentRef
+  sent?: boolean
+}) {
   if (told.error)
     return (
       <p className="text-xs text-destructive">
         Answered, but {name(raiser)} couldn't be told: {told.error}
+      </p>
+    )
+  if (sent === true)
+    return (
+      <p className="text-xs text-success">
+        Resolved: nobody is running to act on it.
+      </p>
+    )
+  if (sent === false)
+    return (
+      <p className="text-xs text-muted-foreground">
+        Sent to {name(raiser)}; it stays open until {name(raiser)} resolves it.
       </p>
     )
   if (!told.to.length)

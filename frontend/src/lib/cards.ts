@@ -53,6 +53,18 @@ export const EventBoardChanged = "board:changed"
 // MaxAnswer mirrors coord's limit on a blocker answer.
 export const MaxAnswer = 500
 
+// BlockerState mirrors the Go constants on CardBlocker.state: open (no
+// answer yet), answered (the person answered; it waits on the raiser),
+// replied (an agent replied to the answer; back with the person),
+// resolved, and closed without an answer.
+export const BlockerState = {
+  Open: "open",
+  Answered: "answered",
+  Replied: "replied",
+  Resolved: "resolved",
+  Closed: "closed",
+} as const
+
 // ---- sample mode ------------------------------------------------------------
 
 let sample: CardDetail[] | null = null
@@ -84,6 +96,7 @@ function summary(c: CardDetail): CardSummary {
     progress: c.progress,
     openBlockers: c.openBlockers,
     blockerQuestion: c.blockerQuestion,
+    waiting: c.waiting,
     working: c.working,
     watching: c.watching,
     updatedAt: c.updatedAt,
@@ -99,37 +112,123 @@ function sampleAnswer(
 ): AnswerResult {
   const c = sampleCard(id)
   if (blockerId === NoteItem) return sampleAnswerNote(c, option, text, wake)
-  const b = c.blockers.find((x) => x.id === blockerId)
-  if (!b) throw new Error(`coord: no such blocker "${blockerId}"`)
-  if (b.resolved) throw new Error("coord: conflict: that blocker is resolved")
+  const b = sampleBlocker(c, blockerId)
   const answer = option >= 0 ? b.options[option]?.answer : text.trim()
   if (!answer) throw new Error("coord: invalid input: an answer needs text")
   const now = new Date().toISOString()
+  b.thread = [
+    ...b.thread,
+    new CardThreadItem({
+      id: `sample-answer-${b.id}-${b.thread.length}`,
+      kind: "comment",
+      at: now,
+      who: sampleYou,
+      to: b.raisedBy,
+      text: answer,
+      blockerId: b.id,
+    }),
+  ]
+  c.thread = sampleThreadLine(c, now, `You answered blocker ${b.id}`, b.id)
+  // As BoardService.Answer: the answer waits on the raiser, unless nobody
+  // is running to act on it.
+  if (!b.raisedBy.live && !c.working.some((w) => w.live)) {
+    sampleResolve(c, b, answer, option, "", now)
+  } else {
+    b.state = BlockerState.Answered
+    b.sentTo = b.raisedBy
+    b.missing = []
+    sampleRecount(c)
+  }
+  c.updatedAt = now
+  sampleChanged()
+  return new AnswerResult({
+    card: c,
+    told: new Told({
+      to: [b.raisedBy.key, ...c.working.map((w) => w.key)].filter(
+        (k, i, all) => all.indexOf(k) === i
+      ),
+      mode: wake ? "wake" : "next_turn",
+    }),
+  })
+}
+
+// sampleResolveBlocker is BoardService.ResolveBlocker on the sample: the
+// person's latest answer stands, with note beside the check.
+function sampleResolveBlocker(
+  id: string,
+  blockerId: string,
+  note: string
+): AnswerResult {
+  const c = sampleCard(id)
+  const b = sampleBlocker(c, blockerId)
+  const last = [...b.thread].reverse().find((x) => x.who.key === sampleYou.key)
+  if (!last && !note.trim())
+    throw new Error("coord: invalid input: the answer needs text")
+  const now = new Date().toISOString()
+  sampleResolve(
+    c,
+    b,
+    last ? last.text : note.trim(),
+    last ? b.options.findIndex((o) => o.answer === last.text) : -1,
+    last ? note.trim() : "",
+    now
+  )
+  c.updatedAt = now
+  sampleChanged()
+  return new AnswerResult({
+    card: c,
+    told: new Told({ to: c.working.map((w) => w.key), mode: "next_turn" }),
+  })
+}
+
+function sampleBlocker(c: CardDetail, blockerId: string): CardBlocker {
+  const b = c.blockers.find((x) => x.id === blockerId)
+  if (!b) throw new Error(`coord: no such blocker "${blockerId}"`)
+  if (b.resolved) throw new Error("coord: conflict: that blocker is resolved")
+  return b
+}
+
+// sampleResolve resolves b as the person, with its line on the card.
+function sampleResolve(
+  c: CardDetail,
+  b: CardBlocker,
+  answer: string,
+  option: number,
+  note: string,
+  at: string
+) {
   b.resolved = new CardResolution({
     answer,
     option,
+    note,
     by: sampleYou,
-    at: now,
+    at,
     closed: false,
   })
+  b.state = BlockerState.Resolved
+  b.sentTo = null
+  b.missing = []
+  const line = note
+    ? `You resolved “${b.question}”: ${note}`
+    : `You answered “${b.question}”: ${answer}`
+  c.recent = [{ at, who: sampleYou, text: line }, ...c.recent].slice(0, 8)
+  c.thread = sampleThreadLine(c, at, line)
   // Open items first (oldest first), then resolved ones newest first.
   const open = c.blockers.filter((x) => !x.resolved)
   const done = c.blockers.filter((x) => x.resolved && x !== b)
   c.blockers = [...open, b, ...done]
-  c.openBlockers = open.length
-  c.blockerQuestion = open[0]?.question ?? ""
+  sampleRecount(c)
   if (!open.length) c.state = TaskState.Working
-  c.updatedAt = now
-  c.recent = [
-    { at: now, who: sampleYou, text: `You answered: ${answer}` },
-    ...c.recent,
-  ].slice(0, 8)
-  c.thread = sampleThreadLine(c, now, `You answered: ${answer}`)
-  sampleChanged()
-  return new AnswerResult({
-    card: c,
-    told: new Told({ to: [b.raisedBy.key], mode: wake ? "wake" : "next_turn" }),
-  })
+}
+
+// sampleRecount is cardSummary's counts: answered items wait on an agent,
+// the rest of the open ones on the person.
+function sampleRecount(c: CardDetail) {
+  const open = c.blockers.filter((x) => !x.resolved)
+  const needs = open.filter((x) => x.state !== BlockerState.Answered)
+  c.openBlockers = needs.length
+  c.waiting = open.length - needs.length
+  c.blockerQuestion = needs[0]?.question ?? ""
 }
 
 // sampleMessage is BoardService.Message on the sample: a held message's
@@ -156,16 +255,18 @@ function sampleMessage(id: string, msgId: string): CardMessage {
 function sampleThreadLine(
   c: CardDetail,
   at: string,
-  text: string
+  text: string,
+  blockerId?: string
 ): CardThreadItem[] {
   return [
     ...c.thread,
     new CardThreadItem({
-      id: `sample-answer-${c.thread.length}`,
+      id: `sample-line-${c.thread.length}`,
       kind: "event",
       at,
       who: sampleYou,
       text,
+      blockerId,
     }),
   ]
 }
@@ -208,9 +309,10 @@ function sampleAnswerNote(
 
 // Every action acts as the person at this device.
 export const cards = {
-  // answer resolves one blocker: option is an index into blocker.options,
-  // or -1 to answer with text. wake defaults to true: the raiser is blocked
-  // on the person.
+  // answer answers one blocker: option is an index into blocker.options,
+  // or -1 to answer with text. The answer goes to the raiser and the item
+  // stays open until it is resolved, unless nobody is running to act on
+  // it. wake defaults to true: the raiser is blocked on the person.
   async answer(
     id: string,
     blockerId: string,
@@ -220,6 +322,17 @@ export const cards = {
   ): Promise<AnswerResult> {
     if (inWails()) return BoardService.Answer(id, blockerId, option, text, wake)
     return sampleAnswer(id, blockerId, option, text, wake)
+  },
+
+  // resolveBlocker is "Mark resolved": the person's answer stands, with
+  // note (optional) beside the check.
+  async resolveBlocker(
+    id: string,
+    blockerId: string,
+    note: string
+  ): Promise<AnswerResult> {
+    if (inWails()) return BoardService.ResolveBlocker(id, blockerId, note)
+    return sampleResolveBlocker(id, blockerId, note)
   },
 
   // message opens a message on card id's thread in full: the text the

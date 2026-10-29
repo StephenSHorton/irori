@@ -103,7 +103,7 @@ func TestCardDetail(t *testing.T) {
 		Options: []coord.Option{{Answer: "Wintun", Why: "signed"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := c.Answer(ctx, "user:dev-a", tk.ID, "b1", coord.BlockerAnswer{Text: "yes"}); err != nil {
+	if _, _, err := c.Answer(ctx, "user:dev-a", tk.ID, "b1", coord.BlockerAnswer{Text: "yes", Resolve: true}); err != nil {
 		t.Fatal(err)
 	}
 	d, err := b.Card(tk.ID)
@@ -146,8 +146,8 @@ func TestCardAnswer(t *testing.T) {
 		wantMode  string
 		wantState coord.TaskState
 	}{
-		{"pick and wake", 1, "", true, false, "TAP", "wake", coord.Working},
-		{"own words, next turn", -1, " both ", false, false, "both", "next_turn", coord.Working},
+		{"pick and wake", 1, "", true, false, "TAP", "wake", coord.Blocked},
+		{"own words, next turn", -1, " both ", false, false, "both", "next_turn", coord.Blocked},
 		{"bad index", 5, "", true, true, "", "", ""},
 		{"below -1", -2, "x", true, true, "", "", ""},
 		{"no words", -1, " ", true, true, "", "", ""},
@@ -174,7 +174,12 @@ func TestCardAnswer(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if res.Card.State != tc.wantState || res.Card.OpenBlockers != 0 || res.Card.Blockers[0].Resolved.Answer != tc.wantAns {
+			// The raiser is live: the answer goes to it and the item
+			// waits on it, out of the person's count.
+			bl := res.Card.Blockers[0]
+			if res.Card.State != tc.wantState || res.Card.OpenBlockers != 0 || res.Card.Waiting != 1 ||
+				bl.State != BlockerAnswered || bl.Resolved != nil || len(bl.Thread) != 1 || bl.Thread[0].Text != tc.wantAns ||
+				bl.SentTo == nil || bl.SentTo.Key != agentA {
 				t.Fatalf("card %+v", res.Card)
 			}
 			if res.Told.Mode != tc.wantMode || len(res.Told.To) != 1 || res.Told.To[0] != agentA {
@@ -547,4 +552,234 @@ func TestCardThreadAcrossDevices(t *testing.T) {
 	if _, m := find(d.Thread, "msg_9"); m.Device != "" || m.Who.Where != "Mac" {
 		t.Fatalf("unpaired message %+v", m)
 	}
+}
+
+// The person's answer goes to the live raiser and leaves the item open:
+// answered (out of the person's count), then replied once the agent asks
+// back (in it again), and only the agent's resolve with a note closes it,
+// keeping the person's answer. The answer and the reply sit in the item's
+// own thread; the card's thread keeps a line for each.
+func TestAnswerLeavesBlockerOpen(t *testing.T) {
+	ctx := context.Background()
+	b, c, got := cardsBoard(t)
+	tk := heldTask(t, c)
+	if _, _, err := c.Raise(ctx, agentA, tk.ID, coord.NewBlocker{Question: "Which DB?",
+		Options: []coord.Option{{Answer: "postgres"}}}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := b.Answer(tk.ID, "b1", -1, "Which one is cheaper to run?", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bl := res.Card.Blockers[0]
+	if res.Card.State != coord.Blocked || bl.State != BlockerAnswered || bl.Resolved != nil ||
+		res.Card.OpenBlockers != 0 || res.Card.Waiting != 1 || bl.SentTo == nil || bl.SentTo.Name != "ww-release" {
+		t.Fatalf("after answer %+v blocker %+v", res.Card.CardSummary, bl)
+	}
+	if len(res.Told.To) == 0 || res.Told.To[0] != agentA || res.Told.Mode != "wake" {
+		t.Fatalf("told %+v", res.Told)
+	}
+	if len(*got) != 1 || !strings.Contains((*got)[0].n.Text, "It is not resolved yet") {
+		t.Fatalf("routed %+v", *got)
+	}
+	if n := b.decideCount(); n != 0 {
+		t.Fatalf("decide = %d with only an answered item", n)
+	}
+
+	// The raiser asks back: replied, back in the person's count.
+	if _, _, err := c.CommentOn(ctx, agentA, tk.ID, coord.CommentInput{Text: "Postgres, but I need the budget.",
+		BlockerID: "b1", Missing: []string{"monthly budget"}}); err != nil {
+		t.Fatal(err)
+	}
+	d, err := b.Card(tk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bl = d.Blockers[0]
+	if bl.State != BlockerReplied || d.OpenBlockers != 1 || d.Waiting != 0 || d.BlockerQuestion != "Which DB?" ||
+		!slices.Equal(bl.Missing, []string{"monthly budget"}) || bl.SentTo != nil {
+		t.Fatalf("after reply %+v blocker %+v", d.CardSummary, bl)
+	}
+	if len(bl.Thread) != 2 || bl.Thread[0].Who.Name != "You" || bl.Thread[0].To == nil || bl.Thread[0].To.Key != agentA ||
+		bl.Thread[1].Who.Key != agentA || bl.Thread[1].Text != "Postgres, but I need the budget." ||
+		!slices.Equal(bl.Thread[1].Missing, []string{"monthly budget"}) || bl.Thread[1].BlockerID != "b1" {
+		t.Fatalf("blocker thread %+v", bl.Thread)
+	}
+	// The card's thread has the lines, not the comments themselves.
+	var lines []string
+	for _, it := range d.Thread {
+		if it.BlockerID == "b1" && it.Kind != ThreadEvent {
+			t.Fatalf("blocker comment in the card's thread: %+v", it)
+		}
+		if it.Kind == ThreadEvent && it.BlockerID == "b1" {
+			lines = append(lines, it.Text)
+		}
+	}
+	if len(lines) != 3 || !strings.Contains(lines[1], "answered blocker b1") || !strings.Contains(lines[2], "replied on blocker b1") {
+		t.Fatalf("card thread lines %q", lines)
+	}
+	if n := b.decideCount(); n != 1 {
+		t.Fatalf("decide = %d with a replied item", n)
+	}
+
+	// Only the agent's resolve, with a note, closes it.
+	if _, _, err := c.Answer(ctx, agentA, tk.ID, "b1", coord.BlockerAnswer{Text: "Going with postgres on the small plan.", Resolve: true}); err != nil {
+		t.Fatal(err)
+	}
+	if d, err = b.Card(tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	bl = d.Blockers[0]
+	if d.State != coord.Working || bl.State != BlockerResolved || bl.Resolved == nil ||
+		bl.Resolved.Note != "Going with postgres on the small plan." || bl.Resolved.Answer != "Which one is cheaper to run?" ||
+		d.OpenBlockers != 0 || d.Waiting != 0 || len(bl.Thread) != 2 {
+		t.Fatalf("after resolve %+v blocker %+v", d.CardSummary, bl)
+	}
+	raw, _ := json.Marshal(bl)
+	if strings.Contains(string(raw), "null") {
+		t.Fatalf("null in %s", raw)
+	}
+}
+
+// With nobody running to act on it, the person's answer resolves the item
+// at once: the raiser has ended and no holder is live. Words added to an
+// answer the raiser never acted on become the answer, not a note.
+func TestAnswerResolvesWhenNobodyCanAct(t *testing.T) {
+	ctx := context.Background()
+	b, c, _ := cardsBoard(t)
+	tk := heldTask(t, c)
+	for _, q := range []string{"Ship it?", "Which region?"} {
+		if _, _, err := c.Raise(ctx, agentA, tk.ID, coord.NewBlocker{Question: q}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// b2 is answered while agentA is still running.
+	if _, err := b.Answer(tk.ID, "b2", -1, "Which is closest?", false); err != nil {
+		t.Fatal(err)
+	}
+	b.agents = func() []presence.AgentCard { return nil } // agentA has ended
+	res, err := b.Answer(tk.ID, "b1", -1, "yes", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bl := blockerOf(t, res.Card, "b1")
+	if bl.State != BlockerResolved || bl.Resolved.Answer != "yes" || bl.Resolved.Note != "" || res.Card.State != coord.Blocked {
+		t.Fatalf("b1 %+v card %+v", bl, res.Card.CardSummary)
+	}
+	if res, err = b.Answer(tk.ID, "b2", -1, "eu-west", true); err != nil {
+		t.Fatal(err)
+	}
+	bl = blockerOf(t, res.Card, "b2")
+	if bl.State != BlockerResolved || bl.Resolved.Answer != "eu-west" || bl.Resolved.Note != "" ||
+		res.Card.State != coord.Working || len(bl.Thread) != 2 {
+		t.Fatalf("b2 %+v card %+v", bl, res.Card.CardSummary)
+	}
+
+	// A blocker the person raised has no agent to act on it either.
+	tk2 := heldTask(t, c)
+	if _, _, err := c.Raise(ctx, "user:dev-a", tk2.ID, coord.NewBlocker{Question: "Remind me?"}); err != nil {
+		t.Fatal(err)
+	}
+	b.agents = func() []presence.AgentCard {
+		return []presence.AgentCard{{Key: agentA, Name: "ww-release", Status: "gone"}}
+	}
+	if res, err = b.Answer(tk2.ID, "b1", -1, "done", false); err != nil {
+		t.Fatal(err)
+	}
+	if bl = blockerOf(t, res.Card, "b1"); bl.State != BlockerResolved {
+		t.Fatalf("person's own blocker %+v", bl)
+	}
+}
+
+// "Mark resolved" with no note keeps the person's answer; with one, the
+// note goes beside the check. Only an open item with an answer has
+// nothing more to ask for.
+func TestResolveBlockerByPerson(t *testing.T) {
+	ctx := context.Background()
+	b, c, got := cardsBoard(t)
+	tk := heldTask(t, c)
+	for _, q := range []string{"Which DB?", "Which port?"} {
+		if _, _, err := c.Raise(ctx, agentA, tk.ID, coord.NewBlocker{Question: q,
+			Options: []coord.Option{{Answer: "postgres"}, {Answer: "8080"}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := b.ResolveBlocker(tk.ID, NoteItem, ""); !errors.Is(err, coord.ErrInvalid) {
+		t.Fatalf("resolved the note item: %v", err)
+	}
+	if _, err := b.ResolveBlocker(tk.ID, "b1", ""); !errors.Is(err, coord.ErrInvalid) {
+		t.Fatalf("resolved an unanswered item with nothing: %v", err)
+	}
+	if _, err := b.Answer(tk.ID, "b1", 0, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Answer(tk.ID, "b2", -1, "whatever is free", false); err != nil {
+		t.Fatal(err)
+	}
+	*got = nil
+	res, err := b.ResolveBlocker(tk.ID, "b1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bl := blockerOf(t, res.Card, "b1")
+	if bl.State != BlockerResolved || bl.Resolved.Answer != "postgres" || bl.Resolved.Option != 0 ||
+		bl.Resolved.Note != "" || bl.Resolved.By.Name != "You" || res.Card.State != coord.Blocked {
+		t.Fatalf("b1 %+v", bl)
+	}
+	if res.Told.Mode != "next_turn" || len(*got) != 1 || (*got)[0].n.Wake {
+		t.Fatalf("told %+v routed %+v", res.Told, *got)
+	}
+	if res, err = b.ResolveBlocker(tk.ID, " b2 ", "I'll pick one myself later."); err != nil {
+		t.Fatal(err)
+	}
+	bl = blockerOf(t, res.Card, "b2")
+	if bl.State != BlockerResolved || bl.Resolved.Answer != "whatever is free" || bl.Resolved.Note != "I'll pick one myself later." ||
+		res.Card.State != coord.Working {
+		t.Fatalf("b2 %+v", bl)
+	}
+	if _, err := b.ResolveBlocker(tk.ID, "b2", ""); !errors.Is(err, coord.ErrBadState) {
+		t.Fatalf("resolved twice: %v", err)
+	}
+}
+
+// An answered item waits on an agent: it isn't counted as a decision, the
+// Blocked fallback doesn't stand in for it, and the grid sorts it with the
+// cards that need nothing. A replied one is a decision again.
+func TestCardSummaryWaiting(t *testing.T) {
+	ctx := context.Background()
+	b, c, _ := cardsBoard(t)
+	tk := heldTask(t, c)
+	if _, _, err := c.Raise(ctx, agentA, tk.ID, coord.NewBlocker{Question: "Ship?"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Answer(tk.ID, "b1", -1, "After lunch.", false); err != nil {
+		t.Fatal(err)
+	}
+	g := b.Cards()
+	if len(g) != 1 || g[0].State != coord.Blocked || g[0].OpenBlockers != 0 || g[0].Waiting != 1 || g[0].BlockerQuestion != "" {
+		t.Fatalf("answered %+v", g)
+	}
+	if n := b.decideCount(); n != 0 {
+		t.Fatalf("decide = %d", n)
+	}
+	if _, _, err := c.CommentOn(ctx, agentA, tk.ID, coord.CommentInput{Text: "Which lunch?", BlockerID: "b1"}); err != nil {
+		t.Fatal(err)
+	}
+	if g = b.Cards(); g[0].OpenBlockers != 1 || g[0].Waiting != 0 || g[0].BlockerQuestion != "Ship?" {
+		t.Fatalf("replied %+v", g)
+	}
+	if n := b.decideCount(); n != 1 {
+		t.Fatalf("decide = %d", n)
+	}
+}
+
+func blockerOf(t *testing.T, d CardDetail, id string) CardBlocker {
+	t.Helper()
+	for _, bl := range d.Blockers {
+		if bl.ID == id {
+			return bl
+		}
+	}
+	t.Fatalf("no blocker %s in %+v", id, d.Blockers)
+	return CardBlocker{}
 }

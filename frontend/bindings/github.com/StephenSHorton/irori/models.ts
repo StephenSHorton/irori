@@ -284,6 +284,25 @@ export class CardBlocker {
      */
     "resolved": CardResolution | null;
 
+    /**
+     * BlockerOpen ... BlockerClosed
+     */
+    "state": string;
+
+    /**
+     * SentTo is who the person's latest answer went to (the raiser), while
+     * answered; Missing is what an agent's reply says is still needed,
+     * while replied.
+     */
+    "sentTo"?: AgentRef | null;
+    "missing": string[];
+
+    /**
+     * Thread is the item's own thread, oldest first: the person's answers
+     * and the agents' replies. The card's thread keeps a line for each.
+     */
+    "thread": CardThreadItem[];
+
     /** Creates a new CardBlocker instance. */
     constructor($$source: Partial<CardBlocker> = {}) {
         if (!("id" in $$source)) {
@@ -307,6 +326,15 @@ export class CardBlocker {
         if (!("resolved" in $$source)) {
             this["resolved"] = null;
         }
+        if (!("state" in $$source)) {
+            this["state"] = "";
+        }
+        if (!("missing" in $$source)) {
+            this["missing"] = [];
+        }
+        if (!("thread" in $$source)) {
+            this["thread"] = [];
+        }
 
         Object.assign(this, $$source);
     }
@@ -318,6 +346,9 @@ export class CardBlocker {
         const $$createField3_0 = $$createType3;
         const $$createField5_0 = $$createType5;
         const $$createField6_0 = $$createType7;
+        const $$createField8_0 = $$createType8;
+        const $$createField9_0 = $$createType2;
+        const $$createField10_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("raisedBy" in $$parsedSource) {
             $$parsedSource["raisedBy"] = $$createField3_0($$parsedSource["raisedBy"]);
@@ -327,6 +358,15 @@ export class CardBlocker {
         }
         if ("resolved" in $$parsedSource) {
             $$parsedSource["resolved"] = $$createField6_0($$parsedSource["resolved"]);
+        }
+        if ("sentTo" in $$parsedSource) {
+            $$parsedSource["sentTo"] = $$createField8_0($$parsedSource["sentTo"]);
+        }
+        if ("missing" in $$parsedSource) {
+            $$parsedSource["missing"] = $$createField9_0($$parsedSource["missing"]);
+        }
+        if ("thread" in $$parsedSource) {
+            $$parsedSource["thread"] = $$createField10_0($$parsedSource["thread"]);
         }
         return new CardBlocker($$parsedSource as Partial<CardBlocker>);
     }
@@ -353,11 +393,14 @@ export class CardDetail {
     "progress": CardProgress;
 
     /**
-     * OpenBlockers counts the items waiting on a decision; BlockerQuestion
-     * is the first one's question ("" when none).
+     * OpenBlockers counts the items waiting on a decision (open or
+     * replied); BlockerQuestion is the first one's question ("" when none).
+     * Waiting counts the items the person answered that wait on an agent
+     * to resolve or reply.
      */
     "openBlockers": number;
     "blockerQuestion": string;
+    "waiting": number;
 
     /**
      * holders, in join order
@@ -434,6 +477,9 @@ export class CardDetail {
         if (!("blockerQuestion" in $$source)) {
             this["blockerQuestion"] = "";
         }
+        if (!("waiting" in $$source)) {
+            this["waiting"] = 0;
+        }
         if (!("working" in $$source)) {
             this["working"] = [];
         }
@@ -487,46 +533,46 @@ export class CardDetail {
      * Creates a new CardDetail instance from a string or object.
      */
     static createFrom($$source: any = {}): CardDetail {
-        const $$createField6_0 = $$createType8;
-        const $$createField9_0 = $$createType9;
-        const $$createField10_0 = $$createType9;
-        const $$createField15_0 = $$createType11;
-        const $$createField16_0 = $$createType13;
-        const $$createField17_0 = $$createType15;
-        const $$createField18_0 = $$createType17;
-        const $$createField19_0 = $$createType19;
-        const $$createField20_0 = $$createType21;
-        const $$createField21_0 = $$createType23;
+        const $$createField6_0 = $$createType11;
+        const $$createField10_0 = $$createType12;
+        const $$createField11_0 = $$createType12;
+        const $$createField16_0 = $$createType14;
+        const $$createField17_0 = $$createType16;
+        const $$createField18_0 = $$createType18;
+        const $$createField19_0 = $$createType20;
+        const $$createField20_0 = $$createType22;
+        const $$createField21_0 = $$createType24;
+        const $$createField22_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("progress" in $$parsedSource) {
             $$parsedSource["progress"] = $$createField6_0($$parsedSource["progress"]);
         }
         if ("working" in $$parsedSource) {
-            $$parsedSource["working"] = $$createField9_0($$parsedSource["working"]);
+            $$parsedSource["working"] = $$createField10_0($$parsedSource["working"]);
         }
         if ("watching" in $$parsedSource) {
-            $$parsedSource["watching"] = $$createField10_0($$parsedSource["watching"]);
+            $$parsedSource["watching"] = $$createField11_0($$parsedSource["watching"]);
         }
         if ("steps" in $$parsedSource) {
-            $$parsedSource["steps"] = $$createField15_0($$parsedSource["steps"]);
+            $$parsedSource["steps"] = $$createField16_0($$parsedSource["steps"]);
         }
         if ("blockers" in $$parsedSource) {
-            $$parsedSource["blockers"] = $$createField16_0($$parsedSource["blockers"]);
+            $$parsedSource["blockers"] = $$createField17_0($$parsedSource["blockers"]);
         }
         if ("prs" in $$parsedSource) {
-            $$parsedSource["prs"] = $$createField17_0($$parsedSource["prs"]);
+            $$parsedSource["prs"] = $$createField18_0($$parsedSource["prs"]);
         }
         if ("links" in $$parsedSource) {
-            $$parsedSource["links"] = $$createField18_0($$parsedSource["links"]);
+            $$parsedSource["links"] = $$createField19_0($$parsedSource["links"]);
         }
         if ("recent" in $$parsedSource) {
-            $$parsedSource["recent"] = $$createField19_0($$parsedSource["recent"]);
+            $$parsedSource["recent"] = $$createField20_0($$parsedSource["recent"]);
         }
         if ("comments" in $$parsedSource) {
-            $$parsedSource["comments"] = $$createField20_0($$parsedSource["comments"]);
+            $$parsedSource["comments"] = $$createField21_0($$parsedSource["comments"]);
         }
         if ("thread" in $$parsedSource) {
-            $$parsedSource["thread"] = $$createField21_0($$parsedSource["thread"]);
+            $$parsedSource["thread"] = $$createField22_0($$parsedSource["thread"]);
         }
         return new CardDetail($$parsedSource as Partial<CardDetail>);
     }
@@ -664,9 +710,9 @@ export class CardPR {
      * Creates a new CardPR instance from a string or object.
      */
     static createFrom($$source: any = {}): CardPR {
-        const $$createField4_0 = $$createType9;
-        const $$createField5_0 = $$createType9;
-        const $$createField6_0 = $$createType9;
+        const $$createField4_0 = $$createType12;
+        const $$createField5_0 = $$createType12;
+        const $$createField6_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("openedBy" in $$parsedSource) {
             $$parsedSource["openedBy"] = $$createField4_0($$parsedSource["openedBy"]);
@@ -727,6 +773,12 @@ export class CardResolution {
      */
     "closed": boolean;
 
+    /**
+     * Note is the resolver's line beside the check once the person had
+     * answered (Answer stays the person's); "" before PR B or when none.
+     */
+    "note": string;
+
     /** Creates a new CardResolution instance. */
     constructor($$source: Partial<CardResolution> = {}) {
         if (!("answer" in $$source)) {
@@ -743,6 +795,9 @@ export class CardResolution {
         }
         if (!("closed" in $$source)) {
             this["closed"] = false;
+        }
+        if (!("note" in $$source)) {
+            this["note"] = "";
         }
 
         Object.assign(this, $$source);
@@ -782,11 +837,14 @@ export class CardSummary {
     "progress": CardProgress;
 
     /**
-     * OpenBlockers counts the items waiting on a decision; BlockerQuestion
-     * is the first one's question ("" when none).
+     * OpenBlockers counts the items waiting on a decision (open or
+     * replied); BlockerQuestion is the first one's question ("" when none).
+     * Waiting counts the items the person answered that wait on an agent
+     * to resolve or reply.
      */
     "openBlockers": number;
     "blockerQuestion": string;
+    "waiting": number;
 
     /**
      * holders, in join order
@@ -828,6 +886,9 @@ export class CardSummary {
         if (!("blockerQuestion" in $$source)) {
             this["blockerQuestion"] = "";
         }
+        if (!("waiting" in $$source)) {
+            this["waiting"] = 0;
+        }
         if (!("working" in $$source)) {
             this["working"] = [];
         }
@@ -845,18 +906,18 @@ export class CardSummary {
      * Creates a new CardSummary instance from a string or object.
      */
     static createFrom($$source: any = {}): CardSummary {
-        const $$createField6_0 = $$createType8;
-        const $$createField9_0 = $$createType9;
-        const $$createField10_0 = $$createType9;
+        const $$createField6_0 = $$createType11;
+        const $$createField10_0 = $$createType12;
+        const $$createField11_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("progress" in $$parsedSource) {
             $$parsedSource["progress"] = $$createField6_0($$parsedSource["progress"]);
         }
         if ("working" in $$parsedSource) {
-            $$parsedSource["working"] = $$createField9_0($$parsedSource["working"]);
+            $$parsedSource["working"] = $$createField10_0($$parsedSource["working"]);
         }
         if ("watching" in $$parsedSource) {
-            $$parsedSource["watching"] = $$createField10_0($$parsedSource["watching"]);
+            $$parsedSource["watching"] = $$createField11_0($$parsedSource["watching"]);
         }
         return new CardSummary($$parsedSource as Partial<CardSummary>);
     }
@@ -894,9 +955,11 @@ export class CardThreadItem {
     "text": string;
 
     /**
-     * the item a raise line raised
+     * BlockerID is the item a raise line raised, or the one an answer or
+     * reply (or its line) is on. Missing is a reply's still-needed list.
      */
     "blockerId"?: string;
+    "missing"?: string[];
 
     /**
      * Gone: the recipient had ended, so Irori left the message on the card.
@@ -939,8 +1002,9 @@ export class CardThreadItem {
      */
     static createFrom($$source: any = {}): CardThreadItem {
         const $$createField3_0 = $$createType3;
-        const $$createField4_0 = $$createType24;
-        const $$createField11_0 = $$createType26;
+        const $$createField4_0 = $$createType8;
+        const $$createField8_0 = $$createType2;
+        const $$createField12_0 = $$createType26;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("who" in $$parsedSource) {
             $$parsedSource["who"] = $$createField3_0($$parsedSource["who"]);
@@ -948,8 +1012,11 @@ export class CardThreadItem {
         if ("to" in $$parsedSource) {
             $$parsedSource["to"] = $$createField4_0($$parsedSource["to"]);
         }
+        if ("missing" in $$parsedSource) {
+            $$parsedSource["missing"] = $$createField8_0($$parsedSource["missing"]);
+        }
         if ("attachments" in $$parsedSource) {
-            $$parsedSource["attachments"] = $$createField11_0($$parsedSource["attachments"]);
+            $$parsedSource["attachments"] = $$createField12_0($$parsedSource["attachments"]);
         }
         return new CardThreadItem($$parsedSource as Partial<CardThreadItem>);
     }
@@ -978,7 +1045,7 @@ export class CommentResult {
      * Creates a new CommentResult instance from a string or object.
      */
     static createFrom($$source: any = {}): CommentResult {
-        const $$createField0_0 = $$createType20;
+        const $$createField0_0 = $$createType23;
         const $$createField1_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("comment" in $$parsedSource) {
@@ -1396,7 +1463,7 @@ export class TaskDetail {
      */
     static createFrom($$source: any = {}): TaskDetail {
         const $$createField0_0 = $$createType30;
-        const $$createField1_0 = $$createType21;
+        const $$createField1_0 = $$createType24;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("task" in $$parsedSource) {
             $$parsedSource["task"] = $$createField0_0($$parsedSource["task"]);
@@ -1494,23 +1561,23 @@ const $$createType4 = CardOption.createFrom;
 const $$createType5 = $Create.Array($$createType4);
 const $$createType6 = CardResolution.createFrom;
 const $$createType7 = $Create.Nullable($$createType6);
-const $$createType8 = CardProgress.createFrom;
-const $$createType9 = $Create.Array($$createType3);
-const $$createType10 = coord$0.Step.createFrom;
-const $$createType11 = $Create.Array($$createType10);
-const $$createType12 = CardBlocker.createFrom;
-const $$createType13 = $Create.Array($$createType12);
-const $$createType14 = CardPR.createFrom;
-const $$createType15 = $Create.Array($$createType14);
-const $$createType16 = coord$0.Link.createFrom;
-const $$createType17 = $Create.Array($$createType16);
-const $$createType18 = CardActivity.createFrom;
-const $$createType19 = $Create.Array($$createType18);
-const $$createType20 = coord$0.Comment.createFrom;
-const $$createType21 = $Create.Array($$createType20);
-const $$createType22 = CardThreadItem.createFrom;
-const $$createType23 = $Create.Array($$createType22);
-const $$createType24 = $Create.Nullable($$createType3);
+const $$createType8 = $Create.Nullable($$createType3);
+const $$createType9 = CardThreadItem.createFrom;
+const $$createType10 = $Create.Array($$createType9);
+const $$createType11 = CardProgress.createFrom;
+const $$createType12 = $Create.Array($$createType3);
+const $$createType13 = coord$0.Step.createFrom;
+const $$createType14 = $Create.Array($$createType13);
+const $$createType15 = CardBlocker.createFrom;
+const $$createType16 = $Create.Array($$createType15);
+const $$createType17 = CardPR.createFrom;
+const $$createType18 = $Create.Array($$createType17);
+const $$createType19 = coord$0.Link.createFrom;
+const $$createType20 = $Create.Array($$createType19);
+const $$createType21 = CardActivity.createFrom;
+const $$createType22 = $Create.Array($$createType21);
+const $$createType23 = coord$0.Comment.createFrom;
+const $$createType24 = $Create.Array($$createType23);
 const $$createType25 = blob$0.FileRef.createFrom;
 const $$createType26 = $Create.Array($$createType25);
 const $$createType27 = presence$0.Change.createFrom;
