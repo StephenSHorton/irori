@@ -9,6 +9,7 @@ import {
   CardGrid,
   DoneGrid,
   EmptyCards,
+  DeviceBar,
   FilterBar,
   matches,
   type Filter,
@@ -16,6 +17,7 @@ import {
 import {
   cardFromHash,
   cardHash,
+  deviceChips,
   useCard,
   useCards,
   useDoneCards,
@@ -163,7 +165,7 @@ export function App() {
         `[data-card="${CSS.escape(last)}"]`
       ) ??
       document.querySelector<HTMLElement>(
-        '[aria-label="Filter cards"] [aria-pressed="true"]'
+        '[aria-label^="Filter cards"] [aria-pressed="true"]'
       )
     )?.focus({ preventScroll: true })
   }, [open, last])
@@ -223,7 +225,13 @@ export function App() {
     [openCard]
   )
 
-  const shown = cards.filter((c) => matches(c, filter))
+  const chips = deviceChips(cards)
+  // A device filter whose device has no cards left falls back to All.
+  const active: Filter =
+    filter.startsWith("device:") && !chips.some((d) => filter === `device:${d.id}`)
+      ? "all"
+      : filter
+  const shown = cards.filter((c) => matches(c, active))
   const decide = cards.filter((c) => c.openBlockers > 0).length
 
   return (
@@ -265,7 +273,14 @@ export function App() {
                 setFilter("all")
               }}
             />
-            <FilterBar filter={filter} onFilter={setFilter} decide={decide} />
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <FilterBar
+                filter={active}
+                onFilter={setFilter}
+                decide={decide}
+              />
+              <DeviceBar filter={active} onFilter={setFilter} devices={chips} />
+            </div>
             {filter === "done" ? (
               <DoneGrid
                 done={done}

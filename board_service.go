@@ -2,11 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/core"
 	"github.com/StephenSHorton/irori/internal/identity"
@@ -109,6 +114,9 @@ type BoardService struct {
 	coord *coord.Coord
 	user  inbox.Sender
 	route noticeRouter
+	// attach stores files the person adds in the window (Core.AttachFiles);
+	// nil refuses them.
+	attach func(ctx context.Context, by string, paths []string) ([]blob.FileRef, error)
 	// agents is the roster the cards read names and live status from; nil
 	// is an empty roster.
 	agents func() []presence.AgentCard
@@ -122,6 +130,8 @@ type BoardService struct {
 	// devices is this device alone.
 	self    string
 	devices func() []identity.DeviceState
+	// colors is each device's colour (card #22); nil is none.
+	colors func() map[string]string
 	// leases are coord's leases, read for the conflict chip (a seam for
 	// tests: a partition conflict needs two devices); nil is none.
 	leases func() []coord.Lease
@@ -134,8 +144,8 @@ type BoardService struct {
 }
 
 func newBoardService(c *core.Core) *BoardService {
-	b := &BoardService{coord: c.Coord(), user: c.UserSender(), route: c.RouteNotices, agents: c.MeshAgents, askAgents: c.AskAgents,
-		self: c.Device().ID, devices: c.CertifiedDevices, leases: c.Coord().Leases}
+	b := &BoardService{coord: c.Coord(), user: c.UserSender(), route: c.RouteNotices, agents: c.MeshAgents, askAgents: c.AskAgents, attach: c.AttachFiles,
+		self: c.Device().ID, devices: c.CertifiedDevices, colors: c.DeviceColors, leases: c.Coord().Leases}
 	if ib := c.Inbox(); ib != nil {
 		b.deliveries = ib.Open
 		b.message = ib.Message
@@ -242,7 +252,30 @@ func (b *BoardService) Comment(id, text, tell string) (CommentResult, error) {
 // with wake. repoKey ("" any) keeps it to the agents in that repo. Told
 // says who heard; nobody free makes it unclaimed at once.
 func (b *BoardService) Ask(text, repoKey string, wake bool) (TaskResult, error) {
+	return b.AskWithFiles(text, repoKey, wake, nil)
+}
+
+// UploadFile is a file the person put in the window (picked, dropped or
+// pasted): its name and bytes (base64 in JSON).
+type UploadFile struct {
+	Name string `json:"name"`
+	Data []byte `json:"data"`
+}
+
+// MaxUpload caps one file added from the window: the bytes cross the
+// webview bridge in memory. Bigger files go with an agent's attach.
+const MaxUpload = 32 << 20
+
+// AskWithFiles is Ask with files (card #25): they are stored like an
+// agent's attachments, go on the ask's card as its first comment, and
+// reach the agents with the ask, so the taker fetches them with
+// attachment_get.
+func (b *BoardService) AskWithFiles(text, repoKey string, wake bool, files []UploadFile) (TaskResult, error) {
 	ctx := context.Background()
+	refs, err := b.storeUploads(ctx, files)
+	if err != nil {
+		return TaskResult{}, err
+	}
 	var agents []presence.AgentCard
 	switch {
 	case b.askAgents != nil:
@@ -250,7 +283,7 @@ func (b *BoardService) Ask(text, repoKey string, wake bool) (TaskResult, error) 
 	case b.agents != nil:
 		agents = b.agents()
 	}
-	t, n, err := b.coord.PostAsk(ctx, b.user.Key, coord.NewAsk{Text: text, RepoKey: strings.TrimSpace(repoKey), Wake: wake}, agents)
+	t, n, err := b.coord.PostAsk(ctx, b.user.Key, coord.NewAsk{Text: text, Files: refs, RepoKey: strings.TrimSpace(repoKey), Wake: wake}, agents)
 	if err != nil {
 		return TaskResult{}, err
 	}
@@ -425,4 +458,41 @@ func pumpBoard(ctx context.Context, changes <-chan coord.Change, every time.Dura
 			emit()
 		}
 	}
+}
+
+// storeUploads writes files to a temporary folder outside the data dir and
+// stores them through attach (which refuses paths inside it), then removes
+// the folder.
+func (b *BoardService) storeUploads(ctx context.Context, files []UploadFile) ([]blob.FileRef, error) {
+	if len(files) == 0 {
+		return nil, nil
+	}
+	if b.attach == nil {
+		return nil, errors.New("files can't be added here")
+	}
+	if len(files) > inbox.MaxAttachments {
+		return nil, fmt.Errorf("at most %d files", inbox.MaxAttachments)
+	}
+	dir, err := os.MkdirTemp("", "irori-upload-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	paths := make([]string, 0, len(files))
+	for i, f := range files {
+		if len(f.Data) > MaxUpload {
+			return nil, fmt.Errorf("%s is over %d MiB; ask an agent to attach it from disk", f.Name, MaxUpload>>20)
+		}
+		// Each in its own folder, so two files with one name keep it.
+		sub := filepath.Join(dir, strconv.Itoa(i))
+		if err := os.Mkdir(sub, 0o700); err != nil {
+			return nil, err
+		}
+		p := filepath.Join(sub, blob.SafeName(filepath.Base(f.Name), "file"))
+		if err := os.WriteFile(p, f.Data, 0o600); err != nil {
+			return nil, err
+		}
+		paths = append(paths, p)
+	}
+	return b.attach(ctx, b.user.Key, paths)
 }

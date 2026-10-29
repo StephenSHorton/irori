@@ -1027,6 +1027,13 @@ export class Returned {
     "at": time$0.Time;
 
     /**
+     * Row names the task.left row that returned it ("<device>:<seq>"),
+     * unique where At may not be: two rows in one clock step share a time
+     * (card #25). The watcher keys its card on it.
+     */
+    "row"?: string;
+
+    /**
      * Person: the card came back to the person (its creator was the person
      * or had gone too), so every desktop device shows a notification.
      * Otherwise its creator agent was told.

@@ -21,6 +21,7 @@ import {
   Holding,
   Told,
   TaskResult,
+  UploadFile,
   type AgentRef,
   type CardActivity,
   type CardBlocker,
@@ -111,6 +112,30 @@ export function nobodyOn(c: {
   return !!c.returned || c.holder.state === Holding.HoldGone
 }
 
+// deviceVar is a device colour's CSS variable (card #22); "" for none.
+export function deviceVar(color?: string | null): string {
+  return color ? `var(--device-${color})` : ""
+}
+
+// DeviceChip is one device in the grid's device filter.
+export type DeviceChip = { id: string; name: string; color: string }
+
+// deviceChips are the devices the cards' agents run on, for the filter row
+// (card #22): only once there is more than one, since a lone device's
+// chip would filter nothing. A colour is set only while the person has
+// more than one device, which is also when a face carries one.
+export function deviceChips(
+  cards: readonly { working: readonly AgentRef[] }[]
+): DeviceChip[] {
+  const seen = new Map<string, DeviceChip>()
+  for (const c of cards)
+    for (const w of c.working)
+      if (w.deviceId && w.color && !seen.has(w.deviceId))
+        seen.set(w.deviceId, { id: w.deviceId, name: w.where, color: w.color })
+  const out = [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
+  return out.length > 1 ? out : []
+}
+
 export function openAsk(c: { ask?: CardAsk | null }): boolean {
   return !!c.ask && c.ask.state !== AskState.Closed
 }
@@ -174,8 +199,27 @@ function summary(c: CardDetail): CardSummary {
     updatedAt: c.updatedAt,
     returned: c.returned,
     stale: c.stale,
+    devices: c.devices,
+    accent: c.accent,
+    talking: c.talking,
     ask: c.ask,
   })
+}
+
+// MaxUpload and MaxUploadFiles mirror board_service.go's MaxUpload and
+// inbox.MaxAttachments: files added in the window cross the webview bridge
+// in memory.
+export const MaxUpload = 32 << 20
+export const MaxUploadFiles = 10
+
+// uploadOf is a File as BoardService takes it: its name and base64 bytes
+// (Go's []byte in JSON).
+async function uploadOf(f: File): Promise<UploadFile> {
+  const bytes = new Uint8Array(await f.arrayBuffer())
+  let bin = ""
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return new UploadFile({ name: f.name || "pasted.png", data: btoa(bin) })
 }
 
 // sampleAsk is BoardService.Ask on the sample: a new ask first in the
@@ -518,8 +562,30 @@ export const cards = {
   // ask posts the person's prompt to the room: every free agent hears it
   // (in repoKey's repo when one is named), at its next turn or, with wake,
   // now. One of them takes it.
-  async ask(text: string, repoKey = "", wake = false): Promise<TaskResult> {
-    if (inWails()) return BoardService.Ask(text, repoKey, wake)
+  // files (picked, dropped or pasted) go on the ask's card, and the agent
+  // that takes it fetches them (card #25).
+  async ask(
+    text: string,
+    repoKey = "",
+    wake = false,
+    files: File[] = []
+  ): Promise<TaskResult> {
+    if (files.length > MaxUploadFiles)
+      throw new Error(`at most ${MaxUploadFiles} files`)
+    const big = files.find((f) => f.size > MaxUpload)
+    if (big)
+      throw new Error(
+        `${big.name} is over ${MaxUpload >> 20} MiB; ask an agent to attach it from disk`
+      )
+    if (inWails()) {
+      if (!files.length) return BoardService.Ask(text, repoKey, wake)
+      return BoardService.AskWithFiles(
+        text,
+        repoKey,
+        wake,
+        await Promise.all(files.map(uploadOf))
+      )
+    }
     return sampleAsk(text, repoKey, wake)
   },
 

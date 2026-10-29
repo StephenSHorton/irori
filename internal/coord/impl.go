@@ -542,7 +542,7 @@ func (c *coord) fold(ev store.Event) {
 			if p.Reason == LeftGone {
 				what = "went away"
 				if len(t.Holders) == 0 {
-					t.Returned = &Returned{Was: p.Who, At: at(p.At), Person: p.Person}
+					t.Returned = &Returned{Was: p.Who, At: at(p.At), Person: p.Person, Row: fmt.Sprintf("%s:%d", ev.DeviceID, ev.Seq)}
 				}
 			}
 		}

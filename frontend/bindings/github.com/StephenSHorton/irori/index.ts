@@ -49,5 +49,6 @@ export {
     RosterChange,
     TaskDetail,
     TaskResult,
-    Told
+    Told,
+    UploadFile
 } from "./models.js";

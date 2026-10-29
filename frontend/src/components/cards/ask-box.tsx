@@ -1,10 +1,11 @@
-import { useEffect, useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
+import { PaperclipIcon, XIcon } from "lucide-react"
 
 import { ChoiceSelect } from "@/components/common/choice-select"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { cards, MaxComment, type AskRepo } from "@/lib/cards"
+import { cards, MaxComment, MaxUploadFiles, type AskRepo } from "@/lib/cards"
 import { useDraft } from "@/lib/drafts"
 import { errorText } from "@/lib/talk"
 
@@ -14,13 +15,23 @@ import { errorText } from "@/lib/talk"
 // a card or closes. It is the card comment box lifted out: Enter sends,
 // Shift+Enter is a new line. Wake (off by default) wakes the agents now
 // instead of telling them at their next turn; the repo chip keeps it to
-// one repo's agents. The window stays on the grid.
+// one repo's agents. Files go with it: pick them with the clip, drop them
+// on the box, or paste a screenshot (card #25). The window stays on the
+// grid.
 export function AskBox({ onAsked }: { onAsked: (id: string) => void }) {
   const [text, setText] = useDraft("ask/room")
   const [wake, setWake] = useState(false)
   const [repo, setRepo] = useState("")
   const [repos, setRepos] = useState<AskRepo[]>([])
   const [busy, setBusy] = useState(false)
+  const [files, setFiles] = useState<File[]>([])
+  const picker = useRef<HTMLInputElement>(null)
+  const addFiles = (list: FileList | File[] | null | undefined) => {
+    const add = Array.from(list ?? [])
+    if (!add.length) return
+    setFiles((fs) => [...fs, ...add].slice(0, MaxUploadFiles))
+    setLine(null)
+  }
   const [line, setLine] = useState<{ text: string; error?: boolean } | null>(
     null
   )
@@ -42,7 +53,7 @@ export function AskBox({ onAsked }: { onAsked: (id: string) => void }) {
     setBusy(true)
     setLine(null)
     try {
-      const res = await cards.ask(text, repo, wake)
+      const res = await cards.ask(text, repo, wake, files)
       const n = res.told.to?.length ?? 0
       setLine({
         text:
@@ -51,6 +62,7 @@ export function AskBox({ onAsked }: { onAsked: (id: string) => void }) {
             : `${n} ${n === 1 ? "agent hears" : "agents hear"} it ${wake ? "now" : "at their next turn"}.`,
       })
       setText("")
+      setFiles([])
       onAsked(res.task.id)
     } catch (err) {
       setLine({ text: errorText(err), error: true })
@@ -60,7 +72,18 @@ export function AskBox({ onAsked }: { onAsked: (id: string) => void }) {
   }
 
   return (
-    <form className="grid gap-1" onSubmit={(e) => void submit(e)}>
+    <form
+      className="grid gap-1"
+      onSubmit={(e) => void submit(e)}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("Files")) e.preventDefault()
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.files.length) return
+        e.preventDefault()
+        if (!busy) addFiles(e.dataTransfer.files)
+      }}
+    >
       <div className="glass-panel flex items-start gap-2 p-1.5">
         <Textarea
           autoSize
@@ -70,6 +93,12 @@ export function AskBox({ onAsked }: { onAsked: (id: string) => void }) {
           onChange={(e) => {
             setText(e.target.value)
             setLine(null)
+          }}
+          onPaste={(e) => {
+            // A pasted screenshot is a file; pasted text stays text.
+            if (busy || !e.clipboardData.files.length) return
+            e.preventDefault()
+            addFiles(e.clipboardData.files)
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -99,6 +128,28 @@ export function AskBox({ onAsked }: { onAsked: (id: string) => void }) {
             ]}
           />
         )}
+        <input
+          ref={picker}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => {
+            addFiles(e.target.files)
+            e.target.value = ""
+          }}
+        />
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="ghost"
+          className="shrink-0"
+          title="Add files (or drop them here, or paste a screenshot)"
+          aria-label="Add files"
+          disabled={busy || files.length >= MaxUploadFiles}
+          onClick={() => picker.current?.click()}
+        >
+          <PaperclipIcon />
+        </Button>
         <label
           className="flex h-8 shrink-0 items-center gap-1.5 text-xs text-muted-foreground"
           title="Wake the agents now instead of at their next turn"
@@ -120,6 +171,28 @@ export function AskBox({ onAsked }: { onAsked: (id: string) => void }) {
           {busy ? "Asking…" : "Ask"}
         </Button>
       </div>
+      {files.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5 px-1" aria-label="Files with the ask">
+          {files.map((f, i) => (
+            <li
+              key={`${i}-${f.name}`}
+              className="flex items-center gap-1 bg-secondary px-1.5 py-0.5 text-xs ring-1 ring-border"
+            >
+              <PaperclipIcon className="size-3 text-muted-foreground" aria-hidden />
+              <span className="max-w-48 truncate">{f.name || "pasted image"}</span>
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground"
+                aria-label={`Remove ${f.name || "pasted image"}`}
+                disabled={busy}
+                onClick={() => setFiles((fs) => fs.filter((_, j) => j !== i))}
+              >
+                <XIcon className="size-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {line && (
         <p
           className={

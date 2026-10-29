@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/presence"
 )
@@ -58,5 +62,52 @@ func TestBoardAsk(t *testing.T) {
 	}
 	if cs := b.Cards(); len(cs) != 2 || cs[0].ID != two.Task.ID {
 		t.Fatalf("order %+v", cs)
+	}
+}
+
+// A screenshot pasted into the ask box goes on the ask's card as its first
+// comment's file, and the temporary copy is gone afterwards (card #25).
+func TestBoardAskWithFiles(t *testing.T) {
+	b, c, got := testBoard(t, nil)
+	b.agents = func() []presence.AgentCard { return []presence.AgentCard{{Key: agentA, Status: "idle"}} }
+	data := t.TempDir()
+	var seen []string
+	b.attach = func(_ context.Context, by string, paths []string) ([]blob.FileRef, error) {
+		var out []blob.FileRef
+		for _, p := range paths {
+			real, err := blob.CheckAttachPath(p, "", data) // the never-leave rules the Core applies
+			if err != nil {
+				return nil, err
+			}
+			raw, err := os.ReadFile(real)
+			if err != nil {
+				return nil, err
+			}
+			seen = append(seen, p)
+			out = append(out, blob.FileRef{SHA256: strings.Repeat("a", 64), Name: filepath.Base(p), Size: int64(len(raw))})
+		}
+		return out, nil
+	}
+	png := []byte("\x89PNG\r\n\x1a\nnot really")
+	res, err := b.AskWithFiles("What's wrong in this screenshot?", "", false,
+		[]UploadFile{{Name: "screenshot.png", Data: png}, {Name: `..\..\screenshot.png`, Data: png}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 2 || filepath.Base(seen[0]) != "screenshot.png" || filepath.Base(seen[1]) != "screenshot.png" {
+		t.Fatalf("stored %v", seen)
+	}
+	if _, err := os.Stat(seen[0]); !os.IsNotExist(err) {
+		t.Fatalf("the temporary copy is still there: %v", err)
+	}
+	if len(*got) != 1 || len((*got)[0].n.Attachments) != 2 {
+		t.Fatalf("the ask's notice carries no files: %+v", *got)
+	}
+	cs := c.Comments(res.Task.ID)
+	if len(cs) != 1 || len(cs[0].Attachments) != 2 || cs[0].Attachments[0].Name != "screenshot.png" {
+		t.Fatalf("comments %+v", cs)
+	}
+	if _, err := b.AskWithFiles("too big", "", false, []UploadFile{{Name: "big.bin", Data: make([]byte, MaxUpload+1)}}); err == nil {
+		t.Fatal("a file over MaxUpload was taken")
 	}
 }

@@ -35,6 +35,8 @@ function agent(session: string, name: string, status: string): AgentRef {
     status,
     live: status !== "gone",
     where: "This PC",
+    deviceId: dev,
+    color: "teal",
   })
 }
 
@@ -49,6 +51,8 @@ export const sampleAgents = {
     key: "sample-macbook/sample04-synthetic-session",
     where: "MacBook",
     device: "MacBook",
+    deviceId: "sample-macbook",
+    color: "orange",
     offline: true,
   }),
   // sample-lark is in sample-talk.ts's gone list, so its face offers Revive.
@@ -65,6 +69,14 @@ export const sampleYou = new AgentRef({
 
 // sampleHolder mirrors cards_service.go's holderLine: the holder that took
 // the card up, else the first assigned one.
+// sampleAccent mirrors cards_service.go: the holders' devices, and their
+// colour when they are all on one device (card #22).
+function sampleAccent(working: AgentRef[]): { devices: string[]; accent: string } {
+  const devices = [...new Set(working.map((w) => w.deviceId).filter(Boolean))] as string[]
+  const one = devices.length === 1 ? working.find((w) => w.deviceId === devices[0]) : undefined
+  return { devices, accent: one?.color ?? "" }
+}
+
 export function sampleHolder(working: AgentRef[]): CardHolder {
   if (!working.length) return new CardHolder({ state: Holding.HoldNobody })
   const who = working.find((w) => !w.assigned) ?? working[0]
@@ -136,6 +148,8 @@ export function sampleCards(now: Date): CardDetail[] {
       blockers: c.blockers ?? [],
       progress: { done: st.filter((s) => s.done).length, total: st.length },
       holder: sampleHolder(c.working ?? []),
+      ...sampleAccent(c.working ?? []),
+      talking: c.talking ?? [],
       openBlockers: needs.length,
       waiting: open.length - needs.length,
       blockerQuestion: needs[0]?.question ?? "",
@@ -639,6 +653,9 @@ export function sampleCards(now: Date): CardDetail[] {
       goal: "My laptop and desktop share one roster, cards and wakes.",
       working: [otter],
       watching: [badger],
+      // sample-otter and sample-wren (on the MacBook) are messaging each
+      // other about it: the tile's talk bubble (card #22).
+      talking: [otter, wren],
       updatedAt: at(3),
       // Busy: sample-otter is working it right now, so the tile, the page
       // and the current step show a spinner.

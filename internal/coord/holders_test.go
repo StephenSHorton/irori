@@ -52,7 +52,7 @@ func TestGoneHolderReturnsTheCardToItsCreator(t *testing.T) {
 		t.Fatalf("notices %+v, want one to the creator", got)
 	}
 	after := e.task(tk.ID)
-	if after.State != Submitted || len(after.Holders) != 0 || after.Returned == nil || after.Returned.Was != alice || after.Returned.Person {
+	if after.State != Submitted || len(after.Holders) != 0 || after.Returned == nil || after.Returned.Was != alice || after.Returned.Person || after.Returned.Row == "" {
 		t.Fatalf("after: %+v (returned %+v)", after, after.Returned)
 	}
 	// Once only.

@@ -81,6 +81,18 @@ export function AskRepos(): $CancellablePromise<$models.AskRepo[]> {
 }
 
 /**
+ * AskWithFiles is Ask with files (card #25): they are stored like an
+ * agent's attachments, go on the ask's card as its first comment, and
+ * reach the agents with the ask, so the taker fetches them with
+ * attachment_get.
+ */
+export function AskWithFiles(text: string, repoKey: string, wake: boolean, files: $models.UploadFile[]): $CancellablePromise<$models.TaskResult> {
+    return $Call.ByID(3682008801, text, repoKey, wake, files).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
+/**
  * Assign gives a task to an agent, who hears at its next turn (decision 21).
  */
 export function Assign(id: string, to: string): $CancellablePromise<$models.TaskResult> {

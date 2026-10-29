@@ -58,6 +58,11 @@ type AgentRef struct {
 	// device's name, set only once the person has more than one device
 	// (v0.4 §9).
 	Device string `json:"device,omitempty"`
+	// DeviceID is the device the agent runs on ("" for the person and
+	// Irori); Color is that device's colour (devcolor.Palette), set only
+	// once the person has more than one device (card #22).
+	DeviceID string `json:"deviceId,omitempty"`
+	Color    string `json:"color,omitempty"`
 	// Offline: the host device is offline, so the face shows greyed.
 	Offline bool `json:"offline,omitempty"`
 	// Conflict is the resource this agent leased while partitioned from
@@ -127,6 +132,16 @@ type CardSummary struct {
 	// Stale: a working card nothing has happened on for StaleAfter and
 	// whose holder isn't busy on it right now (card #16).
 	Stale bool `json:"stale,omitempty"`
+	// Devices are the devices its agent holders run on, in holder order
+	// (the grid's device filter); Accent is their colour when they are
+	// all on one device, "" otherwise or while the person has one device
+	// (card #22).
+	Devices []string `json:"devices"`
+	Accent  string   `json:"accent,omitempty"`
+	// Talking are the agents that messaged or commented to each other on
+	// the card in the last TalkWindow, when there are at least two (the
+	// tile's talk bubble, card #22); empty otherwise.
+	Talking []AgentRef `json:"talking"`
 	// Ask is set on the person's ask to the room (board.md "Asks"); nil on
 	// any other card.
 	Ask *CardAsk `json:"ask,omitempty"`
@@ -343,6 +358,8 @@ type people struct {
 	// paired: the person has more than one device, so faces from another
 	// device get a device chip (v0.4 §9).
 	paired bool
+	// colors is each device's colour (card #22).
+	colors map[string]string
 	// conflicts maps a holder to the resource of its contested lease.
 	conflicts map[string]string
 	// unsent holds "<agent>\x00<ref>" for each assignment notice (reason
@@ -378,6 +395,9 @@ func (b *BoardService) people() people {
 		for _, a := range b.agents() {
 			p.byKey[a.Key] = a
 		}
+	}
+	if b.colors != nil {
+		p.colors = b.colors()
 	}
 	if b.devices != nil {
 		live := 0
@@ -438,6 +458,10 @@ func (p people) ref(key string) AgentRef {
 	}
 	r.Where = p.where(dev)
 	r.Device = p.chip(dev)
+	r.DeviceID = dev
+	if p.paired {
+		r.Color = p.colors[dev]
+	}
 	return r
 }
 
@@ -488,12 +512,57 @@ func cardSummary(t coord.Task, p people) CardSummary {
 		}
 	}
 	s.Holder = holderLine(s.Working)
+	s.Devices = []string{}
+	for _, r := range s.Working {
+		if r.DeviceID != "" && !slices.Contains(s.Devices, r.DeviceID) {
+			s.Devices = append(s.Devices, r.DeviceID)
+		}
+	}
+	if len(s.Devices) == 1 && p.paired {
+		s.Accent = p.colors[s.Devices[0]]
+	}
 	s.Ask = cardAsk(t, p, nil)
 	if t.Returned != nil && len(t.Holders) == 0 {
 		r := p.ref(t.Returned.Was)
 		s.Returned = &r
 	}
 	return s
+}
+
+// TalkWindow is how recent agents' messages to each other on a card must
+// be for its tile to show them talking (card #22).
+const TalkWindow = 5 * time.Minute
+
+// maxTalking caps the faces in a talk bubble.
+const maxTalking = 4
+
+// talking is the agents that wrote to each other on a card (its comments,
+// mirrored messages A -> B and blocker replies) within TalkWindow of now,
+// newest first, when there are at least two; the person and Irori don't
+// count.
+func talking(cs []coord.Comment, p people, now time.Time) []AgentRef {
+	var keys []string
+	add := func(k string) {
+		if k == "" || k == "irori" || k == p.user || (p.owner != nil && p.owner(k)) || slices.Contains(keys, k) {
+			return
+		}
+		keys = append(keys, k)
+	}
+	for i := len(cs) - 1; i >= 0; i-- {
+		c := cs[i]
+		if now.Sub(c.At) > TalkWindow {
+			break
+		}
+		add(c.By)
+		add(c.To)
+	}
+	if len(keys) < 2 {
+		return []AgentRef{}
+	}
+	if len(keys) > maxTalking {
+		keys = keys[:maxTalking]
+	}
+	return p.refs(keys)
 }
 
 // StaleAfter: a working card with no activity this long, and nobody busy
@@ -551,6 +620,7 @@ func (b *BoardService) Cards() []CardSummary {
 			last = acts[0].At
 		}
 		s.Stale = stale(s, last, now)
+		s.Talking = talking(b.coord.Comments(t.ID), p, now)
 		out = append(out, s)
 	}
 	sort.SliceStable(out, func(i, j int) bool {

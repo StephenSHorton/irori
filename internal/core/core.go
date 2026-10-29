@@ -21,6 +21,7 @@ import (
 	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/capture"
 	"github.com/StephenSHorton/irori/internal/coord"
+	"github.com/StephenSHorton/irori/internal/devcolor"
 	"github.com/StephenSHorton/irori/internal/device"
 	"github.com/StephenSHorton/irori/internal/discovery"
 	"github.com/StephenSHorton/irori/internal/hlc"
@@ -98,6 +99,7 @@ type Core struct {
 	net      mesh.Transport
 	rt       *roomnet.Transport // the default transport; nil for a passed-in one
 	servers  *mesh.Servers      // the home server directory (node.addr)
+	colors   *devcolor.Picks    // the person's device colour picks (card #22)
 	home     *home.Server       // this device's home server; nil with a passed-in transport
 	scrubber *scrub.Scrubber
 	secretMu sync.Mutex
@@ -170,6 +172,7 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		repos:    repos,
 		members:  newMembers(id.ID),
 		scrubber: scrub.New(),
+		colors:   devcolor.NewPicks(),
 		cancel:   cancel,
 	}
 	if _, err := st.Append(ctx, "irori", store.KindDeviceStarted, map[string]any{
@@ -333,6 +336,7 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 			}
 		}()
 		go c.servers.Follow(ctx, st)
+		go c.followColors(ctx)
 		if c.home != nil {
 			homeDone := make(chan struct{})
 			defer func() { <-homeDone }() // node.addr is written before the log closes

@@ -96,6 +96,8 @@ var kindSides = map[string]Side{
 	"lease.stolen": Replicated,
 	// home server (decision 33)
 	KindNodeAddr: Replicated,
+	// devcolor: the person's colour pick for a device (card #22)
+	"device.color": Replicated,
 }
 
 // KindSide reports kind's side.
