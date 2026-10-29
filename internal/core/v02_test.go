@@ -60,6 +60,12 @@ func writeSession(t *testing.T, dir, file, id, name, cwd string) {
 // alpha (A) and beta (B), and waits until presence lists both.
 func newRig(t *testing.T) *rig {
 	t.Helper()
+	return newRigWith(t, nil)
+}
+
+// newRigWith is newRig with edit applied to the Core's options first.
+func newRigWith(t *testing.T, edit func(*Options)) *rig {
+	t.Helper()
 	data, claude := t.TempDir(), t.TempDir()
 	t.Setenv("IRORI_HOME", data)
 	sessions := filepath.Join(claude, "sessions")
@@ -69,7 +75,11 @@ func newRig(t *testing.T) *rig {
 	cwd := t.TempDir()
 	writeSession(t, sessions, "900001.json", sessA, "alpha", cwd)
 	writeSession(t, sessions, "900002.json", sessB, "beta", cwd)
-	c, err := Start(context.Background(), Options{DataDir: data, ClaudeDir: claude, Version: "0.2.0-test", Headless: true, Keystore: identity.FileKeystore{}})
+	opts := Options{DataDir: data, ClaudeDir: claude, Version: "0.2.0-test", Headless: true, Keystore: identity.FileKeystore{}}
+	if edit != nil {
+		edit(&opts)
+	}
+	c, err := Start(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}

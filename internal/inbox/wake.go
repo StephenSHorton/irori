@@ -3,6 +3,7 @@ package inbox
 import (
 	"context"
 	"fmt"
+	"log"
 	"regexp"
 	"slices"
 	"strconv"
@@ -38,13 +39,15 @@ func (b *inbox) nextWake(ctx context.Context, agent string, path Path) (*Wake, e
 	}
 	// Queued and not already handed to a wake: wake items first, then the
 	// next_turn items that ride along, each oldest message first. On the mod
-	// path next_turn items alone make no wake (they go out as appends).
+	// path next_turn items alone make no wake (they go out as appends), and
+	// neither do wake items the mod was handed MaxWakeTries times without
+	// confirming one (untaken): another wake would only loop the same way.
 	var wakeItems, ride []*drec
 	for _, d := range b.open {
 		if d.To != agent || d.State != Queued || d.WakeID != "" {
 			continue
 		}
-		if d.nextTurn() {
+		if d.nextTurn() || (path != PathChannel && d.untaken()) {
 			ride = append(ride, d)
 		} else {
 			wakeItems = append(wakeItems, d)
@@ -83,7 +86,8 @@ func (b *inbox) nextWake(ctx context.Context, agent string, path Path) (*Wake, e
 }
 
 // nextAppend issues agent's next append: every queued next_turn item not
-// yet handed over, unless an earlier append is still unconfirmed.
+// yet handed over, and every untaken wake item, unless an earlier append is
+// still unconfirmed.
 func (b *inbox) nextAppend(ctx context.Context, agent string) (*Wake, error) {
 	if agent == "" {
 		return nil, fmt.Errorf("inbox: no agent")
@@ -98,8 +102,11 @@ func (b *inbox) nextAppend(ctx context.Context, agent string) (*Wake, error) {
 	}
 	var ready []*drec
 	for _, d := range b.open {
-		if d.To == agent && d.State == Queued && d.WakeID == "" && d.nextTurn() {
+		if d.To == agent && d.State == Queued && d.WakeID == "" && d.forAppend() {
 			ready = append(ready, d)
+			if d.untaken() {
+				log.Printf("inbox: %s: %d wakes to %s went unconfirmed; sending it for the next turn instead", d.ID, d.wakeTries, agent)
+			}
 		}
 	}
 	if len(ready) == 0 {

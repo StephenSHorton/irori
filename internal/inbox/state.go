@@ -54,7 +54,21 @@ type drec struct {
 	firstWriter string    // the device that wrote its first row: its owner while To is empty (v0.4 §6.0)
 	lastWriter  string    // the device that wrote its newest row
 	hostChecked bool      // this device, its host, ran hold() on another device's queued row (memory only)
+	// wakeTries counts the mod-path wakes issued for it while Queued and
+	// never confirmed: folded from wake.issued rows, so replay rebuilds it.
+	// It restarts when the delivery leaves Queued or changes recipient.
+	wakeTries int
 }
+
+// untaken: d is a wake item its host's mod was handed MaxWakeTries times
+// without ever confirming one. It goes out as an append from then on (and
+// still rides along with any wake that does go out), so a session whose
+// host refuses prompt.submit reads it at its next turn instead of the Core
+// re-issuing it under a new token forever (card #23).
+func (d *drec) untaken() bool { return !d.nextTurn() && d.wakeTries >= MaxWakeTries }
+
+// forAppend: d goes out by append on the mod path, not by a wake.
+func (d *drec) forAppend() bool { return d.nextTurn() || d.untaken() }
 
 // deliveryRow is the KindDelivery payload: a full snapshot of the delivery's
 // mutable fields, so the fold is a replace.
@@ -434,6 +448,9 @@ func (b *inbox) apply(ev store.Event) error {
 				d.assignedAt = at
 			}
 		}
+		if r.State != Queued || r.To != prevTo {
+			d.wakeTries = 0
+		}
 		d.MessageID, d.To, d.RepoKey, d.Mode = r.MessageID, r.To, r.RepoKey, r.Mode
 		if d.Mode == "" {
 			d.Mode = ModeWake // rows from before next-turn delivery
@@ -497,6 +514,9 @@ func (b *inbox) apply(ev store.Event) error {
 				d.Reminded = true
 			} else if d.State == Queued {
 				d.WakeID = r.WakeID
+				if w.gates() && w.path != PathChannel {
+					d.wakeTries++
+				}
 			}
 		}
 		if r.Reminder {
@@ -679,7 +699,8 @@ func (b *inbox) agentsWithOpen() map[string]bool {
 
 // hasSubmit: NextWake on the mod path would return a wake for agent right
 // now. Queued next_turn items never count: they make no wake by themselves
-// (a channel stream picks them up on the Updated change that queued them).
+// (a channel stream picks them up on the Updated change that queued them),
+// nor do untaken wake items, which go out as appends.
 func (b *inbox) hasSubmit(agent string) bool {
 	if agent == "" || b.pol.Paused || !b.local(agent) {
 		return false
@@ -691,7 +712,7 @@ func (b *inbox) hasSubmit(agent string) bool {
 		return true
 	}
 	for _, d := range b.open {
-		if d.To == agent && d.State == Queued && d.WakeID == "" && !d.nextTurn() {
+		if d.To == agent && d.State == Queued && d.WakeID == "" && !d.forAppend() {
 			return true
 		}
 	}
@@ -704,7 +725,7 @@ func (b *inbox) hasAppend(agent string) bool {
 		return false
 	}
 	for _, d := range b.open {
-		if d.To == agent && d.State == Queued && d.WakeID == "" && d.nextTurn() {
+		if d.To == agent && d.State == Queued && d.WakeID == "" && d.forAppend() {
 			return true
 		}
 	}

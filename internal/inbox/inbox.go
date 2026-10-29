@@ -64,6 +64,11 @@ const (
 	DefaultInboxList = 50
 )
 
+// MaxWakeTries is how many mod-path wakes a delivery gets, each never
+// confirmed and reclaimed after ReattachGrace, before it goes out as an
+// append for the session's next turn instead (card #23).
+const MaxWakeTries = 3
+
 // Sender is who is sending, as the Core established it (never self-claimed).
 type Sender struct {
 	Key  string `json:"key"`  // agent key "<device>/<session>", or "user:<device>" for the GUI
