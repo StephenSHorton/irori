@@ -642,3 +642,33 @@ func TestWatchDigestsMergeUntilRead(t *testing.T) {
 		t.Fatalf("after reading: %+v", got)
 	}
 }
+
+// board_split turns a card into a parent: open steps move to subtasks, an
+// unplaced one is named, an assignee is told, and the board shows each
+// subtask with its parent and the parent with its subtask count.
+func TestBoardSplit(t *testing.T) {
+	h := newHarness(t)
+	id := h.newCard(callA, map[string]any{"title": "Big job", "steps": []any{
+		map[string]any{"text": "plan", "done": true}, "backend", "window"}})
+	ref := h.ref(id)
+	h.fails(callA, "board_split", map[string]any{"task_id": ref, "subtasks": []any{
+		map[string]any{"title": "Backend", "steps": []any{"s2"}}}}, `not placed: s3 "window"`)
+	out := h.ok(callA, "board_split", map[string]any{"task_id": ref, "subtasks": []any{
+		map[string]any{"title": "Backend", "steps": []any{"s2", "migrations"}, "assign_to": "beta"},
+		map[string]any{"title": "Window", "steps": []any{"s3"}},
+	}})
+	has(t, out, ref+" is a parent now", "Created #", "Assigned to beta", "0/2 subtasks", "subtasks: #")
+	if n := h.notices(keyB); len(n) == 0 {
+		t.Fatal("the assignee heard nothing")
+	}
+	p, _ := h.b.co.GetTask(id)
+	if len(p.Subtasks) != 2 || len(p.Steps) != 1 {
+		t.Fatalf("parent %+v", p)
+	}
+	board := h.ok(callA, "board", map[string]any{"repo": "*"})
+	has(t, board, "part of "+ref, "0/2 subtasks")
+	// A subtask of a subtask is refused, and the parent's steps can't be set.
+	h.fails(callA, "board_create", map[string]any{"title": "deeper", "parent": h.ref(p.Subtasks[0])}, "one level")
+	h.fails(callA, "board_steps", map[string]any{"task_id": ref, "steps": []any{map[string]any{"text": "x"}}}, "its subtasks")
+	has(t, h.ok(callA, "board_create", map[string]any{"title": "Docs", "parent": ref}), "a subtask of "+ref)
+}

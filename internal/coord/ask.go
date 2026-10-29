@@ -1081,6 +1081,9 @@ type AskOutcome struct {
 	Title, Objective, DoneWhen string
 	Steps                      []Step
 	Task                       string
+	// Parent, on a card outcome, makes the new card a subtask of that card
+	// (a short ref or task id).
+	Parent string
 }
 
 // AskClose ends an open ask with its outcome; only its taker or the person
@@ -1132,6 +1135,20 @@ func (c *coord) askClose(ctx context.Context, by, id string, o AskOutcome) (Task
 	}
 	now := c.stamp()
 	str := func(s string) *string { return &s }
+	parent := ""
+	if strings.TrimSpace(o.Parent) != "" {
+		if o.Kind != OutcomeCard {
+			return Task{}, fmt.Errorf("%w: parent goes with a card outcome", ErrInvalid)
+		}
+		pid, err := c.taskRefLocked(o.Parent)
+		if err != nil {
+			return Task{}, err
+		}
+		if _, err := c.checkParent(pid, ""); err != nil {
+			return Task{}, err
+		}
+		parent = pid
+	}
 	switch o.Kind {
 	case OutcomeCard:
 		if title == "" {
@@ -1164,6 +1181,12 @@ func (c *coord) askClose(ctx context.Context, by, id string, o AskOutcome) (Task
 				if err := c.write(ctx, by, KindTaskClaimed, taskClaimedRow{TaskID: id, By: by, At: now}); err != nil {
 					return Task{}, err
 				}
+			}
+		}
+		if parent != "" {
+			// After the close, so the link counts (the lock's position rule).
+			if err := c.write(ctx, by, KindTaskParent, taskParentRow{TaskID: id, Parent: parent, By: by, At: c.stamp()}); err != nil {
+				return Task{}, err
 			}
 		}
 	case OutcomeEdit:

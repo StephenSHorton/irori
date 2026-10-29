@@ -94,11 +94,17 @@ const (
 // list's budget and push every other card off it.
 func (s *set) cardText(t coord.Task, last *coord.Comment, n names, now time.Time, brief bool) string {
 	var b strings.Builder
-	state := string(t.State)
+	state := string(coord.EffectiveState(t))
 	if t.Ask.Open() {
 		state = "ask"
 	}
-	fmt.Fprintf(&b, "- %s [%s] %s", cardRefs(t), oneLine(state, 30), quoted(oneLine(t.Title, maxCardTitle), maxCardTitle))
+	if r := t.Rollup; r != nil {
+		state += fmt.Sprintf(", %d/%d subtasks", r.Done, r.Total)
+	}
+	fmt.Fprintf(&b, "- %s [%s] %s", cardRefs(t), oneLine(state, 40), quoted(oneLine(t.Title, maxCardTitle), maxCardTitle))
+	if t.Parent != "" {
+		b.WriteString("; part of " + s.shortOf(t.Parent))
+	}
 	var holders []string
 	for _, h := range t.Holders {
 		w := n.who(h)
@@ -133,6 +139,20 @@ func (s *set) cardText(t coord.Task, last *coord.Comment, n names, now time.Time
 		b.WriteString("; watched by " + strings.Join(ws, ", "))
 	}
 	b.WriteString("; updated " + ago(now, t.UpdatedAt) + "\n")
+	if r := t.Rollup; r != nil {
+		var ks []string
+		for _, k := range t.Subtasks {
+			kt, ok := s.b.Coord().GetTask(k)
+			if !ok {
+				continue
+			}
+			ks = append(ks, kt.ShortRef()+" "+string(kt.State))
+		}
+		b.WriteString("  subtasks: " + oneLine(strings.Join(ks, ", "), maxFieldRunes) + "\n")
+		if r.Blocked != "" {
+			fmt.Fprintf(&b, "  blocked by its subtask %s: %s\n", s.shortOf(r.Blocked), quoted(oneLine(r.BlockedQuestion, 160), 160))
+		}
+	}
 	if done, total := t.Progress(); total > 0 {
 		fmt.Fprintf(&b, "  steps %d/%d", done, total)
 		for _, st := range t.Steps {
@@ -363,6 +383,7 @@ type boardCreateArgs struct {
 	Links     []string  `json:"links"`
 	AssignTo  string    `json:"assign_to"`
 	Steps     []stepArg `json:"steps"`
+	Parent    string    `json:"parent"`
 }
 
 func (s *set) boardCreate(ctx context.Context, c Caller, raw json.RawMessage) string {
@@ -388,13 +409,16 @@ func (s *set) boardCreate(ctx context.Context, c Caller, raw json.RawMessage) st
 	t, err := s.b.Coord().CreateTask(ctx, c.Sender.Key, coord.NewTask{
 		Title: strings.TrimSpace(a.Title), Objective: strings.TrimSpace(a.Objective),
 		DoneCriteria: strings.TrimSpace(a.DoneWhen), RepoKey: repo, Shared: a.Shared, Links: a.Links,
-		Steps: stepsOf(a.Steps),
+		Steps: stepsOf(a.Steps), Parent: strings.TrimSpace(a.Parent),
 	})
 	if err != nil {
 		return mapErr(err)
 	}
 	n := s.roster()
 	out := "Created " + t.ShortRef() + " (task:" + t.ID + ")."
+	if t.Parent != "" {
+		out = "Created " + t.ShortRef() + " (task:" + t.ID + "), a subtask of " + s.shortOf(t.Parent) + "."
+	}
 	if len(t.Steps) == 0 {
 		out += " Give it steps with board_steps once you know them, so the person sees how far along it is."
 	} else {
@@ -1161,4 +1185,79 @@ func (s *set) release(ctx context.Context, c Caller, raw json.RawMessage) string
 		return mapErr(err)
 	}
 	return "Released " + oneLine(res, maxFieldRunes) + "."
+}
+
+// --- board_split ---
+
+type boardSplitArgs struct {
+	TaskID   string `json:"task_id"`
+	Subtasks []struct {
+		Title     string   `json:"title"`
+		Objective string   `json:"objective"`
+		DoneWhen  string   `json:"done_when"`
+		Steps     []string `json:"steps"`
+		AssignTo  string   `json:"assign_to"`
+	} `json:"subtasks"`
+	Adopt []string `json:"adopt"`
+}
+
+func (s *set) boardSplit(ctx context.Context, c Caller, raw json.RawMessage) string {
+	var a boardSplitArgs
+	if err := decode(raw, &a); err != nil {
+		return badArgs(err)
+	}
+	id, msg := s.taskID(a.TaskID)
+	if msg != "" {
+		return msg
+	}
+	if len(a.Subtasks) == 0 && len(a.Adopt) == 0 {
+		return errText("give subtasks (each with a title and its steps) or adopt (existing cards).")
+	}
+	subs := make([]coord.NewSubtask, len(a.Subtasks))
+	to := make([]string, len(a.Subtasks))
+	for i, st := range a.Subtasks {
+		if strings.TrimSpace(st.Title) == "" {
+			return errText(fmt.Sprintf("subtask %d needs a title.", i+1))
+		}
+		if v := strings.TrimSpace(st.AssignTo); v != "" {
+			k, err := s.assignee(v)
+			if err != nil {
+				return mapErr(err)
+			}
+			to[i] = k
+		}
+		subs[i] = coord.NewSubtask{Title: strings.TrimSpace(st.Title), Objective: strings.TrimSpace(st.Objective),
+			DoneCriteria: strings.TrimSpace(st.DoneWhen), Steps: st.Steps}
+	}
+	p, made, err := s.b.Coord().Split(ctx, c.Sender.Key, id, subs, a.Adopt)
+	if err != nil {
+		return mapErr(err)
+	}
+	n := s.roster()
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s is a parent now; its progress and state follow its subtasks, and you keep holding it.", p.ShortRef())
+	for i, k := range made {
+		fmt.Fprintf(&b, "\nCreated %s %s.", k.ShortRef(), quoted(oneLine(k.Title, maxCardTitle), maxCardTitle))
+		if to[i] == "" {
+			continue
+		}
+		_, notice, err := s.b.Coord().Assign(ctx, c.Sender.Key, k.ID, to[i])
+		if err != nil {
+			b.WriteString(" Assigning it failed: " + strings.TrimPrefix(mapErr(err), "Error: "))
+			continue
+		}
+		b.WriteString(" Assigned to " + n.who(to[i]) + "." + s.told(RouteNotice(ctx, s.b.Inbox(), c.Sender, notice), n))
+	}
+	if len(a.Adopt) > 0 {
+		var refs []string
+		for _, r := range a.Adopt {
+			refs = append(refs, oneLine(r, 40))
+		}
+		b.WriteString("\nAdopted " + strings.Join(refs, ", ") + ".")
+	}
+	if t, ok := s.b.Coord().GetTask(p.ID); ok {
+		p = t
+	}
+	b.WriteString("\n" + s.cardLine(p, nil, n, s.now()))
+	return b.String()
 }

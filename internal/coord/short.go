@@ -202,6 +202,24 @@ func (c *coord) taskRef(ref string) (string, error) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.shortRefLocked(short, v)
+}
+
+// taskRefLocked is taskRef with c.mu held.
+func (c *coord) taskRefLocked(ref string) (string, error) {
+	v := strings.TrimSpace(ref)
+	if k, id, ok := strings.Cut(v, ":"); ok && strings.EqualFold(strings.TrimSpace(k), "task") {
+		v = strings.TrimSpace(id)
+	}
+	short, ok := ParseShort(v)
+	if !ok {
+		return v, nil
+	}
+	return c.shortRefLocked(short, v)
+}
+
+// shortRefLocked resolves a parsed short ref (v as given). c.mu is held.
+func (c *coord) shortRefLocked(short, v string) (string, error) {
 	if id := c.shortIdx[short]; id != "" {
 		return id, nil
 	}

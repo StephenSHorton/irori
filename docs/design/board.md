@@ -350,7 +350,7 @@ A card can have a **parent**. A parent's **subtasks** are ordinary cards: each h
   
   An entry's `steps` are either step ids from the card being split, which move with their done flags, or new step texts. Every open step of the card must go to exactly one subtask, or the call is refused with the steps that weren't placed. That's how a split "moves the steps that belong to them" without losing one. `adopt` makes existing cards subtasks too (one `task.parent` row each): use it when related cards already exist. The splitter keeps holding the parent.
 - `board_split` on a card that already has subtasks adds more. On a subtask, it's refused with the hint "add siblings: board_create parent=#12".
-- `board` lists a subtask under its parent, indented, with its own state, and the parent's line reads `#12 [working, 1/3 subtasks] ...`. `show #12` lists the subtasks with their state, holder and progress. `show #14` says "part of #12 <title>".
+- `board` keeps its state groups. A subtask's line says "part of #12", and the parent's line reads `#12 [working, 1/3 subtasks] ...`, followed by its subtasks' refs and states and, when one is blocked, "blocked by its subtask #14: <question>". `show #12` lists the subtasks with their state, holder and steps. `show #14` says "part of: #12 <title>".
 - **Agent instructions** (BoardInstructions) gain one line:
   > When a card grows past one agent's piece of work, or you see related cards that are one piece of work, make it a parent: board_split it into subtasks (adopt the related cards), so other agents can take subtasks in parallel. Keep one level: split a subtask into more siblings, not deeper.
 
