@@ -208,16 +208,26 @@ func (c *coord) taskRef(ref string) (string, error) {
 	if c.tasks[v] != nil {
 		return v, nil // an id that happens to read like a number
 	}
-	if n, err := strconv.Atoi(short); err == nil && len(c.shortGroups[n]) > 1 {
-		var names []string
-		for _, cl := range c.shortGroups[n] {
-			if t := c.tasks[cl.id]; t != nil {
-				names = append(names, fmt.Sprintf("#%s %q (task:%s)", t.Short, oneLineTitle(t.Title), t.ID))
-			}
-		}
-		return "", fmt.Errorf("%w: cards made on devices that were apart each claimed #%s, so it is now %s", ErrAmbiguous, short, strings.Join(names, ", "))
+	if err := c.ambiguous(short); err != nil {
+		return "", err
 	}
 	return "", ErrNotFound
+}
+
+// ambiguous is ErrAmbiguous, naming each card, when short is a bare number
+// more than one card claimed; nil otherwise. c.mu is held.
+func (c *coord) ambiguous(short string) error {
+	n, err := strconv.Atoi(short)
+	if err != nil || len(c.shortGroups[n]) < 2 {
+		return nil
+	}
+	var names []string
+	for _, cl := range c.shortGroups[n] {
+		if t := c.tasks[cl.id]; t != nil {
+			names = append(names, fmt.Sprintf("#%s %q (task:%s)", t.Short, oneLineTitle(t.Title), t.ID))
+		}
+	}
+	return fmt.Errorf("%w: cards made on devices that were apart each claimed #%s, so it is now %s", ErrAmbiguous, short, strings.Join(names, ", "))
 }
 
 // oneLineTitle is a title cut to one short line for an error's text.

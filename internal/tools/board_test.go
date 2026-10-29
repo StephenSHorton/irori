@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -447,6 +448,10 @@ func TestClashedShortRefIsRefused(t *testing.T) {
 		{"show", map[string]any{"ref": "#1"}},
 	} {
 		h.fails(callA, call.name, call.args, "each claimed #1", `#1a "Theirs" (task:01THEIRS)`, `#1b "Mine" (task:`+mine+`)`, "lettered ref")
+	}
+	// show task:#1 goes through the search sources; coord's says the same.
+	if _, err := co.SearchShow(bg, "task:#1", search.ShowOptions{}); !errors.Is(err, coord.ErrAmbiguous) || !strings.Contains(err.Error(), "#1a") {
+		t.Fatalf("show task:#1: %v", err)
 	}
 	if x, _ := co.GetTask("01THEIRS"); x.Comments != 0 || x.State != coord.Submitted {
 		t.Fatalf("the other card was acted on: %+v", x)

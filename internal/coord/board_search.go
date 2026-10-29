@@ -104,6 +104,8 @@ func (c *coord) searchShow(ref string, o search.ShowOptions) (search.Shown, erro
 		if short, ok := ParseShort(id); ok && t == nil {
 			if t = c.tasks[c.shortIdx[short]]; t != nil {
 				id = t.ID
+			} else if err := c.ambiguous(short); err != nil {
+				return search.Shown{}, err
 			}
 		}
 		if t == nil {
