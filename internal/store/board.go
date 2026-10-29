@@ -100,11 +100,12 @@ func KindBoard(kind string) Board { return kindBoards[kind] }
 // registry marks BoardAccepts, never a device-local one.
 func BoardAccepted(kind string) bool { return !IsLocal(kind) && kindBoards[kind] == BoardAccepts }
 
-// IsBoardIdentityKind reports a board log's identity row (board.* and
-// member.*), which a board store's Verifier folds as a private store's
-// folds person.* (§3).
+// IsBoardIdentityKind reports a board log's identity row (board.*,
+// member.*, and agent.card, which binds a card to its person), which a
+// board store's Verifier folds as a private store's folds person.* (§3,
+// §2.4).
 func IsBoardIdentityKind(kind string) bool {
-	return BoardAccepted(kind) && (strings.HasPrefix(kind, "board.") || strings.HasPrefix(kind, "member."))
+	return BoardAccepted(kind) && (strings.HasPrefix(kind, "board.") || strings.HasPrefix(kind, "member.") || kind == KindAgentCard)
 }
 
 // Board actor prefixes (§2.4).
@@ -303,6 +304,12 @@ func (b *boardRules) define(kind string, payload []byte) {
 // SHAs, PR URLs and other links are not ids and always pass. person:
 // keys are checked for shape only until membership rows exist (§12 step 3).
 func (b *boardRules) resolves(kind string, payload []byte) error {
+	if strings.HasPrefix(kind, "member.") {
+		// A member's identity objects name only that member's person and
+		// devices (member.key.rotated's by is a device id), which the
+		// board Verifier checks; nothing in them is a board reference.
+		return nil
+	}
 	var p boardRow
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return fmt.Errorf("%w: %s payload is not an object", ErrOutsideBoard, kind)
@@ -429,7 +436,7 @@ func (d *db) loadBoard(ctx context.Context) error {
 }
 
 // identityKind reports the rows this store's Verifier folds: person.* in
-// the private log, board.* and member.* in a board log.
+// the private log, board.*, member.* and agent.card in a board log.
 func (d *db) identityKind(kind string) bool {
 	if d.board != nil {
 		return IsBoardIdentityKind(kind)
@@ -440,7 +447,7 @@ func (d *db) identityKind(kind string) bool {
 // identityPrefixes are identityKind's rows as List prefixes.
 func (d *db) identityPrefixes() []string {
 	if d.board != nil {
-		return []string{"board.", "member."}
+		return []string{"board.", "member.", KindAgentCard}
 	}
 	return []string{"person."}
 }

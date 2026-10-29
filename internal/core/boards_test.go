@@ -2,12 +2,16 @@ package core
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/identity"
@@ -329,4 +333,126 @@ func createdIDs(t *testing.T, st *store.Store) []string {
 		out = append(out, createdTaskID(ev))
 	}
 	return out
+}
+
+// TestBoardIdentityKeptCurrent: a board this device creates pins this
+// person with this device as the board root and carries the person's
+// member.* rows (§3), and they follow the private log: a device certified
+// there is certified on the board, a revoke cuts it with a cut over the
+// board's own stream, and the rotation that follows goes on the board with
+// its prevSig. Every row on the board verifies against the board's own
+// chain, the person is the owner of an agent's lease there, and all of it
+// survives a restart.
+func TestBoardIdentityKeptCurrent(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t)
+	c := r.core
+	id, err := c.CreateBoard(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	me := c.ident.Current()
+	b := mustBoard(t, c, id)
+	if pin, ok := b.verifier.Pinned(me.ID); !ok || pin.RootDeviceID != c.device.ID || pin.PersonEpoch != me.Epoch {
+		t.Fatalf("pin %+v %v", pin, ok)
+	}
+	m, err := c.BoardMember(id, me.ID)
+	if err != nil || len(m.Devices) != 1 || m.Devices[0].Cert.DeviceID != c.device.ID || m.Name != me.Name {
+		t.Fatalf("member %+v, %v", m, err)
+	}
+
+	// An agent's row on the board is this person's.
+	by, err := c.BoardKey(ctx, id, r.keyA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := b.verifier.KeyPerson(by); p != me.ID {
+		t.Fatalf("%s is %q's", by, p)
+	}
+	co, _ := c.BoardCoord(id)
+	if _, err := co.Acquire(ctx, by, "port:5173", time.Hour, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := co.Release(ctx, by, "port:5173"); err != nil {
+		t.Fatal(err)
+	}
+	if co.IgnoredRows() != 0 || len(co.Leases()) != 0 {
+		t.Fatalf("own lease rows: ignored %d, leases %v", co.IgnoredRows(), co.Leases())
+	}
+
+	// A device paired in the private log.
+	devPub := hex.EncodeToString(mustKey(t))
+	add, err := c.ident.CertFor("dev-x", devPub, "laptop", identity.RoleDesktop, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.store.Append(ctx, "irori", store.KindPersonDeviceAdded, add); err != nil {
+		t.Fatal(err)
+	}
+	wait(t, "the paired device is certified on the board", func() bool { _, ok := b.verifier.Cert("dev-x"); return ok })
+
+	// Revoked, then the key rotates (mesh.Revoke's two rows).
+	rev, err := c.ident.RevokeOf("dev-x", 0, "", "lost", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.store.Append(ctx, "irori", store.KindPersonDeviceRevoked, rev); err != nil {
+		t.Fatal(err)
+	}
+	rot, err := c.ident.Rotate(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.store.Append(ctx, "irori", store.KindPersonKeyRotated, rot); err != nil {
+		t.Fatal(err)
+	}
+	wait(t, "the revoke and rotation reach the board", func() bool {
+		_, cut := b.verifier.Cut("dev-x")
+		return cut && b.verifier.Epoch(me.ID) == rot.Epoch
+	})
+	if cut, _ := b.verifier.Cut("dev-x"); cut != 0 {
+		t.Fatalf("dev-x's board cut %d: it wrote nothing on the board", cut)
+	}
+
+	// Every row on the board verifies by the board's chain alone.
+	check := func(t *testing.T, c *Core) {
+		t.Helper()
+		b := mustBoard(t, c, id)
+		evs, err := b.store.List(ctx, store.Filter{Limit: store.MaxListLimit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		kinds := map[string]int{}
+		for _, ev := range evs {
+			kinds[ev.Kind]++
+			if err := b.verifier.VerifyRow(ev); err != nil {
+				t.Errorf("%s/%d %s: %v", ev.DeviceID, ev.Seq, ev.Kind, err)
+			}
+		}
+		if kinds[store.KindMemberDeviceAdded] != 2 || kinds[store.KindMemberDeviceRevoked] != 1 || kinds[store.KindMemberKeyRotated] != 1 || kinds[store.KindMemberProfile] != 1 {
+			t.Errorf("member rows %v", kinds)
+		}
+		m, err := c.BoardMember(id, me.ID)
+		if err != nil || m.Epoch != rot.Epoch || len(m.Devices) != 2 {
+			t.Fatalf("member %+v, %v", m, err)
+		}
+	}
+	check(t, c)
+	opts := c.opts
+	c.Close()
+	c2, err := Start(ctx, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c2.Close() })
+	t.Run("restarted", func(t *testing.T) { check(t, c2) })
+}
+
+func mustKey(t *testing.T) ed25519.PublicKey {
+	t.Helper()
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pub
 }

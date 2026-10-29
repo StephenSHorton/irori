@@ -208,13 +208,15 @@ type coord struct {
 	now         func() time.Time
 	grace       time.Duration
 	holderGrace time.Duration
-	ownerFn     func(string) bool // Options.IsOwner
-	revoked     func(string) bool // Options.Revoked
-	ignored     int               // owner-only rows from the wrong device (v0.4 §6.0)
-	ignoredBy   map[string]int    // and per writing device
-	onBoard     bool              // Options.Board (boardlog.go)
-	person      string            // Options.Person
-	aside       []store.Event     // board rows whose references don't resolve yet
+	ownerFn     func(string) bool   // Options.IsOwner
+	revoked     func(string) bool   // Options.Revoked
+	ignored     int                 // owner-only rows from the wrong device (v0.4 §6.0)
+	ignoredBy   map[string]int      // and per writing device
+	onBoard     bool                // Options.Board (boardlog.go)
+	person      string              // Options.Person
+	keyPerson   func(string) string // Options.KeyPerson
+	devPerson   func(string) string // Options.DevicePerson
+	aside       []store.Event       // board rows whose references don't resolve yet
 
 	mu          sync.Mutex
 	tasks       map[string]*Task
@@ -280,6 +282,8 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 		revoked:     opts.Revoked,
 		onBoard:     opts.Board,
 		person:      opts.Person,
+		keyPerson:   opts.KeyPerson,
+		devPerson:   opts.DevicePerson,
 		tasks:       map[string]*Task{},
 		order:       map[string]uint64{},
 		held:        map[string]*leaseRec{},
@@ -359,19 +363,19 @@ func (c *coord) writerOK(ev store.Event) bool {
 		if json.Unmarshal(ev.Payload, &row) != nil {
 			return true // apply drops it
 		}
-		return owner.MayWrite(row.Holder, ev.DeviceID)
+		return c.mayWrite(row.Holder, ev.DeviceID)
 	case KindLeaseRel:
 		var p leaseReleasedRow
 		if json.Unmarshal(ev.Payload, &p) != nil {
 			return true
 		}
-		return owner.MayWrite(p.Holder, ev.DeviceID)
+		return c.mayWrite(p.Holder, ev.DeviceID)
 	case KindLeaseRefused:
 		var r Refusal
 		if json.Unmarshal(ev.Payload, &r) != nil {
 			return true
 		}
-		return owner.MayWrite(r.By, ev.DeviceID)
+		return c.mayWrite(r.By, ev.DeviceID)
 	case KindTaskComment:
 		// Only a mirrored message and a blocker comment are checked. A
 		// mirrored message's sender's device writes it, and a gone or fill

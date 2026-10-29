@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/store"
@@ -151,5 +152,61 @@ func TestBoardCoordSetsAside(t *testing.T) {
 	_ = json.Unmarshal(comment.Payload, &p)
 	if p["by"] != boardCard {
 		t.Fatalf("comment by %v", p["by"])
+	}
+}
+
+// TestBoardOwnerRuleIsThePerson: on a board an owner-only row counts only
+// from a device of the owning person (§2.4). dev-a is p1's and holds the
+// lease through p1's card; a lease.released for it written by p2's dev-b is
+// ignored and counted, and the lease stands. The same row from dev-a's own
+// person counts.
+func TestBoardOwnerRuleIsThePerson(t *testing.T) {
+	ctx := context.Background()
+	clk := &clock{t: fixedNow}
+	st, err := store.OpenWith(ctx, filepath.Join(t.TempDir(), "boards", "b.db"), "dev-a", hlc.New(clk.now), store.OpenOptions{Board: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	devs := map[string]string{"dev-a": "p1", "dev-b": "p2"}
+	keys := map[string]string{boardPerson: "p1", boardCard: "p1", "person:p2": "p2"}
+	c, err := New(ctx, st, newRoster(boardCard), Options{Now: clk.now, Board: true, Person: boardPerson,
+		IsOwner:      func(k string) bool { return k == boardPerson },
+		KeyPerson:    func(k string) string { return keys[k] },
+		DevicePerson: func(d string) string { return devs[d] }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Append(ctx, boardCard, store.KindAgentCard, map[string]any{"cardId": "c1", "personId": "p1", "status": "active"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Acquire(ctx, boardCard, "port:5173", time.Hour, false); err != nil {
+		t.Fatal(err)
+	}
+	release := func(dev string, seq int64) store.Event {
+		raw, _ := json.Marshal(leaseReleasedRow{Resource: "port:5173", Holder: boardCard, Reason: "done", By: "person:p2", At: fixedNow})
+		return store.Event{DeviceID: dev, Seq: seq, HLC: hlc.Timestamp(fixedNow.Add(time.Minute).UnixMilli()) << 16, Actor: "person:p2", Kind: KindLeaseRel, Payload: raw}
+	}
+	forged := release("dev-b", 1)
+	if err := st.Insert(ctx, forged); err != nil {
+		t.Fatal(err)
+	}
+	c.impl.mu.Lock()
+	c.impl.apply(forged)
+	c.impl.mu.Unlock()
+	if c.IgnoredRows() != 1 {
+		t.Fatalf("ignored %d rows, want the forged release", c.IgnoredRows())
+	}
+	if ls := c.Leases(); len(ls) != 1 || ls[0].Holder != boardCard {
+		t.Fatalf("leases %+v: p2's device ended p1's lease", ls)
+	}
+	// A key whose person is unknown owns nothing either.
+	delete(keys, boardCard)
+	if c.impl.mayWrite(boardCard, "dev-a") {
+		t.Fatal("a card of no known person is owned by dev-a")
+	}
+	keys[boardCard] = "p1"
+	if !c.impl.mayWrite(boardCard, "dev-a") || c.impl.mayWrite(boardCard, "dev-b") {
+		t.Fatal("the owner rule is not the holder's person")
 	}
 }

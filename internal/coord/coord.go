@@ -212,6 +212,13 @@ type Options struct {
 	// Person is the person at this device's key.
 	Board  bool
 	Person string
+	// KeyPerson and DevicePerson are a board's owner rule (v0.5 §2.4): the
+	// member a person:/agent: key is, and the member a writing device is
+	// certified to (the board Verifier's), "" when unknown. On a board an
+	// owner-only row counts only from a device of the owning person. Nil
+	// on a board accepts every writer.
+	KeyPerson    func(key string) string
+	DevicePerson func(device string) string
 }
 
 // Coord holds tasks and leases. Safe for concurrent use.

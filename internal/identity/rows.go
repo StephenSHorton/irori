@@ -25,6 +25,10 @@ type Cert struct {
 	Label     string    `json:"label"`
 	Role      string    `json:"role"` // RoleDesktop or RoleNode
 	At        time.Time `json:"at"`
+	// PersonEpoch is the epoch of the key that signed it (v0.5 §3). Certs
+	// from before v0.5 have none, and omitempty keeps their signed bytes;
+	// the own mesh doesn't check it.
+	PersonEpoch int `json:"personEpoch,omitempty"`
 }
 
 // DeviceAdded is the person.device.added payload.
@@ -42,6 +46,8 @@ type Revoke struct {
 	CutHash  string    `json:"cutHash"` // hex sha256 of that row's signed bytes and sig
 	At       time.Time `json:"at"`
 	Reason   string    `json:"reason,omitempty"`
+	// PersonEpoch: as Cert's.
+	PersonEpoch int `json:"personEpoch,omitempty"`
 }
 
 // DeviceRevoked is the person.device.revoked payload.
@@ -51,12 +57,33 @@ type DeviceRevoked struct {
 	PersonSig string `json:"personSig"`
 }
 
-// KeyRotated is the person.key.rotated payload: the new public key only.
+// KeyRotated is the person.key.rotated payload: the new public key, and
+// since v0.5 the device that rotated (By) and PrevSig, the previous
+// epoch's key over RotationBody (§3). The own mesh doesn't check By or
+// PrevSig; they are kept so the rotating device can write the same
+// rotation into each board as member.key.rotated, which needs both.
 type KeyRotated struct {
 	PersonID  string    `json:"personId"`
 	Epoch     int       `json:"epoch"`
 	PersonPub string    `json:"personPub"`
 	At        time.Time `json:"at"`
+	By        string    `json:"by,omitempty"`
+	PrevSig   string    `json:"prevSig,omitempty"`
+}
+
+// RotationBody is what a rotation's prevSig covers (v0.5 §3), the same in
+// the private person.key.rotated and a board's member.key.rotated.
+type RotationBody struct {
+	PersonID    string    `json:"personId"`
+	PersonEpoch int       `json:"personEpoch"`
+	PersonPub   string    `json:"personPub"`
+	By          string    `json:"by"`
+	At          time.Time `json:"at"`
+}
+
+// Body is the rotation as its prevSig covers it.
+func (r KeyRotated) Body() RotationBody {
+	return RotationBody{PersonID: r.PersonID, PersonEpoch: r.Epoch, PersonPub: r.PersonPub, By: r.By, At: r.At}
 }
 
 // Profile is the person.profile payload.

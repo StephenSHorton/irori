@@ -291,18 +291,36 @@ func (id *Identity) signPerson(v any) (pub, sig string, err error) {
 	return id.Person.Pub, hex.EncodeToString(ed25519.Sign(id.personKey, msg)), nil
 }
 
+// signEpoch signs canonical(v) with the current key, but only while it is
+// still epoch's: v names the epoch it is signed for, and a rotation in
+// between would make the two disagree.
+func (id *Identity) signEpoch(epoch int, v any) (sig string, err error) {
+	msg, err := Canonical(v)
+	if err != nil {
+		return "", err
+	}
+	id.mu.Lock()
+	defer id.mu.Unlock()
+	if id.Person.Epoch != epoch {
+		return "", fmt.Errorf("identity: the person key moved to epoch %d while signing for %d", id.Person.Epoch, epoch)
+	}
+	return hex.EncodeToString(ed25519.Sign(id.personKey, msg)), nil
+}
+
 // CertFor makes a person.device.added payload certifying a device.
 func (id *Identity) CertFor(deviceID, devicePub, label, role string, at time.Time) (DeviceAdded, error) {
-	c := Cert{PersonID: id.Person.ID, DeviceID: deviceID, DevicePub: devicePub, Label: label, Role: role, At: at.UTC()}
-	pub, sig, err := id.signPerson(c)
-	return DeviceAdded{Cert: c, PersonPub: pub, PersonSig: sig}, err
+	cur := id.Current()
+	c := Cert{PersonID: cur.ID, DeviceID: deviceID, DevicePub: devicePub, Label: label, Role: role, At: at.UTC(), PersonEpoch: cur.Epoch}
+	sig, err := id.signEpoch(cur.Epoch, c)
+	return DeviceAdded{Cert: c, PersonPub: cur.Pub, PersonSig: sig}, err
 }
 
 // RevokeOf makes a person.device.revoked payload.
 func (id *Identity) RevokeOf(deviceID string, cut int64, cutHash, reason string, at time.Time) (DeviceRevoked, error) {
-	r := Revoke{PersonID: id.Person.ID, DeviceID: deviceID, Cut: cut, CutHash: cutHash, At: at.UTC(), Reason: reason}
-	pub, sig, err := id.signPerson(r)
-	return DeviceRevoked{Revoke: r, PersonPub: pub, PersonSig: sig}, err
+	cur := id.Current()
+	r := Revoke{PersonID: cur.ID, DeviceID: deviceID, Cut: cut, CutHash: cutHash, At: at.UTC(), Reason: reason, PersonEpoch: cur.Epoch}
+	sig, err := id.signEpoch(cur.Epoch, r)
+	return DeviceRevoked{Revoke: r, PersonPub: cur.Pub, PersonSig: sig}, err
 }
 
 // ProfileRow makes the person.profile payload.

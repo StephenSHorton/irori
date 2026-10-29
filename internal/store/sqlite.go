@@ -750,8 +750,13 @@ func (d *db) verify(ev Event) error {
 		return fmt.Errorf("%w: %s/%d", ErrUnsigned, ev.DeviceID, ev.Seq)
 	}
 	d.verifyMu.Lock()
-	defer d.verifyMu.Unlock()
-	return d.verifier.VerifyRow(ev)
+	err := d.verifier.VerifyRow(ev)
+	d.verifyMu.Unlock()
+	if d.board != nil && errors.Is(err, ErrBoardActor) {
+		// The board Verifier binds actors to the writer's person (§2.4).
+		d.board.count(func(c *BoardCounts) { c.Actor++ })
+	}
+	return err
 }
 
 // checkCutClaims records a fork wherever an honoured revoke's cutHash names

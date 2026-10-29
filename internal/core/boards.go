@@ -29,11 +29,16 @@ import (
 // own coord. The Core holds them all and routes a taskId to the one log it
 // lives in (Route); tools and the window go through that.
 //
+// Each board's Verifier is identity.BoardVerifier (§3, step 2): one chain
+// per pinned member, seeded from the member's pin and grown by the
+// member.* rows each member's devices write (keepCurrent writes this
+// person's). The pins come from the device-local board.pin rows: this
+// person, with this device as the board root, on a board it created.
+//
 // What is not here yet, by the design's build order: board.created and
-// membership (step 3), the board Verifier's per-member chains (step 2),
-// connections and sync (step 5), tags in short refs and the Boards dialog
-// (step 4). Until then a board holds this person's rows only and stays on
-// this device.
+// membership, which will pin the other members (step 3), connections and
+// sync (step 5), tags in short refs and the Boards dialog (step 4). Until
+// then a board holds this person's rows only and stays on this device.
 
 // BoardsDir is where the board logs live, under the data dir.
 const BoardsDir = "boards"
@@ -43,9 +48,12 @@ var ErrNoBoard = errors.New("core: no such board on this device")
 
 // boardLog is one open board.
 type boardLog struct {
-	id    string
-	store *store.Store
-	coord *coord.Coord
+	id       string
+	store    *store.Store
+	coord    *coord.Coord
+	verifier *identity.BoardVerifier
+
+	idMu sync.Mutex // one keepCurrent at a time
 
 	mu    sync.Mutex
 	cards map[string]boardCard // cardId -> its agent.card, as folded
@@ -75,6 +83,7 @@ type boardState struct {
 	taskOf map[string]string // taskId -> boardId, from each log's task.created rows
 	ctx    context.Context   // the Core's; each board's goroutines end with it
 	wg     sync.WaitGroup
+	follow sync.Once // followIdentity
 }
 
 // NewBoardID is a fresh boardId: 16 random bytes, hex (§2.1). It names
@@ -113,29 +122,31 @@ func (c *Core) openBoards(ctx context.Context) {
 		if e.IsDir() || !ok || !validBoardID(id) {
 			continue
 		}
-		if _, err := c.openBoard(ctx, id); err != nil {
+		if _, err := c.openBoard(ctx, id, false); err != nil {
 			log.Printf("board %s: %v", id, err)
 		}
 	}
 }
 
-// CreateBoard makes a new, empty board log on this device and returns its
-// id. Step 3 of §12 writes its board.created row; step 4 puts it behind
-// the Boards dialog.
+// CreateBoard makes a new board log on this device and returns its id. It
+// pins this person with this device as the board root and writes this
+// person's member.* rows (§3). Step 3 of §12 writes its board.created
+// row; step 4 puts it behind the Boards dialog.
 func (c *Core) CreateBoard(ctx context.Context) (string, error) {
 	id, err := NewBoardID()
 	if err != nil {
 		return "", err
 	}
-	if _, err := c.openBoard(ctx, id); err != nil {
+	if _, err := c.openBoard(ctx, id, true); err != nil {
 		return "", err
 	}
 	return id, nil
 }
 
 // openBoard opens (creating) one board log and its coord, and starts
-// following it.
-func (c *Core) openBoard(ctx context.Context, id string) (*boardLog, error) {
+// following it. create pins this person on it with this device as the
+// board root.
+func (c *Core) openBoard(ctx context.Context, id string, create bool) (*boardLog, error) {
 	if !validBoardID(id) {
 		return nil, fmt.Errorf("core: %q is not a board id", id)
 	}
@@ -144,19 +155,32 @@ func (c *Core) openBoard(ctx context.Context, id string) (*boardLog, error) {
 	if b := c.boards.logs[id]; b != nil {
 		return b, nil
 	}
+	v := identity.NewBoardVerifier()
 	st, err := store.OpenWith(ctx, filepath.Join(c.opts.DataDir, BoardsDir, id+".db"), c.device.ID, hlc.New(c.opts.Now),
-		store.OpenOptions{Signer: c.ident, Verifier: ownBoardVerifier{c.chain}, Now: c.opts.Now, Board: true})
+		store.OpenOptions{Signer: c.ident, Verifier: v, Now: c.opts.Now, Board: true})
 	if err != nil {
 		return nil, fmt.Errorf("open board log: %w", err)
 	}
-	b := &boardLog{id: id, store: st, cards: map[string]boardCard{}, keys: map[string]string{}, byID: map[string]string{}}
+	b := &boardLog{id: id, store: st, verifier: v, cards: map[string]boardCard{}, keys: map[string]string{}, byID: map[string]string{}}
+	if err := c.pinBoard(ctx, b, create); err != nil {
+		st.Close()
+		return nil, err
+	}
 	if err := b.load(ctx); err != nil {
 		st.Close()
 		return nil, err
 	}
+	if err := c.keepCurrent(ctx, b); err != nil {
+		// The board still opens: its rows verify as far as they can, and
+		// the next identity change retries.
+		log.Printf("board %s: identity rows: %v", id, err)
+	}
 	me := store.PersonActorPrefix + c.chain.PersonID()
 	if b.coord, err = coord.New(ctx, st, boardRoster{c, b}, coord.Options{Now: c.opts.Now, Board: true, Person: me,
-		IsOwner: func(k string) bool { return k == store.PersonActorPrefix+c.chain.PersonID() }}); err != nil {
+		IsOwner:      func(k string) bool { return k == store.PersonActorPrefix+c.chain.PersonID() },
+		Revoked:      func(dev string) bool { _, revoked := v.Cut(dev); return revoked },
+		KeyPerson:    v.KeyPerson,
+		DevicePerson: c.boardDevicePerson(v)}); err != nil {
 		st.Close()
 		return nil, fmt.Errorf("board coord: %w", err)
 	}
@@ -179,6 +203,10 @@ func (c *Core) openBoard(ctx context.Context, id string) (*boardLog, error) {
 	c.boards.wg.Add(2)
 	go func() { defer c.boards.wg.Done(); b.coord.Follow(fctx) }()
 	go func() { defer c.boards.wg.Done(); c.followBoard(fctx, b) }()
+	c.boards.follow.Do(func() {
+		c.boards.wg.Add(1)
+		go func() { defer c.boards.wg.Done(); c.followIdentity(fctx) }()
+	})
 	return b, nil
 }
 
@@ -502,23 +530,251 @@ func (r boardRoster) Agents() []presence.AgentCard {
 	return out
 }
 
-// ownBoardVerifier is the board Verifier until step 2's per-member chains
-// (§3): a board row must be signed by one of this person's devices that
-// is certified and not revoked. Board cuts are board-log seqs, which the
-// private chain doesn't have, so a revoked device's board rows are refused
-// whole rather than above a cut.
-type ownBoardVerifier struct{ chain *identity.Chain }
-
-func (v ownBoardVerifier) VerifyRow(ev store.Event) error {
-	if _, revoked := v.chain.Cut(ev.DeviceID); revoked {
-		return fmt.Errorf("%w: %s was removed", store.ErrPastCut, ev.DeviceID)
+// pinBoard pins b's Verifier from its board.pin rows (§3). A board with
+// none is pinned to this person, rooted at this device, when this device
+// creates it or wrote every row it holds (a board from before pins); a
+// board holding another device's rows and no pin is left unpinned, so
+// nothing in it verifies, and says so.
+func (c *Core) pinBoard(ctx context.Context, b *boardLog, create bool) error {
+	evs, err := b.store.List(ctx, store.Filter{Kinds: []string{store.KindBoardPin}, Local: true, Limit: store.MaxListLimit})
+	if err != nil {
+		return err
 	}
-	if _, ok := v.chain.Cert(ev.DeviceID); !ok {
-		return fmt.Errorf("%w: %s", store.ErrNoCert, ev.DeviceID)
+	pinned := false
+	for _, ev := range evs {
+		var p identity.MemberPin
+		if json.Unmarshal(ev.Payload, &p) != nil {
+			continue
+		}
+		if err := b.verifier.Pin(p); err != nil {
+			log.Printf("board %s: %v", b.id, err)
+			continue
+		}
+		pinned = true
 	}
-	return v.chain.VerifyRow(ev)
+	if !pinned {
+		vec, err := b.store.Vector(ctx)
+		if err != nil {
+			return err
+		}
+		for dev := range vec {
+			if dev != c.device.ID && !create {
+				log.Printf("board %s: holds rows from %s but pins nobody; nothing in it verifies", b.id, dev)
+				return nil
+			}
+		}
+		p := c.ident.BoardPin()
+		if _, err := b.store.AppendLocal(ctx, "irori", store.KindBoardPin, p); err != nil {
+			return err
+		}
+		if err := b.verifier.Pin(p); err != nil {
+			return err
+		}
+	}
+	// The rows already observed fold again, now pinned, and the store
+	// applies their cuts.
+	b.store.ReloadVerifier(ctx)
+	return nil
 }
-func (ownBoardVerifier) Cut(string) (int64, bool)    { return 0, false }
-func (ownBoardVerifier) CutClaims() []store.CutClaim { return nil }
-func (ownBoardVerifier) Observe(store.Event)         {}
-func (ownBoardVerifier) Reset()                      {}
+
+// boardDevicePerson is a board coord's DevicePerson: the member v
+// certified a device to, and this person for this device even before its
+// board cert folds (its own rows are this person's).
+func (c *Core) boardDevicePerson(v *identity.BoardVerifier) func(string) string {
+	return func(dev string) string {
+		if p, ok := v.PersonOf(dev); ok {
+			return p
+		}
+		if dev == c.device.ID {
+			return c.chain.PersonID()
+		}
+		return ""
+	}
+}
+
+// followIdentity keeps every board's member.* rows current as the private
+// log's person.* rows change: a device paired, revoked, or the key
+// rotated (§3, "Keeping boards current").
+func (c *Core) followIdentity(ctx context.Context) {
+	for ev := range c.store.Subscribe(ctx) {
+		if ev.Seq != 0 && !store.IsPersonKind(ev.Kind) {
+			continue
+		}
+		c.boards.mu.Lock()
+		logs := make([]*boardLog, 0, len(c.boards.logs))
+		for _, b := range c.boards.logs {
+			logs = append(logs, b)
+		}
+		c.boards.mu.Unlock()
+		for _, b := range logs {
+			if err := c.keepCurrent(ctx, b); err != nil && ctx.Err() == nil {
+				log.Printf("board %s: identity rows: %v", b.id, err)
+			}
+		}
+	}
+}
+
+// keepCurrent writes into b what this person's identity in it lacks (§3):
+// this device's self-cert when it is the board root, then, from a device
+// whose board cert counts, each rotation this device made (only the
+// rotating device can, it alone signed prevSig), the revoke of each
+// device the private chain revoked with a cut over b's own stream, a cert
+// for each certified device of this person, and the profile. Rows are
+// signed for the board's newest epoch of this person, so they are written
+// only while this device's key is that epoch's.
+func (c *Core) keepCurrent(ctx context.Context, b *boardLog) error {
+	b.idMu.Lock()
+	defer b.idMu.Unlock()
+	v, self := b.verifier, c.device.ID
+	me := c.ident.Current()
+	pin, ok := v.Pinned(me.ID)
+	if !ok {
+		return nil
+	}
+	now := time.Now
+	if c.opts.Now != nil {
+		now = c.opts.Now
+	}
+	role := identity.RoleDesktop
+	if cert, ok := c.chain.Cert(self); ok && cert.Role != "" {
+		role = cert.Role
+	}
+	if _, ok := v.Cert(self); !ok {
+		if pin.RootDeviceID != self {
+			return nil // another device of this person certifies this one
+		}
+		add, err := c.ident.MemberCertFor(pin.PersonEpoch, self, hex.EncodeToString(c.ident.DevicePub()), role, now())
+		if err != nil {
+			return fmt.Errorf("self-cert: %w", err)
+		}
+		if _, err := b.store.Append(ctx, "irori", store.KindMemberDeviceAdded, add); err != nil {
+			return err
+		}
+		if _, ok := v.Cert(self); !ok {
+			return errors.New("the self-cert did not certify this device")
+		}
+	}
+	if _, revoked := v.Cut(self); revoked {
+		return nil
+	}
+	for {
+		next := v.Epoch(me.ID) + 1
+		rot, ok, err := c.ownRotation(ctx, next)
+		if err != nil || !ok {
+			if err != nil {
+				return err
+			}
+			break
+		}
+		if _, err := b.store.Append(ctx, "irori", store.KindMemberKeyRotated, rot); err != nil {
+			return err
+		}
+		if v.Epoch(me.ID) < next {
+			break // it didn't count; don't write it again
+		}
+	}
+	epoch := v.Epoch(me.ID)
+	if epoch != c.ident.Current().Epoch || !v.Writable(me.ID) {
+		return nil // this key isn't the board's newest for this person
+	}
+	devs := c.chain.Devices()
+	vec, err := b.store.Vector(ctx)
+	if err != nil {
+		return err
+	}
+	for _, d := range devs {
+		dev := d.Cert.DeviceID
+		if _, held := v.Cert(dev); !d.Revoked || !held || dev == self {
+			continue
+		}
+		if _, cut := v.Cut(dev); cut {
+			continue
+		}
+		cut, hash := vec[dev], ""
+		if cut > 0 {
+			evs, err := b.store.List(ctx, store.Filter{DeviceID: dev, AfterSeq: cut - 1, Limit: 1})
+			if err != nil {
+				return err
+			}
+			if len(evs) == 1 && evs[0].Seq == cut {
+				hash = store.RowHash(evs[0])
+			}
+		}
+		rev, err := c.ident.MemberRevokeOf(epoch, dev, cut, hash, now())
+		if err != nil {
+			return err
+		}
+		if _, err := b.store.Append(ctx, "irori", store.KindMemberDeviceRevoked, rev); err != nil {
+			return err
+		}
+	}
+	for _, d := range devs {
+		dev := d.Cert.DeviceID
+		if _, held := v.Cert(dev); d.Revoked || held {
+			continue
+		}
+		add, err := c.ident.MemberCertFor(epoch, dev, d.Cert.DevicePub, d.Cert.Role, now())
+		if err != nil {
+			return err
+		}
+		if _, err := b.store.Append(ctx, "irori", store.KindMemberDeviceAdded, add); err != nil {
+			return err
+		}
+	}
+	if _, ok := v.Profile(me.ID); !ok {
+		prof, err := c.ident.MemberProfileRow(epoch)
+		if err != nil {
+			return err
+		}
+		if _, err := b.store.Append(ctx, "irori", store.KindMemberProfile, prof); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ownRotation is the private person.key.rotated row this device wrote for
+// epoch, as a board's member.key.rotated. ok is false when this device
+// made no such rotation, or made it before v0.5 (no prevSig).
+func (c *Core) ownRotation(ctx context.Context, epoch int) (identity.MemberKeyRotated, bool, error) {
+	f := store.Filter{Kinds: []string{store.KindPersonKeyRotated}, DeviceID: c.device.ID, Limit: store.MaxListLimit}
+	me := c.chain.PersonID()
+	for {
+		evs, err := c.store.List(ctx, f)
+		if err != nil {
+			return identity.MemberKeyRotated{}, false, err
+		}
+		for _, ev := range evs {
+			var r identity.KeyRotated
+			if json.Unmarshal(ev.Payload, &r) != nil || r.PersonID != me || r.Epoch != epoch {
+				continue
+			}
+			if m, ok := identity.MemberRotation(r); ok && m.By == c.device.ID {
+				return m, true, nil
+			}
+		}
+		if len(evs) < f.Limit {
+			return identity.MemberKeyRotated{}, false, nil
+		}
+		f.After = evs[len(evs)-1].Cursor()
+	}
+}
+
+// BoardIdentity is what a board's Verifier holds about one member, for
+// tests and ?detail=1.
+type BoardIdentity struct {
+	PersonID string                 `json:"personId"`
+	Epoch    int                    `json:"epoch"`
+	Name     string                 `json:"name,omitempty"`
+	Devices  []identity.BoardDevice `json:"devices"`
+}
+
+// BoardMember reports this device's view of personID on boardID.
+func (c *Core) BoardMember(boardID, personID string) (BoardIdentity, error) {
+	b, err := c.board(boardID)
+	if err != nil {
+		return BoardIdentity{}, err
+	}
+	name, _ := b.verifier.Profile(personID)
+	return BoardIdentity{PersonID: personID, Epoch: b.verifier.Epoch(personID), Name: name, Devices: b.verifier.Devices(personID)}, nil
+}

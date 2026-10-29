@@ -3,6 +3,7 @@ package coord
 import (
 	"strings"
 
+	"github.com/StephenSHorton/irori/internal/owner"
 	"github.com/StephenSHorton/irori/internal/store"
 )
 
@@ -29,6 +30,19 @@ func (c *coord) personRow(ev store.Event, by string) bool {
 		return ev.Actor == by && strings.HasPrefix(by, store.PersonActorPrefix) && c.isOwner(by)
 	}
 	return ev.Actor == "user" && c.isOwner(by)
+}
+
+// mayWrite is the owner rule for an owner-only row (v0.4 §6.0): in the
+// private log the owner key's device wrote it; on a board, a device of the
+// owner key's person did (§2.4), since a card hides which device its agent
+// runs on. A key whose person isn't known, or a writer certified to no
+// member, owns nothing.
+func (c *coord) mayWrite(ownerKey, writer string) bool {
+	if !c.onBoard || c.keyPerson == nil || c.devPerson == nil {
+		return owner.MayWrite(ownerKey, writer)
+	}
+	p := c.keyPerson(ownerKey)
+	return p != "" && p == c.devPerson(writer)
 }
 
 // personActor reports a row whose actor is a person (whoever its by says).

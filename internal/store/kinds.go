@@ -81,6 +81,12 @@ const (
 // local_events, so it never leaves the device.
 const KindBoardCardKey = "board.cardkey"
 
+// KindBoardPin: {personId, personPub, rootDeviceId, personEpoch}: a member
+// this device pinned on a board (§3, "What a board pins"), kept in the
+// board store's local_events so the board Verifier is pinned again at
+// every open. The Core writes one for itself on a board it creates.
+const KindBoardPin = "board.pin"
+
 // Device-local kinds, which live in local_events and never replicate (§5.1).
 // They are named here as strings because their packages import store.
 const (
@@ -142,7 +148,7 @@ var kindSides = map[string]Side{
 	KindMemberDeviceRevoked: Replicated, KindMemberKeyRotated: Replicated, KindAgentCard: Replicated,
 	KindReviewRequested: Replicated, KindReviewReviewer: Replicated,
 	KindBoardJoined: Replicated, KindBoardForgot: Replicated, KindReceiveSet: Replicated, KindAutonomySet: Replicated,
-	KindBoardCardKey: Local,
+	KindBoardCardKey: Local, KindBoardPin: Local,
 }
 
 // KindSide reports kind's side.
