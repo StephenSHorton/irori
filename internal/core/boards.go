@@ -666,6 +666,9 @@ func (c *Core) keepCurrent(ctx context.Context, b *boardLog) error {
 			}
 			break
 		}
+		if wrote, err := b.wroteRotation(ctx, self, next); err != nil || wrote {
+			return err // written before and it didn't count (it lost a tie): not again
+		}
 		if _, err := b.store.Append(ctx, "irori", store.KindMemberKeyRotated, rot); err != nil {
 			return err
 		}
@@ -731,6 +734,28 @@ func (c *Core) keepCurrent(ctx context.Context, b *boardLog) error {
 		}
 	}
 	return nil
+}
+
+// wroteRotation reports whether dev already wrote a member.key.rotated to
+// epoch in b.
+func (b *boardLog) wroteRotation(ctx context.Context, dev string, epoch int) (bool, error) {
+	f := store.Filter{Kinds: []string{store.KindMemberKeyRotated}, DeviceID: dev, Limit: store.MaxListLimit}
+	for {
+		evs, err := b.store.List(ctx, f)
+		if err != nil {
+			return false, err
+		}
+		for _, ev := range evs {
+			var r identity.MemberKeyRotated
+			if json.Unmarshal(ev.Payload, &r) == nil && r.PersonEpoch == epoch {
+				return true, nil
+			}
+		}
+		if len(evs) < f.Limit {
+			return false, nil
+		}
+		f.After = evs[len(evs)-1].Cursor()
+	}
 }
 
 // ownRotation is the private person.key.rotated row this device wrote for
