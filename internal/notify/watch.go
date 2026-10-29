@@ -113,7 +113,7 @@ func Watch(ctx context.Context, n *Notifier, s Sources) {
 	w := &watcher{n: n, s: s, held: map[string]string{}, groups: map[string]*heldGroup{},
 		dirty: map[string]heldChange{}, closed: map[string]bool{},
 		msgs: map[string]bool{}, needs: map[string]bool{},
-		asks: map[string]bool{}, unclaimed: map[string]bool{}, forget: make(chan string, 16),
+		asks: map[string]bool{}, unclaimed: map[string]time.Time{}, forget: make(chan string, 16),
 		failed: make(chan heldFail, 16), fails: map[string]string{}}
 	var ich <-chan inbox.Change
 	var cch <-chan coord.Change
@@ -207,8 +207,10 @@ type watcher struct {
 	msgs   map[string]bool // delivery ids to the person accounted for (likewise)
 	needs  map[string]bool // task ids in Needs you (card posted, or seeded)
 	asks   map[string]bool // ask ids with a card up
-	// unclaimed are the Board asks nobody took (card posted, or seeded).
-	unclaimed map[string]bool
+	// unclaimed are the Board asks nobody took (card posted, or seeded), by
+	// when each last opened: Wake them with nobody free opens it again,
+	// still unclaimed, and the card comes back to say so.
+	unclaimed map[string]time.Time
 	// forget carries the sender keys whose held card the person closed
 	// (from the card's own goroutine to Watch's loop), failed the outcome
 	// of each Release or Dismiss press; fails is the error a sender's card
@@ -624,10 +626,10 @@ func (w *watcher) unclaimedAsks(v coord.BoardView, post bool) {
 				continue
 			}
 			now[c.ID] = true
-			if w.unclaimed[c.ID] {
+			if since, ok := w.unclaimed[c.ID]; ok && since.Equal(a.Since) {
 				continue
 			}
-			w.unclaimed[c.ID] = true
+			w.unclaimed[c.ID] = a.Since
 			if post {
 				w.n.Post(w.unclaimedNote(c.Task))
 			}
@@ -646,9 +648,16 @@ func (w *watcher) unclaimedNote(t coord.Task) Note {
 	if t.Short != "" {
 		title += " (#" + t.Short + ")"
 	}
+	a := t.Ask
+	woken := a.Reason == coord.TakeReopened
 	body := "Nobody was free to hear it."
-	if t.Ask.Told > 0 {
-		body = fmt.Sprintf("%d agents heard it at their next turn; none took it.", t.Ask.Told)
+	switch {
+	case woken && a.Told == 0:
+		body = "You woke them, but nobody is free to hear it."
+	case a.Told > 0 && (woken || a.Wake):
+		body = fmt.Sprintf("%d agents heard it; none took it.", a.Told)
+	case a.Told > 0:
+		body = fmt.Sprintf("%d agents heard it at their next turn; none took it.", a.Told)
 	}
 	open := Target{Tab: TabBoard, Ref: "task:" + t.ID}
 	id := t.ID

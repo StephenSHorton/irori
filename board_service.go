@@ -112,6 +112,9 @@ type BoardService struct {
 	// agents is the roster the cards read names and live status from; nil
 	// is an empty roster.
 	agents func() []presence.AgentCard
+	// askAgents is the roster an ask is told to (Core.AskAgents); nil is
+	// agents.
+	askAgents func() []presence.AgentCard
 	// prs is capture's PR ledger for a GitHub "owner/name"; nil when
 	// capture is off.
 	prs func(repo string) []ledger.Entry
@@ -131,7 +134,7 @@ type BoardService struct {
 }
 
 func newBoardService(c *core.Core) *BoardService {
-	b := &BoardService{coord: c.Coord(), user: c.UserSender(), route: c.RouteNotices, agents: c.MeshAgents,
+	b := &BoardService{coord: c.Coord(), user: c.UserSender(), route: c.RouteNotices, agents: c.MeshAgents, askAgents: c.AskAgents,
 		self: c.Device().ID, devices: c.CertifiedDevices, leases: c.Coord().Leases}
 	if ib := c.Inbox(); ib != nil {
 		b.deliveries = ib.Open
@@ -241,7 +244,10 @@ func (b *BoardService) Comment(id, text, tell string) (CommentResult, error) {
 func (b *BoardService) Ask(text, repoKey string, wake bool) (TaskResult, error) {
 	ctx := context.Background()
 	var agents []presence.AgentCard
-	if b.agents != nil {
+	switch {
+	case b.askAgents != nil:
+		agents = b.askAgents()
+	case b.agents != nil:
 		agents = b.agents()
 	}
 	t, n, err := b.coord.PostAsk(ctx, b.user.Key, coord.NewAsk{Text: text, RepoKey: strings.TrimSpace(repoKey), Wake: wake}, agents)

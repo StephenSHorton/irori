@@ -387,15 +387,25 @@ func (c *Coord) IgnoredRows() int {
 	return c.impl.ignored
 }
 
-// apply folds one row. Rows are applied as written; validation happened
-// before the append.
+// apply folds one row, then any rows the take lock kept back that it lets
+// through now (ask.go).
 func (c *coord) apply(ev store.Event) {
+	c.fold(ev)
+	c.foldDeferred()
+}
+
+// fold folds one row. Rows are applied as written; validation happened
+// before the append.
+func (c *coord) fold(ev store.Event) {
 	if !c.writerOK(ev) {
 		c.ignore(ev.DeviceID)
 		return
 	}
-	if !c.askRowOK(ev) {
-		return // the take lock (ask.go)
+	if ok, wait := c.askGate(ev); !ok {
+		if wait != "" {
+			c.asks.deferRow(wait, ev) // the take lock (ask.go)
+		}
+		return
 	}
 	at := func(t time.Time) time.Time {
 		if t.IsZero() {
@@ -474,7 +484,7 @@ func (c *coord) apply(ev store.Event) {
 				if o == nil {
 					o = &Outcome{Kind: OutcomeNone, Note: cmpStr(p.Note, "closed by the person")}
 				}
-				c.closeAskFold(t, o)
+				c.closeAskFold(t, o, ev.Cursor())
 			}
 			t.State = p.State
 			t.Note = p.Note

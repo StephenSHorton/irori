@@ -80,7 +80,10 @@ export function AskBox({ onAsked }: { onAsked: (id: string) => void }) {
           placeholder="Ask the room…"
           aria-label="Ask every free agent"
           className="max-h-40 min-h-9 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent"
-          disabled={busy}
+          // readOnly, not disabled: disabling the focused box would blur it,
+          // and the next ask would need a click back in.
+          readOnly={busy}
+          aria-busy={busy}
         />
         {repos.length > 0 && (
           <ChoiceSelect

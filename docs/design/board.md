@@ -140,6 +140,8 @@ An ask has exactly one taker. The take lock follows v0.4 §6.0 (owners and reque
 
 **What the lock refuses.** On an ask that has no outcome yet, the fold ignores `task.claimed`, `task.joined` and `task.assigned`, so an older device's `board_join` can't take it around the lock. Holders are derived from the owner's `take.state`: `[taker]` or none. `board_join`, `board_assign` and `board_status` on such an ask are refused, and the error points to `ask_claim` and `ask_close`. The person can still Close it.
 
+**Order doesn't decide it.** Sync batches come by device, not by cause, so a third device can get the taker's `ask_close` rows before the owner's `take.state taken`. The lock therefore reads a row's position, not what has folded so far: a taker's row counts when the owner's last `take.state` before it (by `(hlc, device, seq)`) names that taker, which is what replay would hold there. A row the lock can't place yet waits, per ask, and is folded again when the ask's next `take.state` or close arrives. Once the ask closed, `task.claimed`, `task.joined`, `task.assigned` and `task.status` count again from the closing row on; one written before it stays refused, as replay refuses it.
+
 **A taker that goes away.** The owner's sweep (`SweepNotices`) releases the take, writing `take.state gone` (with the old taker in its note), and re-announces the ask to free agents, which restarts the unclaimed clock. This happens when:
 - a local taker has been out of the roster for `GoneGrace`;
 - or the taker's device wrote `agent.gone` or a later `device.started`, which retires its cards.
@@ -157,15 +159,15 @@ The owner builds the ask's notices when it posts. They go out through `SendWith(
 "Attached" is decided by the recipient's host, as for any cross-device wake (§6.3), because `Reachable` is local.
 
 - **Mode:** `next_turn` by default. When Stephen ticks Wake it is `wake` for all of them. The claim race settles the herd, and a loser's woken turn is one tool call.
-- **Holds:** the host runs its own policy (§6.3). On the Mac, Pause all holds the ask there, and a held notice doesn't count as heard.
+- **Holds:** the host runs its own policy (§6.3). On the Mac, Pause all holds the ask there, and a held notice doesn't count as heard: while it is on, the owner leaves its own agents out of who is told (`Core.AskAgents`), and they hear it as late arrivals once it lifts. Another device's holds are that device's own.
 - **The text:** "The person asks the room (#14): <prompt, cut to 600 runes>. If you can take it on now, ask_claim #14: one agent takes it, and you hear if someone else got there first. If you're busy, leave it." `told` on `take.state posted` is the count sent.
-- **Late arrivals:** while the ask is open, each owner sweep tells agents that have become free and haven't been told yet. The inbox has a delivery with `Ref task:<id>` for every agent already told.
+- **Late arrivals:** while the ask is open, each owner sweep tells agents that have become free and haven't been told yet. The inbox has a delivery with `Ref task:<id>` for every agent already told. A late tell wakes only inside the person's own window: `AskUnclaimed` from a post with Wake, or from Wake them. After that, and on the re-announcement after a taker gave it back or went away, it is `next_turn`, so an old ask never wakes a session that only now went idle.
 - **Once taken, the others stop hearing.** The inbox gains a hook, `Stale func(Delivery) (note string)`, which the core wires to coord. Before it appends or wakes a `Notice` delivery whose `Ref` is a taken ask, the **recipient's** Core closes it as `Skipped` with the note "taken by X", unless the recipient is the taker. The recipient's device owns that delivery (§6.0), so no other device writes it. Held notices are closed the same way.
 - **The thread after the take:**
   - Stephen's comments reach the taker, who is the holder in `hearers`.
   - Agents that chimed in hear only if asked: an agent's `board_comment` on an ask adds it as a watcher (`task.watched`).
   - The rest hear nothing.
-  - While nobody has taken the ask, a comment from Stephen goes the way the post went: to the agents told and still free, with the same claim line. So "also, check X" reaches the room rather than nobody.
+  - While nobody has taken the ask, a comment from Stephen goes the way the post went: to the agents told and still free, with the same claim line. So "also, check X" reaches the room rather than nobody. It is its own notice kind, `ask_comment`, with the ask's `Ref task:<id>`, so it goes stale with the announcement once someone takes the ask.
 
 **The tension, for Stephen:** an idle session on `next_turn` hears only when he next types into it. Without Wake, an ask can sit unheard. That is what the unclaimed notice is for, and why it offers "Wake them".
 
@@ -178,12 +180,12 @@ The owner builds the ask's notices when it posts. They go out through `SendWith(
   - **Wake them:** a `take.requested op=reopen` from the person. The owner re-announces with `wake` and writes `reopened`.
   - **Close:** a person's `task.status canceled`.
 
-  The card clears when a `taken` or a terminal state folds.
+  The card clears when a `taken` or a terminal state folds. Wake them with nobody free brings it back: "You woke them, but nobody is free to hear it."
 - The tile shows "Nobody took this yet". A claim after `unclaimed` is still granted.
 
 ### Outcomes
 
-The taker (or the person) ends an ask with `ask_close`. `task.status` gains `outcome: {kind, task?, note}`. The note is one line, required, and shown on the tile. A new kind, `task.edited {taskId, title?, objective?, doneCriteria?, by}`, changes a card's text. Nothing could do that before, and the "edit" outcome needs it. It is written by holders, the creator, a person, or an ask's taker acting for that ask. Every holder hears about it in the watch digest.
+The taker (or the person) ends an ask with `ask_close`. `task.status` gains `outcome: {kind, task?, note}`. The note is one line, required, and shown on the tile. A new kind, `task.edited {taskId, title?, objective?, doneCriteria?, by}`, changes a card's text. Nothing could do that before, and the "edit" outcome needs it. It is written by holders, the creator, a person, or an ask's taker acting for that ask, and the fold checks that (an ask's taker as the lock places it, above). The edit outcome can't target an open ask (its prompt is the person's) or a finished card. Every holder hears about it in the watch digest.
 
 | Outcome | Rows | What the window shows |
 |---|---|---|

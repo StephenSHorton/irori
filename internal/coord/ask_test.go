@@ -1,6 +1,7 @@
 package coord
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"strings"
@@ -388,9 +389,166 @@ func TestPersonCommentOnAnOpenAskGoesToTheRoom(t *testing.T) {
 	if err != nil || len(ns) != 1 || len(ns[0].To) != 3 || !ns[0].Person || !strings.Contains(ns[0].Text, "ask_claim") {
 		t.Fatalf("%+v %v", ns, err)
 	}
+	if ns[0].Kind != NoticeAskComment || ns[0].Ref != "task:"+tk.ID {
+		t.Fatalf("a comment to the room can't go stale with the ask: %+v", ns[0])
+	}
 	must[ClaimResult](t)(e.c.AskClaim(ctx, alice, tk.ID, time.Second))
+	if e.c.StaleNotice(ns[0].Ref, bob) == "" || e.c.StaleNotice(ns[0].Ref, alice) != "" {
+		t.Fatal("the room's queued comment still reaches the others once taken")
+	}
 	_, ns, _ = e.c.PersonComment(ctx, user, tk.ID, "thanks", false, nil)
 	if len(ns) != 1 || !reflect.DeepEqual(ns[0].To, []string{alice}) {
 		t.Fatalf("after the take %+v", ns)
+	}
+}
+
+// A third device can get the taker's close before the owner's take (sync
+// batches come by device, not cause). The close waits for the take instead
+// of being lost, so the third device ends where the owner and the taker
+// are, and replay agrees.
+func TestATakersCloseBeforeTheTakeOnAThirdDevice(t *testing.T) {
+	persons := func(k string) bool { return k == "user:dev-a" || k == "user:dev-b" || k == "user:dev-c" }
+	owner := newEnv(t)
+	owner.owner = persons
+	owner.c = owner.reopen()
+	tk, _ := postAsk(t, owner, "the deploy is flaky")
+	const far = "dev-b/far-session"
+	at := hlcAt(fixedNow.Add(time.Minute))
+	owner.remote("dev-b", 1, at, "agent:"+far, KindTakeRequested, takeRequestedRow{TaskID: tk.ID, By: far, Op: TakeClaim, At: fixedNow})
+	if a := askOf(t, owner.c, tk.ID); a.Taker != far {
+		t.Fatalf("not granted: %+v", a)
+	}
+	// dev-b's ask_close as a card, after it saw the take.
+	title := "Retry the deploy step"
+	later := hlcAt(fixedNow.Add(2 * time.Minute))
+	owner.remote("dev-b", 2, later, "agent:"+far, KindTaskEdited, taskEditedRow{TaskID: tk.ID, Title: &title, By: far, At: fixedNow})
+	owner.remote("dev-b", 3, later+1, "agent:"+far, KindTaskState, taskStateRow{TaskID: tk.ID, State: Working, Note: "a card",
+		By: far, At: fixedNow, Outcome: &Outcome{Kind: OutcomeCard, Note: "a card"}})
+	owner.remote("dev-b", 4, later+2, "agent:"+far, KindTaskClaimed, taskClaimedRow{TaskID: tk.ID, By: far, At: fixedNow})
+	want, _ := owner.c.GetTask(tk.ID)
+	if want.Ask.Open() || want.Title != title || want.Holder != far || want.State != Working {
+		t.Fatalf("the owner's fold %+v", want)
+	}
+
+	rows, err := owner.st.List(ctx, store.Filter{Kinds: followKinds, Limit: store.MaxListLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third := newEnvOn(t, "dev-c")
+	third.owner = persons
+	third.c = third.reopen()
+	feed := func(keep func(store.Event) bool) {
+		for _, ev := range rows {
+			if !keep(ev) {
+				continue
+			}
+			if err := third.st.Insert(ctx, ev); err != nil {
+				t.Fatal(err)
+			}
+			third.c.impl.applyRemote(ctx, ev)
+		}
+	}
+	// The ask's card, then all of dev-b's rows, then the owner's take.
+	feed(func(ev store.Event) bool { return ev.DeviceID == "dev-a" && ev.Kind == KindTaskCreated })
+	feed(func(ev store.Event) bool { return ev.DeviceID == "dev-b" })
+	if got, _ := third.c.GetTask(tk.ID); !got.Ask.Open() || got.Title == title {
+		t.Fatalf("the close folded before the take it rests on: %+v", got)
+	}
+	feed(func(ev store.Event) bool { return ev.DeviceID == "dev-a" && ev.Kind != KindTaskCreated })
+	got, _ := third.c.GetTask(tk.ID)
+	if got.Ask.Open() || got.Title != title || got.Holder != far || got.State != Working || !reflect.DeepEqual(got.Ask.Outcome, want.Ask.Outcome) {
+		t.Fatalf("the third device: %+v", got)
+	}
+	if r, _ := third.reopen().GetTask(tk.ID); r.Title != got.Title || r.State != got.State || r.Holder != got.Holder || !reflect.DeepEqual(r.Ask.Outcome, got.Ask.Outcome) {
+		t.Fatalf("replay %+v, live %+v", r, got)
+	}
+}
+
+// task.edited needs the person or the ask's taker; ask_close's edit can't
+// rewrite an open ask or a finished card.
+func TestEditsNeedTheTaker(t *testing.T) {
+	e := newEnv(t)
+	other := must[Task](t)(e.c.CreateTask(ctx, bob, NewTask{Title: "Ship docs", Objective: "old"}))
+	tk, _ := postAsk(t, e, "docs should mention Windows")
+	must[ClaimResult](t)(e.c.AskClaim(ctx, alice, tk.ID, time.Second))
+	x := e.c.impl
+	bad := "rewritten"
+	x.mu.Lock()
+	for _, row := range []taskEditedRow{
+		{TaskID: other.ID, Objective: &bad, By: carol, From: tk.ID, At: fixedNow}, // carol didn't take it
+		{TaskID: tk.ID, Title: &bad, By: carol, At: fixedNow},                     // nor is it hers to edit
+		{TaskID: other.ID, Title: &bad, By: carol, At: fixedNow},                  // a plain card: not its creator or holder
+	} {
+		if err := x.write(ctx, carol, KindTaskEdited, row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	x.unlock()
+	for _, id := range []string{other.ID, tk.ID} {
+		if got, _ := e.c.GetTask(id); got.Title == bad || got.Objective == bad {
+			t.Fatalf("a stranger's edit folded: %+v", got)
+		}
+	}
+	if got, _ := e.reopen().GetTask(other.ID); got.Objective == bad || got.Title == bad {
+		t.Fatalf("replayed a stranger's edit: %+v", got)
+	}
+	open, _ := postAsk(t, e, "another ask")
+	wantErr(t, errOnly(e.c.AskClose(ctx, alice, tk.ID, AskOutcome{Kind: OutcomeEdit, Task: open.ID, Note: "x", Title: bad})), ErrNotAllowed)
+	done := must[Task](t)(e.c.CreateTask(ctx, bob, NewTask{Title: "Old work"}))
+	must[Task](t)(e.c.SetTaskState(ctx, user, done.ID, Completed, ""))
+	wantErr(t, errOnly(e.c.AskClose(ctx, alice, tk.ID, AskOutcome{Kind: OutcomeEdit, Task: done.ID, Note: "x", Title: bad})), ErrBadState)
+	// The taker's edit of a card in play still goes through.
+	must[Task](t)(e.c.AskClose(ctx, alice, tk.ID, AskOutcome{Kind: OutcomeEdit, Task: other.ID, Note: "added Windows", Objective: "new"}))
+	if got, _ := e.c.GetTask(other.ID); got.Objective != "new" {
+		t.Fatalf("the taker's edit: %+v", got)
+	}
+}
+
+// Wake reaches only who the person meant: late arrivals inside the post's
+// window, the person's Wake them. A re-announcement after a taker left, or
+// a late tell once the window passed, waits for the agent's next turn.
+func TestLateTellsWakeOnlyInThePersonsWindow(t *testing.T) {
+	e := newEnv(t)
+	e.ros.set(bob, "busy")
+	e.ros.set(carol, "busy")
+	tk, n, err := e.c.PostAsk(ctx, user, NewAsk{Text: "wake for this", Wake: true}, e.ros.Agents())
+	if err != nil || !n.Wake || !reflect.DeepEqual(n.To, []string{alice}) {
+		t.Fatalf("post %+v %v", n, err)
+	}
+	e.ros.set(bob, "idle")
+	ns := must[[]Notice](t)(e.c.SweepAsks(ctx, e.ros.Agents()))
+	if len(ns) != 1 || !ns[0].Wake || !reflect.DeepEqual(ns[0].To, []string{bob}) {
+		t.Fatalf("a late arrival in the window: %+v", ns)
+	}
+	e.clk.add(AskUnclaimed + time.Second)
+	e.ros.set(carol, "idle")
+	ns = must[[]Notice](t)(e.c.SweepAsks(ctx, e.ros.Agents()))
+	if len(ns) != 1 || ns[0].Wake || !reflect.DeepEqual(ns[0].To, []string{carol}) {
+		t.Fatalf("a late arrival after the window: %+v", ns)
+	}
+	// Taken, then given back: the room hears again at its next turn.
+	must[ClaimResult](t)(e.c.AskClaim(ctx, alice, tk.ID, time.Second))
+	must[Task](t)(e.c.Leave(ctx, alice, tk.ID, alice))
+	ns = must[[]Notice](t)(e.c.SweepAsks(ctx, e.ros.Agents()))
+	if len(ns) != 1 || ns[0].Wake || !strings.Contains(ns[0].Text, "gave it back") {
+		t.Fatalf("re-announced %+v", ns)
+	}
+}
+
+// A sweep whose write fails keeps the ask's "tell the room again" for the
+// next sweep.
+func TestAFailedSweepKeepsTheRetell(t *testing.T) {
+	e := newEnv(t)
+	tk, _ := postAsk(t, e, "look at the logs")
+	must[ClaimResult](t)(e.c.AskClaim(ctx, alice, tk.ID, time.Second))
+	must[Task](t)(e.c.Leave(ctx, alice, tk.ID, alice))
+	dead, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := e.c.SweepAsks(dead, e.ros.Agents()); err == nil {
+		t.Fatal("a sweep with a dead context wrote")
+	}
+	ns := must[[]Notice](t)(e.c.SweepAsks(ctx, e.ros.Agents()))
+	if len(ns) != 1 || !reflect.DeepEqual(ns[0].To, []string{bob, carol}) {
+		t.Fatalf("after the failed sweep: %+v", ns)
 	}
 }

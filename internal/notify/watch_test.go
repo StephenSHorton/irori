@@ -710,6 +710,15 @@ func TestWatchUnclaimedAsk(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	// Nobody is free: the owner's sweep opens it again, still unclaimed,
+	// and the card comes back to say so.
+	if _, err := r.co.SweepAsks(r.ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	r.waitPost(id)
+	if c := r.fake.card(t, id); !strings.Contains(c.Body, "You woke them") {
+		t.Fatalf("after Wake them with nobody free: %+v", c)
+	}
 	if _, err := r.co.AskClaim(r.ctx, keyA, ask.ID, time.Second); err != nil {
 		t.Fatal(err)
 	}

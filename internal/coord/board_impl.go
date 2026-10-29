@@ -475,7 +475,10 @@ func (c *coord) personComment(ctx context.Context, by, id, text string, wake boo
 	n := Notice{Kind: NoticeComment, TaskID: id, Ref: "comment:" + cid, Title: t.Title, By: by}
 	var ns []Notice
 	if room && len(answer) > 0 {
+		// Said to the room, so it goes stale with the announcement once
+		// someone takes the ask (the ask's ref, its own kind).
 		a := n
+		a.Kind, a.Ref = NoticeAskComment, "task:"+id
 		a.To, a.Wake, a.Person = answer, wake, true
 		a.Text = fmt.Sprintf("%s, the ask nobody has taken yet:\n%s\nIf you can take it on now, ask_claim %s. If you're busy, leave it.%s",
 			head, text, t.ShortRef(), deeper(id))

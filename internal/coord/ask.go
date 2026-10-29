@@ -88,6 +88,9 @@ const (
 const (
 	NoticeAsk   NoticeKind = "ask"   // the person asks the room; Notice.Person
 	NoticeTaken NoticeKind = "taken" // the answer to a claim that couldn't wait for it
+	// NoticeAskComment is the person's comment to the room on an ask nobody
+	// took yet (Ref task:<id>, like NoticeAsk): stale once it is taken.
+	NoticeAskComment NoticeKind = "ask_comment"
 )
 
 // Outcome is how an ask ended (task.status's outcome).
@@ -193,6 +196,14 @@ type askBook struct {
 	notices  []Notice                    // fold-made notices for the sweep (never on replay)
 	again    map[string]askAgain         // task id -> told again at the next sweep (owner)
 
+	// The lock decides by position, not by arrival (askGate): marks are the
+	// owner's take.states folded, deferred the rows it couldn't decide yet,
+	// tried again (retry) once the ask's next take.state or close folds.
+	marks    map[string][]takeMark    // ask id -> the owner's take.states, any order
+	deferred map[string][]store.Event // ask id -> rows waiting on its lock, fold order
+	retry    []string                 // ask ids whose deferred rows to fold again
+	closedAt map[string]store.Cursor  // ask id -> the row that closed it
+
 	// stale is read by the inbox's Stale hook, which runs under the inbox's
 	// lock: it has its own lock so it never waits on coord's.
 	staleMu sync.RWMutex
@@ -207,9 +218,16 @@ type askAgain struct {
 	wake              bool
 }
 
+// takeMark is one owner take.state: where it sits and who it named.
+type takeMark struct {
+	at    store.Cursor
+	taker string
+}
+
 func newAskBook() askBook {
 	return askBook{reqs: map[string][]*takeReq{}, stateSeq: map[string]int64{}, seen: map[string]map[string]int64{},
-		again: map[string]askAgain{}, stale: map[string]string{}, closed: map[string]bool{}}
+		again: map[string]askAgain{}, stale: map[string]string{}, closed: map[string]bool{},
+		marks: map[string][]takeMark{}, deferred: map[string][]store.Event{}, closedAt: map[string]store.Cursor{}}
 }
 
 // reset forgets what the fold built (a revoke's cut re-folds); stale
@@ -217,6 +235,7 @@ func newAskBook() askBook {
 func (b *askBook) reset() {
 	b.reqs, b.stateSeq, b.seen, b.notices = map[string][]*takeReq{}, map[string]int64{}, map[string]map[string]int64{}, nil
 	b.again = map[string]askAgain{}
+	b.marks, b.deferred, b.retry, b.closedAt = map[string][]takeMark{}, map[string][]store.Event{}, nil, map[string]store.Cursor{}
 	b.staleMu.Lock()
 	b.stale, b.closed = map[string]string{}, map[string]bool{}
 	b.staleMu.Unlock()
@@ -442,6 +461,9 @@ func (c *coord) applyTake(ev store.Event, at func(time.Time) time.Time) {
 			c.ignore(ev.DeviceID) // only the posting device hands it out
 			return
 		}
+		// Marked even once closed: a row the taker wrote before the close
+		// is decided by the take it saw, whatever arrived first here.
+		c.asks.mark(t.ID, ev.Cursor(), p.Taker)
 		a := t.Ask
 		if a.Outcome != nil || ev.Seq <= c.asks.stateSeq[t.ID] {
 			return
@@ -478,6 +500,7 @@ func (c *coord) applyTake(ev store.Event, at func(time.Time) time.Time) {
 		}
 		c.note(Change{Kind: TaskChanged, TaskID: t.ID, Holder: t.Holder})
 	case KindTaskEdited:
+		// askGate has checked who wrote it.
 		var p taskEditedRow
 		if json.Unmarshal(ev.Payload, &p) != nil {
 			return
@@ -592,26 +615,83 @@ func (c *coord) syncWaiting(t *Task) {
 }
 
 // closeAskFold ends t's ask once a task.status with an outcome (or the
-// person's terminal state) folds. The caller holds c.mu.
-func (c *coord) closeAskFold(t *Task, o *Outcome) {
+// person's terminal state) folds; at is that row. The caller holds c.mu.
+func (c *coord) closeAskFold(t *Task, o *Outcome, at store.Cursor) {
 	t.Ask.Outcome = o
 	t.Ask.Waiting = nil
 	for _, r := range c.asks.reqs[t.ID] {
 		r.done = true
 	}
+	c.asks.closedAt[t.ID] = at
+	c.asks.wake(t.ID)
 	c.asks.setStale(t.ID, "", true)
 }
 
-// askRowOK reports whether a row may fold on t while its ask is open: the
-// take lock refuses task.claimed, task.joined and task.assigned (an older
-// device's board_join can't take it around the lock), and a task.status
-// counts only with an outcome from the taker or the person, or as the
-// person's close. The caller holds c.mu.
-func (c *coord) askRowOK(ev store.Event) bool {
+// mark records an owner take.state on ask id, and has the rows waiting on
+// it tried again.
+func (b *askBook) mark(id string, at store.Cursor, taker string) {
+	if slices.ContainsFunc(b.marks[id], func(m takeMark) bool { return m.at == at }) {
+		return
+	}
+	b.marks[id] = append(b.marks[id], takeMark{at: at, taker: taker})
+	b.wake(id)
+}
+
+// wake queues ask id's deferred rows to fold again after the current row.
+func (b *askBook) wake(id string) {
+	if len(b.deferred[id]) > 0 && !slices.Contains(b.retry, id) {
+		b.retry = append(b.retry, id)
+	}
+}
+
+// deferRow keeps ev until ask id's lock can decide it.
+func (b *askBook) deferRow(id string, ev store.Event) {
+	cur := ev.Cursor()
+	if slices.ContainsFunc(b.deferred[id], func(o store.Event) bool { return o.Cursor() == cur }) {
+		return
+	}
+	b.deferred[id] = append(b.deferred[id], ev)
+}
+
+// takerAt is who held ask id where a row at sits: the taker of the owner's
+// last take.state before it ("" for none). That is what replay, which folds
+// in (hlc, device, seq) order, would hold there, whatever order the rows
+// reached this device in.
+func (c *coord) takerAt(id string, at store.Cursor) string {
+	var best *takeMark
+	for i, m := range c.asks.marks[id] {
+		if cursorLess(m.at, at) && (best == nil || cursorLess(best.at, m.at)) {
+			best = &c.asks.marks[id][i]
+		}
+	}
+	if best == nil {
+		return ""
+	}
+	return best.taker
+}
+
+// askGate is the take lock in the fold. It reports whether ev folds now;
+// when not, wait names the ask whose next take.state or close may let it
+// through ("" drops it). Order matters across devices (a third device can
+// get the taker's close before the owner's take), so the lock reads a
+// row's position against the owner's take.states, not the state folded so
+// far, and a row it can't place yet waits instead of being lost.
+//
+// On an open ask it refuses task.claimed, task.joined and task.assigned
+// (an older device's board_join can't take it around the lock), and a
+// task.status counts only with an outcome from the person or from whoever
+// held the take where the row sits, or as the person's close. Once the
+// ask closed, those rows count again from the closing row on. A
+// task.edited needs the person, or an ask's taker acting for that ask
+// (on the ask itself, or with from), or on a plain card its creator or a
+// holder. The caller holds c.mu.
+func (c *coord) askGate(ev store.Event) (ok bool, wait string) {
 	switch ev.Kind {
+	case KindTaskEdited:
+		return c.editGate(ev)
 	case KindTaskClaimed, KindTaskJoined, KindTaskAssigned, KindTaskState:
 	default:
-		return true
+		return true, ""
 	}
 	var p struct {
 		TaskID  string    `json:"taskId"`
@@ -620,20 +700,74 @@ func (c *coord) askRowOK(ev store.Event) bool {
 		Outcome *Outcome  `json:"outcome"`
 	}
 	if json.Unmarshal(ev.Payload, &p) != nil {
-		return true
+		return true, ""
 	}
-	a := openAsk(c.tasks[p.TaskID])
-	if a == nil {
-		return true
+	t := c.tasks[p.TaskID]
+	if t == nil || t.Ask == nil {
+		return true, ""
 	}
-	if ev.Kind != KindTaskState {
-		return false
+	cur := ev.Cursor()
+	if !t.Ask.Open() {
+		// Written before the close: the ask was open there, and replay
+		// refuses it, so this device does too.
+		return !cursorLess(cur, c.asks.closedAt[t.ID]), ""
 	}
 	person := ev.Actor == "user" && c.isOwner(p.By)
-	if p.Outcome != nil {
-		return person || p.By == a.Taker && a.Taker != ""
+	switch {
+	case ev.Kind != KindTaskState:
+	case p.Outcome != nil && (person || p.By != "" && c.takerAt(t.ID, cur) == p.By):
+		return true, ""
+	case p.Outcome == nil && person && IsTerminal(p.State):
+		return true, ""
 	}
-	return person && IsTerminal(p.State)
+	return false, t.ID
+}
+
+// editGate is askGate for task.edited.
+func (c *coord) editGate(ev store.Event) (bool, string) {
+	var p taskEditedRow
+	if json.Unmarshal(ev.Payload, &p) != nil || p.TaskID == "" || p.By == "" {
+		return false, ""
+	}
+	if ev.Actor == "user" && c.isOwner(p.By) {
+		return true, ""
+	}
+	if !owner.MayWrite(p.By, ev.DeviceID) {
+		c.ignore(ev.DeviceID)
+		return false, ""
+	}
+	ask := p.From
+	switch {
+	case ask == p.TaskID:
+		return false, ""
+	case ask == "":
+		t := c.tasks[p.TaskID]
+		if t == nil {
+			return false, ""
+		}
+		if t.Ask == nil {
+			return p.By == t.CreatedBy || isHolder(t, p.By), ""
+		}
+		ask = t.ID
+	}
+	if c.takerAt(ask, ev.Cursor()) == p.By {
+		return true, ""
+	}
+	return false, ask
+}
+
+// foldDeferred folds again the rows waiting on asks whose lock moved. The
+// caller holds c.mu.
+func (c *coord) foldDeferred() {
+	for len(c.asks.retry) > 0 {
+		id := c.asks.retry[0]
+		c.asks.retry = c.asks.retry[1:]
+		rows := c.asks.deferred[id]
+		delete(c.asks.deferred, id)
+		for _, ev := range rows {
+			c.fold(ev)
+		}
+	}
 }
 
 // ---- the owner's duties ----
@@ -703,7 +837,7 @@ func (c *coord) ownerAct(ctx context.Context, t *Task, r *takeReq, now time.Time
 		if err := c.writeTake(ctx, t, takeStateRow{Reason: TakeReleased, Was: r.By, Told: a.Told, Heard: a.Heard, Since: now}); err != nil {
 			return err
 		}
-		c.asks.again[t.ID] = askAgain{skip: r.By, wake: a.Wake, why: "the agent that took it gave it back", reason: TakeReleased}
+		c.asks.again[t.ID] = askAgain{skip: r.By, why: "the agent that took it gave it back", reason: TakeReleased}
 		return nil
 	case TakeReopen:
 		mark()
@@ -739,6 +873,15 @@ func (c *coord) sweepAsks(ctx context.Context, agents []presence.AgentCard) ([]N
 	c.asks.notices = nil
 	again := c.asks.again
 	c.asks.again = map[string]askAgain{}
+	// A write that fails keeps what wasn't told yet for the next sweep.
+	fail := func(err error) ([]Notice, error) {
+		for id, ag := range again {
+			if _, ok := c.asks.again[id]; !ok {
+				c.asks.again[id] = ag
+			}
+		}
+		return out, err
+	}
 	inRoster := map[string]presence.AgentCard{}
 	for _, a := range agents {
 		inRoster[a.Key] = a
@@ -759,9 +902,9 @@ func (c *coord) sweepAsks(ctx context.Context, agents []presence.AgentCard) ([]N
 			}
 			was := a.Taker
 			if err := c.writeTake(ctx, t, takeStateRow{Reason: TakeGone, Was: was, Since: now}); err != nil {
-				return out, err
+				return fail(err)
 			}
-			again[id] = askAgain{skip: was, wake: a.Wake, why: "the agent that took it went away", reason: TakeGone}
+			again[id] = askAgain{skip: was, why: "the agent that took it went away", reason: TakeGone}
 		}
 		if ag, ok := again[id]; ok {
 			// Opened again (given back, gone, or the person's Wake them):
@@ -771,14 +914,19 @@ func (c *coord) sweepAsks(ctx context.Context, agents []presence.AgentCard) ([]N
 			}
 			free := c.freeAgents(t, agents, []string{ag.skip})
 			if err := c.writeTake(ctx, t, takeStateRow{Reason: ag.reason, Told: len(free), Heard: free, Since: now, Unclaimed: len(free) == 0}); err != nil {
-				return out, err
+				return fail(err)
 			}
+			delete(again, id)
 			if len(free) > 0 {
 				out = append(out, c.askNotice(t, free, ag.wake, ag.why))
 			}
 			continue
 		}
-		// Open: tell who became free, then the unclaimed clock.
+		// Open: tell who became free, then the unclaimed clock. A late tell
+		// wakes only inside the person's own window: AskUnclaimed from a
+		// post with Wake, or from Wake them. Later, or after a taker left,
+		// it waits for the agent's next turn, so an old ask never wakes a
+		// session that only now went idle.
 		free := c.freeAgents(t, agents, a.Heard)
 		unclaimed := a.Unclaimed || a.Told+len(free) == 0 || now.Sub(a.Since) >= AskUnclaimed
 		if len(free) == 0 && unclaimed == a.Unclaimed {
@@ -790,10 +938,11 @@ func (c *coord) sweepAsks(ctx context.Context, agents []presence.AgentCard) ([]N
 			reason = TakeUnclaimed
 		}
 		if err := c.writeTake(ctx, t, takeStateRow{Reason: reason, Told: len(heard), Heard: heard, Unclaimed: unclaimed}); err != nil {
-			return out, err
+			return fail(err)
 		}
 		if len(free) > 0 {
-			out = append(out, c.askNotice(t, free, a.Wake, ""))
+			wake := now.Sub(a.Since) < AskUnclaimed && (a.Reason == TakeReopened || a.Reason == TakePosted && a.Wake)
+			out = append(out, c.askNotice(t, free, wake, ""))
 		}
 	}
 	// An ask whose posting device was removed can't be handed out: the
@@ -1022,6 +1171,12 @@ func (c *coord) askClose(ctx context.Context, by, id string, o AskOutcome) (Task
 		m := c.tasks[target]
 		if m == nil || target == id {
 			return Task{}, fmt.Errorf("%w: an edit outcome needs the card it changed (task)", ErrNotFound)
+		}
+		switch {
+		case openAsk(m) != nil:
+			return Task{}, fmt.Errorf("%w: %s is an open ask; its prompt is the person's", ErrNotAllowed, m.ShortRef())
+		case IsTerminal(m.State):
+			return Task{}, fmt.Errorf("%w: %s is %s; an edit outcome changes a card still in play", ErrBadState, m.ShortRef(), m.State)
 		}
 		row := taskEditedRow{TaskID: target, By: by, From: id, Note: o.Note, At: now}
 		if title != "" {
