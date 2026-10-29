@@ -1,6 +1,7 @@
 import { Html, OrthographicCamera, PerformanceMonitor } from '@react-three/drei'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Lights, Matte, PostFX, RoundCyl, SceneCanvas, SoftBox } from 'mokei/clay'
+import { applyLook, Lights, Matte, PostFX, RoundCyl, SceneCanvas, SoftBox } from 'mokei/clay'
+import { applyMaterials } from 'mokei/theme'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   AdditiveBlending,
@@ -44,13 +45,39 @@ import {
 } from './layout'
 
 const DEG = Math.PI / 180
-const TRACE = '#b3c4f2'
-const PAD = '#9fb3ee'
-const COOL = new Color('#3b82f6')
+const TRACE = '#3d5a9e'
+const PAD = '#4f6fbd'
+const COOL = new Color('#5b8ef0')
 const WARM = new Color('#ff8a3d')
 const LED_WORK = new Color('#34c77b')
 const LED_BLOCKED = new Color('#f2b705')
-const LED_IDLE = new Color('#cbd5e1')
+const LED_IDLE = new Color('#4a5060')
+/** The floor under the boards, a step above the page's Toru background. */
+const FLOOR = '#16171c'
+
+// Toru's dark look (the app's and the page's): dark clay under a dim cool
+// sky, so the hearth's ember is the warmest light in the scene.
+applyLook({
+  skyColor: '#9fb0dc',
+  groundBounce: '#15171d',
+  skyIntensity: 0.5,
+  sunIntensity: 0.32,
+  sunColor: '#fff2e2',
+  aoColor: '#000000',
+  aoIntensity: 2.2,
+  ground: FLOOR,
+})
+applyMaterials(
+  {
+    base: '#3a3f4b',
+    accent1: '#5b8ef0',
+    accent2: '#f2c14e',
+    accent3: '#5b8ef0',
+    detail: { dark: '#101217', mid: '#2a2e38', light: '#4a5060' },
+    ground: FLOOR,
+  },
+  { themeId: 'irori-toru' },
+)
 
 /** Which agent sits on each chip. The chip top is tinted by kind. */
 const KIND: Record<Exclude<NodeId, 'hearth'>, 'claude' | 'grok'> = {
@@ -63,7 +90,7 @@ const KIND: Record<Exclude<NodeId, 'hearth'>, 'claude' | 'grok'> = {
   m0: 'grok',
   m1: 'claude',
 }
-const KIND_TOP = { claude: '#e2825a', grok: '#4a5468' }
+const KIND_TOP = { claude: '#e2825a', grok: '#6b7591' }
 
 /* ------------------------------------------------------------------ */
 
@@ -143,7 +170,7 @@ function World({ still }: { still: boolean }) {
       <Lights />
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.001, 0]} receiveShadow>
         <planeGeometry args={[400, 400]} />
-        <meshLambertMaterial color="#e9eef8" />
+        <meshLambertMaterial color={FLOOR} />
       </mesh>
       <BoardA />
       <SoftBox
@@ -380,12 +407,12 @@ function Hearth({ loopT }: { loopT: (e: number) => number }) {
   return (
     <group>
       {/* wooden frame on the board around the pit */}
-      <SoftBox size={[outer * 2, fh, frameW]} r={0.05} unsafeColor="#d8a76e" position={[0, TOP + fh / 2, -PIT - frameW / 2]} />
-      <SoftBox size={[outer * 2, fh, frameW]} r={0.05} unsafeColor="#d8a76e" position={[0, TOP + fh / 2, PIT + frameW / 2]} />
-      <SoftBox size={[frameW, fh, PIT * 2]} r={0.05} unsafeColor="#d8a76e" position={[-PIT - frameW / 2, TOP + fh / 2, 0]} />
-      <SoftBox size={[frameW, fh, PIT * 2]} r={0.05} unsafeColor="#d8a76e" position={[PIT + frameW / 2, TOP + fh / 2, 0]} />
+      <SoftBox size={[outer * 2, fh, frameW]} r={0.05} unsafeColor="#7d5f40" position={[0, TOP + fh / 2, -PIT - frameW / 2]} />
+      <SoftBox size={[outer * 2, fh, frameW]} r={0.05} unsafeColor="#7d5f40" position={[0, TOP + fh / 2, PIT + frameW / 2]} />
+      <SoftBox size={[frameW, fh, PIT * 2]} r={0.05} unsafeColor="#7d5f40" position={[-PIT - frameW / 2, TOP + fh / 2, 0]} />
+      <SoftBox size={[frameW, fh, PIT * 2]} r={0.05} unsafeColor="#7d5f40" position={[PIT + frameW / 2, TOP + fh / 2, 0]} />
       {/* ash bed, sunk below the board */}
-      <SoftBox size={[PIT * 2, 0.12, PIT * 2]} r={0.04} unsafeColor="#e6ddd2" position={[0, 0.12, 0]} cast={false} />
+      <SoftBox size={[PIT * 2, 0.12, PIT * 2]} r={0.04} unsafeColor="#3a3330" position={[0, 0.12, 0]} cast={false} />
       {COALS.map(([x, z, s], i) => (
         <mesh
           key={i}
@@ -469,7 +496,7 @@ function Nodes({
       }),
     [curves],
   )
-  const pinMat = useMemo(() => new MeshLambertMaterial({ color: '#9aa6bf' }), [])
+  const pinMat = useMemo(() => new MeshLambertMaterial({ color: '#5a6275' }), [])
   const tmp = useMemo(() => new Color(), [])
 
   useFrame(({ clock }) => {

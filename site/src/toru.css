@@ -1,0 +1,96 @@
+/*
+ * Toru tokens for the Irori site: the same file as the app's
+ * frontend/src/mokei/themes/toru.css (keep them in step). From Toru's design
+ * language (toru frontend/src/index.css) and mapped onto the semantic
+ * names the mokei preset and components read:
+ *
+ *   - DARK ONLY. :root and .dark carry the same values; index.html sets
+ *     class="dark" so the primitives' dark: variants apply.
+ *   - SHARP EDGES. --radius is 0, so every rounded-sm..4xl the preset
+ *     derives from it is 0 too.
+ *   - FROSTED GLASS. glass-panel (the preset's utility) reads --glass-*,
+ *     set here to Toru's .frost: 60% card, 18px blur, 150% saturate.
+ *   - Blue primary oklch(0.72 0.15 248), neutral greys tinted at hue 264.
+ *
+ * Status pairs keep yardline's shape (bg-success-foreground text-success
+ * on badges): the -foreground is a tinted dark surface, the base colour
+ * the bright ink, so both badges and solid fills (bg-success) read.
+ */
+:root,
+.dark,
+html[data-theme='toru'],
+[data-theme='toru'] {
+  color-scheme: dark;
+
+  --fs: 1;
+  --track: 0em;
+
+  /* Toru's palette */
+  --background: oklch(0.145 0.004 264);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.18 0.004 264);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.18 0.004 264);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.72 0.15 248);
+  --primary-foreground: oklch(0.145 0.02 264);
+  --secondary: oklch(0.25 0.006 264);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted-surface: oklch(0.25 0.006 264);
+  --muted: oklch(0.25 0.006 264);
+  --muted-foreground: oklch(0.708 0.01 264);
+  --accent: oklch(0.28 0.01 264);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.62 0.21 25);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.3 0.006 264);
+  --input: oklch(0.28 0.006 264);
+  --ring: oklch(0.72 0.15 248);
+
+  --radius: 0rem;
+
+  /* Irori's own names, onto Toru's ramp */
+  --ink: oklch(0.985 0 0);
+  --ink-2: oklch(0.86 0.006 264);
+  --hair: oklch(0.3 0.006 264);
+  --blue: oklch(0.72 0.15 248);
+  --blue-deep: oklch(0.64 0.16 252);
+
+  /* Status: bright ink + tinted dark surface (Toru has none; same L/C
+     family as its destructive and primary). */
+  --success: oklch(0.74 0.15 152);
+  --success-foreground: oklch(0.74 0.15 152 / 0.14);
+  --warning: oklch(0.8 0.14 78);
+  --warning-foreground: oklch(0.8 0.14 78 / 0.14);
+  --info: oklch(0.72 0.15 248);
+  --info-foreground: oklch(0.72 0.15 248 / 0.14);
+  /* The person's face (was yardline violet) */
+  --person: oklch(0.74 0.13 300);
+  --person-surface: oklch(0.74 0.13 300 / 0.16);
+
+  /* Frost (Toru's .frost) */
+  --glass-bg: color-mix(in oklch, var(--card) 60%, transparent);
+  /* Toru pairs .frost with border-border on its panels: an opaque line. */
+  --glass-border: var(--border);
+  --glass-shadow: 0 8px 30px oklch(0 0 0 / 0.45);
+  --glass-blur: 18px;
+  --glass-saturate: 1.5;
+  --topbar-bg: color-mix(in oklch, var(--card) 60%, transparent);
+  --topbar-border: color-mix(in oklch, var(--border) 75%, transparent);
+  --topbar-shadow: 0 8px 30px oklch(0 0 0 / 0.35);
+
+  --chart-1: oklch(0.72 0.15 248);
+  --chart-2: oklch(0.74 0.15 152);
+  --chart-3: oklch(0.8 0.14 78);
+  --chart-4: oklch(0.62 0.16 320);
+  --chart-5: oklch(0.708 0.01 264);
+
+  --sidebar: color-mix(in oklch, var(--card) 60%, transparent);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.72 0.15 248);
+  --sidebar-primary-foreground: oklch(0.145 0.02 264);
+  --sidebar-accent: oklch(0.28 0.01 264);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.3 0.006 264);
+  --sidebar-ring: oklch(0.72 0.15 248);
+}

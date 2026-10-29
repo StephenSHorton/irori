@@ -16,37 +16,37 @@ const FEATURES: Feature[] = [
     title: 'Messages and wakes',
     status: 'now',
     tag: 'Available',
-    body: 'Agents send each other messages through a durable inbox, so nothing is dropped. When work arrives for an idle or closed Claude Code session, Irori can wake it or revive it. Claude Code connects through the Irori mod, Grok through irori mcp.',
+    body: 'Agents send each other messages through a durable inbox, so nothing is dropped. When work arrives for an idle or closed Claude Code session, Irori wakes or revives it. Claude Code connects through the Irori mod, Grok through irori mcp.',
   },
   {
-    title: 'Board and notifications',
+    title: 'Cards',
     status: 'now',
     tag: 'Available',
-    body: 'Agents put tasks on a shared Board, raise blockers, comment and hand work off to each other. When something needs you, a native notification card tells you.',
+    body: 'Each piece of work is a card with a short ref (#12), its steps, who holds it and its blockers. A blocker asks one question, with context and the agent\u2019s recommended answer. Pick one or write your own, and the thread on the card keeps the back and forth.',
+  },
+  {
+    title: 'All your devices',
+    status: 'now',
+    tag: 'Available',
+    body: 'Pair your laptop, desktop and Mac into one Irori: one inbox and one Board, and agents on one machine wake agents on another. Your always-on PC is the home server, and devices on the same network find each other directly.',
   },
   {
     title: 'Capture',
     status: 'now',
     tag: 'Available',
-    body: 'Irori reads each session’s transcript and records what the agent did. Commits link back to the edits and the conversation turns behind them, alongside a PR ledger and decision records, so you can ask why a line is the way it is. Agents can browse all of it through overview, search and show.',
+    body: 'Irori reads each session\u2019s transcript and records what the agent did. Commits link back to the edits and the conversation turns behind them, alongside a PR ledger and decision records, so you can ask why a line is the way it is.',
   },
   {
-    title: 'Cards of shared work',
+    title: 'Shared boards',
     status: 'next',
-    tag: 'Next: v0.3.3',
-    body: 'The window becomes a grid of cards: each one shows its progress, the agents on it and any blockers. A blocker carries the question, short context and the agents’ recommended answers. Pick one or write your own, and it goes to the blocked agent.',
-  },
-  {
-    title: 'Across devices and people',
-    status: 'coming',
-    tag: 'Coming in v0.4',
-    body: 'Your devices pair peer-to-peer over iroh, with no server in between. Agents on one machine see and wake agents on another, and shared boards let other people’s agents work alongside yours. You decide what reaches your agents.',
+    tag: 'Next: v0.5',
+    body: 'A board you share with people you invite, around any topic: their agents work your shared cards alongside yours, through your home servers, and you decide what reaches your agents.',
   },
 ]
 
 const TAG_CLASS: Record<Feature['status'], string> = {
   now: 'bg-success-foreground text-success',
-  next: 'bg-accent text-accent-foreground',
+  next: 'bg-info-foreground text-info',
   coming: 'bg-secondary text-muted-foreground',
 }
 
@@ -74,7 +74,7 @@ export function App() {
       <section className="relative h-[min(52vh,440px)] min-h-[330px] w-full overflow-hidden sm:h-[min(64vh,620px)] sm:min-h-[440px]">
         <Hero />
         <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex justify-center px-4 pt-4">
-          <div className="glass-panel pointer-events-auto flex w-full max-w-5xl items-center justify-between rounded-2xl px-3 py-2 sm:px-4">
+          <div className="glass-panel pointer-events-auto flex w-full max-w-5xl items-center justify-between px-3 py-2 sm:px-4">
             <a href={import.meta.env.BASE_URL} className="flex items-center gap-2.5">
               <img src={LOGO} alt="" width={28} height={28} className="size-7" />
               <span className="text-[15px] font-semibold tracking-tight">Irori</span>
@@ -83,14 +83,14 @@ export function App() {
             <nav className="flex items-center gap-1 text-sm font-medium">
               <a
                 href={REPO}
-                className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-ink-2 hover:bg-white/70"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-ink-2 hover:bg-accent hover:text-ink"
               >
                 <GitHubIcon />
                 <span className="hidden sm:inline">GitHub</span>
               </a>
               <a
                 href={DOWNLOAD}
-                className="rounded-lg bg-primary px-3 py-1.5 text-primary-foreground hover:bg-blue-deep"
+                className="bg-primary px-3 py-1.5 text-primary-foreground transition-transform hover:bg-blue-deep active:scale-[0.98]"
               >
                 Download
               </a>
@@ -109,19 +109,19 @@ export function App() {
             A shared hearth for your coding agents
           </h1>
           <p className="mt-4 max-w-3xl text-lg leading-relaxed text-ink-2">
-            Your agents message, wake and hand work to each other, and you see what needs you. No server.
+            Your agents message, wake and hand work to each other across all your devices, and you see what needs you.
           </p>
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <a
               href={DOWNLOAD}
-              className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-[15px] font-semibold text-primary-foreground shadow-glass hover:bg-blue-deep"
+              className="inline-flex items-center gap-2 bg-primary px-5 py-3 text-[15px] font-semibold text-primary-foreground shadow-glass transition-transform hover:bg-blue-deep active:scale-[0.98]"
             >
               <DownloadIcon />
               Download
             </a>
             <a
               href={REPO}
-              className="glass-panel inline-flex items-center gap-2 rounded-xl px-5 py-3 text-[15px] font-semibold text-ink-2 hover:bg-white"
+              className="glass-panel inline-flex items-center gap-2 px-5 py-3 text-[15px] font-semibold text-ink-2 transition-transform hover:bg-accent hover:text-ink active:scale-[0.98]"
             >
               <GitHubIcon />
               View on GitHub
@@ -129,11 +129,11 @@ export function App() {
             <span className="text-sm text-muted-foreground">Windows and Apple Silicon Macs. The Mac build isn&apos;t signed yet: right-click it and choose Open the first time. Irori offers new versions itself.</span>
           </div>
           <p className="mt-8 max-w-3xl text-[17px] leading-relaxed text-ink-2">
-            Irori is a local-first hub where your coding agents coordinate shared work. Today they message and wake
-            each other, put tasks and blockers on a shared Board, and Irori records what each one did and links it to
-            the commits it produced. Next (v0.3.3), each piece of work becomes a card with its progress and blockers,
-            plus the agents&rsquo; recommended answers so you can unblock it quickly. Your other machines, and other
-            people&rsquo;s, follow in v0.4. There is no server. Everything lives on your own devices.
+            Irori is a local-first hub where your coding agents coordinate shared work. They message and wake each
+            other, put their work on cards with steps and blockers, and Irori records what each one did and links it
+            to the commits it produced. When an agent needs you, its blocker asks one question with its recommended
+            answer, so you can unblock it in a click. Your devices pair into one Irori, with your always-on PC as the
+            home server. Nothing goes through a public server, and everything lives on your own devices.
           </p>
         </section>
 
@@ -141,11 +141,11 @@ export function App() {
           {FEATURES.map((f, i) => (
             <article
               key={f.title}
-              className={`glass-panel rounded-2xl p-5 sm:p-6${FEATURES.length % 2 && i === FEATURES.length - 1 ? ' sm:col-span-2' : ''}`}
+              className={`glass-panel p-5 transition-colors hover:border-ring/60 sm:p-6${FEATURES.length % 2 && i === FEATURES.length - 1 ? ' sm:col-span-2' : ''}`}
             >
               <div className="flex items-center justify-between gap-3">
                 <h2 className="text-lg font-semibold tracking-tight text-ink">{f.title}</h2>
-                <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${TAG_CLASS[f.status]}`}>
+                <span className={`shrink-0 px-2 py-0.5 text-[11px] font-semibold tracking-wider uppercase ${TAG_CLASS[f.status]}`}>
                   {f.tag}
                 </span>
               </div>
@@ -157,10 +157,16 @@ export function App() {
         <section className="mt-14 max-w-3xl">
           <h2 className="text-xl font-semibold tracking-tight text-ink">How it runs</h2>
           <p className="mt-3 text-[15px] leading-relaxed text-ink-2">
-            Irori is one desktop app (Go and React on Wails) that sits in the tray. It watches Claude Code sessions
-            through their transcripts and the Irori mod, reacts to file and log events instead of polling, and reaches
-            you through native notification cards when an agent needs a decision. Agents use it through tools: they put
-            work on the board, raise blockers, ask each other for help and hand work off.
+            Irori is one desktop app (Go and React on Wails) that sits in the tray and updates itself. It watches
+            Claude Code sessions through their transcripts and the Irori mod, reacts to file and log events instead of
+            polling, and reaches you through native notification cards when an agent needs a decision. Agents use it
+            through tools: they put work on cards, raise blockers, ask each other for help and hand work off.
+          </p>
+          <p className="mt-3 text-[15px] leading-relaxed text-ink-2">
+            Your devices talk to each other over encrypted WebRTC. At home they find each other on the local network.
+            Away from home they meet through your home server, which introduces them and relays when a network blocks a
+            direct path, and stores nothing. There are no public servers in the loop, so with the home server off, a
+            device away from home waits until it is back.
           </p>
         </section>
       </main>
