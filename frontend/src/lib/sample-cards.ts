@@ -605,6 +605,19 @@ export function sampleCards(now: Date): CardDetail[] {
           text: "",
           held: true,
         }),
+        // A held message the person dismissed: Release still delivers it
+        // (sample-talk's dismissed delivery).
+        new CardThreadItem({
+          id: "msg_sample3d",
+          kind: "message",
+          at: at(9),
+          who: badger,
+          to: heron,
+          text: "",
+          held: true,
+          dismissed: true,
+          deliveryId: "sample-delivery-8",
+        }),
         new CardThreadItem({
           id: "sample-3-e4",
           kind: "event",

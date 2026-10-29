@@ -68,10 +68,12 @@ type Sources struct {
 	Room RoomSource
 }
 
-// Tabs a card opens.
+// Tabs a card opens. TabHeld is the window's Held list; its Ref, when
+// set, is a sender key to show only that sender's.
 const (
 	TabInbox = "inbox"
 	TabBoard = "board"
+	TabHeld  = "held"
 )
 
 // Watch posts and clears cards for what needs the person, driven only by
@@ -564,7 +566,7 @@ func (w *watcher) heldNote(ctx context.Context, key string, g *heldGroup) Note {
 			}
 		}
 	}
-	open := Target{Tab: TabInbox, Ref: last.ID}
+	open := Target{Tab: TabHeld, Ref: key}
 	body, level := upper(HoldReason(last.Hold))+": "+preview(last.Message.Text), Warn
 	if e := w.fails[key]; e != "" {
 		body, level = e+". "+body, Error

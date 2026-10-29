@@ -19,8 +19,9 @@ import (
 const AskInstructions = "An ask is the person talking to the room: work to start now, not backlog. If you are free and can take it, " +
 	"ask_claim it. One agent takes it, so if someone else has, leave it unless you have something to add (board_comment). " +
 	"Once you hold an ask: if it isn't clear what's wanted, talk it through with the person on the card first (board_comment). " +
-	"Then ask_close it with what it became: a card (it becomes the card, and you hold it), a change to an existing card, or nothing, " +
-	"with one line on why."
+	"Then ask_close it with what it became: a card (it becomes the card, and you hold it), a change to an existing card, an answer " +
+	"(you answered the person's question), or nothing, with one line on why. If your answer asks the person something, don't close " +
+	"in the same step: wait for their reply on the card first."
 
 type askClaimArgs struct {
 	TaskID string `json:"task_id"`
@@ -50,7 +51,7 @@ func (s *set) askClaim(ctx context.Context, c Caller, raw json.RawMessage) strin
 	switch {
 	case r.Mine:
 		return "You have " + ref + ". Talk it through with the person on the card first (board_comment) if it isn't clear what " +
-			"they want, then ask_close it with what it became: a card, a change to another card, or nothing.\n" +
+			"they want, then ask_close it with what it became: a card, a change to another card, an answer, or nothing.\n" +
 			s.cardLine(r.Task, nil, n, s.now())
 	case r.Taker != "":
 		return n.who(r.Taker) + " took " + ref + " first; nothing to do unless you want to chime in (board_comment)."
@@ -100,9 +101,9 @@ func (s *set) askClose(ctx context.Context, c Caller, raw json.RawMessage) strin
 			return msg
 		}
 		o.Task = target
-	case coord.OutcomeNone:
+	case coord.OutcomeAnswered, coord.OutcomeNone:
 	default:
-		return errText("give outcome: card (it becomes a card), edit (it changes another card) or none.")
+		return errText("give outcome: card (it becomes a card), edit (it changes another card), answered (you answered the question) or none.")
 	}
 	t, err := s.b.Coord().AskClose(ctx, c.Sender.Key, id, o)
 	if err != nil {
@@ -119,6 +120,8 @@ func (s *set) askClose(ctx context.Context, c Caller, raw json.RawMessage) strin
 			s.cardLine(t, nil, n, s.now())
 	case coord.OutcomeEdit:
 		return "Changed " + s.shortOf(o.Task) + "; the ask " + t.ShortRef() + " is done."
+	case coord.OutcomeAnswered:
+		return "Answered " + t.ShortRef() + "; it is done. If the person comments on it again, it reopens and you hear."
 	}
 	return "Closed " + t.ShortRef() + ": nothing came of it."
 }

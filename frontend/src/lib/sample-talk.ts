@@ -37,6 +37,11 @@ type Seed = {
   hold?: HoldReason
   agoSec: number
   text: string
+  // heldFor and decidedAgoSec: a held message the person already decided
+  // (the Held list's History).
+  heldFor?: HoldReason
+  decidedAgoSec?: number
+  ref?: string
 }
 
 const sender = (key: string, name: string, kind = "claude") =>
@@ -98,6 +103,26 @@ const seeds: Seed[] = [
     agoSec: 60 * 31,
     text: "Sample text. Ping while wakes were paused.",
   },
+  {
+    from: sender(grok, "sample-grok", "grok"),
+    to: heron,
+    state: State.Dismissed,
+    hold: HoldReason.HoldBypassReceiver,
+    heldFor: HoldReason.HoldBypassReceiver,
+    agoSec: 60 * 45,
+    decidedAgoSec: 60 * 40,
+    ref: "task:sample-card-1",
+    text: "Sample text. Run the made-up cleanup script on the sample repo.",
+  },
+  {
+    from: sender(grok, "sample-grok", "grok"),
+    to: otter,
+    state: State.Engaged,
+    heldFor: HoldReason.HoldBypassReceiver,
+    agoSec: 60 * 70,
+    decidedAgoSec: 60 * 66,
+    text: "Sample text. The sample fixture needs a new made-up case.",
+  },
 ]
 
 // sampleTalk builds the synthetic inbox relative to now.
@@ -122,7 +147,14 @@ export function sampleTalk(now: Date): SampleTalk {
       repoKey: s.repoKey,
       state: s.state,
       hold: s.hold,
-      via: s.state === State.Held ? undefined : "mod",
+      heldFor: s.heldFor ?? s.hold,
+      decidedBy: s.decidedAgoSec !== undefined ? you.key : undefined,
+      decidedAt:
+        s.decidedAgoSec !== undefined ? at(s.decidedAgoSec) : undefined,
+      via:
+        s.state === State.Held || s.state === State.Dismissed
+          ? undefined
+          : "mod",
       reminded: false,
       createdAt: at(s.agoSec),
       updatedAt: at(Math.max(0, s.agoSec - 20)),
@@ -133,6 +165,7 @@ export function sampleTalk(now: Date): SampleTalk {
           ? { kind: AddressKind.ToRepo, value: s.repoKey }
           : { kind: AddressKind.ToAgent, value: s.to },
         text: s.text,
+        ref: s.ref,
         hop: 0,
         trust: s.from.kind === "user" ? Trust.UserTrust : Trust.Untrusted,
         sentAt: at(s.agoSec),

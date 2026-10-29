@@ -1053,12 +1053,8 @@ func (c *coord) watch(ctx context.Context, by, id string, on bool) (Task, error)
 	}
 	c.mu.Lock()
 	defer c.unlock()
-	var t *Task
-	if on {
-		t, err = c.openTask(id)
-	} else {
-		t, err = c.anyTask(id)
-	}
+	// A finished card can be watched too: it can be reopened.
+	t, err := c.anyTask(id)
 	if err != nil {
 		return Task{}, err
 	}

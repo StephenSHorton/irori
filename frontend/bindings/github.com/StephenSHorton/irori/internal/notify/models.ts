@@ -56,7 +56,7 @@ export class Options {
  */
 export class Target {
     /**
-     * "roster", "inbox", "board", ...
+     * "inbox", "board", "held"
      */
     "tab": string;
     "ref"?: string;

@@ -587,6 +587,48 @@ func TestCardMessage(t *testing.T) {
 	}
 }
 
+// A held message on a card's thread names its delivery: the one still
+// held, else one the person dismissed (Dismissed), so the thread offers
+// Release. One let through, or not in this inbox, names none.
+func TestCardThreadHeldAndDismissed(t *testing.T) {
+	ctx := context.Background()
+	b, c, _ := cardsBoard(t)
+	tk := heldTask(t, c)
+	dels := map[string][]inbox.Delivery{
+		"msg_h": {{ID: "dlv_h", MessageID: "msg_h", State: inbox.Held}},
+		"msg_d": {{ID: "dlv_d", MessageID: "msg_d", State: inbox.Dismissed}},
+		"msg_q": {{ID: "dlv_q", MessageID: "msg_q", State: inbox.Queued}},
+	}
+	b.ofMessage = func(id string) []inbox.Delivery { return dels[id] }
+	for _, id := range []string{"msg_h", "msg_d", "msg_q", "msg_x"} {
+		if _, err := c.RecordMessage(ctx, coord.MessageEntry{TaskID: tk.ID, MsgID: id, From: agentB, To: agentA, Held: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, err := b.Card(tk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct {
+		dlv       string
+		dismissed bool
+	}{"msg_h": {"dlv_h", false}, "msg_d": {"dlv_d", true}, "msg_q": {"", false}, "msg_x": {"", false}}
+	n := 0
+	for _, it := range d.Thread {
+		w, ok := want[it.ID]
+		if !ok {
+			continue
+		}
+		n++
+		if !it.Held || it.DeliveryID != w.dlv || it.Dismissed != w.dismissed {
+			t.Errorf("%s: held %v delivery %q dismissed %v", it.ID, it.Held, it.DeliveryID, it.Dismissed)
+		}
+	}
+	if n != len(want) {
+		t.Fatalf("found %d of the messages on the thread", n)
+	}
+}
+
 // Entries another device wrote carry that device's chip once the person
 // has a second device; this device's never do.
 func TestCardThreadAcrossDevices(t *testing.T) {
@@ -1229,5 +1271,77 @@ func TestCardsPinnedFirst(t *testing.T) {
 	}
 	if got := ids(); !slices.Equal(got[:3], []string{z.ID, p.ID, k.ID}) || slices.Index(got, k.ID) != 2 {
 		t.Fatalf("pinned parent and its subtask: %v", got)
+	}
+}
+
+// The person's comment says who hasn't taken it up yet: queued (busy when
+// the roster says so), held, or sent and not read; a watcher's notice and
+// an engaged one say nothing.
+func TestThreadCommentPending(t *testing.T) {
+	ctx := context.Background()
+	b, c, _ := cardsBoard(t)
+	tk := heldTask(t, c) // agentA: busy
+	if _, err := c.Watch(ctx, agentB, tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	res, err := b.Comment(tk.ID, "still on it?", "next_turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := "comment:" + res.Comment.ID
+	notice := func(to string, st inbox.State) inbox.Delivery {
+		return inbox.Delivery{To: to, State: st, Message: inbox.Message{Ref: ref, Notice: true, Reason: string(coord.NoticeComment)}}
+	}
+	var open []inbox.Delivery
+	b.deliveries = func() []inbox.Delivery { return open }
+	pending := func() []string {
+		t.Helper()
+		d, err := b.Card(tk.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, it := range d.Thread {
+			if it.ID == res.Comment.ID {
+				return it.Pending
+			}
+		}
+		t.Fatal("no comment on the thread")
+		return nil
+	}
+	for _, tc := range []struct {
+		open []inbox.Delivery
+		want []string
+	}{
+		{[]inbox.Delivery{notice(agentA, inbox.Queued), notice(agentB, inbox.Queued)}, []string{"queued for ww-release (busy)"}},
+		{[]inbox.Delivery{notice(agentA, inbox.Held)}, []string{"held for ww-release"}},
+		{[]inbox.Delivery{notice(agentA, inbox.Delivered)}, []string{"sent to ww-release, not read yet"}},
+		{[]inbox.Delivery{notice(agentA, inbox.Engaged)}, nil},
+	} {
+		open = tc.open
+		if got := pending(); !slices.Equal(got, tc.want) {
+			t.Errorf("%+v: pending %q, want %q", tc.open, got, tc.want)
+		}
+	}
+}
+
+// Reopen brings a done card back with its holder.
+func TestBoardReopen(t *testing.T) {
+	ctx := context.Background()
+	b, c, sent := cardsBoard(t)
+	tk := heldTask(t, c)
+	if _, err := c.SetTaskState(ctx, agentA, tk.ID, coord.Completed, ""); err != nil {
+		t.Fatal(err)
+	}
+	res, err := b.Reopen(tk.ID)
+	if got := res.Task; err != nil || got.State != coord.Working || !slices.Equal(got.Holders, []string{agentA}) {
+		t.Fatalf("%+v %v", got, err)
+	}
+	// Its holder hears, at its next turn.
+	if !slices.Equal(res.Told.To, []string{agentA}) || res.Told.Mode != "next_turn" || len(*sent) != 1 ||
+		(*sent)[0].n.Kind != coord.NoticeReopened {
+		t.Fatalf("told %+v, routed %+v", res.Told, *sent)
+	}
+	if _, err := b.Reopen(tk.ID); !errors.Is(err, coord.ErrBadState) {
+		t.Fatalf("reopening an open card: %v", err)
 	}
 }

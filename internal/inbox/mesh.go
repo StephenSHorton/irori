@@ -21,7 +21,8 @@ import (
 // KindDecided is a request about a held delivery from any device's GUI:
 // {deliveryId, choice: release|dismiss|move, to?, by, atDevice, at}, actor
 // "user". The owner applies the first one it folds and writes the real
-// delivery.state; later ones are already handled.
+// delivery.state; later ones are already handled, except an undo: a release
+// asked by a device that already saw the delivery dismissed (undo true).
 const KindDecided = "delivery.decided"
 
 // Choices a delivery.decided row carries.
@@ -38,6 +39,10 @@ type decidedRow struct {
 	By         string    `json:"by"`
 	AtDevice   string    `json:"atDevice,omitempty"`
 	At         time.Time `json:"at,omitzero"`
+	// Undo marks a release asked of a delivery the asking device saw
+	// dismissed. It is what tells an undo from a release that lost the race
+	// to a dismiss; the devices' clocks are never compared.
+	Undo bool `json:"undo,omitempty"`
 }
 
 // local reports whether agent is hosted on this device: its key names this
@@ -256,6 +261,17 @@ func (b *inbox) applyDecided(ctx context.Context, r decidedRow) error {
 	if d == nil || !b.owns(d) {
 		return nil
 	}
+	// An undo is the person releasing a delivery they saw dismissed, not a
+	// second answer to the same hold: it applies past handled, but only while
+	// the delivery is still dismissed (once released it is done). A plain
+	// release asked while it looked held lost the race to the Dismiss.
+	if r.Undo {
+		b.handled[r.DeliveryID] = true
+		if r.Choice == ChoiceRelease && d.State == Dismissed {
+			return b.releaseLocked(ctx, d, r.By)
+		}
+		return nil
+	}
 	if b.handled[r.DeliveryID] {
 		return nil
 	}
@@ -289,11 +305,13 @@ func dismissed(d *drec) deliveryRow {
 
 // request writes a delivery.decided row for a delivery another device owns.
 // b.mu is held.
+// A release of a delivery this device sees dismissed is an undo.
 func (b *inbox) request(ctx context.Context, d *drec, choice, to, by string) error {
 	if !b.isOwner(by) {
 		return fmt.Errorf("%w: only the person decides a held delivery", ErrBadState)
 	}
-	return b.emit(ctx, by, KindDecided, decidedRow{DeliveryID: d.ID, Choice: choice, To: to, By: by, AtDevice: b.dev, At: b.now()})
+	undo := choice == ChoiceRelease && d.State == Dismissed
+	return b.emit(ctx, by, KindDecided, decidedRow{DeliveryID: d.ID, Choice: choice, To: to, By: by, AtDevice: b.dev, At: b.now(), Undo: undo})
 }
 
 // Move hands an open delivery to another agent (by is the person). On

@@ -144,6 +144,9 @@ type BoardService struct {
 	// deliveries are the inbox's open deliveries, read to tell an
 	// assignment that never reached its agent (queued or held); nil is none.
 	deliveries func() []inbox.Delivery
+	// ofMessage is every delivery of a message, read to tell a held
+	// message on a card's thread that the person dismissed; nil is none.
+	ofMessage func(id string) []inbox.Delivery
 }
 
 func newBoardService(c *core.Core) *BoardService {
@@ -152,6 +155,7 @@ func newBoardService(c *core.Core) *BoardService {
 	if ib := c.Inbox(); ib != nil {
 		b.deliveries = ib.Open
 		b.message = ib.Message
+		b.ofMessage = ib.OfMessage
 	}
 	if cp := c.Capture(); cp != nil {
 		b.prs = cp.PRs
@@ -424,6 +428,18 @@ func (b *BoardService) SetDone(id string, canceled bool) (coord.Task, error) {
 		return coord.Task{}, err
 	}
 	return co.SetTaskState(ctx, as[0], id, s, note)
+}
+
+// Reopen brings a done, canceled or failed card back into play: working
+// with its holders, or open when nobody holds it. A finished parent comes
+// back with its subtask. Its holders hear at their next turn.
+func (b *BoardService) Reopen(id string) (TaskResult, error) {
+	ctx := context.Background()
+	t, n, err := b.coord.Reopen(ctx, b.user.Key, strings.TrimSpace(id))
+	if err != nil {
+		return TaskResult{}, err
+	}
+	return TaskResult{Task: t, Told: b.tell(ctx, n, TellNextTurn)}, nil
 }
 
 // AddLink adds a link out (a URL, a repo path or a commit sha).
