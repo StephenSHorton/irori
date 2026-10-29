@@ -5,13 +5,21 @@ import { CardPage } from "@/components/cards/card-detail"
 import { MessageDialog } from "@/components/cards/message-dialog"
 import { AskBox } from "@/components/cards/ask-box"
 import {
+  asFilter,
   CardGrid,
+  DoneGrid,
   EmptyCards,
   FilterBar,
   matches,
   type Filter,
 } from "@/components/cards/card-grid"
-import { cardFromHash, cardHash, useCard, useCards } from "@/lib/cards"
+import {
+  cardFromHash,
+  cardHash,
+  useCard,
+  useCards,
+  useDoneCards,
+} from "@/lib/cards"
 import { useNow, useRoster } from "@/lib/irori"
 import { previewFlag } from "@/lib/preview"
 import { onOpen } from "@/lib/settings"
@@ -61,7 +69,11 @@ export function App() {
   const { gone } = useGone()
   const { cards, loading, error } = useCards()
   const now = useNow()
-  const [filter, setFilter] = useState<Filter>("all")
+  // ?filter=done in the browser preview starts on that filter.
+  const [filter, setFilter] = useState<Filter>(() =>
+    asFilter(previewFlag("filter"))
+  )
+  const done = useDoneCards(filter === "done")
   const [open, setOpen] = useState(() => cardFromHash(window.location.hash))
   // last is the card last opened, marked in the grid on the way back. In
   // the browser preview ?from=<id> sets it, to see the grid as Back leaves
@@ -227,7 +239,10 @@ export function App() {
         {open ? (
           <CardPage
             key={open}
-            summary={cards.find((c) => c.id === open)}
+            summary={
+              cards.find((c) => c.id === open) ??
+              done.cards.find((c) => c.id === open)
+            }
             detail={detail}
             error={detailError}
             gone={gone}
@@ -236,9 +251,10 @@ export function App() {
           />
         ) : loading && cards.length === 0 ? (
           <p className="px-1 text-sm text-muted-foreground">Loading cards…</p>
-        ) : cards.length === 0 ? (
+        ) : cards.length === 0 && filter !== "done" ? (
           <>
             <AskBox onAsked={setLast} />
+            <FilterBar filter={filter} onFilter={setFilter} decide={0} />
             <EmptyCards />
           </>
         ) : (
@@ -250,7 +266,14 @@ export function App() {
               }}
             />
             <FilterBar filter={filter} onFilter={setFilter} decide={decide} />
-            {shown.length ? (
+            {filter === "done" ? (
+              <DoneGrid
+                done={done}
+                selected={last}
+                onSelect={openCard}
+                now={now}
+              />
+            ) : shown.length ? (
               <CardGrid cards={shown} selected={last} onSelect={openCard} />
             ) : (
               <p className="px-1 text-[12.5px] text-muted-foreground">

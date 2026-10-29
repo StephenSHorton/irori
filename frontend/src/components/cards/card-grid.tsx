@@ -9,11 +9,13 @@ import {
   holderLineShows,
   nobodyOn,
   openAsk,
+  over,
   percent,
   workLabel,
   type CardSummary,
+  type DoneState,
 } from "@/lib/cards"
-import { plainLine } from "@/lib/irori"
+import { plainLine, relativeTime } from "@/lib/irori"
 import { cn } from "@/lib/utils"
 import {
   AskLine,
@@ -27,15 +29,25 @@ import {
 } from "./bits"
 import { Faces } from "./faces"
 
-export type Filter = "all" | "decide" | "mine"
+// done is the closed cards, which load on their own (useDoneCards); the
+// other filters are over the open ones.
+export type Filter = "all" | "decide" | "mine" | "done"
 
 export const filters: { id: Filter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "decide", label: "Needs a decision" },
   { id: "mine", label: "My devices" },
+  { id: "done", label: "Done" },
 ]
 
+// asFilter is a filter id from outside (the preview's ?filter=), else all.
+export function asFilter(id: string | null): Filter {
+  return filters.find((f) => f.id === id)?.id ?? "all"
+}
+
 export function matches(c: CardSummary, f: Filter): boolean {
+  if (f === "done") return over(c)
+  if (over(c)) return false
   if (f === "decide") return c.openBlockers > 0
   if (f === "mine") return c.scope === "mine"
   return true
@@ -89,10 +101,12 @@ export function CardGrid({
   cards,
   selected,
   onSelect,
+  now,
 }: {
   cards: CardSummary[]
   selected: string
   onSelect: (id: string) => void
+  now?: Date
 }) {
   return (
     <section
@@ -105,6 +119,7 @@ export function CardGrid({
           card={c}
           selected={c.id === selected}
           onSelect={() => onSelect(c.id)}
+          now={now}
         />
       ))}
     </section>
@@ -115,12 +130,15 @@ function CardTile({
   card,
   selected,
   onSelect,
+  now,
 }: {
   card: CardSummary
   selected: boolean
   onSelect: () => void
+  now?: Date
 }) {
   const p = percent(card.progress)
+  const closed = over(card)
   const blocked = card.openBlockers > 0
   const title = plainLine(card.title) || "(untitled)"
   const label = workLabel(card)
@@ -150,7 +168,7 @@ function CardTile({
             Lease conflict
           </Badge>
         )}
-        {!openAsk(card) && nobodyOn(card) && (
+        {!closed && !openAsk(card) && nobodyOn(card) && (
           <Badge
             variant="warning"
             title="The agent on it went away; nobody is working it"
@@ -179,9 +197,9 @@ function CardTile({
           </span>
         </span>
       )}
-      {card.ask && openAsk(card) ? (
+      {card.ask && (openAsk(card) || closed) ? (
         <AskLine ask={card.ask} />
-      ) : p === null ? (
+      ) : closed && p === null ? null : p === null ? (
         <HolderLine holder={card.holder} returned={card.returned} />
       ) : (
         <>
@@ -190,7 +208,7 @@ function CardTile({
             label={`${p ?? 0}% complete`}
             tone={cardTone(card)}
           />
-          {holderLineShows(card) && (
+          {!closed && holderLineShows(card) && (
             <HolderLine holder={card.holder} returned={card.returned} />
           )}
         </>
@@ -207,7 +225,7 @@ function CardTile({
             <Faces who={card.working} />
             {label && <span>{label}</span>}
           </>
-        ) : openAsk(card) ? (
+        ) : closed ? null : openAsk(card) ? (
           <span>you asked the room</span>
         ) : card.returned ? (
           <span>nobody on it: {displayName(card.returned)} went away</span>
@@ -221,8 +239,62 @@ function CardTile({
             <span>watching</span>
           </>
         )}
+        {closed && now && (
+          <span className="ml-auto tabular-nums" title={new Date(card.updatedAt as string).toLocaleString()}>
+            {relativeTime(new Date(card.updatedAt as string), now)}
+          </span>
+        )}
       </span>
     </button>
+  )
+}
+
+// DoneGrid is the Done filter: closed cards, the latest first, a page at a
+// time.
+export function DoneGrid({
+  done,
+  selected,
+  onSelect,
+  now,
+}: {
+  done: DoneState
+  selected: string
+  onSelect: (id: string) => void
+  now: Date
+}) {
+  if (done.error && !done.cards.length)
+    return (
+      <p className="px-1 text-[12.5px] text-destructive" role="alert">
+        Could not load the done cards: {done.error}
+      </p>
+    )
+  if (done.loading && !done.cards.length)
+    return <p className="px-1 text-sm text-muted-foreground">Loading…</p>
+  if (!done.cards.length)
+    return (
+      <p className="px-1 text-[12.5px] text-muted-foreground">
+        Nothing done yet.
+      </p>
+    )
+  return (
+    <>
+      <CardGrid
+        cards={done.cards}
+        selected={selected}
+        onSelect={onSelect}
+        now={now}
+      />
+      {done.more && (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="self-center"
+          onClick={done.loadMore}
+        >
+          Show more
+        </Button>
+      )}
+    </>
   )
 }
 

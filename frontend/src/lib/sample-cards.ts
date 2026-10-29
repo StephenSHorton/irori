@@ -734,6 +734,58 @@ export function sampleCards(now: Date): CardDetail[] {
         }),
       ],
     }),
+    // More closed cards for the Done tab (?filter=done): an ask that
+    // changed another card, one canceled and one failed.
+    card({
+      id: "sample-ask-3",
+      short: "13",
+      title: "Can the pairing code stay up longer than two minutes?",
+      goal: "Can the pairing code stay up longer than two minutes? I keep missing it.",
+      state: TaskState.Completed,
+      working: [],
+      updatedAt: at(55),
+      thread: [
+        new CardThreadItem({ id: "sample-ask-3-post", kind: "event", at: at(70), who: sampleYou, text: "You asked the room" }),
+        new CardThreadItem({ id: "sample-ask-3-took", kind: "event", at: at(66), who: otter, text: "sample-otter took it" }),
+      ],
+      ask: new CardAsk({
+        state: "closed",
+        told: 3,
+        owner: "This PC",
+        wake: false,
+        taker: otter,
+        outcome: { kind: "edit", task: "sample-card-4", note: "added a step for a five-minute code" },
+        outcomeRef: "#4",
+      }),
+    }),
+    card({
+      id: "sample-card-7",
+      title: "Move the release notes to the wiki",
+      repoKey: "remote:github.com/sample-org/example-app",
+      goal: "Release notes live on the wiki instead of in the repo.",
+      state: TaskState.Canceled,
+      working: [],
+      updatedAt: at(300),
+      recent: [
+        new CardActivity({ at: at(300), who: sampleYou, text: "You set it to canceled" }),
+      ],
+    }),
+    card({
+      id: "sample-card-8",
+      title: "Nightly build on the old Mac mini",
+      repoKey: "remote:github.com/sample-org/example-app",
+      goal: "A nightly build runs on the Mac mini and posts its log.",
+      state: TaskState.Failed,
+      working: [badger],
+      updatedAt: at(60 * 26),
+      steps: steps([
+        ["Install the toolchain", true],
+        ["Schedule the build", false],
+      ]),
+      recent: [
+        new CardActivity({ at: at(60 * 26), who: badger, text: "sample-badger set it to failed" }),
+      ],
+    }),
   ].map(
     (c) =>
       ({
