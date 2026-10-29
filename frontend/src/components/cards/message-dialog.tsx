@@ -26,7 +26,7 @@ const holdReasons: Record<string, string> = {
   [HoldReason.HoldBlocked]: "The sender is on your block list.",
   [HoldReason.HoldNotAllowed]: "The sender isn't on your allow list.",
   [HoldReason.HoldBypassReceiver]:
-    "The recipient runs without permission prompts.",
+    "The recipient runs without permission prompts. Full auto in Settings lets these through.",
   [HoldReason.HoldHopLimit]:
     "It is too many hops down a chain of agent messages.",
   [HoldReason.HoldUnowned]: "No agent in that repo can take it yet.",

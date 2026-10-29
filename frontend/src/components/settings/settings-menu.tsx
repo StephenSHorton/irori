@@ -195,6 +195,12 @@ function WakesSection() {
         disabled={!policy || busy}
         onChange={(v) => void set(v)}
       />
+      {policy?.mode === Mode.Allowlist && (
+        <p className="text-xs text-muted-foreground">
+          Your allow list is on. Full auto replaces it, and turning Full auto
+          off again leaves everyone allowed.
+        </p>
+      )}
       {problem && <p className="text-xs text-destructive">{problem}</p>}
     </div>
   )
