@@ -17,7 +17,24 @@ import (
 // whoever acted: UserSender for the GUI, the agent for a tool call. The GUI's
 // Board calls it after Assign, AddComment and Unblock.
 func (c *Core) RouteNotice(ctx context.Context, from inbox.Sender, n coord.Notice) []tools.NoticeResult {
-	return tools.RouteNotice(ctx, c.inbox, from, n)
+	return tools.RouteNotice(ctx, c.inbox, from, c.PrivateNotice(n))
+}
+
+// PrivateNotice is n with a board card's keys (agent:<cardId>, this
+// person's person:<id>) as this device's inbox knows them (PrivateKey), so
+// a notice about a card on a shared board reaches this person's own agents
+// (v0.5 §2.4). Other people's keys stay as they are; the bridge (§7.1)
+// handles them.
+func (c *Core) PrivateNotice(n coord.Notice) coord.Notice {
+	if len(n.To) > 0 {
+		to := make([]string, len(n.To))
+		for i, k := range n.To {
+			to[i] = c.PrivateKey(k)
+		}
+		n.To = to
+	}
+	n.By = c.PrivateKey(n.By)
+	return n
 }
 
 // sweepCoord runs coord's sweeper and routes the notices for blockers that

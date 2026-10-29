@@ -197,6 +197,12 @@ type Options struct {
 	// Revoked reports a removed device (v0.4 §3, Revoke): its leases end
 	// everywhere without a row from it. Nil revokes nobody.
 	Revoked func(device string) bool
+	// Board folds a shared board's log (v0.5 §2.1, boardlog.go): callers
+	// are "person:<id>" and "agent:<cardId>" keys, IsOwner says which
+	// person: keys are people (it must not accept "user:" keys there), and
+	// Person is the person at this device's key.
+	Board  bool
+	Person string
 }
 
 // Coord holds tasks and leases. Safe for concurrent use.

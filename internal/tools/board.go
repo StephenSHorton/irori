@@ -55,7 +55,8 @@ func cardRefs(t coord.Task) string {
 // shortOf is a card's short ref by id ("#12"), or task:<id> when there is
 // no such card.
 func (s *set) shortOf(id string) string {
-	if t, ok := s.b.Coord().GetTask(id); ok {
+	co, _, _ := s.on(context.Background(), id)
+	if t, ok := co.GetTask(id); ok {
 		return t.ShortRef()
 	}
 	return "task:" + oneLine(id, 80)
@@ -456,7 +457,11 @@ func (s *set) boardComment(ctx context.Context, c Caller, raw json.RawMessage) s
 	if msg != "" {
 		return msg
 	}
-	cm, notice, err := s.b.Coord().CommentOn(ctx, c.Sender.Key, id, coord.CommentInput{
+	co, as, err := s.on(ctx, id, c.Sender.Key)
+	if err != nil {
+		return mapErr(err)
+	}
+	cm, notice, err := co.CommentOn(ctx, as[0], id, coord.CommentInput{
 		Text: strings.TrimSpace(a.Text), Wake: a.Wake, Files: files, BlockerID: bid, Missing: a.Missing,
 	})
 	if err != nil {
@@ -471,14 +476,14 @@ func (s *set) boardComment(ctx context.Context, c Caller, raw json.RawMessage) s
 	}
 	n := s.roster()
 	out := "Commented comment:" + cm.ID + " on " + s.shortOf(cm.TaskID) + attachedLine(files) + "."
-	if t, ok := s.b.Coord().GetTask(id); ok && t.Ask.Open() && t.Ask.Taker != c.Sender.Key && !slices.Contains(t.Watchers, c.Sender.Key) {
+	if t, ok := co.GetTask(id); ok && t.Ask.Open() && t.Ask.Taker != as[0] && !slices.Contains(t.Watchers, as[0]) {
 		// Chiming in on an ask makes you a watcher: you hear more only if
 		// asked (board.md "Asks").
-		if _, err := s.b.Coord().Watch(ctx, c.Sender.Key, id); err == nil {
+		if _, err := co.Watch(ctx, as[0], id); err == nil {
 			out += " You watch it now: you hear when it changes, and answer the person only if asked."
 		}
 	}
-	if rs := RouteNotice(ctx, s.b.Inbox(), c.Sender, notice); len(rs) > 0 {
+	if rs := s.tell(ctx, c.Sender, notice); len(rs) > 0 {
 		out += s.told(rs, n)
 	} else {
 		out += " Nobody else holds it, so nobody was told; it shows on the Board."
@@ -619,13 +624,24 @@ func (s *set) boardBlock(ctx context.Context, c Caller, raw json.RawMessage) str
 	if msg != "" {
 		return msg
 	}
-	co := s.b.Coord()
+	keys := []string{c.Sender.Key}
+	if bb != nil && (bb.Kind == coord.BlockedOnAgent || bb.Kind == coord.BlockedOnPerson) && bb.Ref != "" {
+		keys = append(keys, bb.Ref)
+	}
+	co, as, err := s.on(ctx, id, keys...)
+	if err != nil {
+		return mapErr(err)
+	}
+	if len(as) > 1 {
+		on := *bb
+		on.Ref, bb = as[1], &on
+	}
+	by := as[0]
 	var t coord.Task
 	var item coord.Blocker
-	var err error
 	if q == "" && strings.TrimSpace(a.Context) == "" && len(a.Options) == 0 && len(a.Links) == 0 && len(files) == 0 {
 		// The old reason-only form: one item that blocking again replaces.
-		t, err = co.Block(ctx, c.Sender.Key, id, reason, bb)
+		t, err = co.Block(ctx, by, id, reason, bb)
 		if err == nil {
 			if open := t.OpenBlockers(); len(open) > 0 {
 				item = open[0]
@@ -646,7 +662,7 @@ func (s *set) boardBlock(ctx context.Context, c Caller, raw json.RawMessage) str
 		if len(opts) == 1 {
 			opts[0].Recommended = true // a lone answer is the one recommended
 		}
-		t, item, err = co.Raise(ctx, c.Sender.Key, id, coord.NewBlocker{Question: q, Context: a.Context, Options: opts, BlockedBy: bb,
+		t, item, err = co.Raise(ctx, by, id, coord.NewBlocker{Question: q, Context: a.Context, Options: opts, BlockedBy: bb,
 			Links: a.Links, Files: files})
 	}
 	if err != nil {
@@ -698,11 +714,15 @@ func (s *set) boardUnblock(ctx context.Context, c Caller, raw json.RawMessage) s
 	if msg != "" {
 		return msg
 	}
+	co, as, err := s.on(ctx, id, c.Sender.Key)
+	if err != nil {
+		return mapErr(err)
+	}
 	if bid := strings.TrimSpace(a.BlockerID); bid != "" {
 		if a.Pick == 0 && strings.TrimSpace(a.Note) == "" {
 			return errText("to resolve one blocker give pick (the number of a recommended answer) or note (your answer).")
 		}
-		t, notice, err := s.b.Coord().Answer(ctx, c.Sender.Key, id, bid, coord.BlockerAnswer{Pick: a.Pick, Text: a.Note, Resolve: true})
+		t, notice, err := co.Answer(ctx, as[0], id, bid, coord.BlockerAnswer{Pick: a.Pick, Text: a.Note, Resolve: true})
 		if err != nil {
 			return mapErr(err)
 		}
@@ -718,18 +738,18 @@ func (s *set) boardUnblock(ctx context.Context, c Caller, raw json.RawMessage) s
 		} else {
 			out += "it is " + string(t.State) + " again."
 		}
-		return out + s.told(RouteNotice(ctx, s.b.Inbox(), c.Sender, notice), n) + "\n" + s.cardLine(t, nil, n, s.now())
+		return out + s.told(s.tell(ctx, c.Sender, notice), n) + "\n" + s.cardLine(t, nil, n, s.now())
 	}
 	if a.Pick != 0 {
 		return errText("pick needs blocker_id: which blocker it answers.")
 	}
-	t, notice, err := s.b.Coord().Unblock(ctx, c.Sender.Key, id, strings.TrimSpace(a.Note))
+	t, notice, err := co.Unblock(ctx, as[0], id, strings.TrimSpace(a.Note))
 	if err != nil {
 		return mapErr(err)
 	}
 	n := s.roster()
 	return "Unblocked " + t.ShortRef() + "; it is " + string(t.State) + " again." +
-		s.told(RouteNotice(ctx, s.b.Inbox(), c.Sender, notice), n) + "\n" + s.cardLine(t, nil, n, s.now())
+		s.told(s.tell(ctx, c.Sender, notice), n) + "\n" + s.cardLine(t, nil, n, s.now())
 }
 
 // --- board_recommend ---
@@ -756,7 +776,11 @@ func (s *set) boardRecommend(ctx context.Context, c Caller, raw json.RawMessage)
 	if strings.TrimSpace(a.Answer) == "" {
 		return errText("give answer: the answer you recommend, one line.")
 	}
-	t, err := s.b.Coord().Recommend(ctx, c.Sender.Key, id, strings.TrimSpace(a.BlockerID), a.Answer, a.Why)
+	co, as, err := s.on(ctx, id, c.Sender.Key)
+	if err != nil {
+		return mapErr(err)
+	}
+	t, err := co.Recommend(ctx, as[0], id, strings.TrimSpace(a.BlockerID), a.Answer, a.Why)
 	if err != nil {
 		return mapErr(err)
 	}
@@ -812,7 +836,11 @@ func (s *set) boardSteps(ctx context.Context, c Caller, raw json.RawMessage) str
 	if msg != "" {
 		return msg
 	}
-	t, err := s.b.Coord().SetSteps(ctx, c.Sender.Key, id, stepsOf(a.Steps))
+	co, as, err := s.on(ctx, id, c.Sender.Key)
+	if err != nil {
+		return mapErr(err)
+	}
+	t, err := co.SetSteps(ctx, as[0], id, stepsOf(a.Steps))
 	if err != nil {
 		return mapErr(err)
 	}
@@ -854,7 +882,11 @@ func (s *set) boardStep(ctx context.Context, c Caller, raw json.RawMessage) stri
 	if a.Done == nil && a.Doing == nil {
 		return errText("give done (true ticks it, false unticks it) or doing (true makes it the current step).")
 	}
-	t, err := s.b.Coord().SetStep(ctx, c.Sender.Key, id, strings.TrimSpace(a.StepID), coord.StepUpdate{Done: a.Done, Doing: a.Doing})
+	co, as, err := s.on(ctx, id, c.Sender.Key)
+	if err != nil {
+		return mapErr(err)
+	}
+	t, err := co.SetStep(ctx, as[0], id, strings.TrimSpace(a.StepID), coord.StepUpdate{Done: a.Done, Doing: a.Doing})
 	if err != nil {
 		return mapErr(err)
 	}
@@ -881,13 +913,15 @@ func (s *set) boardWatching(ctx context.Context, c Caller, raw json.RawMessage, 
 	if msg != "" {
 		return msg
 	}
-	co := s.b.Coord()
+	co, as, err := s.on(ctx, id, c.Sender.Key)
+	if err != nil {
+		return mapErr(err)
+	}
 	var t coord.Task
-	var err error
 	if on {
-		t, err = co.Watch(ctx, c.Sender.Key, id)
+		t, err = co.Watch(ctx, as[0], id)
 	} else {
-		t, err = co.Unwatch(ctx, c.Sender.Key, id)
+		t, err = co.Unwatch(ctx, as[0], id)
 	}
 	if err != nil {
 		return mapErr(err)
@@ -914,17 +948,23 @@ func (s *set) boardJoin(ctx context.Context, c Caller, raw json.RawMessage) stri
 	if msg != "" {
 		return msg
 	}
-	co := s.b.Coord()
+	co, _, err := s.on(ctx, id)
+	if err != nil {
+		return mapErr(err)
+	}
 	cur, ok := co.GetTask(id)
 	if !ok {
 		return mapErr(fmt.Errorf("%w: task %s", coord.ErrNotFound, oneLine(id, 80)))
 	}
+	_, as, err := s.on(ctx, id, c.Sender.Key)
+	if err != nil {
+		return mapErr(err)
+	}
 	var t coord.Task
-	var err error
 	if cur.Shared {
-		t, err = co.Join(ctx, c.Sender.Key, id, c.Sender.Key)
+		t, err = co.Join(ctx, as[0], id, as[0])
 	} else {
-		t, err = co.ClaimTask(ctx, c.Sender.Key, id)
+		t, err = co.ClaimTask(ctx, as[0], id)
 	}
 	if err != nil {
 		return mapErr(err)
@@ -945,7 +985,11 @@ func (s *set) boardLeave(ctx context.Context, c Caller, raw json.RawMessage) str
 	if msg != "" {
 		return msg
 	}
-	t, err := s.b.Coord().Leave(ctx, c.Sender.Key, id, c.Sender.Key)
+	co, as, err := s.on(ctx, id, c.Sender.Key)
+	if err != nil {
+		return mapErr(err)
+	}
+	t, err := co.Leave(ctx, as[0], id, as[0])
 	if err != nil {
 		return mapErr(err)
 	}
@@ -977,12 +1021,16 @@ func (s *set) boardAssign(ctx context.Context, c Caller, raw json.RawMessage) st
 	if err != nil {
 		return mapErr(err)
 	}
-	t, notice, err := s.b.Coord().Assign(ctx, c.Sender.Key, id, to)
+	co, as, err := s.on(ctx, id, c.Sender.Key, to)
+	if err != nil {
+		return mapErr(err)
+	}
+	t, notice, err := co.Assign(ctx, as[0], id, as[1])
 	if err != nil {
 		return mapErr(err)
 	}
 	n := s.roster()
-	return "Assigned " + t.ShortRef() + " to " + n.who(to) + "." + s.told(RouteNotice(ctx, s.b.Inbox(), c.Sender, notice), n) +
+	return "Assigned " + t.ShortRef() + " to " + n.who(to) + "." + s.told(s.tell(ctx, c.Sender, notice), n) +
 		"\n" + s.cardLine(t, nil, n, s.now())
 }
 
@@ -1014,7 +1062,11 @@ func (s *set) boardStatus(ctx context.Context, c Caller, raw json.RawMessage) st
 	case st == coord.InputRequired:
 		return s.inputRequired(id, strings.TrimSpace(a.Note))
 	}
-	t, err := s.b.Coord().SetTaskState(ctx, c.Sender.Key, id, st, strings.TrimSpace(a.Note))
+	co, as, err := s.on(ctx, id, c.Sender.Key)
+	if err != nil {
+		return mapErr(err)
+	}
+	t, err := co.SetTaskState(ctx, as[0], id, st, strings.TrimSpace(a.Note))
 	if err != nil {
 		return mapErr(err)
 	}
@@ -1033,7 +1085,8 @@ func (s *set) boardStatus(ctx context.Context, c Caller, raw json.RawMessage) st
 // and in the person's Needs you, so nothing changes: moving it to
 // input_required would close every open blocker (a state change does).
 func (s *set) inputRequired(id, note string) string {
-	t, ok := s.b.Coord().GetTask(id)
+	co, _, _ := s.on(context.Background(), id)
+	t, ok := co.GetTask(id)
 	if !ok {
 		return mapErr(fmt.Errorf("%w: task %s", coord.ErrNotFound, oneLine(id, 80)))
 	}
@@ -1074,7 +1127,11 @@ func (s *set) boardLink(ctx context.Context, c Caller, raw json.RawMessage) stri
 	if strings.TrimSpace(a.Link) == "" {
 		return errText("give url_or_path: an http(s) URL or a repo path.")
 	}
-	t, err := s.b.Coord().AddLink(ctx, c.Sender.Key, id, a.Link)
+	co, as, err := s.on(ctx, id, c.Sender.Key)
+	if err != nil {
+		return mapErr(err)
+	}
+	t, err := co.AddLink(ctx, as[0], id, a.Link)
 	if err != nil {
 		return mapErr(err)
 	}

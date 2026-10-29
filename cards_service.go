@@ -658,7 +658,8 @@ func (b *BoardService) decideCount() int {
 // and resolutions, who is on it, PRs, recent activity and comments. Any
 // card can be opened, done ones too.
 func (b *BoardService) Card(id string) (CardDetail, error) {
-	t, ok := b.coord.GetTask(strings.TrimSpace(id))
+	co := b.read(strings.TrimSpace(id))
+	t, ok := co.GetTask(strings.TrimSpace(id))
 	if !ok {
 		return CardDetail{}, fmt.Errorf("%w: task %q", coord.ErrNotFound, id)
 	}
@@ -666,7 +667,7 @@ func (b *BoardService) Card(id string) (CardDetail, error) {
 	d := CardDetail{
 		CardSummary: cardSummary(t, p), Goal: t.Objective, DoneWhen: t.DoneCriteria, Note: t.Note,
 		Steps: nonNil(t.Steps), Blockers: []CardBlocker{}, PRs: []CardPR{}, Links: nonNil(t.Links),
-		Recent: []CardActivity{}, Comments: nonNil(b.coord.Comments(t.ID)),
+		Recent: []CardActivity{}, Comments: nonNil(co.Comments(t.ID)),
 	}
 	d.Ask = cardAsk(t, p, func(id string) string {
 		if x, ok := b.coord.GetTask(id); ok {
@@ -674,7 +675,7 @@ func (b *BoardService) Card(id string) (CardDetail, error) {
 		}
 		return ""
 	})
-	acts := b.coord.Activity(t.ID)
+	acts := co.Activity(t.ID)
 	var byBlocker map[string][]CardThreadItem
 	d.Thread, byBlocker, d.ThreadEarlier = buildThread(d.Comments, acts, t, p)
 	d.HistoryTrimmed = len(acts) == coord.MaxActivity
@@ -900,7 +901,11 @@ func (b *BoardService) Answer(taskID, blockerID string, option int, text string,
 	if blockerID == NoteItem {
 		return b.answerInput(ctx, taskID, option, text, wake)
 	}
-	t, ok := b.coord.GetTask(taskID)
+	co, as, err := b.on(ctx, taskID)
+	if err != nil {
+		return AnswerResult{}, err
+	}
+	t, ok := co.GetTask(taskID)
 	if !ok {
 		return AnswerResult{}, fmt.Errorf("%w: task %q", coord.ErrNotFound, taskID)
 	}
@@ -913,12 +918,12 @@ func (b *BoardService) Answer(taskID, blockerID string, option int, text string,
 	if a.Resolve && a.Pick == 0 && cmp.Or(bl.Status, coord.BlockerOpen) != coord.BlockerOpen {
 		// The person answered before: resolving keeps that answer and
 		// takes text as a note, so these words go in as the answer first.
-		if _, _, err := b.coord.Answer(ctx, b.user.Key, taskID, blockerID, coord.BlockerAnswer{Text: text, Wake: wake}); err != nil {
+		if _, _, err := co.Answer(ctx, as[0], taskID, blockerID, coord.BlockerAnswer{Text: text, Wake: wake}); err != nil {
 			return AnswerResult{}, err
 		}
 		a.Text = ""
 	}
-	t, n, err := b.coord.Answer(ctx, b.user.Key, taskID, blockerID, a)
+	t, n, err := co.Answer(ctx, as[0], taskID, blockerID, a)
 	if err != nil {
 		return AnswerResult{}, err
 	}
@@ -958,7 +963,11 @@ func (b *BoardService) ResolveBlocker(taskID, blockerID, note string) (AnswerRes
 	if blockerID == NoteItem {
 		return AnswerResult{}, fmt.Errorf("%w: answer the card's question instead", coord.ErrInvalid)
 	}
-	t, n, err := b.coord.Answer(ctx, b.user.Key, taskID, blockerID, coord.BlockerAnswer{Text: note, Resolve: true})
+	co, as, err := b.on(ctx, taskID)
+	if err != nil {
+		return AnswerResult{}, err
+	}
+	t, n, err := co.Answer(ctx, as[0], taskID, blockerID, coord.BlockerAnswer{Text: note, Resolve: true})
 	if err != nil {
 		return AnswerResult{}, err
 	}
@@ -974,7 +983,11 @@ func (b *BoardService) ResolveBlocker(taskID, blockerID, note string) (AnswerRes
 // person's comment to its holders (a wake when wake), and the card goes
 // back to working (submitted when nobody holds it).
 func (b *BoardService) answerInput(ctx context.Context, id string, option int, text string, wake bool) (AnswerResult, error) {
-	t, ok := b.coord.GetTask(id)
+	co, as, err := b.on(ctx, id)
+	if err != nil {
+		return AnswerResult{}, err
+	}
+	t, ok := co.GetTask(id)
 	switch {
 	case !ok:
 		return AnswerResult{}, fmt.Errorf("%w: task %q", coord.ErrNotFound, id)
@@ -983,7 +996,7 @@ func (b *BoardService) answerInput(ctx context.Context, id string, option int, t
 	case option != -1:
 		return AnswerResult{}, fmt.Errorf("%w: this question has no recommended answers; answer in your own words", coord.ErrInvalid)
 	}
-	_, n, err := b.coord.AddComment(ctx, b.user.Key, id, text, wake)
+	_, n, err := co.AddComment(ctx, as[0], id, text, wake)
 	if err != nil {
 		return AnswerResult{}, err
 	}
@@ -992,7 +1005,7 @@ func (b *BoardService) answerInput(ctx context.Context, id string, option int, t
 	if len(t.Holders) > len(t.Assigned) {
 		back = coord.Working
 	}
-	if _, err := b.coord.SetTaskState(ctx, b.user.Key, id, back, ""); err != nil {
+	if _, err := co.SetTaskState(ctx, as[0], id, back, ""); err != nil {
 		return AnswerResult{}, err
 	}
 	d, err := b.Card(id)

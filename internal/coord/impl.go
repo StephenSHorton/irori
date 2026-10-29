@@ -210,6 +210,9 @@ type coord struct {
 	revoked     func(string) bool // Options.Revoked
 	ignored     int               // owner-only rows from the wrong device (v0.4 §6.0)
 	ignoredBy   map[string]int    // and per writing device
+	onBoard     bool              // Options.Board (boardlog.go)
+	person      string            // Options.Person
+	aside       []store.Event     // board rows whose references don't resolve yet
 
 	mu          sync.Mutex
 	tasks       map[string]*Task
@@ -269,6 +272,8 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 		grace:       opts.GoneGrace,
 		ownerFn:     opts.IsOwner,
 		revoked:     opts.Revoked,
+		onBoard:     opts.Board,
+		person:      opts.Person,
 		tasks:       map[string]*Task{},
 		order:       map[string]uint64{},
 		held:        map[string]*leaseRec{},
@@ -294,7 +299,7 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 		c.now = time.Now
 	}
 	if c.ownerFn == nil {
-		self := "user:" + st.DeviceID()
+		self := c.selfKey()
 		c.ownerFn = func(k string) bool { return k == self }
 	}
 	if c.grace <= 0 {
@@ -373,7 +378,7 @@ func (c *coord) writerOK(ev store.Event) bool {
 		switch {
 		case p.MsgID != "":
 			return mayRecord(p.By, p.To, p.Gone || p.Fill, ev.DeviceID)
-		case p.BlockerID != "" && ev.Actor != "user":
+		case p.BlockerID != "" && !c.personActor(ev):
 			return owner.MayWrite(p.By, ev.DeviceID)
 		}
 		return true
@@ -400,6 +405,7 @@ func (c *Coord) IgnoredRows() int {
 func (c *coord) apply(ev store.Event) {
 	c.fold(ev)
 	c.foldDeferred()
+	c.retryAside()
 }
 
 // fold folds one row. Rows are applied as written; validation happened
@@ -407,6 +413,9 @@ func (c *coord) apply(ev store.Event) {
 func (c *coord) fold(ev store.Event) {
 	if !c.writerOK(ev) {
 		c.ignore(ev.DeviceID)
+		return
+	}
+	if !c.asideGate(ev) {
 		return
 	}
 	if ok, wait := c.askGate(ev); !ok {
@@ -615,7 +624,7 @@ func (c *coord) fold(ev store.Event) {
 			To: p.To, MsgID: p.MsgID, Gone: p.Gone, Held: p.Held, Files: p.Files,
 			BlockerID: p.BlockerID, Pick: max(p.Pick, 0), Missing: p.Missing,
 			Device: ev.DeviceID, HLC: ev.HLC, Seq: ev.Seq, primary: primary,
-			person: ev.Actor == "user" && c.isOwner(p.By),
+			person: c.personRow(ev, p.By),
 		}
 		cm.Unheard = p.Unheard && cm.person
 		if !primary && !p.Held {
@@ -878,6 +887,8 @@ func (c *coord) actorFor(by string) string {
 	switch {
 	case by == "irori":
 		return "irori"
+	case c.onBoard:
+		return by // a board key is its own actor; the store refuses any other
 	case c.isOwner(by):
 		return "user"
 	case strings.HasPrefix(by, "api:"):

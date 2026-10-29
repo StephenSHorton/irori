@@ -44,6 +44,43 @@ const KindAttachOffered = "attach.offered"
 // changes. Written by internal/home.
 const KindNodeAddr = "node.addr"
 
+// v0.5 Shared Boards kinds (design/v0.5-shared-boards.md §2.1, §2.2, §3).
+// Board logs only: the board's own rows, each member's board-scoped
+// identity objects, the reduced agent card and peer review. Reserved here
+// so they ship classified; later steps write them.
+const (
+	KindBoardCreated        = "board.created"
+	KindBoardRenamed        = "board.renamed"
+	KindBoardMemberAdded    = "board.member.added"
+	KindBoardMemberRole     = "board.member.role"
+	KindBoardMemberRemoved  = "board.member.removed"
+	KindBoardMemberLeft     = "board.member.left"
+	KindBoardServer         = "board.server"
+	KindMemberProfile       = "member.profile"
+	KindMemberDeviceAdded   = "member.device.added"
+	KindMemberDeviceRevoked = "member.device.revoked"
+	KindMemberKeyRotated    = "member.key.rotated"
+	// KindAgentCard: {cardId, name, kind, personId, status}: the only trace
+	// of an agent in a board log (§2.4). Its actor is "agent:<cardId>".
+	KindAgentCard       = "agent.card"
+	KindReviewRequested = "review.requested"
+	KindReviewReviewer  = "review.reviewer"
+)
+
+// v0.5 private-log kinds, replicated among the person's own devices only
+// and never accepted by a board log (§4.1, §4.6, §7.2, §7.3).
+const (
+	KindBoardJoined = "board.joined"
+	KindBoardForgot = "board.forgot"
+	KindReceiveSet  = "receive.set"
+	KindAutonomySet = "autonomy.set"
+)
+
+// KindBoardCardKey: {cardId, agentKey}: which local session a board's agent
+// card is (§2.4's device-local board_cards). It lives in the board store's
+// local_events, so it never leaves the device.
+const KindBoardCardKey = "board.cardkey"
+
 // Device-local kinds, which live in local_events and never replicate (§5.1).
 // They are named here as strings because their packages import store.
 const (
@@ -98,6 +135,14 @@ var kindSides = map[string]Side{
 	KindNodeAddr: Replicated,
 	// devcolor: the person's colour pick for a device (card #22)
 	"device.color": Replicated,
+	// v0.5 Shared Boards (their Board column is kindBoards, board.go)
+	KindBoardCreated: Replicated, KindBoardRenamed: Replicated, KindBoardMemberAdded: Replicated,
+	KindBoardMemberRole: Replicated, KindBoardMemberRemoved: Replicated, KindBoardMemberLeft: Replicated,
+	KindBoardServer: Replicated, KindMemberProfile: Replicated, KindMemberDeviceAdded: Replicated,
+	KindMemberDeviceRevoked: Replicated, KindMemberKeyRotated: Replicated, KindAgentCard: Replicated,
+	KindReviewRequested: Replicated, KindReviewReviewer: Replicated,
+	KindBoardJoined: Replicated, KindBoardForgot: Replicated, KindReceiveSet: Replicated, KindAutonomySet: Replicated,
+	KindBoardCardKey: Local,
 }
 
 // KindSide reports kind's side.

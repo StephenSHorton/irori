@@ -84,6 +84,7 @@ type Core struct {
 	repos    *repo.Resolver
 	inbox    *inbox.Inbox
 	coord    *coord.Coord
+	boards   boardState // shared boards' logs, each with its own coord (boards.go)
 	tools    *tools.Set
 	notifier *notify.Notifier
 	members  *members
@@ -221,6 +222,9 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		c.Close()
 		return nil, fmt.Errorf("coord: %w", err)
 	}
+	// Shared boards (v0.5 §2.1): one log and one coord each. One that
+	// fails to open is logged; the private board works without it.
+	c.openBoards(ctx)
 	if c.capture, err = capture.New(ctx, st, c, capture.Options{
 		ClaudeDir: opts.ClaudeDir, DataDir: opts.DataDir, DeviceID: id.ID,
 		RepoKey: repos.Key, Scrub: c.scrubber,
@@ -396,6 +400,7 @@ func (c *Core) Close() error {
 	if c.netClose != nil {
 		c.netClose()
 	}
+	c.closeBoards()
 	_ = discovery.Remove(c.opts.DataDir, os.Getpid())
 	return c.store.Close()
 }

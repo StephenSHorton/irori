@@ -101,6 +101,13 @@ func (c *coord) follow(ctx context.Context) {
 				continue
 			}
 			if ev.DeviceID == c.st.DeviceID() || !followed(ev.Kind) {
+				if c.onBoard {
+					// An agent.card or attach.offered may resolve a
+					// row set aside (boardlog.go).
+					c.mu.Lock()
+					c.retryAside()
+					c.unlock()
+				}
 				continue
 			}
 			c.applyRemote(ctx, ev)
@@ -321,7 +328,7 @@ func (c *coord) applyStolen(ev store.Event) {
 	if json.Unmarshal(ev.Payload, &p) != nil || p.Resource == "" || p.Holder == "" {
 		return
 	}
-	if ev.Actor != "user" || !c.isOwner(p.By) {
+	if !c.personRow(ev, p.By) {
 		c.ignore(ev.DeviceID)
 		return
 	}

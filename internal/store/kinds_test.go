@@ -77,6 +77,19 @@ func TestEveryKindIsClassified(t *testing.T) {
 			t.Errorf("%s (%s) is not in kindSides: say whether it replicates or stays on the device", kind, where)
 		}
 	}
+	// The Board column (v0.5 §2.2): every replicated kind says whether a
+	// board log accepts it, so a new kind can't ship unclassified for
+	// boards either.
+	for kind, side := range kindSides {
+		if side == Replicated && KindBoard(kind) == BoardUnclassified {
+			t.Errorf("%s is not in kindBoards: say whether a board log accepts it (v0.5 §2.2)", kind)
+		}
+	}
+	for kind := range kindBoards {
+		if KindSide(kind) == Unclassified {
+			t.Errorf("%s is in kindBoards but not in kindSides", kind)
+		}
+	}
 	for _, local := range []string{KindPolicySet, KindMemberJoined} {
 		if !IsLocal(local) {
 			t.Errorf("%s must be device-local", local)

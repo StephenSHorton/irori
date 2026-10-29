@@ -396,7 +396,7 @@ func (c *coord) writeTake(ctx context.Context, t *Task, row takeStateRow) error 
 // foldAskCreated sets up t's ask from its task.created row: only the
 // person's row makes an ask (else it is a plain card). c.mu is held.
 func (c *coord) foldAskCreated(t *Task, a *askField, ev store.Event, by string) {
-	if a == nil || ev.Actor != "user" || !c.isOwner(by) {
+	if a == nil || !c.personRow(ev, by) {
 		return
 	}
 	t.Ask = &Ask{Wake: a.Wake, RepoKey: a.RepoKey, Owner: ev.DeviceID, Since: t.CreatedAt}
@@ -424,7 +424,7 @@ func (c *coord) applyTake(ev store.Event, at func(time.Time) time.Time) {
 		switch p.Op {
 		case TakeClaim, TakeRelease:
 		case TakeReopen:
-			if ev.Actor != "user" || !c.isOwner(p.By) {
+			if !c.personRow(ev, p.By) {
 				c.ignore(ev.DeviceID)
 				return
 			}
@@ -712,7 +712,7 @@ func (c *coord) askGate(ev store.Event) (ok bool, wait string) {
 		// refuses it, so this device does too.
 		return !cursorLess(cur, c.asks.closedAt[t.ID]), ""
 	}
-	person := ev.Actor == "user" && c.isOwner(p.By)
+	person := c.personRow(ev, p.By)
 	switch {
 	case ev.Kind != KindTaskState:
 	case p.Outcome != nil && (person || p.By != "" && c.takerAt(t.ID, cur) == p.By):
@@ -729,7 +729,7 @@ func (c *coord) editGate(ev store.Event) (bool, string) {
 	if json.Unmarshal(ev.Payload, &p) != nil || p.TaskID == "" || p.By == "" {
 		return false, ""
 	}
-	if ev.Actor == "user" && c.isOwner(p.By) {
+	if c.personRow(ev, p.By) {
 		return true, ""
 	}
 	if !owner.MayWrite(p.By, ev.DeviceID) {
@@ -949,7 +949,7 @@ func (c *coord) sweepAsks(ctx context.Context, agents []presence.AgentCard) ([]N
 	// person's close, from this device.
 	for _, t := range c.tasks {
 		if a := openAsk(t); a != nil && c.revoked != nil && c.revoked(a.Owner) && !IsTerminal(t.State) {
-			if self := "user:" + c.st.DeviceID(); c.isOwner(self) {
+			if self := c.selfKey(); c.isOwner(self) {
 				_ = c.write(ctx, self, KindTaskState, taskStateRow{TaskID: t.ID, State: Canceled, Note: "posting device removed",
 					Outcome: &Outcome{Kind: OutcomeNone, Note: "posting device removed"}, By: self, At: now})
 			}
