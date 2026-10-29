@@ -106,6 +106,58 @@ func TestAppendedWakeEngagesWithoutAHop(t *testing.T) {
 	}
 }
 
+func TestAppendedWakeDoesNotGateTheNext(t *testing.T) {
+	// A wake the mod appended leaves no prompt in the host's queue, so it
+	// must not hold the session's next wake back for UnengagedLimit.
+	h := newHarness(t)
+	h.abc()
+	h.ib.SetReachable(keyB, PathMod, true)
+	_, d1 := h.send(claude(keyA, "alpha"), to("beta"), "refused")
+	w1 := h.wake(keyB)
+	if err := h.ib.MarkAppendedDelivered(bg, keyB, w1.Token); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.wantState(d1.ID, Delivered); got.WakeID != w1.ID {
+		t.Fatalf("delivered %+v", got)
+	}
+	if ow, _ := h.ib.OutstandingWake(keyB); ow != nil {
+		t.Fatalf("outstanding %+v", ow)
+	}
+	h.reopen() // the flag is folded from the delivery row
+	h.ib.SetReachable(keyB, PathMod, true)
+	_, d2 := h.send(claude(keyC, "gamma"), to("beta"), "next")
+	if w2 := h.wake(keyB); !slices.Equal(w2.DeliveryIDs, []string{d2.ID}) {
+		t.Fatalf("wake %v", w2.DeliveryIDs)
+	}
+
+	// Reported delivered while the submit was pending (so it gates), then
+	// appended after a later drop: the second report lifts the gate.
+	h2 := newHarness(t)
+	h2.abc()
+	h2.ib.SetReachable(keyB, PathMod, true)
+	h2.send(claude(keyA, "alpha"), to("beta"), "queued, then dropped")
+	w := h2.wake(keyB)
+	if err := h2.ib.MarkDelivered(bg, keyB, w.Token); err != nil {
+		t.Fatal(err)
+	}
+	if ow, st := h2.ib.OutstandingWake(keyB); ow == nil || st != Delivered {
+		t.Fatalf("pending submit should gate: %+v %s", ow, st)
+	}
+	if err := h2.ib.MarkAppendedDelivered(bg, keyB, w.Token); err != nil {
+		t.Fatal(err)
+	}
+	if ow, _ := h2.ib.OutstandingWake(keyB); ow != nil {
+		t.Fatalf("still gated by %+v", ow)
+	}
+	// Engaging it clears the flag with the Delivered state.
+	if err := h2.ib.MarkAppendedEngaged(bg, keyB, w.Token, "turn-human"); err != nil {
+		t.Fatal(err)
+	}
+	if got := h2.wantState(w.DeliveryIDs[0], Engaged); got.WakeID != w.ID {
+		t.Fatalf("engaged %+v", got)
+	}
+}
+
 func TestUntakenItemRidesTheNextWake(t *testing.T) {
 	h := newHarness(t)
 	h.abc()

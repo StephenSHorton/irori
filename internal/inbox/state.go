@@ -58,6 +58,10 @@ type drec struct {
 	// never confirmed: folded from wake.issued rows, so replay rebuilds it.
 	// It restarts when the delivery leaves Queued or changes recipient.
 	wakeTries int
+	// appended: Delivered by a wake the mod put in as an append because its
+	// host refused the submit (card #23). No prompt waits in the host's
+	// queue, so it does not gate the next wake (outstanding).
+	appended bool
 }
 
 // untaken: d is a wake item its host's mod was handed MaxWakeTries times
@@ -89,6 +93,7 @@ type deliveryRow struct {
 	MovedFrom   string       `json:"movedFrom,omitempty"`
 	Reminded    bool         `json:"reminded,omitempty"`
 	EngagedOnce bool         `json:"engagedOnce,omitempty"`
+	Appended    bool         `json:"appended,omitempty"` // Delivered by a wake the mod appended (card #23)
 	By          string       `json:"by,omitempty"`
 	At          time.Time    `json:"at,omitzero"`
 }
@@ -99,7 +104,7 @@ func (d *drec) row() deliveryRow {
 		DeliveryID: d.ID, MessageID: d.MessageID, To: d.To, RepoKey: d.RepoKey, Mode: d.Mode,
 		State: d.State, Hold: d.Hold, Via: d.Via, WakeID: d.WakeID, Note: d.Note, For: d.For,
 		Until: d.Until, MovedTo: d.MovedTo, MovedFrom: d.movedFrom,
-		Reminded: d.Reminded, EngagedOnce: d.engagedOnce,
+		Reminded: d.Reminded, EngagedOnce: d.engagedOnce, Appended: d.appended,
 	}
 }
 
@@ -458,6 +463,7 @@ func (b *inbox) apply(ev store.Event) error {
 		d.State, d.Hold, d.Via, d.WakeID = r.State, r.Hold, r.Via, r.WakeID
 		d.Note, d.For, d.Until, d.MovedTo, d.Reminded = r.Note, r.For, r.Until, r.MovedTo, r.Reminded
 		d.movedFrom, d.engagedOnce = r.MovedFrom, r.EngagedOnce
+		d.appended = r.Appended && r.State == Delivered
 		d.UpdatedAt = at
 		d.lastWriter = ev.DeviceID
 		if d.State.Open() {
@@ -769,7 +775,7 @@ func (b *inbox) outstanding(agent string) (*wakeRec, State) {
 		case Queued:
 			return w, Queued
 		case Delivered:
-			if now.Sub(d.UpdatedAt) < b.lim.unengaged && (delivered == nil || w.issuedAt.Before(delivered.issuedAt)) {
+			if !d.appended && now.Sub(d.UpdatedAt) < b.lim.unengaged && (delivered == nil || w.issuedAt.Before(delivered.issuedAt)) {
 				delivered = w
 			}
 		}

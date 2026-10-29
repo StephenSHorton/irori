@@ -240,22 +240,27 @@ func (b *inbox) wakeByToken(agent, token string) (*wakeRec, error) {
 	return w, nil
 }
 
-func (b *inbox) markDelivered(ctx context.Context, agent, token string) error {
+func (b *inbox) markDelivered(ctx context.Context, agent, token string, appended bool) error {
 	b.mu.Lock()
 	defer b.unlock()
 	w, err := b.wakeByToken(agent, token)
 	if err != nil || w.Reminder {
 		return err
 	}
+	appended = appended && !w.isAppend()
 	for _, id := range w.DeliveryIDs {
 		d := b.dels[id]
+		if d == nil || (d.WakeID != "" && d.WakeID != w.ID) {
+			continue // one already in another wake is left there
+		}
 		// A late confirmation after a reclaim still counts: the prompt went
-		// out, so don't send it again. One already in another wake is left there.
-		if d == nil || d.State != Queued || (d.WakeID != "" && d.WakeID != w.ID) {
+		// out, so don't send it again. A wake reported delivered while its
+		// submit was pending and appended after a later drop is marked so.
+		if d.State != Queued && (!appended || d.State != Delivered || d.appended) {
 			continue
 		}
 		r := d.row()
-		r.State, r.WakeID, r.Via = Delivered, w.ID, string(w.path)
+		r.State, r.WakeID, r.Via, r.Appended = Delivered, w.ID, string(w.path), appended
 		if r.Via == "" {
 			r.Via = string(PathMod)
 		}

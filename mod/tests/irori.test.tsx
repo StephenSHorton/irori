@@ -274,7 +274,7 @@ ${prompt}`, turnId: 'turn-1' })
     await until(() => posts(w.calls, '/v1/deliveries/delivered').length === 1, 'delivered after the append')
     expect(w.submitted).toEqual([prompt])
     expect(w.appended).toEqual([{ type: 'user', text: prompt, agentId: undefined }])
-    expect(posts(w.calls, '/v1/deliveries/delivered')[0]!.body).toBe(JSON.stringify({ token: TOKEN }))
+    expect(posts(w.calls, '/v1/deliveries/delivered')[0]!.body).toBe(JSON.stringify({ token: TOKEN, appended: true }))
 
     // The Core re-offers it (a reattach): neither submitted nor appended again.
     w.children[0]!.write(line({ type: 'deliver', token: TOKEN, deliveryIds: ['del_1'], prompt }))
@@ -328,8 +328,12 @@ ${prompt}`, turnId: 'turn-1' })
     // The running turn ends and the engine drops the queued prompt.
     release()
     await until(() => w.appended.length === 1, 'appended after the drop')
-    await pause(50)
-    expect(posts(w.calls, '/v1/deliveries/delivered').length).toBe(1)
+    // Reported again, now as appended: no prompt waits in the host's queue.
+    await until(() => posts(w.calls, '/v1/deliveries/delivered').length === 2, 'delivered again as appended')
+    expect(posts(w.calls, '/v1/deliveries/delivered').map(c => c.body)).toEqual([
+      JSON.stringify({ token: TOKEN }),
+      JSON.stringify({ token: TOKEN, appended: true }),
+    ])
     await $.turn.start({ text: 'carry on', turnId: 'turn-2' })
     await until(() => posts(w.calls, '/v1/deliveries/engaged').length === 1, 'engaged by the next turn')
     expect(posts(w.calls, '/v1/deliveries/engaged')[0]!.body).toBe(JSON.stringify({ token: TOKEN, turnId: 'turn-2', appended: true }))

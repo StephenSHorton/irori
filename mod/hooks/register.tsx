@@ -165,7 +165,8 @@ async function onDeliver($: EngineInterface, e: AttachEvent) {
   const known = (await read($, wakesAtom)).find(w => w.token === token)
   if (known) {
     // The Core handed the same wake again (a reattach): it was submitted already.
-    if (!known.delivered && (await report($, '/v1/deliveries/delivered', { token }))) {
+    const body = known.appended === true ? { token, appended: true } : { token }
+    if (!known.delivered && (await report($, '/v1/deliveries/delivered', body))) {
       await patchWake($, token, { delivered: true })
     }
     return
@@ -249,8 +250,10 @@ async function appendInstead($: EngineInterface, token: string, prompt: string, 
   }
   if (failed) return forgetWake($, token, failure)
   await patchWake($, token, { appended: true })
-  const known = (await read($, wakesAtom)).find(w => w.token === token)
-  if (known && !known.delivered && (await report($, '/v1/deliveries/delivered', { token }))) {
+  // Reported even when the wake was reported delivered while its submit was
+  // pending: appended tells the Core no prompt waits in the host's queue, so
+  // this wake does not hold the session's next one back.
+  if (await report($, '/v1/deliveries/delivered', { token, appended: true })) {
     await patchWake($, token, { delivered: true })
   }
 }

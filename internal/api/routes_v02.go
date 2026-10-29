@@ -47,10 +47,13 @@ package api
 //	     session id rejoining gets the same memberKey. Grok cards come from
 //	     Core.Agents(), not presence.Subscribe.
 //
-//	POST /v1/deliveries/delivered {"token": "[irori-wake:...]"}      (attach only) -> {"ok": true}
+//	POST /v1/deliveries/delivered {"token": "[irori-wake:...]", "appended": false} (attach only) -> {"ok": true}
 //	POST /v1/deliveries/engaged   {"token": "...", "turnId": "...", "appended": false} (attach only) -> {"ok": true}
 //	     appended: true for a wake the mod put in as an append after its
-//	     host refused the submit (card #23); no running wake, so hop 0.
+//	     host refused the submit (card #23). Delivered: no prompt waits in
+//	     the host's queue, so it does not gate the next wake (sent again
+//	     when the wake was reported delivered while its submit was pending).
+//	     Engaged: no running wake, so a message from that turn has hop 0.
 //	POST /v1/deliveries/turn-ended {"token": "...", "turnId": "..."} (attach only) -> {"ok": true}
 //
 //	Next-turn delivery (board.md "Contracts") adds NO routes. A mod stream

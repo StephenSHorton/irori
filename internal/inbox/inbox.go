@@ -432,7 +432,16 @@ func (b *Inbox) NextWake(ctx context.Context, agent string, path Path) (*Wake, e
 // or an append's $.session.append resolved (append token). Idempotent. Not
 // called for channel pushes (see Ack).
 func (b *Inbox) MarkDelivered(ctx context.Context, agent, token string) error {
-	return b.impl.markDelivered(ctx, agent, token)
+	return b.impl.markDelivered(ctx, agent, token, false)
+}
+
+// MarkAppendedDelivered is MarkDelivered for a wake token the mod put in as
+// an append because its host refused the submit (card #23), also when it
+// reported the wake delivered earlier while the submit was pending. No
+// prompt waits in the host's queue, so the wake does not gate the agent's
+// next one (OutstandingWake skips it).
+func (b *Inbox) MarkAppendedDelivered(ctx context.Context, agent, token string) error {
+	return b.impl.markDelivered(ctx, agent, token, true)
 }
 
 // MarkEngaged: a turn whose text contains token started. Reminder tokens are

@@ -166,8 +166,9 @@ func (h *handler) control(w http.ResponseWriter, r *http.Request, what string) {
 	var body struct {
 		Token  string `json:"token"`
 		TurnID string `json:"turnId"`
-		// Appended (engaged only): the mod appended this wake after its
-		// host refused the submit, so the wake did not start the turn.
+		// Appended (delivered, engaged): the mod appended this wake after
+		// its host refused the submit, so no prompt waits in the host's
+		// queue and the wake did not start the turn.
 		Appended bool `json:"appended"`
 	}
 	if err := readBody(w, r, &body); err != nil {
@@ -182,7 +183,11 @@ func (h *handler) control(w http.ResponseWriter, r *http.Request, what string) {
 	var err error
 	switch what {
 	case "delivered":
-		err = ib.MarkDelivered(r.Context(), agent, body.Token)
+		if body.Appended {
+			err = ib.MarkAppendedDelivered(r.Context(), agent, body.Token)
+		} else {
+			err = ib.MarkDelivered(r.Context(), agent, body.Token)
+		}
 	case "engaged":
 		if body.Appended {
 			err = ib.MarkAppendedEngaged(r.Context(), agent, body.Token, body.TurnID)
