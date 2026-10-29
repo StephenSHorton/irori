@@ -186,10 +186,12 @@ func mapErr(err error) string {
 		return errText(err.Error() + ". Use a delivery id addressed to you: the delivery=\"…\" value of an <irori-message> tag, or one the inbox tool lists.")
 	case errors.Is(err, inbox.ErrBadState):
 		return errText(err.Error() + ". The inbox tool (all = true) shows each delivery's state.")
+	case errors.Is(err, coord.ErrAmbiguous):
+		return errText(err.Error() + ". Give the one you mean by its lettered ref (#12a) or its task:<id>.")
 	case errors.Is(err, coord.ErrNotFound):
 		return errText(err.Error() + ". The board and leases tools show what exists.")
 	case errors.Is(err, coord.ErrNotAllowed):
-		return errText(err.Error() + ". show task:<id> lists its holders and creator; comment on it or message them instead.")
+		return errText(err.Error() + ". show #<n> (or task:<id>) lists its holders and creator; comment on it or message them instead.")
 	case errors.Is(err, coord.ErrHeld):
 		return errText(err.Error() + ". Comment on the card or message its holder; or wait for it to come free.")
 	case errors.Is(err, coord.ErrInvalid):

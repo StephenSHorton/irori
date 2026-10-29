@@ -1,6 +1,7 @@
 package coord
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -70,6 +71,44 @@ func TestSetSteps(t *testing.T) {
 				t.Fatalf("ids %v, want %v", stepIDs(got.Steps), tc.wantIDs)
 			}
 		})
+	}
+}
+
+// A task can be created with its steps: ids are minted from s1, given ids
+// are ignored, bad lists refuse the whole create, and replay keeps them.
+func TestCreateTaskWithSteps(t *testing.T) {
+	e := newEnv(t)
+	_, err := e.c.CreateTask(ctx, alice, NewTask{Title: "x", Steps: []Step{{Text: "a", Doing: true}, {Text: "b", Doing: true}}})
+	wantErr(t, err, ErrInvalid)
+	_, err = e.c.CreateTask(ctx, alice, NewTask{Title: "x", Steps: []Step{{Text: " "}}})
+	wantErr(t, err, ErrInvalid)
+	if n := len(e.rows(KindTaskCreated)); n != 0 {
+		t.Fatalf("a refused create wrote %d rows", n)
+	}
+	task := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "ship", Steps: []Step{
+		{ID: "s7", Text: " notes ", Done: true}, {Text: "tag", Doing: true}, {Text: "announce"}}}))
+	want := []Step{{ID: "s1", Text: "notes", Done: true}, {ID: "s2", Text: "tag", Doing: true}, {ID: "s3", Text: "announce"}}
+	if !reflect.DeepEqual(task.Steps, want) {
+		t.Fatalf("steps %+v", task.Steps)
+	}
+	if d, n := task.Progress(); d != 1 || n != 3 {
+		t.Fatalf("progress %d/%d", d, n)
+	}
+	// The next new step continues the sequence.
+	got := must[Task](t)(e.c.SetSteps(ctx, alice, task.ID, append(want, Step{Text: "rest"})))
+	if ids := stepIDs(got.Steps); !reflect.DeepEqual(ids, []string{"s1", "s2", "s3", "s4"}) {
+		t.Fatalf("ids %v", ids)
+	}
+	re := e.reopen()
+	if back, _ := re.GetTask(task.ID); !reflect.DeepEqual(stepIDs(back.Steps), []string{"s1", "s2", "s3", "s4"}) {
+		t.Fatalf("replayed %+v", back.Steps)
+	}
+	// Without steps, no steps row.
+	plain := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "plain"}))
+	for _, r := range e.rows(KindTaskSteps) {
+		if strings.Contains(string(r.Payload), plain.ID) {
+			t.Fatal("a create without steps wrote a steps row")
+		}
 	}
 }
 
@@ -304,6 +343,71 @@ func TestRecommendCap(t *testing.T) {
 	}
 	_, err := e.c.Recommend(ctx, alice, task.ID, "b1", "another", "")
 	wantErr(t, err, ErrInvalid)
+	// Recommending one already offered still works at the cap: it marks it.
+	got := must[Task](t)(e.c.Recommend(ctx, alice, task.ID, "b1", "ooo", ""))
+	if o := got.Blockers[0].Options[2]; !o.Recommended || len(got.Blockers[0].Options) != MaxOptions {
+		t.Fatalf("options %+v", got.Blockers[0].Options)
+	}
+}
+
+// The same answer given twice, both marked recommended, merges to one
+// recommendation and is not refused.
+func TestRecommendedDuplicateMerges(t *testing.T) {
+	e := newEnv(t)
+	task := claimed(t, e)
+	_, b, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: "Which adapter?",
+		Options: []Option{{Answer: "Wintun", Recommended: true}, {Answer: "TAP"}, {Answer: "wintun", Recommended: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Options) != 2 || !b.Options[0].Recommended || b.Options[1].Recommended {
+		t.Fatalf("options %+v", b.Options)
+	}
+}
+
+// A raise marks at most one option recommended; Recommend adds recommended
+// options or marks an offered one; the flags survive a replay.
+func TestRecommendedFlag(t *testing.T) {
+	e := newEnv(t)
+	task := claimed(t, e)
+	_, _, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: "Which adapter?",
+		Options: []Option{{Answer: "Wintun", Recommended: true}, {Answer: "TAP", Recommended: true}}})
+	wantErr(t, err, ErrInvalid)
+	if n := len(e.rows(KindTaskState)); n != 0 {
+		t.Fatalf("a refused raise wrote %d rows", n)
+	}
+	// A duplicate keeps the flag of either copy.
+	_, b, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: "Which adapter?",
+		Options: []Option{{Answer: "Wintun"}, {Answer: "TAP"}, {Answer: "wintun", Recommended: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Options) != 2 || !b.Options[0].Recommended || b.Options[1].Recommended {
+		t.Fatalf("options %+v", b.Options)
+	}
+	must[Task](t)(e.c.Watch(ctx, bob, task.ID))
+	must[Task](t)(e.c.Recommend(ctx, bob, task.ID, "b1", "TAP", "broadcasts"))
+	must[Task](t)(e.c.Recommend(ctx, bob, task.ID, "b1", "Radmin", ""))
+	n := len(e.rows(KindBlockerOption))
+	must[Task](t)(e.c.Recommend(ctx, bob, task.ID, "b1", "tap", "")) // already recommended: no row
+	if len(e.rows(KindBlockerOption)) != n {
+		t.Fatal("recommending a recommended option wrote a row")
+	}
+	check := func(tk Task) {
+		t.Helper()
+		var got []string
+		for _, o := range tk.Blockers[0].Options {
+			got = append(got, fmt.Sprintf("%s %v %s", o.Answer, o.Recommended, o.By))
+		}
+		want := []string{"Wintun true " + alice, "TAP true " + alice, "Radmin true " + bob}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("options %q, want %q", got, want)
+		}
+	}
+	tk, _ := e.c.GetTask(task.ID)
+	check(tk)
+	back, _ := e.reopen().GetTask(task.ID)
+	check(back)
 }
 
 func TestAnswer(t *testing.T) {
@@ -341,7 +445,7 @@ func TestAnswer(t *testing.T) {
 			task = must[Task](t)(e.c.SetShared(ctx, alice, task.ID, true))
 			must[Task](t)(e.c.Join(ctx, bob, task.ID, bob))
 			if _, _, err := e.c.Raise(ctx, bob, task.ID, NewBlocker{Question: "Which adapter?", Context: "Radmin isn't open source.",
-				Options: []Option{{Answer: "Wintun", Why: "signed, modern"}, {Answer: "TAP-Windows", Why: "broadcasts just work"}}}); err != nil {
+				Options: []Option{{Answer: "Wintun", Why: "signed, modern", Recommended: true}, {Answer: "TAP-Windows", Why: "broadcasts just work"}}}); err != nil {
 				t.Fatal(err)
 			}
 			// Resolve b1 first: the task stays blocked on b2.
@@ -370,8 +474,11 @@ func TestAnswer(t *testing.T) {
 				!strings.Contains(n.Text, "Which adapter?") || !strings.Contains(n.Text, tc.wantAns) || !strings.Contains(n.Text, "working again") {
 				t.Fatalf("notice %+v", n)
 			}
-			if tc.a.Pick > 0 && !strings.Contains(n.Text, "recommended") {
-				t.Fatalf("a picked option should say who recommended it: %q", n.Text)
+			// The recommended option says who recommended it; another
+			// option, who offered it.
+			if tc.a.Pick == 1 && !strings.Contains(n.Text, "the answer "+bob+" recommended") ||
+				tc.a.Pick == 2 && !strings.Contains(n.Text, "option 2, offered by "+bob) {
+				t.Fatalf("a picked option should say whose it is: %q", n.Text)
 			}
 			rows := e.rows(KindBlockerResolved)
 			if p := decodeRow[blockerResolvedRow](t, rows[len(rows)-1].Payload); p.Restored != Working || p.Option != tc.wantOpt {

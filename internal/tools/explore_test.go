@@ -151,7 +151,7 @@ func TestAgentsDoing(t *testing.T) {
 	id := r.newCard(callA, map[string]any{"title": "tidy the burrow"})
 	r.ok(callB, "board_join", map[string]any{"task_id": id})
 	out := r.ok(callC, "agents", nil)
-	has(t, out, `doing: "on the Board: tidy the burrow" (task:`+id+")")
+	has(t, out, `doing: "on the Board: #1 tidy the burrow" (task:`+id+")")
 	// alpha holds nothing: its last reply.
 	has(t, out, `doing: "added foo.go" (turn:`)
 	// With capture off the list still works, without doing lines.

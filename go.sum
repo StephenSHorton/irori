@@ -5,8 +5,8 @@ github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERo
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/ProtonMail/go-crypto v1.3.0 h1:ILq8+Sf5If5DCpHQp4PbZdS1J7HDFRXz/+xKBiRGFrw=
 github.com/ProtonMail/go-crypto v1.3.0/go.mod h1:9whxjD8Rbs29b4XWbB8irEcE8KHMqaR2e7GWU1R+/PE=
-github.com/StephenSHorton/go-room v0.2.0 h1:Bg79QtM69AnXgXxGeWqdEnE8u7+MGB+vV3qsbqvZaTM=
-github.com/StephenSHorton/go-room v0.2.0/go.mod h1:yv7hKcGUURYiaJ5pt7ilpdVW8X5ZcpBoIz7Fau/a960=
+github.com/StephenSHorton/go-room v0.2.1 h1:fE0RgY1v72mRAU7v+5Nv+y6vGVJNxABpH0BUGmeNGJM=
+github.com/StephenSHorton/go-room v0.2.1/go.mod h1:bQPs0xn4YjWcC7wS+7t26fja+h9XCjR84hTYHUGzxf4=
 github.com/StephenSHorton/go-toast v0.2.0 h1:oGhT8eijyIPZKPX6wqFHeaQe3hEkPvkFH0bneYWEF8g=
 github.com/StephenSHorton/go-toast v0.2.0/go.mod h1:Pv514NNFLv9kBbYigd0f3vEsaHv/+dlNYlxvCxQ/vd8=
 github.com/adrg/xdg v0.5.3 h1:xRnxJXne7+oWDatRhR1JLnvuccuIeCoBu2rtuLqQB78=

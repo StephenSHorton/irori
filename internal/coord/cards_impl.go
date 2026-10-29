@@ -125,10 +125,22 @@ func cleanOptions(in []Option, by string, at time.Time) ([]Option, error) {
 		if err := checkText("a recommendation's why", why, 0, MaxWhy); err != nil {
 			return nil, err
 		}
-		if optionIndex(out, a) >= 0 {
+		if j := optionIndex(out, a); j >= 0 {
+			out[j].Recommended = out[j].Recommended || o.Recommended
 			continue
 		}
-		out = append(out, Option{Answer: a, Why: why, By: by, At: at})
+		out = append(out, Option{Answer: a, Why: why, By: by, At: at, Recommended: o.Recommended})
+	}
+	// Counted after the merge: the same answer given twice, both marked,
+	// is one recommendation.
+	recommended := 0
+	for _, o := range out {
+		if o.Recommended {
+			recommended++
+		}
+	}
+	if recommended > 1 {
+		return nil, fmt.Errorf("%w: mark at most one answer as recommended", ErrInvalid)
 	}
 	return out, nil
 }
@@ -355,10 +367,15 @@ func (c *coord) touchLine(t *Task, a Activity, watch bool, also ...string) {
 		acts = slices.Delete(acts, 0, n)
 	}
 	c.activity[t.ID] = acts
-	if !watch || c.replaying {
-		return
+	if watch {
+		c.queueWatch(t, by, what, also...)
 	}
-	if len(t.Watchers) == 0 && len(also) == 0 {
+}
+
+// queueWatch queues a watch line for t's watchers and also, outside
+// replay. The caller holds c.mu.
+func (c *coord) queueWatch(t *Task, by, what string, also ...string) {
+	if c.replaying || len(t.Watchers) == 0 && len(also) == 0 {
 		return
 	}
 	q := c.watchq[t.ID]
@@ -483,10 +500,9 @@ func (c *coord) recommend(ctx context.Context, by, id, bid, answer, why string) 
 	if !c.mayRecommend(t, b, by) {
 		return Task{}, fmt.Errorf("%w: only its holders, watchers, the raiser, the creator or a person may recommend on task %s; watch it first", ErrNotAllowed, id)
 	}
-	if optionIndex(b.Options, answer) >= 0 {
+	if j := optionIndex(b.Options, answer); j >= 0 && b.Options[j].Recommended {
 		return copyTask(t), nil
-	}
-	if len(b.Options) >= MaxOptions {
+	} else if j < 0 && len(b.Options) >= MaxOptions {
 		return Task{}, fmt.Errorf("%w: blocker %s already has %d recommended answers", ErrInvalid, b.ID, MaxOptions)
 	}
 	if err := c.write(ctx, by, KindBlockerOption, blockerOptionRow{
@@ -517,13 +533,13 @@ func (c *coord) answer(ctx context.Context, by, id, bid string, a BlockerAnswer)
 	if !b.Open() {
 		return Task{}, Notice{}, fmt.Errorf("%w: blocker %s is already resolved", ErrBadState, b.ID)
 	}
-	opt, recBy := -1, ""
+	opt, recBy, rec := -1, "", false
 	switch {
 	case a.Pick < 0 || a.Pick > len(b.Options):
-		return Task{}, Notice{}, fmt.Errorf("%w: blocker %s has %d recommended answers, not %d", ErrInvalid, b.ID, len(b.Options), a.Pick)
+		return Task{}, Notice{}, fmt.Errorf("%w: blocker %s has %d answers to pick from, not %d", ErrInvalid, b.ID, len(b.Options), a.Pick)
 	case a.Pick > 0:
 		opt = a.Pick - 1
-		text, recBy = b.Options[opt].Answer, b.Options[opt].By
+		text, recBy, rec = b.Options[opt].Answer, b.Options[opt].By, b.Options[opt].Recommended
 	default:
 		if err := checkText("the answer", text, 1, MaxOwnAnswer); err != nil {
 			return Task{}, Notice{}, err
@@ -549,10 +565,13 @@ func (c *coord) answer(ctx context.Context, by, id, bid string, a BlockerAnswer)
 		}
 	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "%s answered the blocker on %q (task:%s, blocker %s).\nQuestion: %s\nAnswer: %s",
-		by, t.Title, id, b.ID, b.Question, cut(text, maxNoticeField))
-	if recBy != "" {
+	fmt.Fprintf(&sb, "%s answered the blocker on %q (%s, blocker %s).\nQuestion: %s\nAnswer: %s",
+		by, t.Title, t.Refs(), b.ID, b.Question, cut(text, maxNoticeField))
+	switch {
+	case recBy != "" && rec:
 		fmt.Fprintf(&sb, "\n(That is the answer %s recommended.)", recBy)
+	case recBy != "":
+		fmt.Fprintf(&sb, "\n(That is option %d, offered by %s.)", opt+1, recBy)
 	}
 	if restored != "" {
 		fmt.Fprintf(&sb, "\nNo blockers remain: it is %s again.", t.State)
@@ -566,33 +585,52 @@ func (c *coord) answer(ctx context.Context, by, id, bid string, a BlockerAnswer)
 
 // ---- steps ----
 
-func (c *coord) setSteps(ctx context.Context, by, id string, in []Step) (Task, error) {
-	by, _, err := callers(by)
-	if err != nil {
-		return Task{}, err
-	}
+// checkSteps trims a step list in place and checks it: at most MaxSteps,
+// texts 1..MaxStepText runes on one line, at most one Doing, never Done and
+// Doing.
+func checkSteps(in []Step) error {
 	if len(in) > MaxSteps {
-		return Task{}, fmt.Errorf("%w: more than %d steps", ErrInvalid, MaxSteps)
+		return fmt.Errorf("%w: more than %d steps", ErrInvalid, MaxSteps)
 	}
 	doing := 0
 	for i := range in {
 		in[i].Text = strings.TrimSpace(in[i].Text)
 		in[i].ID = strings.TrimSpace(in[i].ID)
 		if err := checkText("a step", in[i].Text, 1, MaxStepText); err != nil {
-			return Task{}, err
+			return err
 		}
 		if strings.ContainsAny(in[i].Text, "\r\n") {
-			return Task{}, fmt.Errorf("%w: a step is one line", ErrInvalid)
+			return fmt.Errorf("%w: a step is one line", ErrInvalid)
 		}
 		if in[i].Done && in[i].Doing {
-			return Task{}, fmt.Errorf("%w: step %q is both done and in progress", ErrInvalid, in[i].Text)
+			return fmt.Errorf("%w: step %q is both done and in progress", ErrInvalid, in[i].Text)
 		}
 		if in[i].Doing {
 			doing++
 		}
 	}
 	if doing > 1 {
-		return Task{}, fmt.Errorf("%w: only one step can be in progress", ErrInvalid)
+		return fmt.Errorf("%w: only one step can be in progress", ErrInvalid)
+	}
+	return nil
+}
+
+// newSteps mints ids s1, s2, ... for a new task's checked steps.
+func newSteps(in []Step) []Step {
+	out := make([]Step, 0, len(in))
+	for i, s := range in {
+		out = append(out, Step{ID: "s" + strconv.Itoa(i+1), Text: s.Text, Done: s.Done, Doing: s.Doing})
+	}
+	return out
+}
+
+func (c *coord) setSteps(ctx context.Context, by, id string, in []Step) (Task, error) {
+	by, _, err := callers(by)
+	if err != nil {
+		return Task{}, err
+	}
+	if err := checkSteps(in); err != nil {
+		return Task{}, err
 	}
 	c.mu.Lock()
 	defer c.unlock()
@@ -885,7 +923,7 @@ func watchParts(s string) (lines []string, more int, head, foot string, ok bool)
 
 func watchText(t *Task, lines []string, dropped int) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, watchHead+"%q (task:%s)"+watchHeadEnd, t.Title, t.ID)
+	fmt.Fprintf(&b, watchHead+"%q (%s)"+watchHeadEnd, t.Title, t.Refs())
 	shown := lines
 	if len(shown) > maxWatchLines {
 		shown = shown[len(shown)-maxWatchLines:]
@@ -953,12 +991,22 @@ func (c *coord) applyCard(ev store.Event, at func(time.Time) time.Time) {
 			return
 		}
 		i := blockerIndex(t, p.BlockerID)
-		if i < 0 || !t.Blockers[i].Open() || len(t.Blockers[i].Options) >= MaxOptions || optionIndex(t.Blockers[i].Options, p.Answer) >= 0 {
+		if i < 0 || !t.Blockers[i].Open() {
 			return
 		}
 		b := &t.Blockers[i]
 		when := at(p.At)
-		b.Options = append(b.Options, Option{Answer: p.Answer, Why: p.Why, By: p.By, At: when})
+		// A recommendation of an option already there marks it.
+		if j := optionIndex(b.Options, p.Answer); j >= 0 {
+			if b.Options[j].Recommended {
+				return
+			}
+			b.Options[j].Recommended = true
+		} else if len(b.Options) >= MaxOptions {
+			return
+		} else {
+			b.Options = append(b.Options, Option{Answer: p.Answer, Why: p.Why, By: p.By, At: when, Recommended: true})
+		}
 		t.UpdatedAt = when
 		c.touch(ev, t, when, p.By, "recommended “"+p.Answer+"” for “"+b.Question+"”", true, b.RaisedBy)
 	case KindBlockerResolved:

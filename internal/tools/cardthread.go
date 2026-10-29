@@ -40,7 +40,7 @@ func cardFor(co *coord.Coord, ref string) (string, bool) {
 	kind, id, _ := strings.Cut(ref, ":")
 	switch kind {
 	case "task":
-		id = taskID(ref)
+		id = strings.TrimSpace(id) // a Ref holds the card's id, never a short ref
 	case "comment":
 		cm, found := co.GetComment(strings.TrimSpace(id))
 		if !found {

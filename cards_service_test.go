@@ -67,7 +67,7 @@ func TestCardsGrid(t *testing.T) {
 	}
 	g := got[0]
 	if g.Progress != (CardProgress{1, 2}) || g.OpenBlockers != 1 || g.BlockerQuestion != "Ship today?" ||
-		g.Scope != ScopeMine || g.ScopeLabel != "My devices" || g.State != coord.Blocked {
+		g.Scope != ScopeMine || g.ScopeLabel != "My devices" || g.State != coord.Blocked || g.Short != "2" || g.ShortWas != "" {
 		t.Fatalf("card %+v", g)
 	}
 	if len(g.Working) != 1 || g.Working[0] != (AgentRef{Key: agentA, Name: "ww-release", Status: "busy", Live: true, Where: "This PC"}) {
@@ -86,6 +86,98 @@ func TestCardsGrid(t *testing.T) {
 	}
 }
 
+// A card's holder line: who holds it and whether that agent is active,
+// idle or gone, and "waiting" for an assignment whose notice never reached
+// its agent.
+func TestCardHolderLine(t *testing.T) {
+	ctx := context.Background()
+	b, c, _ := cardsBoard(t)
+	const gone = "dev-a/agent-gone"
+	var open []inbox.Delivery
+	b.deliveries = func() []inbox.Delivery { return open }
+	notice := func(to, ref string, st inbox.State) inbox.Delivery {
+		return inbox.Delivery{To: to, State: st, Message: inbox.Message{Ref: ref, Notice: true, Reason: string(coord.NoticeAssigned)}}
+	}
+	later := func(to, ref string, kind coord.NoticeKind) inbox.Delivery {
+		return inbox.Delivery{To: to, State: inbox.Queued, Message: inbox.Message{Ref: ref, Notice: true, Reason: string(kind)}}
+	}
+	nobody, err := c.CreateTask(ctx, agentA, coord.NewTask{Title: "nobody"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := heldTask(t, c) // agentA: busy
+	idle := heldTask(t, c)
+	if _, _, err := c.Assign(ctx, agentA, idle.ID, agentB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ClaimTask(ctx, agentB, idle.ID); err != nil { // agentB: idle
+		t.Fatal(err)
+	}
+	gn := heldTask(t, c)
+	if _, _, err := c.Assign(ctx, agentA, gn.ID, gone); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ClaimTask(ctx, gone, gn.ID); err != nil { // takes it up, then leaves the roster
+		t.Fatal(err)
+	}
+	queued, err := c.CreateTask(ctx, agentA, coord.NewTask{Title: "queued"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, _ := c.CreateTask(ctx, agentA, coord.NewTask{Title: "held"})
+	told, _ := c.CreateTask(ctx, agentA, coord.NewTask{Title: "told"})
+	for _, tk := range []coord.Task{queued, held, told} {
+		if _, _, err := c.Assign(ctx, agentA, tk.ID, agentB); err != nil {
+			t.Fatal(err)
+		}
+	}
+	open = []inbox.Delivery{
+		notice(agentB, "task:"+queued.ID, inbox.Queued),
+		notice(agentB, "task:"+held.ID, inbox.Held),
+		notice(agentB, "task:"+told.ID, inbox.Delivered),
+		notice(agentA, "task:"+told.ID, inbox.Queued),                                     // another agent's notice
+		{To: agentB, State: inbox.Queued, Message: inbox.Message{Ref: "task:" + told.ID}}, // not a Board notice
+		later(agentB, "task:"+told.ID, coord.NoticeUnblocked),                             // a later notice, not the hand-over
+		later(agentB, "task:"+told.ID, coord.NoticeWatched),
+	}
+	byID := map[string]CardSummary{}
+	for _, s := range b.Cards() {
+		byID[s.ID] = s
+	}
+	cases := []struct {
+		name string
+		id   string
+		want Holding
+		who  string
+	}{
+		{"nobody", nobody.ID, HoldNobody, ""},
+		{"busy agent", active.ID, HoldActive, agentA},
+		{"idle agent", idle.ID, HoldIdle, agentB},
+		{"gone agent", gn.ID, HoldGone, gone},
+		{"assignment queued", queued.ID, HoldWaiting, agentB},
+		{"assignment held", held.ID, HoldWaiting, agentB},
+		{"assignment delivered, not taken up", told.ID, HoldAssigned, agentB},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := byID[tc.id].Holder
+			if h.State != tc.want || h.Who.Key != tc.who {
+				t.Fatalf("holder %+v, want %s %s", h, tc.want, tc.who)
+			}
+			if tc.want == HoldWaiting != h.Who.Waiting {
+				t.Fatalf("waiting %+v", h.Who)
+			}
+		})
+	}
+	// Taking it up ends the wait, though the notice is still queued.
+	if _, err := c.ClaimTask(ctx, agentB, queued.ID); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := b.Card(queued.ID); s.Holder.State != HoldIdle || s.Holder.Who.Waiting {
+		t.Fatalf("after claim %+v", s.Holder)
+	}
+}
+
 func TestCardDetail(t *testing.T) {
 	ctx := context.Background()
 	b, c, _ := cardsBoard(t)
@@ -100,7 +192,7 @@ func TestCardDetail(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, _, err := c.Raise(ctx, agentA, tk.ID, coord.NewBlocker{Question: "Which adapter?", Context: "Radmin is closed.",
-		Options: []coord.Option{{Answer: "Wintun", Why: "signed"}}}); err != nil {
+		Options: []coord.Option{{Answer: "Wintun", Why: "signed"}, {Answer: "TAP", Recommended: true}}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := c.Answer(ctx, "user:dev-a", tk.ID, "b1", coord.BlockerAnswer{Text: "yes"}); err != nil {
@@ -110,11 +202,15 @@ func TestCardDetail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if d.Short != "1" {
+		t.Fatalf("short ref %q", d.Short)
+	}
 	if len(d.Blockers) != 2 || d.Blockers[0].ID != "b2" || d.Blockers[0].Resolved != nil || d.Blockers[1].ID != "b1" ||
 		d.Blockers[1].Resolved == nil || d.Blockers[1].Resolved.By.Name != "You" || d.Blockers[1].Resolved.Answer != "yes" {
 		t.Fatalf("blockers %+v", d.Blockers)
 	}
-	if o := d.Blockers[0].Options; len(o) != 1 || o[0].By.Name != "ww-release" || o[0].Why != "signed" || d.Blockers[0].Context != "Radmin is closed." {
+	if o := d.Blockers[0].Options; len(o) != 2 || o[0].By.Name != "ww-release" || o[0].Why != "signed" || o[0].Recommended ||
+		!o[1].Recommended || d.Blockers[0].Context != "Radmin is closed." {
 		t.Fatalf("options %+v", o)
 	}
 	if len(d.PRs) != 1 || d.PRs[0].Number != 57 || d.PRs[0].Label != "GitHub #57" ||

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/inbox"
 )
 
@@ -51,9 +52,16 @@ func (s *set) send(ctx context.Context, c Caller, raw json.RawMessage) string {
 	// once sent. An unknown card sends nothing.
 	ref := ""
 	if strings.TrimSpace(a.TaskID) != "" {
-		id := taskID(a.TaskID)
+		id, msg := s.taskID(a.TaskID)
+		if msg != "" {
+			return msg
+		}
 		if _, ok := s.b.Coord().GetTask(id); !ok {
-			return errText("no card task:" + oneLine(id, 80) + "; nothing was sent. The board tool shows the cards.")
+			name := "task:" + id
+			if _, short := coord.ParseShort(id); short {
+				name = id // a short ref no card has, as given
+			}
+			return errText("no card " + oneLine(name, 80) + "; nothing was sent. The board tool shows the cards.")
 		}
 		ref = "task:" + id
 	}

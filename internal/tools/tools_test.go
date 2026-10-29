@@ -497,6 +497,16 @@ func TestSendAndReply(t *testing.T) {
 
 	// An unknown card sends nothing.
 	h.fails(callA, "send", map[string]any{"to": "beta", "text": "lost words", "task_id": "nope"}, "no card task:nope", "nothing was sent")
+	h.fails(callA, "send", map[string]any{"to": "beta", "text": "lost words", "task_id": "#999"}, "no card #999", "nothing was sent")
+	// A short ref names the card like every other card tool's task_id.
+	tk, _ := h.b.co.GetTask(id)
+	if tk.Short == "" {
+		t.Fatal("the card has no short ref")
+	}
+	out = h.ok(callA, "send", map[string]any{"to": "beta", "text": "by its short ref", "task_id": tk.ShortRef()})
+	if d, _ := h.b.ib.Get(field(t, out, "(delivery")); d.Message.Ref != "task:"+id {
+		t.Fatalf("short ref %s: message ref %q", tk.ShortRef(), d.Message.Ref)
+	}
 	hasNot(t, h.ok(callB, "inbox", map[string]any{"all": true}), "lost words")
 
 	// Held by the wake policy: on the card without its text, until the

@@ -123,6 +123,10 @@ type Message struct {
 	// Attachments are files on the message (v0.4 §6.6): refs to the
 	// attaching device's store, fetched on demand with attachment_get.
 	Attachments []blob.FileRef `json:"attachments,omitempty"`
+	// writer is the device that wrote the message.sent row (memory only,
+	// set as it folds): an own-agent exemption needs From's key to be that
+	// device's (decision 34).
+	writer string
 }
 
 // State is a delivery's state (design §4).
@@ -340,6 +344,10 @@ type Options struct {
 	// without the inbox lock held, from Sweep, Release and SetPolicy; an
 	// error is tried again on later calls for NoCardGrace. Nil skips it.
 	OnPassed func(ctx context.Context, m Message, to string) error
+	// Revoked reports a device removed from the person (v0.4 §3): its
+	// agents are no longer the person's own for the bypass rule (decision
+	// 34). Nil revokes none.
+	Revoked func(device string) bool
 	// Overrides for tests; zero means the constant above.
 	UnengagedLimit, GoneGrace, QuietLimit, ReattachGrace, NoCardGrace time.Duration
 }

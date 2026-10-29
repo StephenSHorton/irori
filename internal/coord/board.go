@@ -346,7 +346,7 @@ func (c *Coord) SweepNotices(ctx context.Context) ([]Notice, error) {
 }
 
 // Search (search.Source): coord owns the task and comment refs. A task's
-// Doc has Title = its title, Body = objective, done criteria, note and
+// Doc has Title = its title, Body = its short ref ("#12"), objective, done criteria, note and
 // reason, Agent = Holder, Updated = UpdatedAt; a comment's has Title "comment
 // on <task title>", Body = its text, Agent = its author if an agent. Show
 // renders a task as its fields, links (label and ref), holders, blocker, and

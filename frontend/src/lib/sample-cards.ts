@@ -8,9 +8,11 @@ import {
   CardActivity,
   CardBlocker,
   CardDetail,
+  CardHolder,
   CardOption,
   CardPR,
   CardThreadItem,
+  Holding,
 } from "../../bindings/github.com/StephenSHorton/irori/models"
 import {
   LinkKind,
@@ -59,6 +61,28 @@ export const sampleYou = new AgentRef({
   where: "This PC",
 })
 
+// sampleHolder mirrors cards_service.go's holderLine: the holder that took
+// the card up, else the first assigned one.
+export function sampleHolder(working: AgentRef[]): CardHolder {
+  if (!working.length) return new CardHolder({ state: Holding.HoldNobody })
+  const who = working.find((w) => !w.assigned) ?? working[0]
+  const state =
+    who.status === "person"
+      ? Holding.HoldPerson
+      : who.waiting
+        ? Holding.HoldWaiting
+        : who.assigned
+          ? Holding.HoldAssigned
+          : who.status === "gone"
+            ? Holding.HoldGone
+            : who.offline
+              ? Holding.HoldOffline
+              : who.status === "idle"
+                ? Holding.HoldIdle
+                : Holding.HoldActive
+  return new CardHolder({ who, state, others: working.length - 1 })
+}
+
 type StepSeed = [text: string, done: boolean, doing?: boolean]
 
 function steps(seeds: StepSeed[]): Step[] {
@@ -101,11 +125,13 @@ export function sampleCards(now: Date): CardDetail[] {
       comments: [],
       prs: [],
       watching: [],
+      short: (c.id ?? "").replace("sample-card-", ""),
       ...c,
       thread: c.thread ?? eventsOf(c.recent ?? []),
       steps: st,
       blockers: c.blockers ?? [],
       progress: { done: st.filter((s) => s.done).length, total: st.length },
+      holder: sampleHolder(c.working ?? []),
       openBlockers: open.length,
       blockerQuestion: open[0]?.question ?? "",
     })
@@ -141,6 +167,7 @@ export function sampleCards(now: Date): CardDetail[] {
               why: "The temple is the release's headline feature; an untested headline is worse than a short delay.",
               by: otter,
               at: at(18),
+              recommended: true,
             }),
             new CardOption({
               answer: "Ship now, mark temple co-op as experimental",
@@ -209,6 +236,7 @@ export function sampleCards(now: Date): CardDetail[] {
               why: "No old driver, one modern signed one; the broadcast relay is the extra work.",
               by: badger,
               at: at(9),
+              recommended: true,
             }),
             new CardOption({
               answer: "TAP-Windows",
@@ -367,6 +395,23 @@ export function sampleCards(now: Date): CardDetail[] {
           at: at(25),
           who: heron,
           text: "sample-heron ticked “Lobby create and join”",
+        }),
+      ],
+    }),
+    card({
+      // No steps, and its assignment hasn't reached the agent: the tile
+      // says "Waiting for", not in progress.
+      id: "sample-card-5",
+      title: "Back up the out/ folder before the re-run",
+      repoKey: "remote:github.com/sample-org/example-app",
+      goal: "A copy of out/ somewhere safe, so the re-run can overwrite it.",
+      working: [new AgentRef({ ...heron, assigned: true, waiting: true })],
+      updatedAt: at(2),
+      recent: [
+        new CardActivity({
+          at: at(2),
+          who: otter,
+          text: "sample-otter assigned it to sample-heron",
         }),
       ],
     }),
