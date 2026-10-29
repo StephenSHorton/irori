@@ -267,6 +267,9 @@ type coord struct {
 	// Subtasks (subtasks.go): every parent link row, in fold order;
 	// relink sorts them.
 	links []parentLink
+
+	// Pins (pins.go): each card's newest task.pinned row by the person.
+	pins map[string]pinRec
 }
 
 func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() []presence.AgentCard }, opts Options) (*Coord, error) {
@@ -298,6 +301,7 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 		shortGroups: map[int][]shortClaim{},
 		shortIdx:    map[string]string{},
 		shortMoved:  map[string]time.Time{},
+		pins:        map[string]pinRec{},
 		subs:        map[chan Change]*subscriber{},
 		last:        map[string]int64{},
 		conflicts:   map[string]*leaseRec{},
@@ -467,6 +471,7 @@ func (c *coord) fold(ev store.Event) {
 			CreatedAt: t, UpdatedAt: t, UpdatedBy: p.By, Shared: p.Shared, Links: links,
 		}
 		c.foldAskCreated(c.tasks[p.TaskID], p.Ask, ev, p.By)
+		c.syncPin(c.tasks[p.TaskID]) // a pin row can fold before its card
 		if p.Parent != "" {
 			c.foldParent(p.TaskID, p.Parent, ev)
 		}
@@ -708,6 +713,8 @@ func (c *coord) fold(ev store.Event) {
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
 	case KindBlockerOption, KindBlockerResolved, KindTaskSteps, KindTaskStep, KindTaskWatched:
 		c.applyCard(ev, at)
+	case KindTaskPinned:
+		c.foldPin(ev)
 	case KindTaskParent:
 		var p taskParentRow
 		if json.Unmarshal(ev.Payload, &p) != nil || p.TaskID == "" {

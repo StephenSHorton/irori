@@ -654,6 +654,9 @@ export function sampleCards(now: Date): CardDetail[] {
     card({
       id: "sample-card-4",
       title: "Pair my devices",
+      // Pinned (board.md "Pinned cards"): in the Pinned group, first.
+      pinned: true,
+      pinRank: 1,
       repoKey: "remote:github.com/sample-org/example-app",
       goal: "My laptop and desktop share one roster, cards and wakes.",
       working: [otter],
@@ -729,6 +732,8 @@ export function sampleCards(now: Date): CardDetail[] {
     card({
       id: "sample-card-7",
       title: "Ship the release",
+      pinned: true,
+      pinRank: 2,
       repoKey: "remote:github.com/sample-org/example-app",
       goal: "Version 0.6 out: notes, the build and the announcement.",
       working: [otter],

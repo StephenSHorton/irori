@@ -3,9 +3,12 @@ package coord
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/StephenSHorton/irori/internal/store"
 )
 
 func bp(b bool) *bool { return &b }
@@ -1015,5 +1018,70 @@ func TestMergeWatch(t *testing.T) {
 	}
 	if _, ok := MergeWatch("hello", want); ok {
 		t.Fatal("merged a non-digest")
+	}
+}
+
+// Two devices fold the same rows and queue the same watch lines; only the
+// watcher's own device sends its digest, so it arrives once.
+func TestWatchDigestComesFromTheWatchersDevice(t *testing.T) {
+	const mac = "dev-b/mac-session"
+	pc := newEnv(t)
+	pc.owner = func(k string) bool { return k == "user:dev-a" || k == "user:dev-b" }
+	pc.c = pc.reopen()
+	other := newEnvOn(t, "dev-b")
+	other.owner = pc.owner
+	other.c = other.reopen()
+	sync := func() {
+		t.Helper()
+		for _, e := range []*env{pc, other} {
+			src, dst := pc, other
+			if e == other {
+				src, dst = other, pc
+			}
+			v, err := dst.st.Vector(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			evs, err := src.st.Missing(ctx, v, store.MaxMissingLimit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, ev := range evs {
+				if err := dst.st.Insert(ctx, ev); err != nil {
+					t.Fatal(err)
+				}
+				dst.c.impl.applyRemote(ctx, ev)
+			}
+		}
+	}
+	tk := must[Task](t)(pc.c.CreateTask(ctx, alice, NewTask{Title: "watched"}))
+	sync()
+	if _, err := other.c.Watch(ctx, mac, tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	sync()
+	if _, err := pc.c.SetSteps(ctx, alice, tk.ID, []Step{{Text: "one"}}); err != nil {
+		t.Fatal(err)
+	}
+	sync()
+	count := func(e *env) int {
+		t.Helper()
+		ns, err := e.c.SweepNotices(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, x := range ns {
+			if x.Kind == NoticeWatched && slices.Contains(x.To, mac) {
+				n++
+			}
+		}
+		return n
+	}
+	if n := count(pc); n != 0 {
+		t.Fatalf("the PC told the Mac's watcher %d times", n)
+	}
+	if n := count(other); n != 1 {
+		t.Fatalf("the Mac told its own watcher %d times, want 1", n)
 	}
 }

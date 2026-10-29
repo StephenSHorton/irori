@@ -18,6 +18,7 @@ import {
 import {
   cardFromHash,
   cardHash,
+  cards as cards_,
   deviceChips,
   useCard,
   useCards,
@@ -233,6 +234,12 @@ export function App() {
       ? "all"
       : filter
   const { shown, context } = shownCards(cards, active)
+  // The Pinned group: pinned cards in their order, each pinned parent with
+  // its subtasks (as BoardService.Cards lists them).
+  const pinnedGroup = shown.filter(
+    (c) => c.pinned || (c.parent && shown.some((p) => p.id === c.parent?.id && p.pinned))
+  )
+  const inPinned = new Set(pinnedGroup.map((c) => c.id))
   const decide = cards.filter((c) => c.openBlockers > 0).length
 
   return (
@@ -296,7 +303,32 @@ export function App() {
                 now={now}
               />
             ) : shown.length ? (
-              <CardGrid cards={shown} context={context} selected={last} onSelect={openCard} />
+              <>
+                {pinnedGroup.length > 0 && (
+                  <>
+                    <h2 className="px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                      Pinned
+                    </h2>
+                    <CardGrid
+                      label="Pinned cards"
+                      cards={pinnedGroup}
+                      context={context}
+                      selected={last}
+                      onSelect={openCard}
+                      onMove={(id, before) => void cards_.movePin(id, before)}
+                    />
+                    <h2 className="px-1 pt-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                      Everything else
+                    </h2>
+                  </>
+                )}
+                <CardGrid
+                  cards={shown.filter((c) => !inPinned.has(c.id))}
+                  context={context}
+                  selected={last}
+                  onSelect={openCard}
+                />
+              </>
             ) : (
               <p className="px-1 text-[12.5px] text-muted-foreground">
                 Nothing here with this filter.

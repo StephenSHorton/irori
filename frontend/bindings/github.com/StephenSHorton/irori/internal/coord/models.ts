@@ -480,6 +480,13 @@ export class Card {
     "parent"?: string;
     "subtasks"?: string[];
     "rollup"?: Rollup | null;
+
+    /**
+     * Pinned: the person pinned it (pins.go); PinRank orders the pinned
+     * cards, lowest first. Derived by the fold.
+     */
+    "pinned"?: boolean;
+    "pinRank"?: number;
     "lastComment"?: Comment | null;
 
     /**
@@ -544,9 +551,9 @@ export class Card {
         const $$createField26_0 = $$createType24;
         const $$createField28_0 = $$createType0;
         const $$createField29_0 = $$createType26;
-        const $$createField30_0 = $$createType28;
-        const $$createField32_0 = $$createType0;
-        const $$createField33_0 = $$createType0;
+        const $$createField32_0 = $$createType28;
+        const $$createField34_0 = $$createType0;
+        const $$createField35_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
             $$parsedSource["scope"] = $$createField7_0($$parsedSource["scope"]);
@@ -585,13 +592,13 @@ export class Card {
             $$parsedSource["rollup"] = $$createField29_0($$parsedSource["rollup"]);
         }
         if ("lastComment" in $$parsedSource) {
-            $$parsedSource["lastComment"] = $$createField30_0($$parsedSource["lastComment"]);
+            $$parsedSource["lastComment"] = $$createField32_0($$parsedSource["lastComment"]);
         }
         if ("gone" in $$parsedSource) {
-            $$parsedSource["gone"] = $$createField32_0($$parsedSource["gone"]);
+            $$parsedSource["gone"] = $$createField34_0($$parsedSource["gone"]);
         }
         if ("overlaps" in $$parsedSource) {
-            $$parsedSource["overlaps"] = $$createField33_0($$parsedSource["overlaps"]);
+            $$parsedSource["overlaps"] = $$createField35_0($$parsedSource["overlaps"]);
         }
         return new Card($$parsedSource as Partial<Card>);
     }
@@ -1272,6 +1279,13 @@ export class Task {
     "parent"?: string;
     "subtasks"?: string[];
     "rollup"?: Rollup | null;
+
+    /**
+     * Pinned: the person pinned it (pins.go); PinRank orders the pinned
+     * cards, lowest first. Derived by the fold.
+     */
+    "pinned"?: boolean;
+    "pinRank"?: number;
 
     /** Creates a new Task instance. */
     constructor($$source: Partial<Task> = {}) {

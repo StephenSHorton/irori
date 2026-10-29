@@ -106,6 +106,9 @@ func (s *set) cardText(t coord.Task, last *coord.Comment, n names, now time.Time
 	if t.Parent != "" {
 		b.WriteString("; part of " + s.shortOf(t.Parent))
 	}
+	if t.Pinned {
+		b.WriteString("; pinned by the person")
+	}
 	var holders []string
 	for _, h := range t.Holders {
 		w := n.who(h)

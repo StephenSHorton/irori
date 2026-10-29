@@ -15,6 +15,7 @@ import (
 
 	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/hlc"
+	"github.com/StephenSHorton/irori/internal/owner"
 	"github.com/StephenSHorton/irori/internal/store"
 )
 
@@ -1136,7 +1137,14 @@ func (c *coord) watchNotices() []Notice {
 			continue
 		}
 		var who []string
+		self := c.st.DeviceID()
 		add := func(k string) {
+			// Every device folds the same rows and queues the same lines,
+			// so only the watcher's own device tells it (its host decides,
+			// v0.4 §6.3); a key that names no device is told here.
+			if dev := owner.DeviceOf(k); dev != "" && dev != self {
+				return
+			}
 			if k != "" && !c.isOwner(k) && k != sweeper && !contains(who, k) {
 				who = append(who, k)
 			}

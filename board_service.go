@@ -311,6 +311,20 @@ func (b *BoardService) CloseAsk(id, note string) (coord.Task, error) {
 	return b.coord.AskClose(context.Background(), b.user.Key, strings.TrimSpace(id), coord.AskOutcome{Kind: coord.OutcomeNone, Note: note})
 }
 
+// Pin pins (or with pinned false unpins) a card for the person: it shows
+// in the Pinned group above the grid, last among the pinned cards.
+func (b *BoardService) Pin(id string, pinned bool) error {
+	_, err := b.coord.Pin(context.Background(), b.user.Key, strings.TrimSpace(id), pinned)
+	return err
+}
+
+// MovePin moves a pinned card to just before another pinned card (""
+// puts it last).
+func (b *BoardService) MovePin(id, before string) error {
+	_, err := b.coord.MovePin(context.Background(), b.user.Key, strings.TrimSpace(id), strings.TrimSpace(before))
+	return err
+}
+
 // AskRepos are the repos the roster's agents are in, for the ask box's
 // repo chip: repoKey and a short label, sorted by label.
 func (b *BoardService) AskRepos() []AskRepo {

@@ -181,7 +181,7 @@ func (c *coord) refoldIfCut(ctx context.Context, vec store.Vector) {
 	c.claims, c.claimed, c.shortGroups, c.shortIdx = nil, map[string]bool{}, map[int][]shortClaim{}, map[string]string{}
 	c.last, c.conflicts, c.stolen, c.lapsed, c.ignored, c.ignoredBy = map[string]int64{}, map[string]*leaseRec{}, map[string]bool{}, nil, 0, nil
 	c.asks.reset()
-	c.links = nil
+	c.links, c.pins = nil, map[string]pinRec{}
 	if err := c.replay(ctx); err != nil {
 		log.Printf("coord: re-fold after a revoke's cut: %v", err)
 	}

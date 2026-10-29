@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from "react"
-import { ArrowLeftIcon, ExternalLinkIcon } from "lucide-react"
+import { ArrowLeftIcon, ExternalLinkIcon, PinIcon, PinOffIcon } from "lucide-react"
 
 import { ConfirmButton } from "@/components/common/confirm-button"
 import { Badge } from "@/components/ui/badge"
@@ -396,6 +396,7 @@ function PageHeader({
             {shortRepo(card.repoKey)}
           </span>
         )}
+        <PinButton card={card} />
       </div>
       <h1 className="text-2xl leading-tight font-semibold tracking-tight text-balance text-ink">
         {plainLine(card.title) || "(untitled)"}
@@ -415,6 +416,36 @@ function PageHeader({
         </p>
       )}
     </header>
+  )
+}
+
+// PinButton pins or unpins the card: pinned cards show in their own group
+// above the grid, in the person's order (drag to reorder there).
+function PinButton({ card }: { card: CardSummary }) {
+  // The page reloads when the pin row folds; until then busy holds the
+  // button.
+  const [busy, setBusy] = useState(false)
+  const pinned = !!card.pinned
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="ml-auto h-7 gap-1.5 text-xs"
+      disabled={busy}
+      aria-pressed={pinned}
+      title={pinned ? "Unpin: back to the regular list" : "Pin: keep it in the Pinned group at the top"}
+      onClick={async () => {
+        setBusy(true)
+        try {
+          await cards.pin(card.id, !pinned)
+        } finally {
+          setBusy(false)
+        }
+      }}
+    >
+      {pinned ? <PinOffIcon aria-hidden /> : <PinIcon aria-hidden />}
+      {pinned ? "Unpin" : "Pin"}
+    </Button>
   )
 }
 

@@ -1,4 +1,5 @@
-import { LayersIcon } from "lucide-react"
+import { LayersIcon, PinIcon } from "lucide-react"
+import { useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -172,6 +173,8 @@ export function CardGrid({
   onSelect,
   now,
   context,
+  label = "Shared work",
+  onMove,
 }: {
   cards: CardSummary[]
   selected: string
@@ -180,21 +183,70 @@ export function CardGrid({
   // context: cards shown only because a subtask of theirs matched the
   // filter; they show dimmed.
   context?: Set<string>
+  label?: string
+  // onMove, when set, makes the tiles draggable: dropping card id on
+  // another puts it in that card's place (before it when it came from
+  // later in the list, after it when from earlier). before is the card it
+  // now goes in front of, "" for last.
+  onMove?: (id: string, before: string) => void
 }) {
+  const [dragging, setDragging] = useState("")
+  // Only pinned cards move; a pinned parent's subtasks ride along.
+  const pins = cards.filter((c) => c.pinned)
+  const drop = (target: string) => {
+    const from = pins.findIndex((c) => c.id === dragging)
+    const to = pins.findIndex((c) => c.id === target)
+    setDragging("")
+    if (!onMove || from < 0 || to < 0 || from === to) return
+    // Moving down lands after the target: in front of the card after it.
+    const before = from < to ? (pins[to + 1]?.id ?? "") : target
+    onMove(dragging, before)
+  }
   return (
     <section
-      aria-label="Shared work"
+      aria-label={label}
       className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3"
     >
       {cards.map((c) => (
-        <CardTile
+        <div
           key={c.id}
-          card={c}
-          selected={c.id === selected}
-          onSelect={() => onSelect(c.id)}
-          now={now}
-          dim={context?.has(c.id) ?? false}
-        />
+          className={cn("grid", dragging === c.id && "opacity-50")}
+          draggable={!!onMove && !!c.pinned}
+          onDragStart={
+            onMove
+              ? (e) => {
+                  setDragging(c.id)
+                  e.dataTransfer.setData("text/plain", c.id)
+                  e.dataTransfer.effectAllowed = "move"
+                }
+              : undefined
+          }
+          onDragEnd={onMove ? () => setDragging("") : undefined}
+          onDragOver={
+            onMove && dragging && c.pinned
+              ? (e) => {
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = "move"
+                }
+              : undefined
+          }
+          onDrop={
+            onMove && dragging && c.pinned
+              ? (e) => {
+                  e.preventDefault()
+                  drop(c.id)
+                }
+              : undefined
+          }
+        >
+          <CardTile
+            card={c}
+            selected={c.id === selected}
+            onSelect={() => onSelect(c.id)}
+            now={now}
+            dim={context?.has(c.id) ?? false}
+          />
+        </div>
       ))}
     </section>
   )
@@ -248,6 +300,12 @@ function CardTile({
     >
       <span className="flex flex-wrap items-center gap-1.5">
         <ShortRef card={card} />
+        {card.pinned && (
+          <PinIcon
+            className="size-3 text-primary"
+            aria-label="Pinned"
+          />
+        )}
         {card.parent && <PartOf parent={card.parent} />}
         <StatePill card={card} />
         <ScopeBadge card={card} />
