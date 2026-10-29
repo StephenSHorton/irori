@@ -1479,6 +1479,39 @@ export class DeviceView {
 }
 
 /**
+ * DonePage is one page of the Done tab: Next is the cursor for the page
+ * after it ("" when this is the last).
+ */
+export class DonePage {
+    "cards": CardSummary[];
+    "next": string;
+
+    /** Creates a new DonePage instance. */
+    constructor($$source: Partial<DonePage> = {}) {
+        if (!("cards" in $$source)) {
+            this["cards"] = [];
+        }
+        if (!("next" in $$source)) {
+            this["next"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new DonePage instance from a string or object.
+     */
+    static createFrom($$source: any = {}): DonePage {
+        const $$createField0_0 = $$createType34;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("cards" in $$parsedSource) {
+            $$parsedSource["cards"] = $$createField0_0($$parsedSource["cards"]);
+        }
+        return new DonePage($$parsedSource as Partial<DonePage>);
+    }
+}
+
+/**
  * GoneSession is a recently gone Claude Code session the person may revive.
  */
 export class GoneSession {
@@ -1840,8 +1873,8 @@ export class RosterChange {
      * Creates a new RosterChange instance from a string or object.
      */
     static createFrom($$source: any = {}): RosterChange {
-        const $$createField0_0 = $$createType33;
-        const $$createField1_0 = $$createType35;
+        const $$createField0_0 = $$createType35;
+        const $$createField1_0 = $$createType37;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("change" in $$parsedSource) {
             $$parsedSource["change"] = $$createField0_0($$parsedSource["change"]);
@@ -1876,7 +1909,7 @@ export class TaskDetail {
      * Creates a new TaskDetail instance from a string or object.
      */
     static createFrom($$source: any = {}): TaskDetail {
-        const $$createField0_0 = $$createType36;
+        const $$createField0_0 = $$createType38;
         const $$createField1_0 = $$createType31;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("task" in $$parsedSource) {
@@ -1912,7 +1945,7 @@ export class TaskResult {
      * Creates a new TaskResult instance from a string or object.
      */
     static createFrom($$source: any = {}): TaskResult {
-        const $$createField0_0 = $$createType36;
+        const $$createField0_0 = $$createType38;
         const $$createField1_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("task" in $$parsedSource) {
@@ -2000,7 +2033,9 @@ const $$createType29 = $Create.Array($$createType28);
 const $$createType30 = coord$0.Comment.createFrom;
 const $$createType31 = $Create.Array($$createType30);
 const $$createType32 = $Create.Nullable($$createType11);
-const $$createType33 = presence$0.Change.createFrom;
-const $$createType34 = presence$0.AgentCard.createFrom;
-const $$createType35 = $Create.Array($$createType34);
-const $$createType36 = coord$0.Task.createFrom;
+const $$createType33 = CardSummary.createFrom;
+const $$createType34 = $Create.Array($$createType33);
+const $$createType35 = presence$0.Change.createFrom;
+const $$createType36 = presence$0.AgentCard.createFrom;
+const $$createType37 = $Create.Array($$createType36);
+const $$createType38 = coord$0.Task.createFrom;

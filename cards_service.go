@@ -571,6 +571,86 @@ func (b *BoardService) Cards() []CardSummary {
 
 func openAskSummary(s CardSummary) bool { return s.Ask != nil && s.Ask.State != AskClosed }
 
+// DonePage is one page of the Done tab: Next is the cursor for the page
+// after it ("" when this is the last).
+type DonePage struct {
+	Cards []CardSummary `json:"cards"`
+	Next  string        `json:"next"`
+}
+
+// DoneCards lists the closed cards (completed, canceled or failed) for the
+// Done tab, latest change first: the order the agents' board done list
+// uses, which is when the card closed unless something (a comment) came
+// later. limit is 0 for coord.DefaultDoneCard, at most coord.MaxDoneCard;
+// before is "" for the first page, else the Next of the page before.
+func (b *BoardService) DoneCards(limit int, before string) (DonePage, error) {
+	if limit <= 0 {
+		limit = coord.DefaultDoneCard
+	}
+	limit = min(limit, coord.MaxDoneCard)
+	var (
+		at     time.Time
+		atID   string
+		cursor = strings.TrimSpace(before) != ""
+	)
+	if cursor {
+		ts, id, ok := strings.Cut(strings.TrimSpace(before), " ")
+		var err error
+		if at, err = time.Parse(time.RFC3339Nano, ts); !ok || err != nil || id == "" {
+			return DonePage{}, fmt.Errorf("%w: cursor %q", coord.ErrInvalid, before)
+		}
+		atID = id
+	}
+	var done []coord.Task
+	for _, t := range b.coord.ListTasks(coord.TaskFilter{}) {
+		if coord.IsTerminal(t.State) {
+			done = append(done, t)
+		}
+	}
+	newer := func(x, y coord.Task) bool { // x before y in the list
+		if !x.UpdatedAt.Equal(y.UpdatedAt) {
+			return x.UpdatedAt.After(y.UpdatedAt)
+		}
+		return x.ID > y.ID
+	}
+	sort.SliceStable(done, func(i, j int) bool { return newer(done[i], done[j]) })
+	if cursor {
+		mark := coord.Task{ID: atID, UpdatedAt: at}
+		i, _ := slices.BinarySearchFunc(done, mark, func(t, m coord.Task) int {
+			if t.ID == m.ID && t.UpdatedAt.Equal(m.UpdatedAt) {
+				return 0
+			}
+			if newer(t, m) {
+				return -1
+			}
+			return 1
+		})
+		if i < len(done) && done[i].ID == atID && done[i].UpdatedAt.Equal(at) {
+			i++
+		}
+		done = done[i:]
+	}
+	out := DonePage{Cards: []CardSummary{}}
+	if len(done) > limit {
+		last := done[limit-1]
+		out.Next = last.UpdatedAt.UTC().Format(time.RFC3339Nano) + " " + last.ID
+		done = done[:limit]
+	}
+	p := b.people()
+	ref := func(id string) string {
+		if x, ok := b.coord.GetTask(id); ok {
+			return x.ShortRef()
+		}
+		return ""
+	}
+	for _, t := range done {
+		s := cardSummary(t, p)
+		s.Ask = cardAsk(t, p, ref)
+		out.Cards = append(out.Cards, s)
+	}
+	return out, nil
+}
+
 // decideCount counts the cards waiting on a decision, the Needs a decision
 // filter's number and the tray's. Rows from every device fold into the
 // board, so it covers all of them (v0.4 §9).

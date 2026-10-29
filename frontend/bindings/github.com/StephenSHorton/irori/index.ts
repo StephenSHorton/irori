@@ -39,6 +39,7 @@ export {
     CardThreadItem,
     CommentResult,
     DeviceView,
+    DonePage,
     GoneSession,
     Holding,
     HomeServerView,

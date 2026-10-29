@@ -166,13 +166,26 @@ export function Create($in: $models.NewCard): $CancellablePromise<$models.TaskRe
 }
 
 /**
+ * DoneCards lists the closed cards (completed, canceled or failed) for the
+ * Done tab, latest change first: the order the agents' board done list
+ * uses, which is when the card closed unless something (a comment) came
+ * later. limit is 0 for coord.DefaultDoneCard, at most coord.MaxDoneCard;
+ * before is "" for the first page, else the Next of the page before.
+ */
+export function DoneCards(limit: number, before: string): $CancellablePromise<$models.DonePage> {
+    return $Call.ByID(1071006384, limit, before).then(($result: any) => {
+        return $$createType10($result);
+    });
+}
+
+/**
  * Message opens a message on a card's thread in full: its whole text and
  * its files, which stay on the message. Only a message that thread carries
  * opens, so this reads no other message.
  */
 export function Message(taskID: string, msgID: string): $CancellablePromise<$models.CardMessage> {
     return $Call.ByID(526707092, taskID, msgID).then(($result: any) => {
-        return $$createType10($result);
+        return $$createType11($result);
     });
 }
 
@@ -220,7 +233,7 @@ export function SetDone(id: string, canceled: boolean): $CancellablePromise<coor
  */
 export function Task(id: string): $CancellablePromise<$models.TaskDetail> {
     return $Call.ByID(3092636668, id).then(($result: any) => {
-        return $$createType11($result);
+        return $$createType12($result);
     });
 }
 
@@ -245,5 +258,6 @@ const $$createType6 = $models.CardDetail.createFrom;
 const $$createType7 = $models.CardSummary.createFrom;
 const $$createType8 = $Create.Array($$createType7);
 const $$createType9 = $models.CommentResult.createFrom;
-const $$createType10 = $models.CardMessage.createFrom;
-const $$createType11 = $models.TaskDetail.createFrom;
+const $$createType10 = $models.DonePage.createFrom;
+const $$createType11 = $models.CardMessage.createFrom;
+const $$createType12 = $models.TaskDetail.createFrom;
