@@ -187,7 +187,7 @@ async function onDeliver($: EngineInterface, e: AttachEvent) {
   // Core reclaim the wake and wake the same deliveries again under a new token.
   // So a submit still pending after SUBMIT_ACCEPT_MS counts as queued.
   // A submit can also resolve as { drop } (a hook or the engine refused it):
-  // the prompt never entered, so it counts as a failure, not a delivery.
+  // the prompt never entered, so it goes in as an append instead (card #23).
   const submitted = $.prompt.submit({ text: prompt }).then(
     r =>
       typeof r?.drop === 'string'
@@ -200,14 +200,49 @@ async function onDeliver($: EngineInterface, e: AttachEvent) {
   const timer = $.clock.after(SUBMIT_ACCEPT_MS, () => markQueued())
   const first = await Promise.race([submitted, queued])
   timer.cancel()
-  if (first?.failed) return forgetWake($, token, first.err)
+  if (first?.failed) return appendInstead($, token, prompt, first.err)
   if (await report($, '/v1/deliveries/delivered', { token })) await patchWake($, token, { delivered: true })
   if (first === null) {
-    // Reported while still queued; a later throw or drop still forgets the wake
-    // (the Core's delivered-but-never-engaged reminder then brings it back).
+    // Reported while still queued; a later throw or drop appends it instead,
+    // so the next turn still reads it.
     const outcome = await submitted
-    if (outcome.failed) await forgetWake($, token, outcome.err)
+    if (outcome.failed) await appendInstead($, token, prompt, outcome.err)
   }
+}
+
+/**
+ * A wake whose submit the host refused or that threw. Forgetting it used to
+ * leave the Core re-issuing it under a new token every ReattachGrace, and a
+ * host that kept refusing (card #23) never got it: 71 tries over three hours.
+ * It goes into the conversation as an append instead, which starts no turn
+ * and needs no idle prompt; it is reported delivered, and the next main-loop
+ * turn, whatever starts it, engages it. Only an append that fails as well
+ * forgets the wake, so the Core's re-send tries again.
+ */
+async function appendInstead($: EngineInterface, token: string, prompt: string, err: unknown) {
+  $.ui.log(`irori: prompt.submit failed: ${errText(err)}; appending the wake for the next turn`, { to: 'debug' })
+  let failure: unknown = undefined
+  let failed = false
+  try {
+    const stored = await $.session.append(appendArgs(prompt))
+    if (typeof stored?.deny === 'string') {
+      failed = true
+      failure = new Error(`append refused: ${stored.deny}`)
+    }
+  } catch (e) {
+    failed = true
+    failure = e
+  }
+  if (failed) return forgetWake($, token, failure)
+  await patchWake($, token, { appended: true })
+  const known = (await read($, wakesAtom)).find(w => w.token === token)
+  if (known && !known.delivered && (await report($, '/v1/deliveries/delivered', { token }))) {
+    await patchWake($, token, { delivered: true })
+  }
+}
+
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
 
 async function patchAppend($: EngineInterface, token: string, patch: Partial<TrackedAppend>) {
@@ -266,9 +301,9 @@ async function markAppendsEngaged($: EngineInterface, turnId: string) {
   }
 }
 
-/** A submit that failed: forget the wake, so the Core's re-send (on reattach) submits it again. */
+/** A wake neither submitted nor appended: forget it, so the Core's re-send (reattach, or its reclaim) tries again. */
 async function forgetWake($: EngineInterface, token: string, err: unknown) {
-  $.ui.log(`irori: prompt.submit failed: ${err instanceof Error ? err.message : String(err)}`, { to: 'debug' })
+  $.ui.log(`irori: could not hand the wake over: ${errText(err)}`, { to: 'debug' })
   await update($, wakesAtom, list => list.filter(w => w.token !== token))
 }
 
@@ -393,9 +428,14 @@ async function startAttach($: EngineInterface, cwd: string) {
   })
 }
 
-/** A main-loop turn started: engage each wake whose token its text carries. */
+/**
+ * A main-loop turn started: engage each wake whose token its text carries,
+ * and each wake that went in as an append (its token is never a turn's text).
+ */
 async function markEngaged($: EngineInterface, text: string, turnId: string) {
-  const named = (await read($, wakesAtom)).filter(w => !w.reminder && !w.turnId && !w.ended && text.includes(w.token))
+  const named = (await read($, wakesAtom)).filter(
+    w => !w.reminder && !w.turnId && !w.ended && (w.appended === true || text.includes(w.token)),
+  )
   for (const w of named) {
     await patchWake($, w.token, { turnId })
     if (await report($, '/v1/deliveries/engaged', { token: w.token, turnId })) {

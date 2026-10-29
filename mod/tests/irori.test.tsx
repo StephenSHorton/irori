@@ -109,7 +109,8 @@ function world(
   on('session.append', ($, e, next) => {
     const content = (e.message as { content?: Array<{ text?: string }> }).content ?? []
     const text = content.map(c => c.text ?? '').join('')
-    if (text.includes('[irori-append:')) {
+    // A wake goes in as an append too when its submit was refused (card #23).
+    if (text.includes('[irori-append:') || text.includes('[irori-wake:')) {
       appended.push({ type: String((e.message as { type?: unknown }).type), text, agentId: e.agentId })
       if (opts.appendFails?.() === 'deny') return { deny: 'refused by the test' } as never
     }
@@ -252,17 +253,77 @@ ${prompt}`, turnId: 'turn-1' })
     expect(w.submitted.length).toBe(1)
   })
 
-  test('a submit that resolves as a drop is not reported delivered', OPTIONS, async ($, on) => {
+  test('a submit the host drops goes in as an append, engaged by the next main turn and ended with it', OPTIONS, async ($, on) => {
+    // Card #23: the mod used to forget a dropped wake, and the Core re-issued
+    // it under a new token every ReattachGrace; a host that kept dropping
+    // never got it. Now it is appended, so whatever turn comes next reads it.
     const w = world(on, { dropSubmit: true })
     await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
     await until(() => w.children.length === 1, 'spawn')
+    const prompt = `${TOKEN} hi`
+    w.children[0]!.write(line(hello) + line({ type: 'deliver', token: TOKEN, deliveryIds: ['del_1'], prompt }))
+    await until(() => posts(w.calls, '/v1/deliveries/delivered').length === 1, 'delivered after the append')
+    expect(w.submitted).toEqual([prompt])
+    expect(w.appended).toEqual([{ type: 'user', text: prompt, agentId: undefined }])
+    expect(posts(w.calls, '/v1/deliveries/delivered')[0]!.body).toBe(JSON.stringify({ token: TOKEN }))
+
+    // The Core re-offers it (a reattach): neither submitted nor appended again.
+    w.children[0]!.write(line({ type: 'deliver', token: TOKEN, deliveryIds: ['del_1'], prompt }))
+    await pause(50)
+    expect(w.submitted.length).toBe(1)
+    expect(w.appended.length).toBe(1)
+
+    // A subagent's turn engages nothing; the next main turn (the person typing) does.
+    await $.turn.start({ text: 'look around', turnId: 'turn-sub', agentId: 'agent-1' } as never)
+    await $.turn.start({ text: 'you have unread irori things?', turnId: 'turn-h' })
+    await until(() => posts(w.calls, '/v1/deliveries/engaged').length === 1, 'engaged')
+    expect(posts(w.calls, '/v1/deliveries/engaged')[0]!.body).toBe(JSON.stringify({ token: TOKEN, turnId: 'turn-h' }))
+    await $.turn.complete({ turnId: 'turn-h', answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as never)
+    await until(() => posts(w.calls, '/v1/deliveries/turn-ended').length === 1, 'turn-ended')
+    expect(posts(w.calls, '/v1/deliveries/turn-ended')[0]!.body).toBe(JSON.stringify({ token: TOKEN, turnId: 'turn-h' }))
+    // A later turn engages it no more.
+    await $.turn.start({ text: 'next', turnId: 'turn-2' })
+    await pause(50)
+    expect(posts(w.calls, '/v1/deliveries/engaged').length).toBe(1)
+  })
+
+  test('a dropped submit whose append is refused too is forgotten, and tried again when re-sent', OPTIONS, async ($, on) => {
+    const outcomes: Array<'deny' | undefined> = ['deny', undefined]
+    const w = world(on, { dropSubmit: true, appendFails: () => outcomes.shift() })
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
     w.children[0]!.write(line(hello) + line({ type: 'deliver', token: TOKEN, deliveryIds: ['del_1'], prompt: `${TOKEN} hi` }))
-    await until(() => w.submitted.length === 1, 'submit')
+    await until(() => w.appended.length === 1, 'first append')
     await pause(100)
     expect(posts(w.calls, '/v1/deliveries/delivered')).toEqual([])
-    // The Core re-offers it (reclaim or reattach): the mod submits it again.
+    // The Core re-offers it (reclaim or reattach): submitted, then appended, again.
     w.children[0]!.write(line({ type: 'deliver', token: TOKEN, deliveryIds: ['del_1'], prompt: `${TOKEN} hi` }))
-    await until(() => w.submitted.length === 2, 'resubmit')
+    await until(() => posts(w.calls, '/v1/deliveries/delivered').length === 1, 'delivered on the second try')
+    expect(w.submitted.length).toBe(2)
+    expect(w.appended.length).toBe(2)
+  })
+
+  test('a submit queued behind a running turn and dropped later is appended for the next turn', OPTIONS, async ($, on) => {
+    const clock = mock.clock(on)
+    let release = () => {}
+    const holdSubmit = new Promise<void>(resolve => (release = resolve))
+    const w = world(on, { holdSubmit, dropSubmit: true })
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    const prompt = `${TOKEN} mid-turn`
+    w.children[0]!.write(line(hello) + line({ type: 'deliver', token: TOKEN, deliveryIds: ['del_1'], prompt, from: 'bob' }))
+    await until(() => w.submitted.length === 1, 'submit')
+    await clock.settle()
+    await clock.advance(SUBMIT_ACCEPT_MS)
+    await until(() => posts(w.calls, '/v1/deliveries/delivered').length === 1, 'delivered while queued')
+    // The running turn ends and the engine drops the queued prompt.
+    release()
+    await until(() => w.appended.length === 1, 'appended after the drop')
+    await pause(50)
+    expect(posts(w.calls, '/v1/deliveries/delivered').length).toBe(1)
+    await $.turn.start({ text: 'carry on', turnId: 'turn-2' })
+    await until(() => posts(w.calls, '/v1/deliveries/engaged').length === 1, 'engaged by the next turn')
+    expect(posts(w.calls, '/v1/deliveries/engaged')[0]!.body).toBe(JSON.stringify({ token: TOKEN, turnId: 'turn-2' }))
   })
 
   test('a reminder wake is submitted but never engaged', OPTIONS, async ($, on) => {
