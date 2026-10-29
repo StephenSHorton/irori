@@ -33,11 +33,15 @@ export function AddLink(id: string, link: string): $CancellablePromise<coord$0.T
 }
 
 /**
- * Answer resolves one blocker as the person: option is the index of the
- * recommended answer picked, or -1 to answer with text. The answer reaches
- * the agent that raised it (decision 18): a wake when wake is true (the
- * window's default, since that agent is blocked on the person), else at
- * its next turn. The card leaves blocked when no blocker is left open.
+ * Answer is the person's answer to one blocker: option is the index of
+ * the recommended answer picked, or -1 to answer with text. The answer
+ * reaches the agent that raised it (decision 18), then the holders: a
+ * wake when wake is true (the window's default, since that agent is
+ * blocked on the person), else at its next turn. The item stays open
+ * (answered) until the raiser, a holder or the person resolves it; when
+ * nobody can act on it (the raiser isn't a live agent and no holder is
+ * live) the answer resolves it at once, and the card leaves blocked when
+ * no blocker is left open.
  */
 export function Answer(taskID: string, blockerID: string, option: number, text: string, wake: boolean): $CancellablePromise<$models.AnswerResult> {
     return $Call.ByID(4076228687, taskID, blockerID, option, text, wake).then(($result: any) => {
@@ -116,6 +120,17 @@ export function Create($in: $models.NewCard): $CancellablePromise<$models.TaskRe
 }
 
 /**
+ * Message opens a message on a card's thread in full: its whole text and
+ * its files, which stay on the message. Only a message that thread carries
+ * opens, so this reads no other message.
+ */
+export function Message(taskID: string, msgID: string): $CancellablePromise<$models.CardMessage> {
+    return $Call.ByID(526707092, taskID, msgID).then(($result: any) => {
+        return $$createType8($result);
+    });
+}
+
+/**
  * ReleaseLease drops the lease on resource, whoever holds it.
  */
 export function ReleaseLease(resource: string): $CancellablePromise<void> {
@@ -128,6 +143,19 @@ export function ReleaseLease(resource: string): $CancellablePromise<void> {
 export function RemoveLink(id: string, ref: string): $CancellablePromise<coord$0.Task> {
     return $Call.ByID(997340945, id, ref).then(($result: any) => {
         return $$createType0($result);
+    });
+}
+
+/**
+ * ResolveBlocker is the person's "Mark resolved" on an item they answered,
+ * for when its raiser won't resolve it (it ended after the answer): their
+ * latest answer stands and note, which may be empty, goes beside the
+ * check. On an item nobody answered, note is the answer. The holders hear
+ * at their next turn.
+ */
+export function ResolveBlocker(taskID: string, blockerID: string, note: string): $CancellablePromise<$models.AnswerResult> {
+    return $Call.ByID(1320319387, taskID, blockerID, note).then(($result: any) => {
+        return $$createType1($result);
     });
 }
 
@@ -146,7 +174,7 @@ export function SetDone(id: string, canceled: boolean): $CancellablePromise<coor
  */
 export function Task(id: string): $CancellablePromise<$models.TaskDetail> {
     return $Call.ByID(3092636668, id).then(($result: any) => {
-        return $$createType8($result);
+        return $$createType9($result);
     });
 }
 
@@ -169,4 +197,5 @@ const $$createType4 = $models.CardDetail.createFrom;
 const $$createType5 = $models.CardSummary.createFrom;
 const $$createType6 = $Create.Array($$createType5);
 const $$createType7 = $models.CommentResult.createFrom;
-const $$createType8 = $models.TaskDetail.createFrom;
+const $$createType8 = $models.CardMessage.createFrom;
+const $$createType9 = $models.TaskDetail.createFrom;

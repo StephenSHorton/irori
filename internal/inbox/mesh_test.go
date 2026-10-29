@@ -1,6 +1,7 @@
 package inbox
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -146,4 +147,151 @@ func TestTheHostHoldsAndAppliesTheFirstRequest(t *testing.T) {
 	go h.ib.Follow(ctx2)
 	time.Sleep(50 * time.Millisecond)
 	h.wantState("dlv_r1", Dismissed)
+}
+
+// A reply is about what its message was about: a card ref (task: or
+// comment:) carries over, in the message.sent row other devices fold.
+func TestReplyInheritsRef(t *testing.T) {
+	h := newHarness(t)
+	h.abc()
+	var replies []string
+	for _, ref := range []string{"task:T1", "comment:C1"} {
+		d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "about "+ref, SendOptions{Mode: ModeWake, Ref: ref})
+		m, nd, err := h.ib.Reply(bg, claude(keyA, "alpha"), d.ID, "on it")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.Ref != ref || nd.Message.Ref != ref || nd.To != keyC {
+			t.Fatalf("reply to %s: ref %q / %q, to %s", ref, m.Ref, nd.Message.Ref, nd.To)
+		}
+		replies = append(replies, nd.ID)
+	}
+	evs, err := h.st.List(bg, store.Filter{Kinds: []string{KindMessageSent}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := map[string]string{}
+	for _, ev := range evs {
+		var m Message
+		if err := json.Unmarshal(ev.Payload, &m); err != nil {
+			t.Fatal(err)
+		}
+		if m.ReplyTo != "" {
+			refs[m.Text+" "+m.Ref] = m.ReplyTo
+		}
+	}
+	if len(refs) != 2 || refs["on it task:T1"] == "" || refs["on it comment:C1"] == "" {
+		t.Fatalf("message.sent rows carry %v", refs)
+	}
+	h.reopen()
+	for i, ref := range []string{"task:T1", "comment:C1"} {
+		if got := h.state(replies[i]); got.Message.Ref != ref {
+			t.Fatalf("after replay the reply's ref is %q, want %q", got.Message.Ref, ref)
+		}
+	}
+	// No ref stays no ref.
+	d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "plain", SendOptions{Mode: ModeWake})
+	if m, _, err := h.ib.Reply(bg, claude(keyA, "alpha"), d.ID, "ok"); err != nil || m.Ref != "" {
+		t.Fatalf("plain reply ref %q, %v", m.Ref, err)
+	}
+}
+
+// The host lets another device's message about a card through its own
+// policy: the sender recorded it held, so its text goes on the card from
+// here (Options.OnPassed). One it holds goes once the person releases it.
+func TestTheHostFillsTheCardWhenItLetsAMessageThrough(t *testing.T) {
+	h := newHarness(t)
+	var calls []string
+	h.onPassed = func(_ context.Context, m Message, to string) error {
+		calls = append(calls, m.ID+" to "+to)
+		return nil
+	}
+	h.reopen()
+	h.ros.put(card(keyB, "beta", "repo1", ""))
+	if err := h.ib.SetPolicy(bg, Policy{Block: []string{"dev2/blocked"}}, user); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := contextWithCancel(t)
+	defer cancel()
+	go h.ib.Follow(ctx)
+	f := &foreign{h: h}
+	for _, from := range []string{keyR, "dev2/blocked"} {
+		m := Message{ID: "msg_" + sessionPart(from)[:4], From: Sender{Key: from, Name: "remote", Kind: "claude"}, To: to(keyB), Text: "about T1", Ref: "task:T1", Trust: Untrusted, SentAt: h.clk.now()}
+		f.row("agent:"+from, KindMessageSent, m)
+		f.row("agent:"+from, KindDelivery, deliveryRow{DeliveryID: "dlv_" + m.ID, MessageID: m.ID, To: keyB, State: Queued, By: from})
+	}
+	eventually(t, "the host holds the blocked one", func() bool {
+		d, ok := h.ib.Get("dlv_msg_bloc")
+		return ok && d.State == Held
+	})
+	h.sweep()
+	if len(calls) != 1 || calls[0] != "msg_rrrr to "+keyB {
+		t.Fatalf("calls %v", calls)
+	}
+	if err := h.ib.Release(bg, "dlv_msg_bloc", user); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || calls[1] != "msg_bloc to "+keyB {
+		t.Fatalf("calls %v", calls)
+	}
+}
+
+// Decision 34 on the host: a non-bypass (or unknown-mode) Claude agent on
+// another of the person's certified devices reaches a bypass session here
+// without a hold. A Grok member, an agent on a revoked device and one on a
+// device never certified are still held; the block list and Pause all
+// still win.
+func TestTheHostLetsTheOwnersOtherDeviceAgentsThroughBypass(t *testing.T) {
+	const keyRev = "dev3/dddddddd-aaaa-4aaa-8aaa-aaaaaaaaaaaa" // dev3 was removed
+	const keyUnk = "devX/eeeeeeee-bbbb-4bbb-8bbb-bbbbbbbbbbbb" // never certified
+	const keyRG = "dev2/grok-remote"
+	h := newHarness(t)
+	h.isOwner = func(k string) bool { return k == user || k == "user:dev2" || k == "user:dev3" }
+	h.revoked = func(dev string) bool { return dev == "dev3" }
+	h.reopen()
+	h.abc() // alpha runs in bypass
+	h.ros.put(card(keyR, "mac", "", ""), card(keyRev, "old", "", "default"), card(keyUnk, "stranger", "", "default"), grokCard(keyRG, "grok", ""))
+	ctx, cancel := contextWithCancel(t)
+	defer cancel()
+	go h.ib.Follow(ctx)
+	f := &foreign{h: h}
+	send := func(id string, from Sender) {
+		m := Message{ID: "msg_" + id, From: from, To: to(keyA), Text: "hi from " + id, Trust: Untrusted, SentAt: h.clk.now()}
+		f.row("agent:"+from.Key, KindMessageSent, m)
+		f.row("agent:"+from.Key, KindDelivery, deliveryRow{DeliveryID: "dlv_" + id, MessageID: m.ID, To: keyA, State: Queued, By: from.Key})
+	}
+	send("own", claude(keyR, "mac"))
+	send("grok", grok(keyRG, "grok"))
+	send("revoked", claude(keyRev, "old"))
+	send("unknown", claude(keyUnk, "stranger"))
+	// dev2 claiming an agent of this device's: the key's device didn't
+	// write the message, so it is no own agent.
+	send("spoofed", claude("dev1/ffffffff-cccc-4ccc-8ccc-cccccccccccc", "local"))
+	send("spoofed-bypass", claude(keyA, "alpha")) // alpha's bypass card doesn't speak for dev2
+	for _, id := range []string{"dlv_grok", "dlv_revoked", "dlv_unknown", "dlv_spoofed", "dlv_spoofed-bypass"} {
+		eventually(t, id+" held for bypass", func() bool {
+			d, ok := h.ib.Get(id)
+			return ok && d.State == Held && d.Hold == HoldBypassReceiver
+		})
+	}
+	if d, _ := h.ib.Get("dlv_own"); d.State == Held || d.Hold != "" {
+		t.Fatalf("own agent on another device: %s %q", d.State, d.Hold)
+	}
+
+	if err := h.ib.SetPolicy(bg, Policy{Block: []string{"mac"}}, user); err != nil {
+		t.Fatal(err)
+	}
+	send("blocked", claude(keyR, "mac"))
+	eventually(t, "the block list wins", func() bool {
+		d, ok := h.ib.Get("dlv_blocked")
+		return ok && d.State == Held && d.Hold == HoldBlocked
+	})
+	if err := h.ib.SetPolicy(bg, Policy{Paused: true}, user); err != nil {
+		t.Fatal(err)
+	}
+	send("paused", claude(keyR, "mac"))
+	eventually(t, "Pause all wins", func() bool {
+		d, ok := h.ib.Get("dlv_paused")
+		return ok && d.State == Held && d.Hold == HoldPaused
+	})
 }

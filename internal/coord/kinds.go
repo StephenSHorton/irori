@@ -28,7 +28,7 @@ const (
 	KindTaskLeft    = "task.left"    // {taskId, who, by}; removes who from Holders
 	KindTaskShared  = "task.shared"  // {taskId, shared, by}
 	KindTaskLinked  = "task.linked"  // {taskId, link: Link, removed?, by}; removed drops the link with that ref
-	KindTaskComment = "task.comment" // {taskId, commentId, by, text, wake}
+	KindTaskComment = "task.comment" // {taskId, commentId, by, text, wake, to?, msgId?, gone?, held?, files?}
 	// KindBlockerClosed is Unblock: {taskId, by, note, restored: TaskState}.
 	// It is its own row so "anyone may close a blocker" (decision 19) never
 	// loosens task.status's permission check. by "irori" when SweepNotices

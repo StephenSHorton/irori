@@ -72,24 +72,29 @@ func (r *roster) Agents() []presence.AgentCard {
 }
 
 type env struct {
-	t   *testing.T
-	st  *store.Store
-	clk *clock
-	ros *roster
-	c   *Coord
+	t    *testing.T
+	st   *store.Store
+	path string // the store's database
+	clk  *clock
+	ros  *roster
+	c    *Coord
 	// owner, when set, is Options.IsOwner (the person's certified devices).
 	owner func(string) bool
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T) *env { return newEnvOn(t, "dev-a") }
+
+// newEnvOn is newEnv with the store appending as dev.
+func newEnvOn(t *testing.T, dev string) *env {
 	t.Helper()
 	clk := &clock{t: fixedNow}
-	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "irori.db"), "dev-a", hlc.New(clk.now))
+	path := filepath.Join(t.TempDir(), "irori.db")
+	st, err := store.Open(context.Background(), path, dev, hlc.New(clk.now))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	e := &env{t: t, st: st, clk: clk, ros: newRoster(alice, bob, carol)}
+	e := &env{t: t, st: st, path: path, clk: clk, ros: newRoster(alice, bob, carol)}
 	e.c = e.reopen()
 	return e
 }
@@ -629,11 +634,56 @@ func TestReplayEquality(t *testing.T) {
 	_ = c.Sweep(ctx)
 	e.clk.add(time.Minute)
 	must[Lease](t)(c.Acquire(ctx, alice, "port:1", 0, false))
+	// A card's thread: steps, a blocker, comments and mirrored messages
+	// (plain, held, gone), some from another device.
+	t3 := must[Task](t)(c.CreateTask(ctx, alice, NewTask{Title: "thread"}))
+	must[Task](t)(c.ClaimTask(ctx, alice, t3.ID))
+	must[Task](t)(c.SetSteps(ctx, alice, t3.ID, []Step{{Text: "a"}, {Text: "b"}}))
+	must[Task](t)(c.SetStep(ctx, alice, t3.ID, "s1", StepUpdate{Done: bp(true)}))
+	for _, q := range []string{"Ship?", "Which day?"} {
+		if _, _, err := c.Raise(ctx, alice, t3.ID, NewBlocker{Question: q}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := c.AddComment(ctx, user, t3.ID, "plain", false); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []MessageEntry{
+		{MsgID: "msg_r1", From: alice, To: "dev-b/x", Text: "hi x"},
+		{MsgID: "msg_r2", From: bob, To: alice, Text: "held", Held: true, Files: 3},
+	} {
+		m.TaskID = t3.ID
+		if _, err := c.RecordMessage(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	at := hlcAt(e.clk.now().Add(time.Second))
+	e.remote("dev-b", 1, at, "irori", KindTaskComment, taskCommentRow{TaskID: t3.ID, CommentID: "msg_r1", MsgID: "msg_r1", By: alice, To: "dev-b/x", Text: "hi x", Gone: true, At: e.clk.now()})
+	e.remote("dev-b", 2, at+1, "agent:dev-b/x", KindTaskComment, taskCommentRow{TaskID: t3.ID, CommentID: "c-b", By: "dev-b/x", Text: "from b", At: e.clk.now()})
+	e.clk.add(time.Second)
+	// Blocker threads: the person answers both; an agent on dev-b replies
+	// on b2 with what is missing; alice resolves b1 with a note.
+	mustN(t)(c.Answer(ctx, user, t3.ID, "b1", BlockerAnswer{Text: "yes"}))
+	mustN(t)(c.Answer(ctx, user, t3.ID, "b2", BlockerAnswer{Text: "soon"}))
+	e.clk.add(time.Second)
+	e.remote("dev-b", 3, hlcAt(e.clk.now()), "agent:dev-b/x", KindTaskComment, taskCommentRow{
+		TaskID: t3.ID, CommentID: "c-b2", By: "dev-b/x", Text: "which day?", BlockerID: "b2", Missing: []string{"the day"}, At: e.clk.now(),
+	})
+	e.clk.add(time.Second)
+	mustN(t)(c.Answer(ctx, alice, t3.ID, "b1", BlockerAnswer{Text: "shipping now", Resolve: true}))
 
 	check := func(c2 *Coord) {
 		t.Helper()
 		if a, b := c.ListTasks(TaskFilter{}), c2.ListTasks(TaskFilter{}); !reflect.DeepEqual(a, b) {
 			t.Fatalf("tasks differ:\n%+v\n%+v", a, b)
+		}
+		for _, tk := range c.ListTasks(TaskFilter{}) {
+			if a, b := c.Comments(tk.ID), c2.Comments(tk.ID); !reflect.DeepEqual(a, b) {
+				t.Fatalf("comments differ:\n%+v\n%+v", a, b)
+			}
+			if a, b := c.Activity(tk.ID), c2.Activity(tk.ID); !reflect.DeepEqual(a, b) {
+				t.Fatalf("activity differs:\n%+v\n%+v", a, b)
+			}
 		}
 		if a, b := c.Leases(), c2.Leases(); !reflect.DeepEqual(a, b) {
 			t.Fatalf("leases differ:\n%+v\n%+v", a, b)
@@ -645,6 +695,16 @@ func TestReplayEquality(t *testing.T) {
 	check(e.reopen())
 	if len(c.Leases()) != 2 {
 		t.Fatalf("leases = %+v", c.Leases())
+	}
+	cs := c.Comments(t3.ID)
+	if len(cs) != 7 || !cs[1].Gone || cs[1].Device != "dev-a" || !cs[2].Held || cs[2].Text != "" || cs[3].Device != "dev-b" ||
+		cs[4].BlockerID != "b1" || cs[6].BlockerID != "b2" || len(cs[6].Missing) != 1 {
+		t.Fatalf("thread comments = %+v", cs)
+	}
+	got, _ := c.GetTask(t3.ID)
+	if b1, b2 := got.Blockers[0], got.Blockers[1]; b1.Resolved == nil || b1.Resolved.Answer != "yes" || b1.Resolved.Note != "shipping now" ||
+		b2.Status != BlockerReplied || !reflect.DeepEqual(b2.Missing, []string{"the day"}) || got.State != Blocked {
+		t.Fatalf("blockers = %+v", got.Blockers)
 	}
 }
 

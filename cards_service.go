@@ -9,8 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/coord"
+	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/identity"
+	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/ledger"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/roster"
@@ -27,6 +30,9 @@ const (
 	ScopeMineLabel = "My devices"
 	// recentLines is how many activity lines Card returns.
 	recentLines = 8
+	// MaxThreadView is how many thread entries Card returns, the newest;
+	// ThreadEarlier counts the rest.
+	MaxThreadView = 300
 	// NoteItem is the blocker id of an input_required card's question: its
 	// note, shown and answered like a blocker item.
 	NoteItem = "note"
@@ -45,6 +51,9 @@ type AgentRef struct {
 	Where  string `json:"where"` // the machine: "This PC", or the other device's name (v0.4)
 	// Assigned: a holder that was assigned the card and hasn't taken it up.
 	Assigned bool `json:"assigned,omitempty"`
+	// Waiting: Assigned, and the assignment never reached this agent: its
+	// notice is still queued or held in the inbox.
+	Waiting bool `json:"waiting,omitempty"`
 	// Device is the device chip on a face from another device: that
 	// device's name, set only once the person has more than one device
 	// (v0.4 §9).
@@ -62,30 +71,66 @@ type CardProgress struct {
 	Total int `json:"total"`
 }
 
+// Holding says what a card's holder is doing: the line a card without
+// steps shows in place of a progress bar, so a card nobody is working
+// doesn't look like work in progress.
+type Holding string
+
+const (
+	HoldNobody   Holding = "nobody"   // no holder
+	HoldPerson   Holding = "person"   // the person holds it
+	HoldWaiting  Holding = "waiting"  // assigned, and the notice never reached the agent (queued or held)
+	HoldAssigned Holding = "assigned" // assigned and told, not taken up yet
+	HoldActive   Holding = "active"   // the agent working it is live and busy
+	HoldIdle     Holding = "idle"     // the agent working it is live and idle
+	HoldOffline  Holding = "offline"  // the agent working it is on a device that is offline
+	HoldGone     Holding = "gone"     // the agent working it is gone
+)
+
+// CardHolder is the holder line: Who is the holder it describes (the
+// first that took the card up, else the first assigned; zero for nobody),
+// and Others counts the rest.
+type CardHolder struct {
+	Who    AgentRef `json:"who"`
+	State  Holding  `json:"state"`
+	Others int      `json:"others"`
+}
+
 // CardSummary is one card in the grid.
 type CardSummary struct {
-	ID         string          `json:"id"`
+	ID string `json:"id"`
+	// Short is the card's short ref without its "#" ("12", or "12b" for
+	// the later of two cards numbered 12 on devices that were apart);
+	// ShortWas is the number such a card showed before that settled.
+	Short      string          `json:"short"`
+	ShortWas   string          `json:"shortWas"`
 	Title      string          `json:"title"`
 	State      coord.TaskState `json:"state"`
 	RepoKey    string          `json:"repoKey"`
 	Scope      string          `json:"scope"`      // ScopeMine
 	ScopeLabel string          `json:"scopeLabel"` // "My devices"
 	Progress   CardProgress    `json:"progress"`
-	// OpenBlockers counts the items waiting on a decision; BlockerQuestion
-	// is the first one's question ("" when none).
+	// OpenBlockers counts the items waiting on a decision (open or
+	// replied); BlockerQuestion is the first one's question ("" when none).
+	// Waiting counts the items the person answered that wait on an agent
+	// to resolve or reply.
 	OpenBlockers    int        `json:"openBlockers"`
 	BlockerQuestion string     `json:"blockerQuestion"`
+	Waiting         int        `json:"waiting"`
 	Working         []AgentRef `json:"working"`  // holders, in join order
 	Watching        []AgentRef `json:"watching"` // watchers that don't hold it
+	Holder          CardHolder `json:"holder"`
 	UpdatedAt       time.Time  `json:"updatedAt"`
 }
 
-// CardOption is one recommended answer.
+// CardOption is one answer to pick. Recommended marks the one its agent
+// recommends (the window shows it first-class); others are offered choices.
 type CardOption struct {
-	Answer string    `json:"answer"`
-	Why    string    `json:"why"`
-	By     AgentRef  `json:"by"`
-	At     time.Time `json:"at"`
+	Answer      string    `json:"answer"`
+	Why         string    `json:"why"`
+	By          AgentRef  `json:"by"`
+	At          time.Time `json:"at"`
+	Recommended bool      `json:"recommended"`
 }
 
 // CardResolution is how a blocker was resolved.
@@ -95,7 +140,21 @@ type CardResolution struct {
 	By     AgentRef  `json:"by"`
 	At     time.Time `json:"at"`
 	Closed bool      `json:"closed"` // closed without an answer (unblocked, state change, Irori)
+	// Note is the resolver's line beside the check once the person had
+	// answered (Answer stays the person's); "" before PR B or when none.
+	Note string `json:"note"`
 }
+
+// Blocker states, CardBlocker.State: open, answered (the person answered;
+// it waits on the raiser), replied (an agent replied to the answer; back
+// with the person), resolved, or closed without an answer.
+const (
+	BlockerOpen     = "open"
+	BlockerAnswered = "answered"
+	BlockerReplied  = "replied"
+	BlockerResolved = "resolved"
+	BlockerClosed   = "closed"
+)
 
 // CardBlocker is one blocker item, open or resolved.
 type CardBlocker struct {
@@ -106,6 +165,15 @@ type CardBlocker struct {
 	At       time.Time       `json:"at"`
 	Options  []CardOption    `json:"options"`
 	Resolved *CardResolution `json:"resolved"` // null while open
+	State    string          `json:"state"`    // BlockerOpen ... BlockerClosed
+	// SentTo is who the person's latest answer went to (the raiser), while
+	// answered; Missing is what an agent's reply says is still needed,
+	// while replied.
+	SentTo  *AgentRef `json:"sentTo,omitempty"`
+	Missing []string  `json:"missing"`
+	// Thread is the item's own thread, oldest first: the person's answers
+	// and the agents' replies. The card's thread keeps a line for each.
+	Thread []CardThreadItem `json:"thread"`
 }
 
 // CardPR is a pull request linked from the card, with what capture's PR
@@ -130,6 +198,50 @@ type CardActivity struct {
 	Text string    `json:"text"`
 }
 
+// Thread entry kinds: a comment on the card, a message about it (an inbox
+// message mirrored onto the card, From -> To), or one line of what happened.
+const (
+	ThreadComment = "comment"
+	ThreadMessage = "message"
+	ThreadEvent   = "event"
+)
+
+// CardThreadItem is one entry of a card's thread: comments, messages about
+// the card and its activity lines, merged in log order.
+type CardThreadItem struct {
+	ID   string    `json:"id"`
+	Kind string    `json:"kind"` // ThreadComment, ThreadMessage or ThreadEvent
+	At   time.Time `json:"at"`
+	Who  AgentRef  `json:"who"`
+	To   *AgentRef `json:"to,omitempty"` // a message's recipient
+	// Device is the device that wrote the entry, for its chip: "" for this
+	// one, or until the person has a second device.
+	Device string `json:"device,omitempty"`
+	// Text is a comment's or message's body (empty for a held message), or
+	// an event's line, Who's name first.
+	Text string `json:"text"`
+	// BlockerID is the item a raise line raised, or the one an answer or
+	// reply (or its line) is on. Missing is a reply's still-needed list.
+	BlockerID string   `json:"blockerId,omitempty"`
+	Missing   []string `json:"missing,omitempty"`
+	// Gone: the recipient had ended, so Irori left the message on the card.
+	// Held: the wake policy hasn't let it through yet, so its text isn't on
+	// the card. Files counts the message's attachments, which stay on the
+	// message. Message opens a message in full.
+	Gone        bool           `json:"gone,omitempty"`
+	Held        bool           `json:"held,omitempty"`
+	Files       int            `json:"files,omitempty"`
+	Attachments []blob.FileRef `json:"attachments,omitempty"` // a comment's files
+}
+
+// CardMessage is a message on a card's thread in full, for the person: the
+// thread shows its text cut past coord.MaxComment, none until the wake
+// policy let it through, and its files only as a count.
+type CardMessage struct {
+	Text  string   `json:"text"`
+	Files []string `json:"files"` // one line per attachment: name, size, type, hash
+}
+
 // CardDetail is one card opened beside the grid.
 type CardDetail struct {
 	CardSummary
@@ -140,8 +252,15 @@ type CardDetail struct {
 	Blockers []CardBlocker   `json:"blockers"` // open first (oldest first), then resolved (newest first)
 	PRs      []CardPR        `json:"prs"`
 	Links    []coord.Link    `json:"links"`  // every link, PRs too
-	Recent   []CardActivity  `json:"recent"` // newest first
+	Recent   []CardActivity  `json:"recent"` // newest first; the window shows Thread
 	Comments []coord.Comment `json:"comments"`
+	// Thread is comments, messages and activity, oldest first: the newest
+	// MaxThreadView, with ThreadEarlier counting the ones left off.
+	// HistoryTrimmed: the card has more activity than coord keeps, so its
+	// oldest lines are gone.
+	Thread         []CardThreadItem `json:"thread"`
+	ThreadEarlier  int              `json:"threadEarlier"`
+	HistoryTrimmed bool             `json:"historyTrimmed"`
 }
 
 // people resolves keys against the roster once per call.
@@ -158,11 +277,25 @@ type people struct {
 	paired bool
 	// conflicts maps a holder to the resource of its contested lease.
 	conflicts map[string]string
+	// unsent holds "<agent>\x00<ref>" for each assignment notice (reason
+	// "assigned") still queued or held for that agent: an assignment that
+	// never reached it. Later notices on the card don't count.
+	unsent map[string]bool
 }
+
+func unsentKey(agent, ref string) string { return agent + "\x00" + ref }
 
 func (b *BoardService) people() people {
 	p := people{byKey: map[string]presence.AgentCard{}, user: b.user.Key, self: b.self,
-		names: map[string]string{}, conflicts: map[string]string{}}
+		names: map[string]string{}, conflicts: map[string]string{}, unsent: map[string]bool{}}
+	if b.deliveries != nil {
+		for _, d := range b.deliveries() {
+			m := d.Message
+			if m.Notice && m.Reason == string(coord.NoticeAssigned) && (d.State == inbox.Queued || d.State == inbox.Held) && strings.HasPrefix(m.Ref, "task:") {
+				p.unsent[unsentKey(d.To, d.Message.Ref)] = true
+			}
+		}
+	}
 	if b.coord != nil {
 		p.owner = b.coord.IsPerson
 	}
@@ -201,6 +334,15 @@ func (p people) where(dev string) string {
 	return cmp.Or(p.names[dev], "Another device")
 }
 
+// chip is the device chip for something dev wrote: its name once the
+// person has a second device, "" for this device or while unpaired.
+func (p people) chip(dev string) string {
+	if !p.paired || dev == "" || dev == p.self {
+		return ""
+	}
+	return p.where(dev)
+}
+
 func (p people) ref(key string) AgentRef {
 	switch {
 	case key == "irori":
@@ -227,9 +369,7 @@ func (p people) ref(key string) AgentRef {
 		dev = cmp.Or(a.DeviceID, dev)
 	}
 	r.Where = p.where(dev)
-	if p.paired && dev != "" && dev != p.self {
-		r.Device = r.Where
-	}
+	r.Device = p.chip(dev)
 	return r
 }
 
@@ -244,13 +384,25 @@ func (p people) refs(keys []string) []AgentRef {
 func cardSummary(t coord.Task, p people) CardSummary {
 	d, n := t.Progress()
 	s := CardSummary{
-		ID: t.ID, Title: t.Title, State: t.State, RepoKey: t.RepoKey,
+		ID: t.ID, Short: t.Short, ShortWas: t.ShortWas, Title: t.Title, State: t.State, RepoKey: t.RepoKey,
 		Scope: ScopeMine, ScopeLabel: ScopeMineLabel,
 		Progress: CardProgress{Done: d, Total: n}, Working: []AgentRef{}, Watching: []AgentRef{},
 		UpdatedAt: t.UpdatedAt,
 	}
 	if open := t.OpenBlockers(); len(open) > 0 {
-		s.OpenBlockers, s.BlockerQuestion = len(open), open[0].Question
+		// An answered item waits on an agent, not on the person; a card
+		// with only those is no decision, so the Blocked fallback is not
+		// for it.
+		for _, bl := range open {
+			if bl.Status == coord.BlockerAnswered {
+				s.Waiting++
+				continue
+			}
+			s.OpenBlockers++
+			if s.OpenBlockers == 1 {
+				s.BlockerQuestion = bl.Question
+			}
+		}
 	} else if t.State == coord.Blocked {
 		s.OpenBlockers, s.BlockerQuestion = 1, t.Reason
 	} else if t.State == coord.InputRequired {
@@ -259,6 +411,7 @@ func cardSummary(t coord.Task, p people) CardSummary {
 	for _, h := range t.Holders {
 		r := p.ref(h)
 		r.Assigned = slices.Contains(t.Assigned, h)
+		r.Waiting = r.Assigned && p.unsent[unsentKey(h, "task:"+t.ID)]
 		s.Working = append(s.Working, r)
 	}
 	for _, w := range t.Watchers {
@@ -266,7 +419,38 @@ func cardSummary(t coord.Task, p people) CardSummary {
 			s.Watching = append(s.Watching, p.ref(w))
 		}
 	}
+	s.Holder = holderLine(s.Working)
 	return s
+}
+
+// holderLine describes the holder that took the card up (the first), else
+// the first assigned one.
+func holderLine(working []AgentRef) CardHolder {
+	if len(working) == 0 {
+		return CardHolder{State: HoldNobody}
+	}
+	i := slices.IndexFunc(working, func(r AgentRef) bool { return !r.Assigned })
+	if i < 0 {
+		i = 0
+	}
+	h := CardHolder{Who: working[i], Others: len(working) - 1}
+	switch w := h.Who; {
+	case w.Status == "person":
+		h.State = HoldPerson
+	case w.Waiting:
+		h.State = HoldWaiting
+	case w.Assigned:
+		h.State = HoldAssigned
+	case w.Status == "gone":
+		h.State = HoldGone
+	case w.Offline:
+		h.State = HoldOffline
+	case w.Status == "idle":
+		h.State = HoldIdle
+	default:
+		h.State = HoldActive
+	}
+	return h
 }
 
 // Cards lists every live card (not completed, failed or canceled) for the
@@ -316,20 +500,35 @@ func (b *BoardService) Card(id string) (CardDetail, error) {
 		Steps: nonNil(t.Steps), Blockers: []CardBlocker{}, PRs: []CardPR{}, Links: nonNil(t.Links),
 		Recent: []CardActivity{}, Comments: nonNil(b.coord.Comments(t.ID)),
 	}
+	acts := b.coord.Activity(t.ID)
+	var byBlocker map[string][]CardThreadItem
+	d.Thread, byBlocker, d.ThreadEarlier = buildThread(d.Comments, acts, t, p)
+	d.HistoryTrimmed = len(acts) == coord.MaxActivity
 	var resolved []CardBlocker
 	if t.State == coord.InputRequired {
 		d.Blockers = append(d.Blockers, CardBlocker{ID: NoteItem, Question: d.BlockerQuestion,
-			RaisedBy: p.ref(t.UpdatedBy), At: t.UpdatedAt, Options: []CardOption{}})
+			RaisedBy: p.ref(t.UpdatedBy), At: t.UpdatedAt, Options: []CardOption{}, State: BlockerOpen,
+			Missing: []string{}, Thread: []CardThreadItem{}})
 	}
 	for _, bl := range t.Blockers {
-		cb := CardBlocker{ID: bl.ID, Question: bl.Question, Context: bl.Context, RaisedBy: p.ref(bl.RaisedBy), At: bl.At, Options: []CardOption{}}
+		cb := CardBlocker{ID: bl.ID, Question: bl.Question, Context: bl.Context, RaisedBy: p.ref(bl.RaisedBy), At: bl.At,
+			Options: []CardOption{}, State: cmp.Or(string(bl.Status), BlockerOpen), Missing: nonNil(bl.Missing),
+			Thread: nonNil(byBlocker[bl.ID])}
 		for _, o := range bl.Options {
-			cb.Options = append(cb.Options, CardOption{Answer: o.Answer, Why: o.Why, By: p.ref(o.By), At: o.At})
+			cb.Options = append(cb.Options, CardOption{Answer: o.Answer, Why: o.Why, By: p.ref(o.By), At: o.At, Recommended: o.Recommended})
 		}
 		if r := bl.Resolved; r != nil {
-			cb.Resolved = &CardResolution{Answer: r.Answer, Option: r.Option, By: p.ref(r.By), At: r.At, Closed: r.Closed}
+			cb.Resolved = &CardResolution{Answer: r.Answer, Option: r.Option, By: p.ref(r.By), At: r.At, Closed: r.Closed, Note: r.Note}
+			cb.State, cb.Missing = BlockerResolved, []string{}
+			if r.Closed {
+				cb.State = BlockerClosed
+			}
 			resolved = append(resolved, cb)
 			continue
+		}
+		if cb.State == BlockerAnswered && bl.SentTo != "" {
+			to := p.ref(bl.SentTo)
+			cb.SentTo = &to
 		}
 		d.Blockers = append(d.Blockers, cb)
 	}
@@ -340,7 +539,6 @@ func (b *BoardService) Card(id string) (CardDetail, error) {
 			d.PRs = append(d.PRs, pr)
 		}
 	}
-	acts := b.coord.Activity(t.ID)
 	if len(acts) > recentLines {
 		acts = acts[:recentLines]
 	}
@@ -349,6 +547,117 @@ func (b *BoardService) Card(id string) (CardDetail, error) {
 		d.Recent = append(d.Recent, CardActivity{At: a.At, Who: who, Text: who.Name + " " + a.What})
 	}
 	return d, nil
+}
+
+// Message opens a message on a card's thread in full: its whole text and
+// its files, which stay on the message. Only a message that thread carries
+// opens, so this reads no other message.
+func (b *BoardService) Message(taskID, msgID string) (CardMessage, error) {
+	taskID, msgID = strings.TrimSpace(taskID), strings.TrimSpace(msgID)
+	cm, ok := b.coord.GetComment(msgID)
+	if !ok || cm.MsgID == "" || cm.TaskID != taskID {
+		return CardMessage{}, fmt.Errorf("%w: no message %q on task %q", coord.ErrNotFound, msgID, taskID)
+	}
+	var m inbox.Message
+	if b.message != nil {
+		m, ok = b.message(cm.MsgID)
+	}
+	if !ok {
+		return CardMessage{}, fmt.Errorf("%w: message %q isn't on this device yet", coord.ErrNotFound, msgID)
+	}
+	out := CardMessage{Text: m.Text, Files: []string{}}
+	for _, f := range m.Attachments {
+		out.Files = append(out.Files, f.Describe())
+	}
+	return out, nil
+}
+
+// threadPos is an entry's place in the log, (HLC, device, seq), the order
+// coord folds in. It stays server-side: an HLC overflows a JS number.
+type threadPos struct {
+	hlc hlc.Timestamp
+	dev string
+	seq int64
+}
+
+func (a threadPos) before(b threadPos) bool {
+	if a.hlc != b.hlc {
+		return a.hlc < b.hlc
+	}
+	if a.dev != b.dev {
+		return a.dev < b.dev
+	}
+	return a.seq < b.seq
+}
+
+// buildThread merges a card's comments and its activity (newest first, as
+// coord.Activity returns it) into one thread in log order, and keeps the
+// newest MaxThreadView; earlier counts the rest. A comment's own
+// "commented" line is left out: the comment is the entry. A blocker's
+// answers and replies go in byBlocker, that item's own thread, and the
+// card's thread keeps their "answered"/"replied" lines; once t no longer
+// keeps the item (KeepResolved), they stay in the card's thread.
+func buildThread(comments []coord.Comment, acts []coord.Activity, t coord.Task, p people) (items []CardThreadItem, byBlocker map[string][]CardThreadItem, earlier int) {
+	type entry struct {
+		pos  threadPos
+		item CardThreadItem
+	}
+	kept := map[string]bool{}
+	for _, bl := range t.Blockers {
+		kept[bl.ID] = true
+	}
+	all := make([]entry, 0, len(comments)+len(acts))
+	var mine []entry
+	for _, cm := range comments {
+		it := CardThreadItem{ID: cm.ID, Kind: ThreadComment, At: cm.At, Who: p.ref(cm.By),
+			Device: p.chip(cm.Device), Text: cm.Text, Gone: cm.Gone, Held: cm.Held, Files: cm.Files,
+			Attachments: cm.Attachments, BlockerID: cm.BlockerID, Missing: cm.Missing}
+		if cm.MsgID != "" {
+			it.Kind = ThreadMessage
+		}
+		if cm.To != "" {
+			to := p.ref(cm.To)
+			it.To = &to
+		}
+		e := entry{threadPos{cm.HLC, cm.Device, cm.Seq}, it}
+		if kept[cm.BlockerID] {
+			mine = append(mine, e)
+			continue
+		}
+		all = append(all, e)
+	}
+	byBlocker = map[string][]CardThreadItem{}
+	sort.SliceStable(mine, func(i, j int) bool { return mine[i].pos.before(mine[j].pos) })
+	for _, e := range mine {
+		byBlocker[e.item.BlockerID] = append(byBlocker[e.item.BlockerID], e.item)
+	}
+	seen := map[string]int{}
+	for i := len(acts) - 1; i >= 0; i-- { // oldest first, so a row's lines keep their order
+		a := acts[i]
+		if a.Kind == coord.KindTaskComment && a.BlockerID == "" {
+			continue
+		}
+		// One row can fold to more than one line; the id stays unique.
+		id := fmt.Sprintf("%s:%d", a.Device, a.Seq)
+		if n := seen[id]; n > 0 {
+			seen[id]++
+			id = fmt.Sprintf("%s.%d", id, n)
+		} else {
+			seen[id] = 1
+		}
+		who := p.ref(a.By)
+		all = append(all, entry{threadPos{a.HLC, a.Device, a.Seq}, CardThreadItem{ID: id, Kind: ThreadEvent,
+			At: a.At, Who: who, Device: p.chip(a.Device), Text: who.Name + " " + a.What, BlockerID: a.BlockerID}})
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].pos.before(all[j].pos) })
+	if n := len(all) - MaxThreadView; n > 0 {
+		earlier, all = n, all[n:]
+	}
+	items = make([]CardThreadItem, 0, len(all))
+	for _, e := range all {
+		items = append(items, e.item)
+	}
+	return items, byBlocker, earlier
 }
 
 // cardPR reads a GitHub PR link and what the ledger knows of it.
@@ -387,21 +696,83 @@ type AnswerResult struct {
 	Told Told       `json:"told"`
 }
 
-// Answer resolves one blocker as the person: option is the index of the
-// recommended answer picked, or -1 to answer with text. The answer reaches
-// the agent that raised it (decision 18): a wake when wake is true (the
-// window's default, since that agent is blocked on the person), else at
-// its next turn. The card leaves blocked when no blocker is left open.
+// Answer is the person's answer to one blocker: option is the index of
+// the recommended answer picked, or -1 to answer with text. The answer
+// reaches the agent that raised it (decision 18), then the holders: a
+// wake when wake is true (the window's default, since that agent is
+// blocked on the person), else at its next turn. The item stays open
+// (answered) until the raiser, a holder or the person resolves it; when
+// nobody can act on it (the raiser isn't a live agent and no holder is
+// live) the answer resolves it at once, and the card leaves blocked when
+// no blocker is left open.
 func (b *BoardService) Answer(taskID, blockerID string, option int, text string, wake bool) (AnswerResult, error) {
 	if option < -1 {
 		return AnswerResult{}, fmt.Errorf("%w: option is an index or -1", coord.ErrInvalid)
 	}
 	ctx := context.Background()
-	if strings.TrimSpace(blockerID) == NoteItem {
-		return b.answerInput(ctx, strings.TrimSpace(taskID), option, text, wake)
+	taskID, blockerID = strings.TrimSpace(taskID), strings.TrimSpace(blockerID)
+	if blockerID == NoteItem {
+		return b.answerInput(ctx, taskID, option, text, wake)
 	}
-	t, n, err := b.coord.Answer(ctx, b.user.Key, strings.TrimSpace(taskID), strings.TrimSpace(blockerID),
-		coord.BlockerAnswer{Pick: option + 1, Text: text, Wake: wake})
+	t, ok := b.coord.GetTask(taskID)
+	if !ok {
+		return AnswerResult{}, fmt.Errorf("%w: task %q", coord.ErrNotFound, taskID)
+	}
+	i := slices.IndexFunc(t.Blockers, func(bl coord.Blocker) bool { return bl.ID == blockerID })
+	if i < 0 {
+		return AnswerResult{}, fmt.Errorf("%w: task %s has no blocker %q", coord.ErrNotFound, taskID, blockerID)
+	}
+	bl := t.Blockers[i]
+	a := coord.BlockerAnswer{Pick: option + 1, Text: text, Wake: wake, Resolve: b.nobodyCanAct(t, bl.RaisedBy)}
+	if a.Resolve && a.Pick == 0 && cmp.Or(bl.Status, coord.BlockerOpen) != coord.BlockerOpen {
+		// The person answered before: resolving keeps that answer and
+		// takes text as a note, so these words go in as the answer first.
+		if _, _, err := b.coord.Answer(ctx, b.user.Key, taskID, blockerID, coord.BlockerAnswer{Text: text, Wake: wake}); err != nil {
+			return AnswerResult{}, err
+		}
+		a.Text = ""
+	}
+	t, n, err := b.coord.Answer(ctx, b.user.Key, taskID, blockerID, a)
+	if err != nil {
+		return AnswerResult{}, err
+	}
+	told := b.tell(ctx, n, TellNextTurn)
+	d, err := b.Card(t.ID)
+	if err != nil {
+		return AnswerResult{}, err
+	}
+	return AnswerResult{Card: d, Told: told}, nil
+}
+
+// nobodyCanAct reports whether no agent will act on an answer to an item
+// raiser raised: raiser isn't an agent (the person or Irori, whatever the
+// holders, as the answer would go back to them), or is a session the
+// roster has as gone and no holder of t is live. The person's answer then
+// resolves it, as nobody would resolve or reply.
+func (b *BoardService) nobodyCanAct(t coord.Task, raiser string) bool {
+	p := b.people()
+	if r := p.ref(raiser); raiser == "" || r.Status == "person" || r.Status == "irori" {
+		return true
+	}
+	live := func(key string) bool {
+		r := p.ref(key)
+		return r.Live && r.Status != "person" && r.Status != "irori"
+	}
+	return !live(raiser) && !slices.ContainsFunc(t.Holders, live)
+}
+
+// ResolveBlocker is the person's "Mark resolved" on an item they answered,
+// for when its raiser won't resolve it (it ended after the answer): their
+// latest answer stands and note, which may be empty, goes beside the
+// check. On an item nobody answered, note is the answer. The holders hear
+// at their next turn.
+func (b *BoardService) ResolveBlocker(taskID, blockerID, note string) (AnswerResult, error) {
+	ctx := context.Background()
+	taskID, blockerID = strings.TrimSpace(taskID), strings.TrimSpace(blockerID)
+	if blockerID == NoteItem {
+		return AnswerResult{}, fmt.Errorf("%w: answer the card's question instead", coord.ErrInvalid)
+	}
+	t, n, err := b.coord.Answer(ctx, b.user.Key, taskID, blockerID, coord.BlockerAnswer{Text: note, Resolve: true})
 	if err != nil {
 		return AnswerResult{}, err
 	}

@@ -1,7 +1,10 @@
 package inbox
 
 import (
+	"context"
+	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -15,6 +18,8 @@ func TestPlanSweep(t *testing.T) {
 		return sweepEnv{
 			Now: t0, Unengaged: UnengagedLimit, Gone: GoneGrace, Quiet: QuietLimit, Grace: ReattachGrace,
 			GoneFor:   func(a string) time.Duration { return gone[a] },
+			EndedFor:  func(string) time.Duration { return 0 },
+			Self:      "dev1",
 			Reachable: func(a string) bool { return reach[a] },
 			Desk: func(repo string, exclude ...string) string {
 				for _, k := range desks[repo] {
@@ -25,6 +30,18 @@ func TestPlanSweep(t *testing.T) {
 				return ""
 			},
 		}
+	}
+	// ended is env with a's session out of presence for d (and, as a
+	// stretch that long implies, gone for the gone-move too).
+	ended := func(d time.Duration, reach map[string]bool, desks map[string][]string) sweepEnv {
+		e := env(map[string]time.Duration{"a": d}, reach, desks)
+		e.EndedFor = func(a string) time.Duration {
+			if a == "a" {
+				return d
+			}
+			return 0
+		}
+		return e
 	}
 	around := map[string]bool{"a": true, "b": true}
 	twoDesks := map[string][]string{"r": {"a", "b"}}
@@ -158,6 +175,64 @@ func TestPlanSweep(t *testing.T) {
 		{"a due next_turn deferral is re-queued",
 			sweepItem{ID: "1", To: "a", State: Deferred, NextTurn: true, Until: min(1)},
 			env(nil, around, nil), []want{{actRequeue, ""}}},
+	}...)
+	// Agent work whose recipient session ended goes on its card, or from an
+	// agent to the person; presence alone decides, not the wake path.
+	past := GoneGrace + time.Second
+	tests = append(tests, []struct {
+		name string
+		item sweepItem
+		env  sweepEnv
+		want []want
+	}{
+		{"ended, about a task: on the card",
+			sweepItem{ID: "1", To: "a", From: "c", Ref: "task:T1", State: Engaged, EngagedOnce: true, UpdatedAt: min(5)},
+			ended(past, nil, nil), []want{{actGoneCard, ""}}},
+		{"ended, about a comment: on its card",
+			sweepItem{ID: "1", To: "a", From: "c", Ref: "comment:C1", State: Queued, AssignedAt: min(5)},
+			ended(past, nil, nil), []want{{actGoneCard, ""}}},
+		{"ended, the person's message about a card: on the card too",
+			sweepItem{ID: "1", To: "a", From: user, FromPerson: true, Ref: "task:T1", State: Queued, AssignedAt: min(5)},
+			ended(past, nil, nil), []want{{actGoneCard, ""}}},
+		{"ended, no card, from an agent: to the person",
+			sweepItem{ID: "1", To: "a", From: "c", State: Delivered, AssignedAt: min(5), UpdatedAt: min(5)},
+			ended(past, nil, nil), []want{{actGonePerson, "user:dev1"}}},
+		{"ended, a ref that is no card, from an agent: to the person",
+			sweepItem{ID: "1", To: "a", From: "c", Ref: "pr:o/r#1", State: Queued, AssignedAt: min(5)},
+			ended(past, nil, nil), []want{{actGonePerson, "user:dev1"}}},
+		{"ended, no card, from the person: stays",
+			sweepItem{ID: "1", To: "a", From: user, FromPerson: true, State: Queued, AssignedAt: min(5)},
+			ended(past, nil, nil), none},
+		{"live but unreachable: stays",
+			sweepItem{ID: "1", To: "a", From: "c", Ref: "task:T1", State: Queued, AssignedAt: min(60)},
+			env(map[string]time.Duration{"a": time.Hour}, nil, nil), none},
+		{"ended for less than the grace: stays",
+			sweepItem{ID: "1", To: "a", From: "c", Ref: "task:T1", State: Queued, AssignedAt: min(5)},
+			ended(GoneGrace, nil, nil), none},
+		{"a notice stays",
+			sweepItem{ID: "1", To: "a", From: "c", Ref: "task:T1", Notice: true, State: Queued, NextTurn: true, AssignedAt: min(5)},
+			ended(past, nil, nil), none},
+		{"Irori's own stays",
+			sweepItem{ID: "1", To: "a", From: SystemKey, System: true, State: Queued, AssignedAt: min(5)},
+			ended(past, nil, nil), none},
+		{"held is a person's call",
+			sweepItem{ID: "1", To: "a", From: "c", Ref: "task:T1", State: Held, Hold: HoldBlocked, AssignedAt: min(5)},
+			ended(past, nil, nil), none},
+		{"a next_turn delivery still hands off",
+			sweepItem{ID: "1", To: "a", From: "c", Ref: "task:T1", State: Queued, NextTurn: true, AssignedAt: min(5)},
+			ended(past, nil, nil), []want{{actGoneCard, ""}}},
+		{"an in-flight delivery hands off rather than being reclaimed",
+			sweepItem{ID: "1", To: "a", From: "c", State: Queued, InFlight: true, IssuedAt: min(5), AssignedAt: min(5)},
+			ended(past, nil, nil), []want{{actGonePerson, "user:dev1"}}},
+		{"a deferred delivery hands off",
+			sweepItem{ID: "1", To: "a", From: "c", Ref: "task:T1", State: Deferred, Until: t0.Add(time.Hour), EngagedOnce: true},
+			ended(past, nil, nil), []want{{actGoneCard, ""}}},
+		{"repo work keeps its desk move",
+			sweepItem{ID: "1", To: "a", From: "c", Repo: "r", Ref: "task:T1", State: Engaged, EngagedOnce: true},
+			ended(past, nil, map[string][]string{"r": {"b"}}), []want{{actMove, "b"}}},
+		{"PR work keeps its repo move",
+			sweepItem{ID: "1", To: "a", From: "c", GoneRepo: "r", State: Queued, AssignedAt: min(5)},
+			ended(past, nil, map[string][]string{"r": {"b"}}), []want{{actMove, "b"}}},
 	}...)
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -299,12 +374,19 @@ func TestSweepMovesUnengagedRepoWorkOnce(t *testing.T) {
 
 func TestSweepGoneHolder(t *testing.T) {
 	h := newHarness(t)
+	var onCard []string
+	h.onGone = func(_ context.Context, m Message, to string) (string, error) {
+		onCard = append(onCard, m.ID)
+		return "x", nil
+	}
+	h.reopen()
 	h.abc()
 	h.ib.SetReachable(keyA, PathMod, true)
 	h.clk.advance(time.Second)
 	h.ib.SetReachable(keyB, PathMod, true)
 	_, repoWork := h.send(claude(keyC, "gamma"), toRepo("repo1"), "repo work")
 	_, agentWork := h.send(claude(keyC, "gamma"), to("alpha"), "agent work")
+	cardWork := h.sendWith(claude(keyC, "gamma"), to("alpha"), "card work", SendOptions{Mode: ModeWake, Ref: "task:x"})
 	h.deliverEngage(keyA, "t1")
 	h.wantState(repoWork.ID, Engaged)
 
@@ -320,7 +402,18 @@ func TestSweepGoneHolder(t *testing.T) {
 	if got := h.wantState(repoWork.ID, Moved); got.MovedTo != keyB {
 		t.Fatalf("moved to %s", got.MovedTo)
 	}
-	h.wantState(agentWork.ID, Engaged) // stays for a
+	// a's session ended: its agent work goes to the person, marked, and
+	// the work about a card goes on the card.
+	if got := h.wantState(agentWork.ID, Moved); got.MovedTo != user || got.Note != NoteRecipientGone {
+		t.Fatalf("agent work %+v", got)
+	}
+	mine := h.ib.For(user, false, 0)
+	if len(mine) != 1 || mine[0].MessageID != agentWork.MessageID || !strings.HasPrefix(mine[0].For, "recipient gone: alpha") {
+		t.Fatalf("the person's %+v", mine)
+	}
+	if got := h.wantState(cardWork.ID, Skipped); got.Note != "recipient gone; on task:x" || len(onCard) != 1 || onCard[0] != cardWork.MessageID {
+		t.Fatalf("card work %+v (on card %v)", got, onCard)
+	}
 	if open := h.ib.For(keyB, false, 0); len(open) != 1 || open[0].MessageID != repoWork.MessageID {
 		t.Fatalf("b's work %+v", open)
 	}
@@ -346,6 +439,305 @@ func TestSweepGoneHolder(t *testing.T) {
 	if got := h.wantState(unowned.ID, Queued); got.To != keyE {
 		t.Fatalf("assigned to %s", got.To)
 	}
+}
+
+// goneHook is an Options.OnRecipientGone that records what it put on a
+// card, checking it runs with the inbox lock released.
+type goneHook struct {
+	t     *testing.T
+	h     *harness
+	calls []Message
+	tos   []string
+	err   error // what the hook returns ("T1" when nil)
+}
+
+func (g *goneHook) hook(_ context.Context, m Message, to string) (string, error) {
+	// Called with b.mu released: the inbox can be read from inside it.
+	if !g.h.ib.impl.mu.TryLock() {
+		g.t.Error("hook called with the inbox lock held")
+	} else {
+		g.h.ib.impl.mu.Unlock()
+	}
+	g.h.ib.List(0)
+	g.calls, g.tos = append(g.calls, m), append(g.tos, to)
+	if g.err != nil {
+		return "", g.err
+	}
+	return "T1", nil
+}
+
+// newGoneHarness is a, b, c in presence, with a goneHook.
+func newGoneHarness(t *testing.T) (*harness, *goneHook) {
+	h := newHarness(t)
+	g := &goneHook{t: t, h: h}
+	h.onGone = g.hook
+	h.reopen()
+	h.abc()
+	return h, g
+}
+
+// endA removes a's session and sweeps until it is past GoneGrace.
+func (h *harness) endA() {
+	h.t.Helper()
+	h.ros.remove(keyA)
+	h.sweep() // first sighting starts the clock
+	h.clk.advance(GoneGrace + time.Second)
+	h.sweep()
+}
+
+func TestSweepGoneToCard(t *testing.T) {
+	h, g := newGoneHarness(t)
+	d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "about T1", SendOptions{Mode: ModeWake, Ref: "task:T1"})
+	h.sweep()
+	if len(g.calls) != 0 {
+		t.Fatal("handed off while a is around")
+	}
+	h.endA()
+	if len(g.calls) != 1 || g.calls[0].ID != d.MessageID || g.calls[0].Ref != "task:T1" || g.tos[0] != keyA {
+		t.Fatalf("hook calls %+v to %v", g.calls, g.tos)
+	}
+	if got := h.wantState(d.ID, Skipped); got.Note != "recipient gone; on task:T1" {
+		t.Fatalf("note %q", got.Note)
+	}
+	if n := len(h.ib.List(0)); n != 1 {
+		t.Fatalf("%d deliveries, want the one", n)
+	}
+	// Nothing left for a: the next sweep is a no-op, and a's clock is gone.
+	h.clk.advance(time.Minute)
+	h.sweep()
+	if len(g.calls) != 1 || len(h.ib.List(0)) != 1 {
+		t.Fatalf("second sweep: %d calls, %d deliveries", len(g.calls), len(h.ib.List(0)))
+	}
+	if h.ib.EndedFor(keyA) != 0 {
+		t.Fatal("ended clock kept with no open work")
+	}
+}
+
+func TestSweepGoneToPerson(t *testing.T) {
+	t.Run("no card", func(t *testing.T) {
+		h, g := newGoneHarness(t)
+		d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "no card", SendOptions{Mode: ModeWake})
+		mine := h.sendWith(person(), to("alpha"), "the person's own", SendOptions{})
+		h.endA()
+		if len(g.calls) != 0 {
+			t.Fatal("hook called for a message with no card")
+		}
+		old := h.wantState(d.ID, Moved)
+		if old.MovedTo != user || old.Note != NoteRecipientGone {
+			t.Fatalf("old %+v", old)
+		}
+		got := h.ib.For(user, false, 0)
+		if len(got) != 1 || got[0].MessageID != d.MessageID || got[0].State != Queued ||
+			got[0].For != "recipient gone: alpha ("+keyA+")" {
+			t.Fatalf("the person's %+v", got)
+		}
+		h.wantState(mine.ID, Queued) // the person's own message stays for a
+	})
+	t.Run("the card isn't here", func(t *testing.T) {
+		h, g := newGoneHarness(t)
+		g.err = ErrNoCard
+		d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "about a card", SendOptions{Mode: ModeWake, Ref: "comment:C1"})
+		mine := h.sendWith(person(), to("alpha"), "the person's own", SendOptions{Ref: "task:T9"})
+		h.endA()
+		if len(g.calls) != 2 {
+			t.Fatalf("hook calls %d", len(g.calls))
+		}
+		// It may not have arrived from another device yet: both wait.
+		h.wantState(d.ID, Queued)
+		h.wantState(mine.ID, Queued)
+		h.clk.advance(NoCardGrace)
+		h.sweep()
+		h.wantState(d.ID, Queued)
+		// Missing past the grace: the agent's goes to the person; the
+		// person's own stays, as with no card.
+		h.clk.advance(time.Minute)
+		h.sweep()
+		if old := h.wantState(d.ID, Moved); old.MovedTo != user || old.Note != NoteRecipientGone {
+			t.Fatalf("old %+v", old)
+		}
+		if got := h.ib.For(user, false, 0); len(got) != 1 || !strings.HasPrefix(got[0].For, "recipient gone: ") {
+			t.Fatalf("the person's %+v", got)
+		}
+		h.wantState(mine.ID, Queued)
+	})
+	t.Run("the card arrives after a miss", func(t *testing.T) {
+		h, g := newGoneHarness(t)
+		g.err = ErrNoCard
+		d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "about T1", SendOptions{Mode: ModeWake, Ref: "task:T1"})
+		h.endA()
+		h.wantState(d.ID, Queued)
+		g.err = nil
+		h.clk.advance(time.Minute)
+		h.sweep()
+		if got := h.wantState(d.ID, Skipped); got.Note != "recipient gone; on task:T1" {
+			t.Fatalf("note %q", got.Note)
+		}
+		if len(h.ib.For(user, false, 0)) != 0 {
+			t.Fatal("moved to the person after a transient miss")
+		}
+	})
+	t.Run("another error leaves it for the next sweep", func(t *testing.T) {
+		h, g := newGoneHarness(t)
+		g.err = errors.New("restoring")
+		d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "about T1", SendOptions{Mode: ModeWake, Ref: "task:T1"})
+		h.endA()
+		h.wantState(d.ID, Queued)
+		if len(h.ib.For(user, false, 0)) != 0 {
+			t.Fatal("moved to the person on a hook error")
+		}
+		g.err = nil
+		h.sweep()
+		if len(g.calls) != 2 {
+			t.Fatalf("hook calls %d, want a retry", len(g.calls))
+		}
+		h.wantState(d.ID, Skipped)
+	})
+	t.Run("no hook: card work goes to the person", func(t *testing.T) {
+		h := newHarness(t)
+		h.abc()
+		d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "about T1", SendOptions{Mode: ModeWake, Ref: "task:T1"})
+		mine := h.sendWith(person(), to("alpha"), "the person's own", SendOptions{Ref: "task:T1"})
+		h.endA()
+		if old := h.wantState(d.ID, Moved); old.MovedTo != user {
+			t.Fatalf("old %+v", old)
+		}
+		h.wantState(mine.ID, Queued)
+	})
+}
+
+// passHook is an Options.OnPassed that records what it was given, checking
+// it runs with the inbox lock released.
+type passHook struct {
+	t     *testing.T
+	h     *harness
+	calls []Message
+	tos   []string
+	err   error
+}
+
+func (p *passHook) hook(_ context.Context, m Message, to string) error {
+	if !p.h.ib.impl.mu.TryLock() {
+		p.t.Error("hook called with the inbox lock held")
+	} else {
+		p.h.ib.impl.mu.Unlock()
+	}
+	p.calls, p.tos = append(p.calls, m), append(p.tos, to)
+	return p.err
+}
+
+func newPassHarness(t *testing.T) (*harness, *passHook) {
+	h := newHarness(t)
+	p := &passHook{t: t, h: h}
+	h.onPassed = p.hook
+	h.reopen()
+	h.abc()
+	return h, p
+}
+
+// A message about a card that was held goes on its card held; once this
+// device lets it through (the person releases it, or unpauses), its text
+// goes on the card. A message about no card, or one never held, doesn't.
+func TestPassedFillsTheCard(t *testing.T) {
+	t.Run("released", func(t *testing.T) {
+		h, p := newPassHarness(t)
+		if err := h.ib.SetPolicy(bg, Policy{Block: []string{keyC}}, user); err != nil {
+			t.Fatal(err)
+		}
+		d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "about T1", SendOptions{Mode: ModeWake, Ref: "task:T1"})
+		plain := h.sendWith(claude(keyC, "gamma"), to("alpha"), "no card", SendOptions{Mode: ModeWake})
+		shown := h.sendWith(claude(keyA, "alpha"), to("beta"), "never held", SendOptions{Mode: ModeWake, Ref: "task:T1"})
+		h.wantState(d.ID, Held)
+		h.sweep()
+		if len(p.calls) != 0 {
+			t.Fatalf("filled while held: %+v", p.calls)
+		}
+		for _, id := range []string{d.ID, plain.ID} {
+			if err := h.ib.Release(bg, id, user); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if len(p.calls) != 1 || p.calls[0].ID != d.MessageID || p.tos[0] != keyA {
+			t.Fatalf("calls %+v to %v", p.calls, p.tos)
+		}
+		h.sweep()
+		if len(p.calls) != 1 || p.calls[0].ID == shown.MessageID {
+			t.Fatalf("filled again: %+v", p.calls)
+		}
+	})
+	t.Run("unpaused", func(t *testing.T) {
+		h, p := newPassHarness(t)
+		if err := h.ib.SetPolicy(bg, Policy{Paused: true}, user); err != nil {
+			t.Fatal(err)
+		}
+		d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "about T1", SendOptions{Mode: ModeWake, Ref: "comment:C1"})
+		h.wantState(d.ID, Held)
+		if err := h.ib.SetPolicy(bg, Policy{}, user); err != nil {
+			t.Fatal(err)
+		}
+		if len(p.calls) != 1 || p.calls[0].ID != d.MessageID {
+			t.Fatalf("calls %+v", p.calls)
+		}
+	})
+	t.Run("a failure is tried again for the grace", func(t *testing.T) {
+		h, p := newPassHarness(t)
+		p.err = ErrNoCard
+		if err := h.ib.SetPolicy(bg, Policy{Block: []string{keyC}}, user); err != nil {
+			t.Fatal(err)
+		}
+		d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "about T1", SendOptions{Mode: ModeWake, Ref: "task:T1"})
+		if err := h.ib.Release(bg, d.ID, user); err != nil {
+			t.Fatal(err)
+		}
+		h.clk.advance(NoCardGrace)
+		h.sweep()
+		if len(p.calls) != 2 {
+			t.Fatalf("calls %d, want a retry", len(p.calls))
+		}
+		h.clk.advance(time.Minute)
+		h.sweep() // past the grace: the last try
+		h.sweep()
+		if len(p.calls) != 3 {
+			t.Fatalf("calls %d, want it dropped after the grace", len(p.calls))
+		}
+	})
+}
+
+func TestEndedIgnoresReachability(t *testing.T) {
+	h, g := newGoneHarness(t)
+	// a is in presence with no wake path (no mod attached) for 10 minutes:
+	// gone for repo work, but not ended, so its mail waits.
+	d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "about T1", SendOptions{Mode: ModeWake, Ref: "task:T1"})
+	n := h.sendWith(claude(keyC, "gamma"), to("alpha"), "no card", SendOptions{Mode: ModeWake})
+	for range 10 {
+		h.sweep()
+		h.clk.advance(time.Minute)
+	}
+	h.sweep()
+	if len(g.calls) != 0 || h.ib.EndedFor(keyA) != 0 {
+		t.Fatalf("handed off a live session's mail (%d calls, ended %v)", len(g.calls), h.ib.EndedFor(keyA))
+	}
+	h.wantState(d.ID, Queued)
+	h.wantState(n.ID, Queued)
+
+	// a leaves and comes back within the grace: its clock starts over.
+	h.ros.remove(keyA)
+	h.sweep()
+	h.clk.advance(2 * time.Minute)
+	h.sweep()
+	h.abc()
+	h.sweep()
+	if h.ib.EndedFor(keyA) != 0 {
+		t.Fatal("ended clock kept after a came back")
+	}
+	h.ros.remove(keyA)
+	h.sweep()
+	h.clk.advance(2 * time.Minute)
+	h.sweep()
+	if len(g.calls) != 0 {
+		t.Fatal("handed off before a was gone for the grace")
+	}
+	h.wantState(d.ID, Queued)
+	h.wantState(n.ID, Queued)
 }
 
 func TestSweepAttachLostCountsAsGone(t *testing.T) {

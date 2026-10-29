@@ -41,7 +41,7 @@ var localReplayKinds = []string{KindPolicySet}
 
 // limits are Options' durations with defaults filled in.
 type limits struct {
-	unengaged, gone, quiet, reattach time.Duration
+	unengaged, gone, quiet, reattach, noCard time.Duration
 }
 
 // drec is a delivery plus the bookkeeping the sweeper needs. Message is left
@@ -149,12 +149,18 @@ type reachRec struct {
 }
 
 type inbox struct {
-	mu      sync.Mutex
-	st      *store.Store
-	roster  Roster
-	owners  func(prKey string) []string // Options.PROwners; nil = no ledger
-	dev     string
-	ownerFn func(string) bool // Options.IsOwner
+	mu     sync.Mutex
+	st     *store.Store
+	roster Roster
+	owners func(prKey string) []string // Options.PROwners; nil = no ledger
+	// onGone is Options.OnRecipientGone; nil sends agents' card messages to
+	// the person. onPassed is Options.OnPassed.
+	onGone   func(ctx context.Context, m Message, to string) (string, error)
+	onPassed func(ctx context.Context, m Message, to string) error
+	dev      string
+	ownerFn  func(string) bool // Options.IsOwner
+	// revokedFn is Options.Revoked (nil: no device is revoked).
+	revokedFn func(string) bool
 	// ignored counts owner-only rows folded from the wrong device (v0.4 §6.0).
 	ignored   int
 	ignoredBy map[string]int // and per writing device
@@ -182,11 +188,18 @@ type inbox struct {
 	running map[string]turnRow     // agent -> the wake whose turn is running
 	pairs   map[string][]time.Time // unordered pair -> send times
 
-	reach      map[string]*reachRec
-	goneSince  map[string]time.Time
-	reminders  map[string][]string // agent -> delivery ids a reminder wake is due for
-	submit     map[string]bool     // last hasSubmit per agent, for WakeReady edges
-	appendable map[string]bool     // last hasAppend per agent, for AppendReady edges
+	reach     map[string]*reachRec
+	goneSince map[string]time.Time
+	// endedSince: when each recipient left presence, reachability aside
+	// (the ended handoff, sweep.go). noCardSince: when each handoff first
+	// found no card here. passing: deliveries let through whose message
+	// text waits to go on its card (fillCards). Memory only.
+	endedSince  map[string]time.Time
+	noCardSince map[string]time.Time
+	passing     map[string]passRec
+	reminders   map[string][]string // agent -> delivery ids a reminder wake is due for
+	submit      map[string]bool     // last hasSubmit per agent, for WakeReady edges
+	appendable  map[string]bool     // last hasAppend per agent, for AppendReady edges
 	// Search visibility (search.go): when each message first had a delivery
 	// outside Held/Dismissed, and whether one was held before that.
 	visibleAt map[string]time.Time
@@ -222,20 +235,22 @@ func newInbox(ctx context.Context, st *store.Store, roster Roster, opts Options)
 		ownerFn = func(k string) bool { return k == self }
 	}
 	b := &inbox{
-		st: st, roster: roster, owners: opts.PROwners, dev: opts.DeviceID, now: now,
-		ownerFn: ownerFn,
+		st: st, roster: roster, owners: opts.PROwners, onGone: opts.OnRecipientGone, onPassed: opts.OnPassed, dev: opts.DeviceID, now: now,
+		ownerFn: ownerFn, revokedFn: opts.Revoked,
 		lim: limits{
 			unengaged: pick(opts.UnengagedLimit, UnengagedLimit),
 			gone:      pick(opts.GoneGrace, GoneGrace),
 			quiet:     pick(opts.QuietLimit, QuietLimit),
 			reattach:  pick(opts.ReattachGrace, ReattachGrace),
+			noCard:    pick(opts.NoCardGrace, NoCardGrace),
 		},
 		msgs: map[string]*Message{}, dels: map[string]*drec{}, open: map[string]*drec{},
 		counted: map[string]bool{}, wakes: map[string]*wakeRec{}, tokens: map[string]string{},
 		aliases: map[string][]string{}, known: map[string]string{},
 		pol:     Policy{Mode: Everyone, Block: []string{}, Allow: []string{}},
 		running: map[string]turnRow{}, pairs: map[string][]time.Time{},
-		reach: map[string]*reachRec{}, goneSince: map[string]time.Time{},
+		reach: map[string]*reachRec{}, goneSince: map[string]time.Time{}, endedSince: map[string]time.Time{},
+		noCardSince: map[string]time.Time{}, passing: map[string]passRec{},
 		reminders: map[string][]string{}, submit: map[string]bool{}, appendable: map[string]bool{},
 		visibleAt: map[string]time.Time{}, heldFirst: map[string]bool{},
 		subs: map[chan Change]struct{}{}, touched: map[string]bool{},
@@ -306,11 +321,22 @@ func (b *inbox) emit(ctx context.Context, by, kind string, payload any) error {
 	return b.apply(ev)
 }
 
-// putDelivery stamps and appends a delivery snapshot.
+// putDelivery stamps and appends a delivery snapshot. A held delivery let
+// through queues its message's text for its card (passed).
 func (b *inbox) putDelivery(ctx context.Context, r deliveryRow, by string) error {
+	wasHeld := false
+	if d := b.dels[r.DeliveryID]; d != nil {
+		wasHeld = d.State == Held
+	}
 	r.By = by
 	r.At = b.now()
-	return b.emit(ctx, by, KindDelivery, r)
+	if err := b.emit(ctx, by, KindDelivery, r); err != nil {
+		return err
+	}
+	if wasHeld && r.State == Queued {
+		b.passed(b.dels[r.DeliveryID])
+	}
+	return nil
 }
 
 // emitLocal appends one device-local row (policy.set) and folds it.
@@ -369,6 +395,7 @@ func (b *inbox) apply(ev store.Event) error {
 		if m.ID == "" {
 			return errors.New("message without id")
 		}
+		m.writer = ev.DeviceID
 		b.msgs[m.ID] = &m
 		if m.From.Key != "" && !m.From.IsUser() && !m.From.isSystem() {
 			if _, ok := b.known[m.From.Key]; !ok {

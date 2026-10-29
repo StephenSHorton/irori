@@ -7,8 +7,9 @@
 // turn takes that grant only once the person typed A's key fingerprint into
 // B, so a code holder that reached B first can't hand it a person of its own.
 //
-// Pairing is GUI-only (and the CLI that starts its own Core): nothing here is
-// on the loopback API, so an agent with a shell can't pair a device.
+// Adding a device is GUI-only: the loopback API reaches only the joining
+// side (join, status, the other device's key, CancelJoin), so an agent with
+// a shell can't add a device to the person.
 package pair
 
 import (

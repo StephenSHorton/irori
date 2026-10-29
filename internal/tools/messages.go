@@ -1,12 +1,14 @@
 package tools
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/inbox"
 )
 
@@ -21,6 +23,7 @@ type sendArgs struct {
 	Text   string   `json:"text"`
 	Reason string   `json:"reason"`
 	Attach []string `json:"attach"`
+	TaskID string   `json:"task_id"`
 }
 
 func (s *set) send(ctx context.Context, c Caller, raw json.RawMessage) string {
@@ -45,16 +48,37 @@ func (s *set) send(ctx context.Context, c Caller, raw json.RawMessage) string {
 	if strings.TrimSpace(a.Text) == "" {
 		return errText("give the message text.")
 	}
+	// A message about a card names it as its Ref, and goes on its thread
+	// once sent. An unknown card sends nothing.
+	ref := ""
+	if strings.TrimSpace(a.TaskID) != "" {
+		id, msg := s.taskID(a.TaskID)
+		if msg != "" {
+			return msg
+		}
+		if _, ok := s.b.Coord().GetTask(id); !ok {
+			name := "task:" + id
+			if _, short := coord.ParseShort(id); short {
+				name = id // a short ref no card has, as given
+			}
+			return errText("no card " + oneLine(name, 80) + "; nothing was sent. The board tool shows the cards.")
+		}
+		ref = "task:" + id
+	}
 	files, msg := s.attachFiles(ctx, c, a.Attach)
 	if msg != "" {
 		return msg
 	}
-	o := inbox.SendOptions{Reason: strings.TrimSpace(a.Reason), Mode: inbox.ModeWake, Attachments: files}
+	o := inbox.SendOptions{Reason: strings.TrimSpace(a.Reason), Mode: inbox.ModeWake, Attachments: files, Ref: ref}
 	m, d, err := s.b.Inbox().SendWith(ctx, c.Sender, addr, a.Text, o)
 	if err != nil {
 		return mapErr(err)
 	}
-	return "Sent message " + m.ID + attachedLine(files) + " " + s.outcome(d)
+	out := "Sent message " + m.ID + attachedLine(files) + " " + s.outcome(d)
+	if ref != "" {
+		out += s.recorded(ctx, m, cmp.Or(d.To, addr.Value), HeldOnCard(s.b.Inbox(), d))
+	}
+	return out
 }
 
 // isPRTarget: to names a pull request ("pr:..." or a GitHub URL) rather
@@ -89,7 +113,10 @@ func (s *set) reply(ctx context.Context, c Caller, raw json.RawMessage) string {
 	if err != nil {
 		return mapErr(err)
 	}
-	return "Replied to delivery " + oneLine(id, 80) + " (now answered) with message " + m.ID + " " + s.outcome(d)
+	// A reply keeps the Ref of the message it answers, so a reply about a
+	// card goes on its thread too.
+	return "Replied to delivery " + oneLine(id, 80) + " (now answered) with message " + m.ID + " " + s.outcome(d) +
+		s.recorded(ctx, m, d.To, HeldOnCard(s.b.Inbox(), d))
 }
 
 // outcome says where a just-sent message went and what happens next.
@@ -118,7 +145,7 @@ func (s *set) outcome(d inbox.Delivery) string {
 		}
 	case inbox.Queued:
 		if d.To != "" && !n.live(d.To) {
-			b.WriteString("queued; they aren't running now, so it waits until they come back.")
+			b.WriteString(s.notRunning(d, n))
 		} else {
 			b.WriteString("queued; they are woken with it, and their reply comes back to you as a message.")
 		}
@@ -130,6 +157,29 @@ func (s *set) outcome(d inbox.Delivery) string {
 		b.WriteString(" It went to the repo instead: its owner " + owner + " isn't running now.")
 	}
 	return b.String()
+}
+
+// notRunning is the outcome of a message queued for an agent that isn't
+// running. If its session has ended, the inbox sweep hands agent work on
+// after a few minutes: to the card it is about, or to the person when an
+// agent sent it. Repo and PR work moves to another desk instead, and the
+// person's own message about no card waits.
+func (s *set) notRunning(d inbox.Delivery, n names) string {
+	const waits = "queued; they aren't running now, so it waits until they come back."
+	m := d.Message
+	if m.To.Kind == inbox.ToRepo || m.To.Kind == inbox.ToPR || d.RepoKey != "" || m.Notice || n.owner(d.To) {
+		return waits
+	}
+	const lead = "queued; they aren't running now. If they don't come back within a few minutes it goes "
+	if co := s.b.Coord(); co != nil {
+		if tid, ok := cardFor(co, m.Ref); ok {
+			return lead + "on task:" + oneLine(tid, 80) + "'s thread instead."
+		}
+	}
+	if n.owner(m.From.Key) {
+		return waits
+	}
+	return lead + "to the person, marked recipient gone."
 }
 
 type inboxArgs struct {

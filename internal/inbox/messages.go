@@ -148,7 +148,7 @@ func (b *inbox) sendLocked(ctx context.Context, from Sender, to Address, text st
 	// decision: its host decides with its own policy (v0.4 §6.3).
 	h := HoldReason("")
 	if b.local(recipient) || recipient == "" {
-		h = b.hold(&m, recipient, cards)
+		h = b.hold(b.msgs[m.ID], recipient, cards) // as folded: it knows its writer
 	}
 	r := placed(deliveryRow{DeliveryID: "dlv_" + b.ids.next(now), MessageID: m.ID, To: recipient, RepoKey: repo, Mode: o.Mode, For: forOwner}, h)
 	if err := b.putDelivery(ctx, r, from.Key); err != nil {
@@ -211,7 +211,9 @@ func (b *inbox) reply(ctx context.Context, from Sender, deliveryID, text string)
 	if orig == nil {
 		return Message{}, Delivery{}, fmt.Errorf("%w: message %q", ErrNotFound, d.MessageID)
 	}
-	m, nd, err := b.sendLocked(ctx, from, Address{Kind: ToReply, Value: orig.ID}, text, SendOptions{Mode: ModeWake}, orig)
+	// The reply is about what the message was about: a card ref (task: or
+	// comment:) keeps the thread on that card, also when its sender has gone.
+	m, nd, err := b.sendLocked(ctx, from, Address{Kind: ToReply, Value: orig.ID}, text, SendOptions{Mode: ModeWake, Ref: orig.Ref}, orig)
 	if err != nil {
 		return Message{}, Delivery{}, err
 	}

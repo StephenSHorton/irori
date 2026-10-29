@@ -32,7 +32,17 @@ var (
 	ErrBadState      = errors.New("inbox: not allowed in the delivery's current state")
 	ErrTooLong       = errors.New("inbox: message text is too long")
 	ErrUnimplemented = errors.New("inbox: not implemented yet")
+	// ErrNoCard: Options.OnRecipientGone found no card for the message here
+	// (its ref names none, or the task isn't on this device, perhaps not
+	// yet). An agent's message goes to the person once the card has been
+	// missing for NoCardGrace; the person's own stays queued.
+	ErrNoCard = errors.New("inbox: the message names no card here")
 )
+
+// NoteRecipientGone is the note on a delivery the sweeper took away from a
+// session that ended (Options.OnRecipientGone). Handed to a card, the note
+// is "recipient gone; on task:<id>".
+const NoteRecipientGone = "recipient gone"
 
 // Limits and timings (design §4–§5). Tests may override through Options.
 const (
@@ -43,6 +53,7 @@ const (
 	MaxHop           = 6
 	UnengagedLimit   = 10 * time.Minute
 	GoneGrace        = 3 * time.Minute
+	NoCardGrace      = 10 * time.Minute // a card a message names may still be on its way from another device
 	QuietLimit       = 60 * time.Minute
 	MaxDefer         = 12 * time.Hour
 	ReattachGrace    = 2 * time.Minute
@@ -112,6 +123,10 @@ type Message struct {
 	// Attachments are files on the message (v0.4 §6.6): refs to the
 	// attaching device's store, fetched on demand with attachment_get.
 	Attachments []blob.FileRef `json:"attachments,omitempty"`
+	// writer is the device that wrote the message.sent row (memory only,
+	// set as it folds): an own-agent exemption needs From's key to be that
+	// device's (decision 34).
+	writer string
 }
 
 // State is a delivery's state (design §4).
@@ -188,7 +203,7 @@ type Delivery struct {
 	Via       string       `json:"via,omitempty"`    // "mod", "channel", "gui"
 	WakeID    string       `json:"wakeId,omitempty"` // the wake that carried it
 	Note      string       `json:"note,omitempty"`   // defer/skip note
-	For       string       `json:"for,omitempty"`    // PR work its owner couldn't take: that owner, "name (key)"
+	For       string       `json:"for,omitempty"`    // PR work its owner couldn't take: that owner, "name (key)"; or "recipient gone: name (key)"
 	Until     time.Time    `json:"until,omitempty"`  // deferral due time
 	MovedTo   string       `json:"movedTo,omitempty"`
 	Reminded  bool         `json:"reminded"`
@@ -314,8 +329,27 @@ type Options struct {
 	// IsOwner reports whether a "user:<device>" key is the person's (v0.4
 	// identity.Chain.IsOwner). Nil accepts exactly "user:<DeviceID>".
 	IsOwner func(key string) bool
+	// OnRecipientGone puts a message whose recipient (to) has ended on the
+	// card its Ref names (task: or comment:), returning the task id. The
+	// sweeper calls it without the inbox lock held, then closes the delivery
+	// as Skipped. ErrNoCard leaves it for later sweeps, and an agent's
+	// message goes to the person once the card has been missing for
+	// NoCardGrace; any other error leaves it for the next sweep. Nil sends
+	// agents' card messages to the person too.
+	OnRecipientGone func(ctx context.Context, m Message, to string) (taskID string, err error)
+	// OnPassed puts the text of a message about a card on that card once
+	// this device let its delivery to to through the wake policy (it
+	// decided no hold as the recipient's host, or the person released it):
+	// it was recorded there held, or before this device decided. Called
+	// without the inbox lock held, from Sweep, Release and SetPolicy; an
+	// error is tried again on later calls for NoCardGrace. Nil skips it.
+	OnPassed func(ctx context.Context, m Message, to string) error
+	// Revoked reports a device removed from the person (v0.4 §3): its
+	// agents are no longer the person's own for the bypass rule (decision
+	// 34). Nil revokes none.
+	Revoked func(device string) bool
 	// Overrides for tests; zero means the constant above.
-	UnengagedLimit, GoneGrace, QuietLimit, ReattachGrace time.Duration
+	UnengagedLimit, GoneGrace, QuietLimit, ReattachGrace, NoCardGrace time.Duration
 }
 
 // Inbox is the messaging core. Safe for concurrent use.
@@ -422,7 +456,9 @@ func (b *Inbox) Skip(ctx context.Context, agent, deliveryID, note string) error 
 // Release is the person's Deliver on a held delivery: it re-queues it past the
 // policy. by is "user:<device>".
 func (b *Inbox) Release(ctx context.Context, deliveryID, by string) error {
-	return b.impl.release(ctx, deliveryID, by)
+	err := b.impl.release(ctx, deliveryID, by)
+	b.impl.fillCards(ctx)
+	return err
 }
 
 // Dismiss is the person's Dismiss on a held delivery.
@@ -454,13 +490,35 @@ func (b *Inbox) Policy() Policy { return b.impl.policy() }
 // SetPolicy replaces the policy (GUI or person-typed /irori only; callers
 // enforce that). Unpausing re-queues HoldPaused deliveries.
 func (b *Inbox) SetPolicy(ctx context.Context, p Policy, by string) error {
-	return b.impl.setPolicy(ctx, p, by)
+	err := b.impl.setPolicy(ctx, p, by)
+	b.impl.fillCards(ctx)
+	return err
 }
 
 // Sweep runs the sweeper once (design §4): reassign, gone-moves, reminders,
-// due deferrals, front-desk succession for unowned repo work. Core calls it
-// every SweepInterval.
-func (b *Inbox) Sweep(ctx context.Context) error { return b.impl.sweep(ctx) }
+// due deferrals, front-desk succession for unowned repo work, and agent work
+// whose recipient has ended handed to its card or the person, and the text
+// of card messages let through put on their cards. Core calls it every
+// SweepInterval.
+func (b *Inbox) Sweep(ctx context.Context) error {
+	hs, err := b.impl.sweep(ctx)
+	if err != nil {
+		return err
+	}
+	err = b.impl.handOff(ctx, hs)
+	b.impl.fillCards(ctx)
+	return err
+}
+
+// EndedFor is how long agent has been out of presence, as the sweeper last
+// saw it while it had open work here (0 while it is around, or before a
+// sweep noticed). Past GoneGrace its agent work is handed on.
+func (b *Inbox) EndedFor(agent string) time.Duration {
+	x := b.impl
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	return x.endedFor(agent, x.now())
+}
 
 // Subscribe delivers changes until ctx ends (buffered; slow readers drop and
 // should re-read).

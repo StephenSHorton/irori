@@ -63,6 +63,16 @@ export class Blocker {
      */
     "on"?: BlockedBy | null;
 
+    /**
+     * Status, SentTo and Missing are computed from the item's blocker
+     * comments, never written to a row. SentTo is who the person's latest
+     * answer went to (the raiser then); Missing is what the agent's reply
+     * to it says is still needed.
+     */
+    "status"?: BlockerStatus;
+    "sentTo"?: string;
+    "missing"?: string[];
+
     /** Creates a new Blocker instance. */
     constructor($$source: Partial<Blocker> = {}) {
         if (!("id" in $$source)) {
@@ -88,6 +98,7 @@ export class Blocker {
         const $$createField5_0 = $$createType1;
         const $$createField6_0 = $$createType3;
         const $$createField7_0 = $$createType5;
+        const $$createField10_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("options" in $$parsedSource) {
             $$parsedSource["options"] = $$createField5_0($$parsedSource["options"]);
@@ -97,6 +108,9 @@ export class Blocker {
         }
         if ("on" in $$parsedSource) {
             $$parsedSource["on"] = $$createField7_0($$parsedSource["on"]);
+        }
+        if ("missing" in $$parsedSource) {
+            $$parsedSource["missing"] = $$createField10_0($$parsedSource["missing"]);
         }
         return new Blocker($$parsedSource as Partial<Blocker>);
     }
@@ -135,6 +149,33 @@ export enum BlockerKind {
      * Ref: free text or a URL (CI, a review, a vendor)
      */
     BlockedOnExternal = "external",
+};
+
+/**
+ * BlockerStatus is where an open blocker item stands, derived in the fold
+ * from its blocker comments (never stored). Resolved and closed items keep
+ * their last status; Resolved says they are done.
+ */
+export enum BlockerStatus {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * no answer yet (an agent's comment only adds context)
+     */
+    BlockerOpen = "open",
+
+    /**
+     * the person answered last: with the raiser
+     */
+    BlockerAnswered = "answered",
+
+    /**
+     * an agent replied to the person's answer: with the person
+     */
+    BlockerReplied = "replied",
 };
 
 /**
@@ -197,12 +238,12 @@ export class BoardView {
      * Creates a new BoardView instance from a string or object.
      */
     static createFrom($$source: any = {}): BoardView {
-        const $$createField0_0 = $$createType7;
-        const $$createField1_0 = $$createType7;
-        const $$createField2_0 = $$createType7;
-        const $$createField3_0 = $$createType7;
-        const $$createField4_0 = $$createType7;
-        const $$createField6_0 = $$createType9;
+        const $$createField0_0 = $$createType8;
+        const $$createField1_0 = $$createType8;
+        const $$createField2_0 = $$createType8;
+        const $$createField3_0 = $$createType8;
+        const $$createField4_0 = $$createType8;
+        const $$createField6_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("needsYou" in $$parsedSource) {
             $$parsedSource["needsYou"] = $$createField0_0($$parsedSource["needsYou"]);
@@ -231,6 +272,16 @@ export class BoardView {
  */
 export class Card {
     "id": string;
+
+    /**
+     * Short is the card's short ref without its "#" ("12", or "12a" and
+     * "12b" for two cards that claimed 12 apart: short.go). It is derived
+     * by the fold, never written. ShortWas is the number such a card
+     * claimed ("12") and showed until the clash settled; "" when no other
+     * card claimed it.
+     */
+    "short"?: string;
+    "shortWas"?: string;
     "title": string;
     "objective": string;
     "doneCriteria"?: string;
@@ -358,50 +409,50 @@ export class Card {
      * Creates a new Card instance from a string or object.
      */
     static createFrom($$source: any = {}): Card {
-        const $$createField5_0 = $$createType10;
-        const $$createField8_0 = $$createType10;
-        const $$createField9_0 = $$createType10;
-        const $$createField17_0 = $$createType5;
-        const $$createField18_0 = $$createType12;
-        const $$createField20_0 = $$createType14;
-        const $$createField21_0 = $$createType16;
-        const $$createField22_0 = $$createType10;
-        const $$createField23_0 = $$createType18;
-        const $$createField25_0 = $$createType10;
-        const $$createField26_0 = $$createType10;
+        const $$createField7_0 = $$createType6;
+        const $$createField10_0 = $$createType6;
+        const $$createField11_0 = $$createType6;
+        const $$createField19_0 = $$createType5;
+        const $$createField20_0 = $$createType12;
+        const $$createField22_0 = $$createType14;
+        const $$createField23_0 = $$createType16;
+        const $$createField24_0 = $$createType6;
+        const $$createField25_0 = $$createType18;
+        const $$createField27_0 = $$createType6;
+        const $$createField28_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
-            $$parsedSource["scope"] = $$createField5_0($$parsedSource["scope"]);
+            $$parsedSource["scope"] = $$createField7_0($$parsedSource["scope"]);
         }
         if ("holders" in $$parsedSource) {
-            $$parsedSource["holders"] = $$createField8_0($$parsedSource["holders"]);
+            $$parsedSource["holders"] = $$createField10_0($$parsedSource["holders"]);
         }
         if ("assigned" in $$parsedSource) {
-            $$parsedSource["assigned"] = $$createField9_0($$parsedSource["assigned"]);
+            $$parsedSource["assigned"] = $$createField11_0($$parsedSource["assigned"]);
         }
         if ("blockedBy" in $$parsedSource) {
-            $$parsedSource["blockedBy"] = $$createField17_0($$parsedSource["blockedBy"]);
+            $$parsedSource["blockedBy"] = $$createField19_0($$parsedSource["blockedBy"]);
         }
         if ("links" in $$parsedSource) {
-            $$parsedSource["links"] = $$createField18_0($$parsedSource["links"]);
+            $$parsedSource["links"] = $$createField20_0($$parsedSource["links"]);
         }
         if ("steps" in $$parsedSource) {
-            $$parsedSource["steps"] = $$createField20_0($$parsedSource["steps"]);
+            $$parsedSource["steps"] = $$createField22_0($$parsedSource["steps"]);
         }
         if ("blockers" in $$parsedSource) {
-            $$parsedSource["blockers"] = $$createField21_0($$parsedSource["blockers"]);
+            $$parsedSource["blockers"] = $$createField23_0($$parsedSource["blockers"]);
         }
         if ("watchers" in $$parsedSource) {
-            $$parsedSource["watchers"] = $$createField22_0($$parsedSource["watchers"]);
+            $$parsedSource["watchers"] = $$createField24_0($$parsedSource["watchers"]);
         }
         if ("lastComment" in $$parsedSource) {
-            $$parsedSource["lastComment"] = $$createField23_0($$parsedSource["lastComment"]);
+            $$parsedSource["lastComment"] = $$createField25_0($$parsedSource["lastComment"]);
         }
         if ("gone" in $$parsedSource) {
-            $$parsedSource["gone"] = $$createField25_0($$parsedSource["gone"]);
+            $$parsedSource["gone"] = $$createField27_0($$parsedSource["gone"]);
         }
         if ("overlaps" in $$parsedSource) {
-            $$parsedSource["overlaps"] = $$createField26_0($$parsedSource["overlaps"]);
+            $$parsedSource["overlaps"] = $$createField28_0($$parsedSource["overlaps"]);
         }
         return new Card($$parsedSource as Partial<Card>);
     }
@@ -436,6 +487,35 @@ export class Comment {
      */
     "attachments"?: blob$0.FileRef[];
 
+    /**
+     * A mirrored message (RecordMessage) has MsgID, its inbox message id
+     * (also its ID), and To, who it was sent to. Gone: the recipient had
+     * ended and Irori left it on the card. Held: it hasn't been let through
+     * the wake policy yet (held, or its recipient's device hasn't decided),
+     * so Text is empty until a fill row brings it. Files counts the
+     * message's attachments; they stay on the message.
+     */
+    "to"?: string;
+    "msgId"?: string;
+    "gone"?: boolean;
+    "held"?: boolean;
+    "files"?: number;
+
+    /**
+     * BlockerID: the comment is on that blocker item. The person's answer
+     * (To is the raiser it went to, Pick the 1-based option picked, 0 for
+     * their own words) or an agent's reply (Missing: what it still needs).
+     */
+    "blockerId"?: string;
+    "pick"?: number;
+    "missing"?: string[];
+
+    /**
+     * Device wrote the row (from the log, not the payload). HLC and Seq are
+     * its position, (HLC, Device, Seq); they never go on the wire.
+     */
+    "device": string;
+
     /** Creates a new Comment instance. */
     constructor($$source: Partial<Comment> = {}) {
         if (!("id" in $$source)) {
@@ -456,6 +536,9 @@ export class Comment {
         if (!("at" in $$source)) {
             this["at"] = null;
         }
+        if (!("device" in $$source)) {
+            this["device"] = "";
+        }
 
         Object.assign(this, $$source);
     }
@@ -465,9 +548,13 @@ export class Comment {
      */
     static createFrom($$source: any = {}): Comment {
         const $$createField6_0 = $$createType20;
+        const $$createField14_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("attachments" in $$parsedSource) {
             $$parsedSource["attachments"] = $$createField6_0($$parsedSource["attachments"]);
+        }
+        if ("missing" in $$parsedSource) {
+            $$parsedSource["missing"] = $$createField14_0($$parsedSource["missing"]);
         }
         return new Comment($$parsedSource as Partial<Comment>);
     }
@@ -520,7 +607,7 @@ export class LeaseCard {
      */
     static createFrom($$source: any = {}): LeaseCard {
         const $$createField6_0 = $$createType22;
-        const $$createField7_0 = $$createType10;
+        const $$createField7_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("refused" in $$parsedSource) {
             $$parsedSource["refused"] = $$createField6_0($$parsedSource["refused"]);
@@ -599,14 +686,18 @@ export enum LinkKind {
 };
 
 /**
- * Option is one recommended answer to a blocker, from an agent involved
- * (the raiser in Raise, or a holder or watcher through Recommend).
+ * Option is one answer to a blocker, from an agent involved (the raiser in
+ * Raise, or a holder or watcher through Recommend). Recommended marks the
+ * one its raiser recommends among the choices (at most one per Raise); an
+ * option added through Recommend is always recommended, and so is every
+ * option of a blocker.option row written before the flag existed.
  */
 export class Option {
     "answer": string;
     "why"?: string;
     "by": string;
     "at": time$0.Time;
+    "recommended"?: boolean;
 
     /** Creates a new Option instance. */
     constructor($$source: Partial<Option> = {}) {
@@ -718,6 +809,12 @@ export class Resolution {
      */
     "closed"?: boolean;
 
+    /**
+     * Note is the resolver's line beside the check once the person had
+     * answered: what the agent will do now (Answer stays the person's).
+     */
+    "note"?: string;
+
     /** Creates a new Resolution instance. */
     constructor($$source: Partial<Resolution> = {}) {
         if (!("answer" in $$source)) {
@@ -785,6 +882,16 @@ export class Step {
  */
 export class Task {
     "id": string;
+
+    /**
+     * Short is the card's short ref without its "#" ("12", or "12a" and
+     * "12b" for two cards that claimed 12 apart: short.go). It is derived
+     * by the fold, never written. ShortWas is the number such a card
+     * claimed ("12") and showed until the clash settled; "" when no other
+     * card claimed it.
+     */
+    "short"?: string;
+    "shortWas"?: string;
     "title": string;
     "objective": string;
     "doneCriteria"?: string;
@@ -892,38 +999,38 @@ export class Task {
      * Creates a new Task instance from a string or object.
      */
     static createFrom($$source: any = {}): Task {
-        const $$createField5_0 = $$createType10;
-        const $$createField8_0 = $$createType10;
-        const $$createField9_0 = $$createType10;
-        const $$createField17_0 = $$createType5;
-        const $$createField18_0 = $$createType12;
-        const $$createField20_0 = $$createType14;
-        const $$createField21_0 = $$createType16;
-        const $$createField22_0 = $$createType10;
+        const $$createField7_0 = $$createType6;
+        const $$createField10_0 = $$createType6;
+        const $$createField11_0 = $$createType6;
+        const $$createField19_0 = $$createType5;
+        const $$createField20_0 = $$createType12;
+        const $$createField22_0 = $$createType14;
+        const $$createField23_0 = $$createType16;
+        const $$createField24_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
-            $$parsedSource["scope"] = $$createField5_0($$parsedSource["scope"]);
+            $$parsedSource["scope"] = $$createField7_0($$parsedSource["scope"]);
         }
         if ("holders" in $$parsedSource) {
-            $$parsedSource["holders"] = $$createField8_0($$parsedSource["holders"]);
+            $$parsedSource["holders"] = $$createField10_0($$parsedSource["holders"]);
         }
         if ("assigned" in $$parsedSource) {
-            $$parsedSource["assigned"] = $$createField9_0($$parsedSource["assigned"]);
+            $$parsedSource["assigned"] = $$createField11_0($$parsedSource["assigned"]);
         }
         if ("blockedBy" in $$parsedSource) {
-            $$parsedSource["blockedBy"] = $$createField17_0($$parsedSource["blockedBy"]);
+            $$parsedSource["blockedBy"] = $$createField19_0($$parsedSource["blockedBy"]);
         }
         if ("links" in $$parsedSource) {
-            $$parsedSource["links"] = $$createField18_0($$parsedSource["links"]);
+            $$parsedSource["links"] = $$createField20_0($$parsedSource["links"]);
         }
         if ("steps" in $$parsedSource) {
-            $$parsedSource["steps"] = $$createField20_0($$parsedSource["steps"]);
+            $$parsedSource["steps"] = $$createField22_0($$parsedSource["steps"]);
         }
         if ("blockers" in $$parsedSource) {
-            $$parsedSource["blockers"] = $$createField21_0($$parsedSource["blockers"]);
+            $$parsedSource["blockers"] = $$createField23_0($$parsedSource["blockers"]);
         }
         if ("watchers" in $$parsedSource) {
-            $$parsedSource["watchers"] = $$createField22_0($$parsedSource["watchers"]);
+            $$parsedSource["watchers"] = $$createField24_0($$parsedSource["watchers"]);
         }
         return new Task($$parsedSource as Partial<Task>);
     }
@@ -965,11 +1072,11 @@ const $$createType2 = Resolution.createFrom;
 const $$createType3 = $Create.Nullable($$createType2);
 const $$createType4 = BlockedBy.createFrom;
 const $$createType5 = $Create.Nullable($$createType4);
-const $$createType6 = Card.createFrom;
-const $$createType7 = $Create.Array($$createType6);
-const $$createType8 = LeaseCard.createFrom;
-const $$createType9 = $Create.Array($$createType8);
-const $$createType10 = $Create.Array($Create.Any);
+const $$createType6 = $Create.Array($Create.Any);
+const $$createType7 = Card.createFrom;
+const $$createType8 = $Create.Array($$createType7);
+const $$createType9 = LeaseCard.createFrom;
+const $$createType10 = $Create.Array($$createType9);
 const $$createType11 = Link.createFrom;
 const $$createType12 = $Create.Array($$createType11);
 const $$createType13 = Step.createFrom;

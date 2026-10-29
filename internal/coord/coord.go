@@ -17,6 +17,7 @@ import (
 var (
 	ErrNotFound      = errors.New("coord: no such task or lease")
 	ErrHeld          = errors.New("coord: held by someone else")
+	ErrAmbiguous     = errors.New("coord: that short ref names more than one card")
 	ErrBadResource   = errors.New("coord: resource must be path:<repoKey>:<glob> or a name like gpu/qwen")
 	ErrBadState      = errors.New("coord: not a task state")
 	ErrUnimplemented = errors.New("coord: not implemented yet")
@@ -47,7 +48,14 @@ const (
 
 // Task is the folded view of one task.
 type Task struct {
-	ID           string    `json:"id"`
+	ID string `json:"id"`
+	// Short is the card's short ref without its "#" ("12", or "12a" and
+	// "12b" for two cards that claimed 12 apart: short.go). It is derived
+	// by the fold, never written. ShortWas is the number such a card
+	// claimed ("12") and showed until the clash settled; "" when no other
+	// card claimed it.
+	Short        string    `json:"short,omitempty"`
+	ShortWas     string    `json:"shortWas,omitempty"`
 	Title        string    `json:"title"`
 	Objective    string    `json:"objective"`
 	DoneCriteria string    `json:"doneCriteria,omitempty"`
@@ -106,6 +114,10 @@ type NewTask struct {
 	// server, becomes a small blocked task). BlockedBy is optional.
 	BlockReason string
 	BlockedBy   *BlockedBy
+	// Steps, when given, are the task's first step list (checked like
+	// SetSteps; ids are minted s1, s2, ... and any given are ignored),
+	// written as a task.steps row right after task.created.
+	Steps []Step
 }
 
 // TaskFilter narrows ListTasks; zero values mean any.
@@ -194,7 +206,10 @@ func (c *Coord) AssignTask(ctx context.Context, by, id, to string) (Task, error)
 // SetTaskState: only the holder, the creator or a person ("user:*") may (on
 // a Shared task, any holder). Blocked is refused with ErrBadState ("use
 // Block"). Moving a blocked task to another state this way also clears its
-// Reason and BlockedBy.
+// Reason and BlockedBy. InputRequired is still accepted here (older rows
+// and tests use it), but no caller in Irori sets it: agents reach it only
+// through board_status, which refuses it without open blockers and leaves a
+// card that has them as it is (v0.4.2, one blocker per ask).
 func (c *Coord) SetTaskState(ctx context.Context, by, id string, s TaskState, note string) (Task, error) {
 	return c.impl.setTaskState(ctx, by, id, s, note)
 }

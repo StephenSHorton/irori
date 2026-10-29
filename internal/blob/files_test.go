@@ -216,6 +216,9 @@ func TestSafeName(t *testing.T) {
 		{"a\x00b\nc.txt", "a_b_c.txt"},
 		{`what?<>|*".txt`, "what______.txt"},
 		{".hidden", "hidden"},
+		// A right-to-left override would show invoiceexe.jpg in Explorer.
+		{"invoice\u202egpj.exe", "invoice_gpj.exe"},
+		{"a\u2066b\u2069\u200b\ufeff.png", "a_b___.png"},
 	}
 	for _, c := range cases {
 		if got := SafeName(c.in, id); got != c.want {

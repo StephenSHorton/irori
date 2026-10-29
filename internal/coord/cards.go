@@ -25,6 +25,9 @@ package coord
 import (
 	"context"
 	"time"
+
+	"github.com/StephenSHorton/irori/internal/blob"
+	"github.com/StephenSHorton/irori/internal/hlc"
 )
 
 // Card limits.
@@ -39,7 +42,9 @@ const (
 	KeepResolved    = 10  // resolved blocker items a task keeps (oldest drop first)
 	MaxSteps        = 20  // steps per task
 	MaxStepText     = 200 // runes in a step
-	MaxActivity     = 20  // activity lines a task keeps
+	MaxActivity     = 500 // activity lines a task keeps
+	MaxMissing      = 6   // lines in a blocker reply's missing list
+	MaxMissingText  = 200 // runes in one missing line
 )
 
 // Step is one ordered step of a task. At most one step is Doing (the
@@ -52,13 +57,17 @@ type Step struct {
 	Doing bool   `json:"doing,omitempty"`
 }
 
-// Option is one recommended answer to a blocker, from an agent involved
-// (the raiser in Raise, or a holder or watcher through Recommend).
+// Option is one answer to a blocker, from an agent involved (the raiser in
+// Raise, or a holder or watcher through Recommend). Recommended marks the
+// one its raiser recommends among the choices (at most one per Raise); an
+// option added through Recommend is always recommended, and so is every
+// option of a blocker.option row written before the flag existed.
 type Option struct {
-	Answer string    `json:"answer"`
-	Why    string    `json:"why,omitempty"`
-	By     string    `json:"by"`
-	At     time.Time `json:"at"`
+	Answer      string    `json:"answer"`
+	Why         string    `json:"why,omitempty"`
+	By          string    `json:"by"`
+	At          time.Time `json:"at"`
+	Recommended bool      `json:"recommended,omitempty"`
 }
 
 // Resolution is how a blocker item was resolved.
@@ -73,7 +82,21 @@ type Resolution struct {
 	// state change through SetTaskState, or by the sweeper when the lease or
 	// task it waited on went away. Answer then holds the note, if any.
 	Closed bool `json:"closed,omitempty"`
+	// Note is the resolver's line beside the check once the person had
+	// answered: what the agent will do now (Answer stays the person's).
+	Note string `json:"note,omitempty"`
 }
+
+// BlockerStatus is where an open blocker item stands, derived in the fold
+// from its blocker comments (never stored). Resolved and closed items keep
+// their last status; Resolved says they are done.
+type BlockerStatus string
+
+const (
+	BlockerOpen     BlockerStatus = "open"     // no answer yet (an agent's comment only adds context)
+	BlockerAnswered BlockerStatus = "answered" // the person answered last: with the raiser
+	BlockerReplied  BlockerStatus = "replied"  // an agent replied to the person's answer: with the person
+)
 
 // Blocker is one item of what blocks a task. Ids are short ("b1", "b2",
 // ...), minted per task and never reused.
@@ -92,9 +115,20 @@ type Blocker struct {
 	// is the first open item's On. An item on a lease or a task is closed by
 	// the sweeper when that goes away; other items stay open.
 	On *BlockedBy `json:"on,omitempty"`
+	// Status, SentTo and Missing are computed from the item's blocker
+	// comments, never written to a row. SentTo is who the person's latest
+	// answer went to (the raiser then); Missing is what the agent's reply
+	// to it says is still needed.
+	Status  BlockerStatus `json:"status,omitempty"`
+	SentTo  string        `json:"sentTo,omitempty"`
+	Missing []string      `json:"missing,omitempty"`
 
 	reason string // the row's reason: Task.Reason while this is the first open item
 	legacy bool   // folded from a reason-only row: a later one replaces it
+	// asked is the position of the row that replaced the question (zero
+	// for one never replaced): blocker comments before it were about the
+	// old question, so they no longer count.
+	asked rowPos
 }
 
 // Open reports whether the item still waits on an answer.
@@ -102,7 +136,8 @@ func (b Blocker) Open() bool { return b.Resolved == nil }
 
 // NewBlocker is Raise's input. Question is required (1..MaxQuestion runes);
 // Context at most MaxContext; Options at most MaxOptions, each Answer
-// 1..MaxAnswer and Why at most MaxWhy (their By is the raiser). BlockedBy is
+// 1..MaxAnswer and Why at most MaxWhy (their By is the raiser), at most one
+// of them Recommended (else ErrInvalid). BlockedBy is
 // the item's On, checked like Block's; nil means a person (whoever is at the
 // app), so the card is in the person's Needs you.
 type NewBlocker struct {
@@ -115,10 +150,27 @@ type NewBlocker struct {
 // BlockerAnswer is Answer's input. Pick is the 1-based number of the
 // recommended Option chosen, or 0 to answer with Text (1..MaxOwnAnswer
 // runes). Wake is the answerer's choice for the raiser (decision 18).
+// Resolve resolves the item; without it only a person may answer, and the
+// answer goes to the raiser while the item stays open. Once the person has
+// answered, Resolve keeps their answer and Text is the resolver's note: an
+// agent must give one (one line, at most MaxAnswer runes) and can't pick.
 type BlockerAnswer struct {
-	Pick int
-	Text string
-	Wake bool
+	Pick    int
+	Text    string
+	Wake    bool
+	Resolve bool
+}
+
+// CommentInput is CommentOn's input. With BlockerID it is a reply on that
+// open item (agents only): it asks back or, in Missing (at most MaxMissing
+// lines of MaxMissingText runes), says what the person's answer still
+// misses. The item stays open and goes back to the person.
+type CommentInput struct {
+	Text      string
+	Wake      bool
+	Files     []blob.FileRef
+	BlockerID string
+	Missing   []string
 }
 
 // StepUpdate is SetStep's input; nil leaves a field alone. Doing true makes
@@ -131,12 +183,20 @@ type StepUpdate struct {
 
 // Activity is one line of what happened on a card: By (a key, "irori" for
 // Irori itself) did What, a short phrase without the actor ("raised a
-// blocker: …", "ticked “Tag v0.6.0”"). The fold keeps the newest
-// MaxActivity per task; replay rebuilds them.
+// blocker: …", "ticked “Tag v0.6.0”"). Kind is the row's kind and Device
+// the device that wrote it. Lines are sorted by the row's position in the
+// log, (HLC, Device, Seq), and the fold keeps the highest MaxActivity per
+// task, so live and replay keep the same ones; replay rebuilds them. HLC
+// and Seq never go on the wire (an HLC overflows a JS number).
 type Activity struct {
-	At   time.Time `json:"at"`
-	By   string    `json:"by"`
-	What string    `json:"what"`
+	At        time.Time     `json:"at"`
+	By        string        `json:"by"`
+	What      string        `json:"what"`
+	Kind      string        `json:"kind"`
+	Device    string        `json:"device"`
+	BlockerID string        `json:"blockerId,omitempty"` // the item a raise line raised, or a blocker comment is on
+	HLC       hlc.Timestamp `json:"-"`
+	Seq       int64         `json:"-"`
 }
 
 // More notice kinds.
@@ -176,20 +236,36 @@ func (c *Coord) Raise(ctx context.Context, by, id string, nb NewBlocker) (Task, 
 
 // Recommend adds a recommended answer to an open blocker item. Any agent
 // involved may: a holder, a watcher, the raiser, the creator, or a person.
-// The same answer twice is a no-op; at most MaxOptions per item.
+// The same answer as an option not yet recommended marks that option
+// Recommended (it keeps its By); as a recommended one, it is a no-op. At
+// most MaxOptions per item.
 func (c *Coord) Recommend(ctx context.Context, by, id, blockerID, answer, why string) (Task, error) {
 	return c.impl.recommend(ctx, by, id, blockerID, answer, why)
 }
 
-// Answer resolves one open blocker item: anyone may (decision 19), by
-// picking a recommended option or in their own words. When no open item
-// remains the task leaves Blocked like Unblock (Working when a holder has
-// taken it up, else Submitted). The notice is NoticeAnswered to the raiser
-// when that is an agent other than by, and to the holders other than by
-// (with no holders, the creator), with Wake as the answerer chose. ErrNotFound for no such item; ErrBadState
+// Answer answers or resolves one open blocker item. Without a.Resolve it
+// is the person's answer (agents get ErrInvalid): a blocker comment sent to
+// the raiser, and the item stays open (answered) until the raiser, a holder
+// or the person resolves it. With a.Resolve anyone may resolve it (decision
+// 19), by picking a recommended option or in their own words; once the
+// person has answered, their answer stands and Text is the resolver's note
+// (required of an agent). When no open item remains the task leaves Blocked
+// like Unblock (Working when a holder has taken it up, else Submitted). The
+// notice is NoticeAnswered to the raiser when that is an agent other than
+// by, and to the holders other than by (with no holders, the creator), with
+// Wake as the answerer chose. ErrNotFound for no such item; ErrBadState
 // when it is already resolved.
 func (c *Coord) Answer(ctx context.Context, by, id, blockerID string, a BlockerAnswer) (Task, Notice, error) {
 	return c.impl.answer(ctx, by, id, blockerID, a)
+}
+
+// CommentOn is AddComment with more: without in.BlockerID it is exactly
+// AddComment. With it, an agent replies on that open blocker item: no
+// notice (the person is the audience, and the item is back in their Needs
+// you); ErrBadState when the item is resolved, ErrInvalid for a person
+// (they answer it instead).
+func (c *Coord) CommentOn(ctx context.Context, by, taskID string, in CommentInput) (Comment, Notice, error) {
+	return c.impl.commentOn(ctx, by, taskID, in)
 }
 
 // SetSteps replaces a task's step list (the holder(s), the creator or a

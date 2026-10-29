@@ -154,7 +154,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "bad host")
 		return
 	}
-	post := postRoute(r.URL.Path)
+	post := postRoute(r.URL.Path) || pairPost(r.URL.Path)
 	if r.Method != http.MethodGet && !(post && r.Method == http.MethodPost) {
 		allow := http.MethodGet
 		if post {
@@ -178,7 +178,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "missing or wrong token")
 		return
 	}
-	if h.v02(w, r) || h.v03(w, r) || h.board(w, r) {
+	if h.v02(w, r) || h.v03(w, r) || h.board(w, r) || h.pairRoutes(w, r) {
 		return
 	}
 	switch r.URL.Path {

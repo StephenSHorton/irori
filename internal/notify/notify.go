@@ -4,7 +4,7 @@
 //
 // A Notifier is made once per Core. The desktop app's Notifier shows cards;
 // a headless Core's (serve --headless) never does: Post reports false and
-// nothing reaches the screen. Every card has an Irori id ("held:<deliveryId>",
+// nothing reaches the screen. Every card has an Irori id ("held:<senderKey>",
 // "needs:<taskId>", "msg:<deliveryId>", "ask:<id>", "test"), so the same thing
 // never stacks twice (a second Post replaces the card in place) and Clear
 // takes it down once the thing is resolved somewhere else.
@@ -412,7 +412,7 @@ func (n *Notifier) Live(id string) bool {
 
 // Card ids. Each thing that can need the person has one id, so it never
 // stacks twice.
-func HeldID(deliveryID string) string    { return "held:" + deliveryID }
+func HeldID(senderKey string) string     { return "held:" + senderKey } // one card per sender (decision 34)
 func NeedsID(taskID string) string       { return "needs:" + taskID }
 func MessageID(deliveryID string) string { return "msg:" + deliveryID }
 func AskID(id string) string             { return "ask:" + id }

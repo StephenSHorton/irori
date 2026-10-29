@@ -64,6 +64,9 @@ type Options struct {
 	Home    func(*home.Config)
 	// NetIntervals shortens the mesh's timers (tests).
 	NetIntervals mesh.Intervals
+	// PairWindow shortens how long a pairing stays open (tests); zero is
+	// pair.Window.
+	PairWindow time.Duration
 	// Now is the wall clock of the log's HLC, the future-row hold, the mesh
 	// and the asks; nil is time.Now. Tests set a device's clock off.
 	Now func() time.Time
@@ -195,7 +198,12 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	// The inbox routes against the mesh roster: a message can go to an
 	// agent on another device, and the bypass rule reads the sender's card
 	// wherever it runs.
-	if c.inbox, err = inbox.New(ctx, st, meshView{c}, inbox.Options{DeviceID: id.ID, PROwners: prOwners, IsOwner: chain.IsOwner}); err != nil {
+	// Agent work whose recipient ended goes on its card, and a card
+	// message's text once it is let through (recordGone and recordPassed
+	// read c.coord when the inbox calls them, so coord can come after).
+	if c.inbox, err = inbox.New(ctx, st, meshView{c}, inbox.Options{DeviceID: id.ID, PROwners: prOwners, IsOwner: chain.IsOwner,
+		Revoked:         func(dev string) bool { _, revoked := chain.Cut(dev); return revoked },
+		OnRecipientGone: c.recordGone, OnPassed: c.recordPassed}); err != nil {
 		c.Close()
 		return nil, fmt.Errorf("inbox: %w", err)
 	}
@@ -256,8 +264,9 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	c.mesh = mesh.New(mesh.Options{Store: st, Ident: ident, Chain: chain, Net: tr, Version: opts.Version,
 		Files: c.files, DataDir: opts.DataDir, Intervals: opts.NetIntervals, Now: opts.Now, Ignored: c.ignoredBy, Logf: log.Printf})
 	// Pairing (v0.4 §3) opens its own room on the same transport, only
-	// while a window is open; GUI and CLI only, never the loopback API.
-	c.pair = pair.New(pair.Options{Net: tr, Ident: ident, Chain: chain, Store: st, DataDir: opts.DataDir,
+	// while a window is open. Add is GUI only; the loopback API reaches
+	// only the joining side (api routes_pair.go, §3).
+	c.pair = pair.New(pair.Options{Net: tr, Ident: ident, Chain: chain, Store: st, DataDir: opts.DataDir, Window: opts.PairWindow,
 		Kick: c.mesh.Kick, Servers: c.servers, ServerAddr: c.serverAddr, Notify: c.pairingMoved, Logf: log.Printf})
 	if c.rt != nil {
 		// The home server (§7.1): only where it is switched on, and only
@@ -381,7 +390,12 @@ func (c *Core) Close() error {
 }
 
 // record turns roster changes into log rows. Status rows are written only
-// when status or name changes, so a busy session doesn't flood the log.
+// when status, name or permission mode changes, so a busy session doesn't
+// flood the log. The mode rides on the status row because a session's
+// agent.seen is often written before its transcript holds a mode row (a
+// new session, or a tail with none yet): without it the other devices
+// would show that session's mode as unknown until this Core restarted,
+// and hold its messages to their bypass sessions (decision 10).
 func (c *Core) record(ctx context.Context, changes <-chan presence.Change) {
 	last := map[string]presence.AgentCard{}
 	for ch := range changes {
@@ -395,12 +409,14 @@ func (c *Core) record(ctx context.Context, changes <-chan presence.Change) {
 		case presence.Updated:
 			prev, ok := last[card.Key]
 			last[card.Key] = card
-			if ok && prev.Status == card.Status && prev.Name == card.Name {
+			if ok && prev.Status == card.Status && prev.Name == card.Name && prev.PermissionMode == card.PermissionMode {
 				continue
 			}
-			_, err = c.store.Append(ctx, actor, store.KindAgentStatus, map[string]any{
-				"key": card.Key, "status": card.Status, "name": card.Name,
-			})
+			row := map[string]any{"key": card.Key, "status": card.Status, "name": card.Name}
+			if card.PermissionMode != "" {
+				row["permissionMode"] = card.PermissionMode
+			}
+			_, err = c.store.Append(ctx, actor, store.KindAgentStatus, row)
 		case presence.Removed:
 			delete(last, card.Key)
 			_, err = c.store.Append(ctx, actor, store.KindAgentGone, map[string]any{
@@ -476,8 +492,9 @@ func (c *Core) CertifiedDevices() []identity.DeviceState { return c.chain.Device
 // second device.
 func (c *Core) Mesh() *mesh.Node { return c.mesh }
 
-// Pairing is the pairing flow (v0.4 §3). Only Wails bindings and the
-// `irori pair join` CLI reach it; it is not on the loopback API.
+// Pairing is the pairing flow (v0.4 §3). The Wails bindings reach all of
+// it; the loopback API (and so `irori pair join` while Irori runs) only
+// the joining side: join, status, the other device's key and cancel.
 func (c *Core) Pairing() *pair.Pairer { return c.pair }
 
 // NetStatus is the mesh's state and every other device, for Devices and

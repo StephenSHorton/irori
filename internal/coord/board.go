@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/blob"
+	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/search"
 )
 
@@ -64,6 +65,49 @@ type Comment struct {
 	// Attachments are files on the comment (v0.4 §6.6), fetched on demand
 	// with the attachment_get tool.
 	Attachments []blob.FileRef `json:"attachments,omitempty"`
+	// A mirrored message (RecordMessage) has MsgID, its inbox message id
+	// (also its ID), and To, who it was sent to. Gone: the recipient had
+	// ended and Irori left it on the card. Held: it hasn't been let through
+	// the wake policy yet (held, or its recipient's device hasn't decided),
+	// so Text is empty until a fill row brings it. Files counts the
+	// message's attachments; they stay on the message.
+	To    string `json:"to,omitempty"`
+	MsgID string `json:"msgId,omitempty"`
+	Gone  bool   `json:"gone,omitempty"`
+	Held  bool   `json:"held,omitempty"`
+	Files int    `json:"files,omitempty"`
+	// BlockerID: the comment is on that blocker item. The person's answer
+	// (To is the raiser it went to, Pick the 1-based option picked, 0 for
+	// their own words) or an agent's reply (Missing: what it still needs).
+	BlockerID string   `json:"blockerId,omitempty"`
+	Pick      int      `json:"pick,omitempty"`
+	Missing   []string `json:"missing,omitempty"`
+	// Device wrote the row (from the log, not the payload). HLC and Seq are
+	// its position, (HLC, Device, Seq); they never go on the wire.
+	Device string        `json:"device"`
+	HLC    hlc.Timestamp `json:"-"`
+	Seq    int64         `json:"-"`
+	// primary: a mirrored message's own row (not gone, not fill) has been
+	// folded; until then a gone or fill row stands in for it. passed is
+	// the text a gone or fill row brought: the message was let through, so
+	// it shows even when the primary row was written held.
+	primary bool
+	passed  string
+	// person: the person wrote it (signed actor "user" and by an owner
+	// key); the payload's by alone never makes a blocker answer.
+	person bool
+}
+
+// MessageEntry is an inbox message about a card, for RecordMessage. From
+// and To are the sender's and recipient's keys; Writer "irori" writes the
+// row as Irori itself (the recipient-gone fallback, a fill), else as From.
+// Fill: the recipient's device let the message through its wake policy,
+// so an entry recorded Held gets its text.
+type MessageEntry struct {
+	TaskID, MsgID, From, To, Text string
+	Files                         int
+	Held, Gone, Fill              bool
+	Writer                        string
 }
 
 // NoticeKind says why a Notice exists.
@@ -259,10 +303,23 @@ func (c *Coord) AddCommentWith(ctx context.Context, by, id, text string, wake bo
 	return c.impl.addComment(ctx, by, id, text, wake, files)
 }
 
-// CommentAttachment finds a file attached to any Board comment. Comments
+// CommentAttachment finds a file attached to any Board comment: the ref on
+// the earliest comment that carries it, so the answer is stable. Comments
 // have no readers, so any viewer may fetch it.
 func (c *Coord) CommentAttachment(sha string) (blob.FileRef, bool) {
 	return c.impl.commentAttachment(sha)
+}
+
+// RecordMessage puts an inbox message about a card on its thread, as a
+// comment whose ID is the message id (MsgID, "msg_…"): recording the same
+// message again writes nothing, and a Gone record of a message already
+// there only marks it gone. Text over MaxComment is cut and points to
+// msg:<id>; a Held message is recorded without its text, until a Fill (or
+// a Gone record, written only once the policy let it through) brings it;
+// Files is only a count. Any task, done ones too (else ErrNotFound). It returns no Notice:
+// the recipient already has the message, and the holders read the card.
+func (c *Coord) RecordMessage(ctx context.Context, m MessageEntry) (Comment, error) {
+	return c.impl.recordMessage(ctx, m)
 }
 
 // Comments lists a task's comments, oldest first (nil for no such task).
@@ -299,7 +356,7 @@ func (c *Coord) SweepNotices(ctx context.Context) ([]Notice, error) {
 }
 
 // Search (search.Source): coord owns the task and comment refs. A task's
-// Doc has Title = its title, Body = objective, done criteria, note and
+// Doc has Title = its title, Body = its short ref ("#12"), objective, done criteria, note and
 // reason, Agent = Holder, Updated = UpdatedAt; a comment's has Title "comment
 // on <task title>", Body = its text, Agent = its author if an agent. Show
 // renders a task as its fields, links (label and ref), holders, blocker, and

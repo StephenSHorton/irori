@@ -1,5 +1,13 @@
 import { Badge } from "@/components/ui/badge"
-import { percent, TaskState, type CardSummary } from "@/lib/cards"
+import { cn } from "@/lib/utils"
+import {
+  displayName,
+  Holding,
+  percent,
+  TaskState,
+  type CardHolder,
+  type CardSummary,
+} from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
 
 // Tone is a card's status colour, shared by its state chip and its progress
@@ -60,7 +68,8 @@ export function ProgressBar({
 }
 
 // StatePill is the card's first badge: waiting on the person's input, its
-// blockers, else in progress.
+// blockers, waiting on an agent to act on the person's answers, else in
+// progress.
 export function StatePill({ card }: { card: CardSummary }) {
   if (card.state === TaskState.InputRequired)
     return (
@@ -72,6 +81,13 @@ export function StatePill({ card }: { card: CardSummary }) {
     return (
       <Badge variant="destructive">
         {card.openBlockers} {card.openBlockers === 1 ? "blocker" : "blockers"}
+      </Badge>
+    )
+  // Every open blocker is answered: it waits on the agents, not on you.
+  if (card.waiting > 0)
+    return (
+      <Badge variant="slate" className="rounded-full">
+        Waiting on agent
       </Badge>
     )
   if (card.state === TaskState.Completed)
@@ -92,10 +108,83 @@ export function StatePill({ card }: { card: CardSummary }) {
         Open
       </Badge>
     )
+  if (card.holder.state === Holding.HoldWaiting)
+    return (
+      <Badge variant="warning" className="rounded-full">
+        Not picked up
+      </Badge>
+    )
+  if (card.holder.state === Holding.HoldAssigned)
+    return (
+      <Badge variant="slate" className="rounded-full">
+        Assigned
+      </Badge>
+    )
   return (
     <Badge variant="info">
       In progress
     </Badge>
+  )
+}
+
+// holderText is the holder line's words: who holds the card and what that
+// agent is up to, or who it waits for.
+export function holderText(h: CardHolder): string {
+  const who = h.who.key ? displayName(h.who) : ""
+  const more = h.others > 0 ? ` (+${h.others} more)` : ""
+  switch (h.state) {
+    case Holding.HoldNobody:
+    case Holding.$zero:
+      return "Nobody holds it yet"
+    case Holding.HoldPerson:
+      return `You hold it${more}`
+    case Holding.HoldWaiting:
+      return `Waiting for ${who}${more}: the hand-over hasn't reached it yet`
+    case Holding.HoldAssigned:
+      return `Assigned to ${who}${more}, not taken up yet`
+    case Holding.HoldActive:
+      return `${who}${more} · active`
+    case Holding.HoldIdle:
+      return `${who}${more} · idle`
+    case Holding.HoldOffline:
+      return `${who}${more} · its device is offline`
+    case Holding.HoldGone:
+      return `${who}${more} · gone`
+  }
+  return who
+}
+
+// HolderLine stands in for the progress bar on a card without steps: who
+// holds it and whether that agent is active, idle or gone, or "Waiting
+// for" an agent the assignment hasn't reached, so a card nobody is
+// working doesn't look like work in progress.
+export function HolderLine({
+  holder,
+  className,
+}: {
+  holder: CardHolder
+  className?: string
+}) {
+  const warn =
+    holder.state === Holding.HoldWaiting ||
+    holder.state === Holding.HoldGone ||
+    holder.state === Holding.HoldOffline
+  return (
+    <span
+      className={cn(
+        "flex min-w-0 items-center gap-1.5 text-[12.5px]",
+        warn ? "text-warning" : "text-muted-foreground",
+        className
+      )}
+    >
+      {holder.state === Holding.HoldActive && (
+        <span
+          className="inline-block size-[7px] shrink-0 rounded-full bg-success"
+          aria-hidden
+        />
+      )}
+      <span className="truncate">{holderText(holder)}</span>
+    </span>
   )
 }
 
@@ -108,5 +197,27 @@ export function ScopeBadge({ card }: { card: CardSummary }) {
     >
       {plainLine(card.scopeLabel) || "My devices"}
     </Badge>
+  )
+}
+
+// ShortRef is the card's short ref, "#12": what the person says or types to
+// an agent about it. A card renumbered when two devices that were apart
+// both used its number (both gain a letter) says what it was.
+export function ShortRef({ card }: { card: CardSummary }) {
+  const short = plainLine(card.short)
+  if (!short) return null
+  const was = plainLine(card.shortWas)
+  return (
+    <span
+      className="font-mono text-xs text-muted-foreground tabular-nums"
+      title={
+        was
+          ? `Was #${was}: a card made on another device while they were apart had #${was} too, so each now has a letter`
+          : `Agents know this card as #${short}`
+      }
+    >
+      #{short}
+      {was && <span className="ml-1 font-sans">(was #{was})</span>}
+    </span>
   )
 }

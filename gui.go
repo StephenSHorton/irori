@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,10 +42,17 @@ func init() {
 	application.RegisterEvent[RosterChange](EventRosterChanged)
 }
 
+// errServerMode: the window's bindings and files are the person's, so they
+// are never served over HTTP (Wails' server build tag).
+var errServerMode = errors.New("this build uses Wails' server mode, which would serve the window to any local program; build Irori without -tags server")
+
 // runGUI runs the desktop app with an in-process Core. Irori lives in the
 // tray: closing the window hides it, and Quit is in the tray menu. A
 // --startup launch (launch at login) starts with the window hidden.
 func runGUI(args []string) error {
+	if wailsServerMode {
+		return errServerMode
+	}
 	fixGUIPath()
 	opts, err := coreOptions(false)
 	if err != nil {
@@ -70,6 +79,7 @@ func runGUI(args []string) error {
 	captureSvc := newCaptureService(c)
 	settings := &SettingsService{notifier: c.Notifier()}
 	devices := newDevicesService(c)
+	attachments := newAttachmentsService(c)
 	upd := update.New(update.Repo, version)
 
 	var window *application.WebviewWindow
@@ -85,6 +95,9 @@ func runGUI(args []string) error {
 	app := application.New(application.Options{
 		Name:        "Irori",
 		Description: "A hearth for your coding agents",
+		// Wails' own warnings and errors go to the app log (production
+		// builds otherwise discard them).
+		Logger: slog.New(slog.NewTextHandler(log.Writer(), &slog.HandlerOptions{Level: slog.LevelWarn})),
 		Services: []application.Service{
 			application.NewService(roster),
 			application.NewService(inboxSvc),
@@ -92,10 +105,13 @@ func runGUI(args []string) error {
 			application.NewService(captureSvc),
 			application.NewService(settings),
 			application.NewService(devices),
+			application.NewService(attachments),
 			application.NewService(upd),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
+			// Board comments' files, for this webview only (card #14).
+			Middleware: attachmentRoute(c),
 		},
 		Windows: application.WindowsOptions{
 			// The tray keeps Irori running with no window open.
@@ -113,6 +129,7 @@ func runGUI(args []string) error {
 	})
 	settings.attach(app)
 	devices.attach(app)
+	attachments.attach(app)
 
 	window = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "Irori",

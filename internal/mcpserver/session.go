@@ -7,12 +7,17 @@ import (
 )
 
 // Session id precedence for irori_join (suzuri.md §3): the call's _meta, then
-// the environment, then one random id per process. The Core gives the same
-// session id the same memberKey, so a restarted Core or a reconnect rebinds
-// the same member.
+// the environment, then a random id fixed for the process. The Core gives the
+// same session id the same memberKey, so a restarted Core or a reconnect
+// rebinds the same member. A sessionless process is its own member: the key
+// is never derived from the join name, which anyone can pick, so a new
+// process under a reused name can't take over another member's cards or
+// inbox. A script that posts a card and later updates it from a new process
+// keeps the right to by setting IRORI_SESSION_ID to an id of its own (a
+// random token it keeps, not a name).
 var (
 	sessionMetaKeys = []string{"session_id", "grok_session_id", "conversation_id", "mcp_session_id"}
-	sessionEnvKeys  = []string{"GROK_SESSION_ID", "XAI_SESSION_ID"}
+	sessionEnvKeys  = []string{"IRORI_SESSION_ID", "GROK_SESSION_ID", "XAI_SESSION_ID"}
 )
 
 // maxSessionLen bounds a client-supplied session id.

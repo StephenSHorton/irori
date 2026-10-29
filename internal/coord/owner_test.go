@@ -74,3 +74,35 @@ func TestLeaseRowsFromTheWrongDeviceAreIgnored(t *testing.T) {
 		t.Fatalf("dev-b's own lease dropped: %+v", ls)
 	}
 }
+
+// A thread entry's device is the row's writer, never the payload's by. A
+// mirrored message counts only from its sender's device, and its gone row
+// also from its recipient's.
+func TestThreadRowsCarryEventDevice(t *testing.T) {
+	e := newEnv(t)
+	task := claimed(t, e)
+	at := hlcAt(fixedNow.Add(time.Minute))
+	const recipient = "dev-b/x"
+	e.remote("dev-b", 1, at+1, "irori", KindTaskComment, taskCommentRow{TaskID: task.ID, CommentID: "c-b", By: alice, Text: "says alice", At: fixedNow})
+	e.remote("dev-b", 2, at+2, "irori", KindTaskComment, taskCommentRow{TaskID: task.ID, CommentID: "msg_spoof", MsgID: "msg_spoof", By: alice, To: bob, Text: "spoof", At: fixedNow})
+	e.remote("dev-b", 3, at+3, "irori", KindTaskComment, taskCommentRow{TaskID: task.ID, CommentID: "msg_gone", MsgID: "msg_gone", By: alice, To: recipient, Text: "for x", Gone: true, At: fixedNow})
+	check := func(c *Coord) {
+		t.Helper()
+		cs := c.Comments(task.ID)
+		if len(cs) != 2 || cs[0].ID != "c-b" || cs[0].Device != "dev-b" || cs[0].By != alice || cs[0].Seq != 1 || cs[0].HLC != at+1 {
+			t.Fatalf("comments %+v", cs)
+		}
+		if g := cs[1]; g.ID != "msg_gone" || !g.Gone || g.Device != "dev-b" || g.To != recipient {
+			t.Fatalf("gone row %+v", g)
+		}
+		if n := c.IgnoredRows(); n != 1 {
+			t.Fatalf("ignored %d rows, want 1", n)
+		}
+		acts := c.Activity(task.ID)
+		if acts[0].What != "commented" || acts[0].Device != "dev-b" || acts[0].Kind != KindTaskComment || acts[0].By != alice {
+			t.Fatalf("activity %+v", acts)
+		}
+	}
+	check(e.c)
+	check(e.reopen())
+}

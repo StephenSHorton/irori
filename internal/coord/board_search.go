@@ -25,13 +25,13 @@ func (c *coord) searchDocs(since time.Time, limit int) []search.Doc {
 	defer c.unlock()
 	var out []search.Doc
 	for _, t := range c.tasks {
-		if t.UpdatedAt.Before(since) {
+		if t.UpdatedAt.Before(since) && !c.movedSince(t.ID, since) {
 			continue
 		}
 		out = append(out, search.Doc{
 			Ref: search.Ref(search.KindTask, t.ID), Kind: search.KindTask,
 			At: t.CreatedAt, Updated: t.UpdatedAt, Title: t.Title,
-			Body:  joinNonEmpty("\n", t.Objective, t.DoneCriteria, t.Note, t.Reason, cardText(t)),
+			Body:  joinNonEmpty("\n", t.ShortRef(), t.Objective, t.DoneCriteria, t.Note, t.Reason, cardText(t)),
 			Agent: t.Holder, RepoKey: t.RepoKey,
 		})
 	}
@@ -101,6 +101,13 @@ func (c *coord) searchShow(ref string, o search.ShowOptions) (search.Shown, erro
 	switch kind {
 	case search.KindTask:
 		t := c.tasks[id]
+		if short, ok := ParseShort(id); ok && t == nil {
+			if t = c.tasks[c.shortIdx[short]]; t != nil {
+				id = t.ID
+			} else if err := c.ambiguous(short); err != nil {
+				return search.Shown{}, err
+			}
+		}
 		if t == nil {
 			return search.Shown{}, fmt.Errorf("%w: %s", search.ErrNotFound, ref)
 		}
@@ -113,7 +120,7 @@ func (c *coord) searchShow(ref string, o search.ShowOptions) (search.Shown, erro
 		}
 		t := c.tasks[cm.TaskID]
 		var b strings.Builder
-		fmt.Fprintf(&b, "Comment by %s on %q (task:%s), %s", cm.By, t.Title, t.ID, cm.At.Format(time.RFC3339))
+		fmt.Fprintf(&b, "Comment by %s on %q (%s), %s", cm.By, t.Title, t.Refs(), cm.At.Format(time.RFC3339))
 		if cm.Wake {
 			b.WriteString(", wake")
 		}
@@ -142,7 +149,10 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 			fmt.Fprintf(&b, "%s: %s\n", label, v)
 		}
 	}
-	fmt.Fprintf(&b, "Task %q (task:%s)\n", t.Title, t.ID)
+	fmt.Fprintf(&b, "Task %s %q (task:%s)\n", t.ShortRef(), t.Title, t.ID)
+	if t.ShortWas != "" {
+		fmt.Fprintf(&b, "renumbered: it was #%s, until cards made on devices that were apart turned out to have #%s too; #%s alone now names none of them\n", t.ShortWas, t.ShortWas, t.ShortWas)
+	}
 	state := string(t.State)
 	if t.Shared {
 		state += ", shared"
@@ -184,22 +194,37 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 	if len(t.Blockers) > 0 {
 		b.WriteString("\nblockers:\n")
 		for _, bl := range t.Blockers {
-			state := "open"
-			if r := bl.Resolved; r != nil {
-				state = "answered by " + r.By + ": " + r.Answer
-				if r.Closed {
-					state = "closed by " + r.By
-					if r.Answer != "" {
-						state += ": " + r.Answer
-					}
+			var state string
+			switch r := bl.Resolved; {
+			case r != nil && r.Closed:
+				state = "closed by " + r.By
+				if r.Answer != "" {
+					state += ": " + r.Answer
 				}
+			case r != nil && r.Note != "":
+				state = "resolved by " + r.By + ": " + r.Note + "; the answer: " + r.Answer
+			case r != nil:
+				state = "answered by " + r.By + ": " + r.Answer
+			case bl.Status == BlockerAnswered:
+				state = "answered, waiting on " + cmpStr(bl.SentTo, bl.RaisedBy) + " to resolve or reply"
+			case bl.Status == BlockerReplied:
+				state = "replied, back with the person"
+			default:
+				state = "open"
 			}
 			fmt.Fprintf(&b, "- %s (%s) %s, raised by %s at %s\n", bl.ID, state, bl.Question, bl.RaisedBy, bl.At.Format(time.RFC3339))
 			if bl.Context != "" {
 				fmt.Fprintf(&b, "  context: %s\n", bl.Context)
 			}
+			if bl.Open() && len(bl.Missing) > 0 {
+				fmt.Fprintf(&b, "  missing: %s\n", strings.Join(bl.Missing, "; "))
+			}
 			for i, o := range bl.Options {
-				fmt.Fprintf(&b, "  option %d: %s (recommended by %s)", i+1, o.Answer, o.By)
+				if o.Recommended {
+					fmt.Fprintf(&b, "  option %d: %s (recommended by %s)", i+1, o.Answer, o.By)
+				} else {
+					fmt.Fprintf(&b, "  option %d: %s (from %s)", i+1, o.Answer, o.By)
+				}
 				if o.Why != "" {
 					fmt.Fprintf(&b, ": %s", o.Why)
 				}
@@ -238,10 +263,34 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 			if text != cm.Text {
 				text += " (show comment:" + cm.ID + " for all of it)"
 			}
+			if cm.Held {
+				text = "(not let through the wake policy yet; text not on the card)"
+			}
 			if n := len(cm.Attachments); n > 0 {
 				text += fmt.Sprintf(" [%d attached: show comment:%s]", n, cm.ID)
 			}
-			fmt.Fprintf(&b, "- %s %s: %s\n", cm.At.Format(time.RFC3339), cm.By, text)
+			if cm.Files > 0 {
+				text += fmt.Sprintf(" [%d files on msg:%s]", cm.Files, cm.MsgID)
+			}
+			who := cm.By
+			if cm.MsgID != "" {
+				// A message about the card: who sent it to whom.
+				who += " -> " + cm.To
+			}
+			if cm.Gone {
+				text += " (recipient gone, left on the card)"
+			}
+			if cm.BlockerID != "" {
+				// The person's answer on a blocker, or an agent's reply on it.
+				who += " on " + cm.BlockerID
+				if cm.Pick > 0 {
+					text += fmt.Sprintf(" (option %d)", cm.Pick)
+				}
+				if len(cm.Missing) > 0 {
+					text += " [missing: " + strings.Join(cm.Missing, "; ") + "]"
+				}
+			}
+			fmt.Fprintf(&b, "- %s %s: %s\n", cm.At.Format(time.RFC3339), who, text)
 		}
 		for i := len(older) - 1; i >= 0 && len(related) < search.MaxRelated; i-- {
 			related = append(related, search.Ref(search.KindComment, older[i]))

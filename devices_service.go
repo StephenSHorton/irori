@@ -24,8 +24,9 @@ func init() {
 
 // DevicesService is Settings → Devices (v0.4 §3, §9): the person's devices
 // with one status dot each, pairing (Add a device, Join with a code, the
-// words) and Remove. Pairing and Remove are Wails bindings only, never on
-// the loopback API, so an agent with a shell can't pair or remove a device.
+// words) and Remove. Add a device, the words and Remove are Wails bindings
+// only, never on the loopback API, so an agent with a shell can't add or
+// remove a device; only joining is also there, for `irori pair join`.
 //
 // JS binding name: DevicesService.*
 type DevicesService struct {

@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/StephenSHorton/irori/internal/blob"
+	"github.com/StephenSHorton/irori/internal/store"
 )
 
 // The Board's implementation (board.go has the contract).
@@ -135,7 +136,7 @@ func (c *coord) assignNotice(ctx context.Context, by, id, to string) (Task, Noti
 		n.To = []string{to}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s assigned you a task: %q (task:%s).", by, t.Title, t.ID)
+	fmt.Fprintf(&b, "%s assigned you a task: %q (%s).", by, t.Title, t.Refs())
 	if t.Objective != "" {
 		fmt.Fprintf(&b, "\nObjective: %s", cut(t.Objective, maxNoticeField))
 	}
@@ -305,7 +306,7 @@ func (c *coord) closeBlocker(ctx context.Context, by string, t *Task, note strin
 	if by == sweeper {
 		who = "Irori"
 	}
-	fmt.Fprintf(&b, "%s unblocked %q (task:%s)", who, t.Title, t.ID)
+	fmt.Fprintf(&b, "%s unblocked %q (%s)", who, t.Title, t.Refs())
 	if note != "" {
 		fmt.Fprintf(&b, ": %s", note)
 	}
@@ -368,31 +369,143 @@ func (c *coord) addComment(ctx context.Context, by, id, text string, wake bool, 
 	}
 	at := c.stamp()
 	cid := newID(at)
-	if err := c.write(ctx, by, KindTaskComment, taskCommentRow{
+	cm, err := c.writeComment(ctx, c.actorFor(by), taskCommentRow{
 		TaskID: id, CommentID: cid, By: by, Text: text, Wake: wake, At: at, Attachments: files,
-	}); err != nil {
+	})
+	if err != nil {
 		return Comment{}, Notice{}, err
 	}
-	cm := *c.comments[cid]
 	n := Notice{
 		Kind: NoticeComment, TaskID: id, Ref: "comment:" + cid, Title: t.Title, By: by,
 		To: c.recipients(t, by), Wake: wake, Attachments: files,
-		Text: fmt.Sprintf("%s commented on %q (task:%s):\n%s%s", by, t.Title, id, text, deeper(id)),
+		Text: fmt.Sprintf("%s commented on %q (%s):\n%s%s", by, t.Title, t.Refs(), text, deeper(id)),
 	}
 	return cm, n, nil
 }
 
+// writeComment appends a task.comment row as actor and returns the comment
+// it folded to. The caller holds c.mu.
+func (c *coord) writeComment(ctx context.Context, actor string, row taskCommentRow) (Comment, error) {
+	if err := c.writeAs(ctx, actor, KindTaskComment, row); err != nil {
+		return Comment{}, err
+	}
+	cm := c.comments[row.CommentID]
+	if cm == nil {
+		return Comment{}, fmt.Errorf("%w: comment %s did not fold", ErrInvalid, row.CommentID)
+	}
+	return *cm, nil
+}
+
+// recordMessage puts an inbox message on its card's thread (contract in
+// board.go). The writer rule is checked first: a row this device may not
+// write would be ignored by its own fold.
+func (c *coord) recordMessage(ctx context.Context, m MessageEntry) (Comment, error) {
+	from, more, err := callers(m.From, m.TaskID)
+	if err != nil {
+		return Comment{}, err
+	}
+	id, to := more[0], strings.TrimSpace(m.To)
+	if !strings.HasPrefix(m.MsgID, "msg_") || len(m.MsgID) == len("msg_") {
+		return Comment{}, fmt.Errorf("%w: message id %q", ErrInvalid, m.MsgID)
+	}
+	text := strings.TrimSpace(m.Text)
+	if m.Fill {
+		m.Held = false
+	}
+	if m.Held {
+		text = "" // not let through the wake policy yet: naming a card doesn't get it past
+	} else if utf8.RuneCountInString(text) > MaxComment {
+		full := "… (full: msg:" + m.MsgID + ")"
+		text = string([]rune(text)[:MaxComment-utf8.RuneCountInString(full)]) + full
+	}
+	actor := c.actorFor(from)
+	if m.Writer == sweeper {
+		actor = sweeper
+	}
+	c.mu.Lock()
+	defer c.unlock()
+	t, err := c.anyTask(id)
+	if err != nil {
+		return Comment{}, err
+	}
+	if cm := c.comments[m.MsgID]; cm != nil {
+		// Already there: a retry, the sweep, or another device. Only what
+		// the entry lacks is written (the fold merges either order).
+		switch {
+		case m.Gone && cm.Gone, m.Fill && !cm.Held, !m.Gone && !m.Fill && cm.primary:
+			return *cm, nil
+		}
+	}
+	if !mayRecord(from, to, m.Gone || m.Fill, c.st.DeviceID()) {
+		return Comment{}, fmt.Errorf("%w: %s's message is recorded from its own device", ErrNotAllowed, from)
+	}
+	return c.writeComment(ctx, actor, taskCommentRow{
+		TaskID: t.ID, CommentID: m.MsgID, MsgID: m.MsgID, By: from, To: to, Text: text,
+		Files: max(m.Files, 0), Held: m.Held, Gone: m.Gone, Fill: m.Fill, At: c.stamp(),
+	})
+}
+
+// mergeComment folds a row for a comment id already folded. Only a
+// mirrored message has more than one row: a gone row ORs Gone in, a gone
+// or fill row's text (the message was let through) shows even if the
+// primary row was written held, and the primary row, whichever came first,
+// gives the entry its position, time and text otherwise, so the fold
+// doesn't depend on arrival order. Any other duplicate is dropped. The
+// caller holds c.mu.
+func (c *coord) mergeComment(cm *Comment, p taskCommentRow, ev store.Event, at func(time.Time) time.Time) {
+	if cm.MsgID == "" || p.MsgID != cm.MsgID || p.TaskID != cm.TaskID {
+		return
+	}
+	changed := false
+	if p.Gone && !cm.Gone {
+		cm.Gone, changed = true, true
+	}
+	primary := !p.Gone && !p.Fill
+	if !primary && !p.Held && p.Text != "" && cm.passed == "" {
+		cm.passed = p.Text
+		if cm.Held {
+			cm.Text, cm.Held, changed = p.Text, false, true
+		}
+	}
+	if primary && !cm.primary {
+		cm.By, cm.To, cm.Text, cm.Wake, cm.At = p.By, p.To, p.Text, p.Wake, at(p.At)
+		cm.Held, cm.Files, cm.Attachments = p.Held, p.Files, p.Attachments
+		cm.Device, cm.HLC, cm.Seq, cm.primary = ev.DeviceID, ev.HLC, ev.Seq, true
+		if cm.Held && cm.passed != "" {
+			cm.Text, cm.Held = cm.passed, false
+		}
+		if t := c.tasks[cm.TaskID]; t != nil {
+			t.UpdatedAt = cm.At
+		}
+		changed = true
+	}
+	if changed {
+		c.note(Change{Kind: CommentAdded, TaskID: cm.TaskID})
+	}
+}
+
+// commentAttachment is the ref on the earliest comment that carries sha
+// (by time, then id), so the same bytes on two comments always answer
+// with the same name, size and device.
 func (c *coord) commentAttachment(sha string) (blob.FileRef, bool) {
 	c.mu.Lock()
 	defer c.unlock()
+	var (
+		got   blob.FileRef
+		first *Comment
+	)
 	for _, cm := range c.comments {
+		if first != nil && (cm.At.After(first.At) || cm.At.Equal(first.At) && cm.ID > first.ID) {
+			continue
+		}
 		for _, f := range cm.Attachments {
 			if f.SHA256 == sha {
-				return f, true
+				got, first = f, cm
+				break
 			}
 		}
 	}
-	return blob.FileRef{}, false
+	return got, first != nil
 }
 
 func (c *coord) listComments(taskID string) []Comment {
@@ -732,13 +845,18 @@ func (c *coord) board(f BoardFilter) BoardView {
 }
 
 // needsYou picks the NeedsYou group (BoardView's rule 2).
-// Any open blocker item counts, not only the first (Task.BlockedBy).
+// Any open blocker item counts, not only the first (Task.BlockedBy). An
+// item the person answered waits on whoever the answer went to (the
+// raiser), not on the person, until it is resolved or replied to.
 func (c *coord) needsYou(t *Task, viewer string, agentViewer bool) bool {
-	var ons []*BlockedBy
+	var ons, asks []*BlockedBy // asks: the items still waiting on the person's answer
 	if t.State == Blocked {
 		for _, b := range t.Blockers {
 			if b.Open() && b.On != nil {
 				ons = append(ons, b.On)
+				if b.Status != BlockerAnswered {
+					asks = append(asks, b.On)
+				}
 			}
 		}
 	}
@@ -751,12 +869,17 @@ func (c *coord) needsYou(t *Task, viewer string, agentViewer bool) bool {
 				return true
 			}
 		}
+		for _, b := range t.Blockers {
+			if b.Open() && b.Status == BlockerAnswered && (b.SentTo == viewer || b.SentTo == "" && b.RaisedBy == viewer) {
+				return true
+			}
+		}
 		return false
 	}
 	if t.State == InputRequired {
 		return true
 	}
-	for _, bb := range ons {
+	for _, bb := range asks {
 		// The person is one person on every device: a blocker on any of
 		// their owner keys needs them wherever they look (v0.4 §2).
 		if bb.Kind == BlockedOnPerson && (viewer == "" || bb.Ref == "" || bb.Ref == viewer || c.isOwner(bb.Ref) && c.isOwner(viewer)) {
@@ -826,8 +949,8 @@ func (c *coord) sweepNotices(ctx context.Context) ([]Notice, error) {
 		for i, id := range ids {
 			items = append(items, id+" ("+why[i]+")")
 		}
-		n.Text = fmt.Sprintf("Irori closed %s on %q (task:%s): what it waited on went away. %d more blockers are still open; board_unblock with blocker_id answers one.%s",
-			strings.Join(items, ", "), t.Title, t.ID, countOpen(t), deeper(t.ID))
+		n.Text = fmt.Sprintf("Irori closed %s on %q (%s): what it waited on went away. %d more blockers are still open; board_unblock with blocker_id answers one.%s",
+			strings.Join(items, ", "), t.Title, t.Refs(), countOpen(t), deeper(t.ID))
 		if len(n.To) > 0 {
 			out = append(out, n)
 		}

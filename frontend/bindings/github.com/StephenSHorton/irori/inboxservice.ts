@@ -108,6 +108,8 @@ export function Release(deliveryID: string): $CancellablePromise<void> {
 
 /**
  * Reply answers a message sent to the person; the sender is woken with it.
+ * A reply to a message about a card also goes on that card's thread; that
+ * failing is logged, never the reply's error.
  */
 export function Reply(deliveryID: string, text: string): $CancellablePromise<void> {
     return $Call.ByID(2503881007, deliveryID, text);

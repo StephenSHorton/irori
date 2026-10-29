@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/store"
 )
 
@@ -60,6 +61,9 @@ type blockerResolvedRow struct {
 	// away (Resolution.Closed); Answer is why.
 	Closed bool      `json:"closed,omitempty"`
 	At     time.Time `json:"at"`
+	// Note: the resolver's line once the person had answered (Answer is
+	// then the person's answer). Old peers show only Answer.
+	Note string `json:"note,omitempty"`
 }
 
 type taskStepsRow struct {
@@ -124,10 +128,22 @@ func cleanOptions(in []Option, by string, at time.Time) ([]Option, error) {
 		if err := checkText("a recommendation's why", why, 0, MaxWhy); err != nil {
 			return nil, err
 		}
-		if optionIndex(out, a) >= 0 {
+		if j := optionIndex(out, a); j >= 0 {
+			out[j].Recommended = out[j].Recommended || o.Recommended
 			continue
 		}
-		out = append(out, Option{Answer: a, Why: why, By: by, At: at})
+		out = append(out, Option{Answer: a, Why: why, By: by, At: at, Recommended: o.Recommended})
+	}
+	// Counted after the merge: the same answer given twice, both marked,
+	// is one recommendation.
+	recommended := 0
+	for _, o := range out {
+		if o.Recommended {
+			recommended++
+		}
+	}
+	if recommended > 1 {
+		return nil, fmt.Errorf("%w: mark at most one answer as recommended", ErrInvalid)
 	}
 	return out, nil
 }
@@ -241,23 +257,31 @@ func trimResolved(t *Task) {
 	t.Blockers = keep
 }
 
-// foldBlocked applies a task.status row with state blocked: it adds (or,
-// for a reason-only row on a task already blocked, replaces) an item.
-func (c *coord) foldBlocked(t *Task, p taskStateRow, wasBlocked bool, at time.Time) string {
+// foldBlocked applies a task.status row ev with state blocked: it adds
+// (or, for a reason-only row on a task already blocked, replaces) an item.
+// A replace asks afresh: answers before it no longer count. It returns the
+// activity phrase and, for a raise, the new item's id.
+func (c *coord) foldBlocked(t *Task, p taskStateRow, ev store.Event, wasBlocked bool, at time.Time) (string, string) {
+	pos := rowPos{ev.HLC, ev.DeviceID, ev.Seq}
 	if p.Blocker != nil && p.Blocker.ID != "" {
 		if i := blockerIndex(t, p.Blocker.ID); i >= 0 && p.Blocker.Replace && t.Blockers[i].Open() {
 			b := &t.Blockers[i]
+			if pos.before(b.asked) {
+				return "", "" // a later replace already folded
+			}
 			b.Question, b.Context, b.reason, b.RaisedBy, b.At = p.Blocker.Question, p.Blocker.Context, cmpStr(p.Reason, p.Blocker.Question), p.By, at
 			b.On = copyOn(p.Blocker.On)
-			return "changed the blocker: " + b.Question
+			b.asked = pos
+			c.refreshBlocker(t, b.ID)
+			return "changed the blocker: " + b.Question, ""
 		}
 		if blockerIndex(t, p.Blocker.ID) >= 0 {
-			return ""
+			return "", ""
 		}
 		if i := openWithQuestion(t, p.Blocker.Question); i >= 0 {
 			// The same question again: only what it waits on can change.
 			t.Blockers[i].On = copyOn(p.Blocker.On)
-			return ""
+			return "", ""
 		}
 		c.blockerSeq[t.ID] = max(c.blockerSeq[t.ID], seqOf(p.Blocker.ID, "b"))
 		var opts []Option
@@ -267,12 +291,18 @@ func (c *coord) foldBlocked(t *Task, p taskStateRow, wasBlocked bool, at time.Ti
 				opts = append(opts, o)
 			}
 		}
-		t.Blockers = append(t.Blockers, Blocker{
+		nb := Blocker{
 			ID: p.Blocker.ID, Question: p.Blocker.Question, Context: p.Blocker.Context,
 			RaisedBy: p.By, At: at, Options: opts, reason: cmpStr(p.Reason, p.Blocker.Question),
 			legacy: p.Blocker.ReasonOnly, On: copyOn(p.Blocker.On),
-		})
-		return "raised a blocker: " + p.Blocker.Question
+		}
+		if p.Blocker.Replace {
+			// The replace came before the raise it replaces, which is now
+			// ignored: answers to that raise still don't count.
+			nb.asked = pos
+		}
+		t.Blockers = append(t.Blockers, nb)
+		return "raised a blocker: " + p.Blocker.Question, p.Blocker.ID
 	}
 	// A reason-only row (written before items existed): re-blocking
 	// replaced the reason, so it replaces the item it made.
@@ -283,18 +313,73 @@ func (c *coord) foldBlocked(t *Task, p taskStateRow, wasBlocked bool, at time.Ti
 	if wasBlocked {
 		for i := range t.Blockers {
 			if b := &t.Blockers[i]; b.Open() && b.legacy {
+				if pos.before(b.asked) {
+					return "", ""
+				}
 				b.Question, b.Context, b.reason, b.RaisedBy, b.At = q, ctxText, p.Reason, p.By, at
 				b.On = copyOn(p.BlockedBy)
-				return "changed the blocker: " + q
+				b.asked = pos
+				c.refreshBlocker(t, b.ID)
+				return "changed the blocker: " + q, ""
 			}
 		}
 	}
 	c.blockerSeq[t.ID]++
+	bid := "b" + strconv.Itoa(c.blockerSeq[t.ID])
 	t.Blockers = append(t.Blockers, Blocker{
-		ID: "b" + strconv.Itoa(c.blockerSeq[t.ID]), Question: q, Context: ctxText,
+		ID: bid, Question: q, Context: ctxText,
 		RaisedBy: p.By, At: at, reason: p.Reason, legacy: true, On: copyOn(p.BlockedBy),
 	})
-	return "raised a blocker: " + q
+	return "raised a blocker: " + q, bid
+}
+
+// refreshBlocker derives item bid's Status, SentTo and Missing from its
+// blocker comments in log order: none, or only agents', is open; the
+// person last is answered (sent to that answer's To); an agent last after
+// a person's answer is replied. A comment can fold before its item is
+// raised, so the raise refreshes too; a replace (Blocker.asked) restarts
+// the count. The caller holds c.mu or is replaying.
+func (c *coord) refreshBlocker(t *Task, bid string) {
+	i := blockerIndex(t, bid)
+	if i < 0 {
+		return
+	}
+	b := &t.Blockers[i]
+	var cs []*Comment
+	for _, id := range c.byTask[t.ID] {
+		if cm := c.comments[id]; cm != nil && cm.BlockerID == bid && !cm.pos().before(b.asked) {
+			cs = append(cs, cm)
+		}
+	}
+	sort.Slice(cs, func(i, j int) bool { return cs[i].before(*cs[j]) })
+	b.Status, b.SentTo, b.Missing = BlockerOpen, "", nil
+	n := len(cs)
+	switch {
+	case n == 0:
+	case cs[n-1].person:
+		b.Status, b.SentTo = BlockerAnswered, cs[n-1].To
+	case slices.ContainsFunc(cs[:n-1], func(cm *Comment) bool { return cm.person }):
+		b.Status = BlockerReplied
+		if len(cs[n-1].Missing) > 0 {
+			b.Missing = append([]string(nil), cs[n-1].Missing...)
+		}
+	}
+}
+
+// lastAnswer is the person's latest answer on item bid since its question
+// was last replaced, or nil. The caller holds c.mu.
+func (c *coord) lastAnswer(t *Task, bid string) *Comment {
+	var asked rowPos
+	if i := blockerIndex(t, bid); i >= 0 {
+		asked = t.Blockers[i].asked
+	}
+	var last *Comment
+	for _, id := range c.byTask[t.ID] {
+		if cm := c.comments[id]; cm != nil && cm.BlockerID == bid && cm.person && !cm.pos().before(asked) && (last == nil || last.before(*cm)) {
+			last = cm
+		}
+	}
+	return last
 }
 
 func cmpStr(s, def string) string {
@@ -325,21 +410,42 @@ func normSteps(ss []Step) []Step {
 	return out
 }
 
-// touch records activity on t and, outside replay, queues a watch line
-// when watch is set.
-func (c *coord) touch(t *Task, at time.Time, by, what string, watch bool, also ...string) {
+// touch records activity on t from row ev and, outside replay, queues a
+// watch line when watch is set.
+func (c *coord) touch(ev store.Event, t *Task, at time.Time, by, what string, watch bool, also ...string) {
+	c.touchLine(t, lineOf(ev, at, by, what), watch, also...)
+}
+
+// lineOf is the activity line row ev makes.
+func lineOf(ev store.Event, at time.Time, by, what string) Activity {
+	return Activity{At: at, By: by, What: what, Kind: ev.Kind, Device: ev.DeviceID, HLC: ev.HLC, Seq: ev.Seq}
+}
+
+// touchLine is touch with the line built. The line goes in at its row's
+// position, and past MaxActivity the lowest positions drop, so a row
+// arriving late from another device lands where replay puts it. The watch
+// queue stays in arrival order.
+func (c *coord) touchLine(t *Task, a Activity, watch bool, also ...string) {
+	by, what := a.By, a.What
 	if what == "" {
 		return
 	}
-	acts := append(c.activity[t.ID], Activity{At: at, By: by, What: what})
-	if len(acts) > MaxActivity {
-		acts = append(acts[:0:0], acts[len(acts)-MaxActivity:]...)
+	acts := c.activity[t.ID]
+	i := sort.Search(len(acts), func(i int) bool { return a.before(acts[i]) })
+	acts = slices.Insert(acts, i, a)
+	if n := len(acts) - MaxActivity; n > 0 {
+		acts = slices.Delete(acts, 0, n)
 	}
 	c.activity[t.ID] = acts
-	if !watch || c.replaying {
-		return
+	if watch {
+		c.queueWatch(t, by, what, also...)
 	}
-	if len(t.Watchers) == 0 && len(also) == 0 {
+}
+
+// queueWatch queues a watch line for t's watchers and also, outside
+// replay. The caller holds c.mu.
+func (c *coord) queueWatch(t *Task, by, what string, also ...string) {
+	if c.replaying || len(t.Watchers) == 0 && len(also) == 0 {
 		return
 	}
 	q := c.watchq[t.ID]
@@ -464,10 +570,9 @@ func (c *coord) recommend(ctx context.Context, by, id, bid, answer, why string) 
 	if !c.mayRecommend(t, b, by) {
 		return Task{}, fmt.Errorf("%w: only its holders, watchers, the raiser, the creator or a person may recommend on task %s; watch it first", ErrNotAllowed, id)
 	}
-	if optionIndex(b.Options, answer) >= 0 {
+	if j := optionIndex(b.Options, answer); j >= 0 && b.Options[j].Recommended {
 		return copyTask(t), nil
-	}
-	if len(b.Options) >= MaxOptions {
+	} else if j < 0 && len(b.Options) >= MaxOptions {
 		return Task{}, fmt.Errorf("%w: blocker %s already has %d recommended answers", ErrInvalid, b.ID, MaxOptions)
 	}
 	if err := c.write(ctx, by, KindBlockerOption, blockerOptionRow{
@@ -482,6 +587,9 @@ func (c *coord) answer(ctx context.Context, by, id, bid string, a BlockerAnswer)
 	by, _, err := callers(by)
 	if err != nil {
 		return Task{}, Notice{}, err
+	}
+	if !a.Resolve && !c.isOwner(by) {
+		return Task{}, Notice{}, fmt.Errorf("%w: only the person answers a blocker; resolve it (with a note once the person answered) or reply on it", ErrInvalid)
 	}
 	text := strings.TrimSpace(a.Text)
 	c.mu.Lock()
@@ -498,26 +606,43 @@ func (c *coord) answer(ctx context.Context, by, id, bid string, a BlockerAnswer)
 	if !b.Open() {
 		return Task{}, Notice{}, fmt.Errorf("%w: blocker %s is already resolved", ErrBadState, b.ID)
 	}
-	opt, recBy := -1, ""
+	var last *Comment
+	if a.Resolve {
+		last = c.lastAnswer(t, b.ID)
+	}
+	opt, recBy, rec, note := -1, "", false, ""
 	switch {
+	case last != nil && a.Pick == 0:
+		// The person answered: their answer stands, and text is the
+		// resolver's note (an agent's is required: what it will do now).
+		limit := MaxOwnAnswer
+		if !c.isOwner(by) {
+			limit = MaxAnswer
+			if text == "" {
+				return Task{}, Notice{}, fmt.Errorf("%w: the person already answered; give note: one line on what you will do now", ErrInvalid)
+			}
+			if strings.ContainsAny(text, "\r\n") {
+				return Task{}, Notice{}, fmt.Errorf("%w: the note is one line", ErrInvalid)
+			}
+		}
+		if err := checkText("the note", text, 0, limit); err != nil {
+			return Task{}, Notice{}, err
+		}
+		note, text, opt = text, last.Text, last.Pick-1
+		if opt >= len(b.Options) {
+			opt = -1
+		}
+	case last != nil && !c.isOwner(by):
+		return Task{}, Notice{}, fmt.Errorf("%w: the person already answered; give note: one line on what you will do now", ErrInvalid)
 	case a.Pick < 0 || a.Pick > len(b.Options):
-		return Task{}, Notice{}, fmt.Errorf("%w: blocker %s has %d recommended answers, not %d", ErrInvalid, b.ID, len(b.Options), a.Pick)
+		return Task{}, Notice{}, fmt.Errorf("%w: blocker %s has %d answers to pick from, not %d", ErrInvalid, b.ID, len(b.Options), a.Pick)
 	case a.Pick > 0:
 		opt = a.Pick - 1
-		text, recBy = b.Options[opt].Answer, b.Options[opt].By
+		text, recBy, rec = b.Options[opt].Answer, b.Options[opt].By, b.Options[opt].Recommended
 	default:
 		if err := checkText("the answer", text, 1, MaxOwnAnswer); err != nil {
 			return Task{}, Notice{}, err
 		}
-	}
-	var restored TaskState
-	if countOpen(t) == 1 {
-		restored = restoreState(t)
-	}
-	if err := c.write(ctx, by, KindBlockerResolved, blockerResolvedRow{
-		TaskID: id, BlockerID: b.ID, Answer: text, Option: opt, By: by, Restored: restored, At: c.stamp(),
-	}); err != nil {
-		return Task{}, Notice{}, err
 	}
 	n := Notice{Kind: NoticeAnswered, TaskID: id, Ref: "task:" + id, Title: t.Title, By: by, Wake: a.Wake}
 	// The raiser hears first; the holders (who were blocked) hear too.
@@ -529,11 +654,46 @@ func (c *coord) answer(ctx context.Context, by, id, bid string, a BlockerAnswer)
 			n.To = append(n.To, h)
 		}
 	}
+	if !a.Resolve {
+		// The person's answer goes to the raiser; the item stays open
+		// until the raiser (or a holder, or the person) resolves it.
+		at := c.stamp()
+		if _, err := c.writeComment(ctx, c.actorFor(by), taskCommentRow{
+			TaskID: id, CommentID: newID(at), By: by, To: b.RaisedBy, Text: text, Wake: a.Wake,
+			BlockerID: b.ID, Pick: opt + 1, At: at,
+		}); err != nil {
+			return Task{}, Notice{}, err
+		}
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "%s answered the blocker on %q (%s, blocker %s).\nQuestion: %s\nAnswer: %s",
+			by, t.Title, t.Refs(), b.ID, b.Question, cut(text, maxNoticeField))
+		sb.WriteString(pickedLine(opt, recBy, rec))
+		fmt.Fprintf(&sb, "\nIt is not resolved yet. When you have what you need: board_unblock task_id=%s blocker_id=%s note=\"<one line on what you will do now>\". "+
+			"If the answer doesn't settle it: board_comment task_id=%s blocker_id=%s with what is still missing.", id, b.ID, id, b.ID)
+		sb.WriteString(deeper(id))
+		n.Text = sb.String()
+		return copyTask(t), n, nil
+	}
+	var restored TaskState
+	if countOpen(t) == 1 {
+		restored = restoreState(t)
+	}
+	if err := c.write(ctx, by, KindBlockerResolved, blockerResolvedRow{
+		TaskID: id, BlockerID: b.ID, Answer: text, Option: opt, By: by, Restored: restored, Note: note, At: c.stamp(),
+	}); err != nil {
+		return Task{}, Notice{}, err
+	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "%s answered the blocker on %q (task:%s, blocker %s).\nQuestion: %s\nAnswer: %s",
-		by, t.Title, id, b.ID, b.Question, cut(text, maxNoticeField))
-	if recBy != "" {
-		fmt.Fprintf(&sb, "\n(That is the answer %s recommended.)", recBy)
+	if last != nil {
+		fmt.Fprintf(&sb, "%s resolved blocker %s on %q (%s)", by, b.ID, t.Title, t.Refs())
+		if note != "" {
+			fmt.Fprintf(&sb, ": %s", note)
+		}
+		fmt.Fprintf(&sb, "\nQuestion: %s\nThe person's answer: %s", b.Question, cut(text, maxNoticeField))
+	} else {
+		fmt.Fprintf(&sb, "%s answered the blocker on %q (%s, blocker %s).\nQuestion: %s\nAnswer: %s",
+			by, t.Title, t.Refs(), b.ID, b.Question, cut(text, maxNoticeField))
+		sb.WriteString(pickedLine(opt, recBy, rec))
 	}
 	if restored != "" {
 		fmt.Fprintf(&sb, "\nNo blockers remain: it is %s again.", t.State)
@@ -545,35 +705,122 @@ func (c *coord) answer(ctx context.Context, by, id, bid string, a BlockerAnswer)
 	return copyTask(t), n, nil
 }
 
-// ---- steps ----
+// pickedLine says which offered answer the person picked: the one recBy
+// recommended (rec), or option opt+1 recBy offered; "" for their own words.
+func pickedLine(opt int, recBy string, rec bool) string {
+	switch {
+	case recBy != "" && rec:
+		return fmt.Sprintf("\n(That is the answer %s recommended.)", recBy)
+	case recBy != "":
+		return fmt.Sprintf("\n(That is option %d, offered by %s.)", opt+1, recBy)
+	}
+	return ""
+}
 
-func (c *coord) setSteps(ctx context.Context, by, id string, in []Step) (Task, error) {
+// commentOn is CommentOn (cards.go): a plain comment, or an agent's reply
+// on an open blocker item, which routes no notice.
+func (c *coord) commentOn(ctx context.Context, by, id string, in CommentInput) (Comment, Notice, error) {
+	bid := strings.TrimSpace(in.BlockerID)
+	if bid == "" {
+		return c.addComment(ctx, by, id, in.Text, in.Wake, in.Files)
+	}
 	by, _, err := callers(by)
 	if err != nil {
-		return Task{}, err
+		return Comment{}, Notice{}, err
 	}
+	if c.isOwner(by) {
+		return Comment{}, Notice{}, fmt.Errorf("%w: a person answers a blocker instead of replying on it", ErrInvalid)
+	}
+	text := strings.TrimSpace(in.Text)
+	if err := checkText("the reply", text, 1, MaxComment); err != nil {
+		return Comment{}, Notice{}, err
+	}
+	if len(in.Missing) > MaxMissing {
+		return Comment{}, Notice{}, fmt.Errorf("%w: at most %d missing lines", ErrInvalid, MaxMissing)
+	}
+	var missing []string
+	for _, m := range in.Missing {
+		m = strings.TrimSpace(m)
+		if err := checkText("a missing line", m, 1, MaxMissingText); err != nil {
+			return Comment{}, Notice{}, err
+		}
+		missing = append(missing, m)
+	}
+	if len(in.Files) > MaxAttachments {
+		return Comment{}, Notice{}, fmt.Errorf("%w: at most %d attachments", ErrInvalid, MaxAttachments)
+	}
+	c.mu.Lock()
+	defer c.unlock()
+	t, err := c.anyTask(id)
+	if err != nil {
+		return Comment{}, Notice{}, err
+	}
+	i := blockerIndex(t, bid)
+	if i < 0 {
+		return Comment{}, Notice{}, fmt.Errorf("%w: task %s has no blocker %q", ErrNotFound, id, bid)
+	}
+	if !t.Blockers[i].Open() {
+		return Comment{}, Notice{}, fmt.Errorf("%w: blocker %s is already resolved", ErrBadState, bid)
+	}
+	at := c.stamp()
+	cm, err := c.writeComment(ctx, c.actorFor(by), taskCommentRow{
+		TaskID: id, CommentID: newID(at), By: by, Text: text, At: at, Attachments: in.Files,
+		BlockerID: bid, Missing: missing,
+	})
+	if err != nil {
+		return Comment{}, Notice{}, err
+	}
+	return cm, Notice{}, nil
+}
+
+// ---- steps ----
+
+// checkSteps trims a step list in place and checks it: at most MaxSteps,
+// texts 1..MaxStepText runes on one line, at most one Doing, never Done and
+// Doing.
+func checkSteps(in []Step) error {
 	if len(in) > MaxSteps {
-		return Task{}, fmt.Errorf("%w: more than %d steps", ErrInvalid, MaxSteps)
+		return fmt.Errorf("%w: more than %d steps", ErrInvalid, MaxSteps)
 	}
 	doing := 0
 	for i := range in {
 		in[i].Text = strings.TrimSpace(in[i].Text)
 		in[i].ID = strings.TrimSpace(in[i].ID)
 		if err := checkText("a step", in[i].Text, 1, MaxStepText); err != nil {
-			return Task{}, err
+			return err
 		}
 		if strings.ContainsAny(in[i].Text, "\r\n") {
-			return Task{}, fmt.Errorf("%w: a step is one line", ErrInvalid)
+			return fmt.Errorf("%w: a step is one line", ErrInvalid)
 		}
 		if in[i].Done && in[i].Doing {
-			return Task{}, fmt.Errorf("%w: step %q is both done and in progress", ErrInvalid, in[i].Text)
+			return fmt.Errorf("%w: step %q is both done and in progress", ErrInvalid, in[i].Text)
 		}
 		if in[i].Doing {
 			doing++
 		}
 	}
 	if doing > 1 {
-		return Task{}, fmt.Errorf("%w: only one step can be in progress", ErrInvalid)
+		return fmt.Errorf("%w: only one step can be in progress", ErrInvalid)
+	}
+	return nil
+}
+
+// newSteps mints ids s1, s2, ... for a new task's checked steps.
+func newSteps(in []Step) []Step {
+	out := make([]Step, 0, len(in))
+	for i, s := range in {
+		out = append(out, Step{ID: "s" + strconv.Itoa(i+1), Text: s.Text, Done: s.Done, Doing: s.Doing})
+	}
+	return out
+}
+
+func (c *coord) setSteps(ctx context.Context, by, id string, in []Step) (Task, error) {
+	by, _, err := callers(by)
+	if err != nil {
+		return Task{}, err
+	}
+	if err := checkSteps(in); err != nil {
+		return Task{}, err
 	}
 	c.mu.Lock()
 	defer c.unlock()
@@ -708,6 +955,38 @@ func (c *coord) watch(ctx context.Context, by, id string, on bool) (Task, error)
 }
 
 // ---- activity ----
+
+// before reports whether a's row sorts before b's in the log: (HLC,
+// device, seq).
+func (a Activity) before(b Activity) bool {
+	return posBefore(a.HLC, a.Device, a.Seq, b.HLC, b.Device, b.Seq)
+}
+
+// before reports whether a's row sorts before b's in the log.
+func (a Comment) before(b Comment) bool {
+	return posBefore(a.HLC, a.Device, a.Seq, b.HLC, b.Device, b.Seq)
+}
+
+// rowPos is a row's position in the log (HLC, device, seq).
+type rowPos struct {
+	hlc hlc.Timestamp
+	dev string
+	seq int64
+}
+
+func (a rowPos) before(b rowPos) bool { return posBefore(a.hlc, a.dev, a.seq, b.hlc, b.dev, b.seq) }
+
+func (a Comment) pos() rowPos { return rowPos{a.HLC, a.Device, a.Seq} }
+
+func posBefore(ah hlc.Timestamp, ad string, as int64, bh hlc.Timestamp, bd string, bs int64) bool {
+	if ah != bh {
+		return ah < bh
+	}
+	if ad != bd {
+		return ad < bd
+	}
+	return as < bs
+}
 
 func (c *coord) activityOf(id string) []Activity {
 	c.mu.Lock()
@@ -850,7 +1129,7 @@ func watchParts(s string) (lines []string, more int, head, foot string, ok bool)
 
 func watchText(t *Task, lines []string, dropped int) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, watchHead+"%q (task:%s)"+watchHeadEnd, t.Title, t.ID)
+	fmt.Fprintf(&b, watchHead+"%q (%s)"+watchHeadEnd, t.Title, t.Refs())
 	shown := lines
 	if len(shown) > maxWatchLines {
 		shown = shown[len(shown)-maxWatchLines:]
@@ -918,14 +1197,24 @@ func (c *coord) applyCard(ev store.Event, at func(time.Time) time.Time) {
 			return
 		}
 		i := blockerIndex(t, p.BlockerID)
-		if i < 0 || !t.Blockers[i].Open() || len(t.Blockers[i].Options) >= MaxOptions || optionIndex(t.Blockers[i].Options, p.Answer) >= 0 {
+		if i < 0 || !t.Blockers[i].Open() {
 			return
 		}
 		b := &t.Blockers[i]
 		when := at(p.At)
-		b.Options = append(b.Options, Option{Answer: p.Answer, Why: p.Why, By: p.By, At: when})
+		// A recommendation of an option already there marks it.
+		if j := optionIndex(b.Options, p.Answer); j >= 0 {
+			if b.Options[j].Recommended {
+				return
+			}
+			b.Options[j].Recommended = true
+		} else if len(b.Options) >= MaxOptions {
+			return
+		} else {
+			b.Options = append(b.Options, Option{Answer: p.Answer, Why: p.Why, By: p.By, At: when, Recommended: true})
+		}
 		t.UpdatedAt = when
-		c.touch(t, when, p.By, "recommended “"+p.Answer+"” for “"+b.Question+"”", true, b.RaisedBy)
+		c.touch(ev, t, when, p.By, "recommended “"+p.Answer+"” for “"+b.Question+"”", true, b.RaisedBy)
 	case KindBlockerResolved:
 		var p blockerResolvedRow
 		if json.Unmarshal(ev.Payload, &p) != nil {
@@ -945,7 +1234,7 @@ func (c *coord) applyCard(ev store.Event, at func(time.Time) time.Time) {
 			opt = -1
 		}
 		q := t.Blockers[i].Question
-		t.Blockers[i].Resolved = &Resolution{Answer: p.Answer, Option: opt, By: p.By, At: when, Closed: p.Closed}
+		t.Blockers[i].Resolved = &Resolution{Answer: p.Answer, Option: opt, By: p.By, At: when, Closed: p.Closed, Note: p.Note}
 		if t.State == Blocked && countOpen(t) == 0 {
 			s := p.Restored
 			if !ValidState(s) || s == Blocked || IsTerminal(s) {
@@ -956,10 +1245,13 @@ func (c *coord) applyCard(ev store.Event, at func(time.Time) time.Time) {
 		trimResolved(t)
 		syncReason(t)
 		t.UpdatedAt, t.UpdatedBy = when, p.By
-		if p.Closed {
-			c.touch(t, when, p.By, "closed “"+q+"”: "+p.Answer, true)
-		} else {
-			c.touch(t, when, p.By, "answered “"+q+"”: "+p.Answer, true)
+		switch {
+		case p.Closed:
+			c.touch(ev, t, when, p.By, "closed “"+q+"”: "+p.Answer, true)
+		case p.Note != "":
+			c.touch(ev, t, when, p.By, "resolved “"+q+"”: "+p.Note, true)
+		default:
+			c.touch(ev, t, when, p.By, "answered “"+q+"”: "+p.Answer, true)
 		}
 	case KindTaskSteps:
 		var p taskStepsRow
@@ -985,7 +1277,7 @@ func (c *coord) applyCard(ev store.Event, at func(time.Time) time.Time) {
 		when := at(p.At)
 		t.UpdatedAt, t.UpdatedBy = when, p.By
 		d, n := t.Progress()
-		c.touch(t, when, p.By, fmt.Sprintf("set the steps (%d/%d done)", d, n), true)
+		c.touch(ev, t, when, p.By, fmt.Sprintf("set the steps (%d/%d done)", d, n), true)
 	case KindTaskStep:
 		var p taskStepRow
 		if json.Unmarshal(ev.Payload, &p) != nil {
@@ -1019,7 +1311,7 @@ func (c *coord) applyCard(ev store.Event, at func(time.Time) time.Time) {
 			d, n := t.Progress()
 			what += fmt.Sprintf(" (%d/%d)", d, n)
 		}
-		c.touch(t, when, p.By, what, true)
+		c.touch(ev, t, when, p.By, what, true)
 	case KindTaskWatched:
 		var p taskWatchedRow
 		if json.Unmarshal(ev.Payload, &p) != nil || p.Who == "" {
@@ -1036,7 +1328,7 @@ func (c *coord) applyCard(ev store.Event, at func(time.Time) time.Time) {
 		} else {
 			t.Watchers = removeStr(t.Watchers, p.Who)
 		}
-		c.touch(t, at(p.At), p.Who, what, false)
+		c.touch(ev, t, at(p.At), p.Who, what, false)
 	default:
 		return
 	}
@@ -1063,5 +1355,8 @@ func copyBlocker(b Blocker) Blocker {
 		b.Resolved = &r
 	}
 	b.On = copyOn(b.On)
+	if b.Missing != nil {
+		b.Missing = append([]string(nil), b.Missing...)
+	}
 	return b
 }
