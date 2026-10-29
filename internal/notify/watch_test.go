@@ -826,3 +826,36 @@ func TestWatchUnclaimedAskWokenInOneTick(t *testing.T) {
 		t.Fatalf("after Wake them with nobody free: %+v", c)
 	}
 }
+
+// A card returned again within one clock step carries the same time: the
+// card still comes back, because it is keyed on the row (card #25).
+func TestWatchReturnedAgainInOneTick(t *testing.T) {
+	f := newFake()
+	n := New(Config{Toaster: f})
+	w := &watcher{n: n, s: Sources{Name: func(k string) string { return k }}, returned: map[string]string{}}
+	tick := time.Now().UTC()
+	view := func(row string) coord.BoardView {
+		tk := coord.Task{ID: "t1", Title: "Ship it", Returned: &coord.Returned{Was: keyA, At: tick, Person: true, Row: row}}
+		return coord.BoardView{Open: []coord.Card{{Task: tk}}}
+	}
+	posts := func() int {
+		n := 0
+		for {
+			select {
+			case <-f.posted:
+				n++
+			default:
+				return n
+			}
+		}
+	}
+	w.returnedCards(view("dev1:5"), true)
+	w.returnedCards(view("dev1:5"), true) // the same return: no second card
+	if got := posts(); got != 1 {
+		t.Fatalf("posted %d cards for one return", got)
+	}
+	w.returnedCards(view("dev1:9"), true) // returned again, same At
+	if got := posts(); got != 1 {
+		t.Fatalf("a return in the same tick posted %d cards, want 1", got)
+	}
+}

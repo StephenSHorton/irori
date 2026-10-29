@@ -2040,6 +2040,39 @@ export class Told {
     }
 }
 
+/**
+ * UploadFile is a file the person put in the window (picked, dropped or
+ * pasted): its name and bytes (base64 in JSON).
+ */
+export class UploadFile {
+    "name": string;
+    "data": string;
+
+    /** Creates a new UploadFile instance. */
+    constructor($$source: Partial<UploadFile> = {}) {
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("data" in $$source)) {
+            this["data"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new UploadFile instance from a string or object.
+     */
+    static createFrom($$source: any = {}): UploadFile {
+        const $$createField1_0 = $Create.ByteSlice;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("data" in $$parsedSource) {
+            $$parsedSource["data"] = $$createField1_0($$parsedSource["data"]);
+        }
+        return new UploadFile($$parsedSource as Partial<UploadFile>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = CardDetail.createFrom;
 const $$createType1 = Told.createFrom;

@@ -113,7 +113,7 @@ func Watch(ctx context.Context, n *Notifier, s Sources) {
 	w := &watcher{n: n, s: s, held: map[string]string{}, groups: map[string]*heldGroup{},
 		dirty: map[string]heldChange{}, closed: map[string]bool{},
 		msgs: map[string]bool{}, needs: map[string]bool{},
-		asks: map[string]bool{}, unclaimed: map[string]opening{}, returned: map[string]time.Time{}, forget: make(chan string, 16),
+		asks: map[string]bool{}, unclaimed: map[string]opening{}, returned: map[string]string{}, forget: make(chan string, 16),
 		failed: make(chan heldFail, 16), fails: map[string]string{}}
 	var ich <-chan inbox.Change
 	var cch <-chan coord.Change
@@ -213,7 +213,7 @@ type watcher struct {
 	unclaimed map[string]opening
 	// returned are the cards that came back to the person because their
 	// agent went away (card #16), by when.
-	returned map[string]time.Time
+	returned map[string]string // by card: the row that returned it
 	// forget carries the sender keys whose held card the person closed
 	// (from the card's own goroutine to Watch's loop), failed the outcome
 	// of each Release or Dismiss press; fails is the error a sender's card
@@ -644,10 +644,16 @@ func (w *watcher) returnedCards(v coord.BoardView, post bool) {
 				continue
 			}
 			now[c.ID] = true
-			if at, ok := w.returned[c.ID]; ok && at.Equal(r.At) {
+			// The row, not the time: a card returned again within one clock
+			// step carries the same At (card #25).
+			key := r.Row
+			if key == "" {
+				key = r.At.String()
+			}
+			if was, ok := w.returned[c.ID]; ok && was == key {
 				continue
 			}
-			w.returned[c.ID] = r.At
+			w.returned[c.ID] = key
 			if post {
 				w.n.Post(w.returnedNote(c.Task))
 			}
