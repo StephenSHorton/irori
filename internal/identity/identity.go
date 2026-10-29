@@ -293,14 +293,14 @@ func (id *Identity) signPerson(v any) (pub, sig string, err error) {
 
 // CertFor makes a person.device.added payload certifying a device.
 func (id *Identity) CertFor(deviceID, devicePub, label, role string, at time.Time) (DeviceAdded, error) {
-	c := Cert{PersonID: id.Person.ID, DeviceID: deviceID, DevicePub: devicePub, Label: label, Role: role, At: at.UTC()}
+	c := Cert{PersonID: id.Current().ID, DeviceID: deviceID, DevicePub: devicePub, Label: label, Role: role, At: at.UTC()}
 	pub, sig, err := id.signPerson(c)
 	return DeviceAdded{Cert: c, PersonPub: pub, PersonSig: sig}, err
 }
 
 // RevokeOf makes a person.device.revoked payload.
 func (id *Identity) RevokeOf(deviceID string, cut int64, cutHash, reason string, at time.Time) (DeviceRevoked, error) {
-	r := Revoke{PersonID: id.Person.ID, DeviceID: deviceID, Cut: cut, CutHash: cutHash, At: at.UTC(), Reason: reason}
+	r := Revoke{PersonID: id.Current().ID, DeviceID: deviceID, Cut: cut, CutHash: cutHash, At: at.UTC(), Reason: reason}
 	pub, sig, err := id.signPerson(r)
 	return DeviceRevoked{Revoke: r, PersonPub: pub, PersonSig: sig}, err
 }
@@ -319,7 +319,7 @@ func (id *Identity) ProfileRow() (Profile, error) {
 // is not the root waits for a cert from pairing (release 3) and writes
 // nothing. role is RoleDesktop or RoleNode.
 func (id *Identity) EnsureSelfCert(ctx context.Context, st *store.Store, ch *Chain, role string) error {
-	if id.Device.ID != id.Person.RootDeviceID {
+	if id.Device.ID != id.Current().RootDeviceID {
 		return nil
 	}
 	// The cert first: it carries the key that verifies it, so it is the row

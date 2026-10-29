@@ -12,23 +12,26 @@ import (
 	"time"
 )
 
-// testRepo is a real git repository in a temp dir. Every git run uses an
-// empty global config, no system config and a fixed identity, so the
+// testRepo is a real git repository in a temp dir. Every git run uses a
+// minimal global config, no system config and a fixed identity, so the
 // machine's own settings never leak in.
 type testRepo struct {
 	t    *testing.T
 	root string
 }
 
-// isolateGit points git at an empty config for the rest of the test. Exec
-// inherits it too.
+// isolateGit points git at a minimal config for the rest of the test. Exec
+// inherits it too. The config turns off auto maintenance: otherwise every
+// commit spawns a detached "git maintenance run --auto" that can still be
+// writing under .git when t.TempDir's cleanup removes it.
 func isolateGit(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
 	cfg := filepath.Join(t.TempDir(), "gitconfig")
-	if err := os.WriteFile(cfg, nil, 0o644); err != nil {
+	const noAuto = "[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n"
+	if err := os.WriteFile(cfg, []byte(noAuto), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("GIT_CONFIG_GLOBAL", cfg)

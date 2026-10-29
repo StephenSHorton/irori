@@ -38,7 +38,7 @@ type DeviceRow struct {
 // DeviceRow.Detail for the other devices.
 func (n *Node) Devices(detail bool) []DeviceRow {
 	st := n.Status()
-	self := n.o.Ident.Device
+	self := n.o.Ident.Self()
 	me := DeviceRow{DeviceID: self.ID, Name: self.Name, Role: identity.RoleDesktop, OS: self.OS, This: true, State: "this"}
 	if cert, ok := n.o.Chain.Cert(self.ID); ok && cert.Role != "" {
 		me.Role = cert.Role
