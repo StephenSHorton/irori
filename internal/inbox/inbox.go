@@ -215,7 +215,7 @@ type Delivery struct {
 	// HeldFor is the reason a hold last kept it, kept after Release clears
 	// Hold: non-empty on every delivery that was ever held. DecidedBy and
 	// DecidedAt are who moved it out of Held or Dismissed last (the person,
-	// or "irori" for an unpause or the sweep) and when. All three are folded
+	// also for an unpause; "irori" for the sweep) and when. All three are folded
 	// from the delivery rows, never written.
 	HeldFor   HoldReason `json:"heldFor,omitempty"`
 	DecidedBy string     `json:"decidedBy,omitempty"`

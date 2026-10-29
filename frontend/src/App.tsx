@@ -257,7 +257,8 @@ export function App() {
   // (one not on this board, or not loaded).
   const cardLabel = (ref: string) => {
     const id = ref.slice("task:".length)
-    const c = cards.find((x) => x.id === id) ?? done.cards.find((x) => x.id === id)
+    const c =
+      cards.find((x) => x.id === id) ?? done.cards.find((x) => x.id === id)
     return c?.short ? `#${c.short}` : "a card"
   }
 

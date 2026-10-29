@@ -208,7 +208,9 @@ export const talk = {
     if (inWails()) return InboxService.Release(id)
     const d = sampleDelivery(id)
     if (d.state !== State.Held && d.state !== State.Dismissed)
-      throw new Error(`inbox: not allowed in the delivery's current state: can't release a ${d.state} delivery`)
+      throw new Error(
+        `inbox: not allowed in the delivery's current state: can't release a ${d.state} delivery`
+      )
     sampleSetState(id, State.Queued)
   },
 
@@ -364,7 +366,9 @@ export function useHeld(history: boolean): HeldState {
     }
     const [held, past] = await Promise.all([
       InboxService.Held(),
-      history ? InboxService.HeldHistory(HeldHistoryLimit) : Promise.resolve([]),
+      history
+        ? InboxService.HeldHistory(HeldHistoryLimit)
+        : Promise.resolve([]),
     ])
     return { held: held ?? [], history: past ?? [] }
   }, [history])

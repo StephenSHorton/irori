@@ -112,7 +112,7 @@ export function HeldDialog({
                   className={
                     tab === "waiting"
                       ? "text-xs tabular-nums opacity-80"
-                      : "text-xs tabular-nums text-destructive"
+                      : "text-xs text-destructive tabular-nums"
                   }
                 >
                   {state.held.length}
@@ -244,7 +244,7 @@ function HeldRow({
         </time>
       </div>
       <p className="text-xs text-muted-foreground">{plainLine(holdText(d))}</p>
-      <p className="line-clamp-4 whitespace-pre-wrap text-[12.5px] text-ink-2">
+      <p className="line-clamp-4 text-[12.5px] whitespace-pre-wrap text-ink-2">
         {plainBlock(d.message.text)}
       </p>
       {held ? (

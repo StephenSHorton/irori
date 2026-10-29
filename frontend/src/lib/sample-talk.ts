@@ -149,8 +149,12 @@ export function sampleTalk(now: Date): SampleTalk {
       hold: s.hold,
       heldFor: s.heldFor ?? s.hold,
       decidedBy: s.decidedAgoSec !== undefined ? you.key : undefined,
-      decidedAt: s.decidedAgoSec !== undefined ? at(s.decidedAgoSec) : undefined,
-      via: s.state === State.Held || s.state === State.Dismissed ? undefined : "mod",
+      decidedAt:
+        s.decidedAgoSec !== undefined ? at(s.decidedAgoSec) : undefined,
+      via:
+        s.state === State.Held || s.state === State.Dismissed
+          ? undefined
+          : "mod",
       reminded: false,
       createdAt: at(s.agoSec),
       updatedAt: at(Math.max(0, s.agoSec - 20)),
