@@ -16,6 +16,19 @@ func TestStrictDropsPaths(t *testing.T) {
 		{`/Users/stephen/projects/mlg/x.go breaks`, `[path] breaks`},
 		{`log ("/home/me/logs/a.txt")`, `log ("[path]")`},
 		{`path=/var/lib/irori/x`, `path=[path]`},
+		// markdown code spans and emphasis, file URLs, after ':', and the
+		// closing bracket a path sits in stays
+		{"see `/Users/stephen/projects/x`", "see `[path]`"},
+		{"in `~/projects/x`", "in `[path]`"},
+		{"run `C:\\Users\\me\\x.exe` first", "run `[path]` first"},
+		{`file:///home/me/x.txt`, `[path]`},
+		{`open FILE://nas/share/x.txt now`, `open [path] now`},
+		{`at:/home/me/x`, `at:[path]`},
+		{`*/home/me/x*`, `*[path]*`},
+		{`(/Users/me/x)`, `([path])`},
+		{`[~/notes]`, `[[path]]`},
+		{"**/etc/irori/conf**", "**[path]**"},
+		{"`\\\\nas\\share\\x`", "`[path]`"},
 		// kept
 		{`edit src/coord/impl.go and ./build/x`, `edit src/coord/impl.go and ./build/x`},
 		{`https://github.com/StephenSHorton/irori/pull/12`, `https://github.com/StephenSHorton/irori/pull/12`},

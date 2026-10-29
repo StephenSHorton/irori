@@ -336,9 +336,10 @@ type SampleBoard = { boardId: string; name: string; tag: string; people: string[
 // home directories become [path].
 function strictPass(s: string): string {
   return s
-    .replace(/(^|[^A-Za-z0-9])[A-Za-z]:[\\/][^\s"'<>|*?]*/g, "$1[path]")
-    .replace(/(^|[\s"'([=,])(?:~|\$HOME)(?:[\\/][^\s"'<>|*?]*)?/g, "$1[path]")
-    .replace(/(^|[\s"'([=,])\/[A-Za-z0-9._@+-]+\/[^\s"'<>|*?]*/g, "$1[path]")
+    .replace(/(^|[^A-Za-z0-9])file:\/\/[^\s"'<>|*?)\]`]*/gi, "$1[path]")
+    .replace(/(^|[^A-Za-z0-9])[A-Za-z]:[\\/][^\s"'<>|*?)\]`]*/g, "$1[path]")
+    .replace(/(^|[\s"'([=,:*`])(?:~|\$HOME)(?:[\\/][^\s"'<>|*?)\]`]*)?/g, "$1[path]")
+    .replace(/(^|[\s"'([=,:*`])\/[A-Za-z0-9._@+-]+\/[^\s"'<>|*?)\]`]*/g, "$1[path]")
 }
 
 export function samplePreview(id: string, board: SampleBoard): SharePreviewShape {
