@@ -262,7 +262,12 @@ export function App() {
         ) : cards.length === 0 && filter !== "done" ? (
           <>
             <AskBox onAsked={setLast} />
-            <FilterBar filter={filter} onFilter={setFilter} decide={0} />
+            <FilterBar
+              filter={filter}
+              onFilter={setFilter}
+              decide={0}
+              only={["all", "done"]}
+            />
             <EmptyCards />
           </>
         ) : (

@@ -755,24 +755,14 @@ export function useDoneCards(active: boolean): DoneState {
     }
   }, [])
 
+  // loadMore raises how many cards the tab shows and reloads them all, so
+  // a reload that races it (a board change, focus) loads the raised count
+  // too, and the click is never lost.
   const loadMore = useCallback(() => {
     if (!st.next) return
-    const n = ++req.current
-    const have = st.cards
-    void loadDone(DonePageSize, st.next).then(
-      (p) => {
-        if (n !== req.current) return
-        const seen = new Set(have.map((c) => c.id))
-        const cards = [...have, ...(p.cards ?? []).filter((c) => !seen.has(c.id))]
-        shown.current = Math.max(DonePageSize, cards.length)
-        setSt({ cards, next: p.next, loading: false, error: null })
-      },
-      (err) => {
-        if (n !== req.current) return
-        setSt((s) => ({ ...s, error: errText(err) }))
-      }
-    )
-  }, [st])
+    shown.current = Math.max(shown.current, st.cards.length) + DonePageSize
+    void reload()
+  }, [st, reload])
 
   useEffect(() => {
     if (!active) return
@@ -906,11 +896,11 @@ export function workLabel(c: {
   openBlockers: number
   working: readonly AgentRef[]
 }): string {
-  if (!c.working.length) return ""
+  // A closed card has nobody working it, whatever its holders were.
+  if (over(c) || !c.working.length) return ""
   if (c.working.every((w) => w.assigned))
     return c.working.some((w) => w.waiting) ? "not picked up" : "assigned"
   if (busy(c)) return "working"
-  if (over(c)) return ""
   return "on it"
 }
 

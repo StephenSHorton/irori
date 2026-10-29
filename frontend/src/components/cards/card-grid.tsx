@@ -62,10 +62,13 @@ export function FilterBar({
   filter,
   onFilter,
   decide,
+  only,
 }: {
   filter: Filter
   onFilter: (f: Filter) => void
   decide: number
+  // only, when set, are the tabs to show (an empty board: All and Done).
+  only?: Filter[]
 }) {
   return (
     <div
@@ -73,7 +76,7 @@ export function FilterBar({
       role="group"
       aria-label="Filter cards"
     >
-      {filters.map((f) => (
+      {filters.filter((f) => !only || only.includes(f.id)).map((f) => (
         <Button
           key={f.id}
           size="sm"
@@ -296,7 +299,7 @@ function CardTile({
         ) : (
           <span>nobody on it yet</span>
         )}
-        {card.watching.length > 0 && (
+        {!closed && card.watching.length > 0 && (
           <>
             <span aria-hidden>·</span>
             <Faces who={card.watching} watching />
@@ -304,8 +307,13 @@ function CardTile({
           </>
         )}
         {closed && now && (
-          <span className="ml-auto tabular-nums" title={new Date(card.updatedAt as string).toLocaleString()}>
-            {relativeTime(new Date(card.updatedAt as string), now)}
+          // The card's last change, which is most often its close but
+          // not always (a link added after), so it says "updated".
+          <span
+            className="ml-auto tabular-nums"
+            title={`Last changed ${new Date(card.updatedAt as string).toLocaleString()}`}
+          >
+            updated {relativeTime(new Date(card.updatedAt as string), now)}
           </span>
         )}
       </span>
@@ -342,6 +350,11 @@ export function DoneGrid({
     )
   return (
     <>
+      {done.error && (
+        <p className="px-1 text-[12.5px] text-destructive" role="alert">
+          Could not reload the done cards: {done.error}
+        </p>
+      )}
       <CardGrid
         cards={done.cards}
         selected={selected}
