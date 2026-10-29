@@ -3,7 +3,7 @@ import { LayersIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { busy, percent, type CardSummary } from "@/lib/cards"
+import { busy, percent, workLabel, type CardSummary } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
 import { cn } from "@/lib/utils"
 import {
@@ -113,6 +113,7 @@ function CardTile({
   const p = percent(card.progress)
   const blocked = card.openBlockers > 0
   const title = plainLine(card.title) || "(untitled)"
+  const label = workLabel(card)
   return (
     <button
       type="button"
@@ -171,13 +172,7 @@ function CardTile({
         {card.working.length > 0 ? (
           <>
             <Faces who={card.working} />
-            <span>
-              {card.working.every((w) => w.assigned)
-                ? card.working.some((w) => w.waiting)
-                  ? "not picked up"
-                  : "assigned"
-                : "working"}
-            </span>
+            {label && <span>{label}</span>}
           </>
         ) : (
           <span>nobody on it yet</span>

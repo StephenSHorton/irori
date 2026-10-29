@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import { AgentRef } from "../../bindings/github.com/StephenSHorton/irori/models"
 import { TaskState } from "../../bindings/github.com/StephenSHorton/irori/internal/coord/models"
-import { busy, cardFromHash, cardHash } from "./cards"
+import { busy, cardFromHash, cardHash, workLabel } from "./cards"
 
 const agent = (status: string, more: Partial<AgentRef> = {}) =>
   new AgentRef({ key: "d/s", name: "a", status, live: status !== "gone", where: "This PC", ...more })
@@ -32,6 +32,25 @@ describe("busy", () => {
   })
   test("one busy holder among idle ones is enough", () => {
     expect(busy(card(TaskState.Working, [agent("idle"), agent("busy")]))).toBe(true)
+  })
+})
+
+describe("workLabel", () => {
+  test("says working only when the card spins", () => {
+    expect(workLabel(card(TaskState.Working, [agent("busy")]))).toBe("working")
+    expect(workLabel(card(TaskState.Working, [agent("idle")]))).toBe("on it")
+    expect(workLabel(card(TaskState.Blocked, [agent("busy")], 1))).toBe("on it")
+    expect(workLabel(card(TaskState.InputRequired, [agent("busy")]))).toBe("on it")
+  })
+  test("a finished card says nothing", () => {
+    expect(workLabel(card(TaskState.Completed, [agent("busy")]))).toBe("")
+  })
+  test("assigned holders say so", () => {
+    expect(workLabel(card(TaskState.Working, [agent("idle", { assigned: true })]))).toBe("assigned")
+    expect(
+      workLabel(card(TaskState.Working, [agent("idle", { assigned: true, waiting: true })]))
+    ).toBe("not picked up")
+    expect(workLabel(card(TaskState.Working, []))).toBe("")
   })
 })
 

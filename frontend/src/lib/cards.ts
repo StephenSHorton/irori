@@ -486,6 +486,10 @@ export function useCard(id: string): {
   const load = useCallback(async (): Promise<CardDetail | null> => {
     if (!id) return null
     if (inWails()) return BoardService.Card(id)
+    // ?slow in the preview: the card never arrives, to see the page while
+    // it loads.
+    if (new URLSearchParams(window.location.search).has("slow"))
+      await new Promise(() => {})
     // A copy, so React sees a new object after a sample answer.
     return { ...sampleCard(id) } as CardDetail
   }, [id])
@@ -545,9 +549,40 @@ export function busy(c: {
       return false
   }
   if (c.openBlockers > 0) return false
-  return c.working.some(
-    (w) => w.status === "busy" && w.live && !w.offline && !w.assigned
+  return c.working.some(agentBusy)
+}
+
+// agentBusy says this agent, one of a card's holders, is working right now:
+// live, on a device that's online, taken up (not only assigned) and busy in
+// the roster. busy is any holder of a card that can be worked on.
+export function agentBusy(w: AgentRef): boolean {
+  return w.status === "busy" && w.live && !w.offline && !w.assigned
+}
+
+// over says the card is finished: done, canceled or failed.
+export function over(c: { state: string }): boolean {
+  return (
+    c.state === TaskState.Completed ||
+    c.state === TaskState.Canceled ||
+    c.state === TaskState.Failed
   )
+}
+
+// workLabel is the word beside a card's working faces, by the same rule
+// as its spinner: "working" only while busy says so; "assigned" or "not
+// picked up" before anyone took it up; nothing once the card is over;
+// else "on it" (held, but not working on it right now).
+export function workLabel(c: {
+  state: string
+  openBlockers: number
+  working: readonly AgentRef[]
+}): string {
+  if (!c.working.length) return ""
+  if (c.working.every((w) => w.assigned))
+    return c.working.some((w) => w.waiting) ? "not picked up" : "assigned"
+  if (busy(c)) return "working"
+  if (over(c)) return ""
+  return "on it"
 }
 
 // cardHash is the window's address for card id's page, "#card/<id>";
