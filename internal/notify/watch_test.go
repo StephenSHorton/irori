@@ -354,7 +354,7 @@ func TestWatchBoardNeedsYou(t *testing.T) {
 	id := NeedsID(task.ID)
 	r.waitPost(id)
 	c := r.fake.card(t, id)
-	if c.Title != "alpha is blocked on you" || !strings.HasPrefix(c.Body, "which version number?") {
+	if c.Title != "alpha is blocked on you (#1)" || !strings.HasPrefix(c.Body, "which version number?") {
 		t.Fatalf("card = %q / %q", c.Title, c.Body)
 	}
 	if len(c.Actions) != 2 || c.Actions[0].Label != "Answer" || c.Actions[1].Label != "Later" {
@@ -523,7 +523,7 @@ func TestWatchBoardIgnoresThePersonsOwnMoves(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.waitPost(NeedsID(handed.ID))
-	if c := r.fake.card(t, NeedsID(handed.ID)); c.Title != "alpha handed you a card" {
+	if c := r.fake.card(t, NeedsID(handed.ID)); c.Title != "alpha handed you a card (#3)" {
 		t.Fatalf("card = %q", c.Title)
 	}
 }

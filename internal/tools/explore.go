@@ -47,14 +47,14 @@ func current(ts []coord.Task) map[string]capture.Line {
 				continue
 			}
 			at[h] = t.UpdatedAt
-			out[h] = capture.Line{Ref: search.Ref(search.KindTask, t.ID), Text: "on the Board: " + oneLine(t.Title, maxCardTitle), At: t.UpdatedAt}
+			out[h] = capture.Line{Ref: search.Ref(search.KindTask, t.ID), Text: "on the Board: " + t.ShortRef() + " " + oneLine(t.Title, maxCardTitle), At: t.UpdatedAt}
 		}
 	}
 	return out
 }
 
 func taskOverviewLine(t coord.Task, n names) capture.Line {
-	text := "[" + string(t.State) + "] " + oneLine(t.Title, maxCardTitle)
+	text := t.ShortRef() + " [" + string(t.State) + "] " + oneLine(t.Title, maxCardTitle)
 	switch {
 	case t.State == coord.Blocked:
 		text += ": " + oneLine(t.Reason, 80)
@@ -253,6 +253,7 @@ func (s *set) search(ctx context.Context, c Caller, raw json.RawMessage) string 
 	if err != nil {
 		return errText("search failed: " + err.Error() + ". Use plain words.")
 	}
+	hits = s.shortHit(q, hits)
 	more := len(hits) > limit
 	if more {
 		hits = hits[:limit]
@@ -279,7 +280,15 @@ func (s *set) search(ctx context.Context, c Caller, raw json.RawMessage) string 
 	shown := 0
 	for _, h := range hits {
 		var line strings.Builder
-		fmt.Fprintf(&line, "- %s %s %s", oneLine(h.Ref, 200), short2(now, h.At), quoted(h.Title, search.MaxTitle))
+		ref := oneLine(h.Ref, 200)
+		if h.Kind == search.KindTask {
+			if _, id, err := search.ParseRef(h.Ref); err == nil {
+				if t, ok := s.b.Coord().GetTask(id); ok && t.Short != "" {
+					ref = t.ShortRef() + " " + ref
+				}
+			}
+		}
+		fmt.Fprintf(&line, "- %s %s %s", ref, short2(now, h.At), quoted(h.Title, search.MaxTitle))
 		if h.Agent != "" {
 			line.WriteString(", " + n.who(h.Agent))
 		}
@@ -299,6 +308,35 @@ func (s *set) search(ctx context.Context, c Caller, raw json.RawMessage) string 
 	}
 	b.WriteString("show <ref> for any hit.\n")
 	return b.String()
+}
+
+// shortHit puts the card a query names by its short ref ("#12") first on the
+// first page, when the query is only that ref and the filters allow the
+// card. The index finds "12" as a word, so the card may be among the hits
+// already; it is moved, not repeated.
+func (s *set) shortHit(q search.Query, hits []search.Hit) []search.Hit {
+	if q.Offset > 0 || len(q.Kinds) > 0 && !slices.Contains(q.Kinds, search.KindTask) {
+		return hits
+	}
+	if _, ok := coord.ParseShort(q.Text); !ok || !strings.HasPrefix(q.Text, "#") {
+		return hits
+	}
+	id, err := s.b.Coord().TaskRef(q.Text)
+	if err != nil {
+		return hits
+	}
+	t, ok := s.b.Coord().GetTask(id)
+	if !ok || q.RepoKey != "" && t.RepoKey != q.RepoKey || q.Agent != "" && t.Holder != q.Agent {
+		return hits
+	}
+	ref := search.Ref(search.KindTask, t.ID)
+	out := []search.Hit{{Ref: ref, Kind: search.KindTask, At: t.CreatedAt, Title: t.Title, Agent: t.Holder, RepoKey: t.RepoKey}}
+	for _, h := range hits {
+		if h.Ref != ref {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 // short2 is a hit's time: the date and clock, and how long ago.
@@ -327,7 +365,14 @@ func (s *set) show(ctx context.Context, c Caller, raw json.RawMessage) string {
 	}
 	ref := strings.TrimSpace(a.Ref)
 	if ref == "" {
-		return errText("give ref, exactly as a list line printed it (task:…, msg:…, turn:…, commit:…).")
+		return errText("give ref, exactly as a list line printed it (#12, task:…, msg:…, turn:…, commit:…).")
+	}
+	if _, ok := coord.ParseShort(ref); ok {
+		id, err := s.b.Coord().TaskRef(ref)
+		if err != nil {
+			return errText(fmt.Sprintf("no card is %s. The board tool lists them with their short refs.", oneLine(ref, 40)))
+		}
+		ref = search.Ref(search.KindTask, id)
 	}
 	if a.Offset < 0 {
 		return errText("offset is where to continue: 0 or more.")

@@ -17,17 +17,37 @@ import (
 
 const maxCardTitle = 160 // a card's title in a list line
 
-// taskID accepts an id with or without its "task:" prefix.
-func taskID(v string) string {
-	v = strings.TrimSpace(v)
-	if k, id, ok := strings.Cut(v, ":"); ok && strings.EqualFold(k, "task") {
-		return strings.TrimSpace(id)
+// taskID resolves what the caller gave for a card: its short ref ("#12",
+// "12", "task:#12") or its id, with or without "task:". A short ref no card
+// has comes back as given, so the call it feeds reports no such task.
+func (s *set) taskID(v string) string {
+	id, err := s.b.Coord().TaskRef(v)
+	if err != nil {
+		return strings.TrimSpace(v)
 	}
-	return v
+	return id
 }
 
 func needTaskID() string {
-	return errText("give task_id: the card's id as the board tool shows it (task:<id>).")
+	return errText("give task_id: the card's short ref as the board tool shows it (#12), or its task:<id>.")
+}
+
+// cardRefs names a card in a list line: "#12 task:<id>", so an agent has
+// the short ref to say and the id that never moves.
+func cardRefs(t coord.Task) string {
+	if t.Short == "" {
+		return "task:" + oneLine(t.ID, 80)
+	}
+	return "#" + oneLine(t.Short, 20) + " task:" + oneLine(t.ID, 80)
+}
+
+// shortOf is a card's short ref by id ("#12"), or task:<id> when there is
+// no such card.
+func (s *set) shortOf(id string) string {
+	if t, ok := s.b.Coord().GetTask(id); ok {
+		return t.ShortRef()
+	}
+	return "task:" + oneLine(id, 80)
 }
 
 // callerRepo is the caller's repoKey from its card ("" for Grok members).
@@ -63,7 +83,7 @@ const (
 // list's budget and push every other card off it.
 func (s *set) cardText(t coord.Task, last *coord.Comment, n names, now time.Time, brief bool) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "- task:%s [%s] %s", oneLine(t.ID, 80), oneLine(string(t.State), 30), quoted(oneLine(t.Title, maxCardTitle), maxCardTitle))
+	fmt.Fprintf(&b, "- %s [%s] %s", cardRefs(t), oneLine(string(t.State), 30), quoted(oneLine(t.Title, maxCardTitle), maxCardTitle))
 	var holders []string
 	for _, h := range t.Holders {
 		w := n.who(h)
@@ -157,7 +177,7 @@ func (s *set) cardText(t coord.Task, last *coord.Comment, n names, now time.Time
 			for _, bl := range open[len(open)-more:] {
 				ids = append(ids, oneLine(bl.ID, 20))
 			}
-			fmt.Fprintf(&b, "  +%d more open items (%s); show task:%s lists them all\n", more, strings.Join(ids, ", "), oneLine(t.ID, 80))
+			fmt.Fprintf(&b, "  +%d more open items (%s); show %s lists them all\n", more, strings.Join(ids, ", "), t.ShortRef())
 		}
 	}
 	if last != nil {
@@ -245,7 +265,11 @@ func (s *set) board(_ context.Context, c Caller, raw json.RawMessage) string {
 		for _, l := range v.Leases {
 			line := fmt.Sprintf("- %s held by %s, expires %s", oneLine(l.Resource, maxFieldRunes), n.who(l.Holder), in(now, l.Until))
 			if len(l.Blocks) > 0 {
-				line += "; blocks task:" + oneLine(strings.Join(l.Blocks, ", task:"), maxFieldRunes)
+				var bs []string
+				for _, id := range l.Blocks {
+					bs = append(bs, s.shortOf(id))
+				}
+				line += "; blocks " + oneLine(strings.Join(bs, ", "), maxFieldRunes)
 			}
 			var refused []string
 			for _, r := range l.Refused {
@@ -276,7 +300,7 @@ func (s *set) board(_ context.Context, c Caller, raw json.RawMessage) string {
 	default:
 		b.WriteString("\n")
 	}
-	b.WriteString("show task:<id> for a card's comments and links.\n")
+	b.WriteString("show #<n> (or task:<id>) for a card's comments and links.\n")
 	return b.String()
 }
 
@@ -322,7 +346,7 @@ func (s *set) boardCreate(ctx context.Context, c Caller, raw json.RawMessage) st
 		return mapErr(err)
 	}
 	n := s.roster()
-	out := "Created task:" + t.ID + "."
+	out := "Created " + t.ShortRef() + " (task:" + t.ID + ")."
 	if len(t.Steps) == 0 {
 		out += " Give it steps with board_steps once you know them, so the person sees how far along it is."
 	} else {
@@ -364,7 +388,7 @@ func (s *set) boardComment(ctx context.Context, c Caller, raw json.RawMessage) s
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := taskID(a.TaskID)
+	id := s.taskID(a.TaskID)
 	if id == "" {
 		return needTaskID()
 	}
@@ -380,7 +404,7 @@ func (s *set) boardComment(ctx context.Context, c Caller, raw json.RawMessage) s
 		return mapErr(err)
 	}
 	n := s.roster()
-	out := "Commented comment:" + cm.ID + " on task:" + id + attachedLine(files) + "."
+	out := "Commented comment:" + cm.ID + " on " + s.shortOf(cm.TaskID) + attachedLine(files) + "."
 	if rs := RouteNotice(ctx, s.b.Inbox(), c.Sender, notice); len(rs) > 0 {
 		out += s.told(rs, n)
 	} else {
@@ -428,8 +452,11 @@ func (s *set) parseOn(v string) (*coord.BlockedBy, string) {
 			return nil, errText("on = lease needs the resource, e.g. lease path:<repoKey>:src/api/** (see the leases tool).")
 		}
 	case coord.BlockedOnTask:
-		if bb.Ref = taskID(ref); bb.Ref == "" {
-			return nil, errText("on = task needs its id, e.g. task 01J….")
+		if bb.Ref = s.taskID(ref); bb.Ref == "" {
+			return nil, errText("on = task needs its short ref or id, e.g. task #12.")
+		}
+		if _, unknown := coord.ParseShort(bb.Ref); unknown {
+			return nil, errText(fmt.Sprintf("on = task: no card is %q; the board tool lists them.", oneLine(ref, 40)))
 		}
 	case coord.BlockedOnPerson:
 		if ref != "" && !s.isOwner(ref) {
@@ -456,7 +483,7 @@ func (s *set) boardBlock(ctx context.Context, c Caller, raw json.RawMessage) str
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := taskID(a.TaskID)
+	id := s.taskID(a.TaskID)
 	if id == "" {
 		return needTaskID()
 	}
@@ -499,7 +526,7 @@ func (s *set) boardBlock(ctx context.Context, c Caller, raw json.RawMessage) str
 	if err != nil {
 		return mapErr(err)
 	}
-	out := "Blocked task:" + t.ID
+	out := "Blocked " + t.ShortRef()
 	if item.ID != "" {
 		out += " on blocker " + item.ID
 	}
@@ -533,7 +560,7 @@ func (s *set) boardUnblock(ctx context.Context, c Caller, raw json.RawMessage) s
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := taskID(a.TaskID)
+	id := s.taskID(a.TaskID)
 	if id == "" {
 		return needTaskID()
 	}
@@ -546,7 +573,7 @@ func (s *set) boardUnblock(ctx context.Context, c Caller, raw json.RawMessage) s
 			return mapErr(err)
 		}
 		n := s.roster()
-		out := "Resolved blocker " + oneLine(bid, 20) + " on task:" + t.ID + "; "
+		out := "Resolved blocker " + oneLine(bid, 20) + " on " + t.ShortRef() + "; "
 		if t.State == coord.Blocked {
 			out += fmt.Sprintf("%d still open.", len(t.OpenBlockers()))
 		} else {
@@ -562,7 +589,7 @@ func (s *set) boardUnblock(ctx context.Context, c Caller, raw json.RawMessage) s
 		return mapErr(err)
 	}
 	n := s.roster()
-	return "Unblocked task:" + t.ID + "; it is " + string(t.State) + " again." +
+	return "Unblocked " + t.ShortRef() + "; it is " + string(t.State) + " again." +
 		s.told(RouteNotice(ctx, s.b.Inbox(), c.Sender, notice), n) + "\n" + s.cardLine(t, nil, n, s.now())
 }
 
@@ -580,7 +607,7 @@ func (s *set) boardRecommend(ctx context.Context, c Caller, raw json.RawMessage)
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := taskID(a.TaskID)
+	id := s.taskID(a.TaskID)
 	if id == "" {
 		return needTaskID()
 	}
@@ -594,7 +621,7 @@ func (s *set) boardRecommend(ctx context.Context, c Caller, raw json.RawMessage)
 	if err != nil {
 		return mapErr(err)
 	}
-	return "Recommended on blocker " + oneLine(a.BlockerID, 20) + " of task:" + t.ID + ". Whoever decides sees it beside the question.\n" +
+	return "Recommended on blocker " + oneLine(a.BlockerID, 20) + " of " + t.ShortRef() + ". Whoever decides sees it beside the question.\n" +
 		s.cardLine(t, nil, s.roster(), s.now())
 }
 
@@ -642,7 +669,7 @@ func (s *set) boardSteps(ctx context.Context, c Caller, raw json.RawMessage) str
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := taskID(a.TaskID)
+	id := s.taskID(a.TaskID)
 	if id == "" {
 		return needTaskID()
 	}
@@ -652,7 +679,7 @@ func (s *set) boardSteps(ctx context.Context, c Caller, raw json.RawMessage) str
 	}
 	var b strings.Builder
 	d, n := t.Progress()
-	fmt.Fprintf(&b, "task:%s has %d steps, %d done. Tick them with board_step as you go.\n", t.ID, n, d)
+	fmt.Fprintf(&b, "%s has %d steps, %d done. Tick them with board_step as you go.\n", t.ShortRef(), n, d)
 	for _, st := range t.Steps {
 		mark := "[ ]"
 		switch {
@@ -678,7 +705,7 @@ func (s *set) boardStep(ctx context.Context, c Caller, raw json.RawMessage) stri
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := taskID(a.TaskID)
+	id := s.taskID(a.TaskID)
 	if id == "" {
 		return needTaskID()
 	}
@@ -693,7 +720,7 @@ func (s *set) boardStep(ctx context.Context, c Caller, raw json.RawMessage) stri
 		return mapErr(err)
 	}
 	d, n := t.Progress()
-	return fmt.Sprintf("task:%s: steps %d/%d done.\n", t.ID, d, n) + s.cardLine(t, nil, s.roster(), s.now())
+	return fmt.Sprintf("%s: steps %d/%d done.\n", t.ShortRef(), d, n) + s.cardLine(t, nil, s.roster(), s.now())
 }
 
 // --- board_watch / board_unwatch ---
@@ -711,7 +738,7 @@ func (s *set) boardWatching(ctx context.Context, c Caller, raw json.RawMessage, 
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := taskID(a.TaskID)
+	id := s.taskID(a.TaskID)
 	if id == "" {
 		return needTaskID()
 	}
@@ -726,9 +753,9 @@ func (s *set) boardWatching(ctx context.Context, c Caller, raw json.RawMessage, 
 	if err != nil {
 		return mapErr(err)
 	}
-	out := "You watch task:" + t.ID + " now: you hear at your next turn when its state, steps, blockers or PR links change."
+	out := "You watch " + t.ShortRef() + " now: you hear at your next turn when its state, steps, blockers or PR links change."
 	if !on {
-		out = "You no longer watch task:" + t.ID + "."
+		out = "You no longer watch " + t.ShortRef() + "."
 	}
 	return out + "\n" + s.cardLine(t, nil, s.roster(), s.now())
 }
@@ -744,7 +771,7 @@ func (s *set) boardJoin(ctx context.Context, c Caller, raw json.RawMessage) stri
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := taskID(a.TaskID)
+	id := s.taskID(a.TaskID)
 	if id == "" {
 		return needTaskID()
 	}
@@ -763,7 +790,7 @@ func (s *set) boardJoin(ctx context.Context, c Caller, raw json.RawMessage) stri
 	if err != nil {
 		return mapErr(err)
 	}
-	out := "You hold task:" + t.ID + " now"
+	out := "You hold " + t.ShortRef() + " now"
 	if t.Shared && len(t.Holders) > 1 {
 		out += ", with the others on it; leases keep you off each other's files"
 	}
@@ -775,7 +802,7 @@ func (s *set) boardLeave(ctx context.Context, c Caller, raw json.RawMessage) str
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := taskID(a.TaskID)
+	id := s.taskID(a.TaskID)
 	if id == "" {
 		return needTaskID()
 	}
@@ -783,7 +810,7 @@ func (s *set) boardLeave(ctx context.Context, c Caller, raw json.RawMessage) str
 	if err != nil {
 		return mapErr(err)
 	}
-	return "You left task:" + t.ID + "; it stays on the Board.\n" + s.cardLine(t, nil, s.roster(), s.now())
+	return "You left " + t.ShortRef() + "; it stays on the Board.\n" + s.cardLine(t, nil, s.roster(), s.now())
 }
 
 type boardAssignArgs struct {
@@ -796,7 +823,7 @@ func (s *set) boardAssign(ctx context.Context, c Caller, raw json.RawMessage) st
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := taskID(a.TaskID)
+	id := s.taskID(a.TaskID)
 	if id == "" {
 		return needTaskID()
 	}
@@ -813,7 +840,7 @@ func (s *set) boardAssign(ctx context.Context, c Caller, raw json.RawMessage) st
 		return mapErr(err)
 	}
 	n := s.roster()
-	return "Assigned task:" + t.ID + " to " + n.who(to) + "." + s.told(RouteNotice(ctx, s.b.Inbox(), c.Sender, notice), n) +
+	return "Assigned " + t.ShortRef() + " to " + n.who(to) + "." + s.told(RouteNotice(ctx, s.b.Inbox(), c.Sender, notice), n) +
 		"\n" + s.cardLine(t, nil, n, s.now())
 }
 
@@ -832,7 +859,7 @@ func (s *set) boardStatus(ctx context.Context, c Caller, raw json.RawMessage) st
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := taskID(a.TaskID)
+	id := s.taskID(a.TaskID)
 	if id == "" {
 		return needTaskID()
 	}
@@ -849,7 +876,7 @@ func (s *set) boardStatus(ctx context.Context, c Caller, raw json.RawMessage) st
 	if err != nil {
 		return mapErr(err)
 	}
-	out := "task:" + t.ID + " is " + string(t.State) + " now."
+	out := t.ShortRef() + " is " + string(t.State) + " now."
 	if coord.IsTerminal(t.State) {
 		out += " It folds into Done on the Board."
 	}
@@ -880,8 +907,8 @@ func (s *set) inputRequired(id, note string) string {
 	for _, b := range open {
 		ids = append(ids, oneLine(b.ID, 20))
 	}
-	out := fmt.Sprintf("task:%s already waits on %d open blockers (%s); they are in the person's window, each answered on its own, so its state stays %s.",
-		t.ID, len(open), strings.Join(ids, ", "), t.State)
+	out := fmt.Sprintf("%s already waits on %d open blockers (%s); they are in the person's window, each answered on its own, so its state stays %s.",
+		t.ShortRef(), len(open), strings.Join(ids, ", "), t.State)
 	if note != "" {
 		out += " The note was not saved: put anything else the person needs to decide in its own board_block, or a board_comment."
 	}
@@ -898,7 +925,7 @@ func (s *set) boardLink(ctx context.Context, c Caller, raw json.RawMessage) stri
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := taskID(a.TaskID)
+	id := s.taskID(a.TaskID)
 	if id == "" {
 		return needTaskID()
 	}
@@ -909,7 +936,7 @@ func (s *set) boardLink(ctx context.Context, c Caller, raw json.RawMessage) stri
 	if err != nil {
 		return mapErr(err)
 	}
-	return "Linked task:" + t.ID + ".\n" + s.cardLine(t, nil, s.roster(), s.now())
+	return "Linked " + t.ShortRef() + ".\n" + s.cardLine(t, nil, s.roster(), s.now())
 }
 
 // --- leases ---

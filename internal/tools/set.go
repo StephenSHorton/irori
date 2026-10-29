@@ -189,7 +189,7 @@ func mapErr(err error) string {
 	case errors.Is(err, coord.ErrNotFound):
 		return errText(err.Error() + ". The board and leases tools show what exists.")
 	case errors.Is(err, coord.ErrNotAllowed):
-		return errText(err.Error() + ". show task:<id> lists its holders and creator; comment on it or message them instead.")
+		return errText(err.Error() + ". show #<n> (or task:<id>) lists its holders and creator; comment on it or message them instead.")
 	case errors.Is(err, coord.ErrHeld):
 		return errText(err.Error() + ". Comment on the card or message its holder; or wait for it to come free.")
 	case errors.Is(err, coord.ErrInvalid):

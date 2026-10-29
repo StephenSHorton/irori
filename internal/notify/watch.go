@@ -645,6 +645,9 @@ func (w *watcher) needsNote(c coord.Card) Note {
 	default:
 		title, body = agent+" needs you", t.Title
 	}
+	if t.Short != "" {
+		title += " (#" + t.Short + ")" // what the person says to an agent about it
+	}
 	open := Target{Tab: TabBoard, Ref: "task:" + t.ID}
 	return Note{
 		ID:     NeedsID(t.ID),

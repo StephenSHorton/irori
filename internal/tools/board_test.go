@@ -11,8 +11,28 @@ import (
 // newCard puts a card up as c and returns its id.
 func (h *harness) newCard(c Caller, args map[string]any) string {
 	h.t.Helper()
-	out := h.ok(c, "board_create", args)
-	return strings.TrimSuffix(field(h.t, out, "Created"), ".")[len("task:"):]
+	return createdID(h.t, h.ok(c, "board_create", args))
+}
+
+// ref is a card's short ref ("#1").
+func (h *harness) ref(id string) string {
+	h.t.Helper()
+	t, ok := h.b.co.GetTask(id)
+	if !ok || t.Short == "" {
+		h.t.Fatalf("no short ref for %s", id)
+	}
+	return t.ShortRef()
+}
+
+// createdID is the id in board_create's "Created #1 (task:<id>)."
+func createdID(t *testing.T, out string) string {
+	t.Helper()
+	_, rest, ok := strings.Cut(out, "(task:")
+	id, _, _ := strings.Cut(rest, ")")
+	if !ok || id == "" {
+		t.Fatalf("no task id in %q", out)
+	}
+	return id
 }
 
 // notices lists the open deliveries to key that carry Board notices.
@@ -36,25 +56,25 @@ func TestBoardCreateAndAssign(t *testing.T) {
 
 	out := h.ok(callA, "board_create", map[string]any{"title": "Fix\nauth", "objective": "tokens expire early",
 		"links": []string{"https://linear.app/acme/issue/ABC-123/fix-auth"}, "assign_to": "beta"})
-	has(t, out, "Created task:", "Assigned to beta", "Told at their next turn: beta", `"Fix auth"`, "links: Linear ABC-123",
+	has(t, out, "Created #1 (task:", "Assigned to beta", "Told at their next turn: beta", `"Fix auth"`, "links: Linear ABC-123",
 		"beta (dev1/bbbbbbbb-2222-4222-8222-222222222222) (assigned, not taken up)")
-	id := strings.TrimSuffix(field(t, out, "Created"), ".")[len("task:"):]
+	id := createdID(t, out)
 	ns := h.notices(keyB)
 	if len(ns) != 1 || ns[0].Mode != inbox.ModeNextTurn || ns[0].Message.Ref != "task:"+id || ns[0].Message.From.Key != keyA ||
 		ns[0].Message.Reason != string(coord.NoticeAssigned) {
 		t.Fatalf("assign notice %+v", ns)
 	}
-	has(t, ns[0].Message.Text, "tokens expire early", "task:"+id)
+	has(t, ns[0].Message.Text, "tokens expire early", "(#1, task:"+id+")")
 
 	// The card is in beta's Needs you until it takes it up, then Working.
 	has(t, h.ok(callB, "board", nil), "Needs you (1)", "task:"+id)
-	has(t, h.ok(callB, "board_join", map[string]any{"task_id": "task:" + id}), "You hold task:"+id, "[working]")
+	has(t, h.ok(callB, "board_join", map[string]any{"task_id": "task:" + id}), "You hold #1 now", "[working]")
 	has(t, h.ok(callB, "board", nil), "Working (1)")
 	h.fails(callC, "board_join", map[string]any{"task_id": id}, "held by")
 
 	// board_assign hands it on. gamma is in another repo, but a card that
 	// needs it shows on its own board wherever the card lives.
-	has(t, h.ok(callB, "board_assign", map[string]any{"task_id": id, "to": "GAMMA"}), "Assigned task:"+id+" to gamma", "Told at their next turn: gamma")
+	has(t, h.ok(callB, "board_assign", map[string]any{"task_id": id, "to": "GAMMA"}), "Assigned "+h.ref(id)+" to gamma", "Told at their next turn: gamma")
 	if len(h.notices(keyC)) != 1 {
 		t.Fatalf("gamma notices %+v", h.notices(keyC))
 	}
@@ -67,7 +87,7 @@ func TestBoardCreateAndAssign(t *testing.T) {
 
 	// A Grok member's card has no repo; assigned to gamma, it still needs it.
 	out = h.ok(grokCaller(), "board_create", map[string]any{"title": "grok asks", "assign_to": "gamma"})
-	gid := strings.TrimSuffix(field(t, out, "Created"), ".")
+	gid := "task:" + createdID(t, out)
 	has(t, h.ok(callC, "board", nil), "Needs you (2)", gid)
 	h.fails(callA, "board_assign", map[string]any{"task_id": id}, "give to")
 }
@@ -94,7 +114,7 @@ func TestBoardCommentDelivery(t *testing.T) {
 				args["wake"] = tt.wake
 			}
 			out := h.ok(callA, "board_comment", args)
-			has(t, out, "Commented comment:", "on task:"+id)
+			has(t, out, "Commented comment:", "on "+h.ref(id)+".")
 			if tt.wantMode == inbox.ModeWake {
 				has(t, out, "Woke: beta")
 			} else {
@@ -144,7 +164,7 @@ func TestBoardBlockOn(t *testing.T) {
 		on   string
 		want []string // in the result; an "Error: " prefix means it fails
 	}{
-		{"no blocker", "", []string{"Blocked task:", "Anyone may board_unblock"}},
+		{"no blocker", "", []string{"Blocked #1 ", "Anyone may board_unblock"}},
 		{"lease", "lease " + res, []string{"unblocks by itself when that lease", "(on lease " + res + ")"}},
 		{"lease colon", "lease:" + res, []string{"(on lease " + res + ")"}},
 		{"person", "person", []string{"(on person )"}},
@@ -153,7 +173,8 @@ func TestBoardBlockOn(t *testing.T) {
 		{"bad kind", "bogus x", []string{"Error: ", "on starts with"}},
 		{"lease without resource", "lease", []string{"Error: ", "needs the resource"}},
 		{"lease nobody holds", "lease gpu/qwen", []string{"Error: "}},
-		{"task without id", "task", []string{"Error: ", "needs its id"}},
+		{"task without id", "task", []string{"Error: ", "needs its short ref or id"}},
+		{"task nobody has", "task #7", []string{"Error: ", "no card is"}},
 		{"named person", "person bob", []string{"Error: ", "takes no name"}},
 		{"unknown agent", "agent nobody", []string{"Error: ", "agents tool"}},
 	}
@@ -175,7 +196,7 @@ func TestBoardBlockOn(t *testing.T) {
 func TestBoardBlockUnblockStatus(t *testing.T) {
 	h := newHarness(t)
 	id := h.newCard(callA, map[string]any{"title": "migrate", "done_when": "tests pass", "shared": true})
-	has(t, h.ok(callA, "board_join", map[string]any{"task_id": id}), "You hold task:"+id)
+	has(t, h.ok(callA, "board_join", map[string]any{"task_id": id}), "You hold "+h.ref(id))
 	has(t, h.ok(callB, "board_join", map[string]any{"task_id": id}), "with the others on it", "shared")
 	h.fails(callA, "board_block", map[string]any{"task_id": id}, "give question")
 	has(t, h.ok(callA, "board_block", map[string]any{"task_id": id, "reason": "need the schema", "on": "person"}),
@@ -184,7 +205,7 @@ func TestBoardBlockUnblockStatus(t *testing.T) {
 
 	// Anyone may unblock; the holders other than gamma hear at their next turn.
 	out := h.ok(callC, "board_unblock", map[string]any{"task_id": id, "note": "schema is in"})
-	has(t, out, "Unblocked task:"+id, "working again", "Told at their next turn:", "alpha", "beta")
+	has(t, out, "Unblocked "+h.ref(id)+";", "working again", "Told at their next turn:", "alpha", "beta")
 	for _, k := range []string{keyA, keyB} {
 		if ns := h.notices(k); len(ns) != 1 || ns[0].Mode != inbox.ModeNextTurn || ns[0].Message.Ref != "task:"+id {
 			t.Fatalf("%s notices %+v", k, ns)
@@ -196,7 +217,7 @@ func TestBoardBlockUnblockStatus(t *testing.T) {
 	h.fails(callA, "board_status", map[string]any{"task_id": id, "state": "submitted"}, "give state")
 	h.fails(callA, "board_status", map[string]any{"task_id": id, "state": "done"}, "give state")
 	h.fails(callC, "board_status", map[string]any{"task_id": id, "state": "completed"}, "holder")
-	has(t, h.ok(callB, "board_leave", map[string]any{"task_id": id}), "You left task:"+id)
+	has(t, h.ok(callB, "board_leave", map[string]any{"task_id": id}), "You left "+h.ref(id)+";")
 	h.fails(callB, "board_leave", map[string]any{"task_id": id}, "isn't on task")
 	has(t, h.ok(callA, "board_status", map[string]any{"task_id": id, "state": "completed", "note": "shipped"}),
 		"is completed now", "folds into Done")
@@ -219,7 +240,7 @@ func TestBoardLink(t *testing.T) {
 		{`docs\design\board.md`, ".../design/board.md"},
 	}
 	for _, tt := range tests {
-		has(t, h.ok(callB, "board_link", map[string]any{"task_id": id, "url_or_path": tt.link}), "Linked task:"+id, tt.want)
+		has(t, h.ok(callB, "board_link", map[string]any{"task_id": id, "url_or_path": tt.link}), "Linked "+h.ref(id), tt.want)
 	}
 	h.fails(callB, "board_link", map[string]any{"task_id": id}, "url_or_path")
 	h.fails(callB, "board_link", map[string]any{"task_id": id, "url_or_path": "../etc/passwd"}, "leaves the repo")
@@ -257,14 +278,14 @@ func TestBoardCards(t *testing.T) {
 	has(t, h.ok(callA, "board_step", map[string]any{"task_id": id, "step_id": "s2", "done": true}), "steps 2/3 done")
 
 	// Watching.
-	has(t, h.ok(callB, "board_watch", map[string]any{"task_id": id}), "You watch task:"+id, "watched by beta")
+	has(t, h.ok(callB, "board_watch", map[string]any{"task_id": id}), "You watch "+h.ref(id), "watched by beta")
 
 	// A blocker with context and options; beta recommends, gamma (not on it) can't.
 	h.fails(callA, "board_block", map[string]any{"task_id": id, "question": "a", "reason": "b"}, "not both")
 	out = h.ok(callA, "board_block", map[string]any{"task_id": id, "question": "Ship today, or wait for the check?",
 		"context": "Every automated check passes; the co-op check needs both PCs.",
 		"options": []any{map[string]any{"answer": "Wait, ship tonight", "why": "the temple is the headline"}}})
-	has(t, out, "Blocked task:"+id+" on blocker b1", `blocked [b1]: "Ship today, or wait for the check?"`,
+	has(t, out, "Blocked "+h.ref(id)+" on blocker b1", `blocked [b1]: "Ship today, or wait for the check?"`,
 		`1. "Wait, ship tonight" (alpha) [recommended]: "the temple is the headline"`) // a lone option is the recommendation
 	hasNot(t, out, "board_recommend so") // it gave an option
 	has(t, h.ok(callB, "board_recommend", map[string]any{"task_id": id, "blocker_id": "b1", "answer": "Ship now, mark experimental", "why": "fixes today"}),
@@ -356,17 +377,35 @@ func TestBoardCreateWithSteps(t *testing.T) {
 		map[string]any{"text": "a", "doing": true}, map[string]any{"text": "b", "doing": true}}}, "only one step")
 	out := h.ok(callA, "board_create", map[string]any{"title": "Release", "steps": []any{
 		map[string]any{"text": "notes", "done": true}, map[string]any{"text": "tag", "doing": true}, "announce"}})
-	has(t, out, "Created task:", "Tick its steps with board_step", "steps 1/3", `now s2 "tag"`)
+	has(t, out, "Created #", "Tick its steps with board_step", "steps 1/3", `now s2 "tag"`)
 	hasNot(t, out, "Give it steps")
 	has(t, h.ok(callA, "board_create", map[string]any{"title": "No plan yet"}), "Give it steps with board_steps")
 }
 
-func TestTaskIDPrefix(t *testing.T) {
-	for in, want := range map[string]string{"task:01J": "01J", "TASK: 01J ": "01J", "01J": "01J", "": "", "comment:01J": "comment:01J"} {
-		if got := taskID(in); got != want {
-			t.Errorf("taskID(%q) = %q, want %q", in, got, want)
-		}
+// Every tool that takes a card takes its short ref (#2, 2, task:#2) as well
+// as its id, and prints the short ref back.
+func TestShortRefsInTheBoardTools(t *testing.T) {
+	r := withCapture(t, nil)
+	one := r.newCard(callA, map[string]any{"title": "First card"})
+	two := r.newCard(callA, map[string]any{"title": "Second card"})
+	has(t, r.ok(callA, "board", map[string]any{}), "- #1 task:"+one+" [", "- #2 task:"+two+" [")
+	has(t, r.ok(callA, "board_join", map[string]any{"task_id": "#2"}), "You hold #2 now")
+	has(t, r.ok(callA, "board_comment", map[string]any{"task_id": "task:#2", "text": "on it"}), " on #2.")
+	has(t, r.ok(callA, "board_steps", map[string]any{"task_id": "2", "steps": []any{"a", "b"}}), "#2 has 2 steps")
+	has(t, r.ok(callA, "board_block", map[string]any{"task_id": "#2", "question": "Wait for the first?", "on": "task #1"}), "Blocked #2")
+	if x, _ := r.b.co.GetTask(two); x.BlockedBy == nil || x.BlockedBy.Ref != one {
+		t.Fatalf("on task #1 stored %+v", x.BlockedBy)
 	}
+	r.fails(callA, "board_block", map[string]any{"task_id": "#1", "question": "Wait?", "on": "task #9"}, "no card is")
+	r.fails(callA, "board_join", map[string]any{"task_id": "#9"}, "no such task")
+	has(t, r.ok(callA, "board_join", map[string]any{"task_id": one}), "You hold #1 now")
+	has(t, r.ok(callB, "show", map[string]any{"ref": "#2"}), "task:"+two, "Task #2 ", "Second card")
+	r.fails(callB, "show", map[string]any{"ref": "#9"}, "no card is #9")
+	out := r.ok(callB, "search", map[string]any{"query": "#2"})
+	if i := strings.Index(out, "\n- "); i < 0 || !strings.HasPrefix(out[i+1:], "- #2 task:"+two+" ") {
+		t.Fatalf("#2 is not the first hit:\n%s", out)
+	}
+	has(t, r.ok(callB, "search", map[string]any{"query": "first card"}), "- #1 task:"+one)
 }
 
 // One heavily blocked card must not push every other card off the board:

@@ -16,7 +16,7 @@
   },
   {
     "name": "search",
-    "description": "Search what Irori recorded: turns (prompts and replies), edits, commits, pull requests, decisions, Board cards and comments, and messages you sent or received. Every word must match; an empty query lists the newest. One line per hit with its ref; expand one with show, page with offset.",
+    "description": "Search what Irori recorded: turns (prompts and replies), edits, commits, pull requests, decisions, Board cards and comments, and messages you sent or received. Every word must match; an empty query lists the newest; a card's short ref (#12) finds that card first. One line per hit with its ref; expand one with show, page with offset.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -72,13 +72,13 @@
   },
   {
     "name": "show",
-    "description": "Show one item in detail by its ref, as other tools print it: task:\u003cid\u003e, comment:\u003cid\u003e, msg:\u003cid\u003e, turn:\u003cid\u003e, edit:\u003cid\u003e, commit:\u003csha\u003e, pr:\u003cowner\u003e/\u003cname\u003e#\u003cn\u003e, decision:\u003cid\u003e or agent:\u003ckey\u003e. Long items come in pages (offset); related refs are listed.",
+    "description": "Show one item in detail by its ref, as other tools print it: #12 or task:\u003cid\u003e for a card, comment:\u003cid\u003e, msg:\u003cid\u003e, turn:\u003cid\u003e, edit:\u003cid\u003e, commit:\u003csha\u003e, pr:\u003cowner\u003e/\u003cname\u003e#\u003cn\u003e, decision:\u003cid\u003e or agent:\u003ckey\u003e. Long items come in pages (offset); related refs are listed.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "ref": {
           "type": "string",
-          "description": "The ref to show, e.g. task:01J… or commit:3fa2c1d."
+          "description": "The ref to show, e.g. #12, task:01J… or commit:3fa2c1d."
         },
         "offset": {
           "type": "integer",
@@ -397,7 +397,7 @@
   },
   {
     "name": "board",
-    "description": "List the Board for your repo (or repo, or every repo), grouped: needs you (from any repo), blocked, working, open, leases that block something, and done (collapsed). Each card shows its ref, who holds and watches it, its steps progress, and its open blockers with their ids and recommended answers; show task:\u003cid\u003e for context, comments and links. The Irori Board is a shared scratch pad for live coordination between running agents and people: what you are working on now, what blocks you, and hand-offs. Keep cards short. Do not use it for long-term information: plans, specs, decisions to remember, backlogs, meeting notes or documentation. Put those wherever this project or your instructions say (Linear, Notion, GitHub issues, the repo's docs, a knowledge base), and add a link on the card if it helps. When a card's work is done, mark it done; don't keep it as a record. Post a card for work others should see (the person's window shows only cards); if it fits another agent's work better, ask that agent to put it up. When you take a card, give it steps (board_create's steps, or board_steps) and keep them ticked with board_step: they are how the person sees how far along it is. When you need the person (a decision, an access, a permission), raise one board_block per question, never several asks in one note or one blocker: give each enough context that someone who has never been there can decide, give options when there are real choices, and mark your recommendation.",
+    "description": "List the Board for your repo (or repo, or every repo), grouped: needs you (from any repo), blocked, working, open, leases that block something, and done (collapsed). Each card shows its ref, who holds and watches it, its steps progress, and its open blockers with their ids and recommended answers; show #12 (a card's short ref) or task:\u003cid\u003e for context, comments and links. The Irori Board is a shared scratch pad for live coordination between running agents and people: what you are working on now, what blocks you, and hand-offs. Keep cards short. Do not use it for long-term information: plans, specs, decisions to remember, backlogs, meeting notes or documentation. Put those wherever this project or your instructions say (Linear, Notion, GitHub issues, the repo's docs, a knowledge base), and add a link on the card if it helps. When a card's work is done, mark it done; don't keep it as a record. Post a card for work others should see (the person's window shows only cards); if it fits another agent's work better, ask that agent to put it up. When you take a card, give it steps (board_create's steps, or board_steps) and keep them ticked with board_step: they are how the person sees how far along it is. When you need the person (a decision, an access, a permission), raise one board_block per question, never several asks in one note or one blocker: give each enough context that someone who has never been there can decide, give options when there are real choices, and mark your recommendation.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -501,7 +501,7 @@
       "properties": {
         "task_id": {
           "type": "string",
-          "description": "The task id, as the board tool shows it (task:\u003cid\u003e; the task: prefix is optional)."
+          "description": "The card: its short ref as the board tool shows it (#12), or its task:\u003cid\u003e (the task: prefix is optional)."
         },
         "text": {
           "type": "string",
@@ -540,7 +540,7 @@
       "properties": {
         "task_id": {
           "type": "string",
-          "description": "The task id, as the board tool shows it (task:\u003cid\u003e; the task: prefix is optional)."
+          "description": "The card: its short ref as the board tool shows it (#12), or its task:\u003cid\u003e (the task: prefix is optional)."
         },
         "question": {
           "type": "string",
@@ -604,7 +604,7 @@
       "properties": {
         "task_id": {
           "type": "string",
-          "description": "The task id, as the board tool shows it (task:\u003cid\u003e; the task: prefix is optional)."
+          "description": "The card: its short ref as the board tool shows it (#12), or its task:\u003cid\u003e (the task: prefix is optional)."
         },
         "blocker_id": {
           "type": "string",
@@ -640,7 +640,7 @@
       "properties": {
         "task_id": {
           "type": "string",
-          "description": "The task id, as the board tool shows it (task:\u003cid\u003e; the task: prefix is optional)."
+          "description": "The card: its short ref as the board tool shows it (#12), or its task:\u003cid\u003e (the task: prefix is optional)."
         },
         "note": {
           "type": "string",
@@ -675,7 +675,7 @@
       "properties": {
         "task_id": {
           "type": "string",
-          "description": "The task id, as the board tool shows it (task:\u003cid\u003e; the task: prefix is optional)."
+          "description": "The card: its short ref as the board tool shows it (#12), or its task:\u003cid\u003e (the task: prefix is optional)."
         },
         "steps": {
           "type": "array",
@@ -727,7 +727,7 @@
       "properties": {
         "task_id": {
           "type": "string",
-          "description": "The task id, as the board tool shows it (task:\u003cid\u003e; the task: prefix is optional)."
+          "description": "The card: its short ref as the board tool shows it (#12), or its task:\u003cid\u003e (the task: prefix is optional)."
         },
         "step_id": {
           "type": "string",
@@ -762,7 +762,7 @@
       "properties": {
         "task_id": {
           "type": "string",
-          "description": "The task id, as the board tool shows it (task:\u003cid\u003e; the task: prefix is optional)."
+          "description": "The card: its short ref as the board tool shows it (#12), or its task:\u003cid\u003e (the task: prefix is optional)."
         }
       },
       "required": [
@@ -784,7 +784,7 @@
       "properties": {
         "task_id": {
           "type": "string",
-          "description": "The task id, as the board tool shows it (task:\u003cid\u003e; the task: prefix is optional)."
+          "description": "The card: its short ref as the board tool shows it (#12), or its task:\u003cid\u003e (the task: prefix is optional)."
         }
       },
       "required": [
@@ -806,7 +806,7 @@
       "properties": {
         "task_id": {
           "type": "string",
-          "description": "The task id, as the board tool shows it (task:\u003cid\u003e; the task: prefix is optional)."
+          "description": "The card: its short ref as the board tool shows it (#12), or its task:\u003cid\u003e (the task: prefix is optional)."
         }
       },
       "required": [
@@ -828,7 +828,7 @@
       "properties": {
         "task_id": {
           "type": "string",
-          "description": "The task id, as the board tool shows it (task:\u003cid\u003e; the task: prefix is optional)."
+          "description": "The card: its short ref as the board tool shows it (#12), or its task:\u003cid\u003e (the task: prefix is optional)."
         }
       },
       "required": [
@@ -850,7 +850,7 @@
       "properties": {
         "task_id": {
           "type": "string",
-          "description": "The task id, as the board tool shows it (task:\u003cid\u003e; the task: prefix is optional)."
+          "description": "The card: its short ref as the board tool shows it (#12), or its task:\u003cid\u003e (the task: prefix is optional)."
         },
         "to": {
           "type": "string",
@@ -877,7 +877,7 @@
       "properties": {
         "task_id": {
           "type": "string",
-          "description": "The task id, as the board tool shows it (task:\u003cid\u003e; the task: prefix is optional)."
+          "description": "The card: its short ref as the board tool shows it (#12), or its task:\u003cid\u003e (the task: prefix is optional)."
         },
         "state": {
           "type": "string",
@@ -915,7 +915,7 @@
       "properties": {
         "task_id": {
           "type": "string",
-          "description": "The task id, as the board tool shows it (task:\u003cid\u003e; the task: prefix is optional)."
+          "description": "The card: its short ref as the board tool shows it (#12), or its task:\u003cid\u003e (the task: prefix is optional)."
         },
         "url_or_path": {
           "type": "string",
