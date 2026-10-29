@@ -212,8 +212,9 @@ func New(c Config) *Notifier {
 	}
 	tc := toast.DefaultConfig()
 	tc.AppName = "Irori"
-	tc.Palette = toast.Light
-	tc.CornerRadius = 10
+	// Toru's look, like the window (v0.4.6): dark square cards.
+	tc.Palette = toast.Dark
+	tc.CornerRadius = 0
 	tc.CaptureExclude = !(c.CaptureVisible || os.Getenv(CaptureEnv) == "1")
 	n.t.Configure(tc)
 	n.t.SetOptions(n.opts.toToast())
