@@ -31,7 +31,9 @@ const BoardInstructions = "The Irori Board is a shared scratch pad for live coor
 	"Put those wherever this project or your instructions say (Linear, Notion, GitHub issues, the repo's docs, a knowledge base), " +
 	"and add a link on the card if it helps. When a card's work is done, mark it done; don't keep it as a record. " +
 	"Post a card for work others should see (the person's window shows only cards); if it fits another agent's work better, " +
-	"ask that agent to put it up. When you take a card, give it steps (board_create's steps, or board_steps) and keep them " +
+	"ask that agent to put it up. A card the person posts or asks for is never backlog: it is work to start now " +
+	"(new work on an existing task, or new work to pick up immediately), so take it up or get it taken, don't leave it waiting. " +
+	"When you take a card, give it steps (board_create's steps, or board_steps) and keep them " +
 	"ticked with board_step: they are how the person sees how far along it is. When you need the person (a decision, an access, " +
 	"a permission), raise one board_block per question, never several asks in one note or one blocker: give each enough context that " +
 	"someone who has never been there can decide, give options when there are real choices, and mark your recommendation."
