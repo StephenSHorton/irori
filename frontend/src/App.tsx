@@ -12,6 +12,7 @@ import {
 } from "@/components/cards/card-grid"
 import { cardFromHash, cardHash, useCard, useCards } from "@/lib/cards"
 import { useNow, useRoster } from "@/lib/irori"
+import { previewFlag } from "@/lib/preview"
 import { onOpen } from "@/lib/settings"
 import { nameLookup, useGone } from "@/lib/talk"
 import { UpdateBanner } from "@/updater"
@@ -19,6 +20,32 @@ import { UpdateBanner } from "@/updater"
 // PageState is the history entry of a card's page. fromGrid: the grid is
 // the entry behind it, so Back is the browser's back.
 type PageState = { card: string; fromGrid?: boolean }
+
+// The app puts the grid's scroll back itself; the browser's own restore on
+// back would fight it.
+if ("scrollRestoration" in window.history)
+  window.history.scrollRestoration = "manual"
+
+// A page opened by a reload or a link straight to it gets the grid as the
+// entry behind it, so Back, Esc and the browser's back all land on the grid
+// the same way (and a second browser back leaves, as from the grid).
+{
+  const id = cardFromHash(window.location.hash)
+  const st = window.history.state as PageState | null
+  if (id && !st?.fromGrid) {
+    const hash = window.location.hash
+    window.history.replaceState(
+      null,
+      "",
+      window.location.pathname + window.location.search
+    )
+    window.history.pushState(
+      { card: id, fromGrid: true } satisfies PageState,
+      "",
+      hash
+    )
+  }
+}
 
 // App is the whole window (docs/design/v0.4-devices.md §9): cards of shared
 // work, and a card's own page when one is opened. Messages, capture and
@@ -35,11 +62,20 @@ export function App() {
   const now = useNow()
   const [filter, setFilter] = useState<Filter>("all")
   const [open, setOpen] = useState(() => cardFromHash(window.location.hash))
-  // last is the card last opened, marked in the grid on the way back.
-  const [last, setLast] = useState(open)
+  // last is the card last opened, marked in the grid on the way back. In
+  // the browser preview ?from=<id> sets it, to see the grid as Back leaves
+  // it.
+  const [last, setLast] = useState(() => open || previewFlag("from") || "")
   const { detail, error: detailError } = useCard(open)
   // gridScroll is where the grid was scrolled when a card opened.
   const gridScroll = useRef(0)
+  // cardsNow and filterNow are the latest, for a notification's Open.
+  const cardsNow = useRef(cards)
+  const filterNow = useRef(filter)
+  useEffect(() => {
+    cardsNow.current = cards
+    filterNow.current = filter
+  }, [cards, filter])
   // message is the delivery a notification's Open named, shown in a dialog.
   const [message, setMessage] = useState("")
   const name = nameLookup(
@@ -70,8 +106,8 @@ export function App() {
   }, [])
 
   // back returns to the grid: the browser's back when the grid is the
-  // entry behind (popstate does the rest), else the same entry without
-  // the card (a page opened from a reload).
+  // entry behind (popstate does the rest; a reload or deep link is given
+  // one at start), else the same entry without the card.
   const back = useCallback(() => {
     const st = window.history.state as PageState | null
     if (st?.fromGrid) {
@@ -108,10 +144,27 @@ export function App() {
       return
     }
     window.scrollTo(0, gridScroll.current)
+    // The card it left from, else (a filter hides it) the filter in use.
+    ;(
+      document.querySelector<HTMLElement>(
+        `[data-card="${CSS.escape(last)}"]`
+      ) ??
+      document.querySelector<HTMLElement>(
+        '[aria-label="Filter cards"] [aria-pressed="true"]'
+      )
+    )?.focus({ preventScroll: true })
+  }, [open, last])
+
+  // ?from= in the preview: the grid as Back leaves it, the card focused.
+  useEffect(() => {
+    if (open || !last || loading) return
+    if (previewFlag("from") !== last) return
     document
       .querySelector<HTMLElement>(`[data-card="${CSS.escape(last)}"]`)
       ?.focus({ preventScroll: true })
-  }, [open, last])
+    // Only on the first load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading])
 
   // Esc on a card's page is Back, unless a dialog or menu takes it, or it
   // is in a field (there it leaves the field first, so a draft isn't lost
@@ -148,7 +201,11 @@ export function App() {
           return
         }
         if (!ref.startsWith("task:")) return
-        openCard(ref.slice("task:".length))
+        const id = ref.slice("task:".length)
+        // A card the filter hides: show them all, so Back finds it.
+        const c = cardsNow.current.find((x) => x.id === id)
+        if (c && !matches(c, filterNow.current)) setFilter("all")
+        openCard(id)
       }),
     [openCard]
   )
@@ -159,7 +216,7 @@ export function App() {
   return (
     <div className="min-h-svh bg-background">
       <AppHeader roster={roster} />
-      <main className="mx-auto flex max-w-7xl flex-col gap-3.5 px-4 pt-[18px] pb-10 sm:px-6">
+      <main className="mx-auto flex max-w-[1920px] flex-col gap-3.5 px-4 pt-[18px] pb-10 sm:px-6">
         <UpdateBanner />
         {error && (
           <p className="glass-panel border-destructive/50! px-3 py-2 text-sm text-destructive" role="alert">

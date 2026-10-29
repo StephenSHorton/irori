@@ -163,7 +163,7 @@ function ThreadRow({
         </div>
         {full ? (
           <>
-            <RichText text={full.text} className="max-w-[64ch] text-ink-2" />
+            <RichText text={full.text} className="text-ink-2" />
             {full.files.length > 0 && (
               <ul className="grid gap-0.5 text-[11px] text-muted-foreground">
                 {full.files.map((f, i) => (
@@ -179,7 +179,7 @@ function ThreadRow({
             Not let through the wake policy yet, so its text isn't on the card.
           </p>
         ) : (
-          body && <RichText text={body} className="max-w-[64ch] text-ink-2" />
+          body && <RichText text={body} className="text-ink-2" />
         )}
         {!!item.missing?.length && (
           <div className="grid gap-0.5 text-ink-2">

@@ -5,6 +5,7 @@
 //   ?settings       opens the settings popover
 //   ?devices        opens the Devices dialog
 //   ?update=ready   shows the update card (also downloading, installing)
+//   ?from=<card>    the grid as that card's Back leaves it (App.tsx)
 
 import { inWails } from "./irori"
 

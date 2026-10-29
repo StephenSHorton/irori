@@ -27,7 +27,7 @@ shot() { # name query [width height [reduce]]
   echo "$out/$1.png"
 }
 
-shot 01-cards ""                                  # the grid; sample-card-4 spinning
+shot 01-cards ""                                  # the grid; sample-card-2 and -4 spinning
 shot 02-card-answers "?open=board:task:sample-card-2" # blocker with recommended answers
 shot 03-card-done "?open=board:task:sample-card-5"  # done card, merged PR
 shot 04-devices "?devices"                          # Devices dialog
@@ -40,3 +40,8 @@ shot 10-page-busy "?open=board:task:sample-card-4"  # card page: busy agent, spi
 shot 11-page-blockers "?open=board:task:sample-card-1" 1440 1400 # blockers, PR, thread
 shot 12-page-narrow "?open=board:task:sample-card-1" 800 2400 # below 900px: one column
 shot 13-page-reduced-motion "#card/sample-card-4" 1440 900 reduce # a still dot, no spin
+shot 14-page-tall-side "?open=board:task:sample-card-1" 1440 640 # side column taller than the window: its own scroll
+shot 15-page-wide "?open=board:task:sample-card-1" 1920 1300 # a wide window: options side by side
+shot 16-grid-after-back "?from=sample-card-4"                 # the grid as Back leaves it: card marked, focused
+shot 17-page-loading "?slow#card/sample-card-1"               # a reload on a card while it loads
+shot 18-page-unknown "#card/sample-card-gone"                 # a card that isn't there
