@@ -400,6 +400,7 @@ func TestShortRefsInTheBoardTools(t *testing.T) {
 	r.fails(callA, "board_join", map[string]any{"task_id": "#9"}, "no such task")
 	has(t, r.ok(callA, "board_join", map[string]any{"task_id": one}), "You hold #1 now")
 	has(t, r.ok(callB, "show", map[string]any{"ref": "#2"}), "task:"+two, "Task #2 ", "Second card")
+	has(t, r.ok(callB, "show", map[string]any{"ref": "task:#2"}), "task:"+two, "Task #2 ")
 	r.fails(callB, "show", map[string]any{"ref": "#9"}, "no card is #9")
 	out := r.ok(callB, "search", map[string]any{"query": "#2"})
 	if i := strings.Index(out, "\n- "); i < 0 || !strings.HasPrefix(out[i+1:], "- #2 task:"+two+" ") {

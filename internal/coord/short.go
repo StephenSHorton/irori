@@ -94,11 +94,11 @@ func (c *coord) renumber() {
 		base := strconv.Itoa(n)
 		for i, cl := range cls {
 			short := base + shortSuffix(i)
-			c.shortIdx[short] = cl.id
 			t := c.tasks[cl.id]
 			if t == nil {
 				continue
 			}
+			c.shortIdx[short] = cl.id
 			was := ""
 			if i > 0 && cl.num > 0 {
 				was = base
