@@ -327,8 +327,12 @@ function CommentBox({ cardId }: { cardId: string }) {
           setHeard(null)
         }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey))
+          // Enter sends, Shift+Enter is a new line (not while an IME is
+          // composing, where Enter picks a candidate).
+          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault()
             e.currentTarget.form?.requestSubmit()
+          }
         }}
         placeholder="Comment on the card"
         aria-label="Your comment on the card"
