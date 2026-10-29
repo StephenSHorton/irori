@@ -379,6 +379,13 @@ func (b *BoardService) SetDone(id string, canceled bool) (coord.Task, error) {
 	return b.coord.SetTaskState(context.Background(), b.user.Key, id, s, note)
 }
 
+// Reopen brings a done, canceled or failed card back into play: working
+// with its holders, or open when nobody holds it. A finished parent comes
+// back with its subtask.
+func (b *BoardService) Reopen(id string) (coord.Task, error) {
+	return b.coord.Reopen(context.Background(), b.user.Key, strings.TrimSpace(id))
+}
+
 // AddLink adds a link out (a URL, a repo path or a commit sha).
 func (b *BoardService) AddLink(id, link string) (coord.Task, error) {
 	return b.coord.AddLink(context.Background(), b.user.Key, id, link)

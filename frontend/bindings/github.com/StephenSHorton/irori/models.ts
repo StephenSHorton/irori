@@ -1515,6 +1515,14 @@ export class CardThreadItem {
      */
     "unheard"?: boolean;
 
+    /**
+     * Pending is, on the person's comment, one line per agent asked to
+     * answer it that hasn't taken it up yet: "queued for Otter (busy)",
+     * "held for Otter" (the wake policy) or "sent to Otter, not read yet".
+     * A line goes once that agent's turn with it starts.
+     */
+    "pending"?: string[];
+
     /** Creates a new CardThreadItem instance. */
     constructor($$source: Partial<CardThreadItem> = {}) {
         if (!("id" in $$source)) {
@@ -1544,6 +1552,7 @@ export class CardThreadItem {
         const $$createField4_0 = $$createType4;
         const $$createField8_0 = $$createType2;
         const $$createField12_0 = $$createType14;
+        const $$createField14_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("who" in $$parsedSource) {
             $$parsedSource["who"] = $$createField3_0($$parsedSource["who"]);
@@ -1556,6 +1565,9 @@ export class CardThreadItem {
         }
         if ("attachments" in $$parsedSource) {
             $$parsedSource["attachments"] = $$createField12_0($$parsedSource["attachments"]);
+        }
+        if ("pending" in $$parsedSource) {
+            $$parsedSource["pending"] = $$createField14_0($$parsedSource["pending"]);
         }
         return new CardThreadItem($$parsedSource as Partial<CardThreadItem>);
     }

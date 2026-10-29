@@ -722,7 +722,7 @@ func TestWatchRules(t *testing.T) {
 		{"an agent", bob, false, nil},
 		{"a person can't", user, false, ErrInvalid},
 		{"irori can't", sweeper, false, ErrInvalid},
-		{"a done card can't be watched", bob, true, ErrBadState},
+		{"a done card can be watched (it can be reopened)", bob, true, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -227,3 +227,19 @@ describe("unheard", () => {
     ])
   })
 })
+
+describe("pending", () => {
+  test("the person's comment says who hasn't taken it up yet", () => {
+    const l = threadLabel(
+      new CardThreadItem({
+        kind: "comment",
+        who: otter,
+        pending: ["queued for sample-heron (busy)", "sent to sample-crow, not read yet"],
+      })
+    )
+    expect(l.badges.map((b) => b.label)).toEqual([
+      "queued for sample-heron (busy)",
+      "sent to sample-crow, not read yet",
+    ])
+  })
+})

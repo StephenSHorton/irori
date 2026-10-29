@@ -20,6 +20,7 @@ import {
   LinkKind,
   NoteItem,
   over,
+  overLabel,
   percent,
   TaskState,
   type AgentRef,
@@ -170,6 +171,7 @@ export function CardPage({
       ) : (
         <ProgressStrip detail={detail} spinning={spinning} />
       )}
+      {over(detail) && <ReopenBar detail={detail} />}
       <div className="grid items-start gap-4 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)] min-[900px]:grid-rows-[auto_1fr] min-[1600px]:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
         {(hasObjective || hasBlockers) && (
           <Card className="gap-0 py-0! min-[900px]:col-start-1 min-[900px]:row-start-1">
@@ -368,6 +370,29 @@ function AskStatus({
           setNote("")
           onClosed()
         }}
+      />
+    </div>
+  )
+}
+
+// ReopenBar is a finished card's line under the page header: how it ended
+// and Reopen, which brings it back with whoever held it. A comment on it
+// reopens it too when someone holds it.
+function ReopenBar({ detail }: { detail: CardDetail }) {
+  const held = detail.working.length > 0
+  return (
+    <div className="glass-panel flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+      <span className="min-w-48 flex-1 text-[13px] text-muted-foreground">
+        {overLabel(detail)}
+        {held
+          ? ". A comment reopens it for whoever held it."
+          : ". Nobody holds it; reopening puts it back on the grid, open."}
+      </span>
+      <ConfirmButton
+        label="Reopen"
+        question="Reopen this card? It goes back on the grid with whoever held it."
+        confirmLabel="Reopen it"
+        onConfirm={() => cards.reopen(detail.id)}
       />
     </div>
   )

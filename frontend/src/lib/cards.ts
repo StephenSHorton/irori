@@ -155,9 +155,13 @@ export function askLine(a: CardAsk): string {
     case AskState.Unclaimed:
       return "Nobody took this yet"
     case AskState.Closed:
-      return a.outcome?.kind === "edit"
-        ? `Changed ${a.outcomeRef || "a card"}: ${plainLine(a.outcome.note)}`
-        : `Closed: ${plainLine(a.outcome?.note ?? "")}`
+      switch (a.outcome?.kind) {
+        case "edit":
+          return `Changed ${a.outcomeRef || "a card"}: ${plainLine(a.outcome.note)}`
+        case "answered":
+          return `Answered: ${plainLine(a.outcome.note)}`
+      }
+      return `Closed: ${plainLine(a.outcome?.note ?? "")}`
   }
   if (a.told === 0) return "Nobody was free to hear it"
   return `${a.told} ${a.told === 1 ? "agent" : "agents"} heard it`
@@ -287,6 +291,14 @@ function sampleCloseAsk(id: string, note: string) {
     outcome: { kind: "none", note: note.trim() || "closed by the person" },
   })
   sample = sampleState().filter((x) => x.id !== id)
+  sampleChanged()
+}
+
+// sampleReopen is BoardService.Reopen on the sample: working again when
+// someone holds it, else open.
+function sampleReopen(id: string) {
+  const c = sampleCard(id)
+  c.state = c.working.length ? TaskState.Working : TaskState.Submitted
   sampleChanged()
 }
 
@@ -613,6 +625,15 @@ export const cards = {
     sampleCloseAsk(id, note)
   },
 
+  // reopen brings a finished card back into play, with whoever held it.
+  async reopen(id: string): Promise<void> {
+    if (inWails()) {
+      await BoardService.Reopen(id)
+      return
+    }
+    sampleReopen(id)
+  },
+
   // askRepos are the repos the agents are in, for the ask box's chip.
   async askRepos(): Promise<AskRepo[]> {
     if (inWails()) return (await BoardService.AskRepos()) ?? []
@@ -907,6 +928,23 @@ export function busy(c: {
 // the roster. busy is any holder of a card that can be worked on.
 export function agentBusy(w: AgentRef): boolean {
   return w.status === "busy" && w.live && !w.offline && !w.assigned
+}
+
+// overLabel is a finished card's state word: "Answered" for an ask its
+// taker answered, "Closed" for an ask nothing came of (board.md
+// "Outcomes"), else Done, Canceled or Failed.
+export function overLabel(c: {
+  state: string
+  ask?: CardAsk | null
+}): string {
+  const kind = c.ask?.state === AskState.Closed ? c.ask.outcome?.kind : ""
+  switch (c.state) {
+    case TaskState.Completed:
+      return kind === "answered" ? "Answered" : "Done"
+    case TaskState.Failed:
+      return "Failed"
+  }
+  return kind === "none" ? "Closed" : "Canceled"
 }
 
 // over says the card is finished: done, canceled or failed.

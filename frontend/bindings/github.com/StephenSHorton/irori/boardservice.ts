@@ -218,6 +218,17 @@ export function RemoveLink(id: string, ref: string): $CancellablePromise<coord$0
 }
 
 /**
+ * Reopen brings a done, canceled or failed card back into play: working
+ * with its holders, or open when nobody holds it. A finished parent comes
+ * back with its subtask.
+ */
+export function Reopen(id: string): $CancellablePromise<coord$0.Task> {
+    return $Call.ByID(556509608, id).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
  * ResolveBlocker is the person's "Mark resolved" on an item they answered,
  * for when its raiser won't resolve it (it ended after the answer): their
  * latest answer stands and note, which may be empty, goes beside the

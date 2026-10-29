@@ -883,7 +883,7 @@ export class Option {
  */
 export class Outcome {
     /**
-     * OutcomeCard, OutcomeEdit or OutcomeNone
+     * OutcomeCard, OutcomeEdit, OutcomeAnswered or OutcomeNone
      */
     "kind": string;
 

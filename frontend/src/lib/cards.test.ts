@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import { AgentRef, CardAsk } from "../../bindings/github.com/StephenSHorton/irori/models"
 import { TaskState } from "../../bindings/github.com/StephenSHorton/irori/internal/coord/models"
-import { askLine, busy, cardFromHash, cardHash, deviceChips, deviceVar, holderLineShows, Holding, nobodyOn, openAsk, workLabel } from "./cards"
+import { askLine, busy, cardFromHash, cardHash, deviceChips, deviceVar, holderLineShows, Holding, nobodyOn, openAsk, overLabel, workLabel } from "./cards"
 
 const agent = (status: string, more: Partial<AgentRef> = {}) =>
   new AgentRef({ key: "d/s", name: "a", status, live: status !== "gone", where: "This PC", ...more })
@@ -83,6 +83,17 @@ describe("asks", () => {
     expect(openAsk({ ask: ask({ state: "closed", outcome: { kind: "none", note: "x" } }) })).toBe(false)
     expect(openAsk({ ask: null })).toBe(false)
     expect(openAsk({})).toBe(false)
+  })
+  test("a closed ask reads by its outcome (card #28)", () => {
+    const closed = (kind: string) => ask({ state: "closed", outcome: { kind, note: "x" } })
+    expect(overLabel({ state: TaskState.Completed, ask: closed("answered") })).toBe("Answered")
+    expect(overLabel({ state: TaskState.Canceled, ask: closed("none") })).toBe("Closed")
+    expect(overLabel({ state: TaskState.Completed, ask: closed("edit") })).toBe("Done")
+    expect(overLabel({ state: TaskState.Completed })).toBe("Done")
+    expect(overLabel({ state: TaskState.Canceled })).toBe("Canceled")
+    expect(overLabel({ state: TaskState.Failed })).toBe("Failed")
+    expect(askLine(closed("answered"))).toBe("Answered: x")
+    expect(askLine(closed("none"))).toBe("Closed: x")
   })
 })
 

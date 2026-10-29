@@ -63,4 +63,13 @@ func TestAskTools(t *testing.T) {
 	has(t, h.ok(callC, "board_leave", map[string]any{"task_id": r3}), "gave the ask "+r3+" back")
 	h.ok(callB, "ask_claim", map[string]any{"task_id": r3})
 	has(t, h.ok(callB, "ask_close", map[string]any{"task_id": r3, "outcome": "none", "note": "the person sorted it"}), "Closed "+r3)
+
+	// answered: the ask completes, and the taker keeps it.
+	four, _, _ := co.PostAsk(bg, "user:dev1", coord.NewAsk{Text: "which port?"}, nil)
+	r4 := h.ref(four.ID)
+	h.ok(callB, "ask_claim", map[string]any{"task_id": r4})
+	has(t, h.ok(callB, "ask_close", map[string]any{"task_id": r4, "outcome": "answered", "note": "8080"}), "Answered "+r4, "reopens")
+	if got, _ := co.GetTask(four.ID); got.State != coord.Completed || got.Ask.Outcome.Kind != coord.OutcomeAnswered {
+		t.Fatalf("after the answered outcome %+v", got)
+	}
 }
