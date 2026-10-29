@@ -10,7 +10,6 @@ import (
 
 	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/inbox"
-	"github.com/StephenSHorton/irori/internal/mesh"
 )
 
 // ErrNoAttachment: no message or card the caller may read carries the file.
@@ -81,11 +80,7 @@ func (c *Core) GetAttachment(ctx context.Context, reader, sha, to string) (path,
 	}
 	from, err = c.mesh.FetchFile(ctx, ref)
 	if err != nil {
-		var off *mesh.OfflineError
-		if errors.As(err, &off) {
-			return "", "", fmt.Errorf("the file is on %s, which isn't connected now; try again when it is", c.deviceNames(off.Holders))
-		}
-		return "", "", err
+		return "", "", c.fileOffline(err, ref)
 	}
 	if to == "" {
 		dst = freeName(dst, sha)
