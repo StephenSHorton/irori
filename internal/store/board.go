@@ -72,6 +72,9 @@ var kindBoards = map[string]Board{
 	// §5.2). task.edited and the private ask's take rows are not in §2.2's
 	// list, so they stay out until the design names them.
 	"task.shared": BoardRefuses, "task.edited": BoardRefuses, "take.requested": BoardRefuses, "take.state": BoardRefuses,
+	// pinned cards (#35, after the design) are the person's own order in
+	// their window, not something the board's other members see
+	"task.pinned": BoardRefuses,
 	// the Board
 	"task.created": BoardAccepts, "task.claimed": BoardAccepts, "task.assigned": BoardAccepts, "task.status": BoardAccepts,
 	"task.joined": BoardAccepts, "task.left": BoardAccepts, "task.linked": BoardAccepts, "task.comment": BoardAccepts,
