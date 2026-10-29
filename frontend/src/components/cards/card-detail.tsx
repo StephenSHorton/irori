@@ -196,7 +196,7 @@ export function CardPage({
 
         <aside
           aria-label="About the card"
-          className="min-w-0 min-[900px]:sticky min-[900px]:top-[4.5rem] min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1"
+          className="min-w-0 min-[900px]:sticky min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100svh-5.5rem)] min-[900px]:overflow-y-auto min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1"
         >
           <Card className="gap-0 py-0!">
             <Section title="Progress">
