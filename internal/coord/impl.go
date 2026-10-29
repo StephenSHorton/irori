@@ -76,8 +76,10 @@ type taskCreatedRow struct {
 	Links        []Link   `json:"links,omitempty"`
 	// Ask makes the card an ask (ask.go): the person's prompt to the room.
 	Ask *askField `json:"ask,omitempty"`
-	By  string    `json:"by"`
-	At  time.Time `json:"at"`
+	// Parent makes the card a subtask of that task id (subtasks.go).
+	Parent string    `json:"parent,omitempty"`
+	By     string    `json:"by"`
+	At     time.Time `json:"at"`
 }
 
 type taskClaimedRow struct {
@@ -256,6 +258,10 @@ type coord struct {
 
 	// Asks (ask.go): take requests, the owner's states and its memory.
 	asks askBook
+
+	// Subtasks (subtasks.go): every parent link row, in fold order;
+	// relink sorts them.
+	links []parentLink
 }
 
 func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() []presence.AgentCard }, opts Options) (*Coord, error) {
@@ -330,6 +336,7 @@ func (c *coord) replay(ctx context.Context) error {
 		c.prune(c.stamp())
 		if len(evs) < f.Limit {
 			c.renumber()
+			c.relink()
 			return nil
 		}
 		f.After = evs[len(evs)-1].Cursor()
@@ -400,6 +407,9 @@ func (c *Coord) IgnoredRows() int {
 func (c *coord) apply(ev store.Event) {
 	c.fold(ev)
 	c.foldDeferred()
+	if !c.replaying {
+		c.relink()
+	}
 }
 
 // fold folds one row. Rows are applied as written; validation happened
@@ -444,8 +454,16 @@ func (c *coord) fold(ev store.Event) {
 			CreatedAt: t, UpdatedAt: t, UpdatedBy: p.By, Shared: p.Shared, Links: links,
 		}
 		c.foldAskCreated(c.tasks[p.TaskID], p.Ask, ev, p.By)
+		if p.Parent != "" {
+			c.foldParent(p.TaskID, p.Parent, ev)
+		}
 		c.claimShort(p.TaskID, ev.Cursor(), p.Num)
-		c.touch(ev, c.tasks[p.TaskID], t, p.By, "put the card up", false)
+		if pt := c.tasks[p.Parent]; p.Parent != "" && pt != nil {
+			// A new subtask: the parent's holders hear it (relink hasn't run).
+			c.touch(ev, c.tasks[p.TaskID], t, p.By, "put the card up as a subtask of "+pt.ShortRef(), true, pt.Holders...)
+		} else {
+			c.touch(ev, c.tasks[p.TaskID], t, p.By, "put the card up", false)
+		}
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID})
 	case KindTaskClaimed:
 		var p taskClaimedRow
@@ -677,6 +695,23 @@ func (c *coord) fold(ev store.Event) {
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
 	case KindBlockerOption, KindBlockerResolved, KindTaskSteps, KindTaskStep, KindTaskWatched:
 		c.applyCard(ev, at)
+	case KindTaskParent:
+		var p taskParentRow
+		if json.Unmarshal(ev.Payload, &p) != nil || p.TaskID == "" {
+			return
+		}
+		c.foldParent(p.TaskID, p.Parent, ev)
+		if t := c.tasks[p.TaskID]; t != nil {
+			what := "took it out of its parent"
+			var also []string // the new parent's holders: relink hasn't run yet
+			if p.Parent != "" {
+				what = "made it part of " + c.refOf(p.Parent)
+				if pt := c.tasks[p.Parent]; pt != nil {
+					also = pt.Holders
+				}
+			}
+			c.touch(ev, t, at(p.At), p.By, what, true, also...)
+		}
 	case KindTakeRequested, KindTakeState, KindTaskEdited:
 		c.applyTake(ev, at)
 	case KindLeaseRefused:
@@ -909,6 +944,13 @@ func copyTask(t *Task) Task {
 	if t.Steps != nil {
 		out.Steps = append([]Step(nil), t.Steps...)
 	}
+	if t.Subtasks != nil {
+		out.Subtasks = append([]string(nil), t.Subtasks...)
+	}
+	if t.Rollup != nil {
+		r := *t.Rollup
+		out.Rollup = &r
+	}
 	if t.Blockers != nil {
 		out.Blockers = make([]Blocker, len(t.Blockers))
 		for i, b := range t.Blockers {
@@ -1002,26 +1044,58 @@ func (c *coord) gone(key string, now time.Time) bool {
 // ---- tasks ----
 
 func (c *coord) createTask(ctx context.Context, by string, nt NewTask) (Task, error) {
+	ct, err := cleanNew(by, nt)
+	if err != nil {
+		return Task{}, err
+	}
+	c.mu.Lock()
+	defer c.unlock()
+	if nt.Parent != "" {
+		pid, err := c.taskRefLocked(nt.Parent)
+		if err != nil {
+			return Task{}, err
+		}
+		if _, err := c.checkParent(pid, ""); err != nil {
+			return Task{}, err
+		}
+		ct.parent = pid
+	}
+	return c.createLocked(ctx, ct.by, ct)
+}
+
+// cleanTask is a NewTask checked and trimmed, ready for createLocked.
+type cleanTask struct {
+	by, title, obj, done, repoKey, reason, parent string
+	scope                                         []string
+	links                                         []Link
+	shared                                        bool
+	blockedBy                                     *BlockedBy
+	steps                                         []Step
+}
+
+// cleanNew checks and trims nt (CreateTask's rules). Parent is left to the
+// caller, which resolves it under c.mu.
+func cleanNew(by string, nt NewTask) (cleanTask, error) {
 	by = strings.TrimSpace(by)
 	if by == "" {
-		return Task{}, fmt.Errorf("%w: no caller", ErrInvalid)
+		return cleanTask{}, fmt.Errorf("%w: no caller", ErrInvalid)
 	}
 	title := strings.TrimSpace(nt.Title)
 	if title == "" {
-		return Task{}, fmt.Errorf("%w: a task needs a title", ErrInvalid)
+		return cleanTask{}, fmt.Errorf("%w: a task needs a title", ErrInvalid)
 	}
 	if utf8.RuneCountInString(title) > maxTitle {
-		return Task{}, fmt.Errorf("%w: title longer than %d characters", ErrInvalid, maxTitle)
+		return cleanTask{}, fmt.Errorf("%w: title longer than %d characters", ErrInvalid, maxTitle)
 	}
 	obj := strings.TrimSpace(nt.Objective)
 	done := strings.TrimSpace(nt.DoneCriteria)
 	if utf8.RuneCountInString(obj) > maxObjective || utf8.RuneCountInString(done) > maxObjective {
-		return Task{}, fmt.Errorf("%w: objective or done criteria longer than %d characters", ErrInvalid, maxObjective)
+		return cleanTask{}, fmt.Errorf("%w: objective or done criteria longer than %d characters", ErrInvalid, maxObjective)
 	}
 	repoKey := strings.TrimSpace(nt.RepoKey)
 	if repoKey != "" {
 		if err := checkRepoKey(repoKey); err != nil {
-			return Task{}, err
+			return cleanTask{}, err
 		}
 	}
 	var scope []string
@@ -1031,12 +1105,12 @@ func (c *coord) createTask(ctx context.Context, by string, nt NewTask) (Task, er
 		}
 		n, err := NormalizeGlob(g)
 		if err != nil {
-			return Task{}, err
+			return cleanTask{}, err
 		}
 		scope = append(scope, n)
 	}
 	if len(scope) > maxScope {
-		return Task{}, fmt.Errorf("%w: more than %d scope globs", ErrInvalid, maxScope)
+		return cleanTask{}, fmt.Errorf("%w: more than %d scope globs", ErrInvalid, maxScope)
 	}
 	var links []Link
 	for _, s := range nt.Links {
@@ -1045,42 +1119,45 @@ func (c *coord) createTask(ctx context.Context, by string, nt NewTask) (Task, er
 		}
 		l, err := ParseLink(s)
 		if err != nil {
-			return Task{}, err
+			return cleanTask{}, err
 		}
 		if linkIndex(links, l.Ref) < 0 {
 			links = append(links, l)
 		}
 	}
 	if len(links) > MaxLinks {
-		return Task{}, fmt.Errorf("%w: more than %d links", ErrInvalid, MaxLinks)
+		return cleanTask{}, fmt.Errorf("%w: more than %d links", ErrInvalid, MaxLinks)
 	}
 	reason := strings.TrimSpace(nt.BlockReason)
 	if reason == "" && nt.BlockedBy != nil {
-		return Task{}, fmt.Errorf("%w: BlockedBy needs a BlockReason", ErrInvalid)
+		return cleanTask{}, fmt.Errorf("%w: BlockedBy needs a BlockReason", ErrInvalid)
 	}
 	if err := checkReason(reason, false); err != nil {
-		return Task{}, err
+		return cleanTask{}, err
 	}
 	steps := append([]Step(nil), nt.Steps...)
 	if err := checkSteps(steps); err != nil {
-		return Task{}, err
+		return cleanTask{}, err
 	}
-	steps = newSteps(steps)
+	return cleanTask{by: by, title: title, obj: obj, done: done, repoKey: repoKey, reason: reason, scope: scope,
+		links: links, shared: nt.Shared, blockedBy: nt.BlockedBy, steps: newSteps(steps)}, nil
+}
 
-	c.mu.Lock()
-	defer c.unlock()
+// createLocked writes a checked task's rows. c.mu is held.
+func (c *coord) createLocked(ctx context.Context, by string, ct cleanTask) (Task, error) {
+	reason, steps := ct.reason, ct.steps
 	var bb *BlockedBy
 	if reason != "" {
 		var err error
-		if bb, err = c.checkBlocker(nt.BlockedBy, ""); err != nil {
+		if bb, err = c.checkBlocker(ct.blockedBy, ""); err != nil {
 			return Task{}, err
 		}
 	}
 	at := c.stamp()
 	id := newID(at)
 	if err := c.write(ctx, by, KindTaskCreated, taskCreatedRow{
-		TaskID: id, Num: c.nextShort(), Title: title, Objective: obj, DoneCriteria: done,
-		RepoKey: repoKey, Scope: scope, Shared: nt.Shared, Links: links, By: by, At: at,
+		TaskID: id, Num: c.nextShort(), Title: ct.title, Objective: ct.obj, DoneCriteria: ct.done,
+		RepoKey: ct.repoKey, Scope: ct.scope, Shared: ct.shared, Links: ct.links, Parent: ct.parent, By: by, At: at,
 	}); err != nil {
 		return Task{}, err
 	}
@@ -1108,7 +1185,7 @@ func (c *coord) listTasks(f TaskFilter) []Task {
 	for _, t := range c.tasks {
 		if f.RepoKey != "" && t.RepoKey != f.RepoKey ||
 			f.Holder != "" && !isHolder(t, f.Holder) ||
-			f.Open && IsTerminal(t.State) {
+			f.Open && IsTerminal(EffectiveState(*t)) { // a parent ends with its subtasks
 			continue
 		}
 		out = append(out, copyTask(t))
@@ -1261,11 +1338,26 @@ func (c *coord) setTaskState(ctx context.Context, by, id string, s TaskState, no
 	if !c.mayManage(t, by) {
 		return Task{}, fmt.Errorf("%w: change task %s", ErrNotAllowed, id)
 	}
+	cascade, err := c.parentStateRefusal(t, s)
+	if err != nil {
+		return Task{}, err
+	}
 	if t.State == s && t.Note == note {
 		return copyTask(t), nil
 	}
 	if err := c.write(ctx, by, KindTaskState, taskStateRow{TaskID: id, State: s, Note: note, By: by, At: c.stamp()}); err != nil {
 		return Task{}, err
+	}
+	if cascade {
+		// Canceling a parent cancels its subtasks still in play.
+		for _, k := range slices.Clone(t.Subtasks) {
+			if kt := c.tasks[k]; kt != nil && !IsTerminal(kt.State) {
+				if err := c.write(ctx, by, KindTaskState, taskStateRow{TaskID: k, State: Canceled,
+					Note: "its parent " + t.ShortRef() + " was canceled", By: by, At: c.stamp()}); err != nil {
+					return Task{}, err
+				}
+			}
+		}
 	}
 	return copyTask(t), nil
 }

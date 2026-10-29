@@ -52,6 +52,7 @@ func newSet(b Backend) *Set {
 		"show":            s.show,
 		"board":           s.board,
 		"board_create":    s.boardCreate,
+		"board_split":     s.boardSplit,
 		"board_comment":   s.boardComment,
 		"board_block":     s.boardBlock,
 		"board_unblock":   s.boardUnblock,

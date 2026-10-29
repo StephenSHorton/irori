@@ -523,6 +523,10 @@ func (c *coord) touchLine(t *Task, a Activity, watch bool, also ...string) {
 	c.activity[t.ID] = acts
 	if watch {
 		c.queueWatch(t, by, what, also...)
+		// A subtask's change reaches its parent's holders and watchers too.
+		if p := c.tasks[t.Parent]; p != nil && !IsTerminal(p.State) {
+			c.queueWatch(p, by, t.ShortRef()+" (part of "+p.ShortRef()+"): "+what, p.Holders...)
+		}
 	}
 }
 
@@ -939,6 +943,10 @@ func (c *coord) setSteps(ctx context.Context, by, id string, in []Step) (Task, e
 	if !c.mayManage(t, by) {
 		return Task{}, fmt.Errorf("%w: set the steps of task %s", ErrNotAllowed, id)
 	}
+	if len(t.Subtasks) > 0 {
+		return Task{}, fmt.Errorf("%w: %s is a parent: its work lives in its subtasks (board_create parent=%s adds one)",
+			ErrSubtask, t.ShortRef(), t.ShortRef())
+	}
 	seq := c.stepSeq[id]
 	used := map[string]bool{}
 	out := make([]Step, 0, len(in))
@@ -1248,8 +1256,10 @@ func watchText(t *Task, lines []string, dropped int) string {
 	for _, l := range shown {
 		b.WriteString("- " + cut(l, maxNoticeField) + "\n")
 	}
-	fmt.Fprintf(&b, "Now: %s", t.State)
-	if d, n := t.Progress(); n > 0 {
+	fmt.Fprintf(&b, "Now: %s", EffectiveState(*t))
+	if r := t.Rollup; r != nil {
+		fmt.Fprintf(&b, ", subtasks %d/%d done", r.Done, r.Total)
+	} else if d, n := t.Progress(); n > 0 {
 		fmt.Fprintf(&b, ", steps %d/%d", d, n)
 	}
 	if n := countOpen(t); n > 0 {

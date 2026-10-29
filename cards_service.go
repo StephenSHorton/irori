@@ -145,6 +145,31 @@ type CardSummary struct {
 	// Ask is set on the person's ask to the room (board.md "Asks"); nil on
 	// any other card.
 	Ask *CardAsk `json:"ask,omitempty"`
+	// Subtasks (board.md "Subtasks"). Parent is the card this one is part
+	// of; Subtasks counts a parent's, and then State and Progress come from
+	// them (done/total subtasks). SubtaskBlocked is "#14: <question>" when
+	// a subtask is what blocks the parent.
+	Parent         *CardRef `json:"parent,omitempty"`
+	Subtasks       int      `json:"subtasks,omitempty"`
+	SubtaskBlocked string   `json:"subtaskBlocked,omitempty"`
+}
+
+// CardRef names another card: a subtask's parent.
+type CardRef struct {
+	ID    string `json:"id"`
+	Short string `json:"short"`
+	Title string `json:"title"`
+}
+
+// CardSubtask is one row of a parent's subtask list on its page.
+type CardSubtask struct {
+	ID       string          `json:"id"`
+	Short    string          `json:"short"`
+	Title    string          `json:"title"`
+	State    coord.TaskState `json:"state"`
+	Holder   CardHolder      `json:"holder"`
+	Progress CardProgress    `json:"progress"`
+	Blocked  bool            `json:"blocked"`
 }
 
 // Ask states, as the tile's line shows them.
@@ -344,6 +369,8 @@ type CardDetail struct {
 	Thread         []CardThreadItem `json:"thread"`
 	ThreadEarlier  int              `json:"threadEarlier"`
 	HistoryTrimmed bool             `json:"historyTrimmed"`
+	// SubtaskList is a parent's subtasks, in order, for its page.
+	SubtaskList []CardSubtask `json:"subtaskList"`
 }
 
 // people resolves keys against the roster once per call.
@@ -476,10 +503,15 @@ func (p people) refs(keys []string) []AgentRef {
 func cardSummary(t coord.Task, p people) CardSummary {
 	d, n := t.Progress()
 	s := CardSummary{
-		ID: t.ID, Short: t.Short, ShortWas: t.ShortWas, Title: t.Title, State: t.State, RepoKey: t.RepoKey,
+		ID: t.ID, Short: t.Short, ShortWas: t.ShortWas, Title: t.Title, State: coord.EffectiveState(t), RepoKey: t.RepoKey,
 		Scope: ScopeMine, ScopeLabel: ScopeMineLabel,
 		Progress: CardProgress{Done: d, Total: n}, Working: []AgentRef{}, Watching: []AgentRef{},
-		UpdatedAt: t.UpdatedAt,
+		UpdatedAt: t.UpdatedAt, Subtasks: len(t.Subtasks),
+	}
+	if r := t.Rollup; r != nil {
+		// A parent's progress is its subtasks'; its own steps came before
+		// the split.
+		s.Progress = CardProgress{Done: r.Done, Total: r.Total}
 	}
 	if open := t.OpenBlockers(); len(open) > 0 {
 		// An answered item waits on an agent, not on the person; a card
@@ -613,14 +645,17 @@ func (b *BoardService) Cards() []CardSummary {
 	p := b.people()
 	out := []CardSummary{}
 	now := time.Now()
-	for _, t := range b.coord.ListTasks(coord.TaskFilter{Open: true}) {
+	tasks := b.coord.ListTasks(coord.TaskFilter{Open: true})
+	for _, t := range tasks {
 		s := cardSummary(t, p)
 		last := t.UpdatedAt
 		if acts := b.coord.Activity(t.ID); len(acts) > 0 && acts[0].At.After(last) {
 			last = acts[0].At
 		}
-		s.Stale = stale(s, last, now)
+		// A parent's work happens on its subtasks, which show their own.
+		s.Stale = s.Subtasks == 0 && stale(s, last, now)
 		s.Talking = talking(b.coord.Comments(t.ID), p, now)
+		b.familyOf(t, &s)
 		out = append(out, s)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -636,7 +671,7 @@ func (b *BoardService) Cards() []CardSummary {
 		}
 		return out[i].ID > out[j].ID
 	})
-	return out
+	return families(out, tasks)
 }
 
 func openAskSummary(s CardSummary) bool { return s.Ask != nil && s.Ask.State != AskClosed }
@@ -673,7 +708,7 @@ func (b *BoardService) DoneCards(limit int, before string) (DonePage, error) {
 	}
 	var done []coord.Task
 	for _, t := range b.coord.ListTasks(coord.TaskFilter{}) {
-		if coord.IsTerminal(t.State) {
+		if coord.IsTerminal(coord.EffectiveState(t)) { // a parent ends with its subtasks
 			done = append(done, t)
 		}
 	}
@@ -721,6 +756,60 @@ func (b *BoardService) DoneCards(limit int, before string) (DonePage, error) {
 	return out, nil
 }
 
+// familyOf fills a card's subtask fields that need other cards: its
+// parent's ref, and the subtask that blocks a parent.
+func (b *BoardService) familyOf(t coord.Task, s *CardSummary) {
+	if pt, ok := b.coord.GetTask(t.Parent); ok && t.Parent != "" {
+		s.Parent = &CardRef{ID: pt.ID, Short: pt.Short, Title: pt.Title}
+	}
+	if r := t.Rollup; r != nil && r.Blocked != "" {
+		if k, ok := b.coord.GetTask(r.Blocked); ok {
+			s.SubtaskBlocked = k.ShortRef() + ": " + r.BlockedQuestion
+		}
+	}
+}
+
+// families keeps a parent's subtasks right after it, in its subtask order,
+// and moves the family to where its most pressing card sorted (a blocked
+// subtask brings its parent up). A subtask whose parent isn't listed stays
+// where it sorted.
+func families(sorted []CardSummary, tasks []coord.Task) []CardSummary {
+	kids := map[string][]string{}
+	for _, t := range tasks {
+		if len(t.Subtasks) > 0 {
+			kids[t.ID] = t.Subtasks
+		}
+	}
+	at := make(map[string]int, len(sorted))
+	for i, s := range sorted {
+		at[s.ID] = i
+	}
+	head := func(s CardSummary) string { // the card a family sorts under
+		if s.Parent != nil {
+			if _, ok := at[s.Parent.ID]; ok {
+				return s.Parent.ID
+			}
+		}
+		return s.ID
+	}
+	out := make([]CardSummary, 0, len(sorted))
+	placed := map[string]bool{}
+	for _, s := range sorted {
+		h := head(s)
+		if placed[h] {
+			continue
+		}
+		placed[h] = true
+		out = append(out, sorted[at[h]])
+		for _, k := range kids[h] {
+			if i, ok := at[k]; ok {
+				out = append(out, sorted[i])
+			}
+		}
+	}
+	return out
+}
+
 // decideCount counts the cards waiting on a decision, the Needs a decision
 // filter's number and the tray's. Rows from every device fold into the
 // board, so it covers all of them (v0.4 §9).
@@ -746,7 +835,17 @@ func (b *BoardService) Card(id string) (CardDetail, error) {
 	d := CardDetail{
 		CardSummary: cardSummary(t, p), Goal: t.Objective, DoneWhen: t.DoneCriteria, Note: t.Note,
 		Steps: nonNil(t.Steps), Blockers: []CardBlocker{}, PRs: []CardPR{}, Links: nonNil(t.Links),
-		Recent: []CardActivity{}, Comments: nonNil(b.coord.Comments(t.ID)),
+		Recent: []CardActivity{}, Comments: nonNil(b.coord.Comments(t.ID)), SubtaskList: []CardSubtask{},
+	}
+	b.familyOf(t, &d.CardSummary)
+	for _, id := range t.Subtasks {
+		k, ok := b.coord.GetTask(id)
+		if !ok {
+			continue
+		}
+		ks := cardSummary(k, p)
+		d.SubtaskList = append(d.SubtaskList, CardSubtask{ID: k.ID, Short: k.Short, Title: k.Title, State: ks.State,
+			Holder: ks.Holder, Progress: ks.Progress, Blocked: ks.OpenBlockers > 0})
 	}
 	d.Ask = cardAsk(t, p, func(id string) string {
 		if x, ok := b.coord.GetTask(id); ok {

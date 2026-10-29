@@ -48,6 +48,25 @@ export function asFilter(id: string | null): Filter {
   return filters.find((f) => f.id === id)?.id ?? "all"
 }
 
+// shownCards is the grid under filter f. A subtask that matches brings its
+// parent's tile along, before it, so it is seen in context; context holds
+// the ids shown only for that.
+export function shownCards(
+  cards: CardSummary[],
+  f: Filter
+): { shown: CardSummary[]; context: Set<string> } {
+  const keep = new Set(cards.filter((c) => matches(c, f)).map((c) => c.id))
+  const context = new Set<string>()
+  for (const c of cards) {
+    const parent = c.parent?.id
+    if (parent && keep.has(c.id) && !keep.has(parent)) context.add(parent)
+  }
+  return {
+    shown: cards.filter((c) => keep.has(c.id) || context.has(c.id)),
+    context,
+  }
+}
+
 export function matches(c: CardSummary, f: Filter): boolean {
   if (f === "done") return over(c)
   if (over(c)) return false
@@ -152,11 +171,15 @@ export function CardGrid({
   selected,
   onSelect,
   now,
+  context,
 }: {
   cards: CardSummary[]
   selected: string
   onSelect: (id: string) => void
   now?: Date
+  // context: cards shown only because a subtask of theirs matched the
+  // filter; they show dimmed.
+  context?: Set<string>
 }) {
   return (
     <section
@@ -170,6 +193,7 @@ export function CardGrid({
           selected={c.id === selected}
           onSelect={() => onSelect(c.id)}
           now={now}
+          dim={context?.has(c.id) ?? false}
         />
       ))}
     </section>
@@ -181,14 +205,17 @@ function CardTile({
   selected,
   onSelect,
   now,
+  dim,
 }: {
   card: CardSummary
   selected: boolean
   onSelect: () => void
   now?: Date
+  dim: boolean
 }) {
   const p = percent(card.progress)
   const closed = over(card)
+  const parent = (card.subtasks ?? 0) > 0
   const blocked = card.openBlockers > 0
   const title = plainLine(card.title) || "(untitled)"
   const label = workLabel(card)
@@ -206,7 +233,8 @@ function CardTile({
           "border-primary! shadow-[0_0_0_1px_var(--color-ring),0_8px_30px_oklch(0_0_0/0.45)]",
         // The accent edge is 2px wider than the border: take it off the
         // padding so the tile's contents don't move.
-        card.accent && "pl-3"
+        card.accent && "pl-3",
+        dim && "opacity-60"
       )}
       // A card everyone on is on one device wears its colour on the left
       // edge (card #22); the status colours stay where they mean something.
@@ -220,6 +248,7 @@ function CardTile({
     >
       <span className="flex flex-wrap items-center gap-1.5">
         <ShortRef card={card} />
+        {card.parent && <PartOf parent={card.parent} />}
         <StatePill card={card} />
         <ScopeBadge card={card} />
         {card.working.some((w) => w.conflict) && (
@@ -264,6 +293,14 @@ function CardTile({
           </span>
         </span>
       )}
+      {!blocked && card.subtaskBlocked && (
+        <span className="flex gap-1.5 text-xs text-warning">
+          <span aria-hidden>●</span>
+          <span className="line-clamp-2">
+            {plainLine(card.subtaskBlocked)}
+          </span>
+        </span>
+      )}
       {card.ask && (openAsk(card) || closed) ? (
         <AskLine ask={card.ask} />
       ) : closed && p === null ? null : p === null ? (
@@ -272,7 +309,11 @@ function CardTile({
         <>
           <ProgressBar
             progress={card.progress}
-            label={`${p ?? 0}% complete`}
+            label={
+              parent
+                ? `${card.progress.done} of ${card.progress.total} subtasks done`
+                : `${p ?? 0}% complete`
+            }
             tone={cardTone(card)}
           />
           {!closed && holderLineShows(card) && (
@@ -283,7 +324,11 @@ function CardTile({
       <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
         {p !== null && (
           <>
-            <span className="tabular-nums">{p}%</span>
+            <span className="tabular-nums">
+              {parent
+                ? `${card.progress.done}/${card.progress.total} subtasks`
+                : `${p}%`}
+            </span>
             <span aria-hidden>·</span>
           </>
         )}
@@ -390,5 +435,17 @@ export function EmptyCards() {
         </p>
       </div>
     </Card>
+  )
+}
+
+// PartOf is a subtask's "part of #12" chip, naming its parent card.
+function PartOf({ parent }: { parent: { short: string; title: string } }) {
+  return (
+    <span
+      className="font-mono text-[11px] text-muted-foreground"
+      title={`A subtask of #${plainLine(parent.short)} ${plainLine(parent.title)}`}
+    >
+      part of #{plainLine(parent.short)}
+    </span>
   )
 }

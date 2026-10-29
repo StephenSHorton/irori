@@ -12,7 +12,9 @@ import {
   CardHolder,
   CardOption,
   CardPR,
+  CardRef,
   CardResolution,
+  CardSubtask,
   CardThreadItem,
   Holding,
 } from "../../bindings/github.com/StephenSHorton/irori/models"
@@ -146,7 +148,10 @@ export function sampleCards(now: Date): CardDetail[] {
       thread: c.thread ?? eventsOf(c.recent ?? []),
       steps: st,
       blockers: c.blockers ?? [],
-      progress: { done: st.filter((s) => s.done).length, total: st.length },
+      // A parent's bar counts its subtasks, as cardSummary does.
+      progress: c.subtasks
+        ? (c.progress ?? { done: 0, total: 0 })
+        : { done: st.filter((s) => s.done).length, total: st.length },
       holder: sampleHolder(c.working ?? []),
       ...sampleAccent(c.working ?? []),
       talking: c.talking ?? [],
@@ -716,6 +721,51 @@ export function sampleCards(now: Date): CardDetail[] {
           at: at(3),
           who: otter,
           text: "sample-otter ticked “Design”",
+        }),
+      ],
+    }),
+    // A card split into subtasks (board.md "Subtasks"): the parent's bar
+    // counts them, one is blocked, and each follows its parent in the grid.
+    card({
+      id: "sample-card-7",
+      title: "Ship the release",
+      repoKey: "remote:github.com/sample-org/example-app",
+      goal: "Version 0.6 out: notes, the build and the announcement.",
+      working: [otter],
+      updatedAt: at(5),
+      state: TaskState.Blocked,
+      steps: steps([["Pick what goes in", true]]),
+      subtasks: 2,
+      progress: { done: 0, total: 2 },
+      subtaskBlocked: "#9: Announce on Discord as well, or only the site?",
+      subtaskList: [
+        new CardSubtask({ id: "sample-card-8", short: "8", title: "Release notes", state: TaskState.Working,
+          holder: sampleHolder([heron]), progress: { done: 1, total: 2 }, blocked: false }),
+        new CardSubtask({ id: "sample-card-9", short: "9", title: "Announcement", state: TaskState.Blocked,
+          holder: sampleHolder([wren]), progress: { done: 0, total: 1 }, blocked: true }),
+      ],
+    }),
+    card({
+      id: "sample-card-8",
+      title: "Release notes",
+      repoKey: "remote:github.com/sample-org/example-app",
+      working: [heron],
+      updatedAt: at(7),
+      parent: new CardRef({ id: "sample-card-7", short: "7", title: "Ship the release" }),
+      steps: steps([["Draft", true], ["Boat fixes first", false, true]]),
+    }),
+    card({
+      id: "sample-card-9",
+      title: "Announcement",
+      repoKey: "remote:github.com/sample-org/example-app",
+      working: [wren],
+      updatedAt: at(8),
+      parent: new CardRef({ id: "sample-card-7", short: "7", title: "Ship the release" }),
+      steps: steps([["Post it", false]]),
+      blockers: [
+        new CardBlocker({
+          id: "b1", question: "Announce on Discord as well, or only the site?", context: "", raisedBy: wren, at: at(8),
+          options: [], state: "open", missing: [], thread: [], links: [], attachments: [],
         }),
       ],
     }),
