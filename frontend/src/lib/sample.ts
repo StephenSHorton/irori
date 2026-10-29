@@ -55,7 +55,7 @@ const seeds: Seed[] = [
     name: "sample-badger",
     title: "Sample: draft the placeholder docs",
     cwd: "/home/sample/src/placeholder-service",
-    status: "idle",
+    status: "busy",
     kind: "interactive",
     entry: "desktop",
     agoSec: 60 * 42,

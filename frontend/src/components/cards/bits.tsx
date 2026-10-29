@@ -221,3 +221,28 @@ export function ShortRef({ card }: { card: CardSummary }) {
     </span>
   )
 }
+
+// Spinner says an agent is working on the card right now (busy in
+// lib/cards). With reduced motion it is a still dot instead.
+export function Spinner({
+  label = "An agent is working on it",
+  className,
+}: {
+  label?: string
+  className?: string
+}) {
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      title={label}
+      className={cn(
+        "inline-grid size-3.5 shrink-0 place-items-center text-primary",
+        className
+      )}
+    >
+      <span className="col-start-1 row-start-1 block size-full rounded-full border-[1.5px] border-current border-t-transparent motion-safe:animate-spin motion-reduce:hidden" />
+      <span className="col-start-1 row-start-1 hidden size-[7px] rounded-full bg-current motion-reduce:block" />
+    </span>
+  )
+}
