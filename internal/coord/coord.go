@@ -253,8 +253,10 @@ func (c *Coord) SetTaskState(ctx context.Context, by, id string, s TaskState, no
 // play: working when a holder has taken it up, else submitted. Its holders
 // stay. Its creator, a holder or a person may. A finished parent comes back
 // with a reopened subtask; a parent whose subtasks have all ended is
-// refused (its state follows them: reopen a subtask instead).
-func (c *Coord) Reopen(ctx context.Context, by, id string) (Task, error) {
+// refused (its state follows them: reopen a subtask instead). The notice
+// is NoticeReopened to the holders other than by (with none, its creator if
+// an agent).
+func (c *Coord) Reopen(ctx context.Context, by, id string) (Task, Notice, error) {
 	return c.impl.reopen(ctx, by, id, ReopenNote)
 }
 

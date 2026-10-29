@@ -1230,14 +1230,19 @@ func TestThreadCommentPending(t *testing.T) {
 // Reopen brings a done card back with its holder.
 func TestBoardReopen(t *testing.T) {
 	ctx := context.Background()
-	b, c, _ := cardsBoard(t)
+	b, c, sent := cardsBoard(t)
 	tk := heldTask(t, c)
 	if _, err := c.SetTaskState(ctx, agentA, tk.ID, coord.Completed, ""); err != nil {
 		t.Fatal(err)
 	}
-	got, err := b.Reopen(tk.ID)
-	if err != nil || got.State != coord.Working || !slices.Equal(got.Holders, []string{agentA}) {
+	res, err := b.Reopen(tk.ID)
+	if got := res.Task; err != nil || got.State != coord.Working || !slices.Equal(got.Holders, []string{agentA}) {
 		t.Fatalf("%+v %v", got, err)
+	}
+	// Its holder hears, at its next turn.
+	if !slices.Equal(res.Told.To, []string{agentA}) || res.Told.Mode != "next_turn" || len(*sent) != 1 ||
+		(*sent)[0].n.Kind != coord.NoticeReopened {
+		t.Fatalf("told %+v, routed %+v", res.Told, *sent)
 	}
 	if _, err := b.Reopen(tk.ID); !errors.Is(err, coord.ErrBadState) {
 		t.Fatalf("reopening an open card: %v", err)

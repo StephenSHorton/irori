@@ -377,23 +377,31 @@ function AskStatus({
 
 // ReopenBar is a finished card's line under the page header: how it ended
 // and Reopen, which brings it back with whoever held it. A comment on it
-// reopens it too when someone holds it.
+// reopens it too when someone holds it. A parent whose subtasks have all
+// ended can't come back (its state follows them, Coord.Reopen refuses it):
+// it says to reopen a subtask instead, with no button.
 function ReopenBar({ detail }: { detail: CardDetail }) {
   const held = detail.working.length > 0
+  const followsSubtasks =
+    (detail.subtaskList?.length ?? 0) > 0 && detail.subtaskList.every(over)
   return (
     <div className="glass-panel flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
       <span className="min-w-48 flex-1 text-[13px] text-muted-foreground">
         {overLabel(detail)}
-        {held
-          ? ". A comment reopens it for whoever held it."
-          : ". Nobody holds it; reopening puts it back on the grid, open."}
+        {followsSubtasks
+          ? ". Its subtasks have all ended; reopen one to bring it back."
+          : held
+            ? ". A comment reopens it for whoever held it."
+            : ". Nobody holds it; reopening puts it back on the grid, open."}
       </span>
-      <ConfirmButton
-        label="Reopen"
-        question="Reopen this card? It goes back on the grid with whoever held it."
-        confirmLabel="Reopen it"
-        onConfirm={() => cards.reopen(detail.id)}
-      />
+      {!followsSubtasks && (
+        <ConfirmButton
+          label="Reopen"
+          question="Reopen this card? It goes back on the grid with whoever held it, and they hear."
+          confirmLabel="Reopen it"
+          onConfirm={() => cards.reopen(detail.id)}
+        />
+      )}
     </div>
   )
 }

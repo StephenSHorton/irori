@@ -381,9 +381,14 @@ func (b *BoardService) SetDone(id string, canceled bool) (coord.Task, error) {
 
 // Reopen brings a done, canceled or failed card back into play: working
 // with its holders, or open when nobody holds it. A finished parent comes
-// back with its subtask.
-func (b *BoardService) Reopen(id string) (coord.Task, error) {
-	return b.coord.Reopen(context.Background(), b.user.Key, strings.TrimSpace(id))
+// back with its subtask. Its holders hear at their next turn.
+func (b *BoardService) Reopen(id string) (TaskResult, error) {
+	ctx := context.Background()
+	t, n, err := b.coord.Reopen(ctx, b.user.Key, strings.TrimSpace(id))
+	if err != nil {
+		return TaskResult{}, err
+	}
+	return TaskResult{Task: t, Told: b.tell(ctx, n, TellNextTurn)}, nil
 }
 
 // AddLink adds a link out (a URL, a repo path or a commit sha).

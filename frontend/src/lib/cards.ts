@@ -40,7 +40,7 @@ import {
 } from "../../bindings/github.com/StephenSHorton/irori/internal/coord/models"
 import { inWails, plainLine } from "./irori"
 import { safeHref } from "./rich"
-import { useLatest } from "./talk"
+import { EventInboxChanged, useLatest } from "./talk"
 import { NoteItem, sampleCards, sampleYou } from "./sample-cards"
 
 export type {
@@ -678,12 +678,24 @@ function subscribe(fn: () => void): () => void {
 }
 
 // useFresh re-reads on every card change, when the window regains focus,
-// and once a few seconds after a failed read.
-function useFresh(reload: () => Promise<void>, error: string | null) {
+// and once a few seconds after a failed read. With inbox, on every
+// inbox:changed too (coalesced to 4 a second on the Go side): the card
+// page's "queued for / sent to, not read yet" lines come from the inbox,
+// so they change when a delivery does, not when the card does.
+function useFresh(
+  reload: () => Promise<void>,
+  error: string | null,
+  inbox = false
+) {
   useEffect(() => {
     void reload()
     return subscribe(() => void reload())
   }, [reload])
+
+  useEffect(() => {
+    if (!inbox || !inWails()) return
+    return Events.On(EventInboxChanged, () => void reload())
+  }, [inbox, reload])
 
   useEffect(() => {
     if (!inWails()) return
@@ -868,7 +880,7 @@ export function useCard(id: string): {
     load,
     null
   )
-  useFresh(reload, error)
+  useFresh(reload, error, true)
   const detail = useMemo(
     () => (!id || loading || value?.id !== id ? null : value),
     [id, loading, value]

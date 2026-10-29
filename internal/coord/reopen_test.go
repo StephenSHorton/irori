@@ -36,12 +36,19 @@ func TestReopenKeepsHolders(t *testing.T) {
 	e := newEnv(t)
 	tk := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "Fix the build"}))
 	must[Task](t)(e.c.ClaimTask(ctx, alice, tk.ID))
-	wantErr(t, errOnly(e.c.Reopen(ctx, user, tk.ID)), ErrBadState) // still open
+	wantErr(t, errOnly(noNotice(e.c.Reopen(ctx, user, tk.ID))), ErrBadState) // still open
 	must[Task](t)(e.c.SetTaskState(ctx, alice, tk.ID, Completed, "done"))
-	wantErr(t, errOnly(e.c.Reopen(ctx, bob, tk.ID)), ErrNotAllowed)
-	got := must[Task](t)(e.c.Reopen(ctx, user, tk.ID))
-	if got.State != Working || got.Note != ReopenNote || !reflect.DeepEqual(got.Holders, []string{alice}) {
-		t.Fatalf("reopened %+v", got)
+	wantErr(t, errOnly(noNotice(e.c.Reopen(ctx, bob, tk.ID))), ErrNotAllowed)
+	got, n, err := e.c.Reopen(ctx, user, tk.ID)
+	if err != nil || got.State != Working || got.Note != ReopenNote || !reflect.DeepEqual(got.Holders, []string{alice}) {
+		t.Fatalf("reopened %+v %v", got, err)
+	}
+	// Its holder hears, so the card isn't left Working with nobody on it.
+	if n.Kind != NoticeReopened || !reflect.DeepEqual(n.To, []string{alice}) || !strings.Contains(n.Text, "with you on it") {
+		t.Fatalf("notice %+v", n)
+	}
+	if b, _ := e.reopen().GetTask(tk.ID); b.State != got.State || b.Note != got.Note || !reflect.DeepEqual(b.Holders, got.Holders) {
+		t.Fatalf("replay differs:\n%+v\n%+v", got, b)
 	}
 	if acts := e.c.Activity(tk.ID); acts[0].What != "reopened it" || acts[0].By != user {
 		t.Fatalf("history line %+v", acts[0])
@@ -49,7 +56,7 @@ func TestReopenKeepsHolders(t *testing.T) {
 	// Nobody holds it: it comes back open.
 	free := must[Task](t)(e.c.CreateTask(ctx, user, NewTask{Title: "Unheld"}))
 	must[Task](t)(e.c.SetTaskState(ctx, user, free.ID, Canceled, ""))
-	if got := must[Task](t)(e.c.Reopen(ctx, user, free.ID)); got.State != Submitted {
+	if got := must[Task](t)(noNotice(e.c.Reopen(ctx, user, free.ID))); got.State != Submitted {
 		t.Fatalf("unheld reopened %+v", got)
 	}
 }
@@ -61,9 +68,9 @@ func TestReopenSubtasksAndParents(t *testing.T) {
 	must[Task](t)(e.c.SetTaskState(ctx, user, k.ID, Completed, ""))
 	must[Task](t)(e.c.SetTaskState(ctx, user, p.ID, Completed, ""))
 	// The parent's state follows its subtasks, which have all ended.
-	wantErr(t, errOnly(e.c.Reopen(ctx, user, p.ID)), ErrSubtask)
+	wantErr(t, errOnly(noNotice(e.c.Reopen(ctx, user, p.ID))), ErrSubtask)
 	// Reopening the subtask brings the parent back with it.
-	must[Task](t)(e.c.Reopen(ctx, user, k.ID))
+	must[Task](t)(noNotice(e.c.Reopen(ctx, user, k.ID)))
 	pt, _ := e.c.GetTask(p.ID)
 	kt, _ := e.c.GetTask(k.ID)
 	if IsTerminal(pt.State) || IsTerminal(EffectiveState(pt)) || IsTerminal(kt.State) {
@@ -84,10 +91,23 @@ func TestPersonCommentReopensAFinishedCard(t *testing.T) {
 	if got.State != Working || got.Note != ReopenCommentNote || !reflect.DeepEqual(got.Holders, []string{alice}) {
 		t.Fatalf("after the comment %+v", got)
 	}
+	if b, _ := e.reopen().GetTask(tk.ID); b.State != got.State || b.Note != got.Note || !reflect.DeepEqual(b.Holders, got.Holders) {
+		t.Fatalf("replay differs:\n%+v\n%+v", got, b)
+	}
 	// The reopen line comes before the comment.
 	acts := e.c.Activity(tk.ID)
 	if len(acts) < 2 || acts[1].What != "reopened it" {
 		t.Fatalf("activity %+v", acts)
+	}
+	// A finished card whose holders have all gone stays finished.
+	gone := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "Left behind"}))
+	must[Task](t)(e.c.ClaimTask(ctx, alice, gone.ID))
+	must[Task](t)(e.c.SetTaskState(ctx, alice, gone.ID, Completed, ""))
+	if _, _, err := e.c.PersonComment(ctx, user, gone.ID, "still there?", false, func(string) bool { return false }); err != nil {
+		t.Fatal(err)
+	}
+	if gt, _ := e.c.GetTask(gone.ID); gt.State != Completed {
+		t.Fatalf("a card with its holders gone %+v", gt)
 	}
 	// A finished card nobody holds stays finished; the comment stays on it.
 	free := must[Task](t)(e.c.CreateTask(ctx, user, NewTask{Title: "Unheld"}))
@@ -110,3 +130,6 @@ func TestWatchAFinishedCard(t *testing.T) {
 		t.Fatalf("watchers %v", got.Watchers)
 	}
 }
+
+// noNotice drops Reopen's notice.
+func noNotice(t Task, _ Notice, err error) (Task, error) { return t, err }

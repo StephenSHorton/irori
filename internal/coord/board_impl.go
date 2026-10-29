@@ -463,10 +463,13 @@ func (c *coord) personComment(ctx context.Context, by, id, text string, wake boo
 		}
 	}
 	was := ""
-	if len(t.Holders) > 0 && c.reopenRefusal(t) == nil {
-		// A comment on a finished card someone holds reopens it (board.md
-		// "Comments from the app"), before the comment, so the thread
-		// reads in that order. A parent that can't come back stays done.
+	if slices.ContainsFunc(t.Holders, func(h string) bool { return !c.isOwner(h) && (around == nil || around(h)) }) &&
+		c.reopenRefusal(t) == nil {
+		// A comment on a finished card a holder still around holds reopens
+		// it (board.md "Comments from the app"), before the comment, so the
+		// thread reads in that order. With every holder gone it would sit
+		// Working with nobody on it, so it stays finished. A parent that
+		// can't come back stays done.
 		was = string(t.State)
 		if err := c.reopenLocked(ctx, by, t, ReopenCommentNote); err != nil {
 			return Comment{}, nil, err

@@ -1372,24 +1372,37 @@ const (
 )
 
 // reopen is Reopen with the state row's note.
-func (c *coord) reopen(ctx context.Context, by, id, note string) (Task, error) {
+func (c *coord) reopen(ctx context.Context, by, id, note string) (Task, Notice, error) {
 	by = strings.TrimSpace(by)
 	if by == "" {
-		return Task{}, fmt.Errorf("%w: no caller", ErrInvalid)
+		return Task{}, Notice{}, fmt.Errorf("%w: no caller", ErrInvalid)
 	}
 	c.mu.Lock()
 	defer c.unlock()
 	t, err := c.anyTask(id)
 	if err != nil {
-		return Task{}, err
+		return Task{}, Notice{}, err
 	}
 	if !c.mayManage(t, by) {
-		return Task{}, fmt.Errorf("%w: reopen task %s", ErrNotAllowed, id)
+		return Task{}, Notice{}, fmt.Errorf("%w: reopen task %s", ErrNotAllowed, id)
 	}
+	was := t.State
 	if err := c.reopenLocked(ctx, by, t, note); err != nil {
-		return Task{}, err
+		return Task{}, Notice{}, err
 	}
-	return copyTask(t), nil
+	n := Notice{Kind: NoticeReopened, TaskID: t.ID, Ref: "task:" + t.ID, Title: t.Title, By: by, To: c.recipients(t, by)}
+	who := by
+	if c.isOwner(by) {
+		who = "The person"
+	}
+	n.Text = fmt.Sprintf("%s reopened %q (%s), which was %s. It is %s again", who, t.Title, t.Refs(), was, t.State)
+	if len(t.Holders) > 0 {
+		n.Text += ", with you on it: pick it up, or board_status it done again if there is nothing left to do."
+	} else {
+		n.Text += ", with nobody on it."
+	}
+	n.Text += deeper(t.ID)
+	return copyTask(t), n, nil
 }
 
 // reopenLocked writes t's reopening state row: working when a holder has
