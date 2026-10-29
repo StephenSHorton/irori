@@ -652,7 +652,8 @@ func (b *BoardService) Cards() []CardSummary {
 		if acts := b.coord.Activity(t.ID); len(acts) > 0 && acts[0].At.After(last) {
 			last = acts[0].At
 		}
-		s.Stale = stale(s, last, now)
+		// A parent's work happens on its subtasks, which show their own.
+		s.Stale = s.Subtasks == 0 && stale(s, last, now)
 		s.Talking = talking(b.coord.Comments(t.ID), p, now)
 		b.familyOf(t, &s)
 		out = append(out, s)

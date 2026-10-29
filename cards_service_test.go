@@ -1163,4 +1163,16 @@ func TestCardsSubtaskFamilies(t *testing.T) {
 	if len(d.SubtaskList) != 2 || d.SubtaskList[1].ID != kids[1].ID || !d.SubtaskList[1].Blocked || d.SubtaskList[1].Holder.Who.Key != agentB {
 		t.Fatalf("subtask list %+v", d.SubtaskList)
 	}
+	// Once every subtask has ended the parent leaves the live grid with them.
+	if _, err := c.SetTaskState(ctx, agentA, kids[0].ID, coord.Canceled, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.SetTaskState(ctx, agentB, kids[1].ID, coord.Completed, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range b.Cards() {
+		if s.ID == p.ID {
+			t.Fatalf("a parent whose subtasks all ended is still live: %+v", s)
+		}
+	}
 }

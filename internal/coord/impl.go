@@ -1185,7 +1185,7 @@ func (c *coord) listTasks(f TaskFilter) []Task {
 	for _, t := range c.tasks {
 		if f.RepoKey != "" && t.RepoKey != f.RepoKey ||
 			f.Holder != "" && !isHolder(t, f.Holder) ||
-			f.Open && IsTerminal(t.State) {
+			f.Open && IsTerminal(EffectiveState(*t)) { // a parent ends with its subtasks
 			continue
 		}
 		out = append(out, copyTask(t))
