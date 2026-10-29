@@ -541,8 +541,8 @@ func (c *coord) answer(ctx context.Context, by, id, bid string, a BlockerAnswer)
 		}
 	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "%s answered the blocker on %q (task:%s, blocker %s).\nQuestion: %s\nAnswer: %s",
-		by, t.Title, id, b.ID, b.Question, cut(text, maxNoticeField))
+	fmt.Fprintf(&sb, "%s answered the blocker on %q (%s, blocker %s).\nQuestion: %s\nAnswer: %s",
+		by, t.Title, t.Refs(), b.ID, b.Question, cut(text, maxNoticeField))
 	switch {
 	case recBy != "" && rec:
 		fmt.Fprintf(&sb, "\n(That is the answer %s recommended.)", recBy)
@@ -883,7 +883,7 @@ func watchParts(s string) (lines []string, more int, head, foot string, ok bool)
 
 func watchText(t *Task, lines []string, dropped int) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, watchHead+"%q (task:%s)"+watchHeadEnd, t.Title, t.ID)
+	fmt.Fprintf(&b, watchHead+"%q (%s)"+watchHeadEnd, t.Title, t.Refs())
 	shown := lines
 	if len(shown) > maxWatchLines {
 		shown = shown[len(shown)-maxWatchLines:]

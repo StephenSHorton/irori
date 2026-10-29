@@ -972,10 +972,10 @@ func TestSearchDocs(t *testing.T) {
 	for _, d := range docs {
 		byRef[d.Ref] = d
 	}
-	if d := byRef["task:"+t1.ID]; d.Kind != search.KindTask || d.Title != "one" || d.Body != "obj\ndc" || d.Agent != bob || d.RepoKey != repoA || !d.At.Equal(t1.CreatedAt) || !d.Updated.Equal(c1.At) {
+	if d := byRef["task:"+t1.ID]; d.Kind != search.KindTask || d.Title != "one" || d.Body != "#1\nobj\ndc" || d.Agent != bob || d.RepoKey != repoA || !d.At.Equal(t1.CreatedAt) || !d.Updated.Equal(c1.At) {
 		t.Fatalf("t1 doc %+v", d)
 	}
-	if d := byRef["task:"+t2.ID]; d.Body != "stuck" || d.Agent != "" {
+	if d := byRef["task:"+t2.ID]; d.Body != "#2\nstuck" || d.Agent != "" {
 		t.Fatalf("t2 doc %+v", d)
 	}
 	if d := byRef["comment:"+c1.ID]; d.Kind != search.KindComment || d.Title != "comment on one" || d.Body != "from a person" || d.Agent != "" || d.RepoKey != repoA {

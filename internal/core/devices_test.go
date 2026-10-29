@@ -758,3 +758,68 @@ func TestAClockAheadWinsNoAnswer(t *testing.T) {
 		})
 	}
 }
+
+// Short refs across a partition (board.md "Short refs"): the PC and the
+// Mac both number a card #2 while they can't reach each other. Once they
+// meet, every device settles on the same refs: the card created first keeps
+// #2, the other becomes #2b and says it was #2, and numbering carries on
+// past both.
+func TestShortRefsConvergeAfterAPartition(t *testing.T) {
+	ctx := context.Background()
+	net, pc, mac, nd := meshTrio(t)
+	first, err := pc.c.Coord().CreateTask(ctx, pc.agent(), coord.NewTask{Title: "Before the split"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []*hcore{mac, nd} {
+		wait(t, "#1 on "+h.name, func() bool { x, _ := h.c.Coord().GetTask(first.ID); return x.Short == "1" })
+	}
+
+	net.Isolate(mac.id())
+	a, err := pc.c.Coord().CreateTask(ctx, pc.agent(), coord.NewTask{Title: "PC card"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(5 * time.Millisecond) // the Mac's card is created later, at a later HLC
+	m, err := mac.c.Coord().CreateTask(ctx, mac.agent(), coord.NewTask{Title: "Mac card"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m2, err := mac.c.Coord().CreateTask(ctx, mac.agent(), coord.NewTask{Title: "Mac card two"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Short != "2" || m.Short != "2" || m2.Short != "3" {
+		t.Fatalf("while apart: pc %q, mac %q and %q", a.Short, m.Short, m2.Short)
+	}
+
+	net.HealAll()
+	wait(t, "the three converge", synced(pc, mac, nd))
+	want := map[string][2]string{first.ID: {"1", ""}, a.ID: {"2", ""}, m.ID: {"2b", "2"}, m2.ID: {"3", ""}}
+	for _, h := range []*hcore{pc, mac, nd} {
+		wait(t, "the refs settle on "+h.name, func() bool {
+			for id, w := range want {
+				x, _ := h.c.Coord().GetTask(id)
+				if x.Short != w[0] || x.ShortWas != w[1] {
+					return false
+				}
+			}
+			return true
+		})
+		for id, w := range want {
+			if got, err := h.c.Coord().TaskRef("#" + w[0]); err != nil || got != id {
+				t.Fatalf("%s: #%s is %q (%v)", h.name, w[0], got, err)
+			}
+		}
+	}
+
+	// Numbering carries on past every claim, on whichever device.
+	next, err := mac.c.Coord().CreateTask(ctx, mac.agent(), coord.NewTask{Title: "After the heal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Short != "4" {
+		t.Fatalf("the first card after the heal is #%s", next.Short)
+	}
+	wait(t, "#4 on the pc", func() bool { x, _ := pc.c.Coord().GetTask(next.ID); return x.Short == "4" })
+}

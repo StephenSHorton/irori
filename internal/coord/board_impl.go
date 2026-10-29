@@ -135,7 +135,7 @@ func (c *coord) assignNotice(ctx context.Context, by, id, to string) (Task, Noti
 		n.To = []string{to}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s assigned you a task: %q (task:%s).", by, t.Title, t.ID)
+	fmt.Fprintf(&b, "%s assigned you a task: %q (%s).", by, t.Title, t.Refs())
 	if t.Objective != "" {
 		fmt.Fprintf(&b, "\nObjective: %s", cut(t.Objective, maxNoticeField))
 	}
@@ -305,7 +305,7 @@ func (c *coord) closeBlocker(ctx context.Context, by string, t *Task, note strin
 	if by == sweeper {
 		who = "Irori"
 	}
-	fmt.Fprintf(&b, "%s unblocked %q (task:%s)", who, t.Title, t.ID)
+	fmt.Fprintf(&b, "%s unblocked %q (%s)", who, t.Title, t.Refs())
 	if note != "" {
 		fmt.Fprintf(&b, ": %s", note)
 	}
@@ -377,7 +377,7 @@ func (c *coord) addComment(ctx context.Context, by, id, text string, wake bool, 
 	n := Notice{
 		Kind: NoticeComment, TaskID: id, Ref: "comment:" + cid, Title: t.Title, By: by,
 		To: c.recipients(t, by), Wake: wake, Attachments: files,
-		Text: fmt.Sprintf("%s commented on %q (task:%s):\n%s%s", by, t.Title, id, text, deeper(id)),
+		Text: fmt.Sprintf("%s commented on %q (%s):\n%s%s", by, t.Title, t.Refs(), text, deeper(id)),
 	}
 	return cm, n, nil
 }
@@ -826,8 +826,8 @@ func (c *coord) sweepNotices(ctx context.Context) ([]Notice, error) {
 		for i, id := range ids {
 			items = append(items, id+" ("+why[i]+")")
 		}
-		n.Text = fmt.Sprintf("Irori closed %s on %q (task:%s): what it waited on went away. %d more blockers are still open; board_unblock with blocker_id answers one.%s",
-			strings.Join(items, ", "), t.Title, t.ID, countOpen(t), deeper(t.ID))
+		n.Text = fmt.Sprintf("Irori closed %s on %q (%s): what it waited on went away. %d more blockers are still open; board_unblock with blocker_id answers one.%s",
+			strings.Join(items, ", "), t.Title, t.Refs(), countOpen(t), deeper(t.ID))
 		if len(n.To) > 0 {
 			out = append(out, n)
 		}

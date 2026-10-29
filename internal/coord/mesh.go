@@ -166,6 +166,7 @@ func (c *coord) refoldIfCut(ctx context.Context, vec store.Vector) {
 	c.tasks, c.order, c.nextOrder = map[string]*Task{}, map[string]uint64{}, 0
 	c.held, c.comments, c.byTask, c.refusals = map[string]*leaseRec{}, map[string]*Comment{}, map[string][]string{}, nil
 	c.blockerSeq, c.stepSeq, c.activity = map[string]int{}, map[string]int{}, map[string][]Activity{}
+	c.claims, c.claimed, c.shortIdx, c.shortTop = nil, map[string]bool{}, map[string]string{}, 0
 	c.last, c.conflicts, c.stolen, c.lapsed, c.ignored, c.ignoredBy = map[string]int64{}, map[string]*leaseRec{}, map[string]bool{}, nil, 0, nil
 	if err := c.replay(ctx); err != nil {
 		log.Printf("coord: re-fold after a revoke's cut: %v", err)

@@ -51,6 +51,37 @@ The tools enforce what they can:
 - When a card links to a tracker item, the Board shows it by its own name: "Linear ABC-123", "GitHub #57".
 - Irori doesn't sync or mirror trackers. Agents use whatever tools they've been given for those (Linear MCP, `gh`, and so on). The Board only points.
 
+## Short refs
+
+*v0.4.2.* A card's id is `task:01M62B05GRJT56Y3BVAM2D7NAG`. Nobody can say that out loud. So each card also has a **short ref**, `#12`, that Stephen can say and type, and that agents print and accept.
+
+**The scheme: a number per person, claimed when the card is made, with clashes settled by the fold.**
+- `task.created` gains `num`: one more than the highest number its device has folded. One device counts 1, 2, 3, and every device that has synced continues from the same top number.
+- The short ref is never written. The fold derives it from the rows. For each number, the claimants are taken in `(hlc, device, seq)` order: the first is `#12`, the next `#12b`, then `#12c`.
+- A clash happens only when two devices make a card while they can't see each other's rows (a partition, or two creates inside one sync tick). Once the rows meet, every device settles it the same way. The card made first keeps `#12`. The other becomes `#12b`, and its card and `show` say "was #12".
+- Numbering carries on past every claim. After the PC and the Mac both used #2 apart, the next card on either device is one past the highest number either of them reached.
+- Rows written before `num` existed claim their rank among such rows, in the same order. They line up as 1, 2, 3 and new cards count on from there.
+
+**Why this one:**
+- *It is short and sayable.* Most cards are `#7` or `#31`. A letter shows up only after a real clash.
+- *It is stable once seen.* A card's number changes at most once per clash, and only by gaining a letter. No other card moves. Nothing renumbers as the Board grows, and nothing renumbers because a late row arrived.
+- *It converges with no writes.* The ref depends only on the set of `task.created` rows, never on arrival order (a test feeds the same rows in several orders, and one replays them). No device has to be online to settle a clash, so a card whose device has gone offline still settles. There is no owner and no extra row.
+- *A renumber is visible and rare.* It needs a create on two devices that are apart, and the window and `show` both say what it was.
+
+**Rejected:**
+- *Rank in `(hlc, device, seq)` order, with no stored number.* That needs no field, but a card made on an offline device lands in the middle of the order when it syncs and renumbers every card after it.
+- *A base32 prefix of the id that grows on a clash.* The first ten characters of an id are its millisecond time, so cards made close together share long prefixes. The random tail is unique, but `#K7QD` is hard to say. And a prefix that grows on a clash changes a ref that has already been seen.
+- *A per-device prefix (`#M3`, `#P12`).* It never clashes, but every ref carries a device letter, even though most people use one device at a time.
+- *A renumber row written by the losing card's device.* That gives plain integers, but the clash then stays unsettled until that device comes back online.
+
+**Where it shows:**
+- `Task.Short` and `Task.ShortWas` are fold-derived, and `CardSummary` carries them to the window. The grid tile and the detail header show `#12`.
+- Every tool that takes a card accepts `#12`, `12`, `task:#12`, or the full id with or without `task:` (`Coord.TaskRef`, `ParseShort`). So does `board_block`'s `on: task #12`, which stores the full id because it replicates.
+- `show #12` works, and so does `show task:#12`, through coord's Source.
+- Card lines print `#12 task:<id>`. Confirmations print `#12`. Notices print `(#12, task:<id>)`, because a notice's text is kept, and the id never moves.
+- `Notice.Ref`, notify targets and every other machine ref stay `task:<id>`.
+- Search: a task doc's body starts with `#12`, so the word `12` finds it. A query of only `#12` puts that card first. Task hits print their short ref. A card whose ref moves is re-read by the index even though its `UpdatedAt` doesn't change.
+
 ## Where Irori's own long-lived records fit
 
 - **Capture** (timeline, edits, commits) is history Irori records by itself, mechanically. Nobody writes it, so it isn't clutter.

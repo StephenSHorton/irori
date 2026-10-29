@@ -63,7 +63,10 @@ func (c *Coord) IsPerson(key string) bool { return c.impl.isOwner(key) }
 // Row payloads. Every row carries "at" (this device's clock when it was
 // written) so a replay folds to the same times.
 type taskCreatedRow struct {
-	TaskID       string    `json:"taskId"`
+	TaskID string `json:"taskId"`
+	// Num is the short number the card claims (short.go): one more than
+	// the highest its device had folded. Absent on older rows.
+	Num          int       `json:"num,omitempty"`
 	Title        string    `json:"title"`
 	Objective    string    `json:"objective"`
 	DoneCriteria string    `json:"doneCriteria,omitempty"`
@@ -193,6 +196,15 @@ type coord struct {
 	activity    map[string][]Activity  // task id -> newest MaxActivity lines, oldest first
 	watchq      map[string]*watchQueue // task id -> changes watchers haven't heard (not on replay)
 
+	// Short refs (short.go): every task.created row's claim, the tasks
+	// that have one, short -> task id, the highest number claimed, and
+	// when a card's ref last moved (in memory: search re-reads it).
+	claims     []shortClaim
+	claimed    map[string]bool
+	shortIdx   map[string]string
+	shortTop   int
+	shortMoved map[string]time.Time
+
 	// Subscribe (subscribe.go). Changes queue in pending while c.mu is held
 	// and go out in unlock; replay queues none.
 	subs      map[chan Change]*subscriber
@@ -233,6 +245,9 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 		stepSeq:     map[string]int{},
 		activity:    map[string][]Activity{},
 		watchq:      map[string]*watchQueue{},
+		claimed:     map[string]bool{},
+		shortIdx:    map[string]string{},
+		shortMoved:  map[string]time.Time{},
 		subs:        map[chan Change]*subscriber{},
 		last:        map[string]int64{},
 		conflicts:   map[string]*leaseRec{},
@@ -275,6 +290,7 @@ func (c *coord) replay(ctx context.Context) error {
 		}
 		c.prune(c.stamp())
 		if len(evs) < f.Limit {
+			c.renumber()
 			return nil
 		}
 		f.After = evs[len(evs)-1].Cursor()
@@ -352,6 +368,7 @@ func (c *coord) apply(ev store.Event) {
 			RepoKey: p.RepoKey, Scope: p.Scope, State: Submitted, CreatedBy: p.By,
 			CreatedAt: t, UpdatedAt: t, UpdatedBy: p.By, Shared: p.Shared, Links: links,
 		}
+		c.claimShort(p.TaskID, ev.Cursor(), p.Num)
 		c.touch(c.tasks[p.TaskID], t, p.By, "put the card up", false)
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID})
 	case KindTaskClaimed:
@@ -910,7 +927,7 @@ func (c *coord) createTask(ctx context.Context, by string, nt NewTask) (Task, er
 	at := c.stamp()
 	id := newID(at)
 	if err := c.write(ctx, by, KindTaskCreated, taskCreatedRow{
-		TaskID: id, Title: title, Objective: obj, DoneCriteria: done,
+		TaskID: id, Num: c.nextShort(), Title: title, Objective: obj, DoneCriteria: done,
 		RepoKey: repoKey, Scope: scope, Shared: nt.Shared, Links: links, By: by, At: at,
 	}); err != nil {
 		return Task{}, err
