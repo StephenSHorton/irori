@@ -27,7 +27,6 @@ import {
 } from "@/lib/cards"
 import {
   parseTime,
-  plainBlock,
   plainLine,
   relativeTime,
   shortPath,
@@ -39,6 +38,8 @@ import { cn } from "@/lib/utils"
 import { cardTone, HolderLine, ProgressBar, ScopeBadge, ShortRef } from "./bits"
 import { Face, LiveDot } from "./faces"
 import { Thread } from "./thread"
+import { AttachmentList } from "@/components/attachments"
+import { LinkChip, RichLine, RichText } from "@/components/common/rich-text"
 
 // Answered is a note answer the person just sent: the note item leaves the
 // card once answered, so the panel keeps it to show who heard.
@@ -85,20 +86,21 @@ export function CardPanel({
           {plainLine(detail.title) || "(untitled)"}
         </h2>
         {detail.goal && (
-          <p className="max-w-[62ch] text-sm whitespace-pre-wrap text-muted-foreground">
-            {plainBlock(detail.goal)}
-          </p>
+          <RichText
+            text={detail.goal}
+            className="max-w-[62ch] text-sm text-muted-foreground"
+          />
         )}
         {detail.note && detail.state !== TaskState.InputRequired && (
           <p className="max-w-[62ch] text-[12.5px] text-muted-foreground">
             <span className="font-medium text-ink-2">Note:</span>{" "}
-            {plainLine(detail.note)}
+            <RichLine text={detail.note} />
           </p>
         )}
         {detail.doneWhen && (
           <p className="max-w-[62ch] text-[12.5px] text-muted-foreground">
             <span className="font-medium text-ink-2">Done when:</span>{" "}
-            {plainLine(detail.doneWhen)}
+            <RichLine text={detail.doneWhen} />
           </p>
         )}
         {p === null ? (
@@ -132,7 +134,7 @@ export function CardPanel({
           {legacy && (
             <div className="grid gap-1.5 border border-destructive/50 bg-destructive/10 p-3">
               <div className="text-[13.5px] font-semibold text-ink">
-                {plainLine(detail.blockerQuestion)}
+                <RichLine text={detail.blockerQuestion} />
               </div>
               <div className="text-xs text-muted-foreground">
                 Raised without recommended answers. The agent on it clears it
@@ -452,40 +454,12 @@ function BlockerItem({
           aria-label={`Answers to: ${plainLine(b.question)}`}
         >
           {byRecommendation(b.options).map(([o, i]) => (
-            <button
+            <OptionItem
               key={i}
-              type="button"
-              disabled={busy}
-              onClick={() => send(i, "")}
-              className={cn(
-                "grid gap-0.5 rounded-[10px] border bg-card px-2.5 py-2 text-left outline-none hover:border-primary focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60",
-                o.recommended
-                  ? "border-primary/60 bg-accent/40 ring-1 ring-primary/20"
-                  : "border-border"
-              )}
-            >
-              <span className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold text-ink">
-                {plainLine(o.answer)}
-                {o.recommended && (
-                  <Badge
-                    variant="info"
-                    className="h-4 rounded-full px-1.5 text-[10.5px]"
-                  >
-                    Recommended
-                  </Badge>
-                )}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {o.recommended ? (
-                  <span className="font-medium text-primary">
-                    {name(o.by)} recommends this.
-                  </span>
-                ) : (
-                  <span>Option from {name(o.by)}.</span>
-                )}{" "}
-                {plainLine(o.why)}
-              </span>
-            </button>
+              option={o}
+              busy={busy}
+              onPick={() => send(i, "")}
+            />
           ))}
         </div>
       )}
@@ -529,7 +503,7 @@ function BlockerItem({
               ✓{" "}
             </span>
           )}
-          {plainLine(b.question)}
+          <RichLine text={b.question} />
         </span>
         {chip && (
           <Badge
@@ -541,10 +515,23 @@ function BlockerItem({
         )}
       </div>
       {b.context && (
-        <div className="max-w-[64ch] text-[12.5px] whitespace-pre-wrap text-ink-2">
-          {plainBlock(b.context)}
+        <RichText
+          text={b.context}
+          className="max-w-[64ch] text-[12.5px] text-ink-2"
+        />
+      )}
+      {(b.links?.length ?? 0) > 0 && (
+        <div
+          className="flex flex-wrap gap-1.5"
+          role="group"
+          aria-label={`Links for: ${plainLine(b.question)}`}
+        >
+          {b.links.map((l) => (
+            <LinkChip key={`${l.kind}:${l.ref}`} link={l} />
+          ))}
         </div>
       )}
+      <AttachmentList attachments={b.attachments ?? []} />
       <div className="text-[11.5px] text-muted-foreground">
         Raised by {name(b.raisedBy)} ·{" "}
         <time dateTime={raised?.toISOString()} title={raised?.toLocaleString()}>
@@ -640,6 +627,63 @@ function BlockerItem({
           />
         )}
       {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  )
+}
+
+// OptionItem is one answer to pick: the button picks it (the answer and
+// who recommends it); its why and link sit beside the button, not in it,
+// so their links and code can be clicked without picking.
+function OptionItem({
+  option: o,
+  busy,
+  onPick,
+}: {
+  option: CardOption
+  busy: boolean
+  onPick: () => void
+}) {
+  return (
+    <div
+      className={cn(
+        "grid gap-1 border bg-card",
+        o.recommended
+          ? "border-primary/60 bg-accent/40 ring-1 ring-primary/20"
+          : "border-border"
+      )}
+    >
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onPick}
+        className="grid gap-0.5 px-2.5 pt-2 text-left outline-none last:pb-2 hover:bg-primary/5 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
+      >
+        <span className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold text-ink">
+          <span>
+            <RichLine text={o.answer} interactive={false} />
+          </span>
+          {o.recommended && (
+            <Badge variant="info" className="h-4 rounded-full px-1.5 text-[10.5px]">
+              Recommended
+            </Badge>
+          )}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {o.recommended ? (
+            <span className="font-medium text-primary">
+              {name(o.by)} recommends this.
+            </span>
+          ) : (
+            <span>Option from {name(o.by)}.</span>
+          )}
+        </span>
+      </button>
+      {(o.why || o.link) && (
+        <div className="grid gap-1 px-2.5 pb-2 text-xs text-muted-foreground">
+          {o.why && <RichText text={o.why} />}
+          {o.link && <LinkChip link={o.link} className="justify-self-start" />}
+        </div>
+      )}
     </div>
   )
 }

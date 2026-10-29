@@ -9,6 +9,7 @@ import { errorText } from "@/lib/talk"
 import { opensInFull, threadLabel, ThreadKind, visible } from "@/lib/thread"
 import { cn } from "@/lib/utils"
 import { Face } from "./faces"
+import { RichLine, RichText } from "@/components/common/rich-text"
 
 // Thread is a card's thread, oldest first: comments, messages about the
 // card ("A -> B") and one muted line per thing that happened, each with
@@ -113,7 +114,7 @@ function ThreadRow({
       <div className="grid grid-cols-[56px_minmax(0,1fr)] gap-2">
         {time}
         <span className="text-muted-foreground">
-          {plainLine(item.text)}
+          <RichLine text={item.text} />
           {item.device && <DeviceTag device={item.device} />}
         </span>
       </div>
@@ -162,9 +163,7 @@ function ThreadRow({
         </div>
         {full ? (
           <>
-            <p className="max-w-[64ch] whitespace-pre-wrap text-ink-2">
-              {plainBlock(full.text)}
-            </p>
+            <RichText text={full.text} className="max-w-[64ch] text-ink-2" />
             {full.files.length > 0 && (
               <ul className="grid gap-0.5 text-[11px] text-muted-foreground">
                 {full.files.map((f, i) => (
@@ -180,18 +179,16 @@ function ThreadRow({
             Not let through the wake policy yet, so its text isn't on the card.
           </p>
         ) : (
-          body && (
-            <p className="max-w-[64ch] whitespace-pre-wrap text-ink-2">
-              {body}
-            </p>
-          )
+          body && <RichText text={body} className="max-w-[64ch] text-ink-2" />
         )}
         {!!item.missing?.length && (
           <div className="grid gap-0.5 text-ink-2">
             <span className="text-xs text-muted-foreground">Still needed:</span>
             <ul className="ml-4 list-disc">
               {item.missing.map((m, i) => (
-                <li key={i}>{plainLine(m)}</li>
+                <li key={i}>
+                  <RichLine text={m} />
+                </li>
               ))}
             </ul>
           </div>

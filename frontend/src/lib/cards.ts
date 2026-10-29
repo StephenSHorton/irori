@@ -26,10 +26,13 @@ import {
   type CardPR,
 } from "../../bindings/github.com/StephenSHorton/irori/models"
 import {
+  LinkKind,
   TaskState,
+  type Link,
   type Step,
 } from "../../bindings/github.com/StephenSHorton/irori/internal/coord/models"
 import { inWails, plainLine } from "./irori"
+import { safeHref } from "./rich"
 import { useLatest } from "./talk"
 import { NoteItem, sampleCards, sampleYou } from "./sample-cards"
 
@@ -46,10 +49,11 @@ export type {
   CardSummary,
   CardThreadItem,
   CommentResult,
+  Link,
   Step,
   Told,
 }
-export { Holding, NoteItem, TaskState }
+export { Holding, LinkKind, NoteItem, TaskState }
 
 // EventBoardChanged mirrors the Go constant in board_service.go: it fires on
 // every card change.
@@ -397,11 +401,15 @@ export const cards = {
     return sampleMessage(id, msgId)
   },
 
-  // openURL opens a PR's page in the person's browser.
+  // openURL opens a link (a PR's page, a link in an agent's text or on a
+  // blocker) in the person's browser. Only http(s) with a host: anything
+  // else is dropped (rich.ts safeHref).
   async openURL(url: string): Promise<void> {
-    if (!/^https:\/\//.test(url)) return
-    if (inWails()) return Browser.OpenURL(url)
-    window.open(url, "_blank", "noopener")
+    if (!/^https?:\/\//i.test(url)) return
+    const href = safeHref(url)
+    if (!href) return
+    if (inWails()) return Browser.OpenURL(href)
+    window.open(href, "_blank", "noopener")
   },
 }
 

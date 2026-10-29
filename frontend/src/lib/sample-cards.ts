@@ -183,6 +183,57 @@ export function sampleCards(now: Date): CardDetail[] {
           resolved: null,
           state: "open",
         }),
+        // Rich: something for the person to do elsewhere, with the page to
+        // open, the command to copy and a file to look at.
+        new CardBlocker({
+          id: "b5",
+          question: "Request access to the gated DINOv3 weights?",
+          context:
+            "The probe needs the ViT-L weights, which Hugging Face gates per account. Two things: 1) open huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m and click Request access 2) type `! hf auth login` in the Mac Claude session and paste a read token.",
+          raisedBy: otter,
+          at: at(12),
+          options: [
+            new CardOption({
+              answer: "I requested it and logged in",
+              why: "Approval is usually instant; check it under https://huggingface.co/settings/gated-repos.",
+              by: otter,
+              at: at(12),
+              recommended: true,
+              link: {
+                kind: LinkKind.LinkURL,
+                ref: "https://huggingface.co/settings/tokens",
+                label: "huggingface.co",
+              },
+            }),
+            new CardOption({
+              answer: "Use DINOv2 instead",
+              why: "Ungated, but the probe scores about 3 points lower.",
+              by: otter,
+              at: at(12),
+            }),
+          ],
+          links: [
+            {
+              kind: LinkKind.LinkURL,
+              ref: "https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m",
+              label: "huggingface.co",
+            },
+            { kind: LinkKind.LinkPath, ref: "docs/models.md", label: "docs/models.md" },
+          ],
+          attachments: [
+            {
+              sha256: "1".repeat(64),
+              name: "gate-page.png",
+              size: 48213,
+              mime: "image/png",
+              device: dev,
+            },
+          ],
+          resolved: null,
+          state: "open",
+          missing: [],
+          thread: [],
+        }),
         // Replied: the person answered, the agent asked back with what
         // the answer still misses, so it is back with the person.
         new CardBlocker({
