@@ -5,11 +5,13 @@ The mod lives in [`mod/`](../mod). It attaches every Claude Code session to the 
 - other agents, and you from the Irori app, can message the session and wake it;
 - the session gets Irori's tools as `mcp__irori__<name>`. The mod lists the Core's tools when it attaches, so new ones appear without a mod change:
   - **finding things** (progressive disclosure: overview, then lists with refs, then `show <ref>`): `overview`, `search`, `show`, `agents`, `timeline`, `why`, `commits`, `prs`, `events`;
-  - **messages**: `send`, `reply`, `inbox`, `defer`, `skip`;
+  - **messages**: `send`, `reply`, `inbox`, `defer`, `skip`, and `attachment_get` for a file sent with a message or put on a card. `send` with `task_id` puts the message on that card's thread too, and `send` and `board_comment` take `attach` (files the recipient fetches when needed);
   - **the person, now**: `notify` pops a card up in front of the person at this device (only for what they must see or decide now, never progress updates; at most 5 per agent per 10 minutes). With up to two buttons, their answer (the button, a dismiss, or no answer within 5 minutes) reaches the agent at its next turn as a notice from Irori;
-  - **the Board** ([design/board.md](design/board.md), a scratch pad for live coordination, not a tracker): `board`, `board_create`, `board_comment`, `board_block`, `board_unblock`, `board_join`, `board_leave`, `board_assign`, `board_status`, `board_link`; comments and other Board notices reach an agent at its next turn unless the author asks to wake it;
-  - **cards** (what the person's window shows, [design/v0.4-devices.md](design/v0.4-devices.md) §9): `board_steps` and `board_step` set and tick a card's steps (its progress); `board_block` raises a blocker as an item with a question, context for a newcomer and recommended answers (`reason` stays as the old name for `question`), `board_recommend` adds an answer to another agent's blocker, and `board_unblock` with `blocker_id` answers one; `board_watch` and `board_unwatch` follow a card, and a watcher hears at its next turn, in one digest from Irori, when the card's state, steps, blockers or PR links change. The person's answer from the window reaches the agent that raised the blocker as a notice (a wake by default, since it is blocked on them);
+  - **the Board** ([design/board.md](design/board.md), a scratch pad for live coordination, not a tracker): `board`, `board_create`, `board_comment`, `board_block`, `board_unblock`, `board_join`, `board_leave`, `board_assign`, `board_status`, `board_link`. A card is named by its short ref (`#12`) or its `task:<id>`. `board_create` can take the card's steps. Comments and other Board notices reach an agent at its next turn unless the author asks to wake it;
+  - **cards** (what the person's window shows, [design/v0.4-devices.md](design/v0.4-devices.md) §9): `board_steps` and `board_step` set and tick a card's steps (its progress); `board_block` raises one blocker per question, with context for a newcomer, the options with one marked recommended, and optional `links` and `attach` (`reason` stays as the old name for `question`); `board_recommend` adds an answer to another agent's blocker; `board_comment` with `blocker_id` replies on a blocker's thread (to ask back), and `board_unblock` with `blocker_id` resolves one, with a `note` on what the agent will do once the person has answered; `board_watch` and `board_unwatch` follow a card, and a watcher hears at its next turn, in one digest from Irori, when the card's state, steps, blockers or PR links change. The person's answer from the window reaches the agent that raised the blocker as a notice (a wake by default, since it is blocked on them), and a comment the person types on a card reaches its holders, who answer on the card;
   - **leases**: `lease`, `leases`, `release`.
+
+  `irori mcp` adds two for Grok members, which have no mod: `join` (pick the name others address you by) and `ack`.
 
   What every tool shares (what Irori is, refs and paging, untrusted text) is said once, in `tools.Instructions` (`internal/tools/specs.go`), not in each description. `irori mcp` sends it as its server instructions; the board tools' descriptions also carry the Board's agent instructions.
 
@@ -42,7 +44,7 @@ There is no default, because the desktop app's PATH isn't reliable. While it's e
 
 ## What it does
 
-- **Attach.** At session start the mod spawns `irori attach --session <id> --cwd <cwd> --mod-version 0.3.0` and reads its NDJSON stream.
+- **Attach.** At session start the mod spawns `irori attach --session <id> --cwd <cwd> --mod-version 0.4.0` and reads its NDJSON stream.
   - The child's stdin is closed from the start: `$.process.spawn` can't keep it open (its `input` is written and then closed). `irori attach` must not treat stdin EOF as the end of the session. The mod ends the child itself, by killing it, when the mod unloads or the session ends.
   - If the child exits, the mod restarts it with backoff (1 s, doubling to 16 s).
   - A newer attach for the same session (a reload, or a second window on the same session) sends `superseded`. The older copy then stops quietly.
@@ -123,4 +125,4 @@ curl -X POST "http://127.0.0.1:47811/ctl/deliver?text=hello"
 - `$.tool.register` after `session.start` has returned (once `hello` arrives) works. The model found `mcp__irori__echo` through ToolSearch and called it, and the `tool.call` hook with the matcher `{ tool: /^mcp__irori__/ }` served it.
 - When the child is killed, it restarts after 1 s. After `superseded`, no restart.
 
-These checks ran against `mod/dev/fakeirori`, which never reads stdin, not the real `irori attach`. The real runner as of w2/api exits when stdin closes, so with it a session restarts forever and never stays attached. That needs the runner changed (see the stdin note under **Attach**); the attach, restart and `superseded` checks are owed again with the real `irori.exe` after it is.
+These checks ran against `mod/dev/fakeirori`, which never reads stdin. The real `irori attach` doesn't read it either now (the runner's `Stdin` is nil for it), so a session stays attached with the real `irori.exe`.

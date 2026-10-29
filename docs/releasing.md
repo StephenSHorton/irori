@@ -12,8 +12,8 @@ section below ([macOS](#macos)).
 2. Tag it and push the tag:
 
    ```sh
-   git tag v0.3.0
-   git push origin v0.3.0
+   git tag v0.4.10
+   git push origin v0.4.10
    ```
 
    You can also start **Actions > Release > Run workflow** with a `tag`
@@ -37,7 +37,11 @@ don't say 0.1.0, but a release does not need them bumped. Do not run
 
 ## What CI produces
 
-`.github/workflows/release.yml` has three jobs.
+`.github/workflows/release.yml` has three jobs. Both build jobs take Go from
+`go.mod` (`setup-go` with `go-version-file`), so they get at least its
+`go 1.26.2` floor. Keep that floor: 1.26.0 and 1.26.1
+corrupt memory under Pion's UDP receives on Windows (golang/go#77975),
+which crashed v0.4.1.
 
 **windows** (windows-latest):
 
@@ -325,6 +329,12 @@ has the steps. For releases:
 - `go.mod` pins an exact go-room release. A go-room change is a go-room
   tag and a bump here; a `replace` to a local checkout never ships.
 
+- Every role writes Go crashes to `crash.log` in the data folder (moved to
+  `crash.log.1` at start once it passes 4 MB), beside `irori.log`. Ask for
+  both when someone reports a crash.
+- `irori pair join` works while the app runs: it drives the running Core's
+  join over the loopback API, and starts its own Core only when none is
+  running.
 - Pairings survive updates: the person key, device key and certs live in
   the data folder (`%LOCALAPPDATA%\irori` on Windows, `~/.irori` on
   macOS), not in the install.
