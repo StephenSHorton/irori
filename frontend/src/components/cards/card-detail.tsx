@@ -13,6 +13,7 @@ import {
   BlockerState,
   busy,
   cards,
+  openAsk,
   displayName,
   MaxAnswer,
   MaxComment,
@@ -42,6 +43,7 @@ import { errorText, talk, type GoneSession } from "@/lib/talk"
 import { answerable, blockerChip, blockerTone, heardLine } from "@/lib/thread"
 import { cn } from "@/lib/utils"
 import {
+  AskLine,
   cardTone,
   HolderLine,
   ProgressBar,
@@ -158,12 +160,19 @@ export function CardPage({
     <article className="grid gap-3" aria-label="Card">
       {back}
       <PageHeader card={detail} spinning={spinning} />
-      <ProgressStrip detail={detail} spinning={spinning} />
+      {openAsk(detail) ? (
+        <AskStatus detail={detail} onClosed={onBack} />
+      ) : (
+        <ProgressStrip detail={detail} spinning={spinning} />
+      )}
       <div className="grid items-start gap-4 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)] min-[900px]:grid-rows-[auto_1fr] min-[1600px]:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
         {(hasObjective || hasBlockers) && (
           <Card className="gap-0 py-0! min-[900px]:col-start-1 min-[900px]:row-start-1">
             {hasObjective && (
-              <Section title="Objective" last={!hasBlockers}>
+              <Section
+                title={openAsk(detail) ? "You asked" : "Objective"}
+                last={!hasBlockers}
+              >
                 {detail.goal && (
                   <RichText text={detail.goal} className="text-sm text-ink-2" />
                 )}
@@ -235,7 +244,9 @@ export function CardPage({
         >
           <Card className="gap-0 py-0!">
             <Section title="Progress">
-              {p === null ? (
+              {detail.ask && openAsk(detail) ? (
+                <AskLine ask={detail.ask} />
+              ) : p === null ? (
                 <HolderLine holder={detail.holder} />
               ) : (
                 <ProgressBar
@@ -302,6 +313,44 @@ export function CardPage({
         </Card>
       </div>
     </article>
+  )
+}
+
+// AskStatus is an open ask's line under the page header: where it stands
+// (as on its tile) and Close for the person, with an optional note. Once
+// an agent takes it, it talks it through on the thread below and ends it
+// as a card, a change to another card, or nothing.
+function AskStatus({
+  detail,
+  onClosed,
+}: {
+  detail: CardDetail
+  onClosed: () => void
+}) {
+  const [note, setNote] = useDraft(`${detail.id}/close-ask`)
+  if (!detail.ask) return null
+  return (
+    <div className="glass-panel flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+      <AskLine ask={detail.ask} className="min-w-48 flex-1" />
+      <Input
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        maxLength={300}
+        placeholder="Why close it (optional)"
+        aria-label="Why you close the ask"
+        className="h-8 w-56 text-xs"
+      />
+      <ConfirmButton
+        label="Close"
+        question="Close this ask? Nothing comes of it, and the agents stop hearing about it."
+        confirmLabel="Close it"
+        onConfirm={async () => {
+          await cards.closeAsk(detail.id, note)
+          setNote("")
+          onClosed()
+        }}
+      />
+    </div>
   )
 }
 

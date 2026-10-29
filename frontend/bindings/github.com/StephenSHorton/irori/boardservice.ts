@@ -50,6 +50,37 @@ export function Answer(taskID: string, blockerID: string, option: number, text: 
 }
 
 /**
+ * Ask is the person asking the room (board.md "Asks"): text becomes an
+ * ask's card, and every free agent hears it, at its next turn or woken
+ * with wake. repoKey ("" any) keeps it to the agents in that repo. Told
+ * says who heard; nobody free makes it unclaimed at once.
+ */
+export function Ask(text: string, repoKey: string, wake: boolean): $CancellablePromise<$models.TaskResult> {
+    return $Call.ByID(3015692514, text, repoKey, wake).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
+/**
+ * AskAgain is "Wake them" on an ask nobody took: every free agent hears it
+ * again, woken. The device that posted it hands it out, so from another
+ * device it is a request that device acts on.
+ */
+export function AskAgain(id: string): $CancellablePromise<void> {
+    return $Call.ByID(4109849154, id);
+}
+
+/**
+ * AskRepos are the repos the roster's agents are in, for the ask box's
+ * repo chip: repoKey and a short label, sorted by label.
+ */
+export function AskRepos(): $CancellablePromise<$models.AskRepo[]> {
+    return $Call.ByID(1532350447).then(($result: any) => {
+        return $$createType4($result);
+    });
+}
+
+/**
  * Assign gives a task to an agent, who hears at its next turn (decision 21).
  */
 export function Assign(id: string, to: string): $CancellablePromise<$models.TaskResult> {
@@ -74,7 +105,7 @@ export function Block(id: string, reason: string, on: coord$0.BlockerKind, ref: 
  */
 export function Board(repoKey: string, doneLimit: number): $CancellablePromise<coord$0.BoardView> {
     return $Call.ByID(4134002171, repoKey, doneLimit).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType5($result);
     });
 }
 
@@ -85,7 +116,7 @@ export function Board(repoKey: string, doneLimit: number): $CancellablePromise<c
  */
 export function Card(id: string): $CancellablePromise<$models.CardDetail> {
     return $Call.ByID(2434738959, id).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType6($result);
     });
 }
 
@@ -95,7 +126,17 @@ export function Card(id: string): $CancellablePromise<$models.CardDetail> {
  */
 export function Cards(): $CancellablePromise<$models.CardSummary[]> {
     return $Call.ByID(4027675700).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType8($result);
+    });
+}
+
+/**
+ * CloseAsk ends an ask with nothing coming of it; note is optional ("closed
+ * by the person").
+ */
+export function CloseAsk(id: string, note: string): $CancellablePromise<coord$0.Task> {
+    return $Call.ByID(885347228, id, note).then(($result: any) => {
+        return $$createType0($result);
     });
 }
 
@@ -110,7 +151,7 @@ export function Cards(): $CancellablePromise<$models.CardSummary[]> {
  */
 export function Comment(id: string, text: string, tell: string): $CancellablePromise<$models.CommentResult> {
     return $Call.ByID(1436059054, id, text, tell).then(($result: any) => {
-        return $$createType7($result);
+        return $$createType9($result);
     });
 }
 
@@ -131,7 +172,7 @@ export function Create($in: $models.NewCard): $CancellablePromise<$models.TaskRe
  */
 export function Message(taskID: string, msgID: string): $CancellablePromise<$models.CardMessage> {
     return $Call.ByID(526707092, taskID, msgID).then(($result: any) => {
-        return $$createType8($result);
+        return $$createType10($result);
     });
 }
 
@@ -179,7 +220,7 @@ export function SetDone(id: string, canceled: boolean): $CancellablePromise<coor
  */
 export function Task(id: string): $CancellablePromise<$models.TaskDetail> {
     return $Call.ByID(3092636668, id).then(($result: any) => {
-        return $$createType9($result);
+        return $$createType11($result);
     });
 }
 
@@ -197,10 +238,12 @@ export function Unblock(id: string, note: string): $CancellablePromise<$models.T
 const $$createType0 = coord$0.Task.createFrom;
 const $$createType1 = $models.AnswerResult.createFrom;
 const $$createType2 = $models.TaskResult.createFrom;
-const $$createType3 = coord$0.BoardView.createFrom;
-const $$createType4 = $models.CardDetail.createFrom;
-const $$createType5 = $models.CardSummary.createFrom;
-const $$createType6 = $Create.Array($$createType5);
-const $$createType7 = $models.CommentResult.createFrom;
-const $$createType8 = $models.CardMessage.createFrom;
-const $$createType9 = $models.TaskDetail.createFrom;
+const $$createType3 = $models.AskRepo.createFrom;
+const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = coord$0.BoardView.createFrom;
+const $$createType6 = $models.CardDetail.createFrom;
+const $$createType7 = $models.CardSummary.createFrom;
+const $$createType8 = $Create.Array($$createType7);
+const $$createType9 = $models.CommentResult.createFrom;
+const $$createType10 = $models.CardMessage.createFrom;
+const $$createType11 = $models.TaskDetail.createFrom;

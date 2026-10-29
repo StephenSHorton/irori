@@ -121,6 +121,59 @@ type CardSummary struct {
 	Watching        []AgentRef `json:"watching"` // watchers that don't hold it
 	Holder          CardHolder `json:"holder"`
 	UpdatedAt       time.Time  `json:"updatedAt"`
+	// Ask is set on the person's ask to the room (board.md "Asks"); nil on
+	// any other card.
+	Ask *CardAsk `json:"ask,omitempty"`
+}
+
+// Ask states, as the tile's line shows them.
+const (
+	AskOpen      = "open"      // agents heard it, nobody took it yet
+	AskWaiting   = "waiting"   // a claim waits on the device that hands it out
+	AskUnclaimed = "unclaimed" // nobody took it in time (or nobody was free)
+	AskTaken     = "taken"     // an agent took it
+	AskClosed    = "closed"    // it ended: Outcome says how
+)
+
+// CardAsk is an ask on its tile and page: where it stands, who took it,
+// how many heard it, the device that hands it out, and once closed what it
+// became (OutcomeRef: the card an edit changed, "#12").
+type CardAsk struct {
+	State      string         `json:"state"`
+	Taker      *AgentRef      `json:"taker,omitempty"`
+	Told       int            `json:"told"`
+	Owner      string         `json:"owner"` // the device's name ("This PC" for this one)
+	Wake       bool           `json:"wake"`
+	Outcome    *coord.Outcome `json:"outcome,omitempty"`
+	OutcomeRef string         `json:"outcomeRef"`
+}
+
+// cardAsk is t's CardAsk, or nil when t isn't an ask. ref names another
+// card by id (nil: none).
+func cardAsk(t coord.Task, p people, ref func(id string) string) *CardAsk {
+	a := t.Ask
+	if a == nil {
+		return nil
+	}
+	out := &CardAsk{Told: a.Told, Owner: p.where(a.Owner), Wake: a.Wake}
+	switch {
+	case a.Outcome != nil:
+		o := *a.Outcome
+		out.State, out.Outcome = AskClosed, &o
+		if o.Task != "" && ref != nil {
+			out.OutcomeRef = ref(o.Task)
+		}
+	case a.Taker != "":
+		r := p.ref(a.Taker)
+		out.State, out.Taker = AskTaken, &r
+	case len(a.Waiting) > 0:
+		out.State = AskWaiting
+	case a.Unclaimed:
+		out.State = AskUnclaimed
+	default:
+		out.State = AskOpen
+	}
+	return out
 }
 
 // CardOption is one answer to pick. Recommended marks the one its agent
@@ -429,6 +482,7 @@ func cardSummary(t coord.Task, p people) CardSummary {
 		}
 	}
 	s.Holder = holderLine(s.Working)
+	s.Ask = cardAsk(t, p, nil)
 	return s
 }
 
@@ -471,6 +525,10 @@ func (b *BoardService) Cards() []CardSummary {
 		out = append(out, cardSummary(t, p))
 	}
 	sort.SliceStable(out, func(i, j int) bool {
+		// An open ask is the person talking to the room now: first.
+		if ai, aj := openAskSummary(out[i]), openAskSummary(out[j]); ai != aj {
+			return ai
+		}
 		if (out[i].OpenBlockers > 0) != (out[j].OpenBlockers > 0) {
 			return out[i].OpenBlockers > 0
 		}
@@ -481,6 +539,8 @@ func (b *BoardService) Cards() []CardSummary {
 	})
 	return out
 }
+
+func openAskSummary(s CardSummary) bool { return s.Ask != nil && s.Ask.State != AskClosed }
 
 // decideCount counts the cards waiting on a decision, the Needs a decision
 // filter's number and the tray's. Rows from every device fold into the
@@ -509,6 +569,12 @@ func (b *BoardService) Card(id string) (CardDetail, error) {
 		Steps: nonNil(t.Steps), Blockers: []CardBlocker{}, PRs: []CardPR{}, Links: nonNil(t.Links),
 		Recent: []CardActivity{}, Comments: nonNil(b.coord.Comments(t.ID)),
 	}
+	d.Ask = cardAsk(t, p, func(id string) string {
+		if x, ok := b.coord.GetTask(id); ok {
+			return x.ShortRef()
+		}
+		return ""
+	})
 	acts := b.coord.Activity(t.ID)
 	var byBlocker map[string][]CardThreadItem
 	d.Thread, byBlocker, d.ThreadEarlier = buildThread(d.Comments, acts, t, p)

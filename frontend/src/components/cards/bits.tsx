@@ -1,10 +1,14 @@
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import {
+  askLine,
+  AskState,
   displayName,
   Holding,
+  openAsk,
   percent,
   TaskState,
+  type CardAsk,
   type CardHolder,
   type CardSummary,
 } from "@/lib/cards"
@@ -71,6 +75,17 @@ export function ProgressBar({
 // blockers, waiting on an agent to act on the person's answers, else in
 // progress.
 export function StatePill({ card }: { card: CardSummary }) {
+  // An ask: the person's prompt to the room, before it is a card.
+  if (openAsk(card))
+    return (
+      <Badge
+        variant={card.ask?.state === AskState.Unclaimed ? "warning" : "info"}
+        className="rounded-full"
+        title="You asked the room; one agent takes it"
+      >
+        Ask
+      </Badge>
+    )
   if (card.state === TaskState.InputRequired)
     return (
       <Badge variant="destructive">
@@ -184,6 +199,44 @@ export function HolderLine({
         />
       )}
       <span className="truncate">{holderText(holder)}</span>
+    </span>
+  )
+}
+
+// AskLine stands in for the holder line on an open ask: "3 agents heard
+// it", "Waiting for the MacBook to hand it out", "Nobody took this yet",
+// or who took it.
+export function AskLine({
+  ask,
+  className,
+}: {
+  ask: CardAsk
+  className?: string
+}) {
+  const warn =
+    ask.state === AskState.Unclaimed ||
+    ask.state === AskState.Waiting ||
+    (ask.state === AskState.Open && ask.told === 0)
+  return (
+    <span
+      className={cn(
+        "flex min-w-0 items-center gap-1.5 text-[12.5px]",
+        warn ? "text-warning" : "text-muted-foreground",
+        className
+      )}
+    >
+      {ask.state === AskState.Taken && (
+        <span
+          className="inline-block size-[7px] shrink-0 rounded-full bg-success"
+          aria-hidden
+        />
+      )}
+      <span className="truncate">{askLine(ask)}</span>
+      {ask.taker?.device && (
+        <span className="shrink-0 text-[11px] text-muted-foreground">
+          on {plainLine(ask.taker.device)}
+        </span>
+      )}
     </span>
   )
 }

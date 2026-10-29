@@ -101,6 +101,9 @@ type Task struct {
 	Steps    []Step    `json:"steps,omitempty"`
 	Blockers []Blocker `json:"blockers,omitempty"`
 	Watchers []string  `json:"watchers,omitempty"`
+	// Ask is set on an ask (ask.go): the person's prompt to the room, its
+	// take and, once closed, its outcome.
+	Ask *Ask `json:"ask,omitempty"`
 }
 
 // NewTask is CreateTask's input.

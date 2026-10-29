@@ -38,6 +38,8 @@ unchanged.
 | `/?update=ready` | the update card (`downloading`, `installing` too) |
 | `/?empty` | no cards yet |
 | `/?from=sample-card-4` | the grid as a card's Back leaves it (that card marked and focused) |
+| `/?open=board:task:sample-ask-2` | an ask (the person's prompt to the room) an agent took: status line, Close, the thread |
+| `/?open=board:task:sample-ask-1` | an ask the agents heard and nobody has taken yet |
 | `/?slow#card/sample-card-1` | a card's page while the card loads |
 | `/#card/sample-card-gone` | a card's page for a card that isn't there |
 
