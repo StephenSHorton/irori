@@ -1,5 +1,5 @@
 import { useId, useState, type ReactNode } from "react"
-import { BellIcon, LaptopIcon, SettingsIcon } from "lucide-react"
+import { BellIcon, LaptopIcon, SettingsIcon, ZapIcon } from "lucide-react"
 
 import { ChoiceSelect } from "@/components/common/choice-select"
 import { DevicesDialog } from "@/components/settings/devices-dialog"
@@ -13,12 +13,14 @@ import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { previewFlag } from "@/lib/preview"
 import { corners, useSettings } from "@/lib/settings"
+import { errorText, Mode, talk, usePolicy } from "@/lib/talk"
 import { UpdateStatusLine } from "@/updater"
 
 const cornerChoices = corners.map((c) => ({ value: c.id, label: c.label }))
 
 // SettingsMenu is the header's gear: notifications (on or off, sound,
-// volume, corner, a test card), Devices (which opens its dialog), launch
+// volume, corner, a test card), Wakes (the Full auto switch for this
+// device's wake policy), Devices (which opens its dialog), launch
 // at login, which the tray also offers, and the version line with "Check for updates" (or "Restart now"
 // once an update is ready, so "Later" on the banner or card never strands
 // it). It is a Popover so the Corner select's own popup, which portals out
@@ -118,6 +120,7 @@ export function SettingsMenu() {
               </div>
             </>
           )}
+          <WakesSection />
           <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
             <span className="flex items-center gap-1.5 font-semibold text-ink">
               <LaptopIcon className="size-4" aria-hidden />
@@ -153,6 +156,53 @@ export function SettingsMenu() {
       </Popover>
       <DevicesDialog open={devicesOpen} onOpenChange={setDevicesOpen} />
     </>
+  )
+}
+
+// WakesSection is the Full auto switch (decision 36): this device's wake
+// policy in mode open, so messages from other agents are not held for
+// bypass_receiver. Off puts the mode back to everyone. The policy is per
+// device; Pause all stays in the tray.
+function WakesSection() {
+  const { policy, error, reload } = usePolicy()
+  const [failed, setFailed] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const set = async (on: boolean) => {
+    setBusy(true)
+    setFailed(null)
+    try {
+      await talk.setFullAuto(on)
+    } catch (err) {
+      setFailed(errorText(err))
+    } finally {
+      setBusy(false)
+      void reload()
+    }
+  }
+
+  const problem = failed ?? (policy ? null : error)
+  return (
+    <div className="flex flex-col gap-2 border-t border-border pt-3">
+      <h2 className="flex items-center gap-1.5 font-semibold text-ink">
+        <ZapIcon className="size-4" aria-hidden />
+        Wakes
+      </h2>
+      <Toggle
+        label="Full auto"
+        hint="Don't hold messages from other agents (Block, Pause all and the reply-chain limit still apply)."
+        checked={policy?.mode === Mode.Open}
+        disabled={!policy || busy}
+        onChange={(v) => void set(v)}
+      />
+      {policy?.mode === Mode.Allowlist && (
+        <p className="text-xs text-muted-foreground">
+          Your allow list is on. Full auto replaces it, and turning Full auto
+          off again leaves everyone allowed.
+        </p>
+      )}
+      {problem && <p className="text-xs text-destructive">{problem}</p>}
+    </div>
   )
 }
 

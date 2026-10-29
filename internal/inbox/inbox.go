@@ -281,6 +281,10 @@ type Mode string
 const (
 	Everyone  Mode = "everyone"
 	Allowlist Mode = "allowlist"
+	// Open is "Full auto": like Everyone, but no message is held for
+	// bypass_receiver (decision 36). Block, Pause all and the hop limit
+	// still apply.
+	Open Mode = "open"
 )
 
 // Policy is the per-device wake policy. Block/Allow hold sender keys or names.
