@@ -186,6 +186,9 @@ func (b *inbox) sweep(ctx context.Context) ([]handoff, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := b.dropStale(ctx, ""); err != nil {
+		return nil, err
+	}
 
 	// Track how long each recipient has been gone: not live in presence, or
 	// no wake path (past the reattach grace).

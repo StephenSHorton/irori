@@ -3,10 +3,17 @@ import { LayersIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { busy, percent, workLabel, type CardSummary } from "@/lib/cards"
+import {
+  busy,
+  openAsk,
+  percent,
+  workLabel,
+  type CardSummary,
+} from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
 import { cn } from "@/lib/utils"
 import {
+  AskLine,
   cardTone,
   HolderLine,
   ProgressBar,
@@ -153,7 +160,9 @@ function CardTile({
           </span>
         </span>
       )}
-      {p === null ? (
+      {card.ask && openAsk(card) ? (
+        <AskLine ask={card.ask} />
+      ) : p === null ? (
         <HolderLine holder={card.holder} />
       ) : (
         <ProgressBar
@@ -174,6 +183,8 @@ function CardTile({
             <Faces who={card.working} />
             {label && <span>{label}</span>}
           </>
+        ) : openAsk(card) ? (
+          <span>you asked the room</span>
         ) : (
           <span>nobody on it yet</span>
         )}
@@ -199,7 +210,8 @@ export function EmptyCards() {
         <p className="text-sm text-muted-foreground">
           Agents put a card here when their work should be shared: what they're
           on, how far along it is, who else is watching, and what they need you
-          to decide. Plans and backlogs stay in the project's own tracker.
+          to decide. Plans and backlogs stay in the project's own tracker. Ask
+          the room above to give the agents something to start now.
         </p>
       </div>
     </Card>

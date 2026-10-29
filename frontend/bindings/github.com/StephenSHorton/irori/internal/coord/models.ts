@@ -13,6 +13,91 @@ import * as blob$0 from "../blob/models.js";
 import * as time$0 from "../../../../../time/models.js";
 
 /**
+ * Ask is an ask's state on its card (Task.Ask), folded from its rows.
+ */
+export class Ask {
+    "wake"?: boolean;
+    "repoKey"?: string;
+
+    /**
+     * Owner is the device that hands out the take: the one the person
+     * posted from.
+     */
+    "owner": string;
+
+    /**
+     * Taker is who holds the ask ("" while open); Reason is the owner's
+     * latest take.state reason ("" before its first).
+     */
+    "taker"?: string;
+    "reason"?: string;
+
+    /**
+     * Told is how many agents heard it; Heard are they (agent keys).
+     */
+    "told": number;
+    "heard"?: string[];
+
+    /**
+     * Since is when the ask last opened (posted, reopened, given back or
+     * its taker gone): the unclaimed clock's start.
+     */
+    "since": time$0.Time;
+
+    /**
+     * Unclaimed: nobody took it within AskUnclaimed (or nobody was free
+     * to hear it). A claim is still granted.
+     */
+    "unclaimed"?: boolean;
+
+    /**
+     * Waiting are agents on this device that asked to claim it and haven't
+     * heard back from the owner device.
+     */
+    "waiting"?: string[];
+
+    /**
+     * Outcome is set once the ask closed; it is a card from then on.
+     */
+    "outcome"?: Outcome | null;
+
+    /** Creates a new Ask instance. */
+    constructor($$source: Partial<Ask> = {}) {
+        if (!("owner" in $$source)) {
+            this["owner"] = "";
+        }
+        if (!("told" in $$source)) {
+            this["told"] = 0;
+        }
+        if (!("since" in $$source)) {
+            this["since"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Ask instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Ask {
+        const $$createField6_0 = $$createType0;
+        const $$createField9_0 = $$createType0;
+        const $$createField10_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("heard" in $$parsedSource) {
+            $$parsedSource["heard"] = $$createField6_0($$parsedSource["heard"]);
+        }
+        if ("waiting" in $$parsedSource) {
+            $$parsedSource["waiting"] = $$createField9_0($$parsedSource["waiting"]);
+        }
+        if ("outcome" in $$parsedSource) {
+            $$parsedSource["outcome"] = $$createField10_0($$parsedSource["outcome"]);
+        }
+        return new Ask($$parsedSource as Partial<Ask>);
+    }
+}
+
+/**
  * BlockedBy names what is in the way.
  */
 export class BlockedBy {
@@ -103,12 +188,12 @@ export class Blocker {
      * Creates a new Blocker instance from a string or object.
      */
     static createFrom($$source: any = {}): Blocker {
-        const $$createField5_0 = $$createType1;
-        const $$createField6_0 = $$createType3;
-        const $$createField7_0 = $$createType5;
-        const $$createField8_0 = $$createType7;
-        const $$createField9_0 = $$createType9;
-        const $$createField12_0 = $$createType10;
+        const $$createField5_0 = $$createType4;
+        const $$createField6_0 = $$createType6;
+        const $$createField7_0 = $$createType8;
+        const $$createField8_0 = $$createType10;
+        const $$createField9_0 = $$createType12;
+        const $$createField12_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("options" in $$parsedSource) {
             $$parsedSource["options"] = $$createField5_0($$parsedSource["options"]);
@@ -254,12 +339,12 @@ export class BoardView {
      * Creates a new BoardView instance from a string or object.
      */
     static createFrom($$source: any = {}): BoardView {
-        const $$createField0_0 = $$createType12;
-        const $$createField1_0 = $$createType12;
-        const $$createField2_0 = $$createType12;
-        const $$createField3_0 = $$createType12;
-        const $$createField4_0 = $$createType12;
-        const $$createField6_0 = $$createType14;
+        const $$createField0_0 = $$createType14;
+        const $$createField1_0 = $$createType14;
+        const $$createField2_0 = $$createType14;
+        const $$createField3_0 = $$createType14;
+        const $$createField4_0 = $$createType14;
+        const $$createField6_0 = $$createType16;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("needsYou" in $$parsedSource) {
             $$parsedSource["needsYou"] = $$createField0_0($$parsedSource["needsYou"]);
@@ -373,6 +458,12 @@ export class Card {
     "steps"?: Step[];
     "blockers"?: Blocker[];
     "watchers"?: string[];
+
+    /**
+     * Ask is set on an ask (ask.go): the person's prompt to the room, its
+     * take and, once closed, its outcome.
+     */
+    "ask"?: Ask | null;
     "lastComment"?: Comment | null;
 
     /**
@@ -425,17 +516,18 @@ export class Card {
      * Creates a new Card instance from a string or object.
      */
     static createFrom($$source: any = {}): Card {
-        const $$createField7_0 = $$createType10;
-        const $$createField10_0 = $$createType10;
-        const $$createField11_0 = $$createType10;
-        const $$createField19_0 = $$createType9;
-        const $$createField20_0 = $$createType5;
-        const $$createField22_0 = $$createType16;
-        const $$createField23_0 = $$createType18;
-        const $$createField24_0 = $$createType10;
-        const $$createField25_0 = $$createType20;
-        const $$createField27_0 = $$createType10;
-        const $$createField28_0 = $$createType10;
+        const $$createField7_0 = $$createType0;
+        const $$createField10_0 = $$createType0;
+        const $$createField11_0 = $$createType0;
+        const $$createField19_0 = $$createType12;
+        const $$createField20_0 = $$createType8;
+        const $$createField22_0 = $$createType18;
+        const $$createField23_0 = $$createType20;
+        const $$createField24_0 = $$createType0;
+        const $$createField25_0 = $$createType22;
+        const $$createField26_0 = $$createType24;
+        const $$createField28_0 = $$createType0;
+        const $$createField29_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
             $$parsedSource["scope"] = $$createField7_0($$parsedSource["scope"]);
@@ -461,14 +553,17 @@ export class Card {
         if ("watchers" in $$parsedSource) {
             $$parsedSource["watchers"] = $$createField24_0($$parsedSource["watchers"]);
         }
+        if ("ask" in $$parsedSource) {
+            $$parsedSource["ask"] = $$createField25_0($$parsedSource["ask"]);
+        }
         if ("lastComment" in $$parsedSource) {
-            $$parsedSource["lastComment"] = $$createField25_0($$parsedSource["lastComment"]);
+            $$parsedSource["lastComment"] = $$createField26_0($$parsedSource["lastComment"]);
         }
         if ("gone" in $$parsedSource) {
-            $$parsedSource["gone"] = $$createField27_0($$parsedSource["gone"]);
+            $$parsedSource["gone"] = $$createField28_0($$parsedSource["gone"]);
         }
         if ("overlaps" in $$parsedSource) {
-            $$parsedSource["overlaps"] = $$createField28_0($$parsedSource["overlaps"]);
+            $$parsedSource["overlaps"] = $$createField29_0($$parsedSource["overlaps"]);
         }
         return new Card($$parsedSource as Partial<Card>);
     }
@@ -569,8 +664,8 @@ export class Comment {
      * Creates a new Comment instance from a string or object.
      */
     static createFrom($$source: any = {}): Comment {
-        const $$createField6_0 = $$createType7;
-        const $$createField14_0 = $$createType10;
+        const $$createField6_0 = $$createType10;
+        const $$createField14_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("attachments" in $$parsedSource) {
             $$parsedSource["attachments"] = $$createField6_0($$parsedSource["attachments"]);
@@ -628,8 +723,8 @@ export class LeaseCard {
      * Creates a new LeaseCard instance from a string or object.
      */
     static createFrom($$source: any = {}): LeaseCard {
-        const $$createField6_0 = $$createType22;
-        const $$createField7_0 = $$createType10;
+        const $$createField6_0 = $$createType26;
+        const $$createField7_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("refused" in $$parsedSource) {
             $$parsedSource["refused"] = $$createField6_0($$parsedSource["refused"]);
@@ -746,12 +841,48 @@ export class Option {
      * Creates a new Option instance from a string or object.
      */
     static createFrom($$source: any = {}): Option {
-        const $$createField5_0 = $$createType23;
+        const $$createField5_0 = $$createType27;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("link" in $$parsedSource) {
             $$parsedSource["link"] = $$createField5_0($$parsedSource["link"]);
         }
         return new Option($$parsedSource as Partial<Option>);
+    }
+}
+
+/**
+ * Outcome is how an ask ended (task.status's outcome).
+ */
+export class Outcome {
+    /**
+     * OutcomeCard, OutcomeEdit or OutcomeNone
+     */
+    "kind": string;
+
+    /**
+     * edit: the card it changed
+     */
+    "task"?: string;
+    "note": string;
+
+    /** Creates a new Outcome instance. */
+    constructor($$source: Partial<Outcome> = {}) {
+        if (!("kind" in $$source)) {
+            this["kind"] = "";
+        }
+        if (!("note" in $$source)) {
+            this["note"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Outcome instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Outcome {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Outcome($$parsedSource as Partial<Outcome>);
     }
 }
 
@@ -1000,6 +1131,12 @@ export class Task {
     "blockers"?: Blocker[];
     "watchers"?: string[];
 
+    /**
+     * Ask is set on an ask (ask.go): the person's prompt to the room, its
+     * take and, once closed, its outcome.
+     */
+    "ask"?: Ask | null;
+
     /** Creates a new Task instance. */
     constructor($$source: Partial<Task> = {}) {
         if (!("id" in $$source)) {
@@ -1031,14 +1168,15 @@ export class Task {
      * Creates a new Task instance from a string or object.
      */
     static createFrom($$source: any = {}): Task {
-        const $$createField7_0 = $$createType10;
-        const $$createField10_0 = $$createType10;
-        const $$createField11_0 = $$createType10;
-        const $$createField19_0 = $$createType9;
-        const $$createField20_0 = $$createType5;
-        const $$createField22_0 = $$createType16;
-        const $$createField23_0 = $$createType18;
-        const $$createField24_0 = $$createType10;
+        const $$createField7_0 = $$createType0;
+        const $$createField10_0 = $$createType0;
+        const $$createField11_0 = $$createType0;
+        const $$createField19_0 = $$createType12;
+        const $$createField20_0 = $$createType8;
+        const $$createField22_0 = $$createType18;
+        const $$createField23_0 = $$createType20;
+        const $$createField24_0 = $$createType0;
+        const $$createField25_0 = $$createType22;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
             $$parsedSource["scope"] = $$createField7_0($$parsedSource["scope"]);
@@ -1063,6 +1201,9 @@ export class Task {
         }
         if ("watchers" in $$parsedSource) {
             $$parsedSource["watchers"] = $$createField24_0($$parsedSource["watchers"]);
+        }
+        if ("ask" in $$parsedSource) {
+            $$parsedSource["ask"] = $$createField25_0($$parsedSource["ask"]);
         }
         return new Task($$parsedSource as Partial<Task>);
     }
@@ -1098,27 +1239,31 @@ export enum TaskState {
 };
 
 // Private type creation functions
-const $$createType0 = Option.createFrom;
-const $$createType1 = $Create.Array($$createType0);
-const $$createType2 = Resolution.createFrom;
-const $$createType3 = $Create.Nullable($$createType2);
-const $$createType4 = Link.createFrom;
-const $$createType5 = $Create.Array($$createType4);
-const $$createType6 = blob$0.FileRef.createFrom;
-const $$createType7 = $Create.Array($$createType6);
-const $$createType8 = BlockedBy.createFrom;
-const $$createType9 = $Create.Nullable($$createType8);
-const $$createType10 = $Create.Array($Create.Any);
-const $$createType11 = Card.createFrom;
-const $$createType12 = $Create.Array($$createType11);
-const $$createType13 = LeaseCard.createFrom;
+const $$createType0 = $Create.Array($Create.Any);
+const $$createType1 = Outcome.createFrom;
+const $$createType2 = $Create.Nullable($$createType1);
+const $$createType3 = Option.createFrom;
+const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = Resolution.createFrom;
+const $$createType6 = $Create.Nullable($$createType5);
+const $$createType7 = Link.createFrom;
+const $$createType8 = $Create.Array($$createType7);
+const $$createType9 = blob$0.FileRef.createFrom;
+const $$createType10 = $Create.Array($$createType9);
+const $$createType11 = BlockedBy.createFrom;
+const $$createType12 = $Create.Nullable($$createType11);
+const $$createType13 = Card.createFrom;
 const $$createType14 = $Create.Array($$createType13);
-const $$createType15 = Step.createFrom;
+const $$createType15 = LeaseCard.createFrom;
 const $$createType16 = $Create.Array($$createType15);
-const $$createType17 = Blocker.createFrom;
+const $$createType17 = Step.createFrom;
 const $$createType18 = $Create.Array($$createType17);
-const $$createType19 = Comment.createFrom;
-const $$createType20 = $Create.Nullable($$createType19);
-const $$createType21 = Refusal.createFrom;
-const $$createType22 = $Create.Array($$createType21);
-const $$createType23 = $Create.Nullable($$createType4);
+const $$createType19 = Blocker.createFrom;
+const $$createType20 = $Create.Array($$createType19);
+const $$createType21 = Ask.createFrom;
+const $$createType22 = $Create.Nullable($$createType21);
+const $$createType23 = Comment.createFrom;
+const $$createType24 = $Create.Nullable($$createType23);
+const $$createType25 = Refusal.createFrom;
+const $$createType26 = $Create.Array($$createType25);
+const $$createType27 = $Create.Nullable($$createType7);

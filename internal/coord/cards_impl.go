@@ -584,6 +584,9 @@ func (c *coord) raise(ctx context.Context, by, id string, nb NewBlocker) (Task, 
 // a nil bb stays nil; otherwise a nil bb means a person. links and files go
 // on the item (added to the open item with the same question).
 func (c *coord) raiseLocked(ctx context.Context, by string, t *Task, reason, q, cx string, opts []Option, bb *BlockedBy, reasonOnly bool, now time.Time, links []Link, files []blob.FileRef) (Task, Blocker, error) {
+	if openAsk(t) != nil {
+		return Task{}, Blocker{}, askRefusal(t, "ask the person on its thread (board_comment) rather than block it")
+	}
 	nb, err := c.checkBlocker(bb, t.ID)
 	if err != nil {
 		return Task{}, Blocker{}, err

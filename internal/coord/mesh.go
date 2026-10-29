@@ -72,7 +72,7 @@ func (c *coord) live(l *leaseRec, now time.Time) bool {
 // The Core runs it once.
 func (c *Coord) Follow(ctx context.Context) { c.impl.follow(ctx) }
 
-var followKinds = []string{"task.", "lease.", "blocker."}
+var followKinds = []string{"task.", "lease.", "blocker.", "take."}
 
 func followed(kind string) bool {
 	for _, p := range followKinds {
@@ -173,6 +173,7 @@ func (c *coord) refoldIfCut(ctx context.Context, vec store.Vector) {
 	// shortTop stays: the cut card's numbers aren't handed out again.
 	c.claims, c.claimed, c.shortGroups, c.shortIdx = nil, map[string]bool{}, map[int][]shortClaim{}, map[string]string{}
 	c.last, c.conflicts, c.stolen, c.lapsed, c.ignored, c.ignoredBy = map[string]int64{}, map[string]*leaseRec{}, map[string]bool{}, nil, 0, nil
+	c.asks.reset()
 	if err := c.replay(ctx); err != nil {
 		log.Printf("coord: re-fold after a revoke's cut: %v", err)
 	}
@@ -237,6 +238,7 @@ func (c *coord) holderDuties(ctx context.Context) {
 		}
 	}
 	c.lapsed = c.lapsed[:0]
+	c.askDuties(ctx)
 }
 
 // conflictOf folds an acquire that meets a live lease on the same resource

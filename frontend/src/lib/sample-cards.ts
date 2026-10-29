@@ -6,6 +6,7 @@
 import {
   AgentRef,
   CardActivity,
+  CardAsk,
   CardBlocker,
   CardDetail,
   CardHolder,
@@ -142,6 +143,43 @@ export function sampleCards(now: Date): CardDetail[] {
   }
 
   return [
+    // Asks (board.md "Asks"): the person's prompts to the room. One the
+    // agents heard and nobody took yet, one sample-heron took and is
+    // talking through.
+    card({
+      id: "sample-ask-1",
+      short: "14",
+      title: "Why does the Mac build take twice as long as the PC's?",
+      goal: "Why does the Mac build take twice as long as the PC's?\nIt was about the same last week. Not urgent to fix, but I want to know what changed.",
+      state: TaskState.Submitted,
+      working: [],
+      updatedAt: at(1),
+      thread: [
+        new CardThreadItem({ id: "sample-ask-1-post", kind: "event", at: at(1), who: sampleYou, text: "You asked the room" }),
+      ],
+      ask: new CardAsk({ state: "open", told: 3, owner: "This PC", wake: false, taker: null, outcome: null }),
+    }),
+    card({
+      id: "sample-ask-2",
+      short: "15",
+      title: "Can someone tidy the release notes before tonight?",
+      goal: "Can someone tidy the release notes before tonight? The boat fixes should come first.",
+      state: TaskState.Submitted,
+      working: [heron],
+      updatedAt: at(4),
+      thread: [
+        new CardThreadItem({ id: "sample-ask-2-post", kind: "event", at: at(6), who: sampleYou, text: "You asked the room" }),
+        new CardThreadItem({ id: "sample-ask-2-took", kind: "event", at: at(5), who: heron, text: "sample-heron took it" }),
+        new CardThreadItem({
+          id: "sample-ask-2-c1",
+          kind: "comment",
+          at: at(4),
+          who: heron,
+          text: "On it. Do you want the Helmaroc fight in the notes too, or only what changed since 0.5?",
+        }),
+      ],
+      ask: new CardAsk({ state: "taken", told: 3, owner: "This PC", wake: false, taker: heron, outcome: null }),
+    }),
     card({
       id: "sample-card-1",
       title: "Ship example-app v0.6.0",

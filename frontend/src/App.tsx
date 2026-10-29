@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { AppHeader } from "@/components/app-header"
 import { CardPage } from "@/components/cards/card-detail"
 import { MessageDialog } from "@/components/cards/message-dialog"
+import { AskBox } from "@/components/cards/ask-box"
 import {
   CardGrid,
   EmptyCards,
@@ -236,9 +237,18 @@ export function App() {
         ) : loading && cards.length === 0 ? (
           <p className="px-1 text-sm text-muted-foreground">Loading cards…</p>
         ) : cards.length === 0 ? (
-          <EmptyCards />
+          <>
+            <AskBox onAsked={setLast} />
+            <EmptyCards />
+          </>
         ) : (
           <>
+            <AskBox
+              onAsked={(id) => {
+                setLast(id)
+                setFilter("all")
+              }}
+            />
             <FilterBar filter={filter} onFilter={setFilter} decide={decide} />
             {shown.length ? (
               <CardGrid cards={shown} selected={last} onSelect={openCard} />

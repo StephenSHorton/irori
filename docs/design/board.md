@@ -83,6 +83,187 @@ Open, answered and replied are derived in the fold from the item's `task.comment
 - **An agent resolves** with `board_unblock task_id= blocker_id= note=`. Once the person has answered, `note` is required (one line on what it will do now) and `pick` is refused: the person's answer stands, and `blocker.resolved` carries it with the note. Before any answer, `pick` or `note` is the answer, as before.
 - **Older devices** fold the person's answer as a plain comment and keep the item open until a `blocker.resolved` arrives, which folds the same everywhere; answering there still resolves at once.
 
+## Asks
+
+*2026-10-28, card #3. Stephen: "not a 'post a card' form". He types into the window, every free agent hears it, one takes it, they talk it through on a thread, and it ends as a new card, a change to a card, or nothing.*
+
+An **ask** is the person talking to the room. It isn't backlog: it is work to start now, and the first job is to work out what that work is. It is not a form. There is no title, objective or done-when field, just what Stephen typed.
+
+### What an ask is: a card with an `ask` field
+
+An ask is stored as a card. `task.created` gains `ask: {wake, repoKey?}`, and the person writes it (actor `user`, `by` the person's `user:<device>` key). The card's title is the prompt's first line, cut to 80 characters at a word. Its objective is the whole prompt, up to 4000 characters, the same cap as a comment, with files as on a comment. It claims a short ref like any card, so Stephen can say "#14".
+
+**Why a card and not a message:**
+- **The thread already exists.** The card thread has the composer with Enter to send, rich text, attachments, `send task_id=` entries, the card page (`#card/<id>`), the person's comment routing (`hearers`), watchers, search and replication. A message to everyone would give one delivery per agent and no shared place to talk, so the claimer and the agents chiming in would need a new thread store and a new page.
+- **No new view.** The window is cards (minimal UI), and an ask is a card that hasn't found its shape yet.
+- **"Becomes a card" is literal.** The outcome turns the ask into the card in place: same `#14`, same thread, created by the person. That makes it a card the person posted, which the instructions already say is work to start now.
+- **Older devices degrade well.** A device without this change ignores `ask` and folds a plain submitted card with the prompt as its title and objective. Its tools work on it as on any card. The one thing they could bypass is the take lock, and the new fold refuses that (below).
+
+The `ask.*` kinds and `internal/ask` already belong to approvals (v0.4 §6.7), so the new rows use the `take.*` prefix, and the logic lives in coord, because an ask is a task.
+
+### The take lock: the posting device decides
+
+An ask has exactly one taker. The take lock follows v0.4 §6.0 (owners and requests). The **owner is the device that wrote the ask's `task.created`**, the device Stephen typed on. `owner.Table` gains:
+
+| Entity | Owner | Rows only the owner writes | Requests anyone may write |
+|---|---|---|---|
+| an ask's take | the device that wrote the ask's `task.created` (`DeviceOf` its `user:<device>` `by`) | `take.state` | `take.requested` |
+
+**Rows** (both replicate; `store/kinds.go` classifies them, and v0.4 §5.1 gains them):
+- `take.requested {taskId, by, op: claim|release|reopen, at}`. `by` is an agent key whose device is the writing device (the fold checks this, as with any `by`), or the person's `user:` key for `reopen`. `release` is the taker giving it back.
+- `take.state {taskId, taker, reason, req?, told?, at}` is the current taker as a snapshot (`""` means open), written by the owner only:
+  - `posted` follows `task.created`. Its `told` field is how many agents heard the ask.
+  - `taken` names the taker. `req` is the `(device, seq)` of the request it applied.
+  - `released`, `gone` and `reopened` set the taker to `""`. On `reopened`, `told` is set again.
+  - `unclaimed` keeps the taker `""` and marks the ask.
+
+  The fold keeps the owner's newest `take.state` by `(hlc, device, seq)`. One device's HLCs only increase (§5.3), so that is the owner's own order. A `take.state` from any other device is ignored and counted ("wrong device"), with a test.
+
+**Claiming** (`ask_claim`):
+1. If the fold already shows a taker, the tool refuses: "X (on PC) took #14. To add something, board_comment it." Nothing is written.
+2. Otherwise the agent's Core writes `take.requested op=claim`.
+3. The owner applies the **first claim it folds** while the ask has no taker and the requester isn't gone, and writes `take.state taken`. It writes nothing for later requests.
+4. The tool waits up to **5 seconds** for a `take.state` that answers its request. When the owner is this device, that is immediate (coord's mutex orders two local claims). Between connected devices, the wait is one sync round trip.
+   - `taken` naming the caller: "You have #14. Talk it through with the person on the card first if it isn't clear, then ask_close it with what it became."
+   - `taken` naming someone else: "Y took #14 first."
+   - No answer in time: "Requested. The Mac, which hands out #14, hasn't answered (offline?). Don't start: you'll hear at your next turn either way."
+5. **The loser is told by its own Core.** When a device folds a `taken` naming another agent while one of its own agents has a claim request for that ask still open, it sends that agent a next-turn notice: "Y took #14; nothing to do unless you want to chime in." The fold remembers open requests, so this also covers a request that waited out a partition.
+
+**Two devices claiming while partitioned.** Take the PC and the Mac apart, with the ask posted on the Mac. The Mac grants its own agent at once. The PC's request waits, and the PC window shows "Waiting for the Mac to hand it out". When they heal, the Mac folds the PC's request, sees a taker, and writes nothing. The PC folds `taken` and tells its agent. Every device converges on the Mac's row, and no clock decides anything (§5.6).
+
+**Why not the lease rule** (both write, the lower device id stands, the loser is refused afterwards, §6.4): two leases on one file cost little until the rows meet. Two takers of an ask would both be talking with Stephen, and one might already have made the card. With the owner deciding, nobody starts until they are granted.
+
+**The cost, stated plainly:** a claim needs the owner reachable. The owner is the device Stephen just typed on, so it almost always is. If it goes offline before granting, the ask **freezes**, like a delivery on an offline device (§6.2):
+- Every other window shows "Waiting for <device> to hand it out".
+- Stephen's way out is Close (a person's `task.status` from any device) and posting it again from where he is.
+- If the owner is revoked, the fold closes the ask: "posting device removed".
+
+**What the lock refuses.** On an ask that has no outcome yet, the fold ignores `task.claimed`, `task.joined` and `task.assigned`, so an older device's `board_join` can't take it around the lock. Holders are derived from the owner's `take.state`: `[taker]` or none. `board_join`, `board_assign` and `board_status` on such an ask are refused, and the error points to `ask_claim` and `ask_close`. The person can still Close it.
+
+**Order doesn't decide it.** Sync batches come by device, not by cause, so a third device can get the taker's `ask_close` rows before the owner's `take.state taken`. The lock therefore reads a row's position, not what has folded so far: a taker's row counts when the owner's last `take.state` before it (by `(hlc, device, seq)`) names that taker, which is what replay would hold there. A row the lock can't place yet waits, per ask, and is folded again when the ask's next `take.state` or close arrives. Once the ask closed, `task.claimed`, `task.joined`, `task.assigned` and `task.status` count again from the closing row on; one written before it stays refused, as replay refuses it.
+
+**A taker that goes away.** The owner's sweep (`SweepNotices`) releases the take, writing `take.state gone` (with the old taker in its note), and re-announces the ask to free agents, which restarts the unclaimed clock. This happens when:
+- a local taker has been out of the roster for `GoneGrace`;
+- or the taker's device wrote `agent.gone` or a later `device.started`, which retires its cards.
+
+A taker on a device that is merely offline keeps the ask, as with leases and deliveries (§6.2): it is shown greyed and nothing moves on its own. The taker gives an ask back with `board_leave` (a `take.requested op=release`).
+
+### Who hears it, and how
+
+The owner builds the ask's notices when it posts. They go out through `SendWith(person, agent, text, {Mode, Ref: task:<id>, Notice: true})`, one per **free agent**:
+- in `MeshAgents()` (every device of the person's; later the shared board's members);
+- not gone, with status `idle`;
+- not an agent of a revoked device;
+- in the ask's repo when Stephen named one (`RepoKey` matched against the card's repo, as `FrontDesk` matches).
+
+"Attached" is decided by the recipient's host, as for any cross-device wake (§6.3), because `Reachable` is local.
+
+- **Mode:** `next_turn` by default. When Stephen ticks Wake it is `wake` for all of them. The claim race settles the herd, and a loser's woken turn is one tool call.
+- **Holds:** the host runs its own policy (§6.3). On the Mac, Pause all holds the ask there, and a held notice doesn't count as heard: while it is on, the owner leaves its own agents out of who is told (`Core.AskAgents`), and they hear it as late arrivals once it lifts. Another device's holds are that device's own.
+- **The text:** "The person asks the room (#14): <prompt, cut to 600 runes>. If you can take it on now, ask_claim #14: one agent takes it, and you hear if someone else got there first. If you're busy, leave it." `told` on `take.state posted` is the count sent.
+- **Late arrivals:** while the ask is open, each owner sweep tells agents that have become free and haven't been told yet. The inbox has a delivery with `Ref task:<id>` for every agent already told. A late tell wakes only inside the person's own window: `AskUnclaimed` from a post with Wake, or from Wake them. After that, and on the re-announcement after a taker gave it back or went away, it is `next_turn`, so an old ask never wakes a session that only now went idle.
+- **Once taken, the others stop hearing.** The inbox gains a hook, `Stale func(Delivery) (note string)`, which the core wires to coord. Before it appends or wakes a `Notice` delivery whose `Ref` is a taken ask, the **recipient's** Core closes it as `Skipped` with the note "taken by X", unless the recipient is the taker. The recipient's device owns that delivery (§6.0), so no other device writes it. Held notices are closed the same way.
+- **The thread after the take:**
+  - Stephen's comments reach the taker, who is the holder in `hearers`.
+  - Agents that chimed in hear only if asked: an agent's `board_comment` on an ask adds it as a watcher (`task.watched`).
+  - The rest hear nothing.
+  - While nobody has taken the ask, a comment from Stephen goes the way the post went: to the agents told and still free, with the same claim line. So "also, check X" reaches the room rather than nobody. It is its own notice kind, `ask_comment`, with the ask's `Ref task:<id>`, so it goes stale with the announcement once someone takes the ask.
+
+**The tension, for Stephen:** an idle session on `next_turn` hears only when he next types into it. Without Wake, an ask can sit unheard. That is what the unclaimed notice is for, and why it offers "Wake them".
+
+### Nobody takes it
+
+**`AskUnclaimed = GoneGrace` (3 minutes).** One constant, the same "a few minutes" the sweep already uses.
+
+- If an ask has had no taker for `AskUnclaimed` since `posted` or `reopened`, the owner's sweep writes `take.state unclaimed` once. With `told = 0` it writes it at once: "no free agent".
+- `notify.Watch` posts a card from that row on every desktop device, with the stable id `unclaimed:<taskId>`: "Nobody took "<title>" (#14)". It has two actions:
+  - **Wake them:** a `take.requested op=reopen` from the person. The owner re-announces with `wake` and writes `reopened`.
+  - **Close:** a person's `task.status canceled`.
+
+  The card clears when a `taken` or a terminal state folds. Wake them with nobody free brings it back: "You woke them, but nobody is free to hear it."
+- The tile shows "Nobody took this yet". A claim after `unclaimed` is still granted.
+
+### Outcomes
+
+The taker (or the person) ends an ask with `ask_close`. `task.status` gains `outcome: {kind, task?, note}`. The note is one line, required, and shown on the tile. A new kind, `task.edited {taskId, title?, objective?, doneCriteria?, by}`, changes a card's text. Nothing could do that before, and the "edit" outcome needs it. It is written by holders, the creator, a person, or an ask's taker acting for that ask, and the fold checks that (an ask's taker as the lock places it, above). The edit outcome can't target an open ask (its prompt is the person's) or a finished card. Every holder hears about it in the watch digest.
+
+| Outcome | Rows | What the window shows |
+|---|---|---|
+| **card**: it becomes the card | on the ask: `task.edited` (title, objective, done-when from the tool), then `task.steps` when steps are given, then `task.claimed` by the taker, then `task.status working {outcome: card}` | the same tile, now an ordinary card: same `#14`, same thread, the taker holding it. The thread has a history line: "became a card". |
+| **edit**: it changes #M | `task.edited` on #M (any fields given), a history line on #M's thread ("from the ask #14: <note>", written by Irori, attributed to the taker), then `task.status completed {outcome: edit, task: M}` on the ask | the ask folds into Done: "Changed #M: <note>", with #M as a link |
+| **none**: nothing comes of it | `task.status canceled {outcome: none}` on the ask | Done: "Closed: <note>" |
+
+- **The fold.** Once a `task.status` carrying an outcome has folded, the ask is a card. The take lock stops applying, ordinary holder rules return (the taker's `task.claimed`), and the owner's sweep stops managing it. A `take.state` written after it is ignored.
+- **The person closing** from the window writes `outcome: none` with the note they typed, or "closed by the person".
+
+### In the window
+
+**The prompt box.** It is one line at the top of the grid, left of the filter chips (and above `EmptyCards` on a fresh install). Placeholder: "Ask the room…". It grows to a few lines as you type. The rest:
+- It is the card comment composer (rich text, paste or drop files, Enter sends, Shift+Enter for a new line), lifted out of `CommentBox`.
+- **Wake** is a small toggle beside it, off by default (the spec, and the herd).
+- **A repo chip**, "Any repo" by default, picks from the repos the roster's agents are in. Stephen names a repo only when he wants to.
+
+On send, the box clears. The new tile appears first, marked selected, and the window stays on the grid.
+
+**The tile.** An open ask's tile sorts before every other card and carries an **Ask** pill beside its short ref. Its holder-line slot shows one of:
+- "3 agents heard it" (`told`);
+- "Waiting for <device> to hand it out";
+- "Nobody took this yet";
+- "<face> took it" (its device chip when remote).
+
+The tile has no progress bar until it becomes a card. A closed ask goes to Done with its outcome line.
+
+**The page** (`#card/<id>`, the existing card page):
+- The goal section shows the prompt.
+- Under the header, one status line, the same as the tile's.
+- **Close** for the person, with an optional note.
+- The thread and composer as on every card.
+
+There are no blocker or step sections until it becomes a card. There is no new view, tab, list or dialog.
+
+`CardSummary` and `CardDetail` gain `ask?: {state: open|waiting|unclaimed|taken, taker?, told, owner, outcome?}`. `BoardService` gains `Ask(text, files, repoKey, wake)`, `AskAgain(id)` and `CloseAsk(id, note)`.
+
+### Agent tools
+
+- **`ask_claim {task_id}`** is the take lock (above).
+- **`ask_close {task_id, outcome: card|edit|none, note, title?, objective?, done_when?, steps?, task?}`**:
+  - `card` takes `title` (required) and optionally the rest;
+  - `edit` takes `task` (#M) and any of `title`, `objective` and `done_when` for it;
+  - only the taker or a person may call it.
+- **Reused, not new:**
+  - talking is `board_comment` (there is no `ask_reply`);
+  - giving it back is `board_leave`;
+  - an open ask's thread is read with `show #14`;
+  - `board` lists open asks the caller could take first, under "Asks", followed by asks it has taken.
+- **Instructions** (added to `BoardInstructions` and to the two tools' descriptions): "An ask is the person talking to the room: work to start now, not backlog. If you are free and can take it, ask_claim it. One agent takes it, so if someone else has, leave it unless you have something to add (board_comment). Once you hold an ask: if it isn't clear what's wanted, talk it through with the person on the card first. Then ask_close it with what it became: a card (it becomes the card, and you hold it), a change to an existing card, or nothing, with one line on why."
+
+### Build list
+
+- **coord:**
+  - the `ask` field on `task.created`, plus `PostAsk`;
+  - the `take.requested` and `take.state` folds with the owner check;
+  - `task.edited`, and `outcome` on `task.status`;
+  - the lock's refusals;
+  - `AskClaim` (it returns the request so the tool can wait on its answer), `AskClose`, and the owner sweep (taker gone, unclaimed, late arrivals);
+  - the loser's notice;
+  - `Task.Ask`.
+- **owner, store:** the Table row; kinds registered as Replicated (`TestEveryKindIsClassified`); v0.4 §5.1 and §6.0 gain the kinds.
+- **inbox:** the `Stale` hook at append and wake.
+- **core:** routing the ask notices; wiring `Stale`; `notify.Watch` for `unclaimed:<id>`.
+- **tools:** `ask_claim` and `ask_close`, the `board` section, refusals on `board_join`, `board_assign` and `board_status`, and the instructions; regenerate the fallback tool list.
+- **GUI:** the prompt box (lifted from `CommentBox`), the tile and page states, `BoardService` methods; regenerate the bindings.
+- **Tests:**
+  - two local agents claim at once: one taker, and the other gets "Y took it first";
+  - PC and Mac partitioned with the owner on the Mac, both claim, heal: the Mac's agent holds it, every device agrees, the PC agent gets a notice;
+  - the taker goes away: `gone`, re-announced, a new claim granted;
+  - a taker on an offline device keeps it;
+  - unclaimed after `AskUnclaimed`, and at once with `told = 0`; reopen;
+  - a queued notice is skipped as stale once the ask is taken;
+  - a `take.state` from the wrong device is ignored and counted;
+  - the take rows fed in two orders fold the same;
+  - an older device's `task.claimed` on an open ask is ignored;
+  - each outcome's rows and fold.
+
 ## Links out
 
 - A card can carry links: a URL (Linear, Notion, a GitHub issue or PR), a repo path, or a commit.

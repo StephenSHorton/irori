@@ -10,6 +10,8 @@ import { Browser, Events } from "@wailsio/runtime"
 import { BoardService } from "../../bindings/github.com/StephenSHorton/irori"
 import {
   AnswerResult,
+  AskRepo,
+  CardAsk,
   CardMessage,
   CardResolution,
   CardSummary,
@@ -17,6 +19,7 @@ import {
   CommentResult,
   Holding,
   Told,
+  TaskResult,
   type AgentRef,
   type CardActivity,
   type CardBlocker,
@@ -39,6 +42,8 @@ import { NoteItem, sampleCards, sampleYou } from "./sample-cards"
 export type {
   AgentRef,
   AnswerResult,
+  AskRepo,
+  CardAsk,
   CardActivity,
   CardBlocker,
   CardDetail,
@@ -76,6 +81,40 @@ export const BlockerState = {
   Resolved: "resolved",
   Closed: "closed",
 } as const
+
+// AskState mirrors the Go constants on CardAsk.state (board.md "Asks").
+export const AskState = {
+  Open: "open",
+  Waiting: "waiting",
+  Unclaimed: "unclaimed",
+  Taken: "taken",
+  Closed: "closed",
+} as const
+
+// openAsk says the card is an ask still finding its taker or its outcome:
+// the person's prompt to the room, before it became a card.
+export function openAsk(c: { ask?: CardAsk | null }): boolean {
+  return !!c.ask && c.ask.state !== AskState.Closed
+}
+
+// askLine is an open ask's line in place of the holder line: how many
+// heard it, who it waits on, or who took it.
+export function askLine(a: CardAsk): string {
+  switch (a.state) {
+    case AskState.Taken:
+      return `${a.taker ? displayName(a.taker) : "An agent"} took it`
+    case AskState.Waiting:
+      return `Waiting for ${plainLine(a.owner) || "the device it was posted from"} to hand it out`
+    case AskState.Unclaimed:
+      return "Nobody took this yet"
+    case AskState.Closed:
+      return a.outcome?.kind === "edit"
+        ? `Changed ${a.outcomeRef || "a card"}: ${plainLine(a.outcome.note)}`
+        : `Closed: ${plainLine(a.outcome?.note ?? "")}`
+  }
+  if (a.told === 0) return "Nobody was free to hear it"
+  return `${a.told} ${a.told === 1 ? "agent" : "agents"} heard it`
+}
 
 // ---- sample mode ------------------------------------------------------------
 
@@ -115,7 +154,69 @@ function summary(c: CardDetail): CardSummary {
     watching: c.watching,
     holder: c.holder,
     updatedAt: c.updatedAt,
+    ask: c.ask,
   })
+}
+
+// sampleAsk is BoardService.Ask on the sample: a new ask first in the
+// grid, heard by the sample's idle agents.
+function sampleAsk(text: string, repoKey: string, wake: boolean): TaskResult {
+  const t = text.trim()
+  if (!t) throw new Error("coord: invalid input: an empty comment")
+  const now = new Date().toISOString()
+  const cs = sampleState()
+  const top = Math.max(0, ...cs.map((c) => parseInt(c.short, 10) || 0))
+  const heard = ["sample-heron"]
+  const first = t.split(/\r?\n/)[0].replace(/\s+/g, " ")
+  const c = {
+    ...cs[0],
+    id: `sample-ask-${Date.now()}`,
+    short: String(top + 1),
+    shortWas: "",
+    title: first.length > 80 ? first.slice(0, 79) + "…" : first,
+    goal: t,
+    doneWhen: "",
+    note: "",
+    state: TaskState.Submitted,
+    repoKey,
+    steps: [],
+    blockers: [],
+    prs: [],
+    links: [],
+    comments: [],
+    working: [],
+    watching: [],
+    progress: { done: 0, total: 0 },
+    openBlockers: 0,
+    waiting: 0,
+    blockerQuestion: "",
+    holder: cs[0].holder,
+    recent: [],
+    thread: [
+      new CardThreadItem({ id: "sample-ask-post", kind: "event", at: now, who: sampleYou, text: "You asked the room" }),
+    ],
+    threadEarlier: 0,
+    historyTrimmed: false,
+    updatedAt: now,
+    ask: new CardAsk({ state: AskState.Open, told: heard.length, owner: "This PC", wake, taker: null, outcome: null }),
+  } as CardDetail
+  sample = [c, ...cs]
+  sampleChanged()
+  return new TaskResult({ task: { id: c.id } as TaskResult["task"], told: new Told({ to: heard, mode: wake ? "wake" : "next_turn" }) })
+}
+
+// sampleCloseAsk is BoardService.CloseAsk on the sample: nothing came of
+// it, so it leaves the grid.
+function sampleCloseAsk(id: string, note: string) {
+  const c = sampleCard(id)
+  c.state = TaskState.Canceled
+  c.ask = new CardAsk({
+    ...c.ask,
+    state: AskState.Closed,
+    outcome: { kind: "none", note: note.trim() || "closed by the person" },
+  })
+  sample = sampleState().filter((x) => x.id !== id)
+  sampleChanged()
 }
 
 function sampleAnswer(
@@ -394,6 +495,40 @@ export const cards = {
     return sampleComment(id, text, wake)
   },
 
+  // ask posts the person's prompt to the room: every free agent hears it
+  // (in repoKey's repo when one is named), at its next turn or, with wake,
+  // now. One of them takes it.
+  async ask(text: string, repoKey = "", wake = false): Promise<TaskResult> {
+    if (inWails()) return BoardService.Ask(text, repoKey, wake)
+    return sampleAsk(text, repoKey, wake)
+  },
+
+  // askAgain is Wake them on an ask nobody took.
+  async askAgain(id: string): Promise<void> {
+    if (inWails()) return BoardService.AskAgain(id)
+    const c = sampleCard(id)
+    if (c.ask) c.ask = new CardAsk({ ...c.ask, state: AskState.Open, wake: true })
+    sampleChanged()
+  },
+
+  // closeAsk ends an ask with nothing coming of it.
+  async closeAsk(id: string, note = ""): Promise<void> {
+    if (inWails()) {
+      await BoardService.CloseAsk(id, note)
+      return
+    }
+    sampleCloseAsk(id, note)
+  },
+
+  // askRepos are the repos the agents are in, for the ask box's chip.
+  async askRepos(): Promise<AskRepo[]> {
+    if (inWails()) return (await BoardService.AskRepos()) ?? []
+    return [
+      new AskRepo({ repoKey: "remote:github.com/sample-org/example-app", label: "example-app" }),
+      new AskRepo({ repoKey: "remote:github.com/sample-org/irori", label: "irori" }),
+    ]
+  },
+
   // message opens a message on card id's thread in full: the text the
   // card cut or doesn't carry yet, and its files.
   async message(id: string, msgId: string): Promise<CardMessage> {
@@ -452,10 +587,11 @@ function useFresh(reload: () => Promise<void>, error: string | null) {
 
 async function loadCards(): Promise<CardSummary[]> {
   if (!inWails()) {
+    const ask = (c: CardDetail) => (openAsk(c) ? 1 : 0)
     const open = (c: CardDetail) => (c.openBlockers > 0 ? 1 : 0)
     const time = (c: CardDetail) => new Date(c.updatedAt as string).getTime()
     return [...sampleState()]
-      .sort((a, b) => open(b) - open(a) || time(b) - time(a))
+      .sort((a, b) => ask(b) - ask(a) || open(b) - open(a) || time(b) - time(a))
       .map(summary)
   }
   return (await BoardService.Cards()) ?? []
