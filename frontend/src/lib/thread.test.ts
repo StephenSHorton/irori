@@ -8,6 +8,7 @@ import {
 import {
   answerable,
   blockerChip,
+  heardLine,
   BlockerState,
   blockerTone,
   needsPerson,
@@ -189,5 +190,40 @@ describe("blockerChip", () => {
     })
     for (const state of ["open", "resolved", "closed", ""])
       expect(blockerChip(item({ state }))).toBeNull()
+  })
+})
+
+describe("heardLine", () => {
+  test("nobody around", () => {
+    expect(heardLine([], [], "")).toBe("Nobody has heard this yet.")
+  })
+
+  test("the holder is woken; a watcher hears at its next turn", () => {
+    expect(heardLine([otter], [wren], "wake")).toBe(
+      "sample-otter is woken and will answer here. wren-session hears it at its next turn, watching: they answer only if asked."
+    )
+  })
+
+  test("at the next turn, several", () => {
+    expect(heardLine([otter, wren], [], "next_turn")).toBe(
+      "sample-otter and wren-session hear it at their next turn and will answer here."
+    )
+  })
+
+  test("watchers alone carry the wake", () => {
+    expect(heardLine([], [otter], "wake")).toBe(
+      "sample-otter is woken, watching."
+    )
+  })
+})
+
+describe("unheard", () => {
+  test("the person's comment nobody heard has the badge", () => {
+    const l = threadLabel(
+      new CardThreadItem({ kind: "comment", who: otter, unheard: true })
+    )
+    expect(l.badges).toEqual([
+      { label: "nobody has heard this yet", tone: "warning" },
+    ])
   })
 })

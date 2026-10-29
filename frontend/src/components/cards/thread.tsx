@@ -15,8 +15,8 @@ import { Face } from "./faces"
 // who wrote it and, once the person has a second device, where. The
 // newest page shows first; "Show earlier" opens the rest. A message the
 // card cut, doesn't carry the text of yet, or that has files opens in full
-// in place (cardId names the card). composer renders under the list (the
-// comment box's slot; nothing passes one yet).
+// in place (cardId names the card). composer renders under the list,
+// newest last: the card's comment box, or a blocker's answer form.
 export function Thread({
   cardId,
   items,

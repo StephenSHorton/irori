@@ -6,11 +6,14 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
 import {
   BlockerState,
   cards,
   displayName,
   MaxAnswer,
+  MaxComment,
   NoteItem,
   percent,
   TaskState,
@@ -31,7 +34,7 @@ import {
   shortRepo,
 } from "@/lib/irori"
 import { errorText, talk, type GoneSession } from "@/lib/talk"
-import { answerable, blockerChip, blockerTone } from "@/lib/thread"
+import { answerable, blockerChip, blockerTone, heardLine } from "@/lib/thread"
 import { cn } from "@/lib/utils"
 import { HolderLine, ProgressBar, ScopeBadge, ShortRef } from "./bits"
 import { Face, LiveDot } from "./faces"
@@ -234,6 +237,7 @@ export function CardPanel({
           now={now}
           earlier={detail.threadEarlier}
           historyTrimmed={detail.historyTrimmed}
+          composer={<CommentBox cardId={detail.id} />}
         />
       </Section>
     </Card>
@@ -269,6 +273,88 @@ function Note({ children }: { children: ReactNode }) {
 }
 
 const name = displayName
+
+// CommentBox is the comment box under a card's thread: the person's
+// comment goes to the agents on the card (BoardService.Comment), and the
+// line under it says who heard. Wake is on by default: a comment from the
+// app is asked now.
+function CommentBox({ cardId }: { cardId: string }) {
+  const [text, setText] = useState("")
+  const [wake, setWake] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [heard, setHeard] = useState<{ line: string; error?: string } | null>(
+    null
+  )
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (busy) return
+    if (!text.trim()) {
+      setError("Write a comment first.")
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await cards.comment(cardId, text, wake)
+      setHeard({
+        line: heardLine(res.answers, res.watching, res.told.mode ?? ""),
+        error: res.told.error,
+      })
+      setText("")
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form className="mt-1 grid gap-1.5" onSubmit={(e) => void submit(e)}>
+      <Textarea
+        autoSize
+        value={text}
+        maxLength={MaxComment}
+        onChange={(e) => {
+          setText(e.target.value)
+          setHeard(null)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey))
+            e.currentTarget.form?.requestSubmit()
+        }}
+        placeholder="Comment on the card"
+        aria-label="Your comment on the card"
+        className="max-h-48 min-h-10 bg-card"
+        disabled={busy}
+      />
+      <div className="flex items-center justify-between gap-3">
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Switch
+            size="sm"
+            checked={wake}
+            disabled={busy}
+            onCheckedChange={(v) => setWake(v)}
+          />
+          Wake now
+        </label>
+        <Button type="submit" size="sm" disabled={busy}>
+          {busy ? "Sending…" : "Comment"}
+        </Button>
+      </div>
+      {heard &&
+        (heard.error ? (
+          <p className="text-xs text-destructive">
+            On the card, but not everyone could be told: {heard.error}
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">{heard.line}</p>
+        ))}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </form>
+  )
+}
 
 // BlockerItem is one blocker: the question, context for a newcomer, who
 // raised it, its own thread (the person's answers, the agents' replies)

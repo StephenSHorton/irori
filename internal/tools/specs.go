@@ -38,7 +38,8 @@ const BoardInstructions = "The Irori Board is a shared scratch pad for live coor
 	"a permission), raise one board_block per question, never several asks in one note or one blocker: give each enough context that " +
 	"someone who has never been there can decide, give options when there are real choices, and mark your recommendation. " +
 	"Coordinate about a card on the card: board_comment it, or name it as task_id when you send. " +
-	"Use direct messages only for things not about a card."
+	"Use direct messages only for things not about a card. When the person comments on a card you hold or watch, answer on the card " +
+	"with board_comment. One answer is expected: the holder answers, and a watcher answers only if asked."
 
 // Sentences some descriptions share.
 const (

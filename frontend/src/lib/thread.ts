@@ -33,7 +33,8 @@ export type ThreadLabel = {
 
 // threadLabel is the header line for one entry: "A -> B" for a message,
 // with "recipient gone" when Irori left it on the card for an ended
-// recipient, "held" until the wake policy lets it through (its text isn't
+// recipient, "nobody has heard this yet" on the person's comment that no
+// agent was around to hear (until an agent writes on the card), "held" until the wake policy lets it through (its text isn't
 // on the card), and the count of files that stayed on the message. An
 // answer or reply on a blocker in the card's own thread (its item is no
 // longer kept) says which item; inBlocker leaves that off, as the entry
@@ -46,6 +47,8 @@ export function threadLabel(
   if (item.blockerId && item.kind !== ThreadKind.Event && !inBlocker)
     badges.push({ label: `on ${item.blockerId}`, tone: "slate" })
   if (item.gone) badges.push({ label: "recipient gone", tone: "warning" })
+  if (item.unheard)
+    badges.push({ label: "nobody has heard this yet", tone: "warning" })
   if (item.held) badges.push({ label: "held", tone: "slate" })
   if (item.files)
     badges.push({
@@ -126,4 +129,34 @@ export function blockerChip(b: CardBlocker): ThreadBadge | null {
   if (b.state === BlockerState.Replied)
     return { label: "Replied", tone: "warning" }
   return null
+}
+
+// heardLine says who heard the person's comment (BoardService.Comment):
+// who answers it on the card, woken or at their next turn, and the
+// watchers, who answer only if it asks them. Nobody: "Nobody has heard
+// this yet."
+export function heardLine(
+  answers: AgentRef[],
+  watching: AgentRef[],
+  mode: string
+): string {
+  const names = (rs: AgentRef[]) => {
+    const n = rs.map(displayName)
+    return n.length > 1
+      ? `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}`
+      : n[0]
+  }
+  const how = (rs: AgentRef[], woken: boolean) =>
+    `${names(rs)} ${woken ? (rs.length > 1 ? "are woken" : "is woken") : rs.length > 1 ? "hear it at their next turn" : "hears it at its next turn"}`
+  if (!answers.length && !watching.length) return "Nobody has heard this yet."
+  const parts: string[] = []
+  if (answers.length)
+    parts.push(`${how(answers, mode === "wake")} and will answer here.`)
+  if (watching.length)
+    parts.push(
+      answers.length
+        ? `${how(watching, false)}, watching: they answer only if asked.`
+        : `${how(watching, mode === "wake")}, watching.`
+    )
+  return parts.join(" ")
 }

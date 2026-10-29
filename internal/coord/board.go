@@ -82,6 +82,9 @@ type Comment struct {
 	BlockerID string   `json:"blockerId,omitempty"`
 	Pick      int      `json:"pick,omitempty"`
 	Missing   []string `json:"missing,omitempty"`
+	// Unheard: the person's comment (PersonComment) had no agent around to
+	// hear it when it was written.
+	Unheard bool `json:"unheard,omitempty"`
 	// Device wrote the row (from the log, not the payload). HLC and Seq are
 	// its position, (HLC, Device, Seq); they never go on the wire.
 	Device string        `json:"device"`
@@ -148,6 +151,9 @@ type Notice struct {
 	Wake bool   `json:"wake"` // only a comment's own Wake sets it
 	// Attachments are a comment's files; the message carries them too.
 	Attachments []blob.FileRef `json:"attachments,omitempty"`
+	// Watching: the person's comment told To as the card's watchers, who
+	// answer only if it asks them (PersonComment).
+	Watching bool `json:"watching,omitempty"`
 }
 
 // Refusal is one lease.refused row: by asked for resource and heldBy had it.
@@ -295,6 +301,19 @@ func (c *Coord) Unblock(ctx context.Context, by, id, note string) (Task, Notice,
 // other than by.
 func (c *Coord) AddComment(ctx context.Context, by, id, text string, wake bool) (Comment, Notice, error) {
 	return c.impl.addComment(ctx, by, id, text, wake, nil)
+}
+
+// PersonComment is the person's comment on a card from the app (board.md
+// "Comments from the app"); by must be the person. Who hears: the holders
+// that work it, then those still assigned, asked to answer it on the card;
+// with none of them around, its creator instead; and its watchers, told
+// the holder answers. around says whether an agent can hear now (nil:
+// every agent); it is called under coord's lock, so it must not call
+// coord. With nobody around the comment is written Unheard and no notice
+// is returned. Watchers are woken only when nobody else heard; the others
+// carry wake.
+func (c *Coord) PersonComment(ctx context.Context, by, id, text string, wake bool, around func(key string) bool) (Comment, []Notice, error) {
+	return c.impl.personComment(ctx, by, id, text, wake, around)
 }
 
 // AddCommentWith is AddComment with files attached (v0.4 §6.6): refs the

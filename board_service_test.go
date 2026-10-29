@@ -12,6 +12,7 @@ import (
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/inbox"
+	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/store"
 )
 
@@ -160,6 +161,113 @@ func TestBoardCommentRouteError(t *testing.T) {
 	}
 	if d, _ := b.Task(tk.ID); len(d.Comments) != 1 {
 		t.Fatal("comment missing after a route failure")
+	}
+}
+
+// From the app, the person's comment goes to whoever is on the card and
+// around: the holder (woken, asked to answer) and its watchers (next turn);
+// with no holder, the creator if it is still around. With nobody around the
+// comment shows "unheard" in the thread until an agent writes on the card.
+func TestBoardCommentWhoHears(t *testing.T) {
+	ctx := context.Background()
+	keys := func(rs []AgentRef) []string {
+		out := []string{}
+		for _, r := range rs {
+			out = append(out, r.Key)
+		}
+		return out
+	}
+	unheard := func(b *BoardService, id, cid string) bool {
+		t.Helper()
+		d, err := b.Card(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, it := range d.Thread {
+			if it.ID == cid {
+				return it.Unheard
+			}
+		}
+		t.Fatalf("comment %s not in the thread", cid)
+		return false
+	}
+
+	// Held, with a watcher: the holder is woken to answer.
+	b, c, got := cardsBoard(t)
+	tk := heldTask(t, c)
+	if _, err := c.Watch(ctx, agentB, tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	res, err := b.Comment(tk.ID, "Which tag?", "wake")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(keys(res.Answers), []string{agentA}) || !slices.Equal(keys(res.Watching), []string{agentB}) ||
+		res.Told.Mode != "wake" || !slices.Equal(res.Told.To, []string{agentA, agentB}) || res.Comment.Unheard {
+		t.Fatalf("held: %+v", res)
+	}
+	if len(*got) != 2 || !(*got)[0].n.Wake || (*got)[1].n.Wake || !(*got)[1].n.Watching {
+		t.Fatalf("held routed %+v", *got)
+	}
+
+	// Assigned and not taken up: the assignee answers.
+	b, c, _ = cardsBoard(t)
+	tk, err = c.CreateTask(ctx, "user:dev-a", coord.NewTask{Title: "port it"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.Assign(ctx, "user:dev-a", tk.ID, agentB); err != nil {
+		t.Fatal(err)
+	}
+	if res, err = b.Comment(tk.ID, "Start with the Mac.", "wake"); err != nil || !slices.Equal(keys(res.Answers), []string{agentB}) {
+		t.Fatalf("assigned: %+v %v", res, err)
+	}
+
+	// Watched only: the watcher hears, woken since nobody else did.
+	b, c, got = cardsBoard(t)
+	tk, err = c.CreateTask(ctx, "user:dev-a", coord.NewTask{Title: "watch it"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Watch(ctx, agentB, tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	res, err = b.Comment(tk.ID, "Anyone?", "wake")
+	if err != nil || len(res.Answers) != 0 || !slices.Equal(keys(res.Watching), []string{agentB}) || res.Told.Mode != "wake" {
+		t.Fatalf("watched: %+v %v", res, err)
+	}
+
+	// Nobody holds it: the creator, while it is around.
+	b, c, _ = cardsBoard(t)
+	tk, err = c.CreateTask(ctx, agentA, coord.NewTask{Title: "made by a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res, err = b.Comment(tk.ID, "Still needed?", "wake"); err != nil || !slices.Equal(keys(res.Answers), []string{agentA}) {
+		t.Fatalf("creator: %+v %v", res, err)
+	}
+
+	// The creator has gone and nobody else is on it: unheard, until an
+	// agent writes on the card.
+	b.agents = func() []presence.AgentCard { return []presence.AgentCard{{Key: agentA, Status: "gone"}} }
+	*got = nil
+	res, err = b.Comment(tk.ID, "Hello?", "wake")
+	if err != nil || len(res.Told.To) != 0 || res.Told.Mode != "" || len(res.Answers)+len(res.Watching) != 0 || !res.Comment.Unheard {
+		t.Fatalf("nobody: %+v %v", res, err)
+	}
+	if !unheard(b, tk.ID, res.Comment.ID) {
+		t.Fatal("the thread doesn't say nobody heard it")
+	}
+	if _, _, err := c.AddComment(ctx, agentB, tk.ID, "Saw it; yes, still needed.", false); err != nil {
+		t.Fatal(err)
+	}
+	if unheard(b, tk.ID, res.Comment.ID) {
+		t.Fatal("still unheard after an agent answered on the card")
+	}
+
+	// Tell none: on the card, nobody told, not marked unheard.
+	if res, err = b.Comment(tk.ID, "Note to self.", "none"); err != nil || res.Comment.Unheard || len(res.Told.To) != 0 {
+		t.Fatalf("none: %+v %v", res, err)
 	}
 }
 

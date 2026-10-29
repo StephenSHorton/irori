@@ -1253,3 +1253,119 @@ func TestBoardReplayTolerates(t *testing.T) {
 		t.Fatal("comment on a missing task kept")
 	}
 }
+
+// The person's comment from the app reaches, for each kind of card: the
+// holders that work it, then those still assigned, asked to answer; with
+// none of them around, the creator; the watchers, told who answers and
+// woken only when nobody else heard. With nobody around it is written
+// unheard and tells nobody.
+func TestPersonCommentHearers(t *testing.T) {
+	gone := map[string]bool{}
+	around := func(k string) bool { return !gone[k] }
+	for _, tc := range []struct {
+		name         string
+		setup        func(e *env) Task
+		gone         []string
+		answer       []string
+		watch        []string
+		watchWake    bool
+		watchAnswers string // a line the watchers' notice says
+	}{
+		{"held", func(e *env) Task {
+			task := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "t"}))
+			must[Task](t)(e.c.ClaimTask(ctx, bob, task.ID))
+			return must[Task](t)(e.c.Watch(ctx, carol, task.ID))
+		}, nil, []string{bob}, []string{carol}, false, bob + " answers it"},
+		{"assigned", func(e *env) Task {
+			task := must[Task](t)(e.c.CreateTask(ctx, user, NewTask{Title: "t"}))
+			task, _ = mustN(t)(e.c.Assign(ctx, user, task.ID, bob))
+			return task
+		}, nil, []string{bob}, nil, false, ""},
+		{"held and assigned: workers first", func(e *env) Task {
+			task := must[Task](t)(e.c.CreateTask(ctx, user, NewTask{Title: "t", Shared: true}))
+			mustN(t)(e.c.Assign(ctx, user, task.ID, carol))
+			return must[Task](t)(e.c.Join(ctx, bob, task.ID, bob))
+		}, nil, []string{bob, carol}, nil, false, ""},
+		{"watched only", func(e *env) Task {
+			task := must[Task](t)(e.c.CreateTask(ctx, user, NewTask{Title: "t"}))
+			return must[Task](t)(e.c.Watch(ctx, carol, task.ID))
+		}, nil, nil, []string{carol}, true, "Nobody else is on it"},
+		{"nobody holds: the creator", func(e *env) Task {
+			task := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "t"}))
+			return must[Task](t)(e.c.Watch(ctx, carol, task.ID))
+		}, nil, []string{alice}, []string{carol}, false, alice + " answers it"},
+		{"the holder has gone: the creator", func(e *env) Task {
+			task := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "t"}))
+			return must[Task](t)(e.c.ClaimTask(ctx, bob, task.ID))
+		}, []string{bob}, []string{alice}, nil, false, ""},
+		{"a creating watcher answers once", func(e *env) Task {
+			task := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "t"}))
+			return must[Task](t)(e.c.Watch(ctx, alice, task.ID))
+		}, nil, []string{alice}, nil, false, ""},
+		{"nobody reachable", func(e *env) Task {
+			task := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "t"}))
+			must[Task](t)(e.c.ClaimTask(ctx, bob, task.ID))
+			return must[Task](t)(e.c.Watch(ctx, carol, task.ID))
+		}, []string{alice, bob, carol}, nil, nil, false, ""},
+		{"the person's own card", func(e *env) Task {
+			return must[Task](t)(e.c.CreateTask(ctx, user, NewTask{Title: "t"}))
+		}, nil, nil, nil, false, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			task := tc.setup(e)
+			clear(gone)
+			for _, g := range tc.gone {
+				gone[g] = true
+			}
+			cm, ns, err := e.c.PersonComment(ctx, user, task.ID, "which tag?", true, around)
+			if err != nil {
+				t.Fatal(err)
+			}
+			unheard := tc.answer == nil && tc.watch == nil
+			if cm.Unheard != unheard || cm.By != user || cm.Text != "which tag?" {
+				t.Fatalf("comment %+v, want unheard %v", cm, unheard)
+			}
+			var answer, watch *Notice
+			for i := range ns {
+				n := &ns[i]
+				if n.Kind != NoticeComment || n.Ref != "comment:"+cm.ID || !strings.Contains(n.Text, "which tag?") {
+					t.Fatalf("notice %+v", n)
+				}
+				if n.Watching {
+					watch = n
+				} else {
+					answer = n
+				}
+			}
+			if len(ns) != btoi(answer != nil)+btoi(watch != nil) {
+				t.Fatalf("notices %+v", ns)
+			}
+			if tc.answer == nil != (answer == nil) || answer != nil && (!reflect.DeepEqual(answer.To, tc.answer) || !answer.Wake ||
+				!strings.Contains(answer.Text, "Answer it on the card with board_comment")) {
+				t.Fatalf("answer notice %+v, want to %v", answer, tc.answer)
+			}
+			if tc.watch == nil != (watch == nil) || watch != nil && (!reflect.DeepEqual(watch.To, tc.watch) || watch.Wake != tc.watchWake ||
+				!strings.Contains(watch.Text, tc.watchAnswers)) {
+				t.Fatalf("watch notice %+v, want to %v wake %v", watch, tc.watch, tc.watchWake)
+			}
+			// Unheard is in the row: a replay (or another device) folds it.
+			if g, _ := e.reopen().GetComment(cm.ID); g.Unheard != unheard {
+				t.Fatalf("replayed unheard = %v", g.Unheard)
+			}
+		})
+	}
+	e := newEnv(t)
+	task := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "t"}))
+	_, _, err := e.c.PersonComment(ctx, bob, task.ID, "me too", false, nil)
+	wantErr(t, err, ErrInvalid)
+	_, _, err = e.c.PersonComment(ctx, user, task.ID, " ", false, nil)
+	wantErr(t, err, ErrInvalid)
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}

@@ -1147,6 +1147,12 @@ export class CardThreadItem {
      */
     "attachments"?: blob$0.FileRef[];
 
+    /**
+     * Unheard: the person's comment had no agent around to hear it, and no
+     * agent has written on the card since.
+     */
+    "unheard"?: boolean;
+
     /** Creates a new CardThreadItem instance. */
     constructor($$source: Partial<CardThreadItem> = {}) {
         if (!("id" in $$source)) {
@@ -1194,11 +1200,16 @@ export class CardThreadItem {
 }
 
 /**
- * CommentResult is Comment's answer.
+ * CommentResult is Comment's answer. Answers are who were asked to answer
+ * it on the card (the holders, or the creator); Watching are the watchers
+ * told, who answer only if it asks them. Both empty: nobody has heard it
+ * (Comment.Unheard, unless tell was none).
  */
 export class CommentResult {
     "comment": coord$0.Comment;
     "told": Told;
+    "answers": AgentRef[];
+    "watching": AgentRef[];
 
     /** Creates a new CommentResult instance. */
     constructor($$source: Partial<CommentResult> = {}) {
@@ -1207,6 +1218,12 @@ export class CommentResult {
         }
         if (!("told" in $$source)) {
             this["told"] = (new Told());
+        }
+        if (!("answers" in $$source)) {
+            this["answers"] = [];
+        }
+        if (!("watching" in $$source)) {
+            this["watching"] = [];
         }
 
         Object.assign(this, $$source);
@@ -1218,12 +1235,20 @@ export class CommentResult {
     static createFrom($$source: any = {}): CommentResult {
         const $$createField0_0 = $$createType24;
         const $$createField1_0 = $$createType1;
+        const $$createField2_0 = $$createType12;
+        const $$createField3_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("comment" in $$parsedSource) {
             $$parsedSource["comment"] = $$createField0_0($$parsedSource["comment"]);
         }
         if ("told" in $$parsedSource) {
             $$parsedSource["told"] = $$createField1_0($$parsedSource["told"]);
+        }
+        if ("answers" in $$parsedSource) {
+            $$parsedSource["answers"] = $$createField2_0($$parsedSource["answers"]);
+        }
+        if ("watching" in $$parsedSource) {
+            $$parsedSource["watching"] = $$createField3_0($$parsedSource["watching"]);
         }
         return new CommentResult($$parsedSource as Partial<CommentResult>);
     }

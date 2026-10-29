@@ -100,8 +100,13 @@ export function Cards(): $CancellablePromise<$models.CardSummary[]> {
 }
 
 /**
- * Comment adds the person's comment to a task. tell is next_turn (default),
- * wake or none; the comment is written either way.
+ * Comment adds the person's comment to a task (board.md "Comments from the
+ * app"). tell is next_turn (default), wake (the window's default) or none.
+ * coord.PersonComment says who hears: the holders, then those still
+ * assigned, asked to answer on the card (with none of them around, the
+ * creator), and the watchers. Only agents the roster has, and not gone,
+ * can hear; with nobody around, the comment is marked unheard. With tell
+ * none it stays on the card and nobody is told.
  */
 export function Comment(id: string, text: string, tell: string): $CancellablePromise<$models.CommentResult> {
     return $Call.ByID(1436059054, id, text, tell).then(($result: any) => {

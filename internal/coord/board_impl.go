@@ -346,20 +346,29 @@ func cut(s string, n int) string {
 
 // ---- comments ----
 
-func (c *coord) addComment(ctx context.Context, by, id, text string, wake bool, files []blob.FileRef) (Comment, Notice, error) {
+// checkComment trims and checks a comment's caller, text and files.
+func checkComment(by, text string, files []blob.FileRef) (string, string, error) {
 	by, _, err := callers(by)
 	if err != nil {
-		return Comment{}, Notice{}, err
+		return "", "", err
 	}
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return Comment{}, Notice{}, fmt.Errorf("%w: an empty comment", ErrInvalid)
+		return "", "", fmt.Errorf("%w: an empty comment", ErrInvalid)
 	}
 	if utf8.RuneCountInString(text) > MaxComment {
-		return Comment{}, Notice{}, fmt.Errorf("%w: comment longer than %d characters", ErrInvalid, MaxComment)
+		return "", "", fmt.Errorf("%w: comment longer than %d characters", ErrInvalid, MaxComment)
 	}
 	if len(files) > MaxAttachments {
-		return Comment{}, Notice{}, fmt.Errorf("%w: at most %d attachments", ErrInvalid, MaxAttachments)
+		return "", "", fmt.Errorf("%w: at most %d attachments", ErrInvalid, MaxAttachments)
+	}
+	return by, text, nil
+}
+
+func (c *coord) addComment(ctx context.Context, by, id, text string, wake bool, files []blob.FileRef) (Comment, Notice, error) {
+	by, text, err := checkComment(by, text, files)
+	if err != nil {
+		return Comment{}, Notice{}, err
 	}
 	c.mu.Lock()
 	defer c.unlock()
@@ -381,6 +390,91 @@ func (c *coord) addComment(ctx context.Context, by, id, text string, wake bool, 
 		Text: fmt.Sprintf("%s commented on %q (%s):\n%s%s", by, t.Title, t.Refs(), text, deeper(id)),
 	}
 	return cm, n, nil
+}
+
+// hearers are who hear the person's comment on t (board.md "Comments from
+// the app"). answer: its holders that work it, then those still assigned;
+// with none of them around, its creator. watch: its watchers. Only agents
+// around (nil: everyone) count, and never by, a person or Irori; nobody is
+// in both.
+func (c *coord) hearers(t *Task, by string, around func(string) bool) (answer, watch []string) {
+	ok := func(k string) bool {
+		return k != "" && k != by && k != sweeper && !c.isOwner(k) && !contains(answer, k) && !contains(watch, k) &&
+			(around == nil || around(k))
+	}
+	for _, h := range t.Holders {
+		if !contains(t.Assigned, h) && ok(h) {
+			answer = append(answer, h)
+		}
+	}
+	for _, h := range t.Holders {
+		if contains(t.Assigned, h) && ok(h) {
+			answer = append(answer, h)
+		}
+	}
+	if len(answer) == 0 && ok(t.CreatedBy) {
+		answer = []string{t.CreatedBy}
+	}
+	for _, w := range t.Watchers {
+		if ok(w) {
+			watch = append(watch, w)
+		}
+	}
+	return answer, watch
+}
+
+func (c *coord) personComment(ctx context.Context, by, id, text string, wake bool, around func(string) bool) (Comment, []Notice, error) {
+	by, text, err := checkComment(by, text, nil)
+	if err != nil {
+		return Comment{}, nil, err
+	}
+	if !c.isOwner(by) {
+		return Comment{}, nil, fmt.Errorf("%w: only the person comments from the app", ErrInvalid)
+	}
+	c.mu.Lock()
+	defer c.unlock()
+	t, err := c.anyTask(id)
+	if err != nil {
+		return Comment{}, nil, err
+	}
+	answer, watch := c.hearers(t, by, around)
+	at := c.stamp()
+	cid := newID(at)
+	cm, err := c.writeComment(ctx, c.actorFor(by), taskCommentRow{
+		TaskID: id, CommentID: cid, By: by, Text: text, Wake: wake, At: at,
+		Unheard: len(answer) == 0 && len(watch) == 0,
+	})
+	if err != nil {
+		return Comment{}, nil, err
+	}
+	head := fmt.Sprintf("The person commented on %q (%s)", t.Title, t.Refs())
+	n := Notice{Kind: NoticeComment, TaskID: id, Ref: "comment:" + cid, Title: t.Title, By: by}
+	var ns []Notice
+	if len(answer) > 0 {
+		a := n
+		a.To, a.Wake = answer, wake
+		a.Text = head + ":\n" + text + "\nAnswer it on the card with board_comment."
+		if len(answer) > 1 {
+			a.Text += " One answer is enough: read the card first."
+		}
+		a.Text += deeper(id)
+		ns = append(ns, a)
+	}
+	if len(watch) > 0 {
+		// The holder answers; a watcher only when asked, so it isn't woken
+		// for it unless nobody else heard.
+		w := n
+		w.To, w.Wake, w.Watching = watch, wake && len(answer) == 0, true
+		w.Text = head + ", a card you watch:\n" + text + "\n"
+		if len(answer) > 0 {
+			w.Text += strings.Join(answer, ", ") + " answers it; answer on the card only if it asks you."
+		} else {
+			w.Text += "Nobody else is on it: if it asks something you can answer, answer on the card with board_comment."
+		}
+		w.Text += deeper(id)
+		ns = append(ns, w)
+	}
+	return cm, ns, nil
 }
 
 // writeComment appends a task.comment row as actor and returns the comment

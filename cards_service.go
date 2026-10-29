@@ -232,6 +232,9 @@ type CardThreadItem struct {
 	Held        bool           `json:"held,omitempty"`
 	Files       int            `json:"files,omitempty"`
 	Attachments []blob.FileRef `json:"attachments,omitempty"` // a comment's files
+	// Unheard: the person's comment had no agent around to hear it, and no
+	// agent has written on the card since.
+	Unheard bool `json:"unheard,omitempty"`
 }
 
 // CardMessage is a message on a card's thread in full, for the person: the
@@ -611,7 +614,7 @@ func buildThread(comments []coord.Comment, acts []coord.Activity, t coord.Task, 
 	for _, cm := range comments {
 		it := CardThreadItem{ID: cm.ID, Kind: ThreadComment, At: cm.At, Who: p.ref(cm.By),
 			Device: p.chip(cm.Device), Text: cm.Text, Gone: cm.Gone, Held: cm.Held, Files: cm.Files,
-			Attachments: cm.Attachments, BlockerID: cm.BlockerID, Missing: cm.Missing}
+			Attachments: cm.Attachments, BlockerID: cm.BlockerID, Missing: cm.Missing, Unheard: cm.Unheard}
 		if cm.MsgID != "" {
 			it.Kind = ThreadMessage
 		}
@@ -650,6 +653,17 @@ func buildThread(comments []coord.Comment, acts []coord.Activity, t coord.Task, 
 			At: a.At, Who: who, Device: p.chip(a.Device), Text: who.Name + " " + a.What, BlockerID: a.BlockerID}})
 	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].pos.before(all[j].pos) })
+	// An agent's comment or message after an unheard comment means an
+	// agent has read the card since.
+	agentLater := false
+	for i := len(all) - 1; i >= 0; i-- {
+		it := &all[i].item
+		if it.Kind == ThreadEvent {
+			continue
+		}
+		it.Unheard = it.Unheard && !agentLater
+		agentLater = agentLater || it.Who.Status != "person" && it.Who.Status != "irori"
+	}
 	if n := len(all) - MaxThreadView; n > 0 {
 		earlier, all = n, all[n:]
 	}

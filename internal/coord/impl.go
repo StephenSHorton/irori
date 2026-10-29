@@ -155,6 +155,8 @@ type taskCommentRow struct {
 	BlockerID string   `json:"blockerId,omitempty"`
 	Pick      int      `json:"pick,omitempty"`
 	Missing   []string `json:"missing,omitempty"`
+	// unheard: the person's comment had no agent around to hear it.
+	Unheard bool `json:"unheard,omitempty"`
 }
 
 type blockerClosedRow struct {
@@ -572,6 +574,7 @@ func (c *coord) apply(ev store.Event) {
 			Device: ev.DeviceID, HLC: ev.HLC, Seq: ev.Seq, primary: primary,
 			person: ev.Actor == "user" && c.isOwner(p.By),
 		}
+		cm.Unheard = p.Unheard && cm.person
 		if !primary && !p.Held {
 			cm.passed = p.Text
 		}

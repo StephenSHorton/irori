@@ -669,6 +669,62 @@ func TestTheBoardAndNextTurnAcrossDevices(t *testing.T) {
 	}
 }
 
+// The person comments from the Mac on a card the PC's agent holds (board.md
+// "Comments from the app"): the Mac's roster says the PC's agent is around,
+// the PC wakes it with the comment, it answers on the card, and the answer
+// is in the Mac's thread.
+func TestAPersonsCommentWakesTheHolderOnTheOtherDevice(t *testing.T) {
+	ctx := context.Background()
+	_, pc, mac, _ := meshTrio(t)
+	task, err := pc.c.Coord().CreateTask(ctx, pc.agent(), coord.NewTask{Title: "Tag the release"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pc.c.Coord().ClaimTask(ctx, pc.agent(), task.ID); err != nil {
+		t.Fatal(err)
+	}
+	wait(t, "the mac sees the pc's claim", func() bool { x, _ := mac.c.Coord().GetTask(task.ID); return x.Holder == pc.agent() })
+	around := func(k string) bool {
+		for _, a := range mac.c.MeshAgents() {
+			if a.Key == k && a.Status != "gone" {
+				return true
+			}
+		}
+		return false
+	}
+	cm, ns, err := mac.c.Coord().PersonComment(ctx, mac.c.UserSender().Key, task.ID, "Which tag, v0.4.5?", true, around)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cm.Unheard || len(ns) != 1 || len(ns[0].To) != 1 || ns[0].To[0] != pc.agent() || !ns[0].Wake {
+		t.Fatalf("comment %+v, notices %+v", cm, ns)
+	}
+	if err := mac.c.RouteNotices(ctx, mac.c.UserSender(), ns...); err != nil {
+		t.Fatal(err)
+	}
+	wait(t, "the pc wakes its agent with the comment", func() bool {
+		w, _ := pc.c.Inbox().NextWake(ctx, pc.agent(), inbox.PathMod)
+		if w == nil {
+			return false
+		}
+		if !strings.Contains(w.Prompt, "Which tag, v0.4.5?") || !strings.Contains(w.Prompt, "board_comment") {
+			t.Fatalf("the pc's wake:\n%s", w.Prompt)
+		}
+		return true
+	})
+	if out := pc.tool("board_comment", map[string]any{"task_id": task.ID, "text": "v0.4.5, tagging now."}); strings.HasPrefix(out, "Error: ") {
+		t.Fatalf("board_comment = %s", out)
+	}
+	wait(t, "the answer is on the mac's card", func() bool {
+		for _, c := range mac.c.Coord().Comments(task.ID) {
+			if c.By == pc.agent() && c.Text == "v0.4.5, tagging now." {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 // Removing a device ends its leases and drops its cards everywhere, with no
 // row from it.
 func TestRemovingADeviceEndsItsLeasesAndCards(t *testing.T) {

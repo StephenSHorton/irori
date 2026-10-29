@@ -62,10 +62,15 @@ type TaskResult struct {
 	Told Told       `json:"told"`
 }
 
-// CommentResult is Comment's answer.
+// CommentResult is Comment's answer. Answers are who were asked to answer
+// it on the card (the holders, or the creator); Watching are the watchers
+// told, who answer only if it asks them. Both empty: nobody has heard it
+// (Comment.Unheard, unless tell was none).
 type CommentResult struct {
-	Comment coord.Comment `json:"comment"`
-	Told    Told          `json:"told"`
+	Comment  coord.Comment `json:"comment"`
+	Told     Told          `json:"told"`
+	Answers  []AgentRef    `json:"answers"`
+	Watching []AgentRef    `json:"watching"`
 }
 
 // TaskDetail is one card opened: the task and its comments, oldest first.
@@ -182,19 +187,50 @@ func (b *BoardService) Create(in NewCard) (TaskResult, error) {
 	return TaskResult{Task: at, Told: b.tell(ctx, n, TellNextTurn)}, nil
 }
 
-// Comment adds the person's comment to a task. tell is next_turn (default),
-// wake or none; the comment is written either way.
+// Comment adds the person's comment to a task (board.md "Comments from the
+// app"). tell is next_turn (default), wake (the window's default) or none.
+// coord.PersonComment says who hears: the holders, then those still
+// assigned, asked to answer on the card (with none of them around, the
+// creator), and the watchers. Only agents the roster has, and not gone,
+// can hear; with nobody around, the comment is marked unheard. With tell
+// none it stays on the card and nobody is told.
 func (b *BoardService) Comment(id, text, tell string) (CommentResult, error) {
 	tl, err := parseTell(tell)
 	if err != nil {
 		return CommentResult{}, err
 	}
 	ctx := context.Background()
-	c, n, err := b.coord.AddComment(ctx, b.user.Key, id, text, tl == TellWake)
+	res := CommentResult{Told: Told{To: []string{}}, Answers: []AgentRef{}, Watching: []AgentRef{}}
+	if tl == TellNone {
+		res.Comment, _, err = b.coord.AddComment(ctx, b.user.Key, id, text, false)
+		return res, err
+	}
+	p := b.people()
+	var around func(string) bool
+	if b.agents != nil {
+		around = func(k string) bool { return p.ref(k).Live }
+	}
+	c, ns, err := b.coord.PersonComment(ctx, b.user.Key, id, text, tl == TellWake, around)
 	if err != nil {
 		return CommentResult{}, err
 	}
-	return CommentResult{Comment: c, Told: b.tell(ctx, n, tl)}, nil
+	res.Comment = c
+	for i, n := range ns {
+		told := b.tell(ctx, n, tl)
+		res.Told.To = append(res.Told.To, told.To...)
+		if i == 0 {
+			res.Told.Mode = told.Mode
+		}
+		if told.Error != "" {
+			res.Told.Error = strings.TrimPrefix(res.Told.Error+"; "+told.Error, "; ")
+		}
+		if n.Watching {
+			res.Watching = append(res.Watching, p.refs(n.To)...)
+		} else {
+			res.Answers = append(res.Answers, p.refs(n.To)...)
+		}
+	}
+	return res, nil
 }
 
 // Block moves a task to blocked with a reason; on (lease, task, person,

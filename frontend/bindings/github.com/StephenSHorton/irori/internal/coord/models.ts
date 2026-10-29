@@ -511,6 +511,12 @@ export class Comment {
     "missing"?: string[];
 
     /**
+     * Unheard: the person's comment (PersonComment) had no agent around to
+     * hear it when it was written.
+     */
+    "unheard"?: boolean;
+
+    /**
      * Device wrote the row (from the log, not the payload). HLC and Seq are
      * its position, (HLC, Device, Seq); they never go on the wire.
      */

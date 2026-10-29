@@ -14,6 +14,7 @@ import {
   CardResolution,
   CardSummary,
   CardThreadItem,
+  CommentResult,
   Holding,
   Told,
   type AgentRef,
@@ -44,6 +45,7 @@ export type {
   CardPR,
   CardSummary,
   CardThreadItem,
+  CommentResult,
   Step,
   Told,
 }
@@ -55,6 +57,9 @@ export const EventBoardChanged = "board:changed"
 
 // MaxAnswer mirrors coord's limit on a blocker answer.
 export const MaxAnswer = 500
+
+// MaxComment mirrors coord's limit on a comment.
+export const MaxComment = 4000
 
 // BlockerState mirrors the Go constants on CardBlocker.state: open (no
 // answer yet), answered (the person answered; it waits on the raiser),
@@ -311,6 +316,40 @@ function sampleAnswerNote(
   })
 }
 
+// sampleComment is BoardService.Comment on the sample: the person's
+// comment at the end of the thread, heard by the live agents on the card
+// (watchers answer only if asked); with none, it is unheard.
+function sampleComment(id: string, text: string, wake: boolean): CommentResult {
+  const c = sampleCard(id)
+  const t = text.trim()
+  if (!t) throw new Error("coord: invalid input: an empty comment")
+  const now = new Date().toISOString()
+  const answers = c.working.filter((w) => w.live)
+  const watching = c.watching.filter((w) => w.live)
+  const unheard = !answers.length && !watching.length
+  c.thread = [
+    ...c.thread,
+    new CardThreadItem({
+      id: `sample-comment-${c.thread.length}`,
+      kind: "comment",
+      at: now,
+      who: sampleYou,
+      text: t,
+      unheard,
+    }),
+  ]
+  c.updatedAt = now
+  sampleChanged()
+  return new CommentResult({
+    told: new Told({
+      to: [...answers, ...watching].map((w) => w.key),
+      mode: unheard ? "" : wake ? "wake" : "next_turn",
+    }),
+    answers,
+    watching,
+  })
+}
+
 // ---- actions ----------------------------------------------------------------
 
 // Every action acts as the person at this device.
@@ -339,6 +378,16 @@ export const cards = {
   ): Promise<AnswerResult> {
     if (inWails()) return BoardService.ResolveBlocker(id, blockerId, note)
     return sampleResolveBlocker(id, blockerId, note)
+  },
+
+  // comment puts the person's comment on card id's thread. Its holders
+  // (else its creator) are asked to answer it on the card and its
+  // watchers hear it too; wake (the default) wakes whoever answers now
+  // instead of at their next turn.
+  async comment(id: string, text: string, wake = true): Promise<CommentResult> {
+    if (inWails())
+      return BoardService.Comment(id, text, wake ? "wake" : "next_turn")
+    return sampleComment(id, text, wake)
   },
 
   // message opens a message on card id's thread in full: the text the
