@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync"
 
 	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/store"
@@ -118,9 +117,11 @@ func (n *Node) FetchFile(ctx context.Context, ref blob.FileRef) (string, error) 
 	if ref.Size > fs.Max() || ref.Size < 0 {
 		return "", fmt.Errorf("%w (%d bytes, at most %d)", blob.ErrTooLarge, ref.Size, fs.Max())
 	}
-	mu := n.fetchLock(ref.SHA256)
-	mu.Lock()
-	defer mu.Unlock()
+	unlock, err := n.lockFetch(ctx, ref.SHA256)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
 	if fs.Has(ref.SHA256) {
 		return "", nil
 	}
@@ -300,16 +301,24 @@ func (n *Node) connTo(dev string) Conn {
 	return nil
 }
 
-func (n *Node) fetchLock(sha string) *sync.Mutex {
+// lockFetch waits its turn to fetch sha (one fetch per attachment at a
+// time), or gives up with ctx's error, so a stalled fetch never holds a
+// caller past its own deadline. unlock gives the turn back.
+func (n *Node) lockFetch(ctx context.Context, sha string) (unlock func(), err error) {
 	n.mu.Lock()
-	defer n.mu.Unlock()
 	if n.fetching == nil {
-		n.fetching = map[string]*sync.Mutex{}
+		n.fetching = map[string]chan struct{}{}
 	}
-	mu := n.fetching[sha]
-	if mu == nil {
-		mu = &sync.Mutex{}
-		n.fetching[sha] = mu
+	turn := n.fetching[sha]
+	if turn == nil {
+		turn = make(chan struct{}, 1)
+		n.fetching[sha] = turn
 	}
-	return mu
+	n.mu.Unlock()
+	select {
+	case turn <- struct{}{}:
+		return func() { <-turn }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }

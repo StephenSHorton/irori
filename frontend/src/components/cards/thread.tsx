@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react"
 
 import { Badge } from "@/components/ui/badge"
+import { AttachmentList } from "@/components/attachments"
 import { Button } from "@/components/ui/button"
 import { cards, type CardMessage, type CardThreadItem } from "@/lib/cards"
 import { parseTime, plainBlock, plainLine, relativeTime } from "@/lib/irori"
@@ -195,6 +196,7 @@ function ThreadRow({
             </ul>
           </div>
         )}
+        <AttachmentList attachments={item.attachments ?? []} />
         {!full && cardId && opensInFull(item) && (
           <Button
             size="xs"

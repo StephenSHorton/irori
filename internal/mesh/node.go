@@ -127,7 +127,7 @@ type Node struct {
 	restoring string // the peer this device's own rows are coming back from
 	restoreTo int64  // and up to which seq
 	retry     map[string]*retryState
-	fetching  map[string]*sync.Mutex // one fetch per attachment at a time
+	fetching  map[string]chan struct{} // one fetch per attachment at a time (lockFetch)
 	wg        sync.WaitGroup
 }
 

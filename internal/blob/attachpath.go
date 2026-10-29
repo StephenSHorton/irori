@@ -146,8 +146,9 @@ const maxName = 120
 
 // SafeName reduces an attachment name from a row, which another device
 // wrote, to a single safe file name (§6.6): no separators, no "..", no
-// drive letter or stream suffix, no control or reserved characters, no
-// trailing dots or spaces, and not a reserved Windows device name. An
+// drive letter or stream suffix, no control, invisible format (bidi
+// overrides) or reserved characters, no trailing dots or spaces, and not a
+// reserved Windows device name. An
 // empty result falls back to "attachment-" and the hash's first 12 hex.
 func SafeName(name, sha string) string {
 	if i := strings.LastIndexAny(name, `/\`); i >= 0 {
@@ -162,7 +163,8 @@ func SafeName(name, sha string) string {
 	var b strings.Builder
 	for _, r := range name {
 		switch {
-		case r < 0x20 || r == 0x7f || unicode.IsControl(r) || r == utf8.RuneError:
+		case r < 0x20 || r == 0x7f || unicode.IsControl(r) || r == utf8.RuneError,
+			unicode.Is(unicode.Cf, r): // bidi overrides and other invisible format characters
 			b.WriteByte('_')
 		case strings.ContainsRune(`<>:"/\|?*`, r):
 			b.WriteByte('_')

@@ -141,6 +141,84 @@ export class AnswerResult {
 }
 
 /**
+ * AttachmentInfo is one comment file as the window shows it.
+ */
+export class AttachmentInfo {
+    "sha256": string;
+
+    /**
+     * the safe file name
+     */
+    "name": string;
+    "size": number;
+
+    /**
+     * Mime is the attaching device's guess (by extension, else content); the
+     * route decides by the bytes.
+     */
+    "mime": string;
+
+    /**
+     * Device is the name of the device it was attached on.
+     */
+    "device": string;
+
+    /**
+     * Here: the bytes are on this device, so it shows without a fetch.
+     */
+    "here": boolean;
+
+    /**
+     * URL is where the window loads it: core.AttachmentRoute + SHA256.
+     */
+    "url": string;
+
+    /**
+     * Openable: Open would open it (by its name; Open checks the bytes
+     * too). Anything else is Save only.
+     */
+    "openable": boolean;
+
+    /** Creates a new AttachmentInfo instance. */
+    constructor($$source: Partial<AttachmentInfo> = {}) {
+        if (!("sha256" in $$source)) {
+            this["sha256"] = "";
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("size" in $$source)) {
+            this["size"] = 0;
+        }
+        if (!("mime" in $$source)) {
+            this["mime"] = "";
+        }
+        if (!("device" in $$source)) {
+            this["device"] = "";
+        }
+        if (!("here" in $$source)) {
+            this["here"] = false;
+        }
+        if (!("url" in $$source)) {
+            this["url"] = "";
+        }
+        if (!("openable" in $$source)) {
+            this["openable"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AttachmentInfo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AttachmentInfo {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AttachmentInfo($$parsedSource as Partial<AttachmentInfo>);
+    }
+}
+
+/**
  * CaptureChange is the capture:changed payload: what moved since the last
  * event. Kinds are capture.ChangeKind values (turn, edit, commit, decision,
  * pr, open); Keys are agent keys and RepoKeys repo keys, each deduplicated.
