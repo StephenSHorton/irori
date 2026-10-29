@@ -62,6 +62,18 @@ type BoardSecrets struct {
 	boardID string
 	ks      Keystore
 	f       secretFile
+	// maker is SetMakers' rule: which makers' secrets count; nil is all.
+	maker func(dev string) bool
+}
+
+// SetMakers sets which makers' secrets count (§6.1): a counted member
+// device the board hasn't cut. A secret from any other device, such as
+// the one a rotation was made to shut out, is kept but never chosen, so
+// it can't win the lower-device-id tie.
+func (s *BoardSecrets) SetMakers(counts func(dev string) bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.maker = counts
 }
 
 // secretFile is what the sealed file holds.
@@ -181,8 +193,8 @@ func (s *BoardSecrets) prevLocked(cur int) int {
 	return p
 }
 
-// Secret is epoch's secret and its maker: of two makers, the lower device
-// id's.
+// Secret is epoch's secret and its maker: of two makers that count
+// (SetMakers), the lower device id's.
 func (s *BoardSecrets) Secret(epoch int) ([]byte, string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -192,7 +204,9 @@ func (s *BoardSecrets) Secret(epoch int) ([]byte, string, bool) {
 func (s *BoardSecrets) secretLocked(epoch int) ([]byte, string, bool) {
 	makers := make([]string, 0, len(s.f.Epochs[epoch]))
 	for m := range s.f.Epochs[epoch] {
-		makers = append(makers, m)
+		if s.maker == nil || s.maker(m) {
+			makers = append(makers, m)
+		}
 	}
 	if len(makers) == 0 {
 		return nil, "", false
@@ -217,7 +231,10 @@ func (s *BoardSecrets) Topics() ([]BoardTopic, error) {
 	}
 	var out []BoardTopic
 	for _, e := range epochs {
-		secret, _, _ := s.secretLocked(e)
+		secret, _, ok := s.secretLocked(e)
+		if !ok {
+			continue // only secrets from makers that don't count yet
+		}
 		t, err := DeriveBoardTopic(s.boardID, e, secret)
 		if err != nil {
 			return nil, err

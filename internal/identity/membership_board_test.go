@@ -211,3 +211,71 @@ func TestBoardRemovalInTheStore(t *testing.T) {
 		t.Fatalf("orders fold to\n %+v\n %+v\nwant %+v", first, second, want)
 	}
 }
+
+// TestBoardRevokedDeviceHasNoSayPastItsCut: only a revoke is honoured past
+// a revoked device's cut. A laptop its person revoked can't make the
+// person leave (or remove anyone) with a row it signs afterwards, however
+// it stamps it; and no leave or removal cuts below board.created, which
+// anchors the board.
+func TestBoardRevokedDeviceHasNoSayPastItsCut(t *testing.T) {
+	ctx := t.Context()
+	f := newBFold(t)
+	s := f.person("stephen", "pc")
+	v := NewBoardVerifier(s.pin())
+	st, err := store.OpenWith(ctx, filepath.Join(t.TempDir(), "b.db"), "self", hlc.New(nil), store.OpenOptions{Verifier: v, Board: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	insert := func(evs ...store.Event) {
+		t.Helper()
+		for _, ev := range evs {
+			if err := st.Insert(ctx, ev); err != nil {
+				t.Fatalf("%s %s/%d: %v", ev.Kind, ev.DeviceID, ev.Seq, err)
+			}
+		}
+	}
+	insert(f.cert(s, 1, "pc", "pc"), f.boardCreated(s), f.cert(s, 1, "pc", "laptop"),
+		f.row("laptop", "irori", store.KindMemberProfile, MemberProfile{PersonID: s.pid}))
+	insert(f.revoke(s, 1, "pc", "laptop", 1))
+	// The stolen laptop signs a leave for its person, cutting the pc to 0.
+	left := f.memberLeft(s, "laptop", map[string]int64{"pc": 0, "laptop": 2})
+	if err := st.Insert(ctx, left); !errors.Is(err, store.ErrPastCut) {
+		t.Fatalf("a revoked device's leave past its cut: err = %v", err)
+	}
+	m := v.Membership()
+	if !m.Created || !m.Active(s.pid) {
+		t.Fatalf("the board after a revoked device's leave: %+v", m)
+	}
+	// A revoke past its writer's cut is honoured, but never stamped
+	// before its writer's last row here.
+	back := f.revoke(s, 1, "laptop", "pc", 0)
+	back.HLC = 1
+	back.Sig = ed25519.Sign(f.dev("laptop"), store.SigningBytes(back))
+	if err := st.Insert(ctx, back); !errors.Is(err, store.ErrHLCOrder) {
+		t.Fatalf("a backdated revoke past its writer's cut: err = %v", err)
+	}
+
+	// A leave the laptop signed before its revoke, cutting the pc to 0,
+	// still keeps board.created (pc seq 2): the cut is floored there.
+	f2 := newBFold(t)
+	s2 := f2.person("stephen", "pc")
+	v2 := NewBoardVerifier(s2.pin())
+	st2, err := store.OpenWith(ctx, filepath.Join(t.TempDir(), "b2.db"), "self", hlc.New(nil), store.OpenOptions{Verifier: v2, Board: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st2.Close()
+	for _, ev := range []store.Event{f2.cert(s2, 1, "pc", "pc"), f2.boardCreated(s2), f2.cert(s2, 1, "pc", "laptop"),
+		f2.memberLeft(s2, "laptop", map[string]int64{"pc": 0})} {
+		if err := st2.Insert(ctx, ev); err != nil {
+			t.Fatalf("%s %s/%d: %v", ev.Kind, ev.DeviceID, ev.Seq, err)
+		}
+	}
+	if cut, ok := v2.Cut("pc"); !ok || cut != 2 {
+		t.Fatalf("pc cut %d %v; board.created is pc/2", cut, ok)
+	}
+	if !v2.Membership().Created {
+		t.Fatal("a leave cut board.created away")
+	}
+}

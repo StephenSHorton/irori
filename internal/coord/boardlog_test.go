@@ -296,6 +296,45 @@ func TestBoardCancelIsTheCreatorsOrAnOwners(t *testing.T) {
 	if !w.Withdrawn || w.State != Canceled {
 		t.Fatalf("withdrawn %+v", w)
 	}
+
+	// Withdraw sticks: an agent still working it (any device, even the
+	// creator person's) and another member don't bring it back; the
+	// person reopening it does.
+	if _, err := st.Append(ctx, boardCard, store.KindAgentCard, map[string]any{"cardId": "c1", "personId": "p1", "status": "active"}); err != nil {
+		t.Fatal(err)
+	}
+	keys[boardCard] = "p1"
+	state := func(dev string, seq int64, actor string, s TaskState) store.Event {
+		raw, _ := json.Marshal(taskStateRow{TaskID: again.ID, State: s, Note: "still on it", By: actor, At: fixedNow})
+		return store.Event{DeviceID: dev, Seq: seq, HLC: hlc.Timestamp(fixedNow.Add(time.Duration(10+seq)*time.Hour).UnixMilli()) << 16, Actor: actor, Kind: KindTaskState, Payload: raw}
+	}
+	delete(owners, "p2") // p2 is a plain member again
+	fold(state("dev-c", 1, boardCard, Working))
+	devs["dev-c"] = "p1"
+	fold(state("dev-c", 2, boardCard, Working))
+	fold(state("dev-b", 3, "person:p2", Working))
+	if got, _ := c.GetTask(again.ID); !got.Withdrawn || got.State != Canceled {
+		t.Fatalf("a later working row un-withdrew the card: %+v", got)
+	}
+	if _, _, err := c.Reopen(ctx, boardPerson, again.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := c.GetTask(again.ID); got.Withdrawn || IsTerminal(got.State) {
+		t.Fatalf("the person's reopen didn't bring it back: %+v", got)
+	}
+
+	// Irori's rows count only from a device of the person they concern:
+	// p2's device can't close p1's card or drop p1's agent from it.
+	sweep := func(seq int64, kind string, row any) store.Event {
+		raw, _ := json.Marshal(row)
+		return store.Event{DeviceID: "dev-b", Seq: seq, HLC: hlc.Timestamp(fixedNow.Add(time.Duration(20+seq)*time.Hour).UnixMilli()) << 16, Actor: sweeper, Kind: kind, Payload: raw}
+	}
+	before := c.IgnoredRows()
+	fold(sweep(4, KindTaskState, taskStateRow{TaskID: again.ID, State: Submitted, Note: "gone", By: sweeper, At: fixedNow}))
+	fold(sweep(5, KindTaskLeft, taskMemberRow{TaskID: again.ID, Who: boardCard, By: sweeper, At: fixedNow, Reason: LeftGone}))
+	if c.IgnoredRows() != before+2 {
+		t.Fatalf("another member's irori rows counted: ignored %d, was %d", c.IgnoredRows(), before)
+	}
 }
 
 // TestParseRef: a ref's board tag and number split one way (B3).
@@ -308,5 +347,21 @@ func TestParseRef(t *testing.T) {
 		if (ok && want[2] != "ok") || (!ok && want[2] == "ok") || tag != want[0] || short != want[1] {
 			t.Errorf("ParseRef(%q) = %q %q %v; want %v", in, tag, short, ok, want)
 		}
+	}
+}
+
+// TestBoardCoordCapsSetAside: rows naming what isn't on the board wait,
+// up to MaxAside; past that they are dropped and counted, so a flood of
+// unresolvable rows can't make every fold re-check without end.
+func TestBoardCoordCapsSetAside(t *testing.T) {
+	_, c := newBoardCoord(t, "dev-a")
+	c.impl.mu.Lock()
+	for i := range MaxAside + 3 {
+		raw, _ := json.Marshal(taskCommentRow{TaskID: "nowhere", CommentID: "m" + string(rune('a'+i%26)), By: boardCard, Text: "x", At: fixedNow})
+		c.impl.asideGate(store.Event{DeviceID: "dev-b", Seq: int64(i + 1), Actor: boardCard, Kind: KindTaskComment, Payload: raw})
+	}
+	c.impl.mu.Unlock()
+	if c.Unresolved() != MaxAside || c.AsideDropped() != 3 {
+		t.Fatalf("set aside %d, dropped %d; want %d and 3", c.Unresolved(), c.AsideDropped(), MaxAside)
 	}
 }

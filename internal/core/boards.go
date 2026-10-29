@@ -339,7 +339,16 @@ func (c *Core) rotateSecret(b *boardLog) error {
 	if target == 0 || b.secrets.Epoch() >= target {
 		return nil
 	}
+	if _, cut := b.verifier.Cut(c.device.ID); cut {
+		return nil // the device a rotation shuts out makes no secret for it
+	}
 	me := c.chain.PersonID()
+	if pin, _ := b.verifier.Pinned(me); target == 1 && pin.RootDeviceID != c.device.ID {
+		// The board's first secret is its creating device's (§6.1); the
+		// person's other devices get it in a board.secret frame (step 5)
+		// rather than each making a different one.
+		return nil
+	}
 	m := b.verifier.Membership()
 	may := m.Owner(me)
 	if !may && m.Active(me) {
@@ -376,6 +385,11 @@ func (c *Core) openBoard(ctx context.Context, id string, create bool, pin *ident
 		return nil, fmt.Errorf("open board log: %w", err)
 	}
 	b := &boardLog{id: id, store: st, verifier: v, secrets: secrets, cards: map[string]boardCard{}, keys: map[string]string{}, byID: map[string]string{}}
+	secrets.SetMakers(func(dev string) bool {
+		_, certified := v.Cert(dev)
+		_, cut := v.Cut(dev)
+		return certified && !cut
+	})
 	if err := c.pinBoard(ctx, b, create, pin); err != nil {
 		st.Close()
 		return nil, err

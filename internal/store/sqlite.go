@@ -702,6 +702,21 @@ func (d *db) insertOne(ctx context.Context, tx *sql.Tx, ev *Event) (stored bool,
 				if err != nil {
 					return false, err
 				}
+				// Outside the gapless log, but not outside the writer's
+				// clock: it comes after every row of its writer held here,
+				// so a stolen key can't backdate one under a rotation.
+				if last > 0 {
+					var held int64
+					if err := tx.QueryRowContext(ctx, `SELECT hlc FROM events WHERE device_id = ? AND seq = ?`, ev.DeviceID, last).Scan(&held); err != nil && !errors.Is(err, sql.ErrNoRows) {
+						return false, err
+					}
+					if int64(ev.HLC) <= held {
+						return false, fmt.Errorf("%w: %s/%d hlc %d after %d", ErrHLCOrder, ev.DeviceID, ev.Seq, ev.HLC, held)
+					}
+				}
+				if ev.HLC > d.aheadBound() {
+					return false, fmt.Errorf("%w: %s/%d stamped %s", ErrAhead, ev.DeviceID, ev.Seq, ev.HLC.Wall().UTC().Format(time.RFC3339))
+				}
 				if err := recordRefused(ctx, tx, *ev, refusedRevoke); err != nil {
 					return false, err
 				}

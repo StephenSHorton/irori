@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -71,6 +72,43 @@ func (c *coord) mayCancel(t *Task, writer string) bool {
 	return p == c.keyPerson(t.CreatedBy) || (c.boardOwner != nil && c.boardOwner(p))
 }
 
+// sweeperOK is the owner rule for Irori's own rows on a board (§2.4: every
+// actor is tied to the writing device). "irori" names no person, so its
+// row counts only where its writer's person owns what it changes: the
+// holder's person for a gone holder's task.left (lease.released is
+// writerOK's lease rule), and for a task.status or a blocker the sweep
+// closed, the card creator's person or an owner, as for a cancel. Any
+// other kind by "irori" counts for nothing on a board. c.mu is held.
+func (c *coord) sweeperOK(ev store.Event) bool {
+	var p struct {
+		TaskID string `json:"taskId"`
+		Who    string `json:"who"`
+	}
+	if json.Unmarshal(ev.Payload, &p) != nil {
+		return false
+	}
+	switch ev.Kind {
+	case KindLeaseRel:
+		return true
+	case KindTaskLeft:
+		return c.mayWrite(p.Who, ev.DeviceID)
+	case KindTaskState, KindBlockerResolved:
+		t := c.tasks[p.TaskID]
+		return t == nil || c.mayCancel(t, ev.DeviceID) // a task not held yet: the fold sets it aside or drops it
+	}
+	return false
+}
+
+// unwithdraws reports whether a task.status row may change withdrawn card
+// t: only a person reopening it from a device of the creator's person or
+// an owner, as Reopen does from the window. An agent's row (one still
+// working it on another device), a repeat withdraw, or anyone else's is
+// ignored, so a withdrawn card stays withdrawn. Withdrawn is only ever set
+// on a board. c.mu is held.
+func (c *coord) unwithdraws(t *Task, p taskStateRow, ev store.Event) bool {
+	return !IsTerminal(p.State) && c.personActor(ev) && c.mayCancel(t, ev.DeviceID)
+}
+
 // Withdraw takes a card back off a shared board (v0.5 §5.3): canceled with
 // withdrawn set, by its creator's person or an owner. Nothing is recalled:
 // other members' devices keep what was shared, and hide the card.
@@ -128,9 +166,19 @@ func (c *coord) asideGate(ev store.Event) bool {
 	if !c.onBoard || c.st.Unresolved(ev) == nil {
 		return true
 	}
+	if len(c.aside) >= MaxAside {
+		// A member flooding rows that name nothing would make every fold
+		// re-check them all. Past the cap a row is dropped and counted;
+		// the fold at the next start sees it again.
+		c.asideDrop++
+		return false
+	}
 	c.aside = append(c.aside, ev)
 	return false
 }
+
+// MaxAside caps the rows a board coord sets aside (§2.3).
+const MaxAside = 2048
 
 // retryAside folds every set-aside row that resolves now, until a pass
 // folds none (one may resolve another). c.mu is held.
@@ -151,6 +199,14 @@ func (c *coord) retryAside() {
 			return
 		}
 	}
+}
+
+// AsideDropped counts the board rows not set aside because MaxAside were
+// already waiting; always 0 for the private log.
+func (c *Coord) AsideDropped() int {
+	c.impl.mu.Lock()
+	defer c.impl.mu.Unlock()
+	return c.impl.asideDrop
 }
 
 // Unresolved counts the board rows set aside because what they name isn't

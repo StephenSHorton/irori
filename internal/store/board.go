@@ -221,6 +221,14 @@ type boardRow struct {
 		Resource string `json:"resource"`
 		Holder   string `json:"holder"`
 	} `json:"stolen"`
+	// StolenFrom and Conflict: holder keys a lease row names (a comma
+	// list, and the other holder of a partition conflict).
+	StolenFrom string `json:"stolenFrom"`
+	Conflict   string `json:"conflict"`
+	// Outcome: an ask's outcome names the card it made or changed.
+	Outcome *struct {
+		Task string `json:"task"`
+	} `json:"outcome"`
 	PersonID string `json:"personId"`
 	Creator  *struct {
 		PersonID string `json:"personId"`
@@ -368,6 +376,13 @@ func (b *boardRules) resolves(kind string, payload []byte) error {
 		if !b.leases[s.Resource] {
 			return out("stolen lease %s is not on this board", s.Resource)
 		}
+	}
+	for _, h := range strings.Split(p.StolenFrom, ",") {
+		keys = append(keys, struct{ field, key string }{"stolenFrom", strings.TrimSpace(h)})
+	}
+	keys = append(keys, struct{ field, key string }{"conflict", p.Conflict})
+	if p.Outcome != nil && p.Outcome.Task != "" && !b.tasks[p.Outcome.Task] {
+		return out("its outcome names task %s, which is not on this board", p.Outcome.Task)
 	}
 	for _, k := range keys {
 		if err := b.key(k.key, self); err != "" {

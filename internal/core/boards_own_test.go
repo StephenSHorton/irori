@@ -87,6 +87,14 @@ func TestBoardOnOwnDevices(t *testing.T) {
 	if got := b.BoardList(); len(got) != 1 || got[0].Name != "MLG" || got[0].Tag != "mlg" || !got[0].Owner || !got[0].Ready {
 		t.Fatalf("b's boards %+v", got)
 	}
+	// The first secret is the creating device's alone (§6.1); b gets it
+	// in a board.secret frame once step 5 sends them.
+	if ai, _ := a.BoardInfo(id); ai.SecretEpoch != 1 {
+		t.Fatalf("a's secret epoch %d", ai.SecretEpoch)
+	}
+	if bi, _ := b.BoardInfo(id); bi.SecretEpoch != 0 {
+		t.Fatalf("b made its own first secret (epoch %d)", bi.SecretEpoch)
+	}
 
 	// B writes a card on the board as the person; it reaches A.
 	by, err := b.BoardKey(ctx, id, b.UserSender().Key)

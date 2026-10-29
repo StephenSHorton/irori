@@ -110,3 +110,30 @@ func TestBoardSecretsRotate(t *testing.T) {
 		t.Fatal("another keystore opened the secrets")
 	}
 }
+
+// TestBoardSecretMakersThatCount: two secrets for one epoch settle on the
+// lower maker, but only among makers that count (§6.1): a cut device's
+// secret, made for the rotation that shuts it out, never wins the tie.
+func TestBoardSecretMakersThatCount(t *testing.T) {
+	s, err := OpenBoardSecrets(filepath.Join(t.TempDir(), testBoardID+".secrets"), testBoardID, FileKeystore{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Add(2, "aaa-stolen", bytes.Repeat([]byte{1}, BoardSecretSize)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Add(2, "pc", bytes.Repeat([]byte{2}, BoardSecretSize)); err != nil {
+		t.Fatal(err)
+	}
+	if _, maker, _ := s.Secret(2); maker != "aaa-stolen" {
+		t.Fatalf("with no rule the lower maker wins, got %q", maker)
+	}
+	s.SetMakers(func(dev string) bool { return dev != "aaa-stolen" })
+	if _, maker, ok := s.Secret(2); !ok || maker != "pc" {
+		t.Fatalf("a cut device's secret won the tie: %q %v", maker, ok)
+	}
+	s.SetMakers(func(string) bool { return false })
+	if ts, err := s.Topics(); err != nil || len(ts) != 0 {
+		t.Fatalf("topics from makers that don't count: %+v %v", ts, err)
+	}
+}

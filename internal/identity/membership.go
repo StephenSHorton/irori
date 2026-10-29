@@ -456,6 +456,12 @@ func FoldMembership(boardID string, anchors map[string]MemberPin, rows []Members
 					cut = v
 				}
 			}
+			// No cut reaches below board.created: it anchors the board
+			// (the creator's root self-cert comes before it), and a
+			// removal or leave that cut it would undo the board itself.
+			if dev == c.at.Device && cut < c.at.Seq {
+				cut = c.at.Seq
+			}
 			m.Cuts[dev] = cut
 		}
 	}

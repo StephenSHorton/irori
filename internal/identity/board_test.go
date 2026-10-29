@@ -450,14 +450,16 @@ func TestBoardActorsAreTheWritersPerson(t *testing.T) {
 		{"blake acting as stephen's agent", "agent:sc", "task.comment", comment},
 		{"blake writing stephen's member rows", "irori", store.KindMemberProfile, MemberProfile{PersonID: s.pid}},
 		{"blake announcing pc as a server", "irori", store.KindBoardServer, map[string]any{"deviceId": "pc", "port": 1}},
+		{"blake's card claiming for stephen's agent", "agent:bc", "task.claimed", map[string]string{"taskId": "t1", "by": "agent:sc"}},
+		{"blake's irori row credited to stephen", "irori", "task.left", map[string]string{"taskId": "t1", "who": "agent:sc", "by": "person:" + s.pid}},
 	} {
 		if err := ins(f.row("bpc", a.actor, a.kind, a.payload)); !errors.Is(err, store.ErrBoardActor) {
 			t.Errorf("%s: err = %v, want %v", a.name, err, store.ErrBoardActor)
 		}
 		f.seq["bpc"]-- // refused: bpc's next row reuses the seq
 	}
-	if got := st.BoardRefused().Actor; got != 5 {
-		t.Errorf("refused actors counted %d, want 5", got)
+	if got := st.BoardRefused().Actor; got != 7 {
+		t.Errorf("refused actors counted %d, want 7", got)
 	}
 	// A card not held yet is a row that waits, not a forgery.
 	if err := ins(f.row("bpc", "agent:later", "task.comment", comment)); !errors.Is(err, store.ErrNoCert) {

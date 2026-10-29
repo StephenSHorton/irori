@@ -222,6 +222,7 @@ type coord struct {
 	tagFn       func() string       // Options.Tag
 	boardOwner  func(string) bool   // Options.BoardOwner
 	aside       []store.Event       // board rows whose references don't resolve yet
+	asideDrop   int                 // rows not set aside once aside held MaxAside
 
 	mu          sync.Mutex
 	tasks       map[string]*Task
@@ -368,6 +369,9 @@ func (c *coord) replay(ctx context.Context) error {
 // any other device is ignored and counted. On one device every holder is
 // this device's, so nothing changes there.
 func (c *coord) writerOK(ev store.Event) bool {
+	if c.onBoard && ev.Actor == sweeper && !c.sweeperOK(ev) {
+		return false
+	}
 	switch ev.Kind {
 	case KindLeaseAcq:
 		var row leaseAcquiredRow
@@ -530,6 +534,11 @@ func (c *coord) fold(ev store.Event) {
 		if t := c.tasks[p.TaskID]; t != nil && ValidState(p.State) {
 			if p.State == Canceled && !c.mayCancel(t, ev.DeviceID) {
 				c.ignore(ev.DeviceID) // another member can't cancel your card (§5.3)
+				return
+			}
+			if t.Withdrawn && !c.unwithdraws(t, p, ev) {
+				// Withdraw sticks (§5.3): a holder that hadn't heard yet,
+				// or another member, doesn't bring the card back.
 				return
 			}
 			was := t.State

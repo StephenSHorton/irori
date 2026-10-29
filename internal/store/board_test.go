@@ -235,6 +235,9 @@ func TestBoardClosure(t *testing.T) {
 		{"a private parent", "task.parent", map[string]any{"taskId": "t1", "parent": "private-task", "by": "person:p1"}},
 		{"a subtask of a private card", "task.created", map[string]any{"taskId": "t5", "parent": "private-task", "by": "person:p1"}},
 		{"a person not on the board", "task.assigned", map[string]any{"taskId": "t1", "to": "agent:c1", "by": "person:p9"}},
+		{"an outcome naming a private card", "task.status", map[string]any{"taskId": "t1", "state": "completed", "by": "person:p1",
+			"outcome": map[string]any{"kind": "edit", "task": "private-task"}}},
+		{"a lease stolen from a private key", "lease.acquired", map[string]any{"resource": "gpu/x", "holder": "agent:c1", "stolenFrom": "agent:c1,dev-a/session-1"}},
 	}
 	// board.* rows name persons bare and are never closure-checked; they
 	// put their persons on the board for person: keys.

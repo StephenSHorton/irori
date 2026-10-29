@@ -195,6 +195,7 @@ type BoardVerifier struct {
 	devs    map[string]string      // deviceId -> personId, counted certs (revoked ones too)
 	valid   map[string]MemberCert
 	cuts    map[string]int64
+	revCuts map[string]int64 // the cuts from member.device.revoked alone
 	claims  []store.CutClaim
 	cardOf  map[string]string // cardId -> personId, counted agent.card rows
 	ambig   map[string]bool   // device ids certified by two members
@@ -500,6 +501,10 @@ func (v *BoardVerifier) refold() {
 		}
 	}
 	v.revokedN = len(cuts)
+	revCuts := make(map[string]int64, len(cuts))
+	for dev, cut := range cuts {
+		revCuts[dev] = cut
+	}
 	// A removed or departed member's devices are cut too (§4.3, §4.4); the
 	// lower cut wins.
 	gone := map[string]bool{}
@@ -514,7 +519,7 @@ func (v *BoardVerifier) refold() {
 			cuts[dev] = cut
 		}
 	}
-	v.members, v.devs, v.valid, v.cuts, v.claims, v.ambig = members, devs, valid, cuts, claims, ambig
+	v.members, v.devs, v.valid, v.cuts, v.revCuts, v.claims, v.ambig = members, devs, valid, cuts, revCuts, claims, ambig
 	v.foldCards()
 }
 
@@ -845,9 +850,17 @@ func (v *BoardVerifier) VerifyRow(ev store.Event) error {
 		person = cert.PersonID
 	}
 	cards := v.cardOf // refold replaces the map, never changes it
+	revCut, revoked := v.revCuts[ev.DeviceID]
 	v.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("%w: %s", store.ErrNoCert, ev.DeviceID)
+	}
+	// A removal or a leave is honoured past its writer's cut only when the
+	// cut came from its person's removal or leave (two owners removing
+	// each other while apart, §4.3). A device its own person revoked has
+	// no say past its revoke (§4.5): only the revoke itself is mutual.
+	if revoked && ev.Seq > revCut && (ev.Kind == store.KindBoardMemberRemoved || ev.Kind == store.KindBoardMemberLeft) {
+		return fmt.Errorf("%w: %s/%d was revoked at %d", store.ErrPastCut, ev.DeviceID, ev.Seq, revCut)
 	}
 	pub, err := hex.DecodeString(cert.DevicePub)
 	if err != nil || len(pub) != ed25519.PublicKeySize {
@@ -939,6 +952,12 @@ func bindActor(ev store.Event, person string, cardPerson func(string) (string, b
 		if p.DeviceID != ev.DeviceID {
 			return refuse("announces a server for device %q, not itself", p.DeviceID)
 		}
+	case p.By != "" && p.By != ev.Actor:
+		// A task, blocker or lease row's by is who the fold credits, so it
+		// is its actor, which is tied to the writer below: a device can't
+		// write as its own card and credit another's. Irori's rows say
+		// "irori" in both.
+		return refuse("credits %s to %q but is written as %s", ev.Kind, p.By, ev.Actor)
 	}
 	switch {
 	case strings.HasPrefix(ev.Actor, store.PersonActorPrefix):
