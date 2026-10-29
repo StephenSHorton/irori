@@ -18,6 +18,27 @@ type TaskRouter interface {
 	// PrivateNotice gives a board coord's notice the keys this device's
 	// inbox knows.
 	PrivateNotice(n coord.Notice) coord.Notice
+	// TaskRef resolves a card ref across every log (v0.5 §2.5, B3):
+	// "mlg#12" on the board tagged mlg, a bare "#12" only when one log
+	// holds it (else coord.ErrAmbiguous naming each), a full id as given.
+	TaskRef(ref string) (string, error)
+}
+
+// taskRef resolves ref across the logs this Backend holds.
+func (s *set) taskRef(ref string) (string, error) {
+	if r, ok := s.b.(TaskRouter); ok {
+		return r.TaskRef(ref)
+	}
+	return s.b.Coord().TaskRef(ref)
+}
+
+// task is the card id names, in whichever log holds it.
+func (s *set) task(id string) (coord.Task, bool) {
+	co, _, _ := s.on(context.Background(), id)
+	if co == nil {
+		return coord.Task{}, false
+	}
+	return co.GetTask(id)
 }
 
 // on is the coord a call on card id acts on, with keys as it knows them.

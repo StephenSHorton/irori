@@ -29,7 +29,7 @@ func (s *set) taskID(v string) (id, msg string) {
 	if strings.TrimSpace(v) == "" {
 		return "", needTaskID()
 	}
-	id, err := s.b.Coord().TaskRef(v)
+	id, err := s.taskRef(v)
 	switch {
 	case errors.Is(err, coord.ErrAmbiguous):
 		return "", mapErr(err)
@@ -49,14 +49,13 @@ func cardRefs(t coord.Task) string {
 	if t.Short == "" {
 		return "task:" + oneLine(t.ID, 80)
 	}
-	return "#" + oneLine(t.Short, 20) + " task:" + oneLine(t.ID, 80)
+	return oneLine(t.Tag, 20) + "#" + oneLine(t.Short, 20) + " task:" + oneLine(t.ID, 80)
 }
 
 // shortOf is a card's short ref by id ("#12"), or task:<id> when there is
 // no such card.
 func (s *set) shortOf(id string) string {
-	co, _, _ := s.on(context.Background(), id)
-	if t, ok := co.GetTask(id); ok {
+	if t, ok := s.task(id); ok {
 		return t.ShortRef()
 	}
 	return "task:" + oneLine(id, 80)

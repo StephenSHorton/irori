@@ -60,6 +60,9 @@ import { AttachmentList } from "@/components/attachments"
 import type { FileRef } from "@/lib/attachments"
 import { LinkChip, RichLine, RichText } from "@/components/common/rich-text"
 import { useDraft } from "@/lib/drafts"
+import { useBoards, type BoardSummary } from "@/lib/boards"
+import { previewFlag } from "@/lib/preview"
+import { ShareButton, WithdrawButton } from "./share-dialog"
 
 // Answered is a note answer the person just sent: the note item leaves the
 // card once answered, so the panel keeps it to show who heard.
@@ -95,6 +98,7 @@ export function CardPage({
   onOpen?: (id: string) => void
 }) {
   const [answered, setAnswered] = useState<Answered | null>(null)
+  const { boards } = useBoards()
   const back = (
     <Button
       variant="ghost"
@@ -165,13 +169,24 @@ export function CardPage({
   return (
     <article className="grid gap-3" aria-label="Card">
       {back}
-      <PageHeader card={detail} spinning={spinning} onOpen={onOpen} />
+      <PageHeader
+        card={detail}
+        spinning={spinning}
+        onOpen={onOpen}
+        extra={<BoardActions detail={detail} boards={boards} onOpen={onOpen} onBack={onBack} />}
+      />
       {openAsk(detail) ? (
         <AskStatus detail={detail} onClosed={onBack} />
       ) : (
         <ProgressStrip detail={detail} spinning={spinning} />
       )}
-      {over(detail) && <ReopenBar detail={detail} />}
+      {over(detail) &&
+        !detail.onBoard && // a closed board card isn't reopened from here yet
+        (detail.sharedTo && !detail.sharedTo.withdrawn ? (
+          <SharedToBar detail={detail} onOpen={onOpen} />
+        ) : (
+          <ReopenBar detail={detail} />
+        ))}
       <div className="grid items-start gap-4 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)] min-[900px]:grid-rows-[auto_1fr] min-[1600px]:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
         {(hasObjective || hasBlockers) && (
           <Card className="gap-0 py-0! min-[900px]:col-start-1 min-[900px]:row-start-1">
@@ -182,6 +197,12 @@ export function CardPage({
               >
                 {detail.goal && (
                   <RichText text={detail.goal} className="text-sm text-ink-2" />
+                )}
+                {detail.onBoard && (
+                  <p className="text-[12.5px] text-muted-foreground">
+                    <span className="font-medium text-ink-2">Visible to:</span>{" "}
+                    {detail.onBoard.visibleTo.map(plainLine).join(", ")}
+                  </p>
                 )}
                 {showNote && (
                   <p className="text-[12.5px] text-muted-foreground">
@@ -406,16 +427,86 @@ function ReopenBar({ detail }: { detail: CardDetail }) {
   )
 }
 
+// SharedToBar is a private card's line once it was shared to a board
+// (v0.5 §5.2): where it went, and a way there. It is closed, and writes to
+// it are refused, so it offers no Reopen; Withdraw on the shared card
+// brings it back.
+function SharedToBar({
+  detail,
+  onOpen,
+}: {
+  detail: CardDetail
+  onOpen?: (id: string) => void
+}) {
+  const s = detail.sharedTo
+  if (!s) return null
+  return (
+    <div className="glass-panel flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+      <span className="min-w-48 flex-1 text-[13px] text-muted-foreground">
+        Shared to {plainLine(s.boardName) || "a board"} as{" "}
+        <span className="font-mono text-ink">{plainLine(s.ref)}</span>. Work it
+        there; this private card is closed.
+      </span>
+      {onOpen && (
+        <Button variant="outline" size="sm" onClick={() => onOpen(s.taskId)}>
+          Open {plainLine(s.ref)}
+        </Button>
+      )}
+    </div>
+  )
+}
+
+// BoardActions are the header's board buttons (v0.5 §8): Share to board on
+// a private card still in play, when there is a board to share to;
+// Withdraw on a shared card, for its creator or an owner.
+function BoardActions({
+  detail,
+  boards,
+  onOpen,
+  onBack,
+}: {
+  detail: CardDetail
+  boards: BoardSummary[]
+  onOpen?: (id: string) => void
+  onBack: () => void
+}) {
+  if (detail.onBoard) {
+    if (!detail.onBoard.canWithdraw || over(detail)) return null
+    // The private card the work carries on in, else back to the grid: a
+    // withdrawn card is hidden and can't be reopened.
+    return (
+      <WithdrawButton
+        cardId={detail.id}
+        visibleTo={detail.onBoard.visibleTo}
+        onWithdrawn={(id) => (id && onOpen ? onOpen(id) : onBack())}
+      />
+    )
+  }
+  if (over(detail) || detail.sharedTo || openAsk(detail) || detail.parent || (detail.subtasks ?? 0) > 0)
+    return null
+  return (
+    <ShareButton
+      cardId={detail.id}
+      boards={boards}
+      initialOpen={previewFlag("share") === detail.id}
+      onShared={(id) => onOpen?.(id)}
+    />
+  )
+}
+
 // PageHeader is the card page's title block: its short ref, state, scope
 // and repo over the title, with the spinner while an agent works on it.
+// extra are buttons beside Pin (the board's, BoardActions).
 function PageHeader({
   card,
   spinning,
   onOpen,
+  extra,
 }: {
   card: CardSummary
   spinning?: boolean
   onOpen?: (id: string) => void
+  extra?: ReactNode
 }) {
   return (
     <header className="grid gap-2">
@@ -430,6 +521,7 @@ function PageHeader({
           </span>
         )}
         <PinButton card={card} />
+        {extra}
       </div>
       <h1 className="text-2xl leading-tight font-semibold tracking-tight text-balance text-ink">
         {plainLine(card.title) || "(untitled)"}

@@ -253,7 +253,8 @@ export function AskLine({
   )
 }
 
-// ScopeBadge says where the card lives: "My devices" until Shared Boards.
+// ScopeBadge says where the card lives: "My devices", or its shared
+// board's name (v0.5 §8).
 export function ScopeBadge({ card }: { card: CardSummary }) {
   return (
     <Badge
@@ -272,19 +273,27 @@ export function ShortRef({ card }: { card: CardSummary }) {
   const short = plainLine(card.short)
   if (!short) return null
   const was = plainLine(card.shortWas)
+  // A shared board's card carries its board's tag: "mlg#4" (v0.5 §2.5).
+  const tag = plainLine(card.tag ?? "")
   return (
     <span
       className="font-mono text-xs text-muted-foreground tabular-nums"
       title={
         was
-          ? `Was #${was}: a card made on another device while they were apart had #${was} too, so each now has a letter`
-          : `Agents know this card as #${short}`
+          ? `Was ${tag}#${was}: a card made on another device while they were apart had ${tag}#${was} too, so each now has a letter`
+          : `Agents know this card as ${tag}#${short}`
       }
     >
-      #{short}
-      {was && <span className="ml-1 font-sans">(was #{was})</span>}
+      {tag}#{short}
+      {was && <span className="ml-1 font-sans">(was {tag}#{was})</span>}
     </span>
   )
+}
+
+// cardRef is a card's short ref as text: "#12", or "mlg#12" on a shared
+// board.
+export function cardRef(card: { short: string; tag?: string }): string {
+  return `${plainLine(card.tag ?? "")}#${plainLine(card.short)}`
 }
 
 // Spinner says an agent is working on the card right now (busy in

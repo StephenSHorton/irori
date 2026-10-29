@@ -283,7 +283,7 @@ func (s *set) search(ctx context.Context, c Caller, raw json.RawMessage) string 
 		ref := oneLine(h.Ref, 200)
 		if h.Kind == search.KindTask {
 			if _, id, err := search.ParseRef(h.Ref); err == nil {
-				if t, ok := s.b.Coord().GetTask(id); ok && t.Short != "" {
+				if t, ok := s.task(id); ok && t.Short != "" {
 					ref = t.ShortRef() + " " + ref
 				}
 			}
@@ -318,14 +318,14 @@ func (s *set) shortHit(q search.Query, hits []search.Hit) []search.Hit {
 	if q.Offset > 0 || len(q.Kinds) > 0 && !slices.Contains(q.Kinds, search.KindTask) {
 		return hits
 	}
-	if _, ok := coord.ParseShort(q.Text); !ok || !strings.HasPrefix(q.Text, "#") {
+	if _, _, ok := coord.ParseRef(q.Text); !ok || !strings.Contains(q.Text, "#") {
 		return hits
 	}
-	id, err := s.b.Coord().TaskRef(q.Text)
+	id, err := s.taskRef(q.Text)
 	if err != nil {
 		return hits
 	}
-	t, ok := s.b.Coord().GetTask(id)
+	t, ok := s.task(id)
 	if !ok || q.RepoKey != "" && t.RepoKey != q.RepoKey || q.Agent != "" && t.Holder != q.Agent {
 		return hits
 	}
@@ -367,8 +367,8 @@ func (s *set) show(ctx context.Context, c Caller, raw json.RawMessage) string {
 	if ref == "" {
 		return errText("give ref, exactly as a list line printed it (#12, task:…, msg:…, turn:…, commit:…).")
 	}
-	if _, ok := coord.ParseShort(ref); ok {
-		id, err := s.b.Coord().TaskRef(ref)
+	if _, _, ok := coord.ParseRef(ref); ok {
+		id, err := s.taskRef(ref)
 		if errors.Is(err, coord.ErrAmbiguous) {
 			return mapErr(err)
 		}

@@ -192,30 +192,60 @@ func ParseShort(ref string) (short string, ok bool) {
 func (c *Coord) TaskRef(ref string) (string, error) { return c.impl.taskRef(ref) }
 
 func (c *coord) taskRef(ref string) (string, error) {
-	v := strings.TrimSpace(ref)
-	if k, id, ok := strings.Cut(v, ":"); ok && strings.EqualFold(strings.TrimSpace(k), "task") {
-		v = strings.TrimSpace(id)
-	}
-	short, ok := ParseShort(v)
-	if !ok {
-		return v, nil
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.shortRefLocked(short, v)
+	return c.taskRefLocked(ref)
 }
 
-// taskRefLocked is taskRef with c.mu held.
+// taskRefLocked is taskRef with c.mu held. A tagged ref ("mlg#12") names
+// a card only on the board with that tag (v0.5 §2.5).
 func (c *coord) taskRefLocked(ref string) (string, error) {
 	v := strings.TrimSpace(ref)
 	if k, id, ok := strings.Cut(v, ":"); ok && strings.EqualFold(strings.TrimSpace(k), "task") {
 		v = strings.TrimSpace(id)
 	}
-	short, ok := ParseShort(v)
+	tag, short, ok := ParseRef(v)
 	if !ok {
 		return v, nil
 	}
+	if tag != "" && tag != c.tag() {
+		return "", fmt.Errorf("%w: %s is a card on another board", ErrNotFound, v)
+	}
 	return c.shortRefLocked(short, v)
+}
+
+// ParseRef reads a short ref with its board tag (v0.5 §2.5, B3): "mlg#12"
+// is tag "mlg" and short "12"; "#12" and "12" have no tag. The tag is a
+// lowercase letter, then up to 15 lowercase letters, digits or '-' (any
+// case is accepted and lowered). ok is false for anything else.
+func ParseRef(ref string) (tag, short string, ok bool) {
+	s := strings.TrimSpace(ref)
+	if i := strings.LastIndex(s, "#"); i > 0 {
+		tag = strings.ToLower(s[:i])
+		if !validTag(tag) {
+			return "", "", false
+		}
+		s = s[i:]
+	}
+	short, ok = ParseShort(s)
+	if !ok {
+		return "", "", false
+	}
+	return tag, short, true
+}
+
+// validTag is identity.ValidBoardTag's grammar, kept here so coord needs
+// no identity import.
+func validTag(t string) bool {
+	if len(t) < 1 || len(t) > 16 || t[0] < 'a' || t[0] > 'z' {
+		return false
+	}
+	for i := 1; i < len(t); i++ {
+		if ch := t[i]; (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 // shortRefLocked resolves a parsed short ref (v as given). c.mu is held.
@@ -242,10 +272,10 @@ func (c *coord) ambiguous(short string) error {
 	var names []string
 	for _, cl := range c.shortGroups[n] {
 		if t := c.tasks[cl.id]; t != nil {
-			names = append(names, fmt.Sprintf("#%s %q (task:%s)", t.Short, oneLineTitle(t.Title), t.ID))
+			names = append(names, fmt.Sprintf("%s %q (task:%s)", t.ShortRef(), oneLineTitle(t.Title), t.ID))
 		}
 	}
-	return fmt.Errorf("%w: cards made on devices that were apart each claimed #%s, so it is now %s", ErrAmbiguous, short, strings.Join(names, ", "))
+	return fmt.Errorf("%w: cards made on devices that were apart each claimed %s#%s, so it is now %s", ErrAmbiguous, c.tag(), short, strings.Join(names, ", "))
 }
 
 // oneLineTitle is a title cut to one short line for an error's text.
@@ -257,13 +287,14 @@ func oneLineTitle(s string) string {
 	return s
 }
 
-// ShortRef is how a card is named to people and agents: "#12", or
-// task:<id> for a task the fold hasn't numbered.
+// ShortRef is how a card is named to people and agents: "#12" on the
+// private board, "mlg#12" on a shared one (v0.5 §2.5), or task:<id> for a
+// task the fold hasn't numbered.
 func (t Task) ShortRef() string {
 	if t.Short == "" {
 		return "task:" + t.ID
 	}
-	return "#" + t.Short
+	return t.Tag + "#" + t.Short
 }
 
 // Refs is the short ref then the full one, "#12, task:<id>", for text
@@ -272,7 +303,7 @@ func (t Task) Refs() string {
 	if t.Short == "" {
 		return "task:" + t.ID
 	}
-	return "#" + t.Short + ", task:" + t.ID
+	return t.ShortRef() + ", task:" + t.ID
 }
 
 // movedSince reports whether id's short ref changed after since (search

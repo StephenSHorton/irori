@@ -115,6 +115,9 @@ type BoardService struct {
 	// router sends an action on a card to the log it lives in (board_route.go);
 	// nil is the private board alone.
 	router taskRouter
+	// boards are the shared boards' cards and keys (boards_service.go);
+	// nil is the private board alone.
+	boards boardSource
 	user   inbox.Sender
 	route  noticeRouter
 	// attach stores files the person adds in the window (Core.AttachFiles);
@@ -150,7 +153,7 @@ type BoardService struct {
 }
 
 func newBoardService(c *core.Core) *BoardService {
-	b := &BoardService{coord: c.Coord(), router: c.TaskCoord, user: c.UserSender(), route: c.RouteNotices, agents: c.MeshAgents, askAgents: c.AskAgents, attach: c.AttachFiles,
+	b := &BoardService{coord: c.Coord(), router: c.TaskCoord, boards: c, user: c.UserSender(), route: c.RouteNotices, agents: c.MeshAgents, askAgents: c.AskAgents, attach: c.AttachFiles,
 		self: c.Device().ID, devices: c.CertifiedDevices, colors: c.DeviceColors, leases: c.Coord().Leases}
 	if ib := c.Inbox(); ib != nil {
 		b.deliveries = ib.Open
@@ -499,6 +502,7 @@ func dropBlank(ss []string) []string {
 // Needs-a-decision count, once at start and after every change.
 func (b *BoardService) pump(ctx context.Context, app *application.App, decide func(int)) {
 	decide(b.decideCount())
+	go b.pumpBoards(ctx, app, decide)
 	pumpBoard(ctx, b.coord.Subscribe(ctx), boardEmitEvery, func() {
 		app.Event.Emit(EventBoardChanged, struct{}{})
 		decide(b.decideCount())

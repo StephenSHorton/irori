@@ -33,9 +33,15 @@ import {
 import { Faces, TalkBubble } from "./faces"
 
 // Filter is a chip: All, Needs a decision, My devices, Done (the closed
-// cards, which load on their own: useDoneCards), or one device
-// ("device:<id>", card #22).
-export type Filter = "all" | "decide" | "mine" | "done" | `device:${string}`
+// cards, which load on their own: useDoneCards), one device
+// ("device:<id>", card #22), or one shared board ("board:<id>", v0.5 §8).
+export type Filter =
+  | "all"
+  | "decide"
+  | "mine"
+  | "done"
+  | `device:${string}`
+  | `board:${string}`
 
 export const filters: { id: Filter; label: string }[] = [
   { id: "all", label: "All" },
@@ -46,6 +52,7 @@ export const filters: { id: Filter; label: string }[] = [
 
 // asFilter is a filter id from outside (the preview's ?filter=), else all.
 export function asFilter(id: string | null): Filter {
+  if (id?.startsWith("board:")) return id as Filter
   return filters.find((f) => f.id === id)?.id ?? "all"
 }
 
@@ -74,10 +81,12 @@ export function matches(c: CardSummary, f: Filter): boolean {
   if (f === "decide") return c.openBlockers > 0
   if (f === "mine") return c.scope === "mine"
   if (f.startsWith("device:")) return c.devices.includes(f.slice(7))
+  if (f.startsWith("board:")) return c.board === f.slice(6)
   return true
 }
 
-// FilterBar is the chips over the grid. Shared boards join it in v0.4.
+// FilterBar is the chips over the grid's tabs; the device and board chips
+// sit beside it (DeviceBar, BoardBar).
 export function FilterBar({
   filter,
   onFilter,
@@ -157,6 +166,45 @@ export function DeviceBar({
               style={{ background: deviceVar(d.color) }}
             />
             {d.name}
+          </Button>
+        )
+      })}
+    </div>
+  )
+}
+
+// BoardBar is the board switcher (v0.5 §8): one chip per shared board, its
+// name, narrowing the grid to that board's cards. "All" includes every
+// board; "My devices" is the private board alone.
+export function BoardBar({
+  filter,
+  onFilter,
+  boards,
+}: {
+  filter: Filter
+  onFilter: (f: Filter) => void
+  boards: { boardId: string; name: string; tag: string }[]
+}) {
+  if (!boards.length) return null
+  return (
+    <div
+      className="flex flex-wrap items-center gap-1"
+      role="group"
+      aria-label="Filter cards by board"
+    >
+      {boards.map((b) => {
+        const id: Filter = `board:${b.boardId}`
+        return (
+          <Button
+            key={id}
+            size="sm"
+            aria-pressed={filter === id}
+            variant={filter === id ? "secondary" : "ghost"}
+            onClick={() => onFilter(filter === id ? "all" : id)}
+            title={`Cards on the board ${plainLine(b.name)} (${plainLine(b.tag)}#…)`}
+          >
+            <LayersIcon aria-hidden className="size-3.5 opacity-70" />
+            {plainLine(b.name)}
           </Button>
         )
       })}

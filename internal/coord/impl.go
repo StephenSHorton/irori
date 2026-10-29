@@ -106,9 +106,12 @@ type taskStateRow struct {
 	// written before items, which fold to an item made from Reason.
 	Blocker *blockerRow `json:"blocker,omitempty"`
 	// Outcome ends an ask (ask.go): what it became.
-	Outcome *Outcome  `json:"outcome,omitempty"`
-	By      string    `json:"by"`
-	At      time.Time `json:"at"`
+	Outcome *Outcome `json:"outcome,omitempty"`
+	// Withdrawn marks a cancel that takes a card back off a shared board
+	// (v0.5 §5.3).
+	Withdrawn bool      `json:"withdrawn,omitempty"`
+	By        string    `json:"by"`
+	At        time.Time `json:"at"`
 }
 
 // taskMemberRow is task.joined and task.left.
@@ -216,6 +219,8 @@ type coord struct {
 	person      string              // Options.Person
 	keyPerson   func(string) string // Options.KeyPerson
 	devPerson   func(string) string // Options.DevicePerson
+	tagFn       func() string       // Options.Tag
+	boardOwner  func(string) bool   // Options.BoardOwner
 	aside       []store.Event       // board rows whose references don't resolve yet
 
 	mu          sync.Mutex
@@ -287,6 +292,8 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 		person:      opts.Person,
 		keyPerson:   opts.KeyPerson,
 		devPerson:   opts.DevicePerson,
+		tagFn:       opts.Tag,
+		boardOwner:  opts.BoardOwner,
 		tasks:       map[string]*Task{},
 		order:       map[string]uint64{},
 		held:        map[string]*leaseRec{},
@@ -468,7 +475,7 @@ func (c *coord) fold(ev store.Event) {
 		c.tasks[p.TaskID] = &Task{
 			ID: p.TaskID, Title: p.Title, Objective: p.Objective, DoneCriteria: p.DoneCriteria,
 			RepoKey: p.RepoKey, Scope: p.Scope, State: Submitted, CreatedBy: p.By,
-			CreatedAt: t, UpdatedAt: t, UpdatedBy: p.By, Shared: p.Shared, Links: links,
+			CreatedAt: t, UpdatedAt: t, UpdatedBy: p.By, Shared: p.Shared, Links: links, Tag: c.tag(),
 		}
 		c.foldAskCreated(c.tasks[p.TaskID], p.Ask, ev, p.By)
 		c.syncPin(c.tasks[p.TaskID]) // a pin row can fold before its card
@@ -521,8 +528,17 @@ func (c *coord) fold(ev store.Event) {
 			return
 		}
 		if t := c.tasks[p.TaskID]; t != nil && ValidState(p.State) {
+			if p.State == Canceled && !c.mayCancel(t, ev.DeviceID) {
+				c.ignore(ev.DeviceID) // another member can't cancel your card (§5.3)
+				return
+			}
 			was := t.State
 			when := at(p.At)
+			if p.State == Canceled && p.Withdrawn && c.onBoard {
+				t.Withdrawn = true
+			} else if !IsTerminal(p.State) {
+				t.Withdrawn = false
+			}
 			if openAsk(t) != nil {
 				o := p.Outcome
 				if o == nil {

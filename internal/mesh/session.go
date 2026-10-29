@@ -28,6 +28,8 @@ type session struct {
 	conn  Conn
 	ctl   chan Frame
 	wake  chan struct{}
+	// boardWake pulls the board logs from the peer now (boards.go).
+	boardWake chan struct{}
 
 	mu        sync.Mutex
 	helloRecv bool
@@ -56,7 +58,7 @@ type session struct {
 
 func newSession(n *Node, epoch int, c Conn) *session {
 	return &session{n: n, epoch: epoch, conn: c, ctl: make(chan Frame, 64), wake: make(chan struct{}, 1),
-		peerVec: store.Vector{}, stuck: map[string]bool{}}
+		boardWake: make(chan struct{}, 1), peerVec: store.Vector{}, stuck: map[string]bool{}}
 }
 
 func (s *session) poke() {
@@ -151,9 +153,15 @@ func (s *session) run(parent context.Context) {
 		defer cancel()
 		s.read(ctx)
 	}()
+	boardDone := make(chan struct{})
+	go func() {
+		defer close(boardDone)
+		s.boardLoop(ctx)
+	}()
 	s.write(ctx)
 	cancel()
 	<-readDone
+	<-boardDone
 }
 
 func (s *session) send(ctx context.Context, f Frame) error {

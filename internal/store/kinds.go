@@ -76,6 +76,18 @@ const (
 	KindAutonomySet = "autonomy.set"
 )
 
+// Device-local rows of the private store for step 4's boards (§4.6, §5.2).
+const (
+	// KindBoardForgotten: {boardId, upTo}: this device forgot the board
+	// (§4.6's forgotten list), so a board.joined at or below upTo (an HLC)
+	// arriving from another device doesn't bring it back.
+	KindBoardForgotten = "board.forgotten"
+	// KindSharedCopy: {privateTaskId, boardId, taskId}: a private card
+	// shared to a board (§5.2's shared_copies), so the private card shows
+	// "Shared to mlg as mlg#4" and writes to its id are refused.
+	KindSharedCopy = "board.sharedcopy"
+)
+
 // KindBoardCardKey: {cardId, agentKey}: which local session a board's agent
 // card is (§2.4's device-local board_cards). It lives in the board store's
 // local_events, so it never leaves the device.
@@ -152,7 +164,7 @@ var kindSides = map[string]Side{
 	KindMemberDeviceRevoked: Replicated, KindMemberKeyRotated: Replicated, KindAgentCard: Replicated,
 	KindReviewRequested: Replicated, KindReviewReviewer: Replicated,
 	KindBoardJoined: Replicated, KindBoardForgot: Replicated, KindReceiveSet: Replicated, KindAutonomySet: Replicated,
-	KindBoardCardKey: Local, KindBoardPin: Local,
+	KindBoardCardKey: Local, KindBoardPin: Local, KindBoardForgotten: Local, KindSharedCopy: Local,
 }
 
 // KindSide reports kind's side.

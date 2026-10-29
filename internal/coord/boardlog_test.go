@@ -217,3 +217,96 @@ func TestBoardOwnerRuleIsThePerson(t *testing.T) {
 		t.Fatal("the owner rule is not the holder's person")
 	}
 }
+
+// TestBoardCancelIsTheCreatorsOrAnOwners: on a board a cancel, withdrawn
+// or not, counts only from a device of the card creator's person or of an
+// owner (§5.3, §11 "a cancel of Stephen's card"). p1 made the card on
+// dev-a; p2's dev-b cancels it and is ignored and counted; once p2 owns the
+// board, its cancel counts. Withdraw marks the card withdrawn.
+func TestBoardCancelIsTheCreatorsOrAnOwners(t *testing.T) {
+	ctx := context.Background()
+	clk := &clock{t: fixedNow}
+	st, err := store.OpenWith(ctx, filepath.Join(t.TempDir(), "boards", "b.db"), "dev-a", hlc.New(clk.now), store.OpenOptions{Board: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if _, err := st.Append(ctx, boardPerson, store.KindBoardCreated,
+		map[string]any{"boardId": "b", "name": "b", "tag": "mlg", "creator": map[string]any{"personId": "p1"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Append(ctx, boardPerson, store.KindBoardMemberAdded, map[string]any{"personId": "p2", "role": "member"}); err != nil {
+		t.Fatal(err)
+	}
+	devs := map[string]string{"dev-a": "p1", "dev-b": "p2"}
+	keys := map[string]string{boardPerson: "p1", "person:p2": "p2"}
+	owners := map[string]bool{"p1": true}
+	c, err := New(ctx, st, newRoster(boardCard), Options{Now: clk.now, Board: true, Person: boardPerson,
+		IsOwner:      func(k string) bool { return k == boardPerson },
+		KeyPerson:    func(k string) string { return keys[k] },
+		DevicePerson: func(d string) string { return devs[d] },
+		Tag:          func() string { return "mlg" },
+		BoardOwner:   func(p string) bool { return owners[p] }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := c.CreateTask(ctx, boardPerson, NewTask{Title: "shared work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.ShortRef() != "mlg#1" || task.Refs() != "mlg#1, task:"+task.ID {
+		t.Fatalf("refs %q / %q", task.ShortRef(), task.Refs())
+	}
+	for ref, want := range map[string]error{"mlg#1": nil, "#1": nil, "1": nil, "other#1": ErrNotFound, "mlg#2": ErrNotFound} {
+		got, err := c.TaskRef(ref)
+		if !errors.Is(err, want) || (want == nil && got != task.ID) {
+			t.Errorf("TaskRef(%q) = %q, %v; want %v", ref, got, err, want)
+		}
+	}
+	cancel := func(dev string, seq int64) store.Event {
+		raw, _ := json.Marshal(taskStateRow{TaskID: task.ID, State: Canceled, Note: "mine now", By: "person:p2", At: fixedNow})
+		return store.Event{DeviceID: dev, Seq: seq, HLC: hlc.Timestamp(fixedNow.Add(time.Duration(seq)*time.Minute).UnixMilli()) << 16, Actor: "person:p2", Kind: KindTaskState, Payload: raw}
+	}
+	fold := func(ev store.Event) {
+		t.Helper()
+		if err := st.Insert(ctx, ev); err != nil {
+			t.Fatal(err)
+		}
+		c.impl.mu.Lock()
+		c.impl.apply(ev)
+		c.impl.mu.Unlock()
+	}
+	fold(cancel("dev-b", 1))
+	if got, _ := c.GetTask(task.ID); got.State == Canceled || c.IgnoredRows() != 1 {
+		t.Fatalf("p2 canceled p1's card: %+v, ignored %d", got, c.IgnoredRows())
+	}
+	owners["p2"] = true
+	fold(cancel("dev-b", 2))
+	if got, _ := c.GetTask(task.ID); got.State != Canceled || got.Withdrawn {
+		t.Fatalf("an owner's cancel didn't count: %+v", got)
+	}
+	again, err := c.CreateTask(ctx, boardPerson, NewTask{Title: "more work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := c.Withdraw(ctx, boardPerson, again.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !w.Withdrawn || w.State != Canceled {
+		t.Fatalf("withdrawn %+v", w)
+	}
+}
+
+// TestParseRef: a ref's board tag and number split one way (B3).
+func TestParseRef(t *testing.T) {
+	for in, want := range map[string][3]string{
+		"mlg#12": {"mlg", "12", "ok"}, "MLG#12b": {"mlg", "12b", "ok"}, "#12": {"", "12", "ok"}, "12": {"", "12", "ok"},
+		"a-1#3": {"a-1", "3", "ok"}, "1mlg#3": {}, "mlg#": {}, "mlg#x": {}, "#": {}, "01M6336VP921939GKCWCDJP0EZ": {},
+	} {
+		tag, short, ok := ParseRef(in)
+		if (ok && want[2] != "ok") || (!ok && want[2] == "ok") || tag != want[0] || short != want[1] {
+			t.Errorf("ParseRef(%q) = %q %q %v; want %v", in, tag, short, ok, want)
+		}
+	}
+}

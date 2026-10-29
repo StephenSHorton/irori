@@ -279,7 +279,7 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	}
 	c.net = tr
 	c.mesh = mesh.New(mesh.Options{Store: st, Ident: ident, Chain: chain, Net: tr, Version: opts.Version,
-		Files: c.files, DataDir: opts.DataDir, Intervals: opts.NetIntervals, Now: opts.Now, Ignored: c.ignoredBy, Logf: log.Printf})
+		Files: c.files, DataDir: opts.DataDir, Intervals: opts.NetIntervals, Now: opts.Now, Ignored: c.ignoredBy, Boards: c, Logf: log.Printf})
 	// Pairing (v0.4 §3) opens its own room on the same transport, only
 	// while a window is open. Add is GUI only; the loopback API reaches
 	// only the joining side (api routes_pair.go, §3).
@@ -345,6 +345,8 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		}()
 		go c.servers.Follow(ctx, st)
 		go c.followColors(ctx)
+		c.boards.wg.Add(1)
+		go func() { defer c.boards.wg.Done(); c.followOwnBoards(ctx) }()
 		if c.home != nil {
 			homeDone := make(chan struct{})
 			defer func() { <-homeDone }() // node.addr is written before the log closes

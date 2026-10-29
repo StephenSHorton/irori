@@ -64,6 +64,11 @@ type boardLog struct {
 
 	idMu sync.Mutex // one keepCurrent or rotateSecret at a time
 
+	// cancel ends the board's goroutines (wg), so one board can be
+	// forgotten while the Core runs (boards_own.go).
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+
 	mu    sync.Mutex
 	cards map[string]boardCard // cardId -> its agent.card, as folded
 	keys  map[string]string    // agentKey -> cardId: this device's board_cards
@@ -93,6 +98,14 @@ type boardState struct {
 	ctx    context.Context   // the Core's; each board's goroutines end with it
 	wg     sync.WaitGroup
 	follow sync.Once // followIdentity
+
+	// Step 4 (boards_own.go): one reconcile of board.joined and
+	// board.forgot at a time, this device's shared copies (§5.2) by private
+	// task id, and the subscribers to every board's changes.
+	recMu  sync.Mutex
+	copies map[string]sharedCopy
+	subMu  sync.Mutex
+	subs   map[chan coord.Change]struct{}
 }
 
 // NewBoardID is a fresh boardId: 16 random bytes, hex (§2.1). It names
@@ -131,7 +144,7 @@ func (c *Core) openBoards(ctx context.Context) {
 		if e.IsDir() || !ok || !validBoardID(id) {
 			continue
 		}
-		if _, err := c.openBoard(ctx, id, false); err != nil {
+		if _, err := c.openBoard(ctx, id, false, nil); err != nil {
 			log.Printf("board %s: %v", id, err)
 		}
 	}
@@ -162,24 +175,34 @@ func (c *Core) CreateBoard(ctx context.Context, name, tag string) (string, error
 	if err != nil {
 		return "", err
 	}
-	b, err := c.openBoard(ctx, id, true)
+	b, err := c.openBoard(ctx, id, true, nil)
 	if err != nil {
 		return "", err
 	}
 	pin, _ := b.verifier.Pinned(c.chain.PersonID())
 	row, err := c.ident.BoardCreatedRow(id, name, tag, pin, c.now())
 	if err != nil {
+		c.dropBoard(id)
 		return "", err
 	}
 	if _, err := b.store.Append(ctx, store.PersonActorPrefix+pin.PersonID, store.KindBoardCreated, row); err != nil {
+		c.dropBoard(id)
 		return "", err
 	}
 	if !b.verifier.Membership().Created {
+		c.dropBoard(id)
 		return "", errors.New("core: the board's board.created did not count")
 	}
 	if err := c.rotateSecret(b); err != nil {
 		return "", err
 	}
+	// The person's other devices open it from this row (§4.1 step 7, own
+	// devices only until invites): it carries the creator's pin, which they
+	// trust because one of their own devices wrote it.
+	if _, err := c.store.Append(ctx, "irori", store.KindBoardJoined, boardJoinedRow{BoardID: id, Name: name, Tag: tag, Creator: pin, At: c.now()}); err != nil {
+		return "", err
+	}
+	c.boardsMoved()
 	return id, nil
 }
 
@@ -274,7 +297,7 @@ func (c *Core) rotateSecret(b *boardLog) error {
 // openBoard opens (creating) one board log and its coord, and starts
 // following it. create pins this person on it with this device as the
 // board root.
-func (c *Core) openBoard(ctx context.Context, id string, create bool) (*boardLog, error) {
+func (c *Core) openBoard(ctx context.Context, id string, create bool, pin *identity.MemberPin) (*boardLog, error) {
 	if !validBoardID(id) {
 		return nil, fmt.Errorf("core: %q is not a board id", id)
 	}
@@ -294,7 +317,7 @@ func (c *Core) openBoard(ctx context.Context, id string, create bool) (*boardLog
 		return nil, fmt.Errorf("open board log: %w", err)
 	}
 	b := &boardLog{id: id, store: st, verifier: v, secrets: secrets, cards: map[string]boardCard{}, keys: map[string]string{}, byID: map[string]string{}}
-	if err := c.pinBoard(ctx, b, create); err != nil {
+	if err := c.pinBoard(ctx, b, create, pin); err != nil {
 		st.Close()
 		return nil, err
 	}
@@ -315,7 +338,9 @@ func (c *Core) openBoard(ctx context.Context, id string, create bool) (*boardLog
 		IsOwner:      func(k string) bool { return k == store.PersonActorPrefix+c.chain.PersonID() },
 		Revoked:      func(dev string) bool { _, revoked := v.Cut(dev); return revoked },
 		KeyPerson:    v.KeyPerson,
-		DevicePerson: c.boardDevicePerson(v)}); err != nil {
+		DevicePerson: c.boardDevicePerson(v),
+		Tag:          func() string { return v.Membership().Tag },
+		BoardOwner:   func(p string) bool { return v.Membership().Owner(p) }}); err != nil {
 		st.Close()
 		return nil, fmt.Errorf("board coord: %w", err)
 	}
@@ -335,21 +360,39 @@ func (c *Core) openBoard(ctx context.Context, id string, create bool) (*boardLog
 	if fctx == nil {
 		fctx = ctx
 	}
-	c.boards.wg.Add(2)
-	go func() { defer c.boards.wg.Done(); b.coord.Follow(fctx) }()
-	go func() { defer c.boards.wg.Done(); c.followBoard(fctx, b) }()
+	bctx, cancel := context.WithCancel(fctx)
+	b.cancel = cancel
+	b.wg.Add(3)
+	go func() { defer b.wg.Done(); b.coord.Follow(bctx) }()
+	go func() { defer b.wg.Done(); c.followBoard(bctx, b) }()
+	go func() { defer b.wg.Done(); c.relayChanges(bctx, b) }()
 	c.boards.follow.Do(func() {
 		c.boards.wg.Add(1)
 		go func() { defer c.boards.wg.Done(); c.followIdentity(fctx) }()
 	})
+	if c.mesh != nil {
+		c.mesh.KickBoards()
+	}
 	return b, nil
 }
 
 // closeBoards waits for the boards' goroutines (the Core's context is
 // already canceled) and closes their logs.
 func (c *Core) closeBoards() {
+	c.boards.mu.Lock()
+	logs := make([]*boardLog, 0, len(c.boards.logs))
+	for _, b := range c.boards.logs {
+		logs = append(logs, b)
+	}
+	c.boards.mu.Unlock()
 	done := make(chan struct{})
-	go func() { c.boards.wg.Wait(); close(done) }()
+	go func() {
+		c.boards.wg.Wait()
+		for _, b := range logs {
+			b.wg.Wait()
+		}
+		close(done)
+	}()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
@@ -437,6 +480,9 @@ func createdTaskID(ev store.Event) string {
 // a membership or identity row moves the board's epoch.
 func (c *Core) followBoard(ctx context.Context, b *boardLog) {
 	for ev := range b.store.Subscribe(ctx) {
+		if c.mesh != nil {
+			c.mesh.KickBoards() // the person's other devices pull it now
+		}
 		if ev.Seq == 0 || store.IsBoardIdentityKind(ev.Kind) {
 			if err := c.rotateSecret(b); err != nil && ctx.Err() == nil {
 				log.Printf("board %s: secret: %v", b.id, err)
@@ -528,6 +574,14 @@ func (c *Core) Route(taskID string) (boardID string, co *coord.Coord, err error)
 func (c *Core) TaskCoord(ctx context.Context, taskID string, keys ...string) (*coord.Coord, []string, error) {
 	boardID, co, err := c.Route(taskID)
 	if err != nil || boardID == "" {
+		if len(keys) > 0 {
+			// A write to a private card that was shared to a board is
+			// refused, never rerouted (§5.2): its coord comes back too,
+			// for callers that only read.
+			if err := c.sharedRefusal(taskID); err != nil {
+				return c.coord, keys, err
+			}
+		}
 		return c.coord, keys, nil
 	}
 	out := make([]string, len(keys))
@@ -676,7 +730,11 @@ func (r boardRoster) Agents() []presence.AgentCard {
 // creates it or wrote every row it holds (a board from before pins); a
 // board holding another device's rows and no pin is left unpinned, so
 // nothing in it verifies, and says so.
-func (c *Core) pinBoard(ctx context.Context, b *boardLog, create bool) error {
+//
+// given, when set, is the creator's pin from a board.joined row one of this
+// person's devices wrote (boards_own.go): a board this device opens
+// because another of its person's devices made or joined it.
+func (c *Core) pinBoard(ctx context.Context, b *boardLog, create bool, given *identity.MemberPin) error {
 	evs, err := b.store.List(ctx, store.Filter{Kinds: []string{store.KindBoardPin}, Local: true, Limit: store.MaxListLimit})
 	if err != nil {
 		return err
@@ -690,6 +748,15 @@ func (c *Core) pinBoard(ctx context.Context, b *boardLog, create bool) error {
 		if err := b.verifier.Pin(p); err != nil {
 			log.Printf("board %s: %v", b.id, err)
 			continue
+		}
+		pinned = true
+	}
+	if !pinned && given != nil {
+		if err := b.verifier.Pin(*given); err != nil {
+			return err
+		}
+		if _, err := b.store.AppendLocal(ctx, "irori", store.KindBoardPin, *given); err != nil {
+			return err
 		}
 		pinned = true
 	}

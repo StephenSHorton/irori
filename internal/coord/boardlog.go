@@ -1,7 +1,10 @@
 package coord
 
 import (
+	"context"
+	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/StephenSHorton/irori/internal/owner"
 	"github.com/StephenSHorton/irori/internal/store"
@@ -43,6 +46,63 @@ func (c *coord) mayWrite(ownerKey, writer string) bool {
 	}
 	p := c.keyPerson(ownerKey)
 	return p != "" && p == c.devPerson(writer)
+}
+
+// tag is the board's short handle (Options.Tag), "" on the private board.
+func (c *coord) tag() string {
+	if !c.onBoard || c.tagFn == nil {
+		return ""
+	}
+	return c.tagFn()
+}
+
+// mayCancel is §5.3's rule for a cancel on a shared card, withdrawn or
+// not: it counts only from a device of the card creator's person or of an
+// owner, so another member can't cancel your card. The private log has no
+// such rule; nor does a board coord without the owner rule's functions.
+func (c *coord) mayCancel(t *Task, writer string) bool {
+	if !c.onBoard || c.keyPerson == nil || c.devPerson == nil {
+		return true
+	}
+	p := c.devPerson(writer)
+	if p == "" {
+		return false
+	}
+	return p == c.keyPerson(t.CreatedBy) || (c.boardOwner != nil && c.boardOwner(p))
+}
+
+// Withdraw takes a card back off a shared board (v0.5 §5.3): canceled with
+// withdrawn set, by its creator's person or an owner. Nothing is recalled:
+// other members' devices keep what was shared, and hide the card.
+func (c *Coord) Withdraw(ctx context.Context, by, id, note string) (Task, error) {
+	return c.impl.withdraw(ctx, by, id, note)
+}
+
+func (c *coord) withdraw(ctx context.Context, by, id, note string) (Task, error) {
+	by, note = strings.TrimSpace(by), strings.TrimSpace(note)
+	if !c.onBoard {
+		return Task{}, fmt.Errorf("%w: only a card on a shared board is withdrawn; cancel a private card instead", ErrInvalid)
+	}
+	if utf8.RuneCountInString(note) > maxObjective {
+		return Task{}, fmt.Errorf("%w: note longer than %d characters", ErrInvalid, maxObjective)
+	}
+	c.mu.Lock()
+	defer c.unlock()
+	t := c.tasks[id]
+	if t == nil {
+		return Task{}, fmt.Errorf("%w: task %q", ErrNotFound, id)
+	}
+	if t.Withdrawn {
+		return copyTask(t), nil
+	}
+	if !c.mayCancel(t, c.st.DeviceID()) {
+		return Task{}, fmt.Errorf("%w: only its creator or a board owner withdraws %s", ErrNotAllowed, t.ShortRef())
+	}
+	note = cmpStr(note, "withdrawn from the board")
+	if err := c.write(ctx, by, KindTaskState, taskStateRow{TaskID: id, State: Canceled, Note: note, Withdrawn: true, By: by, At: c.stamp()}); err != nil {
+		return Task{}, err
+	}
+	return copyTask(t), nil
 }
 
 // personActor reports a row whose actor is a person (whoever its by says).
