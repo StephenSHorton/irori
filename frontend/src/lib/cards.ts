@@ -29,6 +29,8 @@ import {
   type CardHolder,
   type CardOption,
   type CardPR,
+  type CardRef,
+  type CardSubtask,
 } from "../../bindings/github.com/StephenSHorton/irori/models"
 import {
   LinkKind,
@@ -53,6 +55,8 @@ export type {
   CardHolder,
   CardOption,
   CardPR,
+  CardRef,
+  CardSubtask,
   CardSummary,
   CardThreadItem,
   CommentResult,
@@ -203,6 +207,9 @@ function summary(c: CardDetail): CardSummary {
     accent: c.accent,
     talking: c.talking,
     ask: c.ask,
+    parent: c.parent,
+    subtasks: c.subtasks,
+    subtaskBlocked: c.subtaskBlocked,
   })
 }
 
@@ -680,12 +687,36 @@ async function loadCards(): Promise<CardSummary[]> {
     const open = (c: CardDetail) => (c.openBlockers > 0 ? 1 : 0)
     const time = updated
     // As BoardService.Cards: the closed ones are on the Done tab.
-    return sampleState()
-      .filter((c) => !over(c))
-      .sort((a, b) => ask(b) - ask(a) || open(b) - open(a) || time(b) - time(a))
-      .map(summary)
+    return families(
+      sampleState()
+        .filter((c) => !over(c))
+        .sort((a, b) => ask(b) - ask(a) || open(b) - open(a) || time(b) - time(a))
+        .map(summary)
+    )
   }
   return (await BoardService.Cards()) ?? []
+}
+
+// families is BoardService.Cards' last step, for the sample: a parent's
+// subtasks follow it, and the family sits where its first card sorted.
+function families(sorted: CardSummary[]): CardSummary[] {
+  const byId = new Map(sorted.map((c) => [c.id, c]))
+  const head = (c: CardSummary) =>
+    c.parent && byId.has(c.parent.id) ? c.parent.id : c.id
+  const out: CardSummary[] = []
+  const placed = new Set<string>()
+  for (const c of sorted) {
+    const h = head(c)
+    if (placed.has(h)) continue
+    placed.add(h)
+    out.push(byId.get(h)!)
+    out.push(
+      ...sorted
+        .filter((k) => k.parent?.id === h)
+        .sort((a, b) => parseInt(a.short, 10) - parseInt(b.short, 10))
+    )
+  }
+  return out
 }
 
 export type CardsState = {

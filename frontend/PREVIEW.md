@@ -28,6 +28,8 @@ unchanged.
 | --- | --- |
 | `/` | the open cards; agents are busy on sample-card-2 and sample-card-4 (spinners) |
 | `/?open=board:task:sample-card-4` | a card's page: busy agent, spinning step, links, a file |
+| `/?open=board:task:sample-card-7` | a parent card's page: its subtasks, one blocked, and the steps done before the split |
+| `/?open=board:task:sample-card-9` | a subtask's page, with "Part of #7" under the title |
 | `/?open=board:task:sample-card-1` | a card's page with blockers, a PR and a long thread |
 | `/?open=board:task:sample-card-2` | a blocker with recommended answers |
 | `/?open=board:task:sample-card-5` | a done card with a reviewed PR |

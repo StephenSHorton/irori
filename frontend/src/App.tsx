@@ -12,6 +12,7 @@ import {
   DeviceBar,
   FilterBar,
   matches,
+  shownCards,
   type Filter,
 } from "@/components/cards/card-grid"
 import {
@@ -231,7 +232,7 @@ export function App() {
     filter.startsWith("device:") && !chips.some((d) => filter === `device:${d.id}`)
       ? "all"
       : filter
-  const shown = cards.filter((c) => matches(c, active))
+  const { shown, context } = shownCards(cards, active)
   const decide = cards.filter((c) => c.openBlockers > 0).length
 
   return (
@@ -256,6 +257,7 @@ export function App() {
             gone={gone}
             now={now}
             onBack={back}
+            onOpen={openCard}
           />
         ) : loading && cards.length === 0 ? (
           <p className="px-1 text-sm text-muted-foreground">Loading cards…</p>
@@ -294,7 +296,7 @@ export function App() {
                 now={now}
               />
             ) : shown.length ? (
-              <CardGrid cards={shown} selected={last} onSelect={openCard} />
+              <CardGrid cards={shown} context={context} selected={last} onSelect={openCard} />
             ) : (
               <p className="px-1 text-[12.5px] text-muted-foreground">
                 Nothing here with this filter.
