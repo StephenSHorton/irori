@@ -21,12 +21,57 @@ export const AttachmentRoute = "/irori/attachment/"
 const InlineImages = ["image/png", "image/jpeg", "image/gif", "image/webp"]
 const ImageExt = /\.(png|jpe?g|gif|webp)$/i
 
+// MaxPreview mirrors core.MaxPreview: the route refuses anything bigger
+// (without fetching it), so such a file is a chip.
+export const MaxPreview = 32 << 20
+
+// MaxAutoPreview: a picture up to this size loads by itself when it
+// scrolls near; a bigger one waits for a click (it crosses devices whole).
+export const MaxAutoPreview = 8 << 20
+
 // looksLikeImage reports whether a file should get a thumbnail: by the
-// attaching device's type, else its name. The route has the last word: a
-// file it serves as a download falls back to a chip.
+// attaching device's type, else its name, and no bigger than MaxPreview.
+// The route has the last word: a file it serves as a download falls back
+// to a chip.
 export function looksLikeImage(f: FileRef): boolean {
+  if (f.size > MaxPreview) return false
   const m = (f.mime ?? "").split(";")[0].trim().toLowerCase()
   return InlineImages.includes(m) || (!m && ImageExt.test(f.name))
+}
+
+// OpenableExts mirrors attachments_service.go's openableExts: the types
+// Open hands to the OS. Everything else is Save only.
+const OpenableExts = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".bmp",
+  ".heic",
+  ".pdf",
+  ".txt",
+  ".md",
+  ".log",
+  ".csv",
+  ".json",
+  ".yaml",
+  ".yml",
+  ".docx",
+  ".xlsx",
+  ".pptx",
+  ".mp4",
+  ".mov",
+  ".mp3",
+  ".wav",
+])
+
+// canOpen reports whether Open would take a file, by its name (Open checks
+// the bytes too, and AttachmentInfo.openable is the binding's answer).
+export function canOpen(f: FileRef): boolean {
+  const name = f.name.replace(/[. ]+$/, "")
+  const dot = name.lastIndexOf(".")
+  return dot > 0 && OpenableExts.has(name.slice(dot).toLowerCase())
 }
 
 export function attachmentURL(sha: string): string {

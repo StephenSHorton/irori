@@ -4,6 +4,7 @@ import {
   DownloadIcon,
   ExternalLinkIcon,
   FileIcon,
+  ImageIcon,
   ImageOffIcon,
   LoaderCircleIcon,
   RotateCwIcon,
@@ -20,10 +21,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
+  canOpen,
   errorText,
   humanSize,
   load,
   looksLikeImage,
+  MaxAutoPreview,
   open,
   save,
   type FileRef,
@@ -32,8 +35,9 @@ import {
 import { plainLine } from "@/lib/irori"
 
 // AttachmentList shows the files on a Board comment (card #14): images as
-// thumbnails that open full size, everything else as a chip with Save and
-// Open. Files on another device are fetched when shown; when that device
+// thumbnails that open full size (a big one loads on a click), everything
+// else as a chip with Save, and Open for types the OS shows rather than
+// runs. Files on another device are fetched when shown; when that device
 // is offline the item says so and offers Retry. Drop it under a comment:
 //
 //   <AttachmentList attachments={comment.attachments ?? []} />
@@ -128,7 +132,9 @@ function useLoaded(sha: string, visible: boolean) {
 
 function Thumbnail({ file }: { file: FileRef }) {
   const [ref, visible] = useVisible<HTMLDivElement>()
-  const { state, retry } = useLoaded(file.sha256, visible)
+  // A big picture crosses devices whole: only when asked.
+  const [wanted, setWanted] = useState(file.size <= MaxAutoPreview)
+  const { state, retry } = useLoaded(file.sha256, visible && wanted)
   const [full, setFull] = useState(false)
   const name = fileName(file)
 
@@ -167,6 +173,13 @@ function Thumbnail({ file }: { file: FileRef }) {
           <Button size="xs" variant="ghost" onClick={retry}>
             <RotateCwIcon />
             Retry
+          </Button>
+        </div>
+      ) : !wanted ? (
+        <div className="flex h-28 w-40 flex-col items-center justify-center gap-1.5 rounded-lg border border-border bg-muted/40 p-2 text-center text-xs text-muted-foreground">
+          <ImageIcon className="size-4" />
+          <Button size="xs" variant="ghost" onClick={() => setWanted(true)}>
+            Load preview ({humanSize(file.size)})
           </Button>
         </div>
       ) : (
@@ -227,8 +240,9 @@ function FileChip({ file }: { file: FileRef }) {
   )
 }
 
-// FileActions are Save (to Downloads) and Open (with the OS default app),
-// with what happened on one line.
+// FileActions are Save (to Downloads) and, for a type the OS shows rather
+// than runs, Open (with the OS default app), with what happened on one
+// line.
 function FileActions({ file, compact }: { file: FileRef; compact?: boolean }) {
   const [busy, setBusy] = useState<"save" | "open" | null>(null)
   const [note, setNote] = useState<{ text: string; error: boolean } | null>(
@@ -268,20 +282,22 @@ function FileActions({ file, compact }: { file: FileRef; compact?: boolean }) {
         )}
         Save
       </Button>
-      <Button
-        size={compact ? "xs" : "sm"}
-        variant="ghost"
-        disabled={busy !== null}
-        onClick={() => run("open")}
-        title="Open with the default app"
-      >
-        {busy === "open" ? (
-          <LoaderCircleIcon className="animate-spin" />
-        ) : (
-          <ExternalLinkIcon />
-        )}
-        Open
-      </Button>
+      {canOpen(file) && (
+        <Button
+          size={compact ? "xs" : "sm"}
+          variant="ghost"
+          disabled={busy !== null}
+          onClick={() => run("open")}
+          title="Open with the default app"
+        >
+          {busy === "open" ? (
+            <LoaderCircleIcon className="animate-spin" />
+          ) : (
+            <ExternalLinkIcon />
+          )}
+          Open
+        </Button>
+      )}
       {note && (
         <span
           className={cn(
