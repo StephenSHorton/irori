@@ -21,10 +21,12 @@ export {
 export {
     AgentRef,
     AnswerResult,
+    AskRepo,
     AttachmentInfo,
     CaptureChange,
     CaptureRepo,
     CardActivity,
+    CardAsk,
     CardBlocker,
     CardDetail,
     CardHolder,

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -231,6 +232,71 @@ func (b *BoardService) Comment(id, text, tell string) (CommentResult, error) {
 		}
 	}
 	return res, nil
+}
+
+// Ask is the person asking the room (board.md "Asks"): text becomes an
+// ask's card, and every free agent hears it, at its next turn or woken
+// with wake. repoKey ("" any) keeps it to the agents in that repo. Told
+// says who heard; nobody free makes it unclaimed at once.
+func (b *BoardService) Ask(text, repoKey string, wake bool) (TaskResult, error) {
+	ctx := context.Background()
+	var agents []presence.AgentCard
+	if b.agents != nil {
+		agents = b.agents()
+	}
+	t, n, err := b.coord.PostAsk(ctx, b.user.Key, coord.NewAsk{Text: text, RepoKey: strings.TrimSpace(repoKey), Wake: wake}, agents)
+	if err != nil {
+		return TaskResult{}, err
+	}
+	return TaskResult{Task: t, Told: b.tell(ctx, n, TellNextTurn)}, nil
+}
+
+// AskAgain is "Wake them" on an ask nobody took: every free agent hears it
+// again, woken. The device that posted it hands it out, so from another
+// device it is a request that device acts on.
+func (b *BoardService) AskAgain(id string) error {
+	return b.coord.AskAgain(context.Background(), b.user.Key, strings.TrimSpace(id))
+}
+
+// CloseAsk ends an ask with nothing coming of it; note is optional ("closed
+// by the person").
+func (b *BoardService) CloseAsk(id, note string) (coord.Task, error) {
+	return b.coord.AskClose(context.Background(), b.user.Key, strings.TrimSpace(id), coord.AskOutcome{Kind: coord.OutcomeNone, Note: note})
+}
+
+// AskRepos are the repos the roster's agents are in, for the ask box's
+// repo chip: repoKey and a short label, sorted by label.
+func (b *BoardService) AskRepos() []AskRepo {
+	out := []AskRepo{}
+	if b.agents == nil {
+		return out
+	}
+	seen := map[string]bool{}
+	for _, a := range b.agents() {
+		if a.RepoKey == "" || a.Status == "gone" || seen[a.RepoKey] {
+			continue
+		}
+		seen[a.RepoKey] = true
+		out = append(out, AskRepo{RepoKey: a.RepoKey, Label: repoLabel(a.RepoKey)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Label < out[j].Label })
+	return out
+}
+
+// AskRepo is one choice on the ask box's repo chip.
+type AskRepo struct {
+	RepoKey string `json:"repoKey"`
+	Label   string `json:"label"`
+}
+
+// repoLabel is a repoKey's last path part ("remote:github.com/a/irori" is
+// "irori").
+func repoLabel(key string) string {
+	k := strings.TrimRight(key, "/")
+	if i := strings.LastIndexAny(k, "/:\\"); i >= 0 && i < len(k)-1 {
+		return k[i+1:]
+	}
+	return k
 }
 
 // Block moves a task to blocked with a reason; on (lease, task, person,

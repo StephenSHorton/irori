@@ -1,0 +1,134 @@
+import { useEffect, useState, type FormEvent } from "react"
+
+import { ChoiceSelect } from "@/components/common/choice-select"
+import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
+import { cards, MaxComment, type AskRepo } from "@/lib/cards"
+import { useDraft } from "@/lib/drafts"
+import { errorText } from "@/lib/talk"
+
+// AskBox is the person talking to the room (docs/design/board.md "Asks"):
+// one line over the grid. What they type goes to every free agent, one of
+// them takes it, and it shows first in the grid as an ask until it becomes
+// a card or closes. It is the card comment box lifted out: Enter sends,
+// Shift+Enter is a new line. Wake (off by default) wakes the agents now
+// instead of telling them at their next turn; the repo chip keeps it to
+// one repo's agents. The window stays on the grid.
+export function AskBox({ onAsked }: { onAsked: (id: string) => void }) {
+  const [text, setText] = useDraft("ask/room")
+  const [wake, setWake] = useState(false)
+  const [repo, setRepo] = useState("")
+  const [repos, setRepos] = useState<AskRepo[]>([])
+  const [busy, setBusy] = useState(false)
+  const [line, setLine] = useState<{ text: string; error?: boolean } | null>(
+    null
+  )
+
+  useEffect(() => {
+    let live = true
+    cards
+      .askRepos()
+      .then((rs) => live && setRepos(rs))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (busy || !text.trim()) return
+    setBusy(true)
+    setLine(null)
+    try {
+      const res = await cards.ask(text, repo, wake)
+      const n = res.told.to?.length ?? 0
+      setLine({
+        text:
+          n === 0
+            ? "Nobody is free to hear it yet; it stays first on the board."
+            : `${n} ${n === 1 ? "agent hears" : "agents hear"} it ${wake ? "now" : "at their next turn"}.`,
+      })
+      setText("")
+      onAsked(res.task.id)
+    } catch (err) {
+      setLine({ text: errorText(err), error: true })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form className="grid gap-1" onSubmit={(e) => void submit(e)}>
+      <div className="glass-panel flex items-start gap-2 p-1.5">
+        <Textarea
+          autoSize
+          rows={1}
+          value={text}
+          maxLength={MaxComment}
+          onChange={(e) => {
+            setText(e.target.value)
+            setLine(null)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault()
+              e.currentTarget.form?.requestSubmit()
+            }
+          }}
+          placeholder="Ask the room…"
+          aria-label="Ask every free agent"
+          className="max-h-40 min-h-9 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent"
+          disabled={busy}
+        />
+        {repos.length > 0 && (
+          <ChoiceSelect
+            label="Which agents hear it"
+            size="sm"
+            value={repo}
+            onValueChange={setRepo}
+            disabled={busy}
+            className="w-auto shrink-0"
+            choices={[
+              { value: "", label: "Any repo" },
+              ...repos.map((r) => ({ value: r.repoKey, label: r.label })),
+            ]}
+          />
+        )}
+        <label
+          className="flex h-8 shrink-0 items-center gap-1.5 text-xs text-muted-foreground"
+          title="Wake the agents now instead of at their next turn"
+        >
+          <Switch
+            size="sm"
+            checked={wake}
+            disabled={busy}
+            onCheckedChange={(v) => setWake(v)}
+          />
+          Wake
+        </label>
+        <Button
+          type="submit"
+          size="sm"
+          className="shrink-0"
+          disabled={busy || !text.trim()}
+        >
+          {busy ? "Asking…" : "Ask"}
+        </Button>
+      </div>
+      {line && (
+        <p
+          className={
+            line.error
+              ? "px-1 text-xs text-destructive"
+              : "px-1 text-xs text-muted-foreground"
+          }
+          role={line.error ? "alert" : undefined}
+        >
+          {line.text}
+        </p>
+      )}
+    </form>
+  )
+}

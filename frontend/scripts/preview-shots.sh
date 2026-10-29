@@ -45,3 +45,5 @@ shot 15-page-wide "?open=board:task:sample-card-1" 1920 1300 # a wide window: op
 shot 16-grid-after-back "?from=sample-card-4"                 # the grid as Back leaves it: card marked, focused
 shot 17-page-loading "?slow#card/sample-card-1"               # a reload on a card while it loads
 shot 18-page-unknown "#card/sample-card-gone"                 # a card that isn't there
+shot 19-page-ask "?open=board:task:sample-ask-2"             # an ask an agent took: its status line, Close, the thread
+shot 20-page-ask-open "?open=board:task:sample-ask-1"        # an ask nobody has taken yet
