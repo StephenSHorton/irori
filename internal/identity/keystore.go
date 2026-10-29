@@ -55,6 +55,9 @@ func unseal(ks Keystore, w wrapped) ([]byte, error) {
 		return nil, fmt.Errorf("%w: sealed with %q, this device uses %q (was the data dir copied from another machine?)", ErrWrongKeystore, w.Keystore, ks.Name())
 	}
 	plain, err := ks.Unseal(w.Blob)
+	if errors.Is(err, errKeystoreUnavailable) {
+		return nil, fmt.Errorf("identity: unseal with %s: %w", ks.Name(), err) // its key, not this blob
+	}
 	if err != nil {
 		return nil, fmt.Errorf("identity: unseal with %s (was the data dir copied from another machine or user?): %w", ks.Name(), err)
 	}
