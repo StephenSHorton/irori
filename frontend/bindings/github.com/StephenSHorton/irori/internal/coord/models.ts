@@ -272,6 +272,16 @@ export class BoardView {
  */
 export class Card {
     "id": string;
+
+    /**
+     * Short is the card's short ref without its "#" ("12", or "12a" and
+     * "12b" for two cards that claimed 12 apart: short.go). It is derived
+     * by the fold, never written. ShortWas is the number such a card
+     * claimed ("12") and showed until the clash settled; "" when no other
+     * card claimed it.
+     */
+    "short"?: string;
+    "shortWas"?: string;
     "title": string;
     "objective": string;
     "doneCriteria"?: string;
@@ -399,50 +409,50 @@ export class Card {
      * Creates a new Card instance from a string or object.
      */
     static createFrom($$source: any = {}): Card {
-        const $$createField5_0 = $$createType6;
-        const $$createField8_0 = $$createType6;
-        const $$createField9_0 = $$createType6;
-        const $$createField17_0 = $$createType5;
-        const $$createField18_0 = $$createType12;
-        const $$createField20_0 = $$createType14;
-        const $$createField21_0 = $$createType16;
-        const $$createField22_0 = $$createType6;
-        const $$createField23_0 = $$createType18;
-        const $$createField25_0 = $$createType6;
-        const $$createField26_0 = $$createType6;
+        const $$createField7_0 = $$createType6;
+        const $$createField10_0 = $$createType6;
+        const $$createField11_0 = $$createType6;
+        const $$createField19_0 = $$createType5;
+        const $$createField20_0 = $$createType12;
+        const $$createField22_0 = $$createType14;
+        const $$createField23_0 = $$createType16;
+        const $$createField24_0 = $$createType6;
+        const $$createField25_0 = $$createType18;
+        const $$createField27_0 = $$createType6;
+        const $$createField28_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
-            $$parsedSource["scope"] = $$createField5_0($$parsedSource["scope"]);
+            $$parsedSource["scope"] = $$createField7_0($$parsedSource["scope"]);
         }
         if ("holders" in $$parsedSource) {
-            $$parsedSource["holders"] = $$createField8_0($$parsedSource["holders"]);
+            $$parsedSource["holders"] = $$createField10_0($$parsedSource["holders"]);
         }
         if ("assigned" in $$parsedSource) {
-            $$parsedSource["assigned"] = $$createField9_0($$parsedSource["assigned"]);
+            $$parsedSource["assigned"] = $$createField11_0($$parsedSource["assigned"]);
         }
         if ("blockedBy" in $$parsedSource) {
-            $$parsedSource["blockedBy"] = $$createField17_0($$parsedSource["blockedBy"]);
+            $$parsedSource["blockedBy"] = $$createField19_0($$parsedSource["blockedBy"]);
         }
         if ("links" in $$parsedSource) {
-            $$parsedSource["links"] = $$createField18_0($$parsedSource["links"]);
+            $$parsedSource["links"] = $$createField20_0($$parsedSource["links"]);
         }
         if ("steps" in $$parsedSource) {
-            $$parsedSource["steps"] = $$createField20_0($$parsedSource["steps"]);
+            $$parsedSource["steps"] = $$createField22_0($$parsedSource["steps"]);
         }
         if ("blockers" in $$parsedSource) {
-            $$parsedSource["blockers"] = $$createField21_0($$parsedSource["blockers"]);
+            $$parsedSource["blockers"] = $$createField23_0($$parsedSource["blockers"]);
         }
         if ("watchers" in $$parsedSource) {
-            $$parsedSource["watchers"] = $$createField22_0($$parsedSource["watchers"]);
+            $$parsedSource["watchers"] = $$createField24_0($$parsedSource["watchers"]);
         }
         if ("lastComment" in $$parsedSource) {
-            $$parsedSource["lastComment"] = $$createField23_0($$parsedSource["lastComment"]);
+            $$parsedSource["lastComment"] = $$createField25_0($$parsedSource["lastComment"]);
         }
         if ("gone" in $$parsedSource) {
-            $$parsedSource["gone"] = $$createField25_0($$parsedSource["gone"]);
+            $$parsedSource["gone"] = $$createField27_0($$parsedSource["gone"]);
         }
         if ("overlaps" in $$parsedSource) {
-            $$parsedSource["overlaps"] = $$createField26_0($$parsedSource["overlaps"]);
+            $$parsedSource["overlaps"] = $$createField28_0($$parsedSource["overlaps"]);
         }
         return new Card($$parsedSource as Partial<Card>);
     }
@@ -676,14 +686,18 @@ export enum LinkKind {
 };
 
 /**
- * Option is one recommended answer to a blocker, from an agent involved
- * (the raiser in Raise, or a holder or watcher through Recommend).
+ * Option is one answer to a blocker, from an agent involved (the raiser in
+ * Raise, or a holder or watcher through Recommend). Recommended marks the
+ * one its raiser recommends among the choices (at most one per Raise); an
+ * option added through Recommend is always recommended, and so is every
+ * option of a blocker.option row written before the flag existed.
  */
 export class Option {
     "answer": string;
     "why"?: string;
     "by": string;
     "at": time$0.Time;
+    "recommended"?: boolean;
 
     /** Creates a new Option instance. */
     constructor($$source: Partial<Option> = {}) {
@@ -868,6 +882,16 @@ export class Step {
  */
 export class Task {
     "id": string;
+
+    /**
+     * Short is the card's short ref without its "#" ("12", or "12a" and
+     * "12b" for two cards that claimed 12 apart: short.go). It is derived
+     * by the fold, never written. ShortWas is the number such a card
+     * claimed ("12") and showed until the clash settled; "" when no other
+     * card claimed it.
+     */
+    "short"?: string;
+    "shortWas"?: string;
     "title": string;
     "objective": string;
     "doneCriteria"?: string;
@@ -975,38 +999,38 @@ export class Task {
      * Creates a new Task instance from a string or object.
      */
     static createFrom($$source: any = {}): Task {
-        const $$createField5_0 = $$createType6;
-        const $$createField8_0 = $$createType6;
-        const $$createField9_0 = $$createType6;
-        const $$createField17_0 = $$createType5;
-        const $$createField18_0 = $$createType12;
-        const $$createField20_0 = $$createType14;
-        const $$createField21_0 = $$createType16;
-        const $$createField22_0 = $$createType6;
+        const $$createField7_0 = $$createType6;
+        const $$createField10_0 = $$createType6;
+        const $$createField11_0 = $$createType6;
+        const $$createField19_0 = $$createType5;
+        const $$createField20_0 = $$createType12;
+        const $$createField22_0 = $$createType14;
+        const $$createField23_0 = $$createType16;
+        const $$createField24_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
-            $$parsedSource["scope"] = $$createField5_0($$parsedSource["scope"]);
+            $$parsedSource["scope"] = $$createField7_0($$parsedSource["scope"]);
         }
         if ("holders" in $$parsedSource) {
-            $$parsedSource["holders"] = $$createField8_0($$parsedSource["holders"]);
+            $$parsedSource["holders"] = $$createField10_0($$parsedSource["holders"]);
         }
         if ("assigned" in $$parsedSource) {
-            $$parsedSource["assigned"] = $$createField9_0($$parsedSource["assigned"]);
+            $$parsedSource["assigned"] = $$createField11_0($$parsedSource["assigned"]);
         }
         if ("blockedBy" in $$parsedSource) {
-            $$parsedSource["blockedBy"] = $$createField17_0($$parsedSource["blockedBy"]);
+            $$parsedSource["blockedBy"] = $$createField19_0($$parsedSource["blockedBy"]);
         }
         if ("links" in $$parsedSource) {
-            $$parsedSource["links"] = $$createField18_0($$parsedSource["links"]);
+            $$parsedSource["links"] = $$createField20_0($$parsedSource["links"]);
         }
         if ("steps" in $$parsedSource) {
-            $$parsedSource["steps"] = $$createField20_0($$parsedSource["steps"]);
+            $$parsedSource["steps"] = $$createField22_0($$parsedSource["steps"]);
         }
         if ("blockers" in $$parsedSource) {
-            $$parsedSource["blockers"] = $$createField21_0($$parsedSource["blockers"]);
+            $$parsedSource["blockers"] = $$createField23_0($$parsedSource["blockers"]);
         }
         if ("watchers" in $$parsedSource) {
-            $$parsedSource["watchers"] = $$createField22_0($$parsedSource["watchers"]);
+            $$parsedSource["watchers"] = $$createField24_0($$parsedSource["watchers"]);
         }
         return new Task($$parsedSource as Partial<Task>);
     }

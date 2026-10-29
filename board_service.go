@@ -119,11 +119,18 @@ type BoardService struct {
 	// message is the inbox's message by id, for a card thread's message
 	// opened in full; nil finds none.
 	message func(id string) (inbox.Message, bool)
+	// deliveries are the inbox's open deliveries, read to tell an
+	// assignment that never reached its agent (queued or held); nil is none.
+	deliveries func() []inbox.Delivery
 }
 
 func newBoardService(c *core.Core) *BoardService {
 	b := &BoardService{coord: c.Coord(), user: c.UserSender(), route: c.RouteNotices, agents: c.MeshAgents,
-		self: c.Device().ID, devices: c.CertifiedDevices, leases: c.Coord().Leases, message: c.Inbox().Message}
+		self: c.Device().ID, devices: c.CertifiedDevices, leases: c.Coord().Leases}
+	if ib := c.Inbox(); ib != nil {
+		b.deliveries = ib.Open
+		b.message = ib.Message
+	}
 	if cp := c.Capture(); cp != nil {
 		b.prs = cp.PRs
 	}

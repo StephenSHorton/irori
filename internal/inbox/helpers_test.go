@@ -87,6 +87,8 @@ type harness struct {
 	onGone func(ctx context.Context, m Message, to string) (string, error)
 	// onPassed is Options.OnPassed for the next open (nil = none).
 	onPassed func(ctx context.Context, m Message, to string) error
+	// revoked is Options.Revoked for the next open (nil = none).
+	revoked func(device string) bool
 }
 
 func newHarness(t *testing.T) *harness {
@@ -108,7 +110,7 @@ func (h *harness) open() {
 	}
 	h.t.Cleanup(func() { st.Close() })
 	h.st = st
-	ib, err := New(bg, st, h.ros, Options{DeviceID: "dev1", Now: h.clk.now, PROwners: h.owners, IsOwner: h.isOwner, OnRecipientGone: h.onGone, OnPassed: h.onPassed})
+	ib, err := New(bg, st, h.ros, Options{DeviceID: "dev1", Now: h.clk.now, PROwners: h.owners, IsOwner: h.isOwner, Revoked: h.revoked, OnRecipientGone: h.onGone, OnPassed: h.onPassed})
 	if err != nil {
 		h.t.Fatal(err)
 	}

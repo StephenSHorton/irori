@@ -51,6 +51,9 @@ type AgentRef struct {
 	Where  string `json:"where"` // the machine: "This PC", or the other device's name (v0.4)
 	// Assigned: a holder that was assigned the card and hasn't taken it up.
 	Assigned bool `json:"assigned,omitempty"`
+	// Waiting: Assigned, and the assignment never reached this agent: its
+	// notice is still queued or held in the inbox.
+	Waiting bool `json:"waiting,omitempty"`
 	// Device is the device chip on a face from another device: that
 	// device's name, set only once the person has more than one device
 	// (v0.4 §9).
@@ -68,9 +71,39 @@ type CardProgress struct {
 	Total int `json:"total"`
 }
 
+// Holding says what a card's holder is doing: the line a card without
+// steps shows in place of a progress bar, so a card nobody is working
+// doesn't look like work in progress.
+type Holding string
+
+const (
+	HoldNobody   Holding = "nobody"   // no holder
+	HoldPerson   Holding = "person"   // the person holds it
+	HoldWaiting  Holding = "waiting"  // assigned, and the notice never reached the agent (queued or held)
+	HoldAssigned Holding = "assigned" // assigned and told, not taken up yet
+	HoldActive   Holding = "active"   // the agent working it is live and busy
+	HoldIdle     Holding = "idle"     // the agent working it is live and idle
+	HoldOffline  Holding = "offline"  // the agent working it is on a device that is offline
+	HoldGone     Holding = "gone"     // the agent working it is gone
+)
+
+// CardHolder is the holder line: Who is the holder it describes (the
+// first that took the card up, else the first assigned; zero for nobody),
+// and Others counts the rest.
+type CardHolder struct {
+	Who    AgentRef `json:"who"`
+	State  Holding  `json:"state"`
+	Others int      `json:"others"`
+}
+
 // CardSummary is one card in the grid.
 type CardSummary struct {
-	ID         string          `json:"id"`
+	ID string `json:"id"`
+	// Short is the card's short ref without its "#" ("12", or "12b" for
+	// the later of two cards numbered 12 on devices that were apart);
+	// ShortWas is the number such a card showed before that settled.
+	Short      string          `json:"short"`
+	ShortWas   string          `json:"shortWas"`
 	Title      string          `json:"title"`
 	State      coord.TaskState `json:"state"`
 	RepoKey    string          `json:"repoKey"`
@@ -86,15 +119,18 @@ type CardSummary struct {
 	Waiting         int        `json:"waiting"`
 	Working         []AgentRef `json:"working"`  // holders, in join order
 	Watching        []AgentRef `json:"watching"` // watchers that don't hold it
+	Holder          CardHolder `json:"holder"`
 	UpdatedAt       time.Time  `json:"updatedAt"`
 }
 
-// CardOption is one recommended answer.
+// CardOption is one answer to pick. Recommended marks the one its agent
+// recommends (the window shows it first-class); others are offered choices.
 type CardOption struct {
-	Answer string    `json:"answer"`
-	Why    string    `json:"why"`
-	By     AgentRef  `json:"by"`
-	At     time.Time `json:"at"`
+	Answer      string    `json:"answer"`
+	Why         string    `json:"why"`
+	By          AgentRef  `json:"by"`
+	At          time.Time `json:"at"`
+	Recommended bool      `json:"recommended"`
 }
 
 // CardResolution is how a blocker was resolved.
@@ -241,11 +277,25 @@ type people struct {
 	paired bool
 	// conflicts maps a holder to the resource of its contested lease.
 	conflicts map[string]string
+	// unsent holds "<agent>\x00<ref>" for each assignment notice (reason
+	// "assigned") still queued or held for that agent: an assignment that
+	// never reached it. Later notices on the card don't count.
+	unsent map[string]bool
 }
+
+func unsentKey(agent, ref string) string { return agent + "\x00" + ref }
 
 func (b *BoardService) people() people {
 	p := people{byKey: map[string]presence.AgentCard{}, user: b.user.Key, self: b.self,
-		names: map[string]string{}, conflicts: map[string]string{}}
+		names: map[string]string{}, conflicts: map[string]string{}, unsent: map[string]bool{}}
+	if b.deliveries != nil {
+		for _, d := range b.deliveries() {
+			m := d.Message
+			if m.Notice && m.Reason == string(coord.NoticeAssigned) && (d.State == inbox.Queued || d.State == inbox.Held) && strings.HasPrefix(m.Ref, "task:") {
+				p.unsent[unsentKey(d.To, d.Message.Ref)] = true
+			}
+		}
+	}
 	if b.coord != nil {
 		p.owner = b.coord.IsPerson
 	}
@@ -334,7 +384,7 @@ func (p people) refs(keys []string) []AgentRef {
 func cardSummary(t coord.Task, p people) CardSummary {
 	d, n := t.Progress()
 	s := CardSummary{
-		ID: t.ID, Title: t.Title, State: t.State, RepoKey: t.RepoKey,
+		ID: t.ID, Short: t.Short, ShortWas: t.ShortWas, Title: t.Title, State: t.State, RepoKey: t.RepoKey,
 		Scope: ScopeMine, ScopeLabel: ScopeMineLabel,
 		Progress: CardProgress{Done: d, Total: n}, Working: []AgentRef{}, Watching: []AgentRef{},
 		UpdatedAt: t.UpdatedAt,
@@ -361,6 +411,7 @@ func cardSummary(t coord.Task, p people) CardSummary {
 	for _, h := range t.Holders {
 		r := p.ref(h)
 		r.Assigned = slices.Contains(t.Assigned, h)
+		r.Waiting = r.Assigned && p.unsent[unsentKey(h, "task:"+t.ID)]
 		s.Working = append(s.Working, r)
 	}
 	for _, w := range t.Watchers {
@@ -368,7 +419,38 @@ func cardSummary(t coord.Task, p people) CardSummary {
 			s.Watching = append(s.Watching, p.ref(w))
 		}
 	}
+	s.Holder = holderLine(s.Working)
 	return s
+}
+
+// holderLine describes the holder that took the card up (the first), else
+// the first assigned one.
+func holderLine(working []AgentRef) CardHolder {
+	if len(working) == 0 {
+		return CardHolder{State: HoldNobody}
+	}
+	i := slices.IndexFunc(working, func(r AgentRef) bool { return !r.Assigned })
+	if i < 0 {
+		i = 0
+	}
+	h := CardHolder{Who: working[i], Others: len(working) - 1}
+	switch w := h.Who; {
+	case w.Status == "person":
+		h.State = HoldPerson
+	case w.Waiting:
+		h.State = HoldWaiting
+	case w.Assigned:
+		h.State = HoldAssigned
+	case w.Status == "gone":
+		h.State = HoldGone
+	case w.Offline:
+		h.State = HoldOffline
+	case w.Status == "idle":
+		h.State = HoldIdle
+	default:
+		h.State = HoldActive
+	}
+	return h
 }
 
 // Cards lists every live card (not completed, failed or canceled) for the
@@ -433,7 +515,7 @@ func (b *BoardService) Card(id string) (CardDetail, error) {
 			Options: []CardOption{}, State: cmp.Or(string(bl.Status), BlockerOpen), Missing: nonNil(bl.Missing),
 			Thread: nonNil(byBlocker[bl.ID])}
 		for _, o := range bl.Options {
-			cb.Options = append(cb.Options, CardOption{Answer: o.Answer, Why: o.Why, By: p.ref(o.By), At: o.At})
+			cb.Options = append(cb.Options, CardOption{Answer: o.Answer, Why: o.Why, By: p.ref(o.By), At: o.At, Recommended: o.Recommended})
 		}
 		if r := bl.Resolved; r != nil {
 			cb.Resolved = &CardResolution{Answer: r.Answer, Option: r.Option, By: p.ref(r.By), At: r.At, Closed: r.Closed, Note: r.Note}

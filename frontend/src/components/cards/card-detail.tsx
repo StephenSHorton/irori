@@ -18,6 +18,7 @@ import {
   type AnswerResult,
   type CardBlocker,
   type CardDetail,
+  type CardOption,
   type CardPR,
   type Told,
 } from "@/lib/cards"
@@ -32,7 +33,7 @@ import {
 import { errorText, talk, type GoneSession } from "@/lib/talk"
 import { answerable, blockerChip, blockerTone } from "@/lib/thread"
 import { cn } from "@/lib/utils"
-import { ProgressBar, ScopeBadge } from "./bits"
+import { HolderLine, ProgressBar, ScopeBadge, ShortRef } from "./bits"
 import { Face, LiveDot } from "./faces"
 import { Thread } from "./thread"
 
@@ -69,6 +70,7 @@ export function CardPanel({
     <Card className="gap-0 py-0!">
       <div className="grid gap-2.5 border-b border-border px-5 pt-[18px] pb-3.5">
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+          <ShortRef card={detail} />
           <ScopeBadge card={detail} />
           {detail.repoKey && (
             <span className="font-mono" title={detail.repoKey}>
@@ -96,11 +98,15 @@ export function CardPanel({
             {plainLine(detail.doneWhen)}
           </p>
         )}
-        <ProgressBar
-          progress={detail.progress}
-          blocked={detail.openBlockers > 0}
-          label={`${p ?? 0}% complete`}
-        />
+        {p === null ? (
+          <HolderLine holder={detail.holder} />
+        ) : (
+          <ProgressBar
+            progress={detail.progress}
+            blocked={detail.openBlockers > 0}
+            label={`${p ?? 0}% complete`}
+          />
+        )}
         <div className="flex flex-wrap gap-1.5 text-xs text-muted-foreground">
           {p !== null && <span>{p}% complete</span>}
           {p !== null && detail.openBlockers > 0 && <span>·</span>}
@@ -350,22 +356,43 @@ function BlockerItem({
   const form = showForm ? (
     <div className="grid gap-1.5">
       {b.options.length > 0 && (
-        <div className="grid gap-1.5">
-          {b.options.map((o, i) => (
+        <div
+          className="grid gap-1.5"
+          role="group"
+          aria-label={`Answers to: ${plainLine(b.question)}`}
+        >
+          {byRecommendation(b.options).map(([o, i]) => (
             <button
               key={i}
               type="button"
               disabled={busy}
               onClick={() => send(i, "")}
-              className="grid gap-0.5 rounded-[10px] border border-border bg-card px-2.5 py-2 text-left outline-none hover:border-primary focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
+              className={cn(
+                "grid gap-0.5 rounded-[10px] border bg-card px-2.5 py-2 text-left outline-none hover:border-primary focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60",
+                o.recommended
+                  ? "border-primary/60 bg-accent/40 ring-1 ring-primary/20"
+                  : "border-border"
+              )}
             >
-              <span className="text-[13px] font-semibold text-ink">
+              <span className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold text-ink">
                 {plainLine(o.answer)}
+                {o.recommended && (
+                  <Badge
+                    variant="info"
+                    className="h-4 rounded-full px-1.5 text-[10.5px]"
+                  >
+                    Recommended
+                  </Badge>
+                )}
               </span>
               <span className="text-xs text-muted-foreground">
-                <span className="font-medium text-primary">
-                  Recommended by {name(o.by)}.
-                </span>{" "}
+                {o.recommended ? (
+                  <span className="font-medium text-primary">
+                    {name(o.by)} recommends this.
+                  </span>
+                ) : (
+                  <span>Option from {name(o.by)}.</span>
+                )}{" "}
                 {plainLine(o.why)}
               </span>
             </button>
@@ -527,6 +554,16 @@ function BlockerItem({
   )
 }
 
+// byRecommendation puts recommended options first, keeping each one's
+// index: the answer sends the index, so the order on screen is free.
+function byRecommendation(options: CardOption[]): [CardOption, number][] {
+  const all = options.map((o, i): [CardOption, number] => [o, i])
+  return [
+    ...all.filter(([o]) => o.recommended),
+    ...all.filter(([o]) => !o.recommended),
+  ]
+}
+
 // Sent is what an answer did: who heard, and whether the item resolved.
 type Sent = { told: Told; resolved: boolean }
 
@@ -621,7 +658,16 @@ function People({ detail, gone }: { detail: CardDetail; gone: GoneSession[] }) {
               </>
             ) : role === "working" ? (
               w.assigned ? (
-                <span>assigned</span>
+                w.waiting ? (
+                  <span
+                    className="text-warning"
+                    title="The hand-over is still queued or held: it hasn't reached this agent"
+                  >
+                    waiting for it
+                  </span>
+                ) : (
+                  <span>assigned</span>
+                )
               ) : (
                 <>
                   {w.live && !w.offline && <LiveDot />}

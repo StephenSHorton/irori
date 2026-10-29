@@ -25,13 +25,13 @@ func (c *coord) searchDocs(since time.Time, limit int) []search.Doc {
 	defer c.unlock()
 	var out []search.Doc
 	for _, t := range c.tasks {
-		if t.UpdatedAt.Before(since) {
+		if t.UpdatedAt.Before(since) && !c.movedSince(t.ID, since) {
 			continue
 		}
 		out = append(out, search.Doc{
 			Ref: search.Ref(search.KindTask, t.ID), Kind: search.KindTask,
 			At: t.CreatedAt, Updated: t.UpdatedAt, Title: t.Title,
-			Body:  joinNonEmpty("\n", t.Objective, t.DoneCriteria, t.Note, t.Reason, cardText(t)),
+			Body:  joinNonEmpty("\n", t.ShortRef(), t.Objective, t.DoneCriteria, t.Note, t.Reason, cardText(t)),
 			Agent: t.Holder, RepoKey: t.RepoKey,
 		})
 	}
@@ -101,6 +101,13 @@ func (c *coord) searchShow(ref string, o search.ShowOptions) (search.Shown, erro
 	switch kind {
 	case search.KindTask:
 		t := c.tasks[id]
+		if short, ok := ParseShort(id); ok && t == nil {
+			if t = c.tasks[c.shortIdx[short]]; t != nil {
+				id = t.ID
+			} else if err := c.ambiguous(short); err != nil {
+				return search.Shown{}, err
+			}
+		}
 		if t == nil {
 			return search.Shown{}, fmt.Errorf("%w: %s", search.ErrNotFound, ref)
 		}
@@ -113,7 +120,7 @@ func (c *coord) searchShow(ref string, o search.ShowOptions) (search.Shown, erro
 		}
 		t := c.tasks[cm.TaskID]
 		var b strings.Builder
-		fmt.Fprintf(&b, "Comment by %s on %q (task:%s), %s", cm.By, t.Title, t.ID, cm.At.Format(time.RFC3339))
+		fmt.Fprintf(&b, "Comment by %s on %q (%s), %s", cm.By, t.Title, t.Refs(), cm.At.Format(time.RFC3339))
 		if cm.Wake {
 			b.WriteString(", wake")
 		}
@@ -142,7 +149,10 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 			fmt.Fprintf(&b, "%s: %s\n", label, v)
 		}
 	}
-	fmt.Fprintf(&b, "Task %q (task:%s)\n", t.Title, t.ID)
+	fmt.Fprintf(&b, "Task %s %q (task:%s)\n", t.ShortRef(), t.Title, t.ID)
+	if t.ShortWas != "" {
+		fmt.Fprintf(&b, "renumbered: it was #%s, until cards made on devices that were apart turned out to have #%s too; #%s alone now names none of them\n", t.ShortWas, t.ShortWas, t.ShortWas)
+	}
 	state := string(t.State)
 	if t.Shared {
 		state += ", shared"
@@ -210,7 +220,11 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 				fmt.Fprintf(&b, "  missing: %s\n", strings.Join(bl.Missing, "; "))
 			}
 			for i, o := range bl.Options {
-				fmt.Fprintf(&b, "  option %d: %s (recommended by %s)", i+1, o.Answer, o.By)
+				if o.Recommended {
+					fmt.Fprintf(&b, "  option %d: %s (recommended by %s)", i+1, o.Answer, o.By)
+				} else {
+					fmt.Fprintf(&b, "  option %d: %s (from %s)", i+1, o.Answer, o.By)
+				}
 				if o.Why != "" {
 					fmt.Fprintf(&b, ": %s", o.Why)
 				}

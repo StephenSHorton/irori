@@ -235,3 +235,63 @@ func TestTheHostFillsTheCardWhenItLetsAMessageThrough(t *testing.T) {
 		t.Fatalf("calls %v", calls)
 	}
 }
+
+// Decision 34 on the host: a non-bypass (or unknown-mode) Claude agent on
+// another of the person's certified devices reaches a bypass session here
+// without a hold. A Grok member, an agent on a revoked device and one on a
+// device never certified are still held; the block list and Pause all
+// still win.
+func TestTheHostLetsTheOwnersOtherDeviceAgentsThroughBypass(t *testing.T) {
+	const keyRev = "dev3/dddddddd-aaaa-4aaa-8aaa-aaaaaaaaaaaa" // dev3 was removed
+	const keyUnk = "devX/eeeeeeee-bbbb-4bbb-8bbb-bbbbbbbbbbbb" // never certified
+	const keyRG = "dev2/grok-remote"
+	h := newHarness(t)
+	h.isOwner = func(k string) bool { return k == user || k == "user:dev2" || k == "user:dev3" }
+	h.revoked = func(dev string) bool { return dev == "dev3" }
+	h.reopen()
+	h.abc() // alpha runs in bypass
+	h.ros.put(card(keyR, "mac", "", ""), card(keyRev, "old", "", "default"), card(keyUnk, "stranger", "", "default"), grokCard(keyRG, "grok", ""))
+	ctx, cancel := contextWithCancel(t)
+	defer cancel()
+	go h.ib.Follow(ctx)
+	f := &foreign{h: h}
+	send := func(id string, from Sender) {
+		m := Message{ID: "msg_" + id, From: from, To: to(keyA), Text: "hi from " + id, Trust: Untrusted, SentAt: h.clk.now()}
+		f.row("agent:"+from.Key, KindMessageSent, m)
+		f.row("agent:"+from.Key, KindDelivery, deliveryRow{DeliveryID: "dlv_" + id, MessageID: m.ID, To: keyA, State: Queued, By: from.Key})
+	}
+	send("own", claude(keyR, "mac"))
+	send("grok", grok(keyRG, "grok"))
+	send("revoked", claude(keyRev, "old"))
+	send("unknown", claude(keyUnk, "stranger"))
+	// dev2 claiming an agent of this device's: the key's device didn't
+	// write the message, so it is no own agent.
+	send("spoofed", claude("dev1/ffffffff-cccc-4ccc-8ccc-cccccccccccc", "local"))
+	send("spoofed-bypass", claude(keyA, "alpha")) // alpha's bypass card doesn't speak for dev2
+	for _, id := range []string{"dlv_grok", "dlv_revoked", "dlv_unknown", "dlv_spoofed", "dlv_spoofed-bypass"} {
+		eventually(t, id+" held for bypass", func() bool {
+			d, ok := h.ib.Get(id)
+			return ok && d.State == Held && d.Hold == HoldBypassReceiver
+		})
+	}
+	if d, _ := h.ib.Get("dlv_own"); d.State == Held || d.Hold != "" {
+		t.Fatalf("own agent on another device: %s %q", d.State, d.Hold)
+	}
+
+	if err := h.ib.SetPolicy(bg, Policy{Block: []string{"mac"}}, user); err != nil {
+		t.Fatal(err)
+	}
+	send("blocked", claude(keyR, "mac"))
+	eventually(t, "the block list wins", func() bool {
+		d, ok := h.ib.Get("dlv_blocked")
+		return ok && d.State == Held && d.Hold == HoldBlocked
+	})
+	if err := h.ib.SetPolicy(bg, Policy{Paused: true}, user); err != nil {
+		t.Fatal(err)
+	}
+	send("paused", claude(keyR, "mac"))
+	eventually(t, "Pause all wins", func() bool {
+		d, ok := h.ib.Get("dlv_paused")
+		return ok && d.State == Held && d.Hold == HoldPaused
+	})
+}

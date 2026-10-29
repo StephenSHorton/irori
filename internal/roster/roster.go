@@ -167,6 +167,9 @@ func (r *Roster) apply(ev store.Event) bool {
 			Key    string `json:"key"`
 			Status string `json:"status"`
 			Name   string `json:"name"`
+			// PermissionMode is set when the host learned the mode after
+			// agent.seen (older rows have none: the mode stays as it was).
+			PermissionMode string `json:"permissionMode"`
 		}
 		if json.Unmarshal(ev.Payload, &p) != nil {
 			return false
@@ -180,6 +183,9 @@ func (r *Roster) apply(ev store.Event) bool {
 			return true
 		}
 		c.Status, c.Name = p.Status, p.Name
+		if p.PermissionMode != "" {
+			c.PermissionMode = p.PermissionMode
+		}
 		r.cards[p.Key] = c
 		return true
 	case store.KindAgentGone:

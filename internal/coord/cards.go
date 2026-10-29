@@ -57,13 +57,17 @@ type Step struct {
 	Doing bool   `json:"doing,omitempty"`
 }
 
-// Option is one recommended answer to a blocker, from an agent involved
-// (the raiser in Raise, or a holder or watcher through Recommend).
+// Option is one answer to a blocker, from an agent involved (the raiser in
+// Raise, or a holder or watcher through Recommend). Recommended marks the
+// one its raiser recommends among the choices (at most one per Raise); an
+// option added through Recommend is always recommended, and so is every
+// option of a blocker.option row written before the flag existed.
 type Option struct {
-	Answer string    `json:"answer"`
-	Why    string    `json:"why,omitempty"`
-	By     string    `json:"by"`
-	At     time.Time `json:"at"`
+	Answer      string    `json:"answer"`
+	Why         string    `json:"why,omitempty"`
+	By          string    `json:"by"`
+	At          time.Time `json:"at"`
+	Recommended bool      `json:"recommended,omitempty"`
 }
 
 // Resolution is how a blocker item was resolved.
@@ -132,7 +136,8 @@ func (b Blocker) Open() bool { return b.Resolved == nil }
 
 // NewBlocker is Raise's input. Question is required (1..MaxQuestion runes);
 // Context at most MaxContext; Options at most MaxOptions, each Answer
-// 1..MaxAnswer and Why at most MaxWhy (their By is the raiser). BlockedBy is
+// 1..MaxAnswer and Why at most MaxWhy (their By is the raiser), at most one
+// of them Recommended (else ErrInvalid). BlockedBy is
 // the item's On, checked like Block's; nil means a person (whoever is at the
 // app), so the card is in the person's Needs you.
 type NewBlocker struct {
@@ -231,7 +236,9 @@ func (c *Coord) Raise(ctx context.Context, by, id string, nb NewBlocker) (Task, 
 
 // Recommend adds a recommended answer to an open blocker item. Any agent
 // involved may: a holder, a watcher, the raiser, the creator, or a person.
-// The same answer twice is a no-op; at most MaxOptions per item.
+// The same answer as an option not yet recommended marks that option
+// Recommended (it keeps its By); as a recommended one, it is a no-op. At
+// most MaxOptions per item.
 func (c *Coord) Recommend(ctx context.Context, by, id, blockerID, answer, why string) (Task, error) {
 	return c.impl.recommend(ctx, by, id, blockerID, answer, why)
 }

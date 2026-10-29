@@ -66,11 +66,18 @@ const (
 // Watch posts and clears cards for what needs the person, driven only by
 // the inbox and coord change streams (no polling), until ctx ends:
 //
-//   - a held delivery (not one held by Pause all, which the person chose):
-//     "<sender> sent <agent> a message Irori held" with Release and Dismiss,
-//     acting through the inbox as the person; cleared when it leaves Held.
-//     Closing the card with its x leaves the message held, and the card
-//     comes back on the next inbox change (the window has no inbox list);
+//   - held deliveries (not ones held by Pause all, which the person chose),
+//     one card per sender (decision 34): "<sender> sent <agent> a message
+//     Irori held", or "<sender> sent <agent> 3 messages Irori held" once
+//     more are held, with Release and Dismiss (Release all, Dismiss all)
+//     acting through the inbox as the person on every one the card counts
+//     (a press that leaves any held puts the card back quietly, with the
+//     error and its buttons; one resolved elsewhere meanwhile is no error).
+//     A new hold from that sender updates the card in place, silently
+//     while it is up (only a card going up sounds); a hold that leaves
+//     Held updates an open card and clears it with the last. Closing the
+//     card with its x leaves the messages held, and the card comes back,
+//     silently, on the next inbox change (the window has no inbox list);
 //   - a Board card that an agent (not the person) moved into the person's
 //     Needs you lane (blocked on them, waiting on their input, or assigned
 //     to them): Answer opens the Board at the card, Later closes it;
@@ -92,8 +99,11 @@ func Watch(ctx context.Context, n *Notifier, s Sources) {
 	if n.Headless() {
 		return
 	}
-	w := &watcher{n: n, s: s, held: map[string]bool{}, msgs: map[string]bool{}, needs: map[string]bool{},
-		asks: map[string]bool{}, forget: make(chan string, 16)}
+	w := &watcher{n: n, s: s, held: map[string]string{}, groups: map[string]*heldGroup{},
+		dirty: map[string]heldChange{}, closed: map[string]bool{},
+		msgs: map[string]bool{}, needs: map[string]bool{},
+		asks: map[string]bool{}, forget: make(chan string, 16),
+		failed: make(chan heldFail, 16), fails: map[string]string{}}
 	var ich <-chan inbox.Change
 	var cch <-chan coord.Change
 	var ach <-chan string
@@ -136,23 +146,121 @@ func Watch(ctx context.Context, n *Notifier, s Sources) {
 				continue
 			}
 			w.board(true)
-		case id := <-w.forget:
-			// Its card was closed with the x: the next reconcile posts it again.
-			delete(w.held, id)
+		case f := <-w.failed:
+			// A press took the card down. Re-read what it counted, and put
+			// it back up quietly for whatever is still held (one the press
+			// couldn't release, or one held after the card was built), with
+			// the error, buttons and all, until the next press.
+			if g := w.groups[f.key]; g != nil {
+				for _, id := range slices.Clone(g.ids) {
+					if d, ok := w.s.Inbox.Get(id); ok {
+						w.delivery(ctx, d, false, false)
+					} else {
+						w.unhold(id)
+					}
+				}
+			}
+			if f.err == "" {
+				delete(w.fails, f.key)
+			} else {
+				w.fails[f.key] = f.err
+			}
+			w.dirty[f.key] = max(w.dirty[f.key], postQuiet)
+			w.flush(ctx)
+		case from := <-w.forget:
+			// Its card was closed with the x: the next reconcile posts it
+			// again, without a sound for the holds it already showed.
+			if g := w.groups[from]; g != nil {
+				for _, id := range g.ids {
+					delete(w.held, id)
+					w.closed[id] = true
+				}
+				delete(w.groups, from)
+			}
 		}
 	}
 }
 
 type watcher struct {
-	n     *Notifier
-	s     Sources
-	held  map[string]bool // held delivery ids accounted for (card posted, or seeded)
-	msgs  map[string]bool // delivery ids to the person accounted for (likewise)
-	needs map[string]bool // task ids in Needs you (card posted, or seeded)
-	asks  map[string]bool // ask ids with a card up
-	// forget carries held delivery ids whose card the person closed (from
-	// the card's own goroutine to Watch's loop).
+	n *Notifier
+	s Sources
+	// held maps each held delivery id accounted for (on a card, or seeded)
+	// to the sender whose card counts it; groups are those cards, by sender
+	// key. dirty marks the senders whose card changed since the last flush
+	// and how, closed the delivery ids whose card the person closed with
+	// its x (they come back without a sound).
+	held   map[string]string
+	groups map[string]*heldGroup
+	dirty  map[string]heldChange
+	closed map[string]bool
+	msgs   map[string]bool // delivery ids to the person accounted for (likewise)
+	needs  map[string]bool // task ids in Needs you (card posted, or seeded)
+	asks   map[string]bool // ask ids with a card up
+	// forget carries the sender keys whose held card the person closed
+	// (from the card's own goroutine to Watch's loop), failed the outcome
+	// of each Release or Dismiss press; fails is the error a sender's card
+	// shows until the next press or until nothing of theirs is held.
 	forget chan string
+	failed chan heldFail
+	fails  map[string]string
+}
+
+// heldFail is one press of a held card's Release or Dismiss: the error to
+// show on the sender's card, "" when every message it acted on went.
+type heldFail struct{ key, err string }
+
+// heldGroup is one sender's held deliveries, oldest first.
+type heldGroup struct {
+	ids  []string
+	dels map[string]inbox.Delivery
+}
+
+// heldChange is what a flush does with a sender's held card, the strongest
+// change since the last flush winning.
+type heldChange int
+
+const (
+	updateIfUp heldChange = iota // a hold left: update the card if it is up, clear it with the last
+	postQuiet                    // put the card up (again) without a sound
+	postLoud                     // a new hold: put the card up (with a sound) or update it
+)
+
+// unhold drops a held delivery from its sender's card.
+func (w *watcher) unhold(id string) {
+	key, ok := w.held[id]
+	if !ok {
+		return
+	}
+	delete(w.held, id)
+	if g := w.groups[key]; g != nil {
+		g.ids = slices.DeleteFunc(g.ids, func(s string) bool { return s == id })
+		delete(g.dels, id)
+	}
+	w.dirty[key] = max(w.dirty[key], updateIfUp)
+}
+
+// flush brings each changed sender's held card in line: cleared when none
+// of theirs is held any more, else posted or updated in place per
+// heldChange. Only a card going up for a new hold makes a sound; updating
+// one that is up never does.
+func (w *watcher) flush(ctx context.Context) {
+	for key, c := range w.dirty {
+		delete(w.dirty, key)
+		id := HeldID(key)
+		g := w.groups[key]
+		if g == nil || len(g.ids) == 0 {
+			delete(w.groups, key)
+			delete(w.fails, key)
+			w.n.Clear(id)
+			continue
+		}
+		if c == updateIfUp && !w.n.Live(id) {
+			continue
+		}
+		note := w.heldNote(ctx, key, g)
+		note.Silent = c != postLoud || w.n.Live(id)
+		w.n.Post(note)
+	}
 }
 
 func (w *watcher) name(key string) string {
@@ -177,6 +285,7 @@ func (w *watcher) inbox(ctx context.Context, c inbox.Change) {
 		return
 	}
 	w.delivery(ctx, d, c.Kind == inbox.HeldNew, true)
+	w.flush(ctx)
 }
 
 // ask brings one ask's card in line: posted while it waits for an answer,
@@ -223,6 +332,15 @@ func (w *watcher) ask(ctx context.Context, id string) {
 }
 
 // cardHeld is a hold the person is asked about (Pause all is their own).
+// stillHeld reports whether delivery id is still held: a Release or
+// Dismiss that failed on one released, dismissed or gone elsewhere since
+// the card went up is no failure; one that left it held (a repo with no
+// agent to take it yet) is.
+func (w *watcher) stillHeld(id string) bool {
+	d, ok := w.s.Inbox.Get(id)
+	return ok && d.State == inbox.Held
+}
+
 func cardHeld(d inbox.Delivery) bool { return d.State == inbox.Held && d.Hold != inbox.HoldPaused }
 
 // owner reports whether key is the person's (Sources.IsOwner, else User).
@@ -238,23 +356,45 @@ func (w *watcher) waitingFor(d inbox.Delivery) bool {
 	return w.owner(d.To) && (d.State == inbox.Queued || d.State == inbox.Delivered)
 }
 
-// delivery brings d's cards in line with its state: a card for a hold or a
-// message new to the watcher (posted only when post), the card taken down
-// once it no longer applies. heldAgain reposts a hold already carded (it
-// was held anew, so its reason may differ).
+// delivery brings d's cards in line with its state: a hold or a message
+// new to the watcher gets its card (only when post), and a card is taken
+// down or updated once it no longer applies. heldAgain counts a hold
+// already carded as new (it was held anew, so its reason may differ).
+// Held cards change only in the next flush.
 func (w *watcher) delivery(ctx context.Context, d inbox.Delivery, heldAgain, post bool) {
 	id := d.ID
+	from, accounted := w.held[id]
 	switch {
 	case cardHeld(d):
-		if !w.held[id] || heldAgain {
-			w.held[id] = true
-			if post {
-				w.n.Post(w.heldNote(ctx, d))
-			}
+		key := d.Message.From.Key
+		if accounted && from != key {
+			w.unhold(id) // can't happen (a message keeps its sender); stay consistent
+			accounted = false
 		}
-	case w.held[id]:
-		delete(w.held, id)
-		w.n.Clear(HeldID(id))
+		g := w.groups[key]
+		if g == nil {
+			g = &heldGroup{dels: map[string]inbox.Delivery{}}
+			w.groups[key] = g
+		}
+		if !accounted {
+			g.ids = append(g.ids, id)
+		}
+		prev := g.dels[id]
+		g.dels[id] = d
+		w.held[id] = key
+		if accounted && heldAgain && prev.Hold == d.Hold && w.n.Live(HeldID(key)) {
+			heldAgain = false // the card already shows it, for the same reason
+		}
+		if (!accounted || heldAgain) && post {
+			c := postLoud
+			if w.closed[id] && !heldAgain {
+				c = postQuiet // its card was closed with the x: back, without a sound
+			}
+			w.dirty[key] = max(w.dirty[key], c)
+		}
+		delete(w.closed, id)
+	case accounted:
+		w.unhold(id)
 	}
 	switch waiting := w.waitingFor(d); {
 	case waiting && !w.msgs[id]:
@@ -280,25 +420,34 @@ func (w *watcher) reconcile(ctx context.Context, post bool) {
 	}
 	// What left the open set (dismissed, done, gone) is no longer held or
 	// waiting; re-read it to be sure, and take its cards down.
-	for _, m := range []map[string]bool{w.held, w.msgs} {
-		for id := range m {
-			if open[id] {
-				continue
-			}
-			if d, ok := w.s.Inbox.Get(id); ok {
-				w.delivery(ctx, d, false, post)
-				continue
-			}
-			if w.held[id] {
-				delete(w.held, id)
-				w.n.Clear(HeldID(id))
-			}
-			if w.msgs[id] {
-				delete(w.msgs, id)
-				w.n.Clear(MessageID(id))
-			}
+	var left []string
+	for id := range w.held {
+		if !open[id] {
+			left = append(left, id)
 		}
 	}
+	for id := range w.msgs {
+		if !open[id] {
+			left = append(left, id)
+		}
+	}
+	for id := range w.closed {
+		if !open[id] {
+			delete(w.closed, id) // resolved while its card was closed
+		}
+	}
+	for _, id := range left {
+		if d, ok := w.s.Inbox.Get(id); ok {
+			w.delivery(ctx, d, false, post)
+			continue
+		}
+		w.unhold(id)
+		if w.msgs[id] {
+			delete(w.msgs, id)
+			w.n.Clear(MessageID(id))
+		}
+	}
+	w.flush(ctx)
 }
 
 // holdReasons say why Irori held a delivery, in the card's words.
@@ -319,43 +468,91 @@ func HoldReason(h inbox.HoldReason) string {
 	return string(h)
 }
 
-func (w *watcher) heldNote(ctx context.Context, d inbox.Delivery) Note {
-	id, user := d.ID, w.s.User
-	to := "you"
+// heldTo is who a held delivery was for, in the card's words.
+func (w *watcher) heldTo(d inbox.Delivery) string {
 	switch {
 	case d.To == "" && d.RepoKey != "":
-		to = "repo " + d.RepoKey
-	case d.To != user:
-		to = w.name(d.To)
+		return "repo " + d.RepoKey
+	case d.To != w.s.User:
+		return w.name(d.To)
 	}
-	from := d.Message.From.Name
+	return "you"
+}
+
+// heldNote is sender key's held card: every delivery of theirs g holds,
+// the newest one's reason and text on it.
+func (w *watcher) heldNote(ctx context.Context, key string, g *heldGroup) Note {
+	user := w.s.User
+	ids := slices.Clone(g.ids)
+	// The newest by id (ids are minted sortable), whatever order the
+	// watcher saw them in.
+	last := g.dels[slices.MaxFunc(ids, func(a, b string) int {
+		return strings.Compare(g.dels[a].Message.ID+a, g.dels[b].Message.ID+b)
+	})]
+	from := last.Message.From.Name
 	if from == "" {
-		from = w.name(d.Message.From.Key)
+		from = w.name(key)
 	}
-	act := func(what string, fn func(context.Context, string, string) error) func() {
+	to := w.heldTo(last)
+	for _, id := range ids {
+		if w.heldTo(g.dels[id]) != to {
+			to = ""
+			break
+		}
+	}
+	var title string
+	switch n := len(ids); {
+	case n == 1:
+		title = fmt.Sprintf("%s sent %s a message Irori held", from, to)
+	case to == "":
+		title = fmt.Sprintf("%s sent %d messages Irori held", from, n)
+	default:
+		title = fmt.Sprintf("%s sent %s %d messages Irori held", from, to, n)
+	}
+	what, release, dismiss := "that message", "Release", "Dismiss"
+	if len(ids) > 1 {
+		what, release, dismiss = "those messages", "Release all", "Dismiss all"
+	}
+	act := func(verb string, fn func(context.Context, string, string) error) func() {
 		return func() {
-			if err := fn(ctx, id, user); err != nil {
-				log.Printf("irori: notifications: %s %s: %v", what, id, err)
-				w.n.Post(Note{ID: HeldID(id), Title: "Couldn't " + what + " that message", Body: err.Error(), Level: Error})
+			var errs []error
+			for _, id := range ids {
+				err := fn(ctx, id, user)
+				if err != nil && w.stillHeld(id) {
+					log.Printf("irori: notifications: %s %s: %v", verb, id, err)
+					errs = append(errs, err)
+				}
+			}
+			f := heldFail{key: key}
+			if len(errs) > 0 {
+				f.err = "Couldn't " + verb + " " + what + ": " + errs[0].Error()
+			}
+			select {
+			case w.failed <- f:
+			default: // full: the messages stay held either way
 			}
 		}
 	}
-	open := Target{Tab: TabInbox, Ref: id}
+	open := Target{Tab: TabInbox, Ref: last.ID}
+	body, level := upper(HoldReason(last.Hold))+": "+preview(last.Message.Text), Warn
+	if e := w.fails[key]; e != "" {
+		body, level = e+". "+body, Error
+	}
 	return Note{
-		ID:     HeldID(id),
-		Title:  fmt.Sprintf("%s sent %s a message Irori held", from, to),
-		Body:   upper(HoldReason(d.Hold)) + ": " + preview(d.Message.Text),
-		Level:  Warn,
+		ID:     HeldID(key),
+		Title:  title,
+		Body:   body,
+		Level:  level,
 		Sticky: true,
 		Actions: []Action{
-			{Label: "Release", Run: act("release", w.s.Inbox.Release)},
-			{Label: "Dismiss", Run: act("dismiss", w.s.Inbox.Dismiss)},
+			{Label: release, Run: act("release", w.s.Inbox.Release)},
+			{Label: dismiss, Run: act("dismiss", w.s.Inbox.Dismiss)},
 		},
 		OnClick: func() { w.n.Open(open) },
 		OnDismiss: func() {
 			select {
-			case w.forget <- id:
-			default: // full: it stays held, and its card is back after a restart
+			case w.forget <- key:
+			default: // full: they stay held, and the card is back after a restart
 			}
 		},
 	}
@@ -447,6 +644,9 @@ func (w *watcher) needsNote(c coord.Card) Note {
 		title, body = agent+" handed you a card", t.Title
 	default:
 		title, body = agent+" needs you", t.Title
+	}
+	if t.Short != "" {
+		title += " (#" + t.Short + ")" // what the person says to an agent about it
 	}
 	open := Target{Tab: TabBoard, Ref: "task:" + t.ID}
 	return Note{

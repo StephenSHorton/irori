@@ -505,6 +505,10 @@ func TestSessionPrecedence(t *testing.T) {
 	if sessionFromEnv(nil) != "" {
 		t.Error("nil getenv")
 	}
+	env["IRORI_SESSION_ID"] = "script-token"
+	if got := sessionFromEnv(func(k string) string { return env[k] }); got != "script-token" {
+		t.Errorf("IRORI_SESSION_ID should win, env = %q", got)
+	}
 	a, b := randomSession(), randomSession()
 	if a == b || !strings.HasPrefix(a, "sess_") {
 		t.Errorf("random %q %q", a, b)
@@ -518,6 +522,41 @@ func TestSessionPrecedence(t *testing.T) {
 	_, joins := f.snapshot()
 	if len(joins) != 2 || !strings.HasPrefix(joins[0].Session, "sess_") || joins[1].Session != joins[0].Session {
 		t.Errorf("joins %+v", joins)
+	}
+}
+
+// TestSessionlessNameReuseIsNewMember: a sessionless process joining under a
+// name another process already used is a different member, so reusing a
+// name can't take over that member's cards or inbox. A script keeps its
+// member across processes only with an id of its own (IRORI_SESSION_ID).
+func TestSessionlessNameReuseIsNewMember(t *testing.T) {
+	f := newFakeCore(t, testSpecs())
+	h1 := start(t, New(quick(f)), "")
+	h1.call(t, "irori_join", map[string]any{"name": "poster"}, nil)
+	h2 := start(t, New(quick(f)), "")
+	h2.call(t, "irori_join", map[string]any{"name": "poster"}, nil)
+
+	env := func(k string) string {
+		if k == "IRORI_SESSION_ID" {
+			return "tok_9f2c"
+		}
+		return ""
+	}
+	o3, o4 := quick(f), quick(f)
+	o3.Getenv, o4.Getenv = env, env
+	h3 := start(t, New(o3), "")
+	h3.call(t, "irori_join", map[string]any{"name": "poster"}, nil)
+	h4 := start(t, New(o4), "")
+	h4.call(t, "irori_join", map[string]any{"name": "poster"}, nil)
+	_, joins := f.snapshot()
+	if len(joins) != 4 {
+		t.Fatalf("joins %+v", joins)
+	}
+	if joins[0].Session == joins[1].Session {
+		t.Errorf("name reuse shares session %q", joins[0].Session)
+	}
+	if joins[2].Session != "tok_9f2c" || joins[3].Session != "tok_9f2c" {
+		t.Errorf("IRORI_SESSION_ID not kept: %q %q", joins[2].Session, joins[3].Session)
 	}
 }
 
