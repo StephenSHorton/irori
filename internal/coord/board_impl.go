@@ -254,7 +254,7 @@ func (c *coord) block(ctx context.Context, by, id, reason string, bb *BlockedBy)
 	// Block is Raise with the reason as the question (cards.go); a reason
 	// longer than a question goes whole into the item's context.
 	q, cx := blockQuestion(reason)
-	out, _, err := c.raiseLocked(ctx, by, t, reason, q, cx, nil, bb, true, c.stamp())
+	out, _, err := c.raiseLocked(ctx, by, t, reason, q, cx, nil, bb, true, c.stamp(), nil, nil)
 	return out, err
 }
 
@@ -599,7 +599,28 @@ func (c *coord) commentAttachment(sha string) (blob.FileRef, bool) {
 			}
 		}
 	}
-	return got, first != nil
+	if first != nil {
+		return got, true
+	}
+	// A blocker's files (Blocker.Attachments): the earliest item that
+	// carries sha, by when it was raised, then task and item id.
+	var at time.Time
+	key := ""
+	for _, t := range c.tasks {
+		for _, b := range t.Blockers {
+			k := t.ID + "/" + b.ID
+			if key != "" && (b.At.After(at) || b.At.Equal(at) && k > key) {
+				continue
+			}
+			for _, f := range b.Attachments {
+				if f.SHA256 == sha {
+					got, at, key = f, b.At, k
+					break
+				}
+			}
+		}
+	}
+	return got, key != ""
 }
 
 func (c *coord) listComments(taskID string) []Comment {

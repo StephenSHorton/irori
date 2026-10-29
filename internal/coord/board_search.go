@@ -219,6 +219,12 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 			if bl.Open() && len(bl.Missing) > 0 {
 				fmt.Fprintf(&b, "  missing: %s\n", strings.Join(bl.Missing, "; "))
 			}
+			for _, l := range bl.Links {
+				fmt.Fprintf(&b, "  link: %s (%s)\n", l.Label, l.Ref)
+			}
+			for _, f := range bl.Attachments {
+				fmt.Fprintf(&b, "  file: %s\n", f.Describe())
+			}
 			for i, o := range bl.Options {
 				if o.Recommended {
 					fmt.Fprintf(&b, "  option %d: %s (recommended by %s)", i+1, o.Answer, o.By)
@@ -227,6 +233,9 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 				}
 				if o.Why != "" {
 					fmt.Fprintf(&b, ": %s", o.Why)
+				}
+				if o.Link != nil {
+					fmt.Fprintf(&b, " [link: %s]", o.Link.Ref)
 				}
 				b.WriteString("\n")
 			}

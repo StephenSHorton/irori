@@ -191,8 +191,10 @@ func TestCardDetail(t *testing.T) {
 	if _, _, err := c.Raise(ctx, agentA, tk.ID, coord.NewBlocker{Question: "first?"}); err != nil {
 		t.Fatal(err)
 	}
+	shot := blob.FileRef{SHA256: strings.Repeat("c", 64), Name: "adapters.png", Size: 9, Mime: "image/png", Device: "dev-a"}
 	if _, _, err := c.Raise(ctx, agentA, tk.ID, coord.NewBlocker{Question: "Which adapter?", Context: "Radmin is closed.",
-		Options: []coord.Option{{Answer: "Wintun", Why: "signed"}, {Answer: "TAP", Recommended: true}}}); err != nil {
+		Options: []coord.Option{{Answer: "Wintun", Why: "signed", Link: &coord.Link{Ref: "https://www.wintun.net/"}}, {Answer: "TAP", Recommended: true}},
+		Links:   []string{"https://github.com/acme/app/issues/9", "docs/net.md"}, Files: []blob.FileRef{shot}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := c.Answer(ctx, "user:dev-a", tk.ID, "b1", coord.BlockerAnswer{Text: "yes", Resolve: true}); err != nil {
@@ -212,6 +214,26 @@ func TestCardDetail(t *testing.T) {
 	if o := d.Blockers[0].Options; len(o) != 2 || o[0].By.Name != "ww-release" || o[0].Why != "signed" || o[0].Recommended ||
 		!o[1].Recommended || d.Blockers[0].Context != "Radmin is closed." {
 		t.Fatalf("options %+v", o)
+	}
+	// A rich blocker carries its links, files and option links; an older
+	// one carries empty lists, never null.
+	if bl := d.Blockers[0]; len(bl.Links) != 2 || bl.Links[0].Label != "GitHub #9" || bl.Links[1].Kind != coord.LinkPath ||
+		len(bl.Attachments) != 1 || bl.Attachments[0] != shot ||
+		bl.Options[0].Link == nil || bl.Options[0].Link.Label != "wintun.net" || bl.Options[1].Link != nil {
+		t.Fatalf("rich blocker %+v", bl)
+	}
+	if bl := d.Blockers[1]; bl.Links == nil || bl.Attachments == nil || len(bl.Links) != 0 {
+		t.Fatalf("plain blocker %+v", bl)
+	}
+	raw, err := json.Marshal(d.Blockers[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"links":[{"kind":"url","ref":"https://github.com/acme/app/issues/9"`, `"attachments":[{"sha256":"ccc`,
+		`"link":{"kind":"url","ref":"https://www.wintun.net/","label":"wintun.net"}`} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("payload %s lacks %s", raw, want)
+		}
 	}
 	if len(d.PRs) != 1 || d.PRs[0].Number != 57 || d.PRs[0].Label != "GitHub #57" ||
 		len(d.PRs[0].OpenedBy) != 1 || d.PRs[0].OpenedBy[0].Name != "ww-release" ||

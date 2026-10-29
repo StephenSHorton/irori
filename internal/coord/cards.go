@@ -13,6 +13,8 @@ package coord
 //     only a reason folds to an item whose question is the reason.
 //   - blocker.option, blocker.resolved, task.steps, task.step and
 //     task.watched are new (kinds.go).
+//   - the blocker gains links and attachments, and each option a link
+//     (rich blockers): an older row reads with none.
 //
 // Watch notices are not returned by the calls that cause them: coord queues
 // what changed on a watched card (in memory, never on replay) and
@@ -45,6 +47,7 @@ const (
 	MaxActivity     = 500 // activity lines a task keeps
 	MaxMissing      = 6   // lines in a blocker reply's missing list
 	MaxMissingText  = 200 // runes in one missing line
+	MaxBlockerLinks = 8   // links on one blocker item
 )
 
 // Step is one ordered step of a task. At most one step is Doing (the
@@ -68,6 +71,9 @@ type Option struct {
 	By          string    `json:"by"`
 	At          time.Time `json:"at"`
 	Recommended bool      `json:"recommended,omitempty"`
+	// Link is where this answer is carried out or explained (a URL or a
+	// repo path, parsed like AddLink's), if anywhere. Raise only.
+	Link *Link `json:"link,omitempty"`
 }
 
 // Resolution is how a blocker item was resolved.
@@ -110,6 +116,11 @@ type Blocker struct {
 	At       time.Time   `json:"at"`
 	Options  []Option    `json:"options,omitempty"`
 	Resolved *Resolution `json:"resolved,omitempty"`
+	// Links and Attachments are what the person needs at hand to decide or
+	// act: the page to open, the file to look at. Attachments are fetched
+	// like a comment's (CommentAttachment finds them).
+	Links       []Link         `json:"links,omitempty"`
+	Attachments []blob.FileRef `json:"attachments,omitempty"`
 	// On is what this item waits on. Raise defaults it to a person ("" =
 	// whoever is at the app): a question waits on a decision. Task.BlockedBy
 	// is the first open item's On. An item on a lease or a task is closed by
@@ -137,14 +148,19 @@ func (b Blocker) Open() bool { return b.Resolved == nil }
 // NewBlocker is Raise's input. Question is required (1..MaxQuestion runes);
 // Context at most MaxContext; Options at most MaxOptions, each Answer
 // 1..MaxAnswer and Why at most MaxWhy (their By is the raiser), at most one
-// of them Recommended (else ErrInvalid). BlockedBy is
+// of them Recommended, each Link a ParseLink ref (else ErrInvalid). Links
+// (at most MaxBlockerLinks, each a URL, repo path or commit sha for
+// ParseLink) and Files (at most MaxAttachments, refs the Core made from
+// paths it checked and stored) go on the item. BlockedBy is
 // the item's On, checked like Block's; nil means a person (whoever is at the
 // app), so the card is in the person's Needs you.
 type NewBlocker struct {
-	Question  string     `json:"question"`
-	Context   string     `json:"context"`
-	Options   []Option   `json:"options"`
-	BlockedBy *BlockedBy `json:"blockedBy,omitempty"`
+	Question  string         `json:"question"`
+	Context   string         `json:"context"`
+	Options   []Option       `json:"options"`
+	BlockedBy *BlockedBy     `json:"blockedBy,omitempty"`
+	Links     []string       `json:"links,omitempty"`
+	Files     []blob.FileRef `json:"files,omitempty"`
 }
 
 // BlockerAnswer is Answer's input. Pick is the 1-based number of the
@@ -229,7 +245,8 @@ func (t Task) OpenBlockers() []Blocker {
 // Raise adds a blocker item to an open task and moves it to Blocked (the
 // holder(s), the creator or a person may, like Block). An open item with
 // the same question (and the same BlockedBy) makes it a no-op that returns
-// that item. At most MaxOpenBlockers open items.
+// that item, unless nb brings links or files it doesn't carry yet: those
+// are added to it. At most MaxOpenBlockers open items.
 func (c *Coord) Raise(ctx context.Context, by, id string, nb NewBlocker) (Task, Blocker, error) {
 	return c.impl.raise(ctx, by, id, nb)
 }

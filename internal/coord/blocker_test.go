@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/search"
 )
 
@@ -381,5 +382,91 @@ func TestReblockFromOldPeer(t *testing.T) {
 		if len(got.Blockers) != 1 || b.Question != "Which region?" || b.Status != BlockerOpen || b.SentTo != "" || b.RaisedBy != "dev-b/x" {
 			t.Fatalf("re-blocked: %+v", got.Blockers)
 		}
+	}
+}
+
+// Rich blockers: links and files on the item, a link on an option. They
+// fold from the row (so a replay keeps them), a second raise of the same
+// question adds what it brings, and the files are found like a comment's.
+func TestBlockerLinksAndFiles(t *testing.T) {
+	e := newEnv(t)
+	task := claimed(t, e)
+	sha := strings.Repeat("ab", 32)
+	file := blob.FileRef{SHA256: sha, Name: "shot.png", Size: 12, Mime: "image/png", Device: "dev-a"}
+	nb := NewBlocker{
+		Question: "Request DINOv3 access?",
+		Context:  "open huggingface.co/facebook/dinov3 and click Request access",
+		Links:    []string{"https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m", "docs/models.md", " ", "docs/models.md"},
+		Files:    []blob.FileRef{file},
+		Options: []Option{
+			{Answer: "I requested it", Link: &Link{Ref: "https://huggingface.co/settings/gated-repos"}, Recommended: true},
+			{Answer: "Use DINOv2 instead"},
+		},
+	}
+	_, b, err := e.c.Raise(ctx, alice, task.ID, nb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(c *Coord, wantLinks int) {
+		t.Helper()
+		_, got := blockerOf(t, c, task.ID, b.ID)
+		if len(got.Links) != wantLinks || got.Links[0].Kind != LinkURL || got.Links[0].Label != "huggingface.co" ||
+			got.Links[1].Kind != LinkPath || got.Links[1].Ref != "docs/models.md" {
+			t.Fatalf("links %+v", got.Links)
+		}
+		if len(got.Attachments) != 1 || got.Attachments[0] != file {
+			t.Fatalf("attachments %+v", got.Attachments)
+		}
+		if l := got.Options[0].Link; l == nil || l.Kind != LinkURL || l.Label != "huggingface.co" || got.Options[1].Link != nil {
+			t.Fatalf("options %+v", got.Options)
+		}
+		if ref, ok := c.CommentAttachment(sha); !ok || ref != file {
+			t.Fatalf("blocker file not found: %+v %v", ref, ok)
+		}
+	}
+	check(e.c, 2)
+	check(e.reopen(), 2)
+
+	// The same question again: a no-op without anything new, else its
+	// links are added to the open item.
+	n := len(e.rows(KindTaskState))
+	if _, again, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: nb.Question, Links: nb.Links[:1]}); err != nil || again.ID != b.ID {
+		t.Fatalf("again %+v %v", again, err)
+	}
+	if len(e.rows(KindTaskState)) != n {
+		t.Fatal("the same raise wrote a row")
+	}
+	if _, again, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: nb.Question, Links: []string{"https://example.com/x"}}); err != nil ||
+		again.ID != b.ID || len(again.Links) != 3 || again.Links[2].Ref != "https://example.com/x" {
+		t.Fatalf("added %+v %v", again, err)
+	}
+	if got, _ := e.c.GetTask(task.ID); len(got.OpenBlockers()) != 1 {
+		t.Fatalf("open %+v", got.OpenBlockers())
+	}
+	check(e.reopen(), 3)
+
+	// A copy doesn't share the item's slices.
+	got, _ := e.c.GetTask(task.ID)
+	got.Blockers[0].Links[0].Ref = "changed"
+	got.Blockers[0].Options[0].Link.Ref = "changed"
+	check(e.c, 3)
+
+	// Bad links and too many are refused.
+	for _, bad := range []NewBlocker{
+		{Question: "q1", Links: []string{"javascript:alert(1)//x://y"}},
+		{Question: "q2", Links: []string{"ftp://example.com/x"}},
+		{Question: "q3", Options: []Option{{Answer: "a", Link: &Link{Ref: "file:///etc/passwd"}}}},
+		{Question: "q4", Links: slices.Repeat([]string{"a"}, 1), Files: slices.Repeat([]blob.FileRef{file}, MaxAttachments+1)},
+	} {
+		if _, _, err := e.c.Raise(ctx, alice, task.ID, bad); err == nil {
+			t.Fatalf("raised %+v", bad)
+		}
+	}
+	many := make([]string, MaxBlockerLinks+1)
+	for i := range many {
+		many[i] = "docs/" + strings.Repeat("x", i+1)
+	}
+	if _, _, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: "q5", Links: many}); err == nil {
+		t.Fatal("too many links")
 	}
 }

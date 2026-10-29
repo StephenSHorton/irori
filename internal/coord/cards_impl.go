@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/store"
 )
@@ -39,6 +40,10 @@ type blockerRow struct {
 	Replace    bool `json:"replace,omitempty"`
 	// On is what the item waits on (Blocker.On).
 	On *BlockedBy `json:"on,omitempty"`
+	// Links and Attachments go on the item (Blocker.Links, Attachments).
+	// Raised again with the same question, they are added to the open item.
+	Links       []Link         `json:"links,omitempty"`
+	Attachments []blob.FileRef `json:"attachments,omitempty"`
 }
 
 type blockerOptionRow struct {
@@ -128,11 +133,22 @@ func cleanOptions(in []Option, by string, at time.Time) ([]Option, error) {
 		if err := checkText("a recommendation's why", why, 0, MaxWhy); err != nil {
 			return nil, err
 		}
+		var link *Link
+		if o.Link != nil && strings.TrimSpace(o.Link.Ref) != "" {
+			l, err := ParseLink(o.Link.Ref)
+			if err != nil {
+				return nil, err
+			}
+			link = &l
+		}
 		if j := optionIndex(out, a); j >= 0 {
 			out[j].Recommended = out[j].Recommended || o.Recommended
+			if out[j].Link == nil {
+				out[j].Link = link
+			}
 			continue
 		}
-		out = append(out, Option{Answer: a, Why: why, By: by, At: at, Recommended: o.Recommended})
+		out = append(out, Option{Answer: a, Why: why, By: by, At: at, Recommended: o.Recommended, Link: link})
 	}
 	// Counted after the merge: the same answer given twice, both marked,
 	// is one recommendation.
@@ -146,6 +162,63 @@ func cleanOptions(in []Option, by string, at time.Time) ([]Option, error) {
 		return nil, fmt.Errorf("%w: mark at most one answer as recommended", ErrInvalid)
 	}
 	return out, nil
+}
+
+// cleanBlockerLinks parses a raise's links (empty ones skipped, the same
+// ref once) and checks its files' count.
+func cleanBlockerLinks(refs []string, files []blob.FileRef) ([]Link, error) {
+	var out []Link
+	for _, r := range refs {
+		if strings.TrimSpace(r) == "" {
+			continue
+		}
+		l, err := ParseLink(r)
+		if err != nil {
+			return nil, err
+		}
+		out = addLinks(out, l)
+	}
+	if len(out) > MaxBlockerLinks {
+		return nil, fmt.Errorf("%w: at most %d links on a blocker", ErrInvalid, MaxBlockerLinks)
+	}
+	if len(files) > MaxAttachments {
+		return nil, fmt.Errorf("%w: at most %d attachments", ErrInvalid, MaxAttachments)
+	}
+	return out, nil
+}
+
+// addLinks appends the links ls doesn't have yet (by kind and ref).
+func addLinks(ls []Link, more ...Link) []Link {
+	for _, l := range more {
+		if !slices.ContainsFunc(ls, func(x Link) bool { return x.Kind == l.Kind && x.Ref == l.Ref }) {
+			ls = append(ls, l)
+		}
+	}
+	return ls
+}
+
+// addFiles appends the files fs doesn't have yet (by hash).
+func addFiles(fs []blob.FileRef, more ...blob.FileRef) []blob.FileRef {
+	for _, f := range more {
+		if !slices.ContainsFunc(fs, func(x blob.FileRef) bool { return x.SHA256 == f.SHA256 }) {
+			fs = append(fs, f)
+		}
+	}
+	return fs
+}
+
+// capped is s cut to its first n entries.
+func capped[T any](s []T, n int) []T {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
+}
+
+// bringsNew reports whether links or files add anything to b.
+func bringsNew(b Blocker, links []Link, files []blob.FileRef) bool {
+	return len(addLinks(slices.Clone(b.Links), links...)) > len(b.Links) ||
+		len(addFiles(slices.Clone(b.Attachments), files...)) > len(b.Attachments)
 }
 
 func optionIndex(os []Option, answer string) int {
@@ -271,6 +344,8 @@ func (c *coord) foldBlocked(t *Task, p taskStateRow, ev store.Event, wasBlocked 
 			}
 			b.Question, b.Context, b.reason, b.RaisedBy, b.At = p.Blocker.Question, p.Blocker.Context, cmpStr(p.Reason, p.Blocker.Question), p.By, at
 			b.On = copyOn(p.Blocker.On)
+			b.Links = capped(addLinks(nil, p.Blocker.Links...), MaxBlockerLinks)
+			b.Attachments = capped(addFiles(nil, p.Blocker.Attachments...), MaxAttachments)
 			b.asked = pos
 			c.refreshBlocker(t, b.ID)
 			return "changed the blocker: " + b.Question, ""
@@ -279,9 +354,16 @@ func (c *coord) foldBlocked(t *Task, p taskStateRow, ev store.Event, wasBlocked 
 			return "", ""
 		}
 		if i := openWithQuestion(t, p.Blocker.Question); i >= 0 {
-			// The same question again: only what it waits on can change.
-			t.Blockers[i].On = copyOn(p.Blocker.On)
-			return "", ""
+			// The same question again: only what it waits on can change,
+			// and links or files it brings are added.
+			b := &t.Blockers[i]
+			b.On = copyOn(p.Blocker.On)
+			if !bringsNew(*b, p.Blocker.Links, p.Blocker.Attachments) {
+				return "", ""
+			}
+			b.Links = capped(addLinks(b.Links, p.Blocker.Links...), MaxBlockerLinks)
+			b.Attachments = capped(addFiles(b.Attachments, p.Blocker.Attachments...), MaxAttachments)
+			return "added to the blocker: " + b.Question, ""
 		}
 		c.blockerSeq[t.ID] = max(c.blockerSeq[t.ID], seqOf(p.Blocker.ID, "b"))
 		var opts []Option
@@ -295,6 +377,8 @@ func (c *coord) foldBlocked(t *Task, p taskStateRow, ev store.Event, wasBlocked 
 			ID: p.Blocker.ID, Question: p.Blocker.Question, Context: p.Blocker.Context,
 			RaisedBy: p.By, At: at, Options: opts, reason: cmpStr(p.Reason, p.Blocker.Question),
 			legacy: p.Blocker.ReasonOnly, On: copyOn(p.Blocker.On),
+			Links:       capped(addLinks(nil, p.Blocker.Links...), MaxBlockerLinks),
+			Attachments: capped(addFiles(nil, p.Blocker.Attachments...), MaxAttachments),
 		}
 		if p.Blocker.Replace {
 			// The replace came before the raise it replaces, which is now
@@ -481,6 +565,10 @@ func (c *coord) raise(ctx context.Context, by, id string, nb NewBlocker) (Task, 
 	if err != nil {
 		return Task{}, Blocker{}, err
 	}
+	links, err := cleanBlockerLinks(nb.Links, nb.Files)
+	if err != nil {
+		return Task{}, Blocker{}, err
+	}
 	t, err := c.openTask(id)
 	if err != nil {
 		return Task{}, Blocker{}, err
@@ -488,25 +576,31 @@ func (c *coord) raise(ctx context.Context, by, id string, nb NewBlocker) (Task, 
 	if !c.mayManage(t, by) {
 		return Task{}, Blocker{}, fmt.Errorf("%w: raise a blocker on task %s", ErrNotAllowed, id)
 	}
-	return c.raiseLocked(ctx, by, t, q, q, cx, opts, nb.BlockedBy, false, now)
+	return c.raiseLocked(ctx, by, t, q, q, cx, opts, nb.BlockedBy, false, now, links, nb.Files)
 }
 
 // raiseLocked checks bb and writes the blocked row that raises an item.
 // reasonOnly is Block: it replaces the open item an earlier Block made, and
-// a nil bb stays nil; otherwise a nil bb means a person.
-func (c *coord) raiseLocked(ctx context.Context, by string, t *Task, reason, q, cx string, opts []Option, bb *BlockedBy, reasonOnly bool, now time.Time) (Task, Blocker, error) {
+// a nil bb stays nil; otherwise a nil bb means a person. links and files go
+// on the item (added to the open item with the same question).
+func (c *coord) raiseLocked(ctx context.Context, by string, t *Task, reason, q, cx string, opts []Option, bb *BlockedBy, reasonOnly bool, now time.Time, links []Link, files []blob.FileRef) (Task, Blocker, error) {
 	nb, err := c.checkBlocker(bb, t.ID)
 	if err != nil {
 		return Task{}, Blocker{}, err
 	}
-	if i := openWithQuestion(t, q); i >= 0 && t.State == Blocked && (nb == nil && !reasonOnly || sameBlocker(t.Blockers[i].On, nb)) {
+	if i := openWithQuestion(t, q); i >= 0 && t.State == Blocked && (nb == nil && !reasonOnly || sameBlocker(t.Blockers[i].On, nb)) &&
+		!bringsNew(t.Blockers[i], links, files) {
 		// The same question again, saying nothing new about what it waits on.
 		return copyTask(t), copyBlocker(t.Blockers[i]), nil
+	}
+	if i := openWithQuestion(t, q); i >= 0 && t.State == Blocked && nb == nil && !reasonOnly {
+		nb = copyOn(t.Blockers[i].On) // adding links or files keeps what it waits on
 	}
 	if nb == nil && !reasonOnly {
 		nb = &BlockedBy{Kind: BlockedOnPerson}
 	}
-	row := &blockerRow{ID: c.nextBlockerID(t.ID), Question: q, Context: cx, Options: opts, ReasonOnly: reasonOnly, On: nb}
+	row := &blockerRow{ID: c.nextBlockerID(t.ID), Question: q, Context: cx, Options: opts, ReasonOnly: reasonOnly, On: nb,
+		Links: links, Attachments: files}
 	if reasonOnly && t.State == Blocked {
 		for _, b := range t.Blockers {
 			if b.Open() && b.legacy {
@@ -1349,6 +1443,12 @@ func taskOf(ev store.Event) string {
 func copyBlocker(b Blocker) Blocker {
 	if b.Options != nil {
 		b.Options = append([]Option(nil), b.Options...)
+		for i, o := range b.Options {
+			if o.Link != nil {
+				l := *o.Link
+				b.Options[i].Link = &l
+			}
+		}
 	}
 	if b.Resolved != nil {
 		r := *b.Resolved
@@ -1358,5 +1458,7 @@ func copyBlocker(b Blocker) Blocker {
 	if b.Missing != nil {
 		b.Missing = append([]string(nil), b.Missing...)
 	}
+	b.Links = slices.Clone(b.Links)
+	b.Attachments = slices.Clone(b.Attachments)
 	return b
 }

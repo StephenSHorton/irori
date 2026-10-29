@@ -56,6 +56,14 @@ export class Blocker {
     "resolved"?: Resolution | null;
 
     /**
+     * Links and Attachments are what the person needs at hand to decide or
+     * act: the page to open, the file to look at. Attachments are fetched
+     * like a comment's (CommentAttachment finds them).
+     */
+    "links"?: Link[];
+    "attachments"?: blob$0.FileRef[];
+
+    /**
      * On is what this item waits on. Raise defaults it to a person ("" =
      * whoever is at the app): a question waits on a decision. Task.BlockedBy
      * is the first open item's On. An item on a lease or a task is closed by
@@ -98,7 +106,9 @@ export class Blocker {
         const $$createField5_0 = $$createType1;
         const $$createField6_0 = $$createType3;
         const $$createField7_0 = $$createType5;
-        const $$createField10_0 = $$createType6;
+        const $$createField8_0 = $$createType7;
+        const $$createField9_0 = $$createType9;
+        const $$createField12_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("options" in $$parsedSource) {
             $$parsedSource["options"] = $$createField5_0($$parsedSource["options"]);
@@ -106,11 +116,17 @@ export class Blocker {
         if ("resolved" in $$parsedSource) {
             $$parsedSource["resolved"] = $$createField6_0($$parsedSource["resolved"]);
         }
+        if ("links" in $$parsedSource) {
+            $$parsedSource["links"] = $$createField7_0($$parsedSource["links"]);
+        }
+        if ("attachments" in $$parsedSource) {
+            $$parsedSource["attachments"] = $$createField8_0($$parsedSource["attachments"]);
+        }
         if ("on" in $$parsedSource) {
-            $$parsedSource["on"] = $$createField7_0($$parsedSource["on"]);
+            $$parsedSource["on"] = $$createField9_0($$parsedSource["on"]);
         }
         if ("missing" in $$parsedSource) {
-            $$parsedSource["missing"] = $$createField10_0($$parsedSource["missing"]);
+            $$parsedSource["missing"] = $$createField12_0($$parsedSource["missing"]);
         }
         return new Blocker($$parsedSource as Partial<Blocker>);
     }
@@ -238,12 +254,12 @@ export class BoardView {
      * Creates a new BoardView instance from a string or object.
      */
     static createFrom($$source: any = {}): BoardView {
-        const $$createField0_0 = $$createType8;
-        const $$createField1_0 = $$createType8;
-        const $$createField2_0 = $$createType8;
-        const $$createField3_0 = $$createType8;
-        const $$createField4_0 = $$createType8;
-        const $$createField6_0 = $$createType10;
+        const $$createField0_0 = $$createType12;
+        const $$createField1_0 = $$createType12;
+        const $$createField2_0 = $$createType12;
+        const $$createField3_0 = $$createType12;
+        const $$createField4_0 = $$createType12;
+        const $$createField6_0 = $$createType14;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("needsYou" in $$parsedSource) {
             $$parsedSource["needsYou"] = $$createField0_0($$parsedSource["needsYou"]);
@@ -409,17 +425,17 @@ export class Card {
      * Creates a new Card instance from a string or object.
      */
     static createFrom($$source: any = {}): Card {
-        const $$createField7_0 = $$createType6;
-        const $$createField10_0 = $$createType6;
-        const $$createField11_0 = $$createType6;
-        const $$createField19_0 = $$createType5;
-        const $$createField20_0 = $$createType12;
-        const $$createField22_0 = $$createType14;
-        const $$createField23_0 = $$createType16;
-        const $$createField24_0 = $$createType6;
-        const $$createField25_0 = $$createType18;
-        const $$createField27_0 = $$createType6;
-        const $$createField28_0 = $$createType6;
+        const $$createField7_0 = $$createType10;
+        const $$createField10_0 = $$createType10;
+        const $$createField11_0 = $$createType10;
+        const $$createField19_0 = $$createType9;
+        const $$createField20_0 = $$createType5;
+        const $$createField22_0 = $$createType16;
+        const $$createField23_0 = $$createType18;
+        const $$createField24_0 = $$createType10;
+        const $$createField25_0 = $$createType20;
+        const $$createField27_0 = $$createType10;
+        const $$createField28_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
             $$parsedSource["scope"] = $$createField7_0($$parsedSource["scope"]);
@@ -553,8 +569,8 @@ export class Comment {
      * Creates a new Comment instance from a string or object.
      */
     static createFrom($$source: any = {}): Comment {
-        const $$createField6_0 = $$createType20;
-        const $$createField14_0 = $$createType6;
+        const $$createField6_0 = $$createType7;
+        const $$createField14_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("attachments" in $$parsedSource) {
             $$parsedSource["attachments"] = $$createField6_0($$parsedSource["attachments"]);
@@ -613,7 +629,7 @@ export class LeaseCard {
      */
     static createFrom($$source: any = {}): LeaseCard {
         const $$createField6_0 = $$createType22;
-        const $$createField7_0 = $$createType6;
+        const $$createField7_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("refused" in $$parsedSource) {
             $$parsedSource["refused"] = $$createField6_0($$parsedSource["refused"]);
@@ -705,6 +721,12 @@ export class Option {
     "at": time$0.Time;
     "recommended"?: boolean;
 
+    /**
+     * Link is where this answer is carried out or explained (a URL or a
+     * repo path, parsed like AddLink's), if anywhere. Raise only.
+     */
+    "link"?: Link | null;
+
     /** Creates a new Option instance. */
     constructor($$source: Partial<Option> = {}) {
         if (!("answer" in $$source)) {
@@ -724,7 +746,11 @@ export class Option {
      * Creates a new Option instance from a string or object.
      */
     static createFrom($$source: any = {}): Option {
+        const $$createField5_0 = $$createType23;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("link" in $$parsedSource) {
+            $$parsedSource["link"] = $$createField5_0($$parsedSource["link"]);
+        }
         return new Option($$parsedSource as Partial<Option>);
     }
 }
@@ -1005,14 +1031,14 @@ export class Task {
      * Creates a new Task instance from a string or object.
      */
     static createFrom($$source: any = {}): Task {
-        const $$createField7_0 = $$createType6;
-        const $$createField10_0 = $$createType6;
-        const $$createField11_0 = $$createType6;
-        const $$createField19_0 = $$createType5;
-        const $$createField20_0 = $$createType12;
-        const $$createField22_0 = $$createType14;
-        const $$createField23_0 = $$createType16;
-        const $$createField24_0 = $$createType6;
+        const $$createField7_0 = $$createType10;
+        const $$createField10_0 = $$createType10;
+        const $$createField11_0 = $$createType10;
+        const $$createField19_0 = $$createType9;
+        const $$createField20_0 = $$createType5;
+        const $$createField22_0 = $$createType16;
+        const $$createField23_0 = $$createType18;
+        const $$createField24_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
             $$parsedSource["scope"] = $$createField7_0($$parsedSource["scope"]);
@@ -1076,22 +1102,23 @@ const $$createType0 = Option.createFrom;
 const $$createType1 = $Create.Array($$createType0);
 const $$createType2 = Resolution.createFrom;
 const $$createType3 = $Create.Nullable($$createType2);
-const $$createType4 = BlockedBy.createFrom;
-const $$createType5 = $Create.Nullable($$createType4);
-const $$createType6 = $Create.Array($Create.Any);
-const $$createType7 = Card.createFrom;
-const $$createType8 = $Create.Array($$createType7);
-const $$createType9 = LeaseCard.createFrom;
-const $$createType10 = $Create.Array($$createType9);
-const $$createType11 = Link.createFrom;
+const $$createType4 = Link.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = blob$0.FileRef.createFrom;
+const $$createType7 = $Create.Array($$createType6);
+const $$createType8 = BlockedBy.createFrom;
+const $$createType9 = $Create.Nullable($$createType8);
+const $$createType10 = $Create.Array($Create.Any);
+const $$createType11 = Card.createFrom;
 const $$createType12 = $Create.Array($$createType11);
-const $$createType13 = Step.createFrom;
+const $$createType13 = LeaseCard.createFrom;
 const $$createType14 = $Create.Array($$createType13);
-const $$createType15 = Blocker.createFrom;
+const $$createType15 = Step.createFrom;
 const $$createType16 = $Create.Array($$createType15);
-const $$createType17 = Comment.createFrom;
-const $$createType18 = $Create.Nullable($$createType17);
-const $$createType19 = blob$0.FileRef.createFrom;
-const $$createType20 = $Create.Array($$createType19);
+const $$createType17 = Blocker.createFrom;
+const $$createType18 = $Create.Array($$createType17);
+const $$createType19 = Comment.createFrom;
+const $$createType20 = $Create.Nullable($$createType19);
 const $$createType21 = Refusal.createFrom;
 const $$createType22 = $Create.Array($$createType21);
+const $$createType23 = $Create.Nullable($$createType4);

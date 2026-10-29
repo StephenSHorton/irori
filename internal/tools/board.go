@@ -185,6 +185,12 @@ func (s *set) cardText(t coord.Task, last *coord.Comment, n names, now time.Time
 			if brief && len(opts) > listOptions {
 				opts = opts[:listOptions]
 			}
+			if len(bl.Links) > 0 {
+				b.WriteString("    links: " + linkRefs(bl.Links) + "\n")
+			}
+			for _, f := range bl.Attachments {
+				b.WriteString("    file: " + f.Describe() + " (attachment_get)\n")
+			}
 			for j, o := range opts {
 				fmt.Fprintf(&b, "    %d. %s (%s)", j+1, quoted(o.Answer, 160), n.short(o.By))
 				if o.Recommended {
@@ -192,6 +198,9 @@ func (s *set) cardText(t coord.Task, last *coord.Comment, n names, now time.Time
 				}
 				if o.Why != "" {
 					b.WriteString(": " + quoted(o.Why, 160))
+				}
+				if o.Link != nil {
+					b.WriteString(" link: " + linkRefs([]coord.Link{*o.Link}))
 				}
 				b.WriteString("\n")
 			}
@@ -469,8 +478,29 @@ type boardBlockArgs struct {
 		Answer      string `json:"answer"`
 		Why         string `json:"why"`
 		Recommended bool   `json:"recommended"`
+		Link        string `json:"link"`
 	} `json:"options"`
-	On string `json:"on"`
+	On     string   `json:"on"`
+	Links  []string `json:"links"`
+	Attach []string `json:"attach"`
+}
+
+// linkLabels is links' labels, comma separated.
+func linkLabels(ls []coord.Link) string {
+	var out []string
+	for _, l := range ls {
+		out = append(out, oneLine(l.Label, 60))
+	}
+	return strings.Join(out, ", ")
+}
+
+// linkRefs is links' refs (the URL or path itself), comma separated.
+func linkRefs(ls []coord.Link) string {
+	var out []string
+	for _, l := range ls {
+		out = append(out, oneLine(l.Ref, 300))
+	}
+	return strings.Join(out, ", ")
 }
 
 // manyQuestions reports text that asks more than one thing: two or more
@@ -547,11 +577,34 @@ func (s *set) boardBlock(ctx context.Context, c Caller, raw json.RawMessage) str
 	if msg != "" {
 		return msg
 	}
+	if len(a.Links) > coord.MaxBlockerLinks {
+		return errText(fmt.Sprintf("links takes at most %d URLs or repo paths.", coord.MaxBlockerLinks))
+	}
+	for _, l := range a.Links {
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		if _, err := coord.ParseLink(l); err != nil {
+			return mapErr(err)
+		}
+	}
+	for _, o := range a.Options {
+		if strings.TrimSpace(o.Link) == "" {
+			continue
+		}
+		if _, err := coord.ParseLink(o.Link); err != nil {
+			return mapErr(err)
+		}
+	}
+	files, msg := s.attachFiles(ctx, c, a.Attach)
+	if msg != "" {
+		return msg
+	}
 	co := s.b.Coord()
 	var t coord.Task
 	var item coord.Blocker
 	var err error
-	if q == "" && strings.TrimSpace(a.Context) == "" && len(a.Options) == 0 {
+	if q == "" && strings.TrimSpace(a.Context) == "" && len(a.Options) == 0 && len(a.Links) == 0 && len(files) == 0 {
 		// The old reason-only form: one item that blocking again replaces.
 		t, err = co.Block(ctx, c.Sender.Key, id, reason, bb)
 		if err == nil {
@@ -565,12 +618,17 @@ func (s *set) boardBlock(ctx context.Context, c Caller, raw json.RawMessage) str
 		}
 		var opts []coord.Option
 		for _, o := range a.Options {
-			opts = append(opts, coord.Option{Answer: o.Answer, Why: o.Why, Recommended: o.Recommended})
+			opt := coord.Option{Answer: o.Answer, Why: o.Why, Recommended: o.Recommended}
+			if strings.TrimSpace(o.Link) != "" {
+				opt.Link = &coord.Link{Ref: o.Link}
+			}
+			opts = append(opts, opt)
 		}
 		if len(opts) == 1 {
 			opts[0].Recommended = true // a lone answer is the one recommended
 		}
-		t, item, err = co.Raise(ctx, c.Sender.Key, id, coord.NewBlocker{Question: q, Context: a.Context, Options: opts, BlockedBy: bb})
+		t, item, err = co.Raise(ctx, c.Sender.Key, id, coord.NewBlocker{Question: q, Context: a.Context, Options: opts, BlockedBy: bb,
+			Links: a.Links, Files: files})
 	}
 	if err != nil {
 		return mapErr(err)
@@ -578,6 +636,14 @@ func (s *set) boardBlock(ctx context.Context, c Caller, raw json.RawMessage) str
 	out := "Blocked " + t.ShortRef()
 	if item.ID != "" {
 		out += " on blocker " + item.ID
+	}
+	out += attachedLine(files)
+	if len(item.Links) > 0 {
+		join := " with"
+		if len(files) > 0 {
+			join = " and"
+		}
+		out += join + " links " + linkLabels(item.Links)
 	}
 	out += "."
 	switch {

@@ -131,6 +131,8 @@ type CardOption struct {
 	By          AgentRef  `json:"by"`
 	At          time.Time `json:"at"`
 	Recommended bool      `json:"recommended"`
+	// Link is where the answer is carried out or explained, if anywhere.
+	Link *coord.Link `json:"link,omitempty"`
 }
 
 // CardResolution is how a blocker was resolved.
@@ -166,6 +168,10 @@ type CardBlocker struct {
 	Options  []CardOption    `json:"options"`
 	Resolved *CardResolution `json:"resolved"` // null while open
 	State    string          `json:"state"`    // BlockerOpen ... BlockerClosed
+	// Links and Attachments are what the raiser put at hand: pages to
+	// open, paths to copy, files to look at.
+	Links       []coord.Link   `json:"links"`
+	Attachments []blob.FileRef `json:"attachments"`
 	// SentTo is who the person's latest answer went to (the raiser), while
 	// answered; Missing is what an agent's reply says is still needed,
 	// while replied.
@@ -511,14 +517,15 @@ func (b *BoardService) Card(id string) (CardDetail, error) {
 	if t.State == coord.InputRequired {
 		d.Blockers = append(d.Blockers, CardBlocker{ID: NoteItem, Question: d.BlockerQuestion,
 			RaisedBy: p.ref(t.UpdatedBy), At: t.UpdatedAt, Options: []CardOption{}, State: BlockerOpen,
-			Missing: []string{}, Thread: []CardThreadItem{}})
+			Missing: []string{}, Thread: []CardThreadItem{}, Links: []coord.Link{}, Attachments: []blob.FileRef{}})
 	}
 	for _, bl := range t.Blockers {
 		cb := CardBlocker{ID: bl.ID, Question: bl.Question, Context: bl.Context, RaisedBy: p.ref(bl.RaisedBy), At: bl.At,
 			Options: []CardOption{}, State: cmp.Or(string(bl.Status), BlockerOpen), Missing: nonNil(bl.Missing),
-			Thread: nonNil(byBlocker[bl.ID])}
+			Thread: nonNil(byBlocker[bl.ID]), Links: nonNil(bl.Links), Attachments: nonNil(bl.Attachments)}
 		for _, o := range bl.Options {
-			cb.Options = append(cb.Options, CardOption{Answer: o.Answer, Why: o.Why, By: p.ref(o.By), At: o.At, Recommended: o.Recommended})
+			cb.Options = append(cb.Options, CardOption{Answer: o.Answer, Why: o.Why, By: p.ref(o.By), At: o.At, Recommended: o.Recommended,
+				Link: o.Link})
 		}
 		if r := bl.Resolved; r != nil {
 			cb.Resolved = &CardResolution{Answer: r.Answer, Option: r.Option, By: p.ref(r.By), At: r.At, Closed: r.Closed, Note: r.Note}
