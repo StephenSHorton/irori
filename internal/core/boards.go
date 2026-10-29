@@ -812,9 +812,13 @@ func (c *Core) PrivateKey(key string) string {
 }
 
 // boardRoster is the roster a board's coord reads liveness from: each of
-// the log's agent cards, keyed agent:<cardId>. One of this device's cards
-// is as live as its session (missing when the session is); another's
-// shows the status its card row says.
+// the log's agent cards, keyed agent:<cardId>. A card whose session is on
+// this device is as live as the session (missing when the session is).
+// Only that device says a session went (v0.4 §6.0: a holder on an offline
+// device keeps its cards), and a board key names no device, so a card of
+// another device's session, or of nobody's this device knows, never reads
+// as gone here: it shows its session's status while that is live, else
+// its card row's.
 type boardRoster struct {
 	c *Core
 	b *boardLog
@@ -825,6 +829,7 @@ func (r boardRoster) Agents() []presence.AgentCard {
 	for _, a := range r.c.MeshAgents() {
 		live[a.Key] = a
 	}
+	self := r.c.device.ID
 	r.b.mu.Lock()
 	defer r.b.mu.Unlock()
 	out := make([]presence.AgentCard, 0, len(r.b.cards))
@@ -832,10 +837,12 @@ func (r boardRoster) Agents() []presence.AgentCard {
 		a := presence.AgentCard{Key: store.AgentActorPrefix + id, Name: card.Name, Agent: card.Kind, Status: card.Status}
 		if agent := r.b.byID[id]; agent != "" {
 			s, ok := live[agent]
-			if !ok {
+			switch {
+			case owner.DeviceOf(agent) == self && !ok:
 				continue
+			case owner.DeviceOf(agent) == self, ok && s.Status != "gone":
+				a.Status, a.UpdatedAt = s.Status, s.UpdatedAt
 			}
-			a.Status, a.UpdatedAt = s.Status, s.UpdatedAt
 		}
 		out = append(out, a)
 	}

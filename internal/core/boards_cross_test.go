@@ -121,3 +121,34 @@ func TestBoardCardsAcrossOwnDevices(t *testing.T) {
 		t.Fatalf("the mac's agent lost its work on withdraw: %+v", got)
 	}
 }
+
+// TestBoardRosterOnlyTheSessionsDeviceSaysGone: a board key names no
+// device, so the board coord's roster on one device never reads another
+// device's session as gone (v0.4 §6.0); that device's own sweep decides.
+// This device's own session that went is missing, so its holds go.
+func TestBoardRosterOnlyTheSessionsDeviceSaysGone(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t)
+	id, err := r.core.CreateBoard(ctx, "MLG", "mlg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := mustBoard(t, r.core, id)
+	const far, near = "0123456789abcdef0123456789abcdef", "fedcba9876543210fedcba9876543210"
+	b.mu.Lock()
+	b.addKey(far, "laptop-dev/aaaaaaaa-1111-4111-8111-00000000000a")
+	b.cards[far] = boardCard{CardID: far, Name: "far", Kind: "claude", Status: "active"}
+	b.addKey(near, r.core.Device().ID+"/no-such-session")
+	b.cards[near] = boardCard{CardID: near, Name: "near", Kind: "claude", Status: "active"}
+	b.mu.Unlock()
+	got := map[string]string{}
+	for _, a := range (boardRoster{r.core, b}).Agents() {
+		got[a.Key] = a.Status
+	}
+	if s, ok := got[store.AgentActorPrefix+far]; !ok || s == "gone" {
+		t.Fatalf("another device's session read as gone here: %q %v", s, ok)
+	}
+	if _, ok := got[store.AgentActorPrefix+near]; ok {
+		t.Fatal("this device's session that went is still listed")
+	}
+}
