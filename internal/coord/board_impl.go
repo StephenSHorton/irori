@@ -834,13 +834,18 @@ func (c *coord) board(f BoardFilter) BoardView {
 }
 
 // needsYou picks the NeedsYou group (BoardView's rule 2).
-// Any open blocker item counts, not only the first (Task.BlockedBy).
+// Any open blocker item counts, not only the first (Task.BlockedBy). An
+// item the person answered waits on whoever the answer went to (the
+// raiser), not on the person, until it is resolved or replied to.
 func (c *coord) needsYou(t *Task, viewer string, agentViewer bool) bool {
-	var ons []*BlockedBy
+	var ons, asks []*BlockedBy // asks: the items still waiting on the person's answer
 	if t.State == Blocked {
 		for _, b := range t.Blockers {
 			if b.Open() && b.On != nil {
 				ons = append(ons, b.On)
+				if b.Status != BlockerAnswered {
+					asks = append(asks, b.On)
+				}
 			}
 		}
 	}
@@ -853,12 +858,17 @@ func (c *coord) needsYou(t *Task, viewer string, agentViewer bool) bool {
 				return true
 			}
 		}
+		for _, b := range t.Blockers {
+			if b.Open() && b.Status == BlockerAnswered && (b.SentTo == viewer || b.SentTo == "" && b.RaisedBy == viewer) {
+				return true
+			}
+		}
 		return false
 	}
 	if t.State == InputRequired {
 		return true
 	}
-	for _, bb := range ons {
+	for _, bb := range asks {
 		// The person is one person on every device: a blocker on any of
 		// their owner keys needs them wherever they look (v0.4 §2).
 		if bb.Kind == BlockedOnPerson && (viewer == "" || bb.Ref == "" || bb.Ref == viewer || c.isOwner(bb.Ref) && c.isOwner(viewer)) {

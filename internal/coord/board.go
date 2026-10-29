@@ -76,6 +76,12 @@ type Comment struct {
 	Gone  bool   `json:"gone,omitempty"`
 	Held  bool   `json:"held,omitempty"`
 	Files int    `json:"files,omitempty"`
+	// BlockerID: the comment is on that blocker item. The person's answer
+	// (To is the raiser it went to, Pick the 1-based option picked, 0 for
+	// their own words) or an agent's reply (Missing: what it still needs).
+	BlockerID string   `json:"blockerId,omitempty"`
+	Pick      int      `json:"pick,omitempty"`
+	Missing   []string `json:"missing,omitempty"`
 	// Device wrote the row (from the log, not the payload). HLC and Seq are
 	// its position, (HLC, Device, Seq); they never go on the wire.
 	Device string        `json:"device"`
@@ -87,6 +93,9 @@ type Comment struct {
 	// it shows even when the primary row was written held.
 	primary bool
 	passed  string
+	// person: the person wrote it (signed actor "user" and by an owner
+	// key); the payload's by alone never makes a blocker answer.
+	person bool
 }
 
 // MessageEntry is an inbox message about a card, for RecordMessage. From

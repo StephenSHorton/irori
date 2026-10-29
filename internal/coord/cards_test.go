@@ -259,7 +259,7 @@ func TestRecommend(t *testing.T) {
 		{"unknown blocker", alice, nil, "b9", "Wait", ErrNotFound, 1},
 		{"empty answer", alice, nil, "b1", " ", ErrInvalid, 1},
 		{"resolved blocker", alice, func(e *env, id string) {
-			mustN(e.t)(e.c.Answer(ctx, user, id, "b1", BlockerAnswer{Pick: 1}))
+			mustN(e.t)(e.c.Answer(ctx, user, id, "b1", BlockerAnswer{Resolve: true, Pick: 1}))
 		}, "b1", "Wait", ErrBadState, 1},
 	}
 	for _, tc := range cases {
@@ -318,16 +318,16 @@ func TestAnswer(t *testing.T) {
 		wantOpt   int
 		wantTo    []string
 	}{
-		{"person picks an option, last item", user, "b2", BlockerAnswer{Pick: 2, Wake: true}, nil, Working, "TAP-Windows", 1, []string{bob, alice}},
-		{"own words", user, "b2", BlockerAnswer{Text: " use both "}, nil, Working, "use both", -1, []string{bob, alice}},
-		{"an agent may (decision 19)", carol, "b2", BlockerAnswer{Pick: 1}, nil, Working, "Wintun", 0, []string{bob, alice}},
-		{"the raiser itself: holders hear", bob, "b2", BlockerAnswer{Pick: 1}, nil, Working, "Wintun", 0, []string{alice}},
-		{"pick out of range", user, "b2", BlockerAnswer{Pick: 3}, ErrInvalid, "", "", 0, nil},
-		{"negative pick", user, "b2", BlockerAnswer{Pick: -1}, ErrInvalid, "", "", 0, nil},
-		{"no text", user, "b2", BlockerAnswer{Text: "  "}, ErrInvalid, "", "", 0, nil},
-		{"text too long", user, "b2", BlockerAnswer{Text: strings.Repeat("x", MaxOwnAnswer+1)}, ErrInvalid, "", "", 0, nil},
-		{"unknown item", user, "b7", BlockerAnswer{Pick: 1}, ErrNotFound, "", "", 0, nil},
-		{"already resolved", user, "b1", BlockerAnswer{Pick: 1}, ErrBadState, "", "", 0, nil},
+		{"person picks an option, last item", user, "b2", BlockerAnswer{Resolve: true, Pick: 2, Wake: true}, nil, Working, "TAP-Windows", 1, []string{bob, alice}},
+		{"own words", user, "b2", BlockerAnswer{Resolve: true, Text: " use both "}, nil, Working, "use both", -1, []string{bob, alice}},
+		{"an agent may (decision 19)", carol, "b2", BlockerAnswer{Resolve: true, Pick: 1}, nil, Working, "Wintun", 0, []string{bob, alice}},
+		{"the raiser itself: holders hear", bob, "b2", BlockerAnswer{Resolve: true, Pick: 1}, nil, Working, "Wintun", 0, []string{alice}},
+		{"pick out of range", user, "b2", BlockerAnswer{Resolve: true, Pick: 3}, ErrInvalid, "", "", 0, nil},
+		{"negative pick", user, "b2", BlockerAnswer{Resolve: true, Pick: -1}, ErrInvalid, "", "", 0, nil},
+		{"no text", user, "b2", BlockerAnswer{Resolve: true, Text: "  "}, ErrInvalid, "", "", 0, nil},
+		{"text too long", user, "b2", BlockerAnswer{Resolve: true, Text: strings.Repeat("x", MaxOwnAnswer+1)}, ErrInvalid, "", "", 0, nil},
+		{"unknown item", user, "b7", BlockerAnswer{Resolve: true, Pick: 1}, ErrNotFound, "", "", 0, nil},
+		{"already resolved", user, "b1", BlockerAnswer{Resolve: true, Pick: 1}, ErrBadState, "", "", 0, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -345,7 +345,7 @@ func TestAnswer(t *testing.T) {
 				t.Fatal(err)
 			}
 			// Resolve b1 first: the task stays blocked on b2.
-			mid, n1 := mustN(t)(e.c.Answer(ctx, user, task.ID, "b1", BlockerAnswer{Pick: 1}))
+			mid, n1 := mustN(t)(e.c.Answer(ctx, user, task.ID, "b1", BlockerAnswer{Resolve: true, Pick: 1}))
 			if mid.State != Blocked || mid.Reason != "Which adapter?" || len(mid.OpenBlockers()) != 1 ||
 				!reflect.DeepEqual(n1.To, []string{alice, bob}) || !strings.Contains(n1.Text, "1 more blockers are still open") {
 				t.Fatalf("after b1: %+v notice %+v", mid, n1)
@@ -387,7 +387,7 @@ func TestAnswerUnclaimedRestoresSubmitted(t *testing.T) {
 	if _, _, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: "q"}); err != nil {
 		t.Fatal(err)
 	}
-	got, n := mustN(t)(e.c.Answer(ctx, user, task.ID, "b1", BlockerAnswer{Text: "go"}))
+	got, n := mustN(t)(e.c.Answer(ctx, user, task.ID, "b1", BlockerAnswer{Resolve: true, Text: "go"}))
 	// The raiser, alice, hears even though she doesn't hold it.
 	if got.State != Submitted || !reflect.DeepEqual(n.To, []string{alice}) {
 		t.Fatalf("got %+v notice %+v", got, n)
@@ -403,7 +403,7 @@ func TestAnswerTellsHolders(t *testing.T) {
 	if _, _, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: "which db?"}); err != nil {
 		t.Fatal(err)
 	}
-	got, n := mustN(t)(e.c.Answer(ctx, user, task.ID, "b1", BlockerAnswer{Text: "postgres", Wake: true}))
+	got, n := mustN(t)(e.c.Answer(ctx, user, task.ID, "b1", BlockerAnswer{Resolve: true, Text: "postgres", Wake: true}))
 	if got.State != Working || !reflect.DeepEqual(n.To, []string{alice, bob}) || !n.Wake {
 		t.Fatalf("got %+v notice %+v", got, n)
 	}
@@ -595,7 +595,7 @@ func TestResolvedItemsAreTrimmed(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		mustN(t)(e.c.Answer(ctx, user, task.ID, b.ID, BlockerAnswer{Text: "ok"}))
+		mustN(t)(e.c.Answer(ctx, user, task.ID, b.ID, BlockerAnswer{Resolve: true, Text: "ok"}))
 	}
 	got, _ := e.c.GetTask(task.ID)
 	if len(got.Blockers) != KeepResolved || got.Blockers[0].ID != "b4" {
@@ -660,7 +660,7 @@ func TestWatchNotices(t *testing.T) {
 			if _, _, err := e.c.Raise(ctx, alice, id, NewBlocker{Question: "Ship?"}); err != nil {
 				e.t.Fatal(err)
 			}
-			mustN(e.t)(e.c.Answer(ctx, user, id, "b1", BlockerAnswer{Text: "yes"}))
+			mustN(e.t)(e.c.Answer(ctx, user, id, "b1", BlockerAnswer{Resolve: true, Text: "yes"}))
 		}, []string{bob}, []string{alice + " raised a blocker: Ship?", user + " answered “Ship?”: yes"}},
 		{"a state change", func(e *env, id string) {
 			must[Task](e.t)(e.c.SetTaskState(ctx, alice, id, Completed, ""))
@@ -771,7 +771,7 @@ func TestCardsReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	must[Task](t)(e.c.Recommend(ctx, bob, task.ID, "b2", "no", "wait"))
-	mustN(t)(e.c.Answer(ctx, user, task.ID, "b1", BlockerAnswer{Text: "fine"}))
+	mustN(t)(e.c.Answer(ctx, user, task.ID, "b1", BlockerAnswer{Resolve: true, Text: "fine"}))
 	e.clk.add(time.Minute)
 	must[Task](t)(e.c.AddLink(ctx, alice, task.ID, "https://github.com/acme/app/pull/57"))
 	want, _ := e.c.GetTask(task.ID)
@@ -813,7 +813,7 @@ func TestLegacyBlockedRowsFold(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 	// It answers like any item.
-	got, _ = mustN(t)(c2.Answer(ctx, user, task.ID, "b1", BlockerAnswer{Text: "done"}))
+	got, _ = mustN(t)(c2.Answer(ctx, user, task.ID, "b1", BlockerAnswer{Resolve: true, Text: "done"}))
 	if got.State != Working {
 		t.Fatalf("after answer %+v", got)
 	}

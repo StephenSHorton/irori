@@ -640,8 +640,10 @@ func TestReplayEquality(t *testing.T) {
 	must[Task](t)(c.ClaimTask(ctx, alice, t3.ID))
 	must[Task](t)(c.SetSteps(ctx, alice, t3.ID, []Step{{Text: "a"}, {Text: "b"}}))
 	must[Task](t)(c.SetStep(ctx, alice, t3.ID, "s1", StepUpdate{Done: bp(true)}))
-	if _, _, err := c.Raise(ctx, alice, t3.ID, NewBlocker{Question: "Ship?"}); err != nil {
-		t.Fatal(err)
+	for _, q := range []string{"Ship?", "Which day?"} {
+		if _, _, err := c.Raise(ctx, alice, t3.ID, NewBlocker{Question: q}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if _, _, err := c.AddComment(ctx, user, t3.ID, "plain", false); err != nil {
 		t.Fatal(err)
@@ -659,7 +661,16 @@ func TestReplayEquality(t *testing.T) {
 	e.remote("dev-b", 1, at, "irori", KindTaskComment, taskCommentRow{TaskID: t3.ID, CommentID: "msg_r1", MsgID: "msg_r1", By: alice, To: "dev-b/x", Text: "hi x", Gone: true, At: e.clk.now()})
 	e.remote("dev-b", 2, at+1, "agent:dev-b/x", KindTaskComment, taskCommentRow{TaskID: t3.ID, CommentID: "c-b", By: "dev-b/x", Text: "from b", At: e.clk.now()})
 	e.clk.add(time.Second)
+	// Blocker threads: the person answers both; an agent on dev-b replies
+	// on b2 with what is missing; alice resolves b1 with a note.
 	mustN(t)(c.Answer(ctx, user, t3.ID, "b1", BlockerAnswer{Text: "yes"}))
+	mustN(t)(c.Answer(ctx, user, t3.ID, "b2", BlockerAnswer{Text: "soon"}))
+	e.clk.add(time.Second)
+	e.remote("dev-b", 3, hlcAt(e.clk.now()), "agent:dev-b/x", KindTaskComment, taskCommentRow{
+		TaskID: t3.ID, CommentID: "c-b2", By: "dev-b/x", Text: "which day?", BlockerID: "b2", Missing: []string{"the day"}, At: e.clk.now(),
+	})
+	e.clk.add(time.Second)
+	mustN(t)(c.Answer(ctx, alice, t3.ID, "b1", BlockerAnswer{Text: "shipping now", Resolve: true}))
 
 	check := func(c2 *Coord) {
 		t.Helper()
@@ -686,8 +697,14 @@ func TestReplayEquality(t *testing.T) {
 		t.Fatalf("leases = %+v", c.Leases())
 	}
 	cs := c.Comments(t3.ID)
-	if len(cs) != 4 || !cs[1].Gone || cs[1].Device != "dev-a" || !cs[2].Held || cs[2].Text != "" || cs[3].Device != "dev-b" {
+	if len(cs) != 7 || !cs[1].Gone || cs[1].Device != "dev-a" || !cs[2].Held || cs[2].Text != "" || cs[3].Device != "dev-b" ||
+		cs[4].BlockerID != "b1" || cs[6].BlockerID != "b2" || len(cs[6].Missing) != 1 {
 		t.Fatalf("thread comments = %+v", cs)
+	}
+	got, _ := c.GetTask(t3.ID)
+	if b1, b2 := got.Blockers[0], got.Blockers[1]; b1.Resolved == nil || b1.Resolved.Answer != "yes" || b1.Resolved.Note != "shipping now" ||
+		b2.Status != BlockerReplied || !reflect.DeepEqual(b2.Missing, []string{"the day"}) || got.State != Blocked {
+		t.Fatalf("blockers = %+v", got.Blockers)
 	}
 }
 

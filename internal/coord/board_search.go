@@ -184,19 +184,30 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 	if len(t.Blockers) > 0 {
 		b.WriteString("\nblockers:\n")
 		for _, bl := range t.Blockers {
-			state := "open"
-			if r := bl.Resolved; r != nil {
-				state = "answered by " + r.By + ": " + r.Answer
-				if r.Closed {
-					state = "closed by " + r.By
-					if r.Answer != "" {
-						state += ": " + r.Answer
-					}
+			var state string
+			switch r := bl.Resolved; {
+			case r != nil && r.Closed:
+				state = "closed by " + r.By
+				if r.Answer != "" {
+					state += ": " + r.Answer
 				}
+			case r != nil && r.Note != "":
+				state = "resolved by " + r.By + ": " + r.Note + "; the answer: " + r.Answer
+			case r != nil:
+				state = "answered by " + r.By + ": " + r.Answer
+			case bl.Status == BlockerAnswered:
+				state = "answered, waiting on " + cmpStr(bl.SentTo, bl.RaisedBy) + " to resolve or reply"
+			case bl.Status == BlockerReplied:
+				state = "replied, back with the person"
+			default:
+				state = "open"
 			}
 			fmt.Fprintf(&b, "- %s (%s) %s, raised by %s at %s\n", bl.ID, state, bl.Question, bl.RaisedBy, bl.At.Format(time.RFC3339))
 			if bl.Context != "" {
 				fmt.Fprintf(&b, "  context: %s\n", bl.Context)
+			}
+			if bl.Open() && len(bl.Missing) > 0 {
+				fmt.Fprintf(&b, "  missing: %s\n", strings.Join(bl.Missing, "; "))
 			}
 			for i, o := range bl.Options {
 				fmt.Fprintf(&b, "  option %d: %s (recommended by %s)", i+1, o.Answer, o.By)
@@ -254,6 +265,16 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 			}
 			if cm.Gone {
 				text += " (recipient gone, left on the card)"
+			}
+			if cm.BlockerID != "" {
+				// The person's answer on a blocker, or an agent's reply on it.
+				who += " on " + cm.BlockerID
+				if cm.Pick > 0 {
+					text += fmt.Sprintf(" (option %d)", cm.Pick)
+				}
+				if len(cm.Missing) > 0 {
+					text += " [missing: " + strings.Join(cm.Missing, "; ") + "]"
+				}
 			}
 			fmt.Fprintf(&b, "- %s %s: %s\n", cm.At.Format(time.RFC3339), who, text)
 		}

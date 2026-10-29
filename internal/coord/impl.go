@@ -146,6 +146,12 @@ type taskCommentRow struct {
 	Held  bool   `json:"held,omitempty"`
 	Files int    `json:"files,omitempty"`
 	Fill  bool   `json:"fill,omitempty"`
+	// blockerId: a comment on that blocker item, the person's answer (pick:
+	// 1-based option, 0 own words; to: the raiser) or an agent's reply
+	// (missing: what it still needs). Old peers fold it as a plain comment.
+	BlockerID string   `json:"blockerId,omitempty"`
+	Pick      int      `json:"pick,omitempty"`
+	Missing   []string `json:"missing,omitempty"`
 }
 
 type blockerClosedRow struct {
@@ -318,14 +324,22 @@ func (c *coord) writerOK(ev store.Event) bool {
 		}
 		return owner.MayWrite(r.By, ev.DeviceID)
 	case KindTaskComment:
-		// Only a mirrored message is checked: its sender's device writes
-		// it, and a gone or fill row may also come from the recipient's.
+		// Only a mirrored message and a blocker comment are checked. A
+		// mirrored message's sender's device writes it, and a gone or fill
+		// row may also come from the recipient's. An agent's blocker reply
+		// comes from its own device (the person's answer is signed "user").
 		// Plain comments are left as they were.
 		var p taskCommentRow
-		if json.Unmarshal(ev.Payload, &p) != nil || p.MsgID == "" {
+		if json.Unmarshal(ev.Payload, &p) != nil {
 			return true
 		}
-		return mayRecord(p.By, p.To, p.Gone || p.Fill, ev.DeviceID)
+		switch {
+		case p.MsgID != "":
+			return mayRecord(p.By, p.To, p.Gone || p.Fill, ev.DeviceID)
+		case p.BlockerID != "" && ev.Actor != "user":
+			return owner.MayWrite(p.By, ev.DeviceID)
+		}
+		return true
 	}
 	return true
 }
@@ -440,6 +454,10 @@ func (c *coord) apply(ev store.Event) {
 			line := lineOf(ev, when, p.By, what)
 			line.BlockerID = raised // a raise line names its item
 			c.touchLine(t, line, true)
+			if raised != "" {
+				// A blocker comment that reached this device before its raise.
+				c.refreshBlocker(t, raised)
+			}
 			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
 		}
 	case KindTaskJoined, KindTaskLeft:
@@ -519,6 +537,9 @@ func (c *coord) apply(ev store.Event) {
 			c.mergeComment(cm, p, ev, at)
 			return
 		}
+		if p.MsgID != "" {
+			p.BlockerID, p.Pick, p.Missing = "", 0, nil // a message is never on a blocker
+		}
 		t := c.tasks[p.TaskID]
 		if t == nil {
 			return
@@ -527,7 +548,9 @@ func (c *coord) apply(ev store.Event) {
 		cm := &Comment{
 			ID: p.CommentID, TaskID: p.TaskID, By: p.By, Text: p.Text, Wake: p.Wake, At: at(p.At), Attachments: p.Attachments,
 			To: p.To, MsgID: p.MsgID, Gone: p.Gone, Held: p.Held, Files: p.Files,
+			BlockerID: p.BlockerID, Pick: max(p.Pick, 0), Missing: p.Missing,
 			Device: ev.DeviceID, HLC: ev.HLC, Seq: ev.Seq, primary: primary,
+			person: ev.Actor == "user" && c.isOwner(p.By),
 		}
 		if !primary && !p.Held {
 			cm.passed = p.Text
@@ -543,7 +566,20 @@ func (c *coord) apply(ev store.Event) {
 		}
 		// A mirrored message is its own thread entry: no activity line, so
 		// the line's position can't depend on which of its rows came first.
-		if p.MsgID == "" {
+		// A blocker comment's line names its item, so the main thread
+		// keeps the event while the comment goes in the item's own thread.
+		switch {
+		case p.BlockerID != "":
+			what := "replied on blocker " + p.BlockerID
+			if cm.person {
+				what = "answered blocker " + p.BlockerID
+			}
+			line := lineOf(ev, cm.At, cm.By, what)
+			line.BlockerID = p.BlockerID
+			c.touchLine(t, line, false)
+			c.refreshBlocker(t, p.BlockerID)
+			c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
+		case p.MsgID == "":
 			c.touch(ev, t, cm.At, cm.By, "commented", false)
 		}
 		c.note(Change{Kind: CommentAdded, TaskID: p.TaskID})
