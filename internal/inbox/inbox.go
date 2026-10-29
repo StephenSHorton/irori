@@ -219,7 +219,7 @@ type Delivery struct {
 	// from the delivery rows, never written.
 	HeldFor   HoldReason `json:"heldFor,omitempty"`
 	DecidedBy string     `json:"decidedBy,omitempty"`
-	DecidedAt time.Time  `json:"decidedAt,omitempty"`
+	DecidedAt time.Time  `json:"decidedAt,omitzero"`
 	CreatedAt time.Time  `json:"createdAt"`
 	UpdatedAt time.Time  `json:"updatedAt"`
 	Message   Message    `json:"message"` // denormalized for callers

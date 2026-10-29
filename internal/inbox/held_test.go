@@ -2,9 +2,13 @@ package inbox
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/StephenSHorton/irori/internal/store"
 )
 
 // Release undoes a Dismiss: the dismissed delivery is queued with its
@@ -108,9 +112,10 @@ func TestHeldHistory(t *testing.T) {
 	}
 }
 
-// Across devices: a Release asked after a Dismiss took effect is the
-// person's undo and applies on the owner, though the Dismiss was its
-// delivery's first request.
+// Across devices: a Release asked by a device that saw the delivery
+// dismissed is the person's undo and applies on the owner, though the
+// Dismiss was its delivery's first request, and though the asking device's
+// clock runs behind the owner's.
 func TestARemoteReleaseUndoesADismiss(t *testing.T) {
 	h := newHarness(t)
 	h.isOwner = func(k string) bool { return k == user || k == "user:dev2" }
@@ -136,8 +141,8 @@ func TestARemoteReleaseUndoesADismiss(t *testing.T) {
 		d, _ := h.ib.Get("dlv_r1")
 		return d.State == Dismissed
 	})
-	h.clk.advance(time.Minute)
-	f.row("user", KindDecided, decidedRow{DeliveryID: "dlv_r1", Choice: ChoiceRelease, By: "user:dev2", AtDevice: "dev2", At: h.clk.now()})
+	behind := h.clk.now().Add(-time.Hour)
+	f.row("user", KindDecided, decidedRow{DeliveryID: "dlv_r1", Choice: ChoiceRelease, By: "user:dev2", AtDevice: "dev2", At: behind, Undo: true})
 	eventually(t, "the undo applies", func() bool {
 		d, _ := h.ib.Get("dlv_r1")
 		return d.State == Queued
@@ -155,8 +160,9 @@ func TestARemoteReleaseUndoesADismiss(t *testing.T) {
 	h.wantState("dlv_r1", Queued)
 }
 
-// A Release asked before the Dismiss took effect lost the race: it stays
-// dismissed.
+// A Release asked while its device still saw the delivery held lost the
+// race to the Dismiss: it stays dismissed, though the asking device's clock
+// runs ahead of the owner's.
 func TestARemoteReleaseFromBeforeTheDismissLoses(t *testing.T) {
 	h := newHarness(t)
 	h.isOwner = func(k string) bool { return k == user || k == "user:dev2" }
@@ -176,12 +182,64 @@ func TestARemoteReleaseFromBeforeTheDismissLoses(t *testing.T) {
 		d, ok := h.ib.Get("dlv_r1")
 		return ok && d.State == Held
 	})
-	asked := h.clk.now()
-	h.clk.advance(time.Minute)
 	if err := h.ib.Dismiss(bg, "dlv_r1", user); err != nil {
 		t.Fatal(err)
 	}
-	f.row("user", KindDecided, decidedRow{DeliveryID: "dlv_r1", Choice: ChoiceRelease, By: "user:dev2", AtDevice: "dev2", At: asked})
+	ahead := h.clk.now().Add(time.Hour)
+	f.row("user", KindDecided, decidedRow{DeliveryID: "dlv_r1", Choice: ChoiceRelease, By: "user:dev2", AtDevice: "dev2", At: ahead})
 	time.Sleep(50 * time.Millisecond)
 	h.wantState("dlv_r1", Dismissed)
+}
+
+// The asking device marks a Release an undo by what it sees: a dismissed
+// delivery another device owns asks with undo, a held one without.
+func TestARemoteReleaseIsAnUndoOnlyWhenSeenDismissed(t *testing.T) {
+	h := newHarness(t)
+	f := &foreign{h: h}
+	m := Message{ID: "msg_r2", From: Sender{Key: keyA, Name: "alpha", Kind: "claude"}, To: to(keyR), Text: "over there", Trust: Untrusted, SentAt: h.clk.now()}
+	f.row("agent:"+keyA, KindMessageSent, m)
+	f.row("agent:"+keyR, KindDelivery, deliveryRow{DeliveryID: "dlv_h", MessageID: m.ID, To: keyR, State: Held, Hold: HoldPaused, By: "irori"})
+	f.row("agent:"+keyR, KindDelivery, deliveryRow{DeliveryID: "dlv_d", MessageID: m.ID, To: keyR, State: Dismissed, Hold: HoldPaused, By: "user:dev2"})
+	h.reopen()
+	for _, id := range []string{"dlv_h", "dlv_d"} {
+		if h.ib.Owned(id) {
+			t.Fatalf("this device owns %s", id)
+		}
+		if err := h.ib.Release(bg, id, user); err != nil {
+			t.Fatal(err)
+		}
+	}
+	evs, err := h.st.List(bg, store.Filter{Kinds: []string{KindDecided}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	undo := map[string]bool{}
+	for _, e := range evs {
+		var r decidedRow
+		if err := json.Unmarshal(e.Payload, &r); err != nil {
+			t.Fatal(err)
+		}
+		undo[r.DeliveryID] = r.Undo
+	}
+	if len(undo) != 2 || undo["dlv_h"] || !undo["dlv_d"] {
+		t.Fatalf("undo marks %v, want dlv_d only", undo)
+	}
+}
+
+// Undoing the Dismiss of repo work no agent has taken goes to the front
+// desk; with no agent in that repo yet it says so and stays dismissed.
+func TestReleasingDismissedRepoWorkWithNoDeskSaysSo(t *testing.T) {
+	h := newHarness(t)
+	h.abc()
+	_, d := h.send(claude(keyA, "alpha"), toRepo("repo2"), "anyone?")
+	if d.State != Held || d.Hold != HoldUnowned || d.To != "" {
+		t.Fatalf("sent %s %s to %q", d.State, d.Hold, d.To)
+	}
+	if err := h.ib.Dismiss(bg, d.ID, user); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.ib.Release(bg, d.ID, user); !errors.Is(err, ErrBadState) {
+		t.Fatalf("release with no desk: %v", err)
+	}
+	h.wantState(d.ID, Dismissed)
 }

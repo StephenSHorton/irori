@@ -212,6 +212,11 @@ function HeldRow({
   const ref = d.message.ref ?? ""
   const card = ref.startsWith("task:") ? cardLabel(ref) : ""
   const at = parseTime(d.decidedAt || d.updatedAt)
+  // Moved straight out of Held (to another agent): its last row is the
+  // decision, so nothing was released.
+  const movedHeld =
+    d.state === State.Moved &&
+    at?.getTime() === parseTime(d.updatedAt)?.getTime()
   const by =
     d.decidedBy === SystemKey ? "Irori" : d.decidedBy ? name(d.decidedBy) : ""
 
@@ -284,16 +289,20 @@ function HeldRow({
           >
             {d.state === State.Dismissed
               ? "Dismissed"
-              : d.decidedBy === SystemKey
-                ? "Let through"
-                : "Released"}
+              : movedHeld
+                ? "Moved"
+                : d.decidedBy === SystemKey
+                  ? "Let through"
+                  : "Released"}
           </Badge>
           <span>
             {by && `by ${by} `}
             <time dateTime={at?.toISOString()} title={at?.toLocaleString()}>
               {relativeTime(at, now)}
             </time>
-            {d.state !== State.Dismissed && ` · now ${d.state}`}
+            {movedHeld
+              ? d.movedTo && ` · to ${name(d.movedTo)}`
+              : d.state !== State.Dismissed && ` · now ${d.state}`}
           </span>
           {d.state === State.Dismissed && (
             <Button
