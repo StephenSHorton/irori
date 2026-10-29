@@ -8,6 +8,19 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Device colours (card #22, internal/devcolor.Palette): an agent's face and
+   a single-device card wear their device's. Clear of the status hues
+   (blue 248, green 152, amber 78, red 25) and the person's violet 300. */
+:root {
+    --device-teal: oklch(0.76 0.12 185);
+    --device-orange: oklch(0.74 0.14 50);
+    --device-pink: oklch(0.74 0.14 350);
+    --device-lime: oklch(0.8 0.15 125);
+    --device-cyan: oklch(0.78 0.11 215);
+    --device-indigo: oklch(0.7 0.13 275);
+    --device-sand: oklch(0.78 0.06 80);
+}
+
 @theme inline {
     --font-heading: var(--font-sans);
     /* Toru's stack: Segoe UI on Windows, SF on macOS. */

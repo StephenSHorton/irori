@@ -42,6 +42,15 @@ export function CancelPairing(): $CancellablePromise<void> {
 }
 
 /**
+ * Colors is the palette a device can wear, in order (card #22).
+ */
+export function Colors(): $CancellablePromise<string[]> {
+    return $Call.ByID(2907516086).then(($result: any) => {
+        return $$createType1($result);
+    });
+}
+
+/**
  * ConfirmKey takes, on the joining device, the key the other device shows
  * beside its code. The joining device takes the pairing only from the
  * device whose connection proved that key; the second miss closes it.
@@ -64,7 +73,7 @@ export function ConfirmWords(words: string): $CancellablePromise<void> {
  */
 export function Devices(): $CancellablePromise<$models.DeviceView[]> {
     return $Call.ByID(1642868489).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -73,7 +82,7 @@ export function Devices(): $CancellablePromise<$models.DeviceView[]> {
  */
 export function HomeServer(): $CancellablePromise<$models.HomeServerView> {
     return $Call.ByID(10952150).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType4($result);
     });
 }
 
@@ -102,7 +111,7 @@ export function PairingStatus(): $CancellablePromise<pair$0.Status> {
  */
 export function Relay(): $CancellablePromise<$models.RelayView> {
     return $Call.ByID(1142722567).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType5($result);
     });
 }
 
@@ -126,6 +135,14 @@ export function ResetDevice(): $CancellablePromise<void> {
 }
 
 /**
+ * SetDeviceColor picks a device's colour; "" goes back to its default. It
+ * replicates, so every device shows the same colour (card #22).
+ */
+export function SetDeviceColor(deviceID: string, color: string): $CancellablePromise<void> {
+    return $Call.ByID(2672899567, deviceID, color);
+}
+
+/**
  * SetHomeServer switches this device's home server on or off (GUI only),
  * with "Reachable from outside home" and an optional public address for
  * when the router can't map ports ("" for none). Windows asks once to
@@ -133,7 +150,7 @@ export function ResetDevice(): $CancellablePromise<void> {
  */
 export function SetHomeServer(on: boolean, outside: boolean, $public: string): $CancellablePromise<$models.HomeServerView> {
     return $Call.ByID(305189678, on, outside, $public).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType4($result);
     });
 }
 
@@ -143,13 +160,14 @@ export function SetHomeServer(on: boolean, outside: boolean, $public: string): $
  */
 export function SetRelay(credentialURL: string): $CancellablePromise<$models.RelayView> {
     return $Call.ByID(665358047, credentialURL).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType5($result);
     });
 }
 
 // Private type creation functions
 const $$createType0 = pair$0.Status.createFrom;
-const $$createType1 = $models.DeviceView.createFrom;
-const $$createType2 = $Create.Array($$createType1);
-const $$createType3 = $models.HomeServerView.createFrom;
-const $$createType4 = $models.RelayView.createFrom;
+const $$createType1 = $Create.Array($Create.Any);
+const $$createType2 = $models.DeviceView.createFrom;
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = $models.HomeServerView.createFrom;
+const $$createType5 = $models.RelayView.createFrom;

@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import {
   busy,
+  deviceVar,
+  type DeviceChip,
   displayName,
   holderLineShows,
   nobodyOn,
@@ -25,9 +27,11 @@ import {
   Spinner,
   StatePill,
 } from "./bits"
-import { Faces } from "./faces"
+import { Faces, TalkBubble } from "./faces"
 
-export type Filter = "all" | "decide" | "mine"
+// Filter is a chip: All, Needs a decision, My devices, or one device
+// ("device:<id>", card #22).
+export type Filter = "all" | "decide" | "mine" | `device:${string}`
 
 export const filters: { id: Filter; label: string }[] = [
   { id: "all", label: "All" },
@@ -38,6 +42,7 @@ export const filters: { id: Filter; label: string }[] = [
 export function matches(c: CardSummary, f: Filter): boolean {
   if (f === "decide") return c.openBlockers > 0
   if (f === "mine") return c.scope === "mine"
+  if (f.startsWith("device:")) return c.devices.includes(f.slice(7))
   return true
 }
 
@@ -78,6 +83,49 @@ export function FilterBar({
           )}
         </Button>
       ))}
+    </div>
+  )
+}
+
+// DeviceBar is a chip per device, to narrow the grid to one device's cards
+// (card #22). It is its own row of chips, apart from FilterBar's tabs, so
+// other chip rows (shared boards) can sit beside the tabs too.
+export function DeviceBar({
+  filter,
+  onFilter,
+  devices,
+}: {
+  filter: Filter
+  onFilter: (f: Filter) => void
+  devices: DeviceChip[]
+}) {
+  if (!devices.length) return null
+  return (
+    <div
+      className="flex flex-wrap items-center gap-1"
+      role="group"
+      aria-label="Filter cards by device"
+    >
+      {devices.map((d) => {
+        const id: Filter = `device:${d.id}`
+        return (
+          <Button
+            key={id}
+            size="sm"
+            aria-pressed={filter === id}
+            variant={filter === id ? "secondary" : "ghost"}
+            onClick={() => onFilter(filter === id ? "all" : id)}
+            title={`Cards its agents are on: ${d.name}`}
+          >
+            <span
+              aria-hidden
+              className="inline-block size-2 rounded-full"
+              style={{ background: deviceVar(d.color) }}
+            />
+            {d.name}
+          </Button>
+        )
+      })}
     </div>
   )
 }
@@ -135,8 +183,20 @@ function CardTile({
         "transition-[border-color,box-shadow,transform] duration-150",
         "hover:-translate-y-0.5 hover:border-primary/70 hover:shadow-[0_0_0_1px_var(--color-ring),0_12px_28px_oklch(0_0_0/0.45)] focus-visible:ring-1 focus-visible:ring-ring",
         selected &&
-          "border-primary! shadow-[0_0_0_1px_var(--color-ring),0_8px_30px_oklch(0_0_0/0.45)]"
+          "border-primary! shadow-[0_0_0_1px_var(--color-ring),0_8px_30px_oklch(0_0_0/0.45)]",
+        // The accent edge is 2px wider than the border: take it off the
+        // padding so the tile's contents don't move.
+        card.accent && "pl-3"
       )}
+      // A card everyone on is on one device wears its colour on the left
+      // edge (card #22); the status colours stay where they mean something.
+      style={
+        card.accent
+          ? {
+              borderLeft: `3px solid ${deviceVar(card.accent)}`,
+            }
+          : undefined
+      }
     >
       <span className="flex flex-wrap items-center gap-1.5">
         <ShortRef card={card} />
@@ -168,6 +228,11 @@ function CardTile({
         )}
         {busy(card) && <Spinner className="ml-auto" />}
       </span>
+      {card.talking.length > 1 && (
+        <span className="-mt-1 flex">
+          <TalkBubble who={card.talking} />
+        </span>
+      )}
       <span className="text-sm leading-snug font-medium text-balance text-ink">
         {title}
       </span>

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/irori/internal/core"
+	"github.com/StephenSHorton/irori/internal/devcolor"
 	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/mesh"
 	"github.com/StephenSHorton/irori/internal/mesh/roomnet"
@@ -58,18 +59,32 @@ type DeviceView struct {
 	// LastSeen is when this device last heard from it (zero: never, or
 	// this device).
 	LastSeen time.Time `json:"lastSeen,omitzero"`
+	// Color is the device's colour (devcolor.Palette): the person's pick,
+	// else its default (card #22).
+	Color string `json:"color,omitempty"`
 }
 
 // Devices lists the person's devices, this one first (the same rows as
 // GET /v1/devices).
 func (s *DevicesService) Devices() []DeviceView {
 	rows := s.core.Mesh().Devices(false)
+	colors := s.core.DeviceColors()
 	out := make([]DeviceView, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, DeviceView{DeviceID: r.DeviceID, Name: r.Name, Role: r.Role, This: r.This,
-			State: r.State, Revoked: r.Revoked, Warning: r.Warning, Action: r.Action, LastSeen: r.LastSeen})
+			State: r.State, Revoked: r.Revoked, Warning: r.Warning, Action: r.Action, LastSeen: r.LastSeen,
+			Color: colors[r.DeviceID]})
 	}
 	return out
+}
+
+// Colors is the palette a device can wear, in order (card #22).
+func (s *DevicesService) Colors() []string { return append([]string{}, devcolor.Palette...) }
+
+// SetDeviceColor picks a device's colour; "" goes back to its default. It
+// replicates, so every device shows the same colour (card #22).
+func (s *DevicesService) SetDeviceColor(deviceID, color string) error {
+	return s.core.SetDeviceColor(context.Background(), deviceID, color)
 }
 
 // AddDevice opens a pairing window (§3 step 1): the code and
