@@ -112,6 +112,11 @@ function BoardRow({
           <small className="text-xs text-muted-foreground">
             {b.ready ? `${cards} · ${devices}` : "arriving from your other device"}
           </small>
+          {b.tagClash && (
+            <small className="block text-xs text-destructive">
+              Another board is also {plainLine(b.tag)}#: its refs need the card's id.
+            </small>
+          )}
         </span>
       )}
       <span className="flex items-center gap-1.5">

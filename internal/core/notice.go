@@ -55,7 +55,35 @@ func (c *Core) sweepCoord(ctx context.Context) error {
 			log.Printf("coord notice %s %s: %v", n.Kind, n.Ref, rerr)
 		}
 	}
-	return errors.Join(err, aerr)
+	return errors.Join(err, aerr, c.sweepBoards(ctx))
+}
+
+// sweepBoards runs each open board coord's sweeper as sweepCoord runs the
+// private one's (watch digests, blockers that resolved by themselves, gone
+// holders' grace), its notices routed with the board keys as this device
+// knows them (RouteNotice). Asks live on the private board only.
+func (c *Core) sweepBoards(ctx context.Context) error {
+	var errs []error
+	for _, id := range c.Boards() {
+		co, err := c.BoardCoord(id)
+		if err != nil {
+			continue
+		}
+		ns, err := co.SweepNotices(ctx)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		for _, n := range ns {
+			from := inbox.SystemSender()
+			if n.Person {
+				from = c.UserSender()
+			}
+			if rerr := tools.NoticeErr(c.RouteNotice(ctx, from, n)); rerr != nil && ctx.Err() == nil {
+				log.Printf("board %s notice %s %s: %v", id, n.Kind, n.Ref, rerr)
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // AskAgents is the roster an ask is told to (board.md "Asks"): MeshAgents

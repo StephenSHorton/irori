@@ -56,7 +56,7 @@ func (s *set) send(ctx context.Context, c Caller, raw json.RawMessage) string {
 		if msg != "" {
 			return msg
 		}
-		if _, ok := s.b.Coord().GetTask(id); !ok {
+		if _, ok := s.task(id); !ok { // a shared card too; only a private one's thread records it
 			name := "task:" + id
 			if _, short := coord.ParseShort(id); short {
 				name = id // a short ref no card has, as given

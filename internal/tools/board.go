@@ -67,12 +67,14 @@ func (s *set) callerRepo(c Caller) string { return s.roster().cards[c.Sender.Key
 // boardView is the Board for repo ("" every repo) as viewer sees it, with
 // NeedsYou taken across every repo: a card assigned to the viewer, or
 // blocked on it, needs it wherever the card lives (a Grok member's cards
-// have no repo at all).
+// have no repo at all). Shared boards' cards are in it too (withBoards).
 func (s *set) boardView(repo, viewer string, doneLimit int) coord.BoardView {
 	co := s.b.Coord()
-	v := co.Board(coord.BoardFilter{RepoKey: repo, For: viewer, DoneLimit: doneLimit})
+	f := coord.BoardFilter{RepoKey: repo, For: viewer, DoneLimit: doneLimit}
+	v := s.withBoards(co.Board(f), f)
 	if repo != "" {
-		v.NeedsYou = co.Board(coord.BoardFilter{For: viewer, DoneLimit: 1}).NeedsYou
+		all := coord.BoardFilter{For: viewer, DoneLimit: 1}
+		v.NeedsYou = s.withBoards(co.Board(all), all).NeedsYou
 	}
 	return v
 }
@@ -410,10 +412,25 @@ func (s *set) boardCreate(ctx context.Context, c Caller, raw json.RawMessage) st
 		}
 		to = k
 	}
-	t, err := s.b.Coord().CreateTask(ctx, c.Sender.Key, coord.NewTask{
+	// A subtask goes in its parent's log (a shared board's, v0.5 §2.1),
+	// with the caller and assignee as that log knows them; a private card
+	// that was shared takes no subtasks (§5.2).
+	co, keys := s.b.Coord(), []string{c.Sender.Key, to}
+	parent := strings.TrimSpace(a.Parent)
+	if parent != "" {
+		id, err := s.taskRef(parent)
+		if err != nil {
+			return mapErr(err)
+		}
+		parent = id
+		if co, keys, err = s.on(ctx, parent, keys...); err != nil {
+			return mapErr(err)
+		}
+	}
+	t, err := co.CreateTask(ctx, keys[0], coord.NewTask{
 		Title: strings.TrimSpace(a.Title), Objective: strings.TrimSpace(a.Objective),
-		DoneCriteria: strings.TrimSpace(a.DoneWhen), RepoKey: repo, Shared: a.Shared, Links: a.Links,
-		Steps: stepsOf(a.Steps), Parent: strings.TrimSpace(a.Parent),
+		DoneCriteria: strings.TrimSpace(a.DoneWhen), RepoKey: repo, Shared: a.Shared && co == s.b.Coord(), Links: a.Links,
+		Steps: stepsOf(a.Steps), Parent: parent,
 	})
 	if err != nil {
 		return mapErr(err)
@@ -429,12 +446,12 @@ func (s *set) boardCreate(ctx context.Context, c Caller, raw json.RawMessage) st
 		out += " Tick its steps with board_step as you go."
 	}
 	if to != "" {
-		at, notice, err := s.b.Coord().Assign(ctx, c.Sender.Key, t.ID, to)
+		at, notice, err := co.Assign(ctx, keys[0], t.ID, keys[1])
 		if err != nil {
 			return out + " Assigning it failed: " + strings.TrimPrefix(mapErr(err), "Error: ") + "\n" + s.cardLine(t, nil, n, s.now())
 		}
 		t = at
-		out += " Assigned to " + n.who(to) + "." + s.told(RouteNotice(ctx, s.b.Inbox(), c.Sender, notice), n)
+		out += " Assigned to " + n.who(to) + "." + s.told(s.tell(ctx, c.Sender, notice), n)
 	} else {
 		out += " Take it up with board_join, or hand it over with board_assign."
 	}

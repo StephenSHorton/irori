@@ -287,6 +287,25 @@ func TestBoardToolsRoute(t *testing.T) {
 	if out := call("board_status", map[string]any{"task_id": "no-such-card", "state": "completed"}); !strings.HasPrefix(out, "Error") {
 		t.Fatalf("a card in no log: %s", out)
 	}
+
+	// The agent sees the shared card it holds in board and overview, with
+	// its tag, and can send about it; a subtask of it lands on the board.
+	if out := call("board", map[string]any{"repo": "all"}); !strings.Contains(out, "one#1") || !strings.Contains(out, "on the board") {
+		t.Fatalf("board doesn't show the shared card the agent holds:\n%s", out)
+	}
+	if out := call("overview", map[string]any{}); !strings.Contains(out, "one#1") {
+		t.Fatalf("overview doesn't show the shared card the agent holds:\n%s", out)
+	}
+	if out := call("send", map[string]any{"to": r.keyB, "text": "look at this", "task_id": "one#1"}); strings.HasPrefix(out, "Error") {
+		t.Fatalf("send about a shared card: %s", out)
+	}
+	out := call("board_create", map[string]any{"title": "a piece of it", "parent": "one#1", "assign_to": r.keyB})
+	if strings.HasPrefix(out, "Error") || !strings.Contains(out, "one#2") {
+		t.Fatalf("board_create under a shared card: %s", out)
+	}
+	if rows, _ := c.store.List(ctx, store.Filter{Kinds: []string{"task."}}); len(rows) != 0 {
+		t.Fatalf("a subtask of a shared card went in the private log (%d rows)", len(rows))
+	}
 }
 
 // TestBoardLogsSkipJunk: files in boards/ that aren't board logs are left

@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/core"
 	"github.com/StephenSHorton/irori/internal/identity"
+	"github.com/StephenSHorton/irori/internal/presence"
+	"github.com/StephenSHorton/irori/internal/store"
 )
 
 // TestBoardsInTheWindow: the grid holds every board's live cards beside
@@ -36,7 +39,7 @@ func TestBoardsInTheWindow(t *testing.T) {
 	if err != nil || p.Title != "goes to the board" || len(p.VisibleTo) != 1 {
 		t.Fatalf("preview %+v, %v", p, err)
 	}
-	sharedID, err := boards.Share(priv.Task.ID, mlg.BoardID)
+	sharedID, err := boards.Share(priv.Task.ID, mlg.BoardID, p.Hash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,5 +101,61 @@ func TestBoardsInTheWindow(t *testing.T) {
 	}
 	if len(boards.List()) != 0 {
 		t.Fatalf("boards after leave %+v", boards.List())
+	}
+}
+
+// cardKeys is the Core's boards with one agent card mapped to a session
+// by hand, as the Core maps the cards its person's agents get.
+type cardKeys struct {
+	boardSource
+	m map[string]string
+}
+
+func (k cardKeys) PrivateKey(key string) string {
+	if s, ok := k.m[key]; ok {
+		return s
+	}
+	return k.boardSource.PrivateKey(key)
+}
+
+// TestCommentOnASharedCardTellsItsAgent: the person's comment from the
+// window on a shared card reaches the agent assigned to it. The board
+// knows the agent as agent:<cardId>; the roster knows its session, so
+// who is around is asked of the session.
+func TestCommentOnASharedCardTellsItsAgent(t *testing.T) {
+	c := startCore(t, core.Options{DataDir: t.TempDir(), ClaudeDir: t.TempDir(), Version: "0.5.0-test", Headless: true,
+		Keystore: identity.FileKeystore{}})
+	ctx := context.Background()
+	boards := &BoardsService{c: c}
+	mlg, err := boards.Create("MLG", "mlg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const cardID, session = "0123456789abcdef0123456789abcdef", "dev-x/aaaaaaaa-1111-4111-8111-00000000000a"
+	agent := store.AgentActorPrefix + cardID
+	if _, err := c.BoardStore(mlg.BoardID).Append(ctx, agent, store.KindAgentCard,
+		map[string]string{"cardId": cardID, "name": "alpha", "kind": "claude", "personId": c.Person().ID, "status": "active"}); err != nil {
+		t.Fatal(err)
+	}
+	b := newBoardService(c)
+	b.boards = cardKeys{boardSource: c, m: map[string]string{agent: session}}
+	b.agents = func() []presence.AgentCard {
+		return []presence.AgentCard{{Key: session, Name: "alpha", Agent: "claude", Status: "idle"}}
+	}
+	co, _ := c.BoardCoord(mlg.BoardID)
+	me, _ := c.BoardKey(ctx, mlg.BoardID, c.UserSender().Key)
+	card, err := co.CreateTask(ctx, me, coord.NewTask{Title: "build it"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := co.Assign(ctx, me, card.ID, agent); err != nil {
+		t.Fatal(err)
+	}
+	res, err := b.Comment(card.ID, "which branch?", string(TellWake))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Told.To) != 1 || res.Told.To[0] != session || len(res.Answers) != 1 || res.Answers[0].Key != session {
+		t.Fatalf("the comment told %+v, answers %+v; want the assigned agent's session", res.Told, res.Answers)
 	}
 }

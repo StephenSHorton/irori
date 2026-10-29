@@ -94,6 +94,7 @@ var kindBoards = map[string]Board{
 	KindReviewRequested: BoardAccepts, KindReviewReviewer: BoardAccepts,
 	// v0.5 private-log rows
 	KindBoardJoined: BoardRefuses, KindBoardForgot: BoardRefuses, KindReceiveSet: BoardRefuses, KindAutonomySet: BoardRefuses,
+	KindSharedCopy: BoardRefuses, KindBoardCardOf: BoardRefuses,
 }
 
 // KindBoard reports kind's Board column.

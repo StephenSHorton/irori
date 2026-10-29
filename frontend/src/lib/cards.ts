@@ -362,6 +362,7 @@ export function samplePreview(id: string, board: SampleBoard): SharePreviewShape
     repo: c.repoKey,
     visibleTo: board.people,
     dropped: [] as string[],
+    hash: "sample",
   }
   if (c.links.some((l) => l.kind === LinkKind.LinkPath)) dropped.push("a link to a path on this machine")
   out.dropped = [...new Set(dropped)]
@@ -380,6 +381,7 @@ export type SharePreviewShape = {
   repo: string
   visibleTo: string[]
   dropped: string[]
+  hash: string
 }
 
 export function sampleShare(id: string, board: SampleBoard): string {

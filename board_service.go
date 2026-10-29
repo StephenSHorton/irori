@@ -237,7 +237,9 @@ func (b *BoardService) Comment(id, text, tell string) (CommentResult, error) {
 	p := b.people()
 	var around func(string) bool
 	if b.agents != nil {
-		around = func(k string) bool { return p.ref(k).Live }
+		// A board card's keys are agent:<cardId>; the roster knows the
+		// session behind each (privKey).
+		around = func(k string) bool { return p.ref(b.privKey(k)).Live }
 	}
 	c, ns, err := co.PersonComment(ctx, as[0], id, text, tl == TellWake, around)
 	if err != nil {
@@ -253,10 +255,11 @@ func (b *BoardService) Comment(id, text, tell string) (CommentResult, error) {
 		if told.Error != "" {
 			res.Told.Error = strings.TrimPrefix(res.Told.Error+"; "+told.Error, "; ")
 		}
+		to := mapKeys(n.To, b.privKey)
 		if n.Watching {
-			res.Watching = append(res.Watching, p.refs(n.To)...)
+			res.Watching = append(res.Watching, p.refs(to)...)
 		} else {
-			res.Answers = append(res.Answers, p.refs(n.To)...)
+			res.Answers = append(res.Answers, p.refs(to)...)
 		}
 	}
 	return res, nil
@@ -320,15 +323,31 @@ func (b *BoardService) CloseAsk(id, note string) (coord.Task, error) {
 
 // Pin pins (or with pinned false unpins) a card for the person: it shows
 // in the Pinned group above the grid, last among the pinned cards.
+//
+// Pins live on the private board only (task.pinned never goes on a board,
+// v0.5 §2.2), so a shared card isn't pinned, and a private card that was
+// shared is refused like any other write to it (§5.2).
 func (b *BoardService) Pin(id string, pinned bool) error {
-	_, err := b.coord.Pin(context.Background(), b.user.Key, strings.TrimSpace(id), pinned)
+	ctx := context.Background()
+	id = strings.TrimSpace(id)
+	co, as, err := b.privateOnly(ctx, id)
+	if err != nil {
+		return err
+	}
+	_, err = co.Pin(ctx, as[0], id, pinned)
 	return err
 }
 
 // MovePin moves a pinned card to just before another pinned card (""
 // puts it last).
 func (b *BoardService) MovePin(id, before string) error {
-	_, err := b.coord.MovePin(context.Background(), b.user.Key, strings.TrimSpace(id), strings.TrimSpace(before))
+	ctx := context.Background()
+	id = strings.TrimSpace(id)
+	co, as, err := b.privateOnly(ctx, id)
+	if err != nil {
+		return err
+	}
+	_, err = co.MovePin(ctx, as[0], id, strings.TrimSpace(before))
 	return err
 }
 
@@ -438,7 +457,12 @@ func (b *BoardService) SetDone(id string, canceled bool) (coord.Task, error) {
 // back with its subtask. Its holders hear at their next turn.
 func (b *BoardService) Reopen(id string) (TaskResult, error) {
 	ctx := context.Background()
-	t, n, err := b.coord.Reopen(ctx, b.user.Key, strings.TrimSpace(id))
+	id = strings.TrimSpace(id)
+	co, as, err := b.on(ctx, id)
+	if err != nil {
+		return TaskResult{}, err
+	}
+	t, n, err := co.Reopen(ctx, as[0], id)
 	if err != nil {
 		return TaskResult{}, err
 	}
@@ -477,7 +501,7 @@ func (b *BoardService) tell(ctx context.Context, n coord.Notice, tl Tell) Told {
 	if tl == TellNone || len(n.To) == 0 {
 		return Told{To: []string{}}
 	}
-	told := Told{To: append([]string{}, n.To...), Mode: string(inbox.ModeNextTurn)}
+	told := Told{To: mapKeys(n.To, b.privKey), Mode: string(inbox.ModeNextTurn)}
 	if n.Wake {
 		told.Mode = string(inbox.ModeWake)
 	}

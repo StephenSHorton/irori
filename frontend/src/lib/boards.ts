@@ -154,9 +154,10 @@ export const boards = {
   },
 
   // share writes the private card to the board and closes it; the shared
-  // card's id comes back.
-  async share(taskId: string, boardId: string): Promise<string> {
-    if (inWails()) return BoardsService.Share(taskId, boardId)
+  // card's id comes back. hash is the confirmed preview's: a card that
+  // changed since is refused.
+  async share(taskId: string, boardId: string, hash: string): Promise<string> {
+    if (inWails()) return BoardsService.Share(taskId, boardId, hash)
     const id = sampleShare(taskId, sampleFind(boardId))
     sampleFind(boardId).cards++
     sampleMoved()

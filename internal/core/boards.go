@@ -71,8 +71,19 @@ type boardLog struct {
 
 	mu    sync.Mutex
 	cards map[string]boardCard // cardId -> its agent.card, as folded
-	keys  map[string]string    // agentKey -> cardId: this device's board_cards
+	keys  map[string]string    // agentKey -> cardId: the person's board_cards (addKey)
 	byID  map[string]string    // cardId -> agentKey
+}
+
+// addKey records that board card cardID is the session agent. b.mu is
+// held. Two of the person's devices can mint a card for the same agent
+// while apart: both cards map back to it, and the lower cardId is the one
+// written from here on, so every device settles on the same card.
+func (b *boardLog) addKey(cardID, agent string) {
+	b.byID[cardID] = agent
+	if cur := b.keys[agent]; cur == "" || cardID < cur {
+		b.keys[agent] = cardID
+	}
 }
 
 // boardCard is a folded agent.card row.
@@ -84,8 +95,16 @@ type boardCard struct {
 	Status   string `json:"status"`
 }
 
-// cardKeyRow is the device-local board_cards row (store.KindBoardCardKey).
+// cardKeyRow is a board_cards row: which session a board's agent card is
+// (§2.4). It is a private row replicated to the person's own devices
+// (store.KindBoardCardOf, with boardId), so every one of them translates a
+// card both ways: an agent on the laptop is assigned from the PC, and a
+// notice about its card reaches its inbox from any device. It names a
+// session key and a boardId, both private already, and never goes on a
+// board. Rows from before it are device-local in the board store
+// (store.KindBoardCardKey, no boardId) and are still read.
 type cardKeyRow struct {
+	BoardID  string `json:"boardId,omitempty"`
 	CardID   string `json:"cardId"`
 	AgentKey string `json:"agentKey"`
 }
@@ -166,10 +185,8 @@ func (c *Core) CreateBoard(ctx context.Context, name, tag string) (string, error
 	if !identity.ValidBoardTag(tag) {
 		return "", fmt.Errorf("%w: a board tag is a lowercase letter, then up to 15 lowercase letters, digits or '-'", coord.ErrInvalid)
 	}
-	for _, other := range c.Boards() {
-		if b, err := c.board(other); err == nil && b.verifier.Membership().Tag == tag {
-			return "", fmt.Errorf("%w: the tag %q is already board %s's", coord.ErrInvalid, tag, other)
-		}
+	if other := c.tagHolder(tag); other != "" {
+		return "", fmt.Errorf("%w: the tag %q is already board %s's", coord.ErrInvalid, tag, other)
 	}
 	id, err := NewBoardID()
 	if err != nil {
@@ -179,31 +196,73 @@ func (c *Core) CreateBoard(ctx context.Context, name, tag string) (string, error
 	if err != nil {
 		return "", err
 	}
+	// Until board.joined is written, a failure takes the board's files
+	// with it: a half-made board would open again at the next start,
+	// nameless and never ready.
+	fail := func(err error) (string, error) {
+		if rerr := c.removeBoard(id); rerr != nil {
+			log.Printf("board %s: clean up a failed creation: %v", id, rerr)
+		}
+		return "", err
+	}
 	pin, _ := b.verifier.Pinned(c.chain.PersonID())
 	row, err := c.ident.BoardCreatedRow(id, name, tag, pin, c.now())
 	if err != nil {
-		c.dropBoard(id)
-		return "", err
+		return fail(err)
 	}
 	if _, err := b.store.Append(ctx, store.PersonActorPrefix+pin.PersonID, store.KindBoardCreated, row); err != nil {
-		c.dropBoard(id)
-		return "", err
+		return fail(err)
 	}
 	if !b.verifier.Membership().Created {
-		c.dropBoard(id)
-		return "", errors.New("core: the board's board.created did not count")
-	}
-	if err := c.rotateSecret(b); err != nil {
-		return "", err
+		return fail(errors.New("core: the board's board.created did not count"))
 	}
 	// The person's other devices open it from this row (§4.1 step 7, own
 	// devices only until invites): it carries the creator's pin, which they
 	// trust because one of their own devices wrote it.
 	if _, err := c.store.Append(ctx, "irori", store.KindBoardJoined, boardJoinedRow{BoardID: id, Name: name, Tag: tag, Creator: pin, At: c.now()}); err != nil {
-		return "", err
+		return fail(err)
+	}
+	// The board is made; a secret that fails here is made again when the
+	// board next opens or a row moves its epoch (followBoard).
+	if err := c.rotateSecret(b); err != nil {
+		log.Printf("board %s: secret: %v", id, err)
 	}
 	c.boardsMoved()
 	return id, nil
+}
+
+// tagHolder is the board that already has tag among the person's boards:
+// one open here, or one any of the person's devices made or joined
+// (board.joined) that hasn't opened or folded here yet. "" when none.
+func (c *Core) tagHolder(tag string) string {
+	for _, other := range c.Boards() {
+		if b, err := c.board(other); err == nil && b.verifier.Membership().Tag == tag {
+			return other
+		}
+	}
+	forgot := map[string]bool{}
+	joined := map[string]string{}
+	_ = c.eachRow(context.Background(), store.Filter{Kinds: []string{store.KindBoardJoined, store.KindBoardForgot}}, func(ev store.Event) {
+		switch ev.Kind {
+		case store.KindBoardJoined:
+			var r boardJoinedRow
+			if json.Unmarshal(ev.Payload, &r) == nil && r.Tag == tag {
+				joined[r.BoardID] = r.Tag
+				delete(forgot, r.BoardID)
+			}
+		case store.KindBoardForgot:
+			var r boardForgotRow
+			if json.Unmarshal(ev.Payload, &r) == nil {
+				forgot[r.BoardID] = true
+			}
+		}
+	})
+	for id := range joined {
+		if !forgot[id] {
+			return id
+		}
+	}
+	return ""
 }
 
 // now is the Core's clock.
@@ -321,7 +380,7 @@ func (c *Core) openBoard(ctx context.Context, id string, create bool, pin *ident
 		st.Close()
 		return nil, err
 	}
-	if err := b.load(ctx); err != nil {
+	if err := b.load(ctx, c.store); err != nil {
 		st.Close()
 		return nil, err
 	}
@@ -405,8 +464,10 @@ func (c *Core) closeBoards() {
 	}
 }
 
-// load folds the log's agent cards and this device's board_cards.
-func (b *boardLog) load(ctx context.Context) error {
+// load folds the log's agent cards and the person's board_cards for it:
+// the private rows (priv, the Core's private store) and this device's
+// older local ones.
+func (b *boardLog) load(ctx context.Context, priv *store.Store) error {
 	var after store.Cursor
 	for {
 		evs, err := b.store.List(ctx, store.Filter{Kinds: []string{store.KindAgentCard}, After: after, Limit: store.MaxListLimit})
@@ -425,15 +486,55 @@ func (b *boardLog) load(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if priv != nil {
+		f := store.Filter{Kinds: []string{store.KindBoardCardOf}, Limit: store.MaxListLimit}
+		for {
+			evs, err := priv.List(ctx, f)
+			if err != nil {
+				return err
+			}
+			keys = append(keys, evs...)
+			if len(evs) < f.Limit {
+				break
+			}
+			f.After = evs[len(evs)-1].Cursor()
+		}
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, ev := range keys {
-		var r cardKeyRow
-		if json.Unmarshal(ev.Payload, &r) == nil && r.CardID != "" && r.AgentKey != "" {
-			b.keys[r.AgentKey], b.byID[r.CardID] = r.CardID, r.AgentKey
-		}
+		b.foldKeyLocked(ev)
 	}
 	return nil
+}
+
+// foldKeyLocked folds one board_cards row, private or local, if it is
+// this board's. b.mu is held.
+func (b *boardLog) foldKeyLocked(ev store.Event) {
+	var r cardKeyRow
+	if json.Unmarshal(ev.Payload, &r) != nil || r.CardID == "" || r.AgentKey == "" {
+		return
+	}
+	if ev.Kind == store.KindBoardCardOf && r.BoardID != b.id {
+		return
+	}
+	b.addKey(r.CardID, r.AgentKey)
+}
+
+// foldCardKey folds a private board_cards row that reached this device
+// into its board, when that board is open here.
+func (c *Core) foldCardKey(ev store.Event) {
+	var r cardKeyRow
+	if json.Unmarshal(ev.Payload, &r) != nil {
+		return
+	}
+	b, err := c.board(r.BoardID)
+	if err != nil {
+		return
+	}
+	b.mu.Lock()
+	b.foldKeyLocked(ev)
+	b.mu.Unlock()
 }
 
 func (b *boardLog) foldCard(ev store.Event) {
@@ -499,7 +600,7 @@ func (c *Core) followBoard(ctx context.Context, b *boardLog) {
 				c.boards.taskOf[id] = b.id
 			}
 			c.boards.mu.Unlock()
-			_ = b.load(ctx)
+			_ = b.load(ctx, c.store)
 		case ev.Kind == coord.KindTaskCreated:
 			if id := createdTaskID(ev); id != "" {
 				c.boards.mu.Lock()
@@ -596,11 +697,11 @@ func (c *Core) TaskCoord(ctx context.Context, taskID string, keys ...string) (*c
 // BoardKey is key as it is written on board boardID (§2.4): the person at
 // this device ("user:<device>" that IsOwner accepts) becomes
 // person:<personId>, written only through the GUI since nothing else
-// holds a user: key; an agent on this device becomes agent:<cardId>, its
-// card written the first time it touches the board; "irori" and keys
-// already in board form are kept. Anything else is refused: another
-// device's agent gets its card from its own device, and a made-up user:
-// key is no one.
+// holds a user: key; an agent on any of the person's devices (MeshAgents)
+// becomes agent:<cardId>, its card written the first time it touches the
+// board, from whichever device that is; "irori" and keys already in board
+// form are kept. Anything else is refused: a made-up user: key is no one,
+// and an agent the roster doesn't have is not the person's.
 func (c *Core) BoardKey(ctx context.Context, boardID, key string) (string, error) {
 	key = strings.TrimSpace(key)
 	switch {
@@ -614,8 +715,8 @@ func (c *Core) BoardKey(ctx context.Context, boardID, key string) (string, error
 		return "", fmt.Errorf("%w: %q is not a person on this board", coord.ErrNotAllowed, key)
 	}
 	agent := strings.TrimPrefix(key, "api:")
-	if owner.DeviceOf(agent) != c.device.ID {
-		return "", fmt.Errorf("%w: %q is not an agent on this device; its own device puts it on a board", coord.ErrNotAllowed, agent)
+	if owner.DeviceOf(agent) == "" {
+		return "", fmt.Errorf("%w: %q is not an agent of this person", coord.ErrNotAllowed, agent)
 	}
 	b, err := c.board(boardID)
 	if err != nil {
@@ -627,7 +728,8 @@ func (c *Core) BoardKey(ctx context.Context, boardID, key string) (string, error
 // cardFor is agent's cardId key on b, minting the card on first use: a
 // random cardId per (agent, board), so two boards can't be joined on it,
 // an agent.card with nothing but its name, kind and person, and the
-// device-local board_cards row that says which session it is (§2.4).
+// private board_cards row that says which session it is (§2.4), which
+// reaches the person's other devices.
 func (c *Core) cardFor(ctx context.Context, b *boardLog, agent string) (string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -635,14 +737,14 @@ func (c *Core) cardFor(ctx context.Context, b *boardLog, agent string) (string, 
 		return store.AgentActorPrefix + id, nil
 	}
 	var card *presence.AgentCard
-	for _, a := range c.LocalAgents() {
+	for _, a := range c.MeshAgents() {
 		if a.Key == agent {
 			card = &a
 			break
 		}
 	}
 	if card == nil {
-		return "", fmt.Errorf("%w: no agent %q on this device", coord.ErrNotFound, agent)
+		return "", fmt.Errorf("%w: no agent %q on the person's devices", coord.ErrNotFound, agent)
 	}
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
@@ -654,16 +756,17 @@ func (c *Core) cardFor(ctx context.Context, b *boardLog, agent string) (string, 
 		kind = "claude"
 	}
 	row := boardCard{CardID: id, Name: card.Name, Kind: kind, PersonID: c.chain.PersonID(), Status: "active"}
-	// The local row first: a card whose session nobody knows is worse
-	// than a mapping to a card that failed to append (it is retried).
-	if _, err := b.store.AppendLocal(ctx, "irori", store.KindBoardCardKey, cardKeyRow{CardID: id, AgentKey: agent}); err != nil {
+	// The mapping first: a card whose session nobody knows is worse than
+	// a mapping to a card that failed to append (it is retried).
+	if _, err := c.store.Append(ctx, "irori", store.KindBoardCardOf, cardKeyRow{BoardID: b.id, CardID: id, AgentKey: agent}); err != nil {
 		return "", err
 	}
 	if _, err := b.store.Append(ctx, store.AgentActorPrefix+id, store.KindAgentCard, row); err != nil {
 		return "", err
 	}
-	b.keys[agent], b.byID[id], b.cards[id] = id, agent, row
-	return store.AgentActorPrefix + id, nil
+	b.addKey(id, agent)
+	b.cards[id] = row
+	return store.AgentActorPrefix + b.keys[agent], nil
 }
 
 // PrivateKey is a board key as this device knows it: the session key of

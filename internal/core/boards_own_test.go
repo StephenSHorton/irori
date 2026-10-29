@@ -203,11 +203,22 @@ func TestShareAndWithdraw(t *testing.T) {
 	if len(p.Links) != 1 || !strings.HasPrefix(p.Links[0], "https://") || len(p.Dropped) == 0 || len(p.VisibleTo) != 1 {
 		t.Fatalf("preview links/dropped/visible %+v", p)
 	}
-	shared, err := c.ShareToBoard(ctx, priv.ID, id)
+	// What the person confirmed is what goes: an edit after the preview
+	// (an agent holding the card) is refused until it is previewed again.
+	if _, err := c.Coord().SetSteps(ctx, r.keyA, priv.ID, []coord.Step{{Text: "read /home/me/logs/a.txt"}, {Text: "fix it"}, {Text: "post the plan"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ShareToBoard(ctx, priv.ID, id, p.Hash); !errors.Is(err, ErrPreviewStale) {
+		t.Fatalf("a share of a card edited after its preview: %v", err)
+	}
+	if p, err = c.PreviewShare(priv.ID, id); err != nil || len(p.Steps) != 3 {
+		t.Fatalf("preview again %+v %v", p, err)
+	}
+	shared, err := c.ShareToBoard(ctx, priv.ID, id, p.Hash)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if shared.Title != p.Title || shared.ShortRef() != "mlg#1" || len(shared.Steps) != 2 {
+	if shared.Title != p.Title || shared.ShortRef() != "mlg#1" || len(shared.Steps) != 3 {
 		t.Fatalf("shared card %+v", shared)
 	}
 	if co, _ := c.BoardCoord(id); len(co.Comments(shared.ID)) != 0 {
@@ -220,7 +231,7 @@ func TestShareAndWithdraw(t *testing.T) {
 	if !errors.Is(err, ErrShared) || !strings.Contains(err.Error(), "mlg#1") || !strings.Contains(err.Error(), "visible to") {
 		t.Fatalf("a write to the private id: %v", err)
 	}
-	if _, err := c.ShareToBoard(ctx, priv.ID, id); err == nil {
+	if _, err := c.ShareToBoard(ctx, priv.ID, id, p.Hash); err == nil {
 		t.Fatal("a card was shared twice")
 	}
 	sc, ok := c.SharedCopyOf(priv.ID)

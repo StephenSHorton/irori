@@ -130,7 +130,7 @@ func TestBoardRefusesKinds(t *testing.T) {
 	sort.Strings(refused)
 	refused = append(refused, "future.kind")
 	for _, want := range []string{"message.sent", "capture.turn", "agent.seen", "policy.set", "person.device.added",
-		"task.shared", "node.addr", "ask.posted", "board.joined", "receive.set"} {
+		"task.shared", "node.addr", "ask.posted", "board.joined", "receive.set", "board.sharedcopy", "board.cardof"} {
 		found := false
 		for _, k := range refused {
 			found = found || k == want

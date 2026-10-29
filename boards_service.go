@@ -107,6 +107,15 @@ func (b *BoardService) privActivity(as []coord.Activity) []coord.Activity {
 	return out
 }
 
+// privKey is a board key as this device knows it (core.Core.PrivateKey);
+// a private key is unchanged.
+func (b *BoardService) privKey(k string) string {
+	if b.boards == nil {
+		return k
+	}
+	return b.boards.PrivateKey(k)
+}
+
 func mapKeys(in []string, k func(string) string) []string {
 	if in == nil {
 		return nil
@@ -219,9 +228,10 @@ func (s *BoardsService) SharePreview(taskID, boardID string) (core.SharePreview,
 }
 
 // Share writes the private card to the board as the preview showed, and
-// closes the private card; it returns the shared card's id.
-func (s *BoardsService) Share(taskID, boardID string) (string, error) {
-	t, err := s.c.ShareToBoard(context.Background(), strings.TrimSpace(taskID), boardID)
+// closes the private card; it returns the shared card's id. hash is the
+// confirmed preview's: a card that changed since is refused.
+func (s *BoardsService) Share(taskID, boardID, hash string) (string, error) {
+	t, err := s.c.ShareToBoard(context.Background(), strings.TrimSpace(taskID), boardID, hash)
 	if err != nil {
 		return "", err
 	}

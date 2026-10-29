@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/StephenSHorton/irori/internal/coord"
 )
@@ -33,4 +34,17 @@ func (b *BoardService) read(id string) *coord.Coord {
 		return b.coord
 	}
 	return co
+}
+
+// privateOnly is on for an action kept on the private board alone (pins):
+// a shared card is refused rather than written to its board.
+func (b *BoardService) privateOnly(ctx context.Context, id string) (*coord.Coord, []string, error) {
+	co, as, err := b.on(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	if co != b.coord {
+		return nil, nil, fmt.Errorf("%w: a card on a shared board isn't pinned", coord.ErrInvalid)
+	}
+	return co, as, nil
 }

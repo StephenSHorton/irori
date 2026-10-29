@@ -36,6 +36,12 @@ export class BoardSummary {
      */
     "ready": boolean;
 
+    /**
+     * TagClash: another board here has the same tag (two devices made
+     * one each while apart), so its refs need the card's task id.
+     */
+    "tagClash"?: boolean;
+
     /** Creates a new BoardSummary instance. */
     constructor($$source: Partial<BoardSummary> = {}) {
         if (!("boardId" in $$source)) {
@@ -100,6 +106,13 @@ export class SharePreview {
      */
     "dropped": string[];
 
+    /**
+     * Hash covers every field above. Share is given it back and refuses
+     * when the card's preview no longer matches, so the board gets only
+     * what the person saw (an agent may edit the card meanwhile).
+     */
+    "hash": string;
+
     /** Creates a new SharePreview instance. */
     constructor($$source: Partial<SharePreview> = {}) {
         if (!("boardId" in $$source)) {
@@ -131,6 +144,9 @@ export class SharePreview {
         }
         if (!("dropped" in $$source)) {
             this["dropped"] = [];
+        }
+        if (!("hash" in $$source)) {
+            this["hash"] = "";
         }
 
         Object.assign(this, $$source);

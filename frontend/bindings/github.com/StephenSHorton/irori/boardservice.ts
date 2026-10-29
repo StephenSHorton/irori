@@ -212,6 +212,10 @@ export function MovePin(id: string, before: string): $CancellablePromise<void> {
 /**
  * Pin pins (or with pinned false unpins) a card for the person: it shows
  * in the Pinned group above the grid, last among the pinned cards.
+ * 
+ * Pins live on the private board only (task.pinned never goes on a board,
+ * v0.5 §2.2), so a shared card isn't pinned, and a private card that was
+ * shared is refused like any other write to it (§5.2).
  */
 export function Pin(id: string, pinned: boolean): $CancellablePromise<void> {
     return $Call.ByID(728335652, id, pinned);

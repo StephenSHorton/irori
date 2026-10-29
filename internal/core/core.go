@@ -226,9 +226,6 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		c.Close()
 		return nil, fmt.Errorf("coord: %w", err)
 	}
-	// Shared boards (v0.5 §2.1): one log and one coord each. One that
-	// fails to open is logged; the private board works without it.
-	c.openBoards(ctx)
 	if c.capture, err = capture.New(ctx, st, c, capture.Options{
 		ClaudeDir: opts.ClaudeDir, DataDir: opts.DataDir, DeviceID: id.ID,
 		RepoKey: repos.Key, Scrub: c.scrubber,
@@ -280,6 +277,10 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	c.net = tr
 	c.mesh = mesh.New(mesh.Options{Store: st, Ident: ident, Chain: chain, Net: tr, Version: opts.Version,
 		Files: c.files, DataDir: opts.DataDir, Intervals: opts.NetIntervals, Now: opts.Now, Ignored: c.ignoredBy, Boards: c, Logf: log.Printf})
+	// Shared boards (v0.5 §2.1): one log and one coord each. One that
+	// fails to open is logged; the private board works without it. After
+	// the mesh exists: each board's follower kicks it as rows arrive.
+	c.openBoards(ctx)
 	// Pairing (v0.4 §3) opens its own room on the same transport, only
 	// while a window is open. Add is GUI only; the loopback API reaches
 	// only the joining side (api routes_pair.go, §3).

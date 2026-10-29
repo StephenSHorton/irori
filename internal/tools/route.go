@@ -24,6 +24,32 @@ type TaskRouter interface {
 	TaskRef(ref string) (string, error)
 }
 
+// BoardViewer is a Backend with shared boards to show (core.Core): the
+// Board on each, its keys as this device knows them, so an agent assigned
+// a shared card sees it in board and overview like any other (§2.1).
+type BoardViewer interface {
+	BoardViews(f coord.BoardFilter) []coord.BoardView
+}
+
+// withBoards adds each shared board's view of f to v (the private one's):
+// their cards after the private ones in every group.
+func (s *set) withBoards(v coord.BoardView, f coord.BoardFilter) coord.BoardView {
+	bv, ok := s.b.(BoardViewer)
+	if !ok {
+		return v
+	}
+	for _, o := range bv.BoardViews(f) {
+		v.NeedsYou = append(v.NeedsYou, o.NeedsYou...)
+		v.Blocked = append(v.Blocked, o.Blocked...)
+		v.Working = append(v.Working, o.Working...)
+		v.Open = append(v.Open, o.Open...)
+		v.Done = append(v.Done, o.Done...)
+		v.DoneTotal += o.DoneTotal
+		v.Leases = append(v.Leases, o.Leases...)
+	}
+	return v
+}
+
 // taskRef resolves ref across the logs this Backend holds.
 func (s *set) taskRef(ref string) (string, error) {
 	if r, ok := s.b.(TaskRouter); ok {

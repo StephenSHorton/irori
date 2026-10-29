@@ -74,23 +74,30 @@ const (
 	KindBoardForgot = "board.forgot"
 	KindReceiveSet  = "receive.set"
 	KindAutonomySet = "autonomy.set"
+	// KindSharedCopy: {privateTaskId, boardId, taskId}: a private card
+	// shared to a board (§5.2's shared_copies), so the private card shows
+	// "Shared to mlg as mlg#4" and writes to its id are refused on every
+	// device of the person, wherever its holders are. It names private ids
+	// and a boardId only.
+	KindSharedCopy = "board.sharedcopy"
+	// KindBoardCardOf: {boardId, cardId, agentKey}: which of the person's
+	// sessions a board's agent card is (§2.4's board_cards), so any of the
+	// person's devices can put an agent on a board and route a notice
+	// about its card to its inbox.
+	KindBoardCardOf = "board.cardof"
 )
 
-// Device-local rows of the private store for step 4's boards (§4.6, §5.2).
+// Device-local rows of the private store for step 4's boards (§4.6).
 const (
 	// KindBoardForgotten: {boardId, upTo}: this device forgot the board
 	// (§4.6's forgotten list), so a board.joined at or below upTo (an HLC)
 	// arriving from another device doesn't bring it back.
 	KindBoardForgotten = "board.forgotten"
-	// KindSharedCopy: {privateTaskId, boardId, taskId}: a private card
-	// shared to a board (§5.2's shared_copies), so the private card shows
-	// "Shared to mlg as mlg#4" and writes to its id are refused.
-	KindSharedCopy = "board.sharedcopy"
 )
 
-// KindBoardCardKey: {cardId, agentKey}: which local session a board's agent
-// card is (§2.4's device-local board_cards). It lives in the board store's
-// local_events, so it never leaves the device.
+// KindBoardCardKey: {cardId, agentKey}: board_cards as a board store's
+// local_events row, from before KindBoardCardOf. Still read, no longer
+// written.
 const KindBoardCardKey = "board.cardkey"
 
 // KindBoardPin: {personId, personPub, rootDeviceId, personEpoch}: the
@@ -164,7 +171,8 @@ var kindSides = map[string]Side{
 	KindMemberDeviceRevoked: Replicated, KindMemberKeyRotated: Replicated, KindAgentCard: Replicated,
 	KindReviewRequested: Replicated, KindReviewReviewer: Replicated,
 	KindBoardJoined: Replicated, KindBoardForgot: Replicated, KindReceiveSet: Replicated, KindAutonomySet: Replicated,
-	KindBoardCardKey: Local, KindBoardPin: Local, KindBoardForgotten: Local, KindSharedCopy: Local,
+	KindSharedCopy: Replicated, KindBoardCardOf: Replicated,
+	KindBoardCardKey: Local, KindBoardPin: Local, KindBoardForgotten: Local,
 }
 
 // KindSide reports kind's side.

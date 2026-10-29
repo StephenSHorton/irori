@@ -62,10 +62,11 @@ export function Rename(boardID: string, name: string): $CancellablePromise<core$
 
 /**
  * Share writes the private card to the board as the preview showed, and
- * closes the private card; it returns the shared card's id.
+ * closes the private card; it returns the shared card's id. hash is the
+ * confirmed preview's: a card that changed since is refused.
  */
-export function Share(taskID: string, boardID: string): $CancellablePromise<string> {
-    return $Call.ByID(1683999123, taskID, boardID);
+export function Share(taskID: string, boardID: string, hash: string): $CancellablePromise<string> {
+    return $Call.ByID(1683999123, taskID, boardID, hash);
 }
 
 /**

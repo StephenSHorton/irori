@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -90,15 +92,29 @@ func (c *Core) BoardStore(id string) *store.Store {
 }
 
 // followOwnBoards opens and forgets boards as the private log's
-// board.joined and board.forgot rows arrive, and loads this device's
-// shared copies.
+// board.joined and board.forgot rows arrive, and keeps the person's shared
+// copies and board cards current as they arrive from any of the person's
+// devices.
 func (c *Core) followOwnBoards(ctx context.Context) {
 	sub := c.store.Subscribe(ctx)
 	c.loadCopies(ctx)
 	c.reconcileBoards(ctx)
 	for ev := range sub {
-		if ev.Seq == 0 || ev.Kind == store.KindBoardJoined || ev.Kind == store.KindBoardForgot {
+		switch {
+		case ev.Seq == 0:
+			c.loadCopies(ctx)
 			c.reconcileBoards(ctx)
+			for _, id := range c.Boards() {
+				if b, err := c.board(id); err == nil {
+					_ = b.load(ctx, c.store)
+				}
+			}
+		case ev.Kind == store.KindBoardJoined || ev.Kind == store.KindBoardForgot:
+			c.reconcileBoards(ctx)
+		case ev.Kind == store.KindSharedCopy:
+			c.foldCopy(ev)
+		case ev.Kind == store.KindBoardCardOf:
+			c.foldCardKey(ev)
 		}
 	}
 }
@@ -245,6 +261,15 @@ func (c *Core) forgetBoard(ctx context.Context, id string, upTo uint64) error {
 	if _, err := c.store.AppendLocal(ctx, "irori", store.KindBoardForgotten, forgottenRow{BoardID: id, UpTo: upTo}); err != nil {
 		return err
 	}
+	err := c.removeBoard(id)
+	c.boardsMoved()
+	return err
+}
+
+// removeBoard closes board id and deletes its files: forgetting it, or a
+// board whose creation failed half way, which must not open again as a
+// nameless board at the next start.
+func (c *Core) removeBoard(id string) error {
 	c.dropBoard(id)
 	dir := filepath.Join(c.opts.DataDir, BoardsDir)
 	var errs []error
@@ -253,7 +278,6 @@ func (c *Core) forgetBoard(ctx context.Context, id string, upTo uint64) error {
 			errs = append(errs, err)
 		}
 	}
-	c.boardsMoved()
 	return errors.Join(errs...)
 }
 
@@ -340,6 +364,9 @@ type BoardSummary struct {
 	// Ready: its board.created counted here, so cards can go on it. A
 	// board another device made shows up before its rows arrive.
 	Ready bool `json:"ready"`
+	// TagClash: another board here has the same tag (two devices made
+	// one each while apart), so its refs need the card's task id.
+	TagClash bool `json:"tagClash,omitempty"`
 }
 
 // BoardList is every board on this device, by name.
@@ -367,6 +394,15 @@ func (c *Core) BoardList() []BoardSummary {
 			}
 		}
 		out = append(out, s)
+	}
+	tags := map[string]int{}
+	for _, s := range out {
+		if s.Tag != "" {
+			tags[s.Tag]++
+		}
+	}
+	for i := range out {
+		out[i].TagClash = tags[out[i].Tag] > 1
 	}
 	sort.SliceStable(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
 	return out
@@ -434,14 +470,17 @@ func (c *Core) BoardOf(taskID string) (BoardSummary, bool) {
 	return BoardSummary{}, false
 }
 
-// boardByTag is the open board tagged tag.
-func (c *Core) boardByTag(tag string) (*boardLog, bool) {
+// boardsByTag are the open boards tagged tag. CreateBoard keeps a tag to
+// one of the person's boards, but two devices apart can each make one, so
+// there may be more than one.
+func (c *Core) boardsByTag(tag string) []*boardLog {
+	var out []*boardLog
 	for _, id := range c.Boards() {
 		if b, err := c.board(id); err == nil && b.verifier.Membership().Tag == tag {
-			return b, true
+			out = append(out, b)
 		}
 	}
-	return nil, false
+	return out
 }
 
 // TaskRef resolves what someone typed for a card across every log this
@@ -457,17 +496,26 @@ func (c *Core) TaskRef(ref string) (string, error) {
 	if !ok {
 		return c.coord.TaskRef(ref)
 	}
+	var coords []*coord.Coord
 	if tag != "" {
-		b, ok := c.boardByTag(tag)
-		if !ok {
+		// A tag two boards share (made on two devices apart) names a card
+		// only when one of them has it, like a bare number (B3).
+		tagged := c.boardsByTag(tag)
+		switch len(tagged) {
+		case 0:
 			return "", fmt.Errorf("%w: no board here is tagged %q", coord.ErrNotFound, tag)
+		case 1:
+			return tagged[0].coord.TaskRef(v)
 		}
-		return b.coord.TaskRef(v)
-	}
-	coords := []*coord.Coord{c.coord}
-	for _, id := range c.Boards() {
-		if b, err := c.board(id); err == nil {
+		for _, b := range tagged {
 			coords = append(coords, b.coord)
+		}
+	} else {
+		coords = append(coords, c.coord)
+		for _, id := range c.Boards() {
+			if b, err := c.board(id); err == nil {
+				coords = append(coords, b.coord)
+			}
 		}
 	}
 	var hits []coord.Task
@@ -485,6 +533,9 @@ func (c *Core) TaskRef(ref string) (string, error) {
 	}
 	switch len(hits) {
 	case 0:
+		if tag != "" {
+			return "", fmt.Errorf("%w: no card %s on the boards tagged %q", coord.ErrNotFound, v, tag)
+		}
 		return c.coord.TaskRef(ref)
 	case 1:
 		return hits[0].ID, nil
@@ -492,6 +543,9 @@ func (c *Core) TaskRef(ref string) (string, error) {
 	names := make([]string, 0, len(hits))
 	for _, t := range hits {
 		names = append(names, fmt.Sprintf("%s %q (task:%s)", t.ShortRef(), oneLine(t.Title, 60), t.ID))
+	}
+	if tag != "" {
+		return "", fmt.Errorf("%w: more than one board here is tagged %q, and each has %s: %s; say which by its task id", coord.ErrAmbiguous, tag, v, strings.Join(names, ", "))
 	}
 	return "", fmt.Errorf("%w: #%s is on more than one board here: %s; say which", coord.ErrAmbiguous, strings.TrimPrefix(v, "#"), strings.Join(names, ", "))
 }
@@ -504,23 +558,31 @@ func oneLine(s string, n int) string {
 	return s
 }
 
-// loadCopies reads this device's shared_copies rows.
+// loadCopies reads the person's shared_copies rows: the private ones every
+// device of the person holds, and this device's local ones from before
+// they replicated.
 func (c *Core) loadCopies(ctx context.Context) {
-	copies := map[string]sharedCopy{}
-	_ = c.eachRow(ctx, store.Filter{Kinds: []string{store.KindSharedCopy}, Local: true}, func(ev store.Event) {
-		var r sharedCopy
-		if json.Unmarshal(ev.Payload, &r) == nil && r.PrivateTaskID != "" {
-			copies[r.PrivateTaskID] = r
-		}
-	})
+	var rows []store.Event
+	collect := func(ev store.Event) { rows = append(rows, ev) }
+	_ = c.eachRow(ctx, store.Filter{Kinds: []string{store.KindSharedCopy}, Local: true}, collect)
+	_ = c.eachRow(ctx, store.Filter{Kinds: []string{store.KindSharedCopy}}, collect)
+	for _, ev := range rows {
+		c.foldCopy(ev)
+	}
+}
+
+// foldCopy folds one shared_copies row.
+func (c *Core) foldCopy(ev store.Event) {
+	var r sharedCopy
+	if json.Unmarshal(ev.Payload, &r) != nil || r.PrivateTaskID == "" || r.TaskID == "" {
+		return
+	}
 	c.boards.mu.Lock()
 	defer c.boards.mu.Unlock()
 	if c.boards.copies == nil {
 		c.boards.copies = map[string]sharedCopy{}
 	}
-	for k, v := range copies {
-		c.boards.copies[k] = v
-	}
+	c.boards.copies[r.PrivateTaskID] = r
 }
 
 // SharedCopy is where a private card was shared to, when it was: the
@@ -533,7 +595,10 @@ type SharedCopy struct {
 	Withdrawn bool   `json:"withdrawn,omitempty"`
 }
 
-// SharedCopyOf reports where private card taskID was shared to.
+// SharedCopyOf reports where private card taskID was shared to, while that
+// board is open on this device: a forgotten board's copy is no longer
+// anywhere the person can reach, so the private card is theirs again (it
+// can be reopened and shared anew).
 func (c *Core) SharedCopyOf(taskID string) (SharedCopy, bool) {
 	c.boards.mu.Lock()
 	sc, ok := c.boards.copies[taskID]
@@ -541,12 +606,13 @@ func (c *Core) SharedCopyOf(taskID string) (SharedCopy, bool) {
 	if !ok {
 		return SharedCopy{}, false
 	}
-	out := SharedCopy{BoardID: sc.BoardID, TaskID: sc.TaskID, Ref: "task:" + sc.TaskID}
-	if b, err := c.board(sc.BoardID); err == nil {
-		out.BoardName = b.verifier.Membership().Name
-		if t, ok := b.coord.GetTask(sc.TaskID); ok {
-			out.Ref, out.Withdrawn = t.ShortRef(), t.Withdrawn
-		}
+	b, err := c.board(sc.BoardID)
+	if err != nil {
+		return SharedCopy{}, false
+	}
+	out := SharedCopy{BoardID: sc.BoardID, TaskID: sc.TaskID, Ref: "task:" + sc.TaskID, BoardName: b.verifier.Membership().Name}
+	if t, ok := b.coord.GetTask(sc.TaskID); ok {
+		out.Ref, out.Withdrawn = t.ShortRef(), t.Withdrawn
 	}
 	return out, true
 }
@@ -560,7 +626,7 @@ func (c *Core) sharedRefusal(taskID string) error {
 	}
 	b, err := c.board(sc.BoardID)
 	if err != nil {
-		return nil // the board is gone from this device: nothing to refuse for
+		return nil // the board went from this device just now
 	}
 	return fmt.Errorf("%w: it was shared to %s as %s (visible to: %s), and this private card is closed; write to %s instead",
 		ErrShared, cmpOr(sc.BoardName, "a board"), sc.Ref, strings.Join(c.boardPeople(b), ", "), sc.Ref)
@@ -581,6 +647,21 @@ type SharePreview struct {
 	// Dropped says what scrub took out, one line each ("a path in the
 	// goal"), so the person sees why the text differs.
 	Dropped []string `json:"dropped"`
+	// Hash covers every field above. Share is given it back and refuses
+	// when the card's preview no longer matches, so the board gets only
+	// what the person saw (an agent may edit the card meanwhile).
+	Hash string `json:"hash"`
+}
+
+// ErrPreviewStale: the card changed between its share preview and the
+// person's confirm.
+var ErrPreviewStale = errors.New("core: the card changed since its preview")
+
+func (p SharePreview) hash() string {
+	p.Hash = ""
+	raw, _ := json.Marshal(p)
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
 }
 
 // shareable is the private card taskID, if it can be shared.
@@ -651,6 +732,7 @@ func (c *Core) PreviewShare(taskID, boardID string) (SharePreview, error) {
 		p.Repo = t.RepoKey
 	}
 	p.Dropped = dedupe(p.Dropped)
+	p.Hash = p.hash()
 	return p, nil
 }
 
@@ -671,10 +753,17 @@ func dedupe(in []string) []string {
 // shared_copies row, and the private card closed with a note naming the
 // shared copy. Its comments, notes and blockers stay private. The window
 // shows the preview first (PreviewShare).
-func (c *Core) ShareToBoard(ctx context.Context, taskID, boardID string) (coord.Task, error) {
+//
+// confirmed is the Hash of the preview the person confirmed: the preview is
+// made again here, and a card that changed since is refused with
+// ErrPreviewStale rather than written as nobody saw it.
+func (c *Core) ShareToBoard(ctx context.Context, taskID, boardID, confirmed string) (coord.Task, error) {
 	p, err := c.PreviewShare(taskID, boardID)
 	if err != nil {
 		return coord.Task{}, err
+	}
+	if confirmed == "" || confirmed != p.Hash {
+		return coord.Task{}, fmt.Errorf("%w: look at the preview again before sharing", ErrPreviewStale)
 	}
 	b, err := c.board(boardID)
 	if err != nil {
@@ -699,7 +788,7 @@ func (c *Core) ShareToBoard(ctx context.Context, taskID, boardID string) (coord.
 	c.boards.taskOf[shared.ID] = boardID
 	c.boards.mu.Unlock()
 	row := sharedCopy{PrivateTaskID: taskID, BoardID: boardID, TaskID: shared.ID}
-	if _, err := c.store.AppendLocal(ctx, "irori", store.KindSharedCopy, row); err != nil {
+	if _, err := c.store.Append(ctx, "irori", store.KindSharedCopy, row); err != nil {
 		return shared, err
 	}
 	c.boards.mu.Lock()
@@ -782,6 +871,89 @@ func (c *Core) WithdrawCard(ctx context.Context, taskID string) (coord.Task, err
 		c.tellNotices(ctx, n)
 	}
 	return nt, nil
+}
+
+// knownKey is key as board b knows it, without minting a card: the
+// person's person: key for the person here, an agent's card when it has
+// one on b, else "" (it is on no card of b, so nothing there is its).
+func (c *Core) knownKey(b *boardLog, key string) string {
+	switch {
+	case key == "":
+		return ""
+	case c.chain.IsOwner(key):
+		return store.PersonActorPrefix + c.chain.PersonID()
+	case strings.HasPrefix(key, store.PersonActorPrefix) || strings.HasPrefix(key, store.AgentActorPrefix):
+		return key
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if id := b.keys[strings.TrimPrefix(key, "api:")]; id != "" {
+		return store.AgentActorPrefix + id
+	}
+	return ""
+}
+
+// PrivateTask is a board card with its board keys as this device knows
+// them (PrivateKey): the person's person:<id> is the person here, the
+// person's agents' cards are their sessions.
+func (c *Core) PrivateTask(t coord.Task) coord.Task {
+	k := c.PrivateKey
+	t.CreatedBy, t.UpdatedBy, t.Holder = k(t.CreatedBy), k(t.UpdatedBy), k(t.Holder)
+	mapIn := func(in []string) []string {
+		if in == nil {
+			return nil
+		}
+		out := make([]string, len(in))
+		for i, s := range in {
+			out[i] = k(s)
+		}
+		return out
+	}
+	t.Holders, t.Assigned, t.Watchers = mapIn(t.Holders), mapIn(t.Assigned), mapIn(t.Watchers)
+	return t
+}
+
+// BoardViews is f's Board on every ready board this device holds (§2.1:
+// tools see shared cards as the window does), viewer's keys as each board
+// knows them and every key in the result as this device knows it. A viewer
+// on no card of a board gets that board's view with nothing for it (For
+// set to no one), so a shared card it never touched doesn't need it.
+func (c *Core) BoardViews(f coord.BoardFilter) []coord.BoardView {
+	var out []coord.BoardView
+	for _, id := range c.Boards() {
+		b, err := c.board(id)
+		if err != nil || !b.verifier.Membership().Created {
+			continue
+		}
+		bf := f
+		if f.For != "" {
+			if bf.For = c.knownKey(b, f.For); bf.For == "" {
+				bf.For = store.AgentActorPrefix + "-" // no card: nobody
+			}
+		}
+		v := b.coord.Board(bf)
+		for _, lane := range []*[]coord.Card{&v.NeedsYou, &v.Blocked, &v.Working, &v.Open, &v.Done} {
+			kept := (*lane)[:0]
+			for _, card := range *lane {
+				if card.Withdrawn {
+					continue
+				}
+				card.Task = c.PrivateTask(card.Task)
+				if card.LastComment != nil {
+					lc := *card.LastComment
+					lc.By = c.PrivateKey(lc.By)
+					card.LastComment = &lc
+				}
+				kept = append(kept, card)
+			}
+			*lane = kept
+		}
+		for i := range v.Leases {
+			v.Leases[i].Holder = c.PrivateKey(v.Leases[i].Holder)
+		}
+		out = append(out, v)
+	}
+	return out
 }
 
 // tellNotices routes a coord notice from the person at its next turn.

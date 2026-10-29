@@ -181,7 +181,6 @@ export function CardPage({
         <ProgressStrip detail={detail} spinning={spinning} />
       )}
       {over(detail) &&
-        !detail.onBoard && // a closed board card isn't reopened from here yet
         (detail.sharedTo && !detail.sharedTo.withdrawn ? (
           <SharedToBar detail={detail} onOpen={onOpen} />
         ) : (
@@ -520,7 +519,8 @@ function PageHeader({
             {shortRepo(card.repoKey)}
           </span>
         )}
-        <PinButton card={card} />
+        {/* Pins are private-board rows; a shared card isn't pinned. */}
+        {card.scope === "board" ? <span className="ml-auto" /> : <PinButton card={card} />}
         {extra}
       </div>
       <h1 className="text-2xl leading-tight font-semibold tracking-tight text-balance text-ink">

@@ -39,6 +39,9 @@ export function ShareButton({
   const [got, setGot] = useState<{ board: string; preview?: SharePreview; error?: string } | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // again bumps after a refused share, so the preview is made afresh and
+  // the person confirms what the card says now.
+  const [again, setAgain] = useState(0)
   const pick = board || ready[0]?.boardId || ""
   const preview = got?.board === pick ? (got.preview ?? null) : null
   const error = failed ?? (got?.board === pick ? (got.error ?? null) : null)
@@ -53,18 +56,20 @@ export function ShareButton({
     return () => {
       live = false
     }
-  }, [open, pick, cardId])
+  }, [open, pick, cardId, again])
 
   if (!ready.length) return null
   const share = async () => {
+    if (!preview) return
     setBusy(true)
     setFailed(null)
     try {
-      const id = await actions.share(cardId, pick)
+      const id = await actions.share(cardId, pick, preview.hash)
       setOpen(false)
       onShared(id)
     } catch (err) {
       setFailed(errorText(err))
+      setAgain((n) => n + 1)
     } finally {
       setBusy(false)
     }
