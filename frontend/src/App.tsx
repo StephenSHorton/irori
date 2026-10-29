@@ -7,6 +7,7 @@ import { MessageDialog } from "@/components/cards/message-dialog"
 import { AskBox } from "@/components/cards/ask-box"
 import {
   asFilter,
+  BoardBar,
   CardGrid,
   DoneGrid,
   EmptyCards,
@@ -25,6 +26,7 @@ import {
   useCards,
   useDoneCards,
 } from "@/lib/cards"
+import { useBoards } from "@/lib/boards"
 import { useNow, useRoster } from "@/lib/irori"
 import { previewFlag } from "@/lib/preview"
 import { onOpen } from "@/lib/settings"
@@ -73,6 +75,7 @@ export function App() {
   const roster = useRoster()
   const { gone } = useGone()
   const { cards, loading, error } = useCards()
+  const { boards } = useBoards()
   const now = useNow()
   // ?filter=done in the browser preview starts on that filter.
   const [filter, setFilter] = useState<Filter>(() =>
@@ -247,9 +250,11 @@ export function App() {
   )
 
   const chips = deviceChips(cards)
-  // A device filter whose device has no cards left falls back to All.
+  // A device filter whose device has no cards left, or a board filter whose
+  // board is gone, falls back to All.
   const active: Filter =
-    filter.startsWith("device:") && !chips.some((d) => filter === `device:${d.id}`)
+    (filter.startsWith("device:") && !chips.some((d) => filter === `device:${d.id}`)) ||
+    (filter.startsWith("board:") && !boards.some((b) => filter === `board:${b.boardId}`))
       ? "all"
       : filter
   const { shown, context } = shownCards(cards, active)
@@ -266,7 +271,7 @@ export function App() {
     const id = ref.slice("task:".length)
     const c =
       cards.find((x) => x.id === id) ?? done.cards.find((x) => x.id === id)
-    return c?.short ? `#${c.short}` : "a card"
+    return c?.short ? `${c.tag ?? ""}#${c.short}` : "a card"
   }
 
   return (
@@ -325,6 +330,7 @@ export function App() {
                 decide={decide}
               />
               <DeviceBar filter={active} onFilter={setFilter} devices={chips} />
+              <BoardBar filter={active} onFilter={setFilter} boards={boards} />
             </div>
             {filter === "done" ? (
               <DoneGrid

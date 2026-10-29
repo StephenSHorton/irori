@@ -241,6 +241,10 @@ func (n *Node) readBlob(ctx context.Context, conn Conn, ref blob.FileRef, off in
 // unrevoked devices are served, and only blob streams.
 func (n *Node) serveStream(peer, label string, st io.ReadWriteCloser) {
 	defer st.Close()
+	if strings.HasPrefix(label, BoardLabelPrefix) {
+		n.serveBoard(peer, label, st)
+		return
+	}
 	if !strings.HasPrefix(label, BlobLabelPrefix) || n.o.Files == nil || !n.certified(peer) {
 		return
 	}

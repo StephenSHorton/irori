@@ -13,6 +13,9 @@ import * as blob$0 from "./internal/blob/models.js";
 import * as coord$0 from "./internal/coord/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as core$0 from "./internal/core/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as presence$0 from "./internal/presence/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -570,6 +573,54 @@ export class CardBlocker {
 }
 
 /**
+ * CardBoard is where a shared card lives, on its page (§8).
+ */
+export class CardBoard {
+    "id": string;
+    "name": string;
+    "tag": string;
+    "visibleTo": string[];
+
+    /**
+     * CanWithdraw: this person is its creator or a board owner (§5.3).
+     */
+    "canWithdraw": boolean;
+
+    /** Creates a new CardBoard instance. */
+    constructor($$source: Partial<CardBoard> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("tag" in $$source)) {
+            this["tag"] = "";
+        }
+        if (!("visibleTo" in $$source)) {
+            this["visibleTo"] = [];
+        }
+        if (!("canWithdraw" in $$source)) {
+            this["canWithdraw"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CardBoard instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CardBoard {
+        const $$createField3_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("visibleTo" in $$parsedSource) {
+            $$parsedSource["visibleTo"] = $$createField3_0($$parsedSource["visibleTo"]);
+        }
+        return new CardBoard($$parsedSource as Partial<CardBoard>);
+    }
+}
+
+/**
  * CardDetail is one card opened beside the grid.
  */
 export class CardDetail {
@@ -587,14 +638,21 @@ export class CardDetail {
     "repoKey": string;
 
     /**
-     * ScopeMine
+     * ScopeMine, or ScopeBoard
      */
     "scope": string;
 
     /**
-     * "My devices"
+     * "My devices", or the board's name
      */
     "scopeLabel": string;
+
+    /**
+     * Board is a shared card's boardId and Tag its board's short handle,
+     * so its ref reads "mlg#4" (v0.5 §2.5, §8); both "" on the private board.
+     */
+    "board"?: string;
+    "tag"?: string;
     "progress": CardProgress;
 
     /**
@@ -710,6 +768,13 @@ export class CardDetail {
      */
     "subtaskList": CardSubtask[];
 
+    /**
+     * OnBoard is the shared board a card lives on ("Visible to: …",
+     * Withdraw); SharedTo is where a private card was shared to (v0.5 §8).
+     */
+    "onBoard"?: CardBoard | null;
+    "sharedTo"?: core$0.SharedCopy | null;
+
     /** Creates a new CardDetail instance. */
     constructor($$source: Partial<CardDetail> = {}) {
         if (!("id" in $$source)) {
@@ -813,74 +878,82 @@ export class CardDetail {
      * Creates a new CardDetail instance from a string or object.
      */
     static createFrom($$source: any = {}): CardDetail {
-        const $$createField8_0 = $$createType17;
-        const $$createField12_0 = $$createType18;
-        const $$createField13_0 = $$createType18;
-        const $$createField14_0 = $$createType19;
-        const $$createField16_0 = $$createType4;
-        const $$createField18_0 = $$createType2;
-        const $$createField20_0 = $$createType18;
-        const $$createField21_0 = $$createType21;
-        const $$createField22_0 = $$createType23;
-        const $$createField30_0 = $$createType25;
-        const $$createField31_0 = $$createType27;
-        const $$createField32_0 = $$createType29;
-        const $$createField33_0 = $$createType12;
-        const $$createField34_0 = $$createType31;
-        const $$createField35_0 = $$createType33;
-        const $$createField36_0 = $$createType16;
-        const $$createField39_0 = $$createType35;
+        const $$createField10_0 = $$createType17;
+        const $$createField14_0 = $$createType18;
+        const $$createField15_0 = $$createType18;
+        const $$createField16_0 = $$createType19;
+        const $$createField18_0 = $$createType4;
+        const $$createField20_0 = $$createType2;
+        const $$createField22_0 = $$createType18;
+        const $$createField23_0 = $$createType21;
+        const $$createField24_0 = $$createType23;
+        const $$createField32_0 = $$createType25;
+        const $$createField33_0 = $$createType27;
+        const $$createField34_0 = $$createType29;
+        const $$createField35_0 = $$createType12;
+        const $$createField36_0 = $$createType31;
+        const $$createField37_0 = $$createType33;
+        const $$createField38_0 = $$createType16;
+        const $$createField41_0 = $$createType35;
+        const $$createField42_0 = $$createType37;
+        const $$createField43_0 = $$createType39;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("progress" in $$parsedSource) {
-            $$parsedSource["progress"] = $$createField8_0($$parsedSource["progress"]);
+            $$parsedSource["progress"] = $$createField10_0($$parsedSource["progress"]);
         }
         if ("working" in $$parsedSource) {
-            $$parsedSource["working"] = $$createField12_0($$parsedSource["working"]);
+            $$parsedSource["working"] = $$createField14_0($$parsedSource["working"]);
         }
         if ("watching" in $$parsedSource) {
-            $$parsedSource["watching"] = $$createField13_0($$parsedSource["watching"]);
+            $$parsedSource["watching"] = $$createField15_0($$parsedSource["watching"]);
         }
         if ("holder" in $$parsedSource) {
-            $$parsedSource["holder"] = $$createField14_0($$parsedSource["holder"]);
+            $$parsedSource["holder"] = $$createField16_0($$parsedSource["holder"]);
         }
         if ("returned" in $$parsedSource) {
-            $$parsedSource["returned"] = $$createField16_0($$parsedSource["returned"]);
+            $$parsedSource["returned"] = $$createField18_0($$parsedSource["returned"]);
         }
         if ("devices" in $$parsedSource) {
-            $$parsedSource["devices"] = $$createField18_0($$parsedSource["devices"]);
+            $$parsedSource["devices"] = $$createField20_0($$parsedSource["devices"]);
         }
         if ("talking" in $$parsedSource) {
-            $$parsedSource["talking"] = $$createField20_0($$parsedSource["talking"]);
+            $$parsedSource["talking"] = $$createField22_0($$parsedSource["talking"]);
         }
         if ("ask" in $$parsedSource) {
-            $$parsedSource["ask"] = $$createField21_0($$parsedSource["ask"]);
+            $$parsedSource["ask"] = $$createField23_0($$parsedSource["ask"]);
         }
         if ("parent" in $$parsedSource) {
-            $$parsedSource["parent"] = $$createField22_0($$parsedSource["parent"]);
+            $$parsedSource["parent"] = $$createField24_0($$parsedSource["parent"]);
         }
         if ("steps" in $$parsedSource) {
-            $$parsedSource["steps"] = $$createField30_0($$parsedSource["steps"]);
+            $$parsedSource["steps"] = $$createField32_0($$parsedSource["steps"]);
         }
         if ("blockers" in $$parsedSource) {
-            $$parsedSource["blockers"] = $$createField31_0($$parsedSource["blockers"]);
+            $$parsedSource["blockers"] = $$createField33_0($$parsedSource["blockers"]);
         }
         if ("prs" in $$parsedSource) {
-            $$parsedSource["prs"] = $$createField32_0($$parsedSource["prs"]);
+            $$parsedSource["prs"] = $$createField34_0($$parsedSource["prs"]);
         }
         if ("links" in $$parsedSource) {
-            $$parsedSource["links"] = $$createField33_0($$parsedSource["links"]);
+            $$parsedSource["links"] = $$createField35_0($$parsedSource["links"]);
         }
         if ("recent" in $$parsedSource) {
-            $$parsedSource["recent"] = $$createField34_0($$parsedSource["recent"]);
+            $$parsedSource["recent"] = $$createField36_0($$parsedSource["recent"]);
         }
         if ("comments" in $$parsedSource) {
-            $$parsedSource["comments"] = $$createField35_0($$parsedSource["comments"]);
+            $$parsedSource["comments"] = $$createField37_0($$parsedSource["comments"]);
         }
         if ("thread" in $$parsedSource) {
-            $$parsedSource["thread"] = $$createField36_0($$parsedSource["thread"]);
+            $$parsedSource["thread"] = $$createField38_0($$parsedSource["thread"]);
         }
         if ("subtaskList" in $$parsedSource) {
-            $$parsedSource["subtaskList"] = $$createField39_0($$parsedSource["subtaskList"]);
+            $$parsedSource["subtaskList"] = $$createField41_0($$parsedSource["subtaskList"]);
+        }
+        if ("onBoard" in $$parsedSource) {
+            $$parsedSource["onBoard"] = $$createField42_0($$parsedSource["onBoard"]);
+        }
+        if ("sharedTo" in $$parsedSource) {
+            $$parsedSource["sharedTo"] = $$createField43_0($$parsedSource["sharedTo"]);
         }
         return new CardDetail($$parsedSource as Partial<CardDetail>);
     }
@@ -1004,7 +1077,7 @@ export class CardOption {
      */
     static createFrom($$source: any = {}): CardOption {
         const $$createField2_0 = $$createType3;
-        const $$createField5_0 = $$createType36;
+        const $$createField5_0 = $$createType40;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("by" in $$parsedSource) {
             $$parsedSource["by"] = $$createField2_0($$parsedSource["by"]);
@@ -1282,14 +1355,21 @@ export class CardSummary {
     "repoKey": string;
 
     /**
-     * ScopeMine
+     * ScopeMine, or ScopeBoard
      */
     "scope": string;
 
     /**
-     * "My devices"
+     * "My devices", or the board's name
      */
     "scopeLabel": string;
+
+    /**
+     * Board is a shared card's boardId and Tag its board's short handle,
+     * so its ref reads "mlg#4" (v0.5 §2.5, §8); both "" on the private board.
+     */
+    "board"?: string;
+    "tag"?: string;
     "progress": CardProgress;
 
     /**
@@ -1429,42 +1509,42 @@ export class CardSummary {
      * Creates a new CardSummary instance from a string or object.
      */
     static createFrom($$source: any = {}): CardSummary {
-        const $$createField8_0 = $$createType17;
-        const $$createField12_0 = $$createType18;
-        const $$createField13_0 = $$createType18;
-        const $$createField14_0 = $$createType19;
-        const $$createField16_0 = $$createType4;
-        const $$createField18_0 = $$createType2;
-        const $$createField20_0 = $$createType18;
-        const $$createField21_0 = $$createType21;
-        const $$createField22_0 = $$createType23;
+        const $$createField10_0 = $$createType17;
+        const $$createField14_0 = $$createType18;
+        const $$createField15_0 = $$createType18;
+        const $$createField16_0 = $$createType19;
+        const $$createField18_0 = $$createType4;
+        const $$createField20_0 = $$createType2;
+        const $$createField22_0 = $$createType18;
+        const $$createField23_0 = $$createType21;
+        const $$createField24_0 = $$createType23;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("progress" in $$parsedSource) {
-            $$parsedSource["progress"] = $$createField8_0($$parsedSource["progress"]);
+            $$parsedSource["progress"] = $$createField10_0($$parsedSource["progress"]);
         }
         if ("working" in $$parsedSource) {
-            $$parsedSource["working"] = $$createField12_0($$parsedSource["working"]);
+            $$parsedSource["working"] = $$createField14_0($$parsedSource["working"]);
         }
         if ("watching" in $$parsedSource) {
-            $$parsedSource["watching"] = $$createField13_0($$parsedSource["watching"]);
+            $$parsedSource["watching"] = $$createField15_0($$parsedSource["watching"]);
         }
         if ("holder" in $$parsedSource) {
-            $$parsedSource["holder"] = $$createField14_0($$parsedSource["holder"]);
+            $$parsedSource["holder"] = $$createField16_0($$parsedSource["holder"]);
         }
         if ("returned" in $$parsedSource) {
-            $$parsedSource["returned"] = $$createField16_0($$parsedSource["returned"]);
+            $$parsedSource["returned"] = $$createField18_0($$parsedSource["returned"]);
         }
         if ("devices" in $$parsedSource) {
-            $$parsedSource["devices"] = $$createField18_0($$parsedSource["devices"]);
+            $$parsedSource["devices"] = $$createField20_0($$parsedSource["devices"]);
         }
         if ("talking" in $$parsedSource) {
-            $$parsedSource["talking"] = $$createField20_0($$parsedSource["talking"]);
+            $$parsedSource["talking"] = $$createField22_0($$parsedSource["talking"]);
         }
         if ("ask" in $$parsedSource) {
-            $$parsedSource["ask"] = $$createField21_0($$parsedSource["ask"]);
+            $$parsedSource["ask"] = $$createField23_0($$parsedSource["ask"]);
         }
         if ("parent" in $$parsedSource) {
-            $$parsedSource["parent"] = $$createField22_0($$parsedSource["parent"]);
+            $$parsedSource["parent"] = $$createField24_0($$parsedSource["parent"]);
         }
         return new CardSummary($$parsedSource as Partial<CardSummary>);
     }
@@ -1739,7 +1819,7 @@ export class DonePage {
      * Creates a new DonePage instance from a string or object.
      */
     static createFrom($$source: any = {}): DonePage {
-        const $$createField0_0 = $$createType38;
+        const $$createField0_0 = $$createType42;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("cards" in $$parsedSource) {
             $$parsedSource["cards"] = $$createField0_0($$parsedSource["cards"]);
@@ -2121,8 +2201,8 @@ export class RosterChange {
      * Creates a new RosterChange instance from a string or object.
      */
     static createFrom($$source: any = {}): RosterChange {
-        const $$createField0_0 = $$createType39;
-        const $$createField1_0 = $$createType41;
+        const $$createField0_0 = $$createType43;
+        const $$createField1_0 = $$createType45;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("change" in $$parsedSource) {
             $$parsedSource["change"] = $$createField0_0($$parsedSource["change"]);
@@ -2157,7 +2237,7 @@ export class TaskDetail {
      * Creates a new TaskDetail instance from a string or object.
      */
     static createFrom($$source: any = {}): TaskDetail {
-        const $$createField0_0 = $$createType42;
+        const $$createField0_0 = $$createType46;
         const $$createField1_0 = $$createType33;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("task" in $$parsedSource) {
@@ -2193,7 +2273,7 @@ export class TaskResult {
      * Creates a new TaskResult instance from a string or object.
      */
     static createFrom($$source: any = {}): TaskResult {
-        const $$createField0_0 = $$createType42;
+        const $$createField0_0 = $$createType46;
         const $$createField1_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("task" in $$parsedSource) {
@@ -2317,10 +2397,14 @@ const $$createType32 = coord$0.Comment.createFrom;
 const $$createType33 = $Create.Array($$createType32);
 const $$createType34 = CardSubtask.createFrom;
 const $$createType35 = $Create.Array($$createType34);
-const $$createType36 = $Create.Nullable($$createType11);
-const $$createType37 = CardSummary.createFrom;
-const $$createType38 = $Create.Array($$createType37);
-const $$createType39 = presence$0.Change.createFrom;
-const $$createType40 = presence$0.AgentCard.createFrom;
-const $$createType41 = $Create.Array($$createType40);
-const $$createType42 = coord$0.Task.createFrom;
+const $$createType36 = CardBoard.createFrom;
+const $$createType37 = $Create.Nullable($$createType36);
+const $$createType38 = core$0.SharedCopy.createFrom;
+const $$createType39 = $Create.Nullable($$createType38);
+const $$createType40 = $Create.Nullable($$createType11);
+const $$createType41 = CardSummary.createFrom;
+const $$createType42 = $Create.Array($$createType41);
+const $$createType43 = presence$0.Change.createFrom;
+const $$createType44 = presence$0.AgentCard.createFrom;
+const $$createType45 = $Create.Array($$createType44);
+const $$createType46 = coord$0.Task.createFrom;

@@ -95,8 +95,11 @@ type Options struct {
 	// Ignored counts, per writing device, the rows the folds ignored for
 	// the writer rules (§6.0), for Devices' warning line. Nil: none.
 	Ignored func() map[string]int
-	Logf    func(format string, args ...any)
-	Now     func() time.Time
+	// Boards are the shared boards' logs, synced among this person's
+	// devices on board/<id> streams (boards.go). Nil syncs none.
+	Boards BoardLogs
+	Logf   func(format string, args ...any)
+	Now    func() time.Time
 }
 
 // Node is the Core side of the mesh: it starts the net layer once the

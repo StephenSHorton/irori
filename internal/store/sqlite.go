@@ -138,6 +138,7 @@ type db struct {
 	clock    *hlc.Clock
 	signer   Signer
 	verifier Verifier
+	board    *boardRules // OpenOptions.Board; nil for the private log (board.go)
 	maxAhead time.Duration
 	now      func() time.Time
 
@@ -216,6 +217,13 @@ func open(ctx context.Context, path, deviceID string, clock *hlc.Clock, o OpenOp
 		sql: sdb, deviceID: deviceID, clock: clock, signer: o.Signer, verifier: o.Verifier,
 		maxAhead: o.MaxAhead, now: o.Now, subs: map[*subscriber]struct{}{}, done: make(chan struct{}),
 	}}
+	if o.Board {
+		s.impl.board = newBoardRules()
+		if err := s.impl.loadBoard(ctx); err != nil {
+			sdb.Close()
+			return nil, err
+		}
+	}
 	if o.Verifier != nil {
 		if err := s.impl.loadVerifier(ctx); err != nil {
 			sdb.Close()
@@ -407,10 +415,24 @@ func (s *Store) append(ctx context.Context, actor, kind string, payload any) (Ev
 		return Event{}, fmt.Errorf("store: marshal %s payload: %w", kind, err)
 	}
 
+	if d.board != nil {
+		if err := d.board.checkShape(actor, kind, raw); err != nil {
+			return Event{}, err
+		}
+	}
+
 	d.writeMu.Lock()
 	defer d.writeMu.Unlock()
 	if d.isClosed() {
 		return Event{}, ErrClosed
+	}
+	if d.board != nil {
+		// Under the write lock, so what the row names can't be appended
+		// and checked out of order.
+		if err := d.board.resolves(kind, raw); err != nil {
+			d.board.count(func(c *BoardCounts) { c.Outside++ })
+			return Event{}, err
+		}
 	}
 	tx, err := d.sql.BeginTx(ctx, nil)
 	if err != nil {
@@ -424,7 +446,8 @@ func (s *Store) append(ctx context.Context, actor, kind string, payload any) (Ev
 	// A revoke and its rotation are never held: removing a device must work
 	// from any other device whatever a peer's vector claims (§8). During a
 	// real restore that costs a fork of this device, which Reset fixes.
-	if d.holdSeq > 0 && kind != KindPersonDeviceRevoked && kind != KindPersonKeyRotated {
+	if d.holdSeq > 0 && kind != KindPersonDeviceRevoked && kind != KindPersonKeyRotated &&
+		kind != KindMemberDeviceRevoked && kind != KindMemberKeyRotated {
 		if last < d.holdSeq {
 			return Event{}, fmt.Errorf("%w (hold %d, have %d)", ErrRestoring, d.holdSeq, last)
 		}
@@ -443,7 +466,7 @@ func (s *Store) append(ctx context.Context, actor, kind string, payload any) (Ev
 		return Event{}, err
 	}
 	resync := false
-	if d.verifier != nil && IsPersonKind(kind) {
+	if d.verifier != nil && d.identityKind(kind) {
 		d.verifyMu.Lock()
 		d.verifier.Observe(ev)
 		d.verifyMu.Unlock()
@@ -453,10 +476,13 @@ func (s *Store) append(ctx context.Context, actor, kind string, payload any) (Ev
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		if d.verifier != nil && IsPersonKind(kind) {
+		if d.verifier != nil && d.identityKind(kind) {
 			d.resetVerifier(ctx)
 		}
 		return Event{}, err
+	}
+	if d.board != nil {
+		d.board.define(kind, raw)
 	}
 	d.notify(ev)
 	if resync {
@@ -572,7 +598,7 @@ func (s *Store) insertBatch(ctx context.Context, evs []Event) (int, error) {
 			continue
 		}
 		fresh = append(fresh, ev)
-		if d.verifier != nil && IsPersonKind(ev.Kind) {
+		if d.verifier != nil && d.identityKind(ev.Kind) {
 			d.verifyMu.Lock()
 			d.verifier.Observe(ev)
 			d.verifyMu.Unlock()
@@ -590,6 +616,13 @@ func (s *Store) insertBatch(ctx context.Context, evs []Event) (int, error) {
 			d.resetVerifier(ctx)
 		}
 		return 0, err
+	}
+	if d.board != nil {
+		// Every row's ids first, so a subscriber checking closure on one
+		// row of the batch sees the others.
+		for _, ev := range fresh {
+			d.board.define(ev.Kind, ev.Payload)
+		}
 	}
 	for _, ev := range fresh {
 		// Only a committed row moves the clock; refused or re-delivered copies do not.
@@ -617,6 +650,13 @@ func (d *db) aheadBound() hlc.Timestamp {
 func (d *db) insertOne(ctx context.Context, tx *sql.Tx, ev *Event) (stored bool, err error) {
 	if err := d.checkRow(ev); err != nil {
 		return false, err
+	}
+	if d.board != nil {
+		// The allow-list and actor shape hold for forwarded rows too;
+		// closure doesn't (board.go).
+		if err := d.board.checkShape(ev.Actor, ev.Kind, ev.Payload); err != nil {
+			return false, fmt.Errorf("%s/%d: %w", ev.DeviceID, ev.Seq, err)
+		}
 	}
 	var last, prevHLC int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM events WHERE device_id = ?`, ev.DeviceID).Scan(&last); err != nil {
@@ -650,7 +690,7 @@ func (d *db) insertOne(ctx context.Context, tx *sql.Tx, ev *Event) (stored bool,
 		// Before the gap check: a revoked device's later rows are refused
 		// whether or not the rows between are held.
 		if cut, ok := d.verifier.Cut(ev.DeviceID); ok && ev.Seq > cut {
-			if ev.Kind == KindPersonDeviceRevoked && len(ev.Sig) > 0 {
+			if d.revokeKind(ev.Kind) && len(ev.Sig) > 0 {
 				// A revoke is honoured if its writer was ever certified, even
 				// past the writer's own cut (§3: a mutual revoke removes
 				// both, in either arrival order). It can't join the gapless
@@ -661,6 +701,21 @@ func (d *db) insertOne(ctx context.Context, tx *sql.Tx, ev *Event) (stored bool,
 				d.verifyMu.Unlock()
 				if err != nil {
 					return false, err
+				}
+				// Outside the gapless log, but not outside the writer's
+				// clock: it comes after every row of its writer held here,
+				// so a stolen key can't backdate one under a rotation.
+				if last > 0 {
+					var held int64
+					if err := tx.QueryRowContext(ctx, `SELECT hlc FROM events WHERE device_id = ? AND seq = ?`, ev.DeviceID, last).Scan(&held); err != nil && !errors.Is(err, sql.ErrNoRows) {
+						return false, err
+					}
+					if int64(ev.HLC) <= held {
+						return false, fmt.Errorf("%w: %s/%d hlc %d after %d", ErrHLCOrder, ev.DeviceID, ev.Seq, ev.HLC, held)
+					}
+				}
+				if ev.HLC > d.aheadBound() {
+					return false, fmt.Errorf("%w: %s/%d stamped %s", ErrAhead, ev.DeviceID, ev.Seq, ev.HLC.Wall().UTC().Format(time.RFC3339))
 				}
 				if err := recordRefused(ctx, tx, *ev, refusedRevoke); err != nil {
 					return false, err
@@ -710,8 +765,13 @@ func (d *db) verify(ev Event) error {
 		return fmt.Errorf("%w: %s/%d", ErrUnsigned, ev.DeviceID, ev.Seq)
 	}
 	d.verifyMu.Lock()
-	defer d.verifyMu.Unlock()
-	return d.verifier.VerifyRow(ev)
+	err := d.verifier.VerifyRow(ev)
+	d.verifyMu.Unlock()
+	if d.board != nil && errors.Is(err, ErrBoardActor) {
+		// The board Verifier binds actors to the writer's person (§2.4).
+		d.board.count(func(c *BoardCounts) { c.Actor++ })
+	}
+	return err
 }
 
 // checkCutClaims records a fork wherever an honoured revoke's cutHash names
@@ -842,11 +902,12 @@ func (d *db) applyCuts(ctx context.Context, tx *sql.Tx) (bool, error) {
 	return moved, d.checkCutClaims(ctx, tx, nil)
 }
 
-// loadVerifier folds every held person.* row into the Verifier.
+// loadVerifier folds every held identity row (person.*, or board.* and
+// member.* in a board log) into the Verifier.
 func (d *db) loadVerifier(ctx context.Context) error {
 	var after Cursor
 	for {
-		evs, err := (&Store{impl: d}).list(ctx, Filter{Kinds: []string{"person."}, After: after, Limit: MaxListLimit})
+		evs, err := (&Store{impl: d}).list(ctx, Filter{Kinds: d.identityPrefixes(), After: after, Limit: MaxListLimit})
 		if err != nil {
 			return err
 		}
@@ -863,8 +924,13 @@ func (d *db) loadVerifier(ctx context.Context) error {
 	// Revokes in refused_events still count: one honoured past its writer's
 	// cut, and one moved there when its writer was revoked in turn (a
 	// revoke counts if its writer was ever certified, §5.5).
+	kinds := d.revokeKinds()
+	args := make([]any, len(kinds))
+	for i, k := range kinds {
+		args[i] = k
+	}
 	revs, err := (&Store{impl: d}).query(ctx, `SELECT device_id, seq, hlc, actor, kind, payload, sig FROM refused_events
-		WHERE kind = ? ORDER BY hlc, device_id, seq`, KindPersonDeviceRevoked)
+		WHERE kind IN (?`+strings.Repeat(", ?", len(kinds)-1)+`) ORDER BY hlc, device_id, seq`, args...)
 	if err != nil {
 		return err
 	}

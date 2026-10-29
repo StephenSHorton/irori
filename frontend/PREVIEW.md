@@ -38,6 +38,10 @@ unchanged.
 | `/?open=held` | the Held list: three held (one by Pause all), and History with a dismissed one to release |
 | `/?open=held:sample-device/grok-sample7` | the Held list showing one sender's, as a held notification opens it |
 | `/?devices` | the Devices dialog (this PC, a MacBook, an offline node) |
+| `/?boards` | the Boards dialog: two boards of your own (MLG, Website refresh), New board |
+| `/?filter=board:sample-board-mlg` | the grid on the MLG board's chip: mlg#1 and mlg#2 |
+| `/?open=board:task:sample-board-1` | a card on a shared board: `mlg#1`, "Visible to", Withdraw |
+| `/?share=sample-card-10#card/sample-card-10` | Share to board's preview, with a path in the goal taken out |
 | `/?settings` | the settings popover |
 | `/?update=ready` | the update card (`downloading`, `installing` too) |
 | `/?empty` | no cards yet |
@@ -48,7 +52,7 @@ unchanged.
 | `/?slow#card/sample-card-1` | a card's page while the card loads |
 | `/#card/sample-card-gone` | a card's page for a card that isn't there |
 
-`?devices`, `?settings`, `?update`, `?from` and `?filter` live in `src/lib/preview.ts`; `?slow` in `src/lib/cards.ts`. An open
+`?devices`, `?boards`, `?share`, `?settings`, `?update`, `?from` and `?filter` live in `src/lib/preview.ts`; `?slow` in `src/lib/cards.ts`. An open
 card's page is `#card/<id>` in the address (`/#card/sample-card-4` opens it
 too); its Back, Esc and the browser's back return to the grid.
 

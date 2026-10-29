@@ -120,6 +120,12 @@ type OpenOptions struct {
 	MaxAhead time.Duration
 	// Now is the wall clock for MaxAhead (time.Now when nil).
 	Now func() time.Time
+	// Board opens a shared board's log, boards/<boardId>.db (v0.5 §2):
+	// Append and Insert take only the kinds the registry's Board column
+	// accepts and only board actors, Append refuses a row whose references
+	// leave the board, and the Verifier folds board.* and member.* rows in
+	// place of person.* (board.go).
+	Board bool
 }
 
 // DefaultMaxAhead is OpenOptions.MaxAhead's default (§5.6).

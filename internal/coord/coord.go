@@ -58,8 +58,14 @@ type Task struct {
 	// by the fold, never written. ShortWas is the number such a card
 	// claimed ("12") and showed until the clash settled; "" when no other
 	// card claimed it.
-	Short        string    `json:"short,omitempty"`
-	ShortWas     string    `json:"shortWas,omitempty"`
+	Short    string `json:"short,omitempty"`
+	ShortWas string `json:"shortWas,omitempty"`
+	// Tag is the board's short handle for a card on a shared board, so
+	// its ref is "mlg#12" (v0.5 §2.5); "" on the private board.
+	Tag string `json:"tag,omitempty"`
+	// Withdrawn: its creator or an owner took the card back off the board
+	// (v0.5 §5.3). It is canceled, and other members hide it.
+	Withdrawn    bool      `json:"withdrawn,omitempty"`
 	Title        string    `json:"title"`
 	Objective    string    `json:"objective"`
 	DoneCriteria string    `json:"doneCriteria,omitempty"`
@@ -210,6 +216,28 @@ type Options struct {
 	// Revoked reports a removed device (v0.4 §3, Revoke): its leases end
 	// everywhere without a row from it. Nil revokes nobody.
 	Revoked func(device string) bool
+	// Board folds a shared board's log (v0.5 §2.1, boardlog.go): callers
+	// are "person:<id>" and "agent:<cardId>" keys, IsOwner says which
+	// person: keys are people (it must not accept "user:" keys there), and
+	// Person is the person at this device's key.
+	Board  bool
+	Person string
+	// KeyPerson and DevicePerson are a board's owner rule (v0.5 §2.4): the
+	// member a person:/agent: key is, and the member a writing device is
+	// certified to (the board Verifier's), "" when unknown. On a board an
+	// owner-only row counts only from a device of the owning person. Nil
+	// on a board accepts every writer.
+	KeyPerson    func(key string) string
+	DevicePerson func(device string) string
+	// Tag is a board's short handle (v0.5 §2.5, B3): its cards are
+	// "<tag>#12" (Task.Tag). It is read as rows fold, since the board's
+	// board.created may fold after the coord is made. Nil or "" on the
+	// private board.
+	Tag func() string
+	// BoardOwner reports a person who owns the board (v0.5 §4.2). On a
+	// board a cancel counts only from a device of the card creator's
+	// person or of an owner (§5.3). Nil on a board: only the creator's.
+	BoardOwner func(personID string) bool
 }
 
 // Coord holds tasks and leases. Safe for concurrent use.

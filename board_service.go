@@ -112,8 +112,14 @@ type noticeRouter func(ctx context.Context, from inbox.Sender, ns ...coord.Notic
 // to wake. JS binding name: BoardService.*
 type BoardService struct {
 	coord *coord.Coord
-	user  inbox.Sender
-	route noticeRouter
+	// router sends an action on a card to the log it lives in (board_route.go);
+	// nil is the private board alone.
+	router taskRouter
+	// boards are the shared boards' cards and keys (boards_service.go);
+	// nil is the private board alone.
+	boards boardSource
+	user   inbox.Sender
+	route  noticeRouter
 	// attach stores files the person adds in the window (Core.AttachFiles);
 	// nil refuses them.
 	attach func(ctx context.Context, by string, paths []string) ([]blob.FileRef, error)
@@ -147,7 +153,7 @@ type BoardService struct {
 }
 
 func newBoardService(c *core.Core) *BoardService {
-	b := &BoardService{coord: c.Coord(), user: c.UserSender(), route: c.RouteNotices, agents: c.MeshAgents, askAgents: c.AskAgents, attach: c.AttachFiles,
+	b := &BoardService{coord: c.Coord(), router: c.TaskCoord, boards: c, user: c.UserSender(), route: c.RouteNotices, agents: c.MeshAgents, askAgents: c.AskAgents, attach: c.AttachFiles,
 		self: c.Device().ID, devices: c.CertifiedDevices, colors: c.DeviceColors, leases: c.Coord().Leases}
 	if ib := c.Inbox(); ib != nil {
 		b.deliveries = ib.Open
@@ -171,11 +177,12 @@ func (b *BoardService) Board(repoKey string, doneLimit int) coord.BoardView {
 
 // Task opens one card: the task and its comments.
 func (b *BoardService) Task(id string) (TaskDetail, error) {
-	t, ok := b.coord.GetTask(id)
+	co := b.read(id)
+	t, ok := co.GetTask(id)
 	if !ok {
 		return TaskDetail{}, fmt.Errorf("%w: task %q", coord.ErrNotFound, id)
 	}
-	return TaskDetail{Task: t, Comments: nonNil(b.coord.Comments(id))}, nil
+	return TaskDetail{Task: t, Comments: nonNil(co.Comments(id))}, nil
 }
 
 // Create posts a task or a blocker as the person, and assigns it when
@@ -218,17 +225,23 @@ func (b *BoardService) Comment(id, text, tell string) (CommentResult, error) {
 		return CommentResult{}, err
 	}
 	ctx := context.Background()
+	co, as, err := b.on(ctx, id)
+	if err != nil {
+		return CommentResult{}, err
+	}
 	res := CommentResult{Told: Told{To: []string{}}, Answers: []AgentRef{}, Watching: []AgentRef{}}
 	if tl == TellNone {
-		res.Comment, _, err = b.coord.AddComment(ctx, b.user.Key, id, text, false)
+		res.Comment, _, err = co.AddComment(ctx, as[0], id, text, false)
 		return res, err
 	}
 	p := b.people()
 	var around func(string) bool
 	if b.agents != nil {
-		around = func(k string) bool { return p.ref(k).Live }
+		// A board card's keys are agent:<cardId>; the roster knows the
+		// session behind each (privKey).
+		around = func(k string) bool { return p.ref(b.privKey(k)).Live }
 	}
-	c, ns, err := b.coord.PersonComment(ctx, b.user.Key, id, text, tl == TellWake, around)
+	c, ns, err := co.PersonComment(ctx, as[0], id, text, tl == TellWake, around)
 	if err != nil {
 		return CommentResult{}, err
 	}
@@ -242,10 +255,11 @@ func (b *BoardService) Comment(id, text, tell string) (CommentResult, error) {
 		if told.Error != "" {
 			res.Told.Error = strings.TrimPrefix(res.Told.Error+"; "+told.Error, "; ")
 		}
+		to := mapKeys(n.To, b.privKey)
 		if n.Watching {
-			res.Watching = append(res.Watching, p.refs(n.To)...)
+			res.Watching = append(res.Watching, p.refs(to)...)
 		} else {
-			res.Answers = append(res.Answers, p.refs(n.To)...)
+			res.Answers = append(res.Answers, p.refs(to)...)
 		}
 	}
 	return res, nil
@@ -309,15 +323,31 @@ func (b *BoardService) CloseAsk(id, note string) (coord.Task, error) {
 
 // Pin pins (or with pinned false unpins) a card for the person: it shows
 // in the Pinned group above the grid, last among the pinned cards.
+//
+// Pins live on the private board only (task.pinned never goes on a board,
+// v0.5 §2.2), so a shared card isn't pinned, and a private card that was
+// shared is refused like any other write to it (§5.2).
 func (b *BoardService) Pin(id string, pinned bool) error {
-	_, err := b.coord.Pin(context.Background(), b.user.Key, strings.TrimSpace(id), pinned)
+	ctx := context.Background()
+	id = strings.TrimSpace(id)
+	co, as, err := b.privateOnly(ctx, id)
+	if err != nil {
+		return err
+	}
+	_, err = co.Pin(ctx, as[0], id, pinned)
 	return err
 }
 
 // MovePin moves a pinned card to just before another pinned card (""
 // puts it last).
 func (b *BoardService) MovePin(id, before string) error {
-	_, err := b.coord.MovePin(context.Background(), b.user.Key, strings.TrimSpace(id), strings.TrimSpace(before))
+	ctx := context.Background()
+	id = strings.TrimSpace(id)
+	co, as, err := b.privateOnly(ctx, id)
+	if err != nil {
+		return err
+	}
+	_, err = co.MovePin(ctx, as[0], id, strings.TrimSpace(before))
 	return err
 }
 
@@ -359,18 +389,34 @@ func repoLabel(key string) string {
 // Block moves a task to blocked with a reason; on (lease, task, person,
 // agent, external) and ref say what is in the way, or on "" for nothing named.
 func (b *BoardService) Block(id, reason string, on coord.BlockerKind, ref string) (coord.Task, error) {
+	ctx := context.Background()
 	var by *coord.BlockedBy
+	var more []string
 	if on != "" {
 		by = &coord.BlockedBy{Kind: on, Ref: strings.TrimSpace(ref)}
+		if (on == coord.BlockedOnAgent || on == coord.BlockedOnPerson) && by.Ref != "" {
+			more = append(more, by.Ref)
+		}
 	}
-	return b.coord.Block(context.Background(), b.user.Key, id, reason, by)
+	co, as, err := b.on(ctx, id, more...)
+	if err != nil {
+		return coord.Task{}, err
+	}
+	if len(as) > 1 {
+		by.Ref = as[1]
+	}
+	return co.Block(ctx, as[0], id, reason, by)
 }
 
 // Unblock closes a task's blocker (decision 19); its holders hear at their
 // next turn.
 func (b *BoardService) Unblock(id, note string) (TaskResult, error) {
 	ctx := context.Background()
-	t, n, err := b.coord.Unblock(ctx, b.user.Key, id, note)
+	co, as, err := b.on(ctx, id)
+	if err != nil {
+		return TaskResult{}, err
+	}
+	t, n, err := co.Unblock(ctx, as[0], id, note)
 	if err != nil {
 		return TaskResult{}, err
 	}
@@ -380,7 +426,11 @@ func (b *BoardService) Unblock(id, note string) (TaskResult, error) {
 // Assign gives a task to an agent, who hears at its next turn (decision 21).
 func (b *BoardService) Assign(id, to string) (TaskResult, error) {
 	ctx := context.Background()
-	t, n, err := b.coord.Assign(ctx, b.user.Key, id, strings.TrimSpace(to))
+	co, as, err := b.on(ctx, id, strings.TrimSpace(to))
+	if err != nil {
+		return TaskResult{}, err
+	}
+	t, n, err := co.Assign(ctx, as[0], id, as[1])
 	if err != nil {
 		return TaskResult{}, err
 	}
@@ -394,7 +444,12 @@ func (b *BoardService) SetDone(id string, canceled bool) (coord.Task, error) {
 	if canceled {
 		s, note = coord.Canceled, "canceled from the Irori app"
 	}
-	return b.coord.SetTaskState(context.Background(), b.user.Key, id, s, note)
+	ctx := context.Background()
+	co, as, err := b.on(ctx, id)
+	if err != nil {
+		return coord.Task{}, err
+	}
+	return co.SetTaskState(ctx, as[0], id, s, note)
 }
 
 // Reopen brings a done, canceled or failed card back into play: working
@@ -402,7 +457,12 @@ func (b *BoardService) SetDone(id string, canceled bool) (coord.Task, error) {
 // back with its subtask. Its holders hear at their next turn.
 func (b *BoardService) Reopen(id string) (TaskResult, error) {
 	ctx := context.Background()
-	t, n, err := b.coord.Reopen(ctx, b.user.Key, strings.TrimSpace(id))
+	id = strings.TrimSpace(id)
+	co, as, err := b.on(ctx, id)
+	if err != nil {
+		return TaskResult{}, err
+	}
+	t, n, err := co.Reopen(ctx, as[0], id)
 	if err != nil {
 		return TaskResult{}, err
 	}
@@ -411,12 +471,22 @@ func (b *BoardService) Reopen(id string) (TaskResult, error) {
 
 // AddLink adds a link out (a URL, a repo path or a commit sha).
 func (b *BoardService) AddLink(id, link string) (coord.Task, error) {
-	return b.coord.AddLink(context.Background(), b.user.Key, id, link)
+	ctx := context.Background()
+	co, as, err := b.on(ctx, id)
+	if err != nil {
+		return coord.Task{}, err
+	}
+	return co.AddLink(ctx, as[0], id, link)
 }
 
 // RemoveLink drops the link whose ref is ref.
 func (b *BoardService) RemoveLink(id, ref string) (coord.Task, error) {
-	return b.coord.RemoveLink(context.Background(), b.user.Key, id, ref)
+	ctx := context.Background()
+	co, as, err := b.on(ctx, id)
+	if err != nil {
+		return coord.Task{}, err
+	}
+	return co.RemoveLink(ctx, as[0], id, ref)
 }
 
 // ReleaseLease drops the lease on resource, whoever holds it.
@@ -431,7 +501,7 @@ func (b *BoardService) tell(ctx context.Context, n coord.Notice, tl Tell) Told {
 	if tl == TellNone || len(n.To) == 0 {
 		return Told{To: []string{}}
 	}
-	told := Told{To: append([]string{}, n.To...), Mode: string(inbox.ModeNextTurn)}
+	told := Told{To: mapKeys(n.To, b.privKey), Mode: string(inbox.ModeNextTurn)}
 	if n.Wake {
 		told.Mode = string(inbox.ModeWake)
 	}
@@ -456,6 +526,7 @@ func dropBlank(ss []string) []string {
 // Needs-a-decision count, once at start and after every change.
 func (b *BoardService) pump(ctx context.Context, app *application.App, decide func(int)) {
 	decide(b.decideCount())
+	go b.pumpBoards(ctx, app, decide)
 	pumpBoard(ctx, b.coord.Subscribe(ctx), boardEmitEvery, func() {
 		app.Event.Emit(EventBoardChanged, struct{}{})
 		decide(b.decideCount())

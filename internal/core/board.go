@@ -9,6 +9,11 @@ import (
 	"github.com/StephenSHorton/irori/internal/tools"
 )
 
+// The Core holds the private log and every board's (v0.5 §2.1); a tools
+// Backend that loses either interface would silently act on the private
+// log alone.
+var _ tools.TaskRouter = (*Core)(nil)
+
 // RouteNotices delivers coord Notices through the one notice router the
 // tools and the sweep use (tools.RouteNotice: next_turn unless the notice
 // asked to wake, with its Ref, marked as a notice). from is who caused it:

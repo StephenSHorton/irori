@@ -8,6 +8,7 @@ import {
   CardActivity,
   CardAsk,
   CardBlocker,
+  CardBoard,
   CardDetail,
   CardHolder,
   CardOption,
@@ -818,6 +819,54 @@ export function sampleCards(now: Date): CardDetail[] {
           text: "sample-heron marked the card done",
         }),
       ],
+    }),
+    // Shared boards (v0.5 §8): two cards on the sample board MLG (lib/
+    // boards.ts), shown "mlg#1" and "mlg#2", and a private card ready to
+    // be shared, with a path in its goal for the share preview to drop.
+    card({
+      id: "sample-board-1",
+      short: "1",
+      title: "Lobby sync for the boat race",
+      repoKey: "remote:github.com/sample-org/example-app",
+      goal: "Both players see the same boats when the race starts.",
+      scope: "board",
+      scopeLabel: "MLG",
+      board: "sample-board-mlg",
+      tag: "mlg",
+      onBoard: new CardBoard({ id: "sample-board-mlg", name: "MLG", tag: "mlg", visibleTo: ["Stephen"], canWithdraw: true }),
+      working: [otter],
+      updatedAt: at(7),
+      steps: steps([
+        ["Mirror the boat actors", true],
+        ["Settle the start timer", false],
+      ]),
+      recent: [new CardActivity({ at: at(7), who: otter, text: "sample-otter ticked “Mirror the boat actors”" })],
+    }),
+    card({
+      id: "sample-board-2",
+      short: "2",
+      title: "Pick the race map for the demo",
+      goal: "One map everyone tests on this week.",
+      scope: "board",
+      scopeLabel: "MLG",
+      board: "sample-board-mlg",
+      tag: "mlg",
+      onBoard: new CardBoard({ id: "sample-board-mlg", name: "MLG", tag: "mlg", visibleTo: ["Stephen"], canWithdraw: true }),
+      state: TaskState.Submitted,
+      working: [],
+      updatedAt: at(40),
+    }),
+    card({
+      id: "sample-card-10",
+      title: "Write up the boat desync repro",
+      repoKey: "remote:github.com/sample-org/example-app",
+      goal: "Steps anyone can follow; the capture is in C:\\Users\\stephen\\captures\\desync-03.",
+      working: [wren],
+      updatedAt: at(12),
+      steps: steps([
+        ["Record the two clients", true],
+        ["Note the frame it splits on", false],
+      ]),
     }),
     // More closed cards for the Done tab (?filter=done): an ask that
     // changed another card, one canceled and one failed.

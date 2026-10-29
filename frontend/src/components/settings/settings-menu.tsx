@@ -1,7 +1,8 @@
 import { useId, useState, type ReactNode } from "react"
-import { BellIcon, LaptopIcon, SettingsIcon, ZapIcon } from "lucide-react"
+import { BellIcon, LaptopIcon, LayersIcon, SettingsIcon, ZapIcon } from "lucide-react"
 
 import { ChoiceSelect } from "@/components/common/choice-select"
+import { BoardsDialog } from "@/components/settings/boards-dialog"
 import { DevicesDialog } from "@/components/settings/devices-dialog"
 import { Button } from "@/components/ui/button"
 import {
@@ -30,6 +31,9 @@ export function SettingsMenu() {
   const [open, setOpen] = useState(() => previewFlag("settings") !== null)
   const [devicesOpen, setDevicesOpen] = useState(
     () => previewFlag("devices") !== null
+  )
+  const [boardsOpen, setBoardsOpen] = useState(
+    () => previewFlag("boards") !== null
   )
   const s = useSettings(open)
 
@@ -137,6 +141,22 @@ export function SettingsMenu() {
               Manage…
             </Button>
           </div>
+          <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
+            <span className="flex items-center gap-1.5 font-semibold text-ink">
+              <LayersIcon className="size-4" aria-hidden />
+              Boards
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setOpen(false)
+                setBoardsOpen(true)
+              }}
+            >
+              Manage…
+            </Button>
+          </div>
           <div className="border-t border-border pt-3">
             <Toggle
               label="Launch at login"
@@ -155,6 +175,7 @@ export function SettingsMenu() {
         </PopoverContent>
       </Popover>
       <DevicesDialog open={devicesOpen} onOpenChange={setDevicesOpen} />
+      <BoardsDialog open={boardsOpen} onOpenChange={setBoardsOpen} />
     </>
   )
 }

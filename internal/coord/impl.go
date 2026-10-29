@@ -106,9 +106,12 @@ type taskStateRow struct {
 	// written before items, which fold to an item made from Reason.
 	Blocker *blockerRow `json:"blocker,omitempty"`
 	// Outcome ends an ask (ask.go): what it became.
-	Outcome *Outcome  `json:"outcome,omitempty"`
-	By      string    `json:"by"`
-	At      time.Time `json:"at"`
+	Outcome *Outcome `json:"outcome,omitempty"`
+	// Withdrawn marks a cancel that takes a card back off a shared board
+	// (v0.5 §5.3).
+	Withdrawn bool      `json:"withdrawn,omitempty"`
+	By        string    `json:"by"`
+	At        time.Time `json:"at"`
 }
 
 // taskMemberRow is task.joined and task.left.
@@ -208,10 +211,18 @@ type coord struct {
 	now         func() time.Time
 	grace       time.Duration
 	holderGrace time.Duration
-	ownerFn     func(string) bool // Options.IsOwner
-	revoked     func(string) bool // Options.Revoked
-	ignored     int               // owner-only rows from the wrong device (v0.4 §6.0)
-	ignoredBy   map[string]int    // and per writing device
+	ownerFn     func(string) bool   // Options.IsOwner
+	revoked     func(string) bool   // Options.Revoked
+	ignored     int                 // owner-only rows from the wrong device (v0.4 §6.0)
+	ignoredBy   map[string]int      // and per writing device
+	onBoard     bool                // Options.Board (boardlog.go)
+	person      string              // Options.Person
+	keyPerson   func(string) string // Options.KeyPerson
+	devPerson   func(string) string // Options.DevicePerson
+	tagFn       func() string       // Options.Tag
+	boardOwner  func(string) bool   // Options.BoardOwner
+	aside       []store.Event       // board rows whose references don't resolve yet
+	asideDrop   int                 // rows not set aside once aside held MaxAside
 
 	mu          sync.Mutex
 	tasks       map[string]*Task
@@ -278,6 +289,12 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 		grace:       opts.GoneGrace,
 		ownerFn:     opts.IsOwner,
 		revoked:     opts.Revoked,
+		onBoard:     opts.Board,
+		person:      opts.Person,
+		keyPerson:   opts.KeyPerson,
+		devPerson:   opts.DevicePerson,
+		tagFn:       opts.Tag,
+		boardOwner:  opts.BoardOwner,
 		tasks:       map[string]*Task{},
 		order:       map[string]uint64{},
 		held:        map[string]*leaseRec{},
@@ -304,7 +321,7 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 		c.now = time.Now
 	}
 	if c.ownerFn == nil {
-		self := "user:" + st.DeviceID()
+		self := c.selfKey()
 		c.ownerFn = func(k string) bool { return k == self }
 	}
 	if c.grace <= 0 {
@@ -352,25 +369,28 @@ func (c *coord) replay(ctx context.Context) error {
 // any other device is ignored and counted. On one device every holder is
 // this device's, so nothing changes there.
 func (c *coord) writerOK(ev store.Event) bool {
+	if c.onBoard && ev.Actor == sweeper && !c.sweeperOK(ev) {
+		return false
+	}
 	switch ev.Kind {
 	case KindLeaseAcq:
 		var row leaseAcquiredRow
 		if json.Unmarshal(ev.Payload, &row) != nil {
 			return true // apply drops it
 		}
-		return owner.MayWrite(row.Holder, ev.DeviceID)
+		return c.mayWrite(row.Holder, ev.DeviceID)
 	case KindLeaseRel:
 		var p leaseReleasedRow
 		if json.Unmarshal(ev.Payload, &p) != nil {
 			return true
 		}
-		return owner.MayWrite(p.Holder, ev.DeviceID)
+		return c.mayWrite(p.Holder, ev.DeviceID)
 	case KindLeaseRefused:
 		var r Refusal
 		if json.Unmarshal(ev.Payload, &r) != nil {
 			return true
 		}
-		return owner.MayWrite(r.By, ev.DeviceID)
+		return c.mayWrite(r.By, ev.DeviceID)
 	case KindTaskComment:
 		// Only a mirrored message and a blocker comment are checked. A
 		// mirrored message's sender's device writes it, and a gone or fill
@@ -384,7 +404,7 @@ func (c *coord) writerOK(ev store.Event) bool {
 		switch {
 		case p.MsgID != "":
 			return mayRecord(p.By, p.To, p.Gone || p.Fill, ev.DeviceID)
-		case p.BlockerID != "" && ev.Actor != "user":
+		case p.BlockerID != "" && !c.personActor(ev):
 			return owner.MayWrite(p.By, ev.DeviceID)
 		}
 		return true
@@ -411,6 +431,7 @@ func (c *Coord) IgnoredRows() int {
 func (c *coord) apply(ev store.Event) {
 	c.fold(ev)
 	c.foldDeferred()
+	c.retryAside()
 	if !c.replaying {
 		c.relink()
 	}
@@ -421,6 +442,9 @@ func (c *coord) apply(ev store.Event) {
 func (c *coord) fold(ev store.Event) {
 	if !c.writerOK(ev) {
 		c.ignore(ev.DeviceID)
+		return
+	}
+	if !c.asideGate(ev) {
 		return
 	}
 	if ok, wait := c.askGate(ev); !ok {
@@ -455,7 +479,7 @@ func (c *coord) fold(ev store.Event) {
 		c.tasks[p.TaskID] = &Task{
 			ID: p.TaskID, Title: p.Title, Objective: p.Objective, DoneCriteria: p.DoneCriteria,
 			RepoKey: p.RepoKey, Scope: p.Scope, State: Submitted, CreatedBy: p.By,
-			CreatedAt: t, UpdatedAt: t, UpdatedBy: p.By, Shared: p.Shared, Links: links,
+			CreatedAt: t, UpdatedAt: t, UpdatedBy: p.By, Shared: p.Shared, Links: links, Tag: c.tag(),
 		}
 		c.foldAskCreated(c.tasks[p.TaskID], p.Ask, ev, p.By)
 		c.syncPin(c.tasks[p.TaskID]) // a pin row can fold before its card
@@ -508,8 +532,22 @@ func (c *coord) fold(ev store.Event) {
 			return
 		}
 		if t := c.tasks[p.TaskID]; t != nil && ValidState(p.State) {
+			if p.State == Canceled && !c.mayCancel(t, ev.DeviceID) {
+				c.ignore(ev.DeviceID) // another member can't cancel your card (§5.3)
+				return
+			}
+			if t.Withdrawn && !c.unwithdraws(t, p, ev) {
+				// Withdraw sticks (§5.3): a holder that hadn't heard yet,
+				// or another member, doesn't bring the card back.
+				return
+			}
 			was := t.State
 			when := at(p.At)
+			if p.State == Canceled && p.Withdrawn && c.onBoard {
+				t.Withdrawn = true
+			} else if !IsTerminal(p.State) {
+				t.Withdrawn = false
+			}
 			if openAsk(t) != nil {
 				o := p.Outcome
 				if o == nil {
@@ -641,7 +679,7 @@ func (c *coord) fold(ev store.Event) {
 			To: p.To, MsgID: p.MsgID, Gone: p.Gone, Held: p.Held, Files: p.Files,
 			BlockerID: p.BlockerID, Pick: max(p.Pick, 0), Missing: p.Missing,
 			Device: ev.DeviceID, HLC: ev.HLC, Seq: ev.Seq, primary: primary,
-			person: ev.Actor == "user" && c.isOwner(p.By),
+			person: c.personRow(ev, p.By),
 		}
 		cm.Unheard = p.Unheard && cm.person
 		if !primary && !p.Held {
@@ -923,6 +961,8 @@ func (c *coord) actorFor(by string) string {
 	switch {
 	case by == "irori":
 		return "irori"
+	case c.onBoard:
+		return by // a board key is its own actor; the store refuses any other
 	case c.isOwner(by):
 		return "user"
 	case strings.HasPrefix(by, "api:"):

@@ -107,6 +107,7 @@ func runGUI(args []string) error {
 			application.NewService(settings),
 			application.NewService(devices),
 			application.NewService(attachments),
+			application.NewService(&BoardsService{c: c}),
 			application.NewService(upd),
 		},
 		Assets: application.AssetOptions{

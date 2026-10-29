@@ -27,11 +27,17 @@ type Cert struct {
 	At        time.Time `json:"at"`
 }
 
-// DeviceAdded is the person.device.added payload.
+// DeviceAdded is the person.device.added payload. PersonEpoch is the epoch
+// of the key that signed the cert (v0.5 §3). It sits beside the cert, not
+// in it: a v0.4 device re-marshals Cert from its own struct to check the
+// signature, so a field it doesn't know would change the signed bytes and
+// fail there. The key itself pins the epoch, so it needs no person
+// signature; the row's device signature covers it.
 type DeviceAdded struct {
-	Cert      Cert   `json:"cert"`
-	PersonPub string `json:"personPub"` // hex
-	PersonSig string `json:"personSig"` // hex: ed25519(person key, canonical(cert))
+	Cert        Cert   `json:"cert"`
+	PersonPub   string `json:"personPub"` // hex
+	PersonSig   string `json:"personSig"` // hex: ed25519(person key, canonical(cert))
+	PersonEpoch int    `json:"personEpoch,omitempty"`
 }
 
 // Revoke is what the person key signs to remove a device.
@@ -44,19 +50,42 @@ type Revoke struct {
 	Reason   string    `json:"reason,omitempty"`
 }
 
-// DeviceRevoked is the person.device.revoked payload.
+// DeviceRevoked is the person.device.revoked payload. PersonEpoch: as
+// DeviceAdded's, outside the signed Revoke for the same reason.
 type DeviceRevoked struct {
-	Revoke    Revoke `json:"revoke"`
-	PersonPub string `json:"personPub"`
-	PersonSig string `json:"personSig"`
+	Revoke      Revoke `json:"revoke"`
+	PersonPub   string `json:"personPub"`
+	PersonSig   string `json:"personSig"`
+	PersonEpoch int    `json:"personEpoch,omitempty"`
 }
 
-// KeyRotated is the person.key.rotated payload: the new public key only.
+// KeyRotated is the person.key.rotated payload: the new public key, and
+// since v0.5 the device that rotated (By) and PrevSig, the previous
+// epoch's key over RotationBody (§3). The own mesh doesn't check By or
+// PrevSig; they are kept so the rotating device can write the same
+// rotation into each board as member.key.rotated, which needs both.
 type KeyRotated struct {
 	PersonID  string    `json:"personId"`
 	Epoch     int       `json:"epoch"`
 	PersonPub string    `json:"personPub"`
 	At        time.Time `json:"at"`
+	By        string    `json:"by,omitempty"`
+	PrevSig   string    `json:"prevSig,omitempty"`
+}
+
+// RotationBody is what a rotation's prevSig covers (v0.5 §3), the same in
+// the private person.key.rotated and a board's member.key.rotated.
+type RotationBody struct {
+	PersonID    string    `json:"personId"`
+	PersonEpoch int       `json:"personEpoch"`
+	PersonPub   string    `json:"personPub"`
+	By          string    `json:"by"`
+	At          time.Time `json:"at"`
+}
+
+// Body is the rotation as its prevSig covers it.
+func (r KeyRotated) Body() RotationBody {
+	return RotationBody{PersonID: r.PersonID, PersonEpoch: r.Epoch, PersonPub: r.PersonPub, By: r.By, At: r.At}
 }
 
 // Profile is the person.profile payload.

@@ -30,6 +30,15 @@ describe("filters", () => {
     expect(asFilter("done")).toBe("done")
     expect(asFilter("nope")).toBe("all")
     expect(asFilter(null)).toBe("all")
+    expect(asFilter("board:b1")).toBe("board:b1")
+  })
+  test("a board chip holds that board's cards; My devices holds none of them (v0.5 §8)", () => {
+    const shared = new CardSummary({ id: "s", state: TaskState.Working, scope: "board", board: "b1", tag: "mlg" })
+    expect(matches(shared, "all")).toBe(true)
+    expect(matches(shared, "board:b1")).toBe(true)
+    expect(matches(shared, "board:b2")).toBe(false)
+    expect(matches(shared, "mine")).toBe(false)
+    expect(matches(card(TaskState.Working), "board:b1")).toBe(false)
   })
 })
 

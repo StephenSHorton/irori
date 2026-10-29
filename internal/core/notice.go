@@ -17,7 +17,24 @@ import (
 // whoever acted: UserSender for the GUI, the agent for a tool call. The GUI's
 // Board calls it after Assign, AddComment and Unblock.
 func (c *Core) RouteNotice(ctx context.Context, from inbox.Sender, n coord.Notice) []tools.NoticeResult {
-	return tools.RouteNotice(ctx, c.inbox, from, n)
+	return tools.RouteNotice(ctx, c.inbox, from, c.PrivateNotice(n))
+}
+
+// PrivateNotice is n with a board card's keys (agent:<cardId>, this
+// person's person:<id>) as this device's inbox knows them (PrivateKey), so
+// a notice about a card on a shared board reaches this person's own agents
+// (v0.5 §2.4). Other people's keys stay as they are; the bridge (§7.1)
+// handles them.
+func (c *Core) PrivateNotice(n coord.Notice) coord.Notice {
+	if len(n.To) > 0 {
+		to := make([]string, len(n.To))
+		for i, k := range n.To {
+			to[i] = c.PrivateKey(k)
+		}
+		n.To = to
+	}
+	n.By = c.PrivateKey(n.By)
+	return n
 }
 
 // sweepCoord runs coord's sweeper and routes the notices for blockers that
@@ -38,7 +55,35 @@ func (c *Core) sweepCoord(ctx context.Context) error {
 			log.Printf("coord notice %s %s: %v", n.Kind, n.Ref, rerr)
 		}
 	}
-	return errors.Join(err, aerr)
+	return errors.Join(err, aerr, c.sweepBoards(ctx))
+}
+
+// sweepBoards runs each open board coord's sweeper as sweepCoord runs the
+// private one's (watch digests, blockers that resolved by themselves, gone
+// holders' grace), its notices routed with the board keys as this device
+// knows them (RouteNotice). Asks live on the private board only.
+func (c *Core) sweepBoards(ctx context.Context) error {
+	var errs []error
+	for _, id := range c.Boards() {
+		co, err := c.BoardCoord(id)
+		if err != nil {
+			continue
+		}
+		ns, err := co.SweepNotices(ctx)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		for _, n := range ns {
+			from := inbox.SystemSender()
+			if n.Person {
+				from = c.UserSender()
+			}
+			if rerr := tools.NoticeErr(c.RouteNotice(ctx, from, n)); rerr != nil && ctx.Err() == nil {
+				log.Printf("board %s notice %s %s: %v", id, n.Kind, n.Ref, rerr)
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // AskAgents is the roster an ask is told to (board.md "Asks"): MeshAgents

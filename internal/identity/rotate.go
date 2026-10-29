@@ -82,10 +82,19 @@ func (id *Identity) Rotate(at time.Time) (KeyRotated, error) {
 	id.mu.Lock()
 	defer id.mu.Unlock()
 	next := id.Person.Epoch + 1
+	r := KeyRotated{PersonID: id.Person.ID, Epoch: next, PersonPub: hex.EncodeToString(key.Public().(ed25519.PublicKey)),
+		At: at.UTC(), By: id.Device.ID}
+	// prevSig by the key being replaced, before it is swapped out: the one
+	// thing a board's members can check a rotation by (v0.5 §3).
+	msg, err := Canonical(r.Body())
+	if err != nil {
+		return KeyRotated{}, err
+	}
+	r.PrevSig = hex.EncodeToString(ed25519.Sign(id.personKey, msg))
 	if err := id.adoptLocked(next, key); err != nil {
 		return KeyRotated{}, err
 	}
-	return KeyRotated{PersonID: id.Person.ID, Epoch: next, PersonPub: id.Person.Pub, At: at.UTC()}, nil
+	return r, nil
 }
 
 // ErrStaleEpoch: a person secret for an epoch this device already has or

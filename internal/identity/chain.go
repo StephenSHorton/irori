@@ -307,14 +307,31 @@ func (c *Chain) refold() {
 // certify folds adds (sorted) into the certs that chain back to the pinned
 // root. With cuts, a cert row above its writer's cut doesn't count.
 func (c *Chain) certify(adds []certRow, cuts map[string]int64) map[string]certRow {
+	return certifyRows(c.rootID, adds, func(a certRow) (rowPos, string) { return a.pos, a.cert.DeviceID }, cuts)
+}
+
+// floor is the highest seq of target's rows on writer's cert chain in ever
+// (the cert rows that lead from writer back to the root). ok is false when
+// target wrote none of them.
+func (c *Chain) floor(ever map[string]certRow, writer, target string) (int64, bool) {
+	return floorOf(c.rootID, ever, func(a certRow) rowPos { return a.pos }, writer, target)
+}
+
+// certifyRows is the chain rule both folds share (the private Chain and a
+// board's per-member chains): rows (sorted) certify the device link names,
+// and count when the root wrote its own self-cert or their writer holds a
+// counted cert; a device can't certify itself. With cuts, a row above its
+// writer's cut doesn't count.
+func certifyRows[R any](root string, rows []R, link func(R) (pos rowPos, dev string), cuts map[string]int64) map[string]R {
 	within := func(p rowPos) bool {
 		cut, ok := cuts[p.writer]
 		return !ok || p.seq <= cut
 	}
-	valid := map[string]certRow{}
-	for _, a := range adds {
-		if a.cert.DeviceID == c.rootID && a.pos.writer == c.rootID && within(a.pos) {
-			valid[c.rootID] = a
+	valid := map[string]R{}
+	for _, a := range rows {
+		pos, dev := link(a)
+		if dev == root && pos.writer == root && within(pos) {
+			valid[root] = a
 			break
 		}
 	}
@@ -323,12 +340,12 @@ func (c *Chain) certify(adds []certRow, cuts map[string]int64) map[string]certRo
 	}
 	for changed := true; changed; {
 		changed = false
-		for _, a := range adds {
-			dev, w := a.cert.DeviceID, a.pos.writer
-			if _, have := valid[dev]; have || dev == w {
+		for _, a := range rows {
+			pos, dev := link(a)
+			if _, have := valid[dev]; have || dev == pos.writer {
 				continue
 			}
-			if _, ok := valid[w]; !ok || !within(a.pos) {
+			if _, ok := valid[pos.writer]; !ok || !within(pos) {
 				continue
 			}
 			valid[dev] = a
@@ -338,10 +355,8 @@ func (c *Chain) certify(adds []certRow, cuts map[string]int64) map[string]certRo
 	return valid
 }
 
-// floor is the highest seq of target's rows on writer's cert chain in ever
-// (the cert rows that lead from writer back to the root). ok is false when
-// target wrote none of them.
-func (c *Chain) floor(ever map[string]certRow, writer, target string) (int64, bool) {
+// floorOf is floor over any fold's counted certs.
+func floorOf[R any](root string, ever map[string]R, posOf func(R) rowPos, writer, target string) (int64, bool) {
 	var f int64
 	found := false
 	cur := writer
@@ -350,13 +365,14 @@ func (c *Chain) floor(ever map[string]certRow, writer, target string) (int64, bo
 		if !ok {
 			break
 		}
-		if row.pos.writer == target && (!found || row.pos.seq > f) {
-			f, found = row.pos.seq, true
+		pos := posOf(row)
+		if pos.writer == target && (!found || pos.seq > f) {
+			f, found = pos.seq, true
 		}
-		if cur == c.rootID {
+		if cur == root {
 			break
 		}
-		cur = row.pos.writer
+		cur = pos.writer
 	}
 	return f, found
 }

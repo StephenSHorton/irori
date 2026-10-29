@@ -197,6 +197,8 @@ function summary(c: CardDetail): CardSummary {
     repoKey: c.repoKey,
     scope: c.scope,
     scopeLabel: c.scopeLabel,
+    board: c.board,
+    tag: c.tag,
     progress: c.progress,
     openBlockers: c.openBlockers,
     blockerQuestion: c.blockerQuestion,
@@ -324,6 +326,112 @@ function sampleReopen(id: string) {
   const c = sampleCard(id)
   c.state = c.working.length ? TaskState.Working : TaskState.Submitted
   sampleChanged()
+}
+
+// The boards' sample side (boards.ts): what Share to board writes, and
+// Withdraw. board is a sample BoardSummary.
+type SampleBoard = { boardId: string; name: string; tag: string; people: string[] }
+
+// strictPass is internal/scrub.Strict for the sample: absolute paths and
+// home directories become [path].
+function strictPass(s: string): string {
+  return s
+    .replace(/(^|[^A-Za-z0-9])file:\/\/[^\s"'<>|*?)\]`]*/gi, "$1[path]")
+    .replace(/(^|[^A-Za-z0-9])[A-Za-z]:[\\/][^\s"'<>|*?)\]`]*/g, "$1[path]")
+    .replace(/(^|[\s"'([=,:*`])(?:~|\$HOME)(?:[\\/][^\s"'<>|*?)\]`]*)?/g, "$1[path]")
+    .replace(/(^|[\s"'([=,:*`])\/[A-Za-z0-9._@+-]+\/[^\s"'<>|*?)\]`]*/g, "$1[path]")
+}
+
+export function samplePreview(id: string, board: SampleBoard): SharePreviewShape {
+  const c = sampleCard(id)
+  if (c.scope === "board") throw new Error("coord: invalid input: the card is already on a board")
+  if (over(c)) throw new Error(`coord: bad state: #${c.short} is ${c.state}; share a card that is still in play`)
+  const dropped: string[] = []
+  const clean = (what: string, s: string) => {
+    const t = strictPass(s)
+    if (t !== s) dropped.push(`a path in the ${what}`)
+    return t
+  }
+  const out = {
+    boardId: board.boardId,
+    boardName: board.name,
+    title: clean("title", c.title),
+    goal: clean("goal", c.goal),
+    doneWhen: clean("done-when", c.doneWhen),
+    steps: c.steps.map((s) => clean("steps", s.text)),
+    links: c.links.filter((l) => l.kind !== LinkKind.LinkPath).map((l) => l.ref),
+    repo: c.repoKey,
+    visibleTo: board.people,
+    dropped: [] as string[],
+    hash: "sample",
+  }
+  if (c.links.some((l) => l.kind === LinkKind.LinkPath)) dropped.push("a link to a path on this machine")
+  out.dropped = [...new Set(dropped)]
+  return out
+}
+
+// SharePreviewShape is core.SharePreview's fields.
+export type SharePreviewShape = {
+  boardId: string
+  boardName: string
+  title: string
+  goal: string
+  doneWhen: string
+  steps: string[]
+  links: string[]
+  repo: string
+  visibleTo: string[]
+  dropped: string[]
+  hash: string
+}
+
+export function sampleShare(id: string, board: SampleBoard): string {
+  const p = samplePreview(id, board)
+  const c = sampleCard(id)
+  const cs = sampleState()
+  const top = Math.max(0, ...cs.filter((x) => x.board === board.boardId).map((x) => parseInt(x.short, 10) || 0))
+  const shared = {
+    ...c,
+    id: `sample-shared-${Date.now()}`,
+    short: String(top + 1),
+    shortWas: "",
+    title: p.title,
+    goal: p.goal,
+    doneWhen: p.doneWhen,
+    steps: c.steps.map((s, i) => ({ ...s, text: p.steps[i] })),
+    links: c.links.filter((l) => l.kind !== LinkKind.LinkPath),
+    comments: [],
+    thread: [],
+    scope: "board",
+    scopeLabel: board.name,
+    board: board.boardId,
+    tag: board.tag,
+    onBoard: { id: board.boardId, name: board.name, tag: board.tag, visibleTo: board.people, canWithdraw: true },
+    sharedTo: undefined,
+    pinned: false,
+  } as CardDetail
+  cs.unshift(shared)
+  c.state = TaskState.Canceled
+  c.note = `Shared to ${board.name} as ${board.tag}#${shared.short} (visible to: ${board.people.join(", ")}). Work it there; this private card is closed.`
+  c.sharedTo = { boardId: board.boardId, boardName: board.name, taskId: shared.id, ref: `${board.tag}#${shared.short}` }
+  sampleChanged()
+  return shared.id
+}
+
+export function sampleWithdraw(id: string): string {
+  const c = sampleCard(id)
+  if (!c.onBoard) throw new Error(`coord: invalid input: ${id} is a private card; cancel it instead`)
+  c.state = TaskState.Canceled
+  c.onBoard = { ...c.onBoard, canWithdraw: false }
+  const from = sampleState().find((x) => x.sharedTo?.taskId === id)
+  if (from) {
+    from.state = from.working.length ? TaskState.Working : TaskState.Submitted
+    from.sharedTo = { ...from.sharedTo!, withdrawn: true }
+  }
+  // Other members hide it; here it goes to Done.
+  sampleState().splice(sampleState().indexOf(c), 1)
+  sampleChanged()
+  return from?.id ?? ""
 }
 
 function sampleAnswer(

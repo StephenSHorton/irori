@@ -3,6 +3,7 @@
 
 import * as AttachmentsService from "./attachmentsservice.js";
 import * as BoardService from "./boardservice.js";
+import * as BoardsService from "./boardsservice.js";
 import * as CaptureService from "./captureservice.js";
 import * as DevicesService from "./devicesservice.js";
 import * as InboxService from "./inboxservice.js";
@@ -11,6 +12,7 @@ import * as SettingsService from "./settingsservice.js";
 export {
     AttachmentsService,
     BoardService,
+    BoardsService,
     CaptureService,
     DevicesService,
     InboxService,
@@ -28,6 +30,7 @@ export {
     CardActivity,
     CardAsk,
     CardBlocker,
+    CardBoard,
     CardDetail,
     CardHolder,
     CardMessage,

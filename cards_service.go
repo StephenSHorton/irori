@@ -11,6 +11,7 @@ import (
 
 	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/coord"
+	"github.com/StephenSHorton/irori/internal/core"
 	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/inbox"
@@ -112,9 +113,13 @@ type CardSummary struct {
 	Title      string          `json:"title"`
 	State      coord.TaskState `json:"state"`
 	RepoKey    string          `json:"repoKey"`
-	Scope      string          `json:"scope"`      // ScopeMine
-	ScopeLabel string          `json:"scopeLabel"` // "My devices"
-	Progress   CardProgress    `json:"progress"`
+	Scope      string          `json:"scope"`      // ScopeMine, or ScopeBoard
+	ScopeLabel string          `json:"scopeLabel"` // "My devices", or the board's name
+	// Board is a shared card's boardId and Tag its board's short handle,
+	// so its ref reads "mlg#4" (v0.5 §2.5, §8); both "" on the private board.
+	Board    string       `json:"board,omitempty"`
+	Tag      string       `json:"tag,omitempty"`
+	Progress CardProgress `json:"progress"`
 	// OpenBlockers counts the items waiting on a decision (open or
 	// replied); BlockerQuestion is the first one's question ("" when none).
 	// Waiting counts the items the person answered that wait on an agent
@@ -386,6 +391,10 @@ type CardDetail struct {
 	HistoryTrimmed bool             `json:"historyTrimmed"`
 	// SubtaskList is a parent's subtasks, in order, for its page.
 	SubtaskList []CardSubtask `json:"subtaskList"`
+	// OnBoard is the shared board a card lives on ("Visible to: …",
+	// Withdraw); SharedTo is where a private card was shared to (v0.5 §8).
+	OnBoard  *CardBoard       `json:"onBoard,omitempty"`
+	SharedTo *core.SharedCopy `json:"sharedTo,omitempty"`
 }
 
 // people resolves keys against the roster once per call.
@@ -680,6 +689,7 @@ func (b *BoardService) Cards() []CardSummary {
 		b.familyOf(t, &s)
 		out = append(out, s)
 	}
+	out = append(out, b.boardCards(p)...) // every board's: "All" includes them (v0.5 §8)
 	sort.SliceStable(out, func(i, j int) bool {
 		// An open ask is the person talking to the room now: first.
 		if ai, aj := openAskSummary(out[i]), openAskSummary(out[j]); ai != aj {
@@ -878,6 +888,11 @@ func (b *BoardService) decideCount() int {
 			n++
 		}
 	}
+	for _, s := range b.boardCards(people{}) {
+		if s.OpenBlockers > 0 {
+			n++
+		}
+	}
 	return n
 }
 
@@ -885,19 +900,28 @@ func (b *BoardService) decideCount() int {
 // and resolutions, who is on it, PRs, recent activity and comments. Any
 // card can be opened, done ones too.
 func (b *BoardService) Card(id string) (CardDetail, error) {
-	t, ok := b.coord.GetTask(strings.TrimSpace(id))
+	co := b.read(strings.TrimSpace(id))
+	t, ok := co.GetTask(strings.TrimSpace(id))
 	if !ok {
 		return CardDetail{}, fmt.Errorf("%w: task %q", coord.ErrNotFound, id)
+	}
+	comments := co.Comments(t.ID)
+	acts := co.Activity(t.ID)
+	if co.IsBoard() {
+		// A shared card's keys are board keys; the page names them as
+		// this device knows them (v0.5 §2.4).
+		t, comments, acts = b.privTask(t), b.privComments(comments), b.privActivity(acts)
 	}
 	p := b.people()
 	d := CardDetail{
 		CardSummary: cardSummary(t, p), Goal: t.Objective, DoneWhen: t.DoneCriteria, Note: t.Note,
 		Steps: nonNil(t.Steps), Blockers: []CardBlocker{}, PRs: []CardPR{}, Links: nonNil(t.Links),
-		Recent: []CardActivity{}, Comments: nonNil(b.coord.Comments(t.ID)), SubtaskList: []CardSubtask{},
+		Recent: []CardActivity{}, Comments: nonNil(comments), SubtaskList: []CardSubtask{},
 	}
+	b.boardDetail(t, &d)
 	b.familyOf(t, &d.CardSummary)
 	for _, id := range t.Subtasks {
-		k, ok := b.coord.GetTask(id)
+		k, ok := co.GetTask(id) // a card's subtasks live in its own log
 		if !ok {
 			continue
 		}
@@ -911,7 +935,6 @@ func (b *BoardService) Card(id string) (CardDetail, error) {
 		}
 		return ""
 	})
-	acts := b.coord.Activity(t.ID)
 	var byBlocker map[string][]CardThreadItem
 	d.Thread, byBlocker, d.ThreadEarlier = buildThread(d.Comments, acts, t, p)
 	b.heldOnThread(d.Thread)
@@ -1194,7 +1217,11 @@ func (b *BoardService) Answer(taskID, blockerID string, option int, text string,
 	if blockerID == NoteItem {
 		return b.answerInput(ctx, taskID, option, text, wake)
 	}
-	t, ok := b.coord.GetTask(taskID)
+	co, as, err := b.on(ctx, taskID)
+	if err != nil {
+		return AnswerResult{}, err
+	}
+	t, ok := co.GetTask(taskID)
 	if !ok {
 		return AnswerResult{}, fmt.Errorf("%w: task %q", coord.ErrNotFound, taskID)
 	}
@@ -1207,12 +1234,12 @@ func (b *BoardService) Answer(taskID, blockerID string, option int, text string,
 	if a.Resolve && a.Pick == 0 && cmp.Or(bl.Status, coord.BlockerOpen) != coord.BlockerOpen {
 		// The person answered before: resolving keeps that answer and
 		// takes text as a note, so these words go in as the answer first.
-		if _, _, err := b.coord.Answer(ctx, b.user.Key, taskID, blockerID, coord.BlockerAnswer{Text: text, Wake: wake}); err != nil {
+		if _, _, err := co.Answer(ctx, as[0], taskID, blockerID, coord.BlockerAnswer{Text: text, Wake: wake}); err != nil {
 			return AnswerResult{}, err
 		}
 		a.Text = ""
 	}
-	t, n, err := b.coord.Answer(ctx, b.user.Key, taskID, blockerID, a)
+	t, n, err := co.Answer(ctx, as[0], taskID, blockerID, a)
 	if err != nil {
 		return AnswerResult{}, err
 	}
@@ -1252,7 +1279,11 @@ func (b *BoardService) ResolveBlocker(taskID, blockerID, note string) (AnswerRes
 	if blockerID == NoteItem {
 		return AnswerResult{}, fmt.Errorf("%w: answer the card's question instead", coord.ErrInvalid)
 	}
-	t, n, err := b.coord.Answer(ctx, b.user.Key, taskID, blockerID, coord.BlockerAnswer{Text: note, Resolve: true})
+	co, as, err := b.on(ctx, taskID)
+	if err != nil {
+		return AnswerResult{}, err
+	}
+	t, n, err := co.Answer(ctx, as[0], taskID, blockerID, coord.BlockerAnswer{Text: note, Resolve: true})
 	if err != nil {
 		return AnswerResult{}, err
 	}
@@ -1268,7 +1299,11 @@ func (b *BoardService) ResolveBlocker(taskID, blockerID, note string) (AnswerRes
 // person's comment to its holders (a wake when wake), and the card goes
 // back to working (submitted when nobody holds it).
 func (b *BoardService) answerInput(ctx context.Context, id string, option int, text string, wake bool) (AnswerResult, error) {
-	t, ok := b.coord.GetTask(id)
+	co, as, err := b.on(ctx, id)
+	if err != nil {
+		return AnswerResult{}, err
+	}
+	t, ok := co.GetTask(id)
 	switch {
 	case !ok:
 		return AnswerResult{}, fmt.Errorf("%w: task %q", coord.ErrNotFound, id)
@@ -1277,7 +1312,7 @@ func (b *BoardService) answerInput(ctx context.Context, id string, option int, t
 	case option != -1:
 		return AnswerResult{}, fmt.Errorf("%w: this question has no recommended answers; answer in your own words", coord.ErrInvalid)
 	}
-	_, n, err := b.coord.AddComment(ctx, b.user.Key, id, text, wake)
+	_, n, err := co.AddComment(ctx, as[0], id, text, wake)
 	if err != nil {
 		return AnswerResult{}, err
 	}
@@ -1286,7 +1321,7 @@ func (b *BoardService) answerInput(ctx context.Context, id string, option int, t
 	if len(t.Holders) > len(t.Assigned) {
 		back = coord.Working
 	}
-	if _, err := b.coord.SetTaskState(ctx, b.user.Key, id, back, ""); err != nil {
+	if _, err := co.SetTaskState(ctx, as[0], id, back, ""); err != nil {
 		return AnswerResult{}, err
 	}
 	d, err := b.Card(id)
