@@ -81,10 +81,14 @@ const (
 // local_events, so it never leaves the device.
 const KindBoardCardKey = "board.cardkey"
 
-// KindBoardPin: {personId, personPub, rootDeviceId, personEpoch}: a member
-// this device pinned on a board (§3, "What a board pins"), kept in the
-// board store's local_events so the board Verifier is pinned again at
-// every open. The Core writes one for itself on a board it creates.
+// KindBoardPin: {personId, personPub, rootDeviceId, personEpoch}: the
+// board's anchor, its creator as this device trusts them from outside the
+// log (its own creation of the board; in stage 2 an invite bundle's
+// board.created), kept in the board store's local_events so the board
+// Verifier is anchored again at every open. board.created counts only for
+// it; every other member is pinned by the membership fold. It must not
+// become "the first board.created by position": a member could write a
+// backdated one in a fresh stream.
 const KindBoardPin = "board.pin"
 
 // Device-local kinds, which live in local_events and never replicate (§5.1).
