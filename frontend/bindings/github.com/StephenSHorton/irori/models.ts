@@ -1505,6 +1505,15 @@ export class CardThreadItem {
     "files"?: number;
 
     /**
+     * Dismissed: a held message the person dismissed, so its text never
+     * reaches the card unless they release it after all. DeliveryID is the
+     * held or dismissed delivery, for that Release (this device's inbox
+     * only; "" otherwise).
+     */
+    "dismissed"?: boolean;
+    "deliveryId"?: string;
+
+    /**
      * a comment's files
      */
     "attachments"?: blob$0.FileRef[];
@@ -1543,7 +1552,7 @@ export class CardThreadItem {
         const $$createField3_0 = $$createType3;
         const $$createField4_0 = $$createType4;
         const $$createField8_0 = $$createType2;
-        const $$createField12_0 = $$createType14;
+        const $$createField14_0 = $$createType14;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("who" in $$parsedSource) {
             $$parsedSource["who"] = $$createField3_0($$parsedSource["who"]);
@@ -1555,7 +1564,7 @@ export class CardThreadItem {
             $$parsedSource["missing"] = $$createField8_0($$parsedSource["missing"]);
         }
         if ("attachments" in $$parsedSource) {
-            $$parsedSource["attachments"] = $$createField12_0($$parsedSource["attachments"]);
+            $$parsedSource["attachments"] = $$createField14_0($$parsedSource["attachments"]);
         }
         return new CardThreadItem($$parsedSource as Partial<CardThreadItem>);
     }

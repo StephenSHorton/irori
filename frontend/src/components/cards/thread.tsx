@@ -5,7 +5,7 @@ import { AttachmentList } from "@/components/attachments"
 import { Button } from "@/components/ui/button"
 import { cards, type CardMessage, type CardThreadItem } from "@/lib/cards"
 import { parseTime, plainBlock, plainLine, relativeTime } from "@/lib/irori"
-import { errorText } from "@/lib/talk"
+import { errorText, talk } from "@/lib/talk"
 import { opensInFull, threadLabel, ThreadKind, visible } from "@/lib/thread"
 import { cn } from "@/lib/utils"
 import { Face } from "./faces"
@@ -99,6 +99,9 @@ function ThreadRow({
   const [full, setFull] = useState<CardMessage | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // released: the person released a dismissed message here; its text
+  // joins the card once the inbox lets it through.
+  const [released, setReleased] = useState(false)
   const at = parseTime(item.at)
   const time = (
     <time
@@ -127,6 +130,19 @@ function ThreadRow({
     setError(null)
     try {
       setFull(await cards.message(cardId, item.id))
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const release = async () => {
+    if (!item.deliveryId || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await talk.release(item.deliveryId)
+      setReleased(true)
     } catch (err) {
       setError(errorText(err))
     } finally {
@@ -174,6 +190,28 @@ function ThreadRow({
               </ul>
             )}
           </>
+        ) : item.held && released ? (
+          <p className="text-muted-foreground">
+            Released. Its text joins the card once it is on its way.
+          </p>
+        ) : item.held && item.dismissed ? (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <p className="text-muted-foreground">
+              Held, then dismissed: it never reached{" "}
+              {l.arrow ? plainLine(l.arrow) : "its recipient"}, and its text
+              isn't on the card.
+            </p>
+            {item.deliveryId && (
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void release()}
+              >
+                Release
+              </Button>
+            )}
+          </div>
         ) : item.held ? (
           <p className="text-muted-foreground">
             Not let through the wake policy yet, so its text isn't on the card.

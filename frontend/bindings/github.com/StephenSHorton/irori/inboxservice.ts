@@ -67,6 +67,18 @@ export function Held(): $CancellablePromise<inbox$0.Delivery[]> {
 }
 
 /**
+ * HeldHistory returns deliveries a hold once kept that are no longer held
+ * (released, dismissed, let through by an unpause), the most recently
+ * decided first; at most limit (default inbox.DefaultInboxList, max 500).
+ * A dismissed one can still be released (Release).
+ */
+export function HeldHistory(limit: number): $CancellablePromise<inbox$0.Delivery[]> {
+    return $Call.ByID(1424579230, limit).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
+/**
  * List returns recent deliveries across every recipient, newest first; at
  * most limit (default inbox.DefaultInboxList, max 500).
  */
@@ -100,7 +112,8 @@ export function Policy(): $CancellablePromise<inbox$0.Policy> {
 }
 
 /**
- * Release delivers a held delivery past the policy (the person's Deliver).
+ * Release delivers a held delivery past the policy (the person's Deliver),
+ * or a dismissed one after all (the Held list's undo).
  */
 export function Release(deliveryID: string): $CancellablePromise<void> {
     return $Call.ByID(3028751254, deliveryID);

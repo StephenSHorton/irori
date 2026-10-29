@@ -21,7 +21,8 @@ import (
 // KindDecided is a request about a held delivery from any device's GUI:
 // {deliveryId, choice: release|dismiss|move, to?, by, atDevice, at}, actor
 // "user". The owner applies the first one it folds and writes the real
-// delivery.state; later ones are already handled.
+// delivery.state; later ones are already handled, except a release asked
+// after the delivery was dismissed (the person's undo).
 const KindDecided = "delivery.decided"
 
 // Choices a delivery.decided row carries.
@@ -255,6 +256,13 @@ func (b *inbox) applyDecided(ctx context.Context, r decidedRow) error {
 	d := b.dels[r.DeliveryID]
 	if d == nil || !b.owns(d) {
 		return nil
+	}
+	// Release after a Dismiss is the person undoing it, not a second answer
+	// to the same hold: it applies past handled, but only when it was asked
+	// after the Dismiss took effect (one asked before it lost the race).
+	if r.Choice == ChoiceRelease && d.State == Dismissed && r.At.After(d.DecidedAt) {
+		b.handled[r.DeliveryID] = true
+		return b.releaseLocked(ctx, d, r.By)
 	}
 	if b.handled[r.DeliveryID] {
 		return nil

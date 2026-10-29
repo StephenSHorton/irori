@@ -15,6 +15,7 @@ import (
 
 	"github.com/StephenSHorton/irori/internal/core"
 	"github.com/StephenSHorton/irori/internal/discovery"
+	"github.com/StephenSHorton/irori/internal/notify"
 	"github.com/StephenSHorton/irori/internal/update"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -155,6 +156,9 @@ func runGUI(args []string) error {
 	go captureSvc.pump(ctx, app)
 	go board.pump(ctx, app, tray.SetDecide)
 	setupNotifications(ctx, app, c, show)
+	// The tray's held line opens the Held list through the Notifier's
+	// opener, which setupNotifications set: show, then app:open.
+	tray.SetHeldOpener(func() { c.Notifier().Open(notify.Target{Tab: notify.TabHeld}) })
 	return app.Run()
 }
 

@@ -319,9 +319,10 @@ func (b *inbox) skip(ctx context.Context, agent, deliveryID, note string) error 
 }
 
 // release is the person's Deliver: a held delivery is queued past the
-// policy. Unowned repo work goes to the front desk if there is one now.
-// On a delivery another device owns, it writes the request its owner
-// applies (v0.4 §6.3).
+// policy. A dismissed one can be released after all (the Held list's undo),
+// with its message intact. Unowned repo work goes to the front desk if
+// there is one now. On a delivery another device owns, it writes the
+// request its owner applies (v0.4 §6.3).
 func (b *inbox) release(ctx context.Context, deliveryID, by string) error {
 	b.mu.Lock()
 	defer b.unlock()
@@ -329,7 +330,7 @@ func (b *inbox) release(ctx context.Context, deliveryID, by string) error {
 	if d == nil {
 		return fmt.Errorf("%w: delivery %q", ErrNotFound, deliveryID)
 	}
-	if d.State != Held {
+	if d.State != Held && d.State != Dismissed {
 		return badState(d, "release")
 	}
 	if !b.owns(d) {
@@ -338,7 +339,7 @@ func (b *inbox) release(ctx context.Context, deliveryID, by string) error {
 	return b.releaseLocked(ctx, d, by)
 }
 
-// releaseLocked queues held d past the policy. b.mu is held.
+// releaseLocked queues held or dismissed d past the policy. b.mu is held.
 func (b *inbox) releaseLocked(ctx context.Context, d *drec, by string) error {
 	r := d.row()
 	if r.To == "" {
@@ -403,6 +404,44 @@ func (b *inbox) forAgent(agent string, all bool, limit int) []Delivery {
 		}
 		return all || d.State.Open()
 	}, limit)
+}
+
+// heldHistory is every delivery a hold ever kept that is no longer held
+// (released, dismissed, let through by an unpause or the sweep), the most
+// recently decided first; at most limit.
+func (b *inbox) heldHistory(limit int) []Delivery {
+	if limit <= 0 {
+		limit = DefaultInboxList
+	}
+	b.mu.Lock()
+	out := []Delivery{}
+	for _, id := range b.order {
+		if d := b.dels[id]; d.HeldFor != "" && d.State != Held {
+			out = append(out, b.copyOut(d))
+		}
+	}
+	b.mu.Unlock()
+	decided := func(d Delivery) time.Time {
+		if d.DecidedAt.IsZero() {
+			return d.UpdatedAt
+		}
+		return d.DecidedAt
+	}
+	slices.SortStableFunc(out, func(x, y Delivery) int { return decided(y).Compare(decided(x)) })
+	return out[:min(len(out), limit)]
+}
+
+// ofMessage is every delivery of message id, oldest first.
+func (b *inbox) ofMessage(id string) []Delivery {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out []Delivery
+	for _, did := range b.order {
+		if d := b.dels[did]; d.MessageID == id {
+			out = append(out, b.copyOut(d))
+		}
+	}
+	return out
 }
 
 func (b *inbox) list(limit int) []Delivery {

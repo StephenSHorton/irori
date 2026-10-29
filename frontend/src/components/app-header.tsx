@@ -1,10 +1,20 @@
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { SettingsMenu } from "@/components/settings/settings-menu"
 import type { Roster } from "@/lib/irori"
 
-// AppHeader is the top bar: the product mark, this device, the version and
-// the settings.
-export function AppHeader({ roster }: { roster: Roster }) {
+// AppHeader is the top bar: the product mark, this device, the version,
+// the Held list (with how many messages wait on the person) and the
+// settings.
+export function AppHeader({
+  roster,
+  held,
+  onHeld,
+}: {
+  roster: Roster
+  held: number
+  onHeld: () => void
+}) {
   const { device, version, source, agents } = roster
   const busy = agents.filter((a) => a.status === "busy").length
 
@@ -32,6 +42,19 @@ export function AppHeader({ roster }: { roster: Roster }) {
           <span className="truncate text-xs font-medium text-ink-2" title={device?.id}>
             {device?.name || "this device"}
           </span>
+          <Button
+            size="sm"
+            variant={held > 0 ? "outline" : "ghost"}
+            onClick={onHeld}
+            title="Messages Irori's wake policy held"
+          >
+            Held
+            {held > 0 && (
+              <Badge variant="warning" className="tabular-nums">
+                {held}
+              </Badge>
+            )}
+          </Button>
           {version && (
             <Badge variant="slate" className="font-mono normal-case">
               {version === "dev" || version === "sample"
