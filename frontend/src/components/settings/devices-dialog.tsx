@@ -289,7 +289,7 @@ function HomeServer({ open }: { open: boolean }) {
                 autoComplete="off"
                 onChange={(e) => setPublicAddr(e.target.value)}
               />
-              <Button type="submit" size="sm" variant="outline">
+              <Button type="submit" variant="outline">
                 Save
               </Button>
             </form>
@@ -362,12 +362,11 @@ function Relay({ open }: { open: boolean }) {
             autoComplete="off"
             onChange={(e) => setUrl(e.target.value)}
           />
-          <Button type="submit" size="sm">
+          <Button type="submit">
             Save
           </Button>
           <Button
             type="button"
-            size="sm"
             variant="ghost"
             onClick={() => setEditing(false)}
           >
