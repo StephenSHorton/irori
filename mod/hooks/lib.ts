@@ -203,3 +203,26 @@ export function describePolicy(p: Policy): string {
   const who = p.mode === 'allowlist' ? `allowlist mode, allowed: ${names}` : `everyone mode, blocked: ${names}`
   return `Policy: ${who}${p.paused ? ' · paused' : ''}.`
 }
+
+/** How many titles the mod remembers having set (titleToSet's setBefore). */
+export const MAX_TITLES = 10
+
+/**
+ * The title to set on Claude's session (card #21), or undefined to leave it.
+ * Only Irori's own name for a session nobody named, and only over a title
+ * nobody chose: none, one this mod set before, or Claude's own ai-title. Any
+ * other title is a rename the Core hasn't seen yet (presence lags a couple of
+ * seconds), so it stays.
+ */
+export function titleToSet(
+  view: Pick<AttachView, 'name' | 'nameSource' | 'aiTitle'>,
+  current: string | undefined,
+  setBefore: readonly string[],
+): string | undefined {
+  const name = (view.name ?? '').trim()
+  if (view.nameSource !== 'irori' || !name) return undefined
+  const now = (current ?? '').trim()
+  if (now === name) return undefined
+  if (now === '' || setBefore.includes(now) || (view.aiTitle && now === view.aiTitle.trim())) return name
+  return undefined
+}

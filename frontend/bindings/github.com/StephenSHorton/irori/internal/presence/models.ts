@@ -35,6 +35,20 @@ export class AgentCard {
      * latest custom-title / ai-title from the transcript
      */
     "title": string;
+
+    /**
+     * NameSource says where Name came from: "user" (the session's own name or
+     * a custom title someone chose), "irori" (the friendly name Irori gave a
+     * session nobody named, card #21), or "" (an ai-title or the folder).
+     */
+    "nameSource"?: string;
+
+    /**
+     * AITitle is the transcript's newest ai-title, which never counts as a
+     * name someone chose. It stays on this device (not in agent.seen rows):
+     * the mod compares it with Claude's session title.
+     */
+    "aiTitle"?: string;
     "cwd": string;
 
     /**
@@ -168,10 +182,10 @@ export class AgentCard {
      * Creates a new AgentCard instance from a string or object.
      */
     static createFrom($$source: any = {}): AgentCard {
-        const $$createField12_0 = $$createType0;
+        const $$createField14_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("peerFeatures" in $$parsedSource) {
-            $$parsedSource["peerFeatures"] = $$createField12_0($$parsedSource["peerFeatures"]);
+            $$parsedSource["peerFeatures"] = $$createField14_0($$parsedSource["peerFeatures"]);
         }
         return new AgentCard($$parsedSource as Partial<AgentCard>);
     }

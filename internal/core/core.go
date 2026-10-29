@@ -90,6 +90,8 @@ type Core struct {
 	mesh     *mesh.Node
 	pair     *pair.Pairer
 	roster   *roster.Roster
+	names    *namer        // friendly names for unnamed sessions (card #21)
+	namesK   chan struct{} // kicks settleNames
 	asks     *ask.Book
 	files    *blob.Files // attachments (v0.4 §6.6)
 	netClose func()      // stops the default transport's relay; nil for a passed-in one
@@ -153,6 +155,7 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		log.Printf("pairing rows: %v", err)
 	}
 	repos := repo.New()
+	nm := newNamer(opts.DataDir, id.ID)
 	c := &Core{
 		opts:   opts,
 		device: id,
@@ -160,8 +163,10 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		chain:  chain,
 		store:  st,
 		presence: presence.New(presence.Options{
-			ClaudeDir: opts.ClaudeDir, DeviceID: id.ID, RepoKey: repos.Key,
+			ClaudeDir: opts.ClaudeDir, DeviceID: id.ID, RepoKey: repos.Key, Names: nm,
 		}),
+		names:    nm,
+		namesK:   make(chan struct{}, 1),
 		repos:    repos,
 		members:  newMembers(id.ID),
 		scrubber: scrub.New(),
@@ -188,6 +193,7 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 		c.Close()
 		return nil, fmt.Errorf("roster: %w", err)
 	}
+	nm.mesh = c.MeshAgents
 	// The inbox is built before capture: PROwners reads c.capture per call.
 	prOwners := func(prKey string) []string {
 		if c.capture == nil {
@@ -349,6 +355,7 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 			<-fd
 		}()
 		go c.record(ctx, changes)
+		go c.settleNames(ctx)
 		go c.sweep(ctx)
 		if err := srv.Serve(ctx, ln); err != nil && ctx.Err() == nil {
 			log.Printf("api: %v", err)
@@ -405,14 +412,21 @@ func (c *Core) record(ctx context.Context, changes <-chan presence.Change) {
 		switch ch.Kind {
 		case presence.Added:
 			last[card.Key] = card
+			c.kickNames()
 			_, err = c.store.Append(ctx, actor, store.KindAgentSeen, c.rowCard(card))
 		case presence.Updated:
 			prev, ok := last[card.Key]
 			last[card.Key] = card
-			if ok && prev.Status == card.Status && prev.Name == card.Name && prev.PermissionMode == card.PermissionMode {
+			if ok && prev.Status == card.Status && prev.Name == card.Name && prev.NameSource == card.NameSource && prev.PermissionMode == card.PermissionMode {
 				continue
 			}
+			if ok && (prev.Name != card.Name || prev.NameSource != card.NameSource) {
+				c.kickNames()
+			}
 			row := map[string]any{"key": card.Key, "status": card.Status, "name": card.Name}
+			if card.NameSource != "" {
+				row["nameSource"] = card.NameSource
+			}
 			if card.PermissionMode != "" {
 				row["permissionMode"] = card.PermissionMode
 			}
@@ -434,7 +448,7 @@ func (c *Core) record(ctx context.Context, changes <-chan presence.Change) {
 // text (decision D9: it stays in this device's memory), and the title
 // scrubbed, because a replicated row can't be scrubbed later.
 func (c *Core) rowCard(card presence.AgentCard) presence.AgentCard {
-	card.LastText, card.Transcript, card.PID, card.DeviceState = "", "", 0, ""
+	card.LastText, card.Transcript, card.PID, card.DeviceState, card.AITitle = "", "", 0, "", ""
 	card.Title = c.scrubber.String(card.Title)
 	return card
 }

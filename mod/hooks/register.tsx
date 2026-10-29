@@ -28,6 +28,8 @@ import {
   nextBackoff,
   parseArgs,
   takeEvents,
+  titleToSet,
+  MAX_TITLES,
   toolArgs,
   validSpec,
 } from './lib'
@@ -39,6 +41,8 @@ const INITIAL_VIEW: AttachView = { status: 'connecting', unread: 0, held: 0 }
 const attachAtom = atom({ plugin: 'irori', key: 'attach' } as const, INITIAL_VIEW)
 const wakesAtom = atom({ plugin: 'irori', key: 'wakes' } as const, [])
 const appendsAtom = atom({ plugin: 'irori', key: 'appends' } as const, [])
+/** Titles this mod set on the session (card #21), newest last. */
+const titlesAtom = atom({ plugin: 'irori', key: 'titles' } as const, [] as string[])
 
 // Reset on every (re)load; a reload also ends the running child.
 let pluginOptions: PluginOptions = {}
@@ -276,6 +280,8 @@ async function onHello($: EngineInterface, e: AttachEvent) {
     status: 'attached',
     error: undefined,
     name: e.name,
+    nameSource: e.nameSource,
+    aiTitle: e.aiTitle,
     agentKey: e.agentKey,
   })
   void loadTools($).catch(() => {})
@@ -301,6 +307,9 @@ async function handleEvent($: EngineInterface, e: AttachEvent): Promise<'superse
       return
     case 'inbox':
       await setView($, { unread: Number(e.unread ?? 0), held: Number(e.held ?? 0) })
+      return
+    case 'name':
+      await setView($, { name: e.name, nameSource: e.nameSource, aiTitle: e.aiTitle })
       return
     case 'error':
       $.ui.log(`irori attach: ${e.message ?? 'error'}`, { to: 'debug' })
@@ -429,6 +438,24 @@ async function changePolicy($: EngineInterface, verb: string, rest: string): Pro
   return `${edit.text}\n${describePolicy((saved.body as Policy | undefined) ?? edit.policy)}`
 }
 
+/**
+ * Adds Irori's name as the session title to a SessionStart or UserPromptSubmit
+ * result when titleToSet says so (card #21). Another hook's title stands, and
+ * any failure returns the result unchanged.
+ */
+async function withTitle<R extends { sessionTitle?: string }>($: EngineInterface, result: R, current: string | undefined): Promise<R> {
+  try {
+    if (result?.sessionTitle) return result
+    const view = await read($, attachAtom)
+    const title = titleToSet(view, current, await read($, titlesAtom))
+    if (!title) return result
+    await update($, titlesAtom, list => [...list.filter(t => t !== title), title].slice(-MAX_TITLES))
+    return { ...result, sessionTitle: title }
+  } catch {
+    return result
+  }
+}
+
 async function onSessionStart($: EngineInterface, cwd: string) {
   await $.command.register({
     name: 'irori',
@@ -451,6 +478,12 @@ export const register: Register = (on, options) => {
     await onSessionStart($, e.cwd)
     return started
   })
+
+  // Irori's name for a session nobody named shows as its title (card #21).
+  // SessionStart usually fires before the attach, so a new session takes
+  // it at its first prompt; a resumed one already has its name.
+  on('classic.SessionStart', async ($, e, next) => withTitle($, await next(e), e.session_title))
+  on('classic.UserPromptSubmit', async ($, e, next) => withTitle($, await next(e), e.session_title))
 
   on('session.end', async ($, e, next) => {
     ended = true

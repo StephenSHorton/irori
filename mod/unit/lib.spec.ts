@@ -10,6 +10,7 @@ import {
   describePolicy,
   editPolicy,
   nextBackoff,
+  titleToSet,
   parseArgs,
   takeEvents,
   toolArgs,
@@ -138,5 +139,26 @@ describe('appends', () => {
     ]
     expect(appendsToEngage(list).map(x => x.token)).toEqual(['delivered'])
     expect(appendsToEngage([])).toEqual([])
+  })
+})
+
+describe('titleToSet (card #21)', () => {
+  const irori = { name: 'heron', nameSource: 'irori', aiTitle: 'Fix the parser' }
+  test("sets Irori's name over no title, its own earlier title, or the ai-title", () => {
+    expect(titleToSet(irori, undefined, [])).toBe('heron')
+    expect(titleToSet(irori, '', [])).toBe('heron')
+    expect(titleToSet(irori, 'otter', ['otter'])).toBe('heron')
+    expect(titleToSet(irori, 'Fix the parser', [])).toBe('heron')
+  })
+  test('leaves a title already set to the name', () => {
+    expect(titleToSet(irori, 'heron', [])).toBeUndefined()
+  })
+  test('never overrides a title someone chose, even before the Core has seen it', () => {
+    expect(titleToSet(irori, 'api work', [])).toBeUndefined()
+    expect(titleToSet({ ...irori, nameSource: 'user', name: 'api work' }, '', [])).toBeUndefined()
+  })
+  test('sets nothing without an Irori name', () => {
+    expect(titleToSet({ name: 'C--Users', nameSource: '' }, '', [])).toBeUndefined()
+    expect(titleToSet({ nameSource: 'irori' }, '', [])).toBeUndefined()
   })
 })

@@ -79,7 +79,9 @@ func absPath(p string) string {
 
 // tail is what we learned from the end of one transcript.
 type tail struct {
-	Title          string
+	Title          string // Custom, else AI
+	Custom         string // newest custom-title
+	AI             string // newest ai-title
 	LastText       string
 	LastActivity   time.Time
 	PermissionMode string
@@ -153,6 +155,7 @@ func readTail(f io.ReadSeeker, size, n int64) tail {
 			}
 		}
 	}
+	t.Custom, t.AI = custom, ai
 	t.Title = custom
 	if t.Title == "" {
 		t.Title = ai

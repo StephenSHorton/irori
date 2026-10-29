@@ -33,6 +33,8 @@ type stream struct {
 	// appends: a mod at attach.AppendSince or later, which takes append
 	// events (next-turn delivery). Older mods and Grok never get them.
 	appends bool
+	// named is the name event last sent (or the hello's), card #21.
+	named attach.Event
 }
 
 // streams is the registry: one live stream per agent key. mu also
@@ -81,14 +83,8 @@ func (h *handler) attach(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		key := b.Device().ID + "/" + session
-		var name string
-		found := false
-		for _, c := range b.Agents() {
-			if c.Key == key && c.Agent == "claude" && c.Status != "gone" {
-				name, found = c.Name, true
-				break
-			}
-		}
+		named, found := h.nameEvent(key)
+		name := named.Name
 		if !found {
 			writeError(w, http.StatusNotFound, "no live session "+strconv.Quote(session)+" on this device (yet)")
 			return
@@ -102,6 +98,8 @@ func (h *handler) attach(w http.ResponseWriter, r *http.Request) {
 		st.appends = attach.ModAtLeast(q.Get("mod"), attach.AppendSince)
 		st.sender = inbox.Sender{Key: key, Name: name, Kind: "claude"}
 		hello.Session, hello.AgentKey, hello.Name, hello.AttachSecret = session, key, name, secret
+		hello.NameSource, hello.AITitle = named.NameSource, named.AITitle
+		st.named = named
 	case member != "" && session == "":
 		m, ok := b.MemberBySecret(member)
 		if !ok {
@@ -200,6 +198,14 @@ func (h *handler) attach(w http.ResponseWriter, r *http.Request) {
 			// Catch up on a dropped notification (slow subscriber).
 			if !h.wake(ctx, st, out, false) || !h.sendAppend(ctx, st, out, false) {
 				return
+			}
+			if st.path == inbox.PathMod {
+				if ev, ok := h.nameEvent(st.key); ok && (ev.Name != st.named.Name || ev.NameSource != st.named.NameSource || ev.AITitle != st.named.AITitle) {
+					st.named = ev
+					if out.send(ev) != nil {
+						return
+					}
+				}
 			}
 		case ch, ok := <-changes:
 			if !ok {
@@ -398,4 +404,15 @@ func (l *lineWriter) write(p []byte) error {
 		return err
 	}
 	return l.rc.Flush()
+}
+
+// nameEvent is a name event for Claude session key from this device's live
+// card (card #21); false when there is none.
+func (h *handler) nameEvent(key string) (attach.Event, bool) {
+	for _, c := range h.s.b.Agents() {
+		if c.Key == key && c.Agent == "claude" && c.Status != "gone" {
+			return attach.Event{Type: attach.TypeName, Name: c.Name, NameSource: c.NameSource, AITitle: c.AITitle}, true
+		}
+	}
+	return attach.Event{}, false
 }

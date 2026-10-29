@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/StephenSHorton/irori/internal/names"
 )
 
 const (
@@ -215,16 +217,62 @@ func (x *watcher) card(s session) AgentCard {
 		UpdatedAt:    s.UpdatedAt,
 		RepoKey:      x.repoKey(s.Cwd),
 	}
+	var t tail
 	if tc := x.refreshTail(s); tc != nil {
+		t = tc.tail
 		c.Transcript = tc.path
 		c.Title = tc.tail.Title
 		c.LastText = tc.tail.LastText
 		c.LastActivity = tc.tail.LastActivity
 		c.PermissionMode = tc.tail.PermissionMode
 	}
-	c.Name = displayName(s, c.Title)
+	c.AITitle = t.AI
+	c.Name, c.NameSource = x.name(s, t)
 	return c
 }
+
+// name is what the roster calls a session, and where that came from:
+//   - a name someone chose: the session's own name (/rename), else its
+//     newest custom title. It counts as the person's ("user") unless it is
+//     the friendly name Irori gave it, which Claude writes back as a title
+//     once the mod sets it ("irori");
+//   - else Irori's friendly name, given now if the session has none;
+//   - else, with no namer, displayName's old fallback.
+//
+// A session name Claude Code set itself (a nameSource other than "user")
+// isn't a choice, and an ai-title never is.
+func (x *watcher) name(s session, t tail) (string, string) {
+	var assigned string
+	if x.opts.Names != nil {
+		assigned = x.opts.Names.Assigned(s.ID)
+	}
+	chosen := ""
+	if s.Name != "" && (s.NameSource == "" || s.NameSource == "user") {
+		chosen = s.Name
+	} else if t.Custom != "" {
+		chosen = t.Custom
+	} else if s.Name != "" && assigned != "" && names.Fold(s.Name) == names.Fold(assigned) {
+		chosen = s.Name
+	}
+	if chosen != "" {
+		if assigned != "" && names.Fold(chosen) == names.Fold(assigned) {
+			return chosen, SourceIrori
+		}
+		return chosen, SourceUser
+	}
+	if x.opts.Names != nil {
+		if n := x.opts.Names.Assign(s.ID); n != "" {
+			return n, SourceIrori
+		}
+	}
+	return displayName(s, t.Title), ""
+}
+
+// Name sources (AgentCard.NameSource).
+const (
+	SourceUser  = "user"
+	SourceIrori = "irori"
+)
 
 // repoKey is Options.RepoKey(cwd), computed once per cwd while any live
 // session uses it (resolving runs git, which is too slow for every scan).
@@ -281,6 +329,12 @@ func (x *watcher) refreshTail(s session) *tailCache {
 		// Title rows carry no timestamp and can scroll out of the window.
 		if t.Title == "" {
 			t.Title = tc.tail.Title
+		}
+		if t.Custom == "" {
+			t.Custom = tc.tail.Custom
+		}
+		if t.AI == "" {
+			t.AI = tc.tail.AI
 		}
 		if t.LastText == "" {
 			t.LastText = tc.tail.LastText
@@ -379,7 +433,8 @@ func changed(a, b AgentCard) bool {
 		a.Version != b.Version || !slices.Equal(a.PeerFeatures, b.PeerFeatures) ||
 		!a.StartedAt.Equal(b.StartedAt) || !a.UpdatedAt.Equal(b.UpdatedAt) ||
 		a.LastText != b.LastText || a.Transcript != b.Transcript ||
-		a.RepoKey != b.RepoKey || a.PermissionMode != b.PermissionMode
+		a.RepoKey != b.RepoKey || a.PermissionMode != b.PermissionMode ||
+		a.NameSource != b.NameSource || a.AITitle != b.AITitle
 }
 
 // sortCards orders by LastActivity (UpdatedAt when there is none), newest

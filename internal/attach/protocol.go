@@ -48,7 +48,12 @@ const (
 	//     for every delivered, not yet engaged append. The append's token is
 	//     not in e.text, so this is not a token match. Never POST turn-ended
 	//     for an append.
-	TypeAppend     = "append"
+	TypeAppend = "append"
+	// TypeName says the session's name changed (card #21): Name,
+	// NameSource and AITitle, as in hello. Sent by the keepalive tick when
+	// any of them differs from what the stream last sent. The mod sets
+	// Claude's session title from it; an older mod ignores it.
+	TypeName       = "name"
 	TypeHeld       = "held"
 	TypeMoved      = "moved"
 	TypeInbox      = "inbox"
@@ -61,10 +66,15 @@ type Event struct {
 	Type string `json:"type"`
 
 	// hello
-	V            int    `json:"v,omitempty"`
-	Session      string `json:"session,omitempty"`
-	AgentKey     string `json:"agentKey,omitempty"`
-	Name         string `json:"name,omitempty"`
+	V        int    `json:"v,omitempty"`
+	Session  string `json:"session,omitempty"`
+	AgentKey string `json:"agentKey,omitempty"`
+	Name     string `json:"name,omitempty"`
+	// NameSource and AITitle (hello and name events, Claude sessions): where
+	// Name came from ("user", "irori" or "", presence.AgentCard.NameSource)
+	// and the transcript's newest ai-title.
+	NameSource   string `json:"nameSource,omitempty"`
+	AITitle      string `json:"aiTitle,omitempty"`
 	API          *API   `json:"api,omitempty"`
 	AttachSecret string `json:"attachSecret,omitempty"`
 

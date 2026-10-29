@@ -17,6 +17,7 @@ type session struct {
 	ID           string
 	Cwd          string
 	Name         string
+	NameSource   string // who set Name: "user" for /rename; other values are Claude Code's
 	Status       string
 	Kind         string
 	Entrypoint   string
@@ -64,6 +65,7 @@ func readSession(r io.Reader) (session, bool) {
 		ID:           str(m["sessionId"]),
 		Cwd:          str(m["cwd"]),
 		Name:         str(m["name"]),
+		NameSource:   str(m["nameSource"]),
 		Status:       str(m["status"]),
 		Kind:         str(m["kind"]),
 		Entrypoint:   str(m["entrypoint"]),

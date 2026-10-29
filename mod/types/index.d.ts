@@ -6,6 +6,10 @@ export type AttachEvent = {
   session?: string
   agentKey?: string
   name?: string
+  /** hello and name events: where name came from ("user", "irori" or ""), card #21. */
+  nameSource?: string
+  /** hello and name events: the transcript's newest ai-title. */
+  aiTitle?: string
   api?: { url: string; token: string }
   attachSecret?: string
   // deliver
@@ -55,6 +59,9 @@ export type AttachView = {
   status: 'off' | 'connecting' | 'attached' | 'superseded' | 'error'
   error?: string
   name?: string
+  /** Where name came from: "irori" means Irori named this session (card #21). */
+  nameSource?: string
+  aiTitle?: string
   agentKey?: string
   unread: number
   held: number

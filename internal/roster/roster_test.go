@@ -72,3 +72,40 @@ func TestAgentStatusCarriesALaterPermissionMode(t *testing.T) {
 		t.Fatalf("a status row without a mode cleared it: %q", m)
 	}
 }
+
+// A rename on another device arrives on agent.status with its name source
+// (card #21), so this device's clash rule and cards see who chose it.
+func TestAgentStatusCarriesTheNameSource(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "irori.db"), "dev1", hlc.New(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	const key = "dev2/nnnnnnnn-9999-4999-8999-999999999999"
+	var seq int64
+	row := func(kind string, payload any) {
+		t.Helper()
+		seq++
+		raw, _ := json.Marshal(payload)
+		at := hlc.Timestamp(time.Now().UnixMilli())<<16 + hlc.Timestamp(seq)
+		if err := st.Insert(ctx, store.Event{DeviceID: "dev2", Seq: seq, HLC: at, Actor: "irori", Kind: kind, Payload: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	row(store.KindAgentSeen, presence.AgentCard{Key: key, Agent: "claude", Name: "heron", NameSource: "irori", Status: "idle"})
+	row(store.KindAgentStatus, map[string]any{"key": key, "status": "idle", "name": "Bob", "nameSource": "user"})
+	r, err := Start(ctx, Options{Store: st, Self: "dev1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range r.Remote() {
+		if c.Key == key {
+			if c.Name != "Bob" || c.NameSource != "user" {
+				t.Fatalf("card %q (%q)", c.Name, c.NameSource)
+			}
+			return
+		}
+	}
+	t.Fatal("no card")
+}

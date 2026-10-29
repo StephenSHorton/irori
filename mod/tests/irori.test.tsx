@@ -117,6 +117,9 @@ function world(
   })
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }) as never)
+  // No settings hooks beneath: the classic events answer with nothing.
+  on('classic.SessionStart', () => ({}))
+  on('classic.UserPromptSubmit', () => ({}))
   on('http.fetch', ($, e) => {
     calls.push({ url: e.url, method: e.init?.method ?? 'GET', headers: { ...(e.init?.headers ?? {}) }, body: e.init?.body })
     if (e.url.endsWith('/v1/tools?client=claude')) return { value: { ok: true, status: 200, headers: {}, text: JSON.stringify(specs) } } as never
@@ -438,5 +441,45 @@ describe('/irori', () => {
     expect(paused.text).toContain('Paused')
     const bad = await $.command.run(irori('mode sometimes', PERSON))
     expect(bad.text).toContain('Use /irori mode everyone or /irori mode allowlist.')
+  })
+})
+
+describe('session title (card #21)', () => {
+  const named = { ...hello, name: 'heron', nameSource: 'irori', aiTitle: 'Fix the parser' }
+
+  test("Irori's name becomes the title on the next prompt, over no title or the ai-title", OPTIONS, async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line(named))
+    await until(() => w.registered.length === 2, 'hello')
+    expect((await $.classic.UserPromptSubmit({ prompt: 'hi' } as never)).sessionTitle).toBe('heron')
+    expect((await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: 'Fix the parser' } as never)).sessionTitle).toBe('heron')
+    expect((await $.classic.SessionStart({ source: 'resume' } as never)).sessionTitle).toBe('heron')
+    expect((await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: 'heron' } as never)).sessionTitle).toBeUndefined()
+  })
+
+  test('a title someone chose is never replaced, and a rename the Core reports stops it', OPTIONS, async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line(named))
+    await until(() => w.registered.length === 2, 'hello')
+    expect((await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: 'api work' } as never)).sessionTitle).toBeUndefined()
+    w.children[0]!.write(line({ type: 'name', name: 'api work', nameSource: 'user' }))
+    await pause(50)
+    expect((await $.classic.UserPromptSubmit({ prompt: 'hi' } as never)).sessionTitle).toBeUndefined()
+  })
+
+  test('a name Irori moves replaces the title it set before', OPTIONS, async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line(named))
+    await until(() => w.registered.length === 2, 'hello')
+    expect((await $.classic.UserPromptSubmit({ prompt: 'hi' } as never)).sessionTitle).toBe('heron')
+    w.children[0]!.write(line({ type: 'name', name: 'otter', nameSource: 'irori' }))
+    await pause(50)
+    expect((await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: 'heron' } as never)).sessionTitle).toBe('otter')
   })
 })

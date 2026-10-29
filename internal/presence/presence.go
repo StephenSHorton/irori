@@ -27,13 +27,21 @@ import (
 
 // AgentCard is what the roster shows for one session.
 type AgentCard struct {
-	Key          string    `json:"key"` // "<deviceId>/<sessionId>"
-	DeviceID     string    `json:"deviceId"`
-	Agent        string    `json:"agent"` // "claude" (grok/rock later)
-	SessionID    string    `json:"sessionId"`
-	PID          int       `json:"pid"`
-	Name         string    `json:"name"`  // session name, else derived
-	Title        string    `json:"title"` // latest custom-title / ai-title from the transcript
+	Key       string `json:"key"` // "<deviceId>/<sessionId>"
+	DeviceID  string `json:"deviceId"`
+	Agent     string `json:"agent"` // "claude" (grok/rock later)
+	SessionID string `json:"sessionId"`
+	PID       int    `json:"pid"`
+	Name      string `json:"name"`  // session name, else derived
+	Title     string `json:"title"` // latest custom-title / ai-title from the transcript
+	// NameSource says where Name came from: "user" (the session's own name or
+	// a custom title someone chose), "irori" (the friendly name Irori gave a
+	// session nobody named, card #21), or "" (an ai-title or the folder).
+	NameSource string `json:"nameSource,omitempty"`
+	// AITitle is the transcript's newest ai-title, which never counts as a
+	// name someone chose. It stays on this device (not in agent.seen rows):
+	// the mod compares it with Claude's session title.
+	AITitle      string    `json:"aiTitle,omitempty"`
 	Cwd          string    `json:"cwd"`
 	Status       string    `json:"status"`      // as Claude Code reports: "busy", "idle", ...; "gone" when dead
 	SessionKind  string    `json:"sessionKind"` // "interactive", "bg", ...
@@ -88,6 +96,17 @@ type Options struct {
 	Now            func() time.Time
 	// RepoKey maps a cwd to its repo_key (v0.2). Nil leaves RepoKey empty.
 	RepoKey func(cwd string) string
+	// Names gives Claude sessions nobody named a friendly name (card #21).
+	// Nil keeps the old fallback: the ai-title, else the folder.
+	Names Namer
+}
+
+// Namer holds the friendly names Irori gives sessions.
+type Namer interface {
+	// Assigned is the name already given to session id, or "".
+	Assigned(sessionID string) string
+	// Assign gives session id a name if it has none, and returns it.
+	Assign(sessionID string) string
 }
 
 // Watcher keeps the roster current. Safe for concurrent use.
@@ -107,6 +126,10 @@ func (w *Watcher) Run(ctx context.Context) error { return w.run(ctx) }
 
 // Snapshot returns the live cards, sorted by LastActivity (newest first).
 func (w *Watcher) Snapshot() []AgentCard { return w.snapshot() }
+
+// Rescan reads every session file again now and publishes what changed: a
+// namer that moved a name calls it so the card follows at once.
+func (w *Watcher) Rescan() { w.impl.scan() }
 
 // Subscribe delivers changes after the call until ctx ends (buffered; slow
 // readers drop changes and should re-read Snapshot).

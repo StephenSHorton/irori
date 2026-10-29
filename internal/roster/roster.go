@@ -170,6 +170,7 @@ func (r *Roster) apply(ev store.Event) bool {
 			// PermissionMode is set when the host learned the mode after
 			// agent.seen (older rows have none: the mode stays as it was).
 			PermissionMode string `json:"permissionMode"`
+			NameSource     string `json:"nameSource"` // card #21; "" on older rows
 		}
 		if json.Unmarshal(ev.Payload, &p) != nil {
 			return false
@@ -182,7 +183,7 @@ func (r *Roster) apply(ev store.Event) bool {
 			delete(r.cards, p.Key)
 			return true
 		}
-		c.Status, c.Name = p.Status, p.Name
+		c.Status, c.Name, c.NameSource = p.Status, p.Name, p.NameSource
 		if p.PermissionMode != "" {
 			c.PermissionMode = p.PermissionMode
 		}
