@@ -49,6 +49,25 @@ Each card has one thread, oldest first: its comments, the messages about it, and
 - **Messages about a card.** `send` with `task_id` sets the message's Ref to `task:<id>` and, once the inbox has it, records it on the card as `from -> to`. A reply keeps the Ref of what it answers (a `comment:` ref included), so it goes on the same card. The entry is a `task.comment` row whose comment id is the message id, so a retry, the sweep or another device never writes it twice. It sends no notice: the recipient already has the message, and the holders read the card. Text past 4000 characters is cut and points at `msg:<id>`, which only the message's parties and the person can read; in the app, "Show the whole message" opens it, with its files. Text goes on the card only once the wake policy has let the message through: a held message, or one to another device's agent (whose host decides with its own policy), is recorded without its text, and the device that lets it through (the person releasing it, an unpause, or the host deciding no hold) adds the text with a `fill` row, written by Irori. Attachments are recorded only as a count. Naming a card opts the message in: anyone reading the card sees the entry.
 - **Recipient gone.** A message to an agent whose session has ended (out of presence for longer than three minutes; an unreachable session still in presence keeps its mail) isn't left queued for nobody. If it names a card, the inbox sweep records it there marked "recipient gone" (written by Irori, still attributed to the sender), then closes the delivery as `Skipped` with the note `recipient gone; on task:<id>`. A message from an agent about no card goes to the person, marked "recipient gone: name (key)". A card that isn't on this device may still be on its way from another one, so such a message waits for it on later sweeps, and goes to the person only once the card has been missing for ten minutes; the person's own message then stays queued, as with no card. The person's own message about no card, notices, and repo or PR work (which moves to another desk) keep today's behaviour. The send or reply result says which of these will happen when the recipient isn't running.
 
+## Blocker threads
+
+A blocker is a small thread of its own. The person's answer doesn't resolve it: it goes to the agent that raised it, and the item stays open until someone resolves it. Anyone may resolve (decision 19).
+
+| State | When | Who acts next |
+|---|---|---|
+| open | nobody has answered; an agent's reply before the person's answer only adds context | the person, or any agent with `board_unblock` |
+| answered | the person answered last; the answer is sent to the raiser | the raiser or a holder: resolve or reply. Out of the person's Needs you, in the raiser's |
+| replied | an agent replied after the person's answer | the person: answer again, or mark it resolved |
+| resolved | `blocker.resolved` arrived; shows the resolver's note beside the check (else the answer) | nobody |
+| closed | closed without an answer (`board_unblock` without `blocker_id`, a state change, the sweeper) | nobody |
+
+Open, answered and replied are derived in the fold from the item's `task.comment` rows (`blockerId`, `pick`, `missing`), in log order; only resolved and closed are stored. A comment counts as the person's only when it is signed with actor `user` by the person's key; an agent's reply must come from the device its key names.
+
+- **The person answers** (pick an option or their own words): a blocker comment sent to the raiser, who hears first, then the holders. When nobody can act (the raiser isn't a live agent and no holder is live) the app resolves it at once, as before; "Mark resolved" is the person's escape when the raiser has gone.
+- **An agent replies** with `board_comment task_id= blocker_id= text= [missing=]`: to ask back, or to say in `missing` (at most six short lines) what the answer still misses. It tells nobody: the item goes back to the person's Needs you.
+- **An agent resolves** with `board_unblock task_id= blocker_id= note=`. Once the person has answered, `note` is required (one line on what it will do now) and `pick` is refused: the person's answer stands, and `blocker.resolved` carries it with the note. Before any answer, `pick` or `note` is the answer, as before.
+- **Older devices** fold the person's answer as a plain comment and keep the item open until a `blocker.resolved` arrives, which folds the same everywhere; answering there still resolves at once.
+
 ## Links out
 
 - A card can carry links: a URL (Linear, Notion, a GitHub issue or PR), a repo path, or a commit.
@@ -96,12 +115,12 @@ The binding signatures and doc comments live in the code; this is the map. Three
 - `Overview(for, OverviewInput)` returns live agents with a one-line "doing", the caller's inbox counts, blockers and tasks in its repo, and recent commits and PRs. Every line has a ref.
 
 **Cards (v0.3.3, design/v0.4-devices.md §9)** (`internal/coord/cards.go`)
-- A task gains `Steps` (ordered, short ids `s1`…, at most one doing; progress is done/total, no bar without steps), `Blockers` (items: question, context for a newcomer, raiser, recommended `Options`, `Resolved`; ids `b1`…) and `Watchers`. Blocked stays a state (decision 17): `Raise` adds an item and enters Blocked, `Answer` resolves one (anyone, decision 19) and the task leaves Blocked when none is open; `Block` is Raise with the reason as the question and keeps replacing its own item; `Unblock` and a state change close every open item.
+- A task gains `Steps` (ordered, short ids `s1`…, at most one doing; progress is done/total, no bar without steps), `Blockers` (items: question, context for a newcomer, raiser, recommended `Options`, `Resolved`; ids `b1`…) and `Watchers`. Blocked stays a state (decision 17): `Raise` adds an item and enters Blocked, `Answer` with `Resolve` resolves one (anyone, decision 19) and the task leaves Blocked when none is open (without `Resolve` it is the person's answer, which leaves the item open: Blocker threads, above); `Block` is Raise with the reason as the question and keeps replacing its own item; `Unblock` and a state change close every open item.
 - Each item has its own `On` (what it waits on); a raised question defaults to a person, so the card is in the person's Needs you. `Task.BlockedBy` is the first open item's `On`. The sweeper closes only the items whose lease or task went away; a question left open keeps the card blocked.
-- `Recommend` is for the holders, watchers, the raiser, the creator or a person. `Answer`'s notice goes to the raiser, with the answerer's wake choice.
+- `Recommend` is for the holders, watchers, the raiser, the creator or a person. `Answer`'s notice goes to the raiser first, then the holders, with the answerer's wake choice; a reply on a blocker (`CommentOn` with `BlockerID`) sends none.
 - Watch notices are not returned per call: coord queues the card's state, step, blocker and PR-link changes in memory (never on replay) and `SweepNotices` hands out one `watched` digest per card and watcher, routed from Irori at the next turn.
 - New kinds: `blocker.option`, `blocker.resolved`, `task.steps`, `task.step`, `task.watched`; `task.status` gains `blocker`. Older reason-only rows fold to one item.
-- Tools: `board_steps`, `board_step`, `board_recommend`, `board_watch`, `board_unwatch`; `board_block` takes `question` (alias `reason`), `context`, `options`; `board_unblock` takes `blocker_id` and `pick`. The GUI reads `BoardService.Cards`, `Card` and answers with `Answer`.
+- Tools: `board_steps`, `board_step`, `board_recommend`, `board_watch`, `board_unwatch`; `board_block` takes `question` (alias `reason`), `context`, `options`; `board_unblock` takes `blocker_id` and `pick` (and `note`, required once the person answered); `board_comment` takes `blocker_id` and `missing`. The GUI reads `BoardService.Cards`, `Card` and answers with `Answer`.
 
 **Integration (after A1–A3)**
 - Core: `AddSource(coord)`, `AddSource(inbox)`; call `SweepNotices` in place of `Sweep`; route every `Notice` through `SendWith(…, {Mode: next_turn unless Wake, Ref, Notice: true})`.

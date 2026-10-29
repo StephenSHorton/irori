@@ -307,6 +307,95 @@ func TestBoardCards(t *testing.T) {
 	has(t, h.ok(callB, "board_unwatch", map[string]any{"task_id": id}), "no longer watch")
 }
 
+// A reply on a blocker (board_comment blocker_id) routes no notice and
+// leaves the item open: answered by the person, then replied with what is
+// still missing.
+func TestBoardCommentOnBlocker(t *testing.T) {
+	h := newHarness(t)
+	id := h.newCard(callA, map[string]any{"title": "VPN adapter", "shared": true})
+	h.ok(callA, "board_join", map[string]any{"task_id": id})
+	h.ok(callB, "board_join", map[string]any{"task_id": id})
+	h.ok(callA, "board_block", map[string]any{"task_id": id, "question": "Which adapter?",
+		"options": []any{map[string]any{"answer": "Wintun"}, map[string]any{"answer": "TAP-Windows"}}})
+	before := map[string]int{}
+	for _, k := range []string{keyA, keyB, keyC} {
+		before[k] = len(h.notices(k))
+	}
+
+	// Before the person answers, a reply only adds context: still open.
+	out := h.ok(callB, "board_comment", map[string]any{"task_id": id, "blocker_id": "b1", "text": "Wintun is signed."})
+	has(t, out, "Replied on blocker b1 of task:"+id, "it stays open and goes back to the person",
+		"board_unblock blocker_id=b1 note=")
+	hasNot(t, out, "Nobody else holds it", "Told")
+	hasNot(t, h.ok(callA, "board", nil), "answered", "replied")
+
+	if _, _, err := h.b.co.Answer(bg, "user:dev1", id, "b1", coord.BlockerAnswer{Text: "which one needs a port?"}); err != nil {
+		t.Fatal(err)
+	}
+	has(t, h.ok(callA, "board", nil), "Needs you (1)", "[b1]", "answered (waiting on alpha: resolve or reply)")
+
+	h.fails(callA, "board_comment", map[string]any{"task_id": id, "blocker_id": "b1", "text": "x",
+		"missing": []string{"1", "2", "3", "4", "5", "6", "7"}}, "at most 6")
+	h.fails(callA, "board_comment", map[string]any{"task_id": id, "text": "x", "missing": []string{"a"}}, "needs blocker_id")
+	h.fails(callA, "board_comment", map[string]any{"task_id": id, "blocker_id": "b1", "text": "x", "missing": []string{" "}}, "missing line")
+	h.fails(callA, "board_comment", map[string]any{"task_id": id, "blocker_id": "b9", "text": "x"}, "no blocker")
+	has(t, h.ok(callA, "board_comment", map[string]any{"task_id": id, "blocker_id": "b1", "text": "TAP needs one.",
+		"missing": []string{"the port number"}}), "Replied on blocker b1")
+	out = h.ok(callC, "board", map[string]any{"repo": "*"})
+	has(t, out, `replied (with the person), missing: "the port number"`)
+	hasNot(t, out, "answered (")
+	for _, k := range []string{keyA, keyB, keyC} {
+		if got := len(h.notices(k)); got != before[k] {
+			t.Errorf("%s got %d notices, had %d: a blocker reply routed one", k, got, before[k])
+		}
+	}
+	task, _ := h.b.co.GetTask(id)
+	if b := task.Blockers[0]; b.Status != coord.BlockerReplied || !b.Open() || task.State != coord.Blocked {
+		t.Fatalf("task %s blocker %+v", task.State, b)
+	}
+}
+
+// Once the person has answered, board_unblock resolves with a note: their
+// answer stands and the note shows beside it.
+func TestBoardUnblockResolvesWithNote(t *testing.T) {
+	h := newHarness(t)
+	id := h.newCard(callA, map[string]any{"title": "VPN adapter", "shared": true})
+	h.ok(callA, "board_join", map[string]any{"task_id": id})
+	h.ok(callB, "board_join", map[string]any{"task_id": id})
+	h.ok(callA, "board_block", map[string]any{"task_id": id, "question": "Which adapter?",
+		"options": []any{map[string]any{"answer": "Wintun"}}})
+	h.ok(callA, "board_block", map[string]any{"task_id": id, "question": "Which port?"})
+
+	// Nobody answered b2: a note is the answer, as before.
+	out := h.ok(callC, "board_unblock", map[string]any{"task_id": id, "blocker_id": "b2", "note": "4242"})
+	has(t, out, "Resolved blocker b2 on task:"+id+"; 1 still open.")
+	hasNot(t, out, "with your note")
+
+	if _, _, err := h.b.co.Answer(bg, "user:dev1", id, "b1", coord.BlockerAnswer{Pick: 1}); err != nil {
+		t.Fatal(err)
+	}
+	h.fails(callC, "board_unblock", map[string]any{"task_id": id, "blocker_id": "b1", "pick": 1}, "already answered", "give note")
+	h.fails(callC, "board_unblock", map[string]any{"task_id": id, "blocker_id": "b1"}, "give pick")
+	h.fails(callA, "board_unblock", map[string]any{"task_id": id, "blocker_id": "b1", "note": "a\nb"}, "one line")
+	before := len(h.notices(keyB))
+	out = h.ok(callA, "board_unblock", map[string]any{"task_id": id, "blocker_id": "b1", "note": "Shipping Wintun tonight."})
+	has(t, out, "Resolved blocker b1 on task:"+id+" with your note; it is working again.", "Told at their next turn: beta")
+	ns := h.notices(keyB)
+	if len(ns) != before+1 {
+		t.Fatalf("beta notices %+v", ns)
+	}
+	var texts []string
+	for _, d := range ns {
+		texts = append(texts, d.Message.Text)
+	}
+	has(t, strings.Join(texts, " | "), "resolved blocker b1", "Shipping Wintun tonight.", "The person's answer: Wintun")
+	task, _ := h.b.co.GetTask(id)
+	if r := task.Blockers[0].Resolved; r == nil || r.Answer != "Wintun" || r.Note != "Shipping Wintun tonight." || r.Option != 0 {
+		t.Fatalf("resolution %+v", r)
+	}
+	h.fails(callB, "board_comment", map[string]any{"task_id": id, "blocker_id": "b1", "text": "late"}, "already resolved")
+}
+
 func TestTaskIDPrefix(t *testing.T) {
 	for in, want := range map[string]string{"task:01J": "01J", "TASK: 01J ": "01J", "01J": "01J", "": "", "comment:01J": "comment:01J"} {
 		if got := taskID(in); got != want {

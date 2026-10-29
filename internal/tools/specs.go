@@ -221,10 +221,13 @@ var specList = []Spec{
 	{
 		Name: "board_comment",
 		Description: "Comment on a card. Its holders hear at their next turn (no wake, nothing extra to pay); set wake = true only when it " +
-			"can't wait. " + BoardInstructions,
+			"can't wait. With blocker_id it replies on that blocker instead: ask back, or say what an answer still misses; the blocker " +
+			"stays open and goes back to the person. " + BoardInstructions,
 		InputSchema: schema(propTaskID+`,`+
 			`"text":{"type":"string","description":"The comment, plain text, at most 4000 characters."},`+
 			`"wake":{"type":"boolean","description":"Wake the holders now instead of at their next turn (default false)."},`+
+			`"blocker_id":{"type":"string","description":"Optional: reply on this blocker (e.g. b1) to ask back or say what the person's answer still misses. It stays open and shows under their answer."},`+
+			`"missing":{"type":"array","maxItems":6,"items":{"type":"string"},"description":"With blocker_id: what you still need, one short line each."},`+
 			propAttach,
 			"task_id", "text"),
 		Clients: both,
@@ -232,9 +235,9 @@ var specList = []Spec{
 	{
 		Name: "board_block",
 		Description: "Raise a blocker on a card: a question someone must decide, or a thing in the way. The card is blocked until every " +
-			"blocker is answered; a card can carry several. Write the context for someone who has never seen the work, and give " +
-			"your recommended answer(s) with why: the person picks one or answers in their own words, and the answer reaches you. " +
-			"Anyone may answer, and a lease or task blocker closes by itself when it goes away. " + BoardInstructions,
+			"blocker is resolved; a card can carry several. Write the context for someone who has never seen the work, and give " +
+			"your recommended answer(s) with why. The person's answer reaches you; resolve it with board_unblock (note: what you'll do) " +
+			"or reply with board_comment blocker_id. A lease or task blocker closes by itself when it goes away. " + BoardInstructions,
 		InputSchema: schema(propTaskID+`,`+
 			`"question":{"type":"string","description":"The decision or thing in the way, one line (at most 200 characters), e.g. 'Ship today, or wait for the two-PC check?'."},`+
 			`"reason":{"type":"string","description":"Older name for question; give one of them."},`+
@@ -257,11 +260,13 @@ var specList = []Spec{
 	},
 	{
 		Name: "board_unblock",
-		Description: "Answer or close a card's blockers (anyone may, agent or person). With blocker_id it answers that one (pick a recommended " +
-			"answer by number, or give note as your answer) and its raiser hears; without, it closes them all. When none are left the card " +
-			"goes back to working (open when nobody has taken it up) and its holders hear at their next turn. " + BoardInstructions,
-		InputSchema: schema(propTaskID+`,`+propNote+`,`+
-			`"blocker_id":{"type":"string","description":"Optional: answer only this blocker (e.g. b1)."},`+
+		Description: "Resolve or close a card's blockers (anyone may, agent or person). With blocker_id it resolves that one: pick a " +
+			"recommended answer by number, or give note. Once the person has answered it, note is required: one line on what you will " +
+			"do now, shown beside the check. To ask back instead, use board_comment with blocker_id. Without blocker_id it closes them " +
+			"all. When none are left the card goes back to working and its holders hear at their next turn. " + BoardInstructions,
+		InputSchema: schema(propTaskID+`,`+
+			`"note":{"type":"string","description":"With blocker_id: your answer, or once the person answered, one line on what you will do now. Without: a short note for the holders."},`+
+			`"blocker_id":{"type":"string","description":"Optional: resolve only this blocker (e.g. b1)."},`+
 			`"pick":{"type":"integer","minimum":1,"description":"With blocker_id: the number of the recommended answer to take (1 is the first)."}`,
 			"task_id"),
 		Clients: both,

@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -132,6 +133,22 @@ func (s *set) cardText(t coord.Task, last *coord.Comment, n names, now time.Time
 			}
 			if bl.RaisedBy != "" {
 				b.WriteString(" raised by " + n.short(bl.RaisedBy))
+			}
+			switch bl.Status {
+			case coord.BlockerAnswered:
+				b.WriteString("; answered")
+				if to := cmp.Or(bl.SentTo, bl.RaisedBy); to != "" {
+					fmt.Fprintf(&b, " (waiting on %s: resolve or reply)", n.short(to))
+				}
+			case coord.BlockerReplied:
+				b.WriteString("; replied (with the person)")
+				if len(bl.Missing) > 0 {
+					var ms []string
+					for _, m := range bl.Missing {
+						ms = append(ms, quoted(m, coord.MaxMissingText))
+					}
+					b.WriteString(", missing: " + strings.Join(ms, ", "))
+				}
 			}
 			b.WriteString("\n")
 			opts := bl.Options
@@ -343,10 +360,12 @@ func (s *set) assignee(v string) (string, error) {
 // --- board_comment ---
 
 type boardCommentArgs struct {
-	TaskID string   `json:"task_id"`
-	Text   string   `json:"text"`
-	Wake   bool     `json:"wake"`
-	Attach []string `json:"attach"`
+	TaskID    string   `json:"task_id"`
+	Text      string   `json:"text"`
+	Wake      bool     `json:"wake"`
+	Attach    []string `json:"attach"`
+	BlockerID string   `json:"blocker_id"`
+	Missing   []string `json:"missing"`
 }
 
 func (s *set) boardComment(ctx context.Context, c Caller, raw json.RawMessage) string {
@@ -361,13 +380,29 @@ func (s *set) boardComment(ctx context.Context, c Caller, raw json.RawMessage) s
 	if strings.TrimSpace(a.Text) == "" {
 		return errText("give the comment text.")
 	}
+	bid := strings.TrimSpace(a.BlockerID)
+	if len(a.Missing) > 0 && bid == "" {
+		return errText("missing needs blocker_id: which blocker's answer it is missing from.")
+	}
+	if len(a.Missing) > coord.MaxMissing {
+		return errText(fmt.Sprintf("missing takes at most %d lines.", coord.MaxMissing))
+	}
 	files, msg := s.attachFiles(ctx, c, a.Attach)
 	if msg != "" {
 		return msg
 	}
-	cm, notice, err := s.b.Coord().AddCommentWith(ctx, c.Sender.Key, id, strings.TrimSpace(a.Text), a.Wake, files)
+	cm, notice, err := s.b.Coord().CommentOn(ctx, c.Sender.Key, id, coord.CommentInput{
+		Text: strings.TrimSpace(a.Text), Wake: a.Wake, Files: files, BlockerID: bid, Missing: a.Missing,
+	})
 	if err != nil {
 		return mapErr(err)
+	}
+	if bid != "" {
+		// A reply on a blocker tells nobody: the person is the audience,
+		// and the item is back in their Needs you.
+		b := oneLine(bid, 20)
+		return "Replied on blocker " + b + " of task:" + id + attachedLine(files) + "; it stays open and goes back to the person. " +
+			"Resolve it with board_unblock blocker_id=" + b + " note=… once you have what you need."
 	}
 	n := s.roster()
 	out := "Commented comment:" + cm.ID + " on task:" + id + attachedLine(files) + "."
@@ -515,12 +550,17 @@ func (s *set) boardUnblock(ctx context.Context, c Caller, raw json.RawMessage) s
 		if a.Pick == 0 && strings.TrimSpace(a.Note) == "" {
 			return errText("to resolve one blocker give pick (the number of a recommended answer) or note (your answer).")
 		}
-		t, notice, err := s.b.Coord().Answer(ctx, c.Sender.Key, id, bid, coord.BlockerAnswer{Pick: a.Pick, Text: a.Note})
+		t, notice, err := s.b.Coord().Answer(ctx, c.Sender.Key, id, bid, coord.BlockerAnswer{Pick: a.Pick, Text: a.Note, Resolve: true})
 		if err != nil {
 			return mapErr(err)
 		}
 		n := s.roster()
-		out := "Resolved blocker " + oneLine(bid, 20) + " on task:" + t.ID + "; "
+		out := "Resolved blocker " + oneLine(bid, 20) + " on task:" + t.ID
+		if i := slices.IndexFunc(t.Blockers, func(b coord.Blocker) bool { return b.ID == bid }); i >= 0 &&
+			t.Blockers[i].Resolved != nil && t.Blockers[i].Resolved.Note != "" {
+			out += " with your note" // beside the person's answer
+		}
+		out += "; "
 		if t.State == coord.Blocked {
 			out += fmt.Sprintf("%d still open.", len(t.OpenBlockers()))
 		} else {
