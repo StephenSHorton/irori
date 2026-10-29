@@ -17,7 +17,7 @@ The Board is a **scratch pad where agents and people coordinate live work**: wha
 
 **Out, on purpose:**
 - priorities, estimates, story points, due dates;
-- sprints, milestones, epics, sub-task trees;
+- sprints, milestones, epics, sub-task trees (one level of subtasks is in: [Subtasks](#subtasks));
 - labels, custom fields, workflow states beyond Irori's few, templates;
 - reporting, burndown, velocity;
 - a long-term archive you browse.
@@ -123,6 +123,62 @@ Open, answered and replied are derived in the fold from the item's `task.comment
 - Card lines print `#12 task:<id>`. Confirmations print `#12`. Notices print `(#12, task:<id>)`, because a notice's text is kept, and the id never moves.
 - `Notice.Ref`, notify targets and every other machine ref stay `task:<id>`.
 - Search: a task doc's body starts with `#12`, so the word `12` finds it. A query of only `#12` puts that card first. Task hits print their short ref. A card whose ref moves is re-read by the index even though its `UpdatedAt` doesn't change.
+
+## Subtasks
+
+*v0.4.10 design (#20), not built yet. Stephen, 2026-10-28: "When tasks are related can they have a parent task and sub tasks that are worked on? Or if a task becomes larger it should be reworked to a parent task and refactored into multiple sub tasks. And I'd like the tasks to arrange themselves in a way that indicates they are sub tasks to a task."*
+
+A card can have a **parent**. A parent's **subtasks** are ordinary cards: each has its own short ref, holder, steps, blockers and thread, so several agents can work one piece of work in parallel. The parent shows how far the whole has got. This is one level, not a tree: "sub-task trees" stay out (What it is, above).
+
+**The rules:**
+- **One level.** A subtask can't have subtasks, and a parent can't have a parent. A card that grows inside a subtask is split into more siblings under the same parent.
+- **Same board.** A parent and its subtasks share a scope: private cards with private cards, and the same shared board once shared boards exist (v0.5).
+- **The parent's progress comes from its subtasks.** It's `done/total` subtasks, where done is completed and canceled subtasks don't count. Steps the parent kept from before the split show as history and count for nothing.
+- **The parent's state is derived from its subtasks,** in the fold, never written:
+  - blocked when it has an open blocker of its own (a question about the whole) or any subtask is blocked; its blocker line shows the first one, as "#14: <question>" when it is a subtask's;
+  - working when any subtask is working;
+  - completed once every subtask has ended and at least one completed, and canceled when every one was canceled;
+  - otherwise open.
+  A rule over the set of rows, like short refs: every device folds the same state, no device has to write a roll-up row, and an offline device's subtask changes roll up wherever they arrive.
+- **What can be set on a parent.** `board_status` on a parent takes `canceled` only: it cancels the parent and writes `canceled` for each subtask still open. `completed` is refused while a subtask is open (the error lists them), and `working` and `input_required` are refused, since they're derived. `board_steps` on a parent is refused: its work lives in its subtasks. Blockers, comments, links, watchers and assignment work as on any card.
+- **Who hears what.** A parent's holders and watchers get its subtasks' state, blocker and holder changes in their watch digest, one line per subtask, as "#14 (part of #12): blocked: <question>". The subtask's own holders hear their card as today. A person's comment on the parent goes to the parent's holder, who coordinates.
+
+**Rows.** Payloads only gain fields, so older peers still fold everything.
+- `task.created` gains `parent` (the parent's full task id).
+- A new `task.parent {taskId, parent, by}` sets or clears (`parent: ""`) an existing card's parent.
+- A link counts only when it keeps one level. Rows are applied in `(hlc, device, seq)` order. A link that would put a parent under another parent, or a card that has subtasks under a parent, is ignored and stays inert, and `show` on the child says so. Two devices can each make half of a two-level link while they're apart; the ordering settles it the same way everywhere once both rows are held.
+- Who may set a parent: anyone who may edit the subtask (its holders and creator, or the person), and the parent's holders.
+- An older peer ignores `parent`. It sees the subtasks as plain cards and the parent with the state its own rows give it. Nothing there breaks, and it catches up when it updates. No sync schema bump.
+
+**Tools.**
+- `board_create` takes `parent` (a short ref or task id): the new card is a subtask of it.
+- A new **`board_split`** `task_id= subtasks=[{title, objective?, done_when?, steps?, assign_to?}] adopt?=[refs]` turns a card into a parent. Each entry makes a subtask with that parent, in this order:
+  - `task.created` with `parent`;
+  - its `task.steps`;
+  - a `task.assigned` when `assign_to` is set;
+  - one `task.steps` on the parent, keeping only its done steps.
+  
+  An entry's `steps` are either step ids from the card being split, which move with their done flags, or new step texts. Every open step of the card must go to exactly one subtask, or the call is refused with the steps that weren't placed. That's how a split "moves the steps that belong to them" without losing one. `adopt` makes existing cards subtasks too (one `task.parent` row each): use it when related cards already exist. The splitter keeps holding the parent.
+- `board_split` on a card that already has subtasks adds more. On a subtask, it's refused with the hint "add siblings: board_create parent=#12".
+- `board` lists a subtask under its parent, indented, with its own state, and the parent's line reads `#12 [working, 1/3 subtasks] ...`. `show #12` lists the subtasks with their state, holder and progress. `show #14` says "part of #12 <title>".
+- **Agent instructions** (BoardInstructions) gain one line:
+  > When a card grows past one agent's piece of work, or you see related cards that are one piece of work, make it a parent: board_split it into subtasks (adopt the related cards), so other agents can take subtasks in parallel. Keep one level: split a subtask into more siblings, not deeper.
+
+**The window.**
+- **The grid** (Stephen, 2026-10-28: separate tiles, no frame). A subtask is an ordinary tile that follows its parent's tile, ordered by short ref, with a "part of #12" chip in its header. There's no frame and no nesting, so a parent and its subtasks read as a run of tiles that starts with the parent. The parent's tile shows "3 subtasks" beside its bar. A completed parent folds into Done with its subtasks. A subtask that's done while its parent is open stays after the parent, shown as done.
+- **Filters.** Needs a decision and My devices show a subtask that matches with its parent's tile before it, even when the parent itself doesn't match, so a blocked subtask is seen in context.
+- **The parent's page** lists its subtasks in the side column, in place of steps. Each shows its short ref, title, state chip, holder and progress, and opens on a click. The progress bar is the subtask count.
+- **A subtask's page** shows "part of #12 <title>" under its header, linking to the parent.
+- No tree view and no new screen.
+
+**Short refs stay flat.** Subtasks take the next numbers like any card (#13, #14, #15). Rejected: "#12.1" style refs. They'd need a second counter per parent, which clashes across devices the same way short refs do, and an adopted card would have to be renumbered, so a ref someone already saw would change.
+
+**Rejected:**
+- *Parent progress from the parent's own steps:* two places to tick, and they drift apart.
+- *A stored parent state, written by the parent's holder whenever a subtask changes:* the parent's state would wait for that holder's device to be online.
+- *Any depth:* a tree needs a tree view and pushes the Board toward a tracker. One level answers "this grew, split it" and "these belong together".
+
+**Build** (after #3, in the order agreed with #16 on the cards): coord (`parent` on create, `task.parent`, the one-level rule, derived progress and state, refusals on parents, digest lines) and `CardSummary` (`Parent`, `Subtasks`), then the tools and instructions, then the grid order and the "part of" chip, the parent page's subtask list and the "part of" link. Tests: arrival-order convergence for links and the derived state, the two-level link from two devices, split moving every open step, cancel cascading. Live check: an agent splits a big card into a parent and three subtasks, two agents take subtasks, the grid shows them after the parent, and the parent's progress follows them.
 
 ## Where Irori's own long-lived records fit
 
