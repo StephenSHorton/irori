@@ -1256,8 +1256,10 @@ func watchText(t *Task, lines []string, dropped int) string {
 	for _, l := range shown {
 		b.WriteString("- " + cut(l, maxNoticeField) + "\n")
 	}
-	fmt.Fprintf(&b, "Now: %s", t.State)
-	if d, n := t.Progress(); n > 0 {
+	fmt.Fprintf(&b, "Now: %s", EffectiveState(*t))
+	if r := t.Rollup; r != nil {
+		fmt.Fprintf(&b, ", subtasks %d/%d done", r.Done, r.Total)
+	} else if d, n := t.Progress(); n > 0 {
 		fmt.Fprintf(&b, ", steps %d/%d", d, n)
 	}
 	if n := countOpen(t); n > 0 {

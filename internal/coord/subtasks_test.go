@@ -311,3 +311,82 @@ func TestShowSubtasks(t *testing.T) {
 		t.Fatalf("show subtask: %v\n%s", err, sh.Text)
 	}
 }
+
+// A rejected re-parent row is inert: the card keeps the parent it had. B
+// is under A; a later row puts B under C, which is itself a subtask of D,
+// so it would make two levels. In any order, and on replay, B stays
+// under A.
+func TestRejectedReparentKeepsTheOldParent(t *testing.T) {
+	base := hlc.Timestamp(fixedNow.UnixMilli()) << 16
+	rows := []store.Event{
+		createdRow("dev-b", 1, base+1, "A", 1),
+		createdRow("dev-b", 2, base+2, "B", 2),
+		createdRow("dev-b", 3, base+3, "C", 3),
+		createdRow("dev-b", 4, base+4, "D", 4),
+		parentRow("dev-b", 5, base+10, "B", "A"),
+		parentRow("dev-b", 6, base+11, "C", "D"),
+		parentRow("dev-c", 1, base+20, "B", "C"),
+	}
+	check := func(name string, c *Coord) {
+		t.Helper()
+		if b := get(t, c, "B"); b.Parent != "A" {
+			t.Fatalf("%s: B's parent is %q, want A", name, b.Parent)
+		}
+		if a := get(t, c, "A"); !slices.Equal(a.Subtasks, []string{"B"}) {
+			t.Fatalf("%s: A's subtasks %v", name, a.Subtasks)
+		}
+	}
+	for name, order := range map[string][]int{"in order": {0, 1, 2, 3, 4, 5, 6}, "reparent first": {6, 0, 1, 2, 3, 4, 5}} {
+		e := newEnv(t)
+		for _, i := range order {
+			e.c.impl.applyRemote(ctx, rows[i])
+		}
+		check(name, e.c)
+	}
+	e := newEnv(t)
+	for _, ev := range rows {
+		if err := e.st.Insert(ctx, ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check("replay", e.reopen())
+}
+
+// Adopting a card tells the parent's holder, and the parent's steps line
+// in show says they came before the split.
+func TestAdoptionReachesTheParentsHolder(t *testing.T) {
+	e := newEnv(t)
+	// alice made the card and splits it; carol holds it.
+	p := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "parent", Steps: []Step{{Text: "plan"}, {Text: "build"}}}))
+	must[Task](t)(e.c.ClaimTask(ctx, carol, p.ID))
+	must[Task](t)(e.c.SetStep(ctx, carol, p.ID, "s1", StepUpdate{Done: ptr(true)}))
+	other := must[Task](t)(e.c.CreateTask(ctx, bob, NewTask{Title: "related"}))
+	if _, err := e.c.SweepNotices(ctx); err != nil { // clear what came before
+		t.Fatal(err)
+	}
+	if _, _, err := e.c.Split(ctx, alice, p.ID, []NewSubtask{{Title: "build it", Steps: []string{"s2"}}}, []string{other.ID}); err != nil {
+		t.Fatal(err)
+	}
+	ns, err := e.c.SweepNotices(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adopted, made, parentLine := false, false, false
+	for _, n := range ns {
+		if !slices.Contains(n.To, carol) {
+			continue
+		}
+		adopted = adopted || strings.Contains(n.Text, "made it part of "+p.ShortRef())
+		made = made || strings.Contains(n.Text, "put the card up as a subtask of "+p.ShortRef())
+		if n.TaskID == p.ID {
+			parentLine = strings.Contains(n.Text, "subtasks 0/2 done") && !strings.Contains(n.Text, "steps 1/1")
+		}
+	}
+	if !adopted || !made || !parentLine {
+		t.Fatalf("the parent's holder didn't hear the adoption: %+v", ns)
+	}
+	sh, err := e.c.SearchShow(ctx, "task:"+p.ID, search.ShowOptions{})
+	if err != nil || !strings.Contains(sh.Text, "steps done before the split:") || strings.Contains(sh.Text, "steps (1/1") {
+		t.Fatalf("show parent steps: %v\n%s", err, sh.Text)
+	}
+}

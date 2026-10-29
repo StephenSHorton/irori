@@ -90,18 +90,22 @@ func (c *coord) relink() {
 	parentOf := map[string]string{}
 	kids := map[string]int{}
 	for _, l := range c.links {
+		p := l.parent
+		if p != "" {
+			switch {
+			case p == l.child, c.tasks[l.child] == nil, c.tasks[p] == nil,
+				parentOf[p] != "", kids[l.child] > 0, c.askAt(l.child, l.at), c.askAt(p, l.at):
+				continue // inert: the card keeps the parent it had
+			}
+		}
 		if old, ok := parentOf[l.child]; ok {
 			kids[old]--
 			delete(parentOf, l.child)
 		}
-		p := l.parent
-		switch {
-		case p == "", p == l.child, c.tasks[l.child] == nil, c.tasks[p] == nil,
-			parentOf[p] != "", kids[l.child] > 0, c.askAt(l.child, l.at), c.askAt(p, l.at):
-			continue
+		if p != "" {
+			parentOf[l.child] = p
+			kids[p]++
 		}
-		parentOf[l.child] = p
-		kids[p]++
 	}
 	subs := map[string][]string{}
 	for child, p := range parentOf {
@@ -394,7 +398,7 @@ func (c *coord) split(ctx context.Context, by, id string, subs []NewSubtask, ado
 		if _, err := c.checkParent(id, k); err != nil {
 			return Task{}, nil, err
 		}
-		if kt := c.tasks[k]; !c.mayManage(kt, by) && !isHolder(t, by) {
+		if kt := c.tasks[k]; !c.mayManage(kt, by) && !c.mayManage(t, by) {
 			return Task{}, nil, fmt.Errorf("%w: adopt %s", ErrNotAllowed, kt.ShortRef())
 		}
 		if slices.Contains(adoptIDs, k) {

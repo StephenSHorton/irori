@@ -153,7 +153,7 @@ func (s *set) cardText(t coord.Task, last *coord.Comment, n names, now time.Time
 			fmt.Fprintf(&b, "  blocked by its subtask %s: %s\n", s.shortOf(r.Blocked), quoted(oneLine(r.BlockedQuestion, 160), 160))
 		}
 	}
-	if done, total := t.Progress(); total > 0 {
+	if done, total := t.Progress(); total > 0 && t.Rollup == nil { // a parent's progress is its subtasks'
 		fmt.Fprintf(&b, "  steps %d/%d", done, total)
 		for _, st := range t.Steps {
 			if st.Doing {

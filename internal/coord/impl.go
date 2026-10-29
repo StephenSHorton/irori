@@ -458,7 +458,12 @@ func (c *coord) fold(ev store.Event) {
 			c.foldParent(p.TaskID, p.Parent, ev)
 		}
 		c.claimShort(p.TaskID, ev.Cursor(), p.Num)
-		c.touch(ev, c.tasks[p.TaskID], t, p.By, "put the card up", false)
+		if pt := c.tasks[p.Parent]; p.Parent != "" && pt != nil {
+			// A new subtask: the parent's holders hear it (relink hasn't run).
+			c.touch(ev, c.tasks[p.TaskID], t, p.By, "put the card up as a subtask of "+pt.ShortRef(), true, pt.Holders...)
+		} else {
+			c.touch(ev, c.tasks[p.TaskID], t, p.By, "put the card up", false)
+		}
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID})
 	case KindTaskClaimed:
 		var p taskClaimedRow
@@ -698,10 +703,14 @@ func (c *coord) fold(ev store.Event) {
 		c.foldParent(p.TaskID, p.Parent, ev)
 		if t := c.tasks[p.TaskID]; t != nil {
 			what := "took it out of its parent"
+			var also []string // the new parent's holders: relink hasn't run yet
 			if p.Parent != "" {
 				what = "made it part of " + c.refOf(p.Parent)
+				if pt := c.tasks[p.Parent]; pt != nil {
+					also = pt.Holders
+				}
 			}
-			c.touch(ev, t, at(p.At), p.By, what, true)
+			c.touch(ev, t, at(p.At), p.By, what, true, also...)
 		}
 	case KindTakeRequested, KindTakeState, KindTaskEdited:
 		c.applyTake(ev, at)

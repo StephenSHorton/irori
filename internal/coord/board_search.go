@@ -204,7 +204,11 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 	line("note", t.Note)
 	if len(t.Steps) > 0 {
 		d, n := t.Progress()
-		fmt.Fprintf(&b, "\nsteps (%d/%d done):\n", d, n)
+		if t.Rollup != nil { // a parent's progress is its subtasks'
+			b.WriteString("\nsteps done before the split:\n")
+		} else {
+			fmt.Fprintf(&b, "\nsteps (%d/%d done):\n", d, n)
+		}
 		for _, s := range t.Steps {
 			mark := "[ ]"
 			switch {
