@@ -27,7 +27,12 @@ import (
 //     rows its writer's own cert chain is built from;
 //   - a cert written above its writer's cut doesn't count;
 //   - only rows whose personId is this person's count; others are stored
-//     and inert (a device's first-run person before it joined).
+//     and inert (a device's first-run person before it joined);
+//   - a person signature counts only by one of the person's keys: the first
+//     key (the one personId is derived from) or a key a person.key.rotated
+//     row announces, written by an ever-certified device. A row signed by
+//     any other key is held and inert, and counts once a rotation row
+//     names its key.
 //
 // Revoked devices stay certified for IsOwner: every row of theirs that is
 // stored is at or below their cut.
@@ -37,11 +42,13 @@ type Chain struct {
 	rootID   string
 	selfID   string
 
-	adds    []certRow
-	revokes []revokeRow
-	profile bool
-	bad     int             // person rows for this person that failed their checks
-	seen    map[rowKey]bool // rows folded, so a row learned early and then stored folds once
+	adds      []certRow
+	revokes   []revokeRow
+	rotations []rotationRow
+	profiles  []profileRow
+	profile   bool
+	bad       int             // person rows for this person that failed their checks
+	seen      map[rowKey]bool // rows folded, so a row learned early and then stored folds once
 
 	valid  map[string]Cert // device id -> its first valid cert
 	cuts   map[string]int64
@@ -72,11 +79,24 @@ type rowKey struct {
 type certRow struct {
 	pos  rowPos
 	cert Cert
+	pub  string // the person key that signed it
 }
 
 type revokeRow struct {
 	pos    rowPos
 	revoke Revoke
+	pub    string
+}
+
+type rotationRow struct {
+	pos rowPos
+	pub string // the key it announces
+}
+
+type profileRow struct {
+	pos    rowPos
+	pub    string
+	rootID string
 }
 
 var _ store.Verifier = (*Chain)(nil)
@@ -92,7 +112,7 @@ func NewChain(personID, rootDeviceID, selfID string) *Chain {
 func (c *Chain) Reset() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.adds, c.revokes, c.profile, c.bad, c.seen = nil, nil, false, 0, nil
+	c.adds, c.revokes, c.rotations, c.profiles, c.profile, c.bad, c.seen = nil, nil, nil, nil, false, 0, nil
 	c.valid, c.cuts, c.claims = map[string]Cert{}, map[string]int64{}, nil
 }
 
@@ -141,7 +161,7 @@ func (c *Chain) Observe(ev store.Event) {
 			c.bad++
 			return
 		}
-		c.adds = append(c.adds, certRow{pos: pos, cert: p.Cert})
+		c.adds = append(c.adds, certRow{pos: pos, cert: p.Cert, pub: p.PersonPub})
 	case store.KindPersonDeviceRevoked:
 		var p DeviceRevoked
 		if json.Unmarshal(ev.Payload, &p) != nil {
@@ -155,13 +175,36 @@ func (c *Chain) Observe(ev store.Event) {
 			c.bad++
 			return
 		}
-		c.revokes = append(c.revokes, revokeRow{pos: pos, revoke: p.Revoke})
+		c.revokes = append(c.revokes, revokeRow{pos: pos, revoke: p.Revoke, pub: p.PersonPub})
+	case store.KindPersonKeyRotated:
+		var p KeyRotated
+		if json.Unmarshal(ev.Payload, &p) != nil {
+			c.bad++
+			return
+		}
+		if p.PersonID != c.personID {
+			return
+		}
+		if !validPub(p.PersonPub) {
+			c.bad++
+			return
+		}
+		c.rotations = append(c.rotations, rotationRow{pos: pos, pub: p.PersonPub})
 	case store.KindPersonProfile:
 		var p Profile
-		if json.Unmarshal(ev.Payload, &p) == nil && p.PersonID == c.personID {
-			c.profile = true
+		if json.Unmarshal(ev.Payload, &p) != nil {
+			c.bad++
+			return
 		}
-		return
+		if p.PersonID != c.personID {
+			return
+		}
+		body := profileBody{PersonID: p.PersonID, Name: p.Name, RootDeviceID: p.RootDeviceID, PersonPub: p.PersonPub}
+		if verifyPerson(p.PersonPub, p.PersonSig, body) != nil {
+			c.bad++
+			return
+		}
+		c.profiles = append(c.profiles, profileRow{pos: pos, pub: p.PersonPub, rootID: p.RootDeviceID})
 	default:
 		return
 	}
@@ -173,12 +216,25 @@ func validPub(h string) bool {
 	return err == nil && len(b) == ed25519.PublicKeySize
 }
 
+// firstKey reports whether pub is the person's first key: the one personID
+// is derived from (PersonIDOf). c.mu is held.
+func (c *Chain) firstKey(pub string) bool { return firstKeyOf(c.personID, pub) }
+
+func firstKeyOf(personID, pub string) bool {
+	b, err := hex.DecodeString(pub)
+	return err == nil && len(b) == ed25519.PublicKeySize && PersonIDOf(b) == personID
+}
+
 // refold recomputes the valid certs and cuts from every observed row. It
 // runs in three steps with no loop between them, so it always settles:
 //
-//  1. ever: the certs that chain back to the pinned root with cuts ignored.
-//     Whether a revoke counts depends only on this (§5.5), never on cuts,
-//     so cuts can't switch off the revokes that make them.
+//  1. ever: the certs that chain back to the pinned root with cuts ignored,
+//     counting only certs signed by one of the person's keys. The keys are
+//     the first key plus those announced by rotation rows of ever-certified
+//     devices; more keys can only certify more devices, whose rotation
+//     rows can only add keys, so the loop grows to a fixed point. Whether
+//     a revoke counts depends only on this (§5.5), never on cuts, so cuts
+//     can't switch off the revokes that make them.
 //  2. cuts: the lowest cut among revokes written by an ever-certified
 //     device. A revoke can't cut below the rows its own writer's cert
 //     chain is made of (the cert that certified it, and up to the root):
@@ -192,11 +248,32 @@ func (c *Chain) refold() {
 	revs := append([]revokeRow(nil), c.revokes...)
 	sort.Slice(revs, func(i, j int) bool { return revs[i].pos.less(revs[j].pos) })
 
-	ever := c.certify(adds, nil)
+	keys := map[string]bool{}
+	trusted := func(pub string) bool { return keys[pub] || c.firstKey(pub) }
+	var signed []certRow
+	var ever map[string]certRow
+	for {
+		signed = signed[:0]
+		for _, a := range adds {
+			if trusted(a.pub) {
+				signed = append(signed, a)
+			}
+		}
+		ever = c.certify(signed, nil)
+		grew := false
+		for _, r := range c.rotations {
+			if _, ok := ever[r.pos.writer]; ok && !keys[r.pub] {
+				keys[r.pub], grew = true, true
+			}
+		}
+		if !grew {
+			break
+		}
+	}
 	cuts := map[string]int64{}
 	var claims []store.CutClaim
 	for _, r := range revs {
-		if _, ok := ever[r.pos.writer]; !ok {
+		if _, ok := ever[r.pos.writer]; !ok || !trusted(r.pub) {
 			continue
 		}
 		dev := r.revoke.DeviceID
@@ -212,10 +289,19 @@ func (c *Chain) refold() {
 		}
 	}
 	valid := map[string]Cert{}
-	for dev, a := range c.certify(adds, cuts) {
+	for dev, a := range c.certify(signed, cuts) {
 		valid[dev] = a.cert
 	}
-	c.valid, c.cuts, c.claims = valid, cuts, claims
+	// The profile counts when one of the person's keys signed it, it names
+	// the pinned root, and an ever-certified device wrote it.
+	profile := false
+	for _, p := range c.profiles {
+		if _, ok := ever[p.pos.writer]; ok && trusted(p.pub) && p.rootID == c.rootID {
+			profile = true
+			break
+		}
+	}
+	c.valid, c.cuts, c.claims, c.profile = valid, cuts, claims, profile
 }
 
 // certify folds adds (sorted) into the certs that chain back to the pinned
@@ -277,7 +363,10 @@ func (c *Chain) floor(ever map[string]certRow, writer, target string) (int64, bo
 
 // VerifyRow checks ev's signature against its device's cert (store.Verifier).
 // A root self-cert row carries the key that verifies it, so the first row
-// of a chain can be checked before any cert is held.
+// of a chain can be checked before any cert is held. That row must also be
+// signed by the person's first key (the one personID names), so a device
+// that doesn't hold the root's cert yet takes no self-cert for the root
+// from anyone without the person secret.
 func (c *Chain) VerifyRow(ev store.Event) error {
 	c.mu.Lock()
 	cert, ok := c.valid[ev.DeviceID]
@@ -289,7 +378,8 @@ func (c *Chain) VerifyRow(ev store.Event) error {
 			return fmt.Errorf("%w: %s", store.ErrNoCert, ev.DeviceID)
 		}
 		var p DeviceAdded
-		if json.Unmarshal(ev.Payload, &p) != nil || p.Cert.DeviceID != ev.DeviceID || p.Cert.PersonID != personID {
+		if json.Unmarshal(ev.Payload, &p) != nil || p.Cert.DeviceID != ev.DeviceID || p.Cert.PersonID != personID ||
+			!firstKeyOf(personID, p.PersonPub) || verifyPerson(p.PersonPub, p.PersonSig, p.Cert) != nil {
 			return fmt.Errorf("%w: %s", store.ErrNoCert, ev.DeviceID)
 		}
 		pubHex = p.Cert.DevicePub
