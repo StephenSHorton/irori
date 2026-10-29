@@ -26,6 +26,8 @@ func TestParseLink(t *testing.T) {
 		{in: `docs\design\board.md`, kind: LinkPath, ref: "docs/design/board.md", label: ".../design/board.md"},
 		{in: "README.md", kind: LinkPath, label: "README.md"},
 		{in: "C:/work/notes.txt", kind: LinkPath, label: ".../work/notes.txt"},
+		{in: "board.go:580", kind: LinkPath, label: "board.go:580"},
+		{in: "internal/coord/cards_impl.go:347", kind: LinkPath, label: ".../coord/cards_impl.go:347"},
 		{in: "ftp://example.com/x", bad: true},
 		{in: "javascript:alert(1)", bad: true},
 		{in: "mailto:x@example.com", bad: true},

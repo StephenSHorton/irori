@@ -39,8 +39,9 @@ var (
 	githubItemRe  = regexp.MustCompile(`^/[^/]+/[^/]+/(?:issues|pull)/([0-9]+)(?:/|$)`)
 	notionIDRe    = regexp.MustCompile(`-?[0-9a-f]{32}$`)
 	// schemeRe is a URL scheme at the start ("mailto:", "javascript:").
-	// One letter before the colon is a Windows drive ("C:/x"), not a scheme.
-	schemeRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]+:`)
+	// One letter before the colon is a Windows drive ("C:/x"), and a dot
+	// makes it a file with a line ("board.go:580"), not a scheme.
+	schemeRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+-]+:`)
 )
 
 // ParseLink classifies s as a URL (it has a scheme, which must be http or
