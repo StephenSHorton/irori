@@ -70,7 +70,7 @@ func TestCardsGrid(t *testing.T) {
 		g.Scope != ScopeMine || g.ScopeLabel != "My devices" || g.State != coord.Blocked || g.Short != "2" || g.ShortWas != "" {
 		t.Fatalf("card %+v", g)
 	}
-	if len(g.Working) != 1 || g.Working[0] != (AgentRef{Key: agentA, Name: "ww-release", Status: "busy", Live: true, Where: "This PC"}) {
+	if len(g.Working) != 1 || g.Working[0] != (AgentRef{Key: agentA, Name: "ww-release", Status: "busy", Live: true, Where: "This PC", DeviceID: "dev-a"}) {
 		t.Fatalf("working %+v", g.Working)
 	}
 	if len(g.Watching) != 1 || g.Watching[0].Name != "ww-multiplayer" || !g.Watching[0].Live {
@@ -959,5 +959,65 @@ func TestCardReturned(t *testing.T) {
 	tk.Holders = []string{"dev/s2"}
 	if s := cardSummary(tk, p); s.Returned != nil {
 		t.Fatalf("returned shown with someone on it: %+v", s.Returned)
+	}
+}
+
+// Agents that wrote to each other on a card in the last TalkWindow show as
+// talking; one agent alone, the person, or older messages don't (card #22).
+func TestCardTalking(t *testing.T) {
+	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	p := people{byKey: map[string]presence.AgentCard{}, user: "user:dev-a"}
+	recent := now.Add(-time.Minute)
+	old := now.Add(-TalkWindow - time.Minute)
+	cs := []coord.Comment{
+		{By: "dev-a/old", To: "dev-a/older", At: old},
+		{By: "user:dev-a", Text: "hi", At: recent},
+		{By: "dev-a/x", To: "dev-b/y", At: recent},
+	}
+	got := talking(cs, p, now)
+	if len(got) != 2 || got[0].Key != "dev-a/x" || got[1].Key != "dev-b/y" {
+		t.Fatalf("talking %+v", got)
+	}
+	if got := talking(cs[:2], p, now); len(got) != 0 {
+		t.Fatalf("old messages and the person count: %+v", got)
+	}
+	if got := talking([]coord.Comment{{By: "dev-a/x", At: recent}}, p, now); len(got) != 0 {
+		t.Fatalf("one agent alone talks: %+v", got)
+	}
+}
+
+// With two devices, faces wear their device's colour and a card held on
+// one device wears it as its accent; held across devices, or with one
+// device, neither does (card #22).
+func TestCardDeviceColours(t *testing.T) {
+	b, _, _ := cardsBoard(t)
+	const mac = "dev-b/agent-c"
+	b.self = "dev-a"
+	b.agents = func() []presence.AgentCard {
+		return []presence.AgentCard{
+			{Key: agentA, DeviceID: "dev-a", Name: "pc-agent", Status: "busy"},
+			{Key: mac, DeviceID: "dev-b", Name: "mac-agent", Status: "idle"},
+		}
+	}
+	devs := []identity.DeviceState{{Cert: identity.Cert{DeviceID: "dev-a"}}}
+	b.devices = func() []identity.DeviceState { return devs }
+	b.colors = func() map[string]string { return map[string]string{"dev-a": "teal", "dev-b": "orange"} }
+
+	one := coord.Task{ID: "t1", State: coord.Working, Holders: []string{mac}}
+	both := coord.Task{ID: "t2", State: coord.Working, Holders: []string{agentA, mac}}
+	if s := cardSummary(one, b.people()); s.Accent != "" || s.Working[0].Color != "" {
+		t.Fatalf("one device: accent %q, face %q", s.Accent, s.Working[0].Color)
+	}
+	devs = append(devs, identity.DeviceState{Cert: identity.Cert{DeviceID: "dev-b"}})
+	p := b.people()
+	s := cardSummary(one, p)
+	if s.Accent != "orange" || s.Working[0].Color != "orange" || len(s.Devices) != 1 || s.Devices[0] != "dev-b" {
+		t.Fatalf("mac card: %+v", s)
+	}
+	if s := cardSummary(both, p); s.Accent != "" || len(s.Devices) != 2 || s.Working[0].Color != "teal" {
+		t.Fatalf("two-device card: accent %q devices %v", s.Accent, s.Devices)
+	}
+	if r := p.ref(b.user.Key); r.Color != "" {
+		t.Fatalf("the person wears a device colour: %+v", r)
 	}
 }

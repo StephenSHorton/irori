@@ -122,6 +122,8 @@ type BoardService struct {
 	// devices is this device alone.
 	self    string
 	devices func() []identity.DeviceState
+	// colors is each device's colour (card #22); nil is none.
+	colors func() map[string]string
 	// leases are coord's leases, read for the conflict chip (a seam for
 	// tests: a partition conflict needs two devices); nil is none.
 	leases func() []coord.Lease
@@ -135,7 +137,7 @@ type BoardService struct {
 
 func newBoardService(c *core.Core) *BoardService {
 	b := &BoardService{coord: c.Coord(), user: c.UserSender(), route: c.RouteNotices, agents: c.MeshAgents, askAgents: c.AskAgents,
-		self: c.Device().ID, devices: c.CertifiedDevices, leases: c.Coord().Leases}
+		self: c.Device().ID, devices: c.CertifiedDevices, colors: c.DeviceColors, leases: c.Coord().Leases}
 	if ib := c.Inbox(); ib != nil {
 		b.deliveries = ib.Open
 		b.message = ib.Message

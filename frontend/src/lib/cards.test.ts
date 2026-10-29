@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import { AgentRef, CardAsk } from "../../bindings/github.com/StephenSHorton/irori/models"
 import { TaskState } from "../../bindings/github.com/StephenSHorton/irori/internal/coord/models"
-import { askLine, busy, cardFromHash, cardHash, holderLineShows, Holding, nobodyOn, openAsk, workLabel } from "./cards"
+import { askLine, busy, cardFromHash, cardHash, deviceChips, deviceVar, holderLineShows, Holding, nobodyOn, openAsk, workLabel } from "./cards"
 
 const agent = (status: string, more: Partial<AgentRef> = {}) =>
   new AgentRef({ key: "d/s", name: "a", status, live: status !== "gone", where: "This PC", ...more })
@@ -98,5 +98,24 @@ describe("gone holders (card #16)", () => {
     expect(nobodyOn({ holder: { state: Holding.HoldNobody }, returned: agent("gone") })).toBe(true)
     expect(nobodyOn({ holder: { state: Holding.HoldNobody } })).toBe(false)
     expect(nobodyOn({ holder: { state: Holding.HoldIdle } })).toBe(false)
+  })
+})
+
+describe("device colours (card #22)", () => {
+  const pc = agent("busy", { deviceId: "pc", where: "This PC", color: "teal" })
+  const mac = agent("idle", { key: "mac/s", deviceId: "mac", where: "MacBook", color: "orange" })
+  test("a chip per device the cards' agents run on, once there are two", () => {
+    expect(deviceChips([{ working: [pc] }, { working: [pc] }])).toEqual([])
+    expect(deviceChips([{ working: [pc] }, { working: [mac, pc] }])).toEqual([
+      { id: "mac", name: "MacBook", color: "orange" },
+      { id: "pc", name: "This PC", color: "teal" },
+    ])
+  })
+  test("faces with no colour (one device) give no chips", () => {
+    expect(deviceChips([{ working: [agent("busy", { deviceId: "pc" })] }, { working: [agent("idle", { deviceId: "mac" })] }])).toEqual([])
+  })
+  test("a colour is a CSS variable", () => {
+    expect(deviceVar("teal")).toBe("var(--device-teal)")
+    expect(deviceVar("")).toBe("")
   })
 })

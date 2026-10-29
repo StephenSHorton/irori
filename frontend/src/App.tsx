@@ -11,7 +11,7 @@ import {
   matches,
   type Filter,
 } from "@/components/cards/card-grid"
-import { cardFromHash, cardHash, useCard, useCards } from "@/lib/cards"
+import { cardFromHash, cardHash, deviceChips, useCard, useCards } from "@/lib/cards"
 import { useNow, useRoster } from "@/lib/irori"
 import { previewFlag } from "@/lib/preview"
 import { onOpen } from "@/lib/settings"
@@ -211,7 +211,13 @@ export function App() {
     [openCard]
   )
 
-  const shown = cards.filter((c) => matches(c, filter))
+  const chips = deviceChips(cards)
+  // A device filter whose device has no cards left falls back to All.
+  const active: Filter =
+    filter.startsWith("device:") && !chips.some((d) => filter === `device:${d.id}`)
+      ? "all"
+      : filter
+  const shown = cards.filter((c) => matches(c, active))
   const decide = cards.filter((c) => c.openBlockers > 0).length
 
   return (
@@ -249,7 +255,12 @@ export function App() {
                 setFilter("all")
               }}
             />
-            <FilterBar filter={filter} onFilter={setFilter} decide={decide} />
+            <FilterBar
+              filter={active}
+              onFilter={setFilter}
+              decide={decide}
+              devices={chips}
+            />
             {shown.length ? (
               <CardGrid cards={shown} selected={last} onSelect={openCard} />
             ) : (

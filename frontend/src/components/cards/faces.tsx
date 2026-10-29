@@ -1,5 +1,5 @@
 import { Avatar, AvatarBadge, AvatarFallback } from "@/components/ui/avatar"
-import { displayName, initials, type AgentRef } from "@/lib/cards"
+import { deviceVar, displayName, initials, type AgentRef } from "@/lib/cards"
 import { cn } from "@/lib/utils"
 
 // Face is one agent (or the person) on a card: two letters in a rounded
@@ -21,6 +21,9 @@ export function Face({
 }) {
   const person = who.status === "person"
   const gone = who.status === "gone"
+  // A working face wears its device's colour once there are two devices
+  // (card #22).
+  const tint = !person && !watching ? deviceVar(who.color) : ""
   const name = displayName(who)
   const title = [
     name,
@@ -51,6 +54,14 @@ export function Face({
               ? "bg-muted text-muted-foreground ring-1 ring-border ring-inset"
               : "bg-primary/15 text-primary"
         )}
+        style={
+          tint
+            ? {
+                color: tint,
+                background: `color-mix(in oklch, ${tint} 16%, transparent)`,
+              }
+            : undefined
+        }
       >
         {person ? "you" : initials(name)}
       </AvatarFallback>
@@ -88,6 +99,39 @@ function DeviceChip({ device }: { device: string }) {
       className="absolute -top-2 -right-2 z-10 bg-secondary px-[3px] font-mono text-[9px] leading-3 font-semibold text-foreground ring-1 ring-border"
     >
       {initials(device)}
+    </span>
+  )
+}
+
+// TalkBubble shows agents talking to each other on a card (card #22):
+// their faces, in their device colours, with a speech bubble whose dots
+// bounce in turn; with reduced motion the dots stand still.
+export function TalkBubble({ who }: { who: AgentRef[] }) {
+  if (who.length < 2) return null
+  const names = who.map(displayName).join(", ")
+  return (
+    <span
+      className="flex items-center gap-1"
+      title={`Talking on this card: ${names}`}
+      aria-label={`${names} are talking on this card`}
+    >
+      <span className="flex items-center -space-x-1">
+        {who.map((w) => (
+          <Face key={w.key} who={w} noDot />
+        ))}
+      </span>
+      <span
+        aria-hidden
+        className="relative flex h-4 items-center gap-[3px] rounded-full bg-secondary px-1.5 ring-1 ring-border"
+      >
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="size-[3px] rounded-full bg-foreground motion-safe:animate-bounce"
+            style={{ animationDelay: `${i * 150}ms`, animationDuration: "900ms" }}
+          />
+        ))}
+      </span>
     </span>
   )
 }

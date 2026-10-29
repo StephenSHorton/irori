@@ -78,11 +78,13 @@ function sampleList(): DeviceView[] {
       role: "desktop",
       this: true,
       state: "this",
+      color: "teal",
     }),
     new DeviceView({
       deviceId: "sample-mac",
       name: "MacBook",
       role: "desktop",
+      color: "orange",
       state: "connected",
       lastSeen: new Date().toISOString(),
     }),
@@ -90,6 +92,7 @@ function sampleList(): DeviceView[] {
       deviceId: "sample-node",
       name: "Node",
       role: "node",
+      color: "pink",
       state: "offline",
       lastSeen: new Date(Date.now() - 3 * 3600_000).toISOString(),
       warning: "It runs an older Irori. Update it.",
@@ -206,6 +209,11 @@ const sample = {
     window.clearTimeout(sampleTimer)
     if (isOpen(samplePair)) setSamplePair({ state: PairState.Canceled })
   },
+  color(id: string, color: string) {
+    const d = sampleList().find((x) => x.deviceId === id)
+    if (d) d.color = color || DeviceColors[0]
+    for (const fn of sampleListeners) fn()
+  },
   remove(id: string) {
     const d = sampleList().find((x) => x.deviceId === id)
     if (!d || d.this) throw new Error("that device can't be removed here")
@@ -310,7 +318,23 @@ export const devices = {
     if (inWails()) return DevicesService.RemoveDevice(deviceId)
     sample.remove(deviceId)
   },
+  // color picks a device's colour (card #22); "" goes back to its default.
+  async color(deviceId: string, color: string): Promise<void> {
+    if (inWails()) return DevicesService.SetDeviceColor(deviceId, color)
+    sample.color(deviceId, color)
+  },
 }
+
+// DeviceColors is internal/devcolor.Palette: the colours a device can wear.
+export const DeviceColors = [
+  "teal",
+  "orange",
+  "pink",
+  "lime",
+  "cyan",
+  "indigo",
+  "sand",
+]
 
 // ---- hooks ------------------------------------------------------------------
 

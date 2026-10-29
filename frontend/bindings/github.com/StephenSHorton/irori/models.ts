@@ -64,6 +64,14 @@ export class AgentRef {
     "device"?: string;
 
     /**
+     * DeviceID is the device the agent runs on ("" for the person and
+     * Irori); Color is that device's colour (devcolor.Palette), set only
+     * once the person has more than one device (card #22).
+     */
+    "deviceId"?: string;
+    "color"?: string;
+
+    /**
      * Offline: the host device is offline, so the face shows greyed.
      */
     "offline"?: boolean;
@@ -624,6 +632,22 @@ export class CardDetail {
     "stale"?: boolean;
 
     /**
+     * Devices are the devices its agent holders run on, in holder order
+     * (the grid's device filter); Accent is their colour when they are
+     * all on one device, "" otherwise or while the person has one device
+     * (card #22).
+     */
+    "devices": string[];
+    "accent"?: string;
+
+    /**
+     * Talking are the agents that messaged or commented to each other on
+     * the card in the last TalkWindow, when there are at least two (the
+     * tile's talk bubble, card #22); empty otherwise.
+     */
+    "talking": AgentRef[];
+
+    /**
      * Ask is set on the person's ask to the room (board.md "Asks"); nil on
      * any other card.
      */
@@ -714,6 +738,12 @@ export class CardDetail {
         if (!("updatedAt" in $$source)) {
             this["updatedAt"] = null;
         }
+        if (!("devices" in $$source)) {
+            this["devices"] = [];
+        }
+        if (!("talking" in $$source)) {
+            this["talking"] = [];
+        }
         if (!("goal" in $$source)) {
             this["goal"] = "";
         }
@@ -763,14 +793,16 @@ export class CardDetail {
         const $$createField13_0 = $$createType18;
         const $$createField14_0 = $$createType19;
         const $$createField16_0 = $$createType4;
-        const $$createField18_0 = $$createType21;
-        const $$createField22_0 = $$createType23;
-        const $$createField23_0 = $$createType25;
-        const $$createField24_0 = $$createType27;
-        const $$createField25_0 = $$createType12;
-        const $$createField26_0 = $$createType29;
-        const $$createField27_0 = $$createType31;
-        const $$createField28_0 = $$createType16;
+        const $$createField18_0 = $$createType2;
+        const $$createField20_0 = $$createType18;
+        const $$createField21_0 = $$createType21;
+        const $$createField25_0 = $$createType23;
+        const $$createField26_0 = $$createType25;
+        const $$createField27_0 = $$createType27;
+        const $$createField28_0 = $$createType12;
+        const $$createField29_0 = $$createType29;
+        const $$createField30_0 = $$createType31;
+        const $$createField31_0 = $$createType16;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("progress" in $$parsedSource) {
             $$parsedSource["progress"] = $$createField8_0($$parsedSource["progress"]);
@@ -787,29 +819,35 @@ export class CardDetail {
         if ("returned" in $$parsedSource) {
             $$parsedSource["returned"] = $$createField16_0($$parsedSource["returned"]);
         }
+        if ("devices" in $$parsedSource) {
+            $$parsedSource["devices"] = $$createField18_0($$parsedSource["devices"]);
+        }
+        if ("talking" in $$parsedSource) {
+            $$parsedSource["talking"] = $$createField20_0($$parsedSource["talking"]);
+        }
         if ("ask" in $$parsedSource) {
-            $$parsedSource["ask"] = $$createField18_0($$parsedSource["ask"]);
+            $$parsedSource["ask"] = $$createField21_0($$parsedSource["ask"]);
         }
         if ("steps" in $$parsedSource) {
-            $$parsedSource["steps"] = $$createField22_0($$parsedSource["steps"]);
+            $$parsedSource["steps"] = $$createField25_0($$parsedSource["steps"]);
         }
         if ("blockers" in $$parsedSource) {
-            $$parsedSource["blockers"] = $$createField23_0($$parsedSource["blockers"]);
+            $$parsedSource["blockers"] = $$createField26_0($$parsedSource["blockers"]);
         }
         if ("prs" in $$parsedSource) {
-            $$parsedSource["prs"] = $$createField24_0($$parsedSource["prs"]);
+            $$parsedSource["prs"] = $$createField27_0($$parsedSource["prs"]);
         }
         if ("links" in $$parsedSource) {
-            $$parsedSource["links"] = $$createField25_0($$parsedSource["links"]);
+            $$parsedSource["links"] = $$createField28_0($$parsedSource["links"]);
         }
         if ("recent" in $$parsedSource) {
-            $$parsedSource["recent"] = $$createField26_0($$parsedSource["recent"]);
+            $$parsedSource["recent"] = $$createField29_0($$parsedSource["recent"]);
         }
         if ("comments" in $$parsedSource) {
-            $$parsedSource["comments"] = $$createField27_0($$parsedSource["comments"]);
+            $$parsedSource["comments"] = $$createField30_0($$parsedSource["comments"]);
         }
         if ("thread" in $$parsedSource) {
-            $$parsedSource["thread"] = $$createField28_0($$parsedSource["thread"]);
+            $$parsedSource["thread"] = $$createField31_0($$parsedSource["thread"]);
         }
         return new CardDetail($$parsedSource as Partial<CardDetail>);
     }
@@ -1168,6 +1206,22 @@ export class CardSummary {
     "stale"?: boolean;
 
     /**
+     * Devices are the devices its agent holders run on, in holder order
+     * (the grid's device filter); Accent is their colour when they are
+     * all on one device, "" otherwise or while the person has one device
+     * (card #22).
+     */
+    "devices": string[];
+    "accent"?: string;
+
+    /**
+     * Talking are the agents that messaged or commented to each other on
+     * the card in the last TalkWindow, when there are at least two (the
+     * tile's talk bubble, card #22); empty otherwise.
+     */
+    "talking": AgentRef[];
+
+    /**
      * Ask is set on the person's ask to the room (board.md "Asks"); nil on
      * any other card.
      */
@@ -1223,6 +1277,12 @@ export class CardSummary {
         if (!("updatedAt" in $$source)) {
             this["updatedAt"] = null;
         }
+        if (!("devices" in $$source)) {
+            this["devices"] = [];
+        }
+        if (!("talking" in $$source)) {
+            this["talking"] = [];
+        }
 
         Object.assign(this, $$source);
     }
@@ -1236,7 +1296,9 @@ export class CardSummary {
         const $$createField13_0 = $$createType18;
         const $$createField14_0 = $$createType19;
         const $$createField16_0 = $$createType4;
-        const $$createField18_0 = $$createType21;
+        const $$createField18_0 = $$createType2;
+        const $$createField20_0 = $$createType18;
+        const $$createField21_0 = $$createType21;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("progress" in $$parsedSource) {
             $$parsedSource["progress"] = $$createField8_0($$parsedSource["progress"]);
@@ -1253,8 +1315,14 @@ export class CardSummary {
         if ("returned" in $$parsedSource) {
             $$parsedSource["returned"] = $$createField16_0($$parsedSource["returned"]);
         }
+        if ("devices" in $$parsedSource) {
+            $$parsedSource["devices"] = $$createField18_0($$parsedSource["devices"]);
+        }
+        if ("talking" in $$parsedSource) {
+            $$parsedSource["talking"] = $$createField20_0($$parsedSource["talking"]);
+        }
         if ("ask" in $$parsedSource) {
-            $$parsedSource["ask"] = $$createField18_0($$parsedSource["ask"]);
+            $$parsedSource["ask"] = $$createField21_0($$parsedSource["ask"]);
         }
         return new CardSummary($$parsedSource as Partial<CardSummary>);
     }
@@ -1450,6 +1518,12 @@ export class DeviceView {
      * this device).
      */
     "lastSeen"?: time$0.Time;
+
+    /**
+     * Color is the device's colour (devcolor.Palette): the person's pick,
+     * else its default (card #22).
+     */
+    "color"?: string;
 
     /** Creates a new DeviceView instance. */
     constructor($$source: Partial<DeviceView> = {}) {

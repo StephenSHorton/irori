@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import {
+  DeviceColors,
   devices as actions,
   isOpen,
   PairState,
@@ -132,26 +133,31 @@ function DeviceRow({
           {state}
         </small>
       </span>
-      {d.this || d.revoked ? (
+      {d.revoked ? (
         <span />
       ) : (
-        <ConfirmButton
-          label="Remove"
-          variant="destructive"
-          confirmLabel="Remove device"
-          question={
-            <>
-              Remove <b>{plainLine(d.name) || "this device"}</b>? It keeps
-              everything it already has. Removing it stops it from syncing and
-              from writing anything new that your other devices will accept, and
-              gives your remaining devices a new person key.
-            </>
-          }
-          onConfirm={async () => {
-            await actions.remove(d.deviceId)
-            await onRemoved()
-          }}
-        />
+        <span className="flex items-center gap-2">
+          <ColorPick device={d} onPicked={onRemoved} />
+          {!d.this && (
+            <ConfirmButton
+              label="Remove"
+              variant="destructive"
+              confirmLabel="Remove device"
+              question={
+                <>
+                  Remove <b>{plainLine(d.name) || "this device"}</b>? It keeps
+                  everything it already has. Removing it stops it from syncing
+                  and from writing anything new that your other devices will
+                  accept, and gives your remaining devices a new person key.
+                </>
+              }
+              onConfirm={async () => {
+                await actions.remove(d.deviceId)
+                await onRemoved()
+              }}
+            />
+          )}
+        </span>
       )}
       {d.warning && (
         <span className="col-start-2 col-end-4 flex items-center gap-2 text-xs text-warning">
@@ -775,5 +781,63 @@ function Ended({
         OK
       </Button>
     </div>
+  )
+}
+
+// ColorPick is a device's colour (card #22): a swatch that opens the
+// palette. Its agents' faces and its single-device cards wear it, on every
+// device.
+function ColorPick({
+  device: d,
+  onPicked,
+}: {
+  device: DeviceView
+  onPicked: () => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [error, setError] = useState("")
+  const name = plainLine(d.name) || "this device"
+  const pick = async (c: string) => {
+    try {
+      await actions.color(d.deviceId, c)
+      setError("")
+      setOpen(false)
+      await onPicked()
+    } catch (e) {
+      setError(errorText(e))
+    }
+  }
+  return (
+    <span className="flex items-center gap-1">
+      {open ? (
+        DeviceColors.map((c) => (
+          <button
+            key={c}
+            type="button"
+            title={c}
+            aria-label={`${c} for ${name}`}
+            aria-pressed={d.color === c}
+            className={cn(
+              "size-4 rounded-full outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              d.color === c && "ring-1 ring-ink"
+            )}
+            style={{ background: `var(--device-${c})` }}
+            onClick={() => void pick(c)}
+          />
+        ))
+      ) : (
+        <button
+          type="button"
+          title={`${name}'s colour: ${d.color || "default"}. Change it`}
+          aria-label={`Change ${name}'s colour`}
+          className="size-4 rounded-full ring-1 ring-border outline-none focus-visible:ring-ring"
+          style={{
+            background: d.color ? `var(--device-${d.color})` : undefined,
+          }}
+          onClick={() => setOpen(true)}
+        />
+      )}
+      {error && <span className="text-xs text-destructive">{error}</span>}
+    </span>
   )
 }
