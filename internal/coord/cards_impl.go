@@ -348,10 +348,15 @@ func (c *coord) touch(t *Task, at time.Time, by, what string, watch bool, also .
 		acts = append(acts[:0:0], acts[len(acts)-MaxActivity:]...)
 	}
 	c.activity[t.ID] = acts
-	if !watch || c.replaying {
-		return
+	if watch {
+		c.queueWatch(t, by, what, also...)
 	}
-	if len(t.Watchers) == 0 && len(also) == 0 {
+}
+
+// queueWatch queues a watch line for t's watchers and also, outside
+// replay. The caller holds c.mu.
+func (c *coord) queueWatch(t *Task, by, what string, also ...string) {
+	if c.replaying || len(t.Watchers) == 0 && len(also) == 0 {
 		return
 	}
 	q := c.watchq[t.ID]

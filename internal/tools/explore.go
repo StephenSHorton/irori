@@ -369,6 +369,9 @@ func (s *set) show(ctx context.Context, c Caller, raw json.RawMessage) string {
 	}
 	if _, ok := coord.ParseShort(ref); ok {
 		id, err := s.b.Coord().TaskRef(ref)
+		if errors.Is(err, coord.ErrAmbiguous) {
+			return mapErr(err)
+		}
 		if err != nil {
 			return errText(fmt.Sprintf("no card is %s. The board tool lists them with their short refs.", oneLine(ref, 40)))
 		}

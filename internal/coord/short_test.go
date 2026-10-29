@@ -3,6 +3,9 @@ package coord
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -55,8 +58,9 @@ func createdRow(dev string, seq int64, at hlc.Timestamp, id string, num int) sto
 
 // Two devices that numbered cards apart settle on the same refs whatever
 // order the devices' rows arrive in (each device's in seq order, as the
-// mesh sends them): the earlier claimant (hlc, device, seq) keeps
-// the number, the later gains a letter and says what it was.
+// mesh sends them): every claimant of a clashed number gains a letter in
+// (hlc, device, seq) order and says what it was, and the bare number is
+// refused with each card named.
 func TestShortRefClashesSettleInAnyOrder(t *testing.T) {
 	base := hlc.Timestamp(fixedNow.UnixMilli()) << 16
 	rows := []store.Event{
@@ -67,7 +71,7 @@ func TestShortRefClashesSettleInAnyOrder(t *testing.T) {
 		createdRow("dev-c", 3, base+30, "C3", 2), // a third claim on 2: 2c
 		createdRow("dev-b", 3, base+40, "B3", 3),
 	}
-	want := map[string][2]string{"B1": {"1", ""}, "C1": {"1b", "1"}, "B2": {"2", ""}, "C2": {"2b", "2"}, "C3": {"2c", "2"}, "B3": {"3", ""}}
+	want := map[string][2]string{"B1": {"1a", "1"}, "C1": {"1b", "1"}, "B2": {"2a", "2"}, "C2": {"2b", "2"}, "C3": {"2c", "2"}, "B3": {"3", ""}}
 	check := func(name string, c *Coord) {
 		t.Helper()
 		for id, w := range want {
@@ -77,6 +81,17 @@ func TestShortRefClashesSettleInAnyOrder(t *testing.T) {
 			}
 			if got, err := c.TaskRef("#" + w[0]); err != nil || got != id {
 				t.Fatalf("%s: #%s resolves to %q %v", name, w[0], got, err)
+			}
+		}
+		for bare, ids := range map[string][]string{"#1": {"B1", "C1"}, "2": {"B2", "C2", "C3"}, "task:#2": {"B2", "C2", "C3"}} {
+			got, err := c.TaskRef(bare)
+			if !errors.Is(err, ErrAmbiguous) || got != "" {
+				t.Fatalf("%s: %s = %q, %v; want ErrAmbiguous", name, bare, got, err)
+			}
+			for _, id := range ids {
+				if !strings.Contains(err.Error(), "(task:"+id+")") {
+					t.Fatalf("%s: %s doesn't name %s: %v", name, bare, id, err)
+				}
 			}
 		}
 	}
@@ -132,9 +147,153 @@ func TestShortRefsForOlderRows(t *testing.T) {
 }
 
 func TestShortSuffix(t *testing.T) {
-	for i, want := range map[int]string{0: "", 1: "b", 2: "c", 25: "z", 26: "aa", 27: "ab"} {
+	for i, want := range map[int]string{0: "a", 1: "b", 2: "c", 25: "z", 26: "aa", 27: "ab"} {
 		if got := shortSuffix(i); got != want {
 			t.Fatalf("shortSuffix(%d) = %q, want %q", i, got, want)
 		}
+	}
+}
+
+// A card of this device whose number turns out to clash moves visibly: its
+// creator hears in the watch digest, search re-reads it, and the bare
+// number it showed is refused rather than resolved to the other card.
+func TestShortRefClashIsHeardAndRefused(t *testing.T) {
+	e := newEnv(t)
+	mine := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "mine"}))
+	if mine.Short != "1" {
+		t.Fatalf("mine is %q", mine.Short)
+	}
+	if _, err := e.c.SweepNotices(ctx); err != nil { // drain what the create queued
+		t.Fatal(err)
+	}
+	e.clk.add(time.Minute)
+	since := e.clk.now()
+	base := hlc.Timestamp(fixedNow.UnixMilli()) << 16
+	e.c.impl.applyRemote(ctx, createdRow("dev-z", 1, base-1<<16, "Z1", 1)) // made a millisecond before mine
+	x, _ := e.c.GetTask(mine.ID)
+	if x.Short != "1b" || x.ShortWas != "1" {
+		t.Fatalf("mine after the clash is %q (was %q)", x.Short, x.ShortWas)
+	}
+	if _, err := e.c.TaskRef("#1"); !errors.Is(err, ErrAmbiguous) || !strings.Contains(err.Error(), `#1a "Z1"`) || !strings.Contains(err.Error(), `#1b "mine"`) {
+		t.Fatalf("#1 after the clash: %v", err)
+	}
+	ns := must[[]Notice](t)(e.c.SweepNotices(ctx))
+	heard := false
+	for _, n := range ns {
+		if n.Kind == NoticeWatched && n.TaskID == mine.ID && slices.Contains(n.To, alice) && strings.Contains(n.Text, "renumbered it #1b (it was #1)") {
+			heard = true
+		}
+	}
+	if !heard {
+		t.Fatalf("the creator didn't hear of the renumber: %+v", ns)
+	}
+	docs := must[[]search.Doc](t)(e.c.SearchDocs(ctx, since, 0))
+	reread := false
+	for _, d := range docs {
+		if d.Ref == "task:"+mine.ID && strings.HasPrefix(d.Body, "#1b") {
+			reread = true
+		}
+	}
+	if !reread {
+		t.Fatalf("search didn't re-read the moved card: %+v", docs)
+	}
+}
+
+// A re-fold after a revoke's cut drops the cut device's claims: the card
+// that had clashed with one loses its letter, visibly, and the cut card's
+// numbers aren't handed out again.
+func TestShortRefsAfterARefold(t *testing.T) {
+	e := newEnv(t)
+	mine := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "mine"}))
+	base := hlc.Timestamp(fixedNow.UnixMilli()) << 16
+	// dev-z's rows are folded but never held by the store, as after a cut.
+	e.c.impl.applyRemote(ctx, createdRow("dev-z", 1, base-1<<16, "Z1", 1))
+	e.c.impl.applyRemote(ctx, createdRow("dev-z", 2, base+1<<16, "Z2", 2))
+	if x, _ := e.c.GetTask(mine.ID); x.Short != "1b" {
+		t.Fatalf("before the cut mine is %q", x.Short)
+	}
+	if _, err := e.c.SweepNotices(ctx); err != nil {
+		t.Fatal(err)
+	}
+	e.clk.add(time.Minute)
+	since := e.clk.now()
+	vec := must[store.Vector](t)(e.st.Vector(ctx))
+	e.c.impl.refoldIfCut(ctx, vec)
+	x, _ := e.c.GetTask(mine.ID)
+	if x.Short != "1" || x.ShortWas != "" {
+		t.Fatalf("after the cut mine is %q (was %q)", x.Short, x.ShortWas)
+	}
+	if _, ok := e.c.GetTask("Z1"); ok {
+		t.Fatal("the cut card is still folded")
+	}
+	ns := must[[]Notice](t)(e.c.SweepNotices(ctx))
+	if len(ns) != 1 || !strings.Contains(ns[0].Text, "renumbered it #1 (it was #1b)") {
+		t.Fatalf("notices after the cut: %+v", ns)
+	}
+	if !e.c.impl.movedSince(mine.ID, since) {
+		t.Fatal("the moved card isn't marked for search")
+	}
+	if n := must[Task](t)(e.c.CreateTask(ctx, alice, NewTask{Title: "next"})); n.Short != "3" {
+		t.Fatalf("the next card is %q: the cut card's #2 came back", n.Short)
+	}
+}
+
+// Folding many claims one row at a time (the incremental path) gives the
+// same refs as a replay of the same rows, whatever the interleaving.
+func TestShortRefsIncrementalMatchesReplay(t *testing.T) {
+	base := hlc.Timestamp(fixedNow.UnixMilli()) << 16
+	rnd := rand.New(rand.NewPCG(7, 11))
+	devs := []string{"dev-b", "dev-c", "dev-d"}
+	var perDev [3][]store.Event
+	top := [3]int{}
+	for i := range 300 {
+		d := rnd.IntN(3)
+		if rnd.IntN(4) == 0 { // a sync: this device catches up with the highest number
+			top[d] = max(top[0], top[1], top[2])
+		}
+		top[d]++
+		at := base + hlc.Timestamp(i/2)<<16 + hlc.Timestamp(rnd.IntN(3))
+		if n := len(perDev[d]); n > 0 {
+			at = max(at, perDev[d][n-1].HLC+1) // a device's hlc only rises
+		}
+		perDev[d] = append(perDev[d], createdRow(devs[d], int64(len(perDev[d])+1), at, fmt.Sprintf("%s-%d", devs[d], len(perDev[d])+1), top[d]))
+	}
+	e := newEnv(t)
+	var next [3]int
+	for {
+		var open []int
+		for d := range 3 {
+			if next[d] < len(perDev[d]) {
+				open = append(open, d)
+			}
+		}
+		if len(open) == 0 {
+			break
+		}
+		d := open[rnd.IntN(len(open))]
+		ev := perDev[d][next[d]]
+		next[d]++
+		e.c.impl.applyRemote(ctx, ev)
+		if err := e.st.Insert(ctx, ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	re := e.reopen()
+	seen, clashed := map[string]string{}, 0
+	for _, x := range re.ListTasks(TaskFilter{}) {
+		if x.ShortWas != "" {
+			clashed++
+		}
+		y, _ := e.c.GetTask(x.ID)
+		if y.Short != x.Short || y.ShortWas != x.ShortWas {
+			t.Fatalf("%s: folded %q (was %q), replayed %q (was %q)", x.ID, y.Short, y.ShortWas, x.Short, x.ShortWas)
+		}
+		if other, dup := seen[x.Short]; dup {
+			t.Fatalf("#%s is both %s and %s", x.Short, other, x.ID)
+		}
+		seen[x.Short] = x.ID
+	}
+	if len(seen) != 300 || clashed == 0 {
+		t.Fatalf("%d refs for 300 cards, %d clashed", len(seen), clashed)
 	}
 }

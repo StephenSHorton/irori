@@ -7,18 +7,22 @@ package coord
 // number its device had folded. Two devices that create cards while they
 // can't reach each other claim the same number. The fold settles it the
 // same way on every device, from the rows alone: the claimants of one
-// number in (hlc, device, seq) order, the first is "12", the next "12b",
-// then "12c". So a card keeps its number unless a card created before it
-// on another device, out of reach at the time, claimed the same one; then
-// it gains a letter once (Task.ShortWas says what it was), and its number
-// never moves again for that clash. Rows written before num existed claim
-// their rank among such rows, in the same order.
+// number in (hlc, device, seq) order become "12a", "12b", "12c", and each
+// says it was 12 (Task.ShortWas). "12" alone then names none of them: a
+// person or agent who saw "#12" on one device may mean either, so taskRef
+// refuses it and names both, rather than acting on the card they didn't
+// mean. So a card keeps its number unless a card made on another device,
+// out of reach at the time, claimed the same one; then it gains a letter,
+// and further claims on 12 only add letters after it. Rows written before
+// num existed claim their rank among such rows, in the same order.
 //
 // The short ref is never stored: it is derived, so it needs no owner and
 // no write to converge, and a card from a device that is now offline
 // settles all the same.
 
 import (
+	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -44,13 +48,10 @@ func cursorLess(a, b store.Cursor) bool {
 	return a.Seq < b.Seq
 }
 
-// shortSuffix is the letter(s) of the i-th claimant of a number (0 is
-// none): b, c, ... z, then aa, ab, ...
+// shortSuffix is the letter(s) of the i-th claimant of a number that has
+// more than one: a, b, ... z, then aa, ab, ...
 func shortSuffix(i int) string {
-	if i <= 0 {
-		return ""
-	}
-	k := i + 1 // bijective base 26: 1 = a, 2 = b, ...
+	k := max(i, 0) + 1 // bijective base 26: 1 = a, 2 = b, ...
 	var out []byte
 	for k > 0 {
 		k--
@@ -62,55 +63,99 @@ func shortSuffix(i int) string {
 
 // claimShort records a task.created row's claim. A second row for the same
 // task id keeps the first claim. c.mu is held.
+//
+// Outside replay only the claimed number's group is settled again (a bulk
+// sync folds one row at a time under c.mu, so a full renumber per row would
+// be quadratic); a row from before num, whose number is its rank, and a
+// repeated row renumber everything.
 func (c *coord) claimShort(id string, at store.Cursor, num int) {
-	if !c.claimed[id] {
-		c.claimed[id] = true
-		c.claims = append(c.claims, shortClaim{id: id, at: at, num: max(num, 0)})
+	if c.claimed[id] {
+		if !c.replaying { // a repeated row rebuilt the task: give it its ref back
+			c.renumber()
+		}
+		return
 	}
-	if !c.replaying { // a repeated row rebuilt the task: give it its ref back
+	cl := shortClaim{id: id, at: at, num: max(num, 0)}
+	c.claimed[id] = true
+	c.claims = append(c.claims, cl)
+	if c.replaying {
+		return
+	}
+	if cl.num == 0 {
 		c.renumber()
+		return
 	}
+	g := c.shortGroups[cl.num]
+	i := sort.Search(len(g), func(i int) bool { return cursorLess(cl.at, g[i].at) })
+	c.shortGroups[cl.num] = slices.Insert(g, i, cl)
+	c.shortTop = max(c.shortTop, cl.num)
+	c.settle(cl.num)
 }
 
 // renumber derives every task's short ref from the claims. c.mu is held.
-// Outside replay a card whose ref changed (a clash that settled) is noted
-// as changed, so readers redraw it and search re-reads it.
+// shortTop only rises: a re-fold after a revoke's cut drops claims, and the
+// numbers they had aren't handed out again while this device runs.
 func (c *coord) renumber() {
 	sort.Slice(c.claims, func(i, j int) bool { return cursorLess(c.claims[i].at, c.claims[j].at) })
-	by := map[int][]shortClaim{}
-	legacy, top := 0, 0
+	c.shortGroups = map[int][]shortClaim{}
+	legacy := 0
 	for _, cl := range c.claims {
 		n := cl.num
 		if n == 0 {
 			legacy++
 			n = legacy
 		}
-		by[n] = append(by[n], cl) // claims are in cursor order already
-		top = max(top, n)
+		c.shortGroups[n] = append(c.shortGroups[n], cl) // claims are in cursor order already
+		c.shortTop = max(c.shortTop, n)
 	}
-	c.shortTop = top
 	c.shortIdx = make(map[string]string, len(c.claims))
-	for n, cls := range by {
-		base := strconv.Itoa(n)
-		for i, cl := range cls {
-			short := base + shortSuffix(i)
-			t := c.tasks[cl.id]
-			if t == nil {
-				continue
-			}
-			c.shortIdx[short] = cl.id
-			was := ""
-			if i > 0 && cl.num > 0 {
-				was = base
-			}
-			if t.Short != short && t.Short != "" && !c.replaying {
-				c.shortMoved[cl.id] = c.stamp()
-				c.note(Change{Kind: TaskChanged, TaskID: cl.id, Holder: t.Holder})
-			}
-			t.Short, t.ShortWas = short, was
-		}
+	for n := range c.shortGroups {
+		c.settle(n)
 	}
 }
+
+// settle gives number n's claimants their refs: a lone claimant is "12";
+// once two or more claimed 12, each gets a letter in cursor order (12a,
+// 12b, ...), says it was 12, and "12" alone names none of them (taskRef
+// refuses it with both named). Outside replay a card whose ref changed
+// is noted as moved. c.mu is held.
+func (c *coord) settle(n int) {
+	g := c.shortGroups[n]
+	base := strconv.Itoa(n)
+	delete(c.shortIdx, base)
+	for i, cl := range g {
+		short, was := base, ""
+		if len(g) > 1 {
+			short, was = base+shortSuffix(i), base
+		}
+		t := c.tasks[cl.id]
+		if t == nil {
+			continue
+		}
+		c.shortIdx[short] = cl.id
+		if t.Short != short && t.Short != "" && !c.replaying {
+			c.shortMovedTo(t, t.Short, short)
+		}
+		t.Short, t.ShortWas = short, was
+	}
+}
+
+// shortMovedTo notes that t's short ref moved from one to another, outside
+// replay: readers redraw it, search re-reads it, and its watchers, holders
+// and creator hear about it in their watch digest (no activity line: a
+// replay wouldn't write one). c.mu is held.
+func (c *coord) shortMovedTo(t *Task, from, to string) {
+	c.shortMoved[t.ID] = c.stamp()
+	c.note(Change{Kind: TaskChanged, TaskID: t.ID, Holder: t.Holder})
+	what := "renumbered it #" + to + " (it was #" + from + ")"
+	if num := shortNum(to); num != to {
+		what += ": more than one card made on devices that were apart claimed #" + num + ", so #" + num + " alone names none of them now"
+	}
+	c.queueWatch(t, sweeper, what, append(slices.Clone(t.Holders), t.CreatedBy)...)
+}
+
+// shortNum is a short ref's number without its letters ("12b" is "12").
+func shortNum(short string) string { return strings.TrimRight(short, "abcdefghijklmnopqrstuvwxyz") }
 
 // nextShort is the number a card created now claims. c.mu is held.
 func (c *coord) nextShort() int { return c.shortTop + 1 }
@@ -140,8 +185,10 @@ func ParseShort(ref string) (short string, ok bool) {
 
 // TaskRef resolves what someone typed for a card to its task id: a short
 // ref ("#12", "12b", "task:#12") or a full id, with or without "task:".
-// A short ref no card has is ErrNotFound; a full id is returned as given
-// (callers that act on it report a missing one).
+// A short ref no card has is ErrNotFound; a number two or more cards
+// claimed apart ("12" once there are 12a and 12b) is ErrAmbiguous, and its
+// text names each of them; a full id is returned as given (callers that
+// act on it report a missing one).
 func (c *Coord) TaskRef(ref string) (string, error) { return c.impl.taskRef(ref) }
 
 func (c *coord) taskRef(ref string) (string, error) {
@@ -161,7 +208,25 @@ func (c *coord) taskRef(ref string) (string, error) {
 	if c.tasks[v] != nil {
 		return v, nil // an id that happens to read like a number
 	}
+	if n, err := strconv.Atoi(short); err == nil && len(c.shortGroups[n]) > 1 {
+		var names []string
+		for _, cl := range c.shortGroups[n] {
+			if t := c.tasks[cl.id]; t != nil {
+				names = append(names, fmt.Sprintf("#%s %q (task:%s)", t.Short, oneLineTitle(t.Title), t.ID))
+			}
+		}
+		return "", fmt.Errorf("%w: cards made on devices that were apart each claimed #%s, so it is now %s", ErrAmbiguous, short, strings.Join(names, ", "))
+	}
 	return "", ErrNotFound
+}
+
+// oneLineTitle is a title cut to one short line for an error's text.
+func oneLineTitle(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > 60 {
+		s = string(r[:59]) + "…"
+	}
+	return s
 }
 
 // ShortRef is how a card is named to people and agents: "#12", or

@@ -170,7 +170,7 @@ export function ScopeBadge({ card }: { card: CardSummary }) {
 
 // ShortRef is the card's short ref, "#12": what the person says or types to
 // an agent about it. A card renumbered when two devices that were apart
-// both used its number says what it was.
+// both used its number (both gain a letter) says what it was.
 export function ShortRef({ card }: { card: CardSummary }) {
   const short = plainLine(card.short)
   if (!short) return null
@@ -180,7 +180,7 @@ export function ShortRef({ card }: { card: CardSummary }) {
       className="font-mono text-xs text-muted-foreground tabular-nums"
       title={
         was
-          ? `Was #${was}: a card made earlier on another device had #${was} too`
+          ? `Was #${was}: a card made on another device while they were apart had #${was} too, so each now has a letter`
           : `Agents know this card as #${short}`
       }
     >

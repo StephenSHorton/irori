@@ -197,13 +197,15 @@ type coord struct {
 	watchq      map[string]*watchQueue // task id -> changes watchers haven't heard (not on replay)
 
 	// Short refs (short.go): every task.created row's claim, the tasks
-	// that have one, short -> task id, the highest number claimed, and
-	// when a card's ref last moved (in memory: search re-reads it).
-	claims     []shortClaim
-	claimed    map[string]bool
-	shortIdx   map[string]string
-	shortTop   int
-	shortMoved map[string]time.Time
+	// that have one, each number's claimants in cursor order, short ->
+	// task id, the highest number claimed (never lowered), and when a
+	// card's ref last moved (in memory: search re-reads it).
+	claims      []shortClaim
+	claimed     map[string]bool
+	shortGroups map[int][]shortClaim
+	shortIdx    map[string]string
+	shortTop    int
+	shortMoved  map[string]time.Time
 
 	// Subscribe (subscribe.go). Changes queue in pending while c.mu is held
 	// and go out in unlock; replay queues none.
@@ -246,6 +248,7 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 		activity:    map[string][]Activity{},
 		watchq:      map[string]*watchQueue{},
 		claimed:     map[string]bool{},
+		shortGroups: map[int][]shortClaim{},
 		shortIdx:    map[string]string{},
 		shortMoved:  map[string]time.Time{},
 		subs:        map[chan Change]*subscriber{},

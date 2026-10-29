@@ -1,11 +1,16 @@
 package tools
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/StephenSHorton/irori/internal/coord"
+	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/inbox"
+	"github.com/StephenSHorton/irori/internal/search"
+	"github.com/StephenSHorton/irori/internal/store"
 )
 
 // newCard puts a card up as c and returns its id.
@@ -407,6 +412,49 @@ func TestShortRefsInTheBoardTools(t *testing.T) {
 		t.Fatalf("#2 is not the first hit:\n%s", out)
 	}
 	has(t, r.ok(callB, "search", map[string]any{"query": "first card"}), "- #1 task:"+one)
+}
+
+// A number two cards claimed on devices that were apart is refused bare by
+// every tool, with both cards named, so a #1 an agent saw before the clash
+// settled never acts on the other card; the lettered refs work.
+func TestClashedShortRefIsRefused(t *testing.T) {
+	h := withCapture(t, nil) // show reads through capture
+	mine := h.newCard(callA, map[string]any{"title": "Mine"})
+	// Another of the person's devices put up its own #1 a second earlier,
+	// out of reach; its row arrives now.
+	raw, _ := json.Marshal(map[string]any{"taskId": "01THEIRS", "num": 1, "title": "Theirs", "by": "dev9/s", "at": h.clk.now().Add(-time.Second)})
+	ev := store.Event{DeviceID: "dev9", Seq: 1, HLC: hlc.Timestamp(h.clk.now().Add(-time.Second).UnixMilli()) << 16, Actor: "agent:dev9/s", Kind: coord.KindTaskCreated, Payload: raw}
+	if err := h.b.st.Insert(bg, ev); err != nil {
+		t.Fatal(err)
+	}
+	co, err := coord.New(bg, h.b.st, h.b.roster, coord.Options{Now: h.clk.now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.b.co = co
+	has(t, h.ok(callA, "board", map[string]any{}), "- #1b task:"+mine+" [")
+	if x, _ := co.GetTask("01THEIRS"); x.ShortRef() != "#1a" {
+		t.Fatalf("theirs is %q", x.ShortRef())
+	}
+	for _, call := range []struct {
+		name string
+		args map[string]any
+	}{
+		{"board_comment", map[string]any{"task_id": "#1", "text": "meant mine"}},
+		{"board_status", map[string]any{"task_id": "1", "state": "done"}},
+		{"board_join", map[string]any{"task_id": "task:#1"}},
+		{"board_block", map[string]any{"task_id": mine, "question": "Wait?", "on": "task #1"}},
+		{"show", map[string]any{"ref": "#1"}},
+	} {
+		h.fails(callA, call.name, call.args, "each claimed #1", `#1a "Theirs" (task:01THEIRS)`, `#1b "Mine" (task:`+mine+`)`, "lettered ref")
+	}
+	if x, _ := co.GetTask("01THEIRS"); x.Comments != 0 || x.State != coord.Submitted {
+		t.Fatalf("the other card was acted on: %+v", x)
+	}
+	has(t, h.ok(callA, "board_comment", map[string]any{"task_id": "#1b", "text": "meant mine"}), " on #1b.")
+	if sh, err := co.SearchShow(bg, "task:#1a", search.ShowOptions{}); err != nil || !strings.Contains(sh.Text, "it was #1") {
+		t.Fatalf("show #1a: %+v %v", sh, err)
+	}
 }
 
 // One heavily blocked card must not push every other card off the board:

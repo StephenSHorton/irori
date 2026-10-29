@@ -186,6 +186,8 @@ func mapErr(err error) string {
 		return errText(err.Error() + ". Use a delivery id addressed to you: the delivery=\"…\" value of an <irori-message> tag, or one the inbox tool lists.")
 	case errors.Is(err, inbox.ErrBadState):
 		return errText(err.Error() + ". The inbox tool (all = true) shows each delivery's state.")
+	case errors.Is(err, coord.ErrAmbiguous):
+		return errText(err.Error() + ". Give the one you mean by its lettered ref (#12a) or its task:<id>.")
 	case errors.Is(err, coord.ErrNotFound):
 		return errText(err.Error() + ". The board and leases tools show what exists.")
 	case errors.Is(err, coord.ErrNotAllowed):

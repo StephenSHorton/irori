@@ -149,7 +149,7 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 	}
 	fmt.Fprintf(&b, "Task %s %q (task:%s)\n", t.ShortRef(), t.Title, t.ID)
 	if t.ShortWas != "" {
-		fmt.Fprintf(&b, "renumbered: it was #%s where it was made, until a card made earlier on another device turned out to have #%s too\n", t.ShortWas, t.ShortWas)
+		fmt.Fprintf(&b, "renumbered: it was #%s, until cards made on devices that were apart turned out to have #%s too; #%s alone now names none of them\n", t.ShortWas, t.ShortWas, t.ShortWas)
 	}
 	state := string(t.State)
 	if t.Shared {

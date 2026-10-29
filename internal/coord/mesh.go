@@ -163,13 +163,25 @@ func (c *coord) refoldIfCut(ctx context.Context, vec store.Vector) {
 	if !cut {
 		return
 	}
+	shorts := make(map[string]string, len(c.tasks))
+	for id, t := range c.tasks {
+		shorts[id] = t.Short
+	}
 	c.tasks, c.order, c.nextOrder = map[string]*Task{}, map[string]uint64{}, 0
 	c.held, c.comments, c.byTask, c.refusals = map[string]*leaseRec{}, map[string]*Comment{}, map[string][]string{}, nil
 	c.blockerSeq, c.stepSeq, c.activity = map[string]int{}, map[string]int{}, map[string][]Activity{}
-	c.claims, c.claimed, c.shortIdx, c.shortTop = nil, map[string]bool{}, map[string]string{}, 0
+	// shortTop stays: the cut card's numbers aren't handed out again.
+	c.claims, c.claimed, c.shortGroups, c.shortIdx = nil, map[string]bool{}, map[int][]shortClaim{}, map[string]string{}
 	c.last, c.conflicts, c.stolen, c.lapsed, c.ignored, c.ignoredBy = map[string]int64{}, map[string]*leaseRec{}, map[string]bool{}, nil, 0, nil
 	if err := c.replay(ctx); err != nil {
 		log.Printf("coord: re-fold after a revoke's cut: %v", err)
+	}
+	// A card whose clash partner was cut lost its letter in the replay,
+	// which notes nothing: note it as moved, as a live renumber would be.
+	for id, t := range c.tasks {
+		if was := shorts[id]; was != "" && t.Short != was {
+			c.shortMovedTo(t, was, t.Short)
+		}
 	}
 	c.note(Change{Kind: Resync})
 }

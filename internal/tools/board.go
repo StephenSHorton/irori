@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -18,14 +19,23 @@ import (
 const maxCardTitle = 160 // a card's title in a list line
 
 // taskID resolves what the caller gave for a card: its short ref ("#12",
-// "12", "task:#12") or its id, with or without "task:". A short ref no card
-// has comes back as given, so the call it feeds reports no such task.
-func (s *set) taskID(v string) string {
-	id, err := s.b.Coord().TaskRef(v)
-	if err != nil {
-		return strings.TrimSpace(v)
+// "12", "task:#12") or its id, with or without "task:". msg is the tool's
+// answer when it can't be used: none given, or a number that names more
+// than one card (refused with each named, so a ref seen before a clash
+// settled never acts on the other card). A short ref no card has comes
+// back as given, so the call it feeds reports no such task.
+func (s *set) taskID(v string) (id, msg string) {
+	if strings.TrimSpace(v) == "" {
+		return "", needTaskID()
 	}
-	return id
+	id, err := s.b.Coord().TaskRef(v)
+	switch {
+	case errors.Is(err, coord.ErrAmbiguous):
+		return "", mapErr(err)
+	case err != nil:
+		return strings.TrimSpace(v), ""
+	}
+	return id, ""
 }
 
 func needTaskID() string {
@@ -388,9 +398,9 @@ func (s *set) boardComment(ctx context.Context, c Caller, raw json.RawMessage) s
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := s.taskID(a.TaskID)
-	if id == "" {
-		return needTaskID()
+	id, msg := s.taskID(a.TaskID)
+	if msg != "" {
+		return msg
 	}
 	if strings.TrimSpace(a.Text) == "" {
 		return errText("give the comment text.")
@@ -452,8 +462,12 @@ func (s *set) parseOn(v string) (*coord.BlockedBy, string) {
 			return nil, errText("on = lease needs the resource, e.g. lease path:<repoKey>:src/api/** (see the leases tool).")
 		}
 	case coord.BlockedOnTask:
-		if bb.Ref = s.taskID(ref); bb.Ref == "" {
+		if ref == "" {
 			return nil, errText("on = task needs its short ref or id, e.g. task #12.")
+		}
+		var msg string
+		if bb.Ref, msg = s.taskID(ref); msg != "" {
+			return nil, msg
 		}
 		if _, unknown := coord.ParseShort(bb.Ref); unknown {
 			return nil, errText(fmt.Sprintf("on = task: no card is %q; the board tool lists them.", oneLine(ref, 40)))
@@ -483,9 +497,9 @@ func (s *set) boardBlock(ctx context.Context, c Caller, raw json.RawMessage) str
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := s.taskID(a.TaskID)
-	if id == "" {
-		return needTaskID()
+	id, msg := s.taskID(a.TaskID)
+	if msg != "" {
+		return msg
 	}
 	q, reason := strings.TrimSpace(a.Question), strings.TrimSpace(a.Reason)
 	if q == "" && reason == "" {
@@ -560,9 +574,9 @@ func (s *set) boardUnblock(ctx context.Context, c Caller, raw json.RawMessage) s
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := s.taskID(a.TaskID)
-	if id == "" {
-		return needTaskID()
+	id, msg := s.taskID(a.TaskID)
+	if msg != "" {
+		return msg
 	}
 	if bid := strings.TrimSpace(a.BlockerID); bid != "" {
 		if a.Pick == 0 && strings.TrimSpace(a.Note) == "" {
@@ -607,9 +621,9 @@ func (s *set) boardRecommend(ctx context.Context, c Caller, raw json.RawMessage)
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := s.taskID(a.TaskID)
-	if id == "" {
-		return needTaskID()
+	id, msg := s.taskID(a.TaskID)
+	if msg != "" {
+		return msg
 	}
 	if strings.TrimSpace(a.BlockerID) == "" {
 		return errText("give blocker_id: the blocker's id as the board tool shows it ([b1]).")
@@ -669,9 +683,9 @@ func (s *set) boardSteps(ctx context.Context, c Caller, raw json.RawMessage) str
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := s.taskID(a.TaskID)
-	if id == "" {
-		return needTaskID()
+	id, msg := s.taskID(a.TaskID)
+	if msg != "" {
+		return msg
 	}
 	t, err := s.b.Coord().SetSteps(ctx, c.Sender.Key, id, stepsOf(a.Steps))
 	if err != nil {
@@ -705,9 +719,9 @@ func (s *set) boardStep(ctx context.Context, c Caller, raw json.RawMessage) stri
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := s.taskID(a.TaskID)
-	if id == "" {
-		return needTaskID()
+	id, msg := s.taskID(a.TaskID)
+	if msg != "" {
+		return msg
 	}
 	if strings.TrimSpace(a.StepID) == "" {
 		return errText("give step_id: the step's id as board_steps or the board tool shows it (s1).")
@@ -738,9 +752,9 @@ func (s *set) boardWatching(ctx context.Context, c Caller, raw json.RawMessage, 
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := s.taskID(a.TaskID)
-	if id == "" {
-		return needTaskID()
+	id, msg := s.taskID(a.TaskID)
+	if msg != "" {
+		return msg
 	}
 	co := s.b.Coord()
 	var t coord.Task
@@ -771,9 +785,9 @@ func (s *set) boardJoin(ctx context.Context, c Caller, raw json.RawMessage) stri
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := s.taskID(a.TaskID)
-	if id == "" {
-		return needTaskID()
+	id, msg := s.taskID(a.TaskID)
+	if msg != "" {
+		return msg
 	}
 	co := s.b.Coord()
 	cur, ok := co.GetTask(id)
@@ -802,9 +816,9 @@ func (s *set) boardLeave(ctx context.Context, c Caller, raw json.RawMessage) str
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := s.taskID(a.TaskID)
-	if id == "" {
-		return needTaskID()
+	id, msg := s.taskID(a.TaskID)
+	if msg != "" {
+		return msg
 	}
 	t, err := s.b.Coord().Leave(ctx, c.Sender.Key, id, c.Sender.Key)
 	if err != nil {
@@ -823,9 +837,9 @@ func (s *set) boardAssign(ctx context.Context, c Caller, raw json.RawMessage) st
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := s.taskID(a.TaskID)
-	if id == "" {
-		return needTaskID()
+	id, msg := s.taskID(a.TaskID)
+	if msg != "" {
+		return msg
 	}
 	want := strings.TrimSpace(a.To)
 	if want == "" {
@@ -859,9 +873,9 @@ func (s *set) boardStatus(ctx context.Context, c Caller, raw json.RawMessage) st
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := s.taskID(a.TaskID)
-	if id == "" {
-		return needTaskID()
+	id, msg := s.taskID(a.TaskID)
+	if msg != "" {
+		return msg
 	}
 	st := coord.TaskState(strings.ToLower(strings.TrimSpace(a.State)))
 	switch {
@@ -925,9 +939,9 @@ func (s *set) boardLink(ctx context.Context, c Caller, raw json.RawMessage) stri
 	if err := decode(raw, &a); err != nil {
 		return badArgs(err)
 	}
-	id := s.taskID(a.TaskID)
-	if id == "" {
-		return needTaskID()
+	id, msg := s.taskID(a.TaskID)
+	if msg != "" {
+		return msg
 	}
 	if strings.TrimSpace(a.Link) == "" {
 		return errText("give url_or_path: an http(s) URL or a repo path.")

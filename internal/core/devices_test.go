@@ -761,9 +761,10 @@ func TestAClockAheadWinsNoAnswer(t *testing.T) {
 
 // Short refs across a partition (board.md "Short refs"): the PC and the
 // Mac both number a card #2 while they can't reach each other. Once they
-// meet, every device settles on the same refs: the card created first keeps
-// #2, the other becomes #2b and says it was #2, and numbering carries on
-// past both.
+// meet, every device settles on the same refs: the card created first is
+// #2a, the other #2b, both say they were #2, "#2" alone is refused with
+// both named on every device (so neither device's old #2 acts on the other
+// card), and numbering carries on past both.
 func TestShortRefsConvergeAfterAPartition(t *testing.T) {
 	ctx := context.Background()
 	net, pc, mac, nd := meshTrio(t)
@@ -795,7 +796,7 @@ func TestShortRefsConvergeAfterAPartition(t *testing.T) {
 
 	net.HealAll()
 	wait(t, "the three converge", synced(pc, mac, nd))
-	want := map[string][2]string{first.ID: {"1", ""}, a.ID: {"2", ""}, m.ID: {"2b", "2"}, m2.ID: {"3", ""}}
+	want := map[string][2]string{first.ID: {"1", ""}, a.ID: {"2a", "2"}, m.ID: {"2b", "2"}, m2.ID: {"3", ""}}
 	for _, h := range []*hcore{pc, mac, nd} {
 		wait(t, "the refs settle on "+h.name, func() bool {
 			for id, w := range want {
@@ -810,6 +811,10 @@ func TestShortRefsConvergeAfterAPartition(t *testing.T) {
 			if got, err := h.c.Coord().TaskRef("#" + w[0]); err != nil || got != id {
 				t.Fatalf("%s: #%s is %q (%v)", h.name, w[0], got, err)
 			}
+		}
+		got, err := h.c.Coord().TaskRef("#2")
+		if !errors.Is(err, coord.ErrAmbiguous) || got != "" || !strings.Contains(err.Error(), a.ID) || !strings.Contains(err.Error(), m.ID) {
+			t.Fatalf("%s: #2 after the heal is %q (%v)", h.name, got, err)
 		}
 	}
 

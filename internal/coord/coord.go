@@ -17,6 +17,7 @@ import (
 var (
 	ErrNotFound      = errors.New("coord: no such task or lease")
 	ErrHeld          = errors.New("coord: held by someone else")
+	ErrAmbiguous     = errors.New("coord: that short ref names more than one card")
 	ErrBadResource   = errors.New("coord: resource must be path:<repoKey>:<glob> or a name like gpu/qwen")
 	ErrBadState      = errors.New("coord: not a task state")
 	ErrUnimplemented = errors.New("coord: not implemented yet")
@@ -48,11 +49,11 @@ const (
 // Task is the folded view of one task.
 type Task struct {
 	ID string `json:"id"`
-	// Short is the card's short ref without its "#" ("12", or "12b" for
-	// the later of two cards that claimed 12 apart: short.go). It is
-	// derived by the fold, never written. ShortWas is the number such a
-	// card claimed ("12") and showed on its own device until the clash
-	// settled; "" when it kept it.
+	// Short is the card's short ref without its "#" ("12", or "12a" and
+	// "12b" for two cards that claimed 12 apart: short.go). It is derived
+	// by the fold, never written. ShortWas is the number such a card
+	// claimed ("12") and showed until the clash settled; "" when no other
+	// card claimed it.
 	Short        string    `json:"short,omitempty"`
 	ShortWas     string    `json:"shortWas,omitempty"`
 	Title        string    `json:"title"`
