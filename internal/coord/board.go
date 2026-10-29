@@ -120,6 +120,7 @@ const (
 	NoticeAssigned  NoticeKind = "assigned"  // you were assigned a task (decision 21)
 	NoticeComment   NoticeKind = "comment"   // someone commented on a task you hold
 	NoticeUnblocked NoticeKind = "unblocked" // a task you hold is no longer blocked
+	NoticeReturned  NoticeKind = "returned"  // a card you made has nobody on it any more (card #16)
 )
 
 // Notice is something coord wants an agent to hear. coord only builds it;

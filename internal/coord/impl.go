@@ -115,6 +115,10 @@ type taskMemberRow struct {
 	Who    string    `json:"who"`
 	By     string    `json:"by"`
 	At     time.Time `json:"at"`
+	// Reason is "gone" when Irori took a holder that went away off the card
+	// (card #16); Person then says the card came back to the person.
+	Reason string `json:"reason,omitempty"`
+	Person bool   `json:"person,omitempty"`
 }
 
 type taskSharedRow struct {
@@ -197,14 +201,15 @@ type leaseRec struct {
 }
 
 type coord struct {
-	st        *store.Store
-	roster    interface{ Agents() []presence.AgentCard }
-	now       func() time.Time
-	grace     time.Duration
-	ownerFn   func(string) bool // Options.IsOwner
-	revoked   func(string) bool // Options.Revoked
-	ignored   int               // owner-only rows from the wrong device (v0.4 §6.0)
-	ignoredBy map[string]int    // and per writing device
+	st          *store.Store
+	roster      interface{ Agents() []presence.AgentCard }
+	now         func() time.Time
+	grace       time.Duration
+	holderGrace time.Duration
+	ownerFn     func(string) bool // Options.IsOwner
+	revoked     func(string) bool // Options.Revoked
+	ignored     int               // owner-only rows from the wrong device (v0.4 §6.0)
+	ignoredBy   map[string]int    // and per writing device
 
 	mu          sync.Mutex
 	tasks       map[string]*Task
@@ -294,6 +299,9 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 	}
 	if c.grace <= 0 {
 		c.grace = GoneGrace
+	}
+	if c.holderGrace = opts.HolderGrace; c.holderGrace <= 0 {
+		c.holderGrace = HolderGrace
 	}
 	if err := c.replay(ctx); err != nil {
 		return nil, err
@@ -531,6 +539,12 @@ func (c *coord) fold(ev store.Event) {
 			what = "joined"
 		} else {
 			t.Holders = removeStr(t.Holders, p.Who)
+			if p.Reason == LeftGone {
+				what = "went away"
+				if len(t.Holders) == 0 {
+					t.Returned = &Returned{Was: p.Who, At: at(p.At), Person: p.Person}
+				}
+			}
 		}
 		if p.Who != p.By {
 			what += " (" + p.Who + ")"
@@ -792,6 +806,7 @@ func syncHolder(t *Task) {
 		return
 	}
 	t.Holder = t.Holders[0]
+	t.Returned = nil
 }
 
 // isHolder reports whether key is one of t's holders.

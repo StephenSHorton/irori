@@ -464,6 +464,13 @@ export class Card {
      * take and, once closed, its outcome.
      */
     "ask"?: Ask | null;
+
+    /**
+     * Returned is set while nobody is on a card because its last holder
+     * went away and Irori took it off (card #16); it clears when anyone is
+     * on it again.
+     */
+    "returned"?: Returned | null;
     "lastComment"?: Comment | null;
 
     /**
@@ -526,8 +533,9 @@ export class Card {
         const $$createField24_0 = $$createType0;
         const $$createField25_0 = $$createType22;
         const $$createField26_0 = $$createType24;
-        const $$createField28_0 = $$createType0;
+        const $$createField27_0 = $$createType26;
         const $$createField29_0 = $$createType0;
+        const $$createField30_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
             $$parsedSource["scope"] = $$createField7_0($$parsedSource["scope"]);
@@ -556,14 +564,17 @@ export class Card {
         if ("ask" in $$parsedSource) {
             $$parsedSource["ask"] = $$createField25_0($$parsedSource["ask"]);
         }
+        if ("returned" in $$parsedSource) {
+            $$parsedSource["returned"] = $$createField26_0($$parsedSource["returned"]);
+        }
         if ("lastComment" in $$parsedSource) {
-            $$parsedSource["lastComment"] = $$createField26_0($$parsedSource["lastComment"]);
+            $$parsedSource["lastComment"] = $$createField27_0($$parsedSource["lastComment"]);
         }
         if ("gone" in $$parsedSource) {
-            $$parsedSource["gone"] = $$createField28_0($$parsedSource["gone"]);
+            $$parsedSource["gone"] = $$createField29_0($$parsedSource["gone"]);
         }
         if ("overlaps" in $$parsedSource) {
-            $$parsedSource["overlaps"] = $$createField29_0($$parsedSource["overlaps"]);
+            $$parsedSource["overlaps"] = $$createField30_0($$parsedSource["overlaps"]);
         }
         return new Card($$parsedSource as Partial<Card>);
     }
@@ -723,7 +734,7 @@ export class LeaseCard {
      * Creates a new LeaseCard instance from a string or object.
      */
     static createFrom($$source: any = {}): LeaseCard {
-        const $$createField6_0 = $$createType26;
+        const $$createField6_0 = $$createType28;
         const $$createField7_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("refused" in $$parsedSource) {
@@ -841,7 +852,7 @@ export class Option {
      * Creates a new Option instance from a string or object.
      */
     static createFrom($$source: any = {}): Option {
-        const $$createField5_0 = $$createType27;
+        const $$createField5_0 = $$createType29;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("link" in $$parsedSource) {
             $$parsedSource["link"] = $$createField5_0($$parsedSource["link"]);
@@ -1006,6 +1017,44 @@ export class Resolution {
 }
 
 /**
+ * Returned says who went away from a card and who was told.
+ */
+export class Returned {
+    /**
+     * the holder Irori took off
+     */
+    "was": string;
+    "at": time$0.Time;
+
+    /**
+     * Person: the card came back to the person (its creator was the person
+     * or had gone too), so every desktop device shows a notification.
+     * Otherwise its creator agent was told.
+     */
+    "person"?: boolean;
+
+    /** Creates a new Returned instance. */
+    constructor($$source: Partial<Returned> = {}) {
+        if (!("was" in $$source)) {
+            this["was"] = "";
+        }
+        if (!("at" in $$source)) {
+            this["at"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Returned instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Returned {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Returned($$parsedSource as Partial<Returned>);
+    }
+}
+
+/**
  * Step is one ordered step of a task. At most one step is Doing (the
  * current one); a Done step is never Doing. Ids are short ("s1", "s2", ...),
  * minted per task and never reused.
@@ -1137,6 +1186,13 @@ export class Task {
      */
     "ask"?: Ask | null;
 
+    /**
+     * Returned is set while nobody is on a card because its last holder
+     * went away and Irori took it off (card #16); it clears when anyone is
+     * on it again.
+     */
+    "returned"?: Returned | null;
+
     /** Creates a new Task instance. */
     constructor($$source: Partial<Task> = {}) {
         if (!("id" in $$source)) {
@@ -1177,6 +1233,7 @@ export class Task {
         const $$createField23_0 = $$createType20;
         const $$createField24_0 = $$createType0;
         const $$createField25_0 = $$createType22;
+        const $$createField26_0 = $$createType24;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
             $$parsedSource["scope"] = $$createField7_0($$parsedSource["scope"]);
@@ -1204,6 +1261,9 @@ export class Task {
         }
         if ("ask" in $$parsedSource) {
             $$parsedSource["ask"] = $$createField25_0($$parsedSource["ask"]);
+        }
+        if ("returned" in $$parsedSource) {
+            $$parsedSource["returned"] = $$createField26_0($$parsedSource["returned"]);
         }
         return new Task($$parsedSource as Partial<Task>);
     }
@@ -1262,8 +1322,10 @@ const $$createType19 = Blocker.createFrom;
 const $$createType20 = $Create.Array($$createType19);
 const $$createType21 = Ask.createFrom;
 const $$createType22 = $Create.Nullable($$createType21);
-const $$createType23 = Comment.createFrom;
+const $$createType23 = Returned.createFrom;
 const $$createType24 = $Create.Nullable($$createType23);
-const $$createType25 = Refusal.createFrom;
-const $$createType26 = $Create.Array($$createType25);
-const $$createType27 = $Create.Nullable($$createType7);
+const $$createType25 = Comment.createFrom;
+const $$createType26 = $Create.Nullable($$createType25);
+const $$createType27 = Refusal.createFrom;
+const $$createType28 = $Create.Array($$createType27);
+const $$createType29 = $Create.Nullable($$createType7);

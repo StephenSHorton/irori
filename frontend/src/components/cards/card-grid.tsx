@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import {
   busy,
+  displayName,
+  holderLineShows,
+  nobodyOn,
   openAsk,
   percent,
   workLabel,
@@ -147,6 +150,22 @@ function CardTile({
             Lease conflict
           </Badge>
         )}
+        {!openAsk(card) && nobodyOn(card) && (
+          <Badge
+            variant="warning"
+            title="The agent on it went away; nobody is working it"
+          >
+            Nobody on it
+          </Badge>
+        )}
+        {card.stale && (
+          <Badge
+            variant="secondary"
+            title="Nothing has happened on it for a while, and nobody is busy on it"
+          >
+            Stale
+          </Badge>
+        )}
         {busy(card) && <Spinner className="ml-auto" />}
       </span>
       <span className="text-sm leading-snug font-medium text-balance text-ink">
@@ -163,13 +182,18 @@ function CardTile({
       {card.ask && openAsk(card) ? (
         <AskLine ask={card.ask} />
       ) : p === null ? (
-        <HolderLine holder={card.holder} />
+        <HolderLine holder={card.holder} returned={card.returned} />
       ) : (
-        <ProgressBar
-          progress={card.progress}
-          label={`${p ?? 0}% complete`}
-          tone={cardTone(card)}
-        />
+        <>
+          <ProgressBar
+            progress={card.progress}
+            label={`${p ?? 0}% complete`}
+            tone={cardTone(card)}
+          />
+          {holderLineShows(card) && (
+            <HolderLine holder={card.holder} returned={card.returned} />
+          )}
+        </>
       )}
       <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
         {p !== null && (
@@ -185,6 +209,8 @@ function CardTile({
           </>
         ) : openAsk(card) ? (
           <span>you asked the room</span>
+        ) : card.returned ? (
+          <span>nobody on it: {displayName(card.returned)} went away</span>
         ) : (
           <span>nobody on it yet</span>
         )}

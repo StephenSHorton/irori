@@ -8,6 +8,7 @@ import {
   openAsk,
   percent,
   TaskState,
+  type AgentRef,
   type CardAsk,
   type CardHolder,
   type CardSummary,
@@ -175,12 +176,16 @@ export function holderText(h: CardHolder): string {
 // working doesn't look like work in progress.
 export function HolderLine({
   holder,
+  returned,
   className,
 }: {
   holder: CardHolder
+  // returned: the agent that went away when Irori took it off (card #16).
+  returned?: AgentRef | null
   className?: string
 }) {
   const warn =
+    !!returned ||
     holder.state === Holding.HoldWaiting ||
     holder.state === Holding.HoldGone ||
     holder.state === Holding.HoldOffline
@@ -198,7 +203,11 @@ export function HolderLine({
           aria-hidden
         />
       )}
-      <span className="truncate">{holderText(holder)}</span>
+      <span className="truncate">
+        {returned && holder.state === Holding.HoldNobody
+          ? `Nobody on it: ${displayName(returned)} went away`
+          : holderText(holder)}
+      </span>
     </span>
   )
 }

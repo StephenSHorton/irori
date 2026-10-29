@@ -923,3 +923,41 @@ func blockerOf(t *testing.T, d CardDetail, id string) CardBlocker {
 	t.Fatalf("no blocker %s in %+v", id, d.Blockers)
 	return CardBlocker{}
 }
+
+// A working card nothing happened on for StaleAfter, with nobody busy on
+// it, is stale; a busy one, the person's, or one not working never is
+// (card #16).
+func TestCardStale(t *testing.T) {
+	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	old := now.Add(-StaleAfter - time.Minute)
+	card := func(state coord.TaskState, h Holding) CardSummary {
+		return CardSummary{State: state, Holder: CardHolder{State: h}}
+	}
+	for _, h := range []Holding{HoldIdle, HoldGone, HoldOffline, HoldNobody, HoldAssigned} {
+		if !stale(card(coord.Working, h), old, now) {
+			t.Errorf("%s: not stale", h)
+		}
+	}
+	if stale(card(coord.Working, HoldActive), old, now) || stale(card(coord.Working, HoldPerson), old, now) {
+		t.Error("a busy card, or the person's, is stale")
+	}
+	if stale(card(coord.Blocked, HoldIdle), old, now) || stale(card(coord.Submitted, HoldNobody), old, now) {
+		t.Error("only working cards go stale")
+	}
+	if stale(card(coord.Working, HoldIdle), now.Add(-time.Minute), now) {
+		t.Error("recent activity is stale")
+	}
+}
+
+// Returned names the agent that went away while nobody is on the card.
+func TestCardReturned(t *testing.T) {
+	p := people{byKey: map[string]presence.AgentCard{}}
+	tk := coord.Task{ID: "t1", State: coord.Submitted, Returned: &coord.Returned{Was: "dev/s1"}}
+	if s := cardSummary(tk, p); s.Returned == nil || s.Returned.Key != "dev/s1" {
+		t.Fatalf("returned %+v", s.Returned)
+	}
+	tk.Holders = []string{"dev/s2"}
+	if s := cardSummary(tk, p); s.Returned != nil {
+		t.Fatalf("returned shown with someone on it: %+v", s.Returned)
+	}
+}

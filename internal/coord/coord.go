@@ -27,6 +27,10 @@ const (
 	DefaultTTL = 30 * time.Minute
 	MaxTTL     = 4 * time.Hour
 	GoneGrace  = 3 * time.Minute // holder gone this long releases its leases
+	// HolderGrace: a holder gone this long is taken off its card, and a
+	// card nobody is left on goes back to open (card #16). Longer than
+	// GoneGrace, so a session that restarts keeps its cards.
+	HolderGrace = 10 * time.Minute
 )
 
 // TaskState is an A2A TaskState subset, plus Blocked (decision 17).
@@ -104,6 +108,20 @@ type Task struct {
 	// Ask is set on an ask (ask.go): the person's prompt to the room, its
 	// take and, once closed, its outcome.
 	Ask *Ask `json:"ask,omitempty"`
+	// Returned is set while nobody is on a card because its last holder
+	// went away and Irori took it off (card #16); it clears when anyone is
+	// on it again.
+	Returned *Returned `json:"returned,omitempty"`
+}
+
+// Returned says who went away from a card and who was told.
+type Returned struct {
+	Was string    `json:"was"` // the holder Irori took off
+	At  time.Time `json:"at"`
+	// Person: the card came back to the person (its creator was the person
+	// or had gone too), so every desktop device shows a notification.
+	// Otherwise its creator agent was told.
+	Person bool `json:"person,omitempty"`
 }
 
 // NewTask is CreateTask's input.
@@ -166,8 +184,9 @@ type Change struct {
 
 // Options configure New.
 type Options struct {
-	Now       func() time.Time
-	GoneGrace time.Duration // test override
+	Now         func() time.Time
+	GoneGrace   time.Duration // test override
+	HolderGrace time.Duration // test override
 	// IsOwner reports whether a "user:<device>" key is the person's (v0.4
 	// identity.Chain.IsOwner). Nil accepts exactly "user:<store device>".
 	IsOwner func(key string) bool

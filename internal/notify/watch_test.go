@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -23,9 +24,26 @@ const (
 	user = "user:dev1"
 )
 
-type roster struct{ cards []presence.AgentCard }
+type roster struct {
+	mu    sync.Mutex
+	cards []presence.AgentCard
+}
 
-func (r *roster) Agents() []presence.AgentCard { return r.cards }
+func (r *roster) Agents() []presence.AgentCard {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.cards)
+}
+
+// drop takes key out of the roster (its session ended).
+func (r *roster) drop(key string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cards = slices.DeleteFunc(r.cards, func(c presence.AgentCard) bool { return c.Key == key })
+}
+
+// rigHolderGrace, when set, is the rig coord's HolderGrace.
+var rigHolderGrace time.Duration
 
 func agentCard(key, name string) presence.AgentCard {
 	_, sess, _ := strings.Cut(key, "/")
@@ -41,6 +59,7 @@ type rig struct {
 	opened chan Target
 	ctx    context.Context
 	st     *store.Store
+	ros    *roster
 }
 
 func newRig(t *testing.T) *rig { return newRigNamed(t, nil) }
@@ -59,7 +78,7 @@ func newRigNamed(t *testing.T, wrap func(key, name string) string) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	co, err := coord.New(ctx, st, r, coord.Options{})
+	co, err := coord.New(ctx, st, r, coord.Options{HolderGrace: rigHolderGrace})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +104,7 @@ func newRigNamed(t *testing.T, wrap func(key, name string) string) *rig {
 	// Watch subscribes before it reads; give it a moment so the first
 	// change of a test isn't sent before anyone listens.
 	time.Sleep(50 * time.Millisecond)
-	return &rig{t: t, ib: ib, co: co, fake: f, n: n, opened: opened, ctx: ctx, st: st}
+	return &rig{t: t, ib: ib, co: co, fake: f, n: n, opened: opened, ctx: ctx, st: st, ros: r}
 }
 
 // waitPost waits for a Post of id.
@@ -734,4 +753,42 @@ func TestWatchUnclaimedAsk(t *testing.T) {
 	if got, _ := r.co.GetTask(two.ID); got.State != coord.Canceled {
 		t.Fatalf("Close left it %s", got.State)
 	}
+}
+
+// A card whose agent went away, made by the person, comes back to them as a
+// card on every desktop device, cleared once someone is on it (card #16).
+func TestWatchReturnedCard(t *testing.T) {
+	rigHolderGrace = 20 * time.Millisecond
+	t.Cleanup(func() { rigHolderGrace = 0 })
+	r := newRig(t)
+	tk, err := r.co.CreateTask(r.ctx, user, coord.NewTask{Title: "Ship the docs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.co.ClaimTask(r.ctx, keyA, tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	r.ros.drop(keyA)
+	id := ReturnedID(tk.ID)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := r.co.SweepNotices(r.ctx); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := r.co.GetTask(tk.ID); got.Returned != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the gone holder was never taken off")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	r.waitPost(id)
+	if c := r.fake.card(t, id); !strings.Contains(c.Title, "Nobody is on") || !strings.Contains(c.Body, "alpha went away") {
+		t.Fatalf("card %+v", c)
+	}
+	if _, err := r.co.ClaimTask(r.ctx, keyB, tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	r.waitGone(id)
 }

@@ -1053,6 +1053,10 @@ func (c *coord) sweepNotices(ctx context.Context) ([]Notice, error) {
 	if err := c.releaseGone(ctx, now); err != nil {
 		return nil, err
 	}
+	out, err := c.returnGone(ctx, now)
+	if err != nil {
+		return out, err
+	}
 	var todo []*Task
 	for _, t := range c.tasks {
 		if c.resolved(t, now) != "" {
@@ -1060,7 +1064,6 @@ func (c *coord) sweepNotices(ctx context.Context) ([]Notice, error) {
 		}
 	}
 	sort.Slice(todo, func(i, j int) bool { return todo[i].ID < todo[j].ID })
-	var out []Notice
 	for _, t := range todo {
 		ids, why := c.goneAway(t, now)
 		if len(ids) == countOpen(t) {
@@ -1107,4 +1110,67 @@ func (c *coord) sweepNotices(ctx context.Context) ([]Notice, error) {
 	// Watchers hear what changed on their cards since the last sweep
 	// (cards.go), including the closes above.
 	return append(out, c.watchNotices()...), nil
+}
+
+// LeftGone is a task.left reason: Irori took a holder that went away off
+// the card (card #16).
+const LeftGone = "gone"
+
+// returnGone takes each holder of this device that has been gone for
+// HolderGrace off its cards. A card nobody is left on goes back to open,
+// and comes back to someone: its creator, when that is an agent still
+// around, hears at its next turn; otherwise the person gets a notification
+// (Task.Returned.Person). Only the holder's own device decides (v0.4 §6.0),
+// so a holder on an offline device keeps its cards (§6.2). Asks have their
+// own take lock (sweepAsks). The caller holds c.mu, after observe.
+func (c *coord) returnGone(ctx context.Context, now time.Time) ([]Notice, error) {
+	live := map[string]bool{}
+	if c.roster != nil {
+		for _, a := range c.roster.Agents() {
+			if a.Status != "gone" {
+				live[a.Key] = true
+			}
+		}
+	}
+	var ids []string
+	for id, t := range c.tasks {
+		if !IsTerminal(t.State) && openAsk(t) == nil && len(t.Holders) > 0 {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	var out []Notice
+	for _, id := range ids {
+		t := c.tasks[id]
+		for _, h := range slices.Clone(t.Holders) {
+			first, absent := c.firstAbsent[h]
+			if !absent || now.Sub(first) < c.holderGrace || c.isOwner(h) || !c.localKey(h) {
+				continue
+			}
+			last := len(t.Holders) == 1
+			creator := t.CreatedBy
+			person := last && (c.isOwner(creator) || creator == h || !live[creator])
+			if err := c.write(ctx, sweeper, KindTaskLeft, taskMemberRow{
+				TaskID: id, Who: h, By: sweeper, At: now, Reason: LeftGone, Person: person,
+			}); err != nil {
+				return out, err
+			}
+			if !last {
+				continue
+			}
+			if t.State == Working {
+				if err := c.write(ctx, sweeper, KindTaskState, taskStateRow{
+					TaskID: id, State: Submitted, Note: "nobody is on it: the agent working it went away", By: sweeper, At: now,
+				}); err != nil {
+					return out, err
+				}
+			}
+			if !person {
+				out = append(out, Notice{Kind: NoticeReturned, TaskID: id, Ref: "task:" + id, Title: t.Title, By: sweeper, To: []string{creator},
+					Text: fmt.Sprintf("Nobody is on %q (%s) any more: %s went away, and it's open again. Take it with board_join, hand it on with board_assign, or close it with board_status.%s",
+						t.Title, t.Refs(), h, deeper(id))})
+			}
+		}
+	}
+	return out, nil
 }

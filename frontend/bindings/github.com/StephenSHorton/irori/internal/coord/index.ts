@@ -17,6 +17,7 @@ export {
     Outcome,
     Refusal,
     Resolution,
+    Returned,
     Step,
     Task,
     TaskState

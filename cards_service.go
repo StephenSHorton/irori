@@ -121,6 +121,12 @@ type CardSummary struct {
 	Watching        []AgentRef `json:"watching"` // watchers that don't hold it
 	Holder          CardHolder `json:"holder"`
 	UpdatedAt       time.Time  `json:"updatedAt"`
+	// Returned names the agent that went away when Irori took it off and
+	// nobody is on the card now (card #16); nil otherwise.
+	Returned *AgentRef `json:"returned,omitempty"`
+	// Stale: a working card nothing has happened on for StaleAfter and
+	// whose holder isn't busy on it right now (card #16).
+	Stale bool `json:"stale,omitempty"`
 	// Ask is set on the person's ask to the room (board.md "Asks"); nil on
 	// any other card.
 	Ask *CardAsk `json:"ask,omitempty"`
@@ -483,7 +489,23 @@ func cardSummary(t coord.Task, p people) CardSummary {
 	}
 	s.Holder = holderLine(s.Working)
 	s.Ask = cardAsk(t, p, nil)
+	if t.Returned != nil && len(t.Holders) == 0 {
+		r := p.ref(t.Returned.Was)
+		s.Returned = &r
+	}
 	return s
+}
+
+// StaleAfter: a working card with no activity this long, and nobody busy
+// on it, shows as stale (card #16).
+const StaleAfter = 2 * time.Hour
+
+// stale reports whether s (a card last active at last) is stale at now.
+func stale(s CardSummary, last, now time.Time) bool {
+	if s.State != coord.Working || s.Holder.State == HoldActive || s.Holder.State == HoldPerson {
+		return false
+	}
+	return !last.IsZero() && now.Sub(last) >= StaleAfter
 }
 
 // holderLine describes the holder that took the card up (the first), else
@@ -521,8 +543,15 @@ func holderLine(working []AgentRef) CardHolder {
 func (b *BoardService) Cards() []CardSummary {
 	p := b.people()
 	out := []CardSummary{}
+	now := time.Now()
 	for _, t := range b.coord.ListTasks(coord.TaskFilter{Open: true}) {
-		out = append(out, cardSummary(t, p))
+		s := cardSummary(t, p)
+		last := t.UpdatedAt
+		if acts := b.coord.Activity(t.ID); len(acts) > 0 && acts[0].At.After(last) {
+			last = acts[0].At
+		}
+		s.Stale = stale(s, last, now)
+		out = append(out, s)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		// An open ask is the person talking to the room now: first.

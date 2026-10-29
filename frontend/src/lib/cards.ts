@@ -93,6 +93,23 @@ export const AskState = {
 
 // openAsk says the card is an ask still finding its taker or its outcome:
 // the person's prompt to the room, before it became a card.
+// holderLineShows says whether a card with steps also shows its holder
+// line under the bar (card #16): whenever nobody is busy on it, so a card
+// whose agent is idle, offline or gone doesn't look like work in progress.
+// A card without steps always shows it in place of the bar.
+export function holderLineShows(c: { holder: { state: string } }): boolean {
+  return c.holder.state !== Holding.HoldActive && c.holder.state !== Holding.HoldPerson
+}
+
+// nobodyOn says the card has nobody live on it: its holder went away, or
+// Irori took that holder off and it is open again (card #16).
+export function nobodyOn(c: {
+  holder: { state: string }
+  returned?: AgentRef | null
+}): boolean {
+  return !!c.returned || c.holder.state === Holding.HoldGone
+}
+
 export function openAsk(c: { ask?: CardAsk | null }): boolean {
   return !!c.ask && c.ask.state !== AskState.Closed
 }
@@ -154,6 +171,8 @@ function summary(c: CardDetail): CardSummary {
     watching: c.watching,
     holder: c.holder,
     updatedAt: c.updatedAt,
+    returned: c.returned,
+    stale: c.stale,
     ask: c.ask,
   })
 }

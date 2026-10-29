@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import { AgentRef, CardAsk } from "../../bindings/github.com/StephenSHorton/irori/models"
 import { TaskState } from "../../bindings/github.com/StephenSHorton/irori/internal/coord/models"
-import { askLine, busy, cardFromHash, cardHash, openAsk, workLabel } from "./cards"
+import { askLine, busy, cardFromHash, cardHash, holderLineShows, Holding, nobodyOn, openAsk, workLabel } from "./cards"
 
 const agent = (status: string, more: Partial<AgentRef> = {}) =>
   new AgentRef({ key: "d/s", name: "a", status, live: status !== "gone", where: "This PC", ...more })
@@ -83,5 +83,20 @@ describe("asks", () => {
     expect(openAsk({ ask: ask({ state: "closed", outcome: { kind: "none", note: "x" } }) })).toBe(false)
     expect(openAsk({ ask: null })).toBe(false)
     expect(openAsk({})).toBe(false)
+  })
+})
+
+describe("gone holders (card #16)", () => {
+  test("a card with steps shows its holder line unless someone is busy on it", () => {
+    expect(holderLineShows({ holder: { state: Holding.HoldActive } })).toBe(false)
+    expect(holderLineShows({ holder: { state: Holding.HoldPerson } })).toBe(false)
+    for (const s of [Holding.HoldIdle, Holding.HoldGone, Holding.HoldOffline, Holding.HoldNobody, Holding.HoldWaiting])
+      expect(holderLineShows({ holder: { state: s } })).toBe(true)
+  })
+  test("nobody is on a card whose holder went away or was taken off", () => {
+    expect(nobodyOn({ holder: { state: Holding.HoldGone } })).toBe(true)
+    expect(nobodyOn({ holder: { state: Holding.HoldNobody }, returned: agent("gone") })).toBe(true)
+    expect(nobodyOn({ holder: { state: Holding.HoldNobody } })).toBe(false)
+    expect(nobodyOn({ holder: { state: Holding.HoldIdle } })).toBe(false)
   })
 })

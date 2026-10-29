@@ -64,6 +64,15 @@ Every card in the app (the main window's card, which is also where a notificatio
 - **Nobody around:** the `task.comment` row carries `unheard`, and the thread shows "Nobody has heard this yet" under it until an agent writes on the card. Older peers ignore the field.
 - **The answer** is a `board_comment` by whoever was asked; it replicates like any comment and shows in every device's thread. Across devices the notice is a delivery to the other device's agent, which its host wakes (v0.4 §6.3).
 
+## Holders that go away
+
+*Card #16. Cards sat under "working" for hours, held by a session that had ended: the holder line only showed on cards without steps.*
+
+- **Every card says who is on it.** A card with steps shows the holder line under its bar whenever nobody is busy on it (idle, offline, gone, assigned, or nobody), not only cards without steps. A card whose holder went away carries a "Nobody on it" chip.
+- **A gone holder is taken off.** When a holder of this device has been out of the roster for `HolderGrace` (10 minutes, longer than leases' `GoneGrace` so a restarting session keeps its cards), the sweep writes `task.left {who, by: irori, reason: "gone", person}`. Only the holder's own device does this (v0.4 §6.0); a holder on an offline device keeps its cards (§6.2), and the person is never taken off. Asks have their own take lock and are left to it.
+- **The card comes back to someone.** When nobody is left on it, a working card goes back to open (`task.status submitted`, by Irori), and a blocked one stays blocked. Its creator hears at its next turn (`returned` notice) when that is an agent still around. Otherwise (the person made it, or the creator is gone too) `person` is set on the row, and every desktop device shows a "Nobody is on ..." notification (`returned:<taskId>`), cleared once anyone is on the card. The fold keeps `Task.Returned` until then, and the tile says who went away.
+- **Stale.** A working card with no activity for two hours and nobody busy on it shows a "Stale" chip. It is derived in the cards service, never written.
+
 ## Blocker threads
 
 A blocker is a small thread of its own. The person's answer doesn't resolve it: it goes to the agent that raised it, and the item stays open until someone resolves it. Anyone may resolve (decision 19).
