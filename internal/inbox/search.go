@@ -164,7 +164,7 @@ func (b *inbox) doc(m *Message, updated time.Time, dels []*drec) search.Doc {
 		Readers: b.readers(m, dels),
 	}
 	switch {
-	case m.From.Key != "" && !m.From.IsUser() && !m.From.isSystem():
+	case m.From.Key != "" && !b.isPerson(m.From) && !m.From.isSystem():
 		d.Agent = m.From.Key
 	case len(dels) > 0 && !b.isOwner(dels[0].To):
 		d.Agent = dels[0].To
@@ -274,7 +274,7 @@ func (b *inbox) readers(m *Message, dels []*drec) []string {
 			out = append(out, k)
 		}
 	}
-	if m.From.Key != "" && !m.From.IsUser() && !m.From.isSystem() {
+	if m.From.Key != "" && !b.isPerson(m.From) && !m.From.isSystem() {
 		add(m.From.Key)
 	}
 	for _, d := range dels {
