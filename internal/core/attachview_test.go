@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/coord"
 )
 
@@ -179,5 +180,47 @@ func TestAttachmentRouteFetchesAndReportsAnOfflineHolder(t *testing.T) {
 	var off *FileOfflineError
 	if _, _, err := pc.c.FetchCommentFile(context.Background(), second); !errors.As(err, &off) || !strings.Contains(off.On, label) {
 		t.Fatalf("fetch with the mac away = %v", err)
+	}
+}
+
+// The same bytes on two comments answer with the earliest comment's name
+// every time; the route serves GET only; a file over MaxPreview is
+// refused without a fetch.
+func TestAttachmentRouteStableNameAndPreviewCap(t *testing.T) {
+	h := newHCore(t, nil, "pc", "aaaaaaaa-1111-4111-8111-00000000000a")
+	ctx := context.Background()
+	data := []byte("same bytes\n")
+	sha := commentFile(t, h, "first.txt", data)
+	if again := commentFile(t, h, "second.hta", data); again != sha {
+		t.Fatalf("hashes %s and %s", sha, again)
+	}
+	for range 50 {
+		if ref, err := h.c.CommentFile(sha); err != nil || ref.Name != "first.txt" {
+			t.Fatalf("comment file = %+v, %v", ref, err)
+		}
+	}
+	if rec := getRoute(h, sha); !strings.Contains(rec.Header().Get("Content-Disposition"), "first.txt") {
+		t.Fatalf("route disposition = %q", rec.Header().Get("Content-Disposition"))
+	}
+
+	rec := httptest.NewRecorder()
+	h.c.AttachmentHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodHead, AttachmentRoute+sha, nil))
+	if rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Allow") != "GET" {
+		t.Fatalf("HEAD = %d %v", rec.Code, rec.Header())
+	}
+
+	// A big file on another device: refused before anything is asked for.
+	tk, err := h.c.Coord().CreateTask(ctx, h.agent(), coord.NewTask{Title: "big"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	big := blob.FileRef{SHA256: strings.Repeat("cd", 32), Name: "huge.png", Size: MaxPreview + 1, Mime: "image/png",
+		Device: "bbbbbbbb-2222-4222-8222-00000000000b"}
+	if _, _, err := h.c.Coord().AddCommentWith(ctx, h.agent(), tk.ID, "big", false, []blob.FileRef{big}); err != nil {
+		t.Fatal(err)
+	}
+	rec = getRoute(h, big.SHA256)
+	if rec.Code != http.StatusRequestEntityTooLarge || !strings.Contains(rec.Body.String(), "save it") {
+		t.Fatalf("big = %d %s", rec.Code, rec.Body)
 	}
 }

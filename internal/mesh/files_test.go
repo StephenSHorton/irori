@@ -171,3 +171,31 @@ func TestAFetchResumesAndOnlyOfferedFilesAreServed(t *testing.T) {
 		t.Fatalf("a wrong length was kept: %v", err)
 	}
 }
+
+// A fetch waiting on another fetch of the same file gives up at its own
+// deadline (a stalled peer must not hold the window, Save and Open past
+// theirs), and the turn comes back once the first is done.
+func TestAFetchWaitingItsTurnHonoursItsDeadline(t *testing.T) {
+	net := NewFakeNet()
+	pc, mac, nd := trio(t, net)
+	ref, data := pc.attachFile("shot.png", 4096)
+	eventually(t, "the offer replicates", converged(pc, mac, nd))
+
+	unlock, err := mac.node.lockFetch(context.Background(), ref.SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := mac.node.FetchFile(ctx, ref); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("fetch behind a held turn = %v", err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("waited %v past a 50ms deadline", d)
+	}
+	unlock()
+	if _, err := mac.node.FetchFile(context.Background(), ref); err != nil || !bytes.Equal(mac.stored(ref), data) {
+		t.Fatalf("fetch after the turn came back = %v", err)
+	}
+}

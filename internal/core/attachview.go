@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	"os"
@@ -30,6 +31,19 @@ const AttachmentRoute = "/irori/attachment/"
 // the file's sniffed bytes (never its name). Everything else is a
 // download.
 var InlineImages = []string{"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+// MaxPreview caps the files the route serves: a bigger one is refused
+// before any fetch (the webview holds a whole answer in memory, and the
+// page copies it again), so it is saved or opened instead.
+const MaxPreview = 32 << 20
+
+// FetchTimeout bounds one fetch from another device for the window: a
+// route request (whose context the webview never cancels) or a binding
+// call.
+const FetchTimeout = 2 * time.Minute
+
+// errTooBigToPreview: the route doesn't serve a file over MaxPreview.
+var errTooBigToPreview = fmt.Errorf("the file is too big to preview here (over %d MB); save it or open it instead", MaxPreview>>20)
 
 // FileOfflineError: the file isn't on this device and no device that
 // holds it is connected. On names those devices.
@@ -88,32 +102,61 @@ func (c *Core) FetchCommentFile(ctx context.Context, sha string) (ref blob.FileR
 	if ref, err = c.CommentFile(sha); err != nil {
 		return blob.FileRef{}, "", err
 	}
-	if from, err = c.mesh.FetchFile(ctx, ref); err != nil {
-		return blob.FileRef{}, "", c.fileOffline(err, ref)
+	if from, err = c.fetchRef(ctx, ref); err != nil {
+		return blob.FileRef{}, "", err
 	}
 	return ref, from, nil
+}
+
+// fetchRef is mesh.FetchFile with the offline error naming the holders.
+func (c *Core) fetchRef(ctx context.Context, ref blob.FileRef) (string, error) {
+	from, err := c.mesh.FetchFile(ctx, ref)
+	if err != nil {
+		return "", c.fileOffline(err, ref)
+	}
+	return from, nil
 }
 
 // OpenCommentFile is FetchCommentFile, then the stored file opened for
 // reading. The caller closes it.
 func (c *Core) OpenCommentFile(ctx context.Context, sha string) (blob.FileRef, *os.File, error) {
-	ref, _, err := c.FetchCommentFile(ctx, sha)
+	ref, err := c.CommentFile(sha)
 	if err != nil {
 		return blob.FileRef{}, nil, err
 	}
-	f, err := c.files.Open(ref.SHA256)
+	f, err := c.OpenFileRef(ctx, ref)
 	if err != nil {
 		return blob.FileRef{}, nil, err
 	}
 	return ref, f, nil
 }
 
+// OpenFileRef fetches a looked-up ref's file (from CommentFile) if it
+// isn't here and opens the stored copy for reading. The caller closes it.
+func (c *Core) OpenFileRef(ctx context.Context, ref blob.FileRef) (*os.File, error) {
+	if _, err := c.fetchRef(ctx, ref); err != nil {
+		return nil, err
+	}
+	return c.files.Open(ref.SHA256)
+}
+
 // SaveCommentFile writes a comment's file into dir under its safe name,
 // fetching it first if it isn't here. An existing file is never
 // overwritten: the name gets " (2)", " (3)" ... unless that file already
 // holds these bytes, which is then the answer. dir must be absolute and
-// outside the data dir.
+// outside the data dir. The copy is marked as from elsewhere (Mark of the
+// Web on Windows, quarantine on macOS).
 func (c *Core) SaveCommentFile(ctx context.Context, sha, dir string) (string, error) {
+	ref, err := c.CommentFile(sha)
+	if err != nil {
+		return "", err
+	}
+	return c.SaveFileRef(ctx, ref, dir)
+}
+
+// SaveFileRef is SaveCommentFile for a ref already looked up (from
+// CommentFile), so the name written is the one the caller checked.
+func (c *Core) SaveFileRef(ctx context.Context, ref blob.FileRef, dir string) (string, error) {
 	if !filepath.IsAbs(dir) {
 		return "", fmt.Errorf("%q is not an absolute folder", dir)
 	}
@@ -128,8 +171,7 @@ func (c *Core) SaveCommentFile(ctx context.Context, sha, dir string) (string, er
 	if dir = filepath.Clean(dir); blob.Within(dir, data) || blob.Within(resolveExisting(dir), realData) {
 		return "", fmt.Errorf("%s is inside Irori's data dir", dir)
 	}
-	ref, _, err := c.FetchCommentFile(ctx, sha)
-	if err != nil {
+	if _, err := c.fetchRef(ctx, ref); err != nil {
 		return "", err
 	}
 	dst := freeName(filepath.Join(dir, blob.SafeName(ref.Name, ref.SHA256)), ref.SHA256)
@@ -145,6 +187,9 @@ func (c *Core) SaveCommentFile(ctx context.Context, sha, dir string) (string, er
 		if err != nil {
 			return "", err
 		}
+	}
+	if err := blob.MarkDownloaded(dst); err != nil {
+		log.Printf("attachments: mark %s as from elsewhere: %v", dst, err)
 	}
 	return dst, nil
 }
@@ -173,20 +218,21 @@ func InlineImage(sniffed string) bool {
 	return false
 }
 
-// AttachmentHandler serves AttachmentRoute + "<sha256>" (GET and HEAD) for
+// AttachmentHandler serves AttachmentRoute + "<sha256>" (GET only) for
 // the window: the file of a Board comment, fetched from another device
-// first when it isn't here. A PNG, JPEG, GIF or WebP (by its bytes) is
-// served inline with that type; anything else as an
+// first when it isn't here, within FetchTimeout. A PNG, JPEG, GIF or WebP
+// (by its bytes) is served inline with that type; anything else as an
 // application/octet-stream download. Every answer is nosniff and
-// sandboxed. 404 for a hash no comment carries, 503 with the reason as
-// plain text when the devices that hold it are offline.
+// sandboxed. 404 for a hash no comment carries, 413 for a file over
+// MaxPreview (never fetched), 503 with the reason as plain text when the
+// devices that hold it are offline, 504 when the fetch ran out of time.
 func (c *Core) AttachmentHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			h.Set("Allow", "GET, HEAD")
+		if r.Method != http.MethodGet {
+			h.Set("Allow", "GET")
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
@@ -195,7 +241,18 @@ func (c *Core) AttachmentHandler() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		ref, f, err := c.OpenCommentFile(r.Context(), sha)
+		// The webview never cancels a request's context, so the fetch gets
+		// its own deadline.
+		ctx, cancel := context.WithTimeout(r.Context(), FetchTimeout)
+		defer cancel()
+		ref, err := c.CommentFile(sha)
+		var f *os.File
+		if err == nil && ref.Size > MaxPreview {
+			err = errTooBigToPreview
+		}
+		if err == nil {
+			f, err = c.OpenFileRef(ctx, ref)
+		}
 		if err != nil {
 			h.Set("Cache-Control", "no-store")
 			var off *FileOfflineError
@@ -204,8 +261,10 @@ func (c *Core) AttachmentHandler() http.Handler {
 				http.Error(w, ErrNoAttachment.Error(), http.StatusNotFound)
 			case errors.As(err, &off):
 				http.Error(w, off.Error(), http.StatusServiceUnavailable)
-			case errors.Is(err, blob.ErrTooLarge):
+			case errors.Is(err, blob.ErrTooLarge), errors.Is(err, errTooBigToPreview):
 				http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+			case errors.Is(err, context.DeadlineExceeded):
+				http.Error(w, "the file took too long to arrive from the device that holds it; try again", http.StatusGatewayTimeout)
 			default:
 				http.Error(w, err.Error(), http.StatusBadGateway)
 			}

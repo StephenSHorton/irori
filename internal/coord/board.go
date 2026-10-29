@@ -259,7 +259,8 @@ func (c *Coord) AddCommentWith(ctx context.Context, by, id, text string, wake bo
 	return c.impl.addComment(ctx, by, id, text, wake, files)
 }
 
-// CommentAttachment finds a file attached to any Board comment. Comments
+// CommentAttachment finds a file attached to any Board comment: the ref on
+// the earliest comment that carries it, so the answer is stable. Comments
 // have no readers, so any viewer may fetch it.
 func (c *Coord) CommentAttachment(sha string) (blob.FileRef, bool) {
 	return c.impl.commentAttachment(sha)

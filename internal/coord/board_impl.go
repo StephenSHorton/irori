@@ -382,17 +382,28 @@ func (c *coord) addComment(ctx context.Context, by, id, text string, wake bool, 
 	return cm, n, nil
 }
 
+// commentAttachment is the ref on the earliest comment that carries sha
+// (by time, then id), so the same bytes on two comments always answer
+// with the same name, size and device.
 func (c *coord) commentAttachment(sha string) (blob.FileRef, bool) {
 	c.mu.Lock()
 	defer c.unlock()
+	var (
+		got   blob.FileRef
+		first *Comment
+	)
 	for _, cm := range c.comments {
+		if first != nil && (cm.At.After(first.At) || cm.At.Equal(first.At) && cm.ID > first.ID) {
+			continue
+		}
 		for _, f := range cm.Attachments {
 			if f.SHA256 == sha {
-				return f, true
+				got, first = f, cm
+				break
 			}
 		}
 	}
-	return blob.FileRef{}, false
+	return got, first != nil
 }
 
 func (c *coord) listComments(taskID string) []Comment {
