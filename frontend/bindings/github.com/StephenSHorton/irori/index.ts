@@ -24,6 +24,7 @@ export {
     CardActivity,
     CardBlocker,
     CardDetail,
+    CardMessage,
     CardOption,
     CardPR,
     CardProgress,

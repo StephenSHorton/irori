@@ -239,7 +239,7 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 				text += " (show comment:" + cm.ID + " for all of it)"
 			}
 			if cm.Held {
-				text = "(held by the wake policy; text not on the card)"
+				text = "(not let through the wake policy yet; text not on the card)"
 			}
 			if n := len(cm.Attachments); n > 0 {
 				text += fmt.Sprintf(" [%d attached: show comment:%s]", n, cm.ID)

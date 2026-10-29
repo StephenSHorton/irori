@@ -241,6 +241,7 @@ func (b *inbox) hostHold(ctx context.Context, d *drec) error {
 	h := b.hold(m, d.To, cards)
 	if h == "" {
 		b.touch(d.To)
+		b.passed(d)
 		return nil
 	}
 	return b.putDelivery(ctx, placed(d.row(), h), "irori")

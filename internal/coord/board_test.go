@@ -604,6 +604,22 @@ func TestRecordMessage(t *testing.T) {
 	if err != nil || held.Text != "" || !held.Held {
 		t.Fatalf("held %+v %v", held, err)
 	}
+	// Let through later: a fill row (as Irori) brings the text, once.
+	n := rows()
+	f := MessageEntry{TaskID: task.ID, MsgID: "msg_3", From: alice, To: bob, Text: "secret", Fill: true, Writer: "irori"}
+	for range 2 {
+		got, err := e.c.RecordMessage(ctx, f)
+		if err != nil || got.Text != "secret" || got.Held || got.HLC != held.HLC || rows() != n+1 {
+			t.Fatalf("fill: %+v %v, %d rows", got, err, rows())
+		}
+	}
+	if ev := e.rows(KindTaskComment)[n]; ev.Actor != "irori" {
+		t.Fatalf("fill row actor %q", ev.Actor)
+	}
+	// A message already on the card with its text takes no fill.
+	if _, err := e.c.RecordMessage(ctx, MessageEntry{TaskID: task.ID, MsgID: "msg_1", From: alice, To: bob, Text: "x", Fill: true, Writer: "irori"}); err != nil || rows() != n+1 {
+		t.Fatalf("fill of a shown message: %v, %d rows", err, rows())
+	}
 	// Done cards take them; unknown ones don't.
 	must[Task](t)(e.c.SetTaskState(ctx, alice, task.ID, Completed, ""))
 	if _, err := e.c.RecordMessage(ctx, MessageEntry{TaskID: task.ID, MsgID: "msg_4", From: bob, To: alice, Text: "late"}); err != nil {
@@ -623,6 +639,12 @@ func TestRecordMessage(t *testing.T) {
 	if _, err := e.c.RecordMessage(ctx, MessageEntry{TaskID: task.ID, MsgID: "msg_6", From: "dev-b/zed", To: alice, Text: "x", Gone: true, Writer: "irori"}); err != nil {
 		t.Fatal(err)
 	}
+	// So may its fill row; not when neither party is on this device.
+	if _, err := e.c.RecordMessage(ctx, MessageEntry{TaskID: task.ID, MsgID: "msg_7", From: "dev-b/zed", To: alice, Text: "x", Fill: true, Writer: "irori"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = e.c.RecordMessage(ctx, MessageEntry{TaskID: task.ID, MsgID: "msg_8", From: "dev-b/zed", To: "dev-c/yan", Text: "x", Fill: true, Writer: "irori"})
+	wantErr(t, err, ErrNotAllowed)
 }
 
 func TestCommentNoHoldersTellsCreator(t *testing.T) {

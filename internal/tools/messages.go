@@ -68,7 +68,7 @@ func (s *set) send(ctx context.Context, c Caller, raw json.RawMessage) string {
 	}
 	out := "Sent message " + m.ID + attachedLine(files) + " " + s.outcome(d)
 	if ref != "" {
-		out += s.recorded(ctx, m, cmp.Or(d.To, addr.Value), d.State == inbox.Held)
+		out += s.recorded(ctx, m, cmp.Or(d.To, addr.Value), HeldOnCard(s.b.Inbox(), d))
 	}
 	return out
 }
@@ -108,7 +108,7 @@ func (s *set) reply(ctx context.Context, c Caller, raw json.RawMessage) string {
 	// A reply keeps the Ref of the message it answers, so a reply about a
 	// card goes on its thread too.
 	return "Replied to delivery " + oneLine(id, 80) + " (now answered) with message " + m.ID + " " + s.outcome(d) +
-		s.recorded(ctx, m, d.To, d.State == inbox.Held)
+		s.recorded(ctx, m, d.To, HeldOnCard(s.b.Inbox(), d))
 }
 
 // outcome says where a just-sent message went and what happens next.

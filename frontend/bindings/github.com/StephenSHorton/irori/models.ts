@@ -533,6 +533,44 @@ export class CardDetail {
 }
 
 /**
+ * CardMessage is a message on a card's thread in full, for the person: the
+ * thread shows its text cut past coord.MaxComment, none until the wake
+ * policy let it through, and its files only as a count.
+ */
+export class CardMessage {
+    "text": string;
+
+    /**
+     * one line per attachment: name, size, type, hash
+     */
+    "files": string[];
+
+    /** Creates a new CardMessage instance. */
+    constructor($$source: Partial<CardMessage> = {}) {
+        if (!("text" in $$source)) {
+            this["text"] = "";
+        }
+        if (!("files" in $$source)) {
+            this["files"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CardMessage instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CardMessage {
+        const $$createField1_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("files" in $$parsedSource) {
+            $$parsedSource["files"] = $$createField1_0($$parsedSource["files"]);
+        }
+        return new CardMessage($$parsedSource as Partial<CardMessage>);
+    }
+}
+
+/**
  * CardOption is one recommended answer.
  */
 export class CardOption {
@@ -862,8 +900,9 @@ export class CardThreadItem {
 
     /**
      * Gone: the recipient had ended, so Irori left the message on the card.
-     * Held: the wake policy held it, so its text isn't on the card. Files
-     * counts the message's attachments, which stay on the message.
+     * Held: the wake policy hasn't let it through yet, so its text isn't on
+     * the card. Files counts the message's attachments, which stay on the
+     * message. Message opens a message in full.
      */
     "gone"?: boolean;
     "held"?: boolean;

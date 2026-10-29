@@ -439,9 +439,10 @@ export class Comment {
     /**
      * A mirrored message (RecordMessage) has MsgID, its inbox message id
      * (also its ID), and To, who it was sent to. Gone: the recipient had
-     * ended and Irori left it on the card. Held: the wake policy held its
-     * first delivery, so Text is empty. Files counts the message's
-     * attachments; they stay on the message.
+     * ended and Irori left it on the card. Held: it hasn't been let through
+     * the wake policy yet (held, or its recipient's device hasn't decided),
+     * so Text is empty until a fill row brings it. Files counts the
+     * message's attachments; they stay on the message.
      */
     "to"?: string;
     "msgId"?: string;

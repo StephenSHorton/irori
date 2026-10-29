@@ -116,6 +116,17 @@ export function Create($in: $models.NewCard): $CancellablePromise<$models.TaskRe
 }
 
 /**
+ * Message opens a message on a card's thread in full: its whole text and
+ * its files, which stay on the message. Only a message that thread carries
+ * opens, so this reads no other message.
+ */
+export function Message(taskID: string, msgID: string): $CancellablePromise<$models.CardMessage> {
+    return $Call.ByID(526707092, taskID, msgID).then(($result: any) => {
+        return $$createType8($result);
+    });
+}
+
+/**
  * ReleaseLease drops the lease on resource, whoever holds it.
  */
 export function ReleaseLease(resource: string): $CancellablePromise<void> {
@@ -146,7 +157,7 @@ export function SetDone(id: string, canceled: boolean): $CancellablePromise<coor
  */
 export function Task(id: string): $CancellablePromise<$models.TaskDetail> {
     return $Call.ByID(3092636668, id).then(($result: any) => {
-        return $$createType8($result);
+        return $$createType9($result);
     });
 }
 
@@ -169,4 +180,5 @@ const $$createType4 = $models.CardDetail.createFrom;
 const $$createType5 = $models.CardSummary.createFrom;
 const $$createType6 = $Create.Array($$createType5);
 const $$createType7 = $models.CommentResult.createFrom;
-const $$createType8 = $models.TaskDetail.createFrom;
+const $$createType8 = $models.CardMessage.createFrom;
+const $$createType9 = $models.TaskDetail.createFrom;

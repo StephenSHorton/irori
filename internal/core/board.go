@@ -30,3 +30,10 @@ func (c *Core) RouteNotices(ctx context.Context, from inbox.Sender, ns ...coord.
 func (c *Core) recordGone(ctx context.Context, m inbox.Message, to string) (string, error) {
 	return tools.RecordGone(ctx, c.coord, m, to)
 }
+
+// recordPassed is inbox.Options.OnPassed: this device let a message about
+// a card through its wake policy, so its text goes on the card's entry,
+// recorded held until now (tools.RecordPassed).
+func (c *Core) recordPassed(ctx context.Context, m inbox.Message, to string) error {
+	return tools.RecordPassed(ctx, c.coord, m, to)
+}

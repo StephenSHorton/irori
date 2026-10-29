@@ -13,6 +13,7 @@ import (
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/identity"
+	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/ledger"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/roster"
@@ -159,12 +160,21 @@ type CardThreadItem struct {
 	Text      string `json:"text"`
 	BlockerID string `json:"blockerId,omitempty"` // the item a raise line raised
 	// Gone: the recipient had ended, so Irori left the message on the card.
-	// Held: the wake policy held it, so its text isn't on the card. Files
-	// counts the message's attachments, which stay on the message.
+	// Held: the wake policy hasn't let it through yet, so its text isn't on
+	// the card. Files counts the message's attachments, which stay on the
+	// message. Message opens a message in full.
 	Gone        bool           `json:"gone,omitempty"`
 	Held        bool           `json:"held,omitempty"`
 	Files       int            `json:"files,omitempty"`
 	Attachments []blob.FileRef `json:"attachments,omitempty"` // a comment's files
+}
+
+// CardMessage is a message on a card's thread in full, for the person: the
+// thread shows its text cut past coord.MaxComment, none until the wake
+// policy let it through, and its files only as a count.
+type CardMessage struct {
+	Text  string   `json:"text"`
+	Files []string `json:"files"` // one line per attachment: name, size, type, hash
 }
 
 // CardDetail is one card opened beside the grid.
@@ -402,6 +412,29 @@ func (b *BoardService) Card(id string) (CardDetail, error) {
 		d.Recent = append(d.Recent, CardActivity{At: a.At, Who: who, Text: who.Name + " " + a.What})
 	}
 	return d, nil
+}
+
+// Message opens a message on a card's thread in full: its whole text and
+// its files, which stay on the message. Only a message that thread carries
+// opens, so this reads no other message.
+func (b *BoardService) Message(taskID, msgID string) (CardMessage, error) {
+	taskID, msgID = strings.TrimSpace(taskID), strings.TrimSpace(msgID)
+	cm, ok := b.coord.GetComment(msgID)
+	if !ok || cm.MsgID == "" || cm.TaskID != taskID {
+		return CardMessage{}, fmt.Errorf("%w: no message %q on task %q", coord.ErrNotFound, msgID, taskID)
+	}
+	var m inbox.Message
+	if b.message != nil {
+		m, ok = b.message(cm.MsgID)
+	}
+	if !ok {
+		return CardMessage{}, fmt.Errorf("%w: message %q isn't on this device yet", coord.ErrNotFound, msgID)
+	}
+	out := CardMessage{Text: m.Text, Files: []string{}}
+	for _, f := range m.Attachments {
+		out.Files = append(out.Files, f.Describe())
+	}
+	return out, nil
 }
 
 // threadPos is an entry's place in the log, (HLC, device, seq), the order

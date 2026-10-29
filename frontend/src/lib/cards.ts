@@ -10,6 +10,7 @@ import { Browser, Events } from "@wailsio/runtime"
 import { BoardService } from "../../bindings/github.com/StephenSHorton/irori"
 import {
   AnswerResult,
+  CardMessage,
   CardResolution,
   CardSummary,
   CardThreadItem,
@@ -35,6 +36,7 @@ export type {
   CardActivity,
   CardBlocker,
   CardDetail,
+  CardMessage,
   CardOption,
   CardPR,
   CardSummary,
@@ -130,6 +132,26 @@ function sampleAnswer(
   })
 }
 
+// sampleMessage is BoardService.Message on the sample: a held message's
+// text and a message's files are made up, as the sample has no inbox.
+function sampleMessage(id: string, msgId: string): CardMessage {
+  const it = sampleCard(id).thread.find(
+    (x) => x.id === msgId && x.kind === "message"
+  )
+  if (!it)
+    throw new Error(`coord: no such task or lease: no message "${msgId}"`)
+  return new CardMessage({
+    text:
+      it.text ||
+      "Can you check the save format before I bump the version? The old saves need a migration.",
+    files: Array.from(
+      { length: it.files ?? 0 },
+      (_, i) =>
+        `capture-${i + 1}.mp4 (2.1 MB, video/mp4) sha256=${"0".repeat(64)}`
+    ),
+  })
+}
+
 // sampleThreadLine is c's thread with the person's line added at the end.
 function sampleThreadLine(
   c: CardDetail,
@@ -198,6 +220,13 @@ export const cards = {
   ): Promise<AnswerResult> {
     if (inWails()) return BoardService.Answer(id, blockerId, option, text, wake)
     return sampleAnswer(id, blockerId, option, text, wake)
+  },
+
+  // message opens a message on card id's thread in full: the text the
+  // card cut or doesn't carry yet, and its files.
+  async message(id: string, msgId: string): Promise<CardMessage> {
+    if (inWails()) return BoardService.Message(id, msgId)
+    return sampleMessage(id, msgId)
   },
 
   // openURL opens a PR's page in the person's browser.

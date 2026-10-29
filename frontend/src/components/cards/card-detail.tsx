@@ -214,6 +214,7 @@ export function CardPanel({
 
       <Section title="Thread" last>
         <Thread
+          cardId={detail.id}
           items={detail.thread}
           now={now}
           earlier={detail.threadEarlier}

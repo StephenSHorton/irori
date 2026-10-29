@@ -4,7 +4,7 @@ import {
   AgentRef,
   CardThreadItem,
 } from "../../bindings/github.com/StephenSHorton/irori/models"
-import { threadLabel, ThreadPage, visible } from "./thread"
+import { opensInFull, threadLabel, ThreadPage, visible } from "./thread"
 
 const otter = new AgentRef({
   key: "dev/otter-session",
@@ -73,5 +73,40 @@ describe("visible", () => {
       ThreadPage + 5,
       ThreadPage + 6,
     ])
+  })
+})
+
+describe("opensInFull", () => {
+  const msg = (over: Partial<CardThreadItem>) =>
+    new CardThreadItem({
+      id: "msg_1",
+      kind: "message",
+      who: otter,
+      text: "hi",
+      ...over,
+    })
+
+  test("a whole message without files has nothing more", () => {
+    expect(opensInFull(msg({}))).toBe(false)
+  })
+
+  test("cut, held or with files, it opens in full", () => {
+    expect(opensInFull(msg({ text: "xxx… (full: msg:msg_1)" }))).toBe(true)
+    expect(opensInFull(msg({ text: "", held: true }))).toBe(true)
+    expect(opensInFull(msg({ files: 2 }))).toBe(true)
+  })
+
+  test("a comment never does, nor another message's pointer", () => {
+    expect(
+      opensInFull(
+        new CardThreadItem({
+          id: "c1",
+          kind: "comment",
+          who: otter,
+          held: true,
+        })
+      )
+    ).toBe(false)
+    expect(opensInFull(msg({ text: "see (full: msg:msg_2)" }))).toBe(false)
   })
 })

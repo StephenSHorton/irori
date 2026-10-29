@@ -537,15 +537,43 @@ func TestSweepGoneToPerson(t *testing.T) {
 		h, g := newGoneHarness(t)
 		g.err = ErrNoCard
 		d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "about a card", SendOptions{Mode: ModeWake, Ref: "comment:C1"})
+		mine := h.sendWith(person(), to("alpha"), "the person's own", SendOptions{Ref: "task:T9"})
 		h.endA()
-		if len(g.calls) != 1 {
+		if len(g.calls) != 2 {
 			t.Fatalf("hook calls %d", len(g.calls))
 		}
+		// It may not have arrived from another device yet: both wait.
+		h.wantState(d.ID, Queued)
+		h.wantState(mine.ID, Queued)
+		h.clk.advance(NoCardGrace)
+		h.sweep()
+		h.wantState(d.ID, Queued)
+		// Missing past the grace: the agent's goes to the person; the
+		// person's own stays, as with no card.
+		h.clk.advance(time.Minute)
+		h.sweep()
 		if old := h.wantState(d.ID, Moved); old.MovedTo != user || old.Note != NoteRecipientGone {
 			t.Fatalf("old %+v", old)
 		}
 		if got := h.ib.For(user, false, 0); len(got) != 1 || !strings.HasPrefix(got[0].For, "recipient gone: ") {
 			t.Fatalf("the person's %+v", got)
+		}
+		h.wantState(mine.ID, Queued)
+	})
+	t.Run("the card arrives after a miss", func(t *testing.T) {
+		h, g := newGoneHarness(t)
+		g.err = ErrNoCard
+		d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "about T1", SendOptions{Mode: ModeWake, Ref: "task:T1"})
+		h.endA()
+		h.wantState(d.ID, Queued)
+		g.err = nil
+		h.clk.advance(time.Minute)
+		h.sweep()
+		if got := h.wantState(d.ID, Skipped); got.Note != "recipient gone; on task:T1" {
+			t.Fatalf("note %q", got.Note)
+		}
+		if len(h.ib.For(user, false, 0)) != 0 {
+			t.Fatal("moved to the person after a transient miss")
 		}
 	})
 	t.Run("another error leaves it for the next sweep", func(t *testing.T) {
@@ -568,9 +596,108 @@ func TestSweepGoneToPerson(t *testing.T) {
 		h := newHarness(t)
 		h.abc()
 		d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "about T1", SendOptions{Mode: ModeWake, Ref: "task:T1"})
+		mine := h.sendWith(person(), to("alpha"), "the person's own", SendOptions{Ref: "task:T1"})
 		h.endA()
 		if old := h.wantState(d.ID, Moved); old.MovedTo != user {
 			t.Fatalf("old %+v", old)
+		}
+		h.wantState(mine.ID, Queued)
+	})
+}
+
+// passHook is an Options.OnPassed that records what it was given, checking
+// it runs with the inbox lock released.
+type passHook struct {
+	t     *testing.T
+	h     *harness
+	calls []Message
+	tos   []string
+	err   error
+}
+
+func (p *passHook) hook(_ context.Context, m Message, to string) error {
+	if !p.h.ib.impl.mu.TryLock() {
+		p.t.Error("hook called with the inbox lock held")
+	} else {
+		p.h.ib.impl.mu.Unlock()
+	}
+	p.calls, p.tos = append(p.calls, m), append(p.tos, to)
+	return p.err
+}
+
+func newPassHarness(t *testing.T) (*harness, *passHook) {
+	h := newHarness(t)
+	p := &passHook{t: t, h: h}
+	h.onPassed = p.hook
+	h.reopen()
+	h.abc()
+	return h, p
+}
+
+// A message about a card that was held goes on its card held; once this
+// device lets it through (the person releases it, or unpauses), its text
+// goes on the card. A message about no card, or one never held, doesn't.
+func TestPassedFillsTheCard(t *testing.T) {
+	t.Run("released", func(t *testing.T) {
+		h, p := newPassHarness(t)
+		if err := h.ib.SetPolicy(bg, Policy{Block: []string{keyC}}, user); err != nil {
+			t.Fatal(err)
+		}
+		d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "about T1", SendOptions{Mode: ModeWake, Ref: "task:T1"})
+		plain := h.sendWith(claude(keyC, "gamma"), to("alpha"), "no card", SendOptions{Mode: ModeWake})
+		shown := h.sendWith(claude(keyA, "alpha"), to("beta"), "never held", SendOptions{Mode: ModeWake, Ref: "task:T1"})
+		h.wantState(d.ID, Held)
+		h.sweep()
+		if len(p.calls) != 0 {
+			t.Fatalf("filled while held: %+v", p.calls)
+		}
+		for _, id := range []string{d.ID, plain.ID} {
+			if err := h.ib.Release(bg, id, user); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if len(p.calls) != 1 || p.calls[0].ID != d.MessageID || p.tos[0] != keyA {
+			t.Fatalf("calls %+v to %v", p.calls, p.tos)
+		}
+		h.sweep()
+		if len(p.calls) != 1 || p.calls[0].ID == shown.MessageID {
+			t.Fatalf("filled again: %+v", p.calls)
+		}
+	})
+	t.Run("unpaused", func(t *testing.T) {
+		h, p := newPassHarness(t)
+		if err := h.ib.SetPolicy(bg, Policy{Paused: true}, user); err != nil {
+			t.Fatal(err)
+		}
+		d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "about T1", SendOptions{Mode: ModeWake, Ref: "comment:C1"})
+		h.wantState(d.ID, Held)
+		if err := h.ib.SetPolicy(bg, Policy{}, user); err != nil {
+			t.Fatal(err)
+		}
+		if len(p.calls) != 1 || p.calls[0].ID != d.MessageID {
+			t.Fatalf("calls %+v", p.calls)
+		}
+	})
+	t.Run("a failure is tried again for the grace", func(t *testing.T) {
+		h, p := newPassHarness(t)
+		p.err = ErrNoCard
+		if err := h.ib.SetPolicy(bg, Policy{Block: []string{keyC}}, user); err != nil {
+			t.Fatal(err)
+		}
+		d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "about T1", SendOptions{Mode: ModeWake, Ref: "task:T1"})
+		if err := h.ib.Release(bg, d.ID, user); err != nil {
+			t.Fatal(err)
+		}
+		h.clk.advance(NoCardGrace)
+		h.sweep()
+		if len(p.calls) != 2 {
+			t.Fatalf("calls %d, want a retry", len(p.calls))
+		}
+		h.clk.advance(time.Minute)
+		h.sweep() // past the grace: the last try
+		h.sweep()
+		if len(p.calls) != 3 {
+			t.Fatalf("calls %d, want it dropped after the grace", len(p.calls))
 		}
 	})
 }

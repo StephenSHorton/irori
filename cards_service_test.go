@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -10,9 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/irori/internal/blob"
 	"github.com/StephenSHorton/irori/internal/coord"
 	"github.com/StephenSHorton/irori/internal/hlc"
 	"github.com/StephenSHorton/irori/internal/identity"
+	"github.com/StephenSHorton/irori/internal/inbox"
 	"github.com/StephenSHorton/irori/internal/ledger"
 	"github.com/StephenSHorton/irori/internal/presence"
 	"github.com/StephenSHorton/irori/internal/store"
@@ -412,6 +415,52 @@ func TestCardThread(t *testing.T) {
 	}
 	if len(d.Recent) != recentLines {
 		t.Fatalf("recent %d", len(d.Recent))
+	}
+}
+
+// A message on a card's thread opens in full for the person: the whole
+// text the card cut or left off, and its files. Only that card's messages
+// open.
+func TestCardMessage(t *testing.T) {
+	ctx := context.Background()
+	b, c, _ := cardsBoard(t)
+	tk := heldTask(t, c)
+	other := heldTask(t, c)
+	long := strings.Repeat("y", coord.MaxComment+100)
+	msgs := map[string]inbox.Message{
+		"msg_1": {ID: "msg_1", Text: long, Attachments: []blob.FileRef{{Name: "plan.md", Size: 12, SHA256: strings.Repeat("a", 64)}}},
+		"msg_2": {ID: "msg_2", Text: "held words"},
+	}
+	b.message = func(id string) (inbox.Message, bool) { m, ok := msgs[id]; return m, ok }
+	for _, e := range []coord.MessageEntry{
+		{TaskID: tk.ID, MsgID: "msg_1", From: agentA, To: agentB, Text: long, Files: 1},
+		{TaskID: tk.ID, MsgID: "msg_2", From: agentB, To: agentA, Text: "held words", Held: true},
+		{TaskID: tk.ID, MsgID: "msg_9", From: agentB, To: agentA, Text: "not here"},
+	} {
+		if _, err := c.RecordMessage(ctx, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cm, _, err := c.AddComment(ctx, agentA, tk.ID, "a comment", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := b.Message(tk.ID, "msg_1")
+	if err != nil || got.Text != long || len(got.Files) != 1 || !strings.HasPrefix(got.Files[0], "plan.md (") {
+		t.Fatalf("long: %+v %v", got, err)
+	}
+	if got, err := b.Message(tk.ID, " msg_2 "); err != nil || got.Text != "held words" || got.Files == nil {
+		t.Fatalf("held: %+v %v", got, err)
+	}
+	for _, tc := range []struct{ task, id string }{
+		{other.ID, "msg_1"}, // another card's message
+		{tk.ID, cm.ID},      // a plain comment
+		{tk.ID, "msg_404"},  // none
+		{tk.ID, "msg_9"},    // on the card, not in this inbox yet
+	} {
+		if _, err := b.Message(tc.task, tc.id); !errors.Is(err, coord.ErrNotFound) {
+			t.Errorf("%s on %s: %v, want not found", tc.id, tc.task, err)
+		}
 	}
 }
 

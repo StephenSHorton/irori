@@ -2,18 +2,22 @@ import { useState, type ReactNode } from "react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import type { CardThreadItem } from "@/lib/cards"
+import { cards, type CardMessage, type CardThreadItem } from "@/lib/cards"
 import { parseTime, plainBlock, plainLine, relativeTime } from "@/lib/irori"
-import { threadLabel, ThreadKind, visible } from "@/lib/thread"
+import { errorText } from "@/lib/talk"
+import { opensInFull, threadLabel, ThreadKind, visible } from "@/lib/thread"
 import { cn } from "@/lib/utils"
 import { Face } from "./faces"
 
 // Thread is a card's thread, oldest first: comments, messages about the
 // card ("A -> B") and one muted line per thing that happened, each with
 // who wrote it and, once the person has a second device, where. The
-// newest page shows first; "Show earlier" opens the rest. composer renders
-// under the list (the comment box's slot; nothing passes one yet).
+// newest page shows first; "Show earlier" opens the rest. A message the
+// card cut, doesn't carry the text of yet, or that has files opens in full
+// in place (cardId names the card). composer renders under the list (the
+// comment box's slot; nothing passes one yet).
 export function Thread({
+  cardId,
   items,
   now,
   earlier = 0,
@@ -22,6 +26,7 @@ export function Thread({
   compact,
   composer,
 }: {
+  cardId?: string
   items: CardThreadItem[]
   now: Date
   // earlier counts entries older than the ones sent (BoardService.Card
@@ -58,7 +63,9 @@ export function Thread({
         )
       )}
       {shown.length ? (
-        shown.map((it) => <ThreadRow key={it.id} item={it} now={now} />)
+        shown.map((it) => (
+          <ThreadRow key={it.id} cardId={cardId} item={it} now={now} />
+        ))
       ) : (
         <p className="text-muted-foreground">{empty}</p>
       )}
@@ -67,7 +74,18 @@ export function Thread({
   )
 }
 
-function ThreadRow({ item, now }: { item: CardThreadItem; now: Date }) {
+function ThreadRow({
+  cardId,
+  item,
+  now,
+}: {
+  cardId?: string
+  item: CardThreadItem
+  now: Date
+}) {
+  const [full, setFull] = useState<CardMessage | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const at = parseTime(item.at)
   const time = (
     <time
@@ -90,6 +108,18 @@ function ThreadRow({ item, now }: { item: CardThreadItem; now: Date }) {
     )
   const l = threadLabel(item)
   const body = plainBlock(item.text)
+  const open = async () => {
+    if (!cardId || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      setFull(await cards.message(cardId, item.id))
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
     <div className="grid grid-cols-[56px_minmax(0,1fr)] gap-2">
       {time}
@@ -118,9 +148,24 @@ function ThreadRow({ item, now }: { item: CardThreadItem; now: Date }) {
             </Badge>
           ))}
         </div>
-        {item.held ? (
+        {full ? (
+          <>
+            <p className="max-w-[64ch] whitespace-pre-wrap text-ink-2">
+              {plainBlock(full.text)}
+            </p>
+            {full.files.length > 0 && (
+              <ul className="grid gap-0.5 text-[11px] text-muted-foreground">
+                {full.files.map((f, i) => (
+                  <li key={i} className="font-mono break-all">
+                    {plainLine(f)}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        ) : item.held ? (
           <p className="text-muted-foreground">
-            Held by your wake policy, so its text isn't on the card.
+            Not let through the wake policy yet, so its text isn't on the card.
           </p>
         ) : (
           body && (
@@ -129,6 +174,18 @@ function ThreadRow({ item, now }: { item: CardThreadItem; now: Date }) {
             </p>
           )
         )}
+        {!full && cardId && opensInFull(item) && (
+          <Button
+            size="xs"
+            variant="ghost"
+            className="justify-self-start text-muted-foreground"
+            disabled={busy}
+            onClick={() => void open()}
+          >
+            {busy ? "Opening…" : "Show the whole message"}
+          </Button>
+        )}
+        {error && <p className="text-xs text-destructive">{error}</p>}
       </div>
     </div>
   )

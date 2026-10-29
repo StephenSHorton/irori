@@ -91,6 +91,55 @@ func TestGoneMergeEitherOrder(t *testing.T) {
 	}
 }
 
+// A message recorded held (the wake policy held it, or its recipient's
+// device hadn't decided) gets its text from the fill row the recipient's
+// device writes once it lets the message through. Either order folds to
+// the same entry, placed by the sender's row; replay agrees. A fill row
+// from a device that is neither party's is ignored.
+func TestFillMergeEitherOrder(t *testing.T) {
+	const recipient = "dev-b/x"
+	sent, passed := fixedNow.Add(time.Minute), fixedNow.Add(3*time.Minute)
+	primary := taskCommentRow{CommentID: "msg_1", MsgID: "msg_1", By: alice, To: recipient, Held: true, Files: 1, At: sent}
+	fill := taskCommentRow{CommentID: "msg_1", MsgID: "msg_1", By: alice, To: recipient, Text: "hello", Files: 1, Fill: true, At: passed}
+	base := hlcAt(fixedNow.Add(time.Hour))
+	fold := func(fillFirst bool) Comment {
+		t.Helper()
+		e := newEnvOn(t, "dev-c")
+		task := must[Task](t)(e.c.CreateTask(ctx, carol, NewTask{Title: "t"}))
+		p, f := primary, fill
+		p.TaskID, f.TaskID = task.ID, task.ID
+		forged := f
+		forged.Text = "forged"
+		e.remote("dev-z", 1, base+1, "irori", KindTaskComment, forged)
+		putPrimary := func() { e.remote("dev-a", 1, base+10, "agent:"+alice, KindTaskComment, p) }
+		putFill := func() { e.remote("dev-b", 1, base+20, "irori", KindTaskComment, f) }
+		if fillFirst {
+			putFill()
+			putPrimary()
+		} else {
+			putPrimary()
+			putFill()
+		}
+		cs := e.c.Comments(task.ID)
+		if len(cs) != 1 {
+			t.Fatalf("fillFirst=%v: %d entries", fillFirst, len(cs))
+		}
+		if again := e.reopen().Comments(task.ID); !reflect.DeepEqual(again, cs) {
+			t.Fatalf("fillFirst=%v: replay\n%+v\nlive\n%+v", fillFirst, again, cs)
+		}
+		cm := cs[0]
+		cm.TaskID = ""
+		return cm
+	}
+	a, b := fold(false), fold(true)
+	if !reflect.DeepEqual(a, b) {
+		t.Fatalf("orders differ:\n%+v\n%+v", a, b)
+	}
+	if a.Held || a.Text != "hello" || a.Device != "dev-a" || a.HLC != base+10 || !a.At.Equal(sent) || a.Files != 1 || a.Gone {
+		t.Fatalf("entry %+v", a)
+	}
+}
+
 // A revoke's cut moves a device's rows out of the log; the re-fold drops
 // its comments, mirrored messages and activity lines.
 func TestRefoldIfCutDropsThreadEntries(t *testing.T) {
@@ -172,7 +221,7 @@ func TestRenderTaskShowsMessages(t *testing.T) {
 	for _, s := range []string{
 		alice + " -> " + bob + ": please review\n",
 		bob + " -> " + carol + ": carol? (recipient gone, left on the card)\n",
-		carol + " -> " + alice + ": (held by the wake policy; text not on the card) [2 files on msg:msg_3]\n",
+		carol + " -> " + alice + ": (not let through the wake policy yet; text not on the card) [2 files on msg:msg_3]\n",
 		user + ": plain one\n",
 		"comments (4",
 	} {

@@ -137,12 +137,15 @@ type taskCommentRow struct {
 	// A mirrored inbox message (RecordMessage): commentId == msgId. to is
 	// the recipient; gone is the recipient-gone fallback's row (actor
 	// irori, by the sender); held means the text was left off; files is the
-	// message's attachment count (the refs are never copied).
+	// message's attachment count (the refs are never copied). fill is the
+	// text of a message recorded held, written (actor irori) once the
+	// recipient's device let it through its wake policy.
 	To    string `json:"to,omitempty"`
 	MsgID string `json:"msgId,omitempty"`
 	Gone  bool   `json:"gone,omitempty"`
 	Held  bool   `json:"held,omitempty"`
 	Files int    `json:"files,omitempty"`
+	Fill  bool   `json:"fill,omitempty"`
 }
 
 type blockerClosedRow struct {
@@ -316,20 +319,21 @@ func (c *coord) writerOK(ev store.Event) bool {
 		return owner.MayWrite(r.By, ev.DeviceID)
 	case KindTaskComment:
 		// Only a mirrored message is checked: its sender's device writes
-		// it, and a gone row may also come from the recipient's. Plain
-		// comments are left as they were.
+		// it, and a gone or fill row may also come from the recipient's.
+		// Plain comments are left as they were.
 		var p taskCommentRow
 		if json.Unmarshal(ev.Payload, &p) != nil || p.MsgID == "" {
 			return true
 		}
-		return mayRecord(p.By, p.To, p.Gone, ev.DeviceID)
+		return mayRecord(p.By, p.To, p.Gone || p.Fill, ev.DeviceID)
 	}
 	return true
 }
 
-// mayRecord is the writer rule for a mirrored message's row.
-func mayRecord(by, to string, gone bool, dev string) bool {
-	return owner.MayWrite(by, dev) || gone && owner.MayWrite(to, dev)
+// mayRecord is the writer rule for a mirrored message's row: the sender's
+// device, or the recipient's for a gone or fill row (byRecipient).
+func mayRecord(by, to string, byRecipient bool, dev string) bool {
+	return owner.MayWrite(by, dev) || byRecipient && owner.MayWrite(to, dev)
 }
 
 // IgnoredRows counts owner-only rows coord ignored because a device other
@@ -519,18 +523,22 @@ func (c *coord) apply(ev store.Event) {
 		if t == nil {
 			return
 		}
+		primary := !p.Gone && !p.Fill
 		cm := &Comment{
 			ID: p.CommentID, TaskID: p.TaskID, By: p.By, Text: p.Text, Wake: p.Wake, At: at(p.At), Attachments: p.Attachments,
 			To: p.To, MsgID: p.MsgID, Gone: p.Gone, Held: p.Held, Files: p.Files,
-			Device: ev.DeviceID, HLC: ev.HLC, Seq: ev.Seq, primary: !p.Gone,
+			Device: ev.DeviceID, HLC: ev.HLC, Seq: ev.Seq, primary: primary,
+		}
+		if !primary && !p.Held {
+			cm.passed = p.Text
 		}
 		c.comments[cm.ID] = cm
 		c.byTask[t.ID] = append(c.byTask[t.ID], cm.ID)
 		t.Comments++
 		// A comment is activity on the card: it floats up its Board group.
-		// Only a primary row moves it, so a mirrored message's gone row
-		// can't, whichever arrives first.
-		if !p.Gone {
+		// Only a primary row moves it, so a mirrored message's gone or fill
+		// row can't, whichever arrives first.
+		if primary {
 			t.UpdatedAt = cm.At
 		}
 		// A mirrored message is its own thread entry: no activity line, so

@@ -126,7 +126,7 @@ func (s *InboxService) Reply(deliveryID, text string) error {
 	ctx := context.Background()
 	m, nd, err := s.core.Inbox().Reply(ctx, s.core.UserSender(), strings.TrimSpace(deliveryID), text)
 	if err == nil && m.Ref != "" {
-		_, rerr := tools.RecordOnCard(ctx, s.core.Coord(), m, nd.To, tools.Record{Held: nd.State == inbox.Held})
+		_, rerr := tools.RecordOnCard(ctx, s.core.Coord(), m, nd.To, tools.Record{Held: tools.HeldOnCard(s.core.Inbox(), nd)})
 		if rerr != nil && !errors.Is(rerr, tools.ErrNoCard) && !errors.Is(rerr, coord.ErrNotFound) {
 			log.Printf("irori: put the reply on %s: %v", m.Ref, rerr)
 		}

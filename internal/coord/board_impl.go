@@ -409,8 +409,11 @@ func (c *coord) recordMessage(ctx context.Context, m MessageEntry) (Comment, err
 		return Comment{}, fmt.Errorf("%w: message id %q", ErrInvalid, m.MsgID)
 	}
 	text := strings.TrimSpace(m.Text)
+	if m.Fill {
+		m.Held = false
+	}
 	if m.Held {
-		text = "" // held by the wake policy: naming a card doesn't get it past
+		text = "" // not let through the wake policy yet: naming a card doesn't get it past
 	} else if utf8.RuneCountInString(text) > MaxComment {
 		full := "… (full: msg:" + m.MsgID + ")"
 		text = string([]rune(text)[:MaxComment-utf8.RuneCountInString(full)]) + full
@@ -428,24 +431,27 @@ func (c *coord) recordMessage(ctx context.Context, m MessageEntry) (Comment, err
 	if cm := c.comments[m.MsgID]; cm != nil {
 		// Already there: a retry, the sweep, or another device. Only what
 		// the entry lacks is written (the fold merges either order).
-		if m.Gone && cm.Gone || !m.Gone && cm.primary {
+		switch {
+		case m.Gone && cm.Gone, m.Fill && !cm.Held, !m.Gone && !m.Fill && cm.primary:
 			return *cm, nil
 		}
 	}
-	if !mayRecord(from, to, m.Gone, c.st.DeviceID()) {
+	if !mayRecord(from, to, m.Gone || m.Fill, c.st.DeviceID()) {
 		return Comment{}, fmt.Errorf("%w: %s's message is recorded from its own device", ErrNotAllowed, from)
 	}
 	return c.writeComment(ctx, actor, taskCommentRow{
 		TaskID: t.ID, CommentID: m.MsgID, MsgID: m.MsgID, By: from, To: to, Text: text,
-		Files: max(m.Files, 0), Held: m.Held, Gone: m.Gone, At: c.stamp(),
+		Files: max(m.Files, 0), Held: m.Held, Gone: m.Gone, Fill: m.Fill, At: c.stamp(),
 	})
 }
 
 // mergeComment folds a row for a comment id already folded. Only a
-// mirrored message has a second row: a gone row ORs Gone in, and the
-// primary (non-gone) row, whichever came first, gives the entry its
-// position, time and text, so the fold doesn't depend on arrival order.
-// Any other duplicate is dropped. The caller holds c.mu.
+// mirrored message has more than one row: a gone row ORs Gone in, a gone
+// or fill row's text (the message was let through) shows even if the
+// primary row was written held, and the primary row, whichever came first,
+// gives the entry its position, time and text otherwise, so the fold
+// doesn't depend on arrival order. Any other duplicate is dropped. The
+// caller holds c.mu.
 func (c *coord) mergeComment(cm *Comment, p taskCommentRow, ev store.Event, at func(time.Time) time.Time) {
 	if cm.MsgID == "" || p.MsgID != cm.MsgID || p.TaskID != cm.TaskID {
 		return
@@ -454,10 +460,20 @@ func (c *coord) mergeComment(cm *Comment, p taskCommentRow, ev store.Event, at f
 	if p.Gone && !cm.Gone {
 		cm.Gone, changed = true, true
 	}
-	if !p.Gone && !cm.primary {
+	primary := !p.Gone && !p.Fill
+	if !primary && !p.Held && p.Text != "" && cm.passed == "" {
+		cm.passed = p.Text
+		if cm.Held {
+			cm.Text, cm.Held, changed = p.Text, false, true
+		}
+	}
+	if primary && !cm.primary {
 		cm.By, cm.To, cm.Text, cm.Wake, cm.At = p.By, p.To, p.Text, p.Wake, at(p.At)
 		cm.Held, cm.Files, cm.Attachments = p.Held, p.Files, p.Attachments
 		cm.Device, cm.HLC, cm.Seq, cm.primary = ev.DeviceID, ev.HLC, ev.Seq, true
+		if cm.Held && cm.passed != "" {
+			cm.Text, cm.Held = cm.passed, false
+		}
 		if t := c.tasks[cm.TaskID]; t != nil {
 			t.UpdatedAt = cm.At
 		}

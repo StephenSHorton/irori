@@ -28,6 +28,7 @@ const (
 	keyB = "dev1/bbbbbbbb-2222-4222-8222-222222222222"
 	keyC = "dev1/cccccccc-3333-4333-8333-333333333333"
 	keyG = "dev1/grok-gggggggg"
+	keyR = "dev2/rrrrrrrr-9999-4999-8999-999999999999" // another device's agent
 )
 
 type roster struct {
@@ -112,8 +113,11 @@ func newHarness(t *testing.T) *harness {
 	gone := func(ctx context.Context, m inbox.Message, to string) (string, error) {
 		return RecordGone(ctx, b.co, m, to)
 	}
+	passed := func(ctx context.Context, m inbox.Message, to string) error {
+		return RecordPassed(ctx, b.co, m, to)
+	}
 	ib, err := inbox.New(bg, st, r, inbox.Options{DeviceID: "dev1", Now: clk.now, PROwners: func(k string) []string { return owners[k] },
-		OnRecipientGone: gone})
+		OnRecipientGone: gone, OnPassed: passed})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -495,13 +499,31 @@ func TestSendAndReply(t *testing.T) {
 	h.fails(callA, "send", map[string]any{"to": "beta", "text": "lost words", "task_id": "nope"}, "no card task:nope", "nothing was sent")
 	hasNot(t, h.ok(callB, "inbox", map[string]any{"all": true}), "lost words")
 
-	// Held by the wake policy: on the card without its text.
+	// Held by the wake policy: on the card without its text, until the
+	// person releases it.
 	const secret = "held card words"
 	out = h.ok(grokCaller(), "send", map[string]any{"to": "alpha", "text": secret, "task_id": id})
-	has(t, out, "held by the recipient's wake policy", "It is on task:"+id+"'s thread.")
-	cs = h.b.co.Comments(id)
-	if cm := cs[len(cs)-1]; !cm.Held || cm.Text != "" || cm.By != keyG || cm.To != keyA {
+	has(t, out, "held by the recipient's wake policy", "It is on task:"+id+"'s thread; its text joins it once the wake policy lets it through.")
+	hid := field(t, out, "message")
+	if cm, _ := h.b.co.GetComment(hid); !cm.Held || cm.Text != "" || cm.By != keyG || cm.To != keyA {
 		t.Fatalf("held entry %+v", cm)
+	}
+	if err := h.b.ib.Release(bg, field(t, out, "(delivery"), "user:dev1"); err != nil {
+		t.Fatal(err)
+	}
+	if cm, _ := h.b.co.GetComment(hid); cm.Held || cm.Text != secret {
+		t.Fatalf("released entry %+v", cm)
+	}
+
+	// To another device's agent: its host decides the hold with its own
+	// policy, so the text waits for it there too.
+	rc := card(keyR, "remote", "remote:github.com/acme/app", "")
+	rc.DeviceID = "dev2"
+	h.b.roster.put(rc)
+	out = h.ok(callA, "send", map[string]any{"to": keyR, "text": "remote card words", "task_id": id})
+	has(t, out, "its text joins it once the wake policy lets it through.")
+	if cm, _ := h.b.co.GetComment(field(t, out, "message")); !cm.Held || cm.Text != "" || cm.To != keyR {
+		t.Fatalf("remote entry %+v", cm)
 	}
 }
 

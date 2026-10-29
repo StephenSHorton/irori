@@ -27,8 +27,8 @@ export type ThreadLabel = {
 
 // threadLabel is the header line for one entry: "A -> B" for a message,
 // with "recipient gone" when Irori left it on the card for an ended
-// recipient, "held" when the wake policy held it (its text isn't on the
-// card), and the count of files that stayed on the message.
+// recipient, "held" until the wake policy lets it through (its text isn't
+// on the card), and the count of files that stayed on the message.
 export function threadLabel(item: CardThreadItem): ThreadLabel {
   const badges: ThreadBadge[] = []
   if (item.gone) badges.push({ label: "recipient gone", tone: "warning" })
@@ -51,4 +51,17 @@ export function threadLabel(item: CardThreadItem): ThreadLabel {
 export function visible<T>(items: T[], showAll: boolean, n = ThreadPage): T[] {
   if (showAll || items.length <= n) return items
   return items.slice(items.length - n)
+}
+
+// opensInFull reports whether a message entry has more than the card
+// shows: its text was cut (it ends pointing at msg:<id>), it hasn't been
+// let through the wake policy (no text yet), or it has files.
+// BoardService.Message opens the rest for the person.
+export function opensInFull(item: CardThreadItem): boolean {
+  if (item.kind !== ThreadKind.Message) return false
+  return (
+    !!item.held ||
+    !!item.files ||
+    (item.text ?? "").endsWith(`(full: msg:${item.id})`)
+  )
 }

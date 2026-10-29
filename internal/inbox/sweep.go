@@ -175,6 +175,7 @@ type handoff struct {
 	DeliveryID string
 	Message    Message
 	To         string
+	FromPerson bool // the person's own message: with no card here, it stays queued
 }
 
 func (b *inbox) sweep(ctx context.Context) ([]handoff, error) {
@@ -225,6 +226,11 @@ func (b *inbox) sweep(ctx context.Context) ([]handoff, error) {
 	for a := range b.endedSince {
 		if !seen[a] {
 			delete(b.endedSince, a)
+		}
+	}
+	for id := range b.noCardSince {
+		if b.open[id] == nil {
+			delete(b.noCardSince, id)
 		}
 	}
 
@@ -304,7 +310,7 @@ func (b *inbox) sweep(ctx context.Context) ([]handoff, error) {
 			// The card is written outside b.mu (handOff): coord has its
 			// own lock, and the Board must never wait on the inbox.
 			if m := b.msgs[d.MessageID]; m != nil {
-				hs = append(hs, handoff{DeliveryID: d.ID, Message: *m, To: d.To})
+				hs = append(hs, handoff{DeliveryID: d.ID, Message: *m, To: d.To, FromPerson: b.isOwner(m.From.Key)})
 			}
 		case actGonePerson:
 			if err := b.moveGone(ctx, d, a.To, cards); err != nil {
@@ -337,8 +343,8 @@ func (b *inbox) endedFor(agent string, now time.Time) time.Duration {
 // handOff puts the sweep's card handoffs on their cards, with b.mu not
 // held, then closes each delivery. The card goes first, so a crash between
 // the two only repeats an idempotent card write. No card here (ErrNoCard,
-// or no hook) sends the message to the person instead; any other error
-// leaves the delivery open for the next sweep.
+// or no hook) is noCard; any other error leaves the delivery open for the
+// next sweep.
 func (b *inbox) handOff(ctx context.Context, hs []handoff) error {
 	for _, h := range hs {
 		if b.onGone != nil {
@@ -354,7 +360,7 @@ func (b *inbox) handOff(ctx context.Context, hs []handoff) error {
 				continue
 			}
 		}
-		if err := b.moveGoneLocked(ctx, h); err != nil {
+		if err := b.noCard(ctx, h); err != nil {
 			return err
 		}
 	}
@@ -385,20 +391,108 @@ func (b *inbox) closeGone(ctx context.Context, h handoff, taskID string) error {
 	if d == nil {
 		return nil
 	}
+	delete(b.noCardSince, d.ID)
 	r := d.row()
 	r.State, r.Note, r.Until = Skipped, clip(NoteRecipientGone+"; on task:"+taskID, MaxNote), time.Time{}
 	return b.putDelivery(ctx, r, "irori")
 }
 
-// moveGoneLocked is moveGone to the person, for a handoff whose card isn't
-// here, re-checked under b.mu.
-func (b *inbox) moveGoneLocked(ctx context.Context, h handoff) error {
+// passRec is a delivery let through whose message text waits to go on its
+// card: the message, its recipient, and when it was let through.
+type passRec struct {
+	msg, to string
+	since   time.Time
+}
+
+// passed queues d's message for its card (Options.OnPassed) once this
+// device, its owner, let d through its wake policy: a message about a card
+// was recorded there held, or before its recipient's device decided.
+// Notices aren't recorded on cards. b.mu is held.
+func (b *inbox) passed(d *drec) {
+	if b.onPassed == nil || d == nil || d.To == "" || !b.owns(d) {
+		return
+	}
+	m := b.msgs[d.MessageID]
+	if m == nil || m.Notice || !refNamesCard(m.Ref) {
+		return
+	}
+	if _, ok := b.passing[d.ID]; !ok {
+		b.passing[d.ID] = passRec{msg: d.MessageID, to: d.To, since: b.now()}
+	}
+}
+
+// fillCards puts the text of the messages passed queued on their cards,
+// with b.mu not held. A failure (the card may not have arrived from
+// another device yet) is tried again on later calls, for NoCardGrace.
+func (b *inbox) fillCards(ctx context.Context) {
+	if b.onPassed == nil {
+		return
+	}
+	type job struct {
+		id string
+		p  passRec
+		m  Message
+	}
+	var jobs []job
+	b.mu.Lock()
+	for id, p := range b.passing {
+		if m := b.msgs[p.msg]; m != nil {
+			jobs = append(jobs, job{id, p, *m})
+		}
+		delete(b.passing, id)
+	}
+	b.mu.Unlock()
+	var retry []job
+	for _, j := range jobs {
+		err := b.onPassed(ctx, j.m, j.p.to)
+		switch {
+		case err == nil:
+		case ctx.Err() == nil && b.now().Sub(j.p.since) <= b.lim.noCard:
+			retry = append(retry, j)
+		default:
+			log.Printf("inbox: %s was let through, but its text isn't on its card: %v", j.id, err)
+		}
+	}
+	if len(retry) == 0 {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, j := range retry {
+		if _, ok := b.passing[j.id]; !ok {
+			b.passing[j.id] = j.p
+		}
+	}
+}
+
+// noCard is a handoff whose card isn't here, re-checked under b.mu. The
+// card may only not have arrived from another device yet, so the delivery
+// waits for later sweeps; an agent's message goes to the person (moveGone)
+// once the card has been missing for NoCardGrace, or at once with no hook
+// to put it on one. The person's own message stays queued, as with no
+// card: sending it back to them is noise.
+func (b *inbox) noCard(ctx context.Context, h handoff) error {
 	b.mu.Lock()
 	defer b.unlock()
 	d := b.stillGone(h)
 	if d == nil {
+		delete(b.noCardSince, h.DeliveryID)
 		return nil
 	}
+	if h.FromPerson {
+		return nil
+	}
+	if b.onGone != nil {
+		since, ok := b.noCardSince[d.ID]
+		if !ok {
+			b.noCardSince[d.ID] = b.now()
+			return nil
+		}
+		if b.now().Sub(since) <= b.lim.noCard {
+			return nil
+		}
+	}
+	delete(b.noCardSince, d.ID)
 	cards, err := b.liveCards(ctx)
 	if err != nil {
 		return err

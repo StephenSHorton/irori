@@ -1,6 +1,7 @@
 package inbox
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -192,5 +193,45 @@ func TestReplyInheritsRef(t *testing.T) {
 	d := h.sendWith(claude(keyC, "gamma"), to("alpha"), "plain", SendOptions{Mode: ModeWake})
 	if m, _, err := h.ib.Reply(bg, claude(keyA, "alpha"), d.ID, "ok"); err != nil || m.Ref != "" {
 		t.Fatalf("plain reply ref %q, %v", m.Ref, err)
+	}
+}
+
+// The host lets another device's message about a card through its own
+// policy: the sender recorded it held, so its text goes on the card from
+// here (Options.OnPassed). One it holds goes once the person releases it.
+func TestTheHostFillsTheCardWhenItLetsAMessageThrough(t *testing.T) {
+	h := newHarness(t)
+	var calls []string
+	h.onPassed = func(_ context.Context, m Message, to string) error {
+		calls = append(calls, m.ID+" to "+to)
+		return nil
+	}
+	h.reopen()
+	h.ros.put(card(keyB, "beta", "repo1", ""))
+	if err := h.ib.SetPolicy(bg, Policy{Block: []string{"dev2/blocked"}}, user); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := contextWithCancel(t)
+	defer cancel()
+	go h.ib.Follow(ctx)
+	f := &foreign{h: h}
+	for _, from := range []string{keyR, "dev2/blocked"} {
+		m := Message{ID: "msg_" + sessionPart(from)[:4], From: Sender{Key: from, Name: "remote", Kind: "claude"}, To: to(keyB), Text: "about T1", Ref: "task:T1", Trust: Untrusted, SentAt: h.clk.now()}
+		f.row("agent:"+from, KindMessageSent, m)
+		f.row("agent:"+from, KindDelivery, deliveryRow{DeliveryID: "dlv_" + m.ID, MessageID: m.ID, To: keyB, State: Queued, By: from})
+	}
+	eventually(t, "the host holds the blocked one", func() bool {
+		d, ok := h.ib.Get("dlv_msg_bloc")
+		return ok && d.State == Held
+	})
+	h.sweep()
+	if len(calls) != 1 || calls[0] != "msg_rrrr to "+keyB {
+		t.Fatalf("calls %v", calls)
+	}
+	if err := h.ib.Release(bg, "dlv_msg_bloc", user); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || calls[1] != "msg_bloc to "+keyB {
+		t.Fatalf("calls %v", calls)
 	}
 }
