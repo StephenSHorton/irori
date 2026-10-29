@@ -27,8 +27,10 @@ const (
 	TypeDeliver = "deliver"
 	// TypeAppend is a next-turn delivery for the mod (inbox.NextAppend). It
 	// carries WakeID, Token ("[irori-append:<id>]"), DeliveryIDs,
-	// MessageIDs, Prompt (the fenced text, built by the Core; every item has
-	// mode="next_turn"), From, Mode "next_turn" and Overflow.
+	// MessageIDs, Prompt (the fenced text, built by the Core; each item has
+	// mode="next_turn", except a wake item the mod was handed
+	// inbox.MaxWakeTries times without confirming one, card #23), From, Mode
+	// "next_turn" and Overflow.
 	//
 	// Mod contract (mod/hooks/register.tsx):
 	//  1. Dedupe on Token against the tracked appends (a reattach re-sends an
