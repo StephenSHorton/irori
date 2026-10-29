@@ -31,6 +31,7 @@ import (
 	"github.com/StephenSHorton/go-room/portmap"
 	"github.com/jackpal/gateway"
 
+	"github.com/StephenSHorton/irori/internal/awake"
 	"github.com/StephenSHorton/irori/internal/identity"
 	"github.com/StephenSHorton/irori/internal/mesh"
 	"github.com/StephenSHorton/irori/internal/mesh/roomnet"
@@ -69,10 +70,16 @@ type Settings struct {
 	// for again so a mapping that moved keeps its number.
 	TCPExternal uint16 `json:"tcpExternal,omitempty"`
 	UDPExternal uint16 `json:"udpExternal,omitempty"`
+	// Awake is "Keep this PC awake while it's the server"; nil is the
+	// default, on.
+	Awake *bool `json:"awake,omitempty"`
 }
 
 // OutsideOn reports "Reachable from outside home".
 func (s Settings) OutsideOn() bool { return s.Outside == nil || *s.Outside }
+
+// AwakeOn reports "Keep this PC awake while it's the server".
+func (s Settings) AwakeOn() bool { return s.Awake == nil || *s.Awake }
 
 // LoadSettings reads home-server.json (none is the zero value: off).
 func LoadSettings(dataDir string) (Settings, error) {
@@ -135,6 +142,9 @@ type Config struct {
 	// OnPublicNetwork reports an address on a network Windows has on the
 	// Public profile (default: go-room's).
 	OnPublicNetwork func(ip netip.Addr) bool
+	// Awake holds off idle system sleep while the server runs (default:
+	// awake.System()).
+	Awake awake.Holder
 	// Every is how often addresses are checked for a change (default 30 s).
 	Every time.Duration
 	Now   func() time.Time
@@ -165,6 +175,9 @@ type running struct {
 	hub    *room.Hub
 	turn   *room.TURNServer
 	mapper *portmap.Mapper
+	awake  awake.Hold // held while it serves and the setting is on
+	// awakeErr is why the hold couldn't be taken.
+	awakeErr string
 }
 
 // New returns a Server; Run starts it.
@@ -186,6 +199,9 @@ func New(cfg Config) *Server {
 	}
 	if cfg.Wanted == nil {
 		cfg.Wanted = func() bool { return true }
+	}
+	if cfg.Awake == nil {
+		cfg.Awake = awake.System()
 	}
 	s := &Server{cfg: cfg, kick: make(chan struct{}, 1)}
 	if set, err := LoadSettings(cfg.DataDir); err != nil {
@@ -307,6 +323,7 @@ func (s *Server) reconcile(ctx context.Context) {
 		}
 	}
 	s.syncMapper()
+	s.syncAwake()
 	if a, ok := s.addr(); ok {
 		if cur, had := s.lastRow(); !had || !cur.Same(a) {
 			s.write(ctx, a)
@@ -576,6 +593,13 @@ func (s *Server) stop() {
 		return
 	}
 	s.cfg.Net.SetLocal(nil, nil)
+	s.mu.Lock()
+	hold := r.awake
+	r.awake = nil
+	s.mu.Unlock()
+	if hold != nil {
+		hold.Release()
+	}
 	if r.mapper != nil {
 		r.mapper.Close()
 	}
@@ -712,6 +736,10 @@ type Status struct {
 	Address string `json:"address,omitempty"`
 	// Line is the one status line, only when something is wrong.
 	Line string `json:"line,omitempty"`
+	// Awake is "Keep this PC awake while it's the server"; AwakeLine is
+	// "Keeping this PC awake" while it runs and holds it, or why it can't.
+	Awake     bool   `json:"awake"`
+	AwakeLine string `json:"awakeLine,omitempty"`
 }
 
 // Status reports the server for Devices.
@@ -722,8 +750,13 @@ func (s *Server) Status() Status {
 	if r != nil && r.mapper != nil {
 		mst = r.mapper.Status()
 	}
+	awakeLine := ""
+	if r != nil && set.AwakeOn() {
+		awakeLine = awakeStatus(r)
+	}
 	s.mu.Unlock()
-	st := Status{On: set.On, Outside: set.OutsideOn(), Public: set.Public, Running: r != nil, Port: set.Port}
+	st := Status{On: set.On, Outside: set.OutsideOn(), Public: set.Public, Running: r != nil, Port: set.Port,
+		Awake: set.AwakeOn(), AwakeLine: awakeLine}
 	if !set.On {
 		return st
 	}
