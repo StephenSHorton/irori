@@ -664,6 +664,13 @@ export class CardDetail {
     "subtaskBlocked"?: string;
 
     /**
+     * Pinned: the person pinned it; the grid shows it in the Pinned group,
+     * ordered by PinRank (board.md "Pinned cards").
+     */
+    "pinned"?: boolean;
+    "pinRank"?: number;
+
+    /**
      * the objective
      */
     "goal": string;
@@ -815,14 +822,14 @@ export class CardDetail {
         const $$createField20_0 = $$createType18;
         const $$createField21_0 = $$createType21;
         const $$createField22_0 = $$createType23;
-        const $$createField28_0 = $$createType25;
-        const $$createField29_0 = $$createType27;
-        const $$createField30_0 = $$createType29;
-        const $$createField31_0 = $$createType12;
-        const $$createField32_0 = $$createType31;
-        const $$createField33_0 = $$createType33;
-        const $$createField34_0 = $$createType16;
-        const $$createField37_0 = $$createType35;
+        const $$createField30_0 = $$createType25;
+        const $$createField31_0 = $$createType27;
+        const $$createField32_0 = $$createType29;
+        const $$createField33_0 = $$createType12;
+        const $$createField34_0 = $$createType31;
+        const $$createField35_0 = $$createType33;
+        const $$createField36_0 = $$createType16;
+        const $$createField39_0 = $$createType35;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("progress" in $$parsedSource) {
             $$parsedSource["progress"] = $$createField8_0($$parsedSource["progress"]);
@@ -852,28 +859,28 @@ export class CardDetail {
             $$parsedSource["parent"] = $$createField22_0($$parsedSource["parent"]);
         }
         if ("steps" in $$parsedSource) {
-            $$parsedSource["steps"] = $$createField28_0($$parsedSource["steps"]);
+            $$parsedSource["steps"] = $$createField30_0($$parsedSource["steps"]);
         }
         if ("blockers" in $$parsedSource) {
-            $$parsedSource["blockers"] = $$createField29_0($$parsedSource["blockers"]);
+            $$parsedSource["blockers"] = $$createField31_0($$parsedSource["blockers"]);
         }
         if ("prs" in $$parsedSource) {
-            $$parsedSource["prs"] = $$createField30_0($$parsedSource["prs"]);
+            $$parsedSource["prs"] = $$createField32_0($$parsedSource["prs"]);
         }
         if ("links" in $$parsedSource) {
-            $$parsedSource["links"] = $$createField31_0($$parsedSource["links"]);
+            $$parsedSource["links"] = $$createField33_0($$parsedSource["links"]);
         }
         if ("recent" in $$parsedSource) {
-            $$parsedSource["recent"] = $$createField32_0($$parsedSource["recent"]);
+            $$parsedSource["recent"] = $$createField34_0($$parsedSource["recent"]);
         }
         if ("comments" in $$parsedSource) {
-            $$parsedSource["comments"] = $$createField33_0($$parsedSource["comments"]);
+            $$parsedSource["comments"] = $$createField35_0($$parsedSource["comments"]);
         }
         if ("thread" in $$parsedSource) {
-            $$parsedSource["thread"] = $$createField34_0($$parsedSource["thread"]);
+            $$parsedSource["thread"] = $$createField36_0($$parsedSource["thread"]);
         }
         if ("subtaskList" in $$parsedSource) {
-            $$parsedSource["subtaskList"] = $$createField37_0($$parsedSource["subtaskList"]);
+            $$parsedSource["subtaskList"] = $$createField39_0($$parsedSource["subtaskList"]);
         }
         return new CardDetail($$parsedSource as Partial<CardDetail>);
     }
@@ -1350,6 +1357,13 @@ export class CardSummary {
     "parent"?: CardRef | null;
     "subtasks"?: number;
     "subtaskBlocked"?: string;
+
+    /**
+     * Pinned: the person pinned it; the grid shows it in the Pinned group,
+     * ordered by PinRank (board.md "Pinned cards").
+     */
+    "pinned"?: boolean;
+    "pinRank"?: number;
 
     /** Creates a new CardSummary instance. */
     constructor($$source: Partial<CardSummary> = {}) {

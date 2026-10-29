@@ -118,6 +118,10 @@ type Task struct {
 	Parent   string   `json:"parent,omitempty"`
 	Subtasks []string `json:"subtasks,omitempty"`
 	Rollup   *Rollup  `json:"rollup,omitempty"`
+	// Pinned: the person pinned it (pins.go); PinRank orders the pinned
+	// cards, lowest first. Derived by the fold.
+	Pinned  bool    `json:"pinned,omitempty"`
+	PinRank float64 `json:"pinRank,omitempty"`
 }
 
 // Returned says who went away from a card and who was told.

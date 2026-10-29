@@ -202,6 +202,22 @@ export function Message(taskID: string, msgID: string): $CancellablePromise<$mod
 }
 
 /**
+ * MovePin moves a pinned card to just before another pinned card (""
+ * puts it last).
+ */
+export function MovePin(id: string, before: string): $CancellablePromise<void> {
+    return $Call.ByID(3067904115, id, before);
+}
+
+/**
+ * Pin pins (or with pinned false unpins) a card for the person: it shows
+ * in the Pinned group above the grid, last among the pinned cards.
+ */
+export function Pin(id: string, pinned: boolean): $CancellablePromise<void> {
+    return $Call.ByID(728335652, id, pinned);
+}
+
+/**
  * ReleaseLease drops the lease on resource, whoever holds it.
  */
 export function ReleaseLease(resource: string): $CancellablePromise<void> {

@@ -1176,3 +1176,58 @@ func TestCardsSubtaskFamilies(t *testing.T) {
 		}
 	}
 }
+
+// Pinned cards come first in the grid, in the person's order, apart from
+// how the rest sort; an agent can't pin.
+func TestCardsPinnedFirst(t *testing.T) {
+	ctx := context.Background()
+	b, c, _ := cardsBoard(t)
+	a, z, m := heldTask(t, c), heldTask(t, c), heldTask(t, c)
+	if err := b.Pin(z.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Pin(a.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Pin(ctx, agentA, m.ID, true); err == nil {
+		t.Fatal("an agent pinned a card")
+	}
+	ids := func() []string {
+		var out []string
+		for _, s := range b.Cards() {
+			out = append(out, s.ID)
+		}
+		return out
+	}
+	if got := ids(); !slices.Equal(got[:2], []string{z.ID, a.ID}) || got[2] != m.ID {
+		t.Fatalf("grid %v", got)
+	}
+	if err := b.MovePin(a.ID, z.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(); !slices.Equal(got[:2], []string{a.ID, z.ID}) {
+		t.Fatalf("after moving a first: %v", got)
+	}
+	if err := b.Pin(a.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	cs := b.Cards()
+	if !cs[0].Pinned || cs[0].ID != z.ID || cs[1].Pinned {
+		t.Fatalf("after unpinning a: %+v", cs[:2])
+	}
+	// A pinned parent keeps its subtasks with it, in the pinned group.
+	p, err := c.CreateTask(ctx, agentA, coord.NewTask{Title: "parent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, err := c.CreateTask(ctx, agentA, coord.NewTask{Title: "kid", Parent: p.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Pin(p.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(); !slices.Equal(got[:3], []string{z.ID, p.ID, k.ID}) || slices.Index(got, k.ID) != 2 {
+		t.Fatalf("pinned parent and its subtask: %v", got)
+	}
+}

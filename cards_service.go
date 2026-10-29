@@ -152,6 +152,10 @@ type CardSummary struct {
 	Parent         *CardRef `json:"parent,omitempty"`
 	Subtasks       int      `json:"subtasks,omitempty"`
 	SubtaskBlocked string   `json:"subtaskBlocked,omitempty"`
+	// Pinned: the person pinned it; the grid shows it in the Pinned group,
+	// ordered by PinRank (board.md "Pinned cards").
+	Pinned  bool    `json:"pinned,omitempty"`
+	PinRank float64 `json:"pinRank,omitempty"`
 }
 
 // CardRef names another card: a subtask's parent.
@@ -506,7 +510,7 @@ func cardSummary(t coord.Task, p people) CardSummary {
 		ID: t.ID, Short: t.Short, ShortWas: t.ShortWas, Title: t.Title, State: coord.EffectiveState(t), RepoKey: t.RepoKey,
 		Scope: ScopeMine, ScopeLabel: ScopeMineLabel,
 		Progress: CardProgress{Done: d, Total: n}, Working: []AgentRef{}, Watching: []AgentRef{},
-		UpdatedAt: t.UpdatedAt, Subtasks: len(t.Subtasks),
+		UpdatedAt: t.UpdatedAt, Subtasks: len(t.Subtasks), Pinned: t.Pinned, PinRank: t.PinRank,
 	}
 	if r := t.Rollup; r != nil {
 		// A parent's progress is its subtasks'; its own steps came before
@@ -671,7 +675,43 @@ func (b *BoardService) Cards() []CardSummary {
 		}
 		return out[i].ID > out[j].ID
 	})
-	return families(out, tasks)
+	// Pinned cards come first, in the person's order, each pinned parent
+	// followed by its subtasks; the rest as sorted, with each family
+	// together.
+	var pins []CardSummary
+	byID := map[string]CardSummary{}
+	for _, s := range out {
+		byID[s.ID] = s
+		if s.Pinned {
+			pins = append(pins, s)
+		}
+	}
+	sort.SliceStable(pins, func(i, j int) bool { return pins[i].PinRank < pins[j].PinRank })
+	kids := map[string][]string{}
+	for _, t := range tasks {
+		kids[t.ID] = t.Subtasks
+	}
+	pinned, used := []CardSummary{}, map[string]bool{}
+	for _, s := range pins {
+		if used[s.ID] {
+			continue
+		}
+		pinned = append(pinned, s)
+		used[s.ID] = true
+		for _, k := range kids[s.ID] {
+			if ks, ok := byID[k]; ok && !ks.Pinned {
+				pinned = append(pinned, ks)
+				used[k] = true
+			}
+		}
+	}
+	rest := []CardSummary{}
+	for _, s := range out {
+		if !used[s.ID] {
+			rest = append(rest, s)
+		}
+	}
+	return append(pinned, families(rest, tasks)...)
 }
 
 func openAskSummary(s CardSummary) bool { return s.Ask != nil && s.Ask.State != AskClosed }

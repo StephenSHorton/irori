@@ -210,6 +210,8 @@ function summary(c: CardDetail): CardSummary {
     parent: c.parent,
     subtasks: c.subtasks,
     subtaskBlocked: c.subtaskBlocked,
+    pinned: c.pinned,
+    pinRank: c.pinRank,
   })
 }
 
@@ -274,6 +276,28 @@ function sampleAsk(text: string, repoKey: string, wake: boolean): TaskResult {
   sample = [c, ...cs]
   sampleChanged()
   return new TaskResult({ task: { id: c.id } as TaskResult["task"], told: new Told({ to: heard, mode: wake ? "wake" : "next_turn" }) })
+}
+
+// samplePin and sampleMovePin are BoardService.Pin and MovePin on the
+// sample: ranks as coord makes them.
+function samplePin(id: string, pinned: boolean) {
+  const c = sampleCard(id)
+  const top = Math.max(0, ...sampleState().filter((x) => x.pinned).map((x) => x.pinRank ?? 0))
+  c.pinned = pinned
+  c.pinRank = pinned ? top + 1 : 0
+  sampleChanged()
+}
+
+function sampleMovePin(id: string, before: string) {
+  const list = sampleState()
+    .filter((x) => x.pinned && x.id !== id)
+    .sort((a, b) => (a.pinRank ?? 0) - (b.pinRank ?? 0))
+  const i = list.findIndex((x) => x.id === before)
+  const c = sampleCard(id)
+  if (!before || i < 0) c.pinRank = (list.at(-1)?.pinRank ?? 0) + 1
+  else if (i === 0) c.pinRank = (list[0].pinRank ?? 0) - 1
+  else c.pinRank = ((list[i - 1].pinRank ?? 0) + (list[i].pinRank ?? 0)) / 2
+  sampleChanged()
 }
 
 // sampleCloseAsk is BoardService.CloseAsk on the sample: nothing came of
@@ -604,6 +628,24 @@ export const cards = {
     sampleChanged()
   },
 
+  // pin pins (or unpins) a card for the person: the Pinned group, last.
+  async pin(id: string, pinned: boolean): Promise<void> {
+    if (inWails()) {
+      await BoardService.Pin(id, pinned)
+      return
+    }
+    samplePin(id, pinned)
+  },
+
+  // movePin puts pinned card id in front of pinned card before ("": last).
+  async movePin(id: string, before: string): Promise<void> {
+    if (inWails()) {
+      await BoardService.MovePin(id, before)
+      return
+    }
+    sampleMovePin(id, before)
+  },
+
   // closeAsk ends an ask with nothing coming of it.
   async closeAsk(id: string, note = ""): Promise<void> {
     if (inWails()) {
@@ -687,12 +729,24 @@ async function loadCards(): Promise<CardSummary[]> {
     const open = (c: CardDetail) => (c.openBlockers > 0 ? 1 : 0)
     const time = updated
     // As BoardService.Cards: the closed ones are on the Done tab.
-    return families(
-      sampleState()
-        .filter((c) => !over(c))
-        .sort((a, b) => ask(b) - ask(a) || open(b) - open(a) || time(b) - time(a))
-        .map(summary)
-    )
+    const live = sampleState()
+      .filter((c) => !over(c))
+      .sort((a, b) => ask(b) - ask(a) || open(b) - open(a) || time(b) - time(a))
+      .map(summary)
+    // As BoardService.Cards: pinned first, in their order, each pinned
+    // parent followed by its subtasks.
+    const pins = live.filter((c) => c.pinned).sort((a, b) => (a.pinRank ?? 0) - (b.pinRank ?? 0))
+    const pinned: CardSummary[] = []
+    for (const p of pins) {
+      if (pinned.includes(p)) continue
+      pinned.push(p)
+      pinned.push(
+        ...live
+          .filter((k) => k.parent?.id === p.id && !k.pinned)
+          .sort((a, b) => parseInt(a.short, 10) - parseInt(b.short, 10))
+      )
+    }
+    return [...pinned, ...families(live.filter((c) => !pinned.includes(c)))]
   }
   return (await BoardService.Cards()) ?? []
 }

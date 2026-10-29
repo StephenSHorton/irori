@@ -375,6 +375,16 @@ A card can have a **parent**. A parent's **subtasks** are ordinary cards: each h
 
 **Build** (after #3, in the order agreed with #16 on the cards): coord (`parent` on create, `task.parent`, the one-level rule, derived progress and state, refusals on parents, digest lines) and `CardSummary` (`Parent`, `Subtasks`), then the tools and instructions, then the grid order and the "part of" chip, the parent page's subtask list and the "part of" link. Tests: arrival-order convergence for links and the derived state, the two-level link from two devices, split moving every open step, cancel cascading. Live check: an agent splits a big card into a parent and three subtasks, two agents take subtasks, the grid shows them after the parent, and the parent's progress follows them.
 
+## Pinned cards
+
+*v0.4.13 (#35). Stephen wants to pin the cards that matter most, in their own group above the rest, in his own order.*
+
+- **The pin is the person's, on all their devices.** A new `task.pinned {taskId, pinned, rank, by}` row replicates like any card row, so a pin holds after a restart and shows on the Mac. Only the person writes it: the fold takes a row only with actor `user` by an owner key, and ignores and counts any other. Agents see a pin (`board` prints "pinned by the person") but have no tool to set one.
+- **For one card the latest row stands**, by `(hlc, device, seq)`, whatever order rows arrive in. A pin row can arrive before its card and is applied when the card folds.
+- **Order:** `rank` is a number, lowest first. A new pin goes last (one past the highest), and a move puts the card halfway between its new neighbours, so a reorder writes one row for the card that moved and no other card changes. Unpinning keeps the card's place nowhere: pinned again, it goes last.
+- **The window:** a Pinned group above the grid, then "Everything else". Pinned cards keep their own order, and dragging one onto another moves it there. A pinned parent's subtasks follow it in the group, so a family stays together. The card page has Pin and Unpin. A finished card leaves the live grid as before; its pin stays, and it comes back pinned if it reopens.
+- **Shared boards (v0.5):** a pin is one person's view, so `task.pinned` belongs in the private log and is not on a board's kind allow-list. It names a card by its task id, whichever log holds the card.
+
 ## Where Irori's own long-lived records fit
 
 - **Capture** (timeline, edits, commits) is history Irori records by itself, mechanically. Nobody writes it, so it isn't clutter.
