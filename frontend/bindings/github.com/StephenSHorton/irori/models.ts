@@ -170,6 +170,12 @@ export class AttachmentInfo {
      */
     "url": string;
 
+    /**
+     * Openable: Open would open it (by its name; Open checks the bytes
+     * too). Anything else is Save only.
+     */
+    "openable": boolean;
+
     /** Creates a new AttachmentInfo instance. */
     constructor($$source: Partial<AttachmentInfo> = {}) {
         if (!("sha256" in $$source)) {
@@ -192,6 +198,9 @@ export class AttachmentInfo {
         }
         if (!("url" in $$source)) {
             this["url"] = "";
+        }
+        if (!("openable" in $$source)) {
+            this["openable"] = false;
         }
 
         Object.assign(this, $$source);

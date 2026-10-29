@@ -42,10 +42,17 @@ func init() {
 	application.RegisterEvent[RosterChange](EventRosterChanged)
 }
 
+// errServerMode: the window's bindings and files are the person's, so they
+// are never served over HTTP (Wails' server build tag).
+var errServerMode = errors.New("this build uses Wails' server mode, which would serve the window to any local program; build Irori without -tags server")
+
 // runGUI runs the desktop app with an in-process Core. Irori lives in the
 // tray: closing the window hides it, and Quit is in the tray menu. A
 // --startup launch (launch at login) starts with the window hidden.
 func runGUI(args []string) error {
+	if wailsServerMode {
+		return errServerMode
+	}
 	fixGUIPath()
 	opts, err := coreOptions(false)
 	if err != nil {

@@ -43,8 +43,9 @@ export function Info(sha: string): $CancellablePromise<$models.AttachmentInfo> {
 
 /**
  * Open opens a comment's file with the OS default app, from a copy in a
- * temporary folder (fetched first if it isn't here). Programs and scripts,
- * by name or by their bytes, are refused: Save them instead.
+ * temporary folder (fetched first if it isn't here, and marked as from
+ * elsewhere). Only names in openableExts open, and never bytes that are a
+ * program or a script: Save the rest.
  */
 export function Open(sha: string): $CancellablePromise<void> {
     return $Call.ByID(1396640727, sha);
