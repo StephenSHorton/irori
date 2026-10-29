@@ -113,7 +113,7 @@ func Watch(ctx context.Context, n *Notifier, s Sources) {
 	w := &watcher{n: n, s: s, held: map[string]string{}, groups: map[string]*heldGroup{},
 		dirty: map[string]heldChange{}, closed: map[string]bool{},
 		msgs: map[string]bool{}, needs: map[string]bool{},
-		asks: map[string]bool{}, unclaimed: map[string]time.Time{}, forget: make(chan string, 16),
+		asks: map[string]bool{}, unclaimed: map[string]opening{}, forget: make(chan string, 16),
 		failed: make(chan heldFail, 16), fails: map[string]string{}}
 	var ich <-chan inbox.Change
 	var cch <-chan coord.Change
@@ -208,9 +208,9 @@ type watcher struct {
 	needs  map[string]bool // task ids in Needs you (card posted, or seeded)
 	asks   map[string]bool // ask ids with a card up
 	// unclaimed are the Board asks nobody took (card posted, or seeded), by
-	// when each last opened: Wake them with nobody free opens it again,
-	// still unclaimed, and the card comes back to say so.
-	unclaimed map[string]time.Time
+	// the opening each card showed: Wake them with nobody free opens it
+	// again, still unclaimed, and the card comes back to say so.
+	unclaimed map[string]opening
 	// forget carries the sender keys whose held card the person closed
 	// (from the card's own goroutine to Watch's loop), failed the outcome
 	// of each Release or Dismiss press; fails is the error a sender's card
@@ -218,6 +218,19 @@ type watcher struct {
 	forget chan string
 	failed chan heldFail
 	fails  map[string]string
+}
+
+// opening is one opening of an ask (posted, reopened, given back, or its
+// taker gone): when, and why. When alone is no identity: coord stamps rows
+// with the wall clock, which on Windows ticks about every 0.5 ms, so a
+// post and the reopen of its Wake them can carry the same Since. Every
+// reopening row also names its reason, and one row that changes only the
+// reason (the flip to unclaimed) is an ask's first card anyway. Two
+// reopens in one tick would still look like one, but each needs a sweep,
+// and Core sweeps seconds apart.
+type opening struct {
+	since  time.Time
+	reason string
 }
 
 // heldFail is one press of a held card's Release or Dismiss: the error to
@@ -626,10 +639,11 @@ func (w *watcher) unclaimedAsks(v coord.BoardView, post bool) {
 				continue
 			}
 			now[c.ID] = true
-			if since, ok := w.unclaimed[c.ID]; ok && since.Equal(a.Since) {
+			o := opening{since: a.Since, reason: a.Reason}
+			if was, ok := w.unclaimed[c.ID]; ok && was.since.Equal(o.since) && was.reason == o.reason {
 				continue
 			}
-			w.unclaimed[c.ID] = a.Since
+			w.unclaimed[c.ID] = o
 			if post {
 				w.n.Post(w.unclaimedNote(c.Task))
 			}

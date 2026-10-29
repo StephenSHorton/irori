@@ -49,6 +49,12 @@ func newRig(t *testing.T) *rig { return newRigNamed(t, nil) }
 // (wrap may block, to stall the watcher).
 func newRigNamed(t *testing.T, wrap func(key, name string) string) *rig {
 	t.Helper()
+	return newRigWith(t, wrap, coord.Options{})
+}
+
+// newRigWith is newRigNamed with coord's options (a fixed clock, say).
+func newRigWith(t *testing.T, wrap func(key, name string) string, opts coord.Options) *rig {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "irori.db"), "dev1", hlc.New(nil))
 	if err != nil {
@@ -59,7 +65,7 @@ func newRigNamed(t *testing.T, wrap func(key, name string) string) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	co, err := coord.New(ctx, st, r, coord.Options{})
+	co, err := coord.New(ctx, st, r, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -733,5 +739,30 @@ func TestWatchUnclaimedAsk(t *testing.T) {
 	r.waitGone(UnclaimedID(two.ID))
 	if got, _ := r.co.GetTask(two.ID); got.State != coord.Canceled {
 		t.Fatalf("Close left it %s", got.State)
+	}
+}
+
+// The clock coord stamps rows with is coarse (about 0.5 ms on Windows): a
+// Wake them answered in the tick the ask was posted in opens it again with
+// the same Since, and the card must still come back.
+func TestWatchUnclaimedAskWokenInOneTick(t *testing.T) {
+	tick := time.Now().UTC().Round(0)
+	r := newRigWith(t, nil, coord.Options{Now: func() time.Time { return tick }})
+	ask, _, err := r.co.PostAsk(r.ctx, user, coord.NewAsk{Text: "who can look at the release notes?"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := UnclaimedID(ask.ID)
+	r.waitPost(id)
+	r.fake.press(t, id, "Wake them")
+	if _, err := r.co.SweepAsks(r.ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := r.co.GetTask(ask.ID); got.Ask.Reason != coord.TakeReopened || !got.Ask.Since.Equal(tick) {
+		t.Fatalf("after the sweep the ask is %s since %v, want reopened since %v", got.Ask.Reason, got.Ask.Since, tick)
+	}
+	r.waitPost(id)
+	if c := r.fake.card(t, id); !strings.Contains(c.Body, "You woke them") {
+		t.Fatalf("after Wake them with nobody free: %+v", c)
 	}
 }
