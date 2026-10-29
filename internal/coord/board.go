@@ -154,6 +154,9 @@ type Notice struct {
 	// Watching: the person's comment told To as the card's watchers, who
 	// answer only if it asks them (PersonComment).
 	Watching bool `json:"watching,omitempty"`
+	// Person: the person asks the room (NoticeAsk); route it from the
+	// person, not Irori.
+	Person bool `json:"person,omitempty"`
 }
 
 // Refusal is one lease.refused row: by asked for resource and heldBy had it.

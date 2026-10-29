@@ -169,6 +169,9 @@ func (c *coord) join(ctx context.Context, by, id, who string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
+	if openAsk(t) != nil {
+		return Task{}, askRefusal(t, "one agent takes it")
+	}
 	if !t.Shared {
 		return Task{}, fmt.Errorf("%w: task %s isn't shared; claim it instead", ErrNotAllowed, id)
 	}
@@ -195,6 +198,16 @@ func (c *coord) leave(ctx context.Context, by, id, who string) (Task, error) {
 	t, err := c.openTask(id)
 	if err != nil {
 		return Task{}, err
+	}
+	if a := openAsk(t); a != nil {
+		// Giving an ask back is a release the owner device acts on.
+		if a.Taker != who {
+			return Task{}, fmt.Errorf("%w: %s hasn't taken the ask %s", ErrNotFound, who, t.ShortRef())
+		}
+		if err := c.askRelease(ctx, who, t); err != nil {
+			return Task{}, err
+		}
+		return copyTask(t), nil
 	}
 	if !isHolder(t, who) {
 		return Task{}, fmt.Errorf("%w: %s isn't on task %s", ErrNotFound, who, id)
@@ -438,6 +451,17 @@ func (c *coord) personComment(ctx context.Context, by, id, text string, wake boo
 		return Comment{}, nil, err
 	}
 	answer, watch := c.hearers(t, by, around)
+	room := false
+	if a := openAsk(t); a != nil && a.Taker == "" {
+		// Nobody has taken the ask: the comment goes the way the post
+		// went, to the agents told that are still around.
+		room, answer, watch = true, nil, nil
+		for _, k := range a.Heard {
+			if k != by && (around == nil || around(k)) {
+				answer = append(answer, k)
+			}
+		}
+	}
 	at := c.stamp()
 	cid := newID(at)
 	cm, err := c.writeComment(ctx, c.actorFor(by), taskCommentRow{
@@ -450,6 +474,13 @@ func (c *coord) personComment(ctx context.Context, by, id, text string, wake boo
 	head := fmt.Sprintf("The person commented on %q (%s)", t.Title, t.Refs())
 	n := Notice{Kind: NoticeComment, TaskID: id, Ref: "comment:" + cid, Title: t.Title, By: by}
 	var ns []Notice
+	if room && len(answer) > 0 {
+		a := n
+		a.To, a.Wake, a.Person = answer, wake, true
+		a.Text = fmt.Sprintf("%s, the ask nobody has taken yet:\n%s\nIf you can take it on now, ask_claim %s. If you're busy, leave it.%s",
+			head, text, t.ShortRef(), deeper(id))
+		return cm, []Notice{a}, nil
+	}
 	if len(answer) > 0 {
 		a := n
 		a.To, a.Wake = answer, wake

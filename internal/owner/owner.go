@@ -18,6 +18,7 @@ const (
 	Ask      = "ask"      // the asking agent's device
 	Revive   = "revive"   // the target session's device
 	Server   = "server"   // a home server's addresses: the server's device
+	Take     = "take"     // an ask's take (board.md "Asks"): the device that wrote the ask's task.created
 )
 
 // Rule is one row of the table.
@@ -45,6 +46,9 @@ var Table = []Rule{
 		RequestKinds: []string{"revive.requested"}}, // v0.4; the owner's row is the wake itself
 	{Entity: Server,
 		OwnerKinds: []string{"node.addr"}}, // the row describes its writer, so the fold keys it by writer
+	{Entity: Take,
+		OwnerKinds:   []string{"take.state"},
+		RequestKinds: []string{"take.requested"}},
 }
 
 var ownerKinds = func() map[string]string {

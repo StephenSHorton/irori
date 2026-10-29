@@ -66,16 +66,18 @@ type taskCreatedRow struct {
 	TaskID string `json:"taskId"`
 	// Num is the short number the card claims (short.go): one more than
 	// the highest its device had folded. Absent on older rows.
-	Num          int       `json:"num,omitempty"`
-	Title        string    `json:"title"`
-	Objective    string    `json:"objective"`
-	DoneCriteria string    `json:"doneCriteria,omitempty"`
-	RepoKey      string    `json:"repoKey,omitempty"`
-	Scope        []string  `json:"scope,omitempty"`
-	Shared       bool      `json:"shared,omitempty"`
-	Links        []Link    `json:"links,omitempty"`
-	By           string    `json:"by"`
-	At           time.Time `json:"at"`
+	Num          int      `json:"num,omitempty"`
+	Title        string   `json:"title"`
+	Objective    string   `json:"objective"`
+	DoneCriteria string   `json:"doneCriteria,omitempty"`
+	RepoKey      string   `json:"repoKey,omitempty"`
+	Scope        []string `json:"scope,omitempty"`
+	Shared       bool     `json:"shared,omitempty"`
+	Links        []Link   `json:"links,omitempty"`
+	// Ask makes the card an ask (ask.go): the person's prompt to the room.
+	Ask *askField `json:"ask,omitempty"`
+	By  string    `json:"by"`
+	At  time.Time `json:"at"`
 }
 
 type taskClaimedRow struct {
@@ -101,8 +103,10 @@ type taskStateRow struct {
 	// Blocker is the item a blocked row raises (cards.go); absent on rows
 	// written before items, which fold to an item made from Reason.
 	Blocker *blockerRow `json:"blocker,omitempty"`
-	By      string      `json:"by"`
-	At      time.Time   `json:"at"`
+	// Outcome ends an ask (ask.go): what it became.
+	Outcome *Outcome  `json:"outcome,omitempty"`
+	By      string    `json:"by"`
+	At      time.Time `json:"at"`
 }
 
 // taskMemberRow is task.joined and task.left.
@@ -244,6 +248,9 @@ type coord struct {
 	refused   map[string]bool
 	stolen    map[string]bool
 	lapsed    []Lease
+
+	// Asks (ask.go): take requests, the owner's states and its memory.
+	asks askBook
 }
 
 func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() []presence.AgentCard }, opts Options) (*Coord, error) {
@@ -276,6 +283,7 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 		conflicts:   map[string]*leaseRec{},
 		refused:     map[string]bool{},
 		stolen:      map[string]bool{},
+		asks:        newAskBook(),
 	}
 	if c.now == nil {
 		c.now = time.Now
@@ -297,7 +305,7 @@ func newCoord(ctx context.Context, st *store.Store, roster interface{ Agents() [
 // paging with the store's cursor so rows from two devices that share an HLC
 // (possible once rows replicate) are never skipped at a page boundary.
 func (c *coord) replay(ctx context.Context) error {
-	f := store.Filter{Kinds: []string{"task.", "lease.", "blocker."}, Limit: store.MaxListLimit}
+	f := store.Filter{Kinds: followKinds, Limit: store.MaxListLimit}
 	c.replaying = true
 	defer func() { c.replaying = false }()
 	for {
@@ -386,6 +394,9 @@ func (c *coord) apply(ev store.Event) {
 		c.ignore(ev.DeviceID)
 		return
 	}
+	if !c.askRowOK(ev) {
+		return // the take lock (ask.go)
+	}
 	at := func(t time.Time) time.Time {
 		if t.IsZero() {
 			return ev.HLC.Wall().UTC()
@@ -414,6 +425,7 @@ func (c *coord) apply(ev store.Event) {
 			RepoKey: p.RepoKey, Scope: p.Scope, State: Submitted, CreatedBy: p.By,
 			CreatedAt: t, UpdatedAt: t, UpdatedBy: p.By, Shared: p.Shared, Links: links,
 		}
+		c.foldAskCreated(c.tasks[p.TaskID], p.Ask, ev, p.By)
 		c.claimShort(p.TaskID, ev.Cursor(), p.Num)
 		c.touch(ev, c.tasks[p.TaskID], t, p.By, "put the card up", false)
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID})
@@ -457,6 +469,13 @@ func (c *coord) apply(ev store.Event) {
 		if t := c.tasks[p.TaskID]; t != nil && ValidState(p.State) {
 			was := t.State
 			when := at(p.At)
+			if openAsk(t) != nil {
+				o := p.Outcome
+				if o == nil {
+					o = &Outcome{Kind: OutcomeNone, Note: cmpStr(p.Note, "closed by the person")}
+				}
+				c.closeAskFold(t, o)
+			}
 			t.State = p.State
 			t.Note = p.Note
 			t.Assigned = removeStr(t.Assigned, p.By)
@@ -634,6 +653,8 @@ func (c *coord) apply(ev store.Event) {
 		c.note(Change{Kind: TaskChanged, TaskID: p.TaskID, Holder: t.Holder})
 	case KindBlockerOption, KindBlockerResolved, KindTaskSteps, KindTaskStep, KindTaskWatched:
 		c.applyCard(ev, at)
+	case KindTakeRequested, KindTakeState, KindTaskEdited:
+		c.applyTake(ev, at)
 	case KindLeaseRefused:
 		var r Refusal
 		if json.Unmarshal(ev.Payload, &r) != nil || r.Resource == "" || r.By == "" || r.HeldBy == "" {
@@ -872,6 +893,15 @@ func copyTask(t *Task) Task {
 	if t.Watchers != nil {
 		out.Watchers = append([]string(nil), t.Watchers...)
 	}
+	if t.Ask != nil {
+		a := *t.Ask
+		a.Heard, a.Waiting = slices.Clone(a.Heard), slices.Clone(a.Waiting)
+		if a.Outcome != nil {
+			o := *a.Outcome
+			a.Outcome = &o
+		}
+		out.Ask = &a
+	}
 	return out
 }
 
@@ -1105,6 +1135,9 @@ func (c *coord) claimTask(ctx context.Context, by, id string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
+	if openAsk(t) != nil {
+		return Task{}, askRefusal(t, "one agent takes it")
+	}
 	// An assignee claiming writes the claimed row (which moves a submitted
 	// task to working and takes the assignee off Assigned).
 	if engaged(t, by) && t.State != Submitted {
@@ -1151,6 +1184,9 @@ func (c *coord) assign(ctx context.Context, by, id, to string, wide bool) (Task,
 	if err != nil {
 		return Task{}, false, err
 	}
+	if openAsk(t) != nil {
+		return Task{}, false, askRefusal(t, "nobody is assigned one")
+	}
 	if !c.mayManage(t, by) && !(wide && len(t.Holders) == 0) {
 		return Task{}, false, fmt.Errorf("%w: assign task %s", ErrNotAllowed, id)
 	}
@@ -1183,6 +1219,19 @@ func (c *coord) setTaskState(ctx context.Context, by, id string, s TaskState, no
 	t, err := c.openTask(id)
 	if err != nil {
 		return Task{}, err
+	}
+	if openAsk(t) != nil {
+		// The person closes an ask (nothing came of it); nobody else sets
+		// its state.
+		if !c.isOwner(by) || !IsTerminal(s) {
+			return Task{}, askRefusal(t, "its state follows its outcome")
+		}
+		note = cmpStr(note, "closed by the person")
+		if err := c.write(ctx, by, KindTaskState, taskStateRow{TaskID: id, State: Canceled, Note: note, By: by, At: c.stamp(),
+			Outcome: &Outcome{Kind: OutcomeNone, Note: cut(note, MaxOutcome)}}); err != nil {
+			return Task{}, err
+		}
+		return copyTask(t), nil
 	}
 	if !c.mayManage(t, by) {
 		return Task{}, fmt.Errorf("%w: change task %s", ErrNotAllowed, id)
