@@ -6,9 +6,13 @@ import (
 )
 
 // fakeNamer gives every session it is asked to name "heron", and remembers.
+// "s" was called "otter" before a clash moved it.
 type fakeNamer map[string]string
 
 func (f fakeNamer) Assigned(id string) string { return f[id] }
+func (f fakeNamer) Gave(id, name string) bool {
+	return f[id] != "" && (strings.EqualFold(f[id], name) || (id == "s" && strings.EqualFold(name, "otter")))
+}
 func (f fakeNamer) Assign(id string) string {
 	if f[id] == "" {
 		f[id] = "heron"
@@ -30,6 +34,8 @@ func TestNamePrecedence(t *testing.T) {
 		{"a custom title is a choice", session{ID: "s"}, tail{Custom: "parser work", AI: "Fix it"}, "", "parser work", SourceUser},
 		{"Irori's name written back as a title stays Irori's", session{ID: "s"}, tail{Custom: "Heron"}, "heron", "Heron", SourceIrori},
 		{"Irori's name written back as the session name stays Irori's", session{ID: "s", Name: "heron", NameSource: "user"}, tail{}, "heron", "heron", SourceIrori},
+		{"Irori's earlier name written back as a title becomes its current one", session{ID: "s"}, tail{Custom: "otter"}, "heron", "heron", SourceIrori},
+		{"so does an earlier name written back as the session name", session{ID: "s", Name: "otter", NameSource: "user"}, tail{Custom: "otter"}, "heron", "heron", SourceIrori},
 		{"a name Claude set itself isn't a choice", session{ID: "s", Name: "Fix it", NameSource: "auto"}, tail{AI: "Fix it"}, "", "heron", SourceIrori},
 		{"an ai-title never is", session{ID: "s", Cwd: `C:\work\api`}, tail{AI: "Fix the parser"}, "", "heron", SourceIrori},
 		{"no name at all gets Irori's", session{ID: "s", Cwd: `C:\work\api`}, tail{}, "", "heron", SourceIrori},

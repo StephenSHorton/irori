@@ -26,7 +26,15 @@ const namesKeep = 30 * 24 * time.Hour
 type nameEntry struct {
 	Name string    `json:"name"`
 	At   time.Time `json:"at"` // when it was given, or last seen in use
+	// Gave lists the names this session had before a clash moved it. Claude
+	// keeps the title the mod set, so an earlier name can come back as the
+	// session's title; it is still Irori's, not the person's.
+	Gave []string `json:"gave,omitempty"`
 }
+
+// namesBusy: a session whose name was in use this recently still holds it
+// against new picks. Settle refreshes At hourly while a session runs.
+const namesBusy = 2 * time.Hour
 
 // namer gives sessions nobody named a friendly name (presence.Namer) and
 // settles clashes with other devices' agents.
@@ -63,6 +71,26 @@ func (n *namer) Assigned(id string) string {
 	return n.m[id].Name
 }
 
+// Gave reports whether Irori ever gave session id this name.
+func (n *namer) Gave(id, name string) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	e, ok := n.m[id]
+	if !ok {
+		return false
+	}
+	f := names.Fold(name)
+	if names.Fold(e.Name) == f {
+		return true
+	}
+	for _, g := range e.Gave {
+		if names.Fold(g) == f {
+			return true
+		}
+	}
+	return false
+}
+
 // Assign gives session id a name if it has none: the word its id hashes to,
 // or the next one no live agent on any device is called.
 func (n *namer) Assign(id string) string {
@@ -86,7 +114,7 @@ func (n *namer) cards() []presence.AgentCard {
 }
 
 // pickLocked picks a name for id that no live agent but id has, and that no
-// other session here holds. n.mu is held.
+// other session here used lately. n.mu is held.
 func (n *namer) pickLocked(id string, cards []presence.AgentCard) string {
 	key := n.self + "/" + id
 	taken := map[string]bool{}
@@ -95,8 +123,9 @@ func (n *namer) pickLocked(id string, cards []presence.AgentCard) string {
 			taken[names.Fold(c.Name)] = true
 		}
 	}
+	now := n.now()
 	for sid, e := range n.m {
-		if sid != id {
+		if sid != id && now.Sub(e.At) < namesBusy {
 			taken[names.Fold(e.Name)] = true
 		}
 	}
@@ -141,8 +170,11 @@ func (n *namer) Settle() bool {
 			if !keeps(o, c) {
 				continue
 			}
-			delete(n.m, c.SessionID)
-			n.m[c.SessionID] = nameEntry{Name: n.pickLocked(c.SessionID, cards), At: now}
+			gave := append(append([]string{}, e.Gave...), e.Name)
+			if len(gave) > 8 {
+				gave = gave[len(gave)-8:]
+			}
+			n.m[c.SessionID] = nameEntry{Name: n.pickLocked(c.SessionID, cards), At: now, Gave: gave}
 			moved, dirty = true, true
 			break
 		}

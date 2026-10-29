@@ -234,8 +234,9 @@ func (x *watcher) card(s session) AgentCard {
 // name is what the roster calls a session, and where that came from:
 //   - a name someone chose: the session's own name (/rename), else its
 //     newest custom title. It counts as the person's ("user") unless it is
-//     the friendly name Irori gave it, which Claude writes back as a title
-//     once the mod sets it ("irori");
+//     a friendly name Irori gave it, which Claude writes back as a title
+//     once the mod sets it: then the session is called Irori's current
+//     name ("irori"), so a name moved by a clash replaces the old title;
 //   - else Irori's friendly name, given now if the session has none;
 //   - else, with no namer, displayName's old fallback.
 //
@@ -251,12 +252,15 @@ func (x *watcher) name(s session, t tail) (string, string) {
 		chosen = s.Name
 	} else if t.Custom != "" {
 		chosen = t.Custom
-	} else if s.Name != "" && assigned != "" && names.Fold(s.Name) == names.Fold(assigned) {
+	} else if s.Name != "" && assigned != "" && x.opts.Names.Gave(s.ID, s.Name) {
 		chosen = s.Name
 	}
 	if chosen != "" {
-		if assigned != "" && names.Fold(chosen) == names.Fold(assigned) {
-			return chosen, SourceIrori
+		if assigned != "" && x.opts.Names.Gave(s.ID, chosen) {
+			if names.Fold(chosen) == names.Fold(assigned) {
+				return chosen, SourceIrori
+			}
+			return assigned, SourceIrori
 		}
 		return chosen, SourceUser
 	}

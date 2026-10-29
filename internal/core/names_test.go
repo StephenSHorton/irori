@@ -100,6 +100,27 @@ func TestSettleMovesTheLaterOfTwoIroriNamesOnBothDevices(t *testing.T) {
 	if pc.Assigned("s1") != "heron" {
 		t.Fatal("the PC's name moved")
 	}
+	// Claude keeps the title the mod set ("heron"); it must still read as
+	// Irori's, so presence moves the card to the new name.
+	if !mac.Gave("s2", "Heron") || !mac.Gave("s2", mac.Assigned("s2")) || mac.Gave("s2", "api work") {
+		t.Fatal("the Mac's namer forgot which names it gave")
+	}
+}
+
+func TestNamesOfLongIdleSessionsAreFreeForNewOnes(t *testing.T) {
+	var cards []presence.AgentCard
+	n := testNamer(t, "pc", &cards)
+	now := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	n.now = func() time.Time { return now }
+	want := names.Pick("new", nil)
+	n.m["idle"] = nameEntry{Name: want, At: now.Add(-namesBusy - time.Minute)}
+	if got := n.Assign("new"); got != want {
+		t.Fatalf("got %q; a session idle that long shouldn't hold %q", got, want)
+	}
+	n.m["busy"] = nameEntry{Name: names.Pick("new2", nil), At: now}
+	if got := n.Assign("new2"); got == names.Pick("new2", nil) {
+		t.Fatalf("got %q, which a session in use holds", got)
+	}
 }
 
 func TestSettleTieGoesToTheLowerKey(t *testing.T) {

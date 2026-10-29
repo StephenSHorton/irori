@@ -105,6 +105,9 @@ type Options struct {
 type Namer interface {
 	// Assigned is the name already given to session id, or "".
 	Assigned(sessionID string) string
+	// Gave reports whether session id was ever given name (now or before a
+	// clash moved it).
+	Gave(sessionID, name string) bool
 	// Assign gives session id a name if it has none, and returns it.
 	Assign(sessionID string) string
 }
