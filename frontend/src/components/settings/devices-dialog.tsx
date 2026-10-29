@@ -219,6 +219,14 @@ function HomeServer({ open }: { open: boolean }) {
       setError(errorText(err))
     }
   }
+  const setAwake = async (on: boolean) => {
+    setError(null)
+    try {
+      setHs(await actions.setHomeServerAwake(on))
+    } catch (err) {
+      setError(errorText(err))
+    }
+  }
 
   if (!hs) return null
   const reach =
@@ -271,6 +279,33 @@ function HomeServer({ open }: { open: boolean }) {
                 size="sm"
                 checked={hs.outside}
                 onCheckedChange={(v) => void set(true, v, hs.public ?? "")}
+              />
+            </div>
+          )}
+          {hs.on && (
+            <div className="flex items-center justify-between gap-2">
+              <label
+                htmlFor="home-awake"
+                className="min-w-0 cursor-pointer text-muted-foreground"
+              >
+                Keep this PC awake while it&apos;s the server
+                {hs.awakeLine && (
+                  <small
+                    className={
+                      hs.awake && hs.awakeLine === "Keeping this PC awake"
+                        ? "block text-xs"
+                        : "block text-xs text-warning"
+                    }
+                  >
+                    {hs.awakeLine}
+                  </small>
+                )}
+              </label>
+              <Switch
+                id="home-awake"
+                size="sm"
+                checked={hs.awake}
+                onCheckedChange={(v) => void setAwake(v)}
               />
             </div>
           )}

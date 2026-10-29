@@ -416,6 +416,10 @@ func TestTheWindowExpires(t *testing.T) {
 	if len(net.Members(mustSecret(t, st.Code).Topic)) != 0 {
 		t.Fatal("a stayed in the pairing room")
 	}
+	// The full window from here: each Add derives its room key (scrypt)
+	// before it checks for an open window, which under -race outlasts a
+	// short window, so the first would expire before the second is refused.
+	a.pair.o.Window = Window
 	if _, err := a.pair.Add(identity.RoleDesktop); err != nil {
 		t.Fatalf("a new window after expiry: %v", err)
 	}

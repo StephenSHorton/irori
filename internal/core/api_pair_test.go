@@ -144,9 +144,6 @@ func TestJoinThroughTheAPIExpiresAndCancels(t *testing.T) {
 	if _, err := c.PairJoin(ctx, pair.NewCode(), ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.PairJoin(ctx, pair.NewCode(), ""); err == nil || !strings.Contains(err.Error(), "409") {
-		t.Fatalf("a second join while one is open: %v", err)
-	}
 	wait(t, "the code expires", apiState(t, c, pair.StateExpired))
 
 	mac.stop()
@@ -155,6 +152,12 @@ func TestJoinThroughTheAPIExpiresAndCancels(t *testing.T) {
 	c = pairClient(t, mac)
 	if _, err := c.PairJoin(ctx, pair.NewCode(), "203.0.113.7:24817"); err != nil {
 		t.Fatal(err)
+	}
+	// Here, not under the short window: each join derives its room key
+	// (scrypt) before it checks for an open one, which under -race
+	// outlasts 300ms, so the first would expire before this was refused.
+	if _, err := c.PairJoin(ctx, pair.NewCode(), ""); err == nil || !strings.Contains(err.Error(), "409") {
+		t.Fatalf("a second join while one is open: %v", err)
 	}
 	if st, _ := c.PairStatus(ctx); st.Via != "203.0.113.7:24817" || !st.Open() {
 		t.Fatalf("join from away = %+v", st)

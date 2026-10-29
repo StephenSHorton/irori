@@ -67,6 +67,7 @@ let sampleHome = new HomeServerView({
   suggest: true,
   on: false,
   outside: true,
+  awake: true,
 })
 const sampleListeners = new Set<() => void>()
 
@@ -290,10 +291,21 @@ export const devices = {
             ? "forward"
             : "home",
       address: on && publicAddr ? `${publicAddr}:24817` : undefined,
+      awakeLine: on && sampleHome.awake ? "Keeping this PC awake" : undefined,
       line:
         on && outside && !publicAddr
           ? "Away from home your devices can't reach this PC. Turn on UPnP on your router, or forward TCP and UDP port 24817 to 192.168.1.20."
           : undefined,
+    })
+    return sampleHome
+  },
+  // setHomeServerAwake switches "Keep this PC awake while it's the server".
+  async setHomeServerAwake(on: boolean): Promise<HomeServerView> {
+    if (inWails()) return DevicesService.SetHomeServerAwake(on)
+    sampleHome = new HomeServerView({
+      ...sampleHome,
+      awake: on,
+      awakeLine: sampleHome.running && on ? "Keeping this PC awake" : undefined,
     })
     return sampleHome
   },

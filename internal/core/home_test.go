@@ -56,11 +56,32 @@ func (loopGateway) Map(_ context.Context, p portmap.Port, life time.Duration) (p
 }
 func (loopGateway) Unmap(context.Context, portmap.Port) error { return nil }
 
+// quietAfter is t.Logf prefixed with name until t's cleanups end. Some
+// go-room goroutines (the TURN server's refusal log) outlive Close, and a
+// t.Logf after the test completes panics.
+func quietAfter(t *testing.T, name string) func(string, ...any) {
+	var mu sync.Mutex
+	done := false
+	t.Cleanup(func() { // registered first, so it runs last
+		mu.Lock()
+		done = true
+		mu.Unlock()
+	})
+	return func(f string, a ...any) {
+		mu.Lock()
+		defer mu.Unlock()
+		if !done {
+			t.Logf(name+": "+f, a...)
+		}
+	}
+}
+
 // newGoRoomCore is newHCore on go-room: atHome puts it on the MemLAN, and
 // away from home it has no LAN carrier at all.
 func newGoRoomCore(t *testing.T, hn *homeNet, name, session string, atHome bool) *hcore {
 	t.Helper()
 	h := &hcore{t: t, name: name, data: t.TempDir(), claude: t.TempDir(), session: session, clk: &clock{}}
+	logf := quietAfter(t, name)
 	if session != "" {
 		dir := filepath.Join(h.claude, "sessions")
 		if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -75,7 +96,7 @@ func newGoRoomCore(t *testing.T, hn *homeNet, name, session string, atHome bool)
 	h.edit = func(o *Options) {
 		o.RoomNet = func(ro *roomnet.Options) {
 			ro.LoopbackOnly = true
-			ro.Logf = func(f string, a ...any) { t.Logf(name+": "+f, a...) }
+			ro.Logf = logf
 			if lanConn == nil {
 				ro.NoLAN = true
 				return
@@ -93,7 +114,7 @@ func newGoRoomCore(t *testing.T, hn *homeNet, name, session string, atHome bool)
 			hc.Discover = func(context.Context) ([]portmap.Gateway, error) { return []portmap.Gateway{loopGateway{}}, nil }
 			hc.AllowPeer = func(string, netip.Addr) bool { return true } // relaying between 127.0.0.1 peers
 			hc.Every = 100 * time.Millisecond
-			hc.Logf = func(f string, a ...any) { t.Logf(name+": "+f, a...) }
+			hc.Logf = logf
 		}
 	}
 	h.start()

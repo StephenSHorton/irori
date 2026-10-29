@@ -83,6 +83,7 @@ type node struct {
 	tr      *roomnet.Transport
 	srv     *Server
 	gw      *router
+	awake   *fakeAwake
 	wanted  atomic.Bool
 	cancel  context.CancelFunc
 	done    chan struct{}
@@ -90,7 +91,7 @@ type node struct {
 
 func newNode(t *testing.T, edit func(*Config)) *node {
 	t.Helper()
-	n := &node{t: t, dir: t.TempDir(), gw: &router{ext: netip.MustParseAddr("203.0.113.7")}}
+	n := &node{t: t, dir: t.TempDir(), gw: &router{ext: netip.MustParseAddr("203.0.113.7")}, awake: &fakeAwake{}}
 	n.wanted.Store(true)
 	dv, err := device.LoadOrCreate(n.dir)
 	if err != nil {
@@ -120,6 +121,7 @@ func newNode(t *testing.T, edit func(*Config)) *node {
 		LANAddrs: func() []netip.Addr { return []netip.Addr{netip.MustParseAddr("127.0.0.1")} },
 		V6Addrs:  func() []netip.Addr { return nil },
 		Discover: func(context.Context) ([]portmap.Gateway, error) { return []portmap.Gateway{n.gw}, nil },
+		Awake:    n.awake,
 		Every:    50 * time.Millisecond,
 		Logf:     t.Logf}
 	if edit != nil {

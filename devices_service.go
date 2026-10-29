@@ -183,6 +183,11 @@ type HomeServerView struct {
 	// Address is where a device away from home dials it.
 	Address string `json:"address,omitempty"`
 	Line    string `json:"line,omitempty"`
+	// Awake is "Keep this PC awake while it's the server" (on by default);
+	// AwakeLine is "Keeping this PC awake" while it holds that, or why it
+	// can't.
+	Awake     bool   `json:"awake"`
+	AwakeLine string `json:"awakeLine,omitempty"`
 	// LAN is the one line, on any device, when devices on its network
 	// can't find it directly (the LAN carrier couldn't open, or has nowhere
 	// to send).
@@ -197,7 +202,7 @@ func (s *DevicesService) HomeServer() HomeServerView {
 	st := s.core.HomeServer()
 	v := HomeServerView{Can: s.core.CanServe(), Suggest: s.core.Role() == identity.RoleNode, Elsewhere: s.core.OtherServer(),
 		On: st.On, Outside: st.Outside, Public: st.Public, Running: st.Running, Port: st.Port, Reach: st.Reach,
-		Address: st.Address, Line: st.Line, LAN: s.core.LANError()}
+		Address: st.Address, Line: st.Line, Awake: st.Awake, AwakeLine: st.AwakeLine, LAN: s.core.LANError()}
 	if s.core.NetStatus().State == mesh.StateOn {
 		v.Remote = remoteLine(s.core.RemoteServers(), s.core.Mesh().Devices(false))
 	}
@@ -227,6 +232,16 @@ func remoteLine(servers []core.RemoteServer, devices []mesh.DeviceRow) string {
 // allow irori.exe on private networks; the server needs that.
 func (s *DevicesService) SetHomeServer(on, outside bool, public string) (HomeServerView, error) {
 	if err := s.core.SetHomeServer(on, outside, strings.TrimSpace(public)); err != nil {
+		return HomeServerView{}, err
+	}
+	return s.HomeServer(), nil
+}
+
+// SetHomeServerAwake switches "Keep this PC awake while it's the server"
+// (GUI only): while it is on and the server runs, the PC doesn't idle into
+// sleep. The display may still turn off.
+func (s *DevicesService) SetHomeServerAwake(on bool) (HomeServerView, error) {
+	if err := s.core.SetHomeServerAwake(on); err != nil {
 		return HomeServerView{}, err
 	}
 	return s.HomeServer(), nil

@@ -337,7 +337,7 @@ func (id *Identity) ProfileRow() (Profile, error) {
 // is not the root waits for a cert from pairing (release 3) and writes
 // nothing. role is RoleDesktop or RoleNode.
 func (id *Identity) EnsureSelfCert(ctx context.Context, st *store.Store, ch *Chain, role string) error {
-	if id.Device.ID != id.Person.RootDeviceID {
+	if id.Device.ID != id.Current().RootDeviceID {
 		return nil
 	}
 	// The cert first: it carries the key that verifies it, so it is the row

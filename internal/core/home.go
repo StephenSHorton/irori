@@ -34,6 +34,15 @@ func (c *Core) SetHomeServer(on, outside bool, public string) error {
 	return c.home.Set(on, outside, public)
 }
 
+// SetHomeServerAwake changes "Keep this PC awake while it's the server".
+// GUI only.
+func (c *Core) SetHomeServerAwake(on bool) error {
+	if c.home == nil {
+		return ErrNoHomeServer
+	}
+	return c.home.SetAwake(on)
+}
+
 // CanServe reports whether this device can run a home server (it runs on
 // go-room, not a test transport).
 func (c *Core) CanServe() bool { return c.home != nil }

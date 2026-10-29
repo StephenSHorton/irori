@@ -20,6 +20,15 @@ func (id *Identity) Current() Person {
 	return id.Person
 }
 
+// Self is this device's identity, its PersonID current after a pairing
+// (AdoptPerson). Device.ID, Name and OS never change after Load and may be
+// read directly; read PersonID through Self or Current.
+func (id *Identity) Self() device.Identity {
+	id.mu.Lock()
+	defer id.mu.Unlock()
+	return id.Device
+}
+
 // PersonSeed returns the person secret (the ed25519 seed) of epoch: the
 // current one, or an older one while it is kept (§4.2). The mesh derives
 // the topic of that epoch from it and seals a person.secret frame with it;
@@ -206,7 +215,11 @@ func (id *Identity) AdoptPerson(p Person, seed []byte) error {
 	if err := device.Save(id.dataDir, dev); err != nil {
 		return err
 	}
-	id.Device, id.Person, id.personKey, id.older = dev, p, key, nil
+	// Only PersonID changes: Device's ID, Name and OS are fixed after Load
+	// and read without the lock (home, mesh, pair), so the struct is not
+	// reassigned as a whole.
+	id.Device.PersonID = dev.PersonID
+	id.Person, id.personKey, id.older = p, key, nil
 	return nil
 }
 
