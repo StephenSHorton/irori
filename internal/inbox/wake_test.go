@@ -353,3 +353,75 @@ func TestTurnEndedFreesGateForQueuedWork(t *testing.T) {
 	wantErr(t, h.ib.TurnEnded(bg, keyB, "[irori-wake:nope]", "t1"), ErrNotFound)
 	wantErr(t, h.ib.MarkEngaged(bg, keyA, w.Token, "t1"), ErrNotYours)
 }
+
+func TestWakeItemRidesAppendBehindDeliveredWake(t *testing.T) {
+	// Card #28: a wake was handed to the host while the session was mid-turn
+	// and waits there unengaged. A wake item queued now can't wake (the gate),
+	// so it rides the mid-turn append like a next_turn item, and is never
+	// handed out again when the waiting wake finally engages.
+	h := newHarness(t)
+	h.abc()
+	h.ib.SetReachable(keyB, PathMod, true)
+	h.send(claude(keyA, "alpha"), to("beta"), "first")
+	w1 := h.wake(keyB)
+	// Issued but not yet delivered: nothing waits in the host, no append.
+	_, dq := h.send(claude(keyC, "gamma"), to("beta"), "too early")
+	h.noAppend(keyB)
+	if err := h.ib.MarkDelivered(bg, keyB, w1.Token); err != nil {
+		t.Fatal(err)
+	}
+	sub := h.ib.Subscribe(t.Context())
+	d2 := h.sendWith(person(), to("beta"), "the person, as a wake", SendOptions{Mode: ModeWake})
+	h.noWake(keyB)
+	if n := count(drain(sub), AppendReady, keyB); n != 0 {
+		// dq already made the agent appendable when w1 was delivered.
+		t.Fatalf("%d AppendReady for an agent already appendable", n)
+	}
+	a := h.appendFor(keyB)
+	if !slices.Equal(a.DeliveryIDs, []string{dq.ID, d2.ID}) || a.Mode != ModeNextTurn {
+		t.Fatalf("append %+v, want both wake items", a)
+	}
+	if err := h.ib.MarkDelivered(bg, keyB, a.Token); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.wantState(d2.ID, Delivered); got.WakeID != a.ID || got.Mode != ModeWake {
+		t.Fatalf("delivered %+v", got)
+	}
+	// The waiting wake starts its turn: it carries only its own item, the
+	// appended ones engage with it, and nothing is offered again.
+	if err := h.ib.MarkEngaged(bg, keyB, w1.Token, "t1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.ib.MarkEngaged(bg, keyB, a.Token, "t1"); err != nil {
+		t.Fatal(err)
+	}
+	h.wantState(d2.ID, Engaged)
+	if err := h.ib.TurnEnded(bg, keyB, w1.Token, "t1"); err != nil {
+		t.Fatal(err)
+	}
+	h.noWake(keyB)
+	h.noAppend(keyB)
+	h.reopen()
+	h.ib.SetReachable(keyB, PathMod, true)
+	h.noWake(keyB)
+	h.noAppend(keyB)
+}
+
+func TestWakeItemWaitsOnceDeliveredWakeGoesStale(t *testing.T) {
+	// Past the unengaged limit the delivered wake stops gating, so a queued
+	// wake item wakes again instead of riding an append.
+	h := newHarness(t)
+	h.abc()
+	h.ib.SetReachable(keyB, PathMod, true)
+	h.send(claude(keyA, "alpha"), to("beta"), "q")
+	w := h.wake(keyB)
+	if err := h.ib.MarkDelivered(bg, keyB, w.Token); err != nil {
+		t.Fatal(err)
+	}
+	h.clk.advance(UnengagedLimit)
+	_, d := h.send(claude(keyC, "gamma"), to("beta"), "q2")
+	h.noAppend(keyB)
+	if w2 := h.wake(keyB); !slices.Equal(w2.DeliveryIDs, []string{d.ID}) {
+		t.Fatalf("wake %v", w2.DeliveryIDs)
+	}
+}

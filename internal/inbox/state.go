@@ -74,6 +74,16 @@ func (d *drec) untaken() bool { return !d.nextTurn() && d.wakeTries >= MaxWakeTr
 // forAppend: d goes out by append on the mod path, not by a wake.
 func (d *drec) forAppend() bool { return d.nextTurn() || d.untaken() }
 
+// queuedBehind: agent's host already holds a wake prompt it has not started
+// (delivered, not engaged), so the session is mid-turn and any wake issued
+// now would only queue behind that one. Its queued wake items go out by
+// append instead, and the waiting prompt's turn is the turn they get (card
+// #28). The caller holds b.mu.
+func (b *inbox) queuedBehind(agent string) bool {
+	_, st := b.outstanding(agent)
+	return st == Delivered
+}
+
 // deliveryRow is the KindDelivery payload: a full snapshot of the delivery's
 // mutable fields, so the fold is a replace.
 type deliveryRow struct {
@@ -730,8 +740,9 @@ func (b *inbox) hasAppend(agent string) bool {
 	if agent == "" || b.pol.Paused || !b.local(agent) || b.pendingAppend(agent) != nil {
 		return false
 	}
+	behind := b.queuedBehind(agent)
 	for _, d := range b.open {
-		if d.To == agent && d.State == Queued && d.WakeID == "" && d.forAppend() {
+		if d.To == agent && d.State == Queued && d.WakeID == "" && (behind || d.forAppend()) {
 			return true
 		}
 	}
