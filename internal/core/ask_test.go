@@ -73,11 +73,13 @@ func TestAPartitionedAskHasOneTaker(t *testing.T) {
 		}
 		return false
 	})
-	// Its ask notice no longer reaches it.
-	if w, err := pc.c.Inbox().NextAppend(ctx, pc.agent()); err != nil {
+	// Its ask notice no longer reaches it; who took it does.
+	w, err := pc.c.Inbox().NextAppend(ctx, pc.agent())
+	if err != nil {
 		t.Fatal(err)
-	} else if w != nil && strings.Contains(w.Prompt, "asks the room") {
-		t.Fatalf("the stale ask still went out:\n%s", w.Prompt)
+	}
+	if w == nil || strings.Contains(w.Prompt, "asks the room") || !strings.Contains(w.Prompt, mac.agent()+" took") {
+		t.Fatalf("the pc's append: %+v", w)
 	}
 	if d := notice(); d == nil || d.State != inbox.Skipped || !strings.Contains(d.Note, "taken by") {
 		t.Fatalf("the stale ask notice: %+v", d)

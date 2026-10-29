@@ -44,7 +44,9 @@ func (c *Core) sweepCoord(ctx context.Context) error {
 // coord.StaleNotice takes only a lock of its own, so the inbox may call it
 // under its lock.
 func (c *Core) staleNotice(d inbox.Delivery) string {
-	if c.coord == nil {
+	// Only the announcement goes stale: the answer to a claim and the
+	// watch digests of agents that chimed in share its ref and must arrive.
+	if c.coord == nil || d.Message.Reason != string(coord.NoticeAsk) {
 		return ""
 	}
 	return c.coord.StaleNotice(d.Message.Ref, d.To)
