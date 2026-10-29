@@ -121,6 +121,10 @@ type Blocker struct {
 
 	reason string // the row's reason: Task.Reason while this is the first open item
 	legacy bool   // folded from a reason-only row: a later one replaces it
+	// asked is the position of the row that replaced the question (zero
+	// for one never replaced): blocker comments before it were about the
+	// old question, so they no longer count.
+	asked rowPos
 }
 
 // Open reports whether the item still waits on an answer.

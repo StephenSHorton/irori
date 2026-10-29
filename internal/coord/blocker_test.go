@@ -2,6 +2,7 @@ package coord
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -303,5 +304,82 @@ func TestOldPeerResolve(t *testing.T) {
 	}
 	if acts := e.c.Activity(task.ID); acts[0].What != "answered “Which adapter?”: fine" {
 		t.Fatalf("activity %+v", acts[0])
+	}
+}
+
+// Blocking again with a reason replaces the open item Block made under
+// the same id and asks afresh: the person's answer to the old question no
+// longer counts, for its status or for the resolve, live and on replay.
+func TestReblockAsksAfresh(t *testing.T) {
+	e := newEnv(t)
+	task := claimed(t, e)
+	block := func(reason string) {
+		t.Helper()
+		if _, err := e.c.Block(ctx, alice, task.ID, reason, &BlockedBy{Kind: BlockedOnPerson}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	block("Which DB?")
+	mustN(t)(e.c.Answer(ctx, user, task.ID, "b1", BlockerAnswer{Text: "Postgres"}))
+	if _, b := blockerOf(t, e.c, task.ID, "b1"); b.Status != BlockerAnswered || b.SentTo != alice {
+		t.Fatalf("answered %+v", b)
+	}
+	block("Which region?")
+	for _, c := range []*Coord{e.c, e.reopen()} {
+		got, b := blockerOf(t, c, task.ID, "b1")
+		if len(got.Blockers) != 1 || b.Question != "Which region?" || b.Status != BlockerOpen || b.SentTo != "" || !b.Open() {
+			t.Fatalf("re-blocked: %+v", got.Blockers)
+		}
+		for _, v := range []string{user, alice} {
+			in := slices.ContainsFunc(c.Board(BoardFilter{For: v}).NeedsYou, func(cd Card) bool { return cd.ID == task.ID })
+			if in != (v == user) {
+				t.Fatalf("in %s's Needs you: %v", v, in)
+			}
+		}
+	}
+	// The person answers the new question; that answer is the one kept.
+	mustN(t)(e.c.Answer(ctx, user, task.ID, "b1", BlockerAnswer{Text: "eu-west"}))
+	got, _ := mustN(t)(e.c.Answer(ctx, alice, task.ID, "b1", BlockerAnswer{Text: "deploying to eu-west", Resolve: true}))
+	if r := got.Blockers[0].Resolved; r == nil || r.Answer != "eu-west" || r.Note != "deploying to eu-west" || got.State != Working {
+		t.Fatalf("resolved %+v", r)
+	}
+	if a, b := e.c.ListTasks(TaskFilter{}), e.reopen().ListTasks(TaskFilter{}); !reflect.DeepEqual(a, b) {
+		t.Fatalf("replay differs:\n%+v\n%+v", a, b)
+	}
+
+	// Resolved before anyone answers the new question: the raiser's words
+	// are the answer, not a note on the old one.
+	e = newEnv(t)
+	task = claimed(t, e)
+	block("Which DB?")
+	mustN(t)(e.c.Answer(ctx, user, task.ID, "b1", BlockerAnswer{Text: "Postgres"}))
+	block("Which region?")
+	got, _ = mustN(t)(e.c.Answer(ctx, alice, task.ID, "b1", BlockerAnswer{Text: "eu-west, it's closest", Resolve: true}))
+	if r := got.Blockers[0].Resolved; r == nil || r.Answer != "eu-west, it's closest" || r.Note != "" {
+		t.Fatalf("resolved %+v", r)
+	}
+}
+
+// A reason-only row from an old peer (no item) replaces the open item the
+// same way; of two replaces, the later in the log wins whichever folds
+// first.
+func TestReblockFromOldPeer(t *testing.T) {
+	e := newEnv(t)
+	task := claimed(t, e)
+	if _, err := e.c.Block(ctx, alice, task.ID, "Which DB?", nil); err != nil {
+		t.Fatal(err)
+	}
+	mustN(t)(e.c.Answer(ctx, user, task.ID, "b1", BlockerAnswer{Text: "Postgres"}))
+	at := hlcAt(fixedNow.Add(time.Minute))
+	row := func(by, reason string) taskStateRow {
+		return taskStateRow{TaskID: task.ID, State: Blocked, Reason: reason, By: by, At: fixedNow}
+	}
+	e.remote("dev-b", 1, at+2, "agent:dev-b/x", KindTaskState, row("dev-b/x", "Which region?"))
+	e.remote("dev-c", 1, at+1, "agent:dev-c/y", KindTaskState, row("dev-c/y", "Which zone?"))
+	for _, c := range []*Coord{e.c, e.reopen()} {
+		got, b := blockerOf(t, c, task.ID, "b1")
+		if len(got.Blockers) != 1 || b.Question != "Which region?" || b.Status != BlockerOpen || b.SentTo != "" || b.RaisedBy != "dev-b/x" {
+			t.Fatalf("re-blocked: %+v", got.Blockers)
+		}
 	}
 }

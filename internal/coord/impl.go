@@ -442,7 +442,7 @@ func (c *coord) apply(ev store.Event) {
 			what, raised := "", ""
 			if p.State == Blocked {
 				// BlockedBy follows the items (syncReason below).
-				what, raised = c.foldBlocked(t, p, was == Blocked, when)
+				what, raised = c.foldBlocked(t, p, ev, was == Blocked, when)
 			} else {
 				closeOpen(t, p.By, p.Note, when)
 				if was != p.State {

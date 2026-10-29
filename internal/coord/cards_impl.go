@@ -245,15 +245,22 @@ func trimResolved(t *Task) {
 	t.Blockers = keep
 }
 
-// foldBlocked applies a task.status row with state blocked: it adds (or,
-// for a reason-only row on a task already blocked, replaces) an item. It
-// returns the activity phrase and, for a raise, the new item's id.
-func (c *coord) foldBlocked(t *Task, p taskStateRow, wasBlocked bool, at time.Time) (string, string) {
+// foldBlocked applies a task.status row ev with state blocked: it adds
+// (or, for a reason-only row on a task already blocked, replaces) an item.
+// A replace asks afresh: answers before it no longer count. It returns the
+// activity phrase and, for a raise, the new item's id.
+func (c *coord) foldBlocked(t *Task, p taskStateRow, ev store.Event, wasBlocked bool, at time.Time) (string, string) {
+	pos := rowPos{ev.HLC, ev.DeviceID, ev.Seq}
 	if p.Blocker != nil && p.Blocker.ID != "" {
 		if i := blockerIndex(t, p.Blocker.ID); i >= 0 && p.Blocker.Replace && t.Blockers[i].Open() {
 			b := &t.Blockers[i]
+			if pos.before(b.asked) {
+				return "", "" // a later replace already folded
+			}
 			b.Question, b.Context, b.reason, b.RaisedBy, b.At = p.Blocker.Question, p.Blocker.Context, cmpStr(p.Reason, p.Blocker.Question), p.By, at
 			b.On = copyOn(p.Blocker.On)
+			b.asked = pos
+			c.refreshBlocker(t, b.ID)
 			return "changed the blocker: " + b.Question, ""
 		}
 		if blockerIndex(t, p.Blocker.ID) >= 0 {
@@ -272,11 +279,17 @@ func (c *coord) foldBlocked(t *Task, p taskStateRow, wasBlocked bool, at time.Ti
 				opts = append(opts, o)
 			}
 		}
-		t.Blockers = append(t.Blockers, Blocker{
+		nb := Blocker{
 			ID: p.Blocker.ID, Question: p.Blocker.Question, Context: p.Blocker.Context,
 			RaisedBy: p.By, At: at, Options: opts, reason: cmpStr(p.Reason, p.Blocker.Question),
 			legacy: p.Blocker.ReasonOnly, On: copyOn(p.Blocker.On),
-		})
+		}
+		if p.Blocker.Replace {
+			// The replace came before the raise it replaces, which is now
+			// ignored: answers to that raise still don't count.
+			nb.asked = pos
+		}
+		t.Blockers = append(t.Blockers, nb)
 		return "raised a blocker: " + p.Blocker.Question, p.Blocker.ID
 	}
 	// A reason-only row (written before items existed): re-blocking
@@ -288,8 +301,13 @@ func (c *coord) foldBlocked(t *Task, p taskStateRow, wasBlocked bool, at time.Ti
 	if wasBlocked {
 		for i := range t.Blockers {
 			if b := &t.Blockers[i]; b.Open() && b.legacy {
+				if pos.before(b.asked) {
+					return "", ""
+				}
 				b.Question, b.Context, b.reason, b.RaisedBy, b.At = q, ctxText, p.Reason, p.By, at
 				b.On = copyOn(p.BlockedBy)
+				b.asked = pos
+				c.refreshBlocker(t, b.ID)
 				return "changed the blocker: " + q, ""
 			}
 		}
@@ -307,21 +325,21 @@ func (c *coord) foldBlocked(t *Task, p taskStateRow, wasBlocked bool, at time.Ti
 // blocker comments in log order: none, or only agents', is open; the
 // person last is answered (sent to that answer's To); an agent last after
 // a person's answer is replied. A comment can fold before its item is
-// raised, so the raise refreshes too. The caller holds c.mu or is
-// replaying.
+// raised, so the raise refreshes too; a replace (Blocker.asked) restarts
+// the count. The caller holds c.mu or is replaying.
 func (c *coord) refreshBlocker(t *Task, bid string) {
 	i := blockerIndex(t, bid)
 	if i < 0 {
 		return
 	}
+	b := &t.Blockers[i]
 	var cs []*Comment
 	for _, id := range c.byTask[t.ID] {
-		if cm := c.comments[id]; cm != nil && cm.BlockerID == bid {
+		if cm := c.comments[id]; cm != nil && cm.BlockerID == bid && !cm.pos().before(b.asked) {
 			cs = append(cs, cm)
 		}
 	}
 	sort.Slice(cs, func(i, j int) bool { return cs[i].before(*cs[j]) })
-	b := &t.Blockers[i]
 	b.Status, b.SentTo, b.Missing = BlockerOpen, "", nil
 	n := len(cs)
 	switch {
@@ -336,12 +354,16 @@ func (c *coord) refreshBlocker(t *Task, bid string) {
 	}
 }
 
-// lastAnswer is the person's latest answer on item bid, or nil. The caller
-// holds c.mu.
+// lastAnswer is the person's latest answer on item bid since its question
+// was last replaced, or nil. The caller holds c.mu.
 func (c *coord) lastAnswer(t *Task, bid string) *Comment {
+	var asked rowPos
+	if i := blockerIndex(t, bid); i >= 0 {
+		asked = t.Blockers[i].asked
+	}
 	var last *Comment
 	for _, id := range c.byTask[t.ID] {
-		if cm := c.comments[id]; cm != nil && cm.BlockerID == bid && cm.person && (last == nil || last.before(*cm)) {
+		if cm := c.comments[id]; cm != nil && cm.BlockerID == bid && cm.person && !cm.pos().before(asked) && (last == nil || last.before(*cm)) {
 			last = cm
 		}
 	}
@@ -901,6 +923,17 @@ func (a Activity) before(b Activity) bool {
 func (a Comment) before(b Comment) bool {
 	return posBefore(a.HLC, a.Device, a.Seq, b.HLC, b.Device, b.Seq)
 }
+
+// rowPos is a row's position in the log (HLC, device, seq).
+type rowPos struct {
+	hlc hlc.Timestamp
+	dev string
+	seq int64
+}
+
+func (a rowPos) before(b rowPos) bool { return posBefore(a.hlc, a.dev, a.seq, b.hlc, b.dev, b.seq) }
+
+func (a Comment) pos() rowPos { return rowPos{a.HLC, a.Device, a.Seq} }
 
 func posBefore(ah hlc.Timestamp, ad string, as int64, bh hlc.Timestamp, bd string, bs int64) bool {
 	if ah != bh {

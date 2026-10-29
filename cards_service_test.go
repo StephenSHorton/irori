@@ -691,6 +691,28 @@ func TestAnswerResolvesWhenNobodyCanAct(t *testing.T) {
 	}
 }
 
+// A blocker the person raised has no agent to send the answer to, even
+// with a live holder: the person's answer resolves it at once instead of
+// leaving it waiting on nobody.
+func TestAnswerResolvesPersonRaisedWithLiveHolder(t *testing.T) {
+	b, c, _ := cardsBoard(t)
+	tk := heldTask(t, c) // agentA holds it and is running
+	if _, err := b.Block(tk.ID, "check the staging DNS", coord.BlockedOnPerson, ""); err != nil {
+		t.Fatal(err)
+	}
+	res, err := b.Answer(tk.ID, "b1", -1, "checked", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bl := blockerOf(t, res.Card, "b1")
+	if bl.State != BlockerResolved || bl.Resolved.Answer != "checked" || res.Card.State == coord.Blocked || res.Card.Waiting != 0 {
+		t.Fatalf("person's own blocker %+v card %+v", bl, res.Card.CardSummary)
+	}
+	if n := b.decideCount(); n != 0 {
+		t.Fatalf("decide = %d", n)
+	}
+}
+
 // "Mark resolved" with no note keeps the person's answer; with one, the
 // note goes beside the check. Only an open item with an answer has
 // nothing more to ask for.

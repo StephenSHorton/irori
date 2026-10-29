@@ -662,12 +662,16 @@ func (b *BoardService) Answer(taskID, blockerID string, option int, text string,
 	return AnswerResult{Card: d, Told: told}, nil
 }
 
-// nobodyCanAct reports whether no agent is running to act on an answer to
-// an item raiser raised: raiser isn't a live agent (the person, Irori, or
-// a session the roster has as gone) and no holder of t is live. The
-// person's answer then resolves it, as nobody would resolve or reply.
+// nobodyCanAct reports whether no agent will act on an answer to an item
+// raiser raised: raiser isn't an agent (the person or Irori, whatever the
+// holders, as the answer would go back to them), or is a session the
+// roster has as gone and no holder of t is live. The person's answer then
+// resolves it, as nobody would resolve or reply.
 func (b *BoardService) nobodyCanAct(t coord.Task, raiser string) bool {
 	p := b.people()
+	if r := p.ref(raiser); raiser == "" || r.Status == "person" || r.Status == "irori" {
+		return true
+	}
 	live := func(key string) bool {
 		r := p.ref(key)
 		return r.Live && r.Status != "person" && r.Status != "irori"
