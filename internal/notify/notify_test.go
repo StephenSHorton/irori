@@ -125,7 +125,7 @@ func TestConfigureAndHeadless(t *testing.T) {
 	if f.cfg == nil {
 		t.Fatal("go-toast was never configured")
 	}
-	if f.cfg.AppName != "Irori" || f.cfg.CornerRadius != 10 || !f.cfg.CaptureExclude || f.cfg.Palette != toast.Light {
+	if f.cfg.AppName != "Irori" || f.cfg.CornerRadius != 0 || !f.cfg.CaptureExclude || f.cfg.Palette != toast.Dark {
 		t.Fatalf("config = %+v", *f.cfg)
 	}
 	if !n.Enabled() || n.Headless() {
