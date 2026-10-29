@@ -32,13 +32,21 @@ import (
 // Each board's Verifier is identity.BoardVerifier (§3, step 2): one chain
 // per pinned member, seeded from the member's pin and grown by the
 // member.* rows each member's devices write (keepCurrent writes this
-// person's). The pins come from the device-local board.pin rows: this
-// person, with this device as the board root, on a board it created.
+// person's). The device-local board.pin row is the board's anchor: its
+// creator as this device trusts it, which board.created must match (from
+// its own creation; an invite bundle's in stage 2). Every other member is
+// pinned by the membership fold from owners' board.member.added rows
+// (step 3), which also cuts removed and departed members.
 //
-// What is not here yet, by the design's build order: board.created and
-// membership, which will pin the other members (step 3), connections and
-// sync (step 5), tags in short refs and the Boards dialog (step 4). Until
-// then a board holds this person's rows only and stays on this device.
+// Each board's secret (§6.1) sits beside its log, boards/<id>.secrets,
+// sealed by the keystore and never in a row. rotateSecret mints the next
+// epoch's when a removal, a leave or a member device revoke folds.
+//
+// What is not here yet, by the design's build order: connections and
+// sync (step 5), tags in short refs and the Boards dialog (step 4), and the
+// invite, remove and leave write paths (§4.1, §4.3, §4.4, with their
+// cleanup and forgetting). Until then a board holds this person's rows
+// only and stays on this device.
 
 // BoardsDir is where the board logs live, under the data dir.
 const BoardsDir = "boards"
@@ -52,8 +60,9 @@ type boardLog struct {
 	store    *store.Store
 	coord    *coord.Coord
 	verifier *identity.BoardVerifier
+	secrets  *identity.BoardSecrets
 
-	idMu sync.Mutex // one keepCurrent at a time
+	idMu sync.Mutex // one keepCurrent or rotateSecret at a time
 
 	mu    sync.Mutex
 	cards map[string]boardCard // cardId -> its agent.card, as folded
@@ -128,19 +137,138 @@ func (c *Core) openBoards(ctx context.Context) {
 	}
 }
 
-// CreateBoard makes a new board log on this device and returns its id. It
-// pins this person with this device as the board root and writes this
-// person's member.* rows (§3). Step 3 of §12 writes its board.created
-// row; step 4 puts it behind the Boards dialog.
-func (c *Core) CreateBoard(ctx context.Context) (string, error) {
+// CreateBoard makes a new board log on this device and returns its id
+// (§2.1). It anchors this person with this device as the board root,
+// writes this person's member.* rows (§3) and then board.created, signed by
+// the person key: the self-cert comes first in this device's stream, so a
+// peer can check board.created's device signature against it. The board's
+// first secret is made with it (§6.1). name is shown on the board; tag is
+// its short handle in refs (`mlg#12`, B3), unique among the boards on this
+// device. Step 4 puts it behind the Boards dialog.
+func (c *Core) CreateBoard(ctx context.Context, name, tag string) (string, error) {
+	name = strings.TrimSpace(name)
+	if !identity.ValidBoardName(name) {
+		return "", fmt.Errorf("%w: a board name is 1 to %d characters", coord.ErrInvalid, identity.MaxBoardName)
+	}
+	if !identity.ValidBoardTag(tag) {
+		return "", fmt.Errorf("%w: a board tag is a lowercase letter, then up to 15 lowercase letters, digits or '-'", coord.ErrInvalid)
+	}
+	for _, other := range c.Boards() {
+		if b, err := c.board(other); err == nil && b.verifier.Membership().Tag == tag {
+			return "", fmt.Errorf("%w: the tag %q is already board %s's", coord.ErrInvalid, tag, other)
+		}
+	}
 	id, err := NewBoardID()
 	if err != nil {
 		return "", err
 	}
-	if _, err := c.openBoard(ctx, id, true); err != nil {
+	b, err := c.openBoard(ctx, id, true)
+	if err != nil {
+		return "", err
+	}
+	pin, _ := b.verifier.Pinned(c.chain.PersonID())
+	row, err := c.ident.BoardCreatedRow(id, name, tag, pin, c.now())
+	if err != nil {
+		return "", err
+	}
+	if _, err := b.store.Append(ctx, store.PersonActorPrefix+pin.PersonID, store.KindBoardCreated, row); err != nil {
+		return "", err
+	}
+	if !b.verifier.Membership().Created {
+		return "", errors.New("core: the board's board.created did not count")
+	}
+	if err := c.rotateSecret(b); err != nil {
 		return "", err
 	}
 	return id, nil
+}
+
+// now is the Core's clock.
+func (c *Core) now() time.Time {
+	if c.opts.Now != nil {
+		return c.opts.Now()
+	}
+	return time.Now()
+}
+
+// RenameBoard renames a board (§4.2: owners only), with board.renamed
+// signed by this person's key.
+func (c *Core) RenameBoard(ctx context.Context, boardID, name string) error {
+	name = strings.TrimSpace(name)
+	if !identity.ValidBoardName(name) {
+		return fmt.Errorf("%w: a board name is 1 to %d characters", coord.ErrInvalid, identity.MaxBoardName)
+	}
+	b, err := c.board(boardID)
+	if err != nil {
+		return err
+	}
+	me := c.chain.PersonID()
+	if !b.verifier.Membership().Owner(me) {
+		return fmt.Errorf("%w: only an owner renames board %s", coord.ErrNotAllowed, boardID)
+	}
+	epoch := b.verifier.Epoch(me)
+	if epoch != c.ident.Current().Epoch {
+		return fmt.Errorf("%w: this device's person key isn't the board's newest yet", coord.ErrNotAllowed)
+	}
+	row, err := c.ident.BoardRenamedRow(epoch, name, c.now())
+	if err != nil {
+		return err
+	}
+	_, err = b.store.Append(ctx, store.PersonActorPrefix+me, store.KindBoardRenamed, row)
+	return err
+}
+
+// BoardInfo is one board as this device folds it, for the Boards dialog
+// (step 4) and ?detail=1.
+type BoardInfo struct {
+	BoardID string                 `json:"boardId"`
+	Name    string                 `json:"name"`
+	Tag     string                 `json:"tag"`
+	Creator string                 `json:"creator"`
+	Members []identity.BoardPerson `json:"members"`
+	// Conflicts are board.* rows the fold ignored, with why (§4.2).
+	Conflicts []identity.Conflict `json:"conflicts,omitempty"`
+	// Epoch is the board secret's epoch by the fold; SecretEpoch the
+	// newest this device holds a secret for.
+	Epoch       int `json:"epoch"`
+	SecretEpoch int `json:"secretEpoch"`
+}
+
+// BoardInfo reports boardID's membership and secret epoch.
+func (c *Core) BoardInfo(boardID string) (BoardInfo, error) {
+	b, err := c.board(boardID)
+	if err != nil {
+		return BoardInfo{}, err
+	}
+	m := b.verifier.Membership()
+	return BoardInfo{BoardID: boardID, Name: m.Name, Tag: m.Tag, Creator: m.Creator, Members: m.Members,
+		Conflicts: m.Conflicts, Epoch: b.verifier.BoardEpoch(), SecretEpoch: b.secrets.Epoch()}, nil
+}
+
+// rotateSecret makes this device's secret for the board's epoch when it
+// holds none yet (§6.1): at board.created, and after a removal, a leave or
+// a member device revoke folds. Only a device of a current owner, or of a
+// member whose own device was revoked, rotates. Sending it to the other
+// member devices is step 5's.
+func (c *Core) rotateSecret(b *boardLog) error {
+	b.idMu.Lock()
+	defer b.idMu.Unlock()
+	target := b.verifier.BoardEpoch()
+	if target == 0 || b.secrets.Epoch() >= target {
+		return nil
+	}
+	me := c.chain.PersonID()
+	m := b.verifier.Membership()
+	may := m.Owner(me)
+	if !may && m.Active(me) {
+		for _, d := range b.verifier.Devices(me) {
+			may = may || d.Revoked
+		}
+	}
+	if !may {
+		return nil
+	}
+	return b.secrets.Mint(target, c.device.ID)
 }
 
 // openBoard opens (creating) one board log and its coord, and starts
@@ -155,13 +283,17 @@ func (c *Core) openBoard(ctx context.Context, id string, create bool) (*boardLog
 	if b := c.boards.logs[id]; b != nil {
 		return b, nil
 	}
-	v := identity.NewBoardVerifier()
+	secrets, err := identity.OpenBoardSecrets(filepath.Join(c.opts.DataDir, BoardsDir, id+".secrets"), id, c.ident.Keystore())
+	if err != nil {
+		return nil, fmt.Errorf("board secrets: %w", err)
+	}
+	v := identity.NewBoardVerifierFor(id)
 	st, err := store.OpenWith(ctx, filepath.Join(c.opts.DataDir, BoardsDir, id+".db"), c.device.ID, hlc.New(c.opts.Now),
 		store.OpenOptions{Signer: c.ident, Verifier: v, Now: c.opts.Now, Board: true})
 	if err != nil {
 		return nil, fmt.Errorf("open board log: %w", err)
 	}
-	b := &boardLog{id: id, store: st, verifier: v, cards: map[string]boardCard{}, keys: map[string]string{}, byID: map[string]string{}}
+	b := &boardLog{id: id, store: st, verifier: v, secrets: secrets, cards: map[string]boardCard{}, keys: map[string]string{}, byID: map[string]string{}}
 	if err := c.pinBoard(ctx, b, create); err != nil {
 		st.Close()
 		return nil, err
@@ -174,6 +306,9 @@ func (c *Core) openBoard(ctx context.Context, id string, create bool) (*boardLog
 		// The board still opens: its rows verify as far as they can, and
 		// the next identity change retries.
 		log.Printf("board %s: identity rows: %v", id, err)
+	}
+	if err := c.rotateSecret(b); err != nil {
+		log.Printf("board %s: secret: %v", id, err)
 	}
 	me := store.PersonActorPrefix + c.chain.PersonID()
 	if b.coord, err = coord.New(ctx, st, boardRoster{c, b}, coord.Options{Now: c.opts.Now, Board: true, Person: me,
@@ -298,9 +433,15 @@ func createdTaskID(ev store.Event) string {
 }
 
 // followBoard keeps the taskId index and the cards current as rows reach
-// b's log, rebuilding them on a resync.
+// b's log, rebuilding them on a resync, and rotates the board secret when
+// a membership or identity row moves the board's epoch.
 func (c *Core) followBoard(ctx context.Context, b *boardLog) {
 	for ev := range b.store.Subscribe(ctx) {
+		if ev.Seq == 0 || store.IsBoardIdentityKind(ev.Kind) {
+			if err := c.rotateSecret(b); err != nil && ctx.Err() == nil {
+				log.Printf("board %s: secret: %v", b.id, err)
+			}
+		}
 		switch {
 		case ev.Seq == 0:
 			ids, err := b.taskIDs(ctx)
@@ -630,6 +771,9 @@ func (c *Core) keepCurrent(ctx context.Context, b *boardLog) error {
 	pin, ok := v.Pinned(me.ID)
 	if !ok {
 		return nil
+	}
+	if m := v.Membership(); m.Created && !m.Active(me.ID) {
+		return nil // removed or left: nothing more of ours counts here
 	}
 	now := time.Now
 	if c.opts.Now != nil {

@@ -183,12 +183,14 @@ type boardRules struct {
 	cards    map[string]bool
 	hashes   map[string]bool
 	leases   map[string]bool // resource
+	persons  map[string]bool // personId: board.created's creator, board.member.added's person
 	counts   BoardCounts
 }
 
 func newBoardRules() *boardRules {
 	return &boardRules{tasks: map[string]bool{}, comments: map[string]bool{}, blockers: map[string]bool{},
-		steps: map[string]bool{}, cards: map[string]bool{}, hashes: map[string]bool{}, leases: map[string]bool{}}
+		steps: map[string]bool{}, cards: map[string]bool{}, hashes: map[string]bool{}, leases: map[string]bool{},
+		persons: map[string]bool{}}
 }
 
 // boardRow is every field of a board row that defines or names an id.
@@ -218,6 +220,10 @@ type boardRow struct {
 		Resource string `json:"resource"`
 		Holder   string `json:"holder"`
 	} `json:"stolen"`
+	PersonID string `json:"personId"`
+	Creator  *struct {
+		PersonID string `json:"personId"`
+	} `json:"creator"`
 }
 
 type boardOn struct {
@@ -299,18 +305,29 @@ func (b *boardRules) define(kind string, payload []byte) {
 		if p.Resource != "" {
 			b.leases[p.Resource] = true
 		}
+	case KindBoardCreated:
+		if p.Creator != nil && boardID(p.Creator.PersonID) {
+			b.persons[p.Creator.PersonID] = true
+		}
+	case KindBoardMemberAdded:
+		if boardID(p.PersonID) {
+			b.persons[p.PersonID] = true
+		}
 	}
 }
 
 // resolves is the closure check (§2.3): nil when every id kind's row names
 // is held in this board, else the first one that isn't, by field. Commit
-// SHAs, PR URLs and other links are not ids and always pass. person:
-// keys are checked for shape only until membership rows exist (§12 step 3).
+// SHAs, PR URLs and other links are not ids and always pass. A person:
+// key resolves when board.created or a board.member.added in this log
+// names the person: whether that membership counts is the Verifier's
+// (closure is about meaning, not authority).
 func (b *boardRules) resolves(kind string, payload []byte) error {
-	if strings.HasPrefix(kind, "member.") {
-		// A member's identity objects name only that member's person and
-		// devices (member.key.rotated's by is a device id), which the
-		// board Verifier checks; nothing in them is a board reference.
+	if strings.HasPrefix(kind, "member.") || strings.HasPrefix(kind, "board.") {
+		// A member's identity objects and the board's own rows name only
+		// persons (as bare personIds) and devices (member.key.rotated's by
+		// is a device id), which the board Verifier checks; nothing in
+		// them is a board reference.
 		return nil
 	}
 	var p boardRow
@@ -406,8 +423,12 @@ func (b *boardRules) key(k, selfCard string) string {
 	case k == "" || k == "irori":
 		return ""
 	case strings.HasPrefix(k, PersonActorPrefix):
-		if !boardID(k[len(PersonActorPrefix):]) {
+		id := k[len(PersonActorPrefix):]
+		if !boardID(id) {
 			return "is not a person's board key"
+		}
+		if !b.persons[id] {
+			return "is not a person on this board"
 		}
 		return ""
 	case strings.HasPrefix(k, AgentActorPrefix):
@@ -455,10 +476,23 @@ func (d *db) identityPrefixes() []string {
 	return []string{"person."}
 }
 
-// revokeKind is the revoke kind honoured past its writer's cut.
-func (d *db) revokeKind() string {
+// revokeKinds are the kinds honoured past their writer's cut: the revoke,
+// and in a board log the removal and the leave too, since each makes cuts
+// and cuts must not depend on which row arrived first (two owners who
+// remove each other while apart are both removed, as a mutual revoke).
+func (d *db) revokeKinds() []string {
 	if d.board != nil {
-		return KindMemberDeviceRevoked
+		return []string{KindMemberDeviceRevoked, KindBoardMemberRemoved, KindBoardMemberLeft}
 	}
-	return KindPersonDeviceRevoked
+	return []string{KindPersonDeviceRevoked}
+}
+
+// revokeKind reports one of revokeKinds.
+func (d *db) revokeKind(kind string) bool {
+	for _, k := range d.revokeKinds() {
+		if k == kind {
+			return true
+		}
+	}
+	return false
 }

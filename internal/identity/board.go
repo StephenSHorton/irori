@@ -165,12 +165,22 @@ func (id *Identity) MemberProfileRow(epoch int) (MemberProfile, error) {
 // take over another's device by certifying its key), except a member's
 // own pinned root.
 //
-// The pins come from outside (Pin): the Core pins this person on a board it
-// creates. Pins from board.created and board.member.added, with owners
-// and removal, are the membership fold's (§12 step 3).
+// The anchors come from outside (Pin): the creator, from this device's own
+// creation of the board or (stage 2) an invite bundle. Every other member
+// is pinned by the membership fold (FoldMembership) from the
+// board.member.added rows owners write, and the fold's cuts for removed
+// and departed members join the revoke cuts. The two fold to a fixed
+// point together: a pinned member's chain verifies their board.* rows,
+// which may pin more members.
 type BoardVerifier struct {
-	mu   sync.Mutex
-	pins map[string]MemberPin // personId -> pin; kept across Reset
+	mu      sync.Mutex
+	boardID string               // "" skips board.created's boardId check
+	pins    map[string]MemberPin // the anchors: personId -> pin; kept across Reset
+	eff     map[string]MemberPin // anchors and the fold's pins
+
+	brows    []MembershipRow
+	ms       Membership
+	revokedN int // member devices revoked by a counted revoke
 
 	certs     []mCertRow
 	revokes   []mRevokeRow
@@ -240,9 +250,14 @@ type boardEpoch struct {
 
 var _ store.Verifier = (*BoardVerifier)(nil)
 
-// NewBoardVerifier makes a board Verifier with these pins.
-func NewBoardVerifier(pins ...MemberPin) *BoardVerifier {
-	v := &BoardVerifier{pins: map[string]MemberPin{}}
+// NewBoardVerifier makes a board Verifier with these anchors, checking no
+// boardId.
+func NewBoardVerifier(pins ...MemberPin) *BoardVerifier { return NewBoardVerifierFor("", pins...) }
+
+// NewBoardVerifierFor makes the Verifier of board boardID's log: a
+// board.created counts only when it names boardID.
+func NewBoardVerifierFor(boardID string, pins ...MemberPin) *BoardVerifier {
+	v := &BoardVerifier{boardID: boardID, pins: map[string]MemberPin{}}
 	for _, p := range pins {
 		v.pins[p.PersonID] = p
 	}
@@ -250,31 +265,74 @@ func NewBoardVerifier(pins ...MemberPin) *BoardVerifier {
 	return v
 }
 
-// Pin pins a member (§3) and refolds the rows already observed. A person
-// is pinned once; a second, different pin for them is refused.
+// Pin anchors a member (§3), normally the board's creator, and refolds the
+// rows already observed. A person is pinned once; a second, different pin
+// for them, or one that disagrees with the pin the membership fold gave
+// them, is refused.
 func (v *BoardVerifier) Pin(p MemberPin) error {
-	if p.PersonID == "" || p.RootDeviceID == "" || p.PersonEpoch < 1 || !validPub(p.PersonPub) {
+	if !validPin(p) {
 		return fmt.Errorf("identity: incomplete pin for %q", p.PersonID)
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if old, ok := v.pins[p.PersonID]; ok {
+	old, ok := v.pins[p.PersonID]
+	if !ok {
+		old, ok = v.eff[p.PersonID]
+	}
+	if ok {
 		if old != p {
 			return fmt.Errorf("identity: %s is already pinned on this board with another key or root", p.PersonID)
 		}
-		return nil
+		if _, anchored := v.pins[p.PersonID]; anchored {
+			return nil
+		}
 	}
 	v.pins[p.PersonID] = p
 	v.refold()
 	return nil
 }
 
-// Pinned reports personID's pin.
+// Pinned reports personID's pin: an anchor, or the fold's from an owner's
+// board.member.added.
 func (v *BoardVerifier) Pinned(personID string) (MemberPin, bool) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	p, ok := v.pins[personID]
+	p, ok := v.eff[personID]
 	return p, ok
+}
+
+// Membership is the board's folded membership (FoldMembership), with each
+// member's name from their counted member.profile where there is one.
+func (v *BoardVerifier) Membership() Membership {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	m := v.ms
+	m.Members = append([]BoardPerson(nil), m.Members...)
+	m.Conflicts = append([]Conflict(nil), m.Conflicts...)
+	m.Gone = append([]string(nil), m.Gone...)
+	pins, cuts := map[string]MemberPin{}, map[string]int64{}
+	for k, p := range m.Pins {
+		pins[k] = p
+	}
+	for k, c := range m.Cuts {
+		cuts[k] = c
+	}
+	m.Pins, m.Cuts = pins, cuts
+	return m
+}
+
+// BoardEpoch is the board secret's epoch (§6.1): 1 at board.created, and
+// one more for every member removed or left and every member device
+// revoked, by a counted row. Every member folds the same rows to the same
+// number, so it needs no frame to agree on; a re-removal after a re-add is
+// stage 2's to count.
+func (v *BoardVerifier) BoardEpoch() int {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if !v.ms.Created {
+		return 0
+	}
+	return 1 + len(v.ms.Gone) + v.revokedN
 }
 
 // Reset forgets every observed row; the pins stay (store.Verifier).
@@ -288,6 +346,11 @@ func (v *BoardVerifier) resetLocked() {
 	v.certs, v.revokes, v.rotations, v.profiles, v.cards, v.seen, v.bad = nil, nil, nil, nil, nil, nil, 0
 	v.members, v.devs, v.valid, v.cuts, v.claims = map[string]*memberFold{}, map[string]string{}, map[string]MemberCert{}, map[string]int64{}, nil
 	v.cardOf, v.ambig, v.sigs = map[string]string{}, map[string]bool{}, sigMemo{}
+	v.brows, v.ms, v.revokedN = nil, Membership{}, 0
+	v.eff = map[string]MemberPin{}
+	for k, p := range v.pins {
+		v.eff[k] = p
+	}
 }
 
 // Observe folds one board identity row (store.Verifier): member.*, and
@@ -346,28 +409,55 @@ func (v *BoardVerifier) Observe(ev store.Event) {
 		v.foldCards() // a card changes no chain
 		return
 	default:
-		return
+		if !IsMembershipKind(ev.Kind) {
+			return
+		}
+		v.brows = append(v.brows, MembershipRowOf(ev))
 	}
 	v.refold()
 }
 
-// refold recomputes every member's chain, then which person each device
-// and card belongs to. v.mu is held.
+// refold recomputes every member's chain and the membership, to a fixed
+// point between them (pins verify board.* rows, which pin more members),
+// then which person each device and card belongs to. Each pass is a
+// deterministic function of the rows observed, so every arrival order
+// agrees. v.mu is held.
 func (v *BoardVerifier) refold() {
 	sort.Slice(v.certs, func(i, j int) bool { return v.certs[i].pos.less(v.certs[j].pos) })
 	sort.Slice(v.revokes, func(i, j int) bool { return v.revokes[i].pos.less(v.revokes[j].pos) })
 	sort.Slice(v.rotations, func(i, j int) bool { return v.rotations[i].pos.less(v.rotations[j].pos) })
 	sort.Slice(v.profiles, func(i, j int) bool { return v.profiles[i].pos.less(v.profiles[j].pos) })
 
-	members := map[string]*memberFold{}
-	ids := make([]string, 0, len(v.pins))
-	for id := range v.pins {
+	pins := map[string]MemberPin{}
+	for k, p := range v.pins {
+		pins[k] = p
+	}
+	var members map[string]*memberFold
+	var ms Membership
+	for range len(v.brows) + 2 {
+		members = v.foldMembers(pins, nil)
+		ms = FoldMembership(v.boardID, v.pins, v.brows, membershipKeys{v, members})
+		if samePins(ms.Pins, pins) {
+			break
+		}
+		pins = ms.Pins
+	}
+	if len(ms.Cuts) > 0 {
+		// A removed member's certs above their cut certify nothing, as
+		// the store will have moved them out.
+		members = v.foldMembers(pins, ms.Cuts)
+	}
+	ids := make([]string, 0, len(pins))
+	for id := range pins {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	for _, pid := range ids {
-		members[pid] = v.foldMember(v.pins[pid])
+	for i, p := range ms.Members {
+		if m := members[p.PersonID]; m != nil && m.profile {
+			ms.Members[i].Name = m.name
+		}
 	}
+	v.eff, v.ms = pins, ms
 	// Which person each device is: a device counted by two members counts
 	// for neither, unless it is one's pinned root.
 	owners := map[string][]string{}
@@ -382,7 +472,7 @@ func (v *BoardVerifier) refold() {
 		if len(pids) > 1 {
 			pid = ""
 			for _, p := range pids {
-				if v.pins[p].RootDeviceID == dev {
+				if pins[p].RootDeviceID == dev {
 					pid = p
 				}
 			}
@@ -409,6 +499,21 @@ func (v *BoardVerifier) refold() {
 			}
 		}
 	}
+	v.revokedN = len(cuts)
+	// A removed or departed member's devices are cut too (§4.3, §4.4); the
+	// lower cut wins.
+	gone := map[string]bool{}
+	for _, p := range ms.Gone {
+		gone[p] = true
+	}
+	for dev, cut := range ms.Cuts {
+		if !gone[devs[dev]] {
+			continue
+		}
+		if cur, ok := cuts[dev]; !ok || cut < cur {
+			cuts[dev] = cut
+		}
+	}
 	v.members, v.devs, v.valid, v.cuts, v.claims, v.ambig = members, devs, valid, cuts, claims, ambig
 	v.foldCards()
 }
@@ -430,9 +535,96 @@ func (v *BoardVerifier) foldCards() {
 	v.cardOf = cardOf
 }
 
+// foldMembers folds every pinned member's chain, extra cutting their
+// devices beside their revokes. v.mu is held.
+func (v *BoardVerifier) foldMembers(pins map[string]MemberPin, extra map[string]int64) map[string]*memberFold {
+	out := make(map[string]*memberFold, len(pins))
+	for pid, pin := range pins {
+		out[pid] = v.foldMember(pin, extra)
+	}
+	return out
+}
+
+func samePins(a, b map[string]MemberPin) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, p := range a {
+		if b[k] != p {
+			return false
+		}
+	}
+	return true
+}
+
+// membershipKeys is FoldMembership's view of the board's chains.
+type membershipKeys struct {
+	v       *BoardVerifier
+	members map[string]*memberFold
+}
+
+func (k membershipKeys) PersonOf(dev string) string {
+	found := ""
+	for pid, m := range k.members {
+		if _, ok := m.ever[dev]; !ok {
+			continue
+		}
+		if m.pin.RootDeviceID == dev {
+			return pid
+		}
+		if found != "" {
+			return "" // certified by two members: neither's
+		}
+		found = pid
+	}
+	return found
+}
+
+func (k membershipKeys) Signed(pid string, epoch int, at RowAt, sig string, body any) bool {
+	m := k.members[pid]
+	return m != nil && signedIn(k.v.sigs, m.keys, epoch, rowPos{at.HLC, at.Device, at.Seq}, sig, body)
+}
+
+func (k membershipKeys) HasKey(pid string, epoch int, pub string) bool {
+	if m := k.members[pid]; m != nil {
+		for _, e := range m.keys {
+			if e.epoch == epoch && e.pub == pub {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (k membershipKeys) Devices(pid string) []string {
+	m := k.members[pid]
+	if m == nil {
+		return nil
+	}
+	out := make([]string, 0, len(m.ever))
+	for dev := range m.ever {
+		out = append(out, dev)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (k membershipKeys) Cut(dev string) (int64, bool) {
+	for _, m := range k.members {
+		if _, own := m.ever[dev]; !own {
+			continue
+		}
+		if cut, ok := m.cuts[dev]; ok {
+			return cut, true
+		}
+	}
+	return 0, false
+}
+
 // foldMember runs one member's chain (the rules on BoardVerifier), with
-// the cuts and cut claims of its honoured revokes. v.mu is held.
-func (v *BoardVerifier) foldMember(pin MemberPin) *memberFold {
+// the cuts and cut claims of its honoured revokes; extra cuts (a removal's
+// or a leave's) also stop certs above them from counting. v.mu is held.
+func (v *BoardVerifier) foldMember(pin MemberPin, extra map[string]int64) *memberFold {
 	var certs []mCertRow
 	for _, r := range v.certs {
 		if r.cert.PersonID == pin.PersonID {
@@ -489,7 +681,22 @@ func (v *BoardVerifier) foldMember(pin MemberPin) *memberFold {
 			claims = append(claims, store.CutClaim{DeviceID: dev, Seq: r.rev.BoardCut, Hash: r.rev.BoardCutHash})
 		}
 	}
-	m := &memberFold{pin: pin, keys: keys, ever: ever, valid: certifyMember(pin.RootDeviceID, signed, mine), cuts: mine, claims: claims}
+	within := mine
+	if len(extra) > 0 {
+		within = map[string]int64{}
+		for dev, cut := range mine {
+			within[dev] = cut
+		}
+		for dev, cut := range extra {
+			if _, own := ever[dev]; !own {
+				continue
+			}
+			if cur, ok := within[dev]; !ok || cut < cur {
+				within[dev] = cut
+			}
+		}
+	}
+	m := &memberFold{pin: pin, keys: keys, ever: ever, valid: certifyMember(pin.RootDeviceID, signed, within), cuts: mine, claims: claims}
 	for _, p := range v.profiles {
 		if p.prof.PersonID != pin.PersonID {
 			continue
@@ -665,7 +872,7 @@ func (v *BoardVerifier) rootSelfCert(ev store.Event) (MemberCert, bool) {
 	if json.Unmarshal(ev.Payload, &p) != nil || p.Cert.DeviceID != ev.DeviceID {
 		return MemberCert{}, false
 	}
-	pin, ok := v.pins[p.Cert.PersonID]
+	pin, ok := v.eff[p.Cert.PersonID]
 	if !ok || pin.RootDeviceID != ev.DeviceID || p.Cert.PersonEpoch != pin.PersonEpoch ||
 		verifyPerson(pin.PersonPub, p.PersonSig, p.Cert) != nil {
 		return MemberCert{}, false
@@ -687,12 +894,32 @@ func bindActor(ev store.Event, person string, cardPerson func(string) (string, b
 		Revoke *struct {
 			PersonID string `json:"personId"`
 		} `json:"revoke"`
+		By      string `json:"by"`
+		Creator *struct {
+			PersonID string `json:"personId"`
+		} `json:"creator"`
 	}
 	_ = json.Unmarshal(ev.Payload, &p)
 	refuse := func(format string, a ...any) error {
 		return fmt.Errorf("%w: %s/%d %s", store.ErrBoardActor, ev.DeviceID, ev.Seq, fmt.Sprintf(format, a...))
 	}
 	switch {
+	case IsMembershipKind(ev.Kind):
+		// The acting person is the writing device's (§2.1: "by must be the
+		// writing device's person").
+		actor := p.By
+		switch ev.Kind {
+		case store.KindBoardCreated:
+			actor = ""
+			if p.Creator != nil {
+				actor = p.Creator.PersonID
+			}
+		case store.KindBoardMemberLeft:
+			actor = p.PersonID
+		}
+		if actor != person {
+			return refuse("writes %s as person %q, not its own", ev.Kind, actor)
+		}
 	case ev.Kind == store.KindAgentCard:
 		if p.PersonID != person {
 			return refuse("writes an agent card for person %q, not its own", p.PersonID)
@@ -771,7 +998,7 @@ func (v *BoardVerifier) KeyPerson(key string) string {
 	if id, ok := strings.CutPrefix(key, store.PersonActorPrefix); ok {
 		v.mu.Lock()
 		defer v.mu.Unlock()
-		if _, pinned := v.pins[id]; pinned {
+		if _, pinned := v.eff[id]; pinned {
 			return id
 		}
 		return ""
@@ -798,7 +1025,7 @@ func (v *BoardVerifier) Epoch(personID string) int {
 	defer v.mu.Unlock()
 	m := v.members[personID]
 	if m == nil {
-		if p, ok := v.pins[personID]; ok {
+		if p, ok := v.eff[personID]; ok {
 			return p.PersonEpoch
 		}
 		return 0

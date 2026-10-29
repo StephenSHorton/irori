@@ -27,6 +27,11 @@ func newBoardCoord(t *testing.T, dev string) (*store.Store, *Coord) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
+	// board.created puts p1 on the board, so person:p1 keys resolve (§2.3).
+	if _, err := st.Append(context.Background(), boardPerson, store.KindBoardCreated,
+		map[string]any{"boardId": "b", "name": "b", "tag": "b", "creator": map[string]any{"personId": "p1"}}); err != nil {
+		t.Fatal(err)
+	}
 	c, err := New(context.Background(), st, newRoster(boardCard), Options{Now: clk.now, Board: true, Person: boardPerson,
 		IsOwner: func(k string) bool { return k == boardPerson }})
 	if err != nil {
@@ -114,9 +119,11 @@ func TestBoardCoordSetsAside(t *testing.T) {
 	// comment's stream so far: here, the comment arrives first by handing
 	// the fold the row directly, as Follow does for an inserted row.
 	dst, c := newBoardCoord(t, "dev-a")
-	var created, comment, card store.Event
+	var board, created, comment, card store.Event
 	for _, ev := range rows {
 		switch ev.Kind {
+		case store.KindBoardCreated:
+			board = ev
 		case KindTaskCreated:
 			created = ev
 		case KindTaskComment:
@@ -131,7 +138,7 @@ func TestBoardCoordSetsAside(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	insert(card)
+	insert(board, card)
 	c.impl.mu.Lock()
 	c.impl.apply(comment) // what Follow would do had the comment's stream come first
 	c.impl.mu.Unlock()

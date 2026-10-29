@@ -690,7 +690,7 @@ func (d *db) insertOne(ctx context.Context, tx *sql.Tx, ev *Event) (stored bool,
 		// Before the gap check: a revoked device's later rows are refused
 		// whether or not the rows between are held.
 		if cut, ok := d.verifier.Cut(ev.DeviceID); ok && ev.Seq > cut {
-			if ev.Kind == d.revokeKind() && len(ev.Sig) > 0 {
+			if d.revokeKind(ev.Kind) && len(ev.Sig) > 0 {
 				// A revoke is honoured if its writer was ever certified, even
 				// past the writer's own cut (§3: a mutual revoke removes
 				// both, in either arrival order). It can't join the gapless
@@ -909,8 +909,13 @@ func (d *db) loadVerifier(ctx context.Context) error {
 	// Revokes in refused_events still count: one honoured past its writer's
 	// cut, and one moved there when its writer was revoked in turn (a
 	// revoke counts if its writer was ever certified, §5.5).
+	kinds := d.revokeKinds()
+	args := make([]any, len(kinds))
+	for i, k := range kinds {
+		args[i] = k
+	}
 	revs, err := (&Store{impl: d}).query(ctx, `SELECT device_id, seq, hlc, actor, kind, payload, sig FROM refused_events
-		WHERE kind = ? ORDER BY hlc, device_id, seq`, d.revokeKind())
+		WHERE kind IN (?`+strings.Repeat(", ?", len(kinds)-1)+`) ORDER BY hlc, device_id, seq`, args...)
 	if err != nil {
 		return err
 	}

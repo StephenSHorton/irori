@@ -234,7 +234,17 @@ func TestBoardClosure(t *testing.T) {
 		{"an unmirrored lease", "lease.released", map[string]any{"resource": "gpu/qwen", "holder": "agent:c1", "by": "agent:c1"}},
 		{"a private parent", "task.parent", map[string]any{"taskId": "t1", "parent": "private-task", "by": "person:p1"}},
 		{"a subtask of a private card", "task.created", map[string]any{"taskId": "t5", "parent": "private-task", "by": "person:p1"}},
+		{"a person not on the board", "task.assigned", map[string]any{"taskId": "t1", "to": "agent:c1", "by": "person:p9"}},
 	}
+	// board.* rows name persons bare and are never closure-checked; they
+	// put their persons on the board for person: keys.
+	e.mustAppend("person:p1", KindBoardCreated, map[string]any{"boardId": "b", "name": "mlg", "tag": "mlg", "creator": map[string]any{"personId": "p1"}})
+	if err := e.append("person:p1", "task.created", map[string]any{"taskId": "t0", "by": "person:p2"}); !errors.Is(err, ErrOutsideBoard) {
+		t.Fatalf("a person before their board.member.added: err = %v", err)
+	}
+	e.mustAppend("person:p1", KindBoardMemberAdded, map[string]any{"personId": "p2", "by": "p1", "role": "member"})
+	e.mustAppend("person:p1", KindBoardMemberRole, map[string]any{"personId": "p2", "by": "p1", "role": "owner"})
+	e.mustAppend("person:p1", KindBoardMemberRemoved, map[string]any{"personId": "p2", "by": "p1", "cut": map[string]any{"dev-b": 0}})
 	e.mustAppend("person:p1", "task.created", map[string]any{"taskId": "t1", "title": "one", "by": "person:p1"})
 	e.mustAppend("agent:c1", KindAgentCard, map[string]any{"cardId": "c1", "personId": "p1", "status": "active"})
 	for _, tc := range refused {
@@ -246,8 +256,8 @@ func TestBoardClosure(t *testing.T) {
 			t.Logf("reason: %v", err)
 		})
 	}
-	if got := e.s.BoardRefused().Outside; got != len(refused) {
-		t.Errorf("outside count = %d, want %d", got, len(refused))
+	if got := e.s.BoardRefused().Outside; got != len(refused)+1 { // and person:p2 before their add
+		t.Errorf("outside count = %d, want %d", got, len(refused)+1)
 	}
 	// What is on the board may be named.
 	e.mustAppend("person:p1", "task.steps", map[string]any{"taskId": "t1", "steps": []map[string]any{{"id": "s1", "text": "go"}}, "by": "person:p1"})
@@ -307,7 +317,7 @@ func TestBoardClosure(t *testing.T) {
 func TestBoardVerifierHook(t *testing.T) {
 	e := newBoardEnv(t)
 	e.mustAppend("irori", KindMemberProfile, map[string]any{"personId": "p1", "name": "stephen"})
-	e.mustAppend("person:p1", "task.created", map[string]any{"taskId": "t1", "by": "person:p1"})
+	e.mustAppend("irori", "task.created", map[string]any{"taskId": "t1", "by": "irori"})
 	if _, err := e.insertB("irori", KindBoardRenamed, map[string]any{"name": "mlg", "by": "person:p2"}); err != nil {
 		t.Fatal(err)
 	}

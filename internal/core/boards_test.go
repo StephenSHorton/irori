@@ -32,11 +32,11 @@ func TestBoardRouting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b1, err := c.CreateBoard(ctx)
+	b1, err := c.CreateBoard(ctx, "one", "one")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b2, err := c.CreateBoard(ctx)
+	b2, err := c.CreateBoard(ctx, "two", "two")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,8 +151,8 @@ func TestBoardKeys(t *testing.T) {
 	ctx := context.Background()
 	r := newRig(t)
 	c := r.core
-	b1, _ := c.CreateBoard(ctx)
-	b2, _ := c.CreateBoard(ctx)
+	b1, _ := c.CreateBoard(ctx, "one", "one")
+	b2, _ := c.CreateBoard(ctx, "two", "two")
 	me := store.PersonActorPrefix + c.Person().ID
 	if k, err := c.BoardKey(ctx, b1, c.UserSender().Key); err != nil || k != me {
 		t.Fatalf("the person's key = %q, %v; want %q", k, err, me)
@@ -249,7 +249,7 @@ func TestBoardToolsRoute(t *testing.T) {
 	ctx := context.Background()
 	r := newRig(t)
 	c := r.core
-	b1, _ := c.CreateBoard(ctx)
+	b1, _ := c.CreateBoard(ctx, "one", "one")
 	co, _ := c.BoardCoord(b1)
 	me := store.PersonActorPrefix + c.Person().ID
 	task, err := co.CreateTask(ctx, me, coord.NewTask{Title: "on the board"})
@@ -347,7 +347,7 @@ func TestBoardIdentityKeptCurrent(t *testing.T) {
 	ctx := context.Background()
 	r := newRig(t)
 	c := r.core
-	id, err := c.CreateBoard(ctx)
+	id, err := c.CreateBoard(ctx, "mlg", "mlg")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,6 +413,16 @@ func TestBoardIdentityKeptCurrent(t *testing.T) {
 	if cut, _ := b.verifier.Cut("dev-x"); cut != 0 {
 		t.Fatalf("dev-x's board cut %d: it wrote nothing on the board", cut)
 	}
+	// The member device revoke rotates the board secret (§6.1): a new
+	// epoch, a new topic, the previous kept open until every device has it.
+	wait(t, "the board secret rotates", func() bool {
+		info, err := c.BoardInfo(id)
+		return err == nil && info.Epoch == 2 && info.SecretEpoch == 2
+	})
+	topics, err := b.secrets.Topics()
+	if err != nil || len(topics) != 2 || topics[0].Epoch != 2 || topics[1].Epoch != 1 || topics[0].Topic == topics[1].Topic {
+		t.Fatalf("topics after the rotation %+v, %v", topics, err)
+	}
 
 	// Every row on the board verifies by the board's chain alone.
 	check := func(t *testing.T, c *Core) {
@@ -432,6 +442,12 @@ func TestBoardIdentityKeptCurrent(t *testing.T) {
 		if kinds[store.KindMemberDeviceAdded] != 2 || kinds[store.KindMemberDeviceRevoked] != 1 || kinds[store.KindMemberKeyRotated] != 1 || kinds[store.KindMemberProfile] != 1 {
 			t.Errorf("member rows %v", kinds)
 		}
+		if kinds[store.KindBoardCreated] != 1 {
+			t.Errorf("board rows %v", kinds)
+		}
+		if info, err := c.BoardInfo(id); err != nil || info.Epoch != 2 || info.SecretEpoch != 2 || info.Tag != "mlg" {
+			t.Errorf("info %+v, %v", info, err)
+		}
 		m, err := c.BoardMember(id, me.ID)
 		if err != nil || m.Epoch != rot.Epoch || len(m.Devices) != 2 {
 			t.Fatalf("member %+v, %v", m, err)
@@ -446,6 +462,93 @@ func TestBoardIdentityKeptCurrent(t *testing.T) {
 	}
 	t.Cleanup(func() { c2.Close() })
 	t.Run("restarted", func(t *testing.T) { check(t, c2) })
+}
+
+// TestCreateBoardRows: CreateBoard writes the self-cert first and then
+// board.created, which makes this person the board's one owner; tags are
+// checked and unique on the device; an owner renames; the board's secret
+// is in a sealed file beside the log and in no row (§2.1, §4.2, §6.1).
+func TestCreateBoardRows(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t)
+	c := r.core
+	for _, tc := range []struct{ name, tag string }{{"", "ok"}, {"ok", ""}, {"ok", "Mlg"}, {"ok", "12"}, {"ok", "a#b"}} {
+		if _, err := c.CreateBoard(ctx, tc.name, tc.tag); !errors.Is(err, coord.ErrInvalid) {
+			t.Errorf("CreateBoard(%q, %q): err = %v", tc.name, tc.tag, err)
+		}
+	}
+	id, err := c.CreateBoard(ctx, "  MLG farming ", "mlg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateBoard(ctx, "another", "mlg"); !errors.Is(err, coord.ErrInvalid) {
+		t.Fatalf("a second board with tag mlg: err = %v", err)
+	}
+	b := mustBoard(t, c, id)
+	evs, err := b.store.List(ctx, store.Filter{DeviceID: c.device.ID, Limit: store.MaxListLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) < 2 || evs[0].Kind != store.KindMemberDeviceAdded || evs[len(evs)-1].Kind != store.KindBoardCreated {
+		var kinds []string
+		for _, ev := range evs {
+			kinds = append(kinds, ev.Kind)
+		}
+		t.Fatalf("this device's stream %v: want the self-cert first, board.created after its member rows", kinds)
+	}
+	me := c.chain.PersonID()
+	info, err := c.BoardInfo(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Name != "MLG farming" || info.Tag != "mlg" || info.Creator != me || len(info.Members) != 1 ||
+		info.Members[0].Role != identity.BoardOwner || info.Members[0].State != identity.MemberActive || len(info.Conflicts) != 0 {
+		t.Fatalf("info %+v", info)
+	}
+	if info.Epoch != 1 || info.SecretEpoch != 1 {
+		t.Fatalf("epochs %d/%d, want 1/1", info.Epoch, info.SecretEpoch)
+	}
+	if err := c.RenameBoard(ctx, id, "mlg & co"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RenameBoard(ctx, id, ""); !errors.Is(err, coord.ErrInvalid) {
+		t.Fatalf("an empty name: err = %v", err)
+	}
+	if info, _ := c.BoardInfo(id); info.Name != "mlg & co" {
+		t.Fatalf("renamed to %q", info.Name)
+	}
+	// The secret: in its sealed file, not in any row of the board or the
+	// private log.
+	secret, _, ok := b.secrets.Secret(1)
+	if !ok {
+		t.Fatal("no epoch 1 secret")
+	}
+	if _, err := os.Stat(filepath.Join(c.opts.DataDir, BoardsDir, id+".secrets")); err != nil {
+		t.Fatal(err)
+	}
+	needle := []byte(hex.EncodeToString(secret))
+	for _, st := range []*store.Store{b.store, c.store} {
+		rows, err := st.List(ctx, store.Filter{Limit: store.MaxListLimit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, ev := range rows {
+			if strings.Contains(string(ev.Payload), string(needle)) {
+				t.Fatalf("the board secret is in a %s row", ev.Kind)
+			}
+		}
+	}
+	// It all survives a restart.
+	opts := c.opts
+	c.Close()
+	c2, err := Start(ctx, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c2.Close() })
+	if info, err := c2.BoardInfo(id); err != nil || info.Name != "mlg & co" || !mustBoard(t, c2, id).verifier.Membership().Owner(me) || info.SecretEpoch != 1 {
+		t.Fatalf("after restart %+v, %v", info, err)
+	}
 }
 
 func mustKey(t *testing.T) ed25519.PublicKey {
