@@ -166,6 +166,10 @@ func (h *handler) control(w http.ResponseWriter, r *http.Request, what string) {
 	var body struct {
 		Token  string `json:"token"`
 		TurnID string `json:"turnId"`
+		// Appended (delivered, engaged): the mod appended this wake after
+		// its host refused the submit, so no prompt waits in the host's
+		// queue and the wake did not start the turn.
+		Appended bool `json:"appended"`
 	}
 	if err := readBody(w, r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -179,9 +183,17 @@ func (h *handler) control(w http.ResponseWriter, r *http.Request, what string) {
 	var err error
 	switch what {
 	case "delivered":
-		err = ib.MarkDelivered(r.Context(), agent, body.Token)
+		if body.Appended {
+			err = ib.MarkAppendedDelivered(r.Context(), agent, body.Token)
+		} else {
+			err = ib.MarkDelivered(r.Context(), agent, body.Token)
+		}
 	case "engaged":
-		err = ib.MarkEngaged(r.Context(), agent, body.Token, body.TurnID)
+		if body.Appended {
+			err = ib.MarkAppendedEngaged(r.Context(), agent, body.Token, body.TurnID)
+		} else {
+			err = ib.MarkEngaged(r.Context(), agent, body.Token, body.TurnID)
+		}
 	case "turn-ended":
 		err = ib.TurnEnded(r.Context(), agent, body.Token, body.TurnID)
 	}

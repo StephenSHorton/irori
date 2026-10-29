@@ -41,7 +41,10 @@ const BoardInstructions = "The Irori Board is a shared scratch pad for live coor
 	"and the exact command in backticks (`hf auth login`) so they can copy it; put the page in links and any file they need in attach. " +
 	"Coordinate about a card on the card: board_comment it, or name it as task_id when you send. " +
 	"Use direct messages only for things not about a card. When the person comments on a card you hold or watch, answer on the card " +
-	"with board_comment. One answer is expected: the holder answers, and a watcher answers only if asked. " + AskInstructions
+	"with board_comment. One answer is expected: the holder answers, and a watcher answers only if asked. " +
+	"When a card grows past one agent's piece of work, or you see related cards that are one piece of work, make it a parent: " +
+	"board_split it into subtasks (adopt the related cards), so other agents can take subtasks in parallel. Keep one level: " +
+	"split a subtask into more siblings, not deeper. " + AskInstructions
 
 // Sentences some descriptions share.
 const (
@@ -223,8 +226,21 @@ var specList = []Spec{
 				`"shared":{"type":"boolean","description":"Anyone who joins may work it (several holders). Default false: one holder."},`+
 				`"links":{"type":"array","items":{"type":"string"},"description":"Optional links out: URLs (a Linear, Notion or GitHub item) or repo paths, at most 16."},`+
 				`"assign_to":{"type":"string","description":"Optional: hand it to this agent (name or key); they hear at their next turn."},`+
+				`"parent":{"type":"string","description":"Optional: make it a subtask of this card (#12 or task:<id>). Subtasks are one level: a subtask can't have its own."},`+
 				`"steps":{"type":"array","maxItems":20,"items":{"type":"object","properties":{"text":{"type":"string","description":"The step, one line (at most 200 characters)."},`+propStepFlags+`},"required":["text"],"additionalProperties":false},"description":"Optional: the card's steps, in order, the same as board_steps takes. Give them when you know the plan; tick them with board_step."}`,
 			"title"),
+		Clients: both,
+	},
+	{
+		Name: "board_split",
+		Description: "Split a card that grew into a parent and subtasks that agents can take in parallel. A subtask's steps are step ids " +
+			"of this card (s3 moves it) or new texts; every open step must go to exactly one subtask, and done steps stay. adopt makes " +
+			"existing cards subtasks too. The parent's progress and state then follow its subtasks; you keep holding it. One level: " +
+			"add siblings with board_create parent=#12, not deeper. " + BoardInstructions,
+		InputSchema: schema(propTaskID+`,`+
+			`"subtasks":{"type":"array","maxItems":20,"items":{"type":"object","properties":{"title":{"type":"string","description":"The subtask's short title."},"objective":{"type":"string","description":"Optional: what it does."},"done_when":{"type":"string","description":"Optional: how to tell it is done."},"steps":{"type":"array","maxItems":20,"items":{"type":"string"},"description":"Step ids of the card being split (they move here), or new step texts."},"assign_to":{"type":"string","description":"Optional: hand it to this agent (name or key)."}},"required":["title"],"additionalProperties":false},"description":"The new subtasks, in order."},`+
+			`"adopt":{"type":"array","maxItems":20,"items":{"type":"string"},"description":"Optional: existing cards (#14) that become subtasks of this one."}`,
+			"task_id"),
 		Clients: both,
 	},
 	{
@@ -369,7 +385,8 @@ var specList = []Spec{
 			`"objective":{"type":"string","description":"Optional: what needs doing and why. card: default the person's prompt."},`+
 			`"done_when":{"type":"string","description":"Optional: how to tell it is done."},`+
 			`"steps":{"type":"array","maxItems":20,"items":{"type":"object","properties":{"text":{"type":"string","description":"The step, one line (at most 200 characters)."},`+propStepFlags+`},"required":["text"],"additionalProperties":false},"description":"card: optional steps, in order."},`+
-			`"task":{"type":"string","description":"edit: the card it changes, its short ref (#12) or task:<id>."}`,
+			`"task":{"type":"string","description":"edit: the card it changes, its short ref (#12) or task:<id>."},`+
+			`"parent":{"type":"string","description":"card: optional, make the new card a subtask of this card (#12)."}`,
 			"task_id", "outcome", "note"),
 		Clients: both,
 	},

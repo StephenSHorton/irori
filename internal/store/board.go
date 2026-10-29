@@ -76,6 +76,9 @@ var kindBoards = map[string]Board{
 	"task.created": BoardAccepts, "task.claimed": BoardAccepts, "task.assigned": BoardAccepts, "task.status": BoardAccepts,
 	"task.joined": BoardAccepts, "task.left": BoardAccepts, "task.linked": BoardAccepts, "task.comment": BoardAccepts,
 	"task.steps": BoardAccepts, "task.step": BoardAccepts, "task.watched": BoardAccepts,
+	// subtasks (#20, after the design): a card's parent is a card on the
+	// same board, which closure checks ("parent")
+	"task.parent":    BoardAccepts,
 	"blocker.closed": BoardAccepts, "blocker.option": BoardAccepts, "blocker.resolved": BoardAccepts,
 	// mirrored leases only (§5.4): their writers decide which leases mirror
 	"lease.acquired": BoardAccepts, "lease.released": BoardAccepts, "lease.refused": BoardAccepts, "lease.stolen": BoardAccepts,
@@ -187,6 +190,7 @@ func newBoardRules() *boardRules {
 // boardRow is every field of a board row that defines or names an id.
 type boardRow struct {
 	TaskID    string     `json:"taskId"`
+	Parent    string     `json:"parent"`
 	CommentID string     `json:"commentId"`
 	BlockerID string     `json:"blockerId"`
 	StepID    string     `json:"stepId"`
@@ -310,6 +314,9 @@ func (b *boardRules) resolves(kind string, payload []byte) error {
 	}
 	if p.TaskID != "" && kind != "task.created" && !b.tasks[p.TaskID] {
 		return out("taskId %s is not a card on this board", p.TaskID)
+	}
+	if p.Parent != "" && !b.tasks[p.Parent] {
+		return out("parent %s is not a card on this board", p.Parent)
 	}
 	if p.BlockerID != "" && !b.blockers[p.TaskID+"/"+p.BlockerID] {
 		return out("blockerId %s is not a blocker of that card on this board", p.BlockerID)

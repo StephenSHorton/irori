@@ -119,3 +119,14 @@ describe("device colours (card #22)", () => {
     expect(deviceVar("")).toBe("")
   })
 })
+
+describe("closed cards (Done tab)", () => {
+  test("no worker label or spinner on a closed card, whatever its holders", () => {
+    for (const st of [TaskState.Completed, TaskState.Canceled, TaskState.Failed]) {
+      expect(workLabel(card(st, [agent("busy")]))).toBe("")
+      expect(workLabel(card(st, [agent("idle", { assigned: true })]))).toBe("")
+      expect(workLabel(card(st, [agent("idle", { assigned: true, waiting: true })]))).toBe("")
+      expect(busy(card(st, [agent("busy")]))).toBe(false)
+    }
+  })
+})

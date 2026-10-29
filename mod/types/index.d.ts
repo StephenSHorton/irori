@@ -78,6 +78,8 @@ export type TrackedWake = {
   delivered: boolean
   engaged: boolean
   ended: boolean
+  /** The host refused its submit, so it went in as an append (card #23): the next main turn engages it. */
+  appended?: boolean
 }
 
 /** A next-turn delivery (append event) this session was handed. */

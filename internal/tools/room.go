@@ -68,6 +68,7 @@ type askCloseArgs struct {
 	DoneWhen  string    `json:"done_when"`
 	Steps     []stepArg `json:"steps"`
 	Task      string    `json:"task"`
+	Parent    string    `json:"parent"`
 }
 
 func (s *set) askClose(ctx context.Context, c Caller, raw json.RawMessage) string {
@@ -83,7 +84,8 @@ func (s *set) askClose(ctx context.Context, c Caller, raw json.RawMessage) strin
 	if strings.TrimSpace(a.Note) == "" {
 		return errText("give note: one line on what it became and why.")
 	}
-	o := coord.AskOutcome{Kind: kind, Note: a.Note, Title: a.Title, Objective: a.Objective, DoneWhen: a.DoneWhen, Steps: stepsOf(a.Steps)}
+	o := coord.AskOutcome{Kind: kind, Note: a.Note, Title: a.Title, Objective: a.Objective, DoneWhen: a.DoneWhen, Steps: stepsOf(a.Steps),
+		Parent: strings.TrimSpace(a.Parent)}
 	switch kind {
 	case coord.OutcomeCard:
 		if strings.TrimSpace(a.Title) == "" {
@@ -109,7 +111,11 @@ func (s *set) askClose(ctx context.Context, c Caller, raw json.RawMessage) strin
 	n := s.roster()
 	switch kind {
 	case coord.OutcomeCard:
-		return t.ShortRef() + " is a card now, and you hold it. Give it steps (board_steps) if it has none, and keep them ticked.\n" +
+		part := ""
+		if t.Parent != "" {
+			part = ", a subtask of " + s.shortOf(t.Parent) + ","
+		}
+		return t.ShortRef() + " is a card now" + part + " and you hold it. Give it steps (board_steps) if it has none, and keep them ticked.\n" +
 			s.cardLine(t, nil, n, s.now())
 	case coord.OutcomeEdit:
 		return "Changed " + s.shortOf(o.Task) + "; the ask " + t.ShortRef() + " is done."

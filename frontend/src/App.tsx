@@ -5,14 +5,24 @@ import { CardPage } from "@/components/cards/card-detail"
 import { MessageDialog } from "@/components/cards/message-dialog"
 import { AskBox } from "@/components/cards/ask-box"
 import {
+  asFilter,
   CardGrid,
+  DoneGrid,
   EmptyCards,
   DeviceBar,
   FilterBar,
   matches,
+  shownCards,
   type Filter,
 } from "@/components/cards/card-grid"
-import { cardFromHash, cardHash, deviceChips, useCard, useCards } from "@/lib/cards"
+import {
+  cardFromHash,
+  cardHash,
+  deviceChips,
+  useCard,
+  useCards,
+  useDoneCards,
+} from "@/lib/cards"
 import { useNow, useRoster } from "@/lib/irori"
 import { previewFlag } from "@/lib/preview"
 import { onOpen } from "@/lib/settings"
@@ -62,7 +72,11 @@ export function App() {
   const { gone } = useGone()
   const { cards, loading, error } = useCards()
   const now = useNow()
-  const [filter, setFilter] = useState<Filter>("all")
+  // ?filter=done in the browser preview starts on that filter.
+  const [filter, setFilter] = useState<Filter>(() =>
+    asFilter(previewFlag("filter"))
+  )
+  const done = useDoneCards(filter === "done")
   const [open, setOpen] = useState(() => cardFromHash(window.location.hash))
   // last is the card last opened, marked in the grid on the way back. In
   // the browser preview ?from=<id> sets it, to see the grid as Back leaves
@@ -218,7 +232,7 @@ export function App() {
     filter.startsWith("device:") && !chips.some((d) => filter === `device:${d.id}`)
       ? "all"
       : filter
-  const shown = cards.filter((c) => matches(c, active))
+  const { shown, context } = shownCards(cards, active)
   const decide = cards.filter((c) => c.openBlockers > 0).length
 
   return (
@@ -234,18 +248,28 @@ export function App() {
         {open ? (
           <CardPage
             key={open}
-            summary={cards.find((c) => c.id === open)}
+            summary={
+              cards.find((c) => c.id === open) ??
+              done.cards.find((c) => c.id === open)
+            }
             detail={detail}
             error={detailError}
             gone={gone}
             now={now}
             onBack={back}
+            onOpen={openCard}
           />
         ) : loading && cards.length === 0 ? (
           <p className="px-1 text-sm text-muted-foreground">Loading cards…</p>
-        ) : cards.length === 0 ? (
+        ) : cards.length === 0 && filter !== "done" ? (
           <>
             <AskBox onAsked={setLast} />
+            <FilterBar
+              filter={filter}
+              onFilter={setFilter}
+              decide={0}
+              only={["all", "done"]}
+            />
             <EmptyCards />
           </>
         ) : (
@@ -264,8 +288,15 @@ export function App() {
               />
               <DeviceBar filter={active} onFilter={setFilter} devices={chips} />
             </div>
-            {shown.length ? (
-              <CardGrid cards={shown} selected={last} onSelect={openCard} />
+            {filter === "done" ? (
+              <DoneGrid
+                done={done}
+                selected={last}
+                onSelect={openCard}
+                now={now}
+              />
+            ) : shown.length ? (
+              <CardGrid cards={shown} context={context} selected={last} onSelect={openCard} />
             ) : (
               <p className="px-1 text-[12.5px] text-muted-foreground">
                 Nothing here with this filter.

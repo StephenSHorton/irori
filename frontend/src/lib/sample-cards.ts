@@ -12,7 +12,9 @@ import {
   CardHolder,
   CardOption,
   CardPR,
+  CardRef,
   CardResolution,
+  CardSubtask,
   CardThreadItem,
   Holding,
 } from "../../bindings/github.com/StephenSHorton/irori/models"
@@ -146,7 +148,10 @@ export function sampleCards(now: Date): CardDetail[] {
       thread: c.thread ?? eventsOf(c.recent ?? []),
       steps: st,
       blockers: c.blockers ?? [],
-      progress: { done: st.filter((s) => s.done).length, total: st.length },
+      // A parent's bar counts its subtasks, as cardSummary does.
+      progress: c.subtasks
+        ? (c.progress ?? { done: 0, total: 0 })
+        : { done: st.filter((s) => s.done).length, total: st.length },
       holder: sampleHolder(c.working ?? []),
       ...sampleAccent(c.working ?? []),
       talking: c.talking ?? [],
@@ -719,6 +724,51 @@ export function sampleCards(now: Date): CardDetail[] {
         }),
       ],
     }),
+    // A card split into subtasks (board.md "Subtasks"): the parent's bar
+    // counts them, one is blocked, and each follows its parent in the grid.
+    card({
+      id: "sample-card-7",
+      title: "Ship the release",
+      repoKey: "remote:github.com/sample-org/example-app",
+      goal: "Version 0.6 out: notes, the build and the announcement.",
+      working: [otter],
+      updatedAt: at(5),
+      state: TaskState.Blocked,
+      steps: steps([["Pick what goes in", true]]),
+      subtasks: 2,
+      progress: { done: 0, total: 2 },
+      subtaskBlocked: "#9: Announce on Discord as well, or only the site?",
+      subtaskList: [
+        new CardSubtask({ id: "sample-card-8", short: "8", title: "Release notes", state: TaskState.Working,
+          holder: sampleHolder([heron]), progress: { done: 1, total: 2 }, blocked: false }),
+        new CardSubtask({ id: "sample-card-9", short: "9", title: "Announcement", state: TaskState.Blocked,
+          holder: sampleHolder([wren]), progress: { done: 0, total: 1 }, blocked: true }),
+      ],
+    }),
+    card({
+      id: "sample-card-8",
+      title: "Release notes",
+      repoKey: "remote:github.com/sample-org/example-app",
+      working: [heron],
+      updatedAt: at(7),
+      parent: new CardRef({ id: "sample-card-7", short: "7", title: "Ship the release" }),
+      steps: steps([["Draft", true], ["Boat fixes first", false, true]]),
+    }),
+    card({
+      id: "sample-card-9",
+      title: "Announcement",
+      repoKey: "remote:github.com/sample-org/example-app",
+      working: [wren],
+      updatedAt: at(8),
+      parent: new CardRef({ id: "sample-card-7", short: "7", title: "Ship the release" }),
+      steps: steps([["Post it", false]]),
+      blockers: [
+        new CardBlocker({
+          id: "b1", question: "Announce on Discord as well, or only the site?", context: "", raisedBy: wren, at: at(8),
+          options: [], state: "open", missing: [], thread: [], links: [], attachments: [],
+        }),
+      ],
+    }),
     card({
       id: "sample-card-5",
       title: "Sample notes export",
@@ -749,6 +799,58 @@ export function sampleCards(now: Date): CardDetail[] {
           who: heron,
           text: "sample-heron marked the card done",
         }),
+      ],
+    }),
+    // More closed cards for the Done tab (?filter=done): an ask that
+    // changed another card, one canceled and one failed.
+    card({
+      id: "sample-ask-3",
+      short: "13",
+      title: "Can the pairing code stay up longer than two minutes?",
+      goal: "Can the pairing code stay up longer than two minutes? I keep missing it.",
+      state: TaskState.Completed,
+      working: [],
+      updatedAt: at(55),
+      thread: [
+        new CardThreadItem({ id: "sample-ask-3-post", kind: "event", at: at(70), who: sampleYou, text: "You asked the room" }),
+        new CardThreadItem({ id: "sample-ask-3-took", kind: "event", at: at(66), who: otter, text: "sample-otter took it" }),
+      ],
+      ask: new CardAsk({
+        state: "closed",
+        told: 3,
+        owner: "This PC",
+        wake: false,
+        taker: otter,
+        outcome: { kind: "edit", task: "sample-card-4", note: "added a step for a five-minute code" },
+        outcomeRef: "#4",
+      }),
+    }),
+    card({
+      id: "sample-card-7",
+      title: "Move the release notes to the wiki",
+      repoKey: "remote:github.com/sample-org/example-app",
+      goal: "Release notes live on the wiki instead of in the repo.",
+      state: TaskState.Canceled,
+      working: [],
+      updatedAt: at(300),
+      recent: [
+        new CardActivity({ at: at(300), who: sampleYou, text: "You set it to canceled" }),
+      ],
+    }),
+    card({
+      id: "sample-card-8",
+      title: "Nightly build on the old Mac mini",
+      repoKey: "remote:github.com/sample-org/example-app",
+      goal: "A nightly build runs on the Mac mini and posts its log.",
+      state: TaskState.Failed,
+      working: [badger],
+      updatedAt: at(60 * 26),
+      steps: steps([
+        ["Install the toolchain", true],
+        ["Schedule the build", false],
+      ]),
+      recent: [
+        new CardActivity({ at: at(60 * 26), who: badger, text: "sample-badger set it to failed" }),
       ],
     }),
   ].map(

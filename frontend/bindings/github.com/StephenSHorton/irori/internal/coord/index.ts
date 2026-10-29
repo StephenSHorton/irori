@@ -18,6 +18,7 @@ export {
     Refusal,
     Resolution,
     Returned,
+    Rollup,
     Step,
     Task,
     TaskState

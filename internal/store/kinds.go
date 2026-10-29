@@ -122,7 +122,7 @@ var kindSides = map[string]Side{
 	"task.comment": Replicated, "task.steps": Replicated, "task.step": Replicated, "task.watched": Replicated,
 	"lease.acquired": Replicated, "lease.released": Replicated, "lease.refused": Replicated,
 	"blocker.closed": Replicated, "blocker.option": Replicated, "blocker.resolved": Replicated,
-	"task.edited": Replicated, "take.requested": Replicated, "take.state": Replicated,
+	"task.edited": Replicated, "take.requested": Replicated, "take.state": Replicated, "task.parent": Replicated,
 	// capture
 	"capture.turn": Replicated, "capture.edit": Replicated, "capture.summary": Replicated,
 	"capture.commitcmd": Replicated, "pr.ledger": Replicated, "repo.seen": Replicated,

@@ -962,6 +962,98 @@ func TestCardReturned(t *testing.T) {
 	}
 }
 
+// The Done tab lists closed cards only, the latest change first, and pages
+// through them with Next without skipping or repeating one.
+func TestDoneCards(t *testing.T) {
+	ctx := context.Background()
+	b, c, _ := cardsBoard(t)
+	if p, err := b.DoneCards(0, ""); err != nil || p.Cards == nil || len(p.Cards) != 0 || p.Next != "" {
+		t.Fatalf("empty %+v %v", p, err)
+	}
+	open := heldTask(t, c)
+	var want []string // newest closed first
+	for i, s := range []coord.TaskState{coord.Completed, coord.Canceled, coord.Failed, coord.Completed, coord.Canceled} {
+		tk := heldTask(t, c)
+		if i == 1 {
+			// A blocker on a card that is then canceled closes with it.
+			if _, _, err := c.Raise(ctx, agentA, tk.ID, coord.NewBlocker{Question: "Ship today?"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		time.Sleep(2 * time.Millisecond)
+		if _, err := c.SetTaskState(ctx, agentA, tk.ID, s, ""); err != nil {
+			t.Fatal(err)
+		}
+		want = append([]string{tk.ID}, want...)
+	}
+	all, err := b.DoneCards(0, "")
+	if err != nil || all.Next != "" || len(all.Cards) != len(want) {
+		t.Fatalf("all %+v %v", all, err)
+	}
+	for i, s := range all.Cards {
+		if s.ID != want[i] {
+			t.Fatalf("order: card %d is %s, want %s", i, s.ID, want[i])
+		}
+		if s.ID == open.ID || !coord.IsTerminal(s.State) || s.OpenBlockers != 0 || s.Working == nil {
+			t.Fatalf("card %+v", s)
+		}
+	}
+	if all.Cards[3].State != coord.Canceled {
+		t.Fatalf("canceled card %+v", all.Cards[3])
+	}
+	var paged []string
+	next := ""
+	for range 10 {
+		p, err := b.DoneCards(2, next)
+		if err != nil || len(p.Cards) > 2 {
+			t.Fatalf("page %+v %v", p, err)
+		}
+		for _, s := range p.Cards {
+			paged = append(paged, s.ID)
+		}
+		if next = p.Next; next == "" {
+			break
+		}
+	}
+	if !slices.Equal(paged, want) {
+		t.Fatalf("paged %v, want %v", paged, want)
+	}
+	// A card closing moves from Cards to DoneCards.
+	time.Sleep(2 * time.Millisecond)
+	if _, err := c.SetTaskState(ctx, agentA, open.ID, coord.Completed, ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Cards()) != 0 {
+		t.Fatalf("grid %+v", b.Cards())
+	}
+	if p, _ := b.DoneCards(1, ""); len(p.Cards) != 1 || p.Cards[0].ID != open.ID || p.Next == "" {
+		t.Fatalf("first page %+v", p)
+	}
+	if _, err := b.DoneCards(0, "not a cursor"); !errors.Is(err, coord.ErrInvalid) {
+		t.Fatalf("bad cursor: %v", err)
+	}
+}
+
+// A closed ask's tile in the Done tab carries its outcome.
+func TestDoneCardsAsk(t *testing.T) {
+	b, _, _ := cardsBoard(t)
+	r, err := b.Ask("Is the build green?", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.CloseAsk(r.Task.ID, "answered in chat"); err != nil {
+		t.Fatal(err)
+	}
+	p, err := b.DoneCards(0, "")
+	if err != nil || len(p.Cards) != 1 {
+		t.Fatalf("%+v %v", p, err)
+	}
+	a := p.Cards[0].Ask
+	if a == nil || a.State != AskClosed || a.Outcome == nil || a.Outcome.Note != "answered in chat" {
+		t.Fatalf("ask %+v", a)
+	}
+}
+
 // Agents that wrote to each other on a card in the last TalkWindow show as
 // talking; one agent alone, the person, or older messages don't (card #22).
 func TestCardTalking(t *testing.T) {
@@ -1019,5 +1111,68 @@ func TestCardDeviceColours(t *testing.T) {
 	}
 	if r := p.ref(b.user.Key); r.Color != "" {
 		t.Fatalf("the person wears a device colour: %+v", r)
+	}
+}
+
+// A parent's subtasks follow it in the grid; a blocked subtask brings the
+// family up with it, the parent's bar counts subtasks and names the one
+// blocking it, and its page lists them.
+func TestCardsSubtaskFamilies(t *testing.T) {
+	ctx := context.Background()
+	b, c, _ := cardsBoard(t)
+	other := heldTask(t, c)
+	p, err := c.CreateTask(ctx, agentA, coord.NewTask{Title: "parent", Steps: []coord.Step{{Text: "plan", Done: true}, {Text: "x"}, {Text: "y"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, kids, err := c.Split(ctx, agentA, p.ID, []coord.NewSubtask{{Title: "x", Steps: []string{"s2"}}, {Title: "y", Steps: []string{"s3"}}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ClaimTask(ctx, agentB, kids[1].ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.Raise(ctx, agentB, kids[1].ID, coord.NewBlocker{Question: "which db?"}); err != nil {
+		t.Fatal(err)
+	}
+	// other changes last, so on its own it would sort above the parent.
+	if _, err := c.SetSteps(ctx, agentA, other.ID, []coord.Step{{Text: "z"}}); err != nil {
+		t.Fatal(err)
+	}
+	got := b.Cards()
+	var ids []string
+	for _, s := range got {
+		ids = append(ids, s.ID)
+	}
+	want := []string{p.ID, kids[0].ID, kids[1].ID, other.ID}
+	if !slices.Equal(ids, want) {
+		t.Fatalf("grid order %v, want %v", ids, want)
+	}
+	par, kid := got[0], got[1]
+	if par.Subtasks != 2 || par.Progress != (CardProgress{Done: 0, Total: 2}) || par.State != coord.Blocked ||
+		par.SubtaskBlocked != kids[1].ShortRef()+": which db?" || par.OpenBlockers != 0 {
+		t.Fatalf("parent tile %+v", par)
+	}
+	if kid.Parent == nil || kid.Parent.ID != p.ID || kid.Parent.Short != p.Short {
+		t.Fatalf("subtask tile parent %+v", kid.Parent)
+	}
+	d, err := b.Card(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.SubtaskList) != 2 || d.SubtaskList[1].ID != kids[1].ID || !d.SubtaskList[1].Blocked || d.SubtaskList[1].Holder.Who.Key != agentB {
+		t.Fatalf("subtask list %+v", d.SubtaskList)
+	}
+	// Once every subtask has ended the parent leaves the live grid with them.
+	if _, err := c.SetTaskState(ctx, agentA, kids[0].ID, coord.Canceled, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.SetTaskState(ctx, agentB, kids[1].ID, coord.Completed, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range b.Cards() {
+		if s.ID == p.ID {
+			t.Fatalf("a parent whose subtasks all ended is still live: %+v", s)
+		}
 	}
 }

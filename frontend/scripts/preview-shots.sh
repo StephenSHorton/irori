@@ -47,3 +47,4 @@ shot 17-page-loading "?slow#card/sample-card-1"               # a reload on a ca
 shot 18-page-unknown "#card/sample-card-gone"                 # a card that isn't there
 shot 19-page-ask "?open=board:task:sample-ask-2"             # an ask an agent took: its status line, Close, the thread
 shot 20-page-ask-open "?open=board:task:sample-ask-1"        # an ask nobody has taken yet
+shot 21-grid-done "?filter=done"                            # the Done tab: completed, canceled, failed, a closed ask

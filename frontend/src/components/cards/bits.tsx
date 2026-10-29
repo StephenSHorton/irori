@@ -6,6 +6,7 @@ import {
   displayName,
   Holding,
   openAsk,
+  over,
   percent,
   TaskState,
   type AgentRef,
@@ -97,6 +98,13 @@ export function StatePill({ card }: { card: CardSummary }) {
     return (
       <Badge variant="destructive">
         {card.openBlockers} {card.openBlockers === 1 ? "blocker" : "blockers"}
+      </Badge>
+    )
+  // A parent whose subtask waits on a decision: the subtask has the blocker.
+  if (card.subtaskBlocked && !over(card))
+    return (
+      <Badge variant="warning" title={plainLine(card.subtaskBlocked)}>
+        Subtask blocked
       </Badge>
     )
   // Every open blocker is answered: it waits on the agents, not on you.

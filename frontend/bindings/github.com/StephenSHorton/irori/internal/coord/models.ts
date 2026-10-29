@@ -471,6 +471,15 @@ export class Card {
      * on it again.
      */
     "returned"?: Returned | null;
+
+    /**
+     * Subtasks (subtasks.go), all derived by the fold: Parent is the task
+     * id this card is a subtask of; Subtasks are a parent's, by short ref;
+     * Rollup is a parent's progress and state from them (EffectiveState).
+     */
+    "parent"?: string;
+    "subtasks"?: string[];
+    "rollup"?: Rollup | null;
     "lastComment"?: Comment | null;
 
     /**
@@ -533,9 +542,11 @@ export class Card {
         const $$createField24_0 = $$createType0;
         const $$createField25_0 = $$createType22;
         const $$createField26_0 = $$createType24;
-        const $$createField27_0 = $$createType26;
-        const $$createField29_0 = $$createType0;
-        const $$createField30_0 = $$createType0;
+        const $$createField28_0 = $$createType0;
+        const $$createField29_0 = $$createType26;
+        const $$createField30_0 = $$createType28;
+        const $$createField32_0 = $$createType0;
+        const $$createField33_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
             $$parsedSource["scope"] = $$createField7_0($$parsedSource["scope"]);
@@ -567,14 +578,20 @@ export class Card {
         if ("returned" in $$parsedSource) {
             $$parsedSource["returned"] = $$createField26_0($$parsedSource["returned"]);
         }
+        if ("subtasks" in $$parsedSource) {
+            $$parsedSource["subtasks"] = $$createField28_0($$parsedSource["subtasks"]);
+        }
+        if ("rollup" in $$parsedSource) {
+            $$parsedSource["rollup"] = $$createField29_0($$parsedSource["rollup"]);
+        }
         if ("lastComment" in $$parsedSource) {
-            $$parsedSource["lastComment"] = $$createField27_0($$parsedSource["lastComment"]);
+            $$parsedSource["lastComment"] = $$createField30_0($$parsedSource["lastComment"]);
         }
         if ("gone" in $$parsedSource) {
-            $$parsedSource["gone"] = $$createField29_0($$parsedSource["gone"]);
+            $$parsedSource["gone"] = $$createField32_0($$parsedSource["gone"]);
         }
         if ("overlaps" in $$parsedSource) {
-            $$parsedSource["overlaps"] = $$createField30_0($$parsedSource["overlaps"]);
+            $$parsedSource["overlaps"] = $$createField33_0($$parsedSource["overlaps"]);
         }
         return new Card($$parsedSource as Partial<Card>);
     }
@@ -734,7 +751,7 @@ export class LeaseCard {
      * Creates a new LeaseCard instance from a string or object.
      */
     static createFrom($$source: any = {}): LeaseCard {
-        const $$createField6_0 = $$createType28;
+        const $$createField6_0 = $$createType30;
         const $$createField7_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("refused" in $$parsedSource) {
@@ -852,7 +869,7 @@ export class Option {
      * Creates a new Option instance from a string or object.
      */
     static createFrom($$source: any = {}): Option {
-        const $$createField5_0 = $$createType29;
+        const $$createField5_0 = $$createType31;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("link" in $$parsedSource) {
             $$parsedSource["link"] = $$createField5_0($$parsedSource["link"]);
@@ -1062,6 +1079,53 @@ export class Returned {
 }
 
 /**
+ * Rollup is a parent's progress and state, derived from its subtasks.
+ */
+export class Rollup {
+    /**
+     * State is the parent's state as the Board shows it (EffectiveState).
+     */
+    "state": TaskState;
+
+    /**
+     * Done counts completed subtasks; Total those not canceled.
+     */
+    "done": number;
+    "total": number;
+
+    /**
+     * Blocked is the first blocked subtask's id, when the parent shows
+     * blocked because of it; BlockedQuestion is that subtask's first open
+     * question.
+     */
+    "blocked"?: string;
+    "blockedQuestion"?: string;
+
+    /** Creates a new Rollup instance. */
+    constructor($$source: Partial<Rollup> = {}) {
+        if (!("state" in $$source)) {
+            this["state"] = TaskState.$zero;
+        }
+        if (!("done" in $$source)) {
+            this["done"] = 0;
+        }
+        if (!("total" in $$source)) {
+            this["total"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Rollup instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Rollup {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Rollup($$parsedSource as Partial<Rollup>);
+    }
+}
+
+/**
  * Step is one ordered step of a task. At most one step is Doing (the
  * current one); a Done step is never Doing. Ids are short ("s1", "s2", ...),
  * minted per task and never reused.
@@ -1200,6 +1264,15 @@ export class Task {
      */
     "returned"?: Returned | null;
 
+    /**
+     * Subtasks (subtasks.go), all derived by the fold: Parent is the task
+     * id this card is a subtask of; Subtasks are a parent's, by short ref;
+     * Rollup is a parent's progress and state from them (EffectiveState).
+     */
+    "parent"?: string;
+    "subtasks"?: string[];
+    "rollup"?: Rollup | null;
+
     /** Creates a new Task instance. */
     constructor($$source: Partial<Task> = {}) {
         if (!("id" in $$source)) {
@@ -1241,6 +1314,8 @@ export class Task {
         const $$createField24_0 = $$createType0;
         const $$createField25_0 = $$createType22;
         const $$createField26_0 = $$createType24;
+        const $$createField28_0 = $$createType0;
+        const $$createField29_0 = $$createType26;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("scope" in $$parsedSource) {
             $$parsedSource["scope"] = $$createField7_0($$parsedSource["scope"]);
@@ -1271,6 +1346,12 @@ export class Task {
         }
         if ("returned" in $$parsedSource) {
             $$parsedSource["returned"] = $$createField26_0($$parsedSource["returned"]);
+        }
+        if ("subtasks" in $$parsedSource) {
+            $$parsedSource["subtasks"] = $$createField28_0($$parsedSource["subtasks"]);
+        }
+        if ("rollup" in $$parsedSource) {
+            $$parsedSource["rollup"] = $$createField29_0($$parsedSource["rollup"]);
         }
         return new Task($$parsedSource as Partial<Task>);
     }
@@ -1331,8 +1412,10 @@ const $$createType21 = Ask.createFrom;
 const $$createType22 = $Create.Nullable($$createType21);
 const $$createType23 = Returned.createFrom;
 const $$createType24 = $Create.Nullable($$createType23);
-const $$createType25 = Comment.createFrom;
+const $$createType25 = Rollup.createFrom;
 const $$createType26 = $Create.Nullable($$createType25);
-const $$createType27 = Refusal.createFrom;
-const $$createType28 = $Create.Array($$createType27);
-const $$createType29 = $Create.Nullable($$createType7);
+const $$createType27 = Comment.createFrom;
+const $$createType28 = $Create.Nullable($$createType27);
+const $$createType29 = Refusal.createFrom;
+const $$createType30 = $Create.Array($$createType29);
+const $$createType31 = $Create.Nullable($$createType7);

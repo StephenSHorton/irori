@@ -112,6 +112,12 @@ type Task struct {
 	// went away and Irori took it off (card #16); it clears when anyone is
 	// on it again.
 	Returned *Returned `json:"returned,omitempty"`
+	// Subtasks (subtasks.go), all derived by the fold: Parent is the task
+	// id this card is a subtask of; Subtasks are a parent's, by short ref;
+	// Rollup is a parent's progress and state from them (EffectiveState).
+	Parent   string   `json:"parent,omitempty"`
+	Subtasks []string `json:"subtasks,omitempty"`
+	Rollup   *Rollup  `json:"rollup,omitempty"`
 }
 
 // Returned says who went away from a card and who was told.
@@ -143,6 +149,9 @@ type NewTask struct {
 	// SetSteps; ids are minted s1, s2, ... and any given are ignored),
 	// written as a task.steps row right after task.created.
 	Steps []Step
+	// Parent, when given (a short ref or task id), makes the task a
+	// subtask of that card (subtasks.go).
+	Parent string
 }
 
 // TaskFilter narrows ListTasks; zero values mean any.

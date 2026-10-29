@@ -68,6 +68,9 @@ type Options struct {
 	// PairWindow shortens how long a pairing stays open (tests); zero is
 	// pair.Window.
 	PairWindow time.Duration
+	// ReattachGrace shortens the inbox's reclaim of unconfirmed wakes
+	// (tests); zero is inbox.ReattachGrace.
+	ReattachGrace time.Duration
 	// Now is the wall clock of the log's HLC, the future-row hold, the mesh
 	// and the asks; nil is time.Now. Tests set a device's clock off.
 	Now func() time.Time
@@ -213,7 +216,8 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	// read c.coord when the inbox calls them, so coord can come after).
 	if c.inbox, err = inbox.New(ctx, st, meshView{c}, inbox.Options{DeviceID: id.ID, PROwners: prOwners, IsOwner: chain.IsOwner,
 		Revoked:         func(dev string) bool { _, revoked := chain.Cut(dev); return revoked },
-		OnRecipientGone: c.recordGone, OnPassed: c.recordPassed, Stale: c.staleNotice}); err != nil {
+		OnRecipientGone: c.recordGone, OnPassed: c.recordPassed, Stale: c.staleNotice,
+		ReattachGrace: opts.ReattachGrace}); err != nil {
 		c.Close()
 		return nil, fmt.Errorf("inbox: %w", err)
 	}

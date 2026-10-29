@@ -26,8 +26,10 @@ unchanged.
 
 | URL | Shows |
 | --- | --- |
-| `/` | the cards; agents are busy on sample-card-2 and sample-card-4 (spinners) |
+| `/` | the open cards; agents are busy on sample-card-2 and sample-card-4 (spinners) |
 | `/?open=board:task:sample-card-4` | a card's page: busy agent, spinning step, links, a file |
+| `/?open=board:task:sample-card-7` | a parent card's page: its subtasks, one blocked, and the steps done before the split |
+| `/?open=board:task:sample-card-9` | a subtask's page, with "Part of #7" under the title |
 | `/?open=board:task:sample-card-1` | a card's page with blockers, a PR and a long thread |
 | `/?open=board:task:sample-card-2` | a blocker with recommended answers |
 | `/?open=board:task:sample-card-5` | a done card with a reviewed PR |
@@ -40,10 +42,11 @@ unchanged.
 | `/?from=sample-card-4` | the grid as a card's Back leaves it (that card marked and focused) |
 | `/?open=board:task:sample-ask-2` | an ask (the person's prompt to the room) an agent took: status line, Close, the thread |
 | `/?open=board:task:sample-ask-1` | an ask the agents heard and nobody has taken yet |
+| `/?filter=done` | the Done tab: closed cards, the latest first (a closed ask shows what it became) |
 | `/?slow#card/sample-card-1` | a card's page while the card loads |
 | `/#card/sample-card-gone` | a card's page for a card that isn't there |
 
-`?devices`, `?settings`, `?update` and `?from` live in `src/lib/preview.ts`; `?slow` in `src/lib/cards.ts`. An open
+`?devices`, `?settings`, `?update`, `?from` and `?filter` live in `src/lib/preview.ts`; `?slow` in `src/lib/cards.ts`. An open
 card's page is `#card/<id>` in the address (`/#card/sample-card-4` opens it
 too); its Back, Esc and the browser's back return to the grid.
 

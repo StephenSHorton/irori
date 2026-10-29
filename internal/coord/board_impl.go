@@ -934,12 +934,13 @@ func (c *coord) board(f BoardFilter) BoardView {
 				}
 			}
 		}
+		state := EffectiveState(*t) // a parent's follows its subtasks
 		switch {
-		case IsTerminal(t.State):
+		case IsTerminal(state):
 			v.Done = append(v.Done, card)
 		case c.needsYou(t, viewer, agentViewer):
 			v.NeedsYou = append(v.NeedsYou, card)
-		case t.State == Blocked:
+		case state == Blocked:
 			v.Blocked = append(v.Blocked, card)
 		case len(t.Holders) > 0:
 			v.Working = append(v.Working, card)

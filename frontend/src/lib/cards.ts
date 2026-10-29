@@ -4,7 +4,7 @@
 // sample in sample-cards.ts (answers change it in memory so the buttons can
 // be tried).
 
-import { useCallback, useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Browser, Events } from "@wailsio/runtime"
 
 import { BoardService } from "../../bindings/github.com/StephenSHorton/irori"
@@ -17,6 +17,7 @@ import {
   CardSummary,
   CardThreadItem,
   CommentResult,
+  DonePage,
   Holding,
   Told,
   TaskResult,
@@ -28,6 +29,8 @@ import {
   type CardHolder,
   type CardOption,
   type CardPR,
+  type CardRef,
+  type CardSubtask,
 } from "../../bindings/github.com/StephenSHorton/irori/models"
 import {
   LinkKind,
@@ -52,6 +55,8 @@ export type {
   CardHolder,
   CardOption,
   CardPR,
+  CardRef,
+  CardSubtask,
   CardSummary,
   CardThreadItem,
   CommentResult,
@@ -202,6 +207,9 @@ function summary(c: CardDetail): CardSummary {
     accent: c.accent,
     talking: c.talking,
     ask: c.ask,
+    parent: c.parent,
+    subtasks: c.subtasks,
+    subtaskBlocked: c.subtaskBlocked,
   })
 }
 
@@ -670,16 +678,45 @@ function useFresh(reload: () => Promise<void>, error: string | null) {
   }, [error, reload])
 }
 
+const updated = (c: { updatedAt: unknown }) =>
+  new Date(c.updatedAt as string).getTime()
+
 async function loadCards(): Promise<CardSummary[]> {
   if (!inWails()) {
     const ask = (c: CardDetail) => (openAsk(c) ? 1 : 0)
     const open = (c: CardDetail) => (c.openBlockers > 0 ? 1 : 0)
-    const time = (c: CardDetail) => new Date(c.updatedAt as string).getTime()
-    return [...sampleState()]
-      .sort((a, b) => ask(b) - ask(a) || open(b) - open(a) || time(b) - time(a))
-      .map(summary)
+    const time = updated
+    // As BoardService.Cards: the closed ones are on the Done tab.
+    return families(
+      sampleState()
+        .filter((c) => !over(c))
+        .sort((a, b) => ask(b) - ask(a) || open(b) - open(a) || time(b) - time(a))
+        .map(summary)
+    )
   }
   return (await BoardService.Cards()) ?? []
+}
+
+// families is BoardService.Cards' last step, for the sample: a parent's
+// subtasks follow it, and the family sits where its first card sorted.
+function families(sorted: CardSummary[]): CardSummary[] {
+  const byId = new Map(sorted.map((c) => [c.id, c]))
+  const head = (c: CardSummary) =>
+    c.parent && byId.has(c.parent.id) ? c.parent.id : c.id
+  const out: CardSummary[] = []
+  const placed = new Set<string>()
+  for (const c of sorted) {
+    const h = head(c)
+    if (placed.has(h)) continue
+    placed.add(h)
+    out.push(byId.get(h)!)
+    out.push(
+      ...sorted
+        .filter((k) => k.parent?.id === h)
+        .sort((a, b) => parseInt(a.short, 10) - parseInt(b.short, 10))
+    )
+  }
+  return out
 }
 
 export type CardsState = {
@@ -696,6 +733,98 @@ export function useCards(): CardsState {
   )
   useFresh(reload, error)
   return { cards: value, loading, error }
+}
+
+// DonePageSize is how many closed cards the Done tab loads at a time.
+export const DonePageSize = 30
+
+// loadDone is BoardService.DoneCards: limit closed cards, the latest
+// change first, after cursor before ("" for the top).
+async function loadDone(limit: number, before: string): Promise<DonePage> {
+  if (inWails()) return BoardService.DoneCards(limit, before)
+  const done = sampleState()
+    .filter(over)
+    .sort((a, b) => updated(b) - updated(a) || (a.id < b.id ? 1 : -1))
+  const from = before ? done.findIndex((c) => c.id === before) + 1 : 0
+  const page = done.slice(from, from + limit)
+  return new DonePage({
+    cards: page.map(summary),
+    next: from + limit < done.length ? page[page.length - 1].id : "",
+  })
+}
+
+export type DoneState = {
+  cards: CardSummary[]
+  more: boolean
+  loading: boolean
+  error: string | null
+  loadMore: () => void
+}
+
+// useDoneCards is the Done tab: closed cards, the latest first, read only
+// while active. Show more appends the next page; a card change re-reads
+// as many from the top as are showing, so a card that closes moves in.
+export function useDoneCards(active: boolean): DoneState {
+  const [st, setSt] = useState<{
+    cards: CardSummary[]
+    next: string
+    loading: boolean
+    error: string | null
+  }>({ cards: [], next: "", loading: true, error: null })
+  const shown = useRef(DonePageSize)
+  const req = useRef(0)
+
+  const reload = useCallback(async () => {
+    const n = ++req.current
+    try {
+      const p = await loadDone(shown.current, "")
+      if (n !== req.current) return
+      setSt({ cards: p.cards ?? [], next: p.next, loading: false, error: null })
+    } catch (err) {
+      if (n !== req.current) return
+      setSt((s) => ({ ...s, loading: false, error: errText(err) }))
+    }
+  }, [])
+
+  // loadMore raises how many cards the tab shows and reloads them all, so
+  // a reload that races it (a board change, focus) loads the raised count
+  // too, and the click is never lost.
+  const loadMore = useCallback(() => {
+    if (!st.next) return
+    shown.current = Math.max(shown.current, st.cards.length) + DonePageSize
+    void reload()
+  }, [st, reload])
+
+  useEffect(() => {
+    if (!active) return
+    void reload()
+    const off = subscribe(() => void reload())
+    if (!inWails()) return off
+    const onFocus = () => void reload()
+    window.addEventListener("focus", onFocus)
+    return () => {
+      off()
+      window.removeEventListener("focus", onFocus)
+    }
+  }, [active, reload])
+
+  useEffect(() => {
+    if (!active || !st.error) return
+    const id = window.setTimeout(() => void reload(), RetryMs)
+    return () => window.clearTimeout(id)
+  }, [active, st.error, reload])
+
+  return {
+    cards: st.cards,
+    more: !!st.next,
+    loading: st.loading,
+    error: st.error,
+    loadMore,
+  }
+}
+
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
 
 // useCard is one opened card, re-read on every card change. detail is null
@@ -798,11 +927,11 @@ export function workLabel(c: {
   openBlockers: number
   working: readonly AgentRef[]
 }): string {
-  if (!c.working.length) return ""
+  // A closed card has nobody working it, whatever its holders were.
+  if (over(c) || !c.working.length) return ""
   if (c.working.every((w) => w.assigned))
     return c.working.some((w) => w.waiting) ? "not picked up" : "assigned"
   if (busy(c)) return "working"
-  if (over(c)) return ""
   return "on it"
 }
 

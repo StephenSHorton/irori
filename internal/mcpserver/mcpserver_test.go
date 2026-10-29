@@ -574,7 +574,7 @@ func TestFallbackSpecsValid(t *testing.T) {
 		}
 	}
 	want := []string{"overview", "search", "show", "agents", "events", "send", "reply", "attachment_get", "inbox", "ack", "defer", "skip", "notify",
-		"board", "board_create", "board_comment", "board_block", "board_recommend", "board_unblock", "board_steps", "board_step",
+		"board", "board_create", "board_split", "board_comment", "board_block", "board_recommend", "board_unblock", "board_steps", "board_step",
 		"board_watch", "board_unwatch", "board_join", "board_leave",
 		"board_assign", "board_status", "ask_claim", "ask_close", "board_link", "lease", "leases", "release",
 		"timeline", "why", "commits", "prs", "join"}

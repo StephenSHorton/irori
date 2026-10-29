@@ -232,6 +232,8 @@ func TestBoardClosure(t *testing.T) {
 		{"a private blocked-on task", "task.status", map[string]any{"taskId": "t1", "state": "blocked", "by": "person:p1",
 			"blockedBy": map[string]any{"kind": "task", "ref": "private-task"}}},
 		{"an unmirrored lease", "lease.released", map[string]any{"resource": "gpu/qwen", "holder": "agent:c1", "by": "agent:c1"}},
+		{"a private parent", "task.parent", map[string]any{"taskId": "t1", "parent": "private-task", "by": "person:p1"}},
+		{"a subtask of a private card", "task.created", map[string]any{"taskId": "t5", "parent": "private-task", "by": "person:p1"}},
 	}
 	e.mustAppend("person:p1", "task.created", map[string]any{"taskId": "t1", "title": "one", "by": "person:p1"})
 	e.mustAppend("agent:c1", KindAgentCard, map[string]any{"cardId": "c1", "personId": "p1", "status": "active"})

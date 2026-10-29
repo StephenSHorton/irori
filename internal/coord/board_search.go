@@ -153,12 +153,36 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 	if t.ShortWas != "" {
 		fmt.Fprintf(&b, "renumbered: it was #%s, until cards made on devices that were apart turned out to have #%s too; #%s alone now names none of them\n", t.ShortWas, t.ShortWas, t.ShortWas)
 	}
-	state := string(t.State)
+	state := string(EffectiveState(*t))
+	if r := t.Rollup; r != nil {
+		state += fmt.Sprintf(" (from its subtasks: %d/%d done)", r.Done, r.Total)
+	}
 	if t.Shared {
 		state += ", shared"
 	}
 	line("state", state)
 	line("ask", askLine(t))
+	if p := c.tasks[t.Parent]; p != nil {
+		line("part of", fmt.Sprintf("%s %q", p.ShortRef(), p.Title))
+	}
+	if len(t.Subtasks) > 0 {
+		var ks []string
+		for _, id := range t.Subtasks {
+			if k := c.tasks[id]; k != nil {
+				who := "nobody on it"
+				if len(k.Holders) > 0 {
+					who = strings.Join(k.Holders, ", ")
+				}
+				done, total := k.Progress()
+				steps := ""
+				if total > 0 {
+					steps = fmt.Sprintf(", steps %d/%d", done, total)
+				}
+				ks = append(ks, fmt.Sprintf("\n- %s [%s] %q: %s%s", k.ShortRef(), k.State, k.Title, who, steps))
+			}
+		}
+		line("subtasks", strings.Join(ks, ""))
+	}
 	line("repo", t.RepoKey)
 	line("holders", strings.Join(t.Holders, ", "))
 	line("assigned, not claimed yet", strings.Join(t.Assigned, ", "))
@@ -180,7 +204,11 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 	line("note", t.Note)
 	if len(t.Steps) > 0 {
 		d, n := t.Progress()
-		fmt.Fprintf(&b, "\nsteps (%d/%d done):\n", d, n)
+		if t.Rollup != nil { // a parent's progress is its subtasks'
+			b.WriteString("\nsteps done before the split:\n")
+		} else {
+			fmt.Fprintf(&b, "\nsteps (%d/%d done):\n", d, n)
+		}
 		for _, s := range t.Steps {
 			mark := "[ ]"
 			switch {

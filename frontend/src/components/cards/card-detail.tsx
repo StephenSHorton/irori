@@ -28,6 +28,7 @@ import {
   type CardDetail,
   type CardOption,
   type CardPR,
+  type CardSubtask,
   type CardSummary,
   type Step,
   type Told,
@@ -78,6 +79,7 @@ export function CardPage({
   gone,
   now,
   onBack,
+  onOpen,
 }: {
   // summary is the card's grid tile, if the grid has it, for the header
   // while the full card loads.
@@ -87,6 +89,9 @@ export function CardPage({
   gone: GoneSession[]
   now: Date
   onBack: () => void
+  // onOpen opens another card's page: a subtask's parent, a parent's
+  // subtasks.
+  onOpen?: (id: string) => void
 }) {
   const [answered, setAnswered] = useState<Answered | null>(null)
   const back = (
@@ -159,7 +164,7 @@ export function CardPage({
   return (
     <article className="grid gap-3" aria-label="Card">
       {back}
-      <PageHeader card={detail} spinning={spinning} />
+      <PageHeader card={detail} spinning={spinning} onOpen={onOpen} />
       {openAsk(detail) ? (
         <AskStatus detail={detail} onClosed={onBack} />
       ) : (
@@ -256,8 +261,22 @@ export function CardPage({
                 />
               )}
               <ProgressLine detail={detail} />
-              {detail.steps.length > 0 && (
-                <Steps steps={detail.steps} spinning={spinning} />
+              {detail.subtaskList?.length > 0 ? (
+                <>
+                  <Subtasks list={detail.subtaskList} onOpen={onOpen} />
+                  {detail.steps.length > 0 && (
+                    <details className="text-xs text-muted-foreground">
+                      <summary className="cursor-pointer">
+                        Steps done before the split
+                      </summary>
+                      <Steps steps={detail.steps} spinning={false} />
+                    </details>
+                  )}
+                </>
+              ) : (
+                detail.steps.length > 0 && (
+                  <Steps steps={detail.steps} spinning={spinning} />
+                )
               )}
             </Section>
 
@@ -359,9 +378,11 @@ function AskStatus({
 function PageHeader({
   card,
   spinning,
+  onOpen,
 }: {
   card: CardSummary
   spinning?: boolean
+  onOpen?: (id: string) => void
 }) {
   return (
     <header className="grid gap-2">
@@ -379,7 +400,74 @@ function PageHeader({
       <h1 className="text-2xl leading-tight font-semibold tracking-tight text-balance text-ink">
         {plainLine(card.title) || "(untitled)"}
       </h1>
+      {card.parent && (
+        <p className="text-sm text-muted-foreground">
+          Part of{" "}
+          <button
+            type="button"
+            className="text-ink underline-offset-2 hover:underline disabled:no-underline"
+            disabled={!onOpen}
+            onClick={() => card.parent && onOpen?.(card.parent.id)}
+          >
+            <span className="font-mono">#{plainLine(card.parent.short)}</span>{" "}
+            {plainLine(card.parent.title)}
+          </button>
+        </p>
+      )}
     </header>
+  )
+}
+
+// Subtasks is a parent's list of its subtasks: each with its short ref,
+// title, state, holder and progress, opening its page on a click.
+function Subtasks({
+  list,
+  onOpen,
+}: {
+  list: CardSubtask[]
+  onOpen?: (id: string) => void
+}) {
+  return (
+    <ul className="grid gap-1" aria-label="Subtasks">
+      {list.map((k) => {
+        const p = percent(k.progress)
+        return (
+          <li key={k.id}>
+            <button
+              type="button"
+              className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 px-1.5 py-1 text-left text-[13px] hover:bg-accent disabled:hover:bg-transparent"
+              disabled={!onOpen}
+              onClick={() => onOpen?.(k.id)}
+            >
+              <span className="font-mono text-xs text-muted-foreground">
+                #{plainLine(k.short)}
+              </span>
+              <span
+                className={cn(
+                  "truncate",
+                  over(k) ? "text-muted-foreground line-through" : "text-ink"
+                )}
+              >
+                {plainLine(k.title) || "(untitled)"}
+              </span>
+              <span
+                className={cn(
+                  "text-[11px] uppercase tracking-wide",
+                  k.blocked ? "text-destructive" : "text-muted-foreground"
+                )}
+              >
+                {k.blocked ? "blocked" : k.state.replace("_", " ")}
+              </span>
+              <span />
+              <span className="col-span-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+                <HolderLine holder={k.holder} className="text-[11px]" />
+                {p !== null && <span className="tabular-nums">{p}%</span>}
+              </span>
+            </button>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
@@ -391,7 +479,14 @@ function ProgressLine({ detail }: { detail: CardDetail }) {
   if (p !== null)
     parts.push(
       <span key="p" className="tabular-nums">
-        {detail.progress.done} of {detail.progress.total} steps · {p}%
+        {detail.progress.done} of {detail.progress.total}{" "}
+        {detail.subtasks ? "subtasks done" : "steps"} · {p}%
+      </span>
+    )
+  if (detail.subtaskBlocked && !detail.openBlockers)
+    parts.push(
+      <span key="s" className="text-warning">
+        blocked by {plainLine(detail.subtaskBlocked)}
       </span>
     )
   if (detail.openBlockers > 0)

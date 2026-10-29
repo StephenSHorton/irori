@@ -6,6 +6,7 @@
 //   ?devices        opens the Devices dialog
 //   ?update=ready   shows the update card (also downloading, installing)
 //   ?from=<card>    the grid as that card's Back leaves it (App.tsx)
+//   ?filter=done    the grid on that filter tab (App.tsx)
 
 import { inWails } from "./irori"
 

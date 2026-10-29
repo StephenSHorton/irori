@@ -64,6 +64,11 @@ const (
 	DefaultInboxList = 50
 )
 
+// MaxWakeTries is how many mod-path wakes a delivery gets, each never
+// confirmed and reclaimed after ReattachGrace, before it goes out as an
+// append for the session's next turn instead (card #23).
+const MaxWakeTries = 3
+
 // Sender is who is sending, as the Core established it (never self-claimed).
 type Sender struct {
 	Key  string `json:"key"`  // agent key "<device>/<session>", or "user:<device>" for the GUI
@@ -427,7 +432,16 @@ func (b *Inbox) NextWake(ctx context.Context, agent string, path Path) (*Wake, e
 // or an append's $.session.append resolved (append token). Idempotent. Not
 // called for channel pushes (see Ack).
 func (b *Inbox) MarkDelivered(ctx context.Context, agent, token string) error {
-	return b.impl.markDelivered(ctx, agent, token)
+	return b.impl.markDelivered(ctx, agent, token, false)
+}
+
+// MarkAppendedDelivered is MarkDelivered for a wake token the mod put in as
+// an append because its host refused the submit (card #23), also when it
+// reported the wake delivered earlier while the submit was pending. No
+// prompt waits in the host's queue, so the wake does not gate the agent's
+// next one (OutstandingWake skips it).
+func (b *Inbox) MarkAppendedDelivered(ctx context.Context, agent, token string) error {
+	return b.impl.markDelivered(ctx, agent, token, true)
 }
 
 // MarkEngaged: a turn whose text contains token started. Reminder tokens are
@@ -437,7 +451,15 @@ func (b *Inbox) MarkDelivered(ctx context.Context, agent, token string) error {
 // Skipped, note "notice"), and no running wake is set. TurnEnded ignores
 // append tokens.
 func (b *Inbox) MarkEngaged(ctx context.Context, agent, token, turnID string) error {
-	return b.impl.markEngaged(ctx, agent, token, turnID)
+	return b.impl.markEngaged(ctx, agent, token, turnID, false)
+}
+
+// MarkAppendedEngaged is MarkEngaged for a wake token the mod put in as an
+// append because its host refused the submit (card #23): the next main-loop
+// turn read it, but the wake did not start that turn, so its deliveries go
+// Engaged and no running wake is set (a message from that turn has hop 0).
+func (b *Inbox) MarkAppendedEngaged(ctx context.Context, agent, token, turnID string) error {
+	return b.impl.markEngaged(ctx, agent, token, turnID, true)
 }
 
 // TurnEnded: that turn finished. Clears the running wake and may make the

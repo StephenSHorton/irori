@@ -337,7 +337,7 @@ A card can have a **parent**. A parent's **subtasks** are ordinary cards: each h
 - `task.created` gains `parent` (the parent's full task id).
 - A new `task.parent {taskId, parent, by}` sets or clears (`parent: ""`) an existing card's parent.
 - A link counts only when it keeps one level. Rows are applied in `(hlc, device, seq)` order. A link that would put a parent under another parent, or a card that has subtasks under a parent, is ignored and stays inert, and `show` on the child says so. Two devices can each make half of a two-level link while they're apart; the ordering settles it the same way everywhere once both rows are held.
-- Who may set a parent: anyone who may edit the subtask (its holders and creator, or the person), and the parent's holders.
+- Who may set a parent: anyone who may edit the subtask (its holders and creator, or the person), and anyone who may edit the parent (its holders and creator, or the person), which is who may split it.
 - An older peer ignores `parent`. It sees the subtasks as plain cards and the parent with the state its own rows give it. Nothing there breaks, and it catches up when it updates. No sync schema bump.
 
 **Tools.**
@@ -350,7 +350,7 @@ A card can have a **parent**. A parent's **subtasks** are ordinary cards: each h
   
   An entry's `steps` are either step ids from the card being split, which move with their done flags, or new step texts. Every open step of the card must go to exactly one subtask, or the call is refused with the steps that weren't placed. That's how a split "moves the steps that belong to them" without losing one. `adopt` makes existing cards subtasks too (one `task.parent` row each): use it when related cards already exist. The splitter keeps holding the parent.
 - `board_split` on a card that already has subtasks adds more. On a subtask, it's refused with the hint "add siblings: board_create parent=#12".
-- `board` lists a subtask under its parent, indented, with its own state, and the parent's line reads `#12 [working, 1/3 subtasks] ...`. `show #12` lists the subtasks with their state, holder and progress. `show #14` says "part of #12 <title>".
+- `board` keeps its state groups. A subtask's line says "part of #12", and the parent's line reads `#12 [working, 1/3 subtasks] ...`, followed by its subtasks' refs and states and, when one is blocked, "blocked by its subtask #14: <question>". `show #12` lists the subtasks with their state, holder and steps. `show #14` says "part of: #12 <title>".
 - **Agent instructions** (BoardInstructions) gain one line:
   > When a card grows past one agent's piece of work, or you see related cards that are one piece of work, make it a parent: board_split it into subtasks (adopt the related cards), so other agents can take subtasks in parallel. Keep one level: split a subtask into more siblings, not deeper.
 
@@ -364,7 +364,7 @@ A card can have a **parent**. A parent's **subtasks** are ordinary cards: each h
 **Asks.** An ask is outside the family until it becomes a card. An open ask is one with no outcome yet ([Asks](#asks)).
 - **It can't be a subtask or a parent.** `board_create parent=`, `board_split` and `adopt` refuse an open ask in either role, the same way `board_join` and `board_assign` do. The error points to `ask_claim` and `ask_close`. The fold ignores a `task.parent` row that names an open ask as either end. It uses the lock's position rule: such a row counts only when it comes after the ask's closing row, so an older device can't attach an ask around the lock.
 - **`ask_close outcome=card` takes an optional `parent`.** The ask becomes a card and a subtask of that parent in one call: a `task.parent` row follows its `task.status working`. That's how "this belongs under #12" lands without a second step.
-- **An ask closed as edit or none** is a finished record, not a card, so `adopt` refuses it.
+- **An ask closed as edit or none** is a finished record, not a card. `adopt` refuses it, as it refuses any finished card: only cards still in play are adopted.
 
 **Short refs stay flat.** Subtasks take the next numbers like any card (#13, #14, #15). Rejected: "#12.1" style refs. They'd need a second counter per parent, which clashes across devices the same way short refs do, and an adopted card would have to be renumbered, so a ref someone already saw would change.
 
