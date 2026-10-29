@@ -1892,6 +1892,14 @@ export class HomeServerView {
     "line"?: string;
 
     /**
+     * Awake is "Keep this PC awake while it's the server" (on by default);
+     * AwakeLine is "Keeping this PC awake" while it holds that, or why it
+     * can't.
+     */
+    "awake": boolean;
+    "awakeLine"?: string;
+
+    /**
      * LAN is the one line, on any device, when devices on its network
      * can't find it directly (the LAN carrier couldn't open, or has nowhere
      * to send).
@@ -1917,6 +1925,9 @@ export class HomeServerView {
         }
         if (!("running" in $$source)) {
             this["running"] = false;
+        }
+        if (!("awake" in $$source)) {
+            this["awake"] = false;
         }
 
         Object.assign(this, $$source);

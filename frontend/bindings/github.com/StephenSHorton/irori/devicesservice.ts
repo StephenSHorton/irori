@@ -155,6 +155,17 @@ export function SetHomeServer(on: boolean, outside: boolean, $public: string): $
 }
 
 /**
+ * SetHomeServerAwake switches "Keep this PC awake while it's the server"
+ * (GUI only): while it is on and the server runs, the PC doesn't idle into
+ * sleep. The display may still turn off.
+ */
+export function SetHomeServerAwake(on: boolean): $CancellablePromise<$models.HomeServerView> {
+    return $Call.ByID(2189406485, on).then(($result: any) => {
+        return $$createType4($result);
+    });
+}
+
+/**
  * SetRelay sets the advanced relay's TURN REST credential URL ("" removes
  * it). It applies to connections made from now on.
  */
