@@ -32,14 +32,16 @@ export type Block =
   | { kind: "para"; lines: Inline[][] }
   | { kind: "list"; items: { marker: string; inline: Inline[] }[] }
 
-// TLDs a bare link may end in. Kept short on purpose, and without the ones
-// that are also file extensions here (.go, .ts, .md, .js, .py, .rs, .sh,
-// .so), so "board.go" or "cards.ts" stays text.
+// TLDs a bare link may end in, written in lowercase in the text. Kept
+// short on purpose, and without the ones that are also file extensions
+// here (.go, .ts, .md, .js, .py, .rs, .sh, .so, .cc) or common method
+// names in code (.run, .info, .link, .in), so "board.go", "t.Run",
+// "subprocess.run" or "logger.info" stays text.
 const bareTLDs = new Set([
   "com", "org", "net", "io", "ai", "dev", "app", "co", "me", "gg", "tv",
-  "xyz", "edu", "gov", "info", "uk", "de", "jp", "fr", "ca", "us", "eu",
-  "nl", "se", "ch", "au", "in", "ly", "link", "page", "site", "cloud",
-  "tech", "run", "to", "fm", "im", "cc", "be", "it", "es", "kr", "cn",
+  "xyz", "edu", "gov", "uk", "de", "jp", "fr", "ca", "us", "eu",
+  "nl", "se", "ch", "au", "ly", "page", "site", "cloud",
+  "tech", "to", "fm", "im", "be", "it", "es", "kr", "cn",
 ])
 
 // A URL with its scheme, or a bare host (two or more labels) with an
@@ -92,8 +94,8 @@ function trimEnd(s: string): string {
 // linkOf is the link token for text, or null when it isn't one.
 function linkOf(text: string, bare: boolean): Inline | null {
   if (bare) {
-    const host = text.split(/[/:]/)[0].toLowerCase()
-    const tld = host.split(".").at(-1) ?? ""
+    // The TLD as written: "irori.Link" or "s.App" is code, not a host.
+    const tld = text.split(/[/:]/)[0].split(".").at(-1) ?? ""
     if (!bareTLDs.has(tld)) return null
   }
   const href = safeHref(text)

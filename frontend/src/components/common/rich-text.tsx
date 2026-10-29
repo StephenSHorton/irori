@@ -4,7 +4,7 @@ import { CheckIcon, CopyIcon, ExternalLinkIcon } from "lucide-react"
 import { cards, LinkKind, type Link } from "@/lib/cards"
 import { copyText } from "@/lib/clipboard"
 import { plainLine } from "@/lib/irori"
-import { richBlocks, richInline, type Inline } from "@/lib/rich"
+import { richBlocks, richInline, safeHref, type Inline } from "@/lib/rich"
 import { cn } from "@/lib/utils"
 
 // RichText shows untrusted multi-line text from an agent with its links,
@@ -177,13 +177,11 @@ export function CopyButton({
 // a Copy.
 export function LinkChip({ link, className }: { link: Link; className?: string }) {
   const ref = plainLine(link.ref)
-  if (link.kind === LinkKind.LinkURL) {
-    let host = ""
-    try {
-      host = new URL(ref).hostname.replace(/^www\./, "")
-    } catch {
-      return null
-    }
+  // A URL that can't be opened safely (an old row with user@ in it) shows
+  // as text with a Copy, like a path, instead of a button that does nothing.
+  const href = link.kind === LinkKind.LinkURL ? safeHref(ref) : null
+  if (href) {
+    const host = new URL(href).hostname.replace(/^www\./, "")
     const label = plainLine(link.label) || host
     return (
       <button
@@ -209,7 +207,13 @@ export function LinkChip({ link, className }: { link: Link; className?: string }
         "inline-flex h-6 max-w-full min-w-0 items-center gap-1 border border-border bg-card pr-0.5 pl-2 text-xs",
         className
       )}
-      title={link.kind === LinkKind.LinkCommit ? `Commit ${ref}` : `Repo path ${ref}`}
+      title={
+        link.kind === LinkKind.LinkCommit
+          ? `Commit ${ref}`
+          : link.kind === LinkKind.LinkURL
+            ? `Link ${ref} (not opened from here)`
+            : `Repo path ${ref}`
+      }
     >
       <code className="truncate font-mono text-ink">{ref}</code>
       <CopyButton text={ref} />

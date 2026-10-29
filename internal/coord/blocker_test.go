@@ -1,6 +1,7 @@
 package coord
 
 import (
+	"errors"
 	"reflect"
 	"slices"
 	"strings"
@@ -468,5 +469,23 @@ func TestBlockerLinksAndFiles(t *testing.T) {
 	}
 	if _, _, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: "q5", Links: many}); err == nil {
 		t.Fatal("too many links")
+	}
+
+	// Raising the same question again can't take it over the cap: refused,
+	// no row, nothing dropped quietly.
+	if _, full, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: nb.Question, Links: many[:MaxBlockerLinks-3]}); err != nil ||
+		len(full.Links) != MaxBlockerLinks {
+		t.Fatalf("filled %d links, %v", len(full.Links), err)
+	}
+	n = len(e.rows(KindTaskState))
+	if _, _, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: nb.Question, Links: many[MaxBlockerLinks-3:]}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("over the cap: %v", err)
+	}
+	if len(e.rows(KindTaskState)) != n {
+		t.Fatal("the refused raise wrote a row")
+	}
+	// What it already has is still a no-op.
+	if _, _, err := e.c.Raise(ctx, alice, task.ID, NewBlocker{Question: nb.Question, Links: many[:2]}); err != nil {
+		t.Fatalf("again at the cap: %v", err)
 	}
 }

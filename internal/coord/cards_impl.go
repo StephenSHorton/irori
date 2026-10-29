@@ -593,6 +593,17 @@ func (c *coord) raiseLocked(ctx context.Context, by string, t *Task, reason, q, 
 		// The same question again, saying nothing new about what it waits on.
 		return copyTask(t), copyBlocker(t.Blockers[i]), nil
 	}
+	if i := openWithQuestion(t, q); i >= 0 {
+		// Links and files add to the open item with this question; refuse
+		// what would go over the caps rather than drop it quietly.
+		b := t.Blockers[i]
+		if n := len(addLinks(slices.Clone(b.Links), links...)); n > MaxBlockerLinks {
+			return Task{}, Blocker{}, fmt.Errorf("%w: blocker %s would have %d links (at most %d)", ErrInvalid, b.ID, n, MaxBlockerLinks)
+		}
+		if n := len(addFiles(slices.Clone(b.Attachments), files...)); n > MaxAttachments {
+			return Task{}, Blocker{}, fmt.Errorf("%w: blocker %s would have %d attachments (at most %d)", ErrInvalid, b.ID, n, MaxAttachments)
+		}
+	}
 	if i := openWithQuestion(t, q); i >= 0 && t.State == Blocked && nb == nil && !reasonOnly {
 		nb = copyOn(t.Blockers[i].On) // adding links or files keeps what it waits on
 	}

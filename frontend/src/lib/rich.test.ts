@@ -33,6 +33,8 @@ describe("links", () => {
       "https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m",
     ])
     expect(linksOf("on github.com, or www.notion.com/x.")).toEqual(["https://github.com/", "https://www.notion.com/x"])
+    // A capitalized host is fine; it's the TLD that must be lowercase.
+    expect(linksOf("see GitHub.com/acme")).toEqual(["https://github.com/acme"])
     // File names, versions and abbreviations stay text.
     for (const s of [
       "edit board.go and cards.ts",
@@ -41,6 +43,13 @@ describe("links", () => {
       "e.g. this, i.e. that",
       "package.json and libfoo.so",
       "localhost:8080",
+      // Method calls and fields in code, in any case.
+      "t.Run(name) and cmd.Run()",
+      "irori.Link and coord.Link",
+      "subprocess.run and logger.info",
+      "app.run(debug) and s.App",
+      "foo.cc and bar.in",
+      "Example.COM",
     ])
       expect(linksOf(s)).toEqual([])
   })

@@ -38,20 +38,27 @@ var (
 	linearIssueRe = regexp.MustCompile(`^/[^/]+/issue/([A-Za-z][A-Za-z0-9]*-[0-9]+)(?:/|$)`)
 	githubItemRe  = regexp.MustCompile(`^/[^/]+/[^/]+/(?:issues|pull)/([0-9]+)(?:/|$)`)
 	notionIDRe    = regexp.MustCompile(`-?[0-9a-f]{32}$`)
+	// schemeRe is a URL scheme at the start ("mailto:", "javascript:").
+	// One letter before the colon is a Windows drive ("C:/x"), not a scheme.
+	schemeRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]+:`)
 )
 
 // ParseLink classifies s as a URL (it has a scheme, which must be http or
-// https), a commit sha (7-40 hex) or a repo path (anything else without a
-// scheme; backslashes become slashes, no ".." segments), and labels it.
+// https, and no user:password@, which hides the real host), a commit sha
+// (7-40 hex) or a repo path (anything else without a scheme; backslashes
+// become slashes, no ".." segments), and labels it.
 func ParseLink(s string) (Link, error) {
 	s = strings.TrimSpace(s)
 	if s == "" || utf8.RuneCountInString(s) > maxLinkRef || strings.ContainsAny(s, "\r\n\t") {
 		return Link{}, fmt.Errorf("%w: a link is a URL, a repo path or a commit sha (at most %d characters)", ErrInvalid, maxLinkRef)
 	}
-	if strings.Contains(s, "://") {
+	if strings.Contains(s, "://") || schemeRe.MatchString(s) {
 		u, err := url.Parse(s)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			return Link{}, fmt.Errorf("%w: link %q is not an http(s) URL", ErrInvalid, s)
+		}
+		if u.User != nil {
+			return Link{}, fmt.Errorf("%w: link %q has a user@ before its host; give the plain URL", ErrInvalid, s)
 		}
 		return Link{Kind: LinkURL, Ref: s, Label: LinkLabel(s)}, nil
 	}
