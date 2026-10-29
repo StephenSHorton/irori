@@ -180,7 +180,13 @@ async function onDeliver($: EngineInterface, e: AttachEvent) {
     ended: false,
   }
   await update($, wakesAtom, list => [...list.filter(w => w.token !== token), wake].slice(-MAX_WAKES))
-  if (!e.reminder) $.ui.toast(`irori: message from ${e.from || 'another agent'}`)
+  if (!e.reminder) {
+    try {
+      $.ui.toast(`irori: message from ${e.from || 'another agent'}`)
+    } catch {
+      // A toast the host refuses must not stop the wake.
+    }
+  }
   // `delivered` means accepted into Claude Code's queue, not "its turn started".
   // A submit made during a running turn resolves only when its own turn starts,
   // which can be past the Core's ReattachGrace; waiting for it would let the
@@ -188,7 +194,15 @@ async function onDeliver($: EngineInterface, e: AttachEvent) {
   // So a submit still pending after SUBMIT_ACCEPT_MS counts as queued.
   // A submit can also resolve as { drop } (a hook or the engine refused it):
   // the prompt never entered, so it goes in as an append instead (card #23).
-  const submitted = $.prompt.submit({ text: prompt }).then(
+  // A submit that throws at once (before it returns a promise) fails like one
+  // that rejects, so it is appended instead of silently lost (card #23).
+  let pending: ReturnType<EngineInterface['prompt']['submit']>
+  try {
+    pending = $.prompt.submit({ text: prompt })
+  } catch (err) {
+    pending = Promise.reject(err)
+  }
+  const submitted = Promise.resolve(pending).then(
     r =>
       typeof r?.drop === 'string'
         ? { failed: true as const, err: new Error(`prompt dropped: ${r.drop}`) }
@@ -329,7 +343,13 @@ async function handleEvent($: EngineInterface, e: AttachEvent): Promise<'superse
       return
     case 'deliver':
       // Detached: a submit can wait for the running turn, and other events keep flowing.
-      void onDeliver($, e).catch(() => {})
+      void onDeliver($, e).catch(err => {
+        try {
+          $.ui.log(`irori: wake not handed over: ${errText(err)}`, { to: 'debug' })
+        } catch {
+          // The module unloaded; nothing left to log to.
+        }
+      })
       return
     case 'append':
       void onAppend($, e).catch(() => {})
@@ -438,7 +458,10 @@ async function markEngaged($: EngineInterface, text: string, turnId: string) {
   )
   for (const w of named) {
     await patchWake($, w.token, { turnId })
-    if (await report($, '/v1/deliveries/engaged', { token: w.token, turnId })) {
+    // An appended wake did not start this turn: the Core then sets no running
+    // wake, so a message sent from it is not counted a hop deeper.
+    const body = w.appended === true && !text.includes(w.token) ? { token: w.token, turnId, appended: true } : { token: w.token, turnId }
+    if (await report($, '/v1/deliveries/engaged', body)) {
       await patchWake($, w.token, { engaged: true, delivered: true })
     }
   }

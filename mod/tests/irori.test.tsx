@@ -75,7 +75,14 @@ type Call = { url: string; method: string; headers: Record<string, string>; body
 /** The engine beneath the mod: spawn, fetch, submit, register, toast. */
 function world(
   on: On,
-  opts: { exitCode?: number; holdSubmit?: Promise<void>; dropSubmit?: boolean; appendFails?: () => 'deny' | undefined } = {},
+  opts: {
+    exitCode?: number
+    holdSubmit?: Promise<void>
+    dropSubmit?: boolean
+    submitThrows?: boolean
+    toastThrows?: boolean
+    appendFails?: () => 'deny' | undefined
+  } = {},
 ) {
   const children: Array<ReturnType<typeof makeChild>> = []
   const spawned: Array<readonly string[]> = []
@@ -90,6 +97,7 @@ function world(
   on('command.register', () => ({ value: { command: 'irori' } }) as never)
   on('ui.toast', ($, e) => {
     toasts.push(String(e.text))
+    if (opts.toastThrows) throw new Error('toast refused by the test')
     return { value: undefined } as never
   })
   on('ui.log', () => ({ value: undefined }) as never)
@@ -99,6 +107,7 @@ function world(
   })
   on('prompt.submit', async ($, e) => {
     submitted.push(e.text)
+    if (opts.submitThrows) throw new Error('submit refused by the test')
     // A held submit is a prompt queued behind a running turn: it resolves
     // only when its own turn starts, as it did live.
     if (opts.holdSubmit) await opts.holdSubmit
@@ -157,7 +166,7 @@ describe('attach', () => {
       await band.unmount()
     }
     const ran = await $.command.run(irori(''))
-    expect(ran.text).toContain('irori mod 0.4.0')
+    expect(ran.text).toContain('irori mod 0.4.1')
     expect(ran.text).toContain('set iroriPath')
   })
 
@@ -165,7 +174,7 @@ describe('attach', () => {
     const w = world(on)
     await $.session.start({ cwd: 'C:/work/api', surface: 'terminal', isInteractive: true })
     await until(() => w.children.length === 1, 'spawn')
-    expect(w.spawned[0]).toEqual([IRORI, 'attach', '--session', SESSION, '--cwd', 'C:/work/api', '--mod-version', '0.4.0'])
+    expect(w.spawned[0]).toEqual([IRORI, 'attach', '--session', SESSION, '--cwd', 'C:/work/api', '--mod-version', '0.4.1'])
 
     // hello split across two pieces, a blank keepalive, and a stray log line.
     const h = line(hello)
@@ -277,7 +286,7 @@ ${prompt}`, turnId: 'turn-1' })
     await $.turn.start({ text: 'look around', turnId: 'turn-sub', agentId: 'agent-1' } as never)
     await $.turn.start({ text: 'you have unread irori things?', turnId: 'turn-h' })
     await until(() => posts(w.calls, '/v1/deliveries/engaged').length === 1, 'engaged')
-    expect(posts(w.calls, '/v1/deliveries/engaged')[0]!.body).toBe(JSON.stringify({ token: TOKEN, turnId: 'turn-h' }))
+    expect(posts(w.calls, '/v1/deliveries/engaged')[0]!.body).toBe(JSON.stringify({ token: TOKEN, turnId: 'turn-h', appended: true }))
     await $.turn.complete({ turnId: 'turn-h', answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as never)
     await until(() => posts(w.calls, '/v1/deliveries/turn-ended').length === 1, 'turn-ended')
     expect(posts(w.calls, '/v1/deliveries/turn-ended')[0]!.body).toBe(JSON.stringify({ token: TOKEN, turnId: 'turn-h' }))
@@ -323,7 +332,21 @@ ${prompt}`, turnId: 'turn-1' })
     expect(posts(w.calls, '/v1/deliveries/delivered').length).toBe(1)
     await $.turn.start({ text: 'carry on', turnId: 'turn-2' })
     await until(() => posts(w.calls, '/v1/deliveries/engaged').length === 1, 'engaged by the next turn')
-    expect(posts(w.calls, '/v1/deliveries/engaged')[0]!.body).toBe(JSON.stringify({ token: TOKEN, turnId: 'turn-2' }))
+    expect(posts(w.calls, '/v1/deliveries/engaged')[0]!.body).toBe(JSON.stringify({ token: TOKEN, turnId: 'turn-2', appended: true }))
+  })
+
+  test('a submit that throws, under a toast that throws, still goes in as an append', OPTIONS, async ($, on) => {
+    // A throw before the submit settles must not end onDeliver silently,
+    // with the wake neither delivered nor forgotten (card #23). The engine
+    // turns these handler throws into a rejection; onDeliver also guards a
+    // synchronous throw from the host.
+    const w = world(on, { submitThrows: true, toastThrows: true })
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    const prompt = `${TOKEN} hi`
+    w.children[0]!.write(line(hello) + line({ type: 'deliver', token: TOKEN, deliveryIds: ['del_1'], prompt, from: 'bob' }))
+    await until(() => posts(w.calls, '/v1/deliveries/delivered').length === 1, 'delivered after the append')
+    expect(w.appended).toEqual([{ type: 'user', text: prompt, agentId: undefined }])
   })
 
   test('a reminder wake is submitted but never engaged', OPTIONS, async ($, on) => {
@@ -478,7 +501,7 @@ describe('/irori', () => {
     }
     expect(w.calls.filter(c => c.url.endsWith('/v1/policy'))).toEqual([])
     const status = await $.command.run(irori(''))
-    expect(status.text).toContain('irori mod 0.4.0')
+    expect(status.text).toContain('irori mod 0.4.1')
     expect(status.text).toContain('Attached as api work')
   })
 

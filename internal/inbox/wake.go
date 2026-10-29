@@ -266,7 +266,7 @@ func (b *inbox) markDelivered(ctx context.Context, agent, token string) error {
 	return nil
 }
 
-func (b *inbox) markEngaged(ctx context.Context, agent, token, turnID string) error {
+func (b *inbox) markEngaged(ctx context.Context, agent, token, turnID string, appended bool) error {
 	b.mu.Lock()
 	defer b.unlock()
 	w, err := b.wakeByToken(agent, token)
@@ -295,8 +295,10 @@ func (b *inbox) markEngaged(ctx context.Context, agent, token, turnID string) er
 		}
 	}
 	// Whatever started the turn engaged an append, not the message: no
-	// running wake, so a message sent from that turn has hop 0.
-	if w.isAppend() {
+	// running wake, so a message sent from that turn has hop 0. The same
+	// holds for a wake the mod appended because its host refused the
+	// submit (card #23): the wake did not start this turn.
+	if w.isAppend() || appended {
 		return nil
 	}
 	if cur, ok := b.running[agent]; ok && cur.WakeID == w.ID && cur.TurnID == turnID {

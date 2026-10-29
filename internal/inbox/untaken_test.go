@@ -73,6 +73,39 @@ func TestUnconfirmedWakeFallsBackToAppend(t *testing.T) {
 	}
 }
 
+func TestAppendedWakeEngagesWithoutAHop(t *testing.T) {
+	// The mod put a wake in as an append (its host refused the submit) and the
+	// person's next turn read it. That wake did not start the turn, so a
+	// message sent from it starts a fresh chain (hop 0), not one hop deeper.
+	h := newHarness(t)
+	h.abc()
+	h.ib.SetReachable(keyB, PathMod, true)
+	m0, d := h.send(claude(keyA, "alpha"), to("beta"), "q")
+	w := h.wake(keyB)
+	if err := h.ib.MarkDelivered(bg, keyB, w.Token); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.ib.MarkAppendedEngaged(bg, keyB, w.Token, "turn-human"); err != nil {
+		t.Fatal(err)
+	}
+	h.wantState(d.ID, Engaged)
+	if id := h.ib.RunningWake(keyB); id != "" {
+		t.Fatalf("running wake %s", id)
+	}
+	if m, _ := h.send(claude(keyB, "beta"), to("gamma"), "from the person's turn"); m.Hop != 0 || m.ParentID != "" {
+		t.Fatalf("hop %d parent %s (wake message %s)", m.Hop, m.ParentID, m0.ID)
+	}
+	// The same wake engaged as a real wake does continue the chain.
+	_, d2 := h.send(claude(keyA, "alpha"), to("beta"), "q2")
+	w2 := h.deliverEngage(keyB, "t2")
+	if !slices.Contains(w2.DeliveryIDs, d2.ID) {
+		t.Fatalf("wake %v", w2.DeliveryIDs)
+	}
+	if m, _ := h.send(claude(keyB, "beta"), to("gamma"), "from the woken turn"); m.Hop != 1 {
+		t.Fatalf("woken turn hop %d", m.Hop)
+	}
+}
+
 func TestUntakenItemRidesTheNextWake(t *testing.T) {
 	h := newHarness(t)
 	h.abc()

@@ -442,7 +442,15 @@ func (b *Inbox) MarkDelivered(ctx context.Context, agent, token string) error {
 // Skipped, note "notice"), and no running wake is set. TurnEnded ignores
 // append tokens.
 func (b *Inbox) MarkEngaged(ctx context.Context, agent, token, turnID string) error {
-	return b.impl.markEngaged(ctx, agent, token, turnID)
+	return b.impl.markEngaged(ctx, agent, token, turnID, false)
+}
+
+// MarkAppendedEngaged is MarkEngaged for a wake token the mod put in as an
+// append because its host refused the submit (card #23): the next main-loop
+// turn read it, but the wake did not start that turn, so its deliveries go
+// Engaged and no running wake is set (a message from that turn has hop 0).
+func (b *Inbox) MarkAppendedEngaged(ctx context.Context, agent, token, turnID string) error {
+	return b.impl.markEngaged(ctx, agent, token, turnID, true)
 }
 
 // TurnEnded: that turn finished. Clears the running wake and may make the

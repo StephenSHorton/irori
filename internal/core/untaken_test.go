@@ -56,3 +56,29 @@ func TestUnconfirmedWakeReachesNextTurn(t *testing.T) {
 		t.Fatalf("after engaged: %s", s)
 	}
 }
+
+// TestAppendedWakeEngagedOverHTTP: the mod reports a wake it appended (its
+// host refused the submit) with appended:true, and the Core engages it
+// without making it the running wake.
+func TestAppendedWakeEngagedOverHTTP(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	ib := r.core.Inbox()
+	b, hb := r.attachMod(sessB, attach.AppendSince)
+	_, d, err := ib.Send(ctx, r.core.UserSender(), inbox.Address{Kind: inbox.ToAgent, Value: "beta"}, "hi", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev := b.next(attach.TypeDeliver)
+	r.control(hb.AttachSecret, "delivered", ev.Token, "")
+	code, raw := r.do("POST", "/v1/deliveries/engaged", as(hb.AttachSecret), map[string]any{"token": ev.Token, "turnId": "turn-human", "appended": true})
+	if code != 200 || !strings.Contains(string(raw), `"ok":true`) {
+		t.Fatalf("engaged: %d %s", code, raw)
+	}
+	if s := r.state(d.ID); s != inbox.Engaged {
+		t.Fatalf("after engaged: %s", s)
+	}
+	if id := ib.RunningWake(hb.AgentKey); id != "" {
+		t.Fatalf("running wake %s", id)
+	}
+}
