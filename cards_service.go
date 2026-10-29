@@ -344,6 +344,11 @@ type CardThreadItem struct {
 	// Unheard: the person's comment had no agent around to hear it, and no
 	// agent has written on the card since.
 	Unheard bool `json:"unheard,omitempty"`
+	// Pending is, on the person's comment, one line per agent asked to
+	// answer it that hasn't taken it up yet: "queued for Otter (busy)",
+	// "held for Otter" (the wake policy) or "sent to Otter, not read yet".
+	// A line goes once that agent's turn with it starts.
+	Pending []string `json:"pending,omitempty"`
 }
 
 // CardMessage is a message on a card's thread in full, for the person: the
@@ -397,18 +402,25 @@ type people struct {
 	// "assigned") still queued or held for that agent: an assignment that
 	// never reached it. Later notices on the card don't count.
 	unsent map[string]bool
+	// heard maps a comment id to the comment notices ("comment:<id>") its
+	// agents haven't taken up yet: queued, held or delivered, not engaged.
+	heard map[string][]inbox.Delivery
 }
 
 func unsentKey(agent, ref string) string { return agent + "\x00" + ref }
 
 func (b *BoardService) people() people {
 	p := people{byKey: map[string]presence.AgentCard{}, user: b.user.Key, self: b.self,
-		names: map[string]string{}, conflicts: map[string]string{}, unsent: map[string]bool{}}
+		names: map[string]string{}, conflicts: map[string]string{}, unsent: map[string]bool{}, heard: map[string][]inbox.Delivery{}}
 	if b.deliveries != nil {
 		for _, d := range b.deliveries() {
 			m := d.Message
 			if m.Notice && m.Reason == string(coord.NoticeAssigned) && (d.State == inbox.Queued || d.State == inbox.Held) && strings.HasPrefix(m.Ref, "task:") {
 				p.unsent[unsentKey(d.To, d.Message.Ref)] = true
+			}
+			if cid, ok := strings.CutPrefix(m.Ref, "comment:"); ok && m.Notice && m.Reason == string(coord.NoticeComment) &&
+				(d.State == inbox.Queued || d.State == inbox.Held || d.State == inbox.Delivered) {
+				p.heard[cid] = append(p.heard[cid], d)
 			}
 		}
 	}
@@ -1008,6 +1020,8 @@ func buildThread(comments []coord.Comment, acts []coord.Activity, t coord.Task, 
 			Attachments: cm.Attachments, BlockerID: cm.BlockerID, Missing: cm.Missing, Unheard: cm.Unheard}
 		if cm.MsgID != "" {
 			it.Kind = ThreadMessage
+		} else if it.Who.Status == "person" {
+			it.Pending = pendingLines(p.heard[cm.ID], t, p)
 		}
 		if cm.To != "" {
 			to := p.ref(cm.To)
@@ -1063,6 +1077,33 @@ func buildThread(comments []coord.Comment, acts []coord.Activity, t coord.Task, 
 		items = append(items, e.item)
 	}
 	return items, byBlocker, earlier
+}
+
+// pendingLines are a person's comment's Pending lines from its notices
+// still open in the inbox (people.heard). A watcher's notice is left out:
+// the holders answer. Queued says busy when the roster does; a next-turn
+// notice to an idle agent waits for its next turn.
+func pendingLines(ds []inbox.Delivery, t coord.Task, p people) []string {
+	var out []string
+	for _, d := range ds {
+		if d.To == "" || slices.Contains(t.Watchers, d.To) && !slices.Contains(t.Holders, d.To) {
+			continue
+		}
+		who := p.ref(d.To)
+		switch d.State {
+		case inbox.Queued:
+			if who.Status == "busy" {
+				out = append(out, "queued for "+who.Name+" (busy)")
+			} else {
+				out = append(out, "queued for "+who.Name)
+			}
+		case inbox.Held:
+			out = append(out, "held for "+who.Name)
+		case inbox.Delivered:
+			out = append(out, "sent to "+who.Name+", not read yet")
+		}
+	}
+	return out
 }
 
 // cardPR reads a GitHub PR link and what the ledger knows of it.

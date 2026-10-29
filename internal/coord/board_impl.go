@@ -462,6 +462,19 @@ func (c *coord) personComment(ctx context.Context, by, id, text string, wake boo
 			}
 		}
 	}
+	was := ""
+	if slices.ContainsFunc(t.Holders, func(h string) bool { return !c.isOwner(h) && (around == nil || around(h)) }) &&
+		c.reopenRefusal(t) == nil {
+		// A comment on a finished card a holder still around holds reopens
+		// it (board.md "Comments from the app"), before the comment, so the
+		// thread reads in that order. With every holder gone it would sit
+		// Working with nobody on it, so it stays finished. A parent that
+		// can't come back stays done.
+		was = string(t.State)
+		if err := c.reopenLocked(ctx, by, t, ReopenCommentNote); err != nil {
+			return Comment{}, nil, err
+		}
+	}
 	at := c.stamp()
 	cid := newID(at)
 	cm, err := c.writeComment(ctx, c.actorFor(by), taskCommentRow{
@@ -472,6 +485,9 @@ func (c *coord) personComment(ctx context.Context, by, id, text string, wake boo
 		return Comment{}, nil, err
 	}
 	head := fmt.Sprintf("The person commented on %q (%s)", t.Title, t.Refs())
+	if was != "" {
+		head += fmt.Sprintf(", which was %s and is open again", was)
+	}
 	n := Notice{Kind: NoticeComment, TaskID: id, Ref: "comment:" + cid, Title: t.Title, By: by}
 	var ns []Notice
 	if room && len(answer) > 0 {

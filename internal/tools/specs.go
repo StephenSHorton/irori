@@ -321,7 +321,7 @@ var specList = []Spec{
 	{
 		Name: "board_watch",
 		Description: "Watch a card whose work matters to yours: you hear at your next turn when its state, steps, blockers or PR links change, " +
-			"you show on it as watching, and you may recommend answers to its blockers. " + BoardInstructions,
+			"you show on it as watching, and you may recommend answers to its blockers. A finished card can be watched (it may reopen). " + BoardInstructions,
 		InputSchema: schema(propTaskID, "task_id"),
 		Clients:     both,
 	},
@@ -374,12 +374,12 @@ var specList = []Spec{
 	},
 	{
 		Name: "ask_close",
-		Description: "End an ask you took with what it became. card: it becomes the card in place (same #, same thread), with the " +
-			"title (required), objective, done_when and steps you give, and you hold it. edit: it changes the card task (any of title, " +
-			"objective, done_when for it), and the ask is done. none: nothing comes of it. note is one line on why, shown on the card. " +
-			"Only the agent that took it (or the person) may close it; board_leave gives it back instead. " + AskInstructions,
+		Description: "End an ask you took with what it became. card: it becomes the card in place (same #, same thread) with the " +
+			"title (required), objective, done_when and steps you give, and you hold it. edit: it changes the card task (title, " +
+			"objective, done_when). answered: you answered the person's question on the card. none: only when nothing came of it. " +
+			"note is one line on why, shown on the card. Only the taker (or the person) closes it; board_leave gives it back. " + AskInstructions,
 		InputSchema: schema(propTaskID+`,`+
-			`"outcome":{"type":"string","enum":["card","edit","none"],"description":"What it became."},`+
+			`"outcome":{"type":"string","enum":["card","edit","answered","none"],"description":"What it became."},`+
 			`"note":{"type":"string","description":"One line on what it became and why (at most 300 characters)."},`+
 			`"title":{"type":"string","description":"card: the card's short title. edit: a new title for task (optional)."},`+
 			`"objective":{"type":"string","description":"Optional: what needs doing and why. card: default the person's prompt."},`+

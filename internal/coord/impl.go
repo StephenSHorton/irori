@@ -527,7 +527,10 @@ func (c *coord) fold(ev store.Event) {
 				what, raised = c.foldBlocked(t, p, ev, was == Blocked, when)
 			} else {
 				closeOpen(t, p.By, p.Note, when)
-				if was != p.State {
+				switch {
+				case IsTerminal(was) && !IsTerminal(p.State):
+					what = "reopened it"
+				case was != p.State:
 					what = "set it to " + string(p.State)
 				}
 			}
@@ -1367,6 +1370,81 @@ func (c *coord) setTaskState(ctx context.Context, by, id string, s TaskState, no
 		}
 	}
 	return copyTask(t), nil
+}
+
+// Reopen notes: the state row's note when a card is reopened.
+const (
+	ReopenNote        = "reopened"
+	ReopenCommentNote = "reopened by the person's comment"
+)
+
+// reopen is Reopen with the state row's note.
+func (c *coord) reopen(ctx context.Context, by, id, note string) (Task, Notice, error) {
+	by = strings.TrimSpace(by)
+	if by == "" {
+		return Task{}, Notice{}, fmt.Errorf("%w: no caller", ErrInvalid)
+	}
+	c.mu.Lock()
+	defer c.unlock()
+	t, err := c.anyTask(id)
+	if err != nil {
+		return Task{}, Notice{}, err
+	}
+	if !c.mayManage(t, by) {
+		return Task{}, Notice{}, fmt.Errorf("%w: reopen task %s", ErrNotAllowed, id)
+	}
+	was := t.State
+	if err := c.reopenLocked(ctx, by, t, note); err != nil {
+		return Task{}, Notice{}, err
+	}
+	n := Notice{Kind: NoticeReopened, TaskID: t.ID, Ref: "task:" + t.ID, Title: t.Title, By: by, To: c.recipients(t, by)}
+	who := by
+	if c.isOwner(by) {
+		who = "The person"
+	}
+	n.Text = fmt.Sprintf("%s reopened %q (%s), which was %s. It is %s again", who, t.Title, t.Refs(), was, t.State)
+	if len(t.Holders) > 0 {
+		n.Text += ", with you on it: pick it up, or board_status it done again if there is nothing left to do."
+	} else {
+		n.Text += ", with nobody on it."
+	}
+	n.Text += deeper(t.ID)
+	return copyTask(t), n, nil
+}
+
+// reopenLocked writes t's reopening state row: working when a holder has
+// taken it up, else submitted (restoreState). A finished parent comes back
+// with its subtask, first. c.mu is held.
+func (c *coord) reopenLocked(ctx context.Context, by string, t *Task, note string) error {
+	if err := c.reopenRefusal(t); err != nil {
+		return err
+	}
+	if p := c.tasks[t.Parent]; p != nil && IsTerminal(p.State) {
+		if err := c.write(ctx, by, KindTaskState, taskStateRow{TaskID: p.ID, State: restoreState(p),
+			Note: "its subtask " + t.ShortRef() + " was reopened", By: by, At: c.stamp()}); err != nil {
+			return err
+		}
+	}
+	return c.write(ctx, by, KindTaskState, taskStateRow{TaskID: t.ID, State: restoreState(t), Note: note, By: by, At: c.stamp()})
+}
+
+// reopenRefusal is why t can't be reopened: it isn't finished, or it is a
+// parent whose subtasks have all ended (its state follows them, so it
+// would stay done). c.mu is held.
+func (c *coord) reopenRefusal(t *Task) error {
+	if !IsTerminal(t.State) {
+		return fmt.Errorf("%w: %s is %s, not finished", ErrBadState, t.ShortRef(), t.State)
+	}
+	if len(t.Subtasks) == 0 {
+		return nil
+	}
+	for _, k := range t.Subtasks {
+		if kt := c.tasks[k]; kt != nil && !IsTerminal(kt.State) {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: %s's subtasks have all ended, and a parent's state follows them; reopen a subtask instead",
+		ErrSubtask, t.ShortRef())
 }
 
 // ---- leases ----
