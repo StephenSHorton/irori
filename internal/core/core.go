@@ -203,7 +203,7 @@ func Start(parent context.Context, opts Options) (*Core, error) {
 	// read c.coord when the inbox calls them, so coord can come after).
 	if c.inbox, err = inbox.New(ctx, st, meshView{c}, inbox.Options{DeviceID: id.ID, PROwners: prOwners, IsOwner: chain.IsOwner,
 		Revoked:         func(dev string) bool { _, revoked := chain.Cut(dev); return revoked },
-		OnRecipientGone: c.recordGone, OnPassed: c.recordPassed}); err != nil {
+		OnRecipientGone: c.recordGone, OnPassed: c.recordPassed, Stale: c.staleNotice}); err != nil {
 		c.Close()
 		return nil, fmt.Errorf("inbox: %w", err)
 	}

@@ -348,6 +348,14 @@ type Options struct {
 	// agents are no longer the person's own for the bypass rule (decision
 	// 34). Nil revokes none.
 	Revoked func(device string) bool
+	// Stale reports a Notice delivery its recipient should no longer get
+	// (an ask someone else took: board.md "Asks"), as the note to close it
+	// with; "" keeps it. It runs under the inbox's lock, so it must not
+	// call the inbox (coord.StaleNotice reads only a map of its own). This
+	// device closes its own recipients' queued and held notices as Skipped
+	// before a wake or append carries them, and in the sweep. Nil keeps
+	// every one.
+	Stale func(d Delivery) string
 	// Overrides for tests; zero means the constant above.
 	UnengagedLimit, GoneGrace, QuietLimit, ReattachGrace, NoCardGrace time.Duration
 }

@@ -65,6 +65,8 @@ func newSet(b Backend) *Set {
 		"board_recommend": s.boardRecommend,
 		"board_watch":     s.boardWatch,
 		"board_unwatch":   s.boardUnwatch,
+		"ask_claim":       s.askClaim,
+		"ask_close":       s.askClose,
 		"commits":         s.commits,
 		"prs":             s.prs,
 		"lease":           s.lease,

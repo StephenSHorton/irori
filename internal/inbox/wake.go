@@ -30,6 +30,9 @@ func (b *inbox) nextWake(ctx context.Context, agent string, path Path) (*Wake, e
 	if b.pol.Paused || !b.local(agent) {
 		return nil, nil
 	}
+	if err := b.dropStale(ctx, agent); err != nil {
+		return nil, err
+	}
 	if w, _ := b.outstanding(agent); w != nil {
 		return nil, nil
 	}
@@ -90,6 +93,9 @@ func (b *inbox) nextAppend(ctx context.Context, agent string) (*Wake, error) {
 	if b.pol.Paused || !b.local(agent) || b.pendingAppend(agent) != nil {
 		return nil, nil
 	}
+	if err := b.dropStale(ctx, agent); err != nil {
+		return nil, err
+	}
 	var ready []*drec
 	for _, d := range b.open {
 		if d.To == agent && d.State == Queued && d.WakeID == "" && d.nextTurn() {
@@ -102,6 +108,40 @@ func (b *inbox) nextAppend(ctx context.Context, agent string) (*Wake, error) {
 	sortReady(ready)
 	id := "wake_" + b.ids.next(b.now())
 	return b.issue(ctx, agent, PathMod, id, appendTokenPrefix+id+"]", false, ModeNextTurn, ready)
+}
+
+// dropStale closes as Skipped the queued and held notices to agent (every
+// recipient on this device when agent is "") that Options.Stale says are
+// stale, before a wake or append carries them. Only the recipient's device
+// writes its deliveries (v0.4 §6.0). The caller holds b.mu.
+func (b *inbox) dropStale(ctx context.Context, agent string) error {
+	if b.stale == nil {
+		return nil
+	}
+	var drop []*drec
+	for _, d := range b.open {
+		if (agent != "" && d.To != agent) || d.To == "" || !b.local(d.To) || d.WakeID != "" ||
+			(d.State != Queued && d.State != Held) {
+			continue
+		}
+		if m := b.msgs[d.MessageID]; m == nil || !m.Notice || m.Ref == "" {
+			continue
+		}
+		drop = append(drop, d)
+	}
+	sortReady(drop)
+	for _, d := range drop {
+		note := b.stale(b.copyOut(d))
+		if note == "" {
+			continue
+		}
+		r := d.row()
+		r.State, r.Note, r.Until = Skipped, clip(note, MaxNote), time.Time{}
+		if err := b.putDelivery(ctx, r, "irori"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // issue batches ready (in order) under token, records the wake.issued row

@@ -36,6 +36,7 @@ func setupNotifications(ctx context.Context, app *application.App, c *core.Core,
 		User:    c.UserSender().Key,
 		IsOwner: c.IsOwner,
 		Name:    func(key string) string { return agentName(c, key) },
+		Room:    c.Coord(),
 	})
 }
 

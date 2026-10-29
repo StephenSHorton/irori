@@ -416,6 +416,7 @@ func HeldID(senderKey string) string     { return "held:" + senderKey } // one c
 func NeedsID(taskID string) string       { return "needs:" + taskID }
 func MessageID(deliveryID string) string { return "msg:" + deliveryID }
 func AskID(id string) string             { return "ask:" + id }
+func UnclaimedID(taskID string) string   { return "unclaimed:" + taskID } // an ask nobody took (board.md "Asks")
 
 // TestID is the settings' "Send a test notification" card.
 const TestID = "test"

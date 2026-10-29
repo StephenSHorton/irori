@@ -1110,6 +1110,32 @@ func (c *Coord) StaleNotice(ref, to string) string {
 	return ""
 }
 
+// askLine says where an ask stands, for show and the board tool ("" for a
+// card that isn't one).
+func askLine(t *Task) string {
+	a := t.Ask
+	switch {
+	case a == nil:
+		return ""
+	case a.Outcome != nil:
+		s := "closed (" + a.Outcome.Kind + "): " + a.Outcome.Note
+		if a.Outcome.Task != "" {
+			s += " (task:" + a.Outcome.Task + ")"
+		}
+		return s
+	case a.Taker != "":
+		return "the person asked the room; " + a.Taker + " took it (ask_close ends it with what it became)"
+	case len(a.Waiting) > 0:
+		return "the person asked the room; waiting for device " + a.Owner + " to hand it out"
+	case a.Unclaimed:
+		return fmt.Sprintf("the person asked the room; nobody took it yet (%d heard it): ask_claim takes it", a.Told)
+	}
+	return fmt.Sprintf("the person asked the room; %d agents heard it, nobody has taken it: ask_claim takes it", a.Told)
+}
+
+// AskLine is askLine for readers outside coord.
+func (t Task) AskLine() string { return askLine(&t) }
+
 // askRefusal is the error the lock gives a board tool on an open ask.
 func askRefusal(t *Task, what string) error {
 	return fmt.Errorf("%w: %s is an ask: %s; use ask_claim to take it and ask_close to end it", ErrNotAllowed, t.ShortRef(), what)

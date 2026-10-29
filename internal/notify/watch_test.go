@@ -75,7 +75,7 @@ func newRigNamed(t *testing.T, wrap func(key, name string) string) *rig {
 		if wrap != nil {
 			name = func(k string) string { return wrap(k, names[k]) }
 		}
-		Watch(ctx, n, Sources{Inbox: ib, Board: co, User: user, Name: name})
+		Watch(ctx, n, Sources{Inbox: ib, Board: co, User: user, Name: name, Room: co})
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -680,5 +680,49 @@ func (r *rig) noPostOf(id string, d time.Duration) {
 		case <-deadline:
 			return
 		}
+	}
+}
+
+// An ask nobody took gets a card on the desktop with Wake them and Close;
+// a take clears it (board.md "Asks").
+func TestWatchUnclaimedAsk(t *testing.T) {
+	r := newRig(t)
+	ask, _, err := r.co.PostAsk(r.ctx, user, coord.NewAsk{Text: "who can look at the release notes?"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := UnclaimedID(ask.ID)
+	r.waitPost(id)
+	c := r.fake.card(t, id)
+	if !strings.Contains(c.Title, "Nobody took") || !strings.Contains(c.Title, "#"+ask.Short) ||
+		len(c.Actions) != 2 || c.Actions[0].Label != "Wake them" || c.Actions[1].Label != "Close" {
+		t.Fatalf("card %+v", c)
+	}
+	r.fake.press(t, id, "Wake them")
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		evs, _ := r.st.List(r.ctx, store.Filter{Kinds: []string{coord.KindTakeRequested}})
+		if len(evs) == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Wake them wrote no reopen request")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := r.co.AskClaim(r.ctx, keyA, ask.ID, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	r.waitGone(id)
+
+	two, _, err := r.co.PostAsk(r.ctx, user, coord.NewAsk{Text: "anyone?"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.waitPost(UnclaimedID(two.ID))
+	r.fake.press(t, UnclaimedID(two.ID), "Close")
+	r.waitGone(UnclaimedID(two.ID))
+	if got, _ := r.co.GetTask(two.ID); got.State != coord.Canceled {
+		t.Fatalf("Close left it %s", got.State)
 	}
 }

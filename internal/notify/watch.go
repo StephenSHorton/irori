@@ -37,6 +37,13 @@ type AskSource interface {
 	Answer(ctx context.Context, id, choice, by string) error
 }
 
+// RoomSource is the part of *coord.Coord the unclaimed-ask card acts
+// through (board.md "Asks"): asking the room again, and closing it.
+type RoomSource interface {
+	AskAgain(ctx context.Context, by, id string) error
+	SetTaskState(ctx context.Context, by, id string, s coord.TaskState, note string) (coord.Task, error)
+}
+
 // Sources are what Watch follows and acts through.
 type Sources struct {
 	Inbox InboxSource
@@ -55,6 +62,10 @@ type Sources struct {
 	IsOwner func(key string) bool
 	// Name shows an agent key as its display name; nil shows the key.
 	Name func(key string) string
+	// Room, when set, posts a card for an ask nobody took (unclaimed:<id>)
+	// with Wake them and Close, on every desktop device; it clears once
+	// someone takes the ask or it closes.
+	Room RoomSource
 }
 
 // Tabs a card opens.
@@ -102,7 +113,7 @@ func Watch(ctx context.Context, n *Notifier, s Sources) {
 	w := &watcher{n: n, s: s, held: map[string]string{}, groups: map[string]*heldGroup{},
 		dirty: map[string]heldChange{}, closed: map[string]bool{},
 		msgs: map[string]bool{}, needs: map[string]bool{},
-		asks: map[string]bool{}, forget: make(chan string, 16),
+		asks: map[string]bool{}, unclaimed: map[string]bool{}, forget: make(chan string, 16),
 		failed: make(chan heldFail, 16), fails: map[string]string{}}
 	var ich <-chan inbox.Change
 	var cch <-chan coord.Change
@@ -196,6 +207,8 @@ type watcher struct {
 	msgs   map[string]bool // delivery ids to the person accounted for (likewise)
 	needs  map[string]bool // task ids in Needs you (card posted, or seeded)
 	asks   map[string]bool // ask ids with a card up
+	// unclaimed are the Board asks nobody took (card posted, or seeded).
+	unclaimed map[string]bool
 	// forget carries the sender keys whose held card the person closed
 	// (from the card's own goroutine to Watch's loop), failed the outcome
 	// of each Release or Dismiss press; fails is the error a sender's card
@@ -594,6 +607,70 @@ func (w *watcher) board(post bool) {
 			delete(w.needs, id)
 			w.n.Clear(NeedsID(id))
 		}
+	}
+	if w.s.Room != nil {
+		w.unclaimedAsks(v, post)
+	}
+}
+
+// unclaimedAsks posts a card for each open ask nobody took within
+// coord.AskUnclaimed, and clears it once it is taken or closed.
+func (w *watcher) unclaimedAsks(v coord.BoardView, post bool) {
+	now := map[string]bool{}
+	for _, g := range [][]coord.Card{v.NeedsYou, v.Blocked, v.Working, v.Open} {
+		for _, c := range g {
+			a := c.Ask
+			if !a.Open() || !a.Unclaimed || a.Taker != "" {
+				continue
+			}
+			now[c.ID] = true
+			if w.unclaimed[c.ID] {
+				continue
+			}
+			w.unclaimed[c.ID] = true
+			if post {
+				w.n.Post(w.unclaimedNote(c.Task))
+			}
+		}
+	}
+	for id := range w.unclaimed {
+		if !now[id] {
+			delete(w.unclaimed, id)
+			w.n.Clear(UnclaimedID(id))
+		}
+	}
+}
+
+func (w *watcher) unclaimedNote(t coord.Task) Note {
+	title := "Nobody took “" + preview(t.Title) + "”"
+	if t.Short != "" {
+		title += " (#" + t.Short + ")"
+	}
+	body := "Nobody was free to hear it."
+	if t.Ask.Told > 0 {
+		body = fmt.Sprintf("%d agents heard it at their next turn; none took it.", t.Ask.Told)
+	}
+	open := Target{Tab: TabBoard, Ref: "task:" + t.ID}
+	id := t.ID
+	return Note{
+		ID:     UnclaimedID(t.ID),
+		Title:  title,
+		Body:   body,
+		Level:  Warn,
+		Sticky: true,
+		Actions: []Action{
+			{Label: "Wake them", Run: func() {
+				if err := w.s.Room.AskAgain(context.Background(), w.s.User, id); err != nil {
+					log.Printf("notify: ask again %s: %v", id, err)
+				}
+			}},
+			{Label: "Close", Run: func() {
+				if _, err := w.s.Room.SetTaskState(context.Background(), w.s.User, id, coord.Canceled, "closed by the person"); err != nil {
+					log.Printf("notify: close ask %s: %v", id, err)
+				}
+			}},
+		},
+		OnClick: func() { w.n.Open(open) },
 	}
 }
 

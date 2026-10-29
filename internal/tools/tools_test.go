@@ -267,7 +267,7 @@ func TestSpecs(t *testing.T) {
 	}
 	want := []string{"overview", "search", "show", "agents", "events", "send", "reply", "inbox", "defer", "skip", "notify",
 		"board", "board_create", "board_comment", "board_block", "board_unblock", "board_join", "board_leave",
-		"board_assign", "board_status", "board_link", "board_steps", "board_step", "board_recommend", "board_watch", "board_unwatch",
+		"board_assign", "board_status", "board_link", "board_steps", "board_step", "board_recommend", "board_watch", "board_unwatch", "ask_claim", "ask_close",
 		"lease", "leases", "release",
 		"timeline", "why", "commits", "prs", "attachment_get"}
 	for _, n := range want {
@@ -301,6 +301,13 @@ func TestSpecs(t *testing.T) {
 			own = strings.Replace(d, BoardInstructions, "", 1)
 		} else if strings.Contains(d, "scratch pad") {
 			t.Errorf("%s carries the Board's instructions", sp.Name)
+		}
+		if strings.HasPrefix(sp.Name, "ask_") {
+			// The ask tools carry how an agent treats an ask.
+			if !strings.Contains(d, AskInstructions) {
+				t.Errorf("%s lacks the ask instructions", sp.Name)
+			}
+			own = strings.Replace(d, AskInstructions, "", 1)
 		}
 		if len(own) > 500 {
 			t.Errorf("%s description is %d bytes; keep it tight", sp.Name, len(own))
@@ -400,7 +407,7 @@ func TestUnboundCaller(t *testing.T) {
 	// they would read as the person (Viewer ""), who sees every message.
 	for _, name := range []string{"inbox", "send", "reply", "ack", "defer", "skip", "board", "board_create",
 		"board_comment", "board_block", "board_unblock", "board_join", "board_leave", "board_assign", "board_status",
-		"board_link", "board_steps", "board_step", "board_recommend", "board_watch", "board_unwatch",
+		"board_link", "board_steps", "board_step", "board_recommend", "board_watch", "board_unwatch", "ask_claim", "ask_close",
 		"lease", "release", "timeline", "overview", "search", "show"} {
 		out := h.fails(none, name, `{}`, "join first")
 		hasNot(t, out, "secret unowned work")

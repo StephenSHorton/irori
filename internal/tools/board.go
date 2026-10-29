@@ -94,7 +94,11 @@ const (
 // list's budget and push every other card off it.
 func (s *set) cardText(t coord.Task, last *coord.Comment, n names, now time.Time, brief bool) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "- %s [%s] %s", cardRefs(t), oneLine(string(t.State), 30), quoted(oneLine(t.Title, maxCardTitle), maxCardTitle))
+	state := string(t.State)
+	if t.Ask.Open() {
+		state = "ask"
+	}
+	fmt.Fprintf(&b, "- %s [%s] %s", cardRefs(t), oneLine(state, 30), quoted(oneLine(t.Title, maxCardTitle), maxCardTitle))
 	var holders []string
 	for _, h := range t.Holders {
 		w := n.who(h)
@@ -246,11 +250,17 @@ func (s *set) board(_ context.Context, c Caller, raw json.RawMessage) string {
 		doneLimit = coord.DefaultDoneCard
 	}
 	v := s.boardView(repo, c.Sender.Key, doneLimit)
+	asks, took := askGroups(&v, c.Sender.Key, repo)
+	if repo != "" {
+		// Asks from every repo: one with no repo is for anyone.
+		all := s.b.Coord().Board(coord.BoardFilter{For: c.Sender.Key, DoneLimit: 1})
+		asks, took = askGroups(&all, c.Sender.Key, repo)
+	}
 	where := "every repo"
 	if repo != "" {
 		where = oneLine(repo, 160)
 	}
-	open := len(v.NeedsYou) + len(v.Blocked) + len(v.Working) + len(v.Open)
+	open := len(asks) + len(took) + len(v.NeedsYou) + len(v.Blocked) + len(v.Working) + len(v.Open)
 	head := fmt.Sprintf("Board for %s: %d open cards, %d done", where, open, v.DoneTotal)
 	if open == 0 && len(v.Leases) == 0 && (!a.Done || v.DoneTotal == 0) {
 		return head + ". Nothing live here; board_create puts up a card for work starting now."
@@ -292,6 +302,8 @@ func (s *set) board(_ context.Context, c Caller, raw json.RawMessage) string {
 			b.WriteString(line)
 		}
 	}
+	group("Asks from the person, nobody has taken them (ask_claim one if you're free)", asks)
+	group("Asks you took (ask_close each with what it became)", took)
 	group("Needs you", v.NeedsYou)
 	group("Blocked", v.Blocked)
 	group("Working", v.Working)
@@ -459,6 +471,13 @@ func (s *set) boardComment(ctx context.Context, c Caller, raw json.RawMessage) s
 	}
 	n := s.roster()
 	out := "Commented comment:" + cm.ID + " on " + s.shortOf(cm.TaskID) + attachedLine(files) + "."
+	if t, ok := s.b.Coord().GetTask(id); ok && t.Ask.Open() && t.Ask.Taker != c.Sender.Key && !slices.Contains(t.Watchers, c.Sender.Key) {
+		// Chiming in on an ask makes you a watcher: you hear more only if
+		// asked (board.md "Asks").
+		if _, err := s.b.Coord().Watch(ctx, c.Sender.Key, id); err == nil {
+			out += " You watch it now: you hear when it changes, and answer the person only if asked."
+		}
+	}
 	if rs := RouteNotice(ctx, s.b.Inbox(), c.Sender, notice); len(rs) > 0 {
 		out += s.told(rs, n)
 	} else {
@@ -929,6 +948,9 @@ func (s *set) boardLeave(ctx context.Context, c Caller, raw json.RawMessage) str
 	t, err := s.b.Coord().Leave(ctx, c.Sender.Key, id, c.Sender.Key)
 	if err != nil {
 		return mapErr(err)
+	}
+	if t.Ask.Open() {
+		return "You gave the ask " + t.ShortRef() + " back; the device that hands it out tells the room again."
 	}
 	return "You left " + t.ShortRef() + "; it stays on the Board.\n" + s.cardLine(t, nil, s.roster(), s.now())
 }

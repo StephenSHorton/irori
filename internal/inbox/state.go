@@ -157,6 +157,7 @@ type inbox struct {
 	// the person. onPassed is Options.OnPassed.
 	onGone   func(ctx context.Context, m Message, to string) (string, error)
 	onPassed func(ctx context.Context, m Message, to string) error
+	stale    func(Delivery) string // Options.Stale
 	dev      string
 	ownerFn  func(string) bool // Options.IsOwner
 	// revokedFn is Options.Revoked (nil: no device is revoked).
@@ -235,7 +236,7 @@ func newInbox(ctx context.Context, st *store.Store, roster Roster, opts Options)
 		ownerFn = func(k string) bool { return k == self }
 	}
 	b := &inbox{
-		st: st, roster: roster, owners: opts.PROwners, onGone: opts.OnRecipientGone, onPassed: opts.OnPassed, dev: opts.DeviceID, now: now,
+		st: st, roster: roster, owners: opts.PROwners, onGone: opts.OnRecipientGone, onPassed: opts.OnPassed, stale: opts.Stale, dev: opts.DeviceID, now: now,
 		ownerFn: ownerFn, revokedFn: opts.Revoked,
 		lim: limits{
 			unengaged: pick(opts.UnengagedLimit, UnengagedLimit),

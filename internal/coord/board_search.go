@@ -158,6 +158,7 @@ func (c *coord) renderTask(t *Task) (string, []string) {
 		state += ", shared"
 	}
 	line("state", state)
+	line("ask", askLine(t))
 	line("repo", t.RepoKey)
 	line("holders", strings.Join(t.Holders, ", "))
 	line("assigned, not claimed yet", strings.Join(t.Assigned, ", "))

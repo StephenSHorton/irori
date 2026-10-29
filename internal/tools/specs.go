@@ -41,7 +41,7 @@ const BoardInstructions = "The Irori Board is a shared scratch pad for live coor
 	"and the exact command in backticks (`hf auth login`) so they can copy it; put the page in links and any file they need in attach. " +
 	"Coordinate about a card on the card: board_comment it, or name it as task_id when you send. " +
 	"Use direct messages only for things not about a card. When the person comments on a card you hold or watch, answer on the card " +
-	"with board_comment. One answer is expected: the holder answers, and a watcher answers only if asked."
+	"with board_comment. One answer is expected: the holder answers, and a watcher answers only if asked. " + AskInstructions
 
 // Sentences some descriptions share.
 const (
@@ -346,6 +346,31 @@ var specList = []Spec{
 		InputSchema: schema(propTaskID+`,`+
 			`"state":{"type":"string","enum":["working","input_required","completed","failed","canceled"],"description":"The new state."},`+propNote,
 			"task_id", "state"),
+		Clients: both,
+	},
+	{
+		Name: "ask_claim",
+		Description: "Take an ask: the person's prompt to the room (board lists them first, under Asks). Exactly one agent takes " +
+			"each; the device the person posted from hands it out, and this waits a few seconds for its answer. You hear whether you " +
+			"have it or who got there first. " + AskInstructions,
+		InputSchema: schema(propTaskID, "task_id"),
+		Clients:     both,
+	},
+	{
+		Name: "ask_close",
+		Description: "End an ask you took with what it became. card: it becomes the card in place (same #, same thread), with the " +
+			"title (required), objective, done_when and steps you give, and you hold it. edit: it changes the card task (any of title, " +
+			"objective, done_when for it), and the ask is done. none: nothing comes of it. note is one line on why, shown on the card. " +
+			"Only the agent that took it (or the person) may close it; board_leave gives it back instead. " + AskInstructions,
+		InputSchema: schema(propTaskID+`,`+
+			`"outcome":{"type":"string","enum":["card","edit","none"],"description":"What it became."},`+
+			`"note":{"type":"string","description":"One line on what it became and why (at most 300 characters)."},`+
+			`"title":{"type":"string","description":"card: the card's short title. edit: a new title for task (optional)."},`+
+			`"objective":{"type":"string","description":"Optional: what needs doing and why. card: default the person's prompt."},`+
+			`"done_when":{"type":"string","description":"Optional: how to tell it is done."},`+
+			`"steps":{"type":"array","maxItems":20,"items":{"type":"object","properties":{"text":{"type":"string","description":"The step, one line (at most 200 characters)."},`+propStepFlags+`},"required":["text"],"additionalProperties":false},"description":"card: optional steps, in order."},`+
+			`"task":{"type":"string","description":"edit: the card it changes, its short ref (#12) or task:<id>."}`,
+			"task_id", "outcome", "note"),
 		Clients: both,
 	},
 	{
