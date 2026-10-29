@@ -51,13 +51,10 @@ export function FilterBar({
   filter,
   onFilter,
   decide,
-  devices = [],
 }: {
   filter: Filter
   onFilter: (f: Filter) => void
   decide: number
-  // devices: one chip each, to narrow the grid to a device (card #22).
-  devices?: DeviceChip[]
 }) {
   return (
     <div
@@ -86,9 +83,29 @@ export function FilterBar({
           )}
         </Button>
       ))}
-      {devices.length > 0 && (
-        <span aria-hidden className="mx-1 h-4 w-px bg-border" />
-      )}
+    </div>
+  )
+}
+
+// DeviceBar is a chip per device, to narrow the grid to one device's cards
+// (card #22). It is its own row of chips, apart from FilterBar's tabs, so
+// other chip rows (shared boards) can sit beside the tabs too.
+export function DeviceBar({
+  filter,
+  onFilter,
+  devices,
+}: {
+  filter: Filter
+  onFilter: (f: Filter) => void
+  devices: DeviceChip[]
+}) {
+  if (!devices.length) return null
+  return (
+    <div
+      className="flex flex-wrap items-center gap-1"
+      role="group"
+      aria-label="Filter cards by device"
+    >
       {devices.map((d) => {
         const id: Filter = `device:${d.id}`
         return (

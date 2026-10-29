@@ -7,6 +7,7 @@ import { AskBox } from "@/components/cards/ask-box"
 import {
   CardGrid,
   EmptyCards,
+  DeviceBar,
   FilterBar,
   matches,
   type Filter,
@@ -151,7 +152,7 @@ export function App() {
         `[data-card="${CSS.escape(last)}"]`
       ) ??
       document.querySelector<HTMLElement>(
-        '[aria-label="Filter cards"] [aria-pressed="true"]'
+        '[aria-label^="Filter cards"] [aria-pressed="true"]'
       )
     )?.focus({ preventScroll: true })
   }, [open, last])
@@ -255,12 +256,14 @@ export function App() {
                 setFilter("all")
               }}
             />
-            <FilterBar
-              filter={active}
-              onFilter={setFilter}
-              decide={decide}
-              devices={chips}
-            />
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <FilterBar
+                filter={active}
+                onFilter={setFilter}
+                decide={decide}
+              />
+              <DeviceBar filter={active} onFilter={setFilter} devices={chips} />
+            </div>
             {shown.length ? (
               <CardGrid cards={shown} selected={last} onSelect={openCard} />
             ) : (
