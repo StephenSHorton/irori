@@ -72,6 +72,7 @@ func runGUI(args []string) error {
 	captureSvc := newCaptureService(c)
 	settings := &SettingsService{notifier: c.Notifier()}
 	devices := newDevicesService(c)
+	attachments := newAttachmentsService(c)
 	upd := update.New(update.Repo, version)
 
 	var window *application.WebviewWindow
@@ -97,10 +98,13 @@ func runGUI(args []string) error {
 			application.NewService(captureSvc),
 			application.NewService(settings),
 			application.NewService(devices),
+			application.NewService(attachments),
 			application.NewService(upd),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
+			// Board comments' files, for this webview only (card #14).
+			Middleware: attachmentRoute(c),
 		},
 		Windows: application.WindowsOptions{
 			// The tray keeps Irori running with no window open.
@@ -118,6 +122,7 @@ func runGUI(args []string) error {
 	})
 	settings.attach(app)
 	devices.attach(app)
+	attachments.attach(app)
 
 	window = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "Irori",
