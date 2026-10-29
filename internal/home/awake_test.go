@@ -81,6 +81,11 @@ func TestKeepAwakeWhileServing(t *testing.T) {
 	if err := n.srv.SetAwake(false); err != nil {
 		t.Fatal(err)
 	}
+	// Devices reads the status straight back, before the Run loop has
+	// released the hold: it must not still say it keeps the PC awake.
+	if st := n.srv.Status(); st.Awake || st.AwakeLine != "" {
+		t.Fatalf("status right after the switch went off %+v", st)
+	}
 	n.srv.reconcile(ctx)
 	want("setting off", 1, 1)
 	if st := n.srv.Status(); !st.Running || st.Awake || st.AwakeLine != "" {

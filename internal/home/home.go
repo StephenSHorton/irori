@@ -751,7 +751,7 @@ func (s *Server) Status() Status {
 		mst = r.mapper.Status()
 	}
 	awakeLine := ""
-	if r != nil {
+	if r != nil && set.AwakeOn() {
 		awakeLine = awakeStatus(r)
 	}
 	s.mu.Unlock()
