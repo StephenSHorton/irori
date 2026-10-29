@@ -45,7 +45,7 @@ function PopoverContent({
         <PopoverPrimitive.Popup
           data-slot="popover-content"
           className={cn(
-            "glass-panel z-50 flex w-72 origin-(--transform-origin) flex-col gap-2.5 rounded-xl bg-popover! backdrop-blur-(--glass-blur) backdrop-saturate-(--glass-saturate) p-3 text-sm text-popover-foreground outline-hidden duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+            "glass-panel bg-popover/90! z-50 flex w-72 origin-(--transform-origin) flex-col gap-2.5 rounded-none p-3 text-sm text-popover-foreground outline-hidden duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
             className
           )}
           {...props}
@@ -54,7 +54,7 @@ function PopoverContent({
           {arrow && (
             <PopoverPrimitive.Arrow
               data-slot="popover-arrow"
-              className="size-3 rotate-45 rounded-[2px] border-(--glass-border) bg-popover data-[side=bottom]:-top-1.5 data-[side=bottom]:border-t data-[side=bottom]:border-l data-[side=left]:-right-1.5 data-[side=left]:border-t data-[side=left]:border-r data-[side=right]:-left-1.5 data-[side=right]:border-b data-[side=right]:border-l data-[side=top]:-bottom-1.5 data-[side=top]:border-r data-[side=top]:border-b data-[side=inline-start]:-right-1.5 data-[side=inline-start]:border-t data-[side=inline-start]:border-r data-[side=inline-end]:-left-1.5 data-[side=inline-end]:border-b data-[side=inline-end]:border-l"
+              className="size-3 rotate-45 border-(--glass-border) bg-popover data-[side=bottom]:-top-1.5 data-[side=bottom]:border-t data-[side=bottom]:border-l data-[side=left]:-right-1.5 data-[side=left]:border-t data-[side=left]:border-r data-[side=right]:-left-1.5 data-[side=right]:border-b data-[side=right]:border-l data-[side=top]:-bottom-1.5 data-[side=top]:border-r data-[side=top]:border-b data-[side=inline-start]:-right-1.5 data-[side=inline-start]:border-t data-[side=inline-start]:border-r data-[side=inline-end]:-left-1.5 data-[side=inline-end]:border-b data-[side=inline-end]:border-l"
             />
           )}
         </PopoverPrimitive.Popup>

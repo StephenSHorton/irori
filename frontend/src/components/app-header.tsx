@@ -9,13 +9,13 @@ export function AppHeader({ roster }: { roster: Roster }) {
   const busy = agents.filter((a) => a.status === "busy").length
 
   return (
-    <header className="sticky top-0 z-20 border-b border-(--topbar-border) bg-(--topbar-bg) shadow-(--topbar-shadow) backdrop-blur-xl">
+    <header className="sticky top-0 z-20 glass-panel border-x-0! border-t-0!">
       <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4 sm:px-6">
         <div className="flex items-baseline gap-2">
-          <span className="text-[15px] font-semibold tracking-tight text-ink">
+          <span className="text-lg font-semibold tracking-tight text-ink">
             Irori
           </span>
-          <span lang="ja" className="text-sm text-muted-foreground">
+          <span lang="ja" className="text-sm font-normal text-muted-foreground">
             囲炉裏
           </span>
         </div>
@@ -25,15 +25,15 @@ export function AppHeader({ roster }: { roster: Roster }) {
           </Badge>
         )}
         <div className="ml-auto flex min-w-0 items-center gap-3 text-sm text-muted-foreground">
-          <span className="hidden tabular-nums sm:inline">
+          <span className="hidden text-xs tabular-nums sm:inline">
             {agents.length} {agents.length === 1 ? "agent" : "agents"}
             {busy > 0 && <span className="text-primary"> · {busy} busy</span>}
           </span>
-          <span className="truncate font-medium text-ink-2" title={device?.id}>
+          <span className="truncate text-xs font-medium text-ink-2" title={device?.id}>
             {device?.name || "this device"}
           </span>
           {version && (
-            <Badge variant="slate" className="font-mono">
+            <Badge variant="slate" className="font-mono normal-case">
               {version === "dev" || version === "sample"
                 ? version
                 : `v${version.replace(/^v/, "")}`}

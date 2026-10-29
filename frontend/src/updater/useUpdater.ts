@@ -4,6 +4,7 @@ import {
   Status,
   UpdateService,
 } from "../../bindings/github.com/StephenSHorton/irori/internal/update"
+import { previewFlag } from "@/lib/preview"
 
 // The backend's update:status event (internal/update EventUpdateStatus).
 export const UPDATE_STATUS_EVENT = "update:status"
@@ -46,6 +47,13 @@ function readDismissed(): string {
   }
 }
 
+// sampleStatus is the browser preview's ?update=<phase> (lib/preview.ts).
+function sampleStatus(): Status | null {
+  const phase = previewFlag("update")
+  if (phase === null) return null
+  return new Status({ phase: phase || "ready", version: "0.4.0" })
+}
+
 function toStatus(raw: unknown): Status {
   // createFrom JSON-parses a string payload itself; anything else is idle.
   return Status.createFrom(
@@ -68,7 +76,7 @@ function toStatus(raw: unknown): Status {
  */
 export function useUpdater(): UpdaterState {
   const [status, setStatus] = useState<Status>(
-    () => new Status({ phase: "idle" })
+    () => sampleStatus() ?? new Status({ phase: "idle" })
   )
   const [version, setVersion] = useState("")
   const [supported, setSupported] = useState(true)

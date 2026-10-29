@@ -26,8 +26,8 @@ export function UpdateBanner() {
           <Download className="size-3.5" aria-hidden="true" />
           Downloading Irori {v}…
         </span>
-        <div className="h-1 overflow-hidden rounded-full bg-muted">
-          <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
+        <div className="relative h-1 overflow-hidden bg-muted">
+          <div className="absolute inset-y-0 w-1/4 animate-[irori-sweep_1.1s_ease-in-out_infinite] bg-primary" />
         </div>
       </div>
     )
@@ -53,7 +53,7 @@ export function UpdateBanner() {
       role="status"
       aria-live="polite"
       aria-label={`Irori ${v} is ready to install`}
-      className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border bg-card px-4 py-3 text-card-foreground"
+      className="glass-panel mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 text-card-foreground"
     >
       <Download className="size-5 shrink-0 text-primary" aria-hidden="true" />
       <div className="min-w-0 flex-1">

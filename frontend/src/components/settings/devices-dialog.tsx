@@ -304,7 +304,7 @@ function HomeServer({ open }: { open: boolean }) {
       <button
         type="button"
         aria-expanded={advanced}
-        className="justify-self-start text-xs text-muted-foreground underline-offset-2 hover:underline"
+        className="justify-self-start text-xs text-muted-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-1 focus-visible:ring-ring"
         onClick={() => setAdvanced((v) => !v)}
       >
         {advanced ? "Hide advanced" : "Advanced"}
@@ -465,7 +465,7 @@ function Start({ onStarted }: { onStarted: (s: PairStatus) => void }) {
           ) : (
             <button
               type="button"
-              className="justify-self-start text-xs text-muted-foreground underline-offset-2 hover:underline"
+              className="justify-self-start text-xs text-muted-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-1 focus-visible:ring-ring"
               onClick={() => setAway(true)}
             >
               Joining from outside your home?

@@ -82,8 +82,9 @@ html.is-apple {
 
 @utility glass-panel {
   background: var(--glass-bg);
-  /* Match main's LightningCSS output: -webkit only, so Linux Chrome does
-   * not frost the scene behind HUD glass. */
+  /* Toru's .frost. Unprefixed too: WebView2 is Chromium, which ignores
+   * the -webkit- form, so without it nothing behind a panel would blur. */
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow);

@@ -1,16 +1,17 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
 @import "./mokei/preset.css";
-@import "./mokei/tokens.css";
-@import "./mokei/themes/yardline.css";
+/* feat/toru-look: Toru's design language (dark only, sharp, frosted)
+   replaces the yardline theme. One token source: toru.css. */
+@import "./mokei/themes/toru.css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
     --font-heading: var(--font-sans);
-    --font-sans: 'Geist Variable', sans-serif;
+    /* Toru's stack: Segoe UI on Windows, SF on macOS. */
+    --font-sans: ui-sans-serif, system-ui, "Inter", "Segoe UI", sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -28,6 +29,7 @@
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -71,99 +73,10 @@
     --color-ink-2: var(--ink-2);
     --color-ink: var(--ink);
     --color-muted-surface: var(--muted-surface);
+    --color-person: var(--person);
+    --color-person-surface: var(--person-surface);
 }
 
-:root {
-    --background: #e9eef8;
-    --foreground: #0f172a;
-    --card: rgba(255, 255, 255, 0.9);
-    --card-foreground: #0f172a;
-    --popover: rgba(255, 255, 255, 0.96);
-    --popover-foreground: #0f172a;
-    --primary: #2563eb;
-    --primary-foreground: #ffffff;
-    --secondary: #e9eefc;
-    --secondary-foreground: #1e293b;
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: #64748b;
-    --accent: #dbeafe;
-    --accent-foreground: #1d4ed8;
-    --destructive: #ef4444;
-    --border: rgba(203, 213, 225, 0.6);
-    --input: #dde3ee;
-    --ring: #2563eb;
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --radius: 0.75rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
-    --muted-surface: #eef1f5;
-    --success: #15803d;
-    --success-foreground: #dcf5e3;
-    --warning: #c2620a;
-    --warning-foreground: #fdefd3;
-    --info: #1d4ed8;
-    --info-foreground: #d9e5fe;
-    --ink: #0f172a;
-    --ink-2: #1e293b;
-    --blue: #2563eb;
-    --blue-deep: #1d4ed8;
-    --glass-bg: rgba(255, 255, 255, 0.9);
-    --glass-border: rgba(255, 255, 255, 0.95);
-    --glass-shadow: 0 1px 2px rgba(30, 41, 90, 0.04), 0 8px 24px rgba(30, 41, 90, 0.08);
-    --glass-blur: 20px;
-    --glass-saturate: 1.35;
-    --clay-ground: #e9eef8;
-    --clay-road: #c4d0f2;
-    --clay-grass: #dcf4e6;
-    --clay-yellow: #f2c14e;
-    --clay-cardboard: #e0b17a;
-    --clay-tree: #72d39c;
-}
-
-.dark {
-    --background: #e9eef8;
-    --foreground: #0f172a;
-    --card: rgba(255, 255, 255, 0.9);
-    --card-foreground: #0f172a;
-    --popover: rgba(255, 255, 255, 0.96);
-    --popover-foreground: #0f172a;
-    --primary: #2563eb;
-    --primary-foreground: #ffffff;
-    --secondary: #e9eefc;
-    --secondary-foreground: #1e293b;
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: #64748b;
-    --accent: #dbeafe;
-    --accent-foreground: #1d4ed8;
-    --destructive: #ef4444;
-    --border: rgba(203, 213, 225, 0.6);
-    --input: #dde3ee;
-    --ring: #2563eb;
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
-    --muted-surface: #eef1f5;
-}
 
 @layer base {
   * {
@@ -171,15 +84,38 @@
     }
   body {
     @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+    /* Toru: a faint blue and violet glow so the frost reads as glass. */
+    background-image:
+      radial-gradient(60rem 60rem at 15% -10%, oklch(0.72 0.15 248 / 0.1), transparent 60%),
+      radial-gradient(50rem 50rem at 110% 120%, oklch(0.62 0.16 320 / 0.08), transparent 60%);
+    background-attachment: fixed;
     }
   html {
     @apply font-sans;
     }
 }
 
-@utility glass-panel {
-    background: var(--glass-bg);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    border: 1px solid var(--glass-border);
-    box-shadow: var(--glass-shadow);
+/* glass-panel (Toru's .frost) lives in mokei/preset.css. */
+
+/* Toru's thin, dark, square scrollbars. */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* Toru's indeterminate progress sweep (the update download line). */
+@keyframes irori-sweep {
+    0% {
+        transform: translateX(-110%);
+    }
+    100% {
+        transform: translateX(410%);
+    }
 }
