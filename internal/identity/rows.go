@@ -25,17 +25,19 @@ type Cert struct {
 	Label     string    `json:"label"`
 	Role      string    `json:"role"` // RoleDesktop or RoleNode
 	At        time.Time `json:"at"`
-	// PersonEpoch is the epoch of the key that signed it (v0.5 §3). Certs
-	// from before v0.5 have none, and omitempty keeps their signed bytes;
-	// the own mesh doesn't check it.
-	PersonEpoch int `json:"personEpoch,omitempty"`
 }
 
-// DeviceAdded is the person.device.added payload.
+// DeviceAdded is the person.device.added payload. PersonEpoch is the epoch
+// of the key that signed the cert (v0.5 §3). It sits beside the cert, not
+// in it: a v0.4 device re-marshals Cert from its own struct to check the
+// signature, so a field it doesn't know would change the signed bytes and
+// fail there. The key itself pins the epoch, so it needs no person
+// signature; the row's device signature covers it.
 type DeviceAdded struct {
-	Cert      Cert   `json:"cert"`
-	PersonPub string `json:"personPub"` // hex
-	PersonSig string `json:"personSig"` // hex: ed25519(person key, canonical(cert))
+	Cert        Cert   `json:"cert"`
+	PersonPub   string `json:"personPub"` // hex
+	PersonSig   string `json:"personSig"` // hex: ed25519(person key, canonical(cert))
+	PersonEpoch int    `json:"personEpoch,omitempty"`
 }
 
 // Revoke is what the person key signs to remove a device.
@@ -46,15 +48,15 @@ type Revoke struct {
 	CutHash  string    `json:"cutHash"` // hex sha256 of that row's signed bytes and sig
 	At       time.Time `json:"at"`
 	Reason   string    `json:"reason,omitempty"`
-	// PersonEpoch: as Cert's.
-	PersonEpoch int `json:"personEpoch,omitempty"`
 }
 
-// DeviceRevoked is the person.device.revoked payload.
+// DeviceRevoked is the person.device.revoked payload. PersonEpoch: as
+// DeviceAdded's, outside the signed Revoke for the same reason.
 type DeviceRevoked struct {
-	Revoke    Revoke `json:"revoke"`
-	PersonPub string `json:"personPub"`
-	PersonSig string `json:"personSig"`
+	Revoke      Revoke `json:"revoke"`
+	PersonPub   string `json:"personPub"`
+	PersonSig   string `json:"personSig"`
+	PersonEpoch int    `json:"personEpoch,omitempty"`
 }
 
 // KeyRotated is the person.key.rotated payload: the new public key, and

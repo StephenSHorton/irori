@@ -495,8 +495,48 @@ func TestPrivateRowsGainEpochAndPrevSig(t *testing.T) {
 	id := loadIdentity(t)
 	prev := id.Current()
 	add, err := id.CertFor("d2", pubHex(newKey()), "mac", RoleDesktop, time.Unix(5, 0))
-	if err != nil || add.Cert.PersonEpoch != prev.Epoch {
-		t.Fatalf("CertFor epoch %d, %v", add.Cert.PersonEpoch, err)
+	if err != nil || add.PersonEpoch != prev.Epoch {
+		t.Fatalf("CertFor epoch %d, %v", add.PersonEpoch, err)
+	}
+	// A v0.4 device decodes the payload into its own structs, which have
+	// no personEpoch anywhere, and re-marshals the cert to check it.
+	type v04Cert struct {
+		PersonID  string    `json:"personId"`
+		DeviceID  string    `json:"deviceId"`
+		DevicePub string    `json:"devicePub"`
+		Label     string    `json:"label"`
+		Role      string    `json:"role"`
+		At        time.Time `json:"at"`
+	}
+	type v04Revoke struct {
+		PersonID string    `json:"personId"`
+		DeviceID string    `json:"deviceId"`
+		Cut      int64     `json:"cut"`
+		CutHash  string    `json:"cutHash"`
+		At       time.Time `json:"at"`
+		Reason   string    `json:"reason,omitempty"`
+	}
+	var oldAdd struct {
+		Cert      v04Cert `json:"cert"`
+		PersonPub string  `json:"personPub"`
+		PersonSig string  `json:"personSig"`
+	}
+	raw, _ = json.Marshal(add)
+	if err := json.Unmarshal(raw, &oldAdd); err != nil || verifyPerson(oldAdd.PersonPub, oldAdd.PersonSig, oldAdd.Cert) != nil {
+		t.Fatalf("a v0.4 device can't verify a v0.5 cert: %v %s", err, raw)
+	}
+	rev, err := id.RevokeOf("d2", 3, "h", "lost", time.Unix(5, 0))
+	if err != nil || rev.PersonEpoch != prev.Epoch {
+		t.Fatalf("RevokeOf epoch %d, %v", rev.PersonEpoch, err)
+	}
+	var oldRev struct {
+		Revoke    v04Revoke `json:"revoke"`
+		PersonPub string    `json:"personPub"`
+		PersonSig string    `json:"personSig"`
+	}
+	raw, _ = json.Marshal(rev)
+	if err := json.Unmarshal(raw, &oldRev); err != nil || verifyPerson(oldRev.PersonPub, oldRev.PersonSig, oldRev.Revoke) != nil {
+		t.Fatalf("a v0.4 device can't verify a v0.5 revoke: %v %s", err, raw)
 	}
 	rot, err := id.Rotate(time.Unix(6, 0))
 	if err != nil {

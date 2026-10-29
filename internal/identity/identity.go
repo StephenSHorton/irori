@@ -310,17 +310,17 @@ func (id *Identity) signEpoch(epoch int, v any) (sig string, err error) {
 // CertFor makes a person.device.added payload certifying a device.
 func (id *Identity) CertFor(deviceID, devicePub, label, role string, at time.Time) (DeviceAdded, error) {
 	cur := id.Current()
-	c := Cert{PersonID: cur.ID, DeviceID: deviceID, DevicePub: devicePub, Label: label, Role: role, At: at.UTC(), PersonEpoch: cur.Epoch}
+	c := Cert{PersonID: cur.ID, DeviceID: deviceID, DevicePub: devicePub, Label: label, Role: role, At: at.UTC()}
 	sig, err := id.signEpoch(cur.Epoch, c)
-	return DeviceAdded{Cert: c, PersonPub: cur.Pub, PersonSig: sig}, err
+	return DeviceAdded{Cert: c, PersonPub: cur.Pub, PersonSig: sig, PersonEpoch: cur.Epoch}, err
 }
 
 // RevokeOf makes a person.device.revoked payload.
 func (id *Identity) RevokeOf(deviceID string, cut int64, cutHash, reason string, at time.Time) (DeviceRevoked, error) {
 	cur := id.Current()
-	r := Revoke{PersonID: cur.ID, DeviceID: deviceID, Cut: cut, CutHash: cutHash, At: at.UTC(), Reason: reason, PersonEpoch: cur.Epoch}
+	r := Revoke{PersonID: cur.ID, DeviceID: deviceID, Cut: cut, CutHash: cutHash, At: at.UTC(), Reason: reason}
 	sig, err := id.signEpoch(cur.Epoch, r)
-	return DeviceRevoked{Revoke: r, PersonPub: cur.Pub, PersonSig: sig}, err
+	return DeviceRevoked{Revoke: r, PersonPub: cur.Pub, PersonSig: sig, PersonEpoch: cur.Epoch}, err
 }
 
 // ProfileRow makes the person.profile payload.
