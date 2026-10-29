@@ -422,9 +422,10 @@ function PageHeader({
 // PinButton pins or unpins the card: pinned cards show in their own group
 // above the grid, in the person's order (drag to reorder there).
 function PinButton({ card }: { card: CardSummary }) {
+  // The page reloads when the pin row folds; until then busy holds the
+  // button.
   const [busy, setBusy] = useState(false)
-  const [pinned, setPinned] = useState(!!card.pinned)
-  if (pinned !== !!card.pinned && !busy) setPinned(!!card.pinned)
+  const pinned = !!card.pinned
   return (
     <Button
       variant="ghost"
@@ -437,7 +438,6 @@ function PinButton({ card }: { card: CardSummary }) {
         setBusy(true)
         try {
           await cards.pin(card.id, !pinned)
-          setPinned(!pinned)
         } finally {
           setBusy(false)
         }

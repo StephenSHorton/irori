@@ -216,6 +216,7 @@ export function CardGrid({
             onMove
               ? (e) => {
                   setDragging(c.id)
+                  e.dataTransfer.setData("text/plain", c.id)
                   e.dataTransfer.effectAllowed = "move"
                 }
               : undefined
