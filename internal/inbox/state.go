@@ -397,7 +397,7 @@ func (b *inbox) apply(ev store.Event) error {
 		}
 		m.writer = ev.DeviceID
 		b.msgs[m.ID] = &m
-		if m.From.Key != "" && !m.From.IsUser() && !m.From.isSystem() {
+		if m.From.Key != "" && !b.isPerson(m.From) && !m.From.isSystem() {
 			if _, ok := b.known[m.From.Key]; !ok {
 				b.known[m.From.Key] = ""
 			}
