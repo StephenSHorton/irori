@@ -1,0 +1,4 @@
+# `bun test` runs the pure helper specs in unit/. The engine-driven suite in
+# tests/ needs the engine: `claude plugin test mod`.
+[test]
+root = "./unit"
