@@ -585,15 +585,22 @@ impl Core {
             })
         };
 
-        // One roster across devices: this device's presence plus every
-        // other device's agent rows. No mesh in M4: every other device is
-        // offline.
+        // One roster across devices (Go core.go:188): this device's presence
+        // plus every other device's agent rows. The mesh node is built below;
+        // its liveness is read per call, offline until it exists.
         let roster_sub = Arc::new(st.subscribe());
+        let node_cell: Arc<OnceLock<Arc<mesh::Node>>> = Arc::new(OnceLock::new());
         let roster = Roster::new(coord::roster::Options {
             store: st.clone(),
             self_id: me.clone(),
             local: Some(local.clone()),
-            liveness: None,
+            liveness: Some({
+                let cell = node_cell.clone();
+                Arc::new(move |dev: &str| match cell.get() {
+                    Some(n) => n.liveness(dev).to_string(),
+                    None => coord::roster::OFFLINE.to_string(),
+                })
+            }),
             revoked: Some(revoked.clone()),
         })
         .map_err(|e| fail(&st, other("roster", e)))?;
@@ -787,6 +794,7 @@ impl Core {
             )
         };
         let (pairing, mesh) = pairing;
+        let _ = node_cell.set(mesh.node.clone());
 
         let home = (!opts.no_home).then(|| {
             let mut hc = home::Config::new(dir.clone(), ident.clone(), chain.clone(), st.clone());

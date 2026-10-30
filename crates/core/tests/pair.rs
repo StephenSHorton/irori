@@ -153,6 +153,16 @@ fn a_fresh_data_dir_pairs_with_a_fixture_identity() {
         has(&b, &ea) && has(&a, &eb)
     });
 
+    // The roster reads the mesh's liveness (Go core.go:188): b's agent shows
+    // on a with b's device connected, not offline.
+    let b_agent = format!("{}/from-b", b.device_id());
+    wait("a's roster sees b's agent on a live device", || {
+        a.roster()
+            .remote()
+            .iter()
+            .any(|c| c.key == b_agent && c.device_state != "offline")
+    });
+
     // Remove device runs on the Node: a revokes b and rotates its key.
     let epoch = a.person().epoch;
     rt.block_on(a.remove_device(&b_id)).unwrap();
