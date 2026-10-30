@@ -165,6 +165,8 @@ mod tests {
         assert_eq!(got, v(&["/a", "/b", "/usr/bin", "/bin"]));
     }
 
+    /// The fallback is the macOS one (`/`-joined under $HOME).
+    #[cfg(unix)]
     #[test]
     fn fallback_has_homebrew_and_local_bin() {
         let f = fallback_path();
