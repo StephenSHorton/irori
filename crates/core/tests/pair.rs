@@ -163,6 +163,59 @@ fn a_fresh_data_dir_pairs_with_a_fixture_identity() {
             .any(|c| c.key == b_agent && c.device_state != "offline")
     });
 
+    // Attachments cross devices (Go TestAttachmentsTravelWithMessagesAndComments,
+    // the comment half): a's person attaches a file to a comment, and b's
+    // person fetches it from a over the mesh, then finds it here.
+    let src = ca.path().join("review.txt");
+    std::fs::write(&src, b"looks good\n").unwrap();
+    let refs = a
+        .attach_files("", &[src.to_string_lossy().into_owned()])
+        .unwrap();
+    assert_eq!(
+        (refs.len(), refs[0].name.as_str(), refs[0].device.as_str()),
+        (1, "review.txt", a.device_id())
+    );
+    let sha = refs[0].sha256.clone();
+    let me = a.user_sender().key;
+    let t = a
+        .coord()
+        .create_task(
+            &me,
+            coord::NewTask {
+                title: "ship the review".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    a.coord()
+        .add_comment_with(
+            &me,
+            &t.id,
+            "review attached",
+            false,
+            vec![coord::FileRef {
+                sha256: sha.clone(),
+                name: refs[0].name.clone(),
+                size: refs[0].size,
+                mime: refs[0].mime.clone(),
+                device: refs[0].device.clone(),
+            }],
+        )
+        .unwrap();
+    wait("the comment reaches b", || {
+        b.coord().comment_attachment(&sha).is_some()
+    });
+    assert!(!b.files().has(&sha));
+    let out = tempfile::tempdir().unwrap();
+    let (p, from) = b
+        .get_attachment(&b.user_sender().key, &sha, &out.path().to_string_lossy())
+        .unwrap();
+    assert_eq!(from, a.device_id(), "b fetched from {from}");
+    assert_eq!(std::fs::read(&p).unwrap(), b"looks good\n");
+    assert_eq!(std::path::Path::new(&p).file_name().unwrap(), "review.txt");
+    let (_, from) = b.get_attachment(&b.user_sender().key, &sha, "").unwrap();
+    assert_eq!(from, "", "the second fetch was here already");
+
     // Remove device runs on the Node: a revokes b and rotates its key.
     let epoch = a.person().epoch;
     rt.block_on(a.remove_device(&b_id)).unwrap();
