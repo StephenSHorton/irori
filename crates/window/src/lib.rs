@@ -17,7 +17,7 @@
 //! | [`roster`] | roster_service.go |
 //! | [`inbox`] | inbox_service.go |
 //! | [`cards`], [`board`] | cards_service.go, board_service.go |
-//! | [`boards`] | boards_service.go (M9: empty) |
+//! | [`boards`] | boards_service.go, board_route.go |
 //! | [`devices`] | devices_service.go |
 //! | [`settings`] | settings_service.go, internal/notify/settings.go |
 //! | [`attachments`] | attachments_service.go, internal/core/attachview.go |
@@ -50,6 +50,7 @@ pub mod commands;
 pub mod devices;
 pub mod events;
 pub mod inbox;
+pub mod invites;
 pub mod roster;
 pub mod seams;
 pub mod settings;
@@ -165,6 +166,7 @@ impl Window {
         Seams {
             mesh: Arc::new(devices::CoreMesh::new(core.clone())),
             pairing: Arc::new(devices::CorePairing::new(core.clone())),
+            invites: Arc::new(invites::CoreInvites::new(core.clone())),
             notifier: Arc::new(settings::NotifierSeam::headless(core.data_dir())),
             login: Arc::new(settings::NoLoginItem),
             updater: Arc::new(update::NoUpdater),
