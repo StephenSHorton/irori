@@ -306,7 +306,7 @@ pub async fn board_reopen(w: W<'_>, id: String) -> R<TaskResult> {
     w.reopen(&id)
 }
 
-// ---- BoardsService (M9) ----------------------------------------------------------
+// ---- BoardsService ---------------------------------------------------------------
 
 #[tauri::command]
 #[specta::specta]
@@ -317,50 +317,43 @@ pub async fn boards_list(w: W<'_>) -> R<Vec<BoardSummary>> {
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_create(w: W<'_>, name: String, tag: String) -> R<BoardSummary> {
-    let _ = (name, tag);
-    Err(w.boards_refused())
+    w.boards_create(&name, &tag)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_rename(w: W<'_>, board_id: String, name: String) -> R<BoardSummary> {
-    let _ = (board_id, name);
-    Err(w.boards_refused())
+    w.boards_rename(&board_id, &name)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_leave(w: W<'_>, board_id: String) -> R<()> {
-    let _ = board_id;
-    Err(w.boards_refused())
+    w.boards_leave(&board_id)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_forget(w: W<'_>, board_id: String) -> R<()> {
-    let _ = board_id;
-    Err(w.boards_refused())
+    w.boards_forget(&board_id)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_share_preview(w: W<'_>, task_id: String, board_id: String) -> R<SharePreview> {
-    let _ = (task_id, board_id);
-    Err(w.boards_refused())
+    w.boards_share_preview(&task_id, &board_id)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_share(w: W<'_>, task_id: String, board_id: String, hash: String) -> R<String> {
-    let _ = (task_id, board_id, hash);
-    Err(w.boards_refused())
+    w.boards_share(&task_id, &board_id, &hash)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_withdraw(w: W<'_>, task_id: String) -> R<String> {
-    let _ = task_id;
-    Err(w.boards_refused())
+    w.boards_withdraw(&task_id)
 }
 
 // ---- DevicesService --------------------------------------------------------------

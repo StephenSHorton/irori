@@ -6,7 +6,7 @@
 //! | `inbox:changed` | [`InboxCounts`] | coalesced, 250 ms |
 //! | `board:changed` | `{}` | coalesced, 250 ms |
 //! | `capture:changed` | [`CaptureChange`] | coalesced, 300 ms |
-//! | `boards:changed` | `{}` | shared-board list change (M9) |
+//! | `boards:changed` | `{}` | a shared board opened, went or was renamed |
 //! | `devices:pairing` | [`PairStatus`] | pairing change (M7) |
 //! | `settings:launch-at-login` | bool | after every toggle attempt |
 //! | `app:open` | [`Target`] | a card's Open (M6 toast) |
@@ -142,6 +142,26 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
     {
         let (w, stop) = (w.clone(), stop.clone());
         let feed = w.core.feed(&[Topic::Board]);
+        // Every shared board's changes go through the same coalescing, and
+        // a board opening, going or renamed is boards:changed (Go
+        // pumpBoards).
+        {
+            let (w, board_q) = (w.clone(), feed.queue().clone());
+            let q = w.core.subscribe_boards();
+            let reg = {
+                let q = q.clone();
+                stop.on_cancel(move || q.close())
+            };
+            out.push(spawn("irori-window-boards", move || {
+                let _reg = reg;
+                while let Some(ch) = q.recv() {
+                    if ch.kind.is_empty() && ch.task_id.is_empty() {
+                        w.emit(EVENT_BOARDS_CHANGED, &Empty {});
+                    }
+                    board_q.push(CoreEvent::Board(ch));
+                }
+            }));
+        }
         out.push(spawn("irori-window-board", move || {
             let q = feed.queue().clone();
             coalesce(&q, BOARD_EMIT_EVERY, &stop, |_| {
