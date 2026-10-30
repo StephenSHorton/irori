@@ -117,6 +117,8 @@ fn board_refuses_kinds() {
         "receive.set",
         "board.sharedcopy",
         "board.cardof",
+        // Card #57: a shared card is withdrawn, never deleted.
+        "task.deleted",
     ] {
         assert!(
             refused.contains(&want) || store::is_local(want),

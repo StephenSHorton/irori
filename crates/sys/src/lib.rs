@@ -9,6 +9,7 @@
 //! | [`fswatch`] | `internal/fswatch` | `Watch` (ReadDirectoryChangesW on Windows), the coalescer with its sticky Overflow, `ErrUnsupported` elsewhere |
 //! | [`cancel`] | `context.Context` cancellation | a token a blocking wait can be woken by |
 //! | [`tz`] | `time.Local` | the local UTC offset at an instant |
+//! | [`shellpath`] | root `guipath_darwin.go` | the desktop app's PATH from the login shell (macOS) |
 //!
 //! Not here yet: macOS FSEvents (fswatch returns [`fswatch::Error::Unsupported`]
 //! there, so capture polls), and the paths/Mark-of-the-Web glue other
@@ -18,4 +19,5 @@ pub mod awake;
 pub mod cancel;
 pub mod fswatch;
 pub mod proc;
+pub mod shellpath;
 pub mod tz;

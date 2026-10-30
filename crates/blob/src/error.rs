@@ -40,7 +40,9 @@ pub(crate) const MISMATCH: &str = "blob: the bytes don't match the attachment's 
 pub(crate) const NEVER_LEAVES: &str = "blob: this file never leaves the device";
 
 impl Error {
-    pub(crate) fn new(kind: ErrorKind, msg: impl Into<String>) -> Error {
+    /// An error of `kind` with the full text `msg` (Go `fmt.Errorf` with
+    /// `%w` around a sentinel, or `errors.New` for [`ErrorKind::Other`]).
+    pub fn new(kind: ErrorKind, msg: impl Into<String>) -> Error {
         Error {
             kind,
             msg: msg.into(),

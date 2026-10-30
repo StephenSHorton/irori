@@ -436,6 +436,60 @@ impl Fold {
         }
     }
 
+    /// Folds task.deleted (card #57): the person's only. The card leaves
+    /// the fold for good, whatever arrives about it later, and its
+    /// subtasks stand alone (relink drops the link to a missing parent).
+    pub(crate) fn fold_deleted(&mut self, ev: &Event) {
+        let Some(p) = row::<TaskDeletedRow>(&ev.payload) else {
+            return;
+        };
+        if p.task_id.is_empty() {
+            return;
+        }
+        if ev.actor != "user" || !self.is_owner(&p.by) {
+            self.ignore(&ev.device_id);
+            return;
+        }
+        self.deleted.insert(p.task_id.clone());
+        if self.tasks.remove(&p.task_id).is_some() {
+            self.order.remove(&p.task_id);
+            self.pins.remove(&p.task_id);
+            self.note(Change {
+                kind: TASK_CHANGED.into(),
+                task_id: p.task_id,
+                ..Change::default()
+            });
+        }
+    }
+
+    /// The person deletes a card: it leaves the Board on every device, and
+    /// the signed log keeps it. Only the person; any card, in any state.
+    pub(crate) fn delete_task(&mut self, by: &str, id: &str) -> Result<Task> {
+        let by = trim_space(by).to_string();
+        if !self.is_owner(&by) {
+            return Err(not_allowed("only the person deletes cards"));
+        }
+        if self.on_board {
+            return Err(invalid(
+                "a card on a shared board is withdrawn, not deleted",
+            ));
+        }
+        let Some(t) = self.tasks.get(id).cloned() else {
+            return Err(not_found(format!("task {}", quote(id))));
+        };
+        let at = self.stamp();
+        self.write(
+            &by,
+            kinds::TASK_DELETED,
+            &TaskDeletedRow {
+                task_id: id.into(),
+                by: by.clone(),
+                at,
+            },
+        )?;
+        Ok(t)
+    }
+
     /// Copies the card's pin onto it.
     pub(crate) fn sync_pin(&self, t: &mut Task) {
         let r = self.pins.get(&t.id).cloned().unwrap_or_default();

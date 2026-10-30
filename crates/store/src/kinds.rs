@@ -120,6 +120,9 @@ kinds! {
     TASK_PARENT = "task.parent" => Replicated, Accepts;
     /// The person's own card order in their window.
     TASK_PINNED = "task.pinned" => Replicated, Refuses;
+    /// The person deleted a card (card #57): it leaves every view; the
+    /// log keeps it. Go v0.5 Cores store and replicate it and ignore it.
+    TASK_DELETED = "task.deleted" => Replicated, Refuses;
     // capture
     CAPTURE_TURN = "capture.turn" => Replicated, Refuses;
     CAPTURE_EDIT = "capture.edit" => Replicated, Refuses;

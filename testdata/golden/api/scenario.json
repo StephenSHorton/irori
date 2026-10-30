@@ -1,7 +1,7 @@
 {
   "about": "The loopback API golden scenario (crates/api/tests/api_golden.rs, tools/goldens/api_golden_test.go). Both sides start a fresh Core with two live sessions alpha (A) and beta (B), serve their own api.Server over it, and run these steps in order. {name} is a variable: device, port, token, person, keyA, keyB, sessA, sessB, cwd, pid, personId, devicePub, plus the ones saved by steps. req: an HTTP request (auth false = no bearer token). open/read/close: an NDJSON stream; read takes the next n lines that are not keepalives, or every line up to and including the first of type until, or every line until drain ms pass without one; save [i, key] takes a key of line i (-1: the last). act: a direct service call. needs: a service Rust does not have yet (the step is recorded, and skipped by the Rust replay). ignore: top-level JSON keys both sides drop before comparing.",
   "steps": [
-    {"id": "health", "req": {"method": "GET", "path": "/v1/health", "auth": false}, "ignore": ["net"]},
+    {"id": "health", "req": {"method": "GET", "path": "/v1/health", "auth": false}},
     {"id": "no-token", "req": {"method": "GET", "path": "/v1/device", "auth": false}},
     {"id": "wrong-token", "req": {"method": "GET", "path": "/v1/device", "headers": {"Authorization": "Bearer nope"}}},
     {"id": "basic-auth", "req": {"method": "GET", "path": "/v1/device", "headers": {"Authorization": "Basic {token}"}}},
