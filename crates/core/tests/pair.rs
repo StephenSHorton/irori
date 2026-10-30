@@ -227,3 +227,51 @@ fn the_home_server_names_its_relay_to_the_bridge() {
     });
     core.close().unwrap();
 }
+
+/// The address under the pairing code (Go core.go:288 `ServerAddr`,
+/// home.go:107): while the home server runs, Add's status carries where a
+/// device away from home dials it; with no server running, nothing.
+#[test]
+fn add_shows_the_home_server_address() {
+    let (d, c) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (lan, to) = (free_udp(), free_udp());
+    let mut o = common::options(d.path(), c.path());
+    o.pair_net = Some(Arc::new(move |ident, chain, guests| {
+        let mut nc = devices::default_net_config(ident, chain, guests);
+        nc.ip = IpMode::Loopback;
+        let lc = nc.lan_config.as_mut().expect("a LAN lookup");
+        lc.bind = Some(lan);
+        lc.targets = Some(Arc::new(move || vec![to]));
+        IrohNet::new(nc)
+    }));
+    o.home = Some(Arc::new(|hc: &mut home::Config| {
+        hc.bind_ip = Some(Ipv4Addr::LOCALHOST.into());
+    }));
+    let core = Core::start(o).unwrap();
+    let rt = core.pairing_runtime().clone();
+
+    // No server: the window opens with no address under the code.
+    let st = rt
+        .block_on(devices::add_device(&core, irori_identity::ROLE_DESKTOP))
+        .unwrap();
+    assert_eq!(st.state, irori_pair::STATE_WAITING);
+    assert_eq!(st.server_addr, "", "an address with no server running");
+    core.pairing().cancel();
+
+    // A typed public address: the open window starts the server, and the
+    // address follows it once it runs.
+    core.set_home_server(true, false, "203.0.113.7:24817")
+        .unwrap();
+    rt.block_on(devices::add_device(&core, irori_identity::ROLE_DESKTOP))
+        .unwrap();
+    wait("the home server runs", || {
+        core.home().is_some_and(|h| h.status().running)
+    });
+    let want = core.home().unwrap().status().address;
+    assert!(!want.is_empty(), "the running server names no address");
+    wait("Add's status carries the address", || {
+        core.pairing().status().server_addr == want
+    });
+    core.pairing().cancel();
+    core.close().unwrap();
+}

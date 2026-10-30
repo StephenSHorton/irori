@@ -730,6 +730,9 @@ impl Core {
         // core.go:290); its relay port feeds the endpoint (Go Net.SetLocal).
         // Pairing (Go core.go:284-288) opens its own room on the transport,
         // only while a window is open. Add is window-only.
+        // The home server comes after the Pairer (it asks whether a window
+        // is open); the Pairer reads it back through this cell.
+        let home_cell: Arc<OnceLock<home::Server>> = Arc::new(OnceLock::new());
         let pairing = {
             let own_rt = match &opts.runtime {
                 Some(_) => None,
@@ -781,6 +784,10 @@ impl Core {
                 Arc::new(move || n.kick())
             });
             po.servers = Some(mesh.hints());
+            po.server_addr = Some({
+                let (h, servers) = (home_cell.clone(), mesh.servers.clone());
+                Arc::new(move || server_addr(h.get(), &servers))
+            });
             po.window = crate::devices::window_or_default(opts.pair_window);
             po.logf = Some(Arc::new(|l: &str| crate::log(l)));
             (
@@ -815,6 +822,9 @@ impl Core {
             }
             home::Server::new(hc)
         });
+        if let Some(h) = &home {
+            let _ = home_cell.set(h.clone());
+        }
 
         let token = lockfile::new_token().map_err(|e| fail(&st, other("", e)))?;
         let s = Arc::new(Services {
@@ -1900,4 +1910,24 @@ impl Services {
         card.title = self.scrubber.string(&card.title);
         card
     }
+}
+
+/// The address a device away from home dials to join, shown under the
+/// pairing code (Go core `serverAddr`, home.go:104-123): this device's own
+/// server's while it runs, else the first other server reachable from
+/// outside.
+fn server_addr(home: Option<&home::Server>, servers: &mesh::Servers) -> String {
+    if let Some(h) = home {
+        let st = h.status();
+        if st.running && !st.address.is_empty() {
+            return st.address;
+        }
+    }
+    servers
+        .list()
+        .iter()
+        .filter_map(|s| servers.row(&s.id))
+        .map(|row| row.outside())
+        .find(|a| !a.is_empty())
+        .unwrap_or_default()
 }
