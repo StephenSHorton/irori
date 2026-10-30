@@ -386,6 +386,21 @@ impl Fold {
         wake: bool,
         files: Vec<FileRef>,
     ) -> Result<(Comment, Notice)> {
+        self.add_comment_to(by, id, text, wake, files, "")
+    }
+
+    /// [`Fold::add_comment`] addressed to one key on the card (the row's
+    /// `to`), as a lease release request is to the lease's holder (§5.4):
+    /// the bridge carries it to that agent only.
+    pub(crate) fn add_comment_to(
+        &mut self,
+        by: &str,
+        id: &str,
+        text: &str,
+        wake: bool,
+        files: Vec<FileRef>,
+        to: &str,
+    ) -> Result<(Comment, Notice)> {
         let (by, text) = check_comment(by, text, &files)?;
         let t = self.any_task(id)?.clone();
         let at = self.stamp();
@@ -401,6 +416,7 @@ impl Fold {
                 wake,
                 at,
                 attachments: files.clone(),
+                to: to.into(),
                 ..TaskCommentRow::default()
             },
         )?;

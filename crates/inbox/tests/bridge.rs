@@ -139,6 +139,41 @@ fn receive_table() {
             (receive::CLOSED, BLAKE, CARD, row_kind::ASSIGN, true, false),
             (NT, "", true),
         ),
+        // A board ask from the person: like a comment, a wake if asked.
+        (
+            (receive::OPEN, BLAKE, "", row_kind::ASK, true, false),
+            (W, "", false),
+        ),
+        (
+            (receive::ASK, BLAKE, "", row_kind::ASK, true, false),
+            (W, hold::MEMBER_WAKE, false),
+        ),
+        (
+            (receive::CLOSED, BLAKE, "", row_kind::ASK, false, false),
+            (NT, "", false),
+        ),
+        // A release request: Open lets it through, Ask me asks the person
+        // first (member_lease), Closed leaves it for next turn.
+        (
+            (receive::OPEN, BLAKE, CARD, row_kind::LEASE, false, false),
+            (NT, "", false),
+        ),
+        (
+            (receive::ASK, BLAKE, CARD, row_kind::LEASE, false, false),
+            (NT, hold::MEMBER_LEASE, false),
+        ),
+        (
+            (receive::ASK, BLAKE, CARD, row_kind::LEASE, false, true),
+            (NT, hold::MEMBER_LEASE, false),
+        ),
+        (
+            (receive::CLOSED, BLAKE, CARD, row_kind::LEASE, false, false),
+            (NT, "", false),
+        ),
+        (
+            (receive::OPEN, BLAKE, CARD, row_kind::LEASE, false, true),
+            (NT, "", false),
+        ),
         // B2: bypass sessions get rows on Open, held on Ask me and Closed.
         (
             (receive::OPEN, BLAKE, CARD, row_kind::COMMENT, false, true),

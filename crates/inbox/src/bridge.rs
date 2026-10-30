@@ -92,7 +92,9 @@ pub struct BoardFrom {
     /// The writing agent's card; empty when the person wrote it.
     #[serde(rename = "cardId", skip_serializing_if = "String::is_empty")]
     pub card_id: String,
-    /// The board row, `<deviceId>/<seq>` in the board log.
+    /// The board row, `<deviceId>/<seq>` in the board log; for a board
+    /// ask, `ask:<taskId>@<since>`, one per round of telling it, so a
+    /// sweep that widens the round tells each agent once.
     pub row: String,
     /// One of [`row_kind`].
     pub kind: String,
@@ -234,7 +236,11 @@ pub fn receive_decision(
             (mode::NEXT_TURN, h, f.wake)
         }
         receive::ASK => {
-            let h = if bypass_recipient || agent_assign {
+            // A release request asks the agent to give up a lease: the
+            // person decides first (member_lease, §5.4).
+            let h = if f.kind == row_kind::LEASE {
+                hold::MEMBER_LEASE
+            } else if bypass_recipient || agent_assign {
                 hold::CROSS_PERSON
             } else if f.wake {
                 hold::MEMBER_WAKE
