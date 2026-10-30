@@ -533,7 +533,10 @@ impl Fold {
                 ..Blocker::default()
             };
             if br.replace {
-                nb.asked = pos;
+                nb.asked = pos.clone();
+            }
+            if br.revise {
+                nb.options_at = pos;
             }
             t.blockers.push(nb);
             return Folded::raised(format!("raised a blocker: {}", br.question), &br.id);
