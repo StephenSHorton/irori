@@ -205,6 +205,8 @@ pub(crate) struct Inner {
     /// ([`IrohNet::set_board_peers`]); kept apart from the private book,
     /// which [`IrohNet::set_peers`] replaces on every refeed.
     pub(crate) board_book: Mutex<BTreeMap<String, BTreeMap<String, PeerAddr>>>,
+    /// The `board.server` relays of every board held here (B1).
+    pub(crate) board_relays: Mutex<Vec<crate::board::BoardRelays>>,
     /// (board or "" for the private mesh, epoch, peer) dials in flight.
     dialing: Mutex<HashSet<(String, i64, String)>>,
     pub(crate) dial_errors: Mutex<BTreeMap<String, String>>,
@@ -399,6 +401,7 @@ impl IrohNet {
                 rooms: Mutex::new(HashMap::new()),
                 board_rooms: Mutex::new(HashMap::new()),
                 board_book: Mutex::new(BTreeMap::new()),
+                board_relays: Mutex::new(Vec::new()),
                 dialing: Mutex::new(HashSet::new()),
                 dial_errors: Mutex::new(BTreeMap::new()),
                 gossip: OnceCell::new(),
@@ -444,8 +447,19 @@ impl IrohNet {
             &mut *self.inner.relays.lock().expect("relays"),
             servers.clone(),
         );
+        let boards = self
+            .inner
+            .board_relays
+            .lock()
+            .expect("board relays")
+            .clone();
         for o in &old {
-            if !servers.iter().any(|s| s.server_pub == o.server_pub) {
+            if !servers.iter().any(|s| s.server_pub == o.server_pub)
+                && !boards
+                    .iter()
+                    .flat_map(|b| b.servers.iter())
+                    .any(|s| s.server_pub == o.server_pub)
+            {
                 self.inner.pins.remove(o.server_pub.as_bytes());
             }
         }
@@ -472,6 +486,11 @@ impl IrohNet {
                 .await;
             }
         }
+    }
+
+    /// The home relays as last fed ([`IrohNet::set_servers`]).
+    pub fn servers(&self) -> Vec<RelaySpec> {
+        self.inner.relays.lock().expect("relays").clone()
     }
 
     /// Stop trusting a relay server's key (a revoked home server).
@@ -728,9 +747,13 @@ impl Inner {
             return Err(TransportError("mesh: transport closed".into()));
         }
         let me = self.clone();
-        self.ep
+        let built: Arc<Mutex<Option<Vec<RelaySpec>>>> = Arc::default();
+        let b = built.clone();
+        let ep = self
+            .ep
             .get_or_try_init(|| async move {
-                let ep = me.build().await?;
+                let (ep, relays) = me.build().await?;
+                *b.lock().expect("built") = Some(relays);
                 if me.cfg.gossip {
                     let g = iroh_gossip::net::Gossip::builder()
                         .alpn(GOSSIP_ALPN)
@@ -741,10 +764,48 @@ impl Inner {
                 Ok(ep)
             })
             .await
-            .cloned()
+            .cloned()?;
+        let built = built.lock().expect("built").take();
+        if let Some(built) = built {
+            // A set_servers while the endpoint was being built found no
+            // endpoint and only stored its relays: bring the endpoint's
+            // relay map in line with them now that it is set (so a home
+            // server that came up during the bind still becomes the home
+            // relay).
+            self.sync_relays(&ep, &built).await;
+        }
+        Ok(ep)
     }
 
-    async fn build(&self) -> Result<Endpoint, TransportError> {
+    /// Inserts the relays `set_servers` holds that `had` lacks, and removes
+    /// the ones it no longer holds.
+    async fn sync_relays(&self, ep: &Endpoint, had: &[RelaySpec]) {
+        let now = self.relays.lock().expect("relays").clone();
+        for o in had {
+            if !now.iter().any(|s| s.url == o.url) {
+                ep.remove_relay(&o.url).await;
+            }
+        }
+        for s in &now {
+            if !had
+                .iter()
+                .any(|o| o.url == s.url && o.quic_port == s.quic_port)
+            {
+                ep.insert_relay(
+                    s.url.clone(),
+                    Arc::new(crate::relay::client_relay_config(
+                        s.url.clone(),
+                        s.quic_port,
+                    )),
+                )
+                .await;
+            }
+        }
+    }
+
+    /// Builds the endpoint; also returns the relays its relay map starts
+    /// with.
+    async fn build(&self) -> Result<(Endpoint, Vec<RelaySpec>), TransportError> {
         let mut nr = NetReportConfig::default();
         nr.captive_portal_check = false;
         let tc = QuicTransportConfig::builder()
@@ -803,9 +864,11 @@ impl Inner {
             )
         };
         b = b.relay_mode(RelayMode::Custom(map));
-        b.bind()
+        let ep = b
+            .bind()
             .await
-            .map_err(|e| TransportError(format!("Can't open the network: {e:#}")))
+            .map_err(|e| TransportError(format!("Can't open the network: {e:#}")))?;
+        Ok((ep, relays))
     }
 
     pub(crate) fn close_room(&self, room: &Arc<RoomState>, why: &str) {

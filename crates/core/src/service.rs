@@ -873,8 +873,14 @@ impl Core {
             let mut hc = home::Config::new(dir.clone(), ident.clone(), chain.clone(), st.clone());
             let node = mesh.node.clone();
             let pr = pairing.pairer.clone();
-            // Go core.go:290: another device, or an open pairing window.
-            hc.wanted = Some(Arc::new(move || pr.status().open() || node.has_peer()));
+            // Go core.go:290: another device, or an open pairing window;
+            // stage 2 (B1): or a shared board with another person on it,
+            // whose members this server relays for.
+            let held = board_set.clone();
+            hc.wanted = Some(Arc::new(move || {
+                pr.status().open() || node.has_peer() || held.shared_with_others()
+            }));
+            hc.board_admit = Some(mesh.net.board_members().relay_admit());
             let m = mesh.clone();
             hc.on_relay = Some(Arc::new(move |up| m.set_local_relay(up)));
             hc.guests = Some(pairing.guests.clone());
@@ -890,6 +896,7 @@ impl Core {
         });
         if let Some(h) = &home {
             let _ = home_cell.set(h.clone());
+            mesh.set_home(h.clone());
         }
 
         let token = lockfile::new_token().map_err(|e| fail(&st, other("", e)))?;
