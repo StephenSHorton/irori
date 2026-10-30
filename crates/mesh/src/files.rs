@@ -11,11 +11,11 @@ use std::sync::Arc;
 use blob::{ErrorKind as BlobKind, FileRef};
 use gocompat::json::{self, Out, Schema};
 use serde::Serialize;
-use store::{Event, Filter, MAX_LIST_LIMIT};
+use store::{Event, Filter, MAX_LIST_LIMIT, Store};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use crate::node::Node;
-use crate::transport::{PeerConn, Stream};
+use crate::transport::{Conn, PeerConn, Stream};
 
 pub const BLOB_LABEL_PREFIX: &str = "blob/";
 const MAX_BLOB_REQUEST: usize = 4 << 10;
@@ -135,28 +135,7 @@ impl Node {
     /// Go `holders`: every device whose attach.offered row names `sha`, in
     /// log order.
     pub fn holders(&self, sha: &str) -> store::Result<Vec<String>> {
-        let mut out: Vec<String> = Vec::new();
-        let mut f = Filter {
-            kinds: vec![store::kinds::ATTACH_OFFERED.into()],
-            limit: MAX_LIST_LIMIT,
-            ..Filter::default()
-        };
-        let schema = offer_schema();
-        loop {
-            let evs = self.o.store.list(&f)?;
-            for ev in &evs {
-                if let Ok(o) = json::unmarshal(&ev.payload, &schema)
-                    && o.get_str("sha256") == sha
-                    && !out.contains(&ev.device_id)
-                {
-                    out.push(ev.device_id.clone());
-                }
-            }
-            if (evs.len() as i64) < f.limit {
-                return Ok(out);
-            }
-            f.after = evs.last().map(Event::cursor).unwrap_or_default();
-        }
+        holders_in(&self.o.store, sha)
     }
 
     /// Go `FetchFile`: makes sure `r`'s file is in this device's attachment
@@ -167,22 +146,7 @@ impl Node {
         let Some(fs) = self.o.files.clone() else {
             return Err(FetchError::NoFiles);
         };
-        if !blob::valid_id(&r.sha256) {
-            return Err(FetchError::Blob(
-                BlobKind::BadId,
-                "blob: id must be 64 lowercase hex characters".into(),
-            ));
-        }
-        if r.size < 0 || r.size as u64 > fs.max() {
-            return Err(FetchError::Blob(
-                BlobKind::TooLarge,
-                format!(
-                    "blob: the file is larger than the attachment cap ({} bytes, at most {})",
-                    r.size,
-                    fs.max()
-                ),
-            ));
-        }
+        check_ref(&fs, r)?;
         let _turn = self.lock_fetch(&r.sha256).await;
         if fs.has(&r.sha256) {
             return Ok(String::new());
@@ -208,113 +172,17 @@ impl Node {
             let Some(conn) = self.conn_to(dev) else {
                 continue;
             };
-            for _ in 0..FETCH_TRIES {
-                match self.fetch_from(&conn, &fs, r).await {
-                    Ok(()) => {
-                        if let Err(e) = self.offer(r) {
-                            self.log(&format!("mesh: offer {}: {e}", r.sha256));
-                        }
-                        return Ok(dev.clone());
+            match fetch_over(conn.raw(), &fs, r).await {
+                Ok(()) => {
+                    if let Err(e) = self.offer(r) {
+                        self.log(&format!("mesh: offer {}: {e}", r.sha256));
                     }
-                    Err(e) => {
-                        let stop = !e.is_blob(BlobKind::Mismatch) || e == FetchError::NotServed;
-                        last = Some(e);
-                        if stop {
-                            break;
-                        }
-                    }
+                    return Ok(dev.clone());
                 }
+                Err(e) => last = Some(e),
             }
         }
         Err(last.unwrap_or(FetchError::Offline(cands)))
-    }
-
-    /// Go `fetchFrom`: asks `conn` for the rest of the file and moves it into
-    /// place once it is whole.
-    async fn fetch_from(
-        &self,
-        conn: &PeerConn,
-        fs: &blob::Files,
-        r: &FileRef,
-    ) -> Result<(), FetchError> {
-        let (mut part, off) = fs.partial(&r.sha256)?;
-        let size = r.size as u64;
-        if off > size {
-            drop(part);
-            fs.drop_partial(&r.sha256);
-            return Err(mismatch());
-        }
-        let mut got = 0;
-        if off < size {
-            got = self.read_blob(conn, fs, r, off, &mut part).await?;
-        }
-        drop(part);
-        if off < size && got == 0 {
-            return Err(FetchError::NotServed);
-        }
-        fs.finish(&r.sha256, size)?;
-        Ok(())
-    }
-
-    /// Go `readBlob`: one blob stream; appends what it carries to `w`,
-    /// never more than the ref still lacks.
-    async fn read_blob(
-        &self,
-        conn: &PeerConn,
-        fs: &blob::Files,
-        r: &FileRef,
-        off: u64,
-        w: &mut std::fs::File,
-    ) -> Result<u64, FetchError> {
-        let mut idb = [0u8; 8];
-        let _ = getrandom::fill(&mut idb);
-        let id = hex::encode(idb);
-        let want = r.size as u64 - off;
-        let mut st = conn
-            .open_stream(&format!("{BLOB_LABEL_PREFIX}{id}"))
-            .await
-            .map_err(FetchError::Other)?;
-        let body = json::marshal(&BlobRequest {
-            id: &id,
-            sha256: &r.sha256,
-            offset: off as i64,
-            len: want as i64,
-        })
-        .unwrap_or_default();
-        let mut msg = (body.len() as u32).to_be_bytes().to_vec();
-        msg.extend_from_slice(&body);
-        st.write_all(&msg)
-            .await
-            .map_err(|e| FetchError::Other(e.to_string()))?;
-        let mut buf = vec![0u8; BLOB_CHUNK];
-        let mut got: u64 = 0;
-        let mut err: Option<String> = None;
-        while got <= want {
-            let room = ((want + 1 - got) as usize).min(BLOB_CHUNK);
-            match st.read(&mut buf[..room]).await {
-                Ok(0) => break,
-                Ok(k) => {
-                    if let Err(e) = w.write_all(&buf[..k]) {
-                        err = Some(e.to_string());
-                        break;
-                    }
-                    got += k as u64;
-                }
-                Err(e) => {
-                    err = Some(e.to_string());
-                    break;
-                }
-            }
-        }
-        if got > want {
-            fs.drop_partial(&r.sha256);
-            return Err(mismatch());
-        }
-        // An error after some bytes is a cut stream: the caller resumes.
-        match err {
-            Some(e) if got == 0 => Err(FetchError::Other(e)),
-            _ => Ok(got),
-        }
     }
 
     /// Go `serveStream`: answers one stream the peer opened. Only
@@ -327,83 +195,16 @@ impl Node {
             && self.certified(peer)
             && let Some(fs) = self.o.files.clone()
         {
-            self.serve_blob(peer, &fs, &mut st).await;
+            let log = |l: &str| self.log(l);
+            serve_blob(
+                &mut st,
+                &fs,
+                |sha| self.holders(sha).is_ok_and(|h| !h.is_empty()),
+                log,
+            )
+            .await;
         }
         let _ = st.shutdown().await;
-    }
-
-    async fn serve_blob(&self, peer: &str, fs: &Arc<blob::Files>, st: &mut Stream) {
-        let mut hdr = [0u8; 4];
-        if st.read_exact(&mut hdr).await.is_err() {
-            return;
-        }
-        let size = u32::from_be_bytes(hdr) as usize;
-        if size == 0 || size > MAX_BLOB_REQUEST {
-            return;
-        }
-        let mut body = vec![0u8; size];
-        if st.read_exact(&mut body).await.is_err() {
-            return;
-        }
-        let schema = Schema::object(vec![
-            ("id", Schema::String),
-            ("sha256", Schema::String),
-            ("offset", Schema::Int(64)),
-            ("len", Schema::Int(64)),
-        ]);
-        let Ok(req) = json::unmarshal(&body, &schema) else {
-            return;
-        };
-        let int = |k: &str| match req.get(k) {
-            Some(Out::Int(n)) => *n,
-            _ => 0,
-        };
-        let (sha, offset, len) = (req.get_str("sha256").to_string(), int("offset"), int("len"));
-        if !blob::valid_id(&sha) || offset < 0 || len < 0 {
-            return;
-        }
-        // Only hashes the log references, and that are here.
-        match self.holders(&sha) {
-            Ok(h) if !h.is_empty() && fs.has(&sha) => {}
-            _ => return,
-        }
-        // The file is read through tokio's blocking pool, so a large or
-        // slow attachment never holds a runtime worker.
-        let Ok(f) = fs.open_file(&sha) else {
-            return;
-        };
-        let mut f = tokio::fs::File::from_std(f);
-        let Ok(meta) = f.metadata().await else {
-            return;
-        };
-        let fsize = meta.len();
-        if fsize > fs.max() || offset as u64 > fsize {
-            return;
-        }
-        if f.seek(SeekFrom::Start(offset as u64)).await.is_err() {
-            return;
-        }
-        let mut left = fsize - offset as u64;
-        if len > 0 {
-            left = left.min(len as u64);
-        }
-        let mut buf = vec![0u8; BLOB_CHUNK];
-        while left > 0 {
-            let room = (left as usize).min(BLOB_CHUNK);
-            let k = match f.read(&mut buf[..room]).await {
-                Ok(0) => break,
-                Ok(k) => k,
-                Err(e) => {
-                    self.log(&format!("mesh: serve {sha} to {peer}: {e}"));
-                    return;
-                }
-            };
-            if let Err(e) = st.write_all(&buf[..k]).await {
-                self.log(&format!("mesh: serve {sha} to {peer}: {e}"));
-                return;
-            }
-            left -= k as u64;
-        }
     }
 
     /// Go `connTo`: a live, synced connection to `dev`.
@@ -427,5 +228,242 @@ impl Node {
         turn.acquire_owned()
             .await
             .expect("the semaphore is never closed")
+    }
+}
+
+/// Go `holders` over any log: every device whose attach.offered row in
+/// `st` names `sha`, in log order.
+pub fn holders_in(st: &Store, sha: &str) -> store::Result<Vec<String>> {
+    let mut out: Vec<String> = Vec::new();
+    let mut f = Filter {
+        kinds: vec![store::kinds::ATTACH_OFFERED.into()],
+        limit: MAX_LIST_LIMIT,
+        ..Filter::default()
+    };
+    let schema = offer_schema();
+    loop {
+        let evs = st.list(&f)?;
+        for ev in &evs {
+            if let Ok(o) = json::unmarshal(&ev.payload, &schema)
+                && o.get_str("sha256") == sha
+                && !out.contains(&ev.device_id)
+            {
+                out.push(ev.device_id.clone());
+            }
+        }
+        if (evs.len() as i64) < f.limit {
+            return Ok(out);
+        }
+        f.after = evs.last().map(Event::cursor).unwrap_or_default();
+    }
+}
+
+/// Checks a ref before any fetch: a valid id and a size under the cap.
+pub(crate) fn check_ref(fs: &blob::Files, r: &FileRef) -> Result<(), FetchError> {
+    if !blob::valid_id(&r.sha256) {
+        return Err(FetchError::Blob(
+            BlobKind::BadId,
+            "blob: id must be 64 lowercase hex characters".into(),
+        ));
+    }
+    if r.size < 0 || r.size as u64 > fs.max() {
+        return Err(FetchError::Blob(
+            BlobKind::TooLarge,
+            format!(
+                "blob: the file is larger than the attachment cap ({} bytes, at most {})",
+                r.size,
+                fs.max()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Asks one connection for `r`'s file, up to [`FETCH_TRIES`] times (a
+/// stream cut mid-file resumes by offset), and moves it into place once
+/// it is whole. The private mesh and a board connection both fetch
+/// through it; the caller holds the fetch turn ([`Node::lock_fetch`]).
+pub(crate) async fn fetch_over(
+    conn: &dyn Conn,
+    fs: &blob::Files,
+    r: &FileRef,
+) -> Result<(), FetchError> {
+    let mut last = mismatch();
+    for _ in 0..FETCH_TRIES {
+        match fetch_from(conn, fs, r).await {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                let stop = !e.is_blob(BlobKind::Mismatch) || e == FetchError::NotServed;
+                last = e;
+                if stop {
+                    break;
+                }
+            }
+        }
+    }
+    Err(last)
+}
+
+/// Go `fetchFrom`: asks `conn` for the rest of the file and moves it into
+/// place once it is whole.
+async fn fetch_from(conn: &dyn Conn, fs: &blob::Files, r: &FileRef) -> Result<(), FetchError> {
+    let (mut part, off) = fs.partial(&r.sha256)?;
+    let size = r.size as u64;
+    if off > size {
+        drop(part);
+        fs.drop_partial(&r.sha256);
+        return Err(mismatch());
+    }
+    let mut got = 0;
+    if off < size {
+        got = read_blob(conn, fs, r, off, &mut part).await?;
+    }
+    drop(part);
+    if off < size && got == 0 {
+        return Err(FetchError::NotServed);
+    }
+    fs.finish(&r.sha256, size)?;
+    Ok(())
+}
+
+/// Go `readBlob`: one blob stream; appends what it carries to `w`,
+/// never more than the ref still lacks.
+async fn read_blob(
+    conn: &dyn Conn,
+    fs: &blob::Files,
+    r: &FileRef,
+    off: u64,
+    w: &mut std::fs::File,
+) -> Result<u64, FetchError> {
+    let mut idb = [0u8; 8];
+    let _ = getrandom::fill(&mut idb);
+    let id = hex::encode(idb);
+    let want = r.size as u64 - off;
+    let st = conn
+        .open_stream(&format!("{BLOB_LABEL_PREFIX}{id}"))
+        .await
+        .map_err(|e| FetchError::Other(e.to_string()))?;
+    let mut st: Stream = Box::new(tokio::io::join(st.recv, st.send));
+    let body = json::marshal(&BlobRequest {
+        id: &id,
+        sha256: &r.sha256,
+        offset: off as i64,
+        len: want as i64,
+    })
+    .unwrap_or_default();
+    let mut msg = (body.len() as u32).to_be_bytes().to_vec();
+    msg.extend_from_slice(&body);
+    st.write_all(&msg)
+        .await
+        .map_err(|e| FetchError::Other(e.to_string()))?;
+    let mut buf = vec![0u8; BLOB_CHUNK];
+    let mut got: u64 = 0;
+    let mut err: Option<String> = None;
+    while got <= want {
+        let room = ((want + 1 - got) as usize).min(BLOB_CHUNK);
+        match st.read(&mut buf[..room]).await {
+            Ok(0) => break,
+            Ok(k) => {
+                if let Err(e) = w.write_all(&buf[..k]) {
+                    err = Some(e.to_string());
+                    break;
+                }
+                got += k as u64;
+            }
+            Err(e) => {
+                err = Some(e.to_string());
+                break;
+            }
+        }
+    }
+    if got > want {
+        fs.drop_partial(&r.sha256);
+        return Err(mismatch());
+    }
+    // An error after some bytes is a cut stream: the caller resumes.
+    match err {
+        Some(e) if got == 0 => Err(FetchError::Other(e)),
+        _ => Ok(got),
+    }
+}
+
+/// Go `serveBlob`: answers one blob stream: a request for a hash
+/// `may_serve` allows and this device holds gets its bytes; anything
+/// else is nothing written.
+pub(crate) async fn serve_blob(
+    st: &mut Stream,
+    fs: &blob::Files,
+    may_serve: impl Fn(&str) -> bool,
+    log: impl Fn(&str),
+) {
+    let mut hdr = [0u8; 4];
+    if st.read_exact(&mut hdr).await.is_err() {
+        return;
+    }
+    let size = u32::from_be_bytes(hdr) as usize;
+    if size == 0 || size > MAX_BLOB_REQUEST {
+        return;
+    }
+    let mut body = vec![0u8; size];
+    if st.read_exact(&mut body).await.is_err() {
+        return;
+    }
+    let schema = Schema::object(vec![
+        ("id", Schema::String),
+        ("sha256", Schema::String),
+        ("offset", Schema::Int(64)),
+        ("len", Schema::Int(64)),
+    ]);
+    let Ok(req) = json::unmarshal(&body, &schema) else {
+        return;
+    };
+    let int = |k: &str| match req.get(k) {
+        Some(Out::Int(n)) => *n,
+        _ => 0,
+    };
+    let (sha, offset, len) = (req.get_str("sha256").to_string(), int("offset"), int("len"));
+    if !blob::valid_id(&sha) || offset < 0 || len < 0 {
+        return;
+    }
+    // Only hashes the caller allows, and that are here.
+    if !fs.has(&sha) || !may_serve(&sha) {
+        return;
+    }
+    // The file is read through tokio's blocking pool, so a large or
+    // slow attachment never holds a runtime worker.
+    let Ok(f) = fs.open_file(&sha) else {
+        return;
+    };
+    let mut f = tokio::fs::File::from_std(f);
+    let Ok(meta) = f.metadata().await else {
+        return;
+    };
+    let fsize = meta.len();
+    if fsize > fs.max() || offset as u64 > fsize {
+        return;
+    }
+    if f.seek(SeekFrom::Start(offset as u64)).await.is_err() {
+        return;
+    }
+    let mut left = fsize - offset as u64;
+    if len > 0 {
+        left = left.min(len as u64);
+    }
+    let mut buf = vec![0u8; BLOB_CHUNK];
+    while left > 0 {
+        let room = (left as usize).min(BLOB_CHUNK);
+        let k = match f.read(&mut buf[..room]).await {
+            Ok(0) => break,
+            Ok(k) => k,
+            Err(e) => {
+                log(&format!("mesh: serve {sha}: {e}"));
+                return;
+            }
+        };
+        if let Err(e) = st.write_all(&buf[..k]).await {
+            log(&format!("mesh: serve {sha}: {e}"));
+            return;
+        }
+        left -= k as u64;
     }
 }

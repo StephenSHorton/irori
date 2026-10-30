@@ -156,6 +156,7 @@ pub struct Fold {
     pub(crate) tag_fn: Option<Arc<dyn Fn() -> String + Send + Sync>>,
     pub(crate) board_owner: Option<super::OwnerAtFn>,
     pub(crate) hop_of: Option<super::HopFn>,
+    pub(crate) holds_file: Option<KeyFn>,
     pub(crate) ignored: usize,
     pub(crate) ignored_by: BTreeMap<String, usize>,
     pub(crate) aside: Vec<Event>,
@@ -259,6 +260,7 @@ impl Fold {
             tag_fn: o.tag,
             board_owner: o.board_owner,
             hop_of: o.hop_of,
+            holds_file: o.holds_file,
             ignored: 0,
             ignored_by: BTreeMap::new(),
             aside: Vec::new(),
@@ -1128,6 +1130,9 @@ impl Fold {
                 "coord: a read-only fold (no store)",
             ));
         };
+        if self.on_board && self.holds_file.is_some() {
+            self.offer_files(&st, payload)?;
+        }
         let hop = match &self.hop_of {
             Some(f) if self.on_board && super::carries_hop(kind) => f(actor),
             _ => 0,
@@ -1143,6 +1148,48 @@ impl Fold {
             st.append(actor, kind, payload)?
         };
         self.apply(&ev);
+        Ok(())
+    }
+
+    /// On a board: writes this device's `attach.offered` for every file
+    /// `payload` names (its `attachments` and its blocker's) that this
+    /// device holds and has not offered in this log yet, before the row
+    /// that names it (v0.5 §5.5; the closure check wants the offer first).
+    fn offer_files<P: serde::Serialize + ?Sized>(&self, st: &Store, payload: &P) -> Result<()> {
+        let Some(holds) = &self.holds_file else {
+            return Ok(());
+        };
+        let Ok(v) = serde_json::to_value(payload) else {
+            return Ok(());
+        };
+        let mut files: Vec<&serde_json::Value> = Vec::new();
+        for list in [v.get("attachments"), v.pointer("/blocker/attachments")]
+            .into_iter()
+            .flatten()
+        {
+            if let Some(a) = list.as_array() {
+                files.extend(a.iter());
+            }
+        }
+        if files.is_empty() {
+            return Ok(());
+        }
+        let mut offered = offered_by(st, &self.dev)?;
+        for f in files {
+            let sha = f.get("sha256").and_then(|s| s.as_str()).unwrap_or_default();
+            if sha.is_empty() || offered.contains(sha) || !holds(sha) {
+                continue;
+            }
+            let s = |k: &str| f.get(k).and_then(|x| x.as_str()).unwrap_or_default();
+            let row = OfferRow {
+                sha256: sha,
+                size: f.get("size").and_then(|x| x.as_i64()).unwrap_or(0),
+                name: s("name"),
+                mime: s("mime"),
+            };
+            st.append("irori", store::kinds::ATTACH_OFFERED, &row)?;
+            offered.insert(sha.to_string());
+        }
         Ok(())
     }
 
@@ -1611,5 +1658,44 @@ pub(crate) fn line_of(ev: &Event, at: GoTime, by: &str, what: &str) -> Activity 
         hlc: ev.hlc.0,
         seq: ev.seq,
         ..Activity::default()
+    }
+}
+
+/// An `attach.offered` payload (mesh `FileOffer`'s shape).
+#[derive(serde::Serialize)]
+struct OfferRow<'a> {
+    sha256: &'a str,
+    size: i64,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    name: &'a str,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    mime: &'a str,
+}
+
+/// The hashes device `dev` offered in `st` (its `attach.offered` rows).
+fn offered_by(st: &Store, dev: &str) -> Result<HashSet<String>> {
+    #[derive(serde::Deserialize, Default)]
+    #[serde(default)]
+    struct P {
+        sha256: String,
+    }
+    let mut out = HashSet::new();
+    let mut f = store::Filter {
+        kinds: vec![store::kinds::ATTACH_OFFERED.into()],
+        device_id: dev.into(),
+        limit: store::MAX_LIST_LIMIT,
+        ..Default::default()
+    };
+    loop {
+        let evs = st.list(&f)?;
+        for ev in &evs {
+            if let Ok(p) = serde_json::from_slice::<P>(&ev.payload) {
+                out.insert(p.sha256);
+            }
+        }
+        if (evs.len() as i64) < f.limit {
+            return Ok(out);
+        }
+        f.after = evs.last().map(Event::cursor).unwrap_or_default();
     }
 }

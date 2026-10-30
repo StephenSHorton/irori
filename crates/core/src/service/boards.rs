@@ -997,6 +997,12 @@ impl Services {
                         let s = Arc::downgrade(self);
                         Arc::new(move |actor: &str| s.upgrade().map_or(0, |s| s.board_hop(actor)))
                     }),
+                    // A file on a board row this device holds is offered in
+                    // the board's log first (§5.5).
+                    holds_file: Some({
+                        let s = Arc::downgrade(self);
+                        Arc::new(move |sha: &str| s.upgrade().is_some_and(|s| s.files.has(sha)))
+                    }),
                     ..Default::default()
                 },
             )

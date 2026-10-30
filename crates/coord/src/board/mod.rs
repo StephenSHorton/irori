@@ -141,6 +141,13 @@ pub struct Options {
     /// turn's hop plus one, by the actor as the board knows it. The rows
     /// in [`HOP_KINDS`] get it as `hop` when it is above zero.
     pub hop_of: Option<HopFn>,
+    /// On a board, whether this device holds an attachment (by sha256).
+    /// A board row naming a file this device holds is preceded by this
+    /// device's `attach.offered` for it in the board log, once (v0.5
+    /// §5.5): the closure check wants the offer, and it is what lets this
+    /// person's devices serve the file to the board's members. `None`
+    /// offers nothing.
+    pub holds_file: Option<KeyFn>,
 }
 
 /// The board rows that carry their writer's hop across the bridge.

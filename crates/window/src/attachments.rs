@@ -123,7 +123,6 @@ impl Window {
         }
         let mut r = self
             .core
-            .coord()
             .comment_attachment(&sha)
             .map(|r| crate::blob_ref(&r))
             .ok_or_else(|| NO_ATTACHMENT.to_string())?;

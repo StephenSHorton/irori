@@ -380,6 +380,100 @@ fn the_bridge_carries_alices_comment_to_bobs_agent_and_the_reply_back() {
     close(alice.drain(..).chain(bob.drain(..)));
 }
 
+/// §5.5: Alice's agent attaches a file to a comment on a shared card; it is
+/// offered in the board's log and Bob's agent fetches it from Alice's
+/// device on the board connection. A file Alice keeps private never
+/// reaches Bob, even when Bob offers its hash on the board himself and
+/// names it in a comment.
+#[test]
+fn a_file_on_a_shared_card_reaches_bob_and_a_private_one_never_does() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    let aco = a1.core.board_coord(&board).unwrap();
+    let t = aco
+        .create_task(&a1.person_actor(), new_task("look at the trace"))
+        .unwrap();
+    let files = tempfile::tempdir().unwrap();
+    let shared = files.path().join("trace.txt");
+    std::fs::write(&shared, b"frame 12 took 40ms").unwrap();
+    let out = a1.tool(
+        "board_comment",
+        serde_json::json!({
+            "task_id": "mlg#1",
+            "text": "the trace",
+            "attach": [shared.to_string_lossy()],
+        }),
+    );
+    assert!(!out.starts_with("Error"), "board_comment: {out}");
+    let sha = aco.comments(&t.id).unwrap()[0].attachments[0]
+        .sha256
+        .clone();
+    let offered = |d: &Dev, sha: &str| {
+        mesh::files::holders_in(&d.core.board_store(&board).unwrap(), sha).unwrap()
+    };
+    assert_eq!(offered(a1, &sha), vec![a1.core.device_id().to_string()]);
+    a1.core.kick_board(&board);
+    wait_for(WAIT, "bob gets the comment", || {
+        b1.core
+            .board_coord(&board)
+            .ok()
+            .and_then(|c| c.comments(&t.id))
+            .is_some_and(|cs| !cs.is_empty())
+    });
+    let (path, from) = b1.core.get_attachment(&b1.agent, &sha, "").unwrap();
+    assert_eq!(from, a1.core.device_id());
+    assert_eq!(std::fs::read(&path).unwrap(), b"frame 12 took 40ms");
+    // Bob's device offers it on the board now, so it serves it on.
+    assert!(offered(b1, &sha).contains(&b1.core.device_id().to_string()));
+
+    // A file Alice keeps private: in her attachment store, offered only to
+    // her own devices.
+    let private = files.path().join("keys.txt");
+    std::fs::write(&private, b"alice only").unwrap();
+    let pr = a1
+        .core
+        .attach_files(&a1.agent, &[private.to_string_lossy().into_owned()])
+        .unwrap()
+        .remove(0);
+    assert!(offered(a1, &pr.sha256).is_empty());
+    // Bob knows its hash: he offers it on the board and names it in a
+    // comment (closure lets him, as he offered it).
+    let bst = b1.core.board_store(&board).unwrap();
+    bst.append(
+        "irori",
+        kinds::ATTACH_OFFERED,
+        &serde_json::json!({"sha256": pr.sha256, "size": pr.size, "name": "keys.txt"}),
+    )
+    .unwrap();
+    let bco = b1.core.board_coord(&board).unwrap();
+    bco.comment_on(
+        &b1.person_actor(),
+        &t.id,
+        coord::CommentInput {
+            text: "send me this one".into(),
+            files: vec![coord::FileRef {
+                sha256: pr.sha256.clone(),
+                name: "keys.txt".into(),
+                size: pr.size,
+                mime: String::new(),
+                device: a1.core.device_id().to_string(),
+            }],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    b1.core.kick_board(&board);
+    wait_for(WAIT, "alice gets bob's offer", || {
+        offered(a1, &pr.sha256).contains(&b1.core.device_id().to_string())
+    });
+    let got = b1.core.get_attachment(&b1.agent, &pr.sha256, "");
+    assert!(got.is_err(), "bob got alice's private file: {got:?}");
+    assert!(!b1.core.files().has(&pr.sha256));
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
 /// §5.2-5.3: Alice shares a private card; Bob gets the shared copy; Alice
 /// withdraws it and Bob's board no longer shows it.
 #[test]

@@ -35,6 +35,8 @@ pub(crate) struct Mesh {
     pub node: Arc<mesh::Node>,
     pub net: IrohNet,
     pub servers: Arc<mesh::Servers>,
+    /// The attachment store the Node and every board mesh share.
+    files: Option<Arc<blob::Files>>,
     chain: Arc<Chain>,
     own_key: iroh::EndpointId,
     /// This Core's version, for board hellos.
@@ -97,7 +99,7 @@ impl Mesh {
             chain: p.chain.clone(),
             net: Arc::new(net.clone()),
             version: p.version.clone(),
-            files: p.files,
+            files: p.files.clone(),
             data_dir: Some(p.data_dir),
             intervals: mesh::Intervals::default(),
             trust_any_peer: false,
@@ -129,6 +131,7 @@ impl Mesh {
             node,
             net,
             servers,
+            files: p.files,
             chain: p.chain,
             own_key,
             version: p.version,
@@ -214,7 +217,7 @@ impl Mesh {
         hubs.retain(|id, _| keep.contains(id));
     }
 
-    fn board_list(&self) -> Vec<Arc<BoardMesh>> {
+    pub(crate) fn board_list(&self) -> Vec<Arc<BoardMesh>> {
         self.boards
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -280,6 +283,7 @@ impl Mesh {
             secrets: p.secrets,
             transport: Arc::new(self.net.clone()),
             own_devices: Some(own),
+            files: self.files.clone(),
         }));
         m.set_log(Arc::new(|l: &str| crate::log(l)));
         {

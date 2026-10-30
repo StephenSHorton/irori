@@ -80,6 +80,11 @@ impl PeerConn {
             .unwrap_or_else(|| "mesh: connection down".into())
     }
 
+    /// The seam connection under it.
+    pub fn raw(&self) -> &dyn Conn {
+        self.c.as_ref()
+    }
+
     /// The peer's device id.
     pub fn id(&self) -> String {
         self.c.id().to_string()
