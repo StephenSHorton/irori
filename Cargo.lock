@@ -3162,6 +3162,7 @@ dependencies = [
  "irori-home",
  "irori-identity",
  "irori-inbox",
+ "irori-invite",
  "irori-lan",
  "irori-mesh",
  "irori-meshseam",

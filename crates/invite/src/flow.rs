@@ -166,6 +166,7 @@ const LOST: &str = "The connection to the other person's Irori was lost.";
 const BAD_PROOF: &str = "The other side doesn't hold this invite's code.";
 const TAKEN: &str = "Someone else tried to use this invite. Make a new one.";
 const MISSED: &str = "Those weren't the words twice. Make a new invite.";
+const EXPIRED: &str = "The invite expired. Make a new one.";
 const OTHER_KEY: &str = "This person has a different key on another of your boards. Don't go on; check with them first.";
 
 async fn write_frame(c: &dyn Conn, f: &Frame) -> Result<(), Failed> {
@@ -401,6 +402,11 @@ impl Host {
         self.end("Canceled.");
     }
 
+    /// Ends the invite when its hour is up.
+    pub fn expire(&self) {
+        self.end(EXPIRED);
+    }
+
     /// Serves one guest on a connection whose open proof showed the code
     /// (the net layer's invite handler). A second call ends the invite for
     /// both, since someone else has the code.
@@ -592,6 +598,17 @@ impl Guest {
         let mut g = lock(&self.state);
         f(&mut g);
         self.changed.send_replace(g.clone());
+    }
+
+    /// Ends the attempt before [`Guest::run`] (the inviter couldn't be
+    /// reached, or the person canceled), unless it already ended.
+    pub fn fail(&self, why: &str) {
+        self.set(|s| {
+            if s.state != STATE_DONE && s.state != STATE_FAILED {
+                s.state = STATE_FAILED.into();
+                s.error = why.into();
+            }
+        });
     }
 
     /// Joins over the connection the net layer dialed from the ticket

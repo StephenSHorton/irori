@@ -156,6 +156,37 @@ impl IrohNet {
         Ok(())
     }
 
+    /// Where an invitee can dial this device (the ticket's fields): its
+    /// EndpointId, its home relay with that server's key and QAD port, and
+    /// the direct addresses iroh knows. Binds the endpoint.
+    pub async fn invite_addr(&self) -> Result<InviteAddr, TransportError> {
+        let inner = self.inner().clone();
+        let ep = inner.bind().await?;
+        let a = ep.addr();
+        let relay = a.relay_urls().next().cloned();
+        let spec = relay.as_ref().and_then(|u| {
+            let relays = inner.relays.lock().expect("relays");
+            relays.iter().find(|r| &r.url == u).cloned()
+        });
+        let mut direct: Vec<SocketAddr> = a.ip_addrs().copied().collect();
+        if direct.is_empty() {
+            // Before iroh has found its addresses: the sockets it bound,
+            // when they name an interface.
+            direct = ep
+                .bound_sockets()
+                .into_iter()
+                .filter(|s| !s.ip().is_unspecified())
+                .collect();
+        }
+        Ok(InviteAddr {
+            id: ep.id(),
+            relay_quic_port: spec.as_ref().map(|s| s.quic_port).unwrap_or(0),
+            relay_pub: spec.map(|s| s.server_pub),
+            relay,
+            direct,
+        })
+    }
+
     /// The invitee's side: dial the inviter as a relay guest (token from
     /// `room.key`), prove the room key, and return the connection.
     pub async fn dial_invite(

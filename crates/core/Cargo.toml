@@ -22,6 +22,7 @@ irori-pair.workspace = true
 iroh = "1.4.1"
 irori-identity.workspace = true
 irori-inbox.workspace = true
+irori-invite.workspace = true
 irori-notify.workspace = true
 irori-presence.workspace = true
 irori-scrub.workspace = true
