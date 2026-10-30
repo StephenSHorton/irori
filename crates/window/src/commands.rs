@@ -347,7 +347,39 @@ pub async fn boards_rename(w: W<'_>, board_id: String, name: String) -> R<BoardS
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_leave(w: W<'_>, board_id: String) -> R<()> {
-    w.boards_leave(&board_id)
+    blocking(&w, move |w| w.boards_leave(&board_id)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_forget_now(w: W<'_>, board_id: String) -> R<()> {
+    blocking(&w, move |w| w.boards_forget_now(&board_id)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_remove_member(
+    w: W<'_>,
+    board_id: String,
+    person_id: String,
+) -> R<BoardSettings> {
+    blocking(&w, move |w| {
+        w.boards_remove_member(&board_id, &person_id)?;
+        w.boards_settings(&board_id)
+    })
+    .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_set_role(
+    w: W<'_>,
+    board_id: String,
+    person_id: String,
+    role: String,
+) -> R<BoardSettings> {
+    w.boards_set_role(&board_id, &person_id, &role)?;
+    w.boards_settings(&board_id)
 }
 
 #[tauri::command]
@@ -395,6 +427,17 @@ pub async fn boards_set_receive(
 #[specta::specta]
 pub async fn boards_set_autonomy(w: W<'_>, board_id: String, preset: String) -> R<BoardSettings> {
     w.boards_set_autonomy(&board_id, &preset)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_set_reviewer(
+    w: W<'_>,
+    board_id: String,
+    agent: String,
+    repo: String,
+) -> R<BoardSettings> {
+    w.boards_set_reviewer(&board_id, &agent, &repo)
 }
 
 // ---- Invites ----------------------------------------------------------------------
@@ -676,6 +719,9 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_create,
             boards_rename,
             boards_leave,
+            boards_forget_now,
+            boards_remove_member,
+            boards_set_role,
             boards_forget,
             boards_share_preview,
             boards_share,
@@ -683,6 +729,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_settings,
             boards_set_receive,
             boards_set_autonomy,
+            boards_set_reviewer,
             boards_invite,
             boards_join_invite,
             boards_confirm_invite_words,

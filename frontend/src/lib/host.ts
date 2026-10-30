@@ -137,6 +137,11 @@ export const BoardsService = {
   Rename: (boardId: string, name: string) => call(commands.boardsRename(boardId, name)),
   Leave: (boardId: string) => done(commands.boardsLeave(boardId)),
   Forget: (boardId: string) => done(commands.boardsForget(boardId)),
+  ForgetNow: (boardId: string) => done(commands.boardsForgetNow(boardId)),
+  RemoveMember: (boardId: string, personId: string) =>
+    call(commands.boardsRemoveMember(boardId, personId)),
+  SetRole: (boardId: string, personId: string, role: string) =>
+    call(commands.boardsSetRole(boardId, personId, role)),
   SharePreview: (taskId: string, boardId: string) => call(commands.boardsSharePreview(taskId, boardId)),
   Share: (taskId: string, boardId: string, hash: string) => call(commands.boardsShare(taskId, boardId, hash)),
   Withdraw: (taskId: string) => call(commands.boardsWithdraw(taskId)),
@@ -144,6 +149,8 @@ export const BoardsService = {
   SetReceive: (boardId: string, preset: string, people: string[]) =>
     call(commands.boardsSetReceive(boardId, preset, people)),
   SetAutonomy: (boardId: string, preset: string) => call(commands.boardsSetAutonomy(boardId, preset)),
+  SetReviewer: (boardId: string, agent: string, repo: string) =>
+    call(commands.boardsSetReviewer(boardId, agent, repo)),
   Invite: (boardId: string) => call(commands.boardsInvite(boardId)),
   JoinInvite: (link: string) => call(commands.boardsJoinInvite(link)),
   ConfirmInviteWords: (words: string) => call(commands.boardsConfirmInviteWords(words)),

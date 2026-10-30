@@ -129,3 +129,34 @@ fn wait_exit() {
     assert_eq!(got.recv_timeout(Duration::from_secs(2)).unwrap(), Ok(()));
     drop(c);
 }
+
+/// sysctl reads another user's process (launchd, root's pid 1), which
+/// `proc_pidinfo` refuses.
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_start_time_of_another_user() {
+    let st = proc::start_time(1).expect("launchd's start time");
+    assert!(st < SystemTime::now());
+    assert!(proc::start_time(i64::from(u32::MAX)).is_none());
+}
+
+/// On macOS an exited child its parent hasn't reaped yet is gone, so the
+/// liveness check agrees with the exit wait.
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_zombie_is_gone() {
+    let mut c = Command::new("/usr/bin/true").spawn().unwrap();
+    let pid = i64::from(c.id());
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while proc::alive(pid) {
+        assert!(std::time::Instant::now() < deadline, "zombie still alive");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // Still unreaped: wait collects it now.
+    assert!(c.try_wait().unwrap().is_some());
+    assert_eq!(
+        proc::wait_exit(&Cancel::new(), pid, None),
+        Ok(()),
+        "a reaped pid's wait returns at once"
+    );
+}

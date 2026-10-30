@@ -211,6 +211,8 @@ pub(crate) struct BoardLog {
     stop: Cancel,
     threads: Mutex<Vec<JoinHandle<()>>>,
     pub maps: Mutex<CardMaps>,
+    /// When this device opened it, for the status lines' grace.
+    pub opened: Instant,
 }
 
 impl BoardLog {
@@ -413,6 +415,15 @@ impl Boards {
         if let Some(k) = self.kicker.get() {
             k();
         }
+    }
+
+    /// Whether a board open here has a member other than this person (B1:
+    /// the home server runs for it).
+    pub(crate) fn shared_with_others(&self) -> bool {
+        self.list().iter().any(|b| {
+            let m = b.verifier.membership();
+            m.members.iter().filter(|p| m.active(&p.person_id)).count() > 1
+        })
     }
 
     /// The open board logs, sorted by id.
@@ -920,6 +931,7 @@ impl Services {
             stop,
             threads: Mutex::new(Vec::new()),
             maps: Mutex::new(CardMaps::default()),
+            opened: Instant::now(),
         });
         let close = |e: Error| {
             let _ = st.close();
@@ -1123,6 +1135,12 @@ impl Services {
         {
             logf(format_args!("board {}: secret: {e}", b.id));
         }
+        if ev.kind == kinds::BOARD_MEMBER_REMOVED || ev.kind == kinds::BOARD_MEMBER_LEFT {
+            // Someone is gone (§4.3, §4.4): hold what they sent that
+            // hasn't reached an agent, and close their connections.
+            self.hold_from_gone(b);
+            self.recheck_board_mesh(&b.id);
+        }
         if ev.seq == 0 {
             if let Ok(ids) = b.task_ids() {
                 let mut inner = lock(&self.boards.inner);
@@ -1291,7 +1309,7 @@ impl Services {
             name: card.name.clone(),
             kind,
             person_id: self.person_id(),
-            status: "active".into(),
+            status: card_status(Some(&card.status)).into(),
         };
         // The mapping first: a card whose session nobody knows is worse
         // than a mapping to a card that failed to append (it is retried).
@@ -1312,6 +1330,52 @@ impl Services {
         m.add_key(&id, agent);
         m.cards.insert(id, row);
         Ok(format!("{AGENT_ACTOR_PREFIX}{}", m.keys[agent]))
+    }
+
+    /// Rewrites the agent.card of each of this device's agents on every
+    /// board whose status moved (§2.4: `active`, `idle` or `gone`, written
+    /// only when it changes). Only the device hosting the session writes
+    /// it, so two devices never race on one card.
+    pub(crate) fn sync_card_status(&self) {
+        let live: HashMap<String, String> = self
+            .roster
+            .agents()
+            .into_iter()
+            .map(|a| (a.key, a.status))
+            .collect();
+        let me = self.device.id.as_str();
+        for b in self.boards.list() {
+            let mut m = lock(&b.maps);
+            let mine: Vec<(String, String)> = m
+                .by_id
+                .iter()
+                .filter(|(_, a)| irori_identity::owner::device_of(a) == me)
+                .map(|(id, a)| (id.clone(), a.clone()))
+                .collect();
+            for (id, agent) in mine {
+                let status = card_status(live.get(&agent).map(String::as_str));
+                let Some(card) = m.cards.get(&id) else {
+                    continue;
+                };
+                if card.status == status {
+                    continue;
+                }
+                let row = BoardCard {
+                    status: status.into(),
+                    ..card.clone()
+                };
+                match b.store.append(
+                    &format!("{AGENT_ACTOR_PREFIX}{id}"),
+                    kinds::AGENT_CARD,
+                    &row,
+                ) {
+                    Ok(_) => {
+                        m.cards.insert(id, row);
+                    }
+                    Err(e) => logf(format_args!("board {}: card {id} status: {e}", b.id)),
+                }
+            }
+        }
     }
 
     /// A board key as this device knows it: the session key of one of the
@@ -1616,9 +1680,28 @@ impl super::Core {
         self.s.forget_board(board_id)
     }
 
-    /// Takes the person off a board on every one of their devices.
+    /// Takes the person off a board on every one of their devices: now
+    /// when nobody else is on it, else after "Leaving…" (§4.4).
     pub fn leave_board(&self, board_id: &str) -> Result<()> {
         self.s.leave_board(board_id)
+    }
+
+    /// "Forget now" while a board shows "Leaving…": forgets it on every
+    /// device of the person without waiting for another member to hold
+    /// the `left` row, who then may not hear of it (§4.4).
+    pub fn forget_left_board(&self, board_id: &str) -> Result<()> {
+        self.s.forget_everywhere(board_id)
+    }
+
+    /// An owner removes member `person_id` from board `board_id` (§4.3),
+    /// with `reason` (may be "").
+    pub fn remove_member(&self, board_id: &str, person_id: &str, reason: &str) -> Result<()> {
+        self.s.remove_member(board_id, person_id, reason)
+    }
+
+    /// An owner makes member `person_id` an `owner` or a `member` (§4.2).
+    pub fn set_member_role(&self, board_id: &str, person_id: &str, role: &str) -> Result<()> {
+        self.s.set_member_role(board_id, person_id, role)
     }
 
     /// Opens (creating) board `board_id`'s log, pinned to `pin` when the
@@ -1761,5 +1844,15 @@ impl super::Core {
     #[doc(hidden)]
     pub fn reconcile_boards(&self) {
         self.s.reconcile_boards();
+    }
+}
+
+/// An agent.card's status (§2.4) for a session's presence status, `None`
+/// when the session is gone from the roster.
+pub(crate) fn card_status(presence: Option<&str>) -> &'static str {
+    match presence {
+        None | Some("gone") => "gone",
+        Some("idle") => "idle",
+        Some(_) => "active",
     }
 }

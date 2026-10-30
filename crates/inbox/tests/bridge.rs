@@ -657,3 +657,40 @@ fn a_forged_setting_row_is_ignored() {
     assert_eq!(ib.receive_setting(BOARD, BLAKE).preset, receive::OPEN);
     assert_eq!(ib.autonomy(BOARD), autonomy::TRUSTED);
 }
+
+/// v0.5 §4.3: Blake is removed from the board. What he sent that hasn't
+/// reached the agent is held; Casey's isn't, and neither is another
+/// board's.
+#[test]
+fn a_removed_members_waiting_rows_are_held() {
+    let h = harness();
+    let blake = one(
+        &h,
+        &row(
+            from(BLAKE, "", row_kind::COMMENT, false, "devB/7"),
+            &[KEY_N],
+        ),
+    );
+    let casey = one(
+        &h,
+        &row(
+            from(CASEY, "", row_kind::COMMENT, false, "devC/1"),
+            &[KEY_N],
+        ),
+    );
+    assert_eq!(blake.state, st::QUEUED);
+    assert_eq!(h.ib.hold_from_member("another-board", BLAKE).unwrap(), 0);
+    assert_eq!(h.ib.hold_from_member(BOARD, BLAKE).unwrap(), 1);
+    let got = |id: &str| h.ib.get(id).unwrap();
+    let b = got(&blake.id);
+    assert_eq!(
+        (b.state.as_str(), b.hold.as_str()),
+        (st::HELD, hold::MEMBER_REMOVED)
+    );
+    assert_eq!(got(&casey.id).state, st::QUEUED);
+    assert_eq!(
+        h.ib.hold_from_member(BOARD, BLAKE).unwrap(),
+        0,
+        "held twice"
+    );
+}

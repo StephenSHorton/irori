@@ -74,9 +74,17 @@ impl Current {
     }
 }
 
+/// How long [`Core::invite`] waits for this device's own home relay to
+/// come up, so the link names it (an invitee away from home dials there).
+const RELAY_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// The Core's invite state.
 #[derive(Default)]
 pub(crate) struct Invites {
+    /// An invite is open on this device as the inviter: the home server is
+    /// wanted while it is (as for an open pairing window), so the link can
+    /// name its relay.
+    pub(crate) hosting: Arc<std::sync::atomic::AtomicBool>,
     cur: Mutex<Option<Current>>,
     next: Mutex<u64>,
     watch: Mutex<Option<InviteWatchFn>>,
@@ -235,7 +243,25 @@ impl Core {
         .map_err(|e| e.0)?;
         let host = Arc::new(host);
         let net = self.s.mesh.net.clone();
-        let a = net.invite_addr().await.map_err(|e| e.0)?;
+        self.set_hosting(true);
+        if let Some(h) = &self.s.home
+            && h.settings().on
+        {
+            // The server starts for the invite; the link names its relay
+            // once the endpoint homes on it.
+            let start = std::time::Instant::now();
+            while start.elapsed() < RELAY_WAIT && !net.home_relays().iter().any(|(_, up)| *up) {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
+        let mut a = match net.invite_addr().await {
+            Ok(a) => a,
+            Err(e) => {
+                self.set_hosting(false);
+                return Err(e.0);
+            }
+        };
+        self.reachable_relay(&mut a);
         let link = host
             .ticket(
                 &hex::encode(a.id.as_bytes()),
@@ -248,7 +274,13 @@ impl Core {
             )
             .to_link();
         let expires = GoTime::from_system(SystemTime::now() + INVITE_TTL).format_rfc3339();
-        let serial = self.install(Side::Host(host.clone()), link, expires)?;
+        let serial = match self.install(Side::Host(host.clone()), link, expires) {
+            Ok(s) => s,
+            Err(e) => {
+                self.set_hosting(false);
+                return Err(e);
+            }
+        };
         let rt = self.s.pairing.handle.clone();
         let (s, board) = (Arc::downgrade(&self.s), board_id.to_string());
         let h = host.clone();
@@ -369,6 +401,49 @@ impl Core {
         *lock(&self.s.invites.watch) = f;
     }
 
+    /// The endpoint homes on its own server's relay at 127.0.0.1, which
+    /// names the invitee's own machine on the invitee's side. The link
+    /// names that relay as another device reaches it instead: the server's
+    /// address from outside home while it has one (as pairing's server
+    /// address, #53), else its LAN address.
+    fn reachable_relay(&self, a: &mut InviteAddr) {
+        let own = iroh::EndpointId::from_bytes(&self.s.ident.device_pub()).ok();
+        let loopback = a
+            .relay
+            .as_ref()
+            .and_then(|u| u.host_str())
+            .is_some_and(|h| h == "127.0.0.1" || h == "localhost" || h == "[::1]");
+        if !loopback || a.relay_pub != own {
+            return;
+        }
+        let outside = self
+            .s
+            .home
+            .as_ref()
+            .map(|h| h.status())
+            .filter(|st| st.running && !st.address.is_empty())
+            .and_then(|st| irori_net::book::relay_of(&st.address));
+        if let Some((url, port)) = outside.or_else(|| self.s.mesh.local_relay_lan()) {
+            a.relay = Some(url);
+            a.relay_quic_port = port;
+        }
+    }
+
+    /// Whether this device is the inviter of an open invite (the home
+    /// server's `wanted`).
+    fn set_hosting(&self, on: bool) {
+        let was = self
+            .s
+            .invites
+            .hosting
+            .swap(on, std::sync::atomic::Ordering::SeqCst);
+        if was != on
+            && let Some(h) = &self.s.home
+        {
+            h.kick();
+        }
+    }
+
     fn install(&self, side: Side, link: String, expires_at: String) -> Result<u64, String> {
         let inv = &self.s.invites;
         let mut cur = lock(&inv.cur);
@@ -409,6 +484,12 @@ impl Core {
                     );
                     if host {
                         let _ = net.set_invite_handler(None, None);
+                        sv.invites
+                            .hosting
+                            .store(false, std::sync::atomic::Ordering::SeqCst);
+                        if let Some(h) = &sv.home {
+                            h.kick();
+                        }
                     }
                     return;
                 }

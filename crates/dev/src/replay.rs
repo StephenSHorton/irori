@@ -281,7 +281,6 @@ fn dump(home: &Path, out: &Path, now: Option<&str>) -> Result<(), String> {
                 now: Some(Arc::new(capture::gotime::now)),
                 pr_owners: Some(Arc::new(move |k: &str| c.pr_owners(k))),
                 is_owner: Some(is_owner.clone()),
-                revoked: Some(revoked.clone()),
                 ..Default::default()
             },
         )

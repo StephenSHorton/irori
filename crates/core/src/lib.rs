@@ -57,7 +57,9 @@ pub use crate::service::boards::{
     SharedCopy, new_board_id, valid_board_id,
 };
 pub use crate::service::invites::{InviteStatus, InviteWatchFn};
-pub use crate::service::{Core, HomeEdit, NO_HOME_SERVER, NowFn, Options, ReviveFn, StartError};
+pub use crate::service::{
+    BoardReviewer, Core, HomeEdit, NO_HOME_SERVER, NowFn, Options, ReviveFn, StartError,
+};
 pub use capture::DecisionView;
 pub use events::{CoreEvent, Feed, Hub, Topic};
 
