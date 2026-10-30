@@ -58,6 +58,7 @@ use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 pub mod boards;
 mod boards_own;
 mod bridge;
+pub mod invites;
 
 use boards::Boards;
 
@@ -201,6 +202,8 @@ struct Services {
     mesh: Arc<crate::meshnode::Mesh>,
     /// The shared boards (Go `c.boards`).
     boards: Arc<Boards>,
+    /// The open board invite (card #44).
+    invites: invites::Invites,
 }
 
 /// The notify crate's [`notify::Notifier`] as the tools' seam
@@ -926,15 +929,22 @@ impl Core {
             revoke: Some(opts.revoke.clone().unwrap_or_else(|| mesh.revoke_fn())),
             mesh,
             boards: board_set,
+            invites: Default::default(),
         });
         let _ = s.boards.kicker.set({
             let m = Arc::downgrade(&s.mesh);
             Arc::new(move || {
                 if let Some(m) = m.upgrade() {
                     m.kick_boards();
+                    // A board opened or its secret moved: the person's
+                    // other devices get it on board.secret.
+                    m.node.boards_changed();
                 }
             })
         });
+        s.mesh
+            .node
+            .set_own_boards(Some(Arc::new(invites::OwnBoardSecrets(Arc::downgrade(&s)))));
         // A pairing window starts the home server at once (Go Notify).
         if let Some(h) = s.home.clone() {
             s.pairing

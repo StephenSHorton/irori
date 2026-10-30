@@ -827,6 +827,7 @@ impl Services {
             return Ok(());
         }
         b.secrets.mint(target, &self.device.id)?;
+        self.boards.kick(); // the person's other devices get it
         Ok(())
     }
 
