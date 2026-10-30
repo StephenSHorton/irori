@@ -108,6 +108,8 @@ impl Services {
         // The coord folds on its own thread: a card that arrived with this
         // row (an ask's task.created and its first board.ask.state) may not
         // have folded yet, so fold what the log holds before giving up.
+        // The coord thread then skips those rows (apply_remote folds a
+        // device's rows past its last only).
         let Some(t) = co
             .get_task(&f.task_id)
             .or_else(|| co.catch_up().ok().and_then(|()| co.get_task(&f.task_id)))
@@ -186,7 +188,16 @@ impl Services {
         {
             return None;
         }
-        let wake = f.reason == "reopened" || f.reason == "posted" && a.wake;
+        // As the asker's own sweep wakes: only while the round is young.
+        let young = gocompat::time::GoTime::parse_rfc3339(&f.since)
+            .and_then(|since| {
+                (self.now)()
+                    .to_system()
+                    .duration_since(since.to_system())
+                    .ok()
+            })
+            .is_none_or(|age| age < coord::ASK_UNCLAIMED);
+        let wake = young && (f.reason == "reopened" || f.reason == "posted" && a.wake);
         let why = match f.reason.as_str() {
             "reopened" => ", again: the person wants it picked up",
             "released" => ", again: the agent that took it gave it back",
