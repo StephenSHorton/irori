@@ -405,26 +405,49 @@ impl Fold {
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
+                // What changed, from what it was: the thread is the card's log.
+                let mut changed: Vec<String> = Vec::new();
                 if let Some(title) = &p.title
                     && !trim_space(title).is_empty()
                 {
+                    if *title != t.title {
+                        changed.push(format!(
+                            "renamed it from “{}” to “{}”",
+                            cut(&t.title, MAX_LOG_QUOTE),
+                            cut(title, MAX_LOG_QUOTE)
+                        ));
+                    }
                     t.title = title.clone();
                 }
                 if let Some(o) = &p.objective {
+                    if *o != t.objective {
+                        changed.push(set_or_cleared("the objective", o));
+                    }
                     t.objective = o.clone();
                 }
                 if let Some(d) = &p.done_criteria {
+                    if *d != t.done_criteria {
+                        changed.push(set_or_cleared("done when", d));
+                    }
                     t.done_criteria = d.clone();
                 }
                 let when = at(p.at);
                 t.updated_at = when;
                 t.updated_by = p.by.clone();
-                let mut what = "edited the card".to_string();
+                let mut what = if changed.is_empty() {
+                    "edited the card".to_string()
+                } else {
+                    changed.join("; ")
+                };
                 if !p.from.is_empty() {
-                    what = format!("changed it from the ask {from_ref}");
+                    let mut w = format!("changed it from the ask {from_ref}");
                     if !p.note.is_empty() {
-                        what.push_str(&format!(": {}", p.note));
+                        w.push_str(&format!(": {}", p.note));
                     }
+                    if !changed.is_empty() {
+                        w.push_str(&format!("; {what}"));
+                    }
+                    what = w;
                 }
                 let ti = Touch::of(t);
                 let holder = t.holder.clone();
@@ -678,8 +701,12 @@ impl Fold {
                 title: ask_title(&text),
                 objective: text.clone(),
                 repo_key: repo_key.clone(),
+                // An ask goes only to idle agents, and an idle agent gets no
+                // next turn until someone types in its window: an ask that
+                // doesn't wake reaches nobody. input.wake is kept for old
+                // callers and ignored.
                 ask: Some(AskField {
-                    wake: input.wake,
+                    wake: true,
                     repo_key: repo_key.clone(),
                 }),
                 by: by.clone(),
@@ -716,7 +743,7 @@ impl Fold {
             },
         )?;
         let t = self.tasks[&id].clone();
-        let mut n = ask_notice(&t, &free, input.wake, "");
+        let mut n = ask_notice(&t, &free, true, "");
         n.attachments = input.files;
         Ok((t, n))
     }
@@ -864,7 +891,7 @@ impl Fold {
                         skip: r.by.clone(),
                         why: "the agent that took it gave it back".into(),
                         reason: TAKE_RELEASED.into(),
-                        wake: false,
+                        wake: true,
                     },
                 );
                 Ok(())
@@ -931,7 +958,7 @@ impl Fold {
                             skip: a.taker.clone(),
                             why: "the agent that took it went away".into(),
                             reason: TAKE_GONE.into(),
-                            wake: false,
+                            wake: true,
                         },
                     );
                 }
@@ -942,12 +969,18 @@ impl Fold {
                         continue;
                     }
                     let free = self.free_agents(&t, agents, std::slice::from_ref(&ag.skip));
+                    // The agent that gave it back stays heard, so a later
+                    // sweep doesn't tell (and wake) it again as a late joiner.
+                    let mut heard = free.clone();
+                    if !ag.skip.is_empty() {
+                        heard.push(ag.skip.clone());
+                    }
                     self.write_take(
                         id,
                         TakeStateRow {
                             reason: ag.reason.clone(),
                             told: free.len() as i64,
-                            heard: free.clone(),
+                            heard,
                             since: now,
                             unclaimed: free.is_empty(),
                             ..TakeStateRow::default()
@@ -976,15 +1009,17 @@ impl Fold {
                     id,
                     TakeStateRow {
                         reason,
-                        told: heard.len() as i64,
+                        told: a.told + free.len() as i64,
                         heard,
                         unclaimed,
                         ..TakeStateRow::default()
                     },
                 )?;
                 if !free.is_empty() {
-                    let wake =
-                        window && (a.reason == TAKE_REOPENED || a.reason == TAKE_POSTED && a.wake);
+                    // Only idle agents are told, so a late joiner is woken
+                    // while the ask is fresh; after that the person's "Wake
+                    // them" does it.
+                    let wake = window;
                     let t = self.tasks[id].clone();
                     out.push(ask_notice(&t, &free, wake, ""));
                 }
@@ -1400,5 +1435,18 @@ fn ask_notice(t: &Task, to: &[String], wake: bool, why: &str) -> Notice {
         text: b,
         person: true,
         ..Notice::default()
+    }
+}
+
+/// How long a quoted title, step or text runs in a thread line.
+pub(crate) const MAX_LOG_QUOTE: usize = 80;
+
+/// "set the objective to “…”", or "cleared the objective".
+fn set_or_cleared(field: &str, to: &str) -> String {
+    let to = trim_space(to);
+    if to.is_empty() {
+        format!("cleared {field}")
+    } else {
+        format!("set {field} to “{}”", cut(to, MAX_LOG_QUOTE))
     }
 }

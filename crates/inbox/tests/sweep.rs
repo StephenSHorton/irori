@@ -532,10 +532,11 @@ fn sweep_assigns_held_policy_on_arrival() {
     let h = Harness::new();
     h.abc();
     h.ros.put(&[grok_card(KEY_G, "grok", "")]);
+    h.block_grok();
     let (_, d) = h.send(&grok(KEY_G, "grok"), &to_repo("repo1"), "from grok");
     assert_eq!(d.hold, hold::UNOWNED);
     h.ib.set_reachable(KEY_A, path::MOD, true);
     h.sweep();
     let got = h.want_state(&d.id, st::HELD);
-    assert!(got.hold == hold::BYPASS_RECEIVER && got.to == KEY_A);
+    assert!(got.hold == hold::BLOCKED && got.to == KEY_A);
 }

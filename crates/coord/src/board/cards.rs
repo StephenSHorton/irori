@@ -292,6 +292,88 @@ fn last_answer(f: &Fold, t: &Task, bid: &str) -> Option<Comment> {
     last.cloned()
 }
 
+/// What folding a blocked row did: its activity line, the item it raised
+/// or revised, and whether it was a revision.
+#[derive(Debug, Default)]
+pub(crate) struct Folded {
+    pub what: String,
+    pub raised: String,
+    pub revised: bool,
+}
+
+impl Folded {
+    fn line(what: String) -> Folded {
+        Folded {
+            what,
+            ..Folded::default()
+        }
+    }
+
+    fn raised(what: String, id: &str) -> Folded {
+        Folded {
+            what,
+            raised: id.into(),
+            revised: false,
+        }
+    }
+}
+
+/// A row's options as the item keeps them: deduplicated, capped, dated.
+fn fold_options(input: &[BlockerOption], at: GoTime) -> Vec<BlockerOption> {
+    let mut opts: Vec<BlockerOption> = Vec::new();
+    for o in input {
+        if opts.len() < MAX_OPTIONS && option_index(&opts, &o.answer).is_none() {
+            let mut o = o.clone();
+            o.at = cmp_or(o.at, at);
+            opts.push(o);
+        }
+    }
+    opts
+}
+
+/// Whether two option lists offer the same answers, recommended alike.
+pub(crate) fn same_options(a: &[BlockerOption], b: &[BlockerOption]) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .all(|o| option_index(b, &o.answer).is_some_and(|j| b[j].recommended == o.recommended))
+}
+
+/// The activity line of a revision: what it changed on item b.
+fn revision_line(b: &Blocker, br: &BlockerRow, opts: &[BlockerOption]) -> String {
+    let mut parts = Vec::new();
+    if br.question != b.question {
+        parts.push(format!("asks now “{}”", br.question));
+    }
+    if br.context != b.context {
+        parts.push(if br.context.is_empty() {
+            "dropped the context".to_string()
+        } else {
+            "changed the context".to_string()
+        });
+    }
+    if !same_options(opts, &b.options) {
+        if opts.is_empty() {
+            parts.push("no options now, a plain question".into());
+        } else {
+            let list: Vec<String> = opts
+                .iter()
+                .map(|o| {
+                    let mut a = cut(&o.answer, 80);
+                    if o.recommended {
+                        a.push_str(" (recommended)");
+                    }
+                    a
+                })
+                .collect();
+            parts.push(format!("options now: {}", list.join(" | ")));
+        }
+    }
+    if parts.is_empty() {
+        return format!("revised blocker {}", b.id);
+    }
+    format!("revised blocker {}: {}", b.id, parts.join("; "))
+}
+
 impl Fold {
     /// Records activity on t from row ev and queues a watch line.
     #[allow(clippy::too_many_arguments)]
@@ -374,21 +456,33 @@ impl Fold {
         ev: &Event,
         was_blocked: bool,
         at: GoTime,
-    ) -> (String, String) {
+    ) -> Folded {
         let pos = RowPos::of(ev);
+        let none = Folded::default;
         if let Some(br) = p.blocker.as_ref().filter(|b| !b.id.is_empty()) {
             if let Some(i) = blocker_index(t, &br.id)
                 && br.replace
                 && t.blockers[i].open()
             {
                 if pos.before(&t.blockers[i].asked) {
-                    return (String::new(), String::new());
+                    return none();
                 }
+                let person = self.is_owner(&p.by);
                 let b = &mut t.blockers[i];
+                let mut what = String::new();
+                if br.revise {
+                    let opts = fold_options(&br.options, at);
+                    what = revision_line(b, br, &opts);
+                    b.options = opts;
+                    b.options_at = pos.clone();
+                }
                 b.question = br.question.clone();
                 b.context = br.context.clone();
                 b.reason = cmp_str(&p.reason, &br.question);
-                b.raised_by = p.by.clone();
+                // A person's revision leaves the answer going to the raiser.
+                if !(br.revise && person) {
+                    b.raised_by = p.by.clone();
+                }
                 b.at = at;
                 b.on = br.on.clone();
                 b.links = capped(add_links(Vec::new(), &br.links), MAX_BLOCKER_LINKS);
@@ -396,37 +490,34 @@ impl Fold {
                 b.asked = pos;
                 let (id, q) = (b.id.clone(), b.question.clone());
                 refresh_blocker(&self.comments, self.by_task.get(&t.id), t, &id);
-                return (format!("changed the blocker: {q}"), String::new());
+                if br.revise {
+                    return Folded {
+                        what,
+                        raised: id,
+                        revised: true,
+                    };
+                }
+                return Folded::line(format!("changed the blocker: {q}"));
             }
             if blocker_index(t, &br.id).is_some() {
-                return (String::new(), String::new());
+                return none();
             }
             if let Some(i) = open_with_question(t, &br.question) {
                 let b = &mut t.blockers[i];
                 b.on = br.on.clone();
                 if !brings_new(b, &br.links, &br.attachments) {
-                    return (String::new(), String::new());
+                    return none();
                 }
                 b.links = capped(add_links(b.links.clone(), &br.links), MAX_BLOCKER_LINKS);
                 b.attachments = capped(
                     add_files(b.attachments.clone(), &br.attachments),
                     MAX_ATTACHMENTS,
                 );
-                return (
-                    format!("added to the blocker: {}", b.question),
-                    String::new(),
-                );
+                return Folded::line(format!("added to the blocker: {}", b.question));
             }
             let seq = self.blocker_seq.entry(t.id.clone()).or_default();
             *seq = (*seq).max(seq_of(&br.id, "b"));
-            let mut opts: Vec<BlockerOption> = Vec::new();
-            for o in &br.options {
-                if opts.len() < MAX_OPTIONS && option_index(&opts, &o.answer).is_none() {
-                    let mut o = o.clone();
-                    o.at = cmp_or(o.at, at);
-                    opts.push(o);
-                }
-            }
+            let opts = fold_options(&br.options, at);
             let mut nb = Blocker {
                 id: br.id.clone(),
                 question: br.question.clone(),
@@ -442,10 +533,13 @@ impl Fold {
                 ..Blocker::default()
             };
             if br.replace {
-                nb.asked = pos;
+                nb.asked = pos.clone();
+            }
+            if br.revise {
+                nb.options_at = pos;
             }
             t.blockers.push(nb);
-            return (format!("raised a blocker: {}", br.question), br.id.clone());
+            return Folded::raised(format!("raised a blocker: {}", br.question), &br.id);
         }
         // A reason-only row (written before items existed).
         let (q, ctx) = if runes(&p.reason) > MAX_QUESTION {
@@ -455,7 +549,7 @@ impl Fold {
         };
         if was_blocked && let Some(i) = t.blockers.iter().position(|b| b.open() && b.legacy) {
             if pos.before(&t.blockers[i].asked) {
-                return (String::new(), String::new());
+                return none();
             }
             let b = &mut t.blockers[i];
             b.question = q.clone();
@@ -467,7 +561,7 @@ impl Fold {
             b.asked = pos;
             let id = b.id.clone();
             refresh_blocker(&self.comments, self.by_task.get(&t.id), t, &id);
-            return (format!("changed the blocker: {q}"), String::new());
+            return Folded::line(format!("changed the blocker: {q}"));
         }
         let seq = self.blocker_seq.entry(t.id.clone()).or_default();
         *seq += 1;
@@ -483,7 +577,7 @@ impl Fold {
             on: p.blocked_by.clone(),
             ..Blocker::default()
         });
-        (format!("raised a blocker: {q}"), bid)
+        Folded::raised(format!("raised a blocker: {q}"), &bid)
     }
 
     pub(crate) fn next_blocker_id(&self, task_id: &str) -> String {
@@ -511,6 +605,12 @@ impl Fold {
                 else {
                     return;
                 };
+                // A recommendation for the options a revision replaced. Only a
+                // revision: a plain replace keeps the options, and so the
+                // recommendation, wherever the row lands in the fold.
+                if RowPos::of(ev).before(&t.blockers[i].options_at) {
+                    return;
+                }
                 let when = at(p.at);
                 let b = &mut t.blockers[i];
                 match option_index(&b.options, &p.answer) {
@@ -601,21 +701,14 @@ impl Fold {
                     ss.push(s.clone());
                 }
                 let t = self.tasks.get_mut(&p.task_id).expect("checked");
-                t.steps = norm_steps(ss);
+                let was = std::mem::replace(&mut t.steps, norm_steps(ss));
                 let when = at(p.at);
                 t.updated_at = when;
                 t.updated_by = p.by.clone();
                 let (d, n) = t.progress();
+                let what = format!("{} ({d}/{n} done)", steps_change(&was, &t.steps));
                 let ti = Touch::of(t);
-                self.touch(
-                    ev,
-                    &ti,
-                    when,
-                    &p.by,
-                    &format!("set the steps ({d}/{n} done)"),
-                    true,
-                    Vec::new(),
-                );
+                self.touch(ev, &ti, when, &p.by, &what, true, Vec::new());
                 task_id = p.task_id;
             }
             kinds::TASK_STEP => {
@@ -887,6 +980,85 @@ impl Fold {
         Ok((nt, out))
     }
 
+    /// Revises open item bid: what it asks now, its context and its
+    /// options (none makes it a plain question). The raiser, a holder or a
+    /// person may. The person's earlier answer stays in the thread, and the
+    /// item waits on the person again.
+    pub(crate) fn revise(
+        &mut self,
+        by: &str,
+        id: &str,
+        bid: &str,
+        r: BlockerRevision,
+    ) -> Result<(Task, Blocker)> {
+        let by = caller(by)?;
+        let bid = trim_space(bid).to_string();
+        let t = self.open_task(id)?.clone();
+        let Some(i) = blocker_index(&t, &bid) else {
+            return Err(not_found(format!(
+                "task {id} has no blocker {}",
+                quote(&bid)
+            )));
+        };
+        let b = t.blockers[i].clone();
+        if !b.open() {
+            return Err(bad_state(format!("blocker {bid} is already resolved")));
+        }
+        if b.raised_by != by && !contains(&t.holders, &by) && !self.is_owner(&by) {
+            return Err(not_allowed(format!(
+                "only the agent that raised blocker {bid}, a holder of task {id} or a person may revise it"
+            )));
+        }
+        let mut q = trim_space(&r.question).to_string();
+        if q.is_empty() {
+            q = b.question.clone();
+        }
+        let cx = match &r.context {
+            Some(c) => trim_space(c).to_string(),
+            None => b.context.clone(),
+        };
+        check_text("the question", &q, 1, MAX_QUESTION)?;
+        check_text("the context", &cx, 0, MAX_CONTEXT)?;
+        let now = self.stamp();
+        let opts = clean_options(&r.options, &by, now)?;
+        if q == b.question && cx == b.context && same_options(&opts, &b.options) {
+            return Err(invalid(format!(
+                "that asks the same question with the same options: answer the person on the blocker (board_comment blocker_id={bid}), then resolve it (board_unblock) or revise it with options that fit what you know now, or none"
+            )));
+        }
+        self.write(
+            &by,
+            kinds::TASK_STATUS,
+            &TaskStateRow {
+                task_id: t.id.clone(),
+                state: BLOCKED.into(),
+                note: t.note.clone(),
+                reason: q.clone(),
+                blocked_by: b.on.clone(),
+                blocker: Some(BlockerRow {
+                    id: bid.clone(),
+                    question: q,
+                    context: cx,
+                    options: opts,
+                    replace: true,
+                    revise: true,
+                    on: b.on.clone(),
+                    links: b.links.clone(),
+                    attachments: b.attachments.clone(),
+                    ..BlockerRow::default()
+                }),
+                by: by.clone(),
+                at: now,
+                ..TaskStateRow::default()
+            },
+        )?;
+        let nt = self.tasks[&t.id].clone();
+        let out = blocker_index(&nt, &bid)
+            .map(|i| nt.blockers[i].clone())
+            .unwrap_or_default();
+        Ok((nt, out))
+    }
+
     fn may_recommend(&self, t: &Task, b: &Blocker, by: &str) -> bool {
         self.may_manage(t, by) || contains(&t.watchers, by) || b.raised_by == by
     }
@@ -1063,8 +1235,8 @@ impl Fold {
             );
             s.push_str(&picked_line(opt, &rec_by, rec));
             s.push_str(&format!(
-                "\nIt is not resolved yet. When you have what you need: board_unblock task_id={id} blocker_id={} note=\"<one line on what you will do now>\". If the answer doesn't settle it: board_comment task_id={id} blocker_id={} with what is still missing.",
-                b.id, b.id
+                "\nIt is not resolved yet. When you have what you need: board_unblock task_id={id} blocker_id={} note=\"<one line on what you will do now>\". If the answer doesn't settle it: board_comment task_id={id} blocker_id={} with what is still missing. If it is a question or changes what is being decided, answer it there, then resolve the blocker if that settles it, or revise it with board_block task_id={id} blocker_id={} with the question and options that fit now (or none); never offer the same options again.",
+                b.id, b.id, b.id
             ));
             s.push_str(&deeper(id));
             n.text = s;
@@ -1517,4 +1689,55 @@ fn scan_earlier(l: &str) -> Option<usize> {
         return None;
     }
     usize::try_from(n).ok()
+}
+
+/// What a steps row changed, from was to now: the steps named, so the
+/// thread shows the plan and how it moved, not only a count.
+fn steps_change(was: &[Step], now: &[Step]) -> String {
+    let q = |s: &Step| {
+        format!(
+            "“{}”",
+            super::util::cut(&s.text, super::asks::MAX_LOG_QUOTE)
+        )
+    };
+    if was.is_empty() {
+        let names: Vec<String> = now.iter().map(q).collect();
+        return if names.is_empty() {
+            "set the steps".into()
+        } else {
+            format!("set the steps: {}", names.join(", "))
+        };
+    }
+    let mut parts: Vec<String> = Vec::new();
+    let mut renamed: Vec<String> = Vec::new();
+    for s in now {
+        match was.iter().find(|o| o.id == s.id) {
+            Some(o) if o.text != s.text => renamed.push(format!("{} to {}", q(o), q(s))),
+            Some(_) => {}
+            None => parts.push(format!("added {}", q(s))),
+        }
+    }
+    let removed: Vec<String> = was
+        .iter()
+        .filter(|o| !now.iter().any(|s| s.id == o.id))
+        .map(q)
+        .collect();
+    if !removed.is_empty() {
+        parts.push(format!("removed {}", removed.join(", ")));
+    }
+    if !renamed.is_empty() {
+        parts.push(format!("renamed {}", renamed.join(", ")));
+    }
+    let ticked: Vec<String> = now
+        .iter()
+        .filter(|s| s.done && was.iter().any(|o| o.id == s.id && !o.done))
+        .map(q)
+        .collect();
+    if !ticked.is_empty() {
+        parts.push(format!("ticked {}", ticked.join(", ")));
+    }
+    if parts.is_empty() {
+        return "reordered the steps".into();
+    }
+    format!("changed the steps: {}", parts.join("; "))
 }

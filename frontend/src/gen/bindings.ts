@@ -501,6 +501,11 @@ export type CardThreadItem = {
 	text: string,
 	blockerId?: string,
 	missing?: string[],
+	/**
+	 *  An event that revised its blocker (card #50): what it asks now and
+	 *  its options changed. It sits in the blocker's thread.
+	 */
+	revised?: boolean,
 	gone?: boolean,
 	held?: boolean,
 	files?: number,

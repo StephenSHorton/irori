@@ -89,7 +89,6 @@ pub struct Hooks {
     pub is_owner: Option<KeyPredicate>,
     pub on_gone: Option<OnGoneFn>,
     pub on_passed: Option<OnPassedFn>,
-    pub revoked: Option<KeyPredicate>,
     pub stale: Option<StaleFn>,
 }
 
@@ -184,7 +183,6 @@ impl Harness {
                 is_owner: hooks.is_owner.clone(),
                 on_recipient_gone: hooks.on_gone.clone(),
                 on_passed: hooks.on_passed.clone(),
-                revoked: hooks.revoked.clone(),
                 stale: hooks.stale.clone(),
                 ..Options::default()
             },
@@ -212,6 +210,20 @@ impl Harness {
     }
 
     /// Three bypass-mode Claude sessions a, b, c.
+    /// The person blocks grok, for tests that need a held message: the
+    /// only holds are the person's own (card #71).
+    pub fn block_grok(&self) {
+        self.ib
+            .set_policy(
+                inbox::Policy {
+                    block: vec!["grok".into()],
+                    ..Default::default()
+                },
+                USER,
+            )
+            .unwrap();
+    }
+
     pub fn abc(&self) {
         self.ros.put(&[
             card(KEY_A, "alpha", "repo1", BYPASS_MODE),

@@ -133,6 +133,16 @@ fn test_timeline() {
 #[test]
 fn test_timeline_held_text() {
     let r = with_capture(|_| {});
+    // The person blocks Grok: the only holds are their own (card #71).
+    r.b.ib
+        .set_policy(
+            inbox::Policy {
+                block: vec![KEY_G.into()],
+                ..Default::default()
+            },
+            "user:dev1",
+        )
+        .unwrap();
     let secret = "grok held secret";
     let out = r.okj(
         &grok_caller(),

@@ -126,7 +126,9 @@ export function answerable(state: string): boolean {
 
 // blockerChip is an item's state chip: "Sent to X" (" · session ended"
 // once X has gone) while answered, "Replied" while back with the person,
-// none otherwise (an open item is amber, a resolved one has its check).
+// "Revised" while open after an agent revised it (card #50: what it asks
+// and its options changed under the person's reply), none otherwise (an
+// open item is amber, a resolved one has its check).
 export function blockerChip(b: CardBlocker): ThreadBadge | null {
   if (b.state === BlockerState.Answered) {
     const to = b.sentTo ?? b.raisedBy
@@ -137,7 +139,18 @@ export function blockerChip(b: CardBlocker): ThreadBadge | null {
   }
   if (b.state === BlockerState.Replied)
     return { label: "Replied", tone: "warning" }
+  if (
+    (b.state || BlockerState.Open) === BlockerState.Open &&
+    (b.thread ?? []).some(isRevision)
+  )
+    return { label: "Revised", tone: "warning" }
   return null
+}
+
+// isRevision reports whether a blocker thread entry is an agent revising
+// the item: a new question, context or options (or none).
+export function isRevision(item: CardThreadItem): boolean {
+  return item.kind === ThreadKind.Event && !!item.revised
 }
 
 // heardLine says who heard the person's comment (BoardService.Comment):

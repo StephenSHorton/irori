@@ -357,6 +357,16 @@ impl Coord {
     pub fn raise(&self, by: &str, id: &str, nb: NewBlocker) -> Result<(Task, Blocker)> {
         self.lock().raise(by, id, nb)
     }
+    /// Revises an open blocker (Fold::revise).
+    pub fn revise(
+        &self,
+        by: &str,
+        id: &str,
+        blocker: &str,
+        r: BlockerRevision,
+    ) -> Result<(Task, Blocker)> {
+        self.lock().revise(by, id, blocker, r)
+    }
     pub fn recommend(
         &self,
         by: &str,
@@ -702,7 +712,13 @@ impl Coord {
     /// When the expiry timer should fire: the soonest Until of this
     /// device's leases while anyone is subscribed.
     pub fn next_expiry(&self) -> Option<GoTime> {
-        self.lock().next_expiry()
+        // A read: no unlock signal. The core's expiry timer calls this right
+        // after taking the rearm generation; firing on_unlock here kicked
+        // that generation and spun the timer on a whole core (#70).
+        self.f
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .next_expiry()
     }
 
     /// Runs `f` after every unlock (Go's `unlock` re-arming its timer): the

@@ -3,7 +3,7 @@
 //! raw queue the reader reports through `in_lost`) leave a sticky Overflow
 //! that goes out as soon as `out` has room, so a reader that falls behind
 //! always learns it must rescan.
-#![cfg_attr(not(windows), allow(dead_code))]
+#![cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 
 use std::collections::HashMap;
 use std::sync::Arc;

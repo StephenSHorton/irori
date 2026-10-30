@@ -806,8 +806,17 @@ fn test_send_and_reply() {
     assert_eq!(d.message.ref_, tid, "short ref {short}");
     has_not(&h.okj(&b, "inbox", json!({"all": true})), &["lost words"]);
 
-    // Held by the wake policy: on the card without its text, until the
-    // person releases it.
+    // Held by the wake policy (the person blocks Grok): on the card without
+    // its text, until the person releases it.
+    h.b.ib
+        .set_policy(
+            inbox::Policy {
+                block: vec![KEY_G.into()],
+                ..Default::default()
+            },
+            "user:dev1",
+        )
+        .unwrap();
     let secret = "held card words";
     let out = h.okj(
         &grok_caller(),
@@ -1054,7 +1063,17 @@ fn test_rate_limit() {
 fn test_held_text_never_leaks() {
     let h = new_harness();
     let secret = "grok secret payload";
-    // Grok (no bypass) -> bypass Claude receiver: held, bypass_receiver.
+    // The person blocks Grok: its message is held (the only holds are the
+    // person's own, card #71).
+    h.b.ib
+        .set_policy(
+            inbox::Policy {
+                block: vec![KEY_G.into()],
+                ..Default::default()
+            },
+            "user:dev1",
+        )
+        .unwrap();
     let out = h.okj(
         &grok_caller(),
         "send",
@@ -1063,7 +1082,7 @@ fn test_held_text_never_leaks() {
     has(
         &out,
         &[
-            "held by the recipient's wake policy (bypass_receiver)",
+            "held by the recipient's wake policy (blocked)",
             "person releases",
         ],
     );

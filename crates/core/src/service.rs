@@ -706,7 +706,6 @@ impl Core {
                 Arc::new(move |k: &str| c.get().map(|c| c.pr_owners(k)).unwrap_or_default())
             }),
             is_owner: Some(is_owner.clone()),
-            revoked: Some(revoked.clone()),
             on_recipient_gone: Some({
                 let c = coord_cell.clone();
                 Arc::new(move |m: &inbox::Message, to: &str| match c.get() {
