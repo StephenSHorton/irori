@@ -116,6 +116,20 @@ fn an_invitee_joins_a_board_from_a_link_with_the_words_checked() {
     });
     assert!(b.boards().contains(&board));
     assert_eq!(b.board_info(&board).unwrap().name, "MLG & co");
+    // The invitee's other devices open it from the private log.
+    let joined = b
+        .store()
+        .list(&store::Filter {
+            kinds: vec![store::kinds::BOARD_JOINED.into()],
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(
+        joined
+            .iter()
+            .any(|e| String::from_utf8_lossy(&e.payload).contains(&board)),
+        "no board.joined for the board in the invitee's private log"
+    );
     let states = seen.lock().unwrap().clone();
     for s in ["waiting", "words", "joining", "done"] {
         assert!(

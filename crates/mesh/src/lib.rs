@@ -31,6 +31,7 @@ pub mod files;
 pub mod frames;
 mod fsutil;
 pub mod node;
+pub mod ownboards;
 pub mod peers;
 pub mod relay;
 pub mod secret;

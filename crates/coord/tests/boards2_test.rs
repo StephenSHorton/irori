@@ -696,3 +696,18 @@ fn a_steal_on_the_board_takes_only_ones_own_persons_lease() {
         assert_eq!(lease_on(s, SRC_MAIN).unwrap().holder, CARD3);
     }
 }
+
+/// #61: "irori" names no person, so a board counts its task.created for
+/// nothing. Creating a card as Irori on a board is refused, not a panic,
+/// and writes nothing; a person's card still goes through after it.
+#[test]
+fn irori_creating_a_board_card_is_refused() {
+    let (a, b, _) = two_people();
+    let before = a.c.list_tasks(&TaskFilter::default()).len();
+    let err = a.c.create_task("irori", nt("by irori", "")).unwrap_err();
+    assert!(err.to_string().contains("Irori itself"), "{err}");
+    sync(&a, &b);
+    assert_eq!(a.c.list_tasks(&TaskFilter::default()).len(), before);
+    assert_eq!(b.c.list_tasks(&TaskFilter::default()).len(), before);
+    a.c.create_task(P1, nt("by a person", "")).unwrap();
+}
