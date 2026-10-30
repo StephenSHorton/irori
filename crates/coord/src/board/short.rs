@@ -207,6 +207,9 @@ impl Fold {
             return Err(not_found(format!("{v} is a card on another board")));
         }
         if let Some(id) = self.short_idx.get(&short) {
+            if self.deleted.contains(id) {
+                return Err(not_found(format!("{v} was deleted")));
+            }
             return Ok(id.clone());
         }
         if self.tasks.contains_key(&v) {

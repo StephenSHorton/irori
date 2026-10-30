@@ -153,6 +153,69 @@ fn a_fresh_data_dir_pairs_with_a_fixture_identity() {
         has(&b, &ea) && has(&a, &eb)
     });
 
+    // The roster reads the mesh's liveness (Go core.go:188): b's agent shows
+    // on a with b's device connected, not offline.
+    let b_agent = format!("{}/from-b", b.device_id());
+    wait("a's roster sees b's agent on a live device", || {
+        a.roster()
+            .remote()
+            .iter()
+            .any(|c| c.key == b_agent && c.device_state != "offline")
+    });
+
+    // Attachments cross devices (Go TestAttachmentsTravelWithMessagesAndComments,
+    // the comment half): a's person attaches a file to a comment, and b's
+    // person fetches it from a over the mesh, then finds it here.
+    let src = ca.path().join("review.txt");
+    std::fs::write(&src, b"looks good\n").unwrap();
+    let refs = a
+        .attach_files("", &[src.to_string_lossy().into_owned()])
+        .unwrap();
+    assert_eq!(
+        (refs.len(), refs[0].name.as_str(), refs[0].device.as_str()),
+        (1, "review.txt", a.device_id())
+    );
+    let sha = refs[0].sha256.clone();
+    let me = a.user_sender().key;
+    let t = a
+        .coord()
+        .create_task(
+            &me,
+            coord::NewTask {
+                title: "ship the review".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    a.coord()
+        .add_comment_with(
+            &me,
+            &t.id,
+            "review attached",
+            false,
+            vec![coord::FileRef {
+                sha256: sha.clone(),
+                name: refs[0].name.clone(),
+                size: refs[0].size,
+                mime: refs[0].mime.clone(),
+                device: refs[0].device.clone(),
+            }],
+        )
+        .unwrap();
+    wait("the comment reaches b", || {
+        b.coord().comment_attachment(&sha).is_some()
+    });
+    assert!(!b.files().has(&sha));
+    let out = tempfile::tempdir().unwrap();
+    let (p, from) = b
+        .get_attachment(&b.user_sender().key, &sha, &out.path().to_string_lossy())
+        .unwrap();
+    assert_eq!(from, a.device_id(), "b fetched from {from}");
+    assert_eq!(std::fs::read(&p).unwrap(), b"looks good\n");
+    assert_eq!(std::path::Path::new(&p).file_name().unwrap(), "review.txt");
+    let (_, from) = b.get_attachment(&b.user_sender().key, &sha, "").unwrap();
+    assert_eq!(from, "", "the second fetch was here already");
+
     // Remove device runs on the Node: a revokes b and rotates its key.
     let epoch = a.person().epoch;
     rt.block_on(a.remove_device(&b_id)).unwrap();
@@ -215,5 +278,53 @@ fn the_home_server_names_its_relay_to_the_bridge() {
     wait("the bridge names no relay", || {
         core.net().pair_lan().relay().is_none()
     });
+    core.close().unwrap();
+}
+
+/// The address under the pairing code (Go core.go:288 `ServerAddr`,
+/// home.go:107): while the home server runs, Add's status carries where a
+/// device away from home dials it; with no server running, nothing.
+#[test]
+fn add_shows_the_home_server_address() {
+    let (d, c) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (lan, to) = (free_udp(), free_udp());
+    let mut o = common::options(d.path(), c.path());
+    o.pair_net = Some(Arc::new(move |ident, chain, guests| {
+        let mut nc = devices::default_net_config(ident, chain, guests);
+        nc.ip = IpMode::Loopback;
+        let lc = nc.lan_config.as_mut().expect("a LAN lookup");
+        lc.bind = Some(lan);
+        lc.targets = Some(Arc::new(move || vec![to]));
+        IrohNet::new(nc)
+    }));
+    o.home = Some(Arc::new(|hc: &mut home::Config| {
+        hc.bind_ip = Some(Ipv4Addr::LOCALHOST.into());
+    }));
+    let core = Core::start(o).unwrap();
+    let rt = core.pairing_runtime().clone();
+
+    // No server: the window opens with no address under the code.
+    let st = rt
+        .block_on(devices::add_device(&core, irori_identity::ROLE_DESKTOP))
+        .unwrap();
+    assert_eq!(st.state, irori_pair::STATE_WAITING);
+    assert_eq!(st.server_addr, "", "an address with no server running");
+    core.pairing().cancel();
+
+    // A typed public address: the open window starts the server, and the
+    // address follows it once it runs.
+    core.set_home_server(true, false, "203.0.113.7:24817")
+        .unwrap();
+    rt.block_on(devices::add_device(&core, irori_identity::ROLE_DESKTOP))
+        .unwrap();
+    wait("the home server runs", || {
+        core.home().is_some_and(|h| h.status().running)
+    });
+    let want = core.home().unwrap().status().address;
+    assert!(!want.is_empty(), "the running server names no address");
+    wait("Add's status carries the address", || {
+        core.pairing().status().server_addr == want
+    });
+    core.pairing().cancel();
     core.close().unwrap();
 }

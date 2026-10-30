@@ -17,9 +17,11 @@
 //!   name an unreachable one that wasn't its first; here only the home
 //!   relay's own failure produces Devices' `remote` line.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use blob::FileRef;
+use irori_identity::Chain;
 
 use crate::Core;
 
@@ -145,16 +147,7 @@ impl Core {
     /// Go `deviceNames`: each device's label, else its id, joined with
     /// " or "; [`NO_CONNECTED_DEVICE`] for none.
     pub fn device_names(&self, ids: &[String]) -> String {
-        if ids.is_empty() {
-            return NO_CONNECTED_DEVICE.into();
-        }
-        ids.iter()
-            .map(|id| match self.chain().cert(id) {
-                Some(c) if !c.label.is_empty() => c.label,
-                _ => id.clone(),
-            })
-            .collect::<Vec<_>>()
-            .join(" or ")
+        device_names(self.chain(), ids)
     }
 
     /// Go `fetchRef` within [`FETCH_TIMEOUT`]: makes sure `r`'s file is on
@@ -162,25 +155,54 @@ impl Core {
     /// the device it came from ("" when it was here). Blocks on the mesh's
     /// runtime: call it off that runtime's workers.
     pub fn fetch_file_blocking(&self, r: &FileRef) -> Result<String, FileFetchError> {
-        let node = self.mesh().clone();
-        let res = self
-            .pairing_runtime()
-            .block_on(async { tokio::time::timeout(FETCH_TIMEOUT, node.fetch_file(r)).await });
-        match res {
-            Err(_) => Err(FileFetchError::TimedOut),
-            Ok(Ok(from)) => Ok(from),
-            Ok(Err(mesh::FetchError::Offline(holders))) => {
-                // Go fileOffline: the attaching device when no holder is known.
-                let ids =
-                    if holders.is_empty() && !r.device.is_empty() && r.device != self.device_id() {
-                        vec![r.device.clone()]
-                    } else {
-                        holders
-                    };
-                Err(FileFetchError::Offline(self.device_names(&ids)))
-            }
-            Ok(Err(e)) => Err(FileFetchError::Other(e.to_string())),
+        fetch_file_blocking(
+            self.mesh(),
+            self.pairing_runtime(),
+            self.device_id(),
+            self.chain(),
+            r,
+        )
+    }
+}
+
+/// [`Core::device_names`] over the Chain.
+pub(crate) fn device_names(chain: &Chain, ids: &[String]) -> String {
+    if ids.is_empty() {
+        return NO_CONNECTED_DEVICE.into();
+    }
+    ids.iter()
+        .map(|id| match chain.cert(id) {
+            Some(c) if !c.label.is_empty() => c.label,
+            _ => id.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(" or ")
+}
+
+/// [`Core::fetch_file_blocking`] over the Core's parts (the tools'
+/// attacher reaches them without a `Core`).
+pub(crate) fn fetch_file_blocking(
+    node: &Arc<mesh::Node>,
+    rt: &tokio::runtime::Handle,
+    device_id: &str,
+    chain: &Chain,
+    r: &FileRef,
+) -> Result<String, FileFetchError> {
+    let node = node.clone();
+    let res = rt.block_on(async { tokio::time::timeout(FETCH_TIMEOUT, node.fetch_file(r)).await });
+    match res {
+        Err(_) => Err(FileFetchError::TimedOut),
+        Ok(Ok(from)) => Ok(from),
+        Ok(Err(mesh::FetchError::Offline(holders))) => {
+            // Go fileOffline: the attaching device when no holder is known.
+            let ids = if holders.is_empty() && !r.device.is_empty() && r.device != device_id {
+                vec![r.device.clone()]
+            } else {
+                holders
+            };
+            Err(FileFetchError::Offline(device_names(chain, &ids)))
         }
+        Ok(Err(e)) => Err(FileFetchError::Other(e.to_string())),
     }
 }
 
