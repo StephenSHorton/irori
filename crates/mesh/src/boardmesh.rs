@@ -378,6 +378,16 @@ impl BoardMesh {
         &self.s.opts.board_id
     }
 
+    /// The board's log.
+    pub fn log(&self) -> &Arc<Store> {
+        &self.s.opts.log
+    }
+
+    /// The board's verifier.
+    pub fn verifier(&self) -> &Arc<BoardVerifier> {
+        &self.s.opts.verifier
+    }
+
     /// The board's counted member devices other than this one: every
     /// active member's certified devices the verifier admits.
     pub fn member_devices(&self) -> Vec<MemberDevice> {

@@ -415,6 +415,15 @@ impl Boards {
         }
     }
 
+    /// Whether a board open here has a member other than this person (B1:
+    /// the home server runs for it).
+    pub(crate) fn shared_with_others(&self) -> bool {
+        self.list().iter().any(|b| {
+            let m = b.verifier.membership();
+            m.members.iter().filter(|p| m.active(&p.person_id)).count() > 1
+        })
+    }
+
     /// The open board logs, sorted by id.
     pub(crate) fn list(&self) -> Vec<Arc<BoardLog>> {
         lock(&self.inner).logs.values().cloned().collect()

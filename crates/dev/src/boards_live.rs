@@ -223,6 +223,12 @@ fn start(o: &Opts, name: &str) -> Result<Run, String> {
     empty_dir(&o.home)?;
     empty_dir(&o.claude)?;
     write_session(&o.claude, name)?;
+    open(o, name)
+}
+
+/// Starts the Core on --home (fresh or from an earlier open) and waits for
+/// the made-up agent.
+fn open(o: &Opts, name: &str) -> Result<Run, String> {
     let core = Core::start(Options {
         data_dir: o.home.clone(),
         claude_dir: o.claude.clone(),
@@ -272,13 +278,17 @@ fn host(o: &Opts) -> Result<ExitCode, String> {
         Ok(()) => r.pass("home server on", ""),
         Err(e) => r.fail("home server on", &e),
     }
-    // The link names the relay the endpoint is on when it is made: wait
-    // until that is the home server's.
-    let rt = r.core.pairing_runtime().clone();
-    r.wait("A's endpoint is on its home relay", |r| {
-        rt.block_on(r.core.net().invite_addr())
-            .is_ok_and(|a| a.relay.is_some())
+    // As on the PC, the server is on when Irori starts: restart on the same
+    // home, and the endpoint homes on its own server's relay (#63). The
+    // link names the relay the endpoint is on when it is made.
+    let failed = r.failed;
+    let _ = r.core.close();
+    let mut r = open(o, "alice-live")?;
+    r.failed += failed;
+    r.wait("A's endpoint is on its own home relay", |r| {
+        r.core.net().home_relays().iter().any(|(_, up)| *up)
     });
+    let rt = r.core.pairing_runtime().clone();
     r.board = r
         .core
         .create_board("Live run", TAG)
