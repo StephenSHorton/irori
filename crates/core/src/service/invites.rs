@@ -167,6 +167,25 @@ impl InviteBoards for CoreBoards {
     }
 }
 
+/// The open boards' secrets, for `board.secret` to the person's other
+/// devices (`mesh::ownboards`).
+pub(super) struct OwnBoardSecrets(pub(super) Weak<Services>);
+
+impl mesh::ownboards::OwnBoards for OwnBoardSecrets {
+    fn open_boards(&self) -> Vec<(String, Arc<BoardSecrets>)> {
+        self.0
+            .upgrade()
+            .map(|s| {
+                s.boards
+                    .list()
+                    .iter()
+                    .map(|b| (b.id.clone(), b.secrets.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+}
+
 /// Where the link says the inviter is.
 fn invite_addr(t: &Ticket) -> Result<InviteAddr, String> {
     let key = |h: &str| -> Option<iroh::EndpointId> {
@@ -393,6 +412,28 @@ impl Core {
 }
 
 impl Services {
+    /// Writes the private board.joined row for a board joined by invite.
+    fn board_joined(&self, b: &super::boards::BoardLog) {
+        let m = b.verifier.membership();
+        let Some(creator) = m.pins.get(&m.creator).cloned() else {
+            crate::log(&format!("invite: board {}: no creator to pin", b.id));
+            return;
+        };
+        let joined = super::boards_own::BoardJoinedRow {
+            board_id: b.id.clone(),
+            name: m.name,
+            tag: m.tag,
+            creator,
+            at: (self.now)(),
+        };
+        if let Err(e) = self
+            .store
+            .append("irori", store::kinds::BOARD_JOINED, &joined)
+        {
+            crate::log(&format!("invite: board {}: board.joined: {e}", b.id));
+        }
+    }
+
     /// Both sides once the bundle is in: the board opens on the network,
     /// and the invitee dials the inviter at the link's addresses.
     async fn invite_joined(
@@ -416,6 +457,9 @@ impl Services {
             secrets: b.secrets.clone(),
         };
         if !addrs.is_empty() {
+            // The invitee: its other devices open the board from the
+            // private log (§4.1 step 7), pinned to the creator.
+            self.board_joined(&b);
             self.mesh.board_hint(peer, addrs);
         }
         if let Err(e) = self.mesh.open_board(parts).await {

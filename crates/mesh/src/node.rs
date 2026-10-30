@@ -188,6 +188,9 @@ pub struct Node {
     peers_mu: Mutex<()>,
     pub(crate) st: Mutex<State>,
     pub(crate) fetching: Mutex<BTreeMap<String, Arc<tokio::sync::Semaphore>>>,
+    /// The shared boards open here, for `board.secret` (crate::ownboards).
+    pub(crate) own_boards: Mutex<Option<Arc<dyn crate::ownboards::OwnBoards>>>,
+    pub(crate) board_pending: Mutex<BTreeMap<String, crate::ownboards::PendingBoardSecret>>,
     me: Weak<Node>,
 }
 
@@ -244,6 +247,8 @@ impl Node {
                 retry: BTreeMap::new(),
             }),
             fetching: Mutex::new(BTreeMap::new()),
+            own_boards: Mutex::new(None),
+            board_pending: Mutex::new(BTreeMap::new()),
             me: me.clone(),
             o,
         })
@@ -413,6 +418,7 @@ impl Node {
                 s.conn.close("epoch"); // both have the new epoch: the new room only
             } else if s.hello_done() {
                 self.send_secret(&s);
+                self.send_board_secrets(&s);
             }
         }
         self.ensure_rooms().await;

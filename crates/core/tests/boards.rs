@@ -877,6 +877,47 @@ fn paired() -> (Dev, Dev) {
     (a, b)
 }
 
+/// Boards stage 2 (card #44 step 5, boards2-transport.md §4): a board's
+/// secret reaches the person's other devices on the private mesh as
+/// `board.secret`, sealed under the mesh key. A board A makes opens on B
+/// from the private board.joined row, and B ends up holding A's epoch 1
+/// rather than minting its own (it counts once A's cert reaches B's board
+/// log).
+#[test]
+fn board_secret_reaches_own_devices() {
+    let (a, b) = paired();
+    let id = a.core.create_board("MLG", "mlg").unwrap();
+    wait_for(45, "b opens the board", || b.core.board_coord(&id).is_ok());
+    let sa = a.core.board_secrets(&id).unwrap();
+    assert_eq!(sa.epoch(), 1);
+    let sb = b.core.board_secrets(&id).unwrap();
+    wait_for(45, "b holds the board's secret", || sb.epoch() == 1);
+    // It counts once A's board rows (its cert) are in B's log: the
+    // own-device board connection's job, done by hand here.
+    let rows = a
+        .core
+        .board_store(&id)
+        .unwrap()
+        .list(&Filter {
+            limit: 1000,
+            ..Default::default()
+        })
+        .unwrap();
+    b.core
+        .board_store(&id)
+        .unwrap()
+        .insert_batch(&rows)
+        .1
+        .unwrap();
+    let (ka, ma) = sa.secret(1).unwrap();
+    let (kb, mb) = sb.secret(1).unwrap();
+    assert_eq!(ma, a.core.device_id());
+    assert_eq!(mb, ma, "b holds a's secret, not one of its own");
+    assert_eq!(*ka, *kb);
+    a.core.close().unwrap();
+    b.core.close().unwrap();
+}
+
 /// TestBoardOnOwnDevices: step 4's one person, two devices. A board A
 /// makes opens on B from the private board.joined row; its rows reach B on
 /// the board stream, B's cert with them, so B writes as the person; what B

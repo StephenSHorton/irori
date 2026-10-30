@@ -900,9 +900,15 @@ impl Core {
             Arc::new(move || {
                 if let Some(m) = m.upgrade() {
                     m.kick_boards();
+                    // A board opened or its secret moved: the person's
+                    // other devices get it on board.secret.
+                    m.node.boards_changed();
                 }
             })
         });
+        s.mesh
+            .node
+            .set_own_boards(Some(Arc::new(invites::OwnBoardSecrets(Arc::downgrade(&s)))));
         // A pairing window starts the home server at once (Go Notify).
         if let Some(h) = s.home.clone() {
             s.pairing
