@@ -420,6 +420,9 @@ impl Mesh {
     /// devices; an announcement ahead of the board log kicks its mesh.
     /// Without gossip (`NetConfig::gossip` off) it does nothing.
     async fn board_gossip(&self, m: &Arc<BoardMesh>) {
+        if !self.net.gossip_on() {
+            return;
+        }
         let board = m.board_id().to_string();
         let topics = m.secrets().topics().unwrap_or_default();
         let ids: Vec<String> = m

@@ -598,6 +598,11 @@ impl IrohNet {
         &self.inner.cfg.guests
     }
 
+    /// Whether this endpoint runs board gossip ([`NetConfig::gossip`]).
+    pub fn gossip_on(&self) -> bool {
+        self.inner.cfg.gossip
+    }
+
     /// The boards counted at the endpoint gate ([`NetConfig::boards`]).
     pub fn board_members(&self) -> &Arc<crate::board::BoardMembers> {
         &self.inner.cfg.boards
