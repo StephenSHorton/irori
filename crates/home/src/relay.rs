@@ -34,6 +34,19 @@ pub type AdmitFn = Arc<dyn Fn(&EndpointId) -> bool + Send + Sync>;
 /// joiner with no cert, admitted while a member's window is open.
 pub type GuestFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
+/// B1 (stage 2, card #43): whether an endpoint is a counted, uncut member
+/// device of a board this server's Core holds. The relay then admits it as
+/// it admits the person's own devices; which board it may reach is decided
+/// at the endpoints (`irori/board/1` proof and per-board verifier), since
+/// the relay only forwards sealed QUIC. Interface only: not wired yet.
+pub type BoardAdmitFn = Arc<dyn Fn(&EndpointId) -> bool + Send + Sync>;
+
+/// Stage 2: own devices or member devices of boards held here.
+/// Interface only (card #43); the Server does not call it yet.
+pub fn member_admit(own: AdmitFn, boards: BoardAdmitFn) -> AdmitFn {
+    Arc::new(move |id: &EndpointId| own(id) || boards(id))
+}
+
 /// The reason a refused client sees (`RelayStatus::auth_denied_reason`).
 pub const DENY_REASON: &str = "not a certified device";
 

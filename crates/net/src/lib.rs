@@ -22,8 +22,14 @@
 //!   LAN by the code-derived key, through a typed server, or across the
 //!   home/away bridge.
 //! - [`guest`]: relay guest windows (tokens from the room key).
+//!
+//! Boards stage 2 (card #43, interface first; docs/design/boards2-transport.md):
+//! - [`board`]: `irori/board/1`, the board-open proof, member admission,
+//!   `board.server` relays, `BoardTransport` on IrohNet.
+//! - [`invite`]: `irori/invite/1` hooks for the invites part.
 
 pub mod admit;
+pub mod board;
 pub mod book;
 pub mod dns;
 pub mod endpoint;
@@ -31,6 +37,7 @@ pub mod fromdb;
 pub mod gossip;
 pub mod guest;
 pub mod identity;
+pub mod invite;
 pub mod pairnet;
 pub mod path;
 pub mod relay;

@@ -878,6 +878,19 @@ impl BoardVerifier {
         bind_actor(ev, &person, |card| cards.get(card).cloned())
     }
 
+    /// Board admission by key (stage 2 transport, card #43): the counted
+    /// cert whose `devicePub` is `device_pub_hex`, when that device has no
+    /// cut here (not revoked, its person neither removed nor gone). This is
+    /// what `irori/board/1`, board gossip and a member's relay admit.
+    pub fn admitted_by_pub(&self, device_pub_hex: &str) -> Option<MemberCert> {
+        let st = self.lock();
+        st.valid
+            .values()
+            .find(|c| c.device_pub == device_pub_hex)
+            .filter(|c| !st.cuts.contains_key(&c.device_id))
+            .cloned()
+    }
+
     /// A device's effective cut in this board.
     pub fn cut(&self, device_id: &str) -> Option<i64> {
         self.lock().cuts.get(device_id).copied()

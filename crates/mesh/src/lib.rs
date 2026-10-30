@@ -22,6 +22,7 @@
 
 extern crate irori_identity as identity;
 
+pub mod boardmesh;
 pub mod boards;
 pub mod devices;
 pub mod fake;
