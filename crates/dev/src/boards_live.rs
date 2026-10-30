@@ -278,16 +278,8 @@ fn host(o: &Opts) -> Result<ExitCode, String> {
         Ok(()) => r.pass("home server on", ""),
         Err(e) => r.fail("home server on", &e),
     }
-    // As on the PC, the server is on when Irori starts: restart on the same
-    // home, and the endpoint homes on its own server's relay (#63). The
-    // link names the relay the endpoint is on when it is made.
-    let failed = r.failed;
-    let _ = r.core.close();
-    let mut r = open(o, "alice-live")?;
-    r.failed += failed;
-    r.wait("A's endpoint is on its own home relay", |r| {
-        r.core.net().home_relays().iter().any(|(_, up)| *up)
-    });
+    // The server is wanted while an invite is open: the invite starts it
+    // and names its relay in the link (checked below).
     let rt = r.core.pairing_runtime().clone();
     r.board = r
         .core
