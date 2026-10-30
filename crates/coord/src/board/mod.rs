@@ -20,7 +20,9 @@ mod comments;
 mod error;
 mod fold;
 mod links;
+mod mirror;
 mod resource;
+mod review;
 pub mod rows;
 mod short;
 mod subtasks;
@@ -48,10 +50,12 @@ pub use fold::{
     REASON_RELEASED, REASON_STOLEN, SUB_BUFFER, followed,
 };
 pub use links::{MAX_LINKS, link_label, parse_link, pr_link};
+pub use mirror::RELEASE_REQUEST;
 pub use resource::{
     RESOURCE_NAMED, RESOURCE_PATH, RESOURCE_PORT, Resource, check_repo_key, normalize_glob,
     normalize_resource, overlaps, parse_resource,
 };
+pub use review::{NOTICE_REVIEW, ReviewRequest};
 pub use short::{parse_ref, parse_short, short_suffix};
 pub use types::*;
 
@@ -102,6 +106,8 @@ type KeyFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 type StrFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
 /// [`Options::hop_of`].
 pub type HopFn = Arc<dyn Fn(&str) -> i64 + Send + Sync>;
+/// Whether a person owned the board at a row's place (`None`: now).
+pub type OwnerAtFn = Arc<dyn Fn(&str, Option<&RowPos>) -> bool + Send + Sync>;
 
 /// Configures a [`Coord`] (Go `coord.Options`).
 #[derive(Clone, Default)]
@@ -127,8 +133,10 @@ pub struct Options {
     pub device_person: Option<StrFn>,
     /// A board's short handle, read as rows fold.
     pub tag: Option<Arc<dyn Fn() -> String + Send + Sync>>,
-    /// A person who owns the board.
-    pub board_owner: Option<KeyFn>,
+    /// A person who owned the board just before the row at that place,
+    /// or now when there is no row (the cancel rule reads the owners at
+    /// the row's time, v0.5 §5.3).
+    pub board_owner: Option<OwnerAtFn>,
     /// On a board, the hop an agent's row carries (v0.5 §7.1): its running
     /// turn's hop plus one, by the actor as the board knows it. The rows
     /// in [`HOP_KINDS`] get it as `hop` when it is above zero.
@@ -322,6 +330,16 @@ impl Coord {
     pub fn aside_dropped(&self) -> usize {
         self.lock().aside_drop
     }
+    /// What a board's fold kept out, for `GET /v1/boards?detail=1`.
+    pub fn set_aside(&self) -> SetAside {
+        let f = self.lock();
+        SetAside {
+            unresolved: f.aside.len(),
+            dropped: f.aside_drop,
+            ignored: f.ignored,
+            ignored_by: f.ignored_by.clone(),
+        }
+    }
     pub fn unresolved(&self) -> usize {
         self.lock().aside.len()
     }
@@ -451,6 +469,65 @@ impl Coord {
     }
     pub fn leases(&self) -> Vec<Lease> {
         self.lock().leases()
+    }
+    /// The shared cards on this board that make card's lease on resource
+    /// mirror here (v0.5 §5.4); `all` is the Autonomous preset's "every
+    /// lease in shared tasks' repos".
+    pub fn mirror_tasks(&self, card: &str, resource: &str, all: bool) -> Vec<String> {
+        self.lock().mirror_tasks(card, resource, all)
+    }
+    /// Mirrors card's lease into this board when a shared card makes it
+    /// mirror (`None`: nothing does). Another person's live lease refuses
+    /// it, and the private lease must be refused with it.
+    pub fn mirror_acquire(
+        &self,
+        card: &str,
+        resource: &str,
+        ttl: Duration,
+        all: bool,
+        steal: bool,
+    ) -> Result<Option<Lease>> {
+        self.lock().mirror_acquire(card, resource, ttl, all, steal)
+    }
+    /// Mirrors the release of card's lease; false when none is here.
+    pub fn mirror_release(&self, card: &str, resource: &str) -> Result<bool> {
+        self.lock().mirror_release(card, resource)
+    }
+    /// Asks another person's agents to review a PR the card links: `to`,
+    /// or their dedicated reviewers (v0.5 §10). The notice goes to them.
+    pub fn request_review(
+        &self,
+        by: &str,
+        id: &str,
+        pr: &str,
+        to: &str,
+    ) -> Result<(ReviewRequest, Notice)> {
+        self.lock().request_review(by, id, pr, to)
+    }
+    /// The person dedicating one of their agents as reviewer for the board
+    /// or one repo (empty reviewer: none).
+    pub fn set_reviewer(&self, by: &str, reviewer: &str, repo: &str) -> Result<()> {
+        self.lock().set_reviewer(by, reviewer, repo)
+    }
+    /// A card's review requests, oldest first.
+    pub fn reviews(&self, id: &str) -> Vec<ReviewRequest> {
+        self.lock().reviews.get(id).cloned().unwrap_or_default()
+    }
+    /// A member's dedicated reviewer for repo, else for the board.
+    pub fn reviewer(&self, person: &str, repo: &str) -> String {
+        self.lock().reviewer_of(person, repo)
+    }
+    /// Asks the holder of another person's lease to release it, on the
+    /// shared card it mirrors through, in place of a steal.
+    pub fn request_release(
+        &self,
+        by: &str,
+        resource: &str,
+        why: &str,
+    ) -> Result<(Comment, Notice)> {
+        let mut f = self.lock();
+        let now = f.stamp();
+        f.request_release(by, resource, why, &now)
     }
     /// Active refusals, newest first.
     pub fn refusals(&self) -> Vec<Refusal> {
@@ -647,7 +724,7 @@ impl Fold {
         if t.withdrawn {
             return Ok(t.clone());
         }
-        if !self.may_cancel(t, &self.dev) {
+        if !self.may_cancel(t, &self.dev, None) {
             return Err(error::not_allowed(format!(
                 "only its creator or a board owner withdraws {}",
                 t.short_ref()

@@ -127,6 +127,32 @@ impl AskBook {
 }
 
 /// A prompt's title: its first line, cut at a word to 80 characters.
+/// The private take kind a board ask row stands for (§9).
+pub(crate) fn take_kind(kind: &str) -> &str {
+    match kind {
+        kinds::BOARD_ASK_REQUESTED => kinds::TAKE_REQUESTED,
+        kinds::BOARD_ASK_STATE => kinds::TAKE_STATE,
+        kinds::BOARD_ASK_EDITED => kinds::TASK_EDITED,
+        k => k,
+    }
+}
+
+impl Fold {
+    /// The kind an ask row is written as: on a board, its `board.ask.*`
+    /// name, since a board log refuses the private take kinds.
+    pub(crate) fn ask_kind(&self, kind: &'static str) -> &'static str {
+        if !self.on_board {
+            return kind;
+        }
+        match kind {
+            kinds::TAKE_REQUESTED => kinds::BOARD_ASK_REQUESTED,
+            kinds::TAKE_STATE => kinds::BOARD_ASK_STATE,
+            kinds::TASK_EDITED => kinds::BOARD_ASK_EDITED,
+            k => k,
+        }
+    }
+}
+
 pub fn ask_title(text: &str) -> String {
     let trimmed = trim_space(text);
     let line = trimmed.split_once('\n').map(|(a, _)| a).unwrap_or(trimmed);
@@ -201,7 +227,7 @@ impl Fold {
     }
 
     pub(crate) fn apply_take(&mut self, ev: &Event, at: &dyn Fn(GoTime) -> GoTime) {
-        match ev.kind.as_str() {
+        match take_kind(&ev.kind) {
             kinds::TAKE_REQUESTED => {
                 let Some(p) = row::<TakeRequestedRow>(&ev.payload) else {
                     return;
@@ -209,7 +235,14 @@ impl Fold {
                 if p.task_id.is_empty() || p.by.is_empty() {
                     return;
                 }
-                if !owner::may_write(&p.by, &ev.device_id) || owner::device_of(&p.by).is_empty() {
+                // On a board any member's agent may ask to take it, from a
+                // device of its person (§9); privately, from its device.
+                let ok = if self.on_board {
+                    self.may_write(&p.by, &ev.device_id)
+                } else {
+                    owner::may_write(&p.by, &ev.device_id) && !owner::device_of(&p.by).is_empty()
+                };
+                if !ok {
                     self.ignore(&ev.device_id);
                     return;
                 }
@@ -532,7 +565,7 @@ impl Fold {
     /// The take lock in the fold: whether ev folds now, and if not which
     /// ask's next take.state or close may let it through (`""` drops it).
     pub(crate) fn ask_gate(&mut self, ev: &Event) -> (bool, String) {
-        match ev.kind.as_str() {
+        match take_kind(&ev.kind) {
             kinds::TASK_EDITED => return self.edit_gate(ev),
             kinds::TASK_CLAIMED
             | kinds::TASK_JOINED
@@ -578,7 +611,7 @@ impl Fold {
         if self.person_row(ev, &p.by) {
             return (true, String::new());
         }
-        if !owner::may_write(&p.by, &ev.device_id) {
+        if !self.may_write(&p.by, &ev.device_id) {
             self.ignore(&ev.device_id);
             return (false, String::new());
         }
@@ -734,7 +767,7 @@ impl Fold {
         {
             r.seen = s.clone();
         }
-        self.write_as(SWEEPER, kinds::TAKE_STATE, &r)
+        self.write_as(SWEEPER, self.ask_kind(kinds::TAKE_STATE), &r)
     }
 
     // ---- the owner's duties ----
@@ -1042,7 +1075,7 @@ impl Fold {
         let at = self.stamp();
         self.write(
             by,
-            kinds::TAKE_REQUESTED,
+            self.ask_kind(kinds::TAKE_REQUESTED),
             &TakeRequestedRow {
                 task_id: id.into(),
                 by: by.into(),
@@ -1144,7 +1177,7 @@ impl Fold {
                 }
                 self.write(
                     &by,
-                    kinds::TASK_EDITED,
+                    self.ask_kind(kinds::TASK_EDITED),
                     &TaskEditedRow {
                         task_id: id.into(),
                         title: Some(title),
@@ -1235,7 +1268,7 @@ impl Fold {
                 }
                 self.write(
                     &by,
-                    kinds::TASK_EDITED,
+                    self.ask_kind(kinds::TASK_EDITED),
                     &TaskEditedRow {
                         task_id: target.clone(),
                         title: opt(&title),
@@ -1304,7 +1337,7 @@ impl Fold {
         let at = self.stamp();
         self.write(
             by,
-            kinds::TAKE_REQUESTED,
+            self.ask_kind(kinds::TAKE_REQUESTED),
             &TakeRequestedRow {
                 task_id: id.into(),
                 by: by.into(),
@@ -1331,7 +1364,7 @@ impl Fold {
         let at = self.stamp();
         self.write(
             by,
-            kinds::TAKE_REQUESTED,
+            self.ask_kind(kinds::TAKE_REQUESTED),
             &TakeRequestedRow {
                 task_id: id.into(),
                 by: by.into(),

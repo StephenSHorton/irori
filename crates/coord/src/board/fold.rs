@@ -39,7 +39,14 @@ const CLOCK_SKEW: Duration = Duration::from_secs(120);
 pub const SUB_BUFFER: usize = 64;
 
 /// The row prefixes coord folds.
-pub const FOLLOW_KINDS: [&str; 4] = ["task.", "lease.", "blocker.", "take."];
+pub const FOLLOW_KINDS: [&str; 6] = [
+    "task.",
+    "lease.",
+    "blocker.",
+    "take.",
+    "board.ask.",
+    "review.",
+];
 
 /// Whether coord folds `kind`.
 pub fn followed(kind: &str) -> bool {
@@ -50,6 +57,9 @@ pub fn followed(kind: &str) -> bool {
 pub(crate) struct LeaseRec {
     pub lease: Lease,
     pub res: Resource,
+    /// The device that wrote its lease.acquired: on a board, the holder's
+    /// mirroring Core, which a `agent:` holder key doesn't name.
+    pub dev: String,
 }
 
 #[derive(Debug, Clone)]
@@ -144,7 +154,7 @@ pub struct Fold {
     pub(crate) key_person: Option<StrFn>,
     pub(crate) dev_person: Option<StrFn>,
     pub(crate) tag_fn: Option<Arc<dyn Fn() -> String + Send + Sync>>,
-    pub(crate) board_owner: Option<KeyFn>,
+    pub(crate) board_owner: Option<super::OwnerAtFn>,
     pub(crate) hop_of: Option<super::HopFn>,
     pub(crate) ignored: usize,
     pub(crate) ignored_by: BTreeMap<String, usize>,
@@ -189,6 +199,9 @@ pub struct Fold {
     pub(crate) stale: Arc<RwLock<StaleMap>>,
     pub(crate) links: Vec<ParentLink>,
     pub(crate) pins: HashMap<String, PinRec>,
+    /// A board's review requests by card, and its dedicated reviewers.
+    pub(crate) reviews: BTreeMap<String, Vec<super::review::ReviewRequest>>,
+    pub(crate) reviewers: super::review::Reviewers,
 }
 
 /// `stolenKey`: resource, holder and acquiredAt (RFC3339Nano, UTC).
@@ -279,6 +292,8 @@ impl Fold {
             stale: Arc::new(RwLock::new(StaleMap::default())),
             links: Vec::new(),
             pins: HashMap::new(),
+            reviews: BTreeMap::new(),
+            reviewers: BTreeMap::new(),
         }
     }
 
@@ -647,9 +662,12 @@ impl Fold {
                     self.touch(ev, &ti, at(p.at), &p.by, &what, true, also);
                 }
             }
-            kinds::TAKE_REQUESTED | kinds::TAKE_STATE | kinds::TASK_EDITED => {
-                self.apply_take(ev, &at)
-            }
+            kinds::TAKE_REQUESTED
+            | kinds::TAKE_STATE
+            | kinds::TASK_EDITED
+            | kinds::BOARD_ASK_REQUESTED
+            | kinds::BOARD_ASK_STATE
+            | kinds::BOARD_ASK_EDITED => self.apply_take(ev, &at),
             kinds::LEASE_REFUSED => {
                 let Some(mut r) = row::<Refusal>(&ev.payload) else {
                     return;
@@ -700,7 +718,11 @@ impl Fold {
                 {
                     return;
                 }
-                let mut rec = LeaseRec { lease: p, res };
+                let mut rec = LeaseRec {
+                    lease: p,
+                    res,
+                    dev: ev.device_id.clone(),
+                };
                 let name = rec.res.name.clone();
                 if let Some(l) = self.conflicts.get(&name)
                     && l.lease.holder == rec.lease.holder
@@ -727,6 +749,7 @@ impl Fold {
                 });
             }
             kinds::LEASE_STOLEN => self.apply_stolen(ev),
+            kinds::REVIEW_REQUESTED | kinds::REVIEW_REVIEWER => self.fold_review(ev, &at),
             kinds::LEASE_RELEASED => {
                 let Some(p) = row::<LeaseReleasedRow>(&ev.payload) else {
                     return;
@@ -816,7 +839,13 @@ impl Fold {
         if !valid_state(&p.state) || !self.tasks.contains_key(&p.task_id) {
             return;
         }
-        if p.state == CANCELED && !self.may_cancel(&self.tasks[&p.task_id], &ev.device_id) {
+        if p.state == CANCELED
+            && !self.may_cancel(
+                &self.tasks[&p.task_id],
+                &ev.device_id,
+                Some(&RowPos::of(ev)),
+            )
+        {
             self.ignore(&ev.device_id);
             return;
         }
@@ -1055,7 +1084,7 @@ impl Fold {
                 continue;
             }
             let l = self.held.remove(&name).expect("listed");
-            if self.local_key(&l.lease.holder)
+            if self.lease_local(&l)
                 && (!self.replaying
                     || gotime::since(now, &l.lease.until) < LAPSED_WITHIN.as_nanos() as i128)
             {
@@ -1197,14 +1226,36 @@ impl Fold {
 
     /// Whether l still holds at now: by its Until on this device; another
     /// device's always, unless that device was removed.
+    /// On a board another person's lease also ends at its Until (plus
+    /// the clock skew), so a member who went away can't hold a resource
+    /// past it.
     pub(crate) fn live(&self, l: &LeaseRec, now: &GoTime) -> bool {
-        if self.local_key(&l.lease.holder) {
+        if self.lease_local(l) {
             return gotime::after(&l.lease.until, now);
+        }
+        if self.on_board && !gotime::after(&gotime::add(&l.lease.until, CLOCK_SKEW), now) {
+            return false;
         }
         match &self.revoked {
             None => true,
-            Some(r) => !r(owner::device_of(&l.lease.holder)),
+            Some(r) => !r(self.lease_dev(l)),
         }
+    }
+
+    /// The device a lease lives on: its holder's on the private board, the
+    /// device that mirrored it on a shared one.
+    pub(crate) fn lease_dev<'a>(&self, l: &'a LeaseRec) -> &'a str {
+        if self.on_board {
+            return &l.dev;
+        }
+        owner::device_of(&l.lease.holder)
+    }
+
+    /// Whether this device keeps the lease: refuses it when it loses,
+    /// releases it when it lapses.
+    pub(crate) fn lease_local(&self, l: &LeaseRec) -> bool {
+        let dev = self.lease_dev(l);
+        dev.is_empty() || dev == self.dev
     }
 
     /// Folds an acquire that meets a live lease on the same resource from
@@ -1214,9 +1265,7 @@ impl Fold {
         let Some(e) = self.held.get(&name) else {
             return false;
         };
-        if e.lease.holder == rec.lease.holder
-            || owner::device_of(&e.lease.holder) == owner::device_of(&rec.lease.holder)
-        {
+        if e.lease.holder == rec.lease.holder || self.lease_dev(e) == self.lease_dev(rec) {
             return false;
         }
         if stolen.iter().any(|v| v.holder == e.lease.holder) {
@@ -1238,7 +1287,9 @@ impl Fold {
             return false;
         }
         let mut e = self.held.remove(&name).expect("checked");
-        let rec_wins = owner::device_of(&rec.lease.holder) < owner::device_of(&e.lease.holder);
+        // The lower device id's lease stands, across people too (v0.4
+        // §6.4), so a clock can't win it.
+        let rec_wins = self.lease_dev(rec) < self.lease_dev(&e);
         let (mut winner, mut loser) = if rec_wins {
             (rec.clone(), e.clone())
         } else {
@@ -1267,7 +1318,10 @@ impl Fold {
         if p.resource.is_empty() || p.holder.is_empty() {
             return;
         }
-        if !self.person_row(ev, &p.by) {
+        // Nobody steals another person's lease (§5.4).
+        if !self.person_row(ev, &p.by)
+            || self.on_board && self.person_of(&p.by) != self.person_of(&p.holder)
+        {
             self.ignore(&ev.device_id);
             return;
         }
@@ -1322,12 +1376,21 @@ impl Fold {
 
     // ---- shared boards (boardlog.go) ----
 
-    /// A row the person wrote as themselves.
+    /// A row the person wrote as themselves. On a board that is any
+    /// member's `person:` row from a device of that member, so one
+    /// person's rows count on the other's devices too.
     pub(crate) fn person_row(&self, ev: &Event, by: &str) -> bool {
         if self.on_board {
-            return ev.actor == by
-                && by.starts_with(kinds::PERSON_ACTOR_PREFIX)
-                && self.is_owner(by);
+            if ev.actor != by || !by.starts_with(kinds::PERSON_ACTOR_PREFIX) {
+                return false;
+            }
+            return match (&self.key_person, &self.dev_person) {
+                (Some(kp), Some(dp)) => {
+                    let p = kp(by);
+                    !p.is_empty() && p == dp(&ev.device_id)
+                }
+                _ => self.is_owner(by),
+            };
         }
         ev.actor == "user" && self.is_owner(by)
     }
@@ -1352,8 +1415,9 @@ impl Fold {
     }
 
     /// A cancel on a shared card counts only from a device of the card
-    /// creator's person or of an owner.
-    pub(crate) fn may_cancel(&self, t: &Task, writer: &str) -> bool {
+    /// creator's person or of a person who owned the board at the row's
+    /// place (`at`; `None` is a write now).
+    pub(crate) fn may_cancel(&self, t: &Task, writer: &str, at: Option<&RowPos>) -> bool {
         let (true, Some(kp), Some(dp)) = (self.on_board, &self.key_person, &self.dev_person) else {
             return true;
         };
@@ -1361,7 +1425,7 @@ impl Fold {
         if p.is_empty() {
             return false;
         }
-        p == kp(&t.created_by) || self.board_owner.as_ref().is_some_and(|f| f(&p))
+        p == kp(&t.created_by) || self.board_owner.as_ref().is_some_and(|f| f(&p, at))
     }
 
     fn sweeper_ok(&self, ev: &Event) -> bool {
@@ -1370,17 +1434,21 @@ impl Fold {
         };
         match ev.kind.as_str() {
             kinds::LEASE_RELEASED => true,
+            // The take lock: its fold counts only the asking device's.
+            kinds::BOARD_ASK_STATE => true,
             kinds::TASK_LEFT => self.may_write(&p.who, &ev.device_id),
             kinds::TASK_STATUS | kinds::BLOCKER_RESOLVED => match self.tasks.get(&p.task_id) {
                 None => true,
-                Some(t) => self.may_cancel(t, &ev.device_id),
+                Some(t) => self.may_cancel(t, &ev.device_id, Some(&RowPos::of(ev))),
             },
             _ => false,
         }
     }
 
     fn unwithdraws(&self, t: &Task, p: &TaskStateRow, ev: &Event) -> bool {
-        !is_terminal(&p.state) && self.person_actor(ev) && self.may_cancel(t, &ev.device_id)
+        !is_terminal(&p.state)
+            && self.person_actor(ev)
+            && self.may_cancel(t, &ev.device_id, Some(&RowPos::of(ev)))
     }
 
     /// A row whose actor is a person.
@@ -1477,7 +1545,7 @@ impl Fold {
         }
         self.held
             .values()
-            .filter(|l| self.local_key(&l.lease.holder))
+            .filter(|l| self.lease_local(l))
             .map(|l| l.lease.until)
             .min_by(gotime::cmp)
     }

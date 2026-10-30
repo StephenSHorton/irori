@@ -77,6 +77,8 @@ struct Row {
     held: String,
     by: String,
     to: String,
+    from: String,
+    reviewer: String,
     who: String,
     holder: String,
     held_by: String,
@@ -111,6 +113,8 @@ fn schema() -> &'static Schema {
             ("held", s()),
             ("by", s()),
             ("to", s()),
+            ("from", s()),
+            ("reviewer", s()),
             ("who", s()),
             ("holder", s()),
             ("heldBy", s()),
@@ -136,7 +140,8 @@ fn schema() -> &'static Schema {
                 ]))),
             ),
             ("stolenFrom", s()),
-            ("conflict", s()),
+            // A lease's holder it conflicts with, or lease.refused's bool.
+            ("conflict", Schema::Any),
             (
                 "outcome",
                 Schema::Ptr(Box::new(Schema::object(vec![("task", s())]))),
@@ -193,6 +198,8 @@ fn decode(payload: &[u8]) -> Option<Row> {
         held: g("held"),
         by: g("by"),
         to: g("to"),
+        from: g("from"),
+        reviewer: g("reviewer"),
         who: g("who"),
         holder: g("holder"),
         held_by: g("heldBy"),
@@ -217,7 +224,10 @@ fn decode(payload: &[u8]) -> Option<Row> {
             })
             .collect(),
         stolen_from: g("stolenFrom"),
-        conflict: g("conflict"),
+        conflict: match o.get("conflict") {
+            Some(Out::Any(Some(json::AnyValue::String(c)))) => c.clone(),
+            _ => String::new(),
+        },
         outcome: ptr(&o, "outcome").map(|x| x.get_str("task").to_string()),
         person_id: g("personId"),
         creator: ptr(&o, "creator").map(|x| x.get_str("personId").to_string()),
@@ -339,7 +349,11 @@ impl BoardRules {
     /// held in this board, else the first that isn't, by field.
     #[allow(clippy::collapsible_match)]
     pub(crate) fn resolves(&self, kind: &str, payload: &[u8]) -> Result<()> {
-        if kind.starts_with("member.") || kind.starts_with("board.") {
+        // Membership and identity rows name people, not cards; a board
+        // ask's take rows name its card like any task row.
+        if kind.starts_with("member.")
+            || kind.starts_with("board.") && !kind.starts_with("board.ask.")
+        {
             return Ok(());
         }
         let Some(p) = decode(payload) else {
@@ -401,10 +415,15 @@ impl BoardRules {
         let mut keys: Vec<(&str, &str)> = vec![
             ("by", &p.by),
             ("to", &p.to),
+            ("reviewer", &p.reviewer),
             ("who", &p.who),
             ("holder", &p.holder),
             ("heldBy", &p.held_by),
         ];
+        // A review request's asker (an ask's edit names its ask in from).
+        if kind == kinds::REVIEW_REQUESTED {
+            keys.push(("from", &p.from));
+        }
         for (resource, holder) in &p.stolen {
             keys.push(("stolen.holder", holder));
             if !b.leases.contains(resource) {

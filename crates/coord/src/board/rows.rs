@@ -398,3 +398,28 @@ crate::go_struct! {
 pub fn row<T: GoDecode>(payload: &[u8]) -> Option<T> {
     decode(payload)
 }
+
+crate::go_struct! {
+    /// A board's peer review request (v0.5 §10): `from` asks `to` (or the
+    /// other people's dedicated reviewers) to review a PR the card links.
+    #[derive(Debug, Clone, Default, PartialEq)]
+    pub struct ReviewRequestedRow {
+        pub task_id: String = "taskId",
+        pub pr: String = "pr",
+        pub from: String = "from",
+        pub to: String = "to" "omit",
+        pub at: GoTime = "at",
+    }
+}
+
+crate::go_struct! {
+    /// A person dedicating one of their agents as reviewer, for the board
+    /// or one repo; an empty reviewer clears it.
+    #[derive(Debug, Clone, Default, PartialEq)]
+    pub struct ReviewReviewerRow {
+        pub reviewer: String = "reviewer",
+        pub repo_key: String = "repoKey" "omit",
+        pub by: String = "by",
+        pub at: GoTime = "at",
+    }
+}

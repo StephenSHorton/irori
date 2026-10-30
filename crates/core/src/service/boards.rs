@@ -961,7 +961,22 @@ impl Services {
                         })
                     })),
                     tag: Some(Arc::new(move || v4.membership().tag)),
-                    board_owner: Some(Arc::new(move |p: &str| v5.membership().owner(p))),
+                    // The cancel rule reads the owners at the row's place
+                    // (v0.5 §5.3); no place means now.
+                    board_owner: Some(Arc::new(move |p: &str, at: Option<&coord::RowPos>| {
+                        let m = v5.membership();
+                        match at {
+                            None => m.owner(p),
+                            Some(at) => m.owner_at(
+                                p,
+                                &irori_identity::membership::RowAt {
+                                    hlc: at.hlc,
+                                    device: at.dev.clone(),
+                                    seq: at.seq,
+                                },
+                            ),
+                        }
+                    })),
                     // Under the board coord's lock: takes the inbox's, which
                     // never waits on a board coord (its stale hook reads
                     // only the private one).

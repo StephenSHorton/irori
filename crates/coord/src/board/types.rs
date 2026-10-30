@@ -758,3 +758,16 @@ pub struct NewSubtask {
     /// Step ids of the card being split (they move) or new step texts.
     pub steps: Vec<String>,
 }
+
+/// What a shared board's fold set aside: rows naming something the log
+/// doesn't hold yet, those dropped past the cap, and rows the writer
+/// rules ignored, by writing device.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetAside {
+    pub unresolved: usize,
+    pub dropped: usize,
+    pub ignored: usize,
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub ignored_by: std::collections::BTreeMap<String, usize>,
+}
