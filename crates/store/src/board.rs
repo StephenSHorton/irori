@@ -77,6 +77,8 @@ struct Row {
     held: String,
     by: String,
     to: String,
+    from: String,
+    reviewer: String,
     who: String,
     holder: String,
     held_by: String,
@@ -111,6 +113,8 @@ fn schema() -> &'static Schema {
             ("held", s()),
             ("by", s()),
             ("to", s()),
+            ("from", s()),
+            ("reviewer", s()),
             ("who", s()),
             ("holder", s()),
             ("heldBy", s()),
@@ -194,6 +198,8 @@ fn decode(payload: &[u8]) -> Option<Row> {
         held: g("held"),
         by: g("by"),
         to: g("to"),
+        from: g("from"),
+        reviewer: g("reviewer"),
         who: g("who"),
         holder: g("holder"),
         held_by: g("heldBy"),
@@ -409,10 +415,15 @@ impl BoardRules {
         let mut keys: Vec<(&str, &str)> = vec![
             ("by", &p.by),
             ("to", &p.to),
+            ("reviewer", &p.reviewer),
             ("who", &p.who),
             ("holder", &p.holder),
             ("heldBy", &p.held_by),
         ];
+        // A review request's asker (an ask's edit names its ask in from).
+        if kind == kinds::REVIEW_REQUESTED {
+            keys.push(("from", &p.from));
+        }
         for (resource, holder) in &p.stolen {
             keys.push(("stolen.holder", holder));
             if !b.leases.contains(resource) {

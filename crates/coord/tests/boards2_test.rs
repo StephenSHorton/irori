@@ -282,6 +282,7 @@ fn a_lease_mirrors_only_through_a_shared_card_in_its_repo() {
         b.c.mirror_acquire(CARD2, SRC_MAIN, Duration::ZERO, false)
             .unwrap_err();
     assert!(e.is(ErrorKind::Held), "{e}");
+    assert!(e.to_string().contains("release request"), "{e}");
     sync(&a, &b);
     for s in [&a, &b] {
         assert!(
@@ -564,4 +565,92 @@ fn a_take_lock_row_from_another_device_counts_nowhere() {
         )
         .unwrap_err();
     assert!(e.to_string().contains("not a card on this board"), "{e}");
+}
+
+// ---- peer review requests (§10) --------------------------------------------
+
+const PR: &str = "https://github.com/a/b/pull/7";
+
+#[test]
+fn a_review_request_reaches_the_other_persons_reviewer() {
+    let (a, b, _) = two_people();
+    let t = shared_card(&a, &b);
+    a.c.add_link(CARD1, &t.id, PR).unwrap();
+    sync(&a, &b);
+    // Nobody dedicated yet, and one's own person's agents can't approve.
+    let e = a.c.request_review(CARD1, &t.id, PR, "").unwrap_err();
+    assert!(e.is(ErrorKind::NotFound), "{e}");
+    let e = a.c.request_review(CARD1, &t.id, PR, CARD1).unwrap_err();
+    assert!(e.is(ErrorKind::NotAllowed), "{e}");
+    let e =
+        a.c.request_review(CARD1, &t.id, "https://github.com/a/b/pull/8", CARD2)
+            .unwrap_err();
+    assert!(e.is(ErrorKind::Invalid), "an unlinked PR: {e}");
+    let e = a.c.request_review(P1, &t.id, PR, CARD2).unwrap_err();
+    assert!(e.is(ErrorKind::Invalid), "a person asks no review: {e}");
+    // p2 dedicates c2, for the card's repo only; only p2 may.
+    for (by, who) in [(CARD2, CARD2), (P2, CARD1)] {
+        let e = b.c.set_reviewer(by, who, REPO_A).unwrap_err();
+        assert!(e.is(ErrorKind::NotAllowed), "{by} {who}: {e}");
+    }
+    b.c.set_reviewer(P2, CARD2, REPO_A).unwrap();
+    sync(&a, &b);
+    assert_eq!(a.c.reviewer("p2", REPO_A), CARD2);
+    assert_eq!(a.c.reviewer("p2", REPO_B), "", "another repo has none");
+    let (r, n) = a.c.request_review(CARD1, &t.id, PR, "").unwrap();
+    assert_eq!((r.from.as_str(), r.to.as_str()), (CARD1, ""));
+    assert_eq!(n.kind, NOTICE_REVIEW);
+    assert_eq!(n.to, vec![CARD2.to_string()]);
+    assert!(n.text.contains(PR), "{}", n.text);
+    sync(&a, &b);
+    assert_eq!(b.c.reviews(&t.id), vec![r]);
+    // Forged: p2's device asking as p1's agent, p1's device dedicating
+    // p2's agent.
+    let at = plus(fixed_now(), mins(5));
+    let forged = [
+        Event {
+            device_id: "dev-b2".into(),
+            seq: 1,
+            hlc: hlc::Timestamp(hlc_at(at)),
+            actor: CARD1.into(),
+            kind: kinds::REVIEW_REQUESTED.into(),
+            payload: gocompat::json::marshal(&coord::rows::ReviewRequestedRow {
+                task_id: t.id.clone(),
+                pr: PR.into(),
+                from: CARD1.into(),
+                to: CARD2.into(),
+                at,
+            })
+            .unwrap(),
+            sig: Vec::new(),
+        },
+        Event {
+            device_id: "dev-a2".into(),
+            seq: 1,
+            hlc: hlc::Timestamp(hlc_at(at)),
+            actor: P1.into(),
+            kind: kinds::REVIEW_REVIEWER.into(),
+            payload: gocompat::json::marshal(&coord::rows::ReviewReviewerRow {
+                reviewer: CARD2.into(),
+                repo_key: String::new(),
+                by: P1.into(),
+                at,
+            })
+            .unwrap(),
+            sig: Vec::new(),
+        },
+    ];
+    for s in [&a, &b] {
+        let before = s.c.ignored_rows();
+        for ev in &forged {
+            s.st.insert(ev).unwrap();
+            s.c.fold_live(std::slice::from_ref(ev));
+        }
+        assert_eq!(s.c.ignored_rows(), before + 2);
+        assert_eq!(s.c.reviews(&t.id).len(), 1);
+        assert_eq!(s.c.reviewer("p1", ""), "");
+    }
+    // Asked by name, the request goes to that agent alone.
+    let (_, n) = b.c.request_review(CARD2, &t.id, PR, CARD1).unwrap();
+    assert_eq!(n.to, vec![CARD1.to_string()]);
 }

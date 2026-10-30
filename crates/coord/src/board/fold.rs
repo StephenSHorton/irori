@@ -198,6 +198,9 @@ pub struct Fold {
     pub(crate) stale: Arc<RwLock<StaleMap>>,
     pub(crate) links: Vec<ParentLink>,
     pub(crate) pins: HashMap<String, PinRec>,
+    /// A board's review requests by card, and its dedicated reviewers.
+    pub(crate) reviews: BTreeMap<String, Vec<super::review::ReviewRequest>>,
+    pub(crate) reviewers: super::review::Reviewers,
 }
 
 /// `stolenKey`: resource, holder and acquiredAt (RFC3339Nano, UTC).
@@ -287,6 +290,8 @@ impl Fold {
             stale: Arc::new(RwLock::new(StaleMap::default())),
             links: Vec::new(),
             pins: HashMap::new(),
+            reviews: BTreeMap::new(),
+            reviewers: BTreeMap::new(),
         }
     }
 
@@ -742,6 +747,7 @@ impl Fold {
                 });
             }
             kinds::LEASE_STOLEN => self.apply_stolen(ev),
+            kinds::REVIEW_REQUESTED | kinds::REVIEW_REVIEWER => self.fold_review(ev, &at),
             kinds::LEASE_RELEASED => {
                 let Some(p) = row::<LeaseReleasedRow>(&ev.payload) else {
                     return;

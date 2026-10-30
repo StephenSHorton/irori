@@ -123,6 +123,8 @@ pub struct TestBackend {
     pub cp: OnceLock<capture::Capture>,
     /// Unset: attachments are off (Go's attachingBackend sets it).
     pub attacher: OnceLock<Arc<dyn tools::Attacher>>,
+    /// Unset: no shared boards (Go's nil router).
+    pub router: OnceLock<Arc<dyn tools::TaskRouter>>,
 }
 
 impl Backend for TestBackend {
@@ -146,6 +148,9 @@ impl Backend for TestBackend {
     }
     fn attacher(&self) -> Option<&dyn tools::Attacher> {
         self.attacher.get().map(|a| a.as_ref())
+    }
+    fn router(&self) -> Option<&dyn tools::TaskRouter> {
+        self.router.get().map(|r| r.as_ref())
     }
 }
 
@@ -288,6 +293,7 @@ pub fn new_harness_with(notifier: Option<Arc<dyn tools::Notifier>>) -> Harness {
         notifier,
         cp: OnceLock::new(),
         attacher: OnceLock::new(),
+        router: OnceLock::new(),
     });
     let set = Set::new(b.clone(), Some(now));
     Harness {

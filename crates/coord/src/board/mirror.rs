@@ -87,7 +87,39 @@ impl Fold {
         if self.mirror_tasks(card, resource, all).is_empty() {
             return Ok(None);
         }
-        self.acquire(card, resource, ttl, false).map(Some)
+        self.acquire(card, resource, ttl, false)
+            .map(Some)
+            .map_err(|e| self.board_held(card, resource, e))
+    }
+
+    /// A held refusal on a board, saying how to get another person's
+    /// lease: a release request, never a steal.
+    fn board_held(
+        &self,
+        card: &str,
+        resource: &str,
+        e: super::error::Error,
+    ) -> super::error::Error {
+        if !e.is(super::error::ErrorKind::Held) {
+            return e;
+        }
+        let Ok(res) = parse_resource(resource) else {
+            return e;
+        };
+        let other = self.held.values().find(|l| {
+            super::resource::conflicts(&l.res, &res)
+                && l.lease.holder != card
+                && self.others_lease(card, l)
+        });
+        match other {
+            Some(l) => held(format!(
+                "{} is leased on the shared board by {}, another person's agent, until {}. Nobody steals another person's lease: ask them to release it on the shared card (a release request).",
+                l.lease.resource,
+                l.lease.holder,
+                l.lease.until.format_rfc3339()
+            )),
+            None => e,
+        }
     }
 
     /// Mirrors the release of card's lease on resource: false when the

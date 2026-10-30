@@ -22,6 +22,7 @@ mod fold;
 mod links;
 mod mirror;
 mod resource;
+mod review;
 pub mod rows;
 mod short;
 mod subtasks;
@@ -54,6 +55,7 @@ pub use resource::{
     RESOURCE_NAMED, RESOURCE_PATH, RESOURCE_PORT, Resource, check_repo_key, normalize_glob,
     normalize_resource, overlaps, parse_resource,
 };
+pub use review::{NOTICE_REVIEW, ReviewRequest};
 pub use short::{parse_ref, parse_short, short_suffix};
 pub use types::*;
 
@@ -449,6 +451,30 @@ impl Coord {
     /// Mirrors the release of card's lease; false when none is here.
     pub fn mirror_release(&self, card: &str, resource: &str) -> Result<bool> {
         self.lock().mirror_release(card, resource)
+    }
+    /// Asks another person's agents to review a PR the card links: `to`,
+    /// or their dedicated reviewers (v0.5 §10). The notice goes to them.
+    pub fn request_review(
+        &self,
+        by: &str,
+        id: &str,
+        pr: &str,
+        to: &str,
+    ) -> Result<(ReviewRequest, Notice)> {
+        self.lock().request_review(by, id, pr, to)
+    }
+    /// The person dedicating one of their agents as reviewer for the board
+    /// or one repo (empty reviewer: none).
+    pub fn set_reviewer(&self, by: &str, reviewer: &str, repo: &str) -> Result<()> {
+        self.lock().set_reviewer(by, reviewer, repo)
+    }
+    /// A card's review requests, oldest first.
+    pub fn reviews(&self, id: &str) -> Vec<ReviewRequest> {
+        self.lock().reviews.get(id).cloned().unwrap_or_default()
+    }
+    /// A member's dedicated reviewer for repo, else for the board.
+    pub fn reviewer(&self, person: &str, repo: &str) -> String {
+        self.lock().reviewer_of(person, repo)
     }
     /// Asks the holder of another person's lease to release it, on the
     /// shared card it mirrors through, in place of a steal.
