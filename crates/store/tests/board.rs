@@ -117,6 +117,8 @@ fn board_refuses_kinds() {
         "receive.set",
         "board.sharedcopy",
         "board.cardof",
+        // Card #57: a shared card is withdrawn, never deleted.
+        "task.deleted",
     ] {
         assert!(
             refused.contains(&want) || store::is_local(want),
@@ -364,6 +366,12 @@ fn board_closure() {
         "agent:c1",
         LEASE_RELEASED,
         &json!({"resource": "gpu/qwen", "holder": "agent:c1", "by": "agent:c1"}),
+    );
+    // A conflict refusal's conflict is a bool, a lease's a holder.
+    e.must_append(
+        "agent:c1",
+        LEASE_REFUSED,
+        &json!({"resource": "gpu/qwen", "by": "agent:c1", "heldBy": "agent:c1", "held": "gpu/qwen", "conflict": true}),
     );
 
     let (early, r) = e.insert_b(

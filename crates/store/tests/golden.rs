@@ -72,18 +72,31 @@ fn board_name(b: Board) -> &'static str {
     }
 }
 
+/// Kinds added after the Go port (shared boards stage 2), which Go's
+/// table can't list: board logs accept them.
+const SINCE_GO: [&str; 3] = [
+    kinds::BOARD_ASK_REQUESTED,
+    kinds::BOARD_ASK_STATE,
+    kinds::BOARD_ASK_EDITED,
+];
+
 #[test]
 fn kinds_registry_matches_go() {
     let g = golden("store/kinds.json");
+    for k in SINCE_GO {
+        assert_eq!(store::kind_side(k), Side::Replicated, "{k}");
+        assert!(store::board_accepted(k), "{k}");
+    }
     let sides: BTreeMap<String, String> = REGISTRY
         .iter()
+        .filter(|e| !SINCE_GO.contains(&e.kind))
         .map(|e| (e.kind.to_string(), side_name(e.side).to_string()))
         .collect();
     let want_sides: BTreeMap<String, String> = serde_json::from_value(g["sides"].clone()).unwrap();
     assert_eq!(sides, want_sides, "Side column");
     let boards: BTreeMap<String, String> = REGISTRY
         .iter()
-        .filter(|e| e.board != Board::Unclassified)
+        .filter(|e| e.board != Board::Unclassified && !SINCE_GO.contains(&e.kind))
         .map(|e| (e.kind.to_string(), board_name(e.board).to_string()))
         .collect();
     let want_boards: BTreeMap<String, String> =

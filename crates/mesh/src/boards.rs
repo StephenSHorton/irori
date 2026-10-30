@@ -1,8 +1,9 @@
-//! Board logs between the person's own devices, boards stage 1 (mesh.md
-//! §2.3 "Board"; I:internal/mesh/boards.go). Each pull is its own stream,
-//! labelled `board/<boardId>`, so the private rows frames never carry a
-//! board row and a board stream never carries a private one. Only this
-//! person's certified devices are served, and only boards both hold.
+//! Board-log pulls on `board/<boardId>` streams (mesh.md §2.3 "Board";
+//! I:internal/mesh/boards.go). Stage 1 ran them on the private mesh
+//! connection between one person's devices; stage 2 runs them only on
+//! that board's `irori/board/1` connections ([`crate::boardmesh`]), so a
+//! board's rows move only between its members' devices and the private
+//! connection never carries one.
 //!
 //! A pull: the puller writes `u32 BE len || {"vector":{...}}`; the server
 //! answers with `u32 BE len || {"events":[Row]}` chunks of what the puller
@@ -14,24 +15,13 @@ use gocompat::json::{self, Out, Schema};
 use serde::Serialize;
 use store::{ErrorKind, Event, Store, Vector};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio_util::sync::CancellationToken;
 
 use crate::frames::{MAX_BATCH_ROWS, MAX_MESSAGE, Row, batches, decode_chunk};
-use crate::node::Node;
-use crate::session::Session;
-use crate::transport::Stream;
+use crate::transport::{Conn, Stream};
 
 pub const BOARD_LABEL_PREFIX: &str = "board/";
 const MAX_BOARD_REQUEST: usize = 1 << 20;
 const BOARD_PULL_ROWS: usize = 4 * MAX_BATCH_ROWS;
-
-/// The board logs a Node syncs (Go `BoardLogs`; the Core implements it).
-pub trait BoardLogs: Send + Sync {
-    /// The boards open on this device.
-    fn board_ids(&self) -> Vec<String>;
-    /// The open log of board `id`.
-    fn board_store(&self, id: &str) -> Option<Arc<Store>>;
-}
 
 #[derive(Serialize)]
 struct BoardRequest<'a> {
@@ -103,129 +93,77 @@ fn decode_vector(body: &[u8]) -> Option<Vector> {
     Some(v)
 }
 
-impl Node {
-    /// Go `KickBoards`: pulls every board from every connected device now.
-    pub fn kick_boards(&self) {
-        for s in self.session_list() {
-            s.board_wake.notify_one();
-        }
-    }
-
-    /// Go `serveBoard`: only a certified device of this person, and only a
-    /// board this device holds.
-    pub(crate) async fn serve_board(&self, peer: &str, label: &str, st: &mut Stream) {
-        let id = label.strip_prefix(BOARD_LABEL_PREFIX).unwrap_or(label);
-        let Some(boards) = &self.o.boards else { return };
-        if !self.certified(peer) {
-            return;
-        }
-        let Some(log) = boards.board_store(id) else {
-            return;
-        };
-        let Ok(body) = read_chunk(st, MAX_BOARD_REQUEST).await else {
-            return;
-        };
-        let Some(mut vec) = decode_vector(&body) else {
-            return;
-        };
-        let mut sent = 0;
-        while sent < BOARD_PULL_ROWS {
-            let (l, v) = (log.clone(), vec.clone());
-            let evs =
-                match tokio::task::spawn_blocking(move || l.missing(&v, MAX_BATCH_ROWS as i64))
-                    .await
-                {
-                    Ok(Ok(evs)) if !evs.is_empty() => evs,
-                    _ => return,
-                };
-            for f in batches(&evs, false) {
-                let body = json::marshal(&BoardChunk { events: &f.events }).unwrap_or_default();
-                if write_chunk(st, &body).await.is_err() {
-                    return;
-                }
+/// Go `serveBoard`'s reply: what `log` holds past the puller's vector, at
+/// most 2000 rows. The caller has already decided the peer may pull this
+/// board (its board connection's admission).
+pub(crate) async fn serve_pull(log: Arc<Store>, st: &mut Stream) {
+    let Ok(body) = read_chunk(st, MAX_BOARD_REQUEST).await else {
+        return;
+    };
+    let Some(mut vec) = decode_vector(&body) else {
+        return;
+    };
+    let mut sent = 0;
+    while sent < BOARD_PULL_ROWS {
+        let (l, v) = (log.clone(), vec.clone());
+        let evs =
+            match tokio::task::spawn_blocking(move || l.missing(&v, MAX_BATCH_ROWS as i64)).await {
+                Ok(Ok(evs)) if !evs.is_empty() => evs,
+                _ => return,
+            };
+        for f in batches(&evs, false) {
+            let body = json::marshal(&BoardChunk { events: &f.events }).unwrap_or_default();
+            if write_chunk(st, &body).await.is_err() {
+                return;
             }
-            for ev in &evs {
-                let e = vec.entry(ev.device_id.clone()).or_insert(0);
-                *e = (*e).max(ev.seq);
-            }
-            sent += evs.len();
         }
+        for ev in &evs {
+            let e = vec.entry(ev.device_id.clone()).or_insert(0);
+            *e = (*e).max(ev.seq);
+        }
+        sent += evs.len();
     }
 }
 
-impl Session {
-    /// Go `boardLoop`: pulls each board this device holds from the peer,
-    /// once its hello is in and then on every tick and kick.
-    pub(crate) async fn board_loop(&self, ctx: CancellationToken) {
-        let Some(boards) = self.n.o.boards.clone() else {
-            return;
-        };
-        while !self.hello_done() {
-            tokio::select! {
-                _ = ctx.cancelled() => return,
-                _ = tokio::time::sleep(std::time::Duration::from_millis(20)) => {}
-            }
+/// Go `pullBoard`: asks the peer on `conn` for the rows of board `id` that
+/// `log` lacks and inserts them. Returns how many rows came.
+pub(crate) async fn pull_board(
+    conn: &dyn Conn,
+    id: &str,
+    log: Arc<Store>,
+) -> Result<usize, String> {
+    let vec = log.vector().map_err(|e| e.to_string())?;
+    let st = conn
+        .open_stream(&format!("{BOARD_LABEL_PREFIX}{id}"))
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut stream: Stream = Box::new(tokio::io::join(st.recv, st.send));
+    let req = json::marshal(&BoardRequest { vector: &vec }).map_err(|e| e.to_string())?;
+    write_chunk(&mut stream, &req)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut evs: Vec<Event> = Vec::new();
+    loop {
+        match read_chunk(&mut stream, MAX_MESSAGE).await {
+            Ok(body) => evs.extend(decode_events(&body)?),
+            Err(ChunkErr::Eof) => break,
+            Err(ChunkErr::Other(e)) => return Err(e),
         }
-        let start = tokio::time::Instant::now() + self.n.iv.vector;
-        let mut tick = tokio::time::interval_at(start, self.n.iv.vector);
-        loop {
-            for id in boards.board_ids() {
-                if ctx.is_cancelled() {
-                    return;
-                }
-                let r = tokio::select! {
-                    _ = ctx.cancelled() => return,
-                    r = self.pull_board(&id) => r,
-                };
-                if let Err(e) = r {
-                    self.n
-                        .log(&format!("mesh: board {id} from {}: {e}", self.conn.id()));
-                }
-            }
-            tokio::select! {
-                _ = ctx.cancelled() => return,
-                _ = tick.tick() => {}
-                _ = self.board_wake.notified() => {}
-            }
+        if evs.len() > BOARD_PULL_ROWS {
+            break; // a peer that sends more than asked: what came is enough
         }
     }
-
-    /// Go `pullBoard`: asks the peer for the rows of board `id` this
-    /// device lacks and inserts them.
-    async fn pull_board(&self, id: &str) -> Result<(), String> {
-        let Some(st) = self.n.o.boards.as_ref().and_then(|b| b.board_store(id)) else {
-            return Ok(());
-        };
-        let vec = st.vector().map_err(|e| e.to_string())?;
-        let mut stream = self
-            .conn
-            .open_stream(&format!("{BOARD_LABEL_PREFIX}{id}"))
-            .await?;
-        let req = json::marshal(&BoardRequest { vector: &vec }).map_err(|e| e.to_string())?;
-        write_chunk(&mut stream, &req)
-            .await
-            .map_err(|e| e.to_string())?;
-        let mut evs: Vec<Event> = Vec::new();
-        loop {
-            match read_chunk(&mut stream, MAX_MESSAGE).await {
-                Ok(body) => evs.extend(decode_events(&body)?),
-                Err(ChunkErr::Eof) => break,
-                Err(ChunkErr::Other(e)) => return Err(e),
-            }
-            if evs.len() > BOARD_PULL_ROWS {
-                break; // a peer that sends more than asked: what came is enough
-            }
-        }
-        let _ = stream.shutdown().await;
-        tokio::task::spawn_blocking(move || insert_board_rows(&st, evs))
-            .await
-            .map_err(|e| e.to_string())?
-    }
+    let _ = stream.shutdown().await;
+    let n = evs.len();
+    tokio::task::spawn_blocking(move || insert_board_rows(&log, evs))
+        .await
+        .map_err(|e| e.to_string())??;
+    Ok(n)
 }
 
 /// Go `insertBoardRows`: device by device, trying again the runs refused
 /// for "no cert yet" while another run got in.
-pub(crate) fn insert_board_rows(st: &Store, evs: Vec<Event>) -> Result<(), String> {
+pub fn insert_board_rows(st: &Store, evs: Vec<Event>) -> Result<(), String> {
     let mut order: Vec<String> = Vec::new();
     let mut runs: std::collections::BTreeMap<String, Vec<Event>> = Default::default();
     for ev in evs {

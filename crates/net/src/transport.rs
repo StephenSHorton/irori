@@ -67,9 +67,9 @@ pub const GOSSIP_ALPN: &[u8] = b"irori/gossip/1";
 const OPEN_LABEL: &[u8] = b"irori/mesh-open/1";
 const EKM_MESH: &[u8] = b"EXPORTER-irori-mesh";
 const EKM_SAS: &[u8] = b"EXPORTER-irori-sas";
-const ROLE_DIAL: u8 = 0;
-const ROLE_ACCEPT: u8 = 1;
-const OPEN_MAX: usize = 4096;
+pub(crate) const ROLE_DIAL: u8 = 0;
+pub(crate) const ROLE_ACCEPT: u8 = 1;
+pub(crate) const OPEN_MAX: usize = 4096;
 /// Outgoing streams at a time per connection (go-room MaxStreams 4).
 const OUT_STREAMS: usize = 4;
 /// Incoming concurrent bi streams: `sync` plus 8.
@@ -88,7 +88,7 @@ pub struct PeerAddr {
 }
 
 impl PeerAddr {
-    fn endpoint_addr(&self) -> EndpointAddr {
+    pub(crate) fn endpoint_addr(&self) -> EndpointAddr {
         let mut a = EndpointAddr::new(self.id);
         if let Some(r) = &self.relay {
             a = a.with_relay_url(r.clone());
@@ -138,6 +138,11 @@ pub struct NetConfig {
     /// Pairing on the LAN lookup (M7): wire it into `lan`'s config before
     /// the lookup starts ([`crate::pairnet::PairLan::wire`]).
     pub pair_lan: crate::pairnet::PairLan,
+    /// The boards this device holds, for a [`crate::board::MemberAdmit`]
+    /// gate built over the same registry (boards stage 2): the Core adds a
+    /// board's verifier when it opens the board. An `admit` that is not a
+    /// `MemberAdmit` over it ignores it.
+    pub boards: Arc<crate::board::BoardMembers>,
 }
 
 impl NetConfig {
@@ -156,6 +161,7 @@ impl NetConfig {
             dns_log: crate::dns::DnsLog::default(),
             guests: crate::guest::GuestWindows::default(),
             pair_lan: crate::pairnet::PairLan::default(),
+            boards: crate::board::BoardMembers::new(),
         }
     }
 }
@@ -193,12 +199,25 @@ pub(crate) struct Inner {
     pub(crate) relays: Arc<Mutex<Vec<RelaySpec>>>,
     book: Mutex<BTreeMap<String, PeerAddr>>,
     rooms: Mutex<HashMap<i64, Arc<RoomState>>>,
-    dialing: Mutex<HashSet<(i64, String)>>,
+    /// Board rooms (stage 2, `irori/board/1`), by (board, board epoch).
+    pub(crate) board_rooms: Mutex<HashMap<(String, i64), Arc<RoomState>>>,
+    /// Each board's member devices and where to dial them
+    /// ([`IrohNet::set_board_peers`]); kept apart from the private book,
+    /// which [`IrohNet::set_peers`] replaces on every refeed.
+    pub(crate) board_book: Mutex<BTreeMap<String, BTreeMap<String, PeerAddr>>>,
+    /// (board or "" for the private mesh, epoch, peer) dials in flight.
+    dialing: Mutex<HashSet<(String, i64, String)>>,
     pub(crate) dial_errors: Mutex<BTreeMap<String, String>>,
     pub(crate) gossip: OnceCell<iroh_gossip::net::Gossip>,
     /// The open pairing room (epoch 0), at most one (M7).
     pub(crate) pair: Mutex<Option<Arc<crate::pairnet::PairRoom>>>,
     pub(crate) pair_open: Arc<AtomicBool>,
+    /// The open invite (card #44), at most one.
+    pub(crate) invite: Mutex<Option<Arc<crate::invite::InviteSlot>>>,
+    pub(crate) invite_open: Arc<AtomicBool>,
+    /// Inviters this device is dialing on `irori/invite/1` (the gate runs on
+    /// outgoing connections too).
+    pub(crate) invite_dials: Arc<Mutex<HashSet<EndpointId>>>,
     /// The lookup started from `cfg.lan_config` at bind.
     lan: std::sync::OnceLock<irori_lan::LanLookup>,
     /// Late-bound `on_heard` (the mesh's `Servers::heard`, built after the
@@ -210,6 +229,8 @@ pub(crate) struct Inner {
 pub(crate) struct RoomState {
     pub(crate) secret: Secret,
     pub(crate) cfg: RoomConfig,
+    /// The board of a board room; `None` for a private mesh room.
+    pub(crate) board: Option<String>,
     conns: Mutex<HashMap<String, Arc<IrohConn>>>,
     closed: AtomicBool,
 }
@@ -219,9 +240,27 @@ impl RoomState {
         RoomState {
             secret,
             cfg,
+            board: None,
             conns: Mutex::new(HashMap::new()),
             closed: AtomicBool::new(false),
         }
+    }
+
+    /// Its live connections, for status lines and tests.
+    pub(crate) fn conn_infos(&self) -> Vec<ConnInfo> {
+        self.conns
+            .lock()
+            .expect("conns")
+            .values()
+            .filter(|c| !c.done.is_cancelled())
+            .map(|c| ConnInfo {
+                epoch: c.epoch,
+                peer: c.peer.clone(),
+                dialer: c.dialer.clone(),
+                path: c.path(),
+                rtt: c.rtt(),
+            })
+            .collect()
     }
 
     fn live(&self, peer: &str) -> bool {
@@ -235,11 +274,16 @@ impl RoomState {
 
 /// The endpoint gate. On `irori/pair/1` it also admits ids it doesn't
 /// know, but only while a pairing room or a pairing guest window is open
-/// here (an invite window never opens pairing to strangers).
+/// here (an invite window never opens pairing to strangers); on
+/// `irori/invite/1`, only while an invite handler is set
+/// ([`IrohNet::set_invite_handler`]) or, outgoing, to the inviter an
+/// [`IrohNet::dial_invite`] is dialing.
 #[derive(Debug)]
 struct Gate {
     admit: Arc<dyn Admit>,
     pair_open: Arc<AtomicBool>,
+    invite_open: Arc<AtomicBool>,
+    invite_dials: Arc<Mutex<HashSet<EndpointId>>>,
     guests: crate::guest::GuestWindows,
 }
 
@@ -248,7 +292,14 @@ impl EndpointHooks for Gate {
         let pairing = conn.alpn() == PAIR_ALPN
             && (self.pair_open.load(Ordering::SeqCst)
                 || self.guests.any_open_of(crate::guest::WindowKind::Pair));
-        if pairing || self.admit.admits(conn.alpn(), &conn.remote_id()) {
+        let inviting = conn.alpn() == crate::board::INVITE_ALPN
+            && (self.invite_open.load(Ordering::SeqCst)
+                || self
+                    .invite_dials
+                    .lock()
+                    .expect("invite dials")
+                    .contains(&conn.remote_id()));
+        if pairing || inviting || self.admit.admits(conn.alpn(), &conn.remote_id()) {
             AfterHandshakeOutcome::Accept
         } else {
             AfterHandshakeOutcome::Reject {
@@ -324,14 +375,14 @@ fn conn_error(e: &ConnectionError) -> ConnError {
 }
 
 /// The reason a connection that failed mid-handshake closed with, if any.
-fn closed_error(conn: &Connection, fallback: impl Into<String>) -> ConnError {
+pub(crate) fn closed_error(conn: &Connection, fallback: impl Into<String>) -> ConnError {
     match conn.close_reason() {
         Some(e) => conn_error(&e),
         None => ConnError::Transport(fallback.into()),
     }
 }
 
-fn close_conn(conn: &Connection, why: &str) {
+pub(crate) fn close_conn(conn: &Connection, why: &str) {
     conn.close(VarInt::from_u32(reason::code(why)), why.as_bytes());
 }
 
@@ -346,11 +397,16 @@ impl IrohNet {
                 relays: Arc::new(Mutex::new(Vec::new())),
                 book: Mutex::new(BTreeMap::new()),
                 rooms: Mutex::new(HashMap::new()),
+                board_rooms: Mutex::new(HashMap::new()),
+                board_book: Mutex::new(BTreeMap::new()),
                 dialing: Mutex::new(HashSet::new()),
                 dial_errors: Mutex::new(BTreeMap::new()),
                 gossip: OnceCell::new(),
                 pair: Mutex::new(None),
                 pair_open: Arc::new(AtomicBool::new(false)),
+                invite: Mutex::new(None),
+                invite_open: Arc::new(AtomicBool::new(false)),
+                invite_dials: Arc::new(Mutex::new(HashSet::new())),
                 lan: std::sync::OnceLock::new(),
                 on_heard: Arc::new(Mutex::new(None)),
                 closed: AtomicBool::new(false),
@@ -442,7 +498,7 @@ impl IrohNet {
     /// ones it now refuses with `revoked` (Go `dropRevoked`; call it on every
     /// person row). New connections from them are already refused.
     pub fn recheck(&self) {
-        for room in self.inner.rooms_snapshot() {
+        for room in self.inner.all_rooms() {
             let conns: Vec<_> = room
                 .conns
                 .lock()
@@ -460,7 +516,7 @@ impl IrohNet {
 
     /// Close every connection to `device_id` with `why`.
     pub fn drop_device(&self, device_id: &str, why: &str) {
-        for room in self.inner.rooms_snapshot() {
+        for room in self.inner.all_rooms() {
             let c = room.conns.lock().expect("conns").get(device_id).cloned();
             if let Some(c) = c {
                 c.close(why);
@@ -472,18 +528,7 @@ impl IrohNet {
     pub fn conns(&self) -> Vec<ConnInfo> {
         let mut out = Vec::new();
         for room in self.inner.rooms_snapshot() {
-            for c in room.conns.lock().expect("conns").values() {
-                if c.done.is_cancelled() {
-                    continue;
-                }
-                out.push(ConnInfo {
-                    epoch: c.epoch,
-                    peer: c.peer.clone(),
-                    dialer: c.dialer.clone(),
-                    path: c.path(),
-                    rtt: c.rtt(),
-                });
-            }
+            out.extend(room.conn_infos());
         }
         out.sort_by(|a, b| (a.epoch, &a.peer).cmp(&(b.epoch, &b.peer)));
         out
@@ -531,6 +576,11 @@ impl IrohNet {
         &self.inner.cfg.guests
     }
 
+    /// The boards counted at the endpoint gate ([`NetConfig::boards`]).
+    pub fn board_members(&self) -> &Arc<crate::board::BoardMembers> {
+        &self.inner.cfg.boards
+    }
+
     /// Pairing on the LAN lookup: the bridge names this server's relay
     /// through it ([`crate::pairnet::PairLan::set_relay`]).
     pub fn pair_lan(&self) -> &crate::pairnet::PairLan {
@@ -574,7 +624,8 @@ impl IrohNet {
         if let Some(pr) = pr {
             self.inner.close_pair(&pr);
         }
-        for room in self.inner.rooms_snapshot() {
+        self.inner.clear_invite();
+        for room in self.inner.all_rooms() {
             self.inner.close_room(&room, reason::SHUTTING_DOWN);
         }
         if let Some(g) = self.inner.gossip.get() {
@@ -640,6 +691,38 @@ impl Inner {
             .collect()
     }
 
+    pub(crate) fn board_rooms_snapshot(&self) -> Vec<Arc<RoomState>> {
+        self.board_rooms
+            .lock()
+            .expect("board rooms")
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    /// The private mesh's rooms and the board rooms.
+    fn all_rooms(&self) -> Vec<Arc<RoomState>> {
+        let mut v = self.rooms_snapshot();
+        v.extend(self.board_rooms_snapshot());
+        v
+    }
+
+    /// Where to dial `peer` for `room`: a board room's own book first (the
+    /// other members' devices), then the private book (own devices).
+    fn peer_addr(&self, room: &RoomState, peer: &str) -> Option<PeerAddr> {
+        if let Some(b) = &room.board
+            && let Some(p) = self
+                .board_book
+                .lock()
+                .expect("board book")
+                .get(b)
+                .and_then(|m| m.get(peer))
+        {
+            return Some(p.clone());
+        }
+        self.book.lock().expect("book").get(peer).cloned()
+    }
+
     pub(crate) async fn bind(self: &Arc<Self>) -> Result<Endpoint, TransportError> {
         if self.closed.load(Ordering::SeqCst) {
             return Err(TransportError("mesh: transport closed".into()));
@@ -667,7 +750,12 @@ impl Inner {
         let tc = QuicTransportConfig::builder()
             .max_concurrent_bidi_streams(VarInt::from_u32(IN_STREAMS))
             .build();
-        let mut alpns = vec![MESH_ALPN.to_vec(), PAIR_ALPN.to_vec()];
+        let mut alpns = vec![
+            MESH_ALPN.to_vec(),
+            PAIR_ALPN.to_vec(),
+            crate::board::BOARD_ALPN.to_vec(),
+            crate::board::INVITE_ALPN.to_vec(),
+        ];
         if self.cfg.gossip {
             alpns.push(GOSSIP_ALPN.to_vec());
         }
@@ -684,6 +772,8 @@ impl Inner {
             .hooks(Gate {
                 admit: self.cfg.admit.clone(),
                 pair_open: self.pair_open.clone(),
+                invite_open: self.invite_open.clone(),
+                invite_dials: self.invite_dials.clone(),
                 guests: self.cfg.guests.clone(),
             })
             .clear_ip_transports();
@@ -720,7 +810,13 @@ impl Inner {
 
     pub(crate) fn close_room(&self, room: &Arc<RoomState>, why: &str) {
         room.closed.store(true, Ordering::SeqCst);
-        {
+        if let Some(b) = &room.board {
+            let key = (b.clone(), room.secret.epoch);
+            let mut rooms = self.board_rooms.lock().expect("board rooms");
+            if rooms.get(&key).is_some_and(|r| Arc::ptr_eq(r, room)) {
+                rooms.remove(&key);
+            }
+        } else {
             let mut rooms = self.rooms.lock().expect("rooms");
             if rooms
                 .get(&room.secret.epoch)
@@ -741,7 +837,7 @@ impl Inner {
         }
     }
 
-    fn connect(self: &Arc<Self>, room: &Arc<RoomState>, peer: &str) {
+    pub(crate) fn connect(self: &Arc<Self>, room: &Arc<RoomState>, peer: &str) {
         if self.closed.load(Ordering::SeqCst)
             || room.closed.load(Ordering::SeqCst)
             || peer == self.cfg.self_id
@@ -751,7 +847,11 @@ impl Inner {
         {
             return;
         }
-        let key = (room.secret.epoch, peer.to_string());
+        let key = (
+            room.board.clone().unwrap_or_default(),
+            room.secret.epoch,
+            peer.to_string(),
+        );
         if !self.dialing.lock().expect("dialing").insert(key.clone()) {
             return;
         }
@@ -781,20 +881,24 @@ impl Inner {
 
     async fn dial(self: &Arc<Self>, room: &Arc<RoomState>, peer: &str) -> Result<(), ConnError> {
         let addr = self
-            .book
-            .lock()
-            .expect("book")
-            .get(peer)
-            .cloned()
+            .peer_addr(room, peer)
             .ok_or_else(|| ConnError::Transport(format!("no address for {peer}")))?;
         let ep = self.bind().await.map_err(|e| ConnError::Transport(e.0))?;
+        let alpn = if room.board.is_some() {
+            crate::board::BOARD_ALPN
+        } else {
+            MESH_ALPN
+        };
         let conn = tokio::time::timeout(
             self.cfg.connect_timeout,
-            ep.connect(addr.endpoint_addr(), MESH_ALPN),
+            ep.connect(addr.endpoint_addr(), alpn),
         )
         .await
         .map_err(|_| ConnError::Transport(reason::TIMEOUT.into()))?
         .map_err(|e| ConnError::Transport(format!("connect: {e:#}")))?;
+        if let Some(board) = &room.board {
+            return self.dial_board(conn, room, board, peer, &addr).await;
+        }
         let epoch = room.secret.epoch;
         let k = ekm(&conn, EKM_MESH)?;
         let hs = async {
@@ -983,8 +1087,12 @@ async fn accept_loop(inner: Weak<Inner>, ep: Endpoint) {
             };
             if conn.alpn() == MESH_ALPN {
                 inner.handle_mesh(conn).await;
+            } else if conn.alpn() == crate::board::BOARD_ALPN {
+                inner.handle_board(conn).await;
             } else if conn.alpn() == PAIR_ALPN {
                 inner.handle_pair(conn).await;
+            } else if conn.alpn() == crate::board::INVITE_ALPN {
+                inner.handle_invite(conn).await;
             } else if conn.alpn() == GOSSIP_ALPN
                 && let Some(g) = inner.gossip.get()
             {
@@ -1231,9 +1339,9 @@ impl AsyncWrite for PermitSend {
 }
 
 /// One room on the iroh transport.
-struct IrohRoom {
-    net: Weak<Inner>,
-    state: Arc<RoomState>,
+pub(crate) struct IrohRoom {
+    pub(crate) net: Weak<Inner>,
+    pub(crate) state: Arc<RoomState>,
 }
 
 impl Room for IrohRoom {
@@ -1245,10 +1353,17 @@ impl Room for IrohRoom {
         // every allowed peer with no connection; `leave` is the `leaving`
         // close that `close` sends.
         if typ == MSG_PRESENCE {
-            let peers: Vec<String> = if to.is_empty() {
-                net.book.lock().expect("book").keys().cloned().collect()
-            } else {
+            let peers: Vec<String> = if !to.is_empty() {
                 vec![to.to_string()]
+            } else if let Some(b) = &self.state.board {
+                net.board_book
+                    .lock()
+                    .expect("board book")
+                    .get(b)
+                    .map(|m| m.keys().cloned().collect())
+                    .unwrap_or_default()
+            } else {
+                net.book.lock().expect("book").keys().cloned().collect()
             };
             for p in peers {
                 net.connect(&self.state, &p);

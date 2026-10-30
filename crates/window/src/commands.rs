@@ -291,6 +291,23 @@ pub async fn board_close_ask(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn board_close(
+    w: W<'_>,
+    id: String,
+    state: String,
+    note: String,
+) -> R<Typed<coord::Task, ts::Task>> {
+    w.close_card(&id, &state, &note).map(Typed::new)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn board_delete(w: W<'_>, id: String) -> R<()> {
+    w.delete_card(&id)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn board_pin(w: W<'_>, id: String, pinned: bool) -> R<()> {
     w.pin(&id, pinned)
 }
@@ -650,6 +667,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_ask_again,
             board_ask_repos,
             board_close_ask,
+            board_close,
+            board_delete,
             board_pin,
             board_move_pin,
             board_reopen,

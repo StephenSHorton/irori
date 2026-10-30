@@ -221,6 +221,48 @@ impl Window {
             .map_err(|e| e.to_string())
     }
 
+    /// The person closes a card by hand (card #57): Done (completed) or
+    /// Canceled, with an optional note. Any card; an open ask closes as
+    /// nothing came of it.
+    pub fn close_card(&self, id: &str, state: &str, note: &str) -> Result<Task, String> {
+        let state = trim(state);
+        if state != coord::COMPLETED && state != coord::CANCELED {
+            return Err(format!(
+                "{}: close a card as completed or canceled",
+                coord::ErrorKind::Invalid.text()
+            ));
+        }
+        // A shared card closes in its board's log, as the person there; its
+        // fold decides who may cancel it (v0.5 §5.3).
+        let id = trim(id);
+        let (co, keys) = self
+            .core
+            .task_coord(id, &[self.user_key()])
+            .map_err(|e| e.to_string())?;
+        co.set_task_state(&keys[0], id, state, note)
+            .map_err(|e| e.to_string())
+    }
+
+    /// The person deletes a card (card #57): it leaves the Board on every
+    /// device, and the signed log keeps it. A card on a shared board isn't
+    /// deleted: other people already have it, so it is withdrawn (§5.3).
+    pub fn delete_card(&self, id: &str) -> Result<(), String> {
+        let id = trim(id);
+        if let Ok((board_id, _)) = self.core.route(id)
+            && !board_id.is_empty()
+        {
+            return Err(format!(
+                "{}: a card on a shared board is withdrawn, not deleted: the others on it already have it",
+                coord::ErrorKind::Invalid.text()
+            ));
+        }
+        self.core
+            .coord()
+            .delete_task(&self.user_key(), id)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
     /// BoardService.Pin.
     pub fn pin(&self, id: &str, pinned: bool) -> Result<(), String> {
         let (co, keys) = self.private_only(trim(id))?;

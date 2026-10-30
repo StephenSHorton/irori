@@ -1558,6 +1558,15 @@ pub(crate) fn lease(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         }
         ttl = Duration::from_secs(m as u64 * 60);
     }
+    // A lease in a shared card's repo goes on that board first, where
+    // another person's lease refuses it.
+    let mirrored = match s.b.router() {
+        Some(rt) => match rt.mirror_acquire(&c.sender.key, res, ttl, a.bool("steal")) {
+            Ok(tags) => tags,
+            Err(e) => return map_err(e),
+        },
+        None => Vec::new(),
+    };
     let l = match s
         .b
         .coord()
@@ -1565,6 +1574,11 @@ pub(crate) fn lease(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     {
         Ok(l) => l,
         Err(e) => {
+            if !mirrored.is_empty()
+                && let Some(rt) = s.b.router()
+            {
+                rt.mirror_release(&c.sender.key, res);
+            }
             if res.starts_with("path:") {
                 let rk = s.caller_repo(c);
                 if !rk.is_empty() {
@@ -1585,6 +1599,12 @@ pub(crate) fn lease(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         out += &format!(
             " Taken from {}; consider telling them.",
             n.who(&l.stolen_from)
+        );
+    }
+    if !mirrored.is_empty() {
+        out += &format!(
+            " Mirrored on {}, where the other members' agents see it.",
+            mirrored.join(", ")
         );
     }
     out
@@ -1627,7 +1647,11 @@ pub(crate) fn release(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     if res.is_empty() {
         return err_text("give resource, exactly as the leases tool shows it.");
     }
-    if let Err(e) = s.b.coord().release(&c.sender.key, res) {
+    let r = s.b.coord().release(&c.sender.key, res);
+    if let Some(rt) = s.b.router() {
+        rt.mirror_release(&c.sender.key, res);
+    }
+    if let Err(e) = r {
         return map_err(e);
     }
     format!("Released {}.", one_line(res, MAX_FIELD_RUNES))

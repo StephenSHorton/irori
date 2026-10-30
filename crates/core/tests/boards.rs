@@ -877,6 +877,104 @@ fn paired() -> (Dev, Dev) {
     (a, b)
 }
 
+/// Boards stage 2 (card #44 step 5, boards2-transport.md §4): a board's
+/// secret reaches the person's other devices on the private mesh as
+/// `board.secret`, sealed under the mesh key. A board A makes opens on B
+/// from the private board.joined row, and B ends up holding A's epoch 1
+/// rather than minting its own.
+#[test]
+fn board_secret_reaches_own_devices() {
+    let (a, b) = paired();
+    let id = a.core.create_board("MLG", "mlg").unwrap();
+    wait_for(45, "b opens the board", || b.core.board_coord(&id).is_ok());
+    let sa = a.core.board_secrets(&id).unwrap();
+    assert_eq!(sa.epoch(), 1);
+    let sb = b.core.board_secrets(&id).unwrap();
+    wait_for(45, "b holds the board's secret", || sb.secret(1).is_some());
+    let (ka, ma) = sa.secret(1).unwrap();
+    let (kb, mb) = sb.secret(1).unwrap();
+    assert_eq!(ma, a.core.device_id());
+    assert_eq!(mb, ma, "b holds a's secret, not one of its own");
+    assert_eq!(*ka, *kb);
+    a.core.close().unwrap();
+    b.core.close().unwrap();
+}
+
+/// Boards stage 2 (card #60): an invitee with two devices. The invite
+/// runs on one; the other opens the board from the private board.joined
+/// row, gets its secret on board.secret and the board's rows from its own
+/// device on `irori/board/1`, and then cards move between it and the
+/// inviter with nothing copied by hand. Three made-up Cores, all on
+/// 127.0.0.1.
+#[test]
+fn an_invitees_other_device_joins_the_board() {
+    let (b1, b2) = paired(); // the invitee's two devices
+    let (lc, nowhere) = (free_udp(), free_udp());
+    let a = dev(
+        tempfile::tempdir().unwrap(),
+        "gamma",
+        "cccccccc-3333-4333-8333-00000000000c",
+        lc,
+        nowhere,
+    );
+    let id = a.core.create_board("MLG & co", "mlg").unwrap();
+    let ra = a.core.pairing_runtime().clone();
+    let link = ra.block_on(a.core.invite(&id)).unwrap().link;
+    let rb = b1.core.pairing_runtime().clone();
+    rb.block_on(b1.core.join_invite(&link)).unwrap();
+    wait_for(45, "the invitee's screen shows the words", || {
+        b1.core.invite_status().status.state == "words"
+            && a.core.invite_status().status.state == "words"
+    });
+    let words = b1.core.invite_status().status.words.join(" ");
+    a.core.confirm_invite_words(&words).unwrap();
+    wait_for(45, "the invite is done", || {
+        a.core.invite_status().status.state == "done"
+            && b1.core.invite_status().status.state == "done"
+    });
+
+    // The invitee's other device.
+    wait_for(45, "b2 opens the board", || {
+        b2.core.board_coord(&id).is_ok()
+    });
+    let v2 = b2.core.board_verifier(&id).unwrap();
+    wait_for(45, "b2's cert and the board's rows arrive", || {
+        v2.membership().created && v2.cert(b2.core.device_id()).is_some()
+    });
+    let s2 = b2.core.board_secrets(&id).unwrap();
+    wait_for(45, "b2 holds the board's secret", || s2.secret(1).is_some());
+
+    let me_a = format!("person:{}", a.core.identity().current().id);
+    let from_a = a
+        .core
+        .board_coord(&id)
+        .unwrap()
+        .create_task(&me_a, new_task("from the inviter"))
+        .unwrap();
+    let co2 = b2.core.board_coord(&id).unwrap();
+    wait_for(45, "b2 gets the inviter's card", || {
+        co2.get_task(&from_a.id).is_some()
+    });
+    let by2 = b2.core.board_key(&id, &b2.user()).unwrap();
+    let from_b2 = co2
+        .create_task(&by2, new_task("from the invitee's other device"))
+        .unwrap();
+    let coa = a.core.board_coord(&id).unwrap();
+    wait_for(45, "the inviter gets b2's card", || {
+        coa.get_task(&from_b2.id).is_some()
+    });
+    // The inviter never joined the invitee's private mesh.
+    for c in [&b1.core, &b2.core] {
+        assert!(
+            !c.net().conns().iter().any(|x| x.peer == a.core.device_id()),
+            "the inviter is on the invitee's private mesh"
+        );
+    }
+    for d in [a, b1, b2] {
+        d.core.close().unwrap();
+    }
+}
+
 /// TestBoardOnOwnDevices: step 4's one person, two devices. A board A
 /// makes opens on B from the private board.joined row; its rows reach B on
 /// the board stream, B's cert with them, so B writes as the person; what B
@@ -901,11 +999,14 @@ fn board_on_own_devices() {
             && got[0].ready,
         "b's boards {got:?}"
     );
-    // The first secret is the creating device's alone (§6.1).
+    // The first secret is the creating device's alone (§6.1); b gets it on
+    // board.secret (stage 2) rather than making its own.
     assert_eq!(a.core.board_info(&id).unwrap().secret_epoch, 1);
+    let bs = b.core.board_secrets(&id).unwrap();
+    wait_for(45, "b holds a's secret", || bs.secret(1).is_some());
     assert_eq!(
-        b.core.board_info(&id).unwrap().secret_epoch,
-        0,
+        bs.secret(1).unwrap().1,
+        a.core.device_id(),
         "b made its own first secret"
     );
 

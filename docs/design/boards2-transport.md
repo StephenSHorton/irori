@@ -130,3 +130,25 @@ After the bundle, the invitee's Core opens the board and its `BoardMesh`. Its ot
    - `irori/mesh/1` refusing a member device;
    - gossip kick;
    - rotation through `board.secret`.
+
+## 9. Built: the board connection (`boards2-transport-conn`)
+
+Steps 1 (its board half), 2 (`irori/board/1`), 3 (the gate), 4 and 6 (part) are in:
+
+- **`irori-net`**: the endpoint offers `irori/board/1`; `handle_board` / `dial_board` run the board-open exchange (a wrong proof, an unknown board or a refused device closes `refused` before a frame). `join_board` keeps one room per (board, epoch); `drop_board` closes them.
+- **`irori-mesh` `boardmesh`**: `BoardMesh` joins a room per epoch `BoardSecrets::topics()` holds, admits by `admitted_by_pub` (whose device id must match), says `hello`, pulls on `board/<id>` (any other label is refused), sends `vector`/`ping`, and hands a newer epoch's secret to members still on the older one (`board.secret`, sealed under that connection's epoch key). Rows landing re-run the admission check, so a removal cuts on both sides. `seal_board_secret` / `open_board_secret` are real.
+- **Stage 1 removed**: the private Node no longer serves or pulls `board/` streams (`Options.boards`, `BoardLogs`, `Session::board_loop` and `mesh/tests/boards.rs` are gone).
+- **Core**: the endpoint gate is `MemberAdmit` over `NetConfig::boards`. `Core::open_board_net(BoardParts)`, `close_board_net`, `kick_board`, `recheck_board` and `board_addr_hint` are the hooks the board-open path (#44, M9) calls. Every refeed re-feeds each board's member devices and re-checks its connections.
+
+Interface additions (none of the published signatures changed):
+- `IrohNet::set_board_peers(board_id, Vec<PeerAddr>)`: a board's own address book, which `set_peers` never clears and the private mesh never dials. Also `board_conns`, `board_rooms`, `board_members`.
+- `NetConfig::boards: Arc<BoardMembers>` and `board::BoardMembers`, the Core's `BoardAdmit` over open boards' verifiers.
+- `BoardMesh::{set_intervals, set_log, on_rows, member_devices, epochs, peers}` and `boardmesh::MemberDevice`.
+
+Still open:
+- `board.secret` to your own devices on the private mesh `sync` channel.
+- Gossip kick, B1 relay admission, `board.server`, and `settle` once every member has said hello on the new epoch.
+- The Core opens no board on its `BoardMesh` yet (`open_board_net` has no caller), so `Boards::kick` (now `Mesh::kick_boards`) kicks nothing in the app, and a person's own devices no longer share a board at all: `core/tests/boards.rs` `board_on_own_devices` and `board_cards_across_own_devices` are `#[ignore]`d until the board-open path calls `open_board_net` and `board.secret` reaches own devices.
+- Two admission registries after the merge with the gossip-relay half: `board::BoardMembers` (endpoint gate, this half) and `boardadmit::HeldBoards` (gossip and relay). The Core should hold one.
+
+Tests: `net/tests/board_iroh.rs` and `core/tests/boards2.rs`.

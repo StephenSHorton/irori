@@ -553,3 +553,31 @@ fn membership_json_is_gos_shape() {
         r#"{"created":false,"boardId":"bd","name":"","tag":"","creator":"","members":null}"#
     );
 }
+
+#[test]
+fn owner_at_reads_the_owners_at_the_row() {
+    let mut b = Mb::default();
+    b.created("s"); // hlc 1
+    b.added("s-pc", "s", "b", "owner"); // 2
+    b.role("s-pc", "s", "b", "member"); // 3
+    b.added("s-pc", "s", "c", "member"); // 4
+    b.removed("s-pc", "s", "c", cut(&[])); // 5
+    let at = |hlc: u64| RowAt {
+        hlc,
+        device: String::new(), // before any row stamped at hlc
+        seq: 1,
+    };
+    let keys = test_keys();
+    for idx in shuffles(50, b.rows.len()) {
+        let rows: Vec<MembershipRow> = idx.iter().map(|&i| b.rows[i].clone()).collect();
+        let m = fold_membership("bd", &anchor_s(), &rows, &keys);
+        assert!(!m.owner_at("s", &at(1)), "s owns only after board.created");
+        assert!(m.owner_at("s", &at(2)) && m.owner_at("s", &at(9)));
+        assert!(!m.owner_at("b", &at(2)), "b, before its add");
+        assert!(m.owner_at("b", &at(3)), "b, between its add and demotion");
+        assert!(!m.owner_at("b", &at(4)), "b, after its demotion");
+        assert!(!m.owner("b"));
+        assert!(!m.owner_at("c", &at(5)), "a member is no owner");
+        assert!(!m.owner_at("nobody", &at(9)));
+    }
+}

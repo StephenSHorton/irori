@@ -151,6 +151,10 @@ pub struct Membership {
     pub gone: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub conflicts: Vec<Conflict>,
+    /// Each time a person became or stopped being an active owner, in
+    /// fold order: what [`Membership::owner_at`] reads.
+    #[serde(skip)]
+    pub owner_changes: Vec<(String, RowAt, bool)>,
 }
 
 impl Membership {
@@ -164,6 +168,15 @@ impl Membership {
     pub fn owner(&self, person_id: &str) -> bool {
         self.person(person_id)
             .is_some_and(|p| p.state == MEMBER_ACTIVE && p.role == BOARD_OWNER)
+    }
+    /// Whether the person was an active owner just before the row at `at`
+    /// in fold order, so a rule reads the owners at the row's time rather
+    /// than today's (v0.5 §5.3).
+    pub fn owner_at(&self, person_id: &str, at: &RowAt) -> bool {
+        self.owner_changes
+            .iter()
+            .rfind(|(p, when, _)| p == person_id && when < at)
+            .is_some_and(|(_, _, owner)| *owner)
     }
 }
 
@@ -433,7 +446,33 @@ pub fn fold_membership(
             reason: reason.to_string(),
         });
     };
+    let mut owner_changes: Vec<(String, RowAt, bool)> = Vec::new();
+    // Records what the previous row did to its person's ownership, at that
+    // row's place (the creator's own row names them in `by`).
+    let note_owner = |people: &BTreeMap<String, BoardPerson>,
+                      changes: &mut Vec<(String, RowAt, bool)>,
+                      d: &MRow| {
+        let p = if d.kind == kinds::BOARD_CREATED {
+            &d.by
+        } else {
+            &d.who
+        };
+        if p.is_empty() {
+            return;
+        }
+        let was = changes
+            .iter()
+            .rfind(|(q, _, _)| q == p)
+            .is_some_and(|(_, _, o)| *o);
+        let now = is_owner(people, p);
+        if was != now {
+            changes.push((p.clone(), d.at.clone(), now));
+        }
+    };
     for (i, d) in ds.iter().enumerate() {
+        if i > 0 {
+            note_owner(&people, &mut owner_changes, &ds[i - 1]);
+        }
         let gate = d.kind == kinds::BOARD_MEMBER_REMOVED || d.kind == kinds::BOARD_MEMBER_LEFT;
         if !gate && past(&d.at) {
             continue; // the store refuses it; nothing to show
@@ -575,8 +614,12 @@ pub fn fold_membership(
             _ => {}
         }
     }
+    if let Some(d) = ds.last() {
+        note_owner(&people, &mut owner_changes, d);
+    }
     m.name = name;
     m.conflicts = conflicts;
+    m.owner_changes = owner_changes;
     m.members = order
         .iter()
         .filter_map(|id| people.get(id).cloned())

@@ -18,7 +18,6 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::boards::BoardLogs;
 use crate::frames::{FRAME_HELLO, FRAME_PERSON_SECRET, Frame, PROTOCOL, Row};
 use crate::peers::{PeerEpoch, load_peers, save_peers};
 use crate::secret::{mesh_secret, open_secret, seal_secret};
@@ -61,7 +60,7 @@ pub struct Intervals {
 }
 
 impl Intervals {
-    fn with_defaults(mut self) -> Intervals {
+    pub(crate) fn with_defaults(mut self) -> Intervals {
         let def = |d: &mut Duration, v: u64| {
             if d.is_zero() {
                 *d = Duration::from_secs(v);
@@ -124,8 +123,6 @@ pub struct Options {
     pub trust_any_peer: bool,
     /// Per writing device, the rows the folds ignored for the writer rules.
     pub ignored: Option<IgnoredFn>,
-    /// The shared boards' logs, synced on board/<id> streams.
-    pub boards: Option<Arc<dyn BoardLogs>>,
     pub logf: Option<LogFn>,
     pub now: Option<NowFn>,
 }
@@ -191,6 +188,9 @@ pub struct Node {
     peers_mu: Mutex<()>,
     pub(crate) st: Mutex<State>,
     pub(crate) fetching: Mutex<BTreeMap<String, Arc<tokio::sync::Semaphore>>>,
+    /// The shared boards open here, for `board.secret` (crate::ownboards).
+    pub(crate) own_boards: Mutex<Option<Arc<dyn crate::ownboards::OwnBoards>>>,
+    pub(crate) board_pending: Mutex<BTreeMap<String, crate::ownboards::PendingBoardSecret>>,
     me: Weak<Node>,
 }
 
@@ -247,6 +247,8 @@ impl Node {
                 retry: BTreeMap::new(),
             }),
             fetching: Mutex::new(BTreeMap::new()),
+            own_boards: Mutex::new(None),
+            board_pending: Mutex::new(BTreeMap::new()),
             me: me.clone(),
             o,
         })
@@ -416,6 +418,7 @@ impl Node {
                 s.conn.close("epoch"); // both have the new epoch: the new room only
             } else if s.hello_done() {
                 self.send_secret(&s);
+                self.send_board_secrets(&s);
             }
         }
         self.ensure_rooms().await;

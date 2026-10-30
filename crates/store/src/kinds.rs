@@ -120,6 +120,9 @@ kinds! {
     TASK_PARENT = "task.parent" => Replicated, Accepts;
     /// The person's own card order in their window.
     TASK_PINNED = "task.pinned" => Replicated, Refuses;
+    /// The person deleted a card (card #57): it leaves every view; the
+    /// log keeps it. Go v0.5 Cores store and replicate it and ignore it.
+    TASK_DELETED = "task.deleted" => Replicated, Refuses;
     // capture
     CAPTURE_TURN = "capture.turn" => Replicated, Refuses;
     CAPTURE_EDIT = "capture.edit" => Replicated, Refuses;
@@ -158,6 +161,12 @@ kinds! {
     MEMBER_KEY_ROTATED = "member.key.rotated" => Replicated, Accepts;
     /// `{cardId, name, kind, personId, status}`; actor `agent:<cardId>`.
     AGENT_CARD = "agent.card" => Replicated, Accepts;
+    /// An ask's take request on a board (the private `take.requested`).
+    BOARD_ASK_REQUESTED = "board.ask.requested" => Replicated, Accepts;
+    /// An ask's take lock, written by the asking device (`take.state`).
+    BOARD_ASK_STATE = "board.ask.state" => Replicated, Accepts;
+    /// An ask's outcome edit of a card (`task.edited`).
+    BOARD_ASK_EDITED = "board.ask.edited" => Replicated, Accepts;
     REVIEW_REQUESTED = "review.requested" => Replicated, Accepts;
     REVIEW_REVIEWER = "review.reviewer" => Replicated, Accepts;
     // v0.5 private-log rows, never in a board log

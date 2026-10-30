@@ -40,8 +40,11 @@
 //!   the `irori attach` runner and `irori mcp`; [`client`] dials the
 //!   lockfile. [`redact::redact`] is the tools crate's `Redact` too.
 //! - Mesh (M5): `/v1/devices[?detail=1]` is [`Backend::mesh_devices`]
-//!   (Go `Mesh().Devices`), 503 for a backend without a mesh. Health has
-//!   no `net` yet.
+//!   (Go `Mesh().Devices`), 503 for a backend without a mesh. Health's
+//!   `net` (`{state, peers}`) is [`Backend::net_health`]; a backend
+//!   without a mesh leaves it out, as Go does.
+//! - Shared boards (M9): `/v1/boards[?detail=1]` is [`Backend::boards`],
+//!   503 until the Core holds shared boards.
 //! - Timeouts: Go's ReadHeader 5 s, Read 10 s, Write 30 s and Idle 60 s
 //!   are per-connection deadlines on the socket ([`conn`]); the attach and
 //!   events streams lift them, as Go's do. A body is read only after the
@@ -50,6 +53,7 @@
 pub mod attach;
 pub mod backend;
 pub mod board;
+pub mod boards;
 mod body;
 pub mod client;
 pub mod conn;
@@ -62,7 +66,7 @@ mod stream;
 mod v02;
 mod v03;
 
-pub use backend::{Backend, Caller, CoreTools, ToolError, ToolSet};
+pub use backend::{Backend, Caller, CoreTools, NetHealth, ToolError, ToolSet};
 pub use conn::Timeouts;
 pub use irori_core::Member;
 pub use server::{DEFAULT_EVENT_LIMIT, KEEPALIVE, MAX_EVENT_LIMIT, Server, listen};

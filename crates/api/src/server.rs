@@ -68,6 +68,9 @@ struct Health {
     version: String,
     #[serde(rename = "deviceId")]
     device_id: String,
+    /// The mesh (v0.4 §6.8); absent when the backend has none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    net: Option<crate::backend::NetHealth>,
 }
 
 fn new_secret(n: usize) -> String {
@@ -331,6 +334,7 @@ fn precheck(s: &Arc<Shared>, port: u16, r: &Req) -> Option<Resp> {
                 ok: true,
                 version: s.b.version(),
                 device_id: d.id,
+                net: s.b.net_health(),
             },
         ));
     }
@@ -359,6 +363,7 @@ fn dispatch(s: &Arc<Shared>, port: u16, r: &Req) -> Resp {
         "/v1/events" => crate::events::events(&h),
         "/v1/events/stream" => crate::events::stream(&h),
         "/v1/devices" => devices(s, r),
+        "/v1/boards" => boards(s, r),
         _ => http::error(404, "no such route"),
     }
 }
@@ -371,6 +376,17 @@ fn devices(s: &Arc<Shared>, r: &Req) -> Resp {
     match s.b.mesh_devices(d == "1" || d == "true") {
         Some(rows) => http::json(200, &rows),
         None => http::error(503, "this Core has no devices layer"),
+    }
+}
+
+/// `GET /v1/boards[?detail=1]`: the shared boards this device holds, with
+/// `detail` (`1` or `true`) adding members and the set-aside counts. A
+/// backend without shared boards answers 503, as devices does.
+fn boards(s: &Arc<Shared>, r: &Req) -> Resp {
+    let d = r.query.get("detail");
+    match s.b.boards(d == "1" || d == "true") {
+        Some(rows) => http::json(200, &rows),
+        None => http::error(503, "this Core has no shared boards"),
     }
 }
 

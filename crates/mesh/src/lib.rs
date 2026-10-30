@@ -10,7 +10,8 @@
 //! | [`node`] | `node.go` | [`Node`]: epoch rooms, revoke, rotation and its tie-break, secret hand-off |
 //! | `session` | `session.go` | sync on one connection: hello, batches, acks, held rows, restore and fork checks |
 //! | [`files`] | `files.go` | attachment offers and fetches over `blob/` streams |
-//! | [`boards`] | `boards.go` | board-log pulls over `board/` streams (boards stage 1) |
+//! | [`boards`] | `boards.go` | board-log pulls over `board/` streams |
+//! | [`boardmesh`] | (stage 2) | one board's mesh on `irori/board/1`: hello, pulls, `board.secret` |
 //! | [`devices`] | `devices.go`, `node.go` | liveness, `Status`, device rows and their warnings |
 //! | [`servers`] | `servers.go` | the `node.addr` fold and `hub-addrs.json` |
 //! | [`peers`] | `peers.go` | `mesh-peers.json` |
@@ -30,6 +31,7 @@ pub mod files;
 pub mod frames;
 mod fsutil;
 pub mod node;
+pub mod ownboards;
 pub mod peers;
 pub mod relay;
 pub mod secret;
@@ -37,7 +39,7 @@ pub mod servers;
 mod session;
 pub mod transport;
 
-pub use boards::{BOARD_LABEL_PREFIX, BoardLogs};
+pub use boards::BOARD_LABEL_PREFIX;
 pub use devices::{DeviceRow, PeerState, Status};
 pub use fake::FakeNet;
 pub use files::{BLOB_LABEL_PREFIX, FetchError, FileOffer};

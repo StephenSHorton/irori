@@ -371,7 +371,8 @@ pub(crate) fn created_task_id(ev: &Event) -> String {
 }
 
 /// The Core's set of board logs, the taskId index and step 4's state. It
-/// is made before the mesh, which serves its logs ([`mesh::BoardLogs`]).
+/// is made before the mesh; each open board's connections run on its own
+/// `BoardMesh` (`Core::open_board_net`).
 #[derive(Default)]
 pub(crate) struct Boards {
     pub(crate) inner: Mutex<BoardsInner>,
@@ -379,12 +380,17 @@ pub(crate) struct Boards {
     pub(crate) rec: Mutex<()>,
     subs: Mutex<Vec<Weak<Queue<Change>>>>,
     follow: OnceLock<()>,
-    /// The mesh Node, kicked when a board opens or a row lands.
-    pub(crate) node: OnceLock<Arc<mesh::Node>>,
+    /// Kicks every open board's `BoardMesh` when a board opens or a row
+    /// lands, so its member devices pull now.
+    pub(crate) kicker: OnceLock<Arc<dyn Fn() + Send + Sync>>,
     /// The Core's stop; every board's threads end with it.
     pub(crate) stop: OnceLock<Cancel>,
     /// The thread keeping every board's member.* rows current.
     pub(crate) identity: Mutex<Vec<JoinHandle<()>>>,
+    /// (board, maker) pairs one of this person's own devices vouched for by
+    /// sending that maker's secret on board.secret: they count as makers
+    /// before the board's rows certify them here.
+    pub(crate) vouched: Arc<Mutex<std::collections::HashSet<(String, String)>>>,
 }
 
 #[derive(Default)]
@@ -404,8 +410,8 @@ impl Boards {
     }
 
     pub(crate) fn kick(&self) {
-        if let Some(n) = self.node.get() {
-            n.kick_boards();
+        if let Some(k) = self.kicker.get() {
+            k();
         }
     }
 
@@ -465,15 +471,6 @@ impl Boards {
             b.stop_threads();
             let _ = b.store.close();
         }
-    }
-}
-
-impl mesh::BoardLogs for Boards {
-    fn board_ids(&self) -> Vec<String> {
-        lock(&self.inner).logs.keys().cloned().collect()
-    }
-    fn board_store(&self, id: &str) -> Option<Arc<Store>> {
-        lock(&self.inner).logs.get(id).map(|b| b.store.clone())
     }
 }
 
@@ -834,6 +831,7 @@ impl Services {
             return Ok(());
         }
         b.secrets.mint(target, &self.device.id)?;
+        self.boards.kick(); // the person's other devices get it
         Ok(())
     }
 
@@ -887,8 +885,23 @@ impl Services {
         );
         {
             let v = v.clone();
+            // A maker counts once the board certifies it, or, before the
+            // board's rows arrive, when it is one of this person's own
+            // devices or one of them vouched for it (board.secret on the
+            // private mesh).
+            let (chain, vouched, board) = (
+                self.chain.clone(),
+                self.boards.vouched.clone(),
+                id.to_string(),
+            );
             secrets.set_makers(Some(Box::new(move |dev: &str| {
-                v.cert(dev).is_some() && v.cut(dev).is_none()
+                v.cut(dev).is_none()
+                    && (v.cert(dev).is_some()
+                        || chain
+                            .devices()
+                            .iter()
+                            .any(|d| d.cert.device_id == dev && !d.revoked)
+                        || lock(&vouched).contains(&(board.clone(), dev.to_string())))
             })));
         }
         let stop = self
@@ -961,7 +974,22 @@ impl Services {
                         })
                     })),
                     tag: Some(Arc::new(move || v4.membership().tag)),
-                    board_owner: Some(Arc::new(move |p: &str| v5.membership().owner(p))),
+                    // The cancel rule reads the owners at the row's place
+                    // (v0.5 §5.3); no place means now.
+                    board_owner: Some(Arc::new(move |p: &str, at: Option<&coord::RowPos>| {
+                        let m = v5.membership();
+                        match at {
+                            None => m.owner(p),
+                            Some(at) => m.owner_at(
+                                p,
+                                &irori_identity::membership::RowAt {
+                                    hlc: at.hlc,
+                                    device: at.dev.clone(),
+                                    seq: at.seq,
+                                },
+                            ),
+                        }
+                    })),
                     // Under the board coord's lock: takes the inbox's, which
                     // never waits on a board coord (its stale hook reads
                     // only the private one).
@@ -991,8 +1019,29 @@ impl Services {
         self.boards
             .follow
             .get_or_init(|| self.start_follow_identity());
+        self.open_board_net(&b);
         self.boards.kick();
         Ok(b)
+    }
+
+    /// Opens the board on the network (boards stage 2): its member devices,
+    /// this person's other devices among them, are dialled on
+    /// `irori/board/1` and its rows move only there.
+    fn open_board_net(&self, b: &BoardLog) {
+        let parts = crate::BoardParts {
+            board_id: b.id.clone(),
+            person_id: self.person_id(),
+            log: b.store.clone(),
+            verifier: b.verifier.clone(),
+            secrets: b.secrets.clone(),
+        };
+        let mesh = self.mesh.clone();
+        self.pairing.handle.spawn(async move {
+            let id = parts.board_id.clone();
+            if let Err(e) = mesh.open_board(parts).await {
+                logf(format_args!("board {id}: open on the network: {e}"));
+            }
+        });
     }
 
     /// The board's threads: coord's Follow, the taskId and card fold, and
@@ -1068,7 +1117,7 @@ impl Services {
     /// the cards current, rebuilding them on a resync, and rotates the
     /// board secret when a membership or identity row moves the epoch.
     fn follow_board_row(&self, b: &BoardLog, ev: &Event) {
-        self.boards.kick(); // the person's other devices pull it now
+        self.boards.kick(); // the board's member devices pull it now
         if (ev.seq == 0 || kinds::is_board_identity_kind(&ev.kind))
             && let Err(e) = self.rotate_secret(b)
         {
@@ -1604,11 +1653,6 @@ impl super::Core {
     /// One board's secrets (§6.1).
     pub fn board_secrets(&self, board_id: &str) -> Option<Arc<BoardSecrets>> {
         self.s.board(board_id).ok().map(|b| b.secrets.clone())
-    }
-
-    /// The shared boards as the mesh serves them.
-    pub fn board_logs(&self) -> Arc<dyn mesh::BoardLogs> {
-        self.s.boards.clone()
     }
 
     pub fn board_info(&self, board_id: &str) -> Result<BoardInfo> {
