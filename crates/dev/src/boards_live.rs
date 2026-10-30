@@ -474,7 +474,17 @@ fn host(o: &Opts) -> Result<ExitCode, String> {
                 .any(|p| p.person_id != me && m.active(&p.person_id))
         })
     };
-    r.wait("B has left the board", theirs);
+    // B leaves after its own waits for the ask and the review: give it
+    // those too, so a step that times out on B's side doesn't fail this one.
+    r.wait *= 3;
+    if !r.wait("B has left the board", theirs)
+        && let Some(v) = r.core.board_verifier(&r.board)
+    {
+        let m = v.membership();
+        for p in &m.members {
+            println!("boards-live: member {} is {}", p.person_id, p.state);
+        }
+    }
     Ok(r.done())
 }
 
@@ -576,8 +586,9 @@ fn guest(o: &Opts) -> Result<ExitCode, String> {
         Ok(()) => r.pass("B leaves the board", ""),
         Err(e) => r.fail("B leaves the board", &e.to_string()),
     }
-    // Give the leave a moment to reach A before the Core stops.
-    std::thread::sleep(Duration::from_secs(5));
+    // Stay up while the leave reaches A: B's devices hold the row until
+    // another member has it (§4.4).
+    std::thread::sleep(Duration::from_secs(30));
     Ok(r.done())
 }
 
