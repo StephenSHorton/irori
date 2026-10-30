@@ -574,7 +574,7 @@ fn alice_removes_a_device_and_bobs_board_cuts_it() {
 /// The full rig: Alice on three devices and Bob on two. Every device of
 /// both people ends up with the board, and a card from a3 reaches b2.
 #[test]
-#[ignore = "own devices don't share a board yet: board.secret to own devices and the Core opening its boards on BoardMesh at start (docs/design/boards2-transport.md section 9)"]
+#[ignore = "own devices open the board (board.joined and board.secret reach them, 7a5d2d8) but never get a board connection: nothing feeds a person's own devices' addresses to irori/board/1, so a2, a3 and b2 hold 0 rows"]
 fn five_cores_every_device_gets_the_board() {
     let mut alice = person("alice", 3);
     let mut bob = person("bob", 2);
@@ -587,6 +587,12 @@ fn five_cores_every_device_gets_the_board() {
         );
     }
     let a3 = &alice[2];
+    let alice_pid = a3.core.person().id.clone();
+    wait_for(WAIT, "a3's copy of the board has alice as a member", || {
+        a3.core
+            .board_verifier(&board)
+            .is_some_and(|v| v.membership().active(&alice_pid))
+    });
     let t = a3
         .core
         .board_coord(&board)
