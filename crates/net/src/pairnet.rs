@@ -88,6 +88,9 @@ struct OpenMsg {
     key: String,
     #[serde(rename = "ttlMs", default, skip_serializing_if = "is_zero")]
     ttl_ms: u64,
+    /// `invite` for a board invite window (card #44); empty for pairing.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    kind: String,
     // at: where the room's owner is
     #[serde(default, skip_serializing_if = "String::is_empty")]
     id: String,
@@ -531,12 +534,36 @@ impl Inner {
         s: &Secret,
         ttl: Duration,
     ) {
-        let Ok(ep) = self.bind().await else { return };
+        let Some((conn, streams)) = self.open_guest_on(sv, s, ttl, "").await else {
+            return;
+        };
+        if room.closed.load(Ordering::SeqCst) {
+            close(&conn, reason::LEAVING);
+            return;
+        }
+        lock(&room.regs).push(conn.clone());
+        // Held for as long as the window: the server closes it when this
+        // connection goes.
+        let _keep = streams;
+        conn.closed().await;
+    }
+
+    /// Opens a guest window of `kind` (`""` pairing, `"invite"`) on the home
+    /// server `sv`. The window lives while the returned connection (and its
+    /// streams) does.
+    pub(crate) async fn open_guest_on(
+        self: &Arc<Self>,
+        sv: crate::endpoint::RelaySpec,
+        s: &Secret,
+        ttl: Duration,
+        kind: &str,
+    ) -> Option<(Connection, (SendStream, RecvStream))> {
+        let ep = self.bind().await.ok()?;
         let addr = EndpointAddr::new(sv.server_pub).with_relay_url(sv.url.clone());
         let Ok(Ok(conn)) =
             tokio::time::timeout(self.cfg.connect_timeout, ep.connect(addr, PAIR_ALPN)).await
         else {
-            return;
+            return None;
         };
         let res = async {
             let (mut send, mut recv) = conn.open_bi().await.map_err(|e| e.to_string())?;
@@ -552,6 +579,7 @@ impl Inner {
                     topic: s.topic.clone(),
                     key: hex::encode(s.key),
                     ttl_ms: ttl.as_millis() as u64,
+                    kind: kind.into(),
                     ..Default::default()
                 },
             )
@@ -563,18 +591,11 @@ impl Inner {
             Ok::<_, String>((send, recv))
         };
         match tokio::time::timeout(self.cfg.open_timeout, res).await {
-            Ok(Ok(streams)) => {
-                if room.closed.load(Ordering::SeqCst) {
-                    close(&conn, reason::LEAVING);
-                    return;
-                }
-                lock(&room.regs).push(conn.clone());
-                // Held for as long as the window: the server closes it when
-                // this connection goes.
-                let _keep = streams;
-                conn.closed().await;
+            Ok(Ok(streams)) => Some((conn, streams)),
+            _ => {
+                close(&conn, reason::PROTOCOL);
+                None
             }
-            _ => close(&conn, reason::PROTOCOL),
         }
     }
 
@@ -883,8 +904,19 @@ impl Inner {
             topic: m.topic,
             epoch: 0,
         };
-        let ttl = Duration::from_millis(m.ttl_ms).min(crate::guest::MAX_TTL);
-        let Some(id) = self.cfg.guests.open_window(owner, secret, ttl) else {
+        let (id, ttl) = match m.kind.as_str() {
+            "" => {
+                let ttl = Duration::from_millis(m.ttl_ms).min(crate::guest::MAX_TTL);
+                (self.cfg.guests.open_window(owner, secret, ttl), ttl)
+            }
+            "invite" => {
+                let ttl = Duration::from_millis(m.ttl_ms).min(crate::guest::INVITE_MAX_TTL);
+                let id = self.cfg.guests.open_invite_window(owner, secret, ttl);
+                (id.ok(), ttl)
+            }
+            _ => (None, Duration::ZERO),
+        };
+        let Some(id) = id else {
             return close(&conn, reason::REFUSED);
         };
         self.cfg.pair_lan.kick();
