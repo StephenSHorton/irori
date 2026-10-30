@@ -2,7 +2,9 @@
 //! (capture.md §2.5, §7 trap 11): found on PATH (with PATHEXT on Windows,
 //! never in the current directory), no shell, no console window, the
 //! repo-selecting `GIT_*` variables removed, a timeout that kills the
-//! process, and a 500 ms wait for its pipes after that.
+//! process, and a 500 ms wait for its pipes after that. A run that exits by
+//! itself waits for its pipes until its timeout (at least 500 ms): unread
+//! output is a timeout, never an empty success.
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -190,11 +192,25 @@ pub fn run(
         }
         cancel.sleep(Duration::from_millis(2));
     };
-    let stdout = out_rx.recv_timeout(WAIT_DELAY).unwrap_or_default();
-    let stderr = err_rx.recv_timeout(WAIT_DELAY).unwrap_or_default();
     if let Some(e) = killed {
+        let _ = out_rx.recv_timeout(WAIT_DELAY);
+        let _ = err_rx.recv_timeout(WAIT_DELAY);
         return Err(e);
     }
+    // git exited by itself. Its output is in the pipes, but the reader
+    // threads may not have run yet: on a loaded machine a fresh thread can
+    // wait more than WAIT_DELAY for a core. Waiting only WAIT_DELAY here
+    // and taking what was read returned a successful run with empty stdout
+    // (a rev-list with no commits, a repo with no root), so the readers get
+    // the rest of the run's own timeout, and at least WAIT_DELAY (a
+    // grandchild holding a pipe open is what this bound is for). Output
+    // still unread then is a timeout, never an empty success.
+    let pipes_by = deadline.max(Instant::now() + WAIT_DELAY);
+    let wait = || pipes_by.saturating_duration_since(Instant::now());
+    let (Ok(stdout), Ok(stderr)) = (out_rx.recv_timeout(wait()), err_rx.recv_timeout(wait()))
+    else {
+        return Err(ExecError::Timeout);
+    };
     let Some(status) = status else {
         return Err(ExecError::Spawn("wait failed".into()));
     };
