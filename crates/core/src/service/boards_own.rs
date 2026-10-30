@@ -140,6 +140,10 @@ pub struct BoardSummary {
     /// `left` row yet: "Leaving…" (§4.4).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub leaving: bool,
+    /// What is wrong with it, one line each, most pressing first ("Can't
+    /// reach any home server for mlg", "Update Irori: …"; §6.3-6.5, §8).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 /// Where a private card was shared to, when it was: the board and the
@@ -416,6 +420,7 @@ impl Services {
                     ready: m.created,
                     people: self.board_people(b),
                     leaving: self.board_leaving(b),
+                    warnings: self.board_status(b),
                     ..Default::default()
                 };
                 if s.name.is_empty() {

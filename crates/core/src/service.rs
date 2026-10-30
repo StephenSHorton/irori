@@ -58,6 +58,7 @@ use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 pub mod boards;
 mod boards_members;
 mod boards_own;
+pub mod boards_status;
 mod bridge;
 mod mirror;
 pub use mirror::BoardReviewer;
