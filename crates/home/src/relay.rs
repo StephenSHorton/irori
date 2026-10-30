@@ -9,7 +9,9 @@
 //!   key, TLS 1.3 only. Clients pin it to the server's certified devicePub
 //!   (`irori_net::tls::PinnedDeviceKey`), so `node.addr` needs no new field.
 //! - Access: per EndpointId through [`Admit`]: this device, and the
-//!   certified, unrevoked devices of the person (`CheckDevice` by key).
+//!   certified, unrevoked devices of the person (`CheckDevice` by key);
+//!   with boards (B1) also the counted member devices of boards this
+//!   server's Core holds ([`member_admit`]).
 //!   [`Relay::drop_refused`] disconnects live clients that no longer pass,
 //!   the iroh form of Go's `dropRevoked` (home.go:515-533).
 //! - IPv6: iroh-relay binds one HTTPS address, and a `[::]` socket on
@@ -38,11 +40,13 @@ pub type GuestFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 /// device of a board this server's Core holds. The relay then admits it as
 /// it admits the person's own devices; which board it may reach is decided
 /// at the endpoints (`irori/board/1` proof and per-board verifier), since
-/// the relay only forwards sealed QUIC. Interface only: not wired yet.
+/// the relay only forwards sealed QUIC. The Core passes
+/// `irori_net::boardadmit::HeldBoards::relay_admit`.
 pub type BoardAdmitFn = Arc<dyn Fn(&EndpointId) -> bool + Send + Sync>;
 
-/// Stage 2: own devices or member devices of boards held here.
-/// Interface only (card #43); the Server does not call it yet.
+/// Stage 2: own devices or member devices of boards held here. The server
+/// gates its relay with it when `Config.board_admit` is set, and its guest
+/// sweep drops a member device once no board held here counts it.
 pub fn member_admit(own: AdmitFn, boards: BoardAdmitFn) -> AdmitFn {
     Arc::new(move |id: &EndpointId| own(id) || boards(id))
 }

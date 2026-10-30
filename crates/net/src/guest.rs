@@ -56,8 +56,8 @@ pub fn room_tag(topic: &str) -> String {
     hex::encode(&h.finalize()[..16])
 }
 
-/// The relay auth token an invitee presents for the invite room `key`.
-/// Interface only (card #43): not yet accepted by [`GuestWindows::token_ok`].
+/// The relay auth token an invitee presents for the invite room `key`
+/// (accepted by [`GuestWindows::token_ok`] while its invite window is open).
 pub fn invite_token(key: &[u8; 32]) -> String {
     let mut m = <Hmac<Sha256> as KeyInit>::new_from_slice(key).expect("any key length");
     m.update(INVITE_TOKEN_LABEL);
@@ -85,6 +85,7 @@ pub enum WindowKind {
 #[derive(Clone)]
 pub struct Window {
     pub id: u64,
+    pub kind: WindowKind,
     pub owner: EndpointId,
     pub secret: Secret,
     pub token: String,
@@ -118,50 +119,91 @@ impl GuestWindows {
         g
     }
 
-    /// Opens a window owned by `owner` for `ttl` (capped at [`MAX_TTL`]).
-    /// `None` when the owner already has [`MAX_WINDOWS_PER_MEMBER`] open.
+    /// Opens a pairing window owned by `owner` for `ttl` (capped at
+    /// [`MAX_TTL`]). `None` when the owner already has
+    /// [`MAX_WINDOWS_PER_MEMBER`] pairing windows open.
     pub fn open_window(&self, owner: EndpointId, secret: Secret, ttl: Duration) -> Option<u64> {
-        let mut g = self.lock();
-        if g.windows.iter().filter(|w| w.owner == owner).count() >= MAX_WINDOWS_PER_MEMBER {
-            return None;
-        }
-        g.next += 1;
-        let id = g.next;
-        let w = Window {
-            id,
-            owner,
-            token: guest_token(&secret.key),
-            tag: room_tag(&secret.topic),
-            secret,
-            until: Instant::now() + ttl.min(MAX_TTL),
-        };
-        g.windows.push(w);
-        Some(id)
+        self.open_kind(WindowKind::Pair, owner, secret, ttl)
     }
 
     /// Opens an invite window owned by `owner` for `ttl` (capped at
     /// [`INVITE_MAX_TTL`]), at most [`MAX_INVITE_WINDOWS_PER_MEMBER`] per
-    /// owner; its token is [`invite_token`]. Close it with
-    /// [`GuestWindows::close_window`]. Interface only (card #43).
+    /// owner beside its pairing windows; its token is [`invite_token`] and
+    /// its tag [`invite_tag`]. While it is open the home relay admits a
+    /// client presenting the token. Close it with
+    /// [`GuestWindows::close_window`].
     pub fn open_invite_window(
         &self,
-        _owner: EndpointId,
-        _secret: Secret,
-        _ttl: Duration,
+        owner: EndpointId,
+        secret: Secret,
+        ttl: Duration,
     ) -> Result<u64, irori_meshseam::TransportError> {
-        Err(irori_meshseam::TransportError(
-            irori_meshseam::UNSUPPORTED.into(),
-        ))
+        self.open_kind(WindowKind::Invite, owner, secret, ttl)
+            .ok_or_else(|| {
+                irori_meshseam::TransportError(format!(
+                    "at most {MAX_INVITE_WINDOWS_PER_MEMBER} invites open at a time"
+                ))
+            })
     }
 
-    /// The kind of window `id`, while it is open. Interface only: every
-    /// window is a pairing window until invite windows land.
+    fn open_kind(
+        &self,
+        kind: WindowKind,
+        owner: EndpointId,
+        secret: Secret,
+        ttl: Duration,
+    ) -> Option<u64> {
+        let (cap, max_ttl, token, tag) = match kind {
+            WindowKind::Pair => (
+                MAX_WINDOWS_PER_MEMBER,
+                MAX_TTL,
+                guest_token(&secret.key),
+                room_tag(&secret.topic),
+            ),
+            WindowKind::Invite => (
+                MAX_INVITE_WINDOWS_PER_MEMBER,
+                INVITE_MAX_TTL,
+                invite_token(&secret.key),
+                invite_tag(&secret.topic),
+            ),
+        };
+        let mut g = self.lock();
+        let held = g
+            .windows
+            .iter()
+            .filter(|w| w.owner == owner && w.kind == kind)
+            .count();
+        if held >= cap {
+            return None;
+        }
+        g.next += 1;
+        let id = g.next;
+        g.windows.push(Window {
+            id,
+            kind,
+            owner,
+            token,
+            tag,
+            secret,
+            until: Instant::now() + ttl.min(max_ttl),
+        });
+        Some(id)
+    }
+
+    /// The kind of window `id`, while it is open.
     pub fn kind(&self, id: u64) -> Option<WindowKind> {
         self.lock()
             .windows
             .iter()
-            .any(|w| w.id == id)
-            .then_some(WindowKind::Pair)
+            .find(|w| w.id == id)
+            .map(|w| w.kind)
+    }
+
+    /// Whether a window of `kind` is open. The endpoint lets strangers in on
+    /// `irori/pair/1` only while a pairing window is open, never for an
+    /// invite window.
+    pub fn any_open_of(&self, kind: WindowKind) -> bool {
+        self.lock().windows.iter().any(|w| w.kind == kind)
     }
 
     pub fn close_window(&self, id: u64) {
@@ -188,6 +230,17 @@ impl GuestWindows {
     pub fn by_tag(&self, tag: &str) -> Option<Window> {
         self.lock().windows.iter().find(|w| w.tag == tag).cloned()
     }
+
+    /// The kind of the open window whose token is `token`.
+    pub fn kind_of_token(&self, token: &str) -> Option<WindowKind> {
+        self.lock()
+            .windows
+            .iter()
+            .find(|w| {
+                w.token.len() == token.len() && subtle_eq(w.token.as_bytes(), token.as_bytes())
+            })
+            .map(|w| w.kind)
+    }
 }
 
 fn subtle_eq(a: &[u8], b: &[u8]) -> bool {
@@ -196,4 +249,76 @@ fn subtle_eq(a: &[u8], b: &[u8]) -> bool {
         d |= x ^ y;
     }
     d == 0 && a.len() == b.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn secret(b: u8) -> Secret {
+        Secret {
+            key: [b; 32],
+            topic: format!("irori/invite/1/{b}"),
+            epoch: 0,
+        }
+    }
+
+    fn owner(b: u8) -> EndpointId {
+        iroh::SecretKey::from_bytes(&[b; 32]).public()
+    }
+
+    #[test]
+    fn invite_windows_admit_their_token_only_while_open() {
+        let g = GuestWindows::default();
+        let s = secret(1);
+        let tok = invite_token(&s.key);
+        assert!(!g.token_ok(&tok));
+        let id = g
+            .open_invite_window(owner(1), s.clone(), Duration::from_secs(60))
+            .unwrap();
+        assert_eq!(g.kind(id), Some(WindowKind::Invite));
+        assert!(g.token_ok(&tok));
+        assert_eq!(g.kind_of_token(&tok), Some(WindowKind::Invite));
+        // The pairing token of the same key opens nothing.
+        assert!(!g.token_ok(&guest_token(&s.key)));
+        // An invite window never opens pairing to strangers.
+        assert!(g.any_open() && !g.any_open_of(WindowKind::Pair));
+        assert_eq!(g.by_tag(&invite_tag(&s.topic)).map(|w| w.id), Some(id));
+        g.close_window(id);
+        assert!(!g.token_ok(&tok));
+        assert_eq!(g.kind(id), None);
+    }
+
+    #[test]
+    fn invite_windows_cap_per_owner_beside_pairing_and_ttl() {
+        let g = GuestWindows::default();
+        for i in 0..MAX_INVITE_WINDOWS_PER_MEMBER {
+            g.open_invite_window(owner(1), secret(i as u8), Duration::from_secs(60))
+                .unwrap();
+        }
+        assert!(
+            g.open_invite_window(owner(1), secret(9), Duration::from_secs(60))
+                .is_err()
+        );
+        // Pairing windows count apart; another owner has its own.
+        for i in 0..MAX_WINDOWS_PER_MEMBER {
+            let p = g.open_window(owner(1), secret(20 + i as u8), Duration::from_secs(60));
+            assert_eq!(g.kind(p.unwrap()), Some(WindowKind::Pair));
+        }
+        assert!(g.any_open_of(WindowKind::Pair));
+        g.open_invite_window(owner(2), secret(30), Duration::from_secs(60))
+            .unwrap();
+        // The TTL is capped at an hour.
+        let id = g
+            .open_invite_window(owner(3), secret(31), Duration::from_secs(10 * 3600))
+            .unwrap();
+        let w = g.open().into_iter().find(|w| w.id == id).unwrap();
+        assert!(w.until <= Instant::now() + INVITE_MAX_TTL);
+        // An expired window admits nothing.
+        let s = secret(40);
+        g.open_invite_window(owner(4), s.clone(), Duration::from_millis(1))
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(5));
+        assert!(!g.token_ok(&invite_token(&s.key)));
+    }
 }
