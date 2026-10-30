@@ -455,8 +455,9 @@ impl Coord {
         resource: &str,
         ttl: Duration,
         all: bool,
+        steal: bool,
     ) -> Result<Option<Lease>> {
-        self.lock().mirror_acquire(card, resource, ttl, all)
+        self.lock().mirror_acquire(card, resource, ttl, all, steal)
     }
     /// Mirrors the release of card's lease; false when none is here.
     pub fn mirror_release(&self, card: &str, resource: &str) -> Result<bool> {

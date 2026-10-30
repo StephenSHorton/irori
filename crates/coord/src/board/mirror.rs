@@ -73,13 +73,15 @@ impl Fold {
     /// Mirrors card's lease on resource into the board, when a shared card
     /// makes it mirror: `None` when nothing does. Another person's live
     /// lease refuses it (and the refusal shows as a lease card), so the
-    /// caller refuses the private lease too.
+    /// caller refuses the private lease too; `steal` takes only leases of
+    /// card's own person.
     pub(crate) fn mirror_acquire(
         &mut self,
         card: &str,
         resource: &str,
         ttl: Duration,
         all: bool,
+        steal: bool,
     ) -> Result<Option<Lease>> {
         if !self.on_board {
             return Err(invalid("leases mirror only into a shared board"));
@@ -87,7 +89,7 @@ impl Fold {
         if self.mirror_tasks(card, resource, all).is_empty() {
             return Ok(None);
         }
-        self.acquire(card, resource, ttl, false)
+        self.acquire(card, resource, ttl, steal)
             .map(Some)
             .map_err(|e| self.board_held(card, resource, e))
     }

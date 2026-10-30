@@ -20,6 +20,8 @@ const P1: &str = "person:p1";
 const P2: &str = "person:p2";
 const CARD1: &str = "agent:c1";
 const CARD2: &str = "agent:c2";
+/// p2's second agent.
+const CARD3: &str = "agent:c3";
 
 /// Who owned the board when: `(person, from hlc, until hlc)`.
 type Owners = Arc<Mutex<Vec<(String, u64, u64)>>>;
@@ -34,7 +36,7 @@ struct Side {
 fn key_person(k: &str) -> String {
     match k {
         P1 | CARD1 => "p1".into(),
-        P2 | CARD2 => "p2".into(),
+        P2 | CARD2 | CARD3 => "p2".into(),
         _ => String::new(),
     }
 }
@@ -119,12 +121,16 @@ fn two_people() -> (Side, Side, Owners) {
     )
     .unwrap();
     pull(&a, &b);
-    b.st.append(
-        CARD2,
-        kinds::AGENT_CARD,
-        &raw(r#"{"cardId":"c2","personId":"p2","status":"active"}"#),
-    )
-    .unwrap();
+    for c in ["c2", "c3"] {
+        b.st.append(
+            &format!("agent:{c}"),
+            kinds::AGENT_CARD,
+            &raw(&format!(
+                r#"{{"cardId":"{c}","personId":"p2","status":"active"}}"#
+            )),
+        )
+        .unwrap();
+    }
     sync(&a, &b);
     (a, b, owners)
 }
@@ -261,13 +267,13 @@ fn a_lease_mirrors_only_through_a_shared_card_in_its_repo() {
     assert!(a.c.mirror_tasks("agent:c9", SRC, false).is_empty());
     assert_eq!(a.c.mirror_tasks("agent:c9", SRC, true), vec![t.id.clone()]);
     assert_eq!(
-        a.c.mirror_acquire(CARD1, "port:5173", Duration::ZERO, false)
+        a.c.mirror_acquire(CARD1, "port:5173", Duration::ZERO, false, false)
             .unwrap(),
         None,
         "a port lease isn't in any repo"
     );
     let l =
-        a.c.mirror_acquire(CARD1, SRC, Duration::ZERO, false)
+        a.c.mirror_acquire(CARD1, SRC, Duration::ZERO, false, false)
             .unwrap()
             .unwrap();
     assert_eq!(l.holder, CARD1);
@@ -279,7 +285,7 @@ fn a_lease_mirrors_only_through_a_shared_card_in_its_repo() {
     );
     // It blocks p2's agent, and the refusal shows on both sides.
     let e =
-        b.c.mirror_acquire(CARD2, SRC_MAIN, Duration::ZERO, false)
+        b.c.mirror_acquire(CARD2, SRC_MAIN, Duration::ZERO, false, false)
             .unwrap_err();
     assert!(e.is(ErrorKind::Held), "{e}");
     assert!(e.to_string().contains("release request"), "{e}");
@@ -308,14 +314,14 @@ fn partitioned_lease_grabs_keep_the_lower_devices() {
     let (a, b, _) = two_people();
     shared_card(&a, &b);
     // Apart, both take overlapping leases.
-    a.c.mirror_acquire(CARD1, SRC, Duration::ZERO, false)
+    a.c.mirror_acquire(CARD1, SRC, Duration::ZERO, false, false)
         .unwrap()
         .unwrap();
-    b.c.mirror_acquire(CARD2, SRC_MAIN, Duration::ZERO, false)
+    b.c.mirror_acquire(CARD2, SRC_MAIN, Duration::ZERO, false, false)
         .unwrap()
         .unwrap();
     // Not yet overlapping by name, so meet them on one resource too.
-    a.c.mirror_acquire(CARD1, SRC_MAIN, Duration::ZERO, false)
+    a.c.mirror_acquire(CARD1, SRC_MAIN, Duration::ZERO, false, false)
         .unwrap()
         .unwrap();
     sync(&a, &b);
@@ -348,7 +354,7 @@ fn nobody_steals_another_persons_lease() {
     let (a, b, _) = two_people();
     let t = shared_card(&a, &b);
     let l =
-        a.c.mirror_acquire(CARD1, SRC, Duration::ZERO, false)
+        a.c.mirror_acquire(CARD1, SRC, Duration::ZERO, false, false)
             .unwrap()
             .unwrap();
     sync(&a, &b);
@@ -657,4 +663,36 @@ fn a_review_request_reaches_the_other_persons_reviewer() {
     // Asked by name, the request goes to that agent alone.
     let (_, n) = b.c.request_review(CARD2, &t.id, PR, CARD1).unwrap();
     assert_eq!(n.to, vec![CARD1.to_string()]);
+}
+
+#[test]
+fn a_steal_on_the_board_takes_only_ones_own_persons_lease() {
+    let (a, b, _) = two_people();
+    let t = shared_card(&a, &b);
+    a.c.mirror_acquire(CARD1, SRC, Duration::ZERO, false, false)
+        .unwrap()
+        .unwrap();
+    sync(&a, &b);
+    let e =
+        b.c.mirror_acquire(CARD2, SRC_MAIN, Duration::ZERO, false, true)
+            .unwrap_err();
+    assert!(e.is(ErrorKind::NotAllowed), "another person's: {e}");
+    assert_eq!(lease_on(&a, SRC).unwrap().holder, CARD1);
+    // p1 releases, p2's c2 takes it, and p2's own c3 steals from it.
+    assert!(a.c.mirror_release(CARD1, SRC).unwrap());
+    sync(&a, &b);
+    b.c.mirror_acquire(CARD2, SRC, Duration::ZERO, false, false)
+        .unwrap()
+        .unwrap();
+    b.c.join(CARD3, &t.id, CARD3).unwrap();
+    let l =
+        b.c.mirror_acquire(CARD3, SRC_MAIN, Duration::ZERO, false, true)
+            .unwrap()
+            .unwrap();
+    assert_eq!(l.stolen_from, CARD2, "one's own person's lease");
+    sync(&a, &b);
+    for s in [&a, &b] {
+        assert!(lease_on(s, SRC).is_none(), "the stolen lease ended");
+        assert_eq!(lease_on(s, SRC_MAIN).unwrap().holder, CARD3);
+    }
 }

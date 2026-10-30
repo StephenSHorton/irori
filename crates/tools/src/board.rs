@@ -1556,7 +1556,7 @@ pub(crate) fn lease(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     // A lease in a shared card's repo goes on that board first, where
     // another person's lease refuses it.
     let mirrored = match s.b.router() {
-        Some(rt) => match rt.mirror_acquire(&c.sender.key, res, ttl) {
+        Some(rt) => match rt.mirror_acquire(&c.sender.key, res, ttl, a.bool("steal")) {
             Ok(tags) => tags,
             Err(e) => return map_err(e),
         },

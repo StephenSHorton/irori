@@ -35,11 +35,13 @@ impl tools::TaskRouter for FakeRouter {
         key: &str,
         resource: &str,
         _ttl: Duration,
+        steal: bool,
     ) -> Result<Vec<String>, coord::Error> {
+        let s = if steal { " steal" } else { "" };
         self.calls
             .lock()
             .unwrap()
-            .push(format!("acquire {key} {resource}"));
+            .push(format!("acquire {key} {resource}{s}"));
         if resource.contains("locked") {
             // What the board's coord answers for another person's lease.
             return Err(coord::Error::raw(
@@ -91,6 +93,11 @@ fn a_lease_mirrors_through_the_router() {
             .any(|l| l.resource == LOCKED && l.holder == KEY_A),
         "a lease the board refused was taken privately"
     );
+    h.ok(
+        &a,
+        "lease",
+        &format!(r#"{{"resource":"{SRC}","steal":true}}"#),
+    );
     h.ok(&a, "release", &format!(r#"{{"resource":"{SRC}"}}"#));
     let calls = r.calls.lock().unwrap().clone();
     assert_eq!(
@@ -99,6 +106,7 @@ fn a_lease_mirrors_through_the_router() {
             format!("acquire {KEY_A} {SRC}"),
             format!("acquire {KEY_A} port:5173"),
             format!("acquire {KEY_A} {LOCKED}"),
+            format!("acquire {KEY_A} {SRC} steal"),
             format!("release {KEY_A} {SRC}"),
         ]
     );

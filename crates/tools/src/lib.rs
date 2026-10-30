@@ -124,15 +124,17 @@ pub trait TaskRouter: Send + Sync {
     /// Mirrors an agent's lease into every shared board where it works a
     /// shared card in the resource's repo (v0.5 §5.4, `Coord::mirror_acquire`
     /// with its card there), before the private lease is taken. An error
-    /// (another person's lease holds it) refuses the lease. Returns the
+    /// (another person's lease holds it) refuses the lease; `steal` takes
+    /// only the leases of the caller's own person. Returns the
     /// tags of the boards it went to.
     fn mirror_acquire(
         &self,
         key: &str,
         resource: &str,
         ttl: std::time::Duration,
+        steal: bool,
     ) -> Result<Vec<String>, coord::Error> {
-        let _ = (key, resource, ttl);
+        let _ = (key, resource, ttl, steal);
         Ok(Vec::new())
     }
     /// Mirrors the release of an agent's lease wherever it was mirrored.
