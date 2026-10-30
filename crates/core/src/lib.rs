@@ -49,6 +49,7 @@ mod service;
 pub mod timers;
 
 pub use crate::members::Member;
+pub use crate::meshnode::BoardParts;
 pub use crate::service::{Core, HomeEdit, NO_HOME_SERVER, NowFn, Options, ReviveFn, StartError};
 pub use capture::DecisionView;
 pub use events::{CoreEvent, Feed, Hub, Topic};

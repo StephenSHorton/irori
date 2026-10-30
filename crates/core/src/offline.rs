@@ -27,11 +27,16 @@ pub fn requested(value: Option<&str>) -> bool {
 pub fn offline_net() -> PairNetFn {
     Arc::new(|ident, chain, guests| {
         let key = iroh::SecretKey::from_bytes(&ident.expose_device_seed());
-        let admit = Arc::new(irori_net::admit::ChainAdmit {
-            chain: chain.clone(),
-            self_id: ident.device_id(),
+        let boards = irori_net::board::BoardMembers::new();
+        let admit = Arc::new(irori_net::board::MemberAdmit {
+            chain: irori_net::admit::ChainAdmit {
+                chain: chain.clone(),
+                self_id: ident.device_id(),
+            },
+            boards: boards.clone(),
         });
         let mut cfg = irori_net::transport::NetConfig::new(ident.device_id(), key, admit);
+        cfg.boards = boards;
         cfg.ip = irori_net::endpoint::IpMode::Loopback;
         cfg.gossip = false;
         cfg.lan = None;

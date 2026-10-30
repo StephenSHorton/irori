@@ -14,7 +14,6 @@ use serde::Serialize;
 use store::{Event, Filter, MAX_LIST_LIMIT};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
-use crate::boards::BOARD_LABEL_PREFIX;
 use crate::node::Node;
 use crate::transport::{PeerConn, Stream};
 
@@ -319,12 +318,12 @@ impl Node {
     }
 
     /// Go `serveStream`: answers one stream the peer opened. Only
-    /// certified, unrevoked devices are served, and only blob and board
-    /// streams. The stream is always finished.
+    /// certified, unrevoked devices are served, and only blob streams: a
+    /// `board/` stream is refused here (boards stage 2 serves them only on
+    /// the board's own `irori/board/1` connections). The stream is always
+    /// finished.
     pub(crate) async fn serve_stream(&self, peer: &str, label: &str, mut st: Stream) {
-        if label.starts_with(BOARD_LABEL_PREFIX) {
-            self.serve_board(peer, label, &mut st).await;
-        } else if label.starts_with(BLOB_LABEL_PREFIX)
+        if label.starts_with(BLOB_LABEL_PREFIX)
             && self.certified(peer)
             && let Some(fs) = self.o.files.clone()
         {

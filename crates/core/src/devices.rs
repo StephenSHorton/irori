@@ -79,11 +79,20 @@ pub fn default_net_config(
     let key = iroh::SecretKey::from_bytes(&ident.expose_device_seed());
     let mut lan = irori_lan::Config::new(key.public(), irori_net::book::lan_rooms(ident.clone()));
     lan.logf = Some(Arc::new(|l: &str| crate::log(l)));
-    let admit = Arc::new(irori_net::admit::ChainAdmit {
-        chain: chain.clone(),
-        self_id: ident.device_id(),
+    // Boards stage 2: irori/mesh/1 and irori/pair/1 admit only this
+    // person's devices; irori/board/1 and gossip also admit the member
+    // devices of the boards this Core holds (cfg.boards, which the mesh
+    // fills as boards open).
+    let boards = irori_net::board::BoardMembers::new();
+    let admit = Arc::new(irori_net::board::MemberAdmit {
+        chain: irori_net::admit::ChainAdmit {
+            chain: chain.clone(),
+            self_id: ident.device_id(),
+        },
+        boards: boards.clone(),
     });
     let mut cfg = irori_net::transport::NetConfig::new(ident.device_id(), key, admit);
+    cfg.boards = boards;
     cfg.ip = irori_net::endpoint::IpMode::AnyV4;
     cfg.guests = guests.clone();
     cfg.pair_lan = irori_net::pairnet::PairLan::new(guests.clone());
