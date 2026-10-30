@@ -39,7 +39,14 @@ const CLOCK_SKEW: Duration = Duration::from_secs(120);
 pub const SUB_BUFFER: usize = 64;
 
 /// The row prefixes coord folds.
-pub const FOLLOW_KINDS: [&str; 4] = ["task.", "lease.", "blocker.", "take."];
+pub const FOLLOW_KINDS: [&str; 6] = [
+    "task.",
+    "lease.",
+    "blocker.",
+    "take.",
+    "board.ask.",
+    "review.",
+];
 
 /// Whether coord folds `kind`.
 pub fn followed(kind: &str) -> bool {
@@ -648,9 +655,12 @@ impl Fold {
                     self.touch(ev, &ti, at(p.at), &p.by, &what, true, also);
                 }
             }
-            kinds::TAKE_REQUESTED | kinds::TAKE_STATE | kinds::TASK_EDITED => {
-                self.apply_take(ev, &at)
-            }
+            kinds::TAKE_REQUESTED
+            | kinds::TAKE_STATE
+            | kinds::TASK_EDITED
+            | kinds::BOARD_ASK_REQUESTED
+            | kinds::BOARD_ASK_STATE
+            | kinds::BOARD_ASK_EDITED => self.apply_take(ev, &at),
             kinds::LEASE_REFUSED => {
                 let Some(mut r) = row::<Refusal>(&ev.payload) else {
                     return;
@@ -1403,6 +1413,8 @@ impl Fold {
         };
         match ev.kind.as_str() {
             kinds::LEASE_RELEASED => true,
+            // The take lock: its fold counts only the asking device's.
+            kinds::BOARD_ASK_STATE => true,
             kinds::TASK_LEFT => self.may_write(&p.who, &ev.device_id),
             kinds::TASK_STATUS | kinds::BLOCKER_RESOLVED => match self.tasks.get(&p.task_id) {
                 None => true,

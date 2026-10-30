@@ -158,6 +158,12 @@ kinds! {
     MEMBER_KEY_ROTATED = "member.key.rotated" => Replicated, Accepts;
     /// `{cardId, name, kind, personId, status}`; actor `agent:<cardId>`.
     AGENT_CARD = "agent.card" => Replicated, Accepts;
+    /// An ask's take request on a board (the private `take.requested`).
+    BOARD_ASK_REQUESTED = "board.ask.requested" => Replicated, Accepts;
+    /// An ask's take lock, written by the asking device (`take.state`).
+    BOARD_ASK_STATE = "board.ask.state" => Replicated, Accepts;
+    /// An ask's outcome edit of a card (`task.edited`).
+    BOARD_ASK_EDITED = "board.ask.edited" => Replicated, Accepts;
     REVIEW_REQUESTED = "review.requested" => Replicated, Accepts;
     REVIEW_REVIEWER = "review.reviewer" => Replicated, Accepts;
     // v0.5 private-log rows, never in a board log

@@ -65,13 +65,12 @@ fn side(dev: &str, person: &str, owners: &Owners) -> Side {
         .unwrap(),
     );
     let me = person.to_string();
-    let mine = key_person(person);
     let o2 = owners.clone();
     let o = Options {
         now: Some(clk.func()),
         board: true,
         person: person.into(),
-        is_owner: Some(Arc::new(move |k: &str| k == me || key_person(k) == mine)),
+        is_owner: Some(Arc::new(move |k: &str| k == me)),
         key_person: Some(Arc::new(key_person)),
         device_person: Some(Arc::new(device_person)),
         tag: Some(Arc::new(|| "mlg".to_string())),
@@ -430,4 +429,139 @@ fn nobody_steals_another_persons_lease() {
     a.c.steal_lease(P1, SRC).unwrap();
     sync(&a, &b);
     assert!(lease_on(&b, SRC).is_none());
+}
+
+// ---- asks on a board (§9) --------------------------------------------------
+
+#[test]
+fn a_board_ask_claimed_by_both_peoples_agents_has_one_winner() {
+    let (a, b, _) = two_people();
+    let (ask, _) =
+        a.c.post_ask(
+            P1,
+            NewAsk {
+                text: "Who can look at the flaky sync test?".into(),
+                ..NewAsk::default()
+            },
+            &[],
+        )
+        .unwrap();
+    assert_eq!(ask.ask.as_ref().unwrap().owner, "dev-a");
+    sync(&a, &b);
+    // Both people's agents ask to take it while apart; p2's asks first.
+    let r2 = b.c.ask_claim(CARD2, &ask.id, Duration::ZERO).unwrap();
+    assert!(r2.pending && !r2.mine, "{r2:?}");
+    // p2's devices never decide the take, and a take row they forge counts
+    // nowhere.
+    b.c.tick();
+    assert!(b.c.get_task(&ask.id).unwrap().ask.unwrap().taker.is_empty());
+    sync(&a, &b);
+    let r1 = a.c.ask_claim(CARD1, &ask.id, Duration::ZERO).unwrap();
+    assert!(!r1.mine || r1.taker == CARD1, "{r1:?}");
+    a.c.tick();
+    sync(&a, &b);
+    let taker = a.c.get_task(&ask.id).unwrap().ask.unwrap().taker;
+    assert_eq!(taker, CARD2, "the first request the asking device folded");
+    assert_eq!(b.c.get_task(&ask.id).unwrap().ask.unwrap().taker, taker);
+    for s in [&a, &b] {
+        let rows =
+            s.st.list(&store::Filter {
+                kinds: vec![kinds::BOARD_ASK_STATE.into()],
+                ..store::Filter::default()
+            })
+            .unwrap();
+        assert!(!rows.is_empty() && rows.iter().all(|r| r.device_id == "dev-a"));
+        assert!(
+            s.st.list(&store::Filter {
+                kinds: vec!["take.".into()],
+                ..store::Filter::default()
+            })
+            .unwrap()
+            .is_empty(),
+            "a private take row on the board"
+        );
+    }
+    // The loser can't close it; the winner closes it as a card on the board.
+    let e =
+        a.c.ask_close(
+            CARD1,
+            &ask.id,
+            AskOutcome {
+                kind: OUTCOME_NONE.into(),
+                note: "mine".into(),
+                ..AskOutcome::default()
+            },
+        )
+        .unwrap_err();
+    assert!(!e.to_string().is_empty());
+    b.c.ask_close(
+        CARD2,
+        &ask.id,
+        AskOutcome {
+            kind: OUTCOME_CARD.into(),
+            title: "Fix the flaky sync test".into(),
+            note: "a card for the fix".into(),
+            ..AskOutcome::default()
+        },
+    )
+    .unwrap();
+    sync(&a, &b);
+    for s in [&a, &b] {
+        let t = s.c.get_task(&ask.id).unwrap();
+        assert_eq!(t.title, "Fix the flaky sync test", "{:?}", t.ask);
+        assert!(t.ask.as_ref().unwrap().outcome.is_some());
+        assert_eq!(
+            t.short_ref(),
+            ask.short_ref(),
+            "the outcome card is the ask, on the board"
+        );
+    }
+}
+
+#[test]
+fn a_take_lock_row_from_another_device_counts_nowhere() {
+    let (a, b, _) = two_people();
+    let (ask, _) =
+        a.c.post_ask(
+            P1,
+            NewAsk {
+                text: "Anyone?".into(),
+                ..NewAsk::default()
+            },
+            &[],
+        )
+        .unwrap();
+    sync(&a, &b);
+    let forged = Event {
+        device_id: "dev-b2".into(),
+        seq: 1,
+        hlc: hlc::Timestamp(hlc_at(plus(fixed_now(), mins(1)))),
+        actor: "irori".into(),
+        kind: kinds::BOARD_ASK_STATE.into(),
+        payload: gocompat::json::marshal(&coord::rows::TakeStateRow {
+            task_id: ask.id.clone(),
+            taker: CARD2.into(),
+            reason: TAKE_TAKEN.into(),
+            at: plus(fixed_now(), mins(1)),
+            ..coord::rows::TakeStateRow::default()
+        })
+        .unwrap(),
+        sig: Vec::new(),
+    };
+    for s in [&a, &b] {
+        let before = s.c.ignored_rows();
+        s.st.insert(&forged).unwrap();
+        s.c.fold_live(std::slice::from_ref(&forged));
+        assert!(s.c.get_task(&ask.id).unwrap().ask.unwrap().taker.is_empty());
+        assert_eq!(s.c.ignored_rows(), before + 1);
+    }
+    // A take row naming a card that isn't on the board is refused outright.
+    let e =
+        b.st.append(
+            "irori",
+            kinds::BOARD_ASK_STATE,
+            &raw(r#"{"taskId":"01NOTONTHISBOARD0000000000","taker":"agent:c2"}"#),
+        )
+        .unwrap_err();
+    assert!(e.to_string().contains("not a card on this board"), "{e}");
 }

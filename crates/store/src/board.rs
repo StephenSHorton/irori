@@ -343,7 +343,11 @@ impl BoardRules {
     /// held in this board, else the first that isn't, by field.
     #[allow(clippy::collapsible_match)]
     pub(crate) fn resolves(&self, kind: &str, payload: &[u8]) -> Result<()> {
-        if kind.starts_with("member.") || kind.starts_with("board.") {
+        // Membership and identity rows name people, not cards; a board
+        // ask's take rows name its card like any task row.
+        if kind.starts_with("member.")
+            || kind.starts_with("board.") && !kind.starts_with("board.ask.")
+        {
             return Ok(());
         }
         let Some(p) = decode(payload) else {
