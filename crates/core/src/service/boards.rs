@@ -1689,3 +1689,25 @@ impl super::Core {
         self.s.boards.subscribe()
     }
 }
+
+impl super::Core {
+    /// The roster board `board_id`'s coord reads liveness from (tests).
+    #[doc(hidden)]
+    pub fn board_roster(&self, board_id: &str) -> Vec<AgentCard> {
+        match self.s.board(board_id) {
+            Ok(b) => BoardRoster {
+                s: Arc::downgrade(&self.s),
+                b: Arc::downgrade(&b),
+            }
+            .agents(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Reconciles the open boards with the private log's board.joined and
+    /// board.forgot rows now (tests; the Core does it as rows arrive).
+    #[doc(hidden)]
+    pub fn reconcile_boards(&self) {
+        self.s.reconcile_boards();
+    }
+}
