@@ -3291,6 +3291,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "irori-invite"
+version = "0.0.0"
+dependencies = [
+ "base64 0.23.1",
+ "data-encoding",
+ "hex",
+ "hmac",
+ "iroh",
+ "irori-gocompat",
+ "irori-hlc",
+ "irori-identity",
+ "irori-mesh",
+ "irori-meshseam",
+ "irori-net",
+ "irori-pair",
+ "irori-store",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "subtle",
+ "tempfile",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "irori-lan"
 version = "0.0.0"
 dependencies = [
