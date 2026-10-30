@@ -1,0 +1,454 @@
+{
+ "normalizeRemote": [
+  {
+   "In": "git@github.com:Foo/Bar.git",
+   "Out": "github.com/foo/bar"
+  },
+  {
+   "In": "https://github.com/Foo/Bar",
+   "Out": "github.com/foo/bar"
+  },
+  {
+   "In": "ssh://git@github.com/foo/bar.git",
+   "Out": "github.com/foo/bar"
+  },
+  {
+   "In": "github.com:owner/repo",
+   "Out": "github.com/owner/repo"
+  },
+  {
+   "In": "git@GitHub.COM:Owner/Repo",
+   "Out": "github.com/owner/repo"
+  },
+  {
+   "In": "  git@github.com:o/n.git\n",
+   "Out": "github.com/o/n"
+  },
+  {
+   "In": "user@host.example:~user/proj/name.git",
+   "Out": "host.example/~user/proj/name"
+  },
+  {
+   "In": "https://user:pw@Host.example:8443/Owner/Name.git/",
+   "Out": "host.example/owner/name"
+  },
+  {
+   "In": "http://host.example/o/n/",
+   "Out": "host.example/o/n"
+  },
+  {
+   "In": "https://github.com/o/n.git",
+   "Out": "github.com/o/n"
+  },
+  {
+   "In": "https://github.com//o//n",
+   "Out": "github.com/o/n"
+  },
+  {
+   "In": "https://github.com/o/my%20repo",
+   "Out": "github.com/o/my repo"
+  },
+  {
+   "In": "https://github.com/o/n?x=1#frag",
+   "Out": "github.com/o/n"
+  },
+  {
+   "In": "HTTPS://GITHUB.COM/O/N",
+   "Out": "github.com/o/n"
+  },
+  {
+   "In": "ssh://git@host.example:2222/o/n.git",
+   "Out": "host.example/o/n"
+  },
+  {
+   "In": "ssh://host.example/o/n",
+   "Out": "host.example/o/n"
+  },
+  {
+   "In": "git://host.example/o/n",
+   "Out": "host.example/o/n"
+  },
+  {
+   "In": "git+ssh://git@github.com/o/n.git",
+   "Out": "github.com/o/n"
+  },
+  {
+   "In": "https://gitlab.com/group/sub/sub2/name.git",
+   "Out": "gitlab.com/group/sub/sub2/name"
+  },
+  {
+   "In": "git@gitlab.com:Group/Sub/Name.git",
+   "Out": "gitlab.com/group/sub/name"
+  },
+  {
+   "In": "https://org@dev.azure.com/Org/Proj/_git/Repo",
+   "Out": "dev.azure.com/org/proj/_git/repo"
+  },
+  {
+   "In": "https://dev.azure.com/org/proj/_git/repo",
+   "Out": "dev.azure.com/org/proj/_git/repo"
+  },
+  {
+   "In": "git@ssh.dev.azure.com:v3/Org/Proj/Repo",
+   "Out": "dev.azure.com/org/proj/_git/repo"
+  },
+  {
+   "In": "ssh://git@ssh.dev.azure.com/v3/org/proj/repo",
+   "Out": "dev.azure.com/org/proj/_git/repo"
+  },
+  {
+   "In": "org@vs-ssh.visualstudio.com:v3/org/proj/repo",
+   "Out": "dev.azure.com/org/proj/_git/repo"
+  },
+  {
+   "In": "https://org.visualstudio.com/proj/_git/repo",
+   "Out": "dev.azure.com/org/proj/_git/repo"
+  },
+  {
+   "In": "https://org.visualstudio.com/DefaultCollection/proj/_git/repo",
+   "Out": "dev.azure.com/org/proj/_git/repo"
+  },
+  {
+   "In": "ssh://org@org.visualstudio.com:22/DefaultCollection/proj/_ssh/repo",
+   "Out": "dev.azure.com/org/proj/_git/repo"
+  },
+  {
+   "In": "ssh://org@org.visualstudio.com:22/proj/_ssh/repo",
+   "Out": "dev.azure.com/org/proj/_git/repo"
+  },
+  {
+   "In": "https://github.com/o/_ssh/n",
+   "Out": "github.com/o/_ssh/n"
+  },
+  {
+   "In": "/abs/path/repo.git",
+   "Out": ""
+  },
+  {
+   "In": "./rel",
+   "Out": ""
+  },
+  {
+   "In": "../rel/repo",
+   "Out": ""
+  },
+  {
+   "In": "~/src/repo",
+   "Out": ""
+  },
+  {
+   "In": "C:\\src\\repo",
+   "Out": ""
+  },
+  {
+   "In": "C:/src/repo",
+   "Out": ""
+  },
+  {
+   "In": "c:",
+   "Out": ""
+  },
+  {
+   "In": "\\\\server\\share\\repo",
+   "Out": ""
+  },
+  {
+   "In": "file:///home/me/repo.git",
+   "Out": ""
+  },
+  {
+   "In": "file://C:/src/repo",
+   "Out": ""
+  },
+  {
+   "In": "",
+   "Out": ""
+  },
+  {
+   "In": "   ",
+   "Out": ""
+  },
+  {
+   "In": "repo",
+   "Out": ""
+  },
+  {
+   "In": "dir/a:b",
+   "Out": ""
+  },
+  {
+   "In": "https://github.com/",
+   "Out": ""
+  },
+  {
+   "In": "https://github.com/onlyname",
+   "Out": ""
+  },
+  {
+   "In": "git@github.com:name.git",
+   "Out": ""
+  },
+  {
+   "In": "git@github.com:",
+   "Out": ""
+  },
+  {
+   "In": "https://github.com/o/../n",
+   "Out": ""
+  },
+  {
+   "In": "ftp://host.example/o/n",
+   "Out": ""
+  },
+  {
+   "In": "https:///o/n",
+   "Out": ""
+  },
+  {
+   "In": "https://github.com/o/n%0Ax",
+   "Out": ""
+  },
+  {
+   "In": "https://github.com/o/n%00x",
+   "Out": ""
+  },
+  {
+   "In": "https://github.com/o/n%2Fx",
+   "Out": ""
+  },
+  {
+   "In": "https://github.com/o%2fn",
+   "Out": ""
+  },
+  {
+   "In": "https://github.com/o/n%5Cx",
+   "Out": ""
+  },
+  {
+   "In": "https://github.com/o/%2E%2E/n",
+   "Out": ""
+  },
+  {
+   "In": "git@github.com:o/n\u0001",
+   "Out": ""
+  },
+  {
+   "In": "https://github.com/o/n%zz",
+   "Out": ""
+  },
+  {
+   "In": "https://github.com/o/n#%zz",
+   "Out": ""
+  },
+  {
+   "In": "https://git hub.com/o/n",
+   "Out": ""
+  },
+  {
+   "In": "https://[::1]:22/o/n",
+   "Out": "::1/o/n"
+  },
+  {
+   "In": "https://[::1/o/n",
+   "Out": ""
+  },
+  {
+   "In": "https://host:port/o/n",
+   "Out": ""
+  },
+  {
+   "In": "https://host:/o/n",
+   "Out": "host/o/n"
+  },
+  {
+   "In": "https://u%zz@host/o/n",
+   "Out": ""
+  },
+  {
+   "In": "https://u^x@host/o/n",
+   "Out": ""
+  },
+  {
+   "In": "https://host/o/n b",
+   "Out": "host/o/n b"
+  },
+  {
+   "In": "https://host/o/ü",
+   "Out": "host/o/ü"
+  },
+  {
+   "In": "https://host/o/%C3%BC",
+   "Out": "host/o/ü"
+  },
+  {
+   "In": "https://host/o/n;x",
+   "Out": "host/o/n;x"
+  },
+  {
+   "In": "https://host/o/n?",
+   "Out": "host/o/n"
+  },
+  {
+   "In": "https://host/o/n??x",
+   "Out": "host/o/n"
+  },
+  {
+   "In": "https://host./o/n",
+   "Out": "host/o/n"
+  },
+  {
+   "In": "https://HOST.example./O/N.GIT",
+   "Out": "host.example/o/n"
+  },
+  {
+   "In": "https:github.com/o/n",
+   "Out": "https/github.com/o/n"
+  },
+  {
+   "In": "git+https://host/o/n",
+   "Out": "host/o/n"
+  },
+  {
+   "In": "ssh+git://host/o/n",
+   "Out": "host/o/n"
+  },
+  {
+   "In": "1https://host/o/n",
+   "Out": ""
+  },
+  {
+   "In": "://host/o/n",
+   "Out": ""
+  },
+  {
+   "In": "https://host/o/.git",
+   "Out": ""
+  },
+  {
+   "In": "https://host/o/n.git.git",
+   "Out": "host/o/n.git"
+  },
+  {
+   "In": "https://host/o/n/.git",
+   "Out": "host/o/n"
+  },
+  {
+   "In": "https://ho%41st/o/n",
+   "Out": ""
+  },
+  {
+   "In": "https://host/%2e/n",
+   "Out": ""
+  },
+  {
+   "In": "https://host/o/%2e%2e",
+   "Out": ""
+  },
+  {
+   "In": "https://user@host@x/o/n",
+   "Out": "x/o/n"
+  },
+  {
+   "In": "git@host:o/n/",
+   "Out": "host/o/n"
+  },
+  {
+   "In": "@host:o/n",
+   "Out": "host/o/n"
+  },
+  {
+   "In": "h:o/n",
+   "Out": ""
+  },
+  {
+   "In": "hh:o/n",
+   "Out": "hh/o/n"
+  },
+  {
+   "In": "git@[::1]:o/n",
+   "Out": ""
+  },
+  {
+   "In": "git@host:/o/n",
+   "Out": "host/o/n"
+  },
+  {
+   "In": "git@host:o//n",
+   "Out": "host/o/n"
+  },
+  {
+   "In": "https://host/o/n\t",
+   "Out": "host/o/n"
+  },
+  {
+   "In": "https://host/o/x",
+   "Out": ""
+  },
+  {
+   "In": "ssh://git@ssh.dev.azure.com/v3/org/proj",
+   "Out": "ssh.dev.azure.com/v3/org/proj"
+  },
+  {
+   "In": "https://x.visualstudio.com/",
+   "Out": ""
+  },
+  {
+   "In": "https://x.visualstudio.com/defaultcollection",
+   "Out": ""
+  },
+  {
+   "In": "https://host/a/_ssh/b",
+   "Out": "host/a/_ssh/b"
+  },
+  {
+   "In": "https://dev.azure.com/o/p/_ssh/r",
+   "Out": "dev.azure.com/o/p/_git/r"
+  },
+  {
+   "In": "HTTPS://Host/O/N",
+   "Out": "host/o/n"
+  },
+  {
+   "In": "git@host:o/N.Git",
+   "Out": "host/o/n"
+  },
+  {
+   "In": "https://host/o/n%2",
+   "Out": ""
+  },
+  {
+   "In": "https://host/o/n%%41",
+   "Out": ""
+  },
+  {
+   "In": "https://host/~o/n",
+   "Out": "host/~o/n"
+  },
+  {
+   "In": "https://host/o/n#",
+   "Out": "host/o/n"
+  },
+  {
+   "In": "https://host:8080",
+   "Out": ""
+  },
+  {
+   "In": "https://host:8080/o",
+   "Out": ""
+  }
+ ],
+ "smallestSHA": [
+  {
+   "In": "ffff\n\nAAAA\nbbbb\n",
+   "Out": "aaaa"
+  },
+  {
+   "In": "\n \n",
+   "Out": ""
+  },
+  {
+   "In": " b \n A ",
+   "Out": "a"
+  }
+ ]
+}

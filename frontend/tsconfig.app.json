@@ -26,6 +26,6 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "bindings/github.com/wailsapp/wails/v3/internal/eventdata.d.ts"],
+  "include": ["src"],
   "exclude": ["src/**/*.test.ts"]
 }

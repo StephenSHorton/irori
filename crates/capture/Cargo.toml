@@ -1,0 +1,30 @@
+[package]
+name = "irori-capture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Irori's capture area: transcript tailing, reflog watching, commit linking, repo keys and git blob ids (capture.md)"
+
+[lib]
+name = "capture"
+
+[dependencies]
+irori-coord.workspace = true
+irori-gocompat.workspace = true
+irori-hlc.workspace = true
+irori-ledger.workspace = true
+irori-search.workspace = true
+irori-store.workspace = true
+irori-sys.workspace = true
+serde.workspace = true
+getrandom.workspace = true
+regex.workspace = true
+rusqlite.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+hex.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

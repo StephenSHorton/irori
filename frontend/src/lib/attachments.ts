@@ -5,9 +5,8 @@
 // from bindings/. In a plain browser there are no files: images draw a
 // sample, and Save and Open say they need the app.
 
-import { AttachmentsService } from "../../bindings/github.com/StephenSHorton/irori"
-import { AttachmentInfo } from "../../bindings/github.com/StephenSHorton/irori/models"
-import { FileRef } from "../../bindings/github.com/StephenSHorton/irori/internal/blob/models"
+import { AttachmentsService } from "./host"
+import { AttachmentInfo, FileRef } from "./models"
 import { inWails } from "./irori"
 import { errorText } from "./talk"
 
@@ -74,8 +73,20 @@ export function canOpen(f: FileRef): boolean {
   return dot > 0 && OpenableExts.has(name.slice(dot).toLowerCase())
 }
 
+// schemeOrigin is where the app's `irori` URI scheme answers (surface.md
+// 7.7): Tauri serves custom schemes at http://<scheme>.localhost on
+// Windows, where the page itself is http://tauri.localhost, and at
+// <scheme>://localhost elsewhere. AttachmentInfo.url is the same URL.
+function schemeOrigin(): string {
+  const { protocol, hostname } = window.location
+  if ((protocol === "http:" || protocol === "https:") && hostname.endsWith(".localhost")) {
+    return `${protocol}//irori.localhost`
+  }
+  return "irori://localhost"
+}
+
 export function attachmentURL(sha: string): string {
-  return AttachmentRoute + sha
+  return schemeOrigin() + AttachmentRoute + sha
 }
 
 // humanSize mirrors blob.humanSize.

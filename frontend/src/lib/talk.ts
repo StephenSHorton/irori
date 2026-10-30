@@ -1,24 +1,20 @@
 // v0.2 gateway: the inbox and reviving gone sessions (the Board has its own
 // gateway in board.ts).
-// Like irori.ts, components import from here, never from bindings/, and in a
+// Like irori.ts, components import from here, never from src/gen, and in a
 // plain browser everything runs on the sample in sample-talk.ts (actions
 // change that sample in memory so the buttons can be tried).
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Events } from "@wailsio/runtime"
 
-import {
-  InboxService,
-  RosterService,
-} from "../../bindings/github.com/StephenSHorton/irori"
-import type { GoneSession } from "../../bindings/github.com/StephenSHorton/irori/models"
+import { Events, InboxService, RosterService } from "./host"
 import {
   HoldReason,
   Mode,
   State,
   type Delivery,
+  type GoneSession,
   type Policy,
-} from "../../bindings/github.com/StephenSHorton/irori/internal/inbox/models"
+} from "./models"
 import { inWails, parseTime, sessionShort } from "./irori"
 import { sampleTalk, type SampleTalk } from "./sample-talk"
 

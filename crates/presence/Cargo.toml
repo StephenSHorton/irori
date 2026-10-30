@@ -1,0 +1,29 @@
+[package]
+name = "irori-presence"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Irori's Claude Code session watcher: AgentCards from ~/.claude/sessions and transcript tails (mesh.md §3.4)"
+
+[lib]
+name = "presence"
+
+[dependencies]
+irori-gocompat.workspace = true
+serde.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_System_Time"] }
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies.base64]
+workspace = true

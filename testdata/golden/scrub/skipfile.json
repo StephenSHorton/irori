@@ -1,0 +1,182 @@
+[
+ {
+  "in": ".env",
+  "want": true
+ },
+ {
+  "in": ".ENV",
+  "want": true
+ },
+ {
+  "in": "a/.env",
+  "want": true
+ },
+ {
+  "in": "C:\\r\\.env",
+  "want": true
+ },
+ {
+  "in": ".env.local",
+  "want": true
+ },
+ {
+  "in": ".envrc",
+  "want": false
+ },
+ {
+  "in": "x.pem",
+  "want": true
+ },
+ {
+  "in": "x.PEM.",
+  "want": true
+ },
+ {
+  "in": "x.pem. .",
+  "want": true
+ },
+ {
+  "in": "x.key",
+  "want": true
+ },
+ {
+  "in": "x.p12",
+  "want": true
+ },
+ {
+  "in": "x.pfx",
+  "want": true
+ },
+ {
+  "in": "id_rsa",
+  "want": true
+ },
+ {
+  "in": "id_rsa.pub",
+  "want": true
+ },
+ {
+  "in": "id_ed25519",
+  "want": true
+ },
+ {
+  "in": "id_ecdsa_sk",
+  "want": true
+ },
+ {
+  "in": "credentials",
+  "want": true
+ },
+ {
+  "in": "Credentials.json",
+  "want": true
+ },
+ {
+  "in": ".netrc",
+  "want": true
+ },
+ {
+  "in": ".npmrc",
+  "want": true
+ },
+ {
+  "in": ".pypirc",
+  "want": true
+ },
+ {
+  "in": ".npmrc.bak",
+  "want": false
+ },
+ {
+  "in": "env.go",
+  "want": false
+ },
+ {
+  "in": "key.go",
+  "want": false
+ },
+ {
+  "in": ".env::$DATA",
+  "want": true
+ },
+ {
+  "in": "x.pem:Zone.Identifier",
+  "want": true
+ },
+ {
+  "in": "C:.env",
+  "want": true
+ },
+ {
+  "in": "C:key.pem",
+  "want": true
+ },
+ {
+  "in": "C:",
+  "want": false
+ },
+ {
+  "in": "..",
+  "want": false
+ },
+ {
+  "in": "",
+  "want": false
+ },
+ {
+  "in": "dir/",
+  "want": false
+ },
+ {
+  "in": "dir\\",
+  "want": false
+ },
+ {
+  "in": "id_rsa ",
+  "want": true
+ },
+ {
+  "in": " .env",
+  "want": true
+ },
+ {
+  "in": " .env",
+  "want": true
+ },
+ {
+  "in": ".env ",
+  "want": true
+ },
+ {
+  "in": "　id_rsa",
+  "want": true
+ },
+ {
+  "in": "İd_rsa",
+  "want": true
+ },
+ {
+  "in": "ID_RSA",
+  "want": true
+ },
+ {
+  "in": ".ENV.İ",
+  "want": true
+ },
+ {
+  "in": "x.pem​",
+  "want": false
+ },
+ {
+  "in": "notes.txt:secret.pem",
+  "want": false
+ },
+ {
+  "in": "1:.env",
+  "want": false
+ },
+ {
+  "in": "é:.env",
+  "want": false
+ }
+]

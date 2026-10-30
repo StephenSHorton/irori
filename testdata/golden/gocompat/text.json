@@ -1,0 +1,421 @@
+{
+ "case": [
+  {
+   "in": "",
+   "lower": "",
+   "upper": ""
+  },
+  {
+   "in": "706c61696e",
+   "lower": "706c61696e",
+   "upper": "504c41494e"
+  },
+  {
+   "in": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+   "lower": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f406162636465666768696a6b6c6d6e6f707172737475767778797a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+   "upper": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f604142434445464748494a4b4c4d4e4f505152535455565758595a7b7c7d7e7f"
+  },
+  {
+   "in": "613c623e2663",
+   "lower": "613c623e2663",
+   "upper": "413c423e2643"
+  },
+  {
+   "in": "e280a8e280a9",
+   "lower": "e280a8e280a9",
+   "upper": "e280a8e280a9"
+  },
+  {
+   "in": "78e280a879",
+   "lower": "78e280a879",
+   "upper": "58e280a859"
+  },
+  {
+   "in": "c3a9",
+   "lower": "c3a9",
+   "upper": "c389"
+  },
+  {
+   "in": "e697a5e69cace8aa9e",
+   "lower": "e697a5e69cace8aa9e",
+   "upper": "e697a5e69cace8aa9e"
+  },
+  {
+   "in": "f09f9880",
+   "lower": "f09f9880",
+   "upper": "f09f9880"
+  },
+  {
+   "in": "efbfbd",
+   "lower": "efbfbd",
+   "upper": "efbfbd"
+  },
+  {
+   "in": "7f",
+   "lower": "7f",
+   "upper": "7f"
+  },
+  {
+   "in": "c280c29fc2a0c2ad",
+   "lower": "c280c29fc2a0c2ad",
+   "upper": "c280c29fc2a0c2ad"
+  },
+  {
+   "in": "80",
+   "lower": "efbfbd",
+   "upper": "efbfbd"
+  },
+  {
+   "in": "ff",
+   "lower": "efbfbd",
+   "upper": "efbfbd"
+  },
+  {
+   "in": "c3",
+   "lower": "efbfbd",
+   "upper": "efbfbd"
+  },
+  {
+   "in": "c328",
+   "lower": "efbfbd28",
+   "upper": "efbfbd28"
+  },
+  {
+   "in": "e280",
+   "lower": "efbfbdefbfbd",
+   "upper": "efbfbdefbfbd"
+  },
+  {
+   "in": "e280a8",
+   "lower": "e280a8",
+   "upper": "e280a8"
+  },
+  {
+   "in": "eda080",
+   "lower": "efbfbdefbfbdefbfbd",
+   "upper": "efbfbdefbfbdefbfbd"
+  },
+  {
+   "in": "f09f98",
+   "lower": "efbfbdefbfbdefbfbd",
+   "upper": "efbfbdefbfbdefbfbd"
+  },
+  {
+   "in": "f09f9880",
+   "lower": "f09f9880",
+   "upper": "f09f9880"
+  },
+  {
+   "in": "f4908080",
+   "lower": "efbfbdefbfbdefbfbdefbfbd",
+   "upper": "efbfbdefbfbdefbfbdefbfbd"
+  },
+  {
+   "in": "c0af",
+   "lower": "efbfbdefbfbd",
+   "upper": "efbfbdefbfbd"
+  },
+  {
+   "in": "e080af",
+   "lower": "efbfbdefbfbdefbfbd",
+   "upper": "efbfbdefbfbdefbfbd"
+  },
+  {
+   "in": "61ff62fe",
+   "lower": "61efbfbd62efbfbd",
+   "upper": "41efbfbd42efbfbd"
+  },
+  {
+   "in": "00011f",
+   "lower": "00011f",
+   "upper": "00011f"
+  },
+  {
+   "in": "74616209686572652022712220c3a92001",
+   "lower": "74616209686572652022712220c3a92001",
+   "upper": "54414209484552452022512220c3892001"
+  },
+  {
+   "in": "5c",
+   "lower": "5c",
+   "upper": "5c"
+  },
+  {
+   "in": "22",
+   "lower": "22",
+   "upper": "22"
+  },
+  {
+   "in": "e2808be2808eefbbbf",
+   "lower": "e2808be2808eefbbbf",
+   "upper": "e2808be2808eefbbbf"
+  },
+  {
+   "in": "f3a08081",
+   "lower": "f3a08081",
+   "upper": "f3a08081"
+  },
+  {
+   "in": "f48fbfbf",
+   "lower": "f48fbfbf",
+   "upper": "f48fbfbf"
+  },
+  {
+   "in": "cdb8",
+   "lower": "cdb8",
+   "upper": "cdb8"
+  },
+  {
+   "in": "c2a0",
+   "lower": "c2a0",
+   "upper": "c2a0"
+  },
+  {
+   "in": "3c69726f72692d6d6573736167652066726f6d3d2278223e26616d703b3c2f69726f72692d6d6573736167653e",
+   "lower": "3c69726f72692d6d6573736167652066726f6d3d2278223e26616d703b3c2f69726f72692d6d6573736167653e",
+   "upper": "3c49524f52492d4d4553534147452046524f4d3d2258223e26414d503b3c2f49524f52492d4d4553534147453e"
+  },
+  {
+   "in": "c285",
+   "lower": "c285",
+   "upper": "c285"
+  },
+  {
+   "in": "e281a6",
+   "lower": "e281a6",
+   "upper": "e281a6"
+  },
+  {
+   "in": "f09fa7bf",
+   "lower": "f09fa7bf",
+   "upper": "f09fa7bf"
+  },
+  {
+   "in": "f09faba9",
+   "lower": "f09faba9",
+   "upper": "f09faba9"
+  },
+  {
+   "in": "e0ad95",
+   "lower": "e0ad95",
+   "upper": "e0ad95"
+  },
+  {
+   "in": "f0b18d90",
+   "lower": "f0b18d90",
+   "upper": "f0b18d90"
+  },
+  {
+   "in": "c4b05354414e42554c",
+   "lower": "697374616e62756c",
+   "upper": "c4b05354414e42554c"
+  },
+  {
+   "in": "cea3ce91cea3",
+   "lower": "cf83ceb1cf83",
+   "upper": "cea3ce91cea3"
+  },
+  {
+   "in": "53747261c39f65",
+   "lower": "73747261c39f65",
+   "upper": "53545241c39f45"
+  },
+  {
+   "in": "c785756e676c61",
+   "lower": "c786756e676c61",
+   "upper": "c784554e474c41"
+  },
+  {
+   "in": "e1ba9e",
+   "lower": "c39f",
+   "upper": "e1ba9e"
+  },
+  {
+   "in": "cea9",
+   "lower": "cf89",
+   "upper": "cea9"
+  },
+  {
+   "in": "4b",
+   "lower": "6b",
+   "upper": "4b"
+  },
+  {
+   "in": "c385",
+   "lower": "c3a5",
+   "upper": "c385"
+  },
+  {
+   "in": "efac80",
+   "lower": "efac80",
+   "upper": "efac80"
+  }
+ ],
+ "digest": {
+  "cf": "170:a4443c96904f34db",
+  "control": "65:4f2f838855df867f",
+  "digit": "680:dc76e5b9662aecd4",
+  "graphic": "149014:49da1f3af8bd752d",
+  "letter": "136104:6a7ff5bfc0497406",
+  "lower": "2233:c4bf1129ce0bd3be",
+  "mark": "2450:3ae4c0796f1e8fb7",
+  "number": "1831:cd28fcf44232e15d",
+  "print": "148998:98badb0f0c754bec",
+  "punct": "842:d973938ae2510e9b",
+  "simpleFold": "2878:558b7840195e7450",
+  "space": "25:5cbf1429c16bf75a",
+  "symbol": "7770:c9295fe69c72cc39",
+  "toLower": "1433:55f15a76c12fa46",
+  "toTitle": "1404:8fad01f1ce2803cb",
+  "toUpper": "1450:c1d86386cd079927",
+  "upper": "1831:d2c8d15f950ecc60"
+ },
+ "equalFold": [
+  {
+   "a": "476f",
+   "b": "474f",
+   "eq": true
+  },
+  {
+   "a": "6b",
+   "b": "e284aa",
+   "eq": true
+  },
+  {
+   "a": "4b",
+   "b": "e284aa",
+   "eq": true
+  },
+  {
+   "a": "73",
+   "b": "c5bf",
+   "eq": true
+  },
+  {
+   "a": "53",
+   "b": "c5bf",
+   "eq": true
+  },
+  {
+   "a": "cf83",
+   "b": "cf82",
+   "eq": true
+  },
+  {
+   "a": "cea3",
+   "b": "cf82",
+   "eq": true
+  },
+  {
+   "a": "73747261c39f65",
+   "b": "53545241535345",
+   "eq": false
+  },
+  {
+   "a": "c785",
+   "b": "c786",
+   "eq": true
+  },
+  {
+   "a": "c784",
+   "b": "c785",
+   "eq": true
+  },
+  {
+   "a": "c4b0",
+   "b": "69",
+   "eq": false
+  },
+  {
+   "a": "c4b1",
+   "b": "49",
+   "eq": false
+  },
+  {
+   "a": "c39f",
+   "b": "e1ba9e",
+   "eq": true
+  },
+  {
+   "a": "c2b5",
+   "b": "cebc",
+   "eq": true
+  },
+  {
+   "a": "c2b5",
+   "b": "ce9c",
+   "eq": true
+  },
+  {
+   "a": "616263",
+   "b": "61626364",
+   "eq": false
+  },
+  {
+   "a": "",
+   "b": "",
+   "eq": true
+  },
+  {
+   "a": "ff",
+   "b": "fe",
+   "eq": true
+  },
+  {
+   "a": "ff",
+   "b": "efbfbd",
+   "eq": true
+  },
+  {
+   "a": "4162ff",
+   "b": "6142fe",
+   "eq": true
+  },
+  {
+   "a": "ceb8",
+   "b": "cf91",
+   "eq": true
+  },
+  {
+   "a": "ce98",
+   "b": "cfb4",
+   "eq": true
+  },
+  {
+   "a": "c3a5",
+   "b": "c385",
+   "eq": true
+  },
+  {
+   "a": "c385",
+   "b": "c3a5",
+   "eq": true
+  },
+  {
+   "a": "efac80",
+   "b": "4646",
+   "eq": false
+  },
+  {
+   "a": "e292b6",
+   "b": "e29390",
+   "eq": true
+  },
+  {
+   "a": "f0909080",
+   "b": "f09090a8",
+   "eq": true
+  },
+  {
+   "a": "72c3a973756dc3a9",
+   "b": "52c38953554dc389",
+   "eq": true
+  },
+  {
+   "a": "61cc80",
+   "b": "41cc80",
+   "eq": true
+  }
+ ],
+ "unicodeVersion": "15.0.0"
+}

@@ -1,0 +1,19 @@
+[package]
+name = "irori-ledger"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Irori's PR authorship ledger and PR reference parsing (store.md §8)"
+
+[lib]
+name = "ledger"
+
+[dependencies]
+irori-gocompat.workspace = true
+regex.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+hex.workspace = true

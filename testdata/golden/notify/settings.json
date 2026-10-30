@@ -1,0 +1,188 @@
+[
+ {
+  "name": "no file, defaults saved",
+  "before": null,
+  "loaded": {
+   "enabled": true,
+   "sound": true,
+   "volume": 0.6,
+   "corner": "top-right"
+  },
+  "save": {
+   "enabled": true,
+   "sound": true,
+   "volume": 0.6,
+   "corner": "top-right"
+  },
+  "after": "{\n  \"notifications\": {\n    \"enabled\": true,\n    \"sound\": true,\n    \"volume\": 0.6,\n    \"corner\": \"top-right\"\n  }\n}\n"
+ },
+ {
+  "name": "unknown keys kept and sorted",
+  "before": "{\"zeta\":[1, 2],\"other\":{\"x\":1,\"h\":\"<a&b>\",\"u\":\"\u2028\"},\"alpha\":true}",
+  "loaded": {
+   "enabled": true,
+   "sound": true,
+   "volume": 0.6,
+   "corner": "top-right"
+  },
+  "save": {
+   "enabled": false,
+   "sound": false,
+   "volume": 1,
+   "corner": "bottom-left"
+  },
+  "after": "{\n  \"alpha\": true,\n  \"notifications\": {\n    \"enabled\": false,\n    \"sound\": false,\n    \"volume\": 1,\n    \"corner\": \"bottom-left\"\n  },\n  \"other\": {\n    \"x\": 1,\n    \"h\": \"\\u003ca\\u0026b\\u003e\",\n    \"u\": \"\\u2028\"\n  },\n  \"zeta\": [\n    1,\n    2\n  ]\n}\n"
+ },
+ {
+  "name": "volume fractions",
+  "before": "{\"notifications\":{\"enabled\":true,\"sound\":true,\"volume\":0.25,\"corner\":\"top-left\"}}",
+  "loaded": {
+   "enabled": true,
+   "sound": true,
+   "volume": 0.25,
+   "corner": "top-left"
+  },
+  "save": {
+   "enabled": true,
+   "sound": true,
+   "volume": 0.35,
+   "corner": "top-left"
+  },
+  "after": "{\n  \"notifications\": {\n    \"enabled\": true,\n    \"sound\": true,\n    \"volume\": 0.35,\n    \"corner\": \"top-left\"\n  }\n}\n"
+ },
+ {
+  "name": "tiny volume",
+  "before": null,
+  "loaded": {
+   "enabled": true,
+   "sound": true,
+   "volume": 0.6,
+   "corner": "top-right"
+  },
+  "save": {
+   "enabled": true,
+   "sound": true,
+   "volume": 1e-7,
+   "corner": "top-right"
+  },
+  "after": "{\n  \"notifications\": {\n    \"enabled\": true,\n    \"sound\": true,\n    \"volume\": 1e-7,\n    \"corner\": \"top-right\"\n  }\n}\n"
+ },
+ {
+  "name": "partial fills from defaults",
+  "before": "{\"notifications\":{\"corner\":\"bottom-left\"}}",
+  "loaded": {
+   "enabled": true,
+   "sound": true,
+   "volume": 0.6,
+   "corner": "bottom-left"
+  }
+ },
+ {
+  "name": "keys fold case, last wins",
+  "before": "{\"notifications\":{\"Corner\":\"top-left\",\"VOLUME\":0.9,\"volume\":0.2,\"Enabled\":false}}",
+  "loaded": {
+   "enabled": false,
+   "sound": true,
+   "volume": 0.2,
+   "corner": "top-left"
+  }
+ },
+ {
+  "name": "out of range normalized",
+  "before": "{\"notifications\":{\"volume\":3,\"corner\":\"middle\"}}",
+  "loaded": {
+   "enabled": true,
+   "sound": true,
+   "volume": 1,
+   "corner": "top-right"
+  }
+ },
+ {
+  "name": "a type error is the defaults",
+  "before": "{\"notifications\":{\"volume\":\"loud\",\"corner\":\"top-left\"}}",
+  "loaded": {
+   "enabled": true,
+   "sound": true,
+   "volume": 0.6,
+   "corner": "top-right"
+  }
+ },
+ {
+  "name": "notifications null",
+  "before": "{\"notifications\":null}",
+  "loaded": {
+   "enabled": true,
+   "sound": true,
+   "volume": 0.6,
+   "corner": "top-right"
+  }
+ },
+ {
+  "name": "broken file replaced",
+  "before": "{not json",
+  "loaded": {
+   "enabled": true,
+   "sound": true,
+   "volume": 0.6,
+   "corner": "top-right"
+  },
+  "save": {
+   "enabled": true,
+   "sound": true,
+   "volume": 0.6,
+   "corner": "top-right"
+  },
+  "after": "{\n  \"notifications\": {\n    \"enabled\": true,\n    \"sound\": true,\n    \"volume\": 0.6,\n    \"corner\": \"top-right\"\n  }\n}\n"
+ },
+ {
+  "name": "not an object replaced",
+  "before": "[1,2]",
+  "loaded": {
+   "enabled": true,
+   "sound": true,
+   "volume": 0.6,
+   "corner": "top-right"
+  },
+  "save": {
+   "enabled": true,
+   "sound": true,
+   "volume": 0.6,
+   "corner": "top-right"
+  },
+  "after": "{\n  \"notifications\": {\n    \"enabled\": true,\n    \"sound\": true,\n    \"volume\": 0.6,\n    \"corner\": \"top-right\"\n  }\n}\n"
+ },
+ {
+  "name": "duplicate top-level keys",
+  "before": "{\"a\":1,\"a\":{\"b\":2},\"notifications\":{\"sound\":false}}",
+  "loaded": {
+   "enabled": true,
+   "sound": false,
+   "volume": 0.6,
+   "corner": "top-right"
+  },
+  "save": {
+   "enabled": true,
+   "sound": false,
+   "volume": 0.6,
+   "corner": "top-right"
+  },
+  "after": "{\n  \"a\": {\n    \"b\": 2\n  },\n  \"notifications\": {\n    \"enabled\": true,\n    \"sound\": false,\n    \"volume\": 0.6,\n    \"corner\": \"top-right\"\n  }\n}\n"
+ },
+ {
+  "name": "pretty file re-indented",
+  "before": "{\n\t\"other\" : [ 1 ,\n {\"k\" : \"v\"} ] ,\n\t\"notifications\": {\"enabled\": true}\n}\n",
+  "loaded": {
+   "enabled": true,
+   "sound": true,
+   "volume": 0.6,
+   "corner": "top-right"
+  },
+  "save": {
+   "enabled": true,
+   "sound": true,
+   "volume": 0.6,
+   "corner": "bottom-right"
+  },
+  "after": "{\n  \"notifications\": {\n    \"enabled\": true,\n    \"sound\": true,\n    \"volume\": 0.6,\n    \"corner\": \"bottom-right\"\n  },\n  \"other\": [\n    1,\n    {\n      \"k\": \"v\"\n    }\n  ]\n}\n"
+ }
+]

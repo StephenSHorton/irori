@@ -2,13 +2,9 @@
 // launch at login (the OS registration). Components import from here.
 
 import { useCallback, useEffect, useState } from "react"
-import { Events } from "@wailsio/runtime"
 
-import { SettingsService } from "../../bindings/github.com/StephenSHorton/irori"
-import {
-  Options as NotifyOptions,
-  type Target,
-} from "../../bindings/github.com/StephenSHorton/irori/internal/notify"
+import { Events, SettingsService } from "./host"
+import { NotifyOptions, type Target } from "./models"
 import { inWails } from "./irori"
 import { errorText } from "./talk"
 
@@ -28,7 +24,7 @@ export const corners = [
   { id: "bottom-left", label: "Bottom left" },
 ] as const
 
-const sampleOptions = new NotifyOptions({
+const sampleOptions = NotifyOptions({
   enabled: true,
   sound: true,
   volume: 0.6,
@@ -85,7 +81,7 @@ export function useSettings(active: boolean): SettingsState {
   const setNotify = useCallback(
     async (patch: Partial<NotifyOptions>) => {
       if (!notify) return
-      const next = new NotifyOptions({ ...notify, ...patch })
+      const next = NotifyOptions({ ...notify, ...patch })
       setNotifyState(next) // the control moves at once; the reply settles it
       setTested(null)
       if (!inWails()) return
@@ -146,5 +142,5 @@ export function onOpen(fn: (t: Target) => void): () => void {
     const id = window.setTimeout(() => fn({ tab, ref: ref.join(":") }), 0)
     return () => window.clearTimeout(id)
   }
-  return Events.On(EventOpen, (ev) => fn(ev.data))
+  return Events.On<Target>(EventOpen, (ev) => fn(ev.data))
 }

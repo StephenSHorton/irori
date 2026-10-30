@@ -1,0 +1,108 @@
+{
+ "vectors": [
+  {
+   "event": {
+    "deviceId": "dev-a",
+    "seq": 1,
+    "hlc": 65536,
+    "actor": "irori",
+    "kind": "agent.seen",
+    "payload": "7b226b6579223a226465762d612f7331227d",
+    "sig": "e631b5ac2ab6ff2871cf74facffe143c33c18f8b77aba63f72de142c4d1b59623f4a28d3039e11f1839c4b848102d2bab325d69cecb091f7ffa6f2d6426aa707",
+    "rowHash": "6946303d3612a3a5d38e0fddfe92c5663abc314cc326cb44a1969ad24d329a69"
+   },
+   "signingBytes": "69726f72692f726f772f31000000056465762d61000000000000000100000000000100000000000569726f72690000000a6167656e742e7365656e1f0d26dfebf12b4cb7d25b17fc15e27bb52f43aaadcbd468934b3a26a0e68c5a"
+  },
+  {
+   "event": {
+    "deviceId": "0123456789abcdef0123456789abcdef",
+    "seq": 42,
+    "hlc": 111411200000000007,
+    "actor": "agent:dev/s",
+    "kind": "task.created",
+    "payload": "7b227461736b4964223a227431222c227469746c65223a223c623e227d",
+    "sig": "",
+    "rowHash": "81a1d924fcf1bcdac8419de782eb1bc6cf30e598ac7b350fdd978978fe34138e"
+   },
+   "signingBytes": "69726f72692f726f772f31000000203031323334353637383961626364656630313233343536373839616263646566000000000000002a018bcfe5680000070000000b6167656e743a6465762f730000000c7461736b2e63726561746564e1a87e494268a4842a4dca79978564b6be59c986b2c15a613b9063f6e51e3848"
+  },
+  {
+   "event": {
+    "deviceId": "d",
+    "seq": 1,
+    "hlc": 0,
+    "actor": "",
+    "kind": "k",
+    "payload": "",
+    "sig": "d0a233c9a55e5486ee3d337ac09a4aff9fb680fc88530acaf8af2a02f1e4fd9ab8b36fcfdc4a7f7b71c4eca314ca7cdc770b26fb7b01fb2fe008a94f873e9a03",
+    "rowHash": "fe0dfd092920d9d93381090c24645ef73c15d8186d135f5226f19e8bf24b5605"
+   },
+   "signingBytes": "69726f72692f726f772f3100000001640000000000000001000000000000000000000000000000016be3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "event": {
+    "deviceId": "d",
+    "seq": 2,
+    "hlc": 3,
+    "actor": "",
+    "kind": "k",
+    "payload": "6e756c6c",
+    "sig": "7331",
+    "rowHash": "eabf3419154e5d125dd2f85aa0097d8756f2a6db3cc29941127a26c1594a5b3f"
+   },
+   "signingBytes": "69726f72692f726f772f3100000001640000000000000002000000000000000300000000000000016b74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+  },
+  {
+   "event": {
+    "deviceId": "d",
+    "seq": -1,
+    "hlc": 4611686018427387904,
+    "actor": "user",
+    "kind": "x.y",
+    "payload": "5b5d",
+    "sig": "1b870d9c83e5f854e935a73a8241aa1c91f378b86b942b463625537fe2541eff31b16d33cea8026a10d290fe9cf7235a1bf20bee8eee7bfe7d977c14f1e6010e",
+    "rowHash": "716b0f092ae33f15e5c57058ef2ab6f71e9d2c58dc8cb4731798bc746ef073e9"
+   },
+   "signingBytes": "69726f72692f726f772f310000000164ffffffffffffffff4000000000000000000000047573657200000003782e794f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  },
+  {
+   "event": {
+    "deviceId": "d",
+    "seq": 9223372036854775807,
+    "hlc": 18446744073709551615,
+    "actor": "user",
+    "kind": "x.y",
+    "payload": "7b7d",
+    "sig": "",
+    "rowHash": "681468bea6e9ca594220644c99ce2da5696a8486a096627baebb543fcfe6708e"
+   },
+   "signingBytes": "69726f72692f726f772f3100000001647fffffffffffffffffffffffffffffff000000047573657200000003782e7944136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+  },
+  {
+   "event": {
+    "deviceId": "déviçe",
+    "seq": 7,
+    "hlc": 99,
+    "actor": "person:p1 ✓",
+    "kind": "kïnd.ü",
+    "payload": "22fffe22",
+    "sig": "6ff4ef797dca0ca7de1178fbf35ad1f3f2be558ff46c4ad4017c6f543d962808ff0d71fd287c9527a6b70ee1724477953af9a092ad45b47cea0a932e32438f09",
+    "rowHash": "9e179dc8952c44b3a24551bad96d258a3ab3ebcdc52bc9c12b7c7a88651a0d9b"
+   },
+   "signingBytes": "69726f72692f726f772f310000000864c3a97669c3a765000000000000000700000000000000630000000d706572736f6e3a703120e29c93000000086bc3af6e642ec3bc0a64e99cb6a82e0f6cf3aff3fed2e6fde35d5f1892bd886001cc96ae9a051279"
+  },
+  {
+   "event": {
+    "deviceId": "",
+    "seq": 0,
+    "hlc": 0,
+    "actor": "",
+    "kind": "",
+    "payload": "",
+    "sig": "",
+    "rowHash": "a1d96c04dae079ce280193de5cb66168c39cc543e0071caa55fbe69c15d8a709"
+   },
+   "signingBytes": "69726f72692f726f772f3100000000000000000000000000000000000000000000000000000000e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+ ]
+}

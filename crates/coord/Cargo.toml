@@ -1,0 +1,31 @@
+[package]
+name = "irori-coord"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Irori's Board fold (coord), approvals (ask), decision records, the mesh roster, session names and device colours (coord.md)"
+
+[lib]
+name = "coord"
+
+[dependencies]
+irori-blob.workspace = true
+irori-gocompat.workspace = true
+irori-hlc.workspace = true
+irori-identity.workspace = true
+irori-search.workspace = true
+irori-store.workspace = true
+serde.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+hex.workspace = true
+getrandom.workspace = true
+regex.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+base64.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true

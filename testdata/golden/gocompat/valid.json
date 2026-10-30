@@ -1,0 +1,348 @@
+{
+ "cases": [
+  {
+   "hex": "",
+   "ok": false
+  },
+  {
+   "hex": "20",
+   "ok": false
+  },
+  {
+   "hex": "7b7d",
+   "ok": true
+  },
+  {
+   "hex": "5b5d",
+   "ok": true
+  },
+  {
+   "hex": "203120",
+   "ok": true
+  },
+  {
+   "hex": "30",
+   "ok": true
+  },
+  {
+   "hex": "3031",
+   "ok": false
+  },
+  {
+   "hex": "2d30",
+   "ok": true
+  },
+  {
+   "hex": "2d",
+   "ok": false
+  },
+  {
+   "hex": "2d3031",
+   "ok": false
+  },
+  {
+   "hex": "312e",
+   "ok": false
+  },
+  {
+   "hex": "312e35652b33",
+   "ok": true
+  },
+  {
+   "hex": "314535",
+   "ok": true
+  },
+  {
+   "hex": "3165",
+   "ok": false
+  },
+  {
+   "hex": "31652b",
+   "ok": false
+  },
+  {
+   "hex": "2e35",
+   "ok": false
+  },
+  {
+   "hex": "302e30652d30",
+   "ok": true
+  },
+  {
+   "hex": "2b31",
+   "ok": false
+  },
+  {
+   "hex": "312e35452d3033",
+   "ok": true
+  },
+  {
+   "hex": "22",
+   "ok": false
+  },
+  {
+   "hex": "2222",
+   "ok": true
+  },
+  {
+   "hex": "225c2f22",
+   "ok": true
+  },
+  {
+   "hex": "225c6122",
+   "ok": false
+  },
+  {
+   "hex": "225c75303022",
+   "ok": false
+  },
+  {
+   "hex": "225c753132473422",
+   "ok": false
+  },
+  {
+   "hex": "225c754438303022",
+   "ok": true
+  },
+  {
+   "hex": "225c753030343122",
+   "ok": true
+  },
+  {
+   "hex": "228022",
+   "ok": true
+  },
+  {
+   "hex": "22fffe22",
+   "ok": true
+  },
+  {
+   "hex": "221f22",
+   "ok": false
+  },
+  {
+   "hex": "227f22",
+   "ok": true
+  },
+  {
+   "hex": "220922",
+   "ok": false
+  },
+  {
+   "hex": "22eda08022",
+   "ok": true
+  },
+  {
+   "hex": "7b2261223a312c7d",
+   "ok": false
+  },
+  {
+   "hex": "5b312c5d",
+   "ok": false
+  },
+  {
+   "hex": "6e756c",
+   "ok": false
+  },
+  {
+   "hex": "6e756c6c",
+   "ok": true
+  },
+  {
+   "hex": "6e756c6c20",
+   "ok": true
+  },
+  {
+   "hex": "efbbbf7b7d",
+   "ok": false
+  },
+  {
+   "hex": "7b7d207b7d",
+   "ok": false
+  },
+  {
+   "hex": "0b31",
+   "ok": false
+  },
+  {
+   "hex": "0c31",
+   "ok": false
+  },
+  {
+   "hex": "c2a031",
+   "ok": false
+  },
+  {
+   "hex": "0d0a092031",
+   "ok": true
+  },
+  {
+   "hex": "747275",
+   "ok": false
+  },
+  {
+   "hex": "74727565",
+   "ok": true
+  },
+  {
+   "hex": "7472756531",
+   "ok": false
+  },
+  {
+   "hex": "66616c7365",
+   "ok": true
+  },
+  {
+   "hex": "66616c73",
+   "ok": false
+  },
+  {
+   "hex": "312032",
+   "ok": false
+  },
+  {
+   "hex": "7b22612220317d",
+   "ok": false
+  },
+  {
+   "hex": "7b313a327d",
+   "ok": false
+  },
+  {
+   "hex": "5b3120325d",
+   "ok": false
+  },
+  {
+   "hex": "5b5b5b5d5d5d",
+   "ok": true
+  },
+  {
+   "hex": "7b2261223a7b2262223a5b312c7b2263223a6e756c6c7d5d7d7d",
+   "ok": true
+  },
+  {
+   "hex": "7b2261223a31202262223a327d",
+   "ok": false
+  },
+  {
+   "hex": "5b2c315d",
+   "ok": false
+  },
+  {
+   "hex": "7b2c7d",
+   "ok": false
+  },
+  {
+   "hex": "22612278",
+   "ok": false
+  },
+  {
+   "hex": "3178",
+   "ok": false
+  },
+  {
+   "hex": "5b315d5d",
+   "ok": false
+  },
+  {
+   "hex": "7b2261223a317d7d",
+   "ok": false
+  },
+  {
+   "hex": "225c75303065395c6e22",
+   "ok": true
+  },
+  {
+   "hex": "2d312e30652d3130",
+   "ok": true
+  },
+  {
+   "hex": "3030",
+   "ok": false
+  },
+  {
+   "hex": "312e6535",
+   "ok": false
+  },
+  {
+   "hex": "2d2e35",
+   "ok": false
+  },
+  {
+   "hex": "3165352e35",
+   "ok": false
+  },
+  {
+   "hex": "00",
+   "ok": false
+  },
+  {
+   "hex": "7b22223a22227d",
+   "ok": true
+  },
+  {
+   "hex": "7b2261223a5b5d7d",
+   "ok": true
+  },
+  {
+   "hex": "5b747275652c66616c73652c6e756c6c5d",
+   "ok": true
+  },
+  {
+   "hex": "313233343536373839303132333435363738393031323334353637383930",
+   "ok": true
+  }
+ ],
+ "deep": [
+  {
+   "depth": 1,
+   "obj": false,
+   "ok": true
+  },
+  {
+   "depth": 1,
+   "obj": true,
+   "ok": true
+  },
+  {
+   "depth": 9999,
+   "obj": false,
+   "ok": true
+  },
+  {
+   "depth": 9999,
+   "obj": true,
+   "ok": true
+  },
+  {
+   "depth": 10000,
+   "obj": false,
+   "ok": true
+  },
+  {
+   "depth": 10000,
+   "obj": true,
+   "ok": true
+  },
+  {
+   "depth": 10001,
+   "obj": false,
+   "ok": false
+  },
+  {
+   "depth": 10001,
+   "obj": true,
+   "ok": false
+  },
+  {
+   "depth": 20000,
+   "obj": false,
+   "ok": false
+  },
+  {
+   "depth": 20000,
+   "obj": true,
+   "ok": false
+  }
+ ]
+}

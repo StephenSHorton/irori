@@ -1,0 +1,1304 @@
+[
+ {
+  "name": "tasks",
+  "device": "dev-a",
+  "now": "2026-10-26T12:00:06Z",
+  "rows": [
+   {
+    "deviceId": "dev-a",
+    "seq": 1,
+    "hlc": 117507096576000000,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwTTg1UlhYUzZYNzJLMldYOSIsIm51bSI6MSwidGl0bGUiOiJGaXggdGhlIFx1MDAzY2xvZ2luXHUwMDNlIFx1MDAyNiBmbG93Iiwib2JqZWN0aXZlIjoiVXNlcnMgXHUyMDI4IGNhbid0IGxvZyBpbiIsImRvbmVDcml0ZXJpYSI6ImdyZWVuIENJIiwicmVwb0tleSI6InJlbW90ZTpnaXRodWIuY29tL2EvYiIsInNjb3BlIjpbInNyYy8qKiIsImRvY3MvKi5tZCJdLCJsaW5rcyI6W3sia2luZCI6InVybCIsInJlZiI6Imh0dHBzOi8vZ2l0aHViLmNvbS9hL2IvaXNzdWVzLzciLCJsYWJlbCI6IkdpdEh1YiAjNyJ9LHsia2luZCI6InBhdGgiLCJyZWYiOiJSRUFETUUubWQiLCJsYWJlbCI6IlJFQURNRS5tZCJ9XSwiYnkiOiJkZXYtYS9hbGljZS1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 2,
+    "hlc": 117507096674304000,
+    "actor": "user",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5V1lXQUpCUjAwSlhUM1g1WTlCRCIsIm51bSI6MiwidGl0bGUiOiJTaGFyZWQgd29yayIsIm9iamVjdGl2ZSI6IiIsInNoYXJlZCI6dHJ1ZSwiYnkiOiJ1c2VyOmRldi1hIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAxLjVaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 3,
+    "hlc": 117507096674304001,
+    "actor": "user",
+    "kind": "task.steps",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5V1lXQUpCUjAwSlhUM1g1WTlCRCIsInN0ZXBzIjpbeyJpZCI6InMxIiwidGV4dCI6Im9uZSIsImRvbmUiOmZhbHNlfSx7ImlkIjoiczIiLCJ0ZXh0IjoidHdvIiwiZG9uZSI6ZmFsc2UsImRvaW5nIjp0cnVlfV0sImJ5IjoidXNlcjpkZXYtYSIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMS41WiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 4,
+    "hlc": 117507096772608000,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.claimed",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwTTg1UlhYUzZYNzJLMldYOSIsImJ5IjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowM1oifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 5,
+    "hlc": 117507096772608001,
+    "actor": "user",
+    "kind": "task.assigned",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5V1lXQUpCUjAwSlhUM1g1WTlCRCIsInRvIjoiZGV2LWEvYm9iLXNlc3Npb24iLCJieSI6InVzZXI6ZGV2LWEiLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDNaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 6,
+    "hlc": 117507096772608002,
+    "actor": "agent:dev-a/carol-session",
+    "kind": "task.joined",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5V1lXQUpCUjAwSlhUM1g1WTlCRCIsIndobyI6ImRldi1hL2Nhcm9sLXNlc3Npb24iLCJieSI6ImRldi1hL2Nhcm9sLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDNaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 7,
+    "hlc": 117507096870912000,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwTTg1UlhYUzZYNzJLMldYOSIsInN0YXRlIjoiY29tcGxldGVkIiwibm90ZSI6InNoaXBwZWQgaXQiLCJieSI6ImRldi1hL2FsaWNlLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDQuNVoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 8,
+    "hlc": 117507096870912001,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5WldNVlNXWllBUzA0QTk3Mk5FWSIsIm51bSI6MywidGl0bGUiOiJQb3J0IDgwODAgc3R1Y2siLCJvYmplY3RpdmUiOiIiLCJieSI6ImRldi1hL2JvYi1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjA0LjVaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 9,
+    "hlc": 117507096870912002,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5WldNVlNXWllBUzA0QTk3Mk5FWSIsInN0YXRlIjoiYmxvY2tlZCIsInJlYXNvbiI6ImEgZGVhZCBkZXYgc2VydmVyIGhvbGRzIGl0IiwiYmxvY2tlZEJ5Ijp7ImtpbmQiOiJleHRlcm5hbCIsInJlZiI6InBpZCA0MjQyIn0sImJsb2NrZXIiOnsiaWQiOiJiMSIsInF1ZXN0aW9uIjoiYSBkZWFkIGRldiBzZXJ2ZXIgaG9sZHMgaXQiLCJyZWFzb25Pbmx5Ijp0cnVlLCJvbiI6eyJraW5kIjoiZXh0ZXJuYWwiLCJyZWYiOiJwaWQgNDI0MiJ9fSwiYnkiOiJkZXYtYS9ib2Itc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowNC41WiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 10,
+    "hlc": 117507096969216000,
+    "actor": "user",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwTTg1UlhYUzZYNzJLMldYOSIsInN0YXRlIjoid29ya2luZyIsIm5vdGUiOiJyZW9wZW5lZCIsImJ5IjoidXNlcjpkZXYtYSIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowNloifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 11,
+    "hlc": 117507096969216001,
+    "actor": "agent:dev-a/carol-session",
+    "kind": "task.left",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5V1lXQUpCUjAwSlhUM1g1WTlCRCIsIndobyI6ImRldi1hL2Nhcm9sLXNlc3Npb24iLCJieSI6ImRldi1hL2Nhcm9sLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDZaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 12,
+    "hlc": 117507096969216002,
+    "actor": "user",
+    "kind": "task.shared",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5V1lXQUpCUjAwSlhUM1g1WTlCRCIsInNoYXJlZCI6ZmFsc2UsImJ5IjoidXNlcjpkZXYtYSIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowNloifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 13,
+    "hlc": 117507096969216003,
+    "actor": "user",
+    "kind": "task.assigned",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwTTg1UlhYUzZYNzJLMldYOSIsInRvIjoidXNlcjpkZXYtYSIsImJ5IjoidXNlcjpkZXYtYSIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowNloifQ=="
+   }
+  ],
+  "tasks": "[{\"id\":\"01M5W19VG0M85RXXS6X72K2WX9\",\"short\":\"1\",\"title\":\"Fix the \\u003clogin\\u003e \\u0026 flow\",\"objective\":\"Users \\u2028 can't log in\",\"doneCriteria\":\"green CI\",\"repoKey\":\"remote:github.com/a/b\",\"scope\":[\"src/**\",\"docs/*.md\"],\"state\":\"working\",\"holder\":\"user:dev-a\",\"holders\":[\"user:dev-a\"],\"assigned\":[\"user:dev-a\"],\"createdBy\":\"dev-a/alice-session\",\"note\":\"reopened\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:06Z\",\"updatedBy\":\"user:dev-a\",\"links\":[{\"kind\":\"url\",\"ref\":\"https://github.com/a/b/issues/7\",\"label\":\"GitHub #7\"},{\"kind\":\"path\",\"ref\":\"README.md\",\"label\":\"README.md\"}]},{\"id\":\"01M5W19WYWAJBR00JXT3X5Y9BD\",\"short\":\"2\",\"title\":\"Shared work\",\"objective\":\"\",\"state\":\"working\",\"holder\":\"dev-a/bob-session\",\"holders\":[\"dev-a/bob-session\"],\"assigned\":[\"dev-a/bob-session\"],\"createdBy\":\"user:dev-a\",\"createdAt\":\"2026-10-26T12:00:01.5Z\",\"updatedAt\":\"2026-10-26T12:00:06Z\",\"updatedBy\":\"user:dev-a\",\"steps\":[{\"id\":\"s1\",\"text\":\"one\",\"done\":false},{\"id\":\"s2\",\"text\":\"two\",\"done\":false,\"doing\":true}]},{\"id\":\"01M5W19ZWMVSWZYAS04A972NEY\",\"short\":\"3\",\"title\":\"Port 8080 stuck\",\"objective\":\"\",\"state\":\"blocked\",\"createdBy\":\"dev-a/bob-session\",\"createdAt\":\"2026-10-26T12:00:04.5Z\",\"updatedAt\":\"2026-10-26T12:00:04.5Z\",\"updatedBy\":\"dev-a/bob-session\",\"reason\":\"a dead dev server holds it\",\"blockedBy\":{\"kind\":\"external\",\"ref\":\"pid 4242\"},\"blockers\":[{\"id\":\"b1\",\"question\":\"a dead dev server holds it\",\"raisedBy\":\"dev-a/bob-session\",\"at\":\"2026-10-26T12:00:04.5Z\",\"on\":{\"kind\":\"external\",\"ref\":\"pid 4242\"},\"status\":\"open\"}]}]",
+  "leases": "[]",
+  "refusals": "[]",
+  "boardAll": "{\"needsYou\":[],\"blocked\":[{\"id\":\"01M5W19ZWMVSWZYAS04A972NEY\",\"short\":\"3\",\"title\":\"Port 8080 stuck\",\"objective\":\"\",\"state\":\"blocked\",\"createdBy\":\"dev-a/bob-session\",\"createdAt\":\"2026-10-26T12:00:04.5Z\",\"updatedAt\":\"2026-10-26T12:00:04.5Z\",\"updatedBy\":\"dev-a/bob-session\",\"reason\":\"a dead dev server holds it\",\"blockedBy\":{\"kind\":\"external\",\"ref\":\"pid 4242\"},\"blockers\":[{\"id\":\"b1\",\"question\":\"a dead dev server holds it\",\"raisedBy\":\"dev-a/bob-session\",\"at\":\"2026-10-26T12:00:04.5Z\",\"on\":{\"kind\":\"external\",\"ref\":\"pid 4242\"},\"status\":\"open\"}]}],\"working\":[{\"id\":\"01M5W19WYWAJBR00JXT3X5Y9BD\",\"short\":\"2\",\"title\":\"Shared work\",\"objective\":\"\",\"state\":\"working\",\"holder\":\"dev-a/bob-session\",\"holders\":[\"dev-a/bob-session\"],\"assigned\":[\"dev-a/bob-session\"],\"createdBy\":\"user:dev-a\",\"createdAt\":\"2026-10-26T12:00:01.5Z\",\"updatedAt\":\"2026-10-26T12:00:06Z\",\"updatedBy\":\"user:dev-a\",\"steps\":[{\"id\":\"s1\",\"text\":\"one\",\"done\":false},{\"id\":\"s2\",\"text\":\"two\",\"done\":false,\"doing\":true}]},{\"id\":\"01M5W19VG0M85RXXS6X72K2WX9\",\"short\":\"1\",\"title\":\"Fix the \\u003clogin\\u003e \\u0026 flow\",\"objective\":\"Users \\u2028 can't log in\",\"doneCriteria\":\"green CI\",\"repoKey\":\"remote:github.com/a/b\",\"scope\":[\"src/**\",\"docs/*.md\"],\"state\":\"working\",\"holder\":\"user:dev-a\",\"holders\":[\"user:dev-a\"],\"assigned\":[\"user:dev-a\"],\"createdBy\":\"dev-a/alice-session\",\"note\":\"reopened\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:06Z\",\"updatedBy\":\"user:dev-a\",\"links\":[{\"kind\":\"url\",\"ref\":\"https://github.com/a/b/issues/7\",\"label\":\"GitHub #7\"},{\"kind\":\"path\",\"ref\":\"README.md\",\"label\":\"README.md\"}]}],\"open\":[],\"done\":[],\"doneTotal\":0,\"leases\":[]}",
+  "boardFor": "{\"needsYou\":[],\"blocked\":[{\"id\":\"01M5W19ZWMVSWZYAS04A972NEY\",\"short\":\"3\",\"title\":\"Port 8080 stuck\",\"objective\":\"\",\"state\":\"blocked\",\"createdBy\":\"dev-a/bob-session\",\"createdAt\":\"2026-10-26T12:00:04.5Z\",\"updatedAt\":\"2026-10-26T12:00:04.5Z\",\"updatedBy\":\"dev-a/bob-session\",\"reason\":\"a dead dev server holds it\",\"blockedBy\":{\"kind\":\"external\",\"ref\":\"pid 4242\"},\"blockers\":[{\"id\":\"b1\",\"question\":\"a dead dev server holds it\",\"raisedBy\":\"dev-a/bob-session\",\"at\":\"2026-10-26T12:00:04.5Z\",\"on\":{\"kind\":\"external\",\"ref\":\"pid 4242\"},\"status\":\"open\"}]}],\"working\":[{\"id\":\"01M5W19WYWAJBR00JXT3X5Y9BD\",\"short\":\"2\",\"title\":\"Shared work\",\"objective\":\"\",\"state\":\"working\",\"holder\":\"dev-a/bob-session\",\"holders\":[\"dev-a/bob-session\"],\"assigned\":[\"dev-a/bob-session\"],\"createdBy\":\"user:dev-a\",\"createdAt\":\"2026-10-26T12:00:01.5Z\",\"updatedAt\":\"2026-10-26T12:00:06Z\",\"updatedBy\":\"user:dev-a\",\"steps\":[{\"id\":\"s1\",\"text\":\"one\",\"done\":false},{\"id\":\"s2\",\"text\":\"two\",\"done\":false,\"doing\":true}]},{\"id\":\"01M5W19VG0M85RXXS6X72K2WX9\",\"short\":\"1\",\"title\":\"Fix the \\u003clogin\\u003e \\u0026 flow\",\"objective\":\"Users \\u2028 can't log in\",\"doneCriteria\":\"green CI\",\"repoKey\":\"remote:github.com/a/b\",\"scope\":[\"src/**\",\"docs/*.md\"],\"state\":\"working\",\"holder\":\"user:dev-a\",\"holders\":[\"user:dev-a\"],\"assigned\":[\"user:dev-a\"],\"createdBy\":\"dev-a/alice-session\",\"note\":\"reopened\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:06Z\",\"updatedBy\":\"user:dev-a\",\"links\":[{\"kind\":\"url\",\"ref\":\"https://github.com/a/b/issues/7\",\"label\":\"GitHub #7\"},{\"kind\":\"path\",\"ref\":\"README.md\",\"label\":\"README.md\"}]}],\"open\":[],\"done\":[],\"doneTotal\":0,\"leases\":[]}",
+  "activity": {
+   "01M5W19VG0M85RXXS6X72K2WX9": "[{\"at\":\"2026-10-26T12:00:06Z\",\"by\":\"user:dev-a\",\"what\":\"assigned it to user:dev-a\",\"kind\":\"task.assigned\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:06Z\",\"by\":\"user:dev-a\",\"what\":\"reopened it\",\"kind\":\"task.status\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:04.5Z\",\"by\":\"dev-a/alice-session\",\"what\":\"set it to completed\",\"kind\":\"task.status\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:03Z\",\"by\":\"dev-a/alice-session\",\"what\":\"took it up\",\"kind\":\"task.claimed\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19WYWAJBR00JXT3X5Y9BD": "[{\"at\":\"2026-10-26T12:00:06Z\",\"by\":\"dev-a/carol-session\",\"what\":\"left it\",\"kind\":\"task.left\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:03Z\",\"by\":\"dev-a/carol-session\",\"what\":\"joined\",\"kind\":\"task.joined\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:03Z\",\"by\":\"user:dev-a\",\"what\":\"assigned it to dev-a/bob-session\",\"kind\":\"task.assigned\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:01.5Z\",\"by\":\"user:dev-a\",\"what\":\"set the steps (0/2 done)\",\"kind\":\"task.steps\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:01.5Z\",\"by\":\"user:dev-a\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19ZWMVSWZYAS04A972NEY": "[{\"at\":\"2026-10-26T12:00:04.5Z\",\"by\":\"dev-a/bob-session\",\"what\":\"raised a blocker: a dead dev server holds it\",\"kind\":\"task.status\",\"device\":\"dev-a\",\"blockerId\":\"b1\"},{\"at\":\"2026-10-26T12:00:04.5Z\",\"by\":\"dev-a/bob-session\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]"
+  },
+  "comments": {
+   "01M5W19VG0M85RXXS6X72K2WX9": "[]",
+   "01M5W19WYWAJBR00JXT3X5Y9BD": "[]",
+   "01M5W19ZWMVSWZYAS04A972NEY": "[]"
+  }
+ },
+ {
+  "name": "cards",
+  "device": "dev-a",
+  "now": "2026-10-26T12:00:06Z",
+  "rows": [
+   {
+    "deviceId": "dev-a",
+    "seq": 1,
+    "hlc": 117507096576000000,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1dZWFFXN0tRUVlSODdRMyIsIm51bSI6MSwidGl0bGUiOiJSZWxlYXNlIHYwLjYiLCJvYmplY3RpdmUiOiIiLCJieSI6ImRldi1hL2FsaWNlLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 2,
+    "hlc": 117507096576000001,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.claimed",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1dZWFFXN0tRUVlSODdRMyIsImJ5IjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 3,
+    "hlc": 117507096576000002,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.steps",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1dZWFFXN0tRUVlSODdRMyIsInN0ZXBzIjpbeyJpZCI6InMxIiwidGV4dCI6IlRhZyBpdCIsImRvbmUiOmZhbHNlfSx7ImlkIjoiczIiLCJ0ZXh0IjoiV3JpdGUgbm90ZXMiLCJkb25lIjpmYWxzZSwiZG9pbmciOnRydWV9LHsiaWQiOiJzMyIsInRleHQiOiJBbm5vdW5jZSIsImRvbmUiOmZhbHNlfV0sImJ5IjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 4,
+    "hlc": 117507096576000003,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.step",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1dZWFFXN0tRUVlSODdRMyIsInN0ZXBJZCI6InMxIiwiZG9uZSI6dHJ1ZSwiYnkiOiJkZXYtYS9hbGljZS1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 5,
+    "hlc": 117507096576000004,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.watched",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1dZWFFXN0tRUVlSODdRMyIsIndobyI6ImRldi1hL2JvYi1zZXNzaW9uIiwid2F0Y2hpbmciOnRydWUsImJ5IjoiZGV2LWEvYm9iLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 6,
+    "hlc": 117507096674304000,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1dZWFFXN0tRUVlSODdRMyIsInN0YXRlIjoiYmxvY2tlZCIsInJlYXNvbiI6IldoaWNoIGNoYW5uZWw/IiwiYmxvY2tlZEJ5Ijp7ImtpbmQiOiJwZXJzb24ifSwiYmxvY2tlciI6eyJpZCI6ImIxIiwicXVlc3Rpb24iOiJXaGljaCBjaGFubmVsPyIsImNvbnRleHQiOiJXZSBjYW4gcG9zdCBpbiB0d28gcGxhY2VzLiIsIm9wdGlvbnMiOlt7ImFuc3dlciI6IkRpc2NvcmQiLCJ3aHkiOiJtb3N0IHBlb3BsZSIsImJ5IjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMS41WiIsInJlY29tbWVuZGVkIjp0cnVlfSx7ImFuc3dlciI6IkJsb2ciLCJieSI6ImRldi1hL2FsaWNlLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDEuNVoifV0sIm9uIjp7ImtpbmQiOiJwZXJzb24ifSwibGlua3MiOlt7ImtpbmQiOiJ1cmwiLCJyZWYiOiJodHRwczovL2V4YW1wbGUuY29tL3BsYW4iLCJsYWJlbCI6ImV4YW1wbGUuY29tIn1dLCJhdHRhY2htZW50cyI6W3sic2hhMjU2IjoiYWIxMiIsIm5hbWUiOiJwbGFuLnR4dCIsInNpemUiOjEyLCJkZXZpY2UiOiJkZXYtYSJ9XX0sImJ5IjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMS41WiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 7,
+    "hlc": 117507096674304001,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "blocker.option",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1dZWFFXN0tRUVlSODdRMyIsImJsb2NrZXJJZCI6ImIxIiwiYW5zd2VyIjoiQm90aCIsIndoeSI6InJlYWNoIiwiYnkiOiJkZXYtYS9ib2Itc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMS41WiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 8,
+    "hlc": 117507096772608000,
+    "actor": "user",
+    "kind": "task.comment",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1dZWFFXN0tRUVlSODdRMyIsImNvbW1lbnRJZCI6IjAxTTVXMTlZRFJRMjVTNlg4RTlBVEtCMTE2IiwiYnkiOiJ1c2VyOmRldi1hIiwidGV4dCI6IkRpc2NvcmQiLCJ3YWtlIjpmYWxzZSwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAzWiIsInRvIjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImJsb2NrZXJJZCI6ImIxIiwicGljayI6MX0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 9,
+    "hlc": 117507096772608001,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.comment",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1dZWFFXN0tRUVlSODdRMyIsImNvbW1lbnRJZCI6IjAxTTVXMTlZRFJXUDI2Mkc3NDg0NVMzS0FNIiwiYnkiOiJkZXYtYS9hbGljZS1zZXNzaW9uIiwidGV4dCI6IkRpc2NvcmQgYWxvbmU/Iiwid2FrZSI6ZmFsc2UsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowM1oiLCJibG9ja2VySWQiOiJiMSIsIm1pc3NpbmciOlsidGhlIGNoYW5uZWwgbmFtZSJdfQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 10,
+    "hlc": 117507096772608002,
+    "actor": "user",
+    "kind": "task.comment",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1dZWFFXN0tRUVlSODdRMyIsImNvbW1lbnRJZCI6IjAxTTVXMTlZRFIyQ1NHOUJCQ0pZSlJRUVZSIiwiYnkiOiJ1c2VyOmRldi1hIiwidGV4dCI6IlllcywgI2dlbmVyYWwiLCJ3YWtlIjpmYWxzZSwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAzWiIsInRvIjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImJsb2NrZXJJZCI6ImIxIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 11,
+    "hlc": 117507096870912000,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "blocker.resolved",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1dZWFFXN0tRUVlSODdRMyIsImJsb2NrZXJJZCI6ImIxIiwiYW5zd2VyIjoiWWVzLCAjZ2VuZXJhbCIsIm9wdGlvbiI6LTEsImJ5IjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsInJlc3RvcmVkIjoid29ya2luZyIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowNC41WiIsIm5vdGUiOiJwb3N0aW5nIHRoZXJlIG5vdyJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 12,
+    "hlc": 117507096870912001,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1dZWFFXN0tRUVlSODdRMyIsInN0YXRlIjoiYmxvY2tlZCIsInJlYXNvbiI6IndhaXRpbmcgb24gcmV2aWV3IiwiYmxvY2tlZEJ5Ijp7ImtpbmQiOiJhZ2VudCIsInJlZiI6ImRldi1hL2Nhcm9sLXNlc3Npb24ifSwiYmxvY2tlciI6eyJpZCI6ImIyIiwicXVlc3Rpb24iOiJ3YWl0aW5nIG9uIHJldmlldyIsInJlYXNvbk9ubHkiOnRydWUsIm9uIjp7ImtpbmQiOiJhZ2VudCIsInJlZiI6ImRldi1hL2Nhcm9sLXNlc3Npb24ifX0sImJ5IjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowNC41WiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 13,
+    "hlc": 117507096870912002,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1dZWFFXN0tRUVlSODdRMyIsInN0YXRlIjoiYmxvY2tlZCIsInJlYXNvbiI6IndhaXRpbmcgb24gYSBzZWNvbmQgcmV2aWV3IiwiYmxvY2tlZEJ5Ijp7ImtpbmQiOiJhZ2VudCIsInJlZiI6ImRldi1hL2Nhcm9sLXNlc3Npb24ifSwiYmxvY2tlciI6eyJpZCI6ImIyIiwicXVlc3Rpb24iOiJ3YWl0aW5nIG9uIGEgc2Vjb25kIHJldmlldyIsInJlYXNvbk9ubHkiOnRydWUsInJlcGxhY2UiOnRydWUsIm9uIjp7ImtpbmQiOiJhZ2VudCIsInJlZiI6ImRldi1hL2Nhcm9sLXNlc3Npb24ifX0sImJ5IjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowNC41WiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 14,
+    "hlc": 117507096969216000,
+    "actor": "agent:dev-a/carol-session",
+    "kind": "blocker.closed",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1dZWFFXN0tRUVlSODdRMyIsImJ5IjoiZGV2LWEvY2Fyb2wtc2Vzc2lvbiIsIm5vdGUiOiJyZXZpZXdlZCIsInJlc3RvcmVkIjoid29ya2luZyIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowNloifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 15,
+    "hlc": 117507096969216001,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.linked",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1dZWFFXN0tRUVlSODdRMyIsImxpbmsiOnsia2luZCI6InVybCIsInJlZiI6Imh0dHBzOi8vZ2l0aHViLmNvbS9hL2IvcHVsbC8xMiIsImxhYmVsIjoiR2l0SHViICMxMiJ9LCJieSI6ImRldi1hL2JvYi1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjA2WiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 16,
+    "hlc": 117507096969216002,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.linked",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1dZWFFXN0tRUVlSODdRMyIsImxpbmsiOnsia2luZCI6ImNvbW1pdCIsInJlZiI6ImFiY2RlZjEyMzQiLCJsYWJlbCI6ImNvbW1pdCBhYmNkZWYxIn0sImJ5IjoiZGV2LWEvYm9iLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDZaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 17,
+    "hlc": 117507096969216003,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.linked",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1dZWFFXN0tRUVlSODdRMyIsImxpbmsiOnsia2luZCI6ImNvbW1pdCIsInJlZiI6ImFiY2RlZjEyMzQiLCJsYWJlbCI6ImNvbW1pdCBhYmNkZWYxIn0sInJlbW92ZWQiOnRydWUsImJ5IjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowNloifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 18,
+    "hlc": 117507096969216004,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.watched",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1dZWFFXN0tRUVlSODdRMyIsIndobyI6ImRldi1hL2JvYi1zZXNzaW9uIiwid2F0Y2hpbmciOmZhbHNlLCJieSI6ImRldi1hL2JvYi1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjA2WiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 19,
+    "hlc": 117507096969216005,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzFBMUJHMUVFUUNSU0tFQ1FRWFFNNCIsIm51bSI6MiwidGl0bGUiOiJUd28gcXVlc3Rpb25zIiwib2JqZWN0aXZlIjoiIiwiYnkiOiJkZXYtYS9ib2Itc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowNloifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 20,
+    "hlc": 117507096969216006,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzFBMUJHMUVFUUNSU0tFQ1FRWFFNNCIsInN0YXRlIjoiYmxvY2tlZCIsInJlYXNvbiI6IkE/IiwiYmxvY2tlZEJ5Ijp7ImtpbmQiOiJwZXJzb24ifSwiYmxvY2tlciI6eyJpZCI6ImIxIiwicXVlc3Rpb24iOiJBPyIsIm9uIjp7ImtpbmQiOiJwZXJzb24ifX0sImJ5IjoiZGV2LWEvYm9iLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDZaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 21,
+    "hlc": 117507096969216007,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzFBMUJHMUVFUUNSU0tFQ1FRWFFNNCIsInN0YXRlIjoiYmxvY2tlZCIsInJlYXNvbiI6IkI/IiwiYmxvY2tlZEJ5Ijp7ImtpbmQiOiJ0YXNrIiwicmVmIjoiMDFNNVcxOVZHMEdXWVhRVzdLUVFZUjg3UTMifSwiYmxvY2tlciI6eyJpZCI6ImIyIiwicXVlc3Rpb24iOiJCPyIsIm9uIjp7ImtpbmQiOiJ0YXNrIiwicmVmIjoiMDFNNVcxOVZHMEdXWVhRVzdLUVFZUjg3UTMifX0sImJ5IjoiZGV2LWEvYm9iLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDZaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 22,
+    "hlc": 117507096969216008,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "blocker.resolved",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzFBMUJHMUVFUUNSU0tFQ1FRWFFNNCIsImJsb2NrZXJJZCI6ImIxIiwiYW5zd2VyIjoic2V0dGxlZCIsIm9wdGlvbiI6LTEsImJ5IjoiZGV2LWEvYm9iLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDZaIn0="
+   }
+  ],
+  "tasks": "[{\"id\":\"01M5W19VG0GWYXQW7KQQYR87Q3\",\"short\":\"1\",\"title\":\"Release v0.6\",\"objective\":\"\",\"state\":\"working\",\"holder\":\"dev-a/alice-session\",\"holders\":[\"dev-a/alice-session\"],\"createdBy\":\"dev-a/alice-session\",\"note\":\"reviewed\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:06Z\",\"updatedBy\":\"dev-a/alice-session\",\"links\":[{\"kind\":\"url\",\"ref\":\"https://github.com/a/b/pull/12\",\"label\":\"GitHub #12\"}],\"comments\":3,\"steps\":[{\"id\":\"s1\",\"text\":\"Tag it\",\"done\":true},{\"id\":\"s2\",\"text\":\"Write notes\",\"done\":false,\"doing\":true},{\"id\":\"s3\",\"text\":\"Announce\",\"done\":false}],\"blockers\":[{\"id\":\"b1\",\"question\":\"Which channel?\",\"context\":\"We can post in two places.\",\"raisedBy\":\"dev-a/alice-session\",\"at\":\"2026-10-26T12:00:01.5Z\",\"options\":[{\"answer\":\"Discord\",\"why\":\"most people\",\"by\":\"dev-a/alice-session\",\"at\":\"2026-10-26T12:00:01.5Z\",\"recommended\":true},{\"answer\":\"Blog\",\"by\":\"dev-a/alice-session\",\"at\":\"2026-10-26T12:00:01.5Z\"},{\"answer\":\"Both\",\"why\":\"reach\",\"by\":\"dev-a/bob-session\",\"at\":\"2026-10-26T12:00:01.5Z\",\"recommended\":true}],\"resolved\":{\"answer\":\"Yes, #general\",\"option\":-1,\"by\":\"dev-a/alice-session\",\"at\":\"2026-10-26T12:00:04.5Z\",\"note\":\"posting there now\"},\"links\":[{\"kind\":\"url\",\"ref\":\"https://example.com/plan\",\"label\":\"example.com\"}],\"attachments\":[{\"sha256\":\"ab12\",\"name\":\"plan.txt\",\"size\":12,\"device\":\"dev-a\"}],\"on\":{\"kind\":\"person\"},\"status\":\"answered\",\"sentTo\":\"dev-a/alice-session\"},{\"id\":\"b2\",\"question\":\"waiting on a second review\",\"raisedBy\":\"dev-a/alice-session\",\"at\":\"2026-10-26T12:00:04.5Z\",\"resolved\":{\"answer\":\"reviewed\",\"option\":-1,\"by\":\"dev-a/carol-session\",\"at\":\"2026-10-26T12:00:06Z\",\"closed\":true},\"on\":{\"kind\":\"agent\",\"ref\":\"dev-a/carol-session\"},\"status\":\"open\"}]},{\"id\":\"01M5W1A1BG1EEQCRSKECQQXQM4\",\"short\":\"2\",\"title\":\"Two questions\",\"objective\":\"\",\"state\":\"blocked\",\"createdBy\":\"dev-a/bob-session\",\"createdAt\":\"2026-10-26T12:00:06Z\",\"updatedAt\":\"2026-10-26T12:00:06Z\",\"updatedBy\":\"dev-a/bob-session\",\"reason\":\"B?\",\"blockedBy\":{\"kind\":\"task\",\"ref\":\"01M5W19VG0GWYXQW7KQQYR87Q3\"},\"blockers\":[{\"id\":\"b1\",\"question\":\"A?\",\"raisedBy\":\"dev-a/bob-session\",\"at\":\"2026-10-26T12:00:06Z\",\"resolved\":{\"answer\":\"settled\",\"option\":-1,\"by\":\"dev-a/bob-session\",\"at\":\"2026-10-26T12:00:06Z\"},\"on\":{\"kind\":\"person\"},\"status\":\"open\"},{\"id\":\"b2\",\"question\":\"B?\",\"raisedBy\":\"dev-a/bob-session\",\"at\":\"2026-10-26T12:00:06Z\",\"on\":{\"kind\":\"task\",\"ref\":\"01M5W19VG0GWYXQW7KQQYR87Q3\"},\"status\":\"open\"}]}]",
+  "leases": "[]",
+  "refusals": "[]",
+  "boardAll": "{\"needsYou\":[],\"blocked\":[{\"id\":\"01M5W1A1BG1EEQCRSKECQQXQM4\",\"short\":\"2\",\"title\":\"Two questions\",\"objective\":\"\",\"state\":\"blocked\",\"createdBy\":\"dev-a/bob-session\",\"createdAt\":\"2026-10-26T12:00:06Z\",\"updatedAt\":\"2026-10-26T12:00:06Z\",\"updatedBy\":\"dev-a/bob-session\",\"reason\":\"B?\",\"blockedBy\":{\"kind\":\"task\",\"ref\":\"01M5W19VG0GWYXQW7KQQYR87Q3\"},\"blockers\":[{\"id\":\"b1\",\"question\":\"A?\",\"raisedBy\":\"dev-a/bob-session\",\"at\":\"2026-10-26T12:00:06Z\",\"resolved\":{\"answer\":\"settled\",\"option\":-1,\"by\":\"dev-a/bob-session\",\"at\":\"2026-10-26T12:00:06Z\"},\"on\":{\"kind\":\"person\"},\"status\":\"open\"},{\"id\":\"b2\",\"question\":\"B?\",\"raisedBy\":\"dev-a/bob-session\",\"at\":\"2026-10-26T12:00:06Z\",\"on\":{\"kind\":\"task\",\"ref\":\"01M5W19VG0GWYXQW7KQQYR87Q3\"},\"status\":\"open\"}]}],\"working\":[{\"id\":\"01M5W19VG0GWYXQW7KQQYR87Q3\",\"short\":\"1\",\"title\":\"Release v0.6\",\"objective\":\"\",\"state\":\"working\",\"holder\":\"dev-a/alice-session\",\"holders\":[\"dev-a/alice-session\"],\"createdBy\":\"dev-a/alice-session\",\"note\":\"reviewed\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:06Z\",\"updatedBy\":\"dev-a/alice-session\",\"links\":[{\"kind\":\"url\",\"ref\":\"https://github.com/a/b/pull/12\",\"label\":\"GitHub #12\"}],\"comments\":3,\"steps\":[{\"id\":\"s1\",\"text\":\"Tag it\",\"done\":true},{\"id\":\"s2\",\"text\":\"Write notes\",\"done\":false,\"doing\":true},{\"id\":\"s3\",\"text\":\"Announce\",\"done\":false}],\"blockers\":[{\"id\":\"b1\",\"question\":\"Which channel?\",\"context\":\"We can post in two places.\",\"raisedBy\":\"dev-a/alice-session\",\"at\":\"2026-10-26T12:00:01.5Z\",\"options\":[{\"answer\":\"Discord\",\"why\":\"most people\",\"by\":\"dev-a/alice-session\",\"at\":\"2026-10-26T12:00:01.5Z\",\"recommended\":true},{\"answer\":\"Blog\",\"by\":\"dev-a/alice-session\",\"at\":\"2026-10-26T12:00:01.5Z\"},{\"answer\":\"Both\",\"why\":\"reach\",\"by\":\"dev-a/bob-session\",\"at\":\"2026-10-26T12:00:01.5Z\",\"recommended\":true}],\"resolved\":{\"answer\":\"Yes, #general\",\"option\":-1,\"by\":\"dev-a/alice-session\",\"at\":\"2026-10-26T12:00:04.5Z\",\"note\":\"posting there now\"},\"links\":[{\"kind\":\"url\",\"ref\":\"https://example.com/plan\",\"label\":\"example.com\"}],\"attachments\":[{\"sha256\":\"ab12\",\"name\":\"plan.txt\",\"size\":12,\"device\":\"dev-a\"}],\"on\":{\"kind\":\"person\"},\"status\":\"answered\",\"sentTo\":\"dev-a/alice-session\"},{\"id\":\"b2\",\"question\":\"waiting on a second review\",\"raisedBy\":\"dev-a/alice-session\",\"at\":\"2026-10-26T12:00:04.5Z\",\"resolved\":{\"answer\":\"reviewed\",\"option\":-1,\"by\":\"dev-a/carol-session\",\"at\":\"2026-10-26T12:00:06Z\",\"closed\":true},\"on\":{\"kind\":\"agent\",\"ref\":\"dev-a/carol-session\"},\"status\":\"open\"}],\"lastComment\":{\"id\":\"01M5W19YDR2CSG9BBCJYJRQQVR\",\"taskId\":\"01M5W19VG0GWYXQW7KQQYR87Q3\",\"by\":\"user:dev-a\",\"text\":\"Yes, #general\",\"wake\":false,\"at\":\"2026-10-26T12:00:03Z\",\"to\":\"dev-a/alice-session\",\"blockerId\":\"b1\",\"device\":\"dev-a\"}}],\"open\":[],\"done\":[],\"doneTotal\":0,\"leases\":[]}",
+  "boardFor": "{\"needsYou\":[],\"blocked\":[{\"id\":\"01M5W1A1BG1EEQCRSKECQQXQM4\",\"short\":\"2\",\"title\":\"Two questions\",\"objective\":\"\",\"state\":\"blocked\",\"createdBy\":\"dev-a/bob-session\",\"createdAt\":\"2026-10-26T12:00:06Z\",\"updatedAt\":\"2026-10-26T12:00:06Z\",\"updatedBy\":\"dev-a/bob-session\",\"reason\":\"B?\",\"blockedBy\":{\"kind\":\"task\",\"ref\":\"01M5W19VG0GWYXQW7KQQYR87Q3\"},\"blockers\":[{\"id\":\"b1\",\"question\":\"A?\",\"raisedBy\":\"dev-a/bob-session\",\"at\":\"2026-10-26T12:00:06Z\",\"resolved\":{\"answer\":\"settled\",\"option\":-1,\"by\":\"dev-a/bob-session\",\"at\":\"2026-10-26T12:00:06Z\"},\"on\":{\"kind\":\"person\"},\"status\":\"open\"},{\"id\":\"b2\",\"question\":\"B?\",\"raisedBy\":\"dev-a/bob-session\",\"at\":\"2026-10-26T12:00:06Z\",\"on\":{\"kind\":\"task\",\"ref\":\"01M5W19VG0GWYXQW7KQQYR87Q3\"},\"status\":\"open\"}]}],\"working\":[{\"id\":\"01M5W19VG0GWYXQW7KQQYR87Q3\",\"short\":\"1\",\"title\":\"Release v0.6\",\"objective\":\"\",\"state\":\"working\",\"holder\":\"dev-a/alice-session\",\"holders\":[\"dev-a/alice-session\"],\"createdBy\":\"dev-a/alice-session\",\"note\":\"reviewed\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:06Z\",\"updatedBy\":\"dev-a/alice-session\",\"links\":[{\"kind\":\"url\",\"ref\":\"https://github.com/a/b/pull/12\",\"label\":\"GitHub #12\"}],\"comments\":3,\"steps\":[{\"id\":\"s1\",\"text\":\"Tag it\",\"done\":true},{\"id\":\"s2\",\"text\":\"Write notes\",\"done\":false,\"doing\":true},{\"id\":\"s3\",\"text\":\"Announce\",\"done\":false}],\"blockers\":[{\"id\":\"b1\",\"question\":\"Which channel?\",\"context\":\"We can post in two places.\",\"raisedBy\":\"dev-a/alice-session\",\"at\":\"2026-10-26T12:00:01.5Z\",\"options\":[{\"answer\":\"Discord\",\"why\":\"most people\",\"by\":\"dev-a/alice-session\",\"at\":\"2026-10-26T12:00:01.5Z\",\"recommended\":true},{\"answer\":\"Blog\",\"by\":\"dev-a/alice-session\",\"at\":\"2026-10-26T12:00:01.5Z\"},{\"answer\":\"Both\",\"why\":\"reach\",\"by\":\"dev-a/bob-session\",\"at\":\"2026-10-26T12:00:01.5Z\",\"recommended\":true}],\"resolved\":{\"answer\":\"Yes, #general\",\"option\":-1,\"by\":\"dev-a/alice-session\",\"at\":\"2026-10-26T12:00:04.5Z\",\"note\":\"posting there now\"},\"links\":[{\"kind\":\"url\",\"ref\":\"https://example.com/plan\",\"label\":\"example.com\"}],\"attachments\":[{\"sha256\":\"ab12\",\"name\":\"plan.txt\",\"size\":12,\"device\":\"dev-a\"}],\"on\":{\"kind\":\"person\"},\"status\":\"answered\",\"sentTo\":\"dev-a/alice-session\"},{\"id\":\"b2\",\"question\":\"waiting on a second review\",\"raisedBy\":\"dev-a/alice-session\",\"at\":\"2026-10-26T12:00:04.5Z\",\"resolved\":{\"answer\":\"reviewed\",\"option\":-1,\"by\":\"dev-a/carol-session\",\"at\":\"2026-10-26T12:00:06Z\",\"closed\":true},\"on\":{\"kind\":\"agent\",\"ref\":\"dev-a/carol-session\"},\"status\":\"open\"}],\"lastComment\":{\"id\":\"01M5W19YDR2CSG9BBCJYJRQQVR\",\"taskId\":\"01M5W19VG0GWYXQW7KQQYR87Q3\",\"by\":\"user:dev-a\",\"text\":\"Yes, #general\",\"wake\":false,\"at\":\"2026-10-26T12:00:03Z\",\"to\":\"dev-a/alice-session\",\"blockerId\":\"b1\",\"device\":\"dev-a\"}}],\"open\":[],\"done\":[],\"doneTotal\":0,\"leases\":[]}",
+  "activity": {
+   "01M5W19VG0GWYXQW7KQQYR87Q3": "[{\"at\":\"2026-10-26T12:00:06Z\",\"by\":\"dev-a/bob-session\",\"what\":\"stopped watching\",\"kind\":\"task.watched\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:06Z\",\"by\":\"dev-a/alice-session\",\"what\":\"removed the link commit abcdef1\",\"kind\":\"task.linked\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:06Z\",\"by\":\"dev-a/bob-session\",\"what\":\"linked commit abcdef1\",\"kind\":\"task.linked\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:06Z\",\"by\":\"dev-a/bob-session\",\"what\":\"linked GitHub #12\",\"kind\":\"task.linked\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:06Z\",\"by\":\"dev-a/carol-session\",\"what\":\"unblocked it: reviewed\",\"kind\":\"blocker.closed\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:04.5Z\",\"by\":\"dev-a/alice-session\",\"what\":\"changed the blocker: waiting on a second review\",\"kind\":\"task.status\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:04.5Z\",\"by\":\"dev-a/alice-session\",\"what\":\"raised a blocker: waiting on review\",\"kind\":\"task.status\",\"device\":\"dev-a\",\"blockerId\":\"b2\"},{\"at\":\"2026-10-26T12:00:04.5Z\",\"by\":\"dev-a/alice-session\",\"what\":\"resolved “Which channel?”: posting there now\",\"kind\":\"blocker.resolved\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:03Z\",\"by\":\"user:dev-a\",\"what\":\"answered blocker b1\",\"kind\":\"task.comment\",\"device\":\"dev-a\",\"blockerId\":\"b1\"},{\"at\":\"2026-10-26T12:00:03Z\",\"by\":\"dev-a/alice-session\",\"what\":\"replied on blocker b1\",\"kind\":\"task.comment\",\"device\":\"dev-a\",\"blockerId\":\"b1\"},{\"at\":\"2026-10-26T12:00:03Z\",\"by\":\"user:dev-a\",\"what\":\"answered blocker b1\",\"kind\":\"task.comment\",\"device\":\"dev-a\",\"blockerId\":\"b1\"},{\"at\":\"2026-10-26T12:00:01.5Z\",\"by\":\"dev-a/bob-session\",\"what\":\"recommended “Both” for “Which channel?”\",\"kind\":\"blocker.option\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:01.5Z\",\"by\":\"dev-a/alice-session\",\"what\":\"raised a blocker: Which channel?\",\"kind\":\"task.status\",\"device\":\"dev-a\",\"blockerId\":\"b1\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/bob-session\",\"what\":\"started watching\",\"kind\":\"task.watched\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"ticked “Tag it” (1/3)\",\"kind\":\"task.step\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"set the steps (0/3 done)\",\"kind\":\"task.steps\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"took it up\",\"kind\":\"task.claimed\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W1A1BG1EEQCRSKECQQXQM4": "[{\"at\":\"2026-10-26T12:00:06Z\",\"by\":\"dev-a/bob-session\",\"what\":\"answered “A?”: settled\",\"kind\":\"blocker.resolved\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:06Z\",\"by\":\"dev-a/bob-session\",\"what\":\"raised a blocker: B?\",\"kind\":\"task.status\",\"device\":\"dev-a\",\"blockerId\":\"b2\"},{\"at\":\"2026-10-26T12:00:06Z\",\"by\":\"dev-a/bob-session\",\"what\":\"raised a blocker: A?\",\"kind\":\"task.status\",\"device\":\"dev-a\",\"blockerId\":\"b1\"},{\"at\":\"2026-10-26T12:00:06Z\",\"by\":\"dev-a/bob-session\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]"
+  },
+  "comments": {
+   "01M5W19VG0GWYXQW7KQQYR87Q3": "[{\"id\":\"01M5W19YDRQ25S6X8E9ATKB116\",\"taskId\":\"01M5W19VG0GWYXQW7KQQYR87Q3\",\"by\":\"user:dev-a\",\"text\":\"Discord\",\"wake\":false,\"at\":\"2026-10-26T12:00:03Z\",\"to\":\"dev-a/alice-session\",\"blockerId\":\"b1\",\"pick\":1,\"device\":\"dev-a\"},{\"id\":\"01M5W19YDRWP262G74845S3KAM\",\"taskId\":\"01M5W19VG0GWYXQW7KQQYR87Q3\",\"by\":\"dev-a/alice-session\",\"text\":\"Discord alone?\",\"wake\":false,\"at\":\"2026-10-26T12:00:03Z\",\"blockerId\":\"b1\",\"missing\":[\"the channel name\"],\"device\":\"dev-a\"},{\"id\":\"01M5W19YDR2CSG9BBCJYJRQQVR\",\"taskId\":\"01M5W19VG0GWYXQW7KQQYR87Q3\",\"by\":\"user:dev-a\",\"text\":\"Yes, #general\",\"wake\":false,\"at\":\"2026-10-26T12:00:03Z\",\"to\":\"dev-a/alice-session\",\"blockerId\":\"b1\",\"device\":\"dev-a\"}]",
+   "01M5W1A1BG1EEQCRSKECQQXQM4": "[]"
+  }
+ },
+ {
+  "name": "leases",
+  "device": "dev-a",
+  "now": "2026-10-26T12:00:01.5Z",
+  "rows": [
+   {
+    "deviceId": "dev-a",
+    "seq": 1,
+    "hlc": 117507096576000000,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "lease.acquired",
+    "payload": "eyJyZXNvdXJjZSI6InBhdGg6cmVtb3RlOmdpdGh1Yi5jb20vYS9iOnNyYy8qKiIsImhvbGRlciI6ImRldi1hL2FsaWNlLXNlc3Npb24iLCJ1bnRpbCI6IjIwMjYtMTAtMjZUMTM6MDA6MDBaIiwiYWNxdWlyZWRBdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 2,
+    "hlc": 117507096576000001,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "lease.refused",
+    "payload": "eyJyZXNvdXJjZSI6InBhdGg6cmVtb3RlOmdpdGh1Yi5jb20vYS9iOnNyYy9hLmdvIiwiYnkiOiJkZXYtYS9ib2Itc2Vzc2lvbiIsImhlbGRCeSI6ImRldi1hL2FsaWNlLXNlc3Npb24iLCJoZWxkIjoicGF0aDpyZW1vdGU6Z2l0aHViLmNvbS9hL2I6c3JjLyoqIiwidW50aWwiOiIyMDI2LTEwLTI2VDEzOjAwOjAwWiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 3,
+    "hlc": 117507096576000002,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "lease.acquired",
+    "payload": "eyJyZXNvdXJjZSI6InBvcnQ6ODA4MCIsImhvbGRlciI6ImRldi1hL2FsaWNlLXNlc3Npb24iLCJ1bnRpbCI6IjIwMjYtMTAtMjZUMTI6MzA6MDBaIiwiYWNxdWlyZWRBdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 4,
+    "hlc": 117507096674304000,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "lease.acquired",
+    "payload": "eyJyZXNvdXJjZSI6InBvcnQ6ODA4MCIsImhvbGRlciI6ImRldi1hL2FsaWNlLXNlc3Npb24iLCJ1bnRpbCI6IjIwMjYtMTAtMjZUMTQ6MDA6MDEuNVoiLCJhY3F1aXJlZEF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 5,
+    "hlc": 117507096674304001,
+    "actor": "agent:dev-a/carol-session",
+    "kind": "lease.acquired",
+    "payload": "eyJyZXNvdXJjZSI6ImdwdS9xd2VuIiwiaG9sZGVyIjoiZGV2LWEvY2Fyb2wtc2Vzc2lvbiIsInVudGlsIjoiMjAyNi0xMC0yNlQxMjozMDowMS41WiIsImFjcXVpcmVkQXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAxLjVaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 6,
+    "hlc": 117507096674304002,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5V1lXNVRXRERaQjhLNjZRVjBYUyIsIm51bSI6MSwidGl0bGUiOiJOZWVkcyB0aGUgR1BVIiwib2JqZWN0aXZlIjoiIiwiYnkiOiJkZXYtYS9ib2Itc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMS41WiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 7,
+    "hlc": 117507096674304003,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5V1lXNVRXRERaQjhLNjZRVjBYUyIsInN0YXRlIjoiYmxvY2tlZCIsInJlYXNvbiI6InRoZSBHUFUgaXMgYnVzeSIsImJsb2NrZWRCeSI6eyJraW5kIjoibGVhc2UiLCJyZWYiOiJncHUvcXdlbiJ9LCJibG9ja2VyIjp7ImlkIjoiYjEiLCJxdWVzdGlvbiI6InRoZSBHUFUgaXMgYnVzeSIsInJlYXNvbk9ubHkiOnRydWUsIm9uIjp7ImtpbmQiOiJsZWFzZSIsInJlZiI6ImdwdS9xd2VuIn19LCJieSI6ImRldi1hL2JvYi1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAxLjVaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 8,
+    "hlc": 117507096674304004,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "lease.acquired",
+    "payload": "eyJyZXNvdXJjZSI6InBvcnQ6ODA4MCIsImhvbGRlciI6ImRldi1hL2JvYi1zZXNzaW9uIiwidW50aWwiOiIyMDI2LTEwLTI2VDEyOjMwOjAxLjVaIiwic3RvbGVuRnJvbSI6ImRldi1hL2FsaWNlLXNlc3Npb24iLCJhY3F1aXJlZEF0IjoiMjAyNi0xMC0yNlQxMjowMDowMS41WiIsInN0b2xlbiI6W3sicmVzb3VyY2UiOiJwb3J0OjgwODAiLCJob2xkZXIiOiJkZXYtYS9hbGljZS1zZXNzaW9uIn1dfQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 9,
+    "hlc": 117507096674304005,
+    "actor": "agent:dev-a/carol-session",
+    "kind": "lease.released",
+    "payload": "eyJyZXNvdXJjZSI6ImdwdS9xd2VuIiwiaG9sZGVyIjoiZGV2LWEvY2Fyb2wtc2Vzc2lvbiIsInJlYXNvbiI6InJlbGVhc2VkIiwiYnkiOiJkZXYtYS9jYXJvbC1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAxLjVaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 10,
+    "hlc": 117507096674304006,
+    "actor": "agent:dev-a/carol-session",
+    "kind": "lease.acquired",
+    "payload": "eyJyZXNvdXJjZSI6InBhdGg6cm9vdDo0YjgyNWRjNjQyY2I2ZWI5YTA2MGU1NGJmOGQ2OTI4OGZiZWU0OTA0OmRvY3MvKioiLCJob2xkZXIiOiJkZXYtYS9jYXJvbC1zZXNzaW9uIiwidW50aWwiOiIyMDI2LTEwLTI2VDEyOjMwOjAxLjVaIiwiYWNxdWlyZWRBdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDEuNVoifQ=="
+   },
+   {
+    "deviceId": "dev-b",
+    "seq": 1,
+    "hlc": 117507096674304007,
+    "actor": "agent:dev-b/dan",
+    "kind": "lease.acquired",
+    "payload": "eyJyZXNvdXJjZSI6Im5hbWVkL29uZSIsImhvbGRlciI6ImRldi1iL2RhbiIsInVudGlsIjoiMjAyNi0xMC0yNlQxMzowMDowMS41WiIsImFjcXVpcmVkQXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAxLjVaIn0="
+   },
+   {
+    "deviceId": "dev-b",
+    "seq": 2,
+    "hlc": 117507096674304008,
+    "actor": "agent:dev-b/dan",
+    "kind": "lease.acquired",
+    "payload": "eyJyZXNvdXJjZSI6InBvcnQ6OTAwMCIsImhvbGRlciI6ImRldi1iL2RhbiIsInVudGlsIjoiMjAyNi0xMC0yNlQxMzowMDowMS41WiIsImFjcXVpcmVkQXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAxLjVaIn0="
+   },
+   {
+    "deviceId": "dev-b",
+    "seq": 3,
+    "hlc": 117507096674304009,
+    "actor": "agent:dev-b/dan",
+    "kind": "lease.released",
+    "payload": "eyJyZXNvdXJjZSI6Im5hbWVkL29uZSIsImhvbGRlciI6ImRldi1iL2RhbiIsInJlYXNvbiI6InJlbGVhc2VkIiwiYnkiOiJkZXYtYi9kYW4iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDEuNVoifQ=="
+   },
+   {
+    "deviceId": "dev-b",
+    "seq": 4,
+    "hlc": 117507096674304010,
+    "actor": "user",
+    "kind": "lease.stolen",
+    "payload": "eyJyZXNvdXJjZSI6InBvcnQ6OTAwMCIsImhvbGRlciI6ImRldi1iL2RhbiIsImFjcXVpcmVkQXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAxLjVaIiwiYnkiOiJ1c2VyOmRldi1hIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAxLjVaIn0="
+   },
+   {
+    "deviceId": "dev-b",
+    "seq": 5,
+    "hlc": 117507096674304011,
+    "actor": "agent:dev-b/eve",
+    "kind": "lease.acquired",
+    "payload": "eyJyZXNvdXJjZSI6InBvcnQ6ODA4MCIsImhvbGRlciI6ImRldi1iL2V2ZSIsInVudGlsIjoiMjAyNi0xMC0yNlQxMzowMDowMS41WiIsImFjcXVpcmVkQXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAxLjVaIn0="
+   },
+   {
+    "deviceId": "dev-b",
+    "seq": 6,
+    "hlc": 117507096674304012,
+    "actor": "agent:dev-b/dan",
+    "kind": "lease.acquired",
+    "payload": "eyJyZXNvdXJjZSI6InBhdGg6cmVtb3RlOmdpdGh1Yi5jb20vYS9iOnNyYy94LmdvIiwiaG9sZGVyIjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsInVudGlsIjoiMjAyNi0xMC0yNlQxMzowMDowMS41WiIsImFjcXVpcmVkQXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAxLjVaIn0="
+   }
+  ],
+  "tasks": "[{\"id\":\"01M5W19WYW5TWDDZB8K66QV0XS\",\"short\":\"1\",\"title\":\"Needs the GPU\",\"objective\":\"\",\"state\":\"blocked\",\"createdBy\":\"dev-a/bob-session\",\"createdAt\":\"2026-10-26T12:00:01.5Z\",\"updatedAt\":\"2026-10-26T12:00:01.5Z\",\"updatedBy\":\"dev-a/bob-session\",\"reason\":\"the GPU is busy\",\"blockedBy\":{\"kind\":\"lease\",\"ref\":\"gpu/qwen\"},\"blockers\":[{\"id\":\"b1\",\"question\":\"the GPU is busy\",\"raisedBy\":\"dev-a/bob-session\",\"at\":\"2026-10-26T12:00:01.5Z\",\"on\":{\"kind\":\"lease\",\"ref\":\"gpu/qwen\"},\"status\":\"open\"}]}]",
+  "leases": "[{\"resource\":\"path:remote:github.com/a/b:src/**\",\"holder\":\"dev-a/alice-session\",\"until\":\"2026-10-26T13:00:00Z\",\"acquiredAt\":\"2026-10-26T12:00:00Z\"},{\"resource\":\"path:root:4b825dc642cb6eb9a060e54bf8d69288fbee4904:docs/**\",\"holder\":\"dev-a/carol-session\",\"until\":\"2026-10-26T12:30:01.5Z\",\"acquiredAt\":\"2026-10-26T12:00:01.5Z\"},{\"resource\":\"port:8080\",\"holder\":\"dev-a/bob-session\",\"until\":\"2026-10-26T12:30:01.5Z\",\"stolenFrom\":\"dev-a/alice-session\",\"acquiredAt\":\"2026-10-26T12:00:01.5Z\",\"conflict\":\"dev-b/eve\"},{\"resource\":\"port:8080\",\"holder\":\"dev-b/eve\",\"until\":\"2026-10-26T13:00:01.5Z\",\"acquiredAt\":\"2026-10-26T12:00:01.5Z\",\"conflict\":\"dev-a/bob-session\"}]",
+  "refusals": "[{\"resource\":\"path:remote:github.com/a/b:src/a.go\",\"by\":\"dev-a/bob-session\",\"heldBy\":\"dev-a/alice-session\",\"held\":\"path:remote:github.com/a/b:src/**\",\"until\":\"2026-10-26T13:00:00Z\",\"at\":\"2026-10-26T12:00:00Z\"}]",
+  "boardAll": "{\"needsYou\":[],\"blocked\":[{\"id\":\"01M5W19WYW5TWDDZB8K66QV0XS\",\"short\":\"1\",\"title\":\"Needs the GPU\",\"objective\":\"\",\"state\":\"blocked\",\"createdBy\":\"dev-a/bob-session\",\"createdAt\":\"2026-10-26T12:00:01.5Z\",\"updatedAt\":\"2026-10-26T12:00:01.5Z\",\"updatedBy\":\"dev-a/bob-session\",\"reason\":\"the GPU is busy\",\"blockedBy\":{\"kind\":\"lease\",\"ref\":\"gpu/qwen\"},\"blockers\":[{\"id\":\"b1\",\"question\":\"the GPU is busy\",\"raisedBy\":\"dev-a/bob-session\",\"at\":\"2026-10-26T12:00:01.5Z\",\"on\":{\"kind\":\"lease\",\"ref\":\"gpu/qwen\"},\"status\":\"open\"}],\"resolved\":true}],\"working\":[],\"open\":[],\"done\":[],\"doneTotal\":0,\"leases\":[{\"resource\":\"path:remote:github.com/a/b:src/**\",\"holder\":\"dev-a/alice-session\",\"until\":\"2026-10-26T13:00:00Z\",\"acquiredAt\":\"2026-10-26T12:00:00Z\",\"refused\":[{\"resource\":\"path:remote:github.com/a/b:src/a.go\",\"by\":\"dev-a/bob-session\",\"heldBy\":\"dev-a/alice-session\",\"held\":\"path:remote:github.com/a/b:src/**\",\"until\":\"2026-10-26T13:00:00Z\",\"at\":\"2026-10-26T12:00:00Z\"}]}]}",
+  "boardFor": "{\"needsYou\":[],\"blocked\":[{\"id\":\"01M5W19WYW5TWDDZB8K66QV0XS\",\"short\":\"1\",\"title\":\"Needs the GPU\",\"objective\":\"\",\"state\":\"blocked\",\"createdBy\":\"dev-a/bob-session\",\"createdAt\":\"2026-10-26T12:00:01.5Z\",\"updatedAt\":\"2026-10-26T12:00:01.5Z\",\"updatedBy\":\"dev-a/bob-session\",\"reason\":\"the GPU is busy\",\"blockedBy\":{\"kind\":\"lease\",\"ref\":\"gpu/qwen\"},\"blockers\":[{\"id\":\"b1\",\"question\":\"the GPU is busy\",\"raisedBy\":\"dev-a/bob-session\",\"at\":\"2026-10-26T12:00:01.5Z\",\"on\":{\"kind\":\"lease\",\"ref\":\"gpu/qwen\"},\"status\":\"open\"}],\"resolved\":true}],\"working\":[],\"open\":[],\"done\":[],\"doneTotal\":0,\"leases\":[{\"resource\":\"path:remote:github.com/a/b:src/**\",\"holder\":\"dev-a/alice-session\",\"until\":\"2026-10-26T13:00:00Z\",\"acquiredAt\":\"2026-10-26T12:00:00Z\",\"refused\":[{\"resource\":\"path:remote:github.com/a/b:src/a.go\",\"by\":\"dev-a/bob-session\",\"heldBy\":\"dev-a/alice-session\",\"held\":\"path:remote:github.com/a/b:src/**\",\"until\":\"2026-10-26T13:00:00Z\",\"at\":\"2026-10-26T12:00:00Z\"}]}]}",
+  "activity": {
+   "01M5W19WYW5TWDDZB8K66QV0XS": "[{\"at\":\"2026-10-26T12:00:01.5Z\",\"by\":\"dev-a/bob-session\",\"what\":\"raised a blocker: the GPU is busy\",\"kind\":\"task.status\",\"device\":\"dev-a\",\"blockerId\":\"b1\"},{\"at\":\"2026-10-26T12:00:01.5Z\",\"by\":\"dev-a/bob-session\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]"
+  },
+  "comments": {
+   "01M5W19WYW5TWDDZB8K66QV0XS": "[]"
+  }
+ },
+ {
+  "name": "comments",
+  "device": "dev-a",
+  "now": "2026-10-26T12:00:03Z",
+  "rows": [
+   {
+    "deviceId": "dev-a",
+    "seq": 1,
+    "hlc": 117507096576000000,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwWjJOQU5CVDhGUzI1NFRQQiIsIm51bSI6MSwidGl0bGUiOiJUYWxrIGl0IG92ZXIiLCJvYmplY3RpdmUiOiIiLCJieSI6ImRldi1hL2FsaWNlLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 2,
+    "hlc": 117507096576000001,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.claimed",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwWjJOQU5CVDhGUzI1NFRQQiIsImJ5IjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 3,
+    "hlc": 117507096576000002,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.comment",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwWjJOQU5CVDhGUzI1NFRQQiIsImNvbW1lbnRJZCI6IjAxTTVXMTlWRzBWODBaRVNHRTk1RVg0NzlGIiwiYnkiOiJkZXYtYS9ib2Itc2Vzc2lvbiIsInRleHQiOiJMb29rcyBnb29kIFx1MDAzYzMiLCJ3YWtlIjp0cnVlLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 4,
+    "hlc": 117507096576000003,
+    "actor": "agent:dev-a/carol-session",
+    "kind": "task.comment",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwWjJOQU5CVDhGUzI1NFRQQiIsImNvbW1lbnRJZCI6IjAxTTVXMTlWRzBNQlBCMUVXQTU5UFI1QldXIiwiYnkiOiJkZXYtYS9jYXJvbC1zZXNzaW9uIiwidGV4dCI6IkhlcmUgYXJlIHRoZSBsb2dzIiwid2FrZSI6ZmFsc2UsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoiLCJhdHRhY2htZW50cyI6W3sic2hhMjU2IjoiY2QzNCIsIm5hbWUiOiJsb2cudHh0Iiwic2l6ZSI6OTksIm1pbWUiOiJ0ZXh0L3BsYWluIiwiZGV2aWNlIjoiZGV2LWEifV19"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 5,
+    "hlc": 117507096674304000,
+    "actor": "user",
+    "kind": "task.comment",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwWjJOQU5CVDhGUzI1NFRQQiIsImNvbW1lbnRJZCI6IjAxTTVXMTlXWVdWNEU4WDJIWk00Ulg5Q0FGIiwiYnkiOiJ1c2VyOmRldi1hIiwidGV4dCI6IlBsZWFzZSBodXJyeSIsIndha2UiOmZhbHNlLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDEuNVoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 6,
+    "hlc": 117507096674304001,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.comment",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwWjJOQU5CVDhGUzI1NFRQQiIsImNvbW1lbnRJZCI6Im1zZ18xIiwiYnkiOiJkZXYtYS9hbGljZS1zZXNzaW9uIiwidGV4dCI6ImNhbiB5b3UgbG9vaz8iLCJ3YWtlIjpmYWxzZSwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAxLjVaIiwidG8iOiJkZXYtYS9ib2Itc2Vzc2lvbiIsIm1zZ0lkIjoibXNnXzEiLCJmaWxlcyI6Mn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 7,
+    "hlc": 117507096674304002,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.comment",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwWjJOQU5CVDhGUzI1NFRQQiIsImNvbW1lbnRJZCI6Im1zZ18yIiwiYnkiOiJkZXYtYS9ib2Itc2Vzc2lvbiIsInRleHQiOiIiLCJ3YWtlIjpmYWxzZSwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAxLjVaIiwidG8iOiJkZXYtYS9jYXJvbC1zZXNzaW9uIiwibXNnSWQiOiJtc2dfMiIsImhlbGQiOnRydWV9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 8,
+    "hlc": 117507096674304003,
+    "actor": "irori",
+    "kind": "task.comment",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwWjJOQU5CVDhGUzI1NFRQQiIsImNvbW1lbnRJZCI6Im1zZ18yIiwiYnkiOiJkZXYtYS9ib2Itc2Vzc2lvbiIsInRleHQiOiJzZWNyZXQiLCJ3YWtlIjpmYWxzZSwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAxLjVaIiwidG8iOiJkZXYtYS9jYXJvbC1zZXNzaW9uIiwibXNnSWQiOiJtc2dfMiIsImZpbGwiOnRydWV9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 9,
+    "hlc": 117507096674304004,
+    "actor": "irori",
+    "kind": "task.comment",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwWjJOQU5CVDhGUzI1NFRQQiIsImNvbW1lbnRJZCI6Im1zZ18xIiwiYnkiOiJkZXYtYS9hbGljZS1zZXNzaW9uIiwidGV4dCI6ImNhbiB5b3UgbG9vaz8iLCJ3YWtlIjpmYWxzZSwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAxLjVaIiwidG8iOiJkZXYtYS9ib2Itc2Vzc2lvbiIsIm1zZ0lkIjoibXNnXzEiLCJnb25lIjp0cnVlfQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 10,
+    "hlc": 117507096674304005,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwWjJOQU5CVDhGUzI1NFRQQiIsInN0YXRlIjoiY29tcGxldGVkIiwiYnkiOiJkZXYtYS9hbGljZS1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAxLjVaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 11,
+    "hlc": 117507096772608000,
+    "actor": "user",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwWjJOQU5CVDhGUzI1NFRQQiIsInN0YXRlIjoid29ya2luZyIsIm5vdGUiOiJyZW9wZW5lZCBieSB0aGUgcGVyc29uJ3MgY29tbWVudCIsImJ5IjoidXNlcjpkZXYtYSIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowM1oifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 12,
+    "hlc": 117507096772608001,
+    "actor": "user",
+    "kind": "task.comment",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwWjJOQU5CVDhGUzI1NFRQQiIsImNvbW1lbnRJZCI6IjAxTTVXMTlZRFIzODU3WDQ3SFBGNzVaM1NBIiwiYnkiOiJ1c2VyOmRldi1hIiwidGV4dCI6Ik9uZSBtb3JlIHRoaW5nIiwid2FrZSI6dHJ1ZSwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAzWiJ9"
+   }
+  ],
+  "tasks": "[{\"id\":\"01M5W19VG0Z2NANBT8FS254TPB\",\"short\":\"1\",\"title\":\"Talk it over\",\"objective\":\"\",\"state\":\"working\",\"holder\":\"dev-a/alice-session\",\"holders\":[\"dev-a/alice-session\"],\"createdBy\":\"dev-a/alice-session\",\"note\":\"reopened by the person's comment\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:03Z\",\"updatedBy\":\"user:dev-a\",\"comments\":6}]",
+  "leases": "[]",
+  "refusals": "[]",
+  "boardAll": "{\"needsYou\":[],\"blocked\":[],\"working\":[{\"id\":\"01M5W19VG0Z2NANBT8FS254TPB\",\"short\":\"1\",\"title\":\"Talk it over\",\"objective\":\"\",\"state\":\"working\",\"holder\":\"dev-a/alice-session\",\"holders\":[\"dev-a/alice-session\"],\"createdBy\":\"dev-a/alice-session\",\"note\":\"reopened by the person's comment\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:03Z\",\"updatedBy\":\"user:dev-a\",\"comments\":6,\"lastComment\":{\"id\":\"01M5W19YDR3857X47HPF75Z3SA\",\"taskId\":\"01M5W19VG0Z2NANBT8FS254TPB\",\"by\":\"user:dev-a\",\"text\":\"One more thing\",\"wake\":true,\"at\":\"2026-10-26T12:00:03Z\",\"device\":\"dev-a\"}}],\"open\":[],\"done\":[],\"doneTotal\":0,\"leases\":[]}",
+  "boardFor": "{\"needsYou\":[],\"blocked\":[],\"working\":[{\"id\":\"01M5W19VG0Z2NANBT8FS254TPB\",\"short\":\"1\",\"title\":\"Talk it over\",\"objective\":\"\",\"state\":\"working\",\"holder\":\"dev-a/alice-session\",\"holders\":[\"dev-a/alice-session\"],\"createdBy\":\"dev-a/alice-session\",\"note\":\"reopened by the person's comment\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:03Z\",\"updatedBy\":\"user:dev-a\",\"comments\":6,\"lastComment\":{\"id\":\"01M5W19YDR3857X47HPF75Z3SA\",\"taskId\":\"01M5W19VG0Z2NANBT8FS254TPB\",\"by\":\"user:dev-a\",\"text\":\"One more thing\",\"wake\":true,\"at\":\"2026-10-26T12:00:03Z\",\"device\":\"dev-a\"}}],\"open\":[],\"done\":[],\"doneTotal\":0,\"leases\":[]}",
+  "activity": {
+   "01M5W19VG0Z2NANBT8FS254TPB": "[{\"at\":\"2026-10-26T12:00:03Z\",\"by\":\"user:dev-a\",\"what\":\"commented\",\"kind\":\"task.comment\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:03Z\",\"by\":\"user:dev-a\",\"what\":\"reopened it\",\"kind\":\"task.status\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:01.5Z\",\"by\":\"dev-a/alice-session\",\"what\":\"set it to completed\",\"kind\":\"task.status\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:01.5Z\",\"by\":\"user:dev-a\",\"what\":\"commented\",\"kind\":\"task.comment\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/carol-session\",\"what\":\"commented\",\"kind\":\"task.comment\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/bob-session\",\"what\":\"commented\",\"kind\":\"task.comment\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"took it up\",\"kind\":\"task.claimed\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]"
+  },
+  "comments": {
+   "01M5W19VG0Z2NANBT8FS254TPB": "[{\"id\":\"01M5W19VG0V80ZESGE95EX479F\",\"taskId\":\"01M5W19VG0Z2NANBT8FS254TPB\",\"by\":\"dev-a/bob-session\",\"text\":\"Looks good \\u003c3\",\"wake\":true,\"at\":\"2026-10-26T12:00:00Z\",\"device\":\"dev-a\"},{\"id\":\"01M5W19VG0MBPB1EWA59PR5BWW\",\"taskId\":\"01M5W19VG0Z2NANBT8FS254TPB\",\"by\":\"dev-a/carol-session\",\"text\":\"Here are the logs\",\"wake\":false,\"at\":\"2026-10-26T12:00:00Z\",\"attachments\":[{\"sha256\":\"cd34\",\"name\":\"log.txt\",\"size\":99,\"mime\":\"text/plain\",\"device\":\"dev-a\"}],\"device\":\"dev-a\"},{\"id\":\"01M5W19WYWV4E8X2HZM4RX9CAF\",\"taskId\":\"01M5W19VG0Z2NANBT8FS254TPB\",\"by\":\"user:dev-a\",\"text\":\"Please hurry\",\"wake\":false,\"at\":\"2026-10-26T12:00:01.5Z\",\"device\":\"dev-a\"},{\"id\":\"msg_1\",\"taskId\":\"01M5W19VG0Z2NANBT8FS254TPB\",\"by\":\"dev-a/alice-session\",\"text\":\"can you look?\",\"wake\":false,\"at\":\"2026-10-26T12:00:01.5Z\",\"to\":\"dev-a/bob-session\",\"msgId\":\"msg_1\",\"gone\":true,\"files\":2,\"device\":\"dev-a\"},{\"id\":\"msg_2\",\"taskId\":\"01M5W19VG0Z2NANBT8FS254TPB\",\"by\":\"dev-a/bob-session\",\"text\":\"secret\",\"wake\":false,\"at\":\"2026-10-26T12:00:01.5Z\",\"to\":\"dev-a/carol-session\",\"msgId\":\"msg_2\",\"device\":\"dev-a\"},{\"id\":\"01M5W19YDR3857X47HPF75Z3SA\",\"taskId\":\"01M5W19VG0Z2NANBT8FS254TPB\",\"by\":\"user:dev-a\",\"text\":\"One more thing\",\"wake\":true,\"at\":\"2026-10-26T12:00:03Z\",\"device\":\"dev-a\"}]"
+  }
+ },
+ {
+  "name": "shorts",
+  "device": "dev-a",
+  "now": "2026-10-26T12:00:00Z",
+  "rows": [
+   {
+    "deviceId": "dev-a",
+    "seq": 1,
+    "hlc": 117507096576000000,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMzlTTkY1M1RBQTlIR1kxUSIsIm51bSI6MSwidGl0bGUiOiJmaXJzdCBoZXJlIiwib2JqZWN0aXZlIjoiIiwiYnkiOiJkZXYtYS9hbGljZS1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 2,
+    "hlc": 117507096576000001,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMTc0OEhIWDdKMjQ2WTMwUCIsIm51bSI6MiwidGl0bGUiOiJzZWNvbmQgaGVyZSIsIm9iamVjdGl2ZSI6IiIsImJ5IjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-b",
+    "seq": 1,
+    "hlc": 117507096576000002,
+    "actor": "agent:dev-b/dan",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMUtCMDAwMDAwMDAwMDAwMDAwMDAwMDAwMSIsIm51bSI6MSwidGl0bGUiOiJmaXJzdCB0aGVyZSIsIm9iamVjdGl2ZSI6IiIsImJ5IjoiZGV2LWIvZGFuIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-b",
+    "seq": 2,
+    "hlc": 117507096576000003,
+    "actor": "agent:dev-b/dan",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMUtCMDAwMDAwMDAwMDAwMDAwMDAwMDAwMiIsInRpdGxlIjoibm8gbnVtYmVyIiwib2JqZWN0aXZlIjoiIiwiYnkiOiJkZXYtYi9kYW4iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-b",
+    "seq": 3,
+    "hlc": 117507096576000004,
+    "actor": "agent:dev-b/dan",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMUtCMDAwMDAwMDAwMDAwMDAwMDAwMDAwMyIsIm51bSI6MywidGl0bGUiOiJ0aGlyZCB0aGVyZSIsIm9iamVjdGl2ZSI6IiIsImJ5IjoiZGV2LWIvZGFuIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-b",
+    "seq": 4,
+    "hlc": 117507096576000005,
+    "actor": "agent:dev-b/dan",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMUtCMDAwMDAwMDAwMDAwMDAwMDAwMDAwNCIsIm51bSI6MSwidGl0bGUiOiJhbHNvIGZpcnN0Iiwib2JqZWN0aXZlIjoiIiwiYnkiOiJkZXYtYi9kYW4iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 3,
+    "hlc": 117507096576000006,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwUEJTNFdQUVhCU0hGOERRUiIsIm51bSI6MywidGl0bGUiOiJhZnRlciB0aGUgc3luYyIsIm9iamVjdGl2ZSI6IiIsImJ5IjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 4,
+    "hlc": 117507096576000007,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.comment",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMzlTTkY1M1RBQTlIR1kxUSIsImNvbW1lbnRJZCI6IjAxTTVXMTlWRzBLVFNYUzRLNjg0MTk3QVFSIiwiYnkiOiJkZXYtYS9ib2Itc2Vzc2lvbiIsInRleHQiOiJ3aGljaCBvbmUgaXMgIzE/Iiwid2FrZSI6ZmFsc2UsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   }
+  ],
+  "tasks": "[{\"id\":\"01M5W19VG039SNF53TAA9HGY1Q\",\"short\":\"1a\",\"shortWas\":\"1\",\"title\":\"first here\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"comments\":1},{\"id\":\"01M5W19VG01748HHX7J246Y30P\",\"short\":\"2\",\"title\":\"second here\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\"},{\"id\":\"01KB0000000000000000000001\",\"short\":\"1b\",\"shortWas\":\"1\",\"title\":\"first there\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-b/dan\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-b/dan\"},{\"id\":\"01KB0000000000000000000002\",\"short\":\"1c\",\"shortWas\":\"1\",\"title\":\"no number\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-b/dan\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-b/dan\"},{\"id\":\"01KB0000000000000000000003\",\"short\":\"3a\",\"shortWas\":\"3\",\"title\":\"third there\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-b/dan\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-b/dan\"},{\"id\":\"01KB0000000000000000000004\",\"short\":\"1d\",\"shortWas\":\"1\",\"title\":\"also first\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-b/dan\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-b/dan\"},{\"id\":\"01M5W19VG0PBS4WPQXBSHF8DQR\",\"short\":\"3b\",\"shortWas\":\"3\",\"title\":\"after the sync\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\"}]",
+  "leases": "[]",
+  "refusals": "[]",
+  "boardAll": "{\"needsYou\":[],\"blocked\":[],\"working\":[],\"open\":[{\"id\":\"01M5W19VG0PBS4WPQXBSHF8DQR\",\"short\":\"3b\",\"shortWas\":\"3\",\"title\":\"after the sync\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\"},{\"id\":\"01M5W19VG039SNF53TAA9HGY1Q\",\"short\":\"1a\",\"shortWas\":\"1\",\"title\":\"first here\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"comments\":1,\"lastComment\":{\"id\":\"01M5W19VG0KTSXS4K684197AQR\",\"taskId\":\"01M5W19VG039SNF53TAA9HGY1Q\",\"by\":\"dev-a/bob-session\",\"text\":\"which one is #1?\",\"wake\":false,\"at\":\"2026-10-26T12:00:00Z\",\"device\":\"dev-a\"}},{\"id\":\"01M5W19VG01748HHX7J246Y30P\",\"short\":\"2\",\"title\":\"second here\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\"},{\"id\":\"01KB0000000000000000000004\",\"short\":\"1d\",\"shortWas\":\"1\",\"title\":\"also first\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-b/dan\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-b/dan\"},{\"id\":\"01KB0000000000000000000003\",\"short\":\"3a\",\"shortWas\":\"3\",\"title\":\"third there\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-b/dan\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-b/dan\"},{\"id\":\"01KB0000000000000000000002\",\"short\":\"1c\",\"shortWas\":\"1\",\"title\":\"no number\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-b/dan\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-b/dan\"},{\"id\":\"01KB0000000000000000000001\",\"short\":\"1b\",\"shortWas\":\"1\",\"title\":\"first there\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-b/dan\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-b/dan\"}],\"done\":[],\"doneTotal\":0,\"leases\":[]}",
+  "boardFor": "{\"needsYou\":[],\"blocked\":[],\"working\":[],\"open\":[{\"id\":\"01M5W19VG0PBS4WPQXBSHF8DQR\",\"short\":\"3b\",\"shortWas\":\"3\",\"title\":\"after the sync\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\"},{\"id\":\"01M5W19VG039SNF53TAA9HGY1Q\",\"short\":\"1a\",\"shortWas\":\"1\",\"title\":\"first here\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"comments\":1,\"lastComment\":{\"id\":\"01M5W19VG0KTSXS4K684197AQR\",\"taskId\":\"01M5W19VG039SNF53TAA9HGY1Q\",\"by\":\"dev-a/bob-session\",\"text\":\"which one is #1?\",\"wake\":false,\"at\":\"2026-10-26T12:00:00Z\",\"device\":\"dev-a\"}},{\"id\":\"01M5W19VG01748HHX7J246Y30P\",\"short\":\"2\",\"title\":\"second here\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\"},{\"id\":\"01KB0000000000000000000004\",\"short\":\"1d\",\"shortWas\":\"1\",\"title\":\"also first\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-b/dan\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-b/dan\"},{\"id\":\"01KB0000000000000000000003\",\"short\":\"3a\",\"shortWas\":\"3\",\"title\":\"third there\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-b/dan\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-b/dan\"},{\"id\":\"01KB0000000000000000000002\",\"short\":\"1c\",\"shortWas\":\"1\",\"title\":\"no number\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-b/dan\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-b/dan\"},{\"id\":\"01KB0000000000000000000001\",\"short\":\"1b\",\"shortWas\":\"1\",\"title\":\"first there\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-b/dan\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-b/dan\"}],\"done\":[],\"doneTotal\":0,\"leases\":[]}",
+  "activity": {
+   "01KB0000000000000000000001": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-b/dan\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-b\"}]",
+   "01KB0000000000000000000002": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-b/dan\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-b\"}]",
+   "01KB0000000000000000000003": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-b/dan\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-b\"}]",
+   "01KB0000000000000000000004": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-b/dan\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-b\"}]",
+   "01M5W19VG01748HHX7J246Y30P": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19VG039SNF53TAA9HGY1Q": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/bob-session\",\"what\":\"commented\",\"kind\":\"task.comment\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19VG0PBS4WPQXBSHF8DQR": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]"
+  },
+  "comments": {
+   "01KB0000000000000000000001": "[]",
+   "01KB0000000000000000000002": "[]",
+   "01KB0000000000000000000003": "[]",
+   "01KB0000000000000000000004": "[]",
+   "01M5W19VG01748HHX7J246Y30P": "[]",
+   "01M5W19VG039SNF53TAA9HGY1Q": "[{\"id\":\"01M5W19VG0KTSXS4K684197AQR\",\"taskId\":\"01M5W19VG039SNF53TAA9HGY1Q\",\"by\":\"dev-a/bob-session\",\"text\":\"which one is #1?\",\"wake\":false,\"at\":\"2026-10-26T12:00:00Z\",\"device\":\"dev-a\"}]",
+   "01M5W19VG0PBS4WPQXBSHF8DQR": "[]"
+  }
+ },
+ {
+  "name": "subtasks",
+  "device": "dev-a",
+  "now": "2026-10-26T12:00:00Z",
+  "rows": [
+   {
+    "deviceId": "dev-a",
+    "seq": 1,
+    "hlc": 117507096576000000,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwVDFRRUJGQjM0RVZQSEtLRiIsIm51bSI6MSwidGl0bGUiOiJCaWcgam9iIiwib2JqZWN0aXZlIjoiIiwiYnkiOiJkZXYtYS9hbGljZS1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 2,
+    "hlc": 117507096576000001,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.steps",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwVDFRRUJGQjM0RVZQSEtLRiIsInN0ZXBzIjpbeyJpZCI6InMxIiwidGV4dCI6InBsYW4iLCJkb25lIjp0cnVlfSx7ImlkIjoiczIiLCJ0ZXh0IjoiYnVpbGQiLCJkb25lIjpmYWxzZX0seyJpZCI6InMzIiwidGV4dCI6InNoaXAiLCJkb25lIjpmYWxzZX1dLCJieSI6ImRldi1hL2FsaWNlLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 3,
+    "hlc": 117507096576000002,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.claimed",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwVDFRRUJGQjM0RVZQSEtLRiIsImJ5IjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 4,
+    "hlc": 117507096576000003,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwU0dFQUNBUVg0OEsyQlBHRSIsIm51bSI6MiwidGl0bGUiOiJMb29zZSBjYXJkIiwib2JqZWN0aXZlIjoiIiwiYnkiOiJkZXYtYS9ib2Itc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 5,
+    "hlc": 117507096576000004,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMjJBNFJZUTBXQkNEQ0Y5VyIsIm51bSI6MywidGl0bGUiOiJCdWlsZCBpdCIsIm9iamVjdGl2ZSI6IiIsInBhcmVudCI6IjAxTTVXMTlWRzBUMVFFQkZCMzRFVlBIS0tGIiwiYnkiOiJkZXYtYS9hbGljZS1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 6,
+    "hlc": 117507096576000005,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.steps",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMjJBNFJZUTBXQkNEQ0Y5VyIsInN0ZXBzIjpbeyJpZCI6InMxIiwidGV4dCI6ImJ1aWxkIiwiZG9uZSI6ZmFsc2V9LHsiaWQiOiJzMiIsInRleHQiOiJ0ZXN0IiwiZG9uZSI6ZmFsc2V9XSwiYnkiOiJkZXYtYS9hbGljZS1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 7,
+    "hlc": 117507096576000006,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1pHUEo1SFJBUEI3WUJBUSIsIm51bSI6NCwidGl0bGUiOiJTaGlwIGl0Iiwib2JqZWN0aXZlIjoiIiwicGFyZW50IjoiMDFNNVcxOVZHMFQxUUVCRkIzNEVWUEhLS0YiLCJieSI6ImRldi1hL2FsaWNlLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 8,
+    "hlc": 117507096576000007,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.steps",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1pHUEo1SFJBUEI3WUJBUSIsInN0ZXBzIjpbeyJpZCI6InMxIiwidGV4dCI6InNoaXAiLCJkb25lIjpmYWxzZX1dLCJieSI6ImRldi1hL2FsaWNlLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 9,
+    "hlc": 117507096576000008,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.parent",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwU0dFQUNBUVg0OEsyQlBHRSIsInBhcmVudCI6IjAxTTVXMTlWRzBUMVFFQkZCMzRFVlBIS0tGIiwiYnkiOiJkZXYtYS9hbGljZS1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 10,
+    "hlc": 117507096576000009,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.steps",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwVDFRRUJGQjM0RVZQSEtLRiIsInN0ZXBzIjpbeyJpZCI6InMxIiwidGV4dCI6InBsYW4iLCJkb25lIjp0cnVlfV0sImJ5IjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 11,
+    "hlc": 117507096576000010,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.claimed",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMjJBNFJZUTBXQkNEQ0Y5VyIsImJ5IjoiZGV2LWEvYm9iLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 12,
+    "hlc": 117507096576000011,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMjJBNFJZUTBXQkNEQ0Y5VyIsInN0YXRlIjoiY29tcGxldGVkIiwibm90ZSI6ImJ1aWx0IiwiYnkiOiJkZXYtYS9ib2Itc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 13,
+    "hlc": 117507096576000012,
+    "actor": "user",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwR1pHUEo1SFJBUEI3WUJBUSIsInN0YXRlIjoiYmxvY2tlZCIsInJlYXNvbiI6Im5lZWRzIGEgcmVsZWFzZSB3aW5kb3ciLCJibG9ja2VyIjp7ImlkIjoiYjEiLCJxdWVzdGlvbiI6Im5lZWRzIGEgcmVsZWFzZSB3aW5kb3ciLCJyZWFzb25Pbmx5Ijp0cnVlfSwiYnkiOiJ1c2VyOmRldi1hIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 14,
+    "hlc": 117507096576000013,
+    "actor": "agent:dev-a/carol-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMVRKNlFQSEZSVzZOU0VNUyIsIm51bSI6NSwidGl0bGUiOiJEb2NzIHRvbyIsIm9iamVjdGl2ZSI6IiIsInBhcmVudCI6IjAxTTVXMTlWRzBUMVFFQkZCMzRFVlBIS0tGIiwiYnkiOiJkZXYtYS9jYXJvbC1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 15,
+    "hlc": 117507096576000014,
+    "actor": "user",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwRkRUUTYxTVFaS1cyRDM0TiIsIm51bSI6NiwidGl0bGUiOiJTbWFsbCBqb2IiLCJvYmplY3RpdmUiOiIiLCJieSI6InVzZXI6ZGV2LWEiLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 16,
+    "hlc": 117507096576000015,
+    "actor": "user",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwNVYzTkNRREowVzNOQTROVCIsIm51bSI6NywidGl0bGUiOiJTbWFsbCBwYXJ0Iiwib2JqZWN0aXZlIjoiIiwicGFyZW50IjoiMDFNNVcxOVZHMEZEVFE2MU1RWktXMkQzNE4iLCJieSI6InVzZXI6ZGV2LWEiLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 17,
+    "hlc": 117507096576000016,
+    "actor": "user",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwRkRUUTYxTVFaS1cyRDM0TiIsInN0YXRlIjoiY2FuY2VsZWQiLCJub3RlIjoibm90IG5lZWRlZCIsImJ5IjoidXNlcjpkZXYtYSIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 18,
+    "hlc": 117507096576000017,
+    "actor": "user",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwNVYzTkNRREowVzNOQTROVCIsInN0YXRlIjoiY2FuY2VsZWQiLCJub3RlIjoiaXRzIHBhcmVudCAjNiB3YXMgY2FuY2VsZWQiLCJieSI6InVzZXI6ZGV2LWEiLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   }
+  ],
+  "tasks": "[{\"id\":\"01M5W19VG0T1QEBFB34EVPHKKF\",\"short\":\"1\",\"title\":\"Big job\",\"objective\":\"\",\"state\":\"working\",\"holder\":\"dev-a/alice-session\",\"holders\":[\"dev-a/alice-session\"],\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"steps\":[{\"id\":\"s1\",\"text\":\"plan\",\"done\":true}],\"subtasks\":[\"01M5W19VG0SGEACAQX48K2BPGE\",\"01M5W19VG022A4RYQ0WBCDCF9W\",\"01M5W19VG0GZGPJ5HRAPB7YBAQ\",\"01M5W19VG01TJ6QPHFRW6NSEMS\"],\"rollup\":{\"state\":\"blocked\",\"done\":1,\"total\":4,\"blocked\":\"01M5W19VG0GZGPJ5HRAPB7YBAQ\",\"blockedQuestion\":\"needs a release window\"}},{\"id\":\"01M5W19VG0SGEACAQX48K2BPGE\",\"short\":\"2\",\"title\":\"Loose card\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/bob-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/bob-session\",\"parent\":\"01M5W19VG0T1QEBFB34EVPHKKF\"},{\"id\":\"01M5W19VG022A4RYQ0WBCDCF9W\",\"short\":\"3\",\"title\":\"Build it\",\"objective\":\"\",\"state\":\"completed\",\"holder\":\"dev-a/bob-session\",\"holders\":[\"dev-a/bob-session\"],\"createdBy\":\"dev-a/alice-session\",\"note\":\"built\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/bob-session\",\"steps\":[{\"id\":\"s1\",\"text\":\"build\",\"done\":false},{\"id\":\"s2\",\"text\":\"test\",\"done\":false}],\"parent\":\"01M5W19VG0T1QEBFB34EVPHKKF\"},{\"id\":\"01M5W19VG0GZGPJ5HRAPB7YBAQ\",\"short\":\"4\",\"title\":\"Ship it\",\"objective\":\"\",\"state\":\"blocked\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"user:dev-a\",\"reason\":\"needs a release window\",\"steps\":[{\"id\":\"s1\",\"text\":\"ship\",\"done\":false}],\"blockers\":[{\"id\":\"b1\",\"question\":\"needs a release window\",\"raisedBy\":\"user:dev-a\",\"at\":\"2026-10-26T12:00:00Z\",\"status\":\"open\"}],\"parent\":\"01M5W19VG0T1QEBFB34EVPHKKF\"},{\"id\":\"01M5W19VG01TJ6QPHFRW6NSEMS\",\"short\":\"5\",\"title\":\"Docs too\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/carol-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/carol-session\",\"parent\":\"01M5W19VG0T1QEBFB34EVPHKKF\"},{\"id\":\"01M5W19VG0FDTQ61MQZKW2D34N\",\"short\":\"6\",\"title\":\"Small job\",\"objective\":\"\",\"state\":\"canceled\",\"createdBy\":\"user:dev-a\",\"note\":\"not needed\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"user:dev-a\",\"subtasks\":[\"01M5W19VG05V3NCQDJ0W3NA4NT\"],\"rollup\":{\"state\":\"canceled\",\"done\":0,\"total\":0}},{\"id\":\"01M5W19VG05V3NCQDJ0W3NA4NT\",\"short\":\"7\",\"title\":\"Small part\",\"objective\":\"\",\"state\":\"canceled\",\"createdBy\":\"user:dev-a\",\"note\":\"its parent #6 was canceled\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"user:dev-a\",\"parent\":\"01M5W19VG0FDTQ61MQZKW2D34N\"}]",
+  "leases": "[]",
+  "refusals": "[]",
+  "boardAll": "{\"needsYou\":[],\"blocked\":[{\"id\":\"01M5W19VG0T1QEBFB34EVPHKKF\",\"short\":\"1\",\"title\":\"Big job\",\"objective\":\"\",\"state\":\"working\",\"holder\":\"dev-a/alice-session\",\"holders\":[\"dev-a/alice-session\"],\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"steps\":[{\"id\":\"s1\",\"text\":\"plan\",\"done\":true}],\"subtasks\":[\"01M5W19VG0SGEACAQX48K2BPGE\",\"01M5W19VG022A4RYQ0WBCDCF9W\",\"01M5W19VG0GZGPJ5HRAPB7YBAQ\",\"01M5W19VG01TJ6QPHFRW6NSEMS\"],\"rollup\":{\"state\":\"blocked\",\"done\":1,\"total\":4,\"blocked\":\"01M5W19VG0GZGPJ5HRAPB7YBAQ\",\"blockedQuestion\":\"needs a release window\"}},{\"id\":\"01M5W19VG0GZGPJ5HRAPB7YBAQ\",\"short\":\"4\",\"title\":\"Ship it\",\"objective\":\"\",\"state\":\"blocked\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"user:dev-a\",\"reason\":\"needs a release window\",\"steps\":[{\"id\":\"s1\",\"text\":\"ship\",\"done\":false}],\"blockers\":[{\"id\":\"b1\",\"question\":\"needs a release window\",\"raisedBy\":\"user:dev-a\",\"at\":\"2026-10-26T12:00:00Z\",\"status\":\"open\"}],\"parent\":\"01M5W19VG0T1QEBFB34EVPHKKF\"}],\"working\":[],\"open\":[{\"id\":\"01M5W19VG0SGEACAQX48K2BPGE\",\"short\":\"2\",\"title\":\"Loose card\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/bob-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/bob-session\",\"parent\":\"01M5W19VG0T1QEBFB34EVPHKKF\"},{\"id\":\"01M5W19VG01TJ6QPHFRW6NSEMS\",\"short\":\"5\",\"title\":\"Docs too\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/carol-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/carol-session\",\"parent\":\"01M5W19VG0T1QEBFB34EVPHKKF\"}],\"done\":[{\"id\":\"01M5W19VG0FDTQ61MQZKW2D34N\",\"short\":\"6\",\"title\":\"Small job\",\"objective\":\"\",\"state\":\"canceled\",\"createdBy\":\"user:dev-a\",\"note\":\"not needed\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"user:dev-a\",\"subtasks\":[\"01M5W19VG05V3NCQDJ0W3NA4NT\"],\"rollup\":{\"state\":\"canceled\",\"done\":0,\"total\":0}},{\"id\":\"01M5W19VG05V3NCQDJ0W3NA4NT\",\"short\":\"7\",\"title\":\"Small part\",\"objective\":\"\",\"state\":\"canceled\",\"createdBy\":\"user:dev-a\",\"note\":\"its parent #6 was canceled\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"user:dev-a\",\"parent\":\"01M5W19VG0FDTQ61MQZKW2D34N\"},{\"id\":\"01M5W19VG022A4RYQ0WBCDCF9W\",\"short\":\"3\",\"title\":\"Build it\",\"objective\":\"\",\"state\":\"completed\",\"holder\":\"dev-a/bob-session\",\"holders\":[\"dev-a/bob-session\"],\"createdBy\":\"dev-a/alice-session\",\"note\":\"built\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/bob-session\",\"steps\":[{\"id\":\"s1\",\"text\":\"build\",\"done\":false},{\"id\":\"s2\",\"text\":\"test\",\"done\":false}],\"parent\":\"01M5W19VG0T1QEBFB34EVPHKKF\"}],\"doneTotal\":3,\"leases\":[]}",
+  "boardFor": "{\"needsYou\":[],\"blocked\":[{\"id\":\"01M5W19VG0T1QEBFB34EVPHKKF\",\"short\":\"1\",\"title\":\"Big job\",\"objective\":\"\",\"state\":\"working\",\"holder\":\"dev-a/alice-session\",\"holders\":[\"dev-a/alice-session\"],\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"steps\":[{\"id\":\"s1\",\"text\":\"plan\",\"done\":true}],\"subtasks\":[\"01M5W19VG0SGEACAQX48K2BPGE\",\"01M5W19VG022A4RYQ0WBCDCF9W\",\"01M5W19VG0GZGPJ5HRAPB7YBAQ\",\"01M5W19VG01TJ6QPHFRW6NSEMS\"],\"rollup\":{\"state\":\"blocked\",\"done\":1,\"total\":4,\"blocked\":\"01M5W19VG0GZGPJ5HRAPB7YBAQ\",\"blockedQuestion\":\"needs a release window\"}},{\"id\":\"01M5W19VG0GZGPJ5HRAPB7YBAQ\",\"short\":\"4\",\"title\":\"Ship it\",\"objective\":\"\",\"state\":\"blocked\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"user:dev-a\",\"reason\":\"needs a release window\",\"steps\":[{\"id\":\"s1\",\"text\":\"ship\",\"done\":false}],\"blockers\":[{\"id\":\"b1\",\"question\":\"needs a release window\",\"raisedBy\":\"user:dev-a\",\"at\":\"2026-10-26T12:00:00Z\",\"status\":\"open\"}],\"parent\":\"01M5W19VG0T1QEBFB34EVPHKKF\"}],\"working\":[],\"open\":[{\"id\":\"01M5W19VG0SGEACAQX48K2BPGE\",\"short\":\"2\",\"title\":\"Loose card\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/bob-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/bob-session\",\"parent\":\"01M5W19VG0T1QEBFB34EVPHKKF\"},{\"id\":\"01M5W19VG01TJ6QPHFRW6NSEMS\",\"short\":\"5\",\"title\":\"Docs too\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/carol-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/carol-session\",\"parent\":\"01M5W19VG0T1QEBFB34EVPHKKF\"}],\"done\":[{\"id\":\"01M5W19VG0FDTQ61MQZKW2D34N\",\"short\":\"6\",\"title\":\"Small job\",\"objective\":\"\",\"state\":\"canceled\",\"createdBy\":\"user:dev-a\",\"note\":\"not needed\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"user:dev-a\",\"subtasks\":[\"01M5W19VG05V3NCQDJ0W3NA4NT\"],\"rollup\":{\"state\":\"canceled\",\"done\":0,\"total\":0}},{\"id\":\"01M5W19VG05V3NCQDJ0W3NA4NT\",\"short\":\"7\",\"title\":\"Small part\",\"objective\":\"\",\"state\":\"canceled\",\"createdBy\":\"user:dev-a\",\"note\":\"its parent #6 was canceled\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"user:dev-a\",\"parent\":\"01M5W19VG0FDTQ61MQZKW2D34N\"},{\"id\":\"01M5W19VG022A4RYQ0WBCDCF9W\",\"short\":\"3\",\"title\":\"Build it\",\"objective\":\"\",\"state\":\"completed\",\"holder\":\"dev-a/bob-session\",\"holders\":[\"dev-a/bob-session\"],\"createdBy\":\"dev-a/alice-session\",\"note\":\"built\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/bob-session\",\"steps\":[{\"id\":\"s1\",\"text\":\"build\",\"done\":false},{\"id\":\"s2\",\"text\":\"test\",\"done\":false}],\"parent\":\"01M5W19VG0T1QEBFB34EVPHKKF\"}],\"doneTotal\":3,\"leases\":[]}",
+  "activity": {
+   "01M5W19VG01TJ6QPHFRW6NSEMS": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/carol-session\",\"what\":\"put the card up as a subtask of task:01M5W19VG0T1QEBFB34EVPHKKF\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19VG022A4RYQ0WBCDCF9W": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/bob-session\",\"what\":\"set it to completed\",\"kind\":\"task.status\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/bob-session\",\"what\":\"took it up\",\"kind\":\"task.claimed\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"set the steps (0/2 done)\",\"kind\":\"task.steps\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"put the card up as a subtask of task:01M5W19VG0T1QEBFB34EVPHKKF\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19VG05V3NCQDJ0W3NA4NT": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"user:dev-a\",\"what\":\"set it to canceled\",\"kind\":\"task.status\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"user:dev-a\",\"what\":\"put the card up as a subtask of task:01M5W19VG0FDTQ61MQZKW2D34N\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19VG0FDTQ61MQZKW2D34N": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"user:dev-a\",\"what\":\"set it to canceled\",\"kind\":\"task.status\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"user:dev-a\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19VG0GZGPJ5HRAPB7YBAQ": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"user:dev-a\",\"what\":\"raised a blocker: needs a release window\",\"kind\":\"task.status\",\"device\":\"dev-a\",\"blockerId\":\"b1\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"set the steps (0/1 done)\",\"kind\":\"task.steps\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"put the card up as a subtask of task:01M5W19VG0T1QEBFB34EVPHKKF\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19VG0SGEACAQX48K2BPGE": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"made it part of task:01M5W19VG0T1QEBFB34EVPHKKF\",\"kind\":\"task.parent\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/bob-session\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19VG0T1QEBFB34EVPHKKF": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"set the steps (1/1 done)\",\"kind\":\"task.steps\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"took it up\",\"kind\":\"task.claimed\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"set the steps (1/3 done)\",\"kind\":\"task.steps\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]"
+  },
+  "comments": {
+   "01M5W19VG01TJ6QPHFRW6NSEMS": "[]",
+   "01M5W19VG022A4RYQ0WBCDCF9W": "[]",
+   "01M5W19VG05V3NCQDJ0W3NA4NT": "[]",
+   "01M5W19VG0FDTQ61MQZKW2D34N": "[]",
+   "01M5W19VG0GZGPJ5HRAPB7YBAQ": "[]",
+   "01M5W19VG0SGEACAQX48K2BPGE": "[]",
+   "01M5W19VG0T1QEBFB34EVPHKKF": "[]"
+  }
+ },
+ {
+  "name": "pins",
+  "device": "dev-a",
+  "now": "2026-10-26T12:00:00Z",
+  "owners": [
+   "user:dev-a",
+   "user:dev-b"
+  ],
+  "rows": [
+   {
+    "deviceId": "dev-a",
+    "seq": 1,
+    "hlc": 117507096576000000,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwM0I4MFIxRkFZWjhHMU5LMCIsIm51bSI6MSwidGl0bGUiOiJhIiwib2JqZWN0aXZlIjoiIiwiYnkiOiJkZXYtYS9hbGljZS1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 2,
+    "hlc": 117507096576000001,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwWUpCM1NLUUVIMzA0NVFQNyIsIm51bSI6MiwidGl0bGUiOiJiIiwib2JqZWN0aXZlIjoiIiwiYnkiOiJkZXYtYS9hbGljZS1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 3,
+    "hlc": 117507096576000002,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwWTAxNTRWWjFSRTdKMlRSWSIsIm51bSI6MywidGl0bGUiOiJjIiwib2JqZWN0aXZlIjoiIiwiYnkiOiJkZXYtYS9hbGljZS1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 4,
+    "hlc": 117507096576000003,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwUkRUVE1TNkRNSFBWMFlQQyIsIm51bSI6NCwidGl0bGUiOiJkIiwib2JqZWN0aXZlIjoiIiwiYnkiOiJkZXYtYS9hbGljZS1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 5,
+    "hlc": 117507096576000004,
+    "actor": "user",
+    "kind": "task.pinned",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwM0I4MFIxRkFZWjhHMU5LMCIsInBpbm5lZCI6dHJ1ZSwicmFuayI6MSwiYnkiOiJ1c2VyOmRldi1hIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 6,
+    "hlc": 117507096576000005,
+    "actor": "user",
+    "kind": "task.pinned",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwWUpCM1NLUUVIMzA0NVFQNyIsInBpbm5lZCI6dHJ1ZSwicmFuayI6MiwiYnkiOiJ1c2VyOmRldi1hIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 7,
+    "hlc": 117507096576000006,
+    "actor": "user",
+    "kind": "task.pinned",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwWTAxNTRWWjFSRTdKMlRSWSIsInBpbm5lZCI6dHJ1ZSwicmFuayI6MywiYnkiOiJ1c2VyOmRldi1hIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 8,
+    "hlc": 117507096576000007,
+    "actor": "user",
+    "kind": "task.pinned",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwWTAxNTRWWjFSRTdKMlRSWSIsInBpbm5lZCI6dHJ1ZSwiYnkiOiJ1c2VyOmRldi1hIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 9,
+    "hlc": 117507096576000008,
+    "actor": "user",
+    "kind": "task.pinned",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwWUpCM1NLUUVIMzA0NVFQNyIsInBpbm5lZCI6dHJ1ZSwicmFuayI6LTEsImJ5IjoidXNlcjpkZXYtYSIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 10,
+    "hlc": 117507096576000009,
+    "actor": "user",
+    "kind": "task.pinned",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwM0I4MFIxRkFZWjhHMU5LMCIsInBpbm5lZCI6ZmFsc2UsImJ5IjoidXNlcjpkZXYtYSIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-b",
+    "seq": 1,
+    "hlc": 117507096576000010,
+    "actor": "user",
+    "kind": "task.pinned",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwUkRUVE1TNkRNSFBWMFlQQyIsInBpbm5lZCI6dHJ1ZSwicmFuayI6Ny41LCJieSI6InVzZXI6ZGV2LWIiLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-b",
+    "seq": 2,
+    "hlc": 117507096576000011,
+    "actor": "agent:dev-b/dan",
+    "kind": "task.pinned",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwM0I4MFIxRkFZWjhHMU5LMCIsInBpbm5lZCI6dHJ1ZSwicmFuayI6MSwiYnkiOiJkZXYtYi9kYW4iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   }
+  ],
+  "tasks": "[{\"id\":\"01M5W19VG03B80R1FAYZ8G1NK0\",\"short\":\"1\",\"title\":\"a\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\"},{\"id\":\"01M5W19VG0YJB3SKQEH3045QP7\",\"short\":\"2\",\"title\":\"b\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"pinned\":true,\"pinRank\":-1},{\"id\":\"01M5W19VG0Y0154VZ1RE7J2TRY\",\"short\":\"3\",\"title\":\"c\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"pinned\":true},{\"id\":\"01M5W19VG0RDTTMS6DMHPV0YPC\",\"short\":\"4\",\"title\":\"d\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"pinned\":true,\"pinRank\":7.5}]",
+  "leases": "[]",
+  "refusals": "[]",
+  "boardAll": "{\"needsYou\":[],\"blocked\":[],\"working\":[],\"open\":[{\"id\":\"01M5W19VG0YJB3SKQEH3045QP7\",\"short\":\"2\",\"title\":\"b\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"pinned\":true,\"pinRank\":-1},{\"id\":\"01M5W19VG0Y0154VZ1RE7J2TRY\",\"short\":\"3\",\"title\":\"c\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"pinned\":true},{\"id\":\"01M5W19VG0RDTTMS6DMHPV0YPC\",\"short\":\"4\",\"title\":\"d\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"pinned\":true,\"pinRank\":7.5},{\"id\":\"01M5W19VG03B80R1FAYZ8G1NK0\",\"short\":\"1\",\"title\":\"a\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\"}],\"done\":[],\"doneTotal\":0,\"leases\":[]}",
+  "boardFor": "{\"needsYou\":[],\"blocked\":[],\"working\":[],\"open\":[{\"id\":\"01M5W19VG0YJB3SKQEH3045QP7\",\"short\":\"2\",\"title\":\"b\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"pinned\":true,\"pinRank\":-1},{\"id\":\"01M5W19VG0Y0154VZ1RE7J2TRY\",\"short\":\"3\",\"title\":\"c\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"pinned\":true},{\"id\":\"01M5W19VG0RDTTMS6DMHPV0YPC\",\"short\":\"4\",\"title\":\"d\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"pinned\":true,\"pinRank\":7.5},{\"id\":\"01M5W19VG03B80R1FAYZ8G1NK0\",\"short\":\"1\",\"title\":\"a\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"dev-a/alice-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\"}],\"done\":[],\"doneTotal\":0,\"leases\":[]}",
+  "activity": {
+   "01M5W19VG03B80R1FAYZ8G1NK0": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19VG0RDTTMS6DMHPV0YPC": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19VG0Y0154VZ1RE7J2TRY": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19VG0YJB3SKQEH3045QP7": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]"
+  },
+  "comments": {
+   "01M5W19VG03B80R1FAYZ8G1NK0": "[]",
+   "01M5W19VG0RDTTMS6DMHPV0YPC": "[]",
+   "01M5W19VG0Y0154VZ1RE7J2TRY": "[]",
+   "01M5W19VG0YJB3SKQEH3045QP7": "[]"
+  }
+ },
+ {
+  "name": "asks",
+  "device": "dev-a",
+  "now": "2026-10-26T12:00:00Z",
+  "rows": [
+   {
+    "deviceId": "dev-a",
+    "seq": 1,
+    "hlc": 117507096576000000,
+    "actor": "user",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwNDQwNFBGTlQ2OVM0MDZQOCIsIm51bSI6MSwidGl0bGUiOiJDYW4gc29tZW9uZSBsb29rIGF0IHRoZSBmbGFreSB0ZXN0IGluIENJPyBJdCBmYWlscyBvbmUgcnVuIGluIGZpdmUgb24gV2luZG93c+KApiIsIm9iamVjdGl2ZSI6IkNhbiBzb21lb25lIGxvb2sgYXQgdGhlIGZsYWt5IHRlc3QgaW4gQ0k/IEl0IGZhaWxzIG9uZSBydW4gaW4gZml2ZSBvbiBXaW5kb3dzIG9ubHkuIiwiYXNrIjp7Indha2UiOnRydWV9LCJieSI6InVzZXI6ZGV2LWEiLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 2,
+    "hlc": 117507096576000001,
+    "actor": "irori",
+    "kind": "take.state",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwNDQwNFBGTlQ2OVM0MDZQOCIsInRha2VyIjoiIiwicmVhc29uIjoicG9zdGVkIiwidG9sZCI6MiwiaGVhcmQiOlsiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImRldi1hL2JvYi1zZXNzaW9uIl0sInNpbmNlIjoiMjAyNi0xMC0yNlQxMjowMDowMFoiLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 3,
+    "hlc": 117507096576000002,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "take.requested",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwNDQwNFBGTlQ2OVM0MDZQOCIsImJ5IjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsIm9wIjoiY2xhaW0iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 4,
+    "hlc": 117507096576000003,
+    "actor": "irori",
+    "kind": "take.state",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwNDQwNFBGTlQ2OVM0MDZQOCIsInRha2VyIjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsInJlYXNvbiI6InRha2VuIiwicmVxIjp7ImRldmljZSI6ImRldi1hIiwic2VxIjozfSwidG9sZCI6MiwiaGVhcmQiOlsiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImRldi1hL2JvYi1zZXNzaW9uIl0sInNpbmNlIjoiMjAyNi0xMC0yNlQxMjowMDowMFoiLCJzZWVuIjp7ImRldi1hIjozfSwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 5,
+    "hlc": 117507096576000004,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.comment",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwNDQwNFBGTlQ2OVM0MDZQOCIsImNvbW1lbnRJZCI6IjAxTTVXMTlWRzBKUTJaVktaR0g0MFdHU00wIiwiYnkiOiJkZXYtYS9hbGljZS1zZXNzaW9uIiwidGV4dCI6Ik9uIGl0Iiwid2FrZSI6ZmFsc2UsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 6,
+    "hlc": 117507096576000005,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.edited",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwNDQwNFBGTlQ2OVM0MDZQOCIsInRpdGxlIjoiRml4IHRoZSBmbGFreSB0ZXN0IiwiYnkiOiJkZXYtYS9hbGljZS1zZXNzaW9uIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 7,
+    "hlc": 117507096576000006,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.steps",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwNDQwNFBGTlQ2OVM0MDZQOCIsInN0ZXBzIjpbeyJpZCI6InMxIiwidGV4dCI6ImZpbmQgdGhlIHJhY2UiLCJkb25lIjpmYWxzZX1dLCJieSI6ImRldi1hL2FsaWNlLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 8,
+    "hlc": 117507096576000007,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwNDQwNFBGTlQ2OVM0MDZQOCIsInN0YXRlIjoid29ya2luZyIsIm5vdGUiOiJpdCBpcyBhIHJhY2UiLCJvdXRjb21lIjp7ImtpbmQiOiJjYXJkIiwibm90ZSI6Iml0IGlzIGEgcmFjZSJ9LCJieSI6ImRldi1hL2FsaWNlLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 9,
+    "hlc": 117507096576000008,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.claimed",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwNDQwNFBGTlQ2OVM0MDZQOCIsImJ5IjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 10,
+    "hlc": 117507096576000009,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMDFZVjBIM0pNQ1FEUko3WiIsIm51bSI6MiwidGl0bGUiOiJEb2NzIHBhZ2UiLCJvYmplY3RpdmUiOiJvbGQgdGV4dCIsImJ5IjoiZGV2LWEvYm9iLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 11,
+    "hlc": 117507096576000010,
+    "actor": "user",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMVhDWTZXS0hYSzZUNzJEUCIsIm51bSI6MywidGl0bGUiOiJBZGQgdGhlIGluc3RhbGwgc3RlcHMgdG8gdGhlIGRvY3MgcGFnZSIsIm9iamVjdGl2ZSI6IkFkZCB0aGUgaW5zdGFsbCBzdGVwcyB0byB0aGUgZG9jcyBwYWdlIiwiYXNrIjp7fSwiYnkiOiJ1c2VyOmRldi1hIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 12,
+    "hlc": 117507096576000011,
+    "actor": "user",
+    "kind": "task.comment",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMVhDWTZXS0hYSzZUNzJEUCIsImNvbW1lbnRJZCI6IjAxTTVXMTlWRzBEMTdHNDBXV1lQVjAyS01KIiwiYnkiOiJ1c2VyOmRldi1hIiwidGV4dCI6IkZpbGVzIHdpdGggdGhlIGFzay4iLCJ3YWtlIjpmYWxzZSwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiIsImF0dGFjaG1lbnRzIjpbeyJzaGEyNTYiOiJlZjU2IiwibmFtZSI6InNob3QucG5nIiwic2l6ZSI6NSwiZGV2aWNlIjoiZGV2LWEifV19"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 13,
+    "hlc": 117507096576000012,
+    "actor": "irori",
+    "kind": "take.state",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMVhDWTZXS0hYSzZUNzJEUCIsInRha2VyIjoiIiwicmVhc29uIjoicG9zdGVkIiwidG9sZCI6MiwiaGVhcmQiOlsiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImRldi1hL2JvYi1zZXNzaW9uIl0sInNpbmNlIjoiMjAyNi0xMC0yNlQxMjowMDowMFoiLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 14,
+    "hlc": 117507096576000013,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "take.requested",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMVhDWTZXS0hYSzZUNzJEUCIsImJ5IjoiZGV2LWEvYm9iLXNlc3Npb24iLCJvcCI6ImNsYWltIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 15,
+    "hlc": 117507096576000014,
+    "actor": "irori",
+    "kind": "take.state",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMVhDWTZXS0hYSzZUNzJEUCIsInRha2VyIjoiZGV2LWEvYm9iLXNlc3Npb24iLCJyZWFzb24iOiJ0YWtlbiIsInJlcSI6eyJkZXZpY2UiOiJkZXYtYSIsInNlcSI6MTR9LCJ0b2xkIjoyLCJoZWFyZCI6WyJkZXYtYS9hbGljZS1zZXNzaW9uIiwiZGV2LWEvYm9iLXNlc3Npb24iXSwic2luY2UiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiIsInNlZW4iOnsiZGV2LWEiOjE0fSwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 16,
+    "hlc": 117507096576000015,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.edited",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMDFZVjBIM0pNQ1FEUko3WiIsIm9iamVjdGl2ZSI6Imluc3RhbGwgc3RlcHMiLCJieSI6ImRldi1hL2JvYi1zZXNzaW9uIiwiZnJvbSI6IjAxTTVXMTlWRzAxWENZNldLSFhLNlQ3MkRQIiwibm90ZSI6ImFkZGVkIHRoZW0iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 17,
+    "hlc": 117507096576000016,
+    "actor": "agent:dev-a/bob-session",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMVhDWTZXS0hYSzZUNzJEUCIsInN0YXRlIjoiY29tcGxldGVkIiwibm90ZSI6IkNoYW5nZWQgIzI6IGFkZGVkIHRoZW0iLCJvdXRjb21lIjp7ImtpbmQiOiJlZGl0IiwidGFzayI6IjAxTTVXMTlWRzAwMVlWMEgzSk1DUURSSjdaIiwibm90ZSI6ImFkZGVkIHRoZW0ifSwiYnkiOiJkZXYtYS9ib2Itc2Vzc2lvbiIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 18,
+    "hlc": 117507096576000017,
+    "actor": "user",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwM1pQSDNUWko5NVpaRlZKRSIsIm51bSI6NCwidGl0bGUiOiJXaGF0IHZlcnNpb24gYXJlIHdlIG9uPyIsIm9iamVjdGl2ZSI6IldoYXQgdmVyc2lvbiBhcmUgd2Ugb24/IiwiYXNrIjp7fSwiYnkiOiJ1c2VyOmRldi1hIiwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 19,
+    "hlc": 117507096576000018,
+    "actor": "irori",
+    "kind": "take.state",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwM1pQSDNUWko5NVpaRlZKRSIsInRha2VyIjoiIiwicmVhc29uIjoicG9zdGVkIiwidG9sZCI6MiwiaGVhcmQiOlsiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsImRldi1hL2JvYi1zZXNzaW9uIl0sInNpbmNlIjoiMjAyNi0xMC0yNlQxMjowMDowMFoiLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 20,
+    "hlc": 117507096576000019,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "take.requested",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwM1pQSDNUWko5NVpaRlZKRSIsImJ5IjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsIm9wIjoiY2xhaW0iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 21,
+    "hlc": 117507096576000020,
+    "actor": "irori",
+    "kind": "take.state",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwM1pQSDNUWko5NVpaRlZKRSIsInRha2VyIjoiZGV2LWEvYWxpY2Utc2Vzc2lvbiIsInJlYXNvbiI6InRha2VuIiwicmVxIjp7ImRldmljZSI6ImRldi1hIiwic2VxIjoyMH0sInRvbGQiOjIsImhlYXJkIjpbImRldi1hL2FsaWNlLXNlc3Npb24iLCJkZXYtYS9ib2Itc2Vzc2lvbiJdLCJzaW5jZSI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIiwic2VlbiI6eyJkZXYtYSI6MjB9LCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 22,
+    "hlc": 117507096576000021,
+    "actor": "agent:dev-a/alice-session",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwM1pQSDNUWko5NVpaRlZKRSIsInN0YXRlIjoiY29tcGxldGVkIiwibm90ZSI6InYwLjUuMCIsIm91dGNvbWUiOnsia2luZCI6ImFuc3dlcmVkIiwibm90ZSI6InYwLjUuMCJ9LCJieSI6ImRldi1hL2FsaWNlLXNlc3Npb24iLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 23,
+    "hlc": 117507096576000022,
+    "actor": "user",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwRzNGNkU2TUE2R1FYSlNEQyIsIm51bSI6NSwidGl0bGUiOiJOZXZlciBtaW5kIHRoaXMgb25lIiwib2JqZWN0aXZlIjoiTmV2ZXIgbWluZCB0aGlzIG9uZSIsInJlcG9LZXkiOiJyZW1vdGU6Z2l0aHViLmNvbS9hL2IiLCJhc2siOnsicmVwb0tleSI6InJlbW90ZTpnaXRodWIuY29tL2EvYiJ9LCJieSI6InVzZXI6ZGV2LWEiLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 24,
+    "hlc": 117507096576000023,
+    "actor": "irori",
+    "kind": "take.state",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwRzNGNkU2TUE2R1FYSlNEQyIsInRha2VyIjoiIiwicmVhc29uIjoicG9zdGVkIiwidG9sZCI6MCwic2luY2UiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiIsInVuY2xhaW1lZCI6dHJ1ZSwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 25,
+    "hlc": 117507096576000024,
+    "actor": "user",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwRzNGNkU2TUE2R1FYSlNEQyIsInN0YXRlIjoiY2FuY2VsZWQiLCJub3RlIjoiY2xvc2VkIGJ5IHRoZSBwZXJzb24iLCJvdXRjb21lIjp7ImtpbmQiOiJub25lIiwibm90ZSI6ImNsb3NlZCBieSB0aGUgcGVyc29uIn0sImJ5IjoidXNlcjpkZXYtYSIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 26,
+    "hlc": 117507096576000025,
+    "actor": "user",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMUVTOVAxMktWWjQyWEszUCIsIm51bSI6NiwidGl0bGUiOiJBbnlvbmUgZnJlZT8iLCJvYmplY3RpdmUiOiJBbnlvbmUgZnJlZT8iLCJhc2siOnt9LCJieSI6InVzZXI6ZGV2LWEiLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 27,
+    "hlc": 117507096576000026,
+    "actor": "irori",
+    "kind": "take.state",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMUVTOVAxMktWWjQyWEszUCIsInRha2VyIjoiIiwicmVhc29uIjoicG9zdGVkIiwidG9sZCI6MCwic2luY2UiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiIsInVuY2xhaW1lZCI6dHJ1ZSwiYXQiOiIyMDI2LTEwLTI2VDEyOjAwOjAwWiJ9"
+   }
+  ],
+  "tasks": "[{\"id\":\"01M5W19VG04404PFNT69S406P8\",\"short\":\"1\",\"title\":\"Fix the flaky test\",\"objective\":\"Can someone look at the flaky test in CI? It fails one run in five on Windows only.\",\"state\":\"working\",\"holder\":\"dev-a/alice-session\",\"holders\":[\"dev-a/alice-session\"],\"createdBy\":\"user:dev-a\",\"note\":\"it is a race\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"comments\":1,\"steps\":[{\"id\":\"s1\",\"text\":\"find the race\",\"done\":false}],\"ask\":{\"wake\":true,\"owner\":\"dev-a\",\"taker\":\"dev-a/alice-session\",\"reason\":\"taken\",\"told\":2,\"heard\":[\"dev-a/alice-session\",\"dev-a/bob-session\"],\"since\":\"2026-10-26T12:00:00Z\",\"outcome\":{\"kind\":\"card\",\"note\":\"it is a race\"}}},{\"id\":\"01M5W19VG001YV0H3JMCQDRJ7Z\",\"short\":\"2\",\"title\":\"Docs page\",\"objective\":\"install steps\",\"state\":\"submitted\",\"createdBy\":\"dev-a/bob-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/bob-session\"},{\"id\":\"01M5W19VG01XCY6WKHXK6T72DP\",\"short\":\"3\",\"title\":\"Add the install steps to the docs page\",\"objective\":\"Add the install steps to the docs page\",\"state\":\"completed\",\"holder\":\"dev-a/bob-session\",\"holders\":[\"dev-a/bob-session\"],\"createdBy\":\"user:dev-a\",\"note\":\"Changed #2: added them\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/bob-session\",\"comments\":1,\"ask\":{\"owner\":\"dev-a\",\"taker\":\"dev-a/bob-session\",\"reason\":\"taken\",\"told\":2,\"heard\":[\"dev-a/alice-session\",\"dev-a/bob-session\"],\"since\":\"2026-10-26T12:00:00Z\",\"outcome\":{\"kind\":\"edit\",\"task\":\"01M5W19VG001YV0H3JMCQDRJ7Z\",\"note\":\"added them\"}}},{\"id\":\"01M5W19VG03ZPH3TZJ95ZZFVJE\",\"short\":\"4\",\"title\":\"What version are we on?\",\"objective\":\"What version are we on?\",\"state\":\"completed\",\"holder\":\"dev-a/alice-session\",\"holders\":[\"dev-a/alice-session\"],\"createdBy\":\"user:dev-a\",\"note\":\"v0.5.0\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"ask\":{\"owner\":\"dev-a\",\"taker\":\"dev-a/alice-session\",\"reason\":\"taken\",\"told\":2,\"heard\":[\"dev-a/alice-session\",\"dev-a/bob-session\"],\"since\":\"2026-10-26T12:00:00Z\",\"outcome\":{\"kind\":\"answered\",\"note\":\"v0.5.0\"}}},{\"id\":\"01M5W19VG0G3F6E6MA6GQXJSDC\",\"short\":\"5\",\"title\":\"Never mind this one\",\"objective\":\"Never mind this one\",\"repoKey\":\"remote:github.com/a/b\",\"state\":\"canceled\",\"createdBy\":\"user:dev-a\",\"note\":\"closed by the person\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"user:dev-a\",\"ask\":{\"repoKey\":\"remote:github.com/a/b\",\"owner\":\"dev-a\",\"reason\":\"posted\",\"told\":0,\"since\":\"2026-10-26T12:00:00Z\",\"unclaimed\":true,\"outcome\":{\"kind\":\"none\",\"note\":\"closed by the person\"}}},{\"id\":\"01M5W19VG01ES9P12KVZ42XK3P\",\"short\":\"6\",\"title\":\"Anyone free?\",\"objective\":\"Anyone free?\",\"state\":\"submitted\",\"createdBy\":\"user:dev-a\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"user:dev-a\",\"ask\":{\"owner\":\"dev-a\",\"reason\":\"posted\",\"told\":0,\"since\":\"2026-10-26T12:00:00Z\",\"unclaimed\":true}}]",
+  "leases": "[]",
+  "refusals": "[]",
+  "boardAll": "{\"needsYou\":[],\"blocked\":[],\"working\":[{\"id\":\"01M5W19VG04404PFNT69S406P8\",\"short\":\"1\",\"title\":\"Fix the flaky test\",\"objective\":\"Can someone look at the flaky test in CI? It fails one run in five on Windows only.\",\"state\":\"working\",\"holder\":\"dev-a/alice-session\",\"holders\":[\"dev-a/alice-session\"],\"createdBy\":\"user:dev-a\",\"note\":\"it is a race\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"comments\":1,\"steps\":[{\"id\":\"s1\",\"text\":\"find the race\",\"done\":false}],\"ask\":{\"wake\":true,\"owner\":\"dev-a\",\"taker\":\"dev-a/alice-session\",\"reason\":\"taken\",\"told\":2,\"heard\":[\"dev-a/alice-session\",\"dev-a/bob-session\"],\"since\":\"2026-10-26T12:00:00Z\",\"outcome\":{\"kind\":\"card\",\"note\":\"it is a race\"}},\"lastComment\":{\"id\":\"01M5W19VG0JQ2ZVKZGH40WGSM0\",\"taskId\":\"01M5W19VG04404PFNT69S406P8\",\"by\":\"dev-a/alice-session\",\"text\":\"On it\",\"wake\":false,\"at\":\"2026-10-26T12:00:00Z\",\"device\":\"dev-a\"}}],\"open\":[{\"id\":\"01M5W19VG01ES9P12KVZ42XK3P\",\"short\":\"6\",\"title\":\"Anyone free?\",\"objective\":\"Anyone free?\",\"state\":\"submitted\",\"createdBy\":\"user:dev-a\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"user:dev-a\",\"ask\":{\"owner\":\"dev-a\",\"reason\":\"posted\",\"told\":0,\"since\":\"2026-10-26T12:00:00Z\",\"unclaimed\":true}},{\"id\":\"01M5W19VG001YV0H3JMCQDRJ7Z\",\"short\":\"2\",\"title\":\"Docs page\",\"objective\":\"install steps\",\"state\":\"submitted\",\"createdBy\":\"dev-a/bob-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/bob-session\"}],\"done\":[{\"id\":\"01M5W19VG0G3F6E6MA6GQXJSDC\",\"short\":\"5\",\"title\":\"Never mind this one\",\"objective\":\"Never mind this one\",\"repoKey\":\"remote:github.com/a/b\",\"state\":\"canceled\",\"createdBy\":\"user:dev-a\",\"note\":\"closed by the person\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"user:dev-a\",\"ask\":{\"repoKey\":\"remote:github.com/a/b\",\"owner\":\"dev-a\",\"reason\":\"posted\",\"told\":0,\"since\":\"2026-10-26T12:00:00Z\",\"unclaimed\":true,\"outcome\":{\"kind\":\"none\",\"note\":\"closed by the person\"}}},{\"id\":\"01M5W19VG03ZPH3TZJ95ZZFVJE\",\"short\":\"4\",\"title\":\"What version are we on?\",\"objective\":\"What version are we on?\",\"state\":\"completed\",\"holder\":\"dev-a/alice-session\",\"holders\":[\"dev-a/alice-session\"],\"createdBy\":\"user:dev-a\",\"note\":\"v0.5.0\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"ask\":{\"owner\":\"dev-a\",\"taker\":\"dev-a/alice-session\",\"reason\":\"taken\",\"told\":2,\"heard\":[\"dev-a/alice-session\",\"dev-a/bob-session\"],\"since\":\"2026-10-26T12:00:00Z\",\"outcome\":{\"kind\":\"answered\",\"note\":\"v0.5.0\"}}},{\"id\":\"01M5W19VG01XCY6WKHXK6T72DP\",\"short\":\"3\",\"title\":\"Add the install steps to the docs page\",\"objective\":\"Add the install steps to the docs page\",\"state\":\"completed\",\"holder\":\"dev-a/bob-session\",\"holders\":[\"dev-a/bob-session\"],\"createdBy\":\"user:dev-a\",\"note\":\"Changed #2: added them\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/bob-session\",\"comments\":1,\"ask\":{\"owner\":\"dev-a\",\"taker\":\"dev-a/bob-session\",\"reason\":\"taken\",\"told\":2,\"heard\":[\"dev-a/alice-session\",\"dev-a/bob-session\"],\"since\":\"2026-10-26T12:00:00Z\",\"outcome\":{\"kind\":\"edit\",\"task\":\"01M5W19VG001YV0H3JMCQDRJ7Z\",\"note\":\"added them\"}},\"lastComment\":{\"id\":\"01M5W19VG0D17G40WWYPV02KMJ\",\"taskId\":\"01M5W19VG01XCY6WKHXK6T72DP\",\"by\":\"user:dev-a\",\"text\":\"Files with the ask.\",\"wake\":false,\"at\":\"2026-10-26T12:00:00Z\",\"attachments\":[{\"sha256\":\"ef56\",\"name\":\"shot.png\",\"size\":5,\"device\":\"dev-a\"}],\"device\":\"dev-a\"}}],\"doneTotal\":3,\"leases\":[]}",
+  "boardFor": "{\"needsYou\":[],\"blocked\":[],\"working\":[{\"id\":\"01M5W19VG04404PFNT69S406P8\",\"short\":\"1\",\"title\":\"Fix the flaky test\",\"objective\":\"Can someone look at the flaky test in CI? It fails one run in five on Windows only.\",\"state\":\"working\",\"holder\":\"dev-a/alice-session\",\"holders\":[\"dev-a/alice-session\"],\"createdBy\":\"user:dev-a\",\"note\":\"it is a race\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"comments\":1,\"steps\":[{\"id\":\"s1\",\"text\":\"find the race\",\"done\":false}],\"ask\":{\"wake\":true,\"owner\":\"dev-a\",\"taker\":\"dev-a/alice-session\",\"reason\":\"taken\",\"told\":2,\"heard\":[\"dev-a/alice-session\",\"dev-a/bob-session\"],\"since\":\"2026-10-26T12:00:00Z\",\"outcome\":{\"kind\":\"card\",\"note\":\"it is a race\"}},\"lastComment\":{\"id\":\"01M5W19VG0JQ2ZVKZGH40WGSM0\",\"taskId\":\"01M5W19VG04404PFNT69S406P8\",\"by\":\"dev-a/alice-session\",\"text\":\"On it\",\"wake\":false,\"at\":\"2026-10-26T12:00:00Z\",\"device\":\"dev-a\"}}],\"open\":[{\"id\":\"01M5W19VG01ES9P12KVZ42XK3P\",\"short\":\"6\",\"title\":\"Anyone free?\",\"objective\":\"Anyone free?\",\"state\":\"submitted\",\"createdBy\":\"user:dev-a\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"user:dev-a\",\"ask\":{\"owner\":\"dev-a\",\"reason\":\"posted\",\"told\":0,\"since\":\"2026-10-26T12:00:00Z\",\"unclaimed\":true}},{\"id\":\"01M5W19VG001YV0H3JMCQDRJ7Z\",\"short\":\"2\",\"title\":\"Docs page\",\"objective\":\"install steps\",\"state\":\"submitted\",\"createdBy\":\"dev-a/bob-session\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/bob-session\"}],\"done\":[{\"id\":\"01M5W19VG0G3F6E6MA6GQXJSDC\",\"short\":\"5\",\"title\":\"Never mind this one\",\"objective\":\"Never mind this one\",\"repoKey\":\"remote:github.com/a/b\",\"state\":\"canceled\",\"createdBy\":\"user:dev-a\",\"note\":\"closed by the person\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"user:dev-a\",\"ask\":{\"repoKey\":\"remote:github.com/a/b\",\"owner\":\"dev-a\",\"reason\":\"posted\",\"told\":0,\"since\":\"2026-10-26T12:00:00Z\",\"unclaimed\":true,\"outcome\":{\"kind\":\"none\",\"note\":\"closed by the person\"}}},{\"id\":\"01M5W19VG03ZPH3TZJ95ZZFVJE\",\"short\":\"4\",\"title\":\"What version are we on?\",\"objective\":\"What version are we on?\",\"state\":\"completed\",\"holder\":\"dev-a/alice-session\",\"holders\":[\"dev-a/alice-session\"],\"createdBy\":\"user:dev-a\",\"note\":\"v0.5.0\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/alice-session\",\"ask\":{\"owner\":\"dev-a\",\"taker\":\"dev-a/alice-session\",\"reason\":\"taken\",\"told\":2,\"heard\":[\"dev-a/alice-session\",\"dev-a/bob-session\"],\"since\":\"2026-10-26T12:00:00Z\",\"outcome\":{\"kind\":\"answered\",\"note\":\"v0.5.0\"}}},{\"id\":\"01M5W19VG01XCY6WKHXK6T72DP\",\"short\":\"3\",\"title\":\"Add the install steps to the docs page\",\"objective\":\"Add the install steps to the docs page\",\"state\":\"completed\",\"holder\":\"dev-a/bob-session\",\"holders\":[\"dev-a/bob-session\"],\"createdBy\":\"user:dev-a\",\"note\":\"Changed #2: added them\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"dev-a/bob-session\",\"comments\":1,\"ask\":{\"owner\":\"dev-a\",\"taker\":\"dev-a/bob-session\",\"reason\":\"taken\",\"told\":2,\"heard\":[\"dev-a/alice-session\",\"dev-a/bob-session\"],\"since\":\"2026-10-26T12:00:00Z\",\"outcome\":{\"kind\":\"edit\",\"task\":\"01M5W19VG001YV0H3JMCQDRJ7Z\",\"note\":\"added them\"}},\"lastComment\":{\"id\":\"01M5W19VG0D17G40WWYPV02KMJ\",\"taskId\":\"01M5W19VG01XCY6WKHXK6T72DP\",\"by\":\"user:dev-a\",\"text\":\"Files with the ask.\",\"wake\":false,\"at\":\"2026-10-26T12:00:00Z\",\"attachments\":[{\"sha256\":\"ef56\",\"name\":\"shot.png\",\"size\":5,\"device\":\"dev-a\"}],\"device\":\"dev-a\"}}],\"doneTotal\":3,\"leases\":[]}",
+  "activity": {
+   "01M5W19VG001YV0H3JMCQDRJ7Z": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/bob-session\",\"what\":\"changed it from the ask task:01M5W19VG01XCY6WKHXK6T72DP: added them\",\"kind\":\"task.edited\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/bob-session\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19VG01ES9P12KVZ42XK3P": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"user:dev-a\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19VG01XCY6WKHXK6T72DP": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/bob-session\",\"what\":\"set it to completed\",\"kind\":\"task.status\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/bob-session\",\"what\":\"took it\",\"kind\":\"take.state\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/bob-session\",\"what\":\"asked to take it\",\"kind\":\"take.requested\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"user:dev-a\",\"what\":\"commented\",\"kind\":\"task.comment\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"user:dev-a\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19VG03ZPH3TZJ95ZZFVJE": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"set it to completed\",\"kind\":\"task.status\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"took it\",\"kind\":\"take.state\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"asked to take it\",\"kind\":\"take.requested\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"user:dev-a\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19VG04404PFNT69S406P8": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"took it up\",\"kind\":\"task.claimed\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"set it to working\",\"kind\":\"task.status\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"set the steps (0/1 done)\",\"kind\":\"task.steps\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"edited the card\",\"kind\":\"task.edited\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"commented\",\"kind\":\"task.comment\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"took it\",\"kind\":\"take.state\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"dev-a/alice-session\",\"what\":\"asked to take it\",\"kind\":\"take.requested\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"user:dev-a\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19VG0G3F6E6MA6GQXJSDC": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"user:dev-a\",\"what\":\"set it to canceled\",\"kind\":\"task.status\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"user:dev-a\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]"
+  },
+  "comments": {
+   "01M5W19VG001YV0H3JMCQDRJ7Z": "[]",
+   "01M5W19VG01ES9P12KVZ42XK3P": "[]",
+   "01M5W19VG01XCY6WKHXK6T72DP": "[{\"id\":\"01M5W19VG0D17G40WWYPV02KMJ\",\"taskId\":\"01M5W19VG01XCY6WKHXK6T72DP\",\"by\":\"user:dev-a\",\"text\":\"Files with the ask.\",\"wake\":false,\"at\":\"2026-10-26T12:00:00Z\",\"attachments\":[{\"sha256\":\"ef56\",\"name\":\"shot.png\",\"size\":5,\"device\":\"dev-a\"}],\"device\":\"dev-a\"}]",
+   "01M5W19VG03ZPH3TZJ95ZZFVJE": "[]",
+   "01M5W19VG04404PFNT69S406P8": "[{\"id\":\"01M5W19VG0JQ2ZVKZGH40WGSM0\",\"taskId\":\"01M5W19VG04404PFNT69S406P8\",\"by\":\"dev-a/alice-session\",\"text\":\"On it\",\"wake\":false,\"at\":\"2026-10-26T12:00:00Z\",\"device\":\"dev-a\"}]",
+   "01M5W19VG0G3F6E6MA6GQXJSDC": "[]"
+  }
+ },
+ {
+  "name": "board",
+  "device": "dev-a",
+  "now": "2026-10-26T12:00:00Z",
+  "board": true,
+  "person": "person:p1",
+  "owners": [
+   "person:p1",
+   "person:p2"
+  ],
+  "rows": [
+   {
+    "deviceId": "dev-a",
+    "seq": 1,
+    "hlc": 117507096576000000,
+    "actor": "person:p1",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMTlWMTFaQThTQTRHWDRESCIsIm51bSI6MSwidGl0bGUiOiJCb2FyZCBjYXJkIiwib2JqZWN0aXZlIjoiIiwiYnkiOiJwZXJzb246cDEiLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 2,
+    "hlc": 117507096576000001,
+    "actor": "agent:c1",
+    "kind": "task.claimed",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMTlWMTFaQThTQTRHWDRESCIsImJ5IjoiYWdlbnQ6YzEiLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 3,
+    "hlc": 117507096576000002,
+    "actor": "person:p1",
+    "kind": "task.comment",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMTlWMTFaQThTQTRHWDRESCIsImNvbW1lbnRJZCI6IjAxTTVXMTlWRzBaNFpQVENaRjNLMk1GWUY2IiwiYnkiOiJwZXJzb246cDEiLCJ0ZXh0IjoiZnJvbSB0aGUgcGVyc29uIiwid2FrZSI6ZmFsc2UsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 4,
+    "hlc": 117507096576000003,
+    "actor": "agent:c1",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwMTlWMTFaQThTQTRHWDRESCIsInN0YXRlIjoiYmxvY2tlZCIsInJlYXNvbiI6IldoaWNoIGJ1aWxkPyIsImJsb2NrZWRCeSI6eyJraW5kIjoicGVyc29uIn0sImJsb2NrZXIiOnsiaWQiOiJiMSIsInF1ZXN0aW9uIjoiV2hpY2ggYnVpbGQ/Iiwib24iOnsia2luZCI6InBlcnNvbiJ9fSwiYnkiOiJhZ2VudDpjMSIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 5,
+    "hlc": 117507096576000004,
+    "actor": "agent:c1",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwODg2UjZBMFhCWDhYM1JFRyIsIm51bSI6MiwidGl0bGUiOiJBZ2VudCBjYXJkIiwib2JqZWN0aXZlIjoiIiwiYnkiOiJhZ2VudDpjMSIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 6,
+    "hlc": 117507096576000005,
+    "actor": "person:p1",
+    "kind": "task.status",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwODg2UjZBMFhCWDhYM1JFRyIsInN0YXRlIjoiY2FuY2VsZWQiLCJub3RlIjoid2l0aGRyYXduIGZyb20gdGhlIGJvYXJkIiwid2l0aGRyYXduIjp0cnVlLCJieSI6InBlcnNvbjpwMSIsImF0IjoiMjAyNi0xMC0yNlQxMjowMDowMFoifQ=="
+   },
+   {
+    "deviceId": "dev-a",
+    "seq": 7,
+    "hlc": 117507096576000006,
+    "actor": "person:p2",
+    "kind": "task.created",
+    "payload": "eyJ0YXNrSWQiOiIwMU01VzE5VkcwN1oyNVdENUtNNlJLNlpUSiIsIm51bSI6MywidGl0bGUiOiJPdGhlciBwZXJzb24ncyBjYXJkIiwib2JqZWN0aXZlIjoiIiwiYnkiOiJwZXJzb246cDIiLCJhdCI6IjIwMjYtMTAtMjZUMTI6MDA6MDBaIn0="
+   }
+  ],
+  "tasks": "[{\"id\":\"01M5W19VG019V11ZA8SA4GX4DH\",\"short\":\"1\",\"tag\":\"mlg\",\"title\":\"Board card\",\"objective\":\"\",\"state\":\"blocked\",\"holder\":\"agent:c1\",\"holders\":[\"agent:c1\"],\"createdBy\":\"person:p1\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"agent:c1\",\"reason\":\"Which build?\",\"blockedBy\":{\"kind\":\"person\"},\"comments\":1,\"blockers\":[{\"id\":\"b1\",\"question\":\"Which build?\",\"raisedBy\":\"agent:c1\",\"at\":\"2026-10-26T12:00:00Z\",\"on\":{\"kind\":\"person\"},\"status\":\"open\"}]},{\"id\":\"01M5W19VG0886R6A0XBX8X3REG\",\"short\":\"2\",\"tag\":\"mlg\",\"withdrawn\":true,\"title\":\"Agent card\",\"objective\":\"\",\"state\":\"canceled\",\"createdBy\":\"agent:c1\",\"note\":\"withdrawn from the board\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"person:p1\"},{\"id\":\"01M5W19VG07Z25WD5KM6RK6ZTJ\",\"short\":\"3\",\"tag\":\"mlg\",\"title\":\"Other person's card\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"person:p2\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"person:p2\"}]",
+  "leases": "[]",
+  "refusals": "[]",
+  "boardAll": "{\"needsYou\":[{\"id\":\"01M5W19VG019V11ZA8SA4GX4DH\",\"short\":\"1\",\"tag\":\"mlg\",\"title\":\"Board card\",\"objective\":\"\",\"state\":\"blocked\",\"holder\":\"agent:c1\",\"holders\":[\"agent:c1\"],\"createdBy\":\"person:p1\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"agent:c1\",\"reason\":\"Which build?\",\"blockedBy\":{\"kind\":\"person\"},\"comments\":1,\"blockers\":[{\"id\":\"b1\",\"question\":\"Which build?\",\"raisedBy\":\"agent:c1\",\"at\":\"2026-10-26T12:00:00Z\",\"on\":{\"kind\":\"person\"},\"status\":\"open\"}],\"lastComment\":{\"id\":\"01M5W19VG0Z4ZPTCZF3K2MFYF6\",\"taskId\":\"01M5W19VG019V11ZA8SA4GX4DH\",\"by\":\"person:p1\",\"text\":\"from the person\",\"wake\":false,\"at\":\"2026-10-26T12:00:00Z\",\"device\":\"dev-a\"}}],\"blocked\":[],\"working\":[],\"open\":[{\"id\":\"01M5W19VG07Z25WD5KM6RK6ZTJ\",\"short\":\"3\",\"tag\":\"mlg\",\"title\":\"Other person's card\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"person:p2\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"person:p2\"}],\"done\":[{\"id\":\"01M5W19VG0886R6A0XBX8X3REG\",\"short\":\"2\",\"tag\":\"mlg\",\"withdrawn\":true,\"title\":\"Agent card\",\"objective\":\"\",\"state\":\"canceled\",\"createdBy\":\"agent:c1\",\"note\":\"withdrawn from the board\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"person:p1\"}],\"doneTotal\":1,\"leases\":[]}",
+  "boardFor": "{\"needsYou\":[],\"blocked\":[{\"id\":\"01M5W19VG019V11ZA8SA4GX4DH\",\"short\":\"1\",\"tag\":\"mlg\",\"title\":\"Board card\",\"objective\":\"\",\"state\":\"blocked\",\"holder\":\"agent:c1\",\"holders\":[\"agent:c1\"],\"createdBy\":\"person:p1\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"agent:c1\",\"reason\":\"Which build?\",\"blockedBy\":{\"kind\":\"person\"},\"comments\":1,\"blockers\":[{\"id\":\"b1\",\"question\":\"Which build?\",\"raisedBy\":\"agent:c1\",\"at\":\"2026-10-26T12:00:00Z\",\"on\":{\"kind\":\"person\"},\"status\":\"open\"}],\"lastComment\":{\"id\":\"01M5W19VG0Z4ZPTCZF3K2MFYF6\",\"taskId\":\"01M5W19VG019V11ZA8SA4GX4DH\",\"by\":\"person:p1\",\"text\":\"from the person\",\"wake\":false,\"at\":\"2026-10-26T12:00:00Z\",\"device\":\"dev-a\"}}],\"working\":[],\"open\":[{\"id\":\"01M5W19VG07Z25WD5KM6RK6ZTJ\",\"short\":\"3\",\"tag\":\"mlg\",\"title\":\"Other person's card\",\"objective\":\"\",\"state\":\"submitted\",\"createdBy\":\"person:p2\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"person:p2\"}],\"done\":[{\"id\":\"01M5W19VG0886R6A0XBX8X3REG\",\"short\":\"2\",\"tag\":\"mlg\",\"withdrawn\":true,\"title\":\"Agent card\",\"objective\":\"\",\"state\":\"canceled\",\"createdBy\":\"agent:c1\",\"note\":\"withdrawn from the board\",\"createdAt\":\"2026-10-26T12:00:00Z\",\"updatedAt\":\"2026-10-26T12:00:00Z\",\"updatedBy\":\"person:p1\"}],\"doneTotal\":1,\"leases\":[]}",
+  "activity": {
+   "01M5W19VG019V11ZA8SA4GX4DH": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"agent:c1\",\"what\":\"raised a blocker: Which build?\",\"kind\":\"task.status\",\"device\":\"dev-a\",\"blockerId\":\"b1\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"person:p1\",\"what\":\"commented\",\"kind\":\"task.comment\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"agent:c1\",\"what\":\"took it up\",\"kind\":\"task.claimed\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"person:p1\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19VG07Z25WD5KM6RK6ZTJ": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"person:p2\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]",
+   "01M5W19VG0886R6A0XBX8X3REG": "[{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"person:p1\",\"what\":\"set it to canceled\",\"kind\":\"task.status\",\"device\":\"dev-a\"},{\"at\":\"2026-10-26T12:00:00Z\",\"by\":\"agent:c1\",\"what\":\"put the card up\",\"kind\":\"task.created\",\"device\":\"dev-a\"}]"
+  },
+  "comments": {
+   "01M5W19VG019V11ZA8SA4GX4DH": "[{\"id\":\"01M5W19VG0Z4ZPTCZF3K2MFYF6\",\"taskId\":\"01M5W19VG019V11ZA8SA4GX4DH\",\"by\":\"person:p1\",\"text\":\"from the person\",\"wake\":false,\"at\":\"2026-10-26T12:00:00Z\",\"device\":\"dev-a\"}]",
+   "01M5W19VG07Z25WD5KM6RK6ZTJ": "[]",
+   "01M5W19VG0886R6A0XBX8X3REG": "[]"
+  }
+ }
+]

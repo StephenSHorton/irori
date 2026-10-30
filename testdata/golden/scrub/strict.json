@@ -1,0 +1,170 @@
+[
+ {
+  "in": "fix C:\\Users\\pat\\projects\\irori\\main.go now",
+  "out": "fix [path] now"
+ },
+ {
+  "in": "see c:/work/x",
+  "out": "see [path]"
+ },
+ {
+  "in": "under \\\\nas\\share\\docs",
+  "out": "under [path]"
+ },
+ {
+  "in": "in ~/projects/mlg",
+  "out": "in [path]"
+ },
+ {
+  "in": "in ~",
+  "out": "in [path]"
+ },
+ {
+  "in": "at $HOME/.config/x",
+  "out": "at [path]"
+ },
+ {
+  "in": "at ${HOME}/x",
+  "out": "at [path]"
+ },
+ {
+  "in": "at %USERPROFILE%\\AppData",
+  "out": "at [path]"
+ },
+ {
+  "in": "at %HOMEPATH%",
+  "out": "at [path]"
+ },
+ {
+  "in": "/Users/pat/projects/mlg/x.go breaks",
+  "out": "[path] breaks"
+ },
+ {
+  "in": "log (\"/home/me/logs/a.txt\")",
+  "out": "log (\"[path]\")"
+ },
+ {
+  "in": "path=/var/lib/irori/x",
+  "out": "path=[path]"
+ },
+ {
+  "in": "see `/Users/pat/projects/x`",
+  "out": "see `[path]`"
+ },
+ {
+  "in": "file:///home/me/x.txt",
+  "out": "[path]"
+ },
+ {
+  "in": "open FILE://nas/share/x.txt now",
+  "out": "open [path] now"
+ },
+ {
+  "in": "at:/home/me/x",
+  "out": "at:[path]"
+ },
+ {
+  "in": "*/home/me/x*",
+  "out": "*[path]*"
+ },
+ {
+  "in": "(/Users/me/x)",
+  "out": "([path])"
+ },
+ {
+  "in": "[~/notes]",
+  "out": "[[path]]"
+ },
+ {
+  "in": "**/etc/irori/conf**",
+  "out": "**[path]**"
+ },
+ {
+  "in": "`\\\\nas\\share\\x`",
+  "out": "`[path]`"
+ },
+ {
+  "in": "edit src/coord/impl.go",
+  "out": "edit src/coord/impl.go"
+ },
+ {
+  "in": "https://github.com/StephenSHorton/irori/pull/12",
+  "out": "https://github.com/StephenSHorton/irori/pull/12"
+ },
+ {
+  "in": "read and/or write 1/2 of it",
+  "out": "read and/or write 1/2 of it"
+ },
+ {
+  "in": "use /help",
+  "out": "use /help"
+ },
+ {
+  "in": "é/home/me/x",
+  "out": "é/home/me/x"
+ },
+ {
+  "in": "éC:\\x",
+  "out": "é[path]"
+ },
+ {
+  "in": "日本C:/x",
+  "out": "日本[path]"
+ },
+ {
+  "in": " /home/me/x",
+  "out": " /home/me/x"
+ },
+ {
+  "in": "\u000b/home/me/x",
+  "out": "\u000b/home/me/x"
+ },
+ {
+  "in": "a\u000b~/x",
+  "out": "a\u000b~/x"
+ },
+ {
+  "in": "C:\\a C:\\b",
+  "out": "[path] [path]"
+ },
+ {
+  "in": "~ ~ ~",
+  "out": "[path] [path] [path]"
+ },
+ {
+  "in": "/a/b/c /d/e",
+  "out": "[path] [path]"
+ },
+ {
+  "in": "x=C:\\y,z",
+  "out": "x=[path]"
+ },
+ {
+  "in": "ÄC:\\x",
+  "out": "Ä[path]"
+ },
+ {
+  "in": "Kfile://x",
+  "out": "Kfile://x"
+ },
+ {
+  "in": "see /home/me/é/x",
+  "out": "see [path]"
+ },
+ {
+  "in": "C:\\Users\\é x",
+  "out": "[path]"
+ },
+ {
+  "in": "/a/\u2028b/c",
+  "out": "[path]"
+ },
+ {
+  "in": "",
+  "out": ""
+ },
+ {
+  "in": "plain",
+  "out": "plain"
+ }
+]

@@ -1,0 +1,800 @@
+[
+ {
+  "exact": [],
+  "in": "sk-ant-api03-a1B2a1B2a1B2a1B2a1B2a1B2a1B2a1B2a1B2a1B2",
+  "out": "[redacted:anthropic]"
+ },
+ {
+  "exact": [],
+  "in": "sk-Ab3dAb3dAb3dAb3dAb3dAb3dAb3dAb3dAb3dAb3dAb3dAb3d",
+  "out": "[redacted:openai]"
+ },
+ {
+  "exact": [],
+  "in": "sk-proj-Xy9_Xy9_Xy9_Xy9_Xy9_Xy9_Xy9_Xy9_Xy9_Xy9_Xy9_Xy9_Xy9_Xy9_Xy9_Xy9_Xy9_Xy9_Xy9_Xy9_",
+  "out": "[redacted:openai]"
+ },
+ {
+  "exact": [],
+  "in": "ghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3",
+  "out": "[redacted:github]"
+ },
+ {
+  "exact": [],
+  "in": "gho_Z9y8X7Z9y8X7Z9y8X7Z9y8X7Z9y8X7Z9y8X7",
+  "out": "[redacted:github]"
+ },
+ {
+  "exact": [],
+  "in": "ghs_q1W2e3q1W2e3q1W2e3q1W2e3q1W2e3q1W2e3",
+  "out": "[redacted:github]"
+ },
+ {
+  "exact": [],
+  "in": "ghu_r4T5y6r4T5y6r4T5y6r4T5y6r4T5y6r4T5y6",
+  "out": "[redacted:github]"
+ },
+ {
+  "exact": [],
+  "in": "github_pat_11AB11AB11AB11AB11AB11AB_cd34cd34cd34cd34cd34cd34cd34cd34cd34cd34cd34cd34cd34cd34",
+  "out": "[redacted:github]"
+ },
+ {
+  "exact": [],
+  "in": "xo\u0078b-1234567890-1234567890123-aB3aB3aB3aB3aB3aB3aB3aB3",
+  "out": "[redacted:slack]"
+ },
+ {
+  "exact": [],
+  "in": "xo\u0078p-1234567890-Zz9Zz9Zz9Zz9Zz9Zz9",
+  "out": "[redacted:slack]"
+ },
+ {
+  "exact": [],
+  "in": "AKIAIOSFODNN7FAKE012",
+  "out": "[redacted:aws]"
+ },
+ {
+  "exact": [],
+  "in": "ASIAQ7Q7Q7Q7Q7Q7Q7Q7",
+  "out": "[redacted:aws]"
+ },
+ {
+  "exact": [],
+  "in": "AIzaSyD-x_9D-x_9D-x_9D-x_9D-x_9D-x_9abc",
+  "out": "[redacted:google]"
+ },
+ {
+  "exact": [],
+  "in": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.Sf1KxSf1KxSf1KxSf1KxSf1KxSf1KxSf1KxSf1Kx",
+  "out": "[redacted:jwt]"
+ },
+ {
+  "exact": [],
+  "in": "https://ghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3@github.com/o/r.git",
+  "out": "https://[redacted:github]@github.com/o/r.git"
+ },
+ {
+  "exact": [],
+  "in": "cookie: s=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.Sf1KxSf1KxSf1KxSf1KxSf1KxSf1KxSf1KxSf1Kx; Path=/",
+  "out": "cookie: s=[redacted:jwt]; Path=/"
+ },
+ {
+  "exact": [],
+  "in": "-----BEGIN RSA PRIVATE KEY-----\nM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQ\nM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQ\nM2IEvQM2IEvQM2IEvQM2IEvQM2IEvQM2IEvQM2IEvQM2IEvQM2IEvQM2IEvQ\n-----END RSA PRIVATE KEY-----",
+  "out": "[redacted:private-key]\n\n\n\n"
+ },
+ {
+  "exact": [],
+  "in": "-----BEGIN PRIVATE KEY-----\r\nM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQ\r\nM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQ\r\n-----END PRIVATE KEY-----",
+  "out": "[redacted:private-key]\r\n\r\n\r\n"
+ },
+ {
+  "exact": [],
+  "in": "+-----BEGIN OPENSSH PRIVATE KEY-----\n+M0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQ\n+M1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQ\n+-----END OPENSSH PRIVATE KEY-----",
+  "out": "+[redacted:private-key]\n+\n+\n+"
+ },
+ {
+  "exact": [],
+  "in": "x\n-----BEGIN RSA PRIVATE KEY-----\nMIIEow\nMIIEow",
+  "out": "x\n[redacted:private-key]\n\n"
+ },
+ {
+  "exact": [],
+  "in": "-----BEGIN ENCRYPTED PRIVATE KEY BLOCK-----\nabc\n-----END ENCRYPTED PRIVATE KEY BLOCK-----\n",
+  "out": "[redacted:private-key]\n\n\n"
+ },
+ {
+  "exact": [],
+  "in": "Authorization: Bearer abc123XyZ.-_XyZ.-_XyZ.-_XyZ.-_XyZ.-_",
+  "out": "Authorization: Bearer [redacted:bearer]"
+ },
+ {
+  "exact": [],
+  "in": "Bearer\tabc123XyZ.-_XyZ.-_XyZ.-_XyZ.-_XyZ.-_==",
+  "out": "Bearer\t[redacted:bearer]"
+ },
+ {
+  "exact": [],
+  "in": "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+  "out": "Authorization: Basic [redacted:bearer]"
+ },
+ {
+  "exact": [],
+  "in": "Authorization: Negotiate YIIabc123456",
+  "out": "Authorization: [redacted:assignment] [redacted:bearer]"
+ },
+ {
+  "exact": [],
+  "in": "authorization\\\":\\\"token abc123XyZ.-_XyZ.-_XyZ.-_XyZ.-_XyZ.-_",
+  "out": "authorization\\\":\\\"token [redacted:bearer]"
+ },
+ {
+  "exact": [],
+  "in": "password=hunter2hunter2",
+  "out": "password=[redacted:assignment]"
+ },
+ {
+  "exact": [],
+  "in": "token := `hunter2hunter2`",
+  "out": "token := `[redacted:assignment]`"
+ },
+ {
+  "exact": [],
+  "in": "{\\\"password\\\":\\\"hunter2hunter2\\\"}",
+  "out": "{\\\"password\\\":\\\"[redacted:assignment]\\\"}"
+ },
+ {
+  "exact": [],
+  "in": "https://h/cb?access_token=hunter2hunter2&state=1",
+  "out": "https://h/cb?access_token=[redacted:assignment]&state=1"
+ },
+ {
+  "exact": [],
+  "in": "postgres://app:hunter2hunter2@db:5432/x",
+  "out": "postgres://app:[redacted:assignment]@db:5432/x"
+ },
+ {
+  "exact": [],
+  "in": "https://user:p@ss0rdlong@host/x",
+  "out": "https://user:[redacted:assignment]@host/x"
+ },
+ {
+  "exact": [],
+  "in": "if password == \"hunter2hunter2\" {",
+  "out": "if password == \"[redacted:assignment]\" {"
+ },
+ {
+  "exact": [],
+  "in": "password == hunter2hunter2",
+  "out": "password == hunter2hunter2"
+ },
+ {
+  "exact": [],
+  "in": "token = *opts.Token",
+  "out": "token = *opts.Token"
+ },
+ {
+  "exact": [],
+  "in": "token = *opts.Value",
+  "out": "token = [redacted:assignment]"
+ },
+ {
+  "exact": [],
+  "in": "secret: import.meta.env.VITE_SECRET,",
+  "out": "secret: import.meta.env.VITE_SECRET,"
+ },
+ {
+  "exact": [],
+  "in": "token: cfg.auth.value",
+  "out": "token: cfg.auth.value"
+ },
+ {
+  "exact": [],
+  "in": "TOKEN=$(cat x)",
+  "out": "TOKEN=$(cat x)"
+ },
+ {
+  "exact": [],
+  "in": "--- a/config/app.go\n+++ b/config/app.go\n@@ -1,6 +1,14 @@\n package config\n-const maxTokens = 2048\n+const maxTokens = 4096\n+var anthropicKey = \"sk-ant-api03-a1B2a1B2a1B2a1B2a1B2a1B2a1B2a1B2a1B2a1B2\"\n+var gh = \"ghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3\" // AKIAIOSFODNN7FAKE012\n+// Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.Sf1KxSf1KxSf1KxSf1KxSf1KxSf1KxSf1KxSf1Kx\n+password := \"hunter2hunter2\"\n+-----BEGIN RSA PRIVATE KEY-----\n+M0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQM0IEvQ\n+M1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQM1IEvQ\n+M2IEvQM2IEvQM2IEvQM2IEvQM2IEvQM2IEvQM2IEvQM2IEvQM2IEvQM2IEvQ\n+-----END RSA PRIVATE KEY-----\n func tokenCount() int { return 0 }\n",
+  "out": "--- a/config/app.go\n+++ b/config/app.go\n@@ -1,6 +1,14 @@\n package config\n-const maxTokens = 2048\n+const maxTokens = 4096\n+var anthropicKey = \"[redacted:anthropic]\"\n+var gh = \"[redacted:github]\" // [redacted:aws]\n+// Authorization: Bearer [redacted:jwt]\n+password := \"[redacted:assignment]\"\n+[redacted:private-key]\n+\n+\n+\n+\n func tokenCount() int { return 0 }\n"
+ },
+ {
+  "exact": [],
+  "in": "ésk-ant-api03-a1B2a1B2a1B2a1B2a1B2a1B2a1B2a1B2a1B2a1B2",
+  "out": "é[redacted:anthropic]"
+ },
+ {
+  "exact": [],
+  "in": "üghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3ß",
+  "out": "ü[redacted:github]ß"
+ },
+ {
+  "exact": [],
+  "in": "日本AKIAIOSFODNN7FAKE012語",
+  "out": "日本[redacted:aws]語"
+ },
+ {
+  "exact": [],
+  "in": "ñeyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.Sf1KxSf1KxSf1KxSf1KxSf1KxSf1KxSf1KxSf1Kx",
+  "out": "ñ[redacted:jwt]"
+ },
+ {
+  "exact": [],
+  "in": "ßBearer abc123XyZ.-_XyZ.-_XyZ.-_XyZ.-_XyZ.-_",
+  "out": "ßBearer [redacted:bearer]"
+ },
+ {
+  "exact": [],
+  "in": "éBearer abc123XyZ.-_XyZ.-_XyZ.-_XyZ.-_XyZ.-_",
+  "out": "éBearer [redacted:bearer]"
+ },
+ {
+  "exact": [],
+  "in": "Ωauthorization: token abc123XyZ.-_XyZ.-_XyZ.-_XyZ.-_XyZ.-_",
+  "out": "Ωauthorization: token [redacted:bearer]"
+ },
+ {
+  "exact": [],
+  "in": "ÿsk-Ab3dAb3dAb3dAb3dAb3dAb3dAb3dAb3dAb3dAb3dAb3dAb3d",
+  "out": "ÿ[redacted:openai]"
+ },
+ {
+  "exact": [],
+  "in": "AIzaééééééééééééééééééééééééééééééééééé",
+  "out": "AIzaééééééééééééééééééééééééééééééééééé"
+ },
+ {
+  "exact": [],
+  "in": "passwordé=hunter2hunter2",
+  "out": "passwordé=hunter2hunter2"
+ },
+ {
+  "exact": [],
+  "in": "tokenü: hunter2hunter2",
+  "out": "tokenü: hunter2hunter2"
+ },
+ {
+  "exact": [],
+  "in": "pässword=hunter2hunter2",
+  "out": "pässword=hunter2hunter2"
+ },
+ {
+  "exact": [],
+  "in": "password=\u000bhunter2hunter2",
+  "out": "password=[redacted:assignment]"
+ },
+ {
+  "exact": [],
+  "in": "password\u000b=hunter2hunter2",
+  "out": "password\u000b=hunter2hunter2"
+ },
+ {
+  "exact": [],
+  "in": "Bearer\u000babc123XyZ.-_XyZ.-_XyZ.-_XyZ.-_XyZ.-_",
+  "out": "Bearer\u000babc123XyZ.-_XyZ.-_XyZ.-_XyZ.-_XyZ.-_"
+ },
+ {
+  "exact": [],
+  "in": "password= hunter2hunter2\u000b",
+  "out": "password= [redacted:assignment]"
+ },
+ {
+  "exact": [],
+  "in": "https://user:pass\u000bword@h",
+  "out": "https://user:[redacted:assignment]@h"
+ },
+ {
+  "exact": [],
+  "in": "token=hunter2hunter2 tail",
+  "out": "token=[redacted:assignment]"
+ },
+ {
+  "exact": [],
+  "in": "token= hunter2hunter2",
+  "out": "token=[redacted:assignment]"
+ },
+ {
+  "exact": [],
+  "in": "secret=hunter2hunter2\u2028more",
+  "out": "secret=[redacted:assignment]"
+ },
+ {
+  "exact": [],
+  "in": "PASSWORD=hunter2hunter2",
+  "out": "PASSWORD=[redacted:assignment]"
+ },
+ {
+  "exact": [],
+  "in": "Paſsword=hunter2hunter2",
+  "out": "Paſsword=hunter2hunter2"
+ },
+ {
+  "exact": [],
+  "in": "TOKEN=hunter2hunter2",
+  "out": "TOKEN=hunter2hunter2"
+ },
+ {
+  "exact": [],
+  "in": "BEARER abc123XyZ.-_XyZ.-_XyZ.-_XyZ.-_XyZ.-_",
+  "out": "BEARER [redacted:bearer]"
+ },
+ {
+  "exact": [],
+  "in": "bearer abc123XyZ.-_XyZ.-_XyZ.-_XyZ.-_XyZ.-_",
+  "out": "bearer [redacted:bearer]"
+ },
+ {
+  "exact": [],
+  "in": "AUTHORIZATION: BASIC abcdefgh1234",
+  "out": "AUTHORIZATION: BASIC [redacted:bearer]"
+ },
+ {
+  "exact": [],
+  "in": "Key=hunter2hunter2",
+  "out": "Key=hunter2hunter2"
+ },
+ {
+  "exact": [],
+  "in": "api_KEY=hunter2hunter2",
+  "out": "api_KEY=[redacted:assignment]"
+ },
+ {
+  "exact": [],
+  "in": "API-Key: hunter2hunter2",
+  "out": "API-Key: [redacted:assignment]"
+ },
+ {
+  "exact": [],
+  "in": "apiKey=hunter2hunter2",
+  "out": "apiKey=[redacted:assignment]"
+ },
+ {
+  "exact": [],
+  "in": "api key=hunter2hunter2",
+  "out": "api key=hunter2hunter2"
+ },
+ {
+  "exact": [],
+  "in": "password=hunter2hunter2\r",
+  "out": "password=[redacted:assignment]\r"
+ },
+ {
+  "exact": [],
+  "in": "\r\npassword=hunter2hunter2\r\n",
+  "out": "\r\npassword=[redacted:assignment]\r\n"
+ },
+ {
+  "exact": [],
+  "in": "token=a\nb=hunter2hunter2",
+  "out": "token=a\nb=hunter2hunter2"
+ },
+ {
+  "exact": [],
+  "in": "password: 'hunter2hunter2\\'more'",
+  "out": "password: '[redacted:assignment]'"
+ },
+ {
+  "exact": [],
+  "in": "password: \"abc\\\"defghij\"",
+  "out": "password: \"[redacted:assignment]\""
+ },
+ {
+  "exact": [],
+  "in": "token='hunter2hunter2",
+  "out": "token='hunter2hunter2"
+ },
+ {
+  "exact": [],
+  "in": "token=\"hunter2hunter2",
+  "out": "token=\"hunter2hunter2"
+ },
+ {
+  "exact": [],
+  "in": "xghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3y",
+  "out": "xghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3y"
+ },
+ {
+  "exact": [],
+  "in": "ghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3ghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3",
+  "out": "[redacted:github]_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3"
+ },
+ {
+  "exact": [],
+  "in": "sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "out": "sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+ },
+ {
+  "exact": [],
+  "in": "sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+  "out": "[redacted:openai]"
+ },
+ {
+  "exact": [],
+  "in": "redis://[redacted:exact]:hunter2hunter2@h",
+  "out": "redis://[redacted:exact]:[redacted:assignment]@h"
+ },
+ {
+  "exact": [],
+  "in": "ftp://a:b@c",
+  "out": "ftp://a:[redacted:assignment]@c"
+ },
+ {
+  "exact": [],
+  "in": "a://:hunter2hunter2@h",
+  "out": "a://:[redacted:assignment]@h"
+ },
+ {
+  "exact": [],
+  "in": "password=[redacted:github]tail",
+  "out": "password=[redacted:github]tail"
+ },
+ {
+  "exact": [],
+  "in": "secret=\"[redacted:exact]xxxx\"",
+  "out": "secret=\"[redacted:exact]xxxx\""
+ },
+ {
+  "exact": [],
+  "in": "password=abc&def=ghijklmnop",
+  "out": "password=abc&def=ghijklmnop"
+ },
+ {
+  "exact": [],
+  "in": "token=abcdefgh;&x=1",
+  "out": "token=[redacted:assignment];&x=1"
+ },
+ {
+  "exact": [],
+  "in": "token=abcdefgh\\",
+  "out": "token=[redacted:assignment]\\"
+ },
+ {
+  "exact": [],
+  "in": "",
+  "out": ""
+ },
+ {
+  "exact": [],
+  "in": "\n",
+  "out": "\n"
+ },
+ {
+  "exact": [],
+  "in": "\r\n\r\n",
+  "out": "\r\n\r\n"
+ },
+ {
+  "exact": [],
+  "in": "plain text\nwith lines\n",
+  "out": "plain text\nwith lines\n"
+ },
+ {
+  "exact": [
+   "irori-lock-7f7f7f7f7f7f7f7f7f7f7f7f",
+   "",
+   "short",
+   "attach-QQQQQQQQQQ"
+  ],
+  "in": "token in file: irori-lock-7f7f7f7f7f7f7f7f7f7f7f7f\nsee attach-QQQQQQQQQQ",
+  "out": "token in file: [redacted:exact]\nsee [redacted:exact]"
+ },
+ {
+  "exact": [
+   "irori-lock-7f7f7f7f7f7f7f7f7f7f7f7f",
+   "",
+   "short",
+   "attach-QQQQQQQQQQ"
+  ],
+  "in": "irori-lock-7f7f7f7f7f7f7f7f7f7f7f7firori-lock-7f7f7f7f7f7f7f7f7f7f7f7f",
+  "out": "[redacted:exact][redacted:exact]"
+ },
+ {
+  "exact": [
+   "irori-lock-7f7f7f7f7f7f7f7f7f7f7f7f",
+   "",
+   "short",
+   "attach-QQQQQQQQQQ"
+  ],
+  "in": "x ghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3",
+  "out": "x [redacted:github]"
+ },
+ {
+  "exact": [
+   "irori-lock-7f7f7f7f7f7f7f7f7f7f7f7f",
+   "",
+   "short",
+   "attach-QQQQQQQQQQ"
+  ],
+  "in": "abcdefghijkl abcdefgh abcdefghijklmn",
+  "out": "abcdefghijkl abcdefgh abcdefghijklmn"
+ },
+ {
+  "exact": [
+   "irori-lock-7f7f7f7f7f7f7f7f7f7f7f7f",
+   "",
+   "short",
+   "attach-QQQQQQQQQQ"
+  ],
+  "in": "abcdabcdefghijklmnop",
+  "out": "abcdabcdefghijklmnop"
+ },
+ {
+  "exact": [
+   "irori-lock-7f7f7f7f7f7f7f7f7f7f7f7f",
+   "",
+   "short",
+   "attach-QQQQQQQQQQ"
+  ],
+  "in": "a line-one-value\r\nline-two-value b",
+  "out": "a line-one-value\r\nline-two-value b"
+ },
+ {
+  "exact": [
+   "irori-lock-7f7f7f7f7f7f7f7f7f7f7f7f",
+   "",
+   "short",
+   "attach-QQQQQQQQQQ"
+  ],
+  "in": "ééééééé日本語日本語é",
+  "out": "ééééééé日本語日本語é"
+ },
+ {
+  "exact": [
+   "irori-lock-7f7f7f7f7f7f7f7f7f7f7f7f",
+   "",
+   "short",
+   "attach-QQQQQQQQQQ"
+  ],
+  "in": "short",
+  "out": "short"
+ },
+ {
+  "exact": [
+   "ghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3"
+  ],
+  "in": "token in file: irori-lock-7f7f7f7f7f7f7f7f7f7f7f7f\nsee attach-QQQQQQQQQQ",
+  "out": "token in file: irori-lock-7f7f7f7f7f7f7f7f7f7f7f7f\nsee attach-QQQQQQQQQQ"
+ },
+ {
+  "exact": [
+   "ghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3"
+  ],
+  "in": "irori-lock-7f7f7f7f7f7f7f7f7f7f7f7firori-lock-7f7f7f7f7f7f7f7f7f7f7f7f",
+  "out": "irori-lock-7f7f7f7f7f7f7f7f7f7f7f7firori-lock-7f7f7f7f7f7f7f7f7f7f7f7f"
+ },
+ {
+  "exact": [
+   "ghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3"
+  ],
+  "in": "x ghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3",
+  "out": "x [redacted:exact]"
+ },
+ {
+  "exact": [
+   "ghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3"
+  ],
+  "in": "abcdefghijkl abcdefgh abcdefghijklmn",
+  "out": "abcdefghijkl abcdefgh abcdefghijklmn"
+ },
+ {
+  "exact": [
+   "ghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3"
+  ],
+  "in": "abcdabcdefghijklmnop",
+  "out": "abcdabcdefghijklmnop"
+ },
+ {
+  "exact": [
+   "ghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3"
+  ],
+  "in": "a line-one-value\r\nline-two-value b",
+  "out": "a line-one-value\r\nline-two-value b"
+ },
+ {
+  "exact": [
+   "ghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3"
+  ],
+  "in": "ééééééé日本語日本語é",
+  "out": "ééééééé日本語日本語é"
+ },
+ {
+  "exact": [
+   "ghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3"
+  ],
+  "in": "short",
+  "out": "short"
+ },
+ {
+  "exact": [
+   "abcdefgh",
+   "abcdefghijkl",
+   "efghijklmn"
+  ],
+  "in": "token in file: irori-lock-7f7f7f7f7f7f7f7f7f7f7f7f\nsee attach-QQQQQQQQQQ",
+  "out": "token in file: irori-lock-7f7f7f7f7f7f7f7f7f7f7f7f\nsee attach-QQQQQQQQQQ"
+ },
+ {
+  "exact": [
+   "abcdefgh",
+   "abcdefghijkl",
+   "efghijklmn"
+  ],
+  "in": "irori-lock-7f7f7f7f7f7f7f7f7f7f7f7firori-lock-7f7f7f7f7f7f7f7f7f7f7f7f",
+  "out": "irori-lock-7f7f7f7f7f7f7f7f7f7f7f7firori-lock-7f7f7f7f7f7f7f7f7f7f7f7f"
+ },
+ {
+  "exact": [
+   "abcdefgh",
+   "abcdefghijkl",
+   "efghijklmn"
+  ],
+  "in": "x ghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3",
+  "out": "x [redacted:github]"
+ },
+ {
+  "exact": [
+   "abcdefgh",
+   "abcdefghijkl",
+   "efghijklmn"
+  ],
+  "in": "abcdefghijkl abcdefgh abcdefghijklmn",
+  "out": "[redacted:exact] [redacted:exact] [redacted:exact]mn"
+ },
+ {
+  "exact": [
+   "abcdefgh",
+   "abcdefghijkl",
+   "efghijklmn"
+  ],
+  "in": "abcdabcdefghijklmnop",
+  "out": "abcd[redacted:exact]mnop"
+ },
+ {
+  "exact": [
+   "abcdefgh",
+   "abcdefghijkl",
+   "efghijklmn"
+  ],
+  "in": "a line-one-value\r\nline-two-value b",
+  "out": "a line-one-value\r\nline-two-value b"
+ },
+ {
+  "exact": [
+   "abcdefgh",
+   "abcdefghijkl",
+   "efghijklmn"
+  ],
+  "in": "ééééééé日本語日本語é",
+  "out": "ééééééé日本語日本語é"
+ },
+ {
+  "exact": [
+   "abcdefgh",
+   "abcdefghijkl",
+   "efghijklmn"
+  ],
+  "in": "short",
+  "out": "short"
+ },
+ {
+  "exact": [
+   "line-one-value\r\nline-two-value"
+  ],
+  "in": "token in file: irori-lock-7f7f7f7f7f7f7f7f7f7f7f7f\nsee attach-QQQQQQQQQQ",
+  "out": "token in file: irori-lock-7f7f7f7f7f7f7f7f7f7f7f7f\nsee attach-QQQQQQQQQQ"
+ },
+ {
+  "exact": [
+   "line-one-value\r\nline-two-value"
+  ],
+  "in": "irori-lock-7f7f7f7f7f7f7f7f7f7f7f7firori-lock-7f7f7f7f7f7f7f7f7f7f7f7f",
+  "out": "irori-lock-7f7f7f7f7f7f7f7f7f7f7f7firori-lock-7f7f7f7f7f7f7f7f7f7f7f7f"
+ },
+ {
+  "exact": [
+   "line-one-value\r\nline-two-value"
+  ],
+  "in": "x ghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3",
+  "out": "x [redacted:github]"
+ },
+ {
+  "exact": [
+   "line-one-value\r\nline-two-value"
+  ],
+  "in": "abcdefghijkl abcdefgh abcdefghijklmn",
+  "out": "abcdefghijkl abcdefgh abcdefghijklmn"
+ },
+ {
+  "exact": [
+   "line-one-value\r\nline-two-value"
+  ],
+  "in": "abcdabcdefghijklmnop",
+  "out": "abcdabcdefghijklmnop"
+ },
+ {
+  "exact": [
+   "line-one-value\r\nline-two-value"
+  ],
+  "in": "a line-one-value\r\nline-two-value b",
+  "out": "a [redacted:exact]\r\n b"
+ },
+ {
+  "exact": [
+   "line-one-value\r\nline-two-value"
+  ],
+  "in": "ééééééé日本語日本語é",
+  "out": "ééééééé日本語日本語é"
+ },
+ {
+  "exact": [
+   "line-one-value\r\nline-two-value"
+  ],
+  "in": "short",
+  "out": "short"
+ },
+ {
+  "exact": [
+   "ééééééé",
+   "日本語日本語"
+  ],
+  "in": "token in file: irori-lock-7f7f7f7f7f7f7f7f7f7f7f7f\nsee attach-QQQQQQQQQQ",
+  "out": "token in file: irori-lock-7f7f7f7f7f7f7f7f7f7f7f7f\nsee attach-QQQQQQQQQQ"
+ },
+ {
+  "exact": [
+   "ééééééé",
+   "日本語日本語"
+  ],
+  "in": "irori-lock-7f7f7f7f7f7f7f7f7f7f7f7firori-lock-7f7f7f7f7f7f7f7f7f7f7f7f",
+  "out": "irori-lock-7f7f7f7f7f7f7f7f7f7f7f7firori-lock-7f7f7f7f7f7f7f7f7f7f7f7f"
+ },
+ {
+  "exact": [
+   "ééééééé",
+   "日本語日本語"
+  ],
+  "in": "x ghp_A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3A1b2C3",
+  "out": "x [redacted:github]"
+ },
+ {
+  "exact": [
+   "ééééééé",
+   "日本語日本語"
+  ],
+  "in": "abcdefghijkl abcdefgh abcdefghijklmn",
+  "out": "abcdefghijkl abcdefgh abcdefghijklmn"
+ },
+ {
+  "exact": [
+   "ééééééé",
+   "日本語日本語"
+  ],
+  "in": "abcdabcdefghijklmnop",
+  "out": "abcdabcdefghijklmnop"
+ },
+ {
+  "exact": [
+   "ééééééé",
+   "日本語日本語"
+  ],
+  "in": "a line-one-value\r\nline-two-value b",
+  "out": "a line-one-value\r\nline-two-value b"
+ },
+ {
+  "exact": [
+   "ééééééé",
+   "日本語日本語"
+  ],
+  "in": "ééééééé日本語日本語é",
+  "out": "[redacted:exact][redacted:exact]é"
+ },
+ {
+  "exact": [
+   "ééééééé",
+   "日本語日本語"
+  ],
+  "in": "short",
+  "out": "short"
+ }
+]

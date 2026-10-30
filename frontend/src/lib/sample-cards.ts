@@ -18,12 +18,12 @@ import {
   CardSubtask,
   CardThreadItem,
   Holding,
-} from "../../bindings/github.com/StephenSHorton/irori/models"
+} from "./models"
 import {
   LinkKind,
   Step,
   TaskState,
-} from "../../bindings/github.com/StephenSHorton/irori/internal/coord/models"
+} from "./models"
 
 const dev = "sample-device"
 
@@ -32,7 +32,7 @@ const dev = "sample-device"
 export const NoteItem = "note"
 
 function agent(session: string, name: string, status: string): AgentRef {
-  return new AgentRef({
+  return AgentRef({
     key: `${dev}/${session}`,
     name,
     status,
@@ -49,7 +49,7 @@ export const sampleAgents = {
   badger: agent("sample03-synthetic-session", "sample-badger", "busy"),
   // sample-wren is on the sample's paired MacBook, which is offline, so its
   // face shows the device chip greyed.
-  wren: new AgentRef({
+  wren: AgentRef({
     ...agent("sample04-synthetic-session", "sample-wren", "idle"),
     key: "sample-macbook/sample04-synthetic-session",
     where: "MacBook",
@@ -62,7 +62,7 @@ export const sampleAgents = {
   lark: agent("sample99-synthetic-session", "sample-lark", "gone"),
 }
 
-export const sampleYou = new AgentRef({
+export const sampleYou = AgentRef({
   key: `user:${dev}`,
   name: "You",
   status: "person",
@@ -81,7 +81,7 @@ function sampleAccent(working: AgentRef[]): { devices: string[]; accent: string 
 }
 
 export function sampleHolder(working: AgentRef[]): CardHolder {
-  if (!working.length) return new CardHolder({ state: Holding.HoldNobody })
+  if (!working.length) return CardHolder({ state: Holding.HoldNobody })
   const who = working.find((w) => !w.assigned) ?? working[0]
   const state =
     who.status === "person"
@@ -97,7 +97,7 @@ export function sampleHolder(working: AgentRef[]): CardHolder {
               : who.status === "idle"
                 ? Holding.HoldIdle
                 : Holding.HoldActive
-  return new CardHolder({ who, state, others: working.length - 1 })
+  return CardHolder({ who, state, others: working.length - 1 })
 }
 
 type StepSeed = [text: string, done: boolean, doing?: boolean]
@@ -105,7 +105,7 @@ type StepSeed = [text: string, done: boolean, doing?: boolean]
 function steps(seeds: StepSeed[]): Step[] {
   return seeds.map(
     ([text, done, doing], i) =>
-      new Step({ id: `s${i + 1}`, text, done, doing: doing || undefined })
+      Step({ id: `s${i + 1}`, text, done, doing: doing || undefined })
   )
 }
 
@@ -114,7 +114,7 @@ function steps(seeds: StepSeed[]): Step[] {
 function eventsOf(recent: CardActivity[]): CardThreadItem[] {
   return [...recent].reverse().map(
     (a, i) =>
-      new CardThreadItem({
+      CardThreadItem({
         id: `sample-event-${i}`,
         kind: "event",
         at: a.at,
@@ -134,7 +134,7 @@ export function sampleCards(now: Date): CardDetail[] {
     const open = (c.blockers ?? []).filter((b) => !b.resolved)
     // As cardSummary: an answered item waits on an agent, not the person.
     const needs = open.filter((b) => b.state !== "answered")
-    return new CardDetail({
+    return CardDetail({
       scope: "mine",
       scopeLabel: "My devices",
       state: open.length ? TaskState.Blocked : TaskState.Working,
@@ -175,9 +175,9 @@ export function sampleCards(now: Date): CardDetail[] {
       working: [],
       updatedAt: at(1),
       thread: [
-        new CardThreadItem({ id: "sample-ask-1-post", kind: "event", at: at(1), who: sampleYou, text: "You asked the room" }),
+        CardThreadItem({ id: "sample-ask-1-post", kind: "event", at: at(1), who: sampleYou, text: "You asked the room" }),
       ],
-      ask: new CardAsk({ state: "open", told: 3, owner: "This PC", wake: false, taker: null, outcome: null }),
+      ask: CardAsk({ state: "open", told: 3, owner: "This PC", wake: false, taker: null, outcome: null }),
     }),
     card({
       id: "sample-ask-2",
@@ -188,9 +188,9 @@ export function sampleCards(now: Date): CardDetail[] {
       working: [heron],
       updatedAt: at(4),
       thread: [
-        new CardThreadItem({ id: "sample-ask-2-post", kind: "event", at: at(6), who: sampleYou, text: "You asked the room" }),
-        new CardThreadItem({ id: "sample-ask-2-took", kind: "event", at: at(5), who: heron, text: "sample-heron took it" }),
-        new CardThreadItem({
+        CardThreadItem({ id: "sample-ask-2-post", kind: "event", at: at(6), who: sampleYou, text: "You asked the room" }),
+        CardThreadItem({ id: "sample-ask-2-took", kind: "event", at: at(5), who: heron, text: "sample-heron took it" }),
+        CardThreadItem({
           id: "sample-ask-2-c1",
           kind: "comment",
           at: at(4),
@@ -198,7 +198,7 @@ export function sampleCards(now: Date): CardDetail[] {
           text: "On it. Do you want the Helmaroc fight in the notes too, or only what changed since 0.5?",
         }),
       ],
-      ask: new CardAsk({ state: "taken", told: 3, owner: "This PC", wake: false, taker: heron, outcome: null }),
+      ask: CardAsk({ state: "taken", told: 3, owner: "This PC", wake: false, taker: heron, outcome: null }),
     }),
     card({
       id: "sample-card-1",
@@ -216,7 +216,7 @@ export function sampleCards(now: Date): CardDetail[] {
         ["Tag v0.6.0 and publish", false],
       ]),
       blockers: [
-        new CardBlocker({
+        CardBlocker({
           id: "b1",
           question: "Ship today, or wait for the two-PC temple check?",
           context:
@@ -224,14 +224,14 @@ export function sampleCards(now: Date): CardDetail[] {
           raisedBy: otter,
           at: at(18),
           options: [
-            new CardOption({
+            CardOption({
               answer: "Wait for the check, ship tonight",
               why: "The temple is the release's headline feature; an untested headline is worse than a short delay.",
               by: otter,
               at: at(18),
               recommended: true,
             }),
-            new CardOption({
+            CardOption({
               answer: "Ship now, mark temple co-op as experimental",
               why: "Players get the boat and log fixes today; a 0.6.1 can follow the check.",
               by: heron,
@@ -243,7 +243,7 @@ export function sampleCards(now: Date): CardDetail[] {
         }),
         // Rich: something for the person to do elsewhere, with the page to
         // open, the command to copy and a file to look at.
-        new CardBlocker({
+        CardBlocker({
           id: "b5",
           question: "Request access to the gated DINOv3 weights?",
           context:
@@ -251,7 +251,7 @@ export function sampleCards(now: Date): CardDetail[] {
           raisedBy: otter,
           at: at(12),
           options: [
-            new CardOption({
+            CardOption({
               answer: "I requested it and logged in",
               why: "Approval is usually instant; check it under https://huggingface.co/settings/gated-repos.",
               by: otter,
@@ -263,7 +263,7 @@ export function sampleCards(now: Date): CardDetail[] {
                 label: "huggingface.co",
               },
             }),
-            new CardOption({
+            CardOption({
               answer: "Use DINOv2 instead",
               why: "Ungated, but the probe scores about 3 points lower.",
               by: otter,
@@ -294,7 +294,7 @@ export function sampleCards(now: Date): CardDetail[] {
         }),
         // Replied: the person answered, the agent asked back with what
         // the answer still misses, so it is back with the person.
-        new CardBlocker({
+        CardBlocker({
           id: "b2",
           question: "What goes in the release notes' known-issues list?",
           context:
@@ -309,7 +309,7 @@ export function sampleCards(now: Date): CardDetail[] {
             "A workaround line for the log viewer",
           ],
           thread: [
-            new CardThreadItem({
+            CardThreadItem({
               id: "sample-1-b2-a1",
               kind: "comment",
               at: at(38),
@@ -318,7 +318,7 @@ export function sampleCards(now: Date): CardDetail[] {
               text: "Both, with a workaround each.",
               blockerId: "b2",
             }),
-            new CardThreadItem({
+            CardThreadItem({
               id: "sample-1-b2-r1",
               kind: "comment",
               at: at(30),
@@ -333,7 +333,7 @@ export function sampleCards(now: Date): CardDetail[] {
           ],
         }),
         // Resolved by the agent with its note; the person's answer stands.
-        new CardBlocker({
+        CardBlocker({
           id: "b3",
           question: "Tag from main, or from the release branch?",
           context: "",
@@ -341,7 +341,7 @@ export function sampleCards(now: Date): CardDetail[] {
           at: at(90),
           options: [],
           state: "resolved",
-          resolved: new CardResolution({
+          resolved: CardResolution({
             answer: "From main; we don't keep release branches.",
             option: -1,
             note: "Tagging from main d48bc2f once the co-op check passes.",
@@ -350,7 +350,7 @@ export function sampleCards(now: Date): CardDetail[] {
             closed: false,
           }),
           thread: [
-            new CardThreadItem({
+            CardThreadItem({
               id: "sample-1-b3-a1",
               kind: "comment",
               at: at(80),
@@ -362,7 +362,7 @@ export function sampleCards(now: Date): CardDetail[] {
           ],
         }),
         // Closed without an answer.
-        new CardBlocker({
+        CardBlocker({
           id: "b4",
           question: "Waiting on the CI runner lease",
           context: "",
@@ -370,10 +370,10 @@ export function sampleCards(now: Date): CardDetail[] {
           at: at(120),
           options: [],
           state: "closed",
-          resolved: new CardResolution({
+          resolved: CardResolution({
             answer: "the lease was released",
             option: -1,
-            by: new AgentRef({
+            by: AgentRef({
               key: "irori",
               name: "Irori",
               status: "irori",
@@ -386,7 +386,7 @@ export function sampleCards(now: Date): CardDetail[] {
         }),
       ],
       prs: [
-        new CardPR({
+        CardPR({
           repo: "sample-org/example-app",
           number: 208,
           url: "https://github.com/sample-org/example-app/pull/208",
@@ -397,27 +397,27 @@ export function sampleCards(now: Date): CardDetail[] {
         }),
       ],
       recent: [
-        new CardActivity({
+        CardActivity({
           at: at(18),
           who: otter,
           text: "sample-otter raised a blocker",
         }),
-        new CardActivity({
+        CardActivity({
           at: at(30),
           who: otter,
           text: "sample-otter replied on blocker b2",
         }),
-        new CardActivity({
+        CardActivity({
           at: at(38),
           who: sampleYou,
           text: "You answered blocker b2",
         }),
-        new CardActivity({
+        CardActivity({
           at: at(40),
           who: otter,
           text: "sample-otter ticked “Release notes up to main”",
         }),
-        new CardActivity({
+        CardActivity({
           at: at(55),
           who: heron,
           text: "sample-heron started watching",
@@ -439,7 +439,7 @@ export function sampleCards(now: Date): CardDetail[] {
         ["Settings and docs", false],
       ]),
       blockers: [
-        new CardBlocker({
+        CardBlocker({
           id: "b1",
           question: "Which virtual adapter should the LAN build install?",
           context:
@@ -447,14 +447,14 @@ export function sampleCards(now: Date): CardDetail[] {
           raisedBy: badger,
           at: at(9),
           options: [
-            new CardOption({
+            CardOption({
               answer: "Wintun, with the app relaying LAN broadcasts itself",
               why: "No old driver, one modern signed one; the broadcast relay is the extra work.",
               by: badger,
               at: at(9),
               recommended: true,
             }),
-            new CardOption({
+            CardOption({
               answer: "TAP-Windows",
               why: "Games just work, at the cost of an older driver and a UAC prompt on install.",
               by: wren,
@@ -467,7 +467,7 @@ export function sampleCards(now: Date): CardDetail[] {
           state: "answered",
           sentTo: badger,
           thread: [
-            new CardThreadItem({
+            CardThreadItem({
               id: "sample-2-b1-a1",
               kind: "comment",
               at: at(4),
@@ -480,17 +480,17 @@ export function sampleCards(now: Date): CardDetail[] {
         }),
       ],
       recent: [
-        new CardActivity({
+        CardActivity({
           at: at(4),
           who: sampleYou,
           text: "You answered blocker b1",
         }),
-        new CardActivity({
+        CardActivity({
           at: at(9),
           who: badger,
           text: "sample-badger raised a blocker",
         }),
-        new CardActivity({
+        CardActivity({
           at: at(30),
           who: wren,
           text: "sample-wren started watching",
@@ -509,7 +509,7 @@ export function sampleCards(now: Date): CardDetail[] {
       state: TaskState.InputRequired,
       note: "Should the lobby list come from Steam, or from our own relay so it works without Steam?",
       blockers: [
-        new CardBlocker({
+        CardBlocker({
           id: NoteItem,
           question:
             "Should the lobby list come from Steam, or from our own relay so it works without Steam?",
@@ -526,7 +526,7 @@ export function sampleCards(now: Date): CardDetail[] {
         ["Two-PC run", false],
       ]),
       prs: [
-        new CardPR({
+        CardPR({
           repo: "sample-org/example-game",
           number: 88,
           url: "https://github.com/sample-org/example-game/pull/88",
@@ -541,14 +541,14 @@ export function sampleCards(now: Date): CardDetail[] {
       // MacBook, one whose recipient had ended and one the policy held.
       // This card opens first, so a plain-browser run shows them.
       thread: [
-        new CardThreadItem({
+        CardThreadItem({
           id: "sample-3-e1",
           kind: "event",
           at: at(70),
           who: heron,
           text: "sample-heron took the card",
         }),
-        new CardThreadItem({
+        CardThreadItem({
           id: "sample-3-e2",
           kind: "event",
           at: at(64),
@@ -556,14 +556,14 @@ export function sampleCards(now: Date): CardDetail[] {
           device: "MacBook",
           text: "sample-wren joined",
         }),
-        new CardThreadItem({
+        CardThreadItem({
           id: "sample-3-c1",
           kind: "comment",
           at: at(50),
           who: sampleYou,
           text: "Test the join with the MacBook as the second machine.",
         }),
-        new CardThreadItem({
+        CardThreadItem({
           id: "msg_sample1",
           kind: "message",
           at: at(34),
@@ -573,14 +573,14 @@ export function sampleCards(now: Date): CardDetail[] {
           text: "Lobby join works from the MacBook build.\nAnimals spawn, but their positions lag by about a second; the capture is attached.",
           files: 1,
         }),
-        new CardThreadItem({
+        CardThreadItem({
           id: "sample-3-e3",
           kind: "event",
           at: at(25),
           who: heron,
           text: "sample-heron ticked “Lobby create and join”",
         }),
-        new CardThreadItem({
+        CardThreadItem({
           id: "msg_sample2",
           kind: "message",
           at: at(20),
@@ -589,7 +589,7 @@ export function sampleCards(now: Date): CardDetail[] {
           text: "Did your relay spike keep lobby lists working without Steam? If so I'll reuse it.",
           gone: true,
         }),
-        new CardThreadItem({
+        CardThreadItem({
           id: "sample-3-c2",
           kind: "comment",
           at: at(14),
@@ -597,7 +597,7 @@ export function sampleCards(now: Date): CardDetail[] {
           device: "MacBook",
           text: "The lag goes away with a 20 Hz sync tick. Pushed to the PR.",
         }),
-        new CardThreadItem({
+        CardThreadItem({
           id: "msg_sample3",
           kind: "message",
           at: at(10),
@@ -608,7 +608,7 @@ export function sampleCards(now: Date): CardDetail[] {
         }),
         // A held message the person dismissed: Release still delivers it
         // (sample-talk's dismissed delivery).
-        new CardThreadItem({
+        CardThreadItem({
           id: "msg_sample3d",
           kind: "message",
           at: at(9),
@@ -619,7 +619,7 @@ export function sampleCards(now: Date): CardDetail[] {
           dismissed: true,
           deliveryId: "sample-delivery-8",
         }),
-        new CardThreadItem({
+        CardThreadItem({
           id: "sample-3-e4",
           kind: "event",
           at: at(6),
@@ -627,7 +627,7 @@ export function sampleCards(now: Date): CardDetail[] {
           device: "MacBook",
           text: "sample-wren linked GitHub #88",
         }),
-        new CardThreadItem({
+        CardThreadItem({
           id: "sample-3-e5",
           kind: "event",
           at: at(6),
@@ -636,12 +636,12 @@ export function sampleCards(now: Date): CardDetail[] {
         }),
       ],
       recent: [
-        new CardActivity({
+        CardActivity({
           at: at(6),
           who: wren,
           text: "sample-wren linked GitHub #88",
         }),
-        new CardActivity({
+        CardActivity({
           at: at(25),
           who: heron,
           text: "sample-heron ticked “Lobby create and join”",
@@ -655,10 +655,10 @@ export function sampleCards(now: Date): CardDetail[] {
       title: "Back up the out/ folder before the re-run",
       repoKey: "remote:github.com/sample-org/example-app",
       goal: "A copy of out/ somewhere safe, so the re-run can overwrite it.",
-      working: [new AgentRef({ ...heron, assigned: true, waiting: true })],
+      working: [AgentRef({ ...heron, assigned: true, waiting: true })],
       updatedAt: at(2),
       recent: [
-        new CardActivity({
+        CardActivity({
           at: at(2),
           who: otter,
           text: "sample-otter assigned it to sample-heron",
@@ -702,21 +702,21 @@ export function sampleCards(now: Date): CardDetail[] {
         },
       ],
       recent: [
-        new CardActivity({
+        CardActivity({
           at: at(3),
           who: otter,
           text: "sample-otter ticked “Design”",
         }),
       ],
       thread: [
-        new CardThreadItem({
+        CardThreadItem({
           id: "sample-4-event-1",
           kind: "event",
           at: at(40),
           who: otter,
           text: "sample-otter set 4 steps",
         }),
-        new CardThreadItem({
+        CardThreadItem({
           id: "sample-4-comment-1",
           kind: "comment",
           at: at(12),
@@ -732,7 +732,7 @@ export function sampleCards(now: Date): CardDetail[] {
             },
           ],
         }),
-        new CardThreadItem({
+        CardThreadItem({
           id: "sample-4-event-2",
           kind: "event",
           at: at(3),
@@ -758,9 +758,9 @@ export function sampleCards(now: Date): CardDetail[] {
       progress: { done: 0, total: 2 },
       subtaskBlocked: "#9: Announce on Discord as well, or only the site?",
       subtaskList: [
-        new CardSubtask({ id: "sample-card-8", short: "8", title: "Release notes", state: TaskState.Working,
+        CardSubtask({ id: "sample-card-8", short: "8", title: "Release notes", state: TaskState.Working,
           holder: sampleHolder([heron]), progress: { done: 1, total: 2 }, blocked: false }),
-        new CardSubtask({ id: "sample-card-9", short: "9", title: "Announcement", state: TaskState.Blocked,
+        CardSubtask({ id: "sample-card-9", short: "9", title: "Announcement", state: TaskState.Blocked,
           holder: sampleHolder([wren]), progress: { done: 0, total: 1 }, blocked: true }),
       ],
     }),
@@ -770,7 +770,7 @@ export function sampleCards(now: Date): CardDetail[] {
       repoKey: "remote:github.com/sample-org/example-app",
       working: [heron],
       updatedAt: at(7),
-      parent: new CardRef({ id: "sample-card-7", short: "7", title: "Ship the release" }),
+      parent: CardRef({ id: "sample-card-7", short: "7", title: "Ship the release" }),
       steps: steps([["Draft", true], ["Boat fixes first", false, true]]),
     }),
     card({
@@ -779,10 +779,10 @@ export function sampleCards(now: Date): CardDetail[] {
       repoKey: "remote:github.com/sample-org/example-app",
       working: [wren],
       updatedAt: at(8),
-      parent: new CardRef({ id: "sample-card-7", short: "7", title: "Ship the release" }),
+      parent: CardRef({ id: "sample-card-7", short: "7", title: "Ship the release" }),
       steps: steps([["Post it", false]]),
       blockers: [
-        new CardBlocker({
+        CardBlocker({
           id: "b1", question: "Announce on Discord as well, or only the site?", context: "", raisedBy: wren, at: at(8),
           options: [], state: "open", missing: [], thread: [], links: [], attachments: [],
         }),
@@ -802,7 +802,7 @@ export function sampleCards(now: Date): CardDetail[] {
         ["Docs", true],
       ]),
       prs: [
-        new CardPR({
+        CardPR({
           repo: "sample-org/example-app",
           number: 41,
           url: "https://github.com/sample-org/example-app/pull/41",
@@ -813,7 +813,7 @@ export function sampleCards(now: Date): CardDetail[] {
         }),
       ],
       recent: [
-        new CardActivity({
+        CardActivity({
           at: at(140),
           who: heron,
           text: "sample-heron marked the card done",
@@ -833,14 +833,14 @@ export function sampleCards(now: Date): CardDetail[] {
       scopeLabel: "MLG",
       board: "sample-board-mlg",
       tag: "mlg",
-      onBoard: new CardBoard({ id: "sample-board-mlg", name: "MLG", tag: "mlg", visibleTo: ["Stephen"], canWithdraw: true }),
+      onBoard: CardBoard({ id: "sample-board-mlg", name: "MLG", tag: "mlg", visibleTo: ["Stephen"], canWithdraw: true }),
       working: [otter],
       updatedAt: at(7),
       steps: steps([
         ["Mirror the boat actors", true],
         ["Settle the start timer", false],
       ]),
-      recent: [new CardActivity({ at: at(7), who: otter, text: "sample-otter ticked “Mirror the boat actors”" })],
+      recent: [CardActivity({ at: at(7), who: otter, text: "sample-otter ticked “Mirror the boat actors”" })],
     }),
     card({
       id: "sample-board-2",
@@ -851,7 +851,7 @@ export function sampleCards(now: Date): CardDetail[] {
       scopeLabel: "MLG",
       board: "sample-board-mlg",
       tag: "mlg",
-      onBoard: new CardBoard({ id: "sample-board-mlg", name: "MLG", tag: "mlg", visibleTo: ["Stephen"], canWithdraw: true }),
+      onBoard: CardBoard({ id: "sample-board-mlg", name: "MLG", tag: "mlg", visibleTo: ["Stephen"], canWithdraw: true }),
       state: TaskState.Submitted,
       working: [],
       updatedAt: at(40),
@@ -860,7 +860,7 @@ export function sampleCards(now: Date): CardDetail[] {
       id: "sample-card-10",
       title: "Write up the boat desync repro",
       repoKey: "remote:github.com/sample-org/example-app",
-      goal: "Steps anyone can follow; the capture is in C:\\Users\\stephen\\captures\\desync-03.",
+      goal: "Steps anyone can follow; the capture is in C:\\Users\\pat\\captures\\desync-03.",
       working: [wren],
       updatedAt: at(12),
       steps: steps([
@@ -879,10 +879,10 @@ export function sampleCards(now: Date): CardDetail[] {
       working: [],
       updatedAt: at(55),
       thread: [
-        new CardThreadItem({ id: "sample-ask-3-post", kind: "event", at: at(70), who: sampleYou, text: "You asked the room" }),
-        new CardThreadItem({ id: "sample-ask-3-took", kind: "event", at: at(66), who: otter, text: "sample-otter took it" }),
+        CardThreadItem({ id: "sample-ask-3-post", kind: "event", at: at(70), who: sampleYou, text: "You asked the room" }),
+        CardThreadItem({ id: "sample-ask-3-took", kind: "event", at: at(66), who: otter, text: "sample-otter took it" }),
       ],
-      ask: new CardAsk({
+      ask: CardAsk({
         state: "closed",
         told: 3,
         owner: "This PC",
@@ -901,7 +901,7 @@ export function sampleCards(now: Date): CardDetail[] {
       working: [],
       updatedAt: at(300),
       recent: [
-        new CardActivity({ at: at(300), who: sampleYou, text: "You set it to canceled" }),
+        CardActivity({ at: at(300), who: sampleYou, text: "You set it to canceled" }),
       ],
     }),
     card({
@@ -917,7 +917,7 @@ export function sampleCards(now: Date): CardDetail[] {
         ["Schedule the build", false],
       ]),
       recent: [
-        new CardActivity({ at: at(60 * 26), who: badger, text: "sample-badger set it to failed" }),
+        CardActivity({ at: at(60 * 26), who: badger, text: "sample-badger set it to failed" }),
       ],
     }),
   ].map(

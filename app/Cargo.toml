@@ -1,0 +1,70 @@
+[package]
+name = "irori-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The irori binary: CLI roles and the Tauri window"
+
+[[bin]]
+name = "irori"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+irori-api = { workspace = true }
+irori-attach = { workspace = true }
+irori-core = { workspace = true }
+irori-gocompat = { workspace = true }
+irori-home = { workspace = true }
+irori-pair = { workspace = true }
+irori-sys = { workspace = true }
+irori-store = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
+tokio-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tauri = { workspace = true, features = ["tray-icon", "image-png"] }
+tauri-plugin-single-instance = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+tauri-plugin-opener = { workspace = true }
+tauri-plugin-clipboard-manager = { workspace = true }
+irori-mcp = { workspace = true }
+irori-window = { workspace = true }
+irori-notify = { workspace = true }
+irori-update = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+winreg = { workspace = true }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Console"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# SMAppService.mainAppService, as Wails registered it (surface.md 7.4).
+objc2-service-management = { workspace = true }
+objc2 = { workspace = true }
+objc2-foundation = { workspace = true, features = ["NSBundle", "NSError", "NSString"] }
+libc = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+# shell::update's card tests: a fake card system.
+irori-toast = { workspace = true }
+# src/events.rs tests: a follow backend over a bare store.
+irori-capture = { workspace = true }
+irori-coord = { workspace = true }
+irori-presence = { workspace = true }
+# tests/attach_exe.rs: the real binary against a Core behind the API server.
+irori-core = { workspace = true }
+irori-identity = { workspace = true }
+irori-inbox = { workspace = true }
+bytes = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true, features = ["client", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+# src/pair_cmd/tests.rs: two Cores pairing over loopback iroh and LAN.
+irori-net = { workspace = true }
+irori-lan = { workspace = true }
+iroh = "1.4.1"

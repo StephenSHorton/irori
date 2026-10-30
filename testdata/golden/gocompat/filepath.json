@@ -1,0 +1,2032 @@
+{
+ "unix": {
+  "clean": [
+   {
+    "in": "abc",
+    "out": "abc"
+   },
+   {
+    "in": "abc/def",
+    "out": "abc/def"
+   },
+   {
+    "in": "a/b/c",
+    "out": "a/b/c"
+   },
+   {
+    "in": ".",
+    "out": "."
+   },
+   {
+    "in": "..",
+    "out": ".."
+   },
+   {
+    "in": "../..",
+    "out": "../.."
+   },
+   {
+    "in": "../../abc",
+    "out": "../../abc"
+   },
+   {
+    "in": "/abc",
+    "out": "/abc"
+   },
+   {
+    "in": "/",
+    "out": "/"
+   },
+   {
+    "in": "",
+    "out": "."
+   },
+   {
+    "in": "abc/",
+    "out": "abc"
+   },
+   {
+    "in": "abc/def/",
+    "out": "abc/def"
+   },
+   {
+    "in": "a/b/c/",
+    "out": "a/b/c"
+   },
+   {
+    "in": "./",
+    "out": "."
+   },
+   {
+    "in": "../",
+    "out": ".."
+   },
+   {
+    "in": "../../",
+    "out": "../.."
+   },
+   {
+    "in": "/abc/",
+    "out": "/abc"
+   },
+   {
+    "in": "abc//def//ghi",
+    "out": "abc/def/ghi"
+   },
+   {
+    "in": "abc//",
+    "out": "abc"
+   },
+   {
+    "in": "abc/./def",
+    "out": "abc/def"
+   },
+   {
+    "in": "/./abc/def",
+    "out": "/abc/def"
+   },
+   {
+    "in": "abc/.",
+    "out": "abc"
+   },
+   {
+    "in": "abc/def/ghi/../jkl",
+    "out": "abc/def/jkl"
+   },
+   {
+    "in": "abc/def/../ghi/../jkl",
+    "out": "abc/jkl"
+   },
+   {
+    "in": "abc/def/..",
+    "out": "abc"
+   },
+   {
+    "in": "abc/def/../..",
+    "out": "."
+   },
+   {
+    "in": "/abc/def/../..",
+    "out": "/"
+   },
+   {
+    "in": "abc/def/../../..",
+    "out": ".."
+   },
+   {
+    "in": "/abc/def/../../..",
+    "out": "/"
+   },
+   {
+    "in": "abc/def/../../../ghi/jkl/../../../mno",
+    "out": "../../mno"
+   },
+   {
+    "in": "/../abc",
+    "out": "/abc"
+   },
+   {
+    "in": "a/../b:/../../c",
+    "out": "../c"
+   },
+   {
+    "in": "abc/./../def",
+    "out": "def"
+   },
+   {
+    "in": "abc//./../def",
+    "out": "def"
+   },
+   {
+    "in": "abc/../../././../def",
+    "out": "../../def"
+   },
+   {
+    "in": "//abc",
+    "out": "/abc"
+   },
+   {
+    "in": "///abc",
+    "out": "/abc"
+   },
+   {
+    "in": "//abc//",
+    "out": "/abc"
+   }
+  ],
+  "isAbs": [
+   {
+    "in": "",
+    "abs": false
+   },
+   {
+    "in": "/",
+    "abs": true
+   },
+   {
+    "in": "/usr/bin/gcc",
+    "abs": true
+   },
+   {
+    "in": "..",
+    "abs": false
+   },
+   {
+    "in": "/a/../bb",
+    "abs": true
+   },
+   {
+    "in": ".",
+    "abs": false
+   },
+   {
+    "in": "./",
+    "abs": false
+   },
+   {
+    "in": "lala",
+    "abs": false
+   }
+  ],
+  "join": [
+   {
+    "elem": [],
+    "out": ""
+   },
+   {
+    "elem": [
+     ""
+    ],
+    "out": ""
+   },
+   {
+    "elem": [
+     "/"
+    ],
+    "out": "/"
+   },
+   {
+    "elem": [
+     "a"
+    ],
+    "out": "a"
+   },
+   {
+    "elem": [
+     "a",
+     "b"
+    ],
+    "out": "a/b"
+   },
+   {
+    "elem": [
+     "a",
+     ""
+    ],
+    "out": "a"
+   },
+   {
+    "elem": [
+     "",
+     "b"
+    ],
+    "out": "b"
+   },
+   {
+    "elem": [
+     "/",
+     "a"
+    ],
+    "out": "/a"
+   },
+   {
+    "elem": [
+     "/",
+     "a/b"
+    ],
+    "out": "/a/b"
+   },
+   {
+    "elem": [
+     "/",
+     ""
+    ],
+    "out": "/"
+   },
+   {
+    "elem": [
+     "/a",
+     "b"
+    ],
+    "out": "/a/b"
+   },
+   {
+    "elem": [
+     "a",
+     "/b"
+    ],
+    "out": "a/b"
+   },
+   {
+    "elem": [
+     "/a",
+     "/b"
+    ],
+    "out": "/a/b"
+   },
+   {
+    "elem": [
+     "a/",
+     "b"
+    ],
+    "out": "a/b"
+   },
+   {
+    "elem": [
+     "a/",
+     ""
+    ],
+    "out": "a"
+   },
+   {
+    "elem": [
+     "",
+     ""
+    ],
+    "out": ""
+   },
+   {
+    "elem": [
+     "/",
+     "a",
+     "b"
+    ],
+    "out": "/a/b"
+   },
+   {
+    "elem": [
+     "//",
+     "a"
+    ],
+    "out": "/a"
+   }
+  ],
+  "rel": [
+   {
+    "base": "a/b",
+    "targ": "a/b",
+    "out": "."
+   },
+   {
+    "base": "a/b/.",
+    "targ": "a/b",
+    "out": "."
+   },
+   {
+    "base": "a/b",
+    "targ": "a/b/.",
+    "out": "."
+   },
+   {
+    "base": "./a/b",
+    "targ": "a/b",
+    "out": "."
+   },
+   {
+    "base": "a/b",
+    "targ": "./a/b",
+    "out": "."
+   },
+   {
+    "base": "ab/cd",
+    "targ": "ab/cde",
+    "out": "../cde"
+   },
+   {
+    "base": "ab/cd",
+    "targ": "ab/c",
+    "out": "../c"
+   },
+   {
+    "base": "a/b",
+    "targ": "a/b/c/d",
+    "out": "c/d"
+   },
+   {
+    "base": "a/b",
+    "targ": "a/b/../c",
+    "out": "../c"
+   },
+   {
+    "base": "a/b/../c",
+    "targ": "a/b",
+    "out": "../b"
+   },
+   {
+    "base": "a/b/c",
+    "targ": "a/c/d",
+    "out": "../../c/d"
+   },
+   {
+    "base": "a/b",
+    "targ": "c/d",
+    "out": "../../c/d"
+   },
+   {
+    "base": "a/b/c/d",
+    "targ": "a/b",
+    "out": "../.."
+   },
+   {
+    "base": "a/b/c/d",
+    "targ": "a/b/",
+    "out": "../.."
+   },
+   {
+    "base": "a/b/c/d/",
+    "targ": "a/b",
+    "out": "../.."
+   },
+   {
+    "base": "a/b/c/d/",
+    "targ": "a/b/",
+    "out": "../.."
+   },
+   {
+    "base": "../../a/b",
+    "targ": "../../a/b/c/d",
+    "out": "c/d"
+   },
+   {
+    "base": "/a/b",
+    "targ": "/a/b",
+    "out": "."
+   },
+   {
+    "base": "/a/b/.",
+    "targ": "/a/b",
+    "out": "."
+   },
+   {
+    "base": "/a/b",
+    "targ": "/a/b/.",
+    "out": "."
+   },
+   {
+    "base": "/ab/cd",
+    "targ": "/ab/cde",
+    "out": "../cde"
+   },
+   {
+    "base": "/ab/cd",
+    "targ": "/ab/c",
+    "out": "../c"
+   },
+   {
+    "base": "/a/b",
+    "targ": "/a/b/c/d",
+    "out": "c/d"
+   },
+   {
+    "base": "/a/b",
+    "targ": "/a/b/../c",
+    "out": "../c"
+   },
+   {
+    "base": "/a/b/../c",
+    "targ": "/a/b",
+    "out": "../b"
+   },
+   {
+    "base": "/a/b/c",
+    "targ": "/a/c/d",
+    "out": "../../c/d"
+   },
+   {
+    "base": "/a/b",
+    "targ": "/c/d",
+    "out": "../../c/d"
+   },
+   {
+    "base": "/a/b/c/d",
+    "targ": "/a/b",
+    "out": "../.."
+   },
+   {
+    "base": "/a/b/c/d",
+    "targ": "/a/b/",
+    "out": "../.."
+   },
+   {
+    "base": "/a/b/c/d/",
+    "targ": "/a/b",
+    "out": "../.."
+   },
+   {
+    "base": "/a/b/c/d/",
+    "targ": "/a/b/",
+    "out": "../.."
+   },
+   {
+    "base": "/../../a/b",
+    "targ": "/../../a/b/c/d",
+    "out": "c/d"
+   },
+   {
+    "base": ".",
+    "targ": "a/b",
+    "out": "a/b"
+   },
+   {
+    "base": ".",
+    "targ": "..",
+    "out": ".."
+   },
+   {
+    "base": "",
+    "targ": "../../.",
+    "out": "../.."
+   },
+   {
+    "base": "..",
+    "targ": ".",
+    "out": "err",
+    "err": true
+   },
+   {
+    "base": "..",
+    "targ": "a",
+    "out": "err",
+    "err": true
+   },
+   {
+    "base": "../..",
+    "targ": "..",
+    "out": "err",
+    "err": true
+   },
+   {
+    "base": "a",
+    "targ": "/a",
+    "out": "err",
+    "err": true
+   },
+   {
+    "base": "/a",
+    "targ": "a",
+    "out": "err",
+    "err": true
+   }
+  ]
+ },
+ "windows": {
+  "clean": [
+   {
+    "in": "abc",
+    "out": "abc"
+   },
+   {
+    "in": "abc/def",
+    "out": "abc\\def"
+   },
+   {
+    "in": "a/b/c",
+    "out": "a\\b\\c"
+   },
+   {
+    "in": ".",
+    "out": "."
+   },
+   {
+    "in": "..",
+    "out": ".."
+   },
+   {
+    "in": "../..",
+    "out": "..\\.."
+   },
+   {
+    "in": "../../abc",
+    "out": "..\\..\\abc"
+   },
+   {
+    "in": "/abc",
+    "out": "\\abc"
+   },
+   {
+    "in": "/",
+    "out": "\\"
+   },
+   {
+    "in": "",
+    "out": "."
+   },
+   {
+    "in": "abc/",
+    "out": "abc"
+   },
+   {
+    "in": "abc/def/",
+    "out": "abc\\def"
+   },
+   {
+    "in": "a/b/c/",
+    "out": "a\\b\\c"
+   },
+   {
+    "in": "./",
+    "out": "."
+   },
+   {
+    "in": "../",
+    "out": ".."
+   },
+   {
+    "in": "../../",
+    "out": "..\\.."
+   },
+   {
+    "in": "/abc/",
+    "out": "\\abc"
+   },
+   {
+    "in": "abc//def//ghi",
+    "out": "abc\\def\\ghi"
+   },
+   {
+    "in": "abc//",
+    "out": "abc"
+   },
+   {
+    "in": "abc/./def",
+    "out": "abc\\def"
+   },
+   {
+    "in": "/./abc/def",
+    "out": "\\abc\\def"
+   },
+   {
+    "in": "abc/.",
+    "out": "abc"
+   },
+   {
+    "in": "abc/def/ghi/../jkl",
+    "out": "abc\\def\\jkl"
+   },
+   {
+    "in": "abc/def/../ghi/../jkl",
+    "out": "abc\\jkl"
+   },
+   {
+    "in": "abc/def/..",
+    "out": "abc"
+   },
+   {
+    "in": "abc/def/../..",
+    "out": "."
+   },
+   {
+    "in": "/abc/def/../..",
+    "out": "\\"
+   },
+   {
+    "in": "abc/def/../../..",
+    "out": ".."
+   },
+   {
+    "in": "/abc/def/../../..",
+    "out": "\\"
+   },
+   {
+    "in": "abc/def/../../../ghi/jkl/../../../mno",
+    "out": "..\\..\\mno"
+   },
+   {
+    "in": "/../abc",
+    "out": "\\abc"
+   },
+   {
+    "in": "a/../b:/../../c",
+    "out": "..\\c"
+   },
+   {
+    "in": "abc/./../def",
+    "out": "def"
+   },
+   {
+    "in": "abc//./../def",
+    "out": "def"
+   },
+   {
+    "in": "abc/../../././../def",
+    "out": "..\\..\\def"
+   },
+   {
+    "in": "//abc",
+    "out": "\\\\abc"
+   },
+   {
+    "in": "///abc",
+    "out": "\\\\\\abc"
+   },
+   {
+    "in": "//abc//",
+    "out": "\\\\abc\\\\"
+   },
+   {
+    "in": "c:",
+    "out": "c:."
+   },
+   {
+    "in": "c:\\",
+    "out": "c:\\"
+   },
+   {
+    "in": "c:\\abc",
+    "out": "c:\\abc"
+   },
+   {
+    "in": "c:abc\\..\\..\\.\\.\\..\\def",
+    "out": "c:..\\..\\def"
+   },
+   {
+    "in": "c:\\abc\\def\\..\\..",
+    "out": "c:\\"
+   },
+   {
+    "in": "c:\\..\\abc",
+    "out": "c:\\abc"
+   },
+   {
+    "in": "c:..\\abc",
+    "out": "c:..\\abc"
+   },
+   {
+    "in": "c:\\b:\\..\\..\\..\\d",
+    "out": "c:\\d"
+   },
+   {
+    "in": "\\",
+    "out": "\\"
+   },
+   {
+    "in": "/",
+    "out": "\\"
+   },
+   {
+    "in": "\\\\i\\..\\c$",
+    "out": "\\\\i\\..\\c$"
+   },
+   {
+    "in": "\\\\i\\..\\i\\c$",
+    "out": "\\\\i\\..\\i\\c$"
+   },
+   {
+    "in": "\\\\i\\..\\I\\c$",
+    "out": "\\\\i\\..\\I\\c$"
+   },
+   {
+    "in": "\\\\host\\share\\foo\\..\\bar",
+    "out": "\\\\host\\share\\bar"
+   },
+   {
+    "in": "//host/share/foo/../baz",
+    "out": "\\\\host\\share\\baz"
+   },
+   {
+    "in": "\\\\host\\share\\foo\\..\\..\\..\\..\\bar",
+    "out": "\\\\host\\share\\bar"
+   },
+   {
+    "in": "\\\\.\\C:\\a\\..\\..\\..\\..\\bar",
+    "out": "\\\\.\\C:\\bar"
+   },
+   {
+    "in": "\\\\.\\C:\\\\\\\\a",
+    "out": "\\\\.\\C:\\a"
+   },
+   {
+    "in": "\\\\a\\b\\..\\c",
+    "out": "\\\\a\\b\\c"
+   },
+   {
+    "in": "\\\\a\\b",
+    "out": "\\\\a\\b"
+   },
+   {
+    "in": ".\\c:",
+    "out": ".\\c:"
+   },
+   {
+    "in": ".\\c:\\foo",
+    "out": ".\\c:\\foo"
+   },
+   {
+    "in": ".\\c:foo",
+    "out": ".\\c:foo"
+   },
+   {
+    "in": "//abc",
+    "out": "\\\\abc"
+   },
+   {
+    "in": "///abc",
+    "out": "\\\\\\abc"
+   },
+   {
+    "in": "//abc//",
+    "out": "\\\\abc\\\\"
+   },
+   {
+    "in": "\\\\?\\C:\\",
+    "out": "\\\\?\\C:\\"
+   },
+   {
+    "in": "\\\\?\\C:\\a",
+    "out": "\\\\?\\C:\\a"
+   },
+   {
+    "in": "a/../c:",
+    "out": ".\\c:"
+   },
+   {
+    "in": "a\\..\\c:",
+    "out": ".\\c:"
+   },
+   {
+    "in": "a/../c:/a",
+    "out": ".\\c:\\a"
+   },
+   {
+    "in": "a/../../c:",
+    "out": "..\\c:"
+   },
+   {
+    "in": "foo:bar",
+    "out": "foo:bar"
+   },
+   {
+    "in": "/a/../??/a",
+    "out": "\\.\\??\\a"
+   },
+   {
+    "in": "z/../ab:/../c",
+    "out": ".\\c"
+   },
+   {
+    "in": "a/../c:",
+    "out": ".\\c:"
+   },
+   {
+    "in": "ab:",
+    "out": "ab:"
+   },
+   {
+    "in": "\\a\\..\\??\\c:\\x",
+    "out": "\\.\\??\\c:\\x"
+   },
+   {
+    "in": "z/../\\??/c",
+    "out": "??\\c"
+   },
+   {
+    "in": "C:\\Users\\pat\\AppData\\Local\\irori\\..\\Irori\\.",
+    "out": "C:\\Users\\pat\\AppData\\Local\\Irori"
+   },
+   {
+    "in": "\\\\host\\share\\..\\x",
+    "out": "\\\\host\\share\\x"
+   },
+   {
+    "in": "//?/C:/a/../b",
+    "out": "\\\\?\\C:\\b"
+   }
+  ],
+  "isAbs": [
+   {
+    "in": "",
+    "abs": false
+   },
+   {
+    "in": "/",
+    "abs": false
+   },
+   {
+    "in": "/usr/bin/gcc",
+    "abs": false
+   },
+   {
+    "in": "..",
+    "abs": false
+   },
+   {
+    "in": "/a/../bb",
+    "abs": false
+   },
+   {
+    "in": ".",
+    "abs": false
+   },
+   {
+    "in": "./",
+    "abs": false
+   },
+   {
+    "in": "lala",
+    "abs": false
+   },
+   {
+    "in": "C:\\",
+    "abs": true
+   },
+   {
+    "in": "c\\",
+    "abs": false
+   },
+   {
+    "in": "c::",
+    "abs": false
+   },
+   {
+    "in": "c:",
+    "abs": false
+   },
+   {
+    "in": "/",
+    "abs": false
+   },
+   {
+    "in": "\\",
+    "abs": false
+   },
+   {
+    "in": "\\Windows",
+    "abs": false
+   },
+   {
+    "in": "c:a\\b",
+    "abs": false
+   },
+   {
+    "in": "c:\\a\\b",
+    "abs": true
+   },
+   {
+    "in": "c:/a/b",
+    "abs": true
+   },
+   {
+    "in": "\\\\host\\share",
+    "abs": true
+   },
+   {
+    "in": "\\\\host\\share\\",
+    "abs": true
+   },
+   {
+    "in": "\\\\host\\share\\foo",
+    "abs": true
+   },
+   {
+    "in": "//host/share/foo/bar",
+    "abs": true
+   },
+   {
+    "in": "\\\\?\\a\\b\\c",
+    "abs": true
+   },
+   {
+    "in": "\\??\\a\\b\\c",
+    "abs": true
+   }
+  ],
+  "join": [
+   {
+    "elem": [],
+    "out": ""
+   },
+   {
+    "elem": [
+     ""
+    ],
+    "out": ""
+   },
+   {
+    "elem": [
+     "/"
+    ],
+    "out": "\\"
+   },
+   {
+    "elem": [
+     "a"
+    ],
+    "out": "a"
+   },
+   {
+    "elem": [
+     "a",
+     "b"
+    ],
+    "out": "a\\b"
+   },
+   {
+    "elem": [
+     "a",
+     ""
+    ],
+    "out": "a"
+   },
+   {
+    "elem": [
+     "",
+     "b"
+    ],
+    "out": "b"
+   },
+   {
+    "elem": [
+     "/",
+     "a"
+    ],
+    "out": "\\a"
+   },
+   {
+    "elem": [
+     "/",
+     "a/b"
+    ],
+    "out": "\\a\\b"
+   },
+   {
+    "elem": [
+     "/",
+     ""
+    ],
+    "out": "\\"
+   },
+   {
+    "elem": [
+     "/a",
+     "b"
+    ],
+    "out": "\\a\\b"
+   },
+   {
+    "elem": [
+     "a",
+     "/b"
+    ],
+    "out": "a\\b"
+   },
+   {
+    "elem": [
+     "/a",
+     "/b"
+    ],
+    "out": "\\a\\b"
+   },
+   {
+    "elem": [
+     "a/",
+     "b"
+    ],
+    "out": "a\\b"
+   },
+   {
+    "elem": [
+     "a/",
+     ""
+    ],
+    "out": "a"
+   },
+   {
+    "elem": [
+     "",
+     ""
+    ],
+    "out": ""
+   },
+   {
+    "elem": [
+     "/",
+     "a",
+     "b"
+    ],
+    "out": "\\a\\b"
+   },
+   {
+    "elem": [
+     "//",
+     "a"
+    ],
+    "out": "\\\\a"
+   },
+   {
+    "elem": [
+     "directory",
+     "file"
+    ],
+    "out": "directory\\file"
+   },
+   {
+    "elem": [
+     "C:\\Windows\\",
+     "System32"
+    ],
+    "out": "C:\\Windows\\System32"
+   },
+   {
+    "elem": [
+     "C:\\Windows\\",
+     ""
+    ],
+    "out": "C:\\Windows"
+   },
+   {
+    "elem": [
+     "C:\\",
+     "Windows"
+    ],
+    "out": "C:\\Windows"
+   },
+   {
+    "elem": [
+     "C:",
+     "a"
+    ],
+    "out": "C:a"
+   },
+   {
+    "elem": [
+     "C:",
+     "a\\b"
+    ],
+    "out": "C:a\\b"
+   },
+   {
+    "elem": [
+     "C:",
+     "a",
+     "b"
+    ],
+    "out": "C:a\\b"
+   },
+   {
+    "elem": [
+     "C:",
+     "",
+     "b"
+    ],
+    "out": "C:b"
+   },
+   {
+    "elem": [
+     "C:",
+     "",
+     "",
+     "b"
+    ],
+    "out": "C:b"
+   },
+   {
+    "elem": [
+     "C:",
+     ""
+    ],
+    "out": "C:."
+   },
+   {
+    "elem": [
+     "C:",
+     "",
+     ""
+    ],
+    "out": "C:."
+   },
+   {
+    "elem": [
+     "C:",
+     "\\a"
+    ],
+    "out": "C:\\a"
+   },
+   {
+    "elem": [
+     "C:",
+     "",
+     "\\a"
+    ],
+    "out": "C:\\a"
+   },
+   {
+    "elem": [
+     "C:.",
+     "a"
+    ],
+    "out": "C:a"
+   },
+   {
+    "elem": [
+     "C:a",
+     "b"
+    ],
+    "out": "C:a\\b"
+   },
+   {
+    "elem": [
+     "C:a",
+     "b",
+     "d"
+    ],
+    "out": "C:a\\b\\d"
+   },
+   {
+    "elem": [
+     "\\\\host\\share",
+     "foo"
+    ],
+    "out": "\\\\host\\share\\foo"
+   },
+   {
+    "elem": [
+     "\\\\host\\share\\foo"
+    ],
+    "out": "\\\\host\\share\\foo"
+   },
+   {
+    "elem": [
+     "//host/share",
+     "foo/bar"
+    ],
+    "out": "\\\\host\\share\\foo\\bar"
+   },
+   {
+    "elem": [
+     "\\"
+    ],
+    "out": "\\"
+   },
+   {
+    "elem": [
+     "\\",
+     ""
+    ],
+    "out": "\\"
+   },
+   {
+    "elem": [
+     "\\",
+     "a"
+    ],
+    "out": "\\a"
+   },
+   {
+    "elem": [
+     "\\\\",
+     "a"
+    ],
+    "out": "\\\\a"
+   },
+   {
+    "elem": [
+     "\\",
+     "a",
+     "b"
+    ],
+    "out": "\\a\\b"
+   },
+   {
+    "elem": [
+     "\\\\",
+     "a",
+     "b"
+    ],
+    "out": "\\\\a\\b"
+   },
+   {
+    "elem": [
+     "\\",
+     "\\\\a\\b",
+     "c"
+    ],
+    "out": "\\a\\b\\c"
+   },
+   {
+    "elem": [
+     "\\\\a",
+     "b",
+     "c"
+    ],
+    "out": "\\\\a\\b\\c"
+   },
+   {
+    "elem": [
+     "\\\\a\\",
+     "b",
+     "c"
+    ],
+    "out": "\\\\a\\b\\c"
+   },
+   {
+    "elem": [
+     "//",
+     "a"
+    ],
+    "out": "\\\\a"
+   },
+   {
+    "elem": [
+     "a:\\b\\c",
+     "x\\..\\y:\\..\\..\\z"
+    ],
+    "out": "a:\\b\\z"
+   },
+   {
+    "elem": [
+     "\\",
+     "??\\a"
+    ],
+    "out": "\\.\\??\\a"
+   }
+  ],
+  "rel": [
+   {
+    "base": "a/b",
+    "targ": "a/b",
+    "out": "."
+   },
+   {
+    "base": "a/b/.",
+    "targ": "a/b",
+    "out": "."
+   },
+   {
+    "base": "a/b",
+    "targ": "a/b/.",
+    "out": "."
+   },
+   {
+    "base": "./a/b",
+    "targ": "a/b",
+    "out": "."
+   },
+   {
+    "base": "a/b",
+    "targ": "./a/b",
+    "out": "."
+   },
+   {
+    "base": "ab/cd",
+    "targ": "ab/cde",
+    "out": "..\\cde"
+   },
+   {
+    "base": "ab/cd",
+    "targ": "ab/c",
+    "out": "..\\c"
+   },
+   {
+    "base": "a/b",
+    "targ": "a/b/c/d",
+    "out": "c\\d"
+   },
+   {
+    "base": "a/b",
+    "targ": "a/b/../c",
+    "out": "..\\c"
+   },
+   {
+    "base": "a/b/../c",
+    "targ": "a/b",
+    "out": "..\\b"
+   },
+   {
+    "base": "a/b/c",
+    "targ": "a/c/d",
+    "out": "..\\..\\c\\d"
+   },
+   {
+    "base": "a/b",
+    "targ": "c/d",
+    "out": "..\\..\\c\\d"
+   },
+   {
+    "base": "a/b/c/d",
+    "targ": "a/b",
+    "out": "..\\.."
+   },
+   {
+    "base": "a/b/c/d",
+    "targ": "a/b/",
+    "out": "..\\.."
+   },
+   {
+    "base": "a/b/c/d/",
+    "targ": "a/b",
+    "out": "..\\.."
+   },
+   {
+    "base": "a/b/c/d/",
+    "targ": "a/b/",
+    "out": "..\\.."
+   },
+   {
+    "base": "../../a/b",
+    "targ": "../../a/b/c/d",
+    "out": "c\\d"
+   },
+   {
+    "base": "/a/b",
+    "targ": "/a/b",
+    "out": "."
+   },
+   {
+    "base": "/a/b/.",
+    "targ": "/a/b",
+    "out": "."
+   },
+   {
+    "base": "/a/b",
+    "targ": "/a/b/.",
+    "out": "."
+   },
+   {
+    "base": "/ab/cd",
+    "targ": "/ab/cde",
+    "out": "..\\cde"
+   },
+   {
+    "base": "/ab/cd",
+    "targ": "/ab/c",
+    "out": "..\\c"
+   },
+   {
+    "base": "/a/b",
+    "targ": "/a/b/c/d",
+    "out": "c\\d"
+   },
+   {
+    "base": "/a/b",
+    "targ": "/a/b/../c",
+    "out": "..\\c"
+   },
+   {
+    "base": "/a/b/../c",
+    "targ": "/a/b",
+    "out": "..\\b"
+   },
+   {
+    "base": "/a/b/c",
+    "targ": "/a/c/d",
+    "out": "..\\..\\c\\d"
+   },
+   {
+    "base": "/a/b",
+    "targ": "/c/d",
+    "out": "..\\..\\c\\d"
+   },
+   {
+    "base": "/a/b/c/d",
+    "targ": "/a/b",
+    "out": "..\\.."
+   },
+   {
+    "base": "/a/b/c/d",
+    "targ": "/a/b/",
+    "out": "..\\.."
+   },
+   {
+    "base": "/a/b/c/d/",
+    "targ": "/a/b",
+    "out": "..\\.."
+   },
+   {
+    "base": "/a/b/c/d/",
+    "targ": "/a/b/",
+    "out": "..\\.."
+   },
+   {
+    "base": "/../../a/b",
+    "targ": "/../../a/b/c/d",
+    "out": "c\\d"
+   },
+   {
+    "base": ".",
+    "targ": "a/b",
+    "out": "a\\b"
+   },
+   {
+    "base": ".",
+    "targ": "..",
+    "out": ".."
+   },
+   {
+    "base": "",
+    "targ": "../../.",
+    "out": "..\\.."
+   },
+   {
+    "base": "..",
+    "targ": ".",
+    "out": "",
+    "err": true
+   },
+   {
+    "base": "..",
+    "targ": "a",
+    "out": "",
+    "err": true
+   },
+   {
+    "base": "../..",
+    "targ": "..",
+    "out": "",
+    "err": true
+   },
+   {
+    "base": "a",
+    "targ": "/a",
+    "out": "",
+    "err": true
+   },
+   {
+    "base": "/a",
+    "targ": "a",
+    "out": "",
+    "err": true
+   },
+   {
+    "base": "C:a\\b\\c",
+    "targ": "C:a/b/d",
+    "out": "..\\d"
+   },
+   {
+    "base": "C:\\",
+    "targ": "D:\\",
+    "out": "",
+    "err": true
+   },
+   {
+    "base": "C:",
+    "targ": "D:",
+    "out": "",
+    "err": true
+   },
+   {
+    "base": "C:\\Projects",
+    "targ": "c:\\projects\\src",
+    "out": "src"
+   },
+   {
+    "base": "C:\\Projects",
+    "targ": "c:\\projects",
+    "out": "."
+   },
+   {
+    "base": "C:\\Projects\\a\\..",
+    "targ": "c:\\projects",
+    "out": "."
+   },
+   {
+    "base": "\\\\host\\share",
+    "targ": "\\\\host\\share\\file.txt",
+    "out": "file.txt"
+   }
+  ],
+  "volumeName": [
+   {
+    "in": "abc",
+    "out": ""
+   },
+   {
+    "in": "abc/def",
+    "out": ""
+   },
+   {
+    "in": "a/b/c",
+    "out": ""
+   },
+   {
+    "in": ".",
+    "out": ""
+   },
+   {
+    "in": "..",
+    "out": ""
+   },
+   {
+    "in": "../..",
+    "out": ""
+   },
+   {
+    "in": "../../abc",
+    "out": ""
+   },
+   {
+    "in": "/abc",
+    "out": ""
+   },
+   {
+    "in": "/",
+    "out": ""
+   },
+   {
+    "in": "",
+    "out": ""
+   },
+   {
+    "in": "abc/",
+    "out": ""
+   },
+   {
+    "in": "abc/def/",
+    "out": ""
+   },
+   {
+    "in": "a/b/c/",
+    "out": ""
+   },
+   {
+    "in": "./",
+    "out": ""
+   },
+   {
+    "in": "../",
+    "out": ""
+   },
+   {
+    "in": "../../",
+    "out": ""
+   },
+   {
+    "in": "/abc/",
+    "out": ""
+   },
+   {
+    "in": "abc//def//ghi",
+    "out": ""
+   },
+   {
+    "in": "abc//",
+    "out": ""
+   },
+   {
+    "in": "abc/./def",
+    "out": ""
+   },
+   {
+    "in": "/./abc/def",
+    "out": ""
+   },
+   {
+    "in": "abc/.",
+    "out": ""
+   },
+   {
+    "in": "abc/def/ghi/../jkl",
+    "out": ""
+   },
+   {
+    "in": "abc/def/../ghi/../jkl",
+    "out": ""
+   },
+   {
+    "in": "abc/def/..",
+    "out": ""
+   },
+   {
+    "in": "abc/def/../..",
+    "out": ""
+   },
+   {
+    "in": "/abc/def/../..",
+    "out": ""
+   },
+   {
+    "in": "abc/def/../../..",
+    "out": ""
+   },
+   {
+    "in": "/abc/def/../../..",
+    "out": ""
+   },
+   {
+    "in": "abc/def/../../../ghi/jkl/../../../mno",
+    "out": ""
+   },
+   {
+    "in": "/../abc",
+    "out": ""
+   },
+   {
+    "in": "a/../b:/../../c",
+    "out": ""
+   },
+   {
+    "in": "abc/./../def",
+    "out": ""
+   },
+   {
+    "in": "abc//./../def",
+    "out": ""
+   },
+   {
+    "in": "abc/../../././../def",
+    "out": ""
+   },
+   {
+    "in": "//abc",
+    "out": "\\\\abc"
+   },
+   {
+    "in": "///abc",
+    "out": "\\\\\\abc"
+   },
+   {
+    "in": "//abc//",
+    "out": "\\\\abc\\"
+   },
+   {
+    "in": "c:",
+    "out": "c:"
+   },
+   {
+    "in": "c:\\",
+    "out": "c:"
+   },
+   {
+    "in": "c:\\abc",
+    "out": "c:"
+   },
+   {
+    "in": "c:abc\\..\\..\\.\\.\\..\\def",
+    "out": "c:"
+   },
+   {
+    "in": "c:\\abc\\def\\..\\..",
+    "out": "c:"
+   },
+   {
+    "in": "c:\\..\\abc",
+    "out": "c:"
+   },
+   {
+    "in": "c:..\\abc",
+    "out": "c:"
+   },
+   {
+    "in": "c:\\b:\\..\\..\\..\\d",
+    "out": "c:"
+   },
+   {
+    "in": "\\",
+    "out": ""
+   },
+   {
+    "in": "/",
+    "out": ""
+   },
+   {
+    "in": "\\\\i\\..\\c$",
+    "out": "\\\\i\\.."
+   },
+   {
+    "in": "\\\\i\\..\\i\\c$",
+    "out": "\\\\i\\.."
+   },
+   {
+    "in": "\\\\i\\..\\I\\c$",
+    "out": "\\\\i\\.."
+   },
+   {
+    "in": "\\\\host\\share\\foo\\..\\bar",
+    "out": "\\\\host\\share"
+   },
+   {
+    "in": "//host/share/foo/../baz",
+    "out": "\\\\host\\share"
+   },
+   {
+    "in": "\\\\host\\share\\foo\\..\\..\\..\\..\\bar",
+    "out": "\\\\host\\share"
+   },
+   {
+    "in": "\\\\.\\C:\\a\\..\\..\\..\\..\\bar",
+    "out": "\\\\.\\C:"
+   },
+   {
+    "in": "\\\\.\\C:\\\\\\\\a",
+    "out": "\\\\.\\C:"
+   },
+   {
+    "in": "\\\\a\\b\\..\\c",
+    "out": "\\\\a\\b"
+   },
+   {
+    "in": "\\\\a\\b",
+    "out": "\\\\a\\b"
+   },
+   {
+    "in": ".\\c:",
+    "out": ""
+   },
+   {
+    "in": ".\\c:\\foo",
+    "out": ""
+   },
+   {
+    "in": ".\\c:foo",
+    "out": ""
+   },
+   {
+    "in": "//abc",
+    "out": "\\\\abc"
+   },
+   {
+    "in": "///abc",
+    "out": "\\\\\\abc"
+   },
+   {
+    "in": "//abc//",
+    "out": "\\\\abc\\"
+   },
+   {
+    "in": "\\\\?\\C:\\",
+    "out": "\\\\?\\C:"
+   },
+   {
+    "in": "\\\\?\\C:\\a",
+    "out": "\\\\?\\C:"
+   },
+   {
+    "in": "a/../c:",
+    "out": ""
+   },
+   {
+    "in": "a\\..\\c:",
+    "out": ""
+   },
+   {
+    "in": "a/../c:/a",
+    "out": ""
+   },
+   {
+    "in": "a/../../c:",
+    "out": ""
+   },
+   {
+    "in": "foo:bar",
+    "out": ""
+   },
+   {
+    "in": "/a/../??/a",
+    "out": ""
+   },
+   {
+    "in": "z/../ab:/../c",
+    "out": ""
+   },
+   {
+    "in": "a/../c:",
+    "out": ""
+   },
+   {
+    "in": "ab:",
+    "out": ""
+   },
+   {
+    "in": "\\a\\..\\??\\c:\\x",
+    "out": ""
+   },
+   {
+    "in": "z/../\\??/c",
+    "out": ""
+   },
+   {
+    "in": "C:\\Users\\pat\\AppData\\Local\\irori\\..\\Irori\\.",
+    "out": "C:"
+   },
+   {
+    "in": "\\\\host\\share\\..\\x",
+    "out": "\\\\host\\share"
+   },
+   {
+    "in": "//?/C:/a/../b",
+    "out": "\\\\?\\C:"
+   },
+   {
+    "in": "c:/foo/bar",
+    "out": "c:"
+   },
+   {
+    "in": "c:",
+    "out": "c:"
+   },
+   {
+    "in": "c:\\",
+    "out": "c:"
+   },
+   {
+    "in": "2:",
+    "out": "2:"
+   },
+   {
+    "in": "",
+    "out": ""
+   },
+   {
+    "in": "\\\\\\host",
+    "out": "\\\\\\host"
+   },
+   {
+    "in": "\\\\\\host\\",
+    "out": "\\\\\\host"
+   },
+   {
+    "in": "\\\\\\host\\share",
+    "out": "\\\\\\host"
+   },
+   {
+    "in": "\\\\\\host\\\\share",
+    "out": "\\\\\\host"
+   },
+   {
+    "in": "\\\\host",
+    "out": "\\\\host"
+   },
+   {
+    "in": "//host",
+    "out": "\\\\host"
+   },
+   {
+    "in": "\\\\host\\",
+    "out": "\\\\host\\"
+   },
+   {
+    "in": "//host/",
+    "out": "\\\\host\\"
+   },
+   {
+    "in": "\\\\host\\share",
+    "out": "\\\\host\\share"
+   },
+   {
+    "in": "//host/share",
+    "out": "\\\\host\\share"
+   },
+   {
+    "in": "\\\\host\\share\\",
+    "out": "\\\\host\\share"
+   },
+   {
+    "in": "//host/share/",
+    "out": "\\\\host\\share"
+   },
+   {
+    "in": "\\\\host\\share\\foo",
+    "out": "\\\\host\\share"
+   },
+   {
+    "in": "//host/share/foo",
+    "out": "\\\\host\\share"
+   },
+   {
+    "in": "\\\\host\\share\\\\foo\\\\\\bar\\\\\\\\baz",
+    "out": "\\\\host\\share"
+   },
+   {
+    "in": "//host/share//foo///bar////baz",
+    "out": "\\\\host\\share"
+   },
+   {
+    "in": "\\\\host\\share\\foo\\..\\bar",
+    "out": "\\\\host\\share"
+   },
+   {
+    "in": "//host/share/foo/../bar",
+    "out": "\\\\host\\share"
+   },
+   {
+    "in": "//.",
+    "out": "\\\\."
+   },
+   {
+    "in": "//./",
+    "out": "\\\\.\\"
+   },
+   {
+    "in": "//./NUL",
+    "out": "\\\\.\\NUL"
+   },
+   {
+    "in": "//?",
+    "out": "\\\\?"
+   },
+   {
+    "in": "//?/",
+    "out": "\\\\?\\"
+   },
+   {
+    "in": "//?/NUL",
+    "out": "\\\\?\\NUL"
+   },
+   {
+    "in": "/??",
+    "out": "\\??"
+   },
+   {
+    "in": "/??/",
+    "out": "\\??\\"
+   },
+   {
+    "in": "/??/NUL",
+    "out": "\\??\\NUL"
+   },
+   {
+    "in": "//./a/b",
+    "out": "\\\\.\\a"
+   },
+   {
+    "in": "//./C:",
+    "out": "\\\\.\\C:"
+   },
+   {
+    "in": "//./C:/",
+    "out": "\\\\.\\C:"
+   },
+   {
+    "in": "//./C:/a/b/c",
+    "out": "\\\\.\\C:"
+   },
+   {
+    "in": "//./UNC/host/share/a/b/c",
+    "out": "\\\\.\\UNC\\host\\share"
+   },
+   {
+    "in": "//./UNC/host",
+    "out": "\\\\.\\UNC\\host"
+   },
+   {
+    "in": "//./UNC/host\\",
+    "out": "\\\\.\\UNC\\host\\"
+   },
+   {
+    "in": "//./UNC",
+    "out": "\\\\.\\UNC"
+   },
+   {
+    "in": "//./UNC/",
+    "out": "\\\\.\\UNC\\"
+   },
+   {
+    "in": "\\\\?\\x",
+    "out": "\\\\?\\x"
+   },
+   {
+    "in": "\\??\\x",
+    "out": "\\??\\x"
+   }
+  ]
+ }
+}

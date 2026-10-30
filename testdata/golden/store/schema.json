@@ -1,0 +1,112 @@
+{
+ "fresh": [
+  {
+   "name": "events_hlc",
+   "sql": "CREATE INDEX events_hlc ON events (hlc)",
+   "tblName": "events",
+   "type": "index"
+  },
+  {
+   "name": "events_kind",
+   "sql": "CREATE INDEX events_kind ON events (kind, hlc)",
+   "tblName": "events",
+   "type": "index"
+  },
+  {
+   "name": "local_events_kind",
+   "sql": "CREATE INDEX local_events_kind ON local_events (kind, hlc)",
+   "tblName": "local_events",
+   "type": "index"
+  },
+  {
+   "name": "events",
+   "sql": "CREATE TABLE events (\n\t\tdevice_id TEXT    NOT NULL,\n\t\tseq       INTEGER NOT NULL,\n\t\thlc       INTEGER NOT NULL,\n\t\tactor     TEXT    NOT NULL,\n\t\tkind      TEXT    NOT NULL,\n\t\tpayload   BLOB, sig BLOB,\n\t\tPRIMARY KEY (device_id, seq)\n\t) WITHOUT ROWID",
+   "tblName": "events",
+   "type": "table"
+  },
+  {
+   "name": "forks",
+   "sql": "CREATE TABLE forks (\n\t\tdevice_id  TEXT    NOT NULL,\n\t\tseq        INTEGER NOT NULL,\n\t\tother_hash TEXT    NOT NULL,\n\t\thlc        INTEGER NOT NULL,\n\t\tactor      TEXT    NOT NULL,\n\t\tkind       TEXT    NOT NULL,\n\t\tpayload    BLOB,\n\t\tsig        BLOB,\n\t\treason     TEXT    NOT NULL DEFAULT 'two rows',\n\t\tseen_at    INTEGER NOT NULL DEFAULT (unixepoch()),\n\t\tPRIMARY KEY (device_id, seq, other_hash)\n\t) WITHOUT ROWID",
+   "tblName": "forks",
+   "type": "table"
+  },
+  {
+   "name": "local_events",
+   "sql": "CREATE TABLE local_events (\n\t\tdevice_id TEXT    NOT NULL,\n\t\tseq       INTEGER NOT NULL,\n\t\thlc       INTEGER NOT NULL,\n\t\tactor     TEXT    NOT NULL,\n\t\tkind      TEXT    NOT NULL,\n\t\tpayload   BLOB,\n\t\tsig       BLOB,\n\t\tPRIMARY KEY (device_id, seq)\n\t) WITHOUT ROWID",
+   "tblName": "local_events",
+   "type": "table"
+  },
+  {
+   "name": "refused_events",
+   "sql": "CREATE TABLE refused_events (\n\t\tdevice_id  TEXT    NOT NULL,\n\t\tseq        INTEGER NOT NULL,\n\t\thlc        INTEGER NOT NULL,\n\t\tactor      TEXT    NOT NULL,\n\t\tkind       TEXT    NOT NULL,\n\t\tpayload    BLOB,\n\t\tsig        BLOB,\n\t\treason     TEXT    NOT NULL,\n\t\trefused_at INTEGER NOT NULL DEFAULT (unixepoch()),\n\t\tPRIMARY KEY (device_id, seq)\n\t) WITHOUT ROWID",
+   "tblName": "refused_events",
+   "type": "table"
+  },
+  {
+   "name": "schema_migrations",
+   "sql": "CREATE TABLE schema_migrations (\n\t\tversion    INTEGER PRIMARY KEY,\n\t\tapplied_at INTEGER NOT NULL DEFAULT (unixepoch())\n\t)",
+   "tblName": "schema_migrations",
+   "type": "table"
+  },
+  {
+   "name": "[1 2 3]",
+   "type": "versions"
+  }
+ ],
+ "migrated": [
+  {
+   "name": "events_hlc",
+   "sql": "CREATE INDEX events_hlc ON events (hlc)",
+   "tblName": "events",
+   "type": "index"
+  },
+  {
+   "name": "events_kind",
+   "sql": "CREATE INDEX events_kind ON events (kind, hlc)",
+   "tblName": "events",
+   "type": "index"
+  },
+  {
+   "name": "local_events_kind",
+   "sql": "CREATE INDEX local_events_kind ON local_events (kind, hlc)",
+   "tblName": "local_events",
+   "type": "index"
+  },
+  {
+   "name": "events",
+   "sql": "CREATE TABLE events (\n\t\tdevice_id TEXT    NOT NULL,\n\t\tseq       INTEGER NOT NULL,\n\t\thlc       INTEGER NOT NULL,\n\t\tactor     TEXT    NOT NULL,\n\t\tkind      TEXT    NOT NULL,\n\t\tpayload   BLOB, sig BLOB,\n\t\tPRIMARY KEY (device_id, seq)\n\t) WITHOUT ROWID",
+   "tblName": "events",
+   "type": "table"
+  },
+  {
+   "name": "forks",
+   "sql": "CREATE TABLE forks (\n\t\tdevice_id  TEXT    NOT NULL,\n\t\tseq        INTEGER NOT NULL,\n\t\tother_hash TEXT    NOT NULL,\n\t\thlc        INTEGER NOT NULL,\n\t\tactor      TEXT    NOT NULL,\n\t\tkind       TEXT    NOT NULL,\n\t\tpayload    BLOB,\n\t\tsig        BLOB,\n\t\treason     TEXT    NOT NULL DEFAULT 'two rows',\n\t\tseen_at    INTEGER NOT NULL DEFAULT (unixepoch()),\n\t\tPRIMARY KEY (device_id, seq, other_hash)\n\t) WITHOUT ROWID",
+   "tblName": "forks",
+   "type": "table"
+  },
+  {
+   "name": "local_events",
+   "sql": "CREATE TABLE local_events (\n\t\tdevice_id TEXT    NOT NULL,\n\t\tseq       INTEGER NOT NULL,\n\t\thlc       INTEGER NOT NULL,\n\t\tactor     TEXT    NOT NULL,\n\t\tkind      TEXT    NOT NULL,\n\t\tpayload   BLOB,\n\t\tsig       BLOB,\n\t\tPRIMARY KEY (device_id, seq)\n\t) WITHOUT ROWID",
+   "tblName": "local_events",
+   "type": "table"
+  },
+  {
+   "name": "refused_events",
+   "sql": "CREATE TABLE refused_events (\n\t\tdevice_id  TEXT    NOT NULL,\n\t\tseq        INTEGER NOT NULL,\n\t\thlc        INTEGER NOT NULL,\n\t\tactor      TEXT    NOT NULL,\n\t\tkind       TEXT    NOT NULL,\n\t\tpayload    BLOB,\n\t\tsig        BLOB,\n\t\treason     TEXT    NOT NULL,\n\t\trefused_at INTEGER NOT NULL DEFAULT (unixepoch()),\n\t\tPRIMARY KEY (device_id, seq)\n\t) WITHOUT ROWID",
+   "tblName": "refused_events",
+   "type": "table"
+  },
+  {
+   "name": "schema_migrations",
+   "sql": "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL DEFAULT (unixepoch()))",
+   "tblName": "schema_migrations",
+   "type": "table"
+  },
+  {
+   "name": "[1 2 3]",
+   "type": "versions"
+  }
+ ],
+ "v1": "CREATE TABLE events (\n\t\tdevice_id TEXT    NOT NULL,\n\t\tseq       INTEGER NOT NULL,\n\t\thlc       INTEGER NOT NULL,\n\t\tactor     TEXT    NOT NULL,\n\t\tkind      TEXT    NOT NULL,\n\t\tpayload   BLOB,\n\t\tPRIMARY KEY (device_id, seq)\n\t) WITHOUT ROWID;\n\tCREATE INDEX events_hlc ON events (hlc);\n\tCREATE INDEX events_kind ON events (kind, hlc);",
+ "v2": "ALTER TABLE events ADD COLUMN sig BLOB;\n\tCREATE TABLE local_events (\n\t\tdevice_id TEXT    NOT NULL,\n\t\tseq       INTEGER NOT NULL,\n\t\thlc       INTEGER NOT NULL,\n\t\tactor     TEXT    NOT NULL,\n\t\tkind      TEXT    NOT NULL,\n\t\tpayload   BLOB,\n\t\tsig       BLOB,\n\t\tPRIMARY KEY (device_id, seq)\n\t) WITHOUT ROWID;\n\tCREATE INDEX local_events_kind ON local_events (kind, hlc);\n\tCREATE TABLE refused_events (\n\t\tdevice_id  TEXT    NOT NULL,\n\t\tseq        INTEGER NOT NULL,\n\t\thlc        INTEGER NOT NULL,\n\t\tactor      TEXT    NOT NULL,\n\t\tkind       TEXT    NOT NULL,\n\t\tpayload    BLOB,\n\t\tsig        BLOB,\n\t\treason     TEXT    NOT NULL,\n\t\trefused_at INTEGER NOT NULL DEFAULT (unixepoch()),\n\t\tPRIMARY KEY (device_id, seq)\n\t) WITHOUT ROWID;\n\tCREATE TABLE forks (\n\t\tdevice_id  TEXT    NOT NULL,\n\t\tseq        INTEGER NOT NULL,\n\t\tother_hash TEXT    NOT NULL,\n\t\thlc        INTEGER NOT NULL,\n\t\tactor      TEXT    NOT NULL,\n\t\tkind       TEXT    NOT NULL,\n\t\tpayload    BLOB,\n\t\tsig        BLOB,\n\t\treason     TEXT    NOT NULL DEFAULT 'two rows',\n\t\tseen_at    INTEGER NOT NULL DEFAULT (unixepoch()),\n\t\tPRIMARY KEY (device_id, seq, other_hash)\n\t) WITHOUT ROWID;"
+}

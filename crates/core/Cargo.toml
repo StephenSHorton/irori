@@ -1,0 +1,44 @@
+[package]
+name = "irori-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The Core: one data dir's store and services, their loops and timers, the lockfile and the change feed"
+
+[lib]
+name = "irori_core"
+
+[dependencies]
+irori-blob.workspace = true
+irori-capture.workspace = true
+irori-coord.workspace = true
+irori-gocompat.workspace = true
+irori-home.workspace = true
+irori-mesh.workspace = true
+irori-meshseam.workspace = true
+irori-net.workspace = true
+irori-pair.workspace = true
+iroh = "1.4.1"
+irori-identity.workspace = true
+irori-inbox.workspace = true
+irori-notify.workspace = true
+irori-presence.workspace = true
+irori-scrub.workspace = true
+irori-store.workspace = true
+irori-sys.workspace = true
+irori-tools.workspace = true
+getrandom.workspace = true
+hex.workspace = true
+irori-lan.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+
+[dev-dependencies]
+irori-search.workspace = true
+ed25519-dalek.workspace = true
+rusqlite.workspace = true
+tempfile.workspace = true

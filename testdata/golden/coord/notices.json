@@ -1,0 +1,79 @@
+[
+ {
+  "step": "assign",
+  "kind": "assigned",
+  "to": "dev-a/bob-session",
+  "wake": false,
+  "text": "dev-a/alice-session assigned you a task: \"Fix \\\"it\\\" <now>\" (#1, task:01M5W19VG0QRM302EPRQ06D00R).\nObjective: obj & more\nDone when: dc\nClaim it to start.\nshow task:01M5W19VG0QRM302EPRQ06D00R for the card, its comments and links."
+ },
+ {
+  "step": "unblock",
+  "kind": "unblocked",
+  "to": "dev-a/bob-session",
+  "wake": false,
+  "text": "user:dev-a unblocked \"Fix \\\"it\\\" <now>\" (#1, task:01M5W19VG0QRM302EPRQ06D00R): back. It was blocked on: the db. It is working again.\nshow task:01M5W19VG0QRM302EPRQ06D00R for the card, its comments and links."
+ },
+ {
+  "step": "comment",
+  "kind": "comment",
+  "to": "dev-a/bob-session",
+  "wake": false,
+  "text": "dev-a/carol-session commented on \"Fix \\\"it\\\" <now>\" (#1, task:01M5W19VG0QRM302EPRQ06D00R):\nhi <b>\nshow task:01M5W19VG0QRM302EPRQ06D00R for the card, its comments and links."
+ },
+ {
+  "step": "answer",
+  "kind": "answered",
+  "to": "dev-a/bob-session",
+  "wake": false,
+  "text": "user:dev-a answered the blocker on \"Fix \\\"it\\\" <now>\" (#1, task:01M5W19VG0QRM302EPRQ06D00R, blocker b2).\nQuestion: Which?\nAnswer: A\n(That is the answer dev-a/bob-session recommended.)\nIt is not resolved yet. When you have what you need: board_unblock task_id=01M5W19VG0QRM302EPRQ06D00R blocker_id=b2 note=\"<one line on what you will do now>\". If the answer doesn't settle it: board_comment task_id=01M5W19VG0QRM302EPRQ06D00R blocker_id=b2 with what is still missing.\nshow task:01M5W19VG0QRM302EPRQ06D00R for the card, its comments and links."
+ },
+ {
+  "step": "resolve",
+  "kind": "answered",
+  "to": "",
+  "wake": false,
+  "text": "dev-a/bob-session resolved blocker b2 on \"Fix \\\"it\\\" <now>\" (#1, task:01M5W19VG0QRM302EPRQ06D00R): ok\nQuestion: Which?\nThe person's answer: A\nNo blockers remain: it is working again.\nshow task:01M5W19VG0QRM302EPRQ06D00R for the card, its comments and links."
+ },
+ {
+  "step": "reopen",
+  "kind": "reopened",
+  "to": "dev-a/bob-session",
+  "wake": false,
+  "text": "The person reopened \"Fix \\\"it\\\" <now>\" (#1, task:01M5W19VG0QRM302EPRQ06D00R), which was completed. It is working again, with you on it: pick it up, or board_status it done again if there is nothing left to do.\nshow task:01M5W19VG0QRM302EPRQ06D00R for the card, its comments and links."
+ },
+ {
+  "step": "person comment",
+  "kind": "comment",
+  "to": "dev-a/bob-session",
+  "wake": true,
+  "text": "The person commented on \"Fix \\\"it\\\" <now>\" (#1, task:01M5W19VG0QRM302EPRQ06D00R):\nmore?\nAnswer it on the card with board_comment.\nshow task:01M5W19VG0QRM302EPRQ06D00R for the card, its comments and links."
+ },
+ {
+  "step": "watch digest",
+  "kind": "watched",
+  "to": "dev-a/carol-session",
+  "wake": false,
+  "text": "Update on \"Fix \\\"it\\\" <now>\" (#1, task:01M5W19VG0QRM302EPRQ06D00R), a card you watch or raised a blocker on:\n- dev-a/bob-session set the steps (0/1 done)\nNow: working, steps 0/1.\nshow task:01M5W19VG0QRM302EPRQ06D00R for the card, its comments and links."
+ },
+ {
+  "step": "ask",
+  "kind": "ask",
+  "to": "dev-a/alice-session,dev-a/bob-session,dev-a/carol-session",
+  "wake": true,
+  "text": "The person asks the room (#2, task:01M5W19VG02AHXJWDFEVA5FJN4):\nLook at this\nplease\nIf you can take it on now, ask_claim #2: one agent takes it, and you hear if someone else got there first. If you're busy, leave it.\nshow task:01M5W19VG02AHXJWDFEVA5FJN4 for the card, its comments and links."
+ },
+ {
+  "step": "ask sweep 2",
+  "kind": "ask",
+  "to": "dev-a/bob-session,dev-a/carol-session",
+  "wake": false,
+  "text": "The person asks the room (#2, task:01M5W19VG02AHXJWDFEVA5FJN4), again: the agent that took it went away:\nLook at this\nplease\nIf you can take it on now, ask_claim #2: one agent takes it, and you hear if someone else got there first. If you're busy, leave it.\nshow task:01M5W19VG02AHXJWDFEVA5FJN4 for the card, its comments and links."
+ },
+ {
+  "step": "returned 2",
+  "kind": "returned",
+  "to": "dev-a/bob-session",
+  "wake": false,
+  "text": "Nobody is on \"Left behind\" (#3, task:01M5W1FC885Y1CZS3V1K7RGD65) any more: dev-a/carol-session went away, and it's open again. Take it with board_join, hand it on with board_assign, or close it with board_status.\nshow task:01M5W1FC885Y1CZS3V1K7RGD65 for the card, its comments and links."
+ }
+]

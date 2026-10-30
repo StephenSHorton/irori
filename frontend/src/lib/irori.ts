@@ -1,14 +1,11 @@
-// Package-level gateway between the UI and the Go side. Components import
-// from here, never from bindings/, so the Wails surface stays in one file and
+// Package-level gateway between the UI and the host. Components import
+// from here, never from src/gen, so the host surface stays in src/lib and
 // the app still runs in a plain browser on a built-in sample roster.
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Events } from "@wailsio/runtime"
 
-import { RosterService } from "../../bindings/github.com/StephenSHorton/irori"
-import type { Identity } from "../../bindings/github.com/StephenSHorton/irori/internal/device/models"
-import type { AgentCard } from "../../bindings/github.com/StephenSHorton/irori/internal/presence/models"
-import type { Event as LogEvent } from "../../bindings/github.com/StephenSHorton/irori/internal/store/models"
+import { Events, RosterService } from "./host"
+import type { AgentCard, Identity, Event as LogEvent, RosterChange } from "./models"
 import { sampleRoster } from "./sample"
 
 export type { AgentCard, Identity, LogEvent }
@@ -34,18 +31,20 @@ export type Roster = {
   recentError: string | null
 }
 
-// inWails reports whether the page runs inside a Wails webview. It checks the
-// same IPC handles @wailsio/runtime uses (WebView2 on Windows, WKWebView /
-// WebKitGTK elsewhere), so dev mode inside the app counts as Wails too.
-export function inWails(): boolean {
-  const w = window as unknown as {
-    chrome?: { webview?: { postMessage?: unknown } }
-    webkit?: { messageHandlers?: { external?: { postMessage?: unknown } } }
-  }
+// inHost reports whether the page runs inside the Irori (Tauri) window.
+// It must not test window.chrome.webview: WebView2 has that under Tauri
+// too (surface.md 7.6).
+export function inHost(): boolean {
   return Boolean(
-    w.chrome?.webview?.postMessage ||
-    w.webkit?.messageHandlers?.external?.postMessage
+    (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
   )
+}
+
+// inWails reports whether the gateways call the host (every service the
+// window calls is a command, crates/window). The name stays from the
+// Wails build so the gateways read as they did.
+export function inWails(): boolean {
+  return inHost()
 }
 
 function message(err: unknown): string {
@@ -103,7 +102,7 @@ export function useRoster(): Roster {
     // than the Agents() snapshot, so that snapshot must not overwrite it.
     let rosterEvents = 0
 
-    const off = Events.On(EventRosterChanged, (ev) => {
+    const off = Events.On<RosterChange>(EventRosterChanged, (ev) => {
       rosterEvents++
       setState((s) => ({ ...s, agents: ev.data?.agents ?? [] }))
       window.clearTimeout(recentTimer.current)

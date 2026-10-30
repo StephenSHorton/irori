@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test"
 
-import { AgentRef, CardAsk } from "../../bindings/github.com/StephenSHorton/irori/models"
-import { TaskState } from "../../bindings/github.com/StephenSHorton/irori/internal/coord/models"
+import { AgentRef, CardAsk } from "./models"
+import { TaskState } from "./models"
 import { askLine, busy, cardFromHash, cardHash, deviceChips, deviceVar, holderLineShows, Holding, nobodyOn, openAsk, overLabel, workLabel } from "./cards"
 
 const agent = (status: string, more: Partial<AgentRef> = {}) =>
-  new AgentRef({ key: "d/s", name: "a", status, live: status !== "gone", where: "This PC", ...more })
+  AgentRef({ key: "d/s", name: "a", status, live: status !== "gone", where: "This PC", ...more })
 
 const card = (state: TaskState, working: AgentRef[], openBlockers = 0) => ({
   state,
@@ -69,7 +69,7 @@ describe("card hash", () => {
 
 describe("asks", () => {
   const ask = (more: Partial<CardAsk>) =>
-    new CardAsk({ state: "open", told: 3, owner: "MacBook", wake: false, taker: null, outcome: null, ...more })
+    CardAsk({ state: "open", told: 3, owner: "MacBook", wake: false, taker: null, outcome: null, ...more })
   test("the tile's line says where an ask stands", () => {
     expect(askLine(ask({}))).toBe("3 agents heard it")
     expect(askLine(ask({ told: 1 }))).toBe("1 agent heard it")

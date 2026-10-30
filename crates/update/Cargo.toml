@@ -1,0 +1,30 @@
+[package]
+name = "irori-update"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Irori's in-app updater: GitHub releases/latest, SHA256SUMS, the NSIS silent install or the .app swap (surface.md §3, architecture.md §7.3, D11)"
+
+[lib]
+name = "update"
+
+[dependencies]
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio = { workspace = true }
+# The same reqwest iroh already builds (rustls without a provider); the
+# client gets a ring ClientConfig with the platform verifier.
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging", "tls12"] }
+rustls-platform-verifier = "0.7.1"
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["net"] }

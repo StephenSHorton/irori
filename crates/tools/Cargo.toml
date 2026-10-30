@@ -1,0 +1,28 @@
+[package]
+name = "irori-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Irori's agent tools: specs, dispatch and every tool's text (surface.md §2.8)"
+
+[lib]
+name = "tools"
+
+[dependencies]
+irori-blob.workspace = true
+irori-capture.workspace = true
+irori-coord.workspace = true
+irori-gocompat.workspace = true
+irori-hlc.workspace = true
+irori-inbox.workspace = true
+irori-ledger.workspace = true
+irori-presence.workspace = true
+irori-search.workspace = true
+irori-store.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true
+regex.workspace = true

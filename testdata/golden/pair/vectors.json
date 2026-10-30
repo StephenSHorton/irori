@@ -1,0 +1,23 @@
+{
+  "source": "docs/port/identity.md §7.1 (ROOM, INFO, FP): Go 1.26.5 running I:internal/pair/code.go's stdlib calls at be67a86",
+  "room": {
+    "code": "ABCD-EFGH-JKMN-PQRS",
+    "key": "2af19e2f964ffa81e4b2b86b3c41d76a332049519de49a5c6cf9de80bf80aeb8",
+    "topic": "irori-pair-v1/d8a3057400706e013dee34210c2002ca"
+  },
+  "info": {
+    "aPubByte": 1,
+    "bPubByte": 2,
+    "fpA": "aa:bb",
+    "fpB": "cc:dd",
+    "aId": "devA",
+    "bId": "devB",
+    "sasBytes": "90428d9556",
+    "words": ["orca", "detergent", "offload", "narrative", "egghead"],
+    "proofA": "370ea8b304c15b6de9e9ad5461e34dbd5b779e5f24203d24ecf5bf4934e06343"
+  },
+  "fp": {
+    "pubByte": 1,
+    "fingerprint": "72cd 6e84 22c4 07fb"
+  }
+}

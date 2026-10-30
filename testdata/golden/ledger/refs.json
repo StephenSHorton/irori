@@ -1,0 +1,3814 @@
+{
+ "extract": [
+  {
+   "text": "APPROVED webapp#1407 (3ff5049c7). See https://github.com/acme/webapp/pull/1407 and WEB#1408, SHOP#498, api-server#143, then #1414.",
+   "opts": "none",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 1407
+    }
+   ]
+  },
+  {
+   "text": "APPROVED webapp#1407 (3ff5049c7). See https://github.com/acme/webapp/pull/1407 and WEB#1408, SHOP#498, api-server#143, then #1414.",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 1407
+    },
+    {
+     "repo": "acme/WEB",
+     "number": 1408
+    },
+    {
+     "repo": "acme/SHOP",
+     "number": 498
+    },
+    {
+     "repo": "acme/api-server",
+     "number": 143
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 1414
+    }
+   ]
+  },
+  {
+   "text": "APPROVED webapp#1407 (3ff5049c7). See https://github.com/acme/webapp/pull/1407 and WEB#1408, SHOP#498, api-server#143, then #1414.",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 1407
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 1408
+    },
+    {
+     "repo": "acme/storefront",
+     "number": 498
+    },
+    {
+     "repo": "acme/api-server",
+     "number": 143
+    }
+   ]
+  },
+  {
+   "text": "APPROVED webapp#1407 (3ff5049c7). See https://github.com/acme/webapp/pull/1407 and WEB#1408, SHOP#498, api-server#143, then #1414.",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "other/webapp",
+     "number": 1407
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 1407
+    },
+    {
+     "repo": "other/webapp",
+     "number": 1408
+    },
+    {
+     "repo": "acme/storefront",
+     "number": 498
+    },
+    {
+     "repo": "other/api-server",
+     "number": 143
+    },
+    {
+     "repo": "Acme/WebApp",
+     "number": 1414
+    }
+   ]
+  },
+  {
+   "text": "APPROVED webapp#1407 (3ff5049c7). See https://github.com/acme/webapp/pull/1407 and WEB#1408, SHOP#498, api-server#143, then #1414.",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 1407
+    },
+    {
+     "repo": "acme/WEB",
+     "number": 1408
+    },
+    {
+     "repo": "acme/SHOP",
+     "number": 498
+    },
+    {
+     "repo": "acme/api-server",
+     "number": 143
+    }
+   ]
+  },
+  {
+   "text": "REVIEW-PLEASE #492",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "REVIEW-PLEASE #492",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 492
+    }
+   ]
+  },
+  {
+   "text": "REVIEW-PLEASE #492",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "REVIEW-PLEASE #492",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 492
+    }
+   ]
+  },
+  {
+   "text": "REVIEW-PLEASE #492",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "<#100000000000000001> <@&100000000000000014> <@100000000000000015> hi",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "<#100000000000000001> <@&100000000000000014> <@100000000000000015> hi",
+   "opts": "default",
+   "refs": []
+  },
+  {
+   "text": "<#100000000000000001> <@&100000000000000014> <@100000000000000015> hi",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "<#100000000000000001> <@&100000000000000014> <@100000000000000015> hi",
+   "opts": "default+owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "<#100000000000000001> <@&100000000000000014> <@100000000000000015> hi",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "APPROVED acme/webapp#1407",
+   "opts": "none",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 1407
+    }
+   ]
+  },
+  {
+   "text": "APPROVED acme/webapp#1407",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 1407
+    }
+   ]
+  },
+  {
+   "text": "APPROVED acme/webapp#1407",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 1407
+    }
+   ]
+  },
+  {
+   "text": "APPROVED acme/webapp#1407",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 1407
+    }
+   ]
+  },
+  {
+   "text": "APPROVED acme/webapp#1407",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 1407
+    }
+   ]
+  },
+  {
+   "text": "acme/..#12 and github.com/../x/pull/3 then acme/webapp#4",
+   "opts": "none",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 4
+    }
+   ]
+  },
+  {
+   "text": "acme/..#12 and github.com/../x/pull/3 then acme/webapp#4",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 4
+    }
+   ]
+  },
+  {
+   "text": "acme/..#12 and github.com/../x/pull/3 then acme/webapp#4",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 4
+    }
+   ]
+  },
+  {
+   "text": "acme/..#12 and github.com/../x/pull/3 then acme/webapp#4",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 4
+    }
+   ]
+  },
+  {
+   "text": "acme/..#12 and github.com/../x/pull/3 then acme/webapp#4",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 4
+    }
+   ]
+  },
+  {
+   "text": "PR#1407 and pull#1408",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "PR#1407 and pull#1408",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 1407
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 1408
+    }
+   ]
+  },
+  {
+   "text": "PR#1407 and pull#1408",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "PR#1407 and pull#1408",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 1407
+    },
+    {
+     "repo": "Acme/WebApp",
+     "number": 1408
+    }
+   ]
+  },
+  {
+   "text": "PR#1407 and pull#1408",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "see `#12` and ```\n#13\n``` and order #333333",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "see `#12` and ```\n#13\n``` and order #333333",
+   "opts": "default",
+   "refs": []
+  },
+  {
+   "text": "see `#12` and ```\n#13\n``` and order #333333",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "see `#12` and ```\n#13\n``` and order #333333",
+   "opts": "default+owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "see `#12` and ```\n#13\n``` and order #333333",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "webapp#12",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "webapp#12",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "webapp#12",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "webapp#12",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "other/webapp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "webapp#12",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "PR#12",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "PR#12",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "PR#12",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "PR#12",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "PR#12",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "api#7",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "api#7",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/api",
+     "number": 7
+    }
+   ]
+  },
+  {
+   "text": "api#7",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/api",
+     "number": 7
+    }
+   ]
+  },
+  {
+   "text": "api#7",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "other/api",
+     "number": 7
+    }
+   ]
+  },
+  {
+   "text": "api#7",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/api",
+     "number": 7
+    }
+   ]
+  },
+  {
+   "text": "shop#5",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "shop#5",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/shop",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "shop#5",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/storefront",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "shop#5",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/storefront",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "shop#5",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/shop",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "web#5",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "web#5",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/web",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "web#5",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "web#5",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "other/webapp",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "web#5",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/web",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "Web#5",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "Web#5",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/Web",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "Web#5",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "Web#5",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "other/webapp",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "Web#5",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/Web",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "Acme/WebApp#5 acme/webapp#5",
+   "opts": "none",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "Acme/WebApp#5 acme/webapp#5",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "Acme/WebApp#5 acme/webapp#5",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "Acme/WebApp#5 acme/webapp#5",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "Acme/WebApp#5 acme/webapp#5",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "acme/webapp#1",
+   "opts": "none",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 1
+    }
+   ]
+  },
+  {
+   "text": "acme/webapp#1",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 1
+    }
+   ]
+  },
+  {
+   "text": "acme/webapp#1",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 1
+    }
+   ]
+  },
+  {
+   "text": "acme/webapp#1",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 1
+    }
+   ]
+  },
+  {
+   "text": "acme/webapp#1",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 1
+    }
+   ]
+  },
+  {
+   "text": "acme/webapp#1234567",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "acme/webapp#1234567",
+   "opts": "default",
+   "refs": []
+  },
+  {
+   "text": "acme/webapp#1234567",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "acme/webapp#1234567",
+   "opts": "default+owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "acme/webapp#1234567",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "#7",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "#7",
+   "opts": "default",
+   "refs": []
+  },
+  {
+   "text": "#7",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "#7",
+   "opts": "default+owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "#7",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "#12345",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "#12345",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12345
+    }
+   ]
+  },
+  {
+   "text": "#12345",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "#12345",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 12345
+    }
+   ]
+  },
+  {
+   "text": "#12345",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "#123456",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "#123456",
+   "opts": "default",
+   "refs": []
+  },
+  {
+   "text": "#123456",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "#123456",
+   "opts": "default+owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "#123456",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "#12a acme/webapp#3x",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "#12a acme/webapp#3x",
+   "opts": "default",
+   "refs": []
+  },
+  {
+   "text": "#12a acme/webapp#3x",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "#12a acme/webapp#3x",
+   "opts": "default+owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "#12a acme/webapp#3x",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "(#12), acme/webapp#3.",
+   "opts": "none",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 3
+    }
+   ]
+  },
+  {
+   "text": "(#12), acme/webapp#3.",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 3
+    }
+   ]
+  },
+  {
+   "text": "(#12), acme/webapp#3.",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 3
+    }
+   ]
+  },
+  {
+   "text": "(#12), acme/webapp#3.",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 12
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 3
+    }
+   ]
+  },
+  {
+   "text": "(#12), acme/webapp#3.",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 3
+    }
+   ]
+  },
+  {
+   "text": "abc#12",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "abc#12",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/abc",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "abc#12",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/abc",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "abc#12",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "other/abc",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "abc#12",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/abc",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "1#12 _#13",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "1#12 _#13",
+   "opts": "default",
+   "refs": []
+  },
+  {
+   "text": "1#12 _#13",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "1#12 _#13",
+   "opts": "default+owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "1#12 _#13",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "/#12 <#13 ##14 &#15 @#16",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "/#12 <#13 ##14 &#15 @#16",
+   "opts": "default",
+   "refs": []
+  },
+  {
+   "text": "/#12 <#13 ##14 &#15 @#16",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "/#12 <#13 ##14 &#15 @#16",
+   "opts": "default+owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "/#12 <#13 ##14 &#15 @#16",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "-#12",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "-#12",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "-#12",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "-#12",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "-#12",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "x -webapp#12",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "x -webapp#12",
+   "opts": "default",
+   "refs": []
+  },
+  {
+   "text": "x -webapp#12",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "x -webapp#12",
+   "opts": "default+owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "x -webapp#12",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "a/b/c#12 <web#13 #web#14",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "a/b/c#12 <web#13 #web#14",
+   "opts": "default",
+   "refs": []
+  },
+  {
+   "text": "a/b/c#12 <web#13 #web#14",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "a/b/c#12 <web#13 #web#14",
+   "opts": "default+owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "a/b/c#12 <web#13 #web#14",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "éwebapp#12",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "éwebapp#12",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "éwebapp#12",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "éwebapp#12",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "other/webapp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "éwebapp#12",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "&webapp#12 @api#13",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "&webapp#12 @api#13",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    },
+    {
+     "repo": "acme/api",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "&webapp#12 @api#13",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    },
+    {
+     "repo": "acme/api",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "&webapp#12 @api#13",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "other/webapp",
+     "number": 12
+    },
+    {
+     "repo": "other/api",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "&webapp#12 @api#13",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    },
+    {
+     "repo": "acme/api",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "1webapp#12 _x#13",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "1webapp#12 _x#13",
+   "opts": "default",
+   "refs": []
+  },
+  {
+   "text": "1webapp#12 _x#13",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "1webapp#12 _x#13",
+   "opts": "default+owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "1webapp#12 _x#13",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "x-webapp#12 then #14",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "x-webapp#12 then #14",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/x-webapp",
+     "number": 12
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 14
+    }
+   ]
+  },
+  {
+   "text": "x-webapp#12 then #14",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/x-webapp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "x-webapp#12 then #14",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "other/x-webapp",
+     "number": 12
+    },
+    {
+     "repo": "Acme/WebApp",
+     "number": 14
+    }
+   ]
+  },
+  {
+   "text": "x-webapp#12 then #14",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/x-webapp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "/a#12 b#13",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "/a#12 b#13",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/b",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "/a#12 b#13",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/b",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "/a#12 b#13",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "other/b",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "/a#12 b#13",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/b",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "-github.com/acme/webapp/pull/9",
+   "opts": "none",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 9
+    }
+   ]
+  },
+  {
+   "text": "-github.com/acme/webapp/pull/9",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 9
+    }
+   ]
+  },
+  {
+   "text": "-github.com/acme/webapp/pull/9",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 9
+    }
+   ]
+  },
+  {
+   "text": "-github.com/acme/webapp/pull/9",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 9
+    }
+   ]
+  },
+  {
+   "text": "-github.com/acme/webapp/pull/9",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 9
+    }
+   ]
+  },
+  {
+   "text": "github.com/acme/webapp/pull/77/files",
+   "opts": "none",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 77
+    }
+   ]
+  },
+  {
+   "text": "github.com/acme/webapp/pull/77/files",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 77
+    }
+   ]
+  },
+  {
+   "text": "github.com/acme/webapp/pull/77/files",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 77
+    }
+   ]
+  },
+  {
+   "text": "github.com/acme/webapp/pull/77/files",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 77
+    }
+   ]
+  },
+  {
+   "text": "github.com/acme/webapp/pull/77/files",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 77
+    }
+   ]
+  },
+  {
+   "text": "https://github.com/acme/webapp/issues/77",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "https://github.com/acme/webapp/issues/77",
+   "opts": "default",
+   "refs": []
+  },
+  {
+   "text": "https://github.com/acme/webapp/issues/77",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "https://github.com/acme/webapp/issues/77",
+   "opts": "default+owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "https://github.com/acme/webapp/issues/77",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "github.com/acme/webapp/pull/99999999999999999999999",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "github.com/acme/webapp/pull/99999999999999999999999",
+   "opts": "default",
+   "refs": []
+  },
+  {
+   "text": "github.com/acme/webapp/pull/99999999999999999999999",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "github.com/acme/webapp/pull/99999999999999999999999",
+   "opts": "default+owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "github.com/acme/webapp/pull/99999999999999999999999",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "acme/webapp#0 #00",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "acme/webapp#0 #00",
+   "opts": "default",
+   "refs": []
+  },
+  {
+   "text": "acme/webapp#0 #00",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "acme/webapp#0 #00",
+   "opts": "default+owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "acme/webapp#0 #00",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "`a\n#12 b`",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "`a\n#12 b`",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "`a\n#12 b`",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "`a\n#12 b`",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "`a\n#12 b`",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "```go\r\n#12\r\n```\r\n#13\r\n",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "```go\r\n#12\r\n```\r\n#13\r\n",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "```go\r\n#12\r\n```\r\n#13\r\n",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "```go\r\n#12\r\n```\r\n#13\r\n",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "```go\r\n#12\r\n```\r\n#13\r\n",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "```\n#12",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "```\n#12",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "```\n#12",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "```\n#12",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "```\n#12",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "",
+   "opts": "default",
+   "refs": []
+  },
+  {
+   "text": "",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "",
+   "opts": "default+owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "Acme/WebApp#5 and #60",
+   "opts": "none",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "Acme/WebApp#5 and #60",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 5
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 60
+    }
+   ]
+  },
+  {
+   "text": "Acme/WebApp#5 and #60",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "Acme/WebApp#5 and #60",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 5
+    },
+    {
+     "repo": "Acme/WebApp",
+     "number": 60
+    }
+   ]
+  },
+  {
+   "text": "Acme/WebApp#5 and #60",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "#12\u000b#13\u000b acme/webapp#14\u000b",
+   "opts": "none",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 14
+    }
+   ]
+  },
+  {
+   "text": "#12\u000b#13\u000b acme/webapp#14\u000b",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 14
+    }
+   ]
+  },
+  {
+   "text": "#12\u000b#13\u000b acme/webapp#14\u000b",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 14
+    }
+   ]
+  },
+  {
+   "text": "#12\u000b#13\u000b acme/webapp#14\u000b",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 12
+    },
+    {
+     "repo": "Acme/WebApp",
+     "number": 13
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 14
+    }
+   ]
+  },
+  {
+   "text": "#12\u000b#13\u000b acme/webapp#14\u000b",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 14
+    }
+   ]
+  },
+  {
+   "text": "\u000b#12 x\u000bwebapp#13",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "\u000b#12 x\u000bwebapp#13",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "\u000b#12 x\u000bwebapp#13",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "\u000b#12 x\u000bwebapp#13",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 12
+    },
+    {
+     "repo": "other/webapp",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "\u000b#12 x\u000bwebapp#13",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "#12é #13ü #14  #15\u2028",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "#12é #13ü #14  #15\u2028",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 14
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "#12é #13ü #14  #15\u2028",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "#12é #13ü #14  #15\u2028",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 12
+    },
+    {
+     "repo": "Acme/WebApp",
+     "number": 13
+    },
+    {
+     "repo": "Acme/WebApp",
+     "number": 14
+    },
+    {
+     "repo": "Acme/WebApp",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "#12é #13ü #14  #15\u2028",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "é#12 ü#13 中#14 中webapp#15",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "é#12 ü#13 中#14 中webapp#15",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 14
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "é#12 ü#13 中#14 中webapp#15",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "é#12 ü#13 中#14 中webapp#15",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 12
+    },
+    {
+     "repo": "Acme/WebApp",
+     "number": 13
+    },
+    {
+     "repo": "Acme/WebApp",
+     "number": 14
+    },
+    {
+     "repo": "other/webapp",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "é#12 ü#13 中#14 中webapp#15",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "Straße#4 naïve#5 Ǆ#6",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "Straße#4 naïve#5 Ǆ#6",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/e",
+     "number": 4
+    },
+    {
+     "repo": "acme/ve",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "Straße#4 naïve#5 Ǆ#6",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/e",
+     "number": 4
+    },
+    {
+     "repo": "acme/ve",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "Straße#4 naïve#5 Ǆ#6",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "other/e",
+     "number": 4
+    },
+    {
+     "repo": "other/ve",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "Straße#4 naïve#5 Ǆ#6",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/e",
+     "number": 4
+    },
+    {
+     "repo": "acme/ve",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "İstanbul#12 ıx#13 ſhop#14 Kelvin#15",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "İstanbul#12 ıx#13 ſhop#14 Kelvin#15",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/stanbul",
+     "number": 12
+    },
+    {
+     "repo": "acme/x",
+     "number": 13
+    },
+    {
+     "repo": "acme/hop",
+     "number": 14
+    },
+    {
+     "repo": "acme/elvin",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "İstanbul#12 ıx#13 ſhop#14 Kelvin#15",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/stanbul",
+     "number": 12
+    },
+    {
+     "repo": "acme/x",
+     "number": 13
+    },
+    {
+     "repo": "acme/hop",
+     "number": 14
+    },
+    {
+     "repo": "acme/elvin",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "İstanbul#12 ıx#13 ſhop#14 Kelvin#15",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "other/stanbul",
+     "number": 12
+    },
+    {
+     "repo": "other/x",
+     "number": 13
+    },
+    {
+     "repo": "other/hop",
+     "number": 14
+    },
+    {
+     "repo": "other/elvin",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "İstanbul#12 ıx#13 ſhop#14 Kelvin#15",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/stanbul",
+     "number": 12
+    },
+    {
+     "repo": "acme/x",
+     "number": 13
+    },
+    {
+     "repo": "acme/hop",
+     "number": 14
+    },
+    {
+     "repo": "acme/elvin",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "PULL#12 Pr#13 pR#14 pUlL#15 prx#16 pr/x#17",
+   "opts": "none",
+   "refs": [
+    {
+     "repo": "pr/x",
+     "number": 17
+    }
+   ]
+  },
+  {
+   "text": "PULL#12 Pr#13 pR#14 pUlL#15 prx#16 pr/x#17",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 14
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 15
+    },
+    {
+     "repo": "acme/prx",
+     "number": 16
+    },
+    {
+     "repo": "pr/x",
+     "number": 17
+    }
+   ]
+  },
+  {
+   "text": "PULL#12 Pr#13 pR#14 pUlL#15 prx#16 pr/x#17",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/prx",
+     "number": 16
+    },
+    {
+     "repo": "pr/x",
+     "number": 17
+    }
+   ]
+  },
+  {
+   "text": "PULL#12 Pr#13 pR#14 pUlL#15 prx#16 pr/x#17",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 12
+    },
+    {
+     "repo": "Acme/WebApp",
+     "number": 13
+    },
+    {
+     "repo": "Acme/WebApp",
+     "number": 14
+    },
+    {
+     "repo": "Acme/WebApp",
+     "number": 15
+    },
+    {
+     "repo": "other/prx",
+     "number": 16
+    },
+    {
+     "repo": "pr/x",
+     "number": 17
+    }
+   ]
+  },
+  {
+   "text": "PULL#12 Pr#13 pR#14 pUlL#15 prx#16 pr/x#17",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/prx",
+     "number": 16
+    },
+    {
+     "repo": "pr/x",
+     "number": 17
+    }
+   ]
+  },
+  {
+   "text": "github.com/Kelvin/x/pull/5 github.com/ſ/x/pull/6",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "github.com/Kelvin/x/pull/5 github.com/ſ/x/pull/6",
+   "opts": "default",
+   "refs": []
+  },
+  {
+   "text": "github.com/Kelvin/x/pull/5 github.com/ſ/x/pull/6",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "github.com/Kelvin/x/pull/5 github.com/ſ/x/pull/6",
+   "opts": "default+owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "github.com/Kelvin/x/pull/5 github.com/ſ/x/pull/6",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "GITHUB.COM/acme/webapp/pull/1 Github.com/acme/webapp/pull/2",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "GITHUB.COM/acme/webapp/pull/1 Github.com/acme/webapp/pull/2",
+   "opts": "default",
+   "refs": []
+  },
+  {
+   "text": "GITHUB.COM/acme/webapp/pull/1 Github.com/acme/webapp/pull/2",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "GITHUB.COM/acme/webapp/pull/1 Github.com/acme/webapp/pull/2",
+   "opts": "default+owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "GITHUB.COM/acme/webapp/pull/1 Github.com/acme/webapp/pull/2",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "https://github.com/a/b/pull/007 github.com/a/b/pull/0 github.com/a/b/pull/12#13",
+   "opts": "none",
+   "refs": [
+    {
+     "repo": "a/b",
+     "number": 7
+    },
+    {
+     "repo": "a/b",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "https://github.com/a/b/pull/007 github.com/a/b/pull/0 github.com/a/b/pull/12#13",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "a/b",
+     "number": 7
+    },
+    {
+     "repo": "a/b",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "https://github.com/a/b/pull/007 github.com/a/b/pull/0 github.com/a/b/pull/12#13",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "a/b",
+     "number": 7
+    },
+    {
+     "repo": "a/b",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "https://github.com/a/b/pull/007 github.com/a/b/pull/0 github.com/a/b/pull/12#13",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "a/b",
+     "number": 7
+    },
+    {
+     "repo": "a/b",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "https://github.com/a/b/pull/007 github.com/a/b/pull/0 github.com/a/b/pull/12#13",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "a/b",
+     "number": 7
+    },
+    {
+     "repo": "a/b",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "acme/webapp#000123 acme/webapp#0000001",
+   "opts": "none",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 123
+    }
+   ]
+  },
+  {
+   "text": "acme/webapp#000123 acme/webapp#0000001",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 123
+    }
+   ]
+  },
+  {
+   "text": "acme/webapp#000123 acme/webapp#0000001",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 123
+    }
+   ]
+  },
+  {
+   "text": "acme/webapp#000123 acme/webapp#0000001",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 123
+    }
+   ]
+  },
+  {
+   "text": "acme/webapp#000123 acme/webapp#0000001",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 123
+    }
+   ]
+  },
+  {
+   "text": "``` ``` #12 ```` #13 ````",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "``` ``` #12 ```` #13 ````",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "``` ``` #12 ```` #13 ````",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "``` ``` #12 ```` #13 ````",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 12
+    }
+   ]
+  },
+  {
+   "text": "``` ``` #12 ```` #13 ````",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "`#12`#13 ``#14`` `x`y`#15`",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "`#12`#13 ``#14`` `x`y`#15`",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 14
+    }
+   ]
+  },
+  {
+   "text": "`#12`#13 ``#14`` `x`y`#15`",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "`#12`#13 ``#14`` `x`y`#15`",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 13
+    },
+    {
+     "repo": "Acme/WebApp",
+     "number": 14
+    }
+   ]
+  },
+  {
+   "text": "`#12`#13 ``#14`` `x`y`#15`",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "```\n#12\n``` ```\n#13",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "```\n#12\n``` ```\n#13",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "```\n#12\n``` ```\n#13",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "```\n#12\n``` ```\n#13",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "```\n#12\n``` ```\n#13",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "x#12#13 a#1#2 a.b#3 a..#4 .a#5 a.#6",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "x#12#13 a#1#2 a.b#3 a..#4 .a#5 a.#6",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/x",
+     "number": 12
+    },
+    {
+     "repo": "acme/a",
+     "number": 1
+    },
+    {
+     "repo": "acme/a.b",
+     "number": 3
+    },
+    {
+     "repo": "acme/a..",
+     "number": 4
+    },
+    {
+     "repo": "acme/a",
+     "number": 5
+    },
+    {
+     "repo": "acme/a.",
+     "number": 6
+    }
+   ]
+  },
+  {
+   "text": "x#12#13 a#1#2 a.b#3 a..#4 .a#5 a.#6",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/x",
+     "number": 12
+    },
+    {
+     "repo": "acme/a",
+     "number": 1
+    },
+    {
+     "repo": "acme/a.b",
+     "number": 3
+    },
+    {
+     "repo": "acme/a..",
+     "number": 4
+    },
+    {
+     "repo": "acme/a",
+     "number": 5
+    },
+    {
+     "repo": "acme/a.",
+     "number": 6
+    }
+   ]
+  },
+  {
+   "text": "x#12#13 a#1#2 a.b#3 a..#4 .a#5 a.#6",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "other/x",
+     "number": 12
+    },
+    {
+     "repo": "other/a",
+     "number": 1
+    },
+    {
+     "repo": "other/a.b",
+     "number": 3
+    },
+    {
+     "repo": "other/a..",
+     "number": 4
+    },
+    {
+     "repo": "other/a",
+     "number": 5
+    },
+    {
+     "repo": "other/a.",
+     "number": 6
+    }
+   ]
+  },
+  {
+   "text": "x#12#13 a#1#2 a.b#3 a..#4 .a#5 a.#6",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/x",
+     "number": 12
+    },
+    {
+     "repo": "acme/a",
+     "number": 1
+    },
+    {
+     "repo": "acme/a.b",
+     "number": 3
+    },
+    {
+     "repo": "acme/a..",
+     "number": 4
+    },
+    {
+     "repo": "acme/a",
+     "number": 5
+    },
+    {
+     "repo": "acme/a.",
+     "number": 6
+    }
+   ]
+  },
+  {
+   "text": "o/r/x#1 o/r#2/x o//r#3 o/.#4 ./r#5 o/r.#6",
+   "opts": "none",
+   "refs": [
+    {
+     "repo": "o/r",
+     "number": 2
+    },
+    {
+     "repo": "o/r.",
+     "number": 6
+    }
+   ]
+  },
+  {
+   "text": "o/r/x#1 o/r#2/x o//r#3 o/.#4 ./r#5 o/r.#6",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "o/r",
+     "number": 2
+    },
+    {
+     "repo": "o/r.",
+     "number": 6
+    }
+   ]
+  },
+  {
+   "text": "o/r/x#1 o/r#2/x o//r#3 o/.#4 ./r#5 o/r.#6",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "o/r",
+     "number": 2
+    },
+    {
+     "repo": "o/r.",
+     "number": 6
+    }
+   ]
+  },
+  {
+   "text": "o/r/x#1 o/r#2/x o//r#3 o/.#4 ./r#5 o/r.#6",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "o/r",
+     "number": 2
+    },
+    {
+     "repo": "o/r.",
+     "number": 6
+    }
+   ]
+  },
+  {
+   "text": "o/r/x#1 o/r#2/x o//r#3 o/.#4 ./r#5 o/r.#6",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "o/r",
+     "number": 2
+    },
+    {
+     "repo": "o/r.",
+     "number": 6
+    }
+   ]
+  },
+  {
+   "text": "web#1 WEB#2 Web#3 shop#4 SHOP#5",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "web#1 WEB#2 Web#3 shop#4 SHOP#5",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/web",
+     "number": 1
+    },
+    {
+     "repo": "acme/WEB",
+     "number": 2
+    },
+    {
+     "repo": "acme/Web",
+     "number": 3
+    },
+    {
+     "repo": "acme/shop",
+     "number": 4
+    },
+    {
+     "repo": "acme/SHOP",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "web#1 WEB#2 Web#3 shop#4 SHOP#5",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 1
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 2
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 3
+    },
+    {
+     "repo": "acme/storefront",
+     "number": 4
+    },
+    {
+     "repo": "acme/storefront",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "web#1 WEB#2 Web#3 shop#4 SHOP#5",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "other/webapp",
+     "number": 1
+    },
+    {
+     "repo": "other/webapp",
+     "number": 2
+    },
+    {
+     "repo": "other/webapp",
+     "number": 3
+    },
+    {
+     "repo": "acme/storefront",
+     "number": 4
+    },
+    {
+     "repo": "acme/storefront",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "web#1 WEB#2 Web#3 shop#4 SHOP#5",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/web",
+     "number": 1
+    },
+    {
+     "repo": "acme/WEB",
+     "number": 2
+    },
+    {
+     "repo": "acme/Web",
+     "number": 3
+    },
+    {
+     "repo": "acme/shop",
+     "number": 4
+    },
+    {
+     "repo": "acme/SHOP",
+     "number": 5
+    }
+   ]
+  },
+  {
+   "text": "a_b#12 a-b-c#13 A9#14 Z_#15",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "a_b#12 a-b-c#13 A9#14 Z_#15",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/a_b",
+     "number": 12
+    },
+    {
+     "repo": "acme/a-b-c",
+     "number": 13
+    },
+    {
+     "repo": "acme/A9",
+     "number": 14
+    },
+    {
+     "repo": "acme/Z_",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "a_b#12 a-b-c#13 A9#14 Z_#15",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/a_b",
+     "number": 12
+    },
+    {
+     "repo": "acme/a-b-c",
+     "number": 13
+    },
+    {
+     "repo": "acme/A9",
+     "number": 14
+    },
+    {
+     "repo": "acme/Z_",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "a_b#12 a-b-c#13 A9#14 Z_#15",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "other/a_b",
+     "number": 12
+    },
+    {
+     "repo": "other/a-b-c",
+     "number": 13
+    },
+    {
+     "repo": "other/A9",
+     "number": 14
+    },
+    {
+     "repo": "other/Z_",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "a_b#12 a-b-c#13 A9#14 Z_#15",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/a_b",
+     "number": 12
+    },
+    {
+     "repo": "acme/a-b-c",
+     "number": 13
+    },
+    {
+     "repo": "acme/A9",
+     "number": 14
+    },
+    {
+     "repo": "acme/Z_",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "\t#12\n#13\r#14\f#15 #16",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "\t#12\n#13\r#14\f#15 #16",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 14
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 15
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 16
+    }
+   ]
+  },
+  {
+   "text": "\t#12\n#13\r#14\f#15 #16",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "\t#12\n#13\r#14\f#15 #16",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 12
+    },
+    {
+     "repo": "Acme/WebApp",
+     "number": 13
+    },
+    {
+     "repo": "Acme/WebApp",
+     "number": 14
+    },
+    {
+     "repo": "Acme/WebApp",
+     "number": 15
+    },
+    {
+     "repo": "Acme/WebApp",
+     "number": 16
+    }
+   ]
+  },
+  {
+   "text": "\t#12\n#13\r#14\f#15 #16",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "<#12> <@#13> &#14; #&15",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "<#12> <@#13> &#14; #&15",
+   "opts": "default",
+   "refs": []
+  },
+  {
+   "text": "<#12> <@#13> &#14; #&15",
+   "opts": "owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "<#12> <@#13> &#14; #&15",
+   "opts": "default+owner+aliases",
+   "refs": []
+  },
+  {
+   "text": "<#12> <@#13> &#14; #&15",
+   "opts": "default-no-slash",
+   "refs": []
+  },
+  {
+   "text": "github.com/acme/webapp/pull/12github.com/acme/webapp/pull/13",
+   "opts": "none",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "github.com/acme/webapp/pull/12github.com/acme/webapp/pull/13",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "github.com/acme/webapp/pull/12github.com/acme/webapp/pull/13",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "github.com/acme/webapp/pull/12github.com/acme/webapp/pull/13",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "github.com/acme/webapp/pull/12github.com/acme/webapp/pull/13",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "ggithub.com/acme/webapp/pull/14 xgithub.com/acme/webapp/pull/15",
+   "opts": "none",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 14
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "ggithub.com/acme/webapp/pull/14 xgithub.com/acme/webapp/pull/15",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 14
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "ggithub.com/acme/webapp/pull/14 xgithub.com/acme/webapp/pull/15",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 14
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "ggithub.com/acme/webapp/pull/14 xgithub.com/acme/webapp/pull/15",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 14
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "ggithub.com/acme/webapp/pull/14 xgithub.com/acme/webapp/pull/15",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 14
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "text": "#99999 #100000 a/b#999999 a/b#1000000",
+   "opts": "none",
+   "refs": [
+    {
+     "repo": "a/b",
+     "number": 999999
+    }
+   ]
+  },
+  {
+   "text": "#99999 #100000 a/b#999999 a/b#1000000",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 99999
+    },
+    {
+     "repo": "a/b",
+     "number": 999999
+    }
+   ]
+  },
+  {
+   "text": "#99999 #100000 a/b#999999 a/b#1000000",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "a/b",
+     "number": 999999
+    }
+   ]
+  },
+  {
+   "text": "#99999 #100000 a/b#999999 a/b#1000000",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 99999
+    },
+    {
+     "repo": "a/b",
+     "number": 999999
+    }
+   ]
+  },
+  {
+   "text": "#99999 #100000 a/b#999999 a/b#1000000",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "a/b",
+     "number": 999999
+    }
+   ]
+  },
+  {
+   "text": "emoji 🙂#12 🙂webapp#13",
+   "opts": "none",
+   "refs": []
+  },
+  {
+   "text": "emoji 🙂#12 🙂webapp#13",
+   "opts": "default",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 12
+    },
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "emoji 🙂#12 🙂webapp#13",
+   "opts": "owner+aliases",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "emoji 🙂#12 🙂webapp#13",
+   "opts": "default+owner+aliases",
+   "refs": [
+    {
+     "repo": "Acme/WebApp",
+     "number": 12
+    },
+    {
+     "repo": "other/webapp",
+     "number": 13
+    }
+   ]
+  },
+  {
+   "text": "emoji 🙂#12 🙂webapp#13",
+   "opts": "default-no-slash",
+   "refs": [
+    {
+     "repo": "acme/webapp",
+     "number": 13
+    }
+   ]
+  }
+ ],
+ "options": [
+  {
+   "name": "none",
+   "defaultRepo": "",
+   "owner": "",
+   "aliases": null
+  },
+  {
+   "name": "default",
+   "defaultRepo": "acme/webapp",
+   "owner": "",
+   "aliases": null
+  },
+  {
+   "name": "owner+aliases",
+   "defaultRepo": "",
+   "owner": "acme",
+   "aliases": {
+    "shop": "acme/storefront",
+    "web": "webapp",
+    "ſhop": "x/y"
+   }
+  },
+  {
+   "name": "default+owner+aliases",
+   "defaultRepo": "Acme/WebApp",
+   "owner": "other",
+   "aliases": {
+    "shop": "acme/storefront",
+    "web": "webapp"
+   }
+  },
+  {
+   "name": "default-no-slash",
+   "defaultRepo": "acme",
+   "owner": "",
+   "aliases": null
+  }
+ ],
+ "target": [
+  {
+   "in": "pr:acme/webapp#1437",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 1437
+   }
+  },
+  {
+   "in": "PR:acme/webapp#1437",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 1437
+   }
+  },
+  {
+   "in": "acme/webapp#1437",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 1437
+   }
+  },
+  {
+   "in": "Acme/WebApp#3",
+   "ok": true,
+   "ref": {
+    "repo": "Acme/WebApp",
+    "number": 3
+   }
+  },
+  {
+   "in": "  acme/webapp#3\r\n",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 3
+   }
+  },
+  {
+   "in": "https://github.com/acme/webapp/pull/1437",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 1437
+   }
+  },
+  {
+   "in": "http://github.com/acme/webapp/pull/1437",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 1437
+   }
+  },
+  {
+   "in": "github.com/acme/webapp/pull/1437",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 1437
+   }
+  },
+  {
+   "in": "https://www.github.com/acme/webapp/pull/1437",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 1437
+   }
+  },
+  {
+   "in": "https://GitHub.com/acme/webapp/pull/1437",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 1437
+   }
+  },
+  {
+   "in": "https://github.com/acme/webapp/pull/1437/files",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 1437
+   }
+  },
+  {
+   "in": "https://github.com/acme/webapp/pull/1437/",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 1437
+   }
+  },
+  {
+   "in": "https://github.com/acme/webapp/pull/1437?diff=split",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 1437
+   }
+  },
+  {
+   "in": "https://github.com/acme/webapp/pull/1437#issuecomment-1",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 1437
+   }
+  },
+  {
+   "in": "https://github.com/acme/my.repo-x/pull/9",
+   "ok": true,
+   "ref": {
+    "repo": "acme/my.repo-x",
+    "number": 9
+   }
+  },
+  {
+   "in": "pr:acme#12",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "webapp#12",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "#12",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "acme/webapp#12x",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "acme/webapp#12 extra",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "acme/webapp#0",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "https://github.com/acme/webapp/pull/",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "https://github.com/acme/webapp/pull/12x",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "https://github.com/acme/webapp/issues/12",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "https://gitlab.com/acme/webapp/pull/12",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "https://evilgithub.com/acme/webapp/pull/12",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "see https://github.com/acme/webapp/pull/12",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "pr:https://github.com/acme/webapp/pull/12",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "../..#1",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "pr:acme/..#1",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "./webapp#1",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "https://github.com/../../pull/1",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "https://github.com/acme/.../pull/1",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "acme/.github#4",
+   "ok": true,
+   "ref": {
+    "repo": "acme/.github",
+    "number": 4
+   }
+  },
+  {
+   "in": "acme/web..app#4",
+   "ok": true,
+   "ref": {
+    "repo": "acme/web..app",
+    "number": 4
+   }
+  },
+  {
+   "in": "\u000bacme/webapp#3\u000b",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 3
+   }
+  },
+  {
+   "in": "acme/webapp#3 ",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 3
+   }
+  },
+  {
+   "in": "　acme/webapp#3\u2029",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 3
+   }
+  },
+  {
+   "in": "​acme/webapp#3",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "https://github.com/K/x/pull/1",
+   "ok": true,
+   "ref": {
+    "repo": "K/x",
+    "number": 1
+   }
+  },
+  {
+   "in": "https://github.com/ſ/x/pull/1",
+   "ok": true,
+   "ref": {
+    "repo": "ſ/x",
+    "number": 1
+   }
+  },
+  {
+   "in": "https://github.com/a/Kelvin/pull/2",
+   "ok": true,
+   "ref": {
+    "repo": "a/Kelvin",
+    "number": 2
+   }
+  },
+  {
+   "in": "https://GİTHUB.com/a/b/pull/1",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "https://github.Kom/a/b/pull/1",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "HTTPS://WWW.GITHUB.COM/a/b/PULL/1",
+   "ok": true,
+   "ref": {
+    "repo": "a/b",
+    "number": 1
+   }
+  },
+  {
+   "in": "httpſ://github.com/a/b/pull/1",
+   "ok": true,
+   "ref": {
+    "repo": "a/b",
+    "number": 1
+   }
+  },
+  {
+   "in": "pR:acme/webapp#1",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 1
+   }
+  },
+  {
+   "in": "Pr:acme/webapp#1",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 1
+   }
+  },
+  {
+   "in": "pr:",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "pr",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "pr:pr:acme/webapp#1",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "pr:acme/webapp#99999999999999999999",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "github.com/a/b/pull/99999999999999999999",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "acme/webapp#9223372036854775807",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 9223372036854775807
+   }
+  },
+  {
+   "in": "acme/webapp#9223372036854775808",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "github.com/a/b/pull/1\n",
+   "ok": true,
+   "ref": {
+    "repo": "a/b",
+    "number": 1
+   }
+  },
+  {
+   "in": "https://github.com/a/b/pull/1/x\ny",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "https://github.com/a/b/pull/1/x\u000by",
+   "ok": true,
+   "ref": {
+    "repo": "a/b",
+    "number": 1
+   }
+  },
+  {
+   "in": "acme/webapp#+5",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "acme/webapp#007",
+   "ok": true,
+   "ref": {
+    "repo": "acme/webapp",
+    "number": 7
+   }
+  },
+  {
+   "in": "acme/ webapp#1",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "acme/webapp# 1",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "é/webapp#1",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "acme/web_app#1",
+   "ok": true,
+   "ref": {
+    "repo": "acme/web_app",
+    "number": 1
+   }
+  },
+  {
+   "in": "a/b#1#2",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "github.com/a/b/pull/1#x\n",
+   "ok": true,
+   "ref": {
+    "repo": "a/b",
+    "number": 1
+   }
+  },
+  {
+   "in": "github.com//b/pull/1",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "https://github.com/a/b/pull/1?",
+   "ok": true,
+   "ref": {
+    "repo": "a/b",
+    "number": 1
+   }
+  },
+  {
+   "in": "https://github.com/a/b/pull/1x/",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "ftp://github.com/a/b/pull/1",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "https:/github.com/a/b/pull/1",
+   "ok": false,
+   "ref": {
+    "repo": "",
+    "number": 0
+   }
+  },
+  {
+   "in": "www.github.com/a/b/pull/3",
+   "ok": true,
+   "ref": {
+    "repo": "a/b",
+    "number": 3
+   }
+  }
+ ]
+}

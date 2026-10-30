@@ -1,13 +1,12 @@
-// copyText puts text on the clipboard: Wails' own in the app (the webview
-// may refuse navigator.clipboard), the browser's otherwise. It resolves
-// false when neither could.
+// copyText puts text on the clipboard: the host's own in the app (the
+// webview may refuse navigator.clipboard), the browser's otherwise. It
+// resolves false when neither could.
 
-import { Clipboard } from "@wailsio/runtime"
-
-import { inWails } from "./irori"
+import { Clipboard } from "./host"
+import { inHost } from "./irori"
 
 export async function copyText(text: string): Promise<boolean> {
-  if (inWails()) {
+  if (inHost()) {
     try {
       await Clipboard.SetText(text)
       return true

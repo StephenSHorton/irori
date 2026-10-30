@@ -1,0 +1,188 @@
+{
+ "events": [
+  {
+   "deviceId": "dev-a",
+   "seq": 1,
+   "hlc": 65536000,
+   "actor": "irori",
+   "kind": "device.started",
+   "payload": "7b226e616d65223a227063222c226f73223a2277696e646f7773222c2276657273696f6e223a22302e332e32227d",
+   "sig": "802b29befb130d692700accb1e8825e78faa1455893582845c656a6ae66893c4b4cae3762827092b6519ffc47d9c32ea20e645f9a6b1767a5433dad56ad81b0a",
+   "rowHash": "9b97c5dc1e7c8d559bcf7733ade0603f8ff5c8822e1749be004a97540e6eb35e"
+  },
+  {
+   "deviceId": "dev-a",
+   "seq": 2,
+   "hlc": 131072000,
+   "actor": "irori",
+   "kind": "agent.seen",
+   "payload": "7b226b6579223a226465762d612f7331222c226e616d65223a22616c706861227d",
+   "sig": "c7fe6f07d6bbd8651bab2b422d029f35ceb08cb7e43e4bcff3d32f7714325c53056b8882c4e013f0624e238e39d15057f49956181e73c72ffc5bcbce40ce2607",
+   "rowHash": "c14eeb89695729927c5439b910a2eb0c9e630ea89d4fc676a32628d4e7b07e38"
+  },
+  {
+   "deviceId": "dev-a",
+   "seq": 3,
+   "hlc": 196608000,
+   "actor": "user",
+   "kind": "local.moved",
+   "payload": "7b7d",
+   "sig": "168c1f5679b0ca4124456bb1b5f0ec00dbf7bf2ad5e3d37bcb3d70e621c5ddaafe760c9ef5ae13409e6356eb807ab4574298de62572cb1970b5adadca8c9b40d",
+   "rowHash": "923d65f39043ebc1535988b76cb7f2aec72ffa253be3cfbfdd7ea7a924a82732"
+  },
+  {
+   "deviceId": "dev-a",
+   "seq": 4,
+   "hlc": 262144000,
+   "actor": "agent:dev-a/s1",
+   "kind": "message.sent",
+   "payload": "7b226964223a226d73675f31222c2274657874223a226869227d",
+   "sig": "707432007a203bdb36800a18b826371b8471cf96f6d609ed03cd62b3803fc4eb6adc4aa1d50aec365fa5a4cf863afaee493dd1510c0daf7c4a0b8128ba146109",
+   "rowHash": "3100112980364d6bfa17f9e1ee6d4fc7f2e725a906ec19cab3062a0aa1938e91"
+  },
+  {
+   "deviceId": "dev-a",
+   "seq": 5,
+   "hlc": 327680000,
+   "actor": "irori",
+   "kind": "local.moved",
+   "payload": "7b7d",
+   "sig": "7e0556eafd19987ec9fd3103ccf82455f48f407219096b379c41af8b6d6b9eb75c523b3023cb40487613f1c68582fb2abfc1ce858b9776997536c66bc19f1c03",
+   "rowHash": "8e9b54b69ec6636182aaf26f6d26b1aac26d8a2bd5540cb0c140ed86d2ef7065"
+  },
+  {
+   "deviceId": "dev-a",
+   "seq": 6,
+   "hlc": 393216000,
+   "actor": "user",
+   "kind": "local.moved",
+   "payload": "7b7d",
+   "sig": "67d062881ad52b95c76063d7b8d92133065f00fc0d580ac4efc267f487d4bf4ae989c85ccbbfc97898a6ce8e983210a4caffe2b30dce5dca085b00085ba40306",
+   "rowHash": "ff55075744848a961ab0b29df6336a1660d92af3ade66fb87da2519402b8ad03"
+  },
+  {
+   "deviceId": "dev-a",
+   "seq": 7,
+   "hlc": 458752000,
+   "actor": "agent:dev-a/s1",
+   "kind": "task.created",
+   "payload": "7b227461736b4964223a227431222c227469746c65223a2278227d",
+   "sig": "6896c1ef690e135d992998d9f2c6668c42e785950019e8322bfca1f342bf391fe470e8e215bc93559c886f019a1d1f50a10387b54a339f36b813283cf27c2306",
+   "rowHash": "567c1710eec2a675ffcce40dcb34a25b40b5d7d8df764be9a972eb473b670568"
+  }
+ ],
+ "local": [
+  {
+   "deviceId": "dev-a",
+   "seq": 1,
+   "hlc": 196608000,
+   "actor": "user",
+   "kind": "policy.set",
+   "payload": "7b226d6f6465223a22616c6c6f776c697374222c22616c6c6f77223a5b22616c706861225d2c22626c6f636b223a5b5d2c22706175736564223a66616c73657d",
+   "sig": "",
+   "rowHash": "8608270650c8877e2ea6f8b068acb0660797c87f0744bff1c1dbb8f0413cc37b"
+  },
+  {
+   "deviceId": "dev-a",
+   "seq": 2,
+   "hlc": 327680000,
+   "actor": "irori",
+   "kind": "member.joined",
+   "payload": "7b226b6579223a226465762d612f67726f6b2d31222c226e616d65223a2267726f6b6b79227d",
+   "sig": "",
+   "rowHash": "337ee5b3157c7323177be95b98a7a7da692011da5e3e2dab790f7bc4c373a0b1"
+  },
+  {
+   "deviceId": "dev-a",
+   "seq": 3,
+   "hlc": 393216000,
+   "actor": "user",
+   "kind": "policy.set",
+   "payload": "7b226d6f6465223a2265766572796f6e65222c22616c6c6f77223a5b5d2c22626c6f636b223a5b2262657461225d2c22706175736564223a747275657d",
+   "sig": "",
+   "rowHash": "56724aab230a01c0b3389f545d73faa7d5bd94db3c9532d51e46a01962f836b0"
+  }
+ ],
+ "next": {
+  "deviceId": "dev-a",
+  "seq": 8,
+  "hlc": 111411200000000000,
+  "actor": "irori",
+  "kind": "agent.status",
+  "payload": "7b226b6579223a226465762d612f7331222c22737461747573223a2269646c65227d",
+  "sig": "f75cb8d1df43ce78795f20cd5c36f3cbc7a77dc6820d70d970123c7090e590bafa036ca4fc0942694dd61d82a1dbc26cc6d351e0d2b5b342f45c4fa6ce7acc07",
+  "rowHash": "27aa1bd9dd7c59915b3d2f5b05cc50f98f764c73fbb491fd37251a2f87db671c"
+ },
+ "v1Rows": [
+  {
+   "deviceId": "dev-a",
+   "seq": 1,
+   "hlc": 65536000,
+   "actor": "irori",
+   "kind": "device.started",
+   "payload": "7b226e616d65223a227063222c226f73223a2277696e646f7773222c2276657273696f6e223a22302e332e32227d",
+   "sig": "",
+   "rowHash": "74be5777c1d4f9425d65cf4cf6bc10cebbfec3488c7d86c72add3e9e7cb95306"
+  },
+  {
+   "deviceId": "dev-a",
+   "seq": 2,
+   "hlc": 131072000,
+   "actor": "irori",
+   "kind": "agent.seen",
+   "payload": "7b226b6579223a226465762d612f7331222c226e616d65223a22616c706861227d",
+   "sig": "",
+   "rowHash": "3d15b99a6e80b929a4a66c3901903bf1a5f2cf0a0e41d88d7b278d9f91f7b029"
+  },
+  {
+   "deviceId": "dev-a",
+   "seq": 3,
+   "hlc": 196608000,
+   "actor": "user",
+   "kind": "policy.set",
+   "payload": "7b226d6f6465223a22616c6c6f776c697374222c22616c6c6f77223a5b22616c706861225d2c22626c6f636b223a5b5d2c22706175736564223a66616c73657d",
+   "sig": "",
+   "rowHash": "3fd1d58b527004c39bbc55e8802f810f5ae25ba876e9c120e0d6d2f28eb2bf73"
+  },
+  {
+   "deviceId": "dev-a",
+   "seq": 4,
+   "hlc": 262144000,
+   "actor": "agent:dev-a/s1",
+   "kind": "message.sent",
+   "payload": "7b226964223a226d73675f31222c2274657874223a226869227d",
+   "sig": "",
+   "rowHash": "11282282afd5bba0c67d61cb977e3ff21c380f42ebf524d60c0a600b67e29679"
+  },
+  {
+   "deviceId": "dev-a",
+   "seq": 5,
+   "hlc": 327680000,
+   "actor": "irori",
+   "kind": "member.joined",
+   "payload": "7b226b6579223a226465762d612f67726f6b2d31222c226e616d65223a2267726f6b6b79227d",
+   "sig": "",
+   "rowHash": "75fa689e574df3aab310668b5c4c11b879ba80aa0addd2fbf3e107aff7d83b7d"
+  },
+  {
+   "deviceId": "dev-a",
+   "seq": 6,
+   "hlc": 393216000,
+   "actor": "user",
+   "kind": "policy.set",
+   "payload": "7b226d6f6465223a2265766572796f6e65222c22616c6c6f77223a5b5d2c22626c6f636b223a5b2262657461225d2c22706175736564223a747275657d",
+   "sig": "",
+   "rowHash": "a7c90c537146bdb7f29d6cbe2ef3abf3aa6d0dbedeafc14318669e8c5eeeab4c"
+  },
+  {
+   "deviceId": "dev-a",
+   "seq": 7,
+   "hlc": 458752000,
+   "actor": "agent:dev-a/s1",
+   "kind": "task.created",
+   "payload": "7b227461736b4964223a227431222c227469746c65223a2278227d",
+   "sig": "",
+   "rowHash": "029c77ccedae9b3f49cca29ce03fd268dad2db7fa864d8a96099194d2f671313"
+  }
+ ]
+}

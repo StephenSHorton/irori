@@ -1,0 +1,40 @@
+[package]
+name = "irori-pair"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Irori's add-a-device flow (identity.md §4.7, architecture §3.4 D5): the one-use code, the pairing room, mutual proofs, the five SAS words over the TLS exporter, and the grant of the person"
+
+[lib]
+name = "irori_pair"
+
+[dependencies]
+irori-gocompat.workspace = true
+irori-identity.workspace = true
+irori-meshseam.workspace = true
+irori-store.workspace = true
+base64.workspace = true
+getrandom.workspace = true
+hex.workspace = true
+hkdf.workspace = true
+hmac = "0.13.0"
+scrypt = { version = "0.12.0", default-features = false }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+tokio = { workspace = true, features = ["time"] }
+tokio-util.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+irori-hlc.workspace = true
+irori-mesh.workspace = true
+irori-net.workspace = true
+irori-lan.workspace = true
+irori-home.workspace = true
+irori-blob.workspace = true
+iroh = "1.4.1"
+tempfile.workspace = true
+tokio = { workspace = true, features = ["full"] }

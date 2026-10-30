@@ -4,7 +4,7 @@ import {
   AgentRef,
   CardBlocker,
   CardThreadItem,
-} from "../../bindings/github.com/StephenSHorton/irori/models"
+} from "./models"
 import {
   answerable,
   blockerChip,
@@ -18,13 +18,13 @@ import {
   visible,
 } from "./thread"
 
-const otter = new AgentRef({
+const otter = AgentRef({
   key: "dev/otter-session",
   name: "sample-otter",
   status: "busy",
   live: true,
 })
-const wren = new AgentRef({
+const wren = AgentRef({
   key: "mac/wren-session",
   name: "mac/wren-session",
   status: "gone",
@@ -33,14 +33,14 @@ const wren = new AgentRef({
 describe("threadLabel", () => {
   test("a comment names its author and has no arrow or badges", () => {
     const l = threadLabel(
-      new CardThreadItem({ kind: "comment", who: otter, text: "hi" })
+      CardThreadItem({ kind: "comment", who: otter, text: "hi" })
     )
     expect(l).toEqual({ author: "sample-otter", device: "", badges: [] })
   })
 
   test("a message gets the arrow, its device and its badges", () => {
     const l = threadLabel(
-      new CardThreadItem({
+      CardThreadItem({
         kind: "message",
         who: otter,
         to: wren,
@@ -61,7 +61,7 @@ describe("threadLabel", () => {
   })
 
   test("a blocker answer names its item, except under that item", () => {
-    const it = new CardThreadItem({
+    const it = CardThreadItem({
       kind: "comment",
       who: otter,
       to: wren,
@@ -72,14 +72,14 @@ describe("threadLabel", () => {
     // Its line in the card's thread is an event: no badge.
     expect(
       threadLabel(
-        new CardThreadItem({ kind: "event", who: otter, blockerId: "b2" })
+        CardThreadItem({ kind: "event", who: otter, blockerId: "b2" })
       ).badges
     ).toEqual([])
   })
 
   test("one file is singular", () => {
     const l = threadLabel(
-      new CardThreadItem({ kind: "message", who: otter, to: wren, files: 1 })
+      CardThreadItem({ kind: "message", who: otter, to: wren, files: 1 })
     )
     expect(l.badges).toEqual([{ label: "1 file", tone: "slate" }])
   })
@@ -108,7 +108,7 @@ describe("visible", () => {
 
 describe("opensInFull", () => {
   const msg = (over: Partial<CardThreadItem>) =>
-    new CardThreadItem({
+    CardThreadItem({
       id: "msg_1",
       kind: "message",
       who: otter,
@@ -129,7 +129,7 @@ describe("opensInFull", () => {
   test("a comment never does, nor another message's pointer", () => {
     expect(
       opensInFull(
-        new CardThreadItem({
+        CardThreadItem({
           id: "c1",
           kind: "comment",
           who: otter,
@@ -166,7 +166,7 @@ describe("blocker states", () => {
 
 describe("blockerChip", () => {
   const item = (over: Partial<CardBlocker>) =>
-    new CardBlocker({ id: "b1", raisedBy: otter, ...over })
+    CardBlocker({ id: "b1", raisedBy: otter, ...over })
 
   test("answered says who it went to, and when they have ended", () => {
     expect(blockerChip(item({ state: "answered", sentTo: otter }))).toEqual({
@@ -220,7 +220,7 @@ describe("heardLine", () => {
 describe("unheard", () => {
   test("the person's comment nobody heard has the badge", () => {
     const l = threadLabel(
-      new CardThreadItem({ kind: "comment", who: otter, unheard: true })
+      CardThreadItem({ kind: "comment", who: otter, unheard: true })
     )
     expect(l.badges).toEqual([
       { label: "nobody has heard this yet", tone: "warning" },
@@ -231,7 +231,7 @@ describe("unheard", () => {
 describe("pending", () => {
   test("the person's comment says who hasn't taken it up yet", () => {
     const l = threadLabel(
-      new CardThreadItem({
+      CardThreadItem({
         kind: "comment",
         who: otter,
         pending: ["queued for sample-heron (busy)", "sent to sample-crow, not read yet"],

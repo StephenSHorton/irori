@@ -2,7 +2,7 @@
 // runs in a plain browser, next to the sample roster in sample.ts. Every
 // value is made up and says so. Add ?empty to the URL for the empty states.
 
-import { GoneSession } from "../../bindings/github.com/StephenSHorton/irori/models"
+import { GoneSession } from "./models"
 import {
   AddressKind,
   Delivery,
@@ -13,7 +13,7 @@ import {
   Sender,
   State,
   Trust,
-} from "../../bindings/github.com/StephenSHorton/irori/internal/inbox/models"
+} from "./models"
 
 const dev = "sample-device"
 const otter = `${dev}/sample01-synthetic-session`
@@ -45,7 +45,7 @@ type Seed = {
 }
 
 const sender = (key: string, name: string, kind = "claude") =>
-  new Sender({ key, name, kind })
+  Sender({ key, name, kind })
 
 const you = sender(`user:${dev}`, "you", "user")
 
@@ -130,7 +130,7 @@ export function sampleTalk(now: Date): SampleTalk {
   const at = (agoSec: number) =>
     new Date(now.getTime() - agoSec * 1000).toISOString()
   const empty = new URLSearchParams(window.location.search).has("empty")
-  const policy = new Policy({
+  const policy = Policy({
     mode: Mode.Everyone,
     block: [],
     allow: [],
@@ -140,7 +140,7 @@ export function sampleTalk(now: Date): SampleTalk {
 
   const deliveries = seeds.map((s, i) => {
     const id = `sample-delivery-${i + 1}`
-    return new Delivery({
+    return Delivery({
       id,
       messageId: `sample-message-${i + 1}`,
       to: s.to,
@@ -158,7 +158,7 @@ export function sampleTalk(now: Date): SampleTalk {
       reminded: false,
       createdAt: at(s.agoSec),
       updatedAt: at(Math.max(0, s.agoSec - 20)),
-      message: new Message({
+      message: Message({
         id: `sample-message-${i + 1}`,
         from: s.from,
         to: s.repoKey
@@ -174,7 +174,7 @@ export function sampleTalk(now: Date): SampleTalk {
   })
 
   const goneList = [
-    new GoneSession({
+    GoneSession({
       key: gone,
       sessionId: "sample99-synthetic-session",
       name: "sample-lark",

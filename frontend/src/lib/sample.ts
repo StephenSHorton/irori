@@ -3,9 +3,9 @@
 // value is made up and says so; none of it comes from a real session.
 // Add ?empty to the URL to preview the empty state instead.
 
-import { Identity } from "../../bindings/github.com/StephenSHorton/irori/internal/device/models"
-import { AgentCard } from "../../bindings/github.com/StephenSHorton/irori/internal/presence/models"
-import { Event as LogEvent } from "../../bindings/github.com/StephenSHorton/irori/internal/store/models"
+import { Identity } from "./models"
+import { AgentCard } from "./models"
+import { Event as LogEvent } from "./models"
 
 const deviceId = "sample-device"
 
@@ -88,7 +88,7 @@ export function sampleRoster(now: Date) {
     ? []
     : seeds.map(
         (s, i) =>
-          new AgentCard({
+          AgentCard({
             key: `${deviceId}/${s.session}`,
             deviceId,
             agent: "claude",
@@ -143,19 +143,19 @@ export function sampleRoster(now: Date) {
     : rows
         .map(
           ([kind, ago, payload], i) =>
-            new LogEvent({
+            LogEvent({
               deviceId,
               seq: i + 1,
               hlc: hlc(ago),
               actor: "irori",
               kind,
-              payload,
+              payload: payload as LogEvent["payload"],
             })
         )
         .sort((a, b) => b.hlc - a.hlc)
 
   return {
-    device: new Identity({
+    device: Identity({
       id: deviceId,
       name: "sample-device",
       os: "sample",

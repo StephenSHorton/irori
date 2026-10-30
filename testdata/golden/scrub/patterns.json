@@ -1,0 +1,102 @@
+[
+ {
+  "name": "rules[0]",
+  "pattern": "\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]*"
+ },
+ {
+  "name": "rules[1]",
+  "pattern": "\\bsk-ant-[A-Za-z0-9_-]{20,}"
+ },
+ {
+  "name": "rules[2]",
+  "pattern": "\\bsk-[A-Za-z0-9_-]{20,}"
+ },
+ {
+  "name": "rules[3]",
+  "pattern": "\\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{22,})"
+ },
+ {
+  "name": "rules[4]",
+  "pattern": "\\bxox[abprse]-[A-Za-z0-9-]{10,}"
+ },
+ {
+  "name": "rules[5]",
+  "pattern": "\\b(?:AKIA|ASIA)[A-Z0-9]{16}\\b"
+ },
+ {
+  "name": "rules[6]",
+  "pattern": "\\bAIza[A-Za-z0-9_-]{35}"
+ },
+ {
+  "name": "rules[7]",
+  "pattern": "(?i)\\bbearer[ \\t]+([A-Za-z0-9_\\-.~+/]+=*)"
+ },
+ {
+  "name": "rules[8]",
+  "pattern": "(?i)\\bauthorization(?:\\\\?[\"'])?[ \\t]*[:=][ \\t]*(?:\\\\?[\"'])?(?:basic|token|digest|negotiate)[ \\t]+([A-Za-z0-9_\\-.~+/]+=*)"
+ },
+ {
+  "name": "rules[9]",
+  "pattern": "\\b[A-Za-z][A-Za-z0-9+.-]*://(?:\\[redacted:[a-z-]+\\]|[^\\s:/@\"'<>\\[\\]]*):([^\\s/\"'<>]+)@"
+ },
+ {
+  "name": "rules[10]",
+  "pattern": "(?i)(?:token|secret|password|passwd|api[_-]?key|authorization)[A-Za-z0-9_.\\-]*(?:\\\\?[\"'])?[ \\t]*(===|!==|==|!=|:=|=>|[:=])[ \\t]*(?:\\\\\"((?:[^\"\\\\\\r\\n]|\\\\[^\"\\r\\n])+?)\\\\\"|\\\\'((?:[^'\\\\\\r\\n]|\\\\[^'\\r\\n])+?)\\\\'|\"((?:\\\\[^\\r\\n]|[^\"\\\\\\r\\n])+)\"|'((?:\\\\[^\\r\\n]|[^'\\\\\\r\\n])+)'|`((?:\\\\[^\\r\\n]|[^`\\\\\\r\\n])+)`|([^\\s\"'`]+))"
+ },
+ {
+  "name": "assignmentRE",
+  "pattern": "(?i)(?:token|secret|password|passwd|api[_-]?key|authorization)[A-Za-z0-9_.\\-]*(?:\\\\?[\"'])?[ \\t]*(===|!==|==|!=|:=|=>|[:=])[ \\t]*(?:\\\\\"((?:[^\"\\\\\\r\\n]|\\\\[^\"\\r\\n])+?)\\\\\"|\\\\'((?:[^'\\\\\\r\\n]|\\\\[^'\\r\\n])+?)\\\\'|\"((?:\\\\[^\\r\\n]|[^\"\\\\\\r\\n])+)\"|'((?:\\\\[^\\r\\n]|[^'\\\\\\r\\n])+)'|`((?:\\\\[^\\r\\n]|[^`\\\\\\r\\n])+)`|([^\\s\"'`]+))"
+ },
+ {
+  "name": "queryParam",
+  "pattern": "&[A-Za-z0-9_.\\-\\[\\]]+="
+ },
+ {
+  "name": "callOrIndex",
+  "pattern": "^[A-Za-z_$][A-Za-z0-9_$.]*[(\\[<]"
+ },
+ {
+  "name": "dottedName",
+  "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)+$"
+ },
+ {
+  "name": "shellVar",
+  "pattern": "^(?:\\$[A-Z_][A-Z0-9_]*|%[A-Za-z_][A-Za-z0-9_]*%)$"
+ },
+ {
+  "name": "scriptVar",
+  "pattern": "^\\$[A-Za-z_][A-Za-z0-9_]*(?:->|\\[|\\.)"
+ },
+ {
+  "name": "identifier",
+  "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+ },
+ {
+  "name": "pemBegin",
+  "pattern": "-----BEGIN [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----"
+ },
+ {
+  "name": "pemEnd",
+  "pattern": "-----END [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----"
+ },
+ {
+  "name": "strictPaths[0]",
+  "pattern": "(?i)(^|[^A-Za-z0-9])file://[^\\s\"'<>|*?)\\]`]*"
+ },
+ {
+  "name": "strictPaths[1]",
+  "pattern": "(^|[^A-Za-z0-9])[A-Za-z]:[\\\\/][^\\s\"'<>|*?)\\]`]*"
+ },
+ {
+  "name": "strictPaths[2]",
+  "pattern": "(^|[\\s\"'(\\[=,:*`])\\\\\\\\[^\\s\"'<>|*?\\\\)\\]`]+(?:\\\\[^\\s\"'<>|*?)\\]`]*)*"
+ },
+ {
+  "name": "strictPaths[3]",
+  "pattern": "(^|[\\s\"'(\\[=,:*`])(?:~|\\$HOME|\\$\\{HOME\\}|%USERPROFILE%|%HOMEPATH%)(?:[\\\\/][^\\s\"'<>|*?)\\]`]*)?"
+ },
+ {
+  "name": "strictPaths[4]",
+  "pattern": "(^|[\\s\"'(\\[=,:*`])/[A-Za-z0-9._@+-]+/[^\\s\"'<>|*?)\\]`]*"
+ }
+]

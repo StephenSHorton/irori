@@ -1,0 +1,18 @@
+[package]
+name = "irori-search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Irori's shared search types: Kind, refs, Doc, Query, Hit, Shown, Source, Page (capture.md §1, §2.7)"
+
+[lib]
+name = "search"
+
+[dependencies]
+irori-gocompat.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

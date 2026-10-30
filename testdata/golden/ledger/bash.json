@@ -1,0 +1,2407 @@
+[
+ {
+  "in": {
+   "command": "gh pr create --title \"x\" --body \"y\"",
+   "stdout": "https://github.com/acme/webapp/pull/1437\n",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a313433372c2275726c223a2268747470733a2f2f6769746875622e636f6d2f61636d652f7765626170702f70756c6c2f31343337222c22616374696f6e223a2263726561746564227d7d",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gitOperation"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "git push -u origin feat/x && gh pr create --fill",
+   "stdout": "",
+   "gitOperationHex": "7b2270757368223a7b226272616e6368223a22666561742f78227d2c227072223a7b226e756d626572223a313433372c2275726c223a2268747470733a2f2f6769746875622e636f6d2f61636d652f7765626170702f70756c6c2f31343337222c22616374696f6e223a2263726561746564227d7d",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gitOperation"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create --fill",
+   "stdout": "https://github.com/acme/other/pull/5\n",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a313433372c2275726c223a2268747470733a2f2f6769746875622e636f6d2f61636d652f7765626170702f70756c6c2f31343337222c22616374696f6e223a2263726561746564227d7d",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gitOperation"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a392c22616374696f6e223a2263726561746564227d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 9,
+    "url": "",
+    "role": "author",
+    "source": "gitOperation"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "echo hi",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a392c22616374696f6e223a2263726561746564227d7d",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "echo hi",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b2275726c223a2268747470733a2f2f6769746875622e636f6d2f61636d652f7765626170702f70756c6c2f31343337222c22616374696f6e223a2263726561746564227d7d",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gitOperation"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr edit 1437 --title x",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a313433372c2275726c223a2268747470733a2f2f6769746875622e636f6d2f61636d652f7765626170702f70756c6c2f31343337222c22616374696f6e223a22656469746564227d7d",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr merge 1437",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a313433372c22616374696f6e223a226d6572676564227d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr create --fill",
+   "stdout": "https://github.com/acme/webapp/pull/1437\n",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a312c22616374696f6e223a22656469746564227d7d",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create --fill",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "7b227072223a",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create --fill",
+   "stdout": "Creating pull request\r\nhttps://github.com/acme/webapp/pull/1437\r\nhttps://github.com/acme/webapp/pull/1438\r\n",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "cd C:/src/webapp && gh  pr   create --fill",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr view 1437",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr created",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr create --fill",
+   "stdout": "a pull request for branch already exists",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review https://github.com/acme/webapp/pull/1437 --approve",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review github.com/acme/webapp/pull/12/files --comment -b ok",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 12,
+    "url": "https://github.com/acme/webapp/pull/12",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -R acme/storefront --approve",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/storefront",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 --repo=acme/storefront --approve",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/storefront",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review --repo acme/storefront 12 --approve",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/storefront",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review -R acme/storefront 12",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/storefront",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review \"12\" --approve",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 --approve",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 --approve",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review feat/x --approve",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 --approve && gh pr review 13 -R acme/storefront; gh pr review 14 | cat",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   },
+   {
+    "repo": "acme/storefront",
+    "number": 13,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   },
+   {
+    "repo": "acme/webapp",
+    "number": 14,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 --approve\r\ngh pr review 13 -R acme/storefront\r\n",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   },
+   {
+    "repo": "acme/storefront",
+    "number": 13,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -R github.com/acme/storefront --approve",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/storefront",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 --repo GitHub.com/acme/storefront",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/storefront",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 --repo=github.com/acme/storefront",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/storefront",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review -R github.com/acme/storefront 12",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/storefront",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -R ghe.example.com/acme/storefront",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -Racme/storefront",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/storefront",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -R \"acme/storefront\"",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/storefront",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -R acme",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 --body \"ok; fine | done && more\" -R acme/other",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/def"
+  },
+  "out": [
+   {
+    "repo": "acme/other",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 --body \"see --repo acme/x\"",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/def"
+  },
+  "out": [
+   {
+    "repo": "acme/def",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -b 'use -R acme/x' --approve",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/def"
+  },
+  "out": [
+   {
+    "repo": "acme/def",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 --body-file x--repo",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/def"
+  },
+  "out": [
+   {
+    "repo": "acme/def",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review --approve 12",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/def"
+  },
+  "out": [
+   {
+    "repo": "acme/def",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review -a 12; gh pr review -c 13; gh pr review -r 14",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/def"
+  },
+  "out": [
+   {
+    "repo": "acme/def",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   },
+   {
+    "repo": "acme/def",
+    "number": 13,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   },
+   {
+    "repo": "acme/def",
+    "number": 14,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review --comment 12 && gh pr review --request-changes 13",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/def"
+  },
+  "out": [
+   {
+    "repo": "acme/def",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   },
+   {
+    "repo": "acme/def",
+    "number": 13,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review -c -b \"looks good\" 12",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/def"
+  },
+  "out": [
+   {
+    "repo": "acme/def",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review --body 99 12 --comment",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/def"
+  },
+  "out": [
+   {
+    "repo": "acme/def",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review --body-file C:\\tmp\\r.md 12 && gh pr review -F ./r.md -R acme/x 13",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/def"
+  },
+  "out": [
+   {
+    "repo": "acme/def",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   },
+   {
+    "repo": "acme/x",
+    "number": 13,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review --body=\"a b\" 12",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/def"
+  },
+  "out": [
+   {
+    "repo": "acme/def",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review --approve -- 12",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/def"
+  },
+  "out": [
+   {
+    "repo": "acme/def",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review https://evilgithub.com/acme/webapp/pull/3 --approve",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review github.com/acme/webapp/pull/3abc --approve",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review HTTP://WWW.GitHub.com/acme/webapp/pull/3?x=1 --approve",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 3,
+    "url": "https://github.com/acme/webapp/pull/3",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review https://github.com/../../pull/3",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review 3 -R ../..",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr create --fill",
+   "stdout": "https://evilgithub.com/acme/webapp/pull/3\n",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr create --fill",
+   "stdout": "https://github.com/acme/webapp/pull/1437/files\n",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a392c2275726c223a2268747470733a2f2f6576696c6769746875622e636f6d2f782f792f70756c6c2f39222c22616374696f6e223a2263726561746564227d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 9,
+    "url": "",
+    "role": "author",
+    "source": "gitOperation"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 --body \"then run gh pr review 13\" --comment",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/def"
+  },
+  "out": [
+   {
+    "repo": "acme/def",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -b \"say \\\"hi; -R acme/x\\\"\" -R acme/y",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/def"
+  },
+  "out": [
+   {
+    "repo": "acme/y",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review --approve",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/def"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 --comment -b a; gh pr review 12 --approve",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create --fill && gh pr review 1437 --comment -b self",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   },
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 0",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "go test ./...",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh\u000bpr\u000bcreate",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr create\u000b--fill",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh\tpr\ncreate",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh\u000bpr\u000breview 12",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review\u000b12",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review 12\u000b-R acme/x",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh\tpr\f review\t12",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review\n12",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "xgh pr review 12; _gh pr review 13; égh pr review 14; -gh pr review 15; .gh pr review 16",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 14,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   },
+   {
+    "repo": "acme/webapp",
+    "number": 15,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   },
+   {
+    "repo": "acme/webapp",
+    "number": 16,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "GH PR CREATE",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr createx",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr create-x",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr createé",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr reviewer 12; gh pr review-x 13",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "x.github.com/acme/webapp/pull/1 -github.com/acme/webapp/pull/2 _github.com/acme/webapp/pull/3",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "(https://github.com/acme/webapp/pull/4)",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 4,
+    "url": "https://github.com/acme/webapp/pull/4",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "https://github.com/acme/webapp/pull/5é",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 5,
+    "url": "https://github.com/acme/webapp/pull/5",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "https://github.com/acme/webapp/pull/6_",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "éhttps://github.com/acme/webapp/pull/7",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 7,
+    "url": "https://github.com/acme/webapp/pull/7",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "https://github.com/Kelvin/webapp/pull/8",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "Kelvin/webapp",
+    "number": 8,
+    "url": "https://github.com/Kelvin/webapp/pull/8",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "https://github.com/ſcme/webapp/pull/9",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "ſcme/webapp",
+    "number": 9,
+    "url": "https://github.com/ſcme/webapp/pull/9",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "HTTPS://WWW.GITHUB.COM/Acme/WebApp/PULL/10",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "Acme/WebApp",
+    "number": 10,
+    "url": "https://github.com/Acme/WebApp/pull/10",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "https://github.com/acme/webapp/pull/0 https://github.com/acme/webapp/pull/11",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "https://github.com/../webapp/pull/12 https://github.com/acme/webapp/pull/13",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "https://github.com/acme/webapp/pull/99999999999999999999",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "\u000bhttps://github.com/acme/webapp/pull/14",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 14,
+    "url": "https://github.com/acme/webapp/pull/14",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "https://github.com/acme/webapp/pull/015",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 15,
+    "url": "https://github.com/acme/webapp/pull/15",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b225052223a7b224e554d424552223a352c2255726c223a2268747470733a2f2f6769746875622e636f6d2f61636d652f7765626170702f70756c6c2f31343337222c22414354494f4e223a2263726561746564227d7d",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 5,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gitOperation"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a352c22616374696f6e223a2243726561746564227d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a2235222c22616374696f6e223a2263726561746564227d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a352e302c22616374696f6e223a2263726561746564227d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a3565302c22616374696f6e223a2263726561746564227d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a316533302c22616374696f6e223a2263726561746564227d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a39393939393939393939393939393939393939392c22616374696f6e223a2263726561746564227d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "7b227072223a6e756c6c7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "6e756c6c",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "5b5d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "227822",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "20",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b22616374696f6e223a2263726561746564227d2c227072223a7b226e756d626572223a337d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 3,
+    "url": "",
+    "role": "author",
+    "source": "gitOperation"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a337d2c227072223a6e756c6c2c227072223a7b22616374696f6e223a2263726561746564227d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a2d332c2275726c223a2268747470733a2f2f6769746875622e636f6d2f61636d652f7765626170702f70756c6c2f31343337222c22616374696f6e223a2263726561746564227d7d",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gitOperation"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a2d332c22616374696f6e223a2263726561746564227d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a342c2275726c223a22ff222c22616374696f6e223a2263726561746564227d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 4,
+    "url": "",
+    "role": "author",
+    "source": "gitOperation"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a342c2275726c223a2278222c22616374696f6e223a226372656174ff6564227d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a342c22616374696f6e223a2263726561746564222c226578747261223a5b312c7b2261223a6e756c6c7d5d7d2c2270757368223a377d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 4,
+    "url": "",
+    "role": "author",
+    "source": "gitOperation"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a342c22616374696f6e223a2263726561746564222c2275726c223a6e756c6c7d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 4,
+    "url": "",
+    "role": "author",
+    "source": "gitOperation"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a342c22616374696f6e223a2263726561746564222c2275726c223a357d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a342c22616374696f6e223a2263725c753030363561746564222c2275726c223a2268747470733a5c2f5c2f6769746875622e636f6d5c2f615c2f625c2f70756c6c5c2f34227d7d",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "a/b",
+    "number": 4,
+    "url": "https://github.com/a/b/pull/4",
+    "role": "author",
+    "source": "gitOperation"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a342c22616374696f6e223a2263726561746564227d7d2078",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a342c22616374696f6e223a2263726561746564222c2275726c223a227365652068747470733a2f2f6769746875622e636f6d2f612f622f70756c6c2f3737206e6f77227d7d",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "a/b",
+    "number": 4,
+    "url": "https://github.com/a/b/pull/77",
+    "role": "author",
+    "source": "gitOperation"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a342c22616374696f6e223a2263726561746564222c2275726c223a2268747470733a2f2f6769746875622e636f6d2f612f622f70756c6c2f30227d7d",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a342c22616374696f6e223a2263726561746564222c2275726c223a2268747470733a2f2f6769746875622e636f6d2f612f622f70756c6c2f30227d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 4,
+    "url": "",
+    "role": "author",
+    "source": "gitOperation"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a302c22616374696f6e223a2263726561746564222c2275726c223a2268747470733a2f2f6769746875622e636f6d2f612f622f70756c6c2f30227d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e556d426552223a382c22614374496f4e223a2263726561746564227d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 8,
+    "url": "",
+    "role": "author",
+    "source": "gitOperation"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "echo",
+   "stdout": "",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a382c22616374696f6e223a2263726561746564227d2c225072223a7b226e756d626572223a397d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 9,
+    "url": "",
+    "role": "author",
+    "source": "gitOperation"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -R www.github.com/a/b",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "a/b",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -R a/b/",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "a/b",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -R github.com/a/b/c",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -R /a/b",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -R a/b -R c/d",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "c/d",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -R a/b --repo=",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -R",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 --repo",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -R=a/b",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "=a/b",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 --repo=a/b=c",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "a/b=c",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 --Repo=a/b",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -r a/b",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review -- -5",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review -- --repo a/b 12",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review - 12",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review 'unterminated",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review \"12",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review \"1\"2 --approve",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 1\\2",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review \"1\\2\"",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review \"a\\\\\" 12",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 #comment -R a/b",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "a/b",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review ١٢",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review ０１",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review 99999999999999999999",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review 007",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 7,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review +5",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review https://github.com/Kelvin/b/pull/5",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "Kelvin/b",
+    "number": 5,
+    "url": "https://github.com/Kelvin/b/pull/5",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review github.com/a/b/pull/5\u000bx",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review 'github.com/a/b/pull/5 x'",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review github.com/a/b/pull/5/",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "a/b",
+    "number": 5,
+    "url": "https://github.com/a/b/pull/5",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review www.github.com/a/b/pull/5",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "a/b",
+    "number": 5,
+    "url": "https://github.com/a/b/pull/5",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review evil.com/github.com/a/b/pull/5",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review 12&&gh pr review 13||gh pr review 14|gh pr review 15",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   },
+   {
+    "repo": "acme/webapp",
+    "number": 13,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   },
+   {
+    "repo": "acme/webapp",
+    "number": 14,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   },
+   {
+    "repo": "acme/webapp",
+    "number": 15,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -R a/b\ngh pr review 13",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "a/b",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   },
+   {
+    "repo": "acme/webapp",
+    "number": 13,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review\tgh pr review 12",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review 'gh pr review 12' 13",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -b 'x' -R 'a/b'",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "a/b",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review ''",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr review \"\" 12",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -R é/b",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "é/b",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -R GITHUB.COM/a/b",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": [
+   {
+    "repo": "a/b",
+    "number": 12,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr review 12 -R K.github.com/a/b",
+   "stdout": "",
+   "gitOperationHex": "",
+   "defaultRepo": ""
+  },
+  "out": []
+ },
+ {
+  "in": {
+   "command": "gh pr create --fill; gh pr review 1437",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "",
+   "defaultRepo": "acme/other"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gh"
+   },
+   {
+    "repo": "acme/other",
+    "number": 1437,
+    "url": "",
+    "role": "reviewer",
+    "source": "gh"
+   }
+  ]
+ },
+ {
+  "in": {
+   "command": "gh pr create --fill",
+   "stdout": "https://github.com/acme/webapp/pull/1437",
+   "gitOperationHex": "7b227072223a7b226e756d626572223a313433372c2275726c223a2268747470733a2f2f6769746875622e636f6d2f61636d652f7765626170702f70756c6c2f31343337222c22616374696f6e223a2263726561746564227d7d",
+   "defaultRepo": "acme/webapp"
+  },
+  "out": [
+   {
+    "repo": "acme/webapp",
+    "number": 1437,
+    "url": "https://github.com/acme/webapp/pull/1437",
+    "role": "author",
+    "source": "gitOperation"
+   }
+  ]
+ }
+]

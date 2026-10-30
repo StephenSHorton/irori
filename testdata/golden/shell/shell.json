@@ -1,0 +1,207 @@
+{
+  "heldLines": [
+    {
+      "in": 1,
+      "out": "1 held message…"
+    },
+    {
+      "in": 2,
+      "out": "2 held messages…"
+    },
+    {
+      "in": 10,
+      "out": "10 held messages…"
+    }
+  ],
+  "instanceIDs": [
+    {
+      "in": "",
+      "out": "com.stephenshorton.irori"
+    },
+    {
+      "in": "C:\\Users\\a\\AppData\\Local\\Temp\\irori-copy",
+      "out": "com.stephenshorton.irori.d83d14f6e59a"
+    },
+    {
+      "in": "c:\\users\\a\\appdata\\local\\temp\\IRORI-COPY\\",
+      "out": "com.stephenshorton.irori.d83d14f6e59a"
+    },
+    {
+      "in": "C:/Users/a/AppData/Local/Temp/irori-copy",
+      "out": "com.stephenshorton.irori.d83d14f6e59a"
+    },
+    {
+      "in": "C:\\Users\\a\\AppData\\Local\\Temp\\.\\x\\..\\irori-copy",
+      "out": "com.stephenshorton.irori.d83d14f6e59a"
+    },
+    {
+      "in": "/Users/a/irori-copy",
+      "out": "com.stephenshorton.irori.a4654ab4fb47"
+    },
+    {
+      "in": "relative\\copy",
+      "out": "com.stephenshorton.irori.738fec21502a"
+    },
+    {
+      "in": "É\\Ünïcode",
+      "out": "com.stephenshorton.irori.af90d0f81c98"
+    }
+  ],
+  "pauseLabels": [
+    {
+      "in": "",
+      "out": "Pause wakes on this device"
+    },
+    {
+      "in": "Stephen's PC",
+      "out": "Pause wakes on Stephen's PC"
+    },
+    {
+      "in": "mac \u003cmini\u003e",
+      "out": "Pause wakes on mac \u003cmini\u003e"
+    }
+  ],
+  "startedAtLogin": [
+    {
+      "args": [],
+      "out": false
+    },
+    {
+      "args": [
+        "--startup"
+      ],
+      "out": true
+    },
+    {
+      "args": [
+        "-startup"
+      ],
+      "out": false
+    },
+    {
+      "args": [
+        "x",
+        "--startup"
+      ],
+      "out": true
+    },
+    {
+      "args": [
+        "--startup=true"
+      ],
+      "out": false
+    }
+  ],
+  "statusLines": [
+    {
+      "status": "No agents running",
+      "counts": {
+        "unread": 0,
+        "held": 0,
+        "paused": false
+      },
+      "decide": 0,
+      "out": "No agents running"
+    },
+    {
+      "status": "1 agent (0 busy)",
+      "counts": {
+        "unread": 1,
+        "held": 0,
+        "paused": false
+      },
+      "decide": 0,
+      "out": "1 agent (0 busy) · 1 unread"
+    },
+    {
+      "status": "3 agents (2 busy)",
+      "counts": {
+        "unread": 12,
+        "held": 2,
+        "paused": true
+      },
+      "decide": 4,
+      "out": "3 agents (2 busy) · 4 need a decision · 12 unread"
+    },
+    {
+      "status": "Irori (dev build)",
+      "counts": {
+        "unread": 0,
+        "held": 0,
+        "paused": false
+      },
+      "decide": 1,
+      "out": "Irori (dev build) · 1 need a decision"
+    },
+    {
+      "status": "Irori v0.6.0",
+      "counts": {
+        "unread": 0,
+        "held": 5,
+        "paused": false
+      },
+      "decide": 0,
+      "out": "Irori v0.6.0"
+    }
+  ],
+  "versionLines": [
+    {
+      "in": "",
+      "out": "Irori (dev build)"
+    },
+    {
+      "in": "dev",
+      "out": "Irori (dev build)"
+    },
+    {
+      "in": "0.6.0",
+      "out": "Irori v0.6.0"
+    },
+    {
+      "in": "1.2.3-rc.1",
+      "out": "Irori v1.2.3-rc.1"
+    }
+  ],
+  "wantsConsole": [
+    {
+      "cmd": "",
+      "out": false
+    },
+    {
+      "cmd": "gui",
+      "out": false
+    },
+    {
+      "cmd": "mcp",
+      "out": false
+    },
+    {
+      "cmd": "serve",
+      "out": true
+    },
+    {
+      "cmd": "attach",
+      "out": true
+    },
+    {
+      "cmd": "events",
+      "out": true
+    },
+    {
+      "cmd": "pair",
+      "out": true
+    },
+    {
+      "cmd": "node",
+      "out": true
+    },
+    {
+      "cmd": "version",
+      "out": true
+    },
+    {
+      "cmd": "bogus",
+      "out": true
+    }
+  ]
+}

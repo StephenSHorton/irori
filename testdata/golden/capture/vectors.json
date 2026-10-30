@@ -1,0 +1,368 @@
+{
+ "clipRunes": [
+  {
+   "S": "short",
+   "N": 300,
+   "Clip": "short"
+  },
+  {
+   "S": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+   "N": 300,
+   "Clip": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé…"
+  },
+  {
+   "S": "abc def",
+   "N": 4,
+   "Clip": "abc…"
+  },
+  {
+   "S": "abc",
+   "N": 3,
+   "Clip": "abc"
+  }
+ ],
+ "commandDir": [
+  {
+   "Cmd": "git commit -m x",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:\\Users\\me"
+  },
+  {
+   "Cmd": "git -C C:/Users/me/repo commit -m x",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:/Users/me/repo"
+  },
+  {
+   "Cmd": "git -C \"C:\\Users\\me\\my repo\" add . && git -C \"C:\\Users\\me\\my repo\" commit -m x",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:\\Users\\me\\my repo"
+  },
+  {
+   "Cmd": "git -c user.name=a -C C:/r commit",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:/r"
+  },
+  {
+   "Cmd": "git --no-pager -C C:/r commit",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:/r"
+  },
+  {
+   "Cmd": "git -C sub commit -m x",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:\\Users\\me\\sub"
+  },
+  {
+   "Cmd": "cd C:/r && git commit -m x",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:/r"
+  },
+  {
+   "Cmd": "Set-Location -Path 'C:\\r'; git commit -m x",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:\\r"
+  },
+  {
+   "Cmd": "echo cd later",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:\\Users\\me"
+  },
+  {
+   "Cmd": "git add foo.go && git commit -m 'docs: use git -C C:/elsewhere'",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:\\Users\\me"
+  },
+  {
+   "Cmd": "git commit -m \"cd C:/elsewhere && git -C C:/x commit\"",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:\\Users\\me"
+  },
+  {
+   "Cmd": "cd sub && git -C .. commit",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:\\Users\\me"
+  },
+  {
+   "Cmd": "cd ~/projects/repo && git commit -m x",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:\\Users\\someone/projects/repo"
+  },
+  {
+   "Cmd": "cd $HOME/projects/repo && git commit",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:\\Users\\someone/projects/repo"
+  },
+  {
+   "Cmd": "cd /c/Users/me/repo && git commit",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:/Users/me/repo"
+  },
+  {
+   "Cmd": "git -C my\\ repo commit",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:\\Users\\me\\my repo"
+  },
+  {
+   "Cmd": "git -C C:/a log && git -C C:/b commit",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:/b"
+  },
+  {
+   "Cmd": "pushd - && git commit",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:\\Users\\me"
+  },
+  {
+   "Cmd": "cd %USERPROFILE%\\x; git commit",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:\\Users\\someone\\x"
+  },
+  {
+   "Cmd": "cd $env:USERPROFILE\\y | git commit",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:\\Users\\someone\\y"
+  },
+  {
+   "Cmd": "cd /d && git commit",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "D:/"
+  },
+  {
+   "Cmd": "C:\\Git\\bin\\GIT.EXE -C C:/z commit",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:/z"
+  },
+  {
+   "Cmd": "cd \"C:\\a b\" || git commit",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:\\a b"
+  },
+  {
+   "Cmd": "cd ~",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:\\Users\\someone"
+  },
+  {
+   "Cmd": "cd C:/x\ngit commit",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:/x"
+  },
+  {
+   "Cmd": "sl -LiteralPath C:\\q; git merge x",
+   "Cwd": "C:\\Users\\me",
+   "Dir": "C:\\q"
+  },
+  {
+   "Cmd": "cd sub && git commit",
+   "Cwd": "",
+   "Dir": "sub"
+  }
+ ],
+ "cursorFile": "{\"files\":{\"C:\\\\Users\\\\me\\\\.claude\\\\projects\\\\C--x\\\\s1.jsonl\":123,\"C:\\\\Users\\\\me\\\\.claude\\\\projects\\\\C--x\\\\s\\u003c\\u0026\\u003eé.jsonl\":0},\"reflogs\":{\"c:\\\\users\\\\me\\\\projects\\\\repo\":9876543210}}",
+ "home": "C:\\Users\\someone",
+ "ids": [
+  {
+   "kind": "turn",
+   "parts": [
+    "dev1/s1",
+    "",
+    "p1"
+   ],
+   "id": "t-ef4485ecda2262b31f1b"
+  },
+  {
+   "kind": "turn",
+   "parts": [
+    "dev1/s1",
+    "agent1",
+    "p1"
+   ],
+   "id": "t-1a84d9e2bd80796f93d6"
+  },
+  {
+   "kind": "turn",
+   "parts": [
+    "",
+    "",
+    ""
+   ],
+   "id": "t-cbe5cfdf7c2118a9c3d7"
+  },
+  {
+   "kind": "turn",
+   "parts": [
+    "0123456789abcdef0123456789abcdef/abc",
+    "",
+    "8d2e-é"
+   ],
+   "id": "t-3217816576c37b93ba27"
+  },
+  {
+   "kind": "edit",
+   "parts": [
+    "dev1/s1",
+    "toolu_1",
+    "C:\\src\\demo\\a.go"
+   ],
+   "id": "e-2e9e4af14e4d2f3e452c"
+  },
+  {
+   "kind": "edit",
+   "parts": [
+    "dev1/s1",
+    "toolu_1",
+    "sub/new.txt"
+   ],
+   "id": "e-080f6c141bc5637593b1"
+  },
+  {
+   "kind": "edit",
+   "parts": [
+    "k",
+    "",
+    ""
+   ],
+   "id": "e-d2c5137832f7ae5398c5"
+  },
+  {
+   "kind": "summary",
+   "parts": [
+    "dev1/s1",
+    "",
+    "ai_title",
+    "Fix the build"
+   ],
+   "id": "s-8a4d53760f6f619e5500"
+  },
+  {
+   "kind": "summary",
+   "parts": [
+    "dev1/s1",
+    "agent1",
+    "away_summary",
+    "uuid-1"
+   ],
+   "id": "s-3fcc45813c5d5d2901fb"
+  },
+  {
+   "kind": "summary",
+   "parts": [
+    "k|x",
+    "a|b",
+    "c",
+    "d"
+   ],
+   "id": "s-6ca6ba44c899c41d7fda"
+  }
+ ],
+ "isArtifact": {
+  "/r/.dll": false,
+  "/r/.git/config": true,
+  "/r/.gitignore": false,
+  "/r/Makefile": false,
+  "/r/a.tar.gz": true,
+  "/r/assets/model.vmdl": false,
+  "/r/assets/model.vmdl_c": true,
+  "/r/img/logo.PNG": true,
+  "/r/src/main.go": false,
+  "/r/web/node_modules/x/y.js": true,
+  "/r/x.SAV": true,
+  "C:\\r\\.github\\workflows\\ci.ym": false,
+  "C:\\r\\NODE_MODULES\\x": true,
+  "C:\\r\\bin\\Debug\\App.dll": true
+ },
+ "paths": [
+  {
+   "In": "C:\\Users\\Me\\Repo",
+   "Norm": "c:\\users\\me\\repo",
+   "Key": "c:/users/me/repo"
+  },
+  {
+   "In": "c:/users/me/repo/",
+   "Norm": "c:\\users\\me\\repo",
+   "Key": "c:/users/me/repo"
+  },
+  {
+   "In": "C:\\A\\..\\B",
+   "Norm": "c:\\b",
+   "Key": "c:/b"
+  },
+  {
+   "In": "/home/x/./y",
+   "Norm": "\\home\\x\\y",
+   "Key": "/home/x/y"
+  },
+  {
+   "In": "C:\\ÄÖ\\İx",
+   "Norm": "c:\\äö\\ix",
+   "Key": "c:/äö/ix"
+  },
+  {
+   "In": "",
+   "Norm": ".",
+   "Key": "."
+  }
+ ],
+ "relTo": [
+  {
+   "Root": "C:\\r",
+   "Path": "C:\\r\\a\\b.go",
+   "Rel": "a/b.go",
+   "OK": true
+  },
+  {
+   "Root": "C:\\r",
+   "Path": "c:/R/a.go",
+   "Rel": "a.go",
+   "OK": true
+  },
+  {
+   "Root": "C:\\r",
+   "Path": "C:\\r",
+   "Rel": "",
+   "OK": false
+  },
+  {
+   "Root": "C:\\r",
+   "Path": "C:\\r2\\a",
+   "Rel": "",
+   "OK": false
+  },
+  {
+   "Root": "C:\\r",
+   "Path": "D:\\r\\a",
+   "Rel": "",
+   "OK": false
+  },
+  {
+   "Root": "",
+   "Path": "C:\\r",
+   "Rel": "",
+   "OK": false
+  },
+  {
+   "Root": "C:\\r",
+   "Path": "",
+   "Rel": "",
+   "OK": false
+  },
+  {
+   "Root": "C:\\r\\",
+   "Path": "C:\\r\\x\\..\\y",
+   "Rel": "y",
+   "OK": true
+  },
+  {
+   "Root": "/r",
+   "Path": "/r/a",
+   "Rel": "a",
+   "OK": true
+  },
+  {
+   "Root": "C:\\r",
+   "Path": "C:\\r\\..\\r\\z",
+   "Rel": "z",
+   "OK": true
+  }
+ ]
+}

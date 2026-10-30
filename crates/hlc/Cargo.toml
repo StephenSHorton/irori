@@ -1,0 +1,16 @@
+[package]
+name = "irori-hlc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Irori's hybrid logical clock: wall ms << 16 plus a 16-bit counter (store.md §2.6)"
+
+[lib]
+name = "hlc"
+
+[dependencies]
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

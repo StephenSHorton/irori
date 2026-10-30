@@ -1,0 +1,382 @@
+{
+  "meshSecret": [
+    {
+      "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "personId": "p",
+      "epoch": 1,
+      "key": "6ad72d6d1cb22dd341b5166890d62d4fb4c22afe5565710301daab1959ac9e0a",
+      "topic": "irori/mesh/1/2d130052c95fa962a2ffe9dfb938bcd1"
+    },
+    {
+      "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "personId": "p",
+      "epoch": 2,
+      "key": "0494944ea37efe7ddad44a21f5773350948186e25d700ac820c809cce944ec6b",
+      "topic": "irori/mesh/1/14b84abe3d705e91ee50d5fdf8fac08e"
+    },
+    {
+      "seed": "0708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20212223242526",
+      "personId": "0123456789abcdef0123456789abcdef",
+      "epoch": 1,
+      "key": "757c7cad11d624889797e5a1e361a39b97483df6f00dee936de31f355af6e54d",
+      "topic": "irori/mesh/1/f0846b6ef8d173453f09949d3e2c9181"
+    },
+    {
+      "seed": "090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728",
+      "personId": "person-ü",
+      "epoch": 3,
+      "key": "e57acc1300e6684598dd15c3a15dc7aeaa0420b5bf1e0d87c8d29b6e650f82bb",
+      "topic": "irori/mesh/1/698c7c64e28db183c423e37cc9ead16c"
+    },
+    {
+      "seed": "0000000000000000000000000000000000000000000000000000000000000000",
+      "personId": "",
+      "epoch": 0,
+      "key": "bcaac0b00207685136208ae7829358bd6c21e7c0666ab14f8943a6785e38775c",
+      "topic": "irori/mesh/1/35d066f3424de6c4ad2c35369a283eb2"
+    },
+    {
+      "seed": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+      "personId": "p",
+      "epoch": 1099511627776,
+      "key": "92dd4d33e0a853609d72ac67ac7db3dc1d9098bc4c703762b14523e8fa3972d2",
+      "topic": "irori/mesh/1/36b92358aa5281e060f83380a08f0ce6"
+    }
+  ],
+  "sealed": [
+    {
+      "old": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "new": "6465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f80818283",
+      "personId": "p",
+      "epoch": 2,
+      "recipient": "dev-b",
+      "nonce": "000102030405060708090a0b0c0d0e0f1011121314151617",
+      "sealed": "000102030405060708090a0b0c0d0e0f1011121314151617b6b387af07586a88e80e48b9d20dd1ee242ed016a728744e7038aa9a0af25f0e25b0c6a836f27ed3180b0444daaa34e1",
+      "opens": true
+    },
+    {
+      "old": "0a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20212223242526272829",
+      "new": "65666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f8081828384",
+      "personId": "0123456789abcdef",
+      "epoch": 5,
+      "recipient": "0123456789abcdef0123456789abcdef",
+      "nonce": "18191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+      "sealed": "18191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f51fa546c188419b093ba0735622bb0ab3e260e80fba65ff2cd2469612bedc3018afd793f3080fb4a35775d2a6593dd93",
+      "opens": true
+    },
+    {
+      "old": "1415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f30313233",
+      "new": "666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485",
+      "personId": "p",
+      "epoch": 1,
+      "recipient": "",
+      "nonce": "303132333435363738393a3b3c3d3e3f4041424344454647",
+      "sealed": "303132333435363738393a3b3c3d3e3f4041424344454647fe4bad1c39d5485a4138f8a40f10500432eb7c4408d04d0e4a13e1211173c042466fd1f14f528766a44c6aa1ba54601a",
+      "opens": true
+    }
+  ],
+  "frames": [
+    {
+      "name": "hello",
+      "json": {
+        "type": "hello",
+        "v": 1,
+        "deviceId": "dev-a",
+        "personId": "p1",
+        "epoch": 2,
+        "coreVersion": "0.5.0",
+        "schema": 3,
+        "wallMs": 1761700000123,
+        "vector": {
+          "dev-a": 40,
+          "dev-b": 12,
+          "dev-c": 0
+        },
+        "top": "ab12",
+        "topRow": {
+          "d": "dev-a",
+          "s": 7,
+          "h": 4611686018427387909,
+          "a": "agent:dev-a/s\u003c1\u003e\u0026",
+          "k": "agent.seen",
+          "p": "eyJiIjogMiAsICJ0IjoiPCY+In0=",
+          "sig": "AQID+g=="
+        },
+        "personPub": "ff00"
+      },
+      "text": "{\"type\":\"hello\",\"v\":1,\"deviceId\":\"dev-a\",\"personId\":\"p1\",\"epoch\":2,\"coreVersion\":\"0.5.0\",\"schema\":3,\"wallMs\":1761700000123,\"vector\":{\"dev-a\":40,\"dev-b\":12,\"dev-c\":0},\"top\":\"ab12\",\"topRow\":{\"d\":\"dev-a\",\"s\":7,\"h\":4611686018427387909,\"a\":\"agent:dev-a/s\\u003c1\\u003e\\u0026\",\"k\":\"agent.seen\",\"p\":\"eyJiIjogMiAsICJ0IjoiPCY+In0=\",\"sig\":\"AQID+g==\"},\"personPub\":\"ff00\"}"
+    },
+    {
+      "name": "helloEmpty",
+      "json": {
+        "type": "hello",
+        "v": 1,
+        "deviceId": "dev-a",
+        "personId": "p1",
+        "epoch": 1,
+        "schema": 3
+      },
+      "text": "{\"type\":\"hello\",\"v\":1,\"deviceId\":\"dev-a\",\"personId\":\"p1\",\"epoch\":1,\"schema\":3}"
+    },
+    {
+      "name": "rows",
+      "json": {
+        "type": "rows",
+        "events": [
+          {
+            "d": "dev-a",
+            "s": 7,
+            "h": 4611686018427387909,
+            "a": "agent:dev-a/s\u003c1\u003e\u0026",
+            "k": "agent.seen",
+            "p": "eyJiIjogMiAsICJ0IjoiPCY+In0=",
+            "sig": "AQID+g=="
+          },
+          {
+            "d": "dev-b",
+            "s": 1,
+            "h": 9,
+            "a": "irori",
+            "k": "x",
+            "p": null,
+            "sig": null
+          }
+        ],
+        "batch": 3
+      },
+      "text": "{\"type\":\"rows\",\"events\":[{\"d\":\"dev-a\",\"s\":7,\"h\":4611686018427387909,\"a\":\"agent:dev-a/s\\u003c1\\u003e\\u0026\",\"k\":\"agent.seen\",\"p\":\"eyJiIjogMiAsICJ0IjoiPCY+In0=\",\"sig\":\"AQID+g==\"},{\"d\":\"dev-b\",\"s\":1,\"h\":9,\"a\":\"irori\",\"k\":\"x\",\"p\":null,\"sig\":null}],\"batch\":3}"
+    },
+    {
+      "name": "rowsLoose",
+      "json": {
+        "type": "rows",
+        "events": [
+          {
+            "d": "dev-a",
+            "s": 7,
+            "h": 4611686018427387909,
+            "a": "agent:dev-a/s\u003c1\u003e\u0026",
+            "k": "agent.seen",
+            "p": "eyJiIjogMiAsICJ0IjoiPCY+In0=",
+            "sig": "AQID+g=="
+          }
+        ],
+        "loose": true
+      },
+      "text": "{\"type\":\"rows\",\"events\":[{\"d\":\"dev-a\",\"s\":7,\"h\":4611686018427387909,\"a\":\"agent:dev-a/s\\u003c1\\u003e\\u0026\",\"k\":\"agent.seen\",\"p\":\"eyJiIjogMiAsICJ0IjoiPCY+In0=\",\"sig\":\"AQID+g==\"}],\"loose\":true}"
+    },
+    {
+      "name": "vectorAck",
+      "json": {
+        "type": "vector",
+        "vector": {
+          "d": 1125899906842624
+        },
+        "ack": true,
+        "batch": 9
+      },
+      "text": "{\"type\":\"vector\",\"vector\":{\"d\":1125899906842624},\"ack\":true,\"batch\":9}"
+    },
+    {
+      "name": "vector",
+      "json": {
+        "type": "vector",
+        "vector": {
+          "d": 3
+        }
+      },
+      "text": "{\"type\":\"vector\",\"vector\":{\"d\":3}}"
+    },
+    {
+      "name": "ping",
+      "json": {
+        "type": "ping",
+        "t": 1761700000999
+      },
+      "text": "{\"type\":\"ping\",\"t\":1761700000999}"
+    },
+    {
+      "name": "pong",
+      "json": {
+        "type": "pong",
+        "t": 1761700000999
+      },
+      "text": "{\"type\":\"pong\",\"t\":1761700000999}"
+    },
+    {
+      "name": "personSecret",
+      "json": {
+        "type": "person.secret",
+        "epoch": 3,
+        "sealed": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5",
+        "from": 1
+      },
+      "text": "{\"type\":\"person.secret\",\"epoch\":3,\"sealed\":\"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5\",\"from\":1}"
+    },
+    {
+      "name": "rowAt",
+      "json": {
+        "type": "row.at",
+        "deviceId": "dev-a",
+        "seq": 41
+      },
+      "text": "{\"type\":\"row.at\",\"deviceId\":\"dev-a\",\"seq\":41}"
+    },
+    {
+      "name": "bare",
+      "json": {
+        "type": "future.kind"
+      },
+      "text": "{\"type\":\"future.kind\"}"
+    },
+    {
+      "name": "boardRequest",
+      "json": {
+        "vector": {
+          "dev-a": 3
+        }
+      },
+      "text": "{\"vector\":{\"dev-a\":3}}"
+    },
+    {
+      "name": "boardChunk",
+      "json": {
+        "events": [
+          {
+            "d": "dev-a",
+            "s": 7,
+            "h": 4611686018427387909,
+            "a": "agent:dev-a/s\u003c1\u003e\u0026",
+            "k": "agent.seen",
+            "p": "eyJiIjogMiAsICJ0IjoiPCY+In0=",
+            "sig": "AQID+g=="
+          }
+        ]
+      },
+      "text": "{\"events\":[{\"d\":\"dev-a\",\"s\":7,\"h\":4611686018427387909,\"a\":\"agent:dev-a/s\\u003c1\\u003e\\u0026\",\"k\":\"agent.seen\",\"p\":\"eyJiIjogMiAsICJ0IjoiPCY+In0=\",\"sig\":\"AQID+g==\"}]}"
+    },
+    {
+      "name": "blobRequest",
+      "json": {
+        "id": "0011223344556677",
+        "sha256": "ab",
+        "offset": 5,
+        "len": 0
+      },
+      "text": "{\"id\":\"0011223344556677\",\"sha256\":\"ab\",\"offset\":5,\"len\":0}"
+    },
+    {
+      "name": "fileOffer",
+      "json": {
+        "sha256": "ab",
+        "size": 12,
+        "mime": "text/plain"
+      },
+      "text": "{\"sha256\":\"ab\",\"size\":12,\"mime\":\"text/plain\"}"
+    },
+    {
+      "name": "presence",
+      "json": {
+        "deviceId": "dev-a",
+        "epoch": 2,
+        "coreVersion": "0.5.0"
+      },
+      "text": "{\"deviceId\":\"dev-a\",\"epoch\":2,\"coreVersion\":\"0.5.0\"}"
+    }
+  ],
+  "nodeAddr": [
+    {
+      "name": "pc",
+      "payload": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\"],\"public\":null,\"via\":\"\",\"reach\":\"unmapped\",\"at\":1761700000000}",
+      "dial": [
+        "192.168.1.20:25817"
+      ],
+      "outside": "",
+      "sameAt": true
+    },
+    {
+      "name": "mapped",
+      "payload": "{\"v\":1,\"port\":24817,\"lan\":[\"192.168.1.20\",\"10.0.0.2\"],\"v6\":[\"2001:db8::1\"],\"public\":{\"ip\":\"203.0.113.7\",\"tcp\":24900,\"udp\":24901},\"via\":\"upnp\",\"reach\":\"ok\",\"at\":5}",
+      "dial": [
+        "192.168.1.20:24817",
+        "10.0.0.2:24817",
+        "[2001:db8::1]:24817",
+        "203.0.113.7:24900"
+      ],
+      "outside": "203.0.113.7:24900",
+      "sameAt": true
+    },
+    {
+      "name": "cgnat",
+      "payload": "{\"v\":1,\"port\":24817,\"public\":{\"ip\":\"100.64.0.1\",\"tcp\":24817,\"udp\":24817},\"via\":\"natpmp\",\"reach\":\"cgnat\",\"at\":6}",
+      "dial": null,
+      "outside": "",
+      "sameAt": true
+    },
+    {
+      "name": "off",
+      "payload": "{\"v\":1,\"public\":null,\"via\":\"\",\"reach\":\"off\",\"at\":7}",
+      "dial": null,
+      "outside": "",
+      "sameAt": true
+    }
+  ],
+  "files": [
+    {
+      "name": "mesh-peers.json",
+      "text": "{\n  \"dev-a\": {\n    \"epoch\": 1\n  },\n  \"dev-b\": {\n    \"epoch\": 2,\n    \"personPub\": \"ff00\"\n  }\n}"
+    },
+    {
+      "name": "hub-addrs.json",
+      "text": "{\n  \"dev-y\": {\n    \"hint\": [\n      \"10.0.0.2:1\",\n      \"[::1]:2\"\n    ]\n  },\n  \"dev-z\": {\n    \"last\": \"192.168.1.2:25817\"\n  }\n}"
+    },
+    {
+      "name": "relay.json",
+      "text": "{\n  \"credentialUrl\": \"https://relay.example/cred?k=1\",\n  \"turnUrls\": [\n    \"turns:relay.example:5349\"\n  ]\n}"
+    }
+  ],
+  "status": [
+    {
+      "name": "peerFull",
+      "text": "{\"deviceId\":\"dev-b\",\"label\":\"Mac\",\"role\":\"desktop\",\"state\":\"connected\",\"epoch\":2,\"path\":\"direct\",\"rtt\":1500000,\"lastPing\":\"2026-10-29T12:30:45.1234567Z\",\"lastSync\":\"2026-10-29T12:30:44.1234567Z\",\"skew\":-250000000,\"refused\":1,\"ignored\":2,\"held\":3,\"stopped\":\"its clock went backwards\",\"ahead\":true,\"old\":true}"
+    },
+    {
+      "name": "peerRevoked",
+      "text": "{\"deviceId\":\"dev-c\",\"label\":\"\",\"role\":\"node\",\"state\":\"offline\",\"revoked\":true,\"pending\":1,\"remaining\":2}"
+    },
+    {
+      "name": "status",
+      "text": "{\"state\":\"on\",\"epoch\":2,\"topics\":1,\"peers\":[{\"deviceId\":\"dev-b\",\"label\":\"Mac\",\"role\":\"desktop\",\"state\":\"connected\",\"epoch\":2,\"path\":\"direct\",\"rtt\":1500000,\"lastPing\":\"2026-10-29T12:30:45.1234567Z\",\"lastSync\":\"2026-10-29T12:30:44.1234567Z\",\"skew\":-250000000,\"refused\":1,\"ignored\":2,\"held\":3,\"stopped\":\"its clock went backwards\",\"ahead\":true,\"old\":true}]}"
+    },
+    {
+      "name": "statusEmpty",
+      "text": "{\"state\":\"off\",\"epoch\":1,\"topics\":0,\"peers\":null}"
+    },
+    {
+      "name": "rowThis",
+      "text": "{\"deviceId\":\"dev-a\",\"name\":\"PC\",\"role\":\"desktop\",\"os\":\"windows\",\"this\":true,\"state\":\"this\"}"
+    },
+    {
+      "name": "rowDetail",
+      "text": "{\"deviceId\":\"dev-b\",\"name\":\"Mac\",\"role\":\"desktop\",\"state\":\"connected\",\"warning\":\"It its clock went backwards. Remove it.\",\"action\":\"remove\",\"lastSeen\":\"2026-10-29T12:30:45.1234567Z\",\"detail\":{\"deviceId\":\"dev-b\",\"label\":\"Mac\",\"role\":\"desktop\",\"state\":\"connected\",\"epoch\":2,\"path\":\"direct\",\"rtt\":1500000,\"lastPing\":\"2026-10-29T12:30:45.1234567Z\",\"lastSync\":\"2026-10-29T12:30:44.1234567Z\",\"skew\":-250000000,\"refused\":1,\"ignored\":2,\"held\":3,\"stopped\":\"its clock went backwards\",\"ahead\":true,\"old\":true}}"
+    }
+  ],
+  "scrub": [
+    {
+      "name": "fetch https://relay.example/cred?key=abc failed",
+      "text": "fetch https://relay.example/cred?… failed"
+    },
+    {
+      "name": "two http://a/b#frag and https://c/d?x=1\u0026y=2\tend",
+      "text": "two http://a/b?… and https://c/d?…\tend"
+    },
+    {
+      "name": "quoted \"https://x/y?z=1\" and 'http://q/?r'",
+      "text": "quoted \"https://x/y?…\" and 'http://q/?…'"
+    },
+    {
+      "name": "no url here",
+      "text": "no url here"
+    }
+  ]
+}

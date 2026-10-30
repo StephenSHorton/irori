@@ -1,0 +1,2 @@
+{"type":"ai-title","aiTitle":"Hello spike","sessionId":"5b4a3f2e-1d0c-4b9a-8f6e-5d4c3b2a1f0e"}
+{"type":"assistant","timestamp":"2026-10-26T09:00:00.000Z","isSidechain":false,"sessionId":"5b4a3f2e-1d0c-4b9a-8f6e-5d4c3b2a1f0e","message":{"role":"assistant","content":[{"type":"text","text":"hello from the spike"}]}}

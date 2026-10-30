@@ -1,0 +1,432 @@
+{
+ "emptyRawErr": true,
+ "f32": [
+  {
+   "bits": "0",
+   "out": "0"
+  },
+  {
+   "bits": "3f800000",
+   "out": "1"
+  },
+  {
+   "bits": "3dcccccd",
+   "out": "0.1"
+  },
+  {
+   "bits": "6258d727",
+   "out": "1e+21"
+  },
+  {
+   "bits": "60ad78ec",
+   "out": "100000000000000000000"
+  },
+  {
+   "bits": "358637bd",
+   "out": "0.000001"
+  },
+  {
+   "bits": "35861561",
+   "out": "9.99e-7"
+  },
+  {
+   "bits": "33d6bf95",
+   "out": "1e-7"
+  },
+  {
+   "bits": "7f7fc99e",
+   "out": "3.4e+38"
+  },
+  {
+   "bits": "4b800000",
+   "out": "16777216"
+  },
+  {
+   "bits": "800000",
+   "out": "1.1754944e-38"
+  },
+  {
+   "bits": "1",
+   "out": "1e-45"
+  },
+  {
+   "bits": "42f6e979",
+   "out": "123.456"
+  },
+  {
+   "bits": "7f800000",
+   "out": "",
+   "err": true
+  }
+ ],
+ "f64": [
+  {
+   "bits": "0",
+   "out": "0"
+  },
+  {
+   "bits": "8000000000000000",
+   "out": "-0"
+  },
+  {
+   "bits": "3ff0000000000000",
+   "out": "1"
+  },
+  {
+   "bits": "bff0000000000000",
+   "out": "-1"
+  },
+  {
+   "bits": "3fb999999999999a",
+   "out": "0.1"
+  },
+  {
+   "bits": "3fd3333333333333",
+   "out": "0.3"
+  },
+  {
+   "bits": "4059000000000000",
+   "out": "100"
+  },
+  {
+   "bits": "412e848000000000",
+   "out": "1000000"
+  },
+  {
+   "bits": "4415af1d78b58c40",
+   "out": "100000000000000000000"
+  },
+  {
+   "bits": "444b1ae4d6e2ef50",
+   "out": "1e+21"
+  },
+  {
+   "bits": "4454542ba12a337c",
+   "out": "1.5e+21"
+  },
+  {
+   "bits": "3eb0c6f7a0b5ed8d",
+   "out": "0.000001"
+  },
+  {
+   "bits": "3eb0c2ac1dbbe3d8",
+   "out": "9.99e-7"
+  },
+  {
+   "bits": "3e7ad7f29abcaf48",
+   "out": "1e-7"
+  },
+  {
+   "bits": "3e8091b5aeffdb8e",
+   "out": "1.2345e-7"
+  },
+  {
+   "bits": "419d6f34547df3b6",
+   "out": "123456789.123"
+  },
+  {
+   "bits": "1",
+   "out": "5e-324"
+  },
+  {
+   "bits": "7fefffffffffffff",
+   "out": "1.7976931348623157e+308"
+  },
+  {
+   "bits": "4340000000000000",
+   "out": "9007199254740992"
+  },
+  {
+   "bits": "43d0000000000000",
+   "out": "4611686018427388000"
+  },
+  {
+   "bits": "54b249ad2594c37d",
+   "out": "1e+100"
+  },
+  {
+   "bits": "bde49da7e361ce4c",
+   "out": "-1.5e-10"
+  },
+  {
+   "bits": "43e56a95319d63e1",
+   "out": "12345678901234567000"
+  },
+  {
+   "bits": "3eb0c6f7a0b5ed8d",
+   "out": "0.000001"
+  },
+  {
+   "bits": "3ff0000000000001",
+   "out": "1.0000000000000002"
+  },
+  {
+   "bits": "3efa36e2eb1c432d",
+   "out": "0.000025"
+  },
+  {
+   "bits": "3ddb7cdfd9d7bdbb",
+   "out": "1e-10"
+  },
+  {
+   "bits": "c44b1ae4d6e2ef50",
+   "out": "-1e+21"
+  },
+  {
+   "bits": "400921f9f01b866e",
+   "out": "3.14159"
+  },
+  {
+   "bits": "7ff8000000000001",
+   "out": "",
+   "err": true
+  },
+  {
+   "bits": "7ff0000000000000",
+   "out": "",
+   "err": true
+  },
+  {
+   "bits": "fff0000000000000",
+   "out": "",
+   "err": true
+  }
+ ],
+ "innerIndentPrefix": "{\n>\t\"x\": 7\n>}",
+ "raw": [
+  {
+   "in": " { \"a\" : [ 1 , { } , [ ] , \"x y\" ] , \"b\":{\"c\":null} } ",
+   "compact": "{\"a\":[1,{},[],\"x y\"],\"b\":{\"c\":null}}",
+   "compactEscaped": "{\"a\":[1,{},[],\"x y\"],\"b\":{\"c\":null}}",
+   "indent": "{\n  \"a\": [\n    1,\n    {},\n    [],\n    \"x y\"\n  ],\n  \"b\": {\n    \"c\": null\n  }\n} "
+  },
+  {
+   "in": "[]",
+   "compact": "[]",
+   "compactEscaped": "[]",
+   "indent": "[]"
+  },
+  {
+   "in": "\"<\"",
+   "compact": "\"<\"",
+   "compactEscaped": "\"\\u003c\"",
+   "indent": "\"<\""
+  },
+  {
+   "in": "{\"a\":\"\u2028\"}",
+   "compact": "{\"a\":\"\u2028\"}",
+   "compactEscaped": "{\"a\":\"\\u2028\"}",
+   "indent": "{\n  \"a\": \"\u2028\"\n}"
+  }
+ ],
+ "strings": [
+  {
+   "hex": "",
+   "html": "\"\"",
+   "noHtml": "\"\""
+  },
+  {
+   "hex": "706c61696e",
+   "html": "\"plain\"",
+   "noHtml": "\"plain\""
+  },
+  {
+   "hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+   "html": "\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\b\\t\\n\\u000b\\f\\r\\u000e\\u000f\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019\\u001a\\u001b\\u001c\\u001d\\u001e\\u001f !\\\"#$%\\u0026'()*+,-./0123456789:;\\u003c=\\u003e?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\"",
+   "noHtml": "\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\b\\t\\n\\u000b\\f\\r\\u000e\\u000f\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019\\u001a\\u001b\\u001c\\u001d\\u001e\\u001f !\\\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\""
+  },
+  {
+   "hex": "613c623e2663",
+   "html": "\"a\\u003cb\\u003e\\u0026c\"",
+   "noHtml": "\"a<b>&c\""
+  },
+  {
+   "hex": "e280a8e280a9",
+   "html": "\"\\u2028\\u2029\"",
+   "noHtml": "\"\\u2028\\u2029\""
+  },
+  {
+   "hex": "78e280a879",
+   "html": "\"x\\u2028y\"",
+   "noHtml": "\"x\\u2028y\""
+  },
+  {
+   "hex": "c3a9",
+   "html": "\"é\"",
+   "noHtml": "\"é\""
+  },
+  {
+   "hex": "e697a5e69cace8aa9e",
+   "html": "\"日本語\"",
+   "noHtml": "\"日本語\""
+  },
+  {
+   "hex": "f09f9880",
+   "html": "\"😀\"",
+   "noHtml": "\"😀\""
+  },
+  {
+   "hex": "efbfbd",
+   "html": "\"�\"",
+   "noHtml": "\"�\""
+  },
+  {
+   "hex": "7f",
+   "html": "\"\"",
+   "noHtml": "\"\""
+  },
+  {
+   "hex": "c280c29fc2a0c2ad",
+   "html": "\" ­\"",
+   "noHtml": "\" ­\""
+  },
+  {
+   "hex": "80",
+   "html": "\"\\ufffd\"",
+   "noHtml": "\"\\ufffd\""
+  },
+  {
+   "hex": "ff",
+   "html": "\"\\ufffd\"",
+   "noHtml": "\"\\ufffd\""
+  },
+  {
+   "hex": "c3",
+   "html": "\"\\ufffd\"",
+   "noHtml": "\"\\ufffd\""
+  },
+  {
+   "hex": "c328",
+   "html": "\"\\ufffd(\"",
+   "noHtml": "\"\\ufffd(\""
+  },
+  {
+   "hex": "e280",
+   "html": "\"\\ufffd\\ufffd\"",
+   "noHtml": "\"\\ufffd\\ufffd\""
+  },
+  {
+   "hex": "e280a8",
+   "html": "\"\\u2028\"",
+   "noHtml": "\"\\u2028\""
+  },
+  {
+   "hex": "eda080",
+   "html": "\"\\ufffd\\ufffd\\ufffd\"",
+   "noHtml": "\"\\ufffd\\ufffd\\ufffd\""
+  },
+  {
+   "hex": "f09f98",
+   "html": "\"\\ufffd\\ufffd\\ufffd\"",
+   "noHtml": "\"\\ufffd\\ufffd\\ufffd\""
+  },
+  {
+   "hex": "f09f9880",
+   "html": "\"😀\"",
+   "noHtml": "\"😀\""
+  },
+  {
+   "hex": "f4908080",
+   "html": "\"\\ufffd\\ufffd\\ufffd\\ufffd\"",
+   "noHtml": "\"\\ufffd\\ufffd\\ufffd\\ufffd\""
+  },
+  {
+   "hex": "c0af",
+   "html": "\"\\ufffd\\ufffd\"",
+   "noHtml": "\"\\ufffd\\ufffd\""
+  },
+  {
+   "hex": "e080af",
+   "html": "\"\\ufffd\\ufffd\\ufffd\"",
+   "noHtml": "\"\\ufffd\\ufffd\\ufffd\""
+  },
+  {
+   "hex": "61ff62fe",
+   "html": "\"a\\ufffdb\\ufffd\"",
+   "noHtml": "\"a\\ufffdb\\ufffd\""
+  },
+  {
+   "hex": "00011f",
+   "html": "\"\\u0000\\u0001\\u001f\"",
+   "noHtml": "\"\\u0000\\u0001\\u001f\""
+  },
+  {
+   "hex": "74616209686572652022712220c3a92001",
+   "html": "\"tab\\there \\\"q\\\" é \\u0001\"",
+   "noHtml": "\"tab\\there \\\"q\\\" é \\u0001\""
+  },
+  {
+   "hex": "5c",
+   "html": "\"\\\\\"",
+   "noHtml": "\"\\\\\""
+  },
+  {
+   "hex": "22",
+   "html": "\"\\\"\"",
+   "noHtml": "\"\\\"\""
+  },
+  {
+   "hex": "e2808be2808eefbbbf",
+   "html": "\"​‎﻿\"",
+   "noHtml": "\"​‎﻿\""
+  },
+  {
+   "hex": "f3a08081",
+   "html": "\"󠀁\"",
+   "noHtml": "\"󠀁\""
+  },
+  {
+   "hex": "f48fbfbf",
+   "html": "\"􏿿\"",
+   "noHtml": "\"􏿿\""
+  },
+  {
+   "hex": "cdb8",
+   "html": "\"͸\"",
+   "noHtml": "\"͸\""
+  },
+  {
+   "hex": "c2a0",
+   "html": "\" \"",
+   "noHtml": "\" \""
+  },
+  {
+   "hex": "3c69726f72692d6d6573736167652066726f6d3d2278223e26616d703b3c2f69726f72692d6d6573736167653e",
+   "html": "\"\\u003cirori-message from=\\\"x\\\"\\u003e\\u0026amp;\\u003c/irori-message\\u003e\"",
+   "noHtml": "\"<irori-message from=\\\"x\\\">&amp;</irori-message>\""
+  },
+  {
+   "hex": "c285",
+   "html": "\"\"",
+   "noHtml": "\"\""
+  },
+  {
+   "hex": "e281a6",
+   "html": "\"⁦\"",
+   "noHtml": "\"⁦\""
+  },
+  {
+   "hex": "f09fa7bf",
+   "html": "\"🧿\"",
+   "noHtml": "\"🧿\""
+  },
+  {
+   "hex": "f09faba9",
+   "html": "\"🫩\"",
+   "noHtml": "\"🫩\""
+  },
+  {
+   "hex": "e0ad95",
+   "html": "\"୕\"",
+   "noHtml": "\"୕\""
+  },
+  {
+   "hex": "f0b18d90",
+   "html": "\"𱍐\"",
+   "noHtml": "\"𱍐\""
+  }
+ ],
+ "struct": "{\"name\":\"n\\u003c1\\u003e\",\"kept\":0,\"true\":true,\"nilSlice\":null,\"emptySlice\":[],\"nilMap\":null,\"map\":{\"\":5,\"B\":3,\"a\":1,\"a\\u2028\":6,\"b\":2,\"é\":4},\"intMap\":{\"-1\":\"neg\",\"10\":\"ten\",\"9\":\"nine\"},\"bytes\":\"aGVsbG8A/w==\",\"nilBytes\":null,\"emptyBytes\":\"\",\"ptr\":null,\"inner\":{\"x\":7},\"zeroTime\":\"0001-01-01T00:00:00Z\",\"at\":\"2026-10-28T14:25:23.9472209Z\",\"local\":\"2026-01-02T03:04:05.12-06:00\",\"raw\":{\"k\":[1,2,\"\\u003c\\u0026\\u003e\"]},\"nilRaw\":null,\"html\\u003c\\u0026\\u003e\":\"a\\u0026b\",\"f64\":1e+21,\"f32\":0.1,\"i64\":-9223372036854775808,\"u64\":18446744073709551615,\"any\":[1.5,\"x\",null,true,{\"a\":[],\"z\":1}],\"anyMap\":{\"hlc\":4611686018427388000},\"strs\":{\"k\":\"\\u2029\"}}",
+ "structEncoderNoHtml": "{\"name\":\"n<1>\",\"kept\":0,\"true\":true,\"nilSlice\":null,\"emptySlice\":[],\"nilMap\":null,\"map\":{\"\":5,\"B\":3,\"a\":1,\"a\\u2028\":6,\"b\":2,\"é\":4},\"intMap\":{\"-1\":\"neg\",\"10\":\"ten\",\"9\":\"nine\"},\"bytes\":\"aGVsbG8A/w==\",\"nilBytes\":null,\"emptyBytes\":\"\",\"ptr\":null,\"inner\":{\"x\":7},\"zeroTime\":\"0001-01-01T00:00:00Z\",\"at\":\"2026-10-28T14:25:23.9472209Z\",\"local\":\"2026-01-02T03:04:05.12-06:00\",\"raw\":{\"k\":[1,2,\"<&>\"]},\"nilRaw\":null,\"html<&>\":\"a&b\",\"f64\":1e+21,\"f32\":0.1,\"i64\":-9223372036854775808,\"u64\":18446744073709551615,\"any\":[1.5,\"x\",null,true,{\"a\":[],\"z\":1}],\"anyMap\":{\"hlc\":4611686018427388000},\"strs\":{\"k\":\"\\u2029\"}}\n",
+ "structIndent": "{\n  \"name\": \"n\\u003c1\\u003e\",\n  \"kept\": 0,\n  \"true\": true,\n  \"nilSlice\": null,\n  \"emptySlice\": [],\n  \"nilMap\": null,\n  \"map\": {\n    \"\": 5,\n    \"B\": 3,\n    \"a\": 1,\n    \"a\\u2028\": 6,\n    \"b\": 2,\n    \"é\": 4\n  },\n  \"intMap\": {\n    \"-1\": \"neg\",\n    \"10\": \"ten\",\n    \"9\": \"nine\"\n  },\n  \"bytes\": \"aGVsbG8A/w==\",\n  \"nilBytes\": null,\n  \"emptyBytes\": \"\",\n  \"ptr\": null,\n  \"inner\": {\n    \"x\": 7\n  },\n  \"zeroTime\": \"0001-01-01T00:00:00Z\",\n  \"at\": \"2026-10-28T14:25:23.9472209Z\",\n  \"local\": \"2026-01-02T03:04:05.12-06:00\",\n  \"raw\": {\n    \"k\": [\n      1,\n      2,\n      \"\\u003c\\u0026\\u003e\"\n    ]\n  },\n  \"nilRaw\": null,\n  \"html\\u003c\\u0026\\u003e\": \"a\\u0026b\",\n  \"f64\": 1e+21,\n  \"f32\": 0.1,\n  \"i64\": -9223372036854775808,\n  \"u64\": 18446744073709551615,\n  \"any\": [\n    1.5,\n    \"x\",\n    null,\n    true,\n    {\n      \"a\": [],\n      \"z\": 1\n    }\n  ],\n  \"anyMap\": {\n    \"hlc\": 4611686018427388000\n  },\n  \"strs\": {\n    \"k\": \"\\u2029\"\n  }\n}"
+}

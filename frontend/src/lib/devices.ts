@@ -1,22 +1,19 @@
 // Devices gateway (docs/design/v0.4-devices.md §3, §9): the person's
 // devices, pairing (Pair a device, Join with a code, the words) and Remove.
-// Like cards.ts, components import from here, never from bindings/. In a
+// Like cards.ts, components import from here, never from src/gen. In a
 // plain browser it runs on a small sample so the dialog can be tried: a
 // pairing there moves on by itself, and the sample's words are "sample".
 
 import { useCallback, useEffect, useState } from "react"
-import { Events } from "@wailsio/runtime"
 
-import { DevicesService } from "../../bindings/github.com/StephenSHorton/irori"
+import { DevicesService, Events } from "./host"
 import {
   DeviceView,
   HomeServerView,
+  PairJoiner as Joiner,
+  PairStatus,
   RelayView,
-} from "../../bindings/github.com/StephenSHorton/irori/models"
-import {
-  Joiner,
-  Status as PairStatus,
-} from "../../bindings/github.com/StephenSHorton/irori/internal/pair/models"
+} from "./models"
 import { EventRosterChanged, inWails } from "./irori"
 import { useLatest } from "./talk"
 
@@ -59,10 +56,10 @@ const SampleCode = "K7QM-2XWD-9RTF-HB4P"
 const SampleKey = "3f9a 0c21 77de 41b0"
 
 let sampleDevices: DeviceView[] | null = null
-let samplePair = new PairStatus({ mode: "", state: "" })
+let samplePair = PairStatus({ mode: "", state: "" })
 let sampleTimer: number | undefined
-let sampleRelay = new RelayView({ state: "none" })
-let sampleHome = new HomeServerView({
+let sampleRelay = RelayView({ state: "none" })
+let sampleHome = HomeServerView({
   can: true,
   suggest: true,
   on: false,
@@ -73,7 +70,7 @@ const sampleListeners = new Set<() => void>()
 
 function sampleList(): DeviceView[] {
   sampleDevices ??= [
-    new DeviceView({
+    DeviceView({
       deviceId: "sample-pc",
       name: "Stephen's PC",
       role: "desktop",
@@ -81,7 +78,7 @@ function sampleList(): DeviceView[] {
       state: "this",
       color: "teal",
     }),
-    new DeviceView({
+    DeviceView({
       deviceId: "sample-mac",
       name: "MacBook",
       role: "desktop",
@@ -89,7 +86,7 @@ function sampleList(): DeviceView[] {
       state: "connected",
       lastSeen: new Date().toISOString(),
     }),
-    new DeviceView({
+    DeviceView({
       deviceId: "sample-node",
       name: "Node",
       role: "node",
@@ -103,14 +100,14 @@ function sampleList(): DeviceView[] {
 }
 
 function setSamplePair(s: Partial<PairStatus>) {
-  samplePair = new PairStatus({ ...samplePair, ...s })
+  samplePair = PairStatus({ ...samplePair, ...s })
   for (const fn of sampleListeners) fn()
 }
 
 // sampleJoined is the new device typing this one's key: it joins the list.
 function sampleJoined(name: string) {
   sampleList().push(
-    new DeviceView({
+    DeviceView({
       deviceId: "sample-new",
       name,
       role: samplePair.role || "desktop",
@@ -129,7 +126,7 @@ function sampleLater(fn: () => void) {
 const sample = {
   add(role: string): PairStatus {
     if (isOpen(samplePair)) throw new Error("a pairing is already open")
-    samplePair = new PairStatus({
+    samplePair = PairStatus({
       mode: "add",
       state: PairState.Waiting,
       code: SampleCode,
@@ -141,7 +138,7 @@ const sample = {
     sampleLater(() =>
       setSamplePair({
         state: PairState.Confirm,
-        joiner: new Joiner({
+        joiner: Joiner({
           deviceId: "sample-new",
           name: "New laptop",
           os: "darwin",
@@ -153,7 +150,7 @@ const sample = {
   },
   join(server: string): PairStatus {
     if (isOpen(samplePair)) throw new Error("a pairing is already open")
-    samplePair = new PairStatus({
+    samplePair = PairStatus({
       mode: "join",
       state: PairState.Waiting,
       via: server || undefined,
@@ -276,7 +273,7 @@ export const devices = {
     publicAddr: string
   ): Promise<HomeServerView> {
     if (inWails()) return DevicesService.SetHomeServer(on, outside, publicAddr)
-    sampleHome = new HomeServerView({
+    sampleHome = HomeServerView({
       ...sampleHome,
       on,
       outside,
@@ -302,7 +299,7 @@ export const devices = {
   // setHomeServerAwake switches "Keep this PC awake while it's the server".
   async setHomeServerAwake(on: boolean): Promise<HomeServerView> {
     if (inWails()) return DevicesService.SetHomeServerAwake(on)
-    sampleHome = new HomeServerView({
+    sampleHome = HomeServerView({
       ...sampleHome,
       awake: on,
       awakeLine: sampleHome.running && on ? "Keeping this PC awake" : undefined,
@@ -318,7 +315,7 @@ export const devices = {
   // it).
   async setRelay(url: string): Promise<RelayView> {
     if (inWails()) return DevicesService.SetRelay(url)
-    sampleRelay = new RelayView({
+    sampleRelay = RelayView({
       credentialUrl: url.replace(/[?#].*$/, "?…") || undefined,
       state: url ? "pending" : "none",
     })
@@ -357,8 +354,8 @@ function onPairing(fn: (s: PairStatus) => void): () => void {
     sampleListeners.add(l)
     return () => sampleListeners.delete(l)
   }
-  return Events.On(EventPairingChanged, (ev) =>
-    fn(PairStatus.createFrom(ev.data))
+  return Events.On<PairStatus>(EventPairingChanged, (ev) =>
+    fn(PairStatus(ev.data ?? {}))
   )
 }
 
@@ -376,7 +373,7 @@ export function useDevices(active: boolean): DevicesState {
     async (): Promise<DeviceView[]> =>
       inWails()
         ? ((await DevicesService.Devices()) ?? [])
-        : sampleList().map((d) => new DeviceView(d)),
+        : sampleList().map((d) => DeviceView(d)),
     []
   )
   const { value, error, reload } = useLatest<DeviceView[]>(load, [])

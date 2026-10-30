@@ -1,17 +1,13 @@
 // Boards gateway (docs/design/v0.5-shared-boards.md §8, step 4): the
 // boards on this device, New board, rename, Leave and Forget, and Share to
 // board and Withdraw on a card's page. Like cards.ts, components import from
-// here, never from bindings/. In a plain browser it runs on two sample
+// here, never from src/gen. In a plain browser it runs on two sample
 // boards, and sharing moves a sample card onto one.
 
 import { useEffect } from "react"
-import { Events } from "@wailsio/runtime"
 
-import { BoardsService } from "../../bindings/github.com/StephenSHorton/irori"
-import {
-  BoardSummary,
-  SharePreview,
-} from "../../bindings/github.com/StephenSHorton/irori/internal/core/models"
+import { BoardsService, Events } from "./host"
+import { BoardSummary, SharePreview } from "./models"
 import { sampleShare, sampleWithdraw, samplePreview } from "./cards"
 import { inWails } from "./irori"
 import { useLatest } from "./talk"
@@ -50,7 +46,7 @@ const sampleListeners = new Set<() => void>()
 
 function boardsState(): BoardSummary[] {
   sampleBoards ??= [
-    new BoardSummary({
+    BoardSummary({
       boardId: "sample-board-mlg",
       name: "MLG",
       tag: "mlg",
@@ -60,7 +56,7 @@ function boardsState(): BoardSummary[] {
       cards: 2,
       ready: true,
     }),
-    new BoardSummary({
+    BoardSummary({
       boardId: "sample-board-site",
       name: "Website refresh",
       tag: "site",
@@ -94,7 +90,7 @@ export function sampleBoard(id: string): BoardSummary | undefined {
 export const boards = {
   async list(): Promise<BoardSummary[]> {
     if (inWails()) return (await BoardsService.List()) ?? []
-    return boardsState().map((b) => new BoardSummary(b))
+    return boardsState().map((b) => BoardSummary(b))
   },
 
   // create makes a board between your own devices, its cards "<tag>#12".
@@ -110,7 +106,7 @@ export const boards = {
       )
     if (boardsState().some((b) => b.tag === t))
       throw new Error(`coord: invalid input: the tag "${t}" is already a board's`)
-    const b = new BoardSummary({
+    const b = BoardSummary({
       boardId: `sample-board-${Date.now()}`,
       name: n,
       tag: t,

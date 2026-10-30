@@ -1,0 +1,2883 @@
+{
+ "ops": [
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "device.started",
+   "payload": "{\"name\":\"pc\",\"os\":\"windows\",\"version\":\"0.5.0\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 1,
+    "hlc": 111411200000000000,
+    "actor": "irori",
+    "kind": "device.started",
+    "payload": "7b226e616d65223a227063222c226f73223a2277696e646f7773222c2276657273696f6e223a22302e352e30227d",
+    "sig": "e3004bd93a708a73d6f909dc68e34d6901d31904608323631835d83325d527cc5ac8418be4ff68e0325190112f5dd8075407144bdf2d8e7bed283abf4e563e0f",
+    "rowHash": "da509bf4d1d858afc0b79cd6c99401a10c7eaeaf1862a0390c39731038b95b64"
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "agent.seen",
+   "payload": "{\"key\":\"dev-a/s1\",\"name\":\"alpha\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 2,
+    "hlc": 111411200000000001,
+    "actor": "irori",
+    "kind": "agent.seen",
+    "payload": "7b226b6579223a226465762d612f7331222c226e616d65223a22616c706861227d",
+    "sig": "8282a87d57480785880b59ecf49fd0ab2c18c89250519f84cf7392128e458f9fddfc2b026e488d287a2f47da39e07c0d8a6fd7d114d8264f4c22e0d1fb260807",
+    "rowHash": "d48ecc2bbdef4dbfa3caa9627c0d2bd36854619bcba9b464b4431021982febd6"
+   }
+  },
+  {
+   "op": "append",
+   "actor": "user",
+   "kind": "policy.set",
+   "payload": "{}",
+   "err": "store: device-local kind; use AppendLocal: policy.set",
+   "applied": 0
+  },
+  {
+   "op": "appendLocal",
+   "actor": "irori",
+   "kind": "agent.seen",
+   "payload": "null",
+   "err": "store: kind replicates; use Append: agent.seen",
+   "applied": 0
+  },
+  {
+   "op": "appendLocal",
+   "actor": "user",
+   "kind": "policy.set",
+   "payload": "{\"mode\":\"everyone\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 1,
+    "hlc": 111411200000000002,
+    "actor": "user",
+    "kind": "policy.set",
+    "payload": "7b226d6f6465223a2265766572796f6e65227d",
+    "sig": "",
+    "rowHash": "05d7fbe31fecfa34be153fd7e0c49961402f8d460456cad04f2635b7373c4b8c"
+   }
+  },
+  {
+   "op": "appendLocal",
+   "actor": "irori",
+   "kind": "member.joined",
+   "payload": "{\"key\":\"dev-a/grok-1\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 2,
+    "hlc": 111411200000000003,
+    "actor": "irori",
+    "kind": "member.joined",
+    "payload": "7b226b6579223a226465762d612f67726f6b2d31227d",
+    "sig": "",
+    "rowHash": "f20298c2816d29a7516e9fec2ed011165b0b41e873edcf9ba2632f205dd56dea"
+   }
+  },
+  {
+   "op": "appendLocal",
+   "actor": "user",
+   "kind": "policy.set",
+   "payload": "{\"mode\":\"allowlist\",\"allow\":[\"alpha\"]}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 3,
+    "hlc": 111411200000000004,
+    "actor": "user",
+    "kind": "policy.set",
+    "payload": "7b226d6f6465223a22616c6c6f776c697374222c22616c6c6f77223a5b22616c706861225d7d",
+    "sig": "",
+    "rowHash": "f55ff445138846a595d3278fdf45ae980067e6bc7a04f17c22216c974c7a9dcd"
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "person.device.added",
+     "payload": "7b2263657274223a7b226465766963654964223a226465762d62227d7d",
+     "sig": "2b35676ba3f8f7918298bbce14e19d53836ba3419e8cafe6d16a294856c0b1662b4173eb53f3ca3fef79bbf9af835cdcbd59fbaab95da1e52d684e9b2905b20b",
+     "rowHash": "485f08a811403c45409b074600ef992831a28a273d57458a9834f88c6e73e7d5"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f7331227d",
+     "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+     "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+    }
+   ],
+   "err": "",
+   "applied": 2
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f7331227d",
+     "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+     "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+    }
+   ],
+   "err": "",
+   "applied": 1
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000002,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f6f74686572227d",
+     "sig": "120dd08a69a8ed4db96fe887fa789b0e77c6b05785baccb0faca1f2898ffdaca583de9bfed3c6db1ae5b49c6d848bfcda6923de9b6f2460117977a7ae643c506",
+     "rowHash": "3a581b8dc40d07044125cc42357bc51862cd6688a4229bd42a5182b32860c489"
+    }
+   ],
+   "err": "store: device signed two different rows for one seq: dev-b/2",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000002,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f6f74686572227d",
+     "sig": "120dd08a69a8ed4db96fe887fa789b0e77c6b05785baccb0faca1f2898ffdaca583de9bfed3c6db1ae5b49c6d848bfcda6923de9b6f2460117977a7ae643c506",
+     "rowHash": "3a581b8dc40d07044125cc42357bc51862cd6688a4229bd42a5182b32860c489"
+    }
+   ],
+   "err": "store: device signed two different rows for one seq: dev-b/2",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000003,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f756e7369676e6564227d",
+     "sig": "",
+     "rowHash": "f7b31d1e8acb43b312f70b6076a1604b0da67fd8958e79933a7805f5c5921cc9"
+    }
+   ],
+   "err": "store: row is unsigned: dev-b/2",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000004,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f626164736967227d",
+     "sig": "613012632f6bce4bfe4cf7f6b625fc7471ac7daf7cfccd12d2e23d1b89e679aef537a66efe635da3e2ba960d015005f13f0c70a67372932080555806a16bc309",
+     "rowHash": "9c32f1676a2e485fccf4366aace5f933f27a7fdef7a0b742bdd127f29b632cd1"
+    }
+   ],
+   "err": "store: row signature does not verify: dev-b/2",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000005,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b7d",
+     "sig": "abb7c0a353a6f10a40815a6c31e36714276f7b55aec20ed6fe9f0e14449370fb8c8d5930716ae7095c86f7dc6ef1c6a9f4c567ee0646be10fe2c4bdc4a69a601",
+     "rowHash": "43ee191ffba4ee0d571ef204d77a36f2e5063eee6eda20fcfac00eb270c596ef"
+    }
+   ],
+   "err": "store: replicated row leaves a seq gap: dev-b holds seq 2, got 4",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 3,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b7d",
+     "sig": "fc5362a00573ed8fe4cdb4dd8410918925c6c0193f4a37033e61009601b4b82d9feb1615d95b5d351e5ebc731d8fe943a248fb7680a7b11ec122724e0df9b601",
+     "rowHash": "71070d10089c63f46818f0dfceda399314af375d192e996678c1888d10835703"
+    }
+   ],
+   "err": "store: row's hlc does not follow its device's previous row: dev-b/3 hlc 111411200000000001 after 111411200000000001",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 3,
+     "hlc": 111411211796480000,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b7d",
+     "sig": "d7e23b01e5c36e46100f4e911dc7afd106fe73251d67a5b208b9509ef3e4bd41590fce557468cf9fc434b9010ce719c478e9c26c7c070a355f4da0ca0ecd8d0f",
+     "rowHash": "d936ce6648451ac79bbee6a2413639ca1e6ffc2fdd6bbea98cdf2986389560fd"
+    }
+   ],
+   "err": "store: row is stamped too far in the future: dev-b/3 stamped 2023-11-14T22:16:20Z",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 3,
+     "hlc": 111411200000000008,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b7d",
+     "sig": "",
+     "rowHash": "dd972f981cc0ee7065be622e6b5d2db9627e7d33d0ddf8588b69fe74e545c68e"
+    }
+   ],
+   "err": "store: row is unsigned: dev-b/3",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-x",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b7d",
+     "sig": "7ef86cd976d8dd9ae49f0ebcf55b57c2472c6f27e8268c4db1dc5358aaeb90170c8946e508a3c5c9923f0487b5e03e3fcb752eeae3d8a06ebc46fbe130c57c03",
+     "rowHash": "178341474cf58fb0e2153ad67c1315a3f388060ac2c4e83dd43f849621047319"
+    }
+   ],
+   "err": "store: row's device is not certified: dev-x",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "",
+     "seq": 1,
+     "hlc": 1,
+     "actor": "",
+     "kind": "agent.seen",
+     "payload": "",
+     "sig": "",
+     "rowHash": "98e4e5780d260127b96621904f0bf8681e56142c12fd5ce5fd9891b8b82e06d4"
+    }
+   ],
+   "err": "store: replicated row has no device id",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-c",
+     "seq": 0,
+     "hlc": 1,
+     "actor": "",
+     "kind": "agent.seen",
+     "payload": "",
+     "sig": "",
+     "rowHash": "504cab9bd6e84541d18979ad8a6619289d21721eefc4fb15df81fe23d91736d7"
+    }
+   ],
+   "err": "store: replicated row dev-c/0 has seq < 1",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-c",
+     "seq": -3,
+     "hlc": 1,
+     "actor": "",
+     "kind": "agent.seen",
+     "payload": "",
+     "sig": "",
+     "rowHash": "278bc76a1ddbbb420d99a3bc04f7d518c51f1c4780e3a332d3d64084fd81daa5"
+    }
+   ],
+   "err": "store: replicated row dev-c/-3 has seq < 1",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-c",
+     "seq": 1,
+     "hlc": 1,
+     "actor": "",
+     "kind": "",
+     "payload": "",
+     "sig": "",
+     "rowHash": "43eca265066ef6729ee3c6495f70844bd0c2389cbf471d46010fc6a194b76d03"
+    }
+   ],
+   "err": "store: replicated row dev-c/1 has no kind",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-c",
+     "seq": 1,
+     "hlc": 4611686018427387905,
+     "actor": "",
+     "kind": "agent.seen",
+     "payload": "",
+     "sig": "",
+     "rowHash": "9027564c7bc98a2b2421bb7edca6ac22ead65ef40b0c5bd8264457f8c0593eef"
+    }
+   ],
+   "err": "store: replicated row dev-c/1 has hlc 4611686018427387905 past the 4611686018427387904 ceiling",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-c",
+     "seq": 1,
+     "hlc": 18446744073709551615,
+     "actor": "",
+     "kind": "agent.seen",
+     "payload": "",
+     "sig": "",
+     "rowHash": "b87c7819d37b7778a96a324832342c453c1dd74a263d1b39f452010e9957a7c4"
+    }
+   ],
+   "err": "store: replicated row dev-c/1 has hlc 18446744073709551615 past the 4611686018427387904 ceiling",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-c",
+     "seq": 1,
+     "hlc": 1,
+     "actor": "",
+     "kind": "policy.set",
+     "payload": "",
+     "sig": "",
+     "rowHash": "16d71220df0649ed1e574f1fae9e8c70e5d4e29081c57319edb3b33bc03b454a"
+    }
+   ],
+   "err": "store: device-local kind; use AppendLocal: replicated row dev-c/1 is policy.set",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-c",
+     "seq": 1,
+     "hlc": 1,
+     "actor": "",
+     "kind": "agent.seen",
+     "payload": "7b6e6f74206a736f6e",
+     "sig": "",
+     "rowHash": "b0dd4b2bf5f0557ce3a6c79d1f8dc0ba89bc4c5dfe64f44c22087cd03750e7f7"
+    }
+   ],
+   "err": "store: replicated row dev-c/1 has a payload that is not valid JSON",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-c",
+     "seq": 1,
+     "hlc": 1,
+     "actor": "",
+     "kind": "agent.seen",
+     "payload": "7b2261223a317d2078",
+     "sig": "",
+     "rowHash": "f09b0cec0ecadf21f17c00713c2b0e222a705306bbd92d32f2a89de66444cce6"
+    }
+   ],
+   "err": "store: replicated row dev-c/1 has a payload that is not valid JSON",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-c",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "",
+     "sig": "a5187a20987ef8be0602617a505f682d7b0f64bf1463db548ea9941d16260fae36c8035fb15f55aa90e41b908086198b69af4af2f219af652eb20b01d5605309",
+     "rowHash": "2fb0fe7c3ef6fe91819b2fbcb96f0c2720c62b160b4df441f7e503b933103501"
+    }
+   ],
+   "err": "",
+   "applied": 1
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 3,
+     "hlc": 111411200000000009,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b226e223a337d",
+     "sig": "74bbe8590933fbfd661ac6c55af9e7086019a1d9d4c810c36c18284b79b3e2437722df2c2ab00717ae41684889e67385f1e436c6800302be4faaba812555170f",
+     "rowHash": "61281b249b1c8b811609121a3f5a2fbfc318f3debbcafe66915c98ed4be1e85c"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f7331227d",
+     "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+     "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000010,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b226e223a347d",
+     "sig": "848d1c5a8872a97d1d9c029fd4784ffe5d9e37c17201c17a20e45a927f25e7bfde4a89e38cc04b56988c4fd638a5c3095a8e82cacd916906057db7e9918c1b0f",
+     "rowHash": "e4a5439f71d33e42e5d5fce5c1827e8c4937853e2fc95490e152425dedc6f7b4"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 6,
+     "hlc": 111411200000000011,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b226e223a367d",
+     "sig": "a8797636eba15af424d9ccbebc790bd8b4228a0597d719be3abfb8178e5414cbcc40eb51b48de1bff2b9552fa0abbb27ecb5db86d81de1948d0899ce3cf73c0a",
+     "rowHash": "21cc6b678c05b7b8338a12b4606ac88ab611c42bd8a0f9ad1c16b40f72c386b8"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 5,
+     "hlc": 111411200000000012,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b7d",
+     "sig": "a49b59e7d5b9a8542932bad52d65b8cff15a47608f43a5d447ba515465488c3de87701be3644a3e4efa3b8a186392dab1d51a043765503b21b4a72b5d73f700c",
+     "rowHash": "dc3a8987840171cd7414bc837e6ab5fb569146af857885841dee81747556cf6d"
+    }
+   ],
+   "err": "store: replicated row leaves a seq gap: dev-b holds seq 4, got 6",
+   "applied": 3
+  },
+  {
+   "op": "list",
+   "filter": {
+    "deviceId": "dev-a"
+   },
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "device.started",
+     "payload": "7b226e616d65223a227063222c226f73223a2277696e646f7773222c2276657273696f6e223a22302e352e30227d",
+     "sig": "e3004bd93a708a73d6f909dc68e34d6901d31904608323631835d83325d527cc5ac8418be4ff68e0325190112f5dd8075407144bdf2d8e7bed283abf4e563e0f",
+     "rowHash": "da509bf4d1d858afc0b79cd6c99401a10c7eaeaf1862a0390c39731038b95b64"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f7331222c226e616d65223a22616c706861227d",
+     "sig": "8282a87d57480785880b59ecf49fd0ab2c18c89250519f84cf7392128e458f9fddfc2b026e488d287a2f47da39e07c0d8a6fd7d114d8264f4c22e0d1fb260807",
+     "rowHash": "d48ecc2bbdef4dbfa3caa9627c0d2bd36854619bcba9b464b4431021982febd6"
+    }
+   ]
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000065520,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f726573746f726564227d",
+     "sig": "24051a75d3d8fc65671de16fd8d5924e70064e57455d72dc40be1f4ac29d35d0514e1dcc8456e70b38ac0ca50d238b90ed4593ea92a9aa9cc302135a22750e0e",
+     "rowHash": "4e7b309df75ec952c442a6f1c9f055e113b4ff639765acdfd4025fc638f20da8"
+    }
+   ],
+   "err": "",
+   "applied": 1
+  },
+  {
+   "op": "hold",
+   "seq": 5,
+   "err": "",
+   "applied": 0
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "agent.seen",
+   "payload": "{}",
+   "err": "store: restoring this device's rows; appends wait (hold 5, have 3)",
+   "applied": 0
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "person.key.rotated",
+   "payload": "{\"epoch\":2}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 4,
+    "hlc": 111411200000065521,
+    "actor": "irori",
+    "kind": "person.key.rotated",
+    "payload": "7b2265706f6368223a327d",
+    "sig": "852b171a6da3f7d07d767f31b192988ee69300beda7ff58cbd1190cfae3f6f38aa5e28bc5a64e96d3ddd7036e93584611403d1946a3a65eadd2f55ad87a91605",
+    "rowHash": "e7b7b7dec0d1ee662c7c36ac120430a15eb61c43ccfb4b27dfb2f63a461747f8"
+   }
+  },
+  {
+   "op": "hold",
+   "err": "",
+   "applied": 0
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "agent.seen",
+   "payload": "{\"after\":\"hold\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 5,
+    "hlc": 111411200000065522,
+    "actor": "irori",
+    "kind": "agent.seen",
+    "payload": "7b226166746572223a22686f6c64227d",
+    "sig": "0a04ff1cdbfce0d7ac6c7fc2f636987eaaff429d38116429c260bf482f665425d9c6504bd1b28b54895891d943521fe67cb8aba3b220f58e3c3b422d6412a002",
+    "rowHash": "56fa3741eed81dac97663980d3d0cf61c21b266c495f1b7a318ea903f5d3f9b7"
+   }
+  },
+  {
+   "op": "setCut",
+   "dev": "dev-b",
+   "seq": 3,
+   "err": "",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 5,
+     "hlc": 111411200000000013,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b226e223a357d",
+     "sig": "7cd03ad2b07f37b38207d7ed689a065e322eae0343cb73517e9f53158b4f319df2d396da5655d9c379941b814b469897a979ca3848c50da9cc70eae659d8f506",
+     "rowHash": "2768c2ea3338419ea3d7ff7646b14be54c3fa8613e970284092c773336232d9c"
+    }
+   ],
+   "err": "store: row is past its device's revocation cut: dev-b/5 (cut 3)",
+   "applied": 0
+  },
+  {
+   "op": "missing",
+   "limit": 10000,
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "device.started",
+     "payload": "7b226e616d65223a227063222c226f73223a2277696e646f7773222c2276657273696f6e223a22302e352e30227d",
+     "sig": "e3004bd93a708a73d6f909dc68e34d6901d31904608323631835d83325d527cc5ac8418be4ff68e0325190112f5dd8075407144bdf2d8e7bed283abf4e563e0f",
+     "rowHash": "da509bf4d1d858afc0b79cd6c99401a10c7eaeaf1862a0390c39731038b95b64"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f7331222c226e616d65223a22616c706861227d",
+     "sig": "8282a87d57480785880b59ecf49fd0ab2c18c89250519f84cf7392128e458f9fddfc2b026e488d287a2f47da39e07c0d8a6fd7d114d8264f4c22e0d1fb260807",
+     "rowHash": "d48ecc2bbdef4dbfa3caa9627c0d2bd36854619bcba9b464b4431021982febd6"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000065520,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f726573746f726564227d",
+     "sig": "24051a75d3d8fc65671de16fd8d5924e70064e57455d72dc40be1f4ac29d35d0514e1dcc8456e70b38ac0ca50d238b90ed4593ea92a9aa9cc302135a22750e0e",
+     "rowHash": "4e7b309df75ec952c442a6f1c9f055e113b4ff639765acdfd4025fc638f20da8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 4,
+     "hlc": 111411200000065521,
+     "actor": "irori",
+     "kind": "person.key.rotated",
+     "payload": "7b2265706f6368223a327d",
+     "sig": "852b171a6da3f7d07d767f31b192988ee69300beda7ff58cbd1190cfae3f6f38aa5e28bc5a64e96d3ddd7036e93584611403d1946a3a65eadd2f55ad87a91605",
+     "rowHash": "e7b7b7dec0d1ee662c7c36ac120430a15eb61c43ccfb4b27dfb2f63a461747f8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 5,
+     "hlc": 111411200000065522,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226166746572223a22686f6c64227d",
+     "sig": "0a04ff1cdbfce0d7ac6c7fc2f636987eaaff429d38116429c260bf482f665425d9c6504bd1b28b54895891d943521fe67cb8aba3b220f58e3c3b422d6412a002",
+     "rowHash": "56fa3741eed81dac97663980d3d0cf61c21b266c495f1b7a318ea903f5d3f9b7"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "person.device.added",
+     "payload": "7b2263657274223a7b226465766963654964223a226465762d62227d7d",
+     "sig": "2b35676ba3f8f7918298bbce14e19d53836ba3419e8cafe6d16a294856c0b1662b4173eb53f3ca3fef79bbf9af835cdcbd59fbaab95da1e52d684e9b2905b20b",
+     "rowHash": "485f08a811403c45409b074600ef992831a28a273d57458a9834f88c6e73e7d5"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f7331227d",
+     "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+     "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 3,
+     "hlc": 111411200000000009,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b226e223a337d",
+     "sig": "74bbe8590933fbfd661ac6c55af9e7086019a1d9d4c810c36c18284b79b3e2437722df2c2ab00717ae41684889e67385f1e436c6800302be4faaba812555170f",
+     "rowHash": "61281b249b1c8b811609121a3f5a2fbfc318f3debbcafe66915c98ed4be1e85c"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "6e756c6c",
+     "sig": "a5187a20987ef8be0602617a505f682d7b0f64bf1463db548ea9941d16260fae36c8035fb15f55aa90e41b908086198b69af4af2f219af652eb20b01d5605309",
+     "rowHash": "88dd54f9b101c7cb6130a2d5b0400e14fa77c133631b88edc496b8a10003e071"
+    }
+   ]
+  },
+  {
+   "op": "vector",
+   "err": "",
+   "applied": 0,
+   "got": {
+    "dev-a": 5,
+    "dev-b": 3,
+    "dev-c": 1
+   }
+  },
+  {
+   "op": "refused",
+   "err": "",
+   "applied": 0
+  },
+  {
+   "op": "forks",
+   "err": "",
+   "applied": 0,
+   "forks": [
+    {
+     "stored": {
+      "deviceId": "dev-b",
+      "seq": 2,
+      "hlc": 111411200000000001,
+      "actor": "irori",
+      "kind": "agent.seen",
+      "payload": "7b226b6579223a226465762d622f7331227d",
+      "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+      "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+     },
+     "other": {
+      "deviceId": "dev-b",
+      "seq": 2,
+      "hlc": 111411200000000002,
+      "actor": "irori",
+      "kind": "agent.seen",
+      "payload": "7b226b6579223a226465762d622f6f74686572227d",
+      "sig": "120dd08a69a8ed4db96fe887fa789b0e77c6b05785baccb0faca1f2898ffdaca583de9bfed3c6db1ae5b49c6d848bfcda6923de9b6f2460117977a7ae643c506",
+      "rowHash": "3a581b8dc40d07044125cc42357bc51862cd6688a4229bd42a5182b32860c489"
+     },
+     "otherHash": "3a581b8dc40d07044125cc42357bc51862cd6688a4229bd42a5182b32860c489",
+     "reason": "two rows"
+    }
+   ]
+  },
+  {
+   "op": "observed",
+   "err": "",
+   "applied": 0,
+   "observed": [
+    "dev-b/1 person.device.added",
+    "dev-a/4 person.key.rotated"
+   ]
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-c",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "person.profile",
+     "payload": "7b226e616d65223a2263227d",
+     "sig": "3a1553e8c5bbeb7eda237d644d68e5943643987957b71108ff05ceaecd498f0449b9fcbcfb950d0b51f38001708fa85502ae47f922ef117e5b8d1c6f25c6740c",
+     "rowHash": "860eb0f612ccbcbe6a62f97495bcdcf0920a591e863d4ad1c92469b8162dd535"
+    }
+   ],
+   "err": "",
+   "applied": 1
+  },
+  {
+   "op": "missing",
+   "limit": 10000,
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "device.started",
+     "payload": "7b226e616d65223a227063222c226f73223a2277696e646f7773222c2276657273696f6e223a22302e352e30227d",
+     "sig": "e3004bd93a708a73d6f909dc68e34d6901d31904608323631835d83325d527cc5ac8418be4ff68e0325190112f5dd8075407144bdf2d8e7bed283abf4e563e0f",
+     "rowHash": "da509bf4d1d858afc0b79cd6c99401a10c7eaeaf1862a0390c39731038b95b64"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f7331222c226e616d65223a22616c706861227d",
+     "sig": "8282a87d57480785880b59ecf49fd0ab2c18c89250519f84cf7392128e458f9fddfc2b026e488d287a2f47da39e07c0d8a6fd7d114d8264f4c22e0d1fb260807",
+     "rowHash": "d48ecc2bbdef4dbfa3caa9627c0d2bd36854619bcba9b464b4431021982febd6"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000065520,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f726573746f726564227d",
+     "sig": "24051a75d3d8fc65671de16fd8d5924e70064e57455d72dc40be1f4ac29d35d0514e1dcc8456e70b38ac0ca50d238b90ed4593ea92a9aa9cc302135a22750e0e",
+     "rowHash": "4e7b309df75ec952c442a6f1c9f055e113b4ff639765acdfd4025fc638f20da8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 4,
+     "hlc": 111411200000065521,
+     "actor": "irori",
+     "kind": "person.key.rotated",
+     "payload": "7b2265706f6368223a327d",
+     "sig": "852b171a6da3f7d07d767f31b192988ee69300beda7ff58cbd1190cfae3f6f38aa5e28bc5a64e96d3ddd7036e93584611403d1946a3a65eadd2f55ad87a91605",
+     "rowHash": "e7b7b7dec0d1ee662c7c36ac120430a15eb61c43ccfb4b27dfb2f63a461747f8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 5,
+     "hlc": 111411200000065522,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226166746572223a22686f6c64227d",
+     "sig": "0a04ff1cdbfce0d7ac6c7fc2f636987eaaff429d38116429c260bf482f665425d9c6504bd1b28b54895891d943521fe67cb8aba3b220f58e3c3b422d6412a002",
+     "rowHash": "56fa3741eed81dac97663980d3d0cf61c21b266c495f1b7a318ea903f5d3f9b7"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "person.device.added",
+     "payload": "7b2263657274223a7b226465766963654964223a226465762d62227d7d",
+     "sig": "2b35676ba3f8f7918298bbce14e19d53836ba3419e8cafe6d16a294856c0b1662b4173eb53f3ca3fef79bbf9af835cdcbd59fbaab95da1e52d684e9b2905b20b",
+     "rowHash": "485f08a811403c45409b074600ef992831a28a273d57458a9834f88c6e73e7d5"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f7331227d",
+     "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+     "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 3,
+     "hlc": 111411200000000009,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b226e223a337d",
+     "sig": "74bbe8590933fbfd661ac6c55af9e7086019a1d9d4c810c36c18284b79b3e2437722df2c2ab00717ae41684889e67385f1e436c6800302be4faaba812555170f",
+     "rowHash": "61281b249b1c8b811609121a3f5a2fbfc318f3debbcafe66915c98ed4be1e85c"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "6e756c6c",
+     "sig": "a5187a20987ef8be0602617a505f682d7b0f64bf1463db548ea9941d16260fae36c8035fb15f55aa90e41b908086198b69af4af2f219af652eb20b01d5605309",
+     "rowHash": "88dd54f9b101c7cb6130a2d5b0400e14fa77c133631b88edc496b8a10003e071"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "person.profile",
+     "payload": "7b226e616d65223a2263227d",
+     "sig": "3a1553e8c5bbeb7eda237d644d68e5943643987957b71108ff05ceaecd498f0449b9fcbcfb950d0b51f38001708fa85502ae47f922ef117e5b8d1c6f25c6740c",
+     "rowHash": "860eb0f612ccbcbe6a62f97495bcdcf0920a591e863d4ad1c92469b8162dd535"
+    }
+   ]
+  },
+  {
+   "op": "vector",
+   "err": "",
+   "applied": 0,
+   "got": {
+    "dev-a": 5,
+    "dev-b": 3,
+    "dev-c": 2
+   }
+  },
+  {
+   "op": "refused",
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000010,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b226e223a347d",
+     "sig": "848d1c5a8872a97d1d9c029fd4784ffe5d9e37c17201c17a20e45a927f25e7bfde4a89e38cc04b56988c4fd638a5c3095a8e82cacd916906057db7e9918c1b0f",
+     "rowHash": "e4a5439f71d33e42e5d5fce5c1827e8c4937853e2fc95490e152425dedc6f7b4"
+    }
+   ]
+  },
+  {
+   "op": "forks",
+   "err": "",
+   "applied": 0,
+   "forks": [
+    {
+     "stored": {
+      "deviceId": "dev-b",
+      "seq": 2,
+      "hlc": 111411200000000001,
+      "actor": "irori",
+      "kind": "agent.seen",
+      "payload": "7b226b6579223a226465762d622f7331227d",
+      "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+      "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+     },
+     "other": {
+      "deviceId": "dev-b",
+      "seq": 2,
+      "hlc": 111411200000000002,
+      "actor": "irori",
+      "kind": "agent.seen",
+      "payload": "7b226b6579223a226465762d622f6f74686572227d",
+      "sig": "120dd08a69a8ed4db96fe887fa789b0e77c6b05785baccb0faca1f2898ffdaca583de9bfed3c6db1ae5b49c6d848bfcda6923de9b6f2460117977a7ae643c506",
+      "rowHash": "3a581b8dc40d07044125cc42357bc51862cd6688a4229bd42a5182b32860c489"
+     },
+     "otherHash": "3a581b8dc40d07044125cc42357bc51862cd6688a4229bd42a5182b32860c489",
+     "reason": "two rows"
+    }
+   ]
+  },
+  {
+   "op": "observed",
+   "err": "",
+   "applied": 0,
+   "observed": [
+    "dev-b/1 person.device.added",
+    "dev-a/4 person.key.rotated",
+    "dev-c/2 person.profile"
+   ]
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 9,
+     "hlc": 111411200000000014,
+     "actor": "irori",
+     "kind": "person.device.revoked",
+     "payload": "7b227265766f6b65223a7b226465766963654964223a226465762d63222c22637574223a327d7d",
+     "sig": "3a2e9b690c14f0f2fb2eb99a05ec92e400fd62e5b27b011e41627345ef5383ef8a795095cdc9d7dbe7b84fc6ab7eb2552dca988cfef312c286ac83775d585b0b",
+     "rowHash": "ebb8b2a82334941576db2b7762ff268ea7456549e43ff1dc3d06e831f93383eb"
+    }
+   ],
+   "err": "",
+   "applied": 1
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 9,
+     "hlc": 111411200000000014,
+     "actor": "irori",
+     "kind": "person.device.revoked",
+     "payload": "7b227265766f6b65223a7b226465766963654964223a226465762d63222c22637574223a327d7d",
+     "sig": "3a2e9b690c14f0f2fb2eb99a05ec92e400fd62e5b27b011e41627345ef5383ef8a795095cdc9d7dbe7b84fc6ab7eb2552dca988cfef312c286ac83775d585b0b",
+     "rowHash": "ebb8b2a82334941576db2b7762ff268ea7456549e43ff1dc3d06e831f93383eb"
+    }
+   ],
+   "err": "",
+   "applied": 1
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 10,
+     "hlc": 111411200000000015,
+     "actor": "irori",
+     "kind": "person.device.revoked",
+     "payload": "7b7d",
+     "sig": "",
+     "rowHash": "dd41345670e6ac0a95612e4d5a9c5c18fba752b0803a5e41fab354ad2325423f"
+    }
+   ],
+   "err": "store: row is past its device's revocation cut: dev-b/10 (cut 3)",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 11,
+     "hlc": 65536,
+     "actor": "irori",
+     "kind": "person.device.revoked",
+     "payload": "7b7d",
+     "sig": "61d263b43e773e7fe86fac17a7ed80a5f6a47d4b3146b217695891adc2941b621639808d977b11fd4bd0416f12cea18b1e128bbcab05055ce5c34a119b8a8f04",
+     "rowHash": "a23a4ca23bfa75bf83ae0dccf5dfffb4bdc375b431a076f0f6800864e6b6978e"
+    }
+   ],
+   "err": "store: row's hlc does not follow its device's previous row: dev-b/11 hlc 65536 after 111411200000000009",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 12,
+     "hlc": 111411239321600000,
+     "actor": "irori",
+     "kind": "person.device.revoked",
+     "payload": "7b7d",
+     "sig": "de4134f375ff744dd5b157c2d04950927fc81d6e81a784a51f91cce9923c35b44f829e84e1e01b059a2134a9b99be7bab07e8bf942095b83a86cf816d59ece00",
+     "rowHash": "8812c370dd23b222b3548dfdcd92cb34ca51d02ea26ee9753af47565b7ac99e4"
+    }
+   ],
+   "err": "store: row is stamped too far in the future: dev-b/12 stamped 2023-11-14T22:23:20Z",
+   "applied": 0
+  },
+  {
+   "op": "setCut",
+   "dev": "dev-a",
+   "seq": 1,
+   "err": "",
+   "applied": 0
+  },
+  {
+   "op": "claim",
+   "dev": "dev-c",
+   "seq": 1,
+   "hash": "88dd54f9b101c7cb6130a2d5b0400e14fa77c133631b88edc496b8a10003e071",
+   "err": "",
+   "applied": 0
+  },
+  {
+   "op": "claim",
+   "dev": "dev-c",
+   "seq": 2,
+   "hash": "00ff",
+   "err": "",
+   "applied": 0
+  },
+  {
+   "op": "claim",
+   "dev": "dev-b",
+   "seq": 4,
+   "hash": "abcd",
+   "err": "",
+   "applied": 0
+  },
+  {
+   "op": "claim",
+   "dev": "dev-z",
+   "seq": 1,
+   "hash": "dead",
+   "err": "",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-c",
+     "seq": 3,
+     "hlc": 111411200000000002,
+     "actor": "irori",
+     "kind": "person.profile",
+     "payload": "7b226e616d65223a226333227d",
+     "sig": "c46aa124c03653b7b93f9c70e9659292255a5280985fbe1bd2193d051f9ad4b5ace908bb6ed144417dd67db2a02fe87a00ecb1cd63e2595a5b872eadc0710e03",
+     "rowHash": "4af2b7effbc6b64116c0d4d6922f87628df7f7b6dbdab9625651fa0de2c00799"
+    }
+   ],
+   "err": "",
+   "applied": 1
+  },
+  {
+   "op": "claim",
+   "dev": "dev-c",
+   "seq": 4,
+   "hash": "beef",
+   "err": "",
+   "applied": 0
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-c",
+     "seq": 4,
+     "hlc": 111411200000000003,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b7d",
+     "sig": "20c189272681edccebfea8018445d53d894d0f6b7ba90fe228dd65e711b66cd674e81ad6f1e2f984a25f1f8b3d4700b94273d8c8caf1fe0e3ad039201eabdb0f",
+     "rowHash": "10d2801b9c6260f00a143555d700c3e6e1eb98f2d56ce6f9bd4d13192d1f311c"
+    }
+   ],
+   "err": "",
+   "applied": 1
+  },
+  {
+   "op": "missing",
+   "limit": 10000,
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "device.started",
+     "payload": "7b226e616d65223a227063222c226f73223a2277696e646f7773222c2276657273696f6e223a22302e352e30227d",
+     "sig": "e3004bd93a708a73d6f909dc68e34d6901d31904608323631835d83325d527cc5ac8418be4ff68e0325190112f5dd8075407144bdf2d8e7bed283abf4e563e0f",
+     "rowHash": "da509bf4d1d858afc0b79cd6c99401a10c7eaeaf1862a0390c39731038b95b64"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f7331222c226e616d65223a22616c706861227d",
+     "sig": "8282a87d57480785880b59ecf49fd0ab2c18c89250519f84cf7392128e458f9fddfc2b026e488d287a2f47da39e07c0d8a6fd7d114d8264f4c22e0d1fb260807",
+     "rowHash": "d48ecc2bbdef4dbfa3caa9627c0d2bd36854619bcba9b464b4431021982febd6"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000065520,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f726573746f726564227d",
+     "sig": "24051a75d3d8fc65671de16fd8d5924e70064e57455d72dc40be1f4ac29d35d0514e1dcc8456e70b38ac0ca50d238b90ed4593ea92a9aa9cc302135a22750e0e",
+     "rowHash": "4e7b309df75ec952c442a6f1c9f055e113b4ff639765acdfd4025fc638f20da8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 4,
+     "hlc": 111411200000065521,
+     "actor": "irori",
+     "kind": "person.key.rotated",
+     "payload": "7b2265706f6368223a327d",
+     "sig": "852b171a6da3f7d07d767f31b192988ee69300beda7ff58cbd1190cfae3f6f38aa5e28bc5a64e96d3ddd7036e93584611403d1946a3a65eadd2f55ad87a91605",
+     "rowHash": "e7b7b7dec0d1ee662c7c36ac120430a15eb61c43ccfb4b27dfb2f63a461747f8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 5,
+     "hlc": 111411200000065522,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226166746572223a22686f6c64227d",
+     "sig": "0a04ff1cdbfce0d7ac6c7fc2f636987eaaff429d38116429c260bf482f665425d9c6504bd1b28b54895891d943521fe67cb8aba3b220f58e3c3b422d6412a002",
+     "rowHash": "56fa3741eed81dac97663980d3d0cf61c21b266c495f1b7a318ea903f5d3f9b7"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "person.device.added",
+     "payload": "7b2263657274223a7b226465766963654964223a226465762d62227d7d",
+     "sig": "2b35676ba3f8f7918298bbce14e19d53836ba3419e8cafe6d16a294856c0b1662b4173eb53f3ca3fef79bbf9af835cdcbd59fbaab95da1e52d684e9b2905b20b",
+     "rowHash": "485f08a811403c45409b074600ef992831a28a273d57458a9834f88c6e73e7d5"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f7331227d",
+     "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+     "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 3,
+     "hlc": 111411200000000009,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b226e223a337d",
+     "sig": "74bbe8590933fbfd661ac6c55af9e7086019a1d9d4c810c36c18284b79b3e2437722df2c2ab00717ae41684889e67385f1e436c6800302be4faaba812555170f",
+     "rowHash": "61281b249b1c8b811609121a3f5a2fbfc318f3debbcafe66915c98ed4be1e85c"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "6e756c6c",
+     "sig": "a5187a20987ef8be0602617a505f682d7b0f64bf1463db548ea9941d16260fae36c8035fb15f55aa90e41b908086198b69af4af2f219af652eb20b01d5605309",
+     "rowHash": "88dd54f9b101c7cb6130a2d5b0400e14fa77c133631b88edc496b8a10003e071"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "person.profile",
+     "payload": "7b226e616d65223a2263227d",
+     "sig": "3a1553e8c5bbeb7eda237d644d68e5943643987957b71108ff05ceaecd498f0449b9fcbcfb950d0b51f38001708fa85502ae47f922ef117e5b8d1c6f25c6740c",
+     "rowHash": "860eb0f612ccbcbe6a62f97495bcdcf0920a591e863d4ad1c92469b8162dd535"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 3,
+     "hlc": 111411200000000002,
+     "actor": "irori",
+     "kind": "person.profile",
+     "payload": "7b226e616d65223a226333227d",
+     "sig": "c46aa124c03653b7b93f9c70e9659292255a5280985fbe1bd2193d051f9ad4b5ace908bb6ed144417dd67db2a02fe87a00ecb1cd63e2595a5b872eadc0710e03",
+     "rowHash": "4af2b7effbc6b64116c0d4d6922f87628df7f7b6dbdab9625651fa0de2c00799"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 4,
+     "hlc": 111411200000000003,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b7d",
+     "sig": "20c189272681edccebfea8018445d53d894d0f6b7ba90fe228dd65e711b66cd674e81ad6f1e2f984a25f1f8b3d4700b94273d8c8caf1fe0e3ad039201eabdb0f",
+     "rowHash": "10d2801b9c6260f00a143555d700c3e6e1eb98f2d56ce6f9bd4d13192d1f311c"
+    }
+   ]
+  },
+  {
+   "op": "vector",
+   "err": "",
+   "applied": 0,
+   "got": {
+    "dev-a": 5,
+    "dev-b": 3,
+    "dev-c": 4
+   }
+  },
+  {
+   "op": "refused",
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000010,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b226e223a347d",
+     "sig": "848d1c5a8872a97d1d9c029fd4784ffe5d9e37c17201c17a20e45a927f25e7bfde4a89e38cc04b56988c4fd638a5c3095a8e82cacd916906057db7e9918c1b0f",
+     "rowHash": "e4a5439f71d33e42e5d5fce5c1827e8c4937853e2fc95490e152425dedc6f7b4"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 9,
+     "hlc": 111411200000000014,
+     "actor": "irori",
+     "kind": "person.device.revoked",
+     "payload": "7b227265766f6b65223a7b226465766963654964223a226465762d63222c22637574223a327d7d",
+     "sig": "3a2e9b690c14f0f2fb2eb99a05ec92e400fd62e5b27b011e41627345ef5383ef8a795095cdc9d7dbe7b84fc6ab7eb2552dca988cfef312c286ac83775d585b0b",
+     "rowHash": "ebb8b2a82334941576db2b7762ff268ea7456549e43ff1dc3d06e831f93383eb"
+    }
+   ]
+  },
+  {
+   "op": "forks",
+   "err": "",
+   "applied": 0,
+   "forks": [
+    {
+     "stored": {
+      "deviceId": "dev-b",
+      "seq": 2,
+      "hlc": 111411200000000001,
+      "actor": "irori",
+      "kind": "agent.seen",
+      "payload": "7b226b6579223a226465762d622f7331227d",
+      "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+      "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+     },
+     "other": {
+      "deviceId": "dev-b",
+      "seq": 2,
+      "hlc": 111411200000000002,
+      "actor": "irori",
+      "kind": "agent.seen",
+      "payload": "7b226b6579223a226465762d622f6f74686572227d",
+      "sig": "120dd08a69a8ed4db96fe887fa789b0e77c6b05785baccb0faca1f2898ffdaca583de9bfed3c6db1ae5b49c6d848bfcda6923de9b6f2460117977a7ae643c506",
+      "rowHash": "3a581b8dc40d07044125cc42357bc51862cd6688a4229bd42a5182b32860c489"
+     },
+     "otherHash": "3a581b8dc40d07044125cc42357bc51862cd6688a4229bd42a5182b32860c489",
+     "reason": "two rows"
+    },
+    {
+     "stored": {
+      "deviceId": "",
+      "seq": 0,
+      "hlc": 0,
+      "actor": "",
+      "kind": "",
+      "payload": "",
+      "sig": "",
+      "rowHash": "a1d96c04dae079ce280193de5cb66168c39cc543e0071caa55fbe69c15d8a709"
+     },
+     "other": {
+      "deviceId": "dev-b",
+      "seq": 4,
+      "hlc": 0,
+      "actor": "",
+      "kind": "",
+      "payload": "",
+      "sig": "",
+      "rowHash": "fd578bc3275056ed0233bf58592a79efcbc370746d56a5c4aa79615ecc5eace3"
+     },
+     "otherHash": "abcd",
+     "reason": "cut hash"
+    },
+    {
+     "stored": {
+      "deviceId": "dev-c",
+      "seq": 2,
+      "hlc": 111411200000000001,
+      "actor": "irori",
+      "kind": "person.profile",
+      "payload": "7b226e616d65223a2263227d",
+      "sig": "3a1553e8c5bbeb7eda237d644d68e5943643987957b71108ff05ceaecd498f0449b9fcbcfb950d0b51f38001708fa85502ae47f922ef117e5b8d1c6f25c6740c",
+      "rowHash": "860eb0f612ccbcbe6a62f97495bcdcf0920a591e863d4ad1c92469b8162dd535"
+     },
+     "other": {
+      "deviceId": "dev-c",
+      "seq": 2,
+      "hlc": 0,
+      "actor": "",
+      "kind": "",
+      "payload": "",
+      "sig": "",
+      "rowHash": "15e3b075bb43556802534351f2b29cf0c9c5a65e4c6bc8269a55ca160234e9a8"
+     },
+     "otherHash": "00ff",
+     "reason": "cut hash"
+    },
+    {
+     "stored": {
+      "deviceId": "dev-c",
+      "seq": 4,
+      "hlc": 111411200000000003,
+      "actor": "irori",
+      "kind": "agent.seen",
+      "payload": "7b7d",
+      "sig": "20c189272681edccebfea8018445d53d894d0f6b7ba90fe228dd65e711b66cd674e81ad6f1e2f984a25f1f8b3d4700b94273d8c8caf1fe0e3ad039201eabdb0f",
+      "rowHash": "10d2801b9c6260f00a143555d700c3e6e1eb98f2d56ce6f9bd4d13192d1f311c"
+     },
+     "other": {
+      "deviceId": "dev-c",
+      "seq": 4,
+      "hlc": 0,
+      "actor": "",
+      "kind": "",
+      "payload": "",
+      "sig": "",
+      "rowHash": "248f3ddaccd62c4ec313043facdfac2e9c6367055ca16715c5f8a96b2a059eca"
+     },
+     "otherHash": "beef",
+     "reason": "cut hash"
+    }
+   ]
+  },
+  {
+   "op": "observed",
+   "err": "",
+   "applied": 0,
+   "observed": [
+    "dev-b/1 person.device.added",
+    "dev-a/4 person.key.rotated",
+    "dev-c/2 person.profile",
+    "dev-b/9 person.device.revoked",
+    "dev-b/9 person.device.revoked",
+    "dev-c/3 person.profile"
+   ]
+  },
+  {
+   "op": "reopen",
+   "err": "",
+   "applied": 0
+  },
+  {
+   "op": "missing",
+   "limit": 10000,
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "device.started",
+     "payload": "7b226e616d65223a227063222c226f73223a2277696e646f7773222c2276657273696f6e223a22302e352e30227d",
+     "sig": "e3004bd93a708a73d6f909dc68e34d6901d31904608323631835d83325d527cc5ac8418be4ff68e0325190112f5dd8075407144bdf2d8e7bed283abf4e563e0f",
+     "rowHash": "da509bf4d1d858afc0b79cd6c99401a10c7eaeaf1862a0390c39731038b95b64"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f7331222c226e616d65223a22616c706861227d",
+     "sig": "8282a87d57480785880b59ecf49fd0ab2c18c89250519f84cf7392128e458f9fddfc2b026e488d287a2f47da39e07c0d8a6fd7d114d8264f4c22e0d1fb260807",
+     "rowHash": "d48ecc2bbdef4dbfa3caa9627c0d2bd36854619bcba9b464b4431021982febd6"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000065520,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f726573746f726564227d",
+     "sig": "24051a75d3d8fc65671de16fd8d5924e70064e57455d72dc40be1f4ac29d35d0514e1dcc8456e70b38ac0ca50d238b90ed4593ea92a9aa9cc302135a22750e0e",
+     "rowHash": "4e7b309df75ec952c442a6f1c9f055e113b4ff639765acdfd4025fc638f20da8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 4,
+     "hlc": 111411200000065521,
+     "actor": "irori",
+     "kind": "person.key.rotated",
+     "payload": "7b2265706f6368223a327d",
+     "sig": "852b171a6da3f7d07d767f31b192988ee69300beda7ff58cbd1190cfae3f6f38aa5e28bc5a64e96d3ddd7036e93584611403d1946a3a65eadd2f55ad87a91605",
+     "rowHash": "e7b7b7dec0d1ee662c7c36ac120430a15eb61c43ccfb4b27dfb2f63a461747f8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 5,
+     "hlc": 111411200000065522,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226166746572223a22686f6c64227d",
+     "sig": "0a04ff1cdbfce0d7ac6c7fc2f636987eaaff429d38116429c260bf482f665425d9c6504bd1b28b54895891d943521fe67cb8aba3b220f58e3c3b422d6412a002",
+     "rowHash": "56fa3741eed81dac97663980d3d0cf61c21b266c495f1b7a318ea903f5d3f9b7"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "person.device.added",
+     "payload": "7b2263657274223a7b226465766963654964223a226465762d62227d7d",
+     "sig": "2b35676ba3f8f7918298bbce14e19d53836ba3419e8cafe6d16a294856c0b1662b4173eb53f3ca3fef79bbf9af835cdcbd59fbaab95da1e52d684e9b2905b20b",
+     "rowHash": "485f08a811403c45409b074600ef992831a28a273d57458a9834f88c6e73e7d5"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f7331227d",
+     "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+     "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 3,
+     "hlc": 111411200000000009,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b226e223a337d",
+     "sig": "74bbe8590933fbfd661ac6c55af9e7086019a1d9d4c810c36c18284b79b3e2437722df2c2ab00717ae41684889e67385f1e436c6800302be4faaba812555170f",
+     "rowHash": "61281b249b1c8b811609121a3f5a2fbfc318f3debbcafe66915c98ed4be1e85c"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "6e756c6c",
+     "sig": "a5187a20987ef8be0602617a505f682d7b0f64bf1463db548ea9941d16260fae36c8035fb15f55aa90e41b908086198b69af4af2f219af652eb20b01d5605309",
+     "rowHash": "88dd54f9b101c7cb6130a2d5b0400e14fa77c133631b88edc496b8a10003e071"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "person.profile",
+     "payload": "7b226e616d65223a2263227d",
+     "sig": "3a1553e8c5bbeb7eda237d644d68e5943643987957b71108ff05ceaecd498f0449b9fcbcfb950d0b51f38001708fa85502ae47f922ef117e5b8d1c6f25c6740c",
+     "rowHash": "860eb0f612ccbcbe6a62f97495bcdcf0920a591e863d4ad1c92469b8162dd535"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 3,
+     "hlc": 111411200000000002,
+     "actor": "irori",
+     "kind": "person.profile",
+     "payload": "7b226e616d65223a226333227d",
+     "sig": "c46aa124c03653b7b93f9c70e9659292255a5280985fbe1bd2193d051f9ad4b5ace908bb6ed144417dd67db2a02fe87a00ecb1cd63e2595a5b872eadc0710e03",
+     "rowHash": "4af2b7effbc6b64116c0d4d6922f87628df7f7b6dbdab9625651fa0de2c00799"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 4,
+     "hlc": 111411200000000003,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b7d",
+     "sig": "20c189272681edccebfea8018445d53d894d0f6b7ba90fe228dd65e711b66cd674e81ad6f1e2f984a25f1f8b3d4700b94273d8c8caf1fe0e3ad039201eabdb0f",
+     "rowHash": "10d2801b9c6260f00a143555d700c3e6e1eb98f2d56ce6f9bd4d13192d1f311c"
+    }
+   ]
+  },
+  {
+   "op": "vector",
+   "err": "",
+   "applied": 0,
+   "got": {
+    "dev-a": 5,
+    "dev-b": 3,
+    "dev-c": 4
+   }
+  },
+  {
+   "op": "refused",
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000010,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b226e223a347d",
+     "sig": "848d1c5a8872a97d1d9c029fd4784ffe5d9e37c17201c17a20e45a927f25e7bfde4a89e38cc04b56988c4fd638a5c3095a8e82cacd916906057db7e9918c1b0f",
+     "rowHash": "e4a5439f71d33e42e5d5fce5c1827e8c4937853e2fc95490e152425dedc6f7b4"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 9,
+     "hlc": 111411200000000014,
+     "actor": "irori",
+     "kind": "person.device.revoked",
+     "payload": "7b227265766f6b65223a7b226465766963654964223a226465762d63222c22637574223a327d7d",
+     "sig": "3a2e9b690c14f0f2fb2eb99a05ec92e400fd62e5b27b011e41627345ef5383ef8a795095cdc9d7dbe7b84fc6ab7eb2552dca988cfef312c286ac83775d585b0b",
+     "rowHash": "ebb8b2a82334941576db2b7762ff268ea7456549e43ff1dc3d06e831f93383eb"
+    }
+   ]
+  },
+  {
+   "op": "forks",
+   "err": "",
+   "applied": 0,
+   "forks": [
+    {
+     "stored": {
+      "deviceId": "dev-b",
+      "seq": 2,
+      "hlc": 111411200000000001,
+      "actor": "irori",
+      "kind": "agent.seen",
+      "payload": "7b226b6579223a226465762d622f7331227d",
+      "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+      "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+     },
+     "other": {
+      "deviceId": "dev-b",
+      "seq": 2,
+      "hlc": 111411200000000002,
+      "actor": "irori",
+      "kind": "agent.seen",
+      "payload": "7b226b6579223a226465762d622f6f74686572227d",
+      "sig": "120dd08a69a8ed4db96fe887fa789b0e77c6b05785baccb0faca1f2898ffdaca583de9bfed3c6db1ae5b49c6d848bfcda6923de9b6f2460117977a7ae643c506",
+      "rowHash": "3a581b8dc40d07044125cc42357bc51862cd6688a4229bd42a5182b32860c489"
+     },
+     "otherHash": "3a581b8dc40d07044125cc42357bc51862cd6688a4229bd42a5182b32860c489",
+     "reason": "two rows"
+    },
+    {
+     "stored": {
+      "deviceId": "",
+      "seq": 0,
+      "hlc": 0,
+      "actor": "",
+      "kind": "",
+      "payload": "",
+      "sig": "",
+      "rowHash": "a1d96c04dae079ce280193de5cb66168c39cc543e0071caa55fbe69c15d8a709"
+     },
+     "other": {
+      "deviceId": "dev-b",
+      "seq": 4,
+      "hlc": 0,
+      "actor": "",
+      "kind": "",
+      "payload": "",
+      "sig": "",
+      "rowHash": "fd578bc3275056ed0233bf58592a79efcbc370746d56a5c4aa79615ecc5eace3"
+     },
+     "otherHash": "abcd",
+     "reason": "cut hash"
+    },
+    {
+     "stored": {
+      "deviceId": "dev-c",
+      "seq": 2,
+      "hlc": 111411200000000001,
+      "actor": "irori",
+      "kind": "person.profile",
+      "payload": "7b226e616d65223a2263227d",
+      "sig": "3a1553e8c5bbeb7eda237d644d68e5943643987957b71108ff05ceaecd498f0449b9fcbcfb950d0b51f38001708fa85502ae47f922ef117e5b8d1c6f25c6740c",
+      "rowHash": "860eb0f612ccbcbe6a62f97495bcdcf0920a591e863d4ad1c92469b8162dd535"
+     },
+     "other": {
+      "deviceId": "dev-c",
+      "seq": 2,
+      "hlc": 0,
+      "actor": "",
+      "kind": "",
+      "payload": "",
+      "sig": "",
+      "rowHash": "15e3b075bb43556802534351f2b29cf0c9c5a65e4c6bc8269a55ca160234e9a8"
+     },
+     "otherHash": "00ff",
+     "reason": "cut hash"
+    },
+    {
+     "stored": {
+      "deviceId": "dev-c",
+      "seq": 4,
+      "hlc": 111411200000000003,
+      "actor": "irori",
+      "kind": "agent.seen",
+      "payload": "7b7d",
+      "sig": "20c189272681edccebfea8018445d53d894d0f6b7ba90fe228dd65e711b66cd674e81ad6f1e2f984a25f1f8b3d4700b94273d8c8caf1fe0e3ad039201eabdb0f",
+      "rowHash": "10d2801b9c6260f00a143555d700c3e6e1eb98f2d56ce6f9bd4d13192d1f311c"
+     },
+     "other": {
+      "deviceId": "dev-c",
+      "seq": 4,
+      "hlc": 0,
+      "actor": "",
+      "kind": "",
+      "payload": "",
+      "sig": "",
+      "rowHash": "248f3ddaccd62c4ec313043facdfac2e9c6367055ca16715c5f8a96b2a059eca"
+     },
+     "otherHash": "beef",
+     "reason": "cut hash"
+    }
+   ]
+  },
+  {
+   "op": "observed",
+   "err": "",
+   "applied": 0,
+   "observed": [
+    "dev-b/1 person.device.added",
+    "dev-c/2 person.profile",
+    "dev-c/3 person.profile",
+    "dev-a/4 person.key.rotated",
+    "dev-b/9 person.device.revoked"
+   ]
+  },
+  {
+   "op": "list",
+   "filter": {},
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "device.started",
+     "payload": "7b226e616d65223a227063222c226f73223a2277696e646f7773222c2276657273696f6e223a22302e352e30227d",
+     "sig": "e3004bd93a708a73d6f909dc68e34d6901d31904608323631835d83325d527cc5ac8418be4ff68e0325190112f5dd8075407144bdf2d8e7bed283abf4e563e0f",
+     "rowHash": "da509bf4d1d858afc0b79cd6c99401a10c7eaeaf1862a0390c39731038b95b64"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "person.device.added",
+     "payload": "7b2263657274223a7b226465766963654964223a226465762d62227d7d",
+     "sig": "2b35676ba3f8f7918298bbce14e19d53836ba3419e8cafe6d16a294856c0b1662b4173eb53f3ca3fef79bbf9af835cdcbd59fbaab95da1e52d684e9b2905b20b",
+     "rowHash": "485f08a811403c45409b074600ef992831a28a273d57458a9834f88c6e73e7d5"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "6e756c6c",
+     "sig": "a5187a20987ef8be0602617a505f682d7b0f64bf1463db548ea9941d16260fae36c8035fb15f55aa90e41b908086198b69af4af2f219af652eb20b01d5605309",
+     "rowHash": "88dd54f9b101c7cb6130a2d5b0400e14fa77c133631b88edc496b8a10003e071"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f7331222c226e616d65223a22616c706861227d",
+     "sig": "8282a87d57480785880b59ecf49fd0ab2c18c89250519f84cf7392128e458f9fddfc2b026e488d287a2f47da39e07c0d8a6fd7d114d8264f4c22e0d1fb260807",
+     "rowHash": "d48ecc2bbdef4dbfa3caa9627c0d2bd36854619bcba9b464b4431021982febd6"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f7331227d",
+     "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+     "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "person.profile",
+     "payload": "7b226e616d65223a2263227d",
+     "sig": "3a1553e8c5bbeb7eda237d644d68e5943643987957b71108ff05ceaecd498f0449b9fcbcfb950d0b51f38001708fa85502ae47f922ef117e5b8d1c6f25c6740c",
+     "rowHash": "860eb0f612ccbcbe6a62f97495bcdcf0920a591e863d4ad1c92469b8162dd535"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 3,
+     "hlc": 111411200000000002,
+     "actor": "irori",
+     "kind": "person.profile",
+     "payload": "7b226e616d65223a226333227d",
+     "sig": "c46aa124c03653b7b93f9c70e9659292255a5280985fbe1bd2193d051f9ad4b5ace908bb6ed144417dd67db2a02fe87a00ecb1cd63e2595a5b872eadc0710e03",
+     "rowHash": "4af2b7effbc6b64116c0d4d6922f87628df7f7b6dbdab9625651fa0de2c00799"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 4,
+     "hlc": 111411200000000003,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b7d",
+     "sig": "20c189272681edccebfea8018445d53d894d0f6b7ba90fe228dd65e711b66cd674e81ad6f1e2f984a25f1f8b3d4700b94273d8c8caf1fe0e3ad039201eabdb0f",
+     "rowHash": "10d2801b9c6260f00a143555d700c3e6e1eb98f2d56ce6f9bd4d13192d1f311c"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 3,
+     "hlc": 111411200000000009,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b226e223a337d",
+     "sig": "74bbe8590933fbfd661ac6c55af9e7086019a1d9d4c810c36c18284b79b3e2437722df2c2ab00717ae41684889e67385f1e436c6800302be4faaba812555170f",
+     "rowHash": "61281b249b1c8b811609121a3f5a2fbfc318f3debbcafe66915c98ed4be1e85c"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000065520,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f726573746f726564227d",
+     "sig": "24051a75d3d8fc65671de16fd8d5924e70064e57455d72dc40be1f4ac29d35d0514e1dcc8456e70b38ac0ca50d238b90ed4593ea92a9aa9cc302135a22750e0e",
+     "rowHash": "4e7b309df75ec952c442a6f1c9f055e113b4ff639765acdfd4025fc638f20da8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 4,
+     "hlc": 111411200000065521,
+     "actor": "irori",
+     "kind": "person.key.rotated",
+     "payload": "7b2265706f6368223a327d",
+     "sig": "852b171a6da3f7d07d767f31b192988ee69300beda7ff58cbd1190cfae3f6f38aa5e28bc5a64e96d3ddd7036e93584611403d1946a3a65eadd2f55ad87a91605",
+     "rowHash": "e7b7b7dec0d1ee662c7c36ac120430a15eb61c43ccfb4b27dfb2f63a461747f8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 5,
+     "hlc": 111411200000065522,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226166746572223a22686f6c64227d",
+     "sig": "0a04ff1cdbfce0d7ac6c7fc2f636987eaaff429d38116429c260bf482f665425d9c6504bd1b28b54895891d943521fe67cb8aba3b220f58e3c3b422d6412a002",
+     "rowHash": "56fa3741eed81dac97663980d3d0cf61c21b266c495f1b7a318ea903f5d3f9b7"
+    }
+   ]
+  },
+  {
+   "op": "list",
+   "filter": {
+    "kinds": [
+     "agent."
+    ]
+   },
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-c",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "6e756c6c",
+     "sig": "a5187a20987ef8be0602617a505f682d7b0f64bf1463db548ea9941d16260fae36c8035fb15f55aa90e41b908086198b69af4af2f219af652eb20b01d5605309",
+     "rowHash": "88dd54f9b101c7cb6130a2d5b0400e14fa77c133631b88edc496b8a10003e071"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f7331222c226e616d65223a22616c706861227d",
+     "sig": "8282a87d57480785880b59ecf49fd0ab2c18c89250519f84cf7392128e458f9fddfc2b026e488d287a2f47da39e07c0d8a6fd7d114d8264f4c22e0d1fb260807",
+     "rowHash": "d48ecc2bbdef4dbfa3caa9627c0d2bd36854619bcba9b464b4431021982febd6"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f7331227d",
+     "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+     "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 4,
+     "hlc": 111411200000000003,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b7d",
+     "sig": "20c189272681edccebfea8018445d53d894d0f6b7ba90fe228dd65e711b66cd674e81ad6f1e2f984a25f1f8b3d4700b94273d8c8caf1fe0e3ad039201eabdb0f",
+     "rowHash": "10d2801b9c6260f00a143555d700c3e6e1eb98f2d56ce6f9bd4d13192d1f311c"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 3,
+     "hlc": 111411200000000009,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b226e223a337d",
+     "sig": "74bbe8590933fbfd661ac6c55af9e7086019a1d9d4c810c36c18284b79b3e2437722df2c2ab00717ae41684889e67385f1e436c6800302be4faaba812555170f",
+     "rowHash": "61281b249b1c8b811609121a3f5a2fbfc318f3debbcafe66915c98ed4be1e85c"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000065520,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f726573746f726564227d",
+     "sig": "24051a75d3d8fc65671de16fd8d5924e70064e57455d72dc40be1f4ac29d35d0514e1dcc8456e70b38ac0ca50d238b90ed4593ea92a9aa9cc302135a22750e0e",
+     "rowHash": "4e7b309df75ec952c442a6f1c9f055e113b4ff639765acdfd4025fc638f20da8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 5,
+     "hlc": 111411200000065522,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226166746572223a22686f6c64227d",
+     "sig": "0a04ff1cdbfce0d7ac6c7fc2f636987eaaff429d38116429c260bf482f665425d9c6504bd1b28b54895891d943521fe67cb8aba3b220f58e3c3b422d6412a002",
+     "rowHash": "56fa3741eed81dac97663980d3d0cf61c21b266c495f1b7a318ea903f5d3f9b7"
+    }
+   ]
+  },
+  {
+   "op": "list",
+   "filter": {
+    "kinds": [
+     "agent"
+    ]
+   },
+   "err": "",
+   "applied": 0
+  },
+  {
+   "op": "list",
+   "filter": {
+    "kinds": [
+     "person.",
+     "device.started"
+    ]
+   },
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "device.started",
+     "payload": "7b226e616d65223a227063222c226f73223a2277696e646f7773222c2276657273696f6e223a22302e352e30227d",
+     "sig": "e3004bd93a708a73d6f909dc68e34d6901d31904608323631835d83325d527cc5ac8418be4ff68e0325190112f5dd8075407144bdf2d8e7bed283abf4e563e0f",
+     "rowHash": "da509bf4d1d858afc0b79cd6c99401a10c7eaeaf1862a0390c39731038b95b64"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "person.device.added",
+     "payload": "7b2263657274223a7b226465766963654964223a226465762d62227d7d",
+     "sig": "2b35676ba3f8f7918298bbce14e19d53836ba3419e8cafe6d16a294856c0b1662b4173eb53f3ca3fef79bbf9af835cdcbd59fbaab95da1e52d684e9b2905b20b",
+     "rowHash": "485f08a811403c45409b074600ef992831a28a273d57458a9834f88c6e73e7d5"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "person.profile",
+     "payload": "7b226e616d65223a2263227d",
+     "sig": "3a1553e8c5bbeb7eda237d644d68e5943643987957b71108ff05ceaecd498f0449b9fcbcfb950d0b51f38001708fa85502ae47f922ef117e5b8d1c6f25c6740c",
+     "rowHash": "860eb0f612ccbcbe6a62f97495bcdcf0920a591e863d4ad1c92469b8162dd535"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 3,
+     "hlc": 111411200000000002,
+     "actor": "irori",
+     "kind": "person.profile",
+     "payload": "7b226e616d65223a226333227d",
+     "sig": "c46aa124c03653b7b93f9c70e9659292255a5280985fbe1bd2193d051f9ad4b5ace908bb6ed144417dd67db2a02fe87a00ecb1cd63e2595a5b872eadc0710e03",
+     "rowHash": "4af2b7effbc6b64116c0d4d6922f87628df7f7b6dbdab9625651fa0de2c00799"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 4,
+     "hlc": 111411200000065521,
+     "actor": "irori",
+     "kind": "person.key.rotated",
+     "payload": "7b2265706f6368223a327d",
+     "sig": "852b171a6da3f7d07d767f31b192988ee69300beda7ff58cbd1190cfae3f6f38aa5e28bc5a64e96d3ddd7036e93584611403d1946a3a65eadd2f55ad87a91605",
+     "rowHash": "e7b7b7dec0d1ee662c7c36ac120430a15eb61c43ccfb4b27dfb2f63a461747f8"
+    }
+   ]
+  },
+  {
+   "op": "list",
+   "filter": {
+    "deviceId": "dev-b",
+    "afterSeq": 1
+   },
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f7331227d",
+     "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+     "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 3,
+     "hlc": 111411200000000009,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b226e223a337d",
+     "sig": "74bbe8590933fbfd661ac6c55af9e7086019a1d9d4c810c36c18284b79b3e2437722df2c2ab00717ae41684889e67385f1e436c6800302be4faaba812555170f",
+     "rowHash": "61281b249b1c8b811609121a3f5a2fbfc318f3debbcafe66915c98ed4be1e85c"
+    }
+   ]
+  },
+  {
+   "op": "list",
+   "filter": {
+    "afterHlc": 111411200000000000
+   },
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f7331222c226e616d65223a22616c706861227d",
+     "sig": "8282a87d57480785880b59ecf49fd0ab2c18c89250519f84cf7392128e458f9fddfc2b026e488d287a2f47da39e07c0d8a6fd7d114d8264f4c22e0d1fb260807",
+     "rowHash": "d48ecc2bbdef4dbfa3caa9627c0d2bd36854619bcba9b464b4431021982febd6"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f7331227d",
+     "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+     "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "person.profile",
+     "payload": "7b226e616d65223a2263227d",
+     "sig": "3a1553e8c5bbeb7eda237d644d68e5943643987957b71108ff05ceaecd498f0449b9fcbcfb950d0b51f38001708fa85502ae47f922ef117e5b8d1c6f25c6740c",
+     "rowHash": "860eb0f612ccbcbe6a62f97495bcdcf0920a591e863d4ad1c92469b8162dd535"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 3,
+     "hlc": 111411200000000002,
+     "actor": "irori",
+     "kind": "person.profile",
+     "payload": "7b226e616d65223a226333227d",
+     "sig": "c46aa124c03653b7b93f9c70e9659292255a5280985fbe1bd2193d051f9ad4b5ace908bb6ed144417dd67db2a02fe87a00ecb1cd63e2595a5b872eadc0710e03",
+     "rowHash": "4af2b7effbc6b64116c0d4d6922f87628df7f7b6dbdab9625651fa0de2c00799"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 4,
+     "hlc": 111411200000000003,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b7d",
+     "sig": "20c189272681edccebfea8018445d53d894d0f6b7ba90fe228dd65e711b66cd674e81ad6f1e2f984a25f1f8b3d4700b94273d8c8caf1fe0e3ad039201eabdb0f",
+     "rowHash": "10d2801b9c6260f00a143555d700c3e6e1eb98f2d56ce6f9bd4d13192d1f311c"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 3,
+     "hlc": 111411200000000009,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b226e223a337d",
+     "sig": "74bbe8590933fbfd661ac6c55af9e7086019a1d9d4c810c36c18284b79b3e2437722df2c2ab00717ae41684889e67385f1e436c6800302be4faaba812555170f",
+     "rowHash": "61281b249b1c8b811609121a3f5a2fbfc318f3debbcafe66915c98ed4be1e85c"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000065520,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f726573746f726564227d",
+     "sig": "24051a75d3d8fc65671de16fd8d5924e70064e57455d72dc40be1f4ac29d35d0514e1dcc8456e70b38ac0ca50d238b90ed4593ea92a9aa9cc302135a22750e0e",
+     "rowHash": "4e7b309df75ec952c442a6f1c9f055e113b4ff639765acdfd4025fc638f20da8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 4,
+     "hlc": 111411200000065521,
+     "actor": "irori",
+     "kind": "person.key.rotated",
+     "payload": "7b2265706f6368223a327d",
+     "sig": "852b171a6da3f7d07d767f31b192988ee69300beda7ff58cbd1190cfae3f6f38aa5e28bc5a64e96d3ddd7036e93584611403d1946a3a65eadd2f55ad87a91605",
+     "rowHash": "e7b7b7dec0d1ee662c7c36ac120430a15eb61c43ccfb4b27dfb2f63a461747f8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 5,
+     "hlc": 111411200000065522,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226166746572223a22686f6c64227d",
+     "sig": "0a04ff1cdbfce0d7ac6c7fc2f636987eaaff429d38116429c260bf482f665425d9c6504bd1b28b54895891d943521fe67cb8aba3b220f58e3c3b422d6412a002",
+     "rowHash": "56fa3741eed81dac97663980d3d0cf61c21b266c495f1b7a318ea903f5d3f9b7"
+    }
+   ]
+  },
+  {
+   "op": "list",
+   "filter": {
+    "afterHlc": 18446744073709551615
+   },
+   "err": "",
+   "applied": 0
+  },
+  {
+   "op": "list",
+   "filter": {
+    "after": {
+     "hlc": 111411200000000000,
+     "deviceId": "dev-b",
+     "seq": 1
+    },
+    "limit": 3
+   },
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-c",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "6e756c6c",
+     "sig": "a5187a20987ef8be0602617a505f682d7b0f64bf1463db548ea9941d16260fae36c8035fb15f55aa90e41b908086198b69af4af2f219af652eb20b01d5605309",
+     "rowHash": "88dd54f9b101c7cb6130a2d5b0400e14fa77c133631b88edc496b8a10003e071"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f7331222c226e616d65223a22616c706861227d",
+     "sig": "8282a87d57480785880b59ecf49fd0ab2c18c89250519f84cf7392128e458f9fddfc2b026e488d287a2f47da39e07c0d8a6fd7d114d8264f4c22e0d1fb260807",
+     "rowHash": "d48ecc2bbdef4dbfa3caa9627c0d2bd36854619bcba9b464b4431021982febd6"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f7331227d",
+     "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+     "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+    }
+   ]
+  },
+  {
+   "op": "list",
+   "filter": {
+    "after": {
+     "hlc": 111411200000000000,
+     "deviceId": "dev-b",
+     "seq": 1
+    },
+    "limit": 3,
+    "desc": true
+   },
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 5,
+     "hlc": 111411200000065522,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226166746572223a22686f6c64227d",
+     "sig": "0a04ff1cdbfce0d7ac6c7fc2f636987eaaff429d38116429c260bf482f665425d9c6504bd1b28b54895891d943521fe67cb8aba3b220f58e3c3b422d6412a002",
+     "rowHash": "56fa3741eed81dac97663980d3d0cf61c21b266c495f1b7a318ea903f5d3f9b7"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 4,
+     "hlc": 111411200000065521,
+     "actor": "irori",
+     "kind": "person.key.rotated",
+     "payload": "7b2265706f6368223a327d",
+     "sig": "852b171a6da3f7d07d767f31b192988ee69300beda7ff58cbd1190cfae3f6f38aa5e28bc5a64e96d3ddd7036e93584611403d1946a3a65eadd2f55ad87a91605",
+     "rowHash": "e7b7b7dec0d1ee662c7c36ac120430a15eb61c43ccfb4b27dfb2f63a461747f8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000065520,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f726573746f726564227d",
+     "sig": "24051a75d3d8fc65671de16fd8d5924e70064e57455d72dc40be1f4ac29d35d0514e1dcc8456e70b38ac0ca50d238b90ed4593ea92a9aa9cc302135a22750e0e",
+     "rowHash": "4e7b309df75ec952c442a6f1c9f055e113b4ff639765acdfd4025fc638f20da8"
+    }
+   ]
+  },
+  {
+   "op": "list",
+   "filter": {
+    "after": {
+     "hlc": 18446744073709551615,
+     "deviceId": "",
+     "seq": 0
+    }
+   },
+   "err": "",
+   "applied": 0
+  },
+  {
+   "op": "list",
+   "filter": {
+    "limit": 2,
+    "desc": true
+   },
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 5,
+     "hlc": 111411200000065522,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226166746572223a22686f6c64227d",
+     "sig": "0a04ff1cdbfce0d7ac6c7fc2f636987eaaff429d38116429c260bf482f665425d9c6504bd1b28b54895891d943521fe67cb8aba3b220f58e3c3b422d6412a002",
+     "rowHash": "56fa3741eed81dac97663980d3d0cf61c21b266c495f1b7a318ea903f5d3f9b7"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 4,
+     "hlc": 111411200000065521,
+     "actor": "irori",
+     "kind": "person.key.rotated",
+     "payload": "7b2265706f6368223a327d",
+     "sig": "852b171a6da3f7d07d767f31b192988ee69300beda7ff58cbd1190cfae3f6f38aa5e28bc5a64e96d3ddd7036e93584611403d1946a3a65eadd2f55ad87a91605",
+     "rowHash": "e7b7b7dec0d1ee662c7c36ac120430a15eb61c43ccfb4b27dfb2f63a461747f8"
+    }
+   ]
+  },
+  {
+   "op": "list",
+   "filter": {
+    "kinds": [
+     "agent.seen"
+    ],
+    "limit": -1
+   },
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-c",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "6e756c6c",
+     "sig": "a5187a20987ef8be0602617a505f682d7b0f64bf1463db548ea9941d16260fae36c8035fb15f55aa90e41b908086198b69af4af2f219af652eb20b01d5605309",
+     "rowHash": "88dd54f9b101c7cb6130a2d5b0400e14fa77c133631b88edc496b8a10003e071"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f7331222c226e616d65223a22616c706861227d",
+     "sig": "8282a87d57480785880b59ecf49fd0ab2c18c89250519f84cf7392128e458f9fddfc2b026e488d287a2f47da39e07c0d8a6fd7d114d8264f4c22e0d1fb260807",
+     "rowHash": "d48ecc2bbdef4dbfa3caa9627c0d2bd36854619bcba9b464b4431021982febd6"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f7331227d",
+     "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+     "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 4,
+     "hlc": 111411200000000003,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b7d",
+     "sig": "20c189272681edccebfea8018445d53d894d0f6b7ba90fe228dd65e711b66cd674e81ad6f1e2f984a25f1f8b3d4700b94273d8c8caf1fe0e3ad039201eabdb0f",
+     "rowHash": "10d2801b9c6260f00a143555d700c3e6e1eb98f2d56ce6f9bd4d13192d1f311c"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000065520,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f726573746f726564227d",
+     "sig": "24051a75d3d8fc65671de16fd8d5924e70064e57455d72dc40be1f4ac29d35d0514e1dcc8456e70b38ac0ca50d238b90ed4593ea92a9aa9cc302135a22750e0e",
+     "rowHash": "4e7b309df75ec952c442a6f1c9f055e113b4ff639765acdfd4025fc638f20da8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 5,
+     "hlc": 111411200000065522,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226166746572223a22686f6c64227d",
+     "sig": "0a04ff1cdbfce0d7ac6c7fc2f636987eaaff429d38116429c260bf482f665425d9c6504bd1b28b54895891d943521fe67cb8aba3b220f58e3c3b422d6412a002",
+     "rowHash": "56fa3741eed81dac97663980d3d0cf61c21b266c495f1b7a318ea903f5d3f9b7"
+    }
+   ]
+  },
+  {
+   "op": "list",
+   "filter": {
+    "local": true
+   },
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 1,
+     "hlc": 111411200000000002,
+     "actor": "user",
+     "kind": "policy.set",
+     "payload": "7b226d6f6465223a2265766572796f6e65227d",
+     "sig": "",
+     "rowHash": "05d7fbe31fecfa34be153fd7e0c49961402f8d460456cad04f2635b7373c4b8c"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 2,
+     "hlc": 111411200000000003,
+     "actor": "irori",
+     "kind": "member.joined",
+     "payload": "7b226b6579223a226465762d612f67726f6b2d31227d",
+     "sig": "",
+     "rowHash": "f20298c2816d29a7516e9fec2ed011165b0b41e873edcf9ba2632f205dd56dea"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000000004,
+     "actor": "user",
+     "kind": "policy.set",
+     "payload": "7b226d6f6465223a22616c6c6f776c697374222c22616c6c6f77223a5b22616c706861225d7d",
+     "sig": "",
+     "rowHash": "f55ff445138846a595d3278fdf45ae980067e6bc7a04f17c22216c974c7a9dcd"
+    }
+   ]
+  },
+  {
+   "op": "list",
+   "filter": {
+    "kinds": [
+     "policy.set"
+    ],
+    "desc": true,
+    "local": true
+   },
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000000004,
+     "actor": "user",
+     "kind": "policy.set",
+     "payload": "7b226d6f6465223a22616c6c6f776c697374222c22616c6c6f77223a5b22616c706861225d7d",
+     "sig": "",
+     "rowHash": "f55ff445138846a595d3278fdf45ae980067e6bc7a04f17c22216c974c7a9dcd"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 1,
+     "hlc": 111411200000000002,
+     "actor": "user",
+     "kind": "policy.set",
+     "payload": "7b226d6f6465223a2265766572796f6e65227d",
+     "sig": "",
+     "rowHash": "05d7fbe31fecfa34be153fd7e0c49961402f8d460456cad04f2635b7373c4b8c"
+    }
+   ]
+  },
+  {
+   "op": "missing",
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "device.started",
+     "payload": "7b226e616d65223a227063222c226f73223a2277696e646f7773222c2276657273696f6e223a22302e352e30227d",
+     "sig": "e3004bd93a708a73d6f909dc68e34d6901d31904608323631835d83325d527cc5ac8418be4ff68e0325190112f5dd8075407144bdf2d8e7bed283abf4e563e0f",
+     "rowHash": "da509bf4d1d858afc0b79cd6c99401a10c7eaeaf1862a0390c39731038b95b64"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f7331222c226e616d65223a22616c706861227d",
+     "sig": "8282a87d57480785880b59ecf49fd0ab2c18c89250519f84cf7392128e458f9fddfc2b026e488d287a2f47da39e07c0d8a6fd7d114d8264f4c22e0d1fb260807",
+     "rowHash": "d48ecc2bbdef4dbfa3caa9627c0d2bd36854619bcba9b464b4431021982febd6"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000065520,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f726573746f726564227d",
+     "sig": "24051a75d3d8fc65671de16fd8d5924e70064e57455d72dc40be1f4ac29d35d0514e1dcc8456e70b38ac0ca50d238b90ed4593ea92a9aa9cc302135a22750e0e",
+     "rowHash": "4e7b309df75ec952c442a6f1c9f055e113b4ff639765acdfd4025fc638f20da8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 4,
+     "hlc": 111411200000065521,
+     "actor": "irori",
+     "kind": "person.key.rotated",
+     "payload": "7b2265706f6368223a327d",
+     "sig": "852b171a6da3f7d07d767f31b192988ee69300beda7ff58cbd1190cfae3f6f38aa5e28bc5a64e96d3ddd7036e93584611403d1946a3a65eadd2f55ad87a91605",
+     "rowHash": "e7b7b7dec0d1ee662c7c36ac120430a15eb61c43ccfb4b27dfb2f63a461747f8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 5,
+     "hlc": 111411200000065522,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226166746572223a22686f6c64227d",
+     "sig": "0a04ff1cdbfce0d7ac6c7fc2f636987eaaff429d38116429c260bf482f665425d9c6504bd1b28b54895891d943521fe67cb8aba3b220f58e3c3b422d6412a002",
+     "rowHash": "56fa3741eed81dac97663980d3d0cf61c21b266c495f1b7a318ea903f5d3f9b7"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "person.device.added",
+     "payload": "7b2263657274223a7b226465766963654964223a226465762d62227d7d",
+     "sig": "2b35676ba3f8f7918298bbce14e19d53836ba3419e8cafe6d16a294856c0b1662b4173eb53f3ca3fef79bbf9af835cdcbd59fbaab95da1e52d684e9b2905b20b",
+     "rowHash": "485f08a811403c45409b074600ef992831a28a273d57458a9834f88c6e73e7d5"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f7331227d",
+     "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+     "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 3,
+     "hlc": 111411200000000009,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b226e223a337d",
+     "sig": "74bbe8590933fbfd661ac6c55af9e7086019a1d9d4c810c36c18284b79b3e2437722df2c2ab00717ae41684889e67385f1e436c6800302be4faaba812555170f",
+     "rowHash": "61281b249b1c8b811609121a3f5a2fbfc318f3debbcafe66915c98ed4be1e85c"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "6e756c6c",
+     "sig": "a5187a20987ef8be0602617a505f682d7b0f64bf1463db548ea9941d16260fae36c8035fb15f55aa90e41b908086198b69af4af2f219af652eb20b01d5605309",
+     "rowHash": "88dd54f9b101c7cb6130a2d5b0400e14fa77c133631b88edc496b8a10003e071"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "person.profile",
+     "payload": "7b226e616d65223a2263227d",
+     "sig": "3a1553e8c5bbeb7eda237d644d68e5943643987957b71108ff05ceaecd498f0449b9fcbcfb950d0b51f38001708fa85502ae47f922ef117e5b8d1c6f25c6740c",
+     "rowHash": "860eb0f612ccbcbe6a62f97495bcdcf0920a591e863d4ad1c92469b8162dd535"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 3,
+     "hlc": 111411200000000002,
+     "actor": "irori",
+     "kind": "person.profile",
+     "payload": "7b226e616d65223a226333227d",
+     "sig": "c46aa124c03653b7b93f9c70e9659292255a5280985fbe1bd2193d051f9ad4b5ace908bb6ed144417dd67db2a02fe87a00ecb1cd63e2595a5b872eadc0710e03",
+     "rowHash": "4af2b7effbc6b64116c0d4d6922f87628df7f7b6dbdab9625651fa0de2c00799"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 4,
+     "hlc": 111411200000000003,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b7d",
+     "sig": "20c189272681edccebfea8018445d53d894d0f6b7ba90fe228dd65e711b66cd674e81ad6f1e2f984a25f1f8b3d4700b94273d8c8caf1fe0e3ad039201eabdb0f",
+     "rowHash": "10d2801b9c6260f00a143555d700c3e6e1eb98f2d56ce6f9bd4d13192d1f311c"
+    }
+   ]
+  },
+  {
+   "op": "missing",
+   "limit": 2,
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "device.started",
+     "payload": "7b226e616d65223a227063222c226f73223a2277696e646f7773222c2276657273696f6e223a22302e352e30227d",
+     "sig": "e3004bd93a708a73d6f909dc68e34d6901d31904608323631835d83325d527cc5ac8418be4ff68e0325190112f5dd8075407144bdf2d8e7bed283abf4e563e0f",
+     "rowHash": "da509bf4d1d858afc0b79cd6c99401a10c7eaeaf1862a0390c39731038b95b64"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f7331222c226e616d65223a22616c706861227d",
+     "sig": "8282a87d57480785880b59ecf49fd0ab2c18c89250519f84cf7392128e458f9fddfc2b026e488d287a2f47da39e07c0d8a6fd7d114d8264f4c22e0d1fb260807",
+     "rowHash": "d48ecc2bbdef4dbfa3caa9627c0d2bd36854619bcba9b464b4431021982febd6"
+    }
+   ]
+  },
+  {
+   "op": "missing",
+   "limit": 5,
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "device.started",
+     "payload": "7b226e616d65223a227063222c226f73223a2277696e646f7773222c2276657273696f6e223a22302e352e30227d",
+     "sig": "e3004bd93a708a73d6f909dc68e34d6901d31904608323631835d83325d527cc5ac8418be4ff68e0325190112f5dd8075407144bdf2d8e7bed283abf4e563e0f",
+     "rowHash": "da509bf4d1d858afc0b79cd6c99401a10c7eaeaf1862a0390c39731038b95b64"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f7331222c226e616d65223a22616c706861227d",
+     "sig": "8282a87d57480785880b59ecf49fd0ab2c18c89250519f84cf7392128e458f9fddfc2b026e488d287a2f47da39e07c0d8a6fd7d114d8264f4c22e0d1fb260807",
+     "rowHash": "d48ecc2bbdef4dbfa3caa9627c0d2bd36854619bcba9b464b4431021982febd6"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000065520,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f726573746f726564227d",
+     "sig": "24051a75d3d8fc65671de16fd8d5924e70064e57455d72dc40be1f4ac29d35d0514e1dcc8456e70b38ac0ca50d238b90ed4593ea92a9aa9cc302135a22750e0e",
+     "rowHash": "4e7b309df75ec952c442a6f1c9f055e113b4ff639765acdfd4025fc638f20da8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 4,
+     "hlc": 111411200000065521,
+     "actor": "irori",
+     "kind": "person.key.rotated",
+     "payload": "7b2265706f6368223a327d",
+     "sig": "852b171a6da3f7d07d767f31b192988ee69300beda7ff58cbd1190cfae3f6f38aa5e28bc5a64e96d3ddd7036e93584611403d1946a3a65eadd2f55ad87a91605",
+     "rowHash": "e7b7b7dec0d1ee662c7c36ac120430a15eb61c43ccfb4b27dfb2f63a461747f8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 5,
+     "hlc": 111411200000065522,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226166746572223a22686f6c64227d",
+     "sig": "0a04ff1cdbfce0d7ac6c7fc2f636987eaaff429d38116429c260bf482f665425d9c6504bd1b28b54895891d943521fe67cb8aba3b220f58e3c3b422d6412a002",
+     "rowHash": "56fa3741eed81dac97663980d3d0cf61c21b266c495f1b7a318ea903f5d3f9b7"
+    }
+   ]
+  },
+  {
+   "op": "missing",
+   "vector": {
+    "dev-a": 2,
+    "dev-b": 1
+   },
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000065520,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f726573746f726564227d",
+     "sig": "24051a75d3d8fc65671de16fd8d5924e70064e57455d72dc40be1f4ac29d35d0514e1dcc8456e70b38ac0ca50d238b90ed4593ea92a9aa9cc302135a22750e0e",
+     "rowHash": "4e7b309df75ec952c442a6f1c9f055e113b4ff639765acdfd4025fc638f20da8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 4,
+     "hlc": 111411200000065521,
+     "actor": "irori",
+     "kind": "person.key.rotated",
+     "payload": "7b2265706f6368223a327d",
+     "sig": "852b171a6da3f7d07d767f31b192988ee69300beda7ff58cbd1190cfae3f6f38aa5e28bc5a64e96d3ddd7036e93584611403d1946a3a65eadd2f55ad87a91605",
+     "rowHash": "e7b7b7dec0d1ee662c7c36ac120430a15eb61c43ccfb4b27dfb2f63a461747f8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 5,
+     "hlc": 111411200000065522,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226166746572223a22686f6c64227d",
+     "sig": "0a04ff1cdbfce0d7ac6c7fc2f636987eaaff429d38116429c260bf482f665425d9c6504bd1b28b54895891d943521fe67cb8aba3b220f58e3c3b422d6412a002",
+     "rowHash": "56fa3741eed81dac97663980d3d0cf61c21b266c495f1b7a318ea903f5d3f9b7"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f7331227d",
+     "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+     "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 3,
+     "hlc": 111411200000000009,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b226e223a337d",
+     "sig": "74bbe8590933fbfd661ac6c55af9e7086019a1d9d4c810c36c18284b79b3e2437722df2c2ab00717ae41684889e67385f1e436c6800302be4faaba812555170f",
+     "rowHash": "61281b249b1c8b811609121a3f5a2fbfc318f3debbcafe66915c98ed4be1e85c"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "6e756c6c",
+     "sig": "a5187a20987ef8be0602617a505f682d7b0f64bf1463db548ea9941d16260fae36c8035fb15f55aa90e41b908086198b69af4af2f219af652eb20b01d5605309",
+     "rowHash": "88dd54f9b101c7cb6130a2d5b0400e14fa77c133631b88edc496b8a10003e071"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "person.profile",
+     "payload": "7b226e616d65223a2263227d",
+     "sig": "3a1553e8c5bbeb7eda237d644d68e5943643987957b71108ff05ceaecd498f0449b9fcbcfb950d0b51f38001708fa85502ae47f922ef117e5b8d1c6f25c6740c",
+     "rowHash": "860eb0f612ccbcbe6a62f97495bcdcf0920a591e863d4ad1c92469b8162dd535"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 3,
+     "hlc": 111411200000000002,
+     "actor": "irori",
+     "kind": "person.profile",
+     "payload": "7b226e616d65223a226333227d",
+     "sig": "c46aa124c03653b7b93f9c70e9659292255a5280985fbe1bd2193d051f9ad4b5ace908bb6ed144417dd67db2a02fe87a00ecb1cd63e2595a5b872eadc0710e03",
+     "rowHash": "4af2b7effbc6b64116c0d4d6922f87628df7f7b6dbdab9625651fa0de2c00799"
+    },
+    {
+     "deviceId": "dev-c",
+     "seq": 4,
+     "hlc": 111411200000000003,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b7d",
+     "sig": "20c189272681edccebfea8018445d53d894d0f6b7ba90fe228dd65e711b66cd674e81ad6f1e2f984a25f1f8b3d4700b94273d8c8caf1fe0e3ad039201eabdb0f",
+     "rowHash": "10d2801b9c6260f00a143555d700c3e6e1eb98f2d56ce6f9bd4d13192d1f311c"
+    }
+   ]
+  },
+  {
+   "op": "missing",
+   "vector": {
+    "dev-a": 2,
+    "dev-b": 1
+   },
+   "limit": 2,
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000065520,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f726573746f726564227d",
+     "sig": "24051a75d3d8fc65671de16fd8d5924e70064e57455d72dc40be1f4ac29d35d0514e1dcc8456e70b38ac0ca50d238b90ed4593ea92a9aa9cc302135a22750e0e",
+     "rowHash": "4e7b309df75ec952c442a6f1c9f055e113b4ff639765acdfd4025fc638f20da8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 4,
+     "hlc": 111411200000065521,
+     "actor": "irori",
+     "kind": "person.key.rotated",
+     "payload": "7b2265706f6368223a327d",
+     "sig": "852b171a6da3f7d07d767f31b192988ee69300beda7ff58cbd1190cfae3f6f38aa5e28bc5a64e96d3ddd7036e93584611403d1946a3a65eadd2f55ad87a91605",
+     "rowHash": "e7b7b7dec0d1ee662c7c36ac120430a15eb61c43ccfb4b27dfb2f63a461747f8"
+    }
+   ]
+  },
+  {
+   "op": "missing",
+   "vector": {
+    "dev-a": 2,
+    "dev-b": 1
+   },
+   "limit": 5,
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000065520,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d612f726573746f726564227d",
+     "sig": "24051a75d3d8fc65671de16fd8d5924e70064e57455d72dc40be1f4ac29d35d0514e1dcc8456e70b38ac0ca50d238b90ed4593ea92a9aa9cc302135a22750e0e",
+     "rowHash": "4e7b309df75ec952c442a6f1c9f055e113b4ff639765acdfd4025fc638f20da8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 4,
+     "hlc": 111411200000065521,
+     "actor": "irori",
+     "kind": "person.key.rotated",
+     "payload": "7b2265706f6368223a327d",
+     "sig": "852b171a6da3f7d07d767f31b192988ee69300beda7ff58cbd1190cfae3f6f38aa5e28bc5a64e96d3ddd7036e93584611403d1946a3a65eadd2f55ad87a91605",
+     "rowHash": "e7b7b7dec0d1ee662c7c36ac120430a15eb61c43ccfb4b27dfb2f63a461747f8"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 5,
+     "hlc": 111411200000065522,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226166746572223a22686f6c64227d",
+     "sig": "0a04ff1cdbfce0d7ac6c7fc2f636987eaaff429d38116429c260bf482f665425d9c6504bd1b28b54895891d943521fe67cb8aba3b220f58e3c3b422d6412a002",
+     "rowHash": "56fa3741eed81dac97663980d3d0cf61c21b266c495f1b7a318ea903f5d3f9b7"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b226b6579223a226465762d622f7331227d",
+     "sig": "cc771f5183cdfc5cd2f2c85356dec27d01be75ce4592616ff1c3151f22365d7312bf24a07c0a6f832c1b6e676580653c53c4678a2efc0523f35b5ca4c4bc2108",
+     "rowHash": "907cceacc8a1e353a25545636c2f6df9cbe2fb075b37cd567741da3ffc2476ce"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 3,
+     "hlc": 111411200000000009,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b226e223a337d",
+     "sig": "74bbe8590933fbfd661ac6c55af9e7086019a1d9d4c810c36c18284b79b3e2437722df2c2ab00717ae41684889e67385f1e436c6800302be4faaba812555170f",
+     "rowHash": "61281b249b1c8b811609121a3f5a2fbfc318f3debbcafe66915c98ed4be1e85c"
+    }
+   ]
+  },
+  {
+   "op": "missing",
+   "vector": {
+    "dev-a": 100,
+    "dev-b": 100,
+    "dev-c": 100
+   },
+   "err": "",
+   "applied": 0
+  },
+  {
+   "op": "missing",
+   "vector": {
+    "dev-a": 100,
+    "dev-b": 100,
+    "dev-c": 100
+   },
+   "limit": 2,
+   "err": "",
+   "applied": 0
+  },
+  {
+   "op": "missing",
+   "vector": {
+    "dev-a": 100,
+    "dev-b": 100,
+    "dev-c": 100
+   },
+   "limit": 5,
+   "err": "",
+   "applied": 0
+  }
+ ],
+ "resets": 1,
+ "self": "dev-a"
+}

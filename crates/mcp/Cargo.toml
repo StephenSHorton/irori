@@ -1,0 +1,22 @@
+[package]
+name = "irori-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "`irori mcp`: the stdio MCP server that proxies the loopback API for Grok and other agents (surface.md §2.8)"
+
+[lib]
+name = "mcp"
+
+[dependencies]
+irori-gocompat.workspace = true
+irori-tools.workspace = true
+getrandom.workspace = true
+hex.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

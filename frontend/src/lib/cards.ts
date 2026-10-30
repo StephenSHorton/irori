@@ -1,13 +1,12 @@
 // Cards gateway (docs/design/v0.4-devices.md §9): the grid, one opened card,
 // and the person's answer to a blocker. Like talk.ts, components import from
-// here, never from bindings/, and in a plain browser everything runs on the
+// here, never from src/gen, and in a plain browser everything runs on the
 // sample in sample-cards.ts (answers change it in memory so the buttons can
 // be tried).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Browser, Events } from "@wailsio/runtime"
 
-import { BoardService } from "../../bindings/github.com/StephenSHorton/irori"
+import { BoardService, Browser, Events } from "./host"
 import {
   AnswerResult,
   AskRepo,
@@ -31,14 +30,12 @@ import {
   type CardPR,
   type CardRef,
   type CardSubtask,
-} from "../../bindings/github.com/StephenSHorton/irori/models"
-import {
   LinkKind,
   TaskState,
   type Link,
   type Step,
-} from "../../bindings/github.com/StephenSHorton/irori/internal/coord/models"
-import { inWails, plainLine } from "./irori"
+} from "./models"
+import { inHost, inWails, plainLine } from "./irori"
 import { safeHref } from "./rich"
 import { EventInboxChanged, useLatest } from "./talk"
 import { NoteItem, sampleCards, sampleYou } from "./sample-cards"
@@ -188,7 +185,7 @@ function sampleCard(id: string): CardDetail {
 }
 
 function summary(c: CardDetail): CardSummary {
-  return new CardSummary({
+  return CardSummary({
     id: c.id,
     short: c.short,
     shortWas: c.shortWas,
@@ -234,7 +231,7 @@ async function uploadOf(f: File): Promise<UploadFile> {
   let bin = ""
   for (let i = 0; i < bytes.length; i += 0x8000)
     bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-  return new UploadFile({ name: f.name || "pasted.png", data: btoa(bin) })
+  return UploadFile({ name: f.name || "pasted.png", data: btoa(bin) })
 }
 
 // sampleAsk is BoardService.Ask on the sample: a new ask first in the
@@ -272,16 +269,16 @@ function sampleAsk(text: string, repoKey: string, wake: boolean): TaskResult {
     holder: cs[0].holder,
     recent: [],
     thread: [
-      new CardThreadItem({ id: "sample-ask-post", kind: "event", at: now, who: sampleYou, text: "You asked the room" }),
+      CardThreadItem({ id: "sample-ask-post", kind: "event", at: now, who: sampleYou, text: "You asked the room" }),
     ],
     threadEarlier: 0,
     historyTrimmed: false,
     updatedAt: now,
-    ask: new CardAsk({ state: AskState.Open, told: heard.length, owner: "This PC", wake, taker: null, outcome: null }),
+    ask: CardAsk({ state: AskState.Open, told: heard.length, owner: "This PC", wake, taker: null, outcome: null }),
   } as CardDetail
   sample = [c, ...cs]
   sampleChanged()
-  return new TaskResult({ task: { id: c.id } as TaskResult["task"], told: new Told({ to: heard, mode: wake ? "wake" : "next_turn" }) })
+  return TaskResult({ task: { id: c.id } as TaskResult["task"], told: Told({ to: heard, mode: wake ? "wake" : "next_turn" }) })
 }
 
 // samplePin and sampleMovePin are BoardService.Pin and MovePin on the
@@ -311,7 +308,7 @@ function sampleMovePin(id: string, before: string) {
 function sampleCloseAsk(id: string, note: string) {
   const c = sampleCard(id)
   c.state = TaskState.Canceled
-  c.ask = new CardAsk({
+  c.ask = CardAsk({
     ...c.ask,
     state: AskState.Closed,
     outcome: { kind: "none", note: note.trim() || "closed by the person" },
@@ -449,7 +446,7 @@ function sampleAnswer(
   const now = new Date().toISOString()
   b.thread = [
     ...b.thread,
-    new CardThreadItem({
+    CardThreadItem({
       id: `sample-answer-${b.id}-${b.thread.length}`,
       kind: "comment",
       at: now,
@@ -472,9 +469,9 @@ function sampleAnswer(
   }
   c.updatedAt = now
   sampleChanged()
-  return new AnswerResult({
+  return AnswerResult({
     card: c,
-    told: new Told({
+    told: Told({
       to: [b.raisedBy.key, ...c.working.map((w) => w.key)].filter(
         (k, i, all) => all.indexOf(k) === i
       ),
@@ -506,9 +503,9 @@ function sampleResolveBlocker(
   )
   c.updatedAt = now
   sampleChanged()
-  return new AnswerResult({
+  return AnswerResult({
     card: c,
-    told: new Told({ to: c.working.map((w) => w.key), mode: "next_turn" }),
+    told: Told({ to: c.working.map((w) => w.key), mode: "next_turn" }),
   })
 }
 
@@ -528,7 +525,7 @@ function sampleResolve(
   note: string,
   at: string
 ) {
-  b.resolved = new CardResolution({
+  b.resolved = CardResolution({
     answer,
     option,
     note,
@@ -570,7 +567,7 @@ function sampleMessage(id: string, msgId: string): CardMessage {
   )
   if (!it)
     throw new Error(`coord: no such task or lease: no message "${msgId}"`)
-  return new CardMessage({
+  return CardMessage({
     text:
       it.text ||
       "Can you check the save format before I bump the version? The old saves need a migration.",
@@ -591,7 +588,7 @@ function sampleThreadLine(
 ): CardThreadItem[] {
   return [
     ...c.thread,
-    new CardThreadItem({
+    CardThreadItem({
       id: `sample-line-${c.thread.length}`,
       kind: "event",
       at,
@@ -627,9 +624,9 @@ function sampleAnswerNote(
   ].slice(0, 8)
   c.thread = sampleThreadLine(c, now, `You answered: ${text.trim()}`)
   sampleChanged()
-  return new AnswerResult({
+  return AnswerResult({
     card: c,
-    told: new Told({
+    told: Told({
       to: c.working.map((w) => w.key),
       mode: wake ? "wake" : "next_turn",
     }),
@@ -649,7 +646,7 @@ function sampleComment(id: string, text: string, wake: boolean): CommentResult {
   const unheard = !answers.length && !watching.length
   c.thread = [
     ...c.thread,
-    new CardThreadItem({
+    CardThreadItem({
       id: `sample-comment-${c.thread.length}`,
       kind: "comment",
       at: now,
@@ -660,8 +657,8 @@ function sampleComment(id: string, text: string, wake: boolean): CommentResult {
   ]
   c.updatedAt = now
   sampleChanged()
-  return new CommentResult({
-    told: new Told({
+  return CommentResult({
+    told: Told({
       to: [...answers, ...watching].map((w) => w.key),
       mode: unheard ? "" : wake ? "wake" : "next_turn",
     }),
@@ -744,7 +741,7 @@ export const cards = {
   async askAgain(id: string): Promise<void> {
     if (inWails()) return BoardService.AskAgain(id)
     const c = sampleCard(id)
-    if (c.ask) c.ask = new CardAsk({ ...c.ask, state: AskState.Open, wake: true })
+    if (c.ask) c.ask = CardAsk({ ...c.ask, state: AskState.Open, wake: true })
     sampleChanged()
   },
 
@@ -788,8 +785,8 @@ export const cards = {
   async askRepos(): Promise<AskRepo[]> {
     if (inWails()) return (await BoardService.AskRepos()) ?? []
     return [
-      new AskRepo({ repoKey: "remote:github.com/sample-org/example-app", label: "example-app" }),
-      new AskRepo({ repoKey: "remote:github.com/sample-org/irori", label: "irori" }),
+      AskRepo({ repoKey: "remote:github.com/sample-org/example-app", label: "example-app" }),
+      AskRepo({ repoKey: "remote:github.com/sample-org/irori", label: "irori" }),
     ]
   },
 
@@ -807,7 +804,7 @@ export const cards = {
     if (!/^https?:\/\//i.test(url)) return
     const href = safeHref(url)
     if (!href) return
-    if (inWails()) return Browser.OpenURL(href)
+    if (inHost()) return Browser.OpenURL(href)
     window.open(href, "_blank", "noopener")
   },
 }
@@ -942,7 +939,7 @@ async function loadDone(limit: number, before: string): Promise<DonePage> {
     .sort((a, b) => updated(b) - updated(a) || (a.id < b.id ? 1 : -1))
   const from = before ? done.findIndex((c) => c.id === before) + 1 : 0
   const page = done.slice(from, from + limit)
-  return new DonePage({
+  return DonePage({
     cards: page.map(summary),
     next: from + limit < done.length ? page[page.length - 1].id : "",
   })

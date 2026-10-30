@@ -1,0 +1,661 @@
+{
+ "events": [
+  {
+   "line": "{\"type\":\"hello\",\"v\":2,\"session\":\"b886ef92-0000-4000-8000-000000000001\",\"agentKey\":\"dev1/b886ef92-0000-4000-8000-000000000001\",\"name\":\"api \\u003cwork\\u003e\",\"nameSource\":\"user\",\"aiTitle\":\"Fix the lexer \\u0026 parser\",\"api\":{\"url\":\"http://127.0.0.1:47811\",\"token\":\"bearer-1\"},\"attachSecret\":\"secret-1\"}"
+  },
+  {
+   "line": "{\"type\":\"hello\",\"v\":2,\"session\":\"grok-01ABC\",\"agentKey\":\"dev1/grok-01ABC\",\"name\":\"grokky\",\"api\":{\"url\":\"http://127.0.0.1:47811\",\"token\":\"\"}}"
+  },
+  {
+   "line": "{\"type\":\"deliver\",\"wakeId\":\"wake_01\",\"token\":\"[irori-wake:wake_01]\",\"deliveryIds\":[\"del_1\",\"del_2\"],\"messageIds\":[\"msg_1\",\"msg_2\"],\"prompt\":\"[irori-wake:wake_01]\\nIrori message.\\n\\u003cirori-message from=\\\"bob\\\" key=\\\"dev1/s2\\\" delivery=\\\"del_1\\\" trust=\\\"untrusted\\\"\\u003ea \\u0026 b \\u2028 c\\u2029\\u003c/irori-message\\u003e\",\"from\":\"bob\",\"overflow\":[\"del_2\"]}"
+  },
+  {
+   "line": "{\"type\":\"deliver\",\"wakeId\":\"wake_02\",\"token\":\"[irori-wake:wake_02]\",\"reminder\":true,\"deliveryIds\":[\"del_3\"],\"prompt\":\"[irori-wake:wake_02] reminder\",\"mode\":\"next_turn\"}"
+  },
+  {
+   "line": "{\"type\":\"append\",\"wakeId\":\"wake_03\",\"token\":\"[irori-append:wake_03]\",\"deliveryIds\":[\"del_4\"],\"messageIds\":[\"msg_4\"],\"prompt\":\"\\u003cirori-message mode=\\\"next_turn\\\"\\u003efyi\\u003c/irori-message\\u003e\\n[irori-append:wake_03]\",\"from\":\"you\",\"mode\":\"next_turn\"}"
+  },
+  {
+   "line": "{\"type\":\"name\",\"name\":\"renamed\",\"nameSource\":\"irori\",\"aiTitle\":\"t\"}"
+  },
+  {
+   "line": "{\"type\":\"name\"}"
+  },
+  {
+   "line": "{\"type\":\"held\",\"from\":\"grok-1\",\"deliveryId\":\"del_5\",\"why\":\"bypass_receiver\",\"preview\":\"x \\u003cy\\u003e\"}"
+  },
+  {
+   "line": "{\"type\":\"moved\",\"deliveryId\":\"del_6\",\"to\":\"front desk\"}"
+  },
+  {
+   "line": "{\"type\":\"inbox\",\"unread\":3,\"held\":1}"
+  },
+  {
+   "line": "{\"type\":\"inbox\",\"held\":2}"
+  },
+  {
+   "line": "{\"type\":\"inbox\"}"
+  },
+  {
+   "line": "{\"type\":\"superseded\"}"
+  },
+  {
+   "line": "{\"type\":\"error\",\"message\":\"Irori isn't running, so messages can't reach this session. It attaches by itself once Irori starts.\"}"
+  }
+ ],
+ "modAtLeast": [
+  {
+   "v": "",
+   "min": "0.4.0",
+   "want": false
+  },
+  {
+   "v": "junk",
+   "min": "0.4.0",
+   "want": false
+  },
+  {
+   "v": ".4.0",
+   "min": "0.4.0",
+   "want": false
+  },
+  {
+   "v": "0.2.0-test",
+   "min": "0.4.0",
+   "want": false
+  },
+  {
+   "v": "0.3.99999",
+   "min": "0.4.0",
+   "want": false
+  },
+  {
+   "v": "0.4.0",
+   "min": "0.4.0",
+   "want": true
+  },
+  {
+   "v": "0.4",
+   "min": "0.4.0",
+   "want": true
+  },
+  {
+   "v": "0.4.0-rc1",
+   "min": "0.4.0",
+   "want": true
+  },
+  {
+   "v": "0.4.1",
+   "min": "0.4.0",
+   "want": true
+  },
+  {
+   "v": "0.10.0",
+   "min": "0.4.0",
+   "want": true
+  },
+  {
+   "v": "1.0",
+   "min": "0.4.0",
+   "want": true
+  },
+  {
+   "v": "1",
+   "min": "0.4.0",
+   "want": true
+  },
+  {
+   "v": "v0.4.0",
+   "min": "0.4.0",
+   "want": true
+  },
+  {
+   "v": " 0.4.0 ",
+   "min": "0.4.0",
+   "want": true
+  },
+  {
+   "v": "\t0.4.0\n",
+   "min": "0.4.0",
+   "want": true
+  },
+  {
+   "v": "vv0.4.0",
+   "min": "0.4.0",
+   "want": false
+  },
+  {
+   "v": "0.4-rc1.9",
+   "min": "0.4.0",
+   "want": true
+  },
+  {
+   "v": "0-rc.9.9",
+   "min": "0.4.0",
+   "want": false
+  },
+  {
+   "v": "1234567.0.0",
+   "min": "0.4.0",
+   "want": true
+  },
+  {
+   "v": "0.0000004.0",
+   "min": "0.4.0",
+   "want": false
+  },
+  {
+   "v": "1.2.3.4",
+   "min": "0.4.0",
+   "want": true
+  },
+  {
+   "v": "1.2.3x",
+   "min": "0.4.0",
+   "want": true
+  },
+  {
+   "v": "١.٢.٣",
+   "min": "0.4.0",
+   "want": false
+  },
+  {
+   "v": "",
+   "min": "",
+   "want": false
+  },
+  {
+   "v": "junk",
+   "min": "",
+   "want": false
+  },
+  {
+   "v": ".4.0",
+   "min": "",
+   "want": false
+  },
+  {
+   "v": "0.2.0-test",
+   "min": "",
+   "want": true
+  },
+  {
+   "v": "0.3.99999",
+   "min": "",
+   "want": true
+  },
+  {
+   "v": "0.4.0",
+   "min": "",
+   "want": true
+  },
+  {
+   "v": "0.4",
+   "min": "",
+   "want": true
+  },
+  {
+   "v": "0.4.0-rc1",
+   "min": "",
+   "want": true
+  },
+  {
+   "v": "0.4.1",
+   "min": "",
+   "want": true
+  },
+  {
+   "v": "0.10.0",
+   "min": "",
+   "want": true
+  },
+  {
+   "v": "1.0",
+   "min": "",
+   "want": true
+  },
+  {
+   "v": "1",
+   "min": "",
+   "want": true
+  },
+  {
+   "v": "v0.4.0",
+   "min": "",
+   "want": true
+  },
+  {
+   "v": " 0.4.0 ",
+   "min": "",
+   "want": true
+  },
+  {
+   "v": "\t0.4.0\n",
+   "min": "",
+   "want": true
+  },
+  {
+   "v": "vv0.4.0",
+   "min": "",
+   "want": false
+  },
+  {
+   "v": "0.4-rc1.9",
+   "min": "",
+   "want": true
+  },
+  {
+   "v": "0-rc.9.9",
+   "min": "",
+   "want": true
+  },
+  {
+   "v": "1234567.0.0",
+   "min": "",
+   "want": true
+  },
+  {
+   "v": "0.0000004.0",
+   "min": "",
+   "want": true
+  },
+  {
+   "v": "1.2.3.4",
+   "min": "",
+   "want": true
+  },
+  {
+   "v": "1.2.3x",
+   "min": "",
+   "want": true
+  },
+  {
+   "v": "١.٢.٣",
+   "min": "",
+   "want": false
+  },
+  {
+   "v": "",
+   "min": "junk",
+   "want": false
+  },
+  {
+   "v": "junk",
+   "min": "junk",
+   "want": false
+  },
+  {
+   "v": ".4.0",
+   "min": "junk",
+   "want": false
+  },
+  {
+   "v": "0.2.0-test",
+   "min": "junk",
+   "want": true
+  },
+  {
+   "v": "0.3.99999",
+   "min": "junk",
+   "want": true
+  },
+  {
+   "v": "0.4.0",
+   "min": "junk",
+   "want": true
+  },
+  {
+   "v": "0.4",
+   "min": "junk",
+   "want": true
+  },
+  {
+   "v": "0.4.0-rc1",
+   "min": "junk",
+   "want": true
+  },
+  {
+   "v": "0.4.1",
+   "min": "junk",
+   "want": true
+  },
+  {
+   "v": "0.10.0",
+   "min": "junk",
+   "want": true
+  },
+  {
+   "v": "1.0",
+   "min": "junk",
+   "want": true
+  },
+  {
+   "v": "1",
+   "min": "junk",
+   "want": true
+  },
+  {
+   "v": "v0.4.0",
+   "min": "junk",
+   "want": true
+  },
+  {
+   "v": " 0.4.0 ",
+   "min": "junk",
+   "want": true
+  },
+  {
+   "v": "\t0.4.0\n",
+   "min": "junk",
+   "want": true
+  },
+  {
+   "v": "vv0.4.0",
+   "min": "junk",
+   "want": false
+  },
+  {
+   "v": "0.4-rc1.9",
+   "min": "junk",
+   "want": true
+  },
+  {
+   "v": "0-rc.9.9",
+   "min": "junk",
+   "want": true
+  },
+  {
+   "v": "1234567.0.0",
+   "min": "junk",
+   "want": true
+  },
+  {
+   "v": "0.0000004.0",
+   "min": "junk",
+   "want": true
+  },
+  {
+   "v": "1.2.3.4",
+   "min": "junk",
+   "want": true
+  },
+  {
+   "v": "1.2.3x",
+   "min": "junk",
+   "want": true
+  },
+  {
+   "v": "١.٢.٣",
+   "min": "junk",
+   "want": false
+  },
+  {
+   "v": "",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": "junk",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": ".4.0",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": "0.2.0-test",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": "0.3.99999",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": "0.4.0",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": "0.4",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": "0.4.0-rc1",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": "0.4.1",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": "0.10.0",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": "1.0",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": "1",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": "v0.4.0",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": " 0.4.0 ",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": "\t0.4.0\n",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": "vv0.4.0",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": "0.4-rc1.9",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": "0-rc.9.9",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": "1234567.0.0",
+   "min": "1.2.3",
+   "want": true
+  },
+  {
+   "v": "0.0000004.0",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": "1.2.3.4",
+   "min": "1.2.3",
+   "want": true
+  },
+  {
+   "v": "1.2.3x",
+   "min": "1.2.3",
+   "want": true
+  },
+  {
+   "v": "١.٢.٣",
+   "min": "1.2.3",
+   "want": false
+  },
+  {
+   "v": "",
+   "min": "0.4",
+   "want": false
+  },
+  {
+   "v": "junk",
+   "min": "0.4",
+   "want": false
+  },
+  {
+   "v": ".4.0",
+   "min": "0.4",
+   "want": false
+  },
+  {
+   "v": "0.2.0-test",
+   "min": "0.4",
+   "want": false
+  },
+  {
+   "v": "0.3.99999",
+   "min": "0.4",
+   "want": false
+  },
+  {
+   "v": "0.4.0",
+   "min": "0.4",
+   "want": true
+  },
+  {
+   "v": "0.4",
+   "min": "0.4",
+   "want": true
+  },
+  {
+   "v": "0.4.0-rc1",
+   "min": "0.4",
+   "want": true
+  },
+  {
+   "v": "0.4.1",
+   "min": "0.4",
+   "want": true
+  },
+  {
+   "v": "0.10.0",
+   "min": "0.4",
+   "want": true
+  },
+  {
+   "v": "1.0",
+   "min": "0.4",
+   "want": true
+  },
+  {
+   "v": "1",
+   "min": "0.4",
+   "want": true
+  },
+  {
+   "v": "v0.4.0",
+   "min": "0.4",
+   "want": true
+  },
+  {
+   "v": " 0.4.0 ",
+   "min": "0.4",
+   "want": true
+  },
+  {
+   "v": "\t0.4.0\n",
+   "min": "0.4",
+   "want": true
+  },
+  {
+   "v": "vv0.4.0",
+   "min": "0.4",
+   "want": false
+  },
+  {
+   "v": "0.4-rc1.9",
+   "min": "0.4",
+   "want": true
+  },
+  {
+   "v": "0-rc.9.9",
+   "min": "0.4",
+   "want": false
+  },
+  {
+   "v": "1234567.0.0",
+   "min": "0.4",
+   "want": true
+  },
+  {
+   "v": "0.0000004.0",
+   "min": "0.4",
+   "want": false
+  },
+  {
+   "v": "1.2.3.4",
+   "min": "0.4",
+   "want": true
+  },
+  {
+   "v": "1.2.3x",
+   "min": "0.4",
+   "want": true
+  },
+  {
+   "v": "١.٢.٣",
+   "min": "0.4",
+   "want": false
+  }
+ ],
+ "previews": [
+  {
+   "in": "",
+   "out": ""
+  },
+  {
+   "in": "plain",
+   "out": "plain"
+  },
+  {
+   "in": "  lead and trail  ",
+   "out": "lead and trail"
+  },
+  {
+   "in": "a\n\tb\r\nc",
+   "out": "a b c"
+  },
+  {
+   "in": "nul\u0000bel\u0007del",
+   "out": "nul bel del"
+  },
+  {
+   "in": "nbsp here\u2028therex",
+   "out": "nbsp here there x"
+  },
+  {
+   "in": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+   "out": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+  },
+  {
+   "in": "ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ",
+   "out": "ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab "
+  },
+  {
+   "in": "​zero width﻿",
+   "out": "​zero width﻿"
+  }
+ ]
+}

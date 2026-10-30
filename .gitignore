@@ -1,16 +1,5 @@
-.task
-bin
-frontend/dist
-site/dist
-site/*.tsbuildinfo
-frontend/node_modules
-build/linux/appimage/build
-build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
-# build artifacts / local
-*.exe
-*.log
-.DS_Store
-node_modules
-
-# browser preview screenshots (frontend/PREVIEW.md)
-frontend/preview-shots/
+/target
+/testdata/private/
+# tauri-build output
+/app/gen/
+/dist

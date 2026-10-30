@@ -1,0 +1,4216 @@
+{
+ "ops": [
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "agent.alias",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: agent.alias",
+   "applied": 0,
+   "counts": {
+    "kind": 1,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "irori",
+     "kind": "agent.alias",
+     "payload": "7b7d",
+     "sig": "c873a3ba74eea95e9fada2edd83fd963bfeda83d1cd2a08c0b08c31c510417feae16986049f87b639b437e0b5da344caa2a2e177297ed9fded28d78ef642f00d",
+     "rowHash": "690771e3bf43ce70e79c97dd70bb478684d941fed7097ccefb4912ce2c1f40c5"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: agent.alias",
+   "applied": 0,
+   "counts": {
+    "kind": 2,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "agent.gone",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: agent.gone",
+   "applied": 0,
+   "counts": {
+    "kind": 3,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "agent.gone",
+     "payload": "7b7d",
+     "sig": "4f0c0d50d2849a52056ad8c2d642c9402e389cb9ac631ad4e156d041c95eab7a6dbf27cda857e83b64d358ebbd51b7c20b1319d0d1424103febc4c059fb4940c",
+     "rowHash": "8618f683d30e982d6538c79912fa37e3f69abdd56768323dcdf17208fbdfe6db"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: agent.gone",
+   "applied": 0,
+   "counts": {
+    "kind": 4,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "agent.name",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: agent.name",
+   "applied": 0,
+   "counts": {
+    "kind": 5,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000002,
+     "actor": "irori",
+     "kind": "agent.name",
+     "payload": "7b7d",
+     "sig": "0147c6566706941f39dd6e0dd5c5848d98464626e14c9161f7abb73c253c034f5b8ec9124b1ff681865cdc00c42de14a4a4ec9a61b6d9c5dc9d67cedad47ee07",
+     "rowHash": "d6aec94ea55e6bd08c066b5d9dd147b2f8c11dbdfb42f5d163d98f94eb5b9b14"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: agent.name",
+   "applied": 0,
+   "counts": {
+    "kind": 6,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "agent.seen",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: agent.seen",
+   "applied": 0,
+   "counts": {
+    "kind": 7,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000003,
+     "actor": "irori",
+     "kind": "agent.seen",
+     "payload": "7b7d",
+     "sig": "037b5a3e304be164361d6185104114d232ec5fc81e5245c2e451271693026913b1440467638e5cb16872527ebdd64a1d57799c5e67f63cf19b379509f6511506",
+     "rowHash": "1a03671a45eed37e515d4b311758fd726e18de5aa99f7f04315b416781325bf8"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: agent.seen",
+   "applied": 0,
+   "counts": {
+    "kind": 8,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "agent.status",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: agent.status",
+   "applied": 0,
+   "counts": {
+    "kind": 9,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000004,
+     "actor": "irori",
+     "kind": "agent.status",
+     "payload": "7b7d",
+     "sig": "5a072c5bd8c0e034b7a6c9428f5714ea6d7d0334dfc20d1f3ef514b9457d33fe6b6b9a9bdb19c55289e9b73742248b418591a4e492c601b503134d5c49101206",
+     "rowHash": "c4a11516944d0b87636aea4ec32f355389c0cc2497a04a456d838be0f5f8564b"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: agent.status",
+   "applied": 0,
+   "counts": {
+    "kind": 10,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "ask.answered",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: ask.answered",
+   "applied": 0,
+   "counts": {
+    "kind": 11,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000005,
+     "actor": "irori",
+     "kind": "ask.answered",
+     "payload": "7b7d",
+     "sig": "08012ef3d21416205741908036fbd343a99c242b0ac19bb4c5f2b7bb88642d94c3a2cbd6270fb7cfb3935202b4e9e80d4c832153d7306372b32c33fa32eed10c",
+     "rowHash": "cf8efba58cccb86d827b4abc3167044c5fc132ae84e9d255e2e8dd18e782192b"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: ask.answered",
+   "applied": 0,
+   "counts": {
+    "kind": 12,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "ask.posted",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: ask.posted",
+   "applied": 0,
+   "counts": {
+    "kind": 13,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000006,
+     "actor": "irori",
+     "kind": "ask.posted",
+     "payload": "7b7d",
+     "sig": "a4998e04fed4bd27d1804415e225b5296315736ba1979af056d5971ab115d680c3390db373a165c21ad06b92f0c384ef3dd5905167ae031246963ea9f759420d",
+     "rowHash": "6416019e2bd47e3cba2dff50db0a35e7c5d48802d2b1a011fc87efdf26fccbd9"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: ask.posted",
+   "applied": 0,
+   "counts": {
+    "kind": 14,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "ask.resolved",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: ask.resolved",
+   "applied": 0,
+   "counts": {
+    "kind": 15,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000007,
+     "actor": "irori",
+     "kind": "ask.resolved",
+     "payload": "7b7d",
+     "sig": "8ece4e18cbc3439298492adfb3811b6ee1a544934804035d7e2b8a953ee6565eb7af6fdce44cc0e8a883714319173d9570ee3586586c051e770751981e8a050e",
+     "rowHash": "e1d699e0b5de51cbe32e2b711596dbfa279dcb516afc4cb90f14fc09a976d483"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: ask.resolved",
+   "applied": 0,
+   "counts": {
+    "kind": 16,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "autonomy.set",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: autonomy.set",
+   "applied": 0,
+   "counts": {
+    "kind": 17,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000008,
+     "actor": "irori",
+     "kind": "autonomy.set",
+     "payload": "7b7d",
+     "sig": "ce9c1e30b874639e617866568a557c626df5e86860c0635f9249a87ff82d59419f9f6b8725b524a79b845f3217b60b9e67b45204d0cfdeb157bbd440e6cdf10f",
+     "rowHash": "27cc482bea659513f7c660831a8f90089e7271f102ba29a7a14056903884eb09"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: autonomy.set",
+   "applied": 0,
+   "counts": {
+    "kind": 18,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "board.cardof",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: board.cardof",
+   "applied": 0,
+   "counts": {
+    "kind": 19,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000009,
+     "actor": "irori",
+     "kind": "board.cardof",
+     "payload": "7b7d",
+     "sig": "42f8dbbacb3d737a77538cc5a67932dfb17c1fbc9e16e5b1fca23d8360fd49979bea6d5821c32bb94816190b1dd35e3c42653d902f3ba58757fcc25e893ceb03",
+     "rowHash": "e4ae46e48a5ec86e2d67e173f61b922190866012d55782317568f989fc551993"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: board.cardof",
+   "applied": 0,
+   "counts": {
+    "kind": 20,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "board.forgot",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: board.forgot",
+   "applied": 0,
+   "counts": {
+    "kind": 21,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000010,
+     "actor": "irori",
+     "kind": "board.forgot",
+     "payload": "7b7d",
+     "sig": "b81d6ee6375cab95fb3c953c835d8688fcef083750cc1c296de3fb4118e4a982b57da58c2f37f92a067e9ca4bda6dfe1365d2c71bf5a3426c4850f17d191670b",
+     "rowHash": "39a3328dd88da5bb1e25f8b6451cbc017a8c0a10a4f1c50030c72984764e84a4"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: board.forgot",
+   "applied": 0,
+   "counts": {
+    "kind": 22,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "board.joined",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: board.joined",
+   "applied": 0,
+   "counts": {
+    "kind": 23,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000011,
+     "actor": "irori",
+     "kind": "board.joined",
+     "payload": "7b7d",
+     "sig": "1dd28179988ae0c39c66d2a5632048c308579502f255154b5f1197f03efd4bd6e25c2d8d258e0ea8d9b602b492512925bee96157ffc9febbe7e65b5d3551800e",
+     "rowHash": "9a6f4eceb438d5a14d6039c61adffc4bcc62758a87dfb0026c6cf05afe148a94"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: board.joined",
+   "applied": 0,
+   "counts": {
+    "kind": 24,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "board.sharedcopy",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: board.sharedcopy",
+   "applied": 0,
+   "counts": {
+    "kind": 25,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000012,
+     "actor": "irori",
+     "kind": "board.sharedcopy",
+     "payload": "7b7d",
+     "sig": "88134efa3b9f52423765c0f3d7a3c4035a188874a2c625ed784160b953e00af36f443f4e1e01ad1cf1c4b27917b833105e3f5dabba1633ac63ba842c32ef4b05",
+     "rowHash": "395e23c5e2c1c5c51b1aa082c959437bb2fa251134674c33aba3d95d426efea5"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: board.sharedcopy",
+   "applied": 0,
+   "counts": {
+    "kind": 26,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "capture.commitcmd",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: capture.commitcmd",
+   "applied": 0,
+   "counts": {
+    "kind": 27,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000013,
+     "actor": "irori",
+     "kind": "capture.commitcmd",
+     "payload": "7b7d",
+     "sig": "2514c2c0701ce5075177dc05676558cd7905919e07e0a777c17faa546feba655ab9160bf7809cf39ad36056b3eb94b9500fde65f413839d800e6bbc22e7a2207",
+     "rowHash": "b5225eaa77946c8573d5ef978b2db9e450d12903c7a1324077628bdd7322db29"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: capture.commitcmd",
+   "applied": 0,
+   "counts": {
+    "kind": 28,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "capture.edit",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: capture.edit",
+   "applied": 0,
+   "counts": {
+    "kind": 29,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000014,
+     "actor": "irori",
+     "kind": "capture.edit",
+     "payload": "7b7d",
+     "sig": "c1198e66a81aa047b3abba09bd8265469ffd82ec82c83f5ffedd40b5ea5c44f265806af1d40bb5daa2aa7072a94eff9d133dcdacff5091dfe814430fd0225802",
+     "rowHash": "3200b69a415c2e0357fcf1512ae921ad87d38eea35d7365b804d024d5e92264b"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: capture.edit",
+   "applied": 0,
+   "counts": {
+    "kind": 30,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "capture.summary",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: capture.summary",
+   "applied": 0,
+   "counts": {
+    "kind": 31,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000015,
+     "actor": "irori",
+     "kind": "capture.summary",
+     "payload": "7b7d",
+     "sig": "8175958604f96effe05e85a341b7f8863fa59abef1f9e503d540bde3ddb861be1ec389981c9ef368f8bddf988c704afb52035a653ab294777a1c524734a07a0f",
+     "rowHash": "5c4f2b8dd17f558d830bcfd75562a6f7b8b6568fabec115e5344c01cf6155461"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: capture.summary",
+   "applied": 0,
+   "counts": {
+    "kind": 32,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "capture.turn",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: capture.turn",
+   "applied": 0,
+   "counts": {
+    "kind": 33,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000016,
+     "actor": "irori",
+     "kind": "capture.turn",
+     "payload": "7b7d",
+     "sig": "7e824ca5c198893f9456275e6b7a98c2d56abb8266b68241e381a255e38f5703f6f86341fd3077775f01c1a55e1e84a23cae7e34fde7f7626f8f63dd38b7ce0a",
+     "rowHash": "cf67a6ab5aac59f8a5fb44b1e7a9ffe33eb050f1fdf2791132139ca36e8ed80a"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: capture.turn",
+   "applied": 0,
+   "counts": {
+    "kind": 34,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "commit.linked",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: commit.linked",
+   "applied": 0,
+   "counts": {
+    "kind": 35,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000017,
+     "actor": "irori",
+     "kind": "commit.linked",
+     "payload": "7b7d",
+     "sig": "97d76f5e02588d5a6beb2790b47e83159ba9ed85a8786ebf1e3d15d21a1e001e5a8bd948fbe56de3e801bd89bf8834ab69d58b94702fab10dfbe8cb12e73c707",
+     "rowHash": "069488336ebe30b724f9b7b99b1a4f1e51a98160932dc7fb9798cf788e3c8e05"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: commit.linked",
+   "applied": 0,
+   "counts": {
+    "kind": 36,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "commit.seen",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: commit.seen",
+   "applied": 0,
+   "counts": {
+    "kind": 37,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000018,
+     "actor": "irori",
+     "kind": "commit.seen",
+     "payload": "7b7d",
+     "sig": "9f2cb938880f645aef5cac3677ae53731a009af76054075a9c6041965f7ec8f36525ce17f20641c6bb8c2219af0c72ed0871d0d47655165747d9d3ad2640aa04",
+     "rowHash": "01eb16bfa278919b5e82f82638e5cc5e06380679287113bd821898846f741070"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: commit.seen",
+   "applied": 0,
+   "counts": {
+    "kind": 38,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "decision.recorded",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: decision.recorded",
+   "applied": 0,
+   "counts": {
+    "kind": 39,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000019,
+     "actor": "irori",
+     "kind": "decision.recorded",
+     "payload": "7b7d",
+     "sig": "3c783dc7d593d894888cb57964377ed52e1bcdbeef3dd3b672991b4b160e19f4a28f0cd62fbb75a6c1fac60f35688beb44e73ba1de03c2e08e7d700adf90cb05",
+     "rowHash": "a183fe2d765e047b91a290a2576bce8b20a9688d7d0cc0c371633acb2fb6cfd6"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: decision.recorded",
+   "applied": 0,
+   "counts": {
+    "kind": 40,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "delivery.decided",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: delivery.decided",
+   "applied": 0,
+   "counts": {
+    "kind": 41,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000020,
+     "actor": "irori",
+     "kind": "delivery.decided",
+     "payload": "7b7d",
+     "sig": "876a51cf0a227de5a22c9e76ef9a70fa92b73a45a3b86d93de433bc541151c63df43c9c31492e009bdb87e1be6d9805db5885f80d21e53213cfb1f3c5ef3450e",
+     "rowHash": "897f7c4675c782139bfaa5ccf41453c7d42e74424416a22d196a85df295807c3"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: delivery.decided",
+   "applied": 0,
+   "counts": {
+    "kind": 42,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "delivery.state",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: delivery.state",
+   "applied": 0,
+   "counts": {
+    "kind": 43,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000021,
+     "actor": "irori",
+     "kind": "delivery.state",
+     "payload": "7b7d",
+     "sig": "fe0a3b7950aa014702f4cd2747c72c1da060fe8a8392da6621a281feebf9b2051aceeb4a8c81c0c8ec07fa2564e7bf34575cc5eeff31ed930661cd43cd24f10f",
+     "rowHash": "dcb4db1581b8242e617b57d87a14ca9cc9f2791f8375a10ebb9ab24735d7bc1b"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: delivery.state",
+   "applied": 0,
+   "counts": {
+    "kind": 44,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "device.color",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: device.color",
+   "applied": 0,
+   "counts": {
+    "kind": 45,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000022,
+     "actor": "irori",
+     "kind": "device.color",
+     "payload": "7b7d",
+     "sig": "36d324152a140ca07888dca3e55ef6f51ff582540ec2f977b8d630cdc8482c93827437f6f5792cb858734e4133fe40f3a7a08a6dfae35d0935e1d9660b260406",
+     "rowHash": "9b3c359ce6d29c8e1e7e40153214ffb90fddf5b0fdcf1308595aad93f88d9142"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: device.color",
+   "applied": 0,
+   "counts": {
+    "kind": 46,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "device.started",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: device.started",
+   "applied": 0,
+   "counts": {
+    "kind": 47,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000023,
+     "actor": "irori",
+     "kind": "device.started",
+     "payload": "7b7d",
+     "sig": "6725fef1103c15f96baba73239f3570e0358103c0525b7a65457ff9ff6fe7d4856748a9054bf9e6f6da1ae7ada0f79ecfe5f3e45d7afbb388cd3285c91a53b05",
+     "rowHash": "c118795183368cb445ab24d4b76e423bd04bf29f3a25bbfe3b5c4dc48d695c56"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: device.started",
+   "applied": 0,
+   "counts": {
+    "kind": 48,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "local.moved",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: local.moved",
+   "applied": 0,
+   "counts": {
+    "kind": 49,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000024,
+     "actor": "irori",
+     "kind": "local.moved",
+     "payload": "7b7d",
+     "sig": "cdc821bfa247dff1e5aeb04d6681644d08ed4c315ac13229d3078ac44a2784139c7423120ec563ab7ebda644dc78c19791a47be9ddc968ee40a2377d19111104",
+     "rowHash": "f0f90d6dc1aecac8a647646e786af6b9b43c43d31b1f0b61eaf5e66c1017d08e"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: local.moved",
+   "applied": 0,
+   "counts": {
+    "kind": 50,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "message.sent",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: message.sent",
+   "applied": 0,
+   "counts": {
+    "kind": 51,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000025,
+     "actor": "irori",
+     "kind": "message.sent",
+     "payload": "7b7d",
+     "sig": "eac3d4f778567bfecfb01fda60e44164a078368177e2ee7f901b72c88b6cf42520eddd9c3e5271e3057168fa7eee78ad36dc835ae0fa9d5fed938b04989dba06",
+     "rowHash": "fb22e4b85229d11a632b02c9728e71c9bbe442bb3f95128362080b8cc35917f4"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: message.sent",
+   "applied": 0,
+   "counts": {
+    "kind": 52,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "node.addr",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: node.addr",
+   "applied": 0,
+   "counts": {
+    "kind": 53,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000026,
+     "actor": "irori",
+     "kind": "node.addr",
+     "payload": "7b7d",
+     "sig": "43e0598aa5c9b387cf49bc7128401568efad32707f9a97332a783fb57ac0d9f3fce6181ecab21faf04a6a931c15dc9e3606c797826f3e241b0eeb9b19540bd04",
+     "rowHash": "e0eac42b555073f2a1f63eedff00955bf53156335a547befccc8bc1b60ec36f4"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: node.addr",
+   "applied": 0,
+   "counts": {
+    "kind": 54,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "person.device.added",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: person.device.added",
+   "applied": 0,
+   "counts": {
+    "kind": 55,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000027,
+     "actor": "irori",
+     "kind": "person.device.added",
+     "payload": "7b7d",
+     "sig": "91f80cd6af30b28b8750873374d714e2e4b5aa4295e9e64822bdba77b5bff6de296405c0d0aa74b10ecffa25699549942e4b226e8926016bf06e7b3d630bdf0d",
+     "rowHash": "71e400e33a48230f8fff554f94e1b157d3f51d4e65825803f098ffaa1c7156b9"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: person.device.added",
+   "applied": 0,
+   "counts": {
+    "kind": 56,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "person.device.revoked",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: person.device.revoked",
+   "applied": 0,
+   "counts": {
+    "kind": 57,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000028,
+     "actor": "irori",
+     "kind": "person.device.revoked",
+     "payload": "7b7d",
+     "sig": "29db621d8489a97e55e1b54814b77e96f56bb8769e9ce4810ed4d04f2ef8ee47024b6782bf84162154e8c5a1679bbb64d3930afd366c811f7bedcb7f36428c05",
+     "rowHash": "36ac5bcae9c55e2267244eec503b1ca1afd1b79cb76c421d0d134ccb852df891"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: person.device.revoked",
+   "applied": 0,
+   "counts": {
+    "kind": 58,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "person.key.rotated",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: person.key.rotated",
+   "applied": 0,
+   "counts": {
+    "kind": 59,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000029,
+     "actor": "irori",
+     "kind": "person.key.rotated",
+     "payload": "7b7d",
+     "sig": "474321779a1073276f93b3e61c1fe5ecf610824f268b5b904abb8a1b63e353c6f692948c47b62dace692430a60f04d747c55bc42edc7e72e9aafde52db262c04",
+     "rowHash": "9db26ac928ad374488efaf9db917895ff0d8f0e35087f33903c46a49ec01e6b5"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: person.key.rotated",
+   "applied": 0,
+   "counts": {
+    "kind": 60,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "person.profile",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: person.profile",
+   "applied": 0,
+   "counts": {
+    "kind": 61,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000030,
+     "actor": "irori",
+     "kind": "person.profile",
+     "payload": "7b7d",
+     "sig": "5faa8be8d9efde72bece9dbaec994d121a4655d79788e22c1f3f786c1c4d8a20fbb4dea3e29ce371eca2178c842f38499a4e5d7e196056df03c7648bc5f64409",
+     "rowHash": "599c96e0e99bb955422aaa01aaea6d19f2542a08552e7050970cdd65d3ddba1b"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: person.profile",
+   "applied": 0,
+   "counts": {
+    "kind": 62,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "pr.ledger",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: pr.ledger",
+   "applied": 0,
+   "counts": {
+    "kind": 63,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000031,
+     "actor": "irori",
+     "kind": "pr.ledger",
+     "payload": "7b7d",
+     "sig": "1872ca5b9c20601b6b04d9d1e4ed098001ee14359fa2ee7130e92caee9cae59f610641d51f80bd01fca73e140c4b35e9907bd06be7a2965d2cf8b7c2e4974003",
+     "rowHash": "a1b090efeb1f99bfc55ab2933a9e6bf172201526c7ef2bd69903fb6c3ba4a612"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: pr.ledger",
+   "applied": 0,
+   "counts": {
+    "kind": 64,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "receive.set",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: receive.set",
+   "applied": 0,
+   "counts": {
+    "kind": 65,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000032,
+     "actor": "irori",
+     "kind": "receive.set",
+     "payload": "7b7d",
+     "sig": "269d7c4908c5970350284614123d9b00c5876c042e79e2dd5e46aa651fd5603570d00312317b6ec7b1ad22d44f42b806cb4a865fab4df0c17e937cbaa21fec0b",
+     "rowHash": "84a4ec07e57bcb72b07a9b7188287585bf30a29d1a8c09ea8aa6fe749ad1bb75"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: receive.set",
+   "applied": 0,
+   "counts": {
+    "kind": 66,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "repo.seen",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: repo.seen",
+   "applied": 0,
+   "counts": {
+    "kind": 67,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000033,
+     "actor": "irori",
+     "kind": "repo.seen",
+     "payload": "7b7d",
+     "sig": "b4edf7e6ea3e236c847607d055bafd2297627886432fe4ea090984679d116486f7d22267551e95f4aa8f84318a9aa26abea48cef1fcb1b95aea33e769f6fd70a",
+     "rowHash": "919a8e0a6320c8093d9cccc719d1d35d48bee4e07d9c07da1cb9cc266786bfbf"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: repo.seen",
+   "applied": 0,
+   "counts": {
+    "kind": 68,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "revive.requested",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: revive.requested",
+   "applied": 0,
+   "counts": {
+    "kind": 69,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000034,
+     "actor": "irori",
+     "kind": "revive.requested",
+     "payload": "7b7d",
+     "sig": "142706aa172744defe743341741595b58b006b948604d15533eaa2c4dc5c78b4633b99926158c25d639d0d541165883287726932a516c88fc16bdba24740d904",
+     "rowHash": "f12d1dc2ceead7a0a79b6623c4e2080cfc78b4aef57d8e29427af7bd5adfe838"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: revive.requested",
+   "applied": 0,
+   "counts": {
+    "kind": 70,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "take.requested",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: take.requested",
+   "applied": 0,
+   "counts": {
+    "kind": 71,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000035,
+     "actor": "irori",
+     "kind": "take.requested",
+     "payload": "7b7d",
+     "sig": "ecc87f688a7e66755d29136adc00435fd60ec25dbf1dafe14f3a6be8ffece0647f8a4ea22e04fb0f930c84e8c16dc1f34f47e7708c653f805f9380afd959360b",
+     "rowHash": "401ed04551b57e85e82bde8cbb0f29069911517df631453f7efb4a42517c8755"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: take.requested",
+   "applied": 0,
+   "counts": {
+    "kind": 72,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "take.state",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: take.state",
+   "applied": 0,
+   "counts": {
+    "kind": 73,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000036,
+     "actor": "irori",
+     "kind": "take.state",
+     "payload": "7b7d",
+     "sig": "884d732aa6305982f56080a1f7ce8158bf0926d9ca91547bf6b1035835ba54a0e491f84bb4de4d41f434e8dcb34f1df71e78bb93fd03cf2f0a6367fafafa4b00",
+     "rowHash": "a19be4bf4e35890bc8161b8cb5f0ed1c724e4954cc46506bc20b5cf6854a426f"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: take.state",
+   "applied": 0,
+   "counts": {
+    "kind": 74,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "task.edited",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: task.edited",
+   "applied": 0,
+   "counts": {
+    "kind": 75,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000037,
+     "actor": "irori",
+     "kind": "task.edited",
+     "payload": "7b7d",
+     "sig": "4f8dc4270fbafc10f6845c1d8e2f697565f426a209c78586cbcb18c564946f2913c66c2592ae6ee4d1422d9411ff5c5bec0722cb8f7b77be56a0db634ac1d301",
+     "rowHash": "887fbec816b8da28f2355aacd333f9ea4e31b4d877c985d182f130ab992a3317"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: task.edited",
+   "applied": 0,
+   "counts": {
+    "kind": 76,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "task.pinned",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: task.pinned",
+   "applied": 0,
+   "counts": {
+    "kind": 77,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000038,
+     "actor": "irori",
+     "kind": "task.pinned",
+     "payload": "7b7d",
+     "sig": "f4681d9d14494f84af90fd3ce499d02e7dabbbd38f45c1df0609d7fd558ac9318d648abf73420390dfb56ef66af6cfffe9a6993f41a430aa0cf479868e64560c",
+     "rowHash": "fb32899eb5d898b47e114f8d8108332ac23e39b37d1a7cf12dba5b088c50b7b7"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: task.pinned",
+   "applied": 0,
+   "counts": {
+    "kind": 78,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "task.shared",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: task.shared",
+   "applied": 0,
+   "counts": {
+    "kind": 79,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000039,
+     "actor": "irori",
+     "kind": "task.shared",
+     "payload": "7b7d",
+     "sig": "97aa76ed231fd8df685a92d9e2108eba76d9a61fb2019d277ea6928e464aa61af3f00b936ad1fb83b6dde14e69f445ca29b0997c370831ad531d9935aaff5f09",
+     "rowHash": "4ddeb8a181cd9e1400fa520063bae1a5172e6081afba6e283af66d42eaa33d1d"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: task.shared",
+   "applied": 0,
+   "counts": {
+    "kind": 80,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "turn.ended",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: turn.ended",
+   "applied": 0,
+   "counts": {
+    "kind": 81,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000040,
+     "actor": "irori",
+     "kind": "turn.ended",
+     "payload": "7b7d",
+     "sig": "3f036e6eeb2cc518ca128a95b635ee33ea03ee35490186d592e44e173df4fe614bdd71bd8c6976686ecafb16531540b31cd134f3cc0cb0276758b1b3ab845d04",
+     "rowHash": "56a68d367eca0e4f71424fbf0901f3ebcb972ed057fcb7f4c2df86e03691b5d5"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: turn.ended",
+   "applied": 0,
+   "counts": {
+    "kind": 82,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "turn.engaged",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: turn.engaged",
+   "applied": 0,
+   "counts": {
+    "kind": 83,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000041,
+     "actor": "irori",
+     "kind": "turn.engaged",
+     "payload": "7b7d",
+     "sig": "0067f2f63ea9151408e050091ed7ea6ed1c564758b2ccb15fc44d89cf220d61ec90b7dc550b0a9a3e5843328fad1236efeac8a69a902d8783f2903af3594e60d",
+     "rowHash": "a1cb363b2bdfe1344127ed9519fa379c4c7cf3e8395e43bb8778686e801b5162"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: turn.engaged",
+   "applied": 0,
+   "counts": {
+    "kind": 84,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "wake.issued",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: wake.issued",
+   "applied": 0,
+   "counts": {
+    "kind": 85,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000042,
+     "actor": "irori",
+     "kind": "wake.issued",
+     "payload": "7b7d",
+     "sig": "8b4d72658dae440cd3d5547a292ae76c846818d29e42513132238d807c4a05ad386e1e6aa7bf17edb217610f5ed3f7b19a379bbb14136f5482e3a9a562c12408",
+     "rowHash": "20cba1b2568f93ff40c20b66d875b3b932153c6dd2f74f2e3052858f375ccce6"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: wake.issued",
+   "applied": 0,
+   "counts": {
+    "kind": 86,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "future.kind",
+   "payload": "{}",
+   "err": "store: kind is not allowed in a board log: future.kind",
+   "applied": 0,
+   "counts": {
+    "kind": 87,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000043,
+     "actor": "irori",
+     "kind": "future.kind",
+     "payload": "7b7d",
+     "sig": "b2df3b00d640c4548bc86f7d3ab615d614295724481a1c2e7f2a85f653448ede1be68551e36ea98d371cfd2131a2f2c5f923f04ddb475e5948e8af911959e004",
+     "rowHash": "777b7d3143241b8e99dda65422563f5b5da94227da478e4c119bfd08fd89c28c"
+    }
+   ],
+   "err": "dev-b/1: store: kind is not allowed in a board log: future.kind",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "policy.set",
+   "payload": "{}",
+   "err": "store: device-local kind; use AppendLocal: policy.set",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000044,
+     "actor": "irori",
+     "kind": "policy.set",
+     "payload": "7b7d",
+     "sig": "26ec24186b97b7ca591f6f4813dd070f7d833157eb34e337778e920d06b80a42922c456e5e9526b4a7ed5e9fce78ed6efe4201e24161b4ec27b998cb54fe170d",
+     "rowHash": "3195b7e65191b9f1ae4466b5a816c2d65546b2bed1c0703d4b43e5fc239dbd2e"
+    }
+   ],
+   "err": "store: device-local kind; use AppendLocal: replicated row dev-b/1 is policy.set",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "member.joined",
+   "payload": "{}",
+   "err": "store: device-local kind; use AppendLocal: member.joined",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000045,
+     "actor": "irori",
+     "kind": "member.joined",
+     "payload": "7b7d",
+     "sig": "c7b7f119243ed44480074a6a26271f1cc8f9a686b1036180ead4ba6766c84e42ff6b12237009ef39bf0283fec18ac14865c0c9c100c4755df326ac12e8deaf05",
+     "rowHash": "60280f914fe18981a4aee7c863dddf1b1036abf07f8e4d49c559eddcdf00e290"
+    }
+   ],
+   "err": "store: device-local kind; use AppendLocal: replicated row dev-b/1 is member.joined",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "board.cardkey",
+   "payload": "{}",
+   "err": "store: device-local kind; use AppendLocal: board.cardkey",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000046,
+     "actor": "irori",
+     "kind": "board.cardkey",
+     "payload": "7b7d",
+     "sig": "09a8a4a7047d63680087dd8d8e352fa0e1c4a9895eebce1365bfff2a92e0ca1e493beb1e99ba4294c6bcf5b8453e6d8c9b6f300be0dce71ace985dad29d3840e",
+     "rowHash": "96b5c0ec17e98ed371965ddb588332049d6b6751ac786d0ef94d340d8c154679"
+    }
+   ],
+   "err": "store: device-local kind; use AppendLocal: replicated row dev-b/1 is board.cardkey",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "board.pin",
+   "payload": "{}",
+   "err": "store: device-local kind; use AppendLocal: board.pin",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000047,
+     "actor": "irori",
+     "kind": "board.pin",
+     "payload": "7b7d",
+     "sig": "f816738bfb58f735a4935327c3c80b53b8f097c1645e809b7ad10945ed180b7d0832ca4452596887447e8a10ef6fc40bddf51d3bd76ce15b51a4ec1125eb2f0c",
+     "rowHash": "0814ed380473031f3328613f824010532e37abdd3e5a0844b889a33dfed26ae2"
+    }
+   ],
+   "err": "store: device-local kind; use AppendLocal: replicated row dev-b/1 is board.pin",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "agent:c1",
+   "kind": "agent.card",
+   "payload": "{\"cardId\":\"c1\",\"kind\":\"claude\",\"name\":\"lead\",\"personId\":\"p1\",\"status\":\"active\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 1,
+    "hlc": 111411200000000000,
+    "actor": "agent:c1",
+    "kind": "agent.card",
+    "payload": "7b22636172644964223a226331222c226b696e64223a22636c61756465222c226e616d65223a226c656164222c22706572736f6e4964223a227031222c22737461747573223a22616374697665227d",
+    "sig": "8f28f633220b3273d2bb2f48cc2ff00e99d7e8b5178cd857707145d8e66b7b05e3ef7f6e696ca58a7c091171ff594381e3fad0d4633d6e23ede0cbf0231c6c09",
+    "rowHash": "9c35251366a3ff58d3fdb27f3200e7e5e8947e6a6ff89e0e2834dc3c60ecfd3b"
+   },
+   "counts": {
+    "kind": 88,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "task.created",
+   "payload": "{\"by\":\"\",\"taskId\":\"t-irori\",\"title\":\"x\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 2,
+    "hlc": 111411200000000001,
+    "actor": "irori",
+    "kind": "task.created",
+    "payload": "7b226279223a22222c227461736b4964223a22742d69726f7269222c227469746c65223a2278227d",
+    "sig": "c6eaddc8245a845652da7a16dcdbe33c40205a8ddf3b5bdb9c8094c520cd6e5a1653f989435d1db4004e4cb87dbaf24c8ac8306a1ef1db00f827a912ed904805",
+    "rowHash": "4e1f4826dca07b86b0312e18efc599ee3956115acfc6408ec409c6a1686c8ebf"
+   },
+   "counts": {
+    "kind": 88,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000048,
+     "actor": "irori",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d69726f7269222c227469746c65223a2278227d",
+     "sig": "44458115f2adef823d2128d8d1624ced75511d905f8d02de89019fbf8b5e83528b77d71fc469e2984cf7ac7f621daac3deef5bb6766521f73782ce919b056204",
+     "rowHash": "b9537c94a2f57f6c676dd2b2ac39b42d341509e3e6e3b342ad33773fedd610ea"
+    }
+   ],
+   "err": "",
+   "applied": 1,
+   "counts": {
+    "kind": 88,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.created",
+   "payload": "{\"by\":\"\",\"taskId\":\"t-person:p1\",\"title\":\"x\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 3,
+    "hlc": 111411200000000049,
+    "actor": "person:p1",
+    "kind": "task.created",
+    "payload": "7b226279223a22222c227461736b4964223a22742d706572736f6e3a7031222c227469746c65223a2278227d",
+    "sig": "2345afaefb0187c61549e4cba9c8445b74be18602abcf84cd6b1b6307dce40bb2ed961e1aee31b66a7e99919ff8ed97dcbf5edeb191f991a19c2b81a5ae3cc03",
+    "rowHash": "fe6736563d59f3a3d000accacc24fda2541be3cd70628631f2af17d43495d155"
+   },
+   "counts": {
+    "kind": 88,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000049,
+     "actor": "person:p1",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d706572736f6e3a7031222c227469746c65223a2278227d",
+     "sig": "16ef82088eb34130586e8ab8363becd82b0c45684585701dac6656f40034588d71511b5ab594b4a78384b2273e3b9ce47fb329297e325e538c1dbcd9a6638509",
+     "rowHash": "3268e7405566b3f724a8a69030c65b0b0d8c0e822600b2f19c8ad3dddc3339ec"
+    }
+   ],
+   "err": "",
+   "applied": 1,
+   "counts": {
+    "kind": 88,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "agent:c1",
+   "kind": "task.created",
+   "payload": "{\"by\":\"\",\"taskId\":\"t-agent:c1\",\"title\":\"x\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 4,
+    "hlc": 111411200000000050,
+    "actor": "agent:c1",
+    "kind": "task.created",
+    "payload": "7b226279223a22222c227461736b4964223a22742d6167656e743a6331222c227469746c65223a2278227d",
+    "sig": "7aa6822b54a39304514ef2307818627c5b7af8913d19d411fd20d788f8168eb71d0148b1699543f8aa8f9b7ae75379987acba8a2114a84553041da35df472208",
+    "rowHash": "4eebc7942607ed8da6d903d772d95572766616cace1ccacd1a5ce06590459b4b"
+   },
+   "counts": {
+    "kind": 88,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 3,
+     "hlc": 111411200000000050,
+     "actor": "agent:c1",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d6167656e743a6331222c227469746c65223a2278227d",
+     "sig": "27b014683671c4fc148490cb43eb34a097117520f8a26bc79a6350789fd568df6b992f565b5d5ddfffec7aca906c68c24eef42a1179bf16bf99cdf1dc4cc5501",
+     "rowHash": "81c235f2733f1602b1f8d6f86673e9dc7ab3e01c6764ee6140afad3a609ef42a"
+    }
+   ],
+   "err": "",
+   "applied": 1,
+   "counts": {
+    "kind": 88,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "user",
+   "kind": "task.created",
+   "payload": "{\"by\":\"\",\"taskId\":\"t-user\",\"title\":\"x\"}",
+   "err": "store: actor is not allowed in a board log: \"user\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 1,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000051,
+     "actor": "user",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d75736572222c227469746c65223a2278227d",
+     "sig": "0770018175b8991e7ca8a4d770904580888593cdbff66222c88f3a589dc3ea5a7c48c663d03a30f258675d32f8eaacef184774f647ac01f2987908f40869fc0f",
+     "rowHash": "5d23dbcb4e7998436c2f32f8be696a70e37a6a38e6464ce3c0077fac6ed87a9c"
+    }
+   ],
+   "err": "dev-b/4: store: actor is not allowed in a board log: \"user\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 2,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "user:dev-a",
+   "kind": "task.created",
+   "payload": "{\"by\":\"\",\"taskId\":\"t-user:dev-a\",\"title\":\"x\"}",
+   "err": "store: actor is not allowed in a board log: \"user:dev-a\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 3,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000052,
+     "actor": "user:dev-a",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d757365723a6465762d61222c227469746c65223a2278227d",
+     "sig": "3c05ba60bf331efa8f54c34dc25b8c338c11c752cd9fe70685beb38d8aa0de87a1728e39f2f5aec1377bede7c2d0fc9e7cee21b5e182dc8b5a759adf70dc3a05",
+     "rowHash": "4a6186f54dca4f815aca07e78dcdf606b345aea07eb01027107b073eb4a36a7f"
+    }
+   ],
+   "err": "dev-b/4: store: actor is not allowed in a board log: \"user:dev-a\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 4,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "user:anything",
+   "kind": "task.created",
+   "payload": "{\"by\":\"\",\"taskId\":\"t-user:anything\",\"title\":\"x\"}",
+   "err": "store: actor is not allowed in a board log: \"user:anything\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 5,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000053,
+     "actor": "user:anything",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d757365723a616e797468696e67222c227469746c65223a2278227d",
+     "sig": "1979b845249d95e574cc4bc7c7b037c24bf9004f1c53e074411288b63755f86c582596df535da5c72bc629f07753c6a7bf7c0433a4e79eb8543f4f52e7f97307",
+     "rowHash": "5d430d9bb0d4f1c92ed97a44388e31864ba9e15071fa03908b622f2014ab8560"
+    }
+   ],
+   "err": "dev-b/4: store: actor is not allowed in a board log: \"user:anything\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 6,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "api:dev-a/s1",
+   "kind": "task.created",
+   "payload": "{\"by\":\"\",\"taskId\":\"t-api:dev-a/s1\",\"title\":\"x\"}",
+   "err": "store: actor is not allowed in a board log: \"api:dev-a/s1\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 7,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000054,
+     "actor": "api:dev-a/s1",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d6170693a6465762d612f7331222c227469746c65223a2278227d",
+     "sig": "4aceab9ceef7174a07b1b178fb6c37dff6bd63f25c4f0ccd2bc08c8bce8c782b5bcac8867474b6a1490c0b98d39ff9d2a5712c943efa2f34530a4c47cfccc107",
+     "rowHash": "7531937bef706db9e6344153d700e2be906587692a14adbebb2067f69f0dd5ea"
+    }
+   ],
+   "err": "dev-b/4: store: actor is not allowed in a board log: \"api:dev-a/s1\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 8,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "agent:dev-a/s1",
+   "kind": "task.created",
+   "payload": "{\"by\":\"\",\"taskId\":\"t-agent:dev-a/s1\",\"title\":\"x\"}",
+   "err": "store: actor is not allowed in a board log: \"agent:dev-a/s1\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 9,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000055,
+     "actor": "agent:dev-a/s1",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d6167656e743a6465762d612f7331222c227469746c65223a2278227d",
+     "sig": "7bc56b80b7b20f483e9bdd735a0c5b3374e97879e478b2075630ccf453c5aa84c4847844f70f92cdd23f27e6a9c3f0df54a5418b329628ab599142b31f007f06",
+     "rowHash": "97c354410c93a695823f01318a0ce7758102057ec4539702f418c104a2ee65f2"
+    }
+   ],
+   "err": "dev-b/4: store: actor is not allowed in a board log: \"agent:dev-a/s1\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 10,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "agent:",
+   "kind": "task.created",
+   "payload": "{\"by\":\"\",\"taskId\":\"t-agent:\",\"title\":\"x\"}",
+   "err": "store: actor is not allowed in a board log: \"agent:\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 11,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000056,
+     "actor": "agent:",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d6167656e743a222c227469746c65223a2278227d",
+     "sig": "31a82d5a4f0271c7e3c0a89bb9c9d5c7732cc52395a670244fb5dc8cadc02dfb0cb13c0d68ed18bcc68c77f1b9ff573b459947451af8c9f692a157417811250e",
+     "rowHash": "bef5e05010f8764fa317444ab67577a43d9eb002d945dd71ee46730dfdaa882b"
+    }
+   ],
+   "err": "dev-b/4: store: actor is not allowed in a board log: \"agent:\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 12,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:",
+   "kind": "task.created",
+   "payload": "{\"by\":\"\",\"taskId\":\"t-person:\",\"title\":\"x\"}",
+   "err": "store: actor is not allowed in a board log: \"person:\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 13,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000057,
+     "actor": "person:",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d706572736f6e3a222c227469746c65223a2278227d",
+     "sig": "8a351f91e74922933975d7720fe93ec97b2ad4a9addef94de0718724403fe5d1131e0bb9618ec51157eee73ee065020cc9ea6b6950c5e8bd3961273a97e3f50b",
+     "rowHash": "092c2a5526e35649e335e3a6f44d993c9f4331bbafd1f9005d91fd3b97965497"
+    }
+   ],
+   "err": "dev-b/4: store: actor is not allowed in a board log: \"person:\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 14,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1/x",
+   "kind": "task.created",
+   "payload": "{\"by\":\"\",\"taskId\":\"t-person:p1/x\",\"title\":\"x\"}",
+   "err": "store: actor is not allowed in a board log: \"person:p1/x\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 15,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000058,
+     "actor": "person:p1/x",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d706572736f6e3a70312f78222c227469746c65223a2278227d",
+     "sig": "d53f0565b09b08b697bfb2104242b367b3373b682be2b6109f7f0979d68e53bb1fcd5a3b06c98d8ce6591574ec626dd3e61f19b113560ae7625ac90a63d9d40e",
+     "rowHash": "1fa5287dd90b20269150d43c8b68976f2d3f1456c9016cc0d8054eefd11fb213"
+    }
+   ],
+   "err": "dev-b/4: store: actor is not allowed in a board log: \"person:p1/x\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 16,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "kind": "task.created",
+   "payload": "{\"by\":\"\",\"taskId\":\"t-\",\"title\":\"x\"}",
+   "err": "store: actor is not allowed in a board log: \"\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 17,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000059,
+     "actor": "",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d222c227469746c65223a2278227d",
+     "sig": "bba72d81770d4b62b6ed6d71340a4ff97694ff9afd6b9610c7d3e267dc48c2a6cff01c353161792f9fad75c7254baed04a93077785a90a89808ed76c23251105",
+     "rowHash": "c932a93f025a2c5ad93ace9712b723c9efcac20d02d1f932b166b576f88a94a6"
+    }
+   ],
+   "err": "dev-b/4: store: actor is not allowed in a board log: \"\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 18,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "agent:c1",
+   "kind": "agent.card",
+   "payload": "{\"cardId\":\"c2\"}",
+   "err": "store: actor is not allowed in a board log: agent.card for \"c2\" written as \"agent:c1\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 19,
+    "outside": 0
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000060,
+     "actor": "person:p1",
+     "kind": "agent.card",
+     "payload": "7b22636172644964223a226333227d",
+     "sig": "b3297c13af8c7bafcab8c26edb89ce37adca158ab35ef1cd9fdbb2ab5b41d766e8dd947ce32f7aa7a92595d959cf1c7584b101496b82112a9d86c5acf3a1500e",
+     "rowHash": "6419253fe79744ff2a8fe6babd7a96e83bbefc074f2c47a5764e8eb26e1ef5c3"
+    }
+   ],
+   "err": "dev-b/4: store: actor is not allowed in a board log: agent.card for \"c3\" written as \"person:p1\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 20,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "agent:c1",
+   "kind": "agent.card",
+   "payload": "{\"cardId\":5}",
+   "err": "store: actor is not allowed in a board log: agent.card for \"\" written as \"agent:c1\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 21,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "agent:c1",
+   "kind": "agent.card",
+   "payload": "null",
+   "err": "store: actor is not allowed in a board log: agent.card for \"\" written as \"agent:c1\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 22,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "agent:",
+   "kind": "agent.card",
+   "payload": "{\"CARDID\":\"\"}",
+   "err": "store: actor is not allowed in a board log: \"agent:\"",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "agent:c9",
+   "kind": "agent.card",
+   "payload": "{\"CardId\":\"c9\",\"cardid\":\"c9\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 5,
+    "hlc": 111411200000000051,
+    "actor": "agent:c9",
+    "kind": "agent.card",
+    "payload": "7b22436172644964223a226339222c22636172646964223a226339227d",
+    "sig": "3f63aa38d6d84f36a13c8db170ef79ecebc6040989483e18570fb591ab5f5517c7b8b307c7eac40b47742a4bb76e6fa48a2f31f334d2330bc5c039c2a1263b0d",
+    "rowHash": "4115267904a0b80d44bba956a00991894729f01d862e635e6da3c171dbbd0b2d"
+   },
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "board.created",
+   "payload": "{\"boardId\":\"b\",\"creator\":{\"personId\":\"p1\"},\"name\":\"mlg\",\"tag\":\"mlg\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 6,
+    "hlc": 111411200000000052,
+    "actor": "person:p1",
+    "kind": "board.created",
+    "payload": "7b22626f6172644964223a2262222c2263726561746f72223a7b22706572736f6e4964223a227031227d2c226e616d65223a226d6c67222c22746167223a226d6c67227d",
+    "sig": "5f9af3678dcc10c65578077f1aa9eae2fd80c708c2cbe346b7f9fa461266dee96c05c42cbfdf1bee7aa2f4e2c21628d8e42ce3b5a9348df32242627fd8c82a05",
+    "rowHash": "2e63b54231f7084e7177b02796f6758a9bdadaf17b740613307ec1fba010d557"
+   },
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.created",
+   "payload": "{\"by\":\"person:p2\",\"taskId\":\"t0\"}",
+   "err": "store: row references something outside this board: task.created: by \"person:p2\" is not a person on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 1
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "board.member.added",
+   "payload": "{\"by\":\"p1\",\"personId\":\"p2\",\"role\":\"member\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 7,
+    "hlc": 111411200000000053,
+    "actor": "person:p1",
+    "kind": "board.member.added",
+    "payload": "7b226279223a227031222c22706572736f6e4964223a227032222c22726f6c65223a226d656d626572227d",
+    "sig": "7856b3b365cc3aac49b9b16d5b509fa77a3d229ab45f3d51b0bc7521754f0f7728509e2c2c033c9488e9d2bb040b31764624b6b609de03e4da3115e14a20b101",
+    "rowHash": "1fc3b8e07fc2ae02e8119dfdcf00f552ad107329d59c054a1981b2833625fad0"
+   },
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 1
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "board.member.role",
+   "payload": "{\"by\":\"p1\",\"personId\":\"p2\",\"role\":\"owner\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 8,
+    "hlc": 111411200000000054,
+    "actor": "person:p1",
+    "kind": "board.member.role",
+    "payload": "7b226279223a227031222c22706572736f6e4964223a227032222c22726f6c65223a226f776e6572227d",
+    "sig": "1dfdd124e41e8a5266bce81f49cf7511eaceb7389445de73fb723f99b55883f5035a9496b42084def0c78529010cfdee9f517ab173aff08cedd14972396df202",
+    "rowHash": "3476c8dce064b30ff268b4236d28bfa8b8dd9e11ab47e64130c1964358eb36ff"
+   },
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 1
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "board.member.removed",
+   "payload": "{\"by\":\"p1\",\"cut\":{\"dev-b\":0},\"personId\":\"p2\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 9,
+    "hlc": 111411200000000055,
+    "actor": "person:p1",
+    "kind": "board.member.removed",
+    "payload": "7b226279223a227031222c22637574223a7b226465762d62223a307d2c22706572736f6e4964223a227032227d",
+    "sig": "11bef5900b5294b7c602bde3f8a19c6c0df94ad08a496612c5b2289b26c927aced6df9bb453decfe8b133c7dc1e71c5a4af4441e35f9602f0a614cfd2c6d700a",
+    "rowHash": "b4e75534a739febd7d3bccac74885dfd7fd1b3d81119814122a457be1ef1b88a"
+   },
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 1
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.created",
+   "payload": "{\"by\":\"person:p1\",\"taskId\":\"t1\",\"title\":\"one\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 10,
+    "hlc": 111411200000000056,
+    "actor": "person:p1",
+    "kind": "task.created",
+    "payload": "7b226279223a22706572736f6e3a7031222c227461736b4964223a227431222c227469746c65223a226f6e65227d",
+    "sig": "79b8e8edea9dfd5617d01c93730a179cc6bc30e21350861ca62b3501f0474d4776eb069783507094d96edbe8f9fda0a1134d18dabe168194b8978bc037904b0b",
+    "rowHash": "e11051eac6841ebc8c16e5a42060ec65ee1a964d5406a32452a6f3123d81ec32"
+   },
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 1
+   }
+  },
+  {
+   "op": "append",
+   "actor": "agent:c1",
+   "kind": "agent.card",
+   "payload": "{\"cardId\":\"c1\",\"personId\":\"p1\",\"status\":\"active\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 11,
+    "hlc": 111411200000000057,
+    "actor": "agent:c1",
+    "kind": "agent.card",
+    "payload": "7b22636172644964223a226331222c22706572736f6e4964223a227031222c22737461747573223a22616374697665227d",
+    "sig": "edb6b0124917faa236e72156fa32156b5c7de5151025ba52ccf3f156b808831663d7aca48c4dca395707f2b4f6a73a1bc5317bad3597b0ef78d1f27d4f187f0e",
+    "rowHash": "bbd4cdedd76aa9d44fcdeffae4f109d0076ddeaf1ce78f69e91dcff5e6a427fe"
+   },
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 1
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.comment",
+   "payload": "{\"by\":\"person:p1\",\"commentId\":\"m1\",\"taskId\":\"private-task\",\"text\":\"hi\"}",
+   "err": "store: row references something outside this board: task.comment: taskId private-task is not a card on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 2
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.created",
+   "payload": "{\"by\":\"dev-a/session-1\",\"taskId\":\"t9\"}",
+   "err": "store: row references something outside this board: task.created: by \"dev-a/session-1\" is a private key; a board names only person: and agent: keys",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 3
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.assigned",
+   "payload": "{\"by\":\"person:p1\",\"taskId\":\"t1\",\"to\":\"user:dev-a\"}",
+   "err": "store: row references something outside this board: task.assigned: to \"user:dev-a\" is a private key; a board names only person: and agent: keys",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 4
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.joined",
+   "payload": "{\"by\":\"agent:nobody\",\"taskId\":\"t1\",\"who\":\"agent:nobody\"}",
+   "err": "store: row references something outside this board: task.joined: by \"agent:nobody\" is not an agent card on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 5
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "blocker.option",
+   "payload": "{\"answer\":\"x\",\"blockerId\":\"b1\",\"by\":\"person:p1\",\"taskId\":\"t1\"}",
+   "err": "store: row references something outside this board: blocker.option: blockerId b1 is not a blocker of that card on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 6
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.step",
+   "payload": "{\"by\":\"person:p1\",\"stepId\":\"s9\",\"taskId\":\"t1\"}",
+   "err": "store: row references something outside this board: task.step: stepId s9 is not a step of that card on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 7
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.comment",
+   "payload": "{\"attachments\":[{\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"by\":\"person:p1\",\"commentId\":\"m2\",\"taskId\":\"t1\"}",
+   "err": "store: row references something outside this board: task.comment: attachment aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa was not offered on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 8
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.comment",
+   "payload": "{\"by\":\"person:p1\",\"commentId\":\"m3\",\"msgId\":\"m3\",\"taskId\":\"t1\"}",
+   "err": "store: row references something outside this board: task.comment: msgId names a private message; messages never go on a board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 9
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.status",
+   "payload": "{\"blockedBy\":{\"kind\":\"task\",\"ref\":\"private-task\"},\"by\":\"person:p1\",\"state\":\"blocked\",\"taskId\":\"t1\"}",
+   "err": "store: row references something outside this board: task.status: it waits on task private-task, which is not on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 10
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "lease.released",
+   "payload": "{\"by\":\"agent:c1\",\"holder\":\"agent:c1\",\"resource\":\"gpu/qwen\"}",
+   "err": "store: row references something outside this board: lease.released: lease gpu/qwen is not on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 11
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.parent",
+   "payload": "{\"by\":\"person:p1\",\"parent\":\"private-task\",\"taskId\":\"t1\"}",
+   "err": "store: row references something outside this board: task.parent: parent private-task is not a card on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 12
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.created",
+   "payload": "{\"by\":\"person:p1\",\"parent\":\"private-task\",\"taskId\":\"t5\"}",
+   "err": "store: row references something outside this board: task.created: parent private-task is not a card on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 13
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.assigned",
+   "payload": "{\"by\":\"person:p9\",\"taskId\":\"t1\",\"to\":\"agent:c1\"}",
+   "err": "store: row references something outside this board: task.assigned: by \"person:p9\" is not a person on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 14
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.status",
+   "payload": "{\"by\":\"person:p1\",\"outcome\":{\"kind\":\"edit\",\"task\":\"private-task\"},\"state\":\"completed\",\"taskId\":\"t1\"}",
+   "err": "store: row references something outside this board: task.status: its outcome names task private-task, which is not on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 15
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "lease.acquired",
+   "payload": "{\"holder\":\"agent:c1\",\"resource\":\"gpu/x\",\"stolenFrom\":\"agent:c1,dev-a/session-1\"}",
+   "err": "store: row references something outside this board: lease.acquired: stolenFrom \"dev-a/session-1\" is a private key; a board names only person: and agent: keys",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 16
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.status",
+   "payload": "{\"blockedBy\":{\"kind\":\"lease\",\"ref\":\"nope\"},\"taskId\":\"t1\"}",
+   "err": "store: row references something outside this board: task.status: it waits on lease nope, which is not on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 17
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.status",
+   "payload": "{\"blockedBy\":{\"kind\":\"agent\",\"ref\":\"agent:zz\"},\"taskId\":\"t1\"}",
+   "err": "store: row references something outside this board: task.status: it waits on \"agent:zz\", which is not an agent card on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 18
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.status",
+   "payload": "{\"blockedBy\":{\"kind\":\"person\",\"ref\":\"person:\"},\"taskId\":\"t1\"}",
+   "err": "store: row references something outside this board: task.status: it waits on \"person:\", which is not a person's board key",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 19
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.status",
+   "payload": "{\"blockedBy\":{\"kind\":\"other\",\"ref\":\"x\"},\"taskId\":\"t1\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 12,
+    "hlc": 111411200000000058,
+    "actor": "person:p1",
+    "kind": "task.status",
+    "payload": "7b22626c6f636b65644279223a7b226b696e64223a226f74686572222c22726566223a2278227d2c227461736b4964223a227431227d",
+    "sig": "8638cf3f1bf4847a9258a8fef8fe9573b9e347896f8fe11833db29bac14cb9445cec45695d5238819d1018c2700d7de4284d1a01b46396c0f2f707f978bdd307",
+    "rowHash": "71cbf265df955ce2fc98e009041fce54d344a9049b8bfaf82d20d5789d22da1f"
+   },
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 19
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.status",
+   "payload": "{\"blocker\":{\"id\":\"b7\",\"on\":{\"kind\":\"task\",\"ref\":\"zz\"}},\"taskId\":\"t1\"}",
+   "err": "store: row references something outside this board: task.status: it waits on task zz, which is not on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 20
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.status",
+   "payload": "{\"blocker\":{\"attachments\":[{\"sha256\":\"bb\"}],\"id\":\"b7\"},\"taskId\":\"t1\"}",
+   "err": "store: row references something outside this board: task.status: attachment bb was not offered on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 21
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "lease.stolen",
+   "payload": "{\"holder\":\"agent:c1\",\"resource\":\"gpu/none\",\"stolen\":[{\"holder\":\"dev/x\",\"resource\":\"gpu/none\"}]}",
+   "err": "store: row references something outside this board: lease.stolen: stolen lease gpu/none is not on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 22
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "lease.stolen",
+   "payload": "{\"holder\":\"user\",\"resource\":\"gpu/none\"}",
+   "err": "store: row references something outside this board: lease.stolen: holder \"user\" is a private key; a board names only person: and agent: keys",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 23
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "lease.refused",
+   "payload": "{\"held\":\"gpu/b\",\"holder\":\"agent:c1\",\"resource\":\"gpu/a\"}",
+   "err": "store: row references something outside this board: lease.refused: lease gpu/b is not on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 24
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "lease.acquired",
+   "payload": "{\"conflict\":\"person:zz\",\"holder\":\"agent:c1\",\"resource\":\"gpu/y\"}",
+   "err": "store: row references something outside this board: lease.acquired: conflict \"person:zz\" is not a person on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 25
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "lease.acquired",
+   "payload": "{\"heldBy\":\"agent:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"resource\":\"gpu/y\"}",
+   "err": "store: row references something outside this board: lease.acquired: heldBy \"agent:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\" is not an agent card on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 26
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.comment",
+   "payload": "{\"commentId\":5,\"taskId\":\"t1\"}",
+   "err": "store: row references something outside this board: task.comment payload is not an object",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 27
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.comment",
+   "payload": "{\"TASKID\":\"nope\",\"commentId\":\"m4\"}",
+   "err": "store: row references something outside this board: task.comment: taskId nope is not a card on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 28
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.steps",
+   "payload": "{\"steps\":\"x\",\"taskId\":\"t1\"}",
+   "err": "store: row references something outside this board: task.steps payload is not an object",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 29
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.comment",
+   "payload": "[\"not\",\"an\",\"object\"]",
+   "err": "store: row references something outside this board: task.comment payload is not an object",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 30
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.comment",
+   "payload": "null",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 13,
+    "hlc": 111411200000000059,
+    "actor": "person:p1",
+    "kind": "task.comment",
+    "payload": "6e756c6c",
+    "sig": "f916c0afaaf5c393d2a111c120251e7631571f415670c3dfe30eab02497a5ddabb39067222d05284501590f299bc64c7c4b84f08aca54a4bb748cadedbcf970c",
+    "rowHash": "85c9ffc9a1330e3226ad239ad365a2c5e9a5dc363b1e51000e94f18ee205dc02"
+   },
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 30
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.comment",
+   "payload": "\"str\"",
+   "err": "store: row references something outside this board: task.comment payload is not an object",
+   "applied": 0,
+   "counts": {
+    "kind": 88,
+    "actor": 23,
+    "outside": 31
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "member.anything",
+   "payload": "[1]",
+   "err": "store: kind is not allowed in a board log: member.anything",
+   "applied": 0,
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 31
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.steps",
+   "payload": "{\"by\":\"person:p1\",\"steps\":[{\"id\":\"s1\",\"text\":\"go\"}],\"taskId\":\"t1\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 14,
+    "hlc": 111411200000000060,
+    "actor": "person:p1",
+    "kind": "task.steps",
+    "payload": "7b226279223a22706572736f6e3a7031222c227374657073223a5b7b226964223a227331222c2274657874223a22676f227d5d2c227461736b4964223a227431227d",
+    "sig": "36bd8c30d0c6acaee5375fac16d733dd45ccb7c833cc5d4dbd675c117bda5e484872b163da58ff8dc6583b635c0514baa529418e7ea3c274089c55f7d9ae7609",
+    "rowHash": "f585411e93e21fc3d9cd83c13cdacefc8d27b940b4dd361c6bc1750786c96522"
+   },
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 31
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.step",
+   "payload": "{\"by\":\"person:p1\",\"stepId\":\"s1\",\"taskId\":\"t1\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 15,
+    "hlc": 111411200000000061,
+    "actor": "person:p1",
+    "kind": "task.step",
+    "payload": "7b226279223a22706572736f6e3a7031222c22737465704964223a227331222c227461736b4964223a227431227d",
+    "sig": "117aefb898404647f726bcde9da30a41d48272578153aa39fd5e28d63b1468ca4bd518c34f82cef5c1e926e45170d27e1df09450bf235876b8ca7babba57dc08",
+    "rowHash": "cacc259d05220c9c3a347c511ec4ff78058f2b34076b9fc13daa4c716155dca0"
+   },
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 31
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.assigned",
+   "payload": "{\"by\":\"person:p1\",\"taskId\":\"t1\",\"to\":\"agent:c1\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 16,
+    "hlc": 111411200000000062,
+    "actor": "person:p1",
+    "kind": "task.assigned",
+    "payload": "7b226279223a22706572736f6e3a7031222c227461736b4964223a227431222c22746f223a226167656e743a6331227d",
+    "sig": "1b07838998faad70a4d08dab2b4d045b35b68248eacbb9943668420614552245870e4ad58d5ee2b097ebd750911bfb2ec9572d3644e9fd57de798d68a866c306",
+    "rowHash": "3f04a4f86719f93f008dc5237c996b98cf608e88213907734b14cb4ed5efca2b"
+   },
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 31
+   }
+  },
+  {
+   "op": "append",
+   "actor": "agent:c1",
+   "kind": "task.status",
+   "payload": "{\"blocker\":{\"id\":\"b1\",\"question\":\"which?\"},\"by\":\"agent:c1\",\"state\":\"blocked\",\"taskId\":\"t1\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 17,
+    "hlc": 111411200000000063,
+    "actor": "agent:c1",
+    "kind": "task.status",
+    "payload": "7b22626c6f636b6572223a7b226964223a226231222c227175657374696f6e223a2277686963683f227d2c226279223a226167656e743a6331222c227374617465223a22626c6f636b6564222c227461736b4964223a227431227d",
+    "sig": "02c4d50afb1f4715ae7e1ae796d741ec52792203e6375062ed4666ab8a7bb292b3d9a4aa58b0f1d58f565af7ba074a92a5644aaf3bae481e138426e74746ed09",
+    "rowHash": "f0664f0eba9b3770668d29824052d44a4b6724e8c73fc0b947a86cda0bd54a4d"
+   },
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 31
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "blocker.option",
+   "payload": "{\"answer\":\"x\",\"blockerId\":\"b1\",\"by\":\"person:p1\",\"taskId\":\"t1\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 18,
+    "hlc": 111411200000000064,
+    "actor": "person:p1",
+    "kind": "blocker.option",
+    "payload": "7b22616e73776572223a2278222c22626c6f636b65724964223a226231222c226279223a22706572736f6e3a7031222c227461736b4964223a227431227d",
+    "sig": "bbd0f6407c2d8be014a8135b79c25d5c742b49af9923ca8c227833035e360f3eddf171d92090819a0bf711d559197269c759441e112b6bf9df1c60615e7f7d08",
+    "rowHash": "d7216298be3821df08a2146c3e503dc36ca91c763975e381c13da7aea98af5fd"
+   },
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 31
+   }
+  },
+  {
+   "op": "append",
+   "actor": "irori",
+   "kind": "attach.offered",
+   "payload": "{\"name\":\"a.txt\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"size\":1}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 19,
+    "hlc": 111411200000000065,
+    "actor": "irori",
+    "kind": "attach.offered",
+    "payload": "7b226e616d65223a22612e747874222c22736861323536223a2261616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c2273697a65223a317d",
+    "sig": "6366f423d91354584fd702eae4ab5f0434b24453f34f72d3c8c9a387d83b9278f95a21bda171a3b9e9b9579fc10ea832fc6f12f4793c0f7fa84ec6bbf2321206",
+    "rowHash": "965d9cc6243a866beae1fd9a3a673e55a8c2f4a7428b0c34e29c59795b043fae"
+   },
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 31
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.comment",
+   "payload": "{\"attachments\":[{\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"by\":\"person:p1\",\"commentId\":\"m2\",\"taskId\":\"t1\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 20,
+    "hlc": 111411200000000066,
+    "actor": "person:p1",
+    "kind": "task.comment",
+    "payload": "7b226174746163686d656e7473223a5b7b22736861323536223a2261616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161227d5d2c226279223a22706572736f6e3a7031222c22636f6d6d656e744964223a226d32222c227461736b4964223a227431227d",
+    "sig": "8f3683ad82bdf4736b532f1c9b8e530fc5d5673471b1977b9a8478c0f26dd364d4559fb175b911572d4fe6beab73627267441e72e219dee7af954370da0c0301",
+    "rowHash": "267fbaee28e87209f0e67a1d5e2154c27b1da9fc3a0bf2a454a711ff3b1f50d2"
+   },
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 31
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.linked",
+   "payload": "{\"by\":\"person:p1\",\"link\":{\"kind\":\"commit\",\"ref\":\"abc1234\"},\"taskId\":\"t1\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 21,
+    "hlc": 111411200000000067,
+    "actor": "person:p1",
+    "kind": "task.linked",
+    "payload": "7b226279223a22706572736f6e3a7031222c226c696e6b223a7b226b696e64223a22636f6d6d6974222c22726566223a2261626331323334227d2c227461736b4964223a227431227d",
+    "sig": "b21235fc0df85cb5b11b9eadaea95b8d11cf2507c9c808b39ca9d6a6ff6e242cc4a6ff52c32aedaf56828f82237eb54792935b7b5731f44410c0af2496392806",
+    "rowHash": "3d43b19c417f3a5d2becc4f6c221f1942ced0c0bef5f016da2dcb18e7f1e4ed6"
+   },
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 31
+   }
+  },
+  {
+   "op": "append",
+   "actor": "agent:c1",
+   "kind": "lease.acquired",
+   "payload": "{\"holder\":\"agent:c1\",\"resource\":\"gpu/qwen\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 22,
+    "hlc": 111411200000000068,
+    "actor": "agent:c1",
+    "kind": "lease.acquired",
+    "payload": "7b22686f6c646572223a226167656e743a6331222c227265736f75726365223a226770752f7177656e227d",
+    "sig": "bac21958f24c2f00e0f003dcfab22d9719cef71cef3c4f5c68d9ec56761995577014d5e5bb7227801f7fdd660afff805e8132e2321861e4d83218f2cdc85a80f",
+    "rowHash": "95f5533fa5e11a329b51789a84e8b6c1330d5c2a94355581ce2e6e64c9dfacd2"
+   },
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 31
+   }
+  },
+  {
+   "op": "append",
+   "actor": "agent:c1",
+   "kind": "lease.released",
+   "payload": "{\"by\":\"agent:c1\",\"holder\":\"agent:c1\",\"resource\":\"gpu/qwen\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 23,
+    "hlc": 111411200000000069,
+    "actor": "agent:c1",
+    "kind": "lease.released",
+    "payload": "7b226279223a226167656e743a6331222c22686f6c646572223a226167656e743a6331222c227265736f75726365223a226770752f7177656e227d",
+    "sig": "1c4fb33a03a5e615547aa822626c606427d3526bb4d0c13ff43fdbf070c1f0c48e3c74107a9d5841fae4c9e7414569999cd55f95d2e94815237e11c44c191c02",
+    "rowHash": "787b406124c110c62b4f198966637345877f1b4b5c7aab9f72eb079a641be419"
+   },
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 31
+   }
+  },
+  {
+   "op": "append",
+   "actor": "agent:c1",
+   "kind": "lease.stolen",
+   "payload": "{\"holder\":\"agent:c1\",\"resource\":\"gpu/qwen\",\"stolen\":[{\"holder\":\"person:p1\",\"resource\":\"gpu/qwen\"}],\"stolenFrom\":\" person:p2 , agent:c1\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 24,
+    "hlc": 111411200000000070,
+    "actor": "agent:c1",
+    "kind": "lease.stolen",
+    "payload": "7b22686f6c646572223a226167656e743a6331222c227265736f75726365223a226770752f7177656e222c2273746f6c656e223a5b7b22686f6c646572223a22706572736f6e3a7031222c227265736f75726365223a226770752f7177656e227d5d2c2273746f6c656e46726f6d223a2220706572736f6e3a7032202c206167656e743a6331227d",
+    "sig": "496e47ae4a4a8cd57a9f8a0917a251620811abd8d4355209497de0488da0a0631c643661585cbeee35751a3fd8c22138e8f0f251bfa086263da428bcd6941409",
+    "rowHash": "e6afa779b20dea2c4d1d157702fa66c091816915fd9470d4db486316530fce70"
+   },
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 31
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.status",
+   "payload": "{\"blockedBy\":{\"kind\":\"person\",\"ref\":\"person:p2\"},\"outcome\":{\"task\":\"t1\"},\"taskId\":\"t1\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 25,
+    "hlc": 111411200000000071,
+    "actor": "person:p1",
+    "kind": "task.status",
+    "payload": "7b22626c6f636b65644279223a7b226b696e64223a22706572736f6e222c22726566223a22706572736f6e3a7032227d2c226f7574636f6d65223a7b227461736b223a227431227d2c227461736b4964223a227431227d",
+    "sig": "0349ba7da68e0b1359dbbc7623643d08f7954e668bebf6ea3810391e6cadf4414a4b3c30e3d5066aea1dbf5c0d9b43d50c3be3fe17c31fefbce9465818983606",
+    "rowHash": "a0cbc2344fc4a713dbd1b98236d57c44b538bda848595ad48791a963d92a2783"
+   },
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 31
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.comment",
+   "payload": "{\"taskId\":\"t1\",\"commentId\":\"m5\",\"by\":null,\"attachments\":null}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 26,
+    "hlc": 111411200000000072,
+    "actor": "person:p1",
+    "kind": "task.comment",
+    "payload": "7b227461736b4964223a227431222c22636f6d6d656e744964223a226d35222c226279223a6e756c6c2c226174746163686d656e7473223a6e756c6c7d",
+    "sig": "924ea3bafcf37ac6689a423ff33183f9aa225c501997aa3df06d093d5c1cc21a861f42df7ad0d1edd747314d366ccf77cd07b68f10a5bd1ff2293f86bd874309",
+    "rowHash": "3fd4d5293b57acc5327cef804377d0ee95e5b40db7127ad2c7ed9ea487004339"
+   },
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 31
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.comment",
+   "payload": "{\"TaskId\":\"t1\",\"taskid\":\"private-task\",\"commentId\":\"m6\"}",
+   "err": "store: row references something outside this board: task.comment: taskId private-task is not a card on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 32
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000061,
+     "actor": "agent:c2",
+     "kind": "task.comment",
+     "payload": "7b226279223a226167656e743a6332222c22636f6d6d656e744964223a226d39222c227461736b4964223a227432222c2274657874223a226561726c79227d",
+     "sig": "b09d2e13f0df46ca7b6182ba5349498c64ac277cc7a6de4840ec94ce8e8f9ab2661a6e7a7de58710bd7bb28877cfbef1027f0c1cefbee9e52685fd890298ca00",
+     "rowHash": "50f133c7dff51e2072e9a25550940370241977cf67ff01343534e2680b2e4c5d"
+    }
+   ],
+   "err": "",
+   "applied": 1,
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 32
+   }
+  },
+  {
+   "op": "unresolved",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000061,
+     "actor": "agent:c2",
+     "kind": "task.comment",
+     "payload": "7b226279223a226167656e743a6332222c22636f6d6d656e744964223a226d39222c227461736b4964223a227432222c2274657874223a226561726c79227d",
+     "sig": "b09d2e13f0df46ca7b6182ba5349498c64ac277cc7a6de4840ec94ce8e8f9ab2661a6e7a7de58710bd7bb28877cfbef1027f0c1cefbee9e52685fd890298ca00",
+     "rowHash": "50f133c7dff51e2072e9a25550940370241977cf67ff01343534e2680b2e4c5d"
+    }
+   ],
+   "err": "store: row references something outside this board: task.comment: taskId t2 is not a card on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 32
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 5,
+     "hlc": 111411200000000062,
+     "actor": "person:p2",
+     "kind": "task.created",
+     "payload": "7b226279223a22706572736f6e3a7032222c227461736b4964223a227432222c227469746c65223a2274776f227d",
+     "sig": "35021f787b18e38f568aafb8ef272d17c64e6b481093235aceafeb49652e333f83e6b7624e0abfc476c4696e75b633d5be61c24e9a98353751b95b1a480fe701",
+     "rowHash": "8daed2a43e97b1203b0a7bb11e31fd26f0a7f5dac109683364d9f3e01b8ecfc2"
+    }
+   ],
+   "err": "",
+   "applied": 1,
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 32
+   }
+  },
+  {
+   "op": "unresolved",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000061,
+     "actor": "agent:c2",
+     "kind": "task.comment",
+     "payload": "7b226279223a226167656e743a6332222c22636f6d6d656e744964223a226d39222c227461736b4964223a227432222c2274657874223a226561726c79227d",
+     "sig": "b09d2e13f0df46ca7b6182ba5349498c64ac277cc7a6de4840ec94ce8e8f9ab2661a6e7a7de58710bd7bb28877cfbef1027f0c1cefbee9e52685fd890298ca00",
+     "rowHash": "50f133c7dff51e2072e9a25550940370241977cf67ff01343534e2680b2e4c5d"
+    }
+   ],
+   "err": "store: row references something outside this board: task.comment: by \"agent:c2\" is not an agent card on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 32
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 6,
+     "hlc": 111411200000000063,
+     "actor": "agent:c2",
+     "kind": "agent.card",
+     "payload": "7b22636172644964223a226332222c22706572736f6e4964223a227032222c22737461747573223a22616374697665227d",
+     "sig": "bccc15b540378fa1b6b928e8d18271e8d8c27048e21c706e485c4b214a5196aeefbcfd93866d7a79ad1c85e2ff8203931ee0ae9d8ee4844aa97c96c367aec303",
+     "rowHash": "5866f500b185fd32bd3e673f0149b01982d0aa412e3ff9fe20641a04d064be6c"
+    }
+   ],
+   "err": "",
+   "applied": 1,
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 32
+   }
+  },
+  {
+   "op": "unresolved",
+   "events": [
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000061,
+     "actor": "agent:c2",
+     "kind": "task.comment",
+     "payload": "7b226279223a226167656e743a6332222c22636f6d6d656e744964223a226d39222c227461736b4964223a227432222c2274657874223a226561726c79227d",
+     "sig": "b09d2e13f0df46ca7b6182ba5349498c64ac277cc7a6de4840ec94ce8e8f9ab2661a6e7a7de58710bd7bb28877cfbef1027f0c1cefbee9e52685fd890298ca00",
+     "rowHash": "50f133c7dff51e2072e9a25550940370241977cf67ff01343534e2680b2e4c5d"
+    }
+   ],
+   "err": "",
+   "applied": 0,
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 32
+   }
+  },
+  {
+   "op": "unresolved",
+   "events": [
+    {
+     "deviceId": "",
+     "seq": 0,
+     "hlc": 0,
+     "actor": "",
+     "kind": "task.comment",
+     "payload": "7b227461736b4964223a227432222c226279223a226167656e743a6333227d",
+     "sig": "",
+     "rowHash": "6b6949b96e56112d1fdc1c37814bdec6c50261876a753907b97047c995bbd8ea"
+    }
+   ],
+   "err": "store: row references something outside this board: task.comment: by \"agent:c3\" is not an agent card on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 32
+   }
+  },
+  {
+   "op": "unresolved",
+   "events": [
+    {
+     "deviceId": "",
+     "seq": 0,
+     "hlc": 0,
+     "actor": "",
+     "kind": "board.anything",
+     "payload": "5b",
+     "sig": "",
+     "rowHash": "6f4b260bbc81f89aad741a64163519f45d8f005c29fcf53696453c8e2c3ed57b"
+    }
+   ],
+   "err": "",
+   "applied": 0,
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 32
+   }
+  },
+  {
+   "op": "unresolved",
+   "events": [
+    {
+     "deviceId": "",
+     "seq": 0,
+     "hlc": 0,
+     "actor": "",
+     "kind": "task.comment",
+     "payload": "7b",
+     "sig": "",
+     "rowHash": "3bcd4640c03a6b77af554f8bf1bb4559a03351e1f20a41f2c1e2c525e8bbd648"
+    }
+   ],
+   "err": "store: row references something outside this board: task.comment payload is not an object",
+   "applied": 0,
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 32
+   }
+  },
+  {
+   "op": "insert",
+   "events": [
+    {
+     "deviceId": "dev-x",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "person:p9",
+     "kind": "task.created",
+     "payload": "7b227461736b4964223a227439227d",
+     "sig": "be2bdd9a970bf7a3434fd1bced19bb04a7b8cfed7f669dfd9ea077c4351bcad1944bdf18d39daf03b53725e84f91ec2143d86f5f19067843895e23b0809f1808",
+     "rowHash": "3b97fcfce9557c5188d2c8b758d0b84f8f786f6b88198c41fdb4344082067d60"
+    }
+   ],
+   "err": "store: row's device is not certified: dev-x",
+   "applied": 0,
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 32
+   }
+  },
+  {
+   "op": "missing",
+   "limit": 10000,
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "agent:c1",
+     "kind": "agent.card",
+     "payload": "7b22636172644964223a226331222c226b696e64223a22636c61756465222c226e616d65223a226c656164222c22706572736f6e4964223a227031222c22737461747573223a22616374697665227d",
+     "sig": "8f28f633220b3273d2bb2f48cc2ff00e99d7e8b5178cd857707145d8e66b7b05e3ef7f6e696ca58a7c091171ff594381e3fad0d4633d6e23ede0cbf0231c6c09",
+     "rowHash": "9c35251366a3ff58d3fdb27f3200e7e5e8947e6a6ff89e0e2834dc3c60ecfd3b"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d69726f7269222c227469746c65223a2278227d",
+     "sig": "c6eaddc8245a845652da7a16dcdbe33c40205a8ddf3b5bdb9c8094c520cd6e5a1653f989435d1db4004e4cb87dbaf24c8ac8306a1ef1db00f827a912ed904805",
+     "rowHash": "4e1f4826dca07b86b0312e18efc599ee3956115acfc6408ec409c6a1686c8ebf"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000000049,
+     "actor": "person:p1",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d706572736f6e3a7031222c227469746c65223a2278227d",
+     "sig": "2345afaefb0187c61549e4cba9c8445b74be18602abcf84cd6b1b6307dce40bb2ed961e1aee31b66a7e99919ff8ed97dcbf5edeb191f991a19c2b81a5ae3cc03",
+     "rowHash": "fe6736563d59f3a3d000accacc24fda2541be3cd70628631f2af17d43495d155"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 4,
+     "hlc": 111411200000000050,
+     "actor": "agent:c1",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d6167656e743a6331222c227469746c65223a2278227d",
+     "sig": "7aa6822b54a39304514ef2307818627c5b7af8913d19d411fd20d788f8168eb71d0148b1699543f8aa8f9b7ae75379987acba8a2114a84553041da35df472208",
+     "rowHash": "4eebc7942607ed8da6d903d772d95572766616cace1ccacd1a5ce06590459b4b"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 5,
+     "hlc": 111411200000000051,
+     "actor": "agent:c9",
+     "kind": "agent.card",
+     "payload": "7b22436172644964223a226339222c22636172646964223a226339227d",
+     "sig": "3f63aa38d6d84f36a13c8db170ef79ecebc6040989483e18570fb591ab5f5517c7b8b307c7eac40b47742a4bb76e6fa48a2f31f334d2330bc5c039c2a1263b0d",
+     "rowHash": "4115267904a0b80d44bba956a00991894729f01d862e635e6da3c171dbbd0b2d"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 6,
+     "hlc": 111411200000000052,
+     "actor": "person:p1",
+     "kind": "board.created",
+     "payload": "7b22626f6172644964223a2262222c2263726561746f72223a7b22706572736f6e4964223a227031227d2c226e616d65223a226d6c67222c22746167223a226d6c67227d",
+     "sig": "5f9af3678dcc10c65578077f1aa9eae2fd80c708c2cbe346b7f9fa461266dee96c05c42cbfdf1bee7aa2f4e2c21628d8e42ce3b5a9348df32242627fd8c82a05",
+     "rowHash": "2e63b54231f7084e7177b02796f6758a9bdadaf17b740613307ec1fba010d557"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 7,
+     "hlc": 111411200000000053,
+     "actor": "person:p1",
+     "kind": "board.member.added",
+     "payload": "7b226279223a227031222c22706572736f6e4964223a227032222c22726f6c65223a226d656d626572227d",
+     "sig": "7856b3b365cc3aac49b9b16d5b509fa77a3d229ab45f3d51b0bc7521754f0f7728509e2c2c033c9488e9d2bb040b31764624b6b609de03e4da3115e14a20b101",
+     "rowHash": "1fc3b8e07fc2ae02e8119dfdcf00f552ad107329d59c054a1981b2833625fad0"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 8,
+     "hlc": 111411200000000054,
+     "actor": "person:p1",
+     "kind": "board.member.role",
+     "payload": "7b226279223a227031222c22706572736f6e4964223a227032222c22726f6c65223a226f776e6572227d",
+     "sig": "1dfdd124e41e8a5266bce81f49cf7511eaceb7389445de73fb723f99b55883f5035a9496b42084def0c78529010cfdee9f517ab173aff08cedd14972396df202",
+     "rowHash": "3476c8dce064b30ff268b4236d28bfa8b8dd9e11ab47e64130c1964358eb36ff"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 9,
+     "hlc": 111411200000000055,
+     "actor": "person:p1",
+     "kind": "board.member.removed",
+     "payload": "7b226279223a227031222c22637574223a7b226465762d62223a307d2c22706572736f6e4964223a227032227d",
+     "sig": "11bef5900b5294b7c602bde3f8a19c6c0df94ad08a496612c5b2289b26c927aced6df9bb453decfe8b133c7dc1e71c5a4af4441e35f9602f0a614cfd2c6d700a",
+     "rowHash": "b4e75534a739febd7d3bccac74885dfd7fd1b3d81119814122a457be1ef1b88a"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 10,
+     "hlc": 111411200000000056,
+     "actor": "person:p1",
+     "kind": "task.created",
+     "payload": "7b226279223a22706572736f6e3a7031222c227461736b4964223a227431222c227469746c65223a226f6e65227d",
+     "sig": "79b8e8edea9dfd5617d01c93730a179cc6bc30e21350861ca62b3501f0474d4776eb069783507094d96edbe8f9fda0a1134d18dabe168194b8978bc037904b0b",
+     "rowHash": "e11051eac6841ebc8c16e5a42060ec65ee1a964d5406a32452a6f3123d81ec32"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 11,
+     "hlc": 111411200000000057,
+     "actor": "agent:c1",
+     "kind": "agent.card",
+     "payload": "7b22636172644964223a226331222c22706572736f6e4964223a227031222c22737461747573223a22616374697665227d",
+     "sig": "edb6b0124917faa236e72156fa32156b5c7de5151025ba52ccf3f156b808831663d7aca48c4dca395707f2b4f6a73a1bc5317bad3597b0ef78d1f27d4f187f0e",
+     "rowHash": "bbd4cdedd76aa9d44fcdeffae4f109d0076ddeaf1ce78f69e91dcff5e6a427fe"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 12,
+     "hlc": 111411200000000058,
+     "actor": "person:p1",
+     "kind": "task.status",
+     "payload": "7b22626c6f636b65644279223a7b226b696e64223a226f74686572222c22726566223a2278227d2c227461736b4964223a227431227d",
+     "sig": "8638cf3f1bf4847a9258a8fef8fe9573b9e347896f8fe11833db29bac14cb9445cec45695d5238819d1018c2700d7de4284d1a01b46396c0f2f707f978bdd307",
+     "rowHash": "71cbf265df955ce2fc98e009041fce54d344a9049b8bfaf82d20d5789d22da1f"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 13,
+     "hlc": 111411200000000059,
+     "actor": "person:p1",
+     "kind": "task.comment",
+     "payload": "6e756c6c",
+     "sig": "f916c0afaaf5c393d2a111c120251e7631571f415670c3dfe30eab02497a5ddabb39067222d05284501590f299bc64c7c4b84f08aca54a4bb748cadedbcf970c",
+     "rowHash": "85c9ffc9a1330e3226ad239ad365a2c5e9a5dc363b1e51000e94f18ee205dc02"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 14,
+     "hlc": 111411200000000060,
+     "actor": "person:p1",
+     "kind": "task.steps",
+     "payload": "7b226279223a22706572736f6e3a7031222c227374657073223a5b7b226964223a227331222c2274657874223a22676f227d5d2c227461736b4964223a227431227d",
+     "sig": "36bd8c30d0c6acaee5375fac16d733dd45ccb7c833cc5d4dbd675c117bda5e484872b163da58ff8dc6583b635c0514baa529418e7ea3c274089c55f7d9ae7609",
+     "rowHash": "f585411e93e21fc3d9cd83c13cdacefc8d27b940b4dd361c6bc1750786c96522"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 15,
+     "hlc": 111411200000000061,
+     "actor": "person:p1",
+     "kind": "task.step",
+     "payload": "7b226279223a22706572736f6e3a7031222c22737465704964223a227331222c227461736b4964223a227431227d",
+     "sig": "117aefb898404647f726bcde9da30a41d48272578153aa39fd5e28d63b1468ca4bd518c34f82cef5c1e926e45170d27e1df09450bf235876b8ca7babba57dc08",
+     "rowHash": "cacc259d05220c9c3a347c511ec4ff78058f2b34076b9fc13daa4c716155dca0"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 16,
+     "hlc": 111411200000000062,
+     "actor": "person:p1",
+     "kind": "task.assigned",
+     "payload": "7b226279223a22706572736f6e3a7031222c227461736b4964223a227431222c22746f223a226167656e743a6331227d",
+     "sig": "1b07838998faad70a4d08dab2b4d045b35b68248eacbb9943668420614552245870e4ad58d5ee2b097ebd750911bfb2ec9572d3644e9fd57de798d68a866c306",
+     "rowHash": "3f04a4f86719f93f008dc5237c996b98cf608e88213907734b14cb4ed5efca2b"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 17,
+     "hlc": 111411200000000063,
+     "actor": "agent:c1",
+     "kind": "task.status",
+     "payload": "7b22626c6f636b6572223a7b226964223a226231222c227175657374696f6e223a2277686963683f227d2c226279223a226167656e743a6331222c227374617465223a22626c6f636b6564222c227461736b4964223a227431227d",
+     "sig": "02c4d50afb1f4715ae7e1ae796d741ec52792203e6375062ed4666ab8a7bb292b3d9a4aa58b0f1d58f565af7ba074a92a5644aaf3bae481e138426e74746ed09",
+     "rowHash": "f0664f0eba9b3770668d29824052d44a4b6724e8c73fc0b947a86cda0bd54a4d"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 18,
+     "hlc": 111411200000000064,
+     "actor": "person:p1",
+     "kind": "blocker.option",
+     "payload": "7b22616e73776572223a2278222c22626c6f636b65724964223a226231222c226279223a22706572736f6e3a7031222c227461736b4964223a227431227d",
+     "sig": "bbd0f6407c2d8be014a8135b79c25d5c742b49af9923ca8c227833035e360f3eddf171d92090819a0bf711d559197269c759441e112b6bf9df1c60615e7f7d08",
+     "rowHash": "d7216298be3821df08a2146c3e503dc36ca91c763975e381c13da7aea98af5fd"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 19,
+     "hlc": 111411200000000065,
+     "actor": "irori",
+     "kind": "attach.offered",
+     "payload": "7b226e616d65223a22612e747874222c22736861323536223a2261616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c2273697a65223a317d",
+     "sig": "6366f423d91354584fd702eae4ab5f0434b24453f34f72d3c8c9a387d83b9278f95a21bda171a3b9e9b9579fc10ea832fc6f12f4793c0f7fa84ec6bbf2321206",
+     "rowHash": "965d9cc6243a866beae1fd9a3a673e55a8c2f4a7428b0c34e29c59795b043fae"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 20,
+     "hlc": 111411200000000066,
+     "actor": "person:p1",
+     "kind": "task.comment",
+     "payload": "7b226174746163686d656e7473223a5b7b22736861323536223a2261616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161227d5d2c226279223a22706572736f6e3a7031222c22636f6d6d656e744964223a226d32222c227461736b4964223a227431227d",
+     "sig": "8f3683ad82bdf4736b532f1c9b8e530fc5d5673471b1977b9a8478c0f26dd364d4559fb175b911572d4fe6beab73627267441e72e219dee7af954370da0c0301",
+     "rowHash": "267fbaee28e87209f0e67a1d5e2154c27b1da9fc3a0bf2a454a711ff3b1f50d2"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 21,
+     "hlc": 111411200000000067,
+     "actor": "person:p1",
+     "kind": "task.linked",
+     "payload": "7b226279223a22706572736f6e3a7031222c226c696e6b223a7b226b696e64223a22636f6d6d6974222c22726566223a2261626331323334227d2c227461736b4964223a227431227d",
+     "sig": "b21235fc0df85cb5b11b9eadaea95b8d11cf2507c9c808b39ca9d6a6ff6e242cc4a6ff52c32aedaf56828f82237eb54792935b7b5731f44410c0af2496392806",
+     "rowHash": "3d43b19c417f3a5d2becc4f6c221f1942ced0c0bef5f016da2dcb18e7f1e4ed6"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 22,
+     "hlc": 111411200000000068,
+     "actor": "agent:c1",
+     "kind": "lease.acquired",
+     "payload": "7b22686f6c646572223a226167656e743a6331222c227265736f75726365223a226770752f7177656e227d",
+     "sig": "bac21958f24c2f00e0f003dcfab22d9719cef71cef3c4f5c68d9ec56761995577014d5e5bb7227801f7fdd660afff805e8132e2321861e4d83218f2cdc85a80f",
+     "rowHash": "95f5533fa5e11a329b51789a84e8b6c1330d5c2a94355581ce2e6e64c9dfacd2"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 23,
+     "hlc": 111411200000000069,
+     "actor": "agent:c1",
+     "kind": "lease.released",
+     "payload": "7b226279223a226167656e743a6331222c22686f6c646572223a226167656e743a6331222c227265736f75726365223a226770752f7177656e227d",
+     "sig": "1c4fb33a03a5e615547aa822626c606427d3526bb4d0c13ff43fdbf070c1f0c48e3c74107a9d5841fae4c9e7414569999cd55f95d2e94815237e11c44c191c02",
+     "rowHash": "787b406124c110c62b4f198966637345877f1b4b5c7aab9f72eb079a641be419"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 24,
+     "hlc": 111411200000000070,
+     "actor": "agent:c1",
+     "kind": "lease.stolen",
+     "payload": "7b22686f6c646572223a226167656e743a6331222c227265736f75726365223a226770752f7177656e222c2273746f6c656e223a5b7b22686f6c646572223a22706572736f6e3a7031222c227265736f75726365223a226770752f7177656e227d5d2c2273746f6c656e46726f6d223a2220706572736f6e3a7032202c206167656e743a6331227d",
+     "sig": "496e47ae4a4a8cd57a9f8a0917a251620811abd8d4355209497de0488da0a0631c643661585cbeee35751a3fd8c22138e8f0f251bfa086263da428bcd6941409",
+     "rowHash": "e6afa779b20dea2c4d1d157702fa66c091816915fd9470d4db486316530fce70"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 25,
+     "hlc": 111411200000000071,
+     "actor": "person:p1",
+     "kind": "task.status",
+     "payload": "7b22626c6f636b65644279223a7b226b696e64223a22706572736f6e222c22726566223a22706572736f6e3a7032227d2c226f7574636f6d65223a7b227461736b223a227431227d2c227461736b4964223a227431227d",
+     "sig": "0349ba7da68e0b1359dbbc7623643d08f7954e668bebf6ea3810391e6cadf4414a4b3c30e3d5066aea1dbf5c0d9b43d50c3be3fe17c31fefbce9465818983606",
+     "rowHash": "a0cbc2344fc4a713dbd1b98236d57c44b538bda848595ad48791a963d92a2783"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 26,
+     "hlc": 111411200000000072,
+     "actor": "person:p1",
+     "kind": "task.comment",
+     "payload": "7b227461736b4964223a227431222c22636f6d6d656e744964223a226d35222c226279223a6e756c6c2c226174746163686d656e7473223a6e756c6c7d",
+     "sig": "924ea3bafcf37ac6689a423ff33183f9aa225c501997aa3df06d093d5c1cc21a861f42df7ad0d1edd747314d366ccf77cd07b68f10a5bd1ff2293f86bd874309",
+     "rowHash": "3fd4d5293b57acc5327cef804377d0ee95e5b40db7127ad2c7ed9ea487004339"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000048,
+     "actor": "irori",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d69726f7269222c227469746c65223a2278227d",
+     "sig": "44458115f2adef823d2128d8d1624ced75511d905f8d02de89019fbf8b5e83528b77d71fc469e2984cf7ac7f621daac3deef5bb6766521f73782ce919b056204",
+     "rowHash": "b9537c94a2f57f6c676dd2b2ac39b42d341509e3e6e3b342ad33773fedd610ea"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000049,
+     "actor": "person:p1",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d706572736f6e3a7031222c227469746c65223a2278227d",
+     "sig": "16ef82088eb34130586e8ab8363becd82b0c45684585701dac6656f40034588d71511b5ab594b4a78384b2273e3b9ce47fb329297e325e538c1dbcd9a6638509",
+     "rowHash": "3268e7405566b3f724a8a69030c65b0b0d8c0e822600b2f19c8ad3dddc3339ec"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 3,
+     "hlc": 111411200000000050,
+     "actor": "agent:c1",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d6167656e743a6331222c227469746c65223a2278227d",
+     "sig": "27b014683671c4fc148490cb43eb34a097117520f8a26bc79a6350789fd568df6b992f565b5d5ddfffec7aca906c68c24eef42a1179bf16bf99cdf1dc4cc5501",
+     "rowHash": "81c235f2733f1602b1f8d6f86673e9dc7ab3e01c6764ee6140afad3a609ef42a"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000061,
+     "actor": "agent:c2",
+     "kind": "task.comment",
+     "payload": "7b226279223a226167656e743a6332222c22636f6d6d656e744964223a226d39222c227461736b4964223a227432222c2274657874223a226561726c79227d",
+     "sig": "b09d2e13f0df46ca7b6182ba5349498c64ac277cc7a6de4840ec94ce8e8f9ab2661a6e7a7de58710bd7bb28877cfbef1027f0c1cefbee9e52685fd890298ca00",
+     "rowHash": "50f133c7dff51e2072e9a25550940370241977cf67ff01343534e2680b2e4c5d"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 5,
+     "hlc": 111411200000000062,
+     "actor": "person:p2",
+     "kind": "task.created",
+     "payload": "7b226279223a22706572736f6e3a7032222c227461736b4964223a227432222c227469746c65223a2274776f227d",
+     "sig": "35021f787b18e38f568aafb8ef272d17c64e6b481093235aceafeb49652e333f83e6b7624e0abfc476c4696e75b633d5be61c24e9a98353751b95b1a480fe701",
+     "rowHash": "8daed2a43e97b1203b0a7bb11e31fd26f0a7f5dac109683364d9f3e01b8ecfc2"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 6,
+     "hlc": 111411200000000063,
+     "actor": "agent:c2",
+     "kind": "agent.card",
+     "payload": "7b22636172644964223a226332222c22706572736f6e4964223a227032222c22737461747573223a22616374697665227d",
+     "sig": "bccc15b540378fa1b6b928e8d18271e8d8c27048e21c706e485c4b214a5196aeefbcfd93866d7a79ad1c85e2ff8203931ee0ae9d8ee4844aa97c96c367aec303",
+     "rowHash": "5866f500b185fd32bd3e673f0149b01982d0aa412e3ff9fe20641a04d064be6c"
+    }
+   ],
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 32
+   }
+  },
+  {
+   "op": "vector",
+   "err": "",
+   "applied": 0,
+   "got": {
+    "dev-a": 26,
+    "dev-b": 6
+   },
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 32
+   }
+  },
+  {
+   "op": "refused",
+   "err": "",
+   "applied": 0,
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 32
+   }
+  },
+  {
+   "op": "forks",
+   "err": "",
+   "applied": 0,
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 32
+   }
+  },
+  {
+   "op": "observed",
+   "err": "",
+   "applied": 0,
+   "counts": {
+    "kind": 89,
+    "actor": 23,
+    "outside": 32
+   },
+   "observed": [
+    "dev-a/1 agent.card",
+    "dev-a/5 agent.card",
+    "dev-a/6 board.created",
+    "dev-a/7 board.member.added",
+    "dev-a/8 board.member.role",
+    "dev-a/9 board.member.removed",
+    "dev-a/11 agent.card",
+    "dev-b/6 agent.card"
+   ]
+  },
+  {
+   "op": "reopen",
+   "err": "",
+   "applied": 0,
+   "counts": {
+    "kind": 0,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "agent:c2",
+   "kind": "task.comment",
+   "payload": "{\"by\":\"agent:c2\",\"commentId\":\"m10\",\"taskId\":\"t2\",\"text\":\"after reopen\"}",
+   "err": "",
+   "applied": 0,
+   "out": {
+    "deviceId": "dev-a",
+    "seq": 27,
+    "hlc": 111411200000000073,
+    "actor": "agent:c2",
+    "kind": "task.comment",
+    "payload": "7b226279223a226167656e743a6332222c22636f6d6d656e744964223a226d3130222c227461736b4964223a227432222c2274657874223a2261667465722072656f70656e227d",
+    "sig": "bc4dd10c43ebce73b18ddad91d312c9658a3e23487e3f7c0b61bce08568031674f07ce90f6458fa968f97fb72c68fe46e64910d2d321dc2b8140840161db000b",
+    "rowHash": "0894d39a7e0f82ff7ab04cc50cd0c043035558cbc5af6551393b8e86d741d786"
+   },
+   "counts": {
+    "kind": 0,
+    "actor": 0,
+    "outside": 0
+   }
+  },
+  {
+   "op": "append",
+   "actor": "person:p1",
+   "kind": "task.comment",
+   "payload": "{\"by\":\"person:p1\",\"commentId\":\"m11\",\"taskId\":\"private-task\"}",
+   "err": "store: row references something outside this board: task.comment: taskId private-task is not a card on this board",
+   "applied": 0,
+   "counts": {
+    "kind": 0,
+    "actor": 0,
+    "outside": 1
+   }
+  },
+  {
+   "op": "missing",
+   "limit": 10000,
+   "err": "",
+   "applied": 0,
+   "rows": [
+    {
+     "deviceId": "dev-a",
+     "seq": 1,
+     "hlc": 111411200000000000,
+     "actor": "agent:c1",
+     "kind": "agent.card",
+     "payload": "7b22636172644964223a226331222c226b696e64223a22636c61756465222c226e616d65223a226c656164222c22706572736f6e4964223a227031222c22737461747573223a22616374697665227d",
+     "sig": "8f28f633220b3273d2bb2f48cc2ff00e99d7e8b5178cd857707145d8e66b7b05e3ef7f6e696ca58a7c091171ff594381e3fad0d4633d6e23ede0cbf0231c6c09",
+     "rowHash": "9c35251366a3ff58d3fdb27f3200e7e5e8947e6a6ff89e0e2834dc3c60ecfd3b"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 2,
+     "hlc": 111411200000000001,
+     "actor": "irori",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d69726f7269222c227469746c65223a2278227d",
+     "sig": "c6eaddc8245a845652da7a16dcdbe33c40205a8ddf3b5bdb9c8094c520cd6e5a1653f989435d1db4004e4cb87dbaf24c8ac8306a1ef1db00f827a912ed904805",
+     "rowHash": "4e1f4826dca07b86b0312e18efc599ee3956115acfc6408ec409c6a1686c8ebf"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 3,
+     "hlc": 111411200000000049,
+     "actor": "person:p1",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d706572736f6e3a7031222c227469746c65223a2278227d",
+     "sig": "2345afaefb0187c61549e4cba9c8445b74be18602abcf84cd6b1b6307dce40bb2ed961e1aee31b66a7e99919ff8ed97dcbf5edeb191f991a19c2b81a5ae3cc03",
+     "rowHash": "fe6736563d59f3a3d000accacc24fda2541be3cd70628631f2af17d43495d155"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 4,
+     "hlc": 111411200000000050,
+     "actor": "agent:c1",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d6167656e743a6331222c227469746c65223a2278227d",
+     "sig": "7aa6822b54a39304514ef2307818627c5b7af8913d19d411fd20d788f8168eb71d0148b1699543f8aa8f9b7ae75379987acba8a2114a84553041da35df472208",
+     "rowHash": "4eebc7942607ed8da6d903d772d95572766616cace1ccacd1a5ce06590459b4b"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 5,
+     "hlc": 111411200000000051,
+     "actor": "agent:c9",
+     "kind": "agent.card",
+     "payload": "7b22436172644964223a226339222c22636172646964223a226339227d",
+     "sig": "3f63aa38d6d84f36a13c8db170ef79ecebc6040989483e18570fb591ab5f5517c7b8b307c7eac40b47742a4bb76e6fa48a2f31f334d2330bc5c039c2a1263b0d",
+     "rowHash": "4115267904a0b80d44bba956a00991894729f01d862e635e6da3c171dbbd0b2d"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 6,
+     "hlc": 111411200000000052,
+     "actor": "person:p1",
+     "kind": "board.created",
+     "payload": "7b22626f6172644964223a2262222c2263726561746f72223a7b22706572736f6e4964223a227031227d2c226e616d65223a226d6c67222c22746167223a226d6c67227d",
+     "sig": "5f9af3678dcc10c65578077f1aa9eae2fd80c708c2cbe346b7f9fa461266dee96c05c42cbfdf1bee7aa2f4e2c21628d8e42ce3b5a9348df32242627fd8c82a05",
+     "rowHash": "2e63b54231f7084e7177b02796f6758a9bdadaf17b740613307ec1fba010d557"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 7,
+     "hlc": 111411200000000053,
+     "actor": "person:p1",
+     "kind": "board.member.added",
+     "payload": "7b226279223a227031222c22706572736f6e4964223a227032222c22726f6c65223a226d656d626572227d",
+     "sig": "7856b3b365cc3aac49b9b16d5b509fa77a3d229ab45f3d51b0bc7521754f0f7728509e2c2c033c9488e9d2bb040b31764624b6b609de03e4da3115e14a20b101",
+     "rowHash": "1fc3b8e07fc2ae02e8119dfdcf00f552ad107329d59c054a1981b2833625fad0"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 8,
+     "hlc": 111411200000000054,
+     "actor": "person:p1",
+     "kind": "board.member.role",
+     "payload": "7b226279223a227031222c22706572736f6e4964223a227032222c22726f6c65223a226f776e6572227d",
+     "sig": "1dfdd124e41e8a5266bce81f49cf7511eaceb7389445de73fb723f99b55883f5035a9496b42084def0c78529010cfdee9f517ab173aff08cedd14972396df202",
+     "rowHash": "3476c8dce064b30ff268b4236d28bfa8b8dd9e11ab47e64130c1964358eb36ff"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 9,
+     "hlc": 111411200000000055,
+     "actor": "person:p1",
+     "kind": "board.member.removed",
+     "payload": "7b226279223a227031222c22637574223a7b226465762d62223a307d2c22706572736f6e4964223a227032227d",
+     "sig": "11bef5900b5294b7c602bde3f8a19c6c0df94ad08a496612c5b2289b26c927aced6df9bb453decfe8b133c7dc1e71c5a4af4441e35f9602f0a614cfd2c6d700a",
+     "rowHash": "b4e75534a739febd7d3bccac74885dfd7fd1b3d81119814122a457be1ef1b88a"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 10,
+     "hlc": 111411200000000056,
+     "actor": "person:p1",
+     "kind": "task.created",
+     "payload": "7b226279223a22706572736f6e3a7031222c227461736b4964223a227431222c227469746c65223a226f6e65227d",
+     "sig": "79b8e8edea9dfd5617d01c93730a179cc6bc30e21350861ca62b3501f0474d4776eb069783507094d96edbe8f9fda0a1134d18dabe168194b8978bc037904b0b",
+     "rowHash": "e11051eac6841ebc8c16e5a42060ec65ee1a964d5406a32452a6f3123d81ec32"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 11,
+     "hlc": 111411200000000057,
+     "actor": "agent:c1",
+     "kind": "agent.card",
+     "payload": "7b22636172644964223a226331222c22706572736f6e4964223a227031222c22737461747573223a22616374697665227d",
+     "sig": "edb6b0124917faa236e72156fa32156b5c7de5151025ba52ccf3f156b808831663d7aca48c4dca395707f2b4f6a73a1bc5317bad3597b0ef78d1f27d4f187f0e",
+     "rowHash": "bbd4cdedd76aa9d44fcdeffae4f109d0076ddeaf1ce78f69e91dcff5e6a427fe"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 12,
+     "hlc": 111411200000000058,
+     "actor": "person:p1",
+     "kind": "task.status",
+     "payload": "7b22626c6f636b65644279223a7b226b696e64223a226f74686572222c22726566223a2278227d2c227461736b4964223a227431227d",
+     "sig": "8638cf3f1bf4847a9258a8fef8fe9573b9e347896f8fe11833db29bac14cb9445cec45695d5238819d1018c2700d7de4284d1a01b46396c0f2f707f978bdd307",
+     "rowHash": "71cbf265df955ce2fc98e009041fce54d344a9049b8bfaf82d20d5789d22da1f"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 13,
+     "hlc": 111411200000000059,
+     "actor": "person:p1",
+     "kind": "task.comment",
+     "payload": "6e756c6c",
+     "sig": "f916c0afaaf5c393d2a111c120251e7631571f415670c3dfe30eab02497a5ddabb39067222d05284501590f299bc64c7c4b84f08aca54a4bb748cadedbcf970c",
+     "rowHash": "85c9ffc9a1330e3226ad239ad365a2c5e9a5dc363b1e51000e94f18ee205dc02"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 14,
+     "hlc": 111411200000000060,
+     "actor": "person:p1",
+     "kind": "task.steps",
+     "payload": "7b226279223a22706572736f6e3a7031222c227374657073223a5b7b226964223a227331222c2274657874223a22676f227d5d2c227461736b4964223a227431227d",
+     "sig": "36bd8c30d0c6acaee5375fac16d733dd45ccb7c833cc5d4dbd675c117bda5e484872b163da58ff8dc6583b635c0514baa529418e7ea3c274089c55f7d9ae7609",
+     "rowHash": "f585411e93e21fc3d9cd83c13cdacefc8d27b940b4dd361c6bc1750786c96522"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 15,
+     "hlc": 111411200000000061,
+     "actor": "person:p1",
+     "kind": "task.step",
+     "payload": "7b226279223a22706572736f6e3a7031222c22737465704964223a227331222c227461736b4964223a227431227d",
+     "sig": "117aefb898404647f726bcde9da30a41d48272578153aa39fd5e28d63b1468ca4bd518c34f82cef5c1e926e45170d27e1df09450bf235876b8ca7babba57dc08",
+     "rowHash": "cacc259d05220c9c3a347c511ec4ff78058f2b34076b9fc13daa4c716155dca0"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 16,
+     "hlc": 111411200000000062,
+     "actor": "person:p1",
+     "kind": "task.assigned",
+     "payload": "7b226279223a22706572736f6e3a7031222c227461736b4964223a227431222c22746f223a226167656e743a6331227d",
+     "sig": "1b07838998faad70a4d08dab2b4d045b35b68248eacbb9943668420614552245870e4ad58d5ee2b097ebd750911bfb2ec9572d3644e9fd57de798d68a866c306",
+     "rowHash": "3f04a4f86719f93f008dc5237c996b98cf608e88213907734b14cb4ed5efca2b"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 17,
+     "hlc": 111411200000000063,
+     "actor": "agent:c1",
+     "kind": "task.status",
+     "payload": "7b22626c6f636b6572223a7b226964223a226231222c227175657374696f6e223a2277686963683f227d2c226279223a226167656e743a6331222c227374617465223a22626c6f636b6564222c227461736b4964223a227431227d",
+     "sig": "02c4d50afb1f4715ae7e1ae796d741ec52792203e6375062ed4666ab8a7bb292b3d9a4aa58b0f1d58f565af7ba074a92a5644aaf3bae481e138426e74746ed09",
+     "rowHash": "f0664f0eba9b3770668d29824052d44a4b6724e8c73fc0b947a86cda0bd54a4d"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 18,
+     "hlc": 111411200000000064,
+     "actor": "person:p1",
+     "kind": "blocker.option",
+     "payload": "7b22616e73776572223a2278222c22626c6f636b65724964223a226231222c226279223a22706572736f6e3a7031222c227461736b4964223a227431227d",
+     "sig": "bbd0f6407c2d8be014a8135b79c25d5c742b49af9923ca8c227833035e360f3eddf171d92090819a0bf711d559197269c759441e112b6bf9df1c60615e7f7d08",
+     "rowHash": "d7216298be3821df08a2146c3e503dc36ca91c763975e381c13da7aea98af5fd"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 19,
+     "hlc": 111411200000000065,
+     "actor": "irori",
+     "kind": "attach.offered",
+     "payload": "7b226e616d65223a22612e747874222c22736861323536223a2261616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c2273697a65223a317d",
+     "sig": "6366f423d91354584fd702eae4ab5f0434b24453f34f72d3c8c9a387d83b9278f95a21bda171a3b9e9b9579fc10ea832fc6f12f4793c0f7fa84ec6bbf2321206",
+     "rowHash": "965d9cc6243a866beae1fd9a3a673e55a8c2f4a7428b0c34e29c59795b043fae"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 20,
+     "hlc": 111411200000000066,
+     "actor": "person:p1",
+     "kind": "task.comment",
+     "payload": "7b226174746163686d656e7473223a5b7b22736861323536223a2261616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161227d5d2c226279223a22706572736f6e3a7031222c22636f6d6d656e744964223a226d32222c227461736b4964223a227431227d",
+     "sig": "8f3683ad82bdf4736b532f1c9b8e530fc5d5673471b1977b9a8478c0f26dd364d4559fb175b911572d4fe6beab73627267441e72e219dee7af954370da0c0301",
+     "rowHash": "267fbaee28e87209f0e67a1d5e2154c27b1da9fc3a0bf2a454a711ff3b1f50d2"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 21,
+     "hlc": 111411200000000067,
+     "actor": "person:p1",
+     "kind": "task.linked",
+     "payload": "7b226279223a22706572736f6e3a7031222c226c696e6b223a7b226b696e64223a22636f6d6d6974222c22726566223a2261626331323334227d2c227461736b4964223a227431227d",
+     "sig": "b21235fc0df85cb5b11b9eadaea95b8d11cf2507c9c808b39ca9d6a6ff6e242cc4a6ff52c32aedaf56828f82237eb54792935b7b5731f44410c0af2496392806",
+     "rowHash": "3d43b19c417f3a5d2becc4f6c221f1942ced0c0bef5f016da2dcb18e7f1e4ed6"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 22,
+     "hlc": 111411200000000068,
+     "actor": "agent:c1",
+     "kind": "lease.acquired",
+     "payload": "7b22686f6c646572223a226167656e743a6331222c227265736f75726365223a226770752f7177656e227d",
+     "sig": "bac21958f24c2f00e0f003dcfab22d9719cef71cef3c4f5c68d9ec56761995577014d5e5bb7227801f7fdd660afff805e8132e2321861e4d83218f2cdc85a80f",
+     "rowHash": "95f5533fa5e11a329b51789a84e8b6c1330d5c2a94355581ce2e6e64c9dfacd2"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 23,
+     "hlc": 111411200000000069,
+     "actor": "agent:c1",
+     "kind": "lease.released",
+     "payload": "7b226279223a226167656e743a6331222c22686f6c646572223a226167656e743a6331222c227265736f75726365223a226770752f7177656e227d",
+     "sig": "1c4fb33a03a5e615547aa822626c606427d3526bb4d0c13ff43fdbf070c1f0c48e3c74107a9d5841fae4c9e7414569999cd55f95d2e94815237e11c44c191c02",
+     "rowHash": "787b406124c110c62b4f198966637345877f1b4b5c7aab9f72eb079a641be419"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 24,
+     "hlc": 111411200000000070,
+     "actor": "agent:c1",
+     "kind": "lease.stolen",
+     "payload": "7b22686f6c646572223a226167656e743a6331222c227265736f75726365223a226770752f7177656e222c2273746f6c656e223a5b7b22686f6c646572223a22706572736f6e3a7031222c227265736f75726365223a226770752f7177656e227d5d2c2273746f6c656e46726f6d223a2220706572736f6e3a7032202c206167656e743a6331227d",
+     "sig": "496e47ae4a4a8cd57a9f8a0917a251620811abd8d4355209497de0488da0a0631c643661585cbeee35751a3fd8c22138e8f0f251bfa086263da428bcd6941409",
+     "rowHash": "e6afa779b20dea2c4d1d157702fa66c091816915fd9470d4db486316530fce70"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 25,
+     "hlc": 111411200000000071,
+     "actor": "person:p1",
+     "kind": "task.status",
+     "payload": "7b22626c6f636b65644279223a7b226b696e64223a22706572736f6e222c22726566223a22706572736f6e3a7032227d2c226f7574636f6d65223a7b227461736b223a227431227d2c227461736b4964223a227431227d",
+     "sig": "0349ba7da68e0b1359dbbc7623643d08f7954e668bebf6ea3810391e6cadf4414a4b3c30e3d5066aea1dbf5c0d9b43d50c3be3fe17c31fefbce9465818983606",
+     "rowHash": "a0cbc2344fc4a713dbd1b98236d57c44b538bda848595ad48791a963d92a2783"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 26,
+     "hlc": 111411200000000072,
+     "actor": "person:p1",
+     "kind": "task.comment",
+     "payload": "7b227461736b4964223a227431222c22636f6d6d656e744964223a226d35222c226279223a6e756c6c2c226174746163686d656e7473223a6e756c6c7d",
+     "sig": "924ea3bafcf37ac6689a423ff33183f9aa225c501997aa3df06d093d5c1cc21a861f42df7ad0d1edd747314d366ccf77cd07b68f10a5bd1ff2293f86bd874309",
+     "rowHash": "3fd4d5293b57acc5327cef804377d0ee95e5b40db7127ad2c7ed9ea487004339"
+    },
+    {
+     "deviceId": "dev-a",
+     "seq": 27,
+     "hlc": 111411200000000073,
+     "actor": "agent:c2",
+     "kind": "task.comment",
+     "payload": "7b226279223a226167656e743a6332222c22636f6d6d656e744964223a226d3130222c227461736b4964223a227432222c2274657874223a2261667465722072656f70656e227d",
+     "sig": "bc4dd10c43ebce73b18ddad91d312c9658a3e23487e3f7c0b61bce08568031674f07ce90f6458fa968f97fb72c68fe46e64910d2d321dc2b8140840161db000b",
+     "rowHash": "0894d39a7e0f82ff7ab04cc50cd0c043035558cbc5af6551393b8e86d741d786"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 1,
+     "hlc": 111411200000000048,
+     "actor": "irori",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d69726f7269222c227469746c65223a2278227d",
+     "sig": "44458115f2adef823d2128d8d1624ced75511d905f8d02de89019fbf8b5e83528b77d71fc469e2984cf7ac7f621daac3deef5bb6766521f73782ce919b056204",
+     "rowHash": "b9537c94a2f57f6c676dd2b2ac39b42d341509e3e6e3b342ad33773fedd610ea"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 2,
+     "hlc": 111411200000000049,
+     "actor": "person:p1",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d706572736f6e3a7031222c227469746c65223a2278227d",
+     "sig": "16ef82088eb34130586e8ab8363becd82b0c45684585701dac6656f40034588d71511b5ab594b4a78384b2273e3b9ce47fb329297e325e538c1dbcd9a6638509",
+     "rowHash": "3268e7405566b3f724a8a69030c65b0b0d8c0e822600b2f19c8ad3dddc3339ec"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 3,
+     "hlc": 111411200000000050,
+     "actor": "agent:c1",
+     "kind": "task.created",
+     "payload": "7b226279223a22222c227461736b4964223a22742d6167656e743a6331222c227469746c65223a2278227d",
+     "sig": "27b014683671c4fc148490cb43eb34a097117520f8a26bc79a6350789fd568df6b992f565b5d5ddfffec7aca906c68c24eef42a1179bf16bf99cdf1dc4cc5501",
+     "rowHash": "81c235f2733f1602b1f8d6f86673e9dc7ab3e01c6764ee6140afad3a609ef42a"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 4,
+     "hlc": 111411200000000061,
+     "actor": "agent:c2",
+     "kind": "task.comment",
+     "payload": "7b226279223a226167656e743a6332222c22636f6d6d656e744964223a226d39222c227461736b4964223a227432222c2274657874223a226561726c79227d",
+     "sig": "b09d2e13f0df46ca7b6182ba5349498c64ac277cc7a6de4840ec94ce8e8f9ab2661a6e7a7de58710bd7bb28877cfbef1027f0c1cefbee9e52685fd890298ca00",
+     "rowHash": "50f133c7dff51e2072e9a25550940370241977cf67ff01343534e2680b2e4c5d"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 5,
+     "hlc": 111411200000000062,
+     "actor": "person:p2",
+     "kind": "task.created",
+     "payload": "7b226279223a22706572736f6e3a7032222c227461736b4964223a227432222c227469746c65223a2274776f227d",
+     "sig": "35021f787b18e38f568aafb8ef272d17c64e6b481093235aceafeb49652e333f83e6b7624e0abfc476c4696e75b633d5be61c24e9a98353751b95b1a480fe701",
+     "rowHash": "8daed2a43e97b1203b0a7bb11e31fd26f0a7f5dac109683364d9f3e01b8ecfc2"
+    },
+    {
+     "deviceId": "dev-b",
+     "seq": 6,
+     "hlc": 111411200000000063,
+     "actor": "agent:c2",
+     "kind": "agent.card",
+     "payload": "7b22636172644964223a226332222c22706572736f6e4964223a227032222c22737461747573223a22616374697665227d",
+     "sig": "bccc15b540378fa1b6b928e8d18271e8d8c27048e21c706e485c4b214a5196aeefbcfd93866d7a79ad1c85e2ff8203931ee0ae9d8ee4844aa97c96c367aec303",
+     "rowHash": "5866f500b185fd32bd3e673f0149b01982d0aa412e3ff9fe20641a04d064be6c"
+    }
+   ],
+   "counts": {
+    "kind": 0,
+    "actor": 0,
+    "outside": 1
+   }
+  },
+  {
+   "op": "vector",
+   "err": "",
+   "applied": 0,
+   "got": {
+    "dev-a": 27,
+    "dev-b": 6
+   },
+   "counts": {
+    "kind": 0,
+    "actor": 0,
+    "outside": 1
+   }
+  },
+  {
+   "op": "refused",
+   "err": "",
+   "applied": 0,
+   "counts": {
+    "kind": 0,
+    "actor": 0,
+    "outside": 1
+   }
+  },
+  {
+   "op": "forks",
+   "err": "",
+   "applied": 0,
+   "counts": {
+    "kind": 0,
+    "actor": 0,
+    "outside": 1
+   }
+  },
+  {
+   "op": "observed",
+   "err": "",
+   "applied": 0,
+   "counts": {
+    "kind": 0,
+    "actor": 0,
+    "outside": 1
+   },
+   "observed": [
+    "dev-a/1 agent.card",
+    "dev-a/5 agent.card",
+    "dev-a/6 board.created",
+    "dev-a/7 board.member.added",
+    "dev-a/8 board.member.role",
+    "dev-a/9 board.member.removed",
+    "dev-a/11 agent.card",
+    "dev-b/6 agent.card"
+   ]
+  }
+ ],
+ "self": "dev-a"
+}

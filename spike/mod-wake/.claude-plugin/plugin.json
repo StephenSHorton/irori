@@ -1,6 +1,0 @@
-{
-  "name": "irori-spike",
-  "version": "0.0.1",
-  "description": "Irori v0.1 spike: can a mod spawn a helper and wake its session with $.prompt.submit on this OS?",
-  "author": { "name": "Stephen Horton" }
-}

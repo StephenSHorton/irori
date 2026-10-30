@@ -1,6 +1,6 @@
-* text=auto eol=lf
-*.png binary
-*.ico binary
-*.icns binary
-*.car binary
-*.exe binary
+# Byte-exact fixtures: tests read them at fixed offsets, and the blob store
+# Go wrote is gzip. Never convert their line endings.
+crates/presence/testdata/** -text
+testdata/golden/blob/store/** binary
+# The cards' embedded sounds (crates/toast/sounds).
+*.wav binary

@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test"
 
-import { CardSummary } from "../../../bindings/github.com/StephenSHorton/irori/models"
-import { TaskState } from "../../../bindings/github.com/StephenSHorton/irori/internal/coord/models"
+import { CardSummary } from "@/lib/models"
+import { TaskState } from "@/lib/models"
 import { asFilter, filters, matches, shownCards } from "./card-grid"
 
 const card = (state: TaskState, openBlockers = 0) =>
-  new CardSummary({ id: "c", state, openBlockers, scope: "mine" })
+  CardSummary({ id: "c", state, openBlockers, scope: "mine" })
 
 describe("filters", () => {
   test("Done is the last tab", () => {
@@ -33,7 +33,7 @@ describe("filters", () => {
     expect(asFilter("board:b1")).toBe("board:b1")
   })
   test("a board chip holds that board's cards; My devices holds none of them (v0.5 §8)", () => {
-    const shared = new CardSummary({ id: "s", state: TaskState.Working, scope: "board", board: "b1", tag: "mlg" })
+    const shared = CardSummary({ id: "s", state: TaskState.Working, scope: "board", board: "b1", tag: "mlg" })
     expect(matches(shared, "all")).toBe(true)
     expect(matches(shared, "board:b1")).toBe(true)
     expect(matches(shared, "board:b2")).toBe(false)
@@ -43,7 +43,7 @@ describe("filters", () => {
 })
 
 function card2(id: string, extra: Partial<CardSummary> = {}): CardSummary {
-  return new CardSummary({ id, short: id, state: TaskState.Working, openBlockers: 0, scope: "mine", ...extra })
+  return CardSummary({ id, short: id, state: TaskState.Working, openBlockers: 0, scope: "mine", ...extra })
 }
 
 describe("shownCards", () => {

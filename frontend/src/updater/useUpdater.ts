@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
-import { Events as WailsEvents } from "@wailsio/runtime"
-import {
-  Status,
-  UpdateService,
-} from "../../bindings/github.com/StephenSHorton/irori/internal/update"
+import { Events as WailsEvents, UpdateService } from "@/lib/host"
+import { UpdateStatus as Status } from "@/lib/models"
 import { previewFlag } from "@/lib/preview"
 
 // The backend's update:status event (internal/update EventUpdateStatus).
@@ -51,14 +48,20 @@ function readDismissed(): string {
 function sampleStatus(): Status | null {
   const phase = previewFlag("update")
   if (phase === null) return null
-  return new Status({ phase: phase || "ready", version: "0.4.0" })
+  return Status({ phase: phase || "ready", version: "0.4.0" })
 }
 
 function toStatus(raw: unknown): Status {
-  // createFrom JSON-parses a string payload itself; anything else is idle.
-  return Status.createFrom(
-    typeof raw === "string" || (raw && typeof raw === "object") ? raw : {}
-  )
+  // A JSON string is parsed; any other non-object is idle.
+  let v: unknown = raw
+  if (typeof v === "string") {
+    try {
+      v = JSON.parse(v)
+    } catch {
+      v = {}
+    }
+  }
+  return Status(v && typeof v === "object" ? (v as Partial<Status>) : {})
 }
 
 /**
@@ -76,7 +79,7 @@ function toStatus(raw: unknown): Status {
  */
 export function useUpdater(): UpdaterState {
   const [status, setStatus] = useState<Status>(
-    () => sampleStatus() ?? new Status({ phase: "idle" })
+    () => sampleStatus() ?? Status({ phase: "idle" })
   )
   const [version, setVersion] = useState("")
   const [supported, setSupported] = useState(true)
@@ -117,7 +120,7 @@ export function useUpdater(): UpdaterState {
       // the startup check; its next update:status event settles it.
       if (result.phase === "idle") setUpToDate(true)
     } catch (e) {
-      setStatus(new Status({ phase: "error", error: String(e) }))
+      setStatus(Status({ phase: "error", error: String(e) }))
     } finally {
       setInFlight(false)
     }

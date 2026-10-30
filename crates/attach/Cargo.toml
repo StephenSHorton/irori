@@ -1,0 +1,30 @@
+[package]
+name = "irori-attach"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The `irori attach` runner: the client side of the attach stream the Irori Claude Code mod reads"
+
+[lib]
+name = "attach"
+
+[dependencies]
+irori-api.workspace = true
+irori-core.workspace = true
+irori-gocompat.workspace = true
+bytes.workspace = true
+http-body-util.workspace = true
+hyper = { workspace = true, features = ["client", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+tokio = { workspace = true, features = ["net", "io-util"] }
+tokio-util.workspace = true
+
+[dev-dependencies]
+# The integration tests run over the real API server.
+irori-inbox.workspace = true
+irori-presence.workspace = true
+irori-identity.workspace = true
+irori-sys.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true

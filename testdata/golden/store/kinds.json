@@ -1,0 +1,1135 @@
+{
+ "actors": [
+  {
+   "actor": "irori",
+   "ok": true
+  },
+  {
+   "actor": "person:p1",
+   "ok": true
+  },
+  {
+   "actor": "agent:c1",
+   "ok": true
+  },
+  {
+   "actor": "user",
+   "ok": false
+  },
+  {
+   "actor": "user:dev-a",
+   "ok": false
+  },
+  {
+   "actor": "api:dev-a/s1",
+   "ok": false
+  },
+  {
+   "actor": "agent:dev-a/s1",
+   "ok": false
+  },
+  {
+   "actor": "agent:",
+   "ok": false
+  },
+  {
+   "actor": "person:",
+   "ok": false
+  },
+  {
+   "actor": "person:p1/x",
+   "ok": false
+  },
+  {
+   "actor": "",
+   "ok": false
+  },
+  {
+   "actor": "Irori",
+   "ok": false
+  },
+  {
+   "actor": "irori ",
+   "ok": false
+  },
+  {
+   "actor": "person:a b",
+   "ok": false
+  },
+  {
+   "actor": "person:a\tb",
+   "ok": false
+  },
+  {
+   "actor": "person:a\\b",
+   "ok": false
+  },
+  {
+   "actor": "person:a:b",
+   "ok": false
+  },
+  {
+   "actor": "agent:x\ny",
+   "ok": false
+  },
+  {
+   "actor": "agent:x\r",
+   "ok": false
+  },
+  {
+   "actor": "person:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "ok": true
+  },
+  {
+   "actor": "person:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "ok": false
+  },
+  {
+   "actor": "agent:é",
+   "ok": true
+  },
+  {
+   "actor": "agent:p1 ",
+   "ok": false
+  }
+ ],
+ "boards": {
+  "agent.alias": "refuses",
+  "agent.card": "accepts",
+  "agent.gone": "refuses",
+  "agent.name": "refuses",
+  "agent.seen": "refuses",
+  "agent.status": "refuses",
+  "ask.answered": "refuses",
+  "ask.posted": "refuses",
+  "ask.resolved": "refuses",
+  "attach.offered": "accepts",
+  "autonomy.set": "refuses",
+  "blocker.closed": "accepts",
+  "blocker.option": "accepts",
+  "blocker.resolved": "accepts",
+  "board.cardof": "refuses",
+  "board.created": "accepts",
+  "board.forgot": "refuses",
+  "board.joined": "refuses",
+  "board.member.added": "accepts",
+  "board.member.left": "accepts",
+  "board.member.removed": "accepts",
+  "board.member.role": "accepts",
+  "board.renamed": "accepts",
+  "board.server": "accepts",
+  "board.sharedcopy": "refuses",
+  "capture.commitcmd": "refuses",
+  "capture.edit": "refuses",
+  "capture.summary": "refuses",
+  "capture.turn": "refuses",
+  "commit.linked": "refuses",
+  "commit.seen": "refuses",
+  "decision.recorded": "refuses",
+  "delivery.decided": "refuses",
+  "delivery.state": "refuses",
+  "device.color": "refuses",
+  "device.started": "refuses",
+  "lease.acquired": "accepts",
+  "lease.refused": "accepts",
+  "lease.released": "accepts",
+  "lease.stolen": "accepts",
+  "local.moved": "refuses",
+  "member.device.added": "accepts",
+  "member.device.revoked": "accepts",
+  "member.key.rotated": "accepts",
+  "member.profile": "accepts",
+  "message.sent": "refuses",
+  "node.addr": "refuses",
+  "person.device.added": "refuses",
+  "person.device.revoked": "refuses",
+  "person.key.rotated": "refuses",
+  "person.profile": "refuses",
+  "pr.ledger": "refuses",
+  "receive.set": "refuses",
+  "repo.seen": "refuses",
+  "review.requested": "accepts",
+  "review.reviewer": "accepts",
+  "revive.requested": "refuses",
+  "take.requested": "refuses",
+  "take.state": "refuses",
+  "task.assigned": "accepts",
+  "task.claimed": "accepts",
+  "task.comment": "accepts",
+  "task.created": "accepts",
+  "task.edited": "refuses",
+  "task.joined": "accepts",
+  "task.left": "accepts",
+  "task.linked": "accepts",
+  "task.parent": "accepts",
+  "task.pinned": "refuses",
+  "task.shared": "refuses",
+  "task.status": "accepts",
+  "task.step": "accepts",
+  "task.steps": "accepts",
+  "task.watched": "accepts",
+  "turn.ended": "refuses",
+  "turn.engaged": "refuses",
+  "wake.issued": "refuses"
+ },
+ "probes": [
+  {
+   "kind": "",
+   "side": "unclassified",
+   "board": "unclassified",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "Task.created",
+   "side": "unclassified",
+   "board": "unclassified",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "agent",
+   "side": "unclassified",
+   "board": "unclassified",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "agent.",
+   "side": "unclassified",
+   "board": "unclassified",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "agent.alias",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "agent.card",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": true
+  },
+  {
+   "kind": "agent.cardx",
+   "side": "unclassified",
+   "board": "unclassified",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "agent.gone",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "agent.name",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "agent.seen",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "agent.status",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "ask.answered",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "ask.posted",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "ask.resolved",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "attach.offered",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "autonomy.set",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "blocker.closed",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "blocker.option",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "blocker.resolved",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "board.",
+   "side": "unclassified",
+   "board": "unclassified",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "board.cardkey",
+   "side": "local",
+   "board": "unclassified",
+   "isLocal": true,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "board.cardof",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "board.created",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": true
+  },
+  {
+   "kind": "board.forgot",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "board.forgotten",
+   "side": "local",
+   "board": "unclassified",
+   "isLocal": true,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "board.joined",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "board.member.added",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": true
+  },
+  {
+   "kind": "board.member.left",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": true
+  },
+  {
+   "kind": "board.member.removed",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": true
+  },
+  {
+   "kind": "board.member.role",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": true
+  },
+  {
+   "kind": "board.pin",
+   "side": "local",
+   "board": "unclassified",
+   "isLocal": true,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "board.renamed",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": true
+  },
+  {
+   "kind": "board.server",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": true
+  },
+  {
+   "kind": "board.sharedcopy",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "board.zzz",
+   "side": "unclassified",
+   "board": "unclassified",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "capture.commitcmd",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "capture.edit",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "capture.summary",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "capture.turn",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "commit.linked",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "commit.seen",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "decision.recorded",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "delivery.decided",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "delivery.state",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "device.color",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "device.started",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "future.kind",
+   "side": "unclassified",
+   "board": "unclassified",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "lease.acquired",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "lease.refused",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "lease.released",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "lease.stolen",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "local.moved",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "member.",
+   "side": "unclassified",
+   "board": "unclassified",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "member.device.added",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": true
+  },
+  {
+   "kind": "member.device.revoked",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": true
+  },
+  {
+   "kind": "member.joined",
+   "side": "local",
+   "board": "unclassified",
+   "isLocal": true,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "member.key.rotated",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": true
+  },
+  {
+   "kind": "member.profile",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": true
+  },
+  {
+   "kind": "member.x",
+   "side": "unclassified",
+   "board": "unclassified",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "message.sent",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "node.addr",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "person",
+   "side": "unclassified",
+   "board": "unclassified",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "person.",
+   "side": "unclassified",
+   "board": "unclassified",
+   "isLocal": false,
+   "isPerson": true,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "person.device.added",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": true,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "person.device.revoked",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": true,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "person.key.rotated",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": true,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "person.profile",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": true,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "person.x",
+   "side": "unclassified",
+   "board": "unclassified",
+   "isLocal": false,
+   "isPerson": true,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "persons.x",
+   "side": "unclassified",
+   "board": "unclassified",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "policy.set",
+   "side": "local",
+   "board": "unclassified",
+   "isLocal": true,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "pr.ledger",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "receive.set",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "repo.seen",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "review.requested",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "review.reviewer",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "revive.requested",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "take.requested",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "take.state",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "task.assigned",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "task.claimed",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "task.comment",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "task.created",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "task.created ",
+   "side": "unclassified",
+   "board": "unclassified",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "task.edited",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "task.joined",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "task.left",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "task.linked",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "task.parent",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "task.pinned",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "task.shared",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "task.status",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "task.step",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "task.steps",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "task.watched",
+   "side": "replicated",
+   "board": "accepts",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": true,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "turn.ended",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "turn.engaged",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  },
+  {
+   "kind": "wake.issued",
+   "side": "replicated",
+   "board": "refuses",
+   "isLocal": false,
+   "isPerson": false,
+   "boardAccepted": false,
+   "isBoardIdentity": false
+  }
+ ],
+ "schemaVersion": 3,
+ "sides": {
+  "agent.alias": "replicated",
+  "agent.card": "replicated",
+  "agent.gone": "replicated",
+  "agent.name": "replicated",
+  "agent.seen": "replicated",
+  "agent.status": "replicated",
+  "ask.answered": "replicated",
+  "ask.posted": "replicated",
+  "ask.resolved": "replicated",
+  "attach.offered": "replicated",
+  "autonomy.set": "replicated",
+  "blocker.closed": "replicated",
+  "blocker.option": "replicated",
+  "blocker.resolved": "replicated",
+  "board.cardkey": "local",
+  "board.cardof": "replicated",
+  "board.created": "replicated",
+  "board.forgot": "replicated",
+  "board.forgotten": "local",
+  "board.joined": "replicated",
+  "board.member.added": "replicated",
+  "board.member.left": "replicated",
+  "board.member.removed": "replicated",
+  "board.member.role": "replicated",
+  "board.pin": "local",
+  "board.renamed": "replicated",
+  "board.server": "replicated",
+  "board.sharedcopy": "replicated",
+  "capture.commitcmd": "replicated",
+  "capture.edit": "replicated",
+  "capture.summary": "replicated",
+  "capture.turn": "replicated",
+  "commit.linked": "replicated",
+  "commit.seen": "replicated",
+  "decision.recorded": "replicated",
+  "delivery.decided": "replicated",
+  "delivery.state": "replicated",
+  "device.color": "replicated",
+  "device.started": "replicated",
+  "lease.acquired": "replicated",
+  "lease.refused": "replicated",
+  "lease.released": "replicated",
+  "lease.stolen": "replicated",
+  "local.moved": "replicated",
+  "member.device.added": "replicated",
+  "member.device.revoked": "replicated",
+  "member.joined": "local",
+  "member.key.rotated": "replicated",
+  "member.profile": "replicated",
+  "message.sent": "replicated",
+  "node.addr": "replicated",
+  "person.device.added": "replicated",
+  "person.device.revoked": "replicated",
+  "person.key.rotated": "replicated",
+  "person.profile": "replicated",
+  "policy.set": "local",
+  "pr.ledger": "replicated",
+  "receive.set": "replicated",
+  "repo.seen": "replicated",
+  "review.requested": "replicated",
+  "review.reviewer": "replicated",
+  "revive.requested": "replicated",
+  "take.requested": "replicated",
+  "take.state": "replicated",
+  "task.assigned": "replicated",
+  "task.claimed": "replicated",
+  "task.comment": "replicated",
+  "task.created": "replicated",
+  "task.edited": "replicated",
+  "task.joined": "replicated",
+  "task.left": "replicated",
+  "task.linked": "replicated",
+  "task.parent": "replicated",
+  "task.pinned": "replicated",
+  "task.shared": "replicated",
+  "task.status": "replicated",
+  "task.step": "replicated",
+  "task.steps": "replicated",
+  "task.watched": "replicated",
+  "turn.ended": "replicated",
+  "turn.engaged": "replicated",
+  "wake.issued": "replicated"
+ }
+}

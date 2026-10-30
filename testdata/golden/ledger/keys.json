@@ -1,0 +1,294 @@
+{
+ "decode": [
+  {
+   "hex": "7b226b6579223a2270723a61636d652f7765626170702331222c227265706f223a2261636d652f776562617070222c226e756d626572223a312c2275726c223a2275222c2273657373696f6e223a22642f73222c22726f6c65223a22617574686f72222c22736f75726365223a226768222c226174223a22323032362d31302d30395431323a30303a30305a227d",
+   "ok": true,
+   "marshal": "{\"key\":\"pr:acme/webapp#1\",\"repo\":\"acme/webapp\",\"number\":1,\"url\":\"u\",\"session\":\"d/s\",\"role\":\"author\",\"source\":\"gh\",\"at\":\"2026-10-09T12:00:00Z\"}"
+  },
+  {
+   "hex": "7b224b4559223a226b222c225265706f223a2252222c224e554d424552223a322c2255524c223a2275222c2253455353494f4e223a2273222c22524f4c45223a22746f7563686564222c22534f55524345223a2278222c224154223a22323032362d31302d30395431323a30303a30302e3132333435363738392b30323a3030227d",
+   "ok": true,
+   "marshal": "{\"key\":\"k\",\"repo\":\"R\",\"number\":2,\"url\":\"u\",\"session\":\"s\",\"role\":\"touched\",\"source\":\"x\",\"at\":\"2026-10-09T12:00:00.123456789+02:00\"}"
+  },
+  {
+   "hex": "7b226b6579223a2261222c226b6579223a2262222c224b6579223a2263227d",
+   "ok": true,
+   "marshal": "{\"key\":\"c\",\"repo\":\"\",\"number\":0,\"session\":\"\",\"role\":\"\",\"source\":\"\",\"at\":\"0001-01-01T00:00:00Z\"}"
+  },
+  {
+   "hex": "7b226e756d626572223a322e307d",
+   "ok": false
+  },
+  {
+   "hex": "7b226e756d626572223a2232227d",
+   "ok": false
+  },
+  {
+   "hex": "7b226e756d626572223a2d372c22726f6c65223a22706f73746572227d",
+   "ok": true,
+   "marshal": "{\"key\":\"\",\"repo\":\"\",\"number\":-7,\"session\":\"\",\"role\":\"poster\",\"source\":\"\",\"at\":\"0001-01-01T00:00:00Z\"}"
+  },
+  {
+   "hex": "7b226e756d626572223a393232333337323033363835343737353830387d",
+   "ok": false
+  },
+  {
+   "hex": "7b226174223a22626164227d",
+   "ok": false
+  },
+  {
+   "hex": "7b226174223a6e756c6c2c2275726c223a6e756c6c2c226e756d626572223a6e756c6c7d",
+   "ok": true,
+   "marshal": "{\"key\":\"\",\"repo\":\"\",\"number\":0,\"session\":\"\",\"role\":\"\",\"source\":\"\",\"at\":\"0001-01-01T00:00:00Z\"}"
+  },
+  {
+   "hex": "7b226174223a22323032362d31302d30395431323a30303a30305a222c226174223a22303030312d30312d30315430303a30303a30305a227d",
+   "ok": true,
+   "marshal": "{\"key\":\"\",\"repo\":\"\",\"number\":0,\"session\":\"\",\"role\":\"\",\"source\":\"\",\"at\":\"0001-01-01T00:00:00Z\"}"
+  },
+  {
+   "hex": "6e756c6c",
+   "ok": true,
+   "marshal": "{\"key\":\"\",\"repo\":\"\",\"number\":0,\"session\":\"\",\"role\":\"\",\"source\":\"\",\"at\":\"0001-01-01T00:00:00Z\"}"
+  },
+  {
+   "hex": "5b5d",
+   "ok": false
+  },
+  {
+   "hex": "227822",
+   "ok": false
+  },
+  {
+   "hex": "",
+   "ok": false
+  },
+  {
+   "hex": "7b226b6579223a223c263e5c7532303238222c226578747261223a7b2261223a5b312c325d7d7d",
+   "ok": true,
+   "marshal": "{\"key\":\"\\u003c\\u0026\\u003e\\u2028\",\"repo\":\"\",\"number\":0,\"session\":\"\",\"role\":\"\",\"source\":\"\",\"at\":\"0001-01-01T00:00:00Z\"}"
+  },
+  {
+   "hex": "7b2273657373696f6e223a22642ffffe73222c2275726c223a22e282227d",
+   "ok": true,
+   "marshal": "{\"key\":\"\",\"repo\":\"\",\"number\":0,\"url\":\"��\",\"session\":\"d/��s\",\"role\":\"\",\"source\":\"\",\"at\":\"0001-01-01T00:00:00Z\"}"
+  },
+  {
+   "hex": "7b226174223a22323032362d31302d30395431323a30303a30302e352d30373a3330222c22726f6c65223a227265766965776572227d",
+   "ok": true,
+   "marshal": "{\"key\":\"\",\"repo\":\"\",\"number\":0,\"session\":\"\",\"role\":\"reviewer\",\"source\":\"\",\"at\":\"2026-10-09T12:00:00.5-07:30\"}"
+  },
+  {
+   "hex": "7b226174223a22323032362d31302d30397431323a30303a30307a227d",
+   "ok": false
+  },
+  {
+   "hex": "7b226174223a22323032362d31302d30392031323a30303a30305a227d",
+   "ok": false
+  },
+  {
+   "hex": "7b227265706f223a2278227d20",
+   "ok": true,
+   "marshal": "{\"key\":\"\",\"repo\":\"x\",\"number\":0,\"session\":\"\",\"role\":\"\",\"source\":\"\",\"at\":\"0001-01-01T00:00:00Z\"}"
+  },
+  {
+   "hex": "7b227265706f223a2278227d7b7d",
+   "ok": false
+  },
+  {
+   "hex": "7b22c5bf6f75726365223a2273222c225c75323132616579223a226b227d",
+   "ok": true,
+   "marshal": "{\"key\":\"k\",\"repo\":\"\",\"number\":0,\"session\":\"\",\"role\":\"\",\"source\":\"s\",\"at\":\"0001-01-01T00:00:00Z\"}"
+  }
+ ],
+ "fromKey": [
+  {
+   "in": "remote:github.com/acme/webapp",
+   "repo": "acme/webapp"
+  },
+  {
+   "in": "remote:gitlab.com/acme/webapp",
+   "repo": ""
+  },
+  {
+   "in": "local:C:/Users/sam/projects/webapp",
+   "repo": ""
+  },
+  {
+   "in": "remote:github.com/acme",
+   "repo": ""
+  },
+  {
+   "in": "remote:github.com/acme/",
+   "repo": ""
+  },
+  {
+   "in": "remote:github.com//webapp",
+   "repo": ""
+  },
+  {
+   "in": "remote:github.com/acme/webapp/extra",
+   "repo": ""
+  },
+  {
+   "in": "Remote:github.com/acme/webapp",
+   "repo": ""
+  },
+  {
+   "in": "",
+   "repo": ""
+  },
+  {
+   "in": "remote:github.com/",
+   "repo": ""
+  },
+  {
+   "in": "remote:github.com/a/b ",
+   "repo": "a/b "
+  },
+  {
+   "in": "remote:github.com/İ/ẞ",
+   "repo": "İ/ẞ"
+  },
+  {
+   "in": " remote:github.com/a/b",
+   "repo": ""
+  },
+  {
+   "in": "remote:github.com/a//",
+   "repo": ""
+  },
+  {
+   "in": "remote:github.com/./..",
+   "repo": "./.."
+  }
+ ],
+ "keys": [
+  {
+   "repo": "acme/webapp",
+   "n": 1,
+   "key": "pr:acme/webapp#1",
+   "repoKey": "remote:github.com/acme/webapp",
+   "back": "acme/webapp"
+  },
+  {
+   "repo": "Acme/WebApp",
+   "n": 1437,
+   "key": "pr:acme/webapp#1437",
+   "repoKey": "remote:github.com/acme/webapp",
+   "back": "acme/webapp"
+  },
+  {
+   "repo": " acme/webapp ",
+   "n": 0,
+   "key": "pr:acme/webapp#0",
+   "repoKey": "remote:github.com/acme/webapp",
+   "back": "acme/webapp"
+  },
+  {
+   "repo": "",
+   "n": -5,
+   "key": "pr:#-5",
+   "repoKey": "remote:github.com/",
+   "back": ""
+  },
+  {
+   "repo": "İSTANBUL/X",
+   "n": 9223372036854775807,
+   "key": "pr:istanbul/x#9223372036854775807",
+   "repoKey": "remote:github.com/istanbul/x",
+   "back": "istanbul/x"
+  },
+  {
+   "repo": "ΣΑΣ/ΟΔΟΣ",
+   "n": 1,
+   "key": "pr:σασ/οδοσ#1",
+   "repoKey": "remote:github.com/σασ/οδοσ",
+   "back": "σασ/οδοσ"
+  },
+  {
+   "repo": "ẞ/Kelvin",
+   "n": 1437,
+   "key": "pr:ß/kelvin#1437",
+   "repoKey": "remote:github.com/ß/kelvin",
+   "back": "ß/kelvin"
+  },
+  {
+   "repo": "ǅ/Ǆ",
+   "n": 0,
+   "key": "pr:ǆ/ǆ#0",
+   "repoKey": "remote:github.com/ǆ/ǆ",
+   "back": "ǆ/ǆ"
+  },
+  {
+   "repo": "\u000b a/b ",
+   "n": -5,
+   "key": "pr:a/b#-5",
+   "repoKey": "remote:github.com/a/b",
+   "back": "a/b"
+  },
+  {
+   "repo": " a/b　",
+   "n": 9223372036854775807,
+   "key": "pr:a/b#9223372036854775807",
+   "repoKey": "remote:github.com/a/b",
+   "back": "a/b"
+  },
+  {
+   "repo": "​a/b",
+   "n": 1,
+   "key": "pr:​a/b#1",
+   "repoKey": "remote:github.com/​a/b",
+   "back": "​a/b"
+  },
+  {
+   "repo": "\ta/b\r\n",
+   "n": 1437,
+   "key": "pr:a/b#1437",
+   "repoKey": "remote:github.com/a/b",
+   "back": "a/b"
+  },
+  {
+   "repo": "\u2028a/b\u2029",
+   "n": 0,
+   "key": "pr:a/b#0",
+   "repoKey": "remote:github.com/a/b",
+   "back": "a/b"
+  },
+  {
+   "repo": "᠎a/b",
+   "n": -5,
+   "key": "pr:᠎a/b#-5",
+   "repoKey": "remote:github.com/᠎a/b",
+   "back": "᠎a/b"
+  },
+  {
+   "repo": "﻿a/b",
+   "n": 9223372036854775807,
+   "key": "pr:﻿a/b#9223372036854775807",
+   "repoKey": "remote:github.com/﻿a/b",
+   "back": "﻿a/b"
+  },
+  {
+   "repo": "Ω/ſ",
+   "n": 1,
+   "key": "pr:ω/ſ#1",
+   "repoKey": "remote:github.com/ω/ſ",
+   "back": "ω/ſ"
+  },
+  {
+   "repo": "ÀÉÎ/õü",
+   "n": 1437,
+   "key": "pr:àéî/õü#1437",
+   "repoKey": "remote:github.com/àéî/õü",
+   "back": "àéî/õü"
+  },
+  {
+   "repo": "a/b/c",
+   "n": 0,
+   "key": "pr:a/b/c#0",
+   "repoKey": "remote:github.com/a/b/c",
+   "back": ""
+  }
+ ]
+}

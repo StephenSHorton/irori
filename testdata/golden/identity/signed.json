@@ -1,0 +1,229 @@
+{
+ "at": "2026-10-28T14:25:23.9472209Z",
+ "atLocal": "2026-01-02T03:04:05.12+01:00",
+ "badTopics": [
+  {
+   "board": "nope",
+   "epoch": 1,
+   "secret": "07"
+  },
+  {
+   "board": "0123456789abcdef0123456789abcd",
+   "epoch": 1,
+   "secret": "0707070707070707070707070707070707070707070707070707070707070707"
+  },
+  {
+   "board": "0123456789abcdef0123456789abcdef",
+   "epoch": 0,
+   "secret": "0707070707070707070707070707070707070707070707070707070707070707"
+  },
+  {
+   "board": "0123456789abcdef0123456789abcdef",
+   "epoch": 1,
+   "secret": "07070707070707070707070707070707070707070707070707070707070707"
+  }
+ ],
+ "boardTopic": {
+  "key": "f6bf38c7a9bacd14cd0a27ae71e6706dc7d654b127d2a39f12ddb74bdaaba311",
+  "topic": "irori/board/1/aaa89e14cf3a94a8b97e0b4c3fb50621"
+ },
+ "device": {
+  "id": "pc-0001",
+  "name": "DESKTOP <&>",
+  "os": "windows",
+  "personId": "1addc719ecbdd81b50b63d466edb283f",
+  "devicePub": "5bbc9d823e13acdae7e45ac8af2aab4476b076c93b41f28231db43b36812ce24"
+ },
+ "deviceSeedLabel": "dev/pc",
+ "entries": [
+  {
+   "name": "cert",
+   "payload": "{\"cert\":{\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"deviceId\":\"mac-0002\",\"devicePub\":\"f8e4d1f41da1358244e290f3b8bf6034a9be3f563923a40d7828faaabbc79993\",\"label\":\"Mac \\u003cb\\u003e\",\"role\":\"desktop\",\"at\":\"2026-10-28T14:25:23.9472209Z\"},\"personPub\":\"db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d\",\"personSig\":\"09344b4a9b7b6cfc9ef873d0f02a0bda35bde558542c0a5d756355e074e1bc173eed6bb26e5120ecef05a324a8cb089444fb07878b1456fba38a305ef4d7d30b\",\"personEpoch\":1}",
+   "canonical": "{\"at\":\"2026-10-28T14:25:23.9472209Z\",\"deviceId\":\"mac-0002\",\"devicePub\":\"f8e4d1f41da1358244e290f3b8bf6034a9be3f563923a40d7828faaabbc79993\",\"label\":\"Mac <b>\",\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"role\":\"desktop\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "09344b4a9b7b6cfc9ef873d0f02a0bda35bde558542c0a5d756355e074e1bc173eed6bb26e5120ecef05a324a8cb089444fb07878b1456fba38a305ef4d7d30b"
+  },
+  {
+   "name": "cert-local-time",
+   "payload": "{\"cert\":{\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"deviceId\":\"node-3\",\"devicePub\":\"dead6c7008457bc276027ad66b1c19b6f217dd53c42850755a423cc565f71994\",\"label\":\"\",\"role\":\"node\",\"at\":\"2026-01-02T02:04:05.12Z\"},\"personPub\":\"db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d\",\"personSig\":\"a73e1b85a402718aabcb922333d0930af0b46f512f81fedbbe64f87c63fc00a64fa3585c261cb142331c3c70da1573c01b950f3efca66dc30dd099e61b8a6a0d\",\"personEpoch\":1}",
+   "canonical": "{\"at\":\"2026-01-02T02:04:05.12Z\",\"deviceId\":\"node-3\",\"devicePub\":\"dead6c7008457bc276027ad66b1c19b6f217dd53c42850755a423cc565f71994\",\"label\":\"\",\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"role\":\"node\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "a73e1b85a402718aabcb922333d0930af0b46f512f81fedbbe64f87c63fc00a64fa3585c261cb142331c3c70da1573c01b950f3efca66dc30dd099e61b8a6a0d"
+  },
+  {
+   "name": "revoke",
+   "payload": "{\"revoke\":{\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"deviceId\":\"mac-0002\",\"cut\":42,\"cutHash\":\"abababababababababababababababababababababababababababababababab\",\"at\":\"2026-10-28T14:25:23.9472209Z\",\"reason\":\"lost \\u003cit\\u003e\"},\"personPub\":\"db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d\",\"personSig\":\"95d542393f17bf71c33d31d9577227b52acc6dd73ea3d3cdbf077b4bd5d84448479f44d1452343d7e0fe3bc530ca53d851f37333826075d17ecb331dde113206\",\"personEpoch\":1}",
+   "canonical": "{\"at\":\"2026-10-28T14:25:23.9472209Z\",\"cut\":42,\"cutHash\":\"abababababababababababababababababababababababababababababababab\",\"deviceId\":\"mac-0002\",\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"reason\":\"lost <it>\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "95d542393f17bf71c33d31d9577227b52acc6dd73ea3d3cdbf077b4bd5d84448479f44d1452343d7e0fe3bc530ca53d851f37333826075d17ecb331dde113206"
+  },
+  {
+   "name": "revoke-no-reason",
+   "payload": "{\"revoke\":{\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"deviceId\":\"mac-0002\",\"cut\":0,\"cutHash\":\"\",\"at\":\"2026-10-28T14:25:23.9472209Z\"},\"personPub\":\"db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d\",\"personSig\":\"c2d4a04efdf8274f097d6f26a27eda4ec47c0ba86850ffee375907ff0070cf0752cd574df6455b98b20ea75fd1396eb862c7fa9d9abefd60fba36265164aeb01\",\"personEpoch\":1}",
+   "canonical": "{\"at\":\"2026-10-28T14:25:23.9472209Z\",\"cut\":0,\"cutHash\":\"\",\"deviceId\":\"mac-0002\",\"personId\":\"1addc719ecbdd81b50b63d466edb283f\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "c2d4a04efdf8274f097d6f26a27eda4ec47c0ba86850ffee375907ff0070cf0752cd574df6455b98b20ea75fd1396eb862c7fa9d9abefd60fba36265164aeb01"
+  },
+  {
+   "name": "profile",
+   "payload": "{\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"name\":\"Stephen \\u003c\\u0026\\u003e é\\u2028\",\"rootDeviceId\":\"pc-0001\",\"personPub\":\"db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d\",\"personSig\":\"53eea72a49f73e96ab373151c772f59c6219977c58f0ec9ea4e2116c169399949bd6164857af970c46affb9dc3f926bc85d40652bc28c69cd22a6d0005830a06\"}",
+   "canonical": "{\"name\":\"Stephen <&> é\\u2028\",\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"personPub\":\"db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d\",\"rootDeviceId\":\"pc-0001\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "53eea72a49f73e96ab373151c772f59c6219977c58f0ec9ea4e2116c169399949bd6164857af970c46affb9dc3f926bc85d40652bc28c69cd22a6d0005830a06"
+  },
+  {
+   "name": "rotation",
+   "payload": "{\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"epoch\":2,\"personPub\":\"5afb58633cbcab9599feac74057d4d2ff1a4b2a330629de87745b3ee3ad3b954\",\"at\":\"2026-10-28T14:25:23.9472209Z\",\"by\":\"pc-0001\",\"prevSig\":\"6d9d61c78c162bd08aeb9432670072390825cc8f1801661819c87bc83ebbca1b8fe62a745e9b26a6a0ed1f09709130190fe4f6f94726e867315593b6aedb2a00\"}",
+   "canonical": "{\"at\":\"2026-10-28T14:25:23.9472209Z\",\"by\":\"pc-0001\",\"personEpoch\":2,\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"personPub\":\"5afb58633cbcab9599feac74057d4d2ff1a4b2a330629de87745b3ee3ad3b954\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "6d9d61c78c162bd08aeb9432670072390825cc8f1801661819c87bc83ebbca1b8fe62a745e9b26a6a0ed1f09709130190fe4f6f94726e867315593b6aedb2a00"
+  },
+  {
+   "name": "member-rotation",
+   "payload": "{\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"personEpoch\":2,\"personPub\":\"5afb58633cbcab9599feac74057d4d2ff1a4b2a330629de87745b3ee3ad3b954\",\"by\":\"pc-0001\",\"at\":\"2026-10-28T14:25:23.9472209Z\",\"prevSig\":\"6d9d61c78c162bd08aeb9432670072390825cc8f1801661819c87bc83ebbca1b8fe62a745e9b26a6a0ed1f09709130190fe4f6f94726e867315593b6aedb2a00\"}",
+   "canonical": "{\"at\":\"2026-10-28T14:25:23.9472209Z\",\"by\":\"pc-0001\",\"personEpoch\":2,\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"personPub\":\"5afb58633cbcab9599feac74057d4d2ff1a4b2a330629de87745b3ee3ad3b954\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "6d9d61c78c162bd08aeb9432670072390825cc8f1801661819c87bc83ebbca1b8fe62a745e9b26a6a0ed1f09709130190fe4f6f94726e867315593b6aedb2a00"
+  },
+  {
+   "name": "rotation-v04",
+   "payload": "{\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"epoch\":2,\"personPub\":\"5afb58633cbcab9599feac74057d4d2ff1a4b2a330629de87745b3ee3ad3b954\",\"at\":\"2026-10-28T14:25:23.9472209Z\"}",
+   "canonical": "{\"at\":\"2026-10-28T14:25:23.9472209Z\",\"by\":\"\",\"personEpoch\":2,\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"personPub\":\"5afb58633cbcab9599feac74057d4d2ff1a4b2a330629de87745b3ee3ad3b954\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": ""
+  },
+  {
+   "name": "board.created",
+   "payload": "{\"boardId\":\"0123456789abcdef0123456789abcdef\",\"name\":\"MLG \\u0026 co\",\"tag\":\"mlg\",\"creator\":{\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"personPub\":\"db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d\",\"rootDeviceId\":\"pc-0001\",\"personEpoch\":1},\"at\":\"2026-10-28T14:25:23.9472209Z\",\"personSig\":\"5f19fd1355747a92c1a4b27a83a9cef3aef65f024fa115d0bf1b34a29eb87f62db910bc85a3281819328f2a50f2fc42e7916d9dd4571bcdb6776b5185e27280b\"}",
+   "canonical": "{\"at\":\"2026-10-28T14:25:23.9472209Z\",\"boardId\":\"0123456789abcdef0123456789abcdef\",\"creator\":{\"personEpoch\":1,\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"personPub\":\"db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d\",\"rootDeviceId\":\"pc-0001\"},\"name\":\"MLG & co\",\"tag\":\"mlg\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "5f19fd1355747a92c1a4b27a83a9cef3aef65f024fa115d0bf1b34a29eb87f62db910bc85a3281819328f2a50f2fc42e7916d9dd4571bcdb6776b5185e27280b"
+  },
+  {
+   "name": "board.renamed",
+   "payload": "{\"name\":\"ours \\u003cx\\u003e\",\"by\":\"1addc719ecbdd81b50b63d466edb283f\",\"at\":\"2026-10-28T14:25:23.9472209Z\",\"personEpoch\":1,\"personSig\":\"0ca5f782dec0748dd533da299f2f6b0394031646e19214b431a236eea769a5a788cac20bd0d7292f42ec27d7c2cde56f1d0b4b76a19cf07b574a19a49519b706\"}",
+   "canonical": "{\"at\":\"2026-10-28T14:25:23.9472209Z\",\"by\":\"1addc719ecbdd81b50b63d466edb283f\",\"name\":\"ours <x>\",\"personEpoch\":1}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "0ca5f782dec0748dd533da299f2f6b0394031646e19214b431a236eea769a5a788cac20bd0d7292f42ec27d7c2cde56f1d0b4b76a19cf07b574a19a49519b706"
+  },
+  {
+   "name": "board.member.added",
+   "payload": "{\"personId\":\"b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1\",\"personPub\":\"3c644686a117fce3daab02f207f9bc205d52d96c73423f394be1e28118ba704a\",\"rootDeviceId\":\"bpc\",\"personEpoch\":3,\"name\":\"Blake\",\"role\":\"owner\",\"by\":\"1addc719ecbdd81b50b63d466edb283f\",\"byEpoch\":1,\"at\":\"2026-10-28T14:25:23.9472209Z\",\"personSig\":\"52cbbfc4e1d9249f2f8932639b887b5e555a92421afd9d951c60700c196dbb09b824ca1af133821f4efc14fcc9670585383f840095209d705792a5a28514ea0e\"}",
+   "canonical": "{\"at\":\"2026-10-28T14:25:23.9472209Z\",\"by\":\"1addc719ecbdd81b50b63d466edb283f\",\"byEpoch\":1,\"name\":\"Blake\",\"personEpoch\":3,\"personId\":\"b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1\",\"personPub\":\"3c644686a117fce3daab02f207f9bc205d52d96c73423f394be1e28118ba704a\",\"role\":\"owner\",\"rootDeviceId\":\"bpc\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "52cbbfc4e1d9249f2f8932639b887b5e555a92421afd9d951c60700c196dbb09b824ca1af133821f4efc14fcc9670585383f840095209d705792a5a28514ea0e"
+  },
+  {
+   "name": "board.member.role",
+   "payload": "{\"personId\":\"b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1\",\"role\":\"member\",\"by\":\"1addc719ecbdd81b50b63d466edb283f\",\"at\":\"2026-10-28T14:25:23.9472209Z\",\"personEpoch\":1,\"personSig\":\"5cebafa5f87232cecd8e73da25b9c613a02e531b8f1923dd3e797482e5c05e917a719605ce27fdc792aad35de4dc622ffe7b5baec313093bbc4e7f5c30a0d90d\"}",
+   "canonical": "{\"at\":\"2026-10-28T14:25:23.9472209Z\",\"by\":\"1addc719ecbdd81b50b63d466edb283f\",\"personEpoch\":1,\"personId\":\"b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1\",\"role\":\"member\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "5cebafa5f87232cecd8e73da25b9c613a02e531b8f1923dd3e797482e5c05e917a719605ce27fdc792aad35de4dc622ffe7b5baec313093bbc4e7f5c30a0d90d"
+  },
+  {
+   "name": "board.member.removed",
+   "payload": "{\"personId\":\"b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1\",\"by\":\"1addc719ecbdd81b50b63d466edb283f\",\"reason\":\"spam\",\"cut\":{\"a\\u003cb\":-1,\"blap\":0,\"bpc\":7},\"at\":\"2026-10-28T14:25:23.9472209Z\",\"personEpoch\":1,\"personSig\":\"ec3cfd4dcff0f22a2e3a74e46da379e3e9f81beab6c55fa36190d9c57dffdad8e02b3efed35ba8809a08104b8ac8d67c454c2d2868ded1d65c328d423aa7ab05\"}",
+   "canonical": "{\"at\":\"2026-10-28T14:25:23.9472209Z\",\"by\":\"1addc719ecbdd81b50b63d466edb283f\",\"cut\":{\"a<b\":-1,\"blap\":0,\"bpc\":7},\"personEpoch\":1,\"personId\":\"b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1\",\"reason\":\"spam\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "ec3cfd4dcff0f22a2e3a74e46da379e3e9f81beab6c55fa36190d9c57dffdad8e02b3efed35ba8809a08104b8ac8d67c454c2d2868ded1d65c328d423aa7ab05"
+  },
+  {
+   "name": "board.member.removed-nil",
+   "payload": "{\"personId\":\"b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1\",\"by\":\"1addc719ecbdd81b50b63d466edb283f\",\"cut\":null,\"at\":\"2026-10-28T14:25:23.9472209Z\",\"personEpoch\":1,\"personSig\":\"30b0effef0546e592b3425afe2b32b970159978e7b4a9df7c7cfc1bb41112fd29c832c710246484db31d387ef540308c4d8d919ea9cb62dee71461ae2ae8b704\"}",
+   "canonical": "{\"at\":\"2026-10-28T14:25:23.9472209Z\",\"by\":\"1addc719ecbdd81b50b63d466edb283f\",\"cut\":null,\"personEpoch\":1,\"personId\":\"b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "30b0effef0546e592b3425afe2b32b970159978e7b4a9df7c7cfc1bb41112fd29c832c710246484db31d387ef540308c4d8d919ea9cb62dee71461ae2ae8b704"
+  },
+  {
+   "name": "board.member.removed-empty",
+   "payload": "{\"personId\":\"b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1\",\"by\":\"1addc719ecbdd81b50b63d466edb283f\",\"cut\":{},\"at\":\"2026-10-28T14:25:23.9472209Z\",\"personEpoch\":1,\"personSig\":\"b905360958eb13b3ba835331daaca4dee0613e149519d56ba88175d77829ac540ee9aa926d4a856bb734bbe49d981f0f3050da3f983d58483806340459589303\"}",
+   "canonical": "{\"at\":\"2026-10-28T14:25:23.9472209Z\",\"by\":\"1addc719ecbdd81b50b63d466edb283f\",\"cut\":{},\"personEpoch\":1,\"personId\":\"b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "b905360958eb13b3ba835331daaca4dee0613e149519d56ba88175d77829ac540ee9aa926d4a856bb734bbe49d981f0f3050da3f983d58483806340459589303"
+  },
+  {
+   "name": "board.member.left",
+   "payload": "{\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"cut\":{\"pc-0001\":9},\"at\":\"2026-10-28T14:25:23.9472209Z\",\"personEpoch\":1,\"personSig\":\"1fe7bbd918d2a52e33863a15a9351e0821c7ea80ebf327532a03185ea43e3e55b0ec61db1eef71fca29077135bf7e7d989fea32fbfe26af037c452eb0bf16501\"}",
+   "canonical": "{\"at\":\"2026-10-28T14:25:23.9472209Z\",\"cut\":{\"pc-0001\":9},\"personEpoch\":1,\"personId\":\"1addc719ecbdd81b50b63d466edb283f\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "1fe7bbd918d2a52e33863a15a9351e0821c7ea80ebf327532a03185ea43e3e55b0ec61db1eef71fca29077135bf7e7d989fea32fbfe26af037c452eb0bf16501"
+  },
+  {
+   "name": "board.member.left-nil",
+   "payload": "{\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"cut\":null,\"at\":\"2026-10-28T14:25:23.9472209Z\",\"personEpoch\":1,\"personSig\":\"32057089f234101a8bc52b06d8fc1105e67b1ba37183b25ec599aa4c863e4b1f2e8bba4839e21ca207494fc87f7f3167f71b529e28cb1e4f9924939d0fe94a04\"}",
+   "canonical": "{\"at\":\"2026-10-28T14:25:23.9472209Z\",\"cut\":null,\"personEpoch\":1,\"personId\":\"1addc719ecbdd81b50b63d466edb283f\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "32057089f234101a8bc52b06d8fc1105e67b1ba37183b25ec599aa4c863e4b1f2e8bba4839e21ca207494fc87f7f3167f71b529e28cb1e4f9924939d0fe94a04"
+  },
+  {
+   "name": "member.device.added",
+   "payload": "{\"cert\":{\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"deviceId\":\"mac-0002\",\"devicePub\":\"f8e4d1f41da1358244e290f3b8bf6034a9be3f563923a40d7828faaabbc79993\",\"role\":\"desktop\",\"personEpoch\":1,\"at\":\"2026-10-28T14:25:23.9472209Z\"},\"personSig\":\"fc76cc5ffc83a65810ae0f5e77841271978998360d26c9f8721f7f41bfa77b90b063cefb45981e4bf46d04e5bbecf3eec1167fad09eb78c879d9cfaa261a6b01\"}",
+   "canonical": "{\"at\":\"2026-10-28T14:25:23.9472209Z\",\"deviceId\":\"mac-0002\",\"devicePub\":\"f8e4d1f41da1358244e290f3b8bf6034a9be3f563923a40d7828faaabbc79993\",\"personEpoch\":1,\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"role\":\"desktop\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "fc76cc5ffc83a65810ae0f5e77841271978998360d26c9f8721f7f41bfa77b90b063cefb45981e4bf46d04e5bbecf3eec1167fad09eb78c879d9cfaa261a6b01"
+  },
+  {
+   "name": "member.device.revoked",
+   "payload": "{\"revoke\":{\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"deviceId\":\"mac-0002\",\"boardCut\":5,\"boardCutHash\":\"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\"personEpoch\":1,\"at\":\"2026-10-28T14:25:23.9472209Z\"},\"personSig\":\"a3cd0dc0376eb9e1b6d912ed3096e3d83b698081e81c8c010c1e58e2dbabfb16e2ba47abf34607884f499395cff2bc4cd8c24d74f4c12dcc582ec65d47992600\"}",
+   "canonical": "{\"at\":\"2026-10-28T14:25:23.9472209Z\",\"boardCut\":5,\"boardCutHash\":\"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\"deviceId\":\"mac-0002\",\"personEpoch\":1,\"personId\":\"1addc719ecbdd81b50b63d466edb283f\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "a3cd0dc0376eb9e1b6d912ed3096e3d83b698081e81c8c010c1e58e2dbabfb16e2ba47abf34607884f499395cff2bc4cd8c24d74f4c12dcc582ec65d47992600"
+  },
+  {
+   "name": "member.profile",
+   "payload": "{\"personId\":\"1addc719ecbdd81b50b63d466edb283f\",\"name\":\"Stephen \\u003c\\u0026\\u003e é\\u2028\",\"personEpoch\":1,\"personSig\":\"1066aedebee74f8def40e14c322e3b3d187aaa17ddcad54c428a7c8a19dd3685831cf736e733373b521a8529f83bf020731a2a0b7583cc41f24e6d514dc19f0d\"}",
+   "canonical": "{\"name\":\"Stephen <&> é\\u2028\",\"personEpoch\":1,\"personId\":\"1addc719ecbdd81b50b63d466edb283f\"}",
+   "signer": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d",
+   "sig": "1066aedebee74f8def40e14c322e3b3d187aaa17ddcad54c428a7c8a19dd3685831cf736e733373b521a8529f83bf020731a2a0b7583cc41f24e6d514dc19f0d"
+  }
+ ],
+ "person": {
+  "personId": "1addc719ecbdd81b50b63d466edb283f",
+  "name": "Stephen <&> é\u2028",
+  "epoch": 1,
+  "rootDeviceId": "pc-0001",
+  "personPub": "db8c369a503b98958945d0f74cc08137917e16e8f888cddca014ab617adeb17d"
+ },
+ "personSeedLabel": "person/s/1",
+ "seed5": {
+  "personId": "7599776c3085e3f9da0d13071eb0b4ab",
+  "pub": "6e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1"
+ },
+ "topics": [
+  {
+   "board": "0123456789abcdef0123456789abcdef",
+   "epoch": 1,
+   "secret": "0707070707070707070707070707070707070707070707070707070707070707",
+   "key": "f6bf38c7a9bacd14cd0a27ae71e6706dc7d654b127d2a39f12ddb74bdaaba311",
+   "topic": "irori/board/1/aaa89e14cf3a94a8b97e0b4c3fb50621"
+  },
+  {
+   "board": "0123456789abcdef0123456789abcdef",
+   "epoch": 2,
+   "secret": "0707070707070707070707070707070707070707070707070707070707070707",
+   "key": "cf56808467ffe2b9d95c006f4582f934fa46ea24a4d9a0c252582f3b93d601a7",
+   "topic": "irori/board/1/ec3ca3d647e3f1f881a067261396c5d6"
+  },
+  {
+   "board": "fedcba9876543210fedcba9876543210",
+   "epoch": 1,
+   "secret": "0707070707070707070707070707070707070707070707070707070707070707",
+   "key": "7cb1fc8ddcf817909022a1cb0f5788588e61bc0c0b72b78782586aa7f4a09798",
+   "topic": "irori/board/1/7643e263b29d47b6a8a61c0af4cacd78"
+  },
+  {
+   "board": "0123456789ABCDEF0123456789ABCDEF",
+   "epoch": 1,
+   "secret": "0808080808080808080808080808080808080808080808080808080808080808",
+   "key": "c8337696857734f147d990c687639ad08279634329feda6e5fe7e67c6c7ba0c7",
+   "topic": "irori/board/1/2fdcf36846c22ddda152ba5c1ba02735"
+  },
+  {
+   "board": "00000000000000000000000000000000",
+   "epoch": 1099511627776,
+   "secret": "0000000000000000000000000000000000000000000000000000000000000000",
+   "key": "206ab22bdf5190ce460513d057e84ebab712e363fad7fd07b3dc18bd7f737f5e",
+   "topic": "irori/board/1/a42ec21538a5a3acc14dad6c33b68209"
+  }
+ ]
+}

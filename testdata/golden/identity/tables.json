@@ -1,0 +1,138 @@
+{
+ "entities": {
+  "ask.answered": "",
+  "ask.resolved": "ask",
+  "delivery.decided": "",
+  "delivery.state": "delivery",
+  "lease.acquired": "lease",
+  "lease.refused": "lease",
+  "lease.released": "lease",
+  "lease.stolen": "",
+  "node.addr": "server",
+  "revive.requested": "",
+  "take.requested": "",
+  "take.state": "take",
+  "turn.ended": "delivery",
+  "turn.engaged": "delivery",
+  "wake.issued": "delivery"
+ },
+ "keys": [
+  {
+   "key": "pc/aaaa-session",
+   "device": "pc",
+   "mayPc": true,
+   "mayOther": false
+  },
+  {
+   "key": "mac/grok-1",
+   "device": "mac",
+   "mayPc": false,
+   "mayOther": false
+  },
+  {
+   "key": "user:pc",
+   "device": "pc",
+   "mayPc": true,
+   "mayOther": false
+  },
+  {
+   "key": "irori",
+   "device": "",
+   "mayPc": true,
+   "mayOther": true
+  },
+  {
+   "key": "",
+   "device": "",
+   "mayPc": true,
+   "mayOther": true
+  },
+  {
+   "key": "remote:github.com/a/b",
+   "device": "",
+   "mayPc": true,
+   "mayOther": true
+  },
+  {
+   "key": "/x",
+   "device": "",
+   "mayPc": true,
+   "mayOther": true
+  },
+  {
+   "key": "user:",
+   "device": "",
+   "mayPc": true,
+   "mayOther": true
+  },
+  {
+   "key": "a:b/c",
+   "device": "",
+   "mayPc": true,
+   "mayOther": true
+  },
+  {
+   "key": "pc/",
+   "device": "pc",
+   "mayPc": true,
+   "mayOther": false
+  },
+  {
+   "key": "user:x/y",
+   "device": "x/y",
+   "mayPc": false,
+   "mayOther": false
+  },
+  {
+   "key": "agent:pc/s",
+   "device": "",
+   "mayPc": true,
+   "mayOther": true
+  }
+ ],
+ "names": {
+  "": false,
+  "\t": false,
+  " mlg": false,
+  "Blake & me": true,
+  "a\nb": false,
+  "ab": false,
+  "ab": false,
+  "ab": false,
+  "a­b": true,
+  "a​b": true,
+  "mlg": true,
+  "mlg ": false,
+  "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": true,
+  "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": false,
+  "x ": false,
+  "x\u2028": false,
+  "x　": false,
+  " x": false,
+  "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé": true,
+  "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé": false,
+  "᠎x": true,
+  " ": false,
+  "日本語": true,
+  "�": true,
+  "😀": true
+ },
+ "tags": {
+  "": false,
+  "-x": false,
+  "12": false,
+  "1abc": false,
+  "Mlg": false,
+  "a": true,
+  "a-": true,
+  "a_b": false,
+  "abcdefghijklmnop": true,
+  "abcdefghijklmnopq": false,
+  "ml g": false,
+  "ml#g": false,
+  "mlg": true,
+  "mlg-2": true,
+  "z9": true,
+  "é": false
+ }
+}

@@ -153,7 +153,6 @@ export function holderText(h: CardHolder): string {
   const more = h.others > 0 ? ` (+${h.others} more)` : ""
   switch (h.state) {
     case Holding.HoldNobody:
-    case Holding.$zero:
       return "Nobody holds it yet"
     case Holding.HoldPerson:
       return `You hold it${more}`

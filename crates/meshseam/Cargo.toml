@@ -1,0 +1,23 @@
+[package]
+name = "irori-meshseam"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The mesh transport seam (Go mesh.Transport/Room/Conn, mesh.md §0, §5.2): the traits the mesh crate and the iroh transport in net both build on, plus MeshSecret"
+
+[lib]
+name = "irori_meshseam"
+
+[dependencies]
+hex.workspace = true
+hkdf.workspace = true
+sha2.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util"] }
+zeroize.workspace = true
+
+[dev-dependencies]
+serde = { workspace = true }
+serde_json.workspace = true

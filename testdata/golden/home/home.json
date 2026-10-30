@@ -1,0 +1,394 @@
+{
+  "cgnat": {
+    "10.1.1.1": true,
+    "100.127.255.254": true,
+    "100.128.0.1": false,
+    "100.64.0.1": true,
+    "127.0.0.1": true,
+    "172.16.0.1": true,
+    "172.32.0.1": false,
+    "192.168.0.1": true,
+    "2001:db8::1": false,
+    "203.0.113.9": false,
+    "8.8.8.8": false,
+    "::1": true,
+    "fd00::1": true
+  },
+  "hostPort": [
+    {
+      "in": "1.2.3.4",
+      "port": 25817,
+      "out": "1.2.3.4:25817",
+      "err": "",
+      "pubHost": "1.2.3.4",
+      "pubPort": 25817,
+      "pubErr": ""
+    },
+    {
+      "in": " pc.example:443 ",
+      "port": 1,
+      "out": "pc.example:443",
+      "err": "",
+      "pubHost": "pc.example",
+      "pubPort": 443,
+      "pubErr": ""
+    },
+    {
+      "in": "2001:db8::7",
+      "port": 9,
+      "out": "[2001:db8::7]:9",
+      "err": "",
+      "pubHost": "2001:db8::7",
+      "pubPort": 9,
+      "pubErr": ""
+    },
+    {
+      "in": "[2001:db8::7]:9",
+      "port": 1,
+      "out": "[2001:db8::7]:9",
+      "err": "",
+      "pubHost": "2001:db8::7",
+      "pubPort": 9,
+      "pubErr": ""
+    },
+    {
+      "in": "[::1]",
+      "port": 9,
+      "out": "[::1]:9",
+      "err": "",
+      "pubHost": "::1",
+      "pubPort": 9,
+      "pubErr": ""
+    },
+    {
+      "in": "",
+      "port": 9,
+      "out": "",
+      "err": "no address",
+      "pubHost": "",
+      "pubPort": 0,
+      "pubErr": "no address"
+    },
+    {
+      "in": "   ",
+      "port": 9,
+      "out": "",
+      "err": "no address",
+      "pubHost": "",
+      "pubPort": 0,
+      "pubErr": "no address"
+    },
+    {
+      "in": "h:0",
+      "port": 9,
+      "out": "",
+      "err": "that isn't a host and port",
+      "pubHost": "",
+      "pubPort": 0,
+      "pubErr": "that isn't a host and port"
+    },
+    {
+      "in": ":80",
+      "port": 9,
+      "out": "",
+      "err": "that isn't a host and port",
+      "pubHost": "",
+      "pubPort": 0,
+      "pubErr": "that isn't a host and port"
+    },
+    {
+      "in": "h:65536",
+      "port": 9,
+      "out": "",
+      "err": "that isn't a host and port",
+      "pubHost": "",
+      "pubPort": 0,
+      "pubErr": "that isn't a host and port"
+    },
+    {
+      "in": "h:+80",
+      "port": 9,
+      "out": "h:+80",
+      "err": "",
+      "pubHost": "h",
+      "pubPort": 80,
+      "pubErr": ""
+    },
+    {
+      "in": "h:x",
+      "port": 9,
+      "out": "",
+      "err": "that isn't a host and port",
+      "pubHost": "",
+      "pubPort": 0,
+      "pubErr": "that isn't a host and port"
+    },
+    {
+      "in": "h",
+      "port": 0,
+      "out": "",
+      "err": "the address needs a port, like 203.0.113.7:24817",
+      "pubHost": "",
+      "pubPort": 0,
+      "pubErr": "the address needs a port, like 203.0.113.7:24817"
+    },
+    {
+      "in": "not an address/",
+      "port": 1,
+      "out": "",
+      "err": "that isn't a host name or address",
+      "pubHost": "",
+      "pubPort": 0,
+      "pubErr": "that isn't a host name or address"
+    },
+    {
+      "in": "a b",
+      "port": 1,
+      "out": "",
+      "err": "that isn't a host name or address",
+      "pubHost": "",
+      "pubPort": 0,
+      "pubErr": "that isn't a host name or address"
+    },
+    {
+      "in": "pc.example",
+      "port": 25817,
+      "out": "pc.example:25817",
+      "err": "",
+      "pubHost": "pc.example",
+      "pubPort": 25817,
+      "pubErr": ""
+    },
+    {
+      "in": "[a]b:1",
+      "port": 1,
+      "out": "[a]b:1]:1",
+      "err": "",
+      "pubHost": "",
+      "pubPort": 0,
+      "pubErr": ""
+    },
+    {
+      "in": "a:b:c",
+      "port": 0,
+      "out": "",
+      "err": "the address needs a port, like 203.0.113.7:24817",
+      "pubHost": "",
+      "pubPort": 0,
+      "pubErr": "the address needs a port, like 203.0.113.7:24817"
+    },
+    {
+      "in": "[::1]:",
+      "port": 1,
+      "out": "",
+      "err": "that isn't a host and port",
+      "pubHost": "",
+      "pubPort": 0,
+      "pubErr": "that isn't a host and port"
+    },
+    {
+      "in": "\tpc.example:80\n",
+      "port": 1,
+      "out": "pc.example:80",
+      "err": "",
+      "pubHost": "pc.example",
+      "pubPort": 80,
+      "pubErr": ""
+    }
+  ],
+  "nodeAddr": [
+    {
+      "json": "{\"v\":1,\"public\":null,\"via\":\"\",\"reach\":\"off\",\"at\":1761700000000}",
+      "dial": [],
+      "outside": ""
+    },
+    {
+      "json": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\"],\"public\":null,\"via\":\"\",\"reach\":\"unmapped\",\"at\":1761700000001}",
+      "dial": [
+        "192.168.1.20:25817"
+      ],
+      "outside": ""
+    },
+    {
+      "json": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\",\"172.16.0.5\"],\"public\":{\"ip\":\"203.0.113.7\",\"tcp\":25817,\"udp\":25818},\"via\":\"upnp\",\"reach\":\"ok\",\"at\":2}",
+      "dial": [
+        "192.168.1.20:25817",
+        "172.16.0.5:25817",
+        "203.0.113.7:25817"
+      ],
+      "outside": "203.0.113.7:25817"
+    },
+    {
+      "json": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\"],\"public\":{\"ip\":\"pc.example\",\"tcp\":443,\"udp\":443},\"via\":\"manual\",\"reach\":\"ok\",\"at\":3}",
+      "dial": [
+        "192.168.1.20:25817",
+        "pc.example:443"
+      ],
+      "outside": "pc.example:443"
+    },
+    {
+      "json": "{\"v\":1,\"port\":25817,\"public\":{\"ip\":\"100.64.3.4\",\"tcp\":25817,\"udp\":25817},\"via\":\"natpmp\",\"reach\":\"cgnat\",\"at\":4}",
+      "dial": [],
+      "outside": ""
+    },
+    {
+      "json": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\"],\"v6\":[\"2001:db8::7\"],\"public\":{\"ip\":\"2001:db8::1\",\"tcp\":25817,\"udp\":25817},\"via\":\"upnp\",\"reach\":\"ok\",\"at\":5}",
+      "dial": [
+        "192.168.1.20:25817",
+        "[2001:db8::7]:25817",
+        "[2001:db8::1]:25817"
+      ],
+      "outside": "[2001:db8::1]:25817"
+    },
+    {
+      "json": "{\"v\":1,\"port\":25817,\"public\":{\"ip\":\"a\\u003cb\\u003e\\u0026c.example\",\"tcp\":1,\"udp\":1},\"via\":\"manual\",\"reach\":\"ok\",\"at\":6}",
+      "dial": [
+        "a\u003cb\u003e\u0026c.example:1"
+      ],
+      "outside": "a\u003cb\u003e\u0026c.example:1"
+    },
+    {
+      "json": "{\"v\":1,\"lan\":[\"192.168.1.20\"],\"public\":null,\"via\":\"\",\"reach\":\"unmapped\",\"at\":7}",
+      "dial": [],
+      "outside": ""
+    },
+    {
+      "json": "{\"v\":1,\"port\":25817,\"public\":{\"ip\":\"\",\"tcp\":25817,\"udp\":0},\"via\":\"upnp\",\"reach\":\"ok\",\"at\":0}",
+      "dial": [],
+      "outside": ""
+    }
+  ],
+  "same": [
+    {
+      "a": "{\"v\":1,\"public\":null,\"via\":\"\",\"reach\":\"off\",\"at\":1761700000000}",
+      "b": "{\"v\":1,\"public\":null,\"via\":\"\",\"reach\":\"off\",\"at\":1761700012345}",
+      "same": true
+    },
+    {
+      "a": "{\"v\":1,\"public\":null,\"via\":\"\",\"reach\":\"off\",\"at\":1761700000000}",
+      "b": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\"],\"public\":null,\"via\":\"\",\"reach\":\"unmapped\",\"at\":1761700000001}",
+      "same": false
+    },
+    {
+      "a": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\"],\"public\":null,\"via\":\"\",\"reach\":\"unmapped\",\"at\":1761700000001}",
+      "b": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\"],\"public\":null,\"via\":\"\",\"reach\":\"unmapped\",\"at\":1761700012346}",
+      "same": true
+    },
+    {
+      "a": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\"],\"public\":null,\"via\":\"\",\"reach\":\"unmapped\",\"at\":1761700000001}",
+      "b": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\",\"172.16.0.5\"],\"public\":{\"ip\":\"203.0.113.7\",\"tcp\":25817,\"udp\":25818},\"via\":\"upnp\",\"reach\":\"ok\",\"at\":2}",
+      "same": false
+    },
+    {
+      "a": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\",\"172.16.0.5\"],\"public\":{\"ip\":\"203.0.113.7\",\"tcp\":25817,\"udp\":25818},\"via\":\"upnp\",\"reach\":\"ok\",\"at\":2}",
+      "b": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\",\"172.16.0.5\"],\"public\":{\"ip\":\"203.0.113.7\",\"tcp\":25817,\"udp\":25818},\"via\":\"upnp\",\"reach\":\"ok\",\"at\":12347}",
+      "same": true
+    },
+    {
+      "a": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\",\"172.16.0.5\"],\"public\":{\"ip\":\"203.0.113.7\",\"tcp\":25817,\"udp\":25818},\"via\":\"upnp\",\"reach\":\"ok\",\"at\":2}",
+      "b": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\"],\"public\":{\"ip\":\"pc.example\",\"tcp\":443,\"udp\":443},\"via\":\"manual\",\"reach\":\"ok\",\"at\":3}",
+      "same": false
+    },
+    {
+      "a": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\"],\"public\":{\"ip\":\"pc.example\",\"tcp\":443,\"udp\":443},\"via\":\"manual\",\"reach\":\"ok\",\"at\":3}",
+      "b": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\"],\"public\":{\"ip\":\"pc.example\",\"tcp\":443,\"udp\":443},\"via\":\"manual\",\"reach\":\"ok\",\"at\":12348}",
+      "same": true
+    },
+    {
+      "a": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\"],\"public\":{\"ip\":\"pc.example\",\"tcp\":443,\"udp\":443},\"via\":\"manual\",\"reach\":\"ok\",\"at\":3}",
+      "b": "{\"v\":1,\"port\":25817,\"public\":{\"ip\":\"100.64.3.4\",\"tcp\":25817,\"udp\":25817},\"via\":\"natpmp\",\"reach\":\"cgnat\",\"at\":4}",
+      "same": false
+    },
+    {
+      "a": "{\"v\":1,\"port\":25817,\"public\":{\"ip\":\"100.64.3.4\",\"tcp\":25817,\"udp\":25817},\"via\":\"natpmp\",\"reach\":\"cgnat\",\"at\":4}",
+      "b": "{\"v\":1,\"port\":25817,\"public\":{\"ip\":\"100.64.3.4\",\"tcp\":25817,\"udp\":25817},\"via\":\"natpmp\",\"reach\":\"cgnat\",\"at\":12349}",
+      "same": true
+    },
+    {
+      "a": "{\"v\":1,\"port\":25817,\"public\":{\"ip\":\"100.64.3.4\",\"tcp\":25817,\"udp\":25817},\"via\":\"natpmp\",\"reach\":\"cgnat\",\"at\":4}",
+      "b": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\"],\"v6\":[\"2001:db8::7\"],\"public\":{\"ip\":\"2001:db8::1\",\"tcp\":25817,\"udp\":25817},\"via\":\"upnp\",\"reach\":\"ok\",\"at\":5}",
+      "same": false
+    },
+    {
+      "a": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\"],\"v6\":[\"2001:db8::7\"],\"public\":{\"ip\":\"2001:db8::1\",\"tcp\":25817,\"udp\":25817},\"via\":\"upnp\",\"reach\":\"ok\",\"at\":5}",
+      "b": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\"],\"v6\":[\"2001:db8::7\"],\"public\":{\"ip\":\"2001:db8::1\",\"tcp\":25817,\"udp\":25817},\"via\":\"upnp\",\"reach\":\"ok\",\"at\":12350}",
+      "same": true
+    },
+    {
+      "a": "{\"v\":1,\"port\":25817,\"lan\":[\"192.168.1.20\"],\"v6\":[\"2001:db8::7\"],\"public\":{\"ip\":\"2001:db8::1\",\"tcp\":25817,\"udp\":25817},\"via\":\"upnp\",\"reach\":\"ok\",\"at\":5}",
+      "b": "{\"v\":1,\"port\":25817,\"public\":{\"ip\":\"a\\u003cb\\u003e\\u0026c.example\",\"tcp\":1,\"udp\":1},\"via\":\"manual\",\"reach\":\"ok\",\"at\":6}",
+      "same": false
+    },
+    {
+      "a": "{\"v\":1,\"port\":25817,\"public\":{\"ip\":\"a\\u003cb\\u003e\\u0026c.example\",\"tcp\":1,\"udp\":1},\"via\":\"manual\",\"reach\":\"ok\",\"at\":6}",
+      "b": "{\"v\":1,\"port\":25817,\"public\":{\"ip\":\"a\\u003cb\\u003e\\u0026c.example\",\"tcp\":1,\"udp\":1},\"via\":\"manual\",\"reach\":\"ok\",\"at\":12351}",
+      "same": true
+    },
+    {
+      "a": "{\"v\":1,\"port\":25817,\"public\":{\"ip\":\"a\\u003cb\\u003e\\u0026c.example\",\"tcp\":1,\"udp\":1},\"via\":\"manual\",\"reach\":\"ok\",\"at\":6}",
+      "b": "{\"v\":1,\"lan\":[\"192.168.1.20\"],\"public\":null,\"via\":\"\",\"reach\":\"unmapped\",\"at\":7}",
+      "same": false
+    },
+    {
+      "a": "{\"v\":1,\"lan\":[\"192.168.1.20\"],\"public\":null,\"via\":\"\",\"reach\":\"unmapped\",\"at\":7}",
+      "b": "{\"v\":1,\"lan\":[\"192.168.1.20\"],\"public\":null,\"via\":\"\",\"reach\":\"unmapped\",\"at\":12352}",
+      "same": true
+    },
+    {
+      "a": "{\"v\":1,\"lan\":[\"192.168.1.20\"],\"public\":null,\"via\":\"\",\"reach\":\"unmapped\",\"at\":7}",
+      "b": "{\"v\":1,\"port\":25817,\"public\":{\"ip\":\"\",\"tcp\":25817,\"udp\":0},\"via\":\"upnp\",\"reach\":\"ok\",\"at\":0}",
+      "same": false
+    },
+    {
+      "a": "{\"v\":1,\"port\":25817,\"public\":{\"ip\":\"\",\"tcp\":25817,\"udp\":0},\"via\":\"upnp\",\"reach\":\"ok\",\"at\":0}",
+      "b": "{\"v\":1,\"port\":25817,\"public\":{\"ip\":\"\",\"tcp\":25817,\"udp\":0},\"via\":\"upnp\",\"reach\":\"ok\",\"at\":12345}",
+      "same": true
+    },
+    {
+      "a": "{\"v\":1,\"port\":25817,\"public\":{\"ip\":\"\",\"tcp\":25817,\"udp\":0},\"via\":\"upnp\",\"reach\":\"ok\",\"at\":0}",
+      "b": "{\"v\":1,\"public\":null,\"via\":\"\",\"reach\":\"off\",\"at\":1761700000000}",
+      "same": false
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "mapped",
+      "status": "{\"on\":true,\"outside\":true,\"running\":true,\"port\":N,\"reach\":\"outside\",\"address\":\"203.0.113.7:N\",\"awake\":true,\"awakeLine\":\"Keeping this PC awake\"}",
+      "row": "{\"v\":1,\"port\":N,\"lan\":[\"127.0.0.1\"],\"public\":{\"ip\":\"203.0.113.7\",\"tcp\":N,\"udp\":N},\"via\":\"upnp\",\"reach\":\"ok\",\"at\":0}"
+    },
+    {
+      "name": "cgnat",
+      "status": "{\"on\":true,\"outside\":true,\"running\":true,\"port\":N,\"reach\":\"cgnat\",\"line\":\"Your internet provider shares your public address (CGNAT), so devices away from home can't reach this PC, and a port forward won't help.\",\"awake\":true,\"awakeLine\":\"Keeping this PC awake\"}",
+      "row": "{\"v\":1,\"port\":N,\"lan\":[\"127.0.0.1\"],\"public\":{\"ip\":\"100.64.3.4\",\"tcp\":N,\"udp\":N},\"via\":\"upnp\",\"reach\":\"cgnat\",\"at\":0}"
+    },
+    {
+      "name": "failed",
+      "status": "{\"on\":true,\"outside\":true,\"running\":true,\"port\":N,\"reach\":\"forward\",\"line\":\"Away from home your devices can't reach this PC. Turn on UPnP on your router, or forward TCP and UDP port N to 127.0.0.1.\",\"awake\":true,\"awakeLine\":\"Keeping this PC awake\"}",
+      "row": "{\"v\":1,\"port\":N,\"lan\":[\"127.0.0.1\"],\"public\":null,\"via\":\"\",\"reach\":\"unmapped\",\"at\":0}"
+    },
+    {
+      "name": "home",
+      "status": "{\"on\":true,\"outside\":false,\"running\":true,\"port\":N,\"reach\":\"home\",\"awake\":true,\"awakeLine\":\"Keeping this PC awake\"}",
+      "row": "{\"v\":1,\"port\":N,\"lan\":[\"127.0.0.1\"],\"public\":null,\"via\":\"\",\"reach\":\"unmapped\",\"at\":0}"
+    },
+    {
+      "name": "manual",
+      "status": "{\"on\":true,\"outside\":true,\"public\":\"pc.example:443\",\"running\":true,\"port\":N,\"reach\":\"outside\",\"address\":\"pc.example:443\",\"line\":\"Irori can't test the address you entered from inside your home. If your public address changes, it goes stale.\",\"awake\":true,\"awakeLine\":\"Keeping this PC awake\"}",
+      "row": "{\"v\":1,\"port\":N,\"lan\":[\"127.0.0.1\"],\"public\":{\"ip\":\"pc.example\",\"tcp\":443,\"udp\":443},\"via\":\"manual\",\"reach\":\"ok\",\"at\":0}"
+    }
+  ],
+  "settings": [
+    "{\n  \"on\": false\n}",
+    "{\n  \"on\": true,\n  \"port\": 25817\n}",
+    "{\n  \"on\": true,\n  \"port\": 25817,\n  \"outside\": false\n}",
+    "{\n  \"on\": true,\n  \"port\": 25817,\n  \"outside\": true,\n  \"awake\": false\n}",
+    "{\n  \"on\": false,\n  \"port\": 20001,\n  \"public\": \"pc.example:443\",\n  \"tcpExternal\": 25000,\n  \"udpExternal\": 25001,\n  \"awake\": true\n}",
+    "{\n  \"on\": true,\n  \"public\": \"\\u003cx\\u003e\\u0026y\"\n}"
+  ],
+  "status": [
+    "{\"on\":false,\"outside\":false,\"running\":false,\"awake\":false}",
+    "{\"on\":true,\"outside\":true,\"running\":false,\"awake\":true}",
+    "{\"on\":true,\"outside\":true,\"public\":\"pc.example:443\",\"running\":true,\"port\":25817,\"reach\":\"outside\",\"address\":\"pc.example:443\",\"line\":\"a \\u003cline\\u003e \\u0026 more\",\"awake\":true,\"awakeLine\":\"Keeping this PC awake\"}",
+    "{\"on\":true,\"outside\":false,\"running\":true,\"port\":25817,\"reach\":\"home\",\"awake\":false,\"awakeLine\":\"Can't keep this PC awake: x\"}"
+  ]
+}

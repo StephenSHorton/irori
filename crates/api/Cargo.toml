@@ -1,0 +1,46 @@
+[package]
+name = "irori-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The loopback HTTP API: every /v1 route, the attach and events streams, and a small client"
+
+[lib]
+name = "irori_api"
+
+[dependencies]
+irori-capture.workspace = true
+irori-coord.workspace = true
+irori-core.workspace = true
+irori-gocompat.workspace = true
+irori-home.workspace = true
+irori-identity.workspace = true
+irori-inbox.workspace = true
+irori-mesh.workspace = true
+irori-pair.workspace = true
+irori-presence.workspace = true
+irori-search.workspace = true
+irori-store.workspace = true
+irori-tools.workspace = true
+bytes.workspace = true
+getrandom.workspace = true
+hex.workspace = true
+http-body-util.workspace = true
+hyper = { workspace = true, features = ["server", "client", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+serde.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+subtle.workspace = true
+tokio = { workspace = true, features = ["net", "io-util"] }
+tokio-util.workspace = true
+
+[dev-dependencies]
+# tests/pair.rs: two Cores pairing over loopback iroh and LAN.
+iroh = "1.4.1"
+irori-lan.workspace = true
+irori-net.workspace = true
+irori-blob.workspace = true
+regex.workspace = true
+irori-sys.workspace = true
+tempfile.workspace = true

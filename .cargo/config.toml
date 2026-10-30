@@ -1,0 +1,3 @@
+[alias]
+# `cargo xtask bindings [--check]` (architecture.md 7.1, D10).
+xtask = "run --quiet -p xtask --"
