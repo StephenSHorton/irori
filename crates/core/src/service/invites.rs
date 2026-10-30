@@ -254,13 +254,14 @@ impl Core {
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
         }
-        let a = match net.invite_addr().await {
+        let mut a = match net.invite_addr().await {
             Ok(a) => a,
             Err(e) => {
                 self.set_hosting(false);
                 return Err(e.0);
             }
         };
+        self.reachable_relay(&mut a);
         let link = host
             .ticket(
                 &hex::encode(a.id.as_bytes()),
@@ -398,6 +399,34 @@ impl Core {
     /// Calls `f` with every change of the open invite; `None` stops.
     pub fn watch_invites(&self, f: Option<InviteWatchFn>) {
         *lock(&self.s.invites.watch) = f;
+    }
+
+    /// The endpoint homes on its own server's relay at 127.0.0.1, which
+    /// names the invitee's own machine on the invitee's side. The link
+    /// names that relay as another device reaches it instead: the server's
+    /// address from outside home while it has one (as pairing's server
+    /// address, #53), else its LAN address.
+    fn reachable_relay(&self, a: &mut InviteAddr) {
+        let own = iroh::EndpointId::from_bytes(&self.s.ident.device_pub()).ok();
+        let loopback = a
+            .relay
+            .as_ref()
+            .and_then(|u| u.host_str())
+            .is_some_and(|h| h == "127.0.0.1" || h == "localhost" || h == "[::1]");
+        if !loopback || a.relay_pub != own {
+            return;
+        }
+        let outside = self
+            .s
+            .home
+            .as_ref()
+            .map(|h| h.status())
+            .filter(|st| st.running && !st.address.is_empty())
+            .and_then(|st| irori_net::book::relay_of(&st.address));
+        if let Some((url, port)) = outside.or_else(|| self.s.mesh.local_relay_lan()) {
+            a.relay = Some(url);
+            a.relay_quic_port = port;
+        }
     }
 
     /// Whether this device is the inviter of an open invite (the home
