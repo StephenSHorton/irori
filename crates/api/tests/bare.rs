@@ -67,6 +67,13 @@ impl Backend for Bare {
         self.detail.lock().unwrap().push(detail);
         self.mesh.clone()
     }
+    /// With a mesh: on, one of its other rows connected.
+    fn net_health(&self) -> Option<irori_api::NetHealth> {
+        self.mesh.as_ref().map(|rows| irori_api::NetHealth {
+            state: "on".into(),
+            peers: rows.iter().filter(|r| r.state == "connected").count(),
+        })
+    }
 }
 
 struct Host {
@@ -246,6 +253,35 @@ fn events_stream_resync_and_close() {
 
 /// Go server.go `devices`: 503 without a mesh; with one, the rows as
 /// `[]DeviceRow` and `detail` on for `1` or `true` only.
+/// Go server.go: health's `net` is `{state, peers}` for a backend with a
+/// mesh and left out for one without, with no token needed either way.
+#[test]
+fn health_net_like_go() {
+    let get = |h: &Host| {
+        let c = irori_api::client::Client::at(h.port, "");
+        let r =
+            h.rt.block_on(c.raw("GET", "/v1/health", &[], None))
+                .unwrap();
+        assert_eq!(r.status, 200);
+        String::from_utf8(r.body).unwrap()
+    };
+    assert_eq!(
+        get(&start()),
+        "{\"ok\":true,\"version\":\"0.0.0-test\",\"deviceId\":\"dev1\"}
+"
+    );
+    let rows = vec![mesh::DeviceRow {
+        device_id: "dev2".into(),
+        state: "connected".into(),
+        ..Default::default()
+    }];
+    assert_eq!(
+        get(&start_with(Some(rows))),
+        "{\"ok\":true,\"version\":\"0.0.0-test\",\"deviceId\":\"dev1\",\"net\":{\"state\":\"on\",\"peers\":1}}
+"
+    );
+}
+
 #[test]
 fn devices_route_like_go() {
     let h = start();

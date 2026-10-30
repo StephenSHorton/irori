@@ -68,6 +68,9 @@ struct Health {
     version: String,
     #[serde(rename = "deviceId")]
     device_id: String,
+    /// The mesh (v0.4 §6.8); absent when the backend has none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    net: Option<crate::backend::NetHealth>,
 }
 
 fn new_secret(n: usize) -> String {
@@ -331,6 +334,7 @@ fn precheck(s: &Arc<Shared>, port: u16, r: &Req) -> Option<Resp> {
                 ok: true,
                 version: s.b.version(),
                 device_id: d.id,
+                net: s.b.net_health(),
             },
         ));
     }

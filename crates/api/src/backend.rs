@@ -43,6 +43,20 @@ pub trait Backend: Send + Sync + 'static {
         let _ = detail;
         None
     }
+    /// The net layer's state and how many other devices are connected now
+    /// (Go `Mesh().Status().State` and `Mesh().Connected()`), for health's
+    /// `net`; `None` (no mesh) leaves `net` out.
+    fn net_health(&self) -> Option<NetHealth> {
+        None
+    }
+}
+
+/// Health's `net` (Go `api.NetHealth`): the net layer's state (off, on,
+/// removed, error) and how many other devices are connected now.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct NetHealth {
+    pub state: String,
+    pub peers: usize,
 }
 
 impl Backend for Core {
@@ -84,6 +98,13 @@ impl Backend for Core {
     }
     fn mesh_devices(&self, detail: bool) -> Option<Vec<mesh::DeviceRow>> {
         Some(Core::mesh_devices(self, detail))
+    }
+    fn net_health(&self) -> Option<NetHealth> {
+        let n = self.mesh();
+        Some(NetHealth {
+            state: n.status().state,
+            peers: n.connected_count(),
+        })
     }
 }
 
