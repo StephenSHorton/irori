@@ -494,11 +494,14 @@ impl IrohNet {
         }
     }
 
-    /// Re-run every room's `accept` on its live connections and close the
-    /// ones it now refuses with `revoked` (Go `dropRevoked`; call it on every
-    /// person row). New connections from them are already refused.
+    /// Re-run every private room's `accept` on its live connections and
+    /// close the ones it now refuses with `revoked` (Go `dropRevoked`; call
+    /// it on every person row). New connections from them are already
+    /// refused. Board rooms are their board mesh's to recheck
+    /// (`mesh::BoardMesh::recheck`), which tells the peer its last vector
+    /// before closing.
     pub fn recheck(&self) {
-        for room in self.inner.all_rooms() {
+        for room in self.inner.rooms_snapshot() {
             let conns: Vec<_> = room
                 .conns
                 .lock()

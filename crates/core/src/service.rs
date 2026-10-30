@@ -56,6 +56,7 @@ use crate::timers::{self, Kick, Ticker};
 use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 
 pub mod boards;
+mod boards_members;
 mod boards_own;
 mod bridge;
 pub mod invites;
@@ -1865,9 +1866,7 @@ impl Core {
     /// revoke, a rotation): connections it no longer admits close, and a
     /// newer secret goes to the members still on the older epoch.
     pub fn recheck_board(&self, board_id: &str) {
-        if let Some(m) = self.s.mesh.board(board_id) {
-            m.recheck();
-        }
+        self.s.recheck_board_mesh(board_id);
     }
 
     /// The mesh with its address book (crate::meshview).
@@ -2100,7 +2099,7 @@ impl Services {
             .collect()
     }
 
-    fn sweep_coord(&self) -> Result<(), String> {
+    fn sweep_coord(self: &Arc<Self>) -> Result<(), String> {
         let (ns, err) = self.coord.sweep_notices_partial();
         let (asks, aerr) = self.coord.sweep_asks_partial(&self.ask_agents());
         for n in ns.iter().chain(asks.iter()) {
@@ -2118,6 +2117,7 @@ impl Services {
             .flatten()
             .map(|e| e.to_string())
             .collect();
+        self.sweep_leaving();
         if let Err(e) = self.sweep_boards() {
             errs.push(e);
         }

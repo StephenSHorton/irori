@@ -136,6 +136,10 @@ pub struct BoardSummary {
     /// while apart), so its refs need the card's task id.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub tag_clash: bool,
+    /// The person left it and no other member has said it holds the
+    /// `left` row yet: "Leaving…" (§4.4).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub leaving: bool,
 }
 
 /// Where a private card was shared to, when it was: the board and the
@@ -340,38 +344,6 @@ impl Services {
         self.forget_board_locked(board_id, up_to)
     }
 
-    /// Takes the person off a board on every one of their devices (§4.4,
-    /// §4.6) through a private board.forgot row. A board with other people
-    /// on it is left with board.member.left, which comes with invites
-    /// (stage 2); until then only a board of the person's own is left.
-    pub(crate) fn leave_board(self: &Arc<Self>, board_id: &str) -> Result<()> {
-        let b = self.board(board_id)?;
-        let me = self.person_id();
-        if b.verifier
-            .membership()
-            .members
-            .iter()
-            .any(|p| p.person_id != me && p.state == MEMBER_ACTIVE)
-        {
-            return Err(Error::coord(
-                CK::NotAllowed,
-                format_args!(
-                    "board {board_id} has other people on it; leaving it is not built yet"
-                ),
-            ));
-        }
-        self.store.append(
-            "irori",
-            kinds::BOARD_FORGOT,
-            &BoardForgotRow {
-                board_id: board_id.into(),
-                at: (self.now)(),
-            },
-        )?;
-        self.reconcile_boards();
-        Ok(())
-    }
-
     /// Closes board `id`, deletes its files and records the forgotten
     /// marker. `boards.rec` is held.
     fn forget_board_locked(&self, id: &str, up_to: u64) -> Result<()> {
@@ -443,6 +415,7 @@ impl Services {
                     owner: m.owner(&me),
                     ready: m.created,
                     people: self.board_people(b),
+                    leaving: self.board_leaving(b),
                     ..Default::default()
                 };
                 if s.name.is_empty() {

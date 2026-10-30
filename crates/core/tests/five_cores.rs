@@ -605,20 +605,187 @@ fn five_cores_every_device_gets_the_board() {
     close(alice.drain(..).chain(bob.drain(..)));
 }
 
-/// §4.4: Bob leaves; Alice's board shows him gone and refuses his new rows.
+/// §4.4: Bob leaves. Alice's board shows him gone and cuts his device;
+/// Bob's board shows "Leaving…" until Alice's device says it holds the
+/// `left` row, then Bob forgets it.
 #[test]
-#[ignore = "leaving a board with other people on it is not built (boards_own.rs leave_board refuses it)"]
 fn bob_leaves_and_alice_refuses_his_new_rows() {
     let mut alice = person("alice", 1);
     let mut bob = person("bob", 1);
     let (a1, b1) = (&alice[0], &bob[0]);
     let board = invited(a1, b1);
-    b1.core.leave_board(&board).unwrap();
     let av = a1.core.board_verifier(&board).unwrap();
-    let bob_pid = b1.core.person().id.clone();
+    let (bob_pid, b1_dev) = (b1.core.person().id.clone(), b1.core.device_id().to_string());
+    wait_for(WAIT, "alice's board has bob", || {
+        av.membership().active(&bob_pid)
+    });
+    b1.core.leave_board(&board).unwrap();
+    assert!(
+        b1.core
+            .board_list()
+            .iter()
+            .any(|s| s.board_id == board && s.leaving),
+        "bob's board isn't Leaving…"
+    );
     wait_for(WAIT, "alice's board shows bob gone", || {
         !av.membership().active(&bob_pid)
     });
+    assert_eq!(
+        av.membership().person(&bob_pid).map(|p| p.state.as_str()),
+        Some("left")
+    );
+    assert!(av.cut(&b1_dev).is_some(), "alice doesn't cut bob's device");
+    wait_for(
+        WAIT,
+        "bob forgets the board once alice holds his leave",
+        || !b1.core.boards().contains(&board),
+    );
+    assert!(a1.core.boards().contains(&board), "alice lost the board");
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §4.4 Forget now: Bob leaves and forgets at once, without waiting.
+#[test]
+fn bob_leaves_and_forgets_now() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    let av = a1.core.board_verifier(&board).unwrap();
+    let bob_pid = b1.core.person().id.clone();
+    wait_for(WAIT, "alice's board has bob", || {
+        av.membership().active(&bob_pid)
+    });
+    // The board's only owner can't leave it to the others.
+    assert!(a1.core.leave_board(&board).is_err());
+    b1.core.leave_board(&board).unwrap();
+    b1.core.forget_left_board(&board).unwrap();
+    assert!(!b1.core.boards().contains(&board));
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §4.3: Alice removes Bob while his agent holds a card. Alice's board
+/// takes the agent off and cuts Bob's device, the board secret moves on,
+/// Bob's connection closes, and a card Bob writes after never reaches
+/// Alice.
+#[test]
+fn alice_removes_bob_and_his_agent_comes_off() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    let (bob_pid, b1_dev) = (b1.core.person().id.clone(), b1.core.device_id().to_string());
+    let av = a1.core.board_verifier(&board).unwrap();
+    wait_for(WAIT, "alice's board has bob", || {
+        av.membership().active(&bob_pid)
+    });
+    let t = a1
+        .core
+        .board_coord(&board)
+        .unwrap()
+        .create_task(&a1.person_actor(), new_task("shared work"))
+        .unwrap();
+    a1.core.kick_board(&board);
+    wait_for(WAIT, "bob gets the card", || {
+        card_on(b1, &board, &t.id).is_some()
+    });
+    b1.tool("board_join", serde_json::json!({"task_id": t.id}));
+    b1.core.kick_board(&board);
+    wait_for(WAIT, "alice sees bob's agent on the card", || {
+        card_on(a1, &board, &t.id).is_some_and(|c| !c.holders.is_empty())
+    });
+    let e0 = a1.core.board_info(&board).unwrap().secret_epoch;
+
+    // Only an owner removes, and nobody removes themselves.
+    assert!(
+        b1.core
+            .remove_member(&board, &a1.core.person().id, "")
+            .is_err()
+    );
+    assert!(
+        a1.core
+            .remove_member(&board, &a1.core.person().id, "")
+            .is_err()
+    );
+    a1.core.remove_member(&board, &bob_pid, "").unwrap();
+    assert_eq!(
+        av.membership().person(&bob_pid).map(|p| p.state.as_str()),
+        Some("removed")
+    );
+    assert!(av.cut(&b1_dev).is_some());
+    let c = card_on(a1, &board, &t.id).unwrap();
+    assert!(
+        c.holders.is_empty() && c.state == "submitted",
+        "bob's agent is still on the card: {:?} {}",
+        c.holders,
+        c.state
+    );
+    wait_for(WAIT, "the board secret moves on", || {
+        a1.core.board_info(&board).unwrap().secret_epoch > e0
+    });
+    wait_for(WAIT, "bob's board connection to alice closes", || {
+        a1.core
+            .net()
+            .board_conns(&board)
+            .iter()
+            .all(|c| c.peer != b1_dev)
+    });
+    wait_for(WAIT, "bob's copy shows the removal", || {
+        b1.core
+            .board_verifier(&board)
+            .is_some_and(|v| !v.membership().active(&bob_pid))
+    });
+    if let Ok(co) = b1.core.board_coord(&board)
+        && let Ok(late) = co.create_task(&b1.person_actor(), new_task("after removal"))
+    {
+        b1.core.kick_board(&board);
+        std::thread::sleep(Duration::from_secs(3));
+        assert!(
+            card_on(a1, &board, &late.id).is_none(),
+            "a card bob wrote after his removal reached alice"
+        );
+    }
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §4.2: Alice makes Bob an owner, who then renames the board and can
+/// change roles; the last owner can't stop being one.
+#[test]
+fn alice_makes_bob_an_owner() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    let (alice_pid, bob_pid) = (a1.core.person().id.clone(), b1.core.person().id.clone());
+    wait_for(WAIT, "alice's board has bob", || {
+        a1.core
+            .board_verifier(&board)
+            .is_some_and(|v| v.membership().active(&bob_pid))
+    });
+    assert!(
+        a1.core
+            .set_member_role(&board, &alice_pid, "member")
+            .is_err()
+    );
+    assert!(b1.core.set_member_role(&board, &bob_pid, "owner").is_err());
+    assert!(a1.core.set_member_role(&board, &bob_pid, "admin").is_err());
+    a1.core.set_member_role(&board, &bob_pid, "owner").unwrap();
+    a1.core.kick_board(&board);
+    let bv = b1.core.board_verifier(&board).unwrap();
+    wait_for(WAIT, "bob is an owner on his copy", || {
+        bv.membership().owner(&bob_pid)
+    });
+    b1.core.rename_board(&board, "MLG & Bob").unwrap();
+    b1.core.kick_board(&board);
+    wait_for(WAIT, "alice sees bob's rename", || {
+        a1.core.board_info(&board).unwrap().name == "MLG & Bob"
+    });
+    // Two owners: Alice may step down now, and then may not change roles.
+    a1.core
+        .set_member_role(&board, &alice_pid, "member")
+        .unwrap();
+    assert!(a1.core.set_member_role(&board, &bob_pid, "member").is_err());
+    assert!(a1.core.board_info(&board).unwrap().conflicts.is_empty());
     close(alice.drain(..).chain(bob.drain(..)));
 }
 

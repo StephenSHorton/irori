@@ -30,6 +30,9 @@ pub const REASON_CONFLICT: &str = "conflict";
 
 /// A task.left reason: Irori took a holder that went away off the card.
 pub const LEFT_GONE: &str = "gone";
+/// A task.left reason: an owner removed the holder's person from the board
+/// (v0.5 §4.3).
+pub const LEFT_REMOVED: &str = "member_removed";
 
 /// Which leases found lapsed at replay still get their expiry row.
 const LAPSED_WITHIN: Duration = Duration::from_secs(24 * 3600);
@@ -511,6 +514,9 @@ impl Fold {
                     what = "joined".into();
                 } else {
                     t.holders = remove_str(&t.holders, &p.who);
+                    if p.reason == LEFT_REMOVED {
+                        what = "was taken off: their person left the board".into();
+                    }
                     if p.reason == LEFT_GONE {
                         what = "went away".into();
                         if t.holders.is_empty() {
