@@ -191,6 +191,10 @@ pub(crate) struct Inner {
     pub(crate) lookup: MemoryLookup,
     pub(crate) pins: crate::tls::PinSet,
     pub(crate) relays: Arc<Mutex<Vec<RelaySpec>>>,
+    /// Serializes changes to the endpoint's relay map ([`IrohNet::set_servers`]
+    /// and [`home_relay_watch`]'s re-inserts), so a re-insert never brings
+    /// back a relay that was just removed.
+    relay_ops: tokio::sync::Mutex<()>,
     book: Mutex<BTreeMap<String, PeerAddr>>,
     rooms: Mutex<HashMap<i64, Arc<RoomState>>>,
     dialing: Mutex<HashSet<(i64, String)>>,
@@ -342,6 +346,7 @@ impl IrohNet {
                 lookup: MemoryLookup::new(),
                 pins: crate::tls::PinSet::default(),
                 relays: Arc::new(Mutex::new(Vec::new())),
+                relay_ops: tokio::sync::Mutex::new(()),
                 book: Mutex::new(BTreeMap::new()),
                 rooms: Mutex::new(HashMap::new()),
                 dialing: Mutex::new(HashSet::new()),
@@ -379,6 +384,7 @@ impl IrohNet {
     /// removed, and so is the pin of a server none of them names any more
     /// (a revoked home server stops being a trusted relay certificate).
     pub async fn set_servers(&self, servers: Vec<RelaySpec>) {
+        let _ops = self.inner.relay_ops.lock().await;
         for s in &servers {
             self.inner.pins.add(*s.server_pub.as_bytes());
         }
@@ -653,6 +659,7 @@ impl Inner {
                     let _ = me.gossip.set(g);
                 }
                 tokio::spawn(accept_loop(Arc::downgrade(&me), ep.clone()));
+                tokio::spawn(home_relay_watch(Arc::downgrade(&me), ep.clone()));
                 Ok(ep)
             })
             .await
@@ -964,6 +971,65 @@ impl Inner {
         });
         (room.cfg.on_peer)(c);
         Ok(())
+    }
+}
+
+/// How long the endpoint may sit with relays configured and no home relay
+/// before [`home_relay_watch`] asks iroh to pick one again; doubled after
+/// each try that does not take, up to [`HOME_RELAY_SETTLE_MAX`].
+const HOME_RELAY_SETTLE: Duration = Duration::from_secs(3);
+const HOME_RELAY_SETTLE_MAX: Duration = Duration::from_secs(60);
+
+/// Keeps a home relay picked while relays are configured.
+///
+/// iroh 1.4 can drop the home relay it has just picked: a relay-map change
+/// runs a full net report (preferred relay set), and an incremental report
+/// queued behind it finishes before the relay actor has applied the first.
+/// That report has no preferred relay and fills it from the home relay
+/// (`my_relay`), still unset, so the actor then clears the home relay. The
+/// relay connection stays up, but `home_relay_status` is empty and the
+/// endpoint's address names no relay until iroh's next periodic report,
+/// 20 to 26 s later (seen as `a_relay_learned_after_bind_...` failing on a
+/// loaded machine). Re-inserting the configured relays is a relay-map
+/// change, which makes iroh run a full report and pick the home relay again.
+async fn home_relay_watch(inner: Weak<Inner>, ep: Endpoint) {
+    use iroh::Watcher as _;
+    let mut status = ep.home_relay_status();
+    let mut settle = HOME_RELAY_SETTLE;
+    loop {
+        if ep.is_closed() {
+            return;
+        }
+        if !status.get().is_empty() {
+            settle = HOME_RELAY_SETTLE;
+            // Wake on a change, and now and then to notice a close.
+            match tokio::time::timeout(HOME_RELAY_SETTLE_MAX, status.updated()).await {
+                Ok(Err(_)) => return,
+                Ok(Ok(_)) | Err(_) => continue,
+            }
+        }
+        // No home relay: give iroh `settle` to pick one by itself.
+        match tokio::time::timeout(settle, status.updated()).await {
+            Ok(Err(_)) => return,
+            Ok(Ok(_)) => continue,
+            Err(_) => {}
+        }
+        let Some(me) = inner.upgrade() else {
+            return;
+        };
+        let _ops = me.relay_ops.lock().await;
+        let relays = me.relays.lock().expect("relays").clone();
+        if relays.is_empty() || ep.is_closed() || !status.get().is_empty() {
+            continue;
+        }
+        for r in relays {
+            ep.insert_relay(
+                r.url.clone(),
+                Arc::new(crate::relay::client_relay_config(r.url, r.quic_port)),
+            )
+            .await;
+        }
+        settle = (settle * 2).min(HOME_RELAY_SETTLE_MAX);
     }
 }
 
