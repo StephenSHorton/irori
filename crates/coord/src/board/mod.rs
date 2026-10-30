@@ -100,6 +100,8 @@ pub const REOPEN_COMMENT_NOTE: &str = "reopened by the person's comment";
 
 type KeyFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 type StrFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
+/// Whether a person owned the board at a row's place (`None`: now).
+pub type OwnerAtFn = Arc<dyn Fn(&str, Option<&RowPos>) -> bool + Send + Sync>;
 
 /// Configures a [`Coord`] (Go `coord.Options`).
 #[derive(Clone, Default)]
@@ -125,8 +127,10 @@ pub struct Options {
     pub device_person: Option<StrFn>,
     /// A board's short handle, read as rows fold.
     pub tag: Option<Arc<dyn Fn() -> String + Send + Sync>>,
-    /// A person who owns the board.
-    pub board_owner: Option<KeyFn>,
+    /// A person who owned the board just before the row at that place,
+    /// or now when there is no row (the cancel rule reads the owners at
+    /// the row's time, v0.5 §5.3).
+    pub board_owner: Option<OwnerAtFn>,
 }
 
 /// The lock on the fold; changes go out when it drops (Go's `unlock`).
@@ -617,7 +621,7 @@ impl Fold {
         if t.withdrawn {
             return Ok(t.clone());
         }
-        if !self.may_cancel(t, &self.dev) {
+        if !self.may_cancel(t, &self.dev, None) {
             return Err(error::not_allowed(format!(
                 "only its creator or a board owner withdraws {}",
                 t.short_ref()

@@ -295,7 +295,7 @@ fn test_board_cancel_is_the_creators_or_an_owners() {
             d2.lock().unwrap().get(d).cloned().unwrap_or_default()
         })),
         tag: Some(Arc::new(|| "mlg".to_string())),
-        board_owner: Some(Arc::new(move |p: &str| {
+        board_owner: Some(Arc::new(move |p: &str, _at: Option<&RowPos>| {
             o2.lock().unwrap().iter().any(|x| x == p)
         })),
         ..board_opts(&b)

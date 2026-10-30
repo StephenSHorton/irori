@@ -144,7 +144,7 @@ pub struct Fold {
     pub(crate) key_person: Option<StrFn>,
     pub(crate) dev_person: Option<StrFn>,
     pub(crate) tag_fn: Option<Arc<dyn Fn() -> String + Send + Sync>>,
-    pub(crate) board_owner: Option<KeyFn>,
+    pub(crate) board_owner: Option<super::OwnerAtFn>,
     pub(crate) ignored: usize,
     pub(crate) ignored_by: BTreeMap<String, usize>,
     pub(crate) aside: Vec<Event>,
@@ -814,7 +814,9 @@ impl Fold {
         if !valid_state(&p.state) || !self.tasks.contains_key(&p.task_id) {
             return;
         }
-        if p.state == CANCELED && !self.may_cancel(&self.tasks[&p.task_id], &ev.device_id) {
+        if p.state == CANCELED
+            && !self.may_cancel(&self.tasks[&p.task_id], &ev.device_id, Some(&RowPos::of(ev)))
+        {
             self.ignore(&ev.device_id);
             return;
         }
@@ -1337,8 +1339,9 @@ impl Fold {
     }
 
     /// A cancel on a shared card counts only from a device of the card
-    /// creator's person or of an owner.
-    pub(crate) fn may_cancel(&self, t: &Task, writer: &str) -> bool {
+    /// creator's person or of a person who owned the board at the row's
+    /// place (`at`; `None` is a write now).
+    pub(crate) fn may_cancel(&self, t: &Task, writer: &str, at: Option<&RowPos>) -> bool {
         let (true, Some(kp), Some(dp)) = (self.on_board, &self.key_person, &self.dev_person) else {
             return true;
         };
@@ -1346,7 +1349,7 @@ impl Fold {
         if p.is_empty() {
             return false;
         }
-        p == kp(&t.created_by) || self.board_owner.as_ref().is_some_and(|f| f(&p))
+        p == kp(&t.created_by) || self.board_owner.as_ref().is_some_and(|f| f(&p, at))
     }
 
     fn sweeper_ok(&self, ev: &Event) -> bool {
@@ -1358,14 +1361,16 @@ impl Fold {
             kinds::TASK_LEFT => self.may_write(&p.who, &ev.device_id),
             kinds::TASK_STATUS | kinds::BLOCKER_RESOLVED => match self.tasks.get(&p.task_id) {
                 None => true,
-                Some(t) => self.may_cancel(t, &ev.device_id),
+                Some(t) => self.may_cancel(t, &ev.device_id, Some(&RowPos::of(ev))),
             },
             _ => false,
         }
     }
 
     fn unwithdraws(&self, t: &Task, p: &TaskStateRow, ev: &Event) -> bool {
-        !is_terminal(&p.state) && self.person_actor(ev) && self.may_cancel(t, &ev.device_id)
+        !is_terminal(&p.state)
+            && self.person_actor(ev)
+            && self.may_cancel(t, &ev.device_id, Some(&RowPos::of(ev)))
     }
 
     /// A row whose actor is a person.
