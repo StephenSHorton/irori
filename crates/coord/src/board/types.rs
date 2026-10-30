@@ -173,6 +173,10 @@ pub struct Blocker {
     /// The position of the row that last replaced the question.
     #[serde(skip)]
     pub(crate) asked: RowPos,
+    /// The position of the revision that last replaced the options (card
+    /// #50): a recommendation logged before it was for options gone now.
+    #[serde(skip)]
+    pub(crate) options_at: RowPos,
 }
 
 impl Blocker {

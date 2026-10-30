@@ -1085,3 +1085,76 @@ fn test_revise_older_shapes() {
         assert_eq!(answers, ["Yes"]);
     }
 }
+
+// Rows that arrive late fold the same as in log order (a reopen): a plain
+// replace keeps its options and so a late recommendation, and a resolution
+// logged before a revision still resolves the item.
+#[test]
+fn test_revise_late_rows_converge() {
+    let e = Env::new();
+    let task = raised_on(&e);
+    let replace_at = hlc_at(plus(fixed_now(), mins(2)));
+    e.remote(
+        "dev-b",
+        1,
+        replace_at,
+        "agent:dev-b/x",
+        kinds::TASK_STATUS,
+        &TaskStateRow {
+            task_id: task.id.clone(),
+            state: BLOCKED.into(),
+            reason: "Which adapter, really?".into(),
+            blocker: Some(BlockerRow {
+                id: "b1".into(),
+                question: "Which adapter, really?".into(),
+                replace: true,
+                ..BlockerRow::default()
+            }),
+            by: "dev-b/x".into(),
+            at: fixed_now(),
+            ..TaskStateRow::default()
+        },
+    );
+    e.remote(
+        "dev-c",
+        1,
+        replace_at - 1,
+        "agent:dev-c/y",
+        kinds::BLOCKER_OPTION,
+        &coord::rows::BlockerOptionRow {
+            task_id: task.id.clone(),
+            blocker_id: "b1".into(),
+            answer: "TAP-Windows".into(),
+            by: "dev-c/y".into(),
+            at: fixed_now(),
+            ..Default::default()
+        },
+    );
+    for c in [&e.c, &e.reopen()] {
+        let (_, b) = blocker_of(c, &task.id, "b1");
+        assert!(b.options.len() == 2 && b.options[1].recommended, "{b:?}");
+    }
+    e.c.revise(ALICE, &task.id, "b1", revision("Wintun?", vec![rec("Yes")]))
+        .unwrap();
+    let rows = e.rows(kinds::TASK_STATUS);
+    let before = rows.last().unwrap().hlc.0 - 1;
+    e.remote(
+        "dev-d",
+        1,
+        before,
+        "user",
+        kinds::BLOCKER_RESOLVED,
+        &coord::rows::BlockerResolvedRow {
+            task_id: task.id.clone(),
+            blocker_id: "b1".into(),
+            answer: "Wintun".into(),
+            option: 0,
+            by: "user".into(),
+            at: fixed_now(),
+            ..Default::default()
+        },
+    );
+    let live = blocker_of(&e.c, &task.id, "b1").1;
+    let again = blocker_of(&e.reopen(), &task.id, "b1").1;
+    assert!(!live.open() && !again.open(), "{live:?} {again:?}");
+}

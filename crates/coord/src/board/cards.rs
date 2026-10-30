@@ -474,6 +474,7 @@ impl Fold {
                     let opts = fold_options(&br.options, at);
                     what = revision_line(b, br, &opts);
                     b.options = opts;
+                    b.options_at = pos.clone();
                 }
                 b.question = br.question.clone();
                 b.context = br.context.clone();
@@ -601,8 +602,10 @@ impl Fold {
                 else {
                     return;
                 };
-                // A recommendation for what the item asked before a revision.
-                if RowPos::of(ev).before(&t.blockers[i].asked) {
+                // A recommendation for the options a revision replaced. Only a
+                // revision: a plain replace keeps the options, and so the
+                // recommendation, wherever the row lands in the fold.
+                if RowPos::of(ev).before(&t.blockers[i].options_at) {
                     return;
                 }
                 let when = at(p.at);
@@ -642,10 +645,6 @@ impl Fold {
                 else {
                     return;
                 };
-                // A recommendation for what the item asked before a revision.
-                if RowPos::of(ev).before(&t.blockers[i].asked) {
-                    return;
-                }
                 let when = at(p.at);
                 let mut opt = p.option;
                 if opt < -1 || opt >= t.blockers[i].options.len() as i64 {
