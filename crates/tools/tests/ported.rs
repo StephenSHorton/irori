@@ -443,6 +443,7 @@ fn test_specs() {
         "prs",
         "attachment_get",
         "board_share",
+        "board_review",
     ];
     for n in want {
         assert!(

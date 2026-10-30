@@ -734,3 +734,91 @@ pub(crate) fn send_to_board(to: &str) -> Option<String> {
         "that is another person or their agent on a shared board: say it on the card with board_comment (or reply to their message), where everyone on the board sees it.",
     ))
 }
+
+// --- board_review ---
+
+const REVIEW_ARGS: &[(&str, Ty)] = &[("task_id", Ty::Str), ("pr", Ty::Str), ("to", Ty::Str)];
+
+/// `to` as a board key: `agent:<cardId>`, the `board:<boardId>/<cardId>`
+/// sender of a bridged message, or a bare cardId. A person is refused:
+/// reviews are their agents' work (§10).
+fn review_to(to: &str) -> Result<String, String> {
+    let to = trim(to);
+    if to.is_empty() {
+        return Ok(String::new());
+    }
+    let card = match to.strip_prefix("board:") {
+        Some(rest) => rest.split_once('/').map_or("", |(_, c)| c),
+        None => to,
+    };
+    if card.starts_with(store::kinds::PERSON_ACTOR_PREFIX) || card.is_empty() {
+        return Err(err_text(
+            "to names another person's agent (agent:<cardId>, or the board:… key their message came from); a person isn't asked to review. Or leave to out for their dedicated reviewer.",
+        ));
+    }
+    let card = card
+        .strip_prefix(store::kinds::AGENT_ACTOR_PREFIX)
+        .unwrap_or(card);
+    Ok(format!("{}{card}", store::kinds::AGENT_ACTOR_PREFIX))
+}
+
+/// board_review (§10): asks another person's agent, or each other
+/// person's dedicated reviewer, to review a PR a shared card links. The
+/// review itself is the reviewer's own `gh`; Irori never posts reviews or
+/// merges.
+pub(crate) fn board_review(s: &Inner, c: &Caller, raw: &[u8]) -> String {
+    let a = match decode(raw, REVIEW_ARGS) {
+        Ok(a) => a,
+        Err(e) => return e,
+    };
+    let id = match s.task_id(a.str("task_id")) {
+        Ok(id) => id,
+        Err(m) => return m,
+    };
+    let pr = trim(a.str("pr"));
+    if pr.is_empty() {
+        return err_text("give pr: the pull request the card links, as board_link added it.");
+    }
+    let to = match review_to(a.str("to")) {
+        Ok(t) => t,
+        Err(e) => return e,
+    };
+    let Some(b) = s.shared().and_then(|sb| sb.board_of(&id)) else {
+        return err_text(
+            "that card is private: review requests go to another person's agents on a shared card. Ask your own agents with send.",
+        );
+    };
+    let (co, as_) = match s.on(&id, std::slice::from_ref(&c.sender.key)) {
+        Ok(v) => v,
+        Err(e) => return map_err(e),
+    };
+    let (rs, _) = match co.request_review(&as_[0], &id, pr, &to) {
+        Ok(v) => v,
+        Err(e) => return map_err(e),
+    };
+    let asked: Vec<String> = rs.iter().map(|r| r.to.clone()).collect();
+    format!(
+        "Asked {} to review {} for {}: they hear at their next turn and review with their own gh (Irori never posts reviews or merges). Their review shows in prs once they post it.\n{}",
+        asked.join(", "),
+        one_line(pr, 200),
+        s.short_of(&id),
+        b.visible_to()
+    )
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::review_to;
+
+    #[test]
+    fn review_to_takes_the_keys_an_agent_sees() {
+        let want = Ok("agent:c0ffee".to_string());
+        assert_eq!(review_to("agent:c0ffee"), want);
+        assert_eq!(review_to("c0ffee"), want);
+        assert_eq!(review_to("board:b1/c0ffee"), want);
+        assert_eq!(review_to("board:b1/agent:c0ffee"), want);
+        assert_eq!(review_to(" "), Ok(String::new()));
+        assert!(review_to("board:b1/person:p2").is_err());
+        assert!(review_to("board:b1").is_err());
+    }
+}

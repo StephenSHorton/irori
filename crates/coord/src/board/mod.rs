@@ -498,14 +498,15 @@ impl Coord {
         self.lock().mirror_release(card, resource)
     }
     /// Asks another person's agents to review a PR the card links: `to`,
-    /// or their dedicated reviewers (v0.5 §10). The notice goes to them.
+    /// or their dedicated reviewers (v0.5 §10), one request each. The
+    /// notice goes to them.
     pub fn request_review(
         &self,
         by: &str,
         id: &str,
         pr: &str,
         to: &str,
-    ) -> Result<(ReviewRequest, Notice)> {
+    ) -> Result<(Vec<ReviewRequest>, Notice)> {
         self.lock().request_review(by, id, pr, to)
     }
     /// The person dedicating one of their agents as reviewer for the board
@@ -520,6 +521,16 @@ impl Coord {
     /// A member's dedicated reviewer for repo, else for the board.
     pub fn reviewer(&self, person: &str, repo: &str) -> String {
         self.lock().reviewer_of(person, repo)
+    }
+    /// Every reviewer a member dedicated, as `(repoKey or "", agent)`,
+    /// by repo; a cleared one is left out.
+    pub fn reviewers_of(&self, person: &str) -> Vec<(String, String)> {
+        self.lock()
+            .reviewers
+            .iter()
+            .filter(|((p, _), (_, a))| p == person && !a.is_empty())
+            .map(|((_, r), (_, a))| (r.clone(), a.clone()))
+            .collect()
     }
     /// Asks the holder of another person's lease to release it, on the
     /// shared card it mirrors through, in place of a steal.
