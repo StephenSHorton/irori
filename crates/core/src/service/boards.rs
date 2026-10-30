@@ -1291,7 +1291,7 @@ impl Services {
             name: card.name.clone(),
             kind,
             person_id: self.person_id(),
-            status: "active".into(),
+            status: card_status(Some(&card.status)).into(),
         };
         // The mapping first: a card whose session nobody knows is worse
         // than a mapping to a card that failed to append (it is retried).
@@ -1312,6 +1312,52 @@ impl Services {
         m.add_key(&id, agent);
         m.cards.insert(id, row);
         Ok(format!("{AGENT_ACTOR_PREFIX}{}", m.keys[agent]))
+    }
+
+    /// Rewrites the agent.card of each of this device's agents on every
+    /// board whose status moved (§2.4: `active`, `idle` or `gone`, written
+    /// only when it changes). Only the device hosting the session writes
+    /// it, so two devices never race on one card.
+    pub(crate) fn sync_card_status(&self) {
+        let live: HashMap<String, String> = self
+            .roster
+            .agents()
+            .into_iter()
+            .map(|a| (a.key, a.status))
+            .collect();
+        let me = self.device.id.as_str();
+        for b in self.boards.list() {
+            let mut m = lock(&b.maps);
+            let mine: Vec<(String, String)> = m
+                .by_id
+                .iter()
+                .filter(|(_, a)| irori_identity::owner::device_of(a) == me)
+                .map(|(id, a)| (id.clone(), a.clone()))
+                .collect();
+            for (id, agent) in mine {
+                let status = card_status(live.get(&agent).map(String::as_str));
+                let Some(card) = m.cards.get(&id) else {
+                    continue;
+                };
+                if card.status == status {
+                    continue;
+                }
+                let row = BoardCard {
+                    status: status.into(),
+                    ..card.clone()
+                };
+                match b.store.append(
+                    &format!("{AGENT_ACTOR_PREFIX}{id}"),
+                    kinds::AGENT_CARD,
+                    &row,
+                ) {
+                    Ok(_) => {
+                        m.cards.insert(id, row);
+                    }
+                    Err(e) => logf(format_args!("board {}: card {id} status: {e}", b.id)),
+                }
+            }
+        }
     }
 
     /// A board key as this device knows it: the session key of one of the
@@ -1761,5 +1807,15 @@ impl super::Core {
     #[doc(hidden)]
     pub fn reconcile_boards(&self) {
         self.s.reconcile_boards();
+    }
+}
+
+/// An agent.card's status (§2.4) for a session's presence status, `None`
+/// when the session is gone from the roster.
+pub(crate) fn card_status(presence: Option<&str>) -> &'static str {
+    match presence {
+        None | Some("gone") => "gone",
+        Some("idle") => "idle",
+        Some(_) => "active",
     }
 }
