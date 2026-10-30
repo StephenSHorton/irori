@@ -44,7 +44,7 @@ The Core will keep one `BoardMesh` per open board, beside the private `mesh::Nod
 | Gate | Type / fn | Crate | Rule |
 |---|---|---|---|
 | Endpoint `after_handshake` | `MemberAdmit {chain: ChainAdmit, boards: Arc<dyn BoardAdmit>}` impl `Admit` | `irori-net` `board` | `irori/mesh/1`, `irori/pair/1`: chain only. `irori/board/1`, `irori/gossip/1`: chain, or a member device on at least one board held here. Anything else: refused. Real. |
-| Membership source | `trait BoardAdmit { board_device(board_id, &EndpointId) -> Option<String>; boards_of(&EndpointId) -> Vec<String> }` | `irori-net` `board` | the Core implements it over every open board's `BoardVerifier`. `NoBoards` is the empty one. |
+| Membership source | `trait BoardAdmit { board_device(board_id, &EndpointId) -> Option<String>; boards_of(&EndpointId) -> Vec<String> }` | `irori-net` `board` | `NoBoards` is the empty one. **Built:** `irori_net::boardadmit::HeldBoards` is the one implementation: `hold(board_id, Arc<dyn BoardMembers>)` / `release(board_id)`, where `BoardMembers` is implemented for `BoardVerifier` (`admitted_by_pub`) and for `MemberKeys` (a fixed key list, tests). The Core keeps one `HeldBoards`, holds each open board's verifier in it, and hands the same value to the endpoint (`MemberAdmit.boards`), each board's gossip (`gossip_accept(board_id)`) and the home relay (`relay_admit()`). |
 | Per board, by key | `BoardVerifier::admitted_by_pub(device_pub_hex) -> Option<MemberCert>` | `irori-identity` | a counted cert with that devicePub and no cut (not revoked, person not removed or gone). Real. |
 | Per-board room | `RoomConfig::accept` of the board room | `irori-mesh` `boardmesh` | `admitted_by_pub` on that board's verifier only |
 
@@ -73,17 +73,23 @@ The gossip pieces were already built in M5 (`irori-net` `gossip`), and stage 2 k
 
 What changes in stage 2 is only who may connect: the gate becomes `MemberAdmit`, so gossip admits member devices. An announcement from a member whose vector is ahead calls `BoardMesh::kick()`.
 
+Built (branch `boards2-transport-gossip-relay`):
+- `IrohNet::board_channel_gated(board_id, topic, bootstrap, Some(held.gossip_accept(board_id)))` drops announcements whose delivering neighbour is not a member device of *that* board (a member of another board held here passes the endpoint gate, not this). `board_channel` is the ungated form.
+- `BoardChannel::kicks(have: HaveFn, kick: KickFn)` takes the channel's announcements over: each one whose vector is `gossip::ahead` of `have()` (some device's seq higher) calls `kick(&Announcement)`. `BoardMesh::start` wires `have` to the board log's vector and `kick` to `BoardMesh::kick`.
+- The gate is coarse by design: gossip forwards, so a stale or spoofed announcement can at most cause one wasted pull, and the pull itself runs on the per-board gated `irori/board/1` connection.
+
 ## 6. Servers: B1 relay admission and `board.server`
 
 - **Relay admission.** Every member's home server admits the counted member devices of the boards its Core holds.
   - `home::relay::BoardAdmitFn = Arc<dyn Fn(&EndpointId) -> bool>`, plus `home::relay::member_admit(own, boards) -> AdmitFn`.
-  - `home::Config.board_admit: Option<BoardAdmitFn>`, which defaults to `None` and is not read yet.
+  - `home::Config.board_admit: Option<BoardAdmitFn>` (default `None`). **Built:** when set, the relay's admission is `member_admit(own, board_admit)`, and the guest sweep (every `GUEST_SWEEP`) drops a member device once no held board counts it. It does not by itself make the server run; the Core's `Config.wanted` should count "holds a shared board" (not wired: the Core holds no shared boards yet).
   - The relay only forwards sealed QUIC, so "for that board only" is enforced at the endpoints: the `irori/board/1` proof plus that board's verifier. A member device on your relay can't reach `irori/mesh/1` on your devices, because their gate refuses it.
 - **`board.server`** (`KIND_BOARD_SERVER`). The payload is `mesh::boardmesh::BoardServer {deviceId, port, public: Option<PublicAddr>}`.
   - It carries the public address and mapped ports only, never LAN or v6 addresses. `public: null` means the server is off or outside reach is off.
   - It is written by the server device into each board its person is in, only when it changes.
-  - Producer: `home::Server::board_server() -> Result<BoardServer, String>` (stub).
-  - Fold: `mesh::boardmesh::board_servers(log, verifier) -> Vec<BoardServer>` (stub). It keeps the newest row per server whose writer is that server device and a counted member.
+  - Producer: `home::Server::board_server() -> Result<BoardServer, String>`. **Built:** `port` is the running (else saved) port N; `public` is set only while running with outside reach on and the `node.addr` reach `ok` (manual address or a granted mapping), else `None`; `Err` only for a server that never ran.
+  - Writer: `mesh::boardmesh::write_board_server(log, &row) -> Result<bool, String>` appends only when the row differs from this device's newest `board.server` in that board log. The Core calls it per held board when the server's state changes (not wired yet).
+  - Fold: `mesh::boardmesh::board_servers(log, verifier) -> Vec<BoardServer>`. **Built:** the newest row per server device whose writer is that device and which the verifier counts (`cert`) with no `cut`, sorted by device id. `BoardServer` and `servers::PublicAddr` now derive `Deserialize` (interface change).
 - **Dialing them.** `IrohNet::set_board_servers(Vec<BoardRelays {board_id, servers: Vec<RelaySpec>}>)` (stub).
   - Each `RelaySpec` is pinned to the server's devicePub from its member cert.
   - Members dial every `board.server` relay in parallel and keep the first handshake per server.
@@ -97,9 +103,9 @@ The ticket format, the invite room secret (`SecretFromCode("irori-invite-v1", co
 |---|---|---|
 | `INVITE_ALPN = b"irori/invite/1"` | `irori-net` `board` | the invite connection's ALPN |
 | `INVITE_OPEN_LABEL = b"irori/invite-open/1"` | `irori-net` `invite` | first message proves the invite room key, as the board-open proof does |
-| `GuestWindows::open_invite_window(owner, secret, ttl) -> Result<u64, TransportError>` (stub) | `irori-net` `guest` | at most `INVITE_MAX_TTL` (1 h), at most `MAX_INVITE_WINDOWS_PER_MEMBER` (2) per owner, beside the 2 pairing windows. Closed with the existing `close_window(id)`. While it is open, the inviter's relay admits a client presenting `invite_token(room.key)`, and the endpoint accepts `irori/invite/1`. |
+| `GuestWindows::open_invite_window(owner, secret, ttl) -> Result<u64, TransportError>` (built) | `irori-net` `guest` | at most `INVITE_MAX_TTL` (1 h), at most `MAX_INVITE_WINDOWS_PER_MEMBER` (2) per owner, beside the 2 pairing windows. Closed with the existing `close_window(id)`. While it is open, the inviter's relay admits a client presenting `invite_token(room.key)`, and the endpoint accepts `irori/invite/1`. |
 | `invite_token(key)`, `invite_tag(topic)` | `irori-net` `guest` | real. The relay auth token is `hex(HMAC(key, "irori/invite-guest/1"))[..32]`; the LAN bridge tag is `hex(SHA-256("irori/invite-tag/1" \|\| topic))[..32]`. |
-| `WindowKind {Pair, Invite}`, `GuestWindows::kind(id)` | `irori-net` `guest` | which kind a window is |
+| `WindowKind {Pair, Invite}`, `GuestWindows::kind(id)`, `any_open_of(kind)`, `kind_of_token(token)`; `Window.kind` | `irori-net` `guest` | which kind a window is (built). The endpoint admits strangers on `irori/pair/1` only while a *pairing* window is open (`any_open_of(Pair)`): an invite window never opens pairing. `any_open()` (any kind) still keeps the home server running, so an inviter's relay is up for its invitee. |
 | `InviteAddr {id, relay, relay_quic_port, relay_pub, direct}` | `irori-net` `invite` | what the ticket must carry: the inviter's endpoint, its home relay and pin, and direct addresses |
 | `IrohNet::set_invite_handler(Option<Secret>, Option<InviteHandler>)` (stub) | `irori-net` `invite` | inviter side. `InviteHandler = Arc<dyn Fn(Arc<dyn Conn>)>` is called with each connection that proved the room key. The first one wins, and #44 closes the window. |
 | `IrohNet::dial_invite(&InviteAddr, &Secret) -> Arc<dyn Conn>` (stub) | `irori-net` `invite` | invitee side. It dials as a relay guest and proves the room key. |

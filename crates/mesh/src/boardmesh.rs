@@ -88,8 +88,8 @@ pub fn open_board_secret(
 /// each board its person is in, only when it changes. `public: None` (JSON
 /// `null`) when the server is off or outside reach is off. Never LAN or v6
 /// addresses.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct BoardServer {
     pub device_id: String,
     pub port: i64,
@@ -97,12 +97,69 @@ pub struct BoardServer {
 }
 
 /// The board's `board.server` fold: the newest row per server device whose
-/// writer is that device and a counted member device.
+/// writer is that device and a counted, uncut member device, by device id.
+/// A server whose newest row says `public: null` stays in the list (it is
+/// off or unreachable from outside: nothing to dial).
 pub fn board_servers(
-    _log: &Store,
-    _verifier: &BoardVerifier,
+    log: &Store,
+    verifier: &BoardVerifier,
 ) -> Result<Vec<BoardServer>, TransportError> {
-    Err(TransportError(UNSUPPORTED.into()))
+    const PAGE: i64 = 1000;
+    let mut newest: BTreeMap<String, BoardServer> = BTreeMap::new();
+    let mut after = store::Cursor::default();
+    loop {
+        let rows = log
+            .list(&store::Filter {
+                kinds: vec![KIND_BOARD_SERVER.into()],
+                after: after.clone(),
+                limit: PAGE,
+                ..Default::default()
+            })
+            .map_err(|e| TransportError(format!("board.server: {e}")))?;
+        for ev in &rows {
+            let Ok(s) = serde_json::from_slice::<BoardServer>(&ev.payload) else {
+                continue;
+            };
+            if s.device_id != ev.device_id {
+                continue; // only the server's own device announces it
+            }
+            newest.insert(s.device_id.clone(), s);
+        }
+        match rows.last() {
+            Some(last) if rows.len() as i64 == PAGE => after = last.cursor(),
+            _ => break,
+        }
+    }
+    Ok(newest
+        .into_values()
+        .filter(|s| verifier.cert(&s.device_id).is_some() && verifier.cut(&s.device_id).is_none())
+        .collect())
+}
+
+/// Writes `row` into board log `log` when it differs from this device's
+/// newest `board.server` there (rows only on change, as `node.addr`).
+/// Returns whether a row was written.
+pub fn write_board_server(log: &Store, row: &BoardServer) -> Result<bool, String> {
+    let last = log
+        .list(&store::Filter {
+            kinds: vec![KIND_BOARD_SERVER.into()],
+            device_id: row.device_id.clone(),
+            limit: 1,
+            desc: true,
+            ..Default::default()
+        })
+        .map_err(|e| e.to_string())?;
+    if let Some(ev) = last.first()
+        && serde_json::from_slice::<BoardServer>(&ev.payload)
+            .ok()
+            .as_ref()
+            == Some(row)
+    {
+        return Ok(false);
+    }
+    log.append("irori", KIND_BOARD_SERVER, row)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
 }
 
 /// What a [`BoardMesh`] runs on.

@@ -7,8 +7,17 @@
 //! pull streams, and an announcement only tells the mesh a pull is worth
 //! making (`KickBoards`). Gossip connections use ALPN `irori/gossip/1` and
 //! pass the endpoint's `Admit` gate like the mesh.
+//!
+//! Stage 2 (card #43): the gate is `MemberAdmit`, so a gossip connection
+//! comes only from this person's devices or a device counted on a board
+//! held here ([`crate::boardadmit::HeldBoards`]). On top of that, a board's
+//! channel can drop announcements whose delivering neighbour is not a
+//! member of *that* board ([`IrohNet::board_channel_gated`]), and
+//! [`BoardChannel::kicks`] turns an announcement that is ahead of the local
+//! log into a pull (`BoardMesh::kick`).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use iroh_gossip::api::{Event, GossipSender};
 use iroh_gossip::proto::TopicId;
@@ -33,6 +42,21 @@ pub struct Announcement {
     pub vector: BTreeMap<String, i64>,
 }
 
+/// Which neighbours' deliveries a board channel keeps (see
+/// [`crate::boardadmit::HeldBoards::gossip_accept`]).
+pub type GossipAccept = Arc<dyn Fn(&iroh::EndpointId) -> bool + Send + Sync>;
+/// This device's vector of the board log, read when an announcement comes.
+pub type HaveFn = Arc<dyn Fn() -> BTreeMap<String, i64> + Send + Sync>;
+/// Called with each announcement that is ahead of the local log: pull now.
+pub type KickFn = Arc<dyn Fn(&Announcement) + Send + Sync>;
+
+/// Whether `theirs` holds a row `ours` lacks: some device's seq is higher.
+pub fn ahead(theirs: &BTreeMap<String, i64>, ours: &BTreeMap<String, i64>) -> bool {
+    theirs
+        .iter()
+        .any(|(dev, n)| *n > ours.get(dev).copied().unwrap_or(0))
+}
+
 /// The gossip topic of one board epoch.
 pub fn topic_id(topic: &BoardTopic) -> TopicId {
     let h: [u8; 32] = Sha256::digest(topic.topic.as_bytes()).into();
@@ -44,8 +68,9 @@ pub struct BoardChannel {
     pub board_id: String,
     pub epoch: i64,
     sender: GossipSender,
-    rx: mpsc::Receiver<Announcement>,
+    rx: Option<mpsc::Receiver<Announcement>>,
     task: tokio::task::JoinHandle<()>,
+    kicks: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl BoardChannel {
@@ -63,9 +88,26 @@ impl BoardChannel {
             .map_err(|e| TransportError(format!("gossip: {e}")))
     }
 
-    /// The next announcement from another member.
+    /// The next announcement from another member (`None` once
+    /// [`BoardChannel::kicks`] took them over).
     pub async fn next(&mut self) -> Option<Announcement> {
-        self.rx.recv().await
+        self.rx.as_mut()?.recv().await
+    }
+
+    /// From now on every announcement whose vector is [`ahead`] of
+    /// `have()` calls `kick` (the board mesh pulls); the others are
+    /// dropped. Announcements stop coming through [`BoardChannel::next`].
+    pub fn kicks(&mut self, have: HaveFn, kick: KickFn) {
+        let Some(mut rx) = self.rx.take() else {
+            return;
+        };
+        self.kicks = Some(tokio::spawn(async move {
+            while let Some(a) = rx.recv().await {
+                if ahead(&a.vector, &have()) {
+                    kick(&a);
+                }
+            }
+        }));
     }
 
     /// Add members to dial into the topic.
@@ -81,6 +123,9 @@ impl BoardChannel {
 impl Drop for BoardChannel {
     fn drop(&mut self) {
         self.task.abort();
+        if let Some(k) = &self.kicks {
+            k.abort();
+        }
     }
 }
 
@@ -97,6 +142,19 @@ impl IrohNet {
         board_id: &str,
         topic: &BoardTopic,
         bootstrap: &[String],
+    ) -> Result<BoardChannel, TransportError> {
+        self.board_channel_gated(board_id, topic, bootstrap, None)
+            .await
+    }
+
+    /// [`IrohNet::board_channel`], keeping only announcements delivered by a
+    /// neighbour `accept` passes (a member device of this board; stage 2).
+    pub async fn board_channel_gated(
+        &self,
+        board_id: &str,
+        topic: &BoardTopic,
+        bootstrap: &[String],
+        accept: Option<GossipAccept>,
     ) -> Result<BoardChannel, TransportError> {
         self.bind().await?;
         let g = self
@@ -117,6 +175,11 @@ impl IrohNet {
                 let Ok(Event::Received(m)) = ev else {
                     continue;
                 };
+                if let Some(ok) = &accept
+                    && !ok(&m.delivered_from)
+                {
+                    continue;
+                }
                 let Ok(a) = serde_json::from_slice::<Announcement>(&m.content) else {
                     continue;
                 };
@@ -130,8 +193,26 @@ impl IrohNet {
             board_id: board_id.to_string(),
             epoch: topic.epoch,
             sender,
-            rx,
+            rx: Some(rx),
             task,
+            kicks: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ahead_means_a_row_we_lack() {
+        let v = |xs: &[(&str, i64)]| -> BTreeMap<String, i64> {
+            xs.iter().map(|(k, n)| (k.to_string(), *n)).collect()
+        };
+        assert!(ahead(&v(&[("a", 2)]), &v(&[("a", 1)])));
+        assert!(ahead(&v(&[("b", 1)]), &v(&[("a", 5)])));
+        assert!(!ahead(&v(&[("a", 1)]), &v(&[("a", 1), ("b", 3)])));
+        assert!(!ahead(&v(&[]), &v(&[])));
+        assert!(!ahead(&v(&[("a", 0)]), &v(&[])));
     }
 }

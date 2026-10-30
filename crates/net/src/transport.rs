@@ -234,7 +234,8 @@ impl RoomState {
 }
 
 /// The endpoint gate. On `irori/pair/1` it also admits ids it doesn't
-/// know, but only while a pairing room or a guest window is open here.
+/// know, but only while a pairing room or a pairing guest window is open
+/// here (an invite window never opens pairing to strangers).
 #[derive(Debug)]
 struct Gate {
     admit: Arc<dyn Admit>,
@@ -245,7 +246,8 @@ struct Gate {
 impl EndpointHooks for Gate {
     async fn after_handshake(&self, conn: &Connection) -> AfterHandshakeOutcome {
         let pairing = conn.alpn() == PAIR_ALPN
-            && (self.pair_open.load(Ordering::SeqCst) || self.guests.any_open());
+            && (self.pair_open.load(Ordering::SeqCst)
+                || self.guests.any_open_of(crate::guest::WindowKind::Pair));
         if pairing || self.admit.admits(conn.alpn(), &conn.remote_id()) {
             AfterHandshakeOutcome::Accept
         } else {
