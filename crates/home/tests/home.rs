@@ -653,3 +653,169 @@ async fn guests_leave_when_their_window_expires() {
     ep.close().await;
     n.shutdown().await;
 }
+
+/// B1 (boards stage 2, card #43): the relay admits a counted member device
+/// of a board this server holds, refuses everyone else, and drops the
+/// member (refusing it after) once no board held here counts it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_relay_admits_board_members_and_drops_a_removed_one() {
+    use irori_net::boardadmit::{HeldBoards, MemberKeys};
+    let held = HeldBoards::default();
+    let members = MemberKeys::default();
+    let member = key_from_random();
+    members.add("blakepc0", &member.public());
+    held.hold("board-a", Arc::new(members.clone()));
+    // A board held here whose members don't include the stranger either.
+    held.hold("board-b", Arc::new(MemberKeys::default()));
+    let relay_admit = held.relay_admit();
+    let mut n = Node::new(move |c| c.board_admit = Some(relay_admit));
+    n.run();
+    n.srv.set(true, false, "").unwrap();
+    eventually("running", || n.srv.relay_port().is_some()).await;
+    let port = n.srv.relay_port().unwrap();
+    let server_id = iroh::PublicKey::from_bytes(&n.ident.device_pub()).unwrap();
+
+    let stranger_key = key_from_random();
+    let stranger = client(stranger_key.clone(), port, server_id).await;
+    let ep = client(member.clone(), port, server_id).await;
+    eventually("the board member is in", || {
+        n.srv.relay_clients().contains(&member.public())
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        !n.srv.relay_clients().contains(&stranger_key.public()),
+        "a stranger got in"
+    );
+
+    // Removed from the board: the guest sweep drops it, and it stays out.
+    members.remove(&member.public());
+    eventually("the removed member is dropped", || {
+        !n.srv.relay_clients().contains(&member.public())
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert!(
+        !n.srv.relay_clients().contains(&member.public()),
+        "the removed member got back in"
+    );
+    ep.close().await;
+    stranger.close().await;
+    n.shutdown().await;
+}
+
+/// Without `board_admit` nothing changes: a key no person certified is
+/// refused even if some board elsewhere counts it.
+#[tokio::test(flavor = "multi_thread")]
+async fn without_board_admit_the_relay_stays_own_devices_only() {
+    let mut n = Node::new(|_| {});
+    n.run();
+    n.srv.set(true, false, "").unwrap();
+    eventually("running", || n.srv.relay_port().is_some()).await;
+    let port = n.srv.relay_port().unwrap();
+    let server_id = iroh::PublicKey::from_bytes(&n.ident.device_pub()).unwrap();
+    let k = key_from_random();
+    let ep = client(k.clone(), port, server_id).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert!(n.srv.relay_clients().is_empty(), "an unknown key got in");
+    ep.close().await;
+    n.shutdown().await;
+}
+
+/// The invites part's guest hook (card #44): an invite window admits a
+/// client presenting its invite token only while it is open; the pairing
+/// token of the same key opens nothing, and closing the window drops the
+/// invitee.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_invite_window_admits_its_invitee_only_while_open() {
+    use irori_net::guest::{GuestWindows, WindowKind, guest_token, invite_token};
+    let g = GuestWindows::default();
+    let (n, port, server) = guest_server(&g).await;
+    let s = window_secret();
+    let tok = invite_token(&s.key);
+
+    let early = guest(port, server, &tok).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert!(
+        !n.srv.relay_clients().contains(&early.0.public()),
+        "an invitee got in before the window opened"
+    );
+    early.1.close().await;
+
+    let owner = key_from_random().public();
+    let id = g
+        .open_invite_window(owner, s.clone(), Duration::from_secs(60))
+        .unwrap();
+    assert_eq!(g.kind(id), Some(WindowKind::Invite));
+    let wrong = guest(port, server, &guest_token(&s.key)).await;
+    let invitee = guest(port, server, &tok).await;
+    eventually("the invitee is in", || {
+        n.srv.relay_clients().contains(&invitee.0.public())
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        !n.srv.relay_clients().contains(&wrong.0.public()),
+        "the pairing token opened an invite window"
+    );
+
+    g.close_window(id);
+    n.srv.kick();
+    eventually("the invitee is dropped with its window", || {
+        !n.srv.relay_clients().contains(&invitee.0.public())
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert!(
+        !n.srv.relay_clients().contains(&invitee.0.public()),
+        "the invitee got back in"
+    );
+    invitee.1.close().await;
+    wrong.1.close().await;
+    n.shutdown().await;
+}
+
+/// `board.server` (v0.5 §6.2): the port and the public address only, and
+/// `public: None` until outside reach is on and the router mapped it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_board_server_row_names_only_the_public_address() {
+    let mut n = Node::new(|_| {});
+    assert!(n.srv.board_server().is_err(), "a server that never ran");
+    n.run();
+    n.srv.set(true, false, "").unwrap();
+    eventually("running", || n.srv.relay_port().is_some()).await;
+    let port = i64::from(n.srv.relay_port().unwrap());
+    let me = n.ident.device_id();
+    let row = n.srv.board_server().unwrap();
+    assert_eq!(
+        row,
+        mesh::boardmesh::BoardServer {
+            device_id: me.clone(),
+            port,
+            public: None,
+        },
+        "outside reach off"
+    );
+    n.srv.set(true, true, "").unwrap();
+    eventually("a public board.server", || {
+        n.srv.board_server().is_ok_and(|r| r.public.is_some())
+    })
+    .await;
+    let row = n.srv.board_server().unwrap();
+    let p = row.public.clone().unwrap();
+    let port = n.srv.settings().port;
+    assert!(
+        row.device_id == me && row.port == port && p.ip == "203.0.113.7" && p.tcp == port,
+        "{row:?}"
+    );
+    // The JSON never carries LAN or v6 addresses.
+    let j = serde_json::to_value(&row).unwrap();
+    let keys: Vec<&str> = j.as_object().unwrap().keys().map(|k| k.as_str()).collect();
+    assert_eq!(keys, vec!["deviceId", "port", "public"]);
+    n.srv.set(false, true, "").unwrap();
+    eventually("off: public null", || {
+        n.srv.board_server().is_ok_and(|r| r.public.is_none())
+    })
+    .await;
+    n.shutdown().await;
+}

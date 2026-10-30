@@ -49,6 +49,7 @@ mod service;
 pub mod timers;
 
 pub use crate::members::Member;
+pub use crate::meshnode::BoardParts;
 pub use crate::service::boards::{
     BOARDS_DIR, BoardIdentity, BoardInfo, BoardSummary, Error as BoardError, SharePreview,
     SharedCopy, new_board_id, valid_board_id,

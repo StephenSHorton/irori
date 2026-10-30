@@ -52,7 +52,6 @@ pub struct Dev {
     pub files: Arc<blob::Files>,
     pub node: Option<Arc<Node>>,
     pub trust: bool,
-    pub boards: Option<Arc<dyn mesh::BoardLogs>>,
     cancel: Option<CancellationToken>,
     task: Option<JoinHandle<()>>,
 }
@@ -111,7 +110,6 @@ impl Dev {
             files,
             node: None,
             trust: false,
-            boards: None,
             cancel: None,
             task: None,
         }
@@ -138,7 +136,6 @@ impl Dev {
             intervals: fast_intervals(),
             trust_any_peer: self.trust,
             ignored: None,
-            boards: self.boards.clone(),
             logf: Some(Arc::new(move |m: &str| eprintln!("{name}: {m}"))),
             now: Some({
                 let c = self.clk.clone();

@@ -27,9 +27,12 @@
 //! - [`board`]: `irori/board/1`, the board-open proof, member admission,
 //!   `board.server` relays, `BoardTransport` on IrohNet.
 //! - [`invite`]: `irori/invite/1` hooks for the invites part.
+//! - [`boardadmit`]: the boards held here as admission sees them (endpoint
+//!   gate, board gossip, the home relay's B1 widening).
 
 pub mod admit;
 pub mod board;
+pub mod boardadmit;
 pub mod book;
 pub mod dns;
 pub mod endpoint;

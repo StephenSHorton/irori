@@ -75,8 +75,11 @@ pub struct Config {
     /// open on it, as Go's runs for an open pairing window.
     pub guests: Option<irori_net::guest::GuestWindows>,
     /// B1 (stage 2, card #43): member devices of boards held here, admitted
-    /// to the relay beside this person's devices. Interface only: not read
-    /// yet.
+    /// to the relay beside this person's devices (for those boards only:
+    /// the endpoints' board-open proof and verifier decide which board).
+    /// Re-checked every [`GUEST_SWEEP`], so a removed member is dropped.
+    /// It does not by itself make the server run: [`Config::wanted`] does
+    /// (the Core counts a shared board there).
     pub board_admit: Option<crate::relay::BoardAdmitFn>,
 
     // Tests replace these.
@@ -288,11 +291,15 @@ impl Inner {
         let chain = self.cfg.chain.clone();
         let self_id = self.self_id();
         let self_pub = self.cfg.ident.device_pub();
-        Arc::new(move |id: &EndpointId| {
+        let own: AdmitFn = Arc::new(move |id: &EndpointId| {
             // The server's own endpoint uses its own relay, so the others
             // reach it there.
             *id.as_bytes() == self_pub || check_device_by_key(&chain, &self_id, id.as_bytes())
-        })
+        });
+        match &self.cfg.board_admit {
+            Some(boards) => crate::relay::member_admit(own, boards.clone()),
+            None => own,
+        }
     }
 }
 
@@ -407,15 +414,39 @@ impl Server {
         Ok(())
     }
 
-    /// The relay's port N while it serves.
     /// The `board.server` row this server would write into each board its
     /// person is in (B1, v0.5 §6.2): its public address and mapped ports
-    /// only, `public: None` while off or outside reach is off. Interface
-    /// only (card #43).
+    /// only, never LAN or v6 addresses. `public: None` while the server is
+    /// off, outside reach is off, or the outside can't reach it (router
+    /// still being asked, mapping failed, shared address). `Err` only for a
+    /// server that never ran (no port N yet). The Core writes it into each
+    /// board with `mesh::boardmesh::write_board_server` (only on change).
     pub fn board_server(&self) -> Result<mesh::boardmesh::BoardServer, String> {
-        Err("boards2: transport not built yet".into())
+        let (running, set) = {
+            let st = self.inner.lock();
+            (st.run.as_ref().map(|r| r.port), st.set.clone())
+        };
+        let port = match running {
+            Some(p) => i64::from(p),
+            None if set.port != 0 => set.port,
+            None => return Err("home: the server has not run here".into()),
+        };
+        let public = if running.is_some() && set.on && set.outside_on() {
+            self.addr().and_then(|a| {
+                a.public
+                    .filter(|p| !p.ip.is_empty() && p.tcp > 0 && a.reach == REACH_OK)
+            })
+        } else {
+            None
+        };
+        Ok(mesh::boardmesh::BoardServer {
+            device_id: self.inner.self_id(),
+            port,
+            public,
+        })
     }
 
+    /// The relay's port N while it serves.
     pub fn relay_port(&self) -> Option<u16> {
         self.inner.lock().run.as_ref().map(|r| r.port)
     }

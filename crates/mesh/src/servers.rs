@@ -46,7 +46,8 @@ pub struct NodeAddr {
 
 /// The router's external address and the mapped ports, or an address the
 /// person entered (then `ip` may be a host name).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct PublicAddr {
     pub ip: String,
     pub tcp: i64,

@@ -883,6 +883,7 @@ fn paired() -> (Dev, Dev) {
 /// writes reaches A. The board's rows never enter either private log, and
 /// Leave on B forgets the board on both.
 #[test]
+#[ignore = "stage 2: own devices sync a board over BoardMesh only once the Core opens boards on it and board.secret reaches own devices (docs/design/boards2-transport.md section 9)"]
 fn board_on_own_devices() {
     let (a, b) = paired();
     let id = a.core.create_board("MLG", "mlg").unwrap();
@@ -976,6 +977,7 @@ fn board_on_own_devices() {
 /// card; a card shared from the PC is refused for writes on the Mac too;
 /// and Withdraw carries the Mac agent's hold over to the private card.
 #[test]
+#[ignore = "stage 2: own devices sync a board over BoardMesh only once the Core opens boards on it and board.secret reaches own devices (docs/design/boards2-transport.md section 9)"]
 fn board_cards_across_own_devices() {
     let (pc, mac) = paired();
     wait_for(45, "the pc sees the mac's session", || {
