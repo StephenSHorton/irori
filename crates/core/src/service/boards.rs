@@ -387,6 +387,10 @@ pub(crate) struct Boards {
     pub(crate) stop: OnceLock<Cancel>,
     /// The thread keeping every board's member.* rows current.
     pub(crate) identity: Mutex<Vec<JoinHandle<()>>>,
+    /// (board, maker) pairs one of this person's own devices vouched for by
+    /// sending that maker's secret on board.secret: they count as makers
+    /// before the board's rows certify them here.
+    pub(crate) vouched: Arc<Mutex<std::collections::HashSet<(String, String)>>>,
 }
 
 #[derive(Default)]
@@ -881,8 +885,23 @@ impl Services {
         );
         {
             let v = v.clone();
+            // A maker counts once the board certifies it, or, before the
+            // board's rows arrive, when it is one of this person's own
+            // devices or one of them vouched for it (board.secret on the
+            // private mesh).
+            let (chain, vouched, board) = (
+                self.chain.clone(),
+                self.boards.vouched.clone(),
+                id.to_string(),
+            );
             secrets.set_makers(Some(Box::new(move |dev: &str| {
-                v.cert(dev).is_some() && v.cut(dev).is_none()
+                v.cut(dev).is_none()
+                    && (v.cert(dev).is_some()
+                        || chain
+                            .devices()
+                            .iter()
+                            .any(|d| d.cert.device_id == dev && !d.revoked)
+                        || lock(&vouched).contains(&(board.clone(), dev.to_string())))
             })));
         }
         let stop = self
@@ -1000,8 +1019,29 @@ impl Services {
         self.boards
             .follow
             .get_or_init(|| self.start_follow_identity());
+        self.open_board_net(&b);
         self.boards.kick();
         Ok(b)
+    }
+
+    /// Opens the board on the network (boards stage 2): its member devices,
+    /// this person's other devices among them, are dialled on
+    /// `irori/board/1` and its rows move only there.
+    fn open_board_net(&self, b: &BoardLog) {
+        let parts = crate::BoardParts {
+            board_id: b.id.clone(),
+            person_id: self.person_id(),
+            log: b.store.clone(),
+            verifier: b.verifier.clone(),
+            secrets: b.secrets.clone(),
+        };
+        let mesh = self.mesh.clone();
+        self.pairing.handle.spawn(async move {
+            let id = parts.board_id.clone();
+            if let Err(e) = mesh.open_board(parts).await {
+                logf(format_args!("board {id}: open on the network: {e}"));
+            }
+        });
     }
 
     /// The board's threads: coord's Follow, the taskId and card fold, and

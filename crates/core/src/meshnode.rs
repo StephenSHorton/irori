@@ -254,17 +254,22 @@ impl Mesh {
     /// `irori/board/1`, and its rows move only on those connections.
     /// Opening an open board again is a no-op.
     pub(crate) async fn open_board(self: &Arc<Self>, p: BoardParts) -> Result<(), String> {
-        if self
-            .boards
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .contains_key(&p.board_id)
-        {
-            return Ok(());
-        }
-        self.net
-            .board_members()
-            .add(&p.board_id, p.verifier.clone());
+        let verifier = p.verifier.clone();
+        let own: mesh::boardmesh::OwnDevicesFn = {
+            let (chain, person) = (self.chain.clone(), p.person_id.clone());
+            Arc::new(move || {
+                chain
+                    .devices()
+                    .into_iter()
+                    .filter(|d| !d.revoked)
+                    .map(|d| mesh::boardmesh::MemberDevice {
+                        person_id: person.clone(),
+                        device_id: d.cert.device_id,
+                        device_pub: d.cert.device_pub,
+                    })
+                    .collect()
+            })
+        };
         let m = Arc::new(BoardMesh::new(BoardMeshOpts {
             board_id: p.board_id.clone(),
             self_id: self.net.self_id().to_string(),
@@ -274,6 +279,7 @@ impl Mesh {
             verifier: p.verifier,
             secrets: p.secrets,
             transport: Arc::new(self.net.clone()),
+            own_devices: Some(own),
         }));
         m.set_log(Arc::new(|l: &str| crate::log(l)));
         {
@@ -281,11 +287,16 @@ impl Mesh {
             let r = self.refeed.clone();
             m.on_rows(Arc::new(move || r.notify_one()));
         }
+        {
+            // One check and insert, so two openers can't both start it.
+            let mut g = self.boards.lock().unwrap_or_else(|e| e.into_inner());
+            if g.contains_key(&p.board_id) {
+                return Ok(());
+            }
+            g.insert(p.board_id.clone(), m.clone());
+        }
+        self.net.board_members().add(&p.board_id, verifier);
         self.feed_board(&m);
-        self.boards
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(p.board_id.clone(), m.clone());
         if let Err(e) = m.start().await {
             self.close_board(&p.board_id, irori_meshseam::reason::LEAVING);
             return Err(e.to_string());

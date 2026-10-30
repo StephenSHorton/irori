@@ -32,6 +32,11 @@ pub const MAX_PENDING_BOARDS: usize = 64;
 pub trait OwnBoards: Send + Sync {
     /// Each open board's id and secrets.
     fn open_boards(&self) -> Vec<(String, Arc<BoardSecrets>)>;
+    /// One of this person's certified devices sent `maker`'s secret for
+    /// `board_id`: before the board's rows certify `maker` here, that
+    /// device's word is what makes it count. Called before the secret is
+    /// added.
+    fn vouched(&self, _board_id: &str, _maker: &str) {}
 }
 
 /// A `board.secret` opened before its board.
@@ -46,6 +51,17 @@ impl Node {
     pub fn set_own_boards(&self, b: Option<Arc<dyn OwnBoards>>) {
         *self.own_boards.lock().unwrap_or_else(|e| e.into_inner()) = b;
         self.boards_changed();
+    }
+
+    fn vouch(&self, board_id: &str, maker: &str) {
+        let b = self
+            .own_boards
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if let Some(b) = b {
+            b.vouched(board_id, maker);
+        }
     }
 
     fn open_boards(&self) -> Vec<(String, Arc<BoardSecrets>)> {
@@ -65,10 +81,11 @@ impl Node {
         {
             let mut p = self.board_pending.lock().unwrap_or_else(|e| e.into_inner());
             for (id, secrets) in &open {
-                if let Some(w) = p.remove(id)
-                    && let Err(e) = secrets.add(w.epoch, &w.maker, &w.secret)
-                {
-                    self.log(&format!("mesh: board.secret for {id}: {e}"));
+                if let Some(w) = p.remove(id) {
+                    self.vouch(id, &w.maker);
+                    if let Err(e) = secrets.add(w.epoch, &w.maker, &w.secret) {
+                        self.log(&format!("mesh: board.secret for {id}: {e}"));
+                    }
                 }
             }
         }
@@ -135,6 +152,7 @@ impl Node {
         };
         let open = self.open_boards();
         if let Some((_, secrets)) = open.iter().find(|(id, _)| id == &f.board_id) {
+            self.vouch(&f.board_id, &f.maker);
             if let Err(e) = secrets.add(f.epoch, &f.maker, &secret) {
                 self.log(&format!("mesh: board.secret for {}: {e}", f.board_id));
             }

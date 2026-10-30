@@ -184,6 +184,16 @@ impl mesh::ownboards::OwnBoards for OwnBoardSecrets {
             })
             .unwrap_or_default()
     }
+
+    fn vouched(&self, board_id: &str, maker: &str) {
+        if let Some(s) = self.0.upgrade() {
+            s.boards
+                .vouched
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert((board_id.to_string(), maker.to_string()));
+        }
+    }
 }
 
 /// Where the link says the inviter is.
@@ -458,8 +468,12 @@ impl Services {
         };
         if !addrs.is_empty() {
             // The invitee: its other devices open the board from the
-            // private log (§4.1 step 7), pinned to the creator.
+            // private log (§4.1 step 7), pinned to the creator, and this
+            // device certifies them in the board now its rows are in.
             self.board_joined(&b);
+            if let Err(e) = self.keep_current(&b) {
+                crate::log(&format!("invite: board {board_id}: identity rows: {e}"));
+            }
             self.mesh.board_hint(peer, addrs);
         }
         if let Err(e) = self.mesh.open_board(parts).await {
