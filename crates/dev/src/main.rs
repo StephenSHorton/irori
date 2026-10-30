@@ -13,8 +13,14 @@
 //!   irori-dev probe --irori <exe> --home <copy> --claude <empty dir>
 //!                   [--go-tools <fallback_tools.json>]
 //!
+//!   irori-dev boards-live host|guest --home <empty dir> --claude <empty dir> ...
+//!       one side of the live two-person shared-board run (boards_live.rs;
+//!       tools/rehearse/boards-live.sh and .ps1). It makes a fresh person,
+//!       so it refuses a --home that holds anything.
+//!
 //! Output is counts and row keys, never payloads, keys or tokens.
 
+mod boards_live;
 mod http;
 mod probe;
 mod replay;
@@ -25,7 +31,9 @@ use std::process::ExitCode;
 const USAGE: &str = "usage: irori-dev verify --home <copy of a data dir> [--go-hashes <tsv>] [--lockfile <irori.json>] [--append <manifest>]
        irori-dev replay --home <copy of a data dir> --out <dir> [--now <rfc3339>]
        irori-dev replay --compare <dir>
-       irori-dev probe --irori <exe> --home <copy of a data dir> --claude <empty dir> [--go-tools <fallback_tools.json>] [--go-lockfile <copy of Go's irori.json>]";
+       irori-dev probe --irori <exe> --home <copy of a data dir> --claude <empty dir> [--go-tools <fallback_tools.json>] [--go-lockfile <copy of Go's irori.json>]
+       irori-dev boards-live host --home <empty dir> --claude <empty dir> [--link-out <file>] [--step-wait <secs>]
+       irori-dev boards-live guest --home <empty dir> --claude <empty dir> --link <irori-invite:...> [--step-wait <secs>]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -44,6 +52,13 @@ fn main() -> ExitCode {
                     "irori-dev: {e}
 {USAGE}"
                 );
+                ExitCode::from(2)
+            }
+        },
+        Some("boards-live") => match boards_live::Opts::parse(&args[1..]) {
+            Ok(o) => boards_live::run(&o),
+            Err(e) => {
+                eprintln!("irori-dev: {e}\n{USAGE}");
                 ExitCode::from(2)
             }
         },
