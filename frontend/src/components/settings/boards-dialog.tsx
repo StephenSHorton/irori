@@ -31,7 +31,8 @@ import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
 // BoardsDialog is Settings → Boards (design/v0.5-shared-boards.md §8): each
-// board with its name, tag and one status dot; Rename, Invite (owners),
+// board with its name, tag and one status dot (amber with its warning lines
+// when something is wrong: §6.3-6.5); Rename, Invite (owners),
 // Leave (every one of your devices; "Leaving…" with Forget now while
 // other people are on it, §4.4) and Forget (this device only); New
 // board; and Join with an invite. An open invite takes the dialog over
@@ -119,9 +120,14 @@ function BoardRow({
   return (
     <li className="grid grid-cols-[8px_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-1 text-[13px]">
       <span
-        className={cn("size-2 rounded-full", b.ready ? "bg-success" : "bg-warning")}
+        className={cn(
+          "size-2 rounded-full",
+          b.ready && !b.warnings?.length ? "bg-success" : "bg-warning"
+        )}
         aria-hidden
-        title={b.ready ? "Ready" : "Its cards are still arriving from your other device"}
+        title={
+          b.warnings?.[0] ?? (b.ready ? "Ready" : "Its cards are still arriving from your other device")
+        }
       />
       {renaming ? (
         <form className="flex min-w-0 gap-1.5" onSubmit={rename}>
@@ -153,6 +159,11 @@ function BoardRow({
               Another board is also {plainLine(b.tag)}#: its refs need the card's id.
             </small>
           )}
+          {b.warnings?.map((w, i) => (
+            <small key={i} className="block text-xs text-warning">
+              {plainLine(w)}
+            </small>
+          ))}
         </span>
       )}
       <span className="flex items-center gap-1.5">
