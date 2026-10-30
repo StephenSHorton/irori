@@ -139,6 +139,7 @@ pub struct Options {
 pub const HOP_KINDS: &[&str] = &[
     store::kinds::TASK_COMMENT,
     store::kinds::TASK_ASSIGNED,
+    store::kinds::TASK_STATUS,
     store::kinds::BLOCKER_CLOSED,
     store::kinds::BLOCKER_OPTION,
     store::kinds::BLOCKER_RESOLVED,
