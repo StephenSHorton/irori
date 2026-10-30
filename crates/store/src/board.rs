@@ -218,7 +218,10 @@ fn decode(payload: &[u8]) -> Option<Row> {
             })
             .collect(),
         stolen_from: g("stolenFrom"),
-        conflict: g("conflict"),
+        conflict: match o.get("conflict") {
+            Some(Out::Any(Some(json::AnyValue::String(c)))) => c.clone(),
+            _ => String::new(),
+        },
         outcome: ptr(&o, "outcome").map(|x| x.get_str("task").to_string()),
         person_id: g("personId"),
         creator: ptr(&o, "creator").map(|x| x.get_str("personId").to_string()),
