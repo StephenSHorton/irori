@@ -8,6 +8,7 @@ use std::sync::Arc;
 use blob::FileRef;
 
 use crate::devices::{DeviceView, HomeServerView, PairStatus};
+use crate::invites::InviteStatus;
 use crate::settings::NotifyOptions;
 use crate::update::UpdateStatus;
 
@@ -51,6 +52,22 @@ pub trait Pairing: Send + Sync {
     fn watch(&self, _f: Option<Arc<dyn Fn(PairStatus) + Send + Sync>>) {}
 }
 
+/// Invites to a shared board (#44, design §4.1): one invite at a time on
+/// this device, as inviter or invitee.
+pub trait Invites: Send + Sync {
+    /// Boards → a board → Invite (owners): opens the invite window; the
+    /// status carries the link to send.
+    fn invite(&self, board_id: &str) -> Result<InviteStatus, String>;
+    /// Boards → Join with an invite: the pasted link.
+    fn join(&self, link: &str) -> Result<InviteStatus, String>;
+    /// The inviter types the five words the invitee reads out.
+    fn confirm_words(&self, typed: &str) -> Result<InviteStatus, String>;
+    fn status(&self) -> InviteStatus;
+    fn cancel(&self);
+    /// Calls `f` with every invite change (`boards:invite`); `None` stops.
+    fn watch(&self, _f: Option<Arc<dyn Fn(InviteStatus) + Send + Sync>>) {}
+}
+
 /// The notifier (M6 toast, Go `notify.Notifier`): the settings and the
 /// sample card.
 pub trait Notifier: Send + Sync {
@@ -79,6 +96,7 @@ pub trait Updater: Send + Sync {
 pub struct Seams {
     pub mesh: Arc<dyn Mesh>,
     pub pairing: Arc<dyn Pairing>,
+    pub invites: Arc<dyn Invites>,
     pub notifier: Arc<dyn Notifier>,
     pub login: Arc<dyn LoginItem>,
     pub updater: Arc<dyn Updater>,

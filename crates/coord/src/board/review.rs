@@ -29,8 +29,8 @@ pub struct ReviewRequest {
     pub task_id: String,
     pub pr: String,
     pub from: String,
-    /// The agent asked, or empty for the other people's dedicated
-    /// reviewers.
+    /// The agent asked: named, or a dedicated reviewer the request was
+    /// resolved to when written. Empty only on rows older than that.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub to: String,
     pub at: GoTime,
@@ -142,14 +142,15 @@ impl Fold {
     }
 
     /// An agent asking another person's agents to review a PR its card
-    /// links.
+    /// links: `to`, or each other person's dedicated reviewer for the
+    /// card's repo, one request each.
     pub(crate) fn request_review(
         &mut self,
         by: &str,
         id: &str,
         pr: &str,
         to: &str,
-    ) -> Result<(ReviewRequest, Notice)> {
+    ) -> Result<(Vec<ReviewRequest>, Notice)> {
         if !self.on_board {
             return Err(invalid(
                 "review requests go to other people's agents on a shared board",
@@ -184,25 +185,31 @@ impl Fold {
                 "nobody to review it: name another person's agent in to, or ask them to dedicate a reviewer",
             ));
         }
+        // One row per recipient, each naming its agent: the bridge
+        // delivers a request only to the agent its row names, so a bare
+        // "the dedicated reviewer" row would reach nobody.
         let at = self.stamp();
-        self.write(
-            &by,
-            kinds::REVIEW_REQUESTED,
-            &ReviewRequestedRow {
+        let mut out = Vec::with_capacity(rcpt.len());
+        for to in &rcpt {
+            self.write(
+                &by,
+                kinds::REVIEW_REQUESTED,
+                &ReviewRequestedRow {
+                    task_id: id.into(),
+                    pr: pr.clone(),
+                    from: by.clone(),
+                    to: to.clone(),
+                    at,
+                },
+            )?;
+            out.push(ReviewRequest {
                 task_id: id.into(),
                 pr: pr.clone(),
                 from: by.clone(),
                 to: to.clone(),
                 at,
-            },
-        )?;
-        let r = ReviewRequest {
-            task_id: id.into(),
-            pr: pr.clone(),
-            from: by.clone(),
-            to,
-            at,
-        };
+            });
+        }
         let n = Notice {
             kind: NOTICE_REVIEW.into(),
             task_id: id.into(),
@@ -216,7 +223,7 @@ impl Fold {
             ),
             ..Notice::default()
         };
-        Ok((r, n))
+        Ok((out, n))
     }
 
     /// A person dedicating one of their own agents as their reviewer for

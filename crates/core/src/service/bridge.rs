@@ -81,8 +81,8 @@ impl Services {
         let Some(t) = co.get_task(&f.task_id) else {
             return;
         };
-        // A review request without `to` goes to the member's dedicated
-        // reviewer; that lookup lands with card #47's coord.
+        // A review request names its agent: one asked without `to` is
+        // written once per dedicated reviewer (coord's request_review).
         let mut to: Vec<String> = if kind == row_kind::ASSIGN {
             vec![f.to.clone()]
         } else {

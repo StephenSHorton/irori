@@ -2,9 +2,8 @@
 //! the person's answer to a blocker, as BoardService's reads. Every list is
 //! always serialized, so the webview never gets null or a missing array.
 //!
-//! Shared boards (v0.5, M9) are not here yet: every card is on the private
-//! board, so Go's router, `boardCards` and `boardDetail` have nothing to
-//! add.
+//! Cards of shared boards join the grid ([`Window::board_cards`]) and a
+//! card's page reads the log it lives in (`boards.rs`, v0.5 §8).
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -18,7 +17,7 @@ use specta::Type;
 use crate::Window;
 use crate::ts;
 
-/// The only scope until Shared Boards land: the person's own devices.
+/// The private board's scope: the person's own devices.
 pub const SCOPE_MINE: &str = "mine";
 pub const SCOPE_MINE_LABEL: &str = "My devices";
 /// How many activity lines Card returns.
@@ -357,7 +356,7 @@ pub struct CardMessage {
     pub files: Vec<String>,
 }
 
-/// The shared board a card lives on (v0.5 §8). Always absent until M9.
+/// The shared board a card lives on (v0.5 §8).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CardBoard {
@@ -821,6 +820,8 @@ impl Window {
             self.family_of(t, &mut s);
             out.push(s);
         }
+        // Every board's: "All" includes them (v0.5 §8).
+        out.extend(self.board_cards(&p, now));
         out.sort_by(|a, b| {
             let (aa, ab) = (open_ask_summary(a), open_ask_summary(b));
             if aa != ab {
@@ -953,7 +954,8 @@ impl Window {
     /// The cards waiting on a decision (the tray's number).
     pub fn decide_count(&self) -> usize {
         let p = People::default();
-        self.core
+        let private = self
+            .core
             .coord()
             .list_tasks(&coord::TaskFilter {
                 open: true,
@@ -961,18 +963,67 @@ impl Window {
             })
             .iter()
             .filter(|t| card_summary(t, &p).open_blockers > 0)
-            .count()
+            .count();
+        private
+            + self
+                .board_cards(&p, self.now_ms())
+                .iter()
+                .filter(|s| s.open_blockers > 0)
+                .count()
+    }
+
+    /// The live cards of every board this device holds, for the grid,
+    /// their keys as this device knows them. A withdrawn card is hidden
+    /// (§5.3; Go `boardCards`).
+    fn board_cards(&self, p: &People, now: i64) -> Vec<CardSummary> {
+        let mut out = Vec::new();
+        for s in self.core.board_list() {
+            let Ok(co) = self.core.board_coord(&s.board_id) else {
+                continue;
+            };
+            if !s.ready {
+                continue;
+            }
+            for t in co.list_tasks(&coord::TaskFilter {
+                open: true,
+                ..Default::default()
+            }) {
+                if t.withdrawn {
+                    continue;
+                }
+                let pt = self.priv_task(t);
+                let mut cs = card_summary(&pt, p);
+                cs.scope = crate::boards::SCOPE_BOARD.into();
+                cs.scope_label = s.name.clone();
+                cs.board = s.board_id.clone();
+                cs.tag = s.tag.clone();
+                cs.talking = talking(
+                    &self.priv_comments(co.comments(&pt.id).unwrap_or_default()),
+                    p,
+                    now,
+                );
+                out.push(cs);
+            }
+        }
+        out
     }
 
     /// BoardService.Card: one card opened.
     pub fn card(&self, id: &str) -> Result<CardDetail, String> {
-        let co = self.core.coord();
         let id = crate::trim(id);
-        let Some(t) = co.get_task(id) else {
+        let co = self.read(id);
+        let Some(mut t) = co.get_task(id) else {
             return Err(not_found_task(id));
         };
-        let comments = co.comments(&t.id).unwrap_or_default();
-        let acts = co.activity(&t.id).unwrap_or_default();
+        let mut comments = co.comments(&t.id).unwrap_or_default();
+        let mut acts = co.activity(&t.id).unwrap_or_default();
+        if co.is_board() {
+            // A shared card's keys are board keys; the page names them as
+            // this device knows them (v0.5 §2.4).
+            t = self.priv_task(t);
+            comments = self.priv_comments(comments);
+            acts = self.priv_activity(acts);
+        }
         let p = self.people();
         let mut d = CardDetail {
             summary: card_summary(&t, &p),
@@ -984,6 +1035,7 @@ impl Window {
             comments,
             ..CardDetail::default()
         };
+        self.board_detail(&t, &mut d);
         self.family_of(&t, &mut d.summary);
         for kid in &t.subtasks {
             let Some(k) = co.get_task(kid) else { continue };

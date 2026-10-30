@@ -146,6 +146,22 @@ pub trait TaskRouter: Send + Sync {
     fn mirror_release(&self, key: &str, resource: &str) {
         let _ = (key, resource);
     }
+    /// Asks the holder of another person's lease on resource to release it
+    /// (v0.5 §5.4, `Coord::request_release`): a comment by `by` on the
+    /// shared card the lease mirrors through. Returns the board's id, the
+    /// comment and its notice. Without shared boards there is none to ask.
+    fn request_release(
+        &self,
+        by: &str,
+        resource: &str,
+        why: &str,
+    ) -> Result<(String, coord::Comment, coord::Notice), coord::Error> {
+        let _ = (by, why);
+        Err(coord::Error::new(
+            coord::ErrorKind::NotFound,
+            format_args!("no shared board holds a lease on {resource}"),
+        ))
+    }
 }
 
 /// Shared boards to show (Go `BoardViewer`).
@@ -213,7 +229,7 @@ pub(crate) struct Inner {
 const CALLER_READS: [&str; 6] = ["inbox", "timeline", "overview", "search", "show", "board"];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 40] = [
+    let list: [(&'static str, Handler); 41] = [
         ("agents", observe::agents),
         ("events", observe::events),
         ("send", messages::send),
@@ -242,6 +258,7 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("board_watch", board::board_watch),
         ("board_unwatch", board::board_unwatch),
         ("board_share", shared::board_share),
+        ("board_review", shared::board_review),
         ("ask_claim", room::ask_claim),
         ("ask_close", room::ask_close),
         ("commits", explore::commits),
