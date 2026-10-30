@@ -102,6 +102,8 @@ declare module 'claude-code' {
       wakes: TrackedWake[]
       /** Newest last; engaged at the next main-loop turn start after delivery. */
       appends: TrackedAppend[]
+      /** Titles this mod set on the session (card #21), newest last. */
+      titles: string[]
     }
   }
 }

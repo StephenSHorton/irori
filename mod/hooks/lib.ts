@@ -4,7 +4,7 @@
 import type { AttachEvent, AttachView, Policy, ToolSpec, TrackedAppend } from '../types'
 
 /** Matches .claude-plugin/plugin.json; sent to `irori attach` and shown by /irori. */
-export const MOD_VERSION = '0.4.1'
+export const MOD_VERSION = '0.4.2'
 
 export const PLUGIN = 'irori'
 export const TOOL_PREFIX = 'mcp__irori__'
@@ -235,4 +235,33 @@ export function titleToSet(
   if (now === name) return undefined
   if (now === '' || setBefore.includes(now) || (view.aiTitle && now === view.aiTitle.trim())) return name
   return undefined
+}
+
+/** A Board card as GET /v1/board lists it: only what heldReminder reads. */
+export type BoardCard = { short?: string; title?: string; state?: string; holders?: string[] }
+export type BoardLists = { needsYou?: BoardCard[]; blocked?: BoardCard[]; working?: BoardCard[]; open?: BoardCard[] }
+
+/**
+ * The reminder a person's prompt carries while this session holds cards
+ * (GitHub #3): the person works from the Irori app, not this terminal, so
+ * what the agent needs from them goes on the card as a blocker even when
+ * they asked here. Empty when it holds none.
+ */
+export function heldReminder(board: BoardLists | undefined, agentKey: string | undefined): string {
+  if (!board || !agentKey) return ''
+  const seen = new Set<string>()
+  const held: string[] = []
+  for (const c of [...(board.needsYou ?? []), ...(board.blocked ?? []), ...(board.working ?? []), ...(board.open ?? [])]) {
+    if (!c.holders?.includes(agentKey)) continue
+    const ref = c.short ? `#${c.short}` : (c.title ?? '')
+    if (!ref || seen.has(ref)) continue
+    seen.add(ref)
+    held.push(c.title ? `${ref} "${c.title}"` : ref)
+  }
+  if (!held.length) return ''
+  return (
+    `Irori: you hold ${held.join(', ')}. The person follows your work in the Irori app and may not be watching this terminal. ` +
+    'If you need them to decide, approve or do something (sign in, give access, pick an option), raise it on the card with the irori board_block tool, one blocker per question, even when they asked you here; you can also say it here. ' +
+    'Keep the card\'s steps current with board_step.'
+  )
 }

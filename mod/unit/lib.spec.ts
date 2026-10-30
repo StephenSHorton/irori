@@ -9,6 +9,7 @@ import {
   bareToolName,
   describePolicy,
   editPolicy,
+  heldReminder,
   nextBackoff,
   titleToSet,
   parseArgs,
@@ -170,5 +171,28 @@ describe('titleToSet (card #21)', () => {
   test('sets nothing without an Irori name', () => {
     expect(titleToSet({ name: 'C--Users', nameSource: '' }, '', [])).toBeUndefined()
     expect(titleToSet({ nameSource: 'irori' }, '', [])).toBeUndefined()
+  })
+})
+
+describe('heldReminder', () => {
+  const me = 'dev-a/me'
+  test('names the cards this session holds, once each', () => {
+    const r = heldReminder(
+      {
+        working: [{ short: '68', title: 'Fix it', holders: [me] }, { short: '70', title: 'Not mine', holders: ['dev-a/other'] }],
+        blocked: [{ short: '69', title: 'Waiting', holders: ['dev-a/other', me] }],
+        needsYou: [{ short: '69', title: 'Waiting', holders: [me] }],
+      },
+      me,
+    )
+    expect(r).toContain('#69 "Waiting", #68 "Fix it"')
+    expect(r).not.toContain('#70')
+    expect(r).toContain('board_block')
+  })
+
+  test('says nothing when it holds no card or the board is missing', () => {
+    expect(heldReminder({ working: [{ short: '1', holders: ['x'] }] }, me)).toBe('')
+    expect(heldReminder(undefined, me)).toBe('')
+    expect(heldReminder({ working: [{ short: '1', holders: [me] }] }, undefined)).toBe('')
   })
 })
