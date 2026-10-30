@@ -498,3 +498,62 @@ fn manifest_dir() -> std::path::PathBuf {
     std::env::var_os("CARGO_MANIFEST_DIR")
         .map_or_else(|| env!("CARGO_MANIFEST_DIR").into(), Into::into)
 }
+
+/// Card #57: the person closes any card by hand (Done or Canceled, with a
+/// note) and deletes any card; Closed lists done, canceled and failed.
+#[test]
+fn close_and_delete_by_hand() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let new = |title: &str| {
+        co.create_task(
+            &r.key_a,
+            coord::NewTask {
+                title: title.into(),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let (a, b, c, d) = (new("a"), new("b"), new("c"), new("d"));
+    co.claim_task(&r.key_a, &a.id).unwrap();
+    // An agent's card the person never touched: they may still close it.
+    let t = r.w.close_card(&a.id, coord::COMPLETED, "shipped").unwrap();
+    assert_eq!(
+        (t.state.as_str(), t.note.as_str()),
+        (coord::COMPLETED, "shipped")
+    );
+    r.w.close_card(&b.id, coord::CANCELED, "").unwrap();
+    co.set_task_state(&r.key_a, &c.id, coord::FAILED, "broke")
+        .unwrap();
+    assert!(
+        r.w.close_card(&d.id, "working", "")
+            .unwrap_err()
+            .contains("completed or canceled")
+    );
+    let closed: Vec<String> =
+        r.w.done_cards(0, "")
+            .unwrap()
+            .cards
+            .iter()
+            .map(|s| s.state.clone())
+            .collect();
+    let mut want = vec![coord::COMPLETED, coord::CANCELED, coord::FAILED];
+    let mut got = closed.clone();
+    got.sort();
+    want.sort();
+    assert_eq!(got, want);
+    // Delete: open or closed, the card leaves every list.
+    r.w.delete_card(&d.id).unwrap();
+    r.w.delete_card(&a.id).unwrap();
+    assert!(r.w.cards().iter().all(|s| s.id != d.id));
+    assert!(
+        r.w.done_cards(0, "")
+            .unwrap()
+            .cards
+            .iter()
+            .all(|s| s.id != a.id)
+    );
+    assert!(r.w.card(&d.id).is_err());
+    assert!(r.w.delete_card(&d.id).is_err());
+}

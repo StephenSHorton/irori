@@ -117,7 +117,15 @@ export function StatePill({ card }: { card: CardSummary }) {
     )
   if (over(card))
     return (
-      <Badge variant={card.state === TaskState.Completed ? "success" : "slate"}>
+      <Badge
+        variant={
+          card.state === TaskState.Completed
+            ? "success"
+            : card.state === TaskState.Failed
+              ? "warning"
+              : "slate"
+        }
+      >
         {overLabel(card)}
       </Badge>
     )

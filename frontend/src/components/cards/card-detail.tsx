@@ -173,13 +173,19 @@ export function CardPage({
         card={detail}
         spinning={spinning}
         onOpen={onOpen}
-        extra={<BoardActions detail={detail} boards={boards} onOpen={onOpen} onBack={onBack} />}
+        extra={
+          <>
+            <BoardActions detail={detail} boards={boards} onOpen={onOpen} onBack={onBack} />
+            {!detail.onBoard && <DeleteButton detail={detail} onDeleted={onBack} />}
+          </>
+        }
       />
       {openAsk(detail) ? (
         <AskStatus detail={detail} onClosed={onBack} />
       ) : (
         <ProgressStrip detail={detail} spinning={spinning} />
       )}
+      {!over(detail) && !openAsk(detail) && <CloseBar detail={detail} />}
       {over(detail) &&
         (detail.sharedTo && !detail.sharedTo.withdrawn ? (
           <SharedToBar detail={detail} onOpen={onOpen} />
@@ -392,6 +398,76 @@ function AskStatus({
         }}
       />
     </div>
+  )
+}
+
+// CloseBar is a card in play's line for the person to end it by hand
+// (card #57): Done or Canceled, with an optional note the agents on it
+// hear. A parent ends with its subtasks: Canceled cancels them too, and
+// Done waits for them (Coord refuses it while one is open).
+function CloseBar({ detail }: { detail: CardDetail }) {
+  const [note, setNote] = useDraft(`${detail.id}/close`)
+  const close = (state: TaskState) => async () => {
+    await cards.close(detail.id, state, note)
+    setNote("")
+  }
+  const kids = (detail.subtaskList?.length ?? 0) > 0
+  return (
+    <div className="glass-panel flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5">
+      <span className="min-w-40 flex-1 text-[13px] text-muted-foreground">
+        Close it by hand
+      </span>
+      <Input
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        maxLength={300}
+        placeholder="Why (optional)"
+        aria-label="Why you close the card"
+        className="h-8 w-56 text-xs"
+      />
+      <ConfirmButton
+        label="Done"
+        question="Mark this card done? It moves to Closed, and whoever is on it hears."
+        confirmLabel="Mark done"
+        onConfirm={close(TaskState.Completed)}
+      />
+      <ConfirmButton
+        label="Cancel card"
+        question={
+          kids
+            ? "Cancel this card and its open subtasks? They move to Closed, and whoever is on them hears."
+            : "Cancel this card? It moves to Closed, and whoever is on it hears."
+        }
+        confirmLabel="Cancel it"
+        cancelLabel="Keep it"
+        onConfirm={close(TaskState.Canceled)}
+      />
+    </div>
+  )
+}
+
+// DeleteButton deletes a card for good (card #57), e.g. one opened by
+// mistake: it leaves the Board on every device and agents can't reach it;
+// the signed log keeps it. Its subtasks stay, as cards of their own.
+function DeleteButton({
+  detail,
+  onDeleted,
+}: {
+  detail: CardDetail
+  onDeleted: () => void
+}) {
+  const kids = (detail.subtaskList?.length ?? 0) > 0
+  return (
+    <ConfirmButton
+      label="Delete"
+      variant="destructive"
+      question={`Delete ${detail.short || "this card"} for good? It disappears from the Board on all your devices and agents can no longer reach it. It can't be undone.${kids ? " Its subtasks stay, as cards of their own." : ""}`}
+      confirmLabel="Delete it"
+      onConfirm={async () => {
+        await cards.remove(detail.id)
+        onDeleted()
+      }}
+    />
   )
 }
 

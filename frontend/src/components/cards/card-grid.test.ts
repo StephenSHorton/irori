@@ -2,17 +2,27 @@ import { describe, expect, test } from "bun:test"
 
 import { CardSummary } from "@/lib/models"
 import { TaskState } from "@/lib/models"
-import { asFilter, filters, matches, shownCards } from "./card-grid"
+import { asFilter, filters, matches, ofOutcome, outcomes, shownCards } from "./card-grid"
 
 const card = (state: TaskState, openBlockers = 0) =>
   CardSummary({ id: "c", state, openBlockers, scope: "mine" })
 
 describe("filters", () => {
-  test("Done is the last tab", () => {
+  test("Closed is the last tab (card #57)", () => {
     expect(filters.map((f) => f.id)).toEqual(["all", "decide", "mine", "done"])
-    expect(filters.at(-1)?.label).toBe("Done")
+    expect(filters.at(-1)?.label).toBe("Closed")
   })
-  test("Done holds the closed cards and nothing open", () => {
+  test("Closed narrows by outcome", () => {
+    const cs = [TaskState.Completed, TaskState.Canceled, TaskState.Failed].map((s) =>
+      CardSummary({ id: s, state: s, scope: "mine" })
+    )
+    expect(outcomes.map((o) => o.label)).toEqual(["Any outcome", "Done", "Canceled", "Failed"])
+    expect(ofOutcome(cs, "any").length).toBe(3)
+    expect(ofOutcome(cs, "completed").map((c) => c.id)).toEqual([TaskState.Completed])
+    expect(ofOutcome(cs, "canceled").map((c) => c.id)).toEqual([TaskState.Canceled])
+    expect(ofOutcome(cs, "failed").map((c) => c.id)).toEqual([TaskState.Failed])
+  })
+  test("Closed holds done, canceled and failed cards and nothing open", () => {
     expect(matches(card(TaskState.Completed), "done")).toBe(true)
     expect(matches(card(TaskState.Canceled), "done")).toBe(true)
     expect(matches(card(TaskState.Failed), "done")).toBe(true)
@@ -28,6 +38,7 @@ describe("filters", () => {
   })
   test("asFilter reads a known id, else all", () => {
     expect(asFilter("done")).toBe("done")
+    expect(asFilter("closed")).toBe("done")
     expect(asFilter("nope")).toBe("all")
     expect(asFilter(null)).toBe("all")
     expect(asFilter("board:b1")).toBe("board:b1")

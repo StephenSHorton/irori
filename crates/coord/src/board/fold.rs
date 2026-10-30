@@ -188,6 +188,8 @@ pub struct Fold {
     pub(crate) stale: Arc<RwLock<StaleMap>>,
     pub(crate) links: Vec<ParentLink>,
     pub(crate) pins: HashMap<String, PinRec>,
+    /// Cards the person deleted (card #57): never folded again.
+    pub(crate) deleted: HashSet<String>,
 }
 
 /// `stolenKey`: resource, holder and acquiredAt (RFC3339Nano, UTC).
@@ -277,6 +279,7 @@ impl Fold {
             stale: Arc::new(RwLock::new(StaleMap::default())),
             links: Vec::new(),
             pins: HashMap::new(),
+            deleted: HashSet::new(),
         }
     }
 
@@ -624,6 +627,7 @@ impl Fold {
             | kinds::TASK_STEP
             | kinds::TASK_WATCHED => self.apply_card(ev, &at),
             kinds::TASK_PINNED => self.fold_pin(ev),
+            kinds::TASK_DELETED => self.fold_deleted(ev),
             kinds::TASK_PARENT => {
                 let Some(p) = row::<TaskParentRow>(&ev.payload) else {
                     return;
@@ -750,7 +754,7 @@ impl Fold {
         let Some(p) = row::<TaskCreatedRow>(&ev.payload) else {
             return;
         };
-        if p.task_id.is_empty() {
+        if p.task_id.is_empty() || self.deleted.contains(&p.task_id) {
             return;
         }
         let t = at(p.at);

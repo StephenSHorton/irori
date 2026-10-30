@@ -304,6 +304,16 @@ crate::go_struct! {
 }
 
 crate::go_struct! {
+    /// task.deleted: the person took a card off the Board for good.
+    #[derive(Debug, Clone, Default, PartialEq)]
+    pub struct TaskDeletedRow {
+        pub task_id: String = "taskId",
+        pub by: String = "by",
+        pub at: GoTime = "at",
+    }
+}
+
+crate::go_struct! {
     #[derive(Debug, Clone, Default, PartialEq)]
     pub struct TaskPinnedRow {
         pub task_id: String = "taskId",

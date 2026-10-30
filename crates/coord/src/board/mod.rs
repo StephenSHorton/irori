@@ -342,6 +342,10 @@ impl Coord {
     pub fn activity(&self, id: &str) -> Option<Vec<Activity>> {
         self.lock().activity_of(id)
     }
+    /// The person deletes a card (card #57); returns it as it was.
+    pub fn delete_task(&self, by: &str, id: &str) -> Result<Task> {
+        self.lock().delete_task(by, id)
+    }
     pub fn pin(&self, by: &str, id: &str, pinned: bool) -> Result<Task> {
         self.lock().pin(by, id, pinned, "", false)
     }
