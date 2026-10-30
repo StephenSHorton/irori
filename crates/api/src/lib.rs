@@ -42,6 +42,8 @@
 //! - Mesh (M5): `/v1/devices[?detail=1]` is [`Backend::mesh_devices`]
 //!   (Go `Mesh().Devices`), 503 for a backend without a mesh. Health has
 //!   no `net` yet.
+//! - Shared boards (M9): `/v1/boards[?detail=1]` is [`Backend::boards`],
+//!   503 until the Core holds shared boards.
 //! - Timeouts: Go's ReadHeader 5 s, Read 10 s, Write 30 s and Idle 60 s
 //!   are per-connection deadlines on the socket ([`conn`]); the attach and
 //!   events streams lift them, as Go's do. A body is read only after the
@@ -50,6 +52,7 @@
 pub mod attach;
 pub mod backend;
 pub mod board;
+pub mod boards;
 mod body;
 pub mod client;
 pub mod conn;

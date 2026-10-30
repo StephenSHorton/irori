@@ -300,6 +300,16 @@ impl Coord {
     pub fn aside_dropped(&self) -> usize {
         self.lock().aside_drop
     }
+    /// What a board's fold kept out, for `GET /v1/boards?detail=1`.
+    pub fn set_aside(&self) -> SetAside {
+        let f = self.lock();
+        SetAside {
+            unresolved: f.aside.len(),
+            dropped: f.aside_drop,
+            ignored: f.ignored,
+            ignored_by: f.ignored_by.clone(),
+        }
+    }
     pub fn unresolved(&self) -> usize {
         self.lock().aside.len()
     }

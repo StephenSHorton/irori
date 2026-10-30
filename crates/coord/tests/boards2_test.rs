@@ -647,6 +647,10 @@ fn a_review_request_reaches_the_other_persons_reviewer() {
             s.c.fold_live(std::slice::from_ref(ev));
         }
         assert_eq!(s.c.ignored_rows(), before + 2);
+        let aside = s.c.set_aside();
+        assert_eq!(aside.ignored, s.c.ignored_rows());
+        assert_eq!(aside.ignored_by.get("dev-b2"), Some(&1), "{aside:?}");
+        assert_eq!(aside.ignored_by.get("dev-a2"), Some(&1), "{aside:?}");
         assert_eq!(s.c.reviews(&t.id).len(), 1);
         assert_eq!(s.c.reviewer("p1", ""), "");
     }

@@ -21,6 +21,8 @@ struct Bare {
     /// A mesh's device rows; every `detail` flag asked is recorded.
     mesh: Option<Vec<mesh::DeviceRow>>,
     detail: Mutex<Vec<bool>>,
+    /// Shared boards, each with its detail; `None` is a Core without them.
+    boards: Mutex<Option<Vec<irori_api::boards::BoardRow>>>,
 }
 
 impl Backend for Bare {
@@ -67,6 +69,15 @@ impl Backend for Bare {
         self.detail.lock().unwrap().push(detail);
         self.mesh.clone()
     }
+    fn boards(&self, detail: bool) -> Option<Vec<irori_api::boards::BoardRow>> {
+        let mut rows = self.boards.lock().unwrap().clone()?;
+        if !detail {
+            for r in &mut rows {
+                r.detail = None;
+            }
+        }
+        Some(rows)
+    }
 }
 
 struct Host {
@@ -101,6 +112,7 @@ fn start_with(mesh: Option<Vec<mesh::DeviceRow>>) -> Host {
         live: Mutex::new(None),
         mesh,
         detail: Mutex::new(Vec::new()),
+        boards: Mutex::new(None),
     });
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -296,5 +308,66 @@ fn devices_route_like_go() {
             "{q}"
         );
         assert_eq!(h.b.detail.lock().unwrap().pop(), Some(want), "{q}");
+    }
+}
+
+/// `/v1/boards`: 503 until the Core holds shared boards; then the boards,
+/// with members and the set-aside counts only under `detail`.
+#[test]
+fn boards_route_shows_set_aside_counts_under_detail() {
+    use irori_api::boards::{BoardDetail, BoardMember, BoardRow};
+    let h = start();
+    want_status(&h, "/v1/boards", 503);
+    want_status(&h, "/v1/boards?detail=1", 503);
+    *h.b.boards.lock().unwrap() = Some(vec![BoardRow {
+        board_id: "b0".into(),
+        name: "mlg".into(),
+        tag: "mlg".into(),
+        people: vec!["Pat".into(), "Robin".into()],
+        owner: true,
+        devices: 3,
+        cards: 4,
+        ready: true,
+        detail: Some(BoardDetail {
+            members: vec![BoardMember {
+                person_id: "p2".into(),
+                name: "Robin".into(),
+                fingerprint: "ab:cd".into(),
+                role: "member".into(),
+                state: "active".into(),
+                devices: 1,
+            }],
+            set_aside: coord::SetAside {
+                unresolved: 2,
+                dropped: 1,
+                ignored: 3,
+                ignored_by: [("dev-b".to_string(), 3)].into_iter().collect(),
+            },
+            conflicts: vec![],
+        }),
+    }]);
+    let c = irori_api::client::Client::at(h.port, TOKEN);
+    let get = |q: &str| {
+        let r =
+            h.rt.block_on(c.raw("GET", &format!("/v1/boards{q}"), &[], None))
+                .unwrap();
+        assert_eq!(r.status, 200, "{q}");
+        String::from_utf8_lossy(&r.body).into_owned()
+    };
+    let plain = r#"{"boardId":"b0","name":"mlg","tag":"mlg","people":["Pat","Robin"],"owner":true,"devices":3,"cards":4,"ready":true"#;
+    assert_eq!(get(""), format!("[{plain}}}]\n"));
+    assert_eq!(get("?detail=0"), format!("[{plain}}}]\n"));
+    for q in ["?detail=1", "?detail=true"] {
+        assert_eq!(
+            get(q),
+            format!(
+                "[{plain},{}}}]\n",
+                concat!(
+                    r#""detail":{"members":[{"personId":"p2","name":"Robin","fingerprint":"ab:cd","role":"member","state":"active","devices":1}],"#,
+                    r#""setAside":{"unresolved":2,"dropped":1,"ignored":3,"ignoredBy":{"dev-b":3}}}"#
+                )
+            ),
+            "{q}"
+        );
     }
 }

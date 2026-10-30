@@ -43,6 +43,13 @@ pub trait Backend: Send + Sync + 'static {
         let _ = detail;
         None
     }
+    /// The shared boards this device holds, for `GET /v1/boards`;
+    /// `detail` adds members, fingerprints and the set-aside counts.
+    /// `None` (no shared boards in this Core yet) answers 503.
+    fn boards(&self, detail: bool) -> Option<Vec<crate::boards::BoardRow>> {
+        let _ = detail;
+        None
+    }
 }
 
 impl Backend for Core {
