@@ -663,6 +663,9 @@ pub struct Activity {
     pub device: String,
     #[serde(skip_serializing_if = "omit")]
     pub blocker_id: String,
+    /// The line of a blocker revision: it belongs in the blocker's thread.
+    #[serde(skip)]
+    pub revised: bool,
     #[serde(skip)]
     pub hlc: u64,
     #[serde(skip)]
@@ -688,6 +691,17 @@ pub struct NewBlocker {
     pub blocked_by: Option<BlockedBy>,
     pub links: Vec<String>,
     pub files: Vec<FileRef>,
+}
+
+/// Revise's input: what an open blocker asks now.
+#[derive(Debug, Clone, Default)]
+pub struct BlockerRevision {
+    /// The new question; empty keeps the current one.
+    pub question: String,
+    /// The new context; `None` keeps the current one, `Some("")` drops it.
+    pub context: Option<String>,
+    /// The choices now; empty means none (a plain question).
+    pub options: Vec<BlockerOption>,
 }
 
 /// Answer's input.

@@ -847,10 +847,12 @@ impl Fold {
         sync_holder(&mut t);
         let mut what = String::new();
         let mut raised = String::new();
+        let mut revised = false;
         if p.state == BLOCKED {
-            let (w, r) = self.fold_blocked(&mut t, &p, ev, was == BLOCKED, when);
-            what = w;
-            raised = r;
+            let f = self.fold_blocked(&mut t, &p, ev, was == BLOCKED, when);
+            what = f.what;
+            raised = f.raised;
+            revised = f.revised;
         } else {
             super::cards::close_open(&mut t, &p.by, &p.note, when);
             if is_terminal(&was) && !is_terminal(&p.state) {
@@ -864,6 +866,7 @@ impl Fold {
         t.updated_by = p.by.clone();
         let mut line = line_of(ev, when, &p.by, &what);
         line.blocker_id = raised.clone();
+        line.revised = revised;
         let ti = Touch::of(&t);
         let holder = t.holder.clone();
         if !raised.is_empty() {

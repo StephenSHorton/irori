@@ -25,7 +25,7 @@
   "kind": "answered",
   "to": "dev-a/bob-session",
   "wake": false,
-  "text": "user:dev-a answered the blocker on \"Fix \\\"it\\\" <now>\" (#1, task:01M5W19VG0QRM302EPRQ06D00R, blocker b2).\nQuestion: Which?\nAnswer: A\n(That is the answer dev-a/bob-session recommended.)\nIt is not resolved yet. When you have what you need: board_unblock task_id=01M5W19VG0QRM302EPRQ06D00R blocker_id=b2 note=\"<one line on what you will do now>\". If the answer doesn't settle it: board_comment task_id=01M5W19VG0QRM302EPRQ06D00R blocker_id=b2 with what is still missing.\nshow task:01M5W19VG0QRM302EPRQ06D00R for the card, its comments and links."
+  "text": "user:dev-a answered the blocker on \"Fix \\\"it\\\" <now>\" (#1, task:01M5W19VG0QRM302EPRQ06D00R, blocker b2).\nQuestion: Which?\nAnswer: A\n(That is the answer dev-a/bob-session recommended.)\nIt is not resolved yet. When you have what you need: board_unblock task_id=01M5W19VG0QRM302EPRQ06D00R blocker_id=b2 note=\"<one line on what you will do now>\". If the answer doesn't settle it: board_comment task_id=01M5W19VG0QRM302EPRQ06D00R blocker_id=b2 with what is still missing. If it is a question or changes what is being decided, answer it there, then resolve the blocker if that settles it, or revise it with board_block task_id=01M5W19VG0QRM302EPRQ06D00R blocker_id=b2 with the question and options that fit now (or none); never offer the same options again.\nshow task:01M5W19VG0QRM302EPRQ06D00R for the card, its comments and links."
  },
  {
   "step": "resolve",

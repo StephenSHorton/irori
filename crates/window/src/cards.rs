@@ -323,6 +323,11 @@ pub struct CardThreadItem {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[specta(optional)]
     pub missing: Vec<String>,
+    /// An event that revised its blocker (card #50): what it asks now and
+    /// its options changed. It sits in the blocker's thread.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub revised: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     #[specta(optional)]
     pub gone: bool,
@@ -1274,14 +1279,6 @@ fn build_thread(
         }
         all.push((pos, it));
     }
-    mine.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut by_blocker: HashMap<String, Vec<CardThreadItem>> = HashMap::new();
-    for (_, it) in mine {
-        by_blocker
-            .entry(it.blocker_id.clone())
-            .or_default()
-            .push(it);
-    }
     let mut seen: HashMap<String, usize> = HashMap::new();
     for a in acts.iter().rev() {
         if a.kind == store::kinds::TASK_COMMENT && a.blocker_id.is_empty() {
@@ -1296,7 +1293,7 @@ fn build_thread(
             seen.insert(id.clone(), 1);
         }
         let who = p.ref_(&a.by);
-        all.push((
+        let ev = (
             ThreadPos {
                 hlc: a.hlc,
                 dev: a.device.clone(),
@@ -1309,10 +1306,25 @@ fn build_thread(
                 device: p.chip(&a.device),
                 text: format!("{} {}", who.name, a.what),
                 blocker_id: a.blocker_id.clone(),
+                revised: a.revised,
                 who,
                 ..CardThreadItem::default()
             },
-        ));
+        );
+        // A revision goes under its blocker, after the reply it answers.
+        if a.revised && kept.contains(a.blocker_id.as_str()) {
+            mine.push(ev);
+            continue;
+        }
+        all.push(ev);
+    }
+    mine.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut by_blocker: HashMap<String, Vec<CardThreadItem>> = HashMap::new();
+    for (_, it) in mine {
+        by_blocker
+            .entry(it.blocker_id.clone())
+            .or_default()
+            .push(it);
     }
     all.sort_by(|a, b| a.0.cmp(&b.0));
     let mut agent_later = false;

@@ -304,6 +304,16 @@ impl Coord {
     pub fn raise(&self, by: &str, id: &str, nb: NewBlocker) -> Result<(Task, Blocker)> {
         self.lock().raise(by, id, nb)
     }
+    /// Revises an open blocker (Fold::revise).
+    pub fn revise(
+        &self,
+        by: &str,
+        id: &str,
+        blocker: &str,
+        r: BlockerRevision,
+    ) -> Result<(Task, Blocker)> {
+        self.lock().revise(by, id, blocker, r)
+    }
     pub fn recommend(
         &self,
         by: &str,
