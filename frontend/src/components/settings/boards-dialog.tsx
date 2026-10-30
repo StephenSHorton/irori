@@ -26,7 +26,7 @@ import {
   type InviteStatus,
 } from "@/lib/boards"
 import { copyText } from "@/lib/clipboard"
-import { plainLine } from "@/lib/irori"
+import { plainLine, shortRepo } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
@@ -481,6 +481,100 @@ function ReadInviteWords({ s, peer }: { s: InviteStatus; peer: string }) {
 // BoardSettingsPanel is a board opened (§8): its members, what reaches your
 // agents from other people on it (§7.2), and what your agents may do there
 // (§7.3). Only the person changes these, here.
+// Reviewers is the board's peer-review setting (design §10): which of your
+// agents the others' review requests go to when they name nobody, for the
+// whole board or one repo. The review itself is that agent's, under your
+// GitHub account; Irori only routes the request.
+function Reviewers({
+  s,
+  save,
+}: {
+  s: BoardSettings
+  save: (f: () => Promise<BoardSettings>) => Promise<void>
+}) {
+  const [agent, setAgent] = useState("")
+  const [repo, setRepo] = useState("")
+  const repos = [...new Set(s.agents.map((a) => a.repo).filter(Boolean))]
+  return (
+    <section className="grid gap-1" aria-label="My reviewer">
+      <span className="font-semibold text-ink">My reviewer</span>
+      <p className="text-muted-foreground">
+        Review requests from other people that name nobody go to this agent. It reviews under your
+        GitHub account.
+      </p>
+      {s.reviewers.length > 0 ? (
+        <ul className="grid gap-0.5" aria-label="Your reviewers">
+          {s.reviewers.map((r) => (
+            <li key={r.repo || "*"} className="flex items-center gap-1.5">
+              <span className="text-ink">{plainLine(r.name) || r.agent}</span>
+              <span className="text-muted-foreground">
+                {r.repo ? `for ${shortRepo(r.repo)}` : "for the whole board"}
+              </span>
+              <Button
+                size="xs"
+                variant="ghost"
+                className="ml-auto"
+                onClick={() => void save(() => actions.setReviewer(s.boardId, "", r.repo))}
+              >
+                Remove
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-muted-foreground">None yet.</p>
+      )}
+      {s.agents.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <select
+            className="h-7 rounded-md border border-border bg-transparent px-1.5"
+            aria-label="Agent to review"
+            value={agent}
+            onChange={(e) => setAgent(e.target.value)}
+          >
+            <option value="">Pick an agent…</option>
+            {s.agents.map((a) => (
+              <option key={a.agent} value={a.agent}>
+                {plainLine(a.name)}
+                {a.repo ? ` (${shortRepo(a.repo)})` : ""}
+              </option>
+            ))}
+          </select>
+          <select
+            className="h-7 rounded-md border border-border bg-transparent px-1.5"
+            aria-label="For which repo"
+            value={repo}
+            onChange={(e) => setRepo(e.target.value)}
+          >
+            <option value="">the whole board</option>
+            {repos.map((r) => (
+              <option key={r} value={r}>
+                {shortRepo(r)}
+              </option>
+            ))}
+          </select>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!agent}
+            onClick={() =>
+              void save(async () => {
+                const next = await actions.setReviewer(s.boardId, agent, repo)
+                setAgent("")
+                return next
+              })
+            }
+          >
+            Set reviewer
+          </Button>
+        </div>
+      ) : (
+        <p className="text-muted-foreground">No agent of yours is running to pick.</p>
+      )}
+    </section>
+  )
+}
+
 function BoardSettingsPanel({ boardId }: { boardId: string }) {
   const [s, setS] = useState<BoardSettings | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -599,6 +693,7 @@ function BoardSettingsPanel({ boardId }: { boardId: string }) {
         </div>
         <p className="text-muted-foreground">{autonomyHint}</p>
       </section>
+      <Reviewers s={s} save={save} />
       {error && <p className="text-destructive">{error}</p>}
     </div>
   )

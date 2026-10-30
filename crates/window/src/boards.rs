@@ -274,6 +274,26 @@ pub struct BoardMember {
     pub devices: i64,
 }
 
+/// One of this person's agents dedicated as a reviewer on a board (§10).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardReviewer {
+    /// The repoKey it reviews, or "" for the whole board.
+    pub repo: String,
+    /// The agent's session key.
+    pub agent: String,
+    pub name: String,
+}
+
+/// One of this person's live agents, to pick a reviewer from.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewerChoice {
+    pub agent: String,
+    pub name: String,
+    pub repo: String,
+}
+
 /// A board opened in the Boards dialog (§8): its members, the receive
 /// preset that applies to other people's rows on it (§7.2) and the
 /// autonomy preset for this person's agents there (§7.3).
@@ -292,6 +312,10 @@ pub struct BoardSettings {
     pub autonomy: String,
     /// The board has its own autonomy row (else it inherits).
     pub autonomy_own: bool,
+    /// This person's dedicated reviewers on the board (§10), by repo.
+    pub reviewers: Vec<BoardReviewer>,
+    /// This person's live agents, to dedicate one as a reviewer.
+    pub agents: Vec<ReviewerChoice>,
 }
 
 impl Window {
@@ -341,7 +365,54 @@ impl Window {
                 .autonomy_settings()
                 .iter()
                 .any(|s| s.board_id == board_id),
+            reviewers: self
+                .core
+                .board_reviewers(board_id)
+                .into_iter()
+                .map(|r| BoardReviewer {
+                    repo: r.repo,
+                    agent: r.agent,
+                    name: r.name,
+                })
+                .collect(),
+            agents: self.reviewer_choices(),
         })
+    }
+
+    /// The person's agents that may review: Claude sessions not gone.
+    fn reviewer_choices(&self) -> Vec<ReviewerChoice> {
+        let mut out: Vec<ReviewerChoice> = self
+            .core
+            .mesh_agents()
+            .into_iter()
+            .filter(|a| a.status != "gone" && a.agent != "grok")
+            .map(|a| ReviewerChoice {
+                name: if a.name.is_empty() {
+                    a.key.clone()
+                } else {
+                    a.name.clone()
+                },
+                agent: a.key,
+                repo: a.repo_key,
+            })
+            .collect();
+        out.sort_by(|a, b| a.name.cmp(&b.name));
+        out
+    }
+
+    /// BoardsService.SetReviewer: dedicates one of the person's agents as
+    /// their reviewer on the board (§10), for one repo or ("" ) the whole
+    /// board; agent "" takes the reviewer off.
+    pub fn boards_set_reviewer(
+        &self,
+        board_id: &str,
+        agent: &str,
+        repo: &str,
+    ) -> Result<BoardSettings, String> {
+        self.core
+            .set_board_reviewer(board_id, crate::trim(agent), crate::trim(repo))
+            .map_err(text)?;
+        self.boards_settings(board_id)
     }
 
     /// BoardsService.SetReceive: the receive preset for other people's rows
