@@ -662,6 +662,52 @@ fn q(s: &str) -> String {
 
 // --- replies to bridged messages ---
 
+/// Writes `text` as a comment on shared card `card` for the caller, after
+/// scrub and the stricter pass, and tells its holders (§7.1). The comment
+/// and what it said to whom, or the refusal.
+fn comment_on_card(
+    s: &Inner,
+    c: &Caller,
+    card: &str,
+    text: &str,
+) -> Result<(String, String), String> {
+    let b = s.shared().and_then(|sb| sb.board_of(card));
+    if let Some(b) = &b {
+        let reasons = reasons_in(&[text]);
+        if !reasons.is_empty() {
+            return Err(refusal(b, &reasons));
+        }
+    }
+    let (co, keys) = s
+        .on(card, std::slice::from_ref(&c.sender.key))
+        .map_err(map_err)?;
+    let (cm, notice) = co
+        .comment_on(
+            &keys[0],
+            card,
+            coord::CommentInput {
+                text: trim(text).into(),
+                ..coord::CommentInput::default()
+            },
+        )
+        .map_err(map_err)?;
+    let n = s.roster();
+    let mut told = s.told(&s.tell(&c.sender, notice), &n);
+    if let Some(b) = b {
+        told += &format!("\n{}", b.visible_to());
+    }
+    Ok((cm.id, told))
+}
+
+/// The card a bridged delivery is about (`""` for none).
+fn card_of(d: &inbox::Delivery) -> String {
+    d.message
+        .ref_
+        .strip_prefix("task:")
+        .unwrap_or("")
+        .to_string()
+}
+
 /// A reply to a message bridged from a board goes on the card, never as a
 /// private message to another person (§7.1). `None` when the delivery
 /// isn't a bridged one.
@@ -671,68 +717,100 @@ pub(crate) fn reply_on_card(s: &Inner, c: &Caller, did: &str, text: &str) -> Opt
     if d.message.board.is_empty() || d.to != c.sender.key {
         return None;
     }
-    let card = d
-        .message
-        .ref_
-        .strip_prefix("task:")
-        .unwrap_or("")
-        .to_string();
+    let card = card_of(&d);
     if card.is_empty() {
         return Some(err_text(
             "that message came from a shared board but names no card; answer on the card with board_comment.",
         ));
     }
-    let b = s.shared().and_then(|sb| sb.board_of(&card));
-    if let Some(b) = &b {
-        let reasons = reasons_in(&[text]);
-        if !reasons.is_empty() {
-            return Some(refusal(b, &reasons));
-        }
-    }
-    let (co, keys) = match s.on(&card, std::slice::from_ref(&c.sender.key)) {
+    let (cm, told) = match comment_on_card(s, c, &card, text) {
         Ok(v) => v,
-        Err(e) => return Some(map_err(e)),
+        Err(e) => return Some(e),
     };
-    let (cm, notice) = match co.comment_on(
-        &keys[0],
-        &card,
-        coord::CommentInput {
-            text: trim(text).into(),
-            ..coord::CommentInput::default()
-        },
-    ) {
-        Ok(v) => v,
-        Err(e) => return Some(map_err(e)),
-    };
-    let n = s.roster();
-    let told = s.told(&s.tell(&c.sender, notice), &n);
     if let Err(e) = ib.answered_on_card(
         &c.sender.key,
         did,
-        &format!("answered on the card (comment:{})", cm.id),
+        &format!("answered on the card (comment:{cm})"),
     ) {
         return Some(map_err(e));
     }
+    let (rest, visible) = split_visible(&told);
     let mut out = format!(
-        "Replied on {} (comment:{}): it came from a shared board, so your answer went on the card, not as a private message. Delivery {} is now answered.{told}",
+        "Replied on {} (comment:{cm}): it came from a shared board, so your answer went on the card, not as a private message. Delivery {} is now answered.{rest}",
         s.short_of(&card),
-        cm.id,
         one_line(did, 80)
     );
-    if let Some(b) = b {
-        out += &format!("\n{}", b.visible_to());
-    }
+    out += visible;
     Some(out)
 }
 
-/// A send to a board: key is refused: other people are reached on cards.
-pub(crate) fn send_to_board(to: &str) -> Option<String> {
-    if !trim(to).starts_with("board:") {
+/// told without its Visible-to line, and that line (with its newline).
+fn split_visible(told: &str) -> (&str, &str) {
+    match told.find("\nVisible to: ") {
+        Some(i) => (&told[..i], &told[i..]),
+        None => (told, ""),
+    }
+}
+
+/// A send to another person or their agent on a shared board (a board:
+/// key) becomes a comment on the card, never a private message (§7.1): the
+/// card task_id names, else the one their newest message to the caller was
+/// about. `None` when `to` isn't a board: key.
+pub(crate) fn send_to_board(
+    s: &Inner,
+    c: &Caller,
+    to: &str,
+    task_id: &str,
+    text: &str,
+) -> Option<String> {
+    let to = trim(to);
+    if !to.starts_with("board:") {
         return None;
     }
-    Some(err_text(
-        "that is another person or their agent on a shared board: say it on the card with board_comment (or reply to their message), where everyone on the board sees it.",
-    ))
+    if trim(text).is_empty() {
+        return Some(err_text("give the message text."));
+    }
+    let board = to
+        .strip_prefix("board:")
+        .and_then(|r| r.split('/').next())
+        .unwrap_or("");
+    let mut card = String::new();
+    if !trim(task_id).is_empty() {
+        card = match s.task_id(task_id) {
+            Ok(id) => id,
+            Err(msg) => return Some(msg),
+        };
+    } else if let Some(d) =
+        s.b.inbox()
+            .for_agent(&c.sender.key, true, 0)
+            .into_iter()
+            .find(|d| d.message.from.key == to && !card_of(d).is_empty())
+    {
+        card = card_of(&d);
+    }
+    if card.is_empty() {
+        return Some(err_text(
+            "that is another person or their agent on a shared board, and nothing says which card: give task_id, the card to say it on. Everyone on the board sees it there.",
+        ));
+    }
+    let on = s.shared().and_then(|sb| sb.board_of(&card));
+    if !on.as_ref().is_some_and(|b| b.board_id == board) {
+        return Some(err_text(&format!(
+            "{} isn't on that person's board: a message to another person goes on a card of the board you share with them.",
+            s.short_of(&card)
+        )));
+    }
+    match comment_on_card(s, c, &card, text) {
+        Ok((cm, told)) => {
+            let (rest, visible) = split_visible(&told);
+            Some(format!(
+                "Said on {} (comment:{cm}): {} is another person or their agent on a shared board, so it went on the card, not as a private message.{rest}{visible}",
+                s.short_of(&card),
+                one_line(to, 120)
+            ))
+        }
+        Err(e) => Some(e),
+    }
 }
 
 // --- board_review ---

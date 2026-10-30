@@ -511,11 +511,54 @@ fn a_reply_to_a_bridged_message_goes_on_the_card() {
     assert_eq!(r.h.b.ib.get(&did).unwrap().state, inbox::st::ANSWERED);
     // Nothing went to Blake as a private message.
     assert!(r.h.b.ib.list(0).iter().all(|d| !d.to.starts_with("board:")));
-    // And no send reaches a board: key.
+    // A send to a board: key goes on the card too (§7.1): the card their
+    // last message was about, never a private message to Blake.
+    let before = r.h.b.ib.list(0).len();
+    let out = r.h.okj(
+        &call_a(),
+        "send",
+        json!({"to": "board:b0/cBlake", "text": "and the VP9 one too"}),
+    );
+    has(
+        &out,
+        &[
+            "Said on mlg#1",
+            "went on the card, not as a private message",
+        ],
+    );
+    assert!(out.ends_with("Visible to: Stephen, Blake"), "{out}");
+    assert_eq!(cs_text(&r, &id).last().unwrap(), "and the VP9 one too");
+    assert_eq!(r.h.b.ib.list(0).len(), before, "a private message was sent");
+    // With task_id it goes on that card; scrub still applies.
     r.h.failsj(
         &call_a(),
         "send",
-        json!({"to": "board:b0/cBlake", "text": "hi"}),
-        &["say it on the card"],
+        json!({"to": "board:b0/cBlake", "text": "see /Users/fixture/x", "task_id": "mlg#1"}),
+        &["nothing was written", "home directory"],
     );
+    // Someone the caller never heard from, and no card: say which.
+    r.h.failsj(
+        &call_a(),
+        "send",
+        json!({"to": "board:b0/cNobody", "text": "hi"}),
+        &["give task_id"],
+    );
+    // A private card isn't on that person's board.
+    let p = r.h.new_card(&call_a(), json!({"title": "mine only"}));
+    r.h.failsj(
+        &call_a(),
+        "send",
+        json!({"to": "board:b0/cBlake", "text": "hi", "task_id": p}),
+        &["isn't on that person's board"],
+    );
+}
+
+fn cs_text(r: &Rig, id: &str) -> Vec<String> {
+    r.fake
+        .co
+        .comments(id)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| c.text)
+        .collect()
 }
