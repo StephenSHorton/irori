@@ -32,7 +32,8 @@ import { cn } from "@/lib/utils"
 
 // BoardsDialog is Settings → Boards (design/v0.5-shared-boards.md §8): each
 // board with its name, tag and one status dot; Rename, Invite (owners),
-// Leave (every one of your devices) and Forget (this device only); New
+// Leave (every one of your devices; "Leaving…" with Forget now while
+// other people are on it, §4.4) and Forget (this device only); New
 // board; and Join with an invite. An open invite takes the dialog over
 // until it ends (§4.1, B4).
 export function BoardsDialog({
@@ -141,7 +142,11 @@ function BoardRow({
           <span className="text-ink">{plainLine(b.name) || "(unnamed)"}</span>{" "}
           <span className="font-mono text-xs text-muted-foreground">{plainLine(b.tag)}#</span>{" "}
           <small className="text-xs text-muted-foreground">
-            {b.ready ? `${cards} · ${devices}` : "arriving from your other device"}
+            {b.leaving
+              ? "Leaving…"
+              : b.ready
+                ? `${cards} · ${devices}`
+                : "arriving from your other device"}
           </small>
           {b.tagClash && (
             <small className="block text-xs text-destructive">
@@ -180,27 +185,55 @@ function BoardRow({
             </>
           )
         )}
-        <ConfirmButton
-          label="Leave"
-          variant="destructive"
-          confirmLabel="Leave the board"
-          question={
-            <>
-              Leave <b>{plainLine(b.name)}</b>? It goes from every one of your
-              devices, with its cards. Coming back needs a new board.
-            </>
-          }
-          onConfirm={async () => {
-            await actions.leave(b.boardId)
-            await onChanged()
-          }}
-        />
+        {b.leaving ? (
+          <ConfirmButton
+            label="Forget now"
+            variant="destructive"
+            confirmLabel="Forget it now"
+            question={
+              <>
+                Forget <b>{plainLine(b.name)}</b> on every one of your devices
+                now? The others may not hear that you left until one of their
+                devices next reaches yours, which may be never.
+              </>
+            }
+            onConfirm={async () => {
+              await actions.forgetNow(b.boardId)
+              await onChanged()
+            }}
+          />
+        ) : (
+          <ConfirmButton
+            label="Leave"
+            variant="destructive"
+            confirmLabel="Leave the board"
+            question={
+              b.people.length > 1 ? (
+                <>
+                  Leave <b>{plainLine(b.name)}</b>? It goes from every one of
+                  your devices once another member's Irori has your leave, and
+                  nothing you write there counts after it. Coming back needs a
+                  new invite.
+                </>
+              ) : (
+                <>
+                  Leave <b>{plainLine(b.name)}</b>? It goes from every one of
+                  your devices, with its cards. Coming back needs a new board.
+                </>
+              )
+            }
+            onConfirm={async () => {
+              await actions.leave(b.boardId)
+              await onChanged()
+            }}
+          />
+        )}
       </span>
       <span className="col-start-2 col-end-4 flex items-center gap-2 text-xs text-muted-foreground">
         <span className="min-w-0 flex-1">
           Visible to: {b.people.map(plainLine).join(", ")}
         </span>
-        {b.ready && (
+        {b.ready && !b.leaving && (
           <Button
             variant="ghost"
             size="sm"
@@ -225,7 +258,7 @@ function BoardRow({
           }}
         />
       </span>
-      {showSettings && <BoardSettingsPanel boardId={b.boardId} />}
+      {showSettings && <BoardSettingsPanel boardId={b.boardId} onChanged={onChanged} />}
       {error && <span className="col-start-2 col-end-4 text-xs text-destructive">{error}</span>}
     </li>
   )
@@ -481,7 +514,13 @@ function ReadInviteWords({ s, peer }: { s: InviteStatus; peer: string }) {
 // BoardSettingsPanel is a board opened (§8): its members, what reaches your
 // agents from other people on it (§7.2), and what your agents may do there
 // (§7.3). Only the person changes these, here.
-function BoardSettingsPanel({ boardId }: { boardId: string }) {
+function BoardSettingsPanel({
+  boardId,
+  onChanged,
+}: {
+  boardId: string
+  onChanged: () => Promise<void>
+}) {
   const [s, setS] = useState<BoardSettings | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
@@ -508,6 +547,7 @@ function BoardSettingsPanel({ boardId }: { boardId: string }) {
     ) : null
   }
   const others = s.members.filter((m) => !m.me)
+  const amOwner = s.members.some((m) => m.me && m.owner)
   const receiveHint = ReceivePresets.find((p) => p.value === s.receive)?.hint
   const autonomyHint = AutonomyPresets.find((p) => p.value === s.autonomy)?.hint
   return (
@@ -516,18 +556,65 @@ function BoardSettingsPanel({ boardId }: { boardId: string }) {
         <span className="font-semibold text-ink">Members</span>
         <ul className="grid gap-0.5">
           {s.members.map((m) => (
-            <li key={m.personId} className="flex items-center gap-1.5">
-              <span className="text-ink">{plainLine(m.name) || "someone"}</span>
-              {m.me && <span className="text-muted-foreground">(you)</span>}
-              {m.owner && (
-                <span className="rounded bg-muted px-1 text-[11px] text-muted-foreground">owner</span>
-              )}
-              <span className="ml-auto text-muted-foreground">
-                {m.devices === 1 ? "1 device" : `${m.devices} devices`}
+            <li key={m.personId} className="grid gap-0.5">
+              <span className="flex items-center gap-1.5">
+                <span className="text-ink">{plainLine(m.name) || "someone"}</span>
+                {m.me && <span className="text-muted-foreground">(you)</span>}
+                {m.owner && (
+                  <span className="rounded bg-muted px-1 text-[11px] text-muted-foreground">owner</span>
+                )}
+                <span className="ml-auto text-muted-foreground">
+                  {m.devices === 1 ? "1 device" : `${m.devices} devices`}
+                </span>
+              </span>
+              <span className="flex items-center gap-1.5 text-muted-foreground">
+                <span className="font-mono" title="Their person fingerprint">
+                  {plainLine(m.fingerprint)}
+                </span>
+                {amOwner && (
+                  <span className="ml-auto flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        void save(() =>
+                          actions.setRole(boardId, m.personId, m.owner ? "member" : "owner")
+                        )
+                      }
+                    >
+                      {m.owner ? "Make a member" : "Make an owner"}
+                    </Button>
+                    {!m.me && (
+                      <ConfirmButton
+                        label="Remove"
+                        variant="destructive"
+                        confirmLabel={`Remove ${plainLine(m.name) || "them"}`}
+                        question={
+                          <>
+                            {plainLine(m.name) ? `${plainLine(m.name)} keeps` : "They keep"}{" "}
+                            everything already on their devices. Removing them stops them syncing and writing
+                            anything this board accepts.
+                          </>
+                        }
+                        onConfirm={async () => {
+                          await save(() => actions.removeMember(boardId, m.personId))
+                          await onChanged()
+                        }}
+                      />
+                    )}
+                  </span>
+                )}
               </span>
             </li>
           ))}
         </ul>
+        {s.conflicts.length > 0 && (
+          <ul className="grid gap-0.5 text-warning" aria-label="Membership changes that didn't take">
+            {s.conflicts.map((c, i) => (
+              <li key={i}>{plainLine(c)}</li>
+            ))}
+          </ul>
+        )}
       </section>
       <section className="grid gap-1" aria-label="What reaches my agents">
         <span className="font-semibold text-ink">What reaches my agents</span>
