@@ -74,9 +74,17 @@ impl Current {
     }
 }
 
+/// How long [`Core::invite`] waits for this device's own home relay to
+/// come up, so the link names it (an invitee away from home dials there).
+const RELAY_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// The Core's invite state.
 #[derive(Default)]
 pub(crate) struct Invites {
+    /// An invite is open on this device as the inviter: the home server is
+    /// wanted while it is (as for an open pairing window), so the link can
+    /// name its relay.
+    pub(crate) hosting: Arc<std::sync::atomic::AtomicBool>,
     cur: Mutex<Option<Current>>,
     next: Mutex<u64>,
     watch: Mutex<Option<InviteWatchFn>>,
@@ -235,7 +243,24 @@ impl Core {
         .map_err(|e| e.0)?;
         let host = Arc::new(host);
         let net = self.s.mesh.net.clone();
-        let a = net.invite_addr().await.map_err(|e| e.0)?;
+        self.set_hosting(true);
+        if let Some(h) = &self.s.home
+            && h.settings().on
+        {
+            // The server starts for the invite; the link names its relay
+            // once the endpoint homes on it.
+            let start = std::time::Instant::now();
+            while start.elapsed() < RELAY_WAIT && !net.home_relays().iter().any(|(_, up)| *up) {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
+        let a = match net.invite_addr().await {
+            Ok(a) => a,
+            Err(e) => {
+                self.set_hosting(false);
+                return Err(e.0);
+            }
+        };
         let link = host
             .ticket(
                 &hex::encode(a.id.as_bytes()),
@@ -248,7 +273,13 @@ impl Core {
             )
             .to_link();
         let expires = GoTime::from_system(SystemTime::now() + INVITE_TTL).format_rfc3339();
-        let serial = self.install(Side::Host(host.clone()), link, expires)?;
+        let serial = match self.install(Side::Host(host.clone()), link, expires) {
+            Ok(s) => s,
+            Err(e) => {
+                self.set_hosting(false);
+                return Err(e);
+            }
+        };
         let rt = self.s.pairing.handle.clone();
         let (s, board) = (Arc::downgrade(&self.s), board_id.to_string());
         let h = host.clone();
@@ -369,6 +400,21 @@ impl Core {
         *lock(&self.s.invites.watch) = f;
     }
 
+    /// Whether this device is the inviter of an open invite (the home
+    /// server's `wanted`).
+    fn set_hosting(&self, on: bool) {
+        let was = self
+            .s
+            .invites
+            .hosting
+            .swap(on, std::sync::atomic::Ordering::SeqCst);
+        if was != on
+            && let Some(h) = &self.s.home
+        {
+            h.kick();
+        }
+    }
+
     fn install(&self, side: Side, link: String, expires_at: String) -> Result<u64, String> {
         let inv = &self.s.invites;
         let mut cur = lock(&inv.cur);
@@ -409,6 +455,12 @@ impl Core {
                     );
                     if host {
                         let _ = net.set_invite_handler(None, None);
+                        sv.invites
+                            .hosting
+                            .store(false, std::sync::atomic::Ordering::SeqCst);
+                        if let Some(h) = &sv.home {
+                            h.kick();
+                        }
                     }
                     return;
                 }

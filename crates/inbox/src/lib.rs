@@ -238,6 +238,9 @@ pub mod hold {
     pub const CROSS_PERSON: &str = "cross_person";
     /// Another person's lease request (v0.5 §5.4).
     pub const MEMBER_LEASE: &str = "member_lease";
+    /// It came from a person removed from the board, or who left it,
+    /// before it reached the agent (v0.5 §4.3).
+    pub const MEMBER_REMOVED: &str = "member_removed";
 }
 
 /// Delivery modes.

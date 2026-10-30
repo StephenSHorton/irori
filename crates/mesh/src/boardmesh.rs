@@ -54,6 +54,11 @@ pub const BOARD_PROTOCOL: i64 = 1;
 /// connection's board epoch key).
 pub const FRAME_BOARD_SECRET: &str = "board.secret";
 
+/// How long a connection the verifier no longer admits stays open after
+/// our last vector: long enough for the peer to pull the row that shut it
+/// out (its removal, or the answer to its leave).
+const CLOSE_GRACE: std::time::Duration = std::time::Duration::from_millis(1500);
+
 /// The kind of a board server row.
 pub const KIND_BOARD_SERVER: &str = "board.server";
 
@@ -279,6 +284,24 @@ enum Wire {
 type LogFn = Arc<dyn Fn(&str) + Send + Sync>;
 type RowsFn = Arc<dyn Fn() + Send + Sync>;
 
+/// What a member device last said on a board connection: its hello's
+/// person and core version, and its newest board vector (from the hello or
+/// a `vector` frame). Kept after the connection closes, so a leaving
+/// device can tell another member holds its `left` row (v0.5 §4.4) and the
+/// Boards dialog can compare versions (§6.3).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PeerHeard {
+    pub device_id: String,
+    pub person_id: String,
+    pub core_version: String,
+    pub vector: BTreeMap<String, i64>,
+    /// Unix milliseconds of the last frame.
+    pub at_ms: i64,
+    /// Per stream in `vector`: when its seq last moved (Unix ms), for the
+    /// stalled-forwarder flag (§6.4).
+    pub advanced_ms: BTreeMap<String, i64>,
+}
+
 /// One board connection.
 struct Peer {
     conn: Arc<dyn Conn>,
@@ -304,6 +327,7 @@ struct Shared {
     started: AtomicBool,
     log: Mutex<Option<LogFn>>,
     on_rows: Mutex<Option<RowsFn>>,
+    heard: Mutex<BTreeMap<String, PeerHeard>>,
 }
 
 /// One board's mesh: a board room per held epoch (current and previous
@@ -342,6 +366,7 @@ impl BoardMesh {
                 started: AtomicBool::new(false),
                 log: Mutex::new(None),
                 on_rows: Mutex::new(None),
+                heard: Mutex::new(BTreeMap::new()),
             }),
         }
     }
@@ -437,6 +462,17 @@ impl BoardMesh {
         }
     }
 
+    /// What each member device last said here (closed connections too).
+    pub fn heard(&self) -> Vec<PeerHeard> {
+        self.s
+            .heard
+            .lock()
+            .expect("heard")
+            .values()
+            .cloned()
+            .collect()
+    }
+
     /// Re-checks live connections against the verifier (a revoke, removal
     /// or leave folded) and closes those no longer admitted with `revoked`;
     /// then joins the rooms of newly held epochs, hands newer secrets to the
@@ -525,7 +561,7 @@ impl Shared {
         out
     }
 
-    fn recheck_conns(&self) {
+    fn recheck_conns(self: &Arc<Self>) {
         for p in self.peer_list() {
             if !admits(
                 &self.opts.verifier,
@@ -534,7 +570,36 @@ impl Shared {
                 &p.conn.pub_key(),
             ) {
                 self.logf(&format!("{} is no longer a member device", p.conn.id()));
-                p.conn.close(reason::REVOKED);
+                // Our vector first, so a device that just left learns its
+                // `left` row arrived (v0.5 §4.4), and a removed one pulls
+                // the removal (§4.3); then the close.
+                // A device revoked while its person is still a member
+                // (lost or stolen) closes now; only a person removed or
+                // gone gets the grace.
+                let v = &self.opts.verifier;
+                let person_gone = v
+                    .person_of(p.conn.id())
+                    .is_some_and(|pid| !v.membership().active(&pid));
+                if !person_gone {
+                    p.conn.close(reason::REVOKED);
+                    continue;
+                }
+                let me = self.clone();
+                match tokio::runtime::Handle::try_current() {
+                    Ok(h) => {
+                        h.spawn(async move {
+                            let vector = me.opts.log.vector().unwrap_or_default();
+                            let _ = tokio::time::timeout(
+                                std::time::Duration::from_secs(2),
+                                me.send(&p, &Wire::Vector { vector }),
+                            )
+                            .await;
+                            tokio::time::sleep(CLOSE_GRACE).await;
+                            p.conn.close(reason::REVOKED);
+                        });
+                    }
+                    Err(_) => p.conn.close(reason::REVOKED),
+                }
             }
         }
     }
@@ -758,6 +823,11 @@ impl Shared {
                         return;
                     }
                     p.hello.store(true, Ordering::SeqCst);
+                    self.hear(
+                        p.conn.id(),
+                        Some((&h.person_id, &h.core_version)),
+                        &h.vector,
+                    );
                     if self.behind(&h.vector) {
                         p.wake.notify_one();
                     }
@@ -768,6 +838,7 @@ impl Shared {
                     return;
                 }
                 Wire::Vector { vector } => {
+                    self.hear(p.conn.id(), None, &vector);
                     if self.behind(&vector) {
                         p.wake.notify_one();
                     }
@@ -779,6 +850,29 @@ impl Shared {
                 Wire::Secret(f) => self.take_secret(&p, f).await,
             }
         }
+    }
+
+    /// Records what member device `dev` said (`hello`: its person and core
+    /// version).
+    fn hear(&self, dev: &str, hello: Option<(&str, &str)>, vector: &BTreeMap<String, i64>) {
+        let mut heard = self.heard.lock().expect("heard");
+        let h = heard.entry(dev.to_string()).or_default();
+        h.device_id = dev.to_string();
+        if let Some((person, version)) = hello {
+            h.person_id = person.to_string();
+            h.core_version = version.to_string();
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as i64);
+        for (d, s) in vector {
+            let e = h.vector.entry(d.clone()).or_insert(0);
+            if *s > *e || !h.advanced_ms.contains_key(d) {
+                h.advanced_ms.insert(d.clone(), now);
+            }
+            *e = (*e).max(*s);
+        }
+        h.at_ms = now;
     }
 
     /// Whether `theirs` holds a row this device's board log lacks.

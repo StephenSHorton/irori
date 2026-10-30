@@ -267,3 +267,53 @@ fn board_settings_from_the_window() {
     let s = w.boards_set_autonomy(&mlg.board_id, "").unwrap();
     assert!(s.autonomy == "trusted" && !s.autonomy_own, "{s:?}");
 }
+
+/// The Boards dialog's member actions on a board of one (§4.2-4.4): the
+/// owner sees their fingerprint, can't remove themselves or stop being the
+/// last owner, and a membership row the board ignored shows as one
+/// conflict line. Leave alone forgets at once (nobody to wait for).
+#[test]
+fn member_actions_and_conflicts_in_the_window() {
+    let r = Rig::new();
+    let w = &r.w;
+    let mlg = w.boards_create("MLG", "mlg").unwrap();
+    let me = w.core.person().id;
+    let s = w.boards_settings(&mlg.board_id).unwrap();
+    assert!(!s.members[0].fingerprint.is_empty(), "{s:?}");
+    assert!(s.conflicts.is_empty() && !s.leaving, "{s:?}");
+    assert!(w.boards_remove_member(&mlg.board_id, &me).is_err());
+    assert!(w.boards_set_role(&mlg.board_id, &me, "member").is_err());
+    assert!(w.boards_set_role(&mlg.board_id, "nobody", "owner").is_err());
+
+    // A role row for someone who was never on the board: the fold ignores
+    // it, and the owner sees why.
+    let epoch = w.core.identity().current().epoch;
+    let row = w
+        .core
+        .identity()
+        .board_member_role_row(
+            epoch,
+            "nobody",
+            "owner",
+            gocompat::time::GoTime::from_system(std::time::SystemTime::now()),
+        )
+        .unwrap();
+    w.core
+        .board_store(&mlg.board_id)
+        .unwrap()
+        .append(
+            &format!("{}{me}", store::kinds::PERSON_ACTOR_PREFIX),
+            store::kinds::BOARD_MEMBER_ROLE,
+            &row,
+        )
+        .unwrap();
+    let s = w.boards_settings(&mlg.board_id).unwrap();
+    assert_eq!(
+        s.conflicts,
+        ["Your role change for someone didn't take: they are not on the board"],
+        "{s:?}"
+    );
+
+    w.boards_leave(&mlg.board_id).unwrap();
+    assert!(w.boards_list().iter().all(|b| b.board_id != mlg.board_id));
+}

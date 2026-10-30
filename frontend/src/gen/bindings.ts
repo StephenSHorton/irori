@@ -47,6 +47,9 @@ export const commands = {
 	boardsCreate: (name: string, tag: string) => __TAURI_INVOKE<BoardSummary>("boards_create", { name, tag }),
 	boardsRename: (boardId: string, name: string) => __TAURI_INVOKE<BoardSummary>("boards_rename", { boardId, name }),
 	boardsLeave: (boardId: string) => __TAURI_INVOKE<null>("boards_leave", { boardId }),
+	boardsForgetNow: (boardId: string) => __TAURI_INVOKE<null>("boards_forget_now", { boardId }),
+	boardsRemoveMember: (boardId: string, personId: string) => __TAURI_INVOKE<BoardSettings>("boards_remove_member", { boardId, personId }),
+	boardsSetRole: (boardId: string, personId: string, role: string) => __TAURI_INVOKE<BoardSettings>("boards_set_role", { boardId, personId, role }),
 	boardsForget: (boardId: string) => __TAURI_INVOKE<null>("boards_forget", { boardId }),
 	boardsSharePreview: (taskId: string, boardId: string) => __TAURI_INVOKE<SharePreview>("boards_share_preview", { taskId, boardId }),
 	boardsShare: (taskId: string, boardId: string, hash: string) => __TAURI_INVOKE<string>("boards_share", { taskId, boardId, hash }),
@@ -245,6 +248,11 @@ export type BoardMember = {
 	me: boolean,
 	/**  Their devices certified on the board. */
 	devices: number,
+	/**
+	 *  Their person fingerprint, as the invite screens read it out (the
+	 *  key the board pinned for them).
+	 */
+	fingerprint: string,
 };
 
 /**  One of this person's agents dedicated as a reviewer on a board (§10). */
@@ -274,6 +282,14 @@ export type BoardSettings = {
 	autonomy: string,
 	/**  The board has its own autonomy row (else it inherits). */
 	autonomyOwn: boolean,
+	/**  "Leaving…" (§4.4). */
+	leaving: boolean,
+	/**
+	 *  Owners only: each membership row the board ignored, in a line
+	 *  ("Stephen's role change for Blake didn't take: they are not on the
+	 *  board"), so an owner sees a promote or a removal that lost (§4.2).
+	 */
+	conflicts: string[],
 	/**  This person's dedicated reviewers on the board (§10), by repo. */
 	reviewers: BoardReviewer[],
 	/**  This person's live agents, to dedicate one as a reviewer. */
@@ -291,6 +307,13 @@ export type BoardSummary = {
 	cards: number,
 	ready: boolean,
 	tagClash?: boolean,
+	/**
+	 *  The person left and no other member holds the leave yet:
+	 *  "Leaving…", with Forget now (§4.4).
+	 */
+	leaving?: boolean,
+	/**  The board's warning lines (§8: only when something is wrong). */
+	warnings?: string[],
 };
 
 /**  The capture:changed payload: what changed since the last one. */

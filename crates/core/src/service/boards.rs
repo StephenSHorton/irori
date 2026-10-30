@@ -211,6 +211,8 @@ pub(crate) struct BoardLog {
     stop: Cancel,
     threads: Mutex<Vec<JoinHandle<()>>>,
     pub maps: Mutex<CardMaps>,
+    /// When this device opened it, for the status lines' grace.
+    pub opened: Instant,
 }
 
 impl BoardLog {
@@ -929,6 +931,7 @@ impl Services {
             stop,
             threads: Mutex::new(Vec::new()),
             maps: Mutex::new(CardMaps::default()),
+            opened: Instant::now(),
         });
         let close = |e: Error| {
             let _ = st.close();
@@ -1131,6 +1134,12 @@ impl Services {
             && let Err(e) = self.rotate_secret(b)
         {
             logf(format_args!("board {}: secret: {e}", b.id));
+        }
+        if ev.kind == kinds::BOARD_MEMBER_REMOVED || ev.kind == kinds::BOARD_MEMBER_LEFT {
+            // Someone is gone (§4.3, §4.4): hold what they sent that
+            // hasn't reached an agent, and close their connections.
+            self.hold_from_gone(b);
+            self.recheck_board_mesh(&b.id);
         }
         if ev.seq == 0 {
             if let Ok(ids) = b.task_ids() {
@@ -1671,9 +1680,28 @@ impl super::Core {
         self.s.forget_board(board_id)
     }
 
-    /// Takes the person off a board on every one of their devices.
+    /// Takes the person off a board on every one of their devices: now
+    /// when nobody else is on it, else after "Leaving…" (§4.4).
     pub fn leave_board(&self, board_id: &str) -> Result<()> {
         self.s.leave_board(board_id)
+    }
+
+    /// "Forget now" while a board shows "Leaving…": forgets it on every
+    /// device of the person without waiting for another member to hold
+    /// the `left` row, who then may not hear of it (§4.4).
+    pub fn forget_left_board(&self, board_id: &str) -> Result<()> {
+        self.s.forget_everywhere(board_id)
+    }
+
+    /// An owner removes member `person_id` from board `board_id` (§4.3),
+    /// with `reason` (may be "").
+    pub fn remove_member(&self, board_id: &str, person_id: &str, reason: &str) -> Result<()> {
+        self.s.remove_member(board_id, person_id, reason)
+    }
+
+    /// An owner makes member `person_id` an `owner` or a `member` (§4.2).
+    pub fn set_member_role(&self, board_id: &str, person_id: &str, role: &str) -> Result<()> {
+        self.s.set_member_role(board_id, person_id, role)
     }
 
     /// Opens (creating) board `board_id`'s log, pinned to `pin` when the

@@ -491,6 +491,33 @@ impl Inbox {
         })
     }
 
+    /// Moves the bridged deliveries from board member `person_id` on board
+    /// `board_id` that haven't reached their agent yet (queued or
+    /// deferred) to held, so the person decides (v0.5 §4.3: they were
+    /// removed or left). Returns how many moved.
+    pub fn hold_from_member(&self, board_id: &str, person_id: &str) -> Result<usize> {
+        self.mutate(|b| {
+            let ids: Vec<String> = b
+                .order
+                .iter()
+                .filter(|id| {
+                    b.dels.get(*id).is_some_and(|d| {
+                        matches!(d.d.state.as_str(), crate::st::QUEUED | crate::st::DEFERRED)
+                            && b.msgs.get(&d.d.message_id).is_some_and(|m| {
+                                m.board.board_id == board_id && m.board.person_id == person_id
+                            })
+                    })
+                })
+                .cloned()
+                .collect();
+            for id in &ids {
+                let r = placed(b.dels[id].row(), hold::MEMBER_REMOVED);
+                b.put_delivery(r, SYSTEM_KEY)?;
+            }
+            Ok(ids.len())
+        })
+    }
+
     /// Whether the board row was bridged to agent already.
     pub fn bridged(&self, board_id: &str, row: &str, agent: &str) -> bool {
         self.read(|b| b.bridged.contains(&bridged_key(board_id, row, agent)))
