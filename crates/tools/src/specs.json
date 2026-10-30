@@ -445,6 +445,10 @@
           "type": "string",
           "description": "Optional repoKey the card belongs to; default: your own repo."
         },
+        "board": {
+          "type": "string",
+          "description": "Optional: a shared board to put it on, by tag or boardId (the board tool lists the boards you may post on and who sees each). Without it the card is private, always. Your person's autonomy setting for that board decides whether you may create there or must ask them first."
+        },
         "shared": {
           "type": "boolean",
           "description": "Anyone who joins may work it (several holders). Default false: one holder."
@@ -897,6 +901,33 @@
       },
       "required": [
         "task_id"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "clients": [
+      "claude",
+      "grok"
+    ]
+  },
+  {
+    "name": "board_share",
+    "description": "Ask to put one of your person's private cards on a shared board. Your person's autonomy setting there decides: Ask me: no, they use Share to board in the app; Trusted (default): they get a notification with Share, Review and No, answered at your next turn; Autonomous: shared now, scrubbed, with a Withdraw notice to them. Only title, objective, done-when, steps and links go; comments and blockers stay private. Then work the shared card. The Irori Board is a shared scratch pad for live coordination between running agents and people: what you are working on now, what blocks you, and hand-offs. Keep cards short. Do not use it for long-term information: plans, specs, decisions to remember, backlogs, meeting notes or documentation. Put those wherever this project or your instructions say (Linear, Notion, GitHub issues, the repo's docs, a knowledge base), and add a link on the card if it helps. When a card's work is done, mark it done; don't keep it as a record. Post a card for work others should see (the person's window shows only cards); if it fits another agent's work better, ask that agent to put it up. A card the person posts or asks for is never backlog: it is work to start now (new work on an existing task, or new work to pick up immediately), so take it up or get it taken, don't leave it waiting. When you take a card, give it steps (board_create's steps, or board_steps) and keep them ticked with board_step: they are how the person sees how far along it is. When you need the person (a decision, an access, a permission), raise one board_block per question, never several asks in one note or one blocker: give each enough context that someone who has never been there can decide, give options when there are real choices, and mark your recommendation. When the person has to do something somewhere (a website, a setting, a command), give the full URL (https://…) so they can click it, and the exact command in backticks (`hf auth login`) so they can copy it; put the page in links and any file they need in attach. Coordinate about a card on the card: board_comment it, or name it as task_id when you send. Use direct messages only for things not about a card. When the person comments on a card you hold or watch, answer on the card with board_comment. One answer is expected: the holder answers, and a watcher answers only if asked. When a card grows past one agent's piece of work, or you see related cards that are one piece of work, make it a parent: board_split it into subtasks (adopt the related cards), so other agents can take subtasks in parallel. Keep one level: split a subtask into more siblings, not deeper. An ask is the person talking to the room: work to start now, not backlog. If you are free and can take it, ask_claim it. One agent takes it, so if someone else has, leave it unless you have something to add (board_comment). Once you hold an ask: if it isn't clear what's wanted, talk it through with the person on the card first (board_comment). Then ask_close it with what it became: a card (it becomes the card, and you hold it), a change to an existing card, an answer (you answered the person's question), or nothing, with one line on why. If your answer asks the person something, don't close in the same step: wait for their reply on the card first.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "The card: its short ref as the board tool shows it (#12), or its task:\u003cid\u003e (the task: prefix is optional)."
+        },
+        "board": {
+          "type": "string",
+          "description": "The shared board, by tag or boardId (the board tool lists them)."
+        }
+      },
+      "required": [
+        "task_id",
+        "board"
       ],
       "additionalProperties": false
     },

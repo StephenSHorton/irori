@@ -472,6 +472,25 @@ impl Inbox {
         self.mutate(|b| b.bridge_locked(r))
     }
 
+    /// Marks a bridged delivery answered without a private reply: the
+    /// agent's answer went on the card in the board log (§7.1).
+    pub fn answered_on_card(&self, agent: &str, did: &str, note: &str) -> Result<()> {
+        self.mutate(|b| {
+            let d = b.mine(agent, did)?;
+            if d.d.state == crate::st::ANSWERED {
+                return Ok(());
+            }
+            if !crate::st::open(&d.d.state) || d.d.state == crate::st::HELD {
+                return Err(crate::messages::bad_state(d, "answer"));
+            }
+            let mut r = d.row();
+            r.state = crate::st::ANSWERED.into();
+            r.note = clip(note, crate::MAX_NOTE);
+            r.until = gocompat::time::GoTime::ZERO;
+            b.put_delivery(r, agent)
+        })
+    }
+
     /// Whether the board row was bridged to agent already.
     pub fn bridged(&self, board_id: &str, row: &str, agent: &str) -> bool {
         self.read(|b| b.bridged.contains(&bridged_key(board_id, row, agent)))

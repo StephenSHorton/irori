@@ -59,3 +59,34 @@ pub(crate) fn go_patterns() -> Vec<(&'static str, String)> {
     ];
     names.into_iter().zip(sources()).collect()
 }
+
+/// Why text can't go on a shared board as it is (v0.5 §7.3): one reason
+/// per scrub kind that would redact part of it ("a github secret"), and
+/// "an absolute path or home directory" when [`strict`] would drop one.
+/// Empty when the text passes both unchanged.
+pub fn board_reasons(input: &str) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    let scrubbed = crate::string(input);
+    if scrubbed != input {
+        let mut rest = scrubbed.as_str();
+        while let Some(i) = rest.find("[redacted:") {
+            rest = &rest[i + "[redacted:".len()..];
+            let Some(j) = rest.find(']') else { break };
+            let kind = &rest[..j];
+            if !input.contains(&format!("[redacted:{kind}]")) {
+                let r = format!("a {kind} secret");
+                if !out.contains(&r) {
+                    out.push(r);
+                }
+            }
+            rest = &rest[j..];
+        }
+        if out.is_empty() {
+            out.push("a secret".into());
+        }
+    }
+    if strict_dropped(input) {
+        out.push("an absolute path or home directory".into());
+    }
+    out
+}

@@ -582,6 +582,7 @@ const CREATE_ARGS: &[(&str, Ty)] = &[
     ("objective", Ty::Str),
     ("done_when", Ty::Str),
     ("repo", Ty::Str),
+    ("board", Ty::Str),
     ("shared", Ty::Bool),
     ("links", Ty::Strs),
     ("assign_to", Ty::Str),
@@ -620,6 +621,10 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             Ok(k) => to = k,
             Err(e) => return map_err(e),
         }
+    }
+    let board = trim(a.str("board"));
+    if !board.is_empty() {
+        return crate::shared::create_on_board(s, c, &a, board, repo, to);
     }
     // A subtask goes in its parent's log, with the caller and assignee as
     // that log knows them.

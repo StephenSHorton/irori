@@ -18,11 +18,12 @@ irori-hlc.workspace = true
 irori-inbox.workspace = true
 irori-ledger.workspace = true
 irori-presence.workspace = true
+irori-scrub.workspace = true
 irori-search.workspace = true
 irori-store.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
 tempfile.workspace = true
 regex.workspace = true
