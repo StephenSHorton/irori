@@ -82,6 +82,9 @@ export const HoldReason = {
   HoldPaused: "paused",
   HoldHopLimit: "hop_limit",
   HoldUnowned: "unowned",
+  HoldMemberWake: "member_wake",
+  HoldCrossPerson: "cross_person",
+  HoldMemberLease: "member_lease",
 } as const satisfies Record<string, B.HoldReason | "">
 export type HoldReason = B.HoldReason
 

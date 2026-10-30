@@ -559,7 +559,7 @@ export type GoneSession = {
 };
 
 /**  inbox.HoldReason. */
-export type HoldReason = "blocked" | "not_allowed" | "bypass_receiver" | "paused" | "hop_limit" | "unowned";
+export type HoldReason = "blocked" | "not_allowed" | "bypass_receiver" | "paused" | "hop_limit" | "unowned" | "member_wake" | "cross_person" | "member_lease";
 
 /**  What a card's holder is doing. */
 export type Holding = "nobody" | "person" | "waiting" | "assigned" | "active" | "idle" | "offline" | "gone";

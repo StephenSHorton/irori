@@ -188,6 +188,9 @@ pub fn hold_reason(h: &str) -> String {
         hold::HOP_LIMIT => "it is too many hops down a chain of agent messages",
         hold::UNOWNED => "no agent in that repo can take it yet",
         hold::PAUSED => "wakes are paused",
+        hold::MEMBER_WAKE => "another person asked to wake your agent, and your receive setting for that board asks you first",
+        hold::CROSS_PERSON => "it comes from another person on a shared board, and your receive setting for that board asks you first",
+        hold::MEMBER_LEASE => "another person asks your agent to give up a lease",
         other => other,
     }
     .to_string()

@@ -173,6 +173,9 @@ pub enum HoldReason {
     Paused,
     HopLimit,
     Unowned,
+    MemberWake,
+    CrossPerson,
+    MemberLease,
 }
 
 /// inbox.DeliveryMode.
