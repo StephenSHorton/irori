@@ -15,8 +15,9 @@ use iroh::EndpointId;
 use iroh::endpoint::Connection;
 use irori_identity::BoardVerifier;
 use irori_meshseam::{
-    BoardRoom, BoardTransport, BoxFut, ConnError, MAX_LABEL, Room, RoomConfig, SYNC_LABEL,
-    TransportError, UNSUPPORTED, read_frame, reason, write_frame,
+    BoardGossip, BoardRoom, BoardTransport, BoardVector, BoxFut, ConnError, KickFn, MAX_LABEL,
+    Room, RoomConfig, SYNC_LABEL, TransportError, UNSUPPORTED, VectorFn, read_frame, reason,
+    write_frame,
 };
 use serde::{Deserialize, Serialize};
 
@@ -230,6 +231,62 @@ impl BoardTransport for IrohNet {
                 state,
             }) as Arc<dyn Room>)
         })
+    }
+
+    /// The board epoch's iroh-gossip topic (`gossip::topic_id` of the
+    /// room's topic string). A delivering neighbour must be a member device
+    /// of this board ([`NetConfig::boards`](crate::transport::NetConfig))
+    /// or one of this person's own devices (the private gate); an
+    /// announcement ahead of `have()` calls `kick`.
+    fn board_gossip(
+        &self,
+        room: BoardRoom,
+        bootstrap: Vec<[u8; 32]>,
+        have: VectorFn,
+        kick: KickFn,
+    ) -> BoxFut<'_, Result<Option<Box<dyn BoardGossip>>, TransportError>> {
+        Box::pin(async move {
+            if !self.inner().cfg.gossip {
+                return Ok(None);
+            }
+            let topic = irori_identity::BoardTopic {
+                epoch: room.secret.epoch,
+                topic: room.secret.topic.clone(),
+                key: room.secret.key,
+            };
+            let ids = endpoint_ids_of(&bootstrap);
+            let accept: crate::gossip::GossipAccept = {
+                let (inner, board) = (self.inner().clone(), room.board_id.clone());
+                Arc::new(move |id: &EndpointId| {
+                    inner.cfg.boards.board_device(&board, id).is_some()
+                        || inner.cfg.admit.admits(MESH_ALPN, id)
+                })
+            };
+            let mut ch = self
+                .board_channel_ids(&room.board_id, &topic, ids, Some(accept))
+                .await?;
+            ch.kicks(have, Arc::new(move |_a| kick()));
+            Ok(Some(Box::new(Gossip(ch)) as Box<dyn BoardGossip>))
+        })
+    }
+}
+
+fn endpoint_ids_of(keys: &[[u8; 32]]) -> Vec<EndpointId> {
+    keys.iter()
+        .filter_map(|k| EndpointId::from_bytes(k).ok())
+        .collect()
+}
+
+/// One board epoch's gossip channel behind the seam.
+struct Gossip(crate::gossip::BoardChannel);
+
+impl BoardGossip for Gossip {
+    fn announce(&self, vector: BoardVector) -> BoxFut<'_, Result<(), TransportError>> {
+        Box::pin(self.0.announce(vector))
+    }
+
+    fn join(&self, devices: Vec<[u8; 32]>) -> BoxFut<'_, Result<(), TransportError>> {
+        Box::pin(async move { self.0.join_ids(endpoint_ids_of(&devices)).await })
     }
 }
 

@@ -75,7 +75,12 @@ What changes in stage 2 is only who may connect: the gate becomes `MemberAdmit`,
 
 Built (branch `boards2-transport-gossip-relay`):
 - `IrohNet::board_channel_gated(board_id, topic, bootstrap, Some(held.gossip_accept(board_id)))` drops announcements whose delivering neighbour is not a member device of *that* board (a member of another board held here passes the endpoint gate, not this). `board_channel` is the ungated form.
-- `BoardChannel::kicks(have: HaveFn, kick: KickFn)` takes the channel's announcements over: each one whose vector is `gossip::ahead` of `have()` (some device's seq higher) calls `kick(&Announcement)`. `BoardMesh::start` wires `have` to the board log's vector and `kick` to `BoardMesh::kick`.
+- `BoardChannel::kicks(have: HaveFn, kick: KickFn)` takes the channel's announcements over: each one whose vector is `gossip::ahead` of `have()` (some device's seq higher) calls `kick(&Announcement)`.
+- **Wired into the board mesh (card #67).** The seam has `BoardTransport::board_gossip(room, bootstrap keys, have, kick) -> Option<Box<dyn BoardGossip>>` (`announce(vector)`, `join(keys)`; the default is `None`, no gossip). `IrohNet` implements it with `board_channel_ids` plus `kicks`; a delivering neighbour must be a member device of that board in `NetConfig::boards` (the gate's registry) or one of this person's own devices. Bootstrap is by member key, so another person's devices resolve without the private address book (`board_channel_gated` by device id now also looks in the board's own book).
+  - `BoardMesh::refresh` joins each held epoch's topic beside its room, drops it with the room, and re-joins the member keys on every refresh.
+  - `BoardMesh::kick` (the Core calls it on every board row, local or pulled) wakes every connection's pull, dials member devices with no live connection (at most once a second) and wakes the announcer, which announces the log's vector on every topic when it moved (kicks within 200 ms coalesce).
+  - An announcement ahead of the log wakes every connection's pull and dials missing members the same way; it does not re-announce.
+  - Test: `board_iroh::a_write_and_a_gossip_announcement_pull_at_once` slows the presence, ping and vector ticks to a minute and checks that a local write's kick and a gossip announcement alone each move a row within 5 s (it fails with the gossip wiring off).
 - The gate is coarse by design: gossip forwards, so a stale or spoofed announcement can at most cause one wasted pull, and the pull itself runs on the per-board gated `irori/board/1` connection.
 
 ## 6. Servers: B1 relay admission and `board.server`
@@ -84,6 +89,11 @@ Built (branch `boards2-transport-gossip-relay`):
   - `home::relay::BoardAdmitFn = Arc<dyn Fn(&EndpointId) -> bool>`, plus `home::relay::member_admit(own, boards) -> AdmitFn`.
   - `home::Config.board_admit: Option<BoardAdmitFn>` (default `None`). **Built:** when set, the relay's admission is `member_admit(own, board_admit)`, and the guest sweep (every `GUEST_SWEEP`) drops a member device once no held board counts it. It does not by itself make the server run; the Core's `Config.wanted` should count "holds a shared board" (not wired: the Core holds no shared boards yet).
   - The relay only forwards sealed QUIC, so "for that board only" is enforced at the endpoints: the `irori/board/1` proof plus that board's verifier. A member device on your relay can't reach `irori/mesh/1` on your devices, because their gate refuses it.
+- **No per-person relay limit on iroh (design §6.2, decided on card #67).** The design's "4 allocations per remote person, inside the server's total" is a TURN rule, and it does not carry over:
+  - A TURN allocation is a relayed port a client can ask for many of. On iroh there is no such thing: each device holds one relay client connection, keyed by its EndpointId, and that one connection carries all its QUIC traffic. A remote person's relay use is therefore already bounded by their counted, uncut member devices, which the board's member rows control.
+  - A cap of 4 would cap devices, not resources: a member's fifth device would lose the relay while their first four kept it. That is a functional loss with nothing gained.
+  - Enforcing it would also need the person behind an EndpointId at the gate (`BoardAdmitFn` returns a bool today), which means changing the signature card #63 is wiring.
+  - The real concern, one person using up the server, maps to iroh-relay's per-client rate limit: `iroh_relay::server::Limits.client_rx: Option<ClientRateLimit { bytes_per_second, max_burst_bytes }>` (iroh-relay 1.4.1; `accept_conn_limit` is documented there as not implemented). It applies per client, own devices included. If a byte limit is wanted, set it there for every client rather than counting a person's devices.
 - **`board.server`** (`KIND_BOARD_SERVER`). The payload is `mesh::boardmesh::BoardServer {deviceId, port, public: Option<PublicAddr>}`.
   - It carries the public address and mapped ports only, never LAN or v6 addresses. `public: null` means the server is off or outside reach is off.
   - It is written by the server device into each board its person is in, only when it changes.
