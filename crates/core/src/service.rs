@@ -58,6 +58,7 @@ use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 pub mod boards;
 mod boards_own;
 mod bridge;
+pub mod invites;
 
 use boards::Boards;
 
@@ -201,6 +202,8 @@ struct Services {
     mesh: Arc<crate::meshnode::Mesh>,
     /// The shared boards (Go `c.boards`).
     boards: Arc<Boards>,
+    /// The open board invite (card #44).
+    invites: invites::Invites,
 }
 
 /// The notify crate's [`notify::Notifier`] as the tools' seam
@@ -926,6 +929,7 @@ impl Core {
             revoke: Some(opts.revoke.clone().unwrap_or_else(|| mesh.revoke_fn())),
             mesh,
             boards: board_set,
+            invites: Default::default(),
         });
         let _ = s.boards.kicker.set({
             let m = Arc::downgrade(&s.mesh);
