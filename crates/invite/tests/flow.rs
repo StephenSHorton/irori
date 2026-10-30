@@ -278,7 +278,7 @@ async fn an_invitee_joins_from_a_link_with_the_words() {
         .unwrap(),
     );
     let link = host
-        .ticket(&"11".repeat(32), "", "", vec!["127.0.0.1:5000".into()])
+        .ticket(&"11".repeat(32), "", "", 0, vec!["127.0.0.1:5000".into()])
         .to_link();
     let guest =
         Arc::new(Guest::new(blake.ident.clone(), blake.boards.clone(), &link, quick()).unwrap());
@@ -368,7 +368,7 @@ async fn two_misses_end_it_and_nothing_is_written() {
         )
         .unwrap(),
     );
-    let link = host.ticket(&"11".repeat(32), "", "", vec![]).to_link();
+    let link = host.ticket(&"11".repeat(32), "", "", 0, vec![]).to_link();
     let guest =
         Arc::new(Guest::new(blake.ident.clone(), blake.boards.clone(), &link, quick()).unwrap());
     let (a, b) = mem_pair("a", "b");
@@ -411,7 +411,7 @@ async fn a_link_naming_someone_else_stops_the_invitee() {
     );
     // Mallory forwards Stephen's code in a link with her own fingerprint:
     // Blake's device sees Stephen's key on the other end and stops.
-    let mut t = host.ticket(&"11".repeat(32), "", "", vec![]);
+    let mut t = host.ticket(&"11".repeat(32), "", "", 0, vec![]);
     t.fingerprint = irori_invite::code::person_fingerprint(
         &hex::decode(mallory.ident.current().pub_hex).unwrap(),
     );
@@ -449,7 +449,7 @@ async fn a_wrong_code_proves_nothing() {
         )
         .unwrap(),
     );
-    let mut t = host.ticket(&"11".repeat(32), "", "", vec![]);
+    let mut t = host.ticket(&"11".repeat(32), "", "", 0, vec![]);
     t.code = irori_pair::new_code();
     let guest = Arc::new(
         Guest::new(
@@ -485,7 +485,7 @@ async fn a_second_guest_ends_the_invite() {
         )
         .unwrap(),
     );
-    let link = host.ticket(&"11".repeat(32), "", "", vec![]).to_link();
+    let link = host.ticket(&"11".repeat(32), "", "", 0, vec![]).to_link();
     let guest =
         Arc::new(Guest::new(blake.ident.clone(), blake.boards.clone(), &link, quick()).unwrap());
     let (a, b) = mem_pair("a", "b");
@@ -527,7 +527,7 @@ async fn a_different_pinned_key_stops_both() {
         )
         .unwrap(),
     );
-    let link = host.ticket(&"11".repeat(32), "", "", vec![]).to_link();
+    let link = host.ticket(&"11".repeat(32), "", "", 0, vec![]).to_link();
     let guest =
         Arc::new(Guest::new(blake.ident.clone(), blake.boards.clone(), &link, quick()).unwrap());
     let (a, b) = mem_pair("a", "b");

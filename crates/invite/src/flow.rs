@@ -322,12 +322,14 @@ impl Host {
         &self.room
     }
 
-    /// The ticket for this invite, given where this device can be reached.
+    /// The ticket for this invite, given where this device can be reached
+    /// (`irori_net::invite::InviteAddr`'s fields).
     pub fn ticket(
         &self,
         endpoint: &str,
         relay: &str,
         relay_key: &str,
+        relay_quic_port: u16,
         addrs: Vec<String>,
     ) -> Ticket {
         Ticket {
@@ -335,6 +337,7 @@ impl Host {
             endpoint: endpoint.into(),
             relay: relay.into(),
             relay_key: relay_key.into(),
+            relay_quic_port,
             addrs,
             fingerprint: my_fingerprint(&self.ident),
             board_id: self.board_id.clone(),

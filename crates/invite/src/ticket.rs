@@ -36,6 +36,9 @@ pub struct Ticket {
     pub relay: String,
     /// The relay's device key, hex (its TLS is on that key, D3), or empty.
     pub relay_key: String,
+    /// The relay's QAD UDP port (`irori_net::invite::InviteAddr`), 0 for
+    /// none.
+    pub relay_quic_port: u16,
     /// The inviter's direct addresses (`ip:port`).
     pub addrs: Vec<String>,
     /// The inviter's person fingerprint ([`irori_pair::fingerprint`] of the
@@ -43,6 +46,10 @@ pub struct Ticket {
     pub fingerprint: String,
     pub board_id: String,
     pub board_name: String,
+}
+
+fn is_zero(n: &u16) -> bool {
+    *n == 0
 }
 
 #[derive(Serialize, Deserialize)]
@@ -54,6 +61,8 @@ struct Wire {
     r: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     rk: String,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    rq: u16,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     a: Vec<String>,
     f: String,
@@ -90,6 +99,7 @@ impl Ticket {
             e: self.endpoint.clone(),
             r: self.relay.clone(),
             rk: self.relay_key.clone(),
+            rq: self.relay_quic_port,
             a: self.addrs.clone(),
             f: self.fingerprint.clone(),
             b: self.board_id.clone(),
@@ -146,6 +156,7 @@ impl Ticket {
             endpoint: w.e,
             relay: w.r,
             relay_key: w.rk,
+            relay_quic_port: w.rq,
             addrs: w.a,
             fingerprint: w.f,
             board_id: w.b,
@@ -176,6 +187,7 @@ mod tests {
             endpoint: "11".repeat(32),
             relay: "https://127.0.0.1:4433/".into(),
             relay_key: "22".repeat(32),
+            relay_quic_port: 4433,
             addrs: vec!["127.0.0.1:5000".into(), "[::1]:5001".into()],
             fingerprint: irori_pair::fingerprint(&[7u8; 32]),
             board_id: "b-0123".into(),
@@ -254,6 +266,7 @@ mod tests {
             e: "11".repeat(32),
             r: String::new(),
             rk: String::new(),
+            rq: 0,
             a: vec![],
             f: irori_pair::fingerprint(&[7u8; 32]),
             b: "b".into(),
