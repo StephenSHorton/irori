@@ -56,6 +56,8 @@ pub(crate) struct Parts {
     pub now: Option<mesh::node::NowFn>,
     /// Per writing device, the rows the folds ignored (Go `ignoredBy`).
     pub ignored: Option<mesh::node::IgnoredFn>,
+    /// The shared boards whose logs the Node serves (stage 1 streams).
+    pub boards: Option<Arc<dyn mesh::BoardLogs>>,
 }
 
 impl Mesh {
@@ -78,7 +80,7 @@ impl Mesh {
             intervals: mesh::Intervals::default(),
             trust_any_peer: false,
             ignored: p.ignored,
-            boards: None,
+            boards: p.boards,
             logf: Some(Arc::new(|l: &str| crate::log(l))),
             now: p.now,
         });

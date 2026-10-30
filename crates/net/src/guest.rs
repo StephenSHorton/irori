@@ -31,7 +31,14 @@ pub const MAX_WINDOWS_PER_MEMBER: usize = 2;
 /// The longest a window stays open.
 pub const MAX_TTL: Duration = Duration::from_secs(10 * 60);
 
+/// Invite windows (stage 2, card #44): an invite lives at most an hour, and
+/// a member may have 2 open beside its 2 pairing windows (v0.5 §4.1).
+pub const INVITE_MAX_TTL: Duration = Duration::from_secs(60 * 60);
+pub const MAX_INVITE_WINDOWS_PER_MEMBER: usize = 2;
+
 const TOKEN_LABEL: &[u8] = b"irori/pair-guest/1";
+const INVITE_TOKEN_LABEL: &[u8] = b"irori/invite-guest/1";
+const INVITE_TAG_LABEL: &[u8] = b"irori/invite-tag/1";
 const TAG_LABEL: &[u8] = b"irori/pair-tag/1";
 
 /// The relay auth token a joiner presents for the room `key`.
@@ -47,6 +54,31 @@ pub fn room_tag(topic: &str) -> String {
     h.update(TAG_LABEL);
     h.update(topic.as_bytes());
     hex::encode(&h.finalize()[..16])
+}
+
+/// The relay auth token an invitee presents for the invite room `key`.
+/// Interface only (card #43): not yet accepted by [`GuestWindows::token_ok`].
+pub fn invite_token(key: &[u8; 32]) -> String {
+    let mut m = <Hmac<Sha256> as KeyInit>::new_from_slice(key).expect("any key length");
+    m.update(INVITE_TOKEN_LABEL);
+    hex::encode(&m.finalize().into_bytes()[..16])
+}
+
+/// The tag an invitee names the invite room by on the LAN bridge.
+pub fn invite_tag(topic: &str) -> String {
+    let mut h = Sha256::new();
+    h.update(INVITE_TAG_LABEL);
+    h.update(topic.as_bytes());
+    hex::encode(&h.finalize()[..16])
+}
+
+/// Which kind of guest window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowKind {
+    /// A pairing window (10 minutes, 2 per member).
+    Pair,
+    /// A board invite window (1 hour, 2 per member, beside pairing).
+    Invite,
 }
 
 /// One open window.
@@ -105,6 +137,31 @@ impl GuestWindows {
         };
         g.windows.push(w);
         Some(id)
+    }
+
+    /// Opens an invite window owned by `owner` for `ttl` (capped at
+    /// [`INVITE_MAX_TTL`]), at most [`MAX_INVITE_WINDOWS_PER_MEMBER`] per
+    /// owner; its token is [`invite_token`]. Close it with
+    /// [`GuestWindows::close_window`]. Interface only (card #43).
+    pub fn open_invite_window(
+        &self,
+        _owner: EndpointId,
+        _secret: Secret,
+        _ttl: Duration,
+    ) -> Result<u64, irori_meshseam::TransportError> {
+        Err(irori_meshseam::TransportError(
+            irori_meshseam::UNSUPPORTED.into(),
+        ))
+    }
+
+    /// The kind of window `id`, while it is open. Interface only: every
+    /// window is a pairing window until invite windows land.
+    pub fn kind(&self, id: u64) -> Option<WindowKind> {
+        self.lock()
+            .windows
+            .iter()
+            .any(|w| w.id == id)
+            .then_some(WindowKind::Pair)
     }
 
     pub fn close_window(&self, id: u64) {

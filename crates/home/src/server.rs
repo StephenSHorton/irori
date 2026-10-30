@@ -74,6 +74,10 @@ pub struct Config {
     /// joiner whose auth token opens one, and the server runs while one is
     /// open on it, as Go's runs for an open pairing window.
     pub guests: Option<irori_net::guest::GuestWindows>,
+    /// B1 (stage 2, card #43): member devices of boards held here, admitted
+    /// to the relay beside this person's devices. Interface only: not read
+    /// yet.
+    pub board_admit: Option<crate::relay::BoardAdmitFn>,
 
     // Tests replace these.
     /// The address port N binds. `None` is the point of the server: the
@@ -114,6 +118,7 @@ impl Config {
             wanted: None,
             on_relay: None,
             guests: None,
+            board_admit: None,
             bind_ip: None,
             lan_addrs: None,
             v6_addrs: None,
@@ -403,6 +408,14 @@ impl Server {
     }
 
     /// The relay's port N while it serves.
+    /// The `board.server` row this server would write into each board its
+    /// person is in (B1, v0.5 §6.2): its public address and mapped ports
+    /// only, `public: None` while off or outside reach is off. Interface
+    /// only (card #43).
+    pub fn board_server(&self) -> Result<mesh::boardmesh::BoardServer, String> {
+        Err("boards2: transport not built yet".into())
+    }
+
     pub fn relay_port(&self) -> Option<u16> {
         self.inner.lock().run.as_ref().map(|r| r.port)
     }

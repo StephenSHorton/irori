@@ -377,3 +377,40 @@ pub fn colon_hex(b: &[u8]) -> String {
     }
     s
 }
+
+// ---------------------------------------------------------------------------
+// Boards stage 2 transport seam (docs/design/boards2-transport.md, card #43).
+// Interface only: the iroh side returns `TransportError(UNSUPPORTED)` until
+// the transport branch lands.
+
+/// The board topic's app name: the HKDF salt and topic prefix of
+/// `identity::derive_board_topic`, and the board connection's ALPN.
+pub const BOARD_APP: &str = "irori/board/1";
+
+/// What a not-yet-built stage 2 transport call returns.
+pub const UNSUPPORTED: &str = "boards2: transport not built yet";
+
+/// One board room: a board and one of its epochs. `secret` is the board
+/// topic of that epoch (`identity::BoardTopic` as a [`Secret`]: key, topic
+/// `irori/board/1/<hex>`, epoch = board epoch).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct BoardRoom {
+    pub board_id: String,
+    pub secret: Secret,
+}
+
+/// Opens board rooms on `irori/board/1` (stage 2, architecture §3.3). A
+/// board room is a [`Room`] whose connections carry only that board:
+/// `RoomConfig::accept` is the board's member check (a counted, uncut cert
+/// in that board's `BoardVerifier`), never the private chain, and the only
+/// streams served on its connections are `board/<boardId>` pulls and the
+/// `sync` stream (board `hello`, `board.secret`, `vector`, ping/pong).
+pub trait BoardTransport: Send + Sync {
+    /// Joins `room` with `cfg`. Rejoining the same board with a new epoch
+    /// keeps the previous epoch's room until the caller closes it (§6.1).
+    fn join_board(
+        &self,
+        room: BoardRoom,
+        cfg: RoomConfig,
+    ) -> BoxFut<'_, Result<Arc<dyn Room>, TransportError>>;
+}
