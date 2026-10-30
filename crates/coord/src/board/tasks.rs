@@ -126,6 +126,13 @@ impl Fold {
 
     /// Writes a checked task's rows.
     pub(crate) fn create_locked(&mut self, by: &str, ct: CleanTask) -> Result<Task> {
+        // "irori" names no person, so a board counts its task.created for
+        // nothing (sweeper_ok): refuse it rather than write a dead row.
+        if self.on_board && by == SWEEPER {
+            return Err(not_allowed(
+                "Irori itself can't create a card on a shared board: a person or an agent creates it",
+            ));
+        }
         let mut bb = None;
         if !ct.reason.is_empty() {
             bb = self.check_blocker(ct.blocked_by.as_ref(), "")?;
@@ -189,7 +196,11 @@ impl Fold {
                 },
             )?;
         }
-        Ok(self.tasks[&id].clone())
+        // The fold can set the row aside (a writer the board doesn't count).
+        self.tasks
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| not_allowed(format!("{by} can't create a card on this board")))
     }
 
     pub(crate) fn list_tasks(&self, f: &TaskFilter) -> Vec<Task> {

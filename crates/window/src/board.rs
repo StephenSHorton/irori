@@ -111,7 +111,7 @@ impl Window {
             return Told::default();
         }
         let mut told = Told {
-            to: n.to.clone(),
+            to: n.to.iter().map(|k| self.core.private_key(k)).collect(),
             mode: inbox::mode::NEXT_TURN.into(),
             error: String::new(),
         };
@@ -130,8 +130,8 @@ impl Window {
     /// BoardService.Comment: the person's comment on a task.
     pub fn comment(&self, id: &str, text: &str, tell: &str) -> Result<CommentResult, String> {
         let tl = parse_tell(tell)?;
-        let co = self.core.coord();
-        let me = self.user_key();
+        let (co, keys) = self.on(id, &[])?;
+        let me = keys[0].clone();
         let mut res = CommentResult::default();
         if tl == Tell::None {
             let (c, _) = co
@@ -141,7 +141,9 @@ impl Window {
             return Ok(res);
         }
         let p = self.people();
-        let around = |k: &str| p.ref_(k).live;
+        // A board card's keys are agent:<cardId>; the roster knows the
+        // session behind each (private_key).
+        let around = |k: &str| p.ref_(&self.core.private_key(k)).live;
         let (c, ns) = co
             .person_comment(&me, id, text, tl == Tell::Wake, Some(&around))
             .map_err(|e| e.to_string())?;
@@ -156,10 +158,11 @@ impl Window {
                 let joined = format!("{}; {}", res.told.error, told.error);
                 res.told.error = joined.trim_start_matches("; ").to_string();
             }
+            let to: Vec<String> = n.to.iter().map(|k| self.core.private_key(k)).collect();
             if n.watching {
-                res.watching.extend(p.refs(&n.to));
+                res.watching.extend(p.refs(&to));
             } else {
-                res.answers.extend(p.refs(&n.to));
+                res.answers.extend(p.refs(&to));
             }
         }
         Ok(res)
@@ -218,20 +221,60 @@ impl Window {
             .map_err(|e| e.to_string())
     }
 
-    /// BoardService.Pin.
-    pub fn pin(&self, id: &str, pinned: bool) -> Result<(), String> {
+    /// The person closes a card by hand (card #57): Done (completed) or
+    /// Canceled, with an optional note. Any card; an open ask closes as
+    /// nothing came of it.
+    pub fn close_card(&self, id: &str, state: &str, note: &str) -> Result<Task, String> {
+        let state = trim(state);
+        if state != coord::COMPLETED && state != coord::CANCELED {
+            return Err(format!(
+                "{}: close a card as completed or canceled",
+                coord::ErrorKind::Invalid.text()
+            ));
+        }
+        // A shared card closes in its board's log, as the person there; its
+        // fold decides who may cancel it (v0.5 §5.3).
+        let id = trim(id);
+        let (co, keys) = self
+            .core
+            .task_coord(id, &[self.user_key()])
+            .map_err(|e| e.to_string())?;
+        co.set_task_state(&keys[0], id, state, note)
+            .map_err(|e| e.to_string())
+    }
+
+    /// The person deletes a card (card #57): it leaves the Board on every
+    /// device, and the signed log keeps it. A card on a shared board isn't
+    /// deleted: other people already have it, so it is withdrawn (§5.3).
+    pub fn delete_card(&self, id: &str) -> Result<(), String> {
+        let id = trim(id);
+        if let Ok((board_id, _)) = self.core.route(id)
+            && !board_id.is_empty()
+        {
+            return Err(format!(
+                "{}: a card on a shared board is withdrawn, not deleted: the others on it already have it",
+                coord::ErrorKind::Invalid.text()
+            ));
+        }
         self.core
             .coord()
-            .pin(&self.user_key(), trim(id), pinned)
+            .delete_task(&self.user_key(), id)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// BoardService.Pin.
+    pub fn pin(&self, id: &str, pinned: bool) -> Result<(), String> {
+        let (co, keys) = self.private_only(trim(id))?;
+        co.pin(&keys[0], trim(id), pinned)
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
 
     /// BoardService.MovePin: just before another pinned card ("" last).
     pub fn move_pin(&self, id: &str, before: &str) -> Result<(), String> {
-        self.core
-            .coord()
-            .move_pin(&self.user_key(), trim(id), trim(before))
+        let (co, keys) = self.private_only(trim(id))?;
+        co.move_pin(&keys[0], trim(id), trim(before))
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
@@ -255,11 +298,8 @@ impl Window {
 
     /// BoardService.Reopen.
     pub fn reopen(&self, id: &str) -> Result<TaskResult, String> {
-        let (t, n) = self
-            .core
-            .coord()
-            .reopen(&self.user_key(), trim(id))
-            .map_err(|e| e.to_string())?;
+        let (co, keys) = self.on(trim(id), &[])?;
+        let (t, n) = co.reopen(&keys[0], trim(id)).map_err(|e| e.to_string())?;
         let told = self.tell(&n, Tell::NextTurn);
         Ok(TaskResult { task: t, told })
     }
@@ -281,8 +321,8 @@ impl Window {
         if blocker_id == NOTE_ITEM {
             return self.answer_input(task_id, option, text, wake);
         }
-        let co = self.core.coord();
-        let me = self.user_key();
+        let (co, keys) = self.on(task_id, &[])?;
+        let me = keys[0].clone();
         let t = co
             .get_task(task_id)
             .ok_or_else(|| not_found_task(task_id))?;
@@ -353,11 +393,10 @@ impl Window {
         if blocker_id == NOTE_ITEM {
             return Err(invalid("answer the card's question instead"));
         }
-        let (t, n) = self
-            .core
-            .coord()
+        let (co, keys) = self.on(task_id, &[])?;
+        let (t, n) = co
             .answer(
-                &self.user_key(),
+                &keys[0],
                 task_id,
                 blocker_id,
                 BlockerAnswer {
@@ -382,8 +421,8 @@ impl Window {
         text: &str,
         wake: bool,
     ) -> Result<AnswerResult, String> {
-        let co = self.core.coord();
-        let me = self.user_key();
+        let (co, keys) = self.on(id, &[])?;
+        let me = keys[0].clone();
         let t = co.get_task(id).ok_or_else(|| not_found_task(id))?;
         if t.state != coord::INPUT_REQUIRED {
             return Err(format!(

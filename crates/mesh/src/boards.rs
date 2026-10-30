@@ -163,7 +163,7 @@ pub(crate) async fn pull_board(
 
 /// Go `insertBoardRows`: device by device, trying again the runs refused
 /// for "no cert yet" while another run got in.
-pub(crate) fn insert_board_rows(st: &Store, evs: Vec<Event>) -> Result<(), String> {
+pub fn insert_board_rows(st: &Store, evs: Vec<Event>) -> Result<(), String> {
     let mut order: Vec<String> = Vec::new();
     let mut runs: std::collections::BTreeMap<String, Vec<Event>> = Default::default();
     for ev in evs {

@@ -76,16 +76,23 @@ pub fn normalize_code(input: &str) -> Option<String> {
 /// code with salt [`APP`]; the key is the first 32 bytes and the topic
 /// `APP/` + hex(the next 16). The room has no epoch (0).
 pub fn room_secret(code: &str) -> Result<Secret, &'static str> {
+    room_secret_for(APP, code)
+}
+
+/// [`room_secret`] under another app name, which is both the scrypt salt
+/// and the topic prefix (go-room's `SecretFromCode(app, code)`; the invite
+/// room is `irori-invite-v1`).
+pub fn room_secret_for(app: &str, code: &str) -> Result<Secret, &'static str> {
     let canon = normalize_code(code).ok_or(ERR_BAD_CODE)?;
     let params = scrypt::Params::new(15, 8, 1).expect("scrypt params");
     let mut dk = zeroize::Zeroizing::new([0u8; 48]);
-    scrypt::scrypt(canon.as_bytes(), APP.as_bytes(), &params, &mut dk[..])
+    scrypt::scrypt(canon.as_bytes(), app.as_bytes(), &params, &mut dk[..])
         .expect("48 bytes is a valid scrypt length");
     let mut key = [0u8; 32];
     key.copy_from_slice(&dk[..32]);
     Ok(Secret {
         key,
-        topic: format!("{APP}/{}", hex::encode(&dk[32..])),
+        topic: format!("{app}/{}", hex::encode(&dk[32..])),
         epoch: 0,
     })
 }
@@ -112,8 +119,13 @@ pub fn info(a_pub: &[u8], b_pub: &[u8], fp_a: &str, fp_b: &str, a_id: &str, b_id
 
 /// The SAS bytes: HKDF-SHA256(ikm = room key, salt = [`SAS_SALT`], info).
 pub fn sas_bytes(room_key: &[u8; 32], info: &[u8]) -> [u8; SAS_WORDS] {
+    sas_bytes_with(SAS_SALT, room_key, info)
+}
+
+/// [`sas_bytes`] under another HKDF salt (the invite's `irori/invite/1`).
+pub fn sas_bytes_with(salt: &str, room_key: &[u8; 32], info: &[u8]) -> [u8; SAS_WORDS] {
     let mut b = [0u8; SAS_WORDS];
-    hkdf::Hkdf::<Sha256>::new(Some(SAS_SALT.as_bytes()), room_key)
+    hkdf::Hkdf::<Sha256>::new(Some(salt.as_bytes()), room_key)
         .expand(info, &mut b)
         .expect("5 bytes always fits");
     b
@@ -122,7 +134,12 @@ pub fn sas_bytes(room_key: &[u8; 32], info: &[u8]) -> [u8; SAS_WORDS] {
 /// Go `SAS`: the five words, a PGP word per byte (even list at even
 /// positions, odd list at odd ones).
 pub fn sas(room_key: &[u8; 32], info: &[u8]) -> Vec<String> {
-    sas_bytes(room_key, info)
+    sas_with(SAS_SALT, room_key, info)
+}
+
+/// [`sas`] under another HKDF salt.
+pub fn sas_with(salt: &str, room_key: &[u8; 32], info: &[u8]) -> Vec<String> {
+    sas_bytes_with(salt, room_key, info)
         .iter()
         .enumerate()
         .map(|(i, v)| {

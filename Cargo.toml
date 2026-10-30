@@ -15,6 +15,7 @@ members = [
   "crates/home",
   "crates/identity",
   "crates/inbox",
+  "crates/invite",
   "crates/lan",
   "crates/ledger",
   "crates/meshseam",
@@ -60,6 +61,7 @@ irori-hlc = { path = "crates/hlc" }
 irori-home = { path = "crates/home" }
 irori-identity = { path = "crates/identity" }
 irori-inbox = { path = "crates/inbox" }
+irori-invite = { path = "crates/invite" }
 irori-lan = { path = "crates/lan" }
 irori-ledger = { path = "crates/ledger" }
 irori-meshseam = { path = "crates/meshseam" }
@@ -86,6 +88,8 @@ tokio-util = "0.7.20"
 rusqlite = { version = "0.41.1", features = ["bundled"] }
 aes-gcm = "0.11.1"
 base64 = "0.23.1"
+# The invite ticket (crates/invite), already in the tree through iroh.
+data-encoding = "2.11.1"
 ed25519-dalek = "3.0.0"
 getrandom = "0.4.3"
 gethostname = "1.1.0"

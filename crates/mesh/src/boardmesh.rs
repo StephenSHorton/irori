@@ -240,7 +240,16 @@ pub struct BoardMeshOpts {
     pub verifier: Arc<BoardVerifier>,
     pub secrets: Arc<BoardSecrets>,
     pub transport: Arc<dyn BoardTransport>,
+    /// This person's other devices from its private chain (certified, not
+    /// revoked). They are admitted and dialled before the board log holds
+    /// their certs, so a device that opened the board from board.joined
+    /// can pull it (and those certs) from its own devices. `None`: the
+    /// board's verifier only.
+    pub own_devices: Option<OwnDevicesFn>,
 }
+
+/// This person's other devices (see [`BoardMeshOpts::own_devices`]).
+pub type OwnDevicesFn = Arc<dyn Fn() -> Vec<MemberDevice> + Send + Sync>;
 
 /// One counted member device of a board (a dial target).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -308,6 +317,15 @@ pub struct BoardMesh {
 fn admitted(v: &BoardVerifier, peer: &str, pubkey: &[u8; 32]) -> bool {
     v.admitted_by_pub(&hex::encode(pubkey))
         .is_some_and(|c| c.device_id == peer)
+}
+
+/// [`admitted`], or one of this person's own devices.
+fn admits(v: &BoardVerifier, own: &Option<OwnDevicesFn>, peer: &str, pubkey: &[u8; 32]) -> bool {
+    admitted(v, peer, pubkey)
+        || own.as_ref().is_some_and(|f| {
+            let k = hex::encode(pubkey);
+            f().iter().any(|d| d.device_id == peer && d.device_pub == k)
+        })
 }
 
 impl BoardMesh {
@@ -485,12 +503,26 @@ impl Shared {
                 });
             }
         }
+        if let Some(own) = &self.opts.own_devices {
+            for d in own() {
+                if d.device_id != self.opts.self_id
+                    && !out.iter().any(|o| o.device_id == d.device_id)
+                {
+                    out.push(d);
+                }
+            }
+        }
         out
     }
 
     fn recheck_conns(&self) {
         for p in self.peer_list() {
-            if !admitted(&self.opts.verifier, p.conn.id(), &p.conn.pub_key()) {
+            if !admits(
+                &self.opts.verifier,
+                &self.opts.own_devices,
+                p.conn.id(),
+                &p.conn.pub_key(),
+            ) {
                 self.logf(&format!("{} is no longer a member device", p.conn.id()));
                 p.conn.close(reason::REVOKED);
             }
@@ -572,9 +604,13 @@ impl Shared {
         let me = self.opts.self_id.clone();
         let mut cfg = RoomConfig::new(me.clone());
         {
-            let (v, me) = (self.opts.verifier.clone(), me.clone());
+            let (v, own, me) = (
+                self.opts.verifier.clone(),
+                self.opts.own_devices.clone(),
+                me.clone(),
+            );
             cfg.accept = Arc::new(move |peer: &str, pubkey: &[u8; 32]| {
-                if peer != me && admitted(&v, peer, pubkey) {
+                if peer != me && admits(&v, &own, peer, pubkey) {
                     Ok(())
                 } else {
                     Err(Refused)

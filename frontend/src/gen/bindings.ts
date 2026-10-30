@@ -38,6 +38,8 @@ export const commands = {
 	boardAskAgain: (id: string) => __TAURI_INVOKE<null>("board_ask_again", { id }),
 	boardAskRepos: () => __TAURI_INVOKE<AskRepo[]>("board_ask_repos"),
 	boardCloseAsk: (id: string, note: string) => __TAURI_INVOKE<Task>("board_close_ask", { id, note }),
+	boardClose: (id: string, state: string, note: string) => __TAURI_INVOKE<Task>("board_close", { id, state, note }),
+	boardDelete: (id: string) => __TAURI_INVOKE<null>("board_delete", { id }),
 	boardPin: (id: string, pinned: boolean) => __TAURI_INVOKE<null>("board_pin", { id, pinned }),
 	boardMovePin: (id: string, before: string) => __TAURI_INVOKE<null>("board_move_pin", { id, before }),
 	boardReopen: (id: string) => __TAURI_INVOKE<TaskResult>("board_reopen", { id }),
@@ -49,6 +51,14 @@ export const commands = {
 	boardsSharePreview: (taskId: string, boardId: string) => __TAURI_INVOKE<SharePreview>("boards_share_preview", { taskId, boardId }),
 	boardsShare: (taskId: string, boardId: string, hash: string) => __TAURI_INVOKE<string>("boards_share", { taskId, boardId, hash }),
 	boardsWithdraw: (taskId: string) => __TAURI_INVOKE<string>("boards_withdraw", { taskId }),
+	boardsSettings: (boardId: string) => __TAURI_INVOKE<BoardSettings>("boards_settings", { boardId }),
+	boardsSetReceive: (boardId: string, preset: string, people: string[]) => __TAURI_INVOKE<BoardSettings>("boards_set_receive", { boardId, preset, people }),
+	boardsSetAutonomy: (boardId: string, preset: string) => __TAURI_INVOKE<BoardSettings>("boards_set_autonomy", { boardId, preset }),
+	boardsInvite: (boardId: string) => __TAURI_INVOKE<InviteStatus>("boards_invite", { boardId }),
+	boardsJoinInvite: (link: string) => __TAURI_INVOKE<InviteStatus>("boards_join_invite", { link }),
+	boardsConfirmInviteWords: (words: string) => __TAURI_INVOKE<InviteStatus>("boards_confirm_invite_words", { words }),
+	boardsInviteStatus: () => __TAURI_INVOKE<InviteStatus>("boards_invite_status"),
+	boardsCancelInvite: () => __TAURI_INVOKE<null>("boards_cancel_invite"),
 	devicesDevices: () => __TAURI_INVOKE<DeviceView[]>("devices_devices"),
 	devicesColors: () => __TAURI_INVOKE<string[]>("devices_colors"),
 	devicesSetDeviceColor: (deviceId: string, color: string) => __TAURI_INVOKE<null>("devices_set_device_color", { deviceId, color }),
@@ -222,6 +232,40 @@ export type BlockerOption = {
 /**  coord.BlockerStatus. */
 export type BlockerStatus = "open" | "answered" | "replied";
 
+/**
+ *  One member of a board, for the Boards dialog's Members and the Members
+ *  receive preset's people picker (§8).
+ */
+export type BoardMember = {
+	personId: string,
+	name: string,
+	owner: boolean,
+	/**  The person at this device. */
+	me: boolean,
+	/**  Their devices certified on the board. */
+	devices: number,
+};
+
+/**
+ *  A board opened in the Boards dialog (§8): its members, the receive
+ *  preset that applies to other people's rows on it (§7.2) and the
+ *  autonomy preset for this person's agents there (§7.3).
+ */
+export type BoardSettings = {
+	boardId: string,
+	members: BoardMember[],
+	/**  closed, ask, members or open: what applies on this board. */
+	receive: string,
+	/**  Under members: the people whose rows wake agents. */
+	people: string[],
+	/**  The board has its own receive row (else it inherits). */
+	receiveOwn: boolean,
+	/**  ask, trusted or autonomous: what applies on this board. */
+	autonomy: string,
+	/**  The board has its own autonomy row (else it inherits). */
+	autonomyOwn: boolean,
+};
+
 /**  One shared board in the list (Go `core.BoardSummary`). */
 export type BoardSummary = {
 	boardId: string,
@@ -278,7 +322,7 @@ export type CardBlocker = {
 	thread: CardThreadItem[],
 };
 
-/**  The shared board a card lives on (v0.5 §8). Always absent until M9. */
+/**  The shared board a card lives on (v0.5 §8). */
 export type CardBoard = {
 	id: string,
 	name: string,
@@ -597,6 +641,31 @@ export type InboxCounts = {
 	unread: number,
 	held: number,
 	paused: boolean,
+};
+
+/**
+ *  What either side's screen shows (the invite flow's `Status`, with the
+ *  side, the link and its expiry). `state` "" is no invite open.
+ */
+export type InviteStatus = {
+	/**  "host" (inviting), "guest" (joining) or "". */
+	role: string,
+	/**  waiting, words, joining, done, failed, or "". */
+	state: string,
+	boardId: string,
+	boardName: string,
+	/**  Host: the `irori-invite:` link to send. */
+	link?: string,
+	/**  Host: when the invite window closes (RFC 3339). */
+	expiresAt?: string,
+	/**  Guest: the five words to read out. */
+	words?: string[],
+	peerName: string,
+	peerFingerprint: string,
+	myFingerprint: string,
+	/**  Wrong words typed so far (two end the invite). */
+	misses: number,
+	error?: string,
 };
 
 /**  coord.Link. */

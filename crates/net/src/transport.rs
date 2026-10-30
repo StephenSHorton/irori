@@ -212,6 +212,12 @@ pub(crate) struct Inner {
     /// The open pairing room (epoch 0), at most one (M7).
     pub(crate) pair: Mutex<Option<Arc<crate::pairnet::PairRoom>>>,
     pub(crate) pair_open: Arc<AtomicBool>,
+    /// The open invite (card #44), at most one.
+    pub(crate) invite: Mutex<Option<Arc<crate::invite::InviteSlot>>>,
+    pub(crate) invite_open: Arc<AtomicBool>,
+    /// Inviters this device is dialing on `irori/invite/1` (the gate runs on
+    /// outgoing connections too).
+    pub(crate) invite_dials: Arc<Mutex<HashSet<EndpointId>>>,
     /// The lookup started from `cfg.lan_config` at bind.
     lan: std::sync::OnceLock<irori_lan::LanLookup>,
     /// Late-bound `on_heard` (the mesh's `Servers::heard`, built after the
@@ -268,11 +274,16 @@ impl RoomState {
 
 /// The endpoint gate. On `irori/pair/1` it also admits ids it doesn't
 /// know, but only while a pairing room or a pairing guest window is open
-/// here (an invite window never opens pairing to strangers).
+/// here (an invite window never opens pairing to strangers); on
+/// `irori/invite/1`, only while an invite handler is set
+/// ([`IrohNet::set_invite_handler`]) or, outgoing, to the inviter an
+/// [`IrohNet::dial_invite`] is dialing.
 #[derive(Debug)]
 struct Gate {
     admit: Arc<dyn Admit>,
     pair_open: Arc<AtomicBool>,
+    invite_open: Arc<AtomicBool>,
+    invite_dials: Arc<Mutex<HashSet<EndpointId>>>,
     guests: crate::guest::GuestWindows,
 }
 
@@ -281,7 +292,14 @@ impl EndpointHooks for Gate {
         let pairing = conn.alpn() == PAIR_ALPN
             && (self.pair_open.load(Ordering::SeqCst)
                 || self.guests.any_open_of(crate::guest::WindowKind::Pair));
-        if pairing || self.admit.admits(conn.alpn(), &conn.remote_id()) {
+        let inviting = conn.alpn() == crate::board::INVITE_ALPN
+            && (self.invite_open.load(Ordering::SeqCst)
+                || self
+                    .invite_dials
+                    .lock()
+                    .expect("invite dials")
+                    .contains(&conn.remote_id()));
+        if pairing || inviting || self.admit.admits(conn.alpn(), &conn.remote_id()) {
             AfterHandshakeOutcome::Accept
         } else {
             AfterHandshakeOutcome::Reject {
@@ -386,6 +404,9 @@ impl IrohNet {
                 gossip: OnceCell::new(),
                 pair: Mutex::new(None),
                 pair_open: Arc::new(AtomicBool::new(false)),
+                invite: Mutex::new(None),
+                invite_open: Arc::new(AtomicBool::new(false)),
+                invite_dials: Arc::new(Mutex::new(HashSet::new())),
                 lan: std::sync::OnceLock::new(),
                 on_heard: Arc::new(Mutex::new(None)),
                 closed: AtomicBool::new(false),
@@ -603,6 +624,7 @@ impl IrohNet {
         if let Some(pr) = pr {
             self.inner.close_pair(&pr);
         }
+        self.inner.clear_invite();
         for room in self.inner.all_rooms() {
             self.inner.close_room(&room, reason::SHUTTING_DOWN);
         }
@@ -732,6 +754,7 @@ impl Inner {
             MESH_ALPN.to_vec(),
             PAIR_ALPN.to_vec(),
             crate::board::BOARD_ALPN.to_vec(),
+            crate::board::INVITE_ALPN.to_vec(),
         ];
         if self.cfg.gossip {
             alpns.push(GOSSIP_ALPN.to_vec());
@@ -749,6 +772,8 @@ impl Inner {
             .hooks(Gate {
                 admit: self.cfg.admit.clone(),
                 pair_open: self.pair_open.clone(),
+                invite_open: self.invite_open.clone(),
+                invite_dials: self.invite_dials.clone(),
                 guests: self.cfg.guests.clone(),
             })
             .clear_ip_transports();
@@ -1066,6 +1091,8 @@ async fn accept_loop(inner: Weak<Inner>, ep: Endpoint) {
                 inner.handle_board(conn).await;
             } else if conn.alpn() == PAIR_ALPN {
                 inner.handle_pair(conn).await;
+            } else if conn.alpn() == crate::board::INVITE_ALPN {
+                inner.handle_invite(conn).await;
             } else if conn.alpn() == GOSSIP_ALPN
                 && let Some(g) = inner.gossip.get()
             {

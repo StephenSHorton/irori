@@ -39,7 +39,8 @@ mod wordlist;
 
 pub use code::{
     APP, ERR_BAD_CODE, SAS_SALT, SAS_WORDS, check_proof, fingerprint, info, key_match, new_code,
-    normalize_code, parse_words, proof, room_secret, sas, sas_bytes, words_match,
+    normalize_code, parse_words, proof, room_secret, room_secret_for, sas, sas_bytes,
+    sas_bytes_with, sas_with, words_match,
 };
 pub use pairer::*;
 pub use saved::{ROWS_FILE, learn_saved};

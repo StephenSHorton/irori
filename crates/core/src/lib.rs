@@ -20,6 +20,7 @@
 //! | [`events`] | the services' Subscribe, root `*_service.go` pumps | the change feed |
 //! | [`timers`] | coord `armExpiry`, Go tickers | the expiry timer |
 //! | [`meshview`] | `home.go`, `attachview.go` | the running mesh as Devices and attachments see it |
+//! | [`attachments`] | `attachments.go` | agents' attach and attachment_get (the tools' attacher) |
 //!
 //! Loops run on plain threads (every service API is synchronous); presence
 //! runs on the tokio runtime given in [`Options::runtime`], or on a
@@ -34,6 +35,7 @@
 //! `irori-home`) is built unless [`Options::no_home`], and binds nothing
 //! until it is switched on and there is another device.
 
+pub mod attachments;
 pub mod devices;
 pub mod diag;
 pub mod events;
@@ -54,6 +56,7 @@ pub use crate::service::boards::{
     BOARDS_DIR, BoardIdentity, BoardInfo, BoardSummary, Error as BoardError, SharePreview,
     SharedCopy, new_board_id, valid_board_id,
 };
+pub use crate::service::invites::{InviteStatus, InviteWatchFn};
 pub use crate::service::{Core, HomeEdit, NO_HOME_SERVER, NowFn, Options, ReviveFn, StartError};
 pub use capture::DecisionView;
 pub use events::{CoreEvent, Feed, Hub, Topic};

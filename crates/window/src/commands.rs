@@ -17,11 +17,12 @@ use tauri::State;
 use crate::Window;
 use crate::attachments::AttachmentInfo;
 use crate::board::{AnswerResult, AskRepo, CommentResult, TaskResult, UploadFile};
-use crate::boards::{BoardSummary, SharePreview};
+use crate::boards::{BoardSettings, BoardSummary, SharePreview};
 use crate::cards::{CardDetail, CardMessage, CardSummary, DonePage};
 use crate::devices::{DeviceView, HomeServerView, PairStatus, RelayView};
 use crate::events::{CaptureChange, Empty};
 use crate::inbox::InboxCounts;
+use crate::invites::InviteStatus;
 use crate::roster::{GoneSession, RosterChange};
 use crate::settings::{NotifyOptions, Target};
 use crate::ts::{self, Typed};
@@ -290,6 +291,23 @@ pub async fn board_close_ask(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn board_close(
+    w: W<'_>,
+    id: String,
+    state: String,
+    note: String,
+) -> R<Typed<coord::Task, ts::Task>> {
+    w.close_card(&id, &state, &note).map(Typed::new)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn board_delete(w: W<'_>, id: String) -> R<()> {
+    w.delete_card(&id)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn board_pin(w: W<'_>, id: String, pinned: bool) -> R<()> {
     w.pin(&id, pinned)
 }
@@ -306,7 +324,7 @@ pub async fn board_reopen(w: W<'_>, id: String) -> R<TaskResult> {
     w.reopen(&id)
 }
 
-// ---- BoardsService (M9) ----------------------------------------------------------
+// ---- BoardsService ---------------------------------------------------------------
 
 #[tauri::command]
 #[specta::specta]
@@ -317,50 +335,99 @@ pub async fn boards_list(w: W<'_>) -> R<Vec<BoardSummary>> {
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_create(w: W<'_>, name: String, tag: String) -> R<BoardSummary> {
-    let _ = (name, tag);
-    Err(w.boards_refused())
+    w.boards_create(&name, &tag)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_rename(w: W<'_>, board_id: String, name: String) -> R<BoardSummary> {
-    let _ = (board_id, name);
-    Err(w.boards_refused())
+    w.boards_rename(&board_id, &name)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_leave(w: W<'_>, board_id: String) -> R<()> {
-    let _ = board_id;
-    Err(w.boards_refused())
+    w.boards_leave(&board_id)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_forget(w: W<'_>, board_id: String) -> R<()> {
-    let _ = board_id;
-    Err(w.boards_refused())
+    w.boards_forget(&board_id)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_share_preview(w: W<'_>, task_id: String, board_id: String) -> R<SharePreview> {
-    let _ = (task_id, board_id);
-    Err(w.boards_refused())
+    w.boards_share_preview(&task_id, &board_id)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_share(w: W<'_>, task_id: String, board_id: String, hash: String) -> R<String> {
-    let _ = (task_id, board_id, hash);
-    Err(w.boards_refused())
+    w.boards_share(&task_id, &board_id, &hash)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_withdraw(w: W<'_>, task_id: String) -> R<String> {
-    let _ = task_id;
-    Err(w.boards_refused())
+    w.boards_withdraw(&task_id)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_settings(w: W<'_>, board_id: String) -> R<BoardSettings> {
+    w.boards_settings(&board_id)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_set_receive(
+    w: W<'_>,
+    board_id: String,
+    preset: String,
+    people: Vec<String>,
+) -> R<BoardSettings> {
+    w.boards_set_receive(&board_id, &preset, people)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_set_autonomy(w: W<'_>, board_id: String, preset: String) -> R<BoardSettings> {
+    w.boards_set_autonomy(&board_id, &preset)
+}
+
+// ---- Invites ----------------------------------------------------------------------
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_invite(w: W<'_>, board_id: String) -> R<InviteStatus> {
+    blocking(&w, move |w| w.seams.invites.invite(&board_id)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_join_invite(w: W<'_>, link: String) -> R<InviteStatus> {
+    blocking(&w, move |w| w.seams.invites.join(&link)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_confirm_invite_words(w: W<'_>, words: String) -> R<InviteStatus> {
+    blocking(&w, move |w| w.seams.invites.confirm_words(&words)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_invite_status(w: W<'_>) -> R<InviteStatus> {
+    Ok(w.seams.invites.status())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_cancel_invite(w: W<'_>) -> R<()> {
+    w.seams.invites.cancel();
+    Ok(())
 }
 
 // ---- DevicesService --------------------------------------------------------------
@@ -600,6 +667,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_ask_again,
             board_ask_repos,
             board_close_ask,
+            board_close,
+            board_delete,
             board_pin,
             board_move_pin,
             board_reopen,
@@ -611,6 +680,14 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_share_preview,
             boards_share,
             boards_withdraw,
+            boards_settings,
+            boards_set_receive,
+            boards_set_autonomy,
+            boards_invite,
+            boards_join_invite,
+            boards_confirm_invite_words,
+            boards_invite_status,
+            boards_cancel_invite,
             devices_devices,
             devices_colors,
             devices_set_device_color,

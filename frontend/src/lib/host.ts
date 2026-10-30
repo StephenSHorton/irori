@@ -124,6 +124,8 @@ export const BoardService = {
   AskAgain: (id: string) => done(commands.boardAskAgain(id)),
   AskRepos: () => call(commands.boardAskRepos()),
   CloseAsk: (id: string, note: string) => call(commands.boardCloseAsk(id, note)),
+  Close: (id: string, state: string, note: string) => call(commands.boardClose(id, state, note)),
+  Delete: (id: string) => done(commands.boardDelete(id)),
   Pin: (id: string, pinned: boolean) => done(commands.boardPin(id, pinned)),
   MovePin: (id: string, before: string) => done(commands.boardMovePin(id, before)),
   Reopen: (id: string) => call(commands.boardReopen(id)),
@@ -138,6 +140,15 @@ export const BoardsService = {
   SharePreview: (taskId: string, boardId: string) => call(commands.boardsSharePreview(taskId, boardId)),
   Share: (taskId: string, boardId: string, hash: string) => call(commands.boardsShare(taskId, boardId, hash)),
   Withdraw: (taskId: string) => call(commands.boardsWithdraw(taskId)),
+  Settings: (boardId: string) => call(commands.boardsSettings(boardId)),
+  SetReceive: (boardId: string, preset: string, people: string[]) =>
+    call(commands.boardsSetReceive(boardId, preset, people)),
+  SetAutonomy: (boardId: string, preset: string) => call(commands.boardsSetAutonomy(boardId, preset)),
+  Invite: (boardId: string) => call(commands.boardsInvite(boardId)),
+  JoinInvite: (link: string) => call(commands.boardsJoinInvite(link)),
+  ConfirmInviteWords: (words: string) => call(commands.boardsConfirmInviteWords(words)),
+  InviteStatus: () => call(commands.boardsInviteStatus()),
+  CancelInvite: () => done(commands.boardsCancelInvite()),
 }
 
 export const DevicesService = {

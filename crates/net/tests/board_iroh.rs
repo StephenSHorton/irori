@@ -314,6 +314,7 @@ impl Dev {
             verifier: self.verifier.clone(),
             secrets: self.secrets.clone(),
             transport: Arc::new(self.net.clone()),
+            own_devices: None,
         });
         m.set_intervals(mesh::Intervals {
             presence: Duration::from_millis(200),

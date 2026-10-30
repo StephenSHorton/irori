@@ -420,6 +420,7 @@ impl Services {
             inner.task_of.retain(|_, on| on != id);
             inner.logs.remove(id)
         };
+        self.mesh.close_board(id, irori_meshseam::reason::LEAVING);
         if let Some(b) = b {
             b.stop_threads();
             let _ = b.store.close();

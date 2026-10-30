@@ -32,8 +32,9 @@ import {
 } from "./bits"
 import { Faces, TalkBubble } from "./faces"
 
-// Filter is a chip: All, Needs a decision, My devices, Done (the closed
-// cards, which load on their own: useDoneCards), one device
+// Filter is a chip: All, Needs a decision, My devices, Closed (done,
+// canceled and failed cards, which load on their own: useDoneCards; its
+// id stays "done" for old ?filter= links), one device
 // ("device:<id>", card #22), or one shared board ("board:<id>", v0.5 §8).
 export type Filter =
   | "all"
@@ -47,12 +48,13 @@ export const filters: { id: Filter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "decide", label: "Needs a decision" },
   { id: "mine", label: "My devices" },
-  { id: "done", label: "Done" },
+  { id: "done", label: "Closed" },
 ]
 
 // asFilter is a filter id from outside (the preview's ?filter=), else all.
 export function asFilter(id: string | null): Filter {
   if (id?.startsWith("board:")) return id as Filter
+  if (id === "closed") return "done"
   return filters.find((f) => f.id === id)?.id ?? "all"
 }
 
@@ -472,8 +474,24 @@ function CardTile({
   )
 }
 
-// DoneGrid is the Done filter: closed cards, the latest first, a page at a
-// time.
+// Outcome narrows the Closed filter (card #57).
+export type Outcome = "any" | "completed" | "canceled" | "failed"
+
+export const outcomes: { id: Outcome; label: string }[] = [
+  { id: "any", label: "Any outcome" },
+  { id: "completed", label: "Done" },
+  { id: "canceled", label: "Canceled" },
+  { id: "failed", label: "Failed" },
+]
+
+// ofOutcome keeps the closed cards that ended as o.
+export function ofOutcome(cs: CardSummary[], o: Outcome): CardSummary[] {
+  return o === "any" ? cs : cs.filter((c) => c.state === o)
+}
+
+// DoneGrid is the Closed filter: done, canceled and failed cards, the
+// latest first, a page at a time, each with its outcome badge, narrowed
+// by outcome.
 export function DoneGrid({
   done,
   selected,
@@ -485,10 +503,11 @@ export function DoneGrid({
   onSelect: (id: string) => void
   now: Date
 }) {
+  const [outcome, setOutcome] = useState<Outcome>("any")
   if (done.error && !done.cards.length)
     return (
       <p className="px-1 text-[12.5px] text-destructive" role="alert">
-        Could not load the done cards: {done.error}
+        Could not load the closed cards: {done.error}
       </p>
     )
   if (done.loading && !done.cards.length)
@@ -496,18 +515,42 @@ export function DoneGrid({
   if (!done.cards.length)
     return (
       <p className="px-1 text-[12.5px] text-muted-foreground">
-        Nothing done yet.
+        Nothing closed yet.
       </p>
     )
+  const shown = ofOutcome(done.cards, outcome)
   return (
     <>
+      <div
+        className="flex flex-wrap items-center gap-1"
+        role="group"
+        aria-label="Filter closed cards by outcome"
+      >
+        {outcomes.map((o) => (
+          <Button
+            key={o.id}
+            size="xs"
+            aria-pressed={outcome === o.id}
+            variant={outcome === o.id ? "secondary" : "ghost"}
+            onClick={() => setOutcome(o.id)}
+          >
+            {o.label}
+          </Button>
+        ))}
+      </div>
       {done.error && (
         <p className="px-1 text-[12.5px] text-destructive" role="alert">
-          Could not reload the done cards: {done.error}
+          Could not reload the closed cards: {done.error}
+        </p>
+      )}
+      {!shown.length && (
+        <p className="px-1 text-[12.5px] text-muted-foreground">
+          None {outcome === "completed" ? "done" : outcome} among these
+          {done.more ? "; Show more looks further back." : "."}
         </p>
       )}
       <CardGrid
-        cards={done.cards}
+        cards={shown}
         selected={selected}
         onSelect={onSelect}
         now={now}
