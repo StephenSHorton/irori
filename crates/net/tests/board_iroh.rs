@@ -569,25 +569,27 @@ async fn after_a_removal_the_old_topic_closes_once_every_member_moved() {
         carol.secrets.epoch() == 2
     })
     .await;
-    eventually("alice and carol settle on epoch 2 and leave epoch 1", || {
-        alice.secrets.settled() == 2
-            && carol.secrets.settled() == 2
-            && alice.mesh().epochs() == vec![2]
-            && carol.mesh().epochs() == vec![2]
-            && !alice.net.board_rooms().iter().any(|(_, e)| *e == 1)
-            && !carol.net.board_rooms().iter().any(|(_, e)| *e == 1)
-    })
+    eventually(
+        "alice and carol settle on epoch 2 and leave epoch 1",
+        || {
+            alice.secrets.settled() == 2
+                && carol.secrets.settled() == 2
+                && alice.mesh().epochs() == vec![2]
+                && carol.mesh().epochs() == vec![2]
+                && !alice.net.board_rooms().iter().any(|(_, e)| *e == 1)
+                && !carol.net.board_rooms().iter().any(|(_, e)| *e == 1)
+        },
+    )
     .await;
     assert_eq!(alice.secrets.topics().unwrap().len(), 1);
     assert_eq!(alice.secrets.topics().unwrap()[0].epoch, 2);
-    assert!(alice.secrets.secret(1).is_none(), "epoch 1's secret is gone");
+    assert!(
+        alice.secrets.secret(1).is_none(),
+        "epoch 1's secret is gone"
+    );
     assert_eq!(alice.mesh().peer_epochs().get(&carol.id), Some(&2));
     assert!(
-        alice
-            .net
-            .board_conns(BOARD)
-            .iter()
-            .all(|c| c.epoch == 2),
+        alice.net.board_conns(BOARD).iter().all(|c| c.epoch == 2),
         "{:?}",
         alice.net.board_conns(BOARD)
     );
