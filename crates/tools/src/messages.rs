@@ -29,8 +29,8 @@ pub(crate) fn send(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Err(e) => return e,
     };
     let (to, repo) = (trim_opt(&a.opt_str("to")), trim_opt(&a.opt_str("repo")));
-    if let Some(e) = crate::shared::send_to_board(&to) {
-        return e;
+    if let Some(out) = crate::shared::send_to_board(s, c, &to, a.str("task_id"), a.str("text")) {
+        return out;
     }
     let address = if !to.is_empty() && !repo.is_empty() {
         return err_text("give exactly one of to (an agent) or repo (a repoKey), not both.");
