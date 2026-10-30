@@ -29,6 +29,8 @@ import {
   parseArgs,
   takeEvents,
   titleToSet,
+  heldReminder,
+  type BoardLists,
   MAX_TITLES,
   toolArgs,
   validSpec,
@@ -522,6 +524,26 @@ async function withTitle<R extends { sessionTitle?: string }>($: EngineInterface
   }
 }
 
+/**
+ * Adds the held-cards reminder to a UserPromptSubmit result while this
+ * session holds cards (GitHub #3): what the agent needs from the person goes
+ * on the card as a blocker, even when the person asked in this terminal. Any
+ * failure returns the result unchanged.
+ */
+async function withHeld<R extends { additionalContext?: string[] }>($: EngineInterface, result: R): Promise<R> {
+  try {
+    const view = await read($, attachAtom)
+    if (view.status !== 'attached' || !view.agentKey) return result
+    const board = await callCore($, 'GET', '/v1/board?done=1')
+    if (!board.ok) return result
+    const text = heldReminder(board.body as BoardLists, view.agentKey)
+    if (!text) return result
+    return { ...result, additionalContext: [...(result?.additionalContext ?? []), text] }
+  } catch {
+    return result
+  }
+}
+
 async function onSessionStart($: EngineInterface, cwd: string) {
   await $.command.register({
     name: 'irori',
@@ -549,7 +571,9 @@ export const register: Register = (on, options) => {
   // SessionStart usually fires before the attach, so a new session takes
   // it at its first prompt; a resumed one already has its name.
   on('classic.SessionStart', async ($, e, next) => withTitle($, await next(e), e.session_title))
-  on('classic.UserPromptSubmit', async ($, e, next) => withTitle($, await next(e), e.session_title))
+  on('classic.UserPromptSubmit', async ($, e, next) =>
+    withHeld($, await withTitle($, await next(e), e.session_title)),
+  )
 
   on('session.end', async ($, e, next) => {
     ended = true

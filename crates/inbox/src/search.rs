@@ -183,7 +183,9 @@ impl Inner {
         if !m.ref_.is_empty() {
             let _ = writeln!(sb, "about: {}", m.ref_);
         }
-        if m.notice {
+        if m.notice && crate::fence::is_ask(&m.reason) {
+            sb.push_str("ask: the person asking the room; ask_claim takes it\n");
+        } else if m.notice {
             sb.push_str("notice: from the Irori Board, needs no reply\n");
         }
         sb.push_str("deliveries:\n");

@@ -43,7 +43,7 @@ export const holdReasons: Record<string, string> = {
   [HoldReason.HoldBlocked]: "The sender is on your block list.",
   [HoldReason.HoldNotAllowed]: "The sender isn't on your allow list.",
   [HoldReason.HoldBypassReceiver]:
-    "The recipient runs without permission prompts. Full auto in Settings lets these through.",
+    "An older Irori held it because the recipient runs without permission prompts; that rule is gone, so release it.",
   [HoldReason.HoldHopLimit]:
     "It is too many hops down a chain of agent messages.",
   [HoldReason.HoldUnowned]: "No agent in that repo can take it yet.",
@@ -240,21 +240,6 @@ export const talk = {
     sampleChanged()
   },
 
-  // setFullAuto switches the wake policy between Full auto (mode open: no
-  // bypass_receiver holds, decision 36) and everyone, keeping the lists and
-  // the pause. Off is everyone even if the mode was allowlist before.
-  async setFullAuto(on: boolean): Promise<void> {
-    const mode = on ? Mode.Open : Mode.Everyone
-    if (inWails()) {
-      const p = await InboxService.Policy()
-      if (p.mode === mode) return
-      return InboxService.SetPolicy({ ...p, mode })
-    }
-    const s = sampleState()
-    s.policy = { ...s.policy, mode }
-    sampleChanged()
-  },
-
   // revive runs claude --bg --resume for a gone session and returns what it
   // printed. The caller confirms first.
   async revive(sessionId: string): Promise<string> {
@@ -346,29 +331,6 @@ export function useInbox(): InboxState {
   }, [reload])
 
   return { ...value, loading, error, reload }
-}
-
-async function loadPolicy(): Promise<Policy | null> {
-  if (!inWails()) return sampleState().policy
-  return InboxService.Policy()
-}
-
-// usePolicy reads this device's wake policy, re-read on every
-// inbox:changed (a policy change sends one).
-export function usePolicy(): {
-  policy: Policy | null
-  error: string | null
-  reload: () => Promise<void>
-} {
-  const { value, error, reload } = useLatest<Policy | null>(loadPolicy, null)
-
-  useEffect(() => {
-    void reload()
-    if (!inWails()) return onSample(() => void reload())
-    return Events.On(EventInboxChanged, () => void reload())
-  }, [reload])
-
-  return { policy: value, error, reload }
 }
 
 export type HeldState = {

@@ -25,7 +25,7 @@
   "kind": "answered",
   "to": "dev-a/bob-session",
   "wake": false,
-  "text": "user:dev-a answered the blocker on \"Fix \\\"it\\\" <now>\" (#1, task:01M5W19VG0QRM302EPRQ06D00R, blocker b2).\nQuestion: Which?\nAnswer: A\n(That is the answer dev-a/bob-session recommended.)\nIt is not resolved yet. When you have what you need: board_unblock task_id=01M5W19VG0QRM302EPRQ06D00R blocker_id=b2 note=\"<one line on what you will do now>\". If the answer doesn't settle it: board_comment task_id=01M5W19VG0QRM302EPRQ06D00R blocker_id=b2 with what is still missing.\nshow task:01M5W19VG0QRM302EPRQ06D00R for the card, its comments and links."
+  "text": "user:dev-a answered the blocker on \"Fix \\\"it\\\" <now>\" (#1, task:01M5W19VG0QRM302EPRQ06D00R, blocker b2).\nQuestion: Which?\nAnswer: A\n(That is the answer dev-a/bob-session recommended.)\nIt is not resolved yet. When you have what you need: board_unblock task_id=01M5W19VG0QRM302EPRQ06D00R blocker_id=b2 note=\"<one line on what you will do now>\". If the answer doesn't settle it: board_comment task_id=01M5W19VG0QRM302EPRQ06D00R blocker_id=b2 with what is still missing. If it is a question or changes what is being decided, answer it there, then resolve the blocker if that settles it, or revise it with board_block task_id=01M5W19VG0QRM302EPRQ06D00R blocker_id=b2 with the question and options that fit now (or none); never offer the same options again.\nshow task:01M5W19VG0QRM302EPRQ06D00R for the card, its comments and links."
  },
  {
   "step": "resolve",
@@ -53,7 +53,7 @@
   "kind": "watched",
   "to": "dev-a/carol-session",
   "wake": false,
-  "text": "Update on \"Fix \\\"it\\\" <now>\" (#1, task:01M5W19VG0QRM302EPRQ06D00R), a card you watch or raised a blocker on:\n- dev-a/bob-session set the steps (0/1 done)\nNow: working, steps 0/1.\nshow task:01M5W19VG0QRM302EPRQ06D00R for the card, its comments and links."
+  "text": "Update on \"Fix \\\"it\\\" <now>\" (#1, task:01M5W19VG0QRM302EPRQ06D00R), a card you watch or raised a blocker on:\n- dev-a/bob-session set the steps: “x” (0/1 done)\nNow: working, steps 0/1.\nshow task:01M5W19VG0QRM302EPRQ06D00R for the card, its comments and links."
  },
  {
   "step": "ask",
@@ -66,7 +66,7 @@
   "step": "ask sweep 2",
   "kind": "ask",
   "to": "dev-a/bob-session,dev-a/carol-session",
-  "wake": false,
+  "wake": true,
   "text": "The person asks the room (#2, task:01M5W19VG02AHXJWDFEVA5FJN4), again: the agent that took it went away:\nLook at this\nplease\nIf you can take it on now, ask_claim #2: one agent takes it, and you hear if someone else got there first. If you're busy, leave it.\nshow task:01M5W19VG02AHXJWDFEVA5FJN4 for the card, its comments and links."
  },
  {

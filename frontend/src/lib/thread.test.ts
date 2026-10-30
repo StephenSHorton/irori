@@ -9,6 +9,7 @@ import {
   answerable,
   blockerChip,
   heardLine,
+  isRevision,
   BlockerState,
   blockerTone,
   needsPerson,
@@ -190,6 +191,45 @@ describe("blockerChip", () => {
     })
     for (const state of ["open", "resolved", "closed", ""])
       expect(blockerChip(item({ state }))).toBeNull()
+  })
+})
+
+describe("revisions", () => {
+  const rev = CardThreadItem({
+    id: "d:3",
+    kind: "event",
+    who: otter,
+    text: "sample-otter revised blocker b1: no options now, a plain question",
+    blockerId: "b1",
+    revised: true,
+  })
+  const reply = CardThreadItem({
+    id: "c2",
+    kind: "comment",
+    who: otter,
+    text: "Wintun is signed.",
+    blockerId: "b1",
+  })
+
+  test("a revision is an event marked revised", () => {
+    expect(isRevision(rev)).toBe(true)
+    expect(isRevision(reply)).toBe(false)
+    expect(isRevision(CardThreadItem({ ...rev, kind: "comment" }))).toBe(false)
+  })
+
+  test("an open item revised under the person's reply says so", () => {
+    const item = (state: string, thread: CardThreadItem[]) =>
+      CardBlocker({ id: "b1", raisedBy: otter, state, thread })
+    expect(blockerChip(item("open", [reply, rev]))).toEqual({
+      label: "Revised",
+      tone: "warning",
+    })
+    expect(blockerChip(item("", [rev]))?.label).toBe("Revised")
+    expect(blockerChip(item("open", [reply]))).toBeNull()
+    // Once the person answers the revised item, it is sent again.
+    expect(blockerChip(item("answered", [reply, rev]))?.label).toBe(
+      "Sent to sample-otter"
+    )
   })
 })
 

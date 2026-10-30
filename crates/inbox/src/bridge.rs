@@ -24,7 +24,7 @@ use serde::Serialize;
 use store::Event;
 
 use crate::messages::clip;
-use crate::policy::{Cards, bypass, placed};
+use crate::policy::{Cards, placed};
 use crate::state::{DeliveryRow, Inner, b, pair_key, s, str_fields, strs, t, trim};
 use crate::{
     Address, DIRECT_LIMIT, DIRECT_WINDOW, Delivery, Error, FileRef, Inbox, MAX_REF, MAX_TEXT,
@@ -200,6 +200,16 @@ pub(crate) struct Setting<T> {
 
 fn newer<T>(cur: Option<&Setting<T>>, ev: &Event) -> bool {
     cur.is_none_or(|c| (ev.hlc, ev.device_id.as_str()) > (c.hlc, c.dev.as_str()))
+}
+
+/// Whether key runs with bypassed permissions (Grok and people never do):
+/// the receive setting's Ask me and Closed hold other people's rows to
+/// such a session (§7.2). Under the default Open nothing is held, and the
+/// private wake policy has no bypass hold at all (decision 37).
+pub(crate) fn bypass(key: &str, cards: &Cards) -> bool {
+    cards
+        .get(key)
+        .is_some_and(|c| c.agent != "grok" && c.permission_mode == crate::BYPASS_MODE)
 }
 
 /// The receive table (§7.2) for one row to one recipient: the delivery

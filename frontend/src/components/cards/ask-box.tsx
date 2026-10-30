@@ -3,7 +3,6 @@ import { PaperclipIcon, XIcon } from "lucide-react"
 
 import { ChoiceSelect } from "@/components/common/choice-select"
 import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { cards, MaxComment, MaxUploadFiles, type AskRepo } from "@/lib/cards"
 import { useDraft } from "@/lib/drafts"
@@ -13,14 +12,13 @@ import { errorText } from "@/lib/talk"
 // one line over the grid. What they type goes to every free agent, one of
 // them takes it, and it shows first in the grid as an ask until it becomes
 // a card or closes. It is the card comment box lifted out: Enter sends,
-// Shift+Enter is a new line. Wake (off by default) wakes the agents now
-// instead of telling them at their next turn; the repo chip keeps it to
-// one repo's agents. Files go with it: pick them with the clip, drop them
+// Shift+Enter is a new line. It always wakes them: only idle agents hear
+// an ask, and an idle agent gets no next turn until someone types in its
+// window. The repo chip keeps it to one repo's agents. Files go with it: pick them with the clip, drop them
 // on the box, or paste a screenshot (card #25). The window stays on the
 // grid.
 export function AskBox({ onAsked }: { onAsked: (id: string) => void }) {
   const [text, setText] = useDraft("ask/room")
-  const [wake, setWake] = useState(false)
   const [repo, setRepo] = useState("")
   const [repos, setRepos] = useState<AskRepo[]>([])
   const [busy, setBusy] = useState(false)
@@ -53,13 +51,13 @@ export function AskBox({ onAsked }: { onAsked: (id: string) => void }) {
     setBusy(true)
     setLine(null)
     try {
-      const res = await cards.ask(text, repo, wake, files)
+      const res = await cards.ask(text, repo, true, files)
       const n = res.told.to?.length ?? 0
       setLine({
         text:
           n === 0
             ? "Nobody is free to hear it yet; it stays first on the board."
-            : `${n} ${n === 1 ? "agent hears" : "agents hear"} it ${wake ? "now" : "at their next turn"}.`,
+            : `Woke ${n} ${n === 1 ? "agent" : "agents"}; one of them takes it.`,
       })
       setText("")
       setFiles([])
@@ -150,18 +148,6 @@ export function AskBox({ onAsked }: { onAsked: (id: string) => void }) {
         >
           <PaperclipIcon />
         </Button>
-        <label
-          className="flex h-8 shrink-0 items-center gap-1.5 text-xs text-muted-foreground"
-          title="Wake the agents now instead of at their next turn"
-        >
-          <Switch
-            size="sm"
-            checked={wake}
-            disabled={busy}
-            onCheckedChange={(v) => setWake(v)}
-          />
-          Wake
-        </label>
         <Button
           type="submit"
           size="sm"

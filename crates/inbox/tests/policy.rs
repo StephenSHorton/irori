@@ -33,11 +33,11 @@ fn policy_holds() {
             "",
         ),
         (
-            "grok to a bypass receiver is held",
+            "grok to a bypass receiver flows (no bypass hold, card #71)",
             e(),
             grok(KEY_G, "grok"),
             KEY_B,
-            hold::BYPASS_RECEIVER,
+            "",
         ),
         (
             "own default-mode sender to bypass flows",
@@ -54,25 +54,25 @@ fn policy_holds() {
             "",
         ),
         (
-            "unknown device's sender to bypass is held",
+            "unknown device's sender to bypass flows",
             e(),
             claude(KEY_X, "stranger"),
             KEY_B,
-            hold::BYPASS_RECEIVER,
+            "",
         ),
         (
-            "grok under a claude key's device is held",
+            "grok under a claude key's device flows",
             e(),
             grok("dev1/grok-other", "grok2"),
             KEY_B,
-            hold::BYPASS_RECEIVER,
+            "",
         ),
         (
-            "a grok card sending as claude is held",
+            "a grok card sending as claude flows",
             e(),
             claude("dev1/grok-other", "grok2"),
             KEY_B,
-            hold::BYPASS_RECEIVER,
+            "",
         ),
         (
             "own sender still blocked",
@@ -296,6 +296,8 @@ fn release_dismiss_and_unpause() {
     let h = Harness::new();
     h.abc();
     h.ros.put(&[grok_card(KEY_G, "grok", "")]);
+    h.ib.set_policy(pol(policy_mode::ALLOWLIST, &[], &[], false), USER)
+        .unwrap();
     let (_, d1) = h.send(&grok(KEY_G, "grok"), &to("beta"), "held 1");
     let (_, d2) = h.send(&grok(KEY_G, "grok"), &to("beta"), "held 2");
     h.ib.release(&d1.id, USER).unwrap();
@@ -321,8 +323,10 @@ fn release_dismiss_and_unpause() {
     assert_eq!(w.delivery_ids, vec![d1.id.clone(), p1.id.clone()]);
 }
 
+/// The hop limit is the one hold the person didn't choose: a runaway-loop
+/// guard, in every mode (old Full auto `open` included).
 #[test]
-fn full_auto_keeps_the_hop_limit() {
+fn the_hop_limit_guards_a_runaway_loop() {
     let h = Harness::new();
     h.abc();
     h.ib.set_policy(pol(policy_mode::OPEN, &[], &[], false), USER)
@@ -347,6 +351,8 @@ fn full_auto_keeps_the_hop_limit() {
         h.ib.turn_ended(&cur.key, &w.token, &format!("t{i}"))
             .unwrap();
         assert!(i <= MAX_HOP as usize + 2, "never held");
+        // Under the per-pair rate limit, as a real loop would run into.
+        h.clk.advance(mins(2));
         i += 1;
     }
 }
@@ -360,12 +366,12 @@ fn allow_list_ignores_self_chosen_name() {
         grok_card(KEY_G, "grok", ""),
         card(KEY_N, "normal", "", "default"),
     ]);
-    h.ib.set_policy(pol("", &[], &["gamma"], false), USER)
+    h.ib.set_policy(pol(policy_mode::ALLOWLIST, &[], &["gamma"], false), USER)
         .unwrap();
     for from in [grok(KEY_G, "gamma"), claude(KEY_N, "gamma")] {
         let (_, d) = h.send(&from, &to("alpha"), "spoof");
         assert!(
-            d.state == st::HELD && d.hold == hold::BYPASS_RECEIVER,
+            d.state == st::HELD && d.hold == hold::NOT_ALLOWED,
             "{}: {} {}",
             from.key,
             d.state,
@@ -373,7 +379,7 @@ fn allow_list_ignores_self_chosen_name() {
         );
     }
     let (_, d) = h.send(&grok(KEY_G, "gamma"), &to("alpha"), "again");
-    assert_eq!(d.hold, hold::BYPASS_RECEIVER);
+    assert_eq!(d.hold, hold::NOT_ALLOWED);
     h.ib.set_policy(pol(policy_mode::ALLOWLIST, &[], &["GROK"], false), USER)
         .unwrap();
     let (_, d) = h.send(&grok(KEY_G, "someone"), &to("alpha"), "ok");
@@ -411,6 +417,8 @@ fn held_not_shown_to_recipient() {
     let h = Harness::new();
     h.abc();
     h.ros.put(&[grok_card(KEY_G, "grok", "")]);
+    h.ib.set_policy(pol("", &["grok"], &[], false), USER)
+        .unwrap();
     let (_, held) = h.send(&grok(KEY_G, "grok"), &to("alpha"), "SECRET held text");
     let (_, dis) = h.send(&grok(KEY_G, "grok"), &to("alpha"), "SECRET dismissed text");
     h.ib.dismiss(&dis.id, USER).unwrap();
