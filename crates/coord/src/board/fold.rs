@@ -16,9 +16,10 @@ use super::error::{Error, ErrorKind, Result};
 use super::resource::{Resource, normalize_resource, parse_resource};
 use super::rows::*;
 use super::types::*;
-use super::util::{SWEEPER, cmp_str, contains, remove_str};
+use super::util::{SWEEPER, cmp_str, contains, cut, remove_str};
 use super::{MAX_ASIDE, Options};
 use crate::gotime;
+use crate::names::trim_space;
 use crate::roster::Agents;
 
 /// Release reasons in lease.released rows.
@@ -859,6 +860,16 @@ impl Fold {
                 what = "reopened it".into();
             } else if was != p.state {
                 what = format!("set it to {}", p.state);
+            }
+            // The note says why, unless it only repeats what happened.
+            let note = trim_space(&p.note);
+            let verb = what.split(' ').next().unwrap_or_default().to_string();
+            if what.is_empty() || note.is_empty() || what.contains(note) {
+            } else if note.starts_with(&verb) {
+                // "reopened by the person's comment", not "reopened it: reopened by …"
+                what = cut(note, super::asks::MAX_LOG_QUOTE * 2);
+            } else {
+                what.push_str(&format!(": {}", cut(note, super::asks::MAX_LOG_QUOTE * 2)));
             }
         }
         super::cards::sync_reason(&mut t);

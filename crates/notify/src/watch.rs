@@ -729,13 +729,8 @@ impl Ctx<'_> {
         let woken = a.reason == coord::TAKE_REOPENED;
         let body = if woken && a.told == 0 {
             "You woke them, but nobody is free to hear it.".to_string()
-        } else if a.told > 0 && (woken || a.wake) {
-            format!("{} agents heard it; none took it.", a.told)
         } else if a.told > 0 {
-            format!(
-                "{} agents heard it at their next turn; none took it.",
-                a.told
-            )
+            format!("{} agents were told; none took it.", a.told)
         } else {
             "Nobody was free to hear it.".to_string()
         };

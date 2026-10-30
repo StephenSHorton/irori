@@ -379,12 +379,12 @@ impl Task {
         }
         if a.unclaimed {
             return format!(
-                "the person asked the room; nobody took it yet ({} heard it): ask_claim takes it",
+                "the person asked the room; nobody took it yet ({} told): ask_claim takes it",
                 a.told
             );
         }
         format!(
-            "the person asked the room; {} agents heard it, nobody has taken it: ask_claim takes it",
+            "the person asked the room; {} agents told, nobody has taken it: ask_claim takes it",
             a.told
         )
     }

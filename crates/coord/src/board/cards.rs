@@ -701,21 +701,14 @@ impl Fold {
                     ss.push(s.clone());
                 }
                 let t = self.tasks.get_mut(&p.task_id).expect("checked");
-                t.steps = norm_steps(ss);
+                let was = std::mem::replace(&mut t.steps, norm_steps(ss));
                 let when = at(p.at);
                 t.updated_at = when;
                 t.updated_by = p.by.clone();
                 let (d, n) = t.progress();
+                let what = format!("{} ({d}/{n} done)", steps_change(&was, &t.steps));
                 let ti = Touch::of(t);
-                self.touch(
-                    ev,
-                    &ti,
-                    when,
-                    &p.by,
-                    &format!("set the steps ({d}/{n} done)"),
-                    true,
-                    Vec::new(),
-                );
+                self.touch(ev, &ti, when, &p.by, &what, true, Vec::new());
                 task_id = p.task_id;
             }
             kinds::TASK_STEP => {
@@ -1696,4 +1689,55 @@ fn scan_earlier(l: &str) -> Option<usize> {
         return None;
     }
     usize::try_from(n).ok()
+}
+
+/// What a steps row changed, from was to now: the steps named, so the
+/// thread shows the plan and how it moved, not only a count.
+fn steps_change(was: &[Step], now: &[Step]) -> String {
+    let q = |s: &Step| {
+        format!(
+            "“{}”",
+            super::util::cut(&s.text, super::asks::MAX_LOG_QUOTE)
+        )
+    };
+    if was.is_empty() {
+        let names: Vec<String> = now.iter().map(q).collect();
+        return if names.is_empty() {
+            "set the steps".into()
+        } else {
+            format!("set the steps: {}", names.join(", "))
+        };
+    }
+    let mut parts: Vec<String> = Vec::new();
+    let mut renamed: Vec<String> = Vec::new();
+    for s in now {
+        match was.iter().find(|o| o.id == s.id) {
+            Some(o) if o.text != s.text => renamed.push(format!("{} to {}", q(o), q(s))),
+            Some(_) => {}
+            None => parts.push(format!("added {}", q(s))),
+        }
+    }
+    let removed: Vec<String> = was
+        .iter()
+        .filter(|o| !now.iter().any(|s| s.id == o.id))
+        .map(q)
+        .collect();
+    if !removed.is_empty() {
+        parts.push(format!("removed {}", removed.join(", ")));
+    }
+    if !renamed.is_empty() {
+        parts.push(format!("renamed {}", renamed.join(", ")));
+    }
+    let ticked: Vec<String> = now
+        .iter()
+        .filter(|s| s.done && was.iter().any(|o| o.id == s.id && !o.done))
+        .map(q)
+        .collect();
+    if !ticked.is_empty() {
+        parts.push(format!("ticked {}", ticked.join(", ")));
+    }
+    if parts.is_empty() {
+        return "reordered the steps".into();
+    }
+    format!("changed the steps: {}", parts.join("; "))
 }

@@ -53,7 +53,7 @@
   "kind": "watched",
   "to": "dev-a/carol-session",
   "wake": false,
-  "text": "Update on \"Fix \\\"it\\\" <now>\" (#1, task:01M5W19VG0QRM302EPRQ06D00R), a card you watch or raised a blocker on:\n- dev-a/bob-session set the steps (0/1 done)\nNow: working, steps 0/1.\nshow task:01M5W19VG0QRM302EPRQ06D00R for the card, its comments and links."
+  "text": "Update on \"Fix \\\"it\\\" <now>\" (#1, task:01M5W19VG0QRM302EPRQ06D00R), a card you watch or raised a blocker on:\n- dev-a/bob-session set the steps: “x” (0/1 done)\nNow: working, steps 0/1.\nshow task:01M5W19VG0QRM302EPRQ06D00R for the card, its comments and links."
  },
  {
   "step": "ask",
@@ -66,7 +66,7 @@
   "step": "ask sweep 2",
   "kind": "ask",
   "to": "dev-a/bob-session,dev-a/carol-session",
-  "wake": false,
+  "wake": true,
   "text": "The person asks the room (#2, task:01M5W19VG02AHXJWDFEVA5FJN4), again: the agent that took it went away:\nLook at this\nplease\nIf you can take it on now, ask_claim #2: one agent takes it, and you hear if someone else got there first. If you're busy, leave it.\nshow task:01M5W19VG02AHXJWDFEVA5FJN4 for the card, its comments and links."
  },
  {

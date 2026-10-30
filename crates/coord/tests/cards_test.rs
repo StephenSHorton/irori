@@ -1313,7 +1313,7 @@ fn test_watch_notices() {
             }),
             vec![BOB],
             vec![
-                format!("{ALICE} set the steps (0/2 done)"),
+                format!("{ALICE} set the steps: “build”, “tag” (0/2 done)"),
                 format!("{ALICE} ticked “build” (1/2)"),
                 "steps 1/2".into(),
             ],
@@ -1415,7 +1415,7 @@ fn test_watch_digest_text() {
     assert_eq!(
         ns[0].text,
         format!(
-            "Update on \"ship it\" (#1, task:{id}), a card you watch or raised a blocker on:\n- {ALICE} set the steps (0/1 done)\nNow: working, steps 0/1.\nshow task:{id} for the card, its comments and links.",
+            "Update on \"ship it\" (#1, task:{id}), a card you watch or raised a blocker on:\n- {ALICE} set the steps: “build” (0/1 done)\nNow: working, steps 0/1.\nshow task:{id} for the card, its comments and links.",
             id = task.id
         )
     );
@@ -1653,4 +1653,31 @@ fn test_watch_digest_comes_from_the_watchers_device() {
     };
     assert_eq!(count(&pc), 0);
     assert_eq!(count(&other), 1);
+}
+
+#[test]
+fn test_steps_log_names_the_steps() {
+    let e = Env::new();
+    let tk = e.c.create_task(ALICE, nt("Plan")).unwrap();
+    let what = |e: &Env| e.c.activity(&tk.id).unwrap()[0].what.clone();
+    e.c.set_steps(ALICE, &tk.id, vec![step("a"), step("b")])
+        .unwrap();
+    assert_eq!(what(&e), "set the steps: “a”, “b” (0/2 done)");
+    e.c.set_steps(
+        ALICE,
+        &tk.id,
+        vec![
+            st("s1", "a", true, false),
+            st("s2", "B", false, false),
+            step("c"),
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        what(&e),
+        "changed the steps: added “c”; renamed “b” to “B”; ticked “a” (1/3 done)"
+    );
+    e.c.set_steps(ALICE, &tk.id, vec![st("s1", "a", true, false)])
+        .unwrap();
+    assert_eq!(what(&e), "changed the steps: removed “B”, “c” (1/1 done)");
 }
