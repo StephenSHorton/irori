@@ -58,6 +58,8 @@ use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 pub mod boards;
 mod boards_own;
 mod bridge;
+mod mirror;
+pub use mirror::BoardReviewer;
 pub mod invites;
 
 use boards::Boards;
@@ -318,6 +320,26 @@ impl tools::TaskRouter for ToolsView {
     }
     fn task_ref(&self, r: &str) -> Result<String, coord::Error> {
         self.0.task_ref(r)
+    }
+    fn mirror_acquire(
+        &self,
+        key: &str,
+        resource: &str,
+        ttl: std::time::Duration,
+        steal: bool,
+    ) -> Result<Vec<String>, coord::Error> {
+        self.0.mirror_acquire(key, resource, ttl, steal)
+    }
+    fn mirror_release(&self, key: &str, resource: &str) {
+        self.0.mirror_release(key, resource)
+    }
+    fn request_release(
+        &self,
+        by: &str,
+        resource: &str,
+        why: &str,
+    ) -> Result<(String, coord::Comment, Notice), coord::Error> {
+        self.0.request_release(by, resource, why)
     }
 }
 
@@ -1251,6 +1273,20 @@ impl Core {
                     } else if let Err(e) = s.capture.follow_decision(&ev) {
                         logf(format_args!("decisions: {e}"));
                     }
+                }
+            });
+        }
+
+        // This device's agents' cards on shared boards follow their
+        // sessions' status (v0.5 §2.4); only the hosting device writes it.
+        {
+            let sub = Arc::new(s.presence.subscribe());
+            let reg = self.on_stop(&sub, |s| s.cancel());
+            let s = s.clone();
+            self.spawn("board-card-status", move || {
+                let _reg = reg;
+                while sub.recv().is_some() {
+                    s.sync_card_status();
                 }
             });
         }
