@@ -257,3 +257,135 @@ impl Window {
         Ok((co, keys))
     }
 }
+
+// ---- a board's settings: members, what reaches my agents, what they may do ----
+
+/// One member of a board, for the Boards dialog's Members and the Members
+/// receive preset's people picker (§8).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardMember {
+    pub person_id: String,
+    pub name: String,
+    pub owner: bool,
+    /// The person at this device.
+    pub me: bool,
+    /// Their devices certified on the board.
+    pub devices: i64,
+}
+
+/// A board opened in the Boards dialog (§8): its members, the receive
+/// preset that applies to other people's rows on it (§7.2) and the
+/// autonomy preset for this person's agents there (§7.3).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardSettings {
+    pub board_id: String,
+    pub members: Vec<BoardMember>,
+    /// closed, ask, members or open: what applies on this board.
+    pub receive: String,
+    /// Under members: the people whose rows wake agents.
+    pub people: Vec<String>,
+    /// The board has its own receive row (else it inherits).
+    pub receive_own: bool,
+    /// ask, trusted or autonomous: what applies on this board.
+    pub autonomy: String,
+    /// The board has its own autonomy row (else it inherits).
+    pub autonomy_own: bool,
+}
+
+impl Window {
+    /// BoardsService.Settings: one board's members and presets.
+    pub fn boards_settings(&self, board_id: &str) -> Result<BoardSettings, String> {
+        let info = self.core.board_info(board_id).map_err(text)?;
+        let me = self.core.person().id;
+        let mut members = Vec::new();
+        for p in &info.members {
+            if p.state != irori_identity::membership::MEMBER_ACTIVE {
+                continue;
+            }
+            let m = self
+                .core
+                .board_member(board_id, &p.person_id)
+                .map_err(text)?;
+            members.push(BoardMember {
+                person_id: p.person_id.clone(),
+                name: if m.name.is_empty() {
+                    p.name.clone()
+                } else {
+                    m.name
+                },
+                owner: p.role == irori_identity::membership::BOARD_OWNER,
+                me: p.person_id == me,
+                devices: m.devices.iter().filter(|d| !d.revoked).count() as i64,
+            });
+        }
+        members.sort_by_key(|m| !m.me);
+        let ib = self.core.inbox();
+        let r = ib.receive_setting(board_id, "");
+        Ok(BoardSettings {
+            board_id: board_id.into(),
+            members,
+            receive: if r.preset.is_empty() {
+                inbox::RECEIVE_DEFAULT.into()
+            } else {
+                r.preset
+            },
+            people: r.people,
+            receive_own: ib
+                .receive_settings()
+                .iter()
+                .any(|s| s.board_id == board_id && s.person_id.is_empty()),
+            autonomy: ib.autonomy(board_id),
+            autonomy_own: ib
+                .autonomy_settings()
+                .iter()
+                .any(|s| s.board_id == board_id),
+        })
+    }
+
+    /// BoardsService.SetReceive: the receive preset for other people's rows
+    /// on this board; "" goes back to what it inherits.
+    pub fn boards_set_receive(
+        &self,
+        board_id: &str,
+        preset: &str,
+        people: Vec<String>,
+    ) -> Result<BoardSettings, String> {
+        self.core.board_info(board_id).map_err(text)?;
+        self.core
+            .inbox()
+            .set_receive(
+                inbox::ReceiveSetting {
+                    board_id: board_id.into(),
+                    preset: preset.into(),
+                    people,
+                    ..Default::default()
+                },
+                &self.core.user_sender().key,
+            )
+            .map_err(|e| e.to_string())?;
+        self.boards_settings(board_id)
+    }
+
+    /// BoardsService.SetAutonomy: what this person's agents may do on this
+    /// board without asking; "" goes back to what it inherits.
+    pub fn boards_set_autonomy(
+        &self,
+        board_id: &str,
+        preset: &str,
+    ) -> Result<BoardSettings, String> {
+        self.core.board_info(board_id).map_err(text)?;
+        self.core
+            .inbox()
+            .set_autonomy(
+                inbox::AutonomySetting {
+                    board_id: board_id.into(),
+                    preset: preset.into(),
+                },
+                &self.core.user_sender().key,
+            )
+            .map_err(|e| e.to_string())?;
+        self.boards_settings(board_id)
+    }
+}

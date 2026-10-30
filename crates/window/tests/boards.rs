@@ -173,3 +173,41 @@ fn invites_say_they_arent_built_yet() {
     );
     assert!(!inv.status().open());
 }
+
+/// A board opened in the Boards dialog (§8): its one member is the person,
+/// as owner; the receive and autonomy presets start at their defaults
+/// (Open, Trusted), the person sets each for the board, and "" goes back.
+#[test]
+fn board_settings_from_the_window() {
+    let r = Rig::new();
+    let w = &r.w;
+    let mlg = w.boards_create("MLG", "mlg").unwrap();
+    let s = w.boards_settings(&mlg.board_id).unwrap();
+    assert!(
+        s.members.len() == 1 && s.members[0].me && s.members[0].owner && s.members[0].devices == 1,
+        "members {:?}",
+        s.members
+    );
+    assert!(
+        s.receive == "open" && !s.receive_own && s.autonomy == "trusted" && !s.autonomy_own,
+        "{s:?}"
+    );
+    let s = w
+        .boards_set_receive(&mlg.board_id, "members", vec!["person-b".into()])
+        .unwrap();
+    assert!(
+        s.receive == "members" && s.people == ["person-b"] && s.receive_own,
+        "{s:?}"
+    );
+    let s = w.boards_set_autonomy(&mlg.board_id, "ask").unwrap();
+    assert!(s.autonomy == "ask" && s.autonomy_own, "{s:?}");
+    assert!(w.boards_set_receive(&mlg.board_id, "loud", vec![]).is_err());
+    assert!(
+        w.boards_settings("0123456789abcdef0123456789abcdef")
+            .is_err()
+    );
+    let s = w.boards_set_receive(&mlg.board_id, "", vec![]).unwrap();
+    assert!(s.receive == "open" && !s.receive_own, "{s:?}");
+    let s = w.boards_set_autonomy(&mlg.board_id, "").unwrap();
+    assert!(s.autonomy == "trusted" && !s.autonomy_own, "{s:?}");
+}

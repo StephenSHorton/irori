@@ -7,12 +7,12 @@
 import { useEffect, useState } from "react"
 
 import { BoardsService, Events } from "./host"
-import { BoardSummary, InviteStatus, SharePreview } from "./models"
+import { BoardSettings, BoardSummary, InviteStatus, SharePreview } from "./models"
 import { sampleShare, sampleWithdraw, samplePreview } from "./cards"
 import { inWails } from "./irori"
 import { useLatest } from "./talk"
 
-export { BoardSummary, InviteStatus, SharePreview }
+export { BoardSettings, BoardSummary, InviteStatus, SharePreview }
 
 // EventBoardsChanged mirrors the Go constant in boards_service.go: a board
 // opened, went or was renamed.
@@ -40,6 +40,24 @@ export function inviteOpen(s: InviteStatus | null): boolean {
       s.state === InviteState.Joining)
   )
 }
+
+// Receive presets (design §7.2): what other people on a board may do to
+// your agents. Their comments always arrive at the next turn; the preset
+// decides wakes and rows to your bypass sessions. Open is the default.
+export const ReceivePresets = [
+  { value: "open", label: "Open", hint: "They can wake your agents, and their rows reach your bypass sessions." },
+  { value: "members", label: "Members wake", hint: "Only the people you pick wake your agents; the rest arrive at the next turn." },
+  { value: "ask", label: "Ask me", hint: "Wake requests wait for you to release them." },
+  { value: "closed", label: "Closed", hint: "Nothing wakes your agents; everything arrives at the next turn." },
+] as const
+
+// Autonomy presets (design §7.3): what your agents may do on a board
+// without asking. Trusted is the default.
+export const AutonomyPresets = [
+  { value: "ask", label: "Ask me", hint: "New cards on the board ask you first; your private cards aren't shared." },
+  { value: "trusted", label: "Trusted", hint: "They create cards on the board; sharing a private card asks you." },
+  { value: "autonomous", label: "Autonomous", hint: "They also share private cards (after scrub) and mirror all their leases." },
+] as const
 
 // MaxBoardName mirrors identity.MaxBoardName.
 export const MaxBoardName = 60
@@ -107,6 +125,8 @@ function sampleFind(id: string): BoardSummary {
 export function sampleBoard(id: string): BoardSummary | undefined {
   return boardsState().find((x) => x.boardId === id)
 }
+
+const sampleSettings: Record<string, BoardSettings> = {}
 
 // The sample invite: Invite waits for a guest that never comes; Join with
 // an invite shows the sample's words.
@@ -201,6 +221,38 @@ export const boards = {
     const back = sampleWithdraw(taskId)
     sampleMoved()
     return back
+  },
+
+  // settings is a board's members and its receive and autonomy presets.
+  async settings(boardId: string): Promise<BoardSettings> {
+    if (inWails()) return BoardsService.Settings(boardId)
+    const b = sampleFind(boardId)
+    return (sampleSettings[boardId] ??= BoardSettings({
+      boardId: b.boardId,
+      members: [{ personId: "sample-me", name: b.people[0] ?? "You", owner: true, me: true, devices: b.devices }],
+      receive: "open",
+      people: [],
+      receiveOwn: false,
+      autonomy: "trusted",
+      autonomyOwn: false,
+    }))
+  },
+
+  // setReceive sets what of other people's rows reaches your agents on the
+  // board; "" goes back to the default.
+  async setReceive(boardId: string, preset: string, people: string[]): Promise<BoardSettings> {
+    if (inWails()) return BoardsService.SetReceive(boardId, preset, people)
+    const s = await boards.settings(boardId)
+    Object.assign(s, { receive: preset || "open", people, receiveOwn: !!preset })
+    return BoardSettings(s)
+  },
+
+  // setAutonomy sets what your agents may do on the board without asking.
+  async setAutonomy(boardId: string, preset: string): Promise<BoardSettings> {
+    if (inWails()) return BoardsService.SetAutonomy(boardId, preset)
+    const s = await boards.settings(boardId)
+    Object.assign(s, { autonomy: preset || "trusted", autonomyOwn: !!preset })
+    return BoardSettings(s)
   },
 
   // invite opens a one-hour invite window on a board you own; the status

@@ -17,7 +17,7 @@ use tauri::State;
 use crate::Window;
 use crate::attachments::AttachmentInfo;
 use crate::board::{AnswerResult, AskRepo, CommentResult, TaskResult, UploadFile};
-use crate::boards::{BoardSummary, SharePreview};
+use crate::boards::{BoardSettings, BoardSummary, SharePreview};
 use crate::cards::{CardDetail, CardMessage, CardSummary, DonePage};
 use crate::devices::{DeviceView, HomeServerView, PairStatus, RelayView};
 use crate::events::{CaptureChange, Empty};
@@ -357,6 +357,29 @@ pub async fn boards_withdraw(w: W<'_>, task_id: String) -> R<String> {
     w.boards_withdraw(&task_id)
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_settings(w: W<'_>, board_id: String) -> R<BoardSettings> {
+    w.boards_settings(&board_id)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_set_receive(
+    w: W<'_>,
+    board_id: String,
+    preset: String,
+    people: Vec<String>,
+) -> R<BoardSettings> {
+    w.boards_set_receive(&board_id, &preset, people)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_set_autonomy(w: W<'_>, board_id: String, preset: String) -> R<BoardSettings> {
+    w.boards_set_autonomy(&board_id, &preset)
+}
+
 // ---- Invites ----------------------------------------------------------------------
 
 #[tauri::command]
@@ -638,6 +661,9 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_share_preview,
             boards_share,
             boards_withdraw,
+            boards_settings,
+            boards_set_receive,
+            boards_set_autonomy,
             boards_invite,
             boards_join_invite,
             boards_confirm_invite_words,

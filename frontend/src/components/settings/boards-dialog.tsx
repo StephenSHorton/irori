@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 
 import { ConfirmButton } from "@/components/common/confirm-button"
 import { Button } from "@/components/ui/button"
@@ -11,14 +11,17 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import {
+  AutonomyPresets,
   boards as actions,
   InviteState,
+  ReceivePresets,
   inviteOpen,
   MaxBoardName,
   suggestTag,
   useBoards,
   useInvite,
   validTag,
+  type BoardSettings,
   type BoardSummary,
   type InviteStatus,
 } from "@/lib/boards"
@@ -96,6 +99,7 @@ function BoardRow({
   onInvite: (s: InviteStatus) => void
 }) {
   const [renaming, setRenaming] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [name, setName] = useState(b.name)
   const [error, setError] = useState<string | null>(null)
   const rename = async (e: FormEvent) => {
@@ -196,6 +200,16 @@ function BoardRow({
         <span className="min-w-0 flex-1">
           Visible to: {b.people.map(plainLine).join(", ")}
         </span>
+        {b.ready && (
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-expanded={showSettings}
+            onClick={() => setShowSettings((v) => !v)}
+          >
+            {showSettings ? "Hide settings" : "Settings"}
+          </Button>
+        )}
         <ConfirmButton
           label="Forget here"
           confirmLabel="Forget on this device"
@@ -211,6 +225,7 @@ function BoardRow({
           }}
         />
       </span>
+      {showSettings && <BoardSettingsPanel boardId={b.boardId} />}
       {error && <span className="col-start-2 col-end-4 text-xs text-destructive">{error}</span>}
     </li>
   )
@@ -459,6 +474,132 @@ function ReadInviteWords({ s, peer }: { s: InviteStatus; peer: string }) {
       <p className="rounded-md bg-muted px-3 py-2 font-mono text-[15px] text-ink">
         {(s.words ?? []).join(" ")}
       </p>
+    </div>
+  )
+}
+
+// BoardSettingsPanel is a board opened (§8): its members, what reaches your
+// agents from other people on it (§7.2), and what your agents may do there
+// (§7.3). Only the person changes these, here.
+function BoardSettingsPanel({ boardId }: { boardId: string }) {
+  const [s, setS] = useState<BoardSettings | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    void actions
+      .settings(boardId)
+      .then((v) => live && setS(v))
+      .catch((err) => live && setError(errorText(err)))
+    return () => {
+      live = false
+    }
+  }, [boardId])
+  const save = async (f: () => Promise<BoardSettings>) => {
+    setError(null)
+    try {
+      setS(await f())
+    } catch (err) {
+      setError(errorText(err))
+    }
+  }
+  if (!s) {
+    return error ? (
+      <p className="col-start-2 col-end-4 text-xs text-destructive">{error}</p>
+    ) : null
+  }
+  const others = s.members.filter((m) => !m.me)
+  const receiveHint = ReceivePresets.find((p) => p.value === s.receive)?.hint
+  const autonomyHint = AutonomyPresets.find((p) => p.value === s.autonomy)?.hint
+  return (
+    <div className="col-start-2 col-end-4 grid gap-3 rounded-md border border-border p-3 text-xs">
+      <section className="grid gap-1" aria-label="Members">
+        <span className="font-semibold text-ink">Members</span>
+        <ul className="grid gap-0.5">
+          {s.members.map((m) => (
+            <li key={m.personId} className="flex items-center gap-1.5">
+              <span className="text-ink">{plainLine(m.name) || "someone"}</span>
+              {m.me && <span className="text-muted-foreground">(you)</span>}
+              {m.owner && (
+                <span className="rounded bg-muted px-1 text-[11px] text-muted-foreground">owner</span>
+              )}
+              <span className="ml-auto text-muted-foreground">
+                {m.devices === 1 ? "1 device" : `${m.devices} devices`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+      <section className="grid gap-1" aria-label="What reaches my agents">
+        <span className="font-semibold text-ink">What reaches my agents</span>
+        <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Receive preset">
+          {ReceivePresets.map((p) => (
+            <Button
+              key={p.value}
+              size="sm"
+              variant={s.receive === p.value ? "secondary" : "ghost"}
+              role="radio"
+              aria-checked={s.receive === p.value}
+              onClick={() =>
+                void save(() =>
+                  actions.setReceive(boardId, p.value, p.value === "members" ? s.people : [])
+                )
+              }
+            >
+              {p.label}
+            </Button>
+          ))}
+        </div>
+        <p className="text-muted-foreground">{receiveHint}</p>
+        {s.receive === "members" &&
+          (others.length > 0 ? (
+            <ul className="grid gap-0.5" aria-label="People who wake your agents">
+              {others.map((m) => {
+                const on = s.people.includes(m.personId)
+                return (
+                  <li key={m.personId}>
+                    <label className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() =>
+                          void save(() =>
+                            actions.setReceive(
+                              boardId,
+                              "members",
+                              on ? s.people.filter((p) => p !== m.personId) : [...s.people, m.personId]
+                            )
+                          )
+                        }
+                      />
+                      {plainLine(m.name) || "someone"}
+                    </label>
+                  </li>
+                )
+              })}
+            </ul>
+          ) : (
+            <p className="text-muted-foreground">Nobody else is on this board yet.</p>
+          ))}
+      </section>
+      <section className="grid gap-1" aria-label="What my agents may do">
+        <span className="font-semibold text-ink">What my agents may do</span>
+        <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Autonomy preset">
+          {AutonomyPresets.map((p) => (
+            <Button
+              key={p.value}
+              size="sm"
+              variant={s.autonomy === p.value ? "secondary" : "ghost"}
+              role="radio"
+              aria-checked={s.autonomy === p.value}
+              onClick={() => void save(() => actions.setAutonomy(boardId, p.value))}
+            >
+              {p.label}
+            </Button>
+          ))}
+        </div>
+        <p className="text-muted-foreground">{autonomyHint}</p>
+      </section>
+      {error && <p className="text-destructive">{error}</p>}
     </div>
   )
 }

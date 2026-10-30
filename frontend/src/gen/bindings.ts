@@ -49,6 +49,9 @@ export const commands = {
 	boardsSharePreview: (taskId: string, boardId: string) => __TAURI_INVOKE<SharePreview>("boards_share_preview", { taskId, boardId }),
 	boardsShare: (taskId: string, boardId: string, hash: string) => __TAURI_INVOKE<string>("boards_share", { taskId, boardId, hash }),
 	boardsWithdraw: (taskId: string) => __TAURI_INVOKE<string>("boards_withdraw", { taskId }),
+	boardsSettings: (boardId: string) => __TAURI_INVOKE<BoardSettings>("boards_settings", { boardId }),
+	boardsSetReceive: (boardId: string, preset: string, people: string[]) => __TAURI_INVOKE<BoardSettings>("boards_set_receive", { boardId, preset, people }),
+	boardsSetAutonomy: (boardId: string, preset: string) => __TAURI_INVOKE<BoardSettings>("boards_set_autonomy", { boardId, preset }),
 	boardsInvite: (boardId: string) => __TAURI_INVOKE<InviteStatus>("boards_invite", { boardId }),
 	boardsJoinInvite: (link: string) => __TAURI_INVOKE<InviteStatus>("boards_join_invite", { link }),
 	boardsConfirmInviteWords: (words: string) => __TAURI_INVOKE<InviteStatus>("boards_confirm_invite_words", { words }),
@@ -226,6 +229,40 @@ export type BlockerOption = {
 
 /**  coord.BlockerStatus. */
 export type BlockerStatus = "open" | "answered" | "replied";
+
+/**
+ *  One member of a board, for the Boards dialog's Members and the Members
+ *  receive preset's people picker (§8).
+ */
+export type BoardMember = {
+	personId: string,
+	name: string,
+	owner: boolean,
+	/**  The person at this device. */
+	me: boolean,
+	/**  Their devices certified on the board. */
+	devices: number,
+};
+
+/**
+ *  A board opened in the Boards dialog (§8): its members, the receive
+ *  preset that applies to other people's rows on it (§7.2) and the
+ *  autonomy preset for this person's agents there (§7.3).
+ */
+export type BoardSettings = {
+	boardId: string,
+	members: BoardMember[],
+	/**  closed, ask, members or open: what applies on this board. */
+	receive: string,
+	/**  Under members: the people whose rows wake agents. */
+	people: string[],
+	/**  The board has its own receive row (else it inherits). */
+	receiveOwn: boolean,
+	/**  ask, trusted or autonomous: what applies on this board. */
+	autonomy: string,
+	/**  The board has its own autonomy row (else it inherits). */
+	autonomyOwn: boolean,
+};
 
 /**  One shared board in the list (Go `core.BoardSummary`). */
 export type BoardSummary = {
