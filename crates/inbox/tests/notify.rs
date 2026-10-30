@@ -594,3 +594,58 @@ fn preview_and_upper() {
     assert_eq!(upper("éa"), "Éa");
     assert_eq!(upper(""), "");
 }
+
+#[test]
+fn watch_held_board_row_shows_the_other_person() {
+    // v0.5 §7.2: under Ask me a bridged wake request is held, and the
+    // person sees a card naming who asked, with Release and Dismiss.
+    let mut r = Rig::new();
+    r.h.ib
+        .set_receive(
+            inbox::ReceiveSetting {
+                preset: inbox::receive::ASK.into(),
+                ..inbox::ReceiveSetting::default()
+            },
+            USER,
+        )
+        .unwrap();
+    let ds =
+        r.h.ib
+            .bridge(&inbox::BridgeRow {
+                from: inbox::BoardFrom {
+                    board_id: "b0".into(),
+                    tag: "mlg".into(),
+                    person_id: "pBlake".into(),
+                    card_id: "cBlake".into(),
+                    row: "devB/1".into(),
+                    kind: inbox::row_kind::COMMENT.into(),
+                    wake: true,
+                },
+                name: "blake's agent mlg-lead".into(),
+                to: vec![KEY_B.into()],
+                text: "can you take the loader?".into(),
+                ref_: "task:T1".into(),
+                hop: 1,
+                attachments: vec![],
+            })
+            .unwrap();
+    assert_eq!(ds[0].hold, hold::MEMBER_WAKE);
+    r.pump();
+    let key = inbox::board_sender_key("b0", "cBlake", "pBlake");
+    let id = held_id(&key);
+    let c = r.sink.card(&id);
+    assert!(
+        c.title.contains("blake's agent mlg-lead")
+            && c.body
+                .contains("your receive setting for that board asks you first")
+            && c.body.contains("take the loader"),
+        "{c:?}"
+    );
+    let act = r.sink.press(&id, "Release");
+    r.press(&act);
+    let d = r.h.state(&ds[0].id);
+    assert_eq!(
+        (d.state.as_str(), d.mode.as_str()),
+        (st::QUEUED, mode::WAKE)
+    );
+}

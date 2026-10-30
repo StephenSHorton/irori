@@ -26,7 +26,7 @@ use std::sync::{Arc, RwLock};
 use aho_corasick::{AhoCorasick, MatchKind};
 
 pub use skipfile::skip_file;
-pub use strict::{PATH_MARKER, strict, strict_dropped};
+pub use strict::{PATH_MARKER, board_reasons, strict, strict_dropped};
 
 /// Removes secrets from text. Safe for concurrent use; [`Scrubber::default`]
 /// is Go's zero `Scrubber` (patterns, no exact values).

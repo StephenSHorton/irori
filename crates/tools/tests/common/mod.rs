@@ -123,6 +123,10 @@ pub struct TestBackend {
     pub cp: OnceLock<capture::Capture>,
     /// Unset: attachments are off (Go's attachingBackend sets it).
     pub attacher: OnceLock<Arc<dyn tools::Attacher>>,
+    /// Shared boards (stage 2 tests); unset: private only.
+    pub router: OnceLock<Arc<dyn tools::TaskRouter>>,
+    pub shared: OnceLock<Arc<dyn tools::SharedBoards>>,
+    pub book: OnceLock<Arc<coord::approvals::Book>>,
 }
 
 impl Backend for TestBackend {
@@ -146,6 +150,15 @@ impl Backend for TestBackend {
     }
     fn attacher(&self) -> Option<&dyn tools::Attacher> {
         self.attacher.get().map(|a| a.as_ref())
+    }
+    fn router(&self) -> Option<&dyn tools::TaskRouter> {
+        self.router.get().map(|a| a.as_ref())
+    }
+    fn shared_boards(&self) -> Option<&dyn tools::SharedBoards> {
+        self.shared.get().map(|a| a.as_ref())
+    }
+    fn asks(&self) -> Option<&Arc<coord::approvals::Book>> {
+        self.book.get()
     }
 }
 
@@ -202,6 +215,15 @@ pub fn new_harness() -> Harness {
 }
 
 pub fn new_harness_with(notifier: Option<Arc<dyn tools::Notifier>>) -> Harness {
+    new_harness_setup(notifier, |_, _| {})
+}
+
+/// A harness whose backend `setup` fills in (router, shared boards, a
+/// book) before the tools are built over it.
+pub fn new_harness_setup(
+    notifier: Option<Arc<dyn tools::Notifier>>,
+    setup: impl FnOnce(&Arc<TestBackend>, &Clock),
+) -> Harness {
     let clk = Clock(Arc::new(Mutex::new(
         GoTime::parse_rfc3339("2026-10-26T09:00:00Z").unwrap(),
     )));
@@ -288,7 +310,11 @@ pub fn new_harness_with(notifier: Option<Arc<dyn tools::Notifier>>) -> Harness {
         notifier,
         cp: OnceLock::new(),
         attacher: OnceLock::new(),
+        router: OnceLock::new(),
+        shared: OnceLock::new(),
+        book: OnceLock::new(),
     });
+    setup(&b, &clk);
     let set = Set::new(b.clone(), Some(now));
     Harness {
         _dir: dir,

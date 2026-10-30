@@ -1135,3 +1135,60 @@ fn board_roster_only_the_sessions_device_says_gone() {
     drop(st);
     r.core.close().unwrap();
 }
+
+/// v0.5 §7.1, §7.3 on the real Core: an agent puts a card on a shared
+/// board by tag, the result says who sees it, the board tool lists the
+/// board, and the person's own rows never come back through the bridge.
+#[test]
+fn board_create_and_the_bridge_on_the_core() {
+    let r = Rig::new();
+    let c = &r.core;
+    let b1 = c.create_board("MLG farming", "mlg").unwrap();
+    let caller = |key: &str| tools::Caller {
+        sender: inbox::Sender::new(key, "alpha", "claude"),
+        path: String::new(),
+    };
+    let call = |key: &str, name: &str, args: serde_json::Value| {
+        c.tools()
+            .call(&caller(key), name, &serde_json::to_vec(&args).unwrap())
+            .unwrap()
+    };
+    let out = call(
+        &r.key_a,
+        "board_create",
+        serde_json::json!({"title": "Tune the loader", "board": "mlg", "assign_to": r.key_b}),
+    );
+    assert!(
+        out.contains("Created mlg#1") && out.contains("Visible to: "),
+        "{out}"
+    );
+    let co = c.board_coord(&b1).unwrap();
+    assert_eq!(co.list_tasks(&coord::TaskFilter::default()).len(), 1);
+    let out = call(&r.key_a, "board", serde_json::json!({}));
+    assert!(
+        out.contains("Shared boards you may post on") && out.contains("- mlg "),
+        "{out}"
+    );
+    // beta, assigned, hears alpha's comment as a notice, never as a bridged
+    // message from a board: sender.
+    let out = call(
+        &r.key_a,
+        "board_comment",
+        serde_json::json!({"task_id": "mlg#1", "text": "profiled it"}),
+    );
+    assert!(
+        out.ends_with(&format!(
+            "Visible to: {}",
+            c.board_list()[0].people.join(", ")
+        )),
+        "{out}"
+    );
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let ds = c.inbox().for_agent(&r.key_b, true, 0);
+    assert!(!ds.is_empty(), "beta heard nothing");
+    assert!(
+        ds.iter().all(|d| !d.message.from.key.starts_with("board:")),
+        "own rows came back through the bridge: {ds:?}"
+    );
+    r.core.close().unwrap();
+}

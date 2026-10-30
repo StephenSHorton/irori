@@ -56,6 +56,7 @@ use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 
 pub mod boards;
 mod boards_own;
+mod bridge;
 
 use boards::Boards;
 
@@ -274,6 +275,9 @@ impl tools::Backend for ToolsView {
         Some(self)
     }
     fn board_viewer(&self) -> Option<&dyn tools::BoardViewer> {
+        Some(self)
+    }
+    fn shared_boards(&self) -> Option<&dyn tools::SharedBoards> {
         Some(self)
     }
 }

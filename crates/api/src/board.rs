@@ -36,10 +36,40 @@ pub struct SearchResult {
     pub next: i64,
 }
 
+/// The `GET /v1/boards/settings` body: the person's receive and autonomy
+/// rows for shared boards (v0.5 §7.2-7.3), and what applies without one.
+/// Read-only: only the app changes them, never an agent through this API.
+#[derive(Serialize)]
+pub struct BoardSettings {
+    pub receive: Vec<inbox::ReceiveSetting>,
+    pub autonomy: Vec<inbox::AutonomySetting>,
+    #[serde(rename = "receiveDefault")]
+    pub receive_default: &'static str,
+    #[serde(rename = "autonomyDefault")]
+    pub autonomy_default: &'static str,
+}
+
+fn board_settings(h: &Handler) -> Resp {
+    let Some(ib) = h.s.b.inbox() else {
+        return http::error(503, "messaging is not running");
+    };
+    http::json(
+        200,
+        &BoardSettings {
+            receive: ib.receive_settings(),
+            autonomy: ib.autonomy_settings(),
+            receive_default: inbox::RECEIVE_DEFAULT,
+            autonomy_default: inbox::AUTONOMY_DEFAULT,
+        },
+    )
+}
+
 pub(crate) fn route(h: &Handler) -> Option<Resp> {
     let p = h.r.path.as_str();
-    let ours = matches!(p, "/v1/board" | "/v1/search" | "/v1/show" | "/v1/overview")
-        || p.starts_with("/v1/tasks/");
+    let ours = matches!(
+        p,
+        "/v1/board" | "/v1/search" | "/v1/show" | "/v1/overview" | "/v1/boards/settings"
+    ) || p.starts_with("/v1/tasks/");
     if !ours {
         return None;
     }
@@ -52,6 +82,7 @@ pub(crate) fn route(h: &Handler) -> Option<Resp> {
         "/v1/search" => search_route(h, &viewer),
         "/v1/show" => show(h, &viewer),
         "/v1/overview" => overview(h, &viewer),
+        "/v1/boards/settings" => board_settings(h),
         _ => task(h, &p["/v1/tasks/".len()..]),
     })
 }

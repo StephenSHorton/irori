@@ -48,6 +48,12 @@ export const holdReasons: Record<string, string> = {
     "It is too many hops down a chain of agent messages.",
   [HoldReason.HoldUnowned]: "No agent in that repo can take it yet.",
   [HoldReason.HoldPaused]: "Wakes are paused.",
+  [HoldReason.HoldMemberWake]:
+    "Another person asked to wake your agent, and your receive setting for that board asks you first.",
+  [HoldReason.HoldCrossPerson]:
+    "It comes from another person on a shared board, and your receive setting for that board asks you first.",
+  [HoldReason.HoldMemberLease]:
+    "Another person asks your agent to give up a lease.",
 }
 
 // holdText is why d was (or is) held, in plain words.

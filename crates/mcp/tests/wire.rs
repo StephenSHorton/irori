@@ -151,7 +151,7 @@ fn join_stream_push_and_dedupe() {
 fn not_running_then_old_core_fallback() {
     let w = Wire::start(quick(None));
     w.init();
-    assert_eq!(w.srv.registered().len(), 39);
+    assert_eq!(w.srv.registered().len(), 40);
     let (out, err) = w.call(1, "irori_board", "{}", None);
     assert_eq!((out.as_str(), err), (mcp::NOT_RUNNING_TEXT, false));
     // A v0.1 Core with no tool list: the built-in copy.

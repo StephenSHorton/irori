@@ -400,7 +400,7 @@ pub(crate) fn ask_resolved(s: &Inner, a: &coord::approvals::Ask) {
 
 /// Tells the agent that asked what the person did, at its next turn, from
 /// Irori itself.
-fn notify_answer(ib: &inbox::Inbox, to: &inbox::Sender, id: &str, text: &str) {
+pub(crate) fn notify_answer(ib: &inbox::Inbox, to: &inbox::Sender, id: &str, text: &str) {
     let r = ib.send_with(
         &inbox::system_sender(),
         &inbox::Address::new(inbox::addr::AGENT, &to.key),

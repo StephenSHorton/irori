@@ -29,6 +29,9 @@ pub(crate) fn send(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Err(e) => return e,
     };
     let (to, repo) = (trim_opt(&a.opt_str("to")), trim_opt(&a.opt_str("repo")));
+    if let Some(e) = crate::shared::send_to_board(&to) {
+        return e;
+    }
     let address = if !to.is_empty() && !repo.is_empty() {
         return err_text("give exactly one of to (an agent) or repo (a repoKey), not both.");
     } else if is_pr_target(&to) {
@@ -126,6 +129,9 @@ pub(crate) fn reply(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
     if trim(a.str("text")).is_empty() {
         return err_text("give the reply text.");
+    }
+    if let Some(out) = crate::shared::reply_on_card(s, c, id, a.str("text")) {
+        return out;
     }
     let ib = s.b.inbox();
     let (m, d) = match ib.reply(&c.sender, id, a.str("text")) {

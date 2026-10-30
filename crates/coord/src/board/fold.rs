@@ -145,6 +145,7 @@ pub struct Fold {
     pub(crate) dev_person: Option<StrFn>,
     pub(crate) tag_fn: Option<Arc<dyn Fn() -> String + Send + Sync>>,
     pub(crate) board_owner: Option<KeyFn>,
+    pub(crate) hop_of: Option<super::HopFn>,
     pub(crate) ignored: usize,
     pub(crate) ignored_by: BTreeMap<String, usize>,
     pub(crate) aside: Vec<Event>,
@@ -242,6 +243,7 @@ impl Fold {
             dev_person: o.device_person,
             tag_fn: o.tag,
             board_owner: o.board_owner,
+            hop_of: o.hop_of,
             ignored: 0,
             ignored_by: BTreeMap::new(),
             aside: Vec::new(),
@@ -1093,7 +1095,20 @@ impl Fold {
                 "coord: a read-only fold (no store)",
             ));
         };
-        let ev = st.append(actor, kind, payload)?;
+        let hop = match &self.hop_of {
+            Some(f) if self.on_board && super::carries_hop(kind) => f(actor),
+            _ => 0,
+        };
+        let ev = if hop > 0 {
+            let mut v = serde_json::to_value(payload)
+                .map_err(|e| Error::raw(ErrorKind::Store, format!("coord: {e}")))?;
+            if let Some(o) = v.as_object_mut() {
+                o.insert("hop".into(), hop.into());
+            }
+            st.append(actor, kind, &v)?
+        } else {
+            st.append(actor, kind, payload)?
+        };
         self.apply(&ev);
         Ok(())
     }

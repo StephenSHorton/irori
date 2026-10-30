@@ -54,6 +54,7 @@ pub mod notice;
 pub mod notify;
 mod observe;
 mod room;
+mod shared;
 mod specs;
 
 use std::collections::HashMap;
@@ -65,6 +66,10 @@ pub use attachments::Attacher;
 pub use format::{clip, clip_mcp, one_line};
 pub use notify::{Action, Note, Notifier};
 pub use observe::redact;
+pub use shared::{
+    BoardInfo, CHOICE_CREATE, CHOICE_NO, CHOICE_REVIEW, CHOICE_SHARE, CHOICE_WITHDRAW,
+    REQUEST_WAIT, SharedBoards,
+};
 pub use specs::{
     ASK_INSTRUCTIONS, BOARD_INSTRUCTIONS, INSTRUCTIONS, Spec, compact_value, fallback_specs,
     parse_specs,
@@ -157,6 +162,10 @@ pub trait Backend: Send + Sync {
     fn board_viewer(&self) -> Option<&dyn BoardViewer> {
         None
     }
+    /// Shared boards with other people (v0.5 §7.3); `None`: private only.
+    fn shared_boards(&self) -> Option<&dyn SharedBoards> {
+        None
+    }
 }
 
 /// The clock the tools read.
@@ -176,13 +185,15 @@ pub(crate) struct Inner {
     handlers: HashMap<&'static str, Handler>,
     needs_caller: HashMap<String, bool>,
     pub(crate) notify_state: Mutex<notify::NotifyState>,
+    /// Board requests waiting on the person, by ask id.
+    pub(crate) board_requests: Mutex<shared::Requests>,
 }
 
 /// The read-only tools that read as the caller.
 const CALLER_READS: [&str; 6] = ["inbox", "timeline", "overview", "search", "show", "board"];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 39] = [
+    let list: [(&'static str, Handler); 40] = [
         ("agents", observe::agents),
         ("events", observe::events),
         ("send", messages::send),
@@ -210,6 +221,7 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("board_recommend", board::board_recommend),
         ("board_watch", board::board_watch),
         ("board_unwatch", board::board_unwatch),
+        ("board_share", shared::board_share),
         ("ask_claim", room::ask_claim),
         ("ask_close", room::ask_close),
         ("commits", explore::commits),
@@ -255,13 +267,16 @@ impl Set {
             handlers,
             needs_caller,
             notify_state: Mutex::new(notify::NotifyState::default()),
+            board_requests: Mutex::new(shared::Requests::default()),
         });
         // The notify tool's asks are rows when the backend keeps them (v0.4
         // §6.7): the answer comes back from whichever device the person used.
         if let Some(book) = inner.b.asks() {
             let weak: Weak<Inner> = Arc::downgrade(&inner);
             book.on_resolved(move |a| {
-                if let Some(x) = weak.upgrade() {
+                if let Some(x) = weak.upgrade()
+                    && !shared::request_resolved(&x, a)
+                {
                     notify::ask_resolved(&x, a);
                 }
             });
@@ -313,7 +328,8 @@ impl Set {
 Claude Code: the Irori mod attaches your session; reload it if this persists.",
             ));
         }
-        Ok(clip(&h(x, c, args), MAX_RESULT))
+        let out = x.around_board(name, args, || h(x, c, args));
+        Ok(clip(&out, MAX_RESULT))
     }
 }
 
