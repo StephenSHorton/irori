@@ -7,6 +7,7 @@
 //! | `board:changed` | `{}` | coalesced, 250 ms |
 //! | `capture:changed` | [`CaptureChange`] | coalesced, 300 ms |
 //! | `boards:changed` | `{}` | a shared board opened, went or was renamed |
+//! | `boards:invite` | `InviteStatus` | every change of the open invite |
 //! | `devices:pairing` | [`PairStatus`] | pairing change (M7) |
 //! | `settings:launch-at-login` | bool | after every toggle attempt |
 //! | `app:open` | [`Target`] | a card's Open (M6 toast) |
@@ -103,6 +104,15 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
         w.seams.pairing.watch(Some(Arc::new(move |st| {
             if let Some(w) = ww.upgrade() {
                 w.emit(EVENT_DEVICES_PAIRING, &st);
+            }
+        })));
+    }
+    {
+        // Every invite change -> boards:invite.
+        let ww = Arc::downgrade(&w);
+        w.seams.invites.watch(Some(Arc::new(move |st| {
+            if let Some(w) = ww.upgrade() {
+                w.emit(crate::invites::EVENT_INVITE_CHANGED, &st);
             }
         })));
     }

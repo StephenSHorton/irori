@@ -50,6 +50,7 @@ export type Holding = B.Holding
 export type HomeServerView = B.HomeServerView
 export type Identity = B.Identity
 export type InboxCounts = B.InboxCounts
+export type InviteStatus = B.InviteStatus
 export type Link = B.Link
 export type LinkKind = B.LinkKind
 export type Message = B.Message
@@ -273,6 +274,11 @@ export function Identity(p: Partial<B.Identity> = {}): B.Identity {
 /** InboxCounts with Go's zero values for every field left out. */
 export function InboxCounts(p: Partial<B.InboxCounts> = {}): B.InboxCounts {
   return { "unread": 0, "held": 0, "paused": false, ...p } as B.InboxCounts
+}
+
+/** InviteStatus with Go's zero values for every field left out. */
+export function InviteStatus(p: Partial<B.InviteStatus> = {}): B.InviteStatus {
+  return { "role": "", "state": "", "boardId": "", "boardName": "", "peerName": "", "peerFingerprint": "", "myFingerprint": "", "misses": 0, ...p } as B.InviteStatus
 }
 
 /** Link with Go's zero values for every field left out. */

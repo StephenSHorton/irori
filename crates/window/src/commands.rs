@@ -22,6 +22,7 @@ use crate::cards::{CardDetail, CardMessage, CardSummary, DonePage};
 use crate::devices::{DeviceView, HomeServerView, PairStatus, RelayView};
 use crate::events::{CaptureChange, Empty};
 use crate::inbox::InboxCounts;
+use crate::invites::InviteStatus;
 use crate::roster::{GoneSession, RosterChange};
 use crate::settings::{NotifyOptions, Target};
 use crate::ts::{self, Typed};
@@ -356,6 +357,39 @@ pub async fn boards_withdraw(w: W<'_>, task_id: String) -> R<String> {
     w.boards_withdraw(&task_id)
 }
 
+// ---- Invites ----------------------------------------------------------------------
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_invite(w: W<'_>, board_id: String) -> R<InviteStatus> {
+    blocking(&w, move |w| w.seams.invites.invite(&board_id)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_join_invite(w: W<'_>, link: String) -> R<InviteStatus> {
+    blocking(&w, move |w| w.seams.invites.join(&link)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_confirm_invite_words(w: W<'_>, words: String) -> R<InviteStatus> {
+    blocking(&w, move |w| w.seams.invites.confirm_words(&words)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_invite_status(w: W<'_>) -> R<InviteStatus> {
+    Ok(w.seams.invites.status())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_cancel_invite(w: W<'_>) -> R<()> {
+    w.seams.invites.cancel();
+    Ok(())
+}
+
 // ---- DevicesService --------------------------------------------------------------
 
 #[tauri::command]
@@ -604,6 +638,11 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_share_preview,
             boards_share,
             boards_withdraw,
+            boards_invite,
+            boards_join_invite,
+            boards_confirm_invite_words,
+            boards_invite_status,
+            boards_cancel_invite,
             devices_devices,
             devices_colors,
             devices_set_device_color,

@@ -49,6 +49,11 @@ export const commands = {
 	boardsSharePreview: (taskId: string, boardId: string) => __TAURI_INVOKE<SharePreview>("boards_share_preview", { taskId, boardId }),
 	boardsShare: (taskId: string, boardId: string, hash: string) => __TAURI_INVOKE<string>("boards_share", { taskId, boardId, hash }),
 	boardsWithdraw: (taskId: string) => __TAURI_INVOKE<string>("boards_withdraw", { taskId }),
+	boardsInvite: (boardId: string) => __TAURI_INVOKE<InviteStatus>("boards_invite", { boardId }),
+	boardsJoinInvite: (link: string) => __TAURI_INVOKE<InviteStatus>("boards_join_invite", { link }),
+	boardsConfirmInviteWords: (words: string) => __TAURI_INVOKE<InviteStatus>("boards_confirm_invite_words", { words }),
+	boardsInviteStatus: () => __TAURI_INVOKE<InviteStatus>("boards_invite_status"),
+	boardsCancelInvite: () => __TAURI_INVOKE<null>("boards_cancel_invite"),
 	devicesDevices: () => __TAURI_INVOKE<DeviceView[]>("devices_devices"),
 	devicesColors: () => __TAURI_INVOKE<string[]>("devices_colors"),
 	devicesSetDeviceColor: (deviceId: string, color: string) => __TAURI_INVOKE<null>("devices_set_device_color", { deviceId, color }),
@@ -278,7 +283,7 @@ export type CardBlocker = {
 	thread: CardThreadItem[],
 };
 
-/**  The shared board a card lives on (v0.5 §8). Always absent until M9. */
+/**  The shared board a card lives on (v0.5 §8). */
 export type CardBoard = {
 	id: string,
 	name: string,
@@ -597,6 +602,31 @@ export type InboxCounts = {
 	unread: number,
 	held: number,
 	paused: boolean,
+};
+
+/**
+ *  What either side's screen shows (the invite flow's `Status`, with the
+ *  side, the link and its expiry). `state` "" is no invite open.
+ */
+export type InviteStatus = {
+	/**  "host" (inviting), "guest" (joining) or "". */
+	role: string,
+	/**  waiting, words, joining, done, failed, or "". */
+	state: string,
+	boardId: string,
+	boardName: string,
+	/**  Host: the `irori-invite:` link to send. */
+	link?: string,
+	/**  Host: when the invite window closes (RFC 3339). */
+	expiresAt?: string,
+	/**  Guest: the five words to read out. */
+	words?: string[],
+	peerName: string,
+	peerFingerprint: string,
+	myFingerprint: string,
+	/**  Wrong words typed so far (two end the invite). */
+	misses: number,
+	error?: string,
 };
 
 /**  coord.Link. */

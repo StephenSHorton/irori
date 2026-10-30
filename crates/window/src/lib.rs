@@ -50,6 +50,7 @@ pub mod commands;
 pub mod devices;
 pub mod events;
 pub mod inbox;
+pub mod invites;
 pub mod roster;
 pub mod seams;
 pub mod settings;
@@ -165,6 +166,7 @@ impl Window {
         Seams {
             mesh: Arc::new(devices::CoreMesh::new(core.clone())),
             pairing: Arc::new(devices::CorePairing::new(core.clone())),
+            invites: Arc::new(invites::NoInvites),
             notifier: Arc::new(settings::NotifierSeam::headless(core.data_dir())),
             login: Arc::new(settings::NoLoginItem),
             updater: Arc::new(update::NoUpdater),

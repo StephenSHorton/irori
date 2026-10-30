@@ -4,19 +4,42 @@
 // here, never from src/gen. In a plain browser it runs on two sample
 // boards, and sharing moves a sample card onto one.
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 
 import { BoardsService, Events } from "./host"
-import { BoardSummary, SharePreview } from "./models"
+import { BoardSummary, InviteStatus, SharePreview } from "./models"
 import { sampleShare, sampleWithdraw, samplePreview } from "./cards"
 import { inWails } from "./irori"
 import { useLatest } from "./talk"
 
-export { BoardSummary, SharePreview }
+export { BoardSummary, InviteStatus, SharePreview }
 
 // EventBoardsChanged mirrors the Go constant in boards_service.go: a board
 // opened, went or was renamed.
 export const EventBoardsChanged = "boards:changed"
+
+// EventInviteChanged mirrors crates/window invites.rs: every change of the
+// open invite.
+export const EventInviteChanged = "boards:invite"
+
+// InviteState mirrors the invite flow's states; "" is no invite open.
+export const InviteState = {
+  Waiting: "waiting",
+  Words: "words",
+  Joining: "joining",
+  Done: "done",
+  Failed: "failed",
+} as const
+
+// inviteOpen reports whether an invite is still in progress.
+export function inviteOpen(s: InviteStatus | null): boolean {
+  return (
+    !!s &&
+    (s.state === InviteState.Waiting ||
+      s.state === InviteState.Words ||
+      s.state === InviteState.Joining)
+  )
+}
 
 // MaxBoardName mirrors identity.MaxBoardName.
 export const MaxBoardName = 60
@@ -83,6 +106,17 @@ function sampleFind(id: string): BoardSummary {
 // sampleBoard is a sample board by id, for cards.ts.
 export function sampleBoard(id: string): BoardSummary | undefined {
   return boardsState().find((x) => x.boardId === id)
+}
+
+// The sample invite: Invite waits for a guest that never comes; Join with
+// an invite shows the sample's words.
+let sampleInvite: InviteStatus = InviteStatus({})
+const inviteListeners = new Set<(s: InviteStatus) => void>()
+
+function setSampleInvite(s: InviteStatus): InviteStatus {
+  sampleInvite = s
+  for (const fn of inviteListeners) fn(s)
+  return s
 }
 
 // ---- actions ----------------------------------------------------------------
@@ -168,6 +202,59 @@ export const boards = {
     sampleMoved()
     return back
   },
+
+  // invite opens a one-hour invite window on a board you own; the status
+  // carries the irori-invite: link to send.
+  async invite(boardId: string): Promise<InviteStatus> {
+    if (inWails()) return BoardsService.Invite(boardId)
+    if (inviteOpen(sampleInvite)) throw new Error("an invite is already open")
+    const b = sampleFind(boardId)
+    return setSampleInvite(
+      InviteStatus({
+        role: "host",
+        state: InviteState.Waiting,
+        boardId: b.boardId,
+        boardName: b.name,
+        link: "irori-invite:SAMPLE0SAMPLE0SAMPLE0SAMPLE0",
+        expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+        myFingerprint: "3f2a 91c0 7be4 d018",
+      })
+    )
+  },
+
+  // joinInvite takes a pasted irori-invite: link.
+  async joinInvite(link: string): Promise<InviteStatus> {
+    if (inWails()) return BoardsService.JoinInvite(link)
+    if (!link.trim().toLowerCase().startsWith("irori-invite:"))
+      throw new Error("that isn't an irori-invite: link")
+    return setSampleInvite(
+      InviteStatus({
+        role: "guest",
+        state: InviteState.Words,
+        boardName: "Sample board",
+        words: ["sample", "words", "read", "them", "aloud"],
+        peerName: "Sam",
+        peerFingerprint: "3f2a 91c0 7be4 d018",
+        myFingerprint: "a7d1 0c55 e29b 4f63",
+      })
+    )
+  },
+
+  // confirmInviteWords is the inviter typing the words the invitee reads.
+  async confirmInviteWords(words: string): Promise<InviteStatus> {
+    if (inWails()) return BoardsService.ConfirmInviteWords(words)
+    throw new Error("no invite is waiting for words")
+  },
+
+  async inviteStatus(): Promise<InviteStatus> {
+    if (inWails()) return BoardsService.InviteStatus()
+    return sampleInvite
+  },
+
+  async cancelInvite(): Promise<void> {
+    if (inWails()) return BoardsService.CancelInvite()
+    setSampleInvite(InviteStatus({}))
+  },
 }
 
 // ---- hooks ------------------------------------------------------------------
@@ -191,4 +278,36 @@ export function useBoards(): {
     return Events.On(EventBoardsChanged, () => void reload())
   }, [reload])
   return { boards: value, error, reload }
+}
+
+// useInvite follows the open (or last) invite while active. An invite that
+// had already ended when the dialog opened isn't shown again.
+export function useInvite(active: boolean): {
+  invite: InviteStatus | null
+  setInvite: (s: InviteStatus | null) => void
+} {
+  const [invite, setInvite] = useState<InviteStatus | null>(null)
+  useEffect(() => {
+    if (!active) return
+    let live = true
+    void boards
+      .inviteStatus()
+      .then((s) => live && setInvite(inviteOpen(s) ? s : null))
+      .catch(() => live && setInvite(null))
+    const on = (s: InviteStatus) => live && setInvite(s)
+    let off: () => void
+    if (inWails()) {
+      off = Events.On<InviteStatus>(EventInviteChanged, (ev) =>
+        on(InviteStatus(ev.data ?? {}))
+      )
+    } else {
+      inviteListeners.add(on)
+      off = () => inviteListeners.delete(on)
+    }
+    return () => {
+      live = false
+      off()
+    }
+  }, [active])
+  return { invite, setInvite }
 }

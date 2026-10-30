@@ -154,3 +154,22 @@ fn comment_on_a_shared_card_tells_its_agent() {
         res.answers
     );
 }
+
+/// Without #44's flow in this build, Invite and Join say so, and no
+/// invite is open.
+#[test]
+fn invites_say_they_arent_built_yet() {
+    let r = Rig::new();
+    let w = &r.w;
+    let mlg = w.boards_create("MLG", "mlg").unwrap();
+    let inv = &w.seams.invites;
+    assert_eq!(
+        inv.invite(&mlg.board_id).unwrap_err(),
+        irori_window::invites::NO_INVITES
+    );
+    assert_eq!(
+        inv.join("irori-invite:X").unwrap_err(),
+        irori_window::invites::NO_INVITES
+    );
+    assert!(!inv.status().open());
+}

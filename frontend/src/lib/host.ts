@@ -138,6 +138,11 @@ export const BoardsService = {
   SharePreview: (taskId: string, boardId: string) => call(commands.boardsSharePreview(taskId, boardId)),
   Share: (taskId: string, boardId: string, hash: string) => call(commands.boardsShare(taskId, boardId, hash)),
   Withdraw: (taskId: string) => call(commands.boardsWithdraw(taskId)),
+  Invite: (boardId: string) => call(commands.boardsInvite(boardId)),
+  JoinInvite: (link: string) => call(commands.boardsJoinInvite(link)),
+  ConfirmInviteWords: (words: string) => call(commands.boardsConfirmInviteWords(words)),
+  InviteStatus: () => call(commands.boardsInviteStatus()),
+  CancelInvite: () => done(commands.boardsCancelInvite()),
 }
 
 export const DevicesService = {
