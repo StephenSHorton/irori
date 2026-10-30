@@ -77,8 +77,7 @@ fn side(dev: &str, person: &str, owners: &Owners) -> Side {
         tag: Some(Arc::new(|| "mlg".to_string())),
         board_owner: Some(Arc::new(move |p: &str, at: Option<&RowPos>| {
             o2.lock().unwrap().iter().any(|(who, from, until)| {
-                who == p
-                    && at.map_or(*until == u64::MAX, |at| *from < at.hlc && at.hlc < *until)
+                who == p && at.map_or(*until == u64::MAX, |at| *from < at.hlc && at.hlc < *until)
             })
         })),
         ..Options::default()
@@ -217,4 +216,218 @@ fn cancel_reads_the_owners_at_the_rows_time() {
     sync(&a, &b);
     let e = b.c.withdraw(P2, &three.id, "").unwrap_err();
     assert!(e.is(ErrorKind::NotAllowed), "{e}");
+}
+
+// ---- mirrored leases (§5.4) ------------------------------------------------
+
+const SRC: &str = "path:remote:github.com/a/b:src/**";
+const SRC_MAIN: &str = "path:remote:github.com/a/b:src/main.rs";
+
+/// A shared card in REPO_A on p1's side that both people's agents work:
+/// c1 claims it, c2 joins it.
+fn shared_card(a: &Side, b: &Side) -> Task {
+    let t =
+        a.c.create_task(
+            P1,
+            NewTask {
+                shared: true,
+                ..nt("shared work", REPO_A)
+            },
+        )
+        .unwrap();
+    a.c.claim_task(CARD1, &t.id).unwrap();
+    sync(a, b);
+    b.c.join(CARD2, &t.id, CARD2).unwrap();
+    sync(a, b);
+    t
+}
+
+fn lease_on(s: &Side, resource: &str) -> Option<Lease> {
+    s.c.leases().into_iter().find(|l| l.resource == resource)
+}
+
+#[test]
+fn a_lease_mirrors_only_through_a_shared_card_in_its_repo() {
+    let (a, b, _) = two_people();
+    let t = shared_card(&a, &b);
+    let bare = a.c.create_task(P1, nt("no repo", "")).unwrap();
+    a.c.claim_task(CARD1, &bare.id).unwrap();
+    assert_eq!(a.c.mirror_tasks(CARD1, SRC, false), vec![t.id.clone()]);
+    assert_eq!(b.c.mirror_tasks(CARD2, SRC, false), vec![t.id.clone()]);
+    assert!(a.c.mirror_tasks(CARD1, "port:5173", false).is_empty());
+    assert!(
+        a.c.mirror_tasks(CARD1, "path:remote:github.com/x/y:src/**", false)
+            .is_empty()
+    );
+    assert!(a.c.mirror_tasks("agent:c9", SRC, false).is_empty());
+    assert_eq!(a.c.mirror_tasks("agent:c9", SRC, true), vec![t.id.clone()]);
+    assert_eq!(
+        a.c.mirror_acquire(CARD1, "port:5173", Duration::ZERO, false)
+            .unwrap(),
+        None,
+        "a port lease isn't in any repo"
+    );
+    let l =
+        a.c.mirror_acquire(CARD1, SRC, Duration::ZERO, false)
+            .unwrap()
+            .unwrap();
+    assert_eq!(l.holder, CARD1);
+    sync(&a, &b);
+    assert_eq!(
+        lease_on(&b, SRC).unwrap().holder,
+        CARD1,
+        "p2 sees p1's lease"
+    );
+    // It blocks p2's agent, and the refusal shows on both sides.
+    let e =
+        b.c.mirror_acquire(CARD2, SRC_MAIN, Duration::ZERO, false)
+            .unwrap_err();
+    assert!(e.is(ErrorKind::Held), "{e}");
+    sync(&a, &b);
+    for s in [&a, &b] {
+        assert!(
+            s.c.refusals()
+                .iter()
+                .any(|r| r.by == CARD2 && r.held_by == CARD1),
+            "{:?}",
+            s.c.refusals()
+        );
+    }
+    // Its release mirrors too.
+    assert!(a.c.mirror_release(CARD1, SRC).unwrap());
+    assert!(!a.c.mirror_release(CARD1, SRC).unwrap(), "released twice");
+    sync(&a, &b);
+    assert!(lease_on(&b, SRC).is_none());
+    // A card that ended mirrors nothing.
+    a.c.set_task_state(CARD1, &t.id, COMPLETED, "done").unwrap();
+    assert!(a.c.mirror_tasks(CARD1, SRC, false).is_empty());
+}
+
+#[test]
+fn partitioned_lease_grabs_keep_the_lower_devices() {
+    let (a, b, _) = two_people();
+    shared_card(&a, &b);
+    // Apart, both take overlapping leases.
+    a.c.mirror_acquire(CARD1, SRC, Duration::ZERO, false)
+        .unwrap()
+        .unwrap();
+    b.c.mirror_acquire(CARD2, SRC_MAIN, Duration::ZERO, false)
+        .unwrap()
+        .unwrap();
+    // Not yet overlapping by name, so meet them on one resource too.
+    a.c.mirror_acquire(CARD1, SRC_MAIN, Duration::ZERO, false)
+        .unwrap()
+        .unwrap();
+    sync(&a, &b);
+    for s in [&a, &b] {
+        let l = lease_on(s, SRC_MAIN).unwrap();
+        assert_eq!(l.holder, CARD1, "dev-a < dev-b: p1's lease stands");
+    }
+    // p2's Core refuses its own losing lease and tells its agent.
+    b.c.tick();
+    sync(&a, &b);
+    for s in [&a, &b] {
+        assert!(
+            s.c.refusals()
+                .iter()
+                .any(|r| r.by == CARD2 && r.held_by == CARD1 && r.conflict),
+            "{:?}",
+            s.c.refusals()
+        );
+    }
+    a.c.tick();
+    sync(&a, &b);
+    assert!(
+        !a.c.refusals().iter().any(|r| r.by == CARD1),
+        "p1's Core refuses nothing of its winning lease"
+    );
+}
+
+#[test]
+fn nobody_steals_another_persons_lease() {
+    let (a, b, _) = two_people();
+    let t = shared_card(&a, &b);
+    let l =
+        a.c.mirror_acquire(CARD1, SRC, Duration::ZERO, false)
+            .unwrap()
+            .unwrap();
+    sync(&a, &b);
+    for e in [
+        b.c.steal_lease(P2, SRC).unwrap_err(),
+        b.c.acquire(CARD2, SRC_MAIN, Duration::ZERO, true)
+            .unwrap_err(),
+        b.c.release(P2, SRC).unwrap_err(),
+    ] {
+        assert!(e.is(ErrorKind::NotAllowed), "{e}");
+        assert!(e.to_string().contains("release request"), "{e}");
+    }
+    // Forged rows from p2's devices: a steal and a release of p1's lease.
+    let stolen = Event {
+        device_id: "dev-b2".into(),
+        seq: 1,
+        hlc: hlc::Timestamp(hlc_at(plus(fixed_now(), mins(1)))),
+        actor: P2.into(),
+        kind: kinds::LEASE_STOLEN.into(),
+        payload: gocompat::json::marshal(&coord::rows::LeaseStolenRow {
+            resource: SRC.into(),
+            holder: CARD1.into(),
+            acquired_at: l.acquired_at,
+            by: P2.into(),
+            at: plus(fixed_now(), mins(1)),
+        })
+        .unwrap(),
+        sig: Vec::new(),
+    };
+    let released = Event {
+        device_id: "dev-b2".into(),
+        seq: 2,
+        hlc: hlc::Timestamp(hlc_at(plus(fixed_now(), mins(2)))),
+        actor: CARD2.into(),
+        kind: kinds::LEASE_RELEASED.into(),
+        payload: gocompat::json::marshal(&coord::rows::LeaseReleasedRow {
+            resource: SRC.into(),
+            holder: CARD1.into(),
+            reason: "released".into(),
+            by: CARD2.into(),
+            at: plus(fixed_now(), mins(2)),
+        })
+        .unwrap(),
+        sig: Vec::new(),
+    };
+    for s in [&a, &b] {
+        let before = s.c.ignored_rows();
+        for ev in [&stolen, &released] {
+            s.st.insert(ev).unwrap();
+            s.c.fold_live(std::slice::from_ref(ev));
+        }
+        assert_eq!(
+            lease_on(s, SRC).unwrap().holder,
+            CARD1,
+            "a forged row ended it"
+        );
+        assert_eq!(s.c.ignored_rows(), before + 2);
+    }
+    // p2 asks instead: a comment on the shared card, which p1's agent hears.
+    let (cm, n) =
+        b.c.request_release(P2, SRC, "I need src for the fix")
+            .unwrap();
+    assert_eq!(cm.task_id, t.id);
+    assert!(cm.text.starts_with(RELEASE_REQUEST), "{}", cm.text);
+    assert!(
+        cm.text.contains(CARD1) && cm.text.contains(SRC),
+        "{}",
+        cm.text
+    );
+    assert!(n.to.contains(&CARD1.to_string()), "{n:?}");
+    sync(&a, &b);
+    assert!(
+        a.c.comments(&t.id).unwrap().iter().any(|c| c.id == cm.id),
+        "the request reached p1's side"
+    );
+    let e = a.c.request_release(P1, SRC, "").unwrap_err();
+    assert!(e.is(ErrorKind::Held), "one's own lease: {e}");
+    // p1 steals its own agent's lease: that counts everywhere.
+    a.c.steal_lease(P1, SRC).unwrap();
+    sync(&a, &b);
+    assert!(lease_on(&b, SRC).is_none());
 }

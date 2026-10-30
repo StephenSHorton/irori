@@ -136,7 +136,8 @@ fn schema() -> &'static Schema {
                 ]))),
             ),
             ("stolenFrom", s()),
-            ("conflict", s()),
+            // A lease's holder it conflicts with, or lease.refused's bool.
+            ("conflict", Schema::Any),
             (
                 "outcome",
                 Schema::Ptr(Box::new(Schema::object(vec![("task", s())]))),

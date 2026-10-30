@@ -452,7 +452,11 @@ pub fn fold_membership(
     let note_owner = |people: &BTreeMap<String, BoardPerson>,
                       changes: &mut Vec<(String, RowAt, bool)>,
                       d: &MRow| {
-        let p = if d.kind == kinds::BOARD_CREATED { &d.by } else { &d.who };
+        let p = if d.kind == kinds::BOARD_CREATED {
+            &d.by
+        } else {
+            &d.who
+        };
         if p.is_empty() {
             return;
         }

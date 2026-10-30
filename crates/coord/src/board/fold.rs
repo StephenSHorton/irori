@@ -50,6 +50,9 @@ pub fn followed(kind: &str) -> bool {
 pub(crate) struct LeaseRec {
     pub lease: Lease,
     pub res: Resource,
+    /// The device that wrote its lease.acquired: on a board, the holder's
+    /// mirroring Core, which a `agent:` holder key doesn't name.
+    pub dev: String,
 }
 
 #[derive(Debug, Clone)]
@@ -698,7 +701,11 @@ impl Fold {
                 {
                     return;
                 }
-                let mut rec = LeaseRec { lease: p, res };
+                let mut rec = LeaseRec {
+                    lease: p,
+                    res,
+                    dev: ev.device_id.clone(),
+                };
                 let name = rec.res.name.clone();
                 if let Some(l) = self.conflicts.get(&name)
                     && l.lease.holder == rec.lease.holder
@@ -815,7 +822,11 @@ impl Fold {
             return;
         }
         if p.state == CANCELED
-            && !self.may_cancel(&self.tasks[&p.task_id], &ev.device_id, Some(&RowPos::of(ev)))
+            && !self.may_cancel(
+                &self.tasks[&p.task_id],
+                &ev.device_id,
+                Some(&RowPos::of(ev)),
+            )
         {
             self.ignore(&ev.device_id);
             return;
@@ -1055,7 +1066,7 @@ impl Fold {
                 continue;
             }
             let l = self.held.remove(&name).expect("listed");
-            if self.local_key(&l.lease.holder)
+            if self.lease_local(&l)
                 && (!self.replaying
                     || gotime::since(now, &l.lease.until) < LAPSED_WITHIN.as_nanos() as i128)
             {
@@ -1184,14 +1195,36 @@ impl Fold {
 
     /// Whether l still holds at now: by its Until on this device; another
     /// device's always, unless that device was removed.
+    /// On a board another person's lease also ends at its Until (plus
+    /// the clock skew), so a member who went away can't hold a resource
+    /// past it.
     pub(crate) fn live(&self, l: &LeaseRec, now: &GoTime) -> bool {
-        if self.local_key(&l.lease.holder) {
+        if self.lease_local(l) {
             return gotime::after(&l.lease.until, now);
+        }
+        if self.on_board && !gotime::after(&gotime::add(&l.lease.until, CLOCK_SKEW), now) {
+            return false;
         }
         match &self.revoked {
             None => true,
-            Some(r) => !r(owner::device_of(&l.lease.holder)),
+            Some(r) => !r(self.lease_dev(l)),
         }
+    }
+
+    /// The device a lease lives on: its holder's on the private board, the
+    /// device that mirrored it on a shared one.
+    pub(crate) fn lease_dev<'a>(&self, l: &'a LeaseRec) -> &'a str {
+        if self.on_board {
+            return &l.dev;
+        }
+        owner::device_of(&l.lease.holder)
+    }
+
+    /// Whether this device keeps the lease: refuses it when it loses,
+    /// releases it when it lapses.
+    pub(crate) fn lease_local(&self, l: &LeaseRec) -> bool {
+        let dev = self.lease_dev(l);
+        dev.is_empty() || dev == self.dev
     }
 
     /// Folds an acquire that meets a live lease on the same resource from
@@ -1201,9 +1234,7 @@ impl Fold {
         let Some(e) = self.held.get(&name) else {
             return false;
         };
-        if e.lease.holder == rec.lease.holder
-            || owner::device_of(&e.lease.holder) == owner::device_of(&rec.lease.holder)
-        {
+        if e.lease.holder == rec.lease.holder || self.lease_dev(e) == self.lease_dev(rec) {
             return false;
         }
         if stolen.iter().any(|v| v.holder == e.lease.holder) {
@@ -1225,7 +1256,9 @@ impl Fold {
             return false;
         }
         let mut e = self.held.remove(&name).expect("checked");
-        let rec_wins = owner::device_of(&rec.lease.holder) < owner::device_of(&e.lease.holder);
+        // The lower device id's lease stands, across people too (v0.4
+        // §6.4), so a clock can't win it.
+        let rec_wins = self.lease_dev(rec) < self.lease_dev(&e);
         let (mut winner, mut loser) = if rec_wins {
             (rec.clone(), e.clone())
         } else {
@@ -1254,7 +1287,10 @@ impl Fold {
         if p.resource.is_empty() || p.holder.is_empty() {
             return;
         }
-        if !self.person_row(ev, &p.by) {
+        // Nobody steals another person's lease (§5.4).
+        if !self.person_row(ev, &p.by)
+            || self.on_board && self.person_of(&p.by) != self.person_of(&p.holder)
+        {
             self.ignore(&ev.device_id);
             return;
         }
@@ -1309,12 +1345,21 @@ impl Fold {
 
     // ---- shared boards (boardlog.go) ----
 
-    /// A row the person wrote as themselves.
+    /// A row the person wrote as themselves. On a board that is any
+    /// member's `person:` row from a device of that member, so one
+    /// person's rows count on the other's devices too.
     pub(crate) fn person_row(&self, ev: &Event, by: &str) -> bool {
         if self.on_board {
-            return ev.actor == by
-                && by.starts_with(kinds::PERSON_ACTOR_PREFIX)
-                && self.is_owner(by);
+            if ev.actor != by || !by.starts_with(kinds::PERSON_ACTOR_PREFIX) {
+                return false;
+            }
+            return match (&self.key_person, &self.dev_person) {
+                (Some(kp), Some(dp)) => {
+                    let p = kp(by);
+                    !p.is_empty() && p == dp(&ev.device_id)
+                }
+                _ => self.is_owner(by),
+            };
         }
         ev.actor == "user" && self.is_owner(by)
     }
@@ -1467,7 +1512,7 @@ impl Fold {
         }
         self.held
             .values()
-            .filter(|l| self.local_key(&l.lease.holder))
+            .filter(|l| self.lease_local(l))
             .map(|l| l.lease.until)
             .min_by(gotime::cmp)
     }

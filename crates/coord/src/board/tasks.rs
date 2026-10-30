@@ -507,6 +507,13 @@ impl Fold {
             })
             .collect();
         victims.sort_by(|a, b| a.0.cmp(&b.0));
+        if steal
+            && let Some(l) = self.held.values().find(|l| {
+                victims.iter().any(|v| v.0 == l.lease.resource) && self.others_lease(&holder, l)
+            })
+        {
+            return Err(self.not_yours(&l.lease));
+        }
         if !victims.is_empty() && !steal {
             let v = &victims[0];
             let e = held(format!(
@@ -574,10 +581,15 @@ impl Fold {
         let Some(l) = self.held.get(&name).filter(|l| self.live(l, &now)).cloned() else {
             return Err(not_found(format!("no lease on {name}")));
         };
+        if l.lease.holder != by && self.others_lease(&by, &l) {
+            return Err(self.not_yours(&l.lease));
+        }
         if l.lease.holder != by && !self.is_owner(&by) {
             return Err(held(format!("{name} is leased by {}", l.lease.holder)));
         }
-        if !self.local_key(&l.lease.holder) {
+        // On a board the holder's person releases from any of their
+        // devices (§2.4); privately another device's lease is stolen.
+        if !self.on_board && !self.local_key(&l.lease.holder) {
             return self.steal(&by, &l.lease);
         }
         self.write(
@@ -616,7 +628,7 @@ impl Fold {
             .values()
             .filter(|l| {
                 gotime::after(&l.lease.until, now)
-                    && self.local_key(&l.lease.holder)
+                    && self.lease_local(l)
                     && self.gone(&l.lease.holder, now)
             })
             .map(|l| l.lease.clone())
@@ -662,6 +674,9 @@ impl Fold {
         let Some(l) = self.held.get(&name).filter(|l| self.live(l, &now)).cloned() else {
             return Err(not_found(format!("no lease on {name}")));
         };
+        if self.others_lease(by, &l) {
+            return Err(self.not_yours(&l.lease));
+        }
         self.steal(by, &l.lease)
     }
 
@@ -669,14 +684,14 @@ impl Fold {
     /// conflict, record its own leases' expiry, then the ask duties.
     pub(crate) fn holder_duties(&mut self) {
         let now = self.stamp();
-        let lost: Vec<(String, Lease)> = self
+        let lost: Vec<(String, Lease, bool)> = self
             .conflicts
             .iter()
-            .map(|(n, l)| (n.clone(), l.lease.clone()))
+            .map(|(n, l)| (n.clone(), l.lease.clone(), self.lease_local(l)))
             .collect();
-        for (name, l) in lost {
+        for (name, l, local) in lost {
             let key = stolen_key(&name, &l.holder, &l.acquired_at);
-            if !self.local_key(&l.holder) || self.refused.contains(&key) {
+            if !local || self.refused.contains(&key) {
                 continue;
             }
             let held_by = self

@@ -20,6 +20,7 @@ mod comments;
 mod error;
 mod fold;
 mod links;
+mod mirror;
 mod resource;
 pub mod rows;
 mod short;
@@ -48,6 +49,7 @@ pub use fold::{
     REASON_RELEASED, REASON_STOLEN, SUB_BUFFER, followed,
 };
 pub use links::{MAX_LINKS, link_label, parse_link, pr_link};
+pub use mirror::RELEASE_REQUEST;
 pub use resource::{
     RESOURCE_NAMED, RESOURCE_PATH, RESOURCE_PORT, Resource, check_repo_key, normalize_glob,
     normalize_resource, overlaps, parse_resource,
@@ -425,6 +427,40 @@ impl Coord {
     }
     pub fn leases(&self) -> Vec<Lease> {
         self.lock().leases()
+    }
+    /// The shared cards on this board that make card's lease on resource
+    /// mirror here (v0.5 §5.4); `all` is the Autonomous preset's "every
+    /// lease in shared tasks' repos".
+    pub fn mirror_tasks(&self, card: &str, resource: &str, all: bool) -> Vec<String> {
+        self.lock().mirror_tasks(card, resource, all)
+    }
+    /// Mirrors card's lease into this board when a shared card makes it
+    /// mirror (`None`: nothing does). Another person's live lease refuses
+    /// it, and the private lease must be refused with it.
+    pub fn mirror_acquire(
+        &self,
+        card: &str,
+        resource: &str,
+        ttl: Duration,
+        all: bool,
+    ) -> Result<Option<Lease>> {
+        self.lock().mirror_acquire(card, resource, ttl, all)
+    }
+    /// Mirrors the release of card's lease; false when none is here.
+    pub fn mirror_release(&self, card: &str, resource: &str) -> Result<bool> {
+        self.lock().mirror_release(card, resource)
+    }
+    /// Asks the holder of another person's lease to release it, on the
+    /// shared card it mirrors through, in place of a steal.
+    pub fn request_release(
+        &self,
+        by: &str,
+        resource: &str,
+        why: &str,
+    ) -> Result<(Comment, Notice)> {
+        let mut f = self.lock();
+        let now = f.stamp();
+        f.request_release(by, resource, why, &now)
     }
     /// Active refusals, newest first.
     pub fn refusals(&self) -> Vec<Refusal> {
