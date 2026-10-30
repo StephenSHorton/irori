@@ -59,6 +59,8 @@ pub mod boards;
 mod boards_members;
 mod boards_own;
 mod bridge;
+mod mirror;
+pub use mirror::BoardReviewer;
 pub mod invites;
 
 use boards::Boards;
@@ -319,6 +321,26 @@ impl tools::TaskRouter for ToolsView {
     }
     fn task_ref(&self, r: &str) -> Result<String, coord::Error> {
         self.0.task_ref(r)
+    }
+    fn mirror_acquire(
+        &self,
+        key: &str,
+        resource: &str,
+        ttl: std::time::Duration,
+        steal: bool,
+    ) -> Result<Vec<String>, coord::Error> {
+        self.0.mirror_acquire(key, resource, ttl, steal)
+    }
+    fn mirror_release(&self, key: &str, resource: &str) {
+        self.0.mirror_release(key, resource)
+    }
+    fn request_release(
+        &self,
+        by: &str,
+        resource: &str,
+        why: &str,
+    ) -> Result<(String, coord::Comment, Notice), coord::Error> {
+        self.0.request_release(by, resource, why)
     }
 }
 
@@ -874,8 +896,14 @@ impl Core {
             let mut hc = home::Config::new(dir.clone(), ident.clone(), chain.clone(), st.clone());
             let node = mesh.node.clone();
             let pr = pairing.pairer.clone();
-            // Go core.go:290: another device, or an open pairing window.
-            hc.wanted = Some(Arc::new(move || pr.status().open() || node.has_peer()));
+            // Go core.go:290: another device, or an open pairing window;
+            // stage 2 (B1): or a shared board with another person on it,
+            // whose members this server relays for.
+            let held = board_set.clone();
+            hc.wanted = Some(Arc::new(move || {
+                pr.status().open() || node.has_peer() || held.shared_with_others()
+            }));
+            hc.board_admit = Some(mesh.net.board_members().relay_admit());
             let m = mesh.clone();
             hc.on_relay = Some(Arc::new(move |up| m.set_local_relay(up)));
             hc.guests = Some(pairing.guests.clone());
@@ -891,6 +919,7 @@ impl Core {
         });
         if let Some(h) = &home {
             let _ = home_cell.set(h.clone());
+            mesh.set_home(h.clone());
         }
 
         let token = lockfile::new_token().map_err(|e| fail(&st, other("", e)))?;
@@ -1245,6 +1274,20 @@ impl Core {
                     } else if let Err(e) = s.capture.follow_decision(&ev) {
                         logf(format_args!("decisions: {e}"));
                     }
+                }
+            });
+        }
+
+        // This device's agents' cards on shared boards follow their
+        // sessions' status (v0.5 §2.4); only the hosting device writes it.
+        {
+            let sub = Arc::new(s.presence.subscribe());
+            let reg = self.on_stop(&sub, |s| s.cancel());
+            let s = s.clone();
+            self.spawn("board-card-status", move || {
+                let _reg = reg;
+                while sub.recv().is_some() {
+                    s.sync_card_status();
                 }
             });
         }

@@ -429,6 +429,17 @@ pub async fn boards_set_autonomy(w: W<'_>, board_id: String, preset: String) -> 
     w.boards_set_autonomy(&board_id, &preset)
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_set_reviewer(
+    w: W<'_>,
+    board_id: String,
+    agent: String,
+    repo: String,
+) -> R<BoardSettings> {
+    w.boards_set_reviewer(&board_id, &agent, &repo)
+}
+
 // ---- Invites ----------------------------------------------------------------------
 
 #[tauri::command]
@@ -718,6 +729,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_settings,
             boards_set_receive,
             boards_set_autonomy,
+            boards_set_reviewer,
             boards_invite,
             boards_join_invite,
             boards_confirm_invite_words,

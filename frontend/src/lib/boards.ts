@@ -286,6 +286,11 @@ export const boards = {
       autonomyOwn: false,
       leaving: false,
       conflicts: [],
+      reviewers: [],
+      agents: [
+        { agent: "sample-dev/alpha", name: "alpha", repo: "remote:github.com/sample-org/example-app" },
+        { agent: "sample-dev/beta", name: "beta", repo: "" },
+      ],
     }))
   },
 
@@ -303,6 +308,18 @@ export const boards = {
     if (inWails()) return BoardsService.SetAutonomy(boardId, preset)
     const s = await boards.settings(boardId)
     Object.assign(s, { autonomy: preset || "trusted", autonomyOwn: !!preset })
+    return BoardSettings(s)
+  },
+
+  // setReviewer dedicates one of your agents as your reviewer on the board
+  // (design §10), for one repo or ("") the whole board; agent "" takes the
+  // reviewer off.
+  async setReviewer(boardId: string, agent: string, repo: string): Promise<BoardSettings> {
+    if (inWails()) return BoardsService.SetReviewer(boardId, agent, repo)
+    const s = await boards.settings(boardId)
+    const rest = s.reviewers.filter((r) => r.repo !== repo)
+    const a = s.agents.find((x) => x.agent === agent)
+    s.reviewers = a ? [...rest, { repo, agent, name: a.name }] : rest
     return BoardSettings(s)
   },
 

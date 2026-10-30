@@ -1636,7 +1636,7 @@ pub(crate) fn leases(s: &Inner, _: &Caller, raw: &[u8]) -> String {
     b
 }
 
-const RELEASE_ARGS: &[(&str, Ty)] = &[("resource", Ty::Str)];
+const RELEASE_ARGS: &[(&str, Ty)] = &[("resource", Ty::Str), ("reason", Ty::Str)];
 
 pub(crate) fn release(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let a = match decode(raw, RELEASE_ARGS) {
@@ -1652,9 +1652,31 @@ pub(crate) fn release(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         rt.mirror_release(&c.sender.key, res);
     }
     if let Err(e) = r {
+        // Not yours: another person's lease on a shared board is never
+        // stolen, so its holder is asked to release it instead (§5.4).
+        if let Some(out) = release_request(s, c, res, a.str("reason")) {
+            return out;
+        }
         return map_err(e);
     }
     format!("Released {}.", one_line(res, MAX_FIELD_RUNES))
+}
+
+/// A release request for another person's lease on a shared board, `None`
+/// when no board holds one on res that isn't the caller's own person's.
+fn release_request(s: &Inner, c: &Caller, res: &str, why: &str) -> Option<String> {
+    let rt = s.b.router()?;
+    let (_, cm, _) = rt.request_release(&c.sender.key, res, why).ok()?;
+    let mut out = format!(
+        "{} isn't yours: another person's agent holds it on a shared board, and nobody steals another person's lease. Asked its holder to release it on {} (comment:{}); they hear at their next turn, and the lease is yours to take once they release it or it expires.",
+        one_line(res, MAX_FIELD_RUNES),
+        s.short_of(&cm.task_id),
+        cm.id
+    );
+    if let Some(b) = s.b.shared_boards().and_then(|sb| sb.board_of(&cm.task_id)) {
+        out += &format!("\n{}", b.visible_to());
+    }
+    Some(out)
 }
 
 // --- board_split ---

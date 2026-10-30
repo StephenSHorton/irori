@@ -51,7 +51,14 @@ pub(crate) struct Mesh {
     /// Direct addresses heard for other members' devices (an invite's
     /// ticket, #44), by device id.
     board_hints: Mutex<std::collections::BTreeMap<String, Vec<std::net::SocketAddr>>>,
+    /// This device's home server, once the Core made it (B1: it writes
+    /// `board.server` into each board).
+    home: std::sync::OnceLock<home::Server>,
 }
+
+/// How often the address book is fed again with nothing else happening:
+/// a home server's public address moves without a row here.
+const REFEED_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// What [`Mesh::open_board`] runs a shared board's mesh on: the board's
 /// log, its verifier (the log's store Verifier) and its secrets.
@@ -137,6 +144,7 @@ impl Mesh {
             hubs: Mutex::new(std::collections::BTreeMap::new()),
             boards: Mutex::new(std::collections::BTreeMap::new()),
             board_hints: Mutex::new(std::collections::BTreeMap::new()),
+            home: std::sync::OnceLock::new(),
         })
     }
 
@@ -153,6 +161,76 @@ impl Mesh {
         });
         self.net.pair_lan().set_relay(bridge);
         self.refeed.notify_one();
+    }
+
+    /// This device's home server (set once, after the Core makes it).
+    pub(crate) fn set_home(&self, h: home::Server) {
+        let _ = self.home.set(h);
+        self.refeed.notify_one();
+    }
+
+    /// B1 (v0.5 §6.2): a server device writes its `board.server` row into
+    /// each board it is a counted member device of, only when it changes.
+    fn write_board_servers(&self, boards: &[Arc<BoardMesh>]) {
+        let Some(h) = self.home.get() else { return };
+        let Ok(row) = h.board_server() else {
+            return; // never served here: not a server device
+        };
+        let me = self.net.self_id();
+        for m in boards {
+            if m.verifier().cert(me).is_none() || m.verifier().cut(me).is_some() {
+                continue;
+            }
+            if let Err(e) = mesh::boardmesh::write_board_server(m.log(), &row) {
+                crate::log(&format!("board {}: board.server: {e}", m.board_id()));
+            }
+        }
+    }
+
+    /// Each board's `board.server` relays (B1), by person: the servers'
+    /// public addresses, pinned to the key the board certifies for each.
+    fn board_relays(
+        m: &BoardMesh,
+    ) -> std::collections::BTreeMap<String, Vec<irori_net::endpoint::RelaySpec>> {
+        let mut out: std::collections::BTreeMap<String, Vec<_>> = Default::default();
+        let Ok(servers) = mesh::boardmesh::board_servers(m.log(), m.verifier()) else {
+            return out;
+        };
+        for s in servers {
+            let Some(p) = s.public.as_ref().filter(|p| !p.ip.is_empty() && p.tcp > 0) else {
+                continue;
+            };
+            let host = if p.ip.contains(':') && !p.ip.starts_with('[') {
+                format!("[{}]:{}", p.ip, p.tcp)
+            } else {
+                format!("{}:{}", p.ip, p.tcp)
+            };
+            let Some((url, port)) = irori_net::book::relay_of(&host) else {
+                continue;
+            };
+            let (Some(cert), Some(person)) = (
+                m.verifier().cert(&s.device_id),
+                m.verifier().person_of(&s.device_id),
+            ) else {
+                continue;
+            };
+            let Some(key) = hex::decode(&cert.device_pub)
+                .ok()
+                .and_then(|b| <[u8; 32]>::try_from(b).ok())
+                .and_then(|b| iroh::EndpointId::from_bytes(&b).ok())
+            else {
+                continue;
+            };
+            let quic_port = u16::try_from(p.udp).ok().filter(|u| *u > 0).unwrap_or(port);
+            out.entry(person)
+                .or_default()
+                .push(irori_net::endpoint::RelaySpec {
+                    url,
+                    quic_port,
+                    server_pub: key,
+                });
+        }
+        out
     }
 
     /// Remove device (Go `Mesh().Revoke`).
@@ -179,9 +257,20 @@ impl Mesh {
         let own = local.map(|port| irori_net::book::own_relay(port, self.own_key));
         feed(&self.net, &list, &self.chain, own).await;
         self.net.recheck();
-        for m in self.board_list() {
-            self.feed_board(&m);
+        let boards = self.board_list();
+        self.write_board_servers(&boards);
+        let mut relays = Vec::new();
+        for m in &boards {
+            let by_person = Self::board_relays(m);
+            self.feed_board(m, &by_person);
             m.recheck();
+            relays.push(irori_net::board::BoardRelays {
+                board_id: m.board_id().to_string(),
+                servers: by_person.into_values().flatten().collect(),
+            });
+        }
+        if let Err(e) = self.net.set_board_servers(relays).await {
+            crate::log(&format!("board servers: {}", e.0));
         }
         // A dial tried before the book had the device failed with no
         // address: the Node dials again now that it has one.
@@ -227,7 +316,11 @@ impl Mesh {
     /// certified key. Addresses come from the lookups (the private book's
     /// for own devices, the LAN lookup), the hints of
     /// [`Mesh::board_hint`] and, with B1, `board.server` relays.
-    fn feed_board(&self, m: &BoardMesh) {
+    fn feed_board(
+        &self,
+        m: &BoardMesh,
+        relays: &std::collections::BTreeMap<String, Vec<irori_net::endpoint::RelaySpec>>,
+    ) {
         let hints = self
             .board_hints
             .lock()
@@ -240,7 +333,12 @@ impl Mesh {
                 let b: [u8; 32] = hex::decode(&d.device_pub).ok()?.try_into().ok()?;
                 Some(irori_net::transport::PeerAddr {
                     id: iroh::EndpointId::from_bytes(&b).ok()?,
-                    relay: None,
+                    // B1: the device's person's home server, from its
+                    // board.server row.
+                    relay: relays
+                        .get(&d.person_id)
+                        .and_then(|r| r.first())
+                        .map(|r| r.url.clone()),
                     direct: hints.get(&d.device_id).cloned().unwrap_or_default(),
                     device_id: d.device_id,
                 })
@@ -296,7 +394,8 @@ impl Mesh {
             g.insert(p.board_id.clone(), m.clone());
         }
         self.net.board_members().add(&p.board_id, verifier);
-        self.feed_board(&m);
+        self.feed_board(&m, &Self::board_relays(&m));
+        self.refeed.notify_one(); // board.server rows and the relays
         if let Err(e) = m.start().await {
             self.close_board(&p.board_id, irori_meshseam::reason::LEAVING);
             return Err(e.to_string());
@@ -370,6 +469,7 @@ impl Mesh {
                     tokio::select! {
                         _ = c.cancelled() => return,
                         _ = m.refeed.notified() => {}
+                        _ = tokio::time::sleep(REFEED_EVERY) => {}
                     }
                 }
             })

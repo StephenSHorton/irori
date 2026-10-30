@@ -938,6 +938,37 @@
     ]
   },
   {
+    "name": "board_review",
+    "description": "Ask another person's agent to review a pull request a shared card links (board_link it first). Name their agent in to, or leave to out and each other person's dedicated reviewer for the card's repo is asked. Your own person's agents aren't asked to approve: send them a message instead. They review with their own gh; Irori never posts reviews or merges, and the review's state shows in prs. The Irori Board is a shared scratch pad for live coordination between running agents and people: what you are working on now, what blocks you, and hand-offs. Keep cards short. Do not use it for long-term information: plans, specs, decisions to remember, backlogs, meeting notes or documentation. Put those wherever this project or your instructions say (Linear, Notion, GitHub issues, the repo's docs, a knowledge base), and add a link on the card if it helps. When a card's work is done, mark it done; don't keep it as a record. Post a card for work others should see (the person's window shows only cards); if it fits another agent's work better, ask that agent to put it up. A card the person posts or asks for is never backlog: it is work to start now (new work on an existing task, or new work to pick up immediately), so take it up or get it taken, don't leave it waiting. When you take a card, give it steps (board_create's steps, or board_steps) and keep them ticked with board_step: they are how the person sees how far along it is. When you need the person (a decision, an access, a permission), raise one board_block per question, never several asks in one note or one blocker: give each enough context that someone who has never been there can decide, give options when there are real choices, and mark your recommendation. When the person has to do something somewhere (a website, a setting, a command), give the full URL (https://…) so they can click it, and the exact command in backticks (`hf auth login`) so they can copy it; put the page in links and any file they need in attach. Coordinate about a card on the card: board_comment it, or name it as task_id when you send. Use direct messages only for things not about a card. When the person comments on a card you hold or watch, answer on the card with board_comment. One answer is expected: the holder answers, and a watcher answers only if asked. When a card grows past one agent's piece of work, or you see related cards that are one piece of work, make it a parent: board_split it into subtasks (adopt the related cards), so other agents can take subtasks in parallel. Keep one level: split a subtask into more siblings, not deeper. An ask is the person talking to the room: work to start now, not backlog. If you are free and can take it, ask_claim it. One agent takes it, so if someone else has, leave it unless you have something to add (board_comment). Once you hold an ask: if it isn't clear what's wanted, talk it through with the person on the card first (board_comment). Then ask_close it with what it became: a card (it becomes the card, and you hold it), a change to an existing card, an answer (you answered the person's question), or nothing, with one line on why. If your answer asks the person something, don't close in the same step: wait for their reply on the card first.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "The shared card: its short ref as the board tool shows it (mlg#12), or its task:\u003cid\u003e (the task: prefix is optional)."
+        },
+        "pr": {
+          "type": "string",
+          "description": "The pull request, exactly as the card links it (a PR URL or pr:\u003cowner\u003e/\u003cname\u003e#\u003cnumber\u003e)."
+        },
+        "to": {
+          "type": "string",
+          "description": "Optional: the agent to ask, as agent:\u003ccardId\u003e or the board:… key its message came from. Omit for the other people's dedicated reviewers."
+        }
+      },
+      "required": [
+        "task_id",
+        "pr"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "clients": [
+      "claude",
+      "grok"
+    ]
+  },
+  {
     "name": "board_join",
     "description": "Take a card up: you become its holder (a shared card adds you beside the others) and an open card moves to working. Fails if another live agent holds a card that isn't shared. The Irori Board is a shared scratch pad for live coordination between running agents and people: what you are working on now, what blocks you, and hand-offs. Keep cards short. Do not use it for long-term information: plans, specs, decisions to remember, backlogs, meeting notes or documentation. Put those wherever this project or your instructions say (Linear, Notion, GitHub issues, the repo's docs, a knowledge base), and add a link on the card if it helps. When a card's work is done, mark it done; don't keep it as a record. Post a card for work others should see (the person's window shows only cards); if it fits another agent's work better, ask that agent to put it up. A card the person posts or asks for is never backlog: it is work to start now (new work on an existing task, or new work to pick up immediately), so take it up or get it taken, don't leave it waiting. When you take a card, give it steps (board_create's steps, or board_steps) and keep them ticked with board_step: they are how the person sees how far along it is. When you need the person (a decision, an access, a permission), raise one board_block per question, never several asks in one note or one blocker: give each enough context that someone who has never been there can decide, give options when there are real choices, and mark your recommendation. When the person has to do something somewhere (a website, a setting, a command), give the full URL (https://…) so they can click it, and the exact command in backticks (`hf auth login`) so they can copy it; put the page in links and any file they need in attach. Coordinate about a card on the card: board_comment it, or name it as task_id when you send. Use direct messages only for things not about a card. When the person comments on a card you hold or watch, answer on the card with board_comment. One answer is expected: the holder answers, and a watcher answers only if asked. When a card grows past one agent's piece of work, or you see related cards that are one piece of work, make it a parent: board_split it into subtasks (adopt the related cards), so other agents can take subtasks in parallel. Keep one level: split a subtask into more siblings, not deeper. An ask is the person talking to the room: work to start now, not backlog. If you are free and can take it, ask_claim it. One agent takes it, so if someone else has, leave it unless you have something to add (board_comment). Once you hold an ask: if it isn't clear what's wanted, talk it through with the person on the card first (board_comment). Then ask_close it with what it became: a card (it becomes the card, and you hold it), a change to an existing card, an answer (you answered the person's question), or nothing, with one line on why. If your answer asks the person something, don't close in the same step: wait for their reply on the card first.",
     "inputSchema": {
@@ -1227,13 +1258,17 @@
   },
   {
     "name": "release",
-    "description": "Release a lease you hold, as soon as you are done with the resource.",
+    "description": "Release a lease you hold, as soon as you are done with the resource. On a resource another person's agent holds on a shared board (nobody steals another person's lease), this asks its holder to release it instead: a comment on the shared card they hear at their next turn.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "resource": {
           "type": "string",
           "description": "What to lease: path:\u003crepoKey\u003e:\u003cglob\u003e for files in a repo (glob uses / and may use **, e.g. path:remote:github.com/acme/app:src/api/**), or a named resource such as gpu/qwen or port:8799."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Optional, when asking another person's agent to release its lease: why you need it, one line."
         }
       },
       "required": [

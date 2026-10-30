@@ -57,6 +57,7 @@ export const commands = {
 	boardsSettings: (boardId: string) => __TAURI_INVOKE<BoardSettings>("boards_settings", { boardId }),
 	boardsSetReceive: (boardId: string, preset: string, people: string[]) => __TAURI_INVOKE<BoardSettings>("boards_set_receive", { boardId, preset, people }),
 	boardsSetAutonomy: (boardId: string, preset: string) => __TAURI_INVOKE<BoardSettings>("boards_set_autonomy", { boardId, preset }),
+	boardsSetReviewer: (boardId: string, agent: string, repo: string) => __TAURI_INVOKE<BoardSettings>("boards_set_reviewer", { boardId, agent, repo }),
 	boardsInvite: (boardId: string) => __TAURI_INVOKE<InviteStatus>("boards_invite", { boardId }),
 	boardsJoinInvite: (link: string) => __TAURI_INVOKE<InviteStatus>("boards_join_invite", { link }),
 	boardsConfirmInviteWords: (words: string) => __TAURI_INVOKE<InviteStatus>("boards_confirm_invite_words", { words }),
@@ -254,6 +255,15 @@ export type BoardMember = {
 	fingerprint: string,
 };
 
+/**  One of this person's agents dedicated as a reviewer on a board (§10). */
+export type BoardReviewer = {
+	/**  The repoKey it reviews, or "" for the whole board. */
+	repo: string,
+	/**  The agent's session key. */
+	agent: string,
+	name: string,
+};
+
 /**
  *  A board opened in the Boards dialog (§8): its members, the receive
  *  preset that applies to other people's rows on it (§7.2) and the
@@ -280,6 +290,10 @@ export type BoardSettings = {
 	 *  board"), so an owner sees a promote or a removal that lost (§4.2).
 	 */
 	conflicts: string[],
+	/**  This person's dedicated reviewers on the board (§10), by repo. */
+	reviewers: BoardReviewer[],
+	/**  This person's live agents, to dedicate one as a reviewer. */
+	agents: ReviewerChoice[],
 };
 
 /**  One shared board in the list (Go `core.BoardSummary`). */
@@ -804,6 +818,13 @@ export type Returned = {
 	at: string,
 	row?: string,
 	person?: boolean,
+};
+
+/**  One of this person's live agents, to pick a reviewer from. */
+export type ReviewerChoice = {
+	agent: string,
+	name: string,
+	repo: string,
 };
 
 /**  coord.Rollup. */
