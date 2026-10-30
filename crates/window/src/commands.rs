@@ -347,7 +347,7 @@ pub async fn boards_rename(w: W<'_>, board_id: String, name: String) -> R<BoardS
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_leave(w: W<'_>, board_id: String) -> R<()> {
-    w.boards_leave(&board_id)
+    blocking(&w, move |w| w.boards_leave(&board_id)).await
 }
 
 #[tauri::command]

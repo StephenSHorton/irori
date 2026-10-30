@@ -560,6 +560,17 @@ impl Shared {
                 // Our vector first, so a device that just left learns its
                 // `left` row arrived (v0.5 §4.4), and a removed one pulls
                 // the removal (§4.3); then the close.
+                // A device revoked while its person is still a member
+                // (lost or stolen) closes now; only a person removed or
+                // gone gets the grace.
+                let v = &self.opts.verifier;
+                let person_gone = v
+                    .person_of(p.conn.id())
+                    .is_some_and(|pid| !v.membership().active(&pid));
+                if !person_gone {
+                    p.conn.close(reason::REVOKED);
+                    continue;
+                }
                 let me = self.clone();
                 match tokio::runtime::Handle::try_current() {
                     Ok(h) => {

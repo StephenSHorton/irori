@@ -207,14 +207,24 @@ impl Services {
         if let Some(c) = cut.get_mut(&self.device.id) {
             *c += 1;
         }
+        let want = cut.get(&self.device.id).copied();
         let row = self
             .ident
             .board_member_left_row(epoch, Some(cut), (self.now)())?;
-        b.store.append(
+        let ev = b.store.append(
             &format!("{PERSON_ACTOR_PREFIX}{me}"),
             kinds::BOARD_MEMBER_LEFT,
             &row,
         )?;
+        if want.is_some_and(|c| c != ev.seq) {
+            // Another write landed between the cut and the row: no
+            // vector can cover it, so only Forget now clears Leaving….
+            logf(format_args!(
+                "board {board_id}: left row at {}, cut said {}: Leaving… won't clear by itself; use Forget now",
+                ev.seq,
+                want.unwrap_or_default()
+            ));
+        }
         self.recheck_board_mesh(board_id);
         self.boards.moved();
         Ok(())
