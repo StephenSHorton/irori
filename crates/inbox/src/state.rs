@@ -35,6 +35,8 @@ pub(crate) const REPLAY_KINDS: &[&str] = &[
     kinds::TURN_ENDED,
     kinds::AGENT_SEEN,
     kinds::DELIVERY_DECIDED,
+    kinds::RECEIVE_SET,
+    kinds::AUTONOMY_SET,
 ];
 
 /// The device-local rows New folds.
@@ -166,36 +168,36 @@ pub(crate) struct DecidedRow {
 
 // ---- decoding (Go json.Unmarshal into the row structs) ---------------------
 
-fn s(out: &Out, name: &str) -> String {
+pub(crate) fn s(out: &Out, name: &str) -> String {
     out.get_str(name).to_string()
 }
 
-fn b(out: &Out, name: &str) -> bool {
+pub(crate) fn b(out: &Out, name: &str) -> bool {
     matches!(out.get(name), Some(Out::Bool(true)))
 }
 
-fn i(out: &Out, name: &str) -> i64 {
+pub(crate) fn i(out: &Out, name: &str) -> i64 {
     match out.get(name) {
         Some(Out::Int(n)) => *n,
         _ => 0,
     }
 }
 
-fn t(out: &Out, name: &str) -> GoTime {
+pub(crate) fn t(out: &Out, name: &str) -> GoTime {
     match out.get(name) {
         Some(Out::Time(t)) => *t,
         _ => GoTime::ZERO,
     }
 }
 
-fn strs(out: &Out, name: &str) -> Option<Vec<String>> {
+pub(crate) fn strs(out: &Out, name: &str) -> Option<Vec<String>> {
     match out.get(name) {
         Some(Out::Slice(Some(v))) => Some(v.iter().map(|x| x.str().to_string()).collect()),
         _ => None,
     }
 }
 
-fn str_fields(names: &[&'static str]) -> Vec<(&'static str, Schema)> {
+pub(crate) fn str_fields(names: &[&'static str]) -> Vec<(&'static str, Schema)> {
     names.iter().map(|n| (*n, Schema::String)).collect()
 }
 
@@ -211,6 +213,7 @@ fn message_schema() -> Schema {
     f.push(("sentAt", Schema::Time));
     f.push(("ref", Schema::String));
     f.push(("notice", Schema::Bool));
+    f.push(("board", crate::bridge::board_from_schema()));
     f.push((
         "attachments",
         Schema::Slice(Box::new(Schema::object(vec![
@@ -264,6 +267,10 @@ pub(crate) fn decode_message(payload: &[u8]) -> std::result::Result<Message, jso
         sent_at: t(&o, "sentAt"),
         ref_: s(&o, "ref"),
         notice: b(&o, "notice"),
+        board: o
+            .get("board")
+            .map(crate::bridge::decode_board_from)
+            .unwrap_or_default(),
         attachments,
         writer: String::new(),
     })
@@ -573,6 +580,12 @@ pub(crate) struct Inner {
     pub pol: Policy,
     pub running: BTreeMap<String, TurnRow>,
     pub pairs: HashMap<String, Vec<GoTime>>,
+    /// receive.set rows by (boardId, personId).
+    pub receive: BTreeMap<(String, String), crate::bridge::Setting<crate::ReceiveSetting>>,
+    /// autonomy.set rows by boardId.
+    pub autonomy: BTreeMap<String, crate::bridge::Setting<crate::AutonomySetting>>,
+    /// Board rows bridged, as `<boardId>/<row>><agent>`.
+    pub bridged: HashSet<String>,
 
     pub reach: BTreeMap<String, ReachRec>,
     pub gone_since: BTreeMap<String, GoTime>,
@@ -700,6 +713,9 @@ impl Inbox {
             pol: Policy::default(),
             running: BTreeMap::new(),
             pairs: HashMap::new(),
+            receive: BTreeMap::new(),
+            autonomy: BTreeMap::new(),
+            bridged: HashSet::new(),
             reach: BTreeMap::new(),
             gone_since: BTreeMap::new(),
             ended_since: BTreeMap::new(),
@@ -889,6 +905,7 @@ impl Inner {
                     return Err("message without id".into());
                 }
                 m.writer = ev.device_id.clone();
+                self.fold_bridged(&m);
                 let from = m.from.clone();
                 self.msgs.insert(m.id.clone(), m);
                 if !from.key.is_empty() && !self.is_person(&from) && !from.is_system() {
@@ -1001,6 +1018,7 @@ impl Inner {
                 }
                 self.note(ChangeKind::Updated, "", &id);
             }
+            kinds::RECEIVE_SET | kinds::AUTONOMY_SET => self.apply_setting(ev)?,
             kinds::AGENT_SEEN => {
                 if let Some((key, name)) = decode_seen(&ev.payload)
                     && !key.is_empty()
@@ -1036,7 +1054,7 @@ impl Inner {
                     && r.moved_from.is_empty()
                     && self.counts_for_rate(&m.from.key, &r.to)
                 {
-                    let k = pair_key(&m.from.key, &r.to);
+                    let k = pair_key(&crate::bridge::rate_from(m), &r.to);
                     let sent = m.sent_at;
                     self.pairs.entry(k).or_default().push(sent);
                 }

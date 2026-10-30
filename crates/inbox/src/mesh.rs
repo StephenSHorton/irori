@@ -48,6 +48,9 @@ impl Inner {
         self.pol = Policy::default();
         self.running = BTreeMap::new();
         self.pairs = HashMap::new();
+        self.receive = BTreeMap::new();
+        self.autonomy = BTreeMap::new();
+        self.bridged = HashSet::new();
         self.visible_at = HashMap::new();
         self.held_first = HashSet::new();
         // handled stays: a request already applied isn't applied again.

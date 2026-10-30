@@ -113,6 +113,23 @@ impl Inner {
             if self.listed(&self.pol.block, &m.from, cards, true) {
                 return hold::BLOCKED;
             }
+        } else if m.from.kind == crate::BOARD_KIND {
+            // Another person or their agent (v0.5 §7.1): the receive
+            // setting stands in for the bypass hold (B2).
+            let allowed = self.listed(&self.pol.allow, &m.from, cards, false);
+            if self.listed(&self.pol.block, &m.from, cards, true) {
+                return hold::BLOCKED;
+            }
+            if self.pol.mode == policy_mode::ALLOWLIST && !allowed {
+                return hold::NOT_ALLOWED;
+            }
+            let h = self.receive_hold(m, recipient, cards);
+            if !h.is_empty() {
+                return h;
+            }
+            if m.hop > MAX_HOP {
+                return hold::HOP_LIMIT;
+            }
         } else if !self.is_person(&m.from) {
             let allowed = self.listed(&self.pol.allow, &m.from, cards, false);
             if self.listed(&self.pol.block, &m.from, cards, true) {
