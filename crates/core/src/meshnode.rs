@@ -13,12 +13,19 @@
 //! - The home server's own relay port (`on_relay`, Go `Net.SetLocal`) makes
 //!   this device's endpoint use its own relay too, and the pairing bridge
 //!   name it at the LAN address.
+//! - Shared boards (stage 2): one [`mesh::boardmesh::BoardMesh`] per open
+//!   board on `irori/board/1`, beside the private Node. Opening a board
+//!   counts its verifier at the endpoint gate (`NetConfig::boards`, the
+//!   `MemberAdmit` registry), feeds its member devices to the board's own
+//!   address book, and starts its mesh; every refeed re-checks each
+//!   board's live connections against its verifier.
 
 use std::sync::{Arc, Mutex};
 
 use irori_identity::{Chain, Identity};
 use irori_net::book::{ServerAddrs, feed};
 use irori_net::transport::IrohNet;
+use mesh::boardmesh::{BoardMesh, BoardMeshOpts};
 use store::Store;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
@@ -30,6 +37,8 @@ pub(crate) struct Mesh {
     pub servers: Arc<mesh::Servers>,
     chain: Arc<Chain>,
     own_key: iroh::EndpointId,
+    /// This Core's version, for board hellos.
+    version: String,
     /// This device's own home relay port, while its server runs.
     local: Mutex<Option<u16>>,
     refeed: Arc<Notify>,
@@ -37,6 +46,21 @@ pub(crate) struct Mesh {
     /// relay URLs of each and when this device started using it (Go
     /// roomnet `hubs` and their `since`; see crate::meshview).
     pub(crate) hubs: Mutex<std::collections::BTreeMap<String, Hub>>,
+    /// Open shared boards' meshes, by board id.
+    boards: Mutex<std::collections::BTreeMap<String, Arc<BoardMesh>>>,
+    /// Direct addresses heard for other members' devices (an invite's
+    /// ticket, #44), by device id.
+    board_hints: Mutex<std::collections::BTreeMap<String, Vec<std::net::SocketAddr>>>,
+}
+
+/// What [`Mesh::open_board`] runs a shared board's mesh on: the board's
+/// log, its verifier (the log's store Verifier) and its secrets.
+pub struct BoardParts {
+    pub board_id: String,
+    pub person_id: String,
+    pub log: Arc<Store>,
+    pub verifier: Arc<irori_identity::BoardVerifier>,
+    pub secrets: Arc<irori_identity::BoardSecrets>,
 }
 
 /// One other device's home server as the address book feeds it.
@@ -56,8 +80,6 @@ pub(crate) struct Parts {
     pub now: Option<mesh::node::NowFn>,
     /// Per writing device, the rows the folds ignored (Go `ignoredBy`).
     pub ignored: Option<mesh::node::IgnoredFn>,
-    /// The shared boards whose logs the Node serves (stage 1 streams).
-    pub boards: Option<Arc<dyn mesh::BoardLogs>>,
 }
 
 impl Mesh {
@@ -74,13 +96,12 @@ impl Mesh {
             ident: p.ident,
             chain: p.chain.clone(),
             net: Arc::new(net.clone()),
-            version: p.version,
+            version: p.version.clone(),
             files: p.files,
             data_dir: Some(p.data_dir),
             intervals: mesh::Intervals::default(),
             trust_any_peer: false,
             ignored: p.ignored,
-            boards: p.boards,
             logf: Some(Arc::new(|l: &str| crate::log(l))),
             now: p.now,
         });
@@ -110,9 +131,12 @@ impl Mesh {
             servers,
             chain: p.chain,
             own_key,
+            version: p.version,
             local: Mutex::new(None),
             refeed,
             hubs: Mutex::new(std::collections::BTreeMap::new()),
+            boards: Mutex::new(std::collections::BTreeMap::new()),
+            board_hints: Mutex::new(std::collections::BTreeMap::new()),
         })
     }
 
@@ -155,6 +179,10 @@ impl Mesh {
         let own = local.map(|port| irori_net::book::own_relay(port, self.own_key));
         feed(&self.net, &list, &self.chain, own).await;
         self.net.recheck();
+        for m in self.board_list() {
+            self.feed_board(&m);
+            m.recheck();
+        }
         // A dial tried before the book had the device failed with no
         // address: the Node dials again now that it has one.
         self.node.kick();
@@ -186,6 +214,135 @@ impl Mesh {
         hubs.retain(|id, _| keep.contains(id));
     }
 
+    fn board_list(&self) -> Vec<Arc<BoardMesh>> {
+        self.boards
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    /// Board `m`'s member devices as its address book: each by its
+    /// certified key. Addresses come from the lookups (the private book's
+    /// for own devices, the LAN lookup), the hints of
+    /// [`Mesh::board_hint`] and, with B1, `board.server` relays.
+    fn feed_board(&self, m: &BoardMesh) {
+        let hints = self
+            .board_hints
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let peers = m
+            .member_devices()
+            .into_iter()
+            .filter_map(|d| {
+                let b: [u8; 32] = hex::decode(&d.device_pub).ok()?.try_into().ok()?;
+                Some(irori_net::transport::PeerAddr {
+                    id: iroh::EndpointId::from_bytes(&b).ok()?,
+                    relay: None,
+                    direct: hints.get(&d.device_id).cloned().unwrap_or_default(),
+                    device_id: d.device_id,
+                })
+            })
+            .collect();
+        self.net.set_board_peers(m.board_id(), peers);
+    }
+
+    /// Opens shared board `p.board_id` on the network: its members count at
+    /// the endpoint gate, its member devices are dialled on
+    /// `irori/board/1`, and its rows move only on those connections.
+    /// Opening an open board again is a no-op.
+    pub(crate) async fn open_board(self: &Arc<Self>, p: BoardParts) -> Result<(), String> {
+        if self
+            .boards
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(&p.board_id)
+        {
+            return Ok(());
+        }
+        self.net
+            .board_members()
+            .add(&p.board_id, p.verifier.clone());
+        let m = Arc::new(BoardMesh::new(BoardMeshOpts {
+            board_id: p.board_id.clone(),
+            self_id: self.net.self_id().to_string(),
+            person_id: p.person_id,
+            core_version: self.version.clone(),
+            log: p.log,
+            verifier: p.verifier,
+            secrets: p.secrets,
+            transport: Arc::new(self.net.clone()),
+        }));
+        m.set_log(Arc::new(|l: &str| crate::log(l)));
+        {
+            // Rows from a member may move the membership: refeed.
+            let r = self.refeed.clone();
+            m.on_rows(Arc::new(move || r.notify_one()));
+        }
+        self.feed_board(&m);
+        self.boards
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(p.board_id.clone(), m.clone());
+        if let Err(e) = m.start().await {
+            self.close_board(&p.board_id, irori_meshseam::reason::LEAVING);
+            return Err(e.to_string());
+        }
+        Ok(())
+    }
+
+    /// Closes shared board `board_id` on the network (left, removed,
+    /// forgotten): its connections close with `why` and its members no
+    /// longer count at the gate.
+    pub(crate) fn close_board(&self, board_id: &str, why: &str) {
+        let m = self
+            .boards
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(board_id);
+        if let Some(m) = m {
+            m.close();
+        }
+        self.net.board_members().remove(board_id);
+        let _ = self.net.drop_board(board_id, why);
+    }
+
+    /// Direct addresses for another member's device (an invite ticket's),
+    /// used by every board it is a member device of.
+    pub(crate) fn board_hint(&self, device_id: &str, addrs: Vec<std::net::SocketAddr>) {
+        self.board_hints
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(device_id.to_string(), addrs);
+        self.refeed.notify_one();
+    }
+
+    /// Every open board's mesh pulls now (a board opened or a row landed).
+    pub(crate) fn kick_boards(&self) {
+        let boards: Vec<_> = self
+            .boards
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .cloned()
+            .collect();
+        for b in boards {
+            b.kick();
+        }
+    }
+
+    /// Board `board_id`'s mesh: pull now after a local write, or recheck
+    /// after a local membership change.
+    pub(crate) fn board(&self, board_id: &str) -> Option<Arc<BoardMesh>> {
+        self.boards
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(board_id)
+            .cloned()
+    }
+
     /// Runs the Node, the `Servers` fold and the address book until
     /// `cancel`; closes the endpoint after.
     pub(crate) async fn run(self: Arc<Self>, st: Arc<Store>, cancel: CancellationToken) {
@@ -209,6 +366,9 @@ impl Mesh {
         self.node.run(cancel.clone()).await;
         let _ = follow.await;
         let _ = book.await;
+        for m in self.board_list() {
+            m.close();
+        }
         self.net.close().await;
     }
 }

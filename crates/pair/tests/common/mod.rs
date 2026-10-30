@@ -182,7 +182,6 @@ fn open(
         intervals: fast(),
         trust_any_peer: false,
         ignored: None,
-        boards: None,
         logf: Some(Arc::new(move |m: &str| eprintln!("{n}: {m}"))),
         now: None,
     });

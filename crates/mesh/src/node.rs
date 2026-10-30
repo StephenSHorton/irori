@@ -18,7 +18,6 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::boards::BoardLogs;
 use crate::frames::{FRAME_HELLO, FRAME_PERSON_SECRET, Frame, PROTOCOL, Row};
 use crate::peers::{PeerEpoch, load_peers, save_peers};
 use crate::secret::{mesh_secret, open_secret, seal_secret};
@@ -61,7 +60,7 @@ pub struct Intervals {
 }
 
 impl Intervals {
-    fn with_defaults(mut self) -> Intervals {
+    pub(crate) fn with_defaults(mut self) -> Intervals {
         let def = |d: &mut Duration, v: u64| {
             if d.is_zero() {
                 *d = Duration::from_secs(v);
@@ -124,8 +123,6 @@ pub struct Options {
     pub trust_any_peer: bool,
     /// Per writing device, the rows the folds ignored for the writer rules.
     pub ignored: Option<IgnoredFn>,
-    /// The shared boards' logs, synced on board/<id> streams.
-    pub boards: Option<Arc<dyn BoardLogs>>,
     pub logf: Option<LogFn>,
     pub now: Option<NowFn>,
 }

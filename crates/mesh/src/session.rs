@@ -94,8 +94,6 @@ pub(crate) struct Session {
     ctl_tx: mpsc::Sender<Frame>,
     ctl_rx: tokio::sync::Mutex<mpsc::Receiver<Frame>>,
     wake: Notify,
-    /// Pulls the board logs from the peer now.
-    pub(crate) board_wake: Notify,
     st: Mutex<SessState>,
     serving: Mutex<Vec<JoinHandle<()>>>,
 }
@@ -122,7 +120,6 @@ impl Session {
             ctl_tx,
             ctl_rx: tokio::sync::Mutex::new(ctl_rx),
             wake: Notify::new(),
-            board_wake: Notify::new(),
             st: Mutex::new(SessState::default()),
             serving: Mutex::new(Vec::new()),
         })
@@ -230,17 +227,12 @@ impl Session {
                 ctx.cancel();
             })
         };
-        let board = {
-            let (s, ctx) = (self.clone(), ctx.clone());
-            self.n.spawn_task(async move { s.board_loop(ctx).await })
-        };
         tokio::select! {
             _ = ctx.cancelled() => {}
             _ = self.write() => {}
         }
         ctx.cancel();
         let _ = read.await;
-        let _ = board.await;
         let _ = accept.await;
         self.lock().ended = true;
         let serving = std::mem::take(&mut *self.serving.lock().unwrap_or_else(|e| e.into_inner()));

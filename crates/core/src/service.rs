@@ -805,7 +805,6 @@ impl Core {
                             (ib.clone(), co.clone(), asks.clone(), roster.clone());
                         Some(Arc::new(move || ignored_by(&ib, &co, &asks, &roster)))
                     },
-                    boards: Some(board_set.clone()),
                 },
             );
             let mut po =
@@ -888,7 +887,14 @@ impl Core {
             mesh,
             boards: board_set,
         });
-        let _ = s.boards.node.set(s.mesh.node.clone());
+        let _ = s.boards.kicker.set({
+            let m = Arc::downgrade(&s.mesh);
+            Arc::new(move || {
+                if let Some(m) = m.upgrade() {
+                    m.kick_boards();
+                }
+            })
+        });
         // A pairing window starts the home server at once (Go Notify).
         if let Some(h) = s.home.clone() {
             s.pairing
@@ -1741,6 +1747,44 @@ impl Core {
     /// The iroh endpoint the mesh and pairing share (status lines, tests).
     pub fn net(&self) -> &irori_net::transport::IrohNet {
         &self.s.mesh.net
+    }
+
+    /// Opens a shared board on the network (boards stage 2): its member
+    /// devices count at the endpoint gate for `irori/board/1` only, and
+    /// its rows move on that board's connections. The board-open path
+    /// (invites, the M9 router) calls it once the board's log, verifier
+    /// and secrets are open.
+    pub async fn open_board_net(&self, p: crate::BoardParts) -> Result<(), String> {
+        self.s.mesh.open_board(p).await
+    }
+
+    /// Closes a shared board on the network (left, removed, forgotten).
+    pub fn close_board_net(&self, board_id: &str) {
+        self.s
+            .mesh
+            .close_board(board_id, irori_meshseam::reason::LEAVING);
+    }
+
+    /// Direct addresses for another member's device (an invite ticket's
+    /// `direct`), dialled for every shared board it is a member device of.
+    pub fn board_addr_hint(&self, device_id: &str, addrs: Vec<std::net::SocketAddr>) {
+        self.s.mesh.board_hint(device_id, addrs);
+    }
+
+    /// After a local write to a shared board: its members pull now.
+    pub fn kick_board(&self, board_id: &str) {
+        if let Some(m) = self.s.mesh.board(board_id) {
+            m.kick();
+        }
+    }
+
+    /// After a local membership change on a shared board (a removal, a
+    /// revoke, a rotation): connections it no longer admits close, and a
+    /// newer secret goes to the members still on the older epoch.
+    pub fn recheck_board(&self, board_id: &str) {
+        if let Some(m) = self.s.mesh.board(board_id) {
+            m.recheck();
+        }
     }
 
     /// The mesh with its address book (crate::meshview).
