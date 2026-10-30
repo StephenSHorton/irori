@@ -427,6 +427,24 @@ fn a_file_on_a_shared_card_reaches_bob_and_a_private_one_never_does() {
     assert_eq!(std::fs::read(&path).unwrap(), b"frame 12 took 40ms");
     // Bob's device offers it on the board now, so it serves it on.
     assert!(offered(b1, &sha).contains(&b1.core.device_id().to_string()));
+    // A blocker's file is offered on the board the same way.
+    let log = files.path().join("build.log");
+    std::fs::write(&log, b"link error").unwrap();
+    let out = a1.tool("board_join", serde_json::json!({"task_id": "mlg#1"}));
+    assert!(!out.starts_with("Error"), "board_join: {out}");
+    let out = a1.tool(
+        "board_block",
+        serde_json::json!({
+            "task_id": "mlg#1",
+            "question": "which build do we ship?",
+            "attach": [log.to_string_lossy()],
+        }),
+    );
+    assert!(!out.starts_with("Error"), "board_block: {out}");
+    let bsha = aco.get_task(&t.id).unwrap().blockers[0].attachments[0]
+        .sha256
+        .clone();
+    assert_eq!(offered(a1, &bsha), vec![a1.core.device_id().to_string()]);
 
     // A file Alice keeps private: in her attachment store, offered only to
     // her own devices.
