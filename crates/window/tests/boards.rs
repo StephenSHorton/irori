@@ -5,9 +5,12 @@
 
 mod common;
 
+use std::sync::{Arc, Mutex};
+
 use common::*;
 use irori_window::boards::SCOPE_BOARD;
 use irori_window::cards::{CardSummary, SCOPE_MINE};
+use irori_window::invites::{INVITE_DONE, INVITE_WORDS, InviteStatus};
 use store::kinds::{self, AGENT_ACTOR_PREFIX};
 
 fn create(r: &Rig, title: &str) -> coord::Task {
@@ -155,23 +158,76 @@ fn comment_on_a_shared_card_tells_its_agent() {
     );
 }
 
-/// Without #44's flow in this build, Invite and Join say so, and no
-/// invite is open.
+/// A Rig on loopback iroh with no LAN lookup (the invite tests).
+fn on_loopback() -> Rig {
+    Rig::with(|o| {
+        o.no_home = true;
+        o.pair_net = Some(Arc::new(move |ident, chain, guests| {
+            let mut nc = irori_core::devices::default_net_config(ident, chain, guests);
+            nc.ip = irori_net::endpoint::IpMode::Loopback;
+            nc.lan_config = None;
+            nc.gossip = false;
+            irori_net::transport::IrohNet::new(nc)
+        }));
+    })
+}
+
+/// Boards → Invite and Join with an invite (§4.1, §8) through the window's
+/// seam: two made-up people on loopback iroh. The inviter's status carries
+/// the link; the invitee's shows the five words; the inviter types them
+/// and both end done, with the board on the invitee's Boards dialog and
+/// boards:invite told along the way. Cancel closes an open invite.
 #[test]
-fn invites_say_they_arent_built_yet() {
-    let r = Rig::new();
-    let w = &r.w;
-    let mlg = w.boards_create("MLG", "mlg").unwrap();
-    let inv = &w.seams.invites;
-    assert_eq!(
-        inv.invite(&mlg.board_id).unwrap_err(),
-        irori_window::invites::NO_INVITES
+fn invite_and_join_from_the_window() {
+    let (a, b) = (on_loopback(), on_loopback());
+    let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+    {
+        let s = seen.clone();
+        a.w.seams
+            .invites
+            .watch(Some(Arc::new(move |st: InviteStatus| {
+                s.lock().unwrap().push(st.state)
+            })));
+    }
+    let mlg = a.w.boards_create("MLG", "mlg").unwrap();
+    let (ia, ib) = (&a.w.seams.invites, &b.w.seams.invites);
+    let st = ia.invite(&mlg.board_id).unwrap();
+    assert!(
+        st.role == "host" && st.open() && st.link.starts_with("irori-invite:"),
+        "{st:?}"
     );
-    assert_eq!(
-        inv.join("irori-invite:X").unwrap_err(),
-        irori_window::invites::NO_INVITES
+    assert!(!st.expires_at.is_empty());
+    assert!(
+        ia.invite(&mlg.board_id).is_err(),
+        "a second invite while one is open"
     );
-    assert!(!inv.status().open());
+    let sb = ib.join(&format!("  {}\n", st.link)).unwrap();
+    assert_eq!(
+        (sb.role.as_str(), sb.board_id.as_str()),
+        ("guest", mlg.board_id.as_str())
+    );
+    wait("both screens show the words", || {
+        ia.status().state == INVITE_WORDS && ib.status().state == INVITE_WORDS
+    });
+    let words = ib.status().words;
+    assert_eq!(words.len(), 5);
+    assert!(ia.confirm_words("not the words at all here").is_err());
+    assert_eq!(ia.status().misses, 1);
+    ia.confirm_words(&words.join(" ")).unwrap();
+    wait("both done", || {
+        ia.status().state == INVITE_DONE && ib.status().state == INVITE_DONE
+    });
+    wait("the board on the invitee's dialog", || {
+        b.w.boards_list().iter().any(|x| x.board_id == mlg.board_id)
+    });
+    assert!(seen.lock().unwrap().iter().any(|s| s == INVITE_DONE));
+
+    // Cancel: a second invite, closed by the person.
+    let st = ia.invite(&mlg.board_id).unwrap();
+    assert!(st.open());
+    ia.cancel();
+    wait("canceled", || !ia.status().open());
+    assert!(ib.join("irori-invite:nonsense").is_err());
 }
 
 /// A board opened in the Boards dialog (§8): its one member is the person,

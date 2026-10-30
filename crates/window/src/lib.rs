@@ -166,7 +166,7 @@ impl Window {
         Seams {
             mesh: Arc::new(devices::CoreMesh::new(core.clone())),
             pairing: Arc::new(devices::CorePairing::new(core.clone())),
-            invites: Arc::new(invites::NoInvites),
+            invites: Arc::new(invites::CoreInvites::new(core.clone())),
             notifier: Arc::new(settings::NotifierSeam::headless(core.data_dir())),
             login: Arc::new(settings::NoLoginItem),
             updater: Arc::new(update::NoUpdater),

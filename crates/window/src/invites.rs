@@ -3,9 +3,13 @@
 //! invite window and shows the `irori-invite:` link to paste; Boards →
 //! Join with an invite takes that link. The invitee reads five words aloud
 //! and the inviter types them; both read out each other's person
-//! fingerprints (B4). The flow is #44's (`irori-invite`); the window
-//! drives it through [`crate::seams::Invites`].
+//! fingerprints (B4). The flow is #44's (`irori-invite`, driven by
+//! `Core::invite` and the rest); the window reaches it through
+//! [`crate::seams::Invites`], [`CoreInvites`] in this build.
 
+use std::sync::Arc;
+
+use irori_core::Core;
 use serde::Serialize;
 use specta::Type;
 
@@ -61,24 +65,59 @@ impl InviteStatus {
     }
 }
 
-/// The text while no invite flow is wired into this build.
-pub const NO_INVITES: &str = "inviting someone to a board isn't in this build yet";
-
-/// This build's default: no invite flow.
-pub struct NoInvites;
-
-impl crate::seams::Invites for NoInvites {
-    fn invite(&self, _board_id: &str) -> Result<InviteStatus, String> {
-        Err(NO_INVITES.into())
+/// The window's shape of the Core's invite status (the same JSON).
+pub fn invite_status(s: irori_core::InviteStatus) -> InviteStatus {
+    InviteStatus {
+        role: s.role,
+        state: s.status.state,
+        board_id: s.status.board_id,
+        board_name: s.status.board_name,
+        link: s.link,
+        expires_at: s.expires_at,
+        words: s.status.words,
+        peer_name: s.status.peer_name,
+        peer_fingerprint: s.status.peer_fingerprint,
+        my_fingerprint: s.status.my_fingerprint,
+        misses: s.status.misses.into(),
+        error: s.status.error,
     }
-    fn join(&self, _link: &str) -> Result<InviteStatus, String> {
-        Err(NO_INVITES.into())
+}
+
+/// The seam on the Core's invite driver (#44, `Core::invite` and the rest).
+pub struct CoreInvites {
+    core: Arc<Core>,
+}
+
+impl CoreInvites {
+    pub fn new(core: Arc<Core>) -> CoreInvites {
+        CoreInvites { core }
     }
-    fn confirm_words(&self, _typed: &str) -> Result<InviteStatus, String> {
-        Err(NO_INVITES.into())
+
+    fn run<T>(&self, f: impl std::future::Future<Output = T>) -> T {
+        self.core.pairing_runtime().block_on(f)
+    }
+}
+
+impl crate::seams::Invites for CoreInvites {
+    fn invite(&self, board_id: &str) -> Result<InviteStatus, String> {
+        self.run(self.core.invite(board_id)).map(invite_status)
+    }
+    fn join(&self, link: &str) -> Result<InviteStatus, String> {
+        self.run(self.core.join_invite(link.trim()))
+            .map(invite_status)
+    }
+    fn confirm_words(&self, typed: &str) -> Result<InviteStatus, String> {
+        self.core.confirm_invite_words(typed).map(invite_status)
     }
     fn status(&self) -> InviteStatus {
-        InviteStatus::default()
+        invite_status(self.core.invite_status())
     }
-    fn cancel(&self) {}
+    fn cancel(&self) {
+        self.core.cancel_invite();
+    }
+    fn watch(&self, f: Option<Arc<dyn Fn(InviteStatus) + Send + Sync>>) {
+        self.core.watch_invites(
+            f.map(|f| -> irori_core::InviteWatchFn { Arc::new(move |s| f(invite_status(s))) }),
+        );
+    }
 }
