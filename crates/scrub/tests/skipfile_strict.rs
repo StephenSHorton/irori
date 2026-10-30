@@ -119,3 +119,18 @@ fn strict_drops_paths() {
     }
     assert!(strict_dropped(r"C:\x") && !strict_dropped("nothing here"));
 }
+
+#[test]
+fn board_reasons_name_what_blocks() {
+    use scrub::board_reasons;
+    assert!(board_reasons("the loader drops frames on resume").is_empty());
+    assert!(board_reasons("see src/loader.rs and https://example.com/x").is_empty());
+    assert_eq!(
+        board_reasons("logs are in /Users/fixture/proj/out.log"),
+        ["an absolute path or home directory"]
+    );
+    let r = board_reasons("token ghp_0123456789abcdefghijklmnopqrstuvwxyz12 and ~/notes");
+    assert_eq!(r.len(), 2, "{r:?}");
+    assert!(r[0].ends_with("secret"), "{r:?}");
+    assert_eq!(r[1], "an absolute path or home directory");
+}

@@ -21,6 +21,7 @@
 //! or writes; [`safe_name`] is a copy of `blob.SafeName`.
 
 mod attach;
+mod bridge;
 mod fence;
 mod ids;
 mod mesh;
@@ -44,6 +45,10 @@ use gocompat::time::GoTime;
 use serde::Serialize;
 
 pub use attach::safe_name;
+pub use bridge::{
+    AUTONOMY_DEFAULT, AutonomySetting, BOARD_KIND, BoardFrom, BridgeRow, RECEIVE_DEFAULT,
+    ReceiveSetting, autonomy, board_sender_key, receive, receive_decision, row_kind,
+};
 pub use fence::{batch, fence, fence_prompt};
 pub use ids::IdGen;
 pub use pr::normalize_pr;
@@ -193,8 +198,8 @@ pub const API_KEY_PREFIX: &str = "api:";
 /// Log kinds the inbox writes and replays (I:internal/inbox/kinds.go).
 pub mod kinds {
     pub use store::kinds::{
-        AGENT_ALIAS, AGENT_NAME, AGENT_SEEN, DELIVERY_DECIDED, DELIVERY_STATE, MESSAGE_SENT,
-        POLICY_SET, TURN_ENDED, TURN_ENGAGED, WAKE_ISSUED,
+        AGENT_ALIAS, AGENT_NAME, AGENT_SEEN, AUTONOMY_SET, DELIVERY_DECIDED, DELIVERY_STATE,
+        MESSAGE_SENT, POLICY_SET, RECEIVE_SET, TURN_ENDED, TURN_ENGAGED, WAKE_ISSUED,
     };
 }
 
@@ -225,6 +230,14 @@ pub mod hold {
     pub const PAUSED: &str = "paused";
     pub const HOP_LIMIT: &str = "hop_limit";
     pub const UNOWNED: &str = "unowned";
+    /// Another person asked to wake an agent and the receive setting asks
+    /// first (v0.5 §7.2).
+    pub const MEMBER_WAKE: &str = "member_wake";
+    /// Another person's row to a bypass session, or their agent's
+    /// assignment, under Ask me or Closed (v0.5 §7.2, B2).
+    pub const CROSS_PERSON: &str = "cross_person";
+    /// Another person's lease request (v0.5 §5.4).
+    pub const MEMBER_LEASE: &str = "member_lease";
 }
 
 /// Delivery modes.
@@ -358,6 +371,9 @@ pub struct Message {
     pub ref_: String,
     #[serde(skip_serializing_if = "is_false")]
     pub notice: bool,
+    /// Where a bridged board row came from (v0.5 §7.1); empty otherwise.
+    #[serde(skip_serializing_if = "BoardFrom::is_empty")]
+    pub board: BoardFrom,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<FileRef>,
     /// The device that wrote the message.sent row (memory only).

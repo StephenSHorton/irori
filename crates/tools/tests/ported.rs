@@ -442,6 +442,7 @@ fn test_specs() {
         "commits",
         "prs",
         "attachment_get",
+        "board_share",
     ];
     for n in want {
         assert!(

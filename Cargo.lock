@@ -3543,6 +3543,7 @@ dependencies = [
  "irori-inbox",
  "irori-ledger",
  "irori-presence",
+ "irori-scrub",
  "irori-search",
  "irori-store",
  "regex",

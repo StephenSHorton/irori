@@ -127,7 +127,7 @@ pub(crate) fn trim(s: &str) -> &str {
     s.trim_matches(gocompat::text::is_space)
 }
 
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -962,6 +962,13 @@ impl Services {
                     })),
                     tag: Some(Arc::new(move || v4.membership().tag)),
                     board_owner: Some(Arc::new(move |p: &str| v5.membership().owner(p))),
+                    // Under the board coord's lock: takes the inbox's, which
+                    // never waits on a board coord (its stale hook reads
+                    // only the private one).
+                    hop_of: Some({
+                        let s = Arc::downgrade(self);
+                        Arc::new(move |actor: &str| s.upgrade().map_or(0, |s| s.board_hop(actor)))
+                    }),
                     ..Default::default()
                 },
             )
@@ -1083,6 +1090,7 @@ impl Services {
         } else if ev.kind == kinds::AGENT_CARD {
             b.fold_card(ev);
         }
+        self.bridge_row(b, ev);
     }
 
     /// Folds a private board_cards row that reached this device into its

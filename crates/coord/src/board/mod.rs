@@ -100,6 +100,8 @@ pub const REOPEN_COMMENT_NOTE: &str = "reopened by the person's comment";
 
 type KeyFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 type StrFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
+/// [`Options::hop_of`].
+pub type HopFn = Arc<dyn Fn(&str) -> i64 + Send + Sync>;
 
 /// Configures a [`Coord`] (Go `coord.Options`).
 #[derive(Clone, Default)]
@@ -127,6 +129,34 @@ pub struct Options {
     pub tag: Option<Arc<dyn Fn() -> String + Send + Sync>>,
     /// A person who owns the board.
     pub board_owner: Option<KeyFn>,
+    /// On a board, the hop an agent's row carries (v0.5 §7.1): its running
+    /// turn's hop plus one, by the actor as the board knows it. The rows
+    /// in [`HOP_KINDS`] get it as `hop` when it is above zero.
+    pub hop_of: Option<HopFn>,
+}
+
+/// The board rows that carry their writer's hop across the bridge.
+pub const HOP_KINDS: &[&str] = &[
+    store::kinds::TASK_COMMENT,
+    store::kinds::TASK_ASSIGNED,
+    store::kinds::TASK_STATUS,
+    store::kinds::BLOCKER_CLOSED,
+    store::kinds::BLOCKER_OPTION,
+    store::kinds::BLOCKER_RESOLVED,
+];
+
+/// Whether a board row of kind carries `hop` (board asks too, §9).
+pub fn carries_hop(kind: &str) -> bool {
+    HOP_KINDS.contains(&kind) || kind.starts_with("board.ask.")
+}
+
+/// A board row's `hop` (0 when it has none), for the bridge.
+pub fn row_hop(payload: &[u8]) -> i64 {
+    serde_json::from_slice::<serde_json::Value>(payload)
+        .ok()
+        .and_then(|v| v.get("hop").and_then(serde_json::Value::as_i64))
+        .unwrap_or(0)
+        .max(0)
 }
 
 /// The lock on the fold; changes go out when it drops (Go's `unlock`).

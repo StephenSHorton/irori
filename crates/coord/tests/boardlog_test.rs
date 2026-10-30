@@ -480,3 +480,65 @@ fn test_board_coord_caps_set_aside() {
     }
     assert_eq!((c.unresolved(), c.aside_dropped()), (MAX_ASIDE, 3));
 }
+
+#[test]
+fn test_board_rows_carry_the_writers_hop() {
+    // v0.5 §7.1: an agent's comment or assignment on a board carries its
+    // running hop, so the bridge on the other side keeps the count.
+    let b = board_store("dev-a");
+    created(&b, "b");
+    let o = Options {
+        hop_of: Some(Arc::new(
+            |actor: &str| if actor == BOARD_CARD { 3 } else { 0 },
+        )),
+        ..board_opts(&b)
+    };
+    let c = Coord::new(b.st.clone(), None, o).unwrap();
+    card_row(&b);
+    let task = c.create_task(BOARD_PERSON, nt("shared work")).unwrap();
+    c.assign(BOARD_CARD, &task.id, BOARD_PERSON).unwrap();
+    let (cm, _) = c
+        .comment_on(
+            BOARD_CARD,
+            &task.id,
+            CommentInput {
+                text: "on it".into(),
+                ..CommentInput::default()
+            },
+        )
+        .unwrap();
+    c.comment_on(
+        BOARD_PERSON,
+        &task.id,
+        CommentInput {
+            text: "thanks".into(),
+            ..CommentInput::default()
+        },
+    )
+    .unwrap();
+    let rows =
+        b.st.list(&store::Filter {
+            kinds: vec!["task.".into()],
+            limit: store::MAX_LIST_LIMIT,
+            ..store::Filter::default()
+        })
+        .unwrap();
+    let hops: Vec<(String, i64)> = rows
+        .iter()
+        .map(|ev| (ev.kind.clone(), row_hop(&ev.payload)))
+        .collect();
+    assert_eq!(
+        hops,
+        [
+            (kinds::TASK_CREATED.to_string(), 0),
+            (kinds::TASK_ASSIGNED.to_string(), 3),
+            (kinds::TASK_COMMENT.to_string(), 3),
+            (kinds::TASK_COMMENT.to_string(), 0),
+        ]
+    );
+    // The stamped row still folds as the comment it is.
+    let got = c.comments(&task.id).unwrap();
+    assert_eq!(got[0].id, cm.id);
+    assert_eq!(got[0].text, "on it");
+    assert!(carries_hop("board.ask.posted") && !carries_hop(kinds::TASK_CREATED));
+}
