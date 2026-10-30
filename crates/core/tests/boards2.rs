@@ -5,6 +5,13 @@
 //! people and their keys are made up for the test; the board logs are
 //! signed by each Core's own device key. No LAN lookup, nothing off
 //! 127.0.0.1.
+//!
+//! The second test runs the whole stage 2 path: one member's home server
+//! (on 127.0.0.1, reachable "from outside" at 127.0.0.1) writes its
+//! `board.server` row, the other member's Core reaches it through that
+//! relay, which admits it only as a member device of a board held there
+//! (B1), and an announcement on the board's gossip topic makes the other
+//! Core pull over `irori/board/1`.
 
 mod common;
 
@@ -24,13 +31,14 @@ use store::{Event, Store};
 
 const BOARD: &str = "fedcba9876543210fedcba9876543210";
 
-fn wait(what: &str, mut ok: impl FnMut() -> bool) {
+fn wait(what: &str, ok: impl FnMut() -> bool) {
+    wait_for(what, Duration::from_secs(30), ok)
+}
+
+fn wait_for(what: &str, limit: Duration, mut ok: impl FnMut() -> bool) {
     let start = Instant::now();
     while !ok() {
-        assert!(
-            start.elapsed() < Duration::from_secs(30),
-            "timed out waiting for: {what}"
-        );
+        assert!(start.elapsed() < limit, "timed out waiting for: {what}");
         std::thread::sleep(Duration::from_millis(20));
     }
 }
@@ -47,14 +55,25 @@ fn rand_key() -> SigningKey {
 
 /// A Core on loopback iroh with no LAN lookup.
 fn core(data: &std::path::Path, claude: &std::path::Path) -> Core {
+    core_with(data, claude, false, None)
+}
+
+/// [`core`] with board gossip on or off and a home server edit.
+fn core_with(
+    data: &std::path::Path,
+    claude: &std::path::Path,
+    gossip: bool,
+    home: Option<irori_core::HomeEdit>,
+) -> Core {
     let mut o = common::options(data, claude);
     o.pair_net = Some(Arc::new(move |ident, chain, guests| {
         let mut nc = devices::default_net_config(ident, chain, guests);
         nc.ip = IpMode::Loopback;
         nc.lan_config = None;
-        nc.gossip = false;
+        nc.gossip = gossip;
         IrohNet::new(nc)
     }));
+    o.home = home;
     Core::start(o).unwrap()
 }
 
@@ -173,18 +192,18 @@ fn has(st: &Store, ev: &Event) -> bool {
     .is_ok_and(|evs| evs.len() == 1 && store::row_hash(&evs[0]) == store::row_hash(ev))
 }
 
-#[test]
-fn two_peoples_cores_sync_a_shared_board_on_its_own_connection() {
-    let dirs: Vec<tempfile::TempDir> = (0..6).map(|_| tempfile::tempdir().unwrap()).collect();
-    let a = core(dirs[0].path(), dirs[1].path());
-    let b = core(dirs[2].path(), dirs[3].path());
-    assert_ne!(a.person().id, b.person().id, "two people");
-
-    // Alice (on Core a) creates the board and adds Bob (on Core b).
-    let (alice, bob) = (Member::of(&a), Member::of(&b));
+/// Alice (on Core `a`) creates the board and adds Bob (on Core `b`); each
+/// side's log and secrets hold what the invite bundle would carry.
+fn shared_board(
+    a: &Core,
+    b: &Core,
+    dir_a: &std::path::Path,
+    dir_b: &std::path::Path,
+) -> (Member, Member, Board, Board) {
+    let (alice, bob) = (Member::of(a), Member::of(b));
     let creator = alice.pin();
-    let ba = open_board(&a, dirs[4].path(), &creator);
-    let bb = open_board(&b, dirs[5].path(), &creator);
+    let ba = open_board(a, dir_a, &creator);
+    let bb = open_board(b, dir_b, &creator);
     let a_cert = self_cert(&ba.log, &alice);
     let mut created = BoardCreated {
         board_id: BOARD.into(),
@@ -219,24 +238,32 @@ fn two_peoples_cores_sync_a_shared_board_on_its_own_connection() {
     getrandom::fill(&mut secret).unwrap();
     ba.secrets.add(1, &alice.dev, &secret).unwrap();
     bb.secrets.add(1, &alice.dev, &secret).unwrap();
+    (alice, bob, ba, bb)
+}
 
+fn board_parts(m: &Member, b: &Board) -> BoardParts {
+    BoardParts {
+        board_id: BOARD.into(),
+        person_id: m.pid.clone(),
+        log: b.log.clone(),
+        verifier: b.verifier.clone(),
+        secrets: b.secrets.clone(),
+    }
+}
+
+#[test]
+fn two_peoples_cores_sync_a_shared_board_on_its_own_connection() {
+    let dirs: Vec<tempfile::TempDir> = (0..6).map(|_| tempfile::tempdir().unwrap()).collect();
+    let a = core(dirs[0].path(), dirs[1].path());
+    let b = core(dirs[2].path(), dirs[3].path());
+    assert_ne!(a.person().id, b.person().id, "two people");
+
+    let (alice, bob, ba, bb) = shared_board(&a, &b, dirs[4].path(), dirs[5].path());
     let (ra, rb) = (a.pairing_runtime().clone(), b.pairing_runtime().clone());
-    ra.block_on(a.open_board_net(BoardParts {
-        board_id: BOARD.into(),
-        person_id: alice.pid.clone(),
-        log: ba.log.clone(),
-        verifier: ba.verifier.clone(),
-        secrets: ba.secrets.clone(),
-    }))
-    .unwrap();
-    rb.block_on(b.open_board_net(BoardParts {
-        board_id: BOARD.into(),
-        person_id: bob.pid.clone(),
-        log: bb.log.clone(),
-        verifier: bb.verifier.clone(),
-        secrets: bb.secrets.clone(),
-    }))
-    .unwrap();
+    ra.block_on(a.open_board_net(board_parts(&alice, &ba)))
+        .unwrap();
+    rb.block_on(b.open_board_net(board_parts(&bob, &bb)))
+        .unwrap();
     // The invite ticket's direct addresses.
     let addrs = |c: &Core| c.net().endpoint().expect("bound").bound_sockets();
     for x in addrs(&a).iter().chain(addrs(&b).iter()) {
@@ -270,6 +297,165 @@ fn two_peoples_cores_sync_a_shared_board_on_its_own_connection() {
             "a board row reached a private log"
         );
     }
+
+    a.close_board_net(BOARD);
+    wait("closing the board drops its connections", || {
+        a.net().board_conns(BOARD).is_empty()
+    });
+    a.close().unwrap();
+    b.close().unwrap();
+}
+
+/// The stage 2 path end to end on loopback: Alice's home server runs (on
+/// 127.0.0.1, "reachable from outside" at 127.0.0.1), and her Core writes
+/// its `board.server` row into the board she opened. Bob's Core,
+/// which has that row and no address for Alice at all, dials her through
+/// her relay, and the relay admits Bob's device only as a member device of
+/// the board (B1). Then Alice writes without kicking her mesh and only
+/// announces on the board's gossip topic: Bob's Core pulls the row over
+/// `irori/board/1`, well before the board connection's own vector tick
+/// (30 s) could have.
+#[test]
+fn a_gossip_announcement_pulls_through_a_members_relay() {
+    let dirs: Vec<tempfile::TempDir> = (0..6).map(|_| tempfile::tempdir().unwrap()).collect();
+    let a = core_with(
+        dirs[0].path(),
+        dirs[1].path(),
+        true,
+        Some(Arc::new(|hc: &mut home::Config| {
+            hc.bind_ip = Some(std::net::Ipv4Addr::LOCALHOST.into());
+            hc.v6_addrs = Some(Arc::new(Vec::new));
+            // The board here is opened by hand (open_board_net), not through
+            // the Core's board set that `wanted` counts (#63, covered by
+            // board_servers.rs): run the server regardless.
+            hc.wanted = Some(Arc::new(|| true));
+        })),
+    );
+    let b = core_with(dirs[2].path(), dirs[3].path(), true, None);
+    assert_ne!(a.person().id, b.person().id, "two people");
+    // On, reachable from outside at a manual address: no port mapping.
+    a.set_home_server(true, true, "127.0.0.1").unwrap();
+    let (alice, bob, ba, bb) = shared_board(&a, &b, dirs[4].path(), dirs[5].path());
+
+    let (ra, rb) = (a.pairing_runtime().clone(), b.pairing_runtime().clone());
+    ra.block_on(a.open_board_net(board_parts(&alice, &ba)))
+        .unwrap();
+    // Once the server runs, the Core writes the board.server row.
+    let home = a.home().expect("alice's home server");
+    wait("alice's home server runs", || home.relay_port().is_some());
+    let port = i64::from(home.relay_port().unwrap());
+    let row = || {
+        mesh::boardmesh::board_servers(&ba.log, &ba.verifier)
+            .unwrap()
+            .into_iter()
+            .find(|s| s.device_id == a.device_id())
+    };
+    wait("alice's Core writes its board.server row", || {
+        row().is_some_and(|s| s.public.is_some())
+    });
+    // An inviter's server is up before the invite goes out: Alice's own
+    // endpoint is on her relay, so what Bob sends through it reaches her.
+    let since = Instant::now();
+    while !a
+        .net()
+        .home_relays()
+        .iter()
+        .any(|(u, up)| *up && u.port() == Some(port as u16))
+    {
+        assert!(
+            since.elapsed() < Duration::from_secs(30),
+            "timed out waiting for alice's endpoint on her own relay (port {port}): home relays {:?}, relay clients {:?}, tcp connect {:?}",
+            a.net().home_relays(),
+            home.relay_clients(),
+            std::net::TcpStream::connect_timeout(
+                &std::net::SocketAddr::from(([127, 0, 0, 1], port as u16)),
+                Duration::from_secs(1)
+            )
+            .map(|_| ()),
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let sv = row().unwrap();
+    let public = sv.public.as_ref().unwrap();
+    assert_eq!(
+        (sv.port, public.ip.as_str(), public.tcp),
+        (port, "127.0.0.1", port)
+    );
+    // The invite bundle carries the board's rows so far, the server's too.
+    let rows = ba.log.list(&store::Filter::default()).unwrap();
+    bb.log.insert_batch(&rows).1.unwrap();
+    let warm = note(&ba.log, &alice, "before bob opens");
+
+    rb.block_on(b.open_board_net(board_parts(&bob, &bb)))
+        .unwrap();
+    for x in a
+        .net()
+        .endpoint()
+        .expect("bound")
+        .bound_sockets()
+        .iter()
+        .chain(b.net().endpoint().expect("bound").bound_sockets().iter())
+    {
+        assert!(x.ip().is_loopback(), "non-loopback socket {x}");
+    }
+    let peer = |c: &Core, id: &str| c.net().board_conns(BOARD).iter().any(|x| x.peer == id);
+    let t0 = Instant::now();
+    while !(peer(&a, b.device_id()) && peer(&b, a.device_id())) {
+        assert!(
+            t0.elapsed() < Duration::from_secs(30),
+            "timed out waiting for the two Cores to connect on the board: dial errors {:?} / {:?}, alice's relays {:?}, bob's {:?}, on alice's relay {:?}",
+            a.net().dial_errors(),
+            b.net().dial_errors(),
+            a.net().home_relays(),
+            b.net().home_relays(),
+            home.relay_clients(),
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let connected = Instant::now();
+    // Bob's device is on Alice's relay, admitted as a board member only.
+    let bob_key = iroh::EndpointId::from_bytes(&b.identity().device_pub()).unwrap();
+    wait("alice's relay admits bob's device", || {
+        home.relay_clients().contains(&bob_key)
+    });
+    assert!(
+        a.certified_devices()
+            .iter()
+            .all(|d| d.cert.device_id != b.device_id()),
+        "bob's device is not alice's own"
+    );
+
+    // Catch-up done: Bob's first pull brought the row written before he
+    // opened (no kick, no announcement), so both pull loops are idle,
+    // waiting on their tick or a wake, from here on.
+    wait("bob's Core pulls the row written before he opened", || {
+        has(&bb.log, &warm)
+    });
+    // Alice writes and only announces. Gossip drops a repeat of the same
+    // message, so each round writes a new row (a new vector) until the
+    // topic has formed; the first announcement that lands makes Bob pull.
+    let mut sent = Vec::new();
+    wait_for(
+        "an announcement makes bob's Core pull",
+        Duration::from_secs(20),
+        || {
+            if sent.iter().any(|ev| has(&bb.log, ev)) {
+                return true;
+            }
+            if sent.len() < 40 {
+                sent.push(note(&ba.log, &alice, &format!("gossip {}", sent.len())));
+                a.announce_board(BOARD);
+                std::thread::sleep(Duration::from_millis(400));
+            }
+            false
+        },
+    );
+    assert!(
+        connected.elapsed() < Duration::from_secs(29),
+        "the pull may have been the vector tick's, not the announcement's"
+    );
+    // Nothing on the private mesh.
+    assert!(a.net().conns().is_empty() && b.net().conns().is_empty());
 
     a.close_board_net(BOARD);
     wait("closing the board drops its connections", || {

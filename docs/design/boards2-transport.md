@@ -75,22 +75,22 @@ What changes in stage 2 is only who may connect: the gate becomes `MemberAdmit`,
 
 Built (branch `boards2-transport-gossip-relay`):
 - `IrohNet::board_channel_gated(board_id, topic, bootstrap, Some(held.gossip_accept(board_id)))` drops announcements whose delivering neighbour is not a member device of *that* board (a member of another board held here passes the endpoint gate, not this). `board_channel` is the ungated form.
-- `BoardChannel::kicks(have: HaveFn, kick: KickFn)` takes the channel's announcements over: each one whose vector is `gossip::ahead` of `have()` (some device's seq higher) calls `kick(&Announcement)`. `BoardMesh::start` wires `have` to the board log's vector and `kick` to `BoardMesh::kick`.
+- `BoardChannel::kicks(have: HaveFn, kick: KickFn)` takes the channel's announcements over: each one whose vector is `gossip::ahead` of `have()` (some device's seq higher) calls `kick(&Announcement)`. The Core wires it (§10): `have` is the board log's vector and `kick` is `BoardMesh::kick`.
 - The gate is coarse by design: gossip forwards, so a stale or spoofed announcement can at most cause one wasted pull, and the pull itself runs on the per-board gated `irori/board/1` connection.
 
 ## 6. Servers: B1 relay admission and `board.server`
 
 - **Relay admission.** Every member's home server admits the counted member devices of the boards its Core holds.
   - `home::relay::BoardAdmitFn = Arc<dyn Fn(&EndpointId) -> bool>`, plus `home::relay::member_admit(own, boards) -> AdmitFn`.
-  - `home::Config.board_admit: Option<BoardAdmitFn>` (default `None`). **Built:** when set, the relay's admission is `member_admit(own, board_admit)`, and the guest sweep (every `GUEST_SWEEP`) drops a member device once no held board counts it. It does not by itself make the server run; the Core's `Config.wanted` should count "holds a shared board" (not wired: the Core holds no shared boards yet).
+  - `home::Config.board_admit: Option<BoardAdmitFn>` (default `None`). **Built:** when set, the relay's admission is `member_admit(own, board_admit)`, and the guest sweep (every `GUEST_SWEEP`) drops a member device once no held board counts it. It does not by itself make the server run. The Core's `Config.wanted` also counts "a shared board with another person on it" (#63).
   - The relay only forwards sealed QUIC, so "for that board only" is enforced at the endpoints: the `irori/board/1` proof plus that board's verifier. A member device on your relay can't reach `irori/mesh/1` on your devices, because their gate refuses it.
 - **`board.server`** (`KIND_BOARD_SERVER`). The payload is `mesh::boardmesh::BoardServer {deviceId, port, public: Option<PublicAddr>}`.
   - It carries the public address and mapped ports only, never LAN or v6 addresses. `public: null` means the server is off or outside reach is off.
   - It is written by the server device into each board its person is in, only when it changes.
   - Producer: `home::Server::board_server() -> Result<BoardServer, String>`. **Built:** `port` is the running (else saved) port N; `public` is set only while running with outside reach on and the `node.addr` reach `ok` (manual address or a granted mapping), else `None`; `Err` only for a server that never ran.
-  - Writer: `mesh::boardmesh::write_board_server(log, &row) -> Result<bool, String>` appends only when the row differs from this device's newest `board.server` in that board log. The Core calls it per held board when the server's state changes (not wired yet).
+  - Writer: `mesh::boardmesh::write_board_server(log, &row) -> Result<bool, String>` appends only when the row differs from this device's newest `board.server` in that board log. The Core's address book calls it for each board this device is a member device of, on every refeed (#63).
   - Fold: `mesh::boardmesh::board_servers(log, verifier) -> Vec<BoardServer>`. **Built:** the newest row per server device whose writer is that device and which the verifier counts (`cert`) with no `cut`, sorted by device id. `BoardServer` and `servers::PublicAddr` now derive `Deserialize` (interface change).
-- **Dialing them.** `IrohNet::set_board_servers(Vec<BoardRelays {board_id, servers: Vec<RelaySpec>}>)` (stub).
+- **Dialing them.** `IrohNet::set_board_servers(Vec<BoardRelays {board_id, servers: Vec<RelaySpec>}>)` (built, #63). It pins each server's key and keeps the list, but leaves the servers out of the relay map, so another person's server never becomes this device's home relay. iroh opens a relay connection on demand when a member device's address names that relay.
   - Each `RelaySpec` is pinned to the server's devicePub from its member cert.
   - Members dial every `board.server` relay in parallel and keep the first handshake per server.
 - **`IrohNet::drop_board(board_id, why)`** (stub) closes every connection of a board on removal, leave or forget.
@@ -142,13 +142,29 @@ Steps 1 (its board half), 2 (`irori/board/1`), 3 (the gate), 4 and 6 (part) are 
 
 Interface additions (none of the published signatures changed):
 - `IrohNet::set_board_peers(board_id, Vec<PeerAddr>)`: a board's own address book, which `set_peers` never clears and the private mesh never dials. Also `board_conns`, `board_rooms`, `board_members`.
-- `NetConfig::boards: Arc<BoardMembers>` and `board::BoardMembers`, the Core's `BoardAdmit` over open boards' verifiers.
+- `NetConfig::boards: Arc<BoardMembers>` and `board::BoardMembers`, the Core's `BoardAdmit` over open boards' verifiers. Since #63 it wraps `boardadmit::HeldBoards`, the one registry, with `relay_admit` and `gossip_accept`.
 - `BoardMesh::{set_intervals, set_log, on_rows, member_devices, epochs, peers}` and `boardmesh::MemberDevice`.
 
-Still open:
-- `board.secret` to your own devices on the private mesh `sync` channel.
-- Gossip kick, B1 relay admission, `board.server`, and `settle` once every member has said hello on the new epoch.
-- The Core opens no board on its `BoardMesh` yet (`open_board_net` has no caller), so `Boards::kick` (now `Mesh::kick_boards`) kicks nothing in the app, and a person's own devices no longer share a board at all: `core/tests/boards.rs` `board_on_own_devices` and `board_cards_across_own_devices` are `#[ignore]`d until the board-open path calls `open_board_net` and `board.secret` reaches own devices.
-- Two admission registries after the merge with the gossip-relay half: `board::BoardMembers` (endpoint gate, this half) and `boardadmit::HeldBoards` (gossip and relay). The Core should hold one.
-
 Tests: `net/tests/board_iroh.rs` and `core/tests/boards2.rs`.
+
+## 10. Built: gossip in the Core, end to end (`boards2`, card #43)
+
+Other cards closed the remaining gaps in §9: `board.secret` to own devices and the board-open path (#44, #60), B1 relay admission, `board.server` and one registry (#63). This step wires gossip:
+
+- Each open board joins its gossip topic for each epoch it holds, through `board_channel_gated` with the registry's `gossip_accept`, and bootstraps from its member devices. Each refeed joins newly held epochs, leaves dropped ones and re-joins member devices. Closing the board drops its channels.
+- `kicks` wakes the board's `BoardMesh` on any announcement that is ahead of its log.
+- `Core::kick_board` now kicks and announces this device's vector. `Core::announce_board` only announces.
+- `IrohNet::endpoint_ids` also reads the board books, because other people's devices are not in the private book (gossip bootstrap found none before).
+- `BoardMesh::secrets()` added.
+
+Test: `core/tests/boards2.rs` `a_gossip_announcement_pulls_through_a_members_relay`.
+- Two made-up people's Cores on loopback open one board by hand (`open_board_net`).
+- Alice's home server runs at the manual address 127.0.0.1. The test forces `wanted`, because a hand-opened board is not in the Core's board set; `board_servers.rs` covers the app's own path.
+- Her Core writes its `board.server` row. Bob gets the board's rows as the invite bundle would carry them, and no address for Alice, so he reaches her only through her relay, which admits his device as a member of a board it holds.
+- After Bob's first pull, Alice only writes rows and announces. Bob pulls over `irori/board/1` before the 30 s vector tick.
+- With the announcement removed, the gossip step timed out in 5 of 6 runs. In the other run Bob pulled anyway, probably on a reconnect's hello.
+- These board logs have no follower. In the app, every board row already kicks the board meshes (`follow_board_row`), so the announcement mostly helps members this device has no connection to.
+
+Still open:
+- `settle` once every member has said hello on the new epoch.
+- A member with no server of its own is reached only after it dials, through the relay of a server it reached. Two members with no server between them need direct addresses (invite hints, the LAN lookup).

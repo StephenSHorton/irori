@@ -24,6 +24,7 @@ use std::sync::{Arc, Mutex};
 
 use irori_identity::{Chain, Identity};
 use irori_net::book::{ServerAddrs, feed};
+use irori_net::gossip::BoardChannel;
 use irori_net::transport::IrohNet;
 use mesh::boardmesh::{BoardMesh, BoardMeshOpts};
 use store::Store;
@@ -48,6 +49,8 @@ pub(crate) struct Mesh {
     pub(crate) hubs: Mutex<std::collections::BTreeMap<String, Hub>>,
     /// Open shared boards' meshes, by board id.
     boards: Mutex<std::collections::BTreeMap<String, Arc<BoardMesh>>>,
+    /// Each open board's gossip channels, by board id then epoch.
+    gossip: Mutex<BoardChannels>,
     /// Direct addresses heard for other members' devices (an invite's
     /// ticket, #44), by device id.
     board_hints: Mutex<std::collections::BTreeMap<String, Vec<std::net::SocketAddr>>>,
@@ -59,6 +62,10 @@ pub(crate) struct Mesh {
 /// How often the address book is fed again with nothing else happening:
 /// a home server's public address moves without a row here.
 const REFEED_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Each open board's gossip channels, by board id then epoch.
+type BoardChannels =
+    std::collections::BTreeMap<String, std::collections::BTreeMap<i64, Arc<BoardChannel>>>;
 
 /// What [`Mesh::open_board`] runs a shared board's mesh on: the board's
 /// log, its verifier (the log's store Verifier) and its secrets.
@@ -143,6 +150,7 @@ impl Mesh {
             refeed,
             hubs: Mutex::new(std::collections::BTreeMap::new()),
             boards: Mutex::new(std::collections::BTreeMap::new()),
+            gossip: Mutex::new(std::collections::BTreeMap::new()),
             board_hints: Mutex::new(std::collections::BTreeMap::new()),
             home: std::sync::OnceLock::new(),
         })
@@ -272,6 +280,9 @@ impl Mesh {
         if let Err(e) = self.net.set_board_servers(relays).await {
             crate::log(&format!("board servers: {}", e.0));
         }
+        for m in &boards {
+            self.board_gossip(m).await;
+        }
         // A dial tried before the book had the device failed with no
         // address: the Node dials again now that it has one.
         self.node.kick();
@@ -400,7 +411,94 @@ impl Mesh {
             self.close_board(&p.board_id, irori_meshseam::reason::LEAVING);
             return Err(e.to_string());
         }
+        self.board_gossip(&m).await;
         Ok(())
+    }
+
+    /// Joins board `m`'s gossip topic for each epoch its secrets hold (and
+    /// leaves the ones no longer held), bootstrapping from its member
+    /// devices; an announcement ahead of the board log kicks its mesh.
+    /// Without gossip (`NetConfig::gossip` off) it does nothing.
+    async fn board_gossip(&self, m: &Arc<BoardMesh>) {
+        let board = m.board_id().to_string();
+        let topics = m.secrets().topics().unwrap_or_default();
+        let ids: Vec<String> = m
+            .member_devices()
+            .into_iter()
+            .map(|d| d.device_id)
+            .collect();
+        let held: Vec<(i64, Arc<BoardChannel>)> = {
+            let mut g = self.gossip.lock().unwrap_or_else(|e| e.into_inner());
+            let chans = g.entry(board.clone()).or_default();
+            chans.retain(|e, _| topics.iter().any(|t| t.epoch == *e));
+            chans.iter().map(|(e, c)| (*e, c.clone())).collect()
+        };
+        for (_, ch) in &held {
+            let _ = ch.join(&self.net, &ids).await;
+        }
+        for t in topics
+            .iter()
+            .filter(|t| !held.iter().any(|(e, _)| *e == t.epoch))
+        {
+            let accept = self.net.board_members().gossip_accept(&board);
+            let mut ch = match self
+                .net
+                .board_channel_gated(&board, t, &ids, Some(accept))
+                .await
+            {
+                Ok(ch) => ch,
+                Err(e) => {
+                    if !e.0.contains("gossip: off") {
+                        crate::log(&format!("board {board}: gossip: {e}"));
+                    }
+                    return;
+                }
+            };
+            let (log, w) = (m.log().clone(), Arc::downgrade(m));
+            ch.kicks(
+                Arc::new(move || log.vector().unwrap_or_default()),
+                Arc::new(move |_| {
+                    if let Some(m) = w.upgrade() {
+                        m.kick();
+                    }
+                }),
+            );
+            // Only while the board is still open (a close in between drops it).
+            let open = self
+                .boards
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains_key(&board);
+            if open {
+                self.gossip
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .entry(board.clone())
+                    .or_default()
+                    .insert(t.epoch, Arc::new(ch));
+            }
+        }
+    }
+
+    /// Announces this device's vector of board `board_id` on its gossip
+    /// topics (after a local write): members that are behind pull.
+    pub(crate) async fn announce_board(&self, board_id: &str) {
+        let Some(m) = self.board(board_id) else {
+            return;
+        };
+        let chans: Vec<Arc<BoardChannel>> = self
+            .gossip
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(board_id)
+            .map(|c| c.values().cloned().collect())
+            .unwrap_or_default();
+        let vector = m.log().vector().unwrap_or_default();
+        for ch in chans {
+            if let Err(e) = ch.announce(vector.clone()).await {
+                crate::log(&format!("board {board_id}: announce: {e}"));
+            }
+        }
     }
 
     /// Closes shared board `board_id` on the network (left, removed,
@@ -415,6 +513,10 @@ impl Mesh {
         if let Some(m) = m {
             m.close();
         }
+        self.gossip
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(board_id);
         self.net.board_members().remove(board_id);
         let _ = self.net.drop_board(board_id, why);
     }

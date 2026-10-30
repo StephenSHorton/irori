@@ -399,6 +399,11 @@ impl BoardMesh {
         &self.s.opts.verifier
     }
 
+    /// The board's secrets (its gossip topics per epoch).
+    pub fn secrets(&self) -> &Arc<BoardSecrets> {
+        &self.s.opts.secrets
+    }
+
     /// The board's counted member devices other than this one: every
     /// active member's certified devices the verifier admits.
     pub fn member_devices(&self) -> Vec<MemberDevice> {

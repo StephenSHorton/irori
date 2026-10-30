@@ -1898,11 +1898,23 @@ impl Core {
         self.s.mesh.board_hint(device_id, addrs);
     }
 
-    /// After a local write to a shared board: its members pull now.
+    /// After a local write to a shared board: its connected members pull
+    /// now, and its gossip topic announces this device's vector.
     pub fn kick_board(&self, board_id: &str) {
         if let Some(m) = self.s.mesh.board(board_id) {
             m.kick();
         }
+        self.announce_board(board_id);
+    }
+
+    /// Announces this device's vector of a shared board on its gossip topic
+    /// only: members whose log is behind pull over `irori/board/1`.
+    pub fn announce_board(&self, board_id: &str) {
+        let (m, id) = (self.s.mesh.clone(), board_id.to_string());
+        self.s
+            .pairing
+            .handle
+            .spawn(async move { m.announce_board(&id).await });
     }
 
     /// After a local membership change on a shared board (a removal, a

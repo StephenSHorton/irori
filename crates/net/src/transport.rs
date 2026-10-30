@@ -665,11 +665,18 @@ impl IrohNet {
 }
 
 impl Inner {
+    /// The EndpointIds of these devices: the private book's, else a board
+    /// book's (another person's member device, for its board's gossip).
     pub(crate) fn endpoint_ids(&self, device_ids: &[String]) -> Vec<EndpointId> {
         let book = self.book.lock().expect("book");
+        let boards = self.board_book.lock().expect("board book");
         device_ids
             .iter()
-            .filter_map(|d| book.get(d).map(|p| p.id))
+            .filter_map(|d| {
+                book.get(d)
+                    .or_else(|| boards.values().find_map(|b| b.get(d)))
+                    .map(|p| p.id)
+            })
             .collect()
     }
 
