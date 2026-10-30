@@ -639,7 +639,7 @@ async fn a_write_and_a_gossip_announcement_pull_at_once() {
         vector: slow,
         ..Default::default()
     };
-    alice.open_with(iv.clone()).await;
+    alice.open_with(iv).await;
     bob.open_with(iv).await;
     eventually("alice and bob connect on the board", || {
         alice.connected_to(&bob.id) && bob.connected_to(&alice.id)
