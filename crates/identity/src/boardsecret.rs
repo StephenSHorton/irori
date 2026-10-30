@@ -274,6 +274,11 @@ impl BoardSecrets {
         Ok(out)
     }
 
+    /// The epoch [`settle`](Self::settle) last passed (0 for none).
+    pub fn settled(&self) -> i64 {
+        self.lock().f.settled
+    }
+
     /// Every member device has said hello with `epoch`: the topics before
     /// it close.
     pub fn settle(&self, epoch: i64) -> Result<(), Error> {

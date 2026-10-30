@@ -16,10 +16,17 @@
 //! - Rows move on `board/<boardId>` pull streams ([`crate::boards`]); any
 //!   other stream label is refused.
 //!
+//! Each hello's `boardEpoch` is kept on its connection. Once every
+//! remaining member device (the verifier's counted devices and this
+//! person's own) has said hello with the newest epoch, the mesh settles
+//! [`BoardSecrets`] there and leaves the older epoch's room, so a removed
+//! person, who never gets the new secret, has no topic left in common
+//! with the board (§6.1).
+//!
 //! The private mesh (`irori/mesh/1`) never carries a board row.
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use base64::Engine as _;
@@ -284,6 +291,9 @@ struct Peer {
     conn: Arc<dyn Conn>,
     epoch: i64,
     hello: AtomicBool,
+    /// The board epoch the peer's hello named (at least the room's: the
+    /// board-open proof shows it holds that one). 0 until the hello.
+    said_epoch: AtomicI64,
     wake: Notify,
 }
 
@@ -391,6 +401,12 @@ impl BoardMesh {
             .collect();
         v.sort();
         v
+    }
+
+    /// The board epoch each connected device's hello named, the highest of
+    /// its connections, by device id.
+    pub fn peer_epochs(&self) -> BTreeMap<String, i64> {
+        self.s.said_epochs()
     }
 
     /// Joins the board's rooms for every epoch `secrets` holds, and keeps
@@ -529,12 +545,72 @@ impl Shared {
         }
     }
 
+    /// The highest epoch each device has said hello with on a live
+    /// connection.
+    fn said_epochs(&self) -> BTreeMap<String, i64> {
+        let mut out: BTreeMap<String, i64> = BTreeMap::new();
+        for p in self.peer_list() {
+            if !p.hello.load(Ordering::SeqCst) {
+                continue;
+            }
+            let e = p.said_epoch.load(Ordering::SeqCst);
+            let slot = out.entry(p.conn.id().to_string()).or_default();
+            *slot = (*slot).max(e);
+        }
+        out
+    }
+
+    /// Settles the board's secrets on the newest epoch once every remaining
+    /// member device has said hello with it (§6.1): the older epoch's topic
+    /// then closes. A member device not connected keeps it open. Returns
+    /// whether it settled now.
+    fn maybe_settle(&self) -> bool {
+        let secrets = &self.opts.secrets;
+        let newest = secrets.epoch();
+        if newest < 1 || secrets.settled() >= newest {
+            return false;
+        }
+        let held = match secrets.topics() {
+            Ok(t) => t,
+            Err(e) => {
+                self.logf(&format!("settle: {e}"));
+                return false;
+            }
+        };
+        if !held.iter().any(|t| t.epoch < newest) {
+            return false;
+        }
+        let said = self.said_epochs();
+        let devs = self.member_devices();
+        if devs
+            .iter()
+            .any(|d| said.get(&d.device_id).copied().unwrap_or(0) < newest)
+        {
+            return false;
+        }
+        if let Err(e) = secrets.settle(newest) {
+            self.logf(&format!("settle {newest}: {e}"));
+            return false;
+        }
+        self.logf(&format!(
+            "every member device is on epoch {newest}: the older topic closes"
+        ));
+        for p in self.peer_list() {
+            if p.epoch < newest {
+                p.conn.close(reason::EPOCH);
+            }
+        }
+        true
+    }
+
     /// Joins every held epoch's room not joined yet, leaves the ones no
-    /// longer held, hands newer secrets on, and dials the member devices.
+    /// longer held (settled), hands newer secrets on, and dials the member
+    /// devices.
     async fn refresh(self: &Arc<Self>) -> Result<(), TransportError> {
         if self.cancel.is_cancelled() {
             return Ok(());
         }
+        self.maybe_settle();
         let topics = self
             .opts
             .secrets
@@ -642,6 +718,7 @@ impl Shared {
             conn: conn.clone(),
             epoch,
             hello: AtomicBool::new(false),
+            said_epoch: AtomicI64::new(0),
             wake: Notify::new(),
         });
         if let Some(old) = self
@@ -747,11 +824,21 @@ impl Shared {
                         p.conn.close(reason::HELLO);
                         return;
                     }
+                    p.said_epoch
+                        .store(h.board_epoch.max(p.epoch), Ordering::SeqCst);
                     p.hello.store(true, Ordering::SeqCst);
                     if self.behind(&h.vector) {
                         p.wake.notify_one();
                     }
                     self.share_secrets(&p).await;
+                    if self.maybe_settle() {
+                        let s = self.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = s.refresh().await {
+                                s.logf(&format!("refresh: {e}"));
+                            }
+                        });
+                    }
                 }
                 _ if !said_hello => {
                     p.conn.close(reason::FRAME_BEFORE_HELLO);

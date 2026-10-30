@@ -478,6 +478,146 @@ async fn two_people_share_a_board_and_only_its_members_get_in() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn after_a_removal_the_old_topic_closes_once_every_member_moved() {
+    // Alice, Bob and Carol share a board on epoch 1. Alice removes Bob and
+    // rotates to epoch 2 while Carol is offline: epoch 1's room stays open
+    // for Carol. When Carol comes back and says hello on epoch 2, Alice and
+    // Carol settle and leave epoch 1; Bob, who never got epoch 2, has no
+    // topic left in common with them and no new rows.
+    let alice_p = Person::new("a-alice-pc");
+    let creator = alice_p.pin();
+    let mut alice = Dev::with_person(alice_p, &creator);
+    let mut bob = Dev::new("b-bob-mac", &creator);
+    let mut carol = Dev::new("c-carol-pc", &creator);
+
+    let a_cert = alice.self_cert();
+    let created = alice.create_board();
+    let added_b = alice.add_member(&bob.person);
+    let added_c = alice.add_member(&carol.person);
+    let b_cert = bob.self_cert();
+    let c_cert = carol.self_cert();
+    bob.take(&[
+        a_cert.clone(),
+        created.clone(),
+        added_b.clone(),
+        added_c.clone(),
+    ]);
+    bob.take(std::slice::from_ref(&c_cert));
+    carol.take(&[a_cert, created, added_b, added_c]);
+    carol.take(std::slice::from_ref(&b_cert));
+    alice.take(&[b_cert, c_cert]);
+    assert!(alice.verifier.admitted_by_pub(&bob.pub_hex()).is_some());
+    assert!(alice.verifier.admitted_by_pub(&carol.pub_hex()).is_some());
+
+    let mut secret = [0u8; 32];
+    getrandom::fill(&mut secret).unwrap();
+    for d in [&alice, &bob, &carol] {
+        d.secrets.add(1, &alice.id, &secret).unwrap();
+    }
+    let (pa, pb, pc) = (
+        alice.peer_addr().await,
+        bob.peer_addr().await,
+        carol.peer_addr().await,
+    );
+    alice
+        .net
+        .set_board_peers(BOARD, vec![pb.clone(), pc.clone()]);
+    bob.net.set_board_peers(BOARD, vec![pa.clone(), pc.clone()]);
+    carol
+        .net
+        .set_board_peers(BOARD, vec![pa.clone(), pb.clone()]);
+    alice.open().await;
+    bob.open().await;
+    eventually("alice and bob connect on epoch 1", || {
+        alice.connected_to(&bob.id) && bob.connected_to(&alice.id)
+    })
+    .await;
+    let before = alice.note("before");
+    alice.mesh().kick();
+    eventually("bob pulls alice's row", || bob.has(&before)).await;
+
+    // Carol is offline. Alice removes Bob and rotates.
+    let bob_seq = bob.log.vector().unwrap().get(&bob.id).copied().unwrap_or(0);
+    alice.remove_member(&bob.person, &[(&bob.id, bob_seq)]);
+    alice.secrets.mint(2, &alice.id).unwrap();
+    alice.mesh().recheck();
+    eventually("alice joins epoch 2", || {
+        alice.mesh().epochs() == vec![1, 2]
+    })
+    .await;
+    eventually("bob's connections are cut", || {
+        !alice.connected_to(&bob.id) && bob.net.board_conns(BOARD).is_empty()
+    })
+    .await;
+    // Not every remaining member has moved: epoch 1 stays open for Carol.
+    never(
+        "alice settled before carol said hello on epoch 2",
+        Duration::from_millis(1000),
+        || alice.secrets.topics().unwrap().len() != 2 || alice.mesh().epochs() != vec![1, 2],
+    )
+    .await;
+    assert_eq!(alice.secrets.settled(), 0);
+
+    // Carol comes back holding Alice's rows (the removal among them) and
+    // only epoch 1.
+    let rows = alice.log.list(&store::Filter::default()).unwrap();
+    let (_, r) = carol.log.insert_batch(&rows);
+    r.unwrap();
+    assert!(carol.verifier.admitted_by_pub(&bob.pub_hex()).is_none());
+    carol.open().await;
+    eventually("carol gets epoch 2 on board.secret", || {
+        carol.secrets.epoch() == 2
+    })
+    .await;
+    eventually("alice and carol settle on epoch 2 and leave epoch 1", || {
+        alice.secrets.settled() == 2
+            && carol.secrets.settled() == 2
+            && alice.mesh().epochs() == vec![2]
+            && carol.mesh().epochs() == vec![2]
+            && !alice.net.board_rooms().iter().any(|(_, e)| *e == 1)
+            && !carol.net.board_rooms().iter().any(|(_, e)| *e == 1)
+    })
+    .await;
+    assert_eq!(alice.secrets.topics().unwrap().len(), 1);
+    assert_eq!(alice.secrets.topics().unwrap()[0].epoch, 2);
+    assert!(alice.secrets.secret(1).is_none(), "epoch 1's secret is gone");
+    assert_eq!(alice.mesh().peer_epochs().get(&carol.id), Some(&2));
+    assert!(
+        alice
+            .net
+            .board_conns(BOARD)
+            .iter()
+            .all(|c| c.epoch == 2),
+        "{:?}",
+        alice.net.board_conns(BOARD)
+    );
+
+    // Bob never got epoch 2, and nobody else is on epoch 1 any more.
+    assert_eq!(bob.secrets.epoch(), 1);
+    assert!(bob.secrets.secret(2).is_none());
+    let after = alice.note("after the rotation");
+    alice.mesh().kick();
+    eventually("carol pulls the new row", || carol.has(&after)).await;
+    never(
+        "the removed member reached the board",
+        Duration::from_millis(1500),
+        || {
+            bob.has(&after)
+                || !bob.net.board_conns(BOARD).is_empty()
+                || alice.connected_to(&bob.id)
+                || carol.connected_to(&bob.id)
+        },
+    )
+    .await;
+
+    for d in [&alice, &bob, &carol] {
+        d.mesh().close();
+        d.net.close().await;
+    }
+    let _ = (&alice.dir, &bob.dir, &carol.dir);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_private_mesh_refuses_another_persons_device() {
     let alice_p = Person::new("a-alice-pc");
     let creator = alice_p.pin();
