@@ -64,6 +64,12 @@ fn edit_flow(r: &Rig, w: &Tw, dir: &str, content: &str, tool: &str) -> String {
         ]),
     );
     r.repos(); // the root is known from the edit: start watching its reflog
+    // The shell call spans the commit, as a real one does: its tool_use is
+    // stamped before git runs and its result after. Stamping both after
+    // the commit put the command as long past the commit time as `git
+    // commit` and `rev-parse` took, outside COMMITTER_WINDOW on a loaded
+    // machine (powershell_committer then found no committer).
+    let started = now();
     git(dir, &["add", "foo.go"]);
     git(dir, &["commit", "-q", "-m", "add foo"]);
     let sha = head(dir);
@@ -77,7 +83,19 @@ fn edit_flow(r: &Rig, w: &Tw, dir: &str, content: &str, tool: &str) -> String {
         r,
         w,
         &flat(vec![
-            w.shell("b1", tool, cmd, "[main abc] add foo\n", None, &at),
+            vec![
+                w.tool_use(
+                    "b1",
+                    tool,
+                    json!({"command": cmd, "description": "run"}),
+                    &started,
+                ),
+                w.result(
+                    "b1",
+                    json!({"stdout": "[main abc] add foo\n", "stderr": "", "interrupted": false, "isImage": false}),
+                    &at,
+                ),
+            ],
             vec![w.reply("done", &at), w.done(&add(&at, sec(1)))],
         ]),
     );
