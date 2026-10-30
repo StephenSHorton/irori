@@ -137,7 +137,7 @@ export function BlockerOption(p: Partial<B.BlockerOption> = {}): B.BlockerOption
 
 /** BoardMember with Go's zero values for every field left out. */
 export function BoardMember(p: Partial<B.BoardMember> = {}): B.BoardMember {
-  return { "personId": "", "name": "", "owner": false, "me": false, "devices": 0, ...p } as B.BoardMember
+  return { "personId": "", "name": "", "owner": false, "me": false, "devices": 0, "fingerprint": "", ...p } as B.BoardMember
 }
 
 /** BoardReviewer with Go's zero values for every field left out. */
@@ -147,7 +147,7 @@ export function BoardReviewer(p: Partial<B.BoardReviewer> = {}): B.BoardReviewer
 
 /** BoardSettings with Go's zero values for every field left out. */
 export function BoardSettings(p: Partial<B.BoardSettings> = {}): B.BoardSettings {
-  return { "boardId": "", "members": [], "receive": "", "people": [], "receiveOwn": false, "autonomy": "", "autonomyOwn": false, "reviewers": [], "agents": [], ...p } as B.BoardSettings
+  return { "boardId": "", "members": [], "receive": "", "people": [], "receiveOwn": false, "autonomy": "", "autonomyOwn": false, "leaving": false, "conflicts": [], "reviewers": [], "agents": [], ...p } as B.BoardSettings
 }
 
 /** BoardSummary with Go's zero values for every field left out. */

@@ -137,6 +137,11 @@ export const BoardsService = {
   Rename: (boardId: string, name: string) => call(commands.boardsRename(boardId, name)),
   Leave: (boardId: string) => done(commands.boardsLeave(boardId)),
   Forget: (boardId: string) => done(commands.boardsForget(boardId)),
+  ForgetNow: (boardId: string) => done(commands.boardsForgetNow(boardId)),
+  RemoveMember: (boardId: string, personId: string) =>
+    call(commands.boardsRemoveMember(boardId, personId)),
+  SetRole: (boardId: string, personId: string, role: string) =>
+    call(commands.boardsSetRole(boardId, personId, role)),
   SharePreview: (taskId: string, boardId: string) => call(commands.boardsSharePreview(taskId, boardId)),
   Share: (taskId: string, boardId: string, hash: string) => call(commands.boardsShare(taskId, boardId, hash)),
   Withdraw: (taskId: string) => call(commands.boardsWithdraw(taskId)),

@@ -26,6 +26,7 @@ irori-store.workspace = true
 irori-sys.workspace = true
 irori-tools.workspace = true
 base64.workspace = true
+hex.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 specta.workspace = true

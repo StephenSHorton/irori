@@ -183,7 +183,9 @@ export const boards = {
     return b
   },
 
-  // leave takes you off a board on every one of your devices.
+  // leave takes you off a board on every one of your devices; with other
+  // people on it, the board shows "Leaving…" until one of them has your
+  // leave (design §4.4).
   async leave(id: string): Promise<void> {
     if (inWails()) return BoardsService.Leave(id)
     sampleFind(id)
@@ -195,6 +197,36 @@ export const boards = {
   async forget(id: string): Promise<void> {
     if (inWails()) return BoardsService.Forget(id)
     return boards.leave(id)
+  },
+
+  // forgetNow forgets a board showing "Leaving…" on every one of your
+  // devices without waiting; the others may not hear you left.
+  async forgetNow(id: string): Promise<void> {
+    if (inWails()) return BoardsService.ForgetNow(id)
+    return boards.leave(id)
+  },
+
+  // removeMember takes someone off a board you own (§4.3).
+  async removeMember(boardId: string, personId: string): Promise<BoardSettings> {
+    if (inWails()) return BoardsService.RemoveMember(boardId, personId)
+    const s = await boards.settings(boardId)
+    s.members = s.members.filter((m) => m.personId !== personId)
+    return BoardSettings(s)
+  },
+
+  // setRole makes a member an owner, or an owner a member (§4.2).
+  async setRole(boardId: string, personId: string, role: "owner" | "member"): Promise<BoardSettings> {
+    if (inWails()) return BoardsService.SetRole(boardId, personId, role)
+    const s = await boards.settings(boardId)
+    const owners = s.members.filter((m) => m.owner).length
+    const m = s.members.find((x) => x.personId === personId)
+    if (!m) throw new Error(`coord: not found: ${personId} isn't on the board`)
+    if (role === "member" && m.owner && owners <= 1)
+      throw new Error(
+        "coord: not allowed: the last owner can't stop being one: make someone else an owner first"
+      )
+    m.owner = role === "owner"
+    return BoardSettings(s)
   },
 
   // preview is exactly what Share to board would write.
@@ -229,12 +261,31 @@ export const boards = {
     const b = sampleFind(boardId)
     return (sampleSettings[boardId] ??= BoardSettings({
       boardId: b.boardId,
-      members: [{ personId: "sample-me", name: b.people[0] ?? "You", owner: true, me: true, devices: b.devices }],
+      members: [
+        {
+          personId: "sample-me",
+          name: b.people[0] ?? "You",
+          owner: true,
+          me: true,
+          devices: b.devices,
+          fingerprint: "AB12 CD34 EF56",
+        },
+        ...b.people.slice(1).map((name, i) => ({
+          personId: `sample-person-${i}`,
+          name,
+          owner: false,
+          me: false,
+          devices: 1,
+          fingerprint: "9F3A 01BC 77D2",
+        })),
+      ],
       receive: "open",
       people: [],
       receiveOwn: false,
       autonomy: "trusted",
       autonomyOwn: false,
+      leaving: false,
+      conflicts: [],
       reviewers: [],
       agents: [
         { agent: "sample-dev/alpha", name: "alpha", repo: "remote:github.com/sample-org/example-app" },
