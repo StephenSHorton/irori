@@ -604,8 +604,14 @@ async fn revoke_closes_the_live_connection_and_refuses_the_redial() {
     let cut = c.vector().get(&c.id).copied().unwrap_or(0);
     a.node.lock().unwrap().revoke(&c.id, cut);
     a.net.recheck();
+    // C included: until C's own side has seen both connections close, its
+    // room still holds them as live and the redial below is a no-op (a room
+    // never dials a peer it is connected to).
     wait_until("C dropped everywhere", WAIT, || {
-        a.live_to(&c.id).is_empty() && b.live_to(&c.id).is_empty()
+        a.live_to(&c.id).is_empty()
+            && b.live_to(&c.id).is_empty()
+            && c.live_to(&a.id).is_empty()
+            && c.live_to(&b.id).is_empty()
     })
     .await;
     let on_c: Vec<ConnError> = c
@@ -828,11 +834,23 @@ fn serve_boards(c: &Arc<dyn Conn>, board: String, rows: Arc<Vec<serde_json::Valu
 async fn pull_board(c: &Arc<dyn Conn>, board: &str, have: usize) -> Vec<serde_json::Value> {
     let mut s = c.open_stream(&format!("board/{board}")).await.unwrap();
     let req = serde_json::json!({"vector": {"dev": have}});
-    write_frame(&mut s.send, &serde_json::to_vec(&req).unwrap(), 1 << 20)
-        .await
-        .unwrap();
-    use tokio::io::AsyncWriteExt as _;
-    s.send.shutdown().await.unwrap();
+    // A refused pull (another board's label) finishes the reply with zero
+    // bytes and drops the stream unread, which stops our side: the request
+    // can fail to send with `Stopped(0)` (a ConnectionReset) when the
+    // refusal wins. That is the refusal, not a failure; anything else is.
+    // The reply below is still read and checked either way.
+    let sent = async {
+        write_frame(&mut s.send, &serde_json::to_vec(&req).unwrap(), 1 << 20).await?;
+        use tokio::io::AsyncWriteExt as _;
+        Ok::<_, irori_meshseam::FrameError>(s.send.shutdown().await?)
+    }
+    .await;
+    match sent {
+        Ok(()) => {}
+        Err(irori_meshseam::FrameError::Io(e))
+            if e.kind() == std::io::ErrorKind::ConnectionReset => {}
+        Err(e) => panic!("sending the pull request: {e:?}"),
+    }
     let mut out = Vec::new();
     while let Some(chunk) = read_frame(&mut s.recv, 1 << 20, false).await.unwrap() {
         let v: serde_json::Value = serde_json::from_slice(&chunk).unwrap();
