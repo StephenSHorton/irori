@@ -54,6 +54,11 @@ use crate::notice;
 use crate::timers::{self, Kick, Ticker};
 use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 
+pub mod boards;
+mod boards_own;
+
+use boards::Boards;
+
 /// The Core's clock: local time, as Go's `time.Now()` shows it.
 pub type NowFn = Arc<dyn Fn() -> GoTime + Send + Sync>;
 /// The desktop app's Revive (`claude --bg --resume <session>`).
@@ -192,6 +197,8 @@ struct Services {
     pairing: crate::devices::Pairing,
     revoke: Option<crate::devices::RevokeFn>,
     mesh: Arc<crate::meshnode::Mesh>,
+    /// The shared boards (Go `c.boards`).
+    boards: Arc<Boards>,
 }
 
 /// The notify crate's [`notify::Notifier`] as the tools' seam
@@ -262,6 +269,36 @@ impl tools::Backend for ToolsView {
     fn notifier(&self) -> Option<&dyn tools::Notifier> {
         // Go's nil Notifier on a headless Core.
         (!self.0.notifier.0.is_headless()).then_some(&self.0.notifier as &dyn tools::Notifier)
+    }
+    fn router(&self) -> Option<&dyn tools::TaskRouter> {
+        Some(self)
+    }
+    fn board_viewer(&self) -> Option<&dyn tools::BoardViewer> {
+        Some(self)
+    }
+}
+
+// The Core holds the private log and every board's (v0.5 §2.1); a tools
+// backend without these would silently act on the private log alone.
+impl tools::TaskRouter for ToolsView {
+    fn task_coord(
+        &self,
+        task_id: &str,
+        keys: &[String],
+    ) -> Result<(Arc<Coord>, Vec<String>), coord::Error> {
+        self.0.task_coord(task_id, keys)
+    }
+    fn private_notice(&self, n: Notice) -> Notice {
+        self.0.private_notice(n)
+    }
+    fn task_ref(&self, r: &str) -> Result<String, coord::Error> {
+        self.0.task_ref(r)
+    }
+}
+
+impl tools::BoardViewer for ToolsView {
+    fn board_views(&self, f: &coord::BoardFilter) -> Vec<coord::BoardView> {
+        self.0.board_views(f)
     }
 }
 
@@ -717,6 +754,10 @@ impl Core {
         load_colors(&st, &colors);
         let decisions_sub = Arc::new(st.subscribe());
 
+        // The Core's stop; the shared boards' threads end with it too.
+        let stop = Cancel::new();
+        let board_set = Arc::new(Boards::new(stop.clone()));
+
         // The mesh and pairing share one iroh endpoint (crate::meshnode).
         // The home server (mesh.md §3.3) runs only where it is switched on,
         // and only while the mesh has a peer or a pairing window is open (Go
@@ -764,6 +805,7 @@ impl Core {
                             (ib.clone(), co.clone(), asks.clone(), roster.clone());
                         Some(Arc::new(move || ignored_by(&ib, &co, &asks, &roster)))
                     },
+                    boards: Some(board_set.clone()),
                 },
             );
             let mut po =
@@ -844,7 +886,9 @@ impl Core {
             pairing,
             revoke: Some(opts.revoke.clone().unwrap_or_else(|| mesh.revoke_fn())),
             mesh,
+            boards: board_set,
         });
+        let _ = s.boards.node.set(s.mesh.node.clone());
         // A pairing window starts the home server at once (Go Notify).
         if let Some(h) = s.home.clone() {
             s.pairing
@@ -857,7 +901,7 @@ impl Core {
         let core = Core {
             s: s.clone(),
             tools,
-            stop: Cancel::new(),
+            stop,
             stop_async: CancellationToken::new(),
             threads: Mutex::new(Vec::new()),
             watch: Mutex::new(None),
@@ -986,6 +1030,20 @@ impl Core {
                 opts.runtime.as_ref(),
                 async move { h.run(ct).await },
             );
+        }
+
+        // The shared boards on this device, and the person's board.joined
+        // and board.forgot rows from every device (Go openBoards,
+        // followOwnBoards).
+        s.open_boards();
+        {
+            let sub = Arc::new(s.store.subscribe());
+            let reg = self.on_stop(&sub, |s| s.cancel());
+            let s = s.clone();
+            self.spawn("boards", move || {
+                let _reg = reg;
+                s.follow_own_boards(&sub);
+            });
         }
 
         // The mesh Node, its Servers fold and the address book, on the
@@ -1284,6 +1342,7 @@ impl Core {
                 let _ = h.join();
             }
         }
+        self.s.boards.close_all();
         self.s.hub.close();
         self.s.pairing.shutdown();
         let _ = lockfile::remove(&self.s.data_dir, lockfile::own_pid());
@@ -1548,10 +1607,9 @@ impl Core {
     }
 
     /// Go `PrivateNotice`: a notice with board keys as this device's inbox
-    /// knows them. Only the private board exists before shared boards, so
-    /// every key is already this device's own.
+    /// knows them.
     pub fn private_notice(&self, n: Notice) -> Notice {
-        n
+        self.s.private_notice(n)
     }
 
     /// The coord sweep (every [`COORD_SWEEP_INTERVAL`]): sweep notices and
@@ -1779,7 +1837,7 @@ impl Services {
     }
 
     fn route_notice(&self, from: &Sender, n: &Notice) -> Vec<NoticeResult> {
-        notice::route(&self.inbox, from, n)
+        notice::route(&self.inbox, from, &self.private_notice(n.clone()))
     }
 
     fn ask_agents(&self) -> Vec<AgentCard> {
@@ -1809,11 +1867,14 @@ impl Services {
                 logf(format_args!("coord notice {} {}: {e}", n.kind, n.reference));
             }
         }
-        let errs: Vec<String> = [err.err(), aerr.err()]
+        let mut errs: Vec<String> = [err.err(), aerr.err()]
             .into_iter()
             .flatten()
             .map(|e| e.to_string())
             .collect();
+        if let Err(e) = self.sweep_boards() {
+            errs.push(e);
+        }
         if errs.is_empty() {
             Ok(())
         } else {

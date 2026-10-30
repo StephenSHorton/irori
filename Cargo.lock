@@ -3181,6 +3181,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-util",
+ "zeroize",
 ]
 
 [[package]]
