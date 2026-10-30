@@ -32,6 +32,10 @@ pub struct BoardSummary {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     #[specta(optional)]
     pub leaving: bool,
+    /// The board's warning lines (§8: only when something is wrong).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[specta(optional)]
+    pub warnings: Vec<String>,
 }
 
 impl From<irori_core::BoardSummary> for BoardSummary {
@@ -47,6 +51,7 @@ impl From<irori_core::BoardSummary> for BoardSummary {
             ready: s.ready,
             tag_clash: s.tag_clash,
             leaving: s.leaving,
+            warnings: s.warnings,
         }
     }
 }

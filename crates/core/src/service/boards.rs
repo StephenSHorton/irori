@@ -211,6 +211,8 @@ pub(crate) struct BoardLog {
     stop: Cancel,
     threads: Mutex<Vec<JoinHandle<()>>>,
     pub maps: Mutex<CardMaps>,
+    /// When this device opened it, for the status lines' grace.
+    pub opened: Instant,
 }
 
 impl BoardLog {
@@ -929,6 +931,7 @@ impl Services {
             stop,
             threads: Mutex::new(Vec::new()),
             maps: Mutex::new(CardMaps::default()),
+            opened: Instant::now(),
         });
         let close = |e: Error| {
             let _ = st.close();

@@ -58,6 +58,7 @@ use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 pub mod boards;
 mod boards_members;
 mod boards_own;
+pub mod boards_status;
 mod bridge;
 mod mirror;
 pub use mirror::BoardReviewer;
@@ -892,6 +893,7 @@ impl Core {
         let (pairing, mesh) = pairing;
         let _ = node_cell.set(mesh.node.clone());
 
+        let invites = invites::Invites::default();
         let home = (!opts.no_home).then(|| {
             let mut hc = home::Config::new(dir.clone(), ident.clone(), chain.clone(), st.clone());
             let node = mesh.node.clone();
@@ -899,9 +901,14 @@ impl Core {
             // Go core.go:290: another device, or an open pairing window;
             // stage 2 (B1): or a shared board with another person on it,
             // whose members this server relays for.
-            let held = board_set.clone();
+            // And while this device is the inviter of an open board invite,
+            // so the link can name its relay.
+            let (held, hosting) = (board_set.clone(), invites.hosting.clone());
             hc.wanted = Some(Arc::new(move || {
-                pr.status().open() || node.has_peer() || held.shared_with_others()
+                pr.status().open()
+                    || node.has_peer()
+                    || held.shared_with_others()
+                    || hosting.load(std::sync::atomic::Ordering::SeqCst)
             }));
             hc.board_admit = Some(mesh.net.board_members().relay_admit());
             let m = mesh.clone();
@@ -959,7 +966,7 @@ impl Core {
             revoke: Some(opts.revoke.clone().unwrap_or_else(|| mesh.revoke_fn())),
             mesh,
             boards: board_set,
-            invites: Default::default(),
+            invites,
         });
         let _ = s.boards.kicker.set({
             let m = Arc::downgrade(&s.mesh);

@@ -312,6 +312,8 @@ export type BoardSummary = {
 	 *  "Leaving…", with Forget now (§4.4).
 	 */
 	leaving?: boolean,
+	/**  The board's warning lines (§8: only when something is wrong). */
+	warnings?: string[],
 };
 
 /**  The capture:changed payload: what changed since the last one. */

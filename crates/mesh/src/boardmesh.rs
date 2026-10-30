@@ -297,6 +297,9 @@ pub struct PeerHeard {
     pub vector: BTreeMap<String, i64>,
     /// Unix milliseconds of the last frame.
     pub at_ms: i64,
+    /// Per stream in `vector`: when its seq last moved (Unix ms), for the
+    /// stalled-forwarder flag (§6.4).
+    pub advanced_ms: BTreeMap<String, i64>,
 }
 
 /// One board connection.
@@ -864,13 +867,17 @@ impl Shared {
             h.person_id = person.to_string();
             h.core_version = version.to_string();
         }
-        for (d, s) in vector {
-            let e = h.vector.entry(d.clone()).or_insert(0);
-            *e = (*e).max(*s);
-        }
-        h.at_ms = std::time::SystemTime::now()
+        let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as i64);
+        for (d, s) in vector {
+            let e = h.vector.entry(d.clone()).or_insert(0);
+            if *s > *e || !h.advanced_ms.contains_key(d) {
+                h.advanced_ms.insert(d.clone(), now);
+            }
+            *e = (*e).max(*s);
+        }
+        h.at_ms = now;
     }
 
     /// Whether `theirs` holds a row this device's board log lacks.

@@ -758,6 +758,26 @@ fn alice_removes_bob_and_his_agent_comes_off() {
             .board_verifier(&board)
             .is_some_and(|v| !v.membership().active(&bob_pid))
     });
+    let line = b1
+        .core
+        .board_list()
+        .into_iter()
+        .find(|s| s.board_id == board)
+        .map(|s| s.warnings)
+        .unwrap_or_default();
+    assert!(
+        line.first()
+            .is_some_and(|l| l.starts_with("You're no longer on this board")),
+        "bob's board line: {line:?}"
+    );
+    assert!(
+        a1.core
+            .board_list()
+            .iter()
+            .find(|s| s.board_id == board)
+            .is_some_and(|s| s.warnings.is_empty()),
+        "alice's board warns"
+    );
     if let Ok(co) = b1.core.board_coord(&board)
         && let Ok(late) = co.create_task(&b1.person_actor(), new_task("after removal"))
     {
