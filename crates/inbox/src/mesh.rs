@@ -10,7 +10,7 @@ use store::{Event, Filter, MAX_LIST_LIMIT, Subscription as StoreSub};
 use crate::messages::{bad_state, dismissed, not_found_delivery};
 use crate::policy::placed;
 use crate::state::{DecidedRow, Drec, Inner, REPLAY_KINDS, decode_decided, decode_delivery};
-use crate::{ChangeKind, Error, ErrorKind, Inbox, Policy, Result, choice, kinds, st};
+use crate::{ChangeKind, Error, ErrorKind, Inbox, Policy, Result, choice, hold, kinds, st};
 
 impl Inner {
     /// agent is hosted here: its key names this device, or none.
@@ -109,6 +109,9 @@ impl Inner {
             if let Err(e) = self.host_hold(&id) {
                 eprintln!("inbox: hold {id}: {e}");
             }
+            if let Err(e) = self.lift_retired_hold(&id) {
+                eprintln!("inbox: lift {id}: {e}");
+            }
         }
         for r in std::mem::take(&mut self.requests) {
             let id = r.delivery_id.clone();
@@ -144,6 +147,25 @@ impl Inner {
             self.passed(did);
             return Ok(());
         }
+        let r = placed(self.dels[did].row(), h);
+        self.put_delivery(r, "irori")
+    }
+
+    /// A delivery to one of this device's sessions still held for
+    /// bypass_receiver, a hold that no longer exists (card #71): the
+    /// policy decides it again, which queues it unless the person's own
+    /// settings hold it.
+    fn lift_retired_hold(&mut self, did: &str) -> Result<()> {
+        let d = &self.dels[did];
+        if d.d.state != st::HELD || d.d.hold != hold::BYPASS_RECEIVER || !self.local(&d.d.to) {
+            return Ok(());
+        }
+        let (mid, to) = (d.d.message_id.clone(), d.d.to.clone());
+        if !self.msgs.contains_key(&mid) {
+            return Ok(());
+        }
+        let cards = self.live_cards()?;
+        let h = self.hold_id(&mid, &to, &cards);
         let r = placed(self.dels[did].row(), h);
         self.put_delivery(r, "irori")
     }

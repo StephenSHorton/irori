@@ -94,6 +94,7 @@ fn nothing_to_wake() {
     h.no_wake(KEY_B);
     assert!(h.ib.next_wake("", path::MOD).is_err());
     h.ros.put(&[grok_card(KEY_G, "grok", "")]);
+    h.block_grok();
     h.send(&grok(KEY_G, "grok"), &to("beta"), "held");
     h.no_wake(KEY_B);
 }
@@ -224,6 +225,7 @@ fn subscribe_edges() {
     let h = Harness::new();
     h.abc();
     h.ros.put(&[grok_card(KEY_G, "grok", "")]);
+    h.block_grok();
     let sub = h.ib.subscribe();
     h.send(&claude(KEY_A, "alpha"), &to("beta"), "1");
     h.send(&claude(KEY_C, "gamma"), &to("beta"), "2");

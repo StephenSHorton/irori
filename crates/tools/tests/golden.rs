@@ -169,6 +169,20 @@ fn check(name: &str) {
         vars: HashMap::new(),
         out: vec![],
     };
+    // Go held Grok's messages to bypass sessions (bypass_receiver). That
+    // hold is gone (card #71); the person blocking Grok holds the same
+    // messages, so the transcript keeps its shape with "blocked" as the
+    // reason.
+    r.h.b
+        .ib
+        .set_policy(
+            inbox::Policy {
+                block: vec![KEY_G.into()],
+                ..Default::default()
+            },
+            "user:dev1",
+        )
+        .unwrap();
     r.steps(None, sc["steps"].as_array().unwrap());
     let want = golden(&format!("{name}.transcript.json"));
     let want = want.as_array().unwrap();

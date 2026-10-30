@@ -182,7 +182,7 @@
   {
     "step": 38,
     "tool": "send",
-    "text": "Sent message msg_01M5VQ1CR879ZJBH8087SCP1KA to alpha (dev1/aaaaaaaa-1111-4111-8111-111111111111) (delivery dlv_01M5VQ1CR879ZJBH8087SCP1KB): held by the recipient's wake policy (bypass_receiver); it waits until the person releases it. Don't resend it."
+    "text": "Sent message msg_01M5VQ1CR879ZJBH8087SCP1KA to alpha (dev1/aaaaaaaa-1111-4111-8111-111111111111) (delivery dlv_01M5VQ1CR879ZJBH8087SCP1KB): held by the recipient's wake policy (blocked); it waits until the person releases it. Don't resend it."
   },
   {
     "step": 39,

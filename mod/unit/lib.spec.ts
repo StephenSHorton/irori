@@ -83,13 +83,12 @@ describe('editPolicy', () => {
     expect('error' in editPolicy(base, 'mode', 'nobody')).toBe(true)
   })
 
-  test('mode open (Full auto) is kept across other edits', () => {
+  test('mode open (the old Full auto) is everyone now', () => {
     const out = editPolicy(base, 'mode', 'OPEN')
     if ('error' in out) throw new Error(out.error)
-    expect(out.policy.mode).toBe('open')
-    expect(out.text).toContain('Full auto')
-    const blocked = editPolicy(out.policy, 'block', 'grok-1')
-    expect('policy' in blocked && blocked.policy.mode).toBe('open')
+    expect(out.policy.mode).toBe('everyone')
+    const blocked = editPolicy({ ...base, mode: 'open' }, 'block', 'grok-1')
+    expect('policy' in blocked && blocked.policy.mode).toBe('everyone')
   })
 
   test('block, unblock, allow, deny replace case-insensitively and keep the rest', () => {
@@ -123,7 +122,7 @@ describe('editPolicy', () => {
   test('describePolicy', () => {
     expect(describePolicy({ ...base, block: ['grok-1'], paused: true })).toBe('Policy: everyone mode, blocked: grok-1 · paused.')
     expect(describePolicy({ ...base, mode: 'allowlist' })).toBe('Policy: allowlist mode, allowed: nobody.')
-    expect(describePolicy({ ...base, mode: 'open' })).toBe('Policy: full auto (open mode), blocked: nobody.')
+    expect(describePolicy({ ...base, mode: 'open' })).toBe('Policy: everyone mode, blocked: nobody.')
   })
 })
 
