@@ -53,6 +53,7 @@ fn replay_reproduces_state() {
     let mut h = Harness::new();
     h.abc();
     h.ros.put(&[grok_card(KEY_G, "grok", "repo1")]);
+    h.block_grok();
     h.ib.set_reachable(KEY_A, path::MOD, true);
     h.clk.advance(secs(1));
     h.ib.set_reachable(KEY_B, path::MOD, true);
@@ -61,7 +62,7 @@ fn replay_reproduces_state() {
     let w = h.deliver_engage(KEY_B, "t1");
     h.send(&claude(KEY_B, "beta"), &to("gamma"), "hop one");
     h.ib.reply(&claude(KEY_B, "beta"), &d1.id, "done").unwrap();
-    let (_, held) = h.send(&grok(KEY_G, "grok"), &to("alpha"), "bypass hold");
+    let (_, held) = h.send(&grok(KEY_G, "grok"), &to("alpha"), "held by the block list");
     let (_, dismissed) = h.send(&grok(KEY_G, "grok"), &to("beta"), "dismiss me");
     h.ib.dismiss(&dismissed.id, USER).unwrap();
     let (_, repo) = h.send(&claude(KEY_C, "gamma"), &to_repo("repo1"), "repo work");
@@ -417,6 +418,7 @@ fn search_visibility() {
     let mut h = Harness::new();
     h.abc();
     h.ros.put(&[grok_card(KEY_G, "grok", "")]);
+    h.block_grok();
     let t0 = h.clk.now();
     let (plain, _) = h.send(&claude(KEY_A, "alpha"), &to("beta"), "parser plan");
     h.clk.advance(mins(1));
@@ -550,6 +552,7 @@ fn search_show() {
     let h = Harness::new();
     h.abc();
     h.ros.put(&[grok_card(KEY_G, "grok", "")]);
+    h.block_grok();
     let orig = h.send_with(
         &claude(KEY_A, "alpha"),
         &to("beta"),

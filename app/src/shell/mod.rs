@@ -50,6 +50,10 @@ fn context() -> tauri::Context<tauri::Wry> {
 }
 
 pub fn run(args: &[String]) -> Result<(), String> {
+    // Opened from Finder, the Dock or at login, the app has launchd's PATH:
+    // take the login shell's before anything starts claude, git or gh.
+    // SAFETY: first thing in the window role, before any thread is spawned.
+    unsafe { sys::shellpath::fix_gui_path() };
     let startup = login::started_at_login(args);
     let data = datadir::process_data_dir()?;
     let rt = tokio::runtime::Builder::new_multi_thread()

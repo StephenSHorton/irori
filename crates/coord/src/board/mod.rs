@@ -46,8 +46,8 @@ pub use board_search::{DEFAULT_DOC_PAGE, SHOW_COMMENT_CUT, SHOW_COMMENTS};
 pub use cards::{merge_watch, watch_text};
 pub use error::{Error, ErrorKind, Result};
 pub use fold::{
-    FOLLOW_KINDS, Fold, LEFT_GONE, REASON_CONFLICT, REASON_EXPIRED, REASON_HOLDER_GONE,
-    REASON_RELEASED, REASON_STOLEN, SUB_BUFFER, followed,
+    FOLLOW_KINDS, Fold, LEFT_GONE, LEFT_REMOVED, REASON_CONFLICT, REASON_EXPIRED,
+    REASON_HOLDER_GONE, REASON_RELEASED, REASON_STOLEN, SUB_BUFFER, followed,
 };
 pub use links::{MAX_LINKS, link_label, parse_link, pr_link};
 pub use mirror::RELEASE_REQUEST;
@@ -292,6 +292,11 @@ impl Coord {
     pub fn leave(&self, by: &str, id: &str, who: &str) -> Result<Task> {
         self.lock().leave(by, id, who)
     }
+    /// Takes board member `person_id`'s keys off every open card (v0.5
+    /// §4.3): the remover's cleanup.
+    pub fn take_off_person(&self, by: &str, person_id: &str) -> Result<usize> {
+        self.lock().take_off_person(by, person_id)
+    }
     pub fn set_shared(&self, by: &str, id: &str, shared: bool) -> Result<Task> {
         self.lock().set_shared(by, id, shared)
     }
@@ -352,6 +357,16 @@ impl Coord {
     pub fn raise(&self, by: &str, id: &str, nb: NewBlocker) -> Result<(Task, Blocker)> {
         self.lock().raise(by, id, nb)
     }
+    /// Revises an open blocker (Fold::revise).
+    pub fn revise(
+        &self,
+        by: &str,
+        id: &str,
+        blocker: &str,
+        r: BlockerRevision,
+    ) -> Result<(Task, Blocker)> {
+        self.lock().revise(by, id, blocker, r)
+    }
     pub fn recommend(
         &self,
         by: &str,
@@ -389,6 +404,10 @@ impl Coord {
     /// A task's newest activity lines, newest first (`None`: no such task).
     pub fn activity(&self, id: &str) -> Option<Vec<Activity>> {
         self.lock().activity_of(id)
+    }
+    /// The person deletes a card (card #57); returns it as it was.
+    pub fn delete_task(&self, by: &str, id: &str) -> Result<Task> {
+        self.lock().delete_task(by, id)
     }
     pub fn pin(&self, by: &str, id: &str, pinned: bool) -> Result<Task> {
         self.lock().pin(by, id, pinned, "", false)
@@ -494,14 +513,15 @@ impl Coord {
         self.lock().mirror_release(card, resource)
     }
     /// Asks another person's agents to review a PR the card links: `to`,
-    /// or their dedicated reviewers (v0.5 §10). The notice goes to them.
+    /// or their dedicated reviewers (v0.5 §10), one request each. The
+    /// notice goes to them.
     pub fn request_review(
         &self,
         by: &str,
         id: &str,
         pr: &str,
         to: &str,
-    ) -> Result<(ReviewRequest, Notice)> {
+    ) -> Result<(Vec<ReviewRequest>, Notice)> {
         self.lock().request_review(by, id, pr, to)
     }
     /// The person dedicating one of their agents as reviewer for the board
@@ -516,6 +536,16 @@ impl Coord {
     /// A member's dedicated reviewer for repo, else for the board.
     pub fn reviewer(&self, person: &str, repo: &str) -> String {
         self.lock().reviewer_of(person, repo)
+    }
+    /// Every reviewer a member dedicated, as `(repoKey or "", agent)`,
+    /// by repo; a cleared one is left out.
+    pub fn reviewers_of(&self, person: &str) -> Vec<(String, String)> {
+        self.lock()
+            .reviewers
+            .iter()
+            .filter(|((p, _), (_, a))| p == person && !a.is_empty())
+            .map(|((_, r), (_, a))| (r.clone(), a.clone()))
+            .collect()
     }
     /// Asks the holder of another person's lease to release it, on the
     /// shared card it mirrors through, in place of a steal.
@@ -682,7 +712,13 @@ impl Coord {
     /// When the expiry timer should fire: the soonest Until of this
     /// device's leases while anyone is subscribed.
     pub fn next_expiry(&self) -> Option<GoTime> {
-        self.lock().next_expiry()
+        // A read: no unlock signal. The core's expiry timer calls this right
+        // after taking the rearm generation; firing on_unlock here kicked
+        // that generation and spun the timer on a whole core (#70).
+        self.f
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .next_expiry()
     }
 
     /// Runs `f` after every unlock (Go's `unlock` re-arming its timer): the

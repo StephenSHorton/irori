@@ -82,6 +82,7 @@ function world(
     submitThrows?: boolean
     toastThrows?: boolean
     appendFails?: () => 'deny' | undefined
+    board?: unknown
   } = {},
 ) {
   const children: Array<ReturnType<typeof makeChild>> = []
@@ -136,6 +137,8 @@ function world(
     if (e.url.includes('/v1/tools/')) return { value: { ok: true, status: 200, headers: {}, text: '{"text":"Sent: msg_01 to bob."}' } } as never
     if (e.url.endsWith('/v1/policy') && (e.init?.method ?? 'GET') === 'GET')
       return { value: { ok: true, status: 200, headers: {}, text: '{"mode":"everyone","block":[],"allow":[],"paused":false}' } } as never
+    if (e.url.includes('/v1/board'))
+      return { value: { ok: true, status: 200, headers: {}, text: JSON.stringify(opts.board ?? {}) } } as never
     if (e.url.endsWith('/v1/policy')) return { value: { ok: true, status: 200, headers: {}, text: e.init?.body ?? '{}' } } as never
     return { value: { ok: true, status: 200, headers: {}, text: '{"ok":true}' } } as never
   })
@@ -166,7 +169,7 @@ describe('attach', () => {
       await band.unmount()
     }
     const ran = await $.command.run(irori(''))
-    expect(ran.text).toContain('irori mod 0.4.1')
+    expect(ran.text).toContain('irori mod 0.4.2')
     expect(ran.text).toContain('set iroriPath')
   })
 
@@ -174,7 +177,7 @@ describe('attach', () => {
     const w = world(on)
     await $.session.start({ cwd: 'C:/work/api', surface: 'terminal', isInteractive: true })
     await until(() => w.children.length === 1, 'spawn')
-    expect(w.spawned[0]).toEqual([IRORI, 'attach', '--session', SESSION, '--cwd', 'C:/work/api', '--mod-version', '0.4.1'])
+    expect(w.spawned[0]).toEqual([IRORI, 'attach', '--session', SESSION, '--cwd', 'C:/work/api', '--mod-version', '0.4.2'])
 
     // hello split across two pieces, a blank keepalive, and a stray log line.
     const h = line(hello)
@@ -505,7 +508,7 @@ describe('/irori', () => {
     }
     expect(w.calls.filter(c => c.url.endsWith('/v1/policy'))).toEqual([])
     const status = await $.command.run(irori(''))
-    expect(status.text).toContain('irori mod 0.4.1')
+    expect(status.text).toContain('irori mod 0.4.2')
     expect(status.text).toContain('Attached as api work')
   })
 
@@ -569,5 +572,27 @@ describe('session title (card #21)', () => {
     w.children[0]!.write(line({ type: 'name', name: 'otter', nameSource: 'irori' }))
     await pause(50)
     expect((await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: 'heron' } as never)).sessionTitle).toBe('otter')
+  })
+})
+
+describe('held cards (GitHub #3)', () => {
+  test('a prompt carries the blocker reminder while the session holds a card', OPTIONS, async ($, on) => {
+    const w = world(on, { board: { working: [{ short: '68', title: 'Fix it', holders: [hello.agentKey] }] } })
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line(hello))
+    await until(() => w.registered.length === 2, 'hello')
+    const got = await $.classic.UserPromptSubmit({ prompt: 'log in for me' } as never)
+    expect(got.additionalContext?.join('\n')).toContain('you hold #68 "Fix it"')
+    expect(got.additionalContext?.join('\n')).toContain('board_block')
+  })
+
+  test('no card held, no reminder', OPTIONS, async ($, on) => {
+    const w = world(on, { board: { working: [{ short: '68', holders: ['dev-b/other'] }] } })
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line(hello))
+    await until(() => w.registered.length === 2, 'hello')
+    expect((await $.classic.UserPromptSubmit({ prompt: 'hi' } as never)).additionalContext ?? []).toEqual([])
   })
 })

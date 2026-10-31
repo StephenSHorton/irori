@@ -413,4 +413,36 @@ pub trait BoardTransport: Send + Sync {
         room: BoardRoom,
         cfg: RoomConfig,
     ) -> BoxFut<'_, Result<Arc<dyn Room>, TransportError>>;
+
+    /// Joins the gossip topic of `room` (one per board epoch; boards2-
+    /// transport §5): announcements whose vector is ahead of `have()` call
+    /// `kick`, and only member devices of that board are heard. `bootstrap`
+    /// is the member devices' keys to dial into the topic. `Ok(None)`: this
+    /// transport runs no gossip (the board connections' own vector frames
+    /// and ticks still move rows). Dropping the handle leaves the topic.
+    fn board_gossip(
+        &self,
+        room: BoardRoom,
+        bootstrap: Vec<[u8; 32]>,
+        have: VectorFn,
+        kick: KickFn,
+    ) -> BoxFut<'_, Result<Option<Box<dyn BoardGossip>>, TransportError>> {
+        let _ = (room, bootstrap, have, kick);
+        Box::pin(async { Ok(None) })
+    }
+}
+
+/// A device's vector of a board log: the highest seq held per device.
+pub type BoardVector = std::collections::BTreeMap<String, i64>;
+/// This device's vector of the board log, read when an announcement comes.
+pub type VectorFn = Arc<dyn Fn() -> BoardVector + Send + Sync>;
+/// Called when an announcement is ahead of the local log: pull now.
+pub type KickFn = Arc<dyn Fn() + Send + Sync>;
+
+/// One board epoch's gossip topic ([`BoardTransport::board_gossip`]).
+pub trait BoardGossip: Send + Sync {
+    /// Tells the topic this device's vector of the board log.
+    fn announce(&self, vector: BoardVector) -> BoxFut<'_, Result<(), TransportError>>;
+    /// Adds member devices (by key) to dial into the topic.
+    fn join(&self, devices: Vec<[u8; 32]>) -> BoxFut<'_, Result<(), TransportError>>;
 }

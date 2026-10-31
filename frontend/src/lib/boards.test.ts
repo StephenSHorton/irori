@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { suggestTag, validTag } from "./boards"
+import { InviteState, InviteStatus, inviteOpen, suggestTag, validTag } from "./boards"
 
 describe("board tags (identity.ValidBoardTag)", () => {
   test("a lowercase letter, then up to 15 letters, digits or '-'", () => {
@@ -13,4 +13,16 @@ describe("board tags (identity.ValidBoardTag)", () => {
     expect(suggestTag("2026 plans")).toBe("")
     expect(suggestTag("")).toBe("")
   })
+})
+
+describe("invites", () => {
+  test("inviteOpen is true only while an invite is in progress", () => {
+    expect(inviteOpen(null)).toBe(false)
+    expect(inviteOpen(InviteStatus({}))).toBe(false)
+    for (const st of [InviteState.Waiting, InviteState.Words, InviteState.Joining])
+      expect(inviteOpen(InviteStatus({ state: st }))).toBe(true)
+    for (const st of [InviteState.Done, InviteState.Failed])
+      expect(inviteOpen(InviteStatus({ state: st }))).toBe(false)
+  })
+
 })

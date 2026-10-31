@@ -77,7 +77,7 @@ fn test_post_ask_tells_every_free_agent() {
             && n.person
             && n.to == [ALICE, BOB]
             && n.text.contains(&format!("ask_claim #{}", tk.short))
-            && !n.wake,
+            && n.wake,
         "{n:?}"
     );
     assert_eq!(
@@ -314,6 +314,12 @@ fn test_ask_outcomes() {
             && !ga.is_open()
             && ga.outcome.unwrap().kind == OUTCOME_CARD
             && got.short == card.short
+    );
+    let acts = e.c.activity(&card.id).unwrap();
+    assert!(
+        acts.iter().any(|a| a.what
+            == "renamed it from “the login page is slow” to “Speed up the login page”; set done when to “under 1s”"),
+        "{acts:?}"
     );
     e.c.set_task_state(ALICE, &card.id, COMPLETED, "done")
         .unwrap();
@@ -773,7 +779,14 @@ fn test_late_tells_wake_only_in_the_persons_window() {
     e.c.leave(ALICE, &tk.id, ALICE).unwrap();
     let ns = e.c.sweep_asks(&agents(&e)).unwrap();
     assert!(
-        ns.len() == 1 && !ns[0].wake && ns[0].text.contains("gave it back"),
+        ns.len() == 1 && ns[0].wake && ns[0].text.contains("gave it back"),
+        "{ns:?}"
+    );
+    // The agent that gave it back isn't told (and woken) again as a late joiner.
+    e.ros.set(ALICE, "idle");
+    let ns = e.c.sweep_asks(&agents(&e)).unwrap();
+    assert!(
+        ns.iter().all(|n| !n.to.contains(&ALICE.to_string())),
         "{ns:?}"
     );
 }
@@ -797,7 +810,7 @@ fn test_ask_line() {
     let (tk, _) = post_ask(&e, "look");
     assert_eq!(
         e.c.get_task(&tk.id).unwrap().ask_line(),
-        "the person asked the room; 3 agents heard it, nobody has taken it: ask_claim takes it"
+        "the person asked the room; 3 agents told, nobody has taken it: ask_claim takes it"
     );
     e.c.ask_claim(ALICE, &tk.id, sec()).unwrap();
     assert_eq!(

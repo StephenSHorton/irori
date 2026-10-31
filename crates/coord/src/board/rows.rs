@@ -65,6 +65,9 @@ crate::go_struct! {
         pub options: Vec<BlockerOption> = "options" "omit",
         pub reason_only: bool = "reasonOnly" "omit",
         pub replace: bool = "replace" "omit",
+        /// With replace: a revision, whose options replace the item's
+        /// (none clears them). Older folds ignore it and keep their options.
+        pub revise: bool = "revise" "omit",
         pub on: Option<BlockedBy> = "on" "omit",
         pub links: Vec<Link> = "links" "omit",
         pub attachments: Vec<FileRef> = "attachments" "omit",
@@ -298,6 +301,16 @@ crate::go_struct! {
         pub task_id: String = "taskId",
         pub who: String = "who",
         pub watching: bool = "watching",
+        pub by: String = "by",
+        pub at: GoTime = "at",
+    }
+}
+
+crate::go_struct! {
+    /// task.deleted: the person took a card off the Board for good.
+    #[derive(Debug, Clone, Default, PartialEq)]
+    pub struct TaskDeletedRow {
+        pub task_id: String = "taskId",
         pub by: String = "by",
         pub at: GoTime = "at",
     }

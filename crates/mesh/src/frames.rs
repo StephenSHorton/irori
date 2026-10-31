@@ -22,6 +22,10 @@ pub const FRAME_VECTOR: &str = "vector";
 pub const FRAME_PING: &str = "ping";
 pub const FRAME_PONG: &str = "pong";
 pub const FRAME_PERSON_SECRET: &str = "person.secret";
+/// A shared board's secret to another of the person's devices
+/// (boards2-transport.md §4): `boardId`, `epoch` (the board epoch), `maker`,
+/// and `sealed` under the mesh key of epoch `from`.
+pub const FRAME_BOARD_SECRET: &str = "board.secret";
 /// Asks the peer for its copy of the asker's own row at `seq` (`device_id`
 /// is the asker): a restored device checks the last row it holds against
 /// the peer's before it takes the rows after it.
@@ -96,6 +100,12 @@ pub struct Frame {
     pub sealed: Vec<u8>,
     #[serde(skip_serializing_if = "is_zero")]
     pub from: i64,
+
+    // board.secret (epoch, sealed and from too)
+    #[serde(rename = "boardId", skip_serializing_if = "String::is_empty")]
+    pub board_id: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub maker: String,
 }
 
 /// A log row on the wire. The payload travels as base64 of the stored
@@ -232,6 +242,8 @@ static FRAME_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
         ("personPub", Schema::String),
         ("sealed", Schema::String),
         ("from", Schema::Int(64)),
+        ("boardId", Schema::String),
+        ("maker", Schema::String),
     ])
 });
 
@@ -316,6 +328,8 @@ pub fn decode_frame(b: &[u8]) -> Result<Frame, String> {
         person_pub: o.get_str("personPub").to_string(),
         sealed: bytes(&o, "sealed").map_err(bad)?,
         from: int(&o, "from"),
+        board_id: o.get_str("boardId").to_string(),
+        maker: o.get_str("maker").to_string(),
     };
     if f.typ.is_empty() {
         return Err("mesh: frame has no type".into());
@@ -362,4 +376,26 @@ pub fn batches(evs: &[Event], loose: bool) -> Vec<Frame> {
         flush(&mut cur, &mut out);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_board_secret_frame_round_trips() {
+        let f = Frame {
+            board_id: "0123456789abcdef0123456789abcdef".into(),
+            epoch: 2,
+            maker: "dev-a".into(),
+            from: 3,
+            sealed: vec![7; 56],
+            ..Frame::of_type(FRAME_BOARD_SECRET)
+        };
+        assert_eq!(decode_frame(&f.encode()).unwrap(), f);
+        // Frames without a board leave the new fields out.
+        let p = Frame::of_type(FRAME_PING).encode();
+        let s = String::from_utf8(p).unwrap();
+        assert!(!s.contains("boardId") && !s.contains("maker"), "{s}");
+    }
 }

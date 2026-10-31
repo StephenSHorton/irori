@@ -3162,6 +3162,7 @@ dependencies = [
  "irori-home",
  "irori-identity",
  "irori-inbox",
+ "irori-invite",
  "irori-lan",
  "irori-mesh",
  "irori-meshseam",
@@ -3191,12 +3192,16 @@ dependencies = [
  "irori-blob",
  "irori-capture",
  "irori-coord",
+ "irori-core",
  "irori-gocompat",
  "irori-hlc",
  "irori-identity",
  "irori-inbox",
+ "irori-invite",
  "irori-scrub",
  "irori-store",
+ "irori-sys",
+ "irori-tools",
  "serde",
  "serde_json",
  "tempfile",
@@ -3288,6 +3293,32 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "irori-invite"
+version = "0.0.0"
+dependencies = [
+ "base64 0.23.1",
+ "data-encoding",
+ "hex",
+ "hmac",
+ "iroh",
+ "irori-gocompat",
+ "irori-hlc",
+ "irori-identity",
+ "irori-mesh",
+ "irori-meshseam",
+ "irori-net",
+ "irori-pair",
+ "irori-store",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "subtle",
+ "tempfile",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]
@@ -3463,6 +3494,7 @@ version = "0.0.0"
 dependencies = [
  "base64 0.23.1",
  "irori-gocompat",
+ "irori-sys",
  "libc",
  "serde",
  "serde_json",
@@ -3574,6 +3606,7 @@ name = "irori-window"
 version = "0.0.0"
 dependencies = [
  "base64 0.23.1",
+ "hex",
  "iroh",
  "irori-blob",
  "irori-capture",

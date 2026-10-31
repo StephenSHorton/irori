@@ -19,8 +19,8 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::frames::{
-    FRAME_HELLO, FRAME_PERSON_SECRET, FRAME_PING, FRAME_PONG, FRAME_ROW_AT, FRAME_ROWS,
-    FRAME_VECTOR, Frame, MAX_BATCH_ROWS, PROTOCOL, Row, batches, decode_frame,
+    FRAME_BOARD_SECRET, FRAME_HELLO, FRAME_PERSON_SECRET, FRAME_PING, FRAME_PONG, FRAME_ROW_AT,
+    FRAME_ROWS, FRAME_VECTOR, Frame, MAX_BATCH_ROWS, PROTOCOL, Row, batches, decode_frame,
 };
 use crate::node::{FORKED_SELF, HELD_BYTES_CAP, HELD_ROWS_CAP, MIN_PEER_SCHEMA, Node, within};
 use crate::transport::PeerConn;
@@ -73,6 +73,9 @@ struct SessState {
     p_epoch: i64,
     p_pub: String,
     sent_key: String,
+    /// board id -> the `epoch/maker` whose `board.secret` went on this
+    /// connection.
+    sent_boards: BTreeMap<String, String>,
     peer_vec: Vector,
     sent_loose: bool,
     inflight: bool,
@@ -164,6 +167,17 @@ impl Session {
             return false;
         }
         g.sent_key = k;
+        true
+    }
+
+    /// Records that board `board`'s secret `mark` goes to the peer on this
+    /// connection; false if it already went.
+    pub(crate) fn mark_board_secret(&self, board: &str, mark: &str) -> bool {
+        let mut g = self.lock();
+        if g.sent_boards.get(board).is_some_and(|m| m == mark) {
+            return false;
+        }
+        g.sent_boards.insert(board.to_string(), mark.to_string());
         true
     }
 
@@ -445,6 +459,11 @@ impl Session {
                         self.n.take_secret(&f);
                     }
                 }
+                FRAME_BOARD_SECRET => {
+                    if self.n.certified(&self.conn.id()) {
+                        self.n.take_board_secret(&f);
+                    }
+                }
                 FRAME_ROW_AT => {
                     // Only the asker's own rows: it is checking its history.
                     if f.device_id == self.conn.id()
@@ -565,6 +584,7 @@ impl Session {
         n.note_vector(&peer, &f.vector);
         n.connected(&peer);
         n.send_secret(self); // if it is behind, or rotated apart
+        n.send_board_secrets(self);
         n.kick(); // its epoch may close or open a room
         self.poke();
         true

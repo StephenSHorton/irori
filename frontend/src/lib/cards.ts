@@ -142,7 +142,7 @@ export function openAsk(c: { ask?: CardAsk | null }): boolean {
 }
 
 // askLine is an open ask's line in place of the holder line: how many
-// heard it, who it waits on, or who took it.
+// it told, who it waits on, or who took it.
 export function askLine(a: CardAsk): string {
   switch (a.state) {
     case AskState.Taken:
@@ -161,7 +161,7 @@ export function askLine(a: CardAsk): string {
       return `Closed: ${plainLine(a.outcome?.note ?? "")}`
   }
   if (a.told === 0) return "Nobody was free to hear it"
-  return `${a.told} ${a.told === 1 ? "agent" : "agents"} heard it`
+  return `Told ${a.told} ${a.told === 1 ? "agent" : "agents"}; nobody took it yet`
 }
 
 // ---- sample mode ------------------------------------------------------------
@@ -313,6 +313,23 @@ function sampleCloseAsk(id: string, note: string) {
     state: AskState.Closed,
     outcome: { kind: "none", note: note.trim() || "closed by the person" },
   })
+  sample = sampleState().filter((x) => x.id !== id)
+  sampleChanged()
+}
+
+// sampleClose is BoardService.Close on the sample: the person ends a card
+// as done or canceled, and it moves to the Closed filter.
+function sampleClose(id: string, state: TaskState, note: string) {
+  const c = sampleCard(id)
+  c.state = state
+  c.note = note.trim()
+  c.updatedAt = new Date().toISOString()
+  sampleChanged()
+}
+
+// sampleDelete is BoardService.Delete on the sample: the card is gone.
+function sampleDelete(id: string) {
+  sampleCard(id)
   sample = sampleState().filter((x) => x.id !== id)
   sampleChanged()
 }
@@ -712,11 +729,15 @@ export const cards = {
   // now. One of them takes it.
   // files (picked, dropped or pasted) go on the ask's card, and the agent
   // that takes it fetches them (card #25).
+  // boardId posts it to that shared board instead (v0.5 §9): every
+  // member's free agents hear it. A board ask names no repo and takes no
+  // files.
   async ask(
     text: string,
     repoKey = "",
     wake = false,
-    files: File[] = []
+    files: File[] = [],
+    boardId = ""
   ): Promise<TaskResult> {
     if (files.length > MaxUploadFiles)
       throw new Error(`at most ${MaxUploadFiles} files`)
@@ -726,12 +747,13 @@ export const cards = {
         `${big.name} is over ${MaxUpload >> 20} MiB; ask an agent to attach it from disk`
       )
     if (inWails()) {
-      if (!files.length) return BoardService.Ask(text, repoKey, wake)
+      if (!files.length) return BoardService.Ask(text, repoKey, wake, boardId)
       return BoardService.AskWithFiles(
         text,
         repoKey,
         wake,
-        await Promise.all(files.map(uploadOf))
+        await Promise.all(files.map(uploadOf)),
+        boardId
       )
     }
     return sampleAsk(text, repoKey, wake)
@@ -770,6 +792,26 @@ export const cards = {
       return
     }
     sampleCloseAsk(id, note)
+  },
+
+  // close ends a card by hand (card #57): done (completed) or canceled,
+  // with an optional note. The person may close any card.
+  async close(id: string, state: TaskState, note = ""): Promise<void> {
+    if (inWails()) {
+      await BoardService.Close(id, state, note)
+      return
+    }
+    sampleClose(id, state, note)
+  },
+
+  // remove deletes a card (card #57): it leaves the Board on every device;
+  // the signed log keeps it.
+  async remove(id: string): Promise<void> {
+    if (inWails()) {
+      await BoardService.Delete(id)
+      return
+    }
+    sampleDelete(id)
   },
 
   // reopen brings a finished card back into play, with whoever held it.

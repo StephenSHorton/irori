@@ -425,9 +425,14 @@ fn nobody_steals_another_persons_lease() {
         cm.text
     );
     assert!(n.to.contains(&CARD1.to_string()), "{n:?}");
+    // Addressed to the holder, so the bridge carries it to that agent only.
+    assert_eq!(cm.to, CARD1);
     sync(&a, &b);
     assert!(
-        a.c.comments(&t.id).unwrap().iter().any(|c| c.id == cm.id),
+        a.c.comments(&t.id)
+            .unwrap()
+            .iter()
+            .any(|c| c.id == cm.id && c.to == CARD1),
         "the request reached p1's side"
     );
     let e = a.c.request_release(P1, SRC, "").unwrap_err();
@@ -603,13 +608,16 @@ fn a_review_request_reaches_the_other_persons_reviewer() {
     sync(&a, &b);
     assert_eq!(a.c.reviewer("p2", REPO_A), CARD2);
     assert_eq!(a.c.reviewer("p2", REPO_B), "", "another repo has none");
+    // Without to, the row names the dedicated reviewer (never to:"",
+    // which the bridge can't deliver).
     let (r, n) = a.c.request_review(CARD1, &t.id, PR, "").unwrap();
-    assert_eq!((r.from.as_str(), r.to.as_str()), (CARD1, ""));
+    assert_eq!(r.len(), 1);
+    assert_eq!((r[0].from.as_str(), r[0].to.as_str()), (CARD1, CARD2));
     assert_eq!(n.kind, NOTICE_REVIEW);
     assert_eq!(n.to, vec![CARD2.to_string()]);
     assert!(n.text.contains(PR), "{}", n.text);
     sync(&a, &b);
-    assert_eq!(b.c.reviews(&t.id), vec![r]);
+    assert_eq!(b.c.reviews(&t.id), r);
     // Forged: p2's device asking as p1's agent, p1's device dedicating
     // p2's agent.
     let at = plus(fixed_now(), mins(5));
@@ -695,4 +703,19 @@ fn a_steal_on_the_board_takes_only_ones_own_persons_lease() {
         assert!(lease_on(s, SRC).is_none(), "the stolen lease ended");
         assert_eq!(lease_on(s, SRC_MAIN).unwrap().holder, CARD3);
     }
+}
+
+/// #61: "irori" names no person, so a board counts its task.created for
+/// nothing. Creating a card as Irori on a board is refused, not a panic,
+/// and writes nothing; a person's card still goes through after it.
+#[test]
+fn irori_creating_a_board_card_is_refused() {
+    let (a, b, _) = two_people();
+    let before = a.c.list_tasks(&TaskFilter::default()).len();
+    let err = a.c.create_task("irori", nt("by irori", "")).unwrap_err();
+    assert!(err.to_string().contains("Irori itself"), "{err}");
+    sync(&a, &b);
+    assert_eq!(a.c.list_tasks(&TaskFilter::default()).len(), before);
+    assert_eq!(b.c.list_tasks(&TaskFilter::default()).len(), before);
+    a.c.create_task(P1, nt("by a person", "")).unwrap();
 }

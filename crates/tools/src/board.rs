@@ -13,7 +13,7 @@ use coord::{
 };
 use gocompat::time::GoTime;
 
-use crate::args::{StepArg, Ty};
+use crate::args::{Args, StepArg, Ty};
 use crate::attachments::{attached_line, describe_coord, to_coord};
 use crate::format::{MAX_FIELD_RUNES, ago, in_, one_line, q, quoted, trim};
 use crate::{Caller, Inner, MAX_RESULT, Names, decode, err_text, map_err, untrusted};
@@ -760,7 +760,7 @@ pub(crate) fn board_comment(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         // A reply on a blocker tells nobody: the person is the audience.
         let b = one_line(&bid, 20);
         return format!(
-            "Replied on blocker {b} of {}{}; it stays open and goes back to the person. Resolve it with board_unblock blocker_id={b} note=… once you have what you need.",
+            "Replied on blocker {b} of {}{}; it stays open and goes back to the person. Resolve it with board_unblock blocker_id={b} note=… once you have what you need. If your reply answered their question and the choices are not what they were, revise it now with board_block blocker_id={b} (the question and options that fit, or none); don't leave the same options up.",
             s.short_of(&id),
             attached_line(&files)
         );
@@ -805,11 +805,12 @@ const BLOCK_ARGS: &[(&str, Ty)] = &[
     ("task_id", Ty::Str),
     ("question", Ty::Str),
     ("reason", Ty::Str),
-    ("context", Ty::Str),
+    ("context", Ty::OptStr),
     ("options", Ty::Structs(OPTION_FIELDS)),
     ("on", Ty::Str),
     ("links", Ty::Strs),
     ("attach", Ty::Strs),
+    ("blocker_id", Ty::Str),
 ];
 
 fn link_labels(ls: &[Link]) -> String {
@@ -895,6 +896,87 @@ impl Inner {
     }
 }
 
+/// board_block's options as coord takes them.
+fn block_options(options: &[Args]) -> Vec<BlockerOption> {
+    let mut opts: Vec<BlockerOption> = options
+        .iter()
+        .map(|o| BlockerOption {
+            answer: o.str("answer").into(),
+            why: o.str("why").into(),
+            recommended: o.bool("recommended"),
+            link: if trim(o.str("link")).is_empty() {
+                None
+            } else {
+                Some(Link {
+                    reference: o.str("link").into(),
+                    ..Link::default()
+                })
+            },
+            ..BlockerOption::default()
+        })
+        .collect();
+    if opts.len() == 1 {
+        opts[0].recommended = true; // a lone answer is the one recommended
+    }
+    opts
+}
+
+/// board_block with blocker_id: revises that open blocker in place.
+fn revise_blocker(s: &Inner, c: &Caller, a: &Args, id: &str, bid: &str) -> String {
+    if !trim(a.str("reason")).is_empty()
+        || !trim(a.str("on")).is_empty()
+        || !a.strs("links").is_empty()
+        || !a.strs("attach").is_empty()
+    {
+        return err_text(
+            "with blocker_id, board_block revises that blocker: give question, context and options only (reason, on, links and attach stay as they are).",
+        );
+    }
+    let options = a.structs("options");
+    for o in &options {
+        if trim(o.str("link")).is_empty() {
+            continue;
+        }
+        if let Err(e) = coord::parse_link(o.str("link")) {
+            return map_err(e);
+        }
+    }
+    let (co, as_) = match s.on(id, std::slice::from_ref(&c.sender.key)) {
+        Ok(v) => v,
+        Err(e) => return map_err(e),
+    };
+    let (t, item) = match co.revise(
+        &as_[0],
+        id,
+        bid,
+        coord::BlockerRevision {
+            question: a.str("question").into(),
+            context: a.opt_str("context"),
+            options: block_options(&options),
+        },
+    ) {
+        Ok(v) => v,
+        Err(e) => return map_err(e),
+    };
+    let mut out = format!(
+        "Revised blocker {} on {}: it asks {}",
+        item.id,
+        t.short_ref(),
+        q(&one_line(&item.question, 200))
+    );
+    if item.options.is_empty() {
+        out += " with no options, so the person answers in their own words.";
+    } else {
+        let n = item.options.len();
+        out += &format!(" with {n} option{}.", if n == 1 { "" } else { "s" });
+    }
+    out += " It shows under the person's last reply, and the blocker waits on them again. Resolve it with board_unblock once you have what you need.";
+    if many_questions(&item.question) {
+        out += &format!(" Its question asks more than one thing. {ONE_ASK_EACH}");
+    }
+    format!("{out}\n{}", s.line(&t))
+}
+
 pub(crate) fn board_block(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let a = match decode(raw, BLOCK_ARGS) {
         Ok(a) => a,
@@ -904,6 +986,10 @@ pub(crate) fn board_block(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Ok(id) => id,
         Err(m) => return m,
     };
+    let bid = trim(a.str("blocker_id")).to_string();
+    if !bid.is_empty() {
+        return revise_blocker(s, c, &a, &id, &bid);
+    }
     let (mut qn, reason) = (
         trim(a.str("question")).to_string(),
         trim(a.str("reason")).to_string(),
@@ -967,7 +1053,8 @@ pub(crate) fn board_block(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         b.reference = as_[1].clone();
     }
     let by = &as_[0];
-    let context = a.str("context");
+    let context = a.opt_str("context").unwrap_or_default();
+    let context = context.as_str();
     let res = if qn.is_empty()
         && trim(context).is_empty()
         && options.is_empty()
@@ -983,26 +1070,7 @@ pub(crate) fn board_block(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         if qn.is_empty() {
             qn = reason.clone();
         }
-        let mut opts: Vec<BlockerOption> = options
-            .iter()
-            .map(|o| BlockerOption {
-                answer: o.str("answer").into(),
-                why: o.str("why").into(),
-                recommended: o.bool("recommended"),
-                link: if trim(o.str("link")).is_empty() {
-                    None
-                } else {
-                    Some(Link {
-                        reference: o.str("link").into(),
-                        ..Link::default()
-                    })
-                },
-                ..BlockerOption::default()
-            })
-            .collect();
-        if opts.len() == 1 {
-            opts[0].recommended = true; // a lone answer is the one recommended
-        }
+        let opts = block_options(&options);
         co.raise(
             by,
             &id,
@@ -1636,7 +1704,7 @@ pub(crate) fn leases(s: &Inner, _: &Caller, raw: &[u8]) -> String {
     b
 }
 
-const RELEASE_ARGS: &[(&str, Ty)] = &[("resource", Ty::Str)];
+const RELEASE_ARGS: &[(&str, Ty)] = &[("resource", Ty::Str), ("reason", Ty::Str)];
 
 pub(crate) fn release(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let a = match decode(raw, RELEASE_ARGS) {
@@ -1652,9 +1720,31 @@ pub(crate) fn release(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         rt.mirror_release(&c.sender.key, res);
     }
     if let Err(e) = r {
+        // Not yours: another person's lease on a shared board is never
+        // stolen, so its holder is asked to release it instead (§5.4).
+        if let Some(out) = release_request(s, c, res, a.str("reason")) {
+            return out;
+        }
         return map_err(e);
     }
     format!("Released {}.", one_line(res, MAX_FIELD_RUNES))
+}
+
+/// A release request for another person's lease on a shared board, `None`
+/// when no board holds one on res that isn't the caller's own person's.
+fn release_request(s: &Inner, c: &Caller, res: &str, why: &str) -> Option<String> {
+    let rt = s.b.router()?;
+    let (_, cm, _) = rt.request_release(&c.sender.key, res, why).ok()?;
+    let mut out = format!(
+        "{} isn't yours: another person's agent holds it on a shared board, and nobody steals another person's lease. Asked its holder to release it on {} (comment:{}); they hear at their next turn, and the lease is yours to take once they release it or it expires.",
+        one_line(res, MAX_FIELD_RUNES),
+        s.short_of(&cm.task_id),
+        cm.id
+    );
+    if let Some(b) = s.b.shared_boards().and_then(|sb| sb.board_of(&cm.task_id)) {
+        out += &format!("\n{}", b.visible_to());
+    }
+    Some(out)
 }
 
 // --- board_split ---

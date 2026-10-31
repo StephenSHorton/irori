@@ -1609,3 +1609,166 @@ fn test_tools_use_the_owner_rule() {
     assert!(out.starts_with("Error: "), "{out}");
     has_not(&out, &["the person"]);
 }
+
+/// Card #50: the person answers a blocker with a question. The raiser
+/// answers it on the blocker, then revises the blocker (board_block
+/// blocker_id) with options that fit, instead of leaving the same ones up.
+#[test]
+fn test_board_block_revises() {
+    let h = new_harness();
+    let (a, b, c) = (call_a(), call_b(), call_c());
+    let id = h.new_card(&a, json!({"title": "VPN adapter", "shared": true}));
+    h.okj(&a, "board_join", json!({"task_id": id}));
+    h.okj(
+        &a,
+        "board_block",
+        json!({"task_id": id, "question": "Which adapter?",
+            "options": [{"answer": "Wintun"}, {"answer": "TAP-Windows"}]}),
+    );
+    h.b.co
+        .answer(
+            "user:dev1",
+            &id,
+            "b1",
+            coord::BlockerAnswer {
+                text: "which one is signed?".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    // The reply's result says to revise or resolve, not to wait.
+    has(
+        &h.okj(
+            &a,
+            "board_comment",
+            json!({"task_id": id, "blocker_id": "b1", "text": "Wintun is signed, TAP is not."}),
+        ),
+        &[
+            "revise it now with board_block blocker_id=b1",
+            "don't leave the same options up",
+        ],
+    );
+    // The same question and options again: refused.
+    h.failsj(
+        &a,
+        "board_block",
+        json!({"task_id": id, "blocker_id": "b1",
+            "options": [{"answer": "Wintun"}, {"answer": "TAP-Windows"}]}),
+        &["same question with the same options", "board_unblock"],
+    );
+    // Only the raiser, a holder or the person.
+    h.failsj(
+        &c,
+        "board_block",
+        json!({"task_id": id, "blocker_id": "b1", "question": "Ship Wintun?"}),
+        &["may revise it"],
+    );
+    h.failsj(
+        &b,
+        "board_block",
+        json!({"task_id": id, "blocker_id": "b1", "question": "Ship Wintun?"}),
+        &["may revise it"],
+    );
+    h.failsj(
+        &a,
+        "board_block",
+        json!({"task_id": id, "blocker_id": "b1", "question": "Ship Wintun?", "on": "person"}),
+        &["revises that blocker"],
+    );
+    h.failsj(
+        &a,
+        "board_block",
+        json!({"task_id": id, "blocker_id": "b9", "question": "Ship Wintun?"}),
+        &["no blocker"],
+    );
+    let before = h.notices(KEY_A).len();
+    let out = h.okj(
+        &a,
+        "board_block",
+        json!({"task_id": id, "blocker_id": "b1", "question": "Ship with Wintun, the signed one?",
+            "options": [{"answer": "Yes", "recommended": true}, {"answer": "No, wait"}]}),
+    );
+    has(
+        &out,
+        &[
+            "Revised blocker b1 on",
+            "\"Ship with Wintun, the signed one?\"",
+            "with 2 options",
+            "waits on them again",
+        ],
+    );
+    has_not(&out, &["Blocked "]);
+    assert_eq!(h.notices(KEY_A).len(), before, "a revision routed a notice");
+    let task = h.b.co.get_task(&id).unwrap();
+    assert_eq!(task.blockers.len(), 1);
+    let bl = &task.blockers[0];
+    let answers: Vec<&str> = bl.options.iter().map(|o| o.answer.as_str()).collect();
+    assert_eq!(answers, ["Yes", "No, wait"]);
+    assert!(bl.status == coord::BLOCKER_OPEN && bl.open() && task.state == coord::BLOCKED);
+    has(
+        &h.ok(&a, "board", "{}"),
+        &["Ship with Wintun, the signed one?", "Yes"],
+    );
+    // Now a plain question, no options.
+    has(
+        &h.okj(
+            &a,
+            "board_block",
+            json!({"task_id": id, "blocker_id": "b1", "question": "Anything else before I ship?"}),
+        ),
+        &["with no options"],
+    );
+    assert!(h.b.co.get_task(&id).unwrap().blockers[0].options.is_empty());
+}
+
+/// The blocker tools tell an agent to answer a question on a blocker and
+/// then resolve or revise it, never to re-present the same options.
+#[test]
+fn test_blocker_tool_descriptions() {
+    let h = new_harness();
+    let specs: serde_json::Value = serde_json::from_slice(&h.set.specs_json("claude")).unwrap();
+    let spec = |n: &str| {
+        specs
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["name"] == n)
+            .unwrap_or_else(|| panic!("no {n}"))
+            .clone()
+    };
+    let block = spec("board_block");
+    has(
+        block["description"].as_str().unwrap(),
+        &[
+            "If they asked a question, answer it",
+            "Never re-offer the same options",
+        ],
+    );
+    has(
+        block["inputSchema"]["properties"]["blocker_id"]["description"]
+            .as_str()
+            .unwrap(),
+        &[
+            "revise this open blocker",
+            "Only its raiser, a holder or the person",
+        ],
+    );
+    let comment = spec("board_comment");
+    has(
+        comment["inputSchema"]["properties"]["blocker_id"]["description"]
+            .as_str()
+            .unwrap(),
+        &["answer the person's question", "board_block blocker_id"],
+    );
+    has(
+        spec("board_unblock")["description"].as_str().unwrap(),
+        &["revise with board_block blocker_id"],
+    );
+    has(
+        tools::BOARD_INSTRUCTIONS,
+        &[
+            "replies to a blocker with a question",
+            "never offer the same options again",
+        ],
+    );
+}

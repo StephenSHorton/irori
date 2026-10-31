@@ -21,6 +21,9 @@ windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Securit
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+irori-sys.workspace = true
+
 [dev-dependencies]
 serde_json.workspace = true
 tempfile.workspace = true

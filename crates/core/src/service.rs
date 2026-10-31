@@ -12,8 +12,9 @@
 //!   `Set::specs_json(client)` and `POST /v1/tools/{name}` with
 //!   `Set::call` (`UnknownTool` 404, `NotObject` 400). Notices and the
 //!   card-thread helpers are `tools::notice`'s, re-exported in
-//!   [`crate::notice`]. Off until their milestones: the notifier (M6),
-//!   the attacher (`core/attachments.go`) and shared boards (M9).
+//!   [`crate::notice`]. The attacher is [`crate::attachments`]'s
+//!   ([`Core::attach_files`], [`Core::get_attachment`]). Off until their
+//!   milestones: the notifier (M6) and shared boards (M9).
 //! - Search (capture's FTS5 index, Show, Overview, Why, RecordDecision):
 //!   capture's sources are the Core's coord and inbox
 //!   ([`Core::coord`], [`Core::inbox`]), added at start. The one decision
@@ -55,8 +56,13 @@ use crate::timers::{self, Kick, Ticker};
 use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 
 pub mod boards;
+mod boards_members;
 mod boards_own;
+pub mod boards_status;
 mod bridge;
+mod mirror;
+pub use mirror::BoardReviewer;
+pub mod invites;
 
 use boards::Boards;
 
@@ -200,6 +206,8 @@ struct Services {
     mesh: Arc<crate::meshnode::Mesh>,
     /// The shared boards (Go `c.boards`).
     boards: Arc<Boards>,
+    /// The open board invite (card #44).
+    invites: invites::Invites,
 }
 
 /// The notify crate's [`notify::Notifier`] as the tools' seam
@@ -238,10 +246,24 @@ impl tools::Notifier for CoreNotifier {
 // ---- the tools' backend -----------------------------------------------------
 
 /// The Core as the tools see it (Go `meshView`): `agents` is the mesh
-/// roster. The optional parts left at their defaults are off: the notifier
-/// (M6), the attacher (Go `core/attachments.go`, not ported yet) and the
-/// shared-board router and viewer (M9).
+/// roster; the attacher is the Core's ([`crate::attachments`]). The
+/// optional parts left at their defaults are off: the shared-board router
+/// and viewer (M9).
 struct ToolsView(Arc<Services>);
+
+impl tools::Attacher for ToolsView {
+    fn attach_files(&self, by: &str, paths: &[String]) -> Result<Vec<blob::FileRef>, blob::Error> {
+        self.0.attach_files(by, paths)
+    }
+    fn get_attachment(
+        &self,
+        reader: &str,
+        sha: &str,
+        to: &str,
+    ) -> Result<(String, String), String> {
+        self.0.get_attachment(reader, sha, to)
+    }
+}
 
 impl tools::Backend for ToolsView {
     fn agents(&self) -> Vec<presence::AgentCard> {
@@ -271,6 +293,9 @@ impl tools::Backend for ToolsView {
         // Go's nil Notifier on a headless Core.
         (!self.0.notifier.0.is_headless()).then_some(&self.0.notifier as &dyn tools::Notifier)
     }
+    fn attacher(&self) -> Option<&dyn tools::Attacher> {
+        Some(self)
+    }
     fn router(&self) -> Option<&dyn tools::TaskRouter> {
         Some(self)
     }
@@ -297,6 +322,26 @@ impl tools::TaskRouter for ToolsView {
     }
     fn task_ref(&self, r: &str) -> Result<String, coord::Error> {
         self.0.task_ref(r)
+    }
+    fn mirror_acquire(
+        &self,
+        key: &str,
+        resource: &str,
+        ttl: std::time::Duration,
+        steal: bool,
+    ) -> Result<Vec<String>, coord::Error> {
+        self.0.mirror_acquire(key, resource, ttl, steal)
+    }
+    fn mirror_release(&self, key: &str, resource: &str) {
+        self.0.mirror_release(key, resource)
+    }
+    fn request_release(
+        &self,
+        by: &str,
+        resource: &str,
+        why: &str,
+    ) -> Result<(String, coord::Comment, Notice), coord::Error> {
+        self.0.request_release(by, resource, why)
     }
 }
 
@@ -626,15 +671,22 @@ impl Core {
             })
         };
 
-        // One roster across devices: this device's presence plus every
-        // other device's agent rows. No mesh in M4: every other device is
-        // offline.
+        // One roster across devices (Go core.go:188): this device's presence
+        // plus every other device's agent rows. The mesh node is built below;
+        // its liveness is read per call, offline until it exists.
         let roster_sub = Arc::new(st.subscribe());
+        let node_cell: Arc<OnceLock<Arc<mesh::Node>>> = Arc::new(OnceLock::new());
         let roster = Roster::new(coord::roster::Options {
             store: st.clone(),
             self_id: me.clone(),
             local: Some(local.clone()),
-            liveness: None,
+            liveness: Some({
+                let cell = node_cell.clone();
+                Arc::new(move |dev: &str| match cell.get() {
+                    Some(n) => n.liveness(dev).to_string(),
+                    None => coord::roster::OFFLINE.to_string(),
+                })
+            }),
             revoked: Some(revoked.clone()),
         })
         .map_err(|e| fail(&st, other("roster", e)))?;
@@ -654,7 +706,6 @@ impl Core {
                 Arc::new(move |k: &str| c.get().map(|c| c.pr_owners(k)).unwrap_or_default())
             }),
             is_owner: Some(is_owner.clone()),
-            revoked: Some(revoked.clone()),
             on_recipient_gone: Some({
                 let c = coord_cell.clone();
                 Arc::new(move |m: &inbox::Message, to: &str| match c.get() {
@@ -768,6 +819,9 @@ impl Core {
         // core.go:290); its relay port feeds the endpoint (Go Net.SetLocal).
         // Pairing (Go core.go:284-288) opens its own room on the transport,
         // only while a window is open. Add is window-only.
+        // The home server comes after the Pairer (it asks whether a window
+        // is open); the Pairer reads it back through this cell.
+        let home_cell: Arc<OnceLock<home::Server>> = Arc::new(OnceLock::new());
         let pairing = {
             let own_rt = match &opts.runtime {
                 Some(_) => None,
@@ -819,6 +873,10 @@ impl Core {
                 Arc::new(move || n.kick())
             });
             po.servers = Some(mesh.hints());
+            po.server_addr = Some({
+                let (h, servers) = (home_cell.clone(), mesh.servers.clone());
+                Arc::new(move || server_addr(h.get(), &servers))
+            });
             po.window = crate::devices::window_or_default(opts.pair_window);
             po.logf = Some(Arc::new(|l: &str| crate::log(l)));
             (
@@ -832,13 +890,26 @@ impl Core {
             )
         };
         let (pairing, mesh) = pairing;
+        let _ = node_cell.set(mesh.node.clone());
 
+        let invites = invites::Invites::default();
         let home = (!opts.no_home).then(|| {
             let mut hc = home::Config::new(dir.clone(), ident.clone(), chain.clone(), st.clone());
             let node = mesh.node.clone();
             let pr = pairing.pairer.clone();
-            // Go core.go:290: another device, or an open pairing window.
-            hc.wanted = Some(Arc::new(move || pr.status().open() || node.has_peer()));
+            // Go core.go:290: another device, or an open pairing window;
+            // stage 2 (B1): or a shared board with another person on it,
+            // whose members this server relays for.
+            // And while this device is the inviter of an open board invite,
+            // so the link can name its relay.
+            let (held, hosting) = (board_set.clone(), invites.hosting.clone());
+            hc.wanted = Some(Arc::new(move || {
+                pr.status().open()
+                    || node.has_peer()
+                    || held.shared_with_others()
+                    || hosting.load(std::sync::atomic::Ordering::SeqCst)
+            }));
+            hc.board_admit = Some(mesh.net.board_members().relay_admit());
             let m = mesh.clone();
             hc.on_relay = Some(Arc::new(move |up| m.set_local_relay(up)));
             hc.guests = Some(pairing.guests.clone());
@@ -852,6 +923,10 @@ impl Core {
             }
             home::Server::new(hc)
         });
+        if let Some(h) = &home {
+            let _ = home_cell.set(h.clone());
+            mesh.set_home(h.clone());
+        }
 
         let token = lockfile::new_token().map_err(|e| fail(&st, other("", e)))?;
         let s = Arc::new(Services {
@@ -890,15 +965,22 @@ impl Core {
             revoke: Some(opts.revoke.clone().unwrap_or_else(|| mesh.revoke_fn())),
             mesh,
             boards: board_set,
+            invites,
         });
         let _ = s.boards.kicker.set({
             let m = Arc::downgrade(&s.mesh);
             Arc::new(move || {
                 if let Some(m) = m.upgrade() {
                     m.kick_boards();
+                    // A board opened or its secret moved: the person's
+                    // other devices get it on board.secret.
+                    m.node.boards_changed();
                 }
             })
         });
+        s.mesh
+            .node
+            .set_own_boards(Some(Arc::new(invites::OwnBoardSecrets(Arc::downgrade(&s)))));
         // A pairing window starts the home server at once (Go Notify).
         if let Some(h) = s.home.clone() {
             s.pairing
@@ -1198,6 +1280,20 @@ impl Core {
                     } else if let Err(e) = s.capture.follow_decision(&ev) {
                         logf(format_args!("decisions: {e}"));
                     }
+                }
+            });
+        }
+
+        // This device's agents' cards on shared boards follow their
+        // sessions' status (v0.5 §2.4); only the hosting device writes it.
+        {
+            let sub = Arc::new(s.presence.subscribe());
+            let reg = self.on_stop(&sub, |s| s.cancel());
+            let s = s.clone();
+            self.spawn("board-card-status", move || {
+                let _reg = reg;
+                while sub.recv().is_some() {
+                    s.sync_card_status();
                 }
             });
         }
@@ -1503,9 +1599,42 @@ impl Core {
     /// for each Grok member whose stream is open or closed less than
     /// [`inbox::REATTACH_GRACE`] ago.
     pub fn local_agents(&self) -> Vec<presence::AgentCard> {
-        let mut cs = self.s.presence.snapshot();
-        cs.extend(self.s.members.cards());
-        cs
+        self.s.local_agents()
+    }
+
+    // ---- attachments (core/attachments.go, crate::attachments) -----------
+
+    /// Go `AttachFiles` (v0.4 §6.6): checks and stores files an agent
+    /// attaches to a message or a comment. Each path resolves to its
+    /// canonical form, following symlinks, and anything the never-leave
+    /// rules cover is refused with the reason ([`blob::ErrorKind::NeverLeaves`]);
+    /// the file is copied into the attachment store and offered to the
+    /// person's other devices. A relative path is taken against `by`'s
+    /// working directory. Nothing inside a file is scrubbed: it is the
+    /// person's.
+    pub fn attach_files(
+        &self,
+        by: &str,
+        paths: &[String],
+    ) -> Result<Vec<blob::FileRef>, blob::Error> {
+        self.s.attach_files(by, paths)
+    }
+
+    /// Go `GetAttachment`: fetches a file `reader` may read (on a message it
+    /// sent or received, or on any Board comment) and writes it to `to`, or
+    /// by default to `<data>/received/<reader>/<name>`. Returns the local
+    /// path and the device it came from ("" when it was already here). A
+    /// `to` inside the data dir is refused, and an existing file is never
+    /// overwritten. [`crate::attachments::NO_ATTACHMENT`] when no message
+    /// or card the reader may read carries it. Blocks on the mesh's runtime
+    /// when another device holds it: call it off that runtime's workers.
+    pub fn get_attachment(
+        &self,
+        reader: &str,
+        sha: &str,
+        to: &str,
+    ) -> Result<(String, String), String> {
+        self.s.get_attachment(reader, sha, to)
     }
 
     // ---- Grok members (core/members.go) ---------------------------------
@@ -1786,9 +1915,7 @@ impl Core {
     /// revoke, a rotation): connections it no longer admits close, and a
     /// newer secret goes to the members still on the older epoch.
     pub fn recheck_board(&self, board_id: &str) {
-        if let Some(m) = self.s.mesh.board(board_id) {
-            m.recheck();
-        }
+        self.s.recheck_board_mesh(board_id);
     }
 
     /// The mesh with its address book (crate::meshview).
@@ -1875,6 +2002,125 @@ impl Services {
         Sender::new(&format!("user:{}", self.device.id), "you", "user")
     }
 
+    fn local_agents(&self) -> Vec<presence::AgentCard> {
+        let mut cs = self.presence.snapshot();
+        cs.extend(self.members.cards());
+        cs
+    }
+
+    /// Go `AttachFiles` ([`Core::attach_files`]).
+    fn attach_files(&self, by: &str, paths: &[String]) -> Result<Vec<blob::FileRef>, blob::Error> {
+        use crate::attachments::{base, trim_space};
+        if paths.is_empty() {
+            return Ok(Vec::new());
+        }
+        if paths.len() > inbox::MAX_ATTACHMENTS {
+            return Err(blob::Error::new(
+                blob::ErrorKind::Other,
+                format!("at most {} attachments", inbox::MAX_ATTACHMENTS),
+            ));
+        }
+        let cwd = self
+            .local_agents()
+            .into_iter()
+            .find(|a| a.key == by)
+            .map(|a| a.cwd)
+            .unwrap_or_default();
+        let data = self.data_dir.to_string_lossy();
+        let mut out = Vec::with_capacity(paths.len());
+        for p in paths {
+            let real = blob::check_attach_path(p, &cwd, &data)?;
+            let mut r = self
+                .files
+                .put_file(&real)
+                .map_err(|e| blob::Error::new(e.kind(), format!("{}: {e}", base(&real))))?;
+            // The name the agent gave, reduced to one safe file name.
+            r.name = blob::safe_name(&base(trim_space(p)), &r.sha256);
+            r.device = self.device.id.clone();
+            self.mesh
+                .node
+                .offer(&r)
+                .map_err(|e| blob::Error::new(blob::ErrorKind::Other, e))?;
+            out.push(r);
+        }
+        Ok(out)
+    }
+
+    /// Go `GetAttachment` ([`Core::get_attachment`]).
+    fn get_attachment(
+        &self,
+        reader: &str,
+        sha: &str,
+        to: &str,
+    ) -> Result<(String, String), String> {
+        use crate::attachments::{self as at, trim_space};
+        use crate::meshview::FileFetchError;
+        let sha = gocompat::text::to_lower_str(trim_space(sha));
+        if !blob::valid_id(&sha) {
+            return Err("blob: id must be 64 lowercase hex characters".into());
+        }
+        let r = match self.inbox.attachment(reader, &sha) {
+            Some(f) => blob::FileRef {
+                sha256: f.sha256,
+                name: f.name,
+                size: f.size,
+                mime: f.mime,
+                device: f.device,
+            },
+            // The private board's comments; shared boards' (#49) are not
+            // looked up yet (crate::attachments).
+            None => match self.coord.comment_attachment(&sha) {
+                Some(f) => blob::FileRef {
+                    sha256: f.sha256,
+                    name: f.name,
+                    size: f.size,
+                    mime: f.mime,
+                    device: f.device,
+                },
+                None => return Err(at::NO_ATTACHMENT.into()),
+            },
+        };
+        let name = blob::safe_name(&r.name, &sha);
+        let to = trim_space(to);
+        let dst = at::attachment_dst(&self.data_dir, reader, &name, to, || {
+            self.local_agents()
+                .into_iter()
+                .rfind(|a| a.key == reader)
+                .map(|a| a.cwd)
+                .unwrap_or_default()
+        })?;
+        let from = crate::meshview::fetch_file_blocking(
+            &self.mesh.node,
+            &self.pairing.handle,
+            &self.device.id,
+            &self.chain,
+            &r,
+        )
+        .map_err(|e| match e {
+            FileFetchError::Offline(on) => at::offline_text(&on),
+            FileFetchError::TimedOut => at::TIMED_OUT.into(),
+            FileFetchError::Other(s) => s,
+        })?;
+        let shown = |p: &std::path::Path| p.to_string_lossy().into_owned();
+        let dst = if to.is_empty() {
+            let dst = at::free_name(&dst, &sha);
+            if blob::same_content(&dst, &sha) {
+                return Ok((shown(&dst), from));
+            }
+            dst
+        } else {
+            if std::fs::symlink_metadata(&dst).is_ok() {
+                if blob::same_content(&dst, &sha) {
+                    return Ok((shown(&dst), from));
+                }
+                return Err(format!("{} already exists; give another to", shown(&dst)));
+            }
+            dst
+        };
+        self.files.copy_out(&sha, &dst).map_err(|e| e.to_string())?;
+        Ok((shown(&dst), from))
+    }
+
     fn add_secret(&self, v: &str) {
         if v.is_empty() {
             return;
@@ -1902,7 +2148,7 @@ impl Services {
             .collect()
     }
 
-    fn sweep_coord(&self) -> Result<(), String> {
+    fn sweep_coord(self: &Arc<Self>) -> Result<(), String> {
         let (ns, err) = self.coord.sweep_notices_partial();
         let (asks, aerr) = self.coord.sweep_asks_partial(&self.ask_agents());
         for n in ns.iter().chain(asks.iter()) {
@@ -1920,6 +2166,7 @@ impl Services {
             .flatten()
             .map(|e| e.to_string())
             .collect();
+        self.sweep_leaving();
         if let Err(e) = self.sweep_boards() {
             errs.push(e);
         }
@@ -2001,4 +2248,24 @@ impl Services {
         card.title = self.scrubber.string(&card.title);
         card
     }
+}
+
+/// The address a device away from home dials to join, shown under the
+/// pairing code (Go core `serverAddr`, home.go:104-123): this device's own
+/// server's while it runs, else the first other server reachable from
+/// outside.
+fn server_addr(home: Option<&home::Server>, servers: &mesh::Servers) -> String {
+    if let Some(h) = home {
+        let st = h.status();
+        if st.running && !st.address.is_empty() {
+            return st.address;
+        }
+    }
+    servers
+        .list()
+        .iter()
+        .filter_map(|s| servers.row(&s.id))
+        .map(|row| row.outside())
+        .find(|a| !a.is_empty())
+        .unwrap_or_default()
 }

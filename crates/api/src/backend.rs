@@ -45,11 +45,26 @@ pub trait Backend: Send + Sync + 'static {
     }
     /// The shared boards this device holds, for `GET /v1/boards`;
     /// `detail` adds members, fingerprints and the set-aside counts.
-    /// `None` (no shared boards in this Core yet) answers 503.
+    /// The Core always answers (an empty list when it holds none); `None`,
+    /// a backend without a boards layer, answers 503.
     fn boards(&self, detail: bool) -> Option<Vec<crate::boards::BoardRow>> {
         let _ = detail;
         None
     }
+    /// The net layer's state and how many other devices are connected now
+    /// (Go `Mesh().Status().State` and `Mesh().Connected()`), for health's
+    /// `net`; `None` (no mesh) leaves `net` out.
+    fn net_health(&self) -> Option<NetHealth> {
+        None
+    }
+}
+
+/// Health's `net` (Go `api.NetHealth`): the net layer's state (off, on,
+/// removed, error) and how many other devices are connected now.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct NetHealth {
+    pub state: String,
+    pub peers: usize,
 }
 
 impl Backend for Core {
@@ -92,6 +107,86 @@ impl Backend for Core {
     fn mesh_devices(&self, detail: bool) -> Option<Vec<mesh::DeviceRow>> {
         Some(Core::mesh_devices(self, detail))
     }
+    fn boards(&self, detail: bool) -> Option<Vec<crate::boards::BoardRow>> {
+        Some(
+            self.board_list()
+                .into_iter()
+                .map(|s| {
+                    let detail = detail.then(|| board_detail(self, &s.board_id));
+                    crate::boards::BoardRow {
+                        board_id: s.board_id,
+                        name: s.name,
+                        tag: s.tag,
+                        people: s.people,
+                        owner: s.owner,
+                        devices: s.devices,
+                        cards: s.cards,
+                        ready: s.ready,
+                        detail,
+                    }
+                })
+                .collect(),
+        )
+    }
+    fn net_health(&self) -> Option<NetHealth> {
+        let n = self.mesh();
+        Some(NetHealth {
+            state: n.status().state,
+            peers: n.connected_count(),
+        })
+    }
+}
+
+/// What `?detail=1` adds for one board (v0.5 §2.3, §8): every member the
+/// board ever added with their fingerprint and counted devices, the fold's
+/// set-aside counters, and the membership rows that didn't count. A board
+/// forgotten since the list was read shows an empty detail.
+fn board_detail(c: &Core, board_id: &str) -> crate::boards::BoardDetail {
+    let mut d = crate::boards::BoardDetail::default();
+    if let Ok(co) = c.board_coord(board_id) {
+        d.set_aside = co.set_aside();
+    }
+    let Ok(info) = c.board_info(board_id) else {
+        return d;
+    };
+    d.members = info
+        .members
+        .iter()
+        .map(|p| {
+            let who = c.board_member(board_id, &p.person_id).unwrap_or_default();
+            crate::boards::BoardMember {
+                person_id: p.person_id.clone(),
+                name: if who.name.is_empty() {
+                    p.name.clone()
+                } else {
+                    who.name
+                },
+                fingerprint: hex::decode(&p.pin.person_pub)
+                    .ok()
+                    .filter(|k| !k.is_empty())
+                    .map(|k| irori_pair::fingerprint(&k))
+                    .unwrap_or_default(),
+                role: p.role.clone(),
+                state: p.state.clone(),
+                devices: who.devices.iter().filter(|d| !d.revoked).count() as i64,
+            }
+        })
+        .collect();
+    d.conflicts = info
+        .conflicts
+        .iter()
+        .map(|x| {
+            let mut s = x.kind.clone();
+            if !x.person_id.is_empty() {
+                s += &format!(" for {}", x.person_id);
+            }
+            if !x.by.is_empty() {
+                s += &format!(" by {}", x.by);
+            }
+            format!("{s}: {}", x.reason)
+        })
+        .collect();
+    d
 }
 
 /// Who a tool call acts as (Go `tools.Caller`).

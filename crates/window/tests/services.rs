@@ -146,7 +146,7 @@ fn done_cards_page() {
 fn asks_and_repos() {
     let r = Rig::new();
     let res =
-        r.w.ask("Who can look at the tray?", "", false, &[])
+        r.w.ask("Who can look at the tray?", "", false, &[], "")
             .unwrap();
     assert!(res.task.ask.is_some());
     let cards = r.w.cards();
@@ -166,7 +166,23 @@ fn ask_with_a_file_lands_on_the_card() {
         name: "shot.png".into(),
         data: base64::engine::general_purpose::STANDARD.encode(png),
     };
-    let res = r.w.ask("See the picture", "", false, &[f]).unwrap();
+    // A board ask takes no files (its rows may name only attachments
+    // offered on the board), nor a board this device doesn't hold.
+    let e =
+        r.w.ask(
+            "See the picture",
+            "",
+            false,
+            std::slice::from_ref(&f),
+            "no-such-board",
+        )
+        .unwrap_err();
+    assert!(e.contains("files"), "{e}");
+    let e =
+        r.w.ask("Anyone?", "", false, &[], "no-such-board")
+            .unwrap_err();
+    assert!(e.contains("no such board"), "{e}");
+    let res = r.w.ask("See the picture", "", false, &[f], "").unwrap();
     let d = r.w.card(&res.task.id).unwrap();
     let files: Vec<_> = d
         .comments
@@ -497,4 +513,128 @@ mod erased {
 fn manifest_dir() -> std::path::PathBuf {
     std::env::var_os("CARGO_MANIFEST_DIR")
         .map_or_else(|| env!("CARGO_MANIFEST_DIR").into(), Into::into)
+}
+
+/// Card #57: the person closes any card by hand (Done or Canceled, with a
+/// note) and deletes any card; Closed lists done, canceled and failed.
+#[test]
+fn close_and_delete_by_hand() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let new = |title: &str| {
+        co.create_task(
+            &r.key_a,
+            coord::NewTask {
+                title: title.into(),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let (a, b, c, d) = (new("a"), new("b"), new("c"), new("d"));
+    co.claim_task(&r.key_a, &a.id).unwrap();
+    // An agent's card the person never touched: they may still close it.
+    let t = r.w.close_card(&a.id, coord::COMPLETED, "shipped").unwrap();
+    assert_eq!(
+        (t.state.as_str(), t.note.as_str()),
+        (coord::COMPLETED, "shipped")
+    );
+    r.w.close_card(&b.id, coord::CANCELED, "").unwrap();
+    co.set_task_state(&r.key_a, &c.id, coord::FAILED, "broke")
+        .unwrap();
+    assert!(
+        r.w.close_card(&d.id, "working", "")
+            .unwrap_err()
+            .contains("completed or canceled")
+    );
+    let closed: Vec<String> =
+        r.w.done_cards(0, "")
+            .unwrap()
+            .cards
+            .iter()
+            .map(|s| s.state.clone())
+            .collect();
+    let mut want = vec![coord::COMPLETED, coord::CANCELED, coord::FAILED];
+    let mut got = closed.clone();
+    got.sort();
+    want.sort();
+    assert_eq!(got, want);
+    // Delete: open or closed, the card leaves every list.
+    r.w.delete_card(&d.id).unwrap();
+    r.w.delete_card(&a.id).unwrap();
+    assert!(r.w.cards().iter().all(|s| s.id != d.id));
+    assert!(
+        r.w.done_cards(0, "")
+            .unwrap()
+            .cards
+            .iter()
+            .all(|s| s.id != a.id)
+    );
+    assert!(r.w.card(&d.id).is_err());
+    assert!(r.w.delete_card(&d.id).is_err());
+}
+
+/// Card #57 on a shared board: Close acts in the board's log as the
+/// person; Delete is refused (a shared card is withdrawn, §5.3).
+#[test]
+fn close_and_delete_on_a_shared_board() {
+    let r = Rig::new();
+    let c = &r.w.core;
+    let b = c.create_board("one", "one").unwrap();
+    let co = c.board_coord(&b).unwrap();
+    let me = c.board_key(&b, &c.user_sender().key).unwrap();
+    let t = co
+        .create_task(
+            &me,
+            coord::NewTask {
+                title: "shared work".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let e = r.w.delete_card(&t.id).unwrap_err();
+    assert!(e.contains("withdrawn, not deleted"), "{e}");
+    assert!(co.get_task(&t.id).is_some());
+    let closed =
+        r.w.close_card(&t.id, coord::COMPLETED, "done here")
+            .unwrap();
+    assert_eq!(closed.state, coord::COMPLETED);
+    assert_eq!(co.get_task(&t.id).unwrap().state, coord::COMPLETED);
+    assert!(
+        c.coord().get_task(&t.id).is_none(),
+        "it went to the private log"
+    );
+}
+
+/// Card #66 s4: the Boards dialog dedicates one of the person's agents as
+/// their reviewer on a board, for the whole board or one repo, and takes
+/// it off again (design §10).
+#[test]
+fn boards_set_reviewer() {
+    let r = Rig::new();
+    let b = r.w.core.create_board("Reviews", "rev").unwrap();
+    let s = r.w.boards_settings(&b).unwrap();
+    assert!(s.reviewers.is_empty());
+    assert!(
+        s.agents.iter().any(|a| a.agent == r.key_a),
+        "the person's agents to pick from: {:?}",
+        s.agents
+    );
+    let s = r.w.boards_set_reviewer(&b, &r.key_a, "").unwrap();
+    assert_eq!(s.reviewers.len(), 1);
+    assert_eq!(
+        (s.reviewers[0].agent.as_str(), s.reviewers[0].repo.as_str()),
+        (r.key_a.as_str(), "")
+    );
+    let s =
+        r.w.boards_set_reviewer(&b, &r.key_b, "remote:github.com/example-org/example-app")
+            .unwrap();
+    assert_eq!(s.reviewers.len(), 2);
+    let s = r.w.boards_set_reviewer(&b, "", "").unwrap();
+    assert_eq!(s.reviewers.len(), 1);
+    assert_eq!(s.reviewers[0].agent, r.key_b);
+    assert!(
+        r.w.boards_set_reviewer("no-such-board", &r.key_a, "")
+            .is_err()
+    );
 }
