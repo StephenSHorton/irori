@@ -428,14 +428,15 @@ fn board_identity_kept_current() {
         c.board_info(&id)
             .is_ok_and(|i| i.epoch == 2 && i.secret_epoch == 2)
     });
-    let topics = c.board_secrets(&id).unwrap().topics().unwrap();
-    assert!(
-        topics.len() == 2
-            && topics[0].epoch == 2
-            && topics[1].epoch == 1
-            && topics[0].topic != topics[1].topic,
-        "topics after the rotation"
-    );
+    // No other member device is left to move, so the board settles on
+    // epoch 2 and epoch 1's topic closes (card #67 item 11).
+    wait_for(10, "the board settles on the new epoch", || {
+        let topics = c.board_secrets(&id).unwrap().topics().unwrap();
+        topics.len() == 1 && topics[0].epoch == 2
+    });
+    let secrets = c.board_secrets(&id).unwrap();
+    assert_eq!(secrets.settled(), 2);
+    assert!(secrets.secret(1).is_none(), "epoch 1's secret is gone");
 
     let check = |c: &Core| {
         let st = c.board_store(&id).unwrap();
