@@ -156,7 +156,7 @@ impl Core {
     /// runtime: call it off that runtime's workers.
     pub fn fetch_file_blocking(&self, r: &FileRef) -> Result<String, FileFetchError> {
         fetch_file_blocking(
-            self.mesh(),
+            self.mesh_net(),
             self.pairing_runtime(),
             self.device_id(),
             self.chain(),
@@ -182,14 +182,14 @@ pub(crate) fn device_names(chain: &Chain, ids: &[String]) -> String {
 /// [`Core::fetch_file_blocking`] over the Core's parts (the tools'
 /// attacher reaches them without a `Core`).
 pub(crate) fn fetch_file_blocking(
-    node: &Arc<mesh::Node>,
+    mesh: &Arc<crate::meshnode::Mesh>,
     rt: &tokio::runtime::Handle,
     device_id: &str,
     chain: &Chain,
     r: &FileRef,
 ) -> Result<String, FileFetchError> {
-    let node = node.clone();
-    let res = rt.block_on(async { tokio::time::timeout(FETCH_TIMEOUT, node.fetch_file(r)).await });
+    let mesh = mesh.clone();
+    let res = rt.block_on(async { tokio::time::timeout(FETCH_TIMEOUT, fetch_any(&mesh, r)).await });
     match res {
         Err(_) => Err(FileFetchError::TimedOut),
         Ok(Ok(from)) => Ok(from),
@@ -204,6 +204,52 @@ pub(crate) fn fetch_file_blocking(
         }
         Ok(Err(e)) => Err(FileFetchError::Other(e.to_string())),
     }
+}
+
+/// The private mesh first (this person's own devices), then every open
+/// shared board whose log offers the file, on that board's connections
+/// (v0.5 §5.5): a file on a shared card is held by another person's device,
+/// which only the board reaches. A bad id or a file over the cap is not
+/// asked of anyone.
+async fn fetch_any(mesh: &crate::meshnode::Mesh, r: &FileRef) -> Result<String, mesh::FetchError> {
+    use mesh::FetchError as E;
+    let first = match mesh.node.fetch_file(r).await {
+        Ok(from) => return Ok(from),
+        Err(e @ E::NoFiles) => return Err(e),
+        Err(e @ E::Blob(k, _)) if k != blob::ErrorKind::Mismatch => return Err(e),
+        Err(e) => e,
+    };
+    let boards: Vec<_> = mesh
+        .board_list()
+        .into_iter()
+        .filter(|b| b.offers(&r.sha256))
+        .collect();
+    if boards.is_empty() {
+        return Err(first);
+    }
+    let _turn = mesh.node.lock_fetch(&r.sha256).await;
+    let mut last = first;
+    for b in boards {
+        match b.fetch_file(r).await {
+            Ok(from) => return Ok(from),
+            Err(e) => {
+                last = match (last, e) {
+                    // Offline everywhere: every holder either side knew.
+                    (E::Offline(mut a), E::Offline(b)) => {
+                        for h in b {
+                            if !a.contains(&h) {
+                                a.push(h);
+                            }
+                        }
+                        E::Offline(a)
+                    }
+                    (E::Offline(_), e) => e,
+                    (l, _) => l,
+                }
+            }
+        }
+    }
+    Err(last)
 }
 
 #[cfg(test)]

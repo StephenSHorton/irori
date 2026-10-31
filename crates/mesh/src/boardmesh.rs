@@ -13,8 +13,12 @@
 //!   `vector` (the sender's board vector; one ahead of ours pulls now),
 //!   `ping`/`pong`, and `board.secret` ([`BoardSecretFrame`], a newer
 //!   epoch's secret sealed under this connection's epoch key).
-//! - Rows move on `board/<boardId>` pull streams ([`crate::boards`]); any
-//!   other stream label is refused.
+//! - Rows move on `board/<boardId>` pull streams ([`crate::boards`]).
+//! - Files on the board's cards move on `blob/<16 hex>` streams, as on the
+//!   private mesh (v0.5 §5.5): served only to a counted member device, and
+//!   only a hash this person's devices offered in this board's log
+//!   ([`BoardMesh::may_serve`]).
+//! - Any other stream label is refused.
 //!
 //! Each hello's `boardEpoch` is kept on its connection. Once every
 //! remaining member device (the verifier's counted devices and this
@@ -36,6 +40,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use base64::Engine as _;
+use blob::FileRef;
 use crypto_secretbox::aead::{Aead, KeyInit};
 use crypto_secretbox::{Nonce, XSalsa20Poly1305};
 use hkdf::Hkdf;
@@ -53,6 +58,9 @@ use tokio_util::sync::CancellationToken;
 use zeroize::Zeroizing;
 
 use crate::boards::{BOARD_LABEL_PREFIX, pull_board, serve_pull};
+use crate::files::{
+    BLOB_LABEL_PREFIX, FetchError, FileOffer, check_ref, fetch_over, holders_in, serve_blob,
+};
 use crate::node::Intervals;
 use crate::servers::PublicAddr;
 use crate::transport::Stream;
@@ -271,6 +279,9 @@ pub struct BoardMeshOpts {
     /// can pull it (and those certs) from its own devices. `None`: the
     /// board's verifier only.
     pub own_devices: Option<OwnDevicesFn>,
+    /// This device's attachment store: files on the board's cards are
+    /// served from it and fetched into it. `None`: no files on this board.
+    pub files: Option<Arc<blob::Files>>,
 }
 
 /// This person's other devices (see [`BoardMeshOpts::own_devices`]).
@@ -559,6 +570,70 @@ impl BoardMesh {
         });
     }
 
+    /// Whether this device serves `sha` on this board (v0.5 §5.5): it holds
+    /// the file and one of this person's own devices wrote an
+    /// `attach.offered` for it in this board's log (offered it here, or
+    /// fetched it for this board). An offer another person wrote never
+    /// makes this device serve, so a member who knows or guesses the hash
+    /// of a private file can't pull it.
+    pub fn may_serve(&self, sha: &str) -> bool {
+        self.s.may_serve(sha)
+    }
+
+    /// Whether this board's log offers `sha` (any member's device).
+    pub fn offers(&self, sha: &str) -> bool {
+        holders_in(&self.s.opts.log, sha).is_ok_and(|h| !h.is_empty())
+    }
+
+    /// Makes sure `r`'s file (a file on this board's cards) is in this
+    /// device's attachment store, fetching it on a `blob/` stream from a
+    /// connected member device: the origin first, then every other device
+    /// that offered it in the board's log. Once fetched, this device offers
+    /// it in the board's log too, so it serves it on. Returns the device it
+    /// came from ("" when it was here). The caller holds the fetch turn
+    /// ([`crate::Node::lock_fetch`]); dropping the future gives up.
+    pub async fn fetch_file(&self, r: &FileRef) -> Result<String, FetchError> {
+        let s = &self.s;
+        let Some(fs) = s.opts.files.clone() else {
+            return Err(FetchError::NoFiles);
+        };
+        check_ref(&fs, r)?;
+        if fs.has(&r.sha256) {
+            return Ok(String::new());
+        }
+        let held =
+            holders_in(&s.opts.log, &r.sha256).map_err(|e| FetchError::Other(e.to_string()))?;
+        let me = &s.opts.self_id;
+        let mut cands: Vec<String> = Vec::new();
+        if !r.device.is_empty() && r.device != *me {
+            cands.push(r.device.clone());
+        }
+        for h in held {
+            if h != *me && !cands.contains(&h) {
+                cands.push(h);
+            }
+        }
+        if cands.is_empty() {
+            return Err(FetchError::Offline(Vec::new()));
+        }
+        let mut last: Option<FetchError> = None;
+        for dev in &cands {
+            let Some(p) = s.live_peer(dev) else {
+                continue;
+            };
+            match fetch_over(p.conn.as_ref(), &fs, r).await {
+                Ok(()) => {
+                    if let Err(e) = s.offer(r) {
+                        s.logf(&format!("offer {}: {e}", r.sha256));
+                    }
+                    return Ok(dev.clone());
+                }
+                Err(e) => last = Some(e),
+            }
+        }
+        Err(last.unwrap_or(FetchError::Offline(cands)))
+    }
+
     /// Leaves every room of the board.
     pub fn close(&self) {
         self.s.cancel.cancel();
@@ -748,6 +823,79 @@ impl Shared {
             }
         }
         out
+    }
+
+    /// See [`BoardMesh::may_serve`].
+    fn may_serve(&self, sha: &str) -> bool {
+        let Some(fs) = &self.opts.files else {
+            return false;
+        };
+        if !blob::valid_id(sha) || !fs.has(sha) {
+            return false;
+        }
+        let me = self.opts.person_id.as_str();
+        let Ok(hs) = holders_in(&self.opts.log, sha) else {
+            return false;
+        };
+        if hs.iter().any(|d| {
+            *d == self.opts.self_id || self.opts.verifier.person_of(d).as_deref() == Some(me)
+        }) {
+            return true;
+        }
+        // This person's devices the board's rows don't certify yet.
+        self.opts
+            .own_devices
+            .as_ref()
+            .is_some_and(|f| f().iter().any(|o| hs.contains(&o.device_id)))
+    }
+
+    /// Answers one `blob/` stream from `peer`: only while it is a counted
+    /// member device (re-checked now: membership may have moved since the
+    /// connection opened), and only a hash [`Shared::may_serve`] allows.
+    async fn serve_file(&self, peer: &str, pubkey: &[u8; 32], st: &mut Stream) {
+        let Some(fs) = self.opts.files.clone() else {
+            return;
+        };
+        if !admitted(&self.opts.verifier, peer, pubkey) {
+            return;
+        }
+        let log = |l: &str| self.logf(&format!("{l} (to {peer})"));
+        serve_blob(st, &fs, |sha| self.may_serve(sha), log).await;
+    }
+
+    /// A live connection to `dev` that said hello, on the newest epoch.
+    fn live_peer(&self, dev: &str) -> Option<Arc<Peer>> {
+        self.peers
+            .lock()
+            .expect("peers")
+            .iter()
+            .filter(|((_, d), p)| {
+                d == dev && p.hello.load(Ordering::SeqCst) && p.conn.err().is_none()
+            })
+            .max_by_key(|((e, _), _)| *e)
+            .map(|(_, p)| p.clone())
+    }
+
+    /// This device's `attach.offered` for `r` in the board's log, once.
+    fn offer(&self, r: &FileRef) -> Result<(), String> {
+        let held = holders_in(&self.opts.log, &r.sha256).map_err(|e| e.to_string())?;
+        if held.contains(&self.opts.self_id) {
+            return Ok(());
+        }
+        self.opts
+            .log
+            .append(
+                "irori",
+                store::kinds::ATTACH_OFFERED,
+                &FileOffer {
+                    sha256: r.sha256.clone(),
+                    size: r.size,
+                    name: r.name.clone(),
+                    mime: r.mime.clone(),
+                },
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 
     fn recheck_conns(self: &Arc<Self>) {
@@ -1021,15 +1169,22 @@ impl Shared {
             old.conn.close(reason::REPLACED);
         }
         {
+            let w: Weak<Shared> = Arc::downgrade(self);
             let (log, board) = (self.opts.log.clone(), self.opts.board_id.clone());
+            let (peer_id, peer_pub) = (conn.id().to_string(), conn.pub_key());
             conn.on_stream(Arc::new(move |st: irori_meshseam::Stream| {
-                let (log, board) = (log.clone(), board.clone());
+                let (w, log, board, peer_id) =
+                    (w.clone(), log.clone(), board.clone(), peer_id.clone());
                 tokio::spawn(async move {
                     let want = format!("{BOARD_LABEL_PREFIX}{board}");
-                    let ok = st.label == want;
+                    let label = st.label.clone();
                     let mut both: Stream = Box::new(tokio::io::join(st.recv, st.send));
-                    if ok {
+                    if label == want {
                         serve_pull(log, &mut both).await;
+                    } else if label.starts_with(BLOB_LABEL_PREFIX)
+                        && let Some(s) = w.upgrade()
+                    {
+                        s.serve_file(&peer_id, &peer_pub, &mut both).await;
                     }
                     let _ = both.shutdown().await;
                 });

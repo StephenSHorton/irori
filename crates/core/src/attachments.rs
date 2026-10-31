@@ -12,10 +12,11 @@
 //! [`attachment_dst`].
 //!
 //! Boards: `attachment_dst` keys on the reader, not on a board, so nothing
-//! there routes by board. The comment lookup is the private board's
-//! (`Coord::comment_attachment`, as Go be67a86 does); once shared boards
-//! land in the Core (#49), a comment's file on a shared board needs that
-//! board's lookup too.
+//! there routes by board. The comment lookup is the private board's, then
+//! each shared board's; a file on a shared card is fetched on that board's
+//! own connections when no device of this person holds it (v0.5 §5.5,
+//! `crate::meshview`). Attaching a file to a shared card's comment offers
+//! it in the board's log (the board coord's `holds_file`).
 
 use std::fs;
 use std::path::{Path, PathBuf};

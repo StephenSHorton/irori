@@ -1877,6 +1877,17 @@ impl Core {
         &self.s.mesh.node
     }
 
+    /// A file on a comment or blocker the window shows: the private
+    /// board's, else a shared board's (v0.5 §5.5).
+    pub fn comment_attachment(&self, sha: &str) -> Option<coord::FileRef> {
+        self.s.comment_attachment(sha)
+    }
+
+    /// The Core's network side: the Node and every open board's mesh.
+    pub(crate) fn mesh_net(&self) -> &Arc<crate::meshnode::Mesh> {
+        &self.s.mesh
+    }
+
     /// The iroh endpoint the mesh and pairing share (status lines, tests).
     pub fn net(&self) -> &irori_net::transport::IrohNet {
         &self.s.mesh.net
@@ -2046,6 +2057,17 @@ impl Services {
         Ok(out)
     }
 
+    /// A file on a comment or blocker: the private board's first, then
+    /// each open shared board's (v0.5 §5.5).
+    pub(crate) fn comment_attachment(&self, sha: &str) -> Option<coord::FileRef> {
+        self.coord.comment_attachment(sha).or_else(|| {
+            self.boards
+                .list()
+                .iter()
+                .find_map(|b| b.coord().comment_attachment(sha))
+        })
+    }
+
     /// Go `GetAttachment` ([`Core::get_attachment`]).
     fn get_attachment(
         &self,
@@ -2067,9 +2089,8 @@ impl Services {
                 mime: f.mime,
                 device: f.device,
             },
-            // The private board's comments; shared boards' (#49) are not
-            // looked up yet (crate::attachments).
-            None => match self.coord.comment_attachment(&sha) {
+            // The private board's comments, then each shared board's.
+            None => match self.comment_attachment(&sha) {
                 Some(f) => blob::FileRef {
                     sha256: f.sha256,
                     name: f.name,
@@ -2090,7 +2111,7 @@ impl Services {
                 .unwrap_or_default()
         })?;
         let from = crate::meshview::fetch_file_blocking(
-            &self.mesh.node,
+            &self.mesh,
             &self.pairing.handle,
             &self.device.id,
             &self.chain,

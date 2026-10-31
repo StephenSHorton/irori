@@ -10,7 +10,10 @@
 //! - a removed member's connection is cut and its redials are refused;
 //! - the private mesh (`irori/mesh/1`) refuses the other person's device;
 //! - with gossip on and the ticks slowed to a minute, a local write's kick
-//!   and a gossip announcement each move a row within a few seconds.
+//!   and a gossip announcement each move a row within a few seconds;
+//! - a file offered on the board reaches the other member on a `blob/`
+//!   stream, and a private file never does, even when that member offers
+//!   its hash on the board himself.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -109,6 +112,7 @@ struct Dev {
     members: Arc<BoardMembers>,
     net: IrohNet,
     mesh: Option<BoardMesh>,
+    files: Arc<blob::Files>,
     dir: tempfile::TempDir,
 }
 
@@ -184,6 +188,7 @@ impl Dev {
         cfg.boards = members.clone();
         cfg.dial_grace = Duration::from_millis(300);
         cfg.connect_timeout = Duration::from_secs(10);
+        let files = Arc::new(blob::Files::open(dir.path().join("files")).unwrap());
         Dev {
             id,
             person,
@@ -194,6 +199,7 @@ impl Dev {
             members,
             net: IrohNet::new(cfg),
             mesh: None,
+            files,
             dir,
         }
     }
@@ -338,6 +344,7 @@ impl Dev {
             secrets: self.secrets.clone(),
             transport: Arc::new(self.net.clone()),
             own_devices: None,
+            files: Some(self.files.clone()),
         });
         m.set_intervals(iv);
         m.start().await.unwrap();
@@ -841,4 +848,112 @@ async fn a_write_and_a_gossip_announcement_pull_at_once() {
         d.net.close().await;
     }
     let _ = (&alice.dir, &bob.dir);
+}
+
+impl Dev {
+    /// Puts a made-up file into this device's attachment store.
+    fn put(&self, name: &str, body: &[u8]) -> blob::FileRef {
+        let p = self.dir.path().join(name);
+        std::fs::write(&p, body).unwrap();
+        let mut r = self.files.put_file(&p.to_string_lossy()).unwrap();
+        r.name = name.into();
+        r.device = self.id.clone();
+        r
+    }
+
+    /// An attach.offered row for `r` in the board log, as the Core's board
+    /// coord writes before a comment that names it.
+    fn offer(&self, r: &blob::FileRef) -> Event {
+        self.append(
+            "irori",
+            store::kinds::ATTACH_OFFERED,
+            &mesh::FileOffer {
+                sha256: r.sha256.clone(),
+                size: r.size,
+                name: r.name.clone(),
+                mime: r.mime.clone(),
+            },
+        )
+    }
+
+    fn offered_by(&self, sha: &str) -> Vec<String> {
+        mesh::files::holders_in(&self.log, sha).unwrap()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_file_on_a_shared_card_reaches_the_other_member_and_a_private_one_never_does() {
+    let alice_p = Person::new("a-alice-pc");
+    let creator = alice_p.pin();
+    let mut alice = Dev::with_person(alice_p, &creator);
+    let mut bob = Dev::new("b-bob-mac", &creator);
+    let a_cert = alice.self_cert();
+    let created = alice.create_board();
+    let added = alice.add_member(&bob.person);
+    let b_cert = bob.self_cert();
+    bob.take(&[a_cert, created, added]);
+    alice.take(&[b_cert]);
+    let mut secret = [0u8; 32];
+    getrandom::fill(&mut secret).unwrap();
+    alice.secrets.add(1, &alice.id, &secret).unwrap();
+    bob.secrets.add(1, &alice.id, &secret).unwrap();
+
+    // Alice holds two files: one she puts on a shared card (offered in
+    // the board's log), one that stays private.
+    let shared = alice.put("notes.txt", b"shared with the board");
+    let private = alice.put("secret.txt", b"never leaves alice's devices");
+    alice.offer(&shared);
+    assert!(alice.files.has(&private.sha256));
+
+    let (pa, pb) = (alice.peer_addr().await, bob.peer_addr().await);
+    alice.net.set_board_peers(BOARD, vec![pb]);
+    bob.net.set_board_peers(BOARD, vec![pa]);
+    alice.open().await;
+    bob.open().await;
+    eventually("alice and bob connect on the board", || {
+        alice.connected_to(&bob.id) && bob.connected_to(&alice.id)
+    })
+    .await;
+    assert!(alice.mesh().may_serve(&shared.sha256));
+    assert!(!alice.mesh().may_serve(&private.sha256));
+    eventually("bob pulls alice's offer", || {
+        bob.mesh().offers(&shared.sha256)
+    })
+    .await;
+    eventually("bob's board connection said hello", || {
+        !bob.mesh().peers().is_empty()
+    })
+    .await;
+
+    // Bob fetches the shared file from Alice on the board connection; he
+    // then offers it in the board himself, and serves it on.
+    let from = bob.mesh().fetch_file(&shared).await.expect("bob fetches");
+    assert_eq!(from, alice.id);
+    assert_eq!(
+        std::fs::read(bob.files.path(&shared.sha256)).unwrap(),
+        b"shared with the board"
+    );
+    assert!(bob.offered_by(&shared.sha256).contains(&bob.id));
+    assert!(bob.mesh().may_serve(&shared.sha256));
+    assert_eq!(bob.mesh().fetch_file(&shared).await.unwrap(), "");
+
+    // The private file: not offered on the board, so Alice sends nothing.
+    let got = bob.mesh().fetch_file(&private).await;
+    assert!(got.is_err(), "{got:?}");
+    assert!(!bob.files.has(&private.sha256));
+
+    // Bob knows the hash and offers it on the board himself: an offer
+    // another person wrote never makes Alice's device serve it.
+    let guess = bob.offer(&private);
+    bob.mesh().kick();
+    eventually("alice gets bob's offer", || alice.has(&guess)).await;
+    assert!(!alice.mesh().may_serve(&private.sha256));
+    let got = bob.mesh().fetch_file(&private).await;
+    assert_eq!(got, Err(mesh::FetchError::NotServed), "{got:?}");
+    assert!(!bob.files.has(&private.sha256));
+
+    for d in [&alice, &bob] {
+        d.mesh().close();
+        d.net.close().await;
+    }
 }
