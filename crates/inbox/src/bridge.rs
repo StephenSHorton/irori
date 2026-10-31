@@ -24,7 +24,7 @@ use serde::Serialize;
 use store::Event;
 
 use crate::messages::clip;
-use crate::policy::{Cards, bypass, placed};
+use crate::policy::{Cards, placed};
 use crate::state::{DeliveryRow, Inner, b, pair_key, s, str_fields, strs, t, trim};
 use crate::{
     Address, DIRECT_LIMIT, DIRECT_WINDOW, Delivery, Error, FileRef, Inbox, MAX_REF, MAX_TEXT,
@@ -92,7 +92,9 @@ pub struct BoardFrom {
     /// The writing agent's card; empty when the person wrote it.
     #[serde(rename = "cardId", skip_serializing_if = "String::is_empty")]
     pub card_id: String,
-    /// The board row, `<deviceId>/<seq>` in the board log.
+    /// The board row, `<deviceId>/<seq>` in the board log; for a board
+    /// ask, `ask:<taskId>@<since>`, one per round of telling it, so a
+    /// sweep that widens the round tells each agent once.
     pub row: String,
     /// One of [`row_kind`].
     pub kind: String,
@@ -202,6 +204,16 @@ fn newer<T>(cur: Option<&Setting<T>>, ev: &Event) -> bool {
     cur.is_none_or(|c| (ev.hlc, ev.device_id.as_str()) > (c.hlc, c.dev.as_str()))
 }
 
+/// Whether key runs with bypassed permissions (Grok and people never do):
+/// the receive setting's Ask me and Closed hold other people's rows to
+/// such a session (§7.2). Under the default Open nothing is held, and the
+/// private wake policy has no bypass hold at all (decision 37).
+pub(crate) fn bypass(key: &str, cards: &Cards) -> bool {
+    cards
+        .get(key)
+        .is_some_and(|c| c.agent != "grok" && c.permission_mode == crate::BYPASS_MODE)
+}
+
 /// The receive table (§7.2) for one row to one recipient: the delivery
 /// mode, the hold reason (`""` for none) and whether a wake request was
 /// turned into next turn.
@@ -234,7 +246,11 @@ pub fn receive_decision(
             (mode::NEXT_TURN, h, f.wake)
         }
         receive::ASK => {
-            let h = if bypass_recipient || agent_assign {
+            // A release request asks the agent to give up a lease: the
+            // person decides first (member_lease, §5.4).
+            let h = if f.kind == row_kind::LEASE {
+                hold::MEMBER_LEASE
+            } else if bypass_recipient || agent_assign {
                 hold::CROSS_PERSON
             } else if f.wake {
                 hold::MEMBER_WAKE
@@ -488,6 +504,33 @@ impl Inbox {
             r.note = clip(note, crate::MAX_NOTE);
             r.until = gocompat::time::GoTime::ZERO;
             b.put_delivery(r, agent)
+        })
+    }
+
+    /// Moves the bridged deliveries from board member `person_id` on board
+    /// `board_id` that haven't reached their agent yet (queued or
+    /// deferred) to held, so the person decides (v0.5 §4.3: they were
+    /// removed or left). Returns how many moved.
+    pub fn hold_from_member(&self, board_id: &str, person_id: &str) -> Result<usize> {
+        self.mutate(|b| {
+            let ids: Vec<String> = b
+                .order
+                .iter()
+                .filter(|id| {
+                    b.dels.get(*id).is_some_and(|d| {
+                        matches!(d.d.state.as_str(), crate::st::QUEUED | crate::st::DEFERRED)
+                            && b.msgs.get(&d.d.message_id).is_some_and(|m| {
+                                m.board.board_id == board_id && m.board.person_id == person_id
+                            })
+                    })
+                })
+                .cloned()
+                .collect();
+            for id in &ids {
+                let r = placed(b.dels[id].row(), hold::MEMBER_REMOVED);
+                b.put_delivery(r, SYSTEM_KEY)?;
+            }
+            Ok(ids.len())
         })
     }
 

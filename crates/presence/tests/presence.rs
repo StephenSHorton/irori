@@ -878,7 +878,8 @@ fn parse_lstart_table() {
 // --- live_windows_test.go
 
 /// A live pid whose procStart doesn't match is a reused pid, not the session.
-#[cfg(windows)]
+/// (The units differ: FILETIME ticks on Windows, Unix seconds on macOS.)
+#[cfg(any(windows, target_os = "macos"))]
 #[test]
 fn reused_pid_not_listed() {
     use presence::internal::{PROC_START_SLACK, process_start_ticks};
@@ -921,7 +922,7 @@ fn helper_sleeper() {
 
 /// An agent killed without removing its session file leaves the roster
 /// when its process ends, not at the next safety rescan.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn exit_removes_at_once() {
     let mut child = std::process::Command::new(std::env::current_exe().unwrap())

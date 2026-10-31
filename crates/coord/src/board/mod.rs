@@ -46,8 +46,8 @@ pub use board_search::{DEFAULT_DOC_PAGE, SHOW_COMMENT_CUT, SHOW_COMMENTS};
 pub use cards::{merge_watch, watch_text};
 pub use error::{Error, ErrorKind, Result};
 pub use fold::{
-    FOLLOW_KINDS, Fold, LEFT_GONE, REASON_CONFLICT, REASON_EXPIRED, REASON_HOLDER_GONE,
-    REASON_RELEASED, REASON_STOLEN, SUB_BUFFER, followed,
+    FOLLOW_KINDS, Fold, LEFT_GONE, LEFT_REMOVED, REASON_CONFLICT, REASON_EXPIRED,
+    REASON_HOLDER_GONE, REASON_RELEASED, REASON_STOLEN, SUB_BUFFER, followed,
 };
 pub use links::{MAX_LINKS, link_label, parse_link, pr_link};
 pub use mirror::RELEASE_REQUEST;
@@ -299,6 +299,11 @@ impl Coord {
     pub fn leave(&self, by: &str, id: &str, who: &str) -> Result<Task> {
         self.lock().leave(by, id, who)
     }
+    /// Takes board member `person_id`'s keys off every open card (v0.5
+    /// §4.3): the remover's cleanup.
+    pub fn take_off_person(&self, by: &str, person_id: &str) -> Result<usize> {
+        self.lock().take_off_person(by, person_id)
+    }
     pub fn set_shared(&self, by: &str, id: &str, shared: bool) -> Result<Task> {
         self.lock().set_shared(by, id, shared)
     }
@@ -358,6 +363,16 @@ impl Coord {
 
     pub fn raise(&self, by: &str, id: &str, nb: NewBlocker) -> Result<(Task, Blocker)> {
         self.lock().raise(by, id, nb)
+    }
+    /// Revises an open blocker (Fold::revise).
+    pub fn revise(
+        &self,
+        by: &str,
+        id: &str,
+        blocker: &str,
+        r: BlockerRevision,
+    ) -> Result<(Task, Blocker)> {
+        self.lock().revise(by, id, blocker, r)
     }
     pub fn recommend(
         &self,
@@ -704,7 +719,13 @@ impl Coord {
     /// When the expiry timer should fire: the soonest Until of this
     /// device's leases while anyone is subscribed.
     pub fn next_expiry(&self) -> Option<GoTime> {
-        self.lock().next_expiry()
+        // A read: no unlock signal. The core's expiry timer calls this right
+        // after taking the rearm generation; firing on_unlock here kicked
+        // that generation and spun the timer on a whole core (#70).
+        self.f
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .next_expiry()
     }
 
     /// Runs `f` after every unlock (Go's `unlock` re-arming its timer): the

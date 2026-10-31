@@ -118,9 +118,10 @@ export const BoardService = {
     call(commands.boardAnswer(taskId, blockerId, option, text, wake)),
   ResolveBlocker: (taskId: string, blockerId: string, note: string) =>
     call(commands.boardResolveBlocker(taskId, blockerId, note)),
-  Ask: (text: string, repoKey: string, wake: boolean) => call(commands.boardAsk(text, repoKey, wake)),
-  AskWithFiles: (text: string, repoKey: string, wake: boolean, files: B.UploadFile[]) =>
-    call(commands.boardAskWithFiles(text, repoKey, wake, files)),
+  Ask: (text: string, repoKey: string, wake: boolean, boardId: string) =>
+    call(commands.boardAsk(text, repoKey, wake, boardId)),
+  AskWithFiles: (text: string, repoKey: string, wake: boolean, files: B.UploadFile[], boardId: string) =>
+    call(commands.boardAskWithFiles(text, repoKey, wake, files, boardId)),
   AskAgain: (id: string) => done(commands.boardAskAgain(id)),
   AskRepos: () => call(commands.boardAskRepos()),
   CloseAsk: (id: string, note: string) => call(commands.boardCloseAsk(id, note)),
@@ -137,6 +138,11 @@ export const BoardsService = {
   Rename: (boardId: string, name: string) => call(commands.boardsRename(boardId, name)),
   Leave: (boardId: string) => done(commands.boardsLeave(boardId)),
   Forget: (boardId: string) => done(commands.boardsForget(boardId)),
+  ForgetNow: (boardId: string) => done(commands.boardsForgetNow(boardId)),
+  RemoveMember: (boardId: string, personId: string) =>
+    call(commands.boardsRemoveMember(boardId, personId)),
+  SetRole: (boardId: string, personId: string, role: string) =>
+    call(commands.boardsSetRole(boardId, personId, role)),
   SharePreview: (taskId: string, boardId: string) => call(commands.boardsSharePreview(taskId, boardId)),
   Share: (taskId: string, boardId: string, hash: string) => call(commands.boardsShare(taskId, boardId, hash)),
   Withdraw: (taskId: string) => call(commands.boardsWithdraw(taskId)),

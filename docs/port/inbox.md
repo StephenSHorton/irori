@@ -196,7 +196,7 @@ Copy every literal sentence verbatim from the cited lines. Mod and channel tests
 | Name | Value | Name | Value |
 |---|---|---|---|
 | MaxText | 8000 runes | MaxWakeBytes | 16384 bytes |
-| DirectLimit / DirectWindow | 8 per 10 min sliding window, per unordered pair | MaxHop | 6 (hold when `hop > 6`) |
+| DirectLimit / DirectWindow | 8 per 10 min sliding window, per unordered pair | MaxHop | 6 in Go (hold when `hop > 6`); 50 in Rust since decision 37 |
 | UnengagedLimit | 10 min | GoneGrace | 3 min |
 | NoCardGrace | 10 min | QuietLimit | 60 min |
 | MaxDefer | 12 h | ReattachGrace | 2 min |
@@ -282,13 +282,13 @@ Rejected rows increment `ignored` and `ignoredBy[dev]`.
 3. Else, if the sender is not the person (kind `user` and IsOwner(key)), check in order:
    - **blocked**: block-listed, strict.
    - **not_allowed**: mode `allowlist` and not allow-listed.
-   - **bypass_receiver**: all of the following hold:
+   - **bypass_receiver** (Go only; the Rust port drops it, decision 37, and decides old held rows again at catch-up): all of the following hold:
      - mode ≠ `open`;
      - `bypass(recipient)`: the card exists, the card's agent ≠ grok, and permissionMode == `bypassPermissions`;
      - not allow-listed;
      - not `ownAgent`;
      - and at least one of: sender kind == grok, the sender is not the writer, or the sender is not bypass.
-   - **hop_limit**: `m.Hop > 6`.
+   - **hop_limit**: `m.Hop > 6` (Rust: `> 50`).
 4. If paused: return `paused`. This applies to everyone, including the person.
 5. Otherwise return `""` (queued).
 
@@ -305,7 +305,7 @@ Rejected rows increment `ignored` and `ignoredBy[dev]`.
 - `DeviceOf(key) == message writer`.
 - And either the device is this device, or (`IsOwner("user:"+dev)` and not `Revoked(dev)`).
 
-**Mode open** ("Full auto", decision 36) only skips the `bypass_receiver` hold.
+**Mode open** ("Full auto", decision 36) only skips the `bypass_receiver` hold; in Rust it is `everyone` (decision 37).
 
 **Who decides.** A recipient on another device gets `h = ""`: its host decides (`messages.go:149-152`). The host runs `hostHold` once per delivery when it folds a remote Queued row that has no hold or wake (`mesh.go:232-253`). The `hostChecked` flag lives in memory only.
 

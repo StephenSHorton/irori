@@ -428,14 +428,15 @@ fn board_identity_kept_current() {
         c.board_info(&id)
             .is_ok_and(|i| i.epoch == 2 && i.secret_epoch == 2)
     });
-    let topics = c.board_secrets(&id).unwrap().topics().unwrap();
-    assert!(
-        topics.len() == 2
-            && topics[0].epoch == 2
-            && topics[1].epoch == 1
-            && topics[0].topic != topics[1].topic,
-        "topics after the rotation"
-    );
+    // No other member device is left to move, so the board settles on
+    // epoch 2 and epoch 1's topic closes (card #67 item 11).
+    wait_for(10, "the board settles on the new epoch", || {
+        let topics = c.board_secrets(&id).unwrap().topics().unwrap();
+        topics.len() == 1 && topics[0].epoch == 2
+    });
+    let secrets = c.board_secrets(&id).unwrap();
+    assert_eq!(secrets.settled(), 2);
+    assert!(secrets.secret(1).is_none(), "epoch 1's secret is gone");
 
     let check = |c: &Core| {
         let st = c.board_store(&id).unwrap();
@@ -1290,6 +1291,35 @@ fn board_create_and_the_bridge_on_the_core() {
     assert!(
         ds.iter().all(|d| !d.message.from.key.starts_with("board:")),
         "own rows came back through the bridge: {ds:?}"
+    );
+    r.core.close().unwrap();
+}
+
+/// v0.5 §2.3: a row naming a card the board doesn't hold yet waits in the
+/// fold's set-aside, and the Core's board coord counts it for
+/// `GET /v1/boards?detail=1`; the board still lists with its summary.
+#[test]
+fn a_row_naming_no_card_on_the_board_is_counted_as_unresolved() {
+    let r = Rig::new();
+    let c = &r.core;
+    let id = c.create_board("mlg", "mlg").unwrap();
+    let co = c.board_coord(&id).unwrap();
+    assert_eq!(co.set_aside(), coord::SetAside::default());
+    let ev = store::Event {
+        device_id: "dev-elsewhere".into(),
+        seq: 1,
+        actor: format!("{AGENT_ACTOR_PREFIX}dev-elsewhere/s1"),
+        kind: kinds::TASK_CLAIMED.into(),
+        payload: br#"{"taskId":"no-such-card"}"#.to_vec(),
+        ..Default::default()
+    };
+    co.fold_live(std::slice::from_ref(&ev));
+    let aside = co.set_aside();
+    assert_eq!((aside.unresolved, aside.dropped), (1, 0), "{aside:?}");
+    let rows = c.board_list();
+    assert!(
+        rows.len() == 1 && rows[0].board_id == id && rows[0].ready && rows[0].owner,
+        "{rows:?}"
     );
     r.core.close().unwrap();
 }

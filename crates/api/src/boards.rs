@@ -18,7 +18,8 @@ pub struct BoardRow {
     pub owner: bool,
     pub devices: i64,
     pub cards: i64,
-    /// Synced with at least one other member device.
+    /// Its board.created folded here, so cards can go on it (a board
+    /// another device made shows before its rows arrive).
     pub ready: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<BoardDetail>,

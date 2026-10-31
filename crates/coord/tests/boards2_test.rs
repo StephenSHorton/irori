@@ -425,9 +425,14 @@ fn nobody_steals_another_persons_lease() {
         cm.text
     );
     assert!(n.to.contains(&CARD1.to_string()), "{n:?}");
+    // Addressed to the holder, so the bridge carries it to that agent only.
+    assert_eq!(cm.to, CARD1);
     sync(&a, &b);
     assert!(
-        a.c.comments(&t.id).unwrap().iter().any(|c| c.id == cm.id),
+        a.c.comments(&t.id)
+            .unwrap()
+            .iter()
+            .any(|c| c.id == cm.id && c.to == CARD1),
         "the request reached p1's side"
     );
     let e = a.c.request_release(P1, SRC, "").unwrap_err();

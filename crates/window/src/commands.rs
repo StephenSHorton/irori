@@ -251,8 +251,14 @@ pub async fn board_resolve_blocker(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn board_ask(w: W<'_>, text: String, repo_key: String, wake: bool) -> R<TaskResult> {
-    w.ask(&text, &repo_key, wake, &[])
+pub async fn board_ask(
+    w: W<'_>,
+    text: String,
+    repo_key: String,
+    wake: bool,
+    board_id: String,
+) -> R<TaskResult> {
+    w.ask(&text, &repo_key, wake, &[], &board_id)
 }
 
 #[tauri::command]
@@ -263,8 +269,12 @@ pub async fn board_ask_with_files(
     repo_key: String,
     wake: bool,
     files: Vec<UploadFile>,
+    board_id: String,
 ) -> R<TaskResult> {
-    blocking(&w, move |w| w.ask(&text, &repo_key, wake, &files)).await
+    blocking(&w, move |w| {
+        w.ask(&text, &repo_key, wake, &files, &board_id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -347,7 +357,39 @@ pub async fn boards_rename(w: W<'_>, board_id: String, name: String) -> R<BoardS
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_leave(w: W<'_>, board_id: String) -> R<()> {
-    w.boards_leave(&board_id)
+    blocking(&w, move |w| w.boards_leave(&board_id)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_forget_now(w: W<'_>, board_id: String) -> R<()> {
+    blocking(&w, move |w| w.boards_forget_now(&board_id)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_remove_member(
+    w: W<'_>,
+    board_id: String,
+    person_id: String,
+) -> R<BoardSettings> {
+    blocking(&w, move |w| {
+        w.boards_remove_member(&board_id, &person_id)?;
+        w.boards_settings(&board_id)
+    })
+    .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_set_role(
+    w: W<'_>,
+    board_id: String,
+    person_id: String,
+    role: String,
+) -> R<BoardSettings> {
+    w.boards_set_role(&board_id, &person_id, &role)?;
+    w.boards_settings(&board_id)
 }
 
 #[tauri::command]
@@ -687,6 +729,9 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_create,
             boards_rename,
             boards_leave,
+            boards_forget_now,
+            boards_remove_member,
+            boards_set_role,
             boards_forget,
             boards_share_preview,
             boards_share,

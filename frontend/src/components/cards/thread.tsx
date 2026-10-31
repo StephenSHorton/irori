@@ -6,7 +6,13 @@ import { Button } from "@/components/ui/button"
 import { cards, type CardMessage, type CardThreadItem } from "@/lib/cards"
 import { parseTime, plainBlock, plainLine, relativeTime } from "@/lib/irori"
 import { errorText, talk } from "@/lib/talk"
-import { opensInFull, threadLabel, ThreadKind, visible } from "@/lib/thread"
+import {
+  isRevision,
+  opensInFull,
+  threadLabel,
+  ThreadKind,
+  visible,
+} from "@/lib/thread"
 import { cn } from "@/lib/utils"
 import { Face } from "./faces"
 import { RichLine, RichText } from "@/components/common/rich-text"
@@ -112,6 +118,24 @@ function ThreadRow({
       {relativeTime(at, now)}
     </time>
   )
+  // A revision of its blocker: what the item asks now, under the reply it
+  // answers; the current options to pick sit below the thread.
+  if (isRevision(item))
+    return (
+      <div className="grid grid-cols-[56px_minmax(0,1fr)] gap-2">
+        {time}
+        <span className="text-ink-2">
+          <Badge
+            variant="warning"
+            className="mr-1.5 h-4 px-1.5 align-middle text-[10.5px]"
+          >
+            Revised
+          </Badge>
+          <RichLine text={item.text} />
+          {item.device && <DeviceTag device={item.device} />}
+        </span>
+      </div>
+    )
   if (item.kind === ThreadKind.Event)
     return (
       <div className="grid grid-cols-[56px_minmax(0,1fr)] gap-2">

@@ -181,3 +181,78 @@ fn two_homes_reconnect_after_both_restart() {
     a.close().unwrap();
     b.close().unwrap();
 }
+
+/// fennel's live dry run (#48): the inviter's home server is on, with
+/// outside reach off and no public address, and the Core restarts before any
+/// board has another person on it. Nothing else wants the server then; an
+/// open invite does (as a pairing window does), so the endpoint homes on its
+/// own relay and the link names it for an invitee away from home.
+#[test]
+fn an_open_invite_starts_the_home_server_and_the_link_names_its_relay() {
+    let dirs: Vec<tempfile::TempDir> = (0..2).map(|_| tempfile::tempdir().unwrap()).collect();
+    let a = core(dirs[0].path(), dirs[1].path());
+    a.set_home_server(true, false, "").unwrap();
+    a.close().unwrap();
+    let a = core(dirs[0].path(), dirs[1].path());
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(
+        a.home().and_then(|h| h.relay_port()),
+        None,
+        "the server runs with nothing wanting it"
+    );
+    let board = a.create_board("MLG", "mlg").unwrap();
+    let rt = a.pairing_runtime().clone();
+    let st = rt.block_on(a.invite(&board)).unwrap();
+    let port = a
+        .home()
+        .and_then(|h| h.relay_port())
+        .expect("the server runs for the invite");
+    let t = irori_invite::Ticket::parse(&st.link).unwrap();
+    assert_eq!(
+        t.relay,
+        format!("https://127.0.0.1:{port}/"),
+        "the link's relay"
+    );
+    assert_eq!(
+        t.relay_key,
+        hex::encode(a.identity().device_pub()),
+        "the link pins the inviter's own server"
+    );
+    assert!(
+        a.net()
+            .home_relays()
+            .iter()
+            .any(|(u, up)| *up && u.port() == Some(port)),
+        "the endpoint isn't on its own relay"
+    );
+    // The invite ends: nothing wants the server any more.
+    a.cancel_invite();
+    wait("the server stops with the invite", || {
+        a.home().and_then(|h| h.relay_port()).is_none()
+    });
+    a.close().unwrap();
+}
+
+/// The link names the inviter's relay as another device reaches it, not the
+/// 127.0.0.1 the endpoint itself homes on (fennel, #48): with an address for
+/// outside home, that address (here a typed one from the documentation
+/// range, never dialled).
+#[test]
+fn the_link_names_the_relay_as_others_reach_it() {
+    let dirs: Vec<tempfile::TempDir> = (0..2).map(|_| tempfile::tempdir().unwrap()).collect();
+    let a = core(dirs[0].path(), dirs[1].path());
+    a.set_home_server(true, true, "203.0.113.7:24817").unwrap();
+    let board = a.create_board("MLG", "mlg").unwrap();
+    let rt = a.pairing_runtime().clone();
+    let st = rt.block_on(a.invite(&board)).unwrap();
+    wait("the server names its outside address", || {
+        a.home()
+            .is_some_and(|h| h.status().address == "203.0.113.7:24817")
+    });
+    let t = irori_invite::Ticket::parse(&st.link).unwrap();
+    assert_eq!(t.relay, "https://203.0.113.7:24817/");
+    assert_eq!(t.relay_quic_port, 24817);
+    assert_eq!(t.relay_key, hex::encode(a.identity().device_pub()));
+    a.cancel_invite();
+    a.close().unwrap();
+}

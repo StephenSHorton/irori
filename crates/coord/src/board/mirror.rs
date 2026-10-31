@@ -183,6 +183,6 @@ impl Fold {
         if text.chars().count() > MAX_COMMENT {
             return Err(invalid("release request too long"));
         }
-        self.add_comment(&by, &id, &text, false, Vec::new())
+        self.add_comment_to(&by, &id, &text, false, Vec::new(), &l.lease.holder)
     }
 }

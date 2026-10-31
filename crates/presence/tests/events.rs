@@ -298,15 +298,15 @@ async fn run_stops_everything() {
 
 /// The Windows exit wait itself: its thread ends on stop without calling
 /// on_exit, and on exit when the process ends.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 #[test]
-fn windows_exit_wait_stops_and_fires() {
+fn os_exit_wait_stops_and_fires() {
     // Our own process never exits during the test: stop must end the wait.
     let w = Watcher::new(presence::Options::default());
     drop(w);
     let fired = Arc::new(AtomicBool::new(false));
     let f2 = fired.clone();
-    let exit = presence::internal::default_watch_exit().expect("windows exit wait");
+    let exit = presence::internal::default_watch_exit().expect("this OS's exit wait");
     let stop = exit(
         i64::from(std::process::id()),
         Box::new(move || f2.store(true, Ordering::SeqCst)),
@@ -314,4 +314,27 @@ fn windows_exit_wait_stops_and_fires() {
     .expect("wait on self");
     stop();
     assert!(!fired.load(Ordering::SeqCst));
+
+    #[cfg(target_os = "macos")]
+    {
+        // A child that exits fires on_exit at once, before it is reaped.
+        let mut c = std::process::Command::new("/bin/sleep")
+            .arg("0.3")
+            .spawn()
+            .unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let stop = exit(
+            i64::from(c.id()),
+            Box::new(move || {
+                let _ = tx.send(());
+            }),
+        )
+        .expect("wait on the child");
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("on_exit after the child exited");
+        stop();
+        c.wait().unwrap();
+        // An exited pid has nothing to wait on.
+        assert!(exit(i64::from(c.id()), Box::new(|| {})).is_none());
+    }
 }

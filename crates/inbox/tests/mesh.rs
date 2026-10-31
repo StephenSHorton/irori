@@ -309,22 +309,17 @@ fn the_host_fills_the_card_when_it_lets_a_message_through() {
     assert_eq!(calls.lock().unwrap()[1], format!("msg_bloc to {KEY_B}"));
 }
 
+/// No hold for a bypass-mode recipient (card #71): every agent's message
+/// reaches it, the person's own, another device's, Grok, a stranger's or a
+/// spoofed one; only the person's block list and Pause all hold.
 #[test]
-fn the_host_lets_the_owners_other_device_agents_through_bypass() {
-    const KEY_REV: &str = "dev3/dddddddd-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+fn the_host_holds_only_for_the_persons_own_settings() {
     const KEY_UNK: &str = "devX/eeeeeeee-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
     const KEY_RG: &str = "dev2/grok-remote";
-    let h = Harness::with(Hooks {
-        is_owner: Some(Arc::new(|k: &str| {
-            k == USER || k == "user:dev2" || k == "user:dev3"
-        })),
-        revoked: Some(Arc::new(|d: &str| d == "dev3")),
-        ..Hooks::default()
-    });
+    let h = Harness::with(owners2());
     h.abc();
     h.ros.put(&[
         card(KEY_R, "mac", "", ""),
-        card(KEY_REV, "old", "", "default"),
         card(KEY_UNK, "stranger", "", "default"),
         grok_card(KEY_RG, "grok", ""),
     ]);
@@ -343,7 +338,6 @@ fn the_host_lets_the_owners_other_device_agents_through_bypass() {
     };
     send("own", KEY_R, "mac", "claude");
     send("grok", KEY_RG, "grok", "grok");
-    send("revoked", KEY_REV, "old", "claude");
     send("unknown", KEY_UNK, "stranger", "claude");
     send(
         "spoofed",
@@ -351,26 +345,13 @@ fn the_host_lets_the_owners_other_device_agents_through_bypass() {
         "local",
         "claude",
     );
-    send("spoofed-bypass", KEY_A, "alpha", "claude");
-    for id in [
-        "dlv_grok",
-        "dlv_revoked",
-        "dlv_unknown",
-        "dlv_spoofed",
-        "dlv_spoofed-bypass",
-    ] {
-        eventually(&format!("{id} held for bypass"), || {
-            h.ib.get(id)
-                .is_some_and(|d| d.state == st::HELD && d.hold == hold::BYPASS_RECEIVER)
+    for id in ["dlv_own", "dlv_grok", "dlv_unknown", "dlv_spoofed"] {
+        eventually(&format!("{id} through"), || {
+            h.ib.get(id).is_some_and(|d| d.state == st::QUEUED)
         });
+        let d = h.ib.get(id).unwrap();
+        assert!(d.hold.is_empty(), "{id} held for {}", d.hold);
     }
-    let d = h.ib.get("dlv_own").unwrap();
-    assert!(
-        d.state != st::HELD && d.hold.is_empty(),
-        "{} {}",
-        d.state,
-        d.hold
-    );
     h.ib.set_policy(
         Policy {
             block: vec!["mac".into()],
@@ -380,16 +361,50 @@ fn the_host_lets_the_owners_other_device_agents_through_bypass() {
     )
     .unwrap();
     send("blocked", KEY_R, "mac", "claude");
-    eventually("the block list wins", || {
+    eventually("the block list holds", || {
         h.ib.get("dlv_blocked")
             .is_some_and(|d| d.state == st::HELD && d.hold == hold::BLOCKED)
     });
     h.ib.set_policy(paused(), USER).unwrap();
     send("paused", KEY_R, "mac", "claude");
-    eventually("Pause all wins", || {
+    eventually("Pause all holds", || {
         h.ib.get("dlv_paused")
             .is_some_and(|d| d.state == st::HELD && d.hold == hold::PAUSED)
     });
+}
+
+/// A delivery an older Irori held for bypass_receiver, a hold that no
+/// longer exists (card #71), is decided again when its host catches up:
+/// queued, unless the person's own settings hold it.
+#[test]
+fn a_retired_bypass_hold_is_lifted_at_catch_up() {
+    for block in [false, true] {
+        let mut h = Harness::new();
+        h.abc();
+        h.ros.put(&[grok_card(KEY_G, "grok", "")]);
+        let (_, d) = h.send(&grok(KEY_G, "grok"), &to("beta"), "held by an old rule");
+        h.st.append(
+            "irori",
+            kinds::DELIVERY_STATE,
+            &json!({"deliveryId": d.id, "messageId": d.message_id, "to": KEY_B,
+                "state": "held", "hold": "bypass_receiver", "by": "irori"}),
+        )
+        .unwrap();
+        if block {
+            h.block_grok();
+        }
+        h.reopen();
+        h.ib.catch_up();
+        let got = h.ib.get(&d.id).unwrap();
+        if block {
+            assert!(
+                got.state == st::HELD && got.hold == hold::BLOCKED,
+                "{got:?}"
+            );
+        } else {
+            assert!(got.state == st::QUEUED && got.hold.is_empty(), "{got:?}");
+        }
+    }
 }
 
 // ---- held_test.go ----------------------------------------------------------
@@ -407,6 +422,7 @@ fn release_undoes_a_dismiss() {
     });
     h.abc();
     h.ros.put(&[grok_card(KEY_G, "grok", "")]);
+    h.block_grok();
     let (m, d) =
         h.ib.send_with(
             &grok(KEY_G, "grok"),
@@ -418,18 +434,12 @@ fn release_undoes_a_dismiss() {
             },
         )
         .unwrap();
-    assert!(
-        d.state == st::HELD
-            && d.hold == hold::BYPASS_RECEIVER
-            && d.held_for == hold::BYPASS_RECEIVER
-    );
+    assert!(d.state == st::HELD && d.hold == hold::BLOCKED && d.held_for == hold::BLOCKED);
     h.clk.advance(mins(1));
     h.ib.dismiss(&d.id, USER).unwrap();
     let got = h.want_state(&d.id, st::DISMISSED);
     assert!(
-        got.decided_by == USER
-            && got.decided_at == h.clk.now()
-            && got.held_for == hold::BYPASS_RECEIVER
+        got.decided_by == USER && got.decided_at == h.clk.now() && got.held_for == hold::BLOCKED
     );
     assert!(h.ib.for_agent(KEY_B, true, 0).is_empty());
     h.clk.advance(mins(1));
@@ -437,7 +447,7 @@ fn release_undoes_a_dismiss() {
     let got = h.want_state(&d.id, st::QUEUED);
     assert!(
         got.hold.is_empty()
-            && got.held_for == hold::BYPASS_RECEIVER
+            && got.held_for == hold::BLOCKED
             && got.decided_by == USER
             && got.decided_at == h.clk.now()
     );
@@ -447,7 +457,7 @@ fn release_undoes_a_dismiss() {
     want_err(h.ib.release(&d.id, USER), ErrorKind::BadState);
     h.reopen();
     let got = h.state(&d.id);
-    assert!(got.held_for == hold::BYPASS_RECEIVER && got.decided_by == USER);
+    assert!(got.held_for == hold::BLOCKED && got.decided_by == USER);
 }
 
 #[test]
@@ -455,6 +465,7 @@ fn held_history() {
     let h = Harness::new();
     h.abc();
     h.ros.put(&[grok_card(KEY_G, "grok", "")]);
+    h.block_grok();
     let (_, never) = h.send(&claude(KEY_A, "alpha"), &to("beta"), "never held");
     let (_, d1) = h.send(&grok(KEY_G, "grok"), &to("beta"), "released");
     let (_, d2) = h.send(&grok(KEY_G, "grok"), &to("beta"), "dismissed");

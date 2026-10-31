@@ -16,9 +16,10 @@ use super::error::{Error, ErrorKind, Result};
 use super::resource::{Resource, normalize_resource, parse_resource};
 use super::rows::*;
 use super::types::*;
-use super::util::{SWEEPER, cmp_str, contains, remove_str};
+use super::util::{SWEEPER, cmp_str, contains, cut, remove_str};
 use super::{MAX_ASIDE, Options};
 use crate::gotime;
+use crate::names::trim_space;
 use crate::roster::Agents;
 
 /// Release reasons in lease.released rows.
@@ -30,6 +31,9 @@ pub const REASON_CONFLICT: &str = "conflict";
 
 /// A task.left reason: Irori took a holder that went away off the card.
 pub const LEFT_GONE: &str = "gone";
+/// A task.left reason: an owner removed the holder's person from the board
+/// (v0.5 §4.3).
+pub const LEFT_REMOVED: &str = "member_removed";
 
 /// Which leases found lapsed at replay still get their expiry row.
 const LAPSED_WITHIN: Duration = Duration::from_secs(24 * 3600);
@@ -513,6 +517,9 @@ impl Fold {
                     what = "joined".into();
                 } else {
                     t.holders = remove_str(&t.holders, &p.who);
+                    if p.reason == LEFT_REMOVED {
+                        what = "was taken off: their person left the board".into();
+                    }
                     if p.reason == LEFT_GONE {
                         what = "went away".into();
                         if t.holders.is_empty() {
@@ -880,10 +887,12 @@ impl Fold {
         sync_holder(&mut t);
         let mut what = String::new();
         let mut raised = String::new();
+        let mut revised = false;
         if p.state == BLOCKED {
-            let (w, r) = self.fold_blocked(&mut t, &p, ev, was == BLOCKED, when);
-            what = w;
-            raised = r;
+            let f = self.fold_blocked(&mut t, &p, ev, was == BLOCKED, when);
+            what = f.what;
+            raised = f.raised;
+            revised = f.revised;
         } else {
             super::cards::close_open(&mut t, &p.by, &p.note, when);
             if is_terminal(&was) && !is_terminal(&p.state) {
@@ -891,12 +900,23 @@ impl Fold {
             } else if was != p.state {
                 what = format!("set it to {}", p.state);
             }
+            // The note says why, unless it only repeats what happened.
+            let note = trim_space(&p.note);
+            let verb = what.split(' ').next().unwrap_or_default().to_string();
+            if what.is_empty() || note.is_empty() || what.contains(note) {
+            } else if note.starts_with(&verb) {
+                // "reopened by the person's comment", not "reopened it: reopened by …"
+                what = cut(note, super::asks::MAX_LOG_QUOTE * 2);
+            } else {
+                what.push_str(&format!(": {}", cut(note, super::asks::MAX_LOG_QUOTE * 2)));
+            }
         }
         super::cards::sync_reason(&mut t);
         t.updated_at = when;
         t.updated_by = p.by.clone();
         let mut line = line_of(ev, when, &p.by, &what);
         line.blocker_id = raised.clone();
+        line.revised = revised;
         let ti = Touch::of(&t);
         let holder = t.holder.clone();
         if !raised.is_empty() {

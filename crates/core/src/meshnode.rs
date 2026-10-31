@@ -43,6 +43,8 @@ pub(crate) struct Mesh {
     version: String,
     /// This device's own home relay port, while its server runs.
     local: Mutex<Option<u16>>,
+    /// Where other devices on the LAN reach that relay (its RelayUp).
+    local_lan: Mutex<Option<std::net::IpAddr>>,
     refeed: Arc<Notify>,
     /// The other devices' home servers fed to the endpoint as relays: the
     /// relay URLs of each and when this device started using it (Go
@@ -143,6 +145,7 @@ impl Mesh {
             own_key,
             version: p.version,
             local: Mutex::new(None),
+            local_lan: Mutex::new(None),
             refeed,
             hubs: Mutex::new(std::collections::BTreeMap::new()),
             boards: Mutex::new(std::collections::BTreeMap::new()),
@@ -158,6 +161,7 @@ impl Mesh {
     /// ([`irori_net::pairnet::PairLan::set_relay`]; none without a LAN).
     pub(crate) fn set_local_relay(&self, up: Option<home::RelayUp>) {
         *self.local.lock().unwrap_or_else(|e| e.into_inner()) = up.map(|u| u.port);
+        *self.local_lan.lock().unwrap_or_else(|e| e.into_inner()) = up.and_then(|u| u.lan_ip);
         let bridge = up.and_then(|u| {
             u.lan_ip
                 .map(|ip| (irori_net::relay::relay_url(ip, u.port), self.own_key))
@@ -234,6 +238,15 @@ impl Mesh {
                 });
         }
         out
+    }
+
+    /// This device's own relay as another device dials it: its port N at
+    /// the server's LAN address (the endpoint itself homes on it at
+    /// 127.0.0.1). `None` while it doesn't run or has no LAN.
+    pub(crate) fn local_relay_lan(&self) -> Option<(iroh::RelayUrl, u16)> {
+        let port = (*self.local.lock().unwrap_or_else(|e| e.into_inner()))?;
+        let ip = (*self.local_lan.lock().unwrap_or_else(|e| e.into_inner()))?;
+        Some((irori_net::relay::relay_url(ip, port), port))
     }
 
     /// Remove device (Go `Mesh().Revoke`).
