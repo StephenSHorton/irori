@@ -436,6 +436,8 @@ fn hops() {
             .turn_ended(&cur.key, &w.token, &format!("t{i}"))
             .unwrap();
         assert!(i <= inbox::MAX_HOP as usize + 2, "never held");
+        // Under the per-pair rate limit, as a real loop would run into.
+        h2.clk.advance(mins(2));
         i += 1;
     }
 }
@@ -449,7 +451,8 @@ fn reply_hop_without_running_turn() {
     h.ib.ack(KEY_G, &d.id).unwrap();
     let (rm, rd) = h.ib.reply(&grok(KEY_G, "grok"), &d.id, "a").unwrap();
     assert!(rm.hop == m.hop + 1 && rm.parent_id == m.id);
-    assert!(rd.state == st::HELD && rd.hold == inbox::hold::BYPASS_RECEIVER);
+    // No bypass hold (card #71): Grok's reply reaches the bypass session.
+    assert!(rd.state == st::QUEUED && rd.hold.is_empty());
 }
 
 #[test]
@@ -512,6 +515,14 @@ fn ack_defer_skip() {
     want_err(h.ib.dismiss(&d.id, USER), ErrorKind::BadState);
 
     h.ros.put(&[grok_card(KEY_G, "grok", "")]);
+    h.ib.set_policy(
+        inbox::Policy {
+            block: vec!["grok".into()],
+            ..Default::default()
+        },
+        USER,
+    )
+    .unwrap();
     let (_, hd) = h.send(&grok(KEY_G, "grok"), &to("beta"), "held");
     assert_eq!(hd.state, st::HELD);
     want_err(h.ib.ack(KEY_B, &hd.id), ErrorKind::BadState);

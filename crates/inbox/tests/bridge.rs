@@ -139,6 +139,41 @@ fn receive_table() {
             (receive::CLOSED, BLAKE, CARD, row_kind::ASSIGN, true, false),
             (NT, "", true),
         ),
+        // A board ask from the person: like a comment, a wake if asked.
+        (
+            (receive::OPEN, BLAKE, "", row_kind::ASK, true, false),
+            (W, "", false),
+        ),
+        (
+            (receive::ASK, BLAKE, "", row_kind::ASK, true, false),
+            (W, hold::MEMBER_WAKE, false),
+        ),
+        (
+            (receive::CLOSED, BLAKE, "", row_kind::ASK, false, false),
+            (NT, "", false),
+        ),
+        // A release request: Open lets it through, Ask me asks the person
+        // first (member_lease), Closed leaves it for next turn.
+        (
+            (receive::OPEN, BLAKE, CARD, row_kind::LEASE, false, false),
+            (NT, "", false),
+        ),
+        (
+            (receive::ASK, BLAKE, CARD, row_kind::LEASE, false, false),
+            (NT, hold::MEMBER_LEASE, false),
+        ),
+        (
+            (receive::ASK, BLAKE, CARD, row_kind::LEASE, false, true),
+            (NT, hold::MEMBER_LEASE, false),
+        ),
+        (
+            (receive::CLOSED, BLAKE, CARD, row_kind::LEASE, false, false),
+            (NT, "", false),
+        ),
+        (
+            (receive::OPEN, BLAKE, CARD, row_kind::LEASE, false, true),
+            (NT, "", false),
+        ),
         // B2: bypass sessions get rows on Open, held on Ask me and Closed.
         (
             (receive::OPEN, BLAKE, CARD, row_kind::COMMENT, false, true),
@@ -621,4 +656,41 @@ fn a_forged_setting_row_is_ignored() {
     let ib = h.fresh();
     assert_eq!(ib.receive_setting(BOARD, BLAKE).preset, receive::OPEN);
     assert_eq!(ib.autonomy(BOARD), autonomy::TRUSTED);
+}
+
+/// v0.5 §4.3: Blake is removed from the board. What he sent that hasn't
+/// reached the agent is held; Casey's isn't, and neither is another
+/// board's.
+#[test]
+fn a_removed_members_waiting_rows_are_held() {
+    let h = harness();
+    let blake = one(
+        &h,
+        &row(
+            from(BLAKE, "", row_kind::COMMENT, false, "devB/7"),
+            &[KEY_N],
+        ),
+    );
+    let casey = one(
+        &h,
+        &row(
+            from(CASEY, "", row_kind::COMMENT, false, "devC/1"),
+            &[KEY_N],
+        ),
+    );
+    assert_eq!(blake.state, st::QUEUED);
+    assert_eq!(h.ib.hold_from_member("another-board", BLAKE).unwrap(), 0);
+    assert_eq!(h.ib.hold_from_member(BOARD, BLAKE).unwrap(), 1);
+    let got = |id: &str| h.ib.get(id).unwrap();
+    let b = got(&blake.id);
+    assert_eq!(
+        (b.state.as_str(), b.hold.as_str()),
+        (st::HELD, hold::MEMBER_REMOVED)
+    );
+    assert_eq!(got(&casey.id).state, st::QUEUED);
+    assert_eq!(
+        h.ib.hold_from_member(BOARD, BLAKE).unwrap(),
+        0,
+        "held twice"
+    );
 }

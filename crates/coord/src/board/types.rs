@@ -173,6 +173,10 @@ pub struct Blocker {
     /// The position of the row that last replaced the question.
     #[serde(skip)]
     pub(crate) asked: RowPos,
+    /// The position of the revision that last replaced the options (card
+    /// #50): a recommendation logged before it was for options gone now.
+    #[serde(skip)]
+    pub(crate) options_at: RowPos,
 }
 
 impl Blocker {
@@ -375,12 +379,12 @@ impl Task {
         }
         if a.unclaimed {
             return format!(
-                "the person asked the room; nobody took it yet ({} heard it): ask_claim takes it",
+                "the person asked the room; nobody took it yet ({} told): ask_claim takes it",
                 a.told
             );
         }
         format!(
-            "the person asked the room; {} agents heard it, nobody has taken it: ask_claim takes it",
+            "the person asked the room; {} agents told, nobody has taken it: ask_claim takes it",
             a.told
         )
     }
@@ -663,6 +667,9 @@ pub struct Activity {
     pub device: String,
     #[serde(skip_serializing_if = "omit")]
     pub blocker_id: String,
+    /// The line of a blocker revision: it belongs in the blocker's thread.
+    #[serde(skip)]
+    pub revised: bool,
     #[serde(skip)]
     pub hlc: u64,
     #[serde(skip)]
@@ -688,6 +695,17 @@ pub struct NewBlocker {
     pub blocked_by: Option<BlockedBy>,
     pub links: Vec<String>,
     pub files: Vec<FileRef>,
+}
+
+/// Revise's input: what an open blocker asks now.
+#[derive(Debug, Clone, Default)]
+pub struct BlockerRevision {
+    /// The new question; empty keeps the current one.
+    pub question: String,
+    /// The new context; `None` keeps the current one, `Some("")` drops it.
+    pub context: Option<String>,
+    /// The choices now; empty means none (a plain question).
+    pub options: Vec<BlockerOption>,
 }
 
 /// Answer's input.

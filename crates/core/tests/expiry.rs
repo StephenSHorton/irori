@@ -99,3 +99,49 @@ fn test_expiry_timer_fires_without_a_row() {
     rearm.close();
     h.join().unwrap();
 }
+
+/// #70: an idle expiry timer sleeps. Reading the next expiry must not
+/// kick the rearm generation, or run_expiry wakes itself forever.
+#[test]
+fn test_idle_expiry_timer_does_not_spin() {
+    let dir = tempfile::tempdir().unwrap();
+    let st = Arc::new(
+        store::Store::open(
+            dir.path().join("irori.db"),
+            "dev-a",
+            Arc::new(store::Clock::new()),
+        )
+        .unwrap(),
+    );
+    let now: Arc<dyn Fn() -> gocompat::time::GoTime + Send + Sync> = Arc::new(presence::now_local);
+    let co = Arc::new(
+        Coord::new(
+            st,
+            None,
+            coord::Options {
+                now: Some(now.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap(),
+    );
+    let rearm = Kick::new();
+    timers::arm(&co, &rearm);
+    let _q = co.subscribe();
+    co.acquire(ALICE, "gpu/long", Duration::from_secs(3600), false)
+        .unwrap();
+    let g = rearm.generation();
+    assert!(co.next_expiry().is_some());
+    assert_eq!(rearm.generation(), g, "next_expiry kicked the timer");
+
+    let stop = sys::cancel::Cancel::new();
+    let h = {
+        let (co, rearm, stop, now) = (co.clone(), rearm.clone(), stop.clone(), now.clone());
+        std::thread::spawn(move || timers::run_expiry(&co, &rearm, &*now, &stop))
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(rearm.generation(), g, "the idle timer woke itself");
+    stop.cancel();
+    rearm.close();
+    h.join().unwrap();
+}

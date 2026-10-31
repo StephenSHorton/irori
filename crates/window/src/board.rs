@@ -169,14 +169,41 @@ impl Window {
     }
 
     /// BoardService.AskWithFiles (Ask with no files): the person asking
-    /// the room.
+    /// the room. With `board_id` the ask goes on that shared board (v0.5
+    /// §9): every member's free agents hear it, the others' through their
+    /// own devices. A board's agents carry no repo, and files don't go on
+    /// a board ask yet (a board row may name only attachments offered in
+    /// it).
     pub fn ask(
         &self,
         text: &str,
         repo_key: &str,
         wake: bool,
         files: &[UploadFile],
+        board_id: &str,
     ) -> Result<TaskResult, String> {
+        let board_id = trim(board_id);
+        if !board_id.is_empty() {
+            if !files.is_empty() {
+                return Err(invalid(
+                    "files go with an ask on your own board only; ask without them, or attach them on a card",
+                ));
+            }
+            let (t, n) = self
+                .core
+                .board_ask(
+                    board_id,
+                    coord::NewAsk {
+                        text: text.into(),
+                        repo_key: trim(repo_key).into(),
+                        wake,
+                        ..Default::default()
+                    },
+                )
+                .map_err(|e| e.to_string())?;
+            let told = self.tell(&n, Tell::NextTurn);
+            return Ok(TaskResult { task: t, told });
+        }
         let refs = self.store_uploads(files)?;
         let agents = self.core.ask_agents();
         let (t, n) = self

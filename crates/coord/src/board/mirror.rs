@@ -42,7 +42,7 @@ impl Fold {
     /// The refusal for taking another person's lease.
     pub(crate) fn not_yours(&self, l: &Lease) -> super::error::Error {
         not_allowed(format!(
-            "{} is leased by {}, another person's agent; nobody steals another person's lease, so ask its holder to release it (a release request)",
+            "{} is leased by {}, another person's agent; nobody steals another person's lease, so ask its holder to release it: call release with that resource (a release request)",
             l.resource, l.holder
         ))
     }
@@ -115,7 +115,7 @@ impl Fold {
         });
         match other {
             Some(l) => held(format!(
-                "{} is leased on the shared board by {}, another person's agent, until {}. Nobody steals another person's lease: ask them to release it on the shared card (a release request).",
+                "{} is leased on the shared board by {}, another person's agent, until {}. Nobody steals another person's lease: call release with that resource to ask them on the shared card (a release request).",
                 l.lease.resource,
                 l.lease.holder,
                 l.lease.until.format_rfc3339()
@@ -183,6 +183,6 @@ impl Fold {
         if text.chars().count() > MAX_COMMENT {
             return Err(invalid("release request too long"));
         }
-        self.add_comment(&by, &id, &text, false, Vec::new())
+        self.add_comment_to(&by, &id, &text, false, Vec::new(), &l.lease.holder)
     }
 }

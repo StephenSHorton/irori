@@ -18,8 +18,8 @@ use common::*;
 use gocompat::json::{RawJson, marshal};
 use inbox::{
     Address, BYPASS_MODE, DIRECT_LIMIT, Delivery, FileRef, GONE_GRACE, Inbox, MAX_WAKE_TRIES,
-    Message, Options, Policy, REATTACH_GRACE, Result, SendOptions, Sender, UNENGAGED_LIMIT, Wake,
-    addr, batch, fence, mode, path, policy_mode, system_sender,
+    Message, Options, REATTACH_GRACE, Result, SendOptions, Sender, UNENGAGED_LIMIT, Wake, addr,
+    batch, fence, mode, path, system_sender,
 };
 use regex::Regex;
 use serde_json::Value as J;
@@ -399,55 +399,6 @@ fn script(name: &str) -> (Harness, Rec) {
             r.err(last);
             h
         }
-        "held" => {
-            let h = Harness::new();
-            h.abc();
-            h.ros.put(&[grok_card(KEY_G, "grok", "")]);
-            let (_, d1) = h.send(&grok(KEY_G, "grok"), &to("beta"), "held 1");
-            let (_, d2) = h.send(&grok(KEY_G, "grok"), &to("beta"), "held 2");
-            h.clk.advance(mins(1));
-            h.ib.release(&d1.id, USER).unwrap();
-            h.ib.dismiss(&d2.id, USER).unwrap();
-            h.clk.advance(mins(1));
-            h.ib.release(&d2.id, USER).unwrap();
-            h.ib.set_policy(
-                Policy {
-                    paused: true,
-                    ..Policy::default()
-                },
-                USER,
-            )
-            .unwrap();
-            h.send(&claude(KEY_A, "alpha"), &to("beta"), "paused 1");
-            h.send(&claude(KEY_C, "gamma"), &to("beta"), "paused 2");
-            h.clk.advance(mins(1));
-            let p = Policy {
-                mode: policy_mode::ALLOWLIST.into(),
-                allow: vec!["alpha".into(), " alpha ".into(), "grok".into()],
-                block: vec!["gamma".into()],
-                paused: false,
-            };
-            h.ib.set_policy(p, USER).unwrap();
-            r.wake(h.wake(KEY_B));
-            h.ib.set_policy(
-                Policy {
-                    mode: policy_mode::OPEN.into(),
-                    ..Policy::default()
-                },
-                USER,
-            )
-            .unwrap();
-            h.send(&grok(KEY_G, "grok"), &to("alpha"), "full auto");
-            r.err(h.ib.set_policy(
-                Policy {
-                    mode: "sometimes".into(),
-                    ..Policy::default()
-                },
-                USER,
-            ));
-            r.err(h.ib.release(&d1.id, USER));
-            h
-        }
         "nextturn" => {
             let h = Harness::new();
             h.abc();
@@ -623,6 +574,14 @@ fn scenarios_run_live_like_go() {
     let g = golden("scenarios.json");
     for sc in g.as_array().unwrap() {
         let name = s(&sc["name"]);
+        // Go's "held" script gets its held messages from the bypass_receiver
+        // hold, which Irori dropped on purpose (card #71): Grok's messages
+        // to a bypass session now go through, so its rows can't be Go's.
+        // The replay above still folds Go's rows; tests/policy.rs covers
+        // release, dismiss and unpause on the person's own holds.
+        if name == "held" {
+            continue;
+        }
         let (h, r) = script(&name);
         compare(&name, rust_outcome(&h, r), go_outcome(sc));
     }

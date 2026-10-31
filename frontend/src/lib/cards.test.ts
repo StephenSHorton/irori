@@ -71,8 +71,8 @@ describe("asks", () => {
   const ask = (more: Partial<CardAsk>) =>
     CardAsk({ state: "open", told: 3, owner: "MacBook", wake: false, taker: null, outcome: null, ...more })
   test("the tile's line says where an ask stands", () => {
-    expect(askLine(ask({}))).toBe("3 agents heard it")
-    expect(askLine(ask({ told: 1 }))).toBe("1 agent heard it")
+    expect(askLine(ask({}))).toBe("Told 3 agents; nobody took it yet")
+    expect(askLine(ask({ told: 1 }))).toBe("Told 1 agent; nobody took it yet")
     expect(askLine(ask({ told: 0 }))).toBe("Nobody was free to hear it")
     expect(askLine(ask({ state: "waiting" }))).toBe("Waiting for MacBook to hand it out")
     expect(askLine(ask({ state: "unclaimed" }))).toBe("Nobody took this yet")

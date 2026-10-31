@@ -2,9 +2,10 @@
 //! I:internal/fswatch (capture.md §4, §7 trap 12).
 //!
 //! On Windows one `ReadDirectoryChangesW` handle watches a whole tree, armed
-//! before [`watch`] returns so a write right after it is seen. Elsewhere
+//! before [`watch`] returns so a write right after it is seen. On macOS one
+//! FSEvents stream does, started before [`watch`] returns. Elsewhere
 //! [`watch`] returns [`Error::Unsupported`] and callers keep their interval
-//! scan (macOS FSEvents is not ported yet).
+//! scan.
 //!
 //! Notifications are a hint, not a record: the OS can drop them (a full
 //! buffer is reported as an Overflow event), and a reader that falls behind
@@ -13,6 +14,8 @@
 //! window are merged.
 
 mod coalesce;
+#[cfg(target_os = "macos")]
+mod macos;
 #[cfg(windows)]
 mod windows;
 
@@ -87,8 +90,8 @@ impl std::fmt::Debug for Watcher {
 
 impl Watcher {
     #[cfg_attr(
-        not(windows),
-        expect(dead_code, reason = "only the Windows watcher builds one")
+        not(any(windows, target_os = "macos")),
+        expect(dead_code, reason = "only the Windows and macOS watchers build one")
     )]
     pub(crate) fn new(rx: Receiver<Event>, stop: Box<dyn FnOnce() + Send>) -> Watcher {
         Watcher {
@@ -178,7 +181,12 @@ fn imp(cancel: &Cancel, root: &str, recursive: bool, debounce: Duration) -> Resu
     windows::watch(cancel, root, recursive, debounce)
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+fn imp(cancel: &Cancel, root: &str, recursive: bool, debounce: Duration) -> Result<Watcher, Error> {
+    macos::watch(cancel, root, recursive, debounce)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn imp(_: &Cancel, _: &str, _: bool, _: Duration) -> Result<Watcher, Error> {
     Err(Error::Unsupported)
 }

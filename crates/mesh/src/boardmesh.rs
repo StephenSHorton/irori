@@ -16,6 +16,12 @@
 //! - Rows move on `board/<boardId>` pull streams ([`crate::boards`]); any
 //!   other stream label is refused.
 //!
+//! Beside each room the mesh joins that epoch's gossip topic when the
+//! transport runs one ([`BoardTransport::board_gossip`], boards2-transport
+//! §5): [`BoardMesh::kick`] (a local write) announces this device's vector
+//! there, and an announcement ahead of the local log pulls at once, so rows
+//! cross without waiting for the vector tick.
+//!
 //! The private mesh (`irori/mesh/1`) never carries a board row.
 
 use std::collections::{BTreeMap, HashMap};
@@ -28,7 +34,7 @@ use crypto_secretbox::{Nonce, XSalsa20Poly1305};
 use hkdf::Hkdf;
 use identity::{BoardSecrets, BoardVerifier};
 use irori_meshseam::{
-    BoardRoom, BoardTransport, Conn, MSG_PRESENCE, Refused, Room, RoomConfig, Secret,
+    BoardGossip, BoardRoom, BoardTransport, Conn, MSG_PRESENCE, Refused, Room, RoomConfig, Secret,
     TransportError, reason,
 };
 use serde::{Deserialize, Serialize};
@@ -53,6 +59,11 @@ pub const BOARD_PROTOCOL: i64 = 1;
 /// board connection to current member devices (sealed under that
 /// connection's board epoch key).
 pub const FRAME_BOARD_SECRET: &str = "board.secret";
+
+/// How long a connection the verifier no longer admits stays open after
+/// our last vector: long enough for the peer to pull the row that shut it
+/// out (its removal, or the answer to its leave).
+const CLOSE_GRACE: std::time::Duration = std::time::Duration::from_millis(1500);
 
 /// The kind of a board server row.
 pub const KIND_BOARD_SERVER: &str = "board.server";
@@ -85,6 +96,13 @@ pub struct BoardSecretFrame {
     pub maker: String,
     pub sealed: String,
 }
+
+/// The least time between two gossip announcements of one board (kicks
+/// in between coalesce into the next one).
+const ANNOUNCE_GAP: std::time::Duration = std::time::Duration::from_millis(200);
+/// The least time between two out-of-turn dials of missing member devices
+/// (a kick or an announcement while one is not connected).
+const DIAL_GAP: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The HKDF salt of a `board.secret` sealing key.
 const BOARD_SECRET_APP: &str = "irori/board-secret/1";
@@ -279,6 +297,24 @@ enum Wire {
 type LogFn = Arc<dyn Fn(&str) + Send + Sync>;
 type RowsFn = Arc<dyn Fn() + Send + Sync>;
 
+/// What a member device last said on a board connection: its hello's
+/// person and core version, and its newest board vector (from the hello or
+/// a `vector` frame). Kept after the connection closes, so a leaving
+/// device can tell another member holds its `left` row (v0.5 §4.4) and the
+/// Boards dialog can compare versions (§6.3).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PeerHeard {
+    pub device_id: String,
+    pub person_id: String,
+    pub core_version: String,
+    pub vector: BTreeMap<String, i64>,
+    /// Unix milliseconds of the last frame.
+    pub at_ms: i64,
+    /// Per stream in `vector`: when its seq last moved (Unix ms), for the
+    /// stalled-forwarder flag (§6.4).
+    pub advanced_ms: BTreeMap<String, i64>,
+}
+
 /// One board connection.
 struct Peer {
     conn: Arc<dyn Conn>,
@@ -290,6 +326,8 @@ struct Peer {
 struct JoinedRoom {
     room: Arc<dyn Room>,
     key: [u8; 32],
+    /// The epoch's gossip topic, when the transport runs gossip.
+    gossip: Option<Arc<dyn BoardGossip>>,
 }
 
 struct Shared {
@@ -304,6 +342,17 @@ struct Shared {
     started: AtomicBool,
     log: Mutex<Option<LogFn>>,
     on_rows: Mutex<Option<RowsFn>>,
+    /// Every joined epoch's gossip topic, readable without the async lock.
+    gossips: Mutex<Vec<Arc<dyn BoardGossip>>>,
+    /// Wakes the announcer ([`BoardMesh::kick`]).
+    announce: Notify,
+    /// When missing member devices were last dialled out of turn.
+    last_dial: Mutex<Option<std::time::Instant>>,
+    /// The runtime [`BoardMesh::start`] ran on: a kick comes from any
+    /// thread (a board's follower writes outside the runtime), and a dial
+    /// spawns on it.
+    rt: std::sync::OnceLock<tokio::runtime::Handle>,
+    heard: Mutex<BTreeMap<String, PeerHeard>>,
 }
 
 /// One board's mesh: a board room per held epoch (current and previous
@@ -342,6 +391,11 @@ impl BoardMesh {
                 started: AtomicBool::new(false),
                 log: Mutex::new(None),
                 on_rows: Mutex::new(None),
+                gossips: Mutex::new(Vec::new()),
+                announce: Notify::new(),
+                last_dial: Mutex::new(None),
+                rt: std::sync::OnceLock::new(),
+                heard: Mutex::new(BTreeMap::new()),
             }),
         }
     }
@@ -365,6 +419,16 @@ impl BoardMesh {
 
     pub fn board_id(&self) -> &str {
         &self.s.opts.board_id
+    }
+
+    /// The board's log.
+    pub fn log(&self) -> &Arc<Store> {
+        &self.s.opts.log
+    }
+
+    /// The board's verifier.
+    pub fn verifier(&self) -> &Arc<BoardVerifier> {
+        &self.s.opts.verifier
     }
 
     /// The board's counted member devices other than this one: every
@@ -393,13 +457,18 @@ impl BoardMesh {
         v
     }
 
-    /// Joins the board's rooms for every epoch `secrets` holds, and keeps
-    /// dialling its member devices on the presence tick until
-    /// [`close`](Self::close).
+    /// Joins the board's rooms (and their gossip topics) for every epoch
+    /// `secrets` holds, and keeps dialling its member devices on the
+    /// presence tick until [`close`](Self::close).
     pub async fn start(&self) -> Result<(), TransportError> {
         self.s.refresh().await?;
         if self.s.started.swap(true, Ordering::SeqCst) {
             return Ok(());
+        }
+        let _ = self.s.rt.set(tokio::runtime::Handle::current());
+        {
+            let (w, cancel) = (Arc::downgrade(&self.s), self.s.cancel.clone());
+            tokio::spawn(async move { Shared::announcer(w, cancel).await });
         }
         let w = Arc::downgrade(&self.s);
         let cancel = self.s.cancel.clone();
@@ -419,12 +488,23 @@ impl BoardMesh {
         Ok(())
     }
 
-    /// Pulls from every connected member device now and tells them this
-    /// device's vector (a gossip announcement or a local write).
+    /// A local write (or a board opened): pulls from every connected member
+    /// device now, tells them this device's vector on each connection and
+    /// on the board's gossip topic, and dials member devices not connected.
     pub fn kick(&self) {
-        for p in self.s.peer_list() {
-            p.wake.notify_one();
-        }
+        self.s.pull_now();
+        self.s.announce.notify_one();
+    }
+
+    /// What each member device last said here (closed connections too).
+    pub fn heard(&self) -> Vec<PeerHeard> {
+        self.s
+            .heard
+            .lock()
+            .expect("heard")
+            .values()
+            .cloned()
+            .collect()
     }
 
     /// Re-checks live connections against the verifier (a revoke, removal
@@ -451,6 +531,7 @@ impl BoardMesh {
             r.close();
         }
         self.s.keys.lock().expect("keys").clear();
+        self.s.gossips.lock().expect("gossips").clear();
         let peers: Vec<_> = self.s.peers.lock().expect("peers").drain().collect();
         for (_, p) in peers {
             p.conn.close(reason::LEAVING);
@@ -470,6 +551,118 @@ impl Shared {
         if let Some(f) = f {
             f(&format!("board {}: {line}", self.opts.board_id));
         }
+    }
+
+    /// Pulls from every connected member device now; dials the member
+    /// devices with no live connection (at most once per [`DIAL_GAP`]).
+    fn pull_now(&self) {
+        let peers = self.peer_list();
+        for p in &peers {
+            p.wake.notify_one();
+        }
+        let missing = self.member_devices().iter().any(|d| {
+            !peers
+                .iter()
+                .any(|p| p.conn.id() == d.device_id && p.hello.load(Ordering::SeqCst))
+        });
+        if !missing || self.cancel.is_cancelled() {
+            return;
+        }
+        {
+            let mut last = self.last_dial.lock().expect("last_dial");
+            if last.is_some_and(|t| t.elapsed() < DIAL_GAP) {
+                return;
+            }
+            *last = Some(std::time::Instant::now());
+        }
+        let rooms = self.rooms_list.lock().expect("rooms").clone();
+        // Off the runtime (a follower thread's kick), dial on the one the
+        // mesh started on; never started, there is nothing to dial with.
+        let _g = if tokio::runtime::Handle::try_current().is_ok() {
+            None
+        } else {
+            match self.rt.get() {
+                Some(h) => Some(h.enter()),
+                None => return,
+            }
+        };
+        self.dial(&rooms);
+    }
+
+    /// Announces this device's vector on every gossip topic after each
+    /// [`BoardMesh::kick`], when it moved since the last announcement;
+    /// kicks closer than [`ANNOUNCE_GAP`] coalesce.
+    async fn announcer(w: Weak<Shared>, cancel: CancellationToken) {
+        let mut last: Option<BTreeMap<String, i64>> = None;
+        loop {
+            let Some(s) = w.upgrade() else { return };
+            tokio::select! {
+                _ = cancel.cancelled() => return,
+                _ = s.announce.notified() => {}
+            }
+            let vector = s.opts.log.vector().unwrap_or_default();
+            if last.as_ref() != Some(&vector) {
+                let gossips = s.gossips.lock().expect("gossips").clone();
+                for g in gossips {
+                    if let Err(e) = g.announce(vector.clone()).await {
+                        s.logf(&format!("announce: {e}"));
+                    }
+                }
+                last = Some(vector);
+            }
+            drop(s);
+            tokio::select! {
+                _ = cancel.cancelled() => return,
+                _ = tokio::time::sleep(ANNOUNCE_GAP) => {}
+            }
+        }
+    }
+
+    /// Joins epoch `secret.epoch`'s gossip topic, bootstrapping from the
+    /// member devices; `None` when the transport runs no gossip or the
+    /// join failed (logged: the connections' vector frames still move rows).
+    async fn join_gossip(self: &Arc<Self>, secret: Secret) -> Option<Arc<dyn BoardGossip>> {
+        let have: irori_meshseam::VectorFn = {
+            let log = self.opts.log.clone();
+            Arc::new(move || log.vector().unwrap_or_default())
+        };
+        let kick: irori_meshseam::KickFn = {
+            let w = Arc::downgrade(self);
+            Arc::new(move || {
+                if let Some(s) = w.upgrade() {
+                    s.pull_now();
+                }
+            })
+        };
+        let epoch = secret.epoch;
+        match self
+            .opts
+            .transport
+            .board_gossip(
+                BoardRoom {
+                    board_id: self.opts.board_id.clone(),
+                    secret,
+                },
+                self.member_keys(),
+                have,
+                kick,
+            )
+            .await
+        {
+            Ok(g) => g.map(Arc::from),
+            Err(e) => {
+                self.logf(&format!("gossip epoch {epoch}: {e}"));
+                None
+            }
+        }
+    }
+
+    /// The member devices' keys (gossip bootstrap).
+    fn member_keys(&self) -> Vec<[u8; 32]> {
+        self.member_devices()
+            .iter()
+            .filter_map(|d| hex::decode(&d.device_pub).ok()?.try_into().ok())
+            .collect()
     }
 
     fn peer_list(&self) -> Vec<Arc<Peer>> {
@@ -515,7 +708,7 @@ impl Shared {
         out
     }
 
-    fn recheck_conns(&self) {
+    fn recheck_conns(self: &Arc<Self>) {
         for p in self.peer_list() {
             if !admits(
                 &self.opts.verifier,
@@ -524,7 +717,36 @@ impl Shared {
                 &p.conn.pub_key(),
             ) {
                 self.logf(&format!("{} is no longer a member device", p.conn.id()));
-                p.conn.close(reason::REVOKED);
+                // Our vector first, so a device that just left learns its
+                // `left` row arrived (v0.5 §4.4), and a removed one pulls
+                // the removal (§4.3); then the close.
+                // A device revoked while its person is still a member
+                // (lost or stolen) closes now; only a person removed or
+                // gone gets the grace.
+                let v = &self.opts.verifier;
+                let person_gone = v
+                    .person_of(p.conn.id())
+                    .is_some_and(|pid| !v.membership().active(&pid));
+                if !person_gone {
+                    p.conn.close(reason::REVOKED);
+                    continue;
+                }
+                let me = self.clone();
+                match tokio::runtime::Handle::try_current() {
+                    Ok(h) => {
+                        h.spawn(async move {
+                            let vector = me.opts.log.vector().unwrap_or_default();
+                            let _ = tokio::time::timeout(
+                                std::time::Duration::from_secs(2),
+                                me.send(&p, &Wire::Vector { vector }),
+                            )
+                            .await;
+                            tokio::time::sleep(CLOSE_GRACE).await;
+                            p.conn.close(reason::REVOKED);
+                        });
+                    }
+                    Err(_) => p.conn.close(reason::REVOKED),
+                }
             }
         }
     }
@@ -545,18 +767,19 @@ impl Shared {
             if rooms.get(&t.epoch).is_some_and(|r| r.key == t.key) {
                 continue;
             }
-            let room = self
-                .join(Secret {
-                    key: t.key,
-                    topic: t.topic.clone(),
-                    epoch: t.epoch,
-                })
-                .await?;
+            let secret = Secret {
+                key: t.key,
+                topic: t.topic.clone(),
+                epoch: t.epoch,
+            };
+            let room = self.join(secret.clone()).await?;
+            let gossip = self.join_gossip(secret).await;
             if let Some(old) = rooms.insert(
                 t.epoch,
                 JoinedRoom {
                     room: room.clone(),
                     key: t.key,
+                    gossip,
                 },
             ) {
                 old.room.close();
@@ -576,12 +799,24 @@ impl Shared {
         *self.keys.lock().expect("keys") = rooms.iter().map(|(e, r)| (*e, r.key)).collect();
         *self.rooms_list.lock().expect("rooms") = rooms.values().map(|r| r.room.clone()).collect();
         let list: Vec<Arc<dyn Room>> = rooms.values().map(|r| r.room.clone()).collect();
+        let gossips: Vec<Arc<dyn BoardGossip>> =
+            rooms.values().filter_map(|r| r.gossip.clone()).collect();
+        *self.gossips.lock().expect("gossips") = gossips.clone();
         drop(rooms);
         if self.cancel.is_cancelled() {
             for r in list {
                 r.close();
             }
+            self.gossips.lock().expect("gossips").clear();
             return Ok(());
+        }
+        // New member devices (and ones whose address only now came) join
+        // the gossip topics too.
+        let keys = self.member_keys();
+        for g in gossips {
+            if let Err(e) = g.join(keys.clone()).await {
+                self.logf(&format!("gossip join: {e}"));
+            }
         }
         for p in self.peer_list() {
             self.share_secrets(&p).await;
@@ -748,6 +983,11 @@ impl Shared {
                         return;
                     }
                     p.hello.store(true, Ordering::SeqCst);
+                    self.hear(
+                        p.conn.id(),
+                        Some((&h.person_id, &h.core_version)),
+                        &h.vector,
+                    );
                     if self.behind(&h.vector) {
                         p.wake.notify_one();
                     }
@@ -758,6 +998,7 @@ impl Shared {
                     return;
                 }
                 Wire::Vector { vector } => {
+                    self.hear(p.conn.id(), None, &vector);
                     if self.behind(&vector) {
                         p.wake.notify_one();
                     }
@@ -769,6 +1010,29 @@ impl Shared {
                 Wire::Secret(f) => self.take_secret(&p, f).await,
             }
         }
+    }
+
+    /// Records what member device `dev` said (`hello`: its person and core
+    /// version).
+    fn hear(&self, dev: &str, hello: Option<(&str, &str)>, vector: &BTreeMap<String, i64>) {
+        let mut heard = self.heard.lock().expect("heard");
+        let h = heard.entry(dev.to_string()).or_default();
+        h.device_id = dev.to_string();
+        if let Some((person, version)) = hello {
+            h.person_id = person.to_string();
+            h.core_version = version.to_string();
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as i64);
+        for (d, s) in vector {
+            let e = h.vector.entry(d.clone()).or_insert(0);
+            if *s > *e || !h.advanced_ms.contains_key(d) {
+                h.advanced_ms.insert(d.clone(), now);
+            }
+            *e = (*e).max(*s);
+        }
+        h.at_ms = now;
     }
 
     /// Whether `theirs` holds a row this device's board log lacks.

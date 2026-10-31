@@ -112,7 +112,15 @@ impl BoardChannel {
 
     /// Add members to dial into the topic.
     pub async fn join(&self, net: &IrohNet, device_ids: &[String]) -> Result<(), TransportError> {
-        let ids = net.endpoint_ids(device_ids);
+        let ids = net.board_endpoint_ids(&self.board_id, device_ids);
+        self.join_ids(ids).await
+    }
+
+    /// Add members to dial into the topic, by key.
+    pub async fn join_ids(&self, ids: Vec<iroh::EndpointId>) -> Result<(), TransportError> {
+        if ids.is_empty() {
+            return Ok(());
+        }
         self.sender
             .join_peers(ids)
             .await
@@ -135,8 +143,34 @@ impl IrohNet {
         self.inner().endpoint_ids(device_ids)
     }
 
+    /// The EndpointIds board `board_id`'s address book
+    /// ([`IrohNet::set_board_peers`]) or else the private one has for
+    /// these devices.
+    pub fn board_endpoint_ids(
+        &self,
+        board_id: &str,
+        device_ids: &[String],
+    ) -> Vec<iroh::EndpointId> {
+        let inner = self.inner();
+        let board: Vec<iroh::EndpointId> = {
+            let books = inner.board_book.lock().expect("board book");
+            let book = books.get(board_id);
+            device_ids
+                .iter()
+                .filter_map(|d| book.and_then(|b| b.get(d)).map(|p| p.id))
+                .collect()
+        };
+        let mut ids = board;
+        for id in inner.endpoint_ids(device_ids) {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        ids
+    }
+
     /// Join a board's gossip topic, bootstrapping from the given member
-    /// devices (looked up in the address book).
+    /// devices (looked up in the board's address book, then the private one).
     pub async fn board_channel(
         &self,
         board_id: &str,
@@ -157,12 +191,24 @@ impl IrohNet {
         accept: Option<GossipAccept>,
     ) -> Result<BoardChannel, TransportError> {
         self.bind().await?;
+        let ids = self.board_endpoint_ids(board_id, bootstrap);
+        self.board_channel_ids(board_id, topic, ids, accept).await
+    }
+
+    /// [`IrohNet::board_channel_gated`], bootstrapping from member keys.
+    pub async fn board_channel_ids(
+        &self,
+        board_id: &str,
+        topic: &BoardTopic,
+        ids: Vec<iroh::EndpointId>,
+        accept: Option<GossipAccept>,
+    ) -> Result<BoardChannel, TransportError> {
+        self.bind().await?;
         let g = self
             .inner()
             .gossip
             .get()
             .ok_or_else(|| TransportError("gossip: off".into()))?;
-        let ids = self.endpoint_ids(bootstrap);
         let sub = g
             .subscribe(topic_id(topic), ids)
             .await
