@@ -849,6 +849,10 @@ impl Services {
             return Ok(());
         }
         b.secrets.mint(target, &self.device.id)?;
+        // The board mesh joins the new epoch's room now, hands the secret
+        // on, and settles once every member moved (card #67), rather than
+        // on its next presence tick.
+        self.recheck_board_mesh(&b.id);
         self.boards.kick(); // the person's other devices get it
         Ok(())
     }
