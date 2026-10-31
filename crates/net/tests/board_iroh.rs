@@ -657,9 +657,19 @@ async fn a_write_and_a_gossip_announcement_pull_at_once() {
 
     // (b) Bob writes and does not kick; only a gossip announcement of his
     // vector (sent on his endpoint's board topic) tells Alice.
-    let from_bob = bob.note("from bob");
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(!alice.has(&from_bob), "a row moved with no kick");
+    // Under load a pull (a) set going can still be running and carry
+    // Bob's vector on the connection; write again until a row stays put.
+    let mut i = 0;
+    let from_bob = loop {
+        let ev = bob.note(&format!("from bob {i}"));
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        if !alice.has(&ev) {
+            break ev;
+        }
+        i += 1;
+        assert!(i < 5, "every row moved with no kick");
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    };
     let topic = irori_identity::derive_board_topic(BOARD, 1, &secret).unwrap();
     let ch = bob
         .net
