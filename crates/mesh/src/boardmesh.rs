@@ -348,6 +348,10 @@ struct Shared {
     announce: Notify,
     /// When missing member devices were last dialled out of turn.
     last_dial: Mutex<Option<std::time::Instant>>,
+    /// The runtime [`BoardMesh::start`] ran on: a kick comes from any
+    /// thread (a board's follower writes outside the runtime), and a dial
+    /// spawns on it.
+    rt: std::sync::OnceLock<tokio::runtime::Handle>,
     heard: Mutex<BTreeMap<String, PeerHeard>>,
 }
 
@@ -390,6 +394,7 @@ impl BoardMesh {
                 gossips: Mutex::new(Vec::new()),
                 announce: Notify::new(),
                 last_dial: Mutex::new(None),
+                rt: std::sync::OnceLock::new(),
                 heard: Mutex::new(BTreeMap::new()),
             }),
         }
@@ -460,6 +465,7 @@ impl BoardMesh {
         if self.s.started.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
+        let _ = self.s.rt.set(tokio::runtime::Handle::current());
         {
             let (w, cancel) = (Arc::downgrade(&self.s), self.s.cancel.clone());
             tokio::spawn(async move { Shared::announcer(w, cancel).await });
@@ -570,6 +576,16 @@ impl Shared {
             *last = Some(std::time::Instant::now());
         }
         let rooms = self.rooms_list.lock().expect("rooms").clone();
+        // Off the runtime (a follower thread's kick), dial on the one the
+        // mesh started on; never started, there is nothing to dial with.
+        let _g = if tokio::runtime::Handle::try_current().is_ok() {
+            None
+        } else {
+            match self.rt.get() {
+                Some(h) => Some(h.enter()),
+                None => return,
+            }
+        };
         self.dial(&rooms);
     }
 
