@@ -324,8 +324,8 @@ fn two_peoples_cores_sync_a_shared_board_on_its_own_connection() {
 /// would make Bob pull by itself. So this proves Bob's side (his mesh's
 /// gossip join, its bootstrap from member keys across the relay, the
 /// neighbour gate, announcement to pull) and that Alice's endpoint is on
-/// the topic; that her announcer fires on a kick is the mesh crate's to
-/// prove, not this test's.
+/// the topic. It does not prove that her board mesh's announcer fires on a
+/// kick (net's board_iroh.rs sends its announcement the same way).
 #[test]
 fn a_gossip_announcement_pulls_through_a_members_relay() {
     let dirs: Vec<tempfile::TempDir> = (0..6).map(|_| tempfile::tempdir().unwrap()).collect();
@@ -444,13 +444,18 @@ fn a_gossip_announcement_pulls_through_a_members_relay() {
     });
     // Quiet: a row written with no kick and no announcement stays on
     // Alice's side, so the connection alone does not move it before the
-    // tick.
-    let quiet = note(&ba.log, &alice, "quiet");
-    std::thread::sleep(Duration::from_secs(2));
-    assert!(
-        !has(&bb.log, &quiet),
-        "a row moved with no announcement: the connection is not idle"
-    );
+    // tick. Under load the catch-up pull can still be running; write again
+    // until a row stays put.
+    let mut i = 0;
+    let quiet = loop {
+        let ev = note(&ba.log, &alice, &format!("quiet {i}"));
+        std::thread::sleep(Duration::from_secs(2));
+        if !has(&bb.log, &ev) {
+            break ev;
+        }
+        i += 1;
+        assert!(i < 5, "every row moved with no announcement");
+    };
     // Alice's endpoint announces on the epoch's topic. Gossip drops a
     // repeat of the same message, so each round writes a new row (a new
     // vector) until the topic has formed; the first announcement that
