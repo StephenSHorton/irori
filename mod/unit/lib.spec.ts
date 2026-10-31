@@ -9,6 +9,7 @@ import {
   bareToolName,
   describePolicy,
   editPolicy,
+  heldReminder,
   nextBackoff,
   titleToSet,
   parseArgs,
@@ -82,13 +83,12 @@ describe('editPolicy', () => {
     expect('error' in editPolicy(base, 'mode', 'nobody')).toBe(true)
   })
 
-  test('mode open (Full auto) is kept across other edits', () => {
+  test('mode open (the old Full auto) is everyone now', () => {
     const out = editPolicy(base, 'mode', 'OPEN')
     if ('error' in out) throw new Error(out.error)
-    expect(out.policy.mode).toBe('open')
-    expect(out.text).toContain('Full auto')
-    const blocked = editPolicy(out.policy, 'block', 'grok-1')
-    expect('policy' in blocked && blocked.policy.mode).toBe('open')
+    expect(out.policy.mode).toBe('everyone')
+    const blocked = editPolicy({ ...base, mode: 'open' }, 'block', 'grok-1')
+    expect('policy' in blocked && blocked.policy.mode).toBe('everyone')
   })
 
   test('block, unblock, allow, deny replace case-insensitively and keep the rest', () => {
@@ -122,7 +122,7 @@ describe('editPolicy', () => {
   test('describePolicy', () => {
     expect(describePolicy({ ...base, block: ['grok-1'], paused: true })).toBe('Policy: everyone mode, blocked: grok-1 · paused.')
     expect(describePolicy({ ...base, mode: 'allowlist' })).toBe('Policy: allowlist mode, allowed: nobody.')
-    expect(describePolicy({ ...base, mode: 'open' })).toBe('Policy: full auto (open mode), blocked: nobody.')
+    expect(describePolicy({ ...base, mode: 'open' })).toBe('Policy: everyone mode, blocked: nobody.')
   })
 })
 
@@ -170,5 +170,28 @@ describe('titleToSet (card #21)', () => {
   test('sets nothing without an Irori name', () => {
     expect(titleToSet({ name: 'C--Users', nameSource: '' }, '', [])).toBeUndefined()
     expect(titleToSet({ nameSource: 'irori' }, '', [])).toBeUndefined()
+  })
+})
+
+describe('heldReminder', () => {
+  const me = 'dev-a/me'
+  test('names the cards this session holds, once each', () => {
+    const r = heldReminder(
+      {
+        working: [{ short: '68', title: 'Fix it', holders: [me] }, { short: '70', title: 'Not mine', holders: ['dev-a/other'] }],
+        blocked: [{ short: '69', title: 'Waiting', holders: ['dev-a/other', me] }],
+        needsYou: [{ short: '69', title: 'Waiting', holders: [me] }],
+      },
+      me,
+    )
+    expect(r).toContain('#69 "Waiting", #68 "Fix it"')
+    expect(r).not.toContain('#70')
+    expect(r).toContain('board_block')
+  })
+
+  test('says nothing when it holds no card or the board is missing', () => {
+    expect(heldReminder({ working: [{ short: '1', holders: ['x'] }] }, me)).toBe('')
+    expect(heldReminder(undefined, me)).toBe('')
+    expect(heldReminder({ working: [{ short: '1', holders: [me] }] }, undefined)).toBe('')
   })
 })

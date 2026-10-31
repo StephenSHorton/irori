@@ -16,6 +16,9 @@ export type Blocker = B.Blocker
 export type BlockerKind = B.BlockerKind
 export type BlockerOption = B.BlockerOption
 export type BlockerStatus = B.BlockerStatus
+export type BoardMember = B.BoardMember
+export type BoardReviewer = B.BoardReviewer
+export type BoardSettings = B.BoardSettings
 export type BoardSummary = B.BoardSummary
 export type CaptureChange = B.CaptureChange
 export type CardActivity = B.CardActivity
@@ -50,6 +53,7 @@ export type Holding = B.Holding
 export type HomeServerView = B.HomeServerView
 export type Identity = B.Identity
 export type InboxCounts = B.InboxCounts
+export type InviteStatus = B.InviteStatus
 export type Link = B.Link
 export type LinkKind = B.LinkKind
 export type Message = B.Message
@@ -63,6 +67,7 @@ export type PolicyInput = B.PolicyInput
 export type RelayView = B.RelayView
 export type Resolution = B.Resolution
 export type Returned = B.Returned
+export type ReviewerChoice = B.ReviewerChoice
 export type Rollup = B.Rollup
 export type RosterChange = B.RosterChange
 export type Sender = B.Sender
@@ -128,6 +133,21 @@ export function Blocker(p: Partial<B.Blocker> = {}): B.Blocker {
 /** BlockerOption with Go's zero values for every field left out. */
 export function BlockerOption(p: Partial<B.BlockerOption> = {}): B.BlockerOption {
   return { "answer": "", "by": "", "at": "", ...p } as B.BlockerOption
+}
+
+/** BoardMember with Go's zero values for every field left out. */
+export function BoardMember(p: Partial<B.BoardMember> = {}): B.BoardMember {
+  return { "personId": "", "name": "", "owner": false, "me": false, "devices": 0, "fingerprint": "", ...p } as B.BoardMember
+}
+
+/** BoardReviewer with Go's zero values for every field left out. */
+export function BoardReviewer(p: Partial<B.BoardReviewer> = {}): B.BoardReviewer {
+  return { "repo": "", "agent": "", "name": "", ...p } as B.BoardReviewer
+}
+
+/** BoardSettings with Go's zero values for every field left out. */
+export function BoardSettings(p: Partial<B.BoardSettings> = {}): B.BoardSettings {
+  return { "boardId": "", "members": [], "receive": "", "people": [], "receiveOwn": false, "autonomy": "", "autonomyOwn": false, "leaving": false, "conflicts": [], "reviewers": [], "agents": [], ...p } as B.BoardSettings
 }
 
 /** BoardSummary with Go's zero values for every field left out. */
@@ -275,6 +295,11 @@ export function InboxCounts(p: Partial<B.InboxCounts> = {}): B.InboxCounts {
   return { "unread": 0, "held": 0, "paused": false, ...p } as B.InboxCounts
 }
 
+/** InviteStatus with Go's zero values for every field left out. */
+export function InviteStatus(p: Partial<B.InviteStatus> = {}): B.InviteStatus {
+  return { "role": "", "state": "", "boardId": "", "boardName": "", "peerName": "", "peerFingerprint": "", "myFingerprint": "", "misses": 0, ...p } as B.InviteStatus
+}
+
 /** Link with Go's zero values for every field left out. */
 export function Link(p: Partial<B.Link> = {}): B.Link {
   return { "kind": "", "ref": "", "label": "", ...p } as B.Link
@@ -328,6 +353,11 @@ export function Resolution(p: Partial<B.Resolution> = {}): B.Resolution {
 /** Returned with Go's zero values for every field left out. */
 export function Returned(p: Partial<B.Returned> = {}): B.Returned {
   return { "was": "", "at": "", ...p } as B.Returned
+}
+
+/** ReviewerChoice with Go's zero values for every field left out. */
+export function ReviewerChoice(p: Partial<B.ReviewerChoice> = {}): B.ReviewerChoice {
+  return { "agent": "", "name": "", "repo": "", ...p } as B.ReviewerChoice
 }
 
 /** Rollup with Go's zero values for every field left out. */

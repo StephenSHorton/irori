@@ -33,8 +33,8 @@ export const commands = {
 	boardComment: (id: string, text: string, tell: string) => __TAURI_INVOKE<CommentResult>("board_comment", { id, text, tell }),
 	boardAnswer: (taskId: string, blockerId: string, option: number, text: string, wake: boolean) => __TAURI_INVOKE<AnswerResult>("board_answer", { taskId, blockerId, option, text, wake }),
 	boardResolveBlocker: (taskId: string, blockerId: string, note: string) => __TAURI_INVOKE<AnswerResult>("board_resolve_blocker", { taskId, blockerId, note }),
-	boardAsk: (text: string, repoKey: string, wake: boolean) => __TAURI_INVOKE<TaskResult>("board_ask", { text, repoKey, wake }),
-	boardAskWithFiles: (text: string, repoKey: string, wake: boolean, files: UploadFile[]) => __TAURI_INVOKE<TaskResult>("board_ask_with_files", { text, repoKey, wake, files }),
+	boardAsk: (text: string, repoKey: string, wake: boolean, boardId: string) => __TAURI_INVOKE<TaskResult>("board_ask", { text, repoKey, wake, boardId }),
+	boardAskWithFiles: (text: string, repoKey: string, wake: boolean, files: UploadFile[], boardId: string) => __TAURI_INVOKE<TaskResult>("board_ask_with_files", { text, repoKey, wake, files, boardId }),
 	boardAskAgain: (id: string) => __TAURI_INVOKE<null>("board_ask_again", { id }),
 	boardAskRepos: () => __TAURI_INVOKE<AskRepo[]>("board_ask_repos"),
 	boardCloseAsk: (id: string, note: string) => __TAURI_INVOKE<Task>("board_close_ask", { id, note }),
@@ -47,10 +47,22 @@ export const commands = {
 	boardsCreate: (name: string, tag: string) => __TAURI_INVOKE<BoardSummary>("boards_create", { name, tag }),
 	boardsRename: (boardId: string, name: string) => __TAURI_INVOKE<BoardSummary>("boards_rename", { boardId, name }),
 	boardsLeave: (boardId: string) => __TAURI_INVOKE<null>("boards_leave", { boardId }),
+	boardsForgetNow: (boardId: string) => __TAURI_INVOKE<null>("boards_forget_now", { boardId }),
+	boardsRemoveMember: (boardId: string, personId: string) => __TAURI_INVOKE<BoardSettings>("boards_remove_member", { boardId, personId }),
+	boardsSetRole: (boardId: string, personId: string, role: string) => __TAURI_INVOKE<BoardSettings>("boards_set_role", { boardId, personId, role }),
 	boardsForget: (boardId: string) => __TAURI_INVOKE<null>("boards_forget", { boardId }),
 	boardsSharePreview: (taskId: string, boardId: string) => __TAURI_INVOKE<SharePreview>("boards_share_preview", { taskId, boardId }),
 	boardsShare: (taskId: string, boardId: string, hash: string) => __TAURI_INVOKE<string>("boards_share", { taskId, boardId, hash }),
 	boardsWithdraw: (taskId: string) => __TAURI_INVOKE<string>("boards_withdraw", { taskId }),
+	boardsSettings: (boardId: string) => __TAURI_INVOKE<BoardSettings>("boards_settings", { boardId }),
+	boardsSetReceive: (boardId: string, preset: string, people: string[]) => __TAURI_INVOKE<BoardSettings>("boards_set_receive", { boardId, preset, people }),
+	boardsSetAutonomy: (boardId: string, preset: string) => __TAURI_INVOKE<BoardSettings>("boards_set_autonomy", { boardId, preset }),
+	boardsSetReviewer: (boardId: string, agent: string, repo: string) => __TAURI_INVOKE<BoardSettings>("boards_set_reviewer", { boardId, agent, repo }),
+	boardsInvite: (boardId: string) => __TAURI_INVOKE<InviteStatus>("boards_invite", { boardId }),
+	boardsJoinInvite: (link: string) => __TAURI_INVOKE<InviteStatus>("boards_join_invite", { link }),
+	boardsConfirmInviteWords: (words: string) => __TAURI_INVOKE<InviteStatus>("boards_confirm_invite_words", { words }),
+	boardsInviteStatus: () => __TAURI_INVOKE<InviteStatus>("boards_invite_status"),
+	boardsCancelInvite: () => __TAURI_INVOKE<null>("boards_cancel_invite"),
 	devicesDevices: () => __TAURI_INVOKE<DeviceView[]>("devices_devices"),
 	devicesColors: () => __TAURI_INVOKE<string[]>("devices_colors"),
 	devicesSetDeviceColor: (deviceId: string, color: string) => __TAURI_INVOKE<null>("devices_set_device_color", { deviceId, color }),
@@ -224,6 +236,66 @@ export type BlockerOption = {
 /**  coord.BlockerStatus. */
 export type BlockerStatus = "open" | "answered" | "replied";
 
+/**
+ *  One member of a board, for the Boards dialog's Members and the Members
+ *  receive preset's people picker (§8).
+ */
+export type BoardMember = {
+	personId: string,
+	name: string,
+	owner: boolean,
+	/**  The person at this device. */
+	me: boolean,
+	/**  Their devices certified on the board. */
+	devices: number,
+	/**
+	 *  Their person fingerprint, as the invite screens read it out (the
+	 *  key the board pinned for them).
+	 */
+	fingerprint: string,
+};
+
+/**  One of this person's agents dedicated as a reviewer on a board (§10). */
+export type BoardReviewer = {
+	/**  The repoKey it reviews, or "" for the whole board. */
+	repo: string,
+	/**  The agent's session key. */
+	agent: string,
+	name: string,
+};
+
+/**
+ *  A board opened in the Boards dialog (§8): its members, the receive
+ *  preset that applies to other people's rows on it (§7.2) and the
+ *  autonomy preset for this person's agents there (§7.3).
+ */
+export type BoardSettings = {
+	boardId: string,
+	members: BoardMember[],
+	/**  closed, ask, members or open: what applies on this board. */
+	receive: string,
+	/**  Under members: the people whose rows wake agents. */
+	people: string[],
+	/**  The board has its own receive row (else it inherits). */
+	receiveOwn: boolean,
+	/**  ask, trusted or autonomous: what applies on this board. */
+	autonomy: string,
+	/**  The board has its own autonomy row (else it inherits). */
+	autonomyOwn: boolean,
+	/**  "Leaving…" (§4.4). */
+	leaving: boolean,
+	/**
+	 *  Owners only: each membership row the board ignored, in a line
+	 *  ("Stephen's role change for Blake didn't take: they are not on the
+	 *  board"), so an owner sees a promote or a removal that lost (§4.2).
+	 */
+	conflicts: string[],
+	/**  This person's dedicated reviewers on the board (§10), by repo. */
+	reviewers: BoardReviewer[],
+	/**  This person's live agents, to dedicate one as a reviewer. */
+	agents: ReviewerChoice[],
+};
+
 /**  One shared board in the list (Go `core.BoardSummary`). */
 export type BoardSummary = {
 	boardId: string,
@@ -235,6 +307,13 @@ export type BoardSummary = {
 	cards: number,
 	ready: boolean,
 	tagClash?: boolean,
+	/**
+	 *  The person left and no other member holds the leave yet:
+	 *  "Leaving…", with Forget now (§4.4).
+	 */
+	leaving?: boolean,
+	/**  The board's warning lines (§8: only when something is wrong). */
+	warnings?: string[],
 };
 
 /**  The capture:changed payload: what changed since the last one. */
@@ -280,7 +359,7 @@ export type CardBlocker = {
 	thread: CardThreadItem[],
 };
 
-/**  The shared board a card lives on (v0.5 §8). Always absent until M9. */
+/**  The shared board a card lives on (v0.5 §8). */
 export type CardBoard = {
 	id: string,
 	name: string,
@@ -422,6 +501,11 @@ export type CardThreadItem = {
 	text: string,
 	blockerId?: string,
 	missing?: string[],
+	/**
+	 *  An event that revised its blocker (card #50): what it asks now and
+	 *  its options changed. It sits in the blocker's thread.
+	 */
+	revised?: boolean,
 	gone?: boolean,
 	held?: boolean,
 	files?: number,
@@ -601,6 +685,31 @@ export type InboxCounts = {
 	paused: boolean,
 };
 
+/**
+ *  What either side's screen shows (the invite flow's `Status`, with the
+ *  side, the link and its expiry). `state` "" is no invite open.
+ */
+export type InviteStatus = {
+	/**  "host" (inviting), "guest" (joining) or "". */
+	role: string,
+	/**  waiting, words, joining, done, failed, or "". */
+	state: string,
+	boardId: string,
+	boardName: string,
+	/**  Host: the `irori-invite:` link to send. */
+	link?: string,
+	/**  Host: when the invite window closes (RFC 3339). */
+	expiresAt?: string,
+	/**  Guest: the five words to read out. */
+	words?: string[],
+	peerName: string,
+	peerFingerprint: string,
+	myFingerprint: string,
+	/**  Wrong words typed so far (two end the invite). */
+	misses: number,
+	error?: string,
+};
+
 /**  coord.Link. */
 export type Link = {
 	kind: LinkKind,
@@ -716,6 +825,13 @@ export type Returned = {
 	at: string,
 	row?: string,
 	person?: boolean,
+};
+
+/**  One of this person's live agents, to pick a reviewer from. */
+export type ReviewerChoice = {
+	agent: string,
+	name: string,
+	repo: string,
 };
 
 /**  coord.Rollup. */

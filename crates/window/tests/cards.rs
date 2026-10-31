@@ -7,8 +7,8 @@ mod common;
 
 use common::*;
 use irori_window::cards::{
-    BLOCKER_ANSWERED, BLOCKER_RESOLVED, CardBlocker, CardDetail, MAX_THREAD_VIEW, NOTE_ITEM,
-    THREAD_COMMENT, THREAD_EVENT, THREAD_MESSAGE,
+    BLOCKER_ANSWERED, BLOCKER_OPEN, BLOCKER_RESOLVED, CardBlocker, CardDetail, MAX_THREAD_VIEW,
+    NOTE_ITEM, THREAD_COMMENT, THREAD_EVENT, THREAD_MESSAGE,
 };
 
 /// Go `heldTask`: a task agent a created and claimed.
@@ -485,4 +485,81 @@ fn comment_with_nobody_on_the_card() {
     assert!(res.told.mode.is_empty() && res.told.to.is_empty());
     assert!(res.answers.is_empty() && res.watching.is_empty());
     assert_eq!(r.w.card(&t.id).unwrap().comments.len(), 1);
+}
+
+/// Card #50: the person answers with a question, the raiser answers it and
+/// revises the blocker. The revision shows in the blocker's thread under
+/// the person's reply, and the person picks from the current options.
+#[test]
+fn revised_blocker_shows_in_its_thread() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let t = held_task(&r);
+    let bl = raise(&r, &r.key_a, &t.id, "Which DB?", &["postgres", "mysql"]);
+    r.w.answer(&t.id, &bl.id, -1, "Which one is cheaper to run?", true)
+        .unwrap();
+    co.comment_on(
+        &r.key_a,
+        &t.id,
+        coord::CommentInput {
+            text: "Postgres on the small plan is cheapest.".into(),
+            blocker_id: bl.id.clone(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    co.revise(
+        &r.key_a,
+        &t.id,
+        &bl.id,
+        coord::BlockerRevision {
+            question: "Postgres on the small plan?".into(),
+            options: vec![
+                coord::BlockerOption {
+                    answer: "Yes".into(),
+                    recommended: true,
+                    ..Default::default()
+                },
+                coord::BlockerOption {
+                    answer: "No, a bigger plan".into(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let d = r.w.card(&t.id).unwrap();
+    let b = blocker(&d, &bl.id);
+    assert_eq!(b.question, "Postgres on the small plan?");
+    let answers: Vec<&str> = b.options.iter().map(|o| o.answer.as_str()).collect();
+    assert_eq!(answers, ["Yes", "No, a bigger plan"]);
+    assert_eq!(b.state, BLOCKER_OPEN);
+    assert_eq!(d.summary.open_blockers, 1);
+    assert_eq!(b.thread.len(), 3, "{:?}", b.thread);
+    assert_eq!(b.thread[0].who.name, "You");
+    assert_eq!(b.thread[1].who.key, r.key_a);
+    let rev = &b.thread[2];
+    assert!(rev.revised && rev.kind == THREAD_EVENT, "{rev:?}");
+    assert_eq!(rev.who.key, r.key_a);
+    assert!(
+        rev.text.contains("revised blocker")
+            && rev.text.contains("Postgres on the small plan?")
+            && rev
+                .text
+                .contains("options now: Yes (recommended) | No, a bigger plan"),
+        "{}",
+        rev.text
+    );
+    assert!(
+        !d.thread.iter().any(|i| i.revised),
+        "the revision is in the card's own thread too"
+    );
+    let raw = serde_json::to_string(b).unwrap();
+    assert!(raw.contains("\"revised\":true"), "{raw}");
+    // The pick is from the revised options.
+    let res = r.w.answer(&t.id, &bl.id, 0, "", true).unwrap();
+    let b = blocker(&res.card, &bl.id);
+    assert_eq!(b.state, BLOCKER_ANSWERED);
+    assert_eq!(b.thread.last().unwrap().text, "Yes");
 }

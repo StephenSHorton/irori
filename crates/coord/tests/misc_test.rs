@@ -297,7 +297,10 @@ fn test_person_comment_reopens_a_finished_card() {
     let b = e.reopen().get_task(&tk.id).unwrap();
     assert!(b.state == got.state && b.note == got.note && b.holders == got.holders);
     let acts = e.c.activity(&tk.id).unwrap();
-    assert!(acts.len() >= 2 && acts[1].what == "reopened it", "{acts:?}");
+    assert!(
+        acts.len() >= 2 && acts[1].what == "reopened by the person's comment",
+        "{acts:?}"
+    );
     let gone = e.c.create_task(ALICE, nt("Left behind")).unwrap();
     e.c.claim_task(ALICE, &gone.id).unwrap();
     e.c.set_task_state(ALICE, &gone.id, COMPLETED, "").unwrap();

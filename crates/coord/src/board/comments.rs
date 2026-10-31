@@ -10,7 +10,9 @@ use store::kinds;
 
 use super::cards::count_open;
 use super::error::{Result, bad_state, invalid, not_allowed, not_found};
-use super::fold::{Fold, LEFT_GONE, RefusalRec, engaged, is_holder, may_record, restore_state};
+use super::fold::{
+    Fold, LEFT_GONE, LEFT_REMOVED, RefusalRec, engaged, is_holder, may_record, restore_state,
+};
 use super::links::parse_link;
 use super::resource::{RESOURCE_PATH, Resource, conflicts, normalize_resource, parse_resource};
 use super::rows::*;
@@ -240,6 +242,73 @@ impl Fold {
         Ok(self.tasks[id].clone())
     }
 
+    /// Takes every key of board member `person_id` (their agents and the
+    /// person) off the open cards they hold or are assigned (v0.5 §4.3,
+    /// the remover's cleanup), as the person at this device. A card left
+    /// with nobody on it goes back to submitted. Returns how many came off.
+    pub(crate) fn take_off_person(&mut self, by: &str, person_id: &str) -> Result<usize> {
+        let by = caller(by)?;
+        if !self.is_owner(&by) {
+            return Err(not_allowed("only the person takes another member off"));
+        }
+        let Some(kp) = self.key_person.clone().filter(|_| self.on_board) else {
+            return Err(invalid("taking a member off is for a shared board"));
+        };
+        if person_id.is_empty() {
+            return Ok(0);
+        }
+        let mut n = 0;
+        let ids: Vec<String> = self
+            .tasks
+            .iter()
+            .filter(|(_, t)| !is_terminal(&t.state))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
+            let t = self.tasks[&id].clone();
+            let mut keys: Vec<String> = t.holders.clone();
+            for a in &t.assigned {
+                if !keys.contains(a) {
+                    keys.push(a.clone());
+                }
+            }
+            for who in keys.into_iter().filter(|k| kp(k) == person_id) {
+                let at = self.stamp();
+                self.write(
+                    &by,
+                    kinds::TASK_LEFT,
+                    &TaskMemberRow {
+                        task_id: id.clone(),
+                        who,
+                        by: by.clone(),
+                        at,
+                        reason: LEFT_REMOVED.into(),
+                        ..TaskMemberRow::default()
+                    },
+                )?;
+                n += 1;
+            }
+            let now = &self.tasks[&id];
+            if t.state == WORKING && now.holders.is_empty() && now.state == WORKING {
+                let at = self.stamp();
+                self.write(
+                    &by,
+                    kinds::TASK_STATUS,
+                    &TaskStateRow {
+                        task_id: id.clone(),
+                        state: SUBMITTED.into(),
+                        note: "nobody is on it: the person whose agent worked it left the board"
+                            .into(),
+                        by: by.clone(),
+                        at,
+                        ..TaskStateRow::default()
+                    },
+                )?;
+            }
+        }
+        Ok(n)
+    }
+
     pub(crate) fn set_shared(&mut self, by: &str, id: &str, shared: bool) -> Result<Task> {
         let by = caller(by)?;
         let t = self.open_task(id)?;
@@ -386,6 +455,21 @@ impl Fold {
         wake: bool,
         files: Vec<FileRef>,
     ) -> Result<(Comment, Notice)> {
+        self.add_comment_to(by, id, text, wake, files, "")
+    }
+
+    /// [`Fold::add_comment`] addressed to one key on the card (the row's
+    /// `to`), as a lease release request is to the lease's holder (§5.4):
+    /// the bridge carries it to that agent only.
+    pub(crate) fn add_comment_to(
+        &mut self,
+        by: &str,
+        id: &str,
+        text: &str,
+        wake: bool,
+        files: Vec<FileRef>,
+        to: &str,
+    ) -> Result<(Comment, Notice)> {
         let (by, text) = check_comment(by, text, &files)?;
         let t = self.any_task(id)?.clone();
         let at = self.stamp();
@@ -401,6 +485,7 @@ impl Fold {
                 wake,
                 at,
                 attachments: files.clone(),
+                to: to.into(),
                 ..TaskCommentRow::default()
             },
         )?;

@@ -152,8 +152,9 @@ pub fn main(args: &[String]) -> Result<(), String> {
 }
 
 /// Waits until the process that spawned us is gone (`true`), or `cancel`
-/// ends (`false`). Windows waits on the parent's handle; where that can't
-/// be done it checks every [`PARENT_POLL_EVERY`]. `started_by` (our own
+/// ends (`false`). Windows waits on the parent's handle and macOS on a
+/// kqueue NOTE_EXIT; where that can't be done it checks every
+/// [`PARENT_POLL_EVERY`]. `started_by` (our own
 /// start) rules out a reused pid either way. Go `watchParent`.
 pub fn watch_parent(
     cancel: &sys::cancel::Cancel,
@@ -225,8 +226,8 @@ mod tests {
     /// the 5 s poll, and a cancel while it lives ends the watch unorphaned.
     #[test]
     fn watch_parent_cases() {
-        if !cfg!(windows) {
-            return; // elsewhere it polls every 5 s (no kqueue wait ported yet)
+        if !cfg!(any(windows, target_os = "macos")) {
+            return; // elsewhere it polls every 5 s
         }
         // The parent exits.
         let mut kid = sleeper(300);
@@ -252,6 +253,21 @@ mod tests {
         let t = Instant::now();
         let orphaned = watch_parent(&c, i64::from(kid.id()), Some(SystemTime::now()));
         assert!(!orphaned, "canceled as orphaned with the parent alive");
+        assert!(t.elapsed() < Duration::from_secs(3));
+        let _ = kid.kill();
+        let _ = kid.wait();
+
+        // A process at the pid that started after us is a reused pid: the
+        // parent meant is gone.
+        let before = SystemTime::now() - Duration::from_secs(60);
+        let mut kid = sleeper(3_600_000);
+        let t = Instant::now();
+        let orphaned = watch_parent(
+            &sys::cancel::Cancel::new(),
+            i64::from(kid.id()),
+            Some(before),
+        );
+        assert!(orphaned, "a reused pid kept the watch");
         assert!(t.elapsed() < Duration::from_secs(3));
         let _ = kid.kill();
         let _ = kid.wait();

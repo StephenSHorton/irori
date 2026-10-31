@@ -1,32 +1,20 @@
-//! The wake policy (I:internal/inbox/policy.go): block and allow lists,
-//! bypass_receiver with the own-agent exemption (decision 34), Full auto
-//! (decision 36), the hop limit and Pause all.
+//! The wake policy (I:internal/inbox/policy.go): the person's own block
+//! and allow lists and Pause all, and the hop limit as a runaway-loop
+//! guard. Nothing else holds a message: Go's bypass_receiver hold (a
+//! bypass-mode session held other agents' messages) is gone (card #71,
+//! Stephen 2026-10-30: people run Irori privately with their friends), so
+//! the old Full auto mode `open` now equals `everyone`.
 
 use std::collections::BTreeMap;
 
 use gocompat::text;
-use irori_identity::owner::device_of;
 
 use crate::state::{DeliveryRow, Inner, PolicyRow, lower_trim, norm_policy, trim};
 use crate::{
-    AgentCard, BYPASS_MODE, Error, Inbox, MAX_HOP, Message, Policy, Result, Sender, hold, kinds,
-    policy_mode, st,
+    AgentCard, Error, Inbox, MAX_HOP, Message, Policy, Result, Sender, hold, kinds, policy_mode, st,
 };
 
 pub(crate) type Cards = BTreeMap<String, AgentCard>;
-
-/// Whether key runs with bypassed permissions (Grok and people never do).
-pub(crate) fn bypass(key: &str, cards: &Cards) -> bool {
-    cards
-        .get(key)
-        .is_some_and(|c| c.agent != "grok" && c.permission_mode == BYPASS_MODE)
-}
-
-/// m's sender key names the device that wrote it.
-pub(crate) fn from_writer(m: &Message) -> bool {
-    let dev = device_of(&m.from.key);
-    !dev.is_empty() && dev == m.writer
-}
 
 /// Sets r's state from a policy verdict.
 pub(crate) fn placed(mut r: DeliveryRow, h: &str) -> DeliveryRow {
@@ -81,29 +69,6 @@ impl Inner {
         false
     }
 
-    pub(crate) fn revoked(&self, dev: &str) -> bool {
-        self.revoked_fn.as_ref().is_some_and(|f| f(dev))
-    }
-
-    /// One of the person's own Claude agents (decision 34).
-    pub(crate) fn own_agent(&self, m: &Message, cards: &Cards) -> bool {
-        let s = &m.from;
-        if s.kind != "claude" || s.key.starts_with("user:") {
-            return false;
-        }
-        if cards.get(&s.key).is_some_and(|c| c.agent == "grok") {
-            return false;
-        }
-        let dev = device_of(&s.key);
-        if !from_writer(m) {
-            return false;
-        }
-        if dev == self.dev {
-            return true;
-        }
-        self.is_owner(&format!("user:{dev}")) && !self.revoked(dev)
-    }
-
     /// The hold reason for m going to recipient, or `""` to queue it.
     pub(crate) fn hold(&self, m: &Message, recipient: &str, cards: &Cards) -> &'static str {
         if recipient.is_empty() {
@@ -137,14 +102,6 @@ impl Inner {
             }
             if self.pol.mode == policy_mode::ALLOWLIST && !allowed {
                 return hold::NOT_ALLOWED;
-            }
-            if self.pol.mode != policy_mode::OPEN
-                && bypass(recipient, cards)
-                && !allowed
-                && !self.own_agent(m, cards)
-                && (m.from.kind == "grok" || !from_writer(m) || !bypass(&m.from.key, cards))
-            {
-                return hold::BYPASS_RECEIVER;
             }
             if m.hop > MAX_HOP {
                 return hold::HOP_LIMIT;

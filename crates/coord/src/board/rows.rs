@@ -65,6 +65,9 @@ crate::go_struct! {
         pub options: Vec<BlockerOption> = "options" "omit",
         pub reason_only: bool = "reasonOnly" "omit",
         pub replace: bool = "replace" "omit",
+        /// With replace: a revision, whose options replace the item's
+        /// (none clears them). Older folds ignore it and keep their options.
+        pub revise: bool = "revise" "omit",
         pub on: Option<BlockedBy> = "on" "omit",
         pub links: Vec<Link> = "links" "omit",
         pub attachments: Vec<FileRef> = "attachments" "omit",

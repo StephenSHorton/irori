@@ -1,15 +1,11 @@
 //! "Is this process still the one I think it is?", a port of
 //! I:internal/proc (capture.md §4).
 //!
-//! | | Windows | other Unix |
-//! |---|---|---|
-//! | [`alive`] | `OpenProcess(QUERY_LIMITED)`; access denied = alive; exit code 259 | `kill(pid, 0)`, EPERM = alive |
-//! | [`start_time`] | `GetProcessTimes` creation time | `None` |
-//! | [`wait_exit`] | `WaitForMultipleObjects([process, stop event])` | [`WaitError::CantWait`] |
-//!
-//! macOS's sysctl `kinfo_proc` start time and zombie check and its kqueue
-//! `NOTE_EXIT` wait are not ported yet: on macOS this behaves as other Unix
-//! (callers poll [`alive`]).
+//! | | Windows | macOS | other Unix |
+//! |---|---|---|---|
+//! | [`alive`] | `OpenProcess(QUERY_LIMITED)`; access denied = alive; exit code 259 | `kill(pid, 0)`, EPERM = alive; a zombie is gone | `kill(pid, 0)`, EPERM = alive |
+//! | [`start_time`] | `GetProcessTimes` creation time | sysctl `kern.proc.pid` `p_starttime` | `None` |
+//! | [`wait_exit`] | `WaitForMultipleObjects([process, stop event])` | kqueue `EVFILT_PROC NOTE_EXIT` + `EVFILT_USER` | [`WaitError::CantWait`] |
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -36,7 +32,8 @@ impl std::fmt::Display for WaitError {
 impl std::error::Error for WaitError {}
 
 /// Whether a process with `pid` exists. A process we may not signal still
-/// counts; so does a zombie off macOS.
+/// counts; so does a zombie off macOS. On macOS a zombie counts as gone, so
+/// this agrees with [`wait_exit`] (Go proc_darwin.go).
 pub fn alive(pid: i64) -> bool {
     if pid <= 0 || pid > i64::from(u32::MAX) {
         return false;
@@ -251,7 +248,11 @@ mod imp {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
+#[path = "proc_macos.rs"]
+mod imp;
+
+#[cfg(all(unix, not(target_os = "macos")))]
 mod imp {
     use std::time::SystemTime;
 

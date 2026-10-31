@@ -479,7 +479,7 @@ fn test_answer_notice_recipients() {
     assert_eq!(
         n.text,
         format!(
-            "{USER} answered the blocker on \"db\" (#1, task:{id}, blocker b1).\nQuestion: which db?\nAnswer: postgres\nIt is not resolved yet. When you have what you need: board_unblock task_id={id} blocker_id=b1 note=\"<one line on what you will do now>\". If the answer doesn't settle it: board_comment task_id={id} blocker_id=b1 with what is still missing.\nshow task:{id} for the card, its comments and links.",
+            "{USER} answered the blocker on \"db\" (#1, task:{id}, blocker b1).\nQuestion: which db?\nAnswer: postgres\nIt is not resolved yet. When you have what you need: board_unblock task_id={id} blocker_id=b1 note=\"<one line on what you will do now>\". If the answer doesn't settle it: board_comment task_id={id} blocker_id=b1 with what is still missing. If it is a question or changes what is being decided, answer it there, then resolve the blocker if that settles it, or revise it with board_block task_id={id} blocker_id=b1 with the question and options that fit now (or none); never offer the same options again.\nshow task:{id} for the card, its comments and links.",
             id = task.id
         )
     );
@@ -825,4 +825,336 @@ fn test_blocker_links_and_files() {
         },
     )
     .unwrap();
+}
+
+fn rec(answer: &str) -> BlockerOption {
+    BlockerOption {
+        answer: answer.into(),
+        recommended: true,
+        ..BlockerOption::default()
+    }
+}
+
+fn revision(q: &str, options: Vec<BlockerOption>) -> BlockerRevision {
+    BlockerRevision {
+        question: q.into(),
+        options,
+        ..BlockerRevision::default()
+    }
+}
+
+fn needs(c: &Coord, v: &str, id: &str) -> bool {
+    c.board(&BoardFilter {
+        viewer: v.into(),
+        ..BoardFilter::default()
+    })
+    .needs_you
+    .iter()
+    .any(|cd| cd.task.id == id)
+}
+
+// Card #50: the person answers with a question; the raiser answers it and
+// revises the blocker, and the person picks from the revised options.
+#[test]
+fn test_revise_after_a_question() {
+    let e = Env::new();
+    let task = raised_on(&e);
+    e.c.answer(USER, &task.id, "b1", text("which one is signed?"))
+        .unwrap();
+    reply(
+        &e.c,
+        ALICE,
+        &task.id,
+        "b1",
+        "Wintun is signed, TAP is not.",
+        &[],
+    );
+    let (_, b) =
+        e.c.revise(
+            ALICE,
+            &task.id,
+            "b1",
+            revision(
+                "Use Wintun, the signed one?",
+                vec![rec("Yes, Wintun"), opt("No, wait")],
+            ),
+        )
+        .unwrap();
+    assert_eq!(b.question, "Use Wintun, the signed one?");
+    for c in [&e.c, &e.reopen()] {
+        let (got, b) = blocker_of(c, &task.id, "b1");
+        let answers: Vec<&str> = b.options.iter().map(|o| o.answer.as_str()).collect();
+        assert_eq!(answers, ["Yes, Wintun", "No, wait"]);
+        assert!(b.options[0].recommended && !b.options[1].recommended);
+        assert!(
+            b.question == "Use Wintun, the signed one?"
+                && b.status == BLOCKER_OPEN
+                && b.raised_by == ALICE
+                && b.open()
+                && got.state == BLOCKED,
+            "{b:?}"
+        );
+        // The person's question and the reply stay in the thread.
+        let cs = c.comments(&task.id).unwrap();
+        assert!(
+            cs.iter()
+                .any(|c| c.text == "which one is signed?" && c.blocker_id == "b1")
+        );
+        // The revision is a line in the blocker's thread: who, what changed.
+        let a = &c.activity(&task.id).unwrap()[0];
+        assert!(a.revised && a.blocker_id == "b1" && a.by == ALICE, "{a:?}");
+        assert_eq!(
+            a.what,
+            "revised blocker b1: asks now \u{201c}Use Wintun, the signed one?\u{201d}; options now: Yes, Wintun (recommended) | No, wait"
+        );
+        // It waits on the person again.
+        assert!(needs(c, USER, &task.id) && !needs(c, ALICE, &task.id));
+    }
+    // The pick is from the current options.
+    e.c.answer(
+        USER,
+        &task.id,
+        "b1",
+        BlockerAnswer {
+            pick: 1,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    let (_, b) = blocker_of(&e.c, &task.id, "b1");
+    assert!(b.status == BLOCKER_ANSWERED && b.sent_to == ALICE);
+    want_err(
+        e.c.answer(
+            USER,
+            &task.id,
+            "b1",
+            BlockerAnswer {
+                pick: 3,
+                ..BlockerAnswer::default()
+            },
+        ),
+        ErrorKind::Invalid,
+    );
+    let (got, _) =
+        e.c.answer(ALICE, &task.id, "b1", resolve("switching to Wintun"))
+            .unwrap();
+    let r = got.blockers[0].resolved.clone().unwrap();
+    assert!(r.answer == "Yes, Wintun" && r.option == 0 && r.note == "switching to Wintun");
+    assert_eq!(
+        e.c.list_tasks(&TaskFilter::default()),
+        e.reopen().list_tasks(&TaskFilter::default())
+    );
+}
+
+#[test]
+fn test_revise_to_a_plain_question() {
+    let e = Env::new();
+    let task = raised_on(&e);
+    e.c.answer(USER, &task.id, "b1", text("why not both?"))
+        .unwrap();
+    let r = BlockerRevision {
+        question: "Anything else before I ship Wintun only?".into(),
+        context: Some(String::new()),
+        options: vec![],
+    };
+    e.c.revise(ALICE, &task.id, "b1", r).unwrap();
+    for c in [&e.c, &e.reopen()] {
+        let (_, b) = blocker_of(c, &task.id, "b1");
+        assert!(b.options.is_empty() && b.context.is_empty() && b.status == BLOCKER_OPEN);
+        let what = c.activity(&task.id).unwrap()[0].what.clone();
+        assert!(what.ends_with("no options now, a plain question"), "{what}");
+    }
+    want_err(
+        e.c.answer(
+            USER,
+            &task.id,
+            "b1",
+            BlockerAnswer {
+                pick: 1,
+                ..BlockerAnswer::default()
+            },
+        ),
+        ErrorKind::Invalid,
+    );
+    e.c.answer(USER, &task.id, "b1", text("no, go")).unwrap();
+    let (_, b) = blocker_of(&e.c, &task.id, "b1");
+    assert_eq!(b.status, BLOCKER_ANSWERED);
+}
+
+#[test]
+fn test_revise_who_and_what() {
+    let e = Env::new();
+    let task = raised_on(&e);
+    let same = || revision("", vec![opt("Wintun"), opt("TAP-Windows")]);
+    // Nothing changed: refused, with what to do instead.
+    let err = e.c.revise(ALICE, &task.id, "b1", same()).unwrap_err();
+    assert!(
+        err.is(ErrorKind::Invalid) && err.to_string().contains("board_unblock"),
+        "{err}"
+    );
+    // Only the raiser, a holder or a person.
+    want_err(
+        e.c.revise(BOB, &task.id, "b1", revision("Other?", vec![])),
+        ErrorKind::NotAllowed,
+    );
+    want_err(
+        e.c.revise(ALICE, &task.id, "b9", revision("Other?", vec![])),
+        ErrorKind::NotFound,
+    );
+    e.c.leave(ALICE, &task.id, ALICE).unwrap();
+    e.c.claim_task(BOB, &task.id).unwrap();
+    e.c.revise(BOB, &task.id, "b1", revision("Wintun then?", vec![]))
+        .unwrap();
+    assert_eq!(blocker_of(&e.c, &task.id, "b1").1.raised_by, BOB);
+    // A person's revision leaves the answer going to the raiser.
+    e.c.revise(USER, &task.id, "b1", revision("Wintun, yes?", vec![]))
+        .unwrap();
+    let (_, b) = blocker_of(&e.c, &task.id, "b1");
+    assert!(b.raised_by == BOB && b.question == "Wintun, yes?");
+    e.c.answer(USER, &task.id, "b1", resolve("yes")).unwrap();
+    want_err(
+        e.c.revise(ALICE, &task.id, "b1", revision("Again?", vec![])),
+        ErrorKind::BadState,
+    );
+}
+
+// Older Cores: a replace row without revise (an older peer's) keeps the
+// item's options, and a revision row carries replace so an older fold still
+// takes its question.
+#[test]
+fn test_revise_older_shapes() {
+    let e = Env::new();
+    let task = raised_on(&e);
+    let at = hlc_at(plus(fixed_now(), mins(1)));
+    e.remote(
+        "dev-b",
+        1,
+        at,
+        "agent:dev-b/x",
+        kinds::TASK_STATUS,
+        &TaskStateRow {
+            task_id: task.id.clone(),
+            state: BLOCKED.into(),
+            reason: "Which adapter, really?".into(),
+            blocker: Some(BlockerRow {
+                id: "b1".into(),
+                question: "Which adapter, really?".into(),
+                replace: true,
+                ..BlockerRow::default()
+            }),
+            by: "dev-b/x".into(),
+            at: fixed_now(),
+            ..TaskStateRow::default()
+        },
+    );
+    for c in [&e.c, &e.reopen()] {
+        let (_, b) = blocker_of(c, &task.id, "b1");
+        assert!(
+            b.question == "Which adapter, really?" && b.options.len() == 2,
+            "{b:?}"
+        );
+        assert!(!c.activity(&task.id).unwrap()[0].revised);
+    }
+    e.c.revise(ALICE, &task.id, "b1", revision("Wintun?", vec![rec("Yes")]))
+        .unwrap();
+    let rows = e.rows(kinds::TASK_STATUS);
+    let row: TaskStateRow = payload(rows.last().unwrap());
+    let br = row.blocker.unwrap();
+    assert!(br.replace && br.revise && br.id == "b1" && row.state == BLOCKED);
+    // A recommendation written for the old question, arriving late, stays
+    // off the revised options.
+    let before = rows.last().unwrap().hlc.0 - 1;
+    e.remote(
+        "dev-c",
+        1,
+        before,
+        "agent:dev-c/y",
+        kinds::BLOCKER_OPTION,
+        &coord::rows::BlockerOptionRow {
+            task_id: task.id.clone(),
+            blocker_id: "b1".into(),
+            answer: "TAP-Windows".into(),
+            by: "dev-c/y".into(),
+            at: fixed_now(),
+            ..Default::default()
+        },
+    );
+    for c in [&e.c, &e.reopen()] {
+        let (_, b) = blocker_of(c, &task.id, "b1");
+        let answers: Vec<&str> = b.options.iter().map(|o| o.answer.as_str()).collect();
+        assert_eq!(answers, ["Yes"]);
+    }
+}
+
+// Rows that arrive late fold the same as in log order (a reopen): a plain
+// replace keeps its options and so a late recommendation, and a resolution
+// logged before a revision still resolves the item.
+#[test]
+fn test_revise_late_rows_converge() {
+    let e = Env::new();
+    let task = raised_on(&e);
+    let replace_at = hlc_at(plus(fixed_now(), mins(2)));
+    e.remote(
+        "dev-b",
+        1,
+        replace_at,
+        "agent:dev-b/x",
+        kinds::TASK_STATUS,
+        &TaskStateRow {
+            task_id: task.id.clone(),
+            state: BLOCKED.into(),
+            reason: "Which adapter, really?".into(),
+            blocker: Some(BlockerRow {
+                id: "b1".into(),
+                question: "Which adapter, really?".into(),
+                replace: true,
+                ..BlockerRow::default()
+            }),
+            by: "dev-b/x".into(),
+            at: fixed_now(),
+            ..TaskStateRow::default()
+        },
+    );
+    e.remote(
+        "dev-c",
+        1,
+        replace_at - 1,
+        "agent:dev-c/y",
+        kinds::BLOCKER_OPTION,
+        &coord::rows::BlockerOptionRow {
+            task_id: task.id.clone(),
+            blocker_id: "b1".into(),
+            answer: "TAP-Windows".into(),
+            by: "dev-c/y".into(),
+            at: fixed_now(),
+            ..Default::default()
+        },
+    );
+    for c in [&e.c, &e.reopen()] {
+        let (_, b) = blocker_of(c, &task.id, "b1");
+        assert!(b.options.len() == 2 && b.options[1].recommended, "{b:?}");
+    }
+    e.c.revise(ALICE, &task.id, "b1", revision("Wintun?", vec![rec("Yes")]))
+        .unwrap();
+    let rows = e.rows(kinds::TASK_STATUS);
+    let before = rows.last().unwrap().hlc.0 - 1;
+    e.remote(
+        "dev-d",
+        1,
+        before,
+        "user",
+        kinds::BLOCKER_RESOLVED,
+        &coord::rows::BlockerResolvedRow {
+            task_id: task.id.clone(),
+            blocker_id: "b1".into(),
+            answer: "Wintun".into(),
+            option: 0,
+            by: "user".into(),
+            at: fixed_now(),
+            ..Default::default()
+        },
+    );
+    let live = blocker_of(&e.c, &task.id, "b1").1;
+    let again = blocker_of(&e.reopen(), &task.id, "b1").1;
+    assert!(!live.open() && !again.open(), "{live:?} {again:?}");
 }

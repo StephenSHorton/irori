@@ -142,7 +142,7 @@ export function openAsk(c: { ask?: CardAsk | null }): boolean {
 }
 
 // askLine is an open ask's line in place of the holder line: how many
-// heard it, who it waits on, or who took it.
+// it told, who it waits on, or who took it.
 export function askLine(a: CardAsk): string {
   switch (a.state) {
     case AskState.Taken:
@@ -161,7 +161,7 @@ export function askLine(a: CardAsk): string {
       return `Closed: ${plainLine(a.outcome?.note ?? "")}`
   }
   if (a.told === 0) return "Nobody was free to hear it"
-  return `${a.told} ${a.told === 1 ? "agent" : "agents"} heard it`
+  return `Told ${a.told} ${a.told === 1 ? "agent" : "agents"}; nobody took it yet`
 }
 
 // ---- sample mode ------------------------------------------------------------
@@ -729,11 +729,15 @@ export const cards = {
   // now. One of them takes it.
   // files (picked, dropped or pasted) go on the ask's card, and the agent
   // that takes it fetches them (card #25).
+  // boardId posts it to that shared board instead (v0.5 §9): every
+  // member's free agents hear it. A board ask names no repo and takes no
+  // files.
   async ask(
     text: string,
     repoKey = "",
     wake = false,
-    files: File[] = []
+    files: File[] = [],
+    boardId = ""
   ): Promise<TaskResult> {
     if (files.length > MaxUploadFiles)
       throw new Error(`at most ${MaxUploadFiles} files`)
@@ -743,12 +747,13 @@ export const cards = {
         `${big.name} is over ${MaxUpload >> 20} MiB; ask an agent to attach it from disk`
       )
     if (inWails()) {
-      if (!files.length) return BoardService.Ask(text, repoKey, wake)
+      if (!files.length) return BoardService.Ask(text, repoKey, wake, boardId)
       return BoardService.AskWithFiles(
         text,
         repoKey,
         wake,
-        await Promise.all(files.map(uploadOf))
+        await Promise.all(files.map(uploadOf)),
+        boardId
       )
     }
     return sampleAsk(text, repoKey, wake)

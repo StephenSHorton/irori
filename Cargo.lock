@@ -3494,6 +3494,7 @@ version = "0.0.0"
 dependencies = [
  "base64 0.23.1",
  "irori-gocompat",
+ "irori-sys",
  "libc",
  "serde",
  "serde_json",
@@ -3605,6 +3606,7 @@ name = "irori-window"
 version = "0.0.0"
 dependencies = [
  "base64 0.23.1",
+ "hex",
  "iroh",
  "irori-blob",
  "irori-capture",

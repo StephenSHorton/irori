@@ -111,7 +111,7 @@ impl Window {
             return Told::default();
         }
         let mut told = Told {
-            to: n.to.clone(),
+            to: n.to.iter().map(|k| self.core.private_key(k)).collect(),
             mode: inbox::mode::NEXT_TURN.into(),
             error: String::new(),
         };
@@ -130,8 +130,8 @@ impl Window {
     /// BoardService.Comment: the person's comment on a task.
     pub fn comment(&self, id: &str, text: &str, tell: &str) -> Result<CommentResult, String> {
         let tl = parse_tell(tell)?;
-        let co = self.core.coord();
-        let me = self.user_key();
+        let (co, keys) = self.on(id, &[])?;
+        let me = keys[0].clone();
         let mut res = CommentResult::default();
         if tl == Tell::None {
             let (c, _) = co
@@ -141,7 +141,9 @@ impl Window {
             return Ok(res);
         }
         let p = self.people();
-        let around = |k: &str| p.ref_(k).live;
+        // A board card's keys are agent:<cardId>; the roster knows the
+        // session behind each (private_key).
+        let around = |k: &str| p.ref_(&self.core.private_key(k)).live;
         let (c, ns) = co
             .person_comment(&me, id, text, tl == Tell::Wake, Some(&around))
             .map_err(|e| e.to_string())?;
@@ -156,24 +158,52 @@ impl Window {
                 let joined = format!("{}; {}", res.told.error, told.error);
                 res.told.error = joined.trim_start_matches("; ").to_string();
             }
+            let to: Vec<String> = n.to.iter().map(|k| self.core.private_key(k)).collect();
             if n.watching {
-                res.watching.extend(p.refs(&n.to));
+                res.watching.extend(p.refs(&to));
             } else {
-                res.answers.extend(p.refs(&n.to));
+                res.answers.extend(p.refs(&to));
             }
         }
         Ok(res)
     }
 
     /// BoardService.AskWithFiles (Ask with no files): the person asking
-    /// the room.
+    /// the room. With `board_id` the ask goes on that shared board (v0.5
+    /// §9): every member's free agents hear it, the others' through their
+    /// own devices. A board's agents carry no repo, and files don't go on
+    /// a board ask yet (a board row may name only attachments offered in
+    /// it).
     pub fn ask(
         &self,
         text: &str,
         repo_key: &str,
         wake: bool,
         files: &[UploadFile],
+        board_id: &str,
     ) -> Result<TaskResult, String> {
+        let board_id = trim(board_id);
+        if !board_id.is_empty() {
+            if !files.is_empty() {
+                return Err(invalid(
+                    "files go with an ask on your own board only; ask without them, or attach them on a card",
+                ));
+            }
+            let (t, n) = self
+                .core
+                .board_ask(
+                    board_id,
+                    coord::NewAsk {
+                        text: text.into(),
+                        repo_key: trim(repo_key).into(),
+                        wake,
+                        ..Default::default()
+                    },
+                )
+                .map_err(|e| e.to_string())?;
+            let told = self.tell(&n, Tell::NextTurn);
+            return Ok(TaskResult { task: t, told });
+        }
         let refs = self.store_uploads(files)?;
         let agents = self.core.ask_agents();
         let (t, n) = self
@@ -262,18 +292,16 @@ impl Window {
 
     /// BoardService.Pin.
     pub fn pin(&self, id: &str, pinned: bool) -> Result<(), String> {
-        self.core
-            .coord()
-            .pin(&self.user_key(), trim(id), pinned)
+        let (co, keys) = self.private_only(trim(id))?;
+        co.pin(&keys[0], trim(id), pinned)
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
 
     /// BoardService.MovePin: just before another pinned card ("" last).
     pub fn move_pin(&self, id: &str, before: &str) -> Result<(), String> {
-        self.core
-            .coord()
-            .move_pin(&self.user_key(), trim(id), trim(before))
+        let (co, keys) = self.private_only(trim(id))?;
+        co.move_pin(&keys[0], trim(id), trim(before))
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
@@ -297,11 +325,8 @@ impl Window {
 
     /// BoardService.Reopen.
     pub fn reopen(&self, id: &str) -> Result<TaskResult, String> {
-        let (t, n) = self
-            .core
-            .coord()
-            .reopen(&self.user_key(), trim(id))
-            .map_err(|e| e.to_string())?;
+        let (co, keys) = self.on(trim(id), &[])?;
+        let (t, n) = co.reopen(&keys[0], trim(id)).map_err(|e| e.to_string())?;
         let told = self.tell(&n, Tell::NextTurn);
         Ok(TaskResult { task: t, told })
     }
@@ -323,8 +348,8 @@ impl Window {
         if blocker_id == NOTE_ITEM {
             return self.answer_input(task_id, option, text, wake);
         }
-        let co = self.core.coord();
-        let me = self.user_key();
+        let (co, keys) = self.on(task_id, &[])?;
+        let me = keys[0].clone();
         let t = co
             .get_task(task_id)
             .ok_or_else(|| not_found_task(task_id))?;
@@ -395,11 +420,10 @@ impl Window {
         if blocker_id == NOTE_ITEM {
             return Err(invalid("answer the card's question instead"));
         }
-        let (t, n) = self
-            .core
-            .coord()
+        let (co, keys) = self.on(task_id, &[])?;
+        let (t, n) = co
             .answer(
-                &self.user_key(),
+                &keys[0],
                 task_id,
                 blocker_id,
                 BlockerAnswer {
@@ -424,8 +448,8 @@ impl Window {
         text: &str,
         wake: bool,
     ) -> Result<AnswerResult, String> {
-        let co = self.core.coord();
-        let me = self.user_key();
+        let (co, keys) = self.on(id, &[])?;
+        let me = keys[0].clone();
         let t = co.get_task(id).ok_or_else(|| not_found_task(id))?;
         if t.state != coord::INPUT_REQUIRED {
             return Err(format!(

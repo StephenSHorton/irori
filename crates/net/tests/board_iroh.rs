@@ -8,7 +8,9 @@
 //! - a non-member is refused at the endpoint, even holding the board key;
 //! - a newer board epoch reaches the other member on `board.secret`;
 //! - a removed member's connection is cut and its redials are refused;
-//! - the private mesh (`irori/mesh/1`) refuses the other person's device.
+//! - the private mesh (`irori/mesh/1`) refuses the other person's device;
+//! - with gossip on and the ticks slowed to a minute, a local write's kick
+//!   and a gossip announcement each move a row within a few seconds.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -119,9 +121,18 @@ impl Dev {
         Self::build(person, creator, false)
     }
 
+    /// A device whose endpoint runs board gossip (boards2-transport §5).
+    fn gossiping(person: Person, creator: &MemberPin) -> Dev {
+        Self::build_with(person, creator, false, true)
+    }
+
     /// `open_gate`: this device's own endpoint gate lets everyone in, so a
     /// refusal seen here is the other side's.
     fn build(person: Person, creator: &MemberPin, open_gate: bool) -> Dev {
+        Self::build_with(person, creator, open_gate, false)
+    }
+
+    fn build_with(person: Person, creator: &MemberPin, open_gate: bool, gossip: bool) -> Dev {
         let dir = tempfile::tempdir().unwrap();
         let key = rand_key();
         let id = person.root.clone();
@@ -168,7 +179,9 @@ impl Dev {
             admit,
         );
         cfg.ip = IpMode::Loopback;
-        cfg.gossip = false;
+        cfg.gossip = gossip;
+        // The gate and the board gossip read one registry, as in the Core.
+        cfg.boards = members.clone();
         cfg.dial_grace = Duration::from_millis(300);
         cfg.connect_timeout = Duration::from_secs(10);
         Dev {
@@ -304,6 +317,16 @@ impl Dev {
 
     /// Opens the board here: counted at the endpoint gate, its mesh started.
     async fn open(&mut self) {
+        self.open_with(mesh::Intervals {
+            presence: Duration::from_millis(200),
+            ping: Duration::from_millis(500),
+            vector: Duration::from_millis(300),
+            ..Default::default()
+        })
+        .await
+    }
+
+    async fn open_with(&mut self, iv: mesh::Intervals) {
         self.members.add(BOARD, self.verifier.clone());
         let m = BoardMesh::new(BoardMeshOpts {
             board_id: BOARD.into(),
@@ -316,12 +339,7 @@ impl Dev {
             transport: Arc::new(self.net.clone()),
             own_devices: None,
         });
-        m.set_intervals(mesh::Intervals {
-            presence: Duration::from_millis(200),
-            ping: Duration::from_millis(500),
-            vector: Duration::from_millis(300),
-            ..Default::default()
-        });
+        m.set_intervals(iv);
         m.start().await.unwrap();
         self.mesh = Some(m);
     }
@@ -486,9 +504,10 @@ async fn after_a_removal_the_old_topic_closes_once_every_member_moved() {
     // topic left in common with them and no new rows.
     let alice_p = Person::new("a-alice-pc");
     let creator = alice_p.pin();
-    let mut alice = Dev::with_person(alice_p, &creator);
-    let mut bob = Dev::new("b-bob-mac", &creator);
-    let mut carol = Dev::new("c-carol-pc", &creator);
+    // Gossip on, so the epoch's gossip topic is seen to close too.
+    let mut alice = Dev::gossiping(alice_p, &creator);
+    let mut bob = Dev::gossiping(Person::new("b-bob-mac"), &creator);
+    let mut carol = Dev::gossiping(Person::new("c-carol-pc"), &creator);
 
     let a_cert = alice.self_cert();
     let created = alice.create_board();
@@ -541,8 +560,8 @@ async fn after_a_removal_the_old_topic_closes_once_every_member_moved() {
     alice.remove_member(&bob.person, &[(&bob.id, bob_seq)]);
     alice.secrets.mint(2, &alice.id).unwrap();
     alice.mesh().recheck();
-    eventually("alice joins epoch 2", || {
-        alice.mesh().epochs() == vec![1, 2]
+    eventually("alice joins epoch 2 and its gossip topic", || {
+        alice.mesh().epochs() == vec![1, 2] && alice.mesh().gossip_epochs() == vec![1, 2]
     })
     .await;
     eventually("bob's connections are cut", || {
@@ -553,7 +572,11 @@ async fn after_a_removal_the_old_topic_closes_once_every_member_moved() {
     never(
         "alice settled before carol said hello on epoch 2",
         Duration::from_millis(1000),
-        || alice.secrets.topics().unwrap().len() != 2 || alice.mesh().epochs() != vec![1, 2],
+        || {
+            alice.secrets.topics().unwrap().len() != 2
+                || alice.mesh().epochs() != vec![1, 2]
+                || alice.mesh().gossip_epochs() != vec![1, 2]
+        },
     )
     .await;
     assert_eq!(alice.secrets.settled(), 0);
@@ -576,6 +599,8 @@ async fn after_a_removal_the_old_topic_closes_once_every_member_moved() {
                 && carol.secrets.settled() == 2
                 && alice.mesh().epochs() == vec![2]
                 && carol.mesh().epochs() == vec![2]
+                && alice.mesh().gossip_epochs() == vec![2]
+                && carol.mesh().gossip_epochs() == vec![2]
                 && !alice.net.board_rooms().iter().any(|(_, e)| *e == 1)
                 && !carol.net.board_rooms().iter().any(|(_, e)| *e == 1)
         },
@@ -728,4 +753,92 @@ impl Dev {
     fn open_counted_only(&mut self) {
         self.members.add(BOARD, self.verifier.clone());
     }
+}
+
+/// Card #67 (boards2-transport §5): rows cross at once, not on the vector
+/// tick. Both meshes tick only once a minute, so a row seen within
+/// [`FEW`] came from a kick: (a) a local write's `kick`, which tells the
+/// member on the connection and on gossip; (b) a gossip announcement alone,
+/// which the receiving mesh turns into a pull.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_write_and_a_gossip_announcement_pull_at_once() {
+    const FEW: Duration = Duration::from_secs(5);
+    let slow = Duration::from_secs(60);
+    let alice_p = Person::new("a-alice-pc");
+    let creator = alice_p.pin();
+    let mut alice = Dev::gossiping(alice_p, &creator);
+    let mut bob = Dev::gossiping(Person::new("b-bob-mac"), &creator);
+    let a_cert = alice.self_cert();
+    let created = alice.create_board();
+    let added = alice.add_member(&bob.person);
+    let b_cert = bob.self_cert();
+    bob.take(&[a_cert, created, added]);
+    alice.take(&[b_cert]);
+    let mut secret = [0u8; 32];
+    getrandom::fill(&mut secret).unwrap();
+    alice.secrets.add(1, &alice.id, &secret).unwrap();
+    bob.secrets.add(1, &alice.id, &secret).unwrap();
+
+    let (pa, pb) = (alice.peer_addr().await, bob.peer_addr().await);
+    alice.net.set_board_peers(BOARD, vec![pb.clone()]);
+    bob.net.set_board_peers(BOARD, vec![pa.clone()]);
+    let iv = mesh::Intervals {
+        presence: slow,
+        ping: slow,
+        vector: slow,
+        ..Default::default()
+    };
+    alice.open_with(iv).await;
+    bob.open_with(iv).await;
+    eventually("alice and bob connect on the board", || {
+        alice.connected_to(&bob.id) && bob.connected_to(&alice.id)
+    })
+    .await;
+    // Let the pulls a new connection makes run out.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // (a) A local write and its kick.
+    let from_alice = alice.note("from alice");
+    let t = Instant::now();
+    alice.mesh().kick();
+    eventually("bob pulls alice's row", || bob.has(&from_alice)).await;
+    assert!(t.elapsed() < FEW, "alice's row took {:?}", t.elapsed());
+
+    // (b) Bob writes and does not kick; only a gossip announcement of his
+    // vector (sent on his endpoint's board topic) tells Alice.
+    // Under load a pull (a) set going can still be running and carry
+    // Bob's vector on the connection; write again until a row stays put.
+    let mut i = 0;
+    let from_bob = loop {
+        let ev = bob.note(&format!("from bob {i}"));
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        if !alice.has(&ev) {
+            break ev;
+        }
+        i += 1;
+        assert!(i < 5, "every row moved with no kick");
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    };
+    let topic = irori_identity::derive_board_topic(BOARD, 1, &secret).unwrap();
+    let ch = bob
+        .net
+        .board_channel_ids(BOARD, &topic, vec![pa.id], None)
+        .await
+        .unwrap();
+    let t = Instant::now();
+    while !alice.has(&from_bob) {
+        assert!(
+            t.elapsed() < FEW,
+            "an announcement did not pull bob's row within {FEW:?}"
+        );
+        ch.announce(bob.log.vector().unwrap()).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    drop(ch);
+
+    for d in [&alice, &bob] {
+        d.mesh().close();
+        d.net.close().await;
+    }
+    let _ = (&alice.dir, &bob.dir);
 }

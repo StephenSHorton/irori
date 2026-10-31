@@ -2,7 +2,7 @@
 //! (inbox.md).
 //!
 //! Messages, the per-recipient delivery state machine, the wake policy
-//! (holds, Full auto), the rate and hop limits, wake and append planning
+//! (the person's own holds), the rate and hop limits, wake and append planning
 //! (ride-along, MaxWakeTries), the sweeper and cross-device ownership. All
 //! state is folded from the event log at [`Inbox::new`]; every mutation
 //! appends a row first and then folds it, so live state and replayed state
@@ -166,7 +166,11 @@ pub const MAX_TEXT: usize = 8000;
 pub const MAX_WAKE_BYTES: usize = 16 << 10;
 pub const DIRECT_LIMIT: usize = 8;
 pub const DIRECT_WINDOW: Duration = Duration::from_secs(10 * 60);
-pub const MAX_HOP: i64 = 6;
+/// The runaway-loop guard: a message this many replies down one chain of
+/// agent messages is held (card #71 raised it from Go's 6, which held
+/// ordinary back-and-forth; the per-pair rate limit bounds a two-agent
+/// loop long before this).
+pub const MAX_HOP: i64 = 50;
 pub const UNENGAGED_LIMIT: Duration = Duration::from_secs(10 * 60);
 pub const GONE_GRACE: Duration = Duration::from_secs(3 * 60);
 pub const NO_CARD_GRACE: Duration = Duration::from_secs(10 * 60);
@@ -226,6 +230,8 @@ pub mod st {
 pub mod hold {
     pub const BLOCKED: &str = "blocked";
     pub const NOT_ALLOWED: &str = "not_allowed";
+    /// Retired (card #71): never set now; an old row held for it is
+    /// decided again when its host starts.
     pub const BYPASS_RECEIVER: &str = "bypass_receiver";
     pub const PAUSED: &str = "paused";
     pub const HOP_LIMIT: &str = "hop_limit";
@@ -238,6 +244,9 @@ pub mod hold {
     pub const CROSS_PERSON: &str = "cross_person";
     /// Another person's lease request (v0.5 §5.4).
     pub const MEMBER_LEASE: &str = "member_lease";
+    /// It came from a person removed from the board, or who left it,
+    /// before it reached the agent (v0.5 §4.3).
+    pub const MEMBER_REMOVED: &str = "member_removed";
 }
 
 /// Delivery modes.
@@ -266,7 +275,9 @@ pub mod path {
     pub const CHANNEL: &str = "channel";
 }
 
-/// Policy modes. `OPEN` is "Full auto" (decision 36).
+/// Policy modes. `OPEN` was "Full auto" (decision 36): `everyone` without
+/// the bypass_receiver hold. That hold is gone (card #71), so `OPEN` now
+/// behaves as `EVERYONE`; it is still read from old rows.
 pub mod policy_mode {
     pub const EVERYONE: &str = "everyone";
     pub const ALLOWLIST: &str = "allowlist";
@@ -563,7 +574,6 @@ pub struct Options {
     pub on_recipient_gone: Option<OnGoneFn>,
     /// Runs without the inbox lock held.
     pub on_passed: Option<OnPassedFn>,
-    pub revoked: Option<KeyPredicate>,
     /// Runs under the inbox lock: it must not call the inbox.
     pub stale: Option<StaleFn>,
     /// Test overrides; zero means the constant.

@@ -178,3 +178,40 @@ fn stop_after_self_close_signals_nothing() {
         }
     }
 }
+
+/// The Mac has a watcher (FSEvents), events come back under the root as
+/// given (the tempdir is under /var, which FSEvents reports as
+/// /private/var), and removing the root reports an Overflow.
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_fsevents_root_as_given_and_root_removed() {
+    let base = tempfile::tempdir().unwrap();
+    let dir = std::path::absolute(base.path()).unwrap().join("w");
+    std::fs::create_dir(&dir).unwrap();
+    let w = start(&p(&dir), true, &Cancel::new()).expect("FSEvents on macOS");
+    let f = p(&dir.join("x.txt"));
+    std::fs::write(&f, "x").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        match w.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(Some(e)) if e.path == f => break,
+            Ok(Some(e)) => assert!(e.path.starts_with(&p(&dir)), "{e:?}"),
+            Ok(None) => panic!("watcher closed"),
+            Err(_) => panic!("no event for {f}"),
+        }
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        match w.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(Some(e)) if e.overflow => {
+                assert_eq!(e.path, p(&dir));
+                break;
+            }
+            Ok(Some(_)) => {}
+            Ok(None) => panic!("watcher closed"),
+            Err(_) => panic!("no Overflow for the removed root"),
+        }
+    }
+    w.close();
+}
