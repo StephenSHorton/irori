@@ -32,7 +32,7 @@
 //! The private mesh (`irori/mesh/1`) never carries a board row.
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use base64::Engine as _;
@@ -330,8 +330,16 @@ struct Peer {
     /// The board epoch the peer's hello named (at least the room's: the
     /// board-open proof shows it holds that one). 0 until the hello.
     said_epoch: AtomicI64,
+    /// A removed person's device in its close grace ([`GRACE_NONE`],
+    /// [`GRACE_OPEN`], [`GRACE_DONE`]): the board does not settle while
+    /// one is open, so the removal reaches it on the older epoch first.
+    grace: AtomicU8,
     wake: Notify,
 }
+
+const GRACE_NONE: u8 = 0;
+const GRACE_OPEN: u8 = 1;
+const GRACE_DONE: u8 = 2;
 
 struct JoinedRoom {
     room: Arc<dyn Room>,
@@ -765,6 +773,12 @@ impl Shared {
                     p.conn.close(reason::REVOKED);
                     continue;
                 }
+                if p.grace
+                    .compare_exchange(GRACE_NONE, GRACE_OPEN, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_err()
+                {
+                    continue;
+                }
                 let me = self.clone();
                 match tokio::runtime::Handle::try_current() {
                     Ok(h) => {
@@ -777,9 +791,17 @@ impl Shared {
                             .await;
                             tokio::time::sleep(CLOSE_GRACE).await;
                             p.conn.close(reason::REVOKED);
+                            p.grace.store(GRACE_DONE, Ordering::SeqCst);
+                            // The grace held a settle back: try it now.
+                            if let Err(e) = me.refresh().await {
+                                me.logf(&format!("refresh: {e}"));
+                            }
                         });
                     }
-                    Err(_) => p.conn.close(reason::REVOKED),
+                    Err(_) => {
+                        p.grace.store(GRACE_DONE, Ordering::SeqCst);
+                        p.conn.close(reason::REVOKED)
+                    }
                 }
             }
         }
@@ -818,6 +840,15 @@ impl Shared {
             }
         };
         if !held.iter().any(|t| t.epoch < newest) {
+            return false;
+        }
+        // A removed person's device still pulling its removal keeps the
+        // older epoch until its grace ends (recheck_conns).
+        if self
+            .peer_list()
+            .iter()
+            .any(|p| p.grace.load(Ordering::SeqCst) == GRACE_OPEN)
+        {
             return false;
         }
         let said = self.said_epochs();
@@ -977,6 +1008,7 @@ impl Shared {
             epoch,
             hello: AtomicBool::new(false),
             said_epoch: AtomicI64::new(0),
+            grace: AtomicU8::new(GRACE_NONE),
             wake: Notify::new(),
         });
         if let Some(old) = self
