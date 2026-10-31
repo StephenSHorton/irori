@@ -251,8 +251,14 @@ pub async fn board_resolve_blocker(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn board_ask(w: W<'_>, text: String, repo_key: String, wake: bool) -> R<TaskResult> {
-    w.ask(&text, &repo_key, wake, &[])
+pub async fn board_ask(
+    w: W<'_>,
+    text: String,
+    repo_key: String,
+    wake: bool,
+    board_id: String,
+) -> R<TaskResult> {
+    w.ask(&text, &repo_key, wake, &[], &board_id)
 }
 
 #[tauri::command]
@@ -263,8 +269,12 @@ pub async fn board_ask_with_files(
     repo_key: String,
     wake: bool,
     files: Vec<UploadFile>,
+    board_id: String,
 ) -> R<TaskResult> {
-    blocking(&w, move |w| w.ask(&text, &repo_key, wake, &files)).await
+    blocking(&w, move |w| {
+        w.ask(&text, &repo_key, wake, &files, &board_id)
+    })
+    .await
 }
 
 #[tauri::command]

@@ -146,7 +146,7 @@ fn done_cards_page() {
 fn asks_and_repos() {
     let r = Rig::new();
     let res =
-        r.w.ask("Who can look at the tray?", "", false, &[])
+        r.w.ask("Who can look at the tray?", "", false, &[], "")
             .unwrap();
     assert!(res.task.ask.is_some());
     let cards = r.w.cards();
@@ -166,7 +166,23 @@ fn ask_with_a_file_lands_on_the_card() {
         name: "shot.png".into(),
         data: base64::engine::general_purpose::STANDARD.encode(png),
     };
-    let res = r.w.ask("See the picture", "", false, &[f]).unwrap();
+    // A board ask takes no files (its rows may name only attachments
+    // offered on the board), nor a board this device doesn't hold.
+    let e =
+        r.w.ask(
+            "See the picture",
+            "",
+            false,
+            std::slice::from_ref(&f),
+            "no-such-board",
+        )
+        .unwrap_err();
+    assert!(e.contains("files"), "{e}");
+    let e =
+        r.w.ask("Anyone?", "", false, &[], "no-such-board")
+            .unwrap_err();
+    assert!(e.contains("no such board"), "{e}");
+    let res = r.w.ask("See the picture", "", false, &[f], "").unwrap();
     let d = r.w.card(&res.task.id).unwrap();
     let files: Vec<_> = d
         .comments

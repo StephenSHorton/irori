@@ -729,11 +729,15 @@ export const cards = {
   // now. One of them takes it.
   // files (picked, dropped or pasted) go on the ask's card, and the agent
   // that takes it fetches them (card #25).
+  // boardId posts it to that shared board instead (v0.5 §9): every
+  // member's free agents hear it. A board ask names no repo and takes no
+  // files.
   async ask(
     text: string,
     repoKey = "",
     wake = false,
-    files: File[] = []
+    files: File[] = [],
+    boardId = ""
   ): Promise<TaskResult> {
     if (files.length > MaxUploadFiles)
       throw new Error(`at most ${MaxUploadFiles} files`)
@@ -743,12 +747,13 @@ export const cards = {
         `${big.name} is over ${MaxUpload >> 20} MiB; ask an agent to attach it from disk`
       )
     if (inWails()) {
-      if (!files.length) return BoardService.Ask(text, repoKey, wake)
+      if (!files.length) return BoardService.Ask(text, repoKey, wake, boardId)
       return BoardService.AskWithFiles(
         text,
         repoKey,
         wake,
-        await Promise.all(files.map(uploadOf))
+        await Promise.all(files.map(uploadOf)),
+        boardId
       )
     }
     return sampleAsk(text, repoKey, wake)

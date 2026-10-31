@@ -4,6 +4,7 @@ import { PaperclipIcon, XIcon } from "lucide-react"
 import { ChoiceSelect } from "@/components/common/choice-select"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { useBoards } from "@/lib/boards"
 import { cards, MaxComment, MaxUploadFiles, type AskRepo } from "@/lib/cards"
 import { useDraft } from "@/lib/drafts"
 import { errorText } from "@/lib/talk"
@@ -16,11 +17,19 @@ import { errorText } from "@/lib/talk"
 // an ask, and an idle agent gets no next turn until someone types in its
 // window. The repo chip keeps it to one repo's agents. Files go with it: pick them with the clip, drop them
 // on the box, or paste a screenshot (card #25). The window stays on the
-// grid.
+// grid. The board chip posts it to a shared board instead (v0.5 §9, card
+// #59): every member's free agents hear it, the other people's through
+// their own devices. A board's agents carry no repo, and a board ask takes
+// no files yet, so both chips step aside for it.
 export function AskBox({ onAsked }: { onAsked: (id: string) => void }) {
   const [text, setText] = useDraft("ask/room")
   const [repo, setRepo] = useState("")
   const [repos, setRepos] = useState<AskRepo[]>([])
+  const [board, setBoard] = useState("")
+  const { boards } = useBoards()
+  const shared = boards.filter((b) => b.ready && !b.leaving)
+  // A board that went away (forgotten, left) falls back to the private room.
+  const onBoard = shared.some((b) => b.boardId === board) ? board : ""
   const [busy, setBusy] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const picker = useRef<HTMLInputElement>(null)
@@ -48,11 +57,24 @@ export function AskBox({ onAsked }: { onAsked: (id: string) => void }) {
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     if (busy || !text.trim()) return
+    if (onBoard && files.length) {
+      setLine({
+        text: "Files don't go on a board ask yet: remove them, or ask on My board.",
+        error: true,
+      })
+      return
+    }
     setBusy(true)
     setLine(null)
     try {
-      const res = await cards.ask(text, repo, true, files)
-      const n = res.told.to?.length ?? 0
+      const res = onBoard
+        ? await cards.ask(text, "", true, [], onBoard)
+        : await cards.ask(text, repo, true, files)
+      // On a board the other people's agents are told by their own
+      // devices: count every agent the ask's round names.
+      const n = onBoard
+        ? (res.task.ask?.told ?? 0)
+        : (res.told.to?.length ?? 0)
       setLine({
         text:
           n === 0
@@ -112,7 +134,24 @@ export function AskBox({ onAsked }: { onAsked: (id: string) => void }) {
           readOnly={busy}
           aria-busy={busy}
         />
-        {repos.length > 0 && (
+        {shared.length > 0 && (
+          <ChoiceSelect
+            label="Which board it goes on"
+            size="sm"
+            value={onBoard}
+            onValueChange={(v) => {
+              setBoard(v)
+              setLine(null)
+            }}
+            disabled={busy}
+            className="w-auto shrink-0"
+            choices={[
+              { value: "", label: "My board" },
+              ...shared.map((b) => ({ value: b.boardId, label: b.name || b.tag })),
+            ]}
+          />
+        )}
+        {!onBoard && repos.length > 0 && (
           <ChoiceSelect
             label="Which agents hear it"
             size="sm"
@@ -143,7 +182,7 @@ export function AskBox({ onAsked }: { onAsked: (id: string) => void }) {
           className="shrink-0"
           title="Add files (or drop them here, or paste a screenshot)"
           aria-label="Add files"
-          disabled={busy || files.length >= MaxUploadFiles}
+          disabled={busy || !!onBoard || files.length >= MaxUploadFiles}
           onClick={() => picker.current?.click()}
         >
           <PaperclipIcon />

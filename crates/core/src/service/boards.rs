@@ -27,7 +27,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use coord::roster::{AgentCard, Agents};
-use coord::{Change, Coord, ErrorKind as CK};
+use coord::{Change, Coord, ErrorKind as CK, Notice};
 use gocompat::sub::Queue;
 use irori_identity::keystore::Keystore;
 use irori_identity::membership::{BoardPerson, Conflict};
@@ -551,6 +551,13 @@ impl Agents for BoardRoster {
         let (Some(s), Some(b)) = (self.s.upgrade(), self.b.upgrade()) else {
             return Vec::new();
         };
+        roster_of(&s, &b)
+    }
+}
+
+/// [`BoardRoster`]'s agents for board `b`.
+fn roster_of(s: &Services, b: &BoardLog) -> Vec<AgentCard> {
+    {
         let live: HashMap<String, AgentCard> = s
             .roster
             .agents()
@@ -1629,15 +1636,79 @@ impl Services {
         })
     }
 
-    /// Board coords' sweep notices, routed like the private board's (Go
-    /// `sweepBoards`).
+    /// The agents a board ask on `b` is told to (§9): the board's agent
+    /// cards, less this device's own sessions under Pause all (as the
+    /// private room's ask_agents).
+    fn board_ask_agents(&self, b: &BoardLog) -> Vec<AgentCard> {
+        let all = roster_of(self, b);
+        if !self.inbox.policy().paused {
+            return all;
+        }
+        let me = self.device.id.as_str();
+        let m = lock(&b.maps);
+        all.into_iter()
+            .filter(|a| {
+                let id = a.key.trim_start_matches(AGENT_ACTOR_PREFIX);
+                m.by_id
+                    .get(id)
+                    .is_none_or(|agent| irori_identity::owner::device_of(agent) != me)
+            })
+            .collect()
+    }
+
+    /// An ask notice's recipients this person's devices host, by their
+    /// private keys: the other people's agents hear the ask through their
+    /// own devices' bridge (§7.1), from the board.ask.state row.
+    fn own_ask_notice(&self, b: &BoardLog, mut n: Notice) -> Notice {
+        let m = lock(&b.maps);
+        n.to.retain(|k| {
+            k.strip_prefix(AGENT_ACTOR_PREFIX)
+                .is_some_and(|id| m.by_id.contains_key(id))
+        });
+        drop(m);
+        self.private_notice(n)
+    }
+
+    /// The person asks board `board_id`'s room (§9): the ask's card in the
+    /// board log, owned by this device, told to the free agents of every
+    /// member. This person's agents hear it from the returned notice (by
+    /// private keys), which the caller routes as it chose; the others'
+    /// from their own devices' bridge. A board's agent cards carry no repo, so a board ask names
+    /// none.
+    pub(crate) fn board_ask(
+        &self,
+        board_id: &str,
+        input: coord::NewAsk,
+    ) -> Result<(coord::Task, Notice)> {
+        if !input.repo_key.trim().is_empty() {
+            return Err(Error::coord(
+                CK::Invalid,
+                "a board ask goes to every member's free agents; leave the repo out",
+            ));
+        }
+        let b = self.board(board_id)?;
+        let agents = self.board_ask_agents(&b);
+        let (t, n) = b
+            .coord()
+            .post_ask(&self.person_actor(), input, &agents)
+            .map_err(Error::Coord)?;
+        Ok((self.private_task(t), self.own_ask_notice(&b, n)))
+    }
+
+    /// Board coords' sweep notices and asks' timed rounds, routed like the
+    /// private board's (Go `sweepBoards`).
     pub(crate) fn sweep_boards(&self) -> std::result::Result<(), String> {
         let mut errs = Vec::new();
         for b in self.boards.list() {
-            let (ns, err) = b.coord().sweep_notices_partial();
+            let (mut ns, err) = b.coord().sweep_notices_partial();
             if let Err(e) = err {
                 errs.push(e.to_string());
             }
+            let (asks, aerr) = b.coord().sweep_asks_partial(&self.board_ask_agents(&b));
+            if let Err(e) = aerr {
+                errs.push(e.to_string());
+            }
+            ns.extend(asks.into_iter().map(|n| self.own_ask_notice(&b, n)));
             for n in ns {
                 let from = if n.person {
                     self.user_sender()
@@ -1667,6 +1738,14 @@ impl super::Core {
     /// the short tag its card refs carry (`mlg#12`); returns its id.
     pub fn create_board(&self, name: &str, tag: &str) -> Result<String> {
         self.s.create_board(name, tag)
+    }
+
+    /// The person asks board `board_id`'s room (§9): every member's free
+    /// agents hear it, this person's from the returned notice (by private
+    /// keys; route it with [`Core::route_notices`]), the others' through
+    /// their devices' bridge.
+    pub fn board_ask(&self, board_id: &str, input: coord::NewAsk) -> Result<(coord::Task, Notice)> {
+        self.s.board_ask(board_id, input)
     }
 
     /// Renames a board (owners).

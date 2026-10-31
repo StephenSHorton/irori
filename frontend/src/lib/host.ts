@@ -118,9 +118,10 @@ export const BoardService = {
     call(commands.boardAnswer(taskId, blockerId, option, text, wake)),
   ResolveBlocker: (taskId: string, blockerId: string, note: string) =>
     call(commands.boardResolveBlocker(taskId, blockerId, note)),
-  Ask: (text: string, repoKey: string, wake: boolean) => call(commands.boardAsk(text, repoKey, wake)),
-  AskWithFiles: (text: string, repoKey: string, wake: boolean, files: B.UploadFile[]) =>
-    call(commands.boardAskWithFiles(text, repoKey, wake, files)),
+  Ask: (text: string, repoKey: string, wake: boolean, boardId: string) =>
+    call(commands.boardAsk(text, repoKey, wake, boardId)),
+  AskWithFiles: (text: string, repoKey: string, wake: boolean, files: B.UploadFile[], boardId: string) =>
+    call(commands.boardAskWithFiles(text, repoKey, wake, files, boardId)),
   AskAgain: (id: string) => done(commands.boardAskAgain(id)),
   AskRepos: () => call(commands.boardAskRepos()),
   CloseAsk: (id: string, note: string) => call(commands.boardCloseAsk(id, note)),

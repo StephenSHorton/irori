@@ -20,8 +20,13 @@ pub(crate) fn ask_claim(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Ok(id) => id,
         Err(m) => return m,
     };
-    let co = s.b.coord();
-    let r = co.ask_claim(&c.sender.key, &id, coord::ASK_WAIT);
+    // A board's ask (§9) is claimed in its board's log, as the caller's
+    // card there; the asking device decides the take.
+    let (co, as_) = match s.on(&id, std::slice::from_ref(&c.sender.key)) {
+        Ok(v) => v,
+        Err(e) => return map_err(e),
+    };
+    let r = co.ask_claim(&as_[0], &id, coord::ASK_WAIT);
     let n = s.roster();
     let r = match r {
         Ok(r) => r,
@@ -118,7 +123,11 @@ pub(crate) fn ask_close(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         }
     }
     let target = o.task.clone();
-    let t = match s.b.coord().ask_close(&c.sender.key, &id, o) {
+    let (co, as_) = match s.on(&id, std::slice::from_ref(&c.sender.key)) {
+        Ok(v) => v,
+        Err(e) => return map_err(e),
+    };
+    let t = match co.ask_close(&as_[0], &id, o) {
         Ok(t) => t,
         Err(e) => return map_err(e),
     };

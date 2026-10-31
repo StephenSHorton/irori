@@ -990,7 +990,127 @@ fn bobs_agent_card_status_follows_his_session() {
     close(alice.drain(..).chain(bob.drain(..)));
 }
 
-/// §9: a board ask reaches Bob's agent.
+/// §9: Alice asks the board's room; Bob's free agent hears it through his
+/// device's bridge, woken, and takes it with ask_claim, decided on Alice's
+/// device.
 #[test]
-#[ignore = "board asks need the #59 bridge"]
-fn a_board_ask_reaches_bob() {}
+fn a_board_ask_reaches_bob() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    let aco = a1.core.board_coord(&board).unwrap();
+    // Bob's agent gets a card on the board by watching one (§2.4), so
+    // Alice's board knows it as a free agent.
+    let t = aco
+        .create_task(&a1.person_actor(), new_task("shared work"))
+        .unwrap();
+    a1.core.kick_board(&board);
+    wait_for(WAIT, "bob gets the card", || {
+        card_on(b1, &board, &t.id).is_some()
+    });
+    let out = b1.tool("board_watch", serde_json::json!({"task_id": "mlg#1"}));
+    assert!(!out.starts_with("Error"), "board_watch: {out}");
+    let card = b1.core.board_key(&board, &b1.agent).unwrap();
+    b1.core.kick_board(&board);
+    wait_for(WAIT, "alice's board has bob's agent idle", || {
+        b1.core.kick_board(&board);
+        a1.core
+            .board_roster(&board)
+            .iter()
+            .any(|a| a.key == card && a.status == "idle")
+    });
+
+    // A board's agents carry no repo: a board ask names none.
+    let e = a1
+        .core
+        .board_ask(
+            &board,
+            coord::NewAsk {
+                text: "Who can look at the flaky sync test?".into(),
+                repo_key: "remote:github.com/example-org/example-app".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+    assert!(e.to_string().contains("repo"), "{e}");
+    let (ask, n) = a1
+        .core
+        .board_ask(
+            &board,
+            coord::NewAsk {
+                text: "Who can look at the flaky sync test?".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(ask.short_ref().starts_with("mlg#"), "{}", ask.short_ref());
+    assert!(
+        ask.ask.as_ref().unwrap().heard.contains(&card),
+        "{:?}",
+        ask.ask
+    );
+    // Bob's agent is told through his own device, not Alice's notice.
+    assert!(!n.to.contains(&card), "{:?}", n.to);
+    a1.core.kick_board(&board);
+    let short = ask.short_ref();
+    wait_for(WAIT, "bob's agent hears the ask, woken", || {
+        b1.core.inbox().list(0).iter().any(|d| {
+            d.to == b1.agent
+                && d.mode == inbox::mode::WAKE
+                && d.message.from.key.starts_with("board:")
+                && d.message.text.contains("asks the room")
+                && d.message.text.contains(&format!("ask_claim {short}"))
+        })
+    });
+    // A kick doesn't tell it twice.
+    a1.core.kick_board(&board);
+    b1.core.kick_board(&board);
+    std::thread::sleep(Duration::from_millis(500));
+    let heard = b1
+        .core
+        .inbox()
+        .list(0)
+        .iter()
+        .filter(|d| d.to == b1.agent && d.message.text.contains("asks the room"))
+        .count();
+    assert_eq!(heard, 1);
+
+    // Bob's agent takes it: its claim crosses to Alice's device, which
+    // writes the take, and the take comes back.
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    std::thread::scope(|sc| {
+        sc.spawn(|| {
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                a1.core.kick_board(&board);
+                b1.core.kick_board(&board);
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        });
+        // Stops the kicker even when an assert below fails.
+        struct Stop<'a>(&'a std::sync::atomic::AtomicBool);
+        impl Drop for Stop<'_> {
+            fn drop(&mut self) {
+                self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        let _stop = Stop(&stop);
+        let out = b1.tool("ask_claim", serde_json::json!({"task_id": short}));
+        let took = || {
+            card_on(a1, &board, &ask.id)
+                .and_then(|t| t.ask)
+                .is_some_and(|a| a.taker == card)
+        };
+        let ok = out.starts_with("You have") || out.starts_with("Requested");
+        if ok {
+            wait_for(WAIT, "alice's device gives bob's agent the take", took);
+            wait_for(WAIT, "bob's board shows the take", || {
+                card_on(b1, &board, &ask.id)
+                    .and_then(|t| t.ask)
+                    .is_some_and(|a| a.taker == card)
+            });
+        }
+        assert!(ok, "ask_claim: {out}");
+    });
+    close(alice.drain(..).chain(bob.drain(..)));
+}
