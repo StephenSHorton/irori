@@ -56,8 +56,12 @@ use crate::timers::{self, Kick, Ticker};
 use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 
 pub mod boards;
+mod boards_members;
 mod boards_own;
+pub mod boards_status;
 mod bridge;
+mod mirror;
+pub use mirror::BoardReviewer;
 pub mod invites;
 
 use boards::Boards;
@@ -318,6 +322,26 @@ impl tools::TaskRouter for ToolsView {
     }
     fn task_ref(&self, r: &str) -> Result<String, coord::Error> {
         self.0.task_ref(r)
+    }
+    fn mirror_acquire(
+        &self,
+        key: &str,
+        resource: &str,
+        ttl: std::time::Duration,
+        steal: bool,
+    ) -> Result<Vec<String>, coord::Error> {
+        self.0.mirror_acquire(key, resource, ttl, steal)
+    }
+    fn mirror_release(&self, key: &str, resource: &str) {
+        self.0.mirror_release(key, resource)
+    }
+    fn request_release(
+        &self,
+        by: &str,
+        resource: &str,
+        why: &str,
+    ) -> Result<(String, coord::Comment, Notice), coord::Error> {
+        self.0.request_release(by, resource, why)
     }
 }
 
@@ -682,7 +706,6 @@ impl Core {
                 Arc::new(move |k: &str| c.get().map(|c| c.pr_owners(k)).unwrap_or_default())
             }),
             is_owner: Some(is_owner.clone()),
-            revoked: Some(revoked.clone()),
             on_recipient_gone: Some({
                 let c = coord_cell.clone();
                 Arc::new(move |m: &inbox::Message, to: &str| match c.get() {
@@ -869,12 +892,24 @@ impl Core {
         let (pairing, mesh) = pairing;
         let _ = node_cell.set(mesh.node.clone());
 
+        let invites = invites::Invites::default();
         let home = (!opts.no_home).then(|| {
             let mut hc = home::Config::new(dir.clone(), ident.clone(), chain.clone(), st.clone());
             let node = mesh.node.clone();
             let pr = pairing.pairer.clone();
-            // Go core.go:290: another device, or an open pairing window.
-            hc.wanted = Some(Arc::new(move || pr.status().open() || node.has_peer()));
+            // Go core.go:290: another device, or an open pairing window;
+            // stage 2 (B1): or a shared board with another person on it,
+            // whose members this server relays for.
+            // And while this device is the inviter of an open board invite,
+            // so the link can name its relay.
+            let (held, hosting) = (board_set.clone(), invites.hosting.clone());
+            hc.wanted = Some(Arc::new(move || {
+                pr.status().open()
+                    || node.has_peer()
+                    || held.shared_with_others()
+                    || hosting.load(std::sync::atomic::Ordering::SeqCst)
+            }));
+            hc.board_admit = Some(mesh.net.board_members().relay_admit());
             let m = mesh.clone();
             hc.on_relay = Some(Arc::new(move |up| m.set_local_relay(up)));
             hc.guests = Some(pairing.guests.clone());
@@ -890,6 +925,7 @@ impl Core {
         });
         if let Some(h) = &home {
             let _ = home_cell.set(h.clone());
+            mesh.set_home(h.clone());
         }
 
         let token = lockfile::new_token().map_err(|e| fail(&st, other("", e)))?;
@@ -929,7 +965,7 @@ impl Core {
             revoke: Some(opts.revoke.clone().unwrap_or_else(|| mesh.revoke_fn())),
             mesh,
             boards: board_set,
-            invites: Default::default(),
+            invites,
         });
         let _ = s.boards.kicker.set({
             let m = Arc::downgrade(&s.mesh);
@@ -1244,6 +1280,20 @@ impl Core {
                     } else if let Err(e) = s.capture.follow_decision(&ev) {
                         logf(format_args!("decisions: {e}"));
                     }
+                }
+            });
+        }
+
+        // This device's agents' cards on shared boards follow their
+        // sessions' status (v0.5 §2.4); only the hosting device writes it.
+        {
+            let sub = Arc::new(s.presence.subscribe());
+            let reg = self.on_stop(&sub, |s| s.cancel());
+            let s = s.clone();
+            self.spawn("board-card-status", move || {
+                let _reg = reg;
+                while sub.recv().is_some() {
+                    s.sync_card_status();
                 }
             });
         }
@@ -1865,9 +1915,7 @@ impl Core {
     /// revoke, a rotation): connections it no longer admits close, and a
     /// newer secret goes to the members still on the older epoch.
     pub fn recheck_board(&self, board_id: &str) {
-        if let Some(m) = self.s.mesh.board(board_id) {
-            m.recheck();
-        }
+        self.s.recheck_board_mesh(board_id);
     }
 
     /// The mesh with its address book (crate::meshview).
@@ -2100,7 +2148,7 @@ impl Services {
             .collect()
     }
 
-    fn sweep_coord(&self) -> Result<(), String> {
+    fn sweep_coord(self: &Arc<Self>) -> Result<(), String> {
         let (ns, err) = self.coord.sweep_notices_partial();
         let (asks, aerr) = self.coord.sweep_asks_partial(&self.ask_agents());
         for n in ns.iter().chain(asks.iter()) {
@@ -2118,6 +2166,7 @@ impl Services {
             .flatten()
             .map(|e| e.to_string())
             .collect();
+        self.sweep_leaving();
         if let Err(e) = self.sweep_boards() {
             errs.push(e);
         }

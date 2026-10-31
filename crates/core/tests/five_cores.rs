@@ -450,17 +450,33 @@ fn a_review_request_reaches_bobs_agent() {
     wait_for(WAIT, "alice knows bob's agent's card", || {
         card_on(a1, &board, &t.id).is_some_and(|x| x.watchers.contains(&card))
     });
-    // Alice's agent asks: reviews are agents' work (§10).
+    // Bob dedicates his agent as his reviewer in the app (§10).
+    b1.core.set_board_reviewer(&board, &b1.agent, "").unwrap();
+    let rv = b1.core.board_reviewers(&board);
+    assert_eq!(rv.len(), 1, "{rv:?}");
+    assert_eq!(
+        (rv[0].repo.as_str(), rv[0].agent.as_str()),
+        ("", b1.agent.as_str())
+    );
+    b1.core.kick_board(&board);
+    wait_for(WAIT, "alice's board knows bob's reviewer", || {
+        aco.reviewer(&b1.core.person().id, "") == card
+    });
+    // Alice's agent asks without naming anyone: the row names Bob's
+    // dedicated reviewer, so the bridge can deliver it.
     let out = a1.tool("board_join", serde_json::json!({"task_id": "mlg#1"}));
     assert!(!out.starts_with("Error"), "board_join: {out}");
-    let a_card = a1.core.board_key(&board, &a1.agent).unwrap();
-    aco.request_review(
-        &a_card,
-        &t.id,
-        "https://github.com/example-org/example-app/pull/7",
-        &card,
-    )
-    .unwrap();
+    let out = a1.tool(
+        "board_review",
+        serde_json::json!({"task_id": "mlg#1", "pr": "https://github.com/example-org/example-app/pull/7"}),
+    );
+    assert!(out.starts_with("Asked"), "board_review: {out}");
+    assert!(out.contains("Visible to"), "board_review: {out}");
+    assert!(
+        aco.reviews(&t.id).iter().all(|r| r.to == card),
+        "{:?}",
+        aco.reviews(&t.id)
+    );
     a1.core.kick_board(&board);
     wait_for(WAIT, "bob's agent gets the review request", || {
         b1.core
@@ -469,6 +485,13 @@ fn a_review_request_reaches_bobs_agent() {
             .iter()
             .any(|d| d.message.from.key.starts_with("board:") && d.message.text.contains("review"))
     });
+    // Alice's own agent is never asked to approve.
+    let a_card = a1.core.board_key(&board, &a1.agent).unwrap();
+    let out = a1.tool(
+        "board_review",
+        serde_json::json!({"task_id": "mlg#1", "pr": "https://github.com/example-org/example-app/pull/7", "to": a_card}),
+    );
+    assert!(out.starts_with("Error"), "own agent asked: {out}");
     close(alice.drain(..).chain(bob.drain(..)));
 }
 
@@ -605,24 +628,369 @@ fn five_cores_every_device_gets_the_board() {
     close(alice.drain(..).chain(bob.drain(..)));
 }
 
-/// §4.4: Bob leaves; Alice's board shows him gone and refuses his new rows.
+/// §4.4: Bob leaves. Alice's board shows him gone and cuts his device;
+/// Bob's board shows "Leaving…" until Alice's device says it holds the
+/// `left` row, then Bob forgets it.
 #[test]
-#[ignore = "leaving a board with other people on it is not built (boards_own.rs leave_board refuses it)"]
 fn bob_leaves_and_alice_refuses_his_new_rows() {
     let mut alice = person("alice", 1);
     let mut bob = person("bob", 1);
     let (a1, b1) = (&alice[0], &bob[0]);
     let board = invited(a1, b1);
-    b1.core.leave_board(&board).unwrap();
     let av = a1.core.board_verifier(&board).unwrap();
-    let bob_pid = b1.core.person().id.clone();
+    let (bob_pid, b1_dev) = (b1.core.person().id.clone(), b1.core.device_id().to_string());
+    wait_for(WAIT, "alice's board has bob", || {
+        av.membership().active(&bob_pid)
+    });
+    b1.core.leave_board(&board).unwrap();
+    assert!(
+        b1.core
+            .board_list()
+            .iter()
+            .any(|s| s.board_id == board && s.leaving),
+        "bob's board isn't Leaving…"
+    );
     wait_for(WAIT, "alice's board shows bob gone", || {
         !av.membership().active(&bob_pid)
+    });
+    assert_eq!(
+        av.membership().person(&bob_pid).map(|p| p.state.as_str()),
+        Some("left")
+    );
+    assert!(av.cut(&b1_dev).is_some(), "alice doesn't cut bob's device");
+    wait_for(
+        WAIT,
+        "bob forgets the board once alice holds his leave",
+        || !b1.core.boards().contains(&board),
+    );
+    assert!(a1.core.boards().contains(&board), "alice lost the board");
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §4.4 Forget now: Bob leaves and forgets at once, without waiting.
+#[test]
+fn bob_leaves_and_forgets_now() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    let av = a1.core.board_verifier(&board).unwrap();
+    let bob_pid = b1.core.person().id.clone();
+    wait_for(WAIT, "alice's board has bob", || {
+        av.membership().active(&bob_pid)
+    });
+    // The board's only owner can't leave it to the others.
+    assert!(a1.core.leave_board(&board).is_err());
+    b1.core.leave_board(&board).unwrap();
+    b1.core.forget_left_board(&board).unwrap();
+    assert!(!b1.core.boards().contains(&board));
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §4.3: Alice removes Bob while his agent holds a card. Alice's board
+/// takes the agent off and cuts Bob's device, the board secret moves on,
+/// Bob's connection closes, and a card Bob writes after never reaches
+/// Alice.
+#[test]
+fn alice_removes_bob_and_his_agent_comes_off() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    let (bob_pid, b1_dev) = (b1.core.person().id.clone(), b1.core.device_id().to_string());
+    let av = a1.core.board_verifier(&board).unwrap();
+    wait_for(WAIT, "alice's board has bob", || {
+        av.membership().active(&bob_pid)
+    });
+    let t = a1
+        .core
+        .board_coord(&board)
+        .unwrap()
+        .create_task(&a1.person_actor(), new_task("shared work"))
+        .unwrap();
+    a1.core.kick_board(&board);
+    wait_for(WAIT, "bob gets the card", || {
+        card_on(b1, &board, &t.id).is_some()
+    });
+    b1.tool("board_join", serde_json::json!({"task_id": t.id}));
+    b1.core.kick_board(&board);
+    wait_for(WAIT, "alice sees bob's agent on the card", || {
+        card_on(a1, &board, &t.id).is_some_and(|c| !c.holders.is_empty())
+    });
+    let e0 = a1.core.board_info(&board).unwrap().secret_epoch;
+
+    // Only an owner removes, and nobody removes themselves.
+    assert!(
+        b1.core
+            .remove_member(&board, &a1.core.person().id, "")
+            .is_err()
+    );
+    assert!(
+        a1.core
+            .remove_member(&board, &a1.core.person().id, "")
+            .is_err()
+    );
+    a1.core.remove_member(&board, &bob_pid, "").unwrap();
+    assert_eq!(
+        av.membership().person(&bob_pid).map(|p| p.state.as_str()),
+        Some("removed")
+    );
+    assert!(av.cut(&b1_dev).is_some());
+    let c = card_on(a1, &board, &t.id).unwrap();
+    assert!(
+        c.holders.is_empty() && c.state == "submitted",
+        "bob's agent is still on the card: {:?} {}",
+        c.holders,
+        c.state
+    );
+    wait_for(WAIT, "the board secret moves on", || {
+        a1.core.board_info(&board).unwrap().secret_epoch > e0
+    });
+    wait_for(WAIT, "bob's board connection to alice closes", || {
+        a1.core
+            .net()
+            .board_conns(&board)
+            .iter()
+            .all(|c| c.peer != b1_dev)
+    });
+    wait_for(WAIT, "bob's copy shows the removal", || {
+        b1.core
+            .board_verifier(&board)
+            .is_some_and(|v| !v.membership().active(&bob_pid))
+    });
+    let line = b1
+        .core
+        .board_list()
+        .into_iter()
+        .find(|s| s.board_id == board)
+        .map(|s| s.warnings)
+        .unwrap_or_default();
+    assert!(
+        line.first()
+            .is_some_and(|l| l.starts_with("You're no longer on this board")),
+        "bob's board line: {line:?}"
+    );
+    assert!(
+        a1.core
+            .board_list()
+            .iter()
+            .find(|s| s.board_id == board)
+            .is_some_and(|s| s.warnings.is_empty()),
+        "alice's board warns"
+    );
+    if let Ok(co) = b1.core.board_coord(&board)
+        && let Ok(late) = co.create_task(&b1.person_actor(), new_task("after removal"))
+    {
+        b1.core.kick_board(&board);
+        std::thread::sleep(Duration::from_secs(3));
+        assert!(
+            card_on(a1, &board, &late.id).is_none(),
+            "a card bob wrote after his removal reached alice"
+        );
+    }
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §4.2: Alice makes Bob an owner, who then renames the board and can
+/// change roles; the last owner can't stop being one.
+#[test]
+fn alice_makes_bob_an_owner() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    let (alice_pid, bob_pid) = (a1.core.person().id.clone(), b1.core.person().id.clone());
+    wait_for(WAIT, "alice's board has bob", || {
+        a1.core
+            .board_verifier(&board)
+            .is_some_and(|v| v.membership().active(&bob_pid))
+    });
+    assert!(
+        a1.core
+            .set_member_role(&board, &alice_pid, "member")
+            .is_err()
+    );
+    assert!(b1.core.set_member_role(&board, &bob_pid, "owner").is_err());
+    assert!(a1.core.set_member_role(&board, &bob_pid, "admin").is_err());
+    a1.core.set_member_role(&board, &bob_pid, "owner").unwrap();
+    a1.core.kick_board(&board);
+    let bv = b1.core.board_verifier(&board).unwrap();
+    wait_for(WAIT, "bob is an owner on his copy", || {
+        bv.membership().owner(&bob_pid)
+    });
+    b1.core.rename_board(&board, "MLG & Bob").unwrap();
+    b1.core.kick_board(&board);
+    wait_for(WAIT, "alice sees bob's rename", || {
+        a1.core.board_info(&board).unwrap().name == "MLG & Bob"
+    });
+    // Two owners: Alice may step down now, and then may not change roles.
+    a1.core
+        .set_member_role(&board, &alice_pid, "member")
+        .unwrap();
+    assert!(a1.core.set_member_role(&board, &bob_pid, "member").is_err());
+    assert!(a1.core.board_info(&board).unwrap().conflicts.is_empty());
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §5.4, §7.3: Bob's agent's lease in the shared card's repo is mirrored
+/// to the board; Alice's agent can't take or steal it and asks for it with
+/// a release request, which reaches Bob's agent through the bridge. Under
+/// Alice's Autonomous preset her agent's lease in that repo mirrors before
+/// it works the card.
+#[test]
+fn a_mirrored_lease_refuses_alice_and_her_release_request_reaches_bob() {
+    const REPO: &str = "remote:github.com/example-org/example-app";
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    let aco = a1.core.board_coord(&board).unwrap();
+    let t = aco
+        .create_task(
+            &a1.person_actor(),
+            coord::NewTask {
+                title: "loader rewrite".into(),
+                repo_key: REPO.into(),
+                shared: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    a1.core.kick_board(&board);
+    wait_for(WAIT, "bob gets the card", || {
+        card_on(b1, &board, &t.id).is_some()
+    });
+
+    // Autonomous: Alice's agent holds no shared card yet, but its lease in
+    // the shared card's repo mirrors all the same.
+    a1.core
+        .inbox()
+        .set_autonomy(
+            inbox::AutonomySetting {
+                board_id: board.clone(),
+                preset: inbox::autonomy::AUTONOMOUS.into(),
+            },
+            &a1.user(),
+        )
+        .unwrap();
+    let docs = format!("path:{REPO}:docs/**");
+    let out = a1.tool("lease", serde_json::json!({"resource": docs}));
+    assert!(out.contains("Mirrored on mlg"), "autonomous lease: {out}");
+    let out = a1.tool("release", serde_json::json!({"resource": docs}));
+    assert!(out.starts_with("Released"), "release: {out}");
+    assert!(
+        !aco.leases().iter().any(|l| l.resource == docs),
+        "the mirror outlived the release"
+    );
+
+    let out = b1.tool("board_join", serde_json::json!({"task_id": "mlg#1"}));
+    assert!(!out.starts_with("Error"), "board_join: {out}");
+    let src = format!("path:{REPO}:src/**");
+    let out = b1.tool("lease", serde_json::json!({"resource": src}));
+    assert!(out.contains("Mirrored on mlg"), "bob's lease: {out}");
+    b1.core.kick_board(&board);
+    wait_for(WAIT, "alice's board shows bob's agent's lease", || {
+        aco.leases().iter().any(|l| l.resource == src)
+    });
+
+    let out = a1.tool("board_join", serde_json::json!({"task_id": "mlg#1"}));
+    assert!(!out.starts_with("Error"), "board_join: {out}");
+    for steal in [false, true] {
+        let out = a1.tool(
+            "lease",
+            serde_json::json!({"resource": format!("path:{REPO}:src/loader/**"), "steal": steal}),
+        );
+        assert!(
+            out.contains("another person's") && out.contains("release request"),
+            "steal={steal}: {out}"
+        );
+    }
+    assert!(
+        !a1.core
+            .coord()
+            .leases()
+            .iter()
+            .any(|l| l.resource.contains("src/loader")),
+        "a refused board lease left a private one"
+    );
+
+    let out = a1.tool(
+        "release",
+        serde_json::json!({"resource": src, "reason": "the loader fix is mine"}),
+    );
+    assert!(out.contains("Asked its holder"), "release request: {out}");
+    assert!(out.contains("Visible to"), "release request: {out}");
+    a1.core.kick_board(&board);
+    wait_for(WAIT, "bob's agent hears the release request", || {
+        b1.core.inbox().list(0).iter().any(|d| {
+            d.to == b1.agent
+                && d.message.from.key.starts_with("board:")
+                && d.message.text.contains(coord::RELEASE_REQUEST)
+                && d.message.text.contains("the loader fix is mine")
+        })
     });
     close(alice.drain(..).chain(bob.drain(..)));
 }
 
-/// §5.4, §9: a release request and a board ask reach Bob's agent.
+/// §2.4: an agent's card on the board follows its session: idle, active
+/// while busy, gone once it ends, as the other person's board reads it.
 #[test]
-#[ignore = "release requests need a mirrored lease across people, and board asks need the #59 bridge: both land with card #59"]
-fn a_release_request_and_a_board_ask_reach_bob() {}
+fn bobs_agent_card_status_follows_his_session() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    let t = a1
+        .core
+        .board_coord(&board)
+        .unwrap()
+        .create_task(&a1.person_actor(), new_task("status"))
+        .unwrap();
+    a1.core.kick_board(&board);
+    wait_for(WAIT, "bob gets the card", || {
+        card_on(b1, &board, &t.id).is_some()
+    });
+    let out = b1.tool("board_watch", serde_json::json!({"task_id": "mlg#1"}));
+    assert!(!out.starts_with("Error"), "board_watch: {out}");
+    let card = b1.core.board_key(&board, &b1.agent).unwrap();
+    let id = card
+        .trim_start_matches(kinds::AGENT_ACTOR_PREFIX)
+        .to_string();
+    let status_on_alice = || {
+        let st = a1.core.board_store(&board)?;
+        let rows = st
+            .list(&Filter {
+                kinds: vec![kinds::AGENT_CARD.into()],
+                ..Default::default()
+            })
+            .ok()?;
+        rows.iter()
+            .rev()
+            .filter_map(|ev| serde_json::from_slice::<serde_json::Value>(&ev.payload).ok())
+            .find(|v| v["cardId"] == id.as_str())
+            .map(|v| v["status"].as_str().unwrap_or_default().to_string())
+    };
+    let wait_status = |want: &str| {
+        b1.core.kick_board(&board);
+        wait_for(WAIT, &format!("alice reads bob's agent as {want}"), || {
+            b1.core.kick_board(&board);
+            status_on_alice().as_deref() == Some(want)
+        });
+    };
+    wait_status("idle");
+
+    let file = b1._dirs[1].path().join("sessions").join("900001.json");
+    let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    v["status"] = "busy".into();
+    std::fs::write(&file, serde_json::to_vec(&v).unwrap()).unwrap();
+    wait_status("active");
+
+    std::fs::remove_file(&file).unwrap();
+    wait_status("gone");
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §9: a board ask reaches Bob's agent.
+#[test]
+#[ignore = "board asks need the #59 bridge"]
+fn a_board_ask_reaches_bob() {}

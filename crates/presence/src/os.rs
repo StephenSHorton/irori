@@ -1,9 +1,8 @@
 //! Process liveness and exit waits (Go `live_*.go`, `exit_*.go` and the
 //! parts of `internal/proc` they use; capture.md §4, mesh.md §4).
 //!
-//! Windows is built in. macOS reads liveness through `proc_pidinfo` and
-//! has no exit wait yet (the safety rescan covers exits), and is not yet
-//! run on a Mac. Other Unix: pid only, as Go.
+//! Windows is built in. macOS goes through `sys::proc`: sysctl liveness
+//! and start time, and a kqueue exit wait. Other Unix: pid only, as Go.
 
 use crate::{ExitFn, LiveFn};
 use std::sync::Arc;
@@ -26,7 +25,11 @@ pub fn default_watch_exit() -> Option<ExitFn> {
     {
         Some(Arc::new(win::watch_exit))
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        Some(Arc::new(mac::watch_exit))
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         None
     }
@@ -203,44 +206,45 @@ mod win {
 
 #[cfg(target_os = "macos")]
 mod mac {
-    /// p_stat / pbi_status of an exited, unreaped process.
-    const SZOMB: u32 = 5;
+    use std::time::UNIX_EPOCH;
 
-    fn bsdinfo(pid: i64) -> Option<libc::proc_bsdinfo> {
-        if pid <= 0 || pid > i64::from(i32::MAX) {
-            return None;
-        }
-        // SAFETY: proc_pidinfo fills at most the size we pass.
-        unsafe {
-            let mut info: libc::proc_bsdinfo = std::mem::zeroed();
-            let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
-            let n = libc::proc_pidinfo(
-                pid as libc::c_int,
-                libc::PROC_PIDTBSDINFO,
-                0,
-                (&mut info as *mut libc::proc_bsdinfo).cast(),
-                size,
-            );
-            (n == size && info.pbi_pid as i64 == pid).then_some(info)
-        }
-    }
+    use sys::cancel::Cancel;
 
-    /// Go `proc.Alive` on macOS: kill(pid, 0), and a zombie counts as gone.
+    /// Go `proc.Alive` on macOS: a zombie counts as gone.
     pub(super) fn alive(pid: i64) -> bool {
-        if pid <= 0 || pid > i64::from(i32::MAX) {
-            return false;
-        }
-        // SAFETY: kill with signal 0 only checks the pid.
-        let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
-        if rc != 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::EPERM) {
-            return false;
-        }
-        !bsdinfo(pid).is_some_and(|i| i.pbi_status == SZOMB)
+        sys::proc::alive(pid)
     }
 
     /// The process start in Unix seconds (Go truncates to the second).
     pub(super) fn start_secs(pid: i64) -> Option<u64> {
-        let i = bsdinfo(pid)?;
-        (i.pbi_start_tvsec != 0 || i.pbi_start_tvusec != 0).then_some(i.pbi_start_tvsec)
+        let st = sys::proc::start_time(pid)?;
+        Some(st.duration_since(UNIX_EPOCH).ok()?.as_secs())
+    }
+
+    /// Go `watchExit` (exit_darwin.go): a kqueue NOTE_EXIT wait on a
+    /// thread, which calls on_exit when the process ends. None when it is
+    /// already gone; the safety rescan covers that, and a wait the kernel
+    /// refuses.
+    pub(super) fn watch_exit(
+        pid: i64,
+        on_exit: Box<dyn Fn() + Send + Sync>,
+    ) -> Option<Box<dyn FnOnce() + Send>> {
+        if !sys::proc::alive(pid) {
+            return None;
+        }
+        let cancel = Cancel::new();
+        let c2 = cancel.clone();
+        let t = std::thread::Builder::new()
+            .name("presence-exit".into())
+            .spawn(move || {
+                if sys::proc::wait_exit(&c2, pid, None).is_ok() && !c2.is_canceled() {
+                    on_exit();
+                }
+            })
+            .ok()?;
+        Some(Box::new(move || {
+            cancel.cancel();
+            let _ = t.join();
+        }))
     }
 }

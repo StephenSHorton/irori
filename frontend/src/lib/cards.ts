@@ -142,7 +142,7 @@ export function openAsk(c: { ask?: CardAsk | null }): boolean {
 }
 
 // askLine is an open ask's line in place of the holder line: how many
-// heard it, who it waits on, or who took it.
+// it told, who it waits on, or who took it.
 export function askLine(a: CardAsk): string {
   switch (a.state) {
     case AskState.Taken:
@@ -161,7 +161,7 @@ export function askLine(a: CardAsk): string {
       return `Closed: ${plainLine(a.outcome?.note ?? "")}`
   }
   if (a.told === 0) return "Nobody was free to hear it"
-  return `${a.told} ${a.told === 1 ? "agent" : "agents"} heard it`
+  return `Told ${a.told} ${a.told === 1 ? "agent" : "agents"}; nobody took it yet`
 }
 
 // ---- sample mode ------------------------------------------------------------

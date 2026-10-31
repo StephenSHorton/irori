@@ -223,6 +223,12 @@ fn start(o: &Opts, name: &str) -> Result<Run, String> {
     empty_dir(&o.home)?;
     empty_dir(&o.claude)?;
     write_session(&o.claude, name)?;
+    open(o, name)
+}
+
+/// Starts the Core on --home (fresh or from an earlier open) and waits for
+/// the made-up agent.
+fn open(o: &Opts, name: &str) -> Result<Run, String> {
     let core = Core::start(Options {
         data_dir: o.home.clone(),
         claude_dir: o.claude.clone(),
@@ -272,13 +278,9 @@ fn host(o: &Opts) -> Result<ExitCode, String> {
         Ok(()) => r.pass("home server on", ""),
         Err(e) => r.fail("home server on", &e),
     }
-    // The link names the relay the endpoint is on when it is made: wait
-    // until that is the home server's.
+    // The server is wanted while an invite is open: the invite starts it
+    // and names its relay in the link (checked below).
     let rt = r.core.pairing_runtime().clone();
-    r.wait("A's endpoint is on its home relay", |r| {
-        rt.block_on(r.core.net().invite_addr())
-            .is_ok_and(|a| a.relay.is_some())
-    });
     r.board = r
         .core
         .create_board("Live run", TAG)
@@ -472,7 +474,17 @@ fn host(o: &Opts) -> Result<ExitCode, String> {
                 .any(|p| p.person_id != me && m.active(&p.person_id))
         })
     };
-    r.wait("B has left the board", theirs);
+    // B leaves after its own waits for the ask and the review: give it
+    // those too, so a step that times out on B's side doesn't fail this one.
+    r.wait *= 3;
+    if !r.wait("B has left the board", theirs)
+        && let Some(v) = r.core.board_verifier(&r.board)
+    {
+        let m = v.membership();
+        for p in &m.members {
+            println!("boards-live: member {} is {}", p.person_id, p.state);
+        }
+    }
     Ok(r.done())
 }
 
@@ -574,8 +586,9 @@ fn guest(o: &Opts) -> Result<ExitCode, String> {
         Ok(()) => r.pass("B leaves the board", ""),
         Err(e) => r.fail("B leaves the board", &e.to_string()),
     }
-    // Give the leave a moment to reach A before the Core stops.
-    std::thread::sleep(Duration::from_secs(5));
+    // Stay up while the leave reaches A: B's devices hold the row until
+    // another member has it (§4.4).
+    std::thread::sleep(Duration::from_secs(30));
     Ok(r.done())
 }
 

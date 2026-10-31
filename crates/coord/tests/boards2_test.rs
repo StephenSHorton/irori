@@ -603,13 +603,16 @@ fn a_review_request_reaches_the_other_persons_reviewer() {
     sync(&a, &b);
     assert_eq!(a.c.reviewer("p2", REPO_A), CARD2);
     assert_eq!(a.c.reviewer("p2", REPO_B), "", "another repo has none");
+    // Without to, the row names the dedicated reviewer (never to:"",
+    // which the bridge can't deliver).
     let (r, n) = a.c.request_review(CARD1, &t.id, PR, "").unwrap();
-    assert_eq!((r.from.as_str(), r.to.as_str()), (CARD1, ""));
+    assert_eq!(r.len(), 1);
+    assert_eq!((r[0].from.as_str(), r[0].to.as_str()), (CARD1, CARD2));
     assert_eq!(n.kind, NOTICE_REVIEW);
     assert_eq!(n.to, vec![CARD2.to_string()]);
     assert!(n.text.contains(PR), "{}", n.text);
     sync(&a, &b);
-    assert_eq!(b.c.reviews(&t.id), vec![r]);
+    assert_eq!(b.c.reviews(&t.id), r);
     // Forged: p2's device asking as p1's agent, p1's device dedicating
     // p2's agent.
     let at = plus(fixed_now(), mins(5));

@@ -26,13 +26,15 @@ import {
   type InviteStatus,
 } from "@/lib/boards"
 import { copyText } from "@/lib/clipboard"
-import { plainLine } from "@/lib/irori"
+import { plainLine, shortRepo } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
 // BoardsDialog is Settings → Boards (design/v0.5-shared-boards.md §8): each
-// board with its name, tag and one status dot; Rename, Invite (owners),
-// Leave (every one of your devices) and Forget (this device only); New
+// board with its name, tag and one status dot (amber with its warning lines
+// when something is wrong: §6.3-6.5); Rename, Invite (owners),
+// Leave (every one of your devices; "Leaving…" with Forget now while
+// other people are on it, §4.4) and Forget (this device only); New
 // board; and Join with an invite. An open invite takes the dialog over
 // until it ends (§4.1, B4).
 export function BoardsDialog({
@@ -118,9 +120,14 @@ function BoardRow({
   return (
     <li className="grid grid-cols-[8px_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-1 text-[13px]">
       <span
-        className={cn("size-2 rounded-full", b.ready ? "bg-success" : "bg-warning")}
+        className={cn(
+          "size-2 rounded-full",
+          b.ready && !b.warnings?.length ? "bg-success" : "bg-warning"
+        )}
         aria-hidden
-        title={b.ready ? "Ready" : "Its cards are still arriving from your other device"}
+        title={
+          b.warnings?.[0] ?? (b.ready ? "Ready" : "Its cards are still arriving from your other device")
+        }
       />
       {renaming ? (
         <form className="flex min-w-0 gap-1.5" onSubmit={rename}>
@@ -141,13 +148,22 @@ function BoardRow({
           <span className="text-ink">{plainLine(b.name) || "(unnamed)"}</span>{" "}
           <span className="font-mono text-xs text-muted-foreground">{plainLine(b.tag)}#</span>{" "}
           <small className="text-xs text-muted-foreground">
-            {b.ready ? `${cards} · ${devices}` : "arriving from your other device"}
+            {b.leaving
+              ? "Leaving…"
+              : b.ready
+                ? `${cards} · ${devices}`
+                : "arriving from your other device"}
           </small>
           {b.tagClash && (
             <small className="block text-xs text-destructive">
               Another board is also {plainLine(b.tag)}#: its refs need the card's id.
             </small>
           )}
+          {b.warnings?.map((w, i) => (
+            <small key={i} className="block text-xs text-warning">
+              {plainLine(w)}
+            </small>
+          ))}
         </span>
       )}
       <span className="flex items-center gap-1.5">
@@ -180,27 +196,55 @@ function BoardRow({
             </>
           )
         )}
-        <ConfirmButton
-          label="Leave"
-          variant="destructive"
-          confirmLabel="Leave the board"
-          question={
-            <>
-              Leave <b>{plainLine(b.name)}</b>? It goes from every one of your
-              devices, with its cards. Coming back needs a new board.
-            </>
-          }
-          onConfirm={async () => {
-            await actions.leave(b.boardId)
-            await onChanged()
-          }}
-        />
+        {b.leaving ? (
+          <ConfirmButton
+            label="Forget now"
+            variant="destructive"
+            confirmLabel="Forget it now"
+            question={
+              <>
+                Forget <b>{plainLine(b.name)}</b> on every one of your devices
+                now? The others may not hear that you left until one of their
+                devices next reaches yours, which may be never.
+              </>
+            }
+            onConfirm={async () => {
+              await actions.forgetNow(b.boardId)
+              await onChanged()
+            }}
+          />
+        ) : (
+          <ConfirmButton
+            label="Leave"
+            variant="destructive"
+            confirmLabel="Leave the board"
+            question={
+              b.people.length > 1 ? (
+                <>
+                  Leave <b>{plainLine(b.name)}</b>? It goes from every one of
+                  your devices once another member's Irori has your leave, and
+                  nothing you write there counts after it. Coming back needs a
+                  new invite.
+                </>
+              ) : (
+                <>
+                  Leave <b>{plainLine(b.name)}</b>? It goes from every one of
+                  your devices, with its cards. Coming back needs a new board.
+                </>
+              )
+            }
+            onConfirm={async () => {
+              await actions.leave(b.boardId)
+              await onChanged()
+            }}
+          />
+        )}
       </span>
       <span className="col-start-2 col-end-4 flex items-center gap-2 text-xs text-muted-foreground">
         <span className="min-w-0 flex-1">
           Visible to: {b.people.map(plainLine).join(", ")}
         </span>
-        {b.ready && (
+        {b.ready && !b.leaving && (
           <Button
             variant="ghost"
             size="sm"
@@ -225,7 +269,7 @@ function BoardRow({
           }}
         />
       </span>
-      {showSettings && <BoardSettingsPanel boardId={b.boardId} />}
+      {showSettings && <BoardSettingsPanel boardId={b.boardId} onChanged={onChanged} />}
       {error && <span className="col-start-2 col-end-4 text-xs text-destructive">{error}</span>}
     </li>
   )
@@ -478,10 +522,110 @@ function ReadInviteWords({ s, peer }: { s: InviteStatus; peer: string }) {
   )
 }
 
+// Reviewers is the board's peer-review setting (design §10): which of your
+// agents the others' review requests go to when they name nobody, for the
+// whole board or one repo. The review itself is that agent's, under your
+// GitHub account; Irori only routes the request.
+function Reviewers({
+  s,
+  save,
+}: {
+  s: BoardSettings
+  save: (f: () => Promise<BoardSettings>) => Promise<void>
+}) {
+  const [agent, setAgent] = useState("")
+  const [repo, setRepo] = useState("")
+  const repos = [...new Set(s.agents.map((a) => a.repo).filter(Boolean))]
+  return (
+    <section className="grid gap-1" aria-label="My reviewer">
+      <span className="font-semibold text-ink">My reviewer</span>
+      <p className="text-muted-foreground">
+        Review requests from other people that name nobody go to this agent. It reviews under your
+        GitHub account.
+      </p>
+      {s.reviewers.length > 0 ? (
+        <ul className="grid gap-0.5" aria-label="Your reviewers">
+          {s.reviewers.map((r) => (
+            <li key={r.repo || "*"} className="flex items-center gap-1.5">
+              <span className="text-ink">{plainLine(r.name) || r.agent}</span>
+              <span className="text-muted-foreground">
+                {r.repo ? `for ${shortRepo(r.repo)}` : "for the whole board"}
+              </span>
+              <Button
+                size="xs"
+                variant="ghost"
+                className="ml-auto"
+                onClick={() => void save(() => actions.setReviewer(s.boardId, "", r.repo))}
+              >
+                Remove
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-muted-foreground">None yet.</p>
+      )}
+      {s.agents.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <select
+            className="h-7 rounded-md border border-border bg-transparent px-1.5"
+            aria-label="Agent to review"
+            value={agent}
+            onChange={(e) => setAgent(e.target.value)}
+          >
+            <option value="">Pick an agent…</option>
+            {s.agents.map((a) => (
+              <option key={a.agent} value={a.agent}>
+                {plainLine(a.name)}
+                {a.repo ? ` (${shortRepo(a.repo)})` : ""}
+              </option>
+            ))}
+          </select>
+          <select
+            className="h-7 rounded-md border border-border bg-transparent px-1.5"
+            aria-label="For which repo"
+            value={repo}
+            onChange={(e) => setRepo(e.target.value)}
+          >
+            <option value="">the whole board</option>
+            {repos.map((r) => (
+              <option key={r} value={r}>
+                {shortRepo(r)}
+              </option>
+            ))}
+          </select>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!agent}
+            onClick={() =>
+              void save(async () => {
+                const next = await actions.setReviewer(s.boardId, agent, repo)
+                setAgent("")
+                return next
+              })
+            }
+          >
+            Set reviewer
+          </Button>
+        </div>
+      ) : (
+        <p className="text-muted-foreground">No agent of yours is running to pick.</p>
+      )}
+    </section>
+  )
+}
+
 // BoardSettingsPanel is a board opened (§8): its members, what reaches your
 // agents from other people on it (§7.2), and what your agents may do there
 // (§7.3). Only the person changes these, here.
-function BoardSettingsPanel({ boardId }: { boardId: string }) {
+function BoardSettingsPanel({
+  boardId,
+  onChanged,
+}: {
+  boardId: string
+  onChanged: () => Promise<void>
+}) {
   const [s, setS] = useState<BoardSettings | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
@@ -508,6 +652,7 @@ function BoardSettingsPanel({ boardId }: { boardId: string }) {
     ) : null
   }
   const others = s.members.filter((m) => !m.me)
+  const amOwner = s.members.some((m) => m.me && m.owner)
   const receiveHint = ReceivePresets.find((p) => p.value === s.receive)?.hint
   const autonomyHint = AutonomyPresets.find((p) => p.value === s.autonomy)?.hint
   return (
@@ -516,18 +661,65 @@ function BoardSettingsPanel({ boardId }: { boardId: string }) {
         <span className="font-semibold text-ink">Members</span>
         <ul className="grid gap-0.5">
           {s.members.map((m) => (
-            <li key={m.personId} className="flex items-center gap-1.5">
-              <span className="text-ink">{plainLine(m.name) || "someone"}</span>
-              {m.me && <span className="text-muted-foreground">(you)</span>}
-              {m.owner && (
-                <span className="rounded bg-muted px-1 text-[11px] text-muted-foreground">owner</span>
-              )}
-              <span className="ml-auto text-muted-foreground">
-                {m.devices === 1 ? "1 device" : `${m.devices} devices`}
+            <li key={m.personId} className="grid gap-0.5">
+              <span className="flex items-center gap-1.5">
+                <span className="text-ink">{plainLine(m.name) || "someone"}</span>
+                {m.me && <span className="text-muted-foreground">(you)</span>}
+                {m.owner && (
+                  <span className="rounded bg-muted px-1 text-[11px] text-muted-foreground">owner</span>
+                )}
+                <span className="ml-auto text-muted-foreground">
+                  {m.devices === 1 ? "1 device" : `${m.devices} devices`}
+                </span>
+              </span>
+              <span className="flex items-center gap-1.5 text-muted-foreground">
+                <span className="font-mono" title="Their person fingerprint">
+                  {plainLine(m.fingerprint)}
+                </span>
+                {amOwner && (
+                  <span className="ml-auto flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        void save(() =>
+                          actions.setRole(boardId, m.personId, m.owner ? "member" : "owner")
+                        )
+                      }
+                    >
+                      {m.owner ? "Make a member" : "Make an owner"}
+                    </Button>
+                    {!m.me && (
+                      <ConfirmButton
+                        label="Remove"
+                        variant="destructive"
+                        confirmLabel={`Remove ${plainLine(m.name) || "them"}`}
+                        question={
+                          <>
+                            {plainLine(m.name) ? `${plainLine(m.name)} keeps` : "They keep"}{" "}
+                            everything already on their devices. Removing them stops them syncing and writing
+                            anything this board accepts.
+                          </>
+                        }
+                        onConfirm={async () => {
+                          await save(() => actions.removeMember(boardId, m.personId))
+                          await onChanged()
+                        }}
+                      />
+                    )}
+                  </span>
+                )}
               </span>
             </li>
           ))}
         </ul>
+        {s.conflicts.length > 0 && (
+          <ul className="grid gap-0.5 text-warning" aria-label="Membership changes that didn't take">
+            {s.conflicts.map((c, i) => (
+              <li key={i}>{plainLine(c)}</li>
+            ))}
+          </ul>
+        )}
       </section>
       <section className="grid gap-1" aria-label="What reaches my agents">
         <span className="font-semibold text-ink">What reaches my agents</span>
@@ -599,6 +791,7 @@ function BoardSettingsPanel({ boardId }: { boardId: string }) {
         </div>
         <p className="text-muted-foreground">{autonomyHint}</p>
       </section>
+      <Reviewers s={s} save={save} />
       {error && <p className="text-destructive">{error}</p>}
     </div>
   )

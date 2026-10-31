@@ -191,6 +191,7 @@ pub fn hold_reason(h: &str) -> String {
         hold::MEMBER_WAKE => "another person asked to wake your agent, and your receive setting for that board asks you first",
         hold::CROSS_PERSON => "it comes from another person on a shared board, and your receive setting for that board asks you first",
         hold::MEMBER_LEASE => "another person asks your agent to give up a lease",
+        hold::MEMBER_REMOVED => "it comes from a person who is no longer on that board",
         other => other,
     }
     .to_string()

@@ -589,3 +589,36 @@ fn close_and_delete_on_a_shared_board() {
         "it went to the private log"
     );
 }
+
+/// Card #66 s4: the Boards dialog dedicates one of the person's agents as
+/// their reviewer on a board, for the whole board or one repo, and takes
+/// it off again (design §10).
+#[test]
+fn boards_set_reviewer() {
+    let r = Rig::new();
+    let b = r.w.core.create_board("Reviews", "rev").unwrap();
+    let s = r.w.boards_settings(&b).unwrap();
+    assert!(s.reviewers.is_empty());
+    assert!(
+        s.agents.iter().any(|a| a.agent == r.key_a),
+        "the person's agents to pick from: {:?}",
+        s.agents
+    );
+    let s = r.w.boards_set_reviewer(&b, &r.key_a, "").unwrap();
+    assert_eq!(s.reviewers.len(), 1);
+    assert_eq!(
+        (s.reviewers[0].agent.as_str(), s.reviewers[0].repo.as_str()),
+        (r.key_a.as_str(), "")
+    );
+    let s =
+        r.w.boards_set_reviewer(&b, &r.key_b, "remote:github.com/example-org/example-app")
+            .unwrap();
+    assert_eq!(s.reviewers.len(), 2);
+    let s = r.w.boards_set_reviewer(&b, "", "").unwrap();
+    assert_eq!(s.reviewers.len(), 1);
+    assert_eq!(s.reviewers[0].agent, r.key_b);
+    assert!(
+        r.w.boards_set_reviewer("no-such-board", &r.key_a, "")
+            .is_err()
+    );
+}

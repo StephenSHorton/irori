@@ -7,17 +7,15 @@
 //! [`BoardMembers`] is the Core's [`BoardAdmit`] over its open boards'
 //! verifiers. `set_board_servers` (B1 relays) is the gossip-relay half's.
 
-use std::collections::BTreeMap;
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use iroh::EndpointId;
 use iroh::endpoint::Connection;
 use irori_identity::BoardVerifier;
 use irori_meshseam::{
     BoardGossip, BoardRoom, BoardTransport, BoardVector, BoxFut, ConnError, KickFn, MAX_LABEL,
-    Room, RoomConfig, SYNC_LABEL, TransportError, UNSUPPORTED, VectorFn, read_frame, reason,
-    write_frame,
+    Room, RoomConfig, SYNC_LABEL, TransportError, VectorFn, read_frame, reason, write_frame,
 };
 use serde::{Deserialize, Serialize};
 
@@ -123,9 +121,44 @@ pub struct BoardRelays {
 
 impl IrohNet {
     /// Replaces the relays fed from `board.server` rows of every board this
-    /// device holds (dialled in parallel, first handshake per server kept).
-    pub async fn set_board_servers(&self, _boards: Vec<BoardRelays>) -> Result<(), TransportError> {
-        Err(TransportError(UNSUPPORTED.into()))
+    /// device holds (B1). Each server's TLS key is pinned (the relay's TLS
+    /// is on its device key, D3); the relay is not added to the endpoint's
+    /// relay map, so another person's server never becomes this device's
+    /// home relay. iroh opens a relay connection on demand when a member
+    /// device's address names it (`set_board_peers` with `relay` set), and
+    /// the server's relay admits this device as a member of a board it holds
+    /// (`home::Config.board_admit`). Pins no board and no home relay names
+    /// any more are dropped.
+    pub async fn set_board_servers(&self, boards: Vec<BoardRelays>) -> Result<(), TransportError> {
+        let inner = self.inner();
+        let keys: Vec<[u8; 32]> = boards
+            .iter()
+            .flat_map(|b| b.servers.iter().map(|s| *s.server_pub.as_bytes()))
+            .collect();
+        for k in &keys {
+            inner.pins.add(*k);
+        }
+        let old = std::mem::replace(
+            &mut *inner.board_relays.lock().expect("board relays"),
+            boards,
+        );
+        let mesh = inner.relays.lock().expect("relays").clone();
+        for o in old.iter().flat_map(|b| b.servers.iter()) {
+            let k = o.server_pub.as_bytes();
+            if !keys.contains(k) && !mesh.iter().any(|m| m.server_pub == o.server_pub) {
+                inner.pins.remove(k);
+            }
+        }
+        Ok(())
+    }
+
+    /// The `board.server` relays as last fed, for status lines and tests.
+    pub fn board_servers(&self) -> Vec<BoardRelays> {
+        self.inner()
+            .board_relays
+            .lock()
+            .expect("board relays")
+            .clone()
     }
 
     /// Closes every connection of board `board_id` (removal, leave, forget)
@@ -432,10 +465,14 @@ impl Inner {
 
 /// The Core's [`BoardAdmit`]: every open board's verifier, by board id.
 /// Interior-mutable, so boards opened after the endpoint bound count at its
-/// gate (which holds this from bind on).
+/// gate (which holds this from bind on). It is the one registry
+/// (boards2-transport.md §9): it keeps its boards in a
+/// [`HeldBoards`](crate::boardadmit::HeldBoards), so the endpoint gate, the
+/// home relay ([`BoardMembers::relay_admit`]) and a board's gossip topic
+/// ([`BoardMembers::gossip_accept`]) all read the same boards.
 #[derive(Default)]
 pub struct BoardMembers {
-    boards: Mutex<BTreeMap<String, Arc<BoardVerifier>>>,
+    held: crate::boardadmit::HeldBoards,
 }
 
 impl fmt::Debug for BoardMembers {
@@ -453,53 +490,44 @@ impl BoardMembers {
 
     /// Counts board `board_id`'s members from now on.
     pub fn add(&self, board_id: &str, verifier: Arc<BoardVerifier>) {
-        self.boards
-            .lock()
-            .expect("boards")
-            .insert(board_id.to_string(), verifier);
+        self.held.hold(board_id, verifier);
     }
 
     /// Stops counting board `board_id` (left, removed, forgotten).
     pub fn remove(&self, board_id: &str) {
-        self.boards.lock().expect("boards").remove(board_id);
+        self.held.release(board_id);
     }
 
     /// The boards counted.
     pub fn ids(&self) -> Vec<String> {
-        self.boards
-            .lock()
-            .expect("boards")
-            .keys()
-            .cloned()
-            .collect()
+        self.held.ids()
     }
 
-    fn verifier(&self, board_id: &str) -> Option<Arc<BoardVerifier>> {
-        self.boards.lock().expect("boards").get(board_id).cloned()
+    /// The registry itself.
+    pub fn held(&self) -> &crate::boardadmit::HeldBoards {
+        &self.held
+    }
+
+    /// B1: the home relay's widening (`home::Config.board_admit`): a
+    /// counted, uncut member device of any board held here.
+    pub fn relay_admit(&self) -> Arc<dyn Fn(&EndpointId) -> bool + Send + Sync> {
+        self.held.relay_admit()
+    }
+
+    /// A board's gossip topic's neighbour check: a member device of that
+    /// board.
+    pub fn gossip_accept(&self, board_id: &str) -> Arc<dyn Fn(&EndpointId) -> bool + Send + Sync> {
+        self.held.gossip_accept(board_id)
     }
 }
 
 impl BoardAdmit for BoardMembers {
     fn board_device(&self, board_id: &str, id: &EndpointId) -> Option<String> {
-        self.verifier(board_id)?
-            .admitted_by_pub(&hex::encode(id.as_bytes()))
-            .map(|c| c.device_id)
+        self.held.board_device(board_id, id)
     }
 
     fn boards_of(&self, id: &EndpointId) -> Vec<String> {
-        let want = hex::encode(id.as_bytes());
-        let boards: Vec<(String, Arc<BoardVerifier>)> = self
-            .boards
-            .lock()
-            .expect("boards")
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-        boards
-            .into_iter()
-            .filter(|(_, v)| v.admitted_by_pub(&want).is_some())
-            .map(|(k, _)| k)
-            .collect()
+        self.held.boards_of(id)
     }
 }
 
