@@ -1294,3 +1294,32 @@ fn board_create_and_the_bridge_on_the_core() {
     );
     r.core.close().unwrap();
 }
+
+/// v0.5 §2.3: a row naming a card the board doesn't hold yet waits in the
+/// fold's set-aside, and the Core's board coord counts it for
+/// `GET /v1/boards?detail=1`; the board still lists with its summary.
+#[test]
+fn a_row_naming_no_card_on_the_board_is_counted_as_unresolved() {
+    let r = Rig::new();
+    let c = &r.core;
+    let id = c.create_board("mlg", "mlg").unwrap();
+    let co = c.board_coord(&id).unwrap();
+    assert_eq!(co.set_aside(), coord::SetAside::default());
+    let ev = store::Event {
+        device_id: "dev-elsewhere".into(),
+        seq: 1,
+        actor: format!("{AGENT_ACTOR_PREFIX}dev-elsewhere/s1"),
+        kind: kinds::TASK_CLAIMED.into(),
+        payload: br#"{"taskId":"no-such-card"}"#.to_vec(),
+        ..Default::default()
+    };
+    co.fold_live(std::slice::from_ref(&ev));
+    let aside = co.set_aside();
+    assert_eq!((aside.unresolved, aside.dropped), (1, 0), "{aside:?}");
+    let rows = c.board_list();
+    assert!(
+        rows.len() == 1 && rows[0].board_id == id && rows[0].ready && rows[0].owner,
+        "{rows:?}"
+    );
+    r.core.close().unwrap();
+}
