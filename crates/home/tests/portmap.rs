@@ -86,7 +86,16 @@ impl FakePmp {
         let s2 = st.clone();
         std::thread::spawn(move || {
             let mut buf = [0u8; 64];
-            while let Ok((n, from)) = sock.recv_from(&mut buf) {
+            loop {
+                let (n, from) = match sock.recv_from(&mut buf) {
+                    Ok(x) => x,
+                    // Windows reports an ICMP port unreachable for an earlier
+                    // reply (to a client socket that gave up and closed) as a
+                    // read error; Go's net turns that off (SIO_UDP_CONNRESET),
+                    // so a loaded run would otherwise kill the gateway here.
+                    Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => continue,
+                    Err(_) => return,
+                };
                 let mut s = s2.lock().unwrap();
                 s.reqs += 1;
                 if s.silent || n < 2 {
@@ -122,7 +131,7 @@ impl FakePmp {
 
     fn gateway(&self) -> NatPmp {
         let mut g = NatPmp::new(self.addr);
-        g.first_wait = Duration::from_millis(10);
+        g.first_wait = Duration::from_millis(20); // Go: natpmpFirstWait 20 ms
         g
     }
 
