@@ -32,6 +32,20 @@ pub(crate) fn coalesce(
     root: String,
     in_lost: Arc<AtomicBool>,
 ) {
+    coalesce_observed(rx, out, debounce, root, in_lost, |_| {});
+}
+
+/// `coalesce` that reports each timed flush to `flushed` (true when it lost
+/// an event to a full `out`), so a test can wait for the flush it sets up
+/// instead of sleeping and hoping the thread got there first.
+fn coalesce_observed(
+    rx: Receiver<Event>,
+    out: SyncSender<Event>,
+    debounce: Duration,
+    root: String,
+    in_lost: Arc<AtomicBool>,
+    mut flushed: impl FnMut(bool),
+) {
     let overflow = Event {
         path: root,
         overflow: true,
@@ -79,7 +93,11 @@ pub(crate) fn coalesce(
             }
             Err(RecvTimeoutError::Timeout) => {
                 if timer.is_some_and(|t| Instant::now() >= t) {
+                    let was_lost = lost;
+                    lost = false;
                     flush(&mut pending, &mut lost);
+                    flushed(lost);
+                    lost |= was_lost;
                     timer = None;
                 }
             }
@@ -97,7 +115,7 @@ pub(crate) fn coalesce(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::mpsc::{Receiver, sync_channel};
+    use std::sync::mpsc::sync_channel;
 
     fn ev(p: &str) -> Event {
         Event {
@@ -106,31 +124,45 @@ mod tests {
         }
     }
 
-    /// Go `drain`: reads until quiet for 300 ms.
-    fn drain(out: &Receiver<Event>) -> (Vec<String>, bool) {
-        let mut paths = vec![];
-        let mut overflow = false;
-        while let Ok(e) = out.recv_timeout(Duration::from_millis(300)) {
-            if e.overflow {
-                overflow = true;
-            } else {
-                paths.push(e.path);
-            }
-        }
-        (paths, overflow)
-    }
-
     fn lost_case(run: impl FnOnce(&SyncSender<Event>, &AtomicBool)) {
         let (tx, rx) = sync_channel(8);
         let (otx, orx) = sync_channel(2);
+        let (ftx, frx) = std::sync::mpsc::channel();
         let lost = Arc::new(AtomicBool::new(false));
         run(&tx, &lost);
         let l2 = lost.clone();
         let t = std::thread::spawn(move || {
-            coalesce(rx, otx, Duration::from_millis(1), r"C:\r".into(), l2)
+            coalesce_observed(
+                rx,
+                otx,
+                Duration::from_millis(1),
+                r"C:
+"
+                .into(),
+                l2,
+                |l| {
+                    let _ = ftx.send(l);
+                },
+            )
         });
-        std::thread::sleep(Duration::from_millis(100)); // let the flush meet a full out
-        let (_, overflow) = drain(&orx);
+        // Read nothing until the flush has met the full out: a reader that
+        // started first (a thread slow to start on a loaded machine) makes
+        // room, nothing is lost and there is nothing to report.
+        let met_full = frx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("coalesce never flushed");
+        assert!(
+            met_full,
+            "the flush found room in out; the case is not set up"
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let overflow = loop {
+            match orx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok(e) if e.overflow => break true,
+                Ok(_) => {}
+                Err(_) => break false,
+            }
+        };
         assert!(overflow, "events were lost without an Overflow");
         drop(tx);
         t.join().unwrap();
@@ -160,19 +192,29 @@ mod tests {
     fn slow_reader_gets_overflow() {
         let (tx, rx) = sync_channel(0);
         let (otx, orx) = sync_channel(4);
+        let (ftx, frx) = std::sync::mpsc::channel();
         let t = std::thread::spawn(move || {
-            coalesce(
+            coalesce_observed(
                 rx,
                 otx,
                 Duration::from_millis(1),
                 "x".into(),
                 Arc::new(AtomicBool::new(false)),
+                |l| {
+                    let _ = ftx.send(l);
+                },
             )
         });
         for i in 0..8u8 {
             tx.send(ev(&format!("x/{}", char::from(b'a' + i)))).unwrap();
         }
-        std::thread::sleep(Duration::from_millis(50)); // the flush finds out full
+        // Read nothing until a flush has found out full: 8 events into room
+        // for 4 must lose one while nobody reads.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !frx
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .expect("no flush met a full out")
+        {}
         let deadline = Instant::now() + Duration::from_secs(3);
         let mut got = 0;
         loop {
