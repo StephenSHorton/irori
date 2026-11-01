@@ -33,6 +33,7 @@ export function SettingsMenu({ version }: { version?: string }) {
       id: "settings.open",
       title: "Settings",
       group: "Go to",
+      order: 4,
       keywords: ["preferences", "options", "open settings"],
       run: () => setOpen(true),
     },
@@ -40,7 +41,8 @@ export function SettingsMenu({ version }: { version?: string }) {
       id: `settings.${s.id}`,
       title: `Settings: ${s.label}`,
       group: "Go to",
-      keywords: ["settings", "preferences", s.hint],
+      quiet: true,
+      keywords: ["settings", "preferences"],
       run: () => show(s.id),
     })),
   ])

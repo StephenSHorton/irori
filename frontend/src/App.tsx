@@ -409,18 +409,20 @@ export function App() {
   )
   const onList = !open && section.kind !== "boards"
   useCommands([
-    { id: "nav.home", title: "Home", group: "Go to", keywords: ["my cards", "start"], run: () => goTo(Home) },
-    { id: "nav.boards", title: "Boards", group: "Go to", keywords: ["shared", "projects"], run: () => goTo({ kind: "boards" }) },
-    { id: "nav.held", title: "Held messages", group: "Go to", keywords: ["inbox", "waiting", "history"], run: () => openHeld("") },
+    { id: "nav.home", title: "Home", group: "Go to", order: 1, keywords: ["my cards", "start"], run: () => goTo(Home) },
+    { id: "nav.boards", title: "Boards", group: "Go to", order: 2, keywords: ["shared", "projects"], run: () => goTo({ kind: "boards" }) },
+    { id: "nav.held", title: "Held messages", group: "Go to", order: 3, keywords: ["inbox", "waiting", "history"], run: () => openHeld("") },
     {
       id: "card.new",
       title: section.kind === "board" && !open ? "New card on this board" : "New card",
+      order: 1,
       keywords: ["create", "add", "task"],
       run: () => setNewCard(true),
     },
     {
       id: "board.new",
       title: "New board",
+      order: 2,
       keywords: ["create", "add", "join", "invite"],
       run: () => {
         goTo({ kind: "boards" })

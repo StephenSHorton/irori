@@ -8,8 +8,8 @@
 export type Scored<T> = { item: T; score: number }
 
 // wordScore is how well one lower-cased query word matches one lower-cased
-// text, or 0 for no match.
-export function wordScore(word: string, text: string): number {
+// text, or 0 for no match. loose: letters in order count too.
+export function wordScore(word: string, text: string, loose = true): number {
   if (!word) return 1
   if (!text) return 0
   if (text === word) return 120
@@ -20,6 +20,7 @@ export function wordScore(word: string, text: string): number {
     if (/[\s\-_/#.:]/.test(text[at - 1])) return 80
     return 60
   }
+  if (!loose || word.length < 2) return 0
   // Letters in order, each preferring the start of a word.
   let i = 0
   let bonus = 0
@@ -41,8 +42,8 @@ export function queryParts(query: string): string[] {
 }
 
 // score is how well every word of query matches title, with others (ref,
-// keywords, names) as fallbacks at a lower weight, or 0 when one word
-// matches nothing.
+// keywords, names) as fallbacks at a lower weight and only as whole
+// substrings, or 0 when one word matches nothing.
 export function score(query: string, title: string, others: string[] = []): number {
   const words = queryParts(query)
   if (!words.length) return 1
@@ -51,7 +52,7 @@ export function score(query: string, title: string, others: string[] = []): numb
   let total = 0
   for (const w of words) {
     let best = wordScore(w, t)
-    for (const x of o) best = Math.max(best, wordScore(w, x) * 0.8)
+    for (const x of o) best = Math.max(best, wordScore(w, x, false) * 0.8)
     if (!best) return 0
     total += best
   }

@@ -18,6 +18,12 @@ export type Command = {
   // The keys that also run it, as shown: "/" or "Mod+K" (Mod is Cmd on a
   // Mac, Ctrl elsewhere). The palette only shows it; the feature listens.
   shortcut?: string
+  // Where it sits in its group when the query is empty (lower first;
+  // default 100).
+  order?: number
+  // quiet: listed only for a typed query, not in the empty palette (the
+  // Settings sections: "Settings" itself stands for them there).
+  quiet?: boolean
   // when says whether it applies right now; left out it always does.
   when?: () => boolean
   run: () => void

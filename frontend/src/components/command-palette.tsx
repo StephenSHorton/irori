@@ -42,6 +42,9 @@ export type Item = {
   hint?: string
   group: string
   shortcut?: string
+  // A command's order in the empty palette, and whether it waits for a query.
+  order?: number
+  quiet?: boolean
   run: () => void
 }
 
@@ -115,6 +118,8 @@ export function buildItems({
       title: c.title,
       group: c.group ?? "Commands",
       shortcut: c.shortcut,
+      order: c.order,
+      quiet: c.quiet,
       run: c.run,
       others: c.keywords ?? [],
     })
@@ -166,9 +171,9 @@ function groupIndex(g: string): number {
   return i < 0 ? groupOrder.indexOf("Commands") + 0.5 : i
 }
 
-// results is the rows a query shows, grouped. Empty: recents, then the "Go
-// to" commands and the rest of the commands. A card ref puts its card
-// first.
+// results is the rows a query shows, grouped: the group with the best match
+// first. Empty: recents, then the "Go to" commands and the rest of the
+// commands. A card ref puts its card first.
 export function results(
   items: (Item & { others: string[] })[],
   query: string,
@@ -181,7 +186,11 @@ export function results(
       .filter((i): i is Item & { others: string[] } => !!i)
       .map((i) => ({ ...i, group: "Recent" }))
     const recKeys = new Set(rec.map((i) => i.key))
-    const cmds = items.filter((i) => i.kind === "command" && !recKeys.has(i.key))
+    const cmds = items
+      .filter((i) => i.kind === "command" && !i.quiet && !recKeys.has(i.key))
+      .map((r, i) => ({ r, i }))
+      .sort((a, b) => (a.r.order ?? 100) - (b.r.order ?? 100) || a.i - b.i)
+      .map(({ r }) => r)
     return sortGroups([...rec, ...cmds])
   }
   const ref = isRef(query) ? query.trim().toLowerCase() : ""
@@ -192,15 +201,14 @@ export function results(
       )
     : []
   const rest = ranked.filter((r) => !exact.includes(r))
-  const count = new Map<string, number>()
-  const shown: Item[] = []
+  // Best first within a group, and the group with the best match first.
+  const groups = new Map<string, Item[]>()
   for (const r of rest) {
-    const n = count.get(r.item.group) ?? 0
-    if (n >= perGroup) continue
-    count.set(r.item.group, n + 1)
-    shown.push(r.item)
+    const g = groups.get(r.item.group) ?? []
+    if (g.length < perGroup) g.push(r.item)
+    groups.set(r.item.group, g)
   }
-  return [...exact.map((r) => r.item), ...sortGroups(shown)]
+  return [...exact.map((r) => r.item), ...[...groups.values()].flat()]
 }
 
 // sortGroups keeps rows in their order within a group and the groups in
