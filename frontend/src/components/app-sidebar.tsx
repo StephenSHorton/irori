@@ -15,6 +15,7 @@ import {
 import { SettingsMenu } from "@/components/settings/settings-menu"
 import { Badge } from "@/components/ui/badge"
 import { agentCounts } from "@/lib/agent-counts"
+import { useCommands } from "@/lib/commands"
 import type { BoardSummary } from "@/lib/boards"
 import type { CardSummary } from "@/lib/cards"
 import { plainLine, type Roster } from "@/lib/irori"
@@ -68,6 +69,14 @@ export function AppSidebar({
       // A private window keeps it for this run only.
     }
   }
+  useCommands([
+    {
+      id: "sidebar.fold",
+      title: folded ? "Open the sidebar" : "Fold the sidebar",
+      keywords: ["nav", "collapse", "expand"],
+      run: () => fold(!folded),
+    },
+  ])
   const { device, version, agents } = roster
   const n = agentCounts(agents)
   const pinnedBoards = boards

@@ -44,7 +44,9 @@ import { UpdateBanner } from "@/updater"
 import { useBoardView } from "@/components/canvas/switch"
 import { BoardHeaderBar, BoardPage } from "@/components/boards/board-page"
 import { BoardsPage } from "@/components/boards/boards-page"
-import { go, Home, sectionFromHash, type Section } from "@/lib/nav"
+import { go, Home, sameSection, sectionFromHash, type Section } from "@/lib/nav"
+import { CommandPalette, paletteOpenKey } from "@/components/command-palette"
+import { isMac, useCommands } from "@/lib/commands"
 
 // PageState is the history entry of a card's page. fromGrid: the grid is
 // the entry behind it, so Back is the browser's back.
@@ -369,6 +371,74 @@ export function App() {
     },
     [threadList, openCard, open, back, section]
   )
+  // The command palette (card #213): Cmd/Ctrl+K or P from anywhere, over a
+  // card's page and other dialogs too; Cmd+P no longer prints. Capture, so
+  // it comes before a field or a dialog takes the key.
+  const [palette, setPalette] = useState(false)
+  useEffect(() => {
+    const mac = isMac()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || !paletteOpenKey(e, mac)) return
+      e.preventDefault()
+      e.stopPropagation()
+      setPalette((o) => !o)
+    }
+    window.addEventListener("keydown", onKey, true)
+    return () => window.removeEventListener("keydown", onKey, true)
+  }, [])
+  // goTo moves to a section from anywhere (a card's page included); going
+  // where the window already is adds no history entry.
+  const goTo = useCallback(
+    (s: Section) => {
+      if (!open && sameSection(section, s)) return
+      go(s)
+    },
+    [open, section]
+  )
+  const onPaletteBoard = useCallback(
+    (id: string) => goTo({ kind: "board", id }),
+    [goTo]
+  )
+  // An agent in the palette: Home's cards narrowed to that agent's.
+  const onPaletteAgent = useCallback(
+    (name: string) => {
+      setQuery(name)
+      goTo(Home)
+    },
+    [goTo]
+  )
+  const onList = !open && section.kind !== "boards"
+  useCommands([
+    { id: "nav.home", title: "Home", group: "Go to", keywords: ["my cards", "start"], run: () => goTo(Home) },
+    { id: "nav.boards", title: "Boards", group: "Go to", keywords: ["shared", "projects"], run: () => goTo({ kind: "boards" }) },
+    { id: "nav.held", title: "Held messages", group: "Go to", keywords: ["inbox", "waiting", "history"], run: () => openHeld("") },
+    {
+      id: "card.new",
+      title: section.kind === "board" && !open ? "New card on this board" : "New card",
+      keywords: ["create", "add", "task"],
+      run: () => setNewCard(true),
+    },
+    {
+      id: "board.new",
+      title: "New board",
+      keywords: ["create", "add", "join", "invite"],
+      run: () => {
+        goTo({ kind: "boards" })
+        setNewBoard(true)
+      },
+    },
+    { id: "view.list", title: "Switch to List", keywords: ["grid", "view"], when: () => onList && view === "canvas", run: () => setView("list") },
+    { id: "view.canvas", title: "Switch to Canvas", keywords: ["flow", "chart", "view"], when: () => onList && view === "list", run: () => setView("canvas") },
+    {
+      id: "threads.toggle",
+      title: threadsHidden ? "Show the Threads panel" : "Hide the Threads panel",
+      keywords: ["threads", "panel", "asks"],
+      when: () => !open && section.kind === "home",
+      run: () => hideThreads(!threadsHidden),
+    },
+    { id: "card.back", title: "Back to the cards", shortcut: "Esc", keywords: ["close", "leave"], when: () => !!open, run: back },
+  ])
+
   const agentCards = useMemo(
     () => ({ cards, onOpen: openCard, threads: threadList, onOpenThread: openThread }),
     [cards, openCard, threadList, openThread]
@@ -518,6 +588,19 @@ export function App() {
           }}
           now={now}
           onClose={() => setHeldOpen(false)}
+        />
+      )}
+      {palette && (
+        <CommandPalette
+          open
+          onOpenChange={setPalette}
+          cards={cards}
+          boards={boards}
+          agents={roster.agents}
+          onCard={openCard}
+          onBoard={onPaletteBoard}
+          onAgent={onPaletteAgent}
+          onThread={openThread}
         />
       )}
       {message && (

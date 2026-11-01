@@ -7,6 +7,7 @@ import { useEffect, useRef } from "react"
 import { SearchIcon, XIcon } from "lucide-react"
 
 import { Kbd } from "@/components/ui/kbd"
+import { useCommands } from "@/lib/commands"
 import { cn } from "@/lib/utils"
 
 export function SearchBox({
@@ -33,6 +34,18 @@ export function SearchBox({
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [])
+  useCommands([
+    {
+      id: "search.cards",
+      title: "Search cards on this page",
+      shortcut: "/",
+      keywords: ["find", "filter"],
+      run: () => {
+        box.current?.focus()
+        box.current?.select()
+      },
+    },
+  ])
   return (
     <div className={cn("relative flex w-56 items-center", className)} role="search">
       <SearchIcon

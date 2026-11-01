@@ -7,6 +7,7 @@ import {
   type SettingsSection,
 } from "@/components/settings/settings-dialog"
 import { Button } from "@/components/ui/button"
+import { useCommands } from "@/lib/commands"
 import { previewFlag } from "@/lib/preview"
 
 // SettingsMenu is the header's gear: it opens Settings (card #132), every
@@ -21,6 +22,28 @@ export function SettingsMenu({ version }: { version?: string }) {
   const [open, setOpen] = useState(
     () => previewFlag("settings") !== null || previewFlag("devices") !== null
   )
+
+  // Settings and each of its sections in the palette (card #213).
+  const show = (s: SettingsSection) => {
+    setSection(s)
+    setOpen(true)
+  }
+  useCommands([
+    {
+      id: "settings.open",
+      title: "Settings",
+      group: "Go to",
+      keywords: ["preferences", "options", "open settings"],
+      run: () => setOpen(true),
+    },
+    ...settingsSections.map((s) => ({
+      id: `settings.${s.id}`,
+      title: `Settings: ${s.label}`,
+      group: "Go to",
+      keywords: ["settings", "preferences", s.hint],
+      run: () => show(s.id),
+    })),
+  ])
 
   return (
     <>

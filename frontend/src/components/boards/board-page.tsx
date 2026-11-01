@@ -9,6 +9,7 @@ import { useState, type FormEvent } from "react"
 import { ArrowLeftIcon, PinIcon, PinOffIcon } from "lucide-react"
 
 import { AskBox } from "@/components/cards/ask-box"
+import { useCommands } from "@/lib/commands"
 import { BoardView } from "@/components/cards/board-view"
 import type { Filter } from "@/components/cards/card-grid"
 import type { BoardView as View } from "@/components/canvas/switch"
@@ -137,6 +138,37 @@ export function BoardHeaderBar({ boardId }: { boardId: string }) {
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState("")
   const [error, setError] = useState<string | null>(null)
+  // The palette's board commands (card #213), while this board is open.
+  useCommands(
+    b
+      ? [
+          {
+            id: "board.pin",
+            title: b.pinned ? "Unpin this board" : "Pin this board",
+            keywords: ["sidebar", "favourite", "favorite"],
+            run: () => {
+              setError(null)
+              actions
+                .pin(b.boardId, !b.pinned)
+                .then(reload)
+                .catch((err) => setError(errorText(err)))
+            },
+          },
+          ...(b.owner
+            ? [
+                {
+                  id: "board.rename",
+                  title: "Rename this board",
+                  run: () => {
+                    setName(b.name)
+                    setRenaming(true)
+                  },
+                },
+              ]
+            : []),
+        ]
+      : []
+  )
   if (!b)
     return <h1 className="text-lg font-semibold text-ink">Board</h1>
   const rename = async (e: FormEvent) => {
