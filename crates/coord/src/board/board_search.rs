@@ -201,6 +201,24 @@ impl Fold {
         })
     }
 
+    /// Keys joined, each the roster knows followed by its device's
+    /// presence (card #372): "key (device online)", "key (device offline
+    /// since …)".
+    pub(crate) fn with_devices(&self, keys: &[String]) -> String {
+        let agents = self.roster.as_ref().map(|r| r.agents()).unwrap_or_default();
+        let now = self.stamp();
+        keys.iter()
+            .map(|k| match agents.iter().find(|a| &a.key == k) {
+                Some(a) => format!(
+                    "{k} (device {})",
+                    crate::roster::device_phrase(&a.device_state, &a.device_seen, &now)
+                ),
+                None => k.clone(),
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
     /// `renderTask`: a task's Show text and Related refs.
     pub(crate) fn render_task(&self, t: &Task) -> (String, Vec<String>) {
         let mut b = String::new();
@@ -266,7 +284,7 @@ impl Fold {
             line(&mut b, "subtasks", &ks);
         }
         line(&mut b, "repo", &t.repo_key);
-        line(&mut b, "holders", &t.holders.join(", "));
+        line(&mut b, "holders", &self.with_devices(&t.holders));
         line(&mut b, "assigned, not claimed yet", &t.assigned.join(", "));
         for (to, note) in &t.handoffs {
             line(&mut b, &format!("hand-off note for {to}"), note);

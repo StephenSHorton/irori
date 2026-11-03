@@ -182,6 +182,10 @@ pub(crate) struct BoardCard {
     pub kind: String,
     pub person_id: String,
     pub status: String,
+    /// The device that wrote its newest row: the session's host, as only
+    /// that device writes a card's status (card #372). Never in the row.
+    #[serde(skip)]
+    pub device_id: String,
 }
 
 /// A `board_cards` row: which session a board's agent card is (§2.4). It is
@@ -268,6 +272,10 @@ impl BoardLog {
         if p.card_id.is_empty() {
             return;
         }
+        let p = BoardCard {
+            device_id: ev.device_id.clone(),
+            ..p
+        };
         lock(&self.maps).cards.insert(p.card_id.clone(), p);
     }
 
@@ -693,7 +701,7 @@ pub(crate) fn open_cards_of(m: &irori_identity::membership::Membership) -> Strin
     }
 }
 
-fn roster_of(s: &Services, b: &BoardLog) -> Vec<AgentCard> {
+pub(super) fn roster_of(s: &Services, b: &BoardLog) -> Vec<AgentCard> {
     {
         let live: HashMap<String, AgentCard> = s
             .roster
@@ -712,6 +720,7 @@ fn roster_of(s: &Services, b: &BoardLog) -> Vec<AgentCard> {
                 status: card.status.clone(),
                 ..Default::default()
             };
+            let mut placed = false;
             if let Some(agent) = m.by_id.get(id) {
                 let mine = irori_identity::owner::device_of(agent) == me;
                 match live.get(agent) {
@@ -719,9 +728,23 @@ fn roster_of(s: &Services, b: &BoardLog) -> Vec<AgentCard> {
                     Some(l) if mine || l.status != "gone" => {
                         a.status = l.status.clone();
                         a.updated_at = l.updated_at;
+                        // The person's own session: its device as the
+                        // private roster has it (card #372).
+                        a.device_id = l.device_id.clone();
+                        a.device_state = l.device_state.clone();
+                        a.device_seen = l.device_seen;
+                        placed = true;
                     }
                     _ => {}
                 }
+            }
+            if !placed && !card.device_id.is_empty() {
+                // Another member's agent (or one of the person's no live
+                // roster knows): its host device as the meshes see it.
+                let p = s.device_presence(&card.device_id);
+                a.device_id = card.device_id.clone();
+                a.device_state = p.state;
+                a.device_seen = p.seen;
             }
             out.push(a);
         }
@@ -1556,6 +1579,7 @@ impl Services {
             kind,
             person_id: self.person_id(),
             status: card_status(Some(&card.status)).into(),
+            device_id: self.device.id.clone(),
         };
         // The mapping first: a card whose session nobody knows is worse
         // than a mapping to a card that failed to append (it is retried).
@@ -2003,6 +2027,21 @@ impl Services {
                 errs.push(e.to_string());
             }
             ns.extend(asks.into_iter().map(|n| self.own_ask_notice(&b, n)));
+            if notices {
+                // Card #372: this person's agents hosted here hear when an
+                // agent they work with on the board drops off.
+                let me = self.device.id.clone();
+                let hosted: std::collections::HashSet<String> = lock(&b.maps)
+                    .by_id
+                    .iter()
+                    .filter(|(_, a)| irori_identity::owner::device_of(a) == me)
+                    .map(|(id, _)| format!("{AGENT_ACTOR_PREFIX}{id}"))
+                    .collect();
+                let away = b
+                    .coord()
+                    .sweep_presence(&roster_of(self, &b), &|k| hosted.contains(k));
+                ns.extend(away.into_iter().map(|n| self.private_notice(n)));
+            }
             for n in ns {
                 let from = if n.person {
                     self.user_sender()

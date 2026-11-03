@@ -173,6 +173,16 @@ pub trait TaskRouter: Send + Sync {
     }
 }
 
+/// Another member's agent on a shared board ([`Backend::board_agents`]).
+#[derive(Debug, Clone, Default)]
+pub struct BoardAgent {
+    /// The board's tag, or its name.
+    pub board: String,
+    /// Its person's name on the board, "" when unknown.
+    pub person: String,
+    pub card: presence::AgentCard,
+}
+
 /// Shared boards to show (Go `BoardViewer`).
 pub trait BoardViewer: Send + Sync {
     fn board_views(&self, f: &coord::BoardFilter) -> Vec<coord::BoardView>;
@@ -199,6 +209,11 @@ pub trait Backend: Send + Sync {
                 ..coord::roster::AgentCard::default()
             })
             .collect()
+    }
+    /// Other members' agents on the shared boards this device shows, with
+    /// their devices' presence (card #372). Default: none.
+    fn board_agents(&self) -> Vec<BoardAgent> {
+        Vec::new()
     }
     fn events(&self, f: &store::Filter) -> Result<Vec<store::Event>, String>;
     fn inbox(&self) -> &inbox::Inbox;

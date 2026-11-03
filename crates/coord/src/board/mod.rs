@@ -26,6 +26,7 @@ mod mention;
 mod mirror;
 mod offers;
 mod placed;
+mod presence;
 mod prstate;
 mod threads;
 pub use offers::{IdleReport, OFFER_HANDED, OFFER_PASSED, OFFER_WAITING, Unoffered};
@@ -62,6 +63,7 @@ pub use links::{MAX_LINKS, link_label, parse_link, pr_link};
 pub use mention::{board_form, mention_into, without_mentioned};
 pub use mirror::RELEASE_REQUEST;
 pub use placed::MAX_PLACE;
+pub use presence::{NOTICE_PRESENCE, PRESENCE_GRACE};
 pub use prstate::{
     NOTICE_PR, PR_CHANGES_REQUESTED, PR_CLOSED, PR_MERGED, PR_OPEN, PrCheck, PrState,
 };
@@ -967,6 +969,30 @@ impl Coord {
         out.extend(more);
         (out, r)
     }
+    /// The presence notices due now (card #372): an agent this device
+    /// hosts (`hosted`) hears once when a fellow holder of an open card,
+    /// or an agent its card waits on, has had its device offline for
+    /// [`PRESENCE_GRACE`], and once more when it's back. Writes nothing.
+    pub fn sweep_presence(
+        &self,
+        agents: &[AgentCard],
+        hosted: &dyn Fn(&str) -> bool,
+    ) -> Vec<Notice> {
+        let mut f = self.lock();
+        let now = f.stamp();
+        f.sweep_presence(agents, &now, hosted)
+    }
+
+    /// [`Coord::sweep_presence`] at a given time (tests).
+    pub fn sweep_presence_at(
+        &self,
+        agents: &[AgentCard],
+        now: &GoTime,
+        hosted: &dyn Fn(&str) -> bool,
+    ) -> Vec<Notice> {
+        self.lock().sweep_presence(agents, now, hosted)
+    }
+
     /// Idle agents and the unheld cards nobody has been handed yet, with
     /// why (card #341): Home's "N agents idle, no open work" line.
     pub fn idle_report(&self, agents: &[AgentCard]) -> IdleReport {

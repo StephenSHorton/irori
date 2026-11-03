@@ -14,7 +14,7 @@ use gocompat::time::GoTime;
 use irori_identity::owner::device_of;
 use store::{Event, Filter, Store, kinds};
 
-use crate::gojson::{decode, nil_vec, omit};
+use crate::gojson::{decode, nil_vec, omit, omit_zero_time};
 
 /// Another device's liveness, as `AgentCard::device_state` shows it.
 pub const CONNECTED: &str = "connected";
@@ -25,6 +25,36 @@ pub const OFFLINE: &str = "offline";
 /// it shows as not answering, gets no new cards or asks, and a card handed
 /// to it moves on. Its host sets it; it travels in `agent.status` rows.
 pub const NOT_ANSWERING: &str = "unresponsive";
+
+/// How an agent's device reads to other agents (card #372): "online",
+/// "recent, seen 3m ago", "offline since 2026-11-03T14:02:00Z (2h ago)",
+/// "offline, never heard from here". A card with no state is this
+/// device's own: "online, this device".
+pub fn device_phrase(state: &str, seen: &GoTime, now: &GoTime) -> String {
+    let ago = || {
+        let s = (crate::gotime::since(now, seen) / 1_000_000_000).max(0) as i64;
+        match s {
+            0..10 => "just now".to_string(),
+            10..60 => format!("{s}s ago"),
+            60..3600 => format!("{}m ago", s / 60),
+            3600..172_800 => format!("{}h ago", s / 3600),
+            _ => format!("{}d ago", s / 86_400),
+        }
+    };
+    match state {
+        "" => "online, this device".into(),
+        CONNECTED => "online".into(),
+        RECENT if seen.is_zero() => "recent".into(),
+        RECENT => format!("recent, seen {}", ago()),
+        OFFLINE if seen.is_zero() => "offline, never heard from here".into(),
+        OFFLINE => format!(
+            "offline since {} ({})",
+            (*seen).with_offset(0).format_rfc3339(),
+            ago()
+        ),
+        other => other.chars().filter(|c| !c.is_control()).take(40).collect(),
+    }
+}
 
 /// Whether an agent with roster status `s` is there to answer: not gone
 /// and not [`NOT_ANSWERING`].
@@ -69,6 +99,9 @@ crate::go_struct! {
         pub permission_mode: String = "permissionMode",
         pub last_tool: String = "lastTool" "omit",
         pub device_state: String = "deviceState" "omit",
+        /// When its device was last heard from (card #372): set beside
+        /// `device_state` on read, never written.
+        pub device_seen: GoTime = "deviceSeen" "omit_zero_time",
     }
 }
 
@@ -101,6 +134,9 @@ pub struct Options {
     /// Another device's state (mesh `Node::liveness`); `None` counts every
     /// other device offline.
     pub liveness: Option<DeviceFn<String>>,
+    /// When another device was last heard from (card #372); `None`, or a
+    /// zero time, for never.
+    pub seen: Option<DeviceFn<GoTime>>,
     /// A removed device: its cards are left out. `None` revokes nobody.
     pub revoked: Option<DeviceFn<bool>>,
 }
@@ -219,7 +255,7 @@ impl Roster {
     pub fn remote(&self) -> Vec<AgentCard> {
         let mut remote: Vec<AgentCard> = self.lock().cards.values().cloned().collect();
         remote.sort_by(|a, b| a.key.cmp(&b.key));
-        let mut state: HashMap<String, String> = HashMap::new();
+        let mut state: HashMap<String, (String, GoTime)> = HashMap::new();
         let mut out = Vec::with_capacity(remote.len());
         for mut c in remote {
             if let Some(rev) = &self.o.revoked
@@ -229,12 +265,19 @@ impl Roster {
             }
             let s = state
                 .entry(c.device_id.clone())
-                .or_insert_with(|| match &self.o.liveness {
-                    Some(l) => l(&c.device_id),
-                    None => OFFLINE.to_string(),
+                .or_insert_with(|| {
+                    let st = match &self.o.liveness {
+                        Some(l) => l(&c.device_id),
+                        None => OFFLINE.to_string(),
+                    };
+                    let seen = match &self.o.seen {
+                        Some(f) => f(&c.device_id),
+                        None => GoTime::default(),
+                    };
+                    (st, seen)
                 })
                 .clone();
-            c.device_state = s;
+            (c.device_state, c.device_seen) = s;
             out.push(c);
         }
         out

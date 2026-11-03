@@ -196,6 +196,7 @@ impl Rig {
             self_id: "dev1".into(),
             local: None,
             liveness: None,
+            seen: None,
             revoked: None,
         }
     }

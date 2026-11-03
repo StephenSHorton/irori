@@ -233,6 +233,17 @@ impl Node {
         }
     }
 
+    /// When another of the person's devices was last heard: its newer last
+    /// ping or last sync, as Settings → Devices shows it; `None` never.
+    pub fn last_seen(&self, dev: &str) -> Option<SystemTime> {
+        let g = self.lock();
+        let k = g.known.get(dev)?;
+        match (k.last_ping, k.last_sync) {
+            (Some(p), Some(s)) => Some(p.max(s)),
+            (p, s) => p.or(s),
+        }
+    }
+
     /// Go `Devices`: the person's devices, this one first; `detail` fills
     /// each other device's `detail`.
     pub fn devices(&self, detail: bool) -> Vec<DeviceRow> {

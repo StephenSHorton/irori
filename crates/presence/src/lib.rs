@@ -113,6 +113,14 @@ pub struct AgentCard {
     /// "recent" or "offline". "" on this device's own.
     #[serde(rename = "deviceState", skip_serializing_if = "is_empty")]
     pub device_state: String,
+    /// Beside `device_state`: when that device was last heard from (card
+    /// #372). Zero on this device's own and when never heard.
+    #[serde(
+        rename = "deviceSeen",
+        default,
+        skip_serializing_if = "GoTime::is_zero"
+    )]
+    pub device_seen: GoTime,
 }
 
 fn null_as_empty<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {

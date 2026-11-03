@@ -39,18 +39,80 @@ pub(crate) fn agents(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         let d = doing.get(&card.key).cloned().unwrap_or_default();
         write_agent(&mut b, card, &c.sender.key, &now, &d);
     }
-    let head = format!(
-        "{shown} of {} agents on this device{}.",
+    // Other members' agents on shared boards (card #372): what they hold
+    // and whether their device is there.
+    let mut others = s.b.board_agents();
+    others.sort_by(|x, y| {
+        x.board
+            .cmp(&y.board)
+            .then_with(|| {
+                gocompat::text::to_lower_str(&x.card.name)
+                    .cmp(&gocompat::text::to_lower_str(&y.card.name))
+            })
+            .then_with(|| x.card.key.cmp(&y.card.key))
+    });
+    let mut ob = String::new();
+    let mut oshown = 0;
+    for o in &others {
+        if !match_agent(&o.card, status, cwd) {
+            continue;
+        }
+        oshown += 1;
+        write_board_agent(&mut ob, o, &now);
+    }
+    let mut head = format!(
+        "{shown} of {} agents on the person's devices{}.",
         cards.len(),
         describe_agent_filter(status, cwd)
     );
-    if shown == 0 {
+    if !others.is_empty() {
+        let _ = write!(
+            head,
+            " {oshown} of {} other people's agents on shared boards.",
+            others.len()
+        );
+    }
+    if shown + oshown == 0 {
         return head;
+    }
+    if oshown > 0 {
+        let _ = write!(
+            b,
+            "\nOther people's agents (on shared boards; mention them on a card there):\n{ob}"
+        );
     }
     format!(
         "{head} Message one with send (to = its name or key). {}\n{b}",
         untrusted()
     )
+}
+
+/// One device's presence for an agent's line (card #372).
+pub(crate) fn device_line(c: &presence::AgentCard, now: &GoTime) -> String {
+    one_line(
+        &coord::roster::device_phrase(&c.device_state, &c.device_seen, now),
+        120,
+    )
+}
+
+fn write_board_agent(b: &mut String, o: &crate::BoardAgent, now: &GoTime) {
+    let c = &o.card;
+    let mut name = one_line(&c.name, MAX_FIELD_RUNES);
+    if name.is_empty() {
+        name = "unnamed".into();
+    }
+    let mut whose = one_line(&o.person, MAX_FIELD_RUNES);
+    if whose.is_empty() {
+        whose = "another member".into();
+    }
+    let _ = writeln!(
+        b,
+        "\n- {name} [{}] {whose}'s agent on board {}, key {}",
+        one_line(&c.status, 40),
+        one_line(&o.board, 60),
+        one_line(&c.key, 120)
+    );
+    let _ = writeln!(b, "  device: {}", device_line(c, now));
 }
 
 fn match_agent(c: &presence::AgentCard, status: &str, cwd: &str) -> bool {
@@ -159,6 +221,7 @@ fn write_agent(
         mode = "unknown".into();
     }
     let _ = writeln!(b, "  permissionMode: {mode}");
+    let _ = writeln!(b, "  device: {}", device_line(c, now));
     let _ = writeln!(b, "  last activity: {}", last_activity(c, now));
     let txt = one_line(&c.last_text, MAX_FIELD_RUNES);
     if !txt.is_empty() {

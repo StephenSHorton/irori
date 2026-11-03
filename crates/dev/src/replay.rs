@@ -250,6 +250,7 @@ fn dump(home: &Path, out: &Path, now: Option<&str>) -> Result<(), String> {
         self_id: me.clone(),
         local: None,
         liveness: None,
+        seen: None,
         revoked: Some(revoked.clone()),
     })
     .map_err(|e| format!("roster: {e}"))?;
