@@ -82,7 +82,7 @@ const CLOCK_SKEW: Duration = Duration::from_secs(120);
 pub const SUB_BUFFER: usize = 64;
 
 /// The row prefixes coord folds.
-pub const FOLLOW_KINDS: [&str; 8] = [
+pub const FOLLOW_KINDS: [&str; 10] = [
     "task.",
     "lease.",
     "blocker.",
@@ -91,6 +91,9 @@ pub const FOLLOW_KINDS: [&str; 8] = [
     "review.",
     "wait.",
     "note.",
+    // The merge desk (card #415).
+    "repo.desk",
+    "desk.",
 ];
 
 /// Whether coord folds `kind`.
