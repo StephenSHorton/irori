@@ -24,6 +24,11 @@
 //!       tools/rehearse/boards-live.sh and .ps1). It makes a fresh person,
 //!       so it refuses a --home that holds anything.
 //!
+//!   irori-dev migrate-spaces --home <copy>
+//!       moves the copy's boards/ logs to spaces/ as a start of an Irori
+//!       with spaces does (card #392), so the move can be checked on real
+//!       data first.
+//!
 //! Output is counts and row keys, never payloads, keys or tokens.
 
 mod agent_check;
@@ -41,11 +46,38 @@ const USAGE: &str = "usage: irori-dev verify --home <copy of a data dir> [--go-h
        irori-dev probe --irori <exe> --home <copy of a data dir> --claude <empty dir> [--go-tools <fallback_tools.json>] [--go-lockfile <copy of Go's irori.json>]
        irori-dev agent-check --home <empty dir> --claude <empty dir> --work <empty dir> --irori <exe> --mod <copy of mod/> [--claude-bin <claude>] [--model <m>] [--turn-wait <secs>] [--only 1,2,3]
        irori-dev boards-live host --home <empty dir> --claude <empty dir> [--link-out <file>] [--step-wait <secs>]
-       irori-dev boards-live guest --home <empty dir> --claude <empty dir> --link <irori-invite:...> [--step-wait <secs>]";
+       irori-dev boards-live guest --home <empty dir> --claude <empty dir> --link <irori-invite:...> [--step-wait <secs>]
+       irori-dev migrate-spaces --home <copy of a data dir>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
+        Some("migrate-spaces") => match args.get(1..3) {
+            Some([flag, home]) if flag == "--home" => {
+                let home = std::path::Path::new(home);
+                if home.join("irori.json").exists() {
+                    eprintln!(
+                        "irori-dev: {} holds irori.json: a live data dir, not a copy",
+                        home.display()
+                    );
+                    return ExitCode::from(2);
+                }
+                match irori_core::migrate_board_files(home) {
+                    Ok(n) => {
+                        println!("moved {n} board log(s) to spaces/");
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("irori-dev: {e}");
+                        ExitCode::FAILURE
+                    }
+                }
+            }
+            _ => {
+                eprintln!("irori-dev: migrate-spaces needs --home <copy>\n{USAGE}");
+                ExitCode::from(2)
+            }
+        },
         Some("verify") => match verify::Opts::parse(&args[1..]) {
             Ok(o) => verify::run(&o),
             Err(e) => {
