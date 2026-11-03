@@ -460,14 +460,14 @@ fn check_claim(st: &Store, c: &store::CutClaim, r: &mut Report) -> Result<(), St
 }
 
 fn check_boards(home: &Path, me: &str, r: &mut Report) -> Result<(), String> {
-    let dir = home.join("boards");
-    let mut dbs: Vec<PathBuf> = match std::fs::read_dir(&dir) {
-        Ok(rd) => rd
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.extension().is_some_and(|x| x == "db"))
-            .collect(),
-        Err(_) => Vec::new(),
-    };
+    // Spaces since card #392; a data dir not yet started on that build
+    // still has them under boards/.
+    let mut dbs: Vec<PathBuf> = ["spaces", "boards"]
+        .iter()
+        .flat_map(|d| std::fs::read_dir(home.join(d)).into_iter().flatten())
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "db"))
+        .collect();
     dbs.sort();
     println!("boards: {} board logs", dbs.len());
     for db in dbs {

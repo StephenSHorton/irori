@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use common::{Rig, wait_for};
 use coord::ErrorKind as CK;
-use irori_core::{BOARDS_DIR, BoardError, Core, valid_board_id};
+use irori_core::{BoardError, Core, SPACES_DIR as BOARDS_DIR, valid_board_id};
 use store::Filter;
 use store::kinds::{self, AGENT_ACTOR_PREFIX, PERSON_ACTOR_PREFIX};
 
@@ -343,6 +343,62 @@ fn board_logs_skip_junk() {
     }
     let c = Core::start(common::options(d.path(), cl.path())).unwrap();
     assert!(c.boards().is_empty(), "boards {:?}", c.boards());
+    c.close().unwrap();
+}
+
+/// Card #392: a v0.10 data dir keeps its board logs in boards/. The next
+/// start moves each one to spaces/ and opens it as the same space: same id,
+/// every card and member, nothing rewritten. A move cut short by a crash
+/// (the sidecars moved, the .db not yet) finishes at the start after.
+#[test]
+fn board_logs_move_to_spaces() {
+    let r = Rig::new();
+    let id = r
+        .core
+        .create_board("Wind Waker Multiplayer", "wind")
+        .unwrap();
+    let co = r.core.board_coord(&id).unwrap();
+    let by = r.core.board_key(&id, &r.key_a).unwrap();
+    let t = co.create_task(&by, new_task("sync the boats")).unwrap();
+    co.comment_on(
+        &by,
+        &t.id,
+        coord::CommentInput {
+            text: "first pass works".into(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let before = created_ids(&r.core.board_store(&id).unwrap());
+    let vector = r.core.board_store(&id).unwrap().vector().unwrap();
+    r.core.close().unwrap();
+
+    // Lay the files out as v0.10 did, then cut the move short: the
+    // sidecars are in spaces/, the .db is still in boards/.
+    let (spaces, boards) = (
+        r.data.join(irori_core::SPACES_DIR),
+        r.data.join(irori_core::BOARDS_DIR),
+    );
+    std::fs::rename(&spaces, &boards).unwrap();
+    std::fs::create_dir_all(&spaces).unwrap();
+    std::fs::rename(
+        boards.join(format!("{id}.secrets")),
+        spaces.join(format!("{id}.secrets")),
+    )
+    .unwrap();
+
+    let c = Core::start(common::options(&r.data, &r.claude)).unwrap();
+    assert!(spaces.join(format!("{id}.db")).exists(), "the .db moved");
+    assert!(!boards.exists(), "the emptied boards/ is gone");
+    // board_store waits for the boards still opening after the start.
+    let st = c.board_store(&id).unwrap();
+    assert_eq!(c.boards().len(), 1, "boards {:?}", c.boards());
+    assert_eq!(created_ids(&st), before, "the same cards");
+    assert_eq!(st.vector().unwrap(), vector, "the same rows");
+    let co = c.board_coord(&id).unwrap();
+    assert!(co.get_task(&t.id).is_some(), "the card folds");
+    // A start with nothing left to move moves nothing.
+    assert_eq!(irori_core::migrate_board_files(&r.data).unwrap(), 0);
     c.close().unwrap();
 }
 

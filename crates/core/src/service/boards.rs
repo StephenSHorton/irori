@@ -48,7 +48,13 @@ pub use super::boards_own::{
     BoardSummary, SharePreview, SharedCopy, SubtaskPreview, SummaryMember,
 };
 
-/// Where the board logs live, under the data dir.
+/// Where the space logs live, under the data dir (card #392, decision
+/// 45). A space is what v0.5 called a shared board: its id is the board's
+/// id, and its log, secrets, topic and members are the board's.
+pub const SPACES_DIR: &str = "spaces";
+
+/// Where v0.5 kept them. A start moves each board's files from here to
+/// SPACES_DIR (migrate_board_files) before anything opens them.
 pub const BOARDS_DIR: &str = "boards";
 
 const MAX_LIST: i64 = 1000;
@@ -729,9 +735,78 @@ pub(super) fn roster_of(s: &Services, b: &BoardLog) -> Vec<AgentCard> {
     }
 }
 
+/// The files of one board's (now one space's) log, in the order a move
+/// takes them: the .db last, so a start that finds `<id>.db` still in
+/// BOARDS_DIR knows the move isn't finished and takes what's left.
+fn board_files(id: &str) -> [String; 4] {
+    [
+        format!("{id}.db-wal"),
+        format!("{id}.db-shm"),
+        format!("{id}.secrets"),
+        format!("{id}.db"),
+    ]
+}
+
+/// Moves every v0.5 board log from `<data>/boards` to `<data>/spaces`
+/// (card #392): nothing in it is rewritten, so the move loses nothing. It
+/// runs at the start, before any log is open. A file already in SPACES_DIR
+/// is never overwritten: a crash half way leaves the rest for the next
+/// start, and the space opens only once its .db has moved. The empty
+/// BOARDS_DIR is removed.
+pub fn migrate_board_files(data_dir: &std::path::Path) -> std::io::Result<usize> {
+    let from = data_dir.join(BOARDS_DIR);
+    let ents = match std::fs::read_dir(&from) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(e),
+    };
+    let mut ids: Vec<String> = ents
+        .flatten()
+        .filter_map(|e| {
+            e.file_name()
+                .to_str()?
+                .strip_suffix(".db")
+                .map(str::to_string)
+        })
+        .filter(|id| valid_board_id(id))
+        .collect();
+    ids.sort();
+    let to = data_dir.join(SPACES_DIR);
+    if !ids.is_empty() {
+        std::fs::create_dir_all(&to)?;
+    }
+    let mut moved = 0;
+    for id in &ids {
+        for name in board_files(id) {
+            let (src, dst) = (from.join(&name), to.join(&name));
+            if !src.exists() {
+                continue;
+            }
+            if dst.exists() {
+                // Both copies of one file: the space's wins, and the old one
+                // stays where it is for a person to look at.
+                logf(format_args!(
+                    "spaces: {name} is in both {BOARDS_DIR} and {SPACES_DIR}; keeping {SPACES_DIR}'s"
+                ));
+                continue;
+            }
+            std::fs::rename(&src, &dst)?;
+        }
+        moved += 1;
+    }
+    // Only an empty dir goes; anything left in it stays for a look.
+    let _ = std::fs::remove_dir(&from);
+    if moved > 0 {
+        logf(format_args!(
+            "spaces: moved {moved} board log(s) from {BOARDS_DIR} to {SPACES_DIR}"
+        ));
+    }
+    Ok(moved)
+}
+
 impl Services {
-    fn boards_dir(&self) -> PathBuf {
-        self.data_dir.join(BOARDS_DIR)
+    pub(crate) fn boards_dir(&self) -> PathBuf {
+        self.data_dir.join(SPACES_DIR)
     }
 
     pub(crate) fn person_id(&self) -> String {

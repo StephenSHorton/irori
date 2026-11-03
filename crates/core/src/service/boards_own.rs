@@ -447,7 +447,7 @@ impl Services {
     /// nameless board at the next start.
     pub(crate) fn remove_board(&self, id: &str) -> Result<()> {
         self.drop_board(id);
-        let dir = self.data_dir.join(super::boards::BOARDS_DIR);
+        let dir = self.boards_dir();
         let mut errs = Vec::new();
         for name in [
             format!("{id}.db"),

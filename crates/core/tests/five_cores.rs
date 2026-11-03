@@ -619,7 +619,7 @@ fn a_non_member_is_refused() {
     let board = invited(a1, b1);
     // Carol knows the board id (say, from a forwarded link) but holds no
     // secret for it: she makes her own board with that id's files.
-    let dir = c1.data.join(irori_core::BOARDS_DIR);
+    let dir = c1.data.join(irori_core::SPACES_DIR);
     std::fs::create_dir_all(&dir).unwrap();
     let pin = irori_identity::MemberPin {
         person_id: c1.core.person().id.clone(),
