@@ -220,7 +220,7 @@ pub struct Fold {
     pub(crate) key_person: Option<StrFn>,
     pub(crate) dev_person: Option<StrFn>,
     pub(crate) tag_fn: Option<Arc<dyn Fn() -> String + Send + Sync>>,
-    pub(crate) board_tag_fn: Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>,
+    pub(crate) board_tag_fn: Option<super::BoardTagFn>,
     pub(crate) board_owner: Option<super::OwnerAtFn>,
     pub(crate) hop_of: Option<super::HopFn>,
     pub(crate) holds_file: Option<KeyFn>,
