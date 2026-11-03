@@ -28,7 +28,8 @@ unchanged.
 | --- | --- |
 | `/` | the open cards; agents are busy on sample-card-2 and sample-card-4 (spinners) |
 | `/?open=board:task:sample-card-4` | a card's page: busy agent, spinning step, links, a file |
-| `/?thread=sample-thread-1` | the Threads panel with a thread open: sample-heron's answer, the reply box, Resolve (card #116); its #26 (a resolved thread) and #5 (a done card) are links (card #144) |
+| `/?talk` | Talk (card #390): the Threads list beside the new-thread box; `#talk` in the address does the same |
+| `/?thread=sample-thread-1` | Talk with a thread open: sample-heron's answer, the reply box, Resolve (cards #116, #390); its #26 (a resolved thread) and #5 (a done card) are links (card #144) |
 | `/?open=board:task:sample-card-7` | a parent card's page: its subtasks, one blocked, and the steps done before the split |
 | `/?open=board:task:sample-card-9` | a subtask's page, with "Part of #7" under the title |
 | `/?open=board:task:sample-card-1` | a card's page with blockers, a PR and a long thread |

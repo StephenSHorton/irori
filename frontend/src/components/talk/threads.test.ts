@@ -8,7 +8,7 @@ import {
   openAfterResolve,
   resolvedShown,
   resolvedToggle,
-} from "./threads-panel"
+} from "./threads"
 
 const threads = [
   { id: "live", state: "open" },

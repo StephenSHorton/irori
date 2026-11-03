@@ -15,6 +15,7 @@ import { HeldDialog, type HeldTab } from "@/components/cards/held-dialog"
 import { NewCardDialog } from "@/components/cards/new-card-dialog"
 import { WindDownDialog } from "@/components/wind-down-dialog"
 import { MessageDialog } from "@/components/cards/message-dialog"
+import { TalkPage, needsYou } from "@/components/talk/talk-page"
 import { AgentCards } from "@/components/cards/agent-hover"
 import { AskBox } from "@/components/cards/ask-box"
 import { NeedsYou } from "@/components/cards/needs-you"
@@ -126,12 +127,16 @@ export function App() {
       // A blocked storage only loses the memory.
     }
   }
-  // Where the window is (card #96): Home (your own cards), Boards, or one
-  // board's page; in the address so back and forward move between them.
-  // ?boards in the preview starts on Boards.
-  const [section, setSection] = useState<Section>(() =>
-    previewFlag("boards") !== null ? { kind: "boards" } : sectionFromHash(window.location.hash)
-  )
+  // Where the window is (card #96): Home (your own cards), Talk (card
+  // #390), Boards, or one board's page; in the address so back and forward
+  // move between them. ?boards in the preview starts on Boards, ?talk on
+  // Talk, and ?thread=<id> on Talk with that thread open.
+  const [section, setSection] = useState<Section>(() => {
+    const thread = previewFlag("thread")
+    if (thread) return { kind: "talk", id: thread }
+    if (previewFlag("talk") !== null) return { kind: "talk", id: "" }
+    return previewFlag("boards") !== null ? { kind: "boards" } : sectionFromHash(window.location.hash)
+  })
   // A board page's own tab (All, Needs a decision, Closed).
   // A board page starts on All; the preview's ?filter=owner:<id> starts it
   // on one member's cards (card #268).
@@ -181,23 +186,10 @@ export function App() {
   // Wind down all (card #220): the header's button and the tray's item.
   const [windDown, setWindDown] = useState(false)
   const [newBoard, setNewBoard] = useState(false)
-  // Threads (card #116): the panel beside the Board and the thread
-  // unfolded in it. It opens when asked for (card #261): a new thread,
-  // a thread's #ref, or the Threads button; hiding it closes the thread.
+  // Threads (card #116) live on the Talk page (card #390): a new thread
+  // from Home's ask box opens there, as does a thread's #ref.
   const { threads: threadList } = useThreads()
-  // ?thread=<id> opens one (the browser preview's way in).
-  const [thread, setThread] = useState(
-    () => new URLSearchParams(window.location.search).get("thread") ?? ""
-  )
-  const [threadsHidden, setThreadsHidden] = useState(() => !thread)
-  const hideThreads = (hidden: boolean) => {
-    setThreadsHidden(hidden)
-    if (hidden) setThread("")
-  }
-  const startedThread = (id: string) => {
-    setThread(id)
-    hideThreads(false)
-  }
+  const startedThread = (id: string) => go({ kind: "talk", id })
   const held = useHeld(heldOpen && heldTab === "history")
   // Home's Needs you (card #261): the agents' messages to the person.
   const inbox = useInbox()
@@ -386,21 +378,19 @@ export function App() {
 
   // What an agent's hover card lists (card #104): the live cards. The
   // provider sits unindented around the page to keep its diff small.
-  // openThread is a #ref to a thread (card #144): the grid with the
-  // Threads panel showing and that thread unfolded. One past the panel's
-  // list (an old resolved thread) opens as a card's page instead.
+  // openThread is a #ref to a thread (card #144): Talk with that thread
+  // open (card #390). One past Talk's list (an old resolved thread) opens
+  // as a card's page instead.
   const openThread = useCallback(
     (id: string) => {
       if (!threadList.some((t) => t.id === id)) {
         openCard(id)
         return
       }
-      setThread(id)
-      hideThreads(false)
-      if (open) back()
-      if (section.kind !== "home") go(Home)
+      const to: Section = { kind: "talk", id }
+      if (open || !sameSection(section, to)) go(to)
     },
-    [threadList, openCard, open, back, section]
+    [threadList, openCard, open, section]
   )
   // The command palette (card #213): Cmd/Ctrl+K or P from anywhere, over a
   // card's page and other dialogs too; Cmd+P no longer prints. Capture, so
@@ -448,9 +438,10 @@ export function App() {
     },
     [goTo]
   )
-  const onList = !open && section.kind !== "boards"
+  const onList = !open && (section.kind === "home" || section.kind === "board")
   useCommands([
     { id: "nav.home", title: "Home", group: "Go to", order: 1, keywords: ["my cards", "start"], run: () => goTo(Home) },
+    { id: "nav.talk", title: "Talk", group: "Go to", order: 2, keywords: ["threads", "asks", "conversations", "messages"], run: () => goTo({ kind: "talk", id: "" }) },
     { id: "nav.boards", title: "Boards", group: "Go to", order: 2, keywords: ["shared", "projects"], run: () => goTo({ kind: "boards" }) },
     { id: "nav.held", title: "Held messages", group: "Go to", order: 3, keywords: ["inbox", "waiting", "history"], run: () => openHeld("") },
     {
@@ -472,13 +463,6 @@ export function App() {
     },
     { id: "view.list", title: "Switch to List", keywords: ["grid", "view"], when: () => onList && view === "canvas", run: () => setView("list") },
     { id: "view.canvas", title: "Switch to Canvas", keywords: ["flow", "chart", "view"], when: () => onList && view === "list", run: () => setView("canvas") },
-    {
-      id: "threads.toggle",
-      title: threadsHidden ? "Show the Threads panel" : "Hide the Threads panel",
-      keywords: ["threads", "panel", "asks"],
-      when: () => !open && section.kind === "home",
-      run: () => hideThreads(!threadsHidden),
-    },
     { id: "card.back", title: "Back to the cards", shortcut: "Esc", keywords: ["close", "leave"], when: () => !!open, run: back },
     // The header's Wind down (card #220), from the palette (card #228); like
     // the header's button, not on the sample roster.
@@ -517,6 +501,7 @@ export function App() {
       <AppSidebar
         roster={roster}
         held={held.held.length}
+        talk={threadList.filter(needsYou).length}
         onHeld={() => openHeld("")}
         section={open ? null : section}
         boardsNeedYou={boardDecide.length}
@@ -536,7 +521,9 @@ export function App() {
             ? "Card"
             : section.kind === "boards"
               ? "Boards"
-              : "Home"
+              : section.kind === "talk"
+                ? "Talk"
+                : "Home"
         }
         bar={
           !open && section.kind === "board" ? (
@@ -575,6 +562,14 @@ export function App() {
           />
           </FocusComment.Provider>
           </Scroll>
+        ) : section.kind === "talk" ? (
+          <TalkPage
+            threads={threadList}
+            open={section.id}
+            onOpen={(id) => go({ kind: "talk", id })}
+            now={now}
+            why={whyWaiting(roster.agents)}
+          />
         ) : section.kind === "boards" ? (
           <Scroll>
             <BoardsPage
@@ -635,14 +630,6 @@ export function App() {
             listed={needCards}
             notice={<BoardsNeedYou cards={boardDecide.filter((c) => !c.ours)} boards={boards} />}
             empty={<EmptyCards />}
-            threads={{
-              list: threadList,
-              open: thread,
-              onOpen: setThread,
-              hidden: threadsHidden,
-              onHide: hideThreads,
-              why: whyWaiting(roster.agents),
-            }}
           />
         )}
       </main>

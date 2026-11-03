@@ -1,4 +1,5 @@
-// AppSidebar is the window's nav (card #135): Home, Boards and Held, then
+// AppSidebar is the window's nav (card #135): Home, Talk (card #390),
+// Boards and Held, then
 // the boards and cards you pinned, and at the bottom this device, how the
 // agents stand, and Settings. Its top button folds it to icons; the window
 // remembers that on this device. On a phone or a narrow window (card #227)
@@ -20,6 +21,7 @@ import {
   HomeIcon,
   InboxIcon,
   LayoutGridIcon,
+  MessagesSquareIcon,
   PanelLeftIcon,
   XIcon,
   type LucideIcon,
@@ -64,6 +66,7 @@ export function AppSidebar({
   roster,
   held,
   onHeld,
+  talk,
   section,
   boardsNeedYou,
   boards,
@@ -76,6 +79,8 @@ export function AppSidebar({
   roster: Roster
   held: number
   onHeld: () => void
+  // Threads answered and waiting on the person (card #390), Talk's count.
+  talk: number
   // Where the window is; null on a card's page.
   section: Section | null
   // Cards on boards waiting on the person, the red count by Boards.
@@ -315,6 +320,16 @@ export function AppSidebar({
           onClick={() => go({ kind: "home" })}
         />
         <NavItem
+          icon={MessagesSquareIcon}
+          label="Talk"
+          folded={folded}
+          current={here({ kind: "talk", id: "" })}
+          count={talk}
+          countTone="default"
+          countTitle="Threads an agent answered, waiting on you"
+          onClick={() => go({ kind: "talk", id: "" })}
+        />
+        <NavItem
           icon={LayoutGridIcon}
           label="Boards"
           folded={folded}
@@ -438,7 +453,7 @@ function NavItem({
   folded: boolean
   current?: boolean
   count?: number
-  countTone?: "destructive" | "warning"
+  countTone?: "destructive" | "warning" | "default"
   countTitle?: string
   onClick: () => void
 }) {
@@ -463,7 +478,11 @@ function NavItem({
             aria-hidden
             className={cn(
               "absolute top-1.5 right-2 size-1.5 rounded-full",
-              countTone === "destructive" ? "bg-destructive" : "bg-warning"
+              countTone === "destructive"
+                ? "bg-destructive"
+                : countTone === "default"
+                  ? "bg-primary"
+                  : "bg-warning"
             )}
           />
         ) : (
