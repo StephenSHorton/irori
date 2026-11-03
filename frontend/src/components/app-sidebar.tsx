@@ -115,37 +115,43 @@ export function AppSidebar({
       // A private window keeps it for this run only.
     }
   }
+  // The drag follows the pointer on the window rather than through pointer
+  // capture, which WKWebView drops after the first move.
   const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return
+    if (e.button !== 0 || drag.current) return
     const aside = e.currentTarget.parentElement
     if (!aside) return
     e.preventDefault()
-    e.currentTarget.setPointerCapture(e.pointerId)
-    drag.current = {
+    const d = {
       left: aside.getBoundingClientRect().left,
-      at: { folded, width, catching: false },
+      at: { folded, width, catching: false, start: width } as Drag,
     }
+    drag.current = d
     setDragging(true)
     // The page under the pointer would show its own cursor and select text.
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
-  }
-  const moveDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const d = drag.current
-    if (!d) return
-    const next = dragTo(e.clientX - d.left, d.at)
-    if (next.folded !== d.at.folded) fold(next.folded)
-    if (next.width !== d.at.width) setWidth(next.width)
-    d.at = next
-  }
-  const endDrag = () => {
-    const d = drag.current
-    if (!d) return
-    drag.current = null
-    setDragging(false)
-    document.body.style.cursor = ""
-    document.body.style.userSelect = ""
-    saveWidth(d.at.width)
+    const move = (ev: PointerEvent) => {
+      const next = dragTo(ev.clientX - d.left, d.at)
+      if (next.folded !== d.at.folded) fold(next.folded)
+      if (next.width !== d.at.width) setWidth(next.width)
+      d.at = next
+    }
+    const end = () => {
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", end)
+      window.removeEventListener("pointercancel", end)
+      window.removeEventListener("blur", end)
+      drag.current = null
+      setDragging(false)
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      saveWidth(d.at.width)
+    }
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", end)
+    window.addEventListener("pointercancel", end)
+    window.addEventListener("blur", end)
   }
   const resetWidth = () => {
     setWidth(defaultWidth)
@@ -241,10 +247,6 @@ export function AppSidebar({
           tabIndex={0}
           title="Drag to resize; past the narrow end it folds. Double-click: default width"
           onPointerDown={startDrag}
-          onPointerMove={moveDrag}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-          onLostPointerCapture={endDrag}
           onDoubleClick={resetWidth}
           onKeyDown={keyEdge}
           className={cn(

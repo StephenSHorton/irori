@@ -12,6 +12,9 @@ export const foldedWidth = 56 // w-14
 export const foldBelow = minWidth - 40
 // A folded one opens when the pointer goes this far right of its edge.
 export const unfoldAbove = foldedWidth + 48
+// A drag that just folded it opens it again only back past the fold line,
+// or every move between the two lines would flick it open and shut.
+export const refoldMargin = 16
 
 export const widthKey = "irori.sidebarWidth"
 
@@ -44,22 +47,32 @@ export function saveWidth(w: number | null) {
 // width (kept while folded, so unfolding returns to it), and catching: it
 // was just unfolded to that width and waits for the pointer to reach its
 // edge before following, so it doesn't jump to the pointer or fold back.
-export type Drag = { folded: boolean; width: number; catching: boolean }
+// foldedHere: this drag folded it (so the higher line opens it again).
+// start: the open width when the drag began; folding goes back to it, since
+// on the way to the fold line the width ran down to the minimum.
+export type Drag = {
+  folded: boolean
+  width: number
+  catching: boolean
+  foldedHere?: boolean
+  start?: number
+}
 
 // dragTo is where the pointer at x (from the sidebar's left edge) leaves a
 // drag.
 export function dragTo(x: number, d: Drag): Drag {
   if (d.folded) {
-    if (x <= unfoldAbove) return d
-    if (x < d.width) return { folded: false, width: d.width, catching: true }
-    return { folded: false, width: clampWidth(x), catching: false }
+    if (x <= (d.foldedHere ? foldBelow + refoldMargin : unfoldAbove)) return d
+    if (x < d.width) return { ...d, folded: false, catching: true }
+    return { ...d, folded: false, width: clampWidth(x), catching: false }
   }
   if (d.catching) {
     // Back over the icons folds it again; reaching the edge picks it up.
-    if (x <= foldedWidth) return { ...d, folded: true }
+    if (x <= foldedWidth) return { ...d, folded: true, foldedHere: true }
     if (x < d.width) return d
-    return { folded: false, width: clampWidth(x), catching: false }
+    return { ...d, folded: false, width: clampWidth(x), catching: false }
   }
-  if (x < foldBelow) return { ...d, folded: true }
-  return { folded: false, width: clampWidth(x), catching: false }
+  if (x < foldBelow)
+    return { ...d, folded: true, foldedHere: true, width: d.start ?? d.width }
+  return { ...d, folded: false, width: clampWidth(x), catching: false }
 }
