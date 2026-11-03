@@ -98,6 +98,7 @@ impl Fake {
                 tag: "mlg".into(),
                 name: "MLG farming".into(),
                 people: vec!["Stephen".into(), "Blake".into()],
+                ..Default::default()
             },
             st,
             co,

@@ -456,6 +456,7 @@ impl Services {
             tag: s.tag,
             name: s.name,
             people: s.people,
+            space_board: String::new(),
         }
     }
 }
@@ -632,7 +633,23 @@ impl tools::SharedBoards for super::ToolsView {
             .board_list()
             .into_iter()
             .filter(|s| s.ready)
-            .map(|s| self.0.tools_board(s))
+            .flat_map(|s| {
+                // Each board inside a space is its own entry on the
+                // space's log (card #392).
+                let inside = self.0.space_boards(&s.board_id).unwrap_or_default();
+                let own = self.0.tools_board(s);
+                let mut out = Vec::with_capacity(inside.len().max(1));
+                for b in inside.into_iter().skip(1) {
+                    out.push(tools::BoardInfo {
+                        tag: b.tag,
+                        name: b.name,
+                        space_board: b.board_id,
+                        ..own.clone()
+                    });
+                }
+                out.insert(0, own);
+                out
+            })
             .collect()
     }
 

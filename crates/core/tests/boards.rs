@@ -498,8 +498,43 @@ fn a_space_waits_for_devices_that_dont_read_spaces() {
     let id = r.core.create_board("Lemmings Decomp", "lemmings").unwrap();
     // Alone in its space: nothing to wait on.
     assert!(r.core.space_not_ready(&id).unwrap().is_empty());
-    r.core.create_space_board(&id, "Levels", "levels").unwrap();
+    let levels = r.core.create_space_board(&id, "Levels", "levels").unwrap();
     assert_eq!(r.core.space_boards(&id).unwrap().len(), 2);
+    // An agent names the board inside the space by its tag; the card
+    // lands on it, in the space's log.
+    let caller = tools::Caller {
+        sender: inbox::Sender::new(&r.key_a, "alpha", "claude"),
+        path: String::new(),
+    };
+    let out = r
+        .core
+        .tools()
+        .call(
+            &caller,
+            "board_create",
+            &serde_json::to_vec(&serde_json::json!({"title": "level 3 crash", "board": "levels"}))
+                .unwrap(),
+        )
+        .unwrap();
+    assert!(out.contains("levels#1"), "board_create on levels: {out}");
+    let t = r.core.task_ref("levels#1").unwrap();
+    let co = r.core.board_coord(&id).unwrap();
+    assert_eq!(co.get_task(&t).unwrap().board, levels);
+    // The space's own board still takes cards by its own tag.
+    let out = r
+        .core
+        .tools()
+        .call(
+            &caller,
+            "board_create",
+            &serde_json::to_vec(&serde_json::json!({"title": "decomp", "board": "lemmings"}))
+                .unwrap(),
+        )
+        .unwrap();
+    assert!(
+        out.contains("lemmings#2"),
+        "board_create on lemmings: {out}"
+    );
     r.core.close().unwrap();
 }
 

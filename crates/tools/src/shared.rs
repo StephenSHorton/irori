@@ -32,6 +32,9 @@ pub struct BoardInfo {
     /// The people on it, by the names this person knows them by, this
     /// person included.
     pub people: Vec<String>,
+    /// A board inside a space (card #392): its id there, while `board_id`
+    /// is the space's (the log it lives in). Empty for a space's own board.
+    pub space_board: String,
 }
 
 impl BoardInfo {
@@ -194,7 +197,11 @@ impl Inner {
         let all = sb.boards();
         let hits: Vec<&BoardInfo> = all
             .iter()
-            .filter(|b| b.board_id == v || b.tag.eq_ignore_ascii_case(v))
+            .filter(|b| {
+                (b.space_board.is_empty() && b.board_id == v)
+                    || (!b.space_board.is_empty() && b.space_board == v)
+                    || b.tag.eq_ignore_ascii_case(v)
+            })
             .collect();
         match hits.as_slice() {
             [one] => Ok((*one).clone()),
@@ -404,6 +411,7 @@ pub(crate) fn create_on_board(
         shared: a.bool("shared"),
         links: a.strs("links"),
         steps: steps_of(&a.steps("steps")),
+        board: b.space_board.clone(),
         ..NewTask::default()
     };
     let mut texts: Vec<&str> = vec![&task.title, &task.objective, &task.done_criteria];
