@@ -1,0 +1,13 @@
+[package]
+name = "chspike"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+tauri = { version = "=2.12.5", features = [] }
+wry = "=0.57.1"
+serde_json = "1"
+
+[build-dependencies]
+tauri-build = { version = "=2.7.4", features = [] }
+[workspace]

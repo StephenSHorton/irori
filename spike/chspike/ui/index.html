@@ -1,0 +1,46 @@
+<!doctype html><html><body>chspike<script>
+const { invoke, Channel } = window.__TAURI__.core;
+const report = (o, done = false) => invoke("spike_report", { text: JSON.stringify(o), done });
+async function run(name, count, size, intervalMs) {
+  let n = 0, bytes = 0, bad = 0, firstType = null, lat = [], outOfOrder = 0, last = -1;
+  const ch = new Channel();
+  let resolveAll; const all = new Promise(r => (resolveAll = r));
+  const t0 = performance.now();
+  ch.onmessage = (m) => {
+    if (firstType === null) firstType = Object.prototype.toString.call(m);
+    if (!(m instanceof ArrayBuffer)) { bad++; } else {
+      const dv = new DataView(m);
+      const seq = dv.getUint32(0, true), sent = dv.getFloat64(4, true);
+      if (seq !== last + 1) outOfOrder++; last = seq;
+      lat.push((performance.timeOrigin + performance.now()) * 1000 - sent);
+      bytes += m.byteLength;
+    }
+    if (++n === count) resolveAll();
+  };
+  const sendUs = await invoke("spike_frames", { frames: ch, count, size, intervalMs });
+  await Promise.race([all, new Promise(r => setTimeout(r, 30000))]);
+  const ms = performance.now() - t0;
+  lat.sort((a, b) => a - b);
+  const p = q => lat.length ? +(lat[Math.min(lat.length - 1, Math.floor(q * lat.length))] / 1000).toFixed(2) : null;
+  return { name, count, size, intervalMs, received: n, notArrayBuffer: bad, firstType, outOfOrder,
+    rustSendMs: +(sendUs / 1000).toFixed(1), totalMs: +ms.toFixed(1),
+    fps: +(n / (ms / 1000)).toFixed(0), MBps: +(bytes / 1e6 / (ms / 1000)).toFixed(1),
+    latMs: { p50: p(0.5), p95: p(0.95), p99: p(0.99), max: p(1) } };
+}
+(async () => {
+  try {
+    await report({ ua: navigator.userAgent });
+    const cases = [
+      ["paced 60fps x 16KB, 5s", 300, 16384, 16],
+      ["paced 60fps x 64KB, 5s", 300, 65536, 16],
+      ["paced 120fps x 4KB", 600, 4096, 8],
+      ["flood 5000 x 1KB", 5000, 1024, 0],
+      ["flood 2000 x 16KB", 2000, 16384, 0],
+      ["flood 500 x 64KB", 500, 65536, 0],
+      ["flood 100 x 1MB", 100, 1 << 20, 0],
+    ];
+    for (const c of cases) await report(await run(...c));
+    await report({ end: true }, true);
+  } catch (e) { await report({ error: String(e) }, true); }
+})();
+</script></body></html>

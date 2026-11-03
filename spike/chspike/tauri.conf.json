@@ -1,0 +1,12 @@
+{
+  "productName": "chspike",
+  "version": "0.0.0",
+  "identifier": "com.stephenshorton.chspike",
+  "build": { "frontendDist": "ui" },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{ "title": "chspike", "width": 240, "height": 120, "focus": false, "visible": true, "x": 0, "y": 0 }],
+    "security": { "csp": null }
+  },
+  "bundle": { "active": false, "icon": ["icons/32x32.png"] }
+}

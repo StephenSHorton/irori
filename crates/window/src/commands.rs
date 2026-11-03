@@ -1075,6 +1075,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(tauri_specta::collect_commands![
             core_ready,
+            spike_frames,
             roster_agents,
             roster_device,
             roster_version,
@@ -1215,4 +1216,49 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         .dangerously_cast_bigints_to_number()
         .disable_serde_phases()
+}
+
+/// S0b spike (#366, throwaway): streams `count` raw frames of `size` bytes
+/// over a Channel of raw bytes, as fast as it can or every `interval_ms`.
+/// Returns how long the sends took in microseconds.
+#[tauri::command]
+#[specta::specta]
+pub async fn spike_frames(
+    frames: tauri::ipc::Channel<RawFrame>,
+    count: u32,
+    size: u32,
+    interval_ms: u32,
+) -> R<f64> {
+    let t0 = std::time::Instant::now();
+    for i in 0..count {
+        let mut buf = vec![(i & 0xff) as u8; size as usize];
+        if size >= 4 {
+            buf[..4].copy_from_slice(&i.to_le_bytes());
+        }
+        frames
+            .send(RawFrame(buf))
+            .map_err(|e| e.to_string())?;
+        if interval_ms > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(interval_ms as u64));
+        }
+    }
+    Ok(t0.elapsed().as_micros() as f64)
+}
+
+/// S0b spike: one frame of raw bytes. Sent as `InvokeResponseBody::Raw`
+/// (an ArrayBuffer in the webview, no JSON or base64); typed for the
+/// bindings as `ArrayBuffer`, since `InvokeResponseBody` has no
+/// `specta::Type`.
+pub struct RawFrame(pub Vec<u8>);
+
+impl tauri::ipc::IpcResponse for RawFrame {
+    fn body(self) -> tauri::Result<tauri::ipc::InvokeResponseBody> {
+        Ok(tauri::ipc::InvokeResponseBody::Raw(self.0))
+    }
+}
+
+impl specta::Type for RawFrame {
+    fn definition(_: &mut specta::Types) -> specta::datatype::DataType {
+        specta_typescript::define("ArrayBuffer").into()
+    }
 }
