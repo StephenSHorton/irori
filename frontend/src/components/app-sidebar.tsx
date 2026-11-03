@@ -326,7 +326,7 @@ export function AppSidebar({
           current={here({ kind: "talk", id: "" })}
           count={talk}
           countTone="default"
-          countTitle="Threads an agent answered, waiting on you"
+          countTitle="Threads an agent answered and DMs you haven't read"
           onClick={() => go({ kind: "talk", id: "" })}
         />
         <NavItem

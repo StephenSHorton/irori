@@ -39,3 +39,53 @@ describe("Talk's count in the sidebar (card #390)", () => {
       expect(needsYou({ state })).toBe(false)
   })
 })
+
+import { channelName, convMatches } from "./talk-page"
+import { dayLabel, mentionKinds, statusWord } from "./conversation"
+import { TalkConversation } from "@/lib/models"
+
+describe("channels and DMs in Talk (card #390)", () => {
+  test("a new channel's name is cleaned: lowercase, no # or spaces", () => {
+    expect(channelName("  #Release Notes! ")).toBe("release-notes")
+    expect(channelName("###")).toBe("")
+  })
+  test("search matches a channel's name or topic, or a DM member's name", () => {
+    const c = TalkConversation({
+      kind: "dm",
+      name: "dm",
+      topic: "the move",
+      members: [{ kind: "agent", key: "k", name: "kowhai" }],
+    })
+    expect(convMatches(c, "KOW")).toBe(true)
+    expect(convMatches(c, "move")).toBe(true)
+    expect(convMatches(c, "lobby")).toBe(false)
+  })
+  test("a line between days says Today, Yesterday, or the date", () => {
+    const now = new Date(2026, 10, 3, 15, 0)
+    expect(dayLabel(new Date(2026, 10, 3, 1, 0), now)).toBe("Today")
+    expect(dayLabel(new Date(2026, 10, 2, 23, 0), now)).toBe("Yesterday")
+    expect(dayLabel(new Date(2026, 9, 30, 9, 0), now)).not.toMatch(/Today|Yesterday/)
+  })
+  test("members read working, idle or gone", () => {
+    expect(statusWord("busy")).toBe("working")
+    expect(statusWord("idle")).toBe("idle")
+    expect(statusWord("person")).toBe("")
+    expect(statusWord("")).toBe("gone")
+  })
+  test("a person's key names a person, the rest are agents", () => {
+    expect(mentionKinds([{ key: "person:p1", name: "Blake" }, { key: "dev/s1", name: "oak" }])).toEqual([
+      { kind: "person" },
+      { kind: "agent" },
+    ])
+  })
+})
+
+import { threadText } from "./conversation"
+
+describe("a thread started from a channel message (design b2, card #390)", () => {
+  test("asks the question, then quotes the message and says where it was said", () => {
+    expect(threadText(" Why the Firewall? ", "kowhai", "Only the PC transfer.\nOne click.", "suzuri")).toBe(
+      "Why the Firewall?\n\n> Only the PC transfer.\n> One click.\n(kowhai, in #suzuri)"
+    )
+  })
+})

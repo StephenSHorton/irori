@@ -1122,6 +1122,13 @@ pub async fn talk_post(
     )
 }
 
+/// The person made card `task_id` from post `post_id` (card #390).
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_link_card(w: W<'_>, post_id: String, task_id: String) -> R<()> {
+    w.talk_link_card(&post_id, &task_id)
+}
+
 /// The person has read `conv_id` up to post `up_to`.
 #[tauri::command]
 #[specta::specta]
@@ -1290,6 +1297,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             talk_conversations,
             talk_posts,
             talk_post,
+            talk_link_card,
             talk_read,
             talk_channel_create,
             talk_dm,

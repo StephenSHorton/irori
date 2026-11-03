@@ -204,6 +204,8 @@ export const commands = {
 	talkPosts: (convId: string, before: string | null, limit: number) => __TAURI_INVOKE<TalkPost[]>("talk_posts", { convId, before, limit }),
 	/**  Posts as the person; returns the post's id (a thread's: the comment's). */
 	talkPost: (convId: string, text: string, agentsNow: boolean, threadFrom: string | null) => __TAURI_INVOKE<string>("talk_post", { convId, text, agentsNow, threadFrom }),
+	/**  The person made card `task_id` from post `post_id` (card #390). */
+	talkLinkCard: (postId: string, taskId: string) => __TAURI_INVOKE<null>("talk_link_card", { postId, taskId }),
 	/**  The person has read `conv_id` up to post `up_to`. */
 	talkRead: (convId: string, upTo: string) => __TAURI_INVOKE<null>("talk_read", { convId, upTo }),
 	/**  Makes a channel; returns its conv id. */

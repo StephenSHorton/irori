@@ -507,10 +507,20 @@ function MentionRow({
         </span>
       )}
       <span className="ml-auto min-w-0 truncate text-right font-mono text-[10.5px] text-muted-foreground">
-        {gone ? "gone" : plainLine(place)}
+        {gone
+          ? "gone"
+          : [statusWord(who.status), plainLine(place)].filter(Boolean).join(" · ")}
       </span>
     </div>
   )
+}
+
+// statusWord is how an agent stands in the picker (card #390: the @ picker
+// shows each agent's status): working or idle.
+function statusWord(status: string): string {
+  if (status === "busy" || status === "working") return "working"
+  if (status === "idle") return "idle"
+  return ""
 }
 
 // endsMention is a character that ends a typed name: whitespace or

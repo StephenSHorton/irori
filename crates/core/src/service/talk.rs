@@ -98,6 +98,15 @@ impl Core {
         self.s.talk.leave(conv, m, by).map_err(|e| e.to_string())
     }
 
+    /// Links post `post_id` to the card made from it (card #390); false
+    /// when it already was.
+    pub fn talk_link_card(&self, post_id: &str, task_id: &str, by: &str) -> Result<bool, String> {
+        self.s
+            .talk
+            .link_card(post_id, task_id, by)
+            .map_err(|e| e.to_string())
+    }
+
     /// `by` has read `conv` up to post `up_to`.
     pub fn talk_mark_read(&self, conv: &str, up_to: &str, by: &str) -> Result<(), String> {
         self.s

@@ -128,21 +128,15 @@ describe("rowState", () => {
 })
 
 describe("needsOf", () => {
-  test("cards, held and messages to the person, newest first, each once", () => {
+  test("cards and held messages, newest first, each once; an agent's message is a DM (card #390)", () => {
     const cs = [
       card({ id: "a", openBlockers: 1, updatedAt: "2026-11-02T10:00:00Z" }),
       card({ id: "b", ready: true, openBlockers: 1, updatedAt: "2026-11-02T10:05:00Z" }),
       card({ id: "c" }),
     ]
     const held = delivery({ id: "h", to: "dev/agent2", state: State.Held, createdAt: "2026-11-02T10:02:00Z" })
-    const ds = [
-      delivery({ id: "m", createdAt: "2026-11-02T10:03:00Z" }),
-      delivery({ id: "x", to: "dev/agent2" }),
-      delivery({ id: "r", state: State.Answered }),
-      held,
-    ]
-    const got = needsOf(cs, ds, [held]).map((n) => `${n.kind}:${n.id}`)
-    expect(got).toEqual(["check:b", "message:m", "held:h", "decision:a"])
+    const got = needsOf(cs, [held, held]).map((n) => `${n.kind}:${n.id}`)
+    expect(got).toEqual(["check:b", "held:h", "decision:a"])
   })
   test("toPerson: open messages to a user key only", () => {
     expect(toPerson(delivery({}))).toBe(true)

@@ -440,6 +440,32 @@ impl Talk {
         Ok(true)
     }
 
+    /// Links post `post_id` to the card made from it (card #390, "Make a
+    /// card"): the post shows the card's chip. Linking it again to the same
+    /// card is a no-op (false).
+    pub fn link_card(&self, post_id: &str, task_id: &str, by: &str) -> Result<bool> {
+        let by = need_by(by)?;
+        let (post_id, task_id) = (post_id.trim(), task_id.trim());
+        if task_id.is_empty() {
+            return Err(invalid("link_card needs the card's id"));
+        }
+        if !self.has_post(post_id) {
+            return Err(not_found(format!("no post {post_id}")));
+        }
+        if self.card_of(post_id).as_deref() == Some(task_id) {
+            return Ok(false);
+        }
+        self.write(
+            by,
+            kinds::TALK_CARD,
+            &CardRow {
+                post_id: post_id.into(),
+                task_id: task_id.into(),
+            },
+        )?;
+        Ok(true)
+    }
+
     /// The DM between `a` and `b`, with both joined (written the first
     /// time). `by` is whoever opens it.
     pub fn open_dm(&self, a: &Member, b: &Member, by: &str) -> Result<String> {

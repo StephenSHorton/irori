@@ -93,7 +93,6 @@ export function rowState(
 export type Need =
   | { kind: "check" | "decision"; id: string; at: number; card: CardSummary }
   | { kind: "review"; id: string; at: number; pr: ReviewPr; cards: CardSummary[] }
-  | { kind: "message"; id: string; at: number; delivery: Delivery }
   | { kind: "held"; id: string; at: number; delivery: Delivery }
 
 // toPerson says the delivery is an agent's message to the person, still
@@ -113,14 +112,10 @@ const time = (s: string | undefined) => parseTime(s ?? "")?.getTime() ?? 0
 
 // needsOf is the Needs you list, newest first: every card waiting on the
 // person (a done check, else a decision), each PR waiting on their review
-// once with every card on it (card #347), every agent's message to them
-// and every message Irori held for them. held is the Held list; a held
-// delivery also in deliveries is listed once.
-export function needsOf(
-  cards: CardSummary[],
-  deliveries: Delivery[],
-  held: Delivery[]
-): Need[] {
+// once with every card on it (card #347), and every message Irori held for
+// them. An agent's message to the person is a DM in Talk now (card #390,
+// design b1), not a row here. held is the Held list.
+export function needsOf(cards: CardSummary[], held: Delivery[]): Need[] {
   const out: Need[] = []
   for (const c of cards) {
     if (!needsYou(c)) continue
@@ -156,11 +151,6 @@ export function needsOf(
     if (seen.has(d.id)) continue
     seen.add(d.id)
     out.push({ kind: "held", id: d.id, at: time(d.createdAt), delivery: d })
-  }
-  for (const d of deliveries) {
-    if (seen.has(d.id) || !toPerson(d)) continue
-    seen.add(d.id)
-    out.push({ kind: "message", id: d.id, at: time(d.createdAt), delivery: d })
   }
   return out.sort((a, b) => b.at - a.at)
 }

@@ -34,14 +34,12 @@ export function NeedsYou({
   now,
   name,
   onOpenCard,
-  onOpenMessage,
 }: {
   needs: Need[]
   now: Date
   // name is an agent's name by key (a held message's addressee).
   name: (key: string) => string
   onOpenCard: (id: string) => void
-  onOpenMessage: (id: string) => void
 }) {
   return (
     <section aria-labelledby="needs-you" className="grid min-w-0 gap-2.5">
@@ -63,12 +61,6 @@ export function NeedsYou({
                 <CardNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "review" ? (
                 <ReviewNeed need={n} now={now} onOpen={onOpenCard} />
-              ) : n.kind === "message" ? (
-                <MessageNeed
-                  d={n.delivery}
-                  now={now}
-                  onOpen={() => onOpenMessage(n.id)}
-                />
               ) : n.kind === "held" ? (
                 <HeldNeed d={n.delivery} now={now} name={name} />
               ) : null}
@@ -419,14 +411,6 @@ function BlockerAnswer({
   )
 }
 
-// firstLine splits a message into its first line (the row's title) and
-// the rest.
-function firstLine(text: string): [string, string] {
-  const t = plainLine(text.split("\n")[0] ?? "")
-  const rest = text.slice(text.indexOf("\n") + 1)
-  return text.includes("\n") ? [t, rest] : [t, ""]
-}
-
 function sender(d: Delivery): string {
   return plainLine(d.message.from.name) || "an agent"
 }
@@ -434,65 +418,6 @@ function sender(d: Delivery): string {
 const at = (s: string) => {
   const t = Date.parse(s)
   return Number.isNaN(t) ? 0 : t
-}
-
-// MessageNeed is an agent's message to the person: Reply, Mark read, or
-// Open for the full message dialog (mentions, files).
-function MessageNeed({
-  d,
-  now,
-  onOpen,
-}: {
-  d: Delivery
-  now: Date
-  onOpen: () => void
-}) {
-  const act = useAct()
-  const [replying, setReplying] = useState(false)
-  const [title, rest] = firstLine(d.message.text)
-  return (
-    <Row
-      kind="message"
-      where={<>{sender(d)} → you</>}
-      at={at(d.createdAt)}
-      now={now}
-      title={title}
-    >
-      {rest.trim() && (
-        <p className="line-clamp-4 text-sm break-words whitespace-pre-line">
-          {rest.trim()}
-        </p>
-      )}
-      {act.done ? null : replying ? (
-        <OwnWords
-          label={`Your reply to ${sender(d)}`}
-          placeholder={`Reply to ${sender(d)}`}
-          send="Reply"
-          busy={act.busy}
-          onSend={(t) => void act.run(() => talk.reply(d.id, t), "Replied.")}
-          onCancel={() => setReplying(false)}
-        />
-      ) : (
-        <span className="flex flex-wrap gap-1.5">
-          <Button size="sm" disabled={act.busy} onClick={() => setReplying(true)}>
-            Reply…
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={act.busy}
-            onClick={() => void act.run(() => talk.markRead(d.id), "Marked read.")}
-          >
-            Mark read
-          </Button>
-          <Button size="sm" variant="ghost" onClick={onOpen}>
-            Open
-          </Button>
-        </span>
-      )}
-      <Said error={act.error} done={act.done} />
-    </Row>
-  )
 }
 
 // HeldNeed is a message Irori held from an agent: Release, Dismiss, or

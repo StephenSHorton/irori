@@ -208,6 +208,22 @@ export const BoardService = {
   Reopen: (id: string) => call(commands.boardReopen(id)),
 }
 
+// TalkService is Talk's channels, DMs and posts (cards #389, #390).
+export const TalkService = {
+  Conversations: () => call(commands.talkConversations()),
+  Posts: (convId: string, before: string | null, limit: number) =>
+    call(commands.talkPosts(convId, before, limit)),
+  Post: (convId: string, text: string, agentsNow: boolean, threadFrom: string | null) =>
+    call(commands.talkPost(convId, text, agentsNow, threadFrom)),
+  Read: (convId: string, upTo: string) => done(commands.talkRead(convId, upTo)),
+  LinkCard: (postId: string, taskId: string) => done(commands.talkLinkCard(postId, taskId)),
+  ChannelCreate: (name: string, topic: string | null) =>
+    call(commands.talkChannelCreate(name, topic)),
+  Dm: (member: B.TalkMemberRef) => call(commands.talkDm(member)),
+  Join: (convId: string, member: B.TalkMemberRef) => done(commands.talkJoin(convId, member)),
+  Leave: (convId: string, member: B.TalkMemberRef) => done(commands.talkLeave(convId, member)),
+}
+
 export const BoardsService = {
   List: () => call(commands.boardsList()),
   Create: (name: string, tag: string) => call(commands.boardsCreate(name, tag)),

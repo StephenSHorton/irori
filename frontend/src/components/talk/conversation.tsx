@@ -1,0 +1,508 @@
+// ConversationView is a channel or a DM on the Talk page (card #390,
+// design §2, §8; mockups talk-2b, talk-3): the posts, oldest first with a
+// line between days, the members with their live status, and the box to
+// post. An agent↔agent DM is read-only. Opening one marks it read.
+
+import { useContext, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
+import {
+  ArrowUpRightIcon,
+  ChevronLeftIcon,
+  EyeIcon,
+  HashIcon,
+  MessageSquareTextIcon,
+  SquarePlusIcon,
+  UsersIcon,
+} from "lucide-react"
+
+import { MentionTextarea } from "@/components/common/mention-textarea"
+import { RichText } from "@/components/common/rich-text"
+import { Face } from "@/components/cards/faces"
+import { AgentCards } from "@/components/cards/agent-hover"
+import { NewCardDialog } from "@/components/cards/new-card-dialog"
+import { Button } from "@/components/ui/button"
+import {
+  agentsNowFor,
+  dmWith,
+  fromPost,
+  talkApi,
+  usePosts,
+  type Conversation,
+  type Member,
+  type Post,
+} from "@/lib/conversations"
+import { AgentRef } from "@/lib/models"
+import { threads as threadsApi } from "@/lib/cards"
+import { composing, type Mention } from "@/lib/mentions"
+import { parseTime, plainLine } from "@/lib/irori"
+import { errorText } from "@/lib/talk"
+import { LiveRoster } from "@/lib/thread"
+import { cn } from "@/lib/utils"
+
+// statusOf is a member's status now: "person", the live roster's for an
+// agent, else "gone".
+export function statusOf(m: Member, live: ReadonlyMap<string, { status: string }>): string {
+  if (m.kind === "person") return "person"
+  return live.get(m.key)?.status ?? "gone"
+}
+
+// statusWord says a status in the members list.
+export function statusWord(status: string): string {
+  if (status === "busy" || status === "working") return "working"
+  if (status === "idle") return "idle"
+  if (status === "person") return ""
+  return "gone"
+}
+
+// dayLabel is the line between days: Today, Yesterday, or the date.
+export function dayLabel(at: Date, now: Date): string {
+  const d = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const days = Math.round((d(now) - d(at)) / 86_400_000)
+  if (days === 0) return "Today"
+  if (days === 1) return "Yesterday"
+  return at.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })
+}
+
+// mentionKinds turns the box's mentions into who they name: person keys
+// start "person:", the rest are agents.
+export function mentionKinds(ms: readonly Mention[]): { kind: string }[] {
+  return ms.map((m) => ({ kind: m.key.startsWith("person:") ? "person" : "agent" }))
+}
+
+export function ConversationView({
+  conv,
+  now,
+  narrow,
+  onBack,
+}: {
+  conv: Conversation
+  now: Date
+  narrow: boolean
+  onBack: () => void
+}) {
+  const live = useContext(LiveRoster)
+  const { posts, error } = usePosts(conv.convId)
+  const [showMembers, setShowMembers] = useState(!narrow && conv.kind === "channel")
+  // Make a card (design §4): the post it's made from, while the form is up.
+  const [making, setMaking] = useState<Post | null>(null)
+  const where = conv.kind === "channel" ? `#${conv.name}` : `a DM`
+  const prefill = useMemo(() => (making ? fromPost(making.text, where) : undefined), [making, where])
+  const names = useMemo(() => {
+    const m = new Map<string, Member>()
+    for (const x of conv.members) m.set(x.key, x)
+    return m
+  }, [conv.members])
+
+  // Opening it reads it: the cursor moves to the newest post.
+  const last = posts[posts.length - 1]?.postId ?? ""
+  useEffect(() => {
+    if (last && conv.unread > 0) void talkApi.read(conv.convId, last).catch(() => {})
+  }, [conv.convId, conv.unread, last])
+
+  const bottom = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ block: "end" })
+  }, [last])
+
+  const other = conv.kind === "dm" ? dmWith(conv) : []
+  const title =
+    conv.kind === "channel" ? (
+      <>
+        <HashIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        <span className="truncate">{plainLine(conv.name)}</span>
+      </>
+    ) : conv.readOnly ? (
+      <>
+        <EyeIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        <span className="truncate">{other.map((m) => plainLine(m.name ?? m.key)).join(" ↔ ")}</span>
+      </>
+    ) : (
+      <>
+        {other[0] && <Face who={refOf(other[0], live)} />}
+        <span className="truncate">{plainLine(other[0]?.name ?? conv.name)}</span>
+        {other[0] && (
+          <span className="shrink-0 text-[12px] font-normal text-muted-foreground">
+            {statusWord(statusOf(other[0], live))}
+          </span>
+        )}
+      </>
+    )
+
+  return (
+    <section aria-label={plainLine(conv.name)} className="flex min-h-0 min-w-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <header className="flex min-w-0 items-center gap-2 border-b border-border px-4 py-2.5">
+          {narrow && (
+            <Button size="icon-xs" variant="ghost" aria-label="Back to Talk" onClick={onBack}>
+              <ChevronLeftIcon />
+            </Button>
+          )}
+          <h2 className="flex min-w-0 items-center gap-2 text-[15px] font-semibold text-ink">{title}</h2>
+          {conv.topic && (
+            <span className="min-w-0 truncate text-[12px] text-muted-foreground">{plainLine(conv.topic)}</span>
+          )}
+          {conv.kind === "channel" && (
+            <Button
+              size="xs"
+              variant={showMembers ? "secondary" : "ghost"}
+              className="ml-auto shrink-0"
+              aria-pressed={showMembers}
+              onClick={() => setShowMembers((s) => !s)}
+              title="Who's in this channel"
+            >
+              <UsersIcon />
+              {conv.members.length}
+            </Button>
+          )}
+        </header>
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-0.5 overflow-y-auto px-3 py-3">
+          {error && (
+            <p className="px-2 text-xs text-destructive" role="alert">
+              Could not load the posts: {error}
+            </p>
+          )}
+          {posts.length === 0 && !error && (
+            <p className="px-2 py-1 text-[12.5px] text-muted-foreground">
+              {conv.kind === "channel"
+                ? "Nothing here yet. Agents wake only when you @-mention them; the rest read it at their next turn."
+                : conv.readOnly
+                  ? "Nothing between them yet."
+                  : "Nothing yet. Every message here wakes the agent."}
+            </p>
+          )}
+          {posts.map((p, i) => {
+            const at = parseTime(p.at)
+            const prev = i > 0 ? parseTime(posts[i - 1].at) : null
+            const newDay = at && (!prev || dayLabel(prev, now) !== dayLabel(at, now))
+            return (
+              <div key={p.postId} className="grid grid-cols-[minmax(0,1fr)]">
+                {newDay && at && <DayLine label={dayLabel(at, now)} />}
+                <PostRow
+                  post={p}
+                  who={names.get(p.by)}
+                  names={names}
+                  live={live}
+                  onMakeCard={conv.readOnly ? undefined : () => setMaking(p)}
+                  channel={conv.kind === "channel" ? conv : undefined}
+                />
+              </div>
+            )
+          })}
+          <div ref={bottom} />
+        </div>
+        {conv.readOnly ? (
+          <p className="border-t border-border px-4 py-2.5 text-[12px] text-muted-foreground">
+            Agents talking to each other: you can read it, not post. Nothing between agents is hidden.
+          </p>
+        ) : (
+          <Composer conv={conv} other={other[0]} />
+        )}
+      </div>
+      {showMembers && conv.kind === "channel" && <Members members={conv.members} live={live} />}
+      <NewCardDialog
+        open={!!making}
+        from={prefill}
+        onClose={() => setMaking(null)}
+        onMade={(id) => {
+          if (making) void talkApi.linkCard(making.postId, id).catch(() => {})
+        }}
+      />
+    </section>
+  )
+}
+
+// refOf is a member as a face needs it, with its live status.
+function refOf(m: Member, live: ReadonlyMap<string, { status: string }>) {
+  const status = statusOf(m, live)
+  return AgentRef({
+    key: m.key,
+    name: m.kind === "person" ? (m.name === "you" ? "You" : (m.name ?? "")) : (m.name ?? m.key),
+    status,
+    live: status !== "gone",
+  })
+}
+
+function DayLine({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 px-2 py-2 text-[11.5px] text-muted-foreground">
+      <span className="h-px flex-1 bg-border" />
+      {label}
+      <span className="h-px flex-1 bg-border" />
+    </div>
+  )
+}
+
+function PostRow({
+  post,
+  who,
+  names,
+  live,
+  onMakeCard,
+  channel,
+}: {
+  post: Post
+  who?: Member
+  names: ReadonlyMap<string, Member>
+  live: ReadonlyMap<string, { status: string }>
+  // Make a card from it; left out where the person can't post.
+  onMakeCard?: () => void
+  // The channel it's in: a channel message can start a thread (design b2).
+  channel?: Conversation
+}) {
+  const [asking, setAsking] = useState(false)
+  // Its @names, so the text shows them as mentions.
+  const mentions = post.mentions.map((key) => {
+    const m: Member = names.get(key) ?? { kind: key.startsWith("person:") ? "person" : "agent", key }
+    const ref = refOf(m, live)
+    return { name: m.kind === "person" && m.name === "you" ? "you" : (m.name ?? key), who: ref, gone: !ref.live }
+  })
+  const m: Member = who ?? { kind: post.by.startsWith("person:") ? "person" : "agent", key: post.by }
+  const at = parseTime(post.at)
+  const name =
+    m.kind === "person" ? (m.name === "you" ? "You" : plainLine(m.name ?? "")) : plainLine(m.name ?? m.key)
+  // A thread started from a message here leaves this one line (design b2):
+  // the thread itself lives in Threads.
+  if (post.threadFrom)
+    return (
+      <div className="ml-9 flex min-w-0 items-center gap-1.5 rounded-md border border-border/70 px-2 py-1 text-[12px] text-muted-foreground">
+        <MessageSquareTextIcon className="size-3.5 shrink-0" aria-hidden />
+        <span className="shrink-0">{name} started a thread:</span>
+        <RichText text={post.text} className="min-w-0 truncate text-ink-2" />
+        <span className="shrink-0">· in Threads</span>
+      </div>
+    )
+  return (
+    <div className="group flex gap-2.5 rounded-lg px-2 py-1.5 hover:bg-secondary/40">
+      <Face who={refOf(m, live)} className="mt-0.5 shrink-0" />
+      <div className="grid min-w-0 flex-1 gap-0.5">
+        <div className="flex items-baseline gap-2">
+          <span className="text-[13px] font-medium text-ink">
+            {m.kind === "person" ? (m.name === "you" ? "You" : plainLine(m.name ?? "")) : plainLine(m.name ?? m.key)}
+          </span>
+          {m.kind === "agent" && (
+            <span className="text-[10.5px] text-muted-foreground uppercase">agent</span>
+          )}
+          <time className="text-[11px] text-muted-foreground tabular-nums" dateTime={at?.toISOString()}>
+            {at?.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+          </time>
+          {channel && onMakeCard && (
+            <button
+              type="button"
+              onClick={() => setAsking((a) => !a)}
+              className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-secondary hover:text-ink focus-visible:opacity-100"
+              title="Ask about this in a thread: it goes in Threads, and this channel gets a one-line pointer"
+            >
+              <MessageSquareTextIcon className="size-3.5" aria-hidden />
+              Start a thread
+            </button>
+          )}
+          {onMakeCard && !post.card && (
+            <button
+              type="button"
+              onClick={onMakeCard}
+              className={cn(
+                "flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-secondary hover:text-ink focus-visible:opacity-100",
+                !channel && "ml-auto"
+              )}
+              title="Work goes on a card: make one from this message"
+            >
+              <SquarePlusIcon className="size-3.5" aria-hidden />
+              Make a card
+            </button>
+          )}
+        </div>
+        <RichText
+          text={post.text}
+          mentions={mentions}
+          className="text-[13px] leading-relaxed text-ink-2 [overflow-wrap:anywhere]"
+        />
+        {post.card && <CardChip id={post.card} />}
+        {asking && channel && (
+          <ThreadFrom post={post} author={name} channel={channel} onDone={() => setAsking(false)} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+// threadText is the new thread's ask: the person's question, then the
+// message it's about and where it was said.
+export function threadText(question: string, author: string, text: string, channel: string): string {
+  const quoted = text
+    .trim()
+    .split(/\r?\n/)
+    .map((l) => `> ${l}`)
+    .join("\n")
+  return `${question.trim()}\n\n${quoted}\n(${author}, in #${channel})`
+}
+
+// ThreadFrom asks about a channel message in a new thread (design b2): the
+// thread goes in Threads, and the channel gets a pointer to it.
+function ThreadFrom({
+  post,
+  author,
+  channel,
+  onDone,
+}: {
+  post: Post
+  author: string
+  channel: Conversation
+  onDone: () => void
+}) {
+  const [text, setText] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <form
+      className="grid gap-1 pt-1"
+      onSubmit={async (e) => {
+        e.preventDefault()
+        if (!text.trim() || busy) return
+        setBusy(true)
+        setError(null)
+        try {
+          const res = await threadsApi.start(threadText(text, author, post.text, channel.name))
+          const ref = res.task.short ? `#${res.task.short}` : res.task.id
+          await talkApi.post(channel.convId, ref, false, post.postId)
+          onDone()
+        } catch (err) {
+          setError(errorText(err))
+        } finally {
+          setBusy(false)
+        }
+      }}
+    >
+      <input
+        autoFocus
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => e.key === "Escape" && onDone()}
+        placeholder="Ask about this in a thread…"
+        aria-label="Your question for the thread"
+        readOnly={busy}
+        className="rounded-md border border-border bg-card px-2 py-1 text-[12.5px] text-ink outline-none focus:border-primary"
+      />
+      {error && <span className="text-[11px] text-destructive">{error}</span>}
+    </form>
+  )
+}
+
+// CardChip is the card made from a message (design §4): one click to it.
+function CardChip({ id }: { id: string }) {
+  const ctx = useContext(AgentCards)
+  const c = ctx?.cards.find((x) => x.id === id)
+  return (
+    <button
+      type="button"
+      disabled={!ctx}
+      onClick={() => ctx?.onOpen(id)}
+      className="flex max-w-full items-center gap-1.5 justify-self-start text-[11.5px] text-muted-foreground hover:text-ink"
+    >
+      <ArrowUpRightIcon className="size-3.5 shrink-0" aria-hidden />
+      Made a card:
+      <span className="inline-flex min-w-0 items-center gap-1 rounded-md bg-secondary px-1.5 py-0.5 text-ink-2">
+        <span className="font-mono text-primary">#{plainLine(c?.short ?? "")}</span>
+        <span className="truncate">{plainLine(c?.title ?? "a card")}</span>
+      </span>
+    </button>
+  )
+}
+
+// Members is a channel's people and agents with how each stands now.
+function Members({
+  members,
+  live,
+}: {
+  members: Member[]
+  live: ReadonlyMap<string, { status: string }>
+}) {
+  const sorted = [...members].sort((a, b) =>
+    a.kind === b.kind ? (a.name ?? a.key).localeCompare(b.name ?? b.key) : a.kind === "person" ? -1 : 1
+  )
+  return (
+    <aside aria-label="Members" className="hidden w-[220px] shrink-0 overflow-y-auto border-l border-border px-3 py-3 lg:block">
+      <h3 className="pb-2 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+        Members · {members.length}
+      </h3>
+      <ul className="grid gap-1.5">
+        {sorted.map((m) => {
+          const status = statusOf(m, live)
+          const gone = status === "gone"
+          return (
+            <li key={m.key} className="flex min-w-0 items-center gap-2 text-[12.5px]">
+              <Face who={refOf(m, live)} className="shrink-0" />
+              <span className={cn("min-w-0 truncate text-ink-2", gone && "text-muted-foreground line-through")}>
+                {m.kind === "person" && m.name === "you" ? "You" : plainLine(m.name ?? m.key)}
+              </span>
+              <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">{statusWord(status)}</span>
+            </li>
+          )
+        })}
+      </ul>
+      <p className="pt-3 text-[11px] text-muted-foreground">@-mention an agent to bring it in.</p>
+    </aside>
+  )
+}
+
+function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
+  const [text, setText] = useState("")
+  const [mentions, setMentions] = useState<Mention[]>([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    const body = text.trim()
+    if (!body || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await talkApi.post(conv.convId, body, agentsNowFor(mentionKinds(mentions)))
+      setText("")
+      setMentions([])
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const placeholder =
+    conv.kind === "channel"
+      ? `Message #${plainLine(conv.name)}`
+      : `Message ${plainLine(other?.name ?? conv.name)}`
+  return (
+    <form className="grid gap-1 border-t border-border px-3 py-2.5" onSubmit={(e) => void submit(e)}>
+      <div className="flex items-start gap-2 p-1.5 glass-panel">
+        <MentionTextarea
+          autoSize
+          rows={1}
+          value={text}
+          mentions={mentions}
+          onChange={(v, ms) => {
+            setText(v)
+            setMentions(ms)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !composing(e)) {
+              e.preventDefault()
+              e.currentTarget.form?.requestSubmit()
+            }
+          }}
+          placeholder={placeholder}
+          aria-label={placeholder}
+          className="max-h-40 min-h-9 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent"
+          readOnly={busy}
+          aria-busy={busy}
+        />
+        <div className="flex h-9 shrink-0 items-center">
+          <Button type="submit" size="sm" disabled={busy || !text.trim()}>
+            {busy ? "Sending…" : "Send"}
+          </Button>
+        </div>
+      </div>
+      {error && (
+        <p className="px-1 text-xs text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+    </form>
+  )
+}

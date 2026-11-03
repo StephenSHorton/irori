@@ -383,3 +383,25 @@ fn pages_run_oldest_first() {
     assert_eq!(talk::page(&ps, Some("unknown"), 2).len(), 2);
     assert_eq!(talk::since(&ps, Some("unknown")).len(), 7);
 }
+
+// Card #390, "Make a card" (design §4): the card made from a message is
+// linked to it, the post carries it, and it survives a reload.
+#[test]
+fn a_card_made_from_a_post_is_linked() {
+    let e = Env::new();
+    let t = talk(&e);
+    let c = t.create_channel(USER, "releases", "").unwrap();
+    let p = post(&t, &c.id, USER, "Tag 0.10.0 once #96 merges");
+    assert_eq!(t.card_of(&p.post_id), None);
+    assert!(t.link_card(&p.post_id, "task-1", USER).unwrap());
+    assert_eq!(t.card_of(&p.post_id).as_deref(), Some("task-1"));
+    assert_eq!(t.posts(&c.id)[0].card.as_deref(), Some("task-1"));
+    // The same link again writes nothing.
+    assert!(!t.link_card(&p.post_id, "task-1", USER).unwrap());
+    want(
+        t.link_card("no-such-post", "task-1", USER),
+        ErrorKind::NotFound,
+    );
+    want(t.link_card(&p.post_id, " ", USER), ErrorKind::Invalid);
+    assert_eq!(talk(&e).card_of(&p.post_id).as_deref(), Some("task-1"));
+}

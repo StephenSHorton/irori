@@ -5,10 +5,13 @@
 // (#389) stores them. Resolved threads leave the list but stay one click
 // away, folded at its foot.
 
-import { useState, type ReactNode } from "react"
+import { useContext, useState, type ReactNode } from "react"
 import {
   ChevronLeftIcon,
+  EyeIcon,
+  HashIcon,
   MessageSquareTextIcon,
+  PlusIcon,
   SearchIcon,
   SquarePenIcon,
 } from "lucide-react"
@@ -16,9 +19,19 @@ import {
 import { AskBox } from "@/components/cards/ask-box"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Face } from "@/components/cards/faces"
 import { type ThreadSummary } from "@/lib/cards"
+import {
+  dmWith,
+  listed,
+  talkApi,
+  type Conversation as Conv,
+} from "@/lib/conversations"
+import { AgentRef } from "@/lib/models"
+import { LiveRoster } from "@/lib/thread"
 import { parseTime, plainLine, relativeTime } from "@/lib/irori"
 import { useNarrow } from "@/lib/media"
+import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import {
   ThreadCards,
@@ -29,6 +42,7 @@ import {
   stateBadges,
   stateLine,
 } from "./threads"
+import { ConversationView, statusOf, statusWord } from "./conversation"
 
 // talkMatches is whether a thread fits the list's search: its title, what
 // was asked, its #ref, or the newest reply.
@@ -46,14 +60,30 @@ export function needsYou(t: Pick<ThreadSummary, "state">): boolean {
   return t.state === "answered"
 }
 
+// convMatches is whether a channel or DM fits the list's search: its name,
+// topic, or a member's name.
+export function convMatches(c: Conv, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return [c.name, c.topic ?? "", ...c.members.map((m) => m.name ?? "")].some((s) =>
+    s.toLowerCase().includes(q)
+  )
+}
+
 export function TalkPage({
   threads,
+  conversations,
+  agents,
   open,
   onOpen,
   now,
   why = "",
 }: {
   threads: ThreadSummary[]
+  // Channels and DMs (Talk 1, #389).
+  conversations: Conv[]
+  // The live agents a new DM can go to.
+  agents: { key: string; name: string; status: string }[]
   // The conversation open ("" none: the new-thread box).
   open: string
   onOpen: (id: string) => void
@@ -71,6 +101,9 @@ export function TalkPage({
   const resolved = shown.filter((t) => t.state === "resolved")
   const showResolved = resolvedShown(showResolvedPick, open, threads) || !!query.trim()
   const current = threads.find((t) => t.id === open)
+  const conv = current ? undefined : conversations.find((c) => c.convId === open)
+  const { channels, dms } = listed(conversations.filter((c) => convMatches(c, query)))
+  const [adding, setAdding] = useState<"" | "channel" | "dm">("")
 
   const list = (
     <nav
@@ -117,6 +150,38 @@ export function TalkPage({
           />
         ))}
       </Group>
+      <Group label="Channels" onAdd={() => setAdding(adding === "channel" ? "" : "channel")} addLabel="New channel">
+        {adding === "channel" && (
+          <NewChannel
+            onDone={(id) => {
+              setAdding("")
+              if (id) onOpen(id)
+            }}
+          />
+        )}
+        {channels.length === 0 && adding !== "channel" && (
+          <p className="px-2 py-1 text-[12px] text-muted-foreground">
+            {query.trim() ? "No channel matches." : "No channels yet. Make one with +."}
+          </p>
+        )}
+        {channels.map((c) => (
+          <ConvItem key={c.convId} c={c} current={c.convId === open} onClick={() => onOpen(c.convId)} />
+        ))}
+      </Group>
+      <Group label="Direct messages" onAdd={() => setAdding(adding === "dm" ? "" : "dm")} addLabel="New direct message">
+        {adding === "dm" && (
+          <NewDm
+            agents={agents}
+            onDone={(id) => {
+              setAdding("")
+              if (id) onOpen(id)
+            }}
+          />
+        )}
+        {dms.map((c) => (
+          <ConvItem key={c.convId} c={c} current={c.convId === open} onClick={() => onOpen(c.convId)} />
+        ))}
+      </Group>
       {resolved.length > 0 && (
         <div className="mt-auto grid gap-0.5 pt-3">
           <button
@@ -156,6 +221,8 @@ export function TalkPage({
       onBack={() => onOpen("")}
       onResolved={() => onOpen(openAfterResolve(open, current.id))}
     />
+  ) : conv ? (
+    <ConversationView key={conv.convId} conv={conv} now={now} narrow={narrow} onBack={() => onOpen("")} />
   ) : (
     <div className="grid min-w-0 flex-1 content-start gap-3 p-4">
       <h2 className="flex items-center gap-2 text-[13px] font-medium text-ink">
@@ -184,7 +251,7 @@ export function TalkPage({
   if (narrow)
     return (
       <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-x-hidden">
-        {current || composing || !threads.length ? conversation : list}
+        {current || conv || composing ? conversation : list}
       </div>
     )
   return (
@@ -195,13 +262,181 @@ export function TalkPage({
   )
 }
 
-function Group({ label, children }: { label: string; children: ReactNode }) {
+function Group({
+  label,
+  children,
+  onAdd,
+  addLabel,
+}: {
+  label: string
+  children: ReactNode
+  onAdd?: () => void
+  addLabel?: string
+}) {
   return (
     <div className="grid gap-0.5">
-      <h2 className="px-2 pt-3 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+      <h2 className="flex items-center px-2 pt-3 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
         {label}
+        {onAdd && (
+          <button
+            type="button"
+            onClick={onAdd}
+            aria-label={addLabel}
+            title={addLabel}
+            className="ml-auto rounded p-0.5 hover:bg-secondary hover:text-ink"
+          >
+            <PlusIcon className="size-3.5" aria-hidden />
+          </button>
+        )}
       </h2>
       {children}
+    </div>
+  )
+}
+
+// ConvItem is a channel or a DM in the list, with its unread count (a red
+// @ when it mentions you).
+function ConvItem({ c, current, onClick }: { c: Conv; current: boolean; onClick: () => void }) {
+  const live = useContext(LiveRoster)
+  const other = c.kind === "dm" ? dmWith(c) : []
+  const icon =
+    c.kind === "channel" ? (
+      <HashIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+    ) : c.readOnly ? (
+      <EyeIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+    ) : other[0] ? (
+      <Face
+        who={AgentRef({
+          key: other[0].key,
+          name: other[0].name ?? other[0].key,
+          status: statusOf(other[0], live),
+          live: statusOf(other[0], live) !== "gone",
+        })}
+        className="size-4 shrink-0"
+        noHover
+      />
+    ) : null
+  const label =
+    c.kind === "channel"
+      ? plainLine(c.name)
+      : other.map((m) => plainLine(m.name ?? m.key)).join(" ↔ ") || plainLine(c.name)
+  const sub =
+    c.kind === "channel"
+      ? c.topic
+        ? plainLine(c.topic)
+        : ""
+      : c.readOnly
+        ? "agents talking · read-only"
+        : other[0]
+          ? statusWord(statusOf(other[0], live))
+          : ""
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={current ? "page" : undefined}
+      className={cn(
+        "flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-secondary/60",
+        current && "bg-secondary",
+        c.readOnly ? "text-muted-foreground" : "text-ink-2"
+      )}
+    >
+      {icon}
+      <span className="grid min-w-0 flex-1">
+        <span className={cn("truncate", c.unread > 0 && "font-medium text-ink")}>{label}</span>
+        {sub && <span className="truncate text-[11px] text-muted-foreground">{sub}</span>}
+      </span>
+      {c.mentions > 0 ? (
+        <span
+          className="flex size-5 shrink-0 items-center justify-center rounded-full bg-destructive text-[10px] font-semibold text-destructive-foreground"
+          title={`${c.mentions} mentioning you`}
+        >
+          @
+        </span>
+      ) : c.unread > 0 && !c.readOnly ? (
+        <span className="shrink-0 rounded-full bg-primary px-1.5 text-[10.5px] font-semibold text-primary-foreground tabular-nums">
+          {c.unread}
+        </span>
+      ) : null}
+    </button>
+  )
+}
+
+// NewChannel names a new channel (lowercase, no spaces or #) and opens it.
+export function channelName(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^#+/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+}
+
+function NewChannel({ onDone }: { onDone: (id: string) => void }) {
+  const [name, setName] = useState("")
+  const [error, setError] = useState("")
+  const clean = channelName(name)
+  return (
+    <form
+      className="grid gap-1 px-1 pb-1"
+      onSubmit={async (e) => {
+        e.preventDefault()
+        if (!clean) return
+        try {
+          onDone(await talkApi.createChannel(clean, null))
+        } catch (err) {
+          setError(errorText(err))
+        }
+      }}
+    >
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => e.key === "Escape" && onDone("")}
+        placeholder="channel-name"
+        aria-label="New channel's name"
+        className="rounded-md border border-border bg-card px-2 py-1 text-[12.5px] text-ink outline-none focus:border-primary"
+      />
+      {error && <span className="text-[11px] text-destructive">{error}</span>}
+    </form>
+  )
+}
+
+// NewDm picks a live agent to message; the DM opens (or reopens).
+function NewDm({
+  agents,
+  onDone,
+}: {
+  agents: { key: string; name: string; status: string }[]
+  onDone: (id: string) => void
+}) {
+  const [error, setError] = useState("")
+  const live = agents.filter((a) => a.status !== "gone")
+  return (
+    <div className="grid gap-0.5 rounded-md border border-border bg-card/60 p-1" role="listbox" aria-label="Message an agent">
+      {live.length === 0 && <p className="px-2 py-1 text-[12px] text-muted-foreground">No agents are running.</p>}
+      {live.map((a) => (
+        <button
+          key={a.key}
+          type="button"
+          role="option"
+          aria-selected={false}
+          className="flex items-center gap-2 rounded px-2 py-1 text-left text-[12.5px] text-ink-2 hover:bg-secondary"
+          onClick={async () => {
+            try {
+              onDone(await talkApi.dm({ kind: "agent", key: a.key }))
+            } catch (err) {
+              setError(errorText(err))
+            }
+          }}
+        >
+          <Face who={AgentRef({ key: a.key, name: a.name, status: a.status, live: true })} className="size-4" noHover />
+          <span className="min-w-0 flex-1 truncate">{plainLine(a.name)}</span>
+          <span className="shrink-0 text-[11px] text-muted-foreground">{statusWord(a.status)}</span>
+        </button>
+      ))}
+      {error && <span className="px-2 text-[11px] text-destructive">{error}</span>}
     </div>
   )
 }

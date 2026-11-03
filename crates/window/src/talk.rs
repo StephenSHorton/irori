@@ -173,6 +173,14 @@ impl Window {
         Ok(p.post.post_id)
     }
 
+    /// The person made card `task_id` from post `post_id` (card #390,
+    /// "Make a card"): the post shows the card's chip.
+    pub fn talk_link_card(&self, post_id: &str, task_id: &str) -> Result<(), String> {
+        self.core
+            .talk_link_card(post_id, task_id, &self.me())
+            .map(|_| ())
+    }
+
     /// The person has read `conv` up to post `up_to`.
     pub fn talk_read(&self, conv: &str, up_to: &str) -> Result<(), String> {
         self.core.talk_mark_read(conv, up_to, &self.me())

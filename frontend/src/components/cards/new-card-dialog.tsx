@@ -42,12 +42,15 @@ export function NewCardDialog({
   onClose,
   onMade,
   board,
+  from,
 }: {
   open: boolean
   onClose: () => void
   onMade: (id: string) => void
   // The shared board whose page it was made from; left out: your own.
   board?: BoardSummary
+  // A Talk message it's made from (card #390): the form starts filled.
+  from?: { title: string; objective: string }
 }) {
   const [title, setTitle] = useState("")
   const [objective, setObjective] = useState("")
@@ -61,6 +64,14 @@ export function NewCardDialog({
   const agents = useMentionCandidates(open).filter(
     (c) => c.who.live && !c.board
   )
+
+  // A message's Make a card fills the form as it opens (once per message).
+  const [filled, setFilled] = useState<typeof from>(undefined)
+  if (open && from && filled !== from) {
+    setFilled(from)
+    setTitle(from.title)
+    setObjective(from.objective)
+  }
 
   useEffect(() => {
     if (!open) return

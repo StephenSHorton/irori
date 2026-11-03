@@ -16,6 +16,7 @@ import { NewCardDialog } from "@/components/cards/new-card-dialog"
 import { WindDownDialog } from "@/components/wind-down-dialog"
 import { MessageDialog } from "@/components/cards/message-dialog"
 import { TalkPage, needsYou } from "@/components/talk/talk-page"
+import { talkApi, unreadDms, useConversations } from "@/lib/conversations"
 import { AgentCards } from "@/components/cards/agent-hover"
 import { AskBox } from "@/components/cards/ask-box"
 import { NeedsYou } from "@/components/cards/needs-you"
@@ -45,7 +46,7 @@ import { FocusComment, LiveRoster } from "@/lib/thread"
 import { useNow, useRoster } from "@/lib/irori"
 import { previewFlag } from "@/lib/preview"
 import { onOpen } from "@/lib/settings"
-import { nameLookup, useGone, useHeld, useInbox } from "@/lib/talk"
+import { nameLookup, SystemKey, useGone, useHeld, useInbox } from "@/lib/talk"
 import { UpdateBanner } from "@/updater"
 import { useBoardView } from "@/components/canvas/switch"
 import { BoardHeaderBar, BoardPage } from "@/components/boards/board-page"
@@ -189,10 +190,17 @@ export function App() {
   // Threads (card #116) live on the Talk page (card #390): a new thread
   // from Home's ask box opens there, as does a thread's #ref.
   const { threads: threadList } = useThreads()
+  // Channels and DMs (Talk 1, #389): Talk's list, and its count.
+  const { conversations } = useConversations()
   const startedThread = (id: string) => go({ kind: "talk", id })
   const held = useHeld(heldOpen && heldTab === "history")
   // Home's Needs you (card #261): the agents' messages to the person.
   const inbox = useInbox()
+  // deliveriesNow is the latest inbox, for a notification's Open.
+  const deliveriesNow = useRef(inbox.deliveries)
+  useEffect(() => {
+    deliveriesNow.current = inbox.deliveries
+  }, [inbox.deliveries])
   const name = nameLookup(
     roster.agents.map((a): [string, string] => [a.key, a.name]),
     [...held.held, ...held.history, ...inbox.deliveries].map((d): [string, string] => [
@@ -320,8 +328,10 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey, true)
   }, [open, back])
 
-  // A notification's Open: a task ref opens that card's page; a message
-  // (held, or sent to the person) opens in a dialog over the cards.
+  // A notification's Open: a task ref opens that card's page; a held
+  // message opens the Held list; an agent's message to the person opens
+  // its DM in Talk (card #390; GitHub #8), else, when its sender isn't
+  // known here, the message in a dialog.
   useEffect(
     () =>
       onOpen((target) => {
@@ -335,7 +345,15 @@ export function App() {
           return
         }
         if (target.tab === "inbox" && ref) {
-          setMessage(ref)
+          const from = deliveriesNow.current.find((d) => d.id === ref)?.message.from.key ?? ""
+          if (!from || from.startsWith("user:") || from === SystemKey) {
+            setMessage(ref)
+            return
+          }
+          void talkApi
+            .dm({ kind: "agent", key: from })
+            .then((id) => go({ kind: "talk", id }))
+            .catch(() => setMessage(ref))
           return
         }
         const to = openTarget(ref)
@@ -353,15 +371,11 @@ export function App() {
   // Home is your own cards; a board's live on its page (card #96), and
   // its decisions show on Home as one line per board.
   const boardDecide = cards.filter((c) => c.scope === "board" && c.openBlockers > 0)
-  // Needs you leads Home (card #261): its cards, messages and held ones.
+  // Needs you leads Home (card #261): its cards and held messages. An
+  // agent's message to you is a DM in Talk (card #390).
   const needs = useMemo(
-    () =>
-      needsOf(
-        cards.filter((c) => inScope(c, ScopeOwn)),
-        inbox.deliveries,
-        held.held
-      ),
-    [cards, inbox.deliveries, held.held]
+    () => needsOf(cards.filter((c) => inScope(c, ScopeOwn)), held.held),
+    [cards, held.held]
   )
   const needCards = useMemo(
     () => new Set(needs.filter((n) => n.kind === "check" || n.kind === "decision").map((n) => n.id)),
@@ -501,7 +515,7 @@ export function App() {
       <AppSidebar
         roster={roster}
         held={held.held.length}
-        talk={threadList.filter(needsYou).length}
+        talk={threadList.filter(needsYou).length + unreadDms(conversations)}
         onHeld={() => openHeld("")}
         section={open ? null : section}
         boardsNeedYou={boardDecide.length}
@@ -565,6 +579,8 @@ export function App() {
         ) : section.kind === "talk" ? (
           <TalkPage
             threads={threadList}
+            conversations={conversations}
+            agents={roster.agents.map((a) => ({ key: a.key, name: a.name, status: a.status }))}
             open={section.id}
             onOpen={(id) => go({ kind: "talk", id })}
             now={now}
@@ -623,7 +639,6 @@ export function App() {
                 now={now}
                 name={name}
                 onOpenCard={openCard}
-                onOpenMessage={setMessage}
               />
             }
             rows
