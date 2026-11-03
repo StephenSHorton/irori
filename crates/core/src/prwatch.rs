@@ -44,7 +44,11 @@ impl PrChecker for GhChecker {
             c.error = "gh (the GitHub CLI) isn't installed here, so Irori can't see whether this PR is merged: https://cli.github.com".into();
             return c;
         };
-        match run_gh(&gh, url) {
+        match run_gh(
+            &gh,
+            &["pr", "view", url, "--json", "state,mergedAt,reviewDecision"],
+            "gh couldn't read this PR",
+        ) {
             Ok(v) => {
                 c.state = v["state"].as_str().unwrap_or_default().to_string();
                 c.review = v["reviewDecision"].as_str().unwrap_or_default().to_string();
@@ -61,7 +65,7 @@ impl PrChecker for GhChecker {
     }
 }
 
-fn gh_path() -> Option<PathBuf> {
+pub(crate) fn gh_path() -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     let name = if cfg!(windows) { "gh.exe" } else { "gh" };
     std::env::split_paths(&path)
@@ -70,7 +74,10 @@ fn gh_path() -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-fn run_gh(gh: &PathBuf, url: &str) -> Result<serde_json::Value, String> {
+/// Runs the person's `gh` with `args` (prompts off, no console window, a
+/// timeout) and parses its JSON answer; a failure is `fail: <gh's first
+/// error line>`.
+pub(crate) fn run_gh(gh: &PathBuf, args: &[&str], fail: &str) -> Result<serde_json::Value, String> {
     let mut cmd = Command::new(gh);
     #[cfg(windows)]
     {
@@ -80,7 +87,7 @@ fn run_gh(gh: &PathBuf, url: &str) -> Result<serde_json::Value, String> {
         cmd.creation_flags(0x0800_0000);
     }
     let mut child = cmd
-        .args(["pr", "view", url, "--json", "state,mergedAt,reviewDecision"])
+        .args(args)
         .env("GH_PROMPT_DISABLED", "1")
         .env("NO_COLOR", "1")
         .stdin(Stdio::null())
@@ -88,10 +95,23 @@ fn run_gh(gh: &PathBuf, url: &str) -> Result<serde_json::Value, String> {
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("couldn't run gh: {e}"))?;
+    // Read both pipes while gh runs: a long answer (desk lists, card #415)
+    // would otherwise fill the pipe and stall gh until the timeout.
+    let drain = |p: Option<Box<dyn std::io::Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut p) = p {
+                let _ = p.read_to_end(&mut buf);
+            }
+            buf
+        })
+    };
+    let stdout = drain(child.stdout.take().map(|p| Box::new(p) as _));
+    let stderr = drain(child.stderr.take().map(|p| Box::new(p) as _));
     let start = Instant::now();
-    loop {
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(_)) => break,
+            Ok(Some(st)) => break st,
             Ok(None) if start.elapsed() > GH_TIMEOUT => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -100,17 +120,18 @@ fn run_gh(gh: &PathBuf, url: &str) -> Result<serde_json::Value, String> {
             Ok(None) => std::thread::sleep(Duration::from_millis(100)),
             Err(e) => return Err(format!("gh: {e}")),
         }
-    }
-    let out = child.wait_with_output().map_err(|e| format!("gh: {e}"))?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
+    };
+    let out_stdout = stdout.join().unwrap_or_default();
+    let out_stderr = stderr.join().unwrap_or_default();
+    if !status.success() {
+        let err = String::from_utf8_lossy(&out_stderr);
         let line = err
             .lines()
             .find(|l| !l.trim().is_empty())
             .unwrap_or("gh failed");
-        return Err(format!("gh couldn't read this PR: {}", line.trim()));
+        return Err(format!("{fail}: {}", line.trim()));
     }
-    serde_json::from_slice(&out.stdout).map_err(|e| format!("gh's answer isn't JSON: {e}"))
+    serde_json::from_slice(&out_stdout).map_err(|e| format!("gh's answer isn't JSON: {e}"))
 }
 
 /// When each PR was last asked about, by `taskId\x00url`.

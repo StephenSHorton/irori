@@ -38,6 +38,7 @@
 pub mod agentnames;
 mod answering;
 pub mod attachments;
+pub mod deskwatch;
 pub mod devices;
 pub mod diag;
 pub mod events;

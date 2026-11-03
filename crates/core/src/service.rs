@@ -128,6 +128,9 @@ pub struct Options {
     /// (card #208): the app passes [`crate::prwatch::GhChecker`]; `None`
     /// asks nobody (tests pass a fake when they want it).
     pub pr_checker: Option<Arc<dyn crate::prwatch::PrChecker>>,
+    /// Lists a merge desk's open PRs on GitHub (card #415): the app passes
+    /// [`crate::deskwatch::GhLister`]; `None` polls no desk.
+    pub desk_lister: Option<Arc<dyn crate::deskwatch::PrLister>>,
 }
 
 /// Go `core.ErrNoHomeServer`'s text.
@@ -223,6 +226,9 @@ struct Services {
     /// Card #208: who asks GitHub about PRs, and when each was last asked.
     pr_checker: Option<Arc<dyn crate::prwatch::PrChecker>>,
     pr_watch: crate::prwatch::PrWatch,
+    /// Card #415: who lists merge desks' PRs, and each desk's polling.
+    desk_lister: Option<Arc<dyn crate::deskwatch::PrLister>>,
+    desk_watch: crate::deskwatch::DeskWatch,
     members: Arc<Members>,
     names_kick: Arc<Kick>,
     /// This device's agents that stopped answering their wakes (#110).
@@ -1109,6 +1115,8 @@ impl Core {
             agent_names,
             pr_checker: opts.pr_checker.clone(),
             pr_watch: Default::default(),
+            desk_lister: opts.desk_lister.clone(),
+            desk_watch: Default::default(),
             members,
             names_kick: Kick::new(),
             answering,
@@ -1561,6 +1569,20 @@ impl Core {
                         return;
                     }
                     s.check_prs();
+                }
+            });
+        }
+
+        // Merge desks' PR lists (card #415).
+        if s.desk_lister.is_some() {
+            let s = s.clone();
+            let stop = self.stop.clone();
+            self.spawn("desks", move || {
+                loop {
+                    s.check_desks();
+                    if stop.sleep(crate::deskwatch::DESK_TICK) {
+                        return;
+                    }
                 }
             });
         }
@@ -2055,6 +2077,26 @@ impl Core {
     /// Core's own loop does every [`crate::prwatch::TICK`].
     pub fn check_prs(&self) {
         self.s.check_prs()
+    }
+
+    /// Polls the merge desks this device polls that are due now (card
+    /// #415); the Core's own loop does every [`crate::deskwatch::DESK_TICK`].
+    pub fn check_desks(&self) {
+        self.s.check_desks()
+    }
+
+    /// Polls one desk's PR list now, whatever its cadence (after a desk
+    /// event: a merge, a hold, a settings change). Whether a snapshot row
+    /// was written; an error when this device doesn't poll it or GitHub
+    /// couldn't be asked.
+    pub fn poll_desk(&self, repo_key: &str) -> Result<bool, String> {
+        self.s.poll_desk(repo_key)
+    }
+
+    /// How polling `repo_key`'s desk stands on this device: the last poll,
+    /// and since when GitHub has been unreachable.
+    pub fn desk_poll(&self, repo_key: &str) -> crate::deskwatch::DeskPoll {
+        self.s.desk_watch.poll(repo_key)
     }
 
     /// The inbox sweep (every [`inbox::SWEEP_INTERVAL`]).
@@ -2673,6 +2715,76 @@ impl Services {
                     }
                 }
                 Err(e) => logf(format_args!("pr {} on {}: {e}", d.url, d.task_id)),
+            }
+        }
+    }
+
+    /// The desks this device polls: enabled, taking PRs, on GitHub, and
+    /// naming this device as `pollDevice`.
+    fn polled_desks(&self) -> Vec<coord::Desk> {
+        self.coord
+            .desks()
+            .into_iter()
+            .filter(|d| {
+                d.on()
+                    && d.settings.poll_device == self.device.id
+                    && coord::github_repo(&d.settings.repo_key).is_some()
+            })
+            .collect()
+    }
+
+    fn check_desks(self: &Arc<Self>) {
+        if self.desk_lister.is_none() {
+            return;
+        }
+        let now = std::time::Instant::now();
+        for d in self.polled_desks() {
+            let k = d.settings.repo_key;
+            if !self.desk_watch.due(&k, now) {
+                continue;
+            }
+            if let Err(e) = self.poll_desk(&k) {
+                logf(format_args!("desk {k}: {e}"));
+            }
+        }
+    }
+
+    fn poll_desk(self: &Arc<Self>, repo_key: &str) -> Result<bool, String> {
+        let Some(lister) = self.desk_lister.clone() else {
+            return Err("this Irori polls no merge desk".into());
+        };
+        if !self
+            .polled_desks()
+            .iter()
+            .any(|d| d.settings.repo_key == repo_key)
+        {
+            return Err(format!("this device doesn't poll {repo_key}'s merge desk"));
+        }
+        let repo = coord::github_repo(repo_key).unwrap_or_default();
+        let limit = crate::deskwatch::LIMIT;
+        let heard = lister.list(&repo, limit);
+        let at = gocompat::time::GoTime::from_system(std::time::SystemTime::now()).utc();
+        let now = std::time::Instant::now();
+        match heard {
+            Ok(prs) => {
+                let truncated = prs.len() >= limit;
+                let wrote = self
+                    .coord
+                    .record_desk_prs(repo_key, prs, truncated)
+                    .map_err(|e| e.to_string());
+                self.desk_watch.heard(
+                    repo_key,
+                    wrote.as_ref().map(|_| ()).map_err(|e| e.clone()),
+                    now,
+                    at,
+                );
+                wrote
+            }
+            Err(e) => {
+                // The previous snapshot stays: the queue never reads empty
+                // because GitHub couldn't be asked.
+                self.desk_watch.heard(repo_key, Err(e.clone()), now, at);
+                Err(e)
             }
         }
     }

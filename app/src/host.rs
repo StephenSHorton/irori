@@ -83,6 +83,8 @@ pub fn options(
         notifier,
         // Card #208: ask GitHub (the person's own gh) about linked PRs.
         pr_checker: Some(Arc::new(irori_core::prwatch::GhChecker)),
+        // Card #415: list the open PRs of the merge desks this device polls.
+        desk_lister: Some(Arc::new(irori_core::deskwatch::GhLister)),
         ..Options::default()
     };
     if offline() {
@@ -92,6 +94,7 @@ pub fn options(
         opts.pair_net = Some(irori_core::offline::offline_net());
         opts.no_home = true;
         opts.pr_checker = None;
+        opts.desk_lister = None;
     }
     Ok(opts)
 }
