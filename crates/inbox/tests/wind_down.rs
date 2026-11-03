@@ -203,7 +203,8 @@ fn a_reply_to_a_wind_down_stop_stays_out_too() {
             },
         )
         .unwrap();
-    h.ib.reply(&claude(KEY_B, "beta"), &d.id, "wound down").unwrap();
+    h.ib.reply(&claude(KEY_B, "beta"), &d.id, "wound down")
+        .unwrap();
     assert_eq!(h.want_state(&d.id, st::ANSWERED).note, "wound down");
     assert_eq!(reaches_person(&h).0, 0);
 }

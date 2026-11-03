@@ -69,6 +69,9 @@ fn a_straggler_stop_is_followed_and_kept_out_too() {
     .unwrap();
     let st = r.w.wind_down_status();
     let x = st.rows.iter().find(|x| x.key == r.key_b).unwrap();
-    assert_eq!((x.state.as_str(), x.reply.as_str()), (row::DONE, "wound down"));
+    assert_eq!(
+        (x.state.as_str(), x.reply.as_str()),
+        (row::DONE, "wound down")
+    );
     assert!(ib.for_agent(&me, true, 0).is_empty());
 }
