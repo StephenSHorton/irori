@@ -150,6 +150,14 @@ pub(crate) fn reply(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Ok(v) => v,
         Err(e) => return map_err(e),
     };
+    // A reply to the person's wind-down (card #307) sends no message: it
+    // answers the delivery and shows only in their Wind down dialog.
+    if inbox::is_wind_down(&m) {
+        return format!(
+            "Answered the wind-down (delivery {} now answered). Your reply shows in the person's Wind down dialog, not as a message. Now stop: start nothing else.",
+            one_line(id, 80),
+        );
+    }
     let mline = s.message_mentions(c, &m, &d, &res);
     // A reply keeps the Ref of the message it answers.
     let mut rec = s.recorded(&m, &d.to, held_on_card(ib, &d));

@@ -52,7 +52,7 @@ pub use bridge::{
     receive_decision, row_kind, threads_mode,
 };
 pub use edit::{EditState, editing};
-pub use fence::{batch, fence, fence_prompt};
+pub use fence::{batch, fence, fence_prompt, is_wind_down};
 pub use ids::IdGen;
 pub use messages::clip_show;
 pub use pr::normalize_pr;

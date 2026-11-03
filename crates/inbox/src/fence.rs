@@ -31,13 +31,13 @@ pub(crate) fn is_offer(reason: &str) -> bool {
 
 /// The person's Wind down all (card #220): reason wind_down, typed by the
 /// person (trust user).
-pub(crate) fn is_wind_down(m: &crate::Message) -> bool {
+pub fn is_wind_down(m: &crate::Message) -> bool {
     m.reason == crate::REASON_WIND_DOWN && m.trust == crate::trust::USER
 }
 
 /// What a wind-down asks of every agent, in the same words for all of them
 /// (docs/design/wind-down.md §1).
-pub(crate) const WIND_DOWN_HOW: &str = "A message marked wind_down=\"true\" is the person winding you down (ending the day or switching accounts). Finish the step in hand to a safe point, start nothing new, then: (1) commit and push your work in progress; (2) on each card you hold, tick your current step with left_off and post a hand-off comment (what's done, the branch and sha, what's next); (3) board_leave each card so it goes back unheld; (4) release your leases and cancel your waits; (5) reply to the wind-down with \"wound down\" and the cards you left. Then stop: do nothing else until the person resumes you.\n";
+pub(crate) const WIND_DOWN_HOW: &str = "A message marked wind_down=\"true\" is the person winding you down (ending the day or switching accounts). Finish the step in hand to a safe point, start nothing new, then: (1) commit and push your work in progress; (2) on each card you hold, tick your current step with left_off and post a hand-off comment (what's done, the branch and sha, what's next); (3) board_leave each card so it goes back unheld; (4) release your leases and cancel your waits; (5) reply to the wind-down with \"wound down\" and the cards you left (it shows in the person's Wind down dialog, not their messages). Then stop: do nothing else until the person resumes you.\n";
 
 /// Neutralizes what could break out of a fence or pose as a token; the
 /// matched text keeps its case.

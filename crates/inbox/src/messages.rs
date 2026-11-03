@@ -456,6 +456,20 @@ impl Inbox {
                     "inbox: only the person may stop an agent (mode stop)",
                 ));
             }
+            // A reply to the person's wind-down (card #307) is for the Wind
+            // down dialog only: it answers the delivery and keeps its text
+            // there, and sends nothing back, so the person gets no message,
+            // notification or unread count per agent. It returns the
+            // wind-down itself and the answered delivery.
+            if crate::fence::is_wind_down(&orig) {
+                let mut r = b.dels[did].row();
+                r.state = st::ANSWERED.into();
+                r.until = GoTime::ZERO;
+                r.note = clip(text, MAX_NOTE);
+                b.put_delivery(r, &from.key)?;
+                let d = b.copy_out(&b.dels[did]);
+                return Ok((orig, d));
+            }
             let o = SendOptions {
                 mode: md.into(),
                 ref_: orig.ref_.clone(),

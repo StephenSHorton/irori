@@ -68,8 +68,6 @@ pub struct WindDownStatus {
 #[derive(Debug, Default)]
 pub(crate) struct Run {
     st: WindDownStatus,
-    /// The wind-down message per row (its reply names it).
-    msgs: Vec<String>,
 }
 
 pub(crate) type RunSlot = Mutex<Option<Run>>;
@@ -128,7 +126,6 @@ impl Window {
                 pause_after,
                 ..WindDownStatus::default()
             },
-            msgs: Vec::new(),
         };
         for a in agents {
             let to = self.core.private_key(&a.key);
@@ -151,15 +148,13 @@ impl Window {
                 WIND_DOWN_TEXT,
                 o,
             ) {
-                Ok((m, d)) => {
+                Ok((_, d)) => {
                     r.delivery_id = d.id;
                     r.state = row_state(&d.state).into();
-                    run.msgs.push(m.id);
                 }
                 Err(e) => {
                     r.state = row::NO_ANSWER.into();
                     r.error = e.to_string();
-                    run.msgs.push(String::new());
                 }
             }
             run.st.rows.push(r);
@@ -175,13 +170,11 @@ impl Window {
     /// deliveries. Turns Pause all on once it finished, if asked (once).
     pub fn wind_down_status(&self) -> WindDownStatus {
         let ib = self.core.inbox();
-        let me = self.core.user_sender().key;
         let mut slot = self.wind_down.lock().unwrap_or_else(|e| e.into_inner());
         let Some(run) = slot.as_mut() else {
             return WindDownStatus::default();
         };
-        let mut replies: Option<Vec<::inbox::Delivery>> = None;
-        for (r, mid) in run.st.rows.iter_mut().zip(run.msgs.iter()) {
+        for r in run.st.rows.iter_mut() {
             if r.delivery_id.is_empty() {
                 continue;
             }
@@ -189,12 +182,10 @@ impl Window {
                 continue;
             };
             r.state = row_state(&d.state).into();
-            if r.state == row::DONE && r.reply.is_empty() {
-                let rs =
-                    replies.get_or_insert_with(|| ib.for_agent(&me, true, crate::inbox::MAX_LIST));
-                if let Some(x) = rs.iter().find(|x| x.message.reply_to == *mid) {
-                    r.reply = x.message.text.clone();
-                }
+            // The agent's "wound down" is kept on the wind-down's own
+            // delivery (card #307), never sent to the person as a message.
+            if r.state == row::DONE {
+                r.reply = d.note.clone();
             }
         }
         run.st.finished = finished(&run.st.rows);
@@ -223,8 +214,41 @@ impl Window {
 
     /// Stop on a straggler's row: cuts its running turn with the
     /// wind-down's steps.
+    /// The Stop is itself a wind-down (mode stop, reason wind_down, card
+    /// #307), so its "wound down" reply also stays out of the person's
+    /// messages; the row follows it from then on.
     pub fn wind_down_stop(&self, key: &str) -> Result<(), String> {
-        self.agent_stop(key, WIND_DOWN_STOP_TEXT)
+        let key = crate::trim(key);
+        if key.is_empty() {
+            return Err("stop whom? no agent key".into());
+        }
+        let to = self.core.private_key(key);
+        let (_, d) = self
+            .core
+            .inbox()
+            .send_with(
+                &self.core.user_sender(),
+                &::inbox::Address::new(::inbox::addr::AGENT, &to),
+                WIND_DOWN_STOP_TEXT,
+                ::inbox::SendOptions {
+                    mode: ::inbox::mode::STOP.into(),
+                    reason: ::inbox::REASON_WIND_DOWN.into(),
+                    ..::inbox::SendOptions::default()
+                },
+            )
+            .map_err(|e| e.to_string())?;
+        if let Some(run) = self
+            .wind_down
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+            && let Some(r) = run.st.rows.iter_mut().find(|r| r.key == to)
+        {
+            r.delivery_id = d.id;
+            r.state = row_state(&d.state).into();
+            r.error.clear();
+        }
+        Ok(())
     }
 }
 

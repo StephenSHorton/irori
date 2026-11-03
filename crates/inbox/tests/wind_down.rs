@@ -135,3 +135,86 @@ fn wind_down_appends_under_pause_all_and_nothing_else_does() {
     assert_eq!(a.delivery_ids, vec![d.id]);
     assert!(h.ib.next_append(KEY_B).unwrap().is_none());
 }
+
+/// Counts what the card watcher would toast.
+#[derive(Default)]
+struct Toasts(Vec<String>);
+
+impl inbox::watch::Sink for Toasts {
+    fn post(&mut self, note: inbox::watch::Note) {
+        self.0.push(note.id);
+    }
+    fn clear(&mut self, _: &str) {}
+    fn live(&self, _: &str) -> bool {
+        false
+    }
+}
+
+/// What reaches the person: their inbox (open or answered), its unread
+/// count, and the watcher's toasts.
+fn reaches_person(h: &Harness) -> (usize, usize, Vec<String>) {
+    let all = h.ib.for_agent(USER, true, 0);
+    let unread = all
+        .iter()
+        .filter(|d| d.state == st::QUEUED || d.state == st::DELIVERED)
+        .count();
+    let mut w = inbox::watch::Watcher::new(USER, None, None);
+    let mut t = Toasts::default();
+    w.start(&*h.ib, &mut t);
+    w.reconcile(&*h.ib, &mut t, true);
+    (all.len(), unread, t.0)
+}
+
+#[test]
+fn a_reply_to_a_wind_down_stays_out_of_the_persons_messages() {
+    let h = Harness::new();
+    h.abc();
+    let (_, d) =
+        h.ib.send_with(&person(), &to("beta"), "wind down", wind_down())
+            .unwrap();
+    h.wake(KEY_B);
+    let beta = claude(KEY_B, "beta");
+    let (m, nd) =
+        h.ib.reply(&beta, &d.id, "wound down; left #307 (salvia/307 @ abc123)")
+            .unwrap();
+    assert!(inbox::is_wind_down(&m), "the wind-down itself comes back");
+    assert_eq!(nd.id, d.id, "no new delivery");
+    let got = h.want_state(&d.id, st::ANSWERED);
+    assert_eq!(got.note, "wound down; left #307 (salvia/307 @ abc123)");
+    let (n, unread, toasts) = reaches_person(&h);
+    assert_eq!((n, unread), (0, 0), "nothing in the person's inbox");
+    assert!(toasts.is_empty(), "no notification: {toasts:?}");
+    // Answered once: a second reply is refused like any answered delivery.
+    assert!(h.ib.reply(&beta, &d.id, "again").is_err());
+}
+
+#[test]
+fn a_reply_to_a_wind_down_stop_stays_out_too() {
+    let h = Harness::new();
+    h.abc();
+    let (_, d) =
+        h.ib.send_with(
+            &person(),
+            &to("beta"),
+            "wind down now",
+            SendOptions {
+                mode: mode::STOP.into(),
+                ..wind_down()
+            },
+        )
+        .unwrap();
+    h.ib.reply(&claude(KEY_B, "beta"), &d.id, "wound down").unwrap();
+    assert_eq!(h.want_state(&d.id, st::ANSWERED).note, "wound down");
+    assert_eq!(reaches_person(&h).0, 0);
+}
+
+#[test]
+fn an_ordinary_reply_still_reaches_the_person() {
+    let h = Harness::new();
+    h.abc();
+    let (_, d) = h.send(&person(), &to("beta"), "how is it going?");
+    h.ib.reply(&claude(KEY_B, "beta"), &d.id, "fine").unwrap();
+    let (n, unread, toasts) = reaches_person(&h);
+    assert_eq!((n, unread), (1, 1));
+    assert_eq!(toasts.len(), 1, "{toasts:?}");
+}
