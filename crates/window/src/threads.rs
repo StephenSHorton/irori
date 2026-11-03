@@ -64,6 +64,9 @@ pub struct ThreadSummary {
     /// A private thread about a shared board (card #185): in your own log,
     /// heard only by your agents, never on other members' devices.
     pub private: bool,
+    /// Its "Agents answer now" (card #391): off, no agent is woken or
+    /// handed it, and its agents read it at their next turn.
+    pub agents_now: bool,
 }
 
 /// What a #ref in text names (card #144): a card or a thread, live or
@@ -134,11 +137,25 @@ impl Window {
         files: &[UploadFile],
         board_id: &str,
     ) -> Result<TaskResult, String> {
+        self.start_thread_with(text, mentions, files, board_id, None)
+    }
+
+    /// [`Self::start_thread`] with the composer's "Agents answer now" (card
+    /// #391); none: the default for its mentions.
+    pub fn start_thread_with(
+        &self,
+        text: &str,
+        mentions: &[ts::Mention],
+        files: &[UploadFile],
+        board_id: &str,
+        agents_now: Option<bool>,
+    ) -> Result<TaskResult, String> {
+        let quiet = !agents_now.unwrap_or_else(|| agents_now_default(mentions));
         let board_id = crate::trim(board_id);
         let private = !board_id.is_empty()
             && self.core.inbox().threads_mode(board_id) == inbox::threads_mode::PRIVATE;
         let (t, n) = if private {
-            self.private_board_thread(text, mentions, files, board_id)?
+            self.private_board_thread(text, mentions, files, board_id, quiet)?
         } else if board_id.is_empty() {
             let plan = self.plan_mentions("", mentions);
             let refs = self.store_uploads(files)?;
@@ -151,6 +168,7 @@ impl Window {
                         mentions: plan.log.clone(),
                         files: refs.iter().map(crate::coord_ref).collect(),
                         thread: true,
+                        quiet,
                         ..Default::default()
                     },
                     &self.core.ask_agents(),
@@ -172,6 +190,7 @@ impl Window {
                         // agents, or this person's own agents on the board.
                         mentions: self.plan_mentions_on(board_id, mentions).log,
                         thread: true,
+                        quiet,
                         ..Default::default()
                     },
                 )
@@ -180,7 +199,12 @@ impl Window {
         let mut told = Told::default();
         if !n.to.is_empty() {
             told.to = n.to.iter().map(|k| self.core.private_key(k)).collect();
-            told.mode = inbox::mode::WAKE.into();
+            told.mode = if n.wake {
+                inbox::mode::WAKE
+            } else {
+                inbox::mode::NEXT_TURN
+            }
+            .into();
             let from = if n.person {
                 self.core.user_sender()
             } else {
@@ -208,6 +232,7 @@ impl Window {
         mentions: &[ts::Mention],
         files: &[UploadFile],
         board_id: &str,
+        quiet: bool,
     ) -> Result<(Task, coord::Notice), String> {
         let bc = self.core.board_coord(board_id).map_err(|e| e.to_string())?;
         let theirs = |k: &str| {
@@ -259,6 +284,7 @@ impl Window {
                     files: refs.iter().map(crate::coord_ref).collect(),
                     thread: true,
                     board: board_id.into(),
+                    quiet,
                     ..Default::default()
                 },
                 &self.core.ask_agents(),
@@ -354,6 +380,7 @@ impl Window {
                 at: t.created_at,
                 updated_at: t.updated_at,
                 private,
+                agents_now: t.ask.as_ref().is_some_and(|a| a.wake),
             };
             if resolved {
                 done.push(s);
@@ -380,6 +407,16 @@ impl Window {
             .map_err(|e| e.to_string())
     }
 
+    /// A person turns an open thread's "Agents answer now" on or off (card
+    /// #391).
+    pub fn set_agents_now(&self, id: &str, on: bool) -> Result<(), String> {
+        let id = crate::trim(id);
+        let (co, keys) = self.on(id, &[])?;
+        co.set_agents_now(&keys[0], id, on)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
     /// BoardService.ResolveThread: the person is done with it.
     pub fn resolve_thread(&self, id: &str) -> Result<(), String> {
         let id = crate::trim(id);
@@ -388,4 +425,19 @@ impl Window {
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
+}
+
+/// "Agents answer now"'s default for a composer's mentions (card #391):
+/// off when they name only people (another member, `person:<id>`), on when
+/// they name nobody or an agent.
+pub fn agents_now_default(mentions: &[ts::Mention]) -> bool {
+    let ms: Vec<coord::Mention> = mentions
+        .iter()
+        .map(|m| coord::Mention {
+            key: crate::trim(&m.key).to_string(),
+            ..coord::Mention::default()
+        })
+        .filter(|m| !m.key.is_empty() && m.key != "irori")
+        .collect();
+    coord::agents_now_default(&ms)
 }

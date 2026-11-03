@@ -346,14 +346,22 @@ impl Services {
         let (refs, short, objective) = (t.refs(), t.short_ref(), t.objective.clone());
         if a.thread {
             // A board thread (card #134): the agents on the cards it names
-            // hear it first, woken, while it is young.
+            // hear it first, woken, while it is young. With "Agents answer
+            // now" off (card #391) they read it at their next turn.
+            let agents_now = a.wake;
             return Some(Plan {
                 kind: row_kind::ASK,
                 card_id: String::new(),
                 to: f.heard,
                 row: format!("ask:{}@{}", t.id, f.since),
-                wake: young,
+                wake: young && agents_now,
                 text: Box::new(move |name| {
+                    if !agents_now {
+                        return format!(
+                            "{name} started a thread on this board ({refs}). It's a conversation, not a card:\n{objective}\nYou see it because it names your card or you. \"Agents answer now\" is off for it, so no agent was woken or handed it. A reply is optional: answer in the thread with board_comment {short} only if you have something to add or a correction. {}",
+                            coord::THREAD_NOT_YOURS
+                        );
+                    }
                     format!(
                         "{name} started a thread on this board ({refs}). It's a question or a conversation, not a card:\n{objective}\nYou hear it first because it names your card or you. If you can answer, answer in the thread with board_comment {short}; if it isn't about your work, leave it. If no agent answers within {}s, Irori hands it to one idle agent. {}",
                         coord::THREAD_QUIET.as_secs(),

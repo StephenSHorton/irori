@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
+import { agentsNowDefault } from "./agents-now"
 import { BoardService, Browser, Events } from "./host"
 import { checkUploads, uploadOf } from "./uploads"
 import {
@@ -219,6 +220,9 @@ const sampleThreadIds = new Set<string>()
 const sampleThreadState = new Map<string, string>()
 // sampleThreadBoard is the shared board a sample thread was started on.
 const sampleThreadBoard = new Map<string, string>()
+// sampleThreadAgentsNow is a sample thread's "Agents answer now" (card
+// #391) once it differs from on.
+const sampleThreadAgentsNow = new Map<string, boolean>()
 
 // sampleThread is one of the sample's threads.
 function sampleThread(
@@ -362,6 +366,7 @@ function sampleThreads(boardId = ""): ThreadSummary[] {
           : [],
       at: c.updatedAt,
       updatedAt: last?.at ?? c.updatedAt,
+      agentsNow: sampleThreadAgentsNow.get(c.id) ?? true,
     })
   })
   const t = (s: ThreadSummary) => Date.parse(s.updatedAt) || 0
@@ -390,16 +395,19 @@ export const threads = {
   // 45s with no answer, one idle agent gets it.
   // files (picked, dropped or pasted) go on it as an ask's do (card
   // #124). boardId starts it on that shared board (card #134): no
-  // mentions or files there.
+  // mentions or files there. agentsNow is the box's "Agents answer now"
+  // (card #391); null: the default for its mentions.
   async start(
     text: string,
     mentions: Mention[] = [],
     files: File[] = [],
-    boardId = ""
+    boardId = "",
+    agentsNow: boolean | null = null
   ): Promise<TaskResult> {
     checkUploads(files)
     if (inWails()) {
-      if (!files.length) return BoardService.StartThread(text, mentions, boardId)
+      if (!files.length)
+        return BoardService.StartThread(text, mentions, boardId, agentsNow)
       if (boardId)
         throw new Error(
           "files go with a thread on your own board only; on a shared board, attach them on a card"
@@ -407,7 +415,8 @@ export const threads = {
       return BoardService.StartThreadWithFiles(
         text,
         mentions,
-        await Promise.all(files.map(uploadOf))
+        await Promise.all(files.map(uploadOf)),
+        agentsNow
       )
     }
     const t = text.trim()
@@ -427,11 +436,20 @@ export const threads = {
       ...cs,
     ]
     if (boardId) sampleThreadBoard.set(id, boardId)
+    sampleThreadAgentsNow.set(id, agentsNow ?? agentsNowDefault(mentions))
     sampleChanged()
     return TaskResult({
       task: { id } as TaskResult["task"],
       told: Told({ to: [], mode: "wake" }),
     })
+  },
+
+  // setAgentsNow turns an open thread's "Agents answer now" on or off
+  // (card #391).
+  async setAgentsNow(id: string, on: boolean): Promise<void> {
+    if (inWails()) return BoardService.ThreadAgentsNow(id, on)
+    sampleThreadAgentsNow.set(id, on)
+    sampleChanged()
   },
 
   async resolve(id: string): Promise<void> {

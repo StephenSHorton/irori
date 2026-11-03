@@ -506,7 +506,7 @@ export function SummaryMember(p: Partial<B.SummaryMember> = {}): B.SummaryMember
 
 /** TalkConversation with Go's zero values for every field left out. */
 export function TalkConversation(p: Partial<B.TalkConversation> = {}): B.TalkConversation {
-  return { "convId": "", "kind": "", "name": "", "unread": 0, "mentions": 0, "members": [], "lastAt": "", "readOnly": false, ...p } as B.TalkConversation
+  return { "convId": "", "kind": "", "name": "", "unread": 0, "mentions": 0, "members": [], "lastAt": "", "readOnly": false, "agentsNow": false, ...p } as B.TalkConversation
 }
 
 /** TalkMember with Go's zero values for every field left out. */
@@ -546,7 +546,7 @@ export function ThreadCard(p: Partial<B.ThreadCard> = {}): B.ThreadCard {
 
 /** ThreadSummary with Go's zero values for every field left out. */
 export function ThreadSummary(p: Partial<B.ThreadSummary> = {}): B.ThreadSummary {
-  return { "id": "", "short": "", "title": "", "text": "", "state": "", "told": [], "answeredBy": [], "replies": 0, "cards": [], "at": "", "updatedAt": "", "private": false, ...p } as B.ThreadSummary
+  return { "id": "", "short": "", "title": "", "text": "", "state": "", "told": [], "answeredBy": [], "replies": 0, "cards": [], "at": "", "updatedAt": "", "private": false, "agentsNow": false, ...p } as B.ThreadSummary
 }
 
 /** Told with Go's zero values for every field left out. */

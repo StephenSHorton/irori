@@ -67,6 +67,9 @@ pub struct Conversation {
     pub read_only: bool,
     /// A thread's short ref (`#12`), for agents.
     pub short: String,
+    /// A thread's "Agents answer now" (card #391); false for a channel or
+    /// DM, whose posts each carry their own.
+    pub agents_now: bool,
 }
 
 /// What a post came to.
@@ -374,6 +377,7 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
             last_at: last_at(&ps),
             joined: on || person,
             short: t.short.clone(),
+            agents_now: t.ask.as_ref().is_some_and(|a| a.wake),
             ..Conversation::default()
         });
     }
@@ -597,9 +601,89 @@ pub fn post(
             let _ = talk.join(&conv, &Member::of(k), &by);
         }
     }
-    out.told = tell_mentions(b, from, &p, &live, "", &title);
+    // "Agents answer now" (card #391): on, the agents it names are woken;
+    // off, nobody is. Every other agent in it reads it at its next turn.
+    let woken: Vec<String> = if agents_now { live.clone() } else { Vec::new() };
+    out.told = tell_mentions(b, from, &p, &woken, "", &title);
+    out.told
+        .extend(tell_readers(b, talk, from, &p, &woken, &title, agents_now));
     out.post = p;
     Ok(out)
+}
+
+/// The next-turn reading of a channel or DM post (card #391,
+/// docs/design/talk-channels.md §3): each agent in `p`'s conversation,
+/// but its author and the `woken`, hears what it hasn't read there (after
+/// its read cursor and its own last post): at most
+/// [`coord::READING_LINES`] lines and a count, a reply optional. A newer
+/// reading replaces one still waiting.
+fn tell_readers(
+    b: &dyn Backend,
+    talk: &Talk,
+    from: &Sender,
+    p: &Post,
+    woken: &[String],
+    where_: &str,
+    agents_now: bool,
+) -> Vec<NoticeResult> {
+    let conv = &p.conv_id;
+    let posts = talk.posts(conv);
+    let names = Book::new(b);
+    let mut out = Vec::new();
+    for m in talk.members(conv) {
+        let k = &m.key;
+        if m.kind != ct::AGENT
+            || ct::canon(k) == ct::canon(&p.by)
+            || woken.iter().any(|w| ct::canon(w) == ct::canon(k))
+        {
+            continue;
+        }
+        let after = ct::since(&posts, talk.cursor(k, conv).as_deref());
+        // What it wrote, it has read.
+        let from_i = after
+            .iter()
+            .rposition(|q| ct::canon(&q.by) == ct::canon(k))
+            .map_or(0, |i| i + 1);
+        let unread = &after[from_i..];
+        if unread.is_empty() {
+            continue;
+        }
+        let n = unread.len();
+        let mut text = format!(
+            "Since you last read {where_} (Talk, conv={conv}): {n} new post{}",
+            if n == 1 { "" } else { "s" }
+        );
+        if n > coord::READING_LINES {
+            text.push_str(&format!(", the last {} below", coord::READING_LINES));
+        }
+        text.push_str(".\n");
+        for q in &unread[n.saturating_sub(coord::READING_LINES)..] {
+            let who = if ct::is_person_key(&q.by) {
+                "the person".to_string()
+            } else {
+                one_line(&names.name(&q.by), 80)
+            };
+            text.push_str(&format!("- {who}: {}\n", one_line(&q.text, 200)));
+        }
+        if !agents_now {
+            text.push_str("\"Agents answer now\" was off for it, so nobody was woken. ");
+        }
+        text.push_str(&format!(
+            "A reply is optional: answer with talk_post conv={conv} only if you have something to add or a correction. talk_read conv={conv} shows the rest.\n"
+        ));
+        let n = Notice {
+            kind: coord::NOTICE_READING.into(),
+            reference: format!("talk:{conv}"),
+            title: where_.into(),
+            to: vec![k.clone()],
+            by: from.key.clone(),
+            text,
+            wake: false,
+            ..Notice::default()
+        };
+        out.extend(crate::notice::route_notice(b.inbox(), from, &n));
+    }
+    out
 }
 
 /// Wakes the agents a post mentions, through the mention notice.

@@ -14,6 +14,14 @@ pub const NOTICE_WATCHED: &str = "watched";
 /// The skip note on a digest a newer one replaced.
 pub const MERGED_NOTE: &str = "merged into a newer update on the card";
 
+/// The kind of a next-turn reading (card #391, `coord.NoticeReading`):
+/// what an agent hasn't read in a conversation. Each is whole, so a newer
+/// one replaces one still waiting (same ref, same sender).
+pub const NOTICE_READING: &str = "reading";
+
+/// The skip note on a reading a newer one replaced.
+pub const READING_NOTE: &str = "replaced by a newer reading of the conversation";
+
 /// What the inbox needs of a `coord.Notice`.
 #[derive(Debug, Clone, Default)]
 pub struct Notice {
@@ -67,6 +75,9 @@ pub fn route_notice(
         if n.kind == NOTICE_WATCHED && md == mode::NEXT_TURN {
             (text, earlier) = merge_watched(ib, from, to, n, &merge);
         }
+        if n.kind == NOTICE_READING && md == mode::NEXT_TURN {
+            earlier = waiting_reading(ib, from, to, n);
+        }
         // The person's text in a notice may be far longer than a wake
         // carries: clip it with a pointer to the whole (card #265).
         let text = crate::clip_show(&text, crate::MAX_TEXT, &n.ref_);
@@ -84,8 +95,14 @@ pub fn route_notice(
             Err(e) => (Delivery::default(), Some(e)),
         };
         if err.is_none() && !earlier.is_empty() {
-            // The new digest carries the earlier one's changes.
-            err = ib.skip(to, &earlier, MERGED_NOTE).err();
+            // The new digest carries the earlier one's changes; a new
+            // reading, everything the earlier one said.
+            let note = if n.kind == NOTICE_READING {
+                READING_NOTE
+            } else {
+                MERGED_NOTE
+            };
+            err = ib.skip(to, &earlier, note).err();
         }
         out.push(NoticeResult {
             to: to.clone(),
@@ -119,6 +136,24 @@ fn merge_watched(
         }
     }
     (n.text.clone(), String::new())
+}
+
+/// A reading still waiting for `to`'s next turn that n replaces (`""`
+/// for none).
+fn waiting_reading(ib: &Inbox, from: &Sender, to: &str, n: &Notice) -> String {
+    ib.for_agent(to, false, 0)
+        .into_iter()
+        .find(|d| {
+            let m = &d.message;
+            d.state == st::QUEUED
+                && d.mode == mode::NEXT_TURN
+                && m.notice
+                && m.reason == NOTICE_READING
+                && m.ref_ == n.ref_
+                && m.from.key == from.key
+        })
+        .map(|d| d.id.clone())
+        .unwrap_or_default()
 }
 
 /// Joins the failures (None when every recipient was told).

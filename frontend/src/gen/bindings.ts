@@ -105,12 +105,12 @@ export const commands = {
 	 */
 	boardCreate: (input: NewCardInput) => __TAURI_INVOKE<TaskResult>("board_create", { input }),
 	/**  The header box's message as a thread (card #116). */
-	boardStartThread: (text: string, mentions: Mention[], boardId: string) => __TAURI_INVOKE<TaskResult>("board_start_thread", { text, mentions, boardId }),
+	boardStartThread: (text: string, mentions: Mention[], boardId: string, agentsNow: boolean | null) => __TAURI_INVOKE<TaskResult>("board_start_thread", { text, mentions, boardId, agentsNow }),
 	/**
 	 *  A thread with files (card #124), as an ask takes them; your own
 	 *  board only.
 	 */
-	boardStartThreadWithFiles: (text: string, mentions: Mention[], files: UploadFile[]) => __TAURI_INVOKE<TaskResult>("board_start_thread_with_files", { text, mentions, files }),
+	boardStartThreadWithFiles: (text: string, mentions: Mention[], files: UploadFile[], agentsNow: boolean | null) => __TAURI_INVOKE<TaskResult>("board_start_thread_with_files", { text, mentions, files, agentsNow }),
 	/**
 	 *  The Threads panel: open threads, then the newest resolved; your own
 	 *  board's, or with `board_id` that shared board's (card #134).
@@ -122,6 +122,8 @@ export const commands = {
 	boardResolveThread: (id: string) => __TAURI_INVOKE<null>("board_resolve_thread", { id }),
 	/**  A resolved thread is live again (card #169). */
 	boardReopenThread: (id: string) => __TAURI_INVOKE<null>("board_reopen_thread", { id }),
+	/**  Turns an open thread's "Agents answer now" on or off (card #391). */
+	boardThreadAgentsNow: (id: string, on: boolean) => __TAURI_INVOKE<null>("board_thread_agents_now", { id, on }),
 	/**  Modify on the person's comment no agent read yet (card #105): holds it. */
 	boardCommentModify: (id: string, commentId: string) => __TAURI_INVOKE<null>("board_comment_modify", { id, commentId }),
 	/**  Cancel on a comment held for editing: it goes out as it was. */
@@ -1415,6 +1417,12 @@ export type TalkConversation = {
 	lastAt: string,
 	/**  A DM between two agents: the person reads it only. */
 	readOnly: boolean,
+	/**
+	 *  A thread's "Agents answer now" (card #391): its toggle. False for a
+	 *  channel or DM, whose composer starts from the default for what the
+	 *  text names.
+	 */
+	agentsNow: boolean,
 };
 
 /**  One side of a conversation. */
@@ -1547,6 +1555,11 @@ export type ThreadSummary = {
 	 *  heard only by your agents, never on other members' devices.
 	 */
 	private: boolean,
+	/**
+	 *  Its "Agents answer now" (card #391): off, no agent is woken or
+	 *  handed it, and its agents read it at their next turn.
+	 */
+	agentsNow: boolean,
 };
 
 /**  Who an action's notice went to. */

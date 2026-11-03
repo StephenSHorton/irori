@@ -6,9 +6,11 @@ import {
   useFileAttach,
 } from "@/components/attachments"
 
+import { AgentsNowToggle } from "@/components/common/agents-now-toggle"
 import { MentionTextarea } from "@/components/common/mention-textarea"
 import { Button } from "@/components/ui/button"
 import { useBoards } from "@/lib/boards"
+import { useAgentsNow } from "@/lib/agents-now"
 import { threads } from "@/lib/cards"
 import { useDraft, useMentionsDraft } from "@/lib/drafts"
 import { composing, MentionBoard } from "@/lib/mentions"
@@ -26,6 +28,9 @@ import { errorText } from "@/lib/talk"
 // their own devices, and its page lists it in its own Threads panel. A
 // board thread takes no mentions (a board log carries none; name a card
 // instead) and no files yet. New cards come from the header's New card.
+// "Agents answer now" (card #391) starts off when the text names only
+// people: then no agent is woken or handed it, and the agents on the cards
+// it names read it at their next turn.
 export function AskBox({
   onThread,
   board: onPage = "",
@@ -37,6 +42,7 @@ export function AskBox({
   const draft = onPage ? `ask/board/${onPage}` : "ask/room"
   const [text, setText] = useDraft(draft)
   const [mentions, setMentions] = useMentionsDraft(draft)
+  const agentsNow = useAgentsNow(mentions)
   const { boards } = useBoards()
   // The page's board, while it is still a ready board of ours.
   const onBoard = boards.some(
@@ -68,20 +74,23 @@ export function AskBox({
     setBusy(true)
     setLine(null)
     try {
+      const now = agentsNow.on
       const res = onBoard
-        ? await threads.start(text, mentions, [], onBoard)
-        : await threads.start(text, mentions, files)
+        ? await threads.start(text, mentions, [], onBoard, now)
+        : await threads.start(text, mentions, files, "", now)
       // On a board the other people's agents are told by their own
       // devices: count every agent the thread's round names.
       const n = onBoard ? (res.task.ask?.told ?? 0) : (res.told.to?.length ?? 0)
       setLine({
-        text:
-          n === 0
+        text: !now
+          ? "Sent. Agents answer now was off: no agent was woken or handed it."
+          : n === 0
             ? "Sent. No agent is free yet: the first to go idle answers it."
             : `Sent to ${n === 1 ? "1 agent" : `${n} agents`}. If nobody answers in 45s, an idle agent picks it up.`,
       })
       setText("")
       setMentions([])
+      agentsNow.reset()
       attach.clear()
       onThread(res.task.id)
     } catch (err) {
@@ -132,6 +141,11 @@ export function AskBox({
           {/* The controls ride the box's first line (h-9, its min height)
             whatever their own heights, and stay up top as it grows. */}
           <div className="flex h-9 shrink-0 items-center gap-2">
+            <AgentsNowToggle
+              on={agentsNow.on}
+              onChange={agentsNow.set}
+              disabled={busy}
+            />
             {attach.input}
             <AttachButton attach={attach} disabled={busy || !!onBoard} />
             <Button

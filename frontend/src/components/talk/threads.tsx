@@ -6,6 +6,7 @@ import { useContext, useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { AgentsNowToggle } from "@/components/common/agents-now-toggle"
 import { RichText } from "@/components/common/rich-text"
 import { CommentBox } from "@/components/cards/card-detail"
 import { AgentCards } from "@/components/cards/agent-hover"
@@ -166,6 +167,8 @@ export function ThreadView({
     onResolved()
   })
   const reopen = act(threadsApi.reopen)
+  const setAgentsNow = (on: boolean) =>
+    void act((id) => threadsApi.setAgentsNow(id, on))()
   return (
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1 text-[12.5px]">
@@ -195,9 +198,11 @@ export function ThreadView({
         on={{ agents: [...t.told, ...t.answeredBy], over: resolved }}
         compact
         empty={
-          t.state === "waiting"
+          t.state === "waiting" && t.agentsNow
             ? "No answer yet. If nobody answers in 45s, an idle agent picks it up."
-            : "No answer yet."
+            : t.agentsNow
+              ? "No answer yet."
+              : "No answer yet. Agents answer now is off: agents in it read it at their next turn."
         }
         composer={resolved ? undefined : <CommentBox cardId={t.id} reply />}
         // Its messages scroll and the reply box stays in view (card #170):
@@ -226,6 +231,13 @@ export function ThreadView({
           >
             Resolve
           </Button>
+        )}
+        {!resolved && (
+          <AgentsNowToggle
+            on={t.agentsNow}
+            onChange={setAgentsNow}
+            disabled={busy}
+          />
         )}
         {error && <span className="text-xs text-destructive">{error}</span>}
       </div>
