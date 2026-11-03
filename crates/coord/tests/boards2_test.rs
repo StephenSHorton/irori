@@ -1060,7 +1060,7 @@ fn a_board_thread_among_two_people() {
             P1,
             &tk.id,
             "Thanks, and the docs?",
-            false,
+            true,
             &[],
             Some(&|_| false),
         )
@@ -1643,4 +1643,69 @@ fn a_board_note_names_only_cards_on_the_board() {
     n.task_id = "01NOTONTHISBOARD0000000000".into();
     let e = a.c.propose_note(CARD1, n).unwrap_err();
     assert!(e.is(ErrorKind::NotFound), "{e}");
+}
+
+/// "Agents answer now" off on a shared board (card #391, irori#6): "@p2
+/// look at #N" names only a person, so it wakes no agent and is never
+/// handed out; the holders of the card it names read it at their next
+/// turn, and one of them may still answer with a correction.
+#[test]
+fn a_board_thread_naming_only_a_person_wakes_no_agent() {
+    let (a, b, _) = two_people();
+    let card = shared_card(&a, &b);
+    let mentions = vec![Mention {
+        key: P2.into(),
+        name: "p2".into(),
+        ..Mention::default()
+    }];
+    assert!(!agents_now_default(&mentions), "only a person is named");
+    let (tk, n) =
+        a.c.post_ask(
+            P1,
+            NewAsk {
+                text: format!("@p2 look at #{}", card.short),
+                mentions,
+                thread: true,
+                quiet: true,
+                ..NewAsk::default()
+            },
+            &[],
+        )
+        .unwrap();
+    assert!(
+        n.to == [CARD1, CARD2] && !n.wake && n.text.contains("optional"),
+        "read at their next turn, not woken: {n:?}"
+    );
+    sync(&a, &b);
+    for s in [&a, &b] {
+        let ask = s.c.get_task(&tk.id).unwrap().ask.unwrap();
+        assert!(ask.thread && !ask.wake && ask.taker.is_empty(), "{ask:?}");
+    }
+
+    // Past the quiet spell an idle agent is free, but it isn't handed out.
+    a.clk.add(Duration::from_secs(120));
+    b.clk.add(Duration::from_secs(120));
+    assert!(a.c.sweep_asks(&[idle(CARD3, "dev-b")]).unwrap().is_empty());
+    sync(&a, &b);
+    assert!(b.c.get_task(&tk.id).unwrap().ask.unwrap().taker.is_empty());
+
+    // card1 reads it at its next turn and corrects it.
+    a.c.add_comment(CARD1, &tk.id, "That one merged already; see #1.", false)
+        .unwrap();
+    sync(&a, &b);
+    assert!(a.c.sweep_asks(&[idle(CARD3, "dev-b")]).unwrap().is_empty());
+    let t = a.c.get_task(&tk.id).unwrap();
+    assert!(t.holders.is_empty() && !t.ask.as_ref().unwrap().wake, "{t:?}");
+
+    // p1's next post: the thread is still off, so even a waking post
+    // wakes nobody, here or through p2's bridge (the row isn't wake).
+    let (cm, ns) =
+        a.c.person_comment(P1, &tk.id, "Thanks, I missed that.", true, &[], None)
+            .unwrap();
+    assert!(!cm.wake, "{cm:?}");
+    assert!(
+        !ns.is_empty()
+            && ns.iter().all(|n| !n.wake && n.text.contains("Since you last read")),
+        "{ns:?}"
+    );
 }

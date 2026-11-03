@@ -466,6 +466,9 @@ crate::go_struct! {
         pub by: String = "by",
         pub from: String = "from" "omit",
         pub note: String = "note" "omit",
+        /// A thread's "Agents answer now" (card #391): set only by the
+        /// person, on a thread.
+        pub agents_now: Option<bool> = "agentsNow" "omit",
         pub at: GoTime = "at",
     }
 }

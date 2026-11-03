@@ -79,7 +79,10 @@ pub use review::{
     NOTICE_REVIEW, REVIEW_REQUESTED, Review, ReviewRequest, VERDICT_APPROVED, VERDICT_CHANGES,
 };
 pub use short::{parse_ref, parse_short, short_suffix};
-pub use threads::{NOT_YOURS_TO_CLOSE as THREAD_NOT_YOURS, TAKE_ANSWERED, THREAD_QUIET};
+pub use threads::{
+    NOT_YOURS_TO_CLOSE as THREAD_NOT_YOURS, READING_LINES, TAKE_ANSWERED, THREAD_QUIET,
+    agents_now_default, names_person,
+};
 pub use types::*;
 /// Talk's post and channel ids are made as comments' are (card #389).
 pub use util::new_id;
@@ -985,6 +988,11 @@ impl Coord {
     /// The person resolves their thread (card #116): it closes, answered.
     pub fn resolve_thread(&self, by: &str, id: &str) -> Result<Task> {
         self.lock().resolve_thread(by, id)
+    }
+    /// A person turns an open thread's "Agents answer now" on or off (card
+    /// #391).
+    pub fn set_agents_now(&self, by: &str, id: &str, on: bool) -> Result<Task> {
+        self.lock().set_agents_now(by, id, on)
     }
     /// The person reopens their resolved thread (card #169): live again,
     /// their next reply going to the agents that answered it.
