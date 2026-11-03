@@ -68,7 +68,7 @@ use crate::transport::Stream;
 /// The board sync protocol version a board hello carries (§6.3 "Version").
 pub const BOARD_PROTOCOL: i64 = 1;
 
-/// The space rows this build reads (card #392, decision 45): a board
+/// The space rows this build reads (card #392, decision 46): a board
 /// hello's `spaces`. A device that never said it (an older Irori) refuses
 /// a kind it doesn't know, and every later row of that writer's stream
 /// then waits on the gap, so a space writes no space-only kind (a second

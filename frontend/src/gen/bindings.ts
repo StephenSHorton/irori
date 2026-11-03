@@ -464,7 +464,7 @@ export type BoardSummary = {
 	/**  Its place among the pinned boards, lowest first. */
 	pinRank?: number | null,
 	/**
-	 *  The boards in this space (card #392, decision 45), its own first:
+	 *  The boards in this space (card #392, decision 46), its own first:
 	 *  a card's `board` names one of them (empty: the space's own).
 	 */
 	boards: SpaceBoard[],

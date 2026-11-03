@@ -435,7 +435,7 @@ export function cardsOnBoard(b: BoardSummary, cards: CardSummary[], tag: string)
   return cards.filter((c) => (c.tag || b.tag) === tag)
 }
 
-// SpaceBoards is the row of boards in this space (card #392, decision 45):
+// SpaceBoards is the row of boards in this space (card #392, decision 46):
 // one invite and one set of people share them all. A chip shows one
 // board's cards; Add board puts another in the space. Shown once a space
 // has a second board, or while one is being added.

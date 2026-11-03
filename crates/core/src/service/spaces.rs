@@ -1,4 +1,4 @@
-//! Spaces (card #392, decision 45, docs/design/talk-channels.md §5).
+//! Spaces (card #392, decision 46, docs/design/talk-channels.md §5).
 //!
 //! A space is what v0.5 called a shared board: one log, one secret, one
 //! topic, one set of members. Its id is that board's id, so a v0.10 board

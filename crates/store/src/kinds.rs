@@ -199,7 +199,7 @@ kinds! {
     /// How a card's linked PR stands on GitHub (card #208): `{taskId, pr,
     /// state?, review?, mergedAt?, error?, by, at}`, by `irori`.
     PR_STATE = "pr.state" => Replicated, Accepts;
-    // Spaces (card #392, decision 45): a space's log is a v0.5 board log,
+    // Spaces (card #392, decision 46): a space's log is a v0.5 board log,
     // and its id is that board's. These add more boards to it; the first
     // board is the space's own (board.created). An Irori before spaces
     // refuses them, so a space writes them only once every member device

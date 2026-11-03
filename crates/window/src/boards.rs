@@ -55,7 +55,7 @@ pub struct BoardSummary {
     #[serde(skip_serializing_if = "is_zero_rank")]
     #[specta(optional)]
     pub pin_rank: f64,
-    /// The boards in this space (card #392, decision 45), its own first:
+    /// The boards in this space (card #392, decision 46), its own first:
     /// a card's `board` names one of them (empty: the space's own).
     pub boards: Vec<SpaceBoard>,
 }

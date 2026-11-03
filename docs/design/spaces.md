@@ -1,6 +1,6 @@
 # Spaces: the build (card #392)
 
-*2026-11-03. Design: [talk-channels.md §5](talk-channels.md) and decision 45 (Stephen's b4 on #382). This page says how the build does it.*
+*2026-11-03. Design: [talk-channels.md §5](talk-channels.md) and decision 46 (Stephen's b4 on #382). This page says how the build does it.*
 
 A space is a group of people that holds many boards and channels. v0.5 already has one: a shared board, with its own log, secret, topic, connections and members ([v0.5-shared-boards.md](v0.5-shared-boards.md) §2.1, §6). So a space is that board, and its other boards are rows in its log.
 
@@ -54,7 +54,7 @@ These need no data migration, because their keys are the same id:
 - **Membership, owners, invites and removal** are the existing `board.member.*` rows, read as the space's.
 - **`receive.set`, `autonomy.set` and `threads.set`** are per space.
 
-The per-board override is dropped (decision 45, which amends #24).
+The per-board override is dropped (decision 46, which amends #24).
 
 ## 6. Channels
 
