@@ -50,6 +50,9 @@ pub struct BoardStatusInput {
     pub connected: bool,
     /// This device's home relay is connected.
     pub home: bool,
+    /// Public relays are on (card #328): the home relay is an n0 relay, so
+    /// the warning can't blame home servers.
+    pub public: bool,
     /// The board has been open here at least [`REACH_GRACE`].
     pub settled: bool,
     /// What each member device last said ([`mesh::BoardMesh::heard`]).
@@ -117,14 +120,16 @@ pub fn board_warnings(i: &BoardStatusInput) -> Vec<String> {
         return out;
     }
     if i.others && !i.connected && !i.home && i.settled {
-        out.push(format!(
-            "Can't reach any home server for {}",
-            if i.tag.is_empty() {
-                "this board"
-            } else {
-                &i.tag
-            }
-        ));
+        let tag = if i.tag.is_empty() {
+            "this board"
+        } else {
+            &i.tag
+        };
+        out.push(if i.public {
+            format!("Can't reach anyone on {tag}: no relay answers. Check this device's internet.")
+        } else {
+            format!("Can't reach any home server for {tag}")
+        });
     }
 
     // Versions: the newest each other person's devices said.
@@ -247,6 +252,7 @@ impl Services {
                 .any(|p| p.person_id != me && m.active(&p.person_id)),
             connected,
             home: net.home_relays().iter().any(|(_, up)| *up),
+            public: net.public_relays(),
             settled: b.opened.elapsed() >= REACH_GRACE,
             heard,
             vector: b.store.vector().unwrap_or_default(),
@@ -275,6 +281,7 @@ mod tests {
             others: true,
             connected: true,
             home: true,
+            public: false,
             settled: true,
             now_ms: NOW,
             names: [
@@ -368,6 +375,11 @@ mod tests {
         i.connected = false;
         i.home = false;
         assert_eq!(board_warnings(&i), ["Can't reach any home server for mlg"]);
+        i.public = true;
+        assert_eq!(
+            board_warnings(&i),
+            ["Can't reach anyone on mlg: no relay answers. Check this device's internet."]
+        );
         // Any one of: a member connected, the home relay up, alone on it,
         // or just opened.
         for f in [

@@ -21,6 +21,10 @@ pub trait Mesh: Send + Sync {
     fn home_server(&self) -> HomeServerView;
     fn set_home_server(&self, on: bool, outside: bool, public: &str) -> Result<(), String>;
     fn set_home_server_awake(&self, on: bool) -> Result<(), String>;
+    /// "Meet through public relays" (card #328).
+    fn set_public_relays(&self, _on: bool) -> Result<(), String> {
+        Err("public relays aren't available here".into())
+    }
     fn remove_device(&self, device_id: &str) -> Result<(), String>;
     /// Makes sure the file is on this device, fetching it from a device
     /// that holds it first (Go `mesh.FetchFile`). `Err` is the window's

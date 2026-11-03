@@ -972,6 +972,13 @@ impl Core {
                 Some(f) => f(&ident, &chain, &guests),
                 None => crate::devices::default_net(&ident, &chain, &guests),
             };
+            // n0's public relays (card #328): on unless this device turned
+            // them off; set before anything binds the endpoint. A test's own
+            // transport (`pair_net`) stays off the internet.
+            if opts.pair_net.is_none() {
+                net.public_relays_flag()
+                    .set(crate::publicrelays::load(&dir));
+            }
             // The mesh Node on the same endpoint (crate::meshnode).
             let mesh = crate::meshnode::Mesh::new(
                 net.clone(),
@@ -1738,6 +1745,19 @@ impl Core {
             Some(h) => h.set_awake(on),
             None => Err(NO_HOME_SERVER.to_string()),
         }
+    }
+    /// "Meet through public relays" (card #328): n0's iroh relays, so
+    /// devices and other people reach this one from any network.
+    pub fn public_relays(&self) -> bool {
+        self.net().public_relays()
+    }
+    /// Turns public relays on or off: saved first, then the live endpoint.
+    pub fn set_public_relays(&self, on: bool) -> Result<(), String> {
+        crate::publicrelays::save(self.data_dir(), on).map_err(|e| e.to_string())?;
+        let net = self.net().clone();
+        self.pairing_runtime()
+            .block_on(async move { net.set_public_relays(on).await });
+        Ok(())
     }
     /// The home server itself, for the net and mesh wiring.
     pub fn home(&self) -> Option<&home::Server> {

@@ -61,6 +61,7 @@ let sampleTimer: number | undefined
 let sampleRelay = RelayView({ state: "none" })
 let sampleHome = HomeServerView({
   can: true,
+  publicRelays: true,
   suggest: true,
   on: false,
   outside: true,
@@ -313,6 +314,12 @@ export const devices = {
       awake: on,
       awakeLine: sampleHome.running && on ? "Keeping this PC awake" : undefined,
     })
+    return sampleHome
+  },
+  // setPublicRelays switches "Meet through public relays" (card #328).
+  async setPublicRelays(on: boolean): Promise<HomeServerView> {
+    if (inWails()) return DevicesService.SetPublicRelays(on)
+    sampleHome = HomeServerView({ ...sampleHome, publicRelays: on })
     return sampleHome
   },
   // relay is the advanced TURN relay setting: state "none" is none set.

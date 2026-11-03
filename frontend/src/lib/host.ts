@@ -242,6 +242,7 @@ export const DevicesService = {
   SetHomeServer: (on: boolean, outside: boolean, publicAddr: string) =>
     call(commands.devicesSetHomeServer(on, outside, publicAddr)),
   SetHomeServerAwake: (on: boolean) => call(commands.devicesSetHomeServerAwake(on)),
+  SetPublicRelays: (on: boolean) => call(commands.devicesSetPublicRelays(on)),
   Relay: () => call(commands.devicesRelay()),
   SetRelay: (credentialUrl: string) => call(commands.devicesSetRelay(credentialUrl)),
 }

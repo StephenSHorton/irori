@@ -182,7 +182,8 @@ function DeviceRow({
 // falls short, and one line only when something is wrong (with the public
 // address field when mapping failed). On every device: a line when this
 // one can't be found on its network, and one when your home server can't
-// be reached. Advanced holds the relay you run or rent elsewhere.
+// be reached. "Meet through public relays" (card #328) on every device.
+// Advanced holds the relay you run or rent elsewhere.
 function HomeServer({ open }: { open: boolean }) {
   const [hs, setHs] = useState<HomeServerView | null>(null)
   const [publicAddr, setPublicAddr] = useState("")
@@ -209,6 +210,14 @@ function HomeServer({ open }: { open: boolean }) {
     setError(null)
     try {
       setHs(await actions.setHomeServer(on, outside, pub))
+    } catch (err) {
+      setError(errorText(err))
+    }
+  }
+  const setPublicRelays = async (on: boolean) => {
+    setError(null)
+    try {
+      setHs(await actions.setPublicRelays(on))
     } catch (err) {
       setError(errorText(err))
     }
@@ -331,6 +340,25 @@ function HomeServer({ open }: { open: boolean }) {
           )}
         </>
       )}
+      <div className="flex items-center justify-between gap-2">
+        <label
+          htmlFor="public-relays"
+          className="min-w-0 cursor-pointer text-muted-foreground"
+        >
+          Meet through public relays
+          <small className="block text-xs">
+            {hs.publicRelays
+              ? "Reach your devices and invited people from any network, no port forwarding. iroh's free relays see which devices connect, never what they say."
+              : "Only your home server connects you from outside home."}
+          </small>
+        </label>
+        <Switch
+          id="public-relays"
+          size="sm"
+          checked={hs.publicRelays}
+          onCheckedChange={(v) => void setPublicRelays(v)}
+        />
+      </div>
       {hs.lan && <p className="text-xs text-warning">{plainLine(hs.lan)}</p>}
       {hs.remote && (
         <p className="text-xs text-warning">{plainLine(hs.remote)}</p>

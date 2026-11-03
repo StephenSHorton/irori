@@ -87,6 +87,8 @@ pub struct HomeServerView {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub remote: String,
+    /// "Meet through public relays" (card #328), on every device.
+    pub public_relays: bool,
 }
 
 fn is_zero(n: &i64) -> bool {
@@ -214,6 +216,12 @@ impl Window {
         Ok(self.home_server())
     }
 
+    /// "Meet through public relays" (card #328).
+    pub fn set_public_relays(&self, on: bool) -> Result<HomeServerView, String> {
+        self.seams.mesh.set_public_relays(on)?;
+        Ok(self.home_server())
+    }
+
     /// DevicesService.Relay: D4 dropped the TURN relay, so there is none.
     pub fn relay(&self) -> RelayView {
         RelayView {
@@ -322,6 +330,7 @@ impl Mesh for CoreMesh {
             awake_line: st.awake_line,
             lan: self.core.lan_error(),
             remote: String::new(),
+            public_relays: self.core.public_relays(),
         };
         if self.core.net_status().state == mesh::STATE_ON {
             v.remote = remote_line(&self.core.remote_servers(), &self.devices());
@@ -335,6 +344,10 @@ impl Mesh for CoreMesh {
 
     fn set_home_server_awake(&self, on: bool) -> Result<(), String> {
         self.core.set_home_server_awake(on)
+    }
+
+    fn set_public_relays(&self, on: bool) -> Result<(), String> {
+        self.core.set_public_relays(on)
     }
 
     /// Blocks on the Core's revoke: call it off the runtime's workers

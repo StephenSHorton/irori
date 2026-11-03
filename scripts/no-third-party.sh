@@ -2,7 +2,9 @@
 # architecture.md §7.1 `no-third-party`: Irori talks only to its own
 # relay and devices. Fails when the tree holds a public discovery or relay
 # path: iroh's N0 preset or default relays in code, or the mDNS, pkarr or
-# swarm-discovery crates in Cargo.lock. (A shell check in place of the
+# swarm-discovery crates in Cargo.lock. n0's four public relays are the one
+# exception (decision 43, card #328): behind the per-device switch in
+# irori_net::public, never a preset. (A shell check in place of the
 # planned `cargo xtask no-third-party`; there is no xtask crate yet.)
 set -eu
 cd "$(dirname "$0")/.."

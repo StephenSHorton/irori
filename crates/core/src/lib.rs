@@ -49,6 +49,7 @@ pub mod namer;
 pub mod notice;
 pub mod offline;
 pub mod prwatch;
+mod publicrelays;
 pub mod reset;
 mod service;
 pub mod timers;

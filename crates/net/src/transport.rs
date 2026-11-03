@@ -539,6 +539,11 @@ impl IrohNet {
         }
     }
 
+    /// The switch itself, to set before the endpoint binds (startup).
+    pub fn public_relays_flag(&self) -> crate::public::PublicRelays {
+        self.inner.cfg.public_relays.clone()
+    }
+
     /// Whether n0's public relays are on.
     pub fn public_relays(&self) -> bool {
         self.inner.cfg.public_relays.on()

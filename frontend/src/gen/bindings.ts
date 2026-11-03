@@ -165,6 +165,7 @@ export const commands = {
 	devicesHomeServer: () => __TAURI_INVOKE<HomeServerView>("devices_home_server"),
 	devicesSetHomeServer: (on: boolean, outside: boolean, publicAddr: string) => __TAURI_INVOKE<HomeServerView>("devices_set_home_server", { on, outside, publicAddr }),
 	devicesSetHomeServerAwake: (on: boolean) => __TAURI_INVOKE<HomeServerView>("devices_set_home_server_awake", { on }),
+	devicesSetPublicRelays: (on: boolean) => __TAURI_INVOKE<HomeServerView>("devices_set_public_relays", { on }),
 	devicesRelay: () => __TAURI_INVOKE<RelayView>("devices_relay"),
 	devicesSetRelay: (credentialUrl: string) => __TAURI_INVOKE<RelayView>("devices_set_relay", { credentialUrl }),
 	settingsGetNotifications: () => __TAURI_INVOKE<NotifyOptions>("settings_get_notifications"),
@@ -977,6 +978,8 @@ export type HomeServerView = {
 	awakeLine?: string,
 	lan?: string,
 	remote?: string,
+	/**  "Meet through public relays" (card #328), on every device. */
+	publicRelays: boolean,
 };
 
 /**  device.Identity (device.json). */

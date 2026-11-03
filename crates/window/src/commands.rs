@@ -886,6 +886,12 @@ pub async fn devices_set_home_server_awake(w: W<'_>, on: bool) -> R<HomeServerVi
 
 #[tauri::command]
 #[specta::specta]
+pub async fn devices_set_public_relays(w: W<'_>, on: bool) -> R<HomeServerView> {
+    blocking(&w, move |w| w.set_public_relays(on)).await
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn devices_relay(w: W<'_>) -> R<RelayView> {
     Ok(w.relay())
 }
@@ -1161,6 +1167,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             devices_home_server,
             devices_set_home_server,
             devices_set_home_server_awake,
+            devices_set_public_relays,
             devices_relay,
             devices_set_relay,
             settings_get_notifications,

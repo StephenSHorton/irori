@@ -333,7 +333,7 @@ export function GoneSession(p: Partial<B.GoneSession> = {}): B.GoneSession {
 
 /** HomeServerView with Go's zero values for every field left out. */
 export function HomeServerView(p: Partial<B.HomeServerView> = {}): B.HomeServerView {
-  return { "can": false, "on": false, "outside": false, "running": false, "awake": false, ...p } as B.HomeServerView
+  return { "can": false, "on": false, "outside": false, "running": false, "awake": false, "publicRelays": false, ...p } as B.HomeServerView
 }
 
 /** Identity with Go's zero values for every field left out. */
