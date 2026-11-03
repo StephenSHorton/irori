@@ -49,6 +49,16 @@ async function mount() {
       glass: previewFlag("glass") ?? saved.glass,
     })
   )
+  // Card #404: merge desk design mockups, browser preview only (?mockup=desk&view=N).
+  if (!inHost() && previewFlag("mockup") === "desk") {
+    const Mockups = lazy(() => import("./design/desk-mockups"))
+    createRoot(document.getElementById("root")!).render(
+      <Suspense fallback={null}>
+        <Mockups />
+      </Suspense>
+    )
+    return
+  }
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       {/* The look is set on <html> (lib/appearance.ts); Settings >
