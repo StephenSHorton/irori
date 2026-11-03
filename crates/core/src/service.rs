@@ -62,6 +62,7 @@ pub mod boards_presence;
 pub mod boards_status;
 mod bridge;
 mod mirror;
+pub mod spaces;
 pub use mirror::BoardReviewer;
 pub mod invites;
 

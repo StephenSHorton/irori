@@ -62,6 +62,7 @@ pub use crate::service::boards::{
     migrate_board_files, new_board_id, valid_board_id,
 };
 pub use crate::service::invites::{InviteStatus, InviteWatchFn};
+pub use crate::service::spaces::{SpaceBoard, fold_space_boards};
 pub use crate::service::{
     BoardReviewer, Core, HomeEdit, NO_HOME_SERVER, NowFn, Options, ReviveFn, StartError,
 };

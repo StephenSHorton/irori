@@ -402,6 +402,69 @@ fn board_logs_move_to_spaces() {
     c.close().unwrap();
 }
 
+/// Card #392: a space holds more boards. A lone device adds one at once;
+/// with two devices the add waits until the other has said, in its board
+/// hello, that it reads space rows (an older Irori would stall on them),
+/// and then the new board reaches it.
+#[test]
+fn a_second_board_in_a_space_reaches_the_other_device() {
+    let (a, b) = paired();
+    let id = a
+        .core
+        .create_board("Wind Waker Multiplayer", "wind")
+        .unwrap();
+    // b is a member device (a wrote its cert) but hasn't even opened the
+    // space yet, so it can't have said it reads space rows: refused.
+    let e = a
+        .core
+        .create_space_board(&id, "Too soon", "soon")
+        .unwrap_err();
+    assert!(e.to_string().contains("waiting on"), "{e}");
+    assert_eq!(a.core.space_boards(&id).unwrap().len(), 1);
+    wait_for(45, "b opens the space", || b.core.board_coord(&id).is_ok());
+    let bv = b.core.board_verifier(&id).unwrap();
+    wait_for(45, "b's cert arrives", || {
+        bv.membership().created && bv.cert(b.core.device_id()).is_some()
+    });
+    // Until b's hello lands a refuses, naming what it waits on.
+    wait_for(45, "a hears b read spaces", || {
+        a.core.space_not_ready(&id).unwrap().is_empty()
+    });
+    let sub = a.core.create_space_board(&id, "Netcode", "net").unwrap();
+    assert_ne!(sub, id);
+    let names = |c: &Core| -> Vec<String> {
+        c.space_boards(&id)
+            .unwrap()
+            .into_iter()
+            .map(|x| format!("{}:{}", x.tag, x.name))
+            .collect()
+    };
+    assert_eq!(
+        names(&a.core),
+        ["wind:Wind Waker Multiplayer", "net:Netcode"]
+    );
+    wait_for(45, "b gets the second board", || names(&b.core).len() == 2);
+    assert_eq!(names(&b.core), names(&a.core));
+    // A tag in use, here or in a space, is refused.
+    for tag in ["wind", "net"] {
+        assert!(a.core.create_space_board(&id, "x", tag).is_err(), "{tag}");
+    }
+}
+
+/// Card #392: a member device not yet heard to read space rows (an older
+/// Irori, or one not seen since this start) holds back every space-only
+/// row, and the refusal names it.
+#[test]
+fn a_space_waits_for_devices_that_dont_read_spaces() {
+    let r = Rig::new();
+    let id = r.core.create_board("Lemmings Decomp", "lemmings").unwrap();
+    // Alone in its space: nothing to wait on.
+    assert!(r.core.space_not_ready(&id).unwrap().is_empty());
+    r.core.create_space_board(&id, "Levels", "levels").unwrap();
+    assert_eq!(r.core.space_boards(&id).unwrap().len(), 2);
+    r.core.close().unwrap();
+}
+
 /// TestBoardIdentityKeptCurrent: a board this device creates pins this
 /// person with this device as the board root and carries the person's
 /// member.* rows (§3), and they follow the private log: a device certified

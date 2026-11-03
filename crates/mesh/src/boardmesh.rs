@@ -68,6 +68,14 @@ use crate::transport::Stream;
 /// The board sync protocol version a board hello carries (§6.3 "Version").
 pub const BOARD_PROTOCOL: i64 = 1;
 
+/// The space rows this build reads (card #392, decision 45): a board
+/// hello's `spaces`. A device that never said it (an older Irori) refuses
+/// a kind it doesn't know, and every later row of that writer's stream
+/// then waits on the gap, so a space writes no space-only kind (a second
+/// board, a channel) until every member device has said at least this.
+/// It's a hello field, not `v`, so older and newer Irori keep syncing.
+pub const SPACES_PROTOCOL: i64 = 1;
+
 /// The frame that hands a board secret to a device: on the private mesh
 /// `sync` channel to your own devices (sealed under the mesh epoch's
 /// person-secret key, as `person.secret`), and after a rotation on each
@@ -98,6 +106,14 @@ pub struct BoardHello {
     pub schema: i64,
     pub vector: BTreeMap<String, i64>,
     pub wall_ms: i64,
+    /// The space rows the sender reads ([`SPACES_PROTOCOL`]); 0 (absent)
+    /// from an Irori before spaces.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub spaces: i64,
+}
+
+fn is_zero(n: &i64) -> bool {
+    *n == 0
 }
 
 /// `board.secret {boardId, boardEpoch, maker, sealed}`: `sealed` is
@@ -331,6 +347,8 @@ pub struct PeerHeard {
     /// Per stream in `vector`: when its seq last moved (Unix ms), for the
     /// stalled-forwarder flag (§6.4).
     pub advanced_ms: BTreeMap<String, i64>,
+    /// The `spaces` its last hello said (card #392).
+    pub spaces: i64,
 }
 
 /// One board connection.
@@ -544,6 +562,23 @@ impl BoardMesh {
     }
 
     /// What each member device last said here (closed connections too).
+    /// The member devices (every other device of every active member)
+    /// not yet heard to read space rows (card #392): until there are none,
+    /// the space writes no space-only kind. A device not heard since this
+    /// start counts as not ready.
+    pub fn not_ready_for_spaces(&self) -> Vec<MemberDevice> {
+        let heard = self.s.heard.lock().expect("heard");
+        self.s
+            .member_devices()
+            .into_iter()
+            .filter(|d| {
+                heard
+                    .get(&d.device_id)
+                    .is_none_or(|h| h.spaces < SPACES_PROTOCOL)
+            })
+            .collect()
+    }
+
     pub fn heard(&self) -> Vec<PeerHeard> {
         self.s
             .heard
@@ -1203,6 +1238,7 @@ impl Shared {
             board_epoch: self.opts.secrets.epoch(),
             core_version: self.opts.core_version.clone(),
             schema: 1,
+            spaces: SPACES_PROTOCOL,
             vector: self.opts.log.vector().unwrap_or_default(),
             wall_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1274,7 +1310,7 @@ impl Shared {
                     p.hello.store(true, Ordering::SeqCst);
                     self.hear(
                         p.conn.id(),
-                        Some((&h.person_id, &h.core_version)),
+                        Some((&h.person_id, &h.core_version, h.spaces)),
                         &h.vector,
                     );
                     if self.behind(&h.vector) {
@@ -1311,13 +1347,14 @@ impl Shared {
 
     /// Records what member device `dev` said (`hello`: its person and core
     /// version).
-    fn hear(&self, dev: &str, hello: Option<(&str, &str)>, vector: &BTreeMap<String, i64>) {
+    fn hear(&self, dev: &str, hello: Option<(&str, &str, i64)>, vector: &BTreeMap<String, i64>) {
         let mut heard = self.heard.lock().expect("heard");
         let h = heard.entry(dev.to_string()).or_default();
         h.device_id = dev.to_string();
-        if let Some((person, version)) = hello {
+        if let Some((person, version, spaces)) = hello {
             h.person_id = person.to_string();
             h.core_version = version.to_string();
+            h.spaces = spaces;
         }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1491,5 +1528,30 @@ mod tests {
         assert_eq!(h["type"], "hello");
         assert_eq!(h["boardId"], "b");
         assert!(serde_json::from_slice::<Wire>(br#"{"type":"later.frame"}"#).is_err());
+    }
+
+    /// Card #392: an older Irori's hello has no `spaces` and still parses
+    /// (as 0, not ready); ours says SPACES_PROTOCOL, and an older Irori
+    /// reading ours just skips the field (serde ignores unknown fields).
+    #[test]
+    fn hello_says_it_reads_spaces() {
+        let old: Wire = serde_json::from_str(
+            r#"{"type":"hello","v":1,"deviceId":"d","personId":"p","boardId":"b","boardEpoch":1,"coreVersion":"0.10.2","schema":1,"vector":{},"wallMs":0}"#,
+        )
+        .unwrap();
+        let Wire::Hello(h) = old else {
+            panic!("not a hello")
+        };
+        assert_eq!(h.spaces, 0);
+        let ours = serde_json::to_value(Wire::Hello(BoardHello {
+            v: BOARD_PROTOCOL,
+            spaces: SPACES_PROTOCOL,
+            ..Default::default()
+        }))
+        .unwrap();
+        assert_eq!(ours["spaces"], SPACES_PROTOCOL);
+        assert_eq!(ours["v"], 1, "v stays 1: older Irori keeps syncing");
+        let none = serde_json::to_value(Wire::Hello(BoardHello::default())).unwrap();
+        assert!(none.get("spaces").is_none(), "0 isn't sent");
     }
 }

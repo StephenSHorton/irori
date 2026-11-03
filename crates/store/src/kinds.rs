@@ -199,6 +199,15 @@ kinds! {
     /// How a card's linked PR stands on GitHub (card #208): `{taskId, pr,
     /// state?, review?, mergedAt?, error?, by, at}`, by `irori`.
     PR_STATE = "pr.state" => Replicated, Accepts;
+    // Spaces (card #392, decision 45): a space's log is a v0.5 board log,
+    // and its id is that board's. These add more boards to it; the first
+    // board is the space's own (board.created). An Irori before spaces
+    // refuses them, so a space writes them only once every member device
+    // said it reads spaces (mesh SPACES_PROTOCOL).
+    /// `{boardId, name, tag, by, at}`: another board in the space.
+    SPACE_BOARD_CREATED = "space.board.created" => Replicated, Accepts;
+    /// `{boardId, name, tag, by, at}`: a board in the space renamed.
+    SPACE_BOARD_RENAMED = "space.board.renamed" => Replicated, Accepts;
     // v0.5 private-log rows, never in a board log
     BOARD_JOINED = "board.joined" => Replicated, Refuses;
     BOARD_FORGOT = "board.forgot" => Replicated, Refuses;
