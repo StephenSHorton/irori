@@ -138,7 +138,7 @@ function Sys({ children }: { children: ReactNode }) {
   )
 }
 
-function Composer({ ph, popup }: { ph: string; popup?: boolean }) {
+function Composer({ ph, popup, agents }: { ph: string; popup?: boolean; agents?: "on" | "off" }) {
   return (
     <div className="relative">
       {popup && (
@@ -167,6 +167,19 @@ function Composer({ ph, popup }: { ph: string; popup?: boolean }) {
       )}
       <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5">
         <span className="flex-1 text-[13px] text-muted-foreground">{ph}</span>
+        {agents && (
+          <span
+            className={cn(
+              "flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px]",
+              agents === "on" ? "border-info/50 text-info" : "border-border text-muted-foreground"
+            )}
+          >
+            <span className={cn("relative h-3 w-5 rounded-full", agents === "on" ? "bg-info" : "bg-muted")}>
+              <span className={cn("absolute top-0.5 size-2 rounded-full bg-background", agents === "on" ? "right-0.5" : "left-0.5")} />
+            </span>
+            Agents answer now
+          </span>
+        )}
         <AtSignIcon className="size-4 text-muted-foreground" />
         <PaperclipIcon className="size-4 text-muted-foreground" />
         <span className="rounded-md bg-primary px-3 py-1 text-[12px] font-medium text-primary-foreground">
@@ -818,11 +831,14 @@ function View4() {
           <Note className="ml-11">② @nutmeg wakes nutmeg now (same rule as cards, decision 39). Rate limit and Held still apply.</Note>
           <Msg w={NU} at="14:02">On it: I&apos;ll make a card so it shows on the Board. <Chip n="372" t="Release 0.10.2" /></Msg>
           <Msg w={ST} at="14:05"><M at="Blake">{""}</M> want to try it on your phone?</Msg>
-          <Note className="ml-11">③ Names only a person: no agent is handed it. Blake gets a desktop card. (kowhai&apos;s #378 bug: today a thread like this goes to an agent.)</Note>
+          <Note className="ml-11">③ Names only a person, so “Agents answer now” turned itself off: no agent is woken or handed it, and Blake gets a desktop card. Members still read it at their next turn and may reply if they have something to add or correct. (#378: today one agent per person answers.)</Note>
           <Msg w={BL} at="14:20">Installed, works.</Msg>
           <Sys>nutmeg came back from idle at 15:10</Sys>
           <Msg w={NU} at="15:11">Released 0.10.2; Blake&apos;s phone reported it. <Chip n="372" t="Release 0.10.2" /></Msg>
+          <Msg w={KE} at="15:12">Small correction: the Android build is 0.10.2-1, the tag was re-cut once.</Msg>
+          <Note className="ml-11">④ kestrel wasn&apos;t woken; it read #releases at its next turn and spoke up because it had a correction.</Note>
         </div>
+        <div className="mt-auto p-3"><Composer ph="@Blake does it still crash on rotate?" agents="off" /></div>
       </div>
       <div className="grid content-start gap-3">
         <div className="text-[15px] font-semibold text-ink">What nutmeg gets when ② wakes it</div>
@@ -841,7 +857,7 @@ Work goes on a card: board_create from=<this message>.`}
         <ul className="grid gap-1.5 text-[12.5px] leading-snug text-ink-2">
           <li>• <b>Channels</b>: an agent wakes only when @-mentioned. Otherwise it reads the channel when it wants (talk_read), and gets “since you last read” on its next wake.</li>
           <li>• <b>DMs</b>: every message wakes the other side.</li>
-          <li>• <b>Threads</b>: as today. Naming nobody hands it to a free agent; naming an agent sends it there; <b>naming only people sends it to no agent</b>.</li>
+          <li>• <b>“Agents answer now”</b> (composer and thread toggle): on when you name nobody or an agent, off when you name only people; flip it either way. Off: nobody is woken or handed it.</li><li>• <b>Never siloed</b>: agents in a channel or thread always see it at their next turn, and may reply when they have something relevant or a correction.</li>
           <li>• <b>Agent↔agent DMs</b> show in Talk read-only, so nothing between agents is hidden.</li>
           <li>• Work never stays in talk: an agent makes a card, and the message links it.</li>
         </ul>
