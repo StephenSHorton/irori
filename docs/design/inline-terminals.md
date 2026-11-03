@@ -147,8 +147,31 @@ interface TermView {
 | `term_close` | `{ id }` | Kills the shell. Only the person can do this. |
 
 - **Frames travel as raw bytes** on a `tauri::ipc::Channel`, as suzuri's channel mode sends them (`InvokeResponseBody::Raw`, `suzuri:app/src/main.rs:93, 112`). Irori has no `Channel` anywhere yet, and its JSON events are coalesced at 250-300 ms (architecture.md:309), which would make a terminal unusable.
-  - tauri-specta rc.26 allows a `Channel` only as a whole command argument (`tauri-specta-2.0.0-rc.26/src/lang/js_ts.rs:153`). S0 has to check that `Channel<InvokeResponseBody>` exports to TS.
-  - If it doesn't, `term_attach` is the one command registered beside the specta builder, and `lib/term.ts` wraps it by hand.
+  - tauri-specta rc.26 allows a `Channel` only as a whole command argument (`tauri-specta-2.0.0-rc.26/src/lang/js_ts.rs:153`).
+  - **S0b finding (#366):** `Channel<InvokeResponseBody>` doesn't compile in the specta builder, because `InvokeResponseBody` has no `specta::Type`. Tauri's `Channel` gets its Type through a remote derive that needs `TSend: Type` (`tauri-2.12.5/src/ipc/channel.rs:193-199`). **Route:** use a newtype in `crates/window` instead of a hand-registered command:
+    ```rust
+    pub struct RawFrame(pub Vec<u8>);
+    impl tauri::ipc::IpcResponse for RawFrame {
+        fn body(self) -> tauri::Result<InvokeResponseBody> { Ok(InvokeResponseBody::Raw(self.0)) }
+    }
+    impl specta::Type for RawFrame {
+        fn definition(_: &mut specta::Types) -> DataType { specta_typescript::define("ArrayBuffer").into() }
+    }
+    ```
+    - It must not implement `Serialize`, or it clashes with Tauri's blanket `IpcResponse` impl.
+    - `term_attach` takes `frames: Channel<RawFrame>` and stays in `builder()`. `cargo xtask bindings` exports it as `frames: Channel<ArrayBuffer>` and imports `Channel` from `@tauri-apps/api/core`, so the hand-registered fallback isn't needed.
+    - The spike is on branch `primrose/366-channel-spike`, with the command `spike_frames` and the standalone bench `spike/chspike`.
+  - **Measured on the Mac (WKWebView, tauri 2.12.5, release build):**
+    - **Payload:** every frame arrives as an `ArrayBuffer`, in order, with none lost and no base64.
+    - **Paced like a terminal:** at 60 fps with 16 KB frames, latency from send to `onmessage` is p50 0.25 ms, p95 3.4 ms, p99 6.6 ms, max 15 ms. At 64 KB frames it is about the same (p95 3.7 ms), and at 120 fps with 4 KB frames p95 is 5.9 ms.
+    - **Flood:** about 9,000 messages/s whatever the size, so 1 KB frames give 9 MB/s, 16 KB give 148 MB/s, 64 KB give 381 MB/s and 1 MB gives 1.3 GB/s. The cost is per message, not per byte.
+    - **Consequence:** a burst queues up. 5,000 back-to-back 1 KB frames took 460 ms to arrive, so the last one was painted half a second late. The engine must send at most one frame per paint, coalescing changes into it, and stop sending when the view's `term_ack` falls behind (§6.2). It must not send one frame per PTY read.
+  - **Measured on the PC (WebView2, Edge 156, same bench):**
+    - **Payload:** the same result: all frames arrived as `ArrayBuffer`, in order, none lost.
+    - **Paced:** 60 fps × 16 KB is p50 1.14 ms, p95 1.6 ms, max 3.6 ms. 60 fps × 64 KB is p95 1.8 ms, and 120 fps × 4 KB is p95 1.4 ms. The median is higher than the Mac's, but the tail is tighter.
+    - **Flood:** about 2,600-4,000 messages/s, half the Mac's rate. 1 KB frames give 3.9 MB/s, 16 KB give 67 MB/s, 64 KB give 170 MB/s and 1 MB gives 379 MB/s. 5,000 × 1 KB took 1.3 s to arrive.
+    - **Consequence:** the per-message cost dominates even more on Windows. Coalescing to one frame per paint, with ack-based flow control, is required there.
+  - **Building on Windows:** a Tauri crate needs `icons/icon.ico` for tauri-build's resource file. Irori's `app/` already has one.
   - The phone needs the same raw Channel into its own webview (§6.4). Raw `InvokeResponseBody` on the Android and iOS webviews is unverified; S6 checks it first, with base64-in-JSON as the fallback.
 - **Everything else is JSON** on the second channel, as `TermMsg`, a tagged enum exported through `.typ::<TermMsg>()`: `title`, `bell`, `clip`, `exit`, `done`, `progress`, `shell`, `img`, `imgdrop`, `imgpos`, plus Irori's `held { by }` (who is typing) and `offline`. The shapes follow suzuri's `Msg` (`suzuri:app/src/main.rs:50-76`), so the view package's `message()` needs no special case. Notices are not `TermMsg`s; they become toasts (§3).
 - **Clipboard (OSC 52):** a program's clipboard write is shown as a toast with a Copy button. It is never written straight to the clipboard, because an agent's output is untrusted (§8).
