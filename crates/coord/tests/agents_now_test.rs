@@ -61,7 +61,10 @@ fn the_default_is_off_only_when_just_people_are_named() {
     assert!(agents_now_default(&[m(ALICE)]), "an agent");
     assert!(agents_now_default(&[m("agent:c1")]), "a board agent");
     assert!(!agents_now_default(&[m("person:p2")]), "a person");
-    assert!(!agents_now_default(&[m("person:p2"), m("user:u1")]), "two people");
+    assert!(
+        !agents_now_default(&[m("person:p2"), m("user:u1")]),
+        "two people"
+    );
     assert!(
         agents_now_default(&[m("person:p2"), m("agent:c1")]),
         "a person and an agent"
@@ -76,7 +79,10 @@ fn a_quiet_thread_naming_nobody_goes_to_no_agent() {
     let a = ask_of(&e.c, &tk.id);
     assert!(a.thread && !a.wake && a.taker.is_empty(), "{a:?}");
     e.clk.add(secs(120));
-    assert!(e.c.sweep_asks(&agents(&e)).unwrap().is_empty(), "no hand-out");
+    assert!(
+        e.c.sweep_asks(&agents(&e)).unwrap().is_empty(),
+        "no hand-out"
+    );
     assert!(ask_of(&e.c, &tk.id).taker.is_empty());
 }
 
@@ -85,7 +91,10 @@ fn the_reading_quotes_five_lines_and_counts_the_rest() {
     let e = Env::new();
     let card = alices_card(&e);
     let (tk, n) = thread(&e, &format!("Is #{} moving?", card.short), true);
-    assert!(n.to == [ALICE] && !n.wake && n.text.contains("optional"), "{n:?}");
+    assert!(
+        n.to == [ALICE] && !n.wake && n.text.contains("optional"),
+        "{n:?}"
+    );
     e.c.add_comment(ALICE, &tk.id, "Yes.", false).unwrap();
     let mut last = Vec::new();
     for i in 1..=7 {
@@ -94,17 +103,30 @@ fn the_reading_quotes_five_lines_and_counts_the_rest() {
                 .unwrap();
         last = ns;
     }
-    assert!(last.len() == 1 && last[0].to == [ALICE] && !last[0].wake, "{last:?}");
+    assert!(
+        last.len() == 1 && last[0].to == [ALICE] && !last[0].wake,
+        "{last:?}"
+    );
     let t = &last[0].text;
     assert!(t.contains("7 new posts, the last 5 below"), "{t}");
-    assert!(!t.contains("line 2") && t.contains("line 3") && t.contains("line 7"), "{t}");
-    assert!(t.contains("A reply is optional") && t.contains(&format!("talk_read conv={}", tk.id)), "{t}");
+    assert!(
+        !t.contains("line 2") && t.contains("line 3") && t.contains("line 7"),
+        "{t}"
+    );
+    assert!(
+        t.contains("A reply is optional") && t.contains(&format!("talk_read conv={}", tk.id)),
+        "{t}"
+    );
     // What alice wrote, she has read: after her reply the count restarts.
-    e.c.add_comment(ALICE, &tk.id, "Noted, all seven.", false).unwrap();
+    e.c.add_comment(ALICE, &tk.id, "Noted, all seven.", false)
+        .unwrap();
     let (_, ns) =
         e.c.person_comment(USER, &tk.id, "line 8", false, &[], None)
             .unwrap();
-    assert!(ns[0].text.contains("1 new post.") && ns[0].text.contains("line 8"), "{ns:?}");
+    assert!(
+        ns[0].text.contains("1 new post.") && ns[0].text.contains("line 8"),
+        "{ns:?}"
+    );
 }
 
 #[test]
@@ -113,7 +135,10 @@ fn the_person_turns_it_off_and_on() {
     let card = alices_card(&e);
     let (tk, n) = thread(&e, &format!("Is #{} moving?", card.short), false);
     assert!(n.wake);
-    want_err(e.c.set_agents_now(ALICE, &tk.id, false), ErrorKind::NotAllowed);
+    want_err(
+        e.c.set_agents_now(ALICE, &tk.id, false),
+        ErrorKind::NotAllowed,
+    );
     let t = e.c.set_agents_now(USER, &tk.id, false).unwrap();
     assert!(!t.ask.unwrap().wake);
     // Off: past the quiet spell, no hand-out; a waking post wakes nobody.
@@ -134,7 +159,8 @@ fn the_person_turns_it_off_and_on() {
     // The thread's log says who turned it.
     let log = e.c.activity(&tk.id).unwrap_or_default();
     assert!(
-        log.iter().any(|a| a.what.contains("turned Agents answer now off")),
+        log.iter()
+            .any(|a| a.what.contains("turned Agents answer now off")),
         "{log:?}"
     );
 }
