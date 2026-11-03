@@ -49,6 +49,16 @@ async function mount() {
       glass: previewFlag("glass") ?? saved.glass,
     })
   )
+  // Card #388: Notes exploration mockups, browser preview only (?mockup=notes&view=N).
+  if (!inHost() && previewFlag("mockup") === "notes") {
+    const Mockups = lazy(() => import("./design/notes-mockups"))
+    createRoot(document.getElementById("root")!).render(
+      <Suspense fallback={null}>
+        <Mockups />
+      </Suspense>
+    )
+    return
+  }
   // Card #382: Talk design mockups, browser preview only (?mockup=talk&view=N).
   if (!inHost() && previewFlag("mockup") === "talk") {
     const Mockups = lazy(() => import("./design/talk-mockups"))
