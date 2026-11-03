@@ -32,7 +32,7 @@ export function presenceLine(m: SummaryMember, now: Date): string {
   return parts.length ? `${head} · ${parts.join(", ")}` : `${head} · no agents`
 }
 
-// PresenceReload is how often the People panel reads presence again while
+// PresenceReload is how often a board page reads presence again while
 // it is open: connections come and go without a boards:changed.
 export const PresenceReload = 20_000
 

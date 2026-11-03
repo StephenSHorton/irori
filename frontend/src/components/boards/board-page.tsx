@@ -34,7 +34,6 @@ import {
   boards as actions,
   MaxBoardName,
   PresenceReload,
-  presenceLine,
   reloadBoards,
   useBoards,
   useInvite,
@@ -44,7 +43,6 @@ import { useThreads, type CardSummary, type DoneState } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
 import { go } from "@/lib/nav"
 import { errorText } from "@/lib/talk"
-import { stateDot } from "@/lib/devices"
 import { cn } from "@/lib/utils"
 
 import { BoardSettingsPanel, InviteHow, InvitePanel, useInviteReach } from "./parts"
@@ -76,8 +74,14 @@ export function BoardPage({
   onOpen: (id: string) => void
   now: Date
 }) {
-  const { boards, reload } = useBoards()
+  const { boards } = useBoards()
   const { threads } = useThreads(boardId)
+  // Presence on the member chips (card #371) moves without a
+  // boards:changed: read the list again while the page is open.
+  useEffect(() => {
+    const t = setInterval(() => void reloadBoards(), PresenceReload)
+    return () => clearInterval(t)
+  }, [])
   // The thread unfolded in the panel, and whether the person hid it.
   const [thread, setThread] = useState("")
   const [threadsHidden, setThreadsHidden] = useState(false)
@@ -132,7 +136,6 @@ export function BoardPage({
           hidden: threadsHidden,
           onHide: setThreadsHidden,
         }}
-        aside={<PeoplePanel board={b} now={now} onChanged={reload} />}
       />
     </>
   )
@@ -321,6 +324,7 @@ function BoardSettingsButton({ board: b, reload }: { board: BoardSummary; reload
               {plainLine(b.name) || "(unnamed)"}: who is on it, what reaches your agents and what they may do here.
             </DialogDescription>
           </DialogHeader>
+          {open && <BoardInvite board={b} onChanged={changed} />}
           {open && <BoardSettingsPanel boardId={b.boardId} onChanged={changed} />}
         </DialogContent>
       </Dialog>
@@ -448,65 +452,19 @@ function inviteError(err: unknown): string {
   return t
 }
 
-// PeoplePanel is who is on the board and how to get more people on it:
-// each with a presence dot and line (card #371: online, seen 5m ago or
-// offline, and their agents on the board), read again every
-// PresenceReload while it is open;
-// Invite someone (an owner, once the board is ready) with how an invite
-// works, else why there is no Invite. An open invite stands in for the
-// Invite button until it ends (card #103). The board's settings live
-// behind the header's cog (card #312).
-function PeoplePanel({
-  board: b,
-  now,
-  onChanged,
-}: {
-  board: BoardSummary
-  now: Date
-  onChanged: () => Promise<void>
-}) {
+// BoardInvite is how to get more people on the board, in its settings
+// (card #371 moved it there from a People panel beside the cards; who is
+// on it and online shows on the member chips): Invite someone (an owner,
+// once the board is ready) with how an invite works, else why there is no
+// Invite. An open invite stands in for the Invite button until it ends
+// (card #103).
+function BoardInvite({ board: b, onChanged }: { board: BoardSummary; onChanged: () => Promise<void> }) {
   const { invite, setInvite } = useInvite(true)
-  useEffect(() => {
-    const t = setInterval(() => void reloadBoards(), PresenceReload)
-    return () => clearInterval(t)
-  }, [])
   const reach = useInviteReach(true)
   const [error, setError] = useState<string | null>(null)
   const inviting = !!invite && invite.state !== ""
   return (
-    <aside className="glass-panel grid grid-cols-[minmax(0,1fr)] gap-3 p-4 text-[13px]" aria-label="People on this board">
-      <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">People</h2>
-      {b.members.length > 0 ? (
-        <ul className="grid gap-1.5 text-xs">
-          {b.members.map((m) => (
-            <li
-              key={m.personId}
-              className="grid grid-cols-[8px_minmax(0,1fr)] items-center gap-x-2"
-            >
-              <span
-                className={cn(
-                  "size-2 rounded-full",
-                  stateDot(m.presence === "online" ? "connected" : m.presence)
-                )}
-                aria-hidden
-              />
-              <span className="min-w-0 truncate">
-                <span className="text-ink">{plainLine(m.name) || "someone"}</span>
-                {m.me && <span className="text-muted-foreground"> (you)</span>}{" "}
-                <small className="text-muted-foreground">{presenceLine(m, now)}</small>
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        b.people.length > 0 && (
-          <ul className="grid gap-0.5 text-xs text-ink">
-            {b.people.map((p, i) => (
-              <li key={i}>{plainLine(p) || "someone"}</li>
-            ))}
-          </ul>
-        )
-      )}
+    <section className="grid gap-2 text-xs" aria-label="Invite people">
       {inviting ? (
         <InvitePanel
           s={invite}
@@ -548,6 +506,6 @@ function PeoplePanel({
           {error && <p className="text-xs text-destructive">{error}</p>}
         </>
       )}
-    </aside>
+    </section>
   )
 }

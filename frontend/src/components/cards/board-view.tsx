@@ -374,7 +374,7 @@ export function BoardView({
             />
             <DeviceBar filter={active} onFilter={onFilter} devices={chips} />
             {members && (
-              <MemberBar filter={active} onFilter={onFilter} members={members} />
+              <MemberBar filter={active} onFilter={onFilter} members={members} now={now} />
             )}
             {rowBoards && (
               <BoardBar
