@@ -472,7 +472,7 @@ function State({ s, small }: { s: St; small?: boolean }) {
 type Pr = { n: number; t: string; a: Who; card: string; s: St; note: string }
 
 const QUEUE: Pr[] = [
-  { n: 212, t: "Boat wake follows the hull", a: PR, card: "41", s: "merging", note: "kowhai · lease desk:game-repo · head 3f2a9c1" },
+  { n: 212, t: "Boat wake follows the hull", a: PR, card: "41", s: "merging", note: "kowhai · lease desk/you/game-repo · head 3f2a9c1" },
   { n: 218, t: "Shop prices from one table", a: SC, card: "49", s: "waiting", note: "next · opened 3h ago" },
   { n: 219, t: "Fix lantern flicker", a: BL, card: "52", s: "waiting", note: "card #52 made by Irori (no author card)" },
   { n: 220, t: "Hookshot range +2 tiles", a: PR, card: "53", s: "running", note: "GitHub checks 1 of 3" },
@@ -543,15 +543,6 @@ function QueuePanel({ rows = QUEUE, max, expand }: { rows?: Pr[]; max?: number; 
   )
 }
 
-function Pointer({ children }: { children: ReactNode }) {
-  return (
-    <div className="ml-11 flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-[12px] text-ink-2">
-      <MessageSquareTextIcon className="size-3.5 text-muted-foreground" />
-      {children}
-    </div>
-  )
-}
-
 function DeskHeader() {
   return (
     <Header
@@ -590,8 +581,8 @@ function DeskTalkList({ current = "desk" }: { current?: string }) {
         <ListRow icon={thr} label="Lobby list: Steam or relay?" sub="you answered" />
       </Group>
       <Group label="Channels" add>
-        <ListRow icon={desk} label="merge-game-repo" sub="desk · kowhai · 8 open" unread={current === "desk" ? undefined : 8} current={current === "desk"} />
-        <ListRow icon={desk} label="merge-app-repo" sub="desk · primrose · 2 open" unread={2} />
+        <ListRow icon={desk} label="merge-game-repo" sub="desk · kowhai · 8 open" unread={current === "desk" ? undefined : 3} current={current === "desk"} />
+        <ListRow icon={desk} label="merge-app-repo" sub="desk · primrose · 2 open" />
         <ListRow icon={hash} label="releases" unread="@" />
         <ListRow icon={hash} label="general" />
       </Group>
@@ -600,7 +591,7 @@ function DeskTalkList({ current = "desk" }: { current?: string }) {
         <ListRow icon={<Av w={BL} size={5} />} label="Blake" />
       </Group>
       <div className="mt-auto px-2 pt-2 text-[11px] text-muted-foreground">
-        Desks list with channels; the count is the open PRs.
+        Desks list with channels. The badge is unread posts, as for any channel; the open PR count is in the subtitle.
       </div>
     </div>
   )
@@ -611,9 +602,9 @@ function DeskLog({ upto = 99 }: { upto?: number }) {
     <Msg key="a" w={KO} at="13:40">
       Merged #210 as <Sha s="e81b0c4" />. Next up: #212.
     </Msg>,
-    <Auto key="b" at="13:41">
-      #215 needs rebase (GitHub: BEHIND main). Asked kestrel on <Chip n="44" t="Enemy camp: second patrol" />
-    </Auto>,
+    <Msg key="b" w={KO} at="13:41">
+      #215 needs rebase (GitHub: BEHIND main); Irori asked kestrel on <Chip n="44" t="Enemy camp: second patrol" />.
+    </Msg>,
     <Msg key="c" w={KO} at="13:52">
       #216 checks failed: <code className="font-mono text-[12px]">cargo test</code>, 2 failures. Output is on <Chip n="47" t="Save slots" /> for nutmeg.
     </Msg>,
@@ -623,10 +614,6 @@ function DeskLog({ upto = 99 }: { upto?: number }) {
     <Msg key="e" w={KO} at="14:01">
       Taking #212: trial squash is clean on main @ <Sha s="e81b0c4" />, checks running.
     </Msg>,
-    <Pointer key="f">
-      PR thread: <span className="font-medium text-ink">#41 Boat wake follows the hull</span>
-      <span className="text-muted-foreground">· primrose&apos;s card · PR #212</span>
-    </Pointer>,
   ]
   return <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden px-4 pt-2">{all.slice(0, upto)}</div>
 }
@@ -978,18 +965,18 @@ function View4() {
           <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">The desk lease</div>
           <div className="grid gap-1.5 rounded-xl border border-info/50 bg-card p-3 text-[12.5px] text-ink-2">
             <div className="flex items-center gap-2 font-mono text-[13px] text-ink">
-              <LockIcon className="size-4 text-info" /> desk:game-repo
+              <LockIcon className="size-4 text-info" /> desk/you/game-repo
             </div>
             <div>held by <b className="text-ink">kowhai</b> for <span className="font-mono text-primary">PR #212</span> @ <Sha s="3f2a9c1" /></div>
             <div className="text-muted-foreground">taken 14:01 · renewed 14:03 · lapses 14:33 unless renewed</div>
-            <div className="text-muted-foreground">a second take is refused until it&apos;s released</div>
+            <div className="text-muted-foreground">a second take is refused until it&apos;s released; steal is refused too</div>
             <div className="mt-1 flex items-center gap-2 rounded-md bg-secondary px-2 py-1 text-[11.5px]">
-              <Av w={NU} size={5} /> <span className="font-mono text-primary">#55</span> waits_on lease desk:game-repo
+              <Av w={NU} size={5} /> <span className="font-mono text-primary">#55</span> waits_on lease desk/you/game-repo
             </div>
           </div>
           <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">kowhai&apos;s run (in its wake text)</div>
           <div className="grid gap-1.5">
-            <RunStep n={1} done>Take <code className="font-mono">desk:game-repo</code> for the oldest Waiting on desk (#212)</RunStep>
+            <RunStep n={1} done>Take <code className="font-mono">desk/you/game-repo</code> for the oldest Waiting on desk (#212)</RunStep>
             <RunStep n={2} done>Trial-squash on fresh origin/main in its own worktree</RunStep>
             <RunStep n={3} now>Run the check lines; path lines only when the diff touches them</RunStep>
             <RunStep n={4}>Read the diff; anything for the author goes on the PR thread</RunStep>
@@ -1000,9 +987,9 @@ function View4() {
             <TerminalIcon className="size-3.5 shrink-0" /> test camp::tests::patrol_spawns_once ... ok
           </div>
           <Note>
-            Any step that fails: post on the PR thread, release, take the next one. A push after
-            step 2 makes step 5 fail instead of merging untested code. Tags and releases stay with
-            Stephen.
+            Any step that fails: post on the PR thread, release, take the next one. Step 5 re-fetches
+            main first and goes back to step 2 if it moved; a push to the PR makes the merge fail
+            instead of merging untested code. Tags and releases stay with Stephen.
           </Note>
         </div>
       </div>
@@ -1013,8 +1000,8 @@ function View4() {
 // ---------- 5: after merge ----------
 
 function View5() {
-  const merged: Pr = { ...QUEUE[0], s: "merged", note: "merged as 3f2a9c1 by kowhai · drops off the list next session" }
-  const next: Pr = { ...QUEUE[1], s: "merging", note: "kowhai · lease desk:game-repo · head 7d01b2e" }
+  const merged: Pr = { ...QUEUE[0], s: "merged", note: "merged as 3f2a9c1 by kowhai · from pr.state · leaves at the next poll" }
+  const next: Pr = { ...QUEUE[1], s: "merging", note: "kowhai · lease desk/you/game-repo · head 7d01b2e" }
   return (
     <Window current="boards">
       <Header title="Card #41" right={<span className="text-[12.5px] text-muted-foreground">primrose&apos;s card · the PR #212 thread</span>} />
@@ -1053,17 +1040,18 @@ function View5() {
               <QueueRow p={merged} dim />
               <QueueRow p={next} />
               {QUEUE.slice(2, 4).map((p) => <QueueRow key={p.n} p={p} />)}
+              <div className="px-2 py-1 text-[11.5px] text-muted-foreground">+ 4 more</div>
             </div>
           </div>
           <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden px-4 pt-2">
-            <Auto at="14:06" hl>
-              Merged #212 as <Sha s="3f2a9c1" /> · posted on <Chip n="41" t="Boat wake follows the hull" />
-            </Auto>
-            <Msg w={KO} at="14:06">Released the lease. Taking #218.</Msg>
+            <Msg w={KO} at="14:06">
+              Merged #212 as <Sha s="3f2a9c1" />; Irori posted it on <Chip n="41" t="Boat wake follows the hull" />. Released the lease. Taking #218.
+            </Msg>
           </div>
           <Note className="m-4">
-            The card completes the usual way: prwatch sees MERGED and wakes primrose to complete
-            with proof. A &ldquo;PR #n&rdquo; card Irori made completes itself on merge.
+            The desk&apos;s poll device reads MERGED and the sha from GitHub and writes the pr.state
+            row, so primrose is woken to complete with proof, wherever its card is held. A
+            &ldquo;PR #n&rdquo; card Irori made completes itself on merge, held or not.
           </Note>
         </div>
       </div>
