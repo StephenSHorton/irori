@@ -58,7 +58,8 @@ pub struct Unoffered {
 }
 
 /// Whether card t is one Irori hands out now: open, unheld, unassigned,
-/// private, not an ask and not a parent.
+/// private, not an ask and not a parent, and not waiting on other work
+/// (card #397).
 pub(crate) fn offerable(t: &Task) -> bool {
     t.state == SUBMITTED
         && t.holders.is_empty()
@@ -67,6 +68,32 @@ pub(crate) fn offerable(t: &Task) -> bool {
         && !t.withdrawn
         && t.ask.is_none()
         && t.subtasks.is_empty()
+        && !waits_on_work(t)
+}
+
+/// Whether t has an open blocker on another task or a lease (card #397):
+/// nobody can start it until that work is done, so Irori doesn't hand it
+/// out. The blocker closes by itself when the work is done, and the card
+/// then goes out once, as if just posted.
+fn waits_on_work(t: &Task) -> bool {
+    t.blockers.iter().any(|b| {
+        b.open()
+            && b.on
+                .as_ref()
+                .is_some_and(|on| on.kind == BLOCKED_ON_TASK || on.kind == BLOCKED_ON_LEASE)
+    })
+}
+
+/// When t's last task or lease blocker was resolved, if it has one.
+fn work_unblocked_at(t: &Task) -> Option<GoTime> {
+    t.blockers
+        .iter()
+        .filter(|b| {
+            b.on.as_ref()
+                .is_some_and(|on| on.kind == BLOCKED_ON_TASK || on.kind == BLOCKED_ON_LEASE)
+        })
+        .filter_map(|b| b.resolved.as_ref().map(|r| r.at))
+        .max_by(gotime::cmp)
 }
 
 impl Task {
@@ -658,11 +685,14 @@ fn machine_rank(
     }
 }
 
-/// Whether hand-out o of card t came before its last holder let it go.
+/// Whether hand-out o of card t came before its last holder let it go,
+/// or before the other work it waited on was done (card #397: the agents
+/// it reached while it couldn't be started don't count as having passed).
 fn stale_offer(t: &Task, o: &Offer) -> bool {
     t.let_go
         .as_ref()
         .is_some_and(|(_, at)| gotime::before(&o.since, at))
+        || work_unblocked_at(t).is_some_and(|at| gotime::before(&o.since, &at))
 }
 
 /// The notice handing unheld card t to agent `to`.
