@@ -213,6 +213,22 @@ kinds! {
     NOTE_EDITED = "note.edited" => Replicated, Accepts;
     /// `{noteId, why?, by, at}`.
     NOTE_REMOVED = "note.removed" => Replicated, Accepts;
+    // merge desk (card #415, docs/design/merge-desk.md §7): the person's
+    // private log in v1
+    /// `{repoKey, enabled, takesPrs, holder?, pollDevice, trusted[],
+    /// checks[], mergeMethod, perPrOk, by, at}`: person only.
+    REPO_DESK = "repo.desk" => Replicated, Refuses;
+    /// `{repoKey, truncated, prs[], by, at}`: Irori's snapshot of the
+    /// repo's open PRs, written on change by the poll device.
+    DESK_PRS = "desk.prs" => Replicated, Refuses;
+    /// `{repoKey, pr, note?, cleared?, by, at}`: person only.
+    DESK_HOLD = "desk.hold" => Replicated, Refuses;
+    /// `{repoKey, paused, by, at}`: person only.
+    DESK_PAUSE = "desk.pause" => Replicated, Refuses;
+    /// `{repoKey, pr, headSha, by, at}`: person only.
+    DESK_OK = "desk.ok" => Replicated, Refuses;
+    /// `{repoKey, pr, headSha, baseSha?, by, at}`: the holder's run.
+    DESK_RUN = "desk.run" => Replicated, Refuses;
     // v0.5 private-log rows, never in a board log
     BOARD_JOINED = "board.joined" => Replicated, Refuses;
     BOARD_FORGOT = "board.forgot" => Replicated, Refuses;

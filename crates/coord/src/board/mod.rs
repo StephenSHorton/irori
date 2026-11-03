@@ -18,6 +18,7 @@ mod board_search;
 mod cards;
 mod comment_edit;
 mod comments;
+mod desk;
 mod error;
 mod fold;
 mod idle;
@@ -54,6 +55,10 @@ pub use asks::{
 };
 pub use board_search::{DEFAULT_DOC_PAGE, SHOW_COMMENT_CUT, SHOW_COMMENTS};
 pub use cards::{merge_watch, watch_text};
+pub use desk::{
+    DESK_LIMIT, Desk, DeskCheck, DeskHoldRow, DeskOkRow, DeskPauseRow, DeskPr, DeskPrsRow,
+    DeskRunRow, MERGE_MERGE, MERGE_REBASE, MERGE_SQUASH, RepoDeskRow, github_repo, new_desk,
+};
 pub use error::{Error, ErrorKind, Result};
 pub use fold::{
     FOLLOW_KINDS, Fold, LEFT_GONE, LEFT_REMOVED, MADE_KIND, REASON_CONFLICT, REASON_EXPIRED,
@@ -1082,6 +1087,32 @@ impl Coord {
     /// #208) and returns the card and the notices to route.
     pub fn record_pr_state(&self, id: &str, check: PrCheck) -> Result<(Task, Vec<Notice>)> {
         self.lock().record_pr_state(id, check)
+    }
+
+    /// The person sets up or changes a repo's merge desk (card #415).
+    pub fn set_desk(&self, by: &str, desk: RepoDeskRow) -> Result<()> {
+        self.lock().set_desk(by, desk)
+    }
+
+    /// Records the open PRs the desk poller heard for `repo_key`; writes a
+    /// snapshot only on change. Whether a row was written.
+    pub fn record_desk_prs(
+        &self,
+        repo_key: &str,
+        prs: Vec<DeskPr>,
+        truncated: bool,
+    ) -> Result<bool> {
+        self.lock().record_desk_prs(repo_key, prs, truncated)
+    }
+
+    /// Every merge desk in this log, by repo key.
+    pub fn desks(&self) -> Vec<Desk> {
+        self.lock().desks.values().cloned().collect()
+    }
+
+    /// One repo's merge desk, if it has one.
+    pub fn desk(&self, repo_key: &str) -> Option<Desk> {
+        self.lock().desks.get(repo_key).cloned()
     }
 
     /// The states of the PRs card `id` links, as last heard (card #208).

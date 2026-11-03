@@ -102,13 +102,19 @@ const SINCE_GO: [&str; 19] = [
 
 /// Kinds added after the Go port that board logs refuse: the person's own
 /// rows (device names, card #184; a card's pause, card #207; Talk read
-/// cursors, card #389).
-const SINCE_GO_REFUSED: [&str; 5] = [
+/// cursors, card #389; the merge desk's rows, card #415).
+const SINCE_GO_REFUSED: [&str; 11] = [
     kinds::DEVICE_NAME,
     kinds::TASK_ARCHIVED,
     kinds::TASK_PAUSED,
     kinds::PERSON_COLOR,
     kinds::TALK_READ,
+    kinds::REPO_DESK,
+    kinds::DESK_PRS,
+    kinds::DESK_HOLD,
+    kinds::DESK_PAUSE,
+    kinds::DESK_OK,
+    kinds::DESK_RUN,
 ];
 
 #[test]
