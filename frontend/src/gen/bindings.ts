@@ -136,6 +136,7 @@ export const commands = {
 	boardsCreate: (name: string, tag: string) => __TAURI_INVOKE<BoardSummary>("boards_create", { name, tag }),
 	boardsRename: (boardId: string, name: string) => __TAURI_INVOKE<BoardSummary>("boards_rename", { boardId, name }),
 	boardsLeave: (boardId: string) => __TAURI_INVOKE<null>("boards_leave", { boardId }),
+	boardsAddToSpace: (spaceId: string, name: string, tag: string) => __TAURI_INVOKE<BoardSummary>("boards_add_to_space", { spaceId, name, tag }),
 	boardsForgetNow: (boardId: string) => __TAURI_INVOKE<null>("boards_forget_now", { boardId }),
 	boardsRemoveMember: (boardId: string, personId: string) => __TAURI_INVOKE<BoardSettings>("boards_remove_member", { boardId, personId }),
 	boardsSetRole: (boardId: string, personId: string, role: string) => __TAURI_INVOKE<BoardSettings>("boards_set_role", { boardId, personId, role }),
@@ -462,6 +463,11 @@ export type BoardSummary = {
 	pinned?: boolean,
 	/**  Its place among the pinned boards, lowest first. */
 	pinRank?: number | null,
+	/**
+	 *  The boards in this space (card #392, decision 45), its own first:
+	 *  a card's `board` names one of them (empty: the space's own).
+	 */
+	boards: SpaceBoard[],
 };
 
 /**  A card's spot on the Board's canvas, in canvas pixels (card #93). */
@@ -1326,6 +1332,14 @@ export type SharedCopy = {
 	taskId: string,
 	ref: string,
 	withdrawn?: boolean,
+};
+
+/**  One board of a space (card #392). */
+export type SpaceBoard = {
+	/**  Its id: the space's own id for its first board. */
+	boardId: string,
+	name: string,
+	tag: string,
 };
 
 /**  inbox.State. */

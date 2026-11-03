@@ -153,6 +153,9 @@ pub struct BoardSummary {
     /// reach any home server for mlg", "Update Irori: …"; §6.3-6.5, §8).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+    /// The boards in this space (card #392), its own first.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub boards: Vec<super::spaces::SpaceBoard>,
 }
 
 /// One current member of a board, as its summary lists them (card #268).
@@ -504,6 +507,7 @@ impl Services {
                     members: self.board_members_present(b),
                     leaving: self.board_leaving(b),
                     warnings: self.board_status(b),
+                    boards: self.space_boards(&b.id).unwrap_or_default(),
                     ..Default::default()
                 };
                 if s.name.is_empty() {

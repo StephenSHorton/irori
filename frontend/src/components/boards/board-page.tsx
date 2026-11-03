@@ -85,6 +85,8 @@ export function BoardPage({
   // The thread unfolded in the panel, and whether the person hid it.
   const [thread, setThread] = useState("")
   const [threadsHidden, setThreadsHidden] = useState(false)
+  // The board in the space whose cards show (card #392); "" is all.
+  const [inSpace, setInSpace] = useState("")
   const b = boards.find((x) => x.boardId === boardId)
   if (!b)
     return (
@@ -97,12 +99,14 @@ export function BoardPage({
     )
   // The same board view as Home (card #161), over this board's cards,
   // with who is on it beside them.
+  const shown = cardsOnBoard(b, cards, inSpace)
   return (
     <>
       <BoardNotes board={b} />
+      <SpaceBoards board={b} picked={inSpace} onPick={setInSpace} />
       <BoardView
         scope={boardId}
-        cards={cards}
+        cards={shown}
         done={done}
         filter={filter}
         onFilter={onFilter}
@@ -420,6 +424,114 @@ function BoardActionsMenu({
         />
       )}
     </>
+  )
+}
+
+// cardsOnBoard is the space's cards on board `tag` (card #392): "" is every
+// board; the space's own board also has the cards from before spaces,
+// which carry its tag.
+export function cardsOnBoard(b: BoardSummary, cards: CardSummary[], tag: string): CardSummary[] {
+  if (!tag) return cards
+  return cards.filter((c) => (c.tag || b.tag) === tag)
+}
+
+// SpaceBoards is the row of boards in this space (card #392, decision 45):
+// one invite and one set of people share them all. A chip shows one
+// board's cards; Add board puts another in the space. Shown once a space
+// has a second board, or while one is being added.
+function SpaceBoards({
+  board: b,
+  picked,
+  onPick,
+}: {
+  board: BoardSummary
+  picked: string
+  onPick: (tag: string) => void
+}) {
+  const [adding, setAdding] = useState(false)
+  const [name, setName] = useState("")
+  const [tag, setTag] = useState("")
+  const [error, setError] = useState<string | null>(null)
+  const list = b.boards.length ? b.boards : [{ boardId: b.boardId, name: b.name, tag: b.tag }]
+  const add = async (e: FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    try {
+      await actions.addToSpace(b.boardId, name, tag)
+      setAdding(false)
+      setName("")
+      setTag("")
+      await reloadBoards()
+    } catch (err) {
+      setError(errorText(err))
+    }
+  }
+  const chip = (key: string, label: string, title: string) => (
+    <Button
+      key={key || "all"}
+      size="sm"
+      variant={picked === key ? "secondary" : "ghost"}
+      aria-pressed={picked === key}
+      className="h-7 px-2.5 text-[12.5px]"
+      title={title}
+      onClick={() => onPick(key)}
+    >
+      {label}
+    </Button>
+  )
+  return (
+    <div className="grid gap-1.5" aria-label="Boards in this space">
+      <div className="flex flex-wrap items-center gap-1">
+        {list.length > 1 && chip("", "All boards", "Every board in this space")}
+        {list.length > 1 &&
+          list.map((x) =>
+            chip(x.tag, `${plainLine(x.name)} ${plainLine(x.tag)}#`, `Only ${plainLine(x.name)}'s cards`)
+          )}
+        {b.ready && !adding && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2.5 text-[12.5px] text-muted-foreground"
+            title="Another board for the same people: one invite shares them all"
+            onClick={() => setAdding(true)}
+          >
+            + Board
+          </Button>
+        )}
+      </div>
+      {adding && (
+        <form className="flex flex-wrap items-center gap-1.5" onSubmit={add}>
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={MaxBoardName}
+            placeholder="Board name"
+            aria-label="New board's name"
+            className="h-8 w-48"
+            autoFocus
+          />
+          <Input
+            value={tag}
+            onChange={(e) => setTag(e.target.value.toLowerCase())}
+            maxLength={16}
+            placeholder="tag"
+            aria-label="New board's tag (its card refs: tag#12)"
+            className="h-8 w-24 font-mono"
+          />
+          <Button type="submit" size="sm" className="h-8" disabled={!name.trim() || !tag.trim()}>
+            Add board
+          </Button>
+          <Button type="button" variant="ghost" size="sm" className="h-8" onClick={() => setAdding(false)}>
+            Cancel
+          </Button>
+          {error && (
+            <p className="basis-full text-xs text-destructive" role="alert">
+              {plainLine(error)}
+            </p>
+          )}
+        </form>
+      )}
+    </div>
   )
 }
 

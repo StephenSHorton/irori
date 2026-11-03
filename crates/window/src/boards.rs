@@ -55,6 +55,19 @@ pub struct BoardSummary {
     #[serde(skip_serializing_if = "is_zero_rank")]
     #[specta(optional)]
     pub pin_rank: f64,
+    /// The boards in this space (card #392, decision 45), its own first:
+    /// a card's `board` names one of them (empty: the space's own).
+    pub boards: Vec<SpaceBoard>,
+}
+
+/// One board of a space (card #392).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SpaceBoard {
+    /// Its id: the space's own id for its first board.
+    pub board_id: String,
+    pub name: String,
+    pub tag: String,
 }
 
 /// One current member in a board's summary (card #268).
@@ -118,6 +131,15 @@ impl From<irori_core::BoardSummary> for BoardSummary {
             warnings: s.warnings,
             pinned: false,
             pin_rank: 0.0,
+            boards: s
+                .boards
+                .into_iter()
+                .map(|b| SpaceBoard {
+                    board_id: b.board_id,
+                    name: b.name,
+                    tag: b.tag,
+                })
+                .collect(),
         }
     }
 }
@@ -248,6 +270,21 @@ impl Window {
             .create_board(name, &crate::trim(tag).to_lowercase())
             .map_err(text)?;
         self.boards_find(&id)
+    }
+
+    /// Adds board `name` (tag `tag`) to space `space_id` (card #392). Until
+    /// every member device runs an Irori that reads spaces, it's refused
+    /// with the devices it waits on.
+    pub fn boards_add_to_space(
+        &self,
+        space_id: &str,
+        name: &str,
+        tag: &str,
+    ) -> Result<BoardSummary, String> {
+        self.core
+            .create_space_board(space_id, name, &crate::trim(tag).to_lowercase())
+            .map_err(text)?;
+        self.boards_find(space_id)
     }
 
     /// BoardsService.Rename (owners).

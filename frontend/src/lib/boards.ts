@@ -165,6 +165,11 @@ function boardsState(): BoardSummary[] {
       ready: true,
       pinned: true,
       pinRank: 1,
+      // A space with a second board (card #392).
+      boards: [
+        { boardId: "sample-board-mlg", name: "MLG", tag: "mlg" },
+        { boardId: "sample-board-mlg-net", name: "Netcode", tag: "net" },
+      ],
     }),
     BoardSummary({
       boardId: "sample-board-site",
@@ -256,6 +261,21 @@ export const boards = {
     b.pinned = pinned
     b.pinRank = pinned ? top + 1 : 0
     sampleMoved()
+  },
+
+  // addToSpace puts another board in space `spaceId` (card #392): one
+  // invite, one set of members, many boards. Refused, naming the devices,
+  // until every member device runs an Irori that reads spaces.
+  async addToSpace(spaceId: string, name: string, tag: string): Promise<BoardSummary> {
+    if (inWails()) return BoardsService.AddToSpace(spaceId, name, tag)
+    const b = sampleFind(spaceId)
+    const t = tag.trim().toLowerCase()
+    if (boardsState().some((x) => x.tag === t || x.boards.some((y) => y.tag === t)))
+      throw new Error(`core: the tag "${t}" is already a board's`)
+    if (!b.boards.length) b.boards = [{ boardId: b.boardId, name: b.name, tag: b.tag }]
+    b.boards = [...b.boards, { boardId: `${spaceId}-${t}`, name: name.trim(), tag: t }]
+    sampleMoved()
+    return b
   },
 
   async rename(id: string, name: string): Promise<BoardSummary> {

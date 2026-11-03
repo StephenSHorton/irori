@@ -87,6 +87,7 @@ export type SendResult = B.SendResult
 export type Sender = B.Sender
 export type SharePreview = B.SharePreview
 export type SharedCopy = B.SharedCopy
+export type SpaceBoard = B.SpaceBoard
 export type State = B.State
 export type Step = B.Step
 export type SubtaskPreview = B.SubtaskPreview
@@ -176,7 +177,7 @@ export function BoardSettings(p: Partial<B.BoardSettings> = {}): B.BoardSettings
 
 /** BoardSummary with Go's zero values for every field left out. */
 export function BoardSummary(p: Partial<B.BoardSummary> = {}): B.BoardSummary {
-  return { "boardId": "", "name": "", "tag": "", "people": [], "members": [], "owner": false, "devices": 0, "cards": 0, "doneWeek": 0, "ready": false, ...p } as B.BoardSummary
+  return { "boardId": "", "name": "", "tag": "", "people": [], "members": [], "owner": false, "devices": 0, "cards": 0, "doneWeek": 0, "ready": false, "boards": [], ...p } as B.BoardSummary
 }
 
 /** CanvasPos with Go's zero values for every field left out. */
@@ -477,6 +478,11 @@ export function SharedCopy(p: Partial<B.SharedCopy> = {}): B.SharedCopy {
 /** SharePreview with Go's zero values for every field left out. */
 export function SharePreview(p: Partial<B.SharePreview> = {}): B.SharePreview {
   return { "boardId": "", "boardName": "", "title": "", "goal": "", "doneWhen": "", "steps": [], "links": [], "repo": "", "visibleTo": [], "dropped": [], "subtasks": [], "keptPrivate": [], "hash": "", ...p } as B.SharePreview
+}
+
+/** SpaceBoard with Go's zero values for every field left out. */
+export function SpaceBoard(p: Partial<B.SpaceBoard> = {}): B.SpaceBoard {
+  return { "boardId": "", "name": "", "tag": "", ...p } as B.SpaceBoard
 }
 
 /** Step with Go's zero values for every field left out. */
