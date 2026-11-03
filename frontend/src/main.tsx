@@ -49,6 +49,16 @@ async function mount() {
       glass: previewFlag("glass") ?? saved.glass,
     })
   )
+  // Card #382: Talk design mockups, browser preview only (?mockup=talk&view=N).
+  if (!inHost() && previewFlag("mockup") === "talk") {
+    const Mockups = lazy(() => import("./design/talk-mockups"))
+    createRoot(document.getElementById("root")!).render(
+      <Suspense fallback={null}>
+        <Mockups />
+      </Suspense>
+    )
+    return
+  }
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       {/* The look is set on <html> (lib/appearance.ts); Settings >
