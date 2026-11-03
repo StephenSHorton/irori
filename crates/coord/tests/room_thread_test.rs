@@ -83,7 +83,7 @@ fn a_thread_goes_to_the_cards_it_names_first() {
 
     // The person's follow-up goes to alice, woken.
     let (_, ns) =
-        e.c.person_comment(USER, &tk.id, "Our relay.", false, &[], None)
+        e.c.person_comment(USER, &tk.id, "Our relay.", true, &[], None)
             .unwrap();
     assert!(
         ns.len() == 1 && ns[0].to == [ALICE] && ns[0].wake && ns[0].text.contains("Our relay."),
@@ -208,7 +208,7 @@ fn a_resolved_thread_reopens() {
     e.clk.add(secs(60));
     assert!(e.c.sweep_asks(&agents(&e)).unwrap().is_empty());
     let (_, ns) =
-        e.c.person_comment(USER, &tk.id, "One more thing.", false, &[], None)
+        e.c.person_comment(USER, &tk.id, "One more thing.", true, &[], None)
             .unwrap();
     assert!(
         ns.len() == 1

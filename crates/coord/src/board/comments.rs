@@ -711,6 +711,9 @@ impl Fold {
         let mentioned = |k: &str| ms.iter().any(|m| m.key == k);
         let live_mention = ms.iter().any(|m| !m.gone);
         let t = self.any_task(id)?.clone();
+        // A thread with "Agents answer now" off (card #391) wakes nobody,
+        // here or through another member's bridge, which reads the row.
+        let wake = wake && !t.open_ask().is_some_and(|a| a.thread && !a.wake);
         let (mut answer, mut watch) = self.hearers(&t, &by, around);
         let mut room = false;
         if let Some(a) = t.open_ask()
@@ -772,9 +775,15 @@ impl Fold {
             by: by.clone(),
             ..Notice::default()
         };
-        if t.open_ask().is_some_and(|a| a.thread) {
-            let mut ns = self.thread_follow_up(&t, &by, &text, &cid, around)?;
-            ns.extend(mn);
+        if let Some(a) = t.open_ask().filter(|a| a.thread) {
+            let quiet = !wake || !a.wake;
+            let mut ns = self.thread_follow_up(&t, &by, &text, &cid, wake, around)?;
+            // Agents answer now off (card #391): an agent it names is told
+            // at its next turn, not woken.
+            ns.extend(mn.into_iter().map(|mut n| {
+                n.wake &= !quiet;
+                n
+            }));
             return Ok((cm, ns));
         }
         if room && !answer.is_empty() {

@@ -475,6 +475,18 @@ impl Fold {
                     }
                     t.done_criteria = d.clone();
                 }
+                // A thread's "Agents answer now" (card #391); edit_gate let
+                // only a person's row carry it.
+                if let Some(on) = p.agents_now
+                    && let Some(a) = t.ask.as_mut().filter(|a| a.thread)
+                    && a.wake != on
+                {
+                    a.wake = on;
+                    changed.push(format!(
+                        "turned Agents answer now {}",
+                        if on { "on" } else { "off" }
+                    ));
+                }
                 let when = at(p.at);
                 t.updated_at = when;
                 t.updated_by = p.by.clone();
@@ -683,6 +695,11 @@ impl Fold {
         if self.person_row(ev, &p.by) {
             return (true, String::new());
         }
+        // Only a person turns a thread's Agents answer now (card #391).
+        if p.agents_now.is_some() {
+            self.ignore(&ev.device_id);
+            return (false, String::new());
+        }
         if !self.may_write(&p.by, &ev.device_id) {
             self.ignore(&ev.device_id);
             return (false, String::new());
@@ -775,9 +792,10 @@ impl Fold {
                 // An ask goes only to idle agents, and an idle agent gets no
                 // next turn until someone types in its window: an ask that
                 // doesn't wake reaches nobody. input.wake is kept for old
-                // callers and ignored.
+                // callers and ignored. A thread's wake is its "Agents answer
+                // now" (card #391): off, nobody is woken or handed it.
                 ask: Some(AskField {
-                    wake: true,
+                    wake: !(input.thread && input.quiet),
                     repo_key: repo_key.clone(),
                     mentions: mentions.clone(),
                     thread: input.thread,
@@ -812,6 +830,24 @@ impl Fold {
         let t = self.tasks[&id].clone();
         if input.thread {
             let heard = self.thread_hearers(&text, &mentions);
+            if input.quiet {
+                // Agents answer now is off (card #391): the agents it names
+                // hear it at their next turn, and it's never handed out.
+                self.write_take(
+                    &id,
+                    TakeStateRow {
+                        reason: TAKE_POSTED.into(),
+                        told: heard.len() as i64,
+                        heard: heard.clone(),
+                        since: at,
+                        ..TakeStateRow::default()
+                    },
+                )?;
+                let t = self.tasks[&id].clone();
+                let mut n = super::threads::thread_quiet_notice(&t, &heard);
+                n.attachments = input.files;
+                return Ok((t, n));
+            }
             if !heard.is_empty() {
                 self.write_take(
                     &id,
@@ -1642,6 +1678,7 @@ impl Fold {
                         from: id.into(),
                         note: note.clone(),
                         at: now,
+                        ..TaskEditedRow::default()
                     },
                 )?;
                 self.write(

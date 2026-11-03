@@ -26,7 +26,7 @@ use super::asks::TAKE_POSTED;
 use super::fold::{Fold, MADE_KIND, Touch, card_refs, line_of};
 use super::rows::*;
 use super::types::*;
-use super::util::{SWEEPER, cut, deeper};
+use super::util::{SWEEPER, collapse_space, cut, deeper};
 use crate::gotime;
 
 /// How long the agents a thread names have to answer before one idle
@@ -40,6 +40,26 @@ const MAX_THREAD_NOTICE: usize = 1200;
 
 /// What every agent in a thread hears about closing it.
 pub const NOT_YOURS_TO_CLOSE: &str = "Don't ask_close it: the person resolves it when they're done. If your answer says you'll do work, answer in the thread first (board_comment: what you'll do), then make the card with board_create from=<this thread's #ref> (or board_edit the card it changes): Irori refuses a card from a thread you haven't answered, and the thread then shows your answer and the card. If you do it with no card, say so plainly in the thread.";
+
+/// How many of a thread's newest posts a next-turn reading quotes
+/// (card #391); the rest are counted.
+pub const READING_LINES: usize = 5;
+
+const MAX_READING_LINE: usize = 200;
+
+/// Whether a mention names a person, not an agent: another board member
+/// (`person:<id>`) or a person's own key (`user:<id>`).
+pub fn names_person(key: &str) -> bool {
+    key.starts_with(store::kinds::PERSON_ACTOR_PREFIX) || key.starts_with("user:")
+}
+
+/// "Agents answer now"'s default for a new thread or post (card #391,
+/// docs/design/talk-channels.md §3): on when the text names nobody or
+/// names an agent, off when it names only people. Card refs (#12) don't
+/// count as naming anyone.
+pub fn agents_now_default(mentions: &[Mention]) -> bool {
+    mentions.is_empty() || mentions.iter().any(|m| !names_person(&m.key))
+}
 
 impl Fold {
     /// Whether `key` is a person, not an agent: this device's person, or on
@@ -139,6 +159,10 @@ impl Fold {
             self.write_thread_answered(id, &a)?;
             return Ok(true);
         }
+        // Agents answer now is off (card #391): never handed out.
+        if !a.wake {
+            return Ok(true);
+        }
         if a.taker.is_empty()
             && a.reason == TAKE_POSTED
             && gotime::before(now, &gotime::add(&a.since, THREAD_QUIET))
@@ -165,15 +189,24 @@ impl Fold {
     /// answered (live ones), woken; before any answer, to the agents it went
     /// to. Answered, but none of them live: the thread goes out again (an
     /// idle agent gets it at the next sweep).
+    ///
+    /// `wake` false is a post with "Agents answer now" off (card #391), as
+    /// is any post while the thread has it off: nobody is woken and it
+    /// never goes out again; the thread's agents get a next-turn reading.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn thread_follow_up(
         &mut self,
         t: &Task,
         by: &str,
         text: &str,
         cid: &str,
+        wake: bool,
         around: Option<&dyn Fn(&str) -> bool>,
     ) -> super::error::Result<Vec<Notice>> {
         let a = t.ask.clone().unwrap_or_default();
+        if !wake || !a.wake {
+            return Ok(self.thread_reading(t, by, cid, around));
+        }
         // On a board another member's agents run on their devices: this one
         // can't tell if they're live, and they hear it through the bridge.
         let around = if self.on_board { None } else { around };
@@ -238,6 +271,125 @@ impl Fold {
 }
 
 impl Fold {
+    /// The agents in thread `t` that a quiet post is read by (card #391):
+    /// those that answered, the ones it went to and its taker, and its
+    /// watchers. Never `by`.
+    pub(crate) fn thread_readers(
+        &self,
+        t: &Task,
+        by: &str,
+        around: Option<&dyn Fn(&str) -> bool>,
+    ) -> Vec<String> {
+        let a = t.ask.clone().unwrap_or_default();
+        let around = if self.on_board { None } else { around };
+        let mut out: Vec<String> = Vec::new();
+        let keys = self
+            .thread_repliers(&t.id)
+            .into_iter()
+            .chain(a.heard.iter().cloned())
+            .chain(std::iter::once(a.taker.clone()))
+            .chain(t.watchers.iter().cloned());
+        for k in keys {
+            if k.is_empty()
+                || k == by
+                || k == SWEEPER
+                || self.is_person(&k)
+                || out.contains(&k)
+                || !around.is_none_or(|f| f(&k))
+            {
+                continue;
+            }
+            out.push(k);
+        }
+        out
+    }
+
+    /// A quiet post's next-turn notices (card #391): one per reader, with
+    /// what it hasn't read in the thread since its own last post there (at
+    /// most [`READING_LINES`] lines and a count), and that a reply is
+    /// optional.
+    pub(crate) fn thread_reading(
+        &self,
+        t: &Task,
+        by: &str,
+        cid: &str,
+        around: Option<&dyn Fn(&str) -> bool>,
+    ) -> Vec<Notice> {
+        let mut cs: Vec<&Comment> = self
+            .comments
+            .values()
+            .filter(|c| c.task_id == t.id && c.msg_id.is_empty() && c.by != SWEEPER)
+            .collect();
+        // Log order: posts within one millisecond keep the order written.
+        cs.sort_by(|a, b| {
+            (a.hlc, &a.device, a.seq)
+                .cmp(&(b.hlc, &b.device, b.seq))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        let mut out = Vec::new();
+        for k in self.thread_readers(t, by, around) {
+            // Since its own last post there: what it wrote, it has read.
+            let from = cs.iter().rposition(|c| c.by == k).map_or(0, |i| i + 1);
+            let unread: Vec<(&str, &str)> = cs[from..]
+                .iter()
+                .map(|c| (c.by.as_str(), c.text.as_str()))
+                .collect();
+            let lines: Vec<(&str, &str)> = if from == 0 && !cs.iter().any(|c| c.by == k) {
+                // Never posted there: the question counts as unread too.
+                std::iter::once((t.created_by.as_str(), t.objective.as_str()))
+                    .chain(unread)
+                    .collect()
+            } else {
+                unread
+            };
+            if lines.is_empty() {
+                continue;
+            }
+            out.push(Notice {
+                kind: NOTICE_COMMENT.into(),
+                task_id: t.id.clone(),
+                reference: format!("comment:{cid}"),
+                title: t.title.clone(),
+                by: by.into(),
+                to: vec![k],
+                wake: false,
+                person: self.is_owner(by),
+                text: self.reading_text(t, &lines),
+                ..Notice::default()
+            });
+        }
+        out
+    }
+
+    fn reading_text(&self, t: &Task, lines: &[(&str, &str)]) -> String {
+        let n = lines.len();
+        let mut b = format!(
+            "Since you last read the thread {} ({}): {n} new post{}",
+            gocompat::quote::quote(&t.title),
+            t.refs(),
+            if n == 1 { "" } else { "s" }
+        );
+        if n > READING_LINES {
+            b.push_str(&format!(", the last {READING_LINES} below"));
+        }
+        b.push_str(".\n");
+        for (who, text) in &lines[n.saturating_sub(READING_LINES)..] {
+            let who = if self.is_owner(who) {
+                "the person".to_string()
+            } else {
+                self.named(who)
+            };
+            b.push_str(&format!("- {who}: {}\n", cut(&collapse_space(text), MAX_READING_LINE)));
+        }
+        b.push_str(&format!(
+            "\"Agents answer now\" is off for this, so nobody was woken for it. A reply is optional: answer in the thread with board_comment {} only if you have something to add or a correction. talk_read conv={} gives the whole thread. {NOT_YOURS_TO_CLOSE}",
+            t.short_ref(),
+            t.id
+        ));
+        b.push_str(&deeper(&t.id));
+        b
+    }
+
     /// The person reopens their resolved thread `id` (card #169): it is a
     /// live thread again. Their next reply goes to the agents that
     /// answered it; with none, it goes out to an idle agent as a new
@@ -422,6 +574,46 @@ the thread shows your answer and the card, so the person can resolve it."
             },
         )
     }
+
+    /// A person turns an open thread's "Agents answer now" on or off (card
+    /// #391). Off: no agent is woken or handed it, and its agents read new
+    /// posts at their next turn. On: today's rules; a thread no agent has
+    /// answered goes out to an idle one at the next sweep.
+    pub(crate) fn set_agents_now(
+        &mut self,
+        by: &str,
+        id: &str,
+        on: bool,
+    ) -> super::error::Result<Task> {
+        let t = self.any_task(id)?.clone();
+        if !t.open_ask().is_some_and(|a| a.thread) {
+            return Err(super::error::invalid(format!(
+                "{} isn't an open thread",
+                t.short_ref()
+            )));
+        }
+        if !self.is_owner(by) {
+            return Err(super::error::not_allowed(
+                "only a person turns Agents answer now on or off",
+            ));
+        }
+        if t.ask.as_ref().is_some_and(|a| a.wake == on) {
+            return Ok(t);
+        }
+        let at = self.stamp();
+        self.write(
+            by,
+            self.ask_kind(store::kinds::TASK_EDITED),
+            &TaskEditedRow {
+                task_id: id.into(),
+                by: by.into(),
+                agents_now: Some(on),
+                at,
+                ..TaskEditedRow::default()
+            },
+        )?;
+        Ok(self.tasks[id].clone())
+    }
 }
 
 /// What the agents a new thread names hear.
@@ -448,6 +640,26 @@ pub(crate) fn thread_notice(t: &Task, to: &[String]) -> Notice {
         text: b,
         person: true,
         ..Notice::default()
+    }
+}
+
+/// What the agents a new thread names hear when its "Agents answer now"
+/// is off (card #391): at their next turn, a reply optional.
+pub(crate) fn thread_quiet_notice(t: &Task, to: &[String]) -> Notice {
+    let mut b = format!(
+        "The person started a thread ({}). It's a conversation, not a card:\n{}\n",
+        t.refs(),
+        cut(&t.objective, MAX_THREAD_NOTICE)
+    );
+    b.push_str(&format!(
+        "You see it because it names your card or you. \"Agents answer now\" is off for it, so no agent was woken or handed it. A reply is optional: answer in the thread with board_comment {} only if you have something to add or a correction. {NOT_YOURS_TO_CLOSE}",
+        t.short_ref()
+    ));
+    b.push_str(&deeper(&t.id));
+    Notice {
+        wake: false,
+        text: b,
+        ..thread_notice(t, to)
     }
 }
 

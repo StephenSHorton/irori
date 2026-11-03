@@ -250,6 +250,8 @@ pub struct Offer {
 /// An ask's state on its card (Go `coord.Ask`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Ask {
+    /// On a thread, its "Agents answer now" (card #391): off, no agent is
+    /// woken or handed it. Every other ask wakes.
     #[serde(skip_serializing_if = "omit")]
     pub wake: bool,
     #[serde(rename = "repoKey", skip_serializing_if = "omit")]
@@ -921,6 +923,9 @@ pub struct NewAsk {
     /// A private thread about this shared board (card #185); private log
     /// only.
     pub board: String,
+    /// A thread with "Agents answer now" off (card #391): no agent is woken
+    /// or handed it; the agents it names hear it at their next turn.
+    pub quiet: bool,
 }
 
 /// ask_claim's answer.
