@@ -178,6 +178,9 @@ pub struct Options {
     pub device_person: Option<StrFn>,
     /// A board's short handle, read as rows fold.
     pub tag: Option<Arc<dyn Fn() -> String + Send + Sync>>,
+    /// On a space (card #392): the tag of another board in it, by id;
+    /// None for an id the space doesn't hold.
+    pub board_tag: Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>,
     /// A person who owned the board just before the row at that place,
     /// or now when there is no row (the cancel rule reads the owners at
     /// the row's time, v0.5 §5.3).

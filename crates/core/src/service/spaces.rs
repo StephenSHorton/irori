@@ -87,6 +87,37 @@ pub fn fold_space_boards(own: SpaceBoard, rows: &[(String, Vec<u8>)]) -> Vec<Spa
     out
 }
 
+/// The space.board.* rows of a space's log, oldest first.
+fn space_board_rows(st: &store::Store) -> store::Result<Vec<(String, Vec<u8>)>> {
+    Ok(st
+        .list(&Filter {
+            kinds: vec![
+                kinds::SPACE_BOARD_CREATED.into(),
+                kinds::SPACE_BOARD_RENAMED.into(),
+            ],
+            limit: 10_000,
+            ..Default::default()
+        })?
+        .into_iter()
+        .map(|ev| (ev.kind, ev.payload))
+        .collect())
+}
+
+/// The tag of board `board` inside the space whose log is `st`; None when
+/// the log holds no such board.
+pub(crate) fn board_tag_in(st: &store::Store, board: &str) -> Option<String> {
+    let own = SpaceBoard {
+        board_id: String::new(),
+        name: String::new(),
+        tag: String::new(),
+    };
+    fold_space_boards(own, &space_board_rows(st).ok()?)
+        .into_iter()
+        .skip(1)
+        .find(|b| b.board_id == board)
+        .map(|b| b.tag)
+}
+
 impl Services {
     /// The boards in space `space_id`, its own first.
     pub(crate) fn space_boards(&self, space_id: &str) -> Result<Vec<SpaceBoard>> {
@@ -97,20 +128,7 @@ impl Services {
             name: m.name.clone(),
             tag: m.tag.clone(),
         };
-        let rows = b
-            .store
-            .list(&Filter {
-                kinds: vec![
-                    kinds::SPACE_BOARD_CREATED.into(),
-                    kinds::SPACE_BOARD_RENAMED.into(),
-                ],
-                limit: 10_000,
-                ..Default::default()
-            })
-            .map_err(Error::from)?
-            .into_iter()
-            .map(|ev| (ev.kind, ev.payload))
-            .collect::<Vec<_>>();
+        let rows = space_board_rows(&b.store).map_err(Error::from)?;
         Ok(fold_space_boards(own, &rows))
     }
 

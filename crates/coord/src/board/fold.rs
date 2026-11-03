@@ -220,6 +220,7 @@ pub struct Fold {
     pub(crate) key_person: Option<StrFn>,
     pub(crate) dev_person: Option<StrFn>,
     pub(crate) tag_fn: Option<Arc<dyn Fn() -> String + Send + Sync>>,
+    pub(crate) board_tag_fn: Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>,
     pub(crate) board_owner: Option<super::OwnerAtFn>,
     pub(crate) hop_of: Option<super::HopFn>,
     pub(crate) holds_file: Option<KeyFn>,
@@ -364,6 +365,7 @@ impl Fold {
             origin: HashMap::new(),
             dev_person: o.device_person,
             tag_fn: o.tag,
+            board_tag_fn: o.board_tag,
             board_owner: o.board_owner,
             hop_of: o.hop_of,
             holds_file: o.holds_file,
@@ -1026,7 +1028,8 @@ impl Fold {
             updated_by: p.by.clone(),
             shared: p.shared,
             links,
-            tag: self.tag(),
+            tag: self.tag_of(&p.board),
+            board: p.board.clone(),
             from: p.from.clone(),
             ..Task::default()
         };
@@ -1824,6 +1827,28 @@ impl Fold {
             (Some(f), true) => f(),
             _ => String::new(),
         }
+    }
+
+    /// The tag of board `id` in this space (card #392); None when the space
+    /// holds no such board.
+    pub(crate) fn board_tag(&self, id: &str) -> Option<String> {
+        match (&self.board_tag_fn, self.on_board) {
+            (Some(f), true) => f(id),
+            _ => None,
+        }
+    }
+
+    /// The tag a card on board `board` (empty: the space's own) shows.
+    pub(crate) fn tag_of(&self, board: &str) -> String {
+        if board.is_empty() {
+            return self.tag();
+        }
+        self.board_tag(board).unwrap_or_else(|| self.tag())
+    }
+
+    /// Whether `tag` names this space's own board or one inside it.
+    pub(crate) fn has_tag(&self, tag: &str) -> bool {
+        tag == self.tag() || self.tasks.values().any(|t| t.tag == tag)
     }
 
     /// A cancel on a shared card counts only from a device of the card

@@ -39,6 +39,9 @@ crate::go_struct! {
         pub parent: String = "parent" "omit",
         /// The thread the card was made from (card #155).
         pub from: String = "from" "omit",
+        /// The board in a space it's on (card #392): a `space.board.created`
+        /// id; empty for the space's own board (and every older card).
+        pub board: String = "board" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
     }

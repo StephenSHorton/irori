@@ -203,12 +203,17 @@ impl Fold {
         let Some((tag, short)) = parse_ref(&v) else {
             return Ok(v);
         };
-        if !tag.is_empty() && tag != self.tag() {
+        if !tag.is_empty() && !self.has_tag(&tag) {
             return Err(not_found(format!("{v} is a card on another board")));
         }
         if let Some(id) = self.short_idx.get(&short) {
             if self.deleted.contains(id) {
                 return Err(not_found(format!("{v} was deleted")));
+            }
+            // A space numbers its boards' cards in one run (card #392):
+            // net#5 is the space's #5 only when that card is on net.
+            if !tag.is_empty() && self.tasks.get(id).is_some_and(|t| t.tag != tag) {
+                return Err(not_found(format!("{v} is a card on another board")));
             }
             return Ok(id.clone());
         }

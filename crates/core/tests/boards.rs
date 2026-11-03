@@ -445,6 +445,44 @@ fn a_second_board_in_a_space_reaches_the_other_device() {
     );
     wait_for(45, "b gets the second board", || names(&b.core).len() == 2);
     assert_eq!(names(&b.core), names(&a.core));
+    // A card on the new board shows its tag; the space numbers its boards'
+    // cards in one run, and a ref finds it by either device.
+    let co = a.core.board_coord(&id).unwrap();
+    let by = a.core.board_key(&id, &a.user()).unwrap();
+    let on_wind = co.create_task(&by, new_task("boats")).unwrap();
+    let on_net = co
+        .create_task(
+            &by,
+            coord::NewTask {
+                title: "rollback".into(),
+                board: sub.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(on_wind.short_ref(), "wind#1");
+    assert_eq!(on_net.short_ref(), "net#2");
+    assert_eq!(on_net.board, sub);
+    assert_eq!(a.core.task_ref("net#2").unwrap(), on_net.id);
+    assert!(a.core.task_ref("wind#2").is_err(), "#2 is on net");
+    let bco = b.core.board_coord(&id).unwrap();
+    wait_for(45, "b gets the card on net", || {
+        bco.get_task(&on_net.id)
+            .is_some_and(|t| t.short_ref() == "net#2")
+    });
+    assert_eq!(b.core.task_ref("net#2").unwrap(), on_net.id);
+    // A board the space doesn't hold is refused.
+    let e = co
+        .create_task(
+            &by,
+            coord::NewTask {
+                title: "x".into(),
+                board: "nope".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+    assert!(e.to_string().contains("no board"), "{e}");
     // A tag in use, here or in a space, is refused.
     for tag in ["wind", "net"] {
         assert!(a.core.create_space_board(&id, "x", tag).is_err(), "{tag}");

@@ -646,10 +646,17 @@ impl Services {
 
     /// The open boards tagged `tag`. Create keeps a tag to one of the
     /// person's boards, but two devices apart can each make one.
+    /// The space logs holding a board tagged `tag`: the space's own board,
+    /// or one inside it (card #392).
     fn boards_by_tag(&self, tag: &str) -> Vec<Arc<BoardLog>> {
         self.shown_boards()
             .into_iter()
-            .filter(|b| b.verifier.membership().tag == tag)
+            .filter(|b| {
+                b.verifier.membership().tag == tag
+                    || self
+                        .space_boards(&b.id)
+                        .is_ok_and(|bs| bs.iter().skip(1).any(|x| x.tag == tag))
+            })
             .collect()
     }
 

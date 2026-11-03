@@ -37,6 +37,8 @@ pub(crate) struct CleanTask {
     pub parent: String,
     /// The thread it was made from (card #155).
     pub from: String,
+    /// The board in its space (card #392).
+    pub board: String,
     pub scope: Vec<String>,
     pub links: Vec<Link>,
     pub shared: bool,
@@ -112,12 +114,20 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
         steps: new_steps(&steps),
         parent: String::new(),
         from: String::new(),
+        board: String::new(),
     })
 }
 
 impl Fold {
     pub(crate) fn create_task(&mut self, by: &str, nt: NewTask) -> Result<Task> {
         let mut ct = clean_new(by, &nt)?;
+        let board = nt.board.trim();
+        if !board.is_empty() {
+            if self.board_tag(board).is_none() {
+                return Err(invalid(format!("no board {} in this space", quote(board))));
+            }
+            ct.board = board.to_string();
+        }
         if !nt.parent.is_empty() {
             let pid = self.task_ref_locked(&nt.parent)?;
             self.check_parent(&pid, "")?;
@@ -162,6 +172,7 @@ impl Fold {
                 links: ct.links.clone(),
                 parent: ct.parent.clone(),
                 from: ct.from.clone(),
+                board: ct.board.clone(),
                 by: by.into(),
                 at,
                 ask: None,

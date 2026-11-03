@@ -328,6 +328,9 @@ pub struct Task {
     pub short_was: String,
     #[serde(skip_serializing_if = "omit")]
     pub tag: String,
+    /// The board in its space (card #392): empty for the space's own board.
+    #[serde(skip_serializing_if = "omit")]
+    pub board: String,
     #[serde(skip_serializing_if = "omit")]
     pub withdrawn: bool,
     pub title: String,
@@ -546,6 +549,9 @@ pub struct NewTask {
     /// A thread's short ref or task id: the card is made from it (card
     /// #155). Empty: the one open thread the caller answered, if any.
     pub from: String,
+    /// On a space (card #392): another board in it, by id; empty for the
+    /// space's own board.
+    pub board: String,
 }
 
 /// Narrows `list_tasks`; zero values mean any.

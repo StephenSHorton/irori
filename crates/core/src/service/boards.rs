@@ -1316,6 +1316,15 @@ impl Services {
                             })
                         })
                     }),
+                    // The other boards in this space (card #392), read from
+                    // the log itself: a card on one shows its tag.
+                    board_tag: Some({
+                        let st = Arc::downgrade(&st);
+                        Arc::new(move |board: &str| {
+                            let st = st.upgrade()?;
+                            super::spaces::board_tag_in(&st, board)
+                        })
+                    }),
                     ..Default::default()
                 },
             )
