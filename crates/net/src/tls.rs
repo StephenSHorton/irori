@@ -84,6 +84,10 @@ pub fn server_config_on_seed(
 pub struct PinnedDeviceKey {
     pins: PinSet,
     provider: Arc<CryptoProvider>,
+    /// n0's public relays (card #328): while the flag is on, a server named
+    /// exactly one of [`crate::public::HOSTS`] is checked against the WebPKI
+    /// roots instead of the pins. Every other name still needs a pin.
+    public: Option<(crate::public::PublicRelays, Arc<dyn ServerCertVerifier>)>,
 }
 
 impl PinnedDeviceKey {
@@ -95,7 +99,45 @@ impl PinnedDeviceKey {
     /// learned after bind (new `node.addr` or cert rows) are trusted without
     /// rebuilding the endpoint (mesh.md §8.1).
     pub fn shared(pins: PinSet, provider: Arc<CryptoProvider>) -> Self {
-        Self { pins, provider }
+        Self {
+            pins,
+            provider,
+            public: None,
+        }
+    }
+
+    /// [`PinnedDeviceKey::shared`], plus WebPKI for n0's public relays
+    /// while `public` is on.
+    pub fn with_public(
+        pins: PinSet,
+        provider: Arc<CryptoProvider>,
+        public: crate::public::PublicRelays,
+    ) -> Result<Self, rustls::Error> {
+        let roots = rustls::RootCertStore {
+            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+        };
+        let web = rustls::client::WebPkiServerVerifier::builder_with_provider(
+            Arc::new(roots),
+            provider.clone(),
+        )
+        .build()
+        .map_err(|e| rustls::Error::General(format!("webpki verifier: {e}")))?;
+        Ok(Self {
+            pins,
+            provider,
+            public: Some((public, web)),
+        })
+    }
+
+    /// The WebPKI verifier when `name` is a public relay and the switch is on.
+    fn public_for(&self, name: &ServerName<'_>) -> Option<&Arc<dyn ServerCertVerifier>> {
+        let (flag, web) = self.public.as_ref()?;
+        match name {
+            ServerName::DnsName(d) if flag.on() && crate::public::is_public_host(d.as_ref()) => {
+                Some(web)
+            }
+            _ => None,
+        }
     }
 }
 
@@ -140,11 +182,14 @@ impl ServerCertVerifier for PinnedDeviceKey {
     fn verify_server_cert(
         &self,
         end_entity: &CertificateDer<'_>,
-        _intermediates: &[CertificateDer<'_>],
-        _server_name: &ServerName<'_>,
-        _ocsp: &[u8],
-        _now: UnixTime,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp: &[u8],
+        now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
+        if let Some(web) = self.public_for(server_name) {
+            return web.verify_server_cert(end_entity, intermediates, server_name, ocsp, now);
+        }
         let ee = webpki::EndEntityCert::try_from(end_entity).map_err(|_| {
             rustls::Error::InvalidCertificate(rustls::CertificateError::BadEncoding)
         })?;
@@ -197,6 +242,20 @@ impl ServerCertVerifier for PinnedDeviceKey {
 /// given server device keys.
 pub fn pinned_ca_config(server_pubs: &[iroh::EndpointId]) -> iroh_relay::tls::CaTlsConfig {
     shared_ca_config(PinSet::new(server_pubs.iter().map(|p| *p.as_bytes())))
+}
+
+/// [`shared_ca_config`] that also trusts n0's public relays by WebPKI while
+/// `public` is on (card #328).
+pub fn shared_ca_config_public(
+    pins: PinSet,
+    public: crate::public::PublicRelays,
+) -> iroh_relay::tls::CaTlsConfig {
+    iroh_relay::tls::CaTlsConfig::custom_server_cert_verifier(Arc::new(move |provider| {
+        Ok(Arc::new(
+            PinnedDeviceKey::with_public(pins.clone(), provider, public.clone())
+                .map_err(std::io::Error::other)?,
+        ) as Arc<dyn ServerCertVerifier>)
+    }))
 }
 
 /// [`pinned_ca_config`] over a shared [`PinSet`] that may grow after bind.

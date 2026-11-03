@@ -3576,6 +3576,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing-subscriber",
+ "webpki-roots",
  "zeroize",
 ]
 

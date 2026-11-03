@@ -10,7 +10,8 @@
 //!   resolver (`getaddrinfo`: the hosts file, then the nameservers the
 //!   network set), never to a resolver iroh picks;
 //! - TXT lookups (iroh's DNS/pkarr address lookup) and n0's names are
-//!   refused.
+//!   refused, except the four public relay hosts of [`crate::public`]
+//!   (A/AAAA only) while public relays are on (card #328).
 //!
 //! Every name asked is kept in a [`DnsLog`] for status lines and the
 //! no-public-contact test.
@@ -47,16 +48,26 @@ impl DnsLog {
 #[derive(Debug, Clone, Default)]
 pub struct LocalDns {
     log: DnsLog,
+    public: crate::public::PublicRelays,
 }
 
 impl LocalDns {
     pub fn new(log: DnsLog) -> LocalDns {
-        LocalDns { log }
+        LocalDns {
+            log,
+            public: Default::default(),
+        }
     }
 
     /// As iroh's [`DnsResolver`], for `Builder::dns_resolver`.
     pub fn resolver(log: DnsLog) -> DnsResolver {
         DnsResolver::custom(LocalDns::new(log))
+    }
+
+    /// [`LocalDns::resolver`] that also resolves n0's four public relay
+    /// hosts while `public` is on.
+    pub fn resolver_public(log: DnsLog, public: crate::public::PublicRelays) -> DnsResolver {
+        DnsResolver::custom(LocalDns { log, public })
     }
 }
 
@@ -73,11 +84,12 @@ fn is_refused_name(host: &str) -> bool {
 
 /// The OS resolver's addresses for `host`. `localhost` is answered here
 /// as 127.0.0.1 (the relays bind IPv4), so it never reaches a nameserver.
-async fn lookup(host: String) -> Result<Vec<IpAddr>, DnsError> {
+async fn lookup(host: String, public: bool) -> Result<Vec<IpAddr>, DnsError> {
     if let Ok(ip) = host.parse::<IpAddr>() {
         return Ok(vec![ip]);
     }
-    if is_refused_name(&host) {
+    let relay = public && crate::public::is_public_host(&host);
+    if !relay && is_refused_name(&host) {
         return Err(refused(format!("{host}: not resolved (no third party)")));
     }
     let h = host.trim_end_matches('.').to_ascii_lowercase();
@@ -93,8 +105,9 @@ async fn lookup(host: String) -> Result<Vec<IpAddr>, DnsError> {
 impl Resolver for LocalDns {
     fn lookup_ipv4(&self, host: String) -> BoxFuture<Result<BoxIter<Ipv4Addr>, DnsError>> {
         self.log.push(&host, "a");
+        let public = self.public.on();
         Box::pin(async move {
-            let v: Vec<Ipv4Addr> = lookup(host.clone())
+            let v: Vec<Ipv4Addr> = lookup(host.clone(), public)
                 .await?
                 .into_iter()
                 .filter_map(|ip| match ip {
@@ -111,8 +124,9 @@ impl Resolver for LocalDns {
 
     fn lookup_ipv6(&self, host: String) -> BoxFuture<Result<BoxIter<Ipv6Addr>, DnsError>> {
         self.log.push(&host, "aaaa");
+        let public = self.public.on();
         Box::pin(async move {
-            let v: Vec<Ipv6Addr> = lookup(host.clone())
+            let v: Vec<Ipv6Addr> = lookup(host.clone(), public)
                 .await?
                 .into_iter()
                 .filter_map(|ip| match ip {
@@ -172,5 +186,43 @@ mod tests {
         let asked = log.asked();
         assert_eq!(asked[0], ("localhost".to_string(), "a"));
         assert!(asked.iter().any(|(_, k)| *k == "txt"));
+    }
+
+    /// Card #328: the switch opens the four relay hosts and nothing else.
+    /// (Resolving them for real needs the internet; the on case is checked
+    /// up to the refusal, which comes before any lookup.)
+    #[tokio::test]
+    async fn public_switch_opens_only_the_relay_hosts() {
+        let t = std::time::Duration::from_secs(1);
+        let off = LocalDns::resolver(DnsLog::default());
+        let err = off
+            .lookup_ipv4("use1-1.relay.n0.iroh.link.", t)
+            .await
+            .err()
+            .unwrap();
+        assert!(format!("{err:#}").contains("no third party"), "{err:#}");
+
+        let flag = crate::public::PublicRelays::new(true);
+        let on = LocalDns::resolver_public(DnsLog::default(), flag.clone());
+        for name in [
+            "dns.iroh.link",
+            "n0.computer",
+            "evil.use1-1.relay.n0.iroh.link",
+        ] {
+            let err = on.lookup_ipv4(name, t).await.err().unwrap();
+            assert!(
+                format!("{err:#}").contains("no third party"),
+                "{name}: {err:#}"
+            );
+        }
+        assert!(on.lookup_txt("_iroh.x.dns.iroh.link", t).await.is_err());
+
+        flag.set(false);
+        let err = on
+            .lookup_ipv4("euc1-1.relay.n0.iroh.link", t)
+            .await
+            .err()
+            .unwrap();
+        assert!(format!("{err:#}").contains("no third party"), "{err:#}");
     }
 }

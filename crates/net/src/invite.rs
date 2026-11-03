@@ -202,7 +202,7 @@ impl IrohNet {
         let mut guest: Option<(RelayUrl, Option<[u8; 32]>)> = None;
         if let Some(url) = &to.relay {
             let mesh = inner.relays.lock().expect("relays").clone();
-            if !mesh.iter().any(|r| &r.url == url) {
+            if !mesh.iter().any(|r| &r.url == url) && !crate::public::is_public_url(url) {
                 let pin = to.relay_pub.map(|k| *k.as_bytes());
                 if let Some(k) = pin {
                     inner.pins.add(k);
@@ -291,6 +291,9 @@ impl Inner {
         addr: EndpointAddr,
         room: &Secret,
     ) -> Result<Arc<dyn Conn>, ConnError> {
+        // The inviter homes on an n0 relay while public relays are on
+        // (card #328): try all four beside its home server's relay.
+        let addr = crate::public::with_public(addr, self.cfg.public_relays.on());
         let conn = tokio::time::timeout(self.cfg.connect_timeout, ep.connect(addr, INVITE_ALPN))
             .await
             .map_err(|_| ConnError::Transport(reason::TIMEOUT.into()))?

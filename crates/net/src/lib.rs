@@ -43,6 +43,7 @@ pub mod identity;
 pub mod invite;
 pub mod pairnet;
 pub mod path;
+pub mod public;
 pub mod relay;
 pub mod tls;
 pub mod transport;

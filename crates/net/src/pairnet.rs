@@ -559,7 +559,10 @@ impl Inner {
         kind: &str,
     ) -> Option<(Connection, (SendStream, RecvStream))> {
         let ep = self.bind().await.ok()?;
-        let addr = EndpointAddr::new(sv.server_pub).with_relay_url(sv.url.clone());
+        let addr = crate::public::with_public(
+            EndpointAddr::new(sv.server_pub).with_relay_url(sv.url.clone()),
+            self.cfg.public_relays.on(),
+        );
         let Ok(Ok(conn)) =
             tokio::time::timeout(self.cfg.connect_timeout, ep.connect(addr, PAIR_ALPN)).await
         else {
@@ -629,10 +632,16 @@ impl Inner {
         depth: u8,
     ) -> Result<(), ConnError> {
         let ep = self.bind().await.map_err(|e| ConnError::Transport(e.0))?;
-        let conn = tokio::time::timeout(self.cfg.connect_timeout, ep.connect(c.addr(), PAIR_ALPN))
-            .await
-            .map_err(|_| ConnError::Transport(reason::TIMEOUT.into()))?
-            .map_err(|e| ConnError::Transport(format!("connect: {e:#}")))?;
+        let conn = tokio::time::timeout(
+            self.cfg.connect_timeout,
+            ep.connect(
+                crate::public::with_public(c.addr(), self.cfg.public_relays.on()),
+                PAIR_ALPN,
+            ),
+        )
+        .await
+        .map_err(|_| ConnError::Transport(reason::TIMEOUT.into()))?
+        .map_err(|e| ConnError::Transport(format!("connect: {e:#}")))?;
         let k = ekm(&conn)?;
         let (mut send, mut recv) = conn
             .open_bi()

@@ -143,6 +143,10 @@ pub struct NetConfig {
     /// board's verifier when it opens the board. An `admit` that is not a
     /// `MemberAdmit` over it ignores it.
     pub boards: Arc<crate::board::BoardMembers>,
+    /// n0's public relays (card #328, docs/design/public-relays.md): while
+    /// on, the relay map holds only them, so every device homes on one and
+    /// can be reached from any network; dials add all four. Off by default.
+    pub public_relays: crate::public::PublicRelays,
 }
 
 impl NetConfig {
@@ -162,6 +166,7 @@ impl NetConfig {
             guests: crate::guest::GuestWindows::default(),
             pair_lan: crate::pairnet::PairLan::default(),
             boards: crate::board::BoardMembers::new(),
+            public_relays: crate::public::PublicRelays::default(),
         }
     }
 }
@@ -477,6 +482,12 @@ impl IrohNet {
                 ep.remove_relay(&o.url).await;
             }
         }
+        if self.inner.cfg.public_relays.on() {
+            // Home relays stay out of the map while public relays are on:
+            // a device is reachable only on its home relay, and a home
+            // server's relay would win it by latency (public-relays.md).
+            return;
+        }
         for s in &servers {
             if !old
                 .iter()
@@ -492,6 +503,45 @@ impl IrohNet {
                 .await;
             }
         }
+    }
+
+    /// Turn n0's public relays on or off (card #328). A bound endpoint's
+    /// relay map follows: on, it holds the four public relays and no home
+    /// relay; off, the home relays and no public one.
+    pub async fn set_public_relays(&self, on: bool) {
+        let _ops = self.inner.relay_ops.lock().await;
+        if self.inner.cfg.public_relays.on() == on {
+            return;
+        }
+        self.inner.cfg.public_relays.set(on);
+        let Some(ep) = self.inner.ep.get() else {
+            return;
+        };
+        let home = self.inner.relays.lock().expect("relays").clone();
+        if on {
+            for c in crate::public::configs() {
+                ep.insert_relay(c.url.clone(), Arc::new(c)).await;
+            }
+            for r in &home {
+                ep.remove_relay(&r.url).await;
+            }
+        } else {
+            for r in home {
+                ep.insert_relay(
+                    r.url.clone(),
+                    Arc::new(crate::relay::client_relay_config(r.url, r.quic_port)),
+                )
+                .await;
+            }
+            for u in crate::public::urls() {
+                ep.remove_relay(&u).await;
+            }
+        }
+    }
+
+    /// Whether n0's public relays are on.
+    pub fn public_relays(&self) -> bool {
+        self.inner.cfg.public_relays.on()
     }
 
     /// The home relays as last fed ([`IrohNet::set_servers`]).
@@ -796,6 +846,9 @@ impl Inner {
                 ep.remove_relay(&o.url).await;
             }
         }
+        if self.cfg.public_relays.on() {
+            return;
+        }
         for s in &now {
             if !had
                 .iter()
@@ -838,8 +891,14 @@ impl Inner {
             .net_report_config(nr)
             .transport_config(tc)
             .address_lookup(self.lookup.clone())
-            .ca_tls_config(crate::tls::shared_ca_config(self.pins.clone()))
-            .dns_resolver(crate::dns::LocalDns::resolver(self.cfg.dns_log.clone()))
+            .ca_tls_config(crate::tls::shared_ca_config_public(
+                self.pins.clone(),
+                self.cfg.public_relays.clone(),
+            ))
+            .dns_resolver(crate::dns::LocalDns::resolver_public(
+                self.cfg.dns_log.clone(),
+                self.cfg.public_relays.clone(),
+            ))
             .hooks(Gate {
                 admit: self.cfg.admit.clone(),
                 pair_open: self.pair_open.clone(),
@@ -864,7 +923,9 @@ impl Inner {
         let relays = self.relays.lock().expect("relays").clone();
         // Never RelayMode::Disabled: it drops the relay transport, so relays
         // learned later could not be inserted (mesh.md §8.1).
-        let map = if relays.is_empty() {
+        let map = if self.cfg.public_relays.on() {
+            RelayMap::from_iter(crate::public::configs())
+        } else if relays.is_empty() {
             RelayMap::empty()
         } else {
             RelayMap::from_iter(
@@ -964,7 +1025,10 @@ impl Inner {
         };
         let conn = tokio::time::timeout(
             self.cfg.connect_timeout,
-            ep.connect(addr.endpoint_addr(), alpn),
+            ep.connect(
+                crate::public::with_public(addr.endpoint_addr(), self.cfg.public_relays.on()),
+                alpn,
+            ),
         )
         .await
         .map_err(|_| ConnError::Transport(reason::TIMEOUT.into()))?
@@ -1168,6 +1232,8 @@ async fn home_relay_watch(inner: Weak<Inner>, ep: Endpoint) {
     use iroh::Watcher as _;
     let mut status = ep.home_relay_status();
     let mut settle = HOME_RELAY_SETTLE;
+    // Quiet minutes on a home server's relay with public relays on.
+    let mut on_home = 0u32;
     loop {
         if ep.is_closed() {
             return;
@@ -1177,8 +1243,32 @@ async fn home_relay_watch(inner: Weak<Inner>, ep: Endpoint) {
             // Wake on a change, and now and then to notice a close.
             match tokio::time::timeout(HOME_RELAY_SETTLE_MAX, status.updated()).await {
                 Ok(Err(_)) => return,
-                Ok(Ok(_)) | Err(_) => continue,
+                Ok(Ok(_)) => continue,
+                Err(_) => {}
             }
+            // Public relays on and homed on a home server's relay: that is
+            // the no-internet fallback below. Take the home relays out
+            // again now and then, so the endpoint goes back to an n0 relay
+            // once one answers (public-relays.md); every five minutes, so
+            // a home with no internet isn't left without a relay for long.
+            let Some(me) = inner.upgrade() else {
+                return;
+            };
+            let fallback = me.cfg.public_relays.on()
+                && status
+                    .get()
+                    .iter()
+                    .any(|h| !crate::public::is_public_url(h.url()));
+            on_home = if fallback { on_home + 1 } else { 0 };
+            if on_home >= 5 {
+                on_home = 0;
+                let _ops = me.relay_ops.lock().await;
+                let relays = me.relays.lock().expect("relays").clone();
+                for r in relays {
+                    ep.remove_relay(&r.url).await;
+                }
+            }
+            continue;
         }
         // No home relay: give iroh `settle` to pick one by itself.
         match tokio::time::timeout(settle, status.updated()).await {
@@ -1190,16 +1280,27 @@ async fn home_relay_watch(inner: Weak<Inner>, ep: Endpoint) {
             return;
         };
         let _ops = me.relay_ops.lock().await;
-        let relays = me.relays.lock().expect("relays").clone();
-        if relays.is_empty() || ep.is_closed() || !status.get().is_empty() {
+        if ep.is_closed() || !status.get().is_empty() {
             continue;
         }
-        for r in relays {
-            ep.insert_relay(
-                r.url.clone(),
-                Arc::new(crate::relay::client_relay_config(r.url, r.quic_port)),
-            )
-            .await;
+        let public = me.cfg.public_relays.on();
+        let relays = me.relays.lock().expect("relays").clone();
+        if public {
+            for c in crate::public::configs() {
+                ep.insert_relay(c.url.clone(), Arc::new(c)).await;
+            }
+        }
+        // With public relays on, the home relays go in only once n0 has
+        // had a few tries: no internet, so the Mac and PC still meet at
+        // home through the PC's relay.
+        if !public || settle >= HOME_RELAY_SETTLE_MAX / 2 {
+            for r in relays {
+                ep.insert_relay(
+                    r.url.clone(),
+                    Arc::new(crate::relay::client_relay_config(r.url, r.quic_port)),
+                )
+                .await;
+            }
         }
         settle = (settle * 2).min(HOME_RELAY_SETTLE_MAX);
     }
