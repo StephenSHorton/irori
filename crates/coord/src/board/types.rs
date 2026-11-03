@@ -61,6 +61,10 @@ crate::go_struct! {
     }
 }
 
+/// A next-turn reading's notice kind (card #391): what an agent hasn't
+/// read in a conversation; a newer one replaces one still waiting.
+pub const NOTICE_READING: &str = "reading";
+
 /// A mention's notice kind, and the most mentions one write carries.
 pub const NOTICE_MENTIONED: &str = "mentioned";
 pub const MAX_MENTIONS: usize = 10;

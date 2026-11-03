@@ -558,8 +558,9 @@ pub async fn board_start_thread(
     text: String,
     mentions: Vec<crate::ts::Mention>,
     board_id: String,
+    agents_now: Option<bool>,
 ) -> R<TaskResult> {
-    w.start_thread(&text, &mentions, &[], &board_id)
+    w.start_thread_with(&text, &mentions, &[], &board_id, agents_now)
 }
 
 /// A thread with files (card #124), as an ask takes them; your own
@@ -571,8 +572,19 @@ pub async fn board_start_thread_with_files(
     text: String,
     mentions: Vec<crate::ts::Mention>,
     files: Vec<UploadFile>,
+    agents_now: Option<bool>,
 ) -> R<TaskResult> {
-    blocking(&w, move |w| w.start_thread(&text, &mentions, &files, "")).await
+    blocking(&w, move |w| {
+        w.start_thread_with(&text, &mentions, &files, "", agents_now)
+    })
+    .await
+}
+
+/// Turns an open thread's "Agents answer now" on or off (card #391).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_thread_agents_now(w: W<'_>, id: String, on: bool) -> R<()> {
+    w.set_agents_now(&id, on)
 }
 
 /// What a #ref in text names (card #144), or null.
@@ -1218,6 +1230,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_card_ref,
             board_resolve_thread,
             board_reopen_thread,
+            board_thread_agents_now,
             board_comment_modify,
             board_comment_modify_cancel,
             board_comment_modify_save,

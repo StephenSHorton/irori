@@ -205,7 +205,7 @@ impl Fold {
     ) -> super::error::Result<Vec<Notice>> {
         let a = t.ask.clone().unwrap_or_default();
         if !wake || !a.wake {
-            return Ok(self.thread_reading(t, by, cid, around));
+            return Ok(self.thread_reading(t, by, around));
         }
         // On a board another member's agents run on their devices: this one
         // can't tell if they're live, and they hear it through the bridge.
@@ -312,7 +312,6 @@ impl Fold {
         &self,
         t: &Task,
         by: &str,
-        cid: &str,
         around: Option<&dyn Fn(&str) -> bool>,
     ) -> Vec<Notice> {
         let mut cs: Vec<&Comment> = self
@@ -346,9 +345,11 @@ impl Fold {
                 continue;
             }
             out.push(Notice {
-                kind: NOTICE_COMMENT.into(),
+                kind: NOTICE_READING.into(),
                 task_id: t.id.clone(),
-                reference: format!("comment:{cid}"),
+                // One ref per thread, so a newer reading replaces one still
+                // waiting.
+                reference: format!("task:{}", t.id),
                 title: t.title.clone(),
                 by: by.into(),
                 to: vec![k],

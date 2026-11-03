@@ -239,3 +239,70 @@ fn threads_read_and_post_as_comments() {
     // Joining a thread isn't Talk's.
     h.failsj(&a, "talk_join", json!({"conv": r}), &["only channels"]);
 }
+
+/// The next-turn reading (card #391): every agent in a channel but the
+/// poster and the woken hears what it hasn't read there, at most five
+/// lines and a count, a reply optional; a newer reading replaces one still
+/// waiting. With "Agents answer now" off, even a mentioned agent isn't
+/// woken.
+#[test]
+fn channel_members_read_at_their_next_turn() {
+    use inbox::mode::NEXT_TURN;
+    let h = new_harness();
+    let (a, c) = (call_a(), call_c());
+    let ch = h.b.talk.create_channel(USER, "general", "").unwrap();
+    for k in [&a, &call_b(), &c] {
+        h.okj(k, "talk_join", json!({"conv": "#general"}));
+    }
+    let waiting = |key: &str| -> Vec<inbox::Delivery> {
+        h.notices(key)
+            .into_iter()
+            .filter(|d| {
+                d.message.reason == coord::NOTICE_READING
+                    && d.state == inbox::st::QUEUED
+            })
+            .collect()
+    };
+    for i in 1..=7 {
+        h.okj(&a, "talk_post", json!({"conv": "#general", "text": format!("line {i}")}));
+    }
+    assert!(waiting(KEY_A).is_empty(), "not the poster");
+    for key in [KEY_B, KEY_C] {
+        let ds = waiting(key);
+        assert_eq!(ds.len(), 1, "one reading, the newest: {ds:?}");
+        assert_eq!(ds[0].mode, NEXT_TURN);
+        assert_eq!(ds[0].message.ref_, format!("talk:{}", ch.id));
+        has(
+            &ds[0].message.text,
+            &["Since you last read #general", "7 new posts, the last 5 below", "line 3", "line 7", "A reply is optional"],
+        );
+        has_not(&ds[0].message.text, &["line 2"]);
+    }
+
+    // Gamma reads the channel: the next reading starts after its cursor.
+    h.okj(&c, "talk_read", json!({"conv": "#general"}));
+    h.okj(&a, "talk_post", json!({"conv": "#general", "text": "line 8"}));
+    let ds = waiting(KEY_C);
+    assert_eq!(ds.len(), 1, "{ds:?}");
+    has(&ds[0].message.text, &["1 new post.", "line 8"]);
+
+    // The person, with Agents answer now off, names gamma: no wake.
+    let me = inbox::Sender::new(USER, "you", "user");
+    let p = tools::talk::post(
+        &*h.b,
+        &me,
+        &tools::talk::Target::Channel(ch.id.clone()),
+        "@gamma no rush on this",
+        &[],
+        false,
+        None,
+    )
+    .unwrap();
+    assert!(p.post.mentions.contains(&KEY_C.to_string()), "{:?}", p.post);
+    assert!(!p.post.agents_now);
+    let ns = h.notices(KEY_C);
+    assert!(ns.iter().all(|d| d.mode != WAKE), "{ns:?}");
+    let ds = waiting(KEY_C);
+    assert_eq!(ds.len(), 1, "{ds:?}");
+    has(&ds[0].message.text, &["no rush on this", "was off"]);
+}

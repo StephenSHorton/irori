@@ -48,6 +48,10 @@ pub struct TalkConversation {
     pub last_at: gocompat::time::GoTime,
     /// A DM between two agents: the person reads it only.
     pub read_only: bool,
+    /// A thread's "Agents answer now" (card #391): its toggle. False for a
+    /// channel or DM, whose composer starts from the default for what the
+    /// text names.
+    pub agents_now: bool,
 }
 
 /// One post.
@@ -106,6 +110,7 @@ impl Window {
                     .collect(),
                 last_at: c.last_at,
                 read_only: c.read_only,
+                agents_now: c.agents_now,
             })
             .collect())
     }

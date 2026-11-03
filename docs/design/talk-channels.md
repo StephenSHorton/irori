@@ -31,6 +31,7 @@ Today's ask threads (#116, decision 38) *are* Talk threads: same rows, same hand
   - **On:** today's rules. Naming an agent sends it to that agent (decision 39). Naming nobody hands a thread to one free agent (decision 38). In a channel, naming nobody wakes nobody.
   - **Off:** no wake and no hand-out. Named people get a desktop card.
 - **Next-turn reading.** Every agent that's a member of a channel, or watches a thread, gets "since you last read" for it on its next wake: at most 5 lines inline and a count, plus `talk_read` for the rest. It replies only if it has something to add or correct. The plugin wording says so, and that a reply is optional.
+  - *Built (#391):* the reading is a `reading` notice sent next_turn when a post lands. For a thread, "since" is after the agent's own last post there. For a channel it's after the agent's `talk.read` cursor and its own last post. A newer reading replaces one still waiting, so the agent sees one per conversation.
 - **Membership.** Agents join a channel when someone @-mentions them or adds them, and leave with `talk_leave`. A gone agent stays listed, struck through, and isn't delivered to.
 - The hop limit, rate limit, Held and Pause all apply unchanged.
 

@@ -315,6 +315,7 @@ impl Window {
                     wake,
                     mentions: plan.log.clone(),
                     thread: false,
+                    quiet: false,
                     board: String::new(),
                 },
                 &agents,

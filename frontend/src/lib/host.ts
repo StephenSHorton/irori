@@ -191,10 +191,20 @@ export const BoardService = {
   MovePin: (id: string, before: string) => done(commands.boardMovePin(id, before)),
   Place: (id: string, x: number, y: number) => done(commands.boardPlace(id, x, y)),
   Create: (input: B.NewCardInput) => call(commands.boardCreate(input)),
-  StartThread: (text: string, mentions: B.Mention[], boardId: string) =>
-    call(commands.boardStartThread(text, mentions, boardId)),
-  StartThreadWithFiles: (text: string, mentions: B.Mention[], files: B.UploadFile[]) =>
-    call(commands.boardStartThreadWithFiles(text, mentions, files)),
+  StartThread: (
+    text: string,
+    mentions: B.Mention[],
+    boardId: string,
+    agentsNow: boolean | null
+  ) => call(commands.boardStartThread(text, mentions, boardId, agentsNow)),
+  StartThreadWithFiles: (
+    text: string,
+    mentions: B.Mention[],
+    files: B.UploadFile[],
+    agentsNow: boolean | null
+  ) => call(commands.boardStartThreadWithFiles(text, mentions, files, agentsNow)),
+  ThreadAgentsNow: (id: string, on: boolean) =>
+    done(commands.boardThreadAgentsNow(id, on)),
   Threads: (boardId: string) => call(commands.boardThreads(boardId)),
   CardRef: (r: string) => call(commands.boardCardRef(r)),
   ResolveThread: (id: string) => done(commands.boardResolveThread(id)),
