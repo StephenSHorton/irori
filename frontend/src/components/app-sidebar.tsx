@@ -4,8 +4,18 @@
 // remembers that on this device. On a phone or a narrow window (card #227)
 // it is a drawer over the page instead: the header's menu button opens it,
 // and a tap outside, Escape or going somewhere closes it.
+// On the desktop its right edge drags (card #309): the width is remembered on
+// this device, dragging well past the narrow end folds it, dragging a folded
+// one out opens it again, and a double-click puts back the default width.
 
-import { useEffect, useState, type ReactNode } from "react"
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react"
 import {
   HomeIcon,
   InboxIcon,
@@ -25,6 +35,17 @@ import { plainLine, type Roster } from "@/lib/irori"
 import { go, type Section } from "@/lib/nav"
 import { useNarrow } from "@/lib/media"
 import { previewFlag } from "@/lib/preview"
+import {
+  clampWidth,
+  defaultWidth,
+  dragTo,
+  foldedWidth,
+  maxWidth,
+  minWidth,
+  readWidth,
+  saveWidth,
+  type Drag,
+} from "@/lib/sidebar-width"
 import { cn } from "@/lib/utils"
 
 const foldedKey = "irori.sidebarFolded"
@@ -71,6 +92,11 @@ export function AppSidebar({
 }) {
   const narrow = useNarrow()
   const [foldedPref, setFolded] = useState(readFolded)
+  const [width, setWidth] = useState(readWidth)
+  // A drag of the right edge in progress; the width transition is off
+  // while it runs so the edge stays under the pointer.
+  const [dragging, setDragging] = useState(false)
+  const drag = useRef<{ left: number; at: Drag } | null>(null)
   // A drawer is never folded: it is the full nav, over the page.
   const folded = foldedPref && !narrow
   useEffect(() => {
@@ -88,6 +114,70 @@ export function AppSidebar({
     } catch {
       // A private window keeps it for this run only.
     }
+  }
+  const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return
+    const aside = e.currentTarget.parentElement
+    if (!aside) return
+    e.preventDefault()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    drag.current = {
+      left: aside.getBoundingClientRect().left,
+      at: { folded, width, catching: false },
+    }
+    setDragging(true)
+    // The page under the pointer would show its own cursor and select text.
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+  }
+  const moveDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = drag.current
+    if (!d) return
+    const next = dragTo(e.clientX - d.left, d.at)
+    if (next.folded !== d.at.folded) fold(next.folded)
+    if (next.width !== d.at.width) setWidth(next.width)
+    d.at = next
+  }
+  const endDrag = () => {
+    const d = drag.current
+    if (!d) return
+    drag.current = null
+    setDragging(false)
+    document.body.style.cursor = ""
+    document.body.style.userSelect = ""
+    saveWidth(d.at.width)
+  }
+  const resetWidth = () => {
+    setWidth(defaultWidth)
+    saveWidth(null)
+    fold(false)
+  }
+  // The arrow keys move the edge too, a step of 16px (Shift: 64).
+  const keyEdge = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 64 : 16
+    let next: number
+    if (e.key === "ArrowLeft") {
+      if (folded) return
+      if (width <= minWidth) {
+        e.preventDefault()
+        fold(true)
+        return
+      }
+      next = width - step
+    } else if (e.key === "ArrowRight") {
+      if (folded) {
+        e.preventDefault()
+        fold(false)
+        return
+      }
+      next = width + step
+    } else if (e.key === "Home") next = minWidth
+    else if (e.key === "End") next = maxWidth
+    else return
+    e.preventDefault()
+    next = clampWidth(next)
+    setWidth(next)
+    saveWidth(next)
   }
   useCommands([
     {
@@ -126,7 +216,8 @@ export function AppSidebar({
     <aside
       aria-label="Navigation"
       className={cn(
-        "flex h-svh shrink-0 flex-col border-r border-border transition-[width]",
+        "relative flex h-svh shrink-0 flex-col border-r border-border",
+        !dragging && "transition-[width]",
         narrow
           ? cn(
               // Opaque (the theme's --sidebar is translucent glass, which let the page
@@ -135,10 +226,36 @@ export function AppSidebar({
               "fixed inset-y-0 left-0 z-50 w-[min(18rem,85vw)] bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-xl transition-transform",
               !drawer && "invisible -translate-x-full"
             )
-          : "bg-sidebar/60",
-        !narrow && (folded ? "w-14" : "w-60")
+          : "bg-sidebar/60"
       )}
+      style={narrow ? undefined : { width: folded ? foldedWidth : width }}
     >
+      {!narrow && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize the sidebar"
+          aria-valuemin={minWidth}
+          aria-valuemax={maxWidth}
+          aria-valuenow={folded ? foldedWidth : width}
+          tabIndex={0}
+          title="Drag to resize; past the narrow end it folds. Double-click: default width"
+          onPointerDown={startDrag}
+          onPointerMove={moveDrag}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onLostPointerCapture={endDrag}
+          onDoubleClick={resetWidth}
+          onKeyDown={keyEdge}
+          className={cn(
+            // Straddles the border: 8px to grab, a line when it is live.
+            "group absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize touch-none outline-none",
+            "after:absolute after:inset-y-0 after:left-1/2 after:w-0.5 after:-translate-x-1/2 after:bg-primary after:opacity-0 after:transition-opacity",
+            "hover:after:opacity-60 focus-visible:after:opacity-100",
+            dragging && "after:opacity-100"
+          )}
+        />
+      )}
       <div
         className={cn(
           "flex h-14 shrink-0 items-center gap-2",
@@ -186,7 +303,7 @@ export function AppSidebar({
 
       <nav
         aria-label="Sections"
-        className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-3"
+        className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-x-hidden overflow-y-auto px-2 pb-3"
       >
         <NavItem
           icon={HomeIcon}
@@ -374,7 +491,8 @@ function Group({
       role="group"
       aria-label={label}
       className={cn(
-        "grid gap-0.5",
+        // One column that may shrink below its rows' text (#309).
+        "grid grid-cols-[minmax(0,1fr)] gap-0.5",
         folded ? "mt-2 border-t border-border pt-2" : "mt-4"
       )}
     >
@@ -411,15 +529,21 @@ function PinRow({
       aria-current={current ? "page" : undefined}
       aria-label={folded ? title : undefined}
       className={cn(
-        "flex h-8 items-center gap-2.5 rounded-md pointer-coarse:h-11 text-left text-sm text-ink-2 hover:bg-secondary hover:text-ink",
+        "flex h-8 w-full min-w-0 items-center gap-2.5 rounded-md pointer-coarse:h-11 text-left text-sm text-ink-2 hover:bg-secondary hover:text-ink",
         folded ? "justify-center px-0" : "px-2.5",
         current && "bg-secondary font-medium text-ink"
       )}
     >
-      <span className="flex h-5 min-w-6 shrink-0 items-center justify-center rounded bg-secondary px-1 font-mono text-[10.5px] text-muted-foreground">
-        {mark}
+      <span
+        className={cn(
+          "flex h-5 min-w-6 shrink-0 items-center justify-center rounded bg-secondary px-1 font-mono text-[10.5px] text-muted-foreground",
+          // A long tag or number shrinks into the icon column when folded.
+          folded && "max-w-10 overflow-hidden"
+        )}
+      >
+        <span className={cn(folded && "truncate")}>{mark}</span>
       </span>
-      {!folded && <span className="truncate">{label}</span>}
+      {!folded && <span className="min-w-0 flex-1 truncate">{label}</span>}
     </button>
   )
 }
