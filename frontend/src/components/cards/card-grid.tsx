@@ -30,6 +30,8 @@ import { LiveRoster } from "@/lib/thread"
 import { plainLine, relativeTime } from "@/lib/irori"
 import { TaskState } from "@/lib/models"
 import { ownedBy, ownerFilter, type OwnerMember } from "@/lib/owners"
+import { presenceLine, type SummaryMember } from "@/lib/boards"
+import { stateDot } from "@/lib/devices"
 import { cardMatches, matching } from "@/lib/search"
 import { cn } from "@/lib/utils"
 import {
@@ -270,14 +272,20 @@ export function BoardBar({
 // MemberBar narrows a shared board's page to one member's cards (card
 // #268): Mine first, then each other member by name. Only a board other
 // people are on has it.
+//
+// Each chip carries the member's presence (card #371): a dot (green
+// online, amber seen lately, grey offline) and, on hover, when they were
+// last seen and their agents on the board.
 export function MemberBar({
   filter,
   onFilter,
   members,
+  now,
 }: {
   filter: Filter
   onFilter: (f: Filter) => void
-  members: OwnerMember[]
+  members: (OwnerMember & Partial<Pick<SummaryMember, "presence" | "lastSeen" | "working" | "free">>)[]
+  now: Date
 }) {
   if (members.length < 2) return null
   const ordered = [...members].sort((a, b) => Number(b.me) - Number(a.me))
@@ -298,18 +306,38 @@ export function MemberBar({
             variant={filter === id ? "secondary" : "ghost"}
             onClick={() => onFilter(filter === id ? "all" : id)}
             title={
-              m.me
+              (m.me
                 ? "Your cards: made by you or your agents"
-                : `${name}'s cards: made by them or their agents`
+                : `${name}'s cards: made by them or their agents`) +
+              (m.presence ? `\n${m.me ? "You" : name}: ${presenceLine(withPresence(m), now)}` : "")
             }
           >
-            <UserIcon aria-hidden className="size-3.5 opacity-70" />
+            <span className="relative inline-flex">
+              <UserIcon aria-hidden className="size-3.5 opacity-70" />
+              {m.presence && (
+                <span
+                  aria-label={presenceLine(withPresence(m), now)}
+                  className={cn(
+                    "absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full ring-1 ring-background",
+                    stateDot(m.presence === "online" ? "connected" : m.presence)
+                  )}
+                />
+              )}
+            </span>
             {m.me ? "Mine" : name}
           </Button>
         )
       })}
     </div>
   )
+}
+
+// withPresence fills the counts presenceLine reads, for a member from a
+// summary that has none.
+function withPresence(
+  m: OwnerMember & Partial<Pick<SummaryMember, "presence" | "lastSeen" | "working" | "free">>
+): SummaryMember {
+  return { ...m, presence: m.presence ?? "", working: m.working ?? 0, free: m.free ?? 0 }
 }
 
 // CardGrid is the cards of shared work, one button each; a button opens

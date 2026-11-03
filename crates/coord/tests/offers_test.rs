@@ -479,3 +479,64 @@ fn idle_report_says_no_free_agent_works_in_the_repo() {
         "{r:?}"
     );
 }
+
+/// Card #397: an unheld card blocked on another task isn't handed out
+/// while that task is open. Blocked after a hand-out, the hand-out is
+/// stale; once the task is done (the blocker closes by itself), the card
+/// goes out once, as if just posted, to the one idle longest.
+#[test]
+fn a_card_blocked_on_another_task_waits_for_it_then_goes_out_once() {
+    let e = Env::new();
+    let first = e.c.create_task(BOB, nt("Talk 4")).unwrap();
+    e.c.claim_task(BOB, &first.id).unwrap();
+    e.c.set_task_state(BOB, &first.id, WORKING, "").unwrap();
+    let room = vec![idle(ALICE, 5), idle(CAROL, 10), idle(DAVE, 30)];
+    let (t, n) = post(&e, "Talk 6", &room);
+    assert_eq!(n.to, [CAROL], "handed out before it was blocked");
+    e.c.block(
+        ALICE,
+        &t.id,
+        "waits on Talk 4",
+        Some(BlockedBy {
+            kind: BLOCKED_ON_TASK.into(),
+            reference: first.id.clone(),
+        }),
+    )
+    .unwrap();
+    // The hand-out to CAROL no longer applies: its notice closes unread.
+    assert!(
+        !e.c.stale_offer(&format!("task:{}", t.id), CAROL).is_empty(),
+        "CAROL's hand-out should go stale once the card is blocked"
+    );
+    // CAROL's turn ends: nobody is handed it while Talk 4 runs.
+    let ended = vec![idle(ALICE, 5), turn_ended(CAROL), idle(DAVE, 30)];
+    for _ in 0..3 {
+        let ns = e.c.sweep_asks(&ended).unwrap();
+        assert!(ns.iter().all(|n| n.kind != NOTICE_OFFER), "{ns:?}");
+        e.c.sweep_notices().unwrap();
+    }
+    assert!(e.c.idle_report(&ended).unoffered.is_empty());
+    // Talk 4 is done: the blocker closes, and the card goes out once.
+    e.clk.add(mins(5));
+    e.c.set_task_state(BOB, &first.id, COMPLETED, "done")
+        .unwrap();
+    e.c.sweep_notices().unwrap();
+    let got = e.c.get_task(&t.id).unwrap();
+    assert!(got.open_blockers().is_empty(), "{:?}", got.blockers);
+    let ns = e.c.sweep_asks(&ended).unwrap();
+    let offers: Vec<_> = ns.iter().filter(|n| n.kind == NOTICE_OFFER).collect();
+    assert_eq!(offers.len(), 1, "{ns:?}");
+    // A fresh hand-out, as if just posted: CAROL reached it while it
+    // couldn't be started, which is no pass, so she isn't skipped for it;
+    // her turn ended later, so DAVE is now idle longest.
+    let o = offer_of(&e.c, &t.id);
+    assert_eq!(offers[0].to, [DAVE], "{ns:?}");
+    assert!(o.to == DAVE && o.heard == [DAVE], "a fresh hand-out: {o:?}");
+    // And only once: the next sweep hands nothing.
+    assert!(
+        e.c.sweep_asks(&ended)
+            .unwrap()
+            .iter()
+            .all(|n| n.kind != NOTICE_OFFER)
+    );
+}

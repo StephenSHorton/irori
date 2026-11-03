@@ -418,10 +418,11 @@ function ReadInviteWords({ s, peer }: { s: InviteStatus; peer: string }) {
   )
 }
 
-// Reviewers is the board's peer-review setting (design §10): which of your
-// agents the others' review requests go to when they name nobody, for the
-// whole board or one repo. The review itself is that agent's, under your
-// GitHub account; Irori only routes the request.
+// Reviewers is the board's peer-review setting (design §10). With nothing set,
+// a review request from someone else that names nobody goes to any free agent
+// of yours (open_reviewer, crates/coord/src/board/review.rs); a pinned agent
+// here, for the whole board or one repo, only overrides that. The review is
+// that agent's, under your GitHub account; Irori only routes the request.
 function Reviewers({
   s,
   save,
@@ -433,14 +434,17 @@ function Reviewers({
   const [repo, setRepo] = useState("")
   const repos = [...new Set(s.agents.map((a) => a.repo).filter(Boolean))]
   return (
-    <section className="grid gap-1" aria-label="My reviewer">
-      <span className="font-semibold text-ink">My reviewer</span>
+    <section className="grid gap-1" aria-label="Reviews">
+      <span className="font-semibold text-ink">Reviews</span>
       <p className="text-muted-foreground">
-        Review requests from other people that name nobody go to this agent. It reviews under your
-        GitHub account.
+        Any free agent of yours reviews other people&apos;s PRs on this board, under your GitHub
+        account. Nothing to set up.
       </p>
-      {s.reviewers.length > 0 ? (
-        <ul className="grid gap-0.5" aria-label="Your reviewers">
+      <p className="text-muted-foreground">
+        Optional: always use one agent, for the whole board or one repo.
+      </p>
+      {s.reviewers.length > 0 && (
+        <ul className="grid gap-0.5" aria-label="Pinned reviewers">
           {s.reviewers.map((r) => (
             <li key={r.repo || "*"} className="flex items-center gap-1.5">
               <span className="text-ink">{plainLine(r.name) || r.agent}</span>
@@ -458,14 +462,12 @@ function Reviewers({
             </li>
           ))}
         </ul>
-      ) : (
-        <p className="text-muted-foreground">None yet.</p>
       )}
       {s.agents.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1.5">
           <select
             className="h-7 rounded-md border border-border bg-transparent px-1.5"
-            aria-label="Agent to review"
+            aria-label="Agent to always use"
             value={agent}
             onChange={(e) => setAgent(e.target.value)}
           >
@@ -502,11 +504,11 @@ function Reviewers({
               })
             }
           >
-            Set reviewer
+            Always use
           </Button>
         </div>
       ) : (
-        <p className="text-muted-foreground">No agent of yours is running to pick.</p>
+        <p className="text-muted-foreground">No agent of yours is running to pin.</p>
       )}
     </section>
   )

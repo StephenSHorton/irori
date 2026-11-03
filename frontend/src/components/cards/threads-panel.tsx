@@ -361,7 +361,9 @@ function ThreadView({
                 variant="slate"
                 className="h-4 gap-1 px-1 text-[10.5px]"
               >
-                <Face who={w} noDot />
+                {/* The small face fits the 16px badge (card #386), in
+                    the agent's colour as the framed face was. */}
+                <Face who={w} inline className="size-3 text-(--face-tint)" />
                 {displayName(w)}
               </Badge>
             ))}

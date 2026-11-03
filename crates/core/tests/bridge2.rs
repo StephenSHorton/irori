@@ -730,13 +730,24 @@ fn a_boards_people_show_who_is_online_and_their_agents() {
     let t = two_people();
     t.b().board_key(&t.board, &t.rb.key_a).unwrap();
     t.b().board_key(&t.board, &t.rb.key_b).unwrap();
-    t.sync();
-    let s = t
-        .a()
-        .board_list()
-        .into_iter()
-        .find(|s| s.board_id == t.board)
-        .unwrap();
+    // Bob's device writes each card's status as its roster sees it, so
+    // under load a card can first read gone until the next status sweep:
+    // wait for both to count.
+    let summary = || {
+        t.sync();
+        t.a()
+            .board_list()
+            .into_iter()
+            .find(|s| s.board_id == t.board)
+            .unwrap()
+    };
+    wait_for(30, "bob's two agents counted", || {
+        summary()
+            .members
+            .iter()
+            .any(|m| !m.me && m.working + m.free == 2)
+    });
+    let s = summary();
     let me = s.members.iter().find(|m| m.me).unwrap();
     assert_eq!(me.presence, "online", "{me:?}");
     assert!(me.last_seen.is_zero(), "{me:?}");
