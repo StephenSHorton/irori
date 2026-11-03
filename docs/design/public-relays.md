@@ -5,10 +5,10 @@
 ## What changes
 
 - **Relays only.** The four n0 production relays (`iroh_relay::defaults`, `use1-1`, `usw1-1`, `euc1-1`, `aps1-1` `.relay.n0.iroh.link`) join every endpoint's relay map. n0's DNS/pkarr address directory stays off: nothing is published under a device id, TXT lookups stay refused, and `dns.iroh.link` is never resolved.
-- **Home servers still win when they work.** iroh picks one home relay by latency (with hysteresis). At home, the Mac's home relay stays the PC; a device with no reachable home server settles on the nearest n0 relay. No ordering code is needed.
-- **Finding a peer with no directory.** An endpoint receives only on its home relay (iroh 1.4.1 closes a non-home relay connection after 60 s idle, `RELAY_INACTIVE_CLEANUP_TIME`). So when dialing another device, the dialer adds all four n0 URLs to the peer's `EndpointAddr`, next to its `board.server` relays and direct addresses. One of them is the peer's home relay; iroh's multipath tries them all.
-- **Who dials.** It's unchanged: the lower id dials first, and the higher one dials after `dial_grace`. So when one side's home relay can't be reached (the PC behind double NAT), the other side still connects through n0.
-- **Invites.** The ticket also carries the inviter's current home relay URLs (`home_relay_status`), so a guest can dial through n0.
+- **Every device meets on n0.** iroh keeps one home relay, picked by latency, and an endpoint can be reached only on its home relay: a non-home relay connection closes after 60 s idle (`RELAY_INACTIVE_CLEANUP_TIME`, iroh 1.4.1). If a home server's relay sat in the map, the PC would always home on its own relay (it is local) and the Mac at home would home on the PC's. Neither could then be reached from outside, so an invite from either would fail. So with the switch on, **the relay map holds only n0's four relays**, and home-server relays are left out of it. They stay known (pins, `board.server`, `PeerAddr.relay`), and iroh still dials them on demand: a relay outside the map gets an actor too. When the internet is out and no n0 relay answers, `home_relay_watch` puts the home relays back into the map, so the Mac and PC keep syncing at home.
+- **What home servers still do:** the LAN lookup (UDP 38419), direct addresses, store-and-forward for boards, pairing guests, and the relay for anyone with the switch off.
+- **Finding a peer with no directory.** Every device homes on the nearest n0 relay. When dialing another device, the dialer adds all four n0 URLs to its `EndpointAddr`, next to its `board.server` relay and direct addresses. iroh tries every relay address it is given (`to_transports_addr`), and one of them is the peer's home relay. This applies to the mesh, board, invite and pairing dials alike. Once connected, iroh hole-punches to a direct path when it can.
+- **Invites.** The ticket format is unchanged. The invitee adds the n0 URLs to its dial, so it reaches the inviter on the inviter's n0 home relay. The guest token is still used only for an inviter's own home-server relay.
 
 ## Trust
 
@@ -18,7 +18,7 @@
 
 ## Switch
 
-`Use public relays` in Settings, on by default. Off restores decision 33 exactly: the relay map holds home servers only, n0 names are refused, and the no-public-contact test passes.
+`Use public relays` in Settings, on by default. Off restores decision 33 exactly: the relay map holds home servers only, n0 names are refused, and the no-public-contact test passes. In code: `NetConfig.public_relays`, an `Arc<AtomicBool>`, false by default so the loopback suite never touches the internet.
 
 ## Not done here
 
