@@ -57,15 +57,13 @@ pub struct AgentsSettings {
     pub default_effort: String,
     /// The idle limit in minutes (card #456, sa-6): how long a spawned
     /// agent waits on an unanswered question before it hands off and goes.
-    #[specta(type = f64)]
-    pub idle_mins: i64,
+    pub idle_mins: u32,
     /// The idle limits Settings › Agents offers, in minutes.
-    #[specta(type = Vec<f64>)]
-    pub idle_choices: Vec<i64>,
+    pub idle_choices: Vec<u32>,
 }
 
 /// The idle limits offered, in minutes; 30 is the default.
-pub const IDLE_CHOICES: [i64; 5] = [10, 30, 60, 120, 240];
+pub const IDLE_CHOICES: [u32; 5] = [10, 30, 60, 120, 240];
 
 /// The person's change: the fields left `None` keep what is stored.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
@@ -80,8 +78,7 @@ pub struct AgentsChange {
     #[serde(default)]
     pub effort: Option<String>,
     #[serde(default)]
-    #[specta(type = Option<f64>)]
-    pub idle_mins: Option<i64>,
+    pub idle_mins: Option<u32>,
 }
 
 pub(crate) fn view(s: &SpawnSetting, chosen: bool) -> AgentsSettings {
@@ -95,7 +92,7 @@ pub(crate) fn view(s: &SpawnSetting, chosen: bool) -> AgentsSettings {
         efforts: spawn::EFFORTS.iter().map(|e| (*e).into()).collect(),
         default_model: spawn::DEFAULT_MODEL.into(),
         default_effort: spawn::DEFAULT_EFFORT.into(),
-        idle_mins: s.idle_limit().as_secs() as i64 / 60,
+        idle_mins: (s.idle_limit().as_secs() / 60) as u32,
         idle_choices: IDLE_CHOICES.to_vec(),
     }
 }
@@ -113,8 +110,8 @@ pub(crate) fn apply(mut s: SpawnSetting, c: AgentsChange) -> SpawnSetting {
     }
     if let Some(m) = c.idle_mins {
         // The default is stored as 0, so a later default change reaches it.
-        let def = spawn::IDLE_LIMIT.as_secs() as i64 / 60;
-        s.idle_mins = if m == def { 0 } else { m };
+        let def = (spawn::IDLE_LIMIT.as_secs() / 60) as u32;
+        s.idle_mins = if m == def { 0 } else { i64::from(m) };
     }
     s
 }
