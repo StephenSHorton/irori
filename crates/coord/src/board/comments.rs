@@ -1536,6 +1536,14 @@ impl Fold {
                     },
                 )?;
             }
+            // Nobody holds it (its spawned agent went while it waited on
+            // other work, card #474) and what is still open the person
+            // answered: it goes back on the Board, as when its agent goes
+            // after his answer (return_gone), and a fresh agent reads it.
+            let held = &self.tasks[&id];
+            if held.holders.is_empty() && held.assigned.is_empty() && held.all_answered() {
+                self.back_on_board(SWEEPER, &id, "what it waited on went away")?;
+            }
             let nt = self.tasks[&id].clone();
             let mut n = Notice {
                 kind: NOTICE_ANSWERED.into(),

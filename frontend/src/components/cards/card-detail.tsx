@@ -73,6 +73,8 @@ import {
   blockerItemId,
 } from "@/lib/thread"
 import { SpawnedActions } from "@/components/cards/spawned-actions"
+import { AskedAgain, blockerOutcome } from "@/lib/notifications"
+import { EarlierRound, SentBackSigns } from "./done-rounds"
 import { cn } from "@/lib/utils"
 import {
   AskLine,
@@ -1682,7 +1684,9 @@ function BlockerItem({
   ) : null
 
   const by = r
-    ? r.closed
+    ? b.doneCheck && r.note === AskedAgain
+      ? blockerOutcome(b)
+      : r.closed
       ? `closed by ${name(r.by)}${r.answer ? `: “${gist(r.answer)}”` : ""}`
       : r.note
         ? `resolved by ${name(r.by)}: “${gist(r.note)}”`
@@ -1755,7 +1759,13 @@ function BlockerItem({
           </Badge>
         )}
       </div>
+      {b.doneCheck && <EarlierRound blocker={b} />}
       {b.doneCheck && <AttachmentList attachments={b.attachments ?? []} />}
+      {b.doneCheck && b.previous && b.context && (
+        <span className="text-[11.5px] font-medium text-muted-foreground">
+          New proof
+        </span>
+      )}
       {b.context && (
         <RichText text={b.context} className="text-[12.5px] text-ink-2" />
       )}
@@ -1784,6 +1794,7 @@ function BlockerItem({
         {b.decider && !r && ` · for ${name(b.decider)} to decide`}
         {by && ` · ${by}`}
       </div>
+      <SentBackSigns blocker={b} />
       {b.thread.length > 0 ? (
         <Thread
           compact

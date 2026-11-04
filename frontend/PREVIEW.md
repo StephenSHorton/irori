@@ -40,6 +40,8 @@ unchanged.
 | `/?open=board:task:sample-card-2` | a blocker with recommended answers |
 | `/?open=board:task:sample-card-5` | a done card with a reviewed PR |
 | `/?open=board:task:sample-card-12` | Ready for you: an agent says it's done, its proof (screenshot, then how it was checked) at the top; Done closes it, Not done sends your words back (cards #112, #140) |
+| `/?open=board:task:sample-card-31` | A re-raised done check (card #476): Round 2 with "You said", the agent's answer, read and answered ticks and the proof you sent back, above the new proof; Home's Needs you shows the round in short |
+| `/?open=board:task:sample-card-32` | A done check you sent back, before the agent asks again (card #476): "read it" and "No answer yet" above your reason |
 | `/?voice=ready&open=board:task:sample-card-1` | the mic button on the comment and answer boxes (card #240); `voice=needs-model` asks for the model download on a press, `voice=denied` shows the mic crossed out |
 | `/?open=board:task:sample-card-idle` | Idle, no reason given (card #305): held, its holder idle half an hour, nothing named it waits on; on Home its row is amber "Idle" |
 | `/?open=board:task:sample-card-job` | a holder between turns with a background job running (card #431): the page and Home say "running a background job", not "not working on it now" |

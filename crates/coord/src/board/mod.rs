@@ -77,7 +77,7 @@ pub use asks::{
     TAKE_RELEASED, TAKE_REOPEN, TAKE_REOPENED, TAKE_TAKEN, TAKE_UNCLAIMED, ask_title,
 };
 pub use board_search::{DEFAULT_DOC_PAGE, SHOW_COMMENT_CUT, SHOW_COMMENTS};
-pub use cards::{merge_watch, watch_text};
+pub use cards::{SentBack, merge_watch, watch_text};
 pub use desk::{
     DESK_LIMIT, Desk, DeskCheck, DeskHoldRow, DeskOkRow, DeskPauseRow, DeskPr, DeskPrsRow,
     DeskRunRow, MERGE_MERGE, MERGE_REBASE, MERGE_SQUASH, RepoDeskRow, github_repo, new_desk,
@@ -181,6 +181,9 @@ pub const DONE_QUESTION: &str = "Is this done?";
 pub const DONE_ANSWER: &str = "Done";
 /// Why an agent's completed without proof is refused (card #140).
 pub const NEEDS_PROOF: &str = "completed needs proof: give proof with what changed, how you checked it (tests run, and what you saw in the real app), the commit or branch, and any caveats; attach screenshots of a UI change. The person reads it to decide Done";
+/// How an agent's next completed resolves the done check it replaces
+/// (card #112): the window doesn't count it as the agent's answer.
+pub const ASKED_AGAIN: &str = "asked again: ready for the person";
 pub const DONE_CONTEXT: &str =
     "The agent says the work is done. Mark it done, or say why it isn't and it goes back to them.";
 pub const MAX_ANSWER: usize = 200;
@@ -895,6 +898,13 @@ impl Coord {
     pub fn comments(&self, id: &str) -> Option<Vec<Comment>> {
         self.lock().list_comments(id)
     }
+    /// The done check the person sent back on card `id` (card #476), if
+    /// its newest done check ends on their Not done.
+    pub fn sent_back(&self, id: &str) -> Option<SentBack> {
+        let f = self.lock();
+        let t = f.tasks.get(id)?;
+        cards::sent_back(&f, t)
+    }
     pub fn get_comment(&self, id: &str) -> Option<Comment> {
         self.lock().comments.get(id).cloned()
     }
@@ -1228,6 +1238,11 @@ impl Coord {
         let mut f = self.lock();
         f.gone_rows.insert(key.to_string(), at);
         f.ended_by_irori.insert(key.to_string());
+    }
+    /// Whether Irori ended agent `key` (its own `agent.gone` "finished",
+    /// replayed from the log): it is never ended a second time (card #474).
+    pub fn ended_by_irori(&self, key: &str) -> bool {
+        self.lock().ended_by_irori.contains(key)
     }
     /// Puts holderless card `id` back on the Board for an agent (card
     /// #447's transition): Ok(false) when it is held, assigned, closed,
