@@ -486,7 +486,10 @@ fn named_in(talk: &Talk, name: &str, space: &str) -> Result<Option<String>, Stri
         _ => Err(format!(
             "more than one #{} is here: give its conv ({}).",
             one_line(name.trim_start_matches('#'), 80),
-            hits.iter().map(|c| c.id.as_str()).collect::<Vec<_>>().join(", ")
+            hits.iter()
+                .map(|c| c.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         )),
     }
 }

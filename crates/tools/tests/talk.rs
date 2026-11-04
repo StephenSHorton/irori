@@ -531,7 +531,11 @@ fn a_channel_name_refusal_names_only_what_resolves() {
     );
     has_not(&out, &["pass space=personal"]);
     has(
-        &h.okj(&a, "talk_join", json!({"conv": "#netcode", "space": "sp_p"})),
+        &h.okj(
+            &a,
+            "talk_join",
+            json!({"conv": "#netcode", "space": "sp_p"}),
+        ),
         &[&format!("Joined #netcode ({})", p.id)],
     );
     // A tag two boards share is named by the space's id too.
