@@ -1968,3 +1968,65 @@ fn a_peers_repo_seen_is_not_a_checkout_here() {
     assert_eq!(r.c.repo_roots(&key), vec![main.clone()], "after replay too");
     assert_eq!(r.c.roots_elsewhere(&key).len(), 1);
 }
+
+/// `dev-elsewhere`'s `repo.seen` rows (repo key, root), written into a
+/// scratch store of its own, for `insert` into this device's log.
+fn peer_repo_seen(rows: &[(&str, &str)]) -> Vec<store::Event> {
+    let (_d, dir) = tempdir();
+    let peer = Store::open(
+        capture::gopath::join(&[&dir, "irori.db"]),
+        "dev-elsewhere",
+        Arc::new(hlc::Clock::new()),
+    )
+    .unwrap();
+    rows.iter()
+        .map(|(k, root)| {
+            peer.append(
+                "irori",
+                capture::KIND_REPO_SEEN,
+                &capture::RepoSeen {
+                    repo_key: k.to_string(),
+                    root: root.to_string(),
+                    at: now(),
+                },
+            )
+            .unwrap()
+        })
+        .collect()
+}
+
+/// Card #493, upgrading: before it, a device wrote no `repo.seen` of its
+/// own for a path a peer had already logged, so it may hold only the
+/// peer's row for a checkout it really has. The repo pass checks each
+/// peer root once: a checkout at that path here is noted as this
+/// device's own (its own row, its own key); a path that is no repo here
+/// stays the peer's.
+#[test]
+fn a_peers_root_that_is_a_checkout_here_too_becomes_ours_at_the_repo_pass() {
+    let mut r = Rig::new(|_| {});
+    let (_d, main) = new_repo("false");
+    let key = real_resolver().key(&main);
+    let (_n, not_repo) = tempdir();
+    for ev in peer_repo_seen(&[(&key, &main), ("remote:github.com/x/elsewhere", &not_repo)]) {
+        r.st.insert(&ev).unwrap();
+    }
+    r.restart();
+    assert!(r.c.repos().is_empty(), "{:?}", r.c.repos());
+
+    r.repos();
+    assert_eq!(r.c.repo_roots(&key), vec![main.clone()]);
+    assert_eq!(r.c.repos().len(), 1, "{:?}", r.c.repos());
+    assert!(
+        r.c.repo_roots("remote:github.com/x/elsewhere").is_empty(),
+        "not a repo here"
+    );
+    assert_eq!(
+        r.count(capture::KIND_REPO_SEEN),
+        3,
+        "the peer's two and ours"
+    );
+    r.repos();
+    assert_eq!(r.count(capture::KIND_REPO_SEEN), 3, "noted once");
+    r.restart();
+    assert_eq!(r.c.repo_roots(&key), vec![main.clone()], "after replay too");
+}

@@ -765,3 +765,59 @@ fn a_repo_seen_only_on_a_peer_is_refused_not_spawned_there() {
     let t = co.get_task(&t.id).unwrap();
     assert!(t.holders.is_empty() && t.assigned.is_empty(), "{t:?}");
 }
+
+/// Card #493: of this device's checkouts of a card's repo, the spawn
+/// takes the first that is still a directory: a removed worktree that
+/// sorts first is passed over, not started in.
+#[test]
+fn a_spawn_skips_a_checkout_that_is_gone() {
+    const K: &str = "remote:github.com/acme/app";
+    let r = Rig::new();
+    let base = tempfile::tempdir().unwrap();
+    let gone = base.path().join("a-gone");
+    let here = base.path().join("b-here");
+    std::fs::create_dir(&here).unwrap();
+    for root in [&gone, &here] {
+        r.core
+            .capture()
+            .emit_row(
+                "irori",
+                capture::KIND_REPO_SEEN,
+                &capture::RepoSeen {
+                    repo_key: K.into(),
+                    root: root.to_string_lossy().into(),
+                    at: gocompat::time::GoTime::unix(1_790_000_000, 0),
+                },
+            )
+            .unwrap();
+    }
+    assert_eq!(r.core.capture().repo_roots(K).len(), 2);
+    let fake = Arc::new(Fake::default());
+    let me = r.core.device_id().to_string();
+    let t = r
+        .core
+        .coord()
+        .create_task(
+            &format!("user:{me}"),
+            NewTask {
+                title: "App card".into(),
+                repo_key: K.into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    r.core
+        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
+    r.core
+        .set_spawn_setting(SpawnSetting {
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    wait_for(60, "the agent started", || {
+        !fake.started.lock().unwrap().is_empty()
+    });
+    let started = fake.started.lock().unwrap();
+    assert_eq!(started[0].task_id, t.id);
+    assert_eq!(started[0].folder, here.to_string_lossy(), "{started:?}");
+}

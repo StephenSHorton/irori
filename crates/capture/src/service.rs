@@ -170,6 +170,9 @@ pub(crate) struct RunState {
     pub new_edits: Vec<String>,
     pub first_pass: bool,
     pub repo_deadline: Instant,
+    /// The peers' roots already checked for a checkout at the same path
+    /// here (card #493), so each costs one repo-key lookup per start.
+    pub elsewhere_checked: HashSet<String>,
 }
 
 pub(crate) struct Inner {
@@ -526,6 +529,7 @@ impl Capture {
                 new_edits: Vec::new(),
                 first_pass: true,
                 repo_deadline: Instant::now(),
+                elsewhere_checked: HashSet::new(),
             }),
             ignores: Mutex::new(HashMap::new()),
             idx: Index::open()?,
