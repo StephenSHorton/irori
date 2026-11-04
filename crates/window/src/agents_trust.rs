@@ -313,7 +313,10 @@ mod tests {
             .iter()
             .map(|r| (r.label.as_str(), r.folder.as_str(), r.trusted))
             .collect();
-        assert_eq!(got, vec![("a", s(&a).as_str(), false), ("b", s(&b).as_str(), true)]);
+        assert_eq!(
+            got,
+            vec![("a", s(&a).as_str(), false), ("b", s(&b).as_str(), true)]
+        );
         assert!(rows[0].what.contains(&s(&a)), "{}", rows[0].what);
     }
 

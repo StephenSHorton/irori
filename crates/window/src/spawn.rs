@@ -987,11 +987,17 @@ echo 'test result: ok'
             p
         };
         let out = logs_with(&bin, "0a1b2c3d-1111").unwrap();
-        assert!(out.contains("lantern.rs") && out.contains("test result: ok"), "{out}");
+        assert!(
+            out.contains("lantern.rs") && out.contains("test result: ok"),
+            "{out}"
+        );
         let argv = std::fs::read_to_string(&log).unwrap();
         assert_eq!(argv.trim(), "logs 0a1b2c3d-1111");
         assert!(logs_with(&bin, "--help").is_err(), "never a flag");
-        assert!(logs_with(&bin, "abc & calc").is_err(), "never a metacharacter");
+        assert!(
+            logs_with(&bin, "abc & calc").is_err(),
+            "never a metacharacter"
+        );
     }
 
     #[test]

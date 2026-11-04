@@ -27,5 +27,9 @@ fn attach_and_logs_refuse_an_agent_irori_didnt_start_or_another_devices() {
         assert!(e.contains("wasn't started by Irori"), "{e}");
     }
     let unknown = format!("{me}/0a1b2c3d-1111");
-    assert!(w.agents_logs(&unknown).unwrap_err().contains("wasn't started"));
+    assert!(
+        w.agents_logs(&unknown)
+            .unwrap_err()
+            .contains("wasn't started")
+    );
 }
