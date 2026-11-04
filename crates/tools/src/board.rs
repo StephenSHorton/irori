@@ -228,8 +228,15 @@ impl Inner {
         if t.comments > 0 {
             b += &format!("; {} comments", t.comments);
         }
-        if !t.watchers.is_empty() {
-            let ws: Vec<String> = t.watchers.iter().map(|w| n.who(w)).collect();
+        // Gone watchers are left out (card #485).
+        let co = self.on(&t.id, &[]).ok().map(|(co, _)| co);
+        let ws: Vec<String> = t
+            .watchers
+            .iter()
+            .filter(|w| !co.as_ref().is_some_and(|co| co.key_gone(w)))
+            .map(|w| n.who(w))
+            .collect();
+        if !ws.is_empty() {
             b += &format!("; watched by {}", ws.join(", "));
         }
         // Waits (card #87): who waits on this card, and what its holders
@@ -581,6 +588,26 @@ pub(crate) fn board(s: &Inner, c: &Caller, raw: &[u8]) -> String {
                 line += &format!(
                     "  what {} waited on has gone away; the next sweep closes just those, the other items still wait\n",
                     one_line(&cd.gone.join(", "), 80)
+                );
+            }
+            // Items whose agent is gone on a card nobody holds (card #485).
+            if !cd.stranded.is_empty() {
+                let n = s.roster();
+                let items: Vec<String> = cd
+                    .stranded
+                    .iter()
+                    .map(|s| {
+                        let who = n.who(&s.agent);
+                        if s.waited_on {
+                            format!("{} waits on {who}, gone", s.blocker_id)
+                        } else {
+                            format!("{} was raised by {who}, gone", s.blocker_id)
+                        }
+                    })
+                    .collect();
+                line += &format!(
+                    "  {}; nobody holds it, so nothing moves it: the person can hand it to an agent, or board_join it and pick up from its thread\n",
+                    one_line(&items.join("; "), MAX_FIELD_RUNES)
                 );
             }
             if !cd.overlaps.is_empty() {
@@ -1290,9 +1317,7 @@ impl Inner {
             let low = gocompat::text::to_lower_str(name);
             let exact: Vec<&String> = labels
                 .iter()
-                .filter(|(id, l)| {
-                    **id == name || gocompat::text::to_lower_str(l) == low
-                })
+                .filter(|(id, l)| **id == name || gocompat::text::to_lower_str(l) == low)
                 .map(|(id, _)| id)
                 .collect();
             let found = if exact.len() == 1 {
@@ -1302,8 +1327,7 @@ impl Inner {
                     .iter()
                     .filter(|(id, l)| {
                         id.starts_with(name)
-                            || !low.is_empty()
-                                && gocompat::text::to_lower_str(l).contains(&low)
+                            || !low.is_empty() && gocompat::text::to_lower_str(l).contains(&low)
                     })
                     .map(|(id, _)| id)
                     .collect()

@@ -160,6 +160,22 @@ fn hand_on_puts_the_card_back_and_takes_the_gone_agent_off_it() {
     assert!(now.blockers.iter().all(|b| !b.open()));
     assert!(now.assigned.is_empty());
     assert!(e.c.stranded(&t.id).is_empty());
+    // The closed item is said on the card, for the new agent's brief.
+    let cs = e.c.comments(&t.id).unwrap_or_default();
+    let said = cs
+        .iter()
+        .find(|c| {
+            c.text
+                .starts_with("The person handed this card to a new agent")
+        })
+        .expect("a hand-on comment");
+    assert!(
+        said.text.contains("\"Waiting on bob\" (waited on"),
+        "{}",
+        said.text
+    );
+    // Handed on, it is no longer stranded: a second press is refused.
+    want_err(e.c.hand_on(USER, &t.id), ErrorKind::BadState);
 }
 
 #[test]
@@ -170,7 +186,13 @@ fn a_not_done_on_a_gone_agents_done_check_goes_out_with_the_card() {
         e.c.set_task_state(ALICE, &t.id, COMPLETED, "on main at 8845c11a")
             .unwrap();
     assert_eq!(got.state, BLOCKED);
-    let check = got.blockers.iter().find(|b| b.done_check).unwrap().id.clone();
+    let check = got
+        .blockers
+        .iter()
+        .find(|b| b.done_check)
+        .unwrap()
+        .id
+        .clone();
     // Piranha went, and Irori took it off the card.
     e.c.leave(ALICE, &t.id, ALICE).unwrap();
     e.ros.set(ALICE, "gone");
@@ -190,7 +212,10 @@ fn a_not_done_on_a_gone_agents_done_check_goes_out_with_the_card() {
         )
         .unwrap();
     // Nobody gone is told; the card is back on the Board for a new agent.
-    assert!(ns.iter().all(|n| !n.to.iter().any(|k| k == ALICE)), "{ns:?}");
+    assert!(
+        ns.iter().all(|n| !n.to.iter().any(|k| k == ALICE)),
+        "{ns:?}"
+    );
     assert_eq!(now.state, SUBMITTED);
     // The person's words are on the check's thread, where the new agent's
     // brief reads them.
@@ -198,9 +223,8 @@ fn a_not_done_on_a_gone_agents_done_check_goes_out_with_the_card() {
     assert!(v.stranded.is_empty());
     let cs = e.c.comments(&t.id).unwrap_or_default();
     assert!(
-        cs.iter().any(|c| c.blocker_id == check
-            && c.by == USER
-            && c.text.contains("next steps")),
+        cs.iter()
+            .any(|c| c.blocker_id == check && c.by == USER && c.text.contains("next steps")),
         "{cs:?}"
     );
 }

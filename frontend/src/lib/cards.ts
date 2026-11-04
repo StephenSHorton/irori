@@ -1515,6 +1515,18 @@ export const cards = {
     sampleChanged()
   },
 
+  // handOn is "Hand to an agent" on an item whose agent is gone, on a
+  // card nobody holds (card #485): the card goes back on the Board with
+  // what was open said on it, and Irori starts an agent for it (or hands
+  // it to the next free one). Returns which.
+  async handOn(id: string): Promise<string> {
+    if (inWails()) return BoardService.HandOn(id)
+    const c = sampleCard(id)
+    c.state = TaskState.Submitted
+    sampleChanged()
+    return "It is back on the Board: Irori starts an agent for it."
+  },
+
   async askAgain(id: string): Promise<void> {
     if (inWails()) return BoardService.AskAgain(id)
     const c = sampleCard(id)

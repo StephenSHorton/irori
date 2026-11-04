@@ -491,6 +491,13 @@ pub async fn board_start_agent(w: W<'_>, id: String, note: String) -> R<()> {
     w.start_agent(&id, &note)
 }
 
+/// "Hand to an agent" on an item whose agent is gone (card #485).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_hand_on(w: W<'_>, id: String) -> R<String> {
+    w.hand_on(&id)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn board_ask_again(w: W<'_>, id: String) -> R<()> {
@@ -1534,6 +1541,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_ask_with_files,
             board_ask_again,
             board_start_agent,
+            board_hand_on,
             board_ask_repos,
             board_mention_candidates,
             board_close_ask,

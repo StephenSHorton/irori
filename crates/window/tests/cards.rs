@@ -1451,3 +1451,108 @@ fn files_with_a_blocker_answer_and_a_message_reply() {
     assert_eq!(r.w.inbox_get(&d.id).unwrap().state, "answered");
     assert_eq!(newest_files(&r), vec!["notes.md"]);
 }
+
+/// Card #485: an item whose agent is gone, on a card nobody holds, says
+/// so (goneAgent) and its answer goes out with the card, not to nobody:
+/// #453's "Is this done?" raised by piranha, after piranha went.
+#[test]
+fn a_not_done_on_a_gone_agents_check_goes_to_the_next_agent() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let gone = format!("{}/piranha-session", r.w.core.device_id());
+    let t = co
+        .create_task(
+            &me(&r),
+            coord::NewTask {
+                title: "terminal agents".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    co.claim_task(&gone, &t.id).unwrap();
+    co.watch(&gone, &t.id).ok();
+    co.watch(&r.key_b, &t.id).unwrap();
+    let got = co
+        .set_task_state(&gone, &t.id, coord::COMPLETED, "on main at 8845c11a")
+        .unwrap();
+    let check = got
+        .blockers
+        .iter()
+        .find(|b| b.done_check)
+        .expect("a done check")
+        .id
+        .clone();
+    // While piranha holds it, nothing is marked.
+    assert!(
+        blocker(&r.w.card(&t.id).unwrap(), &check)
+            .gone_agent
+            .is_none()
+    );
+    co.leave(&gone, &t.id, &gone).unwrap();
+    let d = r.w.card(&t.id).unwrap();
+    let b = blocker(&d, &check);
+    assert_eq!(
+        b.gone_agent.as_ref().map(|a| a.key.as_str()),
+        Some(gone.as_str())
+    );
+    // A gone watcher is left out; a live one stays.
+    let ws: Vec<&str> = d.summary.watching.iter().map(|w| w.key.as_str()).collect();
+    assert_eq!(ws, [r.key_b.as_str()]);
+
+    let res =
+        r.w.answer(
+            &t.id,
+            &check,
+            -1,
+            "Not done: the others haven't been told the next steps",
+            false,
+            &[],
+        )
+        .unwrap();
+    // Not resolved in place: the card is back on the Board, and the
+    // person's words are on the check's thread for the next agent's brief.
+    assert_eq!(res.card.summary.state, coord::SUBMITTED);
+    let cs = co.comments(&t.id).unwrap_or_default();
+    assert!(
+        cs.iter()
+            .any(|c| c.blocker_id == check && c.by == me(&r) && c.text.contains("next steps")),
+        "{cs:?}"
+    );
+}
+
+/// Card #485: "Hand to an agent" on a wait whose agent is gone (#445
+/// waited on kestrel): the card goes back on the Board, what was open
+/// said on it.
+#[test]
+fn hand_on_a_wait_on_a_gone_agent() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let kestrel = format!("{}/kestrel-session", r.w.core.device_id());
+    let t = held_task(&r);
+    co.raise(
+        &r.key_a,
+        &t.id,
+        coord::NewBlocker {
+            question: "Waiting on kestrel's no-daemon GUI spawn".into(),
+            blocked_by: Some(coord::BlockedBy {
+                kind: coord::BLOCKED_ON_AGENT.into(),
+                reference: kestrel.clone(),
+            }),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    // Alpha holds it: not stranded, and Hand to an agent is refused.
+    assert!(r.w.hand_on(&t.id).is_err());
+    co.leave(&r.key_a, &t.id, &r.key_a).unwrap();
+    let d = r.w.card(&t.id).unwrap();
+    let b = blocker(&d, "b1");
+    let w = b.waits_on.as_ref().expect("a wait");
+    assert!(w.gone);
+    assert_eq!(b.gone_agent.as_ref().unwrap().key, kestrel);
+    let said = r.w.hand_on(&t.id).unwrap();
+    assert!(said.contains("back on the Board"), "{said}");
+    let d = r.w.card(&t.id).unwrap();
+    assert_eq!(d.summary.state, coord::SUBMITTED);
+    assert!(d.blockers.iter().all(|b| b.gone_agent.is_none()));
+}

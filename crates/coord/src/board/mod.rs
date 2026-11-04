@@ -30,9 +30,9 @@ pub use main_red::{
     MAIN_RED_SCOPE, MainRed, main_red_scope, main_red_test, main_reds, parse_main_red,
 };
 mod mention;
-mod wait_chain;
-mod version_wait;
 mod stranded;
+mod version_wait;
+mod wait_chain;
 pub use stranded::Stranded;
 pub use version_wait::{
     MAX_VERSION_DEVICES, cmp_version, parse_version_wait, valid_version, version_meets,

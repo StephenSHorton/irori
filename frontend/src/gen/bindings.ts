@@ -84,6 +84,8 @@ export const commands = {
 	boardAskAgain: (id: string) => __TAURI_INVOKE<null>("board_ask_again", { id }),
 	/**  "Start an agent with this" on the person's comment (card #452). */
 	boardStartAgent: (id: string, note: string) => __TAURI_INVOKE<null>("board_start_agent", { id, note }),
+	/**  "Hand to an agent" on an item whose agent is gone (card #485). */
+	boardHandOn: (id: string) => __TAURI_INVOKE<string>("board_hand_on", { id }),
 	boardAskRepos: () => __TAURI_INVOKE<AskRepo[]>("board_ask_repos"),
 	boardMentionCandidates: () => __TAURI_INVOKE<MentionCandidate[]>("board_mention_candidates"),
 	boardCloseAsk: (id: string, note: string) => __TAURI_INVOKE<Task>("board_close_ask", { id, note }),
@@ -538,7 +540,9 @@ export type Blocker = {
 };
 
 /**  coord.BlockerKind. */
-export type BlockerKind = "lease" | "task" | "person" | "agent" | "external";
+export type BlockerKind = "lease" | "task" | "person" | "agent" | "external" | 
+/**  A least app version on named devices (card #485). */
+"version";
 
 /**  coord.Option: one recommended answer. */
 export type BlockerOption = {
@@ -737,6 +741,13 @@ export type CardBlocker = {
 	 *  other work with options is still the person's, card #347).
 	 */
 	waitsOn?: CardWaitOn | null,
+	/**
+	 *  The agent this open item waits on, or that raised it and would hear
+	 *  the answer, when that agent is gone and nobody holds the card (card
+	 *  #485): drawn amber, "Waiting on kestrel (gone)", with "Hand to an
+	 *  agent".
+	 */
+	goneAgent?: AgentRef | null,
 	thread: CardThreadItem[],
 };
 
@@ -1100,6 +1111,8 @@ export type CardWaitOn = {
 	taskId?: string,
 	/**  That card's title, when this device can see it. */
 	title?: string,
+	/**  A wait on an agent that is gone (card #485). */
+	gone?: boolean,
 };
 
 /**  Where a card's work is (card #137), as its holder's device last saw it. */

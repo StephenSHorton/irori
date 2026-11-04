@@ -307,7 +307,15 @@ impl Fold {
             }
             line(&mut b, "blocked", &bl);
         }
-        line(&mut b, "watching", &t.watchers.join(", "));
+        // Gone watchers are left out (card #485).
+        let rs = self.roster_status();
+        let ws: Vec<&str> = t
+            .watchers
+            .iter()
+            .filter(|w| !self.key_gone_in(w, &rs))
+            .map(String::as_str)
+            .collect();
+        line(&mut b, "watching", &ws.join(", "));
         // Card #155: the thread it came from, and a thread's cards.
         if !t.from.is_empty() {
             line(&mut b, "from the thread", &self.short_of(&t.from));

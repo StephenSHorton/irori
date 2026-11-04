@@ -98,7 +98,9 @@ fn a_version_wait_closes_once_every_named_device_runs_it() {
     assert_eq!(ns[0].to, [ALICE]);
     assert_eq!(ns[0].kind, NOTICE_UNBLOCKED);
     assert!(
-        ns[0].text.contains("0.11.0 or later running on all 2 devices"),
+        ns[0]
+            .text
+            .contains("0.11.0 or later running on all 2 devices"),
         "{:?}",
         ns[0].text
     );

@@ -1757,6 +1757,7 @@ function BlockerItem({
         </div>
       )}
       {!b.doneCheck && <AttachmentList attachments={b.attachments ?? []} />}
+      {!r && b.goneAgent && <GoneRaiser cardId={cardId} who={b.goneAgent} />}
       <div className="text-[11.5px] text-muted-foreground">
         Raised by {name(b.raisedBy)} ·{" "}
         <time dateTime={raised?.toISOString()} title={raised?.toLocaleString()}>
@@ -2100,10 +2101,16 @@ function WaitItem({
   const w = b.waitsOn
   if (!w) return null
   const card = w.taskId
+  // The agent it waits on is gone and nobody holds the card (card #485):
+  // nothing moves it, so it is amber and can be handed to a new agent.
+  const gone = !!b.goneAgent
   return (
     <div
-      className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-0.5 rounded-lg border border-border bg-muted/30 px-3 py-2"
-      aria-label={`Waiting on ${w.label}`}
+      className={cn(
+        "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-0.5 rounded-lg border px-3 py-2",
+        gone ? "border-warning/40 bg-warning/10" : "border-border bg-muted/30",
+      )}
+      aria-label={`Waiting on ${w.label}${gone ? " (gone)" : ""}`}
     >
       <div className="min-w-0 text-[13px] text-muted-foreground">
         Waiting on{" "}
@@ -2122,8 +2129,10 @@ function WaitItem({
             <RichLine text={w.label} />
           </span>
         )}
+        {gone && <span className="font-medium text-warning"> (gone)</span>}
       </div>
-      <span className="row-span-2">
+      <span className="row-span-2 flex items-start gap-1.5">
+        {b.goneAgent && <HandOnButton cardId={cardId} who={b.goneAgent} />}
         <ConfirmButton
           label="Stop waiting"
           variant="outline"
@@ -2144,6 +2153,46 @@ function WaitItem({
           <RichLine text={b.context} />
         </div>
       )}
+      {gone && (
+        <div className="col-span-2 min-w-0 text-xs text-muted-foreground">
+          Nobody holds this card, so nothing will move it.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// HandOnButton is "Hand to an agent" (card #485) on an item whose agent is
+// gone, on a card nobody holds: the card goes back on the Board with what
+// was open said on it, and Irori starts an agent for it.
+function HandOnButton({ cardId, who }: { cardId: string; who: AgentRef }) {
+  return (
+    <ConfirmButton
+      label="Hand to an agent"
+      variant="outline"
+      question={`Hand this card to a new agent? ${displayName(who)} is gone. Its open items close and are said on the card, and Irori starts an agent for it, or the next free agent takes it.`}
+      confirmLabel="Hand to an agent"
+      onConfirm={() => cards.handOn(cardId)}
+    />
+  )
+}
+
+// GoneRaiser is the amber line under an item whose agent is gone on a card
+// nobody holds (card #485): an answer still reaches someone, the agent the
+// card goes to next.
+function GoneRaiser({ cardId, who }: { cardId: string; who: AgentRef }) {
+  return (
+    <div
+      className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[12.5px] text-foreground"
+      role="status"
+    >
+      <span className="min-w-0">
+        <span className="font-medium text-warning">
+          Waiting on {displayName(who)} (gone)
+        </span>
+        . Nobody holds this card: your answer goes to the agent it goes to next.
+      </span>
+      <HandOnButton cardId={cardId} who={who} />
     </div>
   )
 }

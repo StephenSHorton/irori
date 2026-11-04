@@ -2408,6 +2408,30 @@ impl Core {
         self.s.start_agent(id, note)
     }
 
+    /// "Hand to an agent" (card #485): the person moves a card whose items
+    /// wait on gone agents back on the Board, and Irori starts an agent for
+    /// it (or hands it to the next free one). Says which. App only.
+    pub fn hand_on(&self, id: &str) -> Result<String, String> {
+        let person = format!("user:{}", self.s.device.id);
+        let (t, _) = self
+            .s
+            .coord
+            .hand_on(&person, id)
+            .map_err(|e| e.to_string())?;
+        self.s.start_agent(id, "")?;
+        Ok(if self.s.coord.spawning() {
+            format!(
+                "{} is back on the Board: Irori starts an agent for it.",
+                t.short_ref()
+            )
+        } else {
+            format!(
+                "{} is back on the Board: it goes to the next free agent.",
+                t.short_ref()
+            )
+        })
+    }
+
     /// The person's words for card `id`'s next spawned agent (a "Not
     /// done", a blocker answer): quoted in its brief (card #447).
     pub fn set_brief_answer(&self, id: &str, text: &str) {
