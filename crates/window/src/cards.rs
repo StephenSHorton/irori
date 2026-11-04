@@ -876,10 +876,11 @@ impl Window {
                 p.heard.entry(cid.to_string()).or_default().push((d, read));
             }
         }
-        for (d, read) in c
-            .inbox()
-            .ref_notices("task:", &[coord::NOTICE_ANSWERED], HEARD_NOTICES)
-        {
+        for (d, read) in c.inbox().ref_notices(
+            "task:",
+            &[coord::NOTICE_ANSWERED, coord::NOTICE_MENTIONED],
+            HEARD_NOTICES,
+        ) {
             if let Some(id) = d.message.ref_.strip_prefix("task:") {
                 p.answers_heard
                     .entry(id.to_string())
@@ -2469,8 +2470,13 @@ fn pending_lines(
 fn previous_rounds(blockers: &mut [CardBlocker], t: &Task) {
     let mut checks: Vec<&coord::Blocker> = t.blockers.iter().filter(|b| b.done_check).collect();
     checks.sort_by_key(|b| b.at.unix_nano());
-    for (i, pair) in checks.windows(2).enumerate() {
+    let mut rounds = 1;
+    for pair in checks.windows(2) {
         let (was, now) = (pair[0], pair[1]);
+        // The person said Done on it (a reopened card): no round.
+        if was.resolved.as_ref().is_some_and(|r| r.option >= 0) {
+            continue;
+        }
         let Some(old) = blockers.iter().find(|b| b.id == was.id) else {
             continue;
         };
@@ -2493,9 +2499,10 @@ fn previous_rounds(blockers: &mut [CardBlocker], t: &Task) {
         if !said && answer.is_empty() {
             continue;
         }
+        rounds += 1;
         let round = CardRound {
             id: was.id.clone(),
-            round: i as i64 + 2,
+            round: rounds,
             proof: was.context.clone(),
             answer,
             thread: old.thread.clone(),

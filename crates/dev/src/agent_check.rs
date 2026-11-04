@@ -88,8 +88,10 @@ const S6_FILES: usize = 12;
 const S6_TASK: &str = "Read every file in this folder (note-01.txt to note-12.txt) one at a time with the Read tool, in order, one call each, then write SUMMARY.md listing each file's first line. This is the work on your card; don't stop early.";
 const S5_STOP: &str = "Which note file were you reading when I stopped you? Answer me with the irori send tool (to: \"user\"), then wait: don't go back to the notes.";
 const S7_TITLE: &str = "Write NOTES.md for the release";
-const S7_PROOF: &str = "Wrote NOTES.md with one line: 'Release notes: the boat no longer clips the dock.'";
-const S7_REASON: &str = "Not done: NOTES.md must also say who the release is for (the beta testers), on a second line.";
+const S7_PROOF: &str =
+    "Wrote NOTES.md with one line: 'Release notes: the boat no longer clips the dock.'";
+const S7_REASON: &str =
+    "Not done: NOTES.md must also say who the release is for (the beta testers), on a second line.";
 const S3_COMMENT: &str = "Change of plan: forget dark mode. What we actually need here is a high-contrast mode for people with low vision, toggled from the same settings page. Dark mode can wait.";
 
 pub struct Opts {
@@ -878,7 +880,10 @@ fn not_done(o: &Opts, h: &Host) -> (Result<String, String>, Option<PathBuf>) {
     };
     // The agent's card, its work and its done check, made as the agent.
     let notes = o.work.join("s7-not-done").join("NOTES.md");
-    if let Err(e) = std::fs::write(&notes, "Release notes: the boat no longer clips the dock.\n") {
+    if let Err(e) = std::fs::write(
+        &notes,
+        "Release notes: the boat no longer clips the dock.\n",
+    ) {
         return (Err(format!("NOTES.md: {e}")), log);
     }
     let args = serde_json::json!({
@@ -941,7 +946,10 @@ fn not_done(o: &Opts, h: &Host) -> (Result<String, String>, Option<PathBuf>) {
             return Err(format!(
                 "no answer from the agent on {bid}'s thread (card {}, {} check(s) open)",
                 d.summary.state,
-                d.blockers.iter().filter(|b| b.done_check && b.resolved.is_none()).count()
+                d.blockers
+                    .iter()
+                    .filter(|b| b.done_check && b.resolved.is_none())
+                    .count()
             ));
         };
         let Some(n) = next else {

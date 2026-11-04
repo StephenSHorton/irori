@@ -330,8 +330,8 @@ fn last_answer(f: &Fold, t: &Task, bid: &str) -> Option<Comment> {
 
 /// The done check the person sent back (card #476): the newest done check
 /// on t, when the person's last word on it is their own (Not done, with
-/// why), open or not. `answered` is whether an agent has answered them
-/// on it since: a reply on its thread, or resolving it with a note.
+/// why), open or not, unless they said Done on it after. `answered` is
+/// whether an agent has replied on its thread since.
 #[derive(Debug, Clone)]
 pub struct SentBack {
     pub id: String,
@@ -346,6 +346,11 @@ pub(crate) fn sent_back(f: &Fold, t: &Task) -> Option<SentBack> {
         .iter()
         .filter(|b| b.done_check)
         .max_by_key(|b| b.at.unix_nano())?;
+    // The person's Done after it (say_done resolves the check, writing no
+    // comment) withdraws the reason.
+    if b.resolved.as_ref().is_some_and(|r| r.option >= 0) {
+        return None;
+    }
     let reason = last_answer(f, t, &b.id).filter(|c| c.pick <= 0)?;
     let replied = f
         .by_task
@@ -354,14 +359,11 @@ pub(crate) fn sent_back(f: &Fold, t: &Task) -> Option<SentBack> {
         .flatten()
         .filter_map(|id| f.comments.get(id))
         .any(|cm| cm.blocker_id == b.id && !cm.person && reason.pos().before(&cm.pos()));
-    let noted = b.resolved.as_ref().is_some_and(|r| {
-        !r.closed && !r.note.is_empty() && r.note != ASKED_AGAIN && !f.is_owner(&r.by)
-    });
     Some(SentBack {
         id: b.id.clone(),
         reason,
         proof: b.context.clone(),
-        answered: replied || noted,
+        answered: replied,
     })
 }
 
@@ -1340,6 +1342,15 @@ impl Fold {
         let b = t.blockers[i].clone();
         if !b.open() {
             return Err(bad_state(format!("blocker {bid} is already resolved")));
+        }
+        // Card #476: a done check the person sent back isn't revised (that
+        // would hide their reason): the agent answers them on it and brings
+        // new proof with completed, which replaces it.
+        if b.done_check && sent_back(self, &t).is_some_and(|sb| sb.id == bid) {
+            return Err(invalid(format!(
+                "the person sent done check {bid} back, so it isn't revised: answer the person on it (board_comment task_id={} blocker_id={bid}), then set completed again with proof that says what changed",
+                t.short_ref()
+            )));
         }
         let mut q = trim_space(&r.question).to_string();
         if q.is_empty() {

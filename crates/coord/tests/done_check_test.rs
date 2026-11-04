@@ -643,3 +643,43 @@ fn a_closed_sent_back_check_still_takes_the_agents_answer() {
         .to_string();
     assert!(err.contains("already resolved"), "{err}");
 }
+
+/// Card #476 (review): a sent-back done check isn't revised, so the gate can't be
+/// sidestepped by board_block blocker_id.
+#[test]
+fn a_done_check_is_not_revised() {
+    let e = env();
+    let t = claimed(&e);
+    let got = e.c.set_task_state(BOB, &t.id, COMPLETED, "done").unwrap();
+    let bid = done_checks(&got)[0].id.clone();
+    not_done(&e, &t.id, &bid, "also the docs");
+    let err =
+        e.c.revise(
+            BOB,
+            &t.id,
+            &bid,
+            BlockerRevision {
+                context: Some("done, docs too".into()),
+                ..BlockerRevision::default()
+            },
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("isn't revised"), "{err}");
+    assert!(err.contains(&format!("blocker_id={bid}")), "{err}");
+}
+
+/// Card #476 (review): the person's Done after their Not done withdraws
+/// the reason; a reopened card's next completed isn't held by it.
+#[test]
+fn done_after_not_done_withdraws_the_reason() {
+    let e = env();
+    let t = claimed(&e);
+    let got = e.c.set_task_state(BOB, &t.id, COMPLETED, "done").unwrap();
+    let bid = done_checks(&got)[0].id.clone();
+    not_done(&e, &t.id, &bid, "also the docs");
+    assert!(e.c.sent_back(&t.id).is_some());
+    e.c.say_done(USER, &t.id, &bid, &[]).unwrap();
+    assert_eq!(e.c.get_task(&t.id).unwrap().state, COMPLETED);
+    assert!(e.c.sent_back(&t.id).is_none());
+}

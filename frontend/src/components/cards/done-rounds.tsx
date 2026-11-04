@@ -49,7 +49,7 @@ export function RoundSigns({
       role="status"
       aria-label="What the agent did with your reason"
     >
-      {sign(round.heard, `${agent} read it`, round.pending[0] ?? "Not read yet")}
+      {sign(round.heard, `${agent} read it`, "Not read yet")}
       {sign(round.answered, `${agent} answered`, "No answer yet")}
     </div>
   )
