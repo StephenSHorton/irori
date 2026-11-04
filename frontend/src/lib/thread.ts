@@ -28,13 +28,35 @@ export const StartAgentOn = createContext("")
 // startAgentItem is the comment that offers it: the person's latest
 // comment on the thread (not a blocker answer), or "".
 export function startAgentItem(
-  items: readonly { id: string; kind: string; who: { status: string }; blockerId?: string | null }[]
+  items: readonly {
+    id: string
+    kind: string
+    who: { status: string }
+    blockerId?: string | null
+  }[]
 ): string {
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i]
-    if (it.kind === "comment" && it.who.status === "person" && !it.blockerId) return it.id
+    if (it.kind === "comment" && it.who.status === "person" && !it.blockerId)
+      return it.id
   }
   return ""
+}
+
+// BlockersHere is the ids of the blockers the open card page shows (card
+// #490): a thread line about one of them links to it.
+export const BlockersHere = createContext<ReadonlySet<string>>(new Set())
+
+// blockerItemId is a blocker's element id on the card page, for scrolling
+// to it from a thread line (card #490).
+export function blockerItemId(id: string): string {
+  return `blocker-item-${id}`
+}
+
+// blockerName is how the person reads a blocker in a line (card #490):
+// its question, quoted, never its id.
+export function blockerName(gist?: string | null): string {
+  return gist ? `“${gist}”` : "a blocker"
 }
 
 // threadEntryId is a thread entry's element id, for scrolling to it.
@@ -86,7 +108,7 @@ export function threadLabel(
 ): ThreadLabel {
   const badges: ThreadBadge[] = []
   if (item.blockerId && item.kind !== ThreadKind.Event && !inBlocker)
-    badges.push({ label: `on ${item.blockerId}`, tone: "slate" })
+    badges.push({ label: `on ${blockerName(item.blockerGist)}`, tone: "slate" })
   if (item.gone) badges.push({ label: "recipient gone", tone: "warning" })
   if (item.unheard)
     badges.push({ label: "nobody has heard this yet", tone: "warning" })
@@ -347,7 +369,13 @@ export function workingLine(
     const who = names(running)
     const verb = running.length > 1 ? "are" : "is"
     const doing = "running a background job"
-    return { text: `${who} ${verb} ${doing}…`, tone: "working", who, verb, doing }
+    return {
+      text: `${who} ${verb} ${doing}…`,
+      tone: "working",
+      who,
+      verb,
+      doing,
+    }
   }
 
   // The person's latest comment, and whether anyone answered it since.

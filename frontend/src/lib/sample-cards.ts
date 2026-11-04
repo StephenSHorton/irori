@@ -129,17 +129,25 @@ function steps(seeds: StepSeed[]): Step[] {
 }
 
 // eventsOf is a thread made of a card's Recent lines (newest first), for
-// the sample cards that seed no thread of their own.
-function eventsOf(recent: CardActivity[]): CardThreadItem[] {
-  return [...recent].reverse().map((a, i) =>
-    CardThreadItem({
+// the sample cards that seed no thread of their own. A line that quotes a
+// blocker's question carries that blocker, as the Rust thread does (card
+// #490), so it links to it.
+function eventsOf(
+  recent: CardActivity[],
+  blockers: CardBlocker[] = []
+): CardThreadItem[] {
+  return [...recent].reverse().map((a, i) => {
+    const b = blockers.find((b) => a.text.includes(`“${b.question}”`))
+    return CardThreadItem({
       id: `sample-event-${i}`,
       kind: "event",
       at: a.at,
       who: a.who,
       text: a.text,
+      blockerId: b?.id,
+      blockerGist: b?.question,
     })
-  )
+  })
 }
 
 export function sampleCards(now: Date): CardDetail[] {
@@ -168,7 +176,7 @@ export function sampleCards(now: Date): CardDetail[] {
       watching: [],
       short: (c.id ?? "").replace("sample-card-", ""),
       ...c,
-      thread: c.thread ?? eventsOf(c.recent ?? []),
+      thread: c.thread ?? eventsOf(c.recent ?? [], c.blockers ?? []),
       steps: st,
       blockers: c.blockers ?? [],
       // A parent's bar counts its subtasks, as cardSummary does.
@@ -296,7 +304,8 @@ export function sampleCards(now: Date): CardDetail[] {
           card({
             id: `sample-card-red-wait-${n}`,
             short: n,
-            title: n === "61" ? "Talk 3: agents answer now" : "Merge desk slice 2",
+            title:
+              n === "61" ? "Talk 3: agents answer now" : "Merge desk slice 2",
             goal: "Waiting on main going green.",
             state: TaskState.Blocked,
             working: [idleHolder],
@@ -305,7 +314,7 @@ export function sampleCards(now: Date): CardDetail[] {
             waitTask: "sample-card-red",
             waitQuestion: "attach_exe fails on clean main",
             updatedAt: at(2),
-          }),
+          })
         ),
       ]
     : []
@@ -453,17 +462,26 @@ export function sampleCards(now: Date): CardDetail[] {
             goal: "One writer for the lantern's alpha.",
             working: [
               AgentRef({
-                ...agent("sample06-synthetic-session", "sample-thyme", "waiting"),
+                ...agent(
+                  "sample06-synthetic-session",
+                  "sample-thyme",
+                  "waiting"
+                ),
                 spawned: true,
               }),
             ],
             blockers: [
               CardBlocker({
                 id: "b-perm",
-                question: "Waiting for your permission: sample-thyme is stopped on a prompt",
+                question:
+                  "Waiting for your permission: sample-thyme is stopped on a prompt",
                 context:
                   "sample-thyme, the agent Irori started for #58, is waiting for a permission nobody is there to give. Attach to it to answer the prompt, or add the command to the board's allow list in Settings › Agents and start a fresh agent.",
-                raisedBy: AgentRef({ key: "irori", name: "Irori", status: "person" }),
+                raisedBy: AgentRef({
+                  key: "irori",
+                  name: "Irori",
+                  status: "person",
+                }),
                 at: at(2),
                 options: [],
                 resolved: null,
@@ -484,13 +502,21 @@ export function sampleCards(now: Date): CardDetail[] {
                 question: "Its agent crashed twice in a row: start another?",
                 context:
                   "The last two agents started for this card went away before finishing. Irori won't start another until you say so: start one, or say in your own words what to try, and it goes in the next agent's brief.",
-                raisedBy: AgentRef({ key: "irori", name: "Irori", status: "person" }),
+                raisedBy: AgentRef({
+                  key: "irori",
+                  name: "Irori",
+                  status: "person",
+                }),
                 at: at(9),
                 options: [
                   CardOption({
                     answer: "Start another agent",
                     why: "A fresh agent picks it up from Where and Left off.",
-                    by: AgentRef({ key: "irori", name: "Irori", status: "person" }),
+                    by: AgentRef({
+                      key: "irori",
+                      name: "Irori",
+                      status: "person",
+                    }),
                     at: at(9),
                     recommended: true,
                   }),
@@ -508,7 +534,8 @@ export function sampleCards(now: Date): CardDetail[] {
             goal: "No checkout here.",
             state: TaskState.Submitted,
             working: [],
-            cantStart: "no checkout of remote:github.com/you/app-repo on sample-device",
+            cantStart:
+              "no checkout of remote:github.com/you/app-repo on sample-device",
             updatedAt: at(1),
           }),
         ]
@@ -921,12 +948,12 @@ export function sampleCards(now: Date): CardDetail[] {
         CardActivity({
           at: at(30),
           who: otter,
-          text: "sample-otter replied on blocker b2",
+          text: "sample-otter replied on “What goes in the release notes' known-issues list?”",
         }),
         CardActivity({
           at: at(38),
           who: sampleYou,
-          text: "You answered blocker b2",
+          text: "You answered “What goes in the release notes' known-issues list?”",
         }),
         CardActivity({
           at: at(40),
@@ -1001,7 +1028,7 @@ export function sampleCards(now: Date): CardDetail[] {
         CardActivity({
           at: at(4),
           who: sampleYou,
-          text: "You answered blocker b1",
+          text: "You answered “Which virtual adapter should the LAN build install?”",
         }),
         CardActivity({
           at: at(9),

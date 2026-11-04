@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test"
 
-import { AgentRef, CardAsk } from "./models"
+import { AgentRef, CardAsk, CardWait, Step } from "./models"
 import { TaskState } from "./models"
-import { refStatus, askLine, busy, namesLine, withLive, workingNow, sampleCardRef, cardFromHash, cardHash, openTarget, deviceChips, deviceVar, holderLineShows, Holding, nobodyOn, openAsk, overLabel, workLabel } from "./cards"
+import { refStatus, askLine, busy, namesLine, withLive, workingNow, sampleCardRef, cardFromHash, cardHash, openTarget, deviceChips, deviceVar, holderLineShows, Holding, nobodyOn, openAsk, overLabel, peopleRows, workLabel } from "./cards"
 
 const agent = (status: string, more: Partial<AgentRef> = {}) =>
   AgentRef({ key: "d/s", name: "a", status, live: status !== "gone", where: "This PC", ...more })
@@ -240,5 +240,39 @@ describe("refStatus", () => {
     const t = (done: boolean) => refStatus({ thread: true, done, state: "working", blocked: false })
     expect(t(false).label).toBe("Open thread")
     expect(t(true).label).toBe("Resolved")
+  })
+})
+
+describe("peopleRows (card #490)", () => {
+  const otter = agent("idle", { key: "d/otter", name: "otter" })
+  const heron = agent("idle", { key: "d/heron", name: "heron" })
+  const wren = agent("idle", { key: "d/wren", name: "wren" })
+  const steps = [Step({ id: "s1", text: "Plan" }), Step({ id: "s3", text: "Sync" })]
+  const wait = (id: string, who: AgentRef, text: string, onThis = false) => CardWait({ id, who, text, onThis })
+
+  test("a holder that also waits is one row with its wait", () => {
+    const rows = peopleRows({ working: [otter], watching: [], waits: [wait("w1", agent("idle", { key: "d/otter" }), "branch main moves")], steps })
+    expect(rows).toHaveLength(1)
+    expect(rows[0].role).toBe("working")
+    expect(rows[0].who.name).toBe("otter")
+    expect(rows[0].waits.map((w) => w.text)).toEqual(["branch main moves"])
+  })
+  test("a watcher waiting on this card stays one watching row", () => {
+    const rows = peopleRows({ working: [], watching: [wren], waits: [wait("w1", wren, "until done", true), wait("w2", wren, "#3")], steps })
+    expect(rows.map((r) => [r.who.key, r.role, r.waits.length])).toEqual([["d/wren", "watching", 2]])
+  })
+  test("an agent that only waits gets a waiting row, after working and watching", () => {
+    const rows = peopleRows({ working: [otter], watching: [heron], waits: [wait("w1", wren, "until done", true)], steps })
+    expect(rows.map((r) => r.role)).toEqual(["working", "watching", "waiting"])
+  })
+  test("step owners show step titles, never ids", () => {
+    const rows = peopleRows({ working: [otter, AgentRef({ ...heron, steps: ["s3", "s9"] })], watching: [], steps })
+    expect(rows[1].stepTitles).toEqual(["Sync", "a step"])
+  })
+  test("the same agent twice in working merges into one row", () => {
+    const rows = peopleRows({ working: [AgentRef({ ...otter, assigned: true }), AgentRef({ ...otter, steps: ["s1"] })], watching: [otter], steps })
+    expect(rows).toHaveLength(1)
+    expect(rows[0].who.assigned).toBe(true)
+    expect(rows[0].stepTitles).toEqual(["Plan"])
   })
 })

@@ -36,6 +36,7 @@ import {
   NoteItem,
   over,
   overLabel,
+  peopleRows,
   percent,
   Holding,
   TaskState,
@@ -68,6 +69,8 @@ import {
   isWait,
   LiveRoster,
   StartAgentOn,
+  BlockersHere,
+  blockerItemId,
 } from "@/lib/thread"
 import { SpawnedActions } from "@/components/cards/spawned-actions"
 import { AskedAgain, blockerOutcome } from "@/lib/notifications"
@@ -243,6 +246,8 @@ export function CardPage({
   const readyNow = detail.ready ? open.find((b) => b.doneCheck) : undefined
   if (readyNow && (lifted?.card !== detail.id || lifted.id !== readyNow.id))
     setLifted({ card: detail.id, id: readyNow.id })
+  // The blockers this page shows (card #490): thread lines link to them.
+  const blockersHere = new Set(detail.blockers.map((b) => b.id))
   const ready =
     readyNow ??
     (lifted?.card === detail.id
@@ -507,6 +512,7 @@ export function CardPage({
         <TerminalCard cardId={detail.id} />
         <Card className="gap-0 py-0!">
           <Section title="Thread" last>
+            <BlockersHere.Provider value={blockersHere}>
             <StartAgentOn.Provider value={startable(detail) ? detail.id : ""}>
             <Thread
               cardId={detail.id}
@@ -525,6 +531,7 @@ export function CardPage({
               }
             />
             </StartAgentOn.Provider>
+            </BlockersHere.Provider>
           </Section>
         </Card>
         </div>
@@ -1672,6 +1679,7 @@ function BlockerItem({
     return (
       <button
         type="button"
+        id={blockerItemId(b.id)}
         onClick={() => setUnfolded(true)}
         aria-expanded={false}
         title="Show the whole item"
@@ -1691,8 +1699,9 @@ function BlockerItem({
 
   return (
     <div
+      id={blockerItemId(b.id)}
       className={cn(
-        "grid gap-2 rounded-xl border p-3",
+        "grid scroll-mt-16 gap-2 rounded-xl border p-3",
         tone === "amber" &&
           (b.doneCheck
             ? "border-success/40 bg-success/5"
@@ -1988,21 +1997,22 @@ function ToldLine({
 // watchers, each with the machine it's on. A gone agent offers Revive when
 // Irori still has its session.
 function People({ detail, gone }: { detail: CardDetail; gone: GoneSession[] }) {
-  const rows: [AgentRef, "working" | "watching"][] = [
-    ...detail.working.map((w): [AgentRef, "working"] => [w, "working"]),
-    ...detail.watching.map((w): [AgentRef, "watching"] => [w, "watching"]),
-  ]
-  const waits = detail.waits ?? []
-  if (!rows.length && !waits.length)
+  // One row per agent (card #490): a holder that also waits, or a watcher
+  // waiting on this card, shows its waits under its one row.
+  const rows = peopleRows(detail)
+  if (!rows.length)
     return <Note>Nobody yet. An agent that takes the card shows here.</Note>
   return (
     <div className="grid gap-1.5">
-      {!rows.length && (
+      {!rows.some((r) => r.role !== "waiting") && (
         <Note>Nobody yet. An agent that takes the card shows here.</Note>
       )}
-      {rows.map(([w, role]) => (
+      {rows.map(({ who: w, role, stepTitles, waits }) =>
+        role === "waiting" ? (
+          <WaitRow key={w.key} wait={waits[0]} more={waits.slice(1)} />
+        ) : (
         <div
-          key={`${role}-${w.key}`}
+          key={w.key}
           className="grid grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-2 text-[13px]"
         >
           <Face who={w} watching={role === "watching"} noDot />
@@ -2033,9 +2043,13 @@ function People({ detail, gone }: { detail: CardDetail; gone: GoneSession[] }) {
                 <span>gone</span>
                 {!w.spawned && <Revive who={w} gone={gone} />}
               </>
-            ) : role === "working" && w.steps?.length ? (
-              <span title="Owns these steps: on the card until they're done">
-                on {w.steps.join(", ")}
+            ) : role === "working" && stepTitles.length ? (
+              <span
+                className="max-w-[14rem] min-w-0 truncate"
+                title={`Owns ${stepTitles.map((t) => `“${t}”`).join(", ")}: on the card until they're done`}
+              >
+                on {stepTitles[0]}
+                {stepTitles.length > 1 ? ` +${stepTitles.length - 1}` : ""}
               </span>
             ) : role === "working" ? (
               w.assigned ? (
@@ -2074,13 +2088,25 @@ function People({ detail, gone }: { detail: CardDetail; gone: GoneSession[] }) {
               Hand-off note: {w.handoff}
             </p>
           )}
+          {waits.map((x) => (
+            <p
+              key={x.id}
+              className="col-span-3 pl-[30px] text-xs text-muted-foreground"
+              title="Irori wakes this agent once when it happens"
+            >
+              {waitWords(x)}
+            </p>
+          ))}
         </div>
-      ))}
-      {waits.map((w) => (
-        <WaitRow key={w.id} wait={w} />
-      ))}
+        )
+      )}
     </div>
   )
+}
+
+// waitWords is one wait as Who's on it says it (card #87).
+function waitWords(w: CardWait): string {
+  return w.onThis ? `waits ${w.text}` : `waiting on ${w.text}`
 }
 
 // WaitItem is a blocker that waits on other work (card #481): a card, a
@@ -2200,7 +2226,7 @@ function GoneRaiser({ cardId, who }: { cardId: string; who: AgentRef }) {
 // WaitRow is one wait on the card page (card #87): an agent waiting on
 // this card ("waits until done"), or a holder of this card waiting on
 // another card or a branch. Irori wakes the agent once when it fires.
-function WaitRow({ wait }: { wait: CardWait }) {
+function WaitRow({ wait, more = [] }: { wait: CardWait; more?: CardWait[] }) {
   return (
     <div
       className="grid grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-2 text-[13px]"
@@ -2210,7 +2236,7 @@ function WaitRow({ wait }: { wait: CardWait }) {
       <span className="min-w-0 truncate">
         <span className="text-ink">{name(wait.who)}</span>{" "}
         <small className="text-xs text-muted-foreground">
-          · {wait.onThis ? `waits ${wait.text}` : `waiting on ${wait.text}`}
+          · {[wait, ...more].map(waitWords).join("; ")}
         </small>
       </span>
       <span className="text-xs text-muted-foreground">waiting</span>
