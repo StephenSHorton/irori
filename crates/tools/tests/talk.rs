@@ -257,14 +257,15 @@ fn channel_members_read_at_their_next_turn() {
     let waiting = |key: &str| -> Vec<inbox::Delivery> {
         h.notices(key)
             .into_iter()
-            .filter(|d| {
-                d.message.reason == coord::NOTICE_READING
-                    && d.state == inbox::st::QUEUED
-            })
+            .filter(|d| d.message.reason == coord::NOTICE_READING && d.state == inbox::st::QUEUED)
             .collect()
     };
     for i in 1..=7 {
-        h.okj(&a, "talk_post", json!({"conv": "#general", "text": format!("line {i}")}));
+        h.okj(
+            &a,
+            "talk_post",
+            json!({"conv": "#general", "text": format!("line {i}")}),
+        );
     }
     assert!(waiting(KEY_A).is_empty(), "not the poster");
     for key in [KEY_B, KEY_C] {
@@ -274,14 +275,24 @@ fn channel_members_read_at_their_next_turn() {
         assert_eq!(ds[0].message.ref_, format!("talk:{}", ch.id));
         has(
             &ds[0].message.text,
-            &["Since you last read #general", "7 new posts, the last 5 below", "line 3", "line 7", "A reply is optional"],
+            &[
+                "Since you last read #general",
+                "7 new posts, the last 5 below",
+                "line 3",
+                "line 7",
+                "A reply is optional",
+            ],
         );
         has_not(&ds[0].message.text, &["line 2"]);
     }
 
     // Gamma reads the channel: the next reading starts after its cursor.
     h.okj(&c, "talk_read", json!({"conv": "#general"}));
-    h.okj(&a, "talk_post", json!({"conv": "#general", "text": "line 8"}));
+    h.okj(
+        &a,
+        "talk_post",
+        json!({"conv": "#general", "text": "line 8"}),
+    );
     let ds = waiting(KEY_C);
     assert_eq!(ds.len(), 1, "{ds:?}");
     has(&ds[0].message.text, &["1 new post.", "line 8"]);

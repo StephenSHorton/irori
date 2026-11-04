@@ -380,7 +380,10 @@ impl Fold {
             } else {
                 self.named(who)
             };
-            b.push_str(&format!("- {who}: {}\n", cut(&collapse_space(text), MAX_READING_LINE)));
+            b.push_str(&format!(
+                "- {who}: {}\n",
+                cut(&collapse_space(text), MAX_READING_LINE)
+            ));
         }
         b.push_str(&format!(
             "\"Agents answer now\" is off for this, so nobody was woken for it. A reply is optional: answer in the thread with board_comment {} only if you have something to add or a correction. talk_read conv={} gives the whole thread. {NOT_YOURS_TO_CLOSE}",

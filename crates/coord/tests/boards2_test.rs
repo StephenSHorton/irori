@@ -1695,7 +1695,10 @@ fn a_board_thread_naming_only_a_person_wakes_no_agent() {
     sync(&a, &b);
     assert!(a.c.sweep_asks(&[idle(CARD3, "dev-b")]).unwrap().is_empty());
     let t = a.c.get_task(&tk.id).unwrap();
-    assert!(t.holders.is_empty() && !t.ask.as_ref().unwrap().wake, "{t:?}");
+    assert!(
+        t.holders.is_empty() && !t.ask.as_ref().unwrap().wake,
+        "{t:?}"
+    );
 
     // p1's next post: the thread is still off, so even a waking post
     // wakes nobody, here or through p2's bridge (the row isn't wake).
@@ -1705,7 +1708,9 @@ fn a_board_thread_naming_only_a_person_wakes_no_agent() {
     assert!(!cm.wake, "{cm:?}");
     assert!(
         !ns.is_empty()
-            && ns.iter().all(|n| !n.wake && n.text.contains("Since you last read")),
+            && ns
+                .iter()
+                .all(|n| !n.wake && n.text.contains("Since you last read")),
         "{ns:?}"
     );
 }
