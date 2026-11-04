@@ -467,3 +467,105 @@ fn a_channel_name_resolves_in_its_space_only() {
         ],
     );
 }
+
+/// Two spaces, one tagged `personal` and one sharing its tag `art` with
+/// another board, as the tools see them (card #461).
+struct OddSpaces;
+
+impl tools::SharedBoards for OddSpaces {
+    fn boards(&self) -> Vec<tools::BoardInfo> {
+        let b = |id: &str, tag: &str, space_board: &str| tools::BoardInfo {
+            board_id: id.into(),
+            tag: tag.into(),
+            name: tag.into(),
+            space_board: space_board.into(),
+            ..Default::default()
+        };
+        vec![
+            b("sp_p", "personal", ""),
+            b("sp_art", "art", ""),
+            b("sp_p", "art", "bd_p_art"),
+        ]
+    }
+    fn board_of(&self, _task_id: &str) -> Option<tools::BoardInfo> {
+        None
+    }
+    fn board_coord(
+        &self,
+        _board_id: &str,
+        _keys: &[String],
+    ) -> Result<(std::sync::Arc<coord::Coord>, Vec<String>), coord::Error> {
+        Err(coord::Error::raw(coord::ErrorKind::NotFound, "no board"))
+    }
+    fn share(&self, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
+        Err("no".into())
+    }
+    fn withdraw(&self, _: &str) -> Result<(), String> {
+        Err("no".into())
+    }
+}
+
+/// The refusal for a name in another space only offers a `space` that
+/// names that space, leaves out spaces this person no longer has, and a
+/// name two Cores made at once in one space is refused with both ids.
+#[test]
+fn a_channel_name_refusal_names_only_what_resolves() {
+    let h = new_harness_setup(None, |b, _| {
+        let _ = b.shared.set(std::sync::Arc::new(OddSpaces));
+        b.talk
+            .set_spaces(std::sync::Arc::new(SpaceRows(b.st.clone())));
+    });
+    let a = call_a();
+    let t = &h.b.talk;
+    let p = t.create_channel_in(USER, "netcode", "", "sp_p").unwrap();
+    let art = t.create_channel_in(USER, "ops", "", "sp_art").unwrap();
+    // A space that is gone from this person's boards (left, or not ready).
+    let gone = t.create_channel_in(USER, "lore", "", "sp_gone").unwrap();
+
+    // A space tagged personal is named by its id: space=personal is Personal.
+    let out = h.failsj(
+        &a,
+        "talk_post",
+        json!({"conv": "#netcode", "text": "x"}),
+        &["no channel #netcode in Personal", &p.id, "pass space=sp_p"],
+    );
+    has_not(&out, &["pass space=personal"]);
+    has(
+        &h.okj(&a, "talk_join", json!({"conv": "#netcode", "space": "sp_p"})),
+        &[&format!("Joined #netcode ({})", p.id)],
+    );
+    // A tag two boards share is named by the space's id too.
+    let out = h.failsj(
+        &a,
+        "talk_join",
+        json!({"conv": "#ops"}),
+        &["no channel #ops in Personal", "pass space=sp_art"],
+    );
+    has_not(&out, &["pass space=art"]);
+    has(
+        &h.okj(&a, "talk_join", json!({"conv": "#ops", "space": "sp_art"})),
+        &[&format!("Joined #ops ({})", art.id)],
+    );
+    // A gone space isn't offered: the name is just not found.
+    let out = h.failsj(&a, "talk_read", json!({"conv": "#lore"}), &["#lore"]);
+    has_not(&out, &["sp_gone", &gone.id]);
+
+    // Another Core of the space made #ops too before it heard of ours.
+    let twin = h
+        .b
+        .st
+        .append(
+            "irori",
+            store::kinds::TALK_CHANNEL_CREATED,
+            &json!({"channelId": "ch_twin", "spaceId": "sp_art", "name": "ops", "by": "user:dev2"}),
+        )
+        .unwrap();
+    assert!(t.apply(&twin));
+    h.failsj(
+        &a,
+        "talk_post",
+        json!({"conv": "#ops", "space": "sp_art", "text": "x"}),
+        &["more than one #ops", &art.id, "ch_twin"],
+    );
+    assert!(t.posts(&art.id).is_empty() && t.posts("ch_twin").is_empty());
+}

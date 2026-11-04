@@ -421,9 +421,9 @@ pub fn resolve(b: &dyn Backend, me: &str, conv: &str, space: &str) -> Result<Tar
         return Ok(Target::Dm(ct::dm_id(me, &p.key), Some(p)));
     }
     if let Some(name) = conv.strip_prefix('#')
-        && let Some(c) = talk.channel_named_in(name, space)
+        && let Some(id) = named_in(&talk, name, space)?
     {
-        return Ok(Target::Channel(c.id));
+        return Ok(Target::Channel(id));
     }
     let co = b.coord();
     if let Ok(id) = co.task_ref(conv)
@@ -436,10 +436,16 @@ pub fn resolve(b: &dyn Backend, me: &str, conv: &str, space: &str) -> Result<Tar
     {
         return Ok(Target::Thread(trim(id).to_string()));
     }
-    if let Some(c) = talk.channel_named_in(conv, space) {
-        return Ok(Target::Channel(c.id));
+    if let Some(id) = named_in(&talk, conv, space)? {
+        return Ok(Target::Channel(id));
     }
-    let elsewhere = talk.channels_named(conv);
+    // Only spaces this person still has can be named back (a space being
+    // left, or not ready yet, isn't one).
+    let elsewhere: Vec<ct::Channel> = talk
+        .channels_named(conv)
+        .into_iter()
+        .filter(|c| c.space_id.is_empty() || space_known(b, &c.space_id))
+        .collect();
     if !elsewhere.is_empty() {
         return Err(elsewhere_text(b, conv, space, &elsewhere));
     }
@@ -463,6 +469,38 @@ pub fn resolve(b: &dyn Backend, me: &str, conv: &str, space: &str) -> Result<Tar
     ))
 }
 
+/// The id of the open channel named `name` in space `space`, if one is.
+/// Names are unique per space where a channel is made, but two Cores of a
+/// space can each make one before they hear of the other's: then the name
+/// is refused with both ids, never one picked (card #461).
+fn named_in(talk: &Talk, name: &str, space: &str) -> Result<Option<String>, String> {
+    let space = space.trim();
+    let hits: Vec<ct::Channel> = talk
+        .channels_named(name)
+        .into_iter()
+        .filter(|c| c.space_id == space)
+        .collect();
+    match hits.as_slice() {
+        [] => Ok(None),
+        [one] => Ok(Some(one.id.clone())),
+        _ => Err(format!(
+            "more than one #{} is here: give its conv ({}).",
+            one_line(name.trim_start_matches('#'), 80),
+            hits.iter().map(|c| c.id.as_str()).collect::<Vec<_>>().join(", ")
+        )),
+    }
+}
+
+/// Whether shared space `id` is one this person has now (its own board is
+/// listed, so a `space` argument can name it).
+fn space_known(b: &dyn Backend, id: &str) -> bool {
+    b.shared_boards().is_some_and(|sb| {
+        sb.boards()
+            .iter()
+            .any(|x| x.board_id == id && x.space_board.is_empty())
+    })
+}
+
 /// The refusal for channel name `conv` looked up in `space` but found only
 /// in other spaces: where each one is, and how to name it.
 fn elsewhere_text(b: &dyn Backend, conv: &str, space: &str, chs: &[ct::Channel]) -> String {
@@ -479,7 +517,11 @@ fn elsewhere_text(b: &dyn Backend, conv: &str, space: &str, chs: &[ct::Channel])
                 format!("in Personal (conv={}): leave out space", c.id)
             } else {
                 let tag = space_tag(b, &c.space_id);
-                format!("in space {tag} (conv={}): pass space={tag}", c.id)
+                format!(
+                    "in space {tag} (conv={}): pass space={}",
+                    c.id,
+                    space_name_arg(b, &c.space_id)
+                )
             }
         })
         .collect();
@@ -500,6 +542,24 @@ pub(crate) fn space_tag(b: &dyn Backend, id: &str) -> String {
         .map(|x| x.tag)
         .filter(|t| !t.is_empty())
         .unwrap_or_else(|| id.to_string())
+}
+
+/// What to pass as `space` to name shared space `id`: its tag when that
+/// names it alone, else its id (a tag `personal`, or one two boards share,
+/// would name something else).
+fn space_name_arg(b: &dyn Backend, id: &str) -> String {
+    let tag = space_tag(b, id);
+    let all = b.shared_boards().map(|sb| sb.boards()).unwrap_or_default();
+    let alone = all
+        .iter()
+        .filter(|x| x.tag.eq_ignore_ascii_case(&tag))
+        .count()
+        == 1;
+    if tag == id || tag.eq_ignore_ascii_case("personal") || !alone {
+        id.to_string()
+    } else {
+        tag
+    }
 }
 
 /// The space a tool's `space` argument names, as the id channels carry:
