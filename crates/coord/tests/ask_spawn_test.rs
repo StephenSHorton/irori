@@ -8,8 +8,8 @@
 mod common;
 
 use std::collections::HashSet;
-use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
 
 use common::*;
 use coord::roster::AgentCard;
@@ -91,21 +91,30 @@ fn a_thread_nobody_takes_starts_an_agent_that_takes_it_and_answers() {
     assert!(a.taker.is_empty() && a.unclaimed, "{a:?}");
     assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&tk.id));
 
-    let g = e.c.request_spawn(SWEEPER_KEY, sask(&tk.id)).unwrap().unwrap();
+    let g =
+        e.c.request_spawn(SWEEPER_KEY, sask(&tk.id))
+            .unwrap()
+            .unwrap();
     assert!(e.c.get_task(&tk.id).unwrap().spawn_pending());
     assert_eq!(e.c.request_spawn(SWEEPER_KEY, sask(&tk.id)).unwrap(), None);
     assert!(e.c.cards_to_spawn().is_empty(), "pending: not listed again");
     // Bob turns "Offer it cards" on while it starts: the spawn has it.
     r.offered.write().unwrap().insert(BOB.into());
     let ns = e.c.sweep_asks(&agents).unwrap();
-    assert!(ns.iter().all(|n| !n.to.contains(&BOB.to_string())), "{ns:?}");
+    assert!(
+        ns.iter().all(|n| !n.to.contains(&BOB.to_string())),
+        "{ns:?}"
+    );
     assert!(ask_of(&e, &tk.id).taker.is_empty());
 
     // Bound: it takes the ask through the take lock, at once.
     assert!(e.c.bind_spawn(&tk.id, g, SPAWNED).unwrap());
     let t = e.c.get_task(&tk.id).unwrap();
     let a = t.ask.clone().unwrap();
-    assert!(a.taker == SPAWNED && !a.handed && a.reason == TAKE_TAKEN, "{a:?}");
+    assert!(
+        a.taker == SPAWNED && !a.handed && a.reason == TAKE_TAKEN,
+        "{a:?}"
+    );
     assert_eq!(t.holders, [SPAWNED]);
     assert!(t.assigned.is_empty(), "{t:?}");
     assert_eq!(e.c.spawned_card(SPAWNED), Some(tk.id.clone()));
@@ -151,12 +160,14 @@ fn a_plain_ask_spawned_for_is_closed_by_its_agent() {
     let _r = rig(&mut e, &[]);
     let tk = post(&e, "Should we drop Windows 10?", false, &[idle(BOB, 20)]);
     assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&tk.id));
-    let g = e.c.request_spawn(SWEEPER_KEY, sask(&tk.id)).unwrap().unwrap();
+    let g =
+        e.c.request_spawn(SWEEPER_KEY, sask(&tk.id))
+            .unwrap()
+            .unwrap();
     assert!(e.c.bind_spawn(&tk.id, g, SPAWNED).unwrap());
     assert_eq!(ask_of(&e, &tk.id).taker, SPAWNED);
-    let t = e
-        .c
-        .ask_close(
+    let t =
+        e.c.ask_close(
             SPAWNED,
             &tk.id,
             AskOutcome {
@@ -179,7 +190,10 @@ fn the_switch_backoff_and_a_named_ask_keep_it_from_spawning() {
     r.on.store(false, Ordering::SeqCst);
     assert!(e.c.cards_to_spawn().is_empty(), "switch off");
     r.on.store(true, Ordering::SeqCst);
-    let g = e.c.request_spawn(SWEEPER_KEY, sask(&tk.id)).unwrap().unwrap();
+    let g =
+        e.c.request_spawn(SWEEPER_KEY, sask(&tk.id))
+            .unwrap()
+            .unwrap();
     e.c.end_spawn(SWEEPER_KEY, &tk.id, g, SPAWN_FAILED, "not trusted")
         .unwrap();
     assert!(e.c.cards_to_spawn().is_empty(), "failed: waits");
@@ -187,9 +201,8 @@ fn the_switch_backoff_and_a_named_ask_keep_it_from_spawning() {
     assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&tk.id));
 
     // A plain ask naming an agent goes to it alone: never spawned for.
-    let named = e
-        .c
-        .post_ask(
+    let named =
+        e.c.post_ask(
             USER,
             NewAsk {
                 text: "@bob check the build".into(),
@@ -206,9 +219,8 @@ fn the_switch_backoff_and_a_named_ask_keep_it_from_spawning() {
     assert!(!ids(&e.c.cards_to_spawn()).contains(&named.id));
 
     // A thread with "Agents answer now" off is never handed out.
-    let quiet = e
-        .c
-        .post_ask(
+    let quiet =
+        e.c.post_ask(
             USER,
             NewAsk {
                 text: "a note to self".into(),
@@ -231,8 +243,15 @@ fn a_crashing_agent_stops_its_asks_spawns_after_two() {
     let _r = rig(&mut e, &[]);
     let tk = post(&e, "Why is the build slow?", true, &[]);
     for n in 1..=2u32 {
-        assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&tk.id), "round {n}");
-        let g = e.c.request_spawn(SWEEPER_KEY, sask(&tk.id)).unwrap().unwrap();
+        assert_eq!(
+            ids(&e.c.cards_to_spawn()),
+            std::slice::from_ref(&tk.id),
+            "round {n}"
+        );
+        let g =
+            e.c.request_spawn(SWEEPER_KEY, sask(&tk.id))
+                .unwrap()
+                .unwrap();
         let key = format!("dev-a/spawned-{n}");
         e.ros.set(&key, "busy");
         assert!(e.c.bind_spawn(&tk.id, g, &key).unwrap());

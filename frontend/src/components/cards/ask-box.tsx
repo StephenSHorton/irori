@@ -86,8 +86,8 @@ export function AskBox({
         text: !now
           ? "Sent. Agents answer now was off: no agent was woken or handed it."
           : n === 0
-            ? "Sent. No agent is free yet: it goes to the first idle agent with Offer it cards on."
-            : `Sent to ${n === 1 ? "1 agent" : `${n} agents`}. If nobody answers in 45s, an agent with Offer it cards on picks it up.`,
+            ? "Sent. No agent with Offer it cards on is free: Irori starts one for it when spawning is on."
+            : `Sent to ${n === 1 ? "1 agent" : `${n} agents`}. If nobody answers in 45s, an idle agent with Offer it cards on picks it up, or Irori starts one.`,
       })
       setText("")
       setMentions([])

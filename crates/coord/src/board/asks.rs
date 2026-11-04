@@ -374,7 +374,10 @@ impl Fold {
                 // asking again starts the count over.
                 let gone_was = cmp_or_dev(&p.was, &was).to_string();
                 if p.reason == TAKE_GONE
-                    && self.spawned.get(&gone_was).is_some_and(|m| m.task_id == p.task_id)
+                    && self
+                        .spawned
+                        .get(&gone_was)
+                        .is_some_and(|m| m.task_id == p.task_id)
                 {
                     t.spawn_crashes += 1;
                 } else if p.reason == TAKE_REOPENED {
