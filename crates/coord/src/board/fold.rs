@@ -88,7 +88,7 @@ const CLOCK_SKEW: Duration = Duration::from_secs(120);
 pub const SUB_BUFFER: usize = 64;
 
 /// The row prefixes coord folds.
-pub const FOLLOW_KINDS: [&str; 10] = [
+pub const FOLLOW_KINDS: [&str; 11] = [
     "task.",
     "lease.",
     "blocker.",
@@ -100,6 +100,9 @@ pub const FOLLOW_KINDS: [&str; 10] = [
     // The merge desk (card #415).
     "repo.desk",
     "desk.",
+    // The sides each device runs (card #494): the exact kind, not
+    // "device.", which would pull in names and colours.
+    kinds::DEVICE_SIDES,
 ];
 
 /// Whether coord folds `kind`.
@@ -219,6 +222,8 @@ pub struct Fold {
     pub(crate) on_board: bool,
     pub(crate) done_check: bool,
     pub(crate) person: String,
+    /// The sides each device runs (card #494), from `device.sides` rows.
+    pub(crate) sides: crate::sides::Sides,
     /// See [`super::Options::spawning`].
     pub(crate) spawning: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     /// See [`super::Options::offers`].
@@ -398,6 +403,7 @@ impl Fold {
             done_check: o.done_check,
             person,
             key_person: o.key_person,
+            sides: crate::sides::Sides::new(),
             spawning: o.spawning,
             offers: o.offers,
             agents_per_card: o.agents_per_card,
@@ -637,6 +643,12 @@ impl Fold {
         let at = |t: GoTime| if t.is_zero() { wall } else { t };
         match ev.kind.as_str() {
             kinds::TASK_CREATED => self.fold_created(ev, &at),
+            kinds::DEVICE_SIDES => {
+                // Private log only: a board log never carries one.
+                if !self.on_board {
+                    self.sides.apply(ev);
+                }
+            }
             kinds::TASK_CLAIMED => {
                 let Some(p) = row::<TaskClaimedRow>(&ev.payload) else {
                     return;
@@ -1112,6 +1124,7 @@ impl Fold {
             links,
             tag: self.tag_of(&p.board),
             board: p.board.clone(),
+            side: crate::sides::clean(&p.side),
             from: p.from.clone(),
             agents: p.agents.clamp(0, super::MAX_AGENTS_PER_CARD),
             ..Task::default()

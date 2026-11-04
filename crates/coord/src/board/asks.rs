@@ -815,6 +815,8 @@ impl Fold {
                     },
                     owner: if delegated { owner } else { String::new() },
                 }),
+                // The side of the device it's typed on (card #494).
+                side: self.new_side("", ""),
                 by: by.clone(),
                 at,
                 ..TaskCreatedRow::default()

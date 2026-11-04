@@ -362,6 +362,8 @@ impl Fold {
                 clean_new(&by, nt).map_err(|e: Error| e.prefixed(format!("subtask {}", i + 1)))?;
             ct.parent = id.into();
             ct.spawn = marks[i];
+            // A part runs on its parent's side (card #494).
+            ct.side = t.side.clone();
             cleaned.push(ct);
         }
         let mut adopt_ids: Vec<String> = Vec::new();

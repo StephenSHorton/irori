@@ -50,6 +50,10 @@ crate::go_struct! {
         /// The board in a space it's on (card #392): a `space.board.created`
         /// id; empty for the space's own board (and every older card).
         pub board: String = "board" "omit",
+        /// The work/personal side it's on (card #494): the side of the
+        /// device it was typed on, or its parent's; empty for any side
+        /// (and every older card). Private log only.
+        pub side: String = "side" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
     }

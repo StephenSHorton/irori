@@ -452,6 +452,63 @@ impl Coord {
         f.busy_with(key, "").map(Fold::busy_text)
     }
 
+    // ---- sides (card #494) ----
+
+    /// Pins the work/personal sides this device runs, the first the one
+    /// its new cards take; empty runs every side again. Written as the
+    /// person on this device, so it counts here and nowhere else.
+    pub fn set_device_sides(&self, sides: &[String]) -> Result<Vec<String>> {
+        let mut f = self.lock();
+        if f.on_board {
+            return Err(error::not_allowed("a shared board carries no sides"));
+        }
+        let sides = crate::sides::clean_list(sides);
+        let dev = f.dev.clone();
+        f.write_as(
+            "user",
+            crate::sides::KIND,
+            &crate::sides::SidesRow {
+                device_id: dev.clone(),
+                sides: sides.clone(),
+                at_device: dev,
+            },
+        )?;
+        Ok(sides)
+    }
+
+    /// The sides `device` runs; None when it runs every side.
+    pub fn sides_of(&self, device: &str) -> Option<Vec<String>> {
+        self.lock().sides.of(device).map(<[String]>::to_vec)
+    }
+
+    /// Whether `device` runs a card on `side` (no side, or no pin: yes).
+    pub fn runs_side(&self, device: &str, side: &str) -> bool {
+        self.lock().sides.runs(device, side)
+    }
+
+    /// The side a new card typed on this device takes ("" for none).
+    pub fn home_side(&self) -> String {
+        let f = self.lock();
+        f.sides.home(&f.dev)
+    }
+
+    /// Every pinned device's sides, by device id.
+    pub fn device_sides(&self) -> std::collections::BTreeMap<String, Vec<String>> {
+        self.lock().sides.all()
+    }
+
+    /// Every side named anywhere: on a device's pin or on a card.
+    pub fn side_names(&self) -> Vec<String> {
+        let f = self.lock();
+        let mut out = f.sides.names();
+        for t in f.tasks.values() {
+            if !t.side.is_empty() && !out.iter().any(|o| crate::sides::same(o, &t.side)) {
+                out.push(t.side.clone());
+            }
+        }
+        out
+    }
+
     // ---- tasks ----
 
     pub fn create_task(&self, by: &str, t: NewTask) -> Result<Task> {
