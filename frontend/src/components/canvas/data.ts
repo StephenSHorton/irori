@@ -196,6 +196,8 @@ export function toGraph(
       ?.blockers.filter(
         (b) =>
           !b.resolved &&
+          // A wait on other work isn't a question (card #481).
+          !b.waitsOn &&
           b.state !== BlockerState.Resolved &&
           b.state !== BlockerState.Closed
       )

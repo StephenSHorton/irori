@@ -31,7 +31,6 @@ import {
   takeEvents,
   titleToSet,
   heldReminder,
-  faceReminder,
   applyPause,
   pausedFromBoard,
   pausedRefusal,
@@ -672,30 +671,6 @@ async function withHeld<R extends { additionalContext?: string[] }>($: EngineInt
   }
 }
 
-/** Whether this session was checked for a face of its own (card #407). */
-let faceChecked = false
-
-/**
- * Adds the make-a-face nudge to a UserPromptSubmit result once a session,
- * when the agent has no face of its own (card #407). Any failure returns
- * the result unchanged and tries again next prompt.
- */
-async function withFace<R extends { additionalContext?: string[] }>($: EngineInterface, result: R): Promise<R> {
-  if (faceChecked) return result
-  try {
-    const view = await read($, attachAtom)
-    if (view.status !== 'attached' || !view.agentKey) return result
-    const answer = await callCore($, 'POST', '/v1/tools/avatar', { args: {} })
-    if (!answer.ok) return result
-    faceChecked = true
-    const text = faceReminder((answer.body as { text?: string } | undefined)?.text)
-    if (!text) return result
-    return { ...result, additionalContext: [...(result?.additionalContext ?? []), text] }
-  } catch {
-    return result
-  }
-}
-
 async function onSessionStart($: EngineInterface, cwd: string) {
   await $.command.register({
     name: 'irori',
@@ -724,7 +699,7 @@ export const register: Register = (on, options) => {
   // it at its first prompt; a resumed one already has its name.
   on('classic.SessionStart', async ($, e, next) => withTitle($, await next(e), e.session_title))
   on('classic.UserPromptSubmit', async ($, e, next) =>
-    withFace($, await withHeld($, await withTitle($, await next(e), e.session_title))),
+    withHeld($, await withTitle($, await next(e), e.session_title)),
   )
 
   on('session.end', async ($, e, next) => {

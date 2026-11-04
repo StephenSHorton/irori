@@ -2362,7 +2362,7 @@ fn the_avatar_tool_checks_a_face_before_keeping_it() {
         "{bad}"
     );
     let none = h.call(&call_a(), "avatar", "{}");
-    assert!(none.contains("no face of your own yet"), "{none}");
+    assert!(none.contains("no face of your own"), "{none}");
 }
 
 /// Card #436: two agents hit the same red test on clean main; the second
@@ -2410,4 +2410,34 @@ fn test_board_block_main_red_joins_one_card() {
         json!({"task_id": x, "reason": "r", "on": "main-red"}),
     );
     has(&out, &["Error: ", "needs the failing test's name"]);
+}
+
+/// Card #485: board_block's on = version names the least app version and
+/// the devices (none: this one); a malformed version or an unknown device
+/// is refused with what to give.
+#[test]
+fn test_board_block_on_a_version() {
+    let h = new_harness();
+    let a = call_a();
+    let x = h.new_card(&a, json!({"title": "Live check of part 2"}));
+    h.okj(&a, "board_join", json!({"task_id": x}));
+    let out = h.callj(
+        &a,
+        "board_block",
+        json!({"task_id": x, "question": "Update to v0.11.0", "on": "version soon"}),
+    );
+    has(&out, &["Error: ", "is not a version"]);
+    let out = h.callj(
+        &a,
+        "board_block",
+        json!({"task_id": x, "question": "Update the PC", "on": "version 0.11.0 the-pc"}),
+    );
+    has(&out, &["Error: ", "no device is called \"the-pc\""]);
+    h.okj(
+        &a,
+        "board_block",
+        json!({"task_id": x, "question": "Update to v0.11.0", "on": "version v0.11.0"}),
+    );
+    let board = h.okj(&a, "board", json!({}));
+    has(&board, &["Update to v0.11.0"]);
 }

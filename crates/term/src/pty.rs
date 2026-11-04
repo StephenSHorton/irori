@@ -83,7 +83,7 @@ impl Terms {
         let cfg = PaneConfig {
             cols: spec.cols.max(2),
             rows: spec.rows.max(1),
-            command: None,
+            command: spec.command.clone().filter(|c| !c.is_empty()),
             cwd: (!cwd.is_empty()).then(|| cwd.clone()),
             // Irori has no input bar, so the shell keeps its own prompt,
             // with suzuri's marks still on (S-9, route a).

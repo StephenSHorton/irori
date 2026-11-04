@@ -16,6 +16,7 @@ import {
   runningJobNow,
   TaskState,
   workLabel,
+  type CardRef,
   type CardSummary,
   type ReviewPr,
 } from "./cards"
@@ -70,6 +71,10 @@ export function rowState(
   if (c.state === TaskState.InReview) return { state: "waiting", line: "In review" }
   if (c.subtaskBlocked) return { state: "waiting", line: "A subtask needs a call" }
   if (c.waitingOn && c.waitYou) return { state: "needs", line: `Waits on ${c.waitYou}` }
+  // Card #481: waits nothing will end.
+  if (c.waitLoop?.length) return { state: "needs", line: loopLine(c.waitLoop) }
+  if (c.waitStuck)
+    return { state: "needs", line: `Waits on ${refOf(c.waitStuck)}, which nobody is on` }
   if (c.waitingOn)
     return {
       state: "waiting",
@@ -114,11 +119,57 @@ export function waitsOnTrust(c: CardSummary): boolean {
   return !over(c) && !!c.cantStart?.startsWith(NOT_TRUSTED)
 }
 
+// The questions Irori's own sweep raises on a spawned agent's card (card
+// #456, sa-7). They must match the Rust constants word for word:
+// WAITING_PERMISSION in crates/core/src/service/spawn_waiting.rs (the
+// blocker reads "Waiting for your permission: <name> is stopped on a
+// prompt") and CRASHED_QUESTION in crates/coord/src/board/spawn.rs.
+export const WAITING_PERMISSION = "Waiting for your permission"
+export const CRASHED_QUESTION = "Its agent crashed twice in a row: start another?"
+
+// spawnNeed says a card's decision is one of those: its agent stopped on
+// a permission prompt nobody is there to answer, or two agents in a row
+// went away before finishing, so Irori stopped starting them.
+export function spawnNeed(c: CardSummary): "permission" | "crashed" | null {
+  const q = c.blockerQuestion ?? ""
+  if (q.startsWith(WAITING_PERMISSION)) return "permission"
+  if (q === CRASHED_QUESTION) return "crashed"
+  return null
+}
+
+// refOf names another card as the person reads it: "#392".
+export function refOf(r: CardRef): string {
+  return r.short ? `#${plainLine(r.short)}` : plainLine(r.title) || "a card"
+}
+
+// andList joins names as a sentence does: "a", "a and b", "a, b and c".
+export function andList(xs: string[]): string {
+  if (xs.length < 2) return xs.join("")
+  return `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`
+}
+
+// loopLine is a wait loop's line (card #481): "#392, #396 and #394 wait
+// on each other".
+export function loopLine(ring: CardRef[]): string {
+  return `${andList(ring.map(refOf))} wait on each other`
+}
+
+// stuckLine is a chain's that ends at a card nobody is on (card #481):
+// "#12 waits on #34, which nobody is on".
+export function stuckLine(end: CardRef, cards: CardSummary[]): string {
+  const who = andList(cards.map((c) => (c.short ? `#${plainLine(c.short)}` : plainLine(c.title))))
+  return `${who} ${cards.length === 1 ? "waits" : "wait"} on ${refOf(end)}, which nobody is on`
+}
+
 export type Need =
   | { kind: "check" | "decision"; id: string; at: number; card: CardSummary }
   | { kind: "trust"; id: string; at: number; card: CardSummary }
   | { kind: "review"; id: string; at: number; pr: ReviewPr; cards: CardSummary[] }
   | { kind: "held"; id: string; at: number; delivery: Delivery }
+  // Card #481: cards that wait on each other, once for the whole loop,
+  // and cards whose waits end at a card nobody is on, once per card.
+  | { kind: "loop"; id: string; at: number; ring: CardRef[]; cards: CardSummary[] }
+  | { kind: "stuck"; id: string; at: number; end: CardRef; cards: CardSummary[] }
 
 // toPerson says the delivery is an agent's message to the person, still
 // unanswered: sent to a user key (the person's, on any of their devices)
@@ -175,6 +226,28 @@ export function needsOf(cards: CardSummary[], held: Delivery[]): Need[] {
     })
   }
   out.push(...reviews.values())
+  const loops = new Map<string, Extract<Need, { kind: "loop" | "stuck" }>>()
+  for (const c of cards) {
+    if (over(c)) continue
+    const ring = c.waitLoop ?? []
+    const end = c.waitStuck
+    if (!ring.length && !end) continue
+    const id = ring.length ? ring.map((r) => r.id).join(",") : end!.id
+    const at = time(c.updatedAt)
+    const n = loops.get(id)
+    if (n) {
+      n.cards.push(c)
+      n.at = Math.max(n.at, at)
+      continue
+    }
+    loops.set(
+      id,
+      ring.length
+        ? { kind: "loop", id, at, ring, cards: [c] }
+        : { kind: "stuck", id, at, end: end!, cards: [c] }
+    )
+  }
+  out.push(...loops.values())
   const seen = new Set<string>()
   for (const d of held) {
     if (seen.has(d.id)) continue

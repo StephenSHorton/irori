@@ -14,13 +14,24 @@ import { cardRef } from "@/components/cards/bits"
 import {
   BlockerState,
   cards as cardsApi,
+  displayName,
   useCard,
   type CardBlocker,
   type CardSummary,
 } from "@/lib/cards"
 import { inWails, plainLine, relativeTime } from "@/lib/irori"
 import { AgentsService } from "@/lib/host"
-import { NOT_TRUSTED, type Need } from "@/lib/needs"
+import {
+  loopLine,
+  NOT_TRUSTED,
+  refOf,
+  spawnNeed,
+  stuckLine,
+  WAITING_PERMISSION,
+  type Need,
+} from "@/lib/needs"
+import { SpawnedActions } from "@/components/cards/spawned-actions"
+import { openSettings } from "@/components/settings/settings-menu"
 import { answerable } from "@/lib/thread"
 import {
   allowLifts,
@@ -64,6 +75,8 @@ export function NeedsYou({
                 <TrustRow need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "review" ? (
                 <ReviewNeed need={n} now={now} onOpen={onOpenCard} />
+              ) : n.kind === "loop" || n.kind === "stuck" ? (
+                <StuckNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "held" ? (
                 <HeldNeed d={n.delivery} now={now} name={name} />
               ) : null}
@@ -80,8 +93,15 @@ const kinds = {
   decision: { label: "Decision", variant: "destructive" },
   review: { label: "Review", variant: "warning" },
   trust: { label: "Trust", variant: "warning" },
+  // Card #456 (sa-7): a spawned agent stopped on a permission prompt, and
+  // a card whose agents crashed twice.
+  permission: { label: "Permission", variant: "warning" },
+  crashed: { label: "Crashed", variant: "destructive" },
   message: { label: "Message", variant: "info" },
   held: { label: "Held", variant: "warning" },
+  // Card #481: waits nothing will end.
+  loop: { label: "Stuck", variant: "warning" },
+  stuck: { label: "Stuck", variant: "warning" },
 } as const
 
 // Row is one item's frame: its kind, where it's from, when, its title.
@@ -93,7 +113,7 @@ function Row({
   title,
   children,
 }: {
-  kind: Need["kind"]
+  kind: keyof typeof kinds
   where: ReactNode
   at: number
   now: Date
@@ -212,10 +232,12 @@ export function OwnWords({
 
 // waitsOnYou: the blockers of a card the person answers now (the rule
 // cardSummary counts as open_blockers: open, or replied back to them, and
-// not another member's question on a shared board, card #264).
+// not another member's question on a shared board, card #264, nor a wait
+// on other work, card #481).
 function waitsOnYou(b: CardBlocker): boolean {
   return (
     !b.decider &&
+    !b.waitsOn &&
     answerable(b.state || BlockerState.Open) &&
     b.state !== BlockerState.Answered
   )
@@ -256,6 +278,52 @@ function ReviewNeed({
         <Button size="sm" onClick={() => void cardsApi.openURL(pr.url)} title={pr.url}>
           Open PR #{pr.number}
         </Button>
+      </span>
+    </Row>
+  )
+}
+
+// StuckNeed is waits nothing will end (card #481): cards that wait on
+// each other, once for the loop ("#392, #396 and #394 wait on each
+// other"), or cards waiting on one nobody is on. It says what's stuck
+// and opens the cards; dropping a wait or finishing a card is on its
+// page.
+function StuckNeed({
+  need,
+  now,
+  onOpen,
+}: {
+  need: Extract<Need, { kind: "loop" | "stuck" }>
+  now: Date
+  onOpen: (id: string) => void
+}) {
+  const loop = need.kind === "loop"
+  const open = loop ? need.ring : [need.end]
+  return (
+    <Row
+      kind={need.kind}
+      where={<Where card={need.cards[0]} />}
+      at={need.at}
+      now={now}
+      title={loop ? loopLine(need.ring) : stuckLine(need.end, need.cards)}
+    >
+      <p className="text-sm break-words text-muted-foreground">
+        {loop
+          ? "None of them can start until one stops waiting. Drop a wait on one of them, or finish one."
+          : `Nobody holds ${refOf(need.end)} and Irori won't hand it out, so the waits on it never end.`}
+      </p>
+      <span className="flex flex-wrap gap-1.5">
+        {open.map((r) => (
+          <Button
+            key={r.id}
+            size="sm"
+            variant="outline"
+            title={plainLine(r.title)}
+            onClick={() => onOpen(r.id)}
+          >
+            Open {refOf(r)}
+          </Button>
+        ))}
       </span>
     </Row>
   )
@@ -362,11 +430,20 @@ function CardNeed({
 }) {
   const c = need.card
   const { detail } = useCard(c.id)
-  const blockers = detail ? detail.blockers.filter(waitsOnYou) : []
+  const spawn = need.kind === "decision" ? spawnNeed(c) : null
+  // The permission wait is answered at the agent's prompt, not here.
+  const blockers = detail
+    ? detail.blockers.filter(
+        (b) => waitsOnYou(b) && !(spawn === "permission" && b.question.startsWith(WAITING_PERMISSION)),
+      )
+    : []
   const where = <Where card={c} />
   return (
-    <Row kind={need.kind} where={where} at={need.at} now={now} title={plainLine(c.title)}>
-      {blockers.length === 0 ? (
+    <Row kind={spawn ?? need.kind} where={where} at={need.at} now={now} title={plainLine(c.title)}>
+      {spawn === "permission" ? (
+        <PermissionWait card={c} onOpen={onOpen} />
+      ) : null}
+      {spawn === "permission" && blockers.length === 0 ? null : blockers.length === 0 ? (
         <>
           {c.blockerQuestion && (
             <p className="text-sm break-words">{plainLine(c.blockerQuestion)}</p>
@@ -398,6 +475,45 @@ function CardNeed({
         </Button>
       )}
     </Row>
+  )
+}
+
+// PermissionWait is "Waiting for your permission" (card #456, sa-7): the
+// agent Irori started for the card stopped on a permission prompt and
+// nobody is attached. Attach answers it at the prompt; Logs shows what it
+// was doing; the board's allow list (Settings › Agents) lets the next one
+// run the command without asking.
+function PermissionWait({
+  card: c,
+  onOpen,
+}: {
+  card: CardSummary
+  onOpen: (id: string) => void
+}) {
+  const who = c.working.find((w) => w.spawned && !w.assigned)
+  return (
+    <div className="grid min-w-0 gap-1.5">
+      <p className="text-sm break-words">
+        {who ? displayName(who) : "Its agent"} is stopped on a permission
+        prompt nobody is there to answer.
+      </p>
+      <div className="flex min-w-0 flex-wrap items-start gap-1.5">
+        {who && (
+          <SpawnedActions
+            who={who}
+            cardId={c.id}
+            onOpenCard={onOpen}
+            only={["attach", "logs"]}
+          />
+        )}
+        <Button size="xs" variant="outline" onClick={() => openSettings("agents")}>
+          Add to allow-list…
+        </Button>
+        <Button size="xs" variant="ghost" onClick={() => onOpen(c.id)}>
+          Open card
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -453,7 +569,9 @@ export function BlockerAnswer({
           label={`${b.doneCheck ? "Why it isn't done" : "Your answer to"}: ${question}`}
           placeholder={
             b.doneCheck
-              ? "Say why it isn't done; it goes back to the agent"
+              ? b.goneAgent
+                ? "Say why it isn't done; the next agent on it gets it"
+                : "Say why it isn't done; it goes back to the agent"
               : "Answer in your own words"
           }
           send={b.doneCheck ? "Not done" : "Answer"}

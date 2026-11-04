@@ -161,6 +161,11 @@ fn view(s: irori_core::ScopedNote, person: impl Fn(&str) -> bool) -> NoteView {
     }
 }
 
+/// A note in New from agents: the frontend's needsLook (lib/notes.ts).
+fn needs_look(n: &coord::Note) -> bool {
+    n.state == coord::NOTE_PROPOSED || (n.state == coord::NOTE_ACCEPTED && n.pending.is_some())
+}
+
 impl Window {
     /// Still true? for one note (v1, docs/design/notes.md §11).
     fn stale(&self, s: &irori_core::ScopedNote) -> String {
@@ -221,6 +226,16 @@ impl Window {
             .notes(crate::trim(scope), removed)
             .map_err(|e| e.to_string())?;
         Ok(ns.into_iter().map(|s| self.note_view(s)).collect())
+    }
+
+    /// The sidebar's Notes count (card #468): notes in Mine and every board
+    /// waiting on the person's look, an agent's proposal or an agent's
+    /// pending edit or removal of a live note. It reads the folds only:
+    /// no Still true? checks on disk and no views, which notes_list("")
+    /// did for every note on every board change.
+    pub fn notes_waiting(&self) -> Result<usize, String> {
+        let ns = self.core.notes("", false).map_err(|e| e.to_string())?;
+        Ok(ns.iter().filter(|s| needs_look(&s.note)).count())
     }
 
     /// New note, and Keep as note: written by the person, so live at once.

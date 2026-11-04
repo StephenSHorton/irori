@@ -1,7 +1,21 @@
 import { describe, expect, test } from "bun:test"
 
 import { TaskState, withLive, workingNow, type AgentRef, type CardSummary } from "./cards"
-import { IDLE_LINE, needsOf, needsYou, rowState, toPerson, waitsOnTrust } from "./needs"
+import { readFileSync } from "node:fs"
+
+import {
+  CRASHED_QUESTION,
+  IDLE_LINE,
+  loopLine,
+  needsOf,
+  needsYou,
+  rowState,
+  spawnNeed,
+  stuckLine,
+  toPerson,
+  WAITING_PERMISSION,
+  waitsOnTrust,
+} from "./needs"
 import { State, type Delivery } from "./talk"
 
 const card = (c: Partial<CardSummary>): CardSummary =>
@@ -230,6 +244,53 @@ describe("what waits on the person (card #347)", () => {
   })
 })
 
+describe("waits nothing will end (card #481)", () => {
+  const ring = [
+    { id: "t392", short: "392", title: "Talk 4" },
+    { id: "t396", short: "396", title: "Talk 8" },
+    { id: "t394", short: "394", title: "Talk 6" },
+  ]
+  test("three cards that wait on each other are one Needs you item", () => {
+    const cs = ring.map((r, i) =>
+      card({
+        id: r.id,
+        short: r.short,
+        state: TaskState.Blocked,
+        waitingOn: 1,
+        waitOn: `#${ring[(i + 1) % 3].short}`,
+        waitLoop: ring,
+        updatedAt: `2026-11-03T1${i}:00:00Z`,
+      })
+    )
+    const got = needsOf(cs, [])
+    expect(got.map((n) => `${n.kind}:${n.id}`)).toEqual(["loop:t392,t396,t394"])
+    const n = got[0]
+    expect(n.kind === "loop" && n.cards.map((c) => c.id)).toEqual(["t392", "t396", "t394"])
+    expect(n.at).toBe(Date.parse("2026-11-03T12:00:00Z"))
+    expect(loopLine(ring)).toBe("#392, #396 and #394 wait on each other")
+    expect(rowState(cs[0])).toEqual({ state: "needs", line: "#392, #396 and #394 wait on each other" })
+  })
+  test("a wait on a card is no decision", () => {
+    const c = card({ id: "t394", state: TaskState.Blocked, openBlockers: 0, waitingOn: 1, waitOn: "#392" })
+    expect(needsOf([c], [])).toEqual([])
+  })
+  test("cards waiting on one nobody is on are one item", () => {
+    const end = { id: "t34", short: "34", title: "Vendor" }
+    const cs = ["12", "13"].map((s) =>
+      card({ id: `t${s}`, short: s, state: TaskState.Blocked, waitingOn: 1, waitOn: "#34", waitStuck: end })
+    )
+    const got = needsOf(cs, [])
+    expect(got.map((n) => `${n.kind}:${n.id}`)).toEqual(["stuck:t34"])
+    const n = got[0]
+    expect(n.kind === "stuck" && stuckLine(n.end, n.cards)).toBe("#12 and #13 wait on #34, which nobody is on")
+    expect(rowState(cs[0]).line).toBe("Waits on #34, which nobody is on")
+  })
+  test("a done card leaves the loop item", () => {
+    const c = card({ id: "t392", state: TaskState.Completed, waitLoop: ring })
+    expect(needsOf([c], [])).toEqual([])
+  })
+})
+
 describe("trust (card #449)", () => {
   test("a card whose agent can't start for trust is a Trust row", () => {
     const t = card({ id: "t", cantStart: "not trusted: /r/api on dev1", state: TaskState.Submitted })
@@ -245,5 +306,26 @@ describe("trust (card #449)", () => {
   test("a closed card has no trust row", () => {
     const t = card({ id: "t", cantStart: "not trusted: /r on d", state: TaskState.Completed })
     expect(needsOf([t], [])).toEqual([])
+  })
+})
+
+describe("spawned agents' own decisions (card #456, sa-7)", () => {
+  // The words come from the Rust sweep; read them there so a change on
+  // either side fails here.
+  const rust = (f: string) =>
+    readFileSync(new URL(`../../../crates/${f}`, import.meta.url), "utf8")
+  test("the constants match the Rust ones", () => {
+    expect(rust("core/src/service/spawn_waiting.rs")).toContain(
+      `pub const WAITING_PERMISSION: &str = "${WAITING_PERMISSION}";`,
+    )
+    expect(rust("coord/src/board/spawn.rs")).toContain(
+      `pub const CRASHED_QUESTION: &str = "${CRASHED_QUESTION}";`,
+    )
+  })
+  test("a permission wait, a crash, anything else", () => {
+    const q = (blockerQuestion: string) => card({ openBlockers: 1, blockerQuestion })
+    expect(spawnNeed(q("Waiting for your permission: thyme is stopped on a prompt"))).toBe("permission")
+    expect(spawnNeed(q(CRASHED_QUESTION))).toBe("crashed")
+    expect(spawnNeed(q("Ship today?"))).toBeNull()
   })
 })
