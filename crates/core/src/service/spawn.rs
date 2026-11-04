@@ -611,16 +611,6 @@ fn session_of(key: &str) -> &str {
     key.rsplit_once('/').map_or(key, |(_, s)| s)
 }
 
-/// A request's session name: unique per card and gen.
-fn spawn_name(t: &Task, generation: i64) -> String {
-    let n: String = t
-        .short_ref()
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .collect();
-    format!("card-{n}-{generation}")
-}
-
 impl Services {
     /// The window's spawner; `None` spawns nothing.
     pub(crate) fn set_spawner(&self, s: Option<Spawner>) {
@@ -836,7 +826,7 @@ impl Services {
     fn spawn_for(&self, sp: &Spawner, t: &Task) -> Result<bool, String> {
         let me = self.device.id.clone();
         let generation = t.spawn_request().map_or(0, |s| s.generation) + 1;
-        let name = spawn_name(t, generation);
+        let name = self.spawn_name(t, generation);
         let folder = self.spawn_folder(t);
         let comments = self.coord.comments(&t.id).unwrap_or_default();
         let named = |k: &str| {
@@ -924,6 +914,26 @@ impl Services {
             }
             Err(e) => refuse(SpawnRefusal::Failed(e)),
         }
+    }
+
+    /// A word name for card t's next agent (card #472), like a terminal
+    /// session's: from the names list, seeded afresh each start so the
+    /// card's next agent gets another word, and taken by no live agent of
+    /// any member (this person's devices and other people's agents on
+    /// shared boards) nor by another card's agent still starting. The card
+    /// shows on the agent's card link and doing line, not in its name;
+    /// nothing reads the card from the name (the spawn record binds it).
+    fn spawn_name(&self, t: &Task, generation: i64) -> String {
+        let starting: std::collections::HashSet<String> = self
+            .open_cards()
+            .iter()
+            .filter(|o| o.id != t.id)
+            .flat_map(|o| o.spawns.iter().filter(|s| s.pending()))
+            .map(|s| coord::names::fold(&s.name))
+            .collect();
+        let now = (self.now)();
+        let seed = format!("{}/{generation}/{}.{}", t.id, now.secs, now.nanos);
+        self.names.pick_new(&seed, &|w: &str| starting.contains(w))
     }
 
     /// The person's newest answer on one of card t's items since its last
@@ -1110,7 +1120,15 @@ impl Services {
             let Some(s) = t.spawn_request().filter(|s| s.pending() && s.device == me) else {
                 continue;
             };
-            let Some(a) = live.iter().find(|a| !s.name.is_empty() && a.name == s.name) else {
+            // By the spawn record's name: a word (card #472) no other live
+            // agent had when it was picked. A session already bound to a
+            // card is never bound to another.
+            let Some(a) = live.iter().find(|a| {
+                !s.name.is_empty()
+                    && a.name == s.name
+                    && a.status != "gone"
+                    && !self.coord.is_spawned(&a.key)
+            }) else {
                 continue;
             };
             if let Err(e) = self.coord.bind_spawn(&t.id, s.generation, &a.key) {

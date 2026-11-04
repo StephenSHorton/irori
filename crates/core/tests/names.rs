@@ -80,6 +80,36 @@ fn test_namer_skips_names_live_agents_have() {
     assert!(!n.assign("s9").is_empty());
 }
 
+/// Card #472: another person's live agent on a shared board holds its word
+/// against a new terminal session's name and a spawn's pick, but never
+/// moves a name this person's agents already have.
+#[test]
+fn test_namer_skips_names_of_other_peoples_agents() {
+    let first = pick("s1", None);
+    let mine: Cards = Arc::default();
+    let (_d, n) = test_namer("pc", &mine);
+    let theirs: Cards = Arc::new(Mutex::new(vec![AgentCard {
+        key: "agent:friend-card".into(),
+        name: first.clone(),
+        status: "idle".into(),
+        ..AgentCard::default()
+    }]));
+    let th = theirs.clone();
+    n.set_others(move || th.lock().unwrap().clone());
+    assert_ne!(
+        fold(&n.assign("s1")),
+        fold(&first),
+        "a friend's agent has it"
+    );
+    assert_ne!(fold(&n.pick_new("s1", &|_| false)), fold(&first));
+    // The spawn's own refusals count too.
+    let second = n.pick_new("s1", &|_| false);
+    assert_ne!(n.pick_new("s1", &|w| w == second), second);
+    // Gone, it is free again.
+    theirs.lock().unwrap()[0].status = "gone".into();
+    assert_eq!(n.pick_new("s1", &|_| false), first);
+}
+
 #[test]
 fn test_namer_skips_names_other_local_sessions_hold() {
     let cards: Cards = Arc::default();
