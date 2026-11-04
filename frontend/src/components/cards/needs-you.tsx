@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { byRecommendation } from "@/components/cards/card-detail"
-import { cardRef } from "@/components/cards/bits"
+import { Asker, cardRef } from "@/components/cards/bits"
 import {
   BlockerState,
   cards as cardsApi,
@@ -553,7 +553,12 @@ export function BlockerAnswer({
   const replied = b.state === BlockerState.Replied
   return (
     <div className="grid min-w-0 gap-1.5">
-      {!b.doneCheck && <p className="text-sm break-words">{question}</p>}
+      {!b.doneCheck && (
+        <div className="grid gap-0.5">
+          <Asker who={b.raisedBy} />
+          <p className="text-sm break-words">{question}</p>
+        </div>
+      )}
       {b.context && (
         <p className="line-clamp-3 text-[13px] break-words text-muted-foreground">
           {plainLine(b.context)}
