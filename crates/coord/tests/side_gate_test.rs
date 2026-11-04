@@ -320,3 +320,118 @@ fn the_board_view_tells_an_agent_its_devices_side() {
     let v = e.c.board(&BoardFilter::default());
     assert_eq!(v.side_line, "");
 }
+
+#[test]
+fn an_agent_cant_adopt_another_sides_card_to_move_it_onto_its_own() {
+    let (e, w) = env_with_work_card(false);
+    let p =
+        e.c.create_task(
+            USER,
+            NewTask {
+                title: "Personal parent".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(p.side, "Personal");
+    refused(e.c.split(ALICE, &p.id, Vec::new(), vec![w.id.clone()]));
+    assert_eq!(e.c.get_task(&w.id).unwrap().side, "Work");
+    // The person may.
+    e.c.split(USER, &p.id, Vec::new(), vec![w.id.clone()])
+        .unwrap();
+}
+
+/// A Work ask typed on this device while it ran Work; then it moves to
+/// Personal only.
+fn work_ask(e: &Env) -> Task {
+    e.c.set_device_sides(&sides(&["Work"])).unwrap();
+    let (a, _) =
+        e.c.post_ask(
+            USER,
+            NewAsk {
+                text: "Sort the Work inbox".into(),
+                ..NewAsk::default()
+            },
+            &[],
+        )
+        .unwrap();
+    assert_eq!(a.side, "Work");
+    e.c.set_device_sides(&sides(&["Personal"])).unwrap();
+    a
+}
+
+#[test]
+fn an_agents_own_ask_claim_across_sides_is_refused() {
+    let e = Env::new();
+    let a = work_ask(&e);
+    refused(e.c.ask_claim(ALICE, &a.id, secs(1)));
+    let a = e.c.get_task(&a.id).unwrap();
+    assert!(a.open_ask().unwrap().taker.is_empty());
+}
+
+#[test]
+fn an_ask_closed_as_a_card_cant_be_put_under_another_sides_parent() {
+    let e = Env::new();
+    e.c.set_device_sides(&sides(&["Personal"])).unwrap();
+    let (a, _) =
+        e.c.post_ask(
+            USER,
+            NewAsk {
+                text: "Personal ask".into(),
+                ..NewAsk::default()
+            },
+            &[],
+        )
+        .unwrap();
+    e.c.ask_claim(ALICE, &a.id, secs(1)).unwrap();
+    let w =
+        e.c.create_task(
+            USER,
+            NewTask {
+                title: "Work parent".into(),
+                side: "Work".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    refused(e.c.ask_close(
+        ALICE,
+        &a.id,
+        AskOutcome {
+            kind: "card".into(),
+            title: "Under Work".into(),
+            parent: w.id.clone(),
+            note: "it's a card".into(),
+            ..AskOutcome::default()
+        },
+    ));
+}
+
+fn step(owner: &str) -> Vec<Step> {
+    vec![Step {
+        id: "s1".into(),
+        text: "Draft".into(),
+        owner: owner.into(),
+        ..Step::default()
+    }]
+}
+
+#[test]
+fn an_agent_cant_give_a_step_on_another_sides_card_to_itself_or_another() {
+    let (e, t) = env_with_work_card(false);
+    e.c.set_steps(USER, &t.id, step("")).unwrap();
+    refused(e.c.set_step_owner(ALICE, &t.id, "s1", ALICE));
+    refused(e.c.set_steps(ALICE, &t.id, step(BOB)));
+    // To an agent on a device that runs Work, fine; and the person may
+    // give it to anyone.
+    e.c.set_step_owner(ALICE, &t.id, "s1", WORKER).unwrap();
+    e.c.set_step_owner(USER, &t.id, "s1", ALICE).unwrap();
+}
+
+#[test]
+fn handing_a_card_to_the_person_is_not_a_crossing() {
+    let (e, t) = env_with_work_card(false);
+    if let Err(err) = e.c.assign_task(ALICE, &t.id, USER) {
+        assert!(!err.to_string().contains(ASK_THE_PERSON), "{err}");
+    }
+}

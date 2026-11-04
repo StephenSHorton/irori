@@ -379,6 +379,11 @@ impl Fold {
         for a in &adopt {
             let k = self.task_ref_locked(a)?;
             self.check_parent(id, &k)?;
+            // Adopting moves a card to its parent's side: an agent does it
+            // only to a card it may take (card #496).
+            if let Some(kt) = self.tasks.get(&k).cloned() {
+                self.check_side_take(&by, &kt)?;
+            }
             if !adopt_ids.contains(&k) {
                 adopt_ids.push(k);
             }

@@ -63,11 +63,13 @@ impl Fold {
         ))
     }
 
-    /// Refuses agent `by` assigning card t to `to` when `to`'s device
-    /// doesn't run t's side, unless the person asked `by` to (an agent
-    /// asked can hand it on: the person's word is on the card).
+    /// Refuses agent `by` assigning card t to `to` (or giving `to` one of
+    /// its steps) when `to`'s device doesn't run t's side. An agent the
+    /// person asked may take it itself, but not hand it to another agent
+    /// across the line: that agent waits for the person too. Handing it to
+    /// the person is always fine.
     pub(crate) fn check_side_assign(&self, by: &str, t: &Task, to: &str) -> Result<()> {
-        if self.free_of_sides(by) {
+        if self.free_of_sides(by) || self.free_of_sides(to) {
             return Ok(());
         }
         let dev = owner::device_of(to);
