@@ -1190,7 +1190,7 @@ function View8() {
         <Side title="Which device spawns" w={320}>
           <p>The device that has the card&apos;s repo, preferring the always-on PC when both have it.</p>
           <p>A card that names the Mac, or a repo only the Mac has, spawns on the Mac wherever the card was made.</p>
-          <p>Each device has a cap you pick (6 and 12 here; about 0.5 GB an agent). Over the cap a card queues for that device and says its place; a card moves to another device only when this one can&apos;t run it at all.</p>
+          <p>Each device has a cap you pick (6 and 12 here; about 0.5 GB an agent). Over the cap a card queues for that device and says its place; a card moves to another device when this one can&apos;t run it, or is full and the other has the repo trusted and a free slot.</p>
           <Note>If the device is offline, the request waits on the card and moves to the next device that has the repo.</Note>
         </Side>
       </div>
