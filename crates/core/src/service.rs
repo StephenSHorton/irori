@@ -1744,6 +1744,10 @@ impl Core {
                         // written; the window still hears it here.
                         s.device_names.apply(&ev);
                         s.hub.publish(CoreEvent::Devices);
+                    } else if ev.kind == coord::sides::KIND {
+                        // The coord folds the sides a device runs (card
+                        // #494); Settings → Devices shows them.
+                        s.hub.publish(CoreEvent::Devices);
                     }
                 }
             });
@@ -2767,6 +2771,31 @@ impl Core {
         // folding it again is a no-op.
         self.s.device_names.apply(&ev);
         Ok(name)
+    }
+
+    /// The work/personal sides each pinned device runs (card #494), by
+    /// device id; a device not in it runs every side.
+    pub fn device_sides(&self) -> std::collections::BTreeMap<String, Vec<String>> {
+        self.s.coord.device_sides()
+    }
+
+    /// Every side named on a device's pin or a card (card #494).
+    pub fn side_names(&self) -> Vec<String> {
+        self.s.coord.side_names()
+    }
+
+    /// Pins the sides this device runs, the first the one its new cards
+    /// take; empty runs every side (card #494). Only this device: a pin
+    /// one device writes for another counts nowhere. Only the window
+    /// calls it.
+    pub fn set_device_sides(&self, sides: &[String]) -> Result<Vec<String>, String> {
+        let sides = self
+            .s
+            .coord
+            .set_device_sides(sides)
+            .map_err(|e| e.to_string())?;
+        self.s.hub.publish(CoreEvent::Devices);
+        Ok(sides)
     }
 
     /// Marks this device for Reset at its next start.

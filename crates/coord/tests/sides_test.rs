@@ -82,7 +82,10 @@ fn a_pinned_device_runs_only_its_sides_and_unsided_cards() {
     assert!(e.c.runs_side("dev-a", "Work"));
     assert!(e.c.runs_side("dev-a", "work"), "case doesn't count");
     assert!(!e.c.runs_side("dev-a", "Personal"));
-    assert!(e.c.runs_side("dev-a", ""), "a card with no side runs anywhere");
+    assert!(
+        e.c.runs_side("dev-a", ""),
+        "a card with no side runs anywhere"
+    );
 }
 
 #[test]
@@ -157,7 +160,14 @@ fn another_devices_side_row_is_ignored() {
     let e = Env::new();
     let base = hlc_at(fixed_now());
     // dev-b signs a row pinning dev-a: it doesn't count, live or replayed.
-    e.remote("dev-b", 1, base + 1, "user", KIND, &pin_row("dev-a", &["Work"]));
+    e.remote(
+        "dev-b",
+        1,
+        base + 1,
+        "user",
+        KIND,
+        &pin_row("dev-a", &["Work"]),
+    );
     assert_eq!(e.c.sides_of("dev-a"), None);
     assert_eq!(e.c.create_task(ALICE, nt("x")).unwrap().side, "");
     assert_eq!(e.reopen().sides_of("dev-a"), None);
@@ -196,7 +206,14 @@ fn only_the_person_pins_sides() {
 fn a_devices_newest_pin_wins() {
     let e = Env::new();
     let base = hlc_at(fixed_now());
-    e.remote("dev-b", 1, base + 1, "user", KIND, &pin_row("dev-b", &["Work"]));
+    e.remote(
+        "dev-b",
+        1,
+        base + 1,
+        "user",
+        KIND,
+        &pin_row("dev-b", &["Work"]),
+    );
     e.remote(
         "dev-b",
         2,

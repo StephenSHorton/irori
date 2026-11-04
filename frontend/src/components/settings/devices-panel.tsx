@@ -8,6 +8,11 @@ import { Switch } from "@/components/ui/switch"
 import {
   DeviceColors,
   MaxDeviceName,
+  MaxSide,
+  MaxSides,
+  cleanSide,
+  cleanSides,
+  sameSide,
   devices as actions,
   isOpen,
   PairState,
@@ -49,6 +54,11 @@ export function DevicesPanel({ open }: { open: boolean }) {
         ))}
       </ul>
       {error && <p className="text-xs text-destructive">{error}</p>}
+      <Sides
+        open={open}
+        here={devices.find((d) => d.this)}
+        onSaved={reload}
+      />
       <PersonColor open={open} />
       <HomeServer open={open} />
       <div className="border-t border-border pt-3">
@@ -120,6 +130,7 @@ function DeviceRow({
           <small className="text-xs text-muted-foreground">
             {d.role === "node" ? "node · " : ""}
             {state}
+            {d.sides?.length ? ` · runs ${d.sides.join(", ")}` : ""}
           </small>
         </span>
       )}
@@ -937,6 +948,139 @@ function RenameField({
       </small>
     </form>
   )
+}
+
+// Sides is work and personal separation (card #494): the sides this device
+// runs, picked here and only here (a device can't pin another), the first
+// the one cards typed on it go on. With none picked it runs every side.
+// Every device still shows every card: a side says which devices run it.
+// A side is named by picking it: the list is every side a device runs or
+// a card is on.
+export function Sides({
+  open,
+  here,
+  onSaved,
+}: {
+  open: boolean
+  here: DeviceView | undefined
+  onSaved: () => Promise<void>
+}) {
+  const [names, setNames] = useState<string[]>([])
+  const [adding, setAdding] = useState("")
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+  const pinned = here?.sides ?? []
+  const key = pinned.join("\n")
+  useEffect(() => {
+    if (!open) return
+    actions
+      .sideNames()
+      .then(setNames)
+      .catch((e: unknown) => setError(errorText(e)))
+  }, [open, key])
+  if (!here) return null
+  const all = cleanSides([...pinned, ...names])
+  const runs = (s: string) => pinned.some((p) => sameSide(p, s))
+  const save = async (next: string[]) => {
+    setBusy(true)
+    try {
+      await actions.setSides(next)
+      setError("")
+      await onSaved()
+      setNames(await actions.sideNames())
+    } catch (e) {
+      setError(errorText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const toggle = (s: string) =>
+    void save(runs(s) ? pinned.filter((p) => !sameSide(p, s)) : [...pinned, s])
+  const add = (e: FormEvent) => {
+    e.preventDefault()
+    const c = cleanSide(adding)
+    if (!c) return
+    setAdding("")
+    if (!runs(c)) void save([...pinned, c])
+  }
+  const full = pinned.length >= MaxSides
+  return (
+    <div className="grid gap-1.5 border-t border-border pt-3">
+      <span className="text-sm">Work and personal sides</span>
+      {all.length > 0 && (
+        <span
+          className="flex flex-wrap items-center gap-1.5"
+          role="group"
+          aria-label="Sides this device runs"
+        >
+          {all.map((s) => (
+            <Button
+              key={s}
+              type="button"
+              size="xs"
+              variant={runs(s) ? "default" : "outline"}
+              aria-pressed={runs(s)}
+              disabled={busy}
+              onClick={() => toggle(s)}
+            >
+              {s}
+            </Button>
+          ))}
+        </span>
+      )}
+      {pinned.length > 1 && (
+        <ChoiceSelect
+          label="New cards typed here go on"
+          showLabel
+          size="sm"
+          labelClassName="text-xs font-normal text-muted-foreground"
+          value={pinned[0]}
+          disabled={busy}
+          onValueChange={(s) =>
+            void save([s, ...pinned.filter((p) => !sameSide(p, s))])
+          }
+          choices={pinned.map((s) => ({ value: s, label: s }))}
+        />
+      )}
+      <form className="flex items-center gap-2" onSubmit={add}>
+        <Input
+          value={adding}
+          maxLength={MaxSide}
+          placeholder={all.length ? "Another side" : "Name a side, like Work"}
+          aria-label="Name a side this device runs"
+          disabled={busy || full}
+          onChange={(e) => setAdding(e.target.value)}
+          className="h-7 max-w-56 text-[13px]"
+        />
+        <Button
+          type="submit"
+          size="xs"
+          variant="ghost"
+          disabled={busy || full || !cleanSide(adding)}
+        >
+          Add
+        </Button>
+      </form>
+      <small className="text-xs text-muted-foreground">
+        {error ? (
+          <span className="text-destructive">{error}</span>
+        ) : (
+          sidesLine(pinned)
+        )}
+      </small>
+    </div>
+  )
+}
+
+// sidesLine says what this device's pin means.
+export function sidesLine(pinned: string[]): string {
+  if (!pinned.length)
+    return "This device runs every side. Pick the sides it runs to keep work and personal cards apart; every device still shows every card."
+  const list =
+    pinned.length === 1
+      ? pinned[0]
+      : `${pinned.slice(0, -1).join(", ")} and ${pinned[pinned.length - 1]}`
+  return `This device runs ${list}, and cards with no side. New cards typed here go on ${pinned[0]}. Every device still shows every card.`
 }
 
 // PersonColor is the person's colour on shared boards (card #385): friends

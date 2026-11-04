@@ -218,6 +218,10 @@ export const commands = {
 	devicesPersonAvatar: () => __TAURI_INVOKE<string>("devices_person_avatar"),
 	devicesSetPersonAvatar: (avatar: string) => __TAURI_INVOKE<null>("devices_set_person_avatar", { avatar }),
 	devicesRenameDevice: (deviceId: string, name: string) => __TAURI_INVOKE<string>("devices_rename_device", { deviceId, name }),
+	/**  Every work/personal side named on a device or a card (card #494). */
+	devicesSideNames: () => __TAURI_INVOKE<string[]>("devices_side_names"),
+	/**  Pins the sides this device runs, the first its new cards' (card #494). */
+	devicesSetDeviceSides: (sides: string[]) => __TAURI_INVOKE<string[]>("devices_set_device_sides", { sides }),
 	devicesAddDevice: (role: string) => __TAURI_INVOKE<PairStatus>("devices_add_device", { role }),
 	devicesJoinWithCode: (code: string, server: string) => __TAURI_INVOKE<PairStatus>("devices_join_with_code", { code, server }),
 	devicesConfirmWords: (words: string) => __TAURI_INVOKE<null>("devices_confirm_words", { words }),
@@ -950,6 +954,8 @@ export type CardSummary = {
 	scope: string,
 	scopeLabel: string,
 	board?: string,
+	/**  The work/personal side it's on (card #494); empty for any side. */
+	side?: string,
 	tag?: string,
 	progress: CardProgress,
 	openBlockers: number,
@@ -1343,6 +1349,11 @@ export type DeviceView = {
 	/**  Zero (omitted): never heard from, or this device. */
 	lastSeen?: string,
 	color?: string,
+	/**
+	 *  The work/personal sides it runs, the first its new cards' (card
+	 *  #494). Empty (omitted): every side.
+	 */
+	sides?: string[],
 };
 
 /**  One page of the Done tab. */
@@ -2044,6 +2055,8 @@ export type Task = {
 	short?: string,
 	shortWas?: string,
 	tag?: string,
+	/**  The work/personal side (card #494). */
+	side?: string,
 	withdrawn?: boolean,
 	title: string,
 	objective: string,
