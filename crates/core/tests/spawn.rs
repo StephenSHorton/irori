@@ -574,10 +574,11 @@ fn a_card_with_no_checkout_fails_once_and_is_not_asked_again() {
 }
 
 /// Card #477 (docs/design/work-personal-separation.md §2): a card whose
-/// repo has no checkout on this device is refused here with the reason on
-/// the card, never started in some other folder, and no other device is
-/// asked. (A work card typed into a personal device's window, with the work
-/// repo not cloned there.)
+/// repo no device has seen is refused here with the reason on the card,
+/// never started in some other folder, and no other device is asked. (A
+/// work card typed into a personal device's window, with the work repo
+/// never cloned on any linked device.) A repo seen only on another linked
+/// device is a different case: it fails as "not trusted" today (§2.3).
 #[test]
 fn a_card_whose_repo_isnt_on_this_device_is_refused_not_spawned() {
     let r = Rig::new();

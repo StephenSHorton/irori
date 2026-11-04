@@ -6,7 +6,7 @@
 
 - **Irori has no idea of "work" or of a Claude subscription.** A spawn runs `claude` from PATH with the app's inherited environment (`crates/window/src/spawn.rs:129-135`, `roster.rs:455-470`), so it uses whatever login that machine has. Nothing ties a card, a board, a space or a device to an account.
 - **On one person's linked devices, the only thing that keeps them apart is where a card was made.** A card is spawned, and handed out, only by the device its `created_by` key names. That is a rule about where the card was typed, not about what it's for. Everything else that gives an agent work (assign, claim, asks, threads, review requests, mentions) crosses devices freely.
-- **Linking as a device copies everything both ways.** The whole private log replicates to every device of the person. Only `policy.set` and `member.joined` stay on one device (`crates/store/src/kinds.rs:94-97`). Every work card's title, objective, comments and repo paths would land on the personal disks, and every personal card on the work computer. No rule about spawning or hand-outs can undo that.
+- **Linking as a device copies everything both ways.** The whole private log replicates to every device of the person. Only `policy.set`, `member.joined`, `board.cardkey`, `board.pin` and `board.forgotten` stay on one device (`crates/store/src/kinds.rs:92-95, 305-309`). Every work card's title, objective, comments and repo paths would land on the personal disks, and every personal card on the work computer. No rule about spawning or hand-outs can undo that.
 - **Joining as another person is the only way that works today.** The work Irori is then a second person. Its private board never leaves it, and its spawns stay on its devices and its login. But a shared space between the two people still leaks in a few places: room asks, quiet threads, reviews, and assign or claim (§3). Cards on a space never get background agents at all.
 
 ## 2. Linking the work computer as another device
@@ -21,7 +21,7 @@ Everything in the private log, on every device: cards, comments, steps, blockers
 |---|---|---|
 | A card is spawned only by the device its `created_by` names (`user:<device>` for the person, `<device>/<session>` for an agent). The request always names that device, and only it acts on the request. | `hands_out`, `crates/coord/src/board/offers.rs:496-501`; `cards_to_spawn`, `crates/coord/src/board/spawn.rs:464-490`; `spawn_for` writes `device: me`, `crates/core/src/service/spawn.rs:859` | **new** `separation_test::a_card_made_on_one_linked_device_never_spawns_on_another` |
 | The hand-out sweep for an unheld card also runs only on that device. | `sweep_offers`, `offers.rs:569-577` | **new** `separation_test::a_card_made_on_one_linked_device_is_never_handed_out_by_another` |
-| A spawn needs this device's checkout of the card's repo. Without one it is refused, with the reason on the card, and no other device is tried. | `spawn_folder` and `NoFolder`, `core/src/service/spawn.rs:874-886, 946-966` | **new** `spawn::a_card_whose_repo_isnt_on_this_device_is_refused_not_spawned` |
+| A spawn needs a known checkout of the card's repo. When no linked device has seen the repo it is refused, with the reason on the card, and no other device is tried. (A repo seen only on another device is not this case; see §2.3.) | `spawn_folder` and `NoFolder`, `core/src/service/spawn.rs:964-984` | **new** `spawn::a_card_whose_repo_isnt_on_this_device_is_refused_not_spawned` |
 | "Not done", a blocker answer, a crash respawn and the restart cleanup all go back through the same rule, so they stay on the card's own device. | `back_on_board`, `cards.rs:1395-1430`; `spawn.rs:1064-1078` | `spawn_paths.rs`, `spawn_test.rs` (one device) |
 | A spawned agent is only handed its own card and that card's subtasks. | `may_hand_to`, `coord/src/board/spawn.rs:145-157`; `check_free`, `offers.rs:159-175` | `spawn_test::a_spawned_agent_is_never_offered_a_second_card` |
 | A terminal agent gets hand-outs only with **Offer it cards** on, which is off by default. | `core/src/service.rs:1065-1075` | `offer_opt_in_test` |
@@ -36,7 +36,7 @@ So **if every work card is made on the work computer and every personal card on 
 - **Repo paths aren't per device.** `repo.seen` carries no device (`crates/capture/src/rows.rs:598-603`), so `repo_roots` can return the other machine's path (`capture/src/service.rs:693-703`). On the Mac a work card then fails as "not trusted" rather than "no checkout". If that path happens to exist and is trusted, it runs. On the work computer, a personal path can sort first and make a real work spawn fail.
 - **One spawn setting for every device.** The switch, model, effort and permission mode are a single replicated `spawn.set` row (`core/src/service/spawn.rs:139-182`). Only the cap is per device. Turning spawning off on any device turns it off everywhere, and that brings back the cross-device hand-outs below.
 - **Offer it cards can be set from the other side.** `agent.offer` replicates and is accepted from any of the person's devices (`spawn.rs:581-590`), so the Mac can turn it on for a work agent.
-- **Hand-outs pick from every device.** With the switch off, the pool is the whole roster (`core/src/service.rs:3176-3188`). The repo filter applies only when both the card and the agent have a repo (`offers.rs:256-258`), and the machine rank only sorts (`offers.rs:738-758`). So an opted-in personal agent sitting in `~` can be handed a work card. `offers_test::a_card_with_no_machine_signal_still_goes_to_the_one_idle_longest` shows a card going to the other machine.
+- **Hand-outs pick from every device.** With the switch off, the pool is the whole roster (`ask_agents`, `core/src/service.rs:3229-3240`, which feeds asks too). The repo filter applies only when both the card and the agent have a repo (`offers.rs:256-258`), and the machine rank only sorts (`offers.rs:738-758`). So an opted-in personal agent sitting in `~` can be handed a work card. `offers_test::a_card_with_no_machine_signal_still_goes_to_the_one_idle_longest` shows a card going to the other machine.
 - **Asks and threads cross whether or not spawning is on.** An ask can be owned by any of the person's devices (`ask_owner`, `asks.rs:996-1039`), and `free_agents` has no device filter (`asks.rs:1051-1100`). An ask that names agents skips the Offer it cards check. `ask_test::test_the_computer_hands_a_phone_ask_out_and_on` shows a phone ask handed out by a computer.
 - **Deliberate moves have no device check.**
   - `board_assign` puts any card on any agent and wakes it. The fold adds the holder without `check_free`, so a spawned agent can be put on a second card (`tasks.rs:296-329`, `fold.rs:676-679`).
@@ -130,8 +130,43 @@ New, on branch `worktree-477-work-personal-separation`:
   - `a_card_made_on_one_linked_device_is_never_handed_out_by_another`: with free agents present and repeated sweeps.
   - Both fail when `hands_out` is forced true (checked by hand).
 - `crates/coord/tests/boards2_test.rs`, `another_persons_card_is_never_spawned_on_your_side`: on a space with spawning on for both sides, each lists only its own person's card. A spawn request for the other person's card is refused from the sweep, from an agent and by sync, so it counts on neither side. It fails when the store lets `task.spawn` into board logs (checked by hand).
-- `crates/core/tests/spawn.rs`, `a_card_whose_repo_isnt_on_this_device_is_refused_not_spawned`: refused here with "no checkout of …", nothing started, the card left unheld.
+- `crates/core/tests/spawn.rs`, `a_card_whose_repo_isnt_on_this_device_is_refused_not_spawned`: refused here with "no checkout of …", nothing started, the card left unheld. It covers only a repo no device has seen; a repo seen on another linked device fails as "not trusted", and the #467 retry guard doesn't catch that (§7.4).
 
 Run them with `cargo test -p irori-coord --test separation_test --test boards2_test` and `cargo test -p irori-core --test spawn`.
 
 The breaks are not locked in by new tests. The existing tests named in §2.3 and §3.2 already show them.
+
+## 7. Stephen chose C (2026-11-04): what it means in the code
+
+*Checked against main @ bdb613d9. Line numbers below are current there.*
+
+### 7.1 Two ways to read "cards carry a space"
+
+- **(i) The Work space is a real space: its own log, opened only by pinned devices.** A one-person space can be made today (`create_board`, `crates/core/src/service/boards.rs:961-1047`, needs no guest). The card's space is the log it lives in. A device pinned out never opens that log or holds its secret, so **work card text never reaches the personal disks**, which is better than §5 C promised. The cost: cards on a space must spawn, which is most of A's machinery. The board coord gets the spawning switch, and `task.spawn` / `task.spawned` are let into board logs behind a hello gate (`kinds.rs:167-171`, gate like `SPACES_PROTOCOL`, `boardmesh.rs:569`).
+- **(ii) A space label on private-log cards, and devices filter on it.** This reuses the private spawn path, so no gate is needed. But every card's text still replicates everywhere. Every creation path (split, main_red, share, tools, UI, phone) has to copy the label, and any path that forgets drops the card into "any device".
+
+Both code readers leaned (i). The pick is blocker b2 on #477.
+
+### 7.2 What C's option text did not name
+
+- **Work content isn't only cards.** `capture.turn`, `capture.edit`, `capture.summary` (work agents' full turns: prompts, tool calls, edits), `commit.seen`, `pr.ledger`, `desk.*`, notifications, `agent.status`, asks, Talk and notes are private-log rows keyed by repo or agent, not by card (`kinds.rs:183-191`, `capture/src/rows.rs:52-61`). Under (i) or (ii) they replicate whole once he links.
+- **Agents can read across subscriptions.** The work computer holds the private log, so a work agent can read every personal card, note and transcript through `board`, `show`, `search`, `overview` and `timeline` (`crates/tools/src/explore.rs`, `capturetools.rs`). A personal agent can read work `capture.*` turns the same way. That sends one side's content to the other side's Claude subscription, which is worse than copies on disk.
+- **Filtering the private log's sync is the wrong layer.** Each writer's stream must have no gaps (`store/src/db.rs:1355-1359`), and a changed payload at a held `(device, seq)` is a fork that stops that device for good (`db.rs:1306-1322`). A separate log per space is the mechanism that already exists.
+- **Who writes the pins.** "No pin row means every space", with each device writing its own row, means the work computer can't keep the Mac out of Work. Under (i) the device list has to belong to the space (a `devices` field written by the creating device), and board secrets go only to listed devices (`send_board_secrets_of`, `crates/mesh/src/ownboards.rs:99-130`). The receiving side drops a secret it isn't listed for, so the rule doesn't rest on the sender's version.
+- **Holding a space and running it are two things.** The phone may open Work so he can read it, but it can't spawn. A Work card typed on the phone needs a run device, so a pin is two levels: hold, and run.
+- **The default space.** `board_create` with no `board=` and the app's new card both write to the private log (`crates/tools/src/board.rs:826-840`, `crates/window/src/new_card.rs:41-49`). On the work computer the default has to be Work, for agents and for the app.
+- **Existing work cards.** Pairing keeps the device's stream (`crates/pair/src/pairer.rs:1184-1235`), so today's work cards in the work computer's private log replicate the moment it links. Either move them into the Work space and scrub the private copies, or start the work Irori from a fresh data dir.
+- **Mixed versions.** An older Irori ignores pins and opens every space from `board.joined`. Separation holds only once every device runs the new build, so pinning should be refused until every own device reports support.
+- **Still no Claude account.** The run pin is a stand-in for the subscription. Nothing checks the machine's `claude` login.
+
+### 7.3 Corrections to the analysis by the code readers
+
+- The receive-side re-check for linked devices belongs in the inbox (`host_hold`, `crates/inbox/src/mesh.rs:128`; `hold()`, `policy.rs:73`). `bridge.rs` is cross-person only (`bridge.rs:131-137`).
+- New private-log kinds and fields need no hello gate: the private log stores unknown kinds and fields (`kinds.rs:20-23`, `db.rs:1185-1200`). Only spawn rows entering board logs need one.
+
+### 7.4 Two slices that hold under (i), (ii) or A
+
+- **Per-device spawn setting and Offer it cards.** Keep `spawn.set` and `agent.offer` as kinds, and count a row only for the device that signed it (`Event.device_id`). `load_spawn` (`core/src/service/spawn.rs:565-607`) takes this device's id. On the first load it falls back to the newest row from any device and seeds an own-device row, so the upgrade changes nothing. `agent.offer` counts only from the agent's own device, and `set_agent_offer` (`spawn.rs:741-770`) refuses another device's agent. The app's Offer toggle is read-only for remote agents. Don't flip either kind to Local: `db.rs:1193-1197` would refuse an older peer's replicated rows and stall its stream.
+- **Per-device repo checkouts.** The `repo.seen` fold (`capture/src/service.rs:392-399`) puts only `ev.device_id == me` rows into `repo_roots`, and keeps others in `roots_elsewhere`. There is no payload change and no migration. `spawn_folder` (`spawn.rs:964-984`) takes the first root that is a directory. A repo seen only elsewhere then fails as `NoFolder`, which the #467 retry guard catches (today it fails as "not trusted", so that guard never engages). Risk: a device whose id changes treats its own old rows as foreign until capture sees the root again. Test gotcha: peer `repo.seen` rows fold only at replay, so insert them before `Capture::new`.
+
+Spawning, hand-outs, asks, assign, claim, review, mentions and the sync scope wait on b2.
