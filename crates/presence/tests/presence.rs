@@ -75,6 +75,15 @@ fn waiting_for_a_permission_prompt() {
         "omitted when empty, as Go's omitempty"
     );
     assert!(changed(&c, &AgentCard::default()));
+    assert!(idle.get("statusSince").is_none(), "omitted when zero");
+    // Card #489: statusSince is sent, and a change to it alone is a change.
+    let c = AgentCard {
+        status_since: s.status_since,
+        ..AgentCard::default()
+    };
+    let j = serde_json::to_value(&c).unwrap();
+    assert!(j["statusSince"].is_string(), "{j}");
+    assert!(changed(&c, &AgentCard::default()));
 }
 
 #[test]
@@ -91,6 +100,8 @@ fn read_session_fixtures() {
         ("busy", "interactive", 2)
     );
     assert!(s.updated_at.equal(&GoTime::unix_milli(1793063865535)));
+    // Card #489: statusUpdatedAt, not the later updatedAt a rename moved.
+    assert!(s.status_since.equal(&GoTime::unix_milli(1793061536254)));
     assert!(s.started_at.equal(&GoTime::unix_milli(1793058851218)));
 
     // 39668.json is a bg session with an escaped Windows cwd.
@@ -100,6 +111,7 @@ fn read_session_fixtures() {
         (s.pid, s.cwd.as_str(), s.kind.as_str(), s.name.as_str()),
         (39668, r"C:\Users\pat", "bg", "hello-spike")
     );
+    assert!(s.status_since.equal(&GoTime::unix_milli(1793064011488)));
 
     for bad in [
         "",
@@ -116,6 +128,10 @@ fn read_session_fixtures() {
     )
     .expect("tolerant");
     assert_eq!((s.pid, s.proc_start, s.peer_features.len()), (7, 12, 1));
+    // No statusUpdatedAt: status_since falls back to updatedAt (card #489).
+    let s = read_session(&br#"{"pid":7,"sessionId":"abc","updatedAt":1793064012119}"#[..])
+        .expect("no statusUpdatedAt");
+    assert!(s.status_since.equal(&GoTime::unix_milli(1793064012119)));
 }
 
 #[test]

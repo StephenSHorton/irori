@@ -74,7 +74,9 @@ pub fn parse_resource(s: &str) -> Result<Resource, Error> {
             )));
         };
         let (value, glob) = (&after[..i], &after[i + 1..]);
-        let repo_key = format!("{kind}:{value}");
+        // One spelling, so StephenSHorton/irori and stephenshorton/irori
+        // name the same lease (#480).
+        let repo_key = ledger::canonical_repo_key(&format!("{kind}:{value}"));
         check_repo_key(&repo_key)?;
         let g = normalize_glob(glob)?;
         return Ok(Resource {

@@ -16,7 +16,7 @@ use super::error::{Error, ErrorKind, Result};
 use super::resource::{Resource, normalize_resource, parse_resource};
 use super::rows::*;
 use super::types::*;
-use super::util::{SWEEPER, cmp_str, contains, cut, remove_str};
+use super::util::{SWEEPER, cmp_str, collapse_space, contains, cut, remove_str};
 use super::{MAX_ASIDE, Options};
 use crate::gotime;
 use crate::names::trim_space;
@@ -227,6 +227,8 @@ pub struct Fold {
     pub(crate) agents_per_card: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
     /// See [`super::Options::outside_leases`].
     pub(crate) outside_leases: Option<Arc<dyn Fn() -> Vec<String> + Send + Sync>>,
+    /// See [`super::Options::device_version`].
+    pub(crate) device_version: Option<super::DeviceVersionFn>,
     /// "task/blocker" of external waits on this person's private leases
     /// (card #339), noted while one of them was held.
     pub(crate) outside_waits: std::cell::RefCell<HashSet<String>>,
@@ -400,6 +402,7 @@ impl Fold {
             offers: o.offers,
             agents_per_card: o.agents_per_card,
             outside_leases: o.outside_leases,
+            device_version: o.device_version,
             outside_waits: Default::default(),
             spawn_now: HashSet::new(),
             origin: HashMap::new(),
@@ -734,6 +737,9 @@ impl Fold {
                     what = "joined".into();
                 } else {
                     t.holders = remove_str(&t.holders, &p.who);
+                    if !contains(&t.left, &p.who) {
+                        t.left.push(p.who.clone());
+                    }
                     if t.holders.is_empty() {
                         t.let_go = Some((p.who.clone(), at(p.at)));
                     }
@@ -1095,7 +1101,9 @@ impl Fold {
             title: p.title.clone(),
             objective: p.objective.clone(),
             done_criteria: p.done_criteria.clone(),
-            repo_key: p.repo_key.clone(),
+            // Cards from before #480 may carry any case; read them back in
+            // the checkouts' spelling (the signed row stays as it is).
+            repo_key: ledger::canonical_repo_key(&p.repo_key),
             scope: p.scope.clone(),
             state: SUBMITTED.into(),
             created_by: p.by.clone(),
@@ -1226,11 +1234,13 @@ impl Fold {
         let mut what = String::new();
         let mut raised = String::new();
         let mut revised = false;
+        let mut gist = String::new();
         if p.state == BLOCKED {
             let f = self.fold_blocked(&mut t, &p, ev, was == BLOCKED, when);
             what = f.what;
             raised = f.raised;
             revised = f.revised;
+            gist = f.gist;
         } else {
             // The person's completed on a card waiting on its done check is
             // their Done (card #315): the check reads answered Done, not
@@ -1266,6 +1276,7 @@ impl Fold {
         let mut line = line_of(ev, when, &p.by, &what);
         line.blocker_id = raised.clone();
         line.revised = revised;
+        line.blocker_gist = gist;
         let ti = Touch::of(&t);
         let holder = t.holder.clone();
         if !raised.is_empty() {
@@ -1384,13 +1395,26 @@ impl Fold {
         }
         let ti = Touch::of(t);
         if !p.blocker_id.is_empty() {
-            let what = if person {
-                format!("answered blocker {}", p.blocker_id)
-            } else {
-                format!("replied on blocker {}", p.blocker_id)
+            // The person reads the question, not the blocker's id (card
+            // #490); the line still carries the id to link to it.
+            let gist = t
+                .blockers
+                .iter()
+                .find(|b| b.id == p.blocker_id)
+                .map(|b| blocker_gist(&b.question))
+                .unwrap_or_default();
+            let what = match (person, gist.is_empty()) {
+                (true, false) => format!("answered “{gist}”"),
+                (false, false) => format!("replied on “{gist}”"),
+                (true, true) => "answered a blocker".to_string(),
+                (false, true) => "replied on a blocker".to_string(),
             };
+            if let Some(cm) = self.comments.get_mut(&p.comment_id) {
+                cm.blocker_gist = gist.clone();
+            }
             let mut line = line_of(ev, cm_at, &cm_by, &what);
             line.blocker_id = p.blocker_id.clone();
+            line.blocker_gist = gist;
             self.touch_line(&ti, line, false, Vec::new());
             let mut t = self.tasks.remove(&p.task_id).expect("checked");
             super::cards::refresh_blocker(
@@ -1533,7 +1557,11 @@ impl Fold {
                 && (!self.replaying
                     || gotime::since(now, &l.lease.until) < LAPSED_WITHIN.as_nanos() as i128)
             {
-                self.lapsed.push(l.lease.clone());
+                // Under its canonical name, the held key: a row from before
+                // #480 may spell the repo in capitals (card #480).
+                let mut lease = l.lease.clone();
+                lease.resource = name.clone();
+                self.lapsed.push(lease);
             }
             self.note(Change {
                 kind: LEASE_EXPIRED.into(),
@@ -2134,6 +2162,8 @@ pub(crate) fn add_holder(t: &mut Task, who: &str) {
 /// Keeps holder = holders[0] and assigned a subset of holders.
 pub(crate) fn sync_holder(t: &mut Task) {
     let holders = t.holders.clone();
+    // One that came back on the card is no longer gone from it (card #481).
+    t.left.retain(|w| !holders.contains(w));
     t.assigned.retain(|a| holders.contains(a));
     let offered = t.assigned.clone();
     t.handoffs.retain(|k, _| offered.contains(k));
@@ -2158,6 +2188,27 @@ pub(crate) fn sync_co_holders(t: &mut Task) {
     co.sort();
     co.dedup();
     t.co_holders = co;
+    // Once someone is on it again, Irori's own "nobody is on it" note no
+    // longer holds (card #490); a note anyone else wrote stays.
+    if (!t.holders.is_empty() || !t.co_holders.is_empty()) && is_nobody_note(&t.note) {
+        t.note.clear();
+    }
+}
+
+/// A blocker's question as a thread line quotes it (card #490).
+pub fn blocker_gist(question: &str) -> String {
+    cut(&collapse_space(question), super::asks::MAX_LOG_QUOTE)
+}
+
+/// The start of Irori's own notes for a card nobody holds (card #490):
+/// comments.rs writes them when its holder leaves or goes away.
+pub(crate) const NOBODY_NOTE: &str = "nobody is on it";
+/// The start of back_on_board's note (cards.rs).
+pub(crate) const BACK_NOTE: &str = "back on the Board";
+
+/// Says the note is one of Irori's own "nobody holds it" notes.
+pub(crate) fn is_nobody_note(n: &str) -> bool {
+    n.starts_with(NOBODY_NOTE) || n.starts_with(BACK_NOTE)
 }
 
 pub(crate) fn is_holder(t: &Task, key: &str) -> bool {

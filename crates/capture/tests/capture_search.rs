@@ -594,6 +594,41 @@ fn search_snippet() {
     );
 }
 
+/// Card #489: a turn's title is its prompt's text: a `<task-notification>`
+/// as Claude Code writes it reads as its summary, not a tag line; a prompt
+/// a person typed that opens with a tag keeps its first line.
+#[test]
+fn turn_title_skips_harness_tags() {
+    let r = Rig::new(|_| {});
+    let ka = key_a();
+    turn(
+        &r,
+        &ka,
+        REPO_X,
+        "n1",
+        "<task-notification>\n<task-id>by6xq2</task-id>\n<tool-use-id>toolu_01</tool-use-id>\n\
+         <status>completed</status>\n<summary>Background command \"wombat build\" completed (exit code 0)</summary>\n\
+         </task-notification>",
+        "",
+        at(0),
+    );
+    turn(
+        &r,
+        &ka,
+        REPO_X,
+        "n2",
+        "<Button> doesn't render on Safari quokka",
+        "",
+        at(1),
+    );
+    let title = |q: &str| search(&r, text(q))[0].title.clone();
+    assert_eq!(
+        title("wombat"),
+        "Background command \"wombat build\" completed (exit code 0)"
+    );
+    assert_eq!(title("quokka"), "<Button> doesn't render on Safari quokka");
+}
+
 /// A settable search::Source.
 #[derive(Default)]
 struct FakeSource {
@@ -1125,6 +1160,109 @@ fn show_open_turn() {
     );
 }
 
+/// Card #489: a spawned agent's doing line is its card, never its boot
+/// prompt; an open turn a person didn't type, a prompt that starts with one
+/// of Claude Code's tags or a reply that starts with any tag is never one,
+/// but a person's "<Button> ..." prompt is.
+#[test]
+fn overview_doing_spawned_and_tags() {
+    let r = Rig::new(|_| {});
+    r.roster.set(vec![
+        card("sess-s", "spawned", "busy", REPO_X),
+        card("sess-n", "notified", "busy", REPO_X),
+        card("sess-t", "tagged", "busy", REPO_X),
+        card("sess-r", "replied", "idle", REPO_X),
+        card("sess-h", "html", "busy", REPO_X),
+    ]);
+    let k = |s: &str| format!("{DEVICE}/{s}");
+    let (sp, no, tg, re, ht) = (
+        k("sess-s"),
+        k("sess-n"),
+        k("sess-t"),
+        k("sess-r"),
+        k("sess-h"),
+    );
+    let open = |key: &str, origin: &str, prompt: &str| {
+        r.c.set_open_turn(
+            key,
+            "",
+            Some(Turn {
+                id: "p".into(),
+                origin: origin.into(),
+                prompt: prompt.into(),
+                started_at: at(50),
+                ..Turn::default()
+            }),
+        );
+    };
+    open(
+        &sp,
+        "human",
+        "You were started for #476. Read your brief at /tmp/b.md before anything else.",
+    );
+    open(
+        &no,
+        "task-notification",
+        "<task-notification>\n<task-id>x1</task-id>\n</task-notification>",
+    );
+    open(&tg, "human", "<command-name>/clear</command-name>\nmore");
+    open(&ht, "human", "<Button> doesn't render on Safari");
+    turn(&r, &tg, REPO_X, "t1", "q", "tagged reply", at(1));
+    turn(&r, &re, REPO_X, "r1", "q", "plain reply", at(1));
+    let tagged = turn(&r, &re, REPO_X, "r2", "q", "<summary>\nx</summary>", at(2));
+
+    let line = |rf: &str, t: &str| Line {
+        r#ref: rf.into(),
+        text: t.into(),
+        at: GoTime::ZERO,
+    };
+    let input = OverviewInput {
+        current: [(no.clone(), line("task:9", "on the Board: #9 ferret"))]
+            .into_iter()
+            .collect(),
+        spawned: [(sp.clone(), line("task:476", "on #476 Fix the thing"))]
+            .into_iter()
+            .collect(),
+        ..OverviewInput::default()
+    };
+    let ov = r.c.overview(&sp, &input);
+    let doing = |key: &str| {
+        ov.agents
+            .iter()
+            .find(|a| a.key == key)
+            .unwrap()
+            .doing
+            .clone()
+    };
+    let cases = [
+        (&sp, "task:476".to_string(), "on #476 Fix the thing"),
+        (&no, "task:9".to_string(), "on the Board: #9 ferret"),
+        (
+            &tg,
+            format!("turn:{}", turn_row_id(&tg, "", "t1")),
+            "tagged reply",
+        ),
+        (
+            &re,
+            format!("turn:{}", turn_row_id(&re, "", "r1")),
+            "plain reply",
+        ),
+        (
+            &ht,
+            format!("agent:{ht}"),
+            "<Button> doesn't render on Safari",
+        ),
+    ];
+    for (key, rf, t) in cases {
+        let d = doing(key);
+        assert!(
+            d.r#ref == rf && d.text == t,
+            "{key} doing {d:?}, want {rf} {t:?}"
+        );
+    }
+    assert_ne!(doing(&re).r#ref, format!("turn:{}", tagged.id));
+}
+
 #[test]
 fn overview() {
     let r = Rig::new(|_| {});
@@ -1231,6 +1369,7 @@ fn overview() {
         .collect(),
         repo_key: REPO_X.into(),
         board_count: 9,
+        ..OverviewInput::default()
     };
     let ov = r.c.overview(&me, &input);
     let order: Vec<&str> = ov.agents.iter().map(|a| a.name.as_str()).collect();

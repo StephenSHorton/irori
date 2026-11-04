@@ -19,6 +19,13 @@ use serde::Serialize;
 use crate::reset::write_private;
 
 pub const NAMES_FILE: &str = "names.json";
+/// The names.json key prefix of a word held for an agent Irori is
+/// starting (card #472), not a session id.
+pub const SPAWN_PREFIX: &str = "spawn:";
+/// Another person's agent whose device hasn't been seen this long no longer
+/// holds its word against a new pick (it still counts as used): a friend
+/// gone for good doesn't keep a word forever.
+pub const OTHERS_STALE: Duration = Duration::from_secs(7 * 24 * 3600);
 /// A name stays reserved this long for a session that isn't running.
 pub const NAMES_KEEP: Duration = Duration::from_secs(30 * 24 * 3600);
 /// A session whose name was in use this recently holds it against new picks.
@@ -53,6 +60,10 @@ pub struct Namer {
     now: RwLock<NowFn>,
     /// Every agent on every device (Core's mesh roster), set once it exists.
     mesh: RwLock<Option<CardsFn>>,
+    /// Other people's agents on the shared boards this device holds (card
+    /// #472): a new name never takes a word a friend's live agent has. Not
+    /// used to move names ([`Namer::settle`]): only this person's roster is.
+    others: RwLock<Option<CardsFn>>,
     /// The agent names remembered on this device (agent-names.json).
     seen: RwLock<Option<SeenFn>>,
     m: Mutex<BTreeMap<String, NameEntry>>,
@@ -81,6 +92,7 @@ impl Namer {
             self_id: self_id.to_string(),
             now: RwLock::new(Arc::new(presence::now_local)),
             mesh: RwLock::new(None),
+            others: RwLock::new(None),
             seen: RwLock::new(None),
             m: Mutex::new(m),
         }
@@ -89,6 +101,12 @@ impl Namer {
     /// Sets the mesh roster the names are checked against.
     pub fn set_mesh(&self, f: impl Fn() -> Vec<AgentCard> + Send + Sync + 'static) {
         *self.mesh.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(f));
+    }
+
+    /// Sets where other people's agents on shared boards come from (card
+    /// #472): their live names are taken for a new pick.
+    pub fn set_others(&self, f: impl Fn() -> Vec<AgentCard> + Send + Sync + 'static) {
+        *self.others.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(f));
     }
 
     /// Sets where the names agents went by lately come from: (agent key,
@@ -133,6 +151,39 @@ impl Namer {
         f.map(|f| f()).unwrap_or_default()
     }
 
+    fn others(&self) -> Vec<AgentCard> {
+        let f = self
+            .others
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        f.map(|f| f()).unwrap_or_default()
+    }
+
+    /// A fresh name for an agent Irori is about to start (card #472), from
+    /// `seed` (random per start, so a card's next agent gets another word):
+    /// one no live agent of any member has, nobody here used lately, and
+    /// `taken` doesn't refuse (names other starts already asked for). It is
+    /// held in names.json under `spawn:<seed>` for [`NAMES_BUSY`], so a
+    /// terminal session named while the agent starts never gets it; the
+    /// agent itself keeps it as its own (`--name`) name.
+    pub fn pick_new(&self, seed: &str, taken: &dyn Fn(&str) -> bool) -> String {
+        let (cards, others) = (self.cards(), self.others());
+        let now = self.now();
+        let mut m = self.lock();
+        let name = self.pick_with(&m, seed, &cards, &others, &now, taken);
+        m.insert(
+            format!("{SPAWN_PREFIX}{seed}"),
+            NameEntry {
+                name: name.clone(),
+                at: now,
+                gave: vec![],
+            },
+        );
+        self.save_locked(&m);
+        name
+    }
+
     /// The name session `id` was given, or `""`.
     pub fn assigned(&self, id: &str) -> String {
         self.lock()
@@ -152,13 +203,19 @@ impl Namer {
     /// Gives session `id` a name if it has none: the word its id hashes to,
     /// or the next one no live agent on any device is called.
     pub fn assign(&self, id: &str) -> String {
-        let cards = self.cards();
+        // Presence asks on every scan: a named session costs one lookup,
+        // not a read of every shared board (card #472).
+        let had = self.assigned(id);
+        if !had.is_empty() {
+            return had;
+        }
+        let (cards, others) = (self.cards(), self.others());
         let now = self.now();
         let mut m = self.lock();
         if let Some(e) = m.get(id) {
             return e.name.clone();
         }
-        let name = self.pick_locked(&m, id, &cards, &now);
+        let name = self.pick_locked(&m, id, &cards, &others, &now);
         m.insert(
             id.into(),
             NameEntry {
@@ -181,12 +238,41 @@ impl Namer {
         m: &BTreeMap<String, NameEntry>,
         id: &str,
         cards: &[AgentCard],
+        others: &[AgentCard],
         now: &GoTime,
+    ) -> String {
+        self.pick_with(m, id, cards, others, now, &|_| false)
+    }
+
+    /// [`Self::pick_locked`], with `extra` refusing more names. `others`
+    /// (other people's agents on shared boards, read before names.json is
+    /// locked) are taken while live, so a friend's kestrel keeps the only
+    /// kestrel (card #472).
+    fn pick_with(
+        &self,
+        m: &BTreeMap<String, NameEntry>,
+        id: &str,
+        cards: &[AgentCard],
+        others: &[AgentCard],
+        now: &GoTime,
+        extra: &dyn Fn(&str) -> bool,
     ) -> String {
         let key = format!("{}/{id}", self.self_id);
         let mut taken = HashSet::new();
         let mut recent = HashSet::new();
         let mut known = HashSet::new();
+        for c in others {
+            if c.name.is_empty() {
+                continue;
+            }
+            let stale = c.device_state == coord::roster::OFFLINE
+                && (c.device_seen.is_zero() || since(now, &c.device_seen) > nanos(OTHERS_STALE));
+            if c.status != "gone" && !stale {
+                taken.insert(fold(&c.name));
+            } else {
+                known.insert(fold(&c.name));
+            }
+        }
         for c in cards {
             if c.key == key {
                 continue;
@@ -221,22 +307,23 @@ impl Namer {
                 known.insert(fold(&name));
             }
         }
-        let fresh = |s: &str| taken.contains(s) || recent.contains(s) || known.contains(s);
+        let taken = |s: &str| taken.contains(s) || extra(s);
+        let fresh = |s: &str| taken(s) || recent.contains(s) || known.contains(s);
         if let Some(n) = pick_free(id, &fresh) {
             return n;
         }
-        let not_recent = |s: &str| taken.contains(s) || recent.contains(s);
+        let not_recent = |s: &str| taken(s) || recent.contains(s);
         if let Some(n) = pick_free(id, &not_recent) {
             return n;
         }
-        pick(id, Some(&|s: &str| taken.contains(s)))
+        pick(id, Some(&taken))
     }
 
     /// Gives a new name to each session of this device whose Irori name
     /// another live agent also has, when that agent keeps it, and forgets
     /// names of sessions not seen for [`NAMES_KEEP`]. Whether a name moved.
     pub fn settle(&self) -> bool {
-        let cards = self.cards();
+        let (cards, others) = (self.cards(), self.others());
         let now = self.now();
         let mut m = self.lock();
         let (mut moved, mut dirty) = (false, false);
@@ -269,7 +356,7 @@ impl Namer {
                 if gave.len() > 8 {
                     gave.drain(..gave.len() - 8);
                 }
-                let name = self.pick_locked(&m, &c.session_id, &cards, &now);
+                let name = self.pick_locked(&m, &c.session_id, &cards, &others, &now);
                 m.insert(
                     c.session_id.clone(),
                     NameEntry {

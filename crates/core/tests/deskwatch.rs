@@ -86,7 +86,7 @@ fn an_empty_list_is_a_snapshot_and_reads_empty() {
     r.core.check_desks();
     assert_eq!(
         *gh.calls.lock().unwrap(),
-        vec![("StephenSHorton/ww-multiplayer".to_string(), DESK_LIMIT)]
+        vec![("stephenshorton/ww-multiplayer".to_string(), DESK_LIMIT)]
     );
     let d = r.core.coord().desk(REPO).unwrap();
     let s = d.prs.expect("a snapshot, even of nothing");

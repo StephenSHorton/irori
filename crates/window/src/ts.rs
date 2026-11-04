@@ -90,6 +90,9 @@ pub struct AgentCard {
     pub last_tool: String,
     #[specta(optional)]
     pub device_state: String,
+    /// When the current status began, omitted when unknown (card #489).
+    #[specta(optional)]
+    pub status_since: Time,
     /// The person's "Offer it cards": Irori hands it unheld cards, asks and
     /// threads when it's idle (card #453).
     pub offers_cards: bool,
@@ -275,6 +278,28 @@ pub struct Mention {
     pub gone: bool,
 }
 
+/// A repo this device has a checkout of, by its short name (card #488):
+/// what a held message to a repo names instead of its key.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoName {
+    pub repo_key: String,
+    pub name: String,
+}
+
+/// What "Start an agent in <repo>" did with a held message (card #488):
+/// the card it became, and whether an agent is starting for it (spawning
+/// on), it was handed to a free agent, or it waits for one.
+#[derive(Debug, Clone, Default, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StartedAgent {
+    pub card_ref: String,
+    /// The repo's short name.
+    pub repo: String,
+    pub started: bool,
+    pub offered: bool,
+}
+
 /// inbox.Delivery.
 #[derive(Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -358,6 +383,8 @@ pub enum BlockerKind {
     Person,
     Agent,
     External,
+    /// A least app version on named devices (card #485).
+    Version,
 }
 
 /// coord.BlockerStatus.

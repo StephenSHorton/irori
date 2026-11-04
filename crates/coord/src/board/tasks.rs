@@ -71,7 +71,8 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
             "objective or done criteria longer than {MAX_OBJECTIVE} characters"
         )));
     }
-    let repo_key = trim_space(&nt.repo_key).to_string();
+    // The checkout's spelling, so the card matches a device's copy (#480).
+    let repo_key = ledger::canonical_repo_key(&nt.repo_key);
     if !repo_key.is_empty() {
         check_repo_key(&repo_key)?;
     }
@@ -242,7 +243,7 @@ impl Fold {
             .tasks
             .values()
             .filter(|t| {
-                !(!f.repo_key.is_empty() && t.repo_key != f.repo_key
+                !(!f.repo_key.is_empty() && !ledger::same_repo_key(&t.repo_key, &f.repo_key)
                     || !f.holder.is_empty() && !is_holder(t, &f.holder)
                     || f.open && is_terminal(effective_state(t)))
             })

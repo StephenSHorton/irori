@@ -147,7 +147,6 @@ fn test_parse_resource() {
         "path:root:abc:.//etc/x",
         "path:root:abc:c:x",
         "path:root:abc:ab:c.txt",
-        "path:root:ABC:x",
         "path:root:xyz:x",
         "path:remote: host/a/b:x",
         "path:remote:host/a\x01b:x",

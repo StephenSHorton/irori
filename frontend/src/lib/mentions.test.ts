@@ -41,7 +41,8 @@ function cand(
       name,
       status: opts.status ?? "idle",
       live: opts.status !== "gone",
-      where: opts.device ?? "This PC",
+      where: opts.device ?? "Macbook Pro (this one)",
+      here: !opts.device,
       device: opts.device,
     }),
     cwd: "",
@@ -166,14 +167,18 @@ describe("menuKey (the Enter guard)", () => {
 
 describe("insertMention", () => {
   test("puts @name and a space in place of the query", () => {
-    expect(insertMention("hi @oa", { start: 3, query: "oa" }, 6, "oak")).toEqual({
+    expect(
+      insertMention("hi @oa", { start: 3, query: "oa" }, 6, "oak")
+    ).toEqual({
       text: "hi @oak ",
       caret: 8,
     })
   })
 
   test("keeps the text after the caret, without doubling a space", () => {
-    expect(insertMention("@f there", { start: 0, query: "f" }, 2, "fern")).toEqual({
+    expect(
+      insertMention("@f there", { start: 0, query: "f" }, 2, "fern")
+    ).toEqual({
       text: "@fern there",
       caret: 6,
     })
@@ -190,7 +195,9 @@ describe("insertMention", () => {
       caret: 5,
     })
     // Punctuation after the word stays.
-    expect(insertMention("@fx, hi", { start: 0, query: "f" }, 2, "fern")).toEqual({
+    expect(
+      insertMention("@fx, hi", { start: 0, query: "f" }, 2, "fern")
+    ).toEqual({
       text: "@fern , hi",
       caret: 6,
     })
@@ -199,14 +206,20 @@ describe("insertMention", () => {
 
 describe("IME", () => {
   test("keyCode 229 counts as composing (WKWebView's commit Enter)", () => {
-    expect(composing({ nativeEvent: { isComposing: false, keyCode: 229 } })).toBe(true)
-    expect(composing({ nativeEvent: { isComposing: true, keyCode: 13 } })).toBe(true)
-    expect(composing({ nativeEvent: { isComposing: false, keyCode: 13 } })).toBe(false)
+    expect(
+      composing({ nativeEvent: { isComposing: false, keyCode: 229 } })
+    ).toBe(true)
+    expect(composing({ nativeEvent: { isComposing: true, keyCode: 13 } })).toBe(
+      true
+    )
+    expect(
+      composing({ nativeEvent: { isComposing: false, keyCode: 13 } })
+    ).toBe(false)
   })
 })
 
 describe("punctuation after a name", () => {
-  test("settle and the filter read \"@oak,\" as oak", () => {
+  test('settle and the filter read "@oak," as oak', () => {
     expect(settle("@fern,", 6, [], all)).toEqual([
       { key: "agent:fern", name: "fern" },
     ])
@@ -228,7 +241,9 @@ describe("same-named mentions", () => {
 
   test("the k-th @oak chip is the k-th oak", () => {
     const spans = splitMentions("@oak and @oak", ms)
-    const got = spans.flatMap((x) => (x.kind === "mention" ? [x.mention.key] : []))
+    const got = spans.flatMap((x) =>
+      x.kind === "mention" ? [x.mention.key] : []
+    )
     expect(got).toEqual(["agent:oak", "agent:oak-mac"])
   })
 })
@@ -245,9 +260,9 @@ describe("settleRange (paste, undo)", () => {
       { key: "agent:boak", name: "boak" },
     ])
     // A longer name wins.
-    expect(
-      settleRange("@oak tree hi", 0, 12, [], [oaktree, fern])
-    ).toEqual([{ key: "agent:oaktree", name: "oak tree" }])
+    expect(settleRange("@oak tree hi", 0, 12, [], [oaktree, fern])).toEqual([
+      { key: "agent:oaktree", name: "oak tree" },
+    ])
   })
 })
 
@@ -275,7 +290,8 @@ describe("token tracking on edit", () => {
   test("one entry per key, at most ten", () => {
     expect(addMention(ms, { key: "agent:oak", name: "oak" })).toBe(ms)
     let many: { key: string; name: string }[] = []
-    for (let i = 0; i < 12; i++) many = addMention(many, { key: `k${i}`, name: `n${i}` })
+    for (let i = 0; i < 12; i++)
+      many = addMention(many, { key: `k${i}`, name: `n${i}` })
     expect(many).toHaveLength(MaxMentions)
   })
 })
@@ -291,7 +307,9 @@ describe("exact names", () => {
   })
 
   test("settle records the exact name at the caret, as typed", () => {
-    expect(settle("hi @Fern", 8, [], all)).toEqual([{ key: "agent:fern", name: "Fern" }])
+    expect(settle("hi @Fern", 8, [], all)).toEqual([
+      { key: "agent:fern", name: "Fern" },
+    ])
     expect(settle("hi @fer", 7, [], all)).toEqual([])
     const ms = [{ key: "agent:fern", name: "fern" }]
     expect(settle("@fern", 5, ms, all)).toBe(ms)
@@ -315,8 +333,12 @@ describe("splitMentions", () => {
   })
 
   test("an @word no mention names stays text", () => {
-    expect(splitMentions("hi @fern, a@oak", ms)).toEqual([{ kind: "text", text: "hi @fern, a@oak" }])
-    expect(splitMentions("plain", [])).toEqual([{ kind: "text", text: "plain" }])
+    expect(splitMentions("hi @fern, a@oak", ms)).toEqual([
+      { kind: "text", text: "hi @fern, a@oak" },
+    ])
+    expect(splitMentions("plain", [])).toEqual([
+      { kind: "text", text: "plain" },
+    ])
   })
 })
 
@@ -366,7 +388,10 @@ describe("card mentions (card #114)", () => {
   test("cardTokenAt opens on # at a word start", () => {
     expect(cardTokenAt("hi #1", 5)).toEqual({ start: 3, query: "1" })
     expect(cardTokenAt("a#1", 3)).toBeNull()
-    expect(cardTokenAt("#subtask lay", 12, ["Subtask layout"])).toEqual({ start: 0, query: "subtask lay" })
+    expect(cardTokenAt("#subtask lay", 12, ["Subtask layout"])).toEqual({
+      start: 0,
+      query: "subtask lay",
+    })
     expect(cardTokenAt("#sub lay", 8, ["Other"])).toBeNull()
   })
   test("filterCards ranks number matches first", () => {
@@ -379,7 +404,9 @@ describe("card mentions (card #114)", () => {
     expect(filterCards(cs, "sec").map((c) => c.id)).toEqual(["c"])
   })
   test("insertCardRef replaces the token", () => {
-    expect(insertCardRef("see #su", { start: 4, query: "su" }, 7, "#12")).toEqual({
+    expect(
+      insertCardRef("see #su", { start: 4, query: "su" }, 7, "#12")
+    ).toEqual({
       text: "see #12 ",
       caret: 8,
     })
@@ -400,10 +427,18 @@ describe("localRef (card #144)", () => {
   const ref = (s: string) => cardRefs(s)[0]
 
   test("a live card first", () => {
-    expect(localRef(ref("see #12"), cards, threads)).toEqual({ kind: "card", id: "c12", title: "Live card" })
+    expect(localRef(ref("see #12"), cards, threads)).toEqual({
+      kind: "card",
+      id: "c12",
+      title: "Live card",
+    })
   })
   test("a thread when no live card has it", () => {
-    expect(localRef(ref("mentioned this in #136"), cards, threads)).toEqual({ kind: "thread", id: "t136", title: "A thread" })
+    expect(localRef(ref("mentioned this in #136"), cards, threads)).toEqual({
+      kind: "thread",
+      id: "t136",
+      title: "A thread",
+    })
   })
   test("a tagged ref never names a thread", () => {
     expect(localRef(ref("mlg#136"), cards, threads)).toBeNull()
@@ -429,7 +464,12 @@ describe("boardRows", () => {
     repo: "",
     board,
   })
-  const rows = [row("d/me"), row("person:blake", "b1"), row("agent:c1", "b1"), row("agent:c2", "b2")]
+  const rows = [
+    row("d/me"),
+    row("person:blake", "b1"),
+    row("agent:c1", "b1"),
+    row("agent:c2", "b2"),
+  ]
   test("your own board offers only your agents", () => {
     expect(boardRows(rows, "").map((r) => r.who.key)).toEqual(["d/me"])
   })
@@ -445,7 +485,13 @@ describe("boardRows", () => {
 describe("the agent on #N (card #452, spawned-agents §4)", () => {
   const fern = cand("dev/fern", "fern")
   const clover = cand("dev/clover", "clover")
-  const card = (id: string, short: string, who: MentionCandidate["who"], state = "active", tag?: string) => ({
+  const card = (
+    id: string,
+    short: string,
+    who: MentionCandidate["who"],
+    state = "active",
+    tag?: string
+  ) => ({
     id,
     short,
     tag,
@@ -454,15 +500,29 @@ describe("the agent on #N (card #452, spawned-agents §4)", () => {
   const cards = [
     card("c57", "57", clover.who),
     card("c61", "61", fern.who),
-    card("c62", "62", AgentRef({ key: "user:me", name: "You", status: "person" }), "person"),
-    card("c63", "63", AgentRef({ key: "dev/gone", name: "sorrel", status: "gone" }), "gone"),
+    card(
+      "c62",
+      "62",
+      AgentRef({ key: "user:me", name: "You", status: "person" }),
+      "person"
+    ),
+    card(
+      "c63",
+      "63",
+      AgentRef({ key: "dev/gone", name: "sorrel", status: "gone" }),
+      "gone"
+    ),
     card("c70", "4", fern.who, "active", "wind"),
   ]
 
   test("one row per card a live agent holds; this card first, then newest", () => {
     const rows = agentOnRows(cards, [fern, clover], "c61")
     expect(rows.map((r) => r.card)).toEqual(["#61", "#57", "wind#4"])
-    expect(rows.map(rowName)).toEqual(["the agent on #61", "the agent on #57", "the agent on wind#4"])
+    expect(rows.map(rowName)).toEqual([
+      "the agent on #61",
+      "the agent on #57",
+      "the agent on wind#4",
+    ])
     expect(rows[0].who.key).toBe("dev/fern")
   })
 
@@ -474,9 +534,18 @@ describe("the agent on #N (card #452, spawned-agents §4)", () => {
 
   test("#N, N and the words find a card row", () => {
     const all = [fern, clover, ...agentOnRows(cards, [fern, clover])]
-    expect(filterCandidates(all, "#57").map(rowName)).toEqual(["the agent on #57"])
-    expect(filterCandidates(all, "57").map(rowName)).toEqual(["the agent on #57"])
-    expect(filterCandidates(all, "the agent on #6").map(rowName)).toEqual(["the agent on #61"])
-    expect(tokenAt("ask @the agent on #6", 20, all.map(rowName))).toEqual({ start: 4, query: "the agent on #6" })
+    expect(filterCandidates(all, "#57").map(rowName)).toEqual([
+      "the agent on #57",
+    ])
+    expect(filterCandidates(all, "57").map(rowName)).toEqual([
+      "the agent on #57",
+    ])
+    expect(filterCandidates(all, "the agent on #6").map(rowName)).toEqual([
+      "the agent on #61",
+    ])
+    expect(tokenAt("ask @the agent on #6", 20, all.map(rowName))).toEqual({
+      start: 4,
+      query: "the agent on #6",
+    })
   })
 })
