@@ -537,26 +537,21 @@ impl Fold {
     }
 
     /// Why card t waits on its side (card #495), or "" when it doesn't:
-    /// it needs an agent (or its ask is open) and the device that picks
-    /// one for it doesn't run its side. Read when shown, so a pin that
-    /// changes clears it at once.
+    /// it needs an agent, none is starting for it, and the device that
+    /// hands it out doesn't run its side. Read when shown, so a pin that
+    /// changes clears it at once. An ask never says so: its owner may be
+    /// another device, and its agents are any device's that run the side.
     pub(crate) fn side_wait(&self, t: &Task) -> String {
-        if self.on_board || crate::sides::clean(&t.side).is_empty() {
+        if self.on_board
+            || crate::sides::clean(&t.side).is_empty()
+            || !needs_agent(t)
+            || t.spawn_pending()
+            || self.spawn_now.contains(&t.id)
+        {
             return String::new();
         }
-        let dev = match &t.ask {
-            Some(a) if a.taker.is_empty() && !is_terminal(&t.state) => {
-                if a.owner.is_empty() {
-                    owner::device_of(&t.created_by).to_string()
-                } else {
-                    a.owner.clone()
-                }
-            }
-            Some(_) => return String::new(),
-            None if needs_agent(t) => owner::device_of(&t.created_by).to_string(),
-            None => return String::new(),
-        };
-        if dev.is_empty() || self.sides.runs(&dev, &t.side) {
+        let dev = owner::device_of(&t.created_by);
+        if dev.is_empty() || self.sides.runs(dev, &t.side) {
             return String::new();
         }
         format!("no device here runs {}", crate::sides::clean(&t.side))
@@ -635,7 +630,11 @@ impl Fold {
                 !spawning
                     && (t.live_offer().is_some() || (t.offer.is_none() && offerable(t)))
                     && self.hands_out(t)
-                    && self.runs_here(t)
+                    // On a side this device doesn't run (card #495) a card
+                    // gets no new pick; one already handed out is still
+                    // moved on when its agent ends or goes, so that agent
+                    // is free for other work.
+                    && (self.runs_here(t) || t.live_offer().is_some_and(|o| !o.to.is_empty()))
             })
             .map(|t| (t.created_at, t.id.clone()))
             .collect();
@@ -688,7 +687,11 @@ impl Fold {
                 let mut skip = heard.clone();
                 skip.push(t.created_by.clone());
                 let pool = self.offer_pool(&t, agents);
-                let free = self.free_for(&t, &pool, &skip);
+                let free = if self.runs_here(&t) {
+                    self.free_for(&t, &pool, &skip)
+                } else {
+                    Vec::new()
+                };
                 let now = self.stamp();
                 if let Some(pick) = free.first() {
                     heard.push(pick.clone());
@@ -899,8 +902,8 @@ pub(crate) fn index_side(stale: &std::sync::RwLock<super::fold::StaleMap>, t: &T
 /// The inbox's off-side hold over the index it reads (card #495): whether
 /// a notice of `kind` about card `id` to `to` is one Irori picked on its
 /// own for an agent on a device that doesn't run the card's side. A
-/// hand-out always is; an ask unless the person named `to` in it, and on a
-/// thread only the agent it was handed to.
+/// hand-out or a review request always is; an ask unless the person named
+/// `to` in it, and on a thread only the agent it was handed to.
 pub(crate) fn off_side_in(s: &super::fold::StaleMap, kind: &str, id: &str, to: &str) -> bool {
     let Some(c) = s.sides.get(id) else {
         return false;
@@ -910,7 +913,7 @@ pub(crate) fn off_side_in(s: &super::fold::StaleMap, kind: &str, id: &str, to: &
         return false;
     }
     match kind {
-        NOTICE_OFFER => true,
+        NOTICE_OFFER | super::review::NOTICE_REVIEW => true,
         NOTICE_ASK => {
             !c.named.iter().any(|n| n == to)
                 && (!c.thread || s.stale.get(id).is_some_and(|t| t == to))

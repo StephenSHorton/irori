@@ -348,7 +348,7 @@ fn an_ask_the_person_names_an_agent_in_still_reaches_it() {
                     }],
                     ..NewAsk::default()
                 },
-                &[there.clone()],
+                std::slice::from_ref(&there),
             )
             .unwrap();
         assert_eq!(n.to, vec![there.key.clone()], "{me}: {n:?}");
@@ -430,5 +430,58 @@ fn with_no_pins_a_card_goes_out_as_before() {
             vec![(mine.id.clone(), format!("{other}/terminal"))]
         );
         assert_eq!(e.c.get_task(&mine.id).unwrap().side_wait, "");
+    }
+}
+
+#[test]
+fn a_hand_out_on_a_side_this_device_stopped_running_still_moves_on() {
+    // Review fix: a card handed to an agent here, then the person pins
+    // this device to the other side. When that agent goes, the hand-out is
+    // let go (so the agent isn't counted busy with it), and nothing new is
+    // picked.
+    for (me, other) in [(WORK, MAC), (MAC, WORK)] {
+        let e = Env::with(me, Some(person()));
+        let user = format!("user:{me}");
+        let card =
+            e.c.create_task(&user, on_side("Theirs later", side_of(other)))
+                .unwrap();
+        let out = e.c.sweep_asks(&[idle_on(me)]).unwrap();
+        assert_eq!(
+            handed_to(&out),
+            vec![(card.id.clone(), format!("{me}/terminal"))]
+        );
+        pin_both(&e, me, other);
+        // Its agent went away: the hand-out moves on, to nobody.
+        let mut two = idle_on(me);
+        two.key = format!("{me}/second");
+        let out = e.c.sweep_asks(&[two]).unwrap();
+        assert!(handed_to(&out).is_empty(), "{me}: {out:?}");
+        let t = e.c.get_task(&card.id).unwrap();
+        let o = t.offer.clone().unwrap();
+        assert!(o.to.is_empty(), "{me}: still handed to {:?}", o.to);
+        assert_eq!(
+            t.side_wait,
+            format!("no device here runs {}", side_of(other))
+        );
+    }
+}
+
+#[test]
+fn the_persons_start_an_agent_clears_the_side_wait() {
+    for (me, other) in [(WORK, MAC), (MAC, WORK)] {
+        let mut e = Env::with(me, Some(person()));
+        let on = Arc::new(AtomicBool::new(true));
+        e.c = spawning(&e, &on);
+        pin_both(&e, me, other);
+        let t =
+            e.c.create_task(&format!("user:{me}"), on_side("Theirs", side_of(other)))
+                .unwrap();
+        assert_ne!(e.c.get_task(&t.id).unwrap().side_wait, "");
+        e.c.spawn_now(&t.id);
+        assert_eq!(
+            e.c.get_task(&t.id).unwrap().side_wait,
+            "",
+            "{me}: an agent is starting"
+        );
     }
 }

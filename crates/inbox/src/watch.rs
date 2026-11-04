@@ -227,6 +227,7 @@ pub fn hold_reason(h: &str) -> String {
         hold::MEMBER_LEASE => "another person asks your agent to give up a lease",
         hold::MEMBER_REMOVED => "it comes from a person who is no longer on that board",
         hold::EDITING => "you are editing it",
+        hold::OFF_SIDE => "Irori picked this agent for a card on a side its device doesn't run",
         _ => "Irori held it",
     }
     .to_string()

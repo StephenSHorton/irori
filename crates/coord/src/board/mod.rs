@@ -1402,7 +1402,8 @@ impl Coord {
     /// The inbox's off-side hold (card #495): whether a notice of `kind`
     /// about card `r` (`task:<id>`) to agent `to` is a pick Irori made on
     /// its own for a device that doesn't run the card's side. Only a
-    /// hand-out (`offer`) or an ask the person didn't name `to` in counts.
+    /// hand-out (`offer`), a review request, or an ask the person didn't
+    /// name `to` in counts.
     /// Never takes coord's lock.
     pub fn off_side(&self, kind: &str, r: &str, to: &str) -> bool {
         let Some(id) = r.strip_prefix("task:") else {

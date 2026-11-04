@@ -96,7 +96,7 @@ export function holdText(d: Delivery, w: HoldWords = {}): string {
     case "editing":
       return "You are editing it."
     case "off_side":
-      return `Irori picked ${to} for a card on a side this device doesn't run. Release delivers it.`
+      return `Irori picked ${to} for a card on a side ${to === "you" ? "your" : `${to}'s`} device doesn't run. Release delivers it.`
     default:
       return h ? "Irori held it." : ""
   }
