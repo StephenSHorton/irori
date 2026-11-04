@@ -1426,6 +1426,29 @@ fn a_second_board_and_a_channel_in_a_space_reach_bob() {
         .map(|e| e.kind)
         .collect()
     };
+    // Every talk row in the space's log is under a board key, never a
+    // private user: key (the space's log refuses those).
+    for ev in a1
+        .core
+        .board_store(&space)
+        .unwrap()
+        .list(&Filter {
+            kinds: vec!["talk.".into()],
+            ..Default::default()
+        })
+        .unwrap()
+    {
+        let p: serde_json::Value = serde_json::from_slice(&ev.payload).unwrap();
+        for k in [&serde_json::json!(ev.actor), &p["by"], &p["member"]["key"]] {
+            if let Some(k) = k.as_str() {
+                assert!(
+                    k.starts_with("person:") || k.starts_with("agent:"),
+                    "{} names {k}",
+                    ev.kind
+                );
+            }
+        }
+    }
     let in_space = talk_kinds(&a1.core.board_store(&space).unwrap());
     assert!(in_space.contains(&kinds::TALK_POST.to_string()));
     assert!(!in_space.contains(&kinds::TALK_READ.to_string()));

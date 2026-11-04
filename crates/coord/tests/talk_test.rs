@@ -612,3 +612,120 @@ fn another_person_is_a_person() {
     assert_eq!(talk::canon("person:abc"), "person:abc", "not this person");
     assert_eq!(Member::of("dev-a/x").kind, talk::AGENT);
 }
+
+/// A space log as the Core keeps it: rows go in under board keys (this
+/// device's `user:` key is `person:stephen`), and come back with this
+/// device's keys.
+struct KeyedSpace {
+    st: std::sync::Arc<store::Store>,
+}
+
+fn keys_in_payload(v: &mut serde_json::Value, f: impl Fn(&str) -> String) {
+    if let Some(serde_json::Value::String(by)) = v.get_mut("by") {
+        *by = f(by);
+    }
+    if let Some(serde_json::Value::String(k)) = v.get_mut("member").and_then(|m| m.get_mut("key")) {
+        *k = f(k);
+    }
+}
+
+fn to_board(k: &str) -> String {
+    if k == USER {
+        "person:stephen".into()
+    } else {
+        k.into()
+    }
+}
+
+fn from_board(k: &str) -> String {
+    if k == "person:stephen" {
+        USER.into()
+    } else {
+        k.into()
+    }
+}
+
+fn back(mut ev: store::Event) -> store::Event {
+    let mut v: serde_json::Value = serde_json::from_slice(&ev.payload).unwrap();
+    keys_in_payload(&mut v, from_board);
+    ev.payload = serde_json::to_vec(&v).unwrap();
+    ev
+}
+
+impl talk::SpaceLogs for KeyedSpace {
+    fn append(
+        &self,
+        _space: &str,
+        by: &str,
+        kind: &str,
+        mut payload: serde_json::Value,
+    ) -> Result<store::Event, String> {
+        keys_in_payload(&mut payload, to_board);
+        let ev = self
+            .st
+            .append(&to_board(by), kind, &payload)
+            .map_err(|e| e.to_string())?;
+        Ok(back(ev))
+    }
+
+    fn rows(&self) -> Vec<store::Event> {
+        self.st
+            .list(&store::Filter {
+                kinds: vec!["talk.".into()],
+                ..Default::default()
+            })
+            .unwrap()
+            .into_iter()
+            .map(back)
+            .collect()
+    }
+}
+
+/// Card #392 (nutmeg's check, ported): a space's rows go in its log by
+/// board keys, and two people in a space stay two members; only `user:`
+/// keys fold into this person.
+#[test]
+fn a_space_talk_writes_by_board_keys() {
+    let (e, sp) = (Env::new(), Env::on("dev-a"));
+    let t = talk(&e);
+    t.set_spaces(std::sync::Arc::new(KeyedSpace { st: sp.st.clone() }));
+    let c = t.create_channel_in(USER, "general", "", "space1").unwrap();
+    assert_eq!(c.space_id, "space1");
+    assert_eq!(c.by, USER, "this person, as this device reads it");
+    // Blake's join arrives from the space's log.
+    let ev = sp
+        .st
+        .append(
+            "person:blake",
+            kinds::TALK_MEMBER,
+            &serde_json::json!({
+                "convId": c.id, "member": {"kind": "person", "key": "person:blake"},
+                "op": "join", "by": "person:blake"
+            }),
+        )
+        .unwrap();
+    assert!(t.apply(&back(ev)));
+    let ms = t.members(&c.id);
+    assert_eq!(ms.len(), 2, "two people stay two: {ms:?}");
+    assert!(ms.iter().all(|m| m.kind == talk::PERSON), "{ms:?}");
+    assert_ne!(talk::canon("person:stephen"), talk::canon("person:blake"));
+    assert_ne!(talk::canon("person:blake"), talk::canon(USER));
+    assert!(t.is_member(&c.id, USER) && t.is_member(&c.id, "person:blake"));
+    // The rows sit in the space's log under the board actor and key.
+    let rows = sp
+        .st
+        .list(&store::Filter {
+            kinds: vec![
+                kinds::TALK_CHANNEL_CREATED.into(),
+                kinds::TALK_MEMBER.into(),
+            ],
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(rows[0].actor, "person:stephen");
+    let created: serde_json::Value = serde_json::from_slice(&rows[0].payload).unwrap();
+    assert_eq!(created["by"], "person:stephen");
+    let joined: serde_json::Value = serde_json::from_slice(&rows[1].payload).unwrap();
+    assert_eq!(rows[1].actor, "person:stephen");
+    assert_eq!(joined["member"]["key"], "person:stephen");
+}
