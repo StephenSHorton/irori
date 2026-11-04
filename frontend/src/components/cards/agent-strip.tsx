@@ -1,11 +1,9 @@
-import { LiveFace } from "@/components/cards/bot-face"
+import { Identicon } from "@/components/cards/faces"
 import { AgentRef } from "@/gen/models"
 import { deviceVar } from "@/lib/cards"
-import { useAgentFaces, useDevices } from "@/lib/devices"
-import { nameKey } from "@/lib/avatars"
+import { useDevices } from "@/lib/devices"
 
-// STRIP_MAX is how many live faces the sidebar's strip shows before "+N":
-// each one is a small live scene.
+// STRIP_MAX is how many faces the sidebar's strip shows before "+N".
 const STRIP_MAX = 8
 
 type RosterAgent = {
@@ -16,11 +14,11 @@ type RosterAgent = {
   deviceState?: string | null
 }
 
-// AgentStrip is the sidebar's row of live agent faces (card #407): who is
-// around, in their device colours, thinking while they work. Gone agents
+// AgentStrip is the sidebar's row of agent faces (card #407): who is
+// around, in their device colours; since 0.11.1 still identicons, not
+// animated faces (those kept WindowServer busy). Gone agents
 // and agents on an offline device aren't shown.
 export function AgentStrip({ agents }: { agents: RosterAgent[] }) {
-  const faces = useAgentFaces()
   const { devices } = useDevices(true)
   const live = devices.filter((d) => !d.revoked)
   const colorOf = (id: string) =>
@@ -45,18 +43,18 @@ export function AgentStrip({ agents }: { agents: RosterAgent[] }) {
           live: true,
           deviceId: a.deviceId,
           color: colorOf(a.deviceId),
-          avatar: faces[nameKey(a.name)] ?? "",
         })
         return (
           <span
             key={a.key}
             title={`${a.name}: ${a.status === "busy" ? "working" : a.status}`}
           >
-            <LiveFace
-              who={who}
-              tint={deviceVar(who.color) || "var(--color-primary)"}
-              size={28}
-            />
+            <span
+              className="block size-7"
+              style={{ color: deviceVar(who.color) || "var(--color-primary)" }}
+            >
+              <Identicon seed={who.key} full />
+            </span>
           </span>
         )
       })}

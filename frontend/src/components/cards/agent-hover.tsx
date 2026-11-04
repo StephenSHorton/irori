@@ -1,4 +1,4 @@
-import { LiveFace } from "@/components/cards/bot-face"
+import { Identicon } from "@/components/cards/faces"
 import {
   createContext,
   useContext,
@@ -134,13 +134,13 @@ function AgentSummary({
     <>
       <div className="flex min-w-0 items-center gap-3">
         {who.status !== "person" && (
-          // The agent's face, live (card #407): it thinks while working and
-          // follows the pointer.
-          <LiveFace
-            who={who}
-            tint={tint || "var(--color-primary)"}
-            size={52}
-          />
+          // The agent's identicon, big (0.11.1: still, no animation).
+          <span
+            className="size-[52px] shrink-0"
+            style={{ color: tint || "var(--color-primary)" }}
+          >
+            <Identicon seed={who.key} full />
+          </span>
         )}
         <div className="grid min-w-0 grid-cols-1 gap-0.5">
         <div className="flex min-w-0 items-center gap-2">
