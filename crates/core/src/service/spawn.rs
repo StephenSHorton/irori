@@ -585,6 +585,9 @@ pub(crate) struct SpawnState {
     /// When the sweep last looked for jobs Irori ended that Claude Code
     /// still lists (card #474).
     pub reaped: Mutex<Option<GoTime>>,
+    /// Agents whose end finished in this run (stop and rm worked, or were
+    /// given up), so end_finished leaves them alone.
+    pub removed: Mutex<std::collections::HashSet<String>>,
     /// The person's words for a card's next agent, by card id: put in its
     /// brief and dropped once it started (a "Not done", a blocker answer,
     /// "Start an agent with this").
@@ -1228,9 +1231,19 @@ impl Services {
             let Some(m) = self.coord.spawned(&a.key) else {
                 continue;
             };
-            // Ended already: its job's removal is sweep_ending's and
-            // reap_ended's, and it isn't asked for a hand-off again.
-            if self.coord.ended_by_irori(&a.key) {
+            // Removed in this run (its session may still be on presence for
+            // a moment): it isn't asked for a hand-off again. An agent the
+            // log says Irori ended but whose stop never worked (card #474:
+            // the old build's ends all failed) is still running, so it is
+            // judged again on its card as it is now; its agent.gone isn't
+            // written twice.
+            if self
+                .spawn
+                .removed
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains(&a.key)
+            {
                 continue;
             }
             let Some(t) = self.coord.get_task(&m.task_id) else {
@@ -1412,6 +1425,11 @@ impl Services {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&k);
+            self.spawn
+                .removed
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(k);
         }
     }
 
@@ -1513,6 +1531,12 @@ impl Services {
         };
         let me = self.device.id.clone();
         for a in agents {
+            // Only a job that no longer runs: a running agent the log says
+            // was ended is end_finished's to judge again, never stopped
+            // here (card #474).
+            if a.live {
+                continue;
+            }
             let k = format!("{me}/{}", a.session_id);
             if self.coord.spawned(&k).is_none() || !self.coord.ended_by_irori(&k) {
                 continue;
