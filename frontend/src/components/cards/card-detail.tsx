@@ -1633,7 +1633,9 @@ function BlockerItem({
             replying
               ? "Say more, or describe another option"
               : b.doneCheck
-                ? "Or say why it isn't done; it goes back to the agent"
+                ? b.goneAgent
+                  ? "Or say why it isn't done; the next agent on it gets it"
+                  : "Or say why it isn't done; it goes back to the agent"
                 : b.options.length
                   ? "Or answer in your own words"
                   : "Answer in your own words"

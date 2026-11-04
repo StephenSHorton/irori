@@ -569,7 +569,9 @@ export function BlockerAnswer({
           label={`${b.doneCheck ? "Why it isn't done" : "Your answer to"}: ${question}`}
           placeholder={
             b.doneCheck
-              ? "Say why it isn't done; it goes back to the agent"
+              ? b.goneAgent
+                ? "Say why it isn't done; the next agent on it gets it"
+                : "Say why it isn't done; it goes back to the agent"
               : "Answer in your own words"
           }
           send={b.doneCheck ? "Not done" : "Answer"}
