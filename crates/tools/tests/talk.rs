@@ -618,3 +618,148 @@ fn a_channel_name_refusal_names_only_what_resolves() {
     );
     assert!(t.posts(&art.id).is_empty() && t.posts("ch_twin").is_empty());
 }
+
+/// Space mlg with another person, Bob, and his agent bobbot on it, as the
+/// tools see them (card #461).
+struct BobsSpace;
+
+impl tools::SharedBoards for BobsSpace {
+    fn boards(&self) -> Vec<tools::BoardInfo> {
+        vec![tools::BoardInfo {
+            board_id: "sp_mlg".into(),
+            tag: "mlg".into(),
+            name: "mlg".into(),
+            ..Default::default()
+        }]
+    }
+    fn board_of(&self, _task_id: &str) -> Option<tools::BoardInfo> {
+        None
+    }
+    fn board_coord(
+        &self,
+        _board_id: &str,
+        _keys: &[String],
+    ) -> Result<(std::sync::Arc<coord::Coord>, Vec<String>), coord::Error> {
+        Err(coord::Error::raw(coord::ErrorKind::NotFound, "no board"))
+    }
+    fn share(&self, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
+        Err("no".into())
+    }
+    fn withdraw(&self, _: &str) -> Result<(), String> {
+        Err("no".into())
+    }
+    fn board_mentionables(&self, board_id: &str) -> Vec<coord::roster::AgentCard> {
+        if board_id != "sp_mlg" {
+            return Vec::new();
+        }
+        let c = |key: &str, name: &str| coord::roster::AgentCard {
+            key: key.into(),
+            name: name.into(),
+            status: "idle".into(),
+            ..Default::default()
+        };
+        vec![c("person:pBob", "Bob"), c("agent:cBob", "bobbot")]
+    }
+}
+
+/// In a space's channel @name reaches the space's other people and their
+/// agents by board key (card #461): nothing is routed here for them (their
+/// own Core wakes them from the row), the result says so, Bob himself
+/// doesn't join, and a Personal channel never resolves them.
+#[test]
+fn a_space_channel_mention_names_the_other_persons_agent_by_board_key() {
+    let h = new_harness_setup(None, |b, _| {
+        let _ = b.shared.set(std::sync::Arc::new(BobsSpace));
+        b.talk
+            .set_spaces(std::sync::Arc::new(SpaceRows(b.st.clone())));
+    });
+    let a = call_a();
+    let t = &h.b.talk;
+    let mlg = t.create_channel_in(USER, "netcode", "", "sp_mlg").unwrap();
+    let mine = t.create_channel(USER, "general", "").unwrap();
+    h.okj(&a, "talk_join", json!({"conv": mlg.id}));
+    let out = h.okj(
+        &a,
+        "talk_post",
+        json!({"conv": mlg.id, "text": "@bobbot @Bob is rollback ready?"}),
+    );
+    has(&out, &["bobbot (on the space)", "Bob (on the space)"]);
+    has_not(&out, &["Not delivered"]);
+    let ps = t.posts(&mlg.id);
+    let last = ps.last().unwrap();
+    assert!(
+        last.mentions.contains(&"agent:cBob".to_string()),
+        "{last:?}"
+    );
+    assert!(
+        last.mentions.contains(&"person:pBob".to_string()),
+        "{last:?}"
+    );
+    // Bob's agent joins on the space; Bob joins himself, if he will.
+    assert!(t.is_member(&mlg.id, "agent:cBob"));
+    assert!(!t.is_member(&mlg.id, "person:pBob"));
+    assert!(h.notices("agent:cBob").is_empty(), "nothing routed here");
+    // A later post doesn't give Bob's agent a reading here either.
+    h.okj(&a, "talk_post", json!({"conv": mlg.id, "text": "anyone?"}));
+    assert!(h.notices("agent:cBob").is_empty(), "no reading here");
+
+    // A Personal channel never names them.
+    h.okj(&a, "talk_join", json!({"conv": mine.id}));
+    let out = h.okj(
+        &a,
+        "talk_post",
+        json!({"conv": mine.id, "text": "@bobbot hello"}),
+    );
+    has(&out, &["Not delivered", "bobbot"]);
+}
+
+/// A reply to a space channel's mention bridged from another person goes
+/// in the channel and answers the delivery (card #461).
+#[test]
+fn a_reply_to_a_bridged_talk_mention_posts_in_the_channel() {
+    let h = new_harness_setup(None, |b, _| {
+        let _ = b.shared.set(std::sync::Arc::new(BobsSpace));
+        b.talk
+            .set_spaces(std::sync::Arc::new(SpaceRows(b.st.clone())));
+    });
+    let t = &h.b.talk;
+    let mlg = t.create_channel_in(USER, "netcode", "", "sp_mlg").unwrap();
+    let ds =
+        h.b.ib
+            .bridge(&inbox::BridgeRow {
+                from: inbox::BoardFrom {
+                    board_id: "sp_mlg".into(),
+                    tag: "mlg".into(),
+                    person_id: "pBob".into(),
+                    card_id: "cBob".into(),
+                    row: "devB/9".into(),
+                    kind: inbox::row_kind::COMMENT.into(),
+                    wake: true,
+                },
+                name: "Bob's agent bobbot".into(),
+                to: vec![KEY_A.into()],
+                text: "is rollback ready?".into(),
+                ref_: format!("talk:{}", mlg.id),
+                hop: 1,
+                attachments: vec![],
+            })
+            .unwrap();
+    assert_eq!(ds.len(), 1, "{ds:?}");
+    let did = ds[0].id.clone();
+    let out = h.okj(
+        &call_a(),
+        "reply",
+        json!({"delivery_id": did, "text": "it is ready"}),
+    );
+    has(&out, &["Replied in #netcode", "is now answered"]);
+    let ps = t.posts(&mlg.id);
+    assert!(
+        ps.iter().any(|p| p.text == "it is ready" && p.by == KEY_A),
+        "{ps:?}"
+    );
+    assert_eq!(
+        h.b.ib.get(&did).unwrap().state,
+        inbox::st::ANSWERED,
+        "answered"
+    );
+}

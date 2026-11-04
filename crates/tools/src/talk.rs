@@ -646,7 +646,17 @@ pub fn post(
         .filter(|g| !is_person_mention(g))
         .cloned()
         .collect();
-    let res: Resolved = coord::mentions::resolve(&cards(b), &by, &text_ok, &agents_given);
+    // In a space's channel the space's other people and their agents may
+    // be named too, by board key (card #461): their own Cores wake them.
+    let mut agents = cards(b);
+    if let Target::Channel(id) = target
+        && let Some(c) = talk.channel(id)
+        && !c.space_id.is_empty()
+        && let Some(sb) = b.shared_boards()
+    {
+        agents.extend(sb.board_mentionables(&c.space_id));
+    }
+    let res: Resolved = coord::mentions::resolve(&agents, &by, &text_ok, &agents_given);
     let mut live: Vec<String> = res
         .mentions
         .iter()
@@ -740,8 +750,12 @@ pub fn post(
         })
         .map_err(|e| e.to_string())?;
     if ct::is_channel(&conv) {
-        for k in live.iter().filter(|k| !ct::is_person_key(k)) {
-            // An agent mentioned in a channel joins it (§3).
+        for k in live
+            .iter()
+            .filter(|k| !ct::is_person_key(k) && !ct::is_other_person_key(k))
+        {
+            // An agent mentioned in a channel joins it (§3); another
+            // person joins their space's channels themselves.
             let _ = talk.join(&conv, &Member::of(k), &by);
         }
     }
@@ -776,7 +790,9 @@ fn tell_readers(
     let mut out = Vec::new();
     for m in talk.members(conv) {
         let k = &m.key;
+        // Another person's agent (a board key) reads on its own Core.
         if m.kind != ct::AGENT
+            || coord::board_form(k)
             || ct::canon(k) == ct::canon(&p.by)
             || woken.iter().any(|w| ct::canon(w) == ct::canon(k))
         {
@@ -852,7 +868,9 @@ fn tell_mentions(
 ) -> Vec<NoticeResult> {
     let to: Vec<String> = keys
         .iter()
-        .filter(|k| k.as_str() != skip && !ct::is_person_key(k))
+        // A board key is another person or their agent in a space: their
+        // own Core wakes them from the row (card #461).
+        .filter(|k| k.as_str() != skip && !ct::is_person_key(k) && !coord::board_form(k))
         .cloned()
         .collect();
     if to.is_empty() {
@@ -933,12 +951,23 @@ pub(crate) fn talk_post(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             if let Some(d) = &p.sent {
                 out += &s.outcome(d);
             }
-            let got = crate::mention::outcomes(&p.mentions, &p.told);
-            out += &crate::mention::mention_line(&got, &p.misses, &n);
+            out += &crate::mention::mention_line(&outcomes(&p), &p.misses, &n);
             out
         }
         Err(e) => err_text(&e),
     }
+}
+
+/// What each of a post's mentions came to: another person's agent named
+/// by board key is on the space, its own Core wakes it (card #461).
+pub(crate) fn outcomes(p: &Posted) -> Vec<(Mention, crate::mention::Got)> {
+    crate::mention::outcomes(&p.mentions, &p.told)
+        .into_iter()
+        .map(|(m, g)| match g {
+            crate::mention::Got::Board => (m, crate::mention::Got::Space),
+            g => (m, g),
+        })
+        .collect()
 }
 
 const READ_ARGS: &[(&str, Ty)] = &[("conv", Ty::Str), ("since", Ty::Str), ("space", Ty::Str)];

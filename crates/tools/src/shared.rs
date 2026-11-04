@@ -738,6 +738,11 @@ pub(crate) fn reply_on_card(s: &Inner, c: &Caller, did: &str, text: &str) -> Opt
     if d.message.board.is_empty() || d.to != c.sender.key {
         return None;
     }
+    if let Some(conv) = d.message.ref_.strip_prefix("talk:")
+        && coord::talk::is_channel(conv)
+    {
+        return Some(reply_in_channel(s, c, did, conv, text));
+    }
     let card = card_of(&d);
     if card.is_empty() {
         return Some(err_text(
@@ -763,6 +768,38 @@ pub(crate) fn reply_on_card(s: &Inner, c: &Caller, did: &str, text: &str) -> Opt
     );
     out += visible;
     Some(out)
+}
+
+/// A reply to a space channel's mention bridged from another person (card
+/// #461): it goes in the channel, where they read it, and the delivery is
+/// answered.
+fn reply_in_channel(s: &Inner, c: &Caller, did: &str, conv: &str, text: &str) -> String {
+    let target = crate::talk::Target::Channel(conv.to_string());
+    let p = match crate::talk::post(s.b.as_ref(), &c.sender, &target, text, &[], true, None) {
+        Ok(p) => p,
+        Err(e) => return err_text(&e),
+    };
+    let post = &p.post.post_id;
+    let name =
+        s.b.talk()
+            .and_then(|t| t.channel(conv))
+            .map(|ch| format!("#{}", ch.name))
+            .unwrap_or_else(|| conv.to_string());
+    let ib = s.b.inbox();
+    if let Err(e) = ib.answered_on_card(
+        &c.sender.key,
+        did,
+        &format!("answered in {name} (post:{post})"),
+    ) {
+        return map_err(e);
+    }
+    let n = s.roster();
+    let got = crate::talk::outcomes(&p);
+    format!(
+        "Replied in {name} (post:{post}): it came from a space's channel, so your answer went there, not as a private message. Delivery {} is now answered.{}",
+        one_line(did, 80),
+        crate::mention::mention_line(&got, &p.misses, &n)
+    )
 }
 
 /// told without its Visible-to line, and that line (with its newline).

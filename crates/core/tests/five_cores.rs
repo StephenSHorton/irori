@@ -1513,6 +1513,146 @@ fn a_second_board_and_a_channel_in_a_space_reach_bob() {
     close(alice.drain(..).chain(bob.drain(..)));
 }
 
+/// Card #461: Alice's post in her space's channel naming Bob's agent wakes
+/// it, once, on Bob's device (the bridge), with "Agents answer now" on
+/// only; its reply goes in the channel; a resync doesn't wake it again.
+#[test]
+fn alices_space_post_mentioning_bobs_agent_wakes_it_once() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let space = invited(a1, b1);
+    wait_for(WAIT, "alice hears bob read spaces", || {
+        a1.core.space_not_ready(&space).unwrap().is_empty()
+    });
+    let ch = a1
+        .core
+        .talk_channel_create_in(&a1.user(), "netcode", "", &space)
+        .unwrap();
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "bob's Talk lists the channel", || {
+        talk_lists(b1, &ch.id)
+    });
+    // Bob's agent joins: that mints its card on the space, and the card
+    // and the member row reach Alice.
+    let out = b1.tool("talk_join", serde_json::json!({"conv": ch.id}));
+    assert!(!out.starts_with("Error"), "talk_join: {out}");
+    b1.core.kick_board(&space);
+    wait_for(WAIT, "alice sees bob's agent in the channel", || {
+        a1.core
+            .talk()
+            .members(&ch.id)
+            .iter()
+            .any(|m| m.key.starts_with("agent:"))
+    });
+
+    let p = a1
+        .core
+        .talk_post(
+            &a1.core.user_sender(),
+            &ch.id,
+            "@bob1 is rollback ready?",
+            &[],
+            true,
+            None,
+        )
+        .unwrap();
+    assert!(
+        p.mentions
+            .iter()
+            .any(|m| m.key.starts_with("agent:") && !m.gone),
+        "bob's agent resolves by its board key: {:?} {:?}",
+        p.mentions,
+        p.misses
+    );
+    assert!(
+        p.told.is_empty(),
+        "nothing routed on alice's side: {:?}",
+        p.told
+    );
+    a1.core.kick_board(&space);
+    let bridged = |d: &Dev| {
+        d.core
+            .inbox()
+            .list(0)
+            .into_iter()
+            .filter(|x| x.to == d.agent && x.message.ref_ == format!("talk:{}", ch.id))
+            .collect::<Vec<_>>()
+    };
+    wait_for(WAIT, "bob's agent is woken", || !bridged(b1).is_empty());
+    let d = bridged(b1).remove(0);
+    assert_eq!(d.mode, inbox::mode::WAKE);
+    assert_eq!(d.message.board.board_id, space);
+    assert_eq!(d.message.board.person_id, a1.core.person().id);
+    assert!(
+        d.message.text.contains("rollback ready?"),
+        "{}",
+        d.message.text
+    );
+    assert!(d.message.text.contains("#netcode"), "{}", d.message.text);
+    assert!(
+        d.message
+            .text
+            .contains(&format!("talk_post conv={}", ch.id)),
+        "{}",
+        d.message.text
+    );
+
+    // "Agents answer now" off: the post reaches Bob, nobody is woken.
+    a1.core
+        .talk_post(
+            &a1.core.user_sender(),
+            &ch.id,
+            "@bob1 fyi only",
+            &[],
+            false,
+            None,
+        )
+        .unwrap();
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "bob reads the quiet post", || {
+        b1.core
+            .talk_posts(&b1.user(), &ch.id, None, 50)
+            .is_ok_and(|ps| ps.iter().any(|q| q.text == "@bob1 fyi only"))
+    });
+    assert_eq!(bridged(b1).len(), 1, "the quiet post woke nobody");
+
+    // The agent's reply goes in the channel and reaches Alice.
+    let out = b1.tool(
+        "reply",
+        serde_json::json!({"delivery_id": d.id, "text": "rollback is ready"}),
+    );
+    assert!(out.starts_with("Replied in #netcode"), "reply: {out}");
+    b1.core.kick_board(&space);
+    wait_for(WAIT, "alice reads the reply in the channel", || {
+        a1.core
+            .talk_posts(&a1.user(), &ch.id, None, 50)
+            .is_ok_and(|ps| ps.iter().any(|q| q.text == "rollback is ready"))
+    });
+    assert_ne!(
+        b1.core.inbox().get(&d.id).unwrap().state,
+        d.state,
+        "the delivery is answered"
+    );
+
+    // Bob's side resyncs: the space's connection drops and comes back, and
+    // a new post arrives. The first post doesn't wake the agent again.
+    b1.core.close_board_net(&space);
+    b1.core.reopen_board_net(&space).unwrap();
+    a1.core
+        .talk_post(&a1.core.user_sender(), &ch.id, "thanks", &[], true, None)
+        .unwrap();
+    a1.core.kick_board(&space);
+    b1.core.kick_board(&space);
+    wait_for(WAIT, "bob reads alice's thanks", || {
+        b1.core
+            .talk_posts(&b1.user(), &ch.id, None, 50)
+            .is_ok_and(|ps| ps.iter().any(|q| q.text == "thanks"))
+    });
+    assert_eq!(bridged(b1).len(), 1, "woken once");
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
 /// Whether `d`'s Talk lists conversation `conv`.
 fn talk_lists(d: &Dev, conv: &str) -> bool {
     d.core
