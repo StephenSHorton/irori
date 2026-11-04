@@ -249,8 +249,9 @@ export const TalkService = {
     call(commands.talkPost(convId, text, agentsNow, threadFrom)),
   Read: (convId: string, upTo: string) => done(commands.talkRead(convId, upTo)),
   LinkCard: (postId: string, taskId: string) => done(commands.talkLinkCard(postId, taskId)),
-  ChannelCreate: (name: string, topic: string | null) =>
-    call(commands.talkChannelCreate(name, topic)),
+  // spaceId puts the channel in a space, where its members see it (#392).
+  ChannelCreate: (name: string, topic: string | null, spaceId: string | null = null) =>
+    call(commands.talkChannelCreate(name, topic, spaceId)),
   Dm: (member: B.TalkMemberRef) => call(commands.talkDm(member)),
   Join: (convId: string, member: B.TalkMemberRef) => done(commands.talkJoin(convId, member)),
   Leave: (convId: string, member: B.TalkMemberRef) => done(commands.talkLeave(convId, member)),
