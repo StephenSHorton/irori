@@ -1282,19 +1282,19 @@ impl Inner {
     }
 
     /// on = version's ref (card #485): `<min> [device …]`, each device by
-    /// its name (Mac, DESKTOP-STEPHEN; any case, or the start of one
+    /// its name (MacBook, DESKTOP-STEPHEN; any case, or the start of one
     /// name) or id, turned into `<min> <id> …`. No device leaves it to the
     /// coord: this device.
     fn version_wait(&self, r: &str) -> Result<String, String> {
         let mut it = r.split_whitespace();
         let Some(min) = it.next() else {
             return Err(err_text(
-                "on = version needs the least app version, then the devices: version 0.11.0 Mac PC (none: this device).",
+                "on = version needs the least app version, then the devices by name: version 0.11.0 MacBook (none: this device).",
             ));
         };
         if !coord::valid_version(min) {
             return Err(err_text(&format!(
-                "on = version: {} is not a version; give X.Y.Z, e.g. version 0.11.0 Mac.",
+                "on = version: {} is not a version; give X.Y.Z, e.g. version 0.11.0 MacBook.",
                 q(&one_line(min, 40))
             )));
         }

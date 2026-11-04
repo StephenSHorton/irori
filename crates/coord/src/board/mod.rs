@@ -222,6 +222,9 @@ pub type OffersFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 /// the space doesn't hold.
 pub type BoardTagFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
+/// See [`Options::device_version`].
+pub type DeviceVersionFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
+
 /// Configures a [`Coord`] (Go `coord.Options`).
 #[derive(Clone, Default)]
 pub struct Options {
@@ -302,7 +305,7 @@ pub struct Options {
     /// on a version: its newest `device.started` row's `version`, or "".
     /// `None` reads this coord's own log (a board's keeps none, so a board
     /// passes its person's private log).
-    pub device_version: Option<Arc<dyn Fn(&str) -> String + Send + Sync>>,
+    pub device_version: Option<DeviceVersionFn>,
 }
 
 /// The board rows that carry their writer's hop across the bridge.

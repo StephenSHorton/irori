@@ -228,7 +228,7 @@ pub struct Fold {
     /// See [`super::Options::outside_leases`].
     pub(crate) outside_leases: Option<Arc<dyn Fn() -> Vec<String> + Send + Sync>>,
     /// See [`super::Options::device_version`].
-    pub(crate) device_version: Option<Arc<dyn Fn(&str) -> String + Send + Sync>>,
+    pub(crate) device_version: Option<super::DeviceVersionFn>,
     /// "task/blocker" of external waits on this person's private leases
     /// (card #339), noted while one of them was held.
     pub(crate) outside_waits: std::cell::RefCell<HashSet<String>>,
