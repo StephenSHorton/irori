@@ -316,11 +316,15 @@ function PostRow({
           <time className="shrink-0 text-[11px] whitespace-nowrap text-muted-foreground tabular-nums" dateTime={at?.toISOString()}>
             {at?.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
           </time>
+          {/* Hover buttons only where there's a mouse and room: on a touch
+              screen they never show, and below 768 px their hidden width
+              cut the sender's name to "sampl…" (card #479). Long-press or
+              right-click gives both there. */}
           {channel && onMakeCard && (
             <button
               type="button"
               onClick={() => setAsking((a) => !a)}
-              className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-secondary hover:text-ink focus-visible:opacity-100"
+              className="ml-auto hidden items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground opacity-0 pointer-fine:md:flex group-hover:opacity-100 hover:bg-secondary hover:text-ink focus-visible:opacity-100"
               title="Ask about this in a thread: it goes in Threads, and this channel gets a one-line pointer"
             >
               <MessageSquareTextIcon className="size-3.5" aria-hidden />
@@ -332,7 +336,7 @@ function PostRow({
               type="button"
               onClick={onMakeCard}
               className={cn(
-                "flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-secondary hover:text-ink focus-visible:opacity-100",
+                "hidden items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground opacity-0 pointer-fine:md:flex group-hover:opacity-100 hover:bg-secondary hover:text-ink focus-visible:opacity-100",
                 !channel && "ml-auto"
               )}
               title="Work goes on a card: make one from this message"

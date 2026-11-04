@@ -89,6 +89,23 @@ unchanged.
 card's page is `#card/<id>` in the address (`/#card/sample-card-4` opens it
 too); its Back, Esc and the browser's back return to the grid.
 
+## Phone width (390 px)
+
+With the preview running, `bun run check:phone` opens each main page (Home,
+the card pages, Notes, Notifications, Held, Settings, Talk, Boards, New card)
+as a 390 x 844 phone (touch, no hover) in a headless Chrome. It fails when the
+page or anything on it reaches past the right edge, warns about text cut short
+or ending in "…", and saves a PNG of each page to `frontend/preview-shots/phone/`
+(card #479). `bun run check:phone home card-1` checks only those; `PREVIEW_URL`
+points it at another port, `PHONE_HEIGHT=2600` shows more of a long page.
+
+Don't shoot a phone width with `--window-size=390,…` (as `preview-shots.sh`
+does for desktop sizes): Chrome won't make a headless window narrower than
+500 px, so the page lays out at 500 and the PNG is cropped to 390, and Boards
+and the right-hand buttons look cut off when they aren't. `check:phone` sets
+the width through DevTools' device emulation and fails if the page doesn't
+see 390.
+
 ## Screenshots
 
 With the preview running, `sh scripts/preview-shots.sh` (Git Bash) saves
