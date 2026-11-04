@@ -3556,7 +3556,7 @@ impl Services {
         if !self
             .polled_desks()
             .iter()
-            .any(|d| d.settings.repo_key == repo_key)
+            .any(|d| coord::same_repo_key(&d.settings.repo_key, repo_key))
         {
             return Err(format!("this device doesn't poll {repo_key}'s merge desk"));
         }

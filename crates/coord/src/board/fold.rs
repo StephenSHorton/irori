@@ -1095,7 +1095,9 @@ impl Fold {
             title: p.title.clone(),
             objective: p.objective.clone(),
             done_criteria: p.done_criteria.clone(),
-            repo_key: p.repo_key.clone(),
+            // Cards from before #480 may carry any case; read them back in
+            // the checkouts' spelling (the signed row stays as it is).
+            repo_key: ledger::canonical_repo_key(&p.repo_key),
             scope: p.scope.clone(),
             state: SUBMITTED.into(),
             created_by: p.by.clone(),

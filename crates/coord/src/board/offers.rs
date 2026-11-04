@@ -254,7 +254,10 @@ impl Fold {
             {
                 continue;
             }
-            if !t.repo_key.is_empty() && !a.repo_key.is_empty() && a.repo_key != t.repo_key {
+            if !t.repo_key.is_empty()
+                && !a.repo_key.is_empty()
+                && !ledger::same_repo_key(&a.repo_key, &t.repo_key)
+            {
                 continue;
             }
             if skip.contains(&a.key)
@@ -322,11 +325,11 @@ impl Fold {
                 } else if !self.free_for(t, &pool, &skip).is_empty() {
                     "a free agent is there: the next sweep hands it out".to_string()
                 } else if !t.repo_key.is_empty()
-                    && idle
-                        .iter()
-                        .all(|a| !a.repo_key.is_empty() && a.repo_key != t.repo_key)
+                    && idle.iter().all(|a| {
+                        !a.repo_key.is_empty() && !ledger::same_repo_key(&a.repo_key, &t.repo_key)
+                    })
                 {
-                    format!("no free agent works in {}", t.repo_key)
+                    format!("no free agent works in {}", ledger::repo_name(&t.repo_key))
                 } else if idle.iter().all(|a| heard.contains(&a.key)) {
                     "every free agent passed it".to_string()
                 } else {
@@ -710,7 +713,7 @@ fn repo_devices(t: &Task, roster: &[AgentCard]) -> HashSet<String> {
         return out;
     }
     for a in roster {
-        if a.repo_key == t.repo_key {
+        if ledger::same_repo_key(&a.repo_key, &t.repo_key) {
             out.insert(device_of(a).to_string());
         }
     }

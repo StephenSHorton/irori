@@ -217,7 +217,9 @@ impl Fold {
                 if !person(self, &p.by) {
                     return;
                 }
-                let k = p.repo_key.clone();
+                let k = ledger::canonical_repo_key(&p.repo_key);
+                let mut p = p;
+                p.repo_key = k.clone();
                 self.desks.entry(k).or_default().settings = p;
             }
             kinds::DESK_PRS => {
@@ -227,7 +229,7 @@ impl Fold {
                 if p.by != SWEEPER {
                     return;
                 }
-                let k = p.repo_key.clone();
+                let k = ledger::canonical_repo_key(&p.repo_key);
                 self.desks.entry(k).or_default().prs = Some(p);
             }
             kinds::DESK_HOLD => {
@@ -237,7 +239,10 @@ impl Fold {
                 if !person(self, &p.by) {
                     return;
                 }
-                let d = self.desks.entry(p.repo_key.clone()).or_default();
+                let d = self
+                    .desks
+                    .entry(ledger::canonical_repo_key(&p.repo_key))
+                    .or_default();
                 if p.cleared {
                     d.holds.remove(&p.pr);
                 } else {
@@ -251,7 +256,7 @@ impl Fold {
                 if !person(self, &p.by) {
                     return;
                 }
-                let k = p.repo_key.clone();
+                let k = ledger::canonical_repo_key(&p.repo_key);
                 self.desks.entry(k).or_default().pause = Some(p);
             }
             kinds::DESK_OK => {
@@ -262,7 +267,7 @@ impl Fold {
                     return;
                 }
                 self.desks
-                    .entry(p.repo_key.clone())
+                    .entry(ledger::canonical_repo_key(&p.repo_key))
                     .or_default()
                     .oks
                     .insert(p.pr, p);
@@ -273,7 +278,7 @@ impl Fold {
                 };
                 // Only the desk holder's run counts (slice 4); its lease is
                 // checked when the run is read ([`Fold::desk_view`]).
-                let k = p.repo_key.clone();
+                let k = ledger::canonical_repo_key(&p.repo_key);
                 let d = self.desks.entry(k).or_default();
                 if !d.settings.holder.is_empty() && p.by == d.settings.holder {
                     d.run = Some(p);
@@ -296,7 +301,7 @@ impl Fold {
                 "only the person sets up a merge desk, in the app",
             ));
         }
-        d.repo_key = trim_space(&d.repo_key).to_string();
+        d.repo_key = ledger::canonical_repo_key(&d.repo_key);
         check_repo_key(&d.repo_key)?;
         if github_repo(&d.repo_key).is_none() {
             return Err(invalid(format!(
@@ -488,6 +493,8 @@ impl Fold {
         mut prs: Vec<DeskPr>,
         truncated: bool,
     ) -> Result<bool> {
+        let repo_key = ledger::canonical_repo_key(repo_key);
+        let repo_key = repo_key.as_str();
         if !self.desks.get(repo_key).is_some_and(|d| d.on()) {
             return Err(invalid(format!("{repo_key} has no merge desk")));
         }

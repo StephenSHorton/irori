@@ -1386,7 +1386,9 @@ impl Coord {
     /// One repo's merge desk, if it has one.
     pub fn desk(&self, repo_key: &str) -> Option<Desk> {
         let f = self.lock();
-        f.desks.get(repo_key).map(|d| f.desk_view(d))
+        f.desks
+            .get(&ledger::canonical_repo_key(repo_key))
+            .map(|d| f.desk_view(d))
     }
 
     /// The states of the PRs card `id` links, as last heard (card #208).

@@ -30,6 +30,8 @@ pub(crate) fn send(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Err(e) => return e,
     };
     let (to, repo) = (trim_opt(&a.opt_str("to")), trim_opt(&a.opt_str("repo")));
+    // The agents' spelling, so a repo given in any case reaches them (#480).
+    let repo = coord::canonical_repo_key(&repo);
     if let Some(out) = crate::shared::send_to_board(s, c, &to, a.str("task_id"), a.str("text")) {
         return out;
     }

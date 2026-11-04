@@ -233,7 +233,7 @@ impl Fold {
         }
         t.ask = Some(Ask {
             wake: a.wake,
-            repo_key: a.repo_key.clone(),
+            repo_key: ledger::canonical_repo_key(&a.repo_key),
             owner: if !a.owner.is_empty() && self.same_person_dev(&a.owner, &ev.device_id) {
                 a.owner.clone()
             } else {
@@ -777,7 +777,7 @@ impl Fold {
             given.retain(|m| super::mention::board_form(&m.key));
         }
         let mentions = self.check_mentions(&by, &given)?;
-        let repo_key = trim_space(&input.repo_key).to_string();
+        let repo_key = ledger::canonical_repo_key(&input.repo_key);
         if !repo_key.is_empty() {
             check_repo_key(&repo_key)?;
         }
@@ -1090,7 +1090,7 @@ impl Fold {
             }
             if let Some(ask) = &t.ask
                 && !ask.repo_key.is_empty()
-                && a.repo_key != ask.repo_key
+                && !ledger::same_repo_key(&a.repo_key, &ask.repo_key)
             {
                 continue;
             }

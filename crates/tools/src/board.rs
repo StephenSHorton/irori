@@ -495,7 +495,7 @@ pub(crate) fn board(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Err(e) => return e,
     };
     let done = a.bool("done");
-    let mut repo = trim(a.str("repo")).to_string();
+    let mut repo = coord::canonical_repo_key(trim(a.str("repo")));
     match repo.as_str() {
         "*" | "all" => repo.clear(),
         "" => repo = s.caller_repo(c),
@@ -780,7 +780,7 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     if trim(a.str("title")).is_empty() {
         return err_text("give the card a title: what is being worked on now.");
     }
-    let mut repo = trim(a.str("repo")).to_string();
+    let mut repo = coord::canonical_repo_key(trim(a.str("repo")));
     if repo.is_empty() {
         repo = s.caller_repo(c);
     }

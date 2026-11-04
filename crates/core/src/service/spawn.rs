@@ -225,7 +225,13 @@ impl SpawnSetting {
 
     fn merge_policy(&self, repo_key: &str) -> super::spawn_permissions::MergePolicy {
         use super::spawn_permissions::MergePolicy;
-        match self.merge.get(repo_key).map(String::as_str) {
+        let policy = self.merge.get(repo_key).or_else(|| {
+            self.merge
+                .iter()
+                .find(|(k, _)| coord::same_repo_key(k, repo_key))
+                .map(|(_, v)| v)
+        });
+        match policy.map(String::as_str) {
             Some(MERGE_MAIN) => MergePolicy::StraightToMain,
             _ => MergePolicy::PullRequest,
         }

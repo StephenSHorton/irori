@@ -29,3 +29,5 @@ pub mod roster;
 pub mod talk;
 
 pub use board::*;
+/// The one spelling of a repoKey, and its short name for people (#480).
+pub use ledger::{canonical_repo_key, repo_name, same_repo_key};
