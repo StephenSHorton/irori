@@ -385,7 +385,12 @@ impl tools::Backend for ToolsView {
     }
     fn known_names(&self) -> std::collections::BTreeMap<String, String> {
         self.0.note_agent_names();
-        self.0.agent_names.all()
+        let mut out = self.0.agent_names.all();
+        // Other people and their agents in a space's channels (card #392).
+        for (k, v) in self.0.space_names() {
+            out.entry(k).or_insert(v);
+        }
+        out
     }
     fn avatar(&self, name: &str) -> String {
         self.0.faces.get(name)
@@ -1330,6 +1335,9 @@ impl Core {
         });
         let _ = svc_cell.set(Arc::downgrade(&s));
         let _ = services_cell.set(Arc::downgrade(&s));
+        // A space's channels go in its log (card #392).
+        s.talk
+            .set_spaces(Arc::new(spaces::SpaceTalk(Arc::downgrade(&s))));
         let _ = s.boards.kicker.set({
             let m = Arc::downgrade(&s.mesh);
             Arc::new(move || {

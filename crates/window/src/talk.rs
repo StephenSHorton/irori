@@ -191,11 +191,21 @@ impl Window {
         self.core.talk_mark_read(conv, up_to, &self.me())
     }
 
-    /// Makes a channel the person is in; returns its id.
-    pub fn talk_channel_create(&self, name: &str, topic: Option<&str>) -> Result<String, String> {
-        let c = self
-            .core
-            .talk_channel_create(&self.me(), name, topic.unwrap_or(""))?;
+    /// Makes a channel the person is in, in space `space` (None or empty:
+    /// Personal); returns its id. A space's channel reaches its members
+    /// (card #392).
+    pub fn talk_channel_create(
+        &self,
+        name: &str,
+        topic: Option<&str>,
+        space: Option<&str>,
+    ) -> Result<String, String> {
+        let c = self.core.talk_channel_create_in(
+            &self.me(),
+            name,
+            topic.unwrap_or(""),
+            space.unwrap_or(""),
+        )?;
         Ok(c.id)
     }
 

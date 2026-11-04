@@ -215,15 +215,8 @@ impl Services {
                 ),
             ));
         }
-        let waiting = self.space_not_ready(space_id)?;
-        if !waiting.is_empty() {
-            return Err(Error::coord(
-                CK::NotAllowed,
-                format_args!(
-                    "every device in the space must run an Irori with spaces first; waiting on {}",
-                    waiting.join(", ")
-                ),
-            ));
+        if let Some(why) = gate_refusal(&self.space_not_ready(space_id)?) {
+            return Err(Error::coord(CK::NotAllowed, why));
         }
         let id = super::boards::new_board_id()?;
         let row = SpaceBoardRow {
@@ -262,6 +255,208 @@ impl Services {
 
 fn short(id: &str) -> &str {
     &id[..id.len().min(6)]
+}
+
+/// The version gate's answer (card #392, spaces.md §4): why a space may
+/// not take a space-only row yet, given the member devices not yet heard
+/// to read them (`space_not_ready`); None when it may.
+///
+/// One gate covers `space.board.*` and a space's `talk.*` rows alike. The
+/// hello's `spaces` (SPACES_PROTOCOL 1) came after Talk 1 marked `talk.*`
+/// as accepted on board logs, so any Irori that says `spaces >= 1` stores
+/// both; a separate number for channels would wait on nothing more.
+pub(crate) fn gate_refusal(waiting: &[String]) -> Option<String> {
+    (!waiting.is_empty()).then(|| {
+        format!(
+            "every device in the space must run an Irori with spaces first; waiting on {}",
+            waiting.join(", ")
+        )
+    })
+}
+
+// ---- a space's channels (Talk's rows in a space's log) -----------------------
+
+/// The talk.* kinds a space's log carries (read cursors never do).
+const SPACE_TALK_KINDS: [&str; 5] = [
+    kinds::TALK_CHANNEL_CREATED,
+    kinds::TALK_CHANNEL_EDITED,
+    kinds::TALK_MEMBER,
+    kinds::TALK_POST,
+    kinds::TALK_CARD,
+];
+
+/// Rewrites the keys a talk.* payload names (`by`, `member.key`, each of
+/// `mentions`) with `f`; a key `f` turns into None is dropped from
+/// `mentions` and refuses the row anywhere else.
+fn map_talk_keys(
+    v: &mut serde_json::Value,
+    mut f: impl FnMut(&str) -> Option<String>,
+) -> std::result::Result<(), String> {
+    let Some(o) = v.as_object_mut() else {
+        return Err("a talk row is an object".into());
+    };
+    if let Some(serde_json::Value::String(by)) = o.get_mut("by") {
+        *by = f(by).ok_or_else(|| format!("{by} can't write in this space"))?;
+    }
+    if let Some(serde_json::Value::String(k)) = o.get_mut("member").and_then(|m| m.get_mut("key")) {
+        *k = f(k).ok_or_else(|| format!("{k} can't be in this space's channel"))?;
+    }
+    if let Some(serde_json::Value::Array(ms)) = o.get_mut("mentions") {
+        let keep: Vec<serde_json::Value> = ms
+            .iter()
+            .filter_map(|m| m.as_str().and_then(&mut f))
+            .map(serde_json::Value::String)
+            .collect();
+        *ms = keep;
+    }
+    Ok(())
+}
+
+impl Services {
+    /// A space log's talk.* row as this device's Talk folds it: keys back
+    /// in this device's form, and a channel in the space whose log holds
+    /// it whatever its row says. None: not a row Talk folds.
+    pub(crate) fn space_talk_row(&self, space_id: &str, ev: &store::Event) -> Option<store::Event> {
+        if !SPACE_TALK_KINDS.contains(&ev.kind.as_str()) {
+            return None;
+        }
+        let mut v: serde_json::Value = serde_json::from_slice(&ev.payload).ok()?;
+        map_talk_keys(&mut v, |k| Some(self.private_key(k))).ok()?;
+        if ev.kind == kinds::TALK_CHANNEL_CREATED
+            && let Some(o) = v.as_object_mut()
+        {
+            o.insert("spaceId".into(), space_id.into());
+        }
+        let mut out = ev.clone();
+        out.payload = serde_json::to_vec(&v).ok()?;
+        Some(out)
+    }
+
+    /// Folds space `b`'s talk.* rows into Talk (a space just opened here).
+    pub(crate) fn fold_space_talk(&self, b: &super::boards::BoardLog) {
+        let mut changed = false;
+        let f = Filter {
+            kinds: SPACE_TALK_KINDS.iter().map(|k| k.to_string()).collect(),
+            ..Default::default()
+        };
+        let _ = super::boards::each_row(&b.store, f, |ev| {
+            if let Some(ev) = self.space_talk_row(&b.id, ev) {
+                changed |= self.talk.apply(&ev);
+            }
+        });
+        if changed {
+            self.hub.publish(crate::events::CoreEvent::Talk);
+        }
+    }
+
+    /// Appends a talk.* row to space `space_id`'s log as `by` (a key on this
+    /// device): refused unless the person is an active member and every
+    /// device in the space reads space rows (the version gate).
+    fn append_space_talk(
+        &self,
+        space_id: &str,
+        by: &str,
+        kind: &str,
+        mut payload: serde_json::Value,
+    ) -> std::result::Result<store::Event, String> {
+        if !SPACE_TALK_KINDS.contains(&kind) {
+            return Err(format!("{kind} never goes in a space's log"));
+        }
+        let b = self.board(space_id).map_err(|e| e.to_string())?;
+        if !b.verifier.membership().active(&self.person_id()) {
+            return Err(format!("you aren't a member of space {space_id}"));
+        }
+        if let Some(why) = gate_refusal(&self.space_not_ready(space_id).map_err(|e| e.to_string())?)
+        {
+            return Err(why);
+        }
+        let actor = self.board_key(space_id, by).map_err(|e| e.to_string())?;
+        let mut bad = None;
+        map_talk_keys(&mut payload, |k| match self.board_key(space_id, k) {
+            Ok(x) => Some(x),
+            Err(e) => {
+                bad.get_or_insert(e.to_string());
+                None
+            }
+        })
+        .map_err(|e| bad.clone().unwrap_or(e))?;
+        if kind == kinds::TALK_CHANNEL_CREATED
+            && let Some(o) = payload.as_object_mut()
+        {
+            o.insert("spaceId".into(), space_id.into());
+        }
+        let ev = b
+            .store
+            .append(&actor, kind, &payload)
+            .map_err(|e| e.to_string())?;
+        self.space_talk_row(space_id, &ev)
+            .ok_or_else(|| "the row didn't read back".to_string())
+    }
+}
+
+impl Services {
+    /// Names for the keys other people's rows carry in this device's
+    /// spaces: `person:<id>` by their profile (else member) name, and
+    /// `agent:<cardId>` by its card, for Talk's member and post names.
+    pub(crate) fn space_names(&self) -> BTreeMap<String, String> {
+        let mut out = BTreeMap::new();
+        for b in self.boards.list() {
+            let ms = b.verifier.membership();
+            for p in &ms.members {
+                let name = b
+                    .verifier
+                    .profile(&p.person_id)
+                    .unwrap_or_else(|| p.name.clone());
+                if !name.trim().is_empty() {
+                    out.insert(
+                        format!("{}{}", kinds::PERSON_ACTOR_PREFIX, p.person_id),
+                        name,
+                    );
+                }
+            }
+            for (id, c) in &super::boards::lock(&b.maps).cards {
+                if !c.name.trim().is_empty() {
+                    out.insert(format!("{}{id}", kinds::AGENT_ACTOR_PREFIX), c.name.clone());
+                }
+            }
+        }
+        out
+    }
+}
+
+/// Talk's way into the spaces' logs ([`coord::talk::SpaceLogs`]).
+pub(super) struct SpaceTalk(pub(super) std::sync::Weak<Services>);
+
+impl coord::talk::SpaceLogs for SpaceTalk {
+    fn append(
+        &self,
+        space: &str,
+        by: &str,
+        kind: &str,
+        payload: serde_json::Value,
+    ) -> std::result::Result<store::Event, String> {
+        let s = self.0.upgrade().ok_or("the Core is closing")?;
+        s.append_space_talk(space, by, kind, payload)
+    }
+
+    fn rows(&self) -> Vec<store::Event> {
+        let Some(s) = self.0.upgrade() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for b in s.boards.list() {
+            let f = Filter {
+                kinds: SPACE_TALK_KINDS.iter().map(|k| k.to_string()).collect(),
+                ..Default::default()
+            };
+            let _ = super::boards::each_row(&b.store, f, |ev| {
+                if let Some(ev) = s.space_talk_row(&b.id, ev) {
+                    out.push(ev);
+                }
+            });
+        }
+        out
+    }
 }
 
 // ---- the Core's spaces API ----------------------------------------------------

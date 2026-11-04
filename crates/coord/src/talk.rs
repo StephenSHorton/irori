@@ -1,7 +1,14 @@
 //! Talk (card #389; docs/design/talk-channels.md §2, §6): channels, direct
 //! messages and the read cursors over them, folded from the `talk.*` rows
-//! of the private log. Talk 1 keeps every row in the private log; Spaces
-//! (Talk 4) move channels to a space's log later.
+//! of the private log, and of every space's log (card #392).
+//!
+//! A channel lives where its `spaceId` says: empty is Personal (the
+//! private log); otherwise the space's log, so it replicates to the
+//! space's members. Its `talk.member` and `talk.post` rows go to the same
+//! log. DMs and read cursors stay in the private log. The Core writes and
+//! reads a space's rows through [`SpaceLogs`], which turns this device's
+//! keys into the space's (`person:<id>`, `agent:<cardId>`) and back, and
+//! refuses a write until every device in the space reads `talk.*` rows.
 //!
 //! Three kinds of conversation share one shape (a `convId` and its posts):
 //!
@@ -67,6 +74,25 @@ pub const CHANNEL_PREFIX: &str = "ch_";
 /// channels (Spaces, #392) fold the same.
 pub const PERSONAL_SPACE: &str = "";
 
+/// The space logs Talk writes a space's channel rows to and folds them
+/// from (card #392). The Core implements it over its space logs.
+pub trait SpaceLogs: Send + Sync {
+    /// Appends a `talk.*` row (`payload`, with this device's keys) to
+    /// space `space`'s log as `by`, and returns the row as Talk folds it:
+    /// keys back in this device's form. Refused while the space can't take
+    /// it (not a member, or a device in it doesn't read `talk.*` rows yet).
+    fn append(
+        &self,
+        space: &str,
+        by: &str,
+        kind: &str,
+        payload: serde_json::Value,
+    ) -> std::result::Result<Event, String>;
+    /// Every `talk.*` row of every open space log, keys in this device's
+    /// form.
+    fn rows(&self) -> Vec<Event>;
+}
+
 /// The longest channel name and topic, in characters.
 pub const MAX_NAME: usize = 80;
 pub const MAX_TOPIC: usize = 300;
@@ -85,6 +111,13 @@ pub fn canon(key: &str) -> &str {
 /// Whether `key` is the person's (on any of their devices).
 pub fn is_person_key(key: &str) -> bool {
     key == PERSON_KEY || key.starts_with("user:")
+}
+
+/// Whether `key` is another person in a space (`person:<personId>`, as
+/// their rows in a space's log name them). This person's own rows come
+/// back as `user:<deviceId>` ([`SpaceLogs`]).
+pub fn is_other_person_key(key: &str) -> bool {
+    key.starts_with("person:")
 }
 
 /// The DM between `a` and `b`: `dm:` and the first 16 hex digits of the
@@ -120,7 +153,12 @@ impl Member {
     /// The member `key` is: the person or an agent.
     pub fn of(key: &str) -> Member {
         Member {
-            kind: if is_person_key(key) { PERSON } else { AGENT }.into(),
+            kind: if is_person_key(key) || is_other_person_key(key) {
+                PERSON
+            } else {
+                AGENT
+            }
+            .into(),
             key: key.into(),
         }
     }
@@ -296,6 +334,7 @@ pub struct NewPost {
 /// concurrent use.
 pub struct Talk {
     st: Option<Arc<Store>>,
+    spaces: std::sync::OnceLock<Arc<dyn SpaceLogs>>,
     now: Arc<dyn Fn() -> GoTime + Send + Sync>,
     s: Mutex<State>,
 }
@@ -312,6 +351,7 @@ impl Talk {
     pub fn new(st: Option<Arc<Store>>, now: Option<Arc<dyn Fn() -> GoTime + Send + Sync>>) -> Talk {
         Talk {
             st,
+            spaces: std::sync::OnceLock::new(),
             now: now.unwrap_or_else(|| {
                 Arc::new(|| GoTime::from_system(std::time::SystemTime::now()).utc())
             }),
@@ -319,11 +359,18 @@ impl Talk {
         }
     }
 
+    /// Where a space's channel rows go and come from (card #392); set
+    /// once, by the Core. Without it a space's channel is refused.
+    pub fn set_spaces(&self, spaces: Arc<dyn SpaceLogs>) {
+        let _ = self.spaces.set(spaces);
+    }
+
     fn lock(&self) -> MutexGuard<'_, State> {
         self.s.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Folds every `talk.*` row in the store afresh (start, and a resync).
+    /// Folds every `talk.*` row in the store, and in every space's log,
+    /// afresh (start, and a resync of either).
     pub fn load(&self) -> Result<()> {
         let Some(st) = self.st.clone() else {
             return Ok(());
@@ -344,6 +391,11 @@ impl Talk {
             }
             f.after = evs[evs.len() - 1].cursor();
         }
+        if let Some(sp) = self.spaces.get() {
+            for ev in sp.rows() {
+                fold(&mut fresh, &ev);
+            }
+        }
         *self.lock() = fresh;
         Ok(())
     }
@@ -357,7 +409,29 @@ impl Talk {
         fold(&mut self.lock(), ev)
     }
 
-    fn write<P: Serialize>(&self, actor_key: &str, kind: &str, p: &P) -> Result<Event> {
+    /// Appends a row to `space`'s log (empty: the private log) and folds it.
+    fn write<P: Serialize>(
+        &self,
+        space: &str,
+        actor_key: &str,
+        kind: &str,
+        p: &P,
+    ) -> Result<Event> {
+        if !space.is_empty() {
+            let Some(sp) = self.spaces.get() else {
+                return Err(Error::raw(
+                    ErrorKind::NotAllowed,
+                    "talk: this Core keeps no spaces",
+                ));
+            };
+            let v = serde_json::to_value(p)
+                .map_err(|e| Error::raw(ErrorKind::Store, format!("talk: {e}")))?;
+            let ev = sp
+                .append(space, actor_key, kind, v)
+                .map_err(|e| Error::raw(ErrorKind::NotAllowed, format!("talk: {e}")))?;
+            fold(&mut self.lock(), &ev);
+            return Ok(ev);
+        }
         let Some(st) = &self.st else {
             return Err(Error::raw(ErrorKind::Store, "talk: no store"));
         };
@@ -373,10 +447,24 @@ impl Talk {
 
     // ---- writes ---------------------------------------------------------
 
-    /// Makes a channel named `name` (unique among open channels, any
-    /// case); `by` joins it.
+    /// Makes a Personal channel named `name` (unique among open channels,
+    /// any case); `by` joins it.
     pub fn create_channel(&self, by: &str, name: &str, topic: &str) -> Result<Channel> {
+        self.create_channel_in(by, name, topic, PERSONAL_SPACE)
+    }
+
+    /// Makes a channel named `name` in space `space` (empty: Personal);
+    /// `by` joins it. A space's channel, and its members and posts, go in
+    /// the space's log ([`SpaceLogs`]).
+    pub fn create_channel_in(
+        &self,
+        by: &str,
+        name: &str,
+        topic: &str,
+        space: &str,
+    ) -> Result<Channel> {
         let by = need_by(by)?;
+        let space = space.trim();
         let name = clean_name(name)?;
         let topic = clean_topic(topic)?;
         if self.channel_named(&name).is_some() {
@@ -384,11 +472,12 @@ impl Talk {
         }
         let id = format!("{CHANNEL_PREFIX}{}", new_id(&(self.now)()));
         self.write(
+            space,
             by,
             kinds::TALK_CHANNEL_CREATED,
             &ChannelCreatedRow {
                 channel_id: id.clone(),
-                space_id: PERSONAL_SPACE.into(),
+                space_id: space.into(),
                 name,
                 topic: (!topic.is_empty()).then_some(topic),
                 by: by.into(),
@@ -414,9 +503,11 @@ impl Talk {
     fn member_op(&self, conv: &str, m: &Member, by: &str, op: &str) -> Result<bool> {
         let by = need_by(by)?;
         let conv = conv.trim();
+        let mut space = String::new();
         if is_channel(conv) {
-            if self.channel(conv).is_none() {
-                return Err(not_found(format!("no channel {conv}")));
+            match self.channel(conv) {
+                None => return Err(not_found(format!("no channel {conv}"))),
+                Some(c) => space = c.space_id,
             }
         } else if !is_dm(conv) {
             return Err(invalid(format!(
@@ -428,6 +519,7 @@ impl Talk {
             return Ok(false);
         }
         self.write(
+            &space,
             by,
             kinds::TALK_MEMBER,
             &MemberRow {
@@ -487,13 +579,14 @@ impl Talk {
         let by = need_by(&p.by)?.to_string();
         let conv = p.conv_id.trim().to_string();
         let text = check_text(&by, &p.text)?;
+        let mut space = String::new();
         if is_channel(&conv) {
             match self.channel(&conv) {
                 None => return Err(not_found(format!("no channel {conv}"))),
                 Some(c) if c.archived => {
                     return Err(invalid(format!("#{} is archived", c.name)));
                 }
-                Some(_) => {}
+                Some(c) => space = c.space_id,
             }
         } else if !is_dm(&conv) {
             return Err(invalid(format!(
@@ -540,6 +633,7 @@ impl Talk {
             self.join(&conv, &Member::of(&by), &by)?;
         }
         self.write(
+            &space,
             &by,
             kinds::TALK_POST,
             &PostRow {
@@ -574,6 +668,7 @@ impl Talk {
             return Ok(());
         }
         self.write(
+            PERSONAL_SPACE,
             by,
             kinds::TALK_READ,
             &ReadRow {

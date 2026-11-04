@@ -75,16 +75,33 @@ impl Core {
         self.s.talk.open_dm(a, b, by).map_err(|e| e.to_string())
     }
 
-    /// Makes a channel; `by` joins it.
+    /// Makes a Personal channel; `by` joins it.
     pub fn talk_channel_create(
         &self,
         by: &str,
         name: &str,
         topic: &str,
     ) -> Result<Channel, String> {
+        self.talk_channel_create_in(by, name, topic, "")
+    }
+
+    /// Makes a channel in space `space` (empty: Personal); `by` joins it.
+    /// A space's channel goes in its log and reaches its members (card
+    /// #392), refused until every device in the space reads space rows.
+    pub fn talk_channel_create_in(
+        &self,
+        by: &str,
+        name: &str,
+        topic: &str,
+        space: &str,
+    ) -> Result<Channel, String> {
+        let space = space.trim();
+        if !space.is_empty() && self.s.board(space).is_err() {
+            return Err(format!("no space {space} on this device"));
+        }
         self.s
             .talk
-            .create_channel(by, name, topic)
+            .create_channel_in(by, name, topic, space)
             .map_err(|e| e.to_string())
     }
 

@@ -1475,6 +1475,7 @@ impl Services {
         }
         laps.lap("tasks");
         self.start_board(&b);
+        self.fold_space_talk(&b);
         self.boards
             .follow
             .get_or_init(|| self.start_follow_identity());
@@ -1605,6 +1606,16 @@ impl Services {
             }
         } else if ev.kind == kinds::AGENT_CARD {
             b.fold_card(ev);
+        }
+        if ev.seq == 0 {
+            // The space's channels fold again with everything else.
+            let _ = self.talk.load();
+            self.hub.publish(crate::events::CoreEvent::Talk);
+        } else if let Some(row) = self.space_talk_row(&b.id, ev) {
+            // A space's channel row (card #392). One this device wrote was
+            // folded when it was written; the window still hears it.
+            self.talk.apply(&row);
+            self.hub.publish(crate::events::CoreEvent::Talk);
         }
         self.bridge_row(b, ev);
         if summary_row(ev) {

@@ -721,7 +721,9 @@ fn talk_through_the_window() {
         .replace("\r\n", "\n");
     let r = Rig::new();
     let w = &r.w;
-    let ch = w.talk_channel_create("general", Some("the room")).unwrap();
+    let ch = w
+        .talk_channel_create("general", Some("the room"), None)
+        .unwrap();
     let p = w.talk_post(&ch, "hello room", true, None).unwrap();
     assert!(w.talk_post(&ch, "  ", true, None).is_err());
     let from = w

@@ -1407,11 +1407,17 @@ pub async fn talk_read(w: W<'_>, conv_id: String, up_to: String) -> R<()> {
     w.talk_read(&conv_id, &up_to)
 }
 
-/// Makes a channel; returns its conv id.
+/// Makes a channel; returns its conv id. `space_id` puts it in that
+/// space, where its members see it (card #392); none is Personal.
 #[tauri::command]
 #[specta::specta]
-pub async fn talk_channel_create(w: W<'_>, name: String, topic: Option<String>) -> R<String> {
-    w.talk_channel_create(&name, topic.as_deref())
+pub async fn talk_channel_create(
+    w: W<'_>,
+    name: String,
+    topic: Option<String>,
+    space_id: Option<String>,
+) -> R<String> {
+    w.talk_channel_create(&name, topic.as_deref(), space_id.as_deref())
 }
 
 /// The person's DM with an agent, opened if new; returns its conv id.
