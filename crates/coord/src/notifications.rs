@@ -234,8 +234,22 @@ pub fn returned_body(name: Option<&str>) -> String {
     let who = name
         .map(str::trim)
         .filter(|n| !n.is_empty())
-        .unwrap_or("Its agent");
-    format!("{who} went away, so it's open again. Assign it to an agent, or close it.")
+        .unwrap_or(RETURNED_NOBODY);
+    format!("{who}{RETURNED_TAIL}")
+}
+
+const RETURNED_TAIL: &str = " went away, so it's open again. Assign it to an agent, or close it.";
+const RETURNED_NOBODY: &str = "Its agent";
+
+/// The name a stored returned row's body gave agent `key`, when it gave
+/// one and not the key (rows before card #483 named it by key): what the
+/// page falls back to once nothing else knows the name.
+pub fn returned_name_in(body: &str, key: &str) -> Option<String> {
+    let who = body.strip_suffix(RETURNED_TAIL)?.trim();
+    if who == RETURNED_NOBODY || who.contains('/') {
+        return None;
+    }
+    agent_name_of(key, who)
 }
 
 /// `name` when it is a name for agent `key` and not the key itself (a

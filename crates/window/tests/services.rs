@@ -155,16 +155,23 @@ fn stored_returned_rows_never_show_a_key() {
         )
         .unwrap();
     let gone = "devzz/ffffffff-9999-4999-8999-999999999999";
-    for (from, instance) in [(r.key_a.as_str(), "dev1:1"), (gone, "dev1:2")] {
+    let named = "devzz/eeeeeeee-8888-4888-8888-888888888888";
+    let tail = " went away, so it's open again. Assign it to an agent, or close it.";
+    // (from, who the stored body says, what the page must say)
+    let rows = [
+        (r.key_a.clone(), r.key_a.clone(), "alpha"),
+        (gone.to_string(), gone.to_string(), "Its agent"),
+        // Nothing knows it any more, but the toast named it: keep that.
+        (named.to_string(), "Bing Bong".to_string(), "Bing Bong"),
+    ];
+    for (i, (from, who, _)) in rows.iter().enumerate() {
         let mut row = PostedRow {
             kind: history::KIND_RETURNED.into(),
             task_id: t.id.clone(),
-            instance: instance.into(),
-            from: from.into(),
+            instance: format!("dev1:{i}"),
+            from: from.clone(),
             title: "Nobody is on “Spawned agents part 9” (#1)".into(),
-            body: format!(
-                "{from} went away, so it's open again. Assign it to an agent, or close it."
-            ),
+            body: format!("{who}{tail}"),
             level: "warn".into(),
             at: gocompat::time::GoTime::from_system(std::time::SystemTime::now()),
             ..PostedRow::default()
@@ -175,38 +182,26 @@ fn stored_returned_rows_never_show_a_key() {
             .append("irori", history::POSTED, &row)
             .unwrap();
     }
-    wait("both rows are in the history", || {
-        r.w.notifications().len() == 2
+    wait("the rows are in the history", || {
+        r.w.notifications().len() == rows.len()
     });
     let ns = r.w.notifications();
     for n in &ns {
-        assert!(
-            !n.body.contains('/') && !n.body.contains(gone) && !n.body.contains(&r.key_a),
-            "{n:?}"
-        );
+        assert!(!n.body.contains('/'), "{n:?}");
         if let Some(f) = &n.from {
             assert!(!f.name.contains('/'), "{n:?}");
         }
     }
-    let by = |from: &str| {
-        ns.iter()
-            .find(|n| {
-                n.key
-                    .ends_with(if from == gone { "dev1:2" } else { "dev1:1" })
-            })
-            .unwrap_or_else(|| panic!("no row for {from}: {ns:?}"))
-            .clone()
-    };
-    assert_eq!(
-        by(&r.key_a).body,
-        "alpha went away, so it's open again. Assign it to an agent, or close it."
-    );
-    let g = by(gone);
-    assert_eq!(
-        g.body,
-        "Its agent went away, so it's open again. Assign it to an agent, or close it."
-    );
-    assert!(g.from.is_none(), "an unnamed agent's key isn't sent: {g:?}");
+    for (i, (from, _, want)) in rows.iter().enumerate() {
+        let n = ns
+            .iter()
+            .find(|n| n.key.ends_with(&format!("dev1:{i}")))
+            .unwrap_or_else(|| panic!("no row for {from}: {ns:?}"));
+        assert_eq!(n.body, format!("{want}{tail}"), "{n:?}");
+        if *want == "Its agent" {
+            assert!(n.from.is_none(), "an unnamed agent's key isn't sent: {n:?}");
+        }
+    }
 }
 
 #[test]

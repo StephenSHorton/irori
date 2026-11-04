@@ -109,7 +109,8 @@ impl Window {
                 if r.kind == coord::notifications::KIND_RETURNED {
                     // A row kept before card #483 names the agent by its
                     // key: say it again by name, never the key.
-                    let name = returned_name(from.as_ref(), task.as_ref(), &r.from);
+                    let name = returned_name(from.as_ref(), task.as_ref(), &r.from)
+                        .or_else(|| coord::notifications::returned_name_in(&r.body, &r.from));
                     r.body = coord::notifications::returned_body(name.as_deref());
                     match (&mut from, name) {
                         (Some(f), Some(n)) => f.name = n,
