@@ -158,12 +158,63 @@ pub fn end(id: &str) -> Result<String, String> {
     end_with(&find_claude()?, id, Duration::from_secs(8))
 }
 
-pub(crate) fn end_with(bin: &Path, id: &str, patience: Duration) -> Result<String, String> {
+/// A session id as it may go on a command line: 8+ hex digits and dashes,
+/// never a flag.
+fn session_arg(id: &str) -> Result<&str, String> {
     let id = id.trim();
     if id.len() < 8 || id.starts_with('-') || !id.chars().all(|c| c == '-' || c.is_ascii_hexdigit())
     {
         return Err(format!("not a session id: {id:?}"));
     }
+    Ok(id)
+}
+
+/// A spawned session's recent terminal output, read only (card #456,
+/// sa-2's Logs): `claude logs <id>`, colours removed.
+pub fn logs(id: &str) -> Result<String, String> {
+    logs_with(&find_claude()?, id)
+}
+
+pub(crate) fn logs_with(bin: &Path, id: &str) -> Result<String, String> {
+    let id = session_arg(id)?;
+    let mut cmd = std::process::Command::new(bin);
+    cmd.args(["logs", id])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    hide_console(&mut cmd);
+    let (ok, text) = run(cmd)?;
+    if !ok {
+        return Err(format!("claude logs {id}: {text}"));
+    }
+    Ok(text)
+}
+
+/// The argv a card's terminal tab runs to attach to a spawned session
+/// (card #456, sa-2's Attach): `claude attach <id>`. A `claude.cmd` goes
+/// through `cmd.exe /c`, as a pty can't start a batch file itself; the id
+/// is plain hex, so nothing in it reaches cmd's parsing.
+pub fn attach_argv(id: &str) -> Result<Vec<String>, String> {
+    attach_argv_with(&find_claude()?, id)
+}
+
+pub(crate) fn attach_argv_with(bin: &Path, id: &str) -> Result<Vec<String>, String> {
+    let id = session_arg(id)?;
+    let b = bin.to_string_lossy().into_owned();
+    let batch = bin
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
+    let mut argv = Vec::new();
+    if batch {
+        argv.extend(["cmd.exe".to_string(), "/c".to_string()]);
+    }
+    argv.extend([b, "attach".to_string(), id.to_string()]);
+    Ok(argv)
+}
+
+pub(crate) fn end_with(bin: &Path, id: &str, patience: Duration) -> Result<String, String> {
+    let id = session_arg(id)?;
     let call = |verb: &str| {
         let mut cmd = std::process::Command::new(bin);
         cmd.args([verb, id])
@@ -892,6 +943,68 @@ mod tests {
             end_with(&bin, "--help", Duration::ZERO).is_err(),
             "never a flag"
         );
+    }
+
+    #[test]
+    fn logs_runs_claude_logs_with_the_session_id_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let log = dir.join("argv.txt");
+        #[cfg(windows)]
+        let bin = {
+            let p = dir.join("claude.cmd");
+            std::fs::write(
+                &p,
+                format!(
+                    "@echo off
+(echo %*) > \"{}\"
+echo Read src/world/lantern.rs
+echo test result: ok
+",
+                    log.display()
+                ),
+            )
+            .unwrap();
+            p
+        };
+        #[cfg(not(windows))]
+        let bin = {
+            use std::os::unix::fs::PermissionsExt;
+            let p = dir.join("claude");
+            std::fs::write(
+                &p,
+                format!(
+                    "#!/bin/sh
+echo \"$@\" > '{}'
+echo 'Read src/world/lantern.rs'
+echo 'test result: ok'
+",
+                    log.display()
+                ),
+            )
+            .unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            p
+        };
+        let out = logs_with(&bin, "0a1b2c3d-1111").unwrap();
+        assert!(out.contains("lantern.rs") && out.contains("test result: ok"), "{out}");
+        let argv = std::fs::read_to_string(&log).unwrap();
+        assert_eq!(argv.trim(), "logs 0a1b2c3d-1111");
+        assert!(logs_with(&bin, "--help").is_err(), "never a flag");
+        assert!(logs_with(&bin, "abc & calc").is_err(), "never a metacharacter");
+    }
+
+    #[test]
+    fn attach_runs_claude_attach_and_a_batch_file_through_cmd() {
+        assert_eq!(
+            attach_argv_with(Path::new("/usr/bin/claude"), "0a1b2c3d").unwrap(),
+            ["/usr/bin/claude", "attach", "0a1b2c3d"]
+        );
+        assert_eq!(
+            attach_argv_with(Path::new("C:/npm/claude.CMD"), "0a1b2c3d").unwrap(),
+            ["cmd.exe", "/c", "C:/npm/claude.CMD", "attach", "0a1b2c3d"]
+        );
+        assert!(attach_argv_with(Path::new("claude"), "-x").is_err());
     }
 
     fn card(name: &str, sid: &str) -> presence::AgentCard {
