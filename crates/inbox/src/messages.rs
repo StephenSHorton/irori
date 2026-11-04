@@ -195,6 +195,15 @@ impl Inner {
             m.parent_id = r.id.clone();
             m.hop = r.hop + 1;
         }
+        // Card #488: once either agent made progress since the message
+        // this one follows (a step ticked, a card's state set, a commit),
+        // the chain is getting somewhere and its hop count starts again.
+        if m.hop > 0
+            && let Some(p) = self.msgs.get(&m.parent_id)
+            && self.chain_progressed(&[&from.key, &recipient, &p.from.key], &p.sent_at)
+        {
+            m.hop = 0;
+        }
 
         // The sender becomes addressable by the name it sent under.
         let al = norm_alias(&from.name);

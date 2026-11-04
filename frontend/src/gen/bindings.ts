@@ -29,6 +29,8 @@ export const commands = {
 	inboxMarkRead: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_mark_read", { deliveryId }),
 	inboxRelease: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_release", { deliveryId }),
 	inboxDismiss: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_dismiss", { deliveryId }),
+	inboxStartAgent: (deliveryId: string) => __TAURI_INVOKE<StartedAgent>("inbox_start_agent", { deliveryId }),
+	inboxRepoNames: () => __TAURI_INVOKE<RepoName[]>("inbox_repo_names"),
 	inboxAllowAndRelease: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_allow_and_release", { deliveryId }),
 	inboxPolicy: () => __TAURI_INVOKE<Policy>("inbox_policy"),
 	inboxSetPolicy: (p: PolicyInput) => __TAURI_INVOKE<null>("inbox_set_policy", { p }),
@@ -1606,19 +1608,13 @@ export type NoteEventView = {
 	text: string,
 };
 
-/**  What New note and Keep as note write. */
+/**  What New note writes. */
 export type NoteInput = {
 	/**  `mine` (the default), or a board's tag or id. */
 	scope?: string,
 	kind?: string,
 	text?: string,
 	tags?: string[],
-	/**  Where it came from, as in [`NoteView::source`]. */
-	source?: string,
-	/**  The source's card, comment and blocker, when it has them. */
-	taskId?: string,
-	commentId?: string,
-	blockerId?: string,
 };
 
 /**  A note as the Notes page shows it. */
@@ -1807,6 +1803,15 @@ export type RelayView = {
 	detail?: string,
 };
 
+/**
+ *  A repo this device has a checkout of, by its short name (card #488):
+ *  what a held message to a repo names instead of its key.
+ */
+export type RepoName = {
+	repoKey: string,
+	name: string,
+};
+
 /**  coord.Resolution. */
 export type Resolution = {
 	answer: string,
@@ -1928,6 +1933,19 @@ export type SpaceBoard = {
 	boardId: string,
 	name: string,
 	tag: string,
+};
+
+/**
+ *  What "Start an agent in <repo>" did with a held message (card #488):
+ *  the card it became, and whether an agent is starting for it (spawning
+ *  on), it was handed to a free agent, or it waits for one.
+ */
+export type StartedAgent = {
+	cardRef: string,
+	/**  The repo's short name. */
+	repo: string,
+	started: boolean,
+	offered: boolean,
 };
 
 /**  inbox.State. */

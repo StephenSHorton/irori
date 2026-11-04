@@ -101,6 +101,7 @@ export type Policy = B.Policy
 export type PolicyInput = B.PolicyInput
 export type RefTarget = B.RefTarget
 export type RelayView = B.RelayView
+export type RepoName = B.RepoName
 export type Resolution = B.Resolution
 export type Returned = B.Returned
 export type ReviewerChoice = B.ReviewerChoice
@@ -113,6 +114,7 @@ export type Sender = B.Sender
 export type SharePreview = B.SharePreview
 export type SharedCopy = B.SharedCopy
 export type SpaceBoard = B.SpaceBoard
+export type StartedAgent = B.StartedAgent
 export type State = B.State
 export type Step = B.Step
 export type SubtaskPreview = B.SubtaskPreview
@@ -586,6 +588,11 @@ export function RelayView(p: Partial<B.RelayView> = {}): B.RelayView {
   return { "state": "", ...p } as B.RelayView
 }
 
+/** RepoName with Go's zero values for every field left out. */
+export function RepoName(p: Partial<B.RepoName> = {}): B.RepoName {
+  return { "repoKey": "", "name": "", ...p } as B.RepoName
+}
+
 /** Resolution with Go's zero values for every field left out. */
 export function Resolution(p: Partial<B.Resolution> = {}): B.Resolution {
   return { "answer": "", "option": 0, "by": "", "at": "", ...p } as B.Resolution
@@ -639,6 +646,11 @@ export function SharePreview(p: Partial<B.SharePreview> = {}): B.SharePreview {
 /** SpaceBoard with Go's zero values for every field left out. */
 export function SpaceBoard(p: Partial<B.SpaceBoard> = {}): B.SpaceBoard {
   return { "boardId": "", "name": "", "tag": "", ...p } as B.SpaceBoard
+}
+
+/** StartedAgent with Go's zero values for every field left out. */
+export function StartedAgent(p: Partial<B.StartedAgent> = {}): B.StartedAgent {
+  return { "cardRef": "", "repo": "", "started": false, "offered": false, ...p } as B.StartedAgent
 }
 
 /** Step with Go's zero values for every field left out. */

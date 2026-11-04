@@ -90,7 +90,7 @@ import {
   waitLabel,
   Asker,
 } from "./bits"
-import { KeepAsNote, NoteCard, WakeNotes, useNoteCard } from "@/components/notes/parts"
+import { WakeNotes } from "@/components/notes/parts"
 import { Face, LiveDot } from "./faces"
 import { Thread } from "./thread"
 import { TerminalSection } from "@/components/term/terminal-section"
@@ -258,9 +258,6 @@ export function CardPage({
   const hasBlockers = blockers.length > 0 || legacy || !!answered
   return (
     <MentionBoard.Provider value={detail.onBoard?.id ?? ""}>
-    <NoteCard.Provider
-      value={{ id: detail.id, repoKey: detail.repoKey, board: detail.onBoard ? { tag: detail.onBoard.tag } : null }}
-    >
     <article className="grid gap-3" aria-label="Card">
       {back}
       <WorkingRow card={now_} />
@@ -540,7 +537,6 @@ export function CardPage({
         </div>
       </div>
     </article>
-    </NoteCard.Provider>
     </MentionBoard.Provider>
   )
 }
@@ -1232,20 +1228,6 @@ function WhereLines({ detail, now }: { detail: CardDetail; now: Date }) {
   )
 }
 
-// ProofKeep is Keep as note on a done proof (card #413).
-function ProofKeep({ cardId, text }: { cardId: string; text: string }) {
-  const card = useNoteCard()
-  if (!card || card.id !== cardId) return null
-  return (
-    <KeepAsNote
-      text={text}
-      card={card}
-      className="justify-self-start"
-      source={{ label: "the done proof", source: `proof:${cardId}` }}
-    />
-  )
-}
-
 // TerminalCard is the card's live terminal on this device (card #369), in
 // the window only: none in a plain browser or on a phone.
 function TerminalCard({ cardId }: { cardId: string }) {
@@ -1769,7 +1751,6 @@ function BlockerItem({
       {b.context && (
         <RichText text={b.context} className="text-[12.5px] text-ink-2" />
       )}
-      {b.doneCheck && b.context && <ProofKeep cardId={cardId} text={b.context} />}
       {(b.links?.length ?? 0) > 0 && (
         <div
           className="flex flex-wrap gap-1.5"
