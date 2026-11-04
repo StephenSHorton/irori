@@ -461,7 +461,7 @@ export function ConvItem({ c, current, onClick }: { c: Conv; current: boolean; o
           key: other[0].key,
           name: memberName(other[0]),
           status: statusOf(other[0], live),
-          live: statusOf(other[0], live) !== "gone",
+          live: !["gone", "unknown"].includes(statusOf(other[0], live)),
         })}
         className="size-4 shrink-0"
         noHover

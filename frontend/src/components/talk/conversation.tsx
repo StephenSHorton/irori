@@ -254,7 +254,7 @@ function refOf(m: Member, live: ReadonlyMap<string, { status: string }>) {
     key: m.key,
     name: m.kind === "person" && m.name === "you" ? "You" : memberName(m),
     status,
-    live: status !== "gone",
+    live: status !== "gone" && status !== "unknown",
   })
 }
 
@@ -296,7 +296,7 @@ export function PostRow({
         ? { kind: "person", key, name: "you" }
         : { kind: key.startsWith("person:") ? "person" : "agent", key })
     const ref = refOf(m, live)
-    return { name: m.kind === "person" && m.name === "you" ? "you" : memberName(m), who: ref, gone: !ref.live }
+    return { name: m.kind === "person" && m.name === "you" ? "you" : memberName(m), who: ref, gone: ref.status === "gone" }
   })
   const m: Member = who ?? { kind: post.by.startsWith("person:") ? "person" : "agent", key: post.by }
   const at = parseTime(post.at)

@@ -252,6 +252,37 @@ function sampleState(): SampleConv[] {
     ],
     readUpTo: "sample-dm-gone-new-p1",
   })
+  // Another member's agent on a shared board (card #478): named "BillingEng1
+  // · Spencer" from the board's roster, never its board:<board>/<card> key,
+  // and with the yours, not the Archive: it isn't on this roster, that's
+  // all. One whose state this device doesn't know says only whose it is.
+  const spencer = "board:b3f5895439ea36e68e99533be49d066b/f052f6f42153dfb4f70ff159e3830ce2"
+  const spencer2 = "board:b3f5895439ea36e68e99533be49d066b/0d1e5c0a7f2b4c6e9a8b3d2f1e0c9b8a"
+  sample.push(
+    {
+      ...TalkConversation({
+        convId: "sample-dm-spencer",
+        kind: "dm",
+        name: "BillingEng1 · Spencer",
+        members: [you, { kind: "agent", key: spencer, name: "BillingEng1 · Spencer", status: "idle", owner: "Spencer" }],
+      }),
+      posts: [
+        post("sample-dm-spencer", 1, me, 30, "Is the ZZ rehearsal on dev first?"),
+        post("sample-dm-spencer", 2, spencer, 28, "Yes: no prod writes for ZZ until the dev rehearsal passes. The two questions for you are blockers on #2258."),
+      ],
+      readUpTo: "sample-dm-spencer-p1",
+    },
+    {
+      ...TalkConversation({
+        convId: "sample-dm-spencer-2",
+        kind: "dm",
+        name: "an agent of Spencer's",
+        members: [you, { kind: "agent", key: spencer2, name: "an agent of Spencer's", owner: "Spencer" }],
+      }),
+      posts: [post("sample-dm-spencer-2", 1, me, 300, "Thanks for the restatement list.")],
+      readUpTo: "sample-dm-spencer-2-p1",
+    }
+  )
   for (let i = 1; i <= 24; i++) {
     const id = `sample-dm-aa-${i}`
     const x = `sample-aa-${i}`
