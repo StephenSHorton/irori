@@ -14,6 +14,7 @@ import type { WindDownRow, WindDownStatus } from "@/gen/bindings"
 import { Events, WindDownService } from "@/lib/host"
 import { inWails, plainBlock, plainLine } from "@/lib/irori"
 import { errorText, useLatest } from "@/lib/talk"
+import { windDownSample } from "@/lib/wind-down"
 
 // EventWindDown is windDown:changed: a run's status moved.
 export const EventWindDown = "windDown:changed"
@@ -55,7 +56,7 @@ export function WindDownDialog({
   onClose: () => void
 }) {
   const loadStatus = useCallback(
-    async () => (inWails() ? WindDownService.Status() : empty),
+    async () => (inWails() ? WindDownService.Status() : (windDownSample() ?? empty)),
     []
   )
   const live = useLatest<WindDownStatus>(loadStatus, empty)

@@ -184,6 +184,13 @@ export function answerable(state: string): boolean {
   return state !== BlockerState.Resolved && state !== BlockerState.Closed
 }
 
+// isWait reports whether an open item waits on other work (card #481): a
+// card, a lease, an agent or something outside, not a person. It is never
+// the person's to answer and never counts as a decision.
+export function isWait(b: CardBlocker): boolean {
+  return !b.resolved && !!b.waitsOn
+}
+
 // blockerChip is an item's state chip: "Sent to X" (" · session ended"
 // once X has gone) while answered, "Replied" while back with the person,
 // "Revised" while open after an agent revised it (card #50: what it asks

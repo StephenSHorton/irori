@@ -1085,10 +1085,10 @@ fn a_wait_on_another_card_is_no_decision() {
 }
 
 /// Card #347: what waits on the person says so. A question with options is
-/// a decision whatever it's filed on (#290 was "on external"); a card in
-/// review on an open PR nobody else reviews waits on the person's review
-/// (#334); a card waiting on such a card names it (#329), and so does one
-/// waiting on a card with the person's question.
+/// a decision whatever it's filed on (#290 was "on external"); a card
+/// waiting on a card with the person's question names it. Card #471: a card
+/// in review on an open PR waits on that PR, never on the person's review,
+/// and a card waiting on it doesn't name the person either.
 #[test]
 fn what_waits_on_the_person_says_so() {
     const PR: &str = "https://github.com/a/suzuri/pull/96";
@@ -1159,12 +1159,12 @@ fn what_waits_on_the_person_says_so() {
     co.set_task_state(&r.key_b, &pr.id, coord::IN_REVIEW, "")
         .unwrap();
     let s = summary(&pr.id);
-    let rp = s.review_pr.expect("waits on the person's review");
-    assert_eq!((rp.number, rp.url.as_str()), (96, PR));
-    let s = summary(&after.id);
+    let wp = s.wait_pr.expect("waits on its PR");
+    assert_eq!((wp.number, wp.url.as_str()), (96, PR));
     assert_eq!(
-        s.wait_you,
-        format!("your review of PR #96 ({})", pr.short_ref())
+        summary(&after.id).wait_you,
+        "",
+        "a PR never waits on the person"
     );
 
     // A card waiting on #290's question names the person's answer.
@@ -1175,10 +1175,190 @@ fn what_waits_on_the_person_says_so() {
         format!("your answer on {}", ext.short_ref())
     );
 
-    // An agent asked to review it: that's the agent's review, not theirs.
-    co.request_review(&r.key_b, &pr.id, PR, &r.key_a).unwrap();
-    assert!(summary(&pr.id).review_pr.is_none());
+    // None of the person's own agents may review it: it still waits on
+    // the PR.
+    let e = co
+        .request_review(&r.key_b, &pr.id, PR, &r.key_a)
+        .unwrap_err();
+    assert!(e.is(coord::ErrorKind::NotAllowed), "{e}");
+    assert_eq!(summary(&pr.id).wait_pr.map(|p| p.number), Some(96));
     assert_eq!(summary(&after.id).wait_you, "");
+
+    // Merged: nothing to wait on.
+    co.record_pr_state(
+        &pr.id,
+        coord::PrCheck {
+            pr: PR.into(),
+            state: coord::PR_MERGED.into(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(summary(&pr.id).wait_pr.is_none());
+}
+
+/// Card #481: a wait on another card (#394's "Waits on Talk 4 (#392)")
+/// is drawn as a wait with what it waits on, never as a question, and is
+/// never counted as a decision; one filed on a card with options is still
+/// the person's question (card #347).
+#[test]
+fn a_wait_on_a_card_is_never_a_question() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let talk4 = co
+        .create_task(
+            &me(&r),
+            coord::NewTask {
+                title: "Talk 4: Spaces".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let t = held_task(&r);
+    let on = |kind: &str, reference: &str| {
+        Some(coord::BlockedBy {
+            kind: kind.into(),
+            reference: reference.into(),
+        })
+    };
+    let (_, b1) = co
+        .raise(
+            &r.key_a,
+            &t.id,
+            coord::NewBlocker {
+                question: format!("Waits on Talk 4 ({})", talk4.short_ref()),
+                blocked_by: on(coord::BLOCKED_ON_TASK, &talk4.id),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let (_, b2) = co
+        .raise(
+            &r.key_a,
+            &t.id,
+            coord::NewBlocker {
+                question: "after beta".into(),
+                blocked_by: on(coord::BLOCKED_ON_AGENT, &r.key_b),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let d = r.w.card(&t.id).unwrap();
+    let w = blocker(&d, &b1.id).waits_on.clone().expect("a wait");
+    assert_eq!(
+        (
+            w.kind.as_str(),
+            w.label.clone(),
+            w.task_id.as_str(),
+            w.title.as_str()
+        ),
+        (
+            coord::BLOCKED_ON_TASK,
+            talk4.short_ref(),
+            talk4.id.as_str(),
+            "Talk 4: Spaces"
+        )
+    );
+    let w = blocker(&d, &b2.id).waits_on.clone().expect("a wait");
+    assert_eq!(w.kind, coord::BLOCKED_ON_AGENT);
+    assert!(
+        !w.label.is_empty() && w.label != r.key_b,
+        "named, not a key: {}",
+        w.label
+    );
+    assert_eq!((d.summary.open_blockers, d.summary.waiting_on), (0, 2));
+    assert_eq!(r.w.decide_count(), 0);
+
+    // With options it is the person's to decide, whatever it's filed on.
+    let (_, b3) = co
+        .raise(
+            &r.key_a,
+            &t.id,
+            coord::NewBlocker {
+                question: "Wait for Talk 4, or ship without it?".into(),
+                options: ["Wait", "Ship"]
+                    .iter()
+                    .map(|a| coord::BlockerOption {
+                        answer: (*a).into(),
+                        ..Default::default()
+                    })
+                    .collect(),
+                blocked_by: on(coord::BLOCKED_ON_TASK, &talk4.id),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let d = r.w.card(&t.id).unwrap();
+    assert!(blocker(&d, &b3.id).waits_on.is_none());
+    assert!(d.summary.wait_loop.is_empty() && d.summary.wait_stuck.is_none());
+    assert_eq!((d.summary.open_blockers, d.summary.waiting_on), (1, 2));
+    assert_eq!(r.w.decide_count(), 1);
+}
+
+/// Card #481: #392 waited on #396, #396 on #394 and #394 on #392. Each
+/// card's summary names the same loop, none of it counts as a decision,
+/// and it's gone once one of the cards is done.
+#[test]
+fn cards_that_wait_on_each_other_name_the_loop() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let summary = |id: &str| r.w.cards().into_iter().find(|c| c.id == id).unwrap();
+    let card = |title: &str| {
+        co.create_task(
+            &me(&r),
+            coord::NewTask {
+                title: title.into(),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let wait_on = |id: &str, on: &str| {
+        co.raise(
+            &me(&r),
+            id,
+            coord::NewBlocker {
+                question: "after it".into(),
+                blocked_by: Some(coord::BlockedBy {
+                    kind: coord::BLOCKED_ON_TASK.into(),
+                    reference: on.into(),
+                }),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let (t4, t6, t8) = (card("Talk 4"), card("Talk 6"), card("Talk 8"));
+    wait_on(&t4.id, &t8.id);
+    wait_on(&t8.id, &t6.id);
+    assert!(summary(&t4.id).wait_loop.is_empty());
+    wait_on(&t6.id, &t4.id);
+
+    let ids =
+        |id: &str| -> Vec<String> { summary(id).wait_loop.iter().map(|c| c.id.clone()).collect() };
+    let ring = ids(&t4.id);
+    assert_eq!(ring.len(), 3, "{ring:?}");
+    for t in [&t4, &t6, &t8] {
+        assert_eq!(ids(&t.id), ring, "{}", t.title);
+        let s = summary(&t.id);
+        assert_eq!((s.open_blockers, s.waiting_on), (0, 1), "{}", t.title);
+        assert!(s.wait_stuck.is_none());
+    }
+    let s = summary(&t4.id);
+    let named = s.wait_loop.iter().find(|c| c.id == t6.id).unwrap();
+    assert_eq!(
+        (named.short.as_str(), named.title.as_str()),
+        (t6.short.as_str(), "Talk 6")
+    );
+    assert_eq!(r.w.decide_count(), 0);
+    // The card page carries it too.
+    assert_eq!(r.w.card(&t6.id).unwrap().summary.wait_loop.len(), 3);
+
+    co.set_task_state(&me(&r), &t6.id, coord::CANCELED, "not now")
+        .unwrap();
+    for t in [&t4, &t8] {
+        assert!(ids(&t.id).is_empty(), "{}", t.title);
+    }
 }
 
 /// Card #138: clearing done cards takes them out of Closed (by id, by age
@@ -1305,4 +1485,109 @@ fn files_with_a_blocker_answer_and_a_message_reply() {
         .unwrap();
     assert_eq!(r.w.inbox_get(&d.id).unwrap().state, "answered");
     assert_eq!(newest_files(&r), vec!["notes.md"]);
+}
+
+/// Card #485: an item whose agent is gone, on a card nobody holds, says
+/// so (goneAgent) and its answer goes out with the card, not to nobody:
+/// #453's "Is this done?" raised by piranha, after piranha went.
+#[test]
+fn a_not_done_on_a_gone_agents_check_goes_to_the_next_agent() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let gone = format!("{}/piranha-session", r.w.core.device_id());
+    let t = co
+        .create_task(
+            &me(&r),
+            coord::NewTask {
+                title: "terminal agents".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    co.claim_task(&gone, &t.id).unwrap();
+    co.watch(&gone, &t.id).ok();
+    co.watch(&r.key_b, &t.id).unwrap();
+    let got = co
+        .set_task_state(&gone, &t.id, coord::COMPLETED, "on main at 8845c11a")
+        .unwrap();
+    let check = got
+        .blockers
+        .iter()
+        .find(|b| b.done_check)
+        .expect("a done check")
+        .id
+        .clone();
+    // While piranha holds it, nothing is marked.
+    assert!(
+        blocker(&r.w.card(&t.id).unwrap(), &check)
+            .gone_agent
+            .is_none()
+    );
+    co.leave(&gone, &t.id, &gone).unwrap();
+    let d = r.w.card(&t.id).unwrap();
+    let b = blocker(&d, &check);
+    assert_eq!(
+        b.gone_agent.as_ref().map(|a| a.key.as_str()),
+        Some(gone.as_str())
+    );
+    // A gone watcher is left out; a live one stays.
+    let ws: Vec<&str> = d.summary.watching.iter().map(|w| w.key.as_str()).collect();
+    assert_eq!(ws, [r.key_b.as_str()]);
+
+    let res =
+        r.w.answer(
+            &t.id,
+            &check,
+            -1,
+            "Not done: the others haven't been told the next steps",
+            false,
+            &[],
+        )
+        .unwrap();
+    // Not resolved in place: the card is back on the Board, and the
+    // person's words are on the check's thread for the next agent's brief.
+    assert_eq!(res.card.summary.state, coord::SUBMITTED);
+    let cs = co.comments(&t.id).unwrap_or_default();
+    assert!(
+        cs.iter()
+            .any(|c| c.blocker_id == check && c.by == me(&r) && c.text.contains("next steps")),
+        "{cs:?}"
+    );
+}
+
+/// Card #485: "Hand to an agent" on a wait whose agent is gone (#445
+/// waited on kestrel): the card goes back on the Board, what was open
+/// said on it.
+#[test]
+fn hand_on_a_wait_on_a_gone_agent() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let kestrel = format!("{}/kestrel-session", r.w.core.device_id());
+    let t = held_task(&r);
+    co.raise(
+        &r.key_a,
+        &t.id,
+        coord::NewBlocker {
+            question: "Waiting on kestrel's no-daemon GUI spawn".into(),
+            blocked_by: Some(coord::BlockedBy {
+                kind: coord::BLOCKED_ON_AGENT.into(),
+                reference: kestrel.clone(),
+            }),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    // Alpha holds it: not stranded, and Hand to an agent is refused.
+    assert!(r.w.hand_on(&t.id).is_err());
+    co.leave(&r.key_a, &t.id, &r.key_a).unwrap();
+    let d = r.w.card(&t.id).unwrap();
+    let b = blocker(&d, "b1");
+    let w = b.waits_on.as_ref().expect("a wait");
+    assert!(w.gone);
+    assert_eq!(b.gone_agent.as_ref().unwrap().key, kestrel);
+    let said = r.w.hand_on(&t.id).unwrap();
+    assert!(said.contains("back on the Board"), "{said}");
+    let d = r.w.card(&t.id).unwrap();
+    assert_eq!(d.summary.state, coord::SUBMITTED);
+    assert!(d.blockers.iter().all(|b| b.gone_agent.is_none()));
 }

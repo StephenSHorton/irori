@@ -45,6 +45,7 @@ export type CardSubtask = B.CardSubtask
 export type CardSummary = B.CardSummary
 export type CardThreadItem = B.CardThreadItem
 export type CardWait = B.CardWait
+export type CardWaitOn = B.CardWaitOn
 export type CardWhere = B.CardWhere
 export type Change = B.Change
 export type ChangeKind = B.ChangeKind
@@ -101,7 +102,6 @@ export type RefTarget = B.RefTarget
 export type RelayView = B.RelayView
 export type Resolution = B.Resolution
 export type Returned = B.Returned
-export type ReviewPr = B.ReviewPr
 export type ReviewerChoice = B.ReviewerChoice
 export type Rollup = B.Rollup
 export type RosterChange = B.RosterChange
@@ -140,6 +140,7 @@ export type Value = B.Value
 export type VoiceDownload = B.VoiceDownload
 export type VoiceEvent = B.VoiceEvent
 export type VoiceStatus = B.VoiceStatus
+export type WaitPr = B.WaitPr
 export type WakeNoteView = B.WakeNoteView
 export type WindDownRow = B.WindDownRow
 export type WindDownStatus = B.WindDownStatus
@@ -337,6 +338,11 @@ export function CardThreadItem(p: Partial<B.CardThreadItem> = {}): B.CardThreadI
 /** CardWait with Go's zero values for every field left out. */
 export function CardWait(p: Partial<B.CardWait> = {}): B.CardWait {
   return { "id": "", "who": AgentRef(), "text": "", "onThis": false, ...p } as B.CardWait
+}
+
+/** CardWaitOn with Go's zero values for every field left out. */
+export function CardWaitOn(p: Partial<B.CardWaitOn> = {}): B.CardWaitOn {
+  return { "kind": "", "label": "", ...p } as B.CardWaitOn
 }
 
 /** CardWhere with Go's zero values for every field left out. */
@@ -589,11 +595,6 @@ export function ReviewerChoice(p: Partial<B.ReviewerChoice> = {}): B.ReviewerCho
   return { "agent": "", "name": "", "repo": "", ...p } as B.ReviewerChoice
 }
 
-/** ReviewPr with Go's zero values for every field left out. */
-export function ReviewPr(p: Partial<B.ReviewPr> = {}): B.ReviewPr {
-  return { "repo": "", "number": 0, "url": "", ...p } as B.ReviewPr
-}
-
 /** Rollup with Go's zero values for every field left out. */
 export function Rollup(p: Partial<B.Rollup> = {}): B.Rollup {
   return { "state": "", "done": 0, "total": 0, ...p } as B.Rollup
@@ -747,6 +748,11 @@ export function VoiceEvent(p: Partial<B.VoiceEvent> = {}): B.VoiceEvent {
 /** VoiceStatus with Go's zero values for every field left out. */
 export function VoiceStatus(p: Partial<B.VoiceStatus> = {}): B.VoiceStatus {
   return { "state": "", "reason": "", "fix": "", "modelBytes": 0, ...p } as B.VoiceStatus
+}
+
+/** WaitPr with Go's zero values for every field left out. */
+export function WaitPr(p: Partial<B.WaitPr> = {}): B.WaitPr {
+  return { "repo": "", "number": 0, "url": "", ...p } as B.WaitPr
 }
 
 /** WakeNoteView with Go's zero values for every field left out. */

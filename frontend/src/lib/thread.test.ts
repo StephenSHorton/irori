@@ -9,6 +9,7 @@ import {
   BlockerState,
   blockerTone,
   needsPerson,
+  isWait,
   opensInFull,
   threadLabel,
   ThreadPage,
@@ -178,6 +179,18 @@ describe("blocker states", () => {
   test("an item from an older app (no state) is open", () => {
     expect(blockerTone("")).toBe("amber")
     expect(needsPerson("")).toBe(true)
+  })
+
+  test("an open wait on other work is a wait, a closed one isn't (card #481)", () => {
+    const waitsOn = { kind: "task" as const, label: "#392", taskId: "t392" }
+    expect(isWait(CardBlocker({ state: "open", waitsOn }))).toBe(true)
+    expect(isWait(CardBlocker({ state: "open" }))).toBe(false)
+    const closed = CardBlocker({
+      state: "closed",
+      waitsOn,
+      resolved: { answer: "task completed", option: -1, by: AgentRef(), at: "", closed: true, note: "" },
+    })
+    expect(isWait(closed)).toBe(false)
   })
 })
 

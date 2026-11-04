@@ -157,8 +157,12 @@ export function sampleCards(now: Date): CardDetail[] {
   const card = (c: Partial<CardDetail>): CardDetail => {
     const st = c.steps ?? []
     const open = (c.blockers ?? []).filter((b) => !b.resolved)
-    // As cardSummary: an answered item waits on an agent, not the person.
-    const needs = open.filter((b) => b.state !== "answered")
+    // As cardSummary: an answered item waits on an agent, not the person,
+    // and a wait on other work (card #481) or another member's question
+    // is a wait.
+    const asked = open.filter((b) => b.state !== "answered")
+    const needs = asked.filter((b) => !b.waitsOn && !b.decider)
+    const wait = asked.find((b) => b.waitsOn)
     return CardDetail({
       scope: "mine",
       scopeLabel: "My devices",
@@ -182,7 +186,11 @@ export function sampleCards(now: Date): CardDetail[] {
       ...sampleAccent(c.working ?? []),
       talking: c.talking ?? [],
       openBlockers: needs.length,
-      waiting: open.length - needs.length,
+      waiting: open.length - asked.length,
+      waitingOn: c.waitingOn ?? (asked.length - needs.length || undefined),
+      waitOn: c.waitOn ?? wait?.waitsOn?.label,
+      waitQuestion: c.waitQuestion ?? wait?.question,
+      waitTask: c.waitTask ?? wait?.waitsOn?.taskId,
       blockerQuestion: needs[0]?.question ?? "",
       ready: needs.some((b) => b.doneCheck) || undefined,
     })
@@ -310,6 +318,104 @@ export function sampleCards(now: Date): CardDetail[] {
       ]
     : []
 
+  // Card #481: ?loop=1 shows three cards that wait on each other, as
+  // #392, #394 and #396 did: each wait a grey link with nothing to
+  // answer, one Needs you item for the loop, and #72's own question
+  // beside its wait (PREVIEW.md).
+  const waitOn = (id: string, short: string, title: string, q: string) =>
+    CardBlocker({
+      id: "b1",
+      question: q,
+      raisedBy: heron,
+      at: at(90),
+      resolved: null,
+      state: "open",
+      waitsOn: { kind: "task", label: `#${short}`, taskId: id, title },
+    })
+  const ring = [
+    { id: "sample-card-loop-70", short: "70", title: "Talk 4: Spaces" },
+    { id: "sample-card-loop-72", short: "72", title: "Talk 8: release Talk" },
+    { id: "sample-card-loop-71", short: "71", title: "Talk 6: person-to-person DMs" },
+  ]
+  const loop = new URLSearchParams(window.location.search).has("loop")
+    ? [
+        card({
+          id: "sample-card-loop-70",
+          short: "70",
+          title: "Talk 4: Spaces",
+          goal: "The space log replaces the per-board log.",
+          state: TaskState.Blocked,
+          working: [],
+          waitLoop: ring,
+          blockers: [
+            waitOn(
+              "sample-card-loop-72",
+              "72",
+              "Talk 8: release Talk",
+              "s6 live check waits on the Talk release (#72)"
+            ),
+          ],
+          updatedAt: at(80),
+        }),
+        card({
+          id: "sample-card-loop-71",
+          short: "71",
+          title: "Talk 6: person-to-person DMs",
+          goal: "DMs over a hidden two-person space.",
+          state: TaskState.Blocked,
+          working: [],
+          waitLoop: ring,
+          blockers: [
+            waitOn(
+              "sample-card-loop-70",
+              "70",
+              "Talk 4: Spaces",
+              "Waits on Talk 4 (#70): the hidden two-person space is a space log"
+            ),
+          ],
+          updatedAt: at(85),
+        }),
+        card({
+          id: "sample-card-loop-72",
+          short: "72",
+          title: "Talk 8: release Talk",
+          goal: "Cut v0.12.0 once Talk 1-7 are done.",
+          state: TaskState.Blocked,
+          working: [],
+          waitLoop: ring,
+          blockers: [
+            CardBlocker({
+              id: "b2",
+              question: "Ship this release without person-to-person DMs (#71), or wait for it?",
+              raisedBy: heron,
+              at: at(60),
+              resolved: null,
+              state: "open",
+              options: [
+                CardOption({
+                  answer: "Ship without #71; DMs go in a point release",
+                  by: heron,
+                  at: at(60),
+                  recommended: true,
+                }),
+                CardOption({ answer: "Wait for #71", by: heron, at: at(60) }),
+              ],
+            }),
+            {
+              ...waitOn(
+                "sample-card-loop-71",
+                "71",
+                "Talk 6: person-to-person DMs",
+                "Release waits on Talk 6 (#71) landing on main"
+              ),
+              id: "b1",
+            },
+          ],
+          updatedAt: at(60),
+        }),
+      ]
+    : []
+
   // Card #448: ?spawn=states shows the spawned-agent card lines: one
   // agent working a card Irori started it for (End on its page, "for #64"
   // in its hover), one starting, one waiting on the cap, one that can't
@@ -434,9 +540,77 @@ export function sampleCards(now: Date): CardDetail[] {
         ]
       : []
 
+  // Card #485: ?gone=1 shows items whose agent is gone on cards nobody
+  // holds: #73 waits on kestrel (gone), an amber line with Hand to an
+  // agent; #74's done check was raised by piranha (gone), and its Not
+  // done goes to the agent the card goes to next (PREVIEW.md).
+  const kestrel = agent("sample-kestrel-session", "kestrel", "gone")
+  const piranha = agent("sample-piranha-session", "piranha", "gone")
+  const gone = new URLSearchParams(window.location.search).has("gone")
+    ? [
+        card({
+          id: "sample-card-gone-73",
+          short: "73",
+          title: "Spawned agents part 1: the spawner",
+          goal: "A first spawn with no claude daemon opens no window on the PC.",
+          state: TaskState.Blocked,
+          working: [],
+          blockers: [
+            CardBlocker({
+              id: "b6",
+              question: "Waiting on kestrel's no-daemon GUI spawn on the PC",
+              context:
+                "Every other part 1 check has passed on the Mac and the PC. Only one is left: a first spawn that also starts the claude daemon must open no window.",
+              raisedBy: heron,
+              at: at(600),
+              resolved: null,
+              state: "open",
+              waitsOn: { kind: "agent", label: "kestrel", gone: true },
+              goneAgent: kestrel,
+            }),
+          ],
+          updatedAt: at(600),
+        }),
+        card({
+          id: "sample-card-gone-74",
+          short: "74",
+          title: "Spawned agents part 9: terminal agents",
+          goal: "Terminal sessions aren't free agents unless offered cards.",
+          state: TaskState.Blocked,
+          working: [],
+          blockers: [
+            CardBlocker({
+              id: "b2",
+              question: "Is this done?",
+              context:
+                "On main at 8845c11a. A terminal agent is no longer a free agent unless you turn on Offer it cards.",
+              raisedBy: piranha,
+              at: at(500),
+              doneCheck: true,
+              options: [
+                CardOption({
+                  answer: "Done",
+                  why: "Closes the card.",
+                  by: piranha,
+                  at: at(500),
+                  recommended: true,
+                }),
+              ],
+              resolved: null,
+              state: "open",
+              goneAgent: piranha,
+            }),
+          ],
+          updatedAt: at(500),
+        }),
+      ]
+    : []
+
   return [
     ...spawn,
     ...red,
+    ...loop,
+    ...gone,
     longWait,
     idleUnnamed,
     namedWait,
@@ -453,14 +627,15 @@ export function sampleCards(now: Date): CardDetail[] {
       state: TaskState.InReview,
       working: [otter],
       updatedAt: at(3),
-      // Card #347: no agent was asked, so it waits on the person's review.
-      reviewPr: {
+      // Card #471: it waits on its PR, which agents merge; a small chip
+      // on the card links it, and nothing goes to Needs you.
+      waitPr: {
         repo: "sample-org/example-app",
         number: 212,
         url: "https://github.com/sample-org/example-app/pull/212",
       },
     }),
-    // Card #347: a wait on that card ends at the person's review.
+    // A wait on that card waits on its PR, not on the person (card #471).
     card({
       id: "sample-card-after-review",
       short: "17",
@@ -471,7 +646,6 @@ export function sampleCards(now: Date): CardDetail[] {
       waitingOn: 1,
       waitOn: "#16",
       waitQuestion: "After the convert steps land",
-      waitYou: "your review of PR #212 (#16)",
       updatedAt: at(4),
     }),
     card({
@@ -575,19 +749,28 @@ export function sampleCards(now: Date): CardDetail[] {
           id: "b1",
           question: "Ship today, or wait for the two-PC temple check?",
           context:
-            "Every automated check passes on main d48bc2f. The co-op check needs both PCs, with the game closed on the second one; it was last blocked 20 minutes ago because another game was running. Shipping now means the release notes say temple co-op is untested.",
+            "Every automated check passes. The co-op check needs both PCs, with the game closed on the second one; it was last blocked 20 minutes ago because another game was running. Shipping now means the release notes say temple co-op is untested.",
           raisedBy: otter,
           at: at(18),
+          // Card #491: the person clicks an option, so each one says who
+          // acts ("sample-otter ships…", "I'll…" = the person) or the
+          // outcome, never the agent's "I".
           options: [
             CardOption({
-              answer: "Wait for the check, ship tonight",
+              answer: "Wait for the check; sample-otter ships tonight",
               why: "The temple is the release's headline feature; an untested headline is worse than a short delay.",
               by: otter,
               at: at(18),
               recommended: true,
             }),
             CardOption({
-              answer: "Ship now, mark temple co-op as experimental",
+              answer: "I'll close the game on the second PC now",
+              why: "The check runs as soon as it's closed, and sample-otter ships when it passes.",
+              by: otter,
+              at: at(18),
+            }),
+            CardOption({
+              answer: "Ship now, with temple co-op marked experimental",
               why: "Players get the boat and log fixes today; a 0.6.1 can follow the check.",
               by: heron,
               at: at(15),
