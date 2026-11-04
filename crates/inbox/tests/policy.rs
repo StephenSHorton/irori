@@ -357,6 +357,122 @@ fn the_hop_limit_guards_a_runaway_loop() {
     }
 }
 
+/// Card #488: the hop limit guards a loop that gets nowhere. Once either
+/// agent in the back-and-forth ticks a step, sets a card's state or
+/// commits, the chain's next message starts again at hop 0.
+#[test]
+fn progress_restarts_the_hop_count() {
+    let h = Harness::new();
+    h.abc();
+    let pair = [claude(KEY_A, "alpha"), claude(KEY_B, "beta")];
+    let (_, mut d) = h.send(&pair[0], &to(KEY_B), "hop 0");
+    let mut want = 0;
+    for i in 1..=8usize {
+        let cur = &pair[i % 2];
+        let other = &pair[(i + 1) % 2];
+        let w = h.deliver_engage(&cur.key, &format!("t{i}"));
+        if i == 5 {
+            // The agent answering now ticked a step since the message it
+            // answers.
+            h.clk.advance(secs(1));
+            h.ib.progressed(&cur.key, h.clk.now());
+            want = 0;
+        } else if i == 7 {
+            // Progress older than the message it answers changes nothing.
+            h.ib.progressed(&other.key, gocompat::time::GoTime::unix_milli(0));
+            want += 1;
+        } else {
+            want += 1;
+        }
+        d = h.send(cur, &to(&other.key), &format!("hop {i}")).1;
+        assert_eq!(d.message.hop, want, "message {i}");
+        assert!(
+            !d.message.parent_id.is_empty(),
+            "message {i} keeps its chain"
+        );
+        h.ib.turn_ended(&cur.key, &w.token, &format!("t{i}"))
+            .unwrap();
+        h.clk.advance(mins(2));
+    }
+    assert_eq!(d.message.hop, 3);
+    // The other end counts too: alpha (who sent the message beta answers)
+    // committed since, so beta's answer starts at 0.
+    let w = h.deliver_engage(KEY_B, "t9");
+    h.clk.advance(secs(1));
+    h.ib.progressed(KEY_A, h.clk.now());
+    let d = h.send(&pair[1], &to(KEY_A), "hop 9").1;
+    assert_eq!(d.message.hop, 0);
+    h.ib.turn_ended(KEY_B, &w.token, "t9").unwrap();
+}
+
+/// Which rows are an agent's progress (card #488).
+#[test]
+fn progress_rows() {
+    use inbox::{ProgressBy, progress_of};
+    let ev = |kind: &str, actor: &str, payload: &str| store::Event {
+        kind: kind.into(),
+        actor: actor.into(),
+        payload: payload.as_bytes().to_vec(),
+        hlc: hlc::Timestamp(1_000 << 16),
+        ..store::Event::default()
+    };
+    let agent = format!("agent:{KEY_A}");
+    let by = |e: &store::Event| progress_of(e).map(|(b, at)| (b, at.unix_milli_value()));
+    assert_eq!(
+        by(&ev(
+            "task.step",
+            &agent,
+            r#"{"taskId":"t","stepId":"s1","done":true}"#
+        )),
+        Some((ProgressBy::Actor(agent.clone()), 1_000))
+    );
+    assert_eq!(
+        by(&ev("task.step", &agent, r#"{"stepId":"s1","done":false}"#)),
+        None
+    );
+    assert_eq!(
+        by(&ev("task.step", &agent, r#"{"stepId":"s1","owner":"x"}"#)),
+        None
+    );
+    assert_eq!(by(&ev("task.step", "user", r#"{"done":true}"#)), None);
+    assert_eq!(
+        by(&ev(
+            "task.status",
+            &agent,
+            r#"{"taskId":"t","state":"completed"}"#
+        ))
+        .map(|x| x.0),
+        Some(ProgressBy::Actor(agent.clone()))
+    );
+    assert_eq!(
+        by(&ev("task.status", "user", r#"{"state":"working"}"#)),
+        None
+    );
+    assert_eq!(
+        by(&ev(
+            "capture.commitcmd",
+            &agent,
+            &format!(r#"{{"key":"{KEY_A}"}}"#)
+        ))
+        .map(|x| x.0),
+        Some(ProgressBy::Key(KEY_A.into()))
+    );
+    assert_eq!(
+        by(&ev(
+            "commit.linked",
+            "irori",
+            &format!(r#"{{"committer":{{"key":"{KEY_B}"}}}}"#)
+        ))
+        .map(|x| x.0),
+        Some(ProgressBy::Key(KEY_B.into()))
+    );
+    assert_eq!(
+        by(&ev("commit.linked", "irori", r#"{"sessions":[]}"#)),
+        None
+    );
+    assert_eq!(by(&ev("task.comment", &agent, r#"{"text":"hi"}"#)), None);
+}
+
 #[test]
 fn allow_list_ignores_self_chosen_name() {
     const KEY_N: &str = "devX/nnnnnnnn-5555-4555-8555-555555555555";

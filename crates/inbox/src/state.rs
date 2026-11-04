@@ -653,6 +653,10 @@ pub(crate) struct Inner {
     pub known: BTreeMap<String, String>,
     pub pol: Policy,
     pub running: BTreeMap<String, TurnRow>,
+    /// When each agent (by inbox key) last made progress: ticked a step,
+    /// set a card's state or committed (card #488). Not folded: it only
+    /// resets the hop of messages sent from now on.
+    pub progress: HashMap<String, GoTime>,
     pub pairs: HashMap<String, Vec<GoTime>>,
     /// receive.set rows by (boardId, personId).
     pub receive: BTreeMap<(String, String), crate::bridge::Setting<crate::ReceiveSetting>>,
@@ -789,6 +793,7 @@ impl Inbox {
             known: BTreeMap::new(),
             pol: Policy::default(),
             running: BTreeMap::new(),
+            progress: HashMap::new(),
             pairs: HashMap::new(),
             receive: BTreeMap::new(),
             autonomy: BTreeMap::new(),

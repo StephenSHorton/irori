@@ -30,6 +30,7 @@ mod messages;
 pub mod notice;
 mod policy;
 mod pr;
+mod progress;
 mod route;
 pub mod search;
 mod state;
@@ -56,6 +57,7 @@ pub use fence::{batch, fence, fence_prompt, is_wind_down};
 pub use ids::IdGen;
 pub use messages::clip_show;
 pub use pr::normalize_pr;
+pub use progress::{ProgressBy, progress_of};
 pub use state::{Inbox, Subscription, decode_message};
 
 // ---- errors ---------------------------------------------------------------
