@@ -278,6 +278,9 @@ export const AgentsService = {
   Set: (change: B.AgentsChange) => call(commands.agentsSet(change)),
   End: (key: string) => done(commands.agentsEnd(key)),
   OfferSet: (key: string, on: boolean) => done(commands.agentsOfferSet(key, on)),
+  Logs: (key: string) => call(commands.agentsLogs(key)),
+  Attach: (key: string, cols: number, rows: number) =>
+    call(commands.agentsAttach(key, cols, rows)),
   Running: () => call(commands.agentsRunning()),
   TrustNeed: (taskId: string) => call(commands.agentsTrustNeed(taskId)),
   TrustAndStart: (taskId: string) => call(commands.agentsTrustAndStart(taskId)),
