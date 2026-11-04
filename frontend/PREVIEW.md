@@ -46,6 +46,8 @@ unchanged.
 | `/?open=board:task:sample-card-idle` | Idle, no reason given (card #305): held, its holder idle half an hour, nothing named it waits on; on Home its row is amber "Idle" |
 | `/?open=board:task:sample-card-job` | a holder between turns with a background job running (card #431): the page and Home say "running a background job", not "not working on it now" |
 | `/?open=board:task:sample-card-named` | the same wait named as a blocker on another agent: Home reads "Waiting on agent sample-kestrel" (card #305) |
+| `/?loop=1` | a wait loop (card #481): Home's Needs you has one Stuck row, "#70, #72 and #71 wait on each other", with Open #70/#72/#71; `&open=board:task:sample-card-loop-71` shows a wait as a grey "Waiting on #70 Talk 4: Spaces" line with Stop waiting and no answer box; `sample-card-loop-72` shows it beside a red question |
+| `/?gone=1` | items whose agent is gone on cards nobody holds (card #485): `&open=board:task:sample-card-gone-73` shows an amber "Waiting on kestrel (gone)" wait with Hand to an agent beside Stop waiting; `sample-card-gone-74` shows piranha's done check with the amber "Waiting on piranha (gone)" line and Hand to an agent |
 | `/?red=1` | main is red (card #436): Home leads with "Main is red: attach_exe fails on clean main; 2 cards wait on #60", and the line opens #60 |
 | `/?spawn=first` | spawned agents' first-run notice (card #448): Home leads with "Irori now starts an agent for each card…", Keep it on / Turn it off / Settings › Agents |
 | `/?spawn=states` | spawned agents' card lines (card #448): #65 "Starting an agent on this PC", #66 "Waiting: this PC is at its cap", #67 "Can't start: no checkout…"; #64's page shows End for the agent Irori started, and its hover "Irori started it for #64" |

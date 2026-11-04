@@ -250,6 +250,18 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub wait_you: String,
+    /// The cards this one waits on each other with (card #481), itself
+    /// among them, in wait order: none of them can move until someone
+    /// drops a wait. Every card of the loop carries the same list, so
+    /// Home's Needs you shows it once.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[specta(optional)]
+    pub wait_loop: Vec<CardRef>,
+    /// The card this one's waits end at that nobody holds and nothing
+    /// will hand out (card #481).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub wait_stuck: Option<CardRef>,
     /// An in-review card waiting on the person's review of a PR it links
     /// (card #347): no agent was asked to review it.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -486,7 +498,46 @@ pub struct CardBlocker {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub decider: Option<AgentRef>,
+    /// What a wait on other work waits on (card #481): a card, a lease, an
+    /// agent or something outside. It ends by itself or by whoever does
+    /// that work, so it is never the person's to answer and never counts
+    /// as a decision. None for a question for a person (one filed on
+    /// other work with options is still the person's, card #347).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub waits_on: Option<CardWaitOn>,
+    /// The agent this open item waits on, or that raised it and would hear
+    /// the answer, when that agent is gone and nobody holds the card (card
+    /// #485): drawn amber, "Waiting on kestrel (gone)", with "Hand to an
+    /// agent".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub gone_agent: Option<AgentRef>,
     pub thread: Vec<CardThreadItem>,
+}
+
+/// What a wait item waits on (card #481), as the card page links it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CardWaitOn {
+    #[specta(type = ts::BlockerKind)]
+    pub kind: String,
+    /// How the window names it: "#392" for a card ("a card" when this
+    /// device can't see it), the agent's name, the resource, or the
+    /// outside thing as raised.
+    pub label: String,
+    /// The card it waits on, by id, for a task wait.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub task_id: String,
+    /// That card's title, when this device can see it.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub title: String,
+    /// A wait on an agent that is gone (card #485).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub gone: bool,
 }
 
 /// One reviewer's review of a private card (#88).
@@ -1150,7 +1201,55 @@ fn waits_by_itself(kind: &str) -> bool {
             | coord::BLOCKED_ON_LEASE
             | coord::BLOCKED_ON_AGENT
             | coord::BLOCKED_ON_EXTERNAL
+            | coord::BLOCKED_ON_VERSION
     )
+}
+
+/// What a wait item waits on, named as the summary names its first wait
+/// (card #481): "#392" and its title for a card, the agent's name, else
+/// the resource or outside thing as raised.
+fn wait_on_of(co: &coord::Coord, p: &People, on: &coord::BlockedBy) -> CardWaitOn {
+    let mut w = CardWaitOn {
+        kind: on.kind.clone(),
+        label: on.reference.clone(),
+        ..CardWaitOn::default()
+    };
+    match on.kind.as_str() {
+        coord::BLOCKED_ON_TASK => {
+            w.task_id = on.reference.clone();
+            match co.get_task(&on.reference) {
+                Some(k) => {
+                    w.label = k.short_ref();
+                    w.title = k.title.clone();
+                }
+                None => w.label = "a card".into(),
+            }
+        }
+        coord::BLOCKED_ON_AGENT => {
+            let r = p.ref_(&on.reference);
+            w.gone = r.status == "gone";
+            w.label = r.name;
+        }
+        // "0.11.0 on Stephens-MacBook-Pro-2.local and DESKTOP-STEPHEN"
+        // (card #485).
+        coord::BLOCKED_ON_VERSION => {
+            let (min, devs) = coord::parse_version_wait(&on.reference);
+            let names: Vec<String> = devs
+                .iter()
+                .map(|d| match p.names.get(d) {
+                    Some(n) if !n.is_empty() => n.clone(),
+                    _ => d.chars().take(8).collect(),
+                })
+                .collect();
+            w.label = match names.as_slice() {
+                [] => format!("Irori {min}"),
+                [one] => format!("Irori {min} on {one}"),
+                [rest @ .., last] => format!("Irori {min} on {} and {last}", rest.join(", ")),
+            };
+        }
+        _ => {}
+    }
+    w
 }
 
 /// A person blocker for another member of a shared board (card #264). The
@@ -1309,9 +1408,14 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
             .collect();
         s.working.push(r);
     }
+    // A watcher that is gone is left out (card #485): #446 listed six,
+    // every one a raw key.
     for w in &t.watchers {
         if !t.holders.contains(w) && !t.co_holders.contains(w) {
-            s.watching.push(p.ref_(w));
+            let r = p.ref_(w);
+            if r.status != "gone" {
+                s.watching.push(r);
+            }
         }
     }
     s.holder = holder_line(&s.working);
@@ -2042,6 +2146,7 @@ impl Window {
                 ..CardBlocker::default()
             });
         }
+        let stranded = co.stranded(&t.id);
         for bl in &t.blockers {
             let mut cb = CardBlocker {
                 id: bl.id.clone(),
@@ -2063,6 +2168,21 @@ impl Window {
                     .as_ref()
                     .filter(|on| for_another(&on.kind, &on.reference))
                     .map(|on| p.ref_(&on.reference)),
+                waits_on: bl
+                    .on
+                    .as_ref()
+                    // Once someone replied on it, it keeps its thread and
+                    // reply box (the review of #481).
+                    .filter(|on| {
+                        waits_by_itself(&on.kind)
+                            && bl.options.is_empty()
+                            && (bl.status.is_empty() || bl.status == coord::BLOCKER_OPEN)
+                    })
+                    .map(|on| wait_on_of(&co, &p, on)),
+                gone_agent: stranded
+                    .iter()
+                    .find(|s| s.blocker_id == bl.id)
+                    .map(|s| p.ref_(&s.agent)),
                 thread: by_blocker.remove(&bl.id).unwrap_or_default(),
                 links: bl.links.clone(),
                 attachments: bl.attachments.clone(),
@@ -2586,6 +2706,27 @@ fn wait_you(co: &coord::Coord, first: &str) -> String {
 fn family_of(co: &coord::Coord, t: &Task, s: &mut CardSummary) {
     s.review_pr = review_pr(co, t);
     s.wait_you = wait_you(co, &s.wait_task);
+    if !coord::is_terminal(&t.state) && !coord::task_waits(t).is_empty() {
+        let card = |id: &str| {
+            co.get_task(id).map(|k| CardRef {
+                id: k.id.clone(),
+                short: k.short.clone(),
+                title: k.title.clone(),
+            })
+        };
+        let ch = coord::wait_chain(&|id: &str| co.get_task(id), &t.id);
+        s.wait_loop = ch.loop_ids.iter().filter_map(|id| card(id)).collect();
+        // A chain that ends at the person's review is theirs already;
+        // wait_you follows only the first wait, so any other end shows.
+        if !ch.stuck.is_empty()
+            && !(!s.wait_you.is_empty()
+                && co
+                    .get_task(&ch.stuck)
+                    .is_some_and(|k| review_pr(co, &k).is_some()))
+        {
+            s.wait_stuck = card(&ch.stuck);
+        }
+    }
     name_wait(s, &|id: &str| {
         co.get_task(id).map(|x| x.short_ref()).unwrap_or_default()
     });
