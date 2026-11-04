@@ -25,11 +25,15 @@ export const foldedByDefault: Record<SectionKey, boolean> = {
 export const shownAtOnce = 8
 
 // dmSections splits DMs (newest first, as listed() gives them) three ways:
-// yours with an agent that is running, yours with agents that have gone,
-// and agent↔agent DMs the person only reads.
+// yours with a running agent or a person, the Archive of yours with agents
+// that have gone (card #473), and agent↔agent DMs the person only reads.
+// Nothing is deleted: the Archive folds at the bottom of the list and
+// search still finds what is in it. When the agent comes back (its session
+// reattaches) gone turns false and the DM is back with yours.
 export function dmSections(
   dms: readonly Conversation[],
-  gone: (c: Conversation) => boolean
+  gone: (c: Conversation) => boolean,
+  keep = ""
 ): { yours: Conversation[]; gone: Conversation[]; agents: Conversation[] } {
   const out = {
     yours: [] as Conversation[],
@@ -38,10 +42,24 @@ export function dmSections(
   }
   for (const c of dms) {
     if (c.readOnly) out.agents.push(c)
-    else if (gone(c)) out.gone.push(c)
+    else if (archived(c, gone, keep)) out.gone.push(c)
     else out.yours.push(c)
   }
   return out
+}
+
+// archived is whether one of the person's DMs goes in the Archive: its
+// agents have gone and nothing in it is new. A gone agent's DM with
+// something unread, or that mentions the person, stays with yours until it
+// is read. keep is the one the person opened from yours: it stays there
+// while open, so reading it does not move it out from under them.
+export function archived(
+  c: Conversation,
+  gone: (c: Conversation) => boolean,
+  keep = ""
+): boolean {
+  if (c.convId === keep || c.unread > 0 || c.mentions > 0) return false
+  return gone(c)
 }
 
 // needsLook is whether a conversation shows even in a folded section: it is
