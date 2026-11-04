@@ -325,6 +325,16 @@ fn channel_members_read_at_their_next_turn() {
 /// A blocker row bridged from a shared board (card #478): Spencer's
 /// agent raised it on a card two of my agents hold and watch.
 fn spencer_blocker(h: &Harness, row: &str) -> Vec<inbox::Delivery> {
+    spencer_row(
+        h,
+        row,
+        inbox::row_kind::BLOCKER,
+        &[KEY_A, KEY_B],
+        "spencer's agent BillingEng1 raised a blocker on \"ENG-6452\": rehearse first?",
+    )
+}
+
+fn spencer_row(h: &Harness, row: &str, kind: &str, to: &[&str], text: &str) -> Vec<inbox::Delivery> {
     h.b.ib
         .bridge(&inbox::BridgeRow {
             from: inbox::BoardFrom {
@@ -333,13 +343,12 @@ fn spencer_blocker(h: &Harness, row: &str) -> Vec<inbox::Delivery> {
                 person_id: "pSpencer".into(),
                 card_id: "cBilling".into(),
                 row: row.into(),
-                kind: inbox::row_kind::BLOCKER.into(),
+                kind: kind.into(),
                 wake: false,
             },
             name: "spencer's agent BillingEng1".into(),
-            to: vec![KEY_A.into(), KEY_B.into()],
-            text: "spencer's agent BillingEng1 raised a blocker on \"ENG-6452\": rehearse first?"
-                .into(),
+            to: to.iter().map(|k| k.to_string()).collect(),
+            text: text.into(),
             ref_: "task:T1".into(),
             hop: 1,
             attachments: vec![],
@@ -391,6 +400,40 @@ fn board_notices_never_show_as_dms() {
         .filter(|d| d.to.starts_with("user") && d.message.from.key.starts_with("board:"))
         .collect();
     assert!(to_person.is_empty(), "{to_person:?}");
+    let cs = tools::talk::conversations(&*h.b, USER).unwrap();
+    assert!(board_dms(&cs).is_empty(), "{:?}", board_dms(&cs));
+}
+
+#[test]
+fn board_work_for_an_agent_that_has_gone_still_reaches_the_person() {
+    // Card #478's review: only comments and blockers, which every holder
+    // and watcher hears, close on the shared card. Work assigned to one
+    // agent that has gone still reaches the person, as before, and it is
+    // still no DM.
+    let h = new_harness();
+    let ds = spencer_row(
+        &h,
+        "devS/9",
+        inbox::row_kind::ASSIGN,
+        &[KEY_A],
+        "spencer's agent BillingEng1 assigned you \"ENG-6569\".",
+    );
+    h.b.roster.remove(KEY_A);
+    for _ in 0..4 {
+        h.b.ib.sweep().unwrap();
+        h.clk.advance(std::time::Duration::from_secs(10 * 60));
+    }
+    h.b.ib.sweep().unwrap();
+    let d = h.b.ib.get(&ds[0].id).unwrap();
+    assert_eq!(d.state, inbox::st::MOVED, "{d:?}");
+    let to_person = h
+        .b
+        .ib
+        .list(usize::MAX)
+        .into_iter()
+        .filter(|x| x.to.starts_with("user") && x.message.id == ds[0].message.id)
+        .count();
+    assert_eq!(to_person, 1);
     let cs = tools::talk::conversations(&*h.b, USER).unwrap();
     assert!(board_dms(&cs).is_empty(), "{:?}", board_dms(&cs));
 }

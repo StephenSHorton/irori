@@ -126,7 +126,11 @@ function AgentSummary({
   const spawned = !!spawnedFor || !!live?.spawned
   const tint = deviceVar(who.color)
   const device = who.device || who.where
-  const state = gone
+  // Another member's agent whose state this device doesn't know (card
+  // #478): no word, rather than gone or not running.
+  const state = who.status === "unknown"
+    ? ""
+    : gone
     ? "gone"
     : who.offline
       ? "device offline"

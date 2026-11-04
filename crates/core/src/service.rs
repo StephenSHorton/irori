@@ -996,7 +996,12 @@ impl Core {
                             }
                             Ok(tid)
                         }
-                        None => Err(inbox::Error::sentinel(inbox::ErrorKind::NoCard)),
+                        // A comment or blocker bridged from a shared board
+                        // is on that board's card already (card #478): it
+                        // closes there, never moved to the person, where
+                        // each agent's copy showed as a DM.
+                        None => tools::notice::closed_on_board(m)
+                            .ok_or_else(|| inbox::Error::sentinel(inbox::ErrorKind::NoCard)),
                     }
                 })
             }),

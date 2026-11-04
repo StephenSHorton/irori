@@ -111,36 +111,37 @@ pub fn record_gone(co: &Coord, m: &Message, to: &str) -> inbox::Result<String> {
         writer: "irori".into(),
         ..Record::default()
     };
-    let no_card = || match bridged_card(m) {
-        // A row bridged from a shared board (card #478) is already on
-        // that board's card, where the person reads it. Handing it to
-        // the person instead put every holder's and watcher's copy in
-        // Talk as a DM from the board ("raised a blocker on ..." ten
-        // times over).
-        Some(tid) => Ok(tid),
-        None => Err(InboxError::sentinel(InboxErrorKind::NoCard)),
-    };
     match record_on_card(co, m, to, &r) {
         Ok(t) => Ok(t),
-        Err(RecordError::NoCard) => no_card(),
-        Err(RecordError::Coord(e)) if e.is(coord::ErrorKind::NotFound) => no_card(),
+        Err(RecordError::NoCard) => Err(InboxError::sentinel(InboxErrorKind::NoCard)),
+        Err(RecordError::Coord(e)) if e.is(coord::ErrorKind::NotFound) => {
+            Err(InboxError::sentinel(InboxErrorKind::NoCard))
+        }
         Err(RecordError::Coord(e)) => Err(InboxError::other(e.to_string())),
     }
 }
 
-/// The shared board's card a bridged message is about (its Ref), when
-/// `m` came from a board: what the inbox closes it on once its recipient
-/// has gone.
-fn bridged_card(m: &Message) -> Option<String> {
-    if m.from.kind != inbox::BOARD_KIND && m.board.board_id.is_empty() {
+/// The shared board's card a row bridged from that board is closed on
+/// once the agent it went to has gone (card #478), for the rows that go to
+/// every holder, watcher and assignee of the card: a comment, a blocker
+/// raised, answered or closed. Each is already on the shared card, where
+/// the person reads it; handing every agent's copy to the person put them
+/// in Talk as DMs from the board ("raised a blocker on ..." ten times
+/// over). `None` for anything else, which still reaches the person: work
+/// assigned, a review or release request, a handed card or an ask went to
+/// that one agent and nobody else hears it.
+pub fn closed_on_board(m: &Message) -> Option<String> {
+    if m.from.kind != inbox::BOARD_KIND || m.board.board_id.is_empty() {
+        return None;
+    }
+    if !matches!(
+        m.board.kind.as_str(),
+        inbox::row_kind::COMMENT | inbox::row_kind::BLOCKER
+    ) {
         return None;
     }
     let id = m.ref_.strip_prefix("task:").map(trim).unwrap_or_default();
-    Some(if id.is_empty() {
-        format!("board {}", m.board.board_id)
-    } else {
-        id.to_string()
-    })
+    (!id.is_empty()).then(|| id.to_string())
 }
 
 /// Spawned agents part 8 (card #452, spawned-agents.md §4 "Reaching an

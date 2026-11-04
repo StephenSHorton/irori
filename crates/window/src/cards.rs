@@ -965,11 +965,35 @@ impl People {
             .strip_prefix("board:")
             .and_then(|r| r.split_once('/'))
         {
-            let as_board = if who.starts_with(store::kinds::PERSON_ACTOR_PREFIX) {
+            let person = who.starts_with(store::kinds::PERSON_ACTOR_PREFIX);
+            let as_board = if person {
                 who.to_string()
             } else {
                 format!("{}{who}", store::kinds::AGENT_ACTOR_PREFIX)
             };
+            if !self.board.contains_key(&as_board)
+                && !self.persons.contains_key(&as_board)
+                && !self.known.contains_key(&as_board)
+            {
+                // A board's agent or person this device no longer knows:
+                // not one of this person's agents, and not gone either.
+                return AgentRef {
+                    key: key.into(),
+                    name: if person {
+                        "Another person".into()
+                    } else {
+                        "unknown agent".into()
+                    },
+                    status: if person { "person" } else { "unknown" }.into(),
+                    live: person,
+                    where_: if person {
+                        "On the board".into()
+                    } else {
+                        "Another person's agent".into()
+                    },
+                    ..AgentRef::default()
+                };
+            }
             return AgentRef {
                 key: key.into(),
                 ..self.ref_plain(&as_board)
