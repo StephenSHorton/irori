@@ -8,8 +8,12 @@
 //! records trust for the repo (its main root, so a worktree is covered,
 //! card #445) and starts the agent again.
 //!
-//! This is the only path that writes trust, and it's a window command: no
-//! tool, row or agent reaches it (`tests/trust_writers.rs`).
+//! Settings › Agents also lists this device's repos with whether each is
+//! trusted for agents, and its Trust… records trust for one after the
+//! person confirms (card #456, sa-6).
+//!
+//! These two are the only paths that write trust, and both are window
+//! commands: no tool, row or agent reaches them (`tests/trust_writers.rs`).
 
 use std::path::Path;
 
@@ -17,6 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::Window;
 use crate::claude_trust;
+use crate::roster::TrustSet;
 
 /// The reason prefix of a not-trusted spawn failure
 /// (`SpawnRefusal::NotTrusted`).
@@ -61,6 +66,54 @@ pub struct AgentPermissions {
     pub deny: Vec<String>,
     /// Repo key → `pr` or `main`.
     pub merge: std::collections::BTreeMap<String, String>,
+}
+
+/// One repo of Settings › Agents' "Trusted repos for agents" (card #456,
+/// sa-6): a repo with a checkout on this device and whether Claude Code
+/// trusts it, so an agent Irori starts for its cards can run there.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TrustedRepo {
+    pub repo_key: String,
+    pub label: String,
+    /// The folder trust is recorded for: the repo's main root, the one the
+    /// spawner starts its agents in.
+    pub folder: String,
+    pub trusted: bool,
+    /// What trusting does, in the words the confirm shows.
+    pub what: String,
+}
+
+/// The rows for `repos` (repo key → its sorted roots, as the capture
+/// lists them): per repo the first root, as the spawner picks it, when
+/// that is a git checkout on this device, and whether `trust` covers it.
+pub(crate) fn trusted_rows(
+    repos: &std::collections::BTreeMap<String, Vec<String>>,
+    trust: &TrustSet,
+) -> Vec<TrustedRepo> {
+    let mut out: Vec<TrustedRepo> = Vec::new();
+    for (key, roots) in repos {
+        let Some(root) = roots.first().filter(|_| !key.is_empty()) else {
+            continue;
+        };
+        let dir = Path::new(root);
+        if !dir.is_dir() || crate::spawn::trust_root(dir).is_none() {
+            continue;
+        }
+        let folder = trust_folder(root);
+        if out.iter().any(|r| r.folder == folder) {
+            continue;
+        }
+        out.push(TrustedRepo {
+            repo_key: key.clone(),
+            label: crate::board::repo_label(key),
+            trusted: crate::spawn::trusted_in(trust, dir).is_ok(),
+            what: what_trust_does(&folder, "this computer"),
+            folder,
+        });
+    }
+    out.sort_by(|a, b| a.label.cmp(&b.label).then_with(|| a.folder.cmp(&b.folder)));
+    out
 }
 
 /// The words the confirm shows (§7 point 2).
@@ -182,9 +235,87 @@ impl Window {
     }
 }
 
+impl Window {
+    /// Settings › Agents' trusted repos on this device (card #456).
+    pub fn agents_trusted(&self) -> Result<Vec<TrustedRepo>, String> {
+        let file = claude_trust::config_path()
+            .ok_or("can't find Claude Code's settings (.claude.json): no home folder")?;
+        Ok(self.trusted_repos_in(&file))
+    }
+
+    #[doc(hidden)]
+    pub fn trusted_repos_in(&self, file: &Path) -> Vec<TrustedRepo> {
+        trusted_rows(&self.core.capture().repos(), &TrustSet::load_file(file))
+    }
+
+    /// The person's confirmed Trust… on one of this device's repos in
+    /// Settings › Agents (card #456): records trust for its folder, the
+    /// one listed, and returns the list again.
+    pub fn agents_trust_repo(&self, repo_key: &str) -> Result<Vec<TrustedRepo>, String> {
+        let file = claude_trust::config_path()
+            .ok_or("can't find Claude Code's settings (.claude.json): no home folder")?;
+        self.trust_repo_in(&file, repo_key)
+    }
+
+    /// [`Window::agents_trust_repo`] with `.claude.json` at `file`.
+    #[doc(hidden)]
+    pub fn trust_repo_in(&self, file: &Path, repo_key: &str) -> Result<Vec<TrustedRepo>, String> {
+        let row = self
+            .trusted_repos_in(file)
+            .into_iter()
+            .find(|r| r.repo_key == repo_key)
+            .ok_or_else(|| format!("no checkout of {repo_key} on this computer"))?;
+        if !row.trusted {
+            claude_trust::record_trust(file, &row.folder).map_err(|e| e.to_string())?;
+            if !claude_trust::is_trusted(file, &row.folder) {
+                return Err(format!("{} still reads as not trusted", row.folder));
+            }
+        }
+        Ok(self.trusted_repos_in(file))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trusted_rows_take_the_repos_git_root_once_and_read_its_own_entry() {
+        let d = tempfile::tempdir().unwrap();
+        let base = d.path().canonicalize().map(crate::spawn::plain).unwrap();
+        let a = base.join("a");
+        let b = base.join("b");
+        let plain = base.join("plain");
+        for p in [&a, &b] {
+            std::fs::create_dir_all(p.join(".git")).unwrap();
+        }
+        std::fs::create_dir_all(a.join("sub")).unwrap();
+        std::fs::create_dir_all(&plain).unwrap();
+        let s = |p: &Path| p.to_string_lossy().into_owned();
+        let file = base.join(".claude.json");
+        // The parent is trusted, a isn't: a repo needs its own entry (§7).
+        let cfg = serde_json::json!({ "projects": {
+            s(&base): { "hasTrustDialogAccepted": true },
+            s(&b): { "hasTrustDialogAccepted": true },
+        }});
+        std::fs::write(&file, cfg.to_string()).unwrap();
+        let repos: std::collections::BTreeMap<String, Vec<String>> = [
+            ("remote:x/a", vec![s(&a.join("sub")), s(&a)]),
+            ("remote:x/b", vec![s(&b)]),
+            ("path:plain", vec![s(&plain)]),
+            ("remote:x/gone", vec![s(&base.join("gone"))]),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+        let rows = trusted_rows(&repos, &TrustSet::load_file(&file));
+        let got: Vec<(&str, &str, bool)> = rows
+            .iter()
+            .map(|r| (r.label.as_str(), r.folder.as_str(), r.trusted))
+            .collect();
+        assert_eq!(got, vec![("a", s(&a).as_str(), false), ("b", s(&b).as_str(), true)]);
+        assert!(rows[0].what.contains(&s(&a)), "{}", rows[0].what);
+    }
 
     #[test]
     fn the_refused_folder_comes_from_the_row_or_its_reason() {
