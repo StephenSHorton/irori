@@ -311,7 +311,13 @@ fn answer_leaves_blocker_open() {
     assert!(lines[1].ends_with("answered “Which DB?”"), "{lines:?}");
     assert!(lines[2].ends_with("replied on “Which DB?”"), "{lines:?}");
     assert!(lines.iter().all(|l| !l.contains(&bl.id)), "{lines:?}");
-    let gists: Vec<&str> = d.thread.iter().filter(|i| i.blocker_id == bl.id).skip(1).map(|i| i.blocker_gist.as_str()).collect();
+    let gists: Vec<&str> = d
+        .thread
+        .iter()
+        .filter(|i| i.blocker_id == bl.id)
+        .skip(1)
+        .map(|i| i.blocker_gist.as_str())
+        .collect();
     assert_eq!(gists, ["Which DB?", "Which DB?"]);
     assert_eq!(r.w.decide_count(), 1, "a replied item is a decision");
 
