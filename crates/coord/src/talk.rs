@@ -337,6 +337,9 @@ pub struct Talk {
     spaces: std::sync::OnceLock<Arc<dyn SpaceLogs>>,
     now: Arc<dyn Fn() -> GoTime + Send + Sync>,
     s: Mutex<State>,
+    /// Counts drop_space calls, so a load that raced one folds again
+    /// instead of bringing the dropped space back (card #461).
+    drops: std::sync::atomic::AtomicU64,
 }
 
 impl std::fmt::Debug for Talk {
@@ -356,6 +359,7 @@ impl Talk {
                 Arc::new(|| GoTime::from_system(std::time::SystemTime::now()).utc())
             }),
             s: Mutex::new(State::default()),
+            drops: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -375,29 +379,38 @@ impl Talk {
         let Some(st) = self.st.clone() else {
             return Ok(());
         };
-        let mut f = Filter {
-            kinds: KINDS.iter().map(|k| k.to_string()).collect(),
-            limit: store::MAX_LIST_LIMIT,
-            ..Filter::default()
-        };
-        let mut fresh = State::default();
+        use std::sync::atomic::Ordering;
         loop {
-            let evs = st.list(&f)?;
-            for ev in &evs {
-                fold(&mut fresh, ev);
+            let seen = self.drops.load(Ordering::SeqCst);
+            let mut f = Filter {
+                kinds: KINDS.iter().map(|k| k.to_string()).collect(),
+                limit: store::MAX_LIST_LIMIT,
+                ..Filter::default()
+            };
+            let mut fresh = State::default();
+            loop {
+                let evs = st.list(&f)?;
+                for ev in &evs {
+                    fold(&mut fresh, ev);
+                }
+                if (evs.len() as i64) < f.limit {
+                    break;
+                }
+                f.after = evs[evs.len() - 1].cursor();
             }
-            if (evs.len() as i64) < f.limit {
-                break;
+            if let Some(sp) = self.spaces.get() {
+                for ev in sp.rows() {
+                    fold(&mut fresh, &ev);
+                }
             }
-            f.after = evs[evs.len() - 1].cursor();
+            let mut s = self.lock();
+            if self.drops.load(Ordering::SeqCst) == seen {
+                *s = fresh;
+                return Ok(());
+            }
+            // A space was dropped while this fold was read: its caller
+            // already hid it from rows(), so fold again without it.
         }
-        if let Some(sp) = self.spaces.get() {
-            for ev in sp.rows() {
-                fold(&mut fresh, &ev);
-            }
-        }
-        *self.lock() = fresh;
-        Ok(())
     }
 
     /// Folds one row; reports whether anything Talk shows changed. Rows of
@@ -419,6 +432,7 @@ impl Talk {
             return false;
         }
         let mut s = self.lock();
+        self.drops.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let gone: Vec<String> = s
             .channels
             .iter()

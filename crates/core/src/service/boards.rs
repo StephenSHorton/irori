@@ -1576,6 +1576,10 @@ impl Services {
             // The space's channels fold again with everything else.
             let _ = self.talk.load();
             self.hub.publish(crate::events::CoreEvent::Talk);
+        } else if ev.kind == kinds::BOARD_MEMBER_ADDED {
+            // Re-added while still "Leaving…" (card #461): the channels
+            // drop_space took out fold back; a no-op for anyone else's add.
+            self.fold_space_talk(b);
         } else if let Some(row) = self.space_talk_row(&b.id, ev) {
             // A space's channel row (card #392). One this device wrote was
             // folded when it was written; the window still hears it.

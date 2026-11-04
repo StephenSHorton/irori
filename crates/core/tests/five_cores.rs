@@ -1629,3 +1629,35 @@ fn leaving_and_forgetting_a_space_drops_its_channels_at_once() {
     assert!(a1.core.talk().channel(&ch).is_some());
     close(alice.drain(..).chain(bob.drain(..)));
 }
+
+/// Card #461: forgetting a space on this device, or leaving one nobody
+/// else is on, drops its channels through the forget alone.
+#[test]
+fn forgetting_a_space_drops_its_channels_at_once() {
+    let mut alice = person("alice", 1);
+    let a1 = &alice[0];
+    for leave in [false, true] {
+        let tag = if leave { "left" } else { "forgot" };
+        let space = a1.core.create_board(tag, tag).unwrap();
+        wait_for(WAIT, "the space is ready", || {
+            a1.core
+                .board_list()
+                .iter()
+                .any(|s| s.board_id == space && s.ready)
+        });
+        let ch = a1
+            .core
+            .talk_channel_create_in(&a1.user(), "netcode", "", &space)
+            .unwrap();
+        assert!(talk_lists(a1, &ch.id));
+        if leave {
+            a1.core.leave_board(&space).unwrap(); // nobody else: forgotten
+        } else {
+            a1.core.forget_board(&space).unwrap();
+        }
+        assert!(!a1.core.boards().contains(&space));
+        assert!(a1.core.talk().channel(&ch.id).is_none());
+        assert!(!talk_lists(a1, &ch.id), "the channel stayed in Talk");
+    }
+    close(alice.drain(..));
+}
