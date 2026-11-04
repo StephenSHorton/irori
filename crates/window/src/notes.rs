@@ -190,7 +190,7 @@ impl Window {
                     .iter()
                     .any(|r| std::path::Path::new(r).join(path).exists())
                 {
-                    return format!("{path} is gone from {repo}");
+                    return format!("{path} is gone from {}", coord::repo_name(repo));
                 }
                 break;
             }

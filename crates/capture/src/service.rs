@@ -696,7 +696,7 @@ impl Capture {
             .read()
             .repo_roots
             .values()
-            .filter(|r| r.repo_key == repo_key)
+            .filter(|r| ledger::same_repo_key(&r.repo_key, repo_key))
             .map(|r| r.root.clone())
             .collect();
         v.sort();

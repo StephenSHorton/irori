@@ -474,9 +474,7 @@ fn idle_report_says_no_free_agent_works_in_the_repo() {
     assert!(n.to.is_empty(), "{n:?}");
     let r = e.c.idle_report(&[other]);
     assert!(
-        r.idle == 1
-            && r.unoffered.len() == 1
-            && r.unoffered[0].why == format!("no free agent works in {REPO_A}"),
+        r.idle == 1 && r.unoffered.len() == 1 && r.unoffered[0].why == "no free agent works in b",
         "{r:?}"
     );
 }

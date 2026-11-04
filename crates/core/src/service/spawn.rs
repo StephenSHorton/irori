@@ -166,6 +166,9 @@ pub struct Spawner {
 /// The line on a card whose spawned agent was found gone at start.
 pub const RESTARTED: &str = "The agent Irori started for this card stopped with the restart. Irori starts a fresh one from Where and Left off.";
 
+/// How a [`SpawnRefusal::NotTrusted`] reason starts (the window reads it).
+pub const NOT_TRUSTED_PREFIX: &str = "not trusted: ";
+
 /// Why a card got no agent; the request's failed row carries it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SpawnRefusal {
@@ -176,7 +179,8 @@ pub enum SpawnRefusal {
         folder: String,
         device: String,
     },
-    /// This device has no checkout of the card's repo.
+    /// This device has no checkout of the card's repo. `device` is the
+    /// device's name as the person knows it, not its id (card #480).
     NoFolder { repo_key: String, device: String },
     /// The spawner said no.
     Failed(String),
@@ -188,12 +192,17 @@ impl fmt::Display for SpawnRefusal {
             SpawnRefusal::NotTrusted { folder, device, .. } => {
                 write!(f, "not trusted: {folder} on {device}")
             }
-            SpawnRefusal::NoFolder { repo_key, device } if repo_key.is_empty() => write!(
-                f,
-                "no repo to start in on {device}: name a repo, or run an agent in one here"
-            ),
+            // Read by people on the card line: the repo's short name and
+            // the device's name (card #480). spawn_stop::no_folder_reason
+            // knows this wording and the older one.
+            SpawnRefusal::NoFolder { repo_key, device } if repo_key.is_empty() => {
+                write!(
+                    f,
+                    "this card names no repo, and {device} has no folder for it"
+                )
+            }
             SpawnRefusal::NoFolder { repo_key, device } => {
-                write!(f, "no checkout of {repo_key} on {device}")
+                write!(f, "no copy of {} on {device}", coord::repo_name(repo_key))
             }
             SpawnRefusal::Failed(e) => write!(f, "couldn't start: {e}"),
         }
@@ -286,7 +295,13 @@ impl SpawnSetting {
 
     fn merge_policy(&self, repo_key: &str) -> super::spawn_permissions::MergePolicy {
         use super::spawn_permissions::MergePolicy;
-        match self.merge.get(repo_key).map(String::as_str) {
+        let policy = self.merge.get(repo_key).or_else(|| {
+            self.merge
+                .iter()
+                .find(|(k, _)| coord::same_repo_key(k, repo_key))
+                .map(|(_, v)| v)
+        });
+        match policy.map(String::as_str) {
             Some(MERGE_MAIN) => MergePolicy::StraightToMain,
             _ => MergePolicy::PullRequest,
         }
@@ -686,6 +701,9 @@ pub(crate) struct SpawnState {
     /// (a reload, or the person's write): a sweep that listed the rows
     /// before his write must not put the old setting back after it.
     pub rows: Mutex<()>,
+    /// Spawner failures in a row, by card id (card #480): at
+    /// [`super::spawn_stop::SPAWN_TRIES`] the card asks the person.
+    pub start_fails: Mutex<HashMap<String, u32>>,
 }
 
 impl SpawnState {
@@ -949,6 +967,7 @@ impl Services {
         else {
             return;
         };
+        self.lift_no_copy(&sp);
         let me = self.device.id.clone();
         let cap = self.spawn_cap(&me);
         let mut running = self.spawned_here();
@@ -1030,17 +1049,30 @@ impl Services {
         // failed for this same reason, it waits for a checkout (or a
         // Where here) to appear; the failed row already tells the person.
         // His own "Start an agent" still asks once more, so it answers.
-        if folder.is_none() && !self.coord.spawn_asked_now(&t.id) {
-            let reason = SpawnRefusal::NoFolder {
-                repo_key: t.repo_key.clone(),
-                device: me.clone(),
-            }
-            .to_string();
-            if t.spawn_request()
-                .is_some_and(|s| s.op == SPAWN_FAILED && s.device == me && s.reason == reason)
-            {
-                return Ok(false);
-            }
+        // Card #480: the reason is compared by kind, not text (it names the
+        // device, which can be renamed), and the card asks the person once
+        // instead of sitting silent (spawn_stop).
+        let asked_now = self.coord.spawn_asked_now(&t.id);
+        let failed_here = |no_folder: bool| {
+            t.spawn_request().is_some_and(|s| {
+                s.op == SPAWN_FAILED
+                    && s.device == me
+                    && super::spawn_stop::no_folder_reason(&s.reason) == no_folder
+                    && (no_folder || s.reason.starts_with(NOT_TRUSTED_PREFIX))
+            })
+        };
+        if folder.is_none() && !asked_now && failed_here(true) {
+            self.stop_no_copy(t);
+            return Ok(false);
+        }
+        // Not trusted here: the window's Needs you row offers Trust and
+        // start, which asks again (spawn_now); until then nothing changes.
+        if let Some(f) = &folder
+            && !asked_now
+            && failed_here(false)
+            && !(sp.trusted)(Path::new(f))
+        {
+            return Ok(false);
         }
         let comments = self.coord.comments(&t.id).unwrap_or_default();
         let named = |k: &str| {
@@ -1091,11 +1123,14 @@ impl Services {
             Ok(false)
         };
         let Some(folder) = folder else {
-            return refuse(SpawnRefusal::NoFolder {
+            let r = refuse(SpawnRefusal::NoFolder {
                 repo_key: repo_key.clone(),
-                device: me,
+                device: self.this_device_name(),
             });
+            self.stop_no_copy(t);
+            return r;
         };
+        self.resolve_no_copy(t, &folder, (sp.trusted)(Path::new(&folder)));
         if !(sp.trusted)(Path::new(&folder)) {
             return refuse(SpawnRefusal::NotTrusted {
                 repo_key: repo_key.clone(),
@@ -1132,9 +1167,14 @@ impl Services {
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .remove(&t.id);
+                self.note_started(&t.id);
                 Ok(true)
             }
-            Err(e) => refuse(SpawnRefusal::Failed(e)),
+            Err(e) => {
+                let r = refuse(SpawnRefusal::Failed(e.clone()));
+                self.note_start_failed(t, &e);
+                r
+            }
         }
     }
 
@@ -1175,7 +1215,7 @@ impl Services {
 
     /// The folder card t's agent starts in: the card's own checkout here,
     /// else this device's checkout of its repo.
-    fn spawn_folder(&self, t: &Task) -> Option<String> {
+    pub(crate) fn spawn_folder(&self, t: &Task) -> Option<String> {
         if t.spawn
             && let Some(p) = self
                 .coord
@@ -1191,13 +1231,14 @@ impl Services {
         {
             return Some(w.cwd.clone());
         }
+        // The folder the person named on its "no copy" blocker (card #480).
+        if let Some(f) = self.chosen_folder(t) {
+            return Some(f);
+        }
         if t.repo_key.is_empty() && t.open_ask().is_some() {
             return self.ask_home().map(|(_, folder)| folder);
         }
-        if t.repo_key.is_empty() {
-            return None;
-        }
-        self.capture.repo_roots(&t.repo_key).into_iter().next()
+        self.checkout_here(&t.repo_key)
     }
 
     /// The repo card t's agent works in: the card's own, or for an ask

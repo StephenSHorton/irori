@@ -211,7 +211,7 @@ impl Fold {
             subtask: p.subtask,
             op: p.op,
             device: p.device,
-            repo_key: p.repo_key,
+            repo_key: ledger::canonical_repo_key(&p.repo_key),
             folder: p.folder,
             worktree: p.worktree,
             model: p.model,

@@ -301,7 +301,7 @@ pub(crate) fn search(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
     let mut qy = Query {
         text: trim(a.str("query")).into(),
-        repo_key: trim(a.str("repo")).into(),
+        repo_key: coord::canonical_repo_key(trim(a.str("repo"))),
         offset,
         viewer: c.sender.key.clone(),
         ..Query::default()
@@ -555,7 +555,7 @@ pub(crate) fn commits(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let Some(cp) = s.b.capture() else {
         return capture_off();
     };
-    let mut repo = trim(a.str("repo")).to_string();
+    let mut repo = coord::canonical_repo_key(trim(a.str("repo")));
     if repo.is_empty() {
         repo = s.caller_repo(c);
     }
@@ -658,7 +658,7 @@ pub(crate) fn prs(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let Some(cp) = s.b.capture() else {
         return capture_off();
     };
-    let mut repo = trim(a.str("repo")).to_string();
+    let mut repo = coord::canonical_repo_key(trim(a.str("repo")));
     if repo.is_empty() {
         repo = s.caller_repo(c);
     }

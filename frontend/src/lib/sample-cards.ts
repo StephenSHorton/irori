@@ -545,8 +545,7 @@ export function sampleCards(now: Date): CardDetail[] {
             goal: "No checkout here.",
             state: TaskState.Submitted,
             working: [],
-            cantStart:
-              "no checkout of remote:github.com/you/app-repo on sample-device",
+            cantStart: "no copy of app-repo on Sample Mac",
             updatedAt: at(1),
           }),
         ]

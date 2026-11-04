@@ -1303,7 +1303,7 @@ impl Fold {
         let mut blocks: BTreeMap<String, Vec<String>> = BTreeMap::new();
         let rs = self.roster_status();
         for t in self.tasks.values() {
-            if !f.repo_key.is_empty() && t.repo_key != f.repo_key {
+            if !f.repo_key.is_empty() && !ledger::same_repo_key(&t.repo_key, &f.repo_key) {
                 continue;
             }
             let mut card = Card {
@@ -1388,7 +1388,7 @@ impl Fold {
             if !f.repo_key.is_empty()
                 && bl.is_empty()
                 && l.res.kind == RESOURCE_PATH
-                && l.res.repo_key != f.repo_key
+                && !ledger::same_repo_key(&l.res.repo_key, &f.repo_key)
             {
                 continue;
             }

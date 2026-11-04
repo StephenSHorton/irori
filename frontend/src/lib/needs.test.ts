@@ -525,7 +525,7 @@ describe("trust (card #449)", () => {
     })
     const other = card({
       id: "o",
-      cantStart: "no checkout of remote:x on dev1",
+      cantStart: "no copy of x on Desktop Computer",
     })
     expect(waitsOnTrust(t)).toBe(true)
     expect(waitsOnTrust(other)).toBe(false)
