@@ -282,6 +282,36 @@ fn a_crashing_agent_stops_its_asks_spawns_after_two() {
         e.c.sweep_asks(&[]).unwrap();
     }
     assert!(e.c.cards_to_spawn().is_empty(), "crashed twice: stops");
+    // The person asks again: the count starts over, and an agent starts.
+    e.c.ask_again(USER, &tk.id).unwrap();
+    e.c.sweep_asks(&[]).unwrap();
+    assert_eq!(e.c.get_task(&tk.id).unwrap().spawn_crashes, 0);
+    assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&tk.id));
+}
+
+#[test]
+fn asking_again_wakes_an_ask_that_rests() {
+    let mut e = Env::new();
+    let _r = rig(&mut e, &[]);
+    let tk = post(&e, "What's left on the parser?", true, &[]);
+    let g =
+        e.c.request_spawn(SWEEPER_KEY, sask(&tk.id))
+            .unwrap()
+            .unwrap();
+    let key = "dev-a/spawned-1";
+    e.ros.set(key, "idle");
+    assert!(e.c.bind_spawn(&tk.id, g, key).unwrap());
+    e.c.sweep_asks(&[]).unwrap();
+    e.c.mark_ended(key, fixed_now());
+    e.ros.set(key, "");
+    e.c.sweep_asks(&[]).unwrap();
+    e.clk.add(mins(10));
+    e.c.sweep_asks(&[]).unwrap();
+    assert!(e.c.cards_to_spawn().is_empty(), "rests");
+    e.c.ask_again(USER, &tk.id).unwrap();
+    e.c.sweep_asks(&[]).unwrap();
+    e.c.sweep_asks(&[]).unwrap();
+    assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&tk.id));
 }
 
 #[test]
