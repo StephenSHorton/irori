@@ -37,6 +37,7 @@ export type CardMessage = B.CardMessage
 export type CardOption = B.CardOption
 export type CardPR = B.CardPR
 export type CardProgress = B.CardProgress
+export type CardRead = B.CardRead
 export type CardRef = B.CardRef
 export type CardResolution = B.CardResolution
 export type CardReview = B.CardReview
@@ -295,6 +296,11 @@ export function CardPR(p: Partial<B.CardPR> = {}): B.CardPR {
 /** CardProgress with Go's zero values for every field left out. */
 export function CardProgress(p: Partial<B.CardProgress> = {}): B.CardProgress {
   return { "done": 0, "total": 0, ...p } as B.CardProgress
+}
+
+/** CardRead with Go's zero values for every field left out. */
+export function CardRead(p: Partial<B.CardRead> = {}): B.CardRead {
+  return { "id": "", "card": null, "error": "", ...p } as B.CardRead
 }
 
 /** CardRef with Go's zero values for every field left out. */
