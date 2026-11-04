@@ -199,6 +199,202 @@ mod erased {
     }
 }
 
+pub struct SimOpts {
+    from: PathBuf,
+    to: PathBuf,
+    person: String,
+    root: String,
+    max_rows: i64,
+    now: String,
+}
+
+impl SimOpts {
+    pub fn parse(args: &[String]) -> Result<SimOpts, String> {
+        let (mut from, mut to, mut person, mut root, mut now) = (None, None, None, None, None);
+        let mut max_rows = i64::MAX;
+        let mut it = args.iter();
+        while let Some(a) = it.next() {
+            match a.as_str() {
+                "--from" => from = Some(PathBuf::from(take(&mut it, a)?)),
+                "--to" => to = Some(PathBuf::from(take(&mut it, a)?)),
+                "--person" => person = Some(take(&mut it, a)?),
+                "--root" => root = Some(take(&mut it, a)?),
+                "--now" => now = Some(take(&mut it, a)?),
+                "--max-rows" => {
+                    let v = take(&mut it, a)?;
+                    max_rows = v.parse().map_err(|_| format!("--max-rows {v}"))?;
+                }
+                _ => return Err(format!("reconnect-sim: unknown flag {a}")),
+            }
+        }
+        Ok(SimOpts {
+            from: from.ok_or("reconnect-sim needs --from")?,
+            to: to.ok_or("reconnect-sim needs --to")?,
+            person: person.ok_or("reconnect-sim needs --person")?,
+            root: root.ok_or("reconnect-sim needs --root")?,
+            now: now.ok_or("reconnect-sim needs --now")?,
+            max_rows,
+        })
+    }
+}
+
+pub fn sim(o: &SimOpts) -> ExitCode {
+    match sim_run(o) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("irori-dev: reconnect-sim: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// One peer catching up from another as the mesh session does it
+/// (mesh session.rs `next` and the ack): the sender lists
+/// `missing(peer's vector, 500)`, the receiver `insert_batch`es it in one
+/// transaction and folds the stored rows through its Coord's subscription
+/// (resyncs included, as a 500-row burst overflows the queue), then acks
+/// with its new vector. No network, no signatures skipped. It stops when
+/// the sender has nothing more, when `--max-rows` rows moved, or when a
+/// batch moves the receiver's vector by nothing three times in a row (a
+/// Gap: the session would resend that batch forever).
+fn sim_run(o: &SimOpts) -> Result<(), String> {
+    refuse_live(&o.from)?;
+    refuse_live(&o.to)?;
+    let now = GoTime::parse_rfc3339(&o.now).ok_or("--now: not RFC 3339")?;
+    let open = |home: &Path| -> Result<(Arc<Store>, Arc<Chain>), String> {
+        let me = device_id(home)?;
+        let chain = Arc::new(Chain::new(&o.person, &o.root, &me));
+        let st = Store::open_with(
+            home.join("irori.db"),
+            &me,
+            Arc::new(store::Clock::new()),
+            OpenOptions {
+                verifier: Some(chain.clone()),
+                ..Default::default()
+            },
+        )
+        .map_err(|e| format!("open {}: {e}", home.display()))?;
+        Ok((Arc::new(st), chain))
+    };
+    let (from, _) = open(&o.from)?;
+    let (to, chain) = open(&o.to)?;
+    let is_owner = {
+        let ch = chain.clone();
+        Arc::new(move |k: &str| ch.is_owner(k)) as Arc<dyn Fn(&str) -> bool + Send + Sync>
+    };
+    let t_fold = Instant::now();
+    let co = coord::Coord::new(
+        to.clone(),
+        None,
+        coord::Options {
+            now: Some(Arc::new(move || now)),
+            is_owner: Some(is_owner),
+            ..Default::default()
+        },
+    )
+    .map_err(|e| format!("coord: {e}"))?;
+    println!(
+        "reconnect-sim: receiver's start fold {} ms",
+        t_fold.elapsed().as_millis()
+    );
+    let sub = to.subscribe();
+    let v0 = to.vector().map_err(|e| e.to_string())?;
+    let top = from.vector().map_err(|e| e.to_string())?;
+    let behind: i64 = top
+        .iter()
+        .map(|(d, s)| (s - v0.get(d).copied().unwrap_or(0)).max(0))
+        .sum();
+    println!("reconnect-sim: receiver is {behind} seqs behind the sender");
+
+    let t0 = Instant::now();
+    let (mut moved, mut batches, mut still, mut resyncs) = (0i64, 0i64, 0, 0);
+    let (mut t_missing, mut t_insert, mut t_fold, mut t_ack) = (0u128, 0u128, 0u128, 0u128);
+    let mut v = v0.clone();
+    let mut last_report = Instant::now();
+    loop {
+        let t = Instant::now();
+        let evs = from.missing(&v, 500).map_err(|e| e.to_string())?;
+        t_missing += t.elapsed().as_micros();
+        if evs.is_empty() {
+            println!("reconnect-sim: caught up");
+            break;
+        }
+        let t = Instant::now();
+        let (n, res) = to.insert_batch(&evs);
+        t_insert += t.elapsed().as_micros();
+        let t = Instant::now();
+        loop {
+            match sub.try_recv() {
+                gocompat::sub::TryRecv::Item(ev) => {
+                    if ev.is_resync() {
+                        resyncs += 1;
+                    }
+                    co.handle(&ev).map_err(|e| format!("coord: {e}"))?;
+                }
+                _ => break,
+            }
+        }
+        t_fold += t.elapsed().as_micros();
+        let t = Instant::now();
+        let nv = to.vector().map_err(|e| e.to_string())?;
+        t_ack += t.elapsed().as_micros();
+        batches += 1;
+        let step: i64 = nv
+            .iter()
+            .map(|(d, s)| s - v.get(d).copied().unwrap_or(0))
+            .sum();
+        moved += step;
+        if step == 0 {
+            still += 1;
+            if still >= 3 {
+                let first = &evs[0];
+                println!(
+                    "reconnect-sim: STALLED: the batch starts at {}:{} but the receiver holds that device to {}; insert said {:?} ({n} applied). The session would resend it forever.",
+                    first.device_id,
+                    first.seq,
+                    nv.get(&first.device_id).copied().unwrap_or(0),
+                    res.err().map(|e| e.to_string())
+                );
+                break;
+            }
+        } else {
+            still = 0;
+        }
+        v = nv;
+        if moved >= o.max_rows {
+            println!("reconnect-sim: stopped at --max-rows");
+            break;
+        }
+        if last_report.elapsed().as_secs() >= 30 {
+            last_report = Instant::now();
+            println!(
+                "reconnect-sim: ... {moved} rows in {:.0} s",
+                t0.elapsed().as_secs_f64()
+            );
+        }
+    }
+    let secs = t0.elapsed().as_secs_f64();
+    let rate = moved as f64 / secs.max(1e-9);
+    let left: i64 = top
+        .iter()
+        .map(|(d, s)| (s - v.get(d).copied().unwrap_or(0)).max(0))
+        .sum();
+    let ms = |us: u128| us / 1000;
+    println!(
+        "reconnect-sim: moved {moved} rows in {batches} batches, {secs:.1} s ({rate:.0} rows/s); per phase: sender missing() {} ms, receiver insert {} ms, fold {} ms ({resyncs} resyncs), ack vector() {} ms; {left} seqs still to go{}",
+        ms(t_missing),
+        ms(t_insert),
+        ms(t_fold),
+        ms(t_ack),
+        if left > 0 && rate > 0.0 {
+            format!(" (~{:.0} min more at this rate)", left as f64 / rate / 60.0)
+        } else {
+            String::new()
+        }
+    );
+    Ok(())
+}
+
 pub struct CompactOpts {
     home: PathBuf,
     /// Device id to its floor; `None` is `top`.
@@ -241,9 +437,11 @@ impl CompactOpts {
         }
         o.home = home.ok_or("compact-spawn needs --home")?;
         if o.floors.is_empty() {
-            return Err("compact-spawn needs at least one --floor <device>=<seq|top>: \
+            return Err(
+                "compact-spawn needs at least one --floor <device>=<seq|top>: \
                  the seq every peer already holds for that device"
-                .into());
+                    .into(),
+            );
         }
         Ok(o)
     }
@@ -343,13 +541,19 @@ fn compact_run(o: &CompactOpts) -> Result<(), String> {
     let mut per_dev = BTreeMap::new();
     {
         let mut q = db
-            .prepare("SELECT device_id, count(*), min(seq), max(seq) FROM drop_rows GROUP BY device_id")
+            .prepare(
+                "SELECT device_id, count(*), min(seq), max(seq) FROM drop_rows GROUP BY device_id",
+            )
             .map_err(e)?;
         let rows = q
             .query_map([], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
-                    (r.get::<_, i64>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?),
+                    (
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, i64>(3)?,
+                    ),
                 ))
             })
             .map_err(e)?;
@@ -371,12 +575,16 @@ fn compact_run(o: &CompactOpts) -> Result<(), String> {
             Some(s) => s.to_string(),
             None => format!("top ({})", before[dev]),
         };
-        println!("compact-spawn: {dev}: floor {f}: {n} superseded task.spawn rows (seq {lo}..{hi})");
+        println!(
+            "compact-spawn: {dev}: floor {f}: {n} superseded task.spawn rows (seq {lo}..{hi})"
+        );
     }
     let total: i64 = per_dev.values().map(|v| v.0).sum();
     if o.dry_run {
         db.execute_batch("ROLLBACK").map_err(e)?;
-        println!("compact-spawn: dry run: would delete {total} of {rows0} rows; {kept_spawn} task.spawn rows would stay");
+        println!(
+            "compact-spawn: dry run: would delete {total} of {rows0} rows; {kept_spawn} task.spawn rows would stay"
+        );
         return Ok(());
     }
     let deleted = db
@@ -400,15 +608,21 @@ fn compact_run(o: &CompactOpts) -> Result<(), String> {
     let mut vacuum_ms = 0;
     if o.vacuum {
         let t1 = Instant::now();
-        db.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM; PRAGMA wal_checkpoint(TRUNCATE);")
-            .map_err(e)?;
+        db.execute_batch(
+            "PRAGMA wal_checkpoint(TRUNCATE); VACUUM; PRAGMA wal_checkpoint(TRUNCATE);",
+        )
+        .map_err(e)?;
         vacuum_ms = t1.elapsed().as_millis();
     }
     drop(db);
     let size1 = file_size(&path) + file_size(&o.home.join("irori.db-wal"));
     println!(
         "compact-spawn: deleted {deleted} of {rows0} rows in {delete_ms} ms; {kept_spawn} task.spawn rows stay; vector unchanged; vacuum {}; {} -> {}",
-        if o.vacuum { format!("{vacuum_ms} ms") } else { "skipped".into() },
+        if o.vacuum {
+            format!("{vacuum_ms} ms")
+        } else {
+            "skipped".into()
+        },
         mb(size0),
         mb(size1)
     );

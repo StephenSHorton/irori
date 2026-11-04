@@ -838,6 +838,23 @@ impl Services {
         let generation = t.spawn_request().map_or(0, |s| s.generation) + 1;
         let name = spawn_name(t, generation);
         let folder = self.spawn_folder(t);
+        // No checkout here (card #467): asking again writes a requested
+        // and a failed row and changes nothing, and in v0.11.0 each pair
+        // kicked the next sweep (3.4M rows). Once the card's newest request
+        // failed for this same reason, it waits for a checkout (or a
+        // Where here) to appear; the failed row already tells the person.
+        if folder.is_none() {
+            let reason = SpawnRefusal::NoFolder {
+                repo_key: t.repo_key.clone(),
+                device: me.clone(),
+            }
+            .to_string();
+            if t.spawn_request()
+                .is_some_and(|s| s.op == SPAWN_FAILED && s.device == me && s.reason == reason)
+            {
+                return Ok(false);
+            }
+        }
         let comments = self.coord.comments(&t.id).unwrap_or_default();
         let named = |k: &str| {
             let n = self.roster.name_of(k);

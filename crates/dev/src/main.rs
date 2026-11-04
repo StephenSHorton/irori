@@ -124,6 +124,13 @@ fn main() -> ExitCode {
                 ExitCode::from(2)
             }
         },
+        Some("reconnect-sim") => match spawn_rows::SimOpts::parse(&args[1..]) {
+            Ok(o) => spawn_rows::sim(&o),
+            Err(e) => {
+                eprintln!("irori-dev: {e}\n{USAGE}");
+                ExitCode::from(2)
+            }
+        },
         Some("compact-spawn") => match spawn_rows::CompactOpts::parse(&args[1..]) {
             Ok(o) => spawn_rows::compact(&o),
             Err(e) => {
