@@ -1701,8 +1701,15 @@ impl Core {
                             s.talk_note(&ev);
                         }
                     } else if ev.kind == kinds::MESSAGE_SENT {
-                        // Agents' messages show as DMs (card #389).
-                        s.hub.publish(CoreEvent::Talk);
+                        // Agents' messages show as DMs (card #389); a
+                        // notice, a stop or a mention's wake never does,
+                        // so it doesn't make the window rebuild Talk's
+                        // list from the whole inbox (card #468).
+                        if inbox::decode_message(&ev.payload)
+                            .map_or(true, |m| tools::talk::mirrors(&m))
+                        {
+                            s.hub.publish(CoreEvent::Talk);
+                        }
                     } else if ev.kind == coord::notifications::POSTED
                         || ev.kind == coord::notifications::READ
                     {

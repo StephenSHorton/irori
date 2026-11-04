@@ -32,10 +32,7 @@ pub(crate) fn avatar(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Some(a) => match coord::avatar::check(a) {
             Err(e) => err_text(&format!("that face isn't valid: {e}.")),
             Ok(face) => match s.b.set_avatar(name, Some(&face)) {
-                Ok(()) => format!(
-                    "Kept your face, {} ({}), by your name.",
-                    face.name, face.id
-                ),
+                Ok(()) => format!("Kept your face, {} ({}), by your name.", face.name, face.id),
                 Err(e) => err_text(&e),
             },
         },
