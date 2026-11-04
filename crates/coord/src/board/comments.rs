@@ -28,6 +28,9 @@ use super::{
 use crate::gotime;
 use crate::names::trim_space;
 
+/// Why the sweep closes an answered item whose agent left (card #481).
+const ANSWERED_LEFT: &str = "the agent it went to left the card";
+
 /// Validates a block reason or unblock note (trimmed).
 pub(crate) fn check_reason(s: &str, required: bool) -> Result<()> {
     if required && s.is_empty() {
@@ -1172,7 +1175,33 @@ impl Fold {
         self.outside_waits.borrow().contains(&key)
     }
 
-    /// The open items of a blocked task whose lease or task went away.
+    /// Whether open item b of t was answered and waits on an agent that
+    /// left the card since (card #481): nobody is left to act on the
+    /// answer. Only an agent that held the card and left counts, not one
+    /// that raised it from outside; and only this device of the raiser's
+    /// person closes it, so the row folds everywhere (card #242).
+    fn answered_left(&self, t: &Task, b: &Blocker) -> bool {
+        // A done check or an ownership change is the person's to close,
+        // never Irori's.
+        if !b.open() || b.status != BLOCKER_ANSWERED || b.done_check || b.transfer {
+            return false;
+        }
+        if !b.sent_to.is_empty() && b.sent_to != b.raised_by {
+            return false;
+        }
+        let tgt = &b.raised_by;
+        !tgt.is_empty()
+            && tgt != SWEEPER
+            && !self.is_owner(tgt)
+            && contains(&t.left, tgt)
+            && !contains(&t.holders, tgt)
+            && !contains(&t.co_holders, tgt)
+            && !contains(&t.assigned, tgt)
+            && self.may_write(tgt, &self.dev)
+    }
+
+    /// The open items of a blocked task whose lease or task went away, or
+    /// whose answer went to an agent that left the card.
     pub(crate) fn gone_away(&self, t: &Task, now: &GoTime) -> (Vec<String>, Vec<String>) {
         let mut ids = Vec::new();
         let mut why = Vec::new();
@@ -1180,6 +1209,11 @@ impl Fold {
             return (ids, why);
         }
         for b in &t.blockers {
+            if self.answered_left(t, b) {
+                ids.push(b.id.clone());
+                why.push(ANSWERED_LEFT.to_string());
+                continue;
+            }
             let Some(on) = b.on.as_ref().filter(|_| b.open()) else {
                 continue;
             };
@@ -1431,25 +1465,46 @@ impl Fold {
         for id in todo {
             let t = self.tasks[&id].clone();
             let (ids, why) = self.gone_away(&t, &now);
-            if ids.len() == count_open(&t) {
+            // An answered item keeps the person's answer, so it goes one
+            // by one, never through the close of the whole card.
+            let left: Vec<bool> = ids
+                .iter()
+                .map(|bid| {
+                    t.blockers
+                        .iter()
+                        .find(|b| &b.id == bid)
+                        .is_some_and(|b| self.answered_left(&t, b))
+                })
+                .collect();
+            if ids.len() == count_open(&t) && !left.contains(&true) {
                 out.push(self.close_blocker(SWEEPER, &id, &why[0], now)?);
                 continue;
             }
+            // An agent that left the card (card #481) isn't told.
             let raisers: Vec<String> = t
                 .blockers
                 .iter()
-                .filter(|b| ids.contains(&b.id))
+                .filter(|b| ids.contains(&b.id) && !self.answered_left(&t, b))
                 .map(|b| b.raised_by.clone())
                 .collect();
             for (i, bid) in ids.iter().enumerate() {
+                // The person's answer stands, with why Irori closed it.
+                let (answer, option, note) = match left[i]
+                    .then(|| super::cards::last_answer(self, &t, bid))
+                    .flatten()
+                {
+                    Some(a) => (a.text.clone(), a.pick - 1, why[i].clone()),
+                    None => (why[i].clone(), -1, String::new()),
+                };
                 self.write(
                     SWEEPER,
                     kinds::BLOCKER_RESOLVED,
                     &BlockerResolvedRow {
                         task_id: id.clone(),
                         blocker_id: bid.clone(),
-                        answer: why[i].clone(),
-                        option: -1,
+                        answer,
+                        option,
+                        note,
                         by: SWEEPER.into(),
                         closed: true,
                         at: now,

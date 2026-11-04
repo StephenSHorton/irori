@@ -30,6 +30,8 @@ pub use main_red::{
     MAIN_RED_SCOPE, MainRed, main_red_scope, main_red_test, main_reds, parse_main_red,
 };
 mod mention;
+mod wait_chain;
+pub use wait_chain::{WaitChain, task_waits, wait_chain};
 mod mirror;
 mod notes;
 mod offers;

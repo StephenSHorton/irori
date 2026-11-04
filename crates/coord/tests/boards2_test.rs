@@ -1943,3 +1943,50 @@ fn another_persons_split_makes_no_helper_parts() {
         assert!(!s.c.get_task(&made[0].id).unwrap().spawn);
     }
 }
+
+/// Card #481: an answered item whose agent left the card closes from a
+/// device of the raiser's person only; the other person's sweep writes
+/// nothing (a row that folds to nothing there was written every sweep,
+/// card #242).
+#[test]
+fn an_answered_item_whose_agent_left_closes_from_the_raisers_device() {
+    let (a, b, _) = two_people();
+    let t = shared_card(&a, &b);
+    let (_, item) = ask(&a, CARD1, &t.id, "which port?", None).unwrap();
+    a.c.answer(
+        P1,
+        &t.id,
+        &item.id,
+        BlockerAnswer {
+            text: "8080".into(),
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    a.c.leave(CARD1, &t.id, CARD1).unwrap();
+    sync(&a, &b);
+    let mine = |s: &Side, dev: &str| {
+        s.st.list(&store::Filter {
+            device_id: dev.into(),
+            limit: store::MAX_LIST_LIMIT,
+            ..store::Filter::default()
+        })
+        .unwrap()
+        .len()
+    };
+    let n = mine(&b, "dev-b");
+    b.c.sweep_notices().unwrap();
+    assert_eq!(mine(&b, "dev-b"), n, "p2's device wrote for p1's agent");
+    assert_eq!(b.c.get_task(&t.id).unwrap().state, BLOCKED);
+    a.c.sweep_notices().unwrap();
+    sync(&a, &b);
+    for s in [&a, &b] {
+        let got = s.c.get_task(&t.id).unwrap();
+        assert_eq!(got.state, WORKING, "{got:?}");
+        let r = got.blockers[0].resolved.as_ref().expect("closed");
+        assert_eq!(r.by, "irori");
+    }
+    let n = mine(&a, "dev-a");
+    a.c.sweep_notices().unwrap();
+    assert_eq!(mine(&a, "dev-a"), n, "closed once");
+}

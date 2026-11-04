@@ -443,6 +443,10 @@ pub struct Task {
     /// goes out again as if just posted.
     #[serde(skip)]
     pub let_go: Option<(String, GoTime)>,
+    /// Who left the card and hasn't come back on it (card #481): an
+    /// answered blocker that went to one of them has nobody to act on it.
+    #[serde(skip)]
+    pub left: Vec<String>,
     #[serde(skip_serializing_if = "omit")]
     pub parent: String,
     /// A helper's part (spawned agents §3): the subtask was split off
