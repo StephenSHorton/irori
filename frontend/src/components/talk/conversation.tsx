@@ -524,7 +524,7 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
     setError(null)
     try {
       const now = channel ? agentsNow.on : agentsNowFor(mentionKinds(mentions))
-      await talkApi.post(conv.convId, body, now)
+      await talkApi.post(conv.convId, body, now, null, mentions.map((m) => m.key))
       setText("")
       setMentions([])
       agentsNow.reset()

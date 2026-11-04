@@ -156,11 +156,14 @@ impl Window {
     /// Posts as the person; returns the post's id. A thread's post is a
     /// comment on it (agents woken when `agents_now`, else told at their
     /// next turn); a channel's or DM's is a `talk.post` (a DM with an agent
-    /// wakes it, an @name in the text wakes that agent).
+    /// wakes it, an @name in the text wakes that agent). `mentions` are
+    /// the keys the composer's picker recorded: one names exactly the agent
+    /// picked, another person's in a space too (card #461).
     pub fn talk_post(
         &self,
         conv: &str,
         text: &str,
+        mentions: &[String],
         agents_now: bool,
         thread_from: Option<String>,
     ) -> Result<String, String> {
@@ -177,7 +180,7 @@ impl Window {
             &self.core.user_sender(),
             conv,
             text,
-            &[],
+            mentions,
             agents_now,
             thread_from,
         )?;

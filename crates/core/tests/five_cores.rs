@@ -42,6 +42,9 @@ struct Dev {
     core: Core,
     agent: String,
     data: std::path::PathBuf,
+    claude: std::path::PathBuf,
+    lan: SocketAddr,
+    to: Vec<SocketAddr>,
     _dirs: Vec<tempfile::TempDir>,
 }
 
@@ -79,7 +82,59 @@ fn dev(
     let sessions = cl.path().join("sessions");
     std::fs::create_dir_all(&sessions).unwrap();
     common::write_session(&sessions, "900001.json", sess, name, w.path());
-    let mut o = common::options(data.path(), cl.path());
+    let core = start(data.path(), cl.path(), lan, to.clone());
+    let agent = format!("{}/{sess}", core.device_id());
+    wait_for(10, "presence lists the session", || {
+        core.local_agents().iter().any(|a| a.key == agent)
+    });
+    Dev {
+        core,
+        agent,
+        data: data.path().to_path_buf(),
+        claude: cl.path().to_path_buf(),
+        lan,
+        to,
+        _dirs: vec![data, cl, w],
+    }
+}
+
+/// `d` stopped and started again on the same data and sessions: its
+/// boards' logs replay from disk, as at a restart of the app.
+fn restart(d: Dev) -> Dev {
+    let Dev {
+        core,
+        agent,
+        data,
+        claude,
+        lan,
+        to,
+        _dirs,
+    } = d;
+    core.close().unwrap();
+    let core = start(&data, &claude, lan, to.clone());
+    wait_for(10, "presence lists the session again", || {
+        core.local_agents().iter().any(|a| a.key == agent)
+    });
+    Dev {
+        core,
+        agent,
+        data,
+        claude,
+        lan,
+        to,
+        _dirs,
+    }
+}
+
+/// A Core on `data` and Claude dir `cl` whose mesh runs on loopback iroh
+/// with a LAN lookup on `lan` unicast to `to`.
+fn start(
+    data: &std::path::Path,
+    cl: &std::path::Path,
+    lan: SocketAddr,
+    to: Vec<SocketAddr>,
+) -> Core {
+    let mut o = common::options(data, cl);
     o.pair_net = Some(Arc::new(move |ident, chain, guests| {
         let mut nc = irori_core::devices::default_net_config(ident, chain, guests);
         nc.ip = irori_net::endpoint::IpMode::Loopback;
@@ -91,17 +146,7 @@ fn dev(
         lc.every = Duration::from_millis(200);
         irori_net::transport::IrohNet::new(nc)
     }));
-    let core = Core::start(o).unwrap();
-    let agent = format!("{}/{sess}", core.device_id());
-    wait_for(10, "presence lists the session", || {
-        core.local_agents().iter().any(|a| a.key == agent)
-    });
-    Dev {
-        core,
-        agent,
-        data: data.path().to_path_buf(),
-        _dirs: vec![data, cl, w],
-    }
+    Core::start(o).unwrap()
 }
 
 /// One person on `n` devices: the first certifies the others as pairing
@@ -1515,7 +1560,9 @@ fn a_second_board_and_a_channel_in_a_space_reach_bob() {
 
 /// Card #461: Alice's post in her space's channel naming Bob's agent wakes
 /// it, once, on Bob's device (the bridge), with "Agents answer now" on
-/// only; its reply goes in the channel; a resync doesn't wake it again.
+/// only; its reply goes in the channel, and one naming Alice's agent wakes
+/// it a hop further down; a row naming a channel outside the space wakes
+/// nobody; a restart of Bob's Core doesn't wake it again.
 #[test]
 fn alices_space_post_mentioning_bobs_agent_wakes_it_once() {
     let mut alice = person("alice", 1);
@@ -1617,39 +1664,126 @@ fn alices_space_post_mentioning_bobs_agent_wakes_it_once() {
     });
     assert_eq!(bridged(b1).len(), 1, "the quiet post woke nobody");
 
-    // The agent's reply goes in the channel and reaches Alice.
+    // Alice's agent is in the channel too, so Bob's agent can name it.
+    let out = a1.tool("talk_join", serde_json::json!({"conv": ch.id}));
+    assert!(!out.starts_with("Error"), "talk_join: {out}");
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "bob sees alice's agent in the channel", || {
+        b1.core
+            .talk()
+            .members(&ch.id)
+            .iter()
+            .filter(|m| m.key.starts_with("agent:"))
+            .count()
+            == 1
+    });
+
+    // Bob's agent takes the wake: its turn runs at the delivery's hop + 1.
+    let w = b1
+        .core
+        .inbox()
+        .outstanding_wake(&b1.agent)
+        .map(|(w, _)| w)
+        .or_else(|| {
+            b1.core
+                .inbox()
+                .next_wake(&b1.agent, inbox::path::MOD)
+                .unwrap()
+        })
+        .expect("bob's agent has the wake");
+    b1.core.inbox().mark_delivered(&b1.agent, &w.token).unwrap();
+    b1.core
+        .inbox()
+        .mark_engaged(&b1.agent, &w.token, "turn-1")
+        .unwrap();
+
+    // The agent's reply goes in the channel and reaches Alice. It names
+    // Alice's agent, which Alice's Core wakes one hop down the chain, so
+    // MAX_HOP stops two people's agents naming each other forever.
     let out = b1.tool(
         "reply",
-        serde_json::json!({"delivery_id": d.id, "text": "rollback is ready"}),
+        serde_json::json!({"delivery_id": d.id, "text": "@alice1 rollback is ready"}),
     );
     assert!(out.starts_with("Replied in #netcode"), "reply: {out}");
     b1.core.kick_board(&space);
     wait_for(WAIT, "alice reads the reply in the channel", || {
         a1.core
             .talk_posts(&a1.user(), &ch.id, None, 50)
-            .is_ok_and(|ps| ps.iter().any(|q| q.text == "rollback is ready"))
+            .is_ok_and(|ps| ps.iter().any(|q| q.text == "@alice1 rollback is ready"))
     });
     assert_ne!(
         b1.core.inbox().get(&d.id).unwrap().state,
         d.state,
         "the delivery is answered"
     );
+    wait_for(WAIT, "alice's agent is woken", || !bridged(a1).is_empty());
+    assert_eq!(bridged(a1)[0].message.hop, 1, "one hop down the chain");
 
-    // Bob's side resyncs: the space's connection drops and comes back, and
-    // a new post arrives. The first post doesn't wake the agent again.
-    b1.core.close_board_net(&space);
-    b1.core.reopen_board_net(&space).unwrap();
+    // A row in the space's log naming a channel outside the space (a
+    // modified client) wakes nobody: here Bob's own Personal channel.
+    let private = b1
+        .core
+        .talk_channel_create(&b1.user(), "private", "")
+        .unwrap();
+    let bob_agent = p
+        .mentions
+        .iter()
+        .find(|m| m.key.starts_with("agent:"))
+        .unwrap()
+        .key
+        .clone();
     a1.core
-        .talk_post(&a1.core.user_sender(), &ch.id, "thanks", &[], true, None)
+        .board_store(&space)
+        .unwrap()
+        .append(
+            &a1.person_actor(),
+            kinds::TALK_POST,
+            &serde_json::json!({
+                "postId": "p-elsewhere",
+                "convId": private.id,
+                "text": "@bob1 what's in here?",
+                "mentions": [bob_agent],
+                "agentsNow": true,
+                "by": a1.person_actor(),
+            }),
+        )
+        .unwrap();
+    // Then a post in the channel that does wake it: the row before it has
+    // been through Bob's bridge by the time this one is.
+    a1.core
+        .talk_post(
+            &a1.core.user_sender(),
+            &ch.id,
+            "@bob1 and the migration?",
+            &[],
+            true,
+            None,
+        )
         .unwrap();
     a1.core.kick_board(&space);
-    b1.core.kick_board(&space);
-    wait_for(WAIT, "bob reads alice's thanks", || {
+    wait_for(WAIT, "bob's agent is woken again", || {
+        bridged(b1).len() == 2
+    });
+    assert!(
+        !b1.core
+            .inbox()
+            .list(0)
+            .iter()
+            .any(|x| x.message.ref_ == format!("talk:{}", private.id)),
+        "the row naming another channel woke nobody"
+    );
+
+    // Bob's Core restarts: the space's log replays from disk, and neither
+    // post wakes the agent again.
+    let b1 = restart(bob.remove(0));
+    wait_for(WAIT, "bob's Talk folds the channel again", || {
         b1.core
             .talk_posts(&b1.user(), &ch.id, None, 50)
-            .is_ok_and(|ps| ps.iter().any(|q| q.text == "thanks"))
+            .is_ok_and(|ps| ps.iter().any(|q| q.text == "@bob1 and the migration?"))
     });
-    assert_eq!(bridged(b1).len(), 1, "woken once");
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(bridged(&b1).len(), 2, "woken once for each post");
+    b1.core.close().unwrap();
     close(alice.drain(..).chain(bob.drain(..)));
 }
 

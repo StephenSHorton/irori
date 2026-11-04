@@ -383,6 +383,17 @@ impl Services {
             }
         })
         .map_err(|e| bad.clone().unwrap_or(e))?;
+        // A post carries the writer's hop, as a board row does (§7.1): the
+        // other person's Core wakes their agent at it, so MAX_HOP stops two
+        // people's agents naming each other back and forth (card #461).
+        if kind == kinds::TALK_POST
+            && let Some(o) = payload.as_object_mut()
+        {
+            let hop = self.board_hop(&actor);
+            if hop > 0 {
+                o.insert("hop".into(), hop.into());
+            }
+        }
         if kind == kinds::TALK_CHANNEL_CREATED
             && let Some(o) = payload.as_object_mut()
         {

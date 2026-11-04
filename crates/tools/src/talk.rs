@@ -648,7 +648,8 @@ pub fn post(
         .collect();
     // In a space's channel the space's other people and their agents may
     // be named too, by board key (card #461): their own Cores wake them.
-    let mut agents = cards(b);
+    let local = cards(b);
+    let mut agents = local.clone();
     if let Target::Channel(id) = target
         && let Some(c) = talk.channel(id)
         && !c.space_id.is_empty()
@@ -656,7 +657,8 @@ pub fn post(
     {
         agents.extend(sb.board_mentionables(&c.space_id));
     }
-    let res: Resolved = coord::mentions::resolve(&agents, &by, &text_ok, &agents_given);
+    let mut res: Resolved = coord::mentions::resolve(&agents, &by, &text_ok, &agents_given);
+    prefer_own(&mut res, &local);
     let mut live: Vec<String> = res
         .mentions
         .iter()
@@ -956,6 +958,36 @@ pub(crate) fn talk_post(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         }
         Err(e) => err_text(&e),
     }
+}
+
+/// An `@name` both this person's agent and another person's in the space
+/// answer to names this person's own (card #461), as it did before the
+/// space's agents could be named; the other one is named by its key (the
+/// window's picker passes it).
+fn prefer_own(res: &mut Resolved, local: &[coord::roster::AgentCard]) {
+    let mut keep = Vec::new();
+    for m in std::mem::take(&mut res.misses) {
+        let own: Vec<&String> = m
+            .candidates
+            .iter()
+            .filter(|k| local.iter().any(|a| &a.key == *k))
+            .collect();
+        if m.reason == coord::mentions::MISS_AMBIGUOUS
+            && own.len() == 1
+            && res.mentions.len() < coord::MAX_MENTIONS
+        {
+            if !res.mentions.iter().any(|x| &x.key == own[0]) {
+                res.mentions.push(Mention {
+                    key: own[0].clone(),
+                    name: m.name.clone(),
+                    gone: false,
+                });
+            }
+            continue;
+        }
+        keep.push(m);
+    }
+    res.misses = keep;
 }
 
 /// What each of a post's mentions came to: another person's agent named

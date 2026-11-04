@@ -275,8 +275,14 @@ impl Services {
         if to.is_empty() {
             return;
         }
-        // Folded just before; none when the space is leaving Talk here.
-        let Some(ch) = self.talk.channel(&r.conv_id) else {
+        // Folded just before; none when the space is leaving Talk here. A
+        // post names only a live channel of the space whose log holds it:
+        // a row naming another space's channel wakes nobody (card #461).
+        let Some(ch) = self
+            .talk
+            .channel(&r.conv_id)
+            .filter(|c| c.space_id == b.id && !c.archived)
+        else {
             return;
         };
         let card_id = ev

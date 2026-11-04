@@ -244,7 +244,7 @@ export const commands = {
 	/**  Up to `limit` posts before `before` (none: the newest), oldest first. */
 	talkPosts: (convId: string, before: string | null, limit: number) => __TAURI_INVOKE<TalkPost[]>("talk_posts", { convId, before, limit }),
 	/**  Posts as the person; returns the post's id (a thread's: the comment's). */
-	talkPost: (convId: string, text: string, agentsNow: boolean, threadFrom: string | null) => __TAURI_INVOKE<string>("talk_post", { convId, text, agentsNow, threadFrom }),
+	talkPost: (convId: string, text: string, mentions: string[], agentsNow: boolean, threadFrom: string | null) => __TAURI_INVOKE<string>("talk_post", { convId, text, mentions, agentsNow, threadFrom }),
 	/**  The person made card `task_id` from post `post_id` (card #390). */
 	talkLinkCard: (postId: string, taskId: string) => __TAURI_INVOKE<null>("talk_link_card", { postId, taskId }),
 	/**  The person has read `conv_id` up to post `up_to`. */

@@ -658,7 +658,12 @@ impl tools::SharedBoards for BobsSpace {
             status: "idle".into(),
             ..Default::default()
         };
-        vec![c("person:pBob", "Bob"), c("agent:cBob", "bobbot")]
+        // Bob's other agent shares a name with this person's beta.
+        vec![
+            c("person:pBob", "Bob"),
+            c("agent:cBob", "bobbot"),
+            c("agent:cBeta", "beta"),
+        ]
     }
 }
 
@@ -762,4 +767,39 @@ fn a_reply_to_a_bridged_talk_mention_posts_in_the_channel() {
         inbox::st::ANSWERED,
         "answered"
     );
+}
+
+/// An @name this person's agent and Bob's agent both answer to in a space
+/// channel names this person's own (card #461), as before the space's
+/// agents could be named; Bob's is named by its key, as the picker passes
+/// it.
+#[test]
+fn a_space_channel_name_tie_names_this_persons_own_agent() {
+    let h = new_harness_setup(None, |b, _| {
+        let _ = b.shared.set(std::sync::Arc::new(BobsSpace));
+        b.talk
+            .set_spaces(std::sync::Arc::new(SpaceRows(b.st.clone())));
+    });
+    let a = call_a();
+    let t = &h.b.talk;
+    let mlg = t.create_channel_in(USER, "netcode", "", "sp_mlg").unwrap();
+    h.okj(&a, "talk_join", json!({"conv": mlg.id}));
+    let out = h.okj(
+        &a,
+        "talk_post",
+        json!({"conv": mlg.id, "text": "@beta is rollback ready?"}),
+    );
+    has_not(&out, &["Not delivered", "ambiguous"]);
+    let last = t.posts(&mlg.id).pop().unwrap();
+    assert_eq!(last.mentions, vec![KEY_B.to_string()], "{last:?}");
+    assert!(!h.notices(KEY_B).is_empty(), "this person's beta hears it");
+
+    let out = h.okj(
+        &a,
+        "talk_post",
+        json!({"conv": mlg.id, "text": "@beta over to you", "mention": ["agent:cBeta"]}),
+    );
+    has(&out, &["(on the space)"]);
+    let last = t.posts(&mlg.id).pop().unwrap();
+    assert_eq!(last.mentions, vec!["agent:cBeta".to_string()], "{last:?}");
 }

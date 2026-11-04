@@ -245,8 +245,9 @@ export const TalkService = {
   Conversations: () => call(commands.talkConversations()),
   Posts: (convId: string, before: string | null, limit: number) =>
     call(commands.talkPosts(convId, before, limit)),
-  Post: (convId: string, text: string, agentsNow: boolean, threadFrom: string | null) =>
-    call(commands.talkPost(convId, text, agentsNow, threadFrom)),
+  // mentions: the keys the composer's picker recorded (#461).
+  Post: (convId: string, text: string, mentions: string[], agentsNow: boolean, threadFrom: string | null) =>
+    call(commands.talkPost(convId, text, mentions, agentsNow, threadFrom)),
   Read: (convId: string, upTo: string) => done(commands.talkRead(convId, upTo)),
   LinkCard: (postId: string, taskId: string) => done(commands.talkLinkCard(postId, taskId)),
   // spaceId puts the channel in a space, where its members see it (#392).

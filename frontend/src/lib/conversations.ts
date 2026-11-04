@@ -69,9 +69,17 @@ export const talkApi = {
     inWails()
       ? TalkService.Posts(convId, before, PostsPage)
       : Promise.resolve(samplePosts(convId)),
-  post: (convId: string, text: string, agentsNow: boolean, threadFrom: string | null = null) =>
+  // mentions are the picker's keys: the agent picked, another person's in
+  // a space too, whatever else answers to its name (#461).
+  post: (
+    convId: string,
+    text: string,
+    agentsNow: boolean,
+    threadFrom: string | null = null,
+    mentions: string[] = []
+  ) =>
     inWails()
-      ? TalkService.Post(convId, text, agentsNow, threadFrom)
+      ? TalkService.Post(convId, text, mentions, agentsNow, threadFrom)
       : Promise.resolve(samplePost(convId, text, agentsNow, threadFrom)),
   // linkCard marks the card made from a post (Make a card): its chip.
   linkCard: (postId: string, taskId: string): Promise<void> =>
