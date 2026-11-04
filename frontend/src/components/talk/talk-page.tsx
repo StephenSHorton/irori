@@ -184,9 +184,8 @@ export function TalkPage({
       </Group>
     )
   }
-  const liveThreads = folded("threads")
-    ? live.filter((t) => t.id === open || needsYou(t))
-    : live
+  // Folded, Threads lists no rows either, as every section (card #484).
+  const liveThreads = folded("threads") ? [] : live
 
   const list = (
     <nav
