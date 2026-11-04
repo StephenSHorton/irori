@@ -588,7 +588,10 @@ impl Window {
             pick: option + 1,
             text: text.into(),
             wake,
-            resolve: self.nobody_can_act(&t, &bl.raised_by),
+            // A Not done stays on the done check's thread even with its
+            // agent gone (card #476): the card goes back on the Board and
+            // the next agent answers it there.
+            resolve: !bl.done_check && self.nobody_can_act(&t, &bl.raised_by),
             mentions: plan.log.clone(),
             files: Vec::new(),
         };

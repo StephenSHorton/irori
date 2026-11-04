@@ -18,7 +18,7 @@ use super::util::{
     cut_show, deeper, multiline, new_id, remove_str, runes,
 };
 use super::{
-    DONE_ANSWER, DONE_CONTEXT, DONE_QUESTION, KEEP_RESOLVED, MAX_ANSWER, MAX_ATTACHMENTS,
+    ASKED_AGAIN, DONE_ANSWER, DONE_CONTEXT, DONE_QUESTION, KEEP_RESOLVED, MAX_ANSWER, MAX_ATTACHMENTS,
     MAX_BLOCKER_LINKS, MAX_COMMENT, MAX_CONTEXT, MAX_LEFT_OFF, MAX_MISSING, MAX_MISSING_TEXT,
     MAX_OBJECTIVE, MAX_OPEN_BLOCKERS, MAX_OPTIONS, MAX_OWN_ANSWER, MAX_QUESTION, MAX_STEP_TEXT,
     MAX_STEPS, MAX_WHY, NEEDS_PROOF,
@@ -326,6 +326,43 @@ fn last_answer(f: &Fold, t: &Task, bid: &str) -> Option<Comment> {
         }
     }
     last.cloned()
+}
+
+/// The done check the person sent back (card #476): the newest done check
+/// on t, when the person's last word on it is their own (Not done, with
+/// why), open or not. `answered` is whether an agent has answered them
+/// on it since: a reply on its thread, or resolving it with a note.
+#[derive(Debug, Clone)]
+pub struct SentBack {
+    pub id: String,
+    pub reason: Comment,
+    pub proof: String,
+    pub answered: bool,
+}
+
+pub(crate) fn sent_back(f: &Fold, t: &Task) -> Option<SentBack> {
+    let b = t
+        .blockers
+        .iter()
+        .filter(|b| b.done_check)
+        .max_by_key(|b| b.at.unix_nano())?;
+    let reason = last_answer(f, t, &b.id).filter(|c| c.pick <= 0)?;
+    let replied = f
+        .by_task
+        .get(&t.id)
+        .into_iter()
+        .flatten()
+        .filter_map(|id| f.comments.get(id))
+        .any(|cm| cm.blocker_id == b.id && !cm.person && reason.pos().before(&cm.pos()));
+    let noted = b.resolved.as_ref().is_some_and(|r| {
+        !r.closed && !r.note.is_empty() && r.note != ASKED_AGAIN && !f.is_owner(&r.by)
+    });
+    Some(SentBack {
+        id: b.id.clone(),
+        reason,
+        proof: b.context.clone(),
+        answered: replied || noted,
+    })
 }
 
 /// What folding a blocked row did: its activity line, the item it raised
@@ -1045,6 +1082,25 @@ impl Fold {
         if need_proof && !said_done && note.is_empty() {
             return Err(invalid(NEEDS_PROOF));
         }
+        // Card #476: the person said why it isn't done. The agent answers
+        // them on that check first, so the exchange stays on the card and
+        // the next check shows what changed, then brings new proof.
+        if let Some(sb) = sent_back(self, t).filter(|_| !said_done) {
+            if !sb.answered {
+                return Err(invalid(format!(
+                    "the person sent done check {bid} back: {why}. Answer them on it first, in your own words: what you did about it (board_comment task_id={id} blocker_id={bid}). Then set completed again with proof that says what changed since.",
+                    bid = sb.id,
+                    why = quote(&cut(&sb.reason.text, MAX_ANSWER)),
+                    id = t.short_ref(),
+                )));
+            }
+            if !note.is_empty() && cut(note, MAX_OBJECTIVE) == sb.proof {
+                return Err(invalid(format!(
+                    "that is the proof the person sent back on {}: say what changed since their answer",
+                    sb.id
+                )));
+            }
+        }
         // The person already said Done: the completed row below closes the
         // checks itself (card #315), with no stop at working on the way.
         for bid in earlier.into_iter().filter(|_| !said_done) {
@@ -1056,7 +1112,7 @@ impl Fold {
                     text: if said_done {
                         "the person said Done".into()
                     } else {
-                        "asked again: ready for the person".into()
+                        ASKED_AGAIN.into()
                     },
                     resolve: true,
                     ..BlockerAnswer::default()
@@ -1589,6 +1645,26 @@ impl Fold {
                 cut_show(&text, MAX_NOTICE_FIELD, &format!("task:{id}"))
             );
             s.push_str(&picked_line(opt, &rec_by, rec));
+            if b.done_check {
+                // Card #476: Not done on a done check. The answer goes on
+                // its thread, where the person reads it beside their
+                // reason, and the next check says what changed.
+                s.push_str(&format!(
+                    "\nThat is a Not done on your done check: it goes back to you. Answer them on it now, in your own words, so they see you heard them: what you'll do about it (board_comment task_id={id} blocker_id={bid}). When it is done, set completed again with proof that says what changed since; that check replaces this one, and completed is refused until you have answered here or if the proof is the same.",
+                    bid = b.id
+                ));
+                s.push_str(&deeper(id));
+                n.text = s;
+                let mut mn =
+                    self.mention_notice(&by, id, &ms, &text, &format!("task:{id}"), "")?;
+                super::mention::mention_into(&mut n, &mut mn);
+                let mut ns = vec![n];
+                ns.extend(mn);
+                if self.is_owner(&by) {
+                    self.back_on_board(&by, id, "the person answered and nobody is on it")?;
+                }
+                return Ok((self.tasks[id].clone(), ns));
+            }
             if opt < 0 && !b.options.is_empty() {
                 s.push_str(&format!(
                     "\nThe person answered in their own words, so the options you offered are set aside: their window shows only the thread and a reply box. Answer them in the thread (board_comment task_id={id} blocker_id={}). Once you can see the choices that fit now, revise with board_block task_id={id} blocker_id={} with new options and your recommendation marked, or none to keep it a conversation.",
@@ -1798,7 +1874,10 @@ impl Fold {
                 quote(&bid)
             )));
         };
-        if !t.blockers[i].open() {
+        // The done check the person sent back stays answerable after the
+        // next check (or the Board) closed it (card #476): a fresh agent
+        // answers their reason there.
+        if !t.blockers[i].open() && sent_back(self, t).is_none_or(|sb| sb.id != bid) {
             return Err(bad_state(format!("blocker {bid} is already resolved")));
         }
         let at = self.stamp();

@@ -378,7 +378,9 @@ impl Inner {
                 for f in &bl.attachments {
                     b += &format!("    file: {} (attachment_get)\n", describe_coord(f));
                 }
-                if bl.options_aside {
+                if bl.options_aside && bl.done_check {
+                    b += "    Not done: the person said why; answer them in the thread (board_comment blocker_id), then set completed again with proof that says what changed\n";
+                } else if bl.options_aside {
                     b += "    options set aside: the person answered in their own words; answer in the thread, then revise with board_block blocker_id\n";
                 }
                 let opts = if bl.options_aside { &[][..] } else { opts };
@@ -2155,10 +2157,11 @@ pub(crate) fn board_status(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     {
         {
             return format!(
-                "{} waits on the person to confirm it's done (done check {}{}). Their Done closes it; if they say why it isn't done, you hear it as an answered blocker: fix it, then set completed again. Keep holding it until then.\n{}",
+                "{} waits on the person to confirm it's done (done check {}{}). Their Done closes it; if they say why it isn't done, you hear it as an answered blocker: answer them on it first (board_comment blocker_id={}), so they see you heard them, then fix it and set completed again with proof that says what changed. Keep holding it until then.\n{}",
                 t.short_ref(),
                 one_line(&b.id, 20),
                 attached_line(&files),
+                one_line(&b.id, 20),
                 s.line(&t)
             );
         }

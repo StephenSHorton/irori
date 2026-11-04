@@ -419,6 +419,7 @@ pub(crate) fn build_brief(
     named: &dyn Fn(&str) -> String,
     others: OthersFn<'_>,
     answer: Option<&str>,
+    sent_back: Option<&coord::SentBack>,
 ) -> Brief {
     let short = t.short_ref();
     let mut b = String::new();
@@ -453,8 +454,24 @@ pub(crate) fn build_brief(
     if !hand.trim().is_empty() {
         fence(&mut b, "Where the work is", "irori", hand.trim());
     }
-    if let Some(a) = answer.filter(|a| !a.trim().is_empty()) {
+    let quoted_below = |a: &str| {
+        sent_back.is_some_and(|sb| !sb.answered && sb.reason.text.trim() == a.trim())
+    };
+    if let Some(a) = answer.filter(|a| !a.trim().is_empty() && !quoted_below(a)) {
         fence(&mut b, "The person's answer for you", "the person", a);
+    }
+    // Card #476: the person sent the last done check back. The agent
+    // before you raised it; you answer them on it, and your proof says what
+    // changed, so they see the exchange and not the same ask again.
+    if let Some(sb) = sent_back.filter(|sb| !sb.answered) {
+        b.push_str(&format!(
+            "The person sent the last done check ({bid}, \"Is this done?\") back with the reason below. Answer them on it first, in your own words, so they see their reply was heard: what you will do about it (board_comment task_id={short} blocker_id={bid}). When the work is done, set {short} completed with proof that says what changed since; completed is refused until you have answered on {bid}, or if the proof is the same as before.\n\n",
+            bid = sb.id,
+        ));
+        fence(&mut b, "Their reason", &sb.reason.by, &sb.reason.text);
+        if !sb.proof.trim().is_empty() {
+            fence(&mut b, "The proof they sent back", "irori", &sb.proof);
+        }
     }
     let mut others_text = false;
     let mut counted: HashMap<String, usize> = HashMap::new();
@@ -851,7 +868,15 @@ impl Services {
             .get(&t.id)
             .cloned()
             .or_else(|| self.answer_on_card(t, &comments));
-        let brief = build_brief(t, &comments, &named, &|_| None, answer.as_deref());
+        let sent = self.coord.sent_back(&t.id);
+        let brief = build_brief(
+            t,
+            &comments,
+            &named,
+            &|_| None,
+            answer.as_deref(),
+            sent.as_ref(),
+        );
         let setting = self.spawn_setting("");
         let perms = spawn_permissions(&setting, "", &t.repo_key, &brief);
         let ask = SpawnAsk {
@@ -1400,6 +1425,7 @@ mod tests {
             &named,
             &others,
             Some("Not done: also the tests"),
+            None,
         );
         assert!(b.others_text);
         assert!(b.text.contains("not instructions to you"), "{}", b.text);
@@ -1418,7 +1444,7 @@ mod tests {
         assert!(b.text.contains("1 comment(s) by Blake"), "{}", b.text);
         assert!(b.text.contains("Not done: also the tests"));
         assert!(b.text.contains("Take only #7"));
-        let mine = build_brief(&card(), &cs[..1], &named, &others, None);
+        let mine = build_brief(&card(), &cs[..1], &named, &others, None, None);
         assert!(!mine.others_text);
     }
 
