@@ -442,12 +442,17 @@ export function App() {
   // The cards Home files under Stuck because nobody took them (card
   // #487): the idle line counts them, so it never says "no open work"
   // over them.
+  const homeCards = useMemo(
+    () => spaceCards.filter((c) => inScope(c, homeScope)),
+    [spaceCards, homeScope]
+  )
+  const homeIds = useMemo(() => new Set(homeCards.map((c) => c.id)), [homeCards])
   const untaken = useMemo(
     () =>
-      spaceCards
-        .filter((c) => inScope(c, homeScope) && nobodyTook(withLive(c, liveRoster), now.getTime()))
+      homeCards
+        .filter((c) => nobodyTook(withLive(c, liveRoster), now.getTime()))
         .map((c) => ({ id: c.id, short: cardRef(c) })),
-    [spaceCards, homeScope, liveRoster, now]
+    [homeCards, liveRoster, now]
   )
   // cardLabel names the card a held message is about: "#28", else "a card"
   // (one not on this board, or not loaded).
@@ -780,7 +785,7 @@ export function App() {
                 <MainRedLines reds={mainReds(cards)} onOpen={openCard} />
                 <SpawnNotice />
                 <AskBox onThread={startedThread} board={threadsSpace(space)} />
-                <IdleLine text={idleLine(idle, untaken)} />
+                <IdleLine text={idleLine(idle, untaken, homeIds)} />
               </>
             }
             lead={

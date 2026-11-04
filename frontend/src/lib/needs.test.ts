@@ -348,6 +348,40 @@ describe("Home's groups (card #487)", () => {
     expect(rowState(c)).toEqual({ state: "stuck", line: "Nobody on it: heron went away" })
     expect(nobodyTook(c)).toBe(false)
   })
+  test("one holder still there carries it; a gone co-holder doesn't make it Stuck", () => {
+    const gone = { ...heron, key: "d/a", name: "a", status: "gone", live: false }
+    const c = card({
+      working: [gone, heron] as CardSummary["working"],
+      holder: { state: "gone", who: gone, others: 1 } as CardSummary["holder"],
+    })
+    expect(rowState(c, Date.parse("2026-11-02T10:01:00Z"))).toEqual({
+      state: "working",
+      line: "heron, between turns",
+    })
+  })
+  test("a step owner carries it: not nobody", () => {
+    const c = card({
+      working: [{ ...heron, steps: ["write tests"] }] as CardSummary["working"],
+      holder: { state: "nobody", who: { key: "", name: "" }, others: 0 } as CardSummary["holder"],
+    })
+    expect(rowState(c, Date.parse("2026-11-02T10:01:00Z")).state).toBe("working")
+    expect(nobodyTook(c)).toBe(false)
+  })
+  test("a parent nobody holds waits on its subtasks, not counted", () => {
+    const c = card({ subtasks: 2 })
+    expect(rowState(c)).toEqual({ state: "waiting", line: "Waiting on its subtasks" })
+    expect(nobodyTook(c)).toBe(false)
+  })
+  test("an ask whose taker went away is Stuck, but someone took it", () => {
+    const oak = { ...heron, key: "d/oak", name: "oak", offline: true }
+    const c = card({
+      ask: { state: "taken", told: 2, taker: oak } as CardSummary["ask"],
+      working: [oak] as CardSummary["working"],
+      holder: { state: "offline", who: oak, others: 0 } as CardSummary["holder"],
+    })
+    expect(rowState(c)).toEqual({ state: "stuck", line: "oak is on an offline device" })
+    expect(nobodyTook(c)).toBe(false)
+  })
   test("groups come in order, each in the order given, empty ones left out", () => {
     const rows = [
       { id: "a", s: "waiting" },

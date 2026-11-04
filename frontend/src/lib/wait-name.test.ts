@@ -17,7 +17,22 @@ describe("waitName", () => {
     expect(leaseNames(["gpu/qwen"])).toBe("gpu/qwen")
     expect(leaseNames(["port:8080"])).toBe("port 8080")
     expect(leaseNames(["desk/irori"])).toBe("the merge desk")
-    expect(leaseNames(["path:irori:crates/coord/**"])).toBe("crates/coord/** in irori")
+    expect(leaseNames(["path:remote:github.com/sh/irori:crates/coord/**"])).toBe(
+      "crates/coord/** in irori"
+    )
+    expect(leaseNames(["path:root:abc1234def:src/*.rs"])).toBe("src/*.rs in repo abc1234")
+    expect(leaseNames(["check/mac/slot-3"])).toBe("check slot 3 on mac")
+  })
+  test("free text that isn't a lease keeps its words", () => {
+    expect(waitLine({ waitKind: "external", waitOn: "external deploy to aws/us-east-1 finishing" })).toBe(
+      "Waiting on deploy to aws/us-east-1 finishing"
+    )
+    expect(waitLine({ waitKind: "external", waitOn: "external CI at https://ci.example.com/job/build-42" })).toBe(
+      "Waiting on CI at https://ci.example.com/job/build-42"
+    )
+    expect(waitLine({ waitKind: "external", waitOn: "the ww/dolphin-slot-2 lease" })).toBe(
+      "Waiting for Dolphin slot 2"
+    )
   })
   test("two families name the first and count the rest", () => {
     expect(leaseNames(["ww/dolphin-slot-1", "ww/dolphin-slot-2", "port:9246"])).toBe(

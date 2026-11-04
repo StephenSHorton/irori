@@ -3,6 +3,7 @@
 // its row, and every other card is one compact row in one of four
 // states. Pure, so the order and the words are tested without a window.
 
+import { NotAnswering } from "./agent-counts"
 import { spawnLine } from "./spawn-line"
 import {
   askLine,
@@ -70,19 +71,23 @@ function cap(s: string): string {
   return s ? s[0].toUpperCase() + s.slice(1) : s
 }
 
-// askRow files an open ask: someone took it, it waits on the device that
-// hands it out, or nobody took it.
-function askRow(a: NonNullable<CardSummary["ask"]>): RowLine {
-  const line = askLine(a)
-  if (a.state === AskState.Taken) return { state: "working", line }
-  if (a.state === AskState.Waiting) return { state: "waiting", line }
-  return { state: "stuck", line }
+// away says a holder isn't there to carry the card: gone, not live,
+// not answering its wakes (#110) or on an offline device.
+function away(w: CardSummary["working"][number]): boolean {
+  return w.status === "gone" || w.status === NotAnswering || !w.live || !!w.offline
 }
 
-// rowState is the card's state and the line under its title: what it
-// waits on, who is on it, or how it ended. The words are the ones the
-// card's own page uses.
-export function rowState(c: CardSummary, now: number = Date.now()): RowLine {
+function awayLine(w: CardSummary["working"][number], h: string): string {
+  const name = w.key ? displayName(w) : "Its agent"
+  if (h === Holding.HoldSilent || w.status === NotAnswering) return `${name} isn't answering`
+  if (h === Holding.HoldOffline || w.offline) return `${name} is on an offline device`
+  return `${name} ${w.spawned ? "finished" : "went away"}`
+}
+
+// Row is a RowLine and whether nobody took the card (for nobodyTook).
+type Row = RowLine & { nobody?: boolean }
+
+function row(c: CardSummary, now: number): Row {
   if (over(c)) return { state: "done", line: overLabel(c) }
   if (needsYou(c)) {
     if (c.ready && c.openBlockers <= 1)
@@ -91,7 +96,17 @@ export function rowState(c: CardSummary, now: number = Date.now()): RowLine {
       return { state: "needs", line: `${c.openBlockers} decisions` }
     return { state: "needs", line: plainLine(c.blockerQuestion) || "A question for you" }
   }
-  if (openAsk(c) && c.ask) return askRow(c.ask)
+  // The card's holders: a holder or a step owner, not an assignee who
+  // hasn't taken it up.
+  const held = c.working.filter((w) => !w.assigned)
+  if (openAsk(c) && c.ask) {
+    const line = askLine(c.ask)
+    if (c.ask.state === AskState.Waiting) return { state: "waiting", line }
+    if (c.ask.state !== AskState.Taken) return { state: "stuck", line, nobody: true }
+    // Taken: Working while its taker is there.
+    const gone = held.length > 0 && held.every(away)
+    return gone ? { state: "stuck", line: awayLine(held[0], c.holder.state) } : { state: "working", line }
+  }
   if (c.paused) return { state: "waiting", line: "Paused" }
   // Card #347: the person's review of the PR it's on, or what its wait
   // on another card comes down to for them.
@@ -103,11 +118,7 @@ export function rowState(c: CardSummary, now: number = Date.now()): RowLine {
     return { state: "stuck", line: `Waiting on ${waitName(c) || "an agent"}, who is gone` }
   if (c.waitingOn) return { state: "waiting", line: waitLine(c) }
   if (c.waiting > 0) return { state: "waiting", line: "Your answer is with the agent" }
-  const who = c.working
-    .filter((w) => !w.assigned)
-    .map(displayName)
-    .slice(0, 2)
-    .join(", ")
+  const who = held.map(displayName).slice(0, 2).join(", ")
   if (busy(c)) return { state: "working", line: who ? `${who} working` : "Working", spin: true }
   // Card #431: between turns, but a background job it started still runs.
   const job = runningJobNow(c)
@@ -117,13 +128,19 @@ export function rowState(c: CardSummary, now: number = Date.now()): RowLine {
       line: `${job.map(displayName).slice(0, 2).join(", ")} running a background job`,
       spin: true,
     }
-  if (!c.working.length || c.holder.state === Holding.HoldNobody) {
+  if (!held.length) {
     // Card #448: an agent Irori is starting (Working), a device at its cap
     // (Waiting), or why one can't start (Stuck), instead of "nobody".
     const sp = spawnLine(c)
     if (sp) {
       const state: RowState = c.starting ? "working" : c.cantStart ? "stuck" : "waiting"
       return { state, line: cap(sp.text) }
+    }
+    // A parent is never handed out: its subtasks carry it.
+    if ((c.subtasks ?? 0) > 0) return { state: "waiting", line: "Waiting on its subtasks" }
+    if (c.working.length) {
+      const w = workLabel(c)
+      return { state: "stuck", line: w === "offered" ? "Offered, not taken up yet" : "Not picked up", nobody: true }
     }
     if (c.returned)
       return {
@@ -132,37 +149,24 @@ export function rowState(c: CardSummary, now: number = Date.now()): RowLine {
           ? `Nobody on it: ${displayName(c.returned)} finished`
           : `Nobody on it: ${displayName(c.returned)} went away`,
       }
-    return { state: "stuck", line: "Nobody has it yet" }
+    return { state: "stuck", line: "Nobody has it yet", nobody: true }
   }
-  const w = workLabel(c)
-  if (w === "not picked up" || w === "offered")
-    return { state: "stuck", line: w === "offered" ? "Offered, not taken up yet" : "Not picked up" }
-  // Its holder went away, isn't answering or its device is offline:
-  // nobody is on it, whatever the card says.
-  // The live roster can say so before the card does.
-  const held = c.working.filter((w) => !w.assigned)
-  const away = (w: (typeof held)[number]) => w.status === "gone" || !w.live || !!w.offline
-  const h = c.holder.state
-  if (
-    h === Holding.HoldGone ||
-    h === Holding.HoldSilent ||
-    h === Holding.HoldOffline ||
-    (held.length > 0 && held.every(away))
-  ) {
-    const w = held.find(away) ?? c.holder.who
-    const name = w.key ? displayName(w) : "Its agent"
-    const why =
-      h === Holding.HoldSilent
-        ? "isn't answering"
-        : h === Holding.HoldOffline || w.offline
-          ? "is on an offline device"
-          : w.spawned
-            ? "finished"
-            : "went away"
-    return { state: "stuck", line: `${name} ${why}` }
-  }
+  // Every holder went away, isn't answering or is offline: nobody is on
+  // it, whatever the card says (the live roster can say so first). One
+  // holder still there carries it.
+  if (held.every(away)) return { state: "stuck", line: awayLine(held[0], c.holder.state) }
   if (idleUnnamed(c, now)) return { state: "idle", line: who ? `${IDLE_LINE} (${who})` : IDLE_LINE }
-  return { state: "working", line: who ? `${who}, between turns` : "Held, between turns" }
+  const there = held.filter((w) => !away(w)).map(displayName).slice(0, 2).join(", ")
+  return { state: "working", line: there ? `${there}, between turns` : "Held, between turns" }
+}
+
+// rowState is the card's state and the line under its title: what it
+// waits on, who is on it, or how it ended. The words are the ones the
+// card's own page uses.
+export function rowState(c: CardSummary, now: number = Date.now()): RowLine {
+  const r: Row = { ...row(c, now) }
+  delete r.nobody
+  return r
 }
 
 // groupRows splits rows into Home's groups, in RowGroups order, each in
@@ -182,15 +186,12 @@ export function groupRows<T>(
 }
 
 // nobodyTook is the open cards Home files under Stuck because nobody
-// took them (card #487): the idle line names them, so "1 agent idle, no
-// open work" never sits over cards nobody has. A holder that went away
-// or a wait on a gone agent is Stuck too, but someone did take those.
+// took them (card #487): never handed out, offered or assigned and not
+// picked up, or an ask nobody took. The idle line names them, so "1
+// agent idle, no open work" never sits over them. A holder that went
+// away or a wait on a gone agent is Stuck too, but someone took those.
 export function nobodyTook(c: CardSummary, now: number = Date.now()): boolean {
-  const r = rowState(c, now)
-  if (r.state !== "stuck") return false
-  if (openAsk(c)) return true
-  if (c.waitingOn || c.cantStart || c.returned) return false
-  return !c.working.length || c.holder.state === Holding.HoldNobody || c.working.every((w) => w.assigned)
+  return !!row(c, now).nobody
 }
 
 // Need is one item of the Needs you list.

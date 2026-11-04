@@ -131,16 +131,23 @@ export type Untaken = { id: string; short: string }
 // dispatch gap (cards #341, #487): "3 agents idle, no open work" only when
 // no open card waits for a taker; else "1 agent idle; 3 cards nobody
 // took: #25, #6, #14", with the idle report's why for a card Irori hasn't
-// handed out yet. The report's cards Home doesn't list (another scope)
-// still count. "" when nobody is idle and nothing waits.
-export function idleLine(r: IdleReport, untaken: readonly Untaken[] = []): string {
+// handed out yet. A report card Home doesn't list at all (homeIds: the ids
+// of the cards Home lists) still counts; one Home lists under another
+// group (an agent starting, a device at its cap) goes by its row.
+// "" when nobody is idle and nothing waits.
+export function idleLine(
+  r: IdleReport,
+  untaken: readonly Untaken[] = [],
+  homeIds: ReadonlySet<string> = new Set()
+): string {
   const why = new Map(r.unoffered.map((u) => [u.id, u.why]))
   const cards: { short: string; why: string }[] = untaken.map((u) => ({
     short: u.short,
     why: why.get(u.id) ?? "",
   }))
   const listed = new Set(untaken.map((u) => u.id))
-  for (const u of r.unoffered) if (!listed.has(u.id)) cards.push({ short: u.short, why: u.why })
+  for (const u of r.unoffered)
+    if (!listed.has(u.id) && !homeIds.has(u.id)) cards.push({ short: u.short, why: u.why })
   const k = cards.length
   if (k === 0) return r.idle > 0 ? `${n(r.idle, "agent", "agents")} idle, no open work.` : ""
   const shown = cards

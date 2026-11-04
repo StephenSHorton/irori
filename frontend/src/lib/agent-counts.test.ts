@@ -138,6 +138,10 @@ describe("idleLine (card #341)", () => {
     expect(
       idleLine({ idle: 1, unoffered: [{ ...u("#25", "every free agent passed it"), id: "c25" }] }, took)
     ).toBe("1 agent idle; 3 cards nobody took: #25 (every free agent passed it), #6, #14.")
+    // A report card Home lists under another group goes by its row.
+    expect(idleLine({ idle: 1, unoffered: [{ ...u("#5", "no agent is free"), id: "c5" }] }, [], new Set(["c5"]))).toBe(
+      "1 agent idle, no open work."
+    )
     // A report card Home doesn't list still counts, once.
     expect(idleLine({ idle: 2, unoffered: [u("wind#9", "nobody on this board is free")] }, took.slice(0, 1))).toBe(
       "2 agents idle; 2 cards nobody took: #25, wind#9 (nobody on this board is free)."
