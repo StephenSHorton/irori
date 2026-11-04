@@ -110,6 +110,24 @@ pub const HOLDER_GRACE: Duration = Duration::from_secs(10 * 60);
 /// taken off its cards this long after, so the card goes to the next free
 /// agent within a minute (card #338); a quick --resume keeps it.
 pub const ENDED_GRACE: Duration = Duration::from_secs(30);
+/// A run holder's agent part starts with this (`<device>/run-<name>`):
+/// a process such as `scripts/check.sh` that holds a slot lease without
+/// being an agent (card #437). The gone sweep leaves it alone; its lease
+/// ends at its until, so the run renews it while it lives.
+pub const RUN_HOLDER: &str = "run-";
+/// The most slots one slot lease spreads over.
+pub const MAX_SLOTS: usize = 16;
+
+/// Whether `key` is a run holder (see [`RUN_HOLDER`]).
+pub fn is_run_holder(key: &str) -> bool {
+    key.split_once('/')
+        .is_some_and(|(dev, rest)| !dev.is_empty() && rest.starts_with(RUN_HOLDER))
+}
+
+/// The resource of `base`'s slot `n` (1-based): `<base>/slot-<n>`.
+pub fn slot_resource(base: &str, n: usize) -> String {
+    format!("{base}/slot-{n}")
+}
 
 pub const MAX_COMMENT: usize = 4000;
 /// What the person types (a comment, an ask, a blocker answer) is held to
@@ -841,6 +859,23 @@ impl Coord {
     }
     pub fn release(&self, by: &str, resource: &str) -> Result<()> {
         self.lock().release(by, resource)
+    }
+    /// Takes one of `slots` leases on `base` (`<base>/slot-1`..`-N`, see
+    /// [`slot_resource`]): the one holder already has (renewed), else the
+    /// first free one. All held by others is Held, naming their holders,
+    /// and writes no refusal row, so a run waiting its turn can poll it.
+    pub fn acquire_slot(
+        &self,
+        holder: &str,
+        base: &str,
+        slots: usize,
+        ttl: Duration,
+    ) -> Result<Lease> {
+        self.lock().acquire_slot(holder, base, slots, ttl)
+    }
+    /// Releases every slot of `base` that `by` holds; false when it held none.
+    pub fn release_slot(&self, by: &str, base: &str) -> Result<bool> {
+        self.lock().release_slot(by, base)
     }
     /// The person ending a lease held on any device.
     pub fn steal_lease(&self, by: &str, resource: &str) -> Result<()> {

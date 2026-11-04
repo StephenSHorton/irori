@@ -1612,7 +1612,9 @@ impl Fold {
             }
         }
         for l in self.held.values() {
-            if self.live(l, now) {
+            // A run holder (card #437) has no presence: its lease ends at
+            // its until, which the run renews while it lives.
+            if self.live(l, now) && !super::is_run_holder(&l.lease.holder) {
                 tracked.insert(l.lease.holder.clone());
             }
         }

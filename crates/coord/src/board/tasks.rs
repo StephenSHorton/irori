@@ -16,7 +16,7 @@ use super::fold::{
 };
 use super::links::{MAX_LINKS, parse_link};
 use super::resource::{
-    check_repo_key, conflicts, normalize_glob, normalize_resource, parse_resource,
+    RESOURCE_NAMED, check_repo_key, conflicts, normalize_glob, normalize_resource, parse_resource,
 };
 use super::rows::*;
 use super::types::*;
@@ -637,6 +637,79 @@ impl Fold {
             .get(&res.name)
             .map(|r| r.lease.clone())
             .ok_or_else(|| not_found(format!("no lease on {}", res.name)))
+    }
+
+    pub(crate) fn acquire_slot(
+        &mut self,
+        holder: &str,
+        base: &str,
+        slots: usize,
+        ttl: Duration,
+    ) -> Result<Lease> {
+        let holder = caller(holder)?;
+        if slots == 0 || slots > super::MAX_SLOTS {
+            return Err(invalid(format!(
+                "slots must be 1 to {}, not {slots}",
+                super::MAX_SLOTS
+            )));
+        }
+        let base = parse_resource(base)?;
+        if base.kind != RESOURCE_NAMED {
+            return Err(invalid(format!(
+                "slots take a plain name like check/mac, not {}",
+                quote(&base.name)
+            )));
+        }
+        let now = self.stamp();
+        self.prune(&now);
+        let names: Vec<String> = (1..=slots)
+            .map(|n| super::slot_resource(&base.name, n))
+            .collect();
+        let held_by = |s: &Self, n: &str| -> Option<String> {
+            s.held
+                .get(n)
+                .filter(|l| s.live(l, &now))
+                .map(|l| l.lease.holder.clone())
+        };
+        let pick = names
+            .iter()
+            .find(|n| held_by(self, n).as_deref() == Some(holder.as_str()))
+            .or_else(|| names.iter().find(|n| held_by(self, n).is_none()))
+            .cloned();
+        let Some(name) = pick else {
+            let mut who: Vec<String> = names.iter().filter_map(|n| held_by(self, n)).collect();
+            who.dedup();
+            return Err(held(format!(
+                "every {} slot is held (held by {})",
+                base.name,
+                who.join(", ")
+            )));
+        };
+        self.acquire(&holder, &name, ttl, false)
+    }
+
+    pub(crate) fn release_slot(&mut self, by: &str, base: &str) -> Result<bool> {
+        let by = caller(by)?;
+        let base = normalize_resource(base)?;
+        let now = self.stamp();
+        let prefix = format!("{base}/slot-");
+        let mine: Vec<String> = self
+            .held
+            .values()
+            .filter(|l| {
+                l.lease.holder == by
+                    && self.live(l, &now)
+                    && l.lease
+                        .resource
+                        .strip_prefix(&prefix)
+                        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+            })
+            .map(|l| l.lease.resource.clone())
+            .collect();
+        for r in &mine {
+            self.release(&by, r)?;
+        }
+        Ok(!mine.is_empty())
     }
 
     pub(crate) fn release(&mut self, by: &str, resource: &str) -> Result<()> {
