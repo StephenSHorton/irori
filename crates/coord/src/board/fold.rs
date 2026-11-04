@@ -227,6 +227,8 @@ pub struct Fold {
     pub(crate) agents_per_card: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
     /// See [`super::Options::outside_leases`].
     pub(crate) outside_leases: Option<Arc<dyn Fn() -> Vec<String> + Send + Sync>>,
+    /// See [`super::Options::device_version`].
+    pub(crate) device_version: Option<super::DeviceVersionFn>,
     /// "task/blocker" of external waits on this person's private leases
     /// (card #339), noted while one of them was held.
     pub(crate) outside_waits: std::cell::RefCell<HashSet<String>>,
@@ -400,6 +402,7 @@ impl Fold {
             offers: o.offers,
             agents_per_card: o.agents_per_card,
             outside_leases: o.outside_leases,
+            device_version: o.device_version,
             outside_waits: Default::default(),
             spawn_now: HashSet::new(),
             origin: HashMap::new(),
@@ -734,6 +737,9 @@ impl Fold {
                     what = "joined".into();
                 } else {
                     t.holders = remove_str(&t.holders, &p.who);
+                    if !contains(&t.left, &p.who) {
+                        t.left.push(p.who.clone());
+                    }
                     if t.holders.is_empty() {
                         t.let_go = Some((p.who.clone(), at(p.at)));
                     }
@@ -2134,6 +2140,8 @@ pub(crate) fn add_holder(t: &mut Task, who: &str) {
 /// Keeps holder = holders[0] and assigned a subset of holders.
 pub(crate) fn sync_holder(t: &mut Task) {
     let holders = t.holders.clone();
+    // One that came back on the card is no longer gone from it (card #481).
+    t.left.retain(|w| !holders.contains(w));
     t.assigned.retain(|a| holders.contains(a));
     let offered = t.assigned.clone();
     t.handoffs.retain(|k, _| offered.contains(k));

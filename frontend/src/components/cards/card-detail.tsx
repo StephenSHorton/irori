@@ -65,6 +65,7 @@ import {
   blockerChip,
   blockerTone,
   heardLine,
+  isWait,
   LiveRoster,
   StartAgentOn,
 } from "@/lib/thread"
@@ -222,7 +223,9 @@ export function CardPage({
     detail.prs.map((pr) => `${LinkKind.LinkURL}:${pr.url}`)
   )
   for (const b of open) {
-    for (const l of b.links ?? []) shownLinks.add(`${l.kind}:${l.ref}`)
+    // A wait's line shows no links: they stay in the side list.
+    if (!isWait(b))
+      for (const l of b.links ?? []) shownLinks.add(`${l.kind}:${l.ref}`)
     for (const o of b.options)
       if (o.link) shownLinks.add(`${o.link.kind}:${o.link.ref}`)
   }
@@ -362,7 +365,7 @@ export function CardPage({
                     <ToldLine told={answered.told} raiser={answered.to} />
                   </div>
                 )}
-                {blockers.map((b) => (
+                {blockers.filter((b) => !isWait(b)).map((b) => (
                   <BlockerItem
                     key={b.id}
                     cardId={detail.id}
@@ -378,6 +381,9 @@ export function CardPage({
                       })
                     }
                   />
+                ))}
+                {blockers.filter(isWait).map((b) => (
+                  <WaitItem key={b.id} cardId={detail.id} blocker={b} onOpen={onOpen} />
                 ))}
               </Section>
             )}
@@ -1629,7 +1635,9 @@ function BlockerItem({
             replying
               ? "Say more, or describe another option"
               : b.doneCheck
-                ? "Or say why it isn't done; it goes back to the agent"
+                ? b.goneAgent
+                  ? "Or say why it isn't done; the next agent on it gets it"
+                  : "Or say why it isn't done; it goes back to the agent"
                 : b.options.length
                   ? "Or answer in your own words"
                   : "Answer in your own words"
@@ -1753,6 +1761,7 @@ function BlockerItem({
         </div>
       )}
       {!b.doneCheck && <AttachmentList attachments={b.attachments ?? []} />}
+      {!r && b.goneAgent && <GoneRaiser cardId={cardId} who={b.goneAgent} />}
       <div className="text-[11.5px] text-muted-foreground">
         Raised by {name(b.raisedBy)} ·{" "}
         <time dateTime={raised?.toISOString()} title={raised?.toLocaleString()}>
@@ -2074,6 +2083,120 @@ function People({ detail, gone }: { detail: CardDetail; gone: GoneSession[] }) {
       {waits.map((w) => (
         <WaitRow key={w.id} wait={w} />
       ))}
+    </div>
+  )
+}
+
+// WaitItem is a blocker that waits on other work (card #481): a card, a
+// lease, an agent or something outside. It ends by itself or by whoever
+// does that work, so it is a grey line naming what it waits on, linked
+// when it's a card, with nothing to answer and outside the red count.
+// Stop waiting closes it, for a wait that will never end (a loop of
+// cards waiting on each other, or one nobody is on).
+function WaitItem({
+  cardId,
+  blocker: b,
+  onOpen,
+}: {
+  cardId: string
+  blocker: CardBlocker
+  onOpen?: (id: string) => void
+}) {
+  const w = b.waitsOn
+  if (!w) return null
+  const card = w.taskId
+  // The agent it waits on is gone and nobody holds the card (card #485):
+  // nothing moves it, so it is amber and can be handed to a new agent.
+  const gone = !!b.goneAgent
+  return (
+    <div
+      className={cn(
+        "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-0.5 rounded-lg border px-3 py-2",
+        gone ? "border-warning/40 bg-warning/10" : "border-border bg-muted/30",
+      )}
+      aria-label={`Waiting on ${w.label}${gone ? " (gone)" : ""}`}
+    >
+      <div className="min-w-0 text-[13px] text-muted-foreground">
+        Waiting on{" "}
+        {card ? (
+          <button
+            type="button"
+            className="text-ink underline-offset-2 hover:underline disabled:no-underline"
+            disabled={!onOpen}
+            onClick={() => onOpen?.(card)}
+          >
+            <span className="font-mono">{plainLine(w.label)}</span>
+            {w.title && <> {plainLine(w.title)}</>}
+          </button>
+        ) : (
+          <span className="text-ink">
+            <RichLine text={w.label} />
+          </span>
+        )}
+        {gone && <span className="font-medium text-warning"> (gone)</span>}
+      </div>
+      <span className="row-span-2 flex items-start gap-1.5">
+        {b.goneAgent && <HandOnButton cardId={cardId} who={b.goneAgent} />}
+        <ConfirmButton
+          label="Stop waiting"
+          variant="outline"
+          question={`Stop waiting on ${plainLine(w.label)}? The card no longer waits on it, and whoever is on it hears.`}
+          confirmLabel="Stop waiting"
+          onConfirm={async () => {
+            await cards.resolveBlocker(cardId, b.id, `Stopped waiting on ${plainLine(w.label)}`)
+          }}
+        />
+      </span>
+      {b.question && (
+        <div className="min-w-0 text-xs text-muted-foreground">
+          {plainLine(b.question)}
+        </div>
+      )}
+      {b.context && (
+        <div className="col-span-2 min-w-0 text-xs text-muted-foreground">
+          <RichLine text={b.context} />
+        </div>
+      )}
+      {gone && (
+        <div className="col-span-2 min-w-0 text-xs text-muted-foreground">
+          Nobody holds this card, so nothing will move it.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// HandOnButton is "Hand to an agent" (card #485) on an item whose agent is
+// gone, on a card nobody holds: the card goes back on the Board with what
+// was open said on it, and Irori starts an agent for it.
+function HandOnButton({ cardId, who }: { cardId: string; who: AgentRef }) {
+  return (
+    <ConfirmButton
+      label="Hand to an agent"
+      variant="outline"
+      question={`Hand this card to a new agent? ${displayName(who)} is gone. Its open items close and are said on the card, and Irori starts an agent for it, or the next free agent takes it.`}
+      confirmLabel="Hand to an agent"
+      onConfirm={() => cards.handOn(cardId)}
+    />
+  )
+}
+
+// GoneRaiser is the amber line under an item whose agent is gone on a card
+// nobody holds (card #485): an answer still reaches someone, the agent the
+// card goes to next.
+function GoneRaiser({ cardId, who }: { cardId: string; who: AgentRef }) {
+  return (
+    <div
+      className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[12.5px] text-foreground"
+      role="status"
+    >
+      <span className="min-w-0">
+        <span className="font-medium text-warning">
+          Waiting on {displayName(who)} (gone)
+        </span>
+        . Nobody holds this card: your answer goes to the agent it goes to next.
+      </span>
+      <HandOnButton cardId={cardId} who={who} />
     </div>
   )
 }

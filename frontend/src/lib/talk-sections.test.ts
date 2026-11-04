@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 
 import { TalkConversation } from "@/lib/models"
 import {
+  archived,
+  bareWhenFolded,
   dmSections,
   foldedByDefault,
   needsLook,
@@ -24,6 +26,45 @@ describe("Talk list sections (card #463)", () => {
     expect(s.yours.map((c) => c.convId)).toEqual(["a"])
     expect(s.gone.map((c) => c.convId)).toEqual(["c"])
     expect(s.agents.map((c) => c.convId)).toEqual(["b"])
+  })
+
+  test("gone agents' DMs archive read or unread; only the kept open one stays up top (card #473)", () => {
+    const gone = () => true
+    const s = dmSections(
+      [
+        dm("read"),
+        dm("unread", { unread: 1 }),
+        dm("named", { mentions: 1 }),
+        dm("kept"),
+        dm("watched", { readOnly: true }),
+      ],
+      gone,
+      "kept"
+    )
+    expect(s.yours.map((c) => c.convId)).toEqual(["kept"])
+    expect(s.gone.map((c) => c.convId)).toEqual(["read", "unread", "named"])
+    expect(s.agents.map((c) => c.convId)).toEqual(["watched"])
+  })
+
+  test("a DM whose agent came back (reattached) leaves the Archive", () => {
+    const c = dm("back")
+    expect(archived(c, () => true)).toBe(true)
+    expect(archived(c, () => false)).toBe(false)
+    expect(dmSections([c], () => false).yours.map((x) => x.convId)).toEqual(["back"])
+  })
+
+  test("the Archive folds by default and, folded, lists no rows at all", () => {
+    expect(foldedByDefault.gone).toBe(true)
+    expect(bareWhenFolded.has("gone")).toBe(true)
+    // Every other section still shows its unread and open rows when folded.
+    expect(bareWhenFolded.has("dms")).toBe(false)
+    expect(bareWhenFolded.has("agents")).toBe(false)
+  })
+
+  test("Agents talking, folded, shows only the open one: never its unread", () => {
+    const items = [dm("a", { readOnly: true, unread: 4 }), dm("b", { readOnly: true }), dm("c", { readOnly: true, mentions: 1 })]
+    expect(sectionRows(items, true, "", false).rows).toEqual([])
+    expect(sectionRows(items, true, "b", false).rows.map((c) => c.convId)).toEqual(["b"])
   })
 
   test("only Threads and Channels start unfolded", () => {

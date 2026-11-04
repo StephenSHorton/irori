@@ -45,6 +45,7 @@ export type CardSubtask = B.CardSubtask
 export type CardSummary = B.CardSummary
 export type CardThreadItem = B.CardThreadItem
 export type CardWait = B.CardWait
+export type CardWaitOn = B.CardWaitOn
 export type CardWhere = B.CardWhere
 export type Change = B.Change
 export type ChangeKind = B.ChangeKind
@@ -337,6 +338,11 @@ export function CardThreadItem(p: Partial<B.CardThreadItem> = {}): B.CardThreadI
 /** CardWait with Go's zero values for every field left out. */
 export function CardWait(p: Partial<B.CardWait> = {}): B.CardWait {
   return { "id": "", "who": AgentRef(), "text": "", "onThis": false, ...p } as B.CardWait
+}
+
+/** CardWaitOn with Go's zero values for every field left out. */
+export function CardWaitOn(p: Partial<B.CardWaitOn> = {}): B.CardWaitOn {
+  return { "kind": "", "label": "", ...p } as B.CardWaitOn
 }
 
 /** CardWhere with Go's zero values for every field left out. */
