@@ -121,11 +121,13 @@ export function blockerOutcome(b: CardBlocker): string {
 }
 
 // blockerOpen: the blocker still waits on this person (open, or replied
-// back to them, and not another member's question, as Needs you counts).
+// back to them, and not another member's question nor a wait on other
+// work (card #481), as Needs you counts).
 export function blockerOpen(b: CardBlocker): boolean {
   return (
     !b.resolved &&
     !b.decider &&
+    !b.waitsOn &&
     (b.state === "" || b.state === "open" || b.state === "replied")
   )
 }

@@ -30,6 +30,14 @@ pub use main_red::{
     MAIN_RED_SCOPE, MainRed, main_red_scope, main_red_test, main_reds, parse_main_red,
 };
 mod mention;
+mod stranded;
+mod version_wait;
+mod wait_chain;
+pub use stranded::Stranded;
+pub use version_wait::{
+    MAX_VERSION_DEVICES, cmp_version, parse_version_wait, valid_version, version_meets,
+};
+pub use wait_chain::{WaitChain, task_waits, wait_chain};
 mod mirror;
 mod notes;
 mod offers;
@@ -217,6 +225,9 @@ pub type OffersFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 /// the space doesn't hold.
 pub type BoardTagFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
+/// See [`Options::device_version`].
+pub type DeviceVersionFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
+
 /// Configures a [`Coord`] (Go `coord.Options`).
 #[derive(Clone, Default)]
 pub struct Options {
@@ -293,6 +304,11 @@ pub struct Options {
     /// them is held. Read under this coord's lock; it must never wait on a
     /// board coord. `None`: no such waits.
     pub outside_leases: Option<Arc<dyn Fn() -> Vec<String> + Send + Sync>>,
+    /// The app version a device last started with (card #485), for waits
+    /// on a version: its newest `device.started` row's `version`, or "".
+    /// `None` reads this coord's own log (a board's keeps none, so a board
+    /// passes its person's private log).
+    pub device_version: Option<DeviceVersionFn>,
 }
 
 /// The board rows that carry their writer's hop across the bridge.
@@ -1226,6 +1242,29 @@ impl Coord {
     /// working, an open ask or a parent.
     pub fn back_on_board(&self, by: &str, id: &str, why: &str) -> Result<bool> {
         self.lock().back_on_board(by, id, why)
+    }
+    /// Whether agent `key` is gone (card #485): its session ended, or the
+    /// roster says gone or no longer lists it.
+    pub fn key_gone(&self, key: &str) -> bool {
+        self.lock().key_gone(key)
+    }
+    /// Card `id`'s open items whose agent is gone while nobody holds it
+    /// (card #485).
+    pub fn stranded(&self, id: &str) -> Vec<Stranded> {
+        let f = self.lock();
+        f.tasks.get(id).map(|t| f.stranded(t)).unwrap_or_default()
+    }
+    /// "Hand to an agent" (card #485): the person puts a card whose items
+    /// wait on gone agents back on the Board, taking those agents off it.
+    /// Returns the card as it was and those items.
+    pub fn hand_on(&self, by: &str, id: &str) -> Result<(Task, Vec<Stranded>)> {
+        self.lock().hand_on(by, id)
+    }
+    /// Whether this device runs card `id`'s hand-out (it made the card):
+    /// only then does its own sweep start or offer the card's agent.
+    pub fn hands_out_here(&self, id: &str) -> bool {
+        let f = self.lock();
+        f.tasks.get(id).is_some_and(|t| f.hands_out(t))
     }
     /// The spawned_for mark on agent `key`.
     pub fn spawned(&self, key: &str) -> Option<Spawned> {

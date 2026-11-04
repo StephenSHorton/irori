@@ -495,6 +495,38 @@ fn ts_shapes_match_the_json() {
     check_shape(&src, "AgentRef", &cj["working"][0]);
     check_shape(&src, "CardThreadItem", &cj["thread"][0]);
     check_shape(&src, "CardPR", &cj["prs"][0]);
+    // A wait on another card carries what it waits on (card #481).
+    let other = co
+        .create_task(
+            &a,
+            coord::NewTask {
+                title: "Other".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    co.raise(
+        &a,
+        &t.id,
+        coord::NewBlocker {
+            question: "after it".into(),
+            blocked_by: Some(coord::BlockedBy {
+                kind: coord::BLOCKED_ON_TASK.into(),
+                reference: other.id.clone(),
+            }),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let wj = j(&r.w.card(&t.id).unwrap());
+    let wait = wj["blockers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b.get("waitsOn").is_some())
+        .expect("a wait item");
+    check_shape(&src, "CardBlocker", wait);
+    check_shape(&src, "CardWaitOn", &wait["waitsOn"]);
     let mut summary = cj.clone();
     for k in [
         "goal",

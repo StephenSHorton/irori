@@ -360,6 +360,18 @@ impl Window {
         self.core.start_agent(trim(id), note)
     }
 
+    /// BoardService.HandOn: "Hand to an agent" on an item whose agent is
+    /// gone, on a card nobody holds (card #485). Own board only.
+    pub fn hand_on(&self, id: &str) -> Result<String, String> {
+        let id = trim(id);
+        if self.core.coord().get_task(id).is_none() {
+            return Err(invalid(
+                "a card on a shared board isn't handed to an agent from here: take it with one of your agents",
+            ));
+        }
+        self.core.hand_on(id)
+    }
+
     /// BoardService.CloseAsk: an ask ends with nothing coming of it.
     pub fn close_ask(&self, id: &str, note: &str) -> Result<Task, String> {
         self.core
@@ -589,9 +601,13 @@ impl Window {
             text: text.into(),
             wake,
             // A Not done stays on the done check's thread even with its
-            // agent gone (card #476): the card goes back on the Board and
-            // the next agent answers it there.
-            resolve: !bl.done_check && self.nobody_can_act(&t, &bl.raised_by),
+            // agent gone (card #476), and so does an item whose agent is
+            // gone on a card nobody holds (card #485): the answer goes on
+            // its thread and the card back on the Board, so the agent Irori
+            // starts for it reads it in its brief and answers it there.
+            resolve: !bl.done_check
+                && self.nobody_can_act(&t, &bl.raised_by)
+                && !co.stranded(task_id).iter().any(|s| s.blocker_id == bl.id),
             mentions: plan.log.clone(),
             files: Vec::new(),
         };

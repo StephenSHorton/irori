@@ -228,8 +228,15 @@ impl Inner {
         if t.comments > 0 {
             b += &format!("; {} comments", t.comments);
         }
-        if !t.watchers.is_empty() {
-            let ws: Vec<String> = t.watchers.iter().map(|w| n.who(w)).collect();
+        // Gone watchers are left out (card #485).
+        let co = self.on(&t.id, &[]).ok().map(|(co, _)| co);
+        let ws: Vec<String> = t
+            .watchers
+            .iter()
+            .filter(|w| !co.as_ref().is_some_and(|co| co.key_gone(w)))
+            .map(|w| n.who(w))
+            .collect();
+        if !ws.is_empty() {
             b += &format!("; watched by {}", ws.join(", "));
         }
         // Waits (card #87): who waits on this card, and what its holders
@@ -583,6 +590,26 @@ pub(crate) fn board(s: &Inner, c: &Caller, raw: &[u8]) -> String {
                 line += &format!(
                     "  what {} waited on has gone away; the next sweep closes just those, the other items still wait\n",
                     one_line(&cd.gone.join(", "), 80)
+                );
+            }
+            // Items whose agent is gone on a card nobody holds (card #485).
+            if !cd.stranded.is_empty() {
+                let n = s.roster();
+                let items: Vec<String> = cd
+                    .stranded
+                    .iter()
+                    .map(|s| {
+                        let who = n.who(&s.agent);
+                        if s.waited_on {
+                            format!("{} waits on {who}, gone", s.blocker_id)
+                        } else {
+                            format!("{} was raised by {who}, gone", s.blocker_id)
+                        }
+                    })
+                    .collect();
+                line += &format!(
+                    "  {}; nobody holds it, so nothing moves it: the person can hand it to an agent, or board_join it and pick up from its thread\n",
+                    one_line(&items.join("; "), MAX_FIELD_RUNES)
                 );
             }
             if !cd.overlaps.is_empty() {
@@ -1249,6 +1276,10 @@ impl Inner {
                 bb.reference = self.resolve_agent(&r).map_err(map_err)?;
             }
             coord::BLOCKED_ON_EXTERNAL => {}
+            // A least app version on named devices (card #485).
+            coord::BLOCKED_ON_VERSION => {
+                bb.reference = self.version_wait(&r)?;
+            }
             // Main is red (card #436): board_block turns it into a wait on
             // the one card for that test.
             MAIN_RED => {
@@ -1256,13 +1287,94 @@ impl Inner {
             }
             _ => {
                 return Err(err_text(&format!(
-                    "on starts with what it waits on: lease, task, person, agent, external or main-red, not {}.",
+                    "on starts with what it waits on: lease, task, person, agent, external, version or main-red, not {}.",
                     q(&one_line(kind, 40))
                 )));
             }
         }
         Ok(Some(bb))
     }
+
+    /// on = version's ref (card #485): `<min> [device …]`, each device by
+    /// its name (MacBook, DESKTOP-STEPHEN; any case, or the start of one
+    /// name) or id, turned into `<min> <id> …`. No device leaves it to the
+    /// coord: this device.
+    fn version_wait(&self, r: &str) -> Result<String, String> {
+        let mut it = r.split_whitespace();
+        let Some(min) = it.next() else {
+            return Err(err_text(
+                "on = version needs the least app version, then the devices by name: version 0.11.0 MacBook (none: this device).",
+            ));
+        };
+        if !coord::valid_version(min) {
+            return Err(err_text(&format!(
+                "on = version: {} is not a version; give X.Y.Z, e.g. version 0.11.0 MacBook.",
+                q(&one_line(min, 40))
+            )));
+        }
+        let labels = self.b.device_labels();
+        let listed = || {
+            labels
+                .iter()
+                .map(|(id, l)| {
+                    if l.is_empty() {
+                        id.clone()
+                    } else {
+                        format!("{l} ({})", short_id(id))
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let mut out = vec![min.strip_prefix('v').unwrap_or(min).to_string()];
+        for name in it {
+            let low = gocompat::text::to_lower_str(name);
+            let exact: Vec<&String> = labels
+                .iter()
+                .filter(|(id, l)| **id == name || gocompat::text::to_lower_str(l) == low)
+                .map(|(id, _)| id)
+                .collect();
+            let found = if exact.len() == 1 {
+                exact
+            } else {
+                labels
+                    .iter()
+                    .filter(|(id, l)| {
+                        id.starts_with(name)
+                            || !low.is_empty() && gocompat::text::to_lower_str(l).contains(&low)
+                    })
+                    .map(|(id, _)| id)
+                    .collect()
+            };
+            match found.as_slice() {
+                [id] => {
+                    if !out.contains(id) {
+                        out.push((*id).clone());
+                    }
+                }
+                [] => {
+                    return Err(err_text(&format!(
+                        "on = version: no device is called {}; the person's devices are {}.",
+                        q(&one_line(name, 40)),
+                        listed()
+                    )));
+                }
+                _ => {
+                    return Err(err_text(&format!(
+                        "on = version: more than one device matches {}; the person's devices are {}. Give its full name or id.",
+                        q(&one_line(name, 40)),
+                        listed()
+                    )));
+                }
+            }
+        }
+        Ok(out.join(" "))
+    }
+}
+
+/// The first 8 characters of a device id, as lines print it.
+fn short_id(id: &str) -> &str {
+    &id[..id.len().min(8)]
 }
 
 /// The `on` kind for a test that fails on clean main (card #436).
