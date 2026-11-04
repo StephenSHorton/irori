@@ -246,7 +246,8 @@ pub struct CardSummary {
     #[specta(optional)]
     pub main_red: String,
     /// Where the first wait's chain of cards ends at the person (card
-    /// #347): "your review of PR #96 (#334)" or "your answer on #12".
+    /// #347): "your answer on #12". A PR never waits on the person (card
+    /// #471): agents merge it, or another member's agents approve it.
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub wait_you: String,
@@ -262,11 +263,11 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub wait_stuck: Option<CardRef>,
-    /// An in-review card waiting on the person's review of a PR it links
-    /// (card #347): no agent was asked to review it.
+    /// The open PR an in-review card waits on (card #471): the card shows
+    /// a small "waits on PR #N" chip with its link, never a Needs you row.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
-    pub review_pr: Option<ReviewPr>,
+    pub wait_pr: Option<WaitPr>,
     pub working: Vec<AgentRef>,
     pub watching: Vec<AgentRef>,
     pub holder: CardHolder,
@@ -357,13 +358,18 @@ pub struct CardSummary {
     pub owner: String,
 }
 
-/// A PR an in-review card waits on the person to review (card #347).
+/// The open PR an in-review card waits on (card #471).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct ReviewPr {
+pub struct WaitPr {
     pub repo: String,
     pub number: i64,
     pub url: String,
+    /// GitHub says the PR needs an approval before it merges: it waits on
+    /// another member's agents, never the person's or their own agents'.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub approval: bool,
 }
 
 /// Where a card's work is (card #137), as its holder's device last saw it.
@@ -2583,33 +2589,24 @@ fn heard_by(ds: &[(Delivery, bool)]) -> Vec<String> {
     out
 }
 
-/// The PR an in-review card waits on the person to review (card #347):
-/// a linked PR GitHub last called open, or that this device hasn't heard
-/// (the poller runs on the holder's device), while no agent was asked to
-/// review the card.
-fn review_pr(co: &coord::Coord, t: &Task) -> Option<ReviewPr> {
+/// The PR an in-review card waits on (card #471): a linked PR GitHub
+/// last called open, or that this device hasn't heard (the poller runs on
+/// the holder's device).
+fn wait_pr(co: &coord::Coord, t: &Task) -> Option<WaitPr> {
     if t.state != coord::IN_REVIEW {
-        return None;
-    }
-    if co
-        .reviews_of(&t.id)
-        .iter()
-        .any(|r| r.state == coord::REVIEW_REQUESTED)
-    {
         return None;
     }
     let heard = co.pr_states(&t.id);
     t.links.iter().find_map(|l| {
         let (repo, number) = coord::pr_link(l)?;
-        let st = heard
-            .iter()
-            .find(|h| h.pr == l.reference)
-            .map(|h| h.state.as_str())
-            .unwrap_or_default();
-        (st.is_empty() || st == coord::PR_OPEN).then(|| ReviewPr {
+        let h = heard.iter().find(|h| h.pr == l.reference);
+        let st = h.map(|h| h.state.as_str()).unwrap_or_default();
+        let approval = h.is_some_and(|h| h.review == coord::PR_REVIEW_REQUIRED);
+        (st.is_empty() || st == coord::PR_OPEN).then(|| WaitPr {
             repo,
             number,
             url: l.reference.clone(),
+            approval,
         })
     })
 }
@@ -2618,9 +2615,9 @@ fn review_pr(co: &coord::Coord, t: &Task) -> Option<ReviewPr> {
 const CHAIN_DEPTH: usize = 8;
 
 /// Follows a card's wait on another card to where it stops (card #347):
-/// "your review of PR #96 (#334)" when that card waits on the person's
-/// review, "your answer on #12" when it waits on their decision, else
-/// empty (it waits on an agent, a lease or something outside).
+/// "your answer on #12" when it waits on their decision, else empty (it
+/// waits on an agent, a lease, a PR or something outside). A PR is never
+/// the person's to review (card #471).
 fn wait_you(co: &coord::Coord, first: &str) -> String {
     let mut seen = std::collections::HashSet::new();
     let mut id = first.to_string();
@@ -2631,9 +2628,6 @@ fn wait_you(co: &coord::Coord, first: &str) -> String {
         let Some(k) = co.get_task(&id) else { break };
         if coord::is_terminal(&k.state) {
             break;
-        }
-        if let Some(pr) = review_pr(co, &k) {
-            return format!("your review of PR #{} ({})", pr.number, k.short_ref());
         }
         let open = k.open_blockers();
         let asks_person = open.iter().any(|b| {
@@ -2661,7 +2655,7 @@ fn wait_you(co: &coord::Coord, first: &str) -> String {
 /// waits on), from the log the card lives in (card #161: a board's for a
 /// board card).
 fn family_of(co: &coord::Coord, t: &Task, s: &mut CardSummary) {
-    s.review_pr = review_pr(co, t);
+    s.wait_pr = wait_pr(co, t);
     s.wait_you = wait_you(co, &s.wait_task);
     if !coord::is_terminal(&t.state) && !coord::task_waits(t).is_empty() {
         let card = |id: &str| {
@@ -2673,13 +2667,13 @@ fn family_of(co: &coord::Coord, t: &Task, s: &mut CardSummary) {
         };
         let ch = coord::wait_chain(&|id: &str| co.get_task(id), &t.id);
         s.wait_loop = ch.loop_ids.iter().filter_map(|id| card(id)).collect();
-        // A chain that ends at the person's review is theirs already;
-        // wait_you follows only the first wait, so any other end shows.
+        // A chain that ends at a card on an open PR waits on the PR, not
+        // on nobody (card #471): the sweep hands an unheld one out to be
+        // merged, or another member's agents approve it.
         if !ch.stuck.is_empty()
-            && !(!s.wait_you.is_empty()
-                && co
-                    .get_task(&ch.stuck)
-                    .is_some_and(|k| review_pr(co, &k).is_some()))
+            && !co
+                .get_task(&ch.stuck)
+                .is_some_and(|k| wait_pr(co, &k).is_some())
         {
             s.wait_stuck = card(&ch.stuck);
         }

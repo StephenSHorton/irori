@@ -102,7 +102,6 @@ export type RefTarget = B.RefTarget
 export type RelayView = B.RelayView
 export type Resolution = B.Resolution
 export type Returned = B.Returned
-export type ReviewPr = B.ReviewPr
 export type ReviewerChoice = B.ReviewerChoice
 export type Rollup = B.Rollup
 export type RosterChange = B.RosterChange
@@ -141,6 +140,7 @@ export type Value = B.Value
 export type VoiceDownload = B.VoiceDownload
 export type VoiceEvent = B.VoiceEvent
 export type VoiceStatus = B.VoiceStatus
+export type WaitPr = B.WaitPr
 export type WakeNoteView = B.WakeNoteView
 export type WindDownRow = B.WindDownRow
 export type WindDownStatus = B.WindDownStatus
@@ -595,11 +595,6 @@ export function ReviewerChoice(p: Partial<B.ReviewerChoice> = {}): B.ReviewerCho
   return { "agent": "", "name": "", "repo": "", ...p } as B.ReviewerChoice
 }
 
-/** ReviewPr with Go's zero values for every field left out. */
-export function ReviewPr(p: Partial<B.ReviewPr> = {}): B.ReviewPr {
-  return { "repo": "", "number": 0, "url": "", ...p } as B.ReviewPr
-}
-
 /** Rollup with Go's zero values for every field left out. */
 export function Rollup(p: Partial<B.Rollup> = {}): B.Rollup {
   return { "state": "", "done": 0, "total": 0, ...p } as B.Rollup
@@ -753,6 +748,11 @@ export function VoiceEvent(p: Partial<B.VoiceEvent> = {}): B.VoiceEvent {
 /** VoiceStatus with Go's zero values for every field left out. */
 export function VoiceStatus(p: Partial<B.VoiceStatus> = {}): B.VoiceStatus {
   return { "state": "", "reason": "", "fix": "", "modelBytes": 0, ...p } as B.VoiceStatus
+}
+
+/** WaitPr with Go's zero values for every field left out. */
+export function WaitPr(p: Partial<B.WaitPr> = {}): B.WaitPr {
+  return { "repo": "", "number": 0, "url": "", ...p } as B.WaitPr
 }
 
 /** WakeNoteView with Go's zero values for every field left out. */

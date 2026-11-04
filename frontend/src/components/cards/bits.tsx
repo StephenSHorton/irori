@@ -1,4 +1,4 @@
-import { UserIcon } from "lucide-react"
+import { ExternalLinkIcon, UserIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { useBoards } from "@/lib/boards"
@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import {
   askLine,
   AskState,
+  cards as cardsApi,
   displayName,
   Holding,
   idleUnnamed,
@@ -20,6 +21,7 @@ import {
   type CardSummary,
 } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
+import { prChip } from "@/lib/needs"
 import { cardOwner, type OwnerCard } from "@/lib/owners"
 
 // Tone is a card's status colour, shared by its state chip and its progress
@@ -326,6 +328,39 @@ export function ScopeBadge({ card }: { card: CardSummary }) {
   return (
     <Badge variant="outline" className="font-normal text-muted-foreground">
       {plainLine(card.scopeLabel) || "My devices"}
+    </Badge>
+  )
+}
+
+// PrChip is the small "waits on PR #N" an in-review card shows on itself
+// (card #471): one click opens the PR. Tiles and rows are buttons, so it is
+// a link-role span that keeps its click to itself.
+export function PrChip({ card }: { card: CardSummary }) {
+  const c = prChip(card)
+  if (!c) return null
+  const open = () => void cardsApi.openURL(c.url)
+  return (
+    <Badge
+      variant="warning"
+      role="link"
+      tabIndex={0}
+      data-pr={c.url}
+      title={c.title}
+      className="cursor-pointer gap-1 font-normal hover:underline"
+      onClick={(e) => {
+        e.stopPropagation()
+        e.preventDefault()
+        open()
+      }}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return
+        e.stopPropagation()
+        e.preventDefault()
+        open()
+      }}
+    >
+      {c.text}
+      <ExternalLinkIcon aria-hidden />
     </Badge>
   )
 }
