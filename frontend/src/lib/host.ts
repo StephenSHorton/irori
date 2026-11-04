@@ -281,6 +281,8 @@ export const AgentsService = {
   Running: () => call(commands.agentsRunning()),
   TrustNeed: (taskId: string) => call(commands.agentsTrustNeed(taskId)),
   TrustAndStart: (taskId: string) => call(commands.agentsTrustAndStart(taskId)),
+  Trusted: () => call(commands.agentsTrusted()),
+  TrustRepo: (repoKey: string) => call(commands.agentsTrustRepo(repoKey)),
   Permissions: (boardId: string) => call(commands.agentsPermissions(boardId)),
   SetPermissions: (p: B.AgentPermissions) => call(commands.agentsPermissionsSet(p)),
 }

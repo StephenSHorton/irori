@@ -10,12 +10,13 @@ import type {
   AgentsSettings,
   RunningAgent,
   TermInfo,
+  TrustedRepo,
 } from "../gen/bindings"
 import { AgentsService } from "./host"
 import { inWails } from "./irori"
 import { previewFlag } from "./preview"
 
-export type { AgentsSettings, RunningAgent }
+export type { AgentsSettings, RunningAgent, TrustedRepo }
 
 // sampleAgents is the preview's private board: chosen and on, or with
 // ?spawn=first on by default and not yet chosen, so Home shows the
@@ -64,6 +65,13 @@ export const modelLabel = (v: string, def: string) =>
   choiceLabel(v, modelNames, def)
 export const effortLabel = (v: string, def: string) =>
   choiceLabel(v, effortNames, def)
+
+// idleLabel names an idle limit in minutes, marking the default.
+export function idleLabel(m: number, def = 30): string {
+  const n =
+    m % 60 === 0 ? `${m / 60} hour${m === 60 ? "" : "s"}` : `${m} minutes`
+  return m === def ? `${n} (default)` : n
+}
 
 // useAgents loads a board's settings while open and saves a change,
 // keeping the last good settings when a save fails.
@@ -115,6 +123,52 @@ export function useAgents(open: boolean, boardId = "") {
     [boardId],
   )
   return { settings: s, error, set }
+}
+
+// sampleTrusted is the preview's repos on this computer, one not trusted.
+export function sampleTrusted(): TrustedRepo[] {
+  const row = (label: string, trusted: boolean): TrustedRepo => {
+    const folder = `C:/Users/you/projects/${label}`
+    return {
+      repoKey: `remote:github.com/sample-org/${label}`,
+      label,
+      folder,
+      trusted,
+      what: `Claude Code will run agents in ${folder} on this computer without asking you first. It's the trust Claude Code asks for the first time you open a folder.`,
+    }
+  }
+  return [row("app-repo", false), row("game-repo", true)]
+}
+
+// useTrusted loads this computer's repos and whether each is trusted for
+// agents (card #456, sa-6) while open; trust records one after the
+// person's confirm, and throws its error for the confirm to show.
+export function useTrusted(open: boolean) {
+  const [rows, setRows] = useState<TrustedRepo[]>(() =>
+    inWails() ? [] : sampleTrusted(),
+  )
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    AgentsService.Trusted().then(
+      (v) => live && (setRows(v), setError("")),
+      (e: Error) => live && setError(e.message),
+    )
+    return () => {
+      live = false
+    }
+  }, [open])
+  const trust = useCallback(async (repoKey: string) => {
+    if (!inWails()) {
+      setRows((rs) =>
+        rs.map((r) => (r.repoKey === repoKey ? { ...r, trusted: true } : r)),
+      )
+      return
+    }
+    setRows(await AgentsService.TrustRepo(repoKey))
+  }, [])
+  return { rows, error, trust }
 }
 
 // endAgent ends an agent Irori started (card #448): its hand-off on the

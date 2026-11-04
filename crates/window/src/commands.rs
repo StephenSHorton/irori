@@ -924,7 +924,7 @@ pub async fn agents_permissions_set(
 }
 
 /// The person's Trust and start: trusts the card's repo for agents on this
-/// device, then starts its agent. The only path that writes trust.
+/// device, then starts its agent. One of the two paths that write trust.
 #[tauri::command]
 #[specta::specta]
 pub async fn agents_trust_and_start(
@@ -932,6 +932,25 @@ pub async fn agents_trust_and_start(
     task_id: String,
 ) -> R<crate::agents_trust::TrustStarted> {
     blocking(&w, move |w| w.agents_trust_and_start(&task_id)).await
+}
+
+/// This device's repos and whether each is trusted for agents (card #456,
+/// Settings › Agents).
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_trusted(w: W<'_>) -> R<Vec<crate::agents_trust::TrustedRepo>> {
+    blocking(&w, move |w| w.agents_trusted()).await
+}
+
+/// The person's confirmed Trust… on one of this device's repos in
+/// Settings › Agents (card #456); the other path that writes trust.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_trust_repo(
+    w: W<'_>,
+    repo_key: String,
+) -> R<Vec<crate::agents_trust::TrustedRepo>> {
+    blocking(&w, move |w| w.agents_trust_repo(&repo_key)).await
 }
 
 #[tauri::command]
@@ -1556,6 +1575,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             note_remove,
             agents_trust_need,
             agents_trust_and_start,
+            agents_trusted,
+            agents_trust_repo,
             agents_permissions,
             agents_permissions_set,
             card_wake_notes,
