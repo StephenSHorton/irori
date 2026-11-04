@@ -790,6 +790,11 @@ fn a_done_check_closes_on_a_shared_board() {
 
 /// A new coord over side s's store with the done check on.
 fn side_reopen(s: Side, person: &str, owners: &Owners) -> Side {
+    side_reopen_with(s, person, owners, Options::default())
+}
+
+/// side_reopen, taking anything else from `more` (its spawning switch).
+fn side_reopen_with(s: Side, person: &str, owners: &Owners, more: Options) -> Side {
     let me = person.to_string();
     let o2 = owners.clone();
     let o = Options {
@@ -806,7 +811,7 @@ fn side_reopen(s: Side, person: &str, owners: &Owners) -> Side {
                 who == p && at.map_or(*until == u64::MAX, |at| *from < at.hlc && at.hlc < *until)
             })
         })),
-        ..Options::default()
+        ..more
     };
     let c = Coord::new(s.st.clone(), None, o).unwrap();
     Side { c, ..s }
@@ -1942,4 +1947,43 @@ fn another_persons_split_makes_no_helper_parts() {
     for s in [&a, &b] {
         assert!(!s.c.get_task(&made[0].id).unwrap().spawn);
     }
+}
+
+/// Card #477 (docs/design/work-personal-separation.md §3): on one space,
+/// p2's card is never p1's to start, and the reverse. Shared boards don't
+/// spawn today (no board coord has the switch), so both sides turn it on
+/// here: each lists only its own person's card, and a spawn request p1's
+/// device writes for p2's card counts on neither side.
+#[test]
+fn another_persons_card_is_never_spawned_on_your_side() {
+    let (a, b, owners) = two_people();
+    let theirs = b.c.create_task(P2, nt("Work card", "")).unwrap();
+    let mine = a.c.create_task(P1, nt("Personal card", "")).unwrap();
+    sync(&a, &b);
+    let on = || Options {
+        spawning: Some(Arc::new(|| true)),
+        ..Options::default()
+    };
+    let a = side_reopen_with(a, P1, &owners, on());
+    let b = side_reopen_with(b, P2, &owners, on());
+    assert_eq!(ids(&a.c.cards_to_spawn()), std::slice::from_ref(&mine.id));
+    assert_eq!(ids(&b.c.cards_to_spawn()), std::slice::from_ref(&theirs.id));
+    // p1's sweep asks for an agent for p2's card anyway.
+    let _ = a.c.request_spawn(
+        "irori",
+        SpawnAsk {
+            task_id: theirs.id.clone(),
+            device: "dev-a".into(),
+            folder: "/work".into(),
+            permission_mode: "default".into(),
+            name: "for-theirs".into(),
+            ..SpawnAsk::default()
+        },
+    );
+    sync(&a, &b);
+    for s in [&a, &b] {
+        let t = s.c.get_task(&theirs.id).unwrap();
+        assert!(t.spawn_request().is_none(), "{:?}", t.spawn_request());
+    }
+    assert_eq!(ids(&b.c.cards_to_spawn()), std::slice::from_ref(&theirs.id));
 }

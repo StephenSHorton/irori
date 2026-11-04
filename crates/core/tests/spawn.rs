@@ -469,3 +469,57 @@ fn the_private_board_spawns_by_default_in_the_app() {
     assert!(r.core.spawn_switch_set(""));
     assert!(!r.core.spawn_setting("").on, "his off wins");
 }
+
+/// Card #477 (docs/design/work-personal-separation.md §2): a card whose
+/// repo has no checkout on this device is refused here with the reason on
+/// the card, never started in some other folder, and no other device is
+/// asked. (A work card typed into a personal device's window, with the work
+/// repo not cloned there.)
+#[test]
+fn a_card_whose_repo_isnt_on_this_device_is_refused_not_spawned() {
+    let r = Rig::new();
+    let fake = Arc::new(Fake::default());
+    let me = r.core.device_id().to_string();
+    let co = r.core.coord();
+    let t = co
+        .create_task(
+            &format!("user:{me}"),
+            NewTask {
+                title: "Work card".into(),
+                objective: "lives in the work repo".into(),
+                repo_key: "remote:github.com/work-org/work-repo".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    r.core
+        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
+    r.core
+        .set_spawn_setting(SpawnSetting {
+            board_id: String::new(),
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    wait_for(60, "the refusal on the card", || {
+        co.get_task(&t.id)
+            .and_then(|t| t.spawn_request().cloned())
+            .is_some_and(|s| s.op == coord::SPAWN_FAILED)
+    });
+    let s = co
+        .get_task(&t.id)
+        .unwrap()
+        .spawn_request()
+        .cloned()
+        .unwrap();
+    assert_eq!(s.device, me, "asked for here only");
+    assert!(
+        s.reason
+            .contains("no checkout of remote:github.com/work-org/work-repo"),
+        "{s:?}"
+    );
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(fake.started.lock().unwrap().is_empty(), "nothing started");
+    let t = co.get_task(&t.id).unwrap();
+    assert!(t.holders.is_empty() && t.assigned.is_empty(), "{t:?}");
+}
