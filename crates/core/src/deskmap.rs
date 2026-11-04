@@ -1,0 +1,290 @@
+//! Merge desk slice 2 (docs/design/merge-desk.md §3, §5 "Trust"): which
+//! card is a PR's author card, and whether the desk may act on the PR.
+//!
+//! Pure: it reads the cards and the ledger's author it is given and writes
+//! nothing. The desk poller writes the `board_link` and makes the "PR #n"
+//! card from what it returns.
+
+use coord::Task;
+
+/// What the mapping needs from one row of the desk's `gh pr list` snapshot.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PrRef {
+    /// `owner/name`, any case.
+    pub repo: String,
+    pub number: i64,
+    pub head_ref: String,
+    /// The GitHub login that opened it.
+    pub author_login: String,
+    /// Untrusted text: never shown unquoted.
+    pub title: String,
+}
+
+impl PrRef {
+    /// A row of the desk's snapshot, for the repo `owner/name`.
+    pub fn of(repo: &str, p: &coord::DeskPr) -> PrRef {
+        PrRef {
+            repo: repo.into(),
+            number: p.number,
+            head_ref: p.head_ref_name.clone(),
+            author_login: p.author.clone(),
+            title: p.title.clone(),
+        }
+    }
+}
+
+/// Which §3 rule found the card. Order is the rules' order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Rule {
+    /// 1: a card already links the PR.
+    Linked,
+    /// 2: the ledger's author session holds it (branch match, else its only
+    /// held card).
+    Ledger,
+    /// 3: an open card whose branch is the PR's head branch.
+    Branch,
+    /// 4: none; the desk makes a "PR #n" card.
+    None,
+}
+
+/// A PR's author card, and the agent behind it when known.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Mapping {
+    pub rule: Rule,
+    /// The card, empty for [`Rule::None`].
+    pub task_id: String,
+    /// The ledger's author session, if the ledger has one.
+    pub author: String,
+}
+
+/// The desk's view of who may be trusted (§5 "Trust", open question 13 (a)).
+pub struct Trust<'a> {
+    /// Whether an agent key is one of the person's own agents.
+    pub own_agent: &'a dyn Fn(&str) -> bool,
+    /// GitHub logins on the desk's `trusted` list.
+    pub logins: &'a [String],
+}
+
+fn open(t: &Task) -> bool {
+    !coord::is_terminal(&t.state) && !t.withdrawn
+}
+
+fn same_repo(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
+}
+
+/// The repo a `remote:github.com/owner/name` key names, or "".
+fn key_repo(k: &str) -> &str {
+    k.strip_prefix("remote:github.com/").unwrap_or("")
+}
+
+/// A card that could be about this PR's repo: one with no repo, or this one.
+fn repo_ok(t: &Task, pr: &PrRef) -> bool {
+    t.repo_key.is_empty() || same_repo(key_repo(&t.repo_key), &pr.repo)
+}
+
+fn branch_of(t: &Task) -> &str {
+    t.where_.as_ref().map(|w| w.branch.as_str()).unwrap_or("")
+}
+
+fn links_pr(t: &Task, pr: &PrRef) -> bool {
+    t.links
+        .iter()
+        .any(|l| coord::pr_link(l).is_some_and(|(r, n)| n == pr.number && same_repo(&r, &pr.repo)))
+}
+
+/// The newest of `ts` (card ids are ULIDs, so the largest is the newest).
+fn newest<'a>(ts: impl Iterator<Item = &'a Task>) -> Option<&'a Task> {
+    ts.max_by(|a, b| a.id.cmp(&b.id))
+}
+
+/// Maps `pr` to its author card by the §3 rules, first match wins.
+/// `author` is the ledger's author session for the PR, or "".
+pub fn map_pr(pr: &PrRef, tasks: &[Task], author: &str) -> Mapping {
+    let found = |rule, t: Option<&Task>| {
+        t.map(|t| Mapping {
+            rule,
+            task_id: t.id.clone(),
+            author: author.into(),
+        })
+    };
+    // 1. A card that links the PR: an open one first.
+    let linked = || tasks.iter().filter(|t| links_pr(t, pr));
+    if let Some(m) = found(Rule::Linked, newest(linked().filter(|t| open(t))))
+        .or_else(|| found(Rule::Linked, newest(linked())))
+    {
+        return m;
+    }
+    // 2. The author session's held card on the PR's branch, else its only
+    //    held card.
+    if !author.is_empty() {
+        let held: Vec<&Task> = tasks
+            .iter()
+            .filter(|t| open(t) && t.holders.iter().any(|h| h == author) && repo_ok(t, pr))
+            .collect();
+        let on_branch = newest(
+            held.iter()
+                .copied()
+                .filter(|t| !pr.head_ref.is_empty() && branch_of(t) == pr.head_ref),
+        );
+        let only = (held.len() == 1).then(|| held[0]);
+        if let Some(m) = found(Rule::Ledger, on_branch.or(only)) {
+            return m;
+        }
+    }
+    // 3. Any open card on the PR's branch.
+    if !pr.head_ref.is_empty()
+        && let Some(m) = found(
+            Rule::Branch,
+            newest(
+                tasks
+                    .iter()
+                    .filter(|t| open(t) && repo_ok(t, pr) && branch_of(t) == pr.head_ref),
+            ),
+        )
+    {
+        return m;
+    }
+    Mapping {
+        rule: Rule::None,
+        task_id: String::new(),
+        author: author.into(),
+    }
+}
+
+/// Whether the desk may act on `pr` (§5 "Trust"): its ledger author is one
+/// of the person's agents, a card linking it is held by one, or its login
+/// is on the desk's list. A branch match (rule 3) never makes a PR
+/// trusted: anyone can name a branch.
+pub fn trusted(pr: &PrRef, m: &Mapping, tasks: &[Task], trust: &Trust) -> bool {
+    if !m.author.is_empty() && (trust.own_agent)(&m.author) {
+        return true;
+    }
+    if m.rule == Rule::Linked
+        && let Some(t) = tasks.iter().find(|t| t.id == m.task_id)
+        && t.holders
+            .iter()
+            .chain(&t.co_holders)
+            .any(|h| (trust.own_agent)(h))
+    {
+        return true;
+    }
+    !pr.author_login.is_empty()
+        && trust
+            .logins
+            .iter()
+            .any(|l| l.eq_ignore_ascii_case(&pr.author_login))
+}
+
+/// The desk's verdict on one PR.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Verdict {
+    /// Trusted, with an author card: link it if it isn't linked yet.
+    Card(Mapping),
+    /// Trusted, no card found: make a "PR #n" card (assigned to `author`
+    /// when there is one) and link it.
+    NewCard(Mapping),
+    /// Not trusted: listed as Outside PR, no card, no wake, never checked.
+    Outside,
+}
+
+/// Maps and checks `pr` in one go.
+pub fn judge(pr: &PrRef, tasks: &[Task], author: &str, trust: &Trust) -> Verdict {
+    let m = map_pr(pr, tasks, author);
+    if !trusted(pr, &m, tasks, trust) {
+        return Verdict::Outside;
+    }
+    if m.rule == Rule::None {
+        Verdict::NewCard(m)
+    } else {
+        Verdict::Card(m)
+    }
+}
+
+/// The title of a "PR #n" card: the PR's title quoted, as untrusted text.
+pub fn new_card_title(pr: &PrRef) -> String {
+    let t: String = pr
+        .title
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(120)
+        .collect();
+    if t.trim().is_empty() {
+        format!("PR #{}", pr.number)
+    } else {
+        format!("PR #{} {:?}", pr.number, t.trim())
+    }
+}
+
+/// A PR an agent opened, from the ledger's author row (`gh pr create`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Opened {
+    pub session: String,
+    /// `owner/name`.
+    pub repo: String,
+    pub url: String,
+    /// When the ledger saw it, unix ms.
+    pub at_ms: i64,
+}
+
+/// How recent an opened PR must be to link it now: older author rows are
+/// history replayed at start, and their session may hold other work today.
+pub const OPENED_FRESH_MS: i64 = 15 * 60 * 1000;
+
+/// The card an agent's freshly opened PR belongs on (§3, "a small change
+/// upstream"): the one open card that session holds in the PR's repo,
+/// unless some card already links the PR. With several held cards it
+/// guesses nothing; the desk's rules 2 and 3 map it later by branch.
+pub fn opened_card(o: &Opened, tasks: &[Task], now_ms: i64) -> Option<String> {
+    if o.url.is_empty() || o.session.is_empty() || now_ms - o.at_ms > OPENED_FRESH_MS {
+        return None;
+    }
+    let (repo, number) = coord::pr_link(&coord::Link {
+        kind: coord::LINK_URL.into(),
+        reference: o.url.clone(),
+        label: String::new(),
+    })?;
+    let pr = PrRef {
+        repo,
+        number,
+        ..PrRef::default()
+    };
+    if tasks.iter().any(|t| links_pr(t, &pr)) {
+        return None;
+    }
+    let mut held = tasks
+        .iter()
+        .filter(|t| open(t) && t.holders.contains(&o.session) && repo_ok(t, &pr));
+    let one = held.next()?;
+    held.next().is_none().then(|| one.id.clone())
+}
+
+/// The logins the desk trusts for `p`: its `trusted` list, plus the PR's
+/// own login when the person OK'd it at this head (a new push needs a new
+/// OK).
+pub fn desk_logins(desk: &coord::Desk, p: &coord::DeskPr) -> Vec<String> {
+    let mut logins = desk.settings.trusted.clone();
+    let ok = desk
+        .oks
+        .get(&p.number)
+        .is_some_and(|o| !o.head_sha.is_empty() && o.head_sha == p.head_ref_oid);
+    if ok && !p.author.is_empty() {
+        logins.push(p.author.clone());
+    }
+    logins
+}
+
+/// One PR's author as the desk page shows it (read-only).
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeskAuthor {
+    pub pr: i64,
+    /// The author card's id, "" when none yet.
+    pub card: String,
+    /// Its short ref (`#12`, `wind#4`), "" when none.
+    pub card_ref: String,
+    /// The agent behind it: the ledger's author, else the card's holder.
+    pub agent: String,
+    /// Not trusted: Outside PR, no card, no wake, never checked.
+    pub outside: bool,
+}
