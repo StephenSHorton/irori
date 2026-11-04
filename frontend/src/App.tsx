@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils"
 import { WindDownDialog } from "@/components/wind-down-dialog"
 import { MessageDialog } from "@/components/cards/message-dialog"
 import { TalkPage, needsYou } from "@/components/talk/talk-page"
-import { talkApi, unreadDms, useConversations } from "@/lib/conversations"
+import { talkApi, talkWaiting as talkWaitingIn, useConversations } from "@/lib/conversations"
 import { AgentCards } from "@/components/cards/agent-hover"
 import { AskBox } from "@/components/cards/ask-box"
 import { NeedsYou } from "@/components/cards/needs-you"
@@ -55,6 +55,7 @@ import { deskOn, deskQueue, inputsOf, useDesks } from "@/lib/desk"
 import { DeskPage } from "@/components/desk/desk-page"
 import { openSettings } from "@/components/settings/settings-menu"
 import { SpawnNotice } from "@/components/home/spawn-notice"
+import { WindDownLine } from "@/components/home/wind-down-line"
 import { UpdateBanner } from "@/updater"
 import { useBoardView } from "@/components/canvas/switch"
 import { BoardHeaderBar, BoardPage } from "@/components/boards/board-page"
@@ -69,6 +70,7 @@ import { useNotifications, useUnreadNotifications } from "@/lib/notifications"
 import { go, Home, sameSection, sectionFromHash, type Section } from "@/lib/nav"
 import { CommandPalette, PaletteJump, paletteOpenKey } from "@/components/command-palette"
 import { isMac, useCommands } from "@/lib/commands"
+import { spawnedKeys } from "@/lib/roster-groups"
 
 // PageState is the history entry of a card's page. fromGrid: the grid is
 // the entry behind it, so Back is the browser's back.
@@ -139,6 +141,8 @@ export function App() {
   const [space, setSpace] = useSpace(boards)
   const shared = space !== AllSpaces && space !== Personal
   const spaceCards = useMemo(() => cards.filter((c) => cardInSpace(c, space)), [cards, space])
+  // Agents Irori started for a card are never free for other work (§6).
+  const spawned = useMemo(() => spawnedKeys(cards), [cards])
   // Home's own scope: your cards, or a shared space's.
   const homeScope = shared ? space : ScopeOwn
   const me = useMe()
@@ -227,7 +231,7 @@ export function App() {
   const [heldTab, setHeldTab] = useState<HeldTab>("waiting")
   const [heldFrom, setHeldFrom] = useState("")
   // New card (card #116): its dialog is open.
-  const [newCard, setNewCard] = useState(false)
+  const [newCard, setNewCard] = useState(() => previewFlag("newcard") !== null)
   // Wind down all (card #220): the header's button and the tray's item.
   const [windDown, setWindDown] = useState(false)
   const [newBoard, setNewBoard] = useState(false)
@@ -567,7 +571,10 @@ export function App() {
   // The badge counts what Talk lists in the picked space (card #461).
   const talkWaiting =
     threadList.filter(needsYou).length +
-    unreadDms(conversations.filter((c) => convInSpace(c, space)))
+    talkWaitingIn(
+      conversations.filter((c) => convInSpace(c, space)),
+      liveRoster
+    )
   const fullScreen = narrow && !open && section.kind === "talk" && !!section.id
 
   return (
@@ -678,7 +685,7 @@ export function App() {
             open={section.id}
             onOpen={(id) => go({ kind: "talk", id })}
             now={now}
-            why={whyWaiting(roster.agents)}
+            why={whyWaiting(roster.agents.filter((a) => !spawned.has(a.key)))}
             board={threadsSpace(space)}
             space={space}
           />
@@ -768,6 +775,7 @@ export function App() {
               <>
                 <MainRedLines reds={mainReds(cards)} onOpen={openCard} />
                 <SpawnNotice />
+                <WindDownLine onOpen={() => setWindDown(true)} />
                 <AskBox onThread={startedThread} board={threadsSpace(space)} />
                 <IdleLine text={idleLine(idle)} />
               </>
@@ -778,6 +786,7 @@ export function App() {
                 now={now}
                 name={name}
                 onOpenCard={openCard}
+                onHeld={() => openHeld("")}
               />
             }
             rows
@@ -804,6 +813,7 @@ export function App() {
         open={newCard}
         onClose={() => setNewCard(false)}
         onMade={openCard}
+        spawned={spawned}
         board={
           section.kind === "board" && !open
             ? boards.find((b) => b.boardId === section.id)

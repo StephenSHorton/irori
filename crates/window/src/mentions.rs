@@ -88,7 +88,7 @@ impl Plan {
                         }
                         None if r.delivery.state == inbox::st::HELD => {
                             o.state = HELD.into();
-                            o.note = r.delivery.hold.clone();
+                            o.note = inbox::watch::hold_reason(&r.delivery.hold);
                         }
                         None => o.state = WOKE.into(),
                     },
@@ -126,7 +126,7 @@ impl Plan {
                 }
                 Some((_, Ok(d))) if d.state == inbox::st::HELD => {
                     o.state = HELD.into();
-                    o.note = d.hold.clone();
+                    o.note = inbox::watch::hold_reason(&d.hold);
                 }
                 Some(_) => o.state = WOKE.into(),
             }

@@ -24,8 +24,10 @@ import { Button } from "@/components/ui/button"
 import { Face } from "@/components/cards/faces"
 import { type ThreadSummary } from "@/lib/cards"
 import {
+  dmGone,
   dmWith,
   listed,
+  readAll,
   talkApi,
   type Conversation as Conv,
 } from "@/lib/conversations"
@@ -37,6 +39,7 @@ import { useNarrow } from "@/lib/media"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import {
+  archived,
   dmSections,
   sectionRows,
   unreadIn,
@@ -126,10 +129,21 @@ export function TalkPage({
   )
   const [adding, setAdding] = useState<"" | "channel" | "dm">("")
   const liveRoster = useContext(LiveRoster)
-  const sections = dmSections(dms, (c) => {
-    const other = dmWith(c)
-    return other.length > 0 && other.every((m) => statusOf(m, liveRoster) === "gone")
-  })
+  const goneDm = (c: Conv) => dmGone(c, liveRoster)
+  // The DM opened from the main list stays there while it is open, though
+  // reading it would archive it (card #473); one opened from the Archive
+  // stays in the Archive.
+  // null: not decided yet, as the list hasn't loaded the open one (a reload
+  // or a link straight to a DM); it is decided once the list has it.
+  const keptFor = (id: string): string | null => {
+    const c = conversations.find((x) => x.convId === id)
+    if (!c) return null
+    return c.kind === "dm" && !c.readOnly && !archived(c, goneDm) ? id : ""
+  }
+  const [kept, setKept] = useState(() => ({ open, keep: keptFor(open) }))
+  const keep = kept.open === open && kept.keep !== null ? kept.keep : keptFor(open)
+  if (kept.open !== open || kept.keep !== keep) setKept({ open, keep })
+  const sections = dmSections(dms, goneDm, keep ?? "")
   const [isFolded, toggleFold] = useFolds()
   // Search looks through everything, folded or not.
   const searching = !!query.trim()
@@ -137,17 +151,27 @@ export function TalkPage({
   const [allShown, setAllShown] = useState<Partial<Record<SectionKey, boolean>>>({})
   const convRows = (k: SectionKey, items: Conv[]) =>
     sectionRows(items, folded(k), open, searching || !!allShown[k])
-  const convSection = (k: SectionKey, label: string, items: Conv[], empty: string, extra?: ReactNode, add?: { onAdd: () => void; label: string }) => {
+  const [marking, setMarking] = useState(false)
+  const convSection = (k: SectionKey, label: string, items: Conv[], empty: string, extra?: ReactNode, add?: { onAdd: () => void; label: string }, markAll?: boolean) => {
     const { rows, hidden } = convRows(k, items)
+    const unread = unreadIn(items)
     return (
       <Group
         label={label}
         count={items.length}
-        unread={unreadIn(items)}
+        unread={unread}
         folded={folded(k)}
         onToggle={searching ? undefined : () => toggleFold(k)}
         onAdd={add?.onAdd}
         addLabel={add?.label}
+        onMarkRead={
+          markAll && unread > 0 && !marking
+            ? () => {
+                setMarking(true)
+                void readAll(items).finally(() => setMarking(false))
+              }
+            : undefined
+        }
       >
         {extra}
         {items.length === 0 && !extra && !folded(k) && (
@@ -168,9 +192,8 @@ export function TalkPage({
       </Group>
     )
   }
-  const liveThreads = folded("threads")
-    ? live.filter((t) => t.id === open || needsYou(t))
-    : live
+  // Folded, Threads lists no rows either, as every section (card #484).
+  const liveThreads = folded("threads") ? [] : live
 
   const list = (
     <nav
@@ -255,12 +278,12 @@ export function TalkPage({
         ) : undefined,
         { onAdd: () => setAdding(adding === "dm" ? "" : "dm"), label: "New direct message" }
       )}
-      {sections.gone.length > 0 &&
-        convSection("gone", "With agents that have gone", sections.gone, "")}
       {sections.agents.length > 0 &&
         convSection("agents", "Agents talking", sections.agents, "")}
+      {sections.gone.length > 0 &&
+        convSection("gone", "Archive", sections.gone, "", undefined, undefined, true)}
       {resolved.length > 0 && (
-        <div className="mt-auto grid gap-0.5 pt-3">
+        <div className="mt-auto grid grid-cols-[minmax(0,1fr)] gap-0.5 pt-3">
           <button
             type="button"
             className="px-2 text-left text-[11px] text-muted-foreground hover:text-ink"
@@ -351,6 +374,7 @@ function Group({
   unread = 0,
   folded = false,
   onToggle,
+  onMarkRead,
 }: {
   label: string
   children: ReactNode
@@ -360,6 +384,8 @@ function Group({
   unread?: number
   folded?: boolean
   onToggle?: () => void
+  // Mark all read (the Archive, card #473): shown while something is new.
+  onMarkRead?: () => void
 }) {
   const Chevron = folded ? ChevronRightIcon : ChevronDownIcon
   const name = (
@@ -367,11 +393,11 @@ function Group({
       {onToggle && <Chevron className="size-3 shrink-0" aria-hidden />}
       <span className="truncate">{label}</span>
       {count !== undefined && count > 0 && (
-        <span className="font-normal tabular-nums normal-case">· {count}</span>
+        <span className="shrink-0 font-normal whitespace-nowrap tabular-nums normal-case">· {count}</span>
       )}
       {folded && unread > 0 && (
         <span
-          className="rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground tabular-nums normal-case"
+          className="shrink-0 rounded-full bg-primary px-1.5 text-[10px] font-semibold whitespace-nowrap text-primary-foreground tabular-nums normal-case"
           title={`${unread} with something new`}
         >
           {unread} new
@@ -380,7 +406,7 @@ function Group({
     </>
   )
   return (
-    <div className="grid gap-0.5">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-0.5">
       <h2 className="flex items-center px-2 pt-3 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
         {onToggle ? (
           <button
@@ -403,6 +429,16 @@ function Group({
             className="ml-auto rounded p-0.5 hover:bg-secondary hover:text-ink"
           >
             <PlusIcon className="size-3.5" aria-hidden />
+          </button>
+        )}
+        {onMarkRead && (
+          <button
+            type="button"
+            onClick={onMarkRead}
+            title="Mark every conversation here read"
+            className="ml-auto shrink-0 rounded px-1 text-[10px] font-normal normal-case tracking-normal hover:bg-secondary hover:text-ink"
+          >
+            Mark all read
           </button>
         )}
       </h2>
@@ -532,7 +568,7 @@ function NewDm({
   const [error, setError] = useState("")
   const live = agents.filter((a) => a.status !== "gone")
   return (
-    <div className="grid gap-0.5 rounded-md border border-border bg-card/60 p-1" role="listbox" aria-label="Message an agent">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-0.5 rounded-md border border-border bg-card/60 p-1" role="listbox" aria-label="Message an agent">
       {live.length === 0 && <p className="px-2 py-1 text-[12px] text-muted-foreground">No agents are running.</p>}
       {live.map((a) => (
         <button

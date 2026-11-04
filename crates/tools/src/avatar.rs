@@ -17,7 +17,7 @@ pub(crate) fn avatar(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             let cur = s.b.avatar(name);
             if cur.is_empty() {
                 format!(
-                    "You ({name}) have no face of your own yet; the app shows a default one. Set one with avatar."
+                    "You ({name}) have no face of your own; the app shows the pattern from your key, and doesn't draw a kept face now."
                 )
             } else {
                 format!("Your face ({name}): {cur}")
@@ -32,10 +32,7 @@ pub(crate) fn avatar(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Some(a) => match coord::avatar::check(a) {
             Err(e) => err_text(&format!("that face isn't valid: {e}.")),
             Ok(face) => match s.b.set_avatar(name, Some(&face)) {
-                Ok(()) => format!(
-                    "Kept your face, {} ({}). Every device shows it with your name.",
-                    face.name, face.id
-                ),
+                Ok(()) => format!("Kept your face, {} ({}), by your name.", face.name, face.id),
                 Err(e) => err_text(&e),
             },
         },

@@ -3,7 +3,8 @@
 //! part 5's done-when).
 //!
 //! Trust is written only by `irori_window::claude_trust::record_trust`,
-//! which the window calls from the person's Trust and start. This test
+//! which the window calls from the person's Trust and start and from Settings
+//! › Agents' confirmed Trust… (card #456). This test
 //! holds the two things that keep it that way:
 //! - the crates agents act through (tools, core, coord, inbox, mcp, api,
 //!   attach) don't depend on the window crate, so none of them can call it;

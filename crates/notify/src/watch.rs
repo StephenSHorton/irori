@@ -161,6 +161,9 @@ pub struct Sources {
     pub is_owner: Option<OwnerFn>,
     /// An agent key's display name; `None` shows the key.
     pub name: Option<NameFn>,
+    /// A repo key's short name on this device (its checkout folder's, card
+    /// #488); `None` shows its short form ("local repo 5a3c1e0").
+    pub repo_name: Option<NameFn>,
     /// When set, an ask nobody took gets a card with Wake them and Close.
     pub room: Option<Arc<dyn RoomSource>>,
     /// An attachment's local path by sha256, when this device holds it
@@ -239,7 +242,8 @@ async fn run(
     let mut w = State {
         n: n.clone(),
         inbox: {
-            let w = Watcher::new(&s.user, s.is_owner.clone(), s.name.clone());
+            let w = Watcher::new(&s.user, s.is_owner.clone(), s.name.clone())
+                .with_repo_name(s.repo_name.clone());
             match s.seen.clone() {
                 Some(st) => w.with_seen(st),
                 None => w,

@@ -307,7 +307,15 @@ impl Fold {
             }
             line(&mut b, "blocked", &bl);
         }
-        line(&mut b, "watching", &t.watchers.join(", "));
+        // Gone watchers are left out (card #485).
+        let rs = self.roster_status();
+        let ws: Vec<&str> = t
+            .watchers
+            .iter()
+            .filter(|w| !self.key_gone_in(w, &rs))
+            .map(String::as_str)
+            .collect();
+        line(&mut b, "watching", &ws.join(", "));
         // Card #155: the thread it came from, and a thread's cards.
         if !t.from.is_empty() {
             line(&mut b, "from the thread", &self.short_of(&t.from));
@@ -364,6 +372,10 @@ impl Fold {
                 let state = match &bl.resolved {
                     Some(r) if r.closed => {
                         let mut s = format!("closed by {}", r.by);
+                        // Card #481: why, then the person's answer.
+                        if !r.note.is_empty() {
+                            let _ = write!(s, ": {}; the answer", r.note);
+                        }
                         if !r.answer.is_empty() {
                             let _ = write!(s, ": {}", r.answer);
                         }
@@ -402,7 +414,12 @@ impl Fold {
                 for f in &bl.attachments {
                     let _ = writeln!(b, "  file: {}", describe(f));
                 }
-                if bl.open() && bl.options_aside {
+                if bl.open() && bl.options_aside && bl.done_check {
+                    let _ = writeln!(
+                        b,
+                        "  Not done: the person said why; answer them in its thread (board_comment blocker_id), then set completed again with proof that says what changed"
+                    );
+                } else if bl.open() && bl.options_aside {
                     let _ = writeln!(
                         b,
                         "  options set aside: the person answered in their own words; revise with board_block blocker_id for new ones (the earlier ones follow)"

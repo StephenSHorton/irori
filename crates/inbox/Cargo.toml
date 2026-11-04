@@ -19,7 +19,7 @@ irori-search.workspace = true
 getrandom.workspace = true
 regex.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
 tempfile.workspace = true
