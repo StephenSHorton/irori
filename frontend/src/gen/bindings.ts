@@ -283,6 +283,13 @@ export const commands = {
 	agentsSet: (change: AgentsChange) => __TAURI_INVOKE<AgentsSettings>("agents_set", { change }),
 	/**  The person ends an agent Irori started: its hand-off, then stop and rm. */
 	agentsEnd: (key: string) => __TAURI_INVOKE<null>("agents_end", { key }),
+	/**  Logs on an agent Irori started (card #456): its recent output, read only. */
+	agentsLogs: (key: string) => __TAURI_INVOKE<string>("agents_logs", { key }),
+	/**
+	 *  Attach on an agent Irori started (card #456): a tab in its card's
+	 *  terminal running `claude attach`.
+	 */
+	agentsAttach: (key: string, cols: number, rows: number) => __TAURI_INVOKE<TermInfo>("agents_attach", { key, cols, rows }),
 	/**  Every agent Irori started that is still running, or is starting. */
 	agentsRunning: () => __TAURI_INVOKE<RunningAgent[]>("agents_running"),
 	/**  Every merge desk in the person's log. */
@@ -403,6 +410,7 @@ export type AgentsChange = {
 	on?: boolean | null,
 	model?: string | null,
 	effort?: string | null,
+	idleMins?: number | null,
 };
 
 /**  What Settings › Agents shows for one board. */
@@ -425,6 +433,13 @@ export type AgentsSettings = {
 	efforts: string[],
 	defaultModel: string,
 	defaultEffort: string,
+	/**
+	 *  The idle limit in minutes (card #456, sa-6): how long a spawned
+	 *  agent waits on an unanswered question before it hands off and goes.
+	 */
+	idleMins: number | null,
+	/**  The idle limits Settings › Agents offers, in minutes. */
+	idleChoices: (number | null)[],
 };
 
 /**  Answer's reply: the card after the answer, and who heard. */
