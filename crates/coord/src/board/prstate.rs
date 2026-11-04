@@ -39,6 +39,9 @@ pub const PR_MERGED: &str = "MERGED";
 pub const PR_CLOSED: &str = "CLOSED";
 /// GitHub's review decision that sends a card back to work.
 pub const PR_CHANGES_REQUESTED: &str = "CHANGES_REQUESTED";
+/// GitHub's review decision on a repo that wants an approval before a
+/// merge: it comes from another member's agents (card #471).
+pub const PR_REVIEW_REQUIRED: &str = "REVIEW_REQUIRED";
 
 /// How one linked PR stands, as last heard from GitHub.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -288,6 +291,54 @@ impl Fold {
             })
             .map(|l| l.reference.clone())
             .collect()
+    }
+
+    /// Puts back on the Board each in-review card nobody holds while a PR
+    /// it links is open or not heard of yet (card #471): its agent went,
+    /// so nobody merges it and nobody hears it merge. Not a card waiting
+    /// on someone else: one whose PR GitHub says needs an approval (that
+    /// comes from another member's agents) or that another member's agent
+    /// was asked to review on a shared board.
+    pub(crate) fn return_unheld_prs(&mut self) -> Result<()> {
+        let ids: Vec<(String, String)> = self
+            .tasks
+            .values()
+            .filter(|t| {
+                t.state == IN_REVIEW
+                    && t.holders.is_empty()
+                    && t.co_holders.is_empty()
+                    && t.assigned.is_empty()
+                    && t.subtasks.is_empty()
+                    && t.open_ask().is_none()
+                    && self.hands_out(t)
+                    && !(self.on_board && self.reviews.get(&t.id).is_some_and(|r| !r.is_empty()))
+                    && !self
+                        .pr_states_of(t)
+                        .iter()
+                        .any(|p| p.state == PR_OPEN && p.review == PR_REVIEW_REQUIRED)
+            })
+            .filter_map(|t| {
+                let pr = self.unfinished_prs_besides(t, "").into_iter().next()?;
+                let n = t
+                    .links
+                    .iter()
+                    .find(|l| l.reference == pr)
+                    .and_then(pr_link)
+                    .map(|(_, n)| format!("PR #{n}"))
+                    .unwrap_or(pr);
+                Some((t.id.clone(), n))
+            })
+            .collect();
+        for (id, n) in ids {
+            self.back_on_board(
+                SWEEPER,
+                &id,
+                &format!(
+                    "its {n} is still open and nobody is on it: merge it once its checks pass, or complete the card if it merged"
+                ),
+            )?;
+        }
+        Ok(())
     }
 
     fn pr_notice(&self, t: &Task, pr: &str, what: &str, next: String) -> Notice {

@@ -140,6 +140,7 @@ fn your_own_agents_never_review_your_pr() {
     assert_ne!(e.c.get_task(&t.id).unwrap().state, IN_REVIEW);
 
     // A card with no PR still can.
+    e.c.leave(ALICE, &t.id, ALICE).unwrap();
     let u = held_card(&e);
     e.c.request_review(ALICE, &u.id, "", BOB).unwrap();
     assert_eq!(e.c.reviews_of(&u.id).len(), 1);
