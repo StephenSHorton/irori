@@ -83,6 +83,7 @@ import {
   Spinner,
   StatePill,
   waitLabel,
+  Asker,
 } from "./bits"
 import { KeepAsNote, NoteCard, WakeNotes, useNoteCard } from "@/components/notes/parts"
 import { Face, LiveDot } from "./faces"
@@ -1715,6 +1716,7 @@ function BlockerItem({
           "border-border bg-muted/50 opacity-85"
       )}
     >
+      {!b.doneCheck && <Asker who={b.raisedBy} className="-mb-1.5" />}
       <div className="flex flex-wrap items-center gap-1.5 text-[13.5px] font-semibold text-ink">
         {r && (
           <Button
@@ -1763,7 +1765,9 @@ function BlockerItem({
       {!b.doneCheck && <AttachmentList attachments={b.attachments ?? []} />}
       {!r && b.goneAgent && <GoneRaiser cardId={cardId} who={b.goneAgent} />}
       <div className="text-[11.5px] text-muted-foreground">
-        Raised by {name(b.raisedBy)} ·{" "}
+        {/* A question names its asker above it (Asker); a done check
+            says here who raised it. */}
+        {b.doneCheck && <>Raised by {name(b.raisedBy)} · </>}
         <time dateTime={raised?.toISOString()} title={raised?.toLocaleString()}>
           {relativeTime(raised, now)}
         </time>

@@ -461,3 +461,14 @@ export function waitLabel(card: {
   const on = card.waitOn ? `Waiting on ${plainLine(card.waitOn)}` : "Waiting"
   return n > 1 ? `${on} +${n - 1}` : on
 }
+
+// Asker names who asks a blocker's question, above it (card #491): the
+// person clicks its options, so "sample-otter asks:" keeps the agent's
+// words from reading as their own.
+export function Asker({ who, className }: { who: AgentRef; className?: string }) {
+  return (
+    <p className={cn("text-[11.5px] text-muted-foreground", className)}>
+      <span className="font-medium text-ink-2">{displayName(who)}</span> asks:
+    </p>
+  )
+}
