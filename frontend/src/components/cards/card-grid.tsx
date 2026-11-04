@@ -657,10 +657,10 @@ function CardTile({
             <Faces who={card.working} max={FACES_MAX} />
             {label && <span>{label}</span>}
           </>
-        ) : closed ? null : openAsk(card) ? (
-          <span>you asked the room</span>
-        ) : spawnLine(card) ? (
+        ) : closed ? null : spawnLine(card) ? (
           <SpawnText line={spawnLine(card)!} />
+        ) : openAsk(card) ? (
+          <span>you asked the room</span>
         ) : card.returned ? (
           <span>nobody on it: {displayName(card.returned)} went away</span>
         ) : (

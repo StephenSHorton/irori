@@ -2195,6 +2195,10 @@ export type ThreadSummary = {
 	 *  handed it, and its agents read it at their next turn.
 	 */
 	agentsNow: boolean,
+	/**  An agent Irori starts for it (card #470): where, while it starts. */
+	starting?: string,
+	/**  Why one couldn't start (the failed request's reason). */
+	cantStart?: string,
 };
 
 /**  Who an action's notice went to. */

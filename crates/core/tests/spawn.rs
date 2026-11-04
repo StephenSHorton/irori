@@ -544,7 +544,8 @@ fn a_card_with_no_checkout_fails_once_and_is_not_asked_again() {
         .spawn_request()
         .cloned()
         .unwrap();
-    assert!(sr.reason.starts_with("no checkout of"), "{sr:?}");
+    // No repo at all: the #470 wording (name a repo, or run an agent here).
+    assert!(sr.reason.starts_with("no repo to start in on"), "{sr:?}");
     assert_eq!(sr.generation, 1);
     let rows = spawn_rows();
     assert_eq!(rows, 2, "one requested and one failed");

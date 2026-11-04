@@ -375,6 +375,16 @@ function sampleThreadSeed(now: Date): CardDetail[] {
       [],
       "handed"
     ),
+    // Nobody with Offer it cards on was free: Irori starts an agent for
+    // it (card #470).
+    sampleThread(
+      "sample-thread-5",
+      "27",
+      "What did we ship this week?",
+      ago(10),
+      [],
+      "waiting"
+    ),
     sampleThread(
       "sample-thread-4",
       "26",
@@ -429,6 +439,7 @@ function sampleThreads(boardId = ""): ThreadSummary[] {
       at: c.updatedAt,
       updatedAt: last?.at ?? c.updatedAt,
       agentsNow: sampleThreadAgentsNow.get(c.id) ?? true,
+      starting: c.id === "sample-thread-5" ? "Macbook Pro (this one)" : undefined,
     })
   })
   const t = (s: ThreadSummary) => Date.parse(s.updatedAt) || 0
