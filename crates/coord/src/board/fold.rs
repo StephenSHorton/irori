@@ -227,6 +227,8 @@ pub struct Fold {
     pub(crate) agents_per_card: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
     /// See [`super::Options::outside_leases`].
     pub(crate) outside_leases: Option<Arc<dyn Fn() -> Vec<String> + Send + Sync>>,
+    /// See [`super::Options::device_version`].
+    pub(crate) device_version: Option<super::DeviceVersionFn>,
     /// "task/blocker" of external waits on this person's private leases
     /// (card #339), noted while one of them was held.
     pub(crate) outside_waits: std::cell::RefCell<HashSet<String>>,
@@ -400,6 +402,7 @@ impl Fold {
             offers: o.offers,
             agents_per_card: o.agents_per_card,
             outside_leases: o.outside_leases,
+            device_version: o.device_version,
             outside_waits: Default::default(),
             spawn_now: HashSet::new(),
             origin: HashMap::new(),

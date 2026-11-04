@@ -95,7 +95,11 @@ fn waits_on_work(t: &Task) -> bool {
 pub(crate) fn on_work(kind: &str) -> bool {
     matches!(
         kind,
-        BLOCKED_ON_TASK | BLOCKED_ON_LEASE | BLOCKED_ON_AGENT | BLOCKED_ON_EXTERNAL
+        BLOCKED_ON_TASK
+            | BLOCKED_ON_LEASE
+            | BLOCKED_ON_AGENT
+            | BLOCKED_ON_EXTERNAL
+            | BLOCKED_ON_VERSION
     )
 }
 

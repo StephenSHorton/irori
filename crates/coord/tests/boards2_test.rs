@@ -1990,3 +1990,25 @@ fn an_answered_item_whose_agent_left_closes_from_the_raisers_device() {
     a.c.sweep_notices().unwrap();
     assert_eq!(mine(&a, "dev-a"), n, "closed once");
 }
+
+/// Card #485: a board's log keeps no device.started rows, so a version
+/// wait there could never close: it is refused, with where it goes.
+#[test]
+fn a_version_wait_on_a_board_is_refused() {
+    let (a, _b, _) = two_people();
+    let t = a.c.create_task(P1, nt("live check", REPO_A)).unwrap();
+    a.c.claim_task(CARD1, &t.id).unwrap();
+    let err =
+        a.c.block(
+            CARD1,
+            &t.id,
+            "Update the Mac",
+            Some(BlockedBy {
+                kind: BLOCKED_ON_VERSION.into(),
+                reference: "0.11.0 dev-a".into(),
+            }),
+        )
+        .unwrap_err();
+    assert!(err.is(ErrorKind::Invalid), "{err}");
+    assert!(err.to_string().contains("your own board"), "{err}");
+}

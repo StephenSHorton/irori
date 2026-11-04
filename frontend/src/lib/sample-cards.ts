@@ -513,10 +513,77 @@ export function sampleCards(now: Date): CardDetail[] {
         ]
       : []
 
+  // Card #485: ?gone=1 shows items whose agent is gone on cards nobody
+  // holds: #73 waits on kestrel (gone), an amber line with Hand to an
+  // agent; #74's done check was raised by piranha (gone), and its Not
+  // done goes to the agent the card goes to next (PREVIEW.md).
+  const kestrel = agent("sample-kestrel-session", "kestrel", "gone")
+  const piranha = agent("sample-piranha-session", "piranha", "gone")
+  const gone = new URLSearchParams(window.location.search).has("gone")
+    ? [
+        card({
+          id: "sample-card-gone-73",
+          short: "73",
+          title: "Spawned agents part 1: the spawner",
+          goal: "A first spawn with no claude daemon opens no window on the PC.",
+          state: TaskState.Blocked,
+          working: [],
+          blockers: [
+            CardBlocker({
+              id: "b6",
+              question: "Waiting on kestrel's no-daemon GUI spawn on the PC",
+              context:
+                "Every other part 1 check has passed on the Mac and the PC. Only one is left: a first spawn that also starts the claude daemon must open no window.",
+              raisedBy: heron,
+              at: at(600),
+              resolved: null,
+              state: "open",
+              waitsOn: { kind: "agent", label: "kestrel", gone: true },
+              goneAgent: kestrel,
+            }),
+          ],
+          updatedAt: at(600),
+        }),
+        card({
+          id: "sample-card-gone-74",
+          short: "74",
+          title: "Spawned agents part 9: terminal agents",
+          goal: "Terminal sessions aren't free agents unless offered cards.",
+          state: TaskState.Blocked,
+          working: [],
+          blockers: [
+            CardBlocker({
+              id: "b2",
+              question: "Is this done?",
+              context:
+                "On main at 8845c11a. A terminal agent is no longer a free agent unless you turn on Offer it cards.",
+              raisedBy: piranha,
+              at: at(500),
+              doneCheck: true,
+              options: [
+                CardOption({
+                  answer: "Done",
+                  why: "Closes the card.",
+                  by: piranha,
+                  at: at(500),
+                  recommended: true,
+                }),
+              ],
+              resolved: null,
+              state: "open",
+              goneAgent: piranha,
+            }),
+          ],
+          updatedAt: at(500),
+        }),
+      ]
+    : []
+
   return [
     ...spawn,
     ...red,
     ...loop,
+    ...gone,
     longWait,
     idleUnnamed,
     namedWait,
