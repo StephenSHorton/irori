@@ -81,6 +81,21 @@ const seeds: Seed[] = [
     repoKey: "",
     mode: "",
   },
+  {
+    // Between turns with a background job running (Claude Code's
+    // "shell"): "running a job · 12 min" (card #489).
+    session: "sample05-synthetic-session",
+    name: "sample-mink",
+    title: "",
+    cwd: "/home/sample/src/placeholder-service",
+    status: "shell",
+    kind: "interactive",
+    entry: "cli",
+    agoSec: 60 * 12,
+    text: "Sample text. Started the made-up migration in the background.",
+    repoKey: "github.com/sample-org/example-app",
+    mode: "bypassPermissions",
+  },
 ]
 
 // sampleRoster builds the synthetic roster with activity relative to now so
@@ -109,6 +124,7 @@ export function sampleRoster(now: Date) {
             peerFeatures: [],
             startedAt: at(s.agoSec + 3600).toISOString(),
             updatedAt: at(s.agoSec).toISOString(),
+            statusSince: at(s.agoSec).toISOString(),
             lastActivity: at(s.agoSec).toISOString(),
             lastText: s.text,
             transcript: "",

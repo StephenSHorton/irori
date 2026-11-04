@@ -209,8 +209,13 @@ export function StatePill({ card }: { card: CardSummary }) {
 // holderText is the holder line's words: who holds the card and what that
 // agent is up to, or who it waits for. An active, idle or silent holder
 // reads its status as everywhere else (card #489): "· running a job · 12
-// min" for a shell, not "· active"; since is when that status began.
-export function holderText(h: CardHolder, since?: string): string {
+// min" for a shell, not "· active"; since is when that status began and
+// status the live roster's, which wins over the card's (card #317).
+export function holderText(
+  h: CardHolder,
+  since?: string,
+  status?: string
+): string {
   const who = h.who.key ? displayName(h.who) : ""
   const more = h.others > 0 ? ` (+${h.others} more)` : ""
   switch (h.state) {
@@ -226,7 +231,7 @@ export function holderText(h: CardHolder, since?: string): string {
     case Holding.HoldIdle:
     case Holding.HoldSilent:
       // The state already weighed gone and offline; say the status.
-      return `${who}${more} · ${agentStatus({ status: h.who.status }, since).text}`
+      return `${who}${more} · ${agentStatus({ status: status || h.who.status }, since).text}`
     case Holding.HoldOffline:
       return `${who}${more} · its device is offline`
     case Holding.HoldGone:
@@ -252,12 +257,22 @@ export function HolderLine({
   className?: string
 }) {
   const finished = holder.state === Holding.HoldGone && !!holder.who.spawned
-  const since = useContext(LiveRoster).get(holder.who.key)?.statusSince
+  // The live roster's status and when it began, as the hover card and
+  // Who's on it read them (cards #317, #489).
+  const live = useContext(LiveRoster).get(holder.who.key)
+  const since = live?.statusSince
+  const status = live?.status
+  const tone =
+    holder.state === Holding.HoldActive ||
+    holder.state === Holding.HoldIdle ||
+    holder.state === Holding.HoldSilent
+      ? agentStatus({ status: status || holder.who.status }).tone
+      : null
   const warn =
     (!!returned && !returned.spawned) ||
     holder.state === Holding.HoldWaiting ||
     (holder.state === Holding.HoldGone && !finished) ||
-    holder.state === Holding.HoldSilent ||
+    tone === "warn" ||
     holder.state === Holding.HoldOffline
   return (
     <span
@@ -267,7 +282,7 @@ export function HolderLine({
         className
       )}
     >
-      {holder.state === Holding.HoldActive && (
+      {(tone === "working" || tone === "job") && (
         <span
           className="inline-block size-[7px] shrink-0 rounded-full bg-success"
           aria-hidden
@@ -278,7 +293,7 @@ export function HolderLine({
           ? returned.spawned
             ? `Nobody on it: ${displayName(returned)} finished`
             : `Nobody on it: ${displayName(returned)} went away`
-          : holderText(holder, since)}
+          : holderText(holder, since, status)}
       </span>
     </span>
   )

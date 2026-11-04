@@ -220,7 +220,8 @@ const sampleLogs = [
 ].join("\n")
 
 // sampleRunning is the preview's Running agents list: two working, one
-// on another device, one starting.
+// running a job between turns (card #489), one on another device, one
+// starting.
 function sampleRunning(): RunningAgent[] {
   const now = Date.now()
   const row = (p: Partial<RunningAgent>): RunningAgent => ({
@@ -241,6 +242,7 @@ function sampleRunning(): RunningAgent[] {
     row({ status: "starting", cardId: "c65", cardShort: "#65", cardTitle: "Explain the cache eviction in the README", startedAt: now - 20_000 }),
     row({ key: "dev/heron", name: "heron", cardId: "c64", cardShort: "#64", cardTitle: "Retry the upload on a dropped connection", startedAt: now - 6 * 60_000 }),
     row({ key: "dev/finch", name: "finch", status: "idle", cardId: "c61", cardShort: "#61", cardTitle: "Bump the icon set", model: "opus", effort: "high", startedAt: now - 25 * 60_000 }),
+    row({ key: "sample-device/sample05-synthetic-session", name: "sample-mink", status: "shell", cardId: "c63", cardShort: "#63", cardTitle: "Migrate the sample store", startedAt: now - 30 * 60_000 }),
     row({ key: "pc/wren", name: "wren", cardId: "c58", cardShort: "#58", cardTitle: "Port the build script to Windows", device: "Desktop Computer", here: false, startedAt: now - 40 * 60_000 }),
   ]
 }

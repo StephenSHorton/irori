@@ -41,11 +41,11 @@ unchanged.
 | `/?open=board:task:sample-card-12` | Ready for you: an agent says it's done, its proof (screenshot, then how it was checked) at the top; Done closes it, Not done sends your words back (cards #112, #140) |
 | `/?voice=ready&open=board:task:sample-card-1` | the mic button on the comment and answer boxes (card #240); `voice=needs-model` asks for the model download on a press, `voice=denied` shows the mic crossed out |
 | `/?open=board:task:sample-card-idle` | Idle, no reason given (card #305): held, its holder idle half an hour, nothing named it waits on; on Home its row is amber "Idle" |
-| `/?open=board:task:sample-card-job` | a holder between turns with a background job running (card #431): the page and Home say "running a background job", not "not working on it now" |
+| `/?open=board:task:sample-card-job` | a holder between turns with a background job running (card #431): the page and Home say "running a job · 12 min" (card #489), not "not working on it now"; sample-mink's hover, its holder line and Settings › Agents say the same |
 | `/?open=board:task:sample-card-named` | the same wait named as a blocker on another agent: Home reads "Waiting on agent sample-kestrel" (card #305) |
 | `/?red=1` | main is red (card #436): Home leads with "Main is red: attach_exe fails on clean main; 2 cards wait on #60", and the line opens #60 |
 | `/?spawn=first` | spawned agents' first-run notice (card #448): Home leads with "Irori now starts an agent for each card…", Keep it on / Turn it off / Settings › Agents |
-| `/?spawn=states` | spawned agents' card lines (card #448): #65 "Starting an agent on this PC", #66 "Waiting: this PC is at its cap", #67 "Can't start: no checkout…"; #64's page shows End for the agent Irori started, and its hover "Irori started it for #64" |
+| `/?spawn=states` | spawned agents' card lines (card #448): #65 "Starting an agent on Macbook Pro (this one)", #66 "Waiting: Macbook Pro (this one) is at its cap", #67 "Can't start: no checkout…"; #64's page shows End for the agent Irori started, and its hover "Irori started it for #64" |
 | `/?spawn=states` on Home | spawned agents in Needs you (card #456, sa-7): #58 "Permission", sample-thyme stopped on a prompt, with Attach, Logs and Add to allow-list; #62 "Crashed", its agents crashed twice, with Start another agent |
 | `/?spawn=states&open=board:task:sample-card-spawn-on` | Who's on it for an agent Irori started (card #456, sa-2): Attach, Logs, Stop, End, no Revive |
 | `/?newcard` | New card (card #456, sa-5): "A fresh agent" by default on your own board, with the model and effort it starts with; `?newcard&spawn=off` shows "Any free agent" instead |
