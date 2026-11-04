@@ -152,6 +152,61 @@ export function nobodyOn(c: {
   return !!c.returned || c.holder.state === Holding.HoldGone
 }
 
+// PeopleRow is one agent in a card's Who's on it (card #490): its
+// strongest role, the titles of the open steps it owns, and its waits.
+export type PeopleRow = {
+  who: AgentRef
+  role: "working" | "watching" | "waiting"
+  stepTitles: string[]
+  waits: CardWait[]
+}
+
+// stepTitle is a step's title for the person, never its id (card #490).
+export function stepTitle(steps: Step[], id: string): string {
+  return plainLine(steps.find((s) => s.id === id)?.text ?? "") || "a step"
+}
+
+// peopleRows gives one row per agent (card #490): working (holders, then
+// step owners), then watchers, then agents that only wait. A holder that
+// also waits shows its wait on its own row, not as a second one.
+export function peopleRows(d: {
+  working: AgentRef[]
+  watching: AgentRef[]
+  waits?: CardWait[] | null
+  steps: Step[]
+}): PeopleRow[] {
+  const rows: PeopleRow[] = []
+  const at = new Map<string, PeopleRow>()
+  const add = (who: AgentRef, role: PeopleRow["role"]) => {
+    const r = at.get(who.key)
+    if (!r) {
+      const row: PeopleRow = { who, role, stepTitles: [], waits: [] }
+      at.set(who.key, row)
+      rows.push(row)
+      return row
+    }
+    if (r.role === "working" && role === "working") {
+      r.who = {
+        ...r.who,
+        assigned: r.who.assigned || who.assigned,
+        waiting: r.who.waiting || who.waiting,
+        spawned: r.who.spawned || who.spawned,
+        handoff: r.who.handoff || who.handoff,
+        steps: [...(r.who.steps ?? []), ...(who.steps ?? [])],
+      }
+    }
+    return r
+  }
+  for (const w of d.working) add(w, "working")
+  for (const w of d.watching) add(w, "watching")
+  for (const w of d.waits ?? []) add(w.who, "waiting").waits.push(w)
+  for (const r of rows) {
+    const ids = [...new Set(r.who.steps ?? [])]
+    r.stepTitles = ids.map((id) => stepTitle(d.steps, id))
+  }
+  return rows
+}
+
 // deviceVar is a device colour's CSS variable (card #22); "" for none.
 export function deviceVar(color?: string | null): string {
   return color ? `var(--device-${color})` : ""
@@ -589,17 +644,27 @@ export function refStatus(x: {
 }): RefStatus {
   const progress =
     !x.thread && x.progress && x.progress.total > 0 ? x.progress : null
-  const s = (label: string, tone: RefTone): RefStatus => ({ label, tone, progress })
-  if (x.thread) return x.done ? s("Resolved", "slate") : s("Open thread", "info")
+  const s = (label: string, tone: RefTone): RefStatus => ({
+    label,
+    tone,
+    progress,
+  })
+  if (x.thread)
+    return x.done ? s("Resolved", "slate") : s("Open thread", "info")
   if (x.state === TaskState.Completed) return s("Done", "success")
   if (x.state === TaskState.Failed) return s("Failed", "warning")
   if (x.state === TaskState.Canceled) return s("Canceled", "slate")
   // Done but for your word (card #112): green, as its pill.
   if (x.ready) return s("Ready", "success")
-  if (x.blocked || x.state === TaskState.InputRequired || x.state === TaskState.Blocked)
+  if (
+    x.blocked ||
+    x.state === TaskState.InputRequired ||
+    x.state === TaskState.Blocked
+  )
     return s("Blocked", "destructive")
   if (x.state === TaskState.InReview) return s("In review", "warning")
-  if (x.state === TaskState.Working && x.working !== false) return s("Working", "info")
+  if (x.state === TaskState.Working && x.working !== false)
+    return s("Working", "info")
   return s("Open", "slate")
 }
 
@@ -872,11 +937,19 @@ function sampleClose(id: string, state: TaskState, note: string) {
 const sampleCleared = new Set<string>()
 
 // sampleToClear is BoardService.ClearDone's pick on the sample.
-function sampleToClear(olderThanSecs: number, ids: string[], scope: string): string[] {
+function sampleToClear(
+  olderThanSecs: number,
+  ids: string[],
+  scope: string
+): string[] {
   const inScope = (c: { board?: string | null }) =>
     !scope || (scope === "own" ? !c.board : c.board === scope)
   const done = sampleState().filter(
-    (c) => over(c) && !sampleThreadIds.has(c.id) && !sampleCleared.has(c.id) && inScope(c)
+    (c) =>
+      over(c) &&
+      !sampleThreadIds.has(c.id) &&
+      !sampleCleared.has(c.id) &&
+      inScope(c)
   )
   if (ids.length) return done.filter((c) => ids.includes(c.id)).map((c) => c.id)
   const cut = Date.now() - Math.max(0, olderThanSecs) * 1000
@@ -1073,7 +1146,13 @@ export function sampleTransferOwner(id: string, to: string): string {
     )
   const now = new Date().toISOString()
   const bid = `b${c.blockers.length + 1}`
-  const option = (answer: string) => ({ answer, why: "", by: sampleYou, at: now, recommended: false })
+  const option = (answer: string) => ({
+    answer,
+    why: "",
+    by: sampleYou,
+    at: now,
+    recommended: false,
+  })
   c.blockers.unshift({
     id: bid,
     question: to ? "Take over this card?" : "Hand this card over?",
@@ -1625,7 +1704,11 @@ export const cards = {
   // clearDone takes done cards out of the app's lists (card #138): the
   // ids given, else by age as clearDoneCount. Agents still find them with
   // search and show. Returns how many it cleared.
-  async clearDone(olderThanSecs: number, ids: string[] = [], scope = ""): Promise<number> {
+  async clearDone(
+    olderThanSecs: number,
+    ids: string[] = [],
+    scope = ""
+  ): Promise<number> {
     if (inWails()) return BoardService.ClearDone(olderThanSecs, ids, scope)
     const gone = sampleToClear(olderThanSecs, ids, scope)
     for (const id of gone) sampleCleared.add(id)
@@ -1827,8 +1910,12 @@ export function useCards(): CardsState {
 // re-read on every card change and whenever the roster's statuses change
 // (an agent going idle or busy changes it without any card changing). The
 // sample has no hand-out: its idle agents and no unhanded cards.
-export function useIdleReport(agents: { status: string; deviceState?: string | null }[]) {
-  const sampleIdle = agents.filter((a) => a.status === "idle" && a.deviceState !== "offline").length
+export function useIdleReport(
+  agents: { status: string; deviceState?: string | null }[]
+) {
+  const sampleIdle = agents.filter(
+    (a) => a.status === "idle" && a.deviceState !== "offline"
+  ).length
   const load = useCallback(
     async (): Promise<IdleReport> =>
       inWails() ? BoardService.IdleReport() : sampleIdleReport(sampleIdle),
@@ -1836,7 +1923,9 @@ export function useIdleReport(agents: { status: string; deviceState?: string | n
   )
   const { value, error, reload } = useLatest<IdleReport>(load, IdleReport())
   useFresh(reload, error)
-  const statuses = agents.map((a) => `${a.status}/${a.deviceState ?? ""}`).join(",")
+  const statuses = agents
+    .map((a) => `${a.status}/${a.deviceState ?? ""}`)
+    .join(",")
   useEffect(() => {
     void reload()
   }, [statuses, reload])
@@ -1851,8 +1940,18 @@ function sampleIdleReport(idle: number): IdleReport {
   return IdleReport({
     idle,
     unoffered: [
-      UnofferedCard({ id: "sample-gap-1", short: "wind#87", title: "Slot 1 rig", why: "nobody on this board is free" }),
-      UnofferedCard({ id: "sample-gap-2", short: "#41", title: "Parser", why: "no free agent works in irori" }),
+      UnofferedCard({
+        id: "sample-gap-1",
+        short: "wind#87",
+        title: "Slot 1 rig",
+        why: "nobody on this board is free",
+      }),
+      UnofferedCard({
+        id: "sample-gap-2",
+        short: "#41",
+        title: "Parser",
+        why: "no free agent works in irori",
+      }),
     ],
   })
 }
@@ -1874,7 +1973,13 @@ async function loadDone(
   const inScope = (c: { board?: string | null }) =>
     !scope || (scope === "own" ? !c.board : c.board === scope)
   const done = sampleState()
-    .filter((c) => over(c) && !sampleThreadIds.has(c.id) && !sampleCleared.has(c.id) && inScope(c))
+    .filter(
+      (c) =>
+        over(c) &&
+        !sampleThreadIds.has(c.id) &&
+        !sampleCleared.has(c.id) &&
+        inScope(c)
+    )
     .sort((a, b) => updated(b) - updated(a) || (a.id < b.id ? 1 : -1))
   const from = before ? done.findIndex((c) => c.id === before) + 1 : 0
   const page = done.slice(from, from + limit)
@@ -2057,7 +2162,9 @@ export function createCardStore(
     await Promise.resolve()
     try {
       while (all || want.size) {
-        const ids = all ? [...users.keys()] : [...want].filter((id) => users.has(id))
+        const ids = all
+          ? [...users.keys()]
+          : [...want].filter((id) => users.has(id))
         all = false
         want = new Set()
         if (!ids.length) continue
@@ -2232,9 +2339,10 @@ export function runningJobNow(c: {
 // progress and the card page both read busy through it, so the two never
 // disagree and neither waits for the card to be read again. An agent the
 // roster doesn't have keeps its status.
-export function withLive<
-  C extends { working: readonly AgentRef[] },
->(c: C, live: ReadonlyMap<string, { status: string }>): C {
+export function withLive<C extends { working: readonly AgentRef[] }>(
+  c: C,
+  live: ReadonlyMap<string, { status: string }>
+): C {
   if (!live.size) return c
   let changed = false
   const working = c.working.map((w) => {
@@ -2309,16 +2417,15 @@ export const IDLE_UNNAMED_MS = 10 * 60_000
 // IDLE_UNNAMED_MS, with no blocker, review, ask, pause or wait saying why:
 // "Idle, no reason given". Busy, gone, offline and offered holders are
 // other states.
-export function idleUnnamed(
-  c: CardSummary,
-  now: number = Date.now()
-): boolean {
+export function idleUnnamed(c: CardSummary, now: number = Date.now()): boolean {
   if (over(c) || c.state !== TaskState.Working) return false
-  if (c.openBlockers > 0 || c.waitingOn || c.waiting > 0 || c.paused) return false
+  if (c.openBlockers > 0 || c.waitingOn || c.waiting > 0 || c.paused)
+    return false
   if (c.subtaskBlocked || (openAsk(c) && c.ask)) return false
   const held = c.working.filter((w) => !w.assigned)
   if (!held.length) return false
-  if (!held.every((w) => w.status === "idle" && w.live && !w.offline)) return false
+  if (!held.every((w) => w.status === "idle" && w.live && !w.offline))
+    return false
   const t = (s: string | null | undefined) => parseTime(s ?? "")?.getTime() ?? 0
   const since = Math.max(t(c.updatedAt), ...held.map((w) => t(w.idleSince)))
   return since > 0 && now - since >= IDLE_UNNAMED_MS
