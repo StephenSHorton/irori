@@ -980,7 +980,12 @@ impl Services {
         if t.repo_key.is_empty() {
             return None;
         }
-        self.capture.repo_roots(&t.repo_key).into_iter().next()
+        // This device's checkouts only (card #493); a removed worktree is
+        // skipped for the next one.
+        self.capture
+            .repo_roots(&t.repo_key)
+            .into_iter()
+            .find(|r| Path::new(r).is_dir())
     }
 
     /// A helper's part (spawned agents §3, part 7): its own worktree,
@@ -1004,7 +1009,7 @@ impl Services {
             .capture
             .repo_roots(repo_key)
             .into_iter()
-            .next()
+            .find(|r| Path::new(r).is_dir())
             .map(PathBuf::from)
             .or_else(|| lead_here.and_then(|w| crate::helpertree::main_root(Path::new(&w.cwd))));
         let Some(root) = root else {

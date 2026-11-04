@@ -104,7 +104,18 @@ pub(crate) struct Fold {
     pub summaries: HashMap<String, Vec<SummaryRow>>,
     pub cmds: Vec<CommitCmdRow>,
     pub ledger: ledger::Ledger,
+    /// The worktree roots this device has seen (card #493): only the
+    /// `repo.seen` rows this device wrote, so a spawn, the reflog watch and
+    /// every path lookup use this machine's checkouts, never a linked
+    /// device's path. A device whose id changes treats its own old rows as
+    /// foreign until capture sees the root again.
     pub repo_roots: HashMap<String, RepoSeen>,
+    /// The roots other linked devices have seen: device id -> normRoot ->
+    /// row. Kept apart from `repo_roots`, so the same path on two devices
+    /// stays two entries.
+    pub roots_elsewhere: HashMap<String, HashMap<String, RepoSeen>>,
+    /// This device's id (the store's), which `repo.seen` rows are split by.
+    pub device: String,
     pub root_users: HashMap<String, HashSet<String>>,
     /// Each session's latest working directory (card #137): where its
     /// last command ran (after any `cd`) or its last edited file sits.
@@ -394,7 +405,14 @@ pub(crate) fn apply(c: &mut Fold, idx: &Index, ev: &Event) -> Result<Option<Chan
             if r.root.is_empty() {
                 return Ok(None);
             }
-            c.repo_roots.insert(norm_root(&r.root), r);
+            if ev.device_id == c.device {
+                c.repo_roots.insert(norm_root(&r.root), r);
+            } else {
+                c.roots_elsewhere
+                    .entry(ev.device_id.clone())
+                    .or_default()
+                    .insert(norm_root(&r.root), r);
+            }
             Ok(None)
         }
         KIND_COMMIT_SEEN => {
@@ -489,12 +507,14 @@ impl Capture {
         opts: Options,
     ) -> Result<Capture, String> {
         let roots = RootCache::new(opts.git.clone(), opts.now.clone());
+        let device = st.device_id().to_string();
         let inner = Inner {
             st,
             roster,
             roots,
             fold: RwLock::new(Fold {
                 backfilling: true,
+                device,
                 ..Fold::default()
             }),
             subs: Mutex::new(Vec::new()),
@@ -698,6 +718,23 @@ impl Capture {
             .values()
             .filter(|r| r.repo_key == repo_key)
             .map(|r| r.root.clone())
+            .collect();
+        v.sort();
+        v
+    }
+
+    /// The worktree roots other linked devices have seen for `repo_key`,
+    /// as (device id, root), sorted (card #493: never spawned in here).
+    pub fn roots_elsewhere(&self, repo_key: &str) -> Vec<(String, String)> {
+        let f = self.inner.read();
+        let mut v: Vec<(String, String)> = f
+            .roots_elsewhere
+            .iter()
+            .flat_map(|(d, rs)| {
+                rs.values()
+                    .filter(|r| r.repo_key == repo_key)
+                    .map(move |r| (d.clone(), r.root.clone()))
+            })
             .collect();
         v.sort();
         v

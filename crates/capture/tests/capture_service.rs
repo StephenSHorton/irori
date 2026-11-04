@@ -18,6 +18,7 @@ use capture::{
 };
 use common::*;
 use serde_json::{Value as J, json};
+use store::Store;
 use sys::cancel::Cancel;
 
 fn sec(n: u64) -> Duration {
@@ -1905,4 +1906,61 @@ fn a_sessions_dir_follows_its_cd() {
     w.write(&w.write_tool("w1", &f, "fn main() {}\n", None, &add(&start, sec(3))));
     r.tail();
     assert_eq!(r.c.session_dir(&format!("{DEVICE}/{SID_A}")), Some(other));
+}
+
+/// Card #493: a `repo.seen` row another linked device wrote is that
+/// machine's checkout, not this one's. It folds into `roots_elsewhere`,
+/// and `repo_roots` and `repos()` stay empty here, so a spawn never picks
+/// the other machine's path. Once this device sees the same root itself,
+/// it writes its own row and the root shows. (Peer rows fold only at
+/// replay, so the row goes in before the restart.)
+#[test]
+fn a_peers_repo_seen_is_not_a_checkout_here() {
+    let mut r = Rig::new(|_| {});
+    let (_d, main) = new_repo("false");
+    let key = real_resolver().key(&main);
+    assert!(!key.is_empty());
+    let (_p, peer_dir) = tempdir();
+    let peer = Store::open(
+        capture::gopath::join(&[&peer_dir, "irori.db"]),
+        "dev-elsewhere",
+        Arc::new(hlc::Clock::new()),
+    )
+    .unwrap();
+    let ev = peer
+        .append(
+            "irori",
+            capture::KIND_REPO_SEEN,
+            &capture::RepoSeen {
+                repo_key: key.clone(),
+                root: main.clone(),
+                at: now(),
+            },
+        )
+        .unwrap();
+    r.st.insert(&ev).unwrap();
+    r.restart();
+
+    assert!(r.c.repo_roots(&key).is_empty(), "{:?}", r.c.repo_roots(&key));
+    assert!(r.c.repos().is_empty(), "{:?}", r.c.repos());
+    assert_eq!(
+        r.c.roots_elsewhere(&key),
+        vec![("dev-elsewhere".to_string(), main.clone())]
+    );
+
+    // This device works in the same path: its own row, and the root shows.
+    let a = r.session(SID_A, &main);
+    let t = now();
+    a.write(&flat(vec![
+        vec![a.prompt("pa", "a", &t)],
+        a.write_tool("wa", &join(&[&main, "foo.go"]), "A\n", None, &t),
+        vec![a.done(&t)],
+    ]));
+    r.tail();
+    assert_eq!(r.c.repo_roots(&key), vec![main.clone()]);
+    assert_eq!(r.c.repos()[&key], vec![main.clone()]);
+    assert_eq!(r.count(capture::KIND_REPO_SEEN), 2, "the peer's and ours");
+    r.restart();
+    assert_eq!(r.c.repo_roots(&key), vec![main.clone()], "after replay too");
+    assert_eq!(r.c.roots_elsewhere(&key).len(), 1);
 }
