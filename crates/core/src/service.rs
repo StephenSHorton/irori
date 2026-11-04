@@ -68,6 +68,7 @@ mod notifications;
 pub mod spaces;
 pub mod spawn;
 pub mod spawn_permissions;
+pub mod spawn_stop;
 mod spawn_waiting;
 pub use mirror::BoardReviewer;
 pub mod invites;
@@ -2688,24 +2689,7 @@ impl Core {
     /// computer's name when it joined), else this device's own name.
     /// Removed devices keep their name, so old lines still read.
     pub fn device_labels(&self) -> std::collections::BTreeMap<String, String> {
-        let mut out: std::collections::BTreeMap<String, String> = self
-            .s
-            .chain
-            .devices()
-            .into_iter()
-            .map(|d| (d.cert.device_id, d.cert.label))
-            .collect();
-        let me = &self.s.device;
-        let mine = out.entry(me.id.clone()).or_default();
-        if mine.is_empty() {
-            *mine = me.name.clone();
-        }
-        for (id, name) in self.s.device_names.chosen() {
-            if let Some(l) = out.get_mut(&id) {
-                *l = name;
-            }
-        }
-        out
+        self.s.device_labels()
     }
 
     /// The person's renames alone, by device id (card #184).

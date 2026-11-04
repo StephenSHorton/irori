@@ -532,7 +532,7 @@ fn a_card_with_no_checkout_fails_once_and_is_not_asked_again() {
         .spawn_request()
         .cloned()
         .unwrap();
-    assert!(sr.reason.starts_with("no checkout of"), "{sr:?}");
+    assert!(sr.reason.starts_with("this card names no repo"), "{sr:?}");
     assert_eq!(sr.generation, 1);
     let rows = spawn_rows();
     assert_eq!(rows, 2, "one requested and one failed");
