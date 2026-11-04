@@ -183,6 +183,8 @@ fn json_matches_go() {
         last_tool: String::new(),
         device_state: "recent".into(),
         device_seen: Default::default(),
+        // Rust-only (card #489) and omitted when zero.
+        status_since: GoTime::default(),
     };
     assert_eq!(m(&full), want("cardFull"));
     // And back, as another device's row is read.
@@ -211,6 +213,9 @@ fn json_matches_go() {
     for (i, mut c) in cards.into_iter().enumerate() {
         c.started_at = c.started_at.utc();
         c.updated_at = c.updated_at.utc();
+        // Rust-only (card #489); Go's golden JSON has no statusSince.
+        assert!(!c.status_since.is_zero(), "fixture{i} statusSince");
+        c.status_since = GoTime::default();
         c.last_activity = c.last_activity.utc();
         c.transcript = c.transcript.replace(&root, "$TESTDATA");
         if !cfg!(windows) {

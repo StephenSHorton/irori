@@ -188,6 +188,8 @@ pub struct Watcher {
     user: String,
     is_owner: Option<OwnerFn>,
     name_fn: Option<NameFn>,
+    /// A repo key's short name here (card #488); `None` uses repo_short.
+    repo_fn: Option<NameFn>,
     held: HashMap<String, String>,
     groups: BTreeMap<String, HeldGroup>,
     dirty: BTreeMap<String, HeldChange>,
@@ -209,23 +211,55 @@ fn card_held(d: &Delivery) -> bool {
     d.state == st::HELD && d.hold != hold::PAUSED && d.hold != hold::EDITING
 }
 
-/// A hold in the person's words.
+/// A hold in the person's words (card #488: no internal reasons; the
+/// window's own sentences, frontend/src/lib/talk.ts holdText, also name
+/// who).
 pub fn hold_reason(h: &str) -> String {
     match h {
         hold::BLOCKED => "the sender is on your block list",
         hold::NOT_ALLOWED => "the sender isn't on your allow list",
-        hold::BYPASS_RECEIVER => "the recipient runs without permission prompts",
-        hold::HOP_LIMIT => "it is too many hops down a chain of agent messages",
-        hold::UNOWNED => "no agent in that repo can take it yet",
-        hold::PAUSED => "wakes are paused",
+        hold::BYPASS_RECEIVER => "an older Irori held it, by a rule that's gone now",
+        hold::HOP_LIMIT => "these agents kept messaging each other without stopping",
+        hold::UNOWNED => "no agent is working in that repo to take it yet",
+        hold::PAUSED => "you paused wakes",
         hold::MEMBER_WAKE => "another person asked to wake your agent, and your receive setting for that board asks you first",
         hold::CROSS_PERSON => "it comes from another person on a shared board, and your receive setting for that board asks you first",
         hold::MEMBER_LEASE => "another person asks your agent to give up a lease",
         hold::MEMBER_REMOVED => "it comes from a person who is no longer on that board",
         hold::EDITING => "you are editing it",
-        other => other,
+        _ => "Irori held it",
     }
     .to_string()
+}
+
+/// A repo key as a person reads it, with `root` this device's checkout of
+/// it if any (card #488): a local repo (root:<sha>) by its checkout
+/// folder's name ("ww-multiplayer"), else as [`repo_short`].
+pub fn repo_short_name(key: &str, root: Option<&str>) -> String {
+    let folder = root
+        .filter(|_| key.starts_with("root:"))
+        .map(|r| r.trim_end_matches(['/', '\\']))
+        .and_then(|r| r.rsplit(['/', '\\']).next())
+        .filter(|f| !f.is_empty());
+    match folder {
+        Some(f) => f.to_string(),
+        None => repo_short(key),
+    }
+}
+
+/// A repo key in a notification (card #488): its last part ("irori" for
+/// remote:github.com/o/irori), or "local repo 5a3c1e0" for a root-commit
+/// key, never the whole key. The window names a local repo by its folder.
+pub fn repo_short(key: &str) -> String {
+    if let Some(sha) = key.strip_prefix("root:") {
+        return format!("local repo {}", sha.get(..7).unwrap_or(sha));
+    }
+    let k = key.trim_end_matches('/');
+    let k = k.strip_suffix(".git").unwrap_or(k);
+    match k.rfind(['/', ':', '\\']) {
+        Some(i) if i < k.len() - 1 => k[i + 1..].to_string(),
+        _ => k.to_string(),
+    }
 }
 
 /// Text on one line, cut to what two card lines hold (160 runes).
@@ -259,6 +293,7 @@ impl Watcher {
             user: user.into(),
             is_owner,
             name_fn: name,
+            repo_fn: None,
             held: HashMap::new(),
             groups: BTreeMap::new(),
             dirty: BTreeMap::new(),
@@ -270,6 +305,12 @@ impl Watcher {
             starting: None,
             waiting: HashSet::new(),
         }
+    }
+
+    /// Names repos by their checkout folder here (card #488).
+    pub fn with_repo_name(mut self, f: Option<NameFn>) -> Watcher {
+        self.repo_fn = f;
+        self
     }
 
     /// Remembers across restarts which message cards the person had.
@@ -555,9 +596,21 @@ impl Watcher {
         self.flush(sink);
     }
 
+    /// A repo by its short name: its checkout folder's here, when the
+    /// window gave a way to find it, else [`repo_short`] (card #488).
+    fn repo_name(&self, key: &str) -> String {
+        if let Some(f) = &self.repo_fn {
+            let s = f(key);
+            if !s.trim().is_empty() {
+                return s.trim().into();
+            }
+        }
+        repo_short(key)
+    }
+
     fn held_to(&self, d: &Delivery) -> String {
         if d.to.is_empty() && !d.repo_key.is_empty() {
-            return format!("repo {}", ledger::repo_name(&d.repo_key));
+            return self.repo_name(&d.repo_key);
         }
         if d.to != self.user {
             return self.name(&d.to);
@@ -615,6 +668,28 @@ impl Watcher {
             ids: ids.clone(),
             what,
         };
+        // Card #488: the person's own message no agent in its repo can
+        // take yet. Release has nobody to deliver to (it only fails); the
+        // Held list's Start an agent is what helps.
+        let open_held = CardAct::Open(Target {
+            tab: TAB_HELD.into(),
+            ref_: key.into(),
+        });
+        let first = if self.owner(key)
+            && ids.iter().all(|id| {
+                let d = &g.dels[id];
+                d.hold == hold::UNOWNED && d.to.is_empty() && !d.repo_key.is_empty()
+            }) {
+            Action {
+                label: format!("Start an agent in {}", self.repo_name(&last.repo_key)),
+                run: Some(open_held.clone()),
+            }
+        } else {
+            Action {
+                label: release.into(),
+                run: Some(act("release")),
+            }
+        };
         Note {
             id: held_id(key),
             title,
@@ -622,10 +697,7 @@ impl Watcher {
             level,
             sticky: true,
             actions: vec![
-                Action {
-                    label: release.into(),
-                    run: Some(act("release")),
-                },
+                first,
                 Action {
                     label: dismiss.into(),
                     run: Some(act("dismiss")),

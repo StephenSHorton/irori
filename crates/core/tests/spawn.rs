@@ -45,7 +45,7 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
         end: Arc::new(move |sess: &str| {
             b.ended.lock().unwrap().push(sess.to_string());
             let _ = std::fs::remove_file(s2.join("900003.json"));
-            Ok(())
+            Ok(String::new())
         }),
         trusted: Arc::new(|_| true),
         list: None,
@@ -121,6 +121,18 @@ fn a_card_gets_its_own_agent_which_ends_at_its_done_check() {
     let reqs = fake.started.lock().unwrap().clone();
     assert_eq!(reqs.len(), 1, "one spawn: {reqs:?}");
     let req = &reqs[0];
+    // A word name like a terminal session's (card #472), not card-N-G,
+    // and none a live agent here has (alpha and beta are taken).
+    assert!(
+        coord::names::WORDS.contains(&req.name.as_str()),
+        "{:?}",
+        req.name
+    );
+    assert!(!["alpha", "beta"].contains(&req.name.as_str()));
+    assert_eq!(
+        co.get_task(&t.id).unwrap().spawn_request().unwrap().name,
+        req.name
+    );
     assert_eq!(req.permission_mode, "bypassPermissions");
     // No model picked: Sonnet at medium effort (#448), on the request row
     // too.

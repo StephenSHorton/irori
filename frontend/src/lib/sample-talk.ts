@@ -42,6 +42,8 @@ type Seed = {
   heldFor?: HoldReason
   decidedAgoSec?: number
   ref?: string
+  // hop: how far down a chain of agent messages it is (a hop_limit hold).
+  hop?: number
 }
 
 const sender = (key: string, name: string, kind = "claude") =>
@@ -102,6 +104,25 @@ const seeds: Seed[] = [
     hold: HoldReason.HoldPaused,
     agoSec: 60 * 31,
     text: "Sample text. Ping while wakes were paused.",
+  },
+  // Card #488: a back-and-forth that got nowhere, and an older Irori's
+  // retired hold.
+  {
+    from: sender(otter, "sample-otter"),
+    to: heron,
+    state: State.Held,
+    hold: HoldReason.HoldHopLimit,
+    hop: 8,
+    agoSec: 60 * 3,
+    text: "Sample text. Still seeing the made-up flake on my side; can you rerun it once more?",
+  },
+  {
+    from: sender(heron, "sample-heron"),
+    to: badger,
+    state: State.Held,
+    hold: HoldReason.HoldBypassReceiver,
+    agoSec: 60 * 60 * 5,
+    text: "Sample text. The placeholder migration is ready for a look.",
   },
   {
     from: sender(grok, "sample-grok", "grok"),
@@ -166,7 +187,7 @@ export function sampleTalk(now: Date): SampleTalk {
           : { kind: AddressKind.ToAgent, value: s.to },
         text: s.text,
         ref: s.ref,
-        hop: 0,
+        hop: s.hop ?? 0,
         trust: s.from.kind === "user" ? Trust.UserTrust : Trust.Untrusted,
         sentAt: at(s.agoSec),
       }),

@@ -7,26 +7,32 @@ describe("spawnLine (card #448)", () => {
     expect(spawnLine({})).toBeNull()
   })
   test("starting wins over the rest", () => {
-    expect(spawnLine({ starting: "This PC", atCap: "This PC" })?.text).toBe(
-      "starting an agent on this PC",
+    // Card #489: this device by its own name.
+    expect(
+      spawnLine({
+        starting: "Macbook Pro (this one)",
+        atCap: "Macbook Pro (this one)",
+      })?.text
+    ).toBe("starting an agent on Macbook Pro (this one)")
+    expect(spawnLine({ starting: "MacBook" })?.text).toBe(
+      "starting an agent on MacBook"
     )
-    expect(spawnLine({ starting: "MacBook" })?.text).toBe("starting an agent on MacBook")
   })
   test("can't start: trust is named plainly, other reasons as given", () => {
     expect(spawnLine({ cantStart: "not trusted: /x on pc" })).toEqual({
       text: "can't start: its repo isn't trusted here",
       tone: "warn",
     })
-    expect(spawnLine({ cantStart: "couldn't start: claude not found" })?.text).toBe(
-      "can't start: claude not found",
-    )
-    expect(spawnLine({ cantStart: "no copy of irori on Desktop Computer" })?.text).toBe(
-      "can't start: no copy of irori on Desktop Computer",
-    )
+    expect(
+      spawnLine({ cantStart: "couldn't start: claude not found" })?.text
+    ).toBe("can't start: claude not found")
+    expect(
+      spawnLine({ cantStart: "no copy of irori on Desktop Computer" })?.text
+    ).toBe("can't start: no copy of irori on Desktop Computer")
   })
   test("at its cap", () => {
-    expect(spawnLine({ atCap: "This PC" })).toEqual({
-      text: "waiting: this PC is at its cap",
+    expect(spawnLine({ atCap: "Macbook Pro (this one)" })).toEqual({
+      text: "waiting: Macbook Pro (this one) is at its cap",
       tone: "quiet",
     })
   })

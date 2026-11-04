@@ -314,7 +314,7 @@ impl Fold {
             return Ok(None);
         }
         let card = a.step.is_empty() && a.subtask.is_empty();
-        if card && !super::offers::needs_agent(t) {
+        if card && !super::offers::needs_agent(t) && !self.ask_needs_agent(t) {
             return Ok(None);
         }
         let generation = mine.map(|s| s.generation).unwrap_or(0) + 1;
@@ -437,6 +437,30 @@ impl Fold {
         )?;
         if s.step.is_empty() && s.subtask.is_empty() {
             let t = &self.tasks[id];
+            // An ask (card #470): its take lock hands it over, not an
+            // assignment (ask_gate holds that back on an open ask). Taken,
+            // not handed: a fresh agent's first turn may end before it
+            // replies, and only its going away moves the ask on.
+            if let Some(a) = t.open_ask() {
+                if a.taker.is_empty() && a.owner == self.dev {
+                    let mut heard = a.heard.clone();
+                    if !heard.iter().any(|h| h == key) {
+                        heard.push(key.to_string());
+                    }
+                    self.write_take(
+                        id,
+                        TakeStateRow {
+                            taker: key.into(),
+                            reason: super::asks::TAKE_TAKEN.into(),
+                            told: heard.len() as i64,
+                            heard,
+                            since: now,
+                            ..TakeStateRow::default()
+                        },
+                    )?;
+                }
+                return Ok(true);
+            }
             if !contains(&t.holders, key) {
                 self.write_as(
                     SWEEPER,
@@ -459,6 +483,30 @@ impl Fold {
         self.spawning.as_ref().is_some_and(|f| f())
     }
 
+    /// Whether ask t waits for the person before Irori starts another
+    /// agent for it (card #470): Irori ended the last one it started (it
+    /// went quiet, or the app restarted under it), and the person hasn't
+    /// written on it or asked again since. Without this an ask nobody
+    /// answers would get a fresh agent every idle limit.
+    pub(crate) fn ask_resting(&self, t: &Task) -> bool {
+        let Some(a) = t.open_ask() else {
+            return false;
+        };
+        let Some(s) = t.spawn_request() else {
+            return false;
+        };
+        if s.key.is_empty() || !self.ended_by_irori.contains(&s.key) {
+            return false;
+        }
+        if a.reason == super::asks::TAKE_REOPENED {
+            return false;
+        }
+        !self
+            .comments
+            .values()
+            .any(|c| c.task_id == t.id && self.is_person(&c.by) && !gotime::before(&c.at, &s.at))
+    }
+
     /// The cards this device hands out that need an agent and have none
     /// starting, oldest first; none while the board doesn't spawn.
     pub(crate) fn cards_to_spawn(&self) -> Vec<Task> {
@@ -469,8 +517,11 @@ impl Fold {
         let mut v: Vec<Task> = self
             .tasks
             .values()
-            .filter(|t| super::offers::needs_agent(t) && self.hands_out(t))
+            .filter(|t| {
+                (super::offers::needs_agent(t) && self.hands_out(t)) || self.ask_needs_agent(t)
+            })
             .filter(|t| t.spawn_crashes < MAX_SPAWN_CRASHES)
+            .filter(|t| !self.ask_resting(t))
             .filter(|t| !self.waits_for_lead(t))
             .filter(|t| {
                 t.spawn_request()

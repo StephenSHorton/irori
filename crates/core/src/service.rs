@@ -393,6 +393,9 @@ impl tools::Backend for ToolsView {
         }
         out
     }
+    fn device_labels(&self) -> std::collections::BTreeMap<String, String> {
+        self.0.device_labels()
+    }
     fn avatar(&self, name: &str) -> String {
         self.0.faces.get(name)
     }
@@ -510,6 +513,7 @@ fn presence_card(c: AgentCard) -> presence::AgentCard {
         device_state: c.device_state,
         waiting_for: c.waiting_for,
         device_seen: c.device_seen,
+        status_since: c.status_since,
     }
 }
 
@@ -544,6 +548,7 @@ fn roster_card(c: presence::AgentCard) -> AgentCard {
         device_state: c.device_state,
         waiting_for: c.waiting_for,
         device_seen: c.device_seen,
+        status_since: c.status_since,
     }
 }
 
@@ -1350,6 +1355,16 @@ impl Core {
         });
         let _ = svc_cell.set(Arc::downgrade(&s));
         let _ = services_cell.set(Arc::downgrade(&s));
+        // A new name never takes a word another member's live agent on a
+        // shared board has (card #472).
+        {
+            let w = Arc::downgrade(&s);
+            s.names.set_others(move || {
+                w.upgrade()
+                    .map(|s| s.board_others().into_iter().map(|a| a.card).collect())
+                    .unwrap_or_default()
+            });
+        }
         // A space's channels go in its log (card #392).
         s.talk
             .set_spaces(Arc::new(spaces::SpaceTalk(Arc::downgrade(&s))));
@@ -1435,6 +1450,13 @@ impl Core {
                             .find(|a| a.key == key)
                             .map(|a| a.name)
                             .unwrap_or_default()
+                    })
+                }),
+                repo_name: Some({
+                    let s = s.clone();
+                    Arc::new(move |key: &str| {
+                        let roots = s.capture.repo_roots(key);
+                        inbox::watch::repo_short_name(key, roots.first().map(String::as_str))
                     })
                 }),
                 room: Some(Arc::new(WatchRoom(s.clone()))),
@@ -2281,6 +2303,13 @@ impl Core {
         self.s.roster.agents()
     }
 
+    /// The word a new agent started from `seed` would get now (card #472):
+    /// the name pick a spawn makes, for tests.
+    #[doc(hidden)]
+    pub fn pick_agent_name(&self, seed: &str) -> String {
+        self.s.names.pick_new(seed, &|_| false)
+    }
+
     /// An agent key's name: its card's in the mesh roster, else the last
     /// name it went by (gone agents, Grok members after a restart; card
     /// #98), or `""`.
@@ -2404,6 +2433,43 @@ impl Core {
     /// comment) in its brief: "Start an agent with this" (§4). App only.
     pub fn start_agent(&self, id: &str, note: &str) -> Result<(), String> {
         self.s.start_agent(id, note)
+    }
+
+    /// "Hand to an agent" (card #485): the person moves a card whose items
+    /// wait on gone agents back on the Board, and Irori starts an agent for
+    /// it (or hands it to the next free one). Says which. App only.
+    pub fn hand_on(&self, id: &str) -> Result<String, String> {
+        let person = format!("user:{}", self.s.device.id);
+        let (t, _) = self
+            .s
+            .coord
+            .hand_on(&person, id)
+            .map_err(|e| e.to_string())?;
+        self.s.start_agent(id, "")?;
+        // The device that made the card runs its hand-out (card #485: the
+        // PC's cards go out from the PC).
+        if !self.s.coord.hands_out_here(id) {
+            let dev = irori_identity::owner::device_of(&t.created_by).to_string();
+            let mut name = self.device_label(&dev);
+            if name.is_empty() {
+                name = "the device that made it".into();
+            }
+            return Ok(format!(
+                "{} is back on the Board: {name} starts its agent or hands it to a free one.",
+                t.short_ref()
+            ));
+        }
+        Ok(if self.s.coord.spawning() {
+            format!(
+                "{} is back on the Board: Irori starts an agent for it.",
+                t.short_ref()
+            )
+        } else {
+            format!(
+                "{} is back on the Board: it goes to the next free agent.",
+                t.short_ref()
+            )
+        })
     }
 
     /// The person's words for card `id`'s next spawned agent (a "Not
@@ -2949,6 +3015,29 @@ fn revive_for_ask(rv: &Mutex<Option<ReviveFn>>, me: &str, target: &str) -> Resul
     match target.split_once('/') {
         Some((dev, session)) if dev == me => f(session).map(|_| ()),
         _ => Err(format!("{target} is not a session on this device")),
+    }
+}
+
+impl Services {
+    /// See [`Core::device_labels`].
+    pub(crate) fn device_labels(&self) -> std::collections::BTreeMap<String, String> {
+        let mut out: std::collections::BTreeMap<String, String> = self
+            .chain
+            .devices()
+            .into_iter()
+            .map(|d| (d.cert.device_id, d.cert.label))
+            .collect();
+        let me = &self.device;
+        let mine = out.entry(me.id.clone()).or_default();
+        if mine.is_empty() {
+            *mine = me.name.clone();
+        }
+        for (id, name) in self.device_names.chosen() {
+            if let Some(l) = out.get_mut(&id) {
+                *l = name;
+            }
+        }
+        out
     }
 }
 

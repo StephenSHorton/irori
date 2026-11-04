@@ -138,6 +138,10 @@ export const InboxService = {
   MarkRead: (deliveryId: string) => done(commands.inboxMarkRead(deliveryId)),
   Release: (deliveryId: string) => done(commands.inboxRelease(deliveryId)),
   Dismiss: (deliveryId: string) => done(commands.inboxDismiss(deliveryId)),
+  // Card #488: "Start an agent in <repo>" on your message nobody there can
+  // take yet; the answer is the card it became ("#12").
+  StartAgent: (deliveryId: string) => call(commands.inboxStartAgent(deliveryId)),
+  RepoNames: () => call(commands.inboxRepoNames()),
   AllowAndRelease: (deliveryId: string) => done(commands.inboxAllowAndRelease(deliveryId)),
   Policy: () => call(commands.inboxPolicy()),
   SetPolicy: (p: B.PolicyInput) => done(commands.inboxSetPolicy(p)),
@@ -203,6 +207,7 @@ export const BoardService = {
   AskAgain: (id: string) => done(commands.boardAskAgain(id)),
   // "Start an agent with this" (card #452).
   StartAgent: (id: string, note: string) => done(commands.boardStartAgent(id, note)),
+  HandOn: (id: string) => call(commands.boardHandOn(id)),
   AskRepos: () => call(commands.boardAskRepos()),
   CloseAsk: (id: string, note: string) => call(commands.boardCloseAsk(id, note)),
   Close: (id: string, state: string, note: string) => call(commands.boardClose(id, state, note)),

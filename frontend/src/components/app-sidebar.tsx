@@ -36,6 +36,7 @@ import { SettingsMenu } from "@/components/settings/settings-menu"
 import { SpaceSwitcher } from "@/components/space-switcher"
 import { Badge } from "@/components/ui/badge"
 import { agentCounts } from "@/lib/agent-counts"
+import { agentStatus } from "@/lib/agent-status"
 import { rosterGroups } from "@/lib/roster-groups"
 import { AgentStrip, OnCards } from "@/components/cards/agent-strip"
 import { CheckSlots } from "@/components/cards/check-slots"
@@ -233,9 +234,20 @@ export function AppSidebar({
   // agent is never handed a second card.
   const groups = rosterGroups(agents, cards)
   const n = agentCounts(groups.yours)
-  const onCardLine = (cardId: string, a: { key: string; status: string }) => {
-    const w = cards.find((c) => c.id === cardId)?.working.find((r) => r.key === a.key)
-    const doing = a.status === "busy" ? "working" : a.status
+  const onCardLine = (
+    cardId: string,
+    a: {
+      key: string
+      status: string
+      deviceState?: string | null
+      statusSince?: string
+    }
+  ) => {
+    const w = cards
+      .find((c) => c.id === cardId)
+      ?.working.find((r) => r.key === a.key)
+    // The same words as everywhere else (card #489).
+    const doing = agentStatus(a, a.statusSince).text
     return [w?.where, doing].filter(Boolean).join(" · ")
   }
   const pinnedBoards = boardsInSpace(boards, space)
@@ -255,302 +267,324 @@ export function AppSidebar({
   // Shut, the drawer stays mounted off-screen: Settings lives in it.
   return (
     <>
-    {narrow && drawer && (
-      <div
-        aria-hidden
-        className="fixed inset-0 z-40 bg-black/70"
-        onClick={() => onDrawer?.(false)}
-      />
-    )}
-    <aside
-      aria-label="Navigation"
-      className={cn(
-        "relative flex h-svh shrink-0 flex-col border-r border-border",
-        !dragging && "transition-[width]",
-        narrow
-          ? cn(
-              // Opaque (the theme's --sidebar is translucent glass, which let the page
-              // show through on a phone) and clear of Android's status and
-              // gesture bars (edge to edge, card #227).
-              "fixed inset-y-0 left-0 z-50 w-[min(18rem,85vw)] bg-background pt-[var(--safe-top)] pb-[var(--safe-bottom)] shadow-xl transition-transform",
-              !drawer && "invisible -translate-x-full"
-            )
-          : "bg-sidebar/60"
-      )}
-      style={narrow ? undefined : { width: folded ? foldedWidth : width }}
-    >
-      {!narrow && (
+      {narrow && drawer && (
         <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize the sidebar"
-          aria-valuemin={minWidth}
-          aria-valuemax={maxWidth}
-          aria-valuenow={folded ? foldedWidth : width}
-          tabIndex={0}
-          title="Drag to resize; past the narrow end it folds. Double-click: default width"
-          onPointerDown={startDrag}
-          onDoubleClick={resetWidth}
-          onKeyDown={keyEdge}
-          className={cn(
-            // Straddles the border: 8px to grab, a line when it is live.
-            "group absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize touch-none outline-none",
-            "after:absolute after:inset-y-0 after:left-1/2 after:w-0.5 after:-translate-x-1/2 after:bg-primary after:opacity-0 after:transition-opacity",
-            "hover:after:opacity-60 focus-visible:after:opacity-100",
-            dragging && "after:opacity-100"
-          )}
+          aria-hidden
+          className="fixed inset-0 z-40 bg-black/70"
+          onClick={() => onDrawer?.(false)}
         />
       )}
-      <div
+      <aside
+        aria-label="Navigation"
         className={cn(
-          "flex h-14 shrink-0 items-center gap-2",
-          folded ? "justify-center px-2" : "px-4"
+          "relative flex h-svh shrink-0 flex-col border-r border-border",
+          !dragging && "transition-[width]",
+          narrow
+            ? cn(
+                // Opaque (the theme's --sidebar is translucent glass, which let the page
+                // show through on a phone) and clear of Android's status and
+                // gesture bars (edge to edge, card #227).
+                "fixed inset-y-0 left-0 z-50 w-[min(18rem,85vw)] bg-background pt-[var(--safe-top)] pb-[var(--safe-bottom)] shadow-xl transition-transform",
+                !drawer && "invisible -translate-x-full"
+              )
+            : "bg-sidebar/60"
         )}
+        style={narrow ? undefined : { width: folded ? foldedWidth : width }}
       >
-        {!folded && (
-          <span className="flex items-baseline gap-2">
-            <span className="text-lg font-semibold tracking-tight text-ink">
-              Irori
-            </span>
-            <span
-              lang="ja"
-              className="text-sm font-normal text-muted-foreground"
-            >
-              囲炉裏
-            </span>
-          </span>
-        )}
-        {narrow ? (
-        <button
-          type="button"
-          onClick={() => onDrawer?.(false)}
-          aria-label="Close the menu"
-          className="ml-auto flex size-11 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-ink"
-        >
-          <XIcon className="size-5" aria-hidden />
-        </button>
-        ) : (
-        <button
-          type="button"
-          onClick={() => fold(!folded)}
-          aria-label={folded ? "Open the sidebar" : "Fold the sidebar"}
-          aria-expanded={!folded}
-          title={folded ? "Open the sidebar" : "Fold the sidebar to icons"}
-          className={cn(
-            "rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-ink",
-            !folded && "ml-auto"
-          )}
-        >
-          <PanelLeftIcon className="size-4" aria-hidden />
-        </button>
-        )}
-      </div>
-
-      <div className="shrink-0 px-2 pb-2">
-        <SpaceSwitcher boards={boards} space={space} onSpace={onSpace} folded={folded} />
-      </div>
-
-      <nav
-        aria-label="Sections"
-        className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-x-hidden overflow-y-auto px-2 pb-3"
-      >
-        <NavItem
-          icon={HomeIcon}
-          label="Home"
-          folded={folded}
-          current={here({ kind: "home" })}
-          onClick={() => go({ kind: "home" })}
-        />
-        <NavItem
-          icon={MessagesSquareIcon}
-          label="Talk"
-          folded={folded}
-          current={here({ kind: "talk", id: "" })}
-          count={talk}
-          countTone="default"
-          countTitle="Threads an agent answered and DMs you haven't read"
-          onClick={() => go({ kind: "talk", id: "" })}
-        />
-        {desks.on > 0 && (
-          <NavItem
-            icon={GitMergeIcon}
-            label="Merge desks"
-            folded={folded}
-            current={here({ kind: "desk", repo: "" })}
-            count={desks.needYou}
-            countTone="destructive"
-            countTitle="Outside PRs waiting on your OK"
-            onClick={() => go({ kind: "desk", repo: "" })}
+        {!narrow && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize the sidebar"
+            aria-valuemin={minWidth}
+            aria-valuemax={maxWidth}
+            aria-valuenow={folded ? foldedWidth : width}
+            tabIndex={0}
+            title="Drag to resize; past the narrow end it folds. Double-click: default width"
+            onPointerDown={startDrag}
+            onDoubleClick={resetWidth}
+            onKeyDown={keyEdge}
+            className={cn(
+              // Straddles the border: 8px to grab, a line when it is live.
+              "group absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize touch-none outline-none",
+              "after:absolute after:inset-y-0 after:left-1/2 after:w-0.5 after:-translate-x-1/2 after:bg-primary after:opacity-0 after:transition-opacity",
+              "hover:after:opacity-60 focus-visible:after:opacity-100",
+              dragging && "after:opacity-100"
+            )}
           />
         )}
-        <NavItem
-          icon={NotebookPenIcon}
-          label="Notes"
-          folded={folded}
-          current={!openCard && section?.kind === "notes"}
-          count={notesWaiting}
-          countTone="warning"
-          countTitle="Notes agents proposed, waiting on your look"
-          onClick={() => go({ kind: "notes", tab: "" })}
-        />
-        <NavItem
-          icon={LayoutGridIcon}
-          label="Boards"
-          folded={folded}
-          current={here({ kind: "boards" })}
-          count={boardsNeedYou}
-          countTone="destructive"
-          countTitle="Cards on your boards waiting on you"
-          onClick={() => go({ kind: "boards" })}
-        />
-        <NavItem
-          icon={BellIcon}
-          label="Notifications"
-          folded={folded}
-          current={here({ kind: "notifications" })}
-          count={unread}
-          countTone="info"
-          countTitle="Notifications you haven't read"
-          onClick={() => go({ kind: "notifications" })}
-        />
-        <NavItem
-          icon={InboxIcon}
-          label="Held"
-          folded={folded}
-          count={held}
-          countTone="warning"
-          countTitle="Messages Irori's wake policy held"
-          onClick={onHeld}
-        />
-
-        {pinnedBoards.length > 0 && (
-          <Group label="Pinned boards" folded={folded}>
-            {pinnedBoards.map((b) => (
-              <PinRow
-                key={b.boardId}
-                mark={plainLine(b.tag).slice(0, 2)}
-                label={plainLine(b.name) || "(unnamed)"}
-                title={`${plainLine(b.name)} (${plainLine(b.tag)}#)`}
-                folded={folded}
-                current={here({ kind: "board", id: b.boardId })}
-                onClick={() => go({ kind: "board", id: b.boardId })}
-              />
-            ))}
-          </Group>
-        )}
-        {pinnedCards.length > 0 && (
-          <Group label="Pinned cards" folded={folded}>
-            {pinnedCards.map((c) => (
-              <PinRow
-                key={c.id}
-                mark={`${c.tag ? `${plainLine(c.tag)}` : ""}#${plainLine(c.short)}`}
-                label={plainLine(c.title)}
-                title={plainLine(c.title)}
-                folded={folded}
-                current={openCard === c.id}
-                onClick={() => onOpenCard(c.id)}
-              />
-            ))}
-          </Group>
-        )}
-      </nav>
-
-      {!folded && (
-        <section aria-label="Agents" className="shrink-0 px-2 pb-3">
-          <h2 className="px-2.5 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-            Agents
-          </h2>
-          <div
-            className="flex flex-wrap gap-1 px-2.5"
-            title={[
-              groups.spawned > 0 &&
-                `${groups.spawned} started by Irori for a card, each ends when its card is Done`,
-              groups.starting > 0 && `${groups.starting} cards starting an agent`,
-              groups.atCap > 0 && `${groups.atCap} cards waiting for a device to have a slot`,
-              `${n.total} of yours`,
-              `${n.working} working${n.running ? ` (${n.running} waiting on a command they started)` : ""}`,
-              `${n.free} free: idle with Offer it cards on, so a thread or card can go to them`,
-              n.ownWork && `${n.ownWork} idle, working only on what you give them`,
-              n.silent && `${n.silent} idle but not answering`,
-              n.offline && `${n.offline} on an offline device`,
-            ]
-              .filter(Boolean)
-              .join("\n")}
-          >
-            {groups.spawned > 0 && (
-              <Badge variant="info" className="tabular-nums normal-case">
-                {groups.spawned} on cards
-              </Badge>
-            )}
-            {groups.starting > 0 && (
-              <Badge variant="slate" className="tabular-nums normal-case">
-                {groups.starting} starting
-              </Badge>
-            )}
-            {groups.atCap > 0 && (
-              <Badge variant="warning" className="tabular-nums normal-case">
-                {groups.atCap} waiting
-              </Badge>
-            )}
-            {n.working > 0 && (
-              <Badge variant="info" className="tabular-nums normal-case">
-                {n.working} working
-              </Badge>
-            )}
-            <Badge variant="slate" className="tabular-nums normal-case">
-              {n.free} free
-            </Badge>
-            {n.silent > 0 && (
-              <Badge variant="warning" className="tabular-nums normal-case">
-                {n.silent} not answering
-              </Badge>
-            )}
-          </div>
-          {groups.onCards.length > 0 ? (
-            <>
-              <RosterLabel>Yours</RosterLabel>
-              <AgentStrip agents={groups.yours} />
-              <RosterLabel>On cards</RosterLabel>
-              <OnCards groups={groups.onCards} line={onCardLine} onOpen={onOpenCard} />
-            </>
-          ) : (
-            <AgentStrip agents={agents} />
-          )}
-          <CheckSlots />
-        </section>
-      )}
-
-      <div
-        className={cn(
-          "flex shrink-0 items-center gap-2 border-t border-border py-3",
-          folded ? "flex-col px-2" : "px-4"
-        )}
-      >
-        <button
-          type="button"
-          onClick={() => go({ kind: "profile" })}
-          aria-current={here({ kind: "profile" }) ? "page" : undefined}
-          aria-label={folded ? "Your profile" : undefined}
-          title="Your profile: name, colour and picture, and your spaces"
+        <div
           className={cn(
-            "flex min-w-0 items-center gap-2 rounded-md text-left text-xs hover:bg-secondary",
-            folded ? "justify-center p-1" : "-ml-1.5 flex-1 px-1.5 py-1",
-            here({ kind: "profile" }) && "bg-secondary"
+            "flex h-14 shrink-0 items-center gap-2",
+            folded ? "justify-center px-2" : "px-4"
           )}
         >
-          <Face name={me.name} color={me.color} avatar={me.avatar} size="md" />
           {!folded && (
-            <span className="grid min-w-0 flex-1">
-              <span className="truncate font-medium text-ink">{me.name || "You"}</span>
-              <span className="truncate text-muted-foreground" title={device?.id}>
-                {device?.name || "this device"}
+            <span className="flex items-baseline gap-2">
+              <span className="text-lg font-semibold tracking-tight text-ink">
+                Irori
+              </span>
+              <span
+                lang="ja"
+                className="text-sm font-normal text-muted-foreground"
+              >
+                囲炉裏
               </span>
             </span>
           )}
-        </button>
-        <SettingsMenu version={version} />
-      </div>
-    </aside>
+          {narrow ? (
+            <button
+              type="button"
+              onClick={() => onDrawer?.(false)}
+              aria-label="Close the menu"
+              className="ml-auto flex size-11 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-ink"
+            >
+              <XIcon className="size-5" aria-hidden />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => fold(!folded)}
+              aria-label={folded ? "Open the sidebar" : "Fold the sidebar"}
+              aria-expanded={!folded}
+              title={folded ? "Open the sidebar" : "Fold the sidebar to icons"}
+              className={cn(
+                "rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-ink",
+                !folded && "ml-auto"
+              )}
+            >
+              <PanelLeftIcon className="size-4" aria-hidden />
+            </button>
+          )}
+        </div>
+
+        <div className="shrink-0 px-2 pb-2">
+          <SpaceSwitcher
+            boards={boards}
+            space={space}
+            onSpace={onSpace}
+            folded={folded}
+          />
+        </div>
+
+        <nav
+          aria-label="Sections"
+          className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-x-hidden overflow-y-auto px-2 pb-3"
+        >
+          <NavItem
+            icon={HomeIcon}
+            label="Home"
+            folded={folded}
+            current={here({ kind: "home" })}
+            onClick={() => go({ kind: "home" })}
+          />
+          <NavItem
+            icon={MessagesSquareIcon}
+            label="Talk"
+            folded={folded}
+            current={here({ kind: "talk", id: "" })}
+            count={talk}
+            countTone="default"
+            countTitle="Threads an agent answered and DMs you haven't read"
+            onClick={() => go({ kind: "talk", id: "" })}
+          />
+          {desks.on > 0 && (
+            <NavItem
+              icon={GitMergeIcon}
+              label="Merge desks"
+              folded={folded}
+              current={here({ kind: "desk", repo: "" })}
+              count={desks.needYou}
+              countTone="destructive"
+              countTitle="Outside PRs waiting on your OK"
+              onClick={() => go({ kind: "desk", repo: "" })}
+            />
+          )}
+          <NavItem
+            icon={NotebookPenIcon}
+            label="Notes"
+            folded={folded}
+            current={!openCard && section?.kind === "notes"}
+            count={notesWaiting}
+            countTone="warning"
+            countTitle="Notes agents proposed, waiting on your look"
+            onClick={() => go({ kind: "notes", tab: "" })}
+          />
+          <NavItem
+            icon={LayoutGridIcon}
+            label="Boards"
+            folded={folded}
+            current={here({ kind: "boards" })}
+            count={boardsNeedYou}
+            countTone="destructive"
+            countTitle="Cards on your boards waiting on you"
+            onClick={() => go({ kind: "boards" })}
+          />
+          <NavItem
+            icon={BellIcon}
+            label="Notifications"
+            folded={folded}
+            current={here({ kind: "notifications" })}
+            count={unread}
+            countTone="info"
+            countTitle="Notifications you haven't read"
+            onClick={() => go({ kind: "notifications" })}
+          />
+          <NavItem
+            icon={InboxIcon}
+            label="Held"
+            folded={folded}
+            count={held}
+            countTone="warning"
+            countTitle="Messages Irori is holding back"
+            onClick={onHeld}
+          />
+
+          {pinnedBoards.length > 0 && (
+            <Group label="Pinned boards" folded={folded}>
+              {pinnedBoards.map((b) => (
+                <PinRow
+                  key={b.boardId}
+                  mark={plainLine(b.tag).slice(0, 2)}
+                  label={plainLine(b.name) || "(unnamed)"}
+                  title={`${plainLine(b.name)} (${plainLine(b.tag)}#)`}
+                  folded={folded}
+                  current={here({ kind: "board", id: b.boardId })}
+                  onClick={() => go({ kind: "board", id: b.boardId })}
+                />
+              ))}
+            </Group>
+          )}
+          {pinnedCards.length > 0 && (
+            <Group label="Pinned cards" folded={folded}>
+              {pinnedCards.map((c) => (
+                <PinRow
+                  key={c.id}
+                  mark={`${c.tag ? `${plainLine(c.tag)}` : ""}#${plainLine(c.short)}`}
+                  label={plainLine(c.title)}
+                  title={plainLine(c.title)}
+                  folded={folded}
+                  current={openCard === c.id}
+                  onClick={() => onOpenCard(c.id)}
+                />
+              ))}
+            </Group>
+          )}
+        </nav>
+
+        {!folded && (
+          <section aria-label="Agents" className="shrink-0 px-2 pb-3">
+            <h2 className="px-2.5 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+              Agents
+            </h2>
+            <div
+              className="flex flex-wrap gap-1 px-2.5"
+              title={[
+                groups.spawned > 0 &&
+                  `${groups.spawned} started by Irori for a card, each ends when its card is Done`,
+                groups.starting > 0 &&
+                  `${groups.starting} cards starting an agent`,
+                groups.atCap > 0 &&
+                  `${groups.atCap} cards waiting for a device to have a slot`,
+                `${n.total} of yours`,
+                `${n.working} working${n.running ? ` (${n.running} running a job)` : ""}`,
+                `${n.free} free: idle with Offer it cards on, so a thread or card can go to them`,
+                n.ownWork &&
+                  `${n.ownWork} idle, working only on what you give them`,
+                n.silent && `${n.silent} idle but not answering`,
+                n.offline && `${n.offline} on an offline device`,
+              ]
+                .filter(Boolean)
+                .join("\n")}
+            >
+              {groups.spawned > 0 && (
+                <Badge variant="info" className="normal-case tabular-nums">
+                  {groups.spawned} on cards
+                </Badge>
+              )}
+              {groups.starting > 0 && (
+                <Badge variant="slate" className="normal-case tabular-nums">
+                  {groups.starting} starting
+                </Badge>
+              )}
+              {groups.atCap > 0 && (
+                <Badge variant="warning" className="normal-case tabular-nums">
+                  {groups.atCap} waiting
+                </Badge>
+              )}
+              {n.working > 0 && (
+                <Badge variant="info" className="normal-case tabular-nums">
+                  {n.working} working
+                </Badge>
+              )}
+              <Badge variant="slate" className="normal-case tabular-nums">
+                {n.free} free
+              </Badge>
+              {n.silent > 0 && (
+                <Badge variant="warning" className="normal-case tabular-nums">
+                  {n.silent} not answering
+                </Badge>
+              )}
+            </div>
+            {groups.onCards.length > 0 ? (
+              <>
+                <RosterLabel>Yours</RosterLabel>
+                <AgentStrip agents={groups.yours} />
+                <RosterLabel>On cards</RosterLabel>
+                <OnCards
+                  groups={groups.onCards}
+                  line={onCardLine}
+                  onOpen={onOpenCard}
+                />
+              </>
+            ) : (
+              <AgentStrip agents={agents} />
+            )}
+            <CheckSlots />
+          </section>
+        )}
+
+        <div
+          className={cn(
+            "flex shrink-0 items-center gap-2 border-t border-border py-3",
+            folded ? "flex-col px-2" : "px-4"
+          )}
+        >
+          <button
+            type="button"
+            onClick={() => go({ kind: "profile" })}
+            aria-current={here({ kind: "profile" }) ? "page" : undefined}
+            aria-label={folded ? "Your profile" : undefined}
+            title="Your profile: name, colour and picture, and your spaces"
+            className={cn(
+              "flex min-w-0 items-center gap-2 rounded-md text-left text-xs hover:bg-secondary",
+              folded ? "justify-center p-1" : "-ml-1.5 flex-1 px-1.5 py-1",
+              here({ kind: "profile" }) && "bg-secondary"
+            )}
+          >
+            <Face
+              name={me.name}
+              color={me.color}
+              avatar={me.avatar}
+              size="md"
+            />
+            {!folded && (
+              <span className="grid min-w-0 flex-1">
+                <span className="truncate font-medium text-ink">
+                  {me.name || "You"}
+                </span>
+                <span
+                  className="truncate text-muted-foreground"
+                  title={device?.id}
+                >
+                  {device?.name || "this device"}
+                </span>
+              </span>
+            )}
+          </button>
+          <SettingsMenu version={version} />
+        </div>
+      </aside>
     </>
   )
 }
@@ -582,7 +616,7 @@ function NavItem({
       aria-label={folded ? `${label}${count ? ` (${count})` : ""}` : undefined}
       title={folded ? label : undefined}
       className={cn(
-        "relative flex h-9 items-center gap-3 pointer-coarse:h-11 rounded-md text-left text-sm text-ink-2 hover:bg-secondary hover:text-ink",
+        "relative flex h-9 items-center gap-3 rounded-md text-left text-sm text-ink-2 hover:bg-secondary hover:text-ink pointer-coarse:h-11",
         folded ? "justify-center px-0" : "px-2.5",
         current && "bg-secondary font-medium text-ink"
       )}
@@ -601,7 +635,7 @@ function NavItem({
                   ? "bg-primary"
                   : countTone === "info"
                     ? "bg-info"
-                  : "bg-warning"
+                    : "bg-warning"
             )}
           />
         ) : (
@@ -677,7 +711,7 @@ function PinRow({
       aria-current={current ? "page" : undefined}
       aria-label={folded ? title : undefined}
       className={cn(
-        "flex h-8 w-full min-w-0 items-center gap-2.5 rounded-md pointer-coarse:h-11 text-left text-sm text-ink-2 hover:bg-secondary hover:text-ink",
+        "flex h-8 w-full min-w-0 items-center gap-2.5 rounded-md text-left text-sm text-ink-2 hover:bg-secondary hover:text-ink pointer-coarse:h-11",
         folded ? "justify-center px-0" : "px-2.5",
         current && "bg-secondary font-medium text-ink"
       )}

@@ -47,9 +47,15 @@ pub struct AgentRef {
     /// The roster's status, "gone" without a live card, or "person".
     pub status: String,
     pub live: bool,
-    /// "This PC", or the other device's name.
+    /// This device's own name with " (this one)" (e.g. "Macbook Pro (this
+    /// one)"), or the other device's name (card #489).
     #[serde(rename = "where")]
     pub where_: String,
+    /// It is on this device, so what only works here (Attach, Logs, End)
+    /// shows; `where` is only for reading (card #489).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub here: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     #[specta(optional)]
     pub assigned: bool,
@@ -246,15 +252,28 @@ pub struct CardSummary {
     #[specta(optional)]
     pub main_red: String,
     /// Where the first wait's chain of cards ends at the person (card
-    /// #347): "your review of PR #96 (#334)" or "your answer on #12".
+    /// #347): "your answer on #12". A PR never waits on the person (card
+    /// #471): agents merge it, or another member's agents approve it.
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub wait_you: String,
-    /// An in-review card waiting on the person's review of a PR it links
-    /// (card #347): no agent was asked to review it.
+    /// The cards this one waits on each other with (card #481), itself
+    /// among them, in wait order: none of them can move until someone
+    /// drops a wait. Every card of the loop carries the same list, so
+    /// Home's Needs you shows it once.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[specta(optional)]
+    pub wait_loop: Vec<CardRef>,
+    /// The card this one's waits end at that nobody holds and nothing
+    /// will hand out (card #481).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
-    pub review_pr: Option<ReviewPr>,
+    pub wait_stuck: Option<CardRef>,
+    /// The open PR an in-review card waits on (card #471): the card shows
+    /// a small "waits on PR #N" chip with its link, never a Needs you row.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub wait_pr: Option<WaitPr>,
     pub working: Vec<AgentRef>,
     pub watching: Vec<AgentRef>,
     pub holder: CardHolder,
@@ -308,8 +327,9 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub cant_start: String,
-    /// The device an agent is starting on for this card ("This PC" or its
-    /// name), while Irori's spawn request waits for it (card #448).
+    /// The device an agent is starting on for this card ("<its own name>
+    /// (this one)" or the other device's name, card #489), while Irori's
+    /// spawn request waits for it (card #448).
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub starting: String,
@@ -345,13 +365,18 @@ pub struct CardSummary {
     pub owner: String,
 }
 
-/// A PR an in-review card waits on the person to review (card #347).
+/// The open PR an in-review card waits on (card #471).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct ReviewPr {
+pub struct WaitPr {
     pub repo: String,
     pub number: i64,
     pub url: String,
+    /// GitHub says the PR needs an approval before it merges: it waits on
+    /// another member's agents, never the person's or their own agents'.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub approval: bool,
 }
 
 /// Where a card's work is (card #137), as its holder's device last saw it.
@@ -377,6 +402,27 @@ pub struct CardLeftOff {
     pub by: AgentRef,
     #[specta(type = ts::Time)]
     pub at: GoTime,
+}
+
+/// An activity line as the person reads it (card #490): a revision's
+/// "revised blocker b2" (agents keep the id) says "revised it" under its
+/// blocker, or quotes the question it asked in the card's own thread.
+fn person_what(a: &Activity, under: bool) -> String {
+    if !a.revised {
+        return a.what.clone();
+    }
+    let head = format!("revised blocker {}", a.blocker_id);
+    let Some(rest) = a.what.strip_prefix(&head) else {
+        return a.what.clone();
+    };
+    let said = if under {
+        "revised it".to_string()
+    } else if a.blocker_gist.is_empty() {
+        "revised a blocker".to_string()
+    } else {
+        format!("revised “{}”", a.blocker_gist)
+    };
+    format!("{said}{rest}")
 }
 
 /// A card's spot on the Board's canvas, in canvas pixels (card #93).
@@ -486,7 +532,71 @@ pub struct CardBlocker {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub decider: Option<AgentRef>,
+    /// What a wait on other work waits on (card #481): a card, a lease, an
+    /// agent or something outside. It ends by itself or by whoever does
+    /// that work, so it is never the person's to answer and never counts
+    /// as a decision. None for a question for a person (one filed on
+    /// other work with options is still the person's, card #347).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub waits_on: Option<CardWaitOn>,
+    /// The agent this open item waits on, or that raised it and would hear
+    /// the answer, when that agent is gone and nobody holds the card (card
+    /// #485): drawn amber, "Waiting on kestrel (gone)", with "Hand to an
+    /// agent".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub gone_agent: Option<AgentRef>,
     pub thread: Vec<CardThreadItem>,
+    /// A done check's previous round (card #476): the check the person
+    /// sent back before this one, so this one shows their reason, the
+    /// agent's answer and the proof it replaces.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub previous: Option<CardRound>,
+}
+
+/// The done check the person sent back before this one (card #476).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CardRound {
+    /// The earlier check's id.
+    pub id: String,
+    /// This check's round: 2 for the first one after a Not done.
+    pub round: i64,
+    /// The proof the person sent back.
+    pub proof: String,
+    /// Their reason when no comment on the thread carries it (a card from
+    /// before #476, whose late Not done only resolved the check).
+    pub answer: String,
+    /// The earlier check's thread: their reason and the agent's answers.
+    pub thread: Vec<CardThreadItem>,
+    /// The new proof is the one they sent back, word for word.
+    pub same_proof: bool,
+}
+
+/// What a wait item waits on (card #481), as the card page links it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CardWaitOn {
+    #[specta(type = ts::BlockerKind)]
+    pub kind: String,
+    /// How the window names it: "#392" for a card ("a card" when this
+    /// device can't see it), the agent's name, the resource, or the
+    /// outside thing as raised.
+    pub label: String,
+    /// The card it waits on, by id, for a task wait.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub task_id: String,
+    /// That card's title, when this device can see it.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub title: String,
+    /// A wait on an agent that is gone (card #485).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub gone: bool,
 }
 
 /// One reviewer's review of a private card (#88).
@@ -560,6 +670,11 @@ pub struct CardThreadItem {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub blocker_id: String,
+    /// The question of that blocker, cut short (card #490): what the
+    /// person reads in place of its id.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub blocker_gist: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[specta(optional)]
     pub missing: Vec<String>,
@@ -764,6 +879,9 @@ pub(crate) struct People {
     unsent: std::collections::HashSet<String>,
     /// A comment's notices, each with whether its recipient read it.
     heard: HashMap<String, Vec<(Delivery, bool)>>,
+    /// Blocker answers' notices by card id (card #476): the person's answer
+    /// on a blocker (a Not done) is heard when its agent reads this.
+    answers_heard: HashMap<String, Vec<(Delivery, bool)>>,
     /// The shared boards' agent cards by board key (agent:<cardId>), so
     /// another member's agents are named and live on a card they hold
     /// rather than "gone" (card #146).
@@ -860,6 +978,18 @@ impl Window {
                 p.heard.entry(cid.to_string()).or_default().push((d, read));
             }
         }
+        for (d, read) in c.inbox().ref_notices(
+            "task:",
+            &[coord::NOTICE_ANSWERED, coord::NOTICE_MENTIONED],
+            HEARD_NOTICES,
+        ) {
+            if let Some(id) = d.message.ref_.strip_prefix("task:") {
+                p.answers_heard
+                    .entry(id.to_string())
+                    .or_default()
+                    .push((d, read));
+            }
+        }
         // The Chain's rule, never coord's lock: `around` in person_comment runs
         // under it (coord.is_person would lock again).
         let core = self.core.clone();
@@ -908,10 +1038,32 @@ impl Window {
 }
 
 impl People {
-    /// The device a key lives on: "This PC" for this one, else its label.
+    /// Whether `dev` is this device: empty, unknown here, or this one.
+    fn is_here(&self, dev: &str) -> bool {
+        dev.is_empty() || self.self_id.is_empty() || dev == self.self_id
+    }
+
+    /// This device as the window names it: its own name with " (this one)",
+    /// e.g. "Macbook Pro (this one)", without the hostname's ".local"; "This
+    /// device" with no name (card #489).
+    pub(crate) fn this_device(&self) -> String {
+        let n = self
+            .names
+            .get(&self.self_id)
+            .map(|n| n.trim())
+            .unwrap_or("");
+        let n = n.strip_suffix(".local").unwrap_or(n).trim();
+        if n.is_empty() {
+            return "This device".into();
+        }
+        format!("{n} (this one)")
+    }
+
+    /// The device a key lives on: "<its own name> (this one)" for this one
+    /// (card #489), else its label.
     pub(crate) fn where_(&self, dev: &str) -> String {
-        if dev.is_empty() || self.self_id.is_empty() || dev == self.self_id {
-            return "This PC".into();
+        if self.is_here(dev) {
+            return self.this_device();
         }
         match self.names.get(dev) {
             Some(n) if !n.is_empty() => n.clone(),
@@ -975,7 +1127,8 @@ impl People {
                 name: "Irori".into(),
                 status: "irori".into(),
                 live: true,
-                where_: "This PC".into(),
+                where_: self.this_device(),
+                here: true,
                 ..AgentRef::default()
             };
         }
@@ -994,6 +1147,7 @@ impl People {
                 status: "person".into(),
                 live: true,
                 where_: self.where_(dev),
+                here: self.is_here(dev),
                 device: self.chip(dev),
                 color: if self.paired {
                     self.colors.get(dev).cloned().unwrap_or_default()
@@ -1079,6 +1233,7 @@ impl People {
             return r;
         }
         r.where_ = self.where_(&dev);
+        r.here = self.is_here(&dev);
         r.device = self.chip(&dev);
         if self.paired {
             r.color = self.colors.get(&dev).cloned().unwrap_or_default();
@@ -1107,7 +1262,55 @@ fn waits_by_itself(kind: &str) -> bool {
             | coord::BLOCKED_ON_LEASE
             | coord::BLOCKED_ON_AGENT
             | coord::BLOCKED_ON_EXTERNAL
+            | coord::BLOCKED_ON_VERSION
     )
+}
+
+/// What a wait item waits on, named as the summary names its first wait
+/// (card #481): "#392" and its title for a card, the agent's name, else
+/// the resource or outside thing as raised.
+fn wait_on_of(co: &coord::Coord, p: &People, on: &coord::BlockedBy) -> CardWaitOn {
+    let mut w = CardWaitOn {
+        kind: on.kind.clone(),
+        label: on.reference.clone(),
+        ..CardWaitOn::default()
+    };
+    match on.kind.as_str() {
+        coord::BLOCKED_ON_TASK => {
+            w.task_id = on.reference.clone();
+            match co.get_task(&on.reference) {
+                Some(k) => {
+                    w.label = k.short_ref();
+                    w.title = k.title.clone();
+                }
+                None => w.label = "a card".into(),
+            }
+        }
+        coord::BLOCKED_ON_AGENT => {
+            let r = p.ref_(&on.reference);
+            w.gone = r.status == "gone";
+            w.label = r.name;
+        }
+        // "0.11.0 on Stephens-MacBook-Pro-2.local and DESKTOP-STEPHEN"
+        // (card #485).
+        coord::BLOCKED_ON_VERSION => {
+            let (min, devs) = coord::parse_version_wait(&on.reference);
+            let names: Vec<String> = devs
+                .iter()
+                .map(|d| match p.names.get(d) {
+                    Some(n) if !n.is_empty() => n.clone(),
+                    _ => d.chars().take(8).collect(),
+                })
+                .collect();
+            w.label = match names.as_slice() {
+                [] => format!("Irori {min}"),
+                [one] => format!("Irori {min} on {one}"),
+                [rest @ .., last] => format!("Irori {min} on {} and {last}", rest.join(", ")),
+            };
+        }
+        _ => {}
+    }
+    w
 }
 
 /// A person blocker for another member of a shared board (card #264). The
@@ -1290,9 +1493,14 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
             .collect();
         s.working.push(r);
     }
+    // A watcher that is gone is left out (card #485): #446 listed six,
+    // every one a raw key.
     for w in &t.watchers {
         if !t.holders.contains(w) && !t.co_holders.contains(w) {
-            s.watching.push(p.ref_(w));
+            let r = p.ref_(w);
+            if r.status != "gone" {
+                s.watching.push(r);
+            }
         }
     }
     s.holder = holder_line(&s.working);
@@ -2023,6 +2231,7 @@ impl Window {
                 ..CardBlocker::default()
             });
         }
+        let stranded = co.stranded(&t.id);
         for bl in &t.blockers {
             let mut cb = CardBlocker {
                 id: bl.id.clone(),
@@ -2044,6 +2253,21 @@ impl Window {
                     .as_ref()
                     .filter(|on| for_another(&on.kind, &on.reference))
                     .map(|on| p.ref_(&on.reference)),
+                waits_on: bl
+                    .on
+                    .as_ref()
+                    // Once someone replied on it, it keeps its thread and
+                    // reply box (the review of #481).
+                    .filter(|on| {
+                        waits_by_itself(&on.kind)
+                            && bl.options.is_empty()
+                            && (bl.status.is_empty() || bl.status == coord::BLOCKER_OPEN)
+                    })
+                    .map(|on| wait_on_of(&co, &p, on)),
+                gone_agent: stranded
+                    .iter()
+                    .find(|s| s.blocker_id == bl.id)
+                    .map(|s| p.ref_(&s.agent)),
                 thread: by_blocker.remove(&bl.id).unwrap_or_default(),
                 links: bl.links.clone(),
                 attachments: bl.attachments.clone(),
@@ -2085,6 +2309,7 @@ impl Window {
         }
         resolved.reverse();
         d.blockers.extend(resolved);
+        previous_rounds(&mut d.blockers, &t);
         if !co.is_board() {
             for r in co.reviews_of(&t.id) {
                 d.reviews.push(CardReview {
@@ -2286,6 +2511,7 @@ fn build_thread(
             files: cm.files,
             attachments: cm.attachments.clone(),
             blocker_id: cm.blocker_id.clone(),
+            blocker_gist: cm.blocker_gist.clone(),
             missing: cm.missing.clone(),
             unheard: cm.unheard,
             mentions: card_mentions(&cm.mentions, p),
@@ -2297,7 +2523,13 @@ fn build_thread(
             // An agent that wrote on the card after it has answered: "read
             // it" says nothing more.
             let wrote_after = |k: &str| comments.iter().any(|c| c.by == k && c.hlc > cm.hlc);
-            let heard = p.heard.get(&cm.id).map(Vec::as_slice).unwrap_or(&[]);
+            let answer;
+            let heard = if cm.blocker_id.is_empty() {
+                p.heard.get(&cm.id).map(Vec::as_slice).unwrap_or(&[])
+            } else {
+                answer = answer_notices(p, t, cm);
+                &answer[..]
+            };
             it.pending = pending_lines(heard, t, p, wrote_after);
             it.heard_by = heard_by(heard);
         }
@@ -2329,6 +2561,8 @@ fn build_thread(
             seen.insert(id.clone(), 1);
         }
         let who = p.ref_(&a.by);
+        let under = a.revised && kept.contains(a.blocker_id.as_str());
+        let what = person_what(a, under);
         let ev = (
             ThreadPos {
                 hlc: a.hlc,
@@ -2340,8 +2574,9 @@ fn build_thread(
                 kind: THREAD_EVENT.into(),
                 at: a.at,
                 device: p.chip(&a.device),
-                text: format!("{} {}", who.name, p.named(&a.what)),
+                text: format!("{} {}", who.name, p.named(&what)),
                 blocker_id: a.blocker_id.clone(),
+                blocker_gist: a.blocker_gist.clone(),
                 revised: a.revised,
                 made: a.kind == coord::MADE_KIND,
                 who,
@@ -2349,7 +2584,7 @@ fn build_thread(
             },
         );
         // A revision goes under its blocker, after the reply it answers.
-        if a.revised && kept.contains(a.blocker_id.as_str()) {
+        if under {
             mine.push(ev);
             continue;
         }
@@ -2473,6 +2708,78 @@ fn pending_lines(
 
 /// The agents that read a person's comment, from its notices (newest
 /// first; an agent's newest notice decides, as in pending_lines).
+/// Gives each done check the round before it (card #476): the done check
+/// raised just before it, when the person sent that one back (their own
+/// words on its thread, or as its answer).
+fn previous_rounds(blockers: &mut [CardBlocker], t: &Task) {
+    let mut checks: Vec<&coord::Blocker> = t.blockers.iter().filter(|b| b.done_check).collect();
+    checks.sort_by_key(|b| b.at.unix_nano());
+    let mut rounds = 1;
+    for pair in checks.windows(2) {
+        let (was, now) = (pair[0], pair[1]);
+        // The person said Done on it (a reopened card): no round.
+        if was.resolved.as_ref().is_some_and(|r| r.option >= 0) {
+            continue;
+        }
+        let Some(old) = blockers.iter().find(|b| b.id == was.id) else {
+            continue;
+        };
+        let said = old
+            .thread
+            .iter()
+            .any(|it| it.kind == THREAD_COMMENT && it.who.status == "person");
+        let answer = old
+            .resolved
+            .as_ref()
+            .filter(|r| {
+                !said
+                    && !r.closed
+                    && r.option < 0
+                    && r.by.status == "person"
+                    && !r.answer.is_empty()
+            })
+            .map(|r| r.answer.clone())
+            .unwrap_or_default();
+        if !said && answer.is_empty() {
+            continue;
+        }
+        rounds += 1;
+        let round = CardRound {
+            id: was.id.clone(),
+            round: rounds,
+            proof: was.context.clone(),
+            answer,
+            thread: old.thread.clone(),
+            same_proof: !was.context.is_empty() && was.context == now.context,
+        };
+        if let Some(b) = blockers.iter_mut().find(|b| b.id == now.id) {
+            b.previous = Some(round);
+        }
+    }
+}
+
+/// The notices the person's answer `cm` on a blocker sent (card #476):
+/// they carry the card, not the comment, so they are the card's blocker
+/// answers that name its blocker, sent as it was written.
+fn answer_notices(p: &People, t: &Task, cm: &Comment) -> Vec<(Delivery, bool)> {
+    let named = format!(", blocker {}).", cm.blocker_id);
+    p.answers_heard
+        .get(&t.id)
+        .into_iter()
+        .flatten()
+        .filter(|(d, _)| {
+            let sent = d.message.sent_at.unix_nano();
+            let at = cm.at.unix_nano();
+            sent >= at && sent - at <= ANSWER_NOTICE_WITHIN && d.message.text.contains(&named)
+        })
+        .cloned()
+        .collect()
+}
+
+/// How soon after the person's answer its notice is sent, in nanoseconds:
+/// the same call writes both.
+const ANSWER_NOTICE_WITHIN: i64 = 10_000_000_000;
+
 fn heard_by(ds: &[(Delivery, bool)]) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
@@ -2487,33 +2794,24 @@ fn heard_by(ds: &[(Delivery, bool)]) -> Vec<String> {
     out
 }
 
-/// The PR an in-review card waits on the person to review (card #347):
-/// a linked PR GitHub last called open, or that this device hasn't heard
-/// (the poller runs on the holder's device), while no agent was asked to
-/// review the card.
-fn review_pr(co: &coord::Coord, t: &Task) -> Option<ReviewPr> {
+/// The PR an in-review card waits on (card #471): a linked PR GitHub
+/// last called open, or that this device hasn't heard (the poller runs on
+/// the holder's device).
+fn wait_pr(co: &coord::Coord, t: &Task) -> Option<WaitPr> {
     if t.state != coord::IN_REVIEW {
-        return None;
-    }
-    if co
-        .reviews_of(&t.id)
-        .iter()
-        .any(|r| r.state == coord::REVIEW_REQUESTED)
-    {
         return None;
     }
     let heard = co.pr_states(&t.id);
     t.links.iter().find_map(|l| {
         let (repo, number) = coord::pr_link(l)?;
-        let st = heard
-            .iter()
-            .find(|h| h.pr == l.reference)
-            .map(|h| h.state.as_str())
-            .unwrap_or_default();
-        (st.is_empty() || st == coord::PR_OPEN).then(|| ReviewPr {
+        let h = heard.iter().find(|h| h.pr == l.reference);
+        let st = h.map(|h| h.state.as_str()).unwrap_or_default();
+        let approval = h.is_some_and(|h| h.review == coord::PR_REVIEW_REQUIRED);
+        (st.is_empty() || st == coord::PR_OPEN).then(|| WaitPr {
             repo,
             number,
             url: l.reference.clone(),
+            approval,
         })
     })
 }
@@ -2522,9 +2820,9 @@ fn review_pr(co: &coord::Coord, t: &Task) -> Option<ReviewPr> {
 const CHAIN_DEPTH: usize = 8;
 
 /// Follows a card's wait on another card to where it stops (card #347):
-/// "your review of PR #96 (#334)" when that card waits on the person's
-/// review, "your answer on #12" when it waits on their decision, else
-/// empty (it waits on an agent, a lease or something outside).
+/// "your answer on #12" when it waits on their decision, else empty (it
+/// waits on an agent, a lease, a PR or something outside). A PR is never
+/// the person's to review (card #471).
 fn wait_you(co: &coord::Coord, first: &str) -> String {
     let mut seen = std::collections::HashSet::new();
     let mut id = first.to_string();
@@ -2535,9 +2833,6 @@ fn wait_you(co: &coord::Coord, first: &str) -> String {
         let Some(k) = co.get_task(&id) else { break };
         if coord::is_terminal(&k.state) {
             break;
-        }
-        if let Some(pr) = review_pr(co, &k) {
-            return format!("your review of PR #{} ({})", pr.number, k.short_ref());
         }
         let open = k.open_blockers();
         let asks_person = open.iter().any(|b| {
@@ -2565,8 +2860,29 @@ fn wait_you(co: &coord::Coord, first: &str) -> String {
 /// waits on), from the log the card lives in (card #161: a board's for a
 /// board card).
 fn family_of(co: &coord::Coord, t: &Task, s: &mut CardSummary) {
-    s.review_pr = review_pr(co, t);
+    s.wait_pr = wait_pr(co, t);
     s.wait_you = wait_you(co, &s.wait_task);
+    if !coord::is_terminal(&t.state) && !coord::task_waits(t).is_empty() {
+        let card = |id: &str| {
+            co.get_task(id).map(|k| CardRef {
+                id: k.id.clone(),
+                short: k.short.clone(),
+                title: k.title.clone(),
+            })
+        };
+        let ch = coord::wait_chain(&|id: &str| co.get_task(id), &t.id);
+        s.wait_loop = ch.loop_ids.iter().filter_map(|id| card(id)).collect();
+        // A chain that ends at a card on an open PR waits on the PR, not
+        // on nobody (card #471): the sweep hands an unheld one out to be
+        // merged, or another member's agents approve it.
+        if !ch.stuck.is_empty()
+            && !co
+                .get_task(&ch.stuck)
+                .is_some_and(|k| wait_pr(co, &k).is_some())
+        {
+            s.wait_stuck = card(&ch.stuck);
+        }
+    }
     name_wait(s, &|id: &str| {
         co.get_task(id).map(|x| x.short_ref()).unwrap_or_default()
     });
@@ -2740,11 +3056,27 @@ mod tests {
             ..People::default()
         };
         p.names.insert("mac".into(), "Mac".into());
-        assert_eq!(p.where_(""), "This PC");
-        assert_eq!(p.where_("me"), "This PC");
+        // No name for this device yet (card #489).
+        assert_eq!(p.where_("me"), "This device");
+        assert_eq!(p.this_device(), "This device");
+        // The hostname fallback loses its ".local".
+        p.names
+            .insert("me".into(), "Stephens-MacBook-Pro-2.local".into());
+        assert_eq!(p.where_("me"), "Stephens-MacBook-Pro-2 (this one)");
+        p.names.insert("me".into(), "Macbook Pro".into());
+        assert_eq!(p.where_(""), "Macbook Pro (this one)");
+        assert_eq!(p.where_("me"), "Macbook Pro (this one)");
         assert_eq!(p.where_("mac"), "Mac");
         assert_eq!(p.where_("x"), "Another device");
         assert_eq!(p.chip("mac"), "");
+        // `here` follows the same test as `where` (card #489).
+        let irori = p.ref_("irori");
+        assert_eq!(irori.where_, "Macbook Pro (this one)");
+        assert!(irori.here);
+        assert!(p.ref_("me/a").here);
+        assert_eq!(p.ref_("me/a").where_, "Macbook Pro (this one)");
+        assert!(!p.ref_("mac/a").here);
+        assert_eq!(p.ref_("mac/a").where_, "Mac");
         p.paired = true;
         assert_eq!(p.chip("mac"), "Mac");
     }

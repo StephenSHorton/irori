@@ -16,9 +16,16 @@ import {
   useFileAttach,
 } from "@/components/attachments"
 import { MentionTextarea } from "@/components/common/mention-textarea"
-import { parseTime, plainBlock, plainLine, relativeTime, shortRepo } from "@/lib/irori"
+import { parseTime, plainBlock, plainLine, relativeTime } from "@/lib/irori"
 import { notDelivered, type Mention } from "@/lib/mentions"
-import { errorText, holdText, State, talk, type Delivery } from "@/lib/talk"
+import {
+  errorText,
+  holdText,
+  State,
+  talk,
+  useRepoNames,
+  type Delivery,
+} from "@/lib/talk"
 
 // MessageDialog is one message a notification's Open named (there is no
 // inbox in the window): a message Irori held, with Release and Dismiss, or
@@ -37,6 +44,7 @@ export function MessageDialog({
   onClose: () => void
 }) {
   const [d, setD] = useState<Delivery | null>(null)
+  const repo = useRepoNames()
   const [error, setError] = useState<string | null>(null)
   const [reply, setReply] = useState("")
   const [mentions, setMentions] = useState<Mention[]>([])
@@ -109,7 +117,7 @@ export function MessageDialog({
       ? "you"
       : d.to
         ? name(d.to)
-        : `repo ${plainLine(shortRepo(d.repoKey ?? ""))}`
+        : plainLine(repo(d.repoKey ?? "")) || "a repo"
   const held = d?.state === State.Held
   const forYou =
     !!d &&
@@ -138,7 +146,7 @@ export function MessageDialog({
           </DialogTitle>
           {d && (
             <DialogDescription>
-              {held && plainLine(holdText(d))}{" "}
+              {held && plainLine(holdText(d, { name, repo }))}{" "}
               <time
                 dateTime={sent?.toISOString()}
                 title={sent?.toLocaleString()}

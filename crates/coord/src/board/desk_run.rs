@@ -28,7 +28,7 @@ pub struct DeskWake {
 }
 
 /// What the holder never does (merge-desk.md §5).
-pub const DESK_NEVER: &str = "Never push to the PR's branch, never push to main except through gh pr merge, never force-push, never tag, never cut a release.";
+pub const DESK_NEVER: &str = "Never push to the PR's branch, never push to main except through gh pr merge, never force-push, never tag, never cut a release, never approve a PR (an approval comes from another member's agents, card #471).";
 
 /// The holder's run for `pr`, with the repo's check lines as the holder
 /// should read them (commands in backticks).

@@ -90,6 +90,9 @@ pub const BLOCKED_ON_TASK: &str = "task";
 pub const BLOCKED_ON_PERSON: &str = "person";
 pub const BLOCKED_ON_AGENT: &str = "agent";
 pub const BLOCKED_ON_EXTERNAL: &str = "external";
+/// A least app version on named devices (card #485): the sweep closes it
+/// once each of them has started with that version or a later one.
+pub const BLOCKED_ON_VERSION: &str = "version";
 
 crate::go_struct! {
     /// What is in the way.
@@ -443,6 +446,10 @@ pub struct Task {
     /// goes out again as if just posted.
     #[serde(skip)]
     pub let_go: Option<(String, GoTime)>,
+    /// Who left the card and hasn't come back on it (card #481): an
+    /// answered blocker that went to one of them has nobody to act on it.
+    #[serde(skip)]
+    pub left: Vec<String>,
     #[serde(skip_serializing_if = "omit")]
     pub parent: String,
     /// A helper's part (spawned agents §3): the subtask was split off
@@ -688,6 +695,9 @@ pub struct Comment {
     pub files: i64,
     #[serde(skip_serializing_if = "omit")]
     pub blocker_id: String,
+    /// The question of the blocker it answers, cut short (card #490).
+    #[serde(skip)]
+    pub blocker_gist: String,
     #[serde(skip_serializing_if = "omit")]
     pub pick: i64,
     #[serde(skip_serializing_if = "omit")]
@@ -823,6 +833,9 @@ pub struct Card {
     pub resolved: bool,
     pub gone: Vec<String>,
     pub overlaps: Vec<String>,
+    /// Open items whose agent is gone, on a card nobody holds (card #485).
+    /// Not part of the Go shape: the tools and the window read it.
+    pub stranded: Vec<super::stranded::Stranded>,
 }
 
 impl Serialize for Card {
@@ -892,6 +905,10 @@ pub struct Activity {
     /// The line of a blocker revision: it belongs in the blocker's thread.
     #[serde(skip)]
     pub revised: bool,
+    /// The blocker's question, cut short, when the line is about one
+    /// (card #490): the person reads it in place of the blocker's id.
+    #[serde(skip)]
+    pub blocker_gist: String,
     #[serde(skip)]
     pub hlc: u64,
     #[serde(skip)]
