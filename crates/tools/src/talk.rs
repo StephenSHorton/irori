@@ -307,10 +307,11 @@ fn thread_members(t: &Task) -> Vec<Member> {
 }
 
 /// Whether a message can show as a DM ([`mirrored`]): one an agent or the
-/// person sent, not a notice, a stop, Irori's own or a mention's wake. A
-/// row bridged from a shared board (card #478) isn't one either: it is
-/// the card's, shown on the card, and every holder's and watcher's copy
-/// would show again ("raised a blocker on ..." ten times over).
+/// person sent, not a notice, a stop, Irori's own or a mention's wake. The
+/// Core tells the window Talk changed only for these (card #468). A row
+/// bridged from a shared board (card #478) isn't one either: it is the
+/// card's, shown on the card, and every holder's and watcher's copy would
+/// show again ("raised a blocker on ..." ten times over).
 pub fn mirrors(m: &inbox::Message) -> bool {
     !(m.notice
         || m.stop
@@ -322,17 +323,6 @@ pub fn mirrors(m: &inbox::Message) -> bool {
 }
 
 /// The DMs mirrored from messages: by DM id, its two parties and posts.
-/// Whether a message can show as a DM ([`mirrored`]): one an agent or the
-/// person sent, not a notice, a stop, Irori's own or a mention's wake. The
-/// Core tells the window Talk changed only for these (card #468).
-pub fn mirrors(m: &inbox::Message) -> bool {
-    !(m.notice
-        || m.stop
-        || m.from.kind == "irori"
-        || m.reason == inbox::REASON_MENTIONED
-        || m.from.key.is_empty())
-}
-
 fn mirrored(b: &dyn Backend, talk: &Talk) -> BTreeMap<String, (Vec<Member>, Vec<Post>)> {
     let ids = talk.post_ids();
     let mut seen = std::collections::HashSet::new();

@@ -973,10 +973,7 @@ impl People {
         // board:<boardId>/<cardId> or board:<boardId>/person:<personId>
         // (v0.5 §7.1): the board's own agent:<cardId> / person:<personId>
         // name it (card #478), and the key it came as stays the key.
-        if let Some((_, who)) = key
-            .strip_prefix("board:")
-            .and_then(|r| r.split_once('/'))
-        {
+        if let Some((_, who)) = key.strip_prefix("board:").and_then(|r| r.split_once('/')) {
             let person = who.starts_with(store::kinds::PERSON_ACTOR_PREFIX);
             let as_board = if person {
                 who.to_string()

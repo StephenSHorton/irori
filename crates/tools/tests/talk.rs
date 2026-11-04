@@ -334,7 +334,13 @@ fn spencer_blocker(h: &Harness, row: &str) -> Vec<inbox::Delivery> {
     )
 }
 
-fn spencer_row(h: &Harness, row: &str, kind: &str, to: &[&str], text: &str) -> Vec<inbox::Delivery> {
+fn spencer_row(
+    h: &Harness,
+    row: &str,
+    kind: &str,
+    to: &[&str],
+    text: &str,
+) -> Vec<inbox::Delivery> {
     h.b.ib
         .bridge(&inbox::BridgeRow {
             from: inbox::BoardFrom {
@@ -392,13 +398,12 @@ fn board_notices_never_show_as_dms() {
             (inbox::st::SKIPPED, "recipient gone; on task:T1"),
         );
     }
-    let to_person: Vec<_> = h
-        .b
-        .ib
-        .list(usize::MAX)
-        .into_iter()
-        .filter(|d| d.to.starts_with("user") && d.message.from.key.starts_with("board:"))
-        .collect();
+    let to_person: Vec<_> =
+        h.b.ib
+            .list(usize::MAX)
+            .into_iter()
+            .filter(|d| d.to.starts_with("user") && d.message.from.key.starts_with("board:"))
+            .collect();
     assert!(to_person.is_empty(), "{to_person:?}");
     let cs = tools::talk::conversations(&*h.b, USER).unwrap();
     assert!(board_dms(&cs).is_empty(), "{:?}", board_dms(&cs));
@@ -426,13 +431,12 @@ fn board_work_for_an_agent_that_has_gone_still_reaches_the_person() {
     h.b.ib.sweep().unwrap();
     let d = h.b.ib.get(&ds[0].id).unwrap();
     assert_eq!(d.state, inbox::st::MOVED, "{d:?}");
-    let to_person = h
-        .b
-        .ib
-        .list(usize::MAX)
-        .into_iter()
-        .filter(|x| x.to.starts_with("user") && x.message.id == ds[0].message.id)
-        .count();
+    let to_person =
+        h.b.ib
+            .list(usize::MAX)
+            .into_iter()
+            .filter(|x| x.to.starts_with("user") && x.message.id == ds[0].message.id)
+            .count();
     assert_eq!(to_person, 1);
     let cs = tools::talk::conversations(&*h.b, USER).unwrap();
     assert!(board_dms(&cs).is_empty(), "{:?}", board_dms(&cs));
@@ -471,11 +475,10 @@ fn other_members_agents_go_by_name_never_their_key() {
     let unknown = say("board:b3f5/cGoneLongAgo", "hi");
     let person = say("board:b3f5/person:pSpencer", "hi");
     // Opened from a notice and never written in: not listed.
-    let empty = h
-        .b
-        .talk
-        .open_dm(&me, &ct::Member::of("board:b3f5/cOther"), USER)
-        .unwrap();
+    let empty =
+        h.b.talk
+            .open_dm(&me, &ct::Member::of("board:b3f5/cOther"), USER)
+            .unwrap();
 
     let cs = tools::talk::conversations(&*h.b, USER).unwrap();
     let get = |id: &str| cs.iter().find(|c| c.conv_id == id);
@@ -487,7 +490,12 @@ fn other_members_agents_go_by_name_never_their_key() {
         .find(|m| m.key.starts_with("board:"))
         .unwrap();
     assert_eq!(
-        (m.kind.as_str(), m.name.as_str(), m.status.as_str(), m.owner.as_str()),
+        (
+            m.kind.as_str(),
+            m.name.as_str(),
+            m.status.as_str(),
+            m.owner.as_str()
+        ),
         ("agent", "BillingEng1 · Spencer", "idle", "Spencer")
     );
     let c = get(&unknown).expect("unknown agent's DM");
@@ -495,7 +503,11 @@ fn other_members_agents_go_by_name_never_their_key() {
     assert!(c.members.iter().all(|m| m.status.is_empty()));
     let c = get(&person).expect("person's DM");
     assert_eq!(c.name, tools::talk::UNKNOWN_PERSON);
-    assert!(c.members.iter().all(|m| m.kind == "person"), "{:?}", c.members);
+    assert!(
+        c.members.iter().all(|m| m.kind == "person"),
+        "{:?}",
+        c.members
+    );
     assert!(get(&empty).is_none());
     // No name anywhere is a key.
     for c in &cs {
