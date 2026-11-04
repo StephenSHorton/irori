@@ -651,7 +651,7 @@ export function SummaryMember(p: Partial<B.SummaryMember> = {}): B.SummaryMember
 
 /** TalkConversation with Go's zero values for every field left out. */
 export function TalkConversation(p: Partial<B.TalkConversation> = {}): B.TalkConversation {
-  return { "convId": "", "kind": "", "name": "", "unread": 0, "mentions": 0, "members": [], "lastAt": "", "readOnly": false, "agentsNow": false, ...p } as B.TalkConversation
+  return { "convId": "", "kind": "", "name": "", "unread": 0, "mentions": 0, "members": [], "lastAt": "", "lastText": "", "lastBy": "", "readOnly": false, "agentsNow": false, ...p } as B.TalkConversation
 }
 
 /** TalkMember with Go's zero values for every field left out. */

@@ -55,6 +55,11 @@ pub struct TalkConversation {
     /// The newest post's time (the zero time when it has none).
     #[specta(type = ts::Time)]
     pub last_at: gocompat::time::GoTime,
+    /// The newest post's text on one line, clipped (card #486): the list's
+    /// subtitle. "" when it has none.
+    pub last_text: String,
+    /// Who wrote the newest post: a member's key, "" when none.
+    pub last_by: String,
     /// A DM between two agents: the person reads it only.
     pub read_only: bool,
     /// A thread's "Agents answer now" (card #391): its toggle. False for a
@@ -120,6 +125,8 @@ impl Window {
                     })
                     .collect(),
                 last_at: c.last_at,
+                last_text: c.last_text,
+                last_by: c.last_by,
                 read_only: c.read_only,
                 agents_now: c.agents_now,
             })
