@@ -9,6 +9,7 @@
 //   ?share=<card>   opens Share to board on that card's page
 //   ?update=ready   shows the update card (also downloading, installing)
 //   ?voice=ready    shows the mic on the text boxes (also needs-model, denied)
+//   ?slots          shows two check.sh runs in the sidebar's Check slots
 //   ?from=<card>    the grid as that card's Back leaves it (App.tsx)
 //   ?filter=done    the grid on that filter tab (App.tsx)
 //   ?theme=<id>     a theme without saving it: blue, hearth, midnight,

@@ -34,13 +34,22 @@ fn two_runs_hold_the_slots_and_the_third_is_told_who() {
 
     let (s, c) = take(&rig, "check-irori-3");
     assert_eq!(s, 409, "{c}");
-    assert_eq!(c["held"], serde_json::json!(["check-irori-1", "check-irori-2"]));
+    assert_eq!(
+        c["held"],
+        serde_json::json!(["check-irori-1", "check-irori-2"])
+    );
 
     // A renew keeps the slot.
     let (s, a2) = take(&rig, "check-irori-1");
-    assert_eq!((s, &a2["resource"]), (200, &Value::from("check/mac/slot-1")));
+    assert_eq!(
+        (s, &a2["resource"]),
+        (200, &Value::from("check/mac/slot-1"))
+    );
 
-    let (s, r) = post(&rig, "/v1/slots/release?resource=check/mac&run=check-irori-1");
+    let (s, r) = post(
+        &rig,
+        "/v1/slots/release?resource=check/mac&run=check-irori-1",
+    );
     assert_eq!((s, &r["released"]), (200, &Value::Bool(true)));
     let (s, c) = take(&rig, "check-irori-3");
     assert_eq!((s, &c["resource"]), (200, &Value::from("check/mac/slot-1")));

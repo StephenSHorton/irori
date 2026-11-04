@@ -7,6 +7,10 @@
 set -eu
 cd "$(dirname "$0")/.."
 
+# At most CHECK_SLOTS (default 2) runs build at once on this device; the
+# rest wait their turn (card #437). Without Irori it does nothing.
+. scripts/check-slot.sh
+
 (
   cd frontend
   bun install --frozen-lockfile

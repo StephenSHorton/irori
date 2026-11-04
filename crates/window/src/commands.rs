@@ -104,6 +104,39 @@ pub async fn roster_revive(w: W<'_>, session_id: String) -> R<String> {
     blocking(&w, move |w| w.revive(&session_id)).await
 }
 
+/// A check slot held now (card #437): the run in it (check.sh's name for
+/// itself) and when its lease ends unless the run renews it.
+#[derive(Debug, Clone, serde::Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckSlot {
+    pub resource: String,
+    pub run: String,
+    pub until: String,
+}
+
+/// This device's check slots held now, by `scripts/check.sh` runs.
+#[tauri::command]
+#[specta::specta]
+pub async fn roster_check_slots(w: W<'_>) -> R<Vec<CheckSlot>> {
+    let dev = w.core.device_id().to_string();
+    let mut out = Vec::new();
+    for l in w.core.coord().leases() {
+        let Some(run) = l
+            .holder
+            .strip_prefix(&format!("{dev}/{}", coord::RUN_HOLDER))
+            .filter(|_| l.resource.starts_with("check/"))
+        else {
+            continue;
+        };
+        out.push(CheckSlot {
+            resource: l.resource.clone(),
+            run: run.to_string(),
+            until: l.until.format_rfc3339(),
+        });
+    }
+    Ok(out)
+}
+
 // ---- InboxService ----------------------------------------------------------------
 
 type Deliveries = Typed<Vec<inbox::Delivery>, Vec<ts::Delivery>>;
@@ -1227,6 +1260,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             roster_recent,
             roster_gone,
             roster_revive,
+            roster_check_slots,
             inbox_list,
             inbox_held,
             inbox_held_history,

@@ -17,6 +17,8 @@ export const commands = {
 	rosterRecent: (limit: number) => __TAURI_INVOKE<Event[]>("roster_recent", { limit }),
 	rosterGone: (limit: number) => __TAURI_INVOKE<GoneSession[]>("roster_gone", { limit }),
 	rosterRevive: (sessionId: string) => __TAURI_INVOKE<string>("roster_revive", { sessionId }),
+	/**  This device's check slots held now, by `scripts/check.sh` runs. */
+	rosterCheckSlots: () => __TAURI_INVOKE<CheckSlot[]>("roster_check_slots"),
 	inboxList: (limit: number) => __TAURI_INVOKE<Delivery[]>("inbox_list", { limit }),
 	inboxHeld: () => __TAURI_INVOKE<Delivery[]>("inbox_held"),
 	inboxHeldHistory: (limit: number) => __TAURI_INVOKE<Delivery[]>("inbox_held_history", { limit }),
@@ -890,6 +892,16 @@ export type Change = {
 
 /**  presence.ChangeKind. */
 export type ChangeKind = "added" | "updated" | "removed";
+
+/**
+ *  A check slot held now (card #437): the run in it (check.sh's name for
+ *  itself) and when its lease ends unless the run renews it.
+ */
+export type CheckSlot = {
+	resource: string,
+	run: string,
+	until: string,
+};
 
 /**  coord.Comment. */
 export type Comment = {

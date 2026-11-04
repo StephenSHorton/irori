@@ -44,6 +44,7 @@ export type CardWait = B.CardWait
 export type CardWhere = B.CardWhere
 export type Change = B.Change
 export type ChangeKind = B.ChangeKind
+export type CheckSlot = B.CheckSlot
 export type Comment = B.Comment
 export type CommentResult = B.CommentResult
 export type Delivery = B.Delivery
@@ -302,6 +303,11 @@ export function CardWhere(p: Partial<B.CardWhere> = {}): B.CardWhere {
 /** Change with Go's zero values for every field left out. */
 export function Change(p: Partial<B.Change> = {}): B.Change {
   return { "kind": "", "card": AgentCard(), ...p } as B.Change
+}
+
+/** CheckSlot with Go's zero values for every field left out. */
+export function CheckSlot(p: Partial<B.CheckSlot> = {}): B.CheckSlot {
+  return { "resource": "", "run": "", "until": "", ...p } as B.CheckSlot
 }
 
 /** Comment with Go's zero values for every field left out. */
