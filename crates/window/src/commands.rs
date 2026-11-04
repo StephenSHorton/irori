@@ -273,6 +273,13 @@ pub async fn board_card(w: W<'_>, id: String) -> R<CardDetail> {
     w.card(&id)
 }
 
+/// Several cards in one call, each with its card or why not (card #468).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_cards_by_id(w: W<'_>, ids: Vec<String>) -> R<Vec<crate::cards::CardRead>> {
+    blocking(&w, move |w| Ok(w.cards_by_id(&ids))).await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn board_done_cards(w: W<'_>, limit: i64, before: String) -> R<DonePage> {
@@ -1471,6 +1478,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             inbox_set_paused,
             board_cards,
             board_card,
+            board_cards_by_id,
             board_done_cards,
             board_cards_in,
             board_idle_report,
