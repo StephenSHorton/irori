@@ -1238,6 +1238,11 @@ impl Coord {
         f.gone_rows.insert(key.to_string(), at);
         f.ended_by_irori.insert(key.to_string());
     }
+    /// Whether Irori ended agent `key` (its own `agent.gone` "finished",
+    /// replayed from the log): it is never ended a second time (card #474).
+    pub fn ended_by_irori(&self, key: &str) -> bool {
+        self.lock().ended_by_irori.contains(key)
+    }
     /// Puts holderless card `id` back on the Board for an agent (card
     /// #447's transition): Ok(false) when it is held, assigned, closed,
     /// working, an open ask or a parent.
