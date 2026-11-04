@@ -74,7 +74,7 @@ fn notes_in_the_window() {
     assert!(e.pending.is_none());
     assert_eq!(e.text, "Under load, rerun presence tests alone.");
 
-    // Keep as note from a card: live at once; once the card goes, it asks
+    // An agent's note from a card, kept: once the card goes, it asks
     // Still true?
     let t = w
         .core
@@ -87,15 +87,29 @@ fn notes_in_the_window() {
             },
         )
         .unwrap();
-    let mut kept = input("", "Answers on this card are decisions.");
-    kept.task_id = t.id.clone();
-    kept.source = format!("task:{}", t.id);
-    let kept = w.note_new(kept).unwrap();
+    let from_card = w
+        .core
+        .propose_note(
+            &r.key_a,
+            "mine",
+            coord::NewNote {
+                kind: "decision".into(),
+                text: "Answers on this card are decisions.".into(),
+                tags: vec!["everywhere".into()],
+                source: format!("task:{}", t.id),
+                task_id: t.id.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let kept = w
+        .note_accept(&format!("note:{}", from_card.note.id))
+        .unwrap();
     assert_eq!(
         (kept.state.as_str(), kept.scope.as_str()),
         ("accepted", "mine")
     );
-    assert!(kept.by_person);
+    assert_eq!(kept.task_id, t.id);
     w.delete_card(&t.id).unwrap();
     let kept = w
         .notes_list("mine", false)
@@ -117,6 +131,7 @@ fn notes_in_the_window() {
     let on_board = w.note_new(input("mlg", "Ship to the repo.")).unwrap();
     assert_eq!(on_board.scope, "mlg");
     assert_eq!(on_board.state, "accepted");
+    assert!(on_board.by_person);
     assert_eq!(w.notes_list("mlg", false).unwrap().len(), 1);
 }
 

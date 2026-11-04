@@ -32,7 +32,6 @@ import {
 import { useReducedMotion } from "@/lib/motion"
 import { cn } from "@/lib/utils"
 import { Spinner } from "./bits"
-import { KeepAsNote, useNoteCard } from "@/components/notes/parts"
 import { Face } from "./faces"
 import { RichLine, RichText } from "@/components/common/rich-text"
 
@@ -248,8 +247,6 @@ function ThreadRow({
 }) {
   const [started, setStarted] = useState(false)
   const [full, setFull] = useState<CardMessage | null>(null)
-  // Keep as note (card #413) on comments and blocker answers.
-  const noteCard = useNoteCard()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // released: the person released a dismissed message here; its text
@@ -559,22 +556,6 @@ function ThreadRow({
           <span className="text-[11px] text-muted-foreground">
             Starting an agent with this comment in its brief.
           </span>
-        )}
-        {noteCard && cardId === noteCard.id && !item.held && body && (
-          <KeepAsNote
-            text={full?.text ?? body}
-            card={noteCard}
-            className="justify-self-start opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
-            source={
-              item.blockerId
-                ? {
-                    label: `${l.author ? plainLine(l.author) + "'s" : "the"} answer on ${item.blockerId}`,
-                    source: `blocker:${cardId}/${item.blockerId}`,
-                    blockerId: item.blockerId,
-                  }
-                : { label: `${l.author ? plainLine(l.author) + "'s" : "this"} comment`, source: `comment:${item.id}`, commentId: item.id }
-            }
-          />
         )}
         {!full && cardId && opensInFull(item) && (
           <Button

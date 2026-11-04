@@ -1502,19 +1502,13 @@ export type NoteEventView = {
 	text: string,
 };
 
-/**  What New note and Keep as note write. */
+/**  What New note writes. */
 export type NoteInput = {
 	/**  `mine` (the default), or a board's tag or id. */
 	scope?: string,
 	kind?: string,
 	text?: string,
 	tags?: string[],
-	/**  Where it came from, as in [`NoteView::source`]. */
-	source?: string,
-	/**  The source's card, comment and blocker, when it has them. */
-	taskId?: string,
-	commentId?: string,
-	blockerId?: string,
 };
 
 /**  A note as the Notes page shows it. */

@@ -4,10 +4,8 @@ import {
   MineScope,
   NoteMaxChars,
   cleanTags,
-  guessTags,
   kindCounts,
   needsLook,
-  noteFromText,
   noteProblem,
   notes,
   parseTag,
@@ -56,14 +54,6 @@ describe("tags", () => {
       bad: ["nope"],
     })
   })
-  test("Keep as note guesses the card's board and repo, else everywhere", () => {
-    expect(guessTags({ repoKey: irori, board: { tag: "MLG" } })).toEqual([
-      "board:mlg",
-      `repo:${irori}`,
-    ])
-    expect(guessTags({ repoKey: "" })).toEqual(["everywhere"])
-    expect(guessTags(null)).toEqual(["everywhere"])
-  })
 })
 
 describe("the form's checks match the write's (§11)", () => {
@@ -77,13 +67,6 @@ describe("the form's checks match the write's (§11)", () => {
     ).toContain(`${NoteMaxChars}`)
     expect(noteProblem({ ...ok, tags: [] })).toContain("at least one tag")
     expect(noteProblem({ ...ok, tags: ["nope"] })).toContain("nope")
-  })
-  test("Keep as note's text fits the limit, cut at a word", () => {
-    const long = "word ".repeat(200)
-    const t = noteFromText(long)
-    expect([...t].length).toBeLessThanOrEqual(NoteMaxChars)
-    expect(t.endsWith("…")).toBe(true)
-    expect(noteFromText("one\n\n two")).toBe("one two")
   })
 })
 
