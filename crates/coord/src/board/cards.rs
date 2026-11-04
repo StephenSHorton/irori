@@ -1420,7 +1420,7 @@ impl Fold {
             &TaskStateRow {
                 task_id: id.into(),
                 state: SUBMITTED.into(),
-                note: format!("back on the Board: {why}"),
+                note: format!("{}: {why}", super::fold::BACK_NOTE),
                 by: by.into(),
                 at,
                 ..TaskStateRow::default()

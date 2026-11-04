@@ -2158,6 +2158,22 @@ pub(crate) fn sync_co_holders(t: &mut Task) {
     co.sort();
     co.dedup();
     t.co_holders = co;
+    // Once someone is on it again, Irori's own "nobody is on it" note no
+    // longer holds (card #490); a note anyone else wrote stays.
+    if (!t.holders.is_empty() || !t.co_holders.is_empty()) && is_nobody_note(&t.note) {
+        t.note.clear();
+    }
+}
+
+/// The start of Irori's own notes for a card nobody holds (card #490):
+/// comments.rs writes them when its holder leaves or goes away.
+pub(crate) const NOBODY_NOTE: &str = "nobody is on it";
+/// The start of back_on_board's note (cards.rs).
+pub(crate) const BACK_NOTE: &str = "back on the Board";
+
+/// Says the note is one of Irori's own "nobody holds it" notes.
+pub(crate) fn is_nobody_note(n: &str) -> bool {
+    n.starts_with(NOBODY_NOTE) || n.starts_with(BACK_NOTE)
 }
 
 pub(crate) fn is_holder(t: &Task, key: &str) -> bool {

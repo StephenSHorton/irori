@@ -325,7 +325,7 @@ impl Fold {
         // agent. A shared card keeps its state for whoever joins next.
         let t = &self.tasks[id];
         if t.holders.is_empty() && t.state == WORKING && t.subtasks.is_empty() && !t.shared {
-            let note = format!("nobody is on it: {} left it", self.named(&who));
+            let note = format!("{}: {} left it", super::fold::NOBODY_NOTE, self.named(&who));
             self.write(
                 SWEEPER,
                 kinds::TASK_STATUS,
@@ -397,8 +397,10 @@ impl Fold {
                     &TaskStateRow {
                         task_id: id.clone(),
                         state: SUBMITTED.into(),
-                        note: "nobody is on it: the person whose agent worked it left the board"
-                            .into(),
+                        note: format!(
+                            "{}: the person whose agent worked it left the board",
+                            super::fold::NOBODY_NOTE
+                        ),
                         by: by.clone(),
                         at,
                         ..TaskStateRow::default()
@@ -1664,7 +1666,7 @@ impl Fold {
                         &TaskStateRow {
                             task_id: id.clone(),
                             state: SUBMITTED.into(),
-                            note: format!("nobody is on it: the agent working it {went}"),
+                            note: format!("{}: the agent working it {went}", super::fold::NOBODY_NOTE),
                             by: SWEEPER.into(),
                             at: *now,
                             ..TaskStateRow::default()
