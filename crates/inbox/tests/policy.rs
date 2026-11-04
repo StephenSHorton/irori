@@ -448,29 +448,58 @@ fn progress_rows() {
         by(&ev("task.status", "user", r#"{"state":"working"}"#)),
         None
     );
+    // A Bash call that looks like a commit may have committed nothing.
     assert_eq!(
         by(&ev(
             "capture.commitcmd",
             &agent,
             &format!(r#"{{"key":"{KEY_A}"}}"#)
-        ))
-        .map(|x| x.0),
-        Some(ProgressBy::Key(KEY_A.into()))
+        )),
+        None
     );
     assert_eq!(
         by(&ev(
             "commit.linked",
             "irori",
-            &format!(r#"{{"committer":{{"key":"{KEY_B}"}}}}"#)
+            &format!(r#"{{"sha":"abc123","committer":{{"key":"{KEY_B}"}}}}"#)
         ))
         .map(|x| x.0),
-        Some(ProgressBy::Key(KEY_B.into()))
+        Some(ProgressBy::Commit {
+            key: KEY_B.into(),
+            sha: "abc123".into()
+        })
     );
     assert_eq!(
         by(&ev("commit.linked", "irori", r#"{"sessions":[]}"#)),
         None
     );
     assert_eq!(by(&ev("task.comment", &agent, r#"{"text":"hi"}"#)), None);
+}
+
+/// A commit capture links again later (edits touching its files) is not
+/// new progress: only its first link restarts a chain (card #488).
+#[test]
+fn a_relinked_commit_is_not_new_progress() {
+    let h = Harness::new();
+    h.abc();
+    let link = |at: &gocompat::time::GoTime| store::Event {
+        kind: "commit.linked".into(),
+        actor: "irori".into(),
+        payload: format!(r#"{{"sha":"abc123","committer":{{"key":"{KEY_B}"}}}}"#).into_bytes(),
+        hlc: hlc::Timestamp((at.unix_milli_value() as u64) << 16),
+        ..store::Event::default()
+    };
+    // beta committed, then alpha messages beta and beta answers: hop 1.
+    h.ib.note_progress(&link(&h.clk.now()));
+    h.clk.advance(secs(1));
+    h.send(&claude(KEY_A, "alpha"), &to(KEY_B), "hop 0");
+    let w = h.deliver_engage(KEY_B, "t1");
+    h.clk.advance(secs(1));
+    // The same commit linked again now changes nothing.
+    h.ib.note_progress(&link(&h.clk.now()));
+    let d = h.send(&claude(KEY_B, "beta"), &to(KEY_A), "hop 1").1;
+    assert_eq!(d.message.hop, 1);
+    h.ib.turn_ended(KEY_B, &w.token, "t1").unwrap();
 }
 
 #[test]

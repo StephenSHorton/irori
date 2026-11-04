@@ -237,6 +237,10 @@ describe("needsOf", () => {
       "mp",
     ])
     expect(asksPerson(hop)).toBe(false)
+    // An agent's message to you, held by your allow list, is yours to decide.
+    const toYou = delivery({ id: "ty", to: "user:dev", state: State.Held, hold: HoldReason.HoldNotAllowed })
+    expect(asksPerson(toYou)).toBe(true)
+    expect(asksPerson({ ...toYou, hold: HoldReason.HoldPaused })).toBe(false)
     expect(asksPerson(mine)).toBe(true)
     expect(asksPerson({ ...mine, state: State.Queued })).toBe(false)
     expect(needsOf([], [hop]).map((n) => n.kind)).toEqual(["heldQuiet"])

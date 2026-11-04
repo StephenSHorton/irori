@@ -232,7 +232,7 @@ pub async fn inbox_dismiss(w: W<'_>, delivery_id: String) -> R<()> {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn inbox_start_agent(w: W<'_>, delivery_id: String) -> R<String> {
+pub async fn inbox_start_agent(w: W<'_>, delivery_id: String) -> R<ts::StartedAgent> {
     blocking(&w, move |w| w.inbox_start_agent(&delivery_id)).await
 }
 

@@ -284,6 +284,19 @@ pub struct RepoName {
     pub name: String,
 }
 
+/// What "Start an agent in <repo>" did with a held message (card #488):
+/// the card it became, and whether an agent is starting for it (spawning
+/// on), it was handed to a free agent, or it waits for one.
+#[derive(Debug, Clone, Default, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StartedAgent {
+    pub card_ref: String,
+    /// The repo's short name.
+    pub repo: String,
+    pub started: bool,
+    pub offered: bool,
+}
+
 /// inbox.Delivery.
 #[derive(Serialize, Type)]
 #[serde(rename_all = "camelCase")]

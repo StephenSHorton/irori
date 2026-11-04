@@ -29,7 +29,7 @@ export const commands = {
 	inboxMarkRead: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_mark_read", { deliveryId }),
 	inboxRelease: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_release", { deliveryId }),
 	inboxDismiss: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_dismiss", { deliveryId }),
-	inboxStartAgent: (deliveryId: string) => __TAURI_INVOKE<string>("inbox_start_agent", { deliveryId }),
+	inboxStartAgent: (deliveryId: string) => __TAURI_INVOKE<StartedAgent>("inbox_start_agent", { deliveryId }),
 	inboxRepoNames: () => __TAURI_INVOKE<RepoName[]>("inbox_repo_names"),
 	inboxAllowAndRelease: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_allow_and_release", { deliveryId }),
 	inboxPolicy: () => __TAURI_INVOKE<Policy>("inbox_policy"),
@@ -1867,6 +1867,19 @@ export type SpaceBoard = {
 	boardId: string,
 	name: string,
 	tag: string,
+};
+
+/**
+ *  What "Start an agent in <repo>" did with a held message (card #488):
+ *  the card it became, and whether an agent is starting for it (spawning
+ *  on), it was handed to a free agent, or it waits for one.
+ */
+export type StartedAgent = {
+	cardRef: string,
+	/**  The repo's short name. */
+	repo: string,
+	started: boolean,
+	offered: boolean,
 };
 
 /**  inbox.State. */

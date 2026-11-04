@@ -1436,6 +1436,13 @@ impl Core {
                             .unwrap_or_default()
                     })
                 }),
+                repo_name: Some({
+                    let s = s.clone();
+                    Arc::new(move |key: &str| {
+                        let roots = s.capture.repo_roots(key);
+                        inbox::watch::repo_short_name(key, roots.first().map(String::as_str))
+                    })
+                }),
                 room: Some(Arc::new(WatchRoom(s.clone()))),
                 file: Some({
                     let f = s.files.clone();

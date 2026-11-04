@@ -16,6 +16,7 @@ import {
   type Mention,
   type MentionOutcome,
   type Policy,
+  type StartedAgent,
 } from "./models"
 import { inWails, parseTime, sessionShort } from "./irori"
 import { checkUploads, uploadOf } from "./uploads"
@@ -97,6 +98,14 @@ export function holdText(d: Delivery, w: HoldWords = {}): string {
     default:
       return h ? "Irori held it." : ""
   }
+}
+
+// startedLine is what Start an agent did, in the person's words (card
+// #488): an agent starting, a free agent handed it, or a card waiting.
+export function startedLine(s: StartedAgent): string {
+  if (s.started) return `Starting an agent in ${s.repo} on ${s.cardRef}, with your message.`
+  if (s.offered) return `Your message is card ${s.cardRef} in ${s.repo}, handed to a free agent.`
+  return `Your message is card ${s.cardRef} in ${s.repo}; it waits for a free agent.`
 }
 
 // repoShort is a repo key as a person reads it when no checkout here names
@@ -315,14 +324,14 @@ export const talk = {
   // startAgent is "Start an agent in <repo>" (card #488) on the person's
   // message no agent in its repo can take yet: it becomes a card there,
   // an agent is started for it, and the held message closes. The answer
-  // is the card's ref ("#12").
-  async startAgent(id: string): Promise<string> {
+  // says which card and what happened (startedLine words it).
+  async startAgent(id: string): Promise<StartedAgent> {
     if (inWails()) return InboxService.StartAgent(id)
     const d = sampleDelivery(id)
     if (d.state !== State.Held || d.hold !== HoldReason.HoldUnowned)
       throw new Error("inbox: not allowed in the delivery's current state")
     sampleSetState(id, State.Dismissed)
-    return "#99"
+    return { cardRef: "#99", repo: "ww-multiplayer", started: true, offered: false }
   },
 
   async allowAndRelease(id: string): Promise<void> {

@@ -12,7 +12,7 @@
 use gocompat::time::GoTime;
 use serde::Deserialize;
 use store::Event;
-use store::kinds::{AGENT_ACTOR_PREFIX, CAPTURE_COMMITCMD, COMMIT_LINKED, TASK_STATUS, TASK_STEP};
+use store::kinds::{AGENT_ACTOR_PREFIX, COMMIT_LINKED, TASK_STATUS, TASK_STEP};
 
 use crate::Inbox;
 use crate::state::Inner;
@@ -23,20 +23,17 @@ pub enum ProgressBy {
     /// The row's actor, `agent:<…>`: on this device's own log that is the
     /// agent's inbox key; on a shared board the caller maps it.
     Actor(String),
-    /// An agent's inbox key the payload names (a commit).
-    Key(String),
+    /// A commit an agent made: its inbox key and the commit's sha. Capture
+    /// links a commit again as later edits touch its files, so only the
+    /// first link of a sha is progress. (A Bash call that only looks like
+    /// a commit, capture.commitcmd, is not: it may have committed nothing.)
+    Commit { key: String, sha: String },
 }
 
 #[derive(Deserialize)]
 struct StepRow {
     #[serde(default)]
     done: Option<bool>,
-}
-
-#[derive(Deserialize)]
-struct CommitCmdRow {
-    #[serde(default)]
-    key: String,
 }
 
 #[derive(Deserialize)]
@@ -47,6 +44,8 @@ struct Committer {
 
 #[derive(Deserialize)]
 struct CommitLinkedRow {
+    #[serde(default)]
+    sha: String,
     #[serde(default)]
     committer: Option<Committer>,
 }
@@ -71,20 +70,17 @@ pub fn progress_of(ev: &Event) -> Option<(ProgressBy, GoTime)> {
             actor()?
         }
         TASK_STATUS => actor()?,
-        CAPTURE_COMMITCMD => {
-            let r: CommitCmdRow = serde_json::from_slice(&ev.payload).ok()?;
-            ProgressBy::Key(r.key)
-        }
         COMMIT_LINKED => {
             let r: CommitLinkedRow = serde_json::from_slice(&ev.payload).ok()?;
-            ProgressBy::Key(r.committer?.key)
+            let key = r.committer?.key;
+            if key.is_empty() || r.sha.is_empty() {
+                return None;
+            }
+            ProgressBy::Commit { key, sha: r.sha }
         }
         _ => return None,
     };
-    match &by {
-        ProgressBy::Key(k) if k.is_empty() => None,
-        _ => Some((by, at)),
-    }
+    Some((by, at))
 }
 
 impl Inner {
@@ -101,31 +97,37 @@ impl Inner {
     pub(crate) fn chain_progressed(&self, keys: &[&str], t: &GoTime) -> bool {
         keys.iter().any(|k| self.progressed_since(k, t))
     }
+
+    fn note_progressed(&mut self, key: &str, at: GoTime) {
+        if key.is_empty() {
+            return;
+        }
+        let e = self.progress.entry(key.to_string()).or_insert(GoTime::ZERO);
+        if at.unix_nano() > e.unix_nano() {
+            *e = at;
+        }
+    }
 }
 
 impl Inbox {
     /// Records that agent `key` (its inbox key) made progress at `at`.
     pub fn progressed(&self, key: &str, at: GoTime) {
-        if key.is_empty() {
-            return;
-        }
-        self.mutate(|b| {
-            let e = b.progress.entry(key.to_string()).or_insert(GoTime::ZERO);
-            if at.unix_nano() > e.unix_nano() {
-                *e = at;
-            }
-        });
+        self.mutate(|b| b.note_progressed(key, at));
     }
 
     /// Records the progress `ev`, a row of this device's own log, shows.
-    pub(crate) fn note_progress(&self, ev: &Event) {
+    pub fn note_progress(&self, ev: &Event) {
         match progress_of(ev) {
             Some((ProgressBy::Actor(a), at)) => {
                 if let Some(k) = a.strip_prefix(AGENT_ACTOR_PREFIX) {
                     self.progressed(k, at);
                 }
             }
-            Some((ProgressBy::Key(k), at)) => self.progressed(&k, at),
+            Some((ProgressBy::Commit { key, sha }, at)) => self.mutate(|b| {
+                if b.progress_shas.insert(sha) {
+                    b.note_progressed(&key, at);
+                }
+            }),
             None => {}
         }
     }

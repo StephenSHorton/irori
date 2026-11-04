@@ -36,6 +36,7 @@ import {
   holdText,
   HoldReason,
   talk,
+  startedLine,
   useRepoNames,
   type Delivery,
 } from "@/lib/talk"
@@ -149,13 +150,14 @@ export function useAct() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState("")
-  const run = async (fn: () => Promise<unknown>, said: string) => {
+  // said is the outcome's words, or made from fn's answer.
+  const run = async <T,>(fn: () => Promise<T>, said: string | ((r: T) => string)) => {
     if (busy) return
     setBusy(true)
     setError(null)
     try {
-      await fn()
-      setDone(said)
+      const r = await fn()
+      setDone(typeof said === "function" ? said(r) : said)
     } catch (err) {
       setError(errorText(err))
     } finally {
@@ -628,11 +630,11 @@ function HeldNeed({
               <Button
                 size="sm"
                 disabled={act.busy}
-                title={`Makes your message a card in ${where} and starts an agent on it`}
+                title={`Makes your message a card in ${where} and gets an agent on it`}
                 onClick={() =>
                   void act.run(
                     () => talk.startAgent(d.id),
-                    `Started an agent in ${where} with your message.`
+                    startedLine
                   )
                 }
               >
@@ -692,19 +694,27 @@ function HeldQuiet({
 }) {
   const [busy, setBusy] = useState(false)
   const [said, setSaid] = useState("")
-  const paused = deliveries.filter((d) => d.hold === HoldReason.HoldPaused).length
-  const between = deliveries.length - paused
+  // Ones the person's block or allow list holds aren't released in bulk:
+  // they chose to stop that sender, so each waits for its own Release (or
+  // Allow sender) in the Held list.
+  const listed = (d: Delivery) =>
+    d.hold === HoldReason.HoldBlocked || d.hold === HoldReason.HoldNotAllowed
+  const bulk = deliveries.filter((d) => !listed(d))
+  const lists = deliveries.length - bulk.length
+  const paused = bulk.filter((d) => d.hold === HoldReason.HoldPaused).length
+  const between = bulk.length - paused
   const parts = [
     between ? `${between} between agents` : "",
     paused ? `${paused} while wakes were paused` : "",
+    lists ? `${lists} from senders your lists hold back` : "",
   ].filter(Boolean)
-  const n = deliveries.length
+  const n = bulk.length
   const releaseAll = async () => {
     if (busy) return
     setBusy(true)
     setSaid("")
     let left = 0
-    for (const d of deliveries) {
+    for (const d of bulk) {
       try {
         await talk.release(d.id)
       } catch {
@@ -727,12 +737,20 @@ function HeldQuiet({
       className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-1 text-[12.5px] text-muted-foreground"
     >
       <span className="min-w-0">
-        <span className="font-medium text-ink">{n} held</span>
+        <span className="font-medium text-ink">{deliveries.length} held</span>
         {parts.length > 0 && <>: {parts.join(", ")}</>}
       </span>
-      <Button size="xs" variant="outline" disabled={busy} onClick={() => void releaseAll()}>
-        {busy ? "Releasing…" : "Release all"}
-      </Button>
+      {n > 0 && (
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={busy}
+          title={lists ? "Leaves the ones your block or allow list holds" : undefined}
+          onClick={() => void releaseAll()}
+        >
+          {busy ? "Releasing…" : "Release all"}
+        </Button>
+      )}
       <Button size="xs" variant="ghost" onClick={onHeld}>
         See them
       </Button>

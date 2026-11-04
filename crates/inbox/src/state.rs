@@ -657,6 +657,8 @@ pub(crate) struct Inner {
     /// set a card's state or committed (card #488). Not folded: it only
     /// resets the hop of messages sent from now on.
     pub progress: HashMap<String, GoTime>,
+    /// Commits already counted as progress, by sha (a relink isn't new).
+    pub progress_shas: HashSet<String>,
     pub pairs: HashMap<String, Vec<GoTime>>,
     /// receive.set rows by (boardId, personId).
     pub receive: BTreeMap<(String, String), crate::bridge::Setting<crate::ReceiveSetting>>,
@@ -794,6 +796,7 @@ impl Inbox {
             pol: Policy::default(),
             running: BTreeMap::new(),
             progress: HashMap::new(),
+            progress_shas: HashSet::new(),
             pairs: HashMap::new(),
             receive: BTreeMap::new(),
             autonomy: BTreeMap::new(),

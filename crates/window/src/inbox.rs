@@ -49,18 +49,7 @@ fn err(e: inbox::Error) -> String {
 /// (root:<sha>) its checkout folder's name when `root` gives one, else
 /// "local repo 5a3c1e0"; for a hosted one its last part without .git
 /// ("remote:github.com/o/ww-multiplayer.git" is "ww-multiplayer").
-pub fn repo_short_name(key: &str, root: Option<&str>) -> String {
-    let folder = root
-        .filter(|_| key.starts_with("root:"))
-        .map(|r| r.trim_end_matches(['/', '\\']))
-        .and_then(|r| r.rsplit(['/', '\\']).next())
-        .filter(|f| !f.is_empty());
-    match folder {
-        Some(f) => f.to_string(),
-        None => inbox::watch::repo_short(key),
-    }
-}
-
+pub use inbox::watch::repo_short_name;
 
 impl Window {
     /// InboxService.List: recent deliveries, newest first.
@@ -253,9 +242,9 @@ impl Window {
     /// message becomes a card in that repo, with its text as the
     /// objective, and an agent is started for it (spawning on), else the
     /// card is handed to a free agent as New card does. The held message
-    /// is then dismissed: the card carries it. The answer is the card's
-    /// ref ("#12").
-    pub fn inbox_start_agent(&self, id: &str) -> Result<String, String> {
+    /// is then dismissed: the card carries it. The answer says which card
+    /// ("#12") and which of those happened.
+    pub fn inbox_start_agent(&self, id: &str) -> Result<ts::StartedAgent, String> {
         let ib = self.core.inbox();
         let Some(d) = ib.get(trim(id)) else {
             return Err(inbox::ErrorKind::NotFound.text().into());
@@ -286,17 +275,24 @@ impl Window {
                 },
             )
             .map_err(|e| e.to_string())?;
+        let mut out = ts::StartedAgent {
+            repo: name,
+            ..ts::StartedAgent::default()
+        };
         if co.spawning() {
             self.core.start_agent(&t.id, "")?;
+            out.started = true;
         } else {
             let n = co
                 .offer_card(&me.key, &t.id, &self.core.ask_agents())
                 .map_err(|e| e.to_string())?;
+            out.offered = !n.to.is_empty();
             self.tell_from(&inbox::system_sender(), &n);
         }
         let r = ib.dismiss(&d.id, &self.by()).map_err(err);
         self.acted(r)?;
-        Ok(co.get_task(&t.id).unwrap_or(t).short_ref())
+        out.card_ref = co.get_task(&t.id).unwrap_or(t).short_ref();
+        Ok(out)
     }
 
     /// InboxService.RepoNames (card #488): every repo this device has a

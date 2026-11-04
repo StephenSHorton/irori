@@ -18,6 +18,7 @@ import {
   State,
   SystemKey,
   talk,
+  startedLine,
   useRepoNames,
   type Delivery,
   type HeldState,
@@ -283,8 +284,7 @@ function HeldRow({
                 disabled={disabled}
                 onClick={() =>
                   onAct(async () => {
-                    const ref = await talk.startAgent(d.id)
-                    onStarted(`Started an agent in ${where} on ${ref}, with your message.`)
+                    onStarted(startedLine(await talk.startAgent(d.id)))
                   })
                 }
               >

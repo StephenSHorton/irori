@@ -145,13 +145,14 @@ export const HELD_QUIET = "held-quiet"
 
 // asksPerson says a held message is the person's to decide on its own
 // row in Needs you (card #488): their own message no agent in its repo
-// can take yet, or one from another person on a shared board. Holds
-// between agents (a long chain of messages, the allow or block list, an
-// older Irori's rule) and the person's own Pause all wait behind one
-// "N held" line instead.
+// can take yet, one from another person on a shared board, or an agent's
+// message to them. Holds between agents (a long chain of messages, the
+// allow or block list, an older Irori's rule) and the person's own Pause
+// all wait behind one "N held" line instead.
 export function asksPerson(d: Delivery): boolean {
   if (d.state !== State.Held) return false
   if (d.hold === HoldReason.HoldPaused) return false
+  if (d.to?.startsWith("user:")) return true
   if (d.message.from.kind === "board") return true
   return d.hold === HoldReason.HoldUnowned && fromPerson(d)
 }
