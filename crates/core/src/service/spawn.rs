@@ -843,7 +843,8 @@ impl Services {
         // kicked the next sweep (3.4M rows). Once the card's newest request
         // failed for this same reason, it waits for a checkout (or a
         // Where here) to appear; the failed row already tells the person.
-        if folder.is_none() {
+        // His own "Start an agent" still asks once more, so it answers.
+        if folder.is_none() && !self.coord.spawn_asked_now(&t.id) {
             let reason = SpawnRefusal::NoFolder {
                 repo_key: t.repo_key.clone(),
                 device: me.clone(),

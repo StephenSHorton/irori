@@ -553,4 +553,22 @@ fn a_card_with_no_checkout_fails_once_and_is_not_asked_again() {
         .unwrap();
     assert_eq!(after.generation, 1, "{after:?}");
     assert!(fake.started.lock().unwrap().is_empty(), "nothing started");
+
+    // His own "Start an agent" asks once more, so it answers him, and
+    // then the card waits again.
+    r.core.start_agent(&t.id, "").unwrap();
+    wait_for(60, "his ask failed again", || {
+        co.get_task(&t.id)
+            .and_then(|t| t.spawn_request().cloned())
+            .is_some_and(|s| s.op == coord::SPAWN_FAILED && s.generation == 2)
+    });
+    assert_eq!(spawn_rows(), rows + 2, "one more requested and failed");
+    skew.fetch_add(coord::SPAWN_RETRY.as_secs() as i64 + 10, Ordering::SeqCst);
+    for _ in 0..5 {
+        r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    assert_eq!(spawn_rows(), rows + 2, "and no more after it");
+    assert!(fake.started.lock().unwrap().is_empty(), "nothing started");
 }
