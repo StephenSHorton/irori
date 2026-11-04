@@ -1125,7 +1125,7 @@ impl Services {
         let Some(folder) = folder else {
             let r = refuse(SpawnRefusal::NoFolder {
                 repo_key: repo_key.clone(),
-                device: me.clone(),
+                device: self.this_device_name(),
             });
             self.stop_no_copy(t);
             return r;

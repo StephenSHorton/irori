@@ -56,7 +56,7 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
                 prefix: SESS[..8].into(),
             })
         }),
-        end: Arc::new(|_| Ok(())),
+        end: Arc::new(|_| Ok(String::new())),
         trusted: Arc::new(|_| true),
         list: None,
     }

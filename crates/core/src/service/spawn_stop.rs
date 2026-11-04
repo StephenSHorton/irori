@@ -107,29 +107,6 @@ fn not_a_folder_line(reply: &str, dev: &str) -> String {
 }
 
 impl Services {
-    /// What each of the person's devices is called, by id: their name for
-    /// it (card #184), else its certificate's label, else this device's own
-    /// name.
-    pub(crate) fn device_labels(&self) -> std::collections::BTreeMap<String, String> {
-        let mut out: std::collections::BTreeMap<String, String> = self
-            .chain
-            .devices()
-            .into_iter()
-            .map(|d| (d.cert.device_id, d.cert.label))
-            .collect();
-        let me = &self.device;
-        let mine = out.entry(me.id.clone()).or_default();
-        if mine.is_empty() {
-            *mine = me.name.clone();
-        }
-        for (id, name) in self.device_names.chosen() {
-            if let Some(l) = out.get_mut(&id) {
-                *l = name;
-            }
-        }
-        out
-    }
-
     /// This device as the person calls it ("Desktop Computer").
     pub(crate) fn this_device_name(&self) -> String {
         let n = self
