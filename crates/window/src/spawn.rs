@@ -150,12 +150,47 @@ pub(crate) fn spawn_in(bin: &Path, spec: &SpawnSpec, t: &TrustSet) -> Result<Spa
 }
 
 /// Ends a spawned session (card #446's `EndFn`): `claude stop`, then
-/// `claude rm`, which removes its `-w` worktree only when that is clean and
-/// otherwise keeps it and says why. Right after `stop` the worktree's lock can
-/// still name the exiting process, so `rm` is retried for a few seconds.
-/// `Ok` carries what `rm` printed ("kept …" when it kept the worktree).
+/// `claude rm`, which removes its worktree (`-w`, or one it entered) only
+/// when nothing in it is unpushed, and otherwise keeps it and says why.
+/// Right after `stop` the worktree's lock can still name the exiting
+/// process, so `rm` is retried for a few seconds. `Ok` carries what `rm`
+/// printed ("kept …" when it kept the worktree).
+///
+/// `id` is the session id Irori knows the agent by, but `stop` and `rm`
+/// take the job's short id (card #474: given the session id they said "No
+/// job matching", and the end was tried again every sweep for hours), so it
+/// is looked up in `claude agents --json --all`. A session that list no
+/// longer has was removed already: that is an end, not a failure.
 pub fn end(id: &str) -> Result<String, String> {
-    end_with(&find_claude()?, id, Duration::from_secs(8))
+    let bin = find_claude()?;
+    let job = match list_agents_with(&bin) {
+        Ok(list) => match list.iter().find(|a| a.session_id == id.trim()) {
+            Some(a) if !a.job_id.is_empty() => a.job_id.clone(),
+            Some(_) => job_id(id),
+            None => return Ok(format!("{GONE_JOB} {}", id.trim())),
+        },
+        Err(_) => job_id(id),
+    };
+    end_with(&bin, &job, Duration::from_secs(8))
+}
+
+/// How [`end`] starts its report for a job Claude Code no longer has.
+pub const GONE_JOB: &str = "no job for";
+
+/// The job id `claude stop` and `rm` take for session `id`: Claude Code
+/// names a `--bg` job by its session id's first 8 hex digits. Anything that
+/// isn't a full session id is passed on as it is.
+pub fn job_id(id: &str) -> String {
+    let id = id.trim();
+    match id.split_once('-') {
+        Some((head, _)) if id.len() == 36 && head.len() == 8 => head.to_string(),
+        _ => id.to_string(),
+    }
+}
+
+/// Whether `claude stop` or `rm` said it has no such job.
+fn no_job(text: &str) -> bool {
+    text.contains("No job matching")
 }
 
 pub(crate) fn end_with(bin: &Path, id: &str, patience: Duration) -> Result<String, String> {
@@ -184,6 +219,10 @@ pub(crate) fn end_with(bin: &Path, id: &str, patience: Duration) -> Result<Strin
         if !locked && text.contains("kept") {
             return Ok(text);
         }
+        if !ok && no_job(&text) {
+            // Removed already (by hand, or an earlier end): nothing left.
+            return Ok(format!("{GONE_JOB} {id}"));
+        }
         if !ok && !locked {
             return Err(format!("claude rm {id}: {text} (stop said: {stopped})"));
         }
@@ -194,11 +233,25 @@ pub(crate) fn end_with(bin: &Path, id: &str, patience: Duration) -> Result<Strin
     }
 }
 
+/// One of Claude Code's agents as `claude agents --json --all` lists it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ListedAgent {
+    pub session_id: String,
+    /// The short id `claude stop` and `rm` take; `""` for an interactive
+    /// session, which has none.
+    pub job_id: String,
+    /// Whether it still runs.
+    pub live: bool,
+}
+
 /// Claude Code's agents on this device, finished ones included (card
-/// #447's restart cleanup): `claude agents --json --all`. Each is its
-/// session id and whether it still runs.
-pub fn list_agents() -> Result<Vec<(String, bool)>, String> {
-    let mut cmd = std::process::Command::new(find_claude()?);
+/// #447's restart cleanup): `claude agents --json --all`.
+pub fn list_agents() -> Result<Vec<ListedAgent>, String> {
+    list_agents_with(&find_claude()?)
+}
+
+fn list_agents_with(bin: &Path) -> Result<Vec<ListedAgent>, String> {
+    let mut cmd = std::process::Command::new(bin);
     cmd.args(["agents", "--json", "--all"])
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
@@ -211,9 +264,9 @@ pub fn list_agents() -> Result<Vec<(String, bool)>, String> {
 }
 
 /// Parses `claude agents --json --all`: an array of agents, each with a
-/// `sessionId`; a running one has a `pid`, and a finished `--bg` one a
-/// `state` of done or failed.
-pub fn parse_agents(json: &str) -> Result<Vec<(String, bool)>, String> {
+/// `sessionId`; a `--bg` one has an `id` (its job), a running one a `pid`,
+/// and a finished `--bg` one a `state` of done or failed.
+pub fn parse_agents(json: &str) -> Result<Vec<ListedAgent>, String> {
     let v: serde_json::Value =
         serde_json::from_str(json.trim()).map_err(|e| format!("claude agents: {e}"))?;
     let list = match &v {
@@ -228,11 +281,20 @@ pub fn parse_agents(json: &str) -> Result<Vec<(String, bool)>, String> {
     Ok(list
         .iter()
         .filter_map(|a| {
-            let id = a.get("sessionId")?.as_str()?.to_string();
+            let session_id = a.get("sessionId")?.as_str()?.to_string();
             let state = a.get("state").and_then(|s| s.as_str()).unwrap_or("");
             let live =
                 a.get("pid").is_some_and(|p| !p.is_null()) && !matches!(state, "done" | "failed");
-            Some((id, live))
+            let job_id = a
+                .get("id")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(ListedAgent {
+                session_id,
+                job_id,
+                live,
+            })
         })
         .collect())
 }
@@ -493,15 +555,21 @@ mod tests {
 ]"#,
         )
         .unwrap();
+        let got: Vec<(&str, &str, bool)> = got
+            .iter()
+            .map(|a| (a.session_id.as_str(), a.job_id.as_str(), a.live))
+            .collect();
         assert_eq!(
             got,
             [
-                ("31d4b3cd-ded7-4c48-8f15-a7bbd8b90af9".to_string(), false),
-                ("e0e01949-5ac0-4312-a44c-85938569a94e".to_string(), true),
-                ("aa".to_string(), true),
-                ("bb".to_string(), false),
+                ("31d4b3cd-ded7-4c48-8f15-a7bbd8b90af9", "31d4b3cd", false),
+                ("e0e01949-5ac0-4312-a44c-85938569a94e", "", true),
+                ("aa", "", true),
+                ("bb", "", false),
             ]
         );
+        assert_eq!(job_id("6fa86d9b-cbdd-4fd2-9cc1-3252d7f87606"), "6fa86d9b");
+        assert_eq!(job_id("0a1b2c3d"), "0a1b2c3d");
         assert!(parse_agents("not json").is_err());
     }
     use super::*;
@@ -892,6 +960,25 @@ mod tests {
             end_with(&bin, "--help", Duration::ZERO).is_err(),
             "never a flag"
         );
+    }
+
+    /// Card #474: a job Claude Code no longer has ("No job matching" from
+    /// stop and rm) is ended, not a failure to try again.
+    #[cfg(unix)]
+    #[test]
+    fn end_of_a_job_already_removed_is_an_end() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let base = plain(std::fs::canonicalize(tmp.path()).unwrap());
+        let bin = base.join("claude");
+        std::fs::write(
+            &bin,
+            "#!/bin/sh\necho \"No job matching '$2'\"\nexit 1\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let out = end_with(&bin, "6fa86d9b", Duration::from_secs(5)).unwrap();
+        assert!(out.starts_with(GONE_JOB), "{out}");
     }
 
     fn card(name: &str, sid: &str) -> presence::AgentCard {
