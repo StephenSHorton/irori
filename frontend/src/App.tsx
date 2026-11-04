@@ -230,7 +230,7 @@ export function App() {
   const [heldTab, setHeldTab] = useState<HeldTab>("waiting")
   const [heldFrom, setHeldFrom] = useState("")
   // New card (card #116): its dialog is open.
-  const [newCard, setNewCard] = useState(false)
+  const [newCard, setNewCard] = useState(() => previewFlag("newcard") !== null)
   // Wind down all (card #220): the header's button and the tray's item.
   const [windDown, setWindDown] = useState(false)
   const [newBoard, setNewBoard] = useState(false)
@@ -803,6 +803,7 @@ export function App() {
         open={newCard}
         onClose={() => setNewCard(false)}
         onMade={openCard}
+        spawned={spawned}
         board={
           section.kind === "board" && !open
             ? boards.find((b) => b.boardId === section.id)
