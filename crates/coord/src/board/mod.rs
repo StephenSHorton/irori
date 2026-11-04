@@ -1250,6 +1250,12 @@ impl Coord {
     pub fn hand_on(&self, by: &str, id: &str) -> Result<(Task, Vec<Stranded>)> {
         self.lock().hand_on(by, id)
     }
+    /// Whether this device runs card `id`'s hand-out (it made the card):
+    /// only then does its own sweep start or offer the card's agent.
+    pub fn hands_out_here(&self, id: &str) -> bool {
+        let f = self.lock();
+        f.tasks.get(id).is_some_and(|t| f.hands_out(t))
+    }
     /// The spawned_for mark on agent `key`.
     pub fn spawned(&self, key: &str) -> Option<Spawned> {
         self.lock().spawned_for(key).cloned()

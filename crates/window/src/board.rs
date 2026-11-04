@@ -363,7 +363,13 @@ impl Window {
     /// BoardService.HandOn: "Hand to an agent" on an item whose agent is
     /// gone, on a card nobody holds (card #485). Own board only.
     pub fn hand_on(&self, id: &str) -> Result<String, String> {
-        self.core.hand_on(trim(id))
+        let id = trim(id);
+        if self.core.coord().get_task(id).is_none() {
+            return Err(invalid(
+                "a card on a shared board isn't handed to an agent from here: take it with one of your agents",
+            ));
+        }
+        self.core.hand_on(id)
     }
 
     /// BoardService.CloseAsk: an ask ends with nothing coming of it.

@@ -2419,6 +2419,19 @@ impl Core {
             .hand_on(&person, id)
             .map_err(|e| e.to_string())?;
         self.s.start_agent(id, "")?;
+        // The device that made the card runs its hand-out (card #485: the
+        // PC's cards go out from the PC).
+        if !self.s.coord.hands_out_here(id) {
+            let dev = irori_identity::owner::device_of(&t.created_by).to_string();
+            let mut name = self.device_label(&dev);
+            if name.is_empty() {
+                name = "the device that made it".into();
+            }
+            return Ok(format!(
+                "{} is back on the Board: {name} starts its agent or hands it to a free one.",
+                t.short_ref()
+            ));
+        }
         Ok(if self.s.coord.spawning() {
             format!(
                 "{} is back on the Board: Irori starts an agent for it.",
