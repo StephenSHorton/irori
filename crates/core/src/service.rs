@@ -3008,7 +3008,11 @@ impl Services {
                     self.agent_names.all().remove(&p.by)
                 })
                 .filter(|n| !n.trim().is_empty())
-                .unwrap_or_else(|| p.by.clone())
+                // Another person or their agent in a space's channel; a
+                // key never stands in for a name (card #478).
+                .or_else(|| self.space_names().remove(&p.by))
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or_else(|| "An agent".to_string())
         };
         let title = match self.talk.channel(&p.conv_id) {
             Some(c) => format!("{who} in #{}", c.name),
