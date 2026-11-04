@@ -58,13 +58,19 @@ The per-board override is dropped (decision 46, which amends #24).
 
 ## 6. Channels
 
-Talk 1 (#389) adds `talk.channel.created {…, spaceId}`, where an empty `spaceId` means Personal (the private log). A channel in a space goes in the space's log through the same gate. The kinds are already marked as accepted on board logs. This waits on #389 landing.
+- **Where Talk 1 (#389) keeps channels:** `talk.channel.created {…, spaceId}` rows, with an empty `spaceId` meaning Personal (the private log).
+- **A space's own Talk:** each space gets its own Talk fold over its log (`BoardLog.talk`, `Talk::for_space`).
+- **Writer keys:** its rows name the writer by board key (`person:<id>` or `agent:<cardId>`), because a space log refuses private keys. Each person stays apart: only the private `user:` keys fold into one.
+- **Creating one:** `Core::create_space_channel` stamps the space's id on the channel and goes through the same gate as another board.
+- **Listing them:** `Core::space_channels` lists them.
+- **Not yet built:** posting, and agents joining a space's channel, arrive with Talk 2 and 6 (#390, #394), on this fold.
 
 ## 7. Checks
 
 - **Tests:**
   - `board_logs_move_to_spaces`: a v0.10 layout with a move cut short reopens with the same cards and vector.
-  - `a_second_board_in_a_space_reaches_the_other_device`: the add is refused before the other device's hello, then the board and a card on it reach it.
+  - `a_second_board_in_a_space_reaches_the_other_device`: the add is refused before the other device's hello, then the board, a card on it and a channel in the space reach it.
+  - `a_space_talk_writes_by_board_keys` (coord): board keys only, two people stay two.
   - `a_space_waits_for_devices_that_dont_read_spaces`: tools.
   - `hello_says_it_reads_spaces`: wire compatibility.
   - `cardsOnBoard`: the page's filter.

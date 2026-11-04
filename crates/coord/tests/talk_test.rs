@@ -383,3 +383,34 @@ fn pages_run_oldest_first() {
     assert_eq!(talk::page(&ps, Some("unknown"), 2).len(), 2);
     assert_eq!(talk::since(&ps, Some("unknown")).len(), 7);
 }
+
+/// Card #392: a space's Talk writes to the space's log by board keys only
+/// (a space log refuses private keys), stamps the space's id on its
+/// channels, and keeps each person apart (two people are never "user").
+#[test]
+fn a_space_talk_writes_by_board_keys() {
+    let e = Env::new();
+    let t = Talk::for_space(e.st.clone(), "space1", Some(e.clk.func()));
+    assert_eq!(t.space(), "space1");
+    want(t.create_channel(USER, "general", ""), ErrorKind::Invalid);
+    want(t.create_channel(ALICE, "general", ""), ErrorKind::Invalid);
+    let c = t.create_channel("person:stephen", "general", "").unwrap();
+    assert_eq!(c.space_id, "space1");
+    assert_eq!(c.by, "person:stephen");
+    t.join(&c.id, &Member::of("person:blake"), "person:blake")
+        .unwrap();
+    let ms = t.members(&c.id);
+    assert_eq!(ms.len(), 2, "two people stay two: {ms:?}");
+    assert!(ms.iter().all(|m| m.kind == talk::PERSON), "{ms:?}");
+    assert_ne!(talk::canon("person:stephen"), talk::canon("person:blake"));
+    // The rows are in the log under the board actor.
+    let rows =
+        e.st.list(&store::Filter {
+            kinds: vec![kinds::TALK_CHANNEL_CREATED.into()],
+            limit: 10,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].actor, "person:stephen");
+}

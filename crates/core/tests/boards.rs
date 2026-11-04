@@ -483,6 +483,42 @@ fn a_second_board_in_a_space_reaches_the_other_device() {
         )
         .unwrap_err();
     assert!(e.to_string().contains("no board"), "{e}");
+    // A channel in the space (card #392) reaches the other device too,
+    // folded from the space's log, with its maker as a member.
+    let ch = a
+        .core
+        .create_space_channel(&id, "netcode-chat", "rollback talk")
+        .unwrap();
+    assert_eq!(ch.space_id, id);
+    wait_for(45, "b gets the space's channel", || {
+        b.core
+            .space_channels(&id)
+            .unwrap()
+            .iter()
+            .any(|c| c.id == ch.id && c.name == "netcode-chat" && c.space_id == id)
+    });
+    let me = format!("person:{}", a.core.identity().current().id);
+    assert!(
+        b.core
+            .space_channels(&id)
+            .unwrap()
+            .iter()
+            .any(|c| c.id == ch.id),
+        "b lists it"
+    );
+    let bs = b.core.board_store(&id).unwrap();
+    let rows = bs
+        .list(&store::Filter {
+            kinds: vec![kinds::TALK_MEMBER.into()],
+            limit: 100,
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(
+        rows.iter()
+            .any(|ev| String::from_utf8_lossy(&ev.payload).contains(&me)),
+        "the maker joined it, by its board key"
+    );
     // A tag in use, here or in a space, is refused.
     for tag in ["wind", "net"] {
         assert!(a.core.create_space_board(&id, "x", tag).is_err(), "{tag}");

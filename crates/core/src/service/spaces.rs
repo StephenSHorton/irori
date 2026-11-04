@@ -242,6 +242,46 @@ impl Services {
         Ok(id)
     }
 
+    /// Makes channel `name` in space `space_id` (card #392), with this
+    /// person as its first member. Refused until every member device reads
+    /// space rows, like another board.
+    pub(crate) fn create_space_channel(
+        &self,
+        space_id: &str,
+        name: &str,
+        topic: &str,
+    ) -> Result<coord::talk::Channel> {
+        let b = self.board(space_id)?;
+        let me = self.person_id();
+        if !b.verifier.membership().active(&me) {
+            return Err(Error::coord(
+                CK::NotAllowed,
+                format_args!("you aren't a member of space {space_id}"),
+            ));
+        }
+        let waiting = self.space_not_ready(space_id)?;
+        if !waiting.is_empty() {
+            return Err(Error::coord(
+                CK::NotAllowed,
+                format_args!(
+                    "every device in the space must run an Irori with spaces first; waiting on {}",
+                    waiting.join(", ")
+                ),
+            ));
+        }
+        let c = b
+            .talk
+            .create_channel(&format!("{}{me}", kinds::PERSON_ACTOR_PREFIX), name, topic)
+            .map_err(Error::from)?;
+        self.boards.moved();
+        Ok(c)
+    }
+
+    /// The channels in space `space_id`.
+    pub(crate) fn space_channels(&self, space_id: &str) -> Result<Vec<coord::talk::Channel>> {
+        Ok(self.board(space_id)?.talk.channels())
+    }
+
     /// The board (a space's own, or one inside a space) already using
     /// `tag` on this device, if any.
     pub(crate) fn board_tag_holder(&self, tag: &str) -> Option<String> {
@@ -275,6 +315,22 @@ impl super::Core {
     /// The member devices of `space_id` that don't read space rows yet.
     pub fn space_not_ready(&self, space_id: &str) -> Result<Vec<String>> {
         self.s.space_not_ready(space_id)
+    }
+
+    /// Makes a channel in space `space_id`; refused until every member
+    /// device reads space rows.
+    pub fn create_space_channel(
+        &self,
+        space_id: &str,
+        name: &str,
+        topic: &str,
+    ) -> Result<coord::talk::Channel> {
+        self.s.create_space_channel(space_id, name, topic)
+    }
+
+    /// The channels in space `space_id`.
+    pub fn space_channels(&self, space_id: &str) -> Result<Vec<coord::talk::Channel>> {
+        self.s.space_channels(space_id)
     }
 
     /// Adds a board to space `space_id`; refused until every member device

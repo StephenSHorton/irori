@@ -251,6 +251,8 @@ pub(crate) struct BoardLog {
     pub maps: Mutex<CardMaps>,
     /// When this device opened it, for the status lines' grace.
     pub opened: Instant,
+    /// The space's channels (card #392): Talk folded from this log.
+    pub talk: Arc<coord::talk::Talk>,
 }
 
 impl BoardLog {
@@ -1216,6 +1218,18 @@ impl Services {
             threads: Mutex::new(Vec::new()),
             maps: Mutex::new(CardMaps::default()),
             opened: Instant::now(),
+            talk: {
+                let now = self.now.clone();
+                let t = coord::talk::Talk::for_space(
+                    st.clone(),
+                    id,
+                    Some(std::sync::Arc::new(move || now())),
+                );
+                if let Err(e) = t.load() {
+                    logf(format_args!("space {id}: talk: {e}"));
+                }
+                Arc::new(t)
+            },
         });
         let close = |e: Error| {
             let _ = st.close();
@@ -1484,6 +1498,13 @@ impl Services {
             }
         } else if ev.kind == kinds::AGENT_CARD {
             b.fold_card(ev);
+        } else if coord::talk::KINDS.contains(&ev.kind.as_str()) {
+            // A channel in the space (card #392).
+            b.talk.apply(ev);
+            self.boards.moved();
+        }
+        if ev.seq == 0 {
+            let _ = b.talk.load();
         }
         self.bridge_row(b, ev);
         if summary_row(ev) {

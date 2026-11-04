@@ -79,12 +79,18 @@ const PERSON_KEY: &str = "user";
 /// `key` as Talk counts it: every device's person key (`user:<deviceId>`)
 /// is the person, `user`; any other key is itself.
 pub fn canon(key: &str) -> &str {
-    if is_person_key(key) { PERSON_KEY } else { key }
+    // Only this person's own device keys fold into one; on a space each
+    // person's board key (person:<id>) is that person.
+    if key == PERSON_KEY || key.starts_with("user:") {
+        PERSON_KEY
+    } else {
+        key
+    }
 }
 
 /// Whether `key` is the person's (on any of their devices).
 pub fn is_person_key(key: &str) -> bool {
-    key == PERSON_KEY || key.starts_with("user:")
+    key == PERSON_KEY || key.starts_with("user:") || key.starts_with("person:")
 }
 
 /// The DM between `a` and `b`: `dm:` and the first 16 hex digits of the
@@ -296,6 +302,9 @@ pub struct NewPost {
 /// concurrent use.
 pub struct Talk {
     st: Option<Arc<Store>>,
+    /// The space whose log this folds (card #392); empty for Personal, the
+    /// private log.
+    space: String,
     now: Arc<dyn Fn() -> GoTime + Send + Sync>,
     s: Mutex<State>,
 }
@@ -312,11 +321,30 @@ impl Talk {
     pub fn new(st: Option<Arc<Store>>, now: Option<Arc<dyn Fn() -> GoTime + Send + Sync>>) -> Talk {
         Talk {
             st,
+            space: PERSONAL_SPACE.into(),
             now: now.unwrap_or_else(|| {
                 Arc::new(|| GoTime::from_system(std::time::SystemTime::now()).utc())
             }),
             s: Mutex::new(State::default()),
         }
+    }
+
+    /// The fold of space `space`'s log (card #392). Its rows go on a space
+    /// log, which takes only board keys: the writer is `person:<id>` or
+    /// `agent:<cardId>`, never a private key.
+    pub fn for_space(
+        st: Arc<Store>,
+        space: &str,
+        now: Option<Arc<dyn Fn() -> GoTime + Send + Sync>>,
+    ) -> Talk {
+        let mut t = Talk::new(Some(st), now);
+        t.space = space.to_string();
+        t
+    }
+
+    /// The space this folds; empty for Personal.
+    pub fn space(&self) -> &str {
+        &self.space
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -361,7 +389,15 @@ impl Talk {
         let Some(st) = &self.st else {
             return Err(Error::raw(ErrorKind::Store, "talk: no store"));
         };
-        let actor = if is_person_key(actor_key) {
+        let actor = if !self.space.is_empty() {
+            // A space log names people and agents by their board keys.
+            if !(actor_key.starts_with("person:") || actor_key.starts_with("agent:")) {
+                return Err(invalid(format!(
+                    "a space names its writer by a board key (person: or agent:), not {actor_key}"
+                )));
+            }
+            actor_key.to_string()
+        } else if is_person_key(actor_key) {
             "user".to_string()
         } else {
             format!("agent:{actor_key}")
@@ -388,7 +424,7 @@ impl Talk {
             kinds::TALK_CHANNEL_CREATED,
             &ChannelCreatedRow {
                 channel_id: id.clone(),
-                space_id: PERSONAL_SPACE.into(),
+                space_id: self.space.clone(),
                 name,
                 topic: (!topic.is_empty()).then_some(topic),
                 by: by.into(),
