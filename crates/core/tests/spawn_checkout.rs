@@ -56,7 +56,7 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
                 prefix: SESS[..8].into(),
             })
         }),
-        end: Arc::new(|_| Ok(Default::default())),
+        end: Arc::new(|_| Ok(())),
         trusted: Arc::new(|_| true),
         list: None,
     }
@@ -289,7 +289,7 @@ fn a_copy_turning_up_lifts_the_blocker_and_starts_the_agent() {
         .get(&c.id)
         .blockers
         .into_iter()
-        .find(|b| is_no_copy(b))
+        .find(is_no_copy)
         .and_then(|b| b.resolved)
         .unwrap();
     assert!(
