@@ -2031,7 +2031,8 @@ export const cardStore = createCardStore(readCards)
 
 export function createCardStore(
   read: (ids: string[]) => Promise<Map<string, CardSlot>>,
-  events: (again: () => void) => () => void = cardEvents
+  events: (again: () => void) => () => void = cardEvents,
+  retryMs = RetryMs
 ) {
   const slots = new Map<string, CardSlot>()
   const seen = new Map<string, string>()
@@ -2041,6 +2042,7 @@ export function createCardStore(
   let all = false
   let running = false
   let retry: ReturnType<typeof setTimeout> | undefined
+  const failedIds = new Set<string>()
   let off: (() => void) | null = null
 
   function request(id?: string) {
@@ -2060,21 +2062,31 @@ export function createCardStore(
         want = new Set()
         if (!ids.length) continue
         const got = await read(ids)
-        let failed = false
-        for (const [id, slot] of got) {
+        for (const [id, got1] of got) {
           if (!users.has(id)) continue
-          if (slot.error) failed = true
+          // A failed read keeps the card shown, with the error beside it,
+          // as each useCard's own read did.
+          const slot = got1.error
+            ? { detail: slots.get(id)?.detail ?? null, error: got1.error }
+            : got1
           const json = JSON.stringify(slot)
           if (seen.get(id) === json) continue
           seen.set(id, json)
           slots.set(id, slot)
           for (const fn of users.get(id) ?? []) fn()
+          // A new error is tried again once, on its own, a few seconds
+          // later; the same error again isn't (a gone card isn't polled).
+          if (slot.error && off) {
+            failedIds.add(id)
+            if (retry === undefined)
+              retry = setTimeout(() => {
+                retry = undefined
+                const ids = [...failedIds]
+                failedIds.clear()
+                for (const x of ids) request(x)
+              }, retryMs)
+          }
         }
-        if (failed && retry === undefined && off)
-          retry = setTimeout(() => {
-            retry = undefined
-            request()
-          }, RetryMs)
       }
     } finally {
       running = false
@@ -2087,6 +2099,7 @@ export function createCardStore(
       stop()
       clearTimeout(retry)
       retry = undefined
+      failedIds.clear()
     }
   }
 
