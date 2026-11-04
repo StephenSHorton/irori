@@ -307,8 +307,12 @@ fn answer_leaves_blocker_open() {
         })
         .collect();
     assert_eq!(lines.len(), 3, "lines {lines:?}");
-    assert!(lines[1].contains(&format!("answered blocker {}", bl.id)));
-    assert!(lines[2].contains(&format!("replied on blocker {}", bl.id)));
+    // Card #490: the person reads the question, never the blocker's id.
+    assert!(lines[1].ends_with("answered “Which DB?”"), "{lines:?}");
+    assert!(lines[2].ends_with("replied on “Which DB?”"), "{lines:?}");
+    assert!(lines.iter().all(|l| !l.contains(&bl.id)), "{lines:?}");
+    let gists: Vec<&str> = d.thread.iter().filter(|i| i.blocker_id == bl.id).skip(1).map(|i| i.blocker_gist.as_str()).collect();
+    assert_eq!(gists, ["Which DB?", "Which DB?"]);
     assert_eq!(r.w.decide_count(), 1, "a replied item is a decision");
 
     co.answer(
@@ -565,7 +569,8 @@ fn revised_blocker_shows_in_its_thread() {
     assert!(rev.revised && rev.kind == THREAD_EVENT, "{rev:?}");
     assert_eq!(rev.who.key, r.key_a);
     assert!(
-        rev.text.contains("revised blocker")
+        rev.text.contains("revised it: asks now")
+            && !rev.text.contains(&bl.id)
             && rev.text.contains("Postgres on the small plan?")
             && rev
                 .text

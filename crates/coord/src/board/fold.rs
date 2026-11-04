@@ -16,7 +16,7 @@ use super::error::{Error, ErrorKind, Result};
 use super::resource::{Resource, normalize_resource, parse_resource};
 use super::rows::*;
 use super::types::*;
-use super::util::{SWEEPER, cmp_str, contains, cut, remove_str};
+use super::util::{SWEEPER, cmp_str, collapse_space, contains, cut, remove_str};
 use super::{MAX_ASIDE, Options};
 use crate::gotime;
 use crate::names::trim_space;
@@ -1226,11 +1226,13 @@ impl Fold {
         let mut what = String::new();
         let mut raised = String::new();
         let mut revised = false;
+        let mut gist = String::new();
         if p.state == BLOCKED {
             let f = self.fold_blocked(&mut t, &p, ev, was == BLOCKED, when);
             what = f.what;
             raised = f.raised;
             revised = f.revised;
+            gist = f.gist;
         } else {
             // The person's completed on a card waiting on its done check is
             // their Done (card #315): the check reads answered Done, not
@@ -1266,6 +1268,7 @@ impl Fold {
         let mut line = line_of(ev, when, &p.by, &what);
         line.blocker_id = raised.clone();
         line.revised = revised;
+        line.blocker_gist = gist;
         let ti = Touch::of(&t);
         let holder = t.holder.clone();
         if !raised.is_empty() {
@@ -1384,13 +1387,26 @@ impl Fold {
         }
         let ti = Touch::of(t);
         if !p.blocker_id.is_empty() {
-            let what = if person {
-                format!("answered blocker {}", p.blocker_id)
-            } else {
-                format!("replied on blocker {}", p.blocker_id)
+            // The person reads the question, not the blocker's id (card
+            // #490); the line still carries the id to link to it.
+            let gist = t
+                .blockers
+                .iter()
+                .find(|b| b.id == p.blocker_id)
+                .map(|b| blocker_gist(&b.question))
+                .unwrap_or_default();
+            let what = match (person, gist.is_empty()) {
+                (true, false) => format!("answered “{gist}”"),
+                (false, false) => format!("replied on “{gist}”"),
+                (true, true) => "answered a blocker".to_string(),
+                (false, true) => "replied on a blocker".to_string(),
             };
+            if let Some(cm) = self.comments.get_mut(&p.comment_id) {
+                cm.blocker_gist = gist.clone();
+            }
             let mut line = line_of(ev, cm_at, &cm_by, &what);
             line.blocker_id = p.blocker_id.clone();
+            line.blocker_gist = gist;
             self.touch_line(&ti, line, false, Vec::new());
             let mut t = self.tasks.remove(&p.task_id).expect("checked");
             super::cards::refresh_blocker(
@@ -2163,6 +2179,11 @@ pub(crate) fn sync_co_holders(t: &mut Task) {
     if (!t.holders.is_empty() || !t.co_holders.is_empty()) && is_nobody_note(&t.note) {
         t.note.clear();
     }
+}
+
+/// A blocker's question as a thread line quotes it (card #490).
+pub(crate) fn blocker_gist(question: &str) -> String {
+    cut(&collapse_space(question), super::asks::MAX_LOG_QUOTE)
 }
 
 /// The start of Irori's own notes for a card nobody holds (card #490):

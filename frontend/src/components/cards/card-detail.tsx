@@ -68,6 +68,8 @@ import {
   heardLine,
   LiveRoster,
   StartAgentOn,
+  BlockersHere,
+  blockerItemId,
 } from "@/lib/thread"
 import { SpawnedActions } from "@/components/cards/spawned-actions"
 import { cn } from "@/lib/utils"
@@ -246,6 +248,8 @@ export function CardPage({
   const readyNow = detail.ready ? open.find((b) => b.doneCheck) : undefined
   if (readyNow && (lifted?.card !== detail.id || lifted.id !== readyNow.id))
     setLifted({ card: detail.id, id: readyNow.id })
+  // The blockers this page shows (card #490): thread lines link to them.
+  const blockersHere = new Set(detail.blockers.map((b) => b.id))
   const ready =
     readyNow ??
     (lifted?.card === detail.id
@@ -525,29 +529,31 @@ export function CardPage({
               <TerminalCard cardId={detail.id} />
               <Card className="gap-0 py-0!">
                 <Section title="Thread" last>
-                  <StartAgentOn.Provider
-                    value={startable(detail) ? detail.id : ""}
-                  >
-                    <Thread
-                      cardId={detail.id}
-                      items={detail.thread}
-                      now={now}
-                      earlier={detail.threadEarlier}
-                      historyTrimmed={detail.historyTrimmed}
-                      on={{
-                        agents: detail.working,
-                        over: over(detail),
-                        working: workers,
-                        jobs,
-                      }}
-                      composer={
-                        <CommentBox
-                          cardId={detail.id}
-                          noFiles={!!detail.onBoard}
-                        />
-                      }
-                    />
-                  </StartAgentOn.Provider>
+                  <BlockersHere.Provider value={blockersHere}>
+                    <StartAgentOn.Provider
+                      value={startable(detail) ? detail.id : ""}
+                    >
+                      <Thread
+                        cardId={detail.id}
+                        items={detail.thread}
+                        now={now}
+                        earlier={detail.threadEarlier}
+                        historyTrimmed={detail.historyTrimmed}
+                        on={{
+                          agents: detail.working,
+                          over: over(detail),
+                          working: workers,
+                          jobs,
+                        }}
+                        composer={
+                          <CommentBox
+                            cardId={detail.id}
+                            noFiles={!!detail.onBoard}
+                          />
+                        }
+                      />
+                    </StartAgentOn.Provider>
+                  </BlockersHere.Provider>
                 </Section>
               </Card>
             </div>
@@ -1708,6 +1714,7 @@ function BlockerItem({
   if (r && !unfolded && !told && !error)
     return (
       <button
+        id={blockerItemId(b.id)}
         type="button"
         onClick={() => setUnfolded(true)}
         aria-expanded={false}
@@ -1728,8 +1735,9 @@ function BlockerItem({
 
   return (
     <div
+      id={blockerItemId(b.id)}
       className={cn(
-        "grid gap-2 rounded-xl border p-3",
+        "grid scroll-mt-16 gap-2 rounded-xl border p-3",
         tone === "amber" &&
           (b.doneCheck
             ? "border-success/40 bg-success/5"

@@ -335,6 +335,8 @@ pub(crate) struct Folded {
     pub what: String,
     pub raised: String,
     pub revised: bool,
+    /// A revision's blocker as it asked before (card #490).
+    pub gist: String,
 }
 
 impl Folded {
@@ -349,7 +351,7 @@ impl Folded {
         Folded {
             what,
             raised: id.into(),
-            revised: false,
+            ..Folded::default()
         }
     }
 }
@@ -566,6 +568,7 @@ impl Fold {
                 let person = self.is_owner(&p.by);
                 let b = &mut t.blockers[i];
                 let mut what = String::new();
+                let gist = super::fold::blocker_gist(&b.question);
                 if br.revise {
                     let opts = fold_options(&br.options, at);
                     what = revision_line(b, br, &opts);
@@ -591,6 +594,7 @@ impl Fold {
                         what,
                         raised: id,
                         revised: true,
+                        gist,
                     };
                 }
                 return Folded::line(format!("changed the blocker: {q}"));

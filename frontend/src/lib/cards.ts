@@ -1233,7 +1233,13 @@ function sampleAnswer(
       mentions: named.length ? named : undefined,
     }),
   ]
-  c.thread = sampleThreadLine(c, now, `You answered blocker ${b.id}`, b.id)
+  c.thread = sampleThreadLine(
+    c,
+    now,
+    `You answered “${b.question}”`,
+    b.id,
+    b.question
+  )
   // As BoardService.Answer: the answer waits on the raiser, unless nobody
   // is running to act on it.
   if (!b.raisedBy.live && !c.working.some((w) => w.live)) {
@@ -1365,7 +1371,8 @@ function sampleThreadLine(
   c: CardDetail,
   at: string,
   text: string,
-  blockerId?: string
+  blockerId?: string,
+  blockerGist?: string
 ): CardThreadItem[] {
   return [
     ...c.thread,
@@ -1376,6 +1383,7 @@ function sampleThreadLine(
       who: sampleYou,
       text,
       blockerId,
+      blockerGist,
     }),
   ]
 }

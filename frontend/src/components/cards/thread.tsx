@@ -28,6 +28,9 @@ import {
   workingLine,
   StartAgentOn,
   startAgentItem,
+  BlockersHere,
+  blockerItemId,
+  blockerName,
 } from "@/lib/thread"
 import { useReducedMotion } from "@/lib/motion"
 import { cn } from "@/lib/utils"
@@ -92,17 +95,30 @@ export function Thread({
   const watching = !!on
   useEffect(() => {
     if (!watching) return
-    const id = window.setTimeout(() => setTick((n) => n + 1), StoppedGrace + 100)
+    const id = window.setTimeout(
+      () => setTick((n) => n + 1),
+      StoppedGrace + 100
+    )
     return () => window.clearTimeout(id)
   }, [watching, live])
-  const status = on ? workingLine(on.agents, items, live, new Date(), on.over, on.working, on.jobs)
+  const status = on
+    ? workingLine(
+        on.agents,
+        items,
+        live,
+        new Date(),
+        on.over,
+        on.working,
+        on.jobs
+      )
     : null
   // A comment a notification opened the card at: shown even when it is
   // older than the first page, scrolled into view once (card #177).
   const focus = useContext(FocusComment)
   const holds = !!focus && items.some((it) => it.id === focus)
   const startOn = useContext(StartAgentOn)
-  const startId = !inBlocker && cardId && startOn === cardId ? startAgentItem(items) : ""
+  const startId =
+    !inBlocker && cardId && startOn === cardId ? startAgentItem(items) : ""
   const paged = visible(items, showAll)
   const shown =
     holds && !paged.some((it) => it.id === focus) ? visible(items, true) : paged
@@ -144,30 +160,28 @@ export function Thread({
           </p>
         )
       )}
-      {shown.length ? (
-        shown.map((it) => (
-          <div
-            key={it.id}
-            id={threadEntryId(it.id)}
-            className={cn(
-              "grid grid-cols-[minmax(0,1fr)] scroll-mt-16",
-              holds &&
-                it.id === focus &&
-                "-mx-1.5 rounded-sm bg-primary/10 px-1.5 py-0.5 ring-1 ring-primary/40"
-            )}
-          >
-            <ThreadRow
-              cardId={cardId}
-              item={it}
-              now={now}
-              inBlocker={inBlocker}
-              startable={it.id === startId}
-            />
-          </div>
-        ))
-      ) : (
-        !status && <p className="text-muted-foreground">{empty}</p>
-      )}
+      {shown.length
+        ? shown.map((it) => (
+            <div
+              key={it.id}
+              id={threadEntryId(it.id)}
+              className={cn(
+                "grid scroll-mt-16 grid-cols-[minmax(0,1fr)]",
+                holds &&
+                  it.id === focus &&
+                  "-mx-1.5 rounded-sm bg-primary/10 px-1.5 py-0.5 ring-1 ring-primary/40"
+              )}
+            >
+              <ThreadRow
+                cardId={cardId}
+                item={it}
+                now={now}
+                inBlocker={inBlocker}
+                startable={it.id === startId}
+              />
+            </div>
+          ))
+        : !status && <p className="text-muted-foreground">{empty}</p>}
       {status &&
         (status.tone === "working" ? (
           // Where the next comment will appear (card #317): who is on it,
@@ -192,10 +206,19 @@ export function Thread({
   )
   if (scroll) {
     return (
-      <div className={cn("grid min-w-0 grid-cols-[minmax(0,1fr)] text-[12.5px]", gap)}>
+      <div
+        className={cn(
+          "grid min-w-0 grid-cols-[minmax(0,1fr)] text-[12.5px]",
+          gap
+        )}
+      >
         <div
           ref={list}
-          className={cn("grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] content-start overflow-y-auto", gap, scroll)}
+          className={cn(
+            "grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] content-start overflow-y-auto",
+            gap,
+            scroll
+          )}
         >
           {entries}
         </div>
@@ -210,7 +233,12 @@ export function Thread({
     )
   }
   return (
-    <div className={cn("grid min-w-0 grid-cols-[minmax(0,1fr)] text-[12.5px]", gap)}>
+    <div
+      className={cn(
+        "grid min-w-0 grid-cols-[minmax(0,1fr)] text-[12.5px]",
+        gap
+      )}
+    >
       {entries}
       {composer}
     </div>
@@ -247,6 +275,7 @@ function ThreadRow({
   startable?: boolean
 }) {
   const [started, setStarted] = useState(false)
+  const here = useContext(BlockersHere)
   const [full, setFull] = useState<CardMessage | null>(null)
   // Keep as note (card #413) on comments and blocker answers.
   const noteCard = useNoteCard()
@@ -297,7 +326,8 @@ function ThreadRow({
       </div>
     )
   // An activity line (card #117): whoever made the change shows their
-  // face, and the line stays dim so it reads as a log, not a comment.
+  // face, and the line stays dim so it reads as a log, not a comment. A
+  // line about a blocker the page shows links to it (card #490).
   if (item.kind === ThreadKind.Event)
     return (
       <div className="grid grid-cols-[56px_minmax(0,1fr)] gap-2">
@@ -305,7 +335,22 @@ function ThreadRow({
         <span className="flex items-start gap-1.5 text-muted-foreground">
           <ActorFace who={item.who} />
           <span className="min-w-0">
-            <RichLine text={item.text} />
+            {item.blockerId && !inBlocker && here.has(item.blockerId) ? (
+              <button
+                type="button"
+                className="cursor-pointer rounded-sm text-left underline decoration-muted-foreground/40 underline-offset-2 outline-none hover:text-ink focus-visible:ring-1 focus-visible:ring-ring"
+                title="Show this blocker"
+                onClick={() =>
+                  document
+                    .getElementById(blockerItemId(item.blockerId!))
+                    ?.scrollIntoView({ block: "center", behavior: "smooth" })
+                }
+              >
+                <RichLine text={item.text} />
+              </button>
+            ) : (
+              <RichLine text={item.text} />
+            )}
             {item.device && <DeviceTag device={item.device} />}
           </span>
         </span>
@@ -413,7 +458,7 @@ function ThreadRow({
             <RichText
               text={full.text}
               mentions={item.mentions}
-              className="text-ink-2 [overflow-wrap:anywhere]"
+              className="[overflow-wrap:anywhere] text-ink-2"
             />
             {full.files.length > 0 && (
               <ul className="grid gap-0.5 text-[11px] text-muted-foreground">
@@ -499,7 +544,7 @@ function ThreadRow({
             <RichText
               text={body}
               mentions={item.mentions}
-              className="text-ink-2 [overflow-wrap:anywhere]"
+              className="[overflow-wrap:anywhere] text-ink-2"
             />
           )
         )}
@@ -568,11 +613,15 @@ function ThreadRow({
             source={
               item.blockerId
                 ? {
-                    label: `${l.author ? plainLine(l.author) + "'s" : "the"} answer on ${item.blockerId}`,
+                    label: `${l.author ? plainLine(l.author) + "'s" : "the"} answer on ${blockerName(item.blockerGist)}`,
                     source: `blocker:${cardId}/${item.blockerId}`,
                     blockerId: item.blockerId,
                   }
-                : { label: `${l.author ? plainLine(l.author) + "'s" : "this"} comment`, source: `comment:${item.id}`, commentId: item.id }
+                : {
+                    label: `${l.author ? plainLine(l.author) + "'s" : "this"} comment`,
+                    source: `comment:${item.id}`,
+                    commentId: item.id,
+                  }
             }
           />
         )}
