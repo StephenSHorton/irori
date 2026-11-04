@@ -391,7 +391,9 @@ export function App() {
           return
         }
         // A Talk notification (card #395): that channel or DM.
-        if (target.tab === "talk" && ref) {
+        // Without a ref (card #482): Talk's list, where the messages that
+        // waited for you are (the "N messages waited for you" card).
+        if (target.tab === "talk" || (target.tab === "inbox" && !ref)) {
           go({ kind: "talk", id: ref })
           return
         }

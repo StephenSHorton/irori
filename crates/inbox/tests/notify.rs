@@ -751,6 +751,19 @@ fn watch_start_shows_one_quiet_card_for_what_waited() {
             && c.body == "From beta",
         "{c:?}"
     );
+    // It stands for both, and opens Talk's list, where they are (#482).
+    let mut ids = c.ids.clone();
+    ids.sort();
+    let mut both = vec![d1.id.clone(), d2.id.clone()];
+    both.sort();
+    assert_eq!(ids, both);
+    assert_eq!(
+        c.on_click,
+        Some(CardAct::Open(Target {
+            tab: inbox::watch::TAB_TALK.into(),
+            ref_: String::new(),
+        }))
+    );
     assert!(
         sink.live(&held_id(KEY_A)),
         "a held message still gets its card"

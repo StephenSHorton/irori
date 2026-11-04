@@ -35,6 +35,8 @@ export const Kind = {
   Message: "message",
   Held: "held",
   Agent: "agent",
+  // The one card for several messages that waited (card #482).
+  Waited: "waited",
 } as const
 
 export const kindLabel: Record<string, string> = {
@@ -49,6 +51,7 @@ export const kindLabel: Record<string, string> = {
   message: "Message",
   held: "Held",
   agent: "Agent",
+  waited: "Messages",
 }
 
 export const kindTone: Record<
@@ -66,6 +69,7 @@ export const kindTone: Record<
   message: "info",
   held: "warning",
   agent: "secondary",
+  waited: "info",
 }
 
 // onCard: the item is about a card's blocker, done check or question.
@@ -74,6 +78,13 @@ export function asksOnCard(n: Notification): boolean {
     !!n.taskId &&
     (n.kind === Kind.Blocker || n.kind === Kind.DoneCheck || n.kind === Kind.Input)
   )
+}
+
+// waitedSummary: the item is the "N messages waited for you" card, which
+// stands for several messages, not one (card #482). Before #482 it was a
+// message about delivery "waiting".
+export function waitedSummary(n: Notification): boolean {
+  return n.kind === Kind.Waited || (n.kind === Kind.Message && n.deliveryId === "waiting")
 }
 
 // shown is the list a filter shows, newest first as it comes.

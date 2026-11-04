@@ -1033,6 +1033,17 @@ fn finished_shot(t: &Task) -> Option<&str> {
 /// its delivery; a held card is its newest held message, so the same
 /// messages posted again stay one item and a new one is news.
 fn inbox_about(note: &inbox::watch::Note) -> Option<PostedRow> {
+    // The one card for several that waited (card #482): every message it
+    // stands for, keyed by the newest so the same set stays one item.
+    if note.id == inbox::watch::WAITING_ID {
+        let newest = note.ids.iter().max()?.clone();
+        return Some(PostedRow {
+            kind: history::KIND_WAITED.into(),
+            delivery_id: newest,
+            delivery_ids: note.ids.clone(),
+            ..PostedRow::default()
+        });
+    }
     if let Some(d) = note.id.strip_prefix("msg:") {
         return Some(PostedRow {
             kind: history::KIND_MESSAGE.into(),

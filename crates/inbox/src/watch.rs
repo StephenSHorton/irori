@@ -120,6 +120,9 @@ pub struct Note {
     pub actions: Vec<Action>,
     pub on_click: Option<CardAct>,
     pub on_dismiss: Option<CardAct>,
+    /// The deliveries a summary card stands for (the waited card), so its
+    /// history item can tell when none waits any more (card #482).
+    pub ids: Vec<String>,
 }
 
 /// Where cards go (the Notifier).
@@ -652,8 +655,10 @@ impl Watcher {
                 names.push(from);
             }
         }
+        // Agents' messages are DMs in Talk (card #390): its list shows
+        // them all, newest first, the unread ones marked (card #482).
         let open = CardAct::Open(Target {
-            tab: TAB_INBOX.into(),
+            tab: TAB_TALK.into(),
             ref_: String::new(),
         });
         let body = match names.len() {
@@ -673,6 +678,7 @@ impl Watcher {
                 run: Some(open.clone()),
             }],
             on_click: Some(open),
+            ids: ds.iter().map(|d| d.id.clone()).collect(),
             ..Note::default()
         }
     }

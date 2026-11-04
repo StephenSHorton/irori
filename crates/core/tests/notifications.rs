@@ -143,3 +143,100 @@ fn a_blocker_is_kept_once_read_and_survives_a_restart() {
     assert_eq!(back[1].posted.blocker_id, b);
     again.close().unwrap();
 }
+
+/// Card #482: once what an item asks is settled, by the person or the
+/// agent, it reads by itself and leaves the badge.
+#[test]
+fn a_resolved_blocker_or_done_check_leaves_the_badge_by_itself() {
+    let (_cards, n) = notifier();
+    let r = Rig::with(|o| {
+        o.headless = false;
+        o.notifier = Some(n.clone());
+    });
+    let co = r.core.coord();
+    let person = r.core.user_sender().key;
+    let task = co
+        .create_task(
+            &r.key_a,
+            NewTask {
+                title: "Pick a colour".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.claim_task(&r.key_a, &task.id).unwrap();
+    let on = || {
+        Some(coord::BlockedBy {
+            kind: coord::BLOCKED_ON_PERSON.into(),
+            reference: String::new(),
+        })
+    };
+    let unread_of = |kind: &str| {
+        r.core
+            .notifications()
+            .iter()
+            .filter(|i| i.posted.kind == kind && !i.read)
+            .count()
+    };
+
+    // The person answers in their own words: it's with the agent now.
+    co.block(&r.key_a, &task.id, "Blue or green?", on())
+        .unwrap();
+    wait_for(10, "the blocker's notification", || {
+        r.core.notifications().len() == 1
+    });
+    assert_eq!(r.core.unread_notifications(), 1);
+    let b1 = co.get_task(&task.id).unwrap().open_blockers()[0].id.clone();
+    co.answer(
+        &person,
+        &task.id,
+        &b1,
+        coord::BlockerAnswer {
+            text: "Blue".into(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    wait_for(10, "the answered blocker read", || {
+        r.core.unread_notifications() == 0
+    });
+    assert!(r.core.notifications()[0].read);
+
+    // The agent resolves the next one itself.
+    co.unblock(&r.key_a, &task.id, "went with blue").unwrap();
+    co.block(&r.key_a, &task.id, "Matte or gloss?", on())
+        .unwrap();
+    wait_for(10, "the second blocker's notification", || {
+        unread_of(coord::notifications::KIND_BLOCKER) == 1
+    });
+    co.unblock(&r.key_a, &task.id, "gloss, as the brief says")
+        .unwrap();
+    wait_for(10, "the unblocked blocker read", || {
+        r.core.unread_notifications() == 0
+    });
+
+    // A done check, marked Done.
+    co.set_task_state(&r.key_a, &task.id, "completed", "done: it's blue")
+        .unwrap();
+    wait_for(10, "the done check's notification", || {
+        unread_of(coord::notifications::KIND_DONE_CHECK) == 1
+    });
+    notify::watch::mark_done(co, &person, &task.id).unwrap();
+    wait_for(10, "the marked done check read", || {
+        r.core.unread_notifications() == 0
+    });
+
+    // Irori read them and said why; the person read nothing.
+    let reads = r
+        .core
+        .store()
+        .list(&store::Filter {
+            kinds: vec![coord::notifications::READ.into()],
+            limit: store::MAX_LIST_LIMIT,
+            ..store::Filter::default()
+        })
+        .unwrap();
+    assert!(!reads.is_empty());
+    assert!(reads.iter().all(|e| e.actor == "irori"), "{reads:?}");
+    r.core.close().unwrap();
+}
