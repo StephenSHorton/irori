@@ -952,6 +952,18 @@ export type CardSummary = {
 	 */
 	waitYou?: string,
 	/**
+	 *  The cards this one waits on each other with (card #481), itself
+	 *  among them, in wait order: none of them can move until someone
+	 *  drops a wait. Every card of the loop carries the same list, so
+	 *  Home's Needs you shows it once.
+	 */
+	waitLoop?: CardRef[],
+	/**
+	 *  The card this one's waits end at that nobody holds and nothing
+	 *  will hand out (card #481).
+	 */
+	waitStuck?: CardRef | null,
+	/**
 	 *  An in-review card waiting on the person's review of a PR it links
 	 *  (card #347): no agent was asked to review it.
 	 */

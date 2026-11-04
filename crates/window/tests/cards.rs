@@ -1255,8 +1255,75 @@ fn a_wait_on_a_card_is_never_a_question() {
         .unwrap();
     let d = r.w.card(&t.id).unwrap();
     assert!(blocker(&d, &b3.id).waits_on.is_none());
+    assert!(d.summary.wait_loop.is_empty() && d.summary.wait_stuck.is_none());
     assert_eq!((d.summary.open_blockers, d.summary.waiting_on), (1, 2));
     assert_eq!(r.w.decide_count(), 1);
+}
+
+/// Card #481: #392 waited on #396, #396 on #394 and #394 on #392. Each
+/// card's summary names the same loop, none of it counts as a decision,
+/// and it's gone once one of the cards is done.
+#[test]
+fn cards_that_wait_on_each_other_name_the_loop() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let summary = |id: &str| r.w.cards().into_iter().find(|c| c.id == id).unwrap();
+    let card = |title: &str| {
+        co.create_task(
+            &me(&r),
+            coord::NewTask {
+                title: title.into(),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let wait_on = |id: &str, on: &str| {
+        co.raise(
+            &me(&r),
+            id,
+            coord::NewBlocker {
+                question: "after it".into(),
+                blocked_by: Some(coord::BlockedBy {
+                    kind: coord::BLOCKED_ON_TASK.into(),
+                    reference: on.into(),
+                }),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let (t4, t6, t8) = (card("Talk 4"), card("Talk 6"), card("Talk 8"));
+    wait_on(&t4.id, &t8.id);
+    wait_on(&t8.id, &t6.id);
+    assert!(summary(&t4.id).wait_loop.is_empty());
+    wait_on(&t6.id, &t4.id);
+
+    let ids =
+        |id: &str| -> Vec<String> { summary(id).wait_loop.iter().map(|c| c.id.clone()).collect() };
+    let ring = ids(&t4.id);
+    assert_eq!(ring.len(), 3, "{ring:?}");
+    for t in [&t4, &t6, &t8] {
+        assert_eq!(ids(&t.id), ring, "{}", t.title);
+        let s = summary(&t.id);
+        assert_eq!((s.open_blockers, s.waiting_on), (0, 1), "{}", t.title);
+        assert!(s.wait_stuck.is_none());
+    }
+    let s = summary(&t4.id);
+    let named = s.wait_loop.iter().find(|c| c.id == t6.id).unwrap();
+    assert_eq!(
+        (named.short.as_str(), named.title.as_str()),
+        (t6.short.as_str(), "Talk 6")
+    );
+    assert_eq!(r.w.decide_count(), 0);
+    // The card page carries it too.
+    assert_eq!(r.w.card(&t6.id).unwrap().summary.wait_loop.len(), 3);
+
+    co.set_task_state(&me(&r), &t6.id, coord::CANCELED, "not now")
+        .unwrap();
+    for t in [&t4, &t8] {
+        assert!(ids(&t.id).is_empty(), "{}", t.title);
+    }
 }
 
 /// Card #138: clearing done cards takes them out of Closed (by id, by age

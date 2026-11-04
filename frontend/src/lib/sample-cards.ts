@@ -323,6 +323,11 @@ export function sampleCards(now: Date): CardDetail[] {
       state: "open",
       waitsOn: { kind: "task", label: `#${short}`, taskId: id, title },
     })
+  const ring = [
+    { id: "sample-card-loop-70", short: "70", title: "Talk 4: Spaces" },
+    { id: "sample-card-loop-72", short: "72", title: "Talk 8: release Talk" },
+    { id: "sample-card-loop-71", short: "71", title: "Talk 6: person-to-person DMs" },
+  ]
   const loop = new URLSearchParams(window.location.search).has("loop")
     ? [
         card({
@@ -332,6 +337,7 @@ export function sampleCards(now: Date): CardDetail[] {
           goal: "The space log replaces the per-board log.",
           state: TaskState.Blocked,
           working: [],
+          waitLoop: ring,
           blockers: [
             waitOn(
               "sample-card-loop-72",
@@ -349,6 +355,7 @@ export function sampleCards(now: Date): CardDetail[] {
           goal: "DMs over a hidden two-person space.",
           state: TaskState.Blocked,
           working: [],
+          waitLoop: ring,
           blockers: [
             waitOn(
               "sample-card-loop-70",
@@ -366,6 +373,7 @@ export function sampleCards(now: Date): CardDetail[] {
           goal: "Cut v0.12.0 once Talk 1-7 are done.",
           state: TaskState.Blocked,
           working: [],
+          waitLoop: ring,
           blockers: [
             CardBlocker({
               id: "b2",

@@ -664,6 +664,8 @@ function summary(c: CardDetail): CardSummary {
     waitQuestion: c.waitQuestion,
     waitYou: c.waitYou,
     waitTask: c.waitTask,
+    waitLoop: c.waitLoop,
+    waitStuck: c.waitStuck,
     mainRed: c.mainRed,
     cantStart: c.cantStart,
     starting: c.starting,

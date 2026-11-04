@@ -250,6 +250,18 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub wait_you: String,
+    /// The cards this one waits on each other with (card #481), itself
+    /// among them, in wait order: none of them can move until someone
+    /// drops a wait. Every card of the loop carries the same list, so
+    /// Home's Needs you shows it once.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[specta(optional)]
+    pub wait_loop: Vec<CardRef>,
+    /// The card this one's waits end at that nobody holds and nothing
+    /// will hand out (card #481).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub wait_stuck: Option<CardRef>,
     /// An in-review card waiting on the person's review of a PR it links
     /// (card #347): no agent was asked to review it.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2602,6 +2614,21 @@ fn wait_you(co: &coord::Coord, first: &str) -> String {
 fn family_of(co: &coord::Coord, t: &Task, s: &mut CardSummary) {
     s.review_pr = review_pr(co, t);
     s.wait_you = wait_you(co, &s.wait_task);
+    if !coord::is_terminal(&t.state) && !coord::task_waits(t).is_empty() {
+        let card = |id: &str| {
+            co.get_task(id).map(|k| CardRef {
+                id: k.id.clone(),
+                short: k.short.clone(),
+                title: k.title.clone(),
+            })
+        };
+        let ch = coord::wait_chain(&|id: &str| co.get_task(id), &t.id);
+        s.wait_loop = ch.loop_ids.iter().filter_map(|id| card(id)).collect();
+        // A chain that ends at the person is theirs to answer already.
+        if s.wait_you.is_empty() && !ch.stuck.is_empty() {
+            s.wait_stuck = card(&ch.stuck);
+        }
+    }
     name_wait(s, &|id: &str| {
         co.get_task(id).map(|x| x.short_ref()).unwrap_or_default()
     });

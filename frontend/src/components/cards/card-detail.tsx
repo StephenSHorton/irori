@@ -380,7 +380,7 @@ export function CardPage({
                   />
                 ))}
                 {blockers.filter(isWait).map((b) => (
-                  <WaitItem key={b.id} blocker={b} onOpen={onOpen} />
+                  <WaitItem key={b.id} cardId={detail.id} blocker={b} onOpen={onOpen} />
                 ))}
               </Section>
             )}
@@ -2084,10 +2084,14 @@ function People({ detail, gone }: { detail: CardDetail; gone: GoneSession[] }) {
 // lease, an agent or something outside. It ends by itself or by whoever
 // does that work, so it is a grey line naming what it waits on, linked
 // when it's a card, with nothing to answer and outside the red count.
+// Stop waiting closes it, for a wait that will never end (a loop of
+// cards waiting on each other, or one nobody is on).
 function WaitItem({
+  cardId,
   blocker: b,
   onOpen,
 }: {
+  cardId: string
   blocker: CardBlocker
   onOpen?: (id: string) => void
 }) {
@@ -2096,10 +2100,10 @@ function WaitItem({
   const card = w.taskId
   return (
     <div
-      className="grid gap-0.5 rounded-lg border border-border bg-muted/30 px-3 py-2"
+      className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-0.5 rounded-lg border border-border bg-muted/30 px-3 py-2"
       aria-label={`Waiting on ${w.label}`}
     >
-      <div className="text-[13px] text-muted-foreground">
+      <div className="min-w-0 text-[13px] text-muted-foreground">
         Waiting on{" "}
         {card ? (
           <button
@@ -2117,8 +2121,19 @@ function WaitItem({
           </span>
         )}
       </div>
+      <span className="row-span-2">
+        <ConfirmButton
+          label="Stop waiting"
+          variant="outline"
+          question={`Stop waiting on ${plainLine(w.label)}? The card no longer waits on it, and whoever is on it hears.`}
+          confirmLabel="Stop waiting"
+          onConfirm={async () => {
+            await cards.resolveBlocker(cardId, b.id, `Stopped waiting on ${plainLine(w.label)}`)
+          }}
+        />
+      </span>
       {b.question && (
-        <div className="text-xs text-muted-foreground">
+        <div className="min-w-0 text-xs text-muted-foreground">
           {plainLine(b.question)}
         </div>
       )}
