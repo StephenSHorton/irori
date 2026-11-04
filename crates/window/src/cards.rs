@@ -246,15 +246,16 @@ pub struct CardSummary {
     #[specta(optional)]
     pub main_red: String,
     /// Where the first wait's chain of cards ends at the person (card
-    /// #347): "your review of PR #96 (#334)" or "your answer on #12".
+    /// #347): "your answer on #12". A PR never waits on the person (card
+    /// #471): agents merge it, or another member's agents approve it.
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub wait_you: String,
-    /// An in-review card waiting on the person's review of a PR it links
-    /// (card #347): no agent was asked to review it.
+    /// The open PR an in-review card waits on (card #471): the card shows
+    /// a small "waits on PR #N" chip with its link, never a Needs you row.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
-    pub review_pr: Option<ReviewPr>,
+    pub wait_pr: Option<WaitPr>,
     pub working: Vec<AgentRef>,
     pub watching: Vec<AgentRef>,
     pub holder: CardHolder,
@@ -345,10 +346,10 @@ pub struct CardSummary {
     pub owner: String,
 }
 
-/// A PR an in-review card waits on the person to review (card #347).
+/// The open PR an in-review card waits on (card #471).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct ReviewPr {
+pub struct WaitPr {
     pub repo: String,
     pub number: i64,
     pub url: String,
@@ -2431,19 +2432,11 @@ fn heard_by(ds: &[(Delivery, bool)]) -> Vec<String> {
     out
 }
 
-/// The PR an in-review card waits on the person to review (card #347):
-/// a linked PR GitHub last called open, or that this device hasn't heard
-/// (the poller runs on the holder's device), while no agent was asked to
-/// review the card.
-fn review_pr(co: &coord::Coord, t: &Task) -> Option<ReviewPr> {
+/// The PR an in-review card waits on (card #471): a linked PR GitHub
+/// last called open, or that this device hasn't heard (the poller runs on
+/// the holder's device).
+fn wait_pr(co: &coord::Coord, t: &Task) -> Option<WaitPr> {
     if t.state != coord::IN_REVIEW {
-        return None;
-    }
-    if co
-        .reviews_of(&t.id)
-        .iter()
-        .any(|r| r.state == coord::REVIEW_REQUESTED)
-    {
         return None;
     }
     let heard = co.pr_states(&t.id);
@@ -2454,7 +2447,7 @@ fn review_pr(co: &coord::Coord, t: &Task) -> Option<ReviewPr> {
             .find(|h| h.pr == l.reference)
             .map(|h| h.state.as_str())
             .unwrap_or_default();
-        (st.is_empty() || st == coord::PR_OPEN).then(|| ReviewPr {
+        (st.is_empty() || st == coord::PR_OPEN).then(|| WaitPr {
             repo,
             number,
             url: l.reference.clone(),
@@ -2466,9 +2459,9 @@ fn review_pr(co: &coord::Coord, t: &Task) -> Option<ReviewPr> {
 const CHAIN_DEPTH: usize = 8;
 
 /// Follows a card's wait on another card to where it stops (card #347):
-/// "your review of PR #96 (#334)" when that card waits on the person's
-/// review, "your answer on #12" when it waits on their decision, else
-/// empty (it waits on an agent, a lease or something outside).
+/// "your answer on #12" when it waits on their decision, else empty (it
+/// waits on an agent, a lease, a PR or something outside). A PR is never
+/// the person's to review (card #471).
 fn wait_you(co: &coord::Coord, first: &str) -> String {
     let mut seen = std::collections::HashSet::new();
     let mut id = first.to_string();
@@ -2479,9 +2472,6 @@ fn wait_you(co: &coord::Coord, first: &str) -> String {
         let Some(k) = co.get_task(&id) else { break };
         if coord::is_terminal(&k.state) {
             break;
-        }
-        if let Some(pr) = review_pr(co, &k) {
-            return format!("your review of PR #{} ({})", pr.number, k.short_ref());
         }
         let open = k.open_blockers();
         let asks_person = open.iter().any(|b| {
@@ -2509,7 +2499,7 @@ fn wait_you(co: &coord::Coord, first: &str) -> String {
 /// waits on), from the log the card lives in (card #161: a board's for a
 /// board card).
 fn family_of(co: &coord::Coord, t: &Task, s: &mut CardSummary) {
-    s.review_pr = review_pr(co, t);
+    s.wait_pr = wait_pr(co, t);
     s.wait_you = wait_you(co, &s.wait_task);
     name_wait(s, &|id: &str| {
         co.get_task(id).map(|x| x.short_ref()).unwrap_or_default()

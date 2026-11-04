@@ -1066,10 +1066,10 @@ fn a_wait_on_another_card_is_no_decision() {
 }
 
 /// Card #347: what waits on the person says so. A question with options is
-/// a decision whatever it's filed on (#290 was "on external"); a card in
-/// review on an open PR nobody else reviews waits on the person's review
-/// (#334); a card waiting on such a card names it (#329), and so does one
-/// waiting on a card with the person's question.
+/// a decision whatever it's filed on (#290 was "on external"); a card
+/// waiting on a card with the person's question names it. Card #471: a card
+/// in review on an open PR waits on that PR, never on the person's review,
+/// and a card waiting on it doesn't name the person either.
 #[test]
 fn what_waits_on_the_person_says_so() {
     const PR: &str = "https://github.com/a/suzuri/pull/96";
@@ -1140,13 +1140,9 @@ fn what_waits_on_the_person_says_so() {
     co.set_task_state(&r.key_b, &pr.id, coord::IN_REVIEW, "")
         .unwrap();
     let s = summary(&pr.id);
-    let rp = s.review_pr.expect("waits on the person's review");
-    assert_eq!((rp.number, rp.url.as_str()), (96, PR));
-    let s = summary(&after.id);
-    assert_eq!(
-        s.wait_you,
-        format!("your review of PR #96 ({})", pr.short_ref())
-    );
+    let wp = s.wait_pr.expect("waits on its PR");
+    assert_eq!((wp.number, wp.url.as_str()), (96, PR));
+    assert_eq!(summary(&after.id).wait_you, "", "a PR never waits on the person");
 
     // A card waiting on #290's question names the person's answer.
     let on_ext = take(&r.key_b, "after the swap");
@@ -1156,10 +1152,19 @@ fn what_waits_on_the_person_says_so() {
         format!("your answer on {}", ext.short_ref())
     );
 
-    // An agent asked to review it: that's the agent's review, not theirs.
+    // An agent asked to review it: it still waits on the PR.
     co.request_review(&r.key_b, &pr.id, PR, &r.key_a).unwrap();
-    assert!(summary(&pr.id).review_pr.is_none());
+    assert_eq!(summary(&pr.id).wait_pr.map(|p| p.number), Some(96));
     assert_eq!(summary(&after.id).wait_you, "");
+
+    // Merged: nothing to wait on.
+    co.record_pr_state(&pr.id, coord::PrCheck {
+        pr: PR.into(),
+        state: coord::PR_MERGED.into(),
+        ..Default::default()
+    })
+    .unwrap();
+    assert!(summary(&pr.id).wait_pr.is_none());
 }
 
 /// Card #138: clearing done cards takes them out of Closed (by id, by age
