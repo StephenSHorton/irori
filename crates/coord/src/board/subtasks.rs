@@ -112,6 +112,7 @@ impl Fold {
             let changed =
                 t.parent != new_parent || t.subtasks != ks || t.rollup != rollup || t.side != side;
             t.side = side;
+            super::offers::index_side(&self.stale, t);
             t.parent = new_parent;
             t.subtasks = ks;
             t.rollup = rollup;

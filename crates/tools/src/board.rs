@@ -221,6 +221,10 @@ impl Inner {
         if t.shared {
             b += "; shared";
         }
+        // A card on a side its device doesn't run waits (card #495).
+        if !t.side_wait.is_empty() {
+            b += &format!("; waits: {}", one_line(&t.side_wait, 80));
+        }
         if !t.links.is_empty() {
             let ls: Vec<String> = t.links.iter().map(|l| one_line(&l.label, 60)).collect();
             b += &format!("; links: {}", ls.join(", "));

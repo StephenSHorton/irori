@@ -958,6 +958,8 @@ export type CardSummary = {
 	board?: string,
 	/**  The work/personal side it's on (card #494); empty for any side. */
 	side?: string,
+	/**  Why it waits on its side (card #495): "no device here runs Work". */
+	sideWait?: string,
 	tag?: string,
 	progress: CardProgress,
 	openBlockers: number,
@@ -2080,6 +2082,8 @@ export type Task = {
 	tag?: string,
 	/**  The work/personal side (card #494). */
 	side?: string,
+	/**  Why it waits on its side (card #495). */
+	sideWait?: string,
 	withdrawn?: boolean,
 	title: string,
 	objective: string,

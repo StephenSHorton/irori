@@ -216,6 +216,9 @@ impl Fold {
         let mut s = self.stale.write().unwrap_or_else(|e| e.into_inner());
         s.stale.clear();
         s.closed.clear();
+        // A refold rebuilds both (card #495).
+        s.sides.clear();
+        s.runs = crate::sides::Sides::new();
     }
 
     /// Sets up t's ask from its task.created row: only the person's row
@@ -787,7 +790,10 @@ impl Fold {
         // A device with no agents of its own (the phone) leaves the ask to
         // one of the person's computers (card #408): its roster may be
         // hours old when it posts, and it sleeps right after.
-        let owner = self.ask_owner(agents);
+        // The side of the device it's typed on (card #494); its owner is a
+        // device that runs that side (card #495).
+        let side = self.new_side("", "");
+        let owner = self.ask_owner(agents, &side);
         let delegated = owner != self.dev;
         self.write(
             &by,
@@ -815,8 +821,7 @@ impl Fold {
                     },
                     owner: if delegated { owner } else { String::new() },
                 }),
-                // The side of the device it's typed on (card #494).
-                side: self.new_side("", ""),
+                side,
                 by: by.clone(),
                 at,
                 ..TaskCreatedRow::default()
@@ -994,8 +999,9 @@ impl Fold {
     /// The device that hands out an ask posted here (card #408): this one
     /// when it runs agents; otherwise another of the person's devices that
     /// does, connected first, then the one with the most agents. With none
-    /// known, this one, as before.
-    fn ask_owner(&self, roster: &[AgentCard]) -> String {
+    /// known, this one, as before. Only a device that runs the ask's
+    /// `side` (card #495): with none, this one, and the ask waits.
+    fn ask_owner(&self, roster: &[AgentCard], side: &str) -> String {
         let dev_of = |a: &AgentCard| cmp_or_dev(&a.device_id, owner::device_of(&a.key)).to_string();
         // A spawned agent runs only its own card (card #446), and a
         // terminal agent takes asks only with "Offer it cards" on (card
@@ -1003,6 +1009,7 @@ impl Fold {
         let roster: Vec<&AgentCard> = roster
             .iter()
             .filter(|a| self.takes_handout(&a.key))
+            .filter(|a| self.sides.runs(&dev_of(a), side))
             .collect();
         if roster.iter().any(|a| dev_of(a) == self.dev) {
             return self.dev.clone();
@@ -1094,6 +1101,10 @@ impl Fold {
                 && !ask.repo_key.is_empty()
                 && a.repo_key != ask.repo_key
             {
+                continue;
+            }
+            // Only an agent on a device that runs the ask's side (card #495).
+            if !self.sides.runs(dev, &t.side) {
                 continue;
             }
             if skip.contains(&a.key) || out.contains(&a.key) {

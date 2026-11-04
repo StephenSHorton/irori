@@ -1018,6 +1018,13 @@ impl Core {
                         .unwrap_or_default()
                 })
             }),
+            off_side: Some({
+                let c = coord_cell.clone();
+                Arc::new(move |m: &inbox::Message, to: &str| {
+                    c.get()
+                        .is_some_and(|co| co.off_side(&m.reason, &m.ref_, to))
+                })
+            }),
             notes: Some({
                 let c = services_cell.clone();
                 Arc::new(move |agent: &str, refs: &[String]| {

@@ -470,6 +470,9 @@ impl Fold {
             .tasks
             .values()
             .filter(|t| super::offers::needs_agent(t) && self.hands_out(t))
+            // Only on a device that runs the card's side (card #495),
+            // unless the person asked for an agent on it here.
+            .filter(|t| self.runs_here(t) || self.spawn_now.contains(&t.id))
             .filter(|t| t.spawn_crashes < MAX_SPAWN_CRASHES)
             .filter(|t| !self.waits_for_lead(t))
             .filter(|t| {

@@ -371,6 +371,11 @@ pub struct Task {
     /// a subtask's `side` is its parent's (relink).
     #[serde(skip)]
     pub own_side: String,
+    /// Why it waits on its side (card #495): "no device here runs Work"
+    /// while the device that picks an agent for it doesn't run its side.
+    /// Set when read (get_task, list_tasks, board), never folded.
+    #[serde(skip_serializing_if = "omit")]
+    pub side_wait: String,
     #[serde(skip_serializing_if = "omit")]
     pub withdrawn: bool,
     pub title: String,

@@ -213,6 +213,10 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub side: String,
+    /// Why it waits on its side (card #495): "no device here runs Work".
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub side_wait: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub tag: String,
@@ -1313,6 +1317,7 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
         state: coord::effective_state(t).to_string(),
         repo_key: t.repo_key.clone(),
         side: t.side.clone(),
+        side_wait: t.side_wait.clone(),
         scope: SCOPE_MINE.into(),
         scope_label: SCOPE_MINE_LABEL.into(),
         progress: CardProgress { done: d, total: n },
