@@ -18,6 +18,7 @@ Everything below was measured on copies of the Mac's `irori.db`, taken with
 | rows (seqs gapless) | 3,558,396 | 68,848 | 3,037 |
 | task.spawn | 3,424,635 (seq 131,591–3,558,368) | 8,480 (seq 60,279–68,848) | 0 |
 | last row | 09:42Z | 08:03:42Z | 2026-11-03 21:57Z |
+| what | MacBook Pro | DESKTOP-STEPHEN, root device | Android phone, 0.10.0 |
 
 The DB was 2.26 GB. task.spawn payloads were 884 MB and their signatures 220 MB.
 
@@ -88,8 +89,11 @@ rows behind, pulled from the uncompacted Mac copy:
 |---|---|---|---|
 | v0.11.1 (`vector()` = `GROUP BY`) | 659 | **80 min** | sender `missing()` 34 min, fold 25 min, ack `vector()` 19 min |
 | this branch (skip-scan `vector()`) | 8,421 | **6¼ min** | fold 4.8 min, insert 1.4 min |
+| Mac on this branch, PC still on 0.11.0 | | **~45 min** (derived, not run) | the v0.11.1 run minus its sender `missing()` time |
 
-Network time is not included. `vector()` was a full scan of the log, 0.44 s
+Both measured runs used one build for sender and receiver. The mixed row is
+an estimate: a 0.11.0 receiver keeps its own per-ack `GROUP BY` and fold
+costs. Network time is not included. `vector()` was a full scan of the log, 0.44 s
 here, run once per batch inside `missing()` and once per ack. The skip-scan
 over the `(device_id, seq)` key returns the same map in under 0.1 ms.
 
@@ -122,12 +126,18 @@ Safe once every peer holds every device's whole log (or up to a known seq),
 on each device, with Irori quit there:
 
 1. Upgrade every device (the PC first, before it starts) to a build with the
-   guard and the `vector()` fix, and let them all sync fully.
+   guard and the `vector()` fix, and let them all sync fully. The phone
+   counts too. If it is retired, revoking it takes it out of the floor.
 2. Quit Irori. Copy the data dir without `irori.json`:
    `sqlite3 -readonly ~/.irori/irori.db ".backup <copy>/irori.db"` and
    `cp ~/.irori/device.json <copy>/`.
-3. `irori-dev compact-spawn --home <copy> --floor 3dc3…=top --floor 05f1…=top`,
-   with `--dry-run` first. Then compare with `spawn-fold` before and after.
+3. Read the floors off the peers, not `top`. On each other device, read
+   `sqlite3 <its irori.db> "select device_id, max(seq) from events group by device_id"`.
+   For each device, the floor is the lowest of those values across the peers. A
+   superseded row written after the last sync would otherwise become a hole.
+   Run `irori-dev compact-spawn --home <copy> --floor 3dc3…=<n> --floor 05f1…=<m>`
+   with `--dry-run` first, then compare with `spawn-fold` before and after.
+   `top` is only for measuring.
 4. Keep the old `irori.db` aside, put the copy's `irori.db` in place (remove
    the old `-wal`/`-shm`), and start Irori.
 

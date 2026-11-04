@@ -323,16 +323,11 @@ fn sim_run(o: &SimOpts) -> Result<(), String> {
         let (n, res) = to.insert_batch(&evs);
         t_insert += t.elapsed().as_micros();
         let t = Instant::now();
-        loop {
-            match sub.try_recv() {
-                gocompat::sub::TryRecv::Item(ev) => {
-                    if ev.is_resync() {
-                        resyncs += 1;
-                    }
-                    co.handle(&ev).map_err(|e| format!("coord: {e}"))?;
-                }
-                _ => break,
+        while let gocompat::sub::TryRecv::Item(ev) = sub.try_recv() {
+            if ev.is_resync() {
+                resyncs += 1;
             }
+            co.handle(&ev).map_err(|e| format!("coord: {e}"))?;
         }
         t_fold += t.elapsed().as_micros();
         let t = Instant::now();
