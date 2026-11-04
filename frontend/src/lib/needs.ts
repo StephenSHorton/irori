@@ -20,7 +20,7 @@ import {
   type ReviewPr,
 } from "./cards"
 import { parseTime, plainLine } from "./irori"
-import { State, type Delivery } from "./talk"
+import { HoldReason, State, type Delivery } from "./talk"
 
 // RowState is one of the states a person acts on (finding 05): Needs you
 // (a decision, a done check, a question), Working (an agent is on it right
@@ -137,6 +137,29 @@ export type Need =
   | { kind: "trust"; id: string; at: number; card: CardSummary }
   | { kind: "review"; id: string; at: number; pr: ReviewPr; cards: CardSummary[] }
   | { kind: "held"; id: string; at: number; delivery: Delivery }
+  | { kind: "heldQuiet"; id: string; at: number; deliveries: Delivery[] }
+
+// HELD_QUIET is the id of Needs you's one line for the holds that don't
+// need the person one by one (card #488).
+export const HELD_QUIET = "held-quiet"
+
+// asksPerson says a held message is the person's to decide on its own
+// row in Needs you (card #488): their own message no agent in its repo
+// can take yet, or one from another person on a shared board. Holds
+// between agents (a long chain of messages, the allow or block list, an
+// older Irori's rule) and the person's own Pause all wait behind one
+// "N held" line instead.
+export function asksPerson(d: Delivery): boolean {
+  if (d.state !== State.Held) return false
+  if (d.hold === HoldReason.HoldPaused) return false
+  if (d.message.from.kind === "board") return true
+  return d.hold === HoldReason.HoldUnowned && fromPerson(d)
+}
+
+// fromPerson says the person at this app sent d.
+export function fromPerson(d: Delivery): boolean {
+  return d.message.from.kind === "user" || d.message.from.key.startsWith("user:")
+}
 
 // toPerson says the delivery is an agent's message to the person, still
 // unanswered: sent to a user key (the person's, on any of their devices)
@@ -157,7 +180,9 @@ const time = (s: string | undefined) => parseTime(s ?? "")?.getTime() ?? 0
 // person (a done check, else a decision, else its repo's trust: card #449), each PR waiting on their review
 // once with every card on it (card #347), and every message Irori held for
 // them. An agent's message to the person is a DM in Talk now (card #390,
-// design b1), not a row here. held is the Held list.
+// design b1), not a row here. held is the Held list: only the holds that
+// ask the person (asksPerson) are rows; the rest are one heldQuiet line,
+// always last (card #488).
 export function needsOf(cards: CardSummary[], held: Delivery[]): Need[] {
   const out: Need[] = []
   for (const c of cards) {
@@ -194,10 +219,23 @@ export function needsOf(cards: CardSummary[], held: Delivery[]): Need[] {
   }
   out.push(...reviews.values())
   const seen = new Set<string>()
+  const quiet: Delivery[] = []
   for (const d of held) {
     if (seen.has(d.id)) continue
     seen.add(d.id)
+    if (!asksPerson(d)) {
+      quiet.push(d)
+      continue
+    }
     out.push({ kind: "held", id: d.id, at: time(d.createdAt), delivery: d })
   }
-  return out.sort((a, b) => b.at - a.at)
+  out.sort((a, b) => b.at - a.at)
+  if (quiet.length)
+    out.push({
+      kind: "heldQuiet",
+      id: HELD_QUIET,
+      at: Math.max(...quiet.map((d) => time(d.createdAt))),
+      deliveries: quiet,
+    })
+  return out
 }

@@ -4,7 +4,9 @@ import { TaskState, withLive, workingNow, type AgentRef, type CardSummary } from
 import { readFileSync } from "node:fs"
 
 import {
+  asksPerson,
   CRASHED_QUESTION,
+  HELD_QUIET,
   IDLE_LINE,
   needsOf,
   needsYou,
@@ -14,7 +16,7 @@ import {
   WAITING_PERMISSION,
   waitsOnTrust,
 } from "./needs"
-import { State, type Delivery } from "./talk"
+import { HoldReason, State, type Delivery } from "./talk"
 
 const card = (c: Partial<CardSummary>): CardSummary =>
   ({
@@ -191,9 +193,53 @@ describe("needsOf", () => {
       card({ id: "b", ready: true, openBlockers: 1, updatedAt: "2026-11-02T10:05:00Z" }),
       card({ id: "c" }),
     ]
-    const held = delivery({ id: "h", to: "dev/agent2", state: State.Held, createdAt: "2026-11-02T10:02:00Z" })
+    const held = delivery({
+      id: "h",
+      to: "",
+      repoKey: "root:5a3c",
+      state: State.Held,
+      hold: HoldReason.HoldUnowned,
+      createdAt: "2026-11-02T10:02:00Z",
+    })
+    held.message.from = { key: "user:dev", name: "you", kind: "user" }
     const got = needsOf(cs, [held, held]).map((n) => `${n.kind}:${n.id}`)
     expect(got).toEqual(["check:b", "held:h", "decision:a"])
+  })
+  test("holds between agents and Pause all's are one line, last and uncounted (card #488)", () => {
+    const cs = [card({ id: "a", openBlockers: 1, updatedAt: "2026-11-02T10:00:00Z" })]
+    const hop = delivery({ id: "hop", to: "dev/heron", state: State.Held, hold: HoldReason.HoldHopLimit, createdAt: "2026-11-02T10:09:00Z" })
+    const old = delivery({ id: "old", to: "dev/heron", state: State.Held, hold: HoldReason.HoldBypassReceiver })
+    const listed = delivery({ id: "allow", to: "dev/heron", state: State.Held, hold: HoldReason.HoldNotAllowed })
+    const paused = delivery({ id: "p", to: "dev/heron", state: State.Held, hold: HoldReason.HoldPaused })
+    // An agent's message to a repo nobody is in is between agents too.
+    const agentRepo = delivery({ id: "ar", to: "", repoKey: "root:5a3c", state: State.Held, hold: HoldReason.HoldUnowned })
+    const mine = delivery({ id: "mine", to: "", repoKey: "root:5a3c", state: State.Held, hold: HoldReason.HoldUnowned })
+    mine.message.from = { key: "user:dev", name: "you", kind: "user" }
+    // Your own message held by your Pause all is quiet too.
+    const minePaused = delivery({ id: "mp", to: "dev/heron", state: State.Held, hold: HoldReason.HoldPaused })
+    minePaused.message.from = { key: "user:dev", name: "you", kind: "user" }
+    const person = delivery({ id: "pal", to: "dev/heron", state: State.Held, hold: HoldReason.HoldCrossPerson })
+    person.message.from = { key: "board:b1/p2", name: "Sam", kind: "board" }
+    const got = needsOf(cs, [hop, old, listed, paused, agentRepo, mine, minePaused, person])
+    expect(got.map((n) => `${n.kind}:${n.id}`)).toEqual([
+      "decision:a",
+      "held:mine",
+      "held:pal",
+      `heldQuiet:${HELD_QUIET}`,
+    ])
+    const quiet = got.at(-1)
+    expect(quiet?.kind === "heldQuiet" && quiet.deliveries.map((d) => d.id)).toEqual([
+      "hop",
+      "old",
+      "allow",
+      "p",
+      "ar",
+      "mp",
+    ])
+    expect(asksPerson(hop)).toBe(false)
+    expect(asksPerson(mine)).toBe(true)
+    expect(asksPerson({ ...mine, state: State.Queued })).toBe(false)
+    expect(needsOf([], [hop]).map((n) => n.kind)).toEqual(["heldQuiet"])
   })
   test("toPerson: open messages to a user key only", () => {
     expect(toPerson(delivery({}))).toBe(true)

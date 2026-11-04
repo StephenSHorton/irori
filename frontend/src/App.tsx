@@ -777,6 +777,7 @@ export function App() {
                 now={now}
                 name={name}
                 onOpenCard={openCard}
+                onHeld={() => openHeld("")}
               />
             }
             rows
