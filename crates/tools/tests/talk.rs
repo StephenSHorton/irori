@@ -316,4 +316,8 @@ fn channel_members_read_at_their_next_turn() {
     let ds = waiting(KEY_C);
     assert_eq!(ds.len(), 1, "{ds:?}");
     has(&ds[0].message.text, &["no rush on this", "was off"]);
+    // It quotes an agent's post too, so it is Irori's notice, never the
+    // person's: no "user" trust over an agent's words.
+    assert_eq!(ds[0].message.from.key, inbox::SYSTEM_KEY, "{ds:?}");
+    assert_eq!(ds[0].message.trust, inbox::trust::UNTRUSTED, "{ds:?}");
 }

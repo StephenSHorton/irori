@@ -59,6 +59,12 @@ pub fn route_notice(
     if n.to.is_empty() {
         return vec![];
     }
+    // A reading quotes several posters' words, so it never goes out as one
+    // of them: from the person it would carry trust "user" over an agent's
+    // text. It is Irori's own (untrusted) notice, and the newest replaces
+    // one still waiting whoever posted (card #391).
+    let sys = crate::system_sender();
+    let from = if n.kind == NOTICE_READING { &sys } else { from };
     let md = if n.stop {
         mode::STOP
     } else if n.wake {
