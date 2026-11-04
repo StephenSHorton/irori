@@ -655,12 +655,20 @@ impl Watcher {
                 names.push(from);
             }
         }
-        // Agents' messages are DMs in Talk (card #390): its list shows
-        // them all, newest first, the unread ones marked (card #482).
-        let open = CardAct::Open(Target {
-            tab: TAB_TALK.into(),
-            ref_: String::new(),
-        });
+        // Agents' messages are DMs in Talk (card #390): one sender's open
+        // their newest message (its DM); several, Talk's list, the unread
+        // ones marked (card #482).
+        let senders: HashSet<&str> = ds.iter().map(|d| d.message.from.key.as_str()).collect();
+        let open = match (senders.len(), ds.iter().max_by(|a, b| a.id.cmp(&b.id))) {
+            (1, Some(newest)) => CardAct::Open(Target {
+                tab: TAB_INBOX.into(),
+                ref_: newest.id.clone(),
+            }),
+            _ => CardAct::Open(Target {
+                tab: TAB_TALK.into(),
+                ref_: String::new(),
+            }),
+        };
         let body = match names.len() {
             1 => format!("From {}", names[0]),
             2 => format!("From {} and {}", names[0], names[1]),

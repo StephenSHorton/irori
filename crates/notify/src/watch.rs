@@ -896,6 +896,17 @@ impl Ctx<'_> {
             (history::KIND_BLOCKER, String::new())
         };
         let mut about = about(kind, t, &self.needs_key(t));
+        // The agent asked back on the person's answer (card #482): Irori
+        // read the answered item for them, so the ask-back is its own.
+        let instance = if instance.is_empty()
+            && t.blockers
+                .iter()
+                .any(|b| b.id == about.blocker_id && b.open() && b.status == coord::BLOCKER_REPLIED)
+        {
+            format!("replied:{}", t.updated_at.format_rfc3339_nano())
+        } else {
+            instance
+        };
         // A question without a blocker item (an older card): which time.
         if about.blocker_id.is_empty() || !instance.is_empty() {
             about.instance = if instance.is_empty() {

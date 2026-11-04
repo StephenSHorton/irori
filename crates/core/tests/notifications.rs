@@ -202,6 +202,35 @@ fn a_resolved_blocker_or_done_check_leaves_the_badge_by_itself() {
     });
     assert!(r.core.notifications()[0].read);
 
+    // The agent asks back: news, unread, though the answer was read.
+    co.comment_on(
+        &r.key_a,
+        &task.id,
+        coord::CommentInput {
+            text: "Which blue?".into(),
+            blocker_id: b1.clone(),
+            missing: vec!["the shade".into()],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    wait_for(10, "the ask-back's notification", || {
+        r.core.unread_notifications() == 1
+    });
+    co.answer(
+        &person,
+        &task.id,
+        &b1,
+        coord::BlockerAnswer {
+            text: "Navy".into(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    wait_for(10, "the answered ask-back read", || {
+        r.core.unread_notifications() == 0
+    });
+
     // The agent resolves the next one itself.
     co.unblock(&r.key_a, &task.id, "went with blue").unwrap();
     co.block(&r.key_a, &task.id, "Matte or gloss?", on())
@@ -238,5 +267,45 @@ fn a_resolved_blocker_or_done_check_leaves_the_badge_by_itself() {
         .unwrap();
     assert!(!reads.is_empty());
     assert!(reads.iter().all(|e| e.actor == "irori"), "{reads:?}");
+    r.core.close().unwrap();
+}
+
+/// Card #482: an agent's message to the person reads by itself once they
+/// handle it anywhere (here, marked read in Talk).
+#[test]
+fn a_message_handled_elsewhere_leaves_the_badge_by_itself() {
+    let (_cards, n) = notifier();
+    let r = Rig::with(|o| {
+        o.headless = false;
+        o.notifier = Some(n.clone());
+    });
+    let ib = r.core.inbox();
+    let you = r.core.user_sender();
+    let (m, _) = ib
+        .send(
+            &you,
+            &inbox::Address::new(inbox::addr::AGENT, &r.key_a),
+            "status?",
+            "",
+        )
+        .unwrap();
+    let (_, d) = ib
+        .send(
+            &inbox::Sender::new(&r.key_a, "alpha", "claude"),
+            &inbox::Address::new(inbox::addr::REPLY, &m.id),
+            "all green",
+            "",
+        )
+        .unwrap();
+    wait_for(10, "the message's notification", || {
+        r.core
+            .notifications()
+            .iter()
+            .any(|i| i.posted.kind == coord::notifications::KIND_MESSAGE && !i.read)
+    });
+    ib.skip(&you.key, &d.id, "").unwrap();
+    wait_for(10, "the read message read", || {
+        r.core.unread_notifications() == 0
+    });
     r.core.close().unwrap();
 }

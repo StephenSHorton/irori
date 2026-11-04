@@ -60,6 +60,10 @@ impl Services {
     /// Called at start and on every board, inbox or ask change; an item
     /// whose thing this device can't see yet stays as it is.
     pub(crate) fn settle_notifications(&self) {
+        // The feed loops settle in parallel: one at a time, so two woken
+        // by the same answer don't both write its read row.
+        static SETTLING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _one = SETTLING.lock().unwrap_or_else(|e| e.into_inner());
         let items = self.notifications.unread_items();
         if items.is_empty() {
             return;
@@ -70,8 +74,6 @@ impl Services {
             .filter(|it| self.resolved(&it.posted, now))
             .map(|it| it.key.clone())
             .collect();
-        // Another loop may have read some meanwhile.
-        let keys = self.notifications.unread_of(&keys);
         if keys.is_empty() {
             return;
         }
