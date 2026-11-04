@@ -227,6 +227,16 @@ function sampleState(): SampleConv[] {
       readUpTo: `${id}-p1`,
     })
   }
+  // One gone agent left a message the person hasn't read: it stays up top
+  // until it is read, then joins the Archive (card #473).
+  sample.push({
+    ...TalkConversation({ convId: "sample-dm-gone-new", kind: "dm", name: "sample-gone-new", members: [you, a("sample-gone-new", "wren")] }),
+    posts: [
+      post("sample-dm-gone-new", 1, me, 50, "Is #470 on main?"),
+      post("sample-dm-gone-new", 2, "sample-gone-new", 40, "Merged as #470. My session ends here."),
+    ],
+    readUpTo: "sample-dm-gone-new-p1",
+  })
   for (let i = 1; i <= 24; i++) {
     const id = `sample-dm-aa-${i}`
     const x = `sample-aa-${i}`

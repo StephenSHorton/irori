@@ -36,6 +36,7 @@ import { useNarrow } from "@/lib/media"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import {
+  archived,
   dmSections,
   sectionRows,
   unreadIn,
@@ -118,10 +119,20 @@ export function TalkPage({
   const { channels, dms } = listed(conversations.filter((c) => convMatches(c, query)))
   const [adding, setAdding] = useState<"" | "channel" | "dm">("")
   const liveRoster = useContext(LiveRoster)
-  const sections = dmSections(dms, (c) => {
+  const goneDm = (c: Conv) => {
     const other = dmWith(c)
     return other.length > 0 && other.every((m) => statusOf(m, liveRoster) === "gone")
-  })
+  }
+  // The DM opened from the main list stays there while it is open, though
+  // reading it would archive it (card #473); one opened from the Archive
+  // stays in the Archive.
+  const keptFor = (id: string) => {
+    const c = conversations.find((x) => x.convId === id)
+    return c && c.kind === "dm" && !c.readOnly && !archived(c, goneDm) ? id : ""
+  }
+  const [kept, setKept] = useState(() => ({ open, keep: keptFor(open) }))
+  if (kept.open !== open) setKept({ open, keep: keptFor(open) })
+  const sections = dmSections(dms, goneDm, kept.open === open ? kept.keep : keptFor(open))
   const [isFolded, toggleFold] = useFolds()
   // Search looks through everything, folded or not.
   const searching = !!query.trim()
@@ -246,10 +257,10 @@ export function TalkPage({
         ) : undefined,
         { onAdd: () => setAdding(adding === "dm" ? "" : "dm"), label: "New direct message" }
       )}
-      {sections.gone.length > 0 &&
-        convSection("gone", "With agents that have gone", sections.gone, "")}
       {sections.agents.length > 0 &&
         convSection("agents", "Agents talking", sections.agents, "")}
+      {sections.gone.length > 0 &&
+        convSection("gone", "Archive", sections.gone, "")}
       {resolved.length > 0 && (
         <div className="mt-auto grid grid-cols-[minmax(0,1fr)] gap-0.5 pt-3">
           <button
