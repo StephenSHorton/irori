@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
 import { TaskState, withLive, workingNow, type AgentRef, type CardSummary } from "./cards"
-<<<<<<< HEAD
-import { IDLE_LINE, needsOf, needsYou, prChip, rowState, toPerson, waitsOnTrust } from "./needs"
-=======
 import { readFileSync } from "node:fs"
 
 import {
@@ -11,13 +8,13 @@ import {
   IDLE_LINE,
   needsOf,
   needsYou,
+  prChip,
   rowState,
   spawnNeed,
   toPerson,
   WAITING_PERMISSION,
   waitsOnTrust,
 } from "./needs"
->>>>>>> origin/main
 import { State, type Delivery } from "./talk"
 
 const card = (c: Partial<CardSummary>): CardSummary =>
