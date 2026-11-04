@@ -156,7 +156,7 @@ impl Window {
     }
 
     /// Routes `n` from `from`; nobody to tell is not an error.
-    fn tell_from(&self, from: &inbox::Sender, n: &coord::Notice) -> Told {
+    pub(crate) fn tell_from(&self, from: &inbox::Sender, n: &coord::Notice) -> Told {
         if n.to.is_empty() {
             return Told::default();
         }

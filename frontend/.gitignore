@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Screenshots of the browser preview (PREVIEW.md)
+preview-shots/

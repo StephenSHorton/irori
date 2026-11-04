@@ -232,6 +232,18 @@ pub async fn inbox_dismiss(w: W<'_>, delivery_id: String) -> R<()> {
 
 #[tauri::command]
 #[specta::specta]
+pub async fn inbox_start_agent(w: W<'_>, delivery_id: String) -> R<ts::StartedAgent> {
+    blocking(&w, move |w| w.inbox_start_agent(&delivery_id)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn inbox_repo_names(w: W<'_>) -> R<Vec<ts::RepoName>> {
+    Ok(w.inbox_repo_names())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn inbox_allow_and_release(w: W<'_>, delivery_id: String) -> R<()> {
     w.inbox_allow_and_release(&delivery_id)
 }
@@ -271,6 +283,13 @@ pub async fn board_cards(w: W<'_>) -> R<Vec<CardSummary>> {
 #[specta::specta]
 pub async fn board_card(w: W<'_>, id: String) -> R<CardDetail> {
     w.card(&id)
+}
+
+/// Several cards in one call, each with its card or why not (card #468).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_cards_by_id(w: W<'_>, ids: Vec<String>) -> R<Vec<crate::cards::CardRead>> {
+    blocking(&w, move |w| Ok(w.cards_by_id(&ids))).await
 }
 
 #[tauri::command]
@@ -482,6 +501,13 @@ pub async fn board_mention_candidates(w: W<'_>) -> R<Vec<MentionCandidate>> {
 #[specta::specta]
 pub async fn board_start_agent(w: W<'_>, id: String, note: String) -> R<()> {
     w.start_agent(&id, &note)
+}
+
+/// "Hand to an agent" on an item whose agent is gone (card #485).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_hand_on(w: W<'_>, id: String) -> R<String> {
+    w.hand_on(&id)
 }
 
 #[tauri::command]
@@ -853,6 +879,13 @@ pub async fn notes_list(w: W<'_>, scope: String, removed: bool) -> R<Vec<crate::
     blocking(&w, move |w| w.notes_list(&scope, removed)).await
 }
 
+/// The sidebar's Notes count: notes waiting on the person's look (card #468).
+#[tauri::command]
+#[specta::specta]
+pub async fn notes_waiting(w: W<'_>) -> R<u32> {
+    blocking(&w, move |w| w.notes_waiting().map(|n| n as u32)).await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn note_new(w: W<'_>, note: crate::notes::NoteInput) -> R<crate::notes::NoteView> {
@@ -913,7 +946,7 @@ pub async fn agents_permissions_set(
 }
 
 /// The person's Trust and start: trusts the card's repo for agents on this
-/// device, then starts its agent. The only path that writes trust.
+/// device, then starts its agent. One of the two paths that write trust.
 #[tauri::command]
 #[specta::specta]
 pub async fn agents_trust_and_start(
@@ -921,6 +954,25 @@ pub async fn agents_trust_and_start(
     task_id: String,
 ) -> R<crate::agents_trust::TrustStarted> {
     blocking(&w, move |w| w.agents_trust_and_start(&task_id)).await
+}
+
+/// This device's repos and whether each is trusted for agents (card #456,
+/// Settings › Agents).
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_trusted(w: W<'_>) -> R<Vec<crate::agents_trust::TrustedRepo>> {
+    blocking(&w, move |w| w.agents_trusted()).await
+}
+
+/// The person's confirmed Trust… on one of this device's repos in
+/// Settings › Agents (card #456); the other path that writes trust.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_trust_repo(
+    w: W<'_>,
+    repo_key: String,
+) -> R<Vec<crate::agents_trust::TrustedRepo>> {
+    blocking(&w, move |w| w.agents_trust_repo(&repo_key)).await
 }
 
 #[tauri::command]
@@ -1314,6 +1366,21 @@ pub async fn agents_end(w: W<'_>, key: String) -> R<()> {
     blocking(&w, move |w| w.agents_end(&key)).await
 }
 
+/// Logs on an agent Irori started (card #456): its recent output, read only.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_logs(w: W<'_>, key: String) -> R<String> {
+    blocking(&w, move |w| w.agents_logs(&key)).await
+}
+
+/// Attach on an agent Irori started (card #456): a tab in its card's
+/// terminal running `claude attach`.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_attach(w: W<'_>, key: String, cols: u16, rows: u16) -> R<term::TermInfo> {
+    blocking(&w, move |w| w.agents_attach(&key, cols, rows)).await
+}
+
 // ---- merge desks (card #417) ----------------------------------------------
 
 /// Every merge desk in the person's log.
@@ -1458,12 +1525,15 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             inbox_mark_read,
             inbox_release,
             inbox_dismiss,
+            inbox_start_agent,
+            inbox_repo_names,
             inbox_allow_and_release,
             inbox_policy,
             inbox_set_policy,
             inbox_set_paused,
             board_cards,
             board_card,
+            board_cards_by_id,
             board_done_cards,
             board_cards_in,
             board_idle_report,
@@ -1485,6 +1555,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_ask_with_files,
             board_ask_again,
             board_start_agent,
+            board_hand_on,
             board_ask_repos,
             board_mention_candidates,
             board_close_ask,
@@ -1531,12 +1602,15 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_set_threads,
             boards_set_reviewer,
             notes_list,
+            notes_waiting,
             note_new,
             note_accept,
             note_edit,
             note_remove,
             agents_trust_need,
             agents_trust_and_start,
+            agents_trusted,
+            agents_trust_repo,
             agents_permissions,
             agents_permissions_set,
             card_wake_notes,
@@ -1616,6 +1690,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             agents_set,
             agents_offer_set,
             agents_end,
+            agents_logs,
+            agents_attach,
             agents_running,
             desk_list,
             desk_set,
