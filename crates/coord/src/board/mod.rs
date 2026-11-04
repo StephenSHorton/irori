@@ -476,6 +476,14 @@ impl Coord {
         Ok(sides)
     }
 
+    /// Folds a `device.sides` row now, before the follow loop reaches it,
+    /// so a reader woken by it sees it (the fold keeps the newest per
+    /// device, so folding it twice changes nothing).
+    pub fn apply_sides(&self, ev: &Event) -> bool {
+        let mut f = self.lock();
+        !f.on_board && f.sides.apply(ev)
+    }
+
     /// The sides `device` runs; None when it runs every side.
     pub fn sides_of(&self, device: &str) -> Option<Vec<String>> {
         self.lock().sides.of(device).map(<[String]>::to_vec)

@@ -11,8 +11,8 @@ import {
   MaxSide,
   MaxSides,
   cleanSide,
-  cleanSides,
   sameSide,
+  uniqueSides,
   devices as actions,
   isOpen,
   PairState,
@@ -979,8 +979,9 @@ export function Sides({
       .catch((e: unknown) => setError(errorText(e)))
   }, [open, key])
   if (!here) return null
-  const all = cleanSides([...pinned, ...names])
+  const all = uniqueSides([...pinned, ...names])
   const runs = (s: string) => pinned.some((p) => sameSide(p, s))
+  const full = pinned.length >= MaxSides
   const save = async (next: string[]) => {
     setBusy(true)
     try {
@@ -1003,7 +1004,6 @@ export function Sides({
     setAdding("")
     if (!runs(c)) void save([...pinned, c])
   }
-  const full = pinned.length >= MaxSides
   return (
     <div className="grid gap-1.5 border-t border-border pt-3">
       <span className="text-sm">Work and personal sides</span>
@@ -1020,7 +1020,8 @@ export function Sides({
               size="xs"
               variant={runs(s) ? "default" : "outline"}
               aria-pressed={runs(s)}
-              disabled={busy}
+              // A device runs at most MaxSides: a ninth would be cut.
+              disabled={busy || (full && !runs(s))}
               onClick={() => toggle(s)}
             >
               {s}

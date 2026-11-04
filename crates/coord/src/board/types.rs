@@ -367,6 +367,10 @@ pub struct Task {
     /// this side pick it up on their own. Empty: any side.
     #[serde(skip_serializing_if = "omit")]
     pub side: String,
+    /// The side its task.created gave it: `side` while it has no parent;
+    /// a subtask's `side` is its parent's (relink).
+    #[serde(skip)]
+    pub own_side: String,
     #[serde(skip_serializing_if = "omit")]
     pub withdrawn: bool,
     pub title: String,

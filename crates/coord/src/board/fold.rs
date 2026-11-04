@@ -1125,6 +1125,7 @@ impl Fold {
             tag: self.tag_of(&p.board),
             board: p.board.clone(),
             side: crate::sides::clean(&p.side),
+            own_side: crate::sides::clean(&p.side),
             from: p.from.clone(),
             agents: p.agents.clamp(0, super::MAX_AGENTS_PER_CARD),
             ..Task::default()

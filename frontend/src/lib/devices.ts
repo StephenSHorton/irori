@@ -429,17 +429,21 @@ export function sameSide(a: string, b: string): boolean {
   return cleanSide(a).toLowerCase() === cleanSide(b).toLowerCase()
 }
 
-// cleanSides is coord::sides::clean_list: each cleaned, empty ones and
-// repeats (any case) dropped, at most MaxSides, order kept.
-export function cleanSides(sides: string[]): string[] {
+// uniqueSides is each side cleaned, empty ones and repeats (any case)
+// dropped, order kept: every side there is to offer.
+export function uniqueSides(sides: string[]): string[] {
   const out: string[] = []
   for (const s of sides) {
     const c = cleanSide(s)
-    if (!c || out.some((o) => sameSide(o, c))) continue
-    out.push(c)
-    if (out.length === MaxSides) break
+    if (c && !out.some((o) => sameSide(o, c))) out.push(c)
   }
   return out
+}
+
+// cleanSides is coord::sides::clean_list: uniqueSides, at most MaxSides:
+// a device's pin.
+export function cleanSides(sides: string[]): string[] {
+  return uniqueSides(sides).slice(0, MaxSides)
 }
 
 const sampleSideNames: string[] = ["Personal", "Work"]

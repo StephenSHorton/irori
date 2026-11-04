@@ -1745,8 +1745,11 @@ impl Core {
                         s.device_names.apply(&ev);
                         s.hub.publish(CoreEvent::Devices);
                     } else if ev.kind == coord::sides::KIND {
-                        // The coord folds the sides a device runs (card
-                        // #494); Settings → Devices shows them.
+                        // The sides a device runs (card #494): folded
+                        // into the coord now, so Settings → Devices reads
+                        // them when it hears this; its follow loop folding
+                        // the row again changes nothing.
+                        s.coord.apply_sides(&ev);
                         s.hub.publish(CoreEvent::Devices);
                     }
                 }

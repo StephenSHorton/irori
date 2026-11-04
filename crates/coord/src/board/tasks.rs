@@ -173,7 +173,7 @@ impl Fold {
             return self
                 .tasks
                 .get(parent)
-                .map(|t| t.side.clone())
+                .map(|t| t.own_side.clone())
                 .unwrap_or_default();
         }
         self.sides.home(&self.dev)
@@ -990,6 +990,8 @@ impl Fold {
         self.links.clear();
         self.pins.clear();
         self.archived.clear();
+        // Pins from rows the cut moved out go too (card #494).
+        self.sides = crate::sides::Sides::new();
         self.replay_store()?;
         for (id, was) in shorts {
             if was.is_empty() {

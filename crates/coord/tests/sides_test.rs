@@ -5,6 +5,7 @@
 mod common;
 
 use common::*;
+use coord::rows::TaskParentRow;
 use coord::sides::{KIND, SidesRow};
 use coord::*;
 
@@ -278,4 +279,31 @@ fn the_show_text_names_the_side() {
     .unwrap()
     .text;
     assert!(text.contains("\nside: Work\n"), "{text}");
+}
+
+#[test]
+fn an_adopted_card_runs_on_its_parents_side_until_it_leaves() {
+    let e = Env::new();
+    e.c.set_device_sides(&sides(&["Work"])).unwrap();
+    let w = e.c.create_task(ALICE, nt("Work parent")).unwrap();
+    e.c.set_device_sides(&sides(&["Personal"])).unwrap();
+    let p = e.c.create_task(ALICE, nt("Personal card")).unwrap();
+    assert_eq!(p.side, "Personal");
+    e.c.split(ALICE, &w.id, vec![sub("a")], vec![p.id.clone()])
+        .unwrap();
+    assert_eq!(e.c.get_task(&p.id).unwrap().side, "Work");
+    assert_eq!(e.reopen().get_task(&p.id).unwrap().side, "Work");
+    // Out of its parent it has its own side again.
+    e.write_raw(
+        "agent:dev-a/alice-session",
+        store::kinds::TASK_PARENT,
+        &TaskParentRow {
+            task_id: p.id.clone(),
+            parent: String::new(),
+            by: ALICE.into(),
+            at: fixed_now(),
+        },
+    );
+    let t = e.c.get_task(&p.id).unwrap();
+    assert_eq!((t.parent.as_str(), t.side.as_str()), ("", "Personal"));
 }
