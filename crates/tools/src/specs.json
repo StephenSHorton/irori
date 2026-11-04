@@ -1766,6 +1766,10 @@
             "type": "string"
           },
           "description": "Optional agents to mention, by name or key, besides the @names in text. In a channel, \"person\" mentions the person: it notifies their phone, so keep it for what needs them."
+        },
+        "space": {
+          "type": "string",
+          "description": "Optional: the shared space a channel name is in, by its tag or id. Without it, a name means a Personal channel."
         }
       },
       "required": [
@@ -1793,6 +1797,10 @@
         "since": {
           "type": "string",
           "description": "Optional: a post id; show the posts after it (the next page)."
+        },
+        "space": {
+          "type": "string",
+          "description": "Optional: the shared space a channel name is in, by its tag or id. Without it, a name means a Personal channel."
         }
       },
       "required": [
@@ -1830,6 +1838,10 @@
         "conv": {
           "type": "string",
           "description": "The channel: #name or its id."
+        },
+        "space": {
+          "type": "string",
+          "description": "Optional: the shared space a channel name is in, by its tag or id. Without it, a name means a Personal channel."
         }
       },
       "required": [
@@ -1852,6 +1864,10 @@
         "conv": {
           "type": "string",
           "description": "The channel: #name or its id."
+        },
+        "space": {
+          "type": "string",
+          "description": "Optional: the shared space a channel name is in, by its tag or id. Without it, a name means a Personal channel."
         }
       },
       "required": [

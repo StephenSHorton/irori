@@ -269,7 +269,7 @@ fn rows_from_other_devices_fold_in_log_order() {
     let c = t.channel("ch_1").unwrap();
     assert_eq!((c.name.as_str(), c.archived), ("renamed", true));
     assert_eq!(c.space_id, "sp_1", "another space's id is kept");
-    assert!(t.channel_named("renamed").is_none(), "archived");
+    assert!(t.channel_named_in("renamed", "sp_1").is_none(), "archived");
 
     // Posts sort by their rows, not by arrival.
     for (seq, at, id) in [(4, 40, "p2"), (3, 30, "p1"), (5, 50, "p3")] {
@@ -534,7 +534,7 @@ fn a_space_channel_goes_in_the_space_log_behind_the_gate() {
         ErrorKind::NotAllowed,
     );
     assert!(err.to_string().contains("waiting on Bob/abc123"), "{err}");
-    assert!(t.channel_named("netcode").is_none());
+    assert!(t.channel_named_in("netcode", "s1").is_none());
     assert!(kinds_in(&sp.st).is_empty());
     // Personal channels and DMs are never gated.
     let mine = t.create_channel(USER, "notes", "").unwrap();
@@ -604,6 +604,81 @@ fn a_space_channel_without_spaces_is_refused() {
         t.create_channel_in(USER, "x", "", "s1"),
         ErrorKind::NotAllowed,
     );
+}
+
+/// Any number of spaces over one log: each row carries its spaceId.
+struct ManySpaces {
+    st: std::sync::Arc<store::Store>,
+}
+
+impl talk::SpaceLogs for ManySpaces {
+    fn append(
+        &self,
+        _space: &str,
+        _by: &str,
+        kind: &str,
+        payload: serde_json::Value,
+    ) -> Result<store::Event, String> {
+        self.st
+            .append("irori", kind, &payload)
+            .map_err(|e| e.to_string())
+    }
+
+    fn rows(&self) -> Vec<store::Event> {
+        self.st
+            .list(&store::Filter {
+                kinds: vec!["talk.".into()],
+                ..Default::default()
+            })
+            .unwrap()
+    }
+}
+
+#[test]
+fn channel_names_are_unique_per_space() {
+    let (e, sp) = (Env::new(), Env::on("dev-a"));
+    let t = talk(&e);
+    t.set_spaces(std::sync::Arc::new(ManySpaces { st: sp.st.clone() }));
+
+    // The same name in two spaces and in Personal (card #461).
+    let s1 = t.create_channel_in(USER, "general", "", "s1").unwrap();
+    let s2 = t.create_channel_in(USER, "#General", "", "s2").unwrap();
+    let mine = t.create_channel(USER, "general", "").unwrap();
+    assert_ne!(s1.id, s2.id);
+    // Twice in one space is refused, any case.
+    let err = want(
+        t.create_channel_in(USER, "GENERAL", "", "s1"),
+        ErrorKind::Invalid,
+    );
+    assert!(err.to_string().contains("in this space"), "{err}");
+    want(t.create_channel(USER, "#general", ""), ErrorKind::Invalid);
+
+    // Each lookup stays in its space; no space is Personal.
+    let id = |c: Option<talk::Channel>| c.map(|c| c.id);
+    assert_eq!(
+        id(t.channel_named_in("#general", "s1")),
+        Some(s1.id.clone())
+    );
+    assert_eq!(
+        id(t.channel_named_in("general", " s2 ")),
+        Some(s2.id.clone())
+    );
+    assert_eq!(id(t.channel_named_in("general", "")), Some(mine.id.clone()));
+    assert_eq!(id(t.channel_named("general")), Some(mine.id.clone()));
+    assert!(t.channel_named_in("general", "s3").is_none());
+    let only = t.create_channel_in(USER, "netcode", "", "s1").unwrap();
+    assert!(
+        t.channel_named("netcode").is_none(),
+        "s1's isn't Personal's"
+    );
+    assert_eq!(id(t.channel_named_in("netcode", "s1")), Some(only.id));
+    // Where a name lives, every space.
+    let all: Vec<String> = t
+        .channels_named("general")
+        .into_iter()
+        .map(|c| c.space_id)
+        .collect();
+    assert_eq!(all, ["", "s1", "s2"]);
 }
 
 #[test]

@@ -321,3 +321,149 @@ fn channel_members_read_at_their_next_turn() {
     assert_eq!(ds[0].message.from.key, inbox::SYSTEM_KEY, "{ds:?}");
     assert_eq!(ds[0].message.trust, inbox::trust::UNTRUSTED, "{ds:?}");
 }
+
+/// Two shared spaces, mlg and wind, as the tools see them (card #461).
+struct TwoSpaces;
+
+impl tools::SharedBoards for TwoSpaces {
+    fn boards(&self) -> Vec<tools::BoardInfo> {
+        let b = |id: &str, tag: &str| tools::BoardInfo {
+            board_id: id.into(),
+            tag: tag.into(),
+            name: tag.into(),
+            ..Default::default()
+        };
+        vec![b("sp_mlg", "mlg"), b("sp_wind", "wind")]
+    }
+    fn board_of(&self, _task_id: &str) -> Option<tools::BoardInfo> {
+        None
+    }
+    fn board_coord(
+        &self,
+        _board_id: &str,
+        _keys: &[String],
+    ) -> Result<(std::sync::Arc<coord::Coord>, Vec<String>), coord::Error> {
+        Err(coord::Error::raw(coord::ErrorKind::NotFound, "no board"))
+    }
+    fn share(&self, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
+        Err("no".into())
+    }
+    fn withdraw(&self, _: &str) -> Result<(), String> {
+        Err("no".into())
+    }
+}
+
+/// The spaces' logs: one store, each row carrying its spaceId.
+struct SpaceRows(std::sync::Arc<store::Store>);
+
+impl ct::SpaceLogs for SpaceRows {
+    fn append(
+        &self,
+        _space: &str,
+        _by: &str,
+        kind: &str,
+        payload: serde_json::Value,
+    ) -> Result<store::Event, String> {
+        self.0
+            .append("irori", kind, &payload)
+            .map_err(|e| e.to_string())
+    }
+    fn rows(&self) -> Vec<store::Event> {
+        Vec::new()
+    }
+}
+
+#[test]
+fn a_channel_name_resolves_in_its_space_only() {
+    let h = new_harness_setup(None, |b, _| {
+        let _ = b.shared.set(std::sync::Arc::new(TwoSpaces));
+        b.talk
+            .set_spaces(std::sync::Arc::new(SpaceRows(b.st.clone())));
+    });
+    let a = call_a();
+    let t = &h.b.talk;
+    let mine = t.create_channel(USER, "general", "").unwrap();
+    let mlg = t.create_channel_in(USER, "general", "", "sp_mlg").unwrap();
+    let wind = t.create_channel_in(USER, "general", "", "sp_wind").unwrap();
+    let net = t.create_channel_in(USER, "netcode", "", "sp_mlg").unwrap();
+
+    // No space is Personal; space picks that space's #general.
+    has(
+        &h.okj(&a, "talk_join", json!({"conv": "#general"})),
+        &[&format!("Joined #general ({})", mine.id)],
+    );
+    has(
+        &h.okj(&a, "talk_join", json!({"conv": "#general", "space": "mlg"})),
+        &[&format!("Joined #general ({})", mlg.id)],
+    );
+    has(
+        &h.okj(
+            &a,
+            "talk_join",
+            json!({"conv": "general", "space": "sp_wind"}),
+        ),
+        &[&format!("Joined #general ({})", wind.id)],
+    );
+    has(
+        &h.okj(
+            &a,
+            "talk_post",
+            json!({"conv": "#general", "space": "MLG", "text": "in mlg"}),
+        ),
+        &[&format!("to {}", mlg.id)],
+    );
+    assert_eq!(t.posts(&mlg.id).len(), 1);
+    assert!(t.posts(&mine.id).is_empty() && t.posts(&wind.id).is_empty());
+    has(
+        &h.okj(
+            &a,
+            "talk_read",
+            json!({"conv": "#general", "space": "personal"}),
+        ),
+        &["No posts in"],
+    );
+
+    // A name only another space has is refused with where it is, never
+    // followed there.
+    let out = h.failsj(
+        &a,
+        "talk_post",
+        json!({"conv": "#netcode", "text": "x"}),
+        &[
+            "no channel #netcode in Personal",
+            "space mlg",
+            &net.id,
+            "pass space=mlg",
+        ],
+    );
+    has_not(&out, &["Posted"]);
+    h.failsj(
+        &a,
+        "talk_join",
+        json!({"conv": "#netcode", "space": "wind"}),
+        &["no channel #netcode in space wind", "pass space=mlg"],
+    );
+    assert!(t.posts(&net.id).is_empty());
+    assert!(!t.is_member(&net.id, KEY_A));
+    // Its id works from anywhere; an unknown space is an error.
+    has(
+        &h.okj(&a, "talk_join", json!({"conv": net.id})),
+        &["Joined #netcode"],
+    );
+    h.failsj(
+        &a,
+        "talk_read",
+        json!({"conv": "#general", "space": "nope"}),
+        &["no shared board"],
+    );
+
+    // talk_list tells the three #generals apart.
+    has(
+        &h.okj(&a, "talk_list", json!({})),
+        &[
+            &format!("#general (channel, conv={})", mine.id),
+            &format!("#general (channel in space mlg, conv={})", mlg.id),
+            &format!("#general (channel in space wind, conv={})", wind.id),
+        ],
+    );
+}
