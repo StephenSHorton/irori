@@ -1142,7 +1142,11 @@ fn what_waits_on_the_person_says_so() {
     let s = summary(&pr.id);
     let wp = s.wait_pr.expect("waits on its PR");
     assert_eq!((wp.number, wp.url.as_str()), (96, PR));
-    assert_eq!(summary(&after.id).wait_you, "", "a PR never waits on the person");
+    assert_eq!(
+        summary(&after.id).wait_you,
+        "",
+        "a PR never waits on the person"
+    );
 
     // A card waiting on #290's question names the person's answer.
     let on_ext = take(&r.key_b, "after the swap");
@@ -1152,17 +1156,24 @@ fn what_waits_on_the_person_says_so() {
         format!("your answer on {}", ext.short_ref())
     );
 
-    // An agent asked to review it: it still waits on the PR.
-    co.request_review(&r.key_b, &pr.id, PR, &r.key_a).unwrap();
+    // None of the person's own agents may review it: it still waits on
+    // the PR.
+    let e = co
+        .request_review(&r.key_b, &pr.id, PR, &r.key_a)
+        .unwrap_err();
+    assert!(e.is(coord::ErrorKind::NotAllowed), "{e}");
     assert_eq!(summary(&pr.id).wait_pr.map(|p| p.number), Some(96));
     assert_eq!(summary(&after.id).wait_you, "");
 
     // Merged: nothing to wait on.
-    co.record_pr_state(&pr.id, coord::PrCheck {
-        pr: PR.into(),
-        state: coord::PR_MERGED.into(),
-        ..Default::default()
-    })
+    co.record_pr_state(
+        &pr.id,
+        coord::PrCheck {
+            pr: PR.into(),
+            state: coord::PR_MERGED.into(),
+            ..Default::default()
+        },
+    )
     .unwrap();
     assert!(summary(&pr.id).wait_pr.is_none());
 }

@@ -133,9 +133,16 @@ fn your_own_agents_never_review_your_pr() {
 
     let err = e.c.request_review(ALICE, &t.id, PR, BOB).unwrap_err();
     assert!(err.is(ErrorKind::NotAllowed), "{err}");
-    assert!(err.to_string().contains("never reviewed by their own agents"), "{err}");
+    assert!(
+        err.to_string()
+            .contains("never reviewed by their own agents"),
+        "{err}"
+    );
     // Leaving pr out doesn't get round it: the card links one.
-    want_err(e.c.request_review(ALICE, &t.id, "", BOB), ErrorKind::NotAllowed);
+    want_err(
+        e.c.request_review(ALICE, &t.id, "", BOB),
+        ErrorKind::NotAllowed,
+    );
     assert!(e.c.reviews_of(&t.id).is_empty());
     assert_ne!(e.c.get_task(&t.id).unwrap().state, IN_REVIEW);
 
