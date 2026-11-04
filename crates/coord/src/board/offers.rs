@@ -883,10 +883,7 @@ pub(crate) fn index_side(stale: &std::sync::RwLock<super::fold::StaleMap>, t: &T
         return;
     }
     let (named, thread) = match &t.ask {
-        Some(a) => (
-            a.mentions.iter().map(|m| m.key.clone()).collect(),
-            a.thread,
-        ),
+        Some(a) => (a.mentions.iter().map(|m| m.key.clone()).collect(), a.thread),
         None => (Vec::new(), false),
     };
     let c = super::fold::SideCard {
