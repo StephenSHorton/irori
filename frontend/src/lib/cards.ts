@@ -59,6 +59,7 @@ import {
 import { safeHref } from "./rich"
 import { EventInboxChanged, useLatest } from "./talk"
 import { NoteItem, sampleAgents, sampleCards, sampleYou } from "./sample-cards"
+import { nameOr, unknownAgent } from "./names"
 
 export type {
   AgentRef,
@@ -1992,12 +1993,12 @@ export function percent(p: { done: number; total: number }): number | null {
   return Math.round((100 * p.done) / p.total)
 }
 
-// displayName is who a face or line names: the roster name, else (for an
-// agent the roster no longer has) the session part of its key.
+// displayName is who a face or line names: the roster name, else "unknown
+// agent". Never a key or a piece of one (card #478).
 export function displayName(r: AgentRef): string {
   const n = plainLine(r.name)
-  if (!n || n === r.key) return r.key.split("/").pop() || r.key
-  return n
+  if (!n || n === r.key) return unknownAgent
+  return nameOr(n)
 }
 
 // busy says an agent holding the card is working on it right now: one of

@@ -22,6 +22,7 @@ import {
 } from "@/lib/desk"
 import { useDevices } from "@/lib/devices"
 import { useRoster } from "@/lib/irori"
+import { nameOr, unknownAgent } from "@/lib/names"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
@@ -229,14 +230,14 @@ export function DesksPane({ open }: { open: boolean }) {
     () =>
       roster.agents
         .filter((a) => a.status !== "gone")
-        .map((a) => ({ value: a.key, label: a.name || a.key })),
+        .map((a) => ({ value: a.key, label: nameOr(a.name) })),
     [roster.agents]
   )
   const deviceChoices = useMemo(
     () => devices.filter((v) => !v.revoked).map((v) => ({ value: v.deviceId, label: v.name || v.deviceId })),
     [devices]
   )
-  const nameOf = (key?: string) => (key ? (agents.find((a) => a.value === key)?.label ?? key) : "")
+  const nameOf = (key?: string) => (key ? (agents.find((a) => a.value === key)?.label ?? unknownAgent) : "")
   const here = roster.device?.id ?? ""
   const add = () => {
     const key = githubKey(adding)

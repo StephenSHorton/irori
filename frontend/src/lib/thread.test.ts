@@ -59,7 +59,7 @@ describe("threadLabel", () => {
       })
     )
     // A key the roster no longer names shows as its session part.
-    expect(l.arrow).toBe("wren-session")
+    expect(l.arrow).toBe("unknown agent")
     expect(l.device).toBe("MacBook")
     expect(l.badges).toEqual([
       { label: "recipient gone", tone: "warning" },
@@ -193,7 +193,7 @@ describe("blockerChip", () => {
       tone: "slate",
     })
     expect(blockerChip(item({ state: "answered", sentTo: wren }))).toEqual({
-      label: "Sent to wren-session · session ended",
+      label: "Sent to unknown agent · session ended",
       tone: "slate",
     })
     // Without sentTo, the raiser.
@@ -258,13 +258,13 @@ describe("heardLine", () => {
 
   test("the holder is woken; a watcher hears at its next turn", () => {
     expect(heardLine([otter], [wren], "wake")).toBe(
-      "sample-otter is woken and will answer here. wren-session hears it at its next turn, watching: they answer only if asked."
+      "sample-otter is woken and will answer here. unknown agent hears it at its next turn, watching: they answer only if asked."
     )
   })
 
   test("at the next turn, several", () => {
     expect(heardLine([otter, wren], [], "next_turn")).toBe(
-      "sample-otter and wren-session hear it at their next turn and will answer here."
+      "sample-otter and unknown agent hear it at their next turn and will answer here."
     )
   })
 

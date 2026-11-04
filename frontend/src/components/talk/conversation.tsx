@@ -38,22 +38,37 @@ import { composing, type Mention } from "@/lib/mentions"
 import { useAgentsNow } from "@/lib/agents-now"
 import { parseTime, plainLine } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
+import { isOthersKey, memberName, nameOr } from "@/lib/names"
 import { LiveRoster } from "@/lib/thread"
 import { cn } from "@/lib/utils"
 
 // statusOf is a member's status now: "person", the live roster's for an
-// agent, else "gone".
+// agent, else its board card's for another member's agent, else "gone".
+// Another member's agent this device knows nothing about is "unknown",
+// never gone (card #478): it isn't on this roster, that's all.
 export function statusOf(m: Member, live: ReadonlyMap<string, { status: string }>): string {
   if (m.kind === "person") return "person"
-  return live.get(m.key)?.status ?? "gone"
+  const mine = live.get(m.key)?.status
+  if (mine) return mine
+  if (m.status) return m.status
+  return m.owner || isOthersKey(m.key) ? "unknown" : "gone"
 }
 
 // statusWord says a status in the members list.
 export function statusWord(status: string): string {
   if (status === "busy" || status === "working") return "working"
   if (status === "idle") return "idle"
-  if (status === "person") return ""
+  if (status === "person" || status === "unknown") return ""
   return "gone"
+}
+
+// whoseWord is the line under another member's agent: "Spencer's agent ·
+// idle", or just "Spencer's agent" when its state isn't known here.
+export function whoseWord(m: Member, status: string): string {
+  const word = statusWord(status)
+  if (!m.owner) return word
+  const whose = `${plainLine(m.owner)}'s agent`
+  return word ? `${whose} · ${word}` : whose
 }
 
 // dayLabel is the line between days: Today, Yesterday, or the date.
@@ -116,15 +131,15 @@ export function ConversationView({
     ) : conv.readOnly ? (
       <>
         <EyeIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-        <span className="truncate">{other.map((m) => plainLine(m.name ?? m.key)).join(" ↔ ")}</span>
+        <span className="truncate">{other.map((m) => memberName(m)).join(" ↔ ")}</span>
       </>
     ) : (
       <>
         {other[0] && <Face who={refOf(other[0], live)} />}
-        <span className="truncate">{plainLine(other[0]?.name ?? conv.name)}</span>
+        <span className="truncate">{other[0] ? memberName(other[0]) : nameOr(conv.name)}</span>
         {other[0] && (
           <span className="shrink-0 text-[12px] font-normal text-muted-foreground">
-            {statusWord(statusOf(other[0], live))}
+            {whoseWord(other[0], statusOf(other[0], live))}
           </span>
         )}
       </>
@@ -237,7 +252,7 @@ function refOf(m: Member, live: ReadonlyMap<string, { status: string }>) {
   const status = statusOf(m, live)
   return AgentRef({
     key: m.key,
-    name: m.kind === "person" ? (m.name === "you" ? "You" : (m.name ?? "")) : (m.name ?? m.key),
+    name: m.kind === "person" && m.name === "you" ? "You" : memberName(m),
     status,
     live: status !== "gone",
   })
@@ -253,7 +268,7 @@ function DayLine({ label }: { label: string }) {
   )
 }
 
-function PostRow({
+export function PostRow({
   post,
   who,
   names,
@@ -281,12 +296,11 @@ function PostRow({
         ? { kind: "person", key, name: "you" }
         : { kind: key.startsWith("person:") ? "person" : "agent", key })
     const ref = refOf(m, live)
-    return { name: m.kind === "person" && m.name === "you" ? "you" : (m.name ?? key), who: ref, gone: !ref.live }
+    return { name: m.kind === "person" && m.name === "you" ? "you" : memberName(m), who: ref, gone: !ref.live }
   })
   const m: Member = who ?? { kind: post.by.startsWith("person:") ? "person" : "agent", key: post.by }
   const at = parseTime(post.at)
-  const name =
-    m.kind === "person" ? (m.name === "you" ? "You" : plainLine(m.name ?? "")) : plainLine(m.name ?? m.key)
+  const name = m.kind === "person" && m.name === "you" ? "You" : memberName(m)
   // A thread started from a message here leaves this one line (design b2):
   // the thread itself lives in Threads.
   if (post.threadFrom)
@@ -308,7 +322,7 @@ function PostRow({
       <div className="grid min-w-0 flex-1 gap-0.5">
         <div className="flex min-w-0 items-baseline gap-2">
           <span className="min-w-0 truncate text-[13px] font-medium text-ink">
-            {m.kind === "person" ? (m.name === "you" ? "You" : plainLine(m.name ?? "")) : plainLine(m.name ?? m.key)}
+            {name}
           </span>
           {m.kind === "agent" && (
             <span className="shrink-0 text-[10.5px] text-muted-foreground uppercase">agent</span>
@@ -462,7 +476,7 @@ function CardChip({ id }: { id: string }) {
 }
 
 // Members is a channel's people and agents with how each stands now.
-function Members({
+export function Members({
   members,
   live,
   wide = false,
@@ -473,7 +487,7 @@ function Members({
   wide?: boolean
 }) {
   const sorted = [...members].sort((a, b) =>
-    a.kind === b.kind ? (a.name ?? a.key).localeCompare(b.name ?? b.key) : a.kind === "person" ? -1 : 1
+    a.kind === b.kind ? memberName(a).localeCompare(memberName(b)) : a.kind === "person" ? -1 : 1
   )
   return (
     <aside
@@ -495,9 +509,9 @@ function Members({
             <li key={m.key} className="flex min-w-0 items-center gap-2 text-[12.5px]">
               <Face who={refOf(m, live)} className="shrink-0" />
               <span className={cn("min-w-0 truncate text-ink-2", gone && "text-muted-foreground line-through")}>
-                {m.kind === "person" && m.name === "you" ? "You" : plainLine(m.name ?? m.key)}
+                {m.kind === "person" && m.name === "you" ? "You" : memberName(m)}
               </span>
-              <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">{statusWord(status)}</span>
+              <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">{whoseWord(m, status)}</span>
             </li>
           )
         })}
@@ -537,7 +551,7 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
   const placeholder =
     conv.kind === "channel"
       ? `Message #${plainLine(conv.name)}`
-      : `Message ${plainLine(other?.name ?? conv.name)}`
+      : `Message ${other ? memberName(other) : nameOr(conv.name)}`
   return (
     <form className="grid gap-1 border-t border-border px-3 py-2.5" onSubmit={(e) => void submit(e)}>
       <div className="flex items-start gap-2 p-1.5 glass-panel">

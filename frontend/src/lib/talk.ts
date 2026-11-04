@@ -17,9 +17,10 @@ import {
   type MentionOutcome,
   type Policy,
 } from "./models"
-import { inWails, parseTime, sessionShort } from "./irori"
+import { inWails, parseTime } from "./irori"
 import { checkUploads, uploadOf } from "./uploads"
 import { sampleTalk, type SampleTalk } from "./sample-talk"
+import { nameOr } from "./names"
 
 export type { Delivery, GoneSession, Policy }
 export { HoldReason, Mode, State }
@@ -88,8 +89,9 @@ export function errorText(err: unknown): string {
 const message = errorText
 
 // Names turns agent keys into labels: "you" for the person, the live
-// roster name, else a name seen on a message or a gone session, else a
-// short session id. Callers pass every source they have.
+// roster name, else a name seen on a message or a gone session, else
+// "unknown agent", never a key (card #478). Callers pass every source
+// they have.
 export function nameLookup(
   ...sources: Array<Iterable<[string, string]>>
 ): (key: string) => string {
@@ -100,7 +102,7 @@ export function nameLookup(
   return (key: string) => {
     if (!key) return ""
     if (key.startsWith("user:")) return "you"
-    return names.get(key) || `agent ${sessionShort(key)}`
+    return nameOr(names.get(key))
   }
 }
 

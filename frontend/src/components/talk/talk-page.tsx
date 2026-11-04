@@ -54,7 +54,8 @@ import {
   stateBadges,
   stateLine,
 } from "./threads"
-import { ConversationView, statusOf, statusWord } from "./conversation"
+import { ConversationView, statusOf, statusWord, whoseWord } from "./conversation"
+import { memberName, nameOr } from "@/lib/names"
 
 // talkMatches is whether a thread fits the list's search: its title, what
 // was asked, its #ref, or the newest reply.
@@ -446,7 +447,7 @@ function Group({
 
 // ConvItem is a channel or a DM in the list, with its unread count (a red
 // @ when it mentions you).
-function ConvItem({ c, current, onClick }: { c: Conv; current: boolean; onClick: () => void }) {
+export function ConvItem({ c, current, onClick }: { c: Conv; current: boolean; onClick: () => void }) {
   const live = useContext(LiveRoster)
   const other = c.kind === "dm" ? dmWith(c) : []
   const icon =
@@ -458,7 +459,7 @@ function ConvItem({ c, current, onClick }: { c: Conv; current: boolean; onClick:
       <Face
         who={AgentRef({
           key: other[0].key,
-          name: other[0].name ?? other[0].key,
+          name: memberName(other[0]),
           status: statusOf(other[0], live),
           live: statusOf(other[0], live) !== "gone",
         })}
@@ -469,7 +470,7 @@ function ConvItem({ c, current, onClick }: { c: Conv; current: boolean; onClick:
   const label =
     c.kind === "channel"
       ? plainLine(c.name)
-      : other.map((m) => plainLine(m.name ?? m.key)).join(" ↔ ") || plainLine(c.name)
+      : other.map((m) => memberName(m)).join(" ↔ ") || nameOr(c.name)
   const sub =
     c.kind === "channel"
       ? c.topic
@@ -478,7 +479,7 @@ function ConvItem({ c, current, onClick }: { c: Conv; current: boolean; onClick:
       : c.readOnly
         ? "agents talking · read-only"
         : other[0]
-          ? statusWord(statusOf(other[0], live))
+          ? whoseWord(other[0], statusOf(other[0], live))
           : ""
   return (
     <button
