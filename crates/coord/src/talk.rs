@@ -447,15 +447,16 @@ impl Talk {
 
     // ---- writes ---------------------------------------------------------
 
-    /// Makes a Personal channel named `name` (unique among open channels,
-    /// any case); `by` joins it.
+    /// Makes a Personal channel named `name` (unique among Personal's open
+    /// channels, any case); `by` joins it.
     pub fn create_channel(&self, by: &str, name: &str, topic: &str) -> Result<Channel> {
         self.create_channel_in(by, name, topic, PERSONAL_SPACE)
     }
 
     /// Makes a channel named `name` in space `space` (empty: Personal);
     /// `by` joins it. A space's channel, and its members and posts, go in
-    /// the space's log ([`SpaceLogs`]).
+    /// the space's log ([`SpaceLogs`]). The name is unique within the
+    /// space only: two spaces may each have a #general (card #461).
     pub fn create_channel_in(
         &self,
         by: &str,
@@ -467,8 +468,15 @@ impl Talk {
         let space = space.trim();
         let name = clean_name(name)?;
         let topic = clean_topic(topic)?;
-        if self.channel_named(&name).is_some() {
-            return Err(invalid(format!("there's already a channel named {name}")));
+        if self.channel_named_in(&name, space).is_some() {
+            return Err(invalid(format!(
+                "there's already a channel named {name} {}",
+                if space.is_empty() {
+                    "in Personal"
+                } else {
+                    "in this space"
+                }
+            )));
         }
         let id = format!("{CHANNEL_PREFIX}{}", new_id(&(self.now)()));
         self.write(
@@ -696,14 +704,37 @@ impl Talk {
         self.lock().channels.get(id.trim()).cloned()
     }
 
-    /// The open channel named `name` (any case, a leading `#` dropped).
+    /// The open Personal channel named `name` (any case, a leading `#`
+    /// dropped). A space's channel is found with [`Talk::channel_named_in`].
     pub fn channel_named(&self, name: &str) -> Option<Channel> {
-        let want = name.trim().trim_start_matches('#').to_lowercase();
+        self.channel_named_in(name, PERSONAL_SPACE)
+    }
+
+    /// The open channel named `name` in space `space` (empty: Personal).
+    /// Names are unique per space, so a lookup never crosses into another
+    /// space (card #461).
+    pub fn channel_named_in(&self, name: &str, space: &str) -> Option<Channel> {
+        let (want, space) = (fold_name(name), space.trim());
         self.lock()
             .channels
             .values()
-            .find(|c| !c.archived && c.name.to_lowercase() == want)
+            .find(|c| !c.archived && c.space_id == space && c.name.to_lowercase() == want)
             .cloned()
+    }
+
+    /// Every open channel named `name`, in any space, sorted by space: for
+    /// telling a caller where a name it looked up in one space lives.
+    pub fn channels_named(&self, name: &str) -> Vec<Channel> {
+        let want = fold_name(name);
+        let mut out: Vec<Channel> = self
+            .lock()
+            .channels
+            .values()
+            .filter(|c| !c.archived && c.name.to_lowercase() == want)
+            .cloned()
+            .collect();
+        out.sort_by(|a, b| a.space_id.cmp(&b.space_id).then_with(|| a.id.cmp(&b.id)));
+        out
     }
 
     /// Who is in `conv` now, in the order they joined.
@@ -1040,6 +1071,12 @@ pub fn clean_name(name: &str) -> Result<String> {
         )));
     }
     Ok(n)
+}
+
+/// `name` as channel names compare: trimmed, a leading `#` dropped, any
+/// case.
+fn fold_name(name: &str) -> String {
+    name.trim().trim_start_matches('#').to_lowercase()
 }
 
 fn clean_topic(topic: &str) -> Result<String> {

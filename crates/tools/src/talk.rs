@@ -392,8 +392,11 @@ fn coord_cmp(a: &GoTime, b: &GoTime) -> std::cmp::Ordering {
 
 /// What `conv` names for `me`: a channel or DM id, `#name` (a channel)
 /// or `#12` / `task:<id>` (a thread or card), `@name` or an agent's key
-/// (the DM with it), or `person` (the DM with the person).
-pub fn resolve(b: &dyn Backend, me: &str, conv: &str) -> Result<Target, String> {
+/// (the DM with it), or `person` (the DM with the person). A channel's
+/// name is looked up in space `space` only (empty: Personal); a name that
+/// lives in another space is refused with where it is, never followed
+/// there (card #461).
+pub fn resolve(b: &dyn Backend, me: &str, conv: &str, space: &str) -> Result<Target, String> {
     let talk = talk_of(b)?;
     let conv = trim(conv);
     if conv.is_empty() {
@@ -418,7 +421,7 @@ pub fn resolve(b: &dyn Backend, me: &str, conv: &str) -> Result<Target, String> 
         return Ok(Target::Dm(ct::dm_id(me, &p.key), Some(p)));
     }
     if let Some(name) = conv.strip_prefix('#')
-        && let Some(c) = talk.channel_named(name)
+        && let Some(c) = talk.channel_named_in(name, space)
     {
         return Ok(Target::Channel(c.id));
     }
@@ -433,8 +436,12 @@ pub fn resolve(b: &dyn Backend, me: &str, conv: &str) -> Result<Target, String> 
     {
         return Ok(Target::Thread(trim(id).to_string()));
     }
-    if let Some(c) = talk.channel_named(conv) {
+    if let Some(c) = talk.channel_named_in(conv, space) {
         return Ok(Target::Channel(c.id));
+    }
+    let elsewhere = talk.channels_named(conv);
+    if !elsewhere.is_empty() {
+        return Err(elsewhere_text(b, conv, space, &elsewhere));
     }
     let name = conv.trim_start_matches('@');
     let r = coord::mentions::resolve(&cards(b), me, "", &[name.to_string()]);
@@ -454,6 +461,61 @@ pub fn resolve(b: &dyn Backend, me: &str, conv: &str) -> Result<Target, String> 
         "{} is no channel, thread or agent here. talk_list shows your conversations; the agents tool lists agents.",
         one_line(conv, 80)
     ))
+}
+
+/// The refusal for channel name `conv` looked up in `space` but found only
+/// in other spaces: where each one is, and how to name it.
+fn elsewhere_text(b: &dyn Backend, conv: &str, space: &str, chs: &[ct::Channel]) -> String {
+    let name = one_line(conv.trim_start_matches('#'), 80);
+    let here = if space.is_empty() {
+        "Personal".to_string()
+    } else {
+        format!("space {}", space_tag(b, space))
+    };
+    let at: Vec<String> = chs
+        .iter()
+        .map(|c| {
+            if c.space_id.is_empty() {
+                format!("in Personal (conv={}): leave out space", c.id)
+            } else {
+                let tag = space_tag(b, &c.space_id);
+                format!("in space {tag} (conv={}): pass space={tag}", c.id)
+            }
+        })
+        .collect();
+    format!(
+        "no channel #{name} in {here}. #{name} is {}, or give that conv.",
+        at.join("; ")
+    )
+}
+
+/// Space `id`'s tag as the tools show it (its own board's), else the id.
+pub(crate) fn space_tag(b: &dyn Backend, id: &str) -> String {
+    b.shared_boards()
+        .and_then(|sb| {
+            sb.boards()
+                .into_iter()
+                .find(|x| x.board_id == id && x.space_board.is_empty())
+        })
+        .map(|x| x.tag)
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| id.to_string())
+}
+
+/// The space a tool's `space` argument names, as the id channels carry:
+/// empty (or `personal`) is Personal, else a shared space by tag or id
+/// (card #461). The error is the tool's text.
+fn space_arg(s: &Inner, v: &str) -> Result<String, String> {
+    let v = trim(v);
+    if v.is_empty() || v.eq_ignore_ascii_case("personal") {
+        return Ok(ct::PERSONAL_SPACE.to_string());
+    }
+    if s.b.shared_boards().is_none() {
+        return Err(err_text(
+            "shared spaces aren't on here; leave out space for a Personal channel.",
+        ));
+    }
+    s.find_board(v).map(|x| x.board_id)
 }
 
 /// Every post of `conv` (oldest first) as `reader` may read it: anyone
@@ -758,7 +820,12 @@ fn me(c: &Caller) -> &str {
     &c.sender.key
 }
 
-const POST_ARGS: &[(&str, Ty)] = &[("conv", Ty::Str), ("text", Ty::Str), ("mention", Ty::Strs)];
+const POST_ARGS: &[(&str, Ty)] = &[
+    ("conv", Ty::Str),
+    ("text", Ty::Str),
+    ("mention", Ty::Strs),
+    ("space", Ty::Str),
+];
 
 pub(crate) fn talk_post(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let a = match decode(raw, POST_ARGS) {
@@ -766,7 +833,11 @@ pub(crate) fn talk_post(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Err(e) => return e,
     };
     let b = s.b.as_ref();
-    let target = match resolve(b, me(c), a.str("conv")) {
+    let space = match space_arg(s, a.str("space")) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let target = match resolve(b, me(c), a.str("conv"), &space) {
         Ok(t) => t,
         Err(e) => return err_text(&e),
     };
@@ -802,7 +873,7 @@ pub(crate) fn talk_post(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
 }
 
-const READ_ARGS: &[(&str, Ty)] = &[("conv", Ty::Str), ("since", Ty::Str)];
+const READ_ARGS: &[(&str, Ty)] = &[("conv", Ty::Str), ("since", Ty::Str), ("space", Ty::Str)];
 
 pub(crate) fn talk_read(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let a = match decode(raw, READ_ARGS) {
@@ -813,7 +884,11 @@ pub(crate) fn talk_read(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let Some(talk) = b.talk() else {
         return err_text("Talk is off on this Core");
     };
-    let target = match resolve(b, me(c), a.str("conv")) {
+    let space = match space_arg(s, a.str("space")) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let target = match resolve(b, me(c), a.str("conv"), &space) {
         Ok(t) => t,
         Err(e) => return err_text(&e),
     };
@@ -904,7 +979,12 @@ pub(crate) fn talk_list(s: &Inner, c: &Caller, _: &[u8]) -> String {
     }
     for x in &cs {
         let what = match x.kind.as_str() {
-            ct::KIND_CHANNEL => format!("#{} (channel, conv={})", one_line(&x.name, 80), x.conv_id),
+            ct::KIND_CHANNEL => format!(
+                "#{} (channel{}, conv={})",
+                one_line(&x.name, 80),
+                in_space(b, talk, &x.conv_id),
+                x.conv_id
+            ),
             ct::KIND_DM => {
                 let other: Vec<String> = x
                     .members
@@ -944,7 +1024,14 @@ pub(crate) fn talk_list(s: &Inner, c: &Caller, _: &[u8]) -> String {
         .channels()
         .into_iter()
         .filter(|ch| !ch.archived && !talk.is_member(&ch.id, me(c)))
-        .map(|ch| format!("#{} ({})", one_line(&ch.name, 80), ch.id))
+        .map(|ch| {
+            format!(
+                "#{} ({}{})",
+                one_line(&ch.name, 80),
+                ch.id,
+                in_space(b, talk, &ch.id)
+            )
+        })
         .collect();
     if !others.is_empty() {
         out += &format!(
@@ -955,13 +1042,23 @@ pub(crate) fn talk_list(s: &Inner, c: &Caller, _: &[u8]) -> String {
     out + untrusted()
 }
 
-const CONV_ARGS: &[(&str, Ty)] = &[("conv", Ty::Str)];
+/// " in space <tag>" for a space's channel, so two channels of one name
+/// tell apart in talk_list (card #461); empty for a Personal one.
+fn in_space(b: &dyn Backend, talk: &Talk, conv: &str) -> String {
+    match talk.channel(conv) {
+        Some(c) if !c.space_id.is_empty() => format!(" in space {}", space_tag(b, &c.space_id)),
+        _ => String::new(),
+    }
+}
+
+const CONV_ARGS: &[(&str, Ty)] = &[("conv", Ty::Str), ("space", Ty::Str)];
 
 fn channel_arg(s: &Inner, c: &Caller, raw: &[u8]) -> Result<(Arc<Talk>, String, String), String> {
     let a = decode(raw, CONV_ARGS)?;
     let b = s.b.as_ref();
     let talk = talk_of(b).map_err(|e| err_text(&e))?.clone();
-    match resolve(b, me(c), a.str("conv")) {
+    let space = space_arg(s, a.str("space"))?;
+    match resolve(b, me(c), a.str("conv"), &space) {
         Ok(Target::Channel(id)) => {
             let name = talk.channel(&id).map(|ch| ch.name).unwrap_or_default();
             Ok((talk, id, name))
