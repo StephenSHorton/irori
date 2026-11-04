@@ -35,6 +35,8 @@ export const commands = {
 	inboxSetPaused: (paused: boolean) => __TAURI_INVOKE<null>("inbox_set_paused", { paused }),
 	boardCards: () => __TAURI_INVOKE<CardSummary[]>("board_cards"),
 	boardCard: (id: string) => __TAURI_INVOKE<CardDetail>("board_card", { id }),
+	/**  Several cards in one call, each with its card or why not (card #468). */
+	boardCardsById: (ids: string[]) => __TAURI_INVOKE<CardRead[]>("board_cards_by_id", { ids }),
 	boardDoneCards: (limit: number, before: string) => __TAURI_INVOKE<DonePage>("board_done_cards", { limit, before }),
 	/**
 	 *  One scope's live cards (card #161): "" every card, "own" the private
@@ -813,6 +815,18 @@ export type CardPR = {
 export type CardProgress = {
 	done: number,
 	total: number,
+};
+
+/**
+ *  One card of [`Window::cards_by_id`]: the card, or why it couldn't be
+ *  read (gone, or not this device's to read).
+ */
+export type CardRead = {
+	/**  The id as asked. */
+	id: string,
+	card: CardDetail | null,
+	/**  "" when card is there. */
+	error: string,
 };
 
 /**  Another card: a subtask's parent. */

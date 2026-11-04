@@ -22,7 +22,8 @@ const realInterval = window.setInterval.bind(window)
 window.setInterval = ((fn: TimerHandler, ms?: number, ...rest: unknown[]) =>
   realInterval(
     (...a: unknown[]) => {
-      if (!quiet && typeof fn === "function") (fn as (...x: unknown[]) => void)(...a)
+      if (!quiet && typeof fn === "function")
+        (fn as (...x: unknown[]) => void)(...a)
     },
     ms,
     ...rest
@@ -42,7 +43,10 @@ type Fiber = {
 }
 function nameOf(t: unknown): string {
   if (!t) return "?"
-  if (typeof t === "function") return (t as { displayName?: string; name: string }).displayName || t.name || "?"
+  if (typeof t === "function")
+    return (
+      (t as { displayName?: string; name: string }).displayName || t.name || "?"
+    )
   const o = t as { displayName?: string; render?: unknown; type?: unknown }
   return o.displayName || nameOf(o.render ?? o.type)
 }
@@ -54,40 +58,46 @@ function countRendered(root: Fiber | null): number {
     const x = stack.pop()!
     if (x.sibling) stack.push(x.sibling)
     // 0 function, 1 class, 11 forwardRef, 14/15 memo; PerformedWork is 1.
-    const component = x.tag === 0 || x.tag === 1 || x.tag === 11 || x.tag === 14 || x.tag === 15
+    const component =
+      x.tag === 0 || x.tag === 1 || x.tag === 11 || x.tag === 14 || x.tag === 15
     if (component && (x.flags & 1 || !x.alternate)) {
       n++
       const k = nameOf(x.type)
       hook.names.set(k, (hook.names.get(k) ?? 0) + 1)
     }
-    if (x.child && (!x.alternate || x.child !== x.alternate.child)) stack.push(x.child)
+    if (x.child && (!x.alternate || x.child !== x.alternate.child))
+      stack.push(x.child)
   }
   return n
 }
-;(window as unknown as Record<string, unknown>).__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
-  supportsFiber: true,
-  isDisabled: false,
-  renderers: new Map(),
-  inject() {
-    return 1
-  },
-  checkDCE() {},
-  onScheduleFiberRoot() {},
-  onCommitFiberRoot(_id: number, root: { current: Fiber }) {
-    hook.commits++
-    hook.rendered += countRendered(root.current.child)
-  },
-  onCommitFiberUnmount() {},
-  onPostCommitFiberRoot() {},
-}
+;(window as unknown as Record<string, unknown>).__REACT_DEVTOOLS_GLOBAL_HOOK__ =
+  {
+    supportsFiber: true,
+    isDisabled: false,
+    renderers: new Map(),
+    inject() {
+      return 1
+    },
+    checkDCE() {},
+    onScheduleFiberRoot() {},
+    onCommitFiberRoot(_id: number, root: { current: Fiber }) {
+      hook.commits++
+      hook.rendered += countRendered(root.current.child)
+    },
+    onCommitFiberUnmount() {},
+    onPostCommitFiberRoot() {},
+  }
 
 // Each command's answer type, read from the bindings: arrays answer [],
 // numbers 0, strings "", booleans false, an object type each of its
 // fields so (optional ones null), unless set in answer below.
 const returns = new Map<string, string>()
-for (const m of bindings.matchAll(/__TAURI_INVOKE<(.+?)>\("(\w+)"/g)) returns.set(m[2], m[1])
+for (const m of bindings.matchAll(/__TAURI_INVOKE<(.+?)>\("(\w+)"/g))
+  returns.set(m[2], m[1])
 const types = new Map<string, [string, string][]>()
-for (const m of bindings.matchAll(/^export type (\w+) = \{\n([\s\S]*?)^\};/gm)) {
+for (const m of bindings.matchAll(
+  /^export type (\w+) = \{\n([\s\S]*?)^\};/gm
+)) {
   const fields: [string, string][] = []
   for (const f of m[2].matchAll(/^\t(\w+)(\??): (.+?),$/gm))
     fields.push([f[1], f[2] ? "null" : f[3]])
@@ -95,7 +105,8 @@ for (const m of bindings.matchAll(/^export type (\w+) = \{\n([\s\S]*?)^\};/gm)) 
 }
 function zero(t: string, depth = 0): unknown {
   t = t.trim()
-  if (t.endsWith("[]") || t.startsWith("Partial<{")) return t.endsWith("[]") ? [] : {}
+  if (t.endsWith("[]") || t.startsWith("Partial<{"))
+    return t.endsWith("[]") ? [] : {}
   if (t === "number") return 0
   if (t === "string") return ""
   if (t === "boolean") return false
@@ -181,7 +192,9 @@ function answer(cmd: string, args: Record<string, unknown>): unknown {
         if (!c) throw new Error(`no such card: ${String(id)}`)
         return c
       })
-      return cmd === "board_card" ? got[0] : got
+      return cmd === "board_card"
+        ? got[0]
+        : got.map((card) => ({ id: card.id, card, error: "" }))
     }
     case "notifications_list":
       return notifications()
@@ -215,7 +228,11 @@ function snapshot() {
     ipc: [...calls.values()].reduce((a, b) => a + b, 0),
     commits: hook.commits,
     rendered: hook.rendered,
-    top: [...hook.names].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, v]) => `${k} ${v}`).join(", "),
+    top: [...hook.names]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12)
+      .map(([k, v]) => `${k} ${v}`)
+      .join(", "),
     calls: Object.fromEntries([...calls].sort((a, b) => b[1] - a[1])),
   }
 }

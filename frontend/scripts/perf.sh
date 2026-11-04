@@ -15,6 +15,13 @@ profile="$(mktemp -d)"
 trap 'rm -rf "$profile"' EXIT
 # PERF_LOG=file keeps the page's console there.
 log="${PERF_LOG:-/dev/null}"
+# PERF_SHOT=file.png takes a screenshot of the page instead.
+if [[ -n "${PERF_SHOT:-}" ]]; then
+  "$chrome" --headless=new --disable-gpu --user-data-dir="$profile" \
+    --virtual-time-budget=8000 --window-size=1300,1000 \
+    --screenshot="$PERF_SHOT" "$base/perf.html$query" 2>"$log"
+  exit
+fi
 "$chrome" --headless=new --disable-gpu --user-data-dir="$profile" \
   --enable-logging=stderr --v=0 \
   --virtual-time-budget=60000 --window-size=1400,900 \

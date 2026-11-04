@@ -4,7 +4,14 @@
 // sample in sample-cards.ts (answers change it in memory so the buttons can
 // be tried).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react"
 
 import { agentsNowDefault } from "./agents-now"
 import { BoardService, Browser, Events } from "./host"
@@ -1957,31 +1964,174 @@ function errText(err: unknown): string {
 }
 
 // useCard is one opened card, re-read on every card change. detail is null
-// until the card with this id has loaded.
+// until the card with this id has loaded. Every useCard mounted shares one
+// read (cardStore below): a Notifications page of card rows, Needs you
+// and the open card cost one board_cards_by_id per change, not one
+// board_card each (card #468).
 export function useCard(id: string): {
   detail: CardDetail | null
   error: string | null
 } {
-  const load = useCallback(async (): Promise<CardDetail | null> => {
-    if (!id) return null
-    if (inWails()) return BoardService.Card(id)
-    // ?slow in the preview: the card never arrives, to see the page while
-    // it loads.
-    if (new URLSearchParams(window.location.search).has("slow"))
-      await new Promise(() => {})
-    // A copy, so React sees a new object after a sample answer.
-    return { ...sampleCard(id) } as CardDetail
-  }, [id])
-  const { value, loading, error, reload } = useLatest<CardDetail | null>(
-    load,
-    null
+  const watch = useCallback((fn: () => void) => cardStore.watch(id, fn), [id])
+  const read = useCallback(() => cardStore.slot(id), [id])
+  const slot = useSyncExternalStore(watch, read)
+  return useMemo(
+    () => ({
+      detail: !id || !slot || slot.detail?.id !== id ? null : slot.detail,
+      error: slot?.error ?? null,
+    }),
+    [id, slot]
   )
-  useFresh(reload, error, true)
-  const detail = useMemo(
-    () => (!id || loading || value?.id !== id ? null : value),
-    [id, loading, value]
-  )
-  return { detail, error }
+}
+
+// What the shared read holds for one card id: its detail or its error.
+// A new object only when the card changed, so its rows render only then.
+export type CardSlot = {
+  detail: CardDetail | null
+  error: string | null
+}
+
+// readCards is the shared read: each id's card, or why not.
+async function readCards(ids: string[]): Promise<Map<string, CardSlot>> {
+  const out = new Map<string, CardSlot>()
+  if (inWails()) {
+    try {
+      for (const r of await BoardService.CardsById(ids))
+        out.set(r.id, {
+          detail: (r.card as CardDetail | null) ?? null,
+          error: r.card ? null : r.error || "coord: no such card",
+        })
+    } catch (err) {
+      for (const id of ids) out.set(id, { detail: null, error: errText(err) })
+    }
+    return out
+  }
+  // ?slow in the preview: the card never arrives, to see the page while
+  // it loads.
+  if (new URLSearchParams(window.location.search).has("slow"))
+    await new Promise(() => {})
+  for (const id of ids) {
+    try {
+      // A copy, so React sees a new object after a sample answer.
+      out.set(id, { detail: { ...sampleCard(id) } as CardDetail, error: null })
+    } catch (err) {
+      out.set(id, { detail: null, error: errText(err) })
+    }
+  }
+  return out
+}
+
+// cardStore keeps the cards the mounted useCard hooks show and reads them
+// all in one call: on every card change (board:changed, devices:changed),
+// inbox:changed (the open card's "queued for / sent to" lines), focus,
+// and a few seconds after a failed read; a newly watched id is read at
+// once. One read runs at a time; what comes in meanwhile waits for it,
+// then reads again.
+export const cardStore = createCardStore(readCards)
+
+export function createCardStore(
+  read: (ids: string[]) => Promise<Map<string, CardSlot>>,
+  events: (again: () => void) => () => void = cardEvents
+) {
+  const slots = new Map<string, CardSlot>()
+  const seen = new Map<string, string>()
+  const users = new Map<string, Set<() => void>>()
+  // Ids to read next; all: every watched id.
+  let want = new Set<string>()
+  let all = false
+  let running = false
+  let retry: ReturnType<typeof setTimeout> | undefined
+  let off: (() => void) | null = null
+
+  function request(id?: string) {
+    if (id === undefined) all = true
+    else want.add(id)
+    if (!running) void run()
+  }
+
+  async function run() {
+    running = true
+    // After the effects of one commit: every row mounted with it is in.
+    await Promise.resolve()
+    try {
+      while (all || want.size) {
+        const ids = all ? [...users.keys()] : [...want].filter((id) => users.has(id))
+        all = false
+        want = new Set()
+        if (!ids.length) continue
+        const got = await read(ids)
+        let failed = false
+        for (const [id, slot] of got) {
+          if (!users.has(id)) continue
+          if (slot.error) failed = true
+          const json = JSON.stringify(slot)
+          if (seen.get(id) === json) continue
+          seen.set(id, json)
+          slots.set(id, slot)
+          for (const fn of users.get(id) ?? []) fn()
+        }
+        if (failed && retry === undefined && off)
+          retry = setTimeout(() => {
+            retry = undefined
+            request()
+          }, RetryMs)
+      }
+    } finally {
+      running = false
+    }
+  }
+
+  function listen() {
+    const stop = events(() => request())
+    return () => {
+      stop()
+      clearTimeout(retry)
+      retry = undefined
+    }
+  }
+
+  return {
+    slot: (id: string): CardSlot | undefined => slots.get(id),
+    watch(id: string, fn: () => void): () => void {
+      if (!id) return () => {}
+      let set = users.get(id)
+      if (!set) {
+        set = new Set()
+        users.set(id, set)
+        request(id)
+      }
+      set.add(fn)
+      if (!off) off = listen()
+      return () => {
+        set.delete(fn)
+        if (set.size) return
+        // Unwatched: the next watch of it loads it afresh.
+        users.delete(id)
+        slots.delete(id)
+        seen.delete(id)
+        if (!users.size && off) {
+          off()
+          off = null
+        }
+      }
+    },
+  }
+}
+
+// cardEvents is when the card hooks read again: every card change, every
+// inbox change, and focus.
+function cardEvents(again: () => void): () => void {
+  const offCards = subscribe(again)
+  const offInbox = inWails() ? Events.On(EventInboxChanged, again) : () => {}
+  const onFocus = () => {
+    if (inWails()) again()
+  }
+  window.addEventListener("focus", onFocus)
+  return () => {
+    offCards()
+    offInbox()
+    window.removeEventListener("focus", onFocus)
+  }
 }
 
 // ---- derived ----------------------------------------------------------------
