@@ -971,11 +971,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let base = plain(std::fs::canonicalize(tmp.path()).unwrap());
         let bin = base.join("claude");
-        std::fs::write(
-            &bin,
-            "#!/bin/sh\necho \"No job matching '$2'\"\nexit 1\n",
-        )
-        .unwrap();
+        std::fs::write(&bin, "#!/bin/sh\necho \"No job matching '$2'\"\nexit 1\n").unwrap();
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
         let out = end_with(&bin, "6fa86d9b", Duration::from_secs(5)).unwrap();
         assert!(out.starts_with(GONE_JOB), "{out}");

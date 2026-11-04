@@ -69,8 +69,7 @@ fn parked_on_work(
         comments
             .iter()
             .any(|c| c.by == key && c.at.unix_nano() > answer)
-            || t
-                .blockers
+            || t.blockers
                 .iter()
                 .any(|o| o.raised_by == key && o.at.unix_nano() > answer)
     };
@@ -474,8 +473,7 @@ pub const DONE_GRACE: Duration = Duration::from_secs(300);
 
 /// The start of the line Irori leaves when `claude rm` kept an ended
 /// agent's worktree (card #474); what `rm` said follows.
-pub const KEPT_WORKTREE: &str =
-    "Irori ended the agent, but Claude Code kept its worktree because it has work that isn't pushed: ";
+pub const KEPT_WORKTREE: &str = "Irori ended the agent, but Claude Code kept its worktree because it has work that isn't pushed: ";
 
 /// The line Irori leaves when an agent ends without a hand-off.
 pub const NO_HANDOFF: &str = "The agent Irori started for this card ended without a hand-off: read the thread and Where for what it did.";
@@ -1347,7 +1345,11 @@ impl Services {
         let now = (self.now)();
         let due: Vec<(String, bool)> = {
             let m = self.spawn.ending.lock().unwrap_or_else(|e| e.into_inner());
-            let tries = self.spawn.end_tries.lock().unwrap_or_else(|e| e.into_inner());
+            let tries = self
+                .spawn
+                .end_tries
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             m.iter()
                 .filter(|(k, _)| {
                     tries
@@ -1365,7 +1367,11 @@ impl Services {
                 // Its agent.gone is written already; only stop and rm are
                 // tried again, a few times, not every sweep (card #474).
                 let n = {
-                    let mut t = self.spawn.end_tries.lock().unwrap_or_else(|e| e.into_inner());
+                    let mut t = self
+                        .spawn
+                        .end_tries
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
                     let e = t.entry(k.clone()).or_insert((0, now));
                     *e = (e.0 + 1, now);
                     e.0
