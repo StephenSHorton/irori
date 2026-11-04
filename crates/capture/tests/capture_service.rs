@@ -1941,7 +1941,11 @@ fn a_peers_repo_seen_is_not_a_checkout_here() {
     r.st.insert(&ev).unwrap();
     r.restart();
 
-    assert!(r.c.repo_roots(&key).is_empty(), "{:?}", r.c.repo_roots(&key));
+    assert!(
+        r.c.repo_roots(&key).is_empty(),
+        "{:?}",
+        r.c.repo_roots(&key)
+    );
     assert!(r.c.repos().is_empty(), "{:?}", r.c.repos());
     assert_eq!(
         r.c.roots_elsewhere(&key),

@@ -578,7 +578,7 @@ fn a_card_with_no_checkout_fails_once_and_is_not_asked_again() {
 /// never started in some other folder, and no other device is asked. (A
 /// work card typed into a personal device's window, with the work repo
 /// never cloned on any linked device.) A repo seen only on another linked
-/// device is a different case: it fails as "not trusted" today (§2.3).
+/// device is refused the same way (card #493; the test below).
 #[test]
 fn a_card_whose_repo_isnt_on_this_device_is_refused_not_spawned() {
     let r = Rig::new();
@@ -623,6 +623,144 @@ fn a_card_whose_repo_isnt_on_this_device_is_refused_not_spawned() {
         "{s:?}"
     );
     std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(fake.started.lock().unwrap().is_empty(), "nothing started");
+    let t = co.get_task(&t.id).unwrap();
+    assert!(t.holders.is_empty() && t.assigned.is_empty(), "{t:?}");
+}
+
+/// Card #493 (work-personal-separation.md §7.4): a repo seen only on
+/// another linked device is not a checkout here. Its `repo.seen` row names
+/// the other machine's path; the spawn is refused as "no checkout of K"
+/// (NoFolder), nothing starts there even though the path exists and is
+/// trusted, and the #467 retry guard holds: past the retry wait, kicks
+/// write no more task.spawn rows. (Peer rows fold only at capture's
+/// replay, so the row goes in and the Core starts again.)
+#[test]
+fn a_repo_seen_only_on_a_peer_is_refused_not_spawned_there() {
+    const K: &str = "remote:github.com/work-org/work-repo";
+    let skew = Arc::new(AtomicI64::new(0));
+    let clock = {
+        let sk = skew.clone();
+        move || {
+            let d = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap();
+            gocompat::time::GoTime::unix(
+                d.as_secs() as i64 + sk.load(Ordering::SeqCst),
+                i64::from(d.subsec_nanos()),
+            )
+        }
+    };
+    let c2 = clock.clone();
+    let mut r = Rig::with(move |o| o.now = Some(Arc::new(c2)));
+    // The peer's checkout: a path that happens to exist here too.
+    let elsewhere = tempfile::tempdir().unwrap();
+    let peer_dir = tempfile::tempdir().unwrap();
+    let peer = store::Store::open(
+        peer_dir.path().join("irori.db"),
+        "dev-elsewhere",
+        Arc::new(store::Clock::new()),
+    )
+    .unwrap();
+    let ev = peer
+        .append(
+            "irori",
+            capture::KIND_REPO_SEEN,
+            &capture::RepoSeen {
+                repo_key: K.into(),
+                root: elsewhere.path().to_string_lossy().into(),
+                at: clock(),
+            },
+        )
+        .unwrap();
+    // The Core's store takes only signed rows from certified devices; the
+    // fold under test reads whatever the log holds, so the row is written
+    // into the log file while the Core is closed.
+    let me = r.core.device_id().to_string();
+    r.core.close().unwrap();
+    {
+        let log = store::Store::open(r.data.join("irori.db"), &me, Arc::new(store::Clock::new()))
+            .unwrap();
+        log.insert(&ev).unwrap();
+        log.close().unwrap();
+    }
+    let mut o = options(&r.data, &r.claude);
+    o.now = Some(Arc::new(clock));
+    r.core = irori_core::Core::start(o).unwrap();
+    wait_for(60, "capture replayed the peer's row", || {
+        let cap = r.core.capture();
+        !cap.roots_elsewhere(K).is_empty() || !cap.repo_roots(K).is_empty()
+    });
+    assert!(
+        r.core.capture().repo_roots(K).is_empty(),
+        "{:?}",
+        r.core.capture().repo_roots(K)
+    );
+
+    assert_eq!(r.core.device_id(), me, "the same device after the restart");
+
+    let fake = Arc::new(Fake::default());
+    let co = r.core.coord();
+    let spawn_rows = || {
+        r.core
+            .store()
+            .list(&store::Filter {
+                kinds: vec![store::kinds::TASK_SPAWN.into()],
+                ..Default::default()
+            })
+            .unwrap()
+            .len()
+    };
+    let t = co
+        .create_task(
+            &format!("user:{me}"),
+            NewTask {
+                title: "Work card".into(),
+                objective: "lives in the work repo".into(),
+                repo_key: K.into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    r.core
+        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
+    r.core
+        .set_spawn_setting(SpawnSetting {
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    wait_for(60, "the refusal on the card (or a start)", || {
+        !fake.started.lock().unwrap().is_empty()
+            || co
+                .get_task(&t.id)
+                .and_then(|t| t.spawn_request().cloned())
+                .is_some_and(|s| s.op == coord::SPAWN_FAILED)
+    });
+    assert!(
+        fake.started.lock().unwrap().is_empty(),
+        "started in the peer's path: {:?}",
+        fake.started.lock().unwrap()
+    );
+    let s = co
+        .get_task(&t.id)
+        .unwrap()
+        .spawn_request()
+        .cloned()
+        .unwrap();
+    assert_eq!(s.device, me, "asked for here only");
+    assert!(s.reason.contains(&format!("no checkout of {K}")), "{s:?}");
+    let rows = spawn_rows();
+    assert_eq!(rows, 2, "one requested and one failed");
+
+    // The #467 guard: past the retry wait, the sweep leaves it.
+    skew.fetch_add(coord::SPAWN_RETRY.as_secs() as i64 + 10, Ordering::SeqCst);
+    for _ in 0..5 {
+        r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    assert_eq!(spawn_rows(), rows, "no new task.spawn rows");
     assert!(fake.started.lock().unwrap().is_empty(), "nothing started");
     let t = co.get_task(&t.id).unwrap();
     assert!(t.holders.is_empty() && t.assigned.is_empty(), "{t:?}");
