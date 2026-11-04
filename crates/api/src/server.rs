@@ -321,7 +321,9 @@ fn precheck(s: &Arc<Shared>, port: u16, r: &Req) -> Option<Resp> {
     if host != format!("127.0.0.1:{port}") && host != format!("localhost:{port}") {
         return Some(http::error(403, "bad host"));
     }
-    let post = crate::v02::post_route(&r.path) || crate::pair::pair_post(&r.path);
+    let post = crate::v02::post_route(&r.path)
+        || crate::pair::pair_post(&r.path)
+        || crate::slots::post_route(&r.path);
     if r.method != "GET" && !(post && r.method == "POST") {
         let allow = if post { "GET, POST" } else { "GET" };
         return Some(http::error(405, "method not allowed").with_header("Allow", allow));
@@ -354,6 +356,7 @@ fn dispatch(s: &Arc<Shared>, port: u16, r: &Req) -> Resp {
         .or_else(|| crate::v03::route(&h))
         .or_else(|| crate::board::route(&h))
         .or_else(|| crate::pair::route(&h))
+        .or_else(|| crate::slots::route(&h))
     {
         return resp;
     }
