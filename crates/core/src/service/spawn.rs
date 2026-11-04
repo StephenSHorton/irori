@@ -40,6 +40,62 @@ fn on_person(b: &coord::Blocker) -> bool {
         .is_none_or(|on| on.kind == coord::BLOCKED_ON_PERSON)
 }
 
+/// Whether blocked card t's agent `key` is parked on other work (card
+/// #474): every open blocker waits on other cards, leases or something
+/// outside, except questions the person answered that `key` has acted on
+/// since (it wrote on the card after the answer, say a newer blocker, but
+/// left the answered one open), and the newest open blocker is at least
+/// `limit` old. An open question, a done check, a helper's part or an
+/// answer it hasn't acted on keeps it.
+fn parked_on_work(
+    t: &Task,
+    key: &str,
+    comments: &[coord::Comment],
+    now: &GoTime,
+    limit: Duration,
+) -> bool {
+    let acted_on = |b: &coord::Blocker| {
+        if b.status != coord::BLOCKER_ANSWERED {
+            return false;
+        }
+        let Some(answer) = comments
+            .iter()
+            .filter(|c| c.blocker_id == b.id && c.by != key)
+            .map(|c| c.at.unix_nano())
+            .max()
+        else {
+            return false;
+        };
+        comments
+            .iter()
+            .any(|c| c.by == key && c.at.unix_nano() > answer)
+            || t
+                .blockers
+                .iter()
+                .any(|o| o.raised_by == key && o.at.unix_nano() > answer)
+    };
+    let open: Vec<&coord::Blocker> = t
+        .blockers
+        .iter()
+        .filter(|b| b.open() && !acted_on(b))
+        .collect();
+    let on_work = |b: &coord::Blocker| {
+        !b.done_check
+            && b.question != coord::PART_QUESTION
+            && !on_person(b)
+            && b.status != coord::BLOCKER_ANSWERED
+    };
+    !open.is_empty()
+        && open.iter().all(|b| on_work(b))
+        && open
+            .iter()
+            .map(|b| b.at.unix_nano())
+            .max()
+            .is_some_and(|newest| {
+                i128::from(now.unix_nano()) - i128::from(newest) >= limit.as_nanos() as i128
+            })
+}
+
 fn at_least(now: &GoTime, at: &GoTime, d: Duration) -> bool {
     i128::from(now.unix_nano()) - i128::from(at.unix_nano()) >= d.as_nanos() as i128
 }
@@ -77,8 +133,10 @@ pub struct SpawnStarted {
 
 /// Starts an agent.
 pub type SpawnFn = Arc<dyn Fn(&SpawnReq) -> Result<SpawnStarted, String> + Send + Sync>;
-/// Ends a session by id: `claude stop` and `claude rm`.
-pub type EndFn = Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
+/// Ends a session by id: `claude stop` and `claude rm`. `Ok` carries what
+/// `rm` said: "kept …" when it kept the worktree (unpushed work), or
+/// starts with "no job for" when Claude Code had no such job any more.
+pub type EndFn = Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>;
 /// Whether a folder's own repo is trusted for agents (an exact match, not
 /// a trusted parent, §7).
 pub type TrustFn = Arc<dyn Fn(&Path) -> bool + Send + Sync>;
@@ -396,11 +454,28 @@ pub(crate) fn spawn_permissions(
 /// anyway, saying so on the card (decision 6 (a)).
 pub const HANDOFF_WAIT: Duration = Duration::from_secs(120);
 
+/// How long after a failed `claude stop`/`rm` Irori tries again (card
+/// #474: it was every sweep, thousands of times).
+pub const END_RETRY: Duration = Duration::from_secs(300);
+
+/// How many times Irori tries `claude stop`/`rm` for one agent before it
+/// stops trying and says so in the log.
+pub const END_TRIES: u32 = 5;
+
+/// How often the sweep looks for jobs Irori ended that Claude Code still
+/// lists, and removes them (card #474).
+pub const REAP_EVERY: Duration = Duration::from_secs(600);
+
 /// How long a spawned agent stays after raising its done check (§2
 /// "Completed", decision 17 (b); card #447): a quick "Not done" reaches the
 /// same session. After it the agent is ended; a later "Not done" puts the
 /// card back on the Board and a fresh agent starts with his words.
 pub const DONE_GRACE: Duration = Duration::from_secs(300);
+
+/// The start of the line Irori leaves when `claude rm` kept an ended
+/// agent's worktree (card #474); what `rm` said follows.
+pub const KEPT_WORKTREE: &str =
+    "Irori ended the agent, but Claude Code kept its worktree because it has work that isn't pushed: ";
 
 /// The line Irori leaves when an agent ends without a hand-off.
 pub const NO_HANDOFF: &str = "The agent Irori started for this card ended without a hand-off: read the thread and Where for what it did.";
@@ -505,6 +580,13 @@ pub(crate) struct SpawnState {
     pub offers: Arc<RwLock<HashMap<String, bool>>>,
     /// Spawned agents being ended: when they were asked for the hand-off.
     pub ending: Mutex<HashMap<String, GoTime>>,
+    /// Ends whose `claude stop`/`rm` failed (card #474): how many times,
+    /// and when last. Tried again after [`END_RETRY`], at most
+    /// [`END_TRIES`] times; `agent.gone` is never written again.
+    pub end_tries: Mutex<HashMap<String, (u32, GoTime)>>,
+    /// When the sweep last looked for jobs Irori ended that Claude Code
+    /// still lists (card #474).
+    pub reaped: Mutex<Option<GoTime>>,
     /// The person's words for a card's next agent, by card id: put in its
     /// brief and dropped once it started (a "Not done", a blocker answer,
     /// "Start an agent with this").
@@ -777,6 +859,7 @@ impl Services {
         self.bind_spawns();
         self.end_finished();
         self.sweep_ending();
+        self.reap_ended();
         self.sweep_permission_waits();
         if self.inbox.policy().paused {
             return;
@@ -1147,6 +1230,11 @@ impl Services {
             let Some(m) = self.coord.spawned(&a.key) else {
                 continue;
             };
+            // Ended already: its job's removal is sweep_ending's and
+            // reap_ended's, and it isn't asked for a hand-off again.
+            if self.coord.ended_by_irori(&a.key) {
+                continue;
+            }
             let Some(t) = self.coord.get_task(&m.task_id) else {
                 continue;
             };
@@ -1175,7 +1263,27 @@ impl Services {
                     .filter(|b| b.open() && !b.done_check && on_person(b))
                     .max_by_key(|b| b.at.unix_nano())
                     .is_some_and(|b| at_least(&now, &b.at, limit));
-            if done_check || waiting || coord::is_terminal(&t.state) || !t.holders.contains(&a.key)
+            // Parked on other work (card #474): blocked only on other
+            // cards, leases or something outside, with nothing for it to
+            // act on, past the idle limit. It hands off and goes; when the
+            // last of those closes by itself the holderless card is
+            // SUBMITTED again and a fresh agent starts from Where and Left
+            // off. A lead (a card with subtasks) stays with its helpers.
+            let parked = t.state == BLOCKED
+                && t.subtasks.is_empty()
+                && a.status != "busy"
+                && parked_on_work(
+                    &t,
+                    &a.key,
+                    &self.coord.comments(&t.id).unwrap_or_default(),
+                    &now,
+                    limit,
+                );
+            if done_check
+                || waiting
+                || parked
+                || coord::is_terminal(&t.state)
+                || !t.holders.contains(&a.key)
             {
                 self.begin_end(&a.key);
             }
@@ -1257,7 +1365,13 @@ impl Services {
         let now = (self.now)();
         let due: Vec<(String, bool)> = {
             let m = self.spawn.ending.lock().unwrap_or_else(|e| e.into_inner());
+            let tries = self.spawn.end_tries.lock().unwrap_or_else(|e| e.into_inner());
             m.iter()
+                .filter(|(k, _)| {
+                    tries
+                        .get(*k)
+                        .is_none_or(|(_, last)| at_least(&now, last, END_RETRY))
+                })
                 .filter_map(|(k, at)| {
                     let given = self.handed_off(k, &now);
                     (given || at_least(&now, at, HANDOFF_WAIT)).then(|| (k.clone(), given))
@@ -1266,11 +1380,29 @@ impl Services {
         };
         for (k, given) in due {
             if let Err(e) = self.end_now(&k, given) {
-                logf(format_args!("spawn end {k}: {e}"));
-                continue;
+                // Its agent.gone is written already; only stop and rm are
+                // tried again, a few times, not every sweep (card #474).
+                let n = {
+                    let mut t = self.spawn.end_tries.lock().unwrap_or_else(|e| e.into_inner());
+                    let e = t.entry(k.clone()).or_insert((0, now));
+                    *e = (e.0 + 1, now);
+                    e.0
+                };
+                if n < END_TRIES {
+                    logf(format_args!("spawn end {k}: {e} (try {n} of {END_TRIES})"));
+                    continue;
+                }
+                logf(format_args!(
+                    "spawn end {k}: {e}; gave up after {n} tries: `claude agents` may still list it"
+                ));
             }
             self.spawn
                 .ending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&k);
+            self.spawn
+                .end_tries
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&k);
@@ -1279,31 +1411,42 @@ impl Services {
 
     /// The end itself (§2): the "ended without a hand-off" line when it
     /// gave none, Irori's own `agent.gone`, then stop and rm. Its card
-    /// lets it go as finished after ENDED_GRACE.
+    /// lets it go as finished after ENDED_GRACE. The line and the
+    /// `agent.gone` are written once per agent, however often stop and rm
+    /// are tried (card #474).
     fn end_now(&self, key: &str, given: bool) -> Result<(), String> {
-        if let Some(m) = self.coord.spawned(key)
-            && !given
-        {
-            self.coord
-                .add_comment(SWEEPER, &m.task_id, NO_HANDOFF, false)
+        if !self.coord.ended_by_irori(key) {
+            if let Some(m) = self.coord.spawned(key)
+                && !given
+            {
+                self.coord
+                    .add_comment(SWEEPER, &m.task_id, NO_HANDOFF, false)
+                    .map_err(|e| e.to_string())?;
+            }
+            #[derive(Serialize)]
+            struct Gone<'a> {
+                key: &'a str,
+                reason: &'a str,
+            }
+            self.store
+                .append(
+                    "irori",
+                    kinds::AGENT_GONE,
+                    &Gone {
+                        key,
+                        reason: "finished",
+                    },
+                )
                 .map_err(|e| e.to_string())?;
+            self.coord.mark_ended(key, (self.now)());
         }
-        #[derive(Serialize)]
-        struct Gone<'a> {
-            key: &'a str,
-            reason: &'a str,
-        }
-        self.store
-            .append(
-                "irori",
-                kinds::AGENT_GONE,
-                &Gone {
-                    key,
-                    reason: "finished",
-                },
-            )
-            .map_err(|e| e.to_string())?;
-        self.coord.mark_ended(key, (self.now)());
+        self.remove_job(key)
+    }
+
+    /// `claude stop` and `rm` for spawned agent `key`. A worktree `rm`
+    /// kept (unpushed work) is said once on its card, with what `rm` said,
+    /// so the person knows where the work is.
+    fn remove_job(&self, key: &str) -> Result<(), String> {
         let end = self
             .spawn
             .spawner
@@ -1311,10 +1454,76 @@ impl Services {
             .unwrap_or_else(|e| e.into_inner())
             .as_ref()
             .map(|s| s.end.clone());
-        if let Some(end) = end {
-            end(session_of(key))?;
+        let Some(end) = end else {
+            return Ok(());
+        };
+        let said = end(session_of(key))?;
+        if said.contains("kept") {
+            logf(format_args!("spawn end {key}: {said}"));
+            if let Some(m) = self.coord.spawned(key) {
+                let line = format!("{KEPT_WORKTREE}{}", said.trim());
+                let told = self
+                    .coord
+                    .comments(&m.task_id)
+                    .unwrap_or_default()
+                    .iter()
+                    .any(|c| c.by == SWEEPER && c.text == line);
+                if !told && let Err(e) = self.coord.add_comment(SWEEPER, &m.task_id, &line, false) {
+                    logf(format_args!("spawn end {key}: {e}"));
+                }
+            }
         }
         Ok(())
+    }
+
+    /// Removes the jobs of agents Irori ended that Claude Code still lists
+    /// (card #474: `claude agents` kept card-467-2 after its agent.gone),
+    /// every [`REAP_EVERY`]. Nothing is written to the log.
+    fn reap_ended(&self) {
+        let now = (self.now)();
+        {
+            let mut last = self.spawn.reaped.lock().unwrap_or_else(|e| e.into_inner());
+            if last.is_some_and(|at| !at_least(&now, &at, REAP_EVERY)) {
+                return;
+            }
+            *last = Some(now);
+        }
+        let Some(list) = self
+            .spawn
+            .spawner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(|s| s.list.clone())
+        else {
+            return;
+        };
+        let agents = match list() {
+            Ok(a) => a,
+            Err(e) => {
+                logf(format_args!("spawn reap: claude agents: {e}"));
+                return;
+            }
+        };
+        let me = self.device.id.clone();
+        for a in agents {
+            let k = format!("{me}/{}", a.session_id);
+            if self.coord.spawned(&k).is_none() || !self.coord.ended_by_irori(&k) {
+                continue;
+            }
+            if self
+                .spawn
+                .ending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains_key(&k)
+            {
+                continue;
+            }
+            if let Err(e) = self.remove_job(&k) {
+                logf(format_args!("spawn reap {k}: {e}"));
+            }
+        }
     }
 
     /// The person's End on a spawned agent: the same end, asked now.
