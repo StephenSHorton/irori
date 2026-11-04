@@ -268,7 +268,9 @@ function HeldRow({
           {relativeTime(sent, now)}
         </time>
       </div>
-      <p className="text-xs text-muted-foreground">{plainLine(holdText(d, { name, repo }))}</p>
+      <p className="text-xs text-muted-foreground">
+        {plainLine(holdText(d, { name, repo }))}
+      </p>
       <p className="line-clamp-4 text-[12.5px] whitespace-pre-wrap text-ink-2">
         {plainBlock(d.message.text)}
       </p>

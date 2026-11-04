@@ -59,6 +59,8 @@ export function NeedsYou({
   // The quiet line (card #488) is held messages that don't ask the person
   // one by one: it isn't counted, and alone it isn't "something waits".
   const repo = useRepoNames()
+  // Start an agent's outcome: its row goes as the message becomes a card.
+  const [started, setStarted] = useState("")
   const rows = needs.filter((n) => n.kind !== "heldQuiet")
   const quiet = needs.find((n) => n.kind === "heldQuiet")
   return (
@@ -85,11 +87,22 @@ export function NeedsYou({
               ) : n.kind === "review" ? (
                 <ReviewNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "held" ? (
-                <HeldNeed d={n.delivery} now={now} name={name} repo={repo} />
+                <HeldNeed
+                  d={n.delivery}
+                  now={now}
+                  name={name}
+                  repo={repo}
+                  onStarted={setStarted}
+                />
               ) : null}
             </li>
           ))}
         </ul>
+      )}
+      {started && (
+        <p role="status" className="px-1 text-[12.5px] text-muted-foreground">
+          {started}
+        </p>
       )}
       {quiet?.kind === "heldQuiet" && (
         <HeldQuiet deliveries={quiet.deliveries} onHeld={onHeld} />
@@ -597,11 +610,14 @@ function HeldNeed({
   now,
   name,
   repo,
+  onStarted,
 }: {
   d: Delivery
   now: Date
   name: (key: string) => string
   repo: (key: string) => string
+  // onStarted keeps Start an agent's outcome where the person can read it.
+  onStarted: (said: string) => void
 }) {
   const act = useAct()
   const unowned = d.hold === HoldReason.HoldUnowned && !d.to
@@ -634,7 +650,11 @@ function HeldNeed({
                 onClick={() =>
                   void act.run(
                     () => talk.startAgent(d.id),
-                    startedLine
+                    (s) => {
+                      const said = startedLine(s)
+                      onStarted(said)
+                      return said
+                    }
                   )
                 }
               >
