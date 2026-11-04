@@ -1415,7 +1415,6 @@ impl Window {
         ms(&GoTime::from_system(std::time::SystemTime::now()))
     }
 
-    /// BoardService.Cards: every live card for the grid.
     /// Home's idle line (card #341).
     pub fn idle_report(&self) -> IdleReport {
         let r = self.core.idle_report();
@@ -1434,6 +1433,7 @@ impl Window {
         }
     }
 
+    /// BoardService.Cards: every live card for the grid.
     pub fn cards(&self) -> Vec<CardSummary> {
         self.cards_in(SCOPE_ALL)
     }

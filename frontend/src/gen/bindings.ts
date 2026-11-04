@@ -46,6 +46,17 @@ export const commands = {
 	 *  has been handed yet, with why.
 	 */
 	boardIdleReport: () => __TAURI_INVOKE<IdleReport>("board_idle_report"),
+	/**  The person's notifications, newest first (card #377). */
+	notificationsList: () => __TAURI_INVOKE<Notification[]>("notifications_list"),
+	/**  How many notifications the person hasn't read (card #377). */
+	notificationsUnread: () => __TAURI_INVOKE<number>("notifications_unread"),
+	/**  Marks notifications read; no keys reads them all (card #377). */
+	notificationsRead: (keys: string[]) => __TAURI_INVOKE<null>("notifications_read", { keys }),
+	/**
+	 *  Answers an agent's ask from its notification (card #377); refused once
+	 *  it's answered or out of time.
+	 */
+	notificationsAnswerAsk: (askId: string, choice: string) => __TAURI_INVOKE<null>("notifications_answer_ask", { askId, choice }),
 	/**  One page of one scope's closed cards (card #161). */
 	boardDoneCardsIn: (limit: number, before: string, scope: string) => __TAURI_INVOKE<DonePage>("board_done_cards_in", { limit, before, scope }),
 	boardClearDoneCount: (olderThanSecs: number, scope: string) => __TAURI_INVOKE<number>("board_clear_done_count", { olderThanSecs, scope }),
@@ -1423,6 +1434,52 @@ export type NoteView = {
 	 *  this device, or a source card that is gone.
 	 */
 	stale: string,
+};
+
+/**  One notification. */
+export type Notification = {
+	key: string,
+	/**
+	 *  blocker, done_check, input, handed, returned, unclaimed, mention,
+	 *  ask, message, held or agent.
+	 */
+	kind: string,
+	title: string,
+	body: string,
+	level: string,
+	at: string,
+	read: boolean,
+	taskId: string,
+	blockerId: string,
+	commentId: string,
+	deliveryId: string,
+	boardId: string,
+	from?: AgentRef | null,
+	card?: NotificationCard | null,
+	ask?: NotificationAsk | null,
+};
+
+/**
+ *  An agent's ask (its notify call with buttons): open until answered or
+ *  its time runs out.
+ */
+export type NotificationAsk = {
+	open: boolean,
+	actions: string[],
+	/**
+	 *  The answer once resolved: a button's label, or "" for a dismiss or
+	 *  no answer in time.
+	 */
+	choice: string,
+	answered: boolean,
+	until: string,
+};
+
+/**  The card an item is about. */
+export type NotificationCard = {
+	id: string,
+	short: string,
+	title: string,
 };
 
 /**  The notification settings (Go `notify.Options`). */

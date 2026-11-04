@@ -23,6 +23,7 @@ pub mod gojson;
 pub(crate) mod gotime;
 pub mod mentions;
 pub mod names;
+pub mod notifications;
 pub mod person_avatar;
 pub mod roster;
 pub mod talk;

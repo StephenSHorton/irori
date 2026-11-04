@@ -153,7 +153,7 @@ impl Services {
         // comment (card #177). Their agents named in it hear below.
         let me_key = format!("{PERSON_ACTOR_PREFIX}{me}");
         if ev.kind == kinds::TASK_COMMENT && f.mentions.iter().any(|m| m.key == me_key) {
-            self.mention_note(&t, &who, &f);
+            self.mention_note(b, &t, &who, &person, &f);
         }
         let mut plans = Vec::new();
         if ev.kind == kinds::BOARD_ASK_STATE {
@@ -267,14 +267,14 @@ impl Services {
         if f.text.is_empty() {
             f.text = t.objective.clone();
         }
-        self.mention_note(&t, &who, &f);
+        self.mention_note(b, &t, &who, &person, &f);
     }
 
     /// The desktop notification for a comment that mentions this person:
     /// "<who> mentioned you on <title>", opening the card at the comment.
     /// Every device of the person posts its own, so it shows wherever they
     /// are; a resync never replays it (bridge_row runs on live rows only).
-    fn mention_note(&self, t: &Task, who: &str, f: &RowFields) {
+    fn mention_note(&self, b: &BoardLog, t: &Task, who: &str, person: &str, f: &RowFields) {
         let n = &self.notifier.0;
         if n.is_headless() {
             return;
@@ -301,6 +301,14 @@ impl Services {
             ),
             body: notify::preview(&f.text),
             level: notify::Level::Info,
+            about: Some(coord::notifications::PostedRow {
+                kind: coord::notifications::KIND_MENTION.into(),
+                board_id: b.id.clone(),
+                task_id: t.id.clone(),
+                comment_id: f.comment_id.clone(),
+                from: person.to_string(),
+                ..Default::default()
+            }),
             on_click: Some(Arc::new(move || opener.open(target.clone()))),
             ..notify::Note::default()
         });

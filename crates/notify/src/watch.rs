@@ -29,6 +29,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use coord::approvals::{Ask as Approval, Book};
+use coord::notifications::{self as history, PostedRow};
 use coord::{BoardFilter, BoardView, Card, Coord, Task};
 use gocompat::sub::Queue;
 use gocompat::time::GoTime;
@@ -359,6 +360,7 @@ impl NoteSink<'_> {
 
 impl Sink for NoteSink<'_> {
     fn post(&mut self, note: inbox::watch::Note) {
+        let about = inbox_about(&note);
         let actions = note
             .actions
             .into_iter()
@@ -368,6 +370,7 @@ impl Sink for NoteSink<'_> {
             })
             .collect();
         let n = Note {
+            about,
             id: note.id,
             title: note.title,
             body: note.body,
@@ -592,6 +595,12 @@ impl State {
         let f = answer.clone();
         self.n.post(Note {
             id: ask_id(id),
+            about: Some(PostedRow {
+                kind: history::KIND_ASK.into(),
+                ask_id: id.to_string(),
+                from: a.by.clone(),
+                ..PostedRow::default()
+            }),
             title,
             body: a.text.clone(),
             level,
@@ -725,8 +734,21 @@ impl Ctx<'_> {
             .as_ref()
             .map(|r| r.was.clone())
             .unwrap_or_default();
+        let mut about = about(history::KIND_RETURNED, t, &was);
+        about.instance = t
+            .returned
+            .as_ref()
+            .map(|r| {
+                if r.row.is_empty() {
+                    r.at.format_rfc3339_nano()
+                } else {
+                    r.row.clone()
+                }
+            })
+            .unwrap_or_default();
         Note {
             id: returned_id(&t.id),
+            about: Some(about),
             title,
             body: format!(
                 "{} went away, so it's open again. Assign it to an agent, or close it.",
@@ -818,8 +840,11 @@ impl Ctx<'_> {
             Action::new("Open", move || open2())
         };
         let actions = vec![first, Action::close("Later")];
+        let mut about = about(history::KIND_UNCLAIMED, t, "");
+        about.instance = a.since.format_rfc3339_nano();
         Note {
             id: unclaimed_id(&t.id),
+            about: Some(about),
             title,
             body,
             level: Level::Warn,
@@ -861,6 +886,24 @@ impl Ctx<'_> {
         if !open.is_empty() && open.iter().all(|b| b.done_check) {
             return self.finished_note(t, &agent);
         }
+        let (kind, instance) = if t.state == coord::BLOCKED {
+            (history::KIND_BLOCKER, String::new())
+        } else if t.state == coord::INPUT_REQUIRED {
+            (history::KIND_INPUT, String::new())
+        } else if t.holders.iter().any(|h| self.owner(h)) {
+            (history::KIND_HANDED, t.updated_at.format_rfc3339_nano())
+        } else {
+            (history::KIND_BLOCKER, String::new())
+        };
+        let mut about = about(kind, t, &self.needs_key(t));
+        // A question without a blocker item (an older card): which time.
+        if about.blocker_id.is_empty() || !instance.is_empty() {
+            about.instance = if instance.is_empty() {
+                t.updated_at.format_rfc3339_nano()
+            } else {
+                instance
+            };
+        }
         let (mut title, body) = if t.state == coord::BLOCKED {
             let mut body = t.reason.clone();
             if !t.title.is_empty() && t.title != t.reason {
@@ -887,6 +930,7 @@ impl Ctx<'_> {
             id: needs_id(&t.id),
             title,
             body: preview(&body),
+            about: Some(about),
             level: Level::Warn,
             sticky: true,
             actions: vec![
@@ -920,9 +964,14 @@ impl Ctx<'_> {
             }
             None => actions.push(Action::close("Later")),
         }
+        let mut about = about(history::KIND_DONE_CHECK, t, &self.needs_key(t));
+        if let Some(b) = t.blockers.iter().rev().find(|b| b.open() && b.done_check) {
+            about.blocker_id = b.id.clone();
+        }
         Note {
             id: needs_id(&t.id),
             title,
+            about: Some(about),
             body: finished_body(t),
             image: finished_shot(t)
                 .and_then(|sha| crate::thumb::attachment_thumbnail(self.file.as_ref(), sha)),
@@ -978,6 +1027,55 @@ fn finished_shot(t: &Task) -> Option<&str> {
         .iter()
         .find(|f| f.mime.starts_with("image/"))
         .map(|f| f.sha256.as_str())
+}
+
+/// What an inbox card is about (card #377): a message to the person is
+/// its delivery; a held card is its newest held message, so the same
+/// messages posted again stay one item and a new one is news.
+fn inbox_about(note: &inbox::watch::Note) -> Option<PostedRow> {
+    if let Some(d) = note.id.strip_prefix("msg:") {
+        return Some(PostedRow {
+            kind: history::KIND_MESSAGE.into(),
+            delivery_id: d.into(),
+            ..PostedRow::default()
+        });
+    }
+    let sender = note.id.strip_prefix("held:")?;
+    let ids = note.actions.iter().find_map(|a| match &a.run {
+        Some(CardAct::Held { ids, .. }) => Some(ids.clone()),
+        _ => None,
+    })?;
+    let newest = ids.iter().max()?.clone();
+    Some(PostedRow {
+        kind: history::KIND_HELD.into(),
+        delivery_id: newest,
+        from: sender.into(),
+        ..PostedRow::default()
+    })
+}
+
+/// What a card's notification is about (card #377): the card, its
+/// newest open blocker, and who it is from.
+fn about(kind: &str, t: &Task, from: &str) -> PostedRow {
+    let asks = [
+        history::KIND_BLOCKER,
+        history::KIND_INPUT,
+        history::KIND_DONE_CHECK,
+    ];
+    PostedRow {
+        kind: kind.into(),
+        task_id: t.id.clone(),
+        blocker_id: if asks.contains(&kind) {
+            t.open_blockers()
+                .last()
+                .map(|b| b.id.clone())
+                .unwrap_or_default()
+        } else {
+            String::new()
+        },
+        from: from.into(),
+        ..PostedRow::default()
+    }
 }
 
 /// The Needs you set's key for t: its id, and `#` and the done check it

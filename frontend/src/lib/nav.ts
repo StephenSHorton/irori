@@ -18,6 +18,8 @@ export type Section =
   | { kind: "boards" }
   | { kind: "board"; id: string }
   | { kind: "profile" }
+  // Card #377: every notification sent to the person.
+  | { kind: "notifications" }
 
 export const Home: Section = { kind: "home" }
 
@@ -35,6 +37,7 @@ export function sectionFromHash(hash: string): Section {
   if (hash === "#desk") return { kind: "desk", repo: "" }
   const d = hash.match(/^#desk\/(.+)$/)
   if (d) return { kind: "desk", repo: decodeURIComponent(d[1]) }
+  if (hash === "#notifications") return { kind: "notifications" }
   const m = hash.match(/^#board\/(.+)$/)
   if (m) return { kind: "board", id: decodeURIComponent(m[1]) }
   return Home
@@ -46,6 +49,7 @@ export function sectionHash(s: Section): string {
   if (s.kind === "talk") return s.id ? `#talk/${encodeURIComponent(s.id)}` : "#talk"
   if (s.kind === "notes") return s.tab ? `#notes/${encodeURIComponent(s.tab)}` : "#notes"
   if (s.kind === "desk") return s.repo ? `#desk/${encodeURIComponent(s.repo)}` : "#desk"
+  if (s.kind === "notifications") return "#notifications"
   if (s.kind === "board") return `#board/${encodeURIComponent(s.id)}`
   return ""
 }

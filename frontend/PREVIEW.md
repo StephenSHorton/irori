@@ -45,6 +45,7 @@ unchanged.
 | `/?open=board:task:sample-card-named` | the same wait named as a blocker on another agent: Home reads "Waiting on agent sample-kestrel" (card #305) |
 | `/?red=1` | main is red (card #436): Home leads with "Main is red: attach_exe fails on clean main; 2 cards wait on #60", and the line opens #60 |
 | `/?idle=gap` | Home's idle line as a dispatch gap: idle agents and two cards nobody was handed, with why (card #341); `/` alone shows the shortage line, "N agents idle, no open work" |
+| `/#notifications` | The Notifications page (card #377): unread items, a done check and a decision with their live buttons, an agent's ask; `/?notifications=all#notifications` shows All, with a resolved blocker's outcome and read items; `?notifications=none` an empty history |
 | `/?filter=review` | the In review chip's cards: #16 waits on its PR's review, its agent free (card #191) |
 | `/?open=inbox:sample-delivery-1` | a message Irori held (Release, Dismiss) |
 | `/?open=inbox:sample-delivery-6` | a message an agent sent you (Reply) |

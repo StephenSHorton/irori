@@ -1,5 +1,6 @@
 // AppSidebar is the window's nav (card #135): the space switcher (card
-// #393), Home, Talk (card #390), Boards and Held, then
+// #393), Home, Talk (card #390), Boards, Notifications (card #377) and
+// Held, then
 // the boards and cards you pinned, and at the bottom this device, how the
 // agents stand, you (your profile, card #393) and Settings. Its top button folds it to icons; the window
 // remembers that on this device. On a phone or a narrow window (card #227)
@@ -18,6 +19,7 @@ import {
   type ReactNode,
 } from "react"
 import {
+  BellIcon,
   GitMergeIcon,
   HomeIcon,
   InboxIcon,
@@ -75,6 +77,7 @@ export function AppSidebar({
   onHeld,
   talk,
   desks = { on: 0, needYou: 0 },
+  unread = 0,
   section,
   notesWaiting = 0,
   boardsNeedYou,
@@ -96,6 +99,8 @@ export function AppSidebar({
   // Merge desks that are on, and their Outside PRs waiting on the
   // person's OK (card #417); the Desks item shows once one is on.
   desks?: { on: number; needYou: number }
+  // Notifications the person hasn't read (card #377).
+  unread?: number
   // Where the window is; null on a card's page.
   section: Section | null
   // Notes agents proposed (or changes to live ones) waiting on the
@@ -389,6 +394,16 @@ export function AppSidebar({
           onClick={() => go({ kind: "boards" })}
         />
         <NavItem
+          icon={BellIcon}
+          label="Notifications"
+          folded={folded}
+          current={here({ kind: "notifications" })}
+          count={unread}
+          countTone="info"
+          countTitle="Notifications you haven't read"
+          onClick={() => go({ kind: "notifications" })}
+        />
+        <NavItem
           icon={InboxIcon}
           label="Held"
           folded={folded}
@@ -516,7 +531,7 @@ function NavItem({
   folded: boolean
   current?: boolean
   count?: number
-  countTone?: "destructive" | "warning" | "default"
+  countTone?: "destructive" | "warning" | "default" | "info"
   countTitle?: string
   onClick: () => void
 }) {
@@ -545,6 +560,8 @@ function NavItem({
                 ? "bg-destructive"
                 : countTone === "default"
                   ? "bg-primary"
+                  : countTone === "info"
+                    ? "bg-info"
                   : "bg-warning"
             )}
           />

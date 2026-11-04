@@ -63,6 +63,7 @@ pub mod boards_status;
 mod bridge;
 mod mirror;
 pub mod notes;
+mod notifications;
 pub mod spaces;
 pub use mirror::BoardReviewer;
 pub mod invites;
@@ -261,6 +262,8 @@ struct Services {
     device_names: coord::devname::Names,
     /// Talk's channels, DMs and read cursors (card #389).
     talk: Arc<coord::talk::Talk>,
+    /// The person's notification history (card #377).
+    notifications: Arc<coord::notifications::History>,
     files: blob::Files,
     scrubber: Arc<scrub::Scrubber>,
     secrets: Mutex<Vec<String>>,
@@ -309,6 +312,11 @@ impl tools::Notifier for CoreNotifier {
                 .collect(),
             on_dismiss: n.on_dismiss,
             on_expire: n.on_expire,
+            about: Some(coord::notifications::PostedRow {
+                kind: coord::notifications::KIND_AGENT.into(),
+                from: n.from,
+                ..Default::default()
+            }),
             ..notify::Note::default()
         })
     }
@@ -1056,6 +1064,8 @@ impl Core {
         if let Err(e) = talk.load() {
             logf(format_args!("talk: load: {e}"));
         }
+        let notifications = Arc::new(coord::notifications::History::new());
+        load_notifications(&st, &notifications);
         laps.lap("colors+names");
         let decisions_sub = Arc::new(st.subscribe());
 
@@ -1221,6 +1231,7 @@ impl Core {
             person_avatar,
             device_names,
             talk,
+            notifications,
             files,
             scrubber,
             secrets: Mutex::new(Vec::new()),
@@ -1293,6 +1304,16 @@ impl Core {
             },
         );
         laps.lap("loops");
+        // Every notification shown is kept in the history (card #377). Weak:
+        // the Notifier lives in the services.
+        {
+            let w = Arc::downgrade(&s);
+            s.notifier.0.set_recorder(move |n| {
+                if let Some(s) = w.upgrade() {
+                    s.record_notification(n);
+                }
+            });
+        }
         // The cards' Watch once the services run (Go core.go: notify.Watch
         // after Start); `None` when headless.
         *core.watch.lock().unwrap_or_else(|e| e.into_inner()) = notify::watch(
@@ -1566,7 +1587,10 @@ impl Core {
                         );
                         load_device_names(&s.store, &s.device_names);
                         s.follow_person_name();
+                        s.notifications.reset();
+                        load_notifications(&s.store, &s.notifications);
                         s.hub.publish(CoreEvent::Devices);
+                        s.hub.publish(CoreEvent::Notifications);
                         let _ = s.talk.load();
                         s.hub.publish(CoreEvent::Talk);
                     } else if coord::talk::KINDS.contains(&ev.kind.as_str()) {
@@ -1580,6 +1604,14 @@ impl Core {
                     } else if ev.kind == kinds::MESSAGE_SENT {
                         // Agents' messages show as DMs (card #389).
                         s.hub.publish(CoreEvent::Talk);
+                    } else if ev.kind == coord::notifications::POSTED
+                        || ev.kind == coord::notifications::READ
+                    {
+                        // This device's own rows were folded when written;
+                        // folding again changes nothing.
+                        if s.notifications.apply(&ev) {
+                            s.hub.publish(CoreEvent::Notifications);
+                        }
                     } else if ev.kind == coord::devcolor::KIND {
                         s.colors.apply(&ev);
                     } else if ev.kind == coord::avatar::KIND {
@@ -2634,6 +2666,27 @@ fn ignored_by(
         }
     }
     out
+}
+
+fn load_notifications(st: &Store, h: &coord::notifications::History) {
+    let mut f = Filter {
+        kinds: vec![
+            coord::notifications::POSTED.into(),
+            coord::notifications::READ.into(),
+        ],
+        limit: store::MAX_LIST_LIMIT,
+        ..Filter::default()
+    };
+    loop {
+        let Ok(evs) = st.list(&f) else { return };
+        for ev in &evs {
+            h.apply(ev);
+        }
+        if (evs.len() as i64) < f.limit {
+            return;
+        }
+        f.after = evs[evs.len() - 1].cursor();
+    }
 }
 
 fn load_device_names(st: &Store, names: &coord::devname::Names) {

@@ -152,6 +152,15 @@ export const WindDownService = {
   Stop: (key: string) => done(commands.windDownStop(key)),
 }
 
+// The notification history (card #377).
+export const NotificationService = {
+  List: () => call(commands.notificationsList()),
+  Unread: () => call(commands.notificationsUnread()),
+  Read: (keys: string[]) => done(commands.notificationsRead(keys)),
+  AnswerAsk: (askId: string, choice: string) =>
+    done(commands.notificationsAnswerAsk(askId, choice)),
+}
+
 export const BoardService = {
   Cards: () => call(commands.boardCards()),
   IdleReport: () => call(commands.boardIdleReport()),

@@ -53,6 +53,8 @@ pub struct Note {
     pub actions: Vec<Action>,
     pub on_dismiss: Option<Arc<dyn Fn() + Send + Sync>>,
     pub on_expire: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// The agent that posted it (card #377: the notification history).
+    pub from: String,
 }
 
 /// The cards the person sees on this device (M6's notify crate).
@@ -293,6 +295,7 @@ Only notify for what they must see or decide now; put the rest in a message or o
     }
     let n = n.expect("not headless");
     let mut note = Note {
+        from: key.clone(),
         id: id.clone(),
         title: card_title,
         body: text.clone(),

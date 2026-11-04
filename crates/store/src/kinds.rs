@@ -151,6 +151,13 @@ kinds! {
     /// `{taskId, op: offer|request|accept|decline, person, blockerId?, by, at}`.
     /// `person` is who would own it. Shared boards only.
     TASK_OWNER = "task.owner" => Replicated, Accepts;
+    /// A notification Irori showed the person (card #377): `{key, kind,
+    /// title, body, level, taskId?, blockerId?, askId?, deliveryId?,
+    /// boardId?, from?, at}`. The private log only; it syncs to their
+    /// phone, which shows the history.
+    NOTIFICATION_POSTED = "notification.posted" => Replicated, Refuses;
+    /// The person read notifications (card #377): `{keys, at}`.
+    NOTIFICATION_READ = "notification.read" => Replicated, Refuses;
     // capture
     CAPTURE_TURN = "capture.turn" => Replicated, Refuses;
     CAPTURE_EDIT = "capture.edit" => Replicated, Refuses;

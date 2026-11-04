@@ -84,6 +84,9 @@ export type NoteEditInput = B.NoteEditInput
 export type NoteEventView = B.NoteEventView
 export type NoteInput = B.NoteInput
 export type NoteView = B.NoteView
+export type Notification = B.Notification
+export type NotificationAsk = B.NotificationAsk
+export type NotificationCard = B.NotificationCard
 export type NotifyOptions = B.NotifyOptions
 export type Outcome = B.Outcome
 export type PairJoiner = B.PairJoiner
@@ -486,6 +489,21 @@ export function NoteInput(p: Partial<B.NoteInput> = {}): B.NoteInput {
 /** NoteView with Go's zero values for every field left out. */
 export function NoteView(p: Partial<B.NoteView> = {}): B.NoteView {
   return { "id": "", "scope": "", "boardId": "", "kind": "", "text": "", "tags": [], "source": "", "taskId": "", "by": "", "byPerson": false, "at": "", "state": "", "acceptedBy": "", "acceptedAt": "", "updated": "", "pending": null, "history": [], "stale": "", ...p } as B.NoteView
+}
+
+/** Notification with Go's zero values for every field left out. */
+export function Notification(p: Partial<B.Notification> = {}): B.Notification {
+  return { "key": "", "kind": "", "title": "", "body": "", "level": "", "at": "", "read": false, "taskId": "", "blockerId": "", "commentId": "", "deliveryId": "", "boardId": "", ...p } as B.Notification
+}
+
+/** NotificationAsk with Go's zero values for every field left out. */
+export function NotificationAsk(p: Partial<B.NotificationAsk> = {}): B.NotificationAsk {
+  return { "open": false, "actions": [], "choice": "", "answered": false, "until": "", ...p } as B.NotificationAsk
+}
+
+/** NotificationCard with Go's zero values for every field left out. */
+export function NotificationCard(p: Partial<B.NotificationCard> = {}): B.NotificationCard {
+  return { "id": "", "short": "", "title": "", ...p } as B.NotificationCard
 }
 
 /** NotifyOptions with Go's zero values for every field left out. */

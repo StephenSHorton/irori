@@ -11,6 +11,7 @@
 //! | `devices:pairing` | [`PairStatus`] | pairing change (M7) |
 //! | `devices:changed` | `{}` | a device renamed, here or synced (#184) |
 //! | `talk:changed` | `{}` | coalesced, 250 ms: a `talk.*` row folded, or a message sent (#389) |
+//! | `notifications:changed` | `{}` | a notification kept or read, here or synced (#377) |
 //! | `settings:launch-at-login` | bool | after every toggle attempt |
 //! | `app:open` | [`Target`] | a card's Open (M6 toast) |
 //! | `update:status` | [`UpdateStatus`] | updater transitions (M8) |
@@ -34,6 +35,7 @@ use crate::Window;
 use crate::roster::RosterChange;
 
 pub use crate::boards::EVENT_BOARDS_CHANGED;
+pub use crate::notifications::EVENT_NOTIFICATIONS_CHANGED;
 pub use crate::settings::EVENT_LAUNCH_AT_LOGIN;
 pub use crate::update::EVENT_UPDATE_STATUS;
 
@@ -230,6 +232,18 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
             let q = feed.queue().clone();
             coalesce(&q, BOARD_EMIT_EVERY, &stop, |_| {
                 w.emit(EVENT_TALK_CHANGED, &Empty {});
+            });
+        }));
+    }
+    {
+        // The notification history (card #377): the page and the sidebar's
+        // unread count read it again.
+        let (w, stop) = (w.clone(), stop.clone());
+        let feed = w.core.feed(&[Topic::Notifications]);
+        out.push(spawn("irori-window-notifications", move || {
+            let q = feed.queue().clone();
+            coalesce(&q, BOARD_EMIT_EVERY, &stop, |_| {
+                w.emit(EVENT_NOTIFICATIONS_CHANGED, &Empty {});
             });
         }));
     }

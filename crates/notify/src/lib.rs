@@ -140,6 +140,11 @@ pub struct Note {
     /// The person dismissed it (the x, a right click).
     pub on_dismiss: Option<Callback>,
     pub on_expire: Option<Callback>,
+    /// What it is about, for the person's notification history (card
+    /// #377): a post with it is recorded through [`Notifier::set_recorder`]
+    /// even when notifications are off. `None` is not kept (the test card,
+    /// the updater's).
+    pub about: Option<coord::notifications::PostedRow>,
 }
 
 impl fmt::Debug for Note {
@@ -285,6 +290,8 @@ struct Entry {
 }
 
 type Opener = Arc<dyn Fn(Target) + Send + Sync>;
+/// Keeps a posted note in the history (card #377).
+pub type Recorder = Arc<dyn Fn(&Note) + Send + Sync>;
 type OptionsFn = Arc<dyn Fn(&Options) + Send + Sync>;
 
 struct State {
@@ -292,6 +299,7 @@ struct State {
     live: HashMap<String, Entry>,
     generation: u64,
     opener: Option<Opener>,
+    recorder: Option<Recorder>,
     on_change: Vec<OptionsFn>,
 }
 
@@ -346,6 +354,7 @@ impl Notifier {
                     live: HashMap::new(),
                     generation: 0,
                     opener: None,
+                    recorder: None,
                     on_change: vec![],
                 }),
             }),
@@ -423,15 +432,28 @@ impl Notifier {
         }
     }
 
+    /// Keeps every note posted with an `about` (card #377): the Core
+    /// writes it to the person's notification history.
+    pub fn set_recorder(&self, f: impl Fn(&Note) + Send + Sync + 'static) {
+        self.lock().recorder = Some(Arc::new(f));
+    }
+
     /// Shows note, replacing the live card with the same id. False when
     /// headless, when notifications are off, or when the note has no id or
     /// nothing to say.
     pub fn post(&self, mut note: Note) -> bool {
         note.id = note.id.trim().to_string();
-        if note.id.is_empty()
-            || format!("{}{}", note.title, note.body).trim().is_empty()
-            || !self.enabled()
-        {
+        if note.id.is_empty() || format!("{}{}", note.title, note.body).trim().is_empty() {
+            return false;
+        }
+        // Kept even with the popups off: the history is every notification.
+        if note.about.is_some() {
+            let rec = self.lock().recorder.clone();
+            if let Some(rec) = rec {
+                rec(&note);
+            }
+        }
+        if !self.enabled() {
             return false;
         }
         let Some(t) = self.inner.t.clone() else {

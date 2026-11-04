@@ -63,6 +63,8 @@ import { useNotesWaiting } from "@/lib/notes"
 import { ProfilePage } from "@/components/profile/profile-page"
 import { useMe } from "@/lib/profile"
 import { AllSpaces, Personal, cardInSpace, threadsSpace, useSpace } from "@/lib/spaces"
+import { NotificationsPage } from "@/components/notifications-page"
+import { unreadCount, useNotifications } from "@/lib/notifications"
 import { go, Home, sameSection, sectionFromHash, type Section } from "@/lib/nav"
 import { CommandPalette, PaletteJump, paletteOpenKey } from "@/components/command-palette"
 import { isMac, useCommands } from "@/lib/commands"
@@ -203,6 +205,9 @@ export function App() {
   }, [cards, filter])
   // message is the delivery a notification's Open named, shown in a dialog.
   const [message, setMessage] = useState("")
+  // The notification history (card #377): the sidebar's unread count and
+  // the Notifications page.
+  const notifications = useNotifications()
   // The Held list: open, its tab, and the one sender it shows ("" = all).
   const [heldOpen, setHeldOpen] = useState(false)
   const [heldTab, setHeldTab] = useState<HeldTab>("waiting")
@@ -492,6 +497,7 @@ export function App() {
     { id: "nav.talk", title: "Talk", group: "Go to", order: 2, keywords: ["threads", "asks", "conversations", "messages"], run: () => goTo({ kind: "talk", id: "" }) },
     { id: "nav.notes", title: "Notes", group: "Go to", order: 2, keywords: ["rules", "gotchas", "decisions", "knowledge", "memory"], run: () => goTo({ kind: "notes", tab: "" }) },
     { id: "nav.boards", title: "Boards", group: "Go to", order: 2, keywords: ["shared", "projects"], run: () => goTo({ kind: "boards" }) },
+    { id: "nav.notifications", title: "Notifications", group: "Go to", order: 3, keywords: ["mentions", "history", "alerts"], run: () => goTo({ kind: "notifications" }) },
     { id: "nav.held", title: "Held messages", group: "Go to", order: 3, keywords: ["inbox", "waiting", "history"], run: () => openHeld("") },
     {
       id: "card.new",
@@ -565,6 +571,7 @@ export function App() {
             .reduce((n, d) => n + deskQueue(inputsOf(d)).filter((l) => l.state === "outside").length, 0),
         }}
         onHeld={() => openHeld("")}
+        unread={unreadCount(notifications.list)}
         section={open ? null : section}
         notesWaiting={notesWaiting}
         boardsNeedYou={boardDecide.length}
@@ -598,6 +605,8 @@ export function App() {
                   ? "Profile"
                 : section.kind === "desk"
                   ? "Merge desks"
+                : section.kind === "notifications"
+                  ? "Notifications"
                   : "Home"
         }
         bar={
@@ -693,6 +702,17 @@ export function App() {
               now={now}
               newBoard={newBoard}
               onNewBoard={setNewBoard}
+            />
+          </Scroll>
+        ) : section.kind === "notifications" ? (
+          <Scroll>
+            <NotificationsPage
+              list={notifications.list}
+              loading={notifications.loading}
+              error={notifications.error}
+              now={now}
+              onOpenCard={openCard}
+              onOpenMessage={setMessage}
             />
           </Scroll>
         ) : section.kind === "board" ? (

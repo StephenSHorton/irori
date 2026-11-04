@@ -56,6 +56,7 @@ pub mod invites;
 pub mod mentions;
 pub mod new_card;
 pub mod notes;
+pub mod notifications;
 pub mod ready;
 pub mod roster;
 pub mod seams;

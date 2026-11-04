@@ -286,6 +286,35 @@ pub async fn board_idle_report(w: W<'_>) -> R<IdleReport> {
     Ok(w.idle_report())
 }
 
+/// The person's notifications, newest first (card #377).
+#[tauri::command]
+#[specta::specta]
+pub async fn notifications_list(w: W<'_>) -> R<Vec<crate::notifications::Notification>> {
+    Ok(w.notifications())
+}
+
+/// How many notifications the person hasn't read (card #377).
+#[tauri::command]
+#[specta::specta]
+pub async fn notifications_unread(w: W<'_>) -> R<u32> {
+    Ok(w.unread_notifications())
+}
+
+/// Marks notifications read; no keys reads them all (card #377).
+#[tauri::command]
+#[specta::specta]
+pub async fn notifications_read(w: W<'_>, keys: Vec<String>) -> R<()> {
+    w.read_notifications(&keys)
+}
+
+/// Answers an agent's ask from its notification (card #377); refused once
+/// it's answered or out of time.
+#[tauri::command]
+#[specta::specta]
+pub async fn notifications_answer_ask(w: W<'_>, ask_id: String, choice: String) -> R<()> {
+    w.answer_notification_ask(&ask_id, &choice)
+}
+
 /// One scope's live cards (card #161): "" every card, "own" the private
 /// ones, or a board id.
 #[tauri::command]
@@ -1354,6 +1383,10 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_done_cards,
             board_cards_in,
             board_idle_report,
+            notifications_list,
+            notifications_unread,
+            notifications_read,
+            notifications_answer_ask,
             board_done_cards_in,
             board_clear_done_count,
             board_clear_done,

@@ -115,7 +115,7 @@ function Row({
 }
 
 // useAct runs one action at a time, keeping its error.
-function useAct() {
+export function useAct() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState("")
@@ -136,7 +136,7 @@ function useAct() {
 }
 
 // Said is a row's outcome while the list catches up, or its error.
-function Said({ error, done }: { error: string | null; done: string }) {
+export function Said({ error, done }: { error: string | null; done: string }) {
   if (error)
     return (
       <p className="text-[12.5px] text-destructive" role="alert">
@@ -153,7 +153,7 @@ function Said({ error, done }: { error: string | null; done: string }) {
 }
 
 // OwnWords is the fold-out box for an answer, a reply or a reason.
-function OwnWords({
+export function OwnWords({
   label,
   placeholder,
   send,
@@ -322,7 +322,7 @@ function Where({ card: c }: { card: CardSummary }) {
   )
 }
 
-function BlockerAnswer({
+export function BlockerAnswer({
   cardId,
   b,
   onOpen,

@@ -45,6 +45,8 @@ pub enum Topic {
     Devices,
     /// Talk's channels, DMs or posts changed (`talk:changed`, card #389).
     Talk,
+    /// The notification history changed (card #377).
+    Notifications,
 }
 
 /// One change.
@@ -63,6 +65,8 @@ pub enum CoreEvent {
     /// A `talk.*` row folded, here or synced, or a message was sent (it
     /// may show as a DM) (card #389).
     Talk,
+    /// A notification was kept or read (card #377), here or synced.
+    Notifications,
     /// Events were dropped for this feed: re-read everything it shows.
     Resync,
 }
@@ -78,6 +82,7 @@ impl CoreEvent {
             CoreEvent::Asks(_) => Topic::Asks,
             CoreEvent::Devices => Topic::Devices,
             CoreEvent::Talk => Topic::Talk,
+            CoreEvent::Notifications => Topic::Notifications,
             CoreEvent::Resync => return None,
         })
     }
