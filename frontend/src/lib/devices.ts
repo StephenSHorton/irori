@@ -460,25 +460,6 @@ export function useDevices(active: boolean): DevicesState {
   return { devices: value, error, reload }
 }
 
-// useAgentFaces is the agents' own faces by name key (card #407),
-// reloaded when a face changes (devices:changed). The sample has none.
-export function useAgentFaces(): Record<string, string> {
-  const load = useCallback(
-    async (): Promise<Record<string, string>> =>
-      inWails() ? ((await DevicesService.AgentAvatars()) ?? {}) : {},
-    []
-  )
-  const { value, reload } = useLatest<Record<string, string>>(load, {})
-  useEffect(() => {
-    void reload()
-    const off = inWails()
-      ? Events.On(EventDevicesChanged, () => void reload())
-      : () => {}
-    return off
-  }, [reload])
-  return value
-}
-
 // usePairing follows the open (or last) pairing while active. A pairing
 // that had already ended when the dialog opened isn't shown again.
 export function usePairing(active: boolean): {
