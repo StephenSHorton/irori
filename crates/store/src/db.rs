@@ -25,6 +25,17 @@ use crate::{
     row_hash, signing_bytes,
 };
 
+/// Each device's MAX(seq) in `events`, by skip-scanning the
+/// (device_id, seq) key; the same rows as
+/// `SELECT device_id, MAX(seq) FROM events GROUP BY device_id`.
+const VECTOR_SQL: &str = "WITH RECURSIVE d(id) AS (
+       SELECT (SELECT min(device_id) FROM events)
+       UNION ALL
+       SELECT (SELECT min(device_id) FROM events WHERE device_id > d.id)
+       FROM d WHERE d.id IS NOT NULL)
+     SELECT id, (SELECT max(seq) FROM events WHERE device_id = d.id)
+     FROM d WHERE id IS NOT NULL";
+
 /// `schema_migrations`, created first in the migrate transaction.
 const SCHEMA_MIGRATIONS: &str = "CREATE TABLE IF NOT EXISTS schema_migrations (\n\t\tversion    INTEGER PRIMARY KEY,\n\t\tapplied_at INTEGER NOT NULL DEFAULT (unixepoch())\n\t)";
 
@@ -1456,7 +1467,11 @@ impl Inner {
 
     fn vector(&self) -> Result<Vector> {
         let mut v = self.read(|c| {
-            let mut st = c.prepare("SELECT device_id, MAX(seq) FROM events GROUP BY device_id")?;
+            // Each device's MAX(seq) by skip-scanning the (device_id, seq)
+            // key: a few seeks per device, where GROUP BY read every row
+            // (card #467: 0.44 s on a 3.6M-row log, paid by every sync
+            // batch and every ack).
+            let mut st = c.prepare_cached(VECTOR_SQL)?;
             let rows = st.query_map([], |r| Ok((text_of(r.get_ref(0)?), r.get::<_, i64>(1)?)))?;
             let mut v = Vector::new();
             for r in rows {
@@ -1606,5 +1621,61 @@ mod tests {
     fn empty_bytes_bind_null() {
         assert_eq!(blob(b""), None);
         assert_eq!(blob(b"x"), Some(&b"x"[..]));
+    }
+
+    /// Card #467: the skip-scan gives the old GROUP BY's rows exactly, on
+    /// an empty log, one device, many devices, gaps in seq, ids that are
+    /// prefixes of each other, and a device id stored as a BLOB.
+    #[test]
+    fn vector_sql_matches_group_by() {
+        type Rows = Vec<(Vec<u8>, bool, i64)>;
+        fn run(c: &Connection, sql: &str) -> Rows {
+            let mut st = c.prepare(sql).unwrap();
+            let mut v: Rows = st
+                .query_map([], |r| {
+                    let d = r.get_ref(0)?;
+                    let is_blob = matches!(d, ValueRef::Blob(_));
+                    Ok((bytes_of(d), is_blob, r.get::<_, i64>(1)?))
+                })
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect();
+            v.sort();
+            v
+        }
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(MIGRATION_V1).unwrap();
+        let old = "SELECT device_id, MAX(seq) FROM events GROUP BY device_id";
+        let check = |c: &Connection| {
+            let want = run(c, old);
+            assert_eq!(run(c, VECTOR_SQL), want);
+            want.len()
+        };
+        assert_eq!(check(&c), 0, "empty");
+        let put = |d: &str, seq: i64| {
+            c.execute(
+                "INSERT INTO events (device_id, seq, hlc, actor, kind) VALUES (?1, ?2, 0, '', '')",
+                params![d, seq],
+            )
+            .unwrap();
+        };
+        put("dev-a", 1);
+        assert_eq!(check(&c), 1, "one device");
+        for s in [2, 3, 7, 100] {
+            put("dev-a", s);
+        }
+        for d in ["dev-b", "dev", "dev-a2", "", "\u{e9}t\u{e9}", "Z"] {
+            for s in [1, 5, 9] {
+                put(d, s);
+            }
+        }
+        put("dev-c", 42);
+        assert_eq!(check(&c), 8, "many devices, gaps");
+        c.execute(
+            "INSERT INTO events (device_id, seq, hlc, actor, kind) VALUES (?1, 3, 0, '', '')",
+            params![&b"dev-b"[..]],
+        )
+        .unwrap();
+        assert_eq!(check(&c), 9, "a BLOB id beside the same TEXT id");
     }
 }

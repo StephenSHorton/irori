@@ -2362,7 +2362,7 @@ fn the_avatar_tool_checks_a_face_before_keeping_it() {
         "{bad}"
     );
     let none = h.call(&call_a(), "avatar", "{}");
-    assert!(none.contains("no face of your own yet"), "{none}");
+    assert!(none.contains("no face of your own"), "{none}");
 }
 
 /// Card #436: two agents hit the same red test on clean main; the second

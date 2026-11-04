@@ -165,6 +165,7 @@ export const BoardService = {
   Cards: () => call(commands.boardCards()),
   IdleReport: () => call(commands.boardIdleReport()),
   Card: (id: string) => call(commands.boardCard(id)),
+  CardsById: (ids: string[]) => call(commands.boardCardsById(ids)),
   DoneCards: (limit: number, before: string) => call(commands.boardDoneCards(limit, before)),
   DoneCardsIn: (limit: number, before: string, scope: string) =>
     call(commands.boardDoneCardsIn(limit, before, scope)),
@@ -261,6 +262,7 @@ export const TalkService = {
 // card_wake_notes (card #412).
 export const NotesService = {
   List: (scope: string, removed = false) => call(commands.notesList(scope, removed)),
+  Waiting: () => call(commands.notesWaiting()),
   New: (note: B.NoteInput) => call(commands.noteNew(note)),
   Accept: (id: string) => call(commands.noteAccept(id)),
   Edit: (id: string, edit: B.NoteEditInput) => call(commands.noteEdit(id, edit)),
@@ -276,9 +278,14 @@ export const AgentsService = {
   Set: (change: B.AgentsChange) => call(commands.agentsSet(change)),
   End: (key: string) => done(commands.agentsEnd(key)),
   OfferSet: (key: string, on: boolean) => done(commands.agentsOfferSet(key, on)),
+  Logs: (key: string) => call(commands.agentsLogs(key)),
+  Attach: (key: string, cols: number, rows: number) =>
+    call(commands.agentsAttach(key, cols, rows)),
   Running: () => call(commands.agentsRunning()),
   TrustNeed: (taskId: string) => call(commands.agentsTrustNeed(taskId)),
   TrustAndStart: (taskId: string) => call(commands.agentsTrustAndStart(taskId)),
+  Trusted: () => call(commands.agentsTrusted()),
+  TrustRepo: (repoKey: string) => call(commands.agentsTrustRepo(repoKey)),
   Permissions: (boardId: string) => call(commands.agentsPermissions(boardId)),
   SetPermissions: (p: B.AgentPermissions) => call(commands.agentsPermissionsSet(p)),
 }

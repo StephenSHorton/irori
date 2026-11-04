@@ -10,6 +10,7 @@ import { Popover } from "@base-ui/react/popover"
 import { PreviewCard } from "@base-ui/react/preview-card"
 
 import { cardRef } from "@/components/cards/bits"
+import { SpawnedActions } from "@/components/cards/spawned-actions"
 import {
   deviceVar,
   displayName,
@@ -195,6 +196,16 @@ function AgentSummary({
       <CardList label="Watching" cards={watching} onOpen={onOpen} />
       {!holding.length && !offered.length && !watching.length && (
         <p className="text-xs text-muted-foreground">No open cards.</p>
+      )}
+      {spawnedFor && !gone && (
+        // Card #456 (sa-2): Attach, Logs and End for an agent Irori
+        // started; Stop is the form below.
+        <SpawnedActions
+          who={who}
+          cardId={spawnedFor.id}
+          onOpenCard={onOpen}
+          only={["attach", "logs", "end"]}
+        />
       )}
       {!gone && !who.offline && who.live && (
         <>

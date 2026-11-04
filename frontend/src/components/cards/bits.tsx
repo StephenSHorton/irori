@@ -226,7 +226,9 @@ export function holderText(h: CardHolder): string {
     case Holding.HoldOffline:
       return `${who}${more} · its device is offline`
     case Holding.HoldGone:
-      return `${who}${more} · gone`
+      // An agent Irori started ends when its work is done (card #456,
+      // spawned agents §10): finished, not lost.
+      return h.who.spawned ? `${who}${more} · agent finished` : `${who}${more} · gone`
   }
   return who
 }
@@ -245,10 +247,11 @@ export function HolderLine({
   returned?: AgentRef | null
   className?: string
 }) {
+  const finished = holder.state === Holding.HoldGone && !!holder.who.spawned
   const warn =
-    !!returned ||
+    (!!returned && !returned.spawned) ||
     holder.state === Holding.HoldWaiting ||
-    holder.state === Holding.HoldGone ||
+    (holder.state === Holding.HoldGone && !finished) ||
     holder.state === Holding.HoldSilent ||
     holder.state === Holding.HoldOffline
   return (
@@ -267,7 +270,9 @@ export function HolderLine({
       )}
       <span className="truncate">
         {returned && holder.state === Holding.HoldNobody
-          ? `Nobody on it: ${displayName(returned)} went away`
+          ? returned.spawned
+            ? `Nobody on it: ${displayName(returned)} finished`
+            : `Nobody on it: ${displayName(returned)} went away`
           : holderText(holder)}
       </span>
     </span>

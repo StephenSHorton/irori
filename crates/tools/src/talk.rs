@@ -322,6 +322,17 @@ pub fn mirrors(m: &inbox::Message) -> bool {
 }
 
 /// The DMs mirrored from messages: by DM id, its two parties and posts.
+/// Whether a message can show as a DM ([`mirrored`]): one an agent or the
+/// person sent, not a notice, a stop, Irori's own or a mention's wake. The
+/// Core tells the window Talk changed only for these (card #468).
+pub fn mirrors(m: &inbox::Message) -> bool {
+    !(m.notice
+        || m.stop
+        || m.from.kind == "irori"
+        || m.reason == inbox::REASON_MENTIONED
+        || m.from.key.is_empty())
+}
+
 fn mirrored(b: &dyn Backend, talk: &Talk) -> BTreeMap<String, (Vec<Member>, Vec<Post>)> {
     let ids = talk.post_ids();
     let mut seen = std::collections::HashSet::new();
