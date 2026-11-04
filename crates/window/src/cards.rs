@@ -1136,9 +1136,14 @@ fn cant_start_text(t: &Task, sp: &coord::Spawn, p: &People) -> String {
     if !irori_core::spawn_stop::no_folder_reason(&sp.reason) {
         return sp.reason.clone();
     }
+    // Mid-sentence, so where_'s "This PC" and "Another device" go lowercase.
     let dev = match p.names.get(&sp.device) {
         Some(n) if !n.trim().is_empty() => n.clone(),
-        _ => p.where_(&sp.device),
+        _ => match p.where_(&sp.device).as_str() {
+            "This PC" => "this PC".into(),
+            "Another device" => "another device".into(),
+            w => w.to_string(),
+        },
     };
     if t.repo_key.is_empty() {
         format!("this card names no repo, and {dev} has no folder for it")
@@ -2710,6 +2715,15 @@ mod tests {
         assert_eq!(
             cant_start_text(&none, &sp, &p),
             "this card names no repo, and Desktop Computer has no folder for it"
+        );
+        // A device it can't name reads as a phrase, not a title.
+        let unknown = coord::Spawn {
+            device: "ffff".into(),
+            ..sp.clone()
+        };
+        assert_eq!(
+            cant_start_text(&none, &unknown, &p),
+            "this card names no repo, and another device has no folder for it"
         );
         // Other reasons pass through (the trust row parses its own).
         let sp = coord::Spawn {

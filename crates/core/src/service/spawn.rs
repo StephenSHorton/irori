@@ -812,7 +812,7 @@ impl Services {
         else {
             return;
         };
-        self.lift_no_copy();
+        self.lift_no_copy(&sp);
         let me = self.device.id.clone();
         let cap = self.spawn_cap(&me);
         let mut running = self.spawned_here();
@@ -940,7 +940,7 @@ impl Services {
             self.stop_no_copy(t);
             return r;
         };
-        self.resolve_no_copy(t, &folder);
+        self.resolve_no_copy(t, &folder, (sp.trusted)(Path::new(&folder)));
         if !(sp.trusted)(Path::new(&folder)) {
             return refuse(SpawnRefusal::NotTrusted {
                 repo_key: t.repo_key.clone(),

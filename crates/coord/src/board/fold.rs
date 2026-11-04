@@ -1535,7 +1535,11 @@ impl Fold {
                 && (!self.replaying
                     || gotime::since(now, &l.lease.until) < LAPSED_WITHIN.as_nanos() as i128)
             {
-                self.lapsed.push(l.lease.clone());
+                // Under its canonical name, the held key: a row from before
+                // #480 may spell the repo in capitals (card #480).
+                let mut lease = l.lease.clone();
+                lease.resource = name.clone();
+                self.lapsed.push(lease);
             }
             self.note(Change {
                 kind: LEASE_EXPIRED.into(),

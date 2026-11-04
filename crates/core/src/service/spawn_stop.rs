@@ -58,17 +58,52 @@ fn is_start_failed(b: &Blocker) -> bool {
     b.raised_by == SWEEPER && b.question == START_FAILED
 }
 
-/// The folder a person's reply names: its first line, without the quotes
-/// or backticks people put around paths.
+/// The folder a person's reply names: its first line that isn't a code
+/// fence, without the quotes or backticks people put around paths, with a
+/// leading `~` as the home folder.
 fn as_folder(text: &str) -> String {
     let line = text
         .lines()
         .map(str::trim)
+        .filter(|l| !l.starts_with("```"))
+        .map(|l| {
+            l.trim_matches(|c: char| matches!(c, '`' | '"' | '\'' | '“' | '”'))
+                .trim()
+        })
         .find(|l| !l.is_empty())
         .unwrap_or("");
-    line.trim_matches(|c: char| matches!(c, '`' | '"' | '\'' | '“' | '”'))
-        .trim()
-        .to_string()
+    if line == "~" || line.starts_with("~/") || line.starts_with("~\\") {
+        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+        if let Some(h) = home {
+            return format!("{}{}", h.to_string_lossy(), &line[1..]);
+        }
+    }
+    line.to_string()
+}
+
+/// `s` cut to `n` characters, marking the cut with `…`.
+fn cut(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(n.saturating_sub(1)).collect();
+    out.push('…');
+    out
+}
+
+/// A reply quoted back in a line: short enough for any blocker field.
+fn quoted(reply: &str) -> String {
+    format!("“{}”", cut(&as_folder(reply), 120))
+}
+
+/// Why a reply wasn't used as the card's folder.
+fn not_a_folder_line(reply: &str, dev: &str) -> String {
+    let f = as_folder(reply);
+    if !f.is_empty() && !Path::new(&f).is_absolute() {
+        format!("{} isn't a full path on {dev}.", quoted(reply))
+    } else {
+        format!("{} isn't a folder on {dev}.", quoted(reply))
+    }
 }
 
 impl Services {
@@ -172,18 +207,19 @@ impl Services {
             (
                 format!("{dev} has no copy of {name}. {CHOOSE_FOLDER} on {dev}?"),
                 format!(
-                    "Irori starts this card's agent on {dev}, where the card was made, and the only copies of {name} it knows of are on your other devices."
+                    "Irori starts this card's agent on {dev}, where the card was made, and none of the folders it has seen for {name} is on {dev} now."
                 ),
             )
         };
         let mut context = String::new();
         if let Some(a) = not_a_folder {
-            context += &format!("“{}” isn't a folder on {dev}. ", as_folder(a));
+            context += &not_a_folder_line(a, &dev);
+            context.push(' ');
         }
         context += &format!(
             "{why} Reply with the folder's full path on {dev} (clone it first if it isn't there) and its agent starts in it."
         );
-        (question, context)
+        (cut(&question, 200), cut(&context, coord::MAX_CONTEXT))
     }
 
     /// Card t got no folder here: ask the person once. Called after its
@@ -224,7 +260,7 @@ impl Services {
             // Put back on the Board ("Start an agent", or a reply): still no
             // folder, so this one closes and a fresh one asks.
             let text = match &reply {
-                Some(r) => format!("“{}” isn't a folder on {dev}.", as_folder(&r.text)),
+                Some(r) => not_a_folder_line(&r.text, &dev),
                 None => format!("Still no folder for it on {dev}."),
             };
             let a = BlockerAnswer {
@@ -268,19 +304,23 @@ impl Services {
         if n < SPAWN_TRIES {
             return;
         }
+        // One short of the limit: after Try again, the next failure asks
+        // straight away. A start clears it (note_started).
         self.spawn
             .start_fails
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .remove(&t.id);
+            .insert(t.id.clone(), SPAWN_TRIES - 1);
         if t.blockers.iter().any(|b| b.open() && is_start_failed(b)) {
             return;
         }
         let dev = self.this_device_name();
+        let lead = format!("Irori couldn't start an agent for this card on {dev}.");
         let nb = NewBlocker {
             question: START_FAILED.into(),
-            context: format!(
-                "Irori tried {n} times to start an agent for this card on {dev}, and each time it couldn't. The last error: {err}"
+            context: cut(
+                &format!("{lead} The last error: {}", err.trim()),
+                coord::MAX_CONTEXT,
             ),
             options: vec![BlockerOption {
                 answer: START_AGAIN.into(),
@@ -311,19 +351,27 @@ impl Services {
 
     /// Resolves t's open "no copy" blocker, if any, now that its agent has a
     /// folder here. Whether one was resolved.
-    pub(crate) fn resolve_no_copy(&self, t: &Task, folder: &str) -> bool {
+    pub(crate) fn resolve_no_copy(&self, t: &Task, folder: &str, trusted: bool) -> bool {
         let Some(b) = t.blockers.iter().find(|b| b.open() && is_no_copy(b)) else {
             return false;
         };
         let name = coord::repo_name(&t.repo_key);
         let dev = self.this_device_name();
-        let text = if name.is_empty() {
-            format!("Its agent starts in {folder} on {dev}.")
+        let folder = cut(folder, 200);
+        let found = if name.is_empty() {
+            format!("Its folder is {folder} on {dev}")
         } else {
-            format!("Irori found a copy of {name} on {dev} ({folder}): its agent starts there.")
+            format!("Irori found a copy of {name} on {dev} ({folder})")
+        };
+        let text = if trusted {
+            format!("{found}: its agent starts there.")
+        } else {
+            format!(
+                "{found}, but it isn't trusted for agents yet: Trust and start it in Needs you."
+            )
         };
         let a = BlockerAnswer {
-            text,
+            text: cut(&text, 400),
             resolve: true,
             ..BlockerAnswer::default()
         };
@@ -339,7 +387,7 @@ impl Services {
     /// Lifts the "no copy" blockers this device raised once a copy is here
     /// (a Where, a checkout, or a folder the person named), and asks for
     /// the agent.
-    pub(crate) fn lift_no_copy(&self) {
+    pub(crate) fn lift_no_copy(&self, sp: &super::spawn::Spawner) {
         let me = self.device.id.clone();
         let open = self.coord.list_tasks(&TaskFilter {
             open: true,
@@ -357,7 +405,10 @@ impl Services {
             let Some(folder) = self.spawn_folder(&t) else {
                 continue;
             };
-            if self.resolve_no_copy(&t, &folder) {
+            // Not trusted: the request fails as such and Needs you offers
+            // Trust and start.
+            let trusted = (sp.trusted)(Path::new(&folder));
+            if self.resolve_no_copy(&t, &folder, trusted) {
                 self.coord.spawn_now(&t.id);
             }
         }
@@ -382,6 +433,27 @@ mod tests {
         );
         assert_eq!(as_folder("\"/Users/me/irori\"\nthanks"), "/Users/me/irori");
         assert_eq!(as_folder(""), "");
+        assert_eq!(as_folder("```\n/Users/me/irori\n```"), "/Users/me/irori");
+        assert_eq!(
+            as_folder("```sh\n`/Users/me/irori`\n```"),
+            "/Users/me/irori"
+        );
+        if let Some(h) = std::env::var_os("HOME") {
+            assert_eq!(
+                as_folder("~/irori"),
+                format!("{}/irori", h.to_string_lossy())
+            );
+        }
+        let long = "x".repeat(5000);
+        assert!(quoted(&long).chars().count() <= 122);
+        assert_eq!(
+            not_a_folder_line("I'll clone it later", "Desktop Computer"),
+            "“I'll clone it later” isn't a full path on Desktop Computer."
+        );
+        assert_eq!(
+            not_a_folder_line("/nope/irori", "Desktop Computer"),
+            "“/nope/irori” isn't a folder on Desktop Computer."
+        );
     }
 
     #[test]

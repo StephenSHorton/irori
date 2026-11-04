@@ -26,6 +26,7 @@ struct Fake {
     started: Mutex<Vec<SpawnReq>>,
     tries: Mutex<u32>,
     fail: AtomicBool,
+    long: Mutex<bool>,
 }
 
 fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
@@ -34,6 +35,12 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
         spawn: Arc::new(move |r: &SpawnReq| {
             *a.tries.lock().unwrap() += 1;
             if a.fail.load(Ordering::SeqCst) {
+                if *a.long.lock().unwrap() {
+                    return Err(format!(
+                        "claude --bg failed: {}",
+                        "output line\n".repeat(2000)
+                    ));
+                }
                 return Err("claude: exit status 1".into());
             }
             a.started.lock().unwrap().push(r.clone());
@@ -235,7 +242,7 @@ fn no_checkout_asks_once_in_plain_words_then_starts_in_the_folder_named() {
     let b2 = t.no_copy_blockers(&c.id)[0].clone();
     assert!(
         b2.context
-            .starts_with("“I'll clone it later” isn't a folder on"),
+            .starts_with("“I'll clone it later” isn't a full path on"),
         "{}",
         b2.context
     );
@@ -359,4 +366,49 @@ fn a_spawner_failing_three_times_asks_once() {
         .unwrap();
     assert!(b.context.contains("claude: exit status 1"), "{}", b.context);
     t.plain(&b.context);
+
+    // Try again, still failing: one more try, and it asks again at once.
+    let co = t.r.core.coord();
+    co.answer(
+        &t.person,
+        &c.id,
+        &b.id,
+        BlockerAnswer {
+            pick: 1,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    wait_for(60, "asked again after one more try", || {
+        t.get(&c.id)
+            .blockers
+            .iter()
+            .any(|x| x.open() && x.question == START_FAILED && x.id != b.id)
+    });
+    assert_eq!(*t.fake.tries.lock().unwrap(), 4, "one more try");
+}
+
+/// A spawner error far longer than a blocker's context still raises it.
+#[test]
+fn a_long_spawner_error_still_asks() {
+    let t = rig();
+    let dir = tempfile::tempdir().unwrap();
+    t.seen(LOWER, dir.path());
+    let c = t.card("Port the parser", LOWER);
+    t.fake.fail.store(true, Ordering::SeqCst);
+    *t.fake.long.lock().unwrap() = true;
+    t.start();
+    wait_for(60, "the first try", || *t.fake.tries.lock().unwrap() >= 1);
+    for _ in 0..4 {
+        if t.get(&c.id).state == coord::BLOCKED {
+            break;
+        }
+        t.later();
+    }
+    wait_for(60, "the start-failed blocker", || {
+        t.get(&c.id)
+            .blockers
+            .iter()
+            .any(|b| b.open() && b.question == START_FAILED)
+    });
 }
