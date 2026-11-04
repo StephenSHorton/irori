@@ -1080,6 +1080,11 @@ export type CardThreadItem = {
 	device?: string,
 	text: string,
 	blockerId?: string,
+	/**
+	 *  The question of that blocker, cut short (card #490): what the
+	 *  person reads in place of its id.
+	 */
+	blockerGist?: string,
 	missing?: string[],
 	/**
 	 *  An event that revised its blocker (card #50): what it asks now and

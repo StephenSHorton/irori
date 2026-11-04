@@ -80,6 +80,80 @@ fn test_gone_holder_returns_the_card_to_its_creator() {
     assert!(sweep_returned(&e).is_empty());
     e.c.claim_task(CAROL, &tk.id).unwrap();
     assert!(task(&e, &tk.id).returned.is_none());
+    // Card #490: once someone holds it, "nobody is on it" no longer holds.
+    assert_eq!(task(&e, &tk.id).note, "");
+}
+
+// Card #490: live #396 said "nobody is on it: wonton left it" while a
+// spawned agent held it. Each way back onto the card clears Irori's own
+// note, a later blocker doesn't carry it, and a replay agrees.
+#[test]
+fn test_nobody_note_follows_the_holders() {
+    type Back = fn(&Env, &str);
+    let ways: [(&str, Back); 3] = [
+        ("claim", |e, id| {
+            e.c.claim_task(CAROL, id).unwrap();
+        }),
+        ("offer", |e, id| {
+            e.c.assign_task(USER, id, CAROL).unwrap();
+        }),
+        ("step owner", |e, id| {
+            e.c.set_steps(
+                USER,
+                id,
+                vec![Step {
+                    text: "Sync".into(),
+                    ..Step::default()
+                }],
+            )
+            .unwrap();
+            let s = task(e, id).steps[0].id.clone();
+            e.c.set_step_owner(USER, id, &s, CAROL).unwrap();
+        }),
+    ];
+    for (how, back) in ways {
+        let e = Env::new();
+        let tk = e.c.create_task(USER, nt("Pair my devices")).unwrap();
+        e.c.claim_task(ALICE, &tk.id).unwrap();
+        e.c.leave(ALICE, &tk.id, ALICE).unwrap();
+        let t = task(&e, &tk.id);
+        assert!(
+            t.holders.is_empty() && t.note.starts_with("nobody is on it"),
+            "{how}: {t:?}"
+        );
+        back(&e, &tk.id);
+        assert_eq!(task(&e, &tk.id).note, "", "{how}");
+        assert_eq!(
+            e.reopen().get_task(&tk.id).unwrap().note,
+            "",
+            "{how}: replay"
+        );
+        if how == "claim" {
+            e.c.block(CAROL, &tk.id, "which db?", None).unwrap();
+            assert_eq!(task(&e, &tk.id).note, "", "a blocker doesn't carry it back");
+        }
+    }
+}
+
+#[test]
+fn test_other_notes_stay_when_someone_takes_the_card() {
+    let e = Env::new();
+    let tk = e.c.create_task(ALICE, nt("Ship docs")).unwrap();
+    e.c.set_task_state(ALICE, &tk.id, WORKING, "keep me")
+        .unwrap();
+    assert_eq!(task(&e, &tk.id).note, "keep me");
+    e.c.set_steps(
+        ALICE,
+        &tk.id,
+        vec![Step {
+            text: "Sync".into(),
+            ..Step::default()
+        }],
+    )
+    .unwrap();
+    let s = task(&e, &tk.id).steps[0].id.clone();
+    e.c.set_step_owner(ALICE, &tk.id, &s, CAROL).unwrap();
+    assert_eq!(task(&e, &tk.id).note, "keep me");
 }
 
 #[test]

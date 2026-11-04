@@ -152,6 +152,61 @@ export function nobodyOn(c: {
   return !!c.returned || c.holder.state === Holding.HoldGone
 }
 
+// PeopleRow is one agent in a card's Who's on it (card #490): its
+// strongest role, the titles of the open steps it owns, and its waits.
+export type PeopleRow = {
+  who: AgentRef
+  role: "working" | "watching" | "waiting"
+  stepTitles: string[]
+  waits: CardWait[]
+}
+
+// stepTitle is a step's title for the person, never its id (card #490).
+export function stepTitle(steps: Step[], id: string): string {
+  return plainLine(steps.find((s) => s.id === id)?.text ?? "") || "a step"
+}
+
+// peopleRows gives one row per agent (card #490): working (holders, then
+// step owners), then watchers, then agents that only wait. A holder that
+// also waits shows its wait on its own row, not as a second one.
+export function peopleRows(d: {
+  working: AgentRef[]
+  watching: AgentRef[]
+  waits?: CardWait[] | null
+  steps: Step[]
+}): PeopleRow[] {
+  const rows: PeopleRow[] = []
+  const at = new Map<string, PeopleRow>()
+  const add = (who: AgentRef, role: PeopleRow["role"]) => {
+    const r = at.get(who.key)
+    if (!r) {
+      const row: PeopleRow = { who, role, stepTitles: [], waits: [] }
+      at.set(who.key, row)
+      rows.push(row)
+      return row
+    }
+    if (r.role === "working" && role === "working") {
+      r.who = {
+        ...r.who,
+        assigned: r.who.assigned || who.assigned,
+        waiting: r.who.waiting || who.waiting,
+        spawned: r.who.spawned || who.spawned,
+        handoff: r.who.handoff || who.handoff,
+        steps: [...(r.who.steps ?? []), ...(who.steps ?? [])],
+      }
+    }
+    return r
+  }
+  for (const w of d.working) add(w, "working")
+  for (const w of d.watching) add(w, "watching")
+  for (const w of d.waits ?? []) add(w.who, "waiting").waits.push(w)
+  for (const r of rows) {
+    const ids = [...new Set(r.who.steps ?? [])]
+    r.stepTitles = ids.map((id) => stepTitle(d.steps, id))
+  }
+  return rows
+}
+
 // deviceVar is a device colour's CSS variable (card #22); "" for none.
 export function deviceVar(color?: string | null): string {
   return color ? `var(--device-${color})` : ""
@@ -1191,7 +1246,13 @@ function sampleAnswer(
       mentions: named.length ? named : undefined,
     }),
   ]
-  c.thread = sampleThreadLine(c, now, `You answered blocker ${b.id}`, b.id)
+  c.thread = sampleThreadLine(
+    c,
+    now,
+    `You answered “${b.question}”`,
+    b.id,
+    b.question
+  )
   // As BoardService.Answer: the answer waits on the raiser, unless nobody
   // is running to act on it.
   if (!b.raisedBy.live && !c.working.some((w) => w.live)) {
@@ -1339,7 +1400,8 @@ function sampleThreadLine(
   c: CardDetail,
   at: string,
   text: string,
-  blockerId?: string
+  blockerId?: string,
+  blockerGist?: string
 ): CardThreadItem[] {
   return [
     ...c.thread,
@@ -1350,6 +1412,7 @@ function sampleThreadLine(
       who: sampleYou,
       text,
       blockerId,
+      blockerGist,
     }),
   ]
 }
@@ -2148,7 +2211,9 @@ export function createCardStore(
     await Promise.resolve()
     try {
       while (all || want.size) {
-        const ids = all ? [...users.keys()] : [...want].filter((id) => users.has(id))
+        const ids = all
+          ? [...users.keys()]
+          : [...want].filter((id) => users.has(id))
         all = false
         want = new Set()
         if (!ids.length) continue
