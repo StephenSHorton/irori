@@ -58,7 +58,13 @@ The per-board override is dropped (decision 46, which amends #24).
 
 ## 6. Channels
 
-Talk 1 (#389) adds `talk.channel.created {…, spaceId}`, where an empty `spaceId` means Personal (the private log). A channel in a space goes in the space's log through the same gate. The kinds are already marked as accepted on board logs. This waits on #389 landing.
+Talk 1 (#389) adds `talk.channel.created {…, spaceId}`, where an empty `spaceId` means Personal (the private log). A channel in a space goes in the space's log through the same gate (s5):
+
+- **Where rows go.** `talk.channel.created`, and the channel's `talk.member` and `talk.post` rows, go in the log its `spaceId` names. DMs and read cursors (`talk.read`) stay in the private log; board logs refuse `talk.read`.
+- **One fold.** Talk folds the private log and every space's log into one view (`coord::talk::SpaceLogs`, which the Core implements). A start, or a resync of either log, folds both again.
+- **Keys.** A space's rows name people and agents as the space does (`person:<id>`, `agent:<cardId>`), so the other member can tell them apart. Talk on this device reads its own person back as `user:<deviceId>` and its own agents by their session keys. Another person shows as a person, named by their member profile.
+- **The gate.** The same `spaces >= 1` as `space.board.*`, checked on every space talk row (create, join, leave and post), with the same refusal naming the devices. No new number: the hello's `spaces` came after Talk 1 marked `talk.*` as accepted on board logs, so any Irori that says it reads spaces stores them. Personal channels and DMs are never gated.
+- **The window.** `talk_channel_create(name, topic?, spaceId?)`; no `spaceId` is Personal.
 
 ## 7. Checks
 
@@ -67,5 +73,8 @@ Talk 1 (#389) adds `talk.channel.created {…, spaceId}`, where an empty `spaceI
   - `a_second_board_in_a_space_reaches_the_other_device`: the add is refused before the other device's hello, then the board and a card on it reach it.
   - `a_space_waits_for_devices_that_dont_read_spaces`: tools.
   - `hello_says_it_reads_spaces`: wire compatibility.
+  - `a_second_board_and_a_channel_in_a_space_reach_bob` (five_cores): two people; a second board and a card on it, then a channel and posts both ways through Talk's read model; cursors stay private; a device of Bob's that never said `spaces` stops new channel rows, naming it.
+  - `a_space_channel_goes_in_the_space_log_behind_the_gate` (coord): where each row goes, the refusal, and a fresh fold reading both logs.
+  - `the_gate_names_every_device_it_waits_on`, `talk_keys_map_into_a_space_and_back`: the gate's decision and the key mapping.
   - `cardsOnBoard`: the page's filter.
 - **Real data:** the move was run on read-only copies of the Mac's and the PC's data dirs (`irori-dev migrate-spaces`), comparing event counts and per-device max seq before and after (proof on #392).
