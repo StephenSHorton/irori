@@ -1895,8 +1895,19 @@ export type TalkMember = {
 	/**  `person` or `agent`. */
 	kind: string,
 	key: string,
-	/**  What it goes by ("you" for the person). */
+	/**
+	 *  What it goes by ("you" for the person). Never a key (card #478):
+	 *  "BillingEng1 · Spencer" for another member's agent, "unknown agent"
+	 *  when nothing names it.
+	 */
 	name?: string,
+	/**
+	 *  Another member's agent's board status (`busy`, `idle`, `gone`); ""
+	 *  when this device knows none, which isn't gone.
+	 */
+	status?: string,
+	/**  Whose agent it is when it is another member's ("Spencer"), else "". */
+	owner?: string,
 };
 
 /**  Who to add to or take out of a conversation. */

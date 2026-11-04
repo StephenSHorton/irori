@@ -118,6 +118,10 @@ pub fn is_person_key(key: &str) -> bool {
 /// back as `user:<deviceId>` ([`SpaceLogs`]).
 pub fn is_other_person_key(key: &str) -> bool {
     key.starts_with("person:")
+        || key
+            .strip_prefix("board:")
+            .and_then(|r| r.split_once('/'))
+            .is_some_and(|(_, who)| who.starts_with("person:"))
 }
 
 /// The DM between `a` and `b`: `dm:` and the first 16 hex digits of the

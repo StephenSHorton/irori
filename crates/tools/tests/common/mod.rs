@@ -132,6 +132,8 @@ pub struct TestBackend {
     pub book: OnceLock<Arc<coord::approvals::Book>>,
     /// Talk's fold over the same store (card #389).
     pub talk: Arc<coord::talk::Talk>,
+    /// Other members' agents on shared boards (card #478); empty: none.
+    pub board_agents: Mutex<Vec<tools::BoardAgent>>,
 }
 
 impl TestBackend {
@@ -182,6 +184,9 @@ impl Backend for TestBackend {
     }
     fn talk(&self) -> Option<&Arc<coord::talk::Talk>> {
         Some(&self.talk)
+    }
+    fn board_agents(&self) -> Vec<tools::BoardAgent> {
+        self.board_agents.lock().unwrap().clone()
     }
 }
 
@@ -336,6 +341,7 @@ pub fn new_harness_setup(
     let b = Arc::new(TestBackend {
         roster,
         talk,
+        board_agents: Mutex::new(Vec::new()),
         st,
         ib,
         co,

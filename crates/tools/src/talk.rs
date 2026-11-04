@@ -44,6 +44,14 @@ pub struct ConvMember {
     pub kind: String,
     pub key: String,
     pub name: String,
+    /// Another member's agent on a shared board (card #478): its board
+    /// card's status (`busy`, `idle`, `gone`), "" when this device knows
+    /// none. The window reads an agent missing from its own roster as
+    /// gone only when this says so.
+    pub status: String,
+    /// Whose agent it is, when it is another member's ("Spencer"); ""
+    /// for the person's own agents.
+    pub owner: String,
 }
 
 /// One conversation in a reader's list.
@@ -124,10 +132,47 @@ fn cards(b: &dyn Backend) -> Vec<coord::roster::AgentCard> {
         .collect()
 }
 
-/// Names for keys: the roster's, else the last name an agent went by.
+/// Names for keys: the roster's, else another member's agent on a shared
+/// board, else the last name an agent went by. A key never stands in for
+/// a name (card #478): one nobody can name is "unknown agent".
 struct Book {
     cards: HashMap<String, String>,
+    /// Other members' agents, by board card id: name, owner, status.
+    board: HashMap<String, (String, String, String)>,
     known: BTreeMap<String, String>,
+}
+
+/// What a name says when nothing names the key (card #478).
+pub const UNKNOWN_AGENT: &str = "unknown agent";
+/// What another person on a board is called when the board doesn't say.
+pub const UNKNOWN_PERSON: &str = "another person";
+
+/// The board card id a key names: `agent:<cardId>` as a board writes it,
+/// or `board:<boardId>/<cardId>` as the bridge sends from it.
+fn board_card(key: &str) -> Option<&str> {
+    if let Some(id) = key.strip_prefix(store::kinds::AGENT_ACTOR_PREFIX) {
+        return Some(id);
+    }
+    let (_, rest) = key.strip_prefix("board:")?.split_once('/')?;
+    (!rest.starts_with(store::kinds::PERSON_ACTOR_PREFIX)).then_some(rest)
+}
+
+/// The person a `board:<boardId>/person:<personId>` key names, as
+/// `person:<personId>`.
+fn board_person(key: &str) -> Option<&str> {
+    let (_, rest) = key.strip_prefix("board:")?.split_once('/')?;
+    rest.starts_with(store::kinds::PERSON_ACTOR_PREFIX)
+        .then_some(rest)
+}
+
+/// "BillingEng1 · Spencer"; "an agent of Spencer's" without a name.
+pub fn board_agent_name(name: &str, owner: &str) -> String {
+    match (name.trim(), owner.trim()) {
+        ("", "") => UNKNOWN_AGENT.into(),
+        ("", o) => format!("an agent of {o}'s"),
+        (n, "") => n.into(),
+        (n, o) => format!("{n} · {o}"),
+    }
 }
 
 impl Book {
@@ -138,27 +183,64 @@ impl Book {
                 .into_iter()
                 .map(|a| (a.key.clone(), a.name))
                 .collect(),
+            board: b
+                .board_agents()
+                .into_iter()
+                .filter_map(|a| {
+                    let id = board_card(&a.card.key)?.to_string();
+                    Some((id, (a.card.name, a.person, a.card.status)))
+                })
+                .collect(),
             known: b.known_names(),
         }
+    }
+
+    fn known(&self, key: &str) -> Option<String> {
+        self.known
+            .get(key)
+            .filter(|n| !n.trim().is_empty())
+            .cloned()
     }
 
     fn name(&self, key: &str) -> String {
         if ct::is_person_key(key) {
             return "you".into();
         }
-        self.cards
-            .get(key)
-            .or_else(|| self.known.get(key))
-            .filter(|n| !n.trim().is_empty())
-            .cloned()
-            .unwrap_or_else(|| key.to_string())
+        if let Some(n) = self.cards.get(key).filter(|n| !n.trim().is_empty()) {
+            return n.clone();
+        }
+        if let Some(p) = board_person(key) {
+            return self.known(p).unwrap_or_else(|| UNKNOWN_PERSON.into());
+        }
+        if ct::is_other_person_key(key) {
+            return self.known(key).unwrap_or_else(|| UNKNOWN_PERSON.into());
+        }
+        if let Some(id) = board_card(key) {
+            let last = || self.known(&format!("{}{id}", store::kinds::AGENT_ACTOR_PREFIX));
+            if let Some((n, owner, _)) = self.board.get(id) {
+                let n = if n.trim().is_empty() {
+                    last().unwrap_or_default()
+                } else {
+                    n.clone()
+                };
+                return board_agent_name(&n, owner);
+            }
+            return last().unwrap_or_else(|| UNKNOWN_AGENT.into());
+        }
+        self.known(key).unwrap_or_else(|| UNKNOWN_AGENT.into())
     }
 
     fn member(&self, m: &Member) -> ConvMember {
+        let (status, owner) = board_card(&m.key)
+            .and_then(|id| self.board.get(id))
+            .map(|(_, o, s)| (s.clone(), o.clone()))
+            .unwrap_or_default();
         ConvMember {
             kind: m.kind.clone(),
             key: m.key.clone(),
             name: self.name(&m.key),
+            status,
+            owner,
         }
     }
 }
@@ -224,6 +306,21 @@ fn thread_members(t: &Task) -> Vec<Member> {
     out
 }
 
+/// Whether a message can show as a DM ([`mirrored`]): one an agent or the
+/// person sent, not a notice, a stop, Irori's own or a mention's wake. A
+/// row bridged from a shared board (card #478) isn't one either: it is
+/// the card's, shown on the card, and every holder's and watcher's copy
+/// would show again ("raised a blocker on ..." ten times over).
+pub fn mirrors(m: &inbox::Message) -> bool {
+    !(m.notice
+        || m.stop
+        || m.from.kind == "irori"
+        || m.from.kind == inbox::BOARD_KIND
+        || m.from.key.starts_with("board:")
+        || m.reason == inbox::REASON_MENTIONED
+        || m.from.key.is_empty())
+}
+
 /// The DMs mirrored from messages: by DM id, its two parties and posts.
 fn mirrored(b: &dyn Backend, talk: &Talk) -> BTreeMap<String, (Vec<Member>, Vec<Post>)> {
     let ids = talk.post_ids();
@@ -231,12 +328,8 @@ fn mirrored(b: &dyn Backend, talk: &Talk) -> BTreeMap<String, (Vec<Member>, Vec<
     let mut out: BTreeMap<String, (Vec<Member>, Vec<Post>)> = BTreeMap::new();
     for d in b.inbox().list(usize::MAX) {
         let m = &d.message;
-        if m.notice
-            || m.stop
-            || m.from.kind == "irori"
-            || m.reason == inbox::REASON_MENTIONED
+        if !mirrors(m)
             || d.to.is_empty()
-            || m.from.key.is_empty()
             || ct::canon(&m.from.key) == ct::canon(&d.to)
             || ids.contains(&m.id)
             || !seen.insert(m.id.clone())
@@ -329,6 +422,12 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
             continue;
         }
         let ps = dm_posts(talk, mirror.get(&id), &id);
+        // A DM opened with a shared board's sender (from a Board notice)
+        // and never written in lists nothing (card #478): what that
+        // sender wrote is on the card, not here.
+        if ps.is_empty() && parties.iter().any(|m| m.key.starts_with("board:")) {
+            continue;
+        }
         let (unread, mentions) = if mine {
             counts(talk, &ps, reader, &id)
         } else {
