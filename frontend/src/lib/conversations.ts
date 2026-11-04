@@ -62,6 +62,21 @@ export function unreadDms(convs: readonly Conversation[]): number {
   return convs.filter((c) => c.kind === "dm" && !c.readOnly && c.unread > 0).length
 }
 
+// readAll marks each conversation with something unread read up to its
+// newest post: the Archive's Mark all read (card #473). One that fails is
+// left unread; the rest still go.
+export async function readAll(convs: readonly Conversation[]): Promise<void> {
+  await Promise.allSettled(
+    convs
+      .filter((c) => !c.readOnly && c.unread > 0)
+      .map(async (c) => {
+        const posts = await talkApi.posts(c.convId)
+        const last = posts[posts.length - 1]?.postId
+        if (last) await talkApi.read(c.convId, last)
+      })
+  )
+}
+
 export const talkApi = {
   conversations: (): Promise<Conversation[]> =>
     inWails() ? TalkService.Conversations() : Promise.resolve(sampleConvs()),
@@ -218,15 +233,54 @@ function sampleState(): SampleConv[] {
   ]
   // Many more, as a busy week leaves them (card #463): DMs with agents
   // that have gone, and agent↔agent DMs the person only reads.
-  for (let i = 1; i <= 14; i++) {
-    const id = `sample-dm-gone-${i}`
-    const key = `sample-gone-${i}`
-    sample.push({
-      ...TalkConversation({ convId: id, kind: "dm", name: key, members: [you, a(key, `gone-${i}`)] }),
-      posts: [post(id, 1, key, 400 + i * 60, `Card #${300 + i} is on main. Going idle.`)],
-      readUpTo: `${id}-p1`,
+  // Agents that finished their cards, named as Irori names spawned agents
+  // (card-<n>-1), with the last thing each said.
+  const lastWords = [
+    "On main as 4c1e9a2. The phone build passed too; ending my session.",
+    "Done check raised with screenshots. Nothing else from me.",
+    "Rebased onto main and pushed; the merge desk has it.",
+    "The flaky capture test was a timeout on one thread. Fixed, on main.",
+    "Settings › Agents now shows the model picker. Proof is on the card.",
+    "Closed as a duplicate of #452; I linked the two.",
+    "Release notes for 0.11.0 are in docs/releasing.md.",
+    "Card split into #441 and #442; both are on the Board unheld.",
+    "The Windows installer check passed on the PC. Going idle.",
+    "Moved the search index to its own thread; Talk's list no longer stutters.",
+    "Left a note on the card for whoever picks up the Android half.",
+    "Merged. The old workspace panel is gone from the sidebar.",
+    "Answered on the blocker; waiting on nothing now.",
+    "On main. The notification sound is off by default, as you asked.",
+  ]
+  lastWords.forEach((text, i) => {
+    const n = 470 - i * 3
+    const id = `sample-dm-gone-${i + 1}`
+    const key = `sample-gone-${i + 1}`
+    sample!.push({
+      ...TalkConversation({ convId: id, kind: "dm", name: key, members: [you, a(key, `card-${n}-1`)] }),
+      posts: [
+        post(id, 1, me, 460 + i * 95, `How's #${n} going?`),
+        post(id, 2, key, 400 + i * 95, text),
+      ],
+      readUpTo: `${id}-p2`,
     })
-  }
+  })
+  // Two gone agents left messages the person hasn't read: they wait in the
+  // Archive, marked unread, and count beside "Archive" (card #473).
+  sample.push({
+    ...TalkConversation({ convId: "sample-dm-gone-new", kind: "dm", name: "sample-gone-new", members: [you, a("sample-gone-new", "card-474-1")] }),
+    posts: [
+      post("sample-dm-gone-new", 1, me, 50, "Is #474 on main?"),
+      post("sample-dm-gone-new", 2, "sample-gone-new", 40, "Merged as #474. My session ends here."),
+    ],
+    readUpTo: "sample-dm-gone-new-p1",
+  })
+  sample.push({
+    ...TalkConversation({ convId: "sample-dm-gone-new2", kind: "dm", name: "sample-gone-new2", members: [you, a("sample-gone-new2", "card-475-1")] }),
+    posts: [
+      post("sample-dm-gone-new2", 1, "sample-gone-new2", 25, "The PC check found a second copy of the bug in the phone tabs; I fixed both."),
+    ],
+    readUpTo: "",
+  })
   for (let i = 1; i <= 24; i++) {
     const id = `sample-dm-aa-${i}`
     const x = `sample-aa-${i}`

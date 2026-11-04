@@ -33,6 +33,7 @@ unchanged.
 | `/#talk/sample-ch-suzuri` | a Talk channel (card #390): posts by day, a mention, the pointer a thread started from a message leaves, members with live status; hover a message for Start a thread and Make a card |
 | `/#talk` at phone width (under 768 px) | the phone (card #395, mockup talk-5): Home, Talk and Boards as a bottom tab bar, Talk's count on its tab; a conversation opens full-screen with Back, its members behind the channel's name; long-press (or right-click) a message for Reply in thread and Make a card |
 | `/#talk/sample-dm-heron` | a DM with an agent (unread until opened); `/#talk/sample-dm-otter-badger` two agents' DM, read-only |
+| `/#talk/sample-dm-gone-3` | an archived DM open (card #473): gone agents' DMs, read or not, sit in the Archive at the bottom, which folded lists no rows, only its count, how many are new and Mark all read |
 | `/?open=board:task:sample-card-7` | a parent card's page: its subtasks, one blocked, and the steps done before the split |
 | `/?open=board:task:sample-card-9` | a subtask's page, with "Part of #7" under the title |
 | `/?open=board:task:sample-card-1` | a card's page with blockers, a PR and a long thread |
