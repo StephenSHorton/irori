@@ -430,3 +430,33 @@ fn a_spawned_holder_ended_at_its_done_check_finishes_and_nobody_is_told() {
     assert_eq!(e.c.spawned_card(SPAWNED), Some(t.id.clone()));
     assert_eq!(e.reopen().spawned_card(SPAWNED), Some(t.id.clone()));
 }
+
+// Card #490: a spawned agent starts in its folder and moves once into its
+// own worktree; a command it runs in another worktree doesn't move Where.
+#[test]
+fn a_spawned_agents_where_keeps_to_its_own_worktree() {
+    let e = Env::new();
+    let t = e.c.create_task(USER, nt("Where")).unwrap();
+    let g = e.c.request_spawn(SWEEPER_KEY, ask(&t.id)).unwrap().unwrap();
+    assert!(e.c.bind_spawn(&t.id, g, SPAWNED).unwrap());
+    let w = |wt: &str, branch: &str| Where {
+        who: SPAWNED.into(),
+        cwd: wt.into(),
+        worktree: wt.into(),
+        branch: branch.into(),
+        head: "abc1234".into(),
+        ..Where::default()
+    };
+    assert!(e.c.set_where(&t.id, w("/repo", "dev")).unwrap());
+    assert!(
+        e.c.set_where(&t.id, w("/repo/.claude/worktrees/mine", "worktree-mine"))
+            .unwrap()
+    );
+    assert!(
+        !e.c.set_where(&t.id, w("/repo/.claude/worktrees/audit", "worktree-audit"))
+            .unwrap()
+    );
+    assert!(!e.c.set_where(&t.id, w("/repo", "dev")).unwrap());
+    let got = e.c.get_task(&t.id).unwrap().where_.unwrap();
+    assert_eq!(got.worktree, "/repo/.claude/worktrees/mine");
+}

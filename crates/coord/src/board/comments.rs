@@ -1666,7 +1666,10 @@ impl Fold {
                         &TaskStateRow {
                             task_id: id.clone(),
                             state: SUBMITTED.into(),
-                            note: format!("{}: the agent working it {went}", super::fold::NOBODY_NOTE),
+                            note: format!(
+                                "{}: the agent working it {went}",
+                                super::fold::NOBODY_NOTE
+                            ),
                             by: SWEEPER.into(),
                             at: *now,
                             ..TaskStateRow::default()

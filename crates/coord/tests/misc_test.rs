@@ -98,8 +98,15 @@ fn test_nobody_note_follows_the_holders() {
             e.c.assign_task(USER, id, CAROL).unwrap();
         }),
         ("step owner", |e, id| {
-            e.c.set_steps(USER, id, vec![Step { text: "Sync".into(), ..Step::default() }])
-                .unwrap();
+            e.c.set_steps(
+                USER,
+                id,
+                vec![Step {
+                    text: "Sync".into(),
+                    ..Step::default()
+                }],
+            )
+            .unwrap();
             let s = task(e, id).steps[0].id.clone();
             e.c.set_step_owner(USER, id, &s, CAROL).unwrap();
         }),
@@ -110,10 +117,17 @@ fn test_nobody_note_follows_the_holders() {
         e.c.claim_task(ALICE, &tk.id).unwrap();
         e.c.leave(ALICE, &tk.id, ALICE).unwrap();
         let t = task(&e, &tk.id);
-        assert!(t.holders.is_empty() && t.note.starts_with("nobody is on it"), "{how}: {t:?}");
+        assert!(
+            t.holders.is_empty() && t.note.starts_with("nobody is on it"),
+            "{how}: {t:?}"
+        );
         back(&e, &tk.id);
         assert_eq!(task(&e, &tk.id).note, "", "{how}");
-        assert_eq!(e.reopen().get_task(&tk.id).unwrap().note, "", "{how}: replay");
+        assert_eq!(
+            e.reopen().get_task(&tk.id).unwrap().note,
+            "",
+            "{how}: replay"
+        );
         if how == "claim" {
             e.c.block(CAROL, &tk.id, "which db?", None).unwrap();
             assert_eq!(task(&e, &tk.id).note, "", "a blocker doesn't carry it back");
@@ -125,10 +139,18 @@ fn test_nobody_note_follows_the_holders() {
 fn test_other_notes_stay_when_someone_takes_the_card() {
     let e = Env::new();
     let tk = e.c.create_task(ALICE, nt("Ship docs")).unwrap();
-    e.c.set_task_state(ALICE, &tk.id, WORKING, "keep me").unwrap();
-    assert_eq!(task(&e, &tk.id).note, "keep me");
-    e.c.set_steps(ALICE, &tk.id, vec![Step { text: "Sync".into(), ..Step::default() }])
+    e.c.set_task_state(ALICE, &tk.id, WORKING, "keep me")
         .unwrap();
+    assert_eq!(task(&e, &tk.id).note, "keep me");
+    e.c.set_steps(
+        ALICE,
+        &tk.id,
+        vec![Step {
+            text: "Sync".into(),
+            ..Step::default()
+        }],
+    )
+    .unwrap();
     let s = task(&e, &tk.id).steps[0].id.clone();
     e.c.set_step_owner(ALICE, &tk.id, &s, CAROL).unwrap();
     assert_eq!(task(&e, &tk.id).note, "keep me");
