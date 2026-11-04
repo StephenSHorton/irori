@@ -520,6 +520,31 @@ pub struct CardBlocker {
     #[specta(optional)]
     pub gone_agent: Option<AgentRef>,
     pub thread: Vec<CardThreadItem>,
+    /// A done check's previous round (card #476): the check the person
+    /// sent back before this one, so this one shows their reason, the
+    /// agent's answer and the proof it replaces.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub previous: Option<CardRound>,
+}
+
+/// The done check the person sent back before this one (card #476).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CardRound {
+    /// The earlier check's id.
+    pub id: String,
+    /// This check's round: 2 for the first one after a Not done.
+    pub round: i64,
+    /// The proof the person sent back.
+    pub proof: String,
+    /// Their reason when no comment on the thread carries it (a card from
+    /// before #476, whose late Not done only resolved the check).
+    pub answer: String,
+    /// The earlier check's thread: their reason and the agent's answers.
+    pub thread: Vec<CardThreadItem>,
+    /// The new proof is the one they sent back, word for word.
+    pub same_proof: bool,
 }
 
 /// What a wait item waits on (card #481), as the card page links it.
@@ -821,6 +846,9 @@ pub(crate) struct People {
     unsent: std::collections::HashSet<String>,
     /// A comment's notices, each with whether its recipient read it.
     heard: HashMap<String, Vec<(Delivery, bool)>>,
+    /// Blocker answers' notices by card id (card #476): the person's answer
+    /// on a blocker (a Not done) is heard when its agent reads this.
+    answers_heard: HashMap<String, Vec<(Delivery, bool)>>,
     /// The shared boards' agent cards by board key (agent:<cardId>), so
     /// another member's agents are named and live on a card they hold
     /// rather than "gone" (card #146).
@@ -915,6 +943,18 @@ impl Window {
         ) {
             if let Some(cid) = d.message.ref_.strip_prefix("comment:") {
                 p.heard.entry(cid.to_string()).or_default().push((d, read));
+            }
+        }
+        for (d, read) in c.inbox().ref_notices(
+            "task:",
+            &[coord::NOTICE_ANSWERED, coord::NOTICE_MENTIONED],
+            HEARD_NOTICES,
+        ) {
+            if let Some(id) = d.message.ref_.strip_prefix("task:") {
+                p.answers_heard
+                    .entry(id.to_string())
+                    .or_default()
+                    .push((d, read));
             }
         }
         // The Chain's rule, never coord's lock: `around` in person_comment runs
@@ -2187,6 +2227,7 @@ impl Window {
         }
         resolved.reverse();
         d.blockers.extend(resolved);
+        previous_rounds(&mut d.blockers, &t);
         if !co.is_board() {
             for r in co.reviews_of(&t.id) {
                 d.reviews.push(CardReview {
@@ -2399,7 +2440,13 @@ fn build_thread(
             // An agent that wrote on the card after it has answered: "read
             // it" says nothing more.
             let wrote_after = |k: &str| comments.iter().any(|c| c.by == k && c.hlc > cm.hlc);
-            let heard = p.heard.get(&cm.id).map(Vec::as_slice).unwrap_or(&[]);
+            let answer;
+            let heard = if cm.blocker_id.is_empty() {
+                p.heard.get(&cm.id).map(Vec::as_slice).unwrap_or(&[])
+            } else {
+                answer = answer_notices(p, t, cm);
+                &answer[..]
+            };
             it.pending = pending_lines(heard, t, p, wrote_after);
             it.heard_by = heard_by(heard);
         }
@@ -2575,6 +2622,78 @@ fn pending_lines(
 
 /// The agents that read a person's comment, from its notices (newest
 /// first; an agent's newest notice decides, as in pending_lines).
+/// Gives each done check the round before it (card #476): the done check
+/// raised just before it, when the person sent that one back (their own
+/// words on its thread, or as its answer).
+fn previous_rounds(blockers: &mut [CardBlocker], t: &Task) {
+    let mut checks: Vec<&coord::Blocker> = t.blockers.iter().filter(|b| b.done_check).collect();
+    checks.sort_by_key(|b| b.at.unix_nano());
+    let mut rounds = 1;
+    for pair in checks.windows(2) {
+        let (was, now) = (pair[0], pair[1]);
+        // The person said Done on it (a reopened card): no round.
+        if was.resolved.as_ref().is_some_and(|r| r.option >= 0) {
+            continue;
+        }
+        let Some(old) = blockers.iter().find(|b| b.id == was.id) else {
+            continue;
+        };
+        let said = old
+            .thread
+            .iter()
+            .any(|it| it.kind == THREAD_COMMENT && it.who.status == "person");
+        let answer = old
+            .resolved
+            .as_ref()
+            .filter(|r| {
+                !said
+                    && !r.closed
+                    && r.option < 0
+                    && r.by.status == "person"
+                    && !r.answer.is_empty()
+            })
+            .map(|r| r.answer.clone())
+            .unwrap_or_default();
+        if !said && answer.is_empty() {
+            continue;
+        }
+        rounds += 1;
+        let round = CardRound {
+            id: was.id.clone(),
+            round: rounds,
+            proof: was.context.clone(),
+            answer,
+            thread: old.thread.clone(),
+            same_proof: !was.context.is_empty() && was.context == now.context,
+        };
+        if let Some(b) = blockers.iter_mut().find(|b| b.id == now.id) {
+            b.previous = Some(round);
+        }
+    }
+}
+
+/// The notices the person's answer `cm` on a blocker sent (card #476):
+/// they carry the card, not the comment, so they are the card's blocker
+/// answers that name its blocker, sent as it was written.
+fn answer_notices(p: &People, t: &Task, cm: &Comment) -> Vec<(Delivery, bool)> {
+    let named = format!(", blocker {}).", cm.blocker_id);
+    p.answers_heard
+        .get(&t.id)
+        .into_iter()
+        .flatten()
+        .filter(|(d, _)| {
+            let sent = d.message.sent_at.unix_nano();
+            let at = cm.at.unix_nano();
+            sent >= at && sent - at <= ANSWER_NOTICE_WITHIN && d.message.text.contains(&named)
+        })
+        .cloned()
+        .collect()
+}
+
+/// How soon after the person's answer its notice is sent, in nanoseconds:
+/// the same call writes both.
+const ANSWER_NOTICE_WITHIN: i64 = 10_000_000_000;
+
 fn heard_by(ds: &[(Delivery, bool)]) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();

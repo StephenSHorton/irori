@@ -33,6 +33,10 @@
 //!     agent, holding a card and a lease, is busy on a long task; it is not
 //!     cut, and at its safe point it posts a hand-off and leaves the card,
 //!     releases the lease and answers "wound down".
+//!   7 not done (card #476): the agent's done check waits on the person,
+//!     who says Not done with a reason; the agent answers them on that
+//!     check's thread, and any new check it raises carries that round (as
+//!     the window shows it) with proof that changed.
 //!
 //! The Core's claude dir is --claude, a scratch dir holding only the
 //! sessions this run starts, so it never sees the real sessions; claude
@@ -83,6 +87,11 @@ const S6_LEASE: &str = "notes/summary";
 const S6_FILES: usize = 12;
 const S6_TASK: &str = "Read every file in this folder (note-01.txt to note-12.txt) one at a time with the Read tool, in order, one call each, then write SUMMARY.md listing each file's first line. This is the work on your card; don't stop early.";
 const S5_STOP: &str = "Which note file were you reading when I stopped you? Answer me with the irori send tool (to: \"user\"), then wait: don't go back to the notes.";
+const S7_TITLE: &str = "Write NOTES.md for the release";
+const S7_PROOF: &str =
+    "Wrote NOTES.md with one line: 'Release notes: the boat no longer clips the dock.'";
+const S7_REASON: &str =
+    "Not done: NOTES.md must also say who the release is for (the beta testers), on a second line.";
 const S3_COMMENT: &str = "Change of plan: forget dark mode. What we actually need here is a high-contrast mode for people with low vision, toggled from the same settings page. Dark mode can wait.";
 
 pub struct Opts {
@@ -128,9 +137,9 @@ impl Opts {
                 }
                 "--only" => {
                     for p in val()?.split(',').filter(|p| !p.is_empty()) {
-                        let n: u32 = p.parse().map_err(|_| format!("--only {p}: 1 to 6"))?;
-                        if !(1..=6).contains(&n) {
-                            return Err(format!("--only {p}: 1 to 6"));
+                        let n: u32 = p.parse().map_err(|_| format!("--only {p}: 1 to 7"))?;
+                        if !(1..=7).contains(&n) {
+                            return Err(format!("--only {p}: 1 to 7"));
                         }
                         o.only.push(n);
                     }
@@ -849,6 +858,122 @@ fn wind_down(o: &Opts, h: &Host) -> (Result<String, String>, Option<PathBuf>) {
     (r, log)
 }
 
+/// 7 (card #476): the person sends the agent's done check back with a
+/// reason; the agent answers them on that check, and a new check it raises
+/// shows that round with changed proof.
+fn not_done(o: &Opts, h: &Host) -> (Result<String, String>, Option<PathBuf>) {
+    let mut a = match Agent::start(o, h, "s7-not-done") {
+        Ok(a) => a,
+        Err(e) => return (Err(e), None),
+    };
+    let log = Some(a.log.clone());
+    let caller = tools::Caller {
+        sender: inbox::Sender::new(&a.key, "s7-not-done", "claude"),
+        path: String::new(),
+    };
+    let call = |tool: &str, args: serde_json::Value| {
+        let raw = serde_json::to_vec(&args).unwrap_or_default();
+        h.core
+            .tools()
+            .call(&caller, tool, &raw)
+            .map_err(|e| format!("the agent's {tool}: {e}"))
+    };
+    // The agent's card, its work and its done check, made as the agent.
+    let notes = o.work.join("s7-not-done").join("NOTES.md");
+    if let Err(e) = std::fs::write(
+        &notes,
+        "Release notes: the boat no longer clips the dock.\n",
+    ) {
+        return (Err(format!("NOTES.md: {e}")), log);
+    }
+    let args = serde_json::json!({
+        "title": S7_TITLE,
+        "objective": "NOTES.md in the working folder says what the release changes.",
+        "steps": [{"text": "Write NOTES.md", "done": true}],
+    });
+    if let Err(e) = call("board_create", args) {
+        return (Err(e), log);
+    }
+    let Some(t) = tasks(h).into_iter().find(|t| t.title == S7_TITLE) else {
+        return (Err("the agent's card was not made".into()), log);
+    };
+    let task = format!("task:{}", t.id);
+    if !t.holders.contains(&a.key)
+        && let Err(e) = call("board_join", serde_json::json!({ "task_id": task }))
+    {
+        return (Err(e), log);
+    }
+    if let Err(e) = call(
+        "board_status",
+        serde_json::json!({"task_id": task, "state": "completed", "proof": S7_PROOF}),
+    ) {
+        return (Err(e), log);
+    }
+    let Some(bid) = h.core.coord().get_task(&t.id).and_then(|t| {
+        t.blockers
+            .iter()
+            .find(|b| b.done_check && b.open())
+            .map(|b| b.id.clone())
+    }) else {
+        return (Err("the done check was not raised".into()), log);
+    };
+    // The person sends it back with a reason, in the window, woken.
+    if let Err(e) = h.window.answer(&t.id, &bid, -1, S7_REASON, true, &[]) {
+        return (Err(format!("the person's Not done: {e}")), log);
+    }
+    let id = t.id.clone();
+    let r = play(o, h, &mut a, |h, a| {
+        // What the window shows: the check's thread, or the next check's
+        // earlier round.
+        let d = h.window.card(&id).map_err(|e| format!("the card: {e}"))?;
+        let reply_on = |items: &[irori_window::cards::CardThreadItem]| {
+            items
+                .iter()
+                .filter(|it| it.kind == "comment" && it.who.key == a.key)
+                .map(|it| it.text.clone())
+                .next_back()
+        };
+        let old = d
+            .blockers
+            .iter()
+            .find(|b| b.id == bid)
+            .ok_or("the sent-back check is gone")?;
+        let next = d
+            .blockers
+            .iter()
+            .find(|b| b.done_check && b.id != bid && b.resolved.is_none());
+        let Some(said) = reply_on(&old.thread) else {
+            return Err(format!(
+                "no answer from the agent on {bid}'s thread (card {}, {} check(s) open)",
+                d.summary.state,
+                d.blockers
+                    .iter()
+                    .filter(|b| b.done_check && b.resolved.is_none())
+                    .count()
+            ));
+        };
+        let Some(n) = next else {
+            return Ok(format!("answered on {bid}: {said:?}"));
+        };
+        let p = n
+            .previous
+            .as_ref()
+            .ok_or(format!("the new check {} doesn't show the round", n.id))?;
+        if p.id != bid || reply_on(&p.thread).is_none() {
+            return Err(format!("the new check's round lacks the answer: {p:?}"));
+        }
+        if p.same_proof || n.context == S7_PROOF {
+            return Err("the new check has the same proof".into());
+        }
+        Ok(format!(
+            "answered on {bid}: {said:?}; new check {} shows round {} with new proof {:?}",
+            n.id, p.round, n.context
+        ))
+    });
+    a.stop();
+    (r, log)
+}
+
 pub fn run(o: &Opts) -> ExitCode {
     for d in [&o.home, &o.claude, &o.work] {
         if let Err(e) = empty_dir(d) {
@@ -865,7 +990,7 @@ pub fn run(o: &Opts) -> ExitCode {
     };
     let mut tally = Tally { failed: 0 };
     type Scenario = fn(&Opts, &Host) -> (Result<String, String>, Option<PathBuf>);
-    let all: [(u32, &str, Scenario); 6] = [
+    let all: [(u32, &str, Scenario); 7] = [
         (1, "1 ask: taken and closed with an outcome", ask),
         (
             2,
@@ -891,6 +1016,11 @@ pub fn run(o: &Opts) -> ExitCode {
             6,
             "6 wind down: a busy agent hands its card back, releases its lease and answers",
             wind_down,
+        ),
+        (
+            7,
+            "7 not done: the agent answers on the check and the next one shows what changed",
+            not_done,
         ),
     ];
     for (n, name, f) in all {
@@ -950,7 +1080,7 @@ mod tests {
         assert!(
             Opts::parse(&args(&[
                 "--home", "h", "--claude", "c", "--work", "w", "--irori", "i", "--mod", "m",
-                "--only", "7"
+                "--only", "8"
             ]))
             .is_err()
         );

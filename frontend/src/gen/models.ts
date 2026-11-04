@@ -41,6 +41,7 @@ export type CardRead = B.CardRead
 export type CardRef = B.CardRef
 export type CardResolution = B.CardResolution
 export type CardReview = B.CardReview
+export type CardRound = B.CardRound
 export type CardSubtask = B.CardSubtask
 export type CardSummary = B.CardSummary
 export type CardThreadItem = B.CardThreadItem
@@ -320,6 +321,11 @@ export function CardResolution(p: Partial<B.CardResolution> = {}): B.CardResolut
 /** CardReview with Go's zero values for every field left out. */
 export function CardReview(p: Partial<B.CardReview> = {}): B.CardReview {
   return { "reviewer": AgentRef(), "askedBy": AgentRef(), "state": "", "at": "", "pr": "", "text": "", ...p } as B.CardReview
+}
+
+/** CardRound with Go's zero values for every field left out. */
+export function CardRound(p: Partial<B.CardRound> = {}): B.CardRound {
+  return { "id": "", "round": 0, "proof": "", "answer": "", "thread": [], "sameProof": false, ...p } as B.CardRound
 }
 
 /** CardSubtask with Go's zero values for every field left out. */

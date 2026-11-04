@@ -751,6 +751,12 @@ export type CardBlocker = {
 	 */
 	goneAgent?: AgentRef | null,
 	thread: CardThreadItem[],
+	/**
+	 *  A done check's previous round (card #476): the check the person
+	 *  sent back before this one, so this one shows their reason, the
+	 *  agent's answer and the proof it replaces.
+	 */
+	previous?: CardRound | null,
 };
 
 /**  The shared board a card lives on (v0.5 §8). */
@@ -903,6 +909,25 @@ export type CardReview = {
 	pr: string,
 	/**  The verdict comment's text, once there is one. */
 	text: string,
+};
+
+/**  The done check the person sent back before this one (card #476). */
+export type CardRound = {
+	/**  The earlier check's id. */
+	id: string,
+	/**  This check's round: 2 for the first one after a Not done. */
+	round: number,
+	/**  The proof the person sent back. */
+	proof: string,
+	/**
+	 *  Their reason when no comment on the thread carries it (a card from
+	 *  before #476, whose late Not done only resolved the check).
+	 */
+	answer: string,
+	/**  The earlier check's thread: their reason and the agent's answers. */
+	thread: CardThreadItem[],
+	/**  The new proof is the one they sent back, word for word. */
+	sameProof: boolean,
 };
 
 /**  One row of a parent's subtask list. */

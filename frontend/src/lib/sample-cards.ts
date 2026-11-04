@@ -15,6 +15,7 @@ import {
   CardPR,
   CardRef,
   CardResolution,
+  CardRound,
   CardSubtask,
   CardThreadItem,
   CardWhere,
@@ -1256,6 +1257,144 @@ export function sampleCards(now: Date): CardDetail[] {
           at: at(1),
           who: otter,
           text: "sample-otter raised a blocker",
+        }),
+      ],
+    }),
+    // Card #476: a done check you sent back, and the one the agent raised
+    // after it. The new one opens with that round: your reason, the
+    // agent's answer, and the proof it replaces.
+    (() => {
+      const reason = CardThreadItem({
+        id: "sample-round-reason",
+        kind: "comment",
+        at: at(42),
+        who: sampleYou,
+        to: heron,
+        text: "Not done: the others haven't been told the next steps.",
+        blockerId: "b1",
+        heardBy: [heron.key],
+      })
+      const answer = CardThreadItem({
+        id: "sample-round-answer",
+        kind: "comment",
+        at: at(30),
+        who: heron,
+        text: "Right: I posted the next steps in #game-team, and the prod check is its own card now, #108, so it doesn't rely on someone remembering.",
+        blockerId: "b1",
+      })
+      const oldProof =
+        "PR #2225 merged as 5d804f5; the feed skips legacy campaigns by default; a test in the PR covers it."
+      return card({
+        id: "sample-card-31",
+        title: "Turn off the legacy feed for migrated clients",
+        repoKey: "remote:github.com/sample-org/example-game",
+        goal: "Migrated clients' legacy campaigns stop showing in the delivery feed.",
+        working: [heron],
+        updatedAt: at(6),
+        steps: steps([
+          ["Skip legacy campaigns", true],
+          ["PR, review, merge", true],
+          ["Tell the team the next steps", true],
+        ]),
+        blockers: [
+          CardBlocker({
+            id: "b2",
+            question: "Is this done?",
+            context:
+              "PR #2225 merged as 5d804f5; the feed skips legacy campaigns by default; a test in the PR covers it.\nSince you sent it back: the next steps are posted in #game-team, and the prod deploy check is its own card, #108.",
+            raisedBy: heron,
+            at: at(6),
+            doneCheck: true,
+            options: [
+              CardOption({
+                answer: "Done",
+                why: "Closes the card.",
+                by: heron,
+                at: at(6),
+                recommended: true,
+              }),
+            ],
+            resolved: null,
+            state: "open",
+            thread: [],
+            previous: CardRound({
+              id: "b1",
+              round: 2,
+              proof: oldProof,
+              thread: [reason, answer],
+            }),
+          }),
+          CardBlocker({
+            id: "b1",
+            question: "Is this done?",
+            context: oldProof,
+            raisedBy: heron,
+            at: at(50),
+            doneCheck: true,
+            options: [
+              CardOption({
+                answer: "Done",
+                why: "Closes the card.",
+                by: heron,
+                at: at(50),
+                recommended: true,
+              }),
+            ],
+            resolved: CardResolution({
+              answer: reason.text,
+              option: -1,
+              by: heron,
+              at: at(6),
+              note: "asked again: ready for the person",
+            }),
+            state: "resolved",
+            thread: [reason, answer],
+          }),
+        ],
+      })
+    })(),
+    // Card #476: you sent a done check back; the agent read it but hasn't
+    // answered yet.
+    card({
+      id: "sample-card-32",
+      title: "Pin the save format before the beta",
+      repoKey: "remote:github.com/sample-org/example-game",
+      goal: "Old saves load after the format change.",
+      working: [otter],
+      updatedAt: at(3),
+      blockers: [
+        CardBlocker({
+          id: "b1",
+          question: "Is this done?",
+          context: "Save format v3 with a migration from v2; cargo test green.",
+          raisedBy: otter,
+          at: at(20),
+          doneCheck: true,
+          options: [
+            CardOption({
+              answer: "Done",
+              why: "Closes the card.",
+              by: otter,
+              at: at(20),
+              recommended: true,
+            }),
+          ],
+          resolved: null,
+          state: "answered",
+          sentTo: otter,
+          optionsAside: true,
+          thread: [
+            CardThreadItem({
+              id: "sample-sent-back",
+              kind: "comment",
+              at: at(3),
+              who: sampleYou,
+              to: otter,
+              text: "Not done: a v1 save from the demo still crashes on load.",
+              blockerId: "b1",
+              heardBy: [otter.key],
+            }),
+          ],
         }),
       ],
     }),
