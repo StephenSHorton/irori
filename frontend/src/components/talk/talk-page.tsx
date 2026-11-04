@@ -529,13 +529,15 @@ export function ConvItem({
     c.kind === "channel"
       ? plainLine(c.name)
       : other.map((m) => memberName(m)).join(" ↔ ") || nameOr(c.name)
+  const last = c.kind === "dm" && (c.readOnly || (!!other[0] && statusOf(other[0], live) === "gone"))
+  const { line, when } = last ? lastLine(c, now) : { line: "", when: "" }
   const sub =
     c.kind === "channel"
       ? c.topic
         ? plainLine(c.topic)
         : ""
-      : c.readOnly || (other[0] && statusOf(other[0], live) === "gone")
-        ? lastLine(c, now)
+      : last
+        ? line
         : other[0]
           ? whoseWord(other[0], statusOf(other[0], live))
           : ""
@@ -552,7 +554,10 @@ export function ConvItem({
     >
       {icon}
       <span className="grid min-w-0 flex-1">
-        <span className={cn("truncate", c.unread > 0 && "font-medium text-ink")}>{label}</span>
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span className={cn("min-w-0 flex-1 truncate", c.unread > 0 && "font-medium text-ink")}>{label}</span>
+          {when && <When text={when} />}
+        </span>
         {sub && <span className="truncate text-[11px] text-muted-foreground">{sub}</span>}
       </span>
       {c.mentions > 0 ? (
@@ -571,16 +576,22 @@ export function ConvItem({
   )
 }
 
-// lastLine is a DM row's subtitle (card #486): its newest post on one line
-// and when, "owl: Rebased onto yours · 5m ago" for agents talking, so the
+// lastLine is what a DM row says (card #486): its newest post on one line,
+// "owl: Rebased onto yours" for agents talking, and when ("5m ago"), so the
 // row says what it is about and when, not which section it is in.
-export function lastLine(c: Conv, now: Date): string {
+export function lastLine(c: Conv, now: Date): { line: string; when: string } {
   const text = plainLine(c.lastText ?? "")
-  const when = parseTime(c.lastAt)
-  if (!text) return when ? relativeTime(when, now) : ""
+  const at = parseTime(c.lastAt)
+  const when = at ? relativeTime(at, now) : ""
+  if (!text) return { line: "", when }
   const by = c.lastBy ? c.members.find((m) => m.key === c.lastBy) : undefined
   const who = c.readOnly && by ? `${memberName(by)}: ` : by?.kind === "person" ? "You: " : ""
-  return when ? `${who}${text} · ${relativeTime(when, now)}` : `${who}${text}`
+  return { line: `${who}${text}`, when }
+}
+
+// When is a row's time beside its name; it never truncates.
+function When({ text }: { text: string }) {
+  return <span className="shrink-0 text-[10.5px] whitespace-nowrap text-muted-foreground tabular-nums">{text}</span>
 }
 
 // BroadcastItem is one message an agent sent to many agents (card #486):
@@ -614,13 +625,13 @@ function BroadcastItem({
       >
         <EyeIcon className="size-4 shrink-0" aria-hidden />
         <span className="grid min-w-0 flex-1">
-          <span className="truncate">
-            {from ? memberName(from) : "an agent"} → {to.length} agents
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className="min-w-0 flex-1 truncate">
+              {from ? memberName(from) : "an agent"} → {to.length} agents
+            </span>
+            {when && <When text={relativeTime(when, now)} />}
           </span>
-          <span className="truncate text-[11px]">
-            {plainLine(b.text)}
-            {when && ` · ${relativeTime(when, now)}`}
-          </span>
+          <span className="truncate text-[11px]">{plainLine(b.text)}</span>
         </span>
         <Chevron className="size-3 shrink-0" aria-hidden />
       </button>

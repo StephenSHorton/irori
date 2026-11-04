@@ -120,7 +120,7 @@ describe("Agents talking: rows and the cap (card #486)", () => {
   test("a row's subtitle is who said what, and when", () => {
     const now = new Date(t0 + 5 * 60_000)
     const c = copy("a0", 0, "Rebased   #412\nonto yours.")
-    expect(lastLine(c, now)).toBe("owl: Rebased #412 onto yours. · 5m ago")
+    expect(lastLine(c, now)).toEqual({ line: "owl: Rebased #412 onto yours.", when: "5m ago" })
     const you: Member = { kind: "person", key: "person:me", name: "you" }
     const mine = TalkConversation({
       convId: "d",
@@ -131,7 +131,7 @@ describe("Agents talking: rows and the cap (card #486)", () => {
       lastText: "Is #470 on main?",
       lastBy: you.key,
     })
-    expect(lastLine(mine, now)).toBe("You: Is #470 on main? · 5m ago")
-    expect(lastLine({ ...mine, lastText: "", lastAt: "" }, now)).toBe("")
+    expect(lastLine(mine, now)).toEqual({ line: "You: Is #470 on main?", when: "5m ago" })
+    expect(lastLine({ ...mine, lastText: "", lastAt: "" }, now)).toEqual({ line: "", when: "" })
   })
 })
