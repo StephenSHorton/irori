@@ -440,12 +440,20 @@ fn resolve_blocker_by_person() {
     assert_eq!(rs.answer, "whatever is free");
     assert_eq!(rs.note, "I'll pick one myself later.");
     assert_eq!(res.card.summary.state, coord::WORKING);
+    let twice = r.w.resolve_blocker(&t.id, &b2.id, "", &[]).unwrap_err();
     assert!(
-        r.w.resolve_blocker(&t.id, &b2.id, "", &[])
-            .unwrap_err()
-            .starts_with(coord::ErrorKind::BadState.text()),
+        twice.starts_with(coord::ErrorKind::BadState.text()),
         "resolved twice"
     );
+    // Card #490: the person reads the question, not "blocker b2".
+    assert!(
+        twice.contains("“Which port?”") && !twice.contains(&format!("blocker {}", b2.id)),
+        "{twice}"
+    );
+    let again =
+        r.w.answer(&t.id, &b2.id, -1, "late", false, &[])
+            .unwrap_err();
+    assert!(!again.contains(&format!("blocker {}", b2.id)), "{again}");
 }
 
 /// Go TestCardsPinnedFirst and TestBoardActions' movePin: pinned cards

@@ -1910,18 +1910,17 @@ impl Fold {
                 return Ok(false);
             }
             // Card #490: a holder that ran one command in another worktree
-            // mustn't move the card's Where there. Its Where leaves its own
-            // worktree only for one named for the card or the one Irori
-            // started it in; from the repo's main checkout (its start
-            // folder, or main/master) it may move once.
+            // mustn't move the card's Where there.
             if o.who == w.who
-                && !o.worktree.is_empty()
                 && norm_path(&o.worktree) != norm_path(&w.worktree)
-                && !self.card_place(&t, &w)
-                && (self.card_place(&t, o) || !self.start_place(&t, o))
+                && !o.worktree.is_empty()
+                && !self.where_moves(&t, o, &w)
             {
                 return Ok(false);
             }
+        } else if self.other_card_place(&t, &w) {
+            // Nor does a first place that is another card's worktree.
+            return Ok(false);
         }
         let at = self.stamp();
         self.write(
@@ -1942,47 +1941,72 @@ impl Fold {
         Ok(true)
     }
 
+    /// Says the holder's Where may move from o to w, another worktree
+    /// (card #490): into one named for the card or the one Irori started
+    /// its holder in; never into another card's or out of the card's own;
+    /// from the repo's main checkout (main/master, or a worktree nested in
+    /// it), or from another card's worktree it landed in first, once.
+    fn where_moves(&self, t: &Task, o: &Where, w: &Where) -> bool {
+        if self.card_place(t, w) {
+            return true;
+        }
+        if self.other_card_place(t, w) || self.card_place(t, o) {
+            return false;
+        }
+        if self.other_card_place(t, o) {
+            return true;
+        }
+        let nested = w
+            .worktree
+            .starts_with(&format!("{}/", norm_path(&o.worktree)));
+        let started = !t.spawn
+            && t.spawns.iter().any(|s| {
+                s.key == o.who
+                    && !s.folder.is_empty()
+                    && norm_path(&s.folder) == norm_path(&o.worktree)
+            });
+        matches!(o.branch.as_str(), "main" | "master") || nested || started
+    }
+
     /// Says w is card t's own place (card #490): a branch or worktree named
-    /// for it ("card-490", not "card-4901"), for a helper its parent's, or
-    /// the worktree Irori started its holder in.
+    /// for it ("card-490", not "card-4901"), or the worktree Irori started
+    /// its holder in (a helper's folder is its own worktree). A holder
+    /// that isn't a spawned helper may also use its parent's.
     fn card_place(&self, t: &Task, w: &Where) -> bool {
+        let spawned = t.spawns.iter().any(|s| s.key == w.who);
+        if t.spawns.iter().any(|s| {
+            s.key == w.who
+                && [&s.worktree, &s.folder].iter().enumerate().any(|(i, f)| {
+                    (i == 0 || t.spawn) && !f.is_empty() && norm_path(f) == norm_path(&w.worktree)
+                })
+        }) {
+            return true;
+        }
         let mut refs = vec![t.short_ref()];
-        if !t.parent.is_empty()
+        if !spawned
+            && !t.parent.is_empty()
             && let Some(p) = self.tasks.get(&t.parent)
         {
             refs.push(p.short_ref());
         }
-        let base = w
-            .worktree
-            .trim_end_matches('/')
-            .rsplit('/')
-            .next()
-            .unwrap_or("");
-        if refs
-            .iter()
+        let base = base_name(&w.worktree);
+        refs.iter()
             .any(|r| names_card(&w.branch, r) || names_card(base, r))
-        {
-            return true;
-        }
-        t.spawns.iter().any(|s| {
-            s.key == w.who
-                && !s.worktree.is_empty()
-                && norm_path(&s.worktree) == norm_path(&w.worktree)
-        })
     }
 
-    /// Says o is where a holder starts before it has a worktree of its own
-    /// (card #490): the folder Irori started it in, or the main branch.
-    fn start_place(&self, t: &Task, o: &Where) -> bool {
-        if matches!(o.branch.as_str(), "main" | "master") {
-            return true;
+    /// Says w is plainly another card's worktree (card #490): named for a
+    /// card that is neither t nor its parent.
+    fn other_card_place(&self, t: &Task, w: &Where) -> bool {
+        if self.card_place(t, w) {
+            return false;
         }
-        t.spawns.iter().any(|s| {
-            s.key == o.who
-                && !s.folder.is_empty()
-                && norm_path(&s.folder) == norm_path(&o.worktree)
-                && norm_path(&s.folder) != norm_path(&s.worktree)
-        })
+        let parent = self.tasks.get(&t.parent).map(Task::short_ref);
+        let mine = |n: &str| {
+            names_card(n, &t.short_ref()) || parent.as_deref().is_some_and(|p| names_card(n, p))
+        };
+        [w.branch.as_str(), base_name(&w.worktree)]
+            .iter()
+            .any(|n| names_any_card(n) && !mine(n))
     }
 
     pub(crate) fn set_step(
@@ -2510,6 +2534,31 @@ fn steps_change(was: &[Step], now: &[Step]) -> String {
         return "reordered the steps".into();
     }
     format!("changed the steps: {}", parts.join("; "))
+}
+
+/// A path's last part ("" for none), for names_card (card #490).
+fn base_name(p: &str) -> &str {
+    p.trim_end_matches('/').rsplit('/').next().unwrap_or("")
+}
+
+/// Says a name holds "card-<digits>" with no letter or digit before it.
+fn names_any_card(name: &str) -> bool {
+    let mut rest = name;
+    let mut at = 0;
+    while let Some(i) = rest.find("card-") {
+        let start = at + i;
+        let before_ok = !name[..start]
+            .chars()
+            .last()
+            .is_some_and(|c| c.is_ascii_alphanumeric());
+        let after = &name[start + 5..];
+        if before_ok && after.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+            return true;
+        }
+        at = start + 5;
+        rest = &name[at..];
+    }
+    false
 }
 
 /// A path without its trailing slash, for comparing places (card #490).

@@ -357,3 +357,50 @@ fn a_new_holder_brings_its_own_where() {
     assert!(e.c.set_where(&t.id, carol).unwrap());
     assert_eq!(where_of(&e, &t.id).who, CAROL);
 }
+
+#[test]
+fn another_cards_worktree_is_never_where() {
+    let e = Env::new();
+    let t = held(&e);
+    let n: i64 = e.c.get_task(&t.id).unwrap().short.parse().unwrap();
+    let other = format!("/w/.claude/worktrees/card-{}-audit", n + 7);
+    // Not as its first place...
+    assert!(!e.c.set_where(&t.id, at(&other, "worktree-x")).unwrap());
+    assert!(e.c.get_task(&t.id).unwrap().where_.is_none());
+    // ...nor as the one move from main.
+    assert!(e.c.set_where(&t.id, at("/w", "main")).unwrap());
+    assert!(!e.c.set_where(&t.id, at(&other, "worktree-x")).unwrap());
+    assert_eq!(where_of(&e, &t.id).worktree, "/w");
+}
+
+#[test]
+fn from_a_main_checkout_on_another_branch_it_moves_into_a_nested_worktree() {
+    // A repo whose default branch isn't main: the worktree it enters sits
+    // inside the checkout.
+    let e = Env::new();
+    let t = held(&e);
+    assert!(e.c.set_where(&t.id, at("/w/irori", "develop")).unwrap());
+    assert!(
+        e.c.set_where(
+            &t.id,
+            at(
+                "/w/irori/.claude/worktrees/sleepy-fox",
+                "worktree-sleepy-fox"
+            )
+        )
+        .unwrap()
+    );
+    assert!(
+        !e.c.set_where(
+            &t.id,
+            at("/w/irori/.claude/worktrees/audit", "worktree-audit")
+        )
+        .unwrap()
+    );
+    assert_eq!(where_of(&e, &t.id).branch, "worktree-sleepy-fox");
+    // But a feature branch elsewhere is its own place: a detour from it doesn't count.
+    let e2 = Env::new();
+    let t2 = held(&e2);
+    assert!(e2.c.set_where(&t2.id, at("/w/irori", "feat/x")).unwrap());
+    assert!(!e2.c.set_where(&t2.id, at("/w/other", "feat/y")).unwrap());
+}

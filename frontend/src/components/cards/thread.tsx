@@ -346,7 +346,7 @@ function ThreadRow({
                     ?.scrollIntoView({ block: "center", behavior: "smooth" })
                 }
               >
-                <RichLine text={item.text} />
+                <RichLine text={item.text} interactive={false} />
               </button>
             ) : (
               <RichLine text={item.text} />

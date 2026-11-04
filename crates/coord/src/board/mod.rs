@@ -77,6 +77,7 @@ pub use desk::{
 pub use desk_person::DESK_NOTE_MAX;
 pub use desk_run::{DESK_NEVER, DeskWake, NOTICE_DESK, desk_notice, desk_run_text};
 pub use error::{Error, ErrorKind, Result};
+pub use fold::blocker_gist;
 pub use fold::{
     FOLLOW_KINDS, Fold, LEFT_FINISHED, LEFT_GONE, LEFT_REMOVED, MADE_KIND, REASON_CONFLICT,
     REASON_DESK_HOLDER_CHANGED, REASON_EXPIRED, REASON_HOLDER_GONE, REASON_RELEASED, REASON_STOLEN,

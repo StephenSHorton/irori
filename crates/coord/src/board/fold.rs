@@ -2182,7 +2182,7 @@ pub(crate) fn sync_co_holders(t: &mut Task) {
 }
 
 /// A blocker's question as a thread line quotes it (card #490).
-pub(crate) fn blocker_gist(question: &str) -> String {
+pub fn blocker_gist(question: &str) -> String {
     cut(&collapse_space(question), super::asks::MAX_LOG_QUOTE)
 }
 
