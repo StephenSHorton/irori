@@ -19,7 +19,10 @@ describe("rosterGroups", () => {
   test("splits terminal agents from the ones started for a card", () => {
     const g = rosterGroups(
       [a("juniper", "idle"), a("thyme"), a("basil")],
-      [card("58", [{ key: "thyme", spawned: true }]), card("57", [{ key: "basil" }])]
+      [
+        card("58", [{ key: "thyme", spawned: true }]),
+        card("57", [{ key: "basil" }]),
+      ]
     )
     expect(g.yours.map((x) => x.key)).toEqual(["juniper", "basil"])
     expect(g.onCards).toEqual([
@@ -38,10 +41,12 @@ describe("rosterGroups", () => {
         card("66", [{ key: "mallow", spawned: true }]),
       ]
     )
-    expect(g.onCards.map((c) => [c.short, c.agents.map((x) => x.key)])).toEqual([
-      ["61", ["fern", "clover"]],
-      ["66", ["mallow"]],
-    ])
+    expect(g.onCards.map((c) => [c.short, c.agents.map((x) => x.key)])).toEqual(
+      [
+        ["61", ["fern", "clover"]],
+        ["66", ["mallow"]],
+      ]
+    )
     expect(g.yours).toEqual([])
   })
   test("an ended agent is in neither group", () => {
@@ -56,7 +61,10 @@ describe("rosterGroups", () => {
   test("counts cards starting an agent and cards at the cap", () => {
     const g = rosterGroups(
       [],
-      [card("64", [], { starting: "Macbook Pro (this one)" }), card("67", [], { atCap: "Macbook Pro (this one)" })]
+      [
+        card("64", [], { starting: "Macbook Pro (this one)" }),
+        card("67", [], { atCap: "Macbook Pro (this one)" }),
+      ]
     )
     expect([g.starting, g.atCap]).toEqual([1, 1])
   })
@@ -64,7 +72,9 @@ describe("rosterGroups", () => {
 
 describe("spawnedKeys", () => {
   test("is only the rows Irori started", () => {
-    const k = spawnedKeys([card("58", [{ key: "thyme", spawned: true }, { key: "basil" }])])
+    const k = spawnedKeys([
+      card("58", [{ key: "thyme", spawned: true }, { key: "basil" }]),
+    ])
     expect([...k]).toEqual(["thyme"])
   })
 })

@@ -239,7 +239,9 @@ export function holderText(
     case Holding.HoldGone:
       // An agent Irori started ends when its work is done (card #456,
       // spawned agents §10): finished, not lost.
-      return h.who.spawned ? `${who}${more} · agent finished` : `${who}${more} · gone`
+      return h.who.spawned
+        ? `${who}${more} · agent finished`
+        : `${who}${more} · gone`
   }
   return who
 }
@@ -485,7 +487,13 @@ export function waitLabel(card: {
 // Asker names who asks a blocker's question, above it (card #491): the
 // person clicks its options, so "sample-otter asks:" keeps the agent's
 // words from reading as their own.
-export function Asker({ who, className }: { who: AgentRef; className?: string }) {
+export function Asker({
+  who,
+  className,
+}: {
+  who: AgentRef
+  className?: string
+}) {
   return (
     <p className={cn("text-[11.5px] text-muted-foreground", className)}>
       <span className="font-medium text-ink-2">{displayName(who)}</span> asks:

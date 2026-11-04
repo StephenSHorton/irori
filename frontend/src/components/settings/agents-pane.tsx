@@ -51,8 +51,8 @@ export function AgentsPane({ open }: { open: boolean }) {
           </label>
           <span id={`${id}-hint`} className="text-xs text-muted-foreground">
             On your own board, Irori starts a fresh agent for every card you
-            post instead of waiting for a free one, and ends it when the card
-            is done.
+            post instead of waiting for a free one, and ends it when the card is
+            done.
           </span>
         </span>
         <Switch
@@ -68,8 +68,8 @@ export function AgentsPane({ open }: { open: boolean }) {
           What a new agent starts with
         </h3>
         <p className="text-[12.5px] text-muted-foreground">
-          Every agent Irori starts uses these. One already working keeps what
-          it started with.
+          Every agent Irori starts uses these. One already working keeps what it
+          started with.
         </p>
         <div className="grid gap-2 sm:grid-cols-2">
           <ChoiceSelect
@@ -136,8 +136,8 @@ function RunningSection({ open }: { open: boolean }) {
         Running agents{rows.length > 0 && ` · ${rows.length}`}
       </h3>
       <p className="text-[12.5px] text-muted-foreground">
-        Agents Irori started for your cards. End asks one to write where it
-        left off on its card, then stops it.
+        Agents Irori started for your cards. End asks one to write where it left
+        off on its card, then stops it.
       </p>
       {rows.length === 0 ? (
         <p className="text-[12.5px] text-muted-foreground">
@@ -200,7 +200,8 @@ function RunningRow({
           {r.cardShort} {r.cardTitle}
         </span>
         <span className="truncate text-xs text-muted-foreground">
-          {r.device} · {r.model} · {r.effort} · {runningSince(r.startedAt ?? now, now)}
+          {r.device} · {r.model} · {r.effort} ·{" "}
+          {runningSince(r.startedAt ?? now, now)}
         </span>
       </span>
       {ending ? (
@@ -208,7 +209,14 @@ function RunningRow({
       ) : starting ? null : r.here ? (
         <span className="flex items-center gap-1.5">
           <SpawnedActions
-            who={AgentRef({ key: r.key, name: r.name, status: r.status, live: true, where: r.device, here: true })}
+            who={AgentRef({
+              key: r.key,
+              name: r.name,
+              status: r.status,
+              live: true,
+              where: r.device,
+              here: true,
+            })}
             cardId={r.cardId}
             only={["logs"]}
           />
@@ -229,7 +237,10 @@ function RunningRow({
           />
         </span>
       ) : (
-        <span className="text-xs text-muted-foreground" title="End it from the device it runs on">
+        <span
+          className="text-xs text-muted-foreground"
+          title="End it from the device it runs on"
+        >
           on {r.device}
         </span>
       )}
@@ -249,17 +260,23 @@ function TrustedSection({ open }: { open: boolean }) {
       <h3 className="text-sm font-medium text-ink">Trusted repos for agents</h3>
       <p className="text-[12.5px] text-muted-foreground">
         An agent Irori starts runs only in a repo Claude Code trusts on that
-        computer. These are this computer&apos;s; your other computers each
-        list their own.
+        computer. These are this computer&apos;s; your other computers each list
+        their own.
       </p>
       {rows.length === 0 ? (
         <p className="text-[12.5px] text-muted-foreground">
-          {error ? `Could not load: ${error}` : "No repos on this computer yet."}
+          {error
+            ? `Could not load: ${error}`
+            : "No repos on this computer yet."}
         </p>
       ) : (
         <ul className="grid divide-y divide-border rounded-md border border-border">
           {rows.map((r) => (
-            <TrustedRow key={r.repoKey} r={r} onTrust={() => trust(r.repoKey)} />
+            <TrustedRow
+              key={r.repoKey}
+              r={r}
+              onTrust={() => trust(r.repoKey)}
+            />
           ))}
         </ul>
       )}
@@ -267,7 +284,13 @@ function TrustedSection({ open }: { open: boolean }) {
   )
 }
 
-function TrustedRow({ r, onTrust }: { r: TrustedRepo; onTrust: () => Promise<void> }) {
+function TrustedRow({
+  r,
+  onTrust,
+}: {
+  r: TrustedRepo
+  onTrust: () => Promise<void>
+}) {
   const Icon = r.trusted ? ShieldCheckIcon : ShieldAlertIcon
   return (
     <li className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-[13px]">
@@ -276,8 +299,13 @@ function TrustedRow({ r, onTrust }: { r: TrustedRepo; onTrust: () => Promise<voi
         className={r.trusted ? "size-4 text-success" : "size-4 text-warning"}
       />
       <span className="grid min-w-0 gap-0.5">
-        <span className="truncate font-mono text-[12.5px] text-ink">{r.label}</span>
-        <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground" title={r.folder}>
+        <span className="truncate font-mono text-[12.5px] text-ink">
+          {r.label}
+        </span>
+        <span
+          className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
+          title={r.folder}
+        >
           <FolderIcon aria-hidden className="size-3 shrink-0" />
           <span className="truncate">{r.folder}</span>
         </span>
@@ -287,7 +315,11 @@ function TrustedRow({ r, onTrust }: { r: TrustedRepo; onTrust: () => Promise<voi
       ) : (
         <ConfirmButton
           label="Trust…"
-          question={<>Trust {r.label} for agents? {r.what}</>}
+          question={
+            <>
+              Trust {r.label} for agents? {r.what}
+            </>
+          }
           confirmLabel="Trust"
           onConfirm={onTrust}
         />

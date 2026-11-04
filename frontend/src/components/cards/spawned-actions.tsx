@@ -55,9 +55,15 @@ export function SpawnedActions({
   const [ended, setEnded] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
   const [busy, setBusy] = useState(false)
-  const show = (k: "attach" | "logs" | "stop" | "end") => !only || only.includes(k)
+  const show = (k: "attach" | "logs" | "stop" | "end") =>
+    !only || only.includes(k)
   const name = displayName(who)
-  if (ended) return <p className="text-xs text-muted-foreground">Ending: it writes where it left off first.</p>
+  if (ended)
+    return (
+      <p className="text-xs text-muted-foreground">
+        Ending: it writes where it left off first.
+      </p>
+    )
   if (!spawnedHere(who))
     return (
       <p className={cn("text-xs text-muted-foreground", className)}>
@@ -120,7 +126,10 @@ export function SpawnedActions({
             confirmLabel="Stop"
             onConfirm={async () => {
               await talk.stop(who.key, "")
-              setLine({ ok: true, text: `${name} is stopped and waits for you.` })
+              setLine({
+                ok: true,
+                text: `${name} is stopped and waits for you.`,
+              })
             }}
           />
         )}
@@ -135,9 +144,9 @@ export function SpawnedActions({
             variant="destructive"
             question={
               <>
-                End {name}? It writes where it left off on this card first,
-                then Irori stops it and removes its session. The card stays
-                open and unheld.
+                End {name}? It writes where it left off on this card first, then
+                Irori stops it and removes its session. The card stays open and
+                unheld.
               </>
             }
             confirmLabel="End"
@@ -149,13 +158,17 @@ export function SpawnedActions({
         )}
       </div>
       {line && (
-        <p className={line.ok ? "text-xs text-muted-foreground" : "text-xs text-destructive"}>
+        <p
+          className={
+            line.ok
+              ? "text-xs text-muted-foreground"
+              : "text-xs text-destructive"
+          }
+        >
           {line.text}
         </p>
       )}
-      {logsOpen && (
-        <LogsDialog who={who} onClose={() => setLogsOpen(false)} />
-      )}
+      {logsOpen && <LogsDialog who={who} onClose={() => setLogsOpen(false)} />}
     </div>
   )
 }
@@ -170,7 +183,7 @@ function LogsDialog({ who, onClose }: { who: AgentRef; onClose: () => void }) {
     let live = true
     agentLogs(who.key).then(
       (t) => live && (setText(t), setError("")),
-      (e) => live && setError(errorText(e)),
+      (e) => live && setError(errorText(e))
     )
     return () => {
       live = false
@@ -195,7 +208,11 @@ function LogsDialog({ who, onClose }: { who: AgentRef; onClose: () => void }) {
           )}
         </pre>
         <div className="flex justify-end">
-          <Button size="sm" variant="outline" onClick={() => setTick((n) => n + 1)}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setTick((n) => n + 1)}
+          >
             Refresh
           </Button>
         </div>

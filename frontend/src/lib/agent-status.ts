@@ -26,24 +26,31 @@ export function agentStatus(
 ): AgentStatusText {
   const s = a.status
   if (s === "gone") return { text: "gone", tone: "muted" }
-  if (a.offline || a.deviceState === "offline") return { text: "device offline", tone: "muted" }
+  if (a.offline || a.deviceState === "offline")
+    return { text: "device offline", tone: "muted" }
   if (a.live === false) return { text: "not running", tone: "muted" }
   if (s === "starting") return { text: "starting", tone: "muted" }
   // A person, or Irori itself: neither works nor idles.
   if (s === "person" || s === "irori") return { text: "", tone: "muted" }
-  if (s === "busy" || s === "working") return { text: "working", tone: "working" }
-  if (s === "shell") return { text: `running a job${jobFor(since, now)}`, tone: "job" }
+  if (s === "busy" || s === "working")
+    return { text: "working", tone: "working" }
+  if (s === "shell")
+    return { text: `running a job${jobFor(since, now)}`, tone: "job" }
   if (s === "unresponsive") return { text: "not answering", tone: "warn" }
   if (s === "idle") return { text: "idle", tone: "idle" }
   // A permission prompt (card #445).
-  if (s === "waiting") return { text: "waiting on a permission prompt", tone: "warn" }
+  if (s === "waiting")
+    return { text: "waiting on a permission prompt", tone: "warn" }
   // agent-counts counts any other status as working.
   return { text: "working", tone: "working" }
 }
 
 // jobFor is " · 12 min" for a job that began at least a minute ago, else "":
 // no "· just now", and nothing for an unknown or zero time.
-function jobFor(since: number | string | null | undefined, now: number): string {
+function jobFor(
+  since: number | string | null | undefined,
+  now: number
+): string {
   if (since == null || since === "") return ""
   const at = typeof since === "number" ? since : Date.parse(since)
   if (!Number.isFinite(at) || at <= 0 || now - at < 60_000) return ""

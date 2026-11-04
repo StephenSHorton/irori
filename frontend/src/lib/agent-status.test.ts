@@ -5,8 +5,10 @@ import { agentStatus } from "./agent-status"
 // Card #489: every status reads the same words wherever it shows.
 describe("agentStatus", () => {
   const now = Date.parse("2026-11-04T12:00:00Z")
-  const say = (status: string, more: Partial<Parameters<typeof agentStatus>[0]> = {}) =>
-    agentStatus({ status, ...more }, undefined, now)
+  const say = (
+    status: string,
+    more: Partial<Parameters<typeof agentStatus>[0]> = {}
+  ) => agentStatus({ status, ...more }, undefined, now)
 
   test("each status", () => {
     expect(say("busy")).toEqual({ text: "working", tone: "working" })
@@ -14,7 +16,10 @@ describe("agentStatus", () => {
     expect(say("shell")).toEqual({ text: "running a job", tone: "job" })
     expect(say("unresponsive")).toEqual({ text: "not answering", tone: "warn" })
     expect(say("idle")).toEqual({ text: "idle", tone: "idle" })
-    expect(say("waiting")).toEqual({ text: "waiting on a permission prompt", tone: "warn" })
+    expect(say("waiting")).toEqual({
+      text: "waiting on a permission prompt",
+      tone: "warn",
+    })
     expect(say("gone")).toEqual({ text: "gone", tone: "muted" })
     expect(say("starting")).toEqual({ text: "starting", tone: "muted" })
     expect(say("person")).toEqual({ text: "", tone: "muted" })
@@ -31,15 +36,20 @@ describe("agentStatus", () => {
   })
 
   test("a job says how long, from a minute on", () => {
-    const job = (since: number | string | null) => agentStatus({ status: "shell" }, since, now).text
+    const job = (since: number | string | null) =>
+      agentStatus({ status: "shell" }, since, now).text
     expect(job(now - 12 * 60_000)).toBe("running a job · 12 min")
-    expect(job(new Date(now - 2 * 3_600_000).toISOString())).toBe("running a job · 2 h")
+    expect(job(new Date(now - 2 * 3_600_000).toISOString())).toBe(
+      "running a job · 2 h"
+    )
     expect(job(now - 30_000)).toBe("running a job")
     expect(job(null)).toBe("running a job")
     expect(job("")).toBe("running a job")
     // Go's zero time is no time.
     expect(job("0001-01-01T00:00:00Z")).toBe("running a job")
     // Only a job says how long.
-    expect(agentStatus({ status: "busy" }, now - 12 * 60_000, now).text).toBe("working")
+    expect(agentStatus({ status: "busy" }, now - 12 * 60_000, now).text).toBe(
+      "working"
+    )
   })
 })

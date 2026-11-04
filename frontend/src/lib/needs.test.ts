@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test"
 
-import { TaskState, withLive, workingNow, type AgentRef, type CardSummary } from "./cards"
+import {
+  TaskState,
+  withLive,
+  workingNow,
+  type AgentRef,
+  type CardSummary,
+} from "./cards"
 import { readFileSync } from "node:fs"
 
 import {
@@ -76,10 +82,17 @@ describe("idle with no reason given", () => {
     idleSince: "2026-11-02T10:05:00Z",
     ...w,
   })
-  const held = (c: Partial<CardSummary> = {}, w: Record<string, unknown> = {}) =>
+  const held = (
+    c: Partial<CardSummary> = {},
+    w: Record<string, unknown> = {}
+  ) =>
     card({
       working: [holder(w)] as CardSummary["working"],
-      holder: { state: "idle", who: holder(w), others: 0 } as CardSummary["holder"],
+      holder: {
+        state: "idle",
+        who: holder(w),
+        others: 0,
+      } as CardSummary["holder"],
       ...c,
     })
 
@@ -101,11 +114,17 @@ describe("idle with no reason given", () => {
       state: "waiting",
       line: "Waiting on kestrel",
     })
-    expect(rowState(held({ openBlockers: 1, blockerQuestion: "Which?" }), late).state).toBe("needs")
+    expect(
+      rowState(held({ openBlockers: 1, blockerQuestion: "Which?" }), late).state
+    ).toBe("needs")
     expect(rowState(held({}, { status: "busy" }), late).state).toBe("working")
-    expect(rowState(held({}, { status: "gone", live: false }), late).state).toBe("waiting")
+    expect(
+      rowState(held({}, { status: "gone", live: false }), late).state
+    ).toBe("waiting")
     expect(rowState(held({}, { offline: true }), late).state).toBe("waiting")
-    expect(rowState(held({ state: TaskState.InReview }), late).state).toBe("waiting")
+    expect(rowState(held({ state: TaskState.InReview }), late).state).toBe(
+      "waiting"
+    )
   })
 })
 
@@ -122,10 +141,17 @@ describe("a holder running a background job", () => {
     idleSince: "2026-11-02T10:05:00Z",
     ...w,
   })
-  const held = (c: Partial<CardSummary> = {}, w: Record<string, unknown> = {}) =>
+  const held = (
+    c: Partial<CardSummary> = {},
+    w: Record<string, unknown> = {}
+  ) =>
     card({
       working: [holder(w)] as CardSummary["working"],
-      holder: { state: "idle", who: holder(w), others: 0 } as CardSummary["holder"],
+      holder: {
+        state: "idle",
+        who: holder(w),
+        others: 0,
+      } as CardSummary["holder"],
       ...c,
     })
   const late = Date.parse("2026-11-02T11:00:00Z")
@@ -137,27 +163,37 @@ describe("a holder running a background job", () => {
     })
   })
   test("idle: still not working on it now", () => {
-    expect(rowState(held({}, { status: "idle" }), Date.parse("2026-11-02T10:06:00Z"))).toEqual({
+    expect(
+      rowState(held({}, { status: "idle" }), Date.parse("2026-11-02T10:06:00Z"))
+    ).toEqual({
       state: "waiting",
       line: "wonton, not working on it now",
     })
   })
   test("a card waiting on the person, or in review, says that instead", () => {
-    expect(rowState(held({ openBlockers: 1, blockerQuestion: "Which?" }), late).state).toBe("needs")
+    expect(
+      rowState(held({ openBlockers: 1, blockerQuestion: "Which?" }), late).state
+    ).toBe("needs")
     expect(rowState(held({ state: TaskState.InReview }), late)).toEqual({
       state: "waiting",
       line: "In review",
     })
   })
   test("only taken-up, live, online holders count", () => {
-    expect(rowState(held({}, { offline: true }), late).line).not.toContain("background")
-    expect(rowState(held({}, { live: false, status: "gone" }), late).line).not.toContain("background")
+    expect(rowState(held({}, { offline: true }), late).line).not.toContain(
+      "background"
+    )
+    expect(
+      rowState(held({}, { live: false, status: "gone" }), late).line
+    ).not.toContain("background")
   })
 })
 
 describe("rowState", () => {
   test("the four states", () => {
-    expect(rowState(card({ openBlockers: 1, blockerQuestion: "Steam or relay?" }))).toEqual({
+    expect(
+      rowState(card({ openBlockers: 1, blockerQuestion: "Steam or relay?" }))
+    ).toEqual({
       state: "needs",
       line: "Steam or relay?",
     })
@@ -167,10 +203,21 @@ describe("rowState", () => {
     expect(rowState(card({})).state).toBe("waiting")
   })
   test("Agent progress and the card page agree, by the live roster (card #317)", () => {
-    const oak = { key: "d/oak", name: "oak", status: "idle", live: true, where: "Macbook Pro (this one)", here: true } as AgentRef
+    const oak = {
+      key: "d/oak",
+      name: "oak",
+      status: "idle",
+      live: true,
+      where: "Macbook Pro (this one)",
+      here: true,
+    } as AgentRef
     const c = card({
       working: [oak],
-      holder: { state: "one", who: { key: "d/oak", name: "oak" }, others: 0 } as CardSummary["holder"],
+      holder: {
+        state: "one",
+        who: { key: "d/oak", name: "oak" },
+        others: 0,
+      } as CardSummary["holder"],
     })
     const live = new Map([["d/oak", { status: "busy" }]])
     for (const [m, working] of [
@@ -187,7 +234,9 @@ describe("rowState", () => {
     expect(workingNow(blocked)).toEqual([])
   })
   test("a closed card never needs you", () => {
-    expect(needsYou(card({ state: TaskState.Completed, openBlockers: 1 }))).toBe(false)
+    expect(
+      needsYou(card({ state: TaskState.Completed, openBlockers: 1 }))
+    ).toBe(false)
   })
 })
 
@@ -195,7 +244,12 @@ describe("needsOf", () => {
   test("cards and held messages, newest first, each once; an agent's message is a DM (card #390)", () => {
     const cs = [
       card({ id: "a", openBlockers: 1, updatedAt: "2026-11-02T10:00:00Z" }),
-      card({ id: "b", ready: true, openBlockers: 1, updatedAt: "2026-11-02T10:05:00Z" }),
+      card({
+        id: "b",
+        ready: true,
+        openBlockers: 1,
+        updatedAt: "2026-11-02T10:05:00Z",
+      }),
       card({ id: "c" }),
     ]
     const held = delivery({
@@ -211,21 +265,75 @@ describe("needsOf", () => {
     expect(got).toEqual(["check:b", "held:h", "decision:a"])
   })
   test("holds between agents and Pause all's are one line, last and uncounted (card #488)", () => {
-    const cs = [card({ id: "a", openBlockers: 1, updatedAt: "2026-11-02T10:00:00Z" })]
-    const hop = delivery({ id: "hop", to: "dev/heron", state: State.Held, hold: HoldReason.HoldHopLimit, createdAt: "2026-11-02T10:09:00Z" })
-    const old = delivery({ id: "old", to: "dev/heron", state: State.Held, hold: HoldReason.HoldBypassReceiver })
-    const listed = delivery({ id: "allow", to: "dev/heron", state: State.Held, hold: HoldReason.HoldNotAllowed })
-    const paused = delivery({ id: "p", to: "dev/heron", state: State.Held, hold: HoldReason.HoldPaused })
+    const cs = [
+      card({ id: "a", openBlockers: 1, updatedAt: "2026-11-02T10:00:00Z" }),
+    ]
+    const hop = delivery({
+      id: "hop",
+      to: "dev/heron",
+      state: State.Held,
+      hold: HoldReason.HoldHopLimit,
+      createdAt: "2026-11-02T10:09:00Z",
+    })
+    const old = delivery({
+      id: "old",
+      to: "dev/heron",
+      state: State.Held,
+      hold: HoldReason.HoldBypassReceiver,
+    })
+    const listed = delivery({
+      id: "allow",
+      to: "dev/heron",
+      state: State.Held,
+      hold: HoldReason.HoldNotAllowed,
+    })
+    const paused = delivery({
+      id: "p",
+      to: "dev/heron",
+      state: State.Held,
+      hold: HoldReason.HoldPaused,
+    })
     // An agent's message to a repo nobody is in is between agents too.
-    const agentRepo = delivery({ id: "ar", to: "", repoKey: "root:5a3c", state: State.Held, hold: HoldReason.HoldUnowned })
-    const mine = delivery({ id: "mine", to: "", repoKey: "root:5a3c", state: State.Held, hold: HoldReason.HoldUnowned })
+    const agentRepo = delivery({
+      id: "ar",
+      to: "",
+      repoKey: "root:5a3c",
+      state: State.Held,
+      hold: HoldReason.HoldUnowned,
+    })
+    const mine = delivery({
+      id: "mine",
+      to: "",
+      repoKey: "root:5a3c",
+      state: State.Held,
+      hold: HoldReason.HoldUnowned,
+    })
     mine.message.from = { key: "user:dev", name: "you", kind: "user" }
     // Your own message held by your Pause all is quiet too.
-    const minePaused = delivery({ id: "mp", to: "dev/heron", state: State.Held, hold: HoldReason.HoldPaused })
+    const minePaused = delivery({
+      id: "mp",
+      to: "dev/heron",
+      state: State.Held,
+      hold: HoldReason.HoldPaused,
+    })
     minePaused.message.from = { key: "user:dev", name: "you", kind: "user" }
-    const person = delivery({ id: "pal", to: "dev/heron", state: State.Held, hold: HoldReason.HoldCrossPerson })
+    const person = delivery({
+      id: "pal",
+      to: "dev/heron",
+      state: State.Held,
+      hold: HoldReason.HoldCrossPerson,
+    })
     person.message.from = { key: "board:b1/p2", name: "Sam", kind: "board" }
-    const got = needsOf(cs, [hop, old, listed, paused, agentRepo, mine, minePaused, person])
+    const got = needsOf(cs, [
+      hop,
+      old,
+      listed,
+      paused,
+      agentRepo,
+      mine,
+      minePaused,
+      person,
+    ])
     expect(got.map((n) => `${n.kind}:${n.id}`)).toEqual([
       "decision:a",
       "held:mine",
@@ -233,17 +341,17 @@ describe("needsOf", () => {
       `heldQuiet:${HELD_QUIET}`,
     ])
     const quiet = got.at(-1)
-    expect(quiet?.kind === "heldQuiet" && quiet.deliveries.map((d) => d.id)).toEqual([
-      "hop",
-      "old",
-      "allow",
-      "p",
-      "ar",
-      "mp",
-    ])
+    expect(
+      quiet?.kind === "heldQuiet" && quiet.deliveries.map((d) => d.id)
+    ).toEqual(["hop", "old", "allow", "p", "ar", "mp"])
     expect(asksPerson(hop)).toBe(false)
     // An agent's message to you, held by your allow list, is yours to decide.
-    const toYou = delivery({ id: "ty", to: "user:dev", state: State.Held, hold: HoldReason.HoldNotAllowed })
+    const toYou = delivery({
+      id: "ty",
+      to: "user:dev",
+      state: State.Held,
+      hold: HoldReason.HoldNotAllowed,
+    })
     expect(asksPerson(toYou)).toBe(true)
     expect(asksPerson({ ...toYou, hold: HoldReason.HoldPaused })).toBe(false)
     expect(asksPerson(mine)).toBe(true)
@@ -263,7 +371,11 @@ describe("needsOf", () => {
 // review on PR #96, #329 waiting on #334, #290's question on an external
 // wait.
 describe("what waits on the person (cards #347, #471)", () => {
-  const pr = { repo: "StephenSHorton/suzuri", number: 96, url: "https://github.com/StephenSHorton/suzuri/pull/96" }
+  const pr = {
+    repo: "StephenSHorton/suzuri",
+    number: 96,
+    url: "https://github.com/StephenSHorton/suzuri/pull/96",
+  }
   test("a card in review on its PR waits, it doesn't need the person", () => {
     expect(rowState(card({ state: TaskState.InReview, waitPr: pr }))).toEqual({
       state: "waiting",
@@ -277,7 +389,10 @@ describe("what waits on the person (cards #347, #471)", () => {
       waitOn: "#290",
       waitYou: "your answer on #290",
     })
-    expect(rowState(c)).toEqual({ state: "needs", line: "Waits on your answer on #290" })
+    expect(rowState(c)).toEqual({
+      state: "needs",
+      line: "Waits on your answer on #290",
+    })
     // A chain that ends at an agent or a PR stays Waiting on #N.
     expect(rowState({ ...c, waitOn: "#334", waitYou: undefined })).toEqual({
       state: "waiting",
@@ -286,22 +401,47 @@ describe("what waits on the person (cards #347, #471)", () => {
   })
   test("Needs you has no PR rows, only the decision", () => {
     const cs = [
-      card({ id: "330", state: TaskState.InReview, waitPr: pr, updatedAt: "2026-11-03T17:12:00Z" }),
-      card({ id: "334", state: TaskState.InReview, waitPr: pr, updatedAt: "2026-11-03T18:36:00Z" }),
-      card({ id: "290", state: TaskState.Blocked, openBlockers: 1, updatedAt: "2026-11-03T15:14:00Z" }),
-      card({ id: "329", state: TaskState.Blocked, waitingOn: 1, waitOn: "#334" }),
+      card({
+        id: "330",
+        state: TaskState.InReview,
+        waitPr: pr,
+        updatedAt: "2026-11-03T17:12:00Z",
+      }),
+      card({
+        id: "334",
+        state: TaskState.InReview,
+        waitPr: pr,
+        updatedAt: "2026-11-03T18:36:00Z",
+      }),
+      card({
+        id: "290",
+        state: TaskState.Blocked,
+        openBlockers: 1,
+        updatedAt: "2026-11-03T15:14:00Z",
+      }),
+      card({
+        id: "329",
+        state: TaskState.Blocked,
+        waitingOn: 1,
+        waitOn: "#334",
+      }),
     ]
-    expect(needsOf(cs, []).map((n) => `${n.kind}:${n.id}`)).toEqual(["decision:290"])
+    expect(needsOf(cs, []).map((n) => `${n.kind}:${n.id}`)).toEqual([
+      "decision:290",
+    ])
   })
   test("the PR chip names the PR, links it and says who it waits on", () => {
     expect(prChip(card({ state: TaskState.InReview, waitPr: pr }))).toEqual({
       text: "waits on PR #96",
-      title: "Waits on PR #96 in StephenSHorton/suzuri: an agent merges it once its checks pass. Opens https://github.com/StephenSHorton/suzuri/pull/96",
+      title:
+        "Waits on PR #96 in StephenSHorton/suzuri: an agent merges it once its checks pass. Opens https://github.com/StephenSHorton/suzuri/pull/96",
       url: pr.url,
     })
-    expect(prChip(card({ state: TaskState.InReview, waitPr: { ...pr, approval: true } }))?.title).toContain(
-      "another member's agents approve it"
-    )
+    expect(
+      prChip(
+        card({ state: TaskState.InReview, waitPr: { ...pr, approval: true } })
+      )?.title
+    ).toContain("another member's agents approve it")
     expect(prChip(card({ state: TaskState.InReview }))).toBeNull()
     expect(prChip(card({ state: TaskState.Completed, waitPr: pr }))).toBeNull()
   })
@@ -328,24 +468,46 @@ describe("waits nothing will end (card #481)", () => {
     const got = needsOf(cs, [])
     expect(got.map((n) => `${n.kind}:${n.id}`)).toEqual(["loop:t392,t396,t394"])
     const n = got[0]
-    expect(n.kind === "loop" && n.cards.map((c) => c.id)).toEqual(["t392", "t396", "t394"])
+    expect(n.kind === "loop" && n.cards.map((c) => c.id)).toEqual([
+      "t392",
+      "t396",
+      "t394",
+    ])
     expect(n.at).toBe(Date.parse("2026-11-03T12:00:00Z"))
     expect(loopLine(ring)).toBe("#392, #396 and #394 wait on each other")
-    expect(rowState(cs[0])).toEqual({ state: "needs", line: "#392, #396 and #394 wait on each other" })
+    expect(rowState(cs[0])).toEqual({
+      state: "needs",
+      line: "#392, #396 and #394 wait on each other",
+    })
   })
   test("a wait on a card is no decision", () => {
-    const c = card({ id: "t394", state: TaskState.Blocked, openBlockers: 0, waitingOn: 1, waitOn: "#392" })
+    const c = card({
+      id: "t394",
+      state: TaskState.Blocked,
+      openBlockers: 0,
+      waitingOn: 1,
+      waitOn: "#392",
+    })
     expect(needsOf([c], [])).toEqual([])
   })
   test("cards waiting on one nobody is on are one item", () => {
     const end = { id: "t34", short: "34", title: "Vendor" }
     const cs = ["12", "13"].map((s) =>
-      card({ id: `t${s}`, short: s, state: TaskState.Blocked, waitingOn: 1, waitOn: "#34", waitStuck: end })
+      card({
+        id: `t${s}`,
+        short: s,
+        state: TaskState.Blocked,
+        waitingOn: 1,
+        waitOn: "#34",
+        waitStuck: end,
+      })
     )
     const got = needsOf(cs, [])
     expect(got.map((n) => `${n.kind}:${n.id}`)).toEqual(["stuck:t34"])
     const n = got[0]
-    expect(n.kind === "stuck" && stuckLine(n.end, n.cards)).toBe("#12 and #13 wait on #34, which nobody is on")
+    expect(n.kind === "stuck" && stuckLine(n.end, n.cards)).toBe(
+      "#12 and #13 wait on #34, which nobody is on"
+    )
     expect(rowState(cs[0]).line).toBe("Waits on #34, which nobody is on")
   })
   test("a done card leaves the loop item", () => {
@@ -356,18 +518,35 @@ describe("waits nothing will end (card #481)", () => {
 
 describe("trust (card #449)", () => {
   test("a card whose agent can't start for trust is a Trust row", () => {
-    const t = card({ id: "t", cantStart: "not trusted: /r/api on dev1", state: TaskState.Submitted })
-    const other = card({ id: "o", cantStart: "no checkout of remote:x on dev1" })
+    const t = card({
+      id: "t",
+      cantStart: "not trusted: /r/api on dev1",
+      state: TaskState.Submitted,
+    })
+    const other = card({
+      id: "o",
+      cantStart: "no checkout of remote:x on dev1",
+    })
     expect(waitsOnTrust(t)).toBe(true)
     expect(waitsOnTrust(other)).toBe(false)
-    expect(needsOf([t, other], []).map((n) => `${n.kind}:${n.id}`)).toEqual(["trust:t"])
+    expect(needsOf([t, other], []).map((n) => `${n.kind}:${n.id}`)).toEqual([
+      "trust:t",
+    ])
   })
   test("a card already waiting on the person stays one row", () => {
-    const t = card({ id: "t", cantStart: "not trusted: /r on d", openBlockers: 1 })
+    const t = card({
+      id: "t",
+      cantStart: "not trusted: /r on d",
+      openBlockers: 1,
+    })
     expect(needsOf([t], []).map((n) => n.kind)).toEqual(["decision"])
   })
   test("a closed card has no trust row", () => {
-    const t = card({ id: "t", cantStart: "not trusted: /r on d", state: TaskState.Completed })
+    const t = card({
+      id: "t",
+      cantStart: "not trusted: /r on d",
+      state: TaskState.Completed,
+    })
     expect(needsOf([t], [])).toEqual([])
   })
 })
@@ -379,15 +558,18 @@ describe("spawned agents' own decisions (card #456, sa-7)", () => {
     readFileSync(new URL(`../../../crates/${f}`, import.meta.url), "utf8")
   test("the constants match the Rust ones", () => {
     expect(rust("core/src/service/spawn_waiting.rs")).toContain(
-      `pub const WAITING_PERMISSION: &str = "${WAITING_PERMISSION}";`,
+      `pub const WAITING_PERMISSION: &str = "${WAITING_PERMISSION}";`
     )
     expect(rust("coord/src/board/spawn.rs")).toContain(
-      `pub const CRASHED_QUESTION: &str = "${CRASHED_QUESTION}";`,
+      `pub const CRASHED_QUESTION: &str = "${CRASHED_QUESTION}";`
     )
   })
   test("a permission wait, a crash, anything else", () => {
-    const q = (blockerQuestion: string) => card({ openBlockers: 1, blockerQuestion })
-    expect(spawnNeed(q("Waiting for your permission: thyme is stopped on a prompt"))).toBe("permission")
+    const q = (blockerQuestion: string) =>
+      card({ openBlockers: 1, blockerQuestion })
+    expect(
+      spawnNeed(q("Waiting for your permission: thyme is stopped on a prompt"))
+    ).toBe("permission")
     expect(spawnNeed(q(CRASHED_QUESTION))).toBe("crashed")
     expect(spawnNeed(q("Ship today?"))).toBeNull()
   })

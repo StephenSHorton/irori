@@ -128,12 +128,16 @@ export const IdleLineShown = 3
 // "" when nobody is idle and nothing waits.
 export function idleLine(r: IdleReport): string {
   const k = r.unoffered.length
-  if (k === 0) return r.idle > 0 ? `${n(r.idle, "agent", "agents")} idle, no open work.` : ""
+  if (k === 0)
+    return r.idle > 0
+      ? `${n(r.idle, "agent", "agents")} idle, no open work.`
+      : ""
   const shown = r.unoffered
     .slice(0, IdleLineShown)
     .map((u) => `${u.short} (${u.why})`)
     .join(", ")
   const more = k > IdleLineShown ? `, and ${k - IdleLineShown} more` : ""
-  const who = r.idle > 0 ? `${n(r.idle, "agent", "agents")} idle, ` : "No agent is free, "
+  const who =
+    r.idle > 0 ? `${n(r.idle, "agent", "agents")} idle, ` : "No agent is free, "
   return `${who}${n(k, "card", "cards")} not handed out yet: ${shown}${more}.`
 }

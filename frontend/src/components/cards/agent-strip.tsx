@@ -142,7 +142,9 @@ export function OnCards({
               onClick={() => onOpen(g.cardId)}
               className="flex w-full min-w-0 items-center gap-1.5 px-1.5 py-0.5 text-left text-[11px] text-muted-foreground hover:text-foreground"
             >
-              <span className="shrink-0 font-mono tabular-nums">#{g.short}</span>
+              <span className="shrink-0 font-mono tabular-nums">
+                #{g.short}
+              </span>
               <span className="truncate">
                 {g.title} · {g.agents.length} agents
               </span>

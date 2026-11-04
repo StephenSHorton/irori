@@ -55,7 +55,7 @@ const effortNames: Record<string, string> = {
 export function choiceLabel(
   v: string,
   names: Record<string, string>,
-  def: string,
+  def: string
 ): string {
   const n = names[v] ?? v
   return v === def ? `${n} (default)` : n
@@ -77,7 +77,7 @@ export function idleLabel(m: number, def = 30): string {
 // keeping the last good settings when a save fails.
 export function useAgents(open: boolean, boardId = "") {
   const [s, setS] = useState<AgentsSettings | null>(() =>
-    inWails() ? null : { ...sampleAgents(), boardId },
+    inWails() ? null : { ...sampleAgents(), boardId }
   )
   const [error, setError] = useState("")
   useEffect(() => {
@@ -85,7 +85,7 @@ export function useAgents(open: boolean, boardId = "") {
     let live = true
     AgentsService.Settings(boardId).then(
       (v) => live && (setS(v), setError("")),
-      (e: Error) => live && setError(e.message),
+      (e: Error) => live && setError(e.message)
     )
     return () => {
       live = false
@@ -111,16 +111,16 @@ export function useAgents(open: boolean, boardId = "") {
                 effort: c.effort ?? x.effort,
                 idleMins: c.idleMins ?? x.idleMins,
               }
-            : x,
+            : x
         )
         return
       }
       AgentsService.Set(change).then(
         (v) => (setS(v), setError("")),
-        (e: Error) => setError(e.message),
+        (e: Error) => setError(e.message)
       )
     },
-    [boardId],
+    [boardId]
   )
   return { settings: s, error, set }
 }
@@ -145,7 +145,7 @@ export function sampleTrusted(): TrustedRepo[] {
 // person's confirm, and throws its error for the confirm to show.
 export function useTrusted(open: boolean) {
   const [rows, setRows] = useState<TrustedRepo[]>(() =>
-    inWails() ? [] : sampleTrusted(),
+    inWails() ? [] : sampleTrusted()
   )
   const [error, setError] = useState("")
   useEffect(() => {
@@ -153,7 +153,7 @@ export function useTrusted(open: boolean) {
     let live = true
     AgentsService.Trusted().then(
       (v) => live && (setRows(v), setError("")),
-      (e: Error) => live && setError(e.message),
+      (e: Error) => live && setError(e.message)
     )
     return () => {
       live = false
@@ -162,7 +162,7 @@ export function useTrusted(open: boolean) {
   const trust = useCallback(async (repoKey: string) => {
     if (!inWails()) {
       setRows((rs) =>
-        rs.map((r) => (r.repoKey === repoKey ? { ...r, trusted: true } : r)),
+        rs.map((r) => (r.repoKey === repoKey ? { ...r, trusted: true } : r))
       )
       return
     }
@@ -198,7 +198,7 @@ export async function attachAgent(key: string, cardId: string): Promise<void> {
   if (!inWails()) return
   const term = await AgentsService.Attach(key, 100, 24)
   window.dispatchEvent(
-    new CustomEvent<TermOpenedDetail>(TermOpened, { detail: { cardId, term } }),
+    new CustomEvent<TermOpenedDetail>(TermOpened, { detail: { cardId, term } })
   )
 }
 
@@ -239,18 +239,60 @@ function sampleRunning(): RunningAgent[] {
     ...p,
   })
   return [
-    row({ status: "starting", cardId: "c65", cardShort: "#65", cardTitle: "Explain the cache eviction in the README", startedAt: now - 20_000 }),
-    row({ key: "dev/heron", name: "heron", cardId: "c64", cardShort: "#64", cardTitle: "Retry the upload on a dropped connection", startedAt: now - 6 * 60_000 }),
-    row({ key: "dev/finch", name: "finch", status: "idle", cardId: "c61", cardShort: "#61", cardTitle: "Bump the icon set", model: "opus", effort: "high", startedAt: now - 25 * 60_000 }),
-    row({ key: "sample-device/sample05-synthetic-session", name: "sample-mink", status: "shell", cardId: "c63", cardShort: "#63", cardTitle: "Migrate the sample store", startedAt: now - 30 * 60_000 }),
-    row({ key: "pc/wren", name: "wren", cardId: "c58", cardShort: "#58", cardTitle: "Port the build script to Windows", device: "Desktop Computer", here: false, startedAt: now - 40 * 60_000 }),
+    row({
+      status: "starting",
+      cardId: "c65",
+      cardShort: "#65",
+      cardTitle: "Explain the cache eviction in the README",
+      startedAt: now - 20_000,
+    }),
+    row({
+      key: "dev/heron",
+      name: "heron",
+      cardId: "c64",
+      cardShort: "#64",
+      cardTitle: "Retry the upload on a dropped connection",
+      startedAt: now - 6 * 60_000,
+    }),
+    row({
+      key: "dev/finch",
+      name: "finch",
+      status: "idle",
+      cardId: "c61",
+      cardShort: "#61",
+      cardTitle: "Bump the icon set",
+      model: "opus",
+      effort: "high",
+      startedAt: now - 25 * 60_000,
+    }),
+    row({
+      key: "sample-device/sample05-synthetic-session",
+      name: "sample-mink",
+      status: "shell",
+      cardId: "c63",
+      cardShort: "#63",
+      cardTitle: "Migrate the sample store",
+      startedAt: now - 30 * 60_000,
+    }),
+    row({
+      key: "pc/wren",
+      name: "wren",
+      cardId: "c58",
+      cardShort: "#58",
+      cardTitle: "Port the build script to Windows",
+      device: "Desktop Computer",
+      here: false,
+      startedAt: now - 40 * 60_000,
+    }),
   ]
 }
 
 // useRunning lists the agents Irori started, and the ones starting,
 // refreshed every few seconds while open.
 export function useRunning(open: boolean) {
-  const [rows, setRows] = useState<RunningAgent[]>(() => (inWails() ? [] : sampleRunning()))
+  const [rows, setRows] = useState<RunningAgent[]>(() =>
+    inWails() ? [] : sampleRunning()
+  )
   const [error, setError] = useState("")
   const [tick, setTick] = useState(0)
   useEffect(() => {
@@ -259,7 +301,7 @@ export function useRunning(open: boolean) {
     const load = () =>
       AgentsService.Running().then(
         (v) => live && (setRows(v), setError("")),
-        (e: Error) => live && setError(e.message),
+        (e: Error) => live && setError(e.message)
       )
     void load()
     const id = window.setInterval(load, 4000)

@@ -34,7 +34,12 @@ import { LiveRoster } from "@/lib/thread"
 export const AgentCards = createContext<{
   cards: CardSummary[]
   onOpen: (id: string) => void
-  threads?: readonly { id: string; short: string; title: string; state?: string }[]
+  threads?: readonly {
+    id: string
+    short: string
+    title: string
+    state?: string
+  }[]
   onOpenThread?: (id: string) => void
 } | null>(null)
 
@@ -70,7 +75,11 @@ export function AgentHover({
           onClick={(e) => e.stopPropagation()}
         />
         <Popover.Portal>
-          <Popover.Positioner sideOffset={6} collisionPadding={8} className="isolate z-50">
+          <Popover.Positioner
+            sideOffset={6}
+            collisionPadding={8}
+            className="isolate z-50"
+          >
             <Popover.Popup
               className={popupClass}
               onClick={(e) => e.stopPropagation()}
@@ -120,7 +129,7 @@ function AgentSummary({
   }
   // Irori started it for one card (card #448): the roster says which.
   const spawnedFor = cards.find((c) =>
-    c.working.some((r) => r.key === who.key && r.spawned),
+    c.working.some((r) => r.key === who.key && r.spawned)
   )
   // Card #453: a terminal agent takes offered work only with the person's
   // "Offer it cards" on; an agent Irori started keeps its own rules.
@@ -143,40 +152,40 @@ function AgentSummary({
           </span>
         )}
         <div className="grid min-w-0 grid-cols-1 gap-0.5">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate font-medium">{displayName(who)}</span>
-          <span
-            className={
-              state.tone === "muted"
-                ? "shrink-0 text-xs text-muted-foreground"
-                : state.tone === "warn"
-                ? "shrink-0 text-xs text-warning"
-                : "shrink-0 text-xs text-success"
-            }
-          >
-            {state.text}
-          </span>
-        </div>
-        {device && (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate font-medium">{displayName(who)}</span>
             <span
-              className="inline-block size-2 shrink-0 bg-primary"
-              style={tint ? { background: tint } : undefined}
-              aria-hidden
-            />
-            <span className="truncate">{plainLine(device)}</span>
+              className={
+                state.tone === "muted"
+                  ? "shrink-0 text-xs text-muted-foreground"
+                  : state.tone === "warn"
+                    ? "shrink-0 text-xs text-warning"
+                    : "shrink-0 text-xs text-success"
+              }
+            >
+              {state.text}
+            </span>
           </div>
-        )}
-        {who.where && who.device && who.where !== who.device && (
-          <div className="truncate text-xs text-muted-foreground">
-            {plainLine(who.where)}
-          </div>
-        )}
-        {spawnedFor && (
-          <div className="truncate text-xs text-muted-foreground">
-            Irori started it for #{spawnedFor.short}
-          </div>
-        )}
+          {device && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span
+                className="inline-block size-2 shrink-0 bg-primary"
+                style={tint ? { background: tint } : undefined}
+                aria-hidden
+              />
+              <span className="truncate">{plainLine(device)}</span>
+            </div>
+          )}
+          {who.where && who.device && who.where !== who.device && (
+            <div className="truncate text-xs text-muted-foreground">
+              {plainLine(who.where)}
+            </div>
+          )}
+          {spawnedFor && (
+            <div className="truncate text-xs text-muted-foreground">
+              Irori started it for #{spawnedFor.short}
+            </div>
+          )}
         </div>
       </div>
       <CardList label="Holding" cards={holding} onOpen={onOpen} />
@@ -197,9 +206,7 @@ function AgentSummary({
       )}
       {!gone && !who.offline && who.live && (
         <>
-          {live && !spawned && (
-            <OfferCards who={who} on={!!live.offersCards} />
-          )}
+          {live && !spawned && <OfferCards who={who} on={!!live.offersCards} />}
           <StopAgent who={who} />
         </>
       )}
@@ -232,8 +239,8 @@ function OfferCards({ who, on }: { who: AgentRef; on: boolean }) {
             Offer it cards
           </label>
           <span id={`${id}-hint`} className="text-xs text-muted-foreground">
-            Irori hands it unheld cards, asks and threads when it's idle.
-            Off: it works only on what you give it.
+            Irori hands it unheld cards, asks and threads when it's idle. Off:
+            it works only on what you give it.
           </span>
         </span>
         <Switch
@@ -264,7 +271,10 @@ function StopAgent({ who }: { who: AgentRef }) {
     try {
       await talk.stop(who.key, text)
       setText("")
-      setLine({ ok: true, text: `${displayName(who)} is stopped and reads this first.` })
+      setLine({
+        ok: true,
+        text: `${displayName(who)} is stopped and reads this first.`,
+      })
     } catch (err) {
       setLine({ ok: false, text: errorText(err) })
     } finally {
@@ -294,7 +304,13 @@ function StopAgent({ who }: { who: AgentRef }) {
         </Button>
       </div>
       {line && (
-        <p className={line.ok ? "text-xs text-muted-foreground" : "text-xs text-destructive"}>
+        <p
+          className={
+            line.ok
+              ? "text-xs text-muted-foreground"
+              : "text-xs text-destructive"
+          }
+        >
           {line.text}
         </p>
       )}

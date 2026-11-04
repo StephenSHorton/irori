@@ -24,7 +24,9 @@ describe("Talk's list search (card #390)", () => {
     expect(talkMatches(t({}), "mac build")).toBe(true)
     expect(talkMatches(t({}), "TUESDAY")).toBe(true)
     expect(talkMatches(t({}), "#12")).toBe(true)
-    expect(talkMatches(t({ lastText: "it was the linker" }), "linker")).toBe(true)
+    expect(talkMatches(t({ lastText: "it was the linker" }), "linker")).toBe(
+      true
+    )
     expect(talkMatches(t({}), "lobby")).toBe(false)
   })
   test("an empty search shows everything", () => {
@@ -65,7 +67,9 @@ describe("channels and DMs in Talk (card #390)", () => {
     const now = new Date(2026, 10, 3, 15, 0)
     expect(dayLabel(new Date(2026, 10, 3, 1, 0), now)).toBe("Today")
     expect(dayLabel(new Date(2026, 10, 2, 23, 0), now)).toBe("Yesterday")
-    expect(dayLabel(new Date(2026, 9, 30, 9, 0), now)).not.toMatch(/Today|Yesterday/)
+    expect(dayLabel(new Date(2026, 9, 30, 9, 0), now)).not.toMatch(
+      /Today|Yesterday/
+    )
   })
   test("members read their status, gone when off the roster (card #489)", () => {
     const say = (status: string) => agentStatus({ status }).text
@@ -84,10 +88,12 @@ describe("channels and DMs in Talk (card #390)", () => {
     expect(agent("d/ash")).toBe("gone")
   })
   test("a person's key names a person, the rest are agents", () => {
-    expect(mentionKinds([{ key: "person:p1", name: "Blake" }, { key: "dev/s1", name: "oak" }])).toEqual([
-      { kind: "person" },
-      { kind: "agent" },
-    ])
+    expect(
+      mentionKinds([
+        { key: "person:p1", name: "Blake" },
+        { key: "dev/s1", name: "oak" },
+      ])
+    ).toEqual([{ kind: "person" }, { kind: "agent" }])
   })
 })
 
@@ -95,7 +101,14 @@ import { threadText } from "./conversation"
 
 describe("a thread started from a channel message (design b2, card #390)", () => {
   test("asks the question, then quotes the message and says where it was said", () => {
-    expect(threadText(" Why the Firewall? ", "kowhai", "Only the PC transfer.\nOne click.", "suzuri")).toBe(
+    expect(
+      threadText(
+        " Why the Firewall? ",
+        "kowhai",
+        "Only the PC transfer.\nOne click.",
+        "suzuri"
+      )
+    ).toBe(
       "Why the Firewall?\n\n> Only the PC transfer.\n> One click.\n(kowhai, in #suzuri)"
     )
   })
