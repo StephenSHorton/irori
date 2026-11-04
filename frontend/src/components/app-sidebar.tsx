@@ -36,7 +36,8 @@ import { SettingsMenu } from "@/components/settings/settings-menu"
 import { SpaceSwitcher } from "@/components/space-switcher"
 import { Badge } from "@/components/ui/badge"
 import { agentCounts } from "@/lib/agent-counts"
-import { AgentStrip } from "@/components/cards/agent-strip"
+import { rosterGroups } from "@/lib/roster-groups"
+import { AgentStrip, OnCards } from "@/components/cards/agent-strip"
 import { CheckSlots } from "@/components/cards/check-slots"
 import { useCommands } from "@/lib/commands"
 import type { BoardSummary } from "@/lib/boards"
@@ -227,7 +228,16 @@ export function AppSidebar({
     },
   ])
   const { device, version, agents } = roster
-  const n = agentCounts(agents)
+  // Yours (terminal agents) and On cards (the ones Irori started), card
+  // #456: the counts and "free" are terminal agents only, since a spawned
+  // agent is never handed a second card.
+  const groups = rosterGroups(agents, cards)
+  const n = agentCounts(groups.yours)
+  const onCardLine = (cardId: string, a: { key: string; status: string }) => {
+    const w = cards.find((c) => c.id === cardId)?.working.find((r) => r.key === a.key)
+    const doing = a.status === "busy" ? "working" : a.status
+    return [w?.where, doing].filter(Boolean).join(" · ")
+  }
   const pinnedBoards = boardsInSpace(boards, space)
     .filter((b) => b.pinned)
     .sort((a, b) => (a.pinRank ?? 0) - (b.pinRank ?? 0))
@@ -453,7 +463,11 @@ export function AppSidebar({
           <div
             className="flex flex-wrap gap-1 px-2.5"
             title={[
-              `${n.total} ${n.total === 1 ? "agent" : "agents"}`,
+              groups.spawned > 0 &&
+                `${groups.spawned} started by Irori for a card, each ends when its card is Done`,
+              groups.starting > 0 && `${groups.starting} cards starting an agent`,
+              groups.atCap > 0 && `${groups.atCap} cards waiting for a device to have a slot`,
+              `${n.total} of yours`,
               `${n.working} working${n.running ? ` (${n.running} waiting on a command they started)` : ""}`,
               `${n.free} free: idle, so a thread or card can go to them`,
               n.silent && `${n.silent} idle but not answering`,
@@ -462,6 +476,21 @@ export function AppSidebar({
               .filter(Boolean)
               .join("\n")}
           >
+            {groups.spawned > 0 && (
+              <Badge variant="info" className="tabular-nums normal-case">
+                {groups.spawned} on cards
+              </Badge>
+            )}
+            {groups.starting > 0 && (
+              <Badge variant="slate" className="tabular-nums normal-case">
+                {groups.starting} starting
+              </Badge>
+            )}
+            {groups.atCap > 0 && (
+              <Badge variant="warning" className="tabular-nums normal-case">
+                {groups.atCap} waiting
+              </Badge>
+            )}
             {n.working > 0 && (
               <Badge variant="info" className="tabular-nums normal-case">
                 {n.working} working
@@ -476,7 +505,16 @@ export function AppSidebar({
               </Badge>
             )}
           </div>
-          <AgentStrip agents={agents} />
+          {groups.onCards.length > 0 ? (
+            <>
+              <RosterLabel>Yours</RosterLabel>
+              <AgentStrip agents={groups.yours} />
+              <RosterLabel>On cards</RosterLabel>
+              <OnCards groups={groups.onCards} line={onCardLine} onOpen={onOpenCard} />
+            </>
+          ) : (
+            <AgentStrip agents={agents} />
+          )}
           <CheckSlots />
         </section>
       )}
@@ -575,6 +613,14 @@ function NavItem({
           </Badge>
         ))}
     </button>
+  )
+}
+
+function RosterLabel({ children }: { children: ReactNode }) {
+  return (
+    <h3 className="px-2.5 pt-2 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+      {children}
+    </h3>
   )
 }
 

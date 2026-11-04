@@ -69,6 +69,7 @@ import { unreadCount, useNotifications } from "@/lib/notifications"
 import { go, Home, sameSection, sectionFromHash, type Section } from "@/lib/nav"
 import { CommandPalette, PaletteJump, paletteOpenKey } from "@/components/command-palette"
 import { isMac, useCommands } from "@/lib/commands"
+import { spawnedKeys } from "@/lib/roster-groups"
 
 // PageState is the history entry of a card's page. fromGrid: the grid is
 // the entry behind it, so Back is the browser's back.
@@ -126,6 +127,8 @@ export function App() {
   const [space, setSpace] = useSpace(boards)
   const shared = space !== AllSpaces && space !== Personal
   const spaceCards = useMemo(() => cards.filter((c) => cardInSpace(c, space)), [cards, space])
+  // Agents Irori started for a card are never free for other work (§6).
+  const spawned = useMemo(() => spawnedKeys(cards), [cards])
   // Home's own scope: your cards, or a shared space's.
   const homeScope = shared ? space : ScopeOwn
   const me = useMe()
@@ -662,7 +665,7 @@ export function App() {
             open={section.id}
             onOpen={(id) => go({ kind: "talk", id })}
             now={now}
-            why={whyWaiting(roster.agents)}
+            why={whyWaiting(roster.agents.filter((a) => !spawned.has(a.key)))}
             board={threadsSpace(space)}
           />
         ) : section.kind === "notes" ? (
