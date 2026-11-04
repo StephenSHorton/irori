@@ -122,18 +122,32 @@ export type IdleReport = {
 // IdleLineShown is how many unhanded cards the line names before "and N more".
 export const IdleLineShown = 3
 
+// Untaken is an open card Home files under Stuck because nobody took it
+// (card #487, needs.ts nobodyTook): never handed out, offered or assigned
+// and not picked up, or an ask nobody took.
+export type Untaken = { id: string; short: string }
+
 // idleLine says on Home whether idle agents mean a work shortage or a
-// dispatch gap (card #341): "3 agents idle, no open work" when there is
-// nothing to hand out, else the cards nobody has been handed and why.
-// "" when nobody is idle and nothing waits.
-export function idleLine(r: IdleReport): string {
-  const k = r.unoffered.length
+// dispatch gap (cards #341, #487): "3 agents idle, no open work" only when
+// no open card waits for a taker; else "1 agent idle; 3 cards nobody
+// took: #25, #6, #14", with the idle report's why for a card Irori hasn't
+// handed out yet. The report's cards Home doesn't list (another scope)
+// still count. "" when nobody is idle and nothing waits.
+export function idleLine(r: IdleReport, untaken: readonly Untaken[] = []): string {
+  const why = new Map(r.unoffered.map((u) => [u.id, u.why]))
+  const cards: { short: string; why: string }[] = untaken.map((u) => ({
+    short: u.short,
+    why: why.get(u.id) ?? "",
+  }))
+  const listed = new Set(untaken.map((u) => u.id))
+  for (const u of r.unoffered) if (!listed.has(u.id)) cards.push({ short: u.short, why: u.why })
+  const k = cards.length
   if (k === 0) return r.idle > 0 ? `${n(r.idle, "agent", "agents")} idle, no open work.` : ""
-  const shown = r.unoffered
+  const shown = cards
     .slice(0, IdleLineShown)
-    .map((u) => `${u.short} (${u.why})`)
+    .map((u) => (u.why ? `${u.short} (${u.why})` : u.short))
     .join(", ")
   const more = k > IdleLineShown ? `, and ${k - IdleLineShown} more` : ""
-  const who = r.idle > 0 ? `${n(r.idle, "agent", "agents")} idle, ` : "No agent is free, "
-  return `${who}${n(k, "card", "cards")} not handed out yet: ${shown}${more}.`
+  const who = r.idle > 0 ? `${n(r.idle, "agent", "agents")} idle` : "No agent is free"
+  return `${who}; ${n(k, "card", "cards")} nobody took: ${shown}${more}.`
 }

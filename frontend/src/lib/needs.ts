@@ -6,6 +6,7 @@
 import { spawnLine } from "./spawn-line"
 import {
   askLine,
+  AskState,
   busy,
   displayName,
   Holding,
@@ -21,16 +22,30 @@ import {
 } from "./cards"
 import { parseTime, plainLine } from "./irori"
 import { State, type Delivery } from "./talk"
+import { waitLine, waitName } from "./wait-name"
 
-// RowState is one of the states a person acts on (finding 05): Needs you
-// (a decision, a done check, a question), Working (an agent is on it right
-// now), Waiting (on an agent, a review, another card, a taker), Idle (held,
-// its holders idle a while with nothing named it waits on: card #305) and
-// Done.
-export type RowState = "needs" | "working" | "waiting" | "idle" | "done"
+// RowState is what a person acts on, and Home groups its rows by it in
+// this order (card #487; finding 05, card #305):
+// - Needs you: a decision, a done check, a question, a review.
+// - Stuck: nobody is on it and nothing will put someone on it by itself:
+//   nobody took it (never handed out, offered or assigned and not picked
+//   up, an ask nobody took), its holder went away, isn't answering or is
+//   offline, its agent can't start, or the agent it waits on is gone.
+// - Working: someone is on it: busy, running a job it started, between
+//   turns, an agent starting for it, or an ask someone took.
+// - Waiting: on something named that ends by itself: a lease, another
+//   card, an agent, a review, a subtask, the agent reading your answer,
+//   a device at its cap, a pause.
+// - Idle: held, its holders idle a while with nothing named (card #305).
+// - Done.
+export type RowState = "needs" | "stuck" | "working" | "waiting" | "idle" | "done"
+
+// RowGroups is Home's group order.
+export const RowGroups: readonly RowState[] = ["needs", "stuck", "working", "waiting", "idle", "done"]
 
 export const rowStateLabel: Record<RowState, string> = {
   needs: "Needs you",
+  stuck: "Stuck",
   working: "Working",
   waiting: "Waiting",
   idle: "Idle",
@@ -47,13 +62,27 @@ export function needsYou(c: CardSummary): boolean {
   return c.openBlockers > 0 || !!c.ready || c.state === TaskState.InputRequired
 }
 
+// RowLine is a row's state, the line under its title, and whether an
+// agent is busy on it right now (the row's spinner).
+export type RowLine = { state: RowState; line: string; spin?: boolean }
+
+function cap(s: string): string {
+  return s ? s[0].toUpperCase() + s.slice(1) : s
+}
+
+// askRow files an open ask: someone took it, it waits on the device that
+// hands it out, or nobody took it.
+function askRow(a: NonNullable<CardSummary["ask"]>): RowLine {
+  const line = askLine(a)
+  if (a.state === AskState.Taken) return { state: "working", line }
+  if (a.state === AskState.Waiting) return { state: "waiting", line }
+  return { state: "stuck", line }
+}
+
 // rowState is the card's state and the line under its title: what it
 // waits on, who is on it, or how it ended. The words are the ones the
 // card's own page uses.
-export function rowState(
-  c: CardSummary,
-  now: number = Date.now()
-): { state: RowState; line: string } {
+export function rowState(c: CardSummary, now: number = Date.now()): RowLine {
   if (over(c)) return { state: "done", line: overLabel(c) }
   if (needsYou(c)) {
     if (c.ready && c.openBlockers <= 1)
@@ -62,7 +91,7 @@ export function rowState(
       return { state: "needs", line: `${c.openBlockers} decisions` }
     return { state: "needs", line: plainLine(c.blockerQuestion) || "A question for you" }
   }
-  if (openAsk(c) && c.ask) return { state: "waiting", line: askLine(c.ask) }
+  if (openAsk(c) && c.ask) return askRow(c.ask)
   if (c.paused) return { state: "waiting", line: "Paused" }
   // Card #347: the person's review of the PR it's on, or what its wait
   // on another card comes down to for them.
@@ -70,37 +99,98 @@ export function rowState(
   if (c.state === TaskState.InReview) return { state: "waiting", line: "In review" }
   if (c.subtaskBlocked) return { state: "waiting", line: "A subtask needs a call" }
   if (c.waitingOn && c.waitYou) return { state: "needs", line: `Waits on ${c.waitYou}` }
-  if (c.waitingOn)
-    return {
-      state: "waiting",
-      line: c.waitOn ? `Waiting on ${plainLine(c.waitOn)}` : "Waiting on something else",
-    }
+  if (c.waitingOn && c.waitGone)
+    return { state: "stuck", line: `Waiting on ${waitName(c) || "an agent"}, who is gone` }
+  if (c.waitingOn) return { state: "waiting", line: waitLine(c) }
   if (c.waiting > 0) return { state: "waiting", line: "Your answer is with the agent" }
   const who = c.working
     .filter((w) => !w.assigned)
     .map(displayName)
     .slice(0, 2)
     .join(", ")
-  if (busy(c)) return { state: "working", line: who ? `${who} working` : "Working" }
+  if (busy(c)) return { state: "working", line: who ? `${who} working` : "Working", spin: true }
   // Card #431: between turns, but a background job it started still runs.
   const job = runningJobNow(c)
   if (job.length)
     return {
       state: "working",
       line: `${job.map(displayName).slice(0, 2).join(", ")} running a background job`,
+      spin: true,
     }
   if (!c.working.length || c.holder.state === Holding.HoldNobody) {
-    // Card #448: an agent Irori is starting, a device at its cap, or why
-    // one can't start, instead of "nobody".
+    // Card #448: an agent Irori is starting (Working), a device at its cap
+    // (Waiting), or why one can't start (Stuck), instead of "nobody".
     const sp = spawnLine(c)
-    if (sp) return { state: "waiting", line: sp.text[0].toUpperCase() + sp.text.slice(1) }
-    return { state: "waiting", line: "Nobody has it yet" }
+    if (sp) {
+      const state: RowState = c.starting ? "working" : c.cantStart ? "stuck" : "waiting"
+      return { state, line: cap(sp.text) }
+    }
+    if (c.returned)
+      return {
+        state: "stuck",
+        line: c.returned.spawned
+          ? `Nobody on it: ${displayName(c.returned)} finished`
+          : `Nobody on it: ${displayName(c.returned)} went away`,
+      }
+    return { state: "stuck", line: "Nobody has it yet" }
   }
   const w = workLabel(c)
   if (w === "not picked up" || w === "offered")
-    return { state: "waiting", line: w === "offered" ? "Offered" : "Not picked up" }
+    return { state: "stuck", line: w === "offered" ? "Offered, not taken up yet" : "Not picked up" }
+  // Its holder went away, isn't answering or its device is offline:
+  // nobody is on it, whatever the card says.
+  // The live roster can say so before the card does.
+  const held = c.working.filter((w) => !w.assigned)
+  const away = (w: (typeof held)[number]) => w.status === "gone" || !w.live || !!w.offline
+  const h = c.holder.state
+  if (
+    h === Holding.HoldGone ||
+    h === Holding.HoldSilent ||
+    h === Holding.HoldOffline ||
+    (held.length > 0 && held.every(away))
+  ) {
+    const w = held.find(away) ?? c.holder.who
+    const name = w.key ? displayName(w) : "Its agent"
+    const why =
+      h === Holding.HoldSilent
+        ? "isn't answering"
+        : h === Holding.HoldOffline || w.offline
+          ? "is on an offline device"
+          : w.spawned
+            ? "finished"
+            : "went away"
+    return { state: "stuck", line: `${name} ${why}` }
+  }
   if (idleUnnamed(c, now)) return { state: "idle", line: who ? `${IDLE_LINE} (${who})` : IDLE_LINE }
-  return { state: "waiting", line: who ? `${who}, not working on it now` : "Held, not working on it now" }
+  return { state: "working", line: who ? `${who}, between turns` : "Held, between turns" }
+}
+
+// groupRows splits rows into Home's groups, in RowGroups order, each in
+// the order given; empty groups are left out.
+export function groupRows<T>(
+  rows: readonly T[],
+  stateOf: (r: T) => RowState
+): { state: RowState; rows: T[] }[] {
+  const by = new Map<RowState, T[]>()
+  for (const r of rows) {
+    const s = stateOf(r)
+    const g = by.get(s)
+    if (g) g.push(r)
+    else by.set(s, [r])
+  }
+  return RowGroups.filter((s) => by.has(s)).map((s) => ({ state: s, rows: by.get(s) ?? [] }))
+}
+
+// nobodyTook is the open cards Home files under Stuck because nobody
+// took them (card #487): the idle line names them, so "1 agent idle, no
+// open work" never sits over cards nobody has. A holder that went away
+// or a wait on a gone agent is Stuck too, but someone did take those.
+export function nobodyTook(c: CardSummary, now: number = Date.now()): boolean {
+  const r = rowState(c, now)
+  if (r.state !== "stuck") return false
+  if (openAsk(c)) return true
+  if (c.waitingOn || c.cantStart || c.returned) return false
+  return !c.working.length || c.holder.state === Holding.HoldNobody || c.working.every((w) => w.assigned)
 }
 
 // Need is one item of the Needs you list.

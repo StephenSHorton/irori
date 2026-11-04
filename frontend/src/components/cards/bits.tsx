@@ -20,6 +20,7 @@ import {
   type CardSummary,
 } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
+import { waitLine } from "@/lib/wait-name"
 import { cardOwner, type OwnerCard } from "@/lib/owners"
 
 // Tone is a card's status colour, shared by its state chip and its progress
@@ -417,12 +418,14 @@ export function Spinner({
   )
 }
 
-// waitLabel: what a card waits on that isn't you (card #158).
+// waitLabel: what a card waits on that isn't you (card #158), a lease in
+// plain words (card #487: "Waiting for a free Dolphin slot").
 export function waitLabel(card: {
   waitingOn?: number
   waitOn?: string
+  waitKind?: string
 }): string {
   const n = card.waitingOn ?? 0
-  const on = card.waitOn ? `Waiting on ${plainLine(card.waitOn)}` : "Waiting"
+  const on = card.waitOn ? waitLine(card) : "Waiting"
   return n > 1 ? `${on} +${n - 1}` : on
 }

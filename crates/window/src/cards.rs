@@ -232,6 +232,16 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub wait_on: String,
+    /// What kind of thing the first wait is on (card #487): "task",
+    /// "lease", "agent" or "external", so Home can name a lease plainly.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub wait_kind: String,
+    /// The first wait is on an agent that is gone (card #487): nothing
+    /// will end it by itself, so Home files the card under Stuck.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub wait_gone: bool,
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub wait_question: String,
@@ -1209,9 +1219,14 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
                 s.waiting_on += 1;
                 if s.waiting_on == 1 {
                     s.wait_question = bl.question.clone();
+                    s.wait_kind = on.kind.clone();
                     match on.kind.as_str() {
                         coord::BLOCKED_ON_TASK => s.wait_task = on.reference.clone(),
-                        coord::BLOCKED_ON_AGENT => s.wait_on = p.ref_(&on.reference).name,
+                        coord::BLOCKED_ON_AGENT => {
+                            let r = p.ref_(&on.reference);
+                            s.wait_gone = r.status == "gone";
+                            s.wait_on = r.name;
+                        }
                         _ => s.wait_on = on.reference.clone(),
                     }
                 }
@@ -2797,6 +2812,41 @@ mod tests {
         let (face, agent) = (p.ref_("person:blake"), p.ref_("agent:c1"));
         assert_eq!(face.color, "lime", "nudged off the PC's pink");
         assert_eq!(agent.color, face.color);
+    }
+
+    // Card #487: a wait carries its kind, so Home can name a lease plainly,
+    // and a wait on an agent that is gone says so (nothing ends it).
+    #[test]
+    fn a_wait_carries_its_kind_and_a_gone_agent() {
+        let p = People::default();
+        let on = |kind: &str, reference: &str| Task {
+            state: coord::BLOCKED.into(),
+            blockers: vec![{
+                let mut b = coord::Blocker::default();
+                b.id = "b1".into();
+                b.question = "Waiting".into();
+                b.on = Some(coord::BlockedBy {
+                    kind: kind.into(),
+                    reference: reference.into(),
+                });
+                b
+            }],
+            ..Task::default()
+        };
+        let lease = card_summary(
+            &on(
+                coord::BLOCKED_ON_LEASE,
+                "ww/dolphin-slot-1 ww/dolphin-slot-2",
+            ),
+            &p,
+        );
+        assert_eq!(lease.wait_kind, "lease");
+        assert_eq!(lease.wait_on, "ww/dolphin-slot-1 ww/dolphin-slot-2");
+        assert!(!lease.wait_gone);
+        // An agent nobody on this device knows is gone.
+        let agent = card_summary(&on(coord::BLOCKED_ON_AGENT, "dev/kestrel"), &p);
+        assert_eq!(agent.wait_kind, "agent");
+        assert!(agent.wait_gone, "{agent:?}");
     }
 
     // Card #264: on a shared board a question counts under Needs a decision
