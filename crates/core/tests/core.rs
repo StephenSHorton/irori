@@ -1246,3 +1246,114 @@ fn test_talk_survives_a_restart() {
     c.close().unwrap();
     drop(r);
 }
+
+/// Card #468: a message tells the window Talk changed only when it can
+/// show as a DM. Board notices (most of what the inbox carries while
+/// agents work) and stops don't, so they no longer make the window
+/// rebuild Talk's list from the whole inbox; an agent's message still does.
+#[test]
+fn test_only_messages_that_show_as_dms_change_talk() {
+    let r = Rig::new();
+    let feed = r.core.feed(&[Topic::Talk]);
+    let ib = r.core.inbox();
+    let a = Sender::new(&r.key_a, "alpha", "agent");
+    let to_a = Address::new(addr::AGENT, &r.key_a);
+    let to_b = Address::new(addr::AGENT, &r.key_b);
+    const NOTICES: usize = 20;
+    for i in 0..NOTICES {
+        ib.send_with(
+            &inbox::system_sender(),
+            &to_a,
+            &format!("Board: #{i} was handed to you."),
+            SendOptions {
+                notice: true,
+                ..SendOptions::default()
+            },
+        )
+        .unwrap();
+    }
+    // The person's stop to alpha.
+    ib.send_with(
+        &r.core.user_sender(),
+        &to_a,
+        "stop",
+        SendOptions {
+            mode: mode::STOP.into(),
+            ..SendOptions::default()
+        },
+    )
+    .unwrap();
+    // The agent's message is folded after them, so its event comes last.
+    ib.send(&a, &to_b, "can you look at #3?", "").unwrap();
+    let mut talk = 0;
+    wait_for(5, "talk:changed for the agent's message", || {
+        while let Some(e) = feed.try_recv() {
+            if matches!(e, CoreEvent::Talk) {
+                talk += 1;
+            }
+        }
+        talk > 0
+    });
+    std::thread::sleep(Duration::from_millis(200));
+    while let Some(e) = feed.try_recv() {
+        if matches!(e, CoreEvent::Talk) {
+            talk += 1;
+        }
+    }
+    eprintln!("card #468: {NOTICES} notices, a stop and one agent message: {talk} Talk events");
+    assert_eq!(talk, 1, "only the agent's message changes Talk");
+    let convs = r
+        .core
+        .talk_conversations(&r.core.user_sender().key)
+        .unwrap();
+    assert!(
+        convs.iter().any(|c| c.kind == "dm" && c.read_only),
+        "the agents' DM shows: {convs:?}"
+    );
+}
+
+/// Card #468's numbers: what one talk:changed costs the window, its
+/// talk_conversations read, which mirrors agents' messages into DMs from
+/// the whole inbox. 2,000 notices and 401 messages that show as DMs.
+/// `cargo test -p irori-core --test core -- --ignored --nocapture talk_conversations_timing`
+#[test]
+#[ignore]
+fn talk_conversations_timing() {
+    let r = Rig::new();
+    let ib = r.core.inbox();
+    let a = Sender::new(&r.key_a, "alpha", "agent");
+    let to_a = Address::new(addr::AGENT, &r.key_a);
+    let to_b = Address::new(addr::AGENT, &r.key_b);
+    for i in 0..2000 {
+        ib.send_with(
+            &inbox::system_sender(),
+            &to_a,
+            &format!("Board: #{i} was handed to you."),
+            SendOptions {
+                notice: true,
+                ..SendOptions::default()
+            },
+        )
+        .unwrap();
+    }
+    // The person's messages to the agents (agents' to each other are
+    // rate-limited); each shows as a DM too.
+    let me = r.core.user_sender();
+    for i in 0..400 {
+        let to = if i % 2 == 0 { &to_a } else { &to_b };
+        ib.send(&me, to, &format!("can you look at #{i}?"), "")
+            .unwrap();
+    }
+    ib.send(&a, &to_b, "and you?", "").unwrap();
+    let me = me.key;
+    let mut best = Duration::MAX;
+    for _ in 0..20 {
+        let t = Instant::now();
+        std::hint::black_box(r.core.talk_conversations(&me).unwrap());
+        best = best.min(t.elapsed());
+    }
+    eprintln!(
+        "card #468: talk_conversations over {} deliveries: {best:?}",
+        ib.list(usize::MAX).len()
+    );
+}

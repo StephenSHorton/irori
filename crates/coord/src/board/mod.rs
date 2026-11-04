@@ -1241,6 +1241,11 @@ impl Coord {
     pub fn spawn_now(&self, id: &str) {
         self.lock().spawn_now.insert(id.to_string());
     }
+    /// Whether the person asked for card `id`'s agent now and no request
+    /// has been written since ([`Self::spawn_now`]).
+    pub fn spawn_asked_now(&self, id: &str) -> bool {
+        self.lock().spawn_now.contains(id)
+    }
     /// Ends request `generation` of card `id` (its own part) as failed or
     /// canceled with `reason`.
     pub fn end_spawn(

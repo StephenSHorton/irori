@@ -681,6 +681,18 @@ pub struct SharedCopy {
     pub withdrawn: bool,
 }
 
+/// One card of [`Window::cards_by_id`]: the card, or why it couldn't be
+/// read (gone, or not this device's to read).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CardRead {
+    /// The id as asked.
+    pub id: String,
+    pub card: Option<CardDetail>,
+    /// "" when card is there.
+    pub error: String,
+}
+
 /// One card opened beside the grid.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -1904,6 +1916,26 @@ impl Window {
             }
         }
         (out, tasks)
+    }
+
+    /// Several cards at once, in the order asked (card #468): the window's
+    /// card hooks (a Notifications row's, a Needs you row's, a thread's,
+    /// the open card's) share one read per change instead of one each.
+    pub fn cards_by_id(&self, ids: &[String]) -> Vec<CardRead> {
+        ids.iter()
+            .map(|id| match self.card(id) {
+                Ok(c) => CardRead {
+                    id: id.clone(),
+                    card: Some(c),
+                    error: String::new(),
+                },
+                Err(e) => CardRead {
+                    id: id.clone(),
+                    card: None,
+                    error: e,
+                },
+            })
+            .collect()
     }
 
     /// BoardService.Card: one card opened.

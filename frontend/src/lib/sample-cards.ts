@@ -337,6 +337,64 @@ export function sampleCards(now: Date): CardDetail[] {
             atCap: "This PC",
             updatedAt: at(1),
           }),
+          // Card #456 (sa-7): Irori's own decisions on spawned cards.
+          // thyme stopped on a permission prompt nobody is attached to;
+          // #62's agents crashed twice, so Irori stopped starting them.
+          card({
+            id: "sample-card-spawn-perm",
+            short: "58",
+            title: "Lantern flicker on the dock",
+            goal: "One writer for the lantern's alpha.",
+            working: [
+              AgentRef({
+                ...agent("sample06-synthetic-session", "sample-thyme", "waiting"),
+                spawned: true,
+              }),
+            ],
+            blockers: [
+              CardBlocker({
+                id: "b-perm",
+                question: "Waiting for your permission: sample-thyme is stopped on a prompt",
+                context:
+                  "sample-thyme, the agent Irori started for #58, is waiting for a permission nobody is there to give. Attach to it to answer the prompt, or add the command to the board's allow list in Settings › Agents and start a fresh agent.",
+                raisedBy: AgentRef({ key: "irori", name: "Irori", status: "person" }),
+                at: at(2),
+                options: [],
+                resolved: null,
+                state: "open",
+              }),
+            ],
+            updatedAt: at(2),
+          }),
+          card({
+            id: "sample-card-spawn-crash",
+            short: "62",
+            title: "Fishing rod v2",
+            goal: "Cast, bite, reel.",
+            working: [],
+            blockers: [
+              CardBlocker({
+                id: "b-crash",
+                question: "Its agent crashed twice in a row: start another?",
+                context:
+                  "The last two agents started for this card went away before finishing. Irori won't start another until you say so: start one, or say in your own words what to try, and it goes in the next agent's brief.",
+                raisedBy: AgentRef({ key: "irori", name: "Irori", status: "person" }),
+                at: at(9),
+                options: [
+                  CardOption({
+                    answer: "Start another agent",
+                    why: "A fresh agent picks it up from Where and Left off.",
+                    by: AgentRef({ key: "irori", name: "Irori", status: "person" }),
+                    at: at(9),
+                    recommended: true,
+                  }),
+                ],
+                resolved: null,
+                state: "open",
+              }),
+            ],
+            updatedAt: at(9),
+          }),
           card({
             id: "sample-card-spawn-cant",
             short: "67",

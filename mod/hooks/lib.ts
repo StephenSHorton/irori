@@ -338,14 +338,3 @@ export function pausedRefusal(paused: readonly PausedCard[], tool: string): stri
   return `Not run: ${by} paused ${refs}. Your tools are off until they resume it, except Irori's own: answer ${by} on the card (board_comment) and wait.`
 }
 
-/**
- * The once-a-session nudge to make a face (card #407): when the avatar
- * tool says this agent has none of its own yet. Empty otherwise.
- */
-export function faceReminder(avatarAnswer: string | undefined): string {
-  if (!avatarAnswer || !avatarAnswer.includes('no face of your own yet')) return ''
-  return (
-    'Irori: you have no face of your own yet. Make one now with the irori avatar tool: pick an everyday object that suits your name ' +
-    'and draw its silhouette as one SVG path, with two eyes. Do it once, then carry on with what you were doing.'
-  )
-}
