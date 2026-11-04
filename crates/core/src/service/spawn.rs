@@ -309,10 +309,10 @@ impl SpawnSetting {
 /// A `spawn.set` row. Since card #492 each device has its own
 /// (docs/design/work-personal-separation.md §7.4): a row counts only on
 /// the device that signed it (`Event.device_id`), and names it in
-/// `device`. A row without `device` is from before that, when one row
-/// served every device; a device with no row of its own yet takes the
-/// newest of those once and writes it as its own, so the upgrade changes
-/// nothing.
+/// `device`. A row without `device` is from before that, when the newest
+/// row from any device served every device; a device with no per-device
+/// row yet takes that newest row once and writes it as its own, so the
+/// upgrade changes nothing.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SpawnSetRow {
@@ -577,10 +577,10 @@ impl SpawnState {
 /// wrote, as this device counts them (card #492): a board's setting from
 /// this device's own `spawn.set` rows only, and an agent's "Offer it
 /// cards" only from rows its own device signed. A board this device has
-/// no per-device row for yet (the upgrade) takes the newest row from
-/// before per-device settings, from any device, and keeps it as its own.
+/// no per-device row for yet (the upgrade) takes the newest row from any
+/// device, the one an older build ran on, and keeps it as its own.
 pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
-    let f = Filter {
+    let mut f = Filter {
         kinds: vec![
             kinds::SPAWN_SET.into(),
             kinds::SPAWN_CAP.into(),
@@ -591,12 +591,25 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
     };
     let me = st.device_id().to_string();
     let _rows = s.rows.lock().unwrap_or_else(|e| e.into_inner());
-    let Ok(evs) = st.list(&f) else { return };
+    // Every row, page by page: a seed past the first page must be seen, or
+    // it would be written again on every load.
+    let mut evs = Vec::new();
+    loop {
+        let Ok(page) = st.list(&f) else { return };
+        let full = page.len() as i64 >= f.limit;
+        if let Some(last) = page.last() {
+            f.after = last.cursor();
+        }
+        evs.extend(page);
+        if !full {
+            break;
+        }
+    }
     // Rows come oldest first, so a later one replaces an earlier one.
-    // own: this device's newest row per board; legacy: the newest row
-    // from before card #492, from any device.
+    // own: this device's newest row per board; newest: the newest row per
+    // board from any device, what an older build runs on.
     let mut own: HashMap<String, SpawnSetRow> = HashMap::new();
-    let mut legacy: HashMap<String, SpawnSetRow> = HashMap::new();
+    let mut newest: HashMap<String, SpawnSetRow> = HashMap::new();
     // The boards this device has written a per-device row for.
     let mut upgraded = std::collections::HashSet::new();
     let mut caps = HashMap::new();
@@ -620,13 +633,13 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
                     r.s.effort.clear();
                 }
                 let board = r.s.board_id.clone();
-                if r.device.is_empty() {
-                    legacy.insert(board.clone(), r.clone());
-                } else if ev.device_id == me {
-                    upgraded.insert(board.clone());
-                }
-                // Another device's per-device row is its setting, not ours.
+                newest.insert(board.clone(), r.clone());
+                // Another device's row is its setting, not ours, once this
+                // device has one of its own.
                 if ev.device_id == me {
+                    if !r.device.is_empty() {
+                        upgraded.insert(board.clone());
+                    }
                     own.insert(board, r);
                 }
             }
@@ -641,11 +654,11 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
         .filter(|(board, _)| upgraded.contains(board))
         .map(|(board, r)| (board, r.s))
         .collect();
-    // A board this device has no per-device row for ran on the newest
-    // shared row before card #492: keep that, written as this device's
-    // own. A refused append is tried again on the next load; the setting
-    // holds meanwhile.
-    for (board, r) in legacy {
+    // A board this device has no per-device row for ran on the newest row
+    // from any device before card #492 (an older build reads them all):
+    // keep that, written as this device's own. A refused append is tried
+    // again on the next load; the setting holds meanwhile.
+    for (board, r) in newest {
         if upgraded.contains(&board) {
             continue;
         }
@@ -655,7 +668,9 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
             ..r.clone()
         };
         if let Err(e) = st.append("user", kinds::SPAWN_SET, &seed) {
-            logf(format_args!("spawn: keep board {board:?}'s setting as this device's: {e}"));
+            logf(format_args!(
+                "spawn: keep board {board:?}'s setting as this device's: {e}"
+            ));
         }
         on.insert(board, r.s);
     }
@@ -809,7 +824,9 @@ impl Services {
         // Card #492: each device decides for its own agents, so a personal
         // device can't offer a work agent cards, nor the other way round.
         if irori_identity::owner::device_of(key) != self.device.id {
-            return Err("spawn: this agent runs on another device; set Offer it cards there".into());
+            return Err(
+                "spawn: this agent runs on another device; set Offer it cards there".into(),
+            );
         }
         let row = AgentOffer {
             key: key.into(),

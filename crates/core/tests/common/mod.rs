@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 
 use irori_core::{Core, Options};
 
+pub mod pair;
+
 pub const SESS_A: &str = "aaaaaaaa-1111-4111-8111-000000000001";
 pub const SESS_B: &str = "bbbbbbbb-2222-4222-8222-000000000002";
 
