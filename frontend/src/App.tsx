@@ -63,7 +63,7 @@ import { NotesPage } from "@/components/notes/notes-page"
 import { useNotesWaiting } from "@/lib/notes"
 import { ProfilePage } from "@/components/profile/profile-page"
 import { useMe } from "@/lib/profile"
-import { AllSpaces, Personal, cardInSpace, threadsSpace, useSpace } from "@/lib/spaces"
+import { AllSpaces, Personal, cardInSpace, convInSpace, threadsSpace, useSpace } from "@/lib/spaces"
 import { NotificationsPage } from "@/components/notifications-page"
 import { useNotifications, useUnreadNotifications } from "@/lib/notifications"
 import { go, Home, sameSection, sectionFromHash, type Section } from "@/lib/nav"
@@ -564,7 +564,10 @@ export function App() {
   // the bottom, and an open conversation is the whole screen, its own
   // header carrying Back.
   const narrow = useNarrow()
-  const talkWaiting = threadList.filter(needsYou).length + unreadDms(conversations)
+  // The badge counts what Talk lists in the picked space (card #461).
+  const talkWaiting =
+    threadList.filter(needsYou).length +
+    unreadDms(conversations.filter((c) => convInSpace(c, space)))
   const fullScreen = narrow && !open && section.kind === "talk" && !!section.id
 
   return (
@@ -677,6 +680,7 @@ export function App() {
             now={now}
             why={whyWaiting(roster.agents)}
             board={threadsSpace(space)}
+            space={space}
           />
         ) : section.kind === "notes" ? (
           <Scroll>

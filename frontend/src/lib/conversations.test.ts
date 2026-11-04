@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { agentsNowFor, fromPost, listed, unreadDms, type Conversation } from "./conversations"
+import { agentsNowFor, fromPost, listed, talkApi, unreadDms, type Conversation } from "./conversations"
 import { TalkConversation } from "./models"
 
 const conv = (p: Partial<Conversation>): Conversation => TalkConversation(p)
@@ -50,5 +50,21 @@ describe("Make a card from a message (design §4, card #390)", () => {
     const f = fromPost("x".repeat(200), "a DM")
     expect(f.title.length).toBe(80)
     expect(f.title.endsWith("…")).toBe(true)
+  })
+})
+
+describe("channels in a space (card #461)", () => {
+  // The sample runs outside the host; bun has no window.
+  const g = globalThis as unknown as { window?: unknown }
+  g.window ??= { location: { search: "" } }
+
+  test("the sample makes a channel in the space it's given, and in Personal with none", async () => {
+    const inMlg = await talkApi.createChannel("lobby", null, "sample-board-mlg")
+    const mine = await talkApi.createChannel("lobby", null)
+    expect(inMlg).not.toBe(mine)
+    const cs = await talkApi.conversations()
+    expect(cs.find((c) => c.convId === inMlg)?.spaceId).toBe("sample-board-mlg")
+    expect(cs.find((c) => c.convId === mine)?.spaceId).toBeUndefined()
+    expect(cs.some((c) => c.spaceId === "sample-board-mlg" && c.convId === "sample-ch-netcode")).toBe(true)
   })
 })

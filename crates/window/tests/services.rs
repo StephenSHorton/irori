@@ -783,6 +783,21 @@ fn talk_through_the_window() {
     check_shape(&src, "TalkConversation", &j(c));
     check_shape(&src, "TalkMember", &j(&c.members[0]));
     check_shape(&src, "TalkPost", &j(&posts[1]));
+
+    // A channel in a shared space carries its spaceId (card #461); a
+    // Personal one leaves it out.
+    let space = w.core.create_board("one", "one").unwrap();
+    let sc = w
+        .talk_channel_create("general", None, Some(&space))
+        .unwrap();
+    let cs = w.talk_conversations().unwrap();
+    let s = cs.iter().find(|c| c.conv_id == sc).expect("space channel");
+    assert_eq!(s.space_id, space);
+    let sj = j(s);
+    assert_eq!(sj["spaceId"], space.as_str());
+    check_shape(&src, "TalkConversation", &sj);
+    let pc = cs.iter().find(|c| c.conv_id == ch).unwrap();
+    assert!(j(pc).get("spaceId").is_none(), "Personal: no spaceId");
 }
 
 /// Card #417: Settings › Merge desks sets a repo's desk once, and the desk

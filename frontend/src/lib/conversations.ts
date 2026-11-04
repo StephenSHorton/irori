@@ -78,10 +78,12 @@ export const talkApi = {
     inWails() ? TalkService.LinkCard(postId, taskId) : Promise.resolve(sampleLink(postId, taskId)),
   read: (convId: string, upTo: string): Promise<void> =>
     inWails() ? TalkService.Read(convId, upTo) : Promise.resolve(sampleRead(convId)),
-  createChannel: (name: string, topic: string | null): Promise<string> =>
+  // createChannel makes a channel in a shared space (its id), or in
+  // Personal with none (card #461).
+  createChannel: (name: string, topic: string | null, spaceId: string | null = null): Promise<string> =>
     inWails()
-      ? TalkService.ChannelCreate(name, topic)
-      : Promise.resolve(sampleChannel(name, topic)),
+      ? TalkService.ChannelCreate(name, topic, spaceId)
+      : Promise.resolve(sampleChannel(name, topic, spaceId)),
   dm: (member: MemberRef): Promise<string> =>
     inWails() ? TalkService.Dm(member) : Promise.resolve(sampleDm(member)),
   join: (convId: string, member: MemberRef): Promise<void> =>
@@ -192,6 +194,18 @@ function sampleState(): SampleConv[] {
       1
     ),
     ch("sample-ch-irori", "irori", "Irori itself", [you, a(badger, "sample-badger")], []),
+    // A channel in the MLG space (card #461): ?space=sample-board-mlg shows it alone.
+    {
+      ...ch(
+        "sample-ch-netcode",
+        "netcode",
+        "Rollback and the lobby",
+        [you, a(otter, "sample-otter")],
+        [post("sample-ch-netcode", 1, otter, 60, "Rollback holds at 8 frames on the LAN test.")],
+        1
+      ),
+      spaceId: "sample-board-mlg",
+    },
     {
       ...TalkConversation({ convId: "sample-dm-heron", kind: "dm", name: "sample-heron", members: [you, a(heron, "sample-heron")] }),
       posts: [
@@ -304,11 +318,19 @@ function sampleRead(convId: string) {
   sampleChanged()
 }
 
-function sampleChannel(name: string, topic: string | null): string {
-  const id = `sample-ch-${name}`
+function sampleChannel(name: string, topic: string | null, spaceId: string | null = null): string {
+  // Names are per space (card #461), so the id carries the space.
+  const id = spaceId ? `sample-ch-${spaceId}-${name}` : `sample-ch-${name}`
   if (!sampleState().some((c) => c.convId === id)) {
     sampleState().push({
-      ...TalkConversation({ convId: id, kind: "channel", name, topic, members: [{ kind: "person", key: me, name: "you" }] }),
+      ...TalkConversation({
+        convId: id,
+        kind: "channel",
+        name,
+        topic,
+        members: [{ kind: "person", key: me, name: "you" }],
+        ...(spaceId ? { spaceId } : {}),
+      }),
       posts: [],
       readUpTo: "",
     })

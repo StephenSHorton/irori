@@ -70,6 +70,10 @@ pub struct Conversation {
     /// A thread's "Agents answer now" (card #391); false for a channel or
     /// DM, whose posts each carry their own.
     pub agents_now: bool,
+    /// The space a channel is in (card #461): a shared space's id (its
+    /// first board's), empty for Personal. DMs and threads are always empty:
+    /// DMs are you and your agents, and these threads are the private log's.
+    pub space_id: String,
 }
 
 /// What a post came to.
@@ -314,6 +318,7 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
                 .collect(),
             last_at: last_at(&ps),
             joined,
+            space_id: c.space_id.clone(),
             ..Conversation::default()
         });
     }

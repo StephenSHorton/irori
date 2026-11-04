@@ -1364,6 +1364,15 @@ fn a_second_board_and_a_channel_in_a_space_reach_bob() {
             .talk_conversations(&b1.user())
             .is_ok_and(|cs| cs.iter().any(|c| c.conv_id == ch.id && c.unread == 1))
     });
+    // Its row carries the space, so Bob's switcher files it there (#461).
+    let row = b1
+        .core
+        .talk_conversations(&b1.user())
+        .unwrap()
+        .into_iter()
+        .find(|c| c.conv_id == ch.id)
+        .unwrap();
+    assert_eq!(row.space_id, space);
     let theirs = b1.core.talk().channel(&ch.id).unwrap();
     assert_eq!(
         (theirs.space_id.as_str(), theirs.name.as_str()),

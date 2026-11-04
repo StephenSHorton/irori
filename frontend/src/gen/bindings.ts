@@ -1888,6 +1888,11 @@ export type TalkConversation = {
 	 *  text names.
 	 */
 	agentsNow: boolean,
+	/**
+	 *  The shared space a channel is in (card #461); absent for Personal,
+	 *  DMs and threads. Matches the switcher's space id (its first board's).
+	 */
+	spaceId?: string,
 };
 
 /**  One side of a conversation. */

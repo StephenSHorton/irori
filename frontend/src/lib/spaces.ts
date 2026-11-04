@@ -65,6 +65,16 @@ export function cardInSpace(c: CardSummary, space: string): boolean {
   return c.board === space
 }
 
+// convInSpace is whether a channel or DM shows in the picked space (card
+// #461): Personal's are your own channels and every DM, a shared space's
+// its own channels (DMs are you and your agents, so they stay Personal's,
+// as private cards do).
+export function convInSpace(c: { spaceId?: string }, space: string): boolean {
+  if (space === AllSpaces) return true
+  if (space === Personal) return !c.spaceId
+  return c.spaceId === space
+}
+
 // boardsInSpace is the Boards page in the picked space: every shared space
 // under All spaces, none under Personal, else that one.
 export function boardsInSpace(boards: BoardSummary[], space: string): BoardSummary[] {

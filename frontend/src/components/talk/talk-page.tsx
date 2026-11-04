@@ -30,6 +30,7 @@ import {
   type Conversation as Conv,
 } from "@/lib/conversations"
 import { AgentRef } from "@/lib/models"
+import { AllSpaces, convInSpace } from "@/lib/spaces"
 import { LiveRoster } from "@/lib/thread"
 import { parseTime, plainLine, relativeTime } from "@/lib/irori"
 import { useNarrow } from "@/lib/media"
@@ -88,6 +89,7 @@ export function TalkPage({
   now,
   why = "",
   board = "",
+  space = AllSpaces,
 }: {
   threads: ThreadSummary[]
   // Channels and DMs (Talk 1, #389).
@@ -101,8 +103,10 @@ export function TalkPage({
   // Why nobody is free to take a waiting thread (card #172).
   why?: string
   // The shared space the sidebar picked (card #393): new threads start
-  // there, beside the ones listed.
+  // there, beside the ones listed, and so do new channels.
   board?: string
+  // The picked space itself (card #461): the channels and DMs listed.
+  space?: string
 }) {
   const narrow = useNarrow()
   const [query, setQuery] = useState("")
@@ -114,8 +118,12 @@ export function TalkPage({
   const resolved = shown.filter((t) => t.state === "resolved")
   const showResolved = resolvedShown(showResolvedPick, open, threads) || !!query.trim()
   const current = threads.find((t) => t.id === open)
+  // The open one is looked up in all of them, so a link to another space's
+  // channel still opens; the list shows the picked space's (card #461).
   const conv = current ? undefined : conversations.find((c) => c.convId === open)
-  const { channels, dms } = listed(conversations.filter((c) => convMatches(c, query)))
+  const { channels, dms } = listed(
+    conversations.filter((c) => convInSpace(c, space) && convMatches(c, query))
+  )
   const [adding, setAdding] = useState<"" | "channel" | "dm">("")
   const liveRoster = useContext(LiveRoster)
   const sections = dmSections(dms, (c) => {
@@ -222,6 +230,7 @@ export function TalkPage({
         searching ? "No channel matches." : "No channels yet. Make one with +.",
         adding === "channel" ? (
           <NewChannel
+            space={board}
             onDone={(id) => {
               setAdding("")
               if (id) onOpen(id)
@@ -480,7 +489,8 @@ export function channelName(raw: string): string {
     .replace(/^-+|-+$/g, "")
 }
 
-function NewChannel({ onDone }: { onDone: (id: string) => void }) {
+// It goes in the picked shared space, else Personal (card #461).
+function NewChannel({ space, onDone }: { space: string; onDone: (id: string) => void }) {
   const [name, setName] = useState("")
   const [error, setError] = useState("")
   const clean = channelName(name)
@@ -491,7 +501,7 @@ function NewChannel({ onDone }: { onDone: (id: string) => void }) {
         e.preventDefault()
         if (!clean) return
         try {
-          onDone(await talkApi.createChannel(clean, null))
+          onDone(await talkApi.createChannel(clean, null, space || null))
         } catch (err) {
           setError(errorText(err))
         }

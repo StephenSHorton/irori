@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test"
 
-import { BoardSummary, CardSummary } from "./models"
+import { BoardSummary, CardSummary, TalkConversation } from "./models"
 import {
   AllSpaces,
   Personal,
   boardsInSpace,
   cardInSpace,
+  convInSpace,
   known,
   spacesOf,
   threadsSpace,
@@ -63,6 +64,18 @@ describe("spaces (card #393)", () => {
     expect(threadsSpace(AllSpaces)).toBe("")
     expect(threadsSpace(Personal)).toBe("")
     expect(threadsSpace("b-mlg")).toBe("b-mlg")
+  })
+
+  test("channels and DMs follow the pick", () => {
+    const mine = TalkConversation({ convId: "c1", kind: "channel" })
+    const onMlg = TalkConversation({ convId: "c2", kind: "channel", spaceId: "b-mlg" })
+    const dm = TalkConversation({ convId: "d1", kind: "dm" })
+    const all = [mine, onMlg, dm]
+    const ids = (space: string) => all.filter((c) => convInSpace(c, space)).map((c) => c.convId)
+    expect(ids(AllSpaces)).toEqual(["c1", "c2", "d1"])
+    expect(ids(Personal)).toEqual(["c1", "d1"])
+    expect(ids("b-mlg")).toEqual(["c2"])
+    expect(ids("b-iro")).toEqual([])
   })
 })
 

@@ -468,6 +468,51 @@ fn a_channel_name_resolves_in_its_space_only() {
     );
 }
 
+/// Each channel in the list carries its space (card #461), so the window's
+/// switcher can filter Talk: empty for Personal, the space's id otherwise;
+/// a DM and a thread are always Personal's.
+#[test]
+fn conversations_carry_their_space() {
+    let h = new_harness_setup(None, |b, _| {
+        let _ = b.shared.set(std::sync::Arc::new(TwoSpaces));
+        b.talk
+            .set_spaces(std::sync::Arc::new(SpaceRows(b.st.clone())));
+    });
+    let a = call_a();
+    let t = &h.b.talk;
+    let mine = t.create_channel(USER, "general", "").unwrap();
+    let mlg = t.create_channel_in(USER, "general", "", "sp_mlg").unwrap();
+    let wind = t.create_channel_in(USER, "general", "", "sp_wind").unwrap();
+    h.okj(&a, "talk_post", json!({"conv": "person", "text": "hello"}));
+    let dm = ct::dm_id(KEY_A, USER);
+    let (th, _) =
+        h.b.co
+            .post_ask(
+                USER,
+                coord::NewAsk {
+                    text: "why is the build slow?".into(),
+                    thread: true,
+                    ..Default::default()
+                },
+                &[],
+            )
+            .unwrap();
+
+    let cs = tools::talk::conversations(&*h.b, USER).unwrap();
+    let space = |id: &str| {
+        cs.iter()
+            .find(|x| x.conv_id == id)
+            .unwrap_or_else(|| panic!("{id} listed: {cs:?}"))
+            .space_id
+            .as_str()
+    };
+    assert_eq!(space(&mine.id), "");
+    assert_eq!(space(&mlg.id), "sp_mlg");
+    assert_eq!(space(&wind.id), "sp_wind");
+    assert_eq!(space(&dm), "");
+    assert_eq!(space(&th.id), "");
+}
+
 /// Two spaces, one tagged `personal` and one sharing its tag `art` with
 /// another board, as the tools see them (card #461).
 struct OddSpaces;
