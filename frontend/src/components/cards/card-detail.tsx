@@ -69,6 +69,7 @@ import {
   StartAgentOn,
 } from "@/lib/thread"
 import { endAgent } from "@/lib/agents"
+import { AskedAgain, blockerOutcome } from "@/lib/notifications"
 import { EarlierRound, SentBackSigns } from "./done-rounds"
 import { cn } from "@/lib/utils"
 import {
@@ -1665,7 +1666,9 @@ function BlockerItem({
   ) : null
 
   const by = r
-    ? r.closed
+    ? b.doneCheck && r.note === AskedAgain
+      ? blockerOutcome(b)
+      : r.closed
       ? `closed by ${name(r.by)}${r.answer ? `: “${gist(r.answer)}”` : ""}`
       : r.note
         ? `resolved by ${name(r.by)}: “${gist(r.note)}”`
