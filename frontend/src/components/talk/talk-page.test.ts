@@ -41,7 +41,8 @@ describe("Talk's count in the sidebar (card #390)", () => {
 })
 
 import { channelName, convMatches } from "./talk-page"
-import { dayLabel, mentionKinds, statusWord } from "./conversation"
+import { agentStatus } from "@/lib/agent-status"
+import { dayLabel, mentionKinds, statusOf } from "./conversation"
 import { TalkConversation } from "@/lib/models"
 
 describe("channels and DMs in Talk (card #390)", () => {
@@ -66,11 +67,21 @@ describe("channels and DMs in Talk (card #390)", () => {
     expect(dayLabel(new Date(2026, 10, 2, 23, 0), now)).toBe("Yesterday")
     expect(dayLabel(new Date(2026, 9, 30, 9, 0), now)).not.toMatch(/Today|Yesterday/)
   })
-  test("members read working, idle or gone", () => {
-    expect(statusWord("busy")).toBe("working")
-    expect(statusWord("idle")).toBe("idle")
-    expect(statusWord("person")).toBe("")
-    expect(statusWord("")).toBe("gone")
+  test("members read their status, gone when off the roster (card #489)", () => {
+    const say = (status: string) => agentStatus({ status }).text
+    const live = new Map([
+      ["d/oak", { status: "shell" }],
+      ["d/elm", { status: "unresponsive" }],
+      ["d/fir", { status: "starting" }],
+    ])
+    const agent = (key: string) => say(statusOf({ kind: "agent", key }, live))
+    expect(say("busy")).toBe("working")
+    expect(say("idle")).toBe("idle")
+    expect(say(statusOf({ kind: "person", key: "person:p1" }, live))).toBe("")
+    expect(agent("d/oak")).toBe("running a job")
+    expect(agent("d/elm")).toBe("not answering")
+    expect(agent("d/fir")).toBe("starting")
+    expect(agent("d/ash")).toBe("gone")
   })
   test("a person's key names a person, the rest are agents", () => {
     expect(mentionKinds([{ key: "person:p1", name: "Blake" }, { key: "dev/s1", name: "oak" }])).toEqual([

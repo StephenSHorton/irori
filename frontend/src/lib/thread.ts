@@ -14,6 +14,7 @@ import {
 
 import { createContext } from "react"
 
+import { agentStatus } from "./agent-status"
 import { parseTime } from "./irori"
 
 // FocusComment is the comment a notification opened the card at (card
@@ -234,6 +235,9 @@ export function heardLine(
 export type LiveAgent = {
   status: string
   updatedAt?: string
+  // When the current status began, and its device's state (card #489).
+  statusSince?: string
+  deviceState?: string
   lastTool?: string
   // Card #453: the person's "Offer it cards", and whether Irori started it.
   offersCards?: boolean
@@ -339,7 +343,10 @@ export function workingLine(
   if (running.length) {
     const who = names(running)
     const verb = running.length > 1 ? "are" : "is"
-    const doing = "running a background job"
+    // Card #489: the same words as the hover card, with how long one job
+    // has run ("running a job · 12 min").
+    const since = running.length === 1 ? live.get(running[0].key)?.statusSince : undefined
+    const doing = agentStatus({ status: RunningJobStatus }, since, now.getTime()).text
     return { text: `${who} ${verb} ${doing}…`, tone: "working", who, verb, doing }
   }
 

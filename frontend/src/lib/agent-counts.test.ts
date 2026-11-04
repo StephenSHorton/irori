@@ -57,7 +57,7 @@ describe("agentCounts (card #172)", () => {
 describe("whyWaiting (card #172)", () => {
   test("everyone working, some on their own commands", () => {
     expect(whyWaiting([a("busy"), a("shell"), a("shell")])).toBe(
-      "Nobody is free: 3 working (2 waiting on a command they started). The first agent with Offer it cards on to go idle answers it."
+      "Nobody is free: 3 working (2 running a job). The first agent with Offer it cards on to go idle answers it."
     )
   })
   test("idle but not answering", () => {

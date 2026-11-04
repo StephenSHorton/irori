@@ -678,6 +678,38 @@ fn test_agents_doing() {
     has_not(&h.ok(&call_c(), "agents", "{}"), &["doing:"]);
 }
 
+/// Card #489: an agent Irori spawned for a card reads as that card, in
+/// both agents and overview, though it's only assigned (not taken up).
+#[test]
+fn test_agents_doing_spawned() {
+    let r = with_capture(|_| {});
+    let id = r.new_card(&call_a(), json!({"title": "Fix the thing"}));
+    let g =
+        r.b.co
+            .request_spawn(
+                "irori",
+                coord::SpawnAsk {
+                    task_id: id.clone(),
+                    device: "dev1".into(),
+                    folder: r.dir.clone(),
+                    permission_mode: "bypassPermissions".into(),
+                    name: "for-1".into(),
+                    ..coord::SpawnAsk::default()
+                },
+            )
+            .unwrap()
+            .unwrap();
+    assert!(r.b.co.bind_spawn(&id, g, KEY_C).unwrap());
+    let want = format!(r#"doing: "on #1 Fix the thing" (task:{id})"#);
+    let out = r.ok(&call_c(), "agents", "{}");
+    has(&out, &[&want]);
+    has_not(&out, &[r#"doing: "<"#]);
+    has(
+        &r.ok(&call_a(), "overview", "{}"),
+        &[&format!(r#": "on #1 Fix the thing" (task:{id})"#)],
+    );
+}
+
 #[test]
 fn test_commits() {
     let r = with_capture(|_| {});

@@ -18,6 +18,7 @@ import { Popover, PopoverContent } from "@/components/ui/popover"
 import { Textarea } from "@/components/ui/textarea"
 import { RefDot } from "@/components/common/rich-text"
 import { cardStatus, deviceVar, useMentionCandidates, type RefStatus } from "@/lib/cards"
+import { agentStatus } from "@/lib/agent-status"
 import { plainLine } from "@/lib/irori"
 import {
   addMention,
@@ -521,19 +522,11 @@ function MentionRow({
         {gone
           ? "gone"
           : row.card
-            ? [plainLine(who.name), statusWord(who.status)].filter(Boolean).join(" · ")
-            : [statusWord(who.status), plainLine(place)].filter(Boolean).join(" · ")}
+            ? [plainLine(who.name), agentStatus(who).text].filter(Boolean).join(" · ")
+            : [agentStatus(who).text, plainLine(place)].filter(Boolean).join(" · ")}
       </span>
     </div>
   )
-}
-
-// statusWord is how an agent stands in the picker (card #390: the @ picker
-// shows each agent's status): working or idle.
-function statusWord(status: string): string {
-  if (status === "busy" || status === "working") return "working"
-  if (status === "idle") return "idle"
-  return ""
 }
 
 // endsMention is a character that ends a typed name: whitespace or

@@ -51,7 +51,8 @@ import {
   stateBadges,
   stateLine,
 } from "./threads"
-import { ConversationView, statusOf, statusWord } from "./conversation"
+import { agentStatus } from "@/lib/agent-status"
+import { ConversationView, memberStatus, statusOf } from "./conversation"
 
 // talkMatches is whether a thread fits the list's search: its title, what
 // was asked, its #ref, or the newest reply.
@@ -436,7 +437,7 @@ function ConvItem({ c, current, onClick }: { c: Conv; current: boolean; onClick:
       : c.readOnly
         ? "agents talking · read-only"
         : other[0]
-          ? statusWord(statusOf(other[0], live))
+          ? memberStatus(other[0], live)
           : ""
   return (
     <button
@@ -541,7 +542,7 @@ function NewDm({
         >
           <Face who={AgentRef({ key: a.key, name: a.name, status: a.status, live: true })} className="size-4" noHover />
           <span className="min-w-0 flex-1 truncate">{plainLine(a.name)}</span>
-          <span className="shrink-0 text-[11px] text-muted-foreground">{statusWord(a.status)}</span>
+          <span className="shrink-0 text-[11px] text-muted-foreground">{agentStatus(a).text}</span>
         </button>
       ))}
       {error && <span className="px-2 text-[11px] text-destructive">{error}</span>}

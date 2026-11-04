@@ -3,8 +3,8 @@ import { describe, expect, test } from "bun:test"
 import { AgentRef, CardAsk, CardHolder, CardSummary } from "./models"
 import { cardMatches, matching, queryWords } from "./search"
 
-const heron = AgentRef({ key: "dev/heron-key", name: "sample-heron", status: "busy", live: true, where: "This PC" })
-const wren = AgentRef({ key: "dev/wren-key", name: "sample-wren", status: "idle", live: true, where: "This PC" })
+const heron = AgentRef({ key: "dev/heron-key", name: "sample-heron", status: "busy", live: true, where: "Macbook Pro (this one)", here: true })
+const wren = AgentRef({ key: "dev/wren-key", name: "sample-wren", status: "idle", live: true, where: "Macbook Pro (this one)", here: true })
 
 const card = CardSummary({
   id: "a",

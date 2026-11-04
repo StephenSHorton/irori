@@ -87,7 +87,7 @@ export function rowState(
   if (job.length)
     return {
       state: "working",
-      line: `${job.map(displayName).slice(0, 2).join(", ")} running a background job`,
+      line: `${job.map(displayName).slice(0, 2).join(", ")} running a job`,
     }
   if (!c.working.length || c.holder.state === Holding.HoldNobody) {
     // Card #448: an agent Irori is starting, a device at its cap, or why

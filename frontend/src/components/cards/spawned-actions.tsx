@@ -29,9 +29,10 @@ import { inWails, plainLine } from "@/lib/irori"
 import { errorText, talk } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
-// here says the agent runs on this device, where Attach, Logs and End work.
+// here says the agent runs on this device, where Attach, Logs and End work;
+// `where` is only for reading (card #489).
 export function spawnedHere(who: AgentRef): boolean {
-  return who.where === "This PC"
+  return !!who.here
 }
 
 export function SpawnedActions({

@@ -5,7 +5,7 @@ import { TaskState } from "./models"
 import { refStatus, askLine, busy, namesLine, withLive, workingNow, sampleCardRef, cardFromHash, cardHash, openTarget, deviceChips, deviceVar, holderLineShows, Holding, nobodyOn, openAsk, overLabel, workLabel } from "./cards"
 
 const agent = (status: string, more: Partial<AgentRef> = {}) =>
-  AgentRef({ key: "d/s", name: "a", status, live: status !== "gone", where: "This PC", ...more })
+  AgentRef({ key: "d/s", name: "a", status, live: status !== "gone", where: "Macbook Pro (this one)", here: true, ...more })
 
 const card = (state: TaskState, working: AgentRef[], openBlockers = 0) => ({
   state,
@@ -150,13 +150,13 @@ describe("gone holders (card #16)", () => {
 })
 
 describe("device colours (card #22)", () => {
-  const pc = agent("busy", { deviceId: "pc", where: "This PC", color: "teal" })
-  const mac = agent("idle", { key: "mac/s", deviceId: "mac", where: "MacBook", color: "orange" })
+  const pc = agent("busy", { deviceId: "pc", where: "Macbook Pro (this one)", color: "teal" })
+  const mac = agent("idle", { key: "mac/s", deviceId: "mac", where: "Desktop Computer", here: false, color: "orange" })
   test("a chip per device the cards' agents run on, once there are two", () => {
     expect(deviceChips([{ working: [pc] }, { working: [pc] }])).toEqual([])
     expect(deviceChips([{ working: [pc] }, { working: [mac, pc] }])).toEqual([
-      { id: "mac", name: "MacBook", color: "orange" },
-      { id: "pc", name: "This PC", color: "teal" },
+      { id: "mac", name: "Desktop Computer", color: "orange" },
+      { id: "pc", name: "Macbook Pro (this one)", color: "teal" },
     ])
   })
   test("faces with no colour (one device) give no chips", () => {

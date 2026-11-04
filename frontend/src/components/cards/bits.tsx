@@ -1,3 +1,4 @@
+import { useContext } from "react"
 import { UserIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -19,7 +20,9 @@ import {
   type CardHolder,
   type CardSummary,
 } from "@/lib/cards"
+import { agentStatus } from "@/lib/agent-status"
 import { plainLine } from "@/lib/irori"
+import { LiveRoster } from "@/lib/thread"
 import { cardOwner, type OwnerCard } from "@/lib/owners"
 
 // Tone is a card's status colour, shared by its state chip and its progress
@@ -204,8 +207,10 @@ export function StatePill({ card }: { card: CardSummary }) {
 }
 
 // holderText is the holder line's words: who holds the card and what that
-// agent is up to, or who it waits for.
-export function holderText(h: CardHolder): string {
+// agent is up to, or who it waits for. An active, idle or silent holder
+// reads its status as everywhere else (card #489): "· running a job · 12
+// min" for a shell, not "· active"; since is when that status began.
+export function holderText(h: CardHolder, since?: string): string {
   const who = h.who.key ? displayName(h.who) : ""
   const more = h.others > 0 ? ` (+${h.others} more)` : ""
   switch (h.state) {
@@ -218,11 +223,10 @@ export function holderText(h: CardHolder): string {
     case Holding.HoldAssigned:
       return `Offered to ${who}${more}, not taken up yet`
     case Holding.HoldActive:
-      return `${who}${more} · active`
     case Holding.HoldIdle:
-      return `${who}${more} · idle`
     case Holding.HoldSilent:
-      return `${who}${more} · isn't answering`
+      // The state already weighed gone and offline; say the status.
+      return `${who}${more} · ${agentStatus({ status: h.who.status }, since).text}`
     case Holding.HoldOffline:
       return `${who}${more} · its device is offline`
     case Holding.HoldGone:
@@ -248,6 +252,7 @@ export function HolderLine({
   className?: string
 }) {
   const finished = holder.state === Holding.HoldGone && !!holder.who.spawned
+  const since = useContext(LiveRoster).get(holder.who.key)?.statusSince
   const warn =
     (!!returned && !returned.spawned) ||
     holder.state === Holding.HoldWaiting ||
@@ -273,7 +278,7 @@ export function HolderLine({
           ? returned.spawned
             ? `Nobody on it: ${displayName(returned)} finished`
             : `Nobody on it: ${displayName(returned)} went away`
-          : holderText(holder)}
+          : holderText(holder, since)}
       </span>
     </span>
   )

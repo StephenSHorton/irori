@@ -1,5 +1,6 @@
 import { faceColor, Identicon } from "@/components/cards/faces"
 import { AgentRef } from "@/gen/models"
+import { agentStatus } from "@/lib/agent-status"
 import { deviceVar } from "@/lib/cards"
 import { useDevices } from "@/lib/devices"
 import type { OnCard } from "@/lib/roster-groups"
@@ -13,6 +14,8 @@ export type RosterAgent = {
   status: string
   deviceId: string
   deviceState?: string | null
+  // When its status began (card #489).
+  statusSince?: string
 }
 
 // AgentStrip is the sidebar's row of agent faces (card #407): who is
@@ -38,7 +41,7 @@ export function AgentStrip({ agents }: { agents: RosterAgent[] }) {
         return (
           <span
             key={a.key}
-            title={`${a.name}: ${a.status === "busy" ? "working" : a.status}`}
+            title={`${a.name}: ${agentStatus(a, a.statusSince).text}`}
           >
             <span
               className="block size-7"

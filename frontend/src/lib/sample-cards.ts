@@ -36,7 +36,9 @@ function agent(session: string, name: string, status: string): AgentRef {
     name,
     status,
     live: status !== "gone",
-    where: "This PC",
+    // This device by its own name, and here (card #489).
+    where: "Macbook Pro (this one)",
+    here: true,
     deviceId: dev,
     color: "teal",
   })
@@ -50,13 +52,14 @@ export const sampleAgents = {
   // (Claude Code's "shell", card #431). Not in the sample roster, so the
   // card keeps this status.
   mink: agent("sample05-synthetic-session", "sample-mink", "shell"),
-  // sample-wren is on the sample's paired MacBook, which is offline, so its
+  // sample-wren is on the sample's paired Desktop Computer, which is offline, so its
   // face shows the device chip greyed.
   wren: AgentRef({
     ...agent("sample04-synthetic-session", "sample-wren", "idle"),
     key: "sample-macbook/sample04-synthetic-session",
-    where: "MacBook",
-    device: "MacBook",
+    where: "Desktop Computer",
+    here: false,
+    device: "Desktop Computer",
     deviceId: "sample-macbook",
     color: "orange",
     offline: true,
@@ -70,7 +73,8 @@ export const sampleYou = AgentRef({
   name: "You",
   status: "person",
   live: true,
-  where: "This PC",
+  where: "Macbook Pro (this one)",
+  here: true,
   deviceId: dev,
   color: "teal",
 })
@@ -105,11 +109,13 @@ export function sampleHolder(working: AgentRef[]): CardHolder {
           ? Holding.HoldAssigned
           : who.status === "gone"
             ? Holding.HoldGone
-            : who.offline
-              ? Holding.HoldOffline
-              : who.status === "idle"
-                ? Holding.HoldIdle
-                : Holding.HoldActive
+            : who.status === "unresponsive"
+              ? Holding.HoldSilent
+              : who.offline
+                ? Holding.HoldOffline
+                : who.status === "idle"
+                  ? Holding.HoldIdle
+                  : Holding.HoldActive
   return CardHolder({ who, state, others: working.length - 1 })
 }
 
@@ -255,7 +261,7 @@ export function sampleCards(now: Date): CardDetail[] {
   })
 
   // Card #431: held, its holder between turns with a background job
-  // running (Home: "sample-mink running a background job").
+  // running (Home: "sample-mink running a job").
   const runningJob = card({
     id: "sample-card-job",
     short: "54",
@@ -323,7 +329,7 @@ export function sampleCards(now: Date): CardDetail[] {
             goal: "Starting an agent.",
             state: TaskState.Submitted,
             working: [],
-            starting: "This PC",
+            starting: "Macbook Pro (this one)",
             updatedAt: at(1),
           }),
           card({
@@ -333,7 +339,7 @@ export function sampleCards(now: Date): CardDetail[] {
             goal: "Waiting for a slot.",
             state: TaskState.Submitted,
             working: [],
-            atCap: "This PC",
+            atCap: "Macbook Pro (this one)",
             updatedAt: at(1),
           }),
           // Card #456 (sa-7): Irori's own decisions on spawned cards.
@@ -467,7 +473,7 @@ export function sampleCards(now: Date): CardDetail[] {
       ask: CardAsk({
         state: "open",
         told: 3,
-        owner: "This PC",
+        owner: "Macbook Pro (this one)",
         wake: false,
         taker: null,
         outcome: null,
@@ -507,7 +513,7 @@ export function sampleCards(now: Date): CardDetail[] {
       ask: CardAsk({
         state: "taken",
         told: 3,
-        owner: "This PC",
+        owner: "Macbook Pro (this one)",
         wake: false,
         taker: heron,
         outcome: null,
@@ -710,7 +716,8 @@ export function sampleCards(now: Date): CardDetail[] {
               name: "Irori",
               status: "irori",
               live: true,
-              where: "This PC",
+              where: "Macbook Pro (this one)",
+              here: true,
             }),
             at: at(110),
             closed: true,
@@ -872,7 +879,7 @@ export function sampleCards(now: Date): CardDetail[] {
       ],
       // The thread: what happened, the person's and agents' comments, and
       // messages about the card between agents, one from the paired
-      // MacBook, one whose recipient had ended and one the policy held.
+      // Desktop Computer, one whose recipient had ended and one the policy held.
       // This card opens first, so a plain-browser run shows them.
       thread: [
         CardThreadItem({
@@ -887,7 +894,7 @@ export function sampleCards(now: Date): CardDetail[] {
           kind: "event",
           at: at(64),
           who: wren,
-          device: "MacBook",
+          device: "Desktop Computer",
           text: "sample-wren joined",
         }),
         CardThreadItem({
@@ -895,7 +902,7 @@ export function sampleCards(now: Date): CardDetail[] {
           kind: "comment",
           at: at(50),
           who: sampleYou,
-          text: "Test the join with the MacBook as the second machine.",
+          text: "Test the join with the Desktop Computer as the second machine.",
           pending: ["sample-badger read it"],
         }),
         CardThreadItem({
@@ -904,8 +911,8 @@ export function sampleCards(now: Date): CardDetail[] {
           at: at(34),
           who: wren,
           to: heron,
-          device: "MacBook",
-          text: "Lobby join works from the MacBook build.\nAnimals spawn, but their positions lag by about a second; the capture is attached.",
+          device: "Desktop Computer",
+          text: "Lobby join works from the Desktop Computer build.\nAnimals spawn, but their positions lag by about a second; the capture is attached.",
           files: 1,
         }),
         CardThreadItem({
@@ -929,7 +936,7 @@ export function sampleCards(now: Date): CardDetail[] {
           kind: "comment",
           at: at(14),
           who: wren,
-          device: "MacBook",
+          device: "Desktop Computer",
           text: "The lag goes away with a 20 Hz sync tick. Pushed to the PR.",
         }),
         // The person asks a busy agent (card #159): it hears it when its
@@ -971,7 +978,7 @@ export function sampleCards(now: Date): CardDetail[] {
           kind: "event",
           at: at(6),
           who: wren,
-          device: "MacBook",
+          device: "Desktop Computer",
           text: "sample-wren linked GitHub #88",
         }),
         CardThreadItem({
@@ -1102,7 +1109,7 @@ export function sampleCards(now: Date): CardDetail[] {
       // step is done (card #86).
       working: [otter, AgentRef({ ...heron, steps: ["s3"] })],
       watching: [badger],
-      // sample-otter and sample-wren (on the MacBook) are messaging each
+      // sample-otter and sample-wren (on the Desktop Computer) are messaging each
       // other about it: the tile's talk bubble (card #22).
       talking: [otter, wren],
       updatedAt: at(3),
@@ -1543,7 +1550,7 @@ export function sampleCards(now: Date): CardDetail[] {
       ask: CardAsk({
         state: "closed",
         told: 3,
-        owner: "This PC",
+        owner: "Macbook Pro (this one)",
         wake: false,
         taker: otter,
         outcome: {

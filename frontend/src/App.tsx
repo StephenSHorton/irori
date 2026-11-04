@@ -122,6 +122,10 @@ export function App() {
           {
             status: a.status,
             updatedAt: a.updatedAt,
+            // When its status began, for "running a job · 12 min", and its
+            // device's state, for "device offline" (card #489).
+            statusSince: a.statusSince,
+            deviceState: a.deviceState,
             lastTool: a.lastTool,
             offersCards: a.offersCards,
             spawned: a.spawned,

@@ -36,6 +36,7 @@ import { SettingsMenu } from "@/components/settings/settings-menu"
 import { SpaceSwitcher } from "@/components/space-switcher"
 import { Badge } from "@/components/ui/badge"
 import { agentCounts } from "@/lib/agent-counts"
+import { agentStatus } from "@/lib/agent-status"
 import { rosterGroups } from "@/lib/roster-groups"
 import { AgentStrip, OnCards } from "@/components/cards/agent-strip"
 import { CheckSlots } from "@/components/cards/check-slots"
@@ -233,9 +234,13 @@ export function AppSidebar({
   // agent is never handed a second card.
   const groups = rosterGroups(agents, cards)
   const n = agentCounts(groups.yours)
-  const onCardLine = (cardId: string, a: { key: string; status: string }) => {
+  const onCardLine = (
+    cardId: string,
+    a: { key: string; status: string; deviceState?: string | null; statusSince?: string }
+  ) => {
     const w = cards.find((c) => c.id === cardId)?.working.find((r) => r.key === a.key)
-    const doing = a.status === "busy" ? "working" : a.status
+    // The same words as everywhere else (card #489).
+    const doing = agentStatus(a, a.statusSince).text
     return [w?.where, doing].filter(Boolean).join(" · ")
   }
   const pinnedBoards = boardsInSpace(boards, space)
@@ -468,7 +473,7 @@ export function AppSidebar({
               groups.starting > 0 && `${groups.starting} cards starting an agent`,
               groups.atCap > 0 && `${groups.atCap} cards waiting for a device to have a slot`,
               `${n.total} of yours`,
-              `${n.working} working${n.running ? ` (${n.running} waiting on a command they started)` : ""}`,
+              `${n.working} working${n.running ? ` (${n.running} running a job)` : ""}`,
               `${n.free} free: idle with Offer it cards on, so a thread or card can go to them`,
               n.ownWork && `${n.ownWork} idle, working only on what you give them`,
               n.silent && `${n.silent} idle but not answering`,

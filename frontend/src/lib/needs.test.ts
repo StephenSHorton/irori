@@ -66,7 +66,8 @@ describe("idle with no reason given", () => {
     name: "orca",
     status: "idle",
     live: true,
-    where: "This PC",
+    where: "Macbook Pro (this one)",
+    here: true,
     idleSince: "2026-11-02T10:05:00Z",
     ...w,
   })
@@ -111,7 +112,8 @@ describe("a holder running a background job", () => {
     name: "wonton",
     status: "shell",
     live: true,
-    where: "This PC",
+    where: "Macbook Pro (this one)",
+    here: true,
     idleSince: "2026-11-02T10:05:00Z",
     ...w,
   })
@@ -123,10 +125,10 @@ describe("a holder running a background job", () => {
     })
   const late = Date.parse("2026-11-02T11:00:00Z")
 
-  test("shell: running a background job, even long after the turn ended", () => {
+  test("shell: running a job, even long after the turn ended", () => {
     expect(rowState(held(), late)).toEqual({
       state: "working",
-      line: "wonton running a background job",
+      line: "wonton running a job",
     })
   })
   test("idle: still not working on it now", () => {
@@ -160,7 +162,7 @@ describe("rowState", () => {
     expect(rowState(card({})).state).toBe("waiting")
   })
   test("Agent progress and the card page agree, by the live roster (card #317)", () => {
-    const oak = { key: "d/oak", name: "oak", status: "idle", live: true, where: "This PC" } as AgentRef
+    const oak = { key: "d/oak", name: "oak", status: "idle", live: true, where: "Macbook Pro (this one)", here: true } as AgentRef
     const c = card({
       working: [oak],
       holder: { state: "one", who: { key: "d/oak", name: "oak" }, others: 0 } as CardSummary["holder"],

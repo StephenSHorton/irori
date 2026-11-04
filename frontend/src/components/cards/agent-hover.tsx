@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { setAgentOffer } from "@/lib/agents"
+import { agentStatus } from "@/lib/agent-status"
 import { plainLine } from "@/lib/irori"
 import { useMedia } from "@/lib/media"
 import { errorText, talk } from "@/lib/talk"
@@ -127,17 +128,8 @@ function AgentSummary({
   const spawned = !!spawnedFor || !!live?.spawned
   const tint = deviceVar(who.color)
   const device = who.device || who.where
-  const state = gone
-    ? "gone"
-    : who.offline
-      ? "device offline"
-      : !who.live
-        ? "not running"
-        : who.status === "unresponsive"
-          ? "isn't answering"
-          : who.status === "busy"
-          ? "working"
-          : "idle"
+  // One wording for every status (card #489), with how long a job has run.
+  const state = agentStatus(who, live?.statusSince)
   return (
     <>
       <div className="flex min-w-0 items-center gap-3">
@@ -155,14 +147,14 @@ function AgentSummary({
           <span className="truncate font-medium">{displayName(who)}</span>
           <span
             className={
-              gone || who.offline || !who.live
+              state.tone === "muted"
                 ? "shrink-0 text-xs text-muted-foreground"
-                : who.status === "unresponsive"
+                : state.tone === "warn"
                 ? "shrink-0 text-xs text-warning"
                 : "shrink-0 text-xs text-success"
             }
           >
-            {state}
+            {state.text}
           </span>
         </div>
         {device && (

@@ -32,7 +32,7 @@ export type AgentCounts = {
   total: number
   // Busy, or waiting on their own command ("shell"), or any other status.
   working: number
-  // Of working: the ones waiting on a command they started.
+  // Of working: the ones running a job ("shell"), card #489.
   running: number
   // Idle on an online device with "Offer it cards" on: who a thread or
   // ask goes to.
@@ -99,7 +99,7 @@ export function whyWaiting(agents: Agent[], repoKey = ""): string {
   if (c.working > 0)
     parts.push(
       c.running > 0
-        ? `${c.working} working (${c.running} waiting on a command they started)`
+        ? `${c.working} working (${c.running} running a job)`
         : `${c.working} working`
     )
   if (c.ownWork > 0) parts.push(`${c.ownWork} idle, not taking offered work`)

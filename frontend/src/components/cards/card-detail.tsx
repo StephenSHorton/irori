@@ -69,6 +69,7 @@ import {
   StartAgentOn,
 } from "@/lib/thread"
 import { SpawnedActions } from "@/components/cards/spawned-actions"
+import { agentStatus } from "@/lib/agent-status"
 import { cn } from "@/lib/utils"
 import {
   AskLine,
@@ -533,12 +534,19 @@ export function CardPage({
 // Motion), by the same busy rule as Home, so the two never disagree.
 // Nothing while nobody is.
 function WorkingRow({ card }: { card: CardSummary }) {
+  const live = useContext(LiveRoster)
   const busyNow = workingNow(card)
   // Card #431: between turns, but a background job it started still runs.
   const who = busyNow.length ? busyNow : runningJobNow(card)
   if (!who.length) return null
   const names = namesLine(who.map(displayName))
-  const doing = busyNow.length ? "working on this card now" : "running a background job"
+  // Card #489: a job reads as on the hover card, with how long one has run.
+  const doing = busyNow.length
+    ? "working on this card now"
+    : agentStatus(
+        { status: "shell" },
+        who.length === 1 ? live.get(who[0].key)?.statusSince : undefined
+      ).text
   return (
     <p
       role="status"
@@ -2099,8 +2107,10 @@ function WaitRow({ wait }: { wait: CardWait }) {
 
 // PersonStatus is a holder's word in Who's on it, by the card's spinner
 // rule: "working" with its live dot only while the card spins for this
-// agent; nothing once the card is over; else "on it".
+// agent; nothing once the card is over; else its status as everywhere else
+// (card #489: "running a job", "not answering"), or "on it".
 function PersonStatus({ card, who }: { card: CardDetail; who: AgentRef }) {
+  const since = useContext(LiveRoster).get(who.key)?.statusSince
   if (busy(card) && agentBusy(who))
     return (
       <>
@@ -2109,7 +2119,7 @@ function PersonStatus({ card, who }: { card: CardDetail; who: AgentRef }) {
       </>
     )
   if (over(card)) return null
-  return <span>on it</span>
+  return <span>{agentStatus(who, since).text || "on it"}</span>
 }
 
 // Revive runs claude --bg --resume for a gone agent's session after a

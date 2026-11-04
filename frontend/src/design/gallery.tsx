@@ -71,23 +71,23 @@ function readParams() {
 const agents = [
   {
     name: "sample-otter",
-    device: "This PC",
+    device: "Macbook Pro (this one)",
     card: "#1 Ship example-app v0.6.0",
     state: "on it",
   },
   {
     name: "sample-heron",
-    device: "This PC",
+    device: "Macbook Pro (this one)",
     card: "#8 Release notes",
     state: "working",
   },
   {
     name: "sample-wren",
-    device: "MacBook",
+    device: "Desktop Computer",
     card: "#9 Announcement",
     state: "offline",
   },
-  { name: "sample-lark", device: "MacBook", card: "—", state: "free" },
+  { name: "sample-lark", device: "Desktop Computer", card: "—", state: "free" },
 ]
 
 export default function Gallery() {

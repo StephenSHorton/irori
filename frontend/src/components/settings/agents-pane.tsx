@@ -7,7 +7,7 @@
 // agent's tool can. Caps, the daily limit and today's count and cost wait
 // on part 6 (card #450); agents per card on part 7 (card #451).
 
-import { useId, useState } from "react"
+import { useContext, useId, useState } from "react"
 import { FolderIcon, ShieldAlertIcon, ShieldCheckIcon } from "lucide-react"
 
 import { ChoiceSelect } from "@/components/common/choice-select"
@@ -28,6 +28,8 @@ import {
 } from "@/lib/agents"
 import { ConfirmButton } from "@/components/common/confirm-button"
 import { SpawnedActions } from "@/components/cards/spawned-actions"
+import { agentStatus } from "@/lib/agent-status"
+import { LiveRoster } from "@/lib/thread"
 import { AgentRef } from "@/lib/models"
 
 export function AgentsPane({ open }: { open: boolean }) {
@@ -168,6 +170,10 @@ function RunningRow({
 }) {
   const [ending, setEnding] = useState(false)
   const starting = r.status === "starting"
+  // The same words as everywhere else (card #489); the live roster knows
+  // when a job began.
+  const since = useContext(LiveRoster).get(r.key)?.statusSince
+  const state = agentStatus(r, since, now)
   return (
     <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-[13px]">
       <span className="grid min-w-0 gap-0.5">
@@ -176,10 +182,18 @@ function RunningRow({
             {starting ? "Starting…" : r.name}
           </span>
           <Badge
-            variant={starting ? "info" : r.status === "busy" ? "success" : "slate"}
+            variant={
+              state.tone === "muted"
+                ? "info"
+                : state.tone === "working" || state.tone === "job"
+                  ? "success"
+                  : state.tone === "warn"
+                    ? "warning"
+                    : "slate"
+            }
             className="h-4 px-1.5 text-[10.5px]"
           >
-            {starting ? "starting" : r.status === "busy" ? "working" : r.status}
+            {state.text}
           </Badge>
         </span>
         <span className="truncate text-xs text-muted-foreground">
@@ -194,7 +208,7 @@ function RunningRow({
       ) : starting ? null : r.here ? (
         <span className="flex items-center gap-1.5">
           <SpawnedActions
-            who={AgentRef({ key: r.key, name: r.name, status: r.status, live: true, where: "This PC" })}
+            who={AgentRef({ key: r.key, name: r.name, status: r.status, live: true, where: r.device, here: true })}
             cardId={r.cardId}
             only={["logs"]}
           />

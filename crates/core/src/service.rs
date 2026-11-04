@@ -509,6 +509,7 @@ fn presence_card(c: AgentCard) -> presence::AgentCard {
         device_state: c.device_state,
         waiting_for: c.waiting_for,
         device_seen: c.device_seen,
+        status_since: c.status_since,
     }
 }
 
@@ -543,6 +544,7 @@ fn roster_card(c: presence::AgentCard) -> AgentCard {
         device_state: c.device_state,
         waiting_for: c.waiting_for,
         device_seen: c.device_seen,
+        status_since: c.status_since,
     }
 }
 

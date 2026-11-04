@@ -230,7 +230,7 @@ function sampleRunning(): RunningAgent[] {
     cardId: "",
     cardShort: "",
     cardTitle: "",
-    device: "This PC",
+    device: "Macbook Pro (this one)",
     here: true,
     model: "sonnet",
     effort: "medium",
@@ -241,7 +241,7 @@ function sampleRunning(): RunningAgent[] {
     row({ status: "starting", cardId: "c65", cardShort: "#65", cardTitle: "Explain the cache eviction in the README", startedAt: now - 20_000 }),
     row({ key: "dev/heron", name: "heron", cardId: "c64", cardShort: "#64", cardTitle: "Retry the upload on a dropped connection", startedAt: now - 6 * 60_000 }),
     row({ key: "dev/finch", name: "finch", status: "idle", cardId: "c61", cardShort: "#61", cardTitle: "Bump the icon set", model: "opus", effort: "high", startedAt: now - 25 * 60_000 }),
-    row({ key: "pc/wren", name: "wren", cardId: "c58", cardShort: "#58", cardTitle: "Port the build script to Windows", device: "PC", here: false, startedAt: now - 40 * 60_000 }),
+    row({ key: "pc/wren", name: "wren", cardId: "c58", cardShort: "#58", cardTitle: "Port the build script to Windows", device: "Desktop Computer", here: false, startedAt: now - 40 * 60_000 }),
   ]
 }
 

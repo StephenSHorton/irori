@@ -38,22 +38,22 @@ import { composing, type Mention } from "@/lib/mentions"
 import { useAgentsNow } from "@/lib/agents-now"
 import { parseTime, plainLine } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
-import { LiveRoster } from "@/lib/thread"
+import { agentStatus } from "@/lib/agent-status"
+import { LiveRoster, type LiveAgent } from "@/lib/thread"
 import { cn } from "@/lib/utils"
 
 // statusOf is a member's status now: "person", the live roster's for an
-// agent, else "gone".
+// agent, else "gone"; agentStatus says it (card #489).
 export function statusOf(m: Member, live: ReadonlyMap<string, { status: string }>): string {
   if (m.kind === "person") return "person"
   return live.get(m.key)?.status ?? "gone"
 }
 
-// statusWord says a status in the members list.
-export function statusWord(status: string): string {
-  if (status === "busy" || status === "working") return "working"
-  if (status === "idle") return "idle"
-  if (status === "person") return ""
-  return "gone"
+// memberStatus is how a member stands in words, with its device's state
+// and how long its job has run, as its hover card says it (card #489).
+export function memberStatus(m: Member, live: ReadonlyMap<string, LiveAgent>): string {
+  const a = m.kind === "person" ? undefined : live.get(m.key)
+  return agentStatus({ status: statusOf(m, live), deviceState: a?.deviceState }, a?.statusSince).text
 }
 
 // dayLabel is the line between days: Today, Yesterday, or the date.
@@ -124,7 +124,7 @@ export function ConversationView({
         <span className="truncate">{plainLine(other[0]?.name ?? conv.name)}</span>
         {other[0] && (
           <span className="shrink-0 text-[12px] font-normal text-muted-foreground">
-            {statusWord(statusOf(other[0], live))}
+            {memberStatus(other[0], live)}
           </span>
         )}
       </>
@@ -233,13 +233,15 @@ export function ConversationView({
 }
 
 // refOf is a member as a face needs it, with its live status.
-function refOf(m: Member, live: ReadonlyMap<string, { status: string }>) {
+function refOf(m: Member, live: ReadonlyMap<string, LiveAgent>) {
   const status = statusOf(m, live)
   return AgentRef({
     key: m.key,
     name: m.kind === "person" ? (m.name === "you" ? "You" : (m.name ?? "")) : (m.name ?? m.key),
     status,
     live: status !== "gone",
+    // Its face's title says "device offline" as the hover does (card #489).
+    offline: m.kind !== "person" && live.get(m.key)?.deviceState === "offline",
   })
 }
 
@@ -264,7 +266,7 @@ function PostRow({
   post: Post
   who?: Member
   names: ReadonlyMap<string, Member>
-  live: ReadonlyMap<string, { status: string }>
+  live: ReadonlyMap<string, LiveAgent>
   // Make a card from it; left out where the person can't post.
   onMakeCard?: () => void
   // The channel it's in: a channel message can start a thread (design b2).
@@ -468,7 +470,7 @@ function Members({
   wide = false,
 }: {
   members: Member[]
-  live: ReadonlyMap<string, { status: string }>
+  live: ReadonlyMap<string, LiveAgent>
   // A phone: the whole page under the header, in place of the posts.
   wide?: boolean
 }) {
@@ -497,7 +499,7 @@ function Members({
               <span className={cn("min-w-0 truncate text-ink-2", gone && "text-muted-foreground line-through")}>
                 {m.kind === "person" && m.name === "you" ? "You" : plainLine(m.name ?? m.key)}
               </span>
-              <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">{statusWord(status)}</span>
+              <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">{memberStatus(m, live)}</span>
             </li>
           )
         })}

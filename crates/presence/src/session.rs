@@ -32,6 +32,10 @@ pub struct Session {
     pub proc_start: u64,
     pub started_at: GoTime,
     pub updated_at: GoTime,
+    /// When the current status began: `statusUpdatedAt`, else `updatedAt`
+    /// when that is absent (card #489). `updated_at` takes the later of
+    /// the two, so a rename moves it; this one moves only with status.
+    pub status_since: GoTime,
 }
 
 /// Go `isSessionFile`: `<digits>.json`. The `<pid>.<hash>.key` files next
@@ -130,6 +134,12 @@ pub fn read_session(r: impl Read) -> Option<Session> {
     }
     let updated = num(m.get("updatedAt")).max(num(m.get("statusUpdatedAt")));
     s.updated_at = unix_milli(updated);
+    let since = num(m.get("statusUpdatedAt"));
+    s.status_since = unix_milli(if since > 0.0 {
+        since
+    } else {
+        num(m.get("updatedAt"))
+    });
     if s.pid <= 0 || s.id.is_empty() {
         return None;
     }

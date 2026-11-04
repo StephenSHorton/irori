@@ -56,7 +56,7 @@ describe("rosterGroups", () => {
   test("counts cards starting an agent and cards at the cap", () => {
     const g = rosterGroups(
       [],
-      [card("64", [], { starting: "This PC" }), card("67", [], { atCap: "This PC" })]
+      [card("64", [], { starting: "Macbook Pro (this one)" }), card("67", [], { atCap: "Macbook Pro (this one)" })]
     )
     expect([g.starting, g.atCap]).toEqual([1, 1])
   })
