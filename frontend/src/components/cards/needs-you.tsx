@@ -22,8 +22,11 @@ import {
 import { inWails, plainLine, relativeTime } from "@/lib/irori"
 import { AgentsService } from "@/lib/host"
 import {
+  loopLine,
   NOT_TRUSTED,
+  refOf,
   spawnNeed,
+  stuckLine,
   WAITING_PERMISSION,
   type Need,
 } from "@/lib/needs"
@@ -86,6 +89,8 @@ export function NeedsYou({
                 <TrustRow need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "review" ? (
                 <ReviewNeed need={n} now={now} onOpen={onOpenCard} />
+              ) : n.kind === "loop" || n.kind === "stuck" ? (
+                <StuckNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "held" ? (
                 <HeldNeed
                   d={n.delivery}
@@ -122,6 +127,9 @@ const kinds = {
   crashed: { label: "Crashed", variant: "destructive" },
   message: { label: "Message", variant: "info" },
   held: { label: "Held", variant: "warning" },
+  // Card #481: waits nothing will end.
+  loop: { label: "Stuck", variant: "warning" },
+  stuck: { label: "Stuck", variant: "warning" },
 } as const
 
 // Row is one item's frame: its kind, where it's from, when, its title.
@@ -253,10 +261,12 @@ export function OwnWords({
 
 // waitsOnYou: the blockers of a card the person answers now (the rule
 // cardSummary counts as open_blockers: open, or replied back to them, and
-// not another member's question on a shared board, card #264).
+// not another member's question on a shared board, card #264, nor a wait
+// on other work, card #481).
 function waitsOnYou(b: CardBlocker): boolean {
   return (
     !b.decider &&
+    !b.waitsOn &&
     answerable(b.state || BlockerState.Open) &&
     b.state !== BlockerState.Answered
   )
@@ -297,6 +307,52 @@ function ReviewNeed({
         <Button size="sm" onClick={() => void cardsApi.openURL(pr.url)} title={pr.url}>
           Open PR #{pr.number}
         </Button>
+      </span>
+    </Row>
+  )
+}
+
+// StuckNeed is waits nothing will end (card #481): cards that wait on
+// each other, once for the loop ("#392, #396 and #394 wait on each
+// other"), or cards waiting on one nobody is on. It says what's stuck
+// and opens the cards; dropping a wait or finishing a card is on its
+// page.
+function StuckNeed({
+  need,
+  now,
+  onOpen,
+}: {
+  need: Extract<Need, { kind: "loop" | "stuck" }>
+  now: Date
+  onOpen: (id: string) => void
+}) {
+  const loop = need.kind === "loop"
+  const open = loop ? need.ring : [need.end]
+  return (
+    <Row
+      kind={need.kind}
+      where={<Where card={need.cards[0]} />}
+      at={need.at}
+      now={now}
+      title={loop ? loopLine(need.ring) : stuckLine(need.end, need.cards)}
+    >
+      <p className="text-sm break-words text-muted-foreground">
+        {loop
+          ? "None of them can start until one stops waiting. Drop a wait on one of them, or finish one."
+          : `Nobody holds ${refOf(need.end)} and Irori won't hand it out, so the waits on it never end.`}
+      </p>
+      <span className="flex flex-wrap gap-1.5">
+        {open.map((r) => (
+          <Button
+            key={r.id}
+            size="sm"
+            variant="outline"
+            title={plainLine(r.title)}
+            onClick={() => onOpen(r.id)}
+          >
+            Open {refOf(r)}
+          </Button>
+        ))}
       </span>
     </Row>
   )
@@ -542,7 +598,9 @@ export function BlockerAnswer({
           label={`${b.doneCheck ? "Why it isn't done" : "Your answer to"}: ${question}`}
           placeholder={
             b.doneCheck
-              ? "Say why it isn't done; it goes back to the agent"
+              ? b.goneAgent
+                ? "Say why it isn't done; the next agent on it gets it"
+                : "Say why it isn't done; it goes back to the agent"
               : "Answer in your own words"
           }
           send={b.doneCheck ? "Not done" : "Answer"}

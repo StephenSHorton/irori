@@ -380,6 +380,8 @@ pub enum BlockerKind {
     Person,
     Agent,
     External,
+    /// A least app version on named devices (card #485).
+    Version,
 }
 
 /// coord.BlockerStatus.
