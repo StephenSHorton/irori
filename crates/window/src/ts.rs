@@ -90,6 +90,9 @@ pub struct AgentCard {
     pub last_tool: String,
     #[specta(optional)]
     pub device_state: String,
+    /// When the current status began, omitted when unknown (card #489).
+    #[specta(optional)]
+    pub status_since: Time,
     /// The person's "Offer it cards": Irori hands it unheld cards, asks and
     /// threads when it's idle (card #453).
     pub offers_cards: bool,

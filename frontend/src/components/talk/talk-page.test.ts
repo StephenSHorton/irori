@@ -24,7 +24,9 @@ describe("Talk's list search (card #390)", () => {
     expect(talkMatches(t({}), "mac build")).toBe(true)
     expect(talkMatches(t({}), "TUESDAY")).toBe(true)
     expect(talkMatches(t({}), "#12")).toBe(true)
-    expect(talkMatches(t({ lastText: "it was the linker" }), "linker")).toBe(true)
+    expect(talkMatches(t({ lastText: "it was the linker" }), "linker")).toBe(
+      true
+    )
     expect(talkMatches(t({}), "lobby")).toBe(false)
   })
   test("an empty search shows everything", () => {
@@ -41,7 +43,8 @@ describe("Talk's count in the sidebar (card #390)", () => {
 })
 
 import { channelName, convMatches } from "./talk-page"
-import { dayLabel, mentionKinds, statusWord } from "./conversation"
+import { agentStatus } from "@/lib/agent-status"
+import { dayLabel, mentionKinds, statusOf } from "./conversation"
 import { TalkConversation } from "@/lib/models"
 
 describe("channels and DMs in Talk (card #390)", () => {
@@ -64,19 +67,33 @@ describe("channels and DMs in Talk (card #390)", () => {
     const now = new Date(2026, 10, 3, 15, 0)
     expect(dayLabel(new Date(2026, 10, 3, 1, 0), now)).toBe("Today")
     expect(dayLabel(new Date(2026, 10, 2, 23, 0), now)).toBe("Yesterday")
-    expect(dayLabel(new Date(2026, 9, 30, 9, 0), now)).not.toMatch(/Today|Yesterday/)
+    expect(dayLabel(new Date(2026, 9, 30, 9, 0), now)).not.toMatch(
+      /Today|Yesterday/
+    )
   })
-  test("members read working, idle or gone", () => {
-    expect(statusWord("busy")).toBe("working")
-    expect(statusWord("idle")).toBe("idle")
-    expect(statusWord("person")).toBe("")
-    expect(statusWord("")).toBe("gone")
+  test("members read their status, gone when off the roster (card #489)", () => {
+    const say = (status: string) => agentStatus({ status }).text
+    const live = new Map([
+      ["d/oak", { status: "shell" }],
+      ["d/elm", { status: "unresponsive" }],
+      ["d/fir", { status: "starting" }],
+    ])
+    const agent = (key: string) => say(statusOf({ kind: "agent", key }, live))
+    expect(say("busy")).toBe("working")
+    expect(say("idle")).toBe("idle")
+    expect(say(statusOf({ kind: "person", key: "person:p1" }, live))).toBe("")
+    expect(agent("d/oak")).toBe("running a job")
+    expect(agent("d/elm")).toBe("not answering")
+    expect(agent("d/fir")).toBe("starting")
+    expect(agent("d/ash")).toBe("gone")
   })
   test("a person's key names a person, the rest are agents", () => {
-    expect(mentionKinds([{ key: "person:p1", name: "Blake" }, { key: "dev/s1", name: "oak" }])).toEqual([
-      { kind: "person" },
-      { kind: "agent" },
-    ])
+    expect(
+      mentionKinds([
+        { key: "person:p1", name: "Blake" },
+        { key: "dev/s1", name: "oak" },
+      ])
+    ).toEqual([{ kind: "person" }, { kind: "agent" }])
   })
 })
 
@@ -84,7 +101,14 @@ import { threadText } from "./conversation"
 
 describe("a thread started from a channel message (design b2, card #390)", () => {
   test("asks the question, then quotes the message and says where it was said", () => {
-    expect(threadText(" Why the Firewall? ", "kowhai", "Only the PC transfer.\nOne click.", "suzuri")).toBe(
+    expect(
+      threadText(
+        " Why the Firewall? ",
+        "kowhai",
+        "Only the PC transfer.\nOne click.",
+        "suzuri"
+      )
+    ).toBe(
       "Why the Firewall?\n\n> Only the PC transfer.\n> One click.\n(kowhai, in #suzuri)"
     )
   })

@@ -188,7 +188,14 @@ describe("blocker states", () => {
     const closed = CardBlocker({
       state: "closed",
       waitsOn,
-      resolved: { answer: "task completed", option: -1, by: AgentRef(), at: "", closed: true, note: "" },
+      resolved: {
+        answer: "task completed",
+        option: -1,
+        by: AgentRef(),
+        at: "",
+        closed: true,
+        note: "",
+      },
     })
     expect(isWait(closed)).toBe(false)
   })
@@ -494,14 +501,42 @@ describe("working line on a card page (card #317)", () => {
     const shell = new Map([["mac/oak", { status: "shell", updatedAt: "" }]])
     expect(workingLine([oak], [], shell, new Date(), false, [], [oak])).toEqual(
       {
-        text: "oak is running a background job…",
+        text: "oak is running a job…",
         tone: "working",
         who: "oak",
         verb: "is",
-        doing: "running a background job",
+        doing: "running a job",
       }
     )
     expect(workingLine([oak], [], shell, new Date(), false, [], [])).toBeNull()
+  })
+  // Card #489: how long one job has run, from when its status began.
+  test("a job says how long it has run", () => {
+    const now = new Date("2026-11-03T05:12:00Z")
+    const since = (at: string) =>
+      new Map([["mac/oak", { status: "shell", statusSince: at }]])
+    expect(
+      workingLine(
+        [oak],
+        [],
+        since("2026-11-03T05:00:00Z"),
+        now,
+        false,
+        [],
+        [oak]
+      )?.text
+    ).toBe("oak is running a job · 12 min…")
+    expect(
+      workingLine(
+        [oak],
+        [],
+        since("2026-11-03T05:11:30Z"),
+        now,
+        false,
+        [],
+        [oak]
+      )?.text
+    ).toBe("oak is running a job…")
   })
 })
 
@@ -535,9 +570,9 @@ describe("working line for a background job (card #431)", () => {
         { status, updatedAt: new Date(t0.getTime() + 5_000).toISOString() },
       ],
     ])
-  test("shell after the person's comment: running a background job, not stopped", () => {
+  test("shell after the person's comment: running a job, not stopped", () => {
     expect(workingLine([oak], [comment], roster("shell"), later)?.text).toBe(
-      "oak is running a background job…"
+      "oak is running a job…"
     )
   })
   test("idle after the person's comment: stopped without replying, as before", () => {

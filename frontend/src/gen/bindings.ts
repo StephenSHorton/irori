@@ -363,6 +363,8 @@ export type AgentCard = {
 	/**  The tool the session is running now (card #299). */
 	lastTool?: string,
 	deviceState?: string,
+	/**  When the current status began, omitted when unknown (card #489). */
+	statusSince?: string,
 	/**
 	 *  The person's "Offer it cards": Irori hands it unheld cards, asks and
 	 *  threads when it's idle (card #453).
@@ -398,8 +400,16 @@ export type AgentRef = {
 	/**  The roster's status, "gone" without a live card, or "person". */
 	status: string,
 	live: boolean,
-	/**  "This PC", or the other device's name. */
+	/**
+	 *  This device's own name with " (this one)" (e.g. "Macbook Pro (this
+	 *  one)"), or the other device's name (card #489).
+	 */
 	where: string,
+	/**
+	 *  It is on this device, so what only works here (Attach, Logs, End)
+	 *  shows; `where` is only for reading (card #489).
+	 */
+	here?: boolean,
 	assigned?: boolean,
 	waiting?: boolean,
 	/**
@@ -1038,8 +1048,9 @@ export type CardSummary = {
 	 */
 	cantStart?: string,
 	/**
-	 *  The device an agent is starting on for this card ("This PC" or its
-	 *  name), while Irori's spawn request waits for it (card #448).
+	 *  The device an agent is starting on for this card ("<its own name>
+	 *  (this one)" or the other device's name, card #489), while Irori's
+	 *  spawn request waits for it (card #448).
 	 */
 	starting?: string,
 	/**
@@ -1866,7 +1877,7 @@ export type RunningAgent = {
 	/**  `#N`. */
 	cardShort: string,
 	cardTitle: string,
-	/**  "This PC" or the device's name. */
+	/**  "<its own name> (this one)" or the other device's name (card #489). */
 	device: string,
 	/**  It runs here, so End works from this window. */
 	here: boolean,

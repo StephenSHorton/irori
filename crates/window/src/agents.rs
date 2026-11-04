@@ -24,7 +24,7 @@ pub struct RunningAgent {
     /// `#N`.
     pub card_short: String,
     pub card_title: String,
-    /// "This PC" or the device's name.
+    /// "<its own name> (this one)" or the other device's name (card #489).
     pub device: String,
     /// It runs here, so End works from this window.
     pub here: bool,

@@ -362,7 +362,15 @@ fn dispatch(s: &Arc<Shared>, port: u16, r: &Req) -> Resp {
     }
     match r.path.as_str() {
         "/v1/device" => http::json(200, &s.b.device()),
-        "/v1/agents" => http::json(200, &s.b.agents()),
+        "/v1/agents" => {
+            // statusSince is the window's, Rust-only: the API's cards stay
+            // Go's (card #489).
+            let mut cards = s.b.agents();
+            for c in &mut cards {
+                c.status_since = Default::default();
+            }
+            http::json(200, &cards)
+        }
         "/v1/events" => crate::events::events(&h),
         "/v1/events/stream" => crate::events::stream(&h),
         "/v1/devices" => devices(s, r),

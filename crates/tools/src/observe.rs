@@ -158,6 +158,10 @@ impl Inner {
         });
         let input = capture::OverviewInput {
             current: crate::explore::current(&open),
+            spawned: crate::explore::spawned_lines(
+                self.b.coord(),
+                self.b.agents().into_iter().map(|c| c.key),
+            ),
             ..capture::OverviewInput::default()
         };
         let ov = cp.overview(&c.sender.key, &input);

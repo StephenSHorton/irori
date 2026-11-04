@@ -9,7 +9,7 @@ use gocompat::time::GoTime;
 use search::{Error, Kind, MAX_RELATED, MAX_TITLE, ShowOptions, Shown};
 
 use crate::find::{edit_title, hide_messages};
-use crate::handle::{clip_runes, first_line};
+use crate::handle::{clip_runes, first_line, first_text_line};
 use crate::index::one_line;
 use crate::overview::{AgentLine, OVERVIEW_LINE_MAX, card_name};
 use crate::roots::dir_exists;
@@ -546,7 +546,8 @@ impl Capture {
                     "{} {rf}{open} {}",
                     stamp(&e.at),
                     clip_runes(
-                        &first_line(&hide_messages(&t.row.turn.prompt, viewer, key)),
+                        // Its text, not a tag line (card #489).
+                        &first_text_line(&hide_messages(&t.row.turn.prompt, viewer, key)),
                         OVERVIEW_LINE_MAX
                     )
                 ));

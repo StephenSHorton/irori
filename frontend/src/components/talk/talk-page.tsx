@@ -54,7 +54,8 @@ import {
   stateBadges,
   stateLine,
 } from "./threads"
-import { ConversationView, statusOf, statusWord } from "./conversation"
+import { agentStatus } from "@/lib/agent-status"
+import { ConversationView, memberStatus, statusOf } from "./conversation"
 
 // talkMatches is whether a thread fits the list's search: its title, what
 // was asked, its #ref, or the newest reply.
@@ -77,8 +78,8 @@ export function needsYou(t: Pick<ThreadSummary, "state">): boolean {
 export function convMatches(c: Conv, query: string): boolean {
   const q = query.trim().toLowerCase()
   if (!q) return true
-  return [c.name, c.topic ?? "", ...c.members.map((m) => m.name ?? "")].some((s) =>
-    s.toLowerCase().includes(q)
+  return [c.name, c.topic ?? "", ...c.members.map((m) => m.name ?? "")].some(
+    (s) => s.toLowerCase().includes(q)
   )
 }
 
@@ -115,10 +116,15 @@ export function TalkPage({
   const shown = threads.filter((t) => talkMatches(t, query))
   const live = shown.filter((t) => t.state !== "resolved")
   const resolved = shown.filter((t) => t.state === "resolved")
-  const showResolved = resolvedShown(showResolvedPick, open, threads) || !!query.trim()
+  const showResolved =
+    resolvedShown(showResolvedPick, open, threads) || !!query.trim()
   const current = threads.find((t) => t.id === open)
-  const conv = current ? undefined : conversations.find((c) => c.convId === open)
-  const { channels, dms } = listed(conversations.filter((c) => convMatches(c, query)))
+  const conv = current
+    ? undefined
+    : conversations.find((c) => c.convId === open)
+  const { channels, dms } = listed(
+    conversations.filter((c) => convMatches(c, query))
+  )
   const [adding, setAdding] = useState<"" | "channel" | "dm">("")
   const liveRoster = useContext(LiveRoster)
   const goneDm = (c: Conv) => dmGone(c, liveRoster)
@@ -133,18 +139,29 @@ export function TalkPage({
     return c.kind === "dm" && !c.readOnly && !archived(c, goneDm) ? id : ""
   }
   const [kept, setKept] = useState(() => ({ open, keep: keptFor(open) }))
-  const keep = kept.open === open && kept.keep !== null ? kept.keep : keptFor(open)
+  const keep =
+    kept.open === open && kept.keep !== null ? kept.keep : keptFor(open)
   if (kept.open !== open || kept.keep !== keep) setKept({ open, keep })
   const sections = dmSections(dms, goneDm, keep ?? "")
   const [isFolded, toggleFold] = useFolds()
   // Search looks through everything, folded or not.
   const searching = !!query.trim()
   const folded = (k: SectionKey) => !searching && isFolded(k)
-  const [allShown, setAllShown] = useState<Partial<Record<SectionKey, boolean>>>({})
+  const [allShown, setAllShown] = useState<
+    Partial<Record<SectionKey, boolean>>
+  >({})
   const convRows = (k: SectionKey, items: Conv[]) =>
     sectionRows(items, folded(k), open, searching || !!allShown[k])
   const [marking, setMarking] = useState(false)
-  const convSection = (k: SectionKey, label: string, items: Conv[], empty: string, extra?: ReactNode, add?: { onAdd: () => void; label: string }, markAll?: boolean) => {
+  const convSection = (
+    k: SectionKey,
+    label: string,
+    items: Conv[],
+    empty: string,
+    extra?: ReactNode,
+    add?: { onAdd: () => void; label: string },
+    markAll?: boolean
+  ) => {
     const { rows, hidden } = convRows(k, items)
     const unread = unreadIn(items)
     return (
@@ -170,7 +187,12 @@ export function TalkPage({
           <p className="px-2 py-1 text-[12px] text-muted-foreground">{empty}</p>
         )}
         {rows.map((c) => (
-          <ConvItem key={c.convId} c={c} current={c.convId === open} onClick={() => onOpen(c.convId)} />
+          <ConvItem
+            key={c.convId}
+            c={c}
+            current={c.convId === open}
+            onClick={() => onOpen(c.convId)}
+          />
         ))}
         {hidden > 0 && !folded(k) && (
           <button
@@ -196,7 +218,10 @@ export function TalkPage({
       )}
     >
       <div className="mx-1 flex items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-[12.5px]">
-        <SearchIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        <SearchIcon
+          className="size-3.5 shrink-0 text-muted-foreground"
+          aria-hidden
+        />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -251,13 +276,18 @@ export function TalkPage({
             }}
           />
         ) : undefined,
-        { onAdd: () => setAdding(adding === "channel" ? "" : "channel"), label: "New channel" }
+        {
+          onAdd: () => setAdding(adding === "channel" ? "" : "channel"),
+          label: "New channel",
+        }
       )}
       {convSection(
         "dms",
         "Direct messages",
         sections.yours,
-        searching ? "No direct message matches." : "No direct messages. Start one with +.",
+        searching
+          ? "No direct message matches."
+          : "No direct messages. Start one with +.",
         adding === "dm" ? (
           <NewDm
             agents={agents}
@@ -267,12 +297,23 @@ export function TalkPage({
             }}
           />
         ) : undefined,
-        { onAdd: () => setAdding(adding === "dm" ? "" : "dm"), label: "New direct message" }
+        {
+          onAdd: () => setAdding(adding === "dm" ? "" : "dm"),
+          label: "New direct message",
+        }
       )}
       {sections.agents.length > 0 &&
         convSection("agents", "Agents talking", sections.agents, "")}
       {sections.gone.length > 0 &&
-        convSection("gone", "Archive", sections.gone, "", undefined, undefined, true)}
+        convSection(
+          "gone",
+          "Archive",
+          sections.gone,
+          "",
+          undefined,
+          undefined,
+          true
+        )}
       {resolved.length > 0 && (
         <div className="mt-auto grid grid-cols-[minmax(0,1fr)] gap-0.5 pt-3">
           <button
@@ -313,20 +354,31 @@ export function TalkPage({
       onResolved={() => onOpen(openAfterResolve(open, current.id))}
     />
   ) : conv ? (
-    <ConversationView key={conv.convId} conv={conv} now={now} narrow={narrow} onBack={() => onOpen("")} />
+    <ConversationView
+      key={conv.convId}
+      conv={conv}
+      now={now}
+      narrow={narrow}
+      onBack={() => onOpen("")}
+    />
   ) : (
     <div className="grid min-w-0 flex-1 content-start gap-3 p-4">
       <h2 className="flex items-center gap-2 text-[13px] font-medium text-ink">
         {narrow && threads.length > 0 && (
-          <Button size="icon-xs" variant="ghost" aria-label="Back to Talk" onClick={() => setComposing(false)}>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Back to Talk"
+            onClick={() => setComposing(false)}
+          >
             <ChevronLeftIcon />
           </Button>
         )}
         Start a thread
       </h2>
       <p className="text-[12.5px] text-muted-foreground">
-        Ask the room about anything. An agent on the cards you name answers,
-        or an idle one does. It stays in Threads until you resolve it.
+        Ask the room about anything. An agent on the cards you name answers, or
+        an idle one does. It stays in Threads until you resolve it.
       </p>
       <AskBox
         board={board}
@@ -347,7 +399,7 @@ export function TalkPage({
       </div>
     )
   return (
-    <div className="glass-panel flex min-h-0 flex-1 overflow-hidden mb-4">
+    <div className="mb-4 flex min-h-0 flex-1 overflow-hidden glass-panel">
       {list}
       {conversation}
     </div>
@@ -384,11 +436,13 @@ function Group({
       {onToggle && <Chevron className="size-3 shrink-0" aria-hidden />}
       <span className="truncate">{label}</span>
       {count !== undefined && count > 0 && (
-        <span className="shrink-0 font-normal whitespace-nowrap tabular-nums normal-case">· {count}</span>
+        <span className="shrink-0 font-normal whitespace-nowrap normal-case tabular-nums">
+          · {count}
+        </span>
       )}
       {folded && unread > 0 && (
         <span
-          className="shrink-0 rounded-full bg-primary px-1.5 text-[10px] font-semibold whitespace-nowrap text-primary-foreground tabular-nums normal-case"
+          className="shrink-0 rounded-full bg-primary px-1.5 text-[10px] font-semibold whitespace-nowrap text-primary-foreground normal-case tabular-nums"
           title={`${unread} with something new`}
         >
           {unread} new
@@ -427,7 +481,7 @@ function Group({
             type="button"
             onClick={onMarkRead}
             title="Mark every conversation here read"
-            className="ml-auto shrink-0 rounded px-1 text-[10px] font-normal normal-case tracking-normal hover:bg-secondary hover:text-ink"
+            className="ml-auto shrink-0 rounded px-1 text-[10px] font-normal tracking-normal normal-case hover:bg-secondary hover:text-ink"
           >
             Mark all read
           </button>
@@ -440,7 +494,15 @@ function Group({
 
 // ConvItem is a channel or a DM in the list, with its unread count (a red
 // @ when it mentions you).
-function ConvItem({ c, current, onClick }: { c: Conv; current: boolean; onClick: () => void }) {
+function ConvItem({
+  c,
+  current,
+  onClick,
+}: {
+  c: Conv
+  current: boolean
+  onClick: () => void
+}) {
   const live = useContext(LiveRoster)
   const other = c.kind === "dm" ? dmWith(c) : []
   const icon =
@@ -463,7 +525,8 @@ function ConvItem({ c, current, onClick }: { c: Conv; current: boolean; onClick:
   const label =
     c.kind === "channel"
       ? plainLine(c.name)
-      : other.map((m) => plainLine(m.name ?? m.key)).join(" ↔ ") || plainLine(c.name)
+      : other.map((m) => plainLine(m.name ?? m.key)).join(" ↔ ") ||
+        plainLine(c.name)
   const sub =
     c.kind === "channel"
       ? c.topic
@@ -472,7 +535,7 @@ function ConvItem({ c, current, onClick }: { c: Conv; current: boolean; onClick:
       : c.readOnly
         ? "agents talking · read-only"
         : other[0]
-          ? statusWord(statusOf(other[0], live))
+          ? memberStatus(other[0], live)
           : ""
   return (
     <button
@@ -487,8 +550,16 @@ function ConvItem({ c, current, onClick }: { c: Conv; current: boolean; onClick:
     >
       {icon}
       <span className="grid min-w-0 flex-1">
-        <span className={cn("truncate", c.unread > 0 && "font-medium text-ink")}>{label}</span>
-        {sub && <span className="truncate text-[11px] text-muted-foreground">{sub}</span>}
+        <span
+          className={cn("truncate", c.unread > 0 && "font-medium text-ink")}
+        >
+          {label}
+        </span>
+        {sub && (
+          <span className="truncate text-[11px] text-muted-foreground">
+            {sub}
+          </span>
+        )}
       </span>
       {c.mentions > 0 ? (
         <span
@@ -558,8 +629,16 @@ function NewDm({
   const [error, setError] = useState("")
   const live = agents.filter((a) => a.status !== "gone")
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)] gap-0.5 rounded-md border border-border bg-card/60 p-1" role="listbox" aria-label="Message an agent">
-      {live.length === 0 && <p className="px-2 py-1 text-[12px] text-muted-foreground">No agents are running.</p>}
+    <div
+      className="grid grid-cols-[minmax(0,1fr)] gap-0.5 rounded-md border border-border bg-card/60 p-1"
+      role="listbox"
+      aria-label="Message an agent"
+    >
+      {live.length === 0 && (
+        <p className="px-2 py-1 text-[12px] text-muted-foreground">
+          No agents are running.
+        </p>
+      )}
       {live.map((a) => (
         <button
           key={a.key}
@@ -575,12 +654,25 @@ function NewDm({
             }
           }}
         >
-          <Face who={AgentRef({ key: a.key, name: a.name, status: a.status, live: true })} className="size-4" noHover />
+          <Face
+            who={AgentRef({
+              key: a.key,
+              name: a.name,
+              status: a.status,
+              live: true,
+            })}
+            className="size-4"
+            noHover
+          />
           <span className="min-w-0 flex-1 truncate">{plainLine(a.name)}</span>
-          <span className="shrink-0 text-[11px] text-muted-foreground">{statusWord(a.status)}</span>
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {agentStatus(a).text}
+          </span>
         </button>
       ))}
-      {error && <span className="px-2 text-[11px] text-destructive">{error}</span>}
+      {error && (
+        <span className="px-2 text-[11px] text-destructive">{error}</span>
+      )}
     </div>
   )
 }
@@ -607,7 +699,10 @@ function ThreadItem({
         current && "bg-secondary"
       )}
     >
-      <MessageSquareTextIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <MessageSquareTextIcon
+        className="size-4 shrink-0 text-muted-foreground"
+        aria-hidden
+      />
       <span className="grid min-w-0 flex-1">
         <span className={cn("truncate", needsYou(t) && "font-medium text-ink")}>
           {plainLine(t.title)}
@@ -656,11 +751,19 @@ function Conversation({
     >
       <header className="flex min-w-0 items-center gap-2">
         {narrow && (
-          <Button size="icon-xs" variant="ghost" aria-label="Back to Talk" onClick={onBack}>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Back to Talk"
+            onClick={onBack}
+          >
             <ChevronLeftIcon />
           </Button>
         )}
-        <MessageSquareTextIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        <MessageSquareTextIcon
+          className="size-4 shrink-0 text-muted-foreground"
+          aria-hidden
+        />
         {t.short && (
           <span className="shrink-0 text-[12px] text-muted-foreground tabular-nums">
             #{plainLine(t.short)}
@@ -679,7 +782,10 @@ function Conversation({
           </Badge>
         )}
         {badge && (
-          <Badge variant={badge.variant} className="h-4 shrink-0 px-1.5 text-[10.5px]">
+          <Badge
+            variant={badge.variant}
+            className="h-4 shrink-0 px-1.5 text-[10.5px]"
+          >
             {badge.label}
           </Badge>
         )}

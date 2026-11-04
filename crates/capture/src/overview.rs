@@ -10,7 +10,7 @@ use gocompat::time::GoTime;
 use serde::Serialize;
 
 use crate::find::{HIDE_ALL, hide_messages};
-use crate::handle::{clip_runes, first_line};
+use crate::handle::{clip_runes, first_line, starts_with_harness_tag, starts_with_tag};
 use crate::index::one_line;
 use crate::rows::{TurnRow, open_key};
 use crate::service::Capture;
@@ -49,8 +49,11 @@ pub struct AgentLine {
     pub status: String,
     #[serde(rename = "repoKey", skip_serializing_if = "String::is_empty")]
     pub repo_key: String,
-    /// The open turn's prompt if it has one (ref `agent:<key>`); else its
-    /// current task ([`OverviewInput::current`]); else its last reply.
+    /// The card Irori started it for ([`OverviewInput::spawned`]); else the
+    /// open turn's prompt if a person typed it (ref `agent:<key>`); else its
+    /// current task ([`OverviewInput::current`]); else its last reply. Never
+    /// a prompt that starts with one of Claude Code's tags, or a reply that
+    /// starts with any tag (card #489).
     pub doing: Line,
 }
 
@@ -72,6 +75,9 @@ pub struct OverviewInput {
     pub more_tasks: i64,
     /// Agent key -> the task it holds that changed last.
     pub current: HashMap<String, Line>,
+    /// Agent key -> the card Irori started it for ("on #N <title>", ref
+    /// `task:<id>`): its doing line, ahead of any prompt (card #489).
+    pub spawned: HashMap<String, Line>,
     /// The caller's repo ("" = none: its live card's repo is used).
     pub repo_key: String,
     /// Every open card on the Board, any repo.
@@ -201,7 +207,7 @@ impl Capture {
         out.agents = agents;
 
         for a in out.agents.iter_mut() {
-            a.doing = self.doing(&a.key, &input.current);
+            a.doing = self.doing(&a.key, &input);
         }
 
         if !input.repo_key.is_empty() {
@@ -250,25 +256,40 @@ impl Capture {
         out
     }
 
-    /// An agent's one line: the open turn's prompt (ref `agent:<key>`; the
-    /// open turn has no row yet), else the task it holds, else its last
-    /// reply.
-    fn doing(&self, key: &str, current: &HashMap<String, Line>) -> Line {
-        let f = self.inner.read();
-        if let Some(t) = f.open.get(&open_key(key, ""))
-            && !crate::jsonx::trim_space(&t.prompt).is_empty()
+    /// An agent's one line: the card Irori started it for, else the open
+    /// turn's prompt when a person typed it (ref `agent:<key>`; the open
+    /// turn has no row yet), else the task it holds, else its last reply.
+    /// A boot prompt, a prompt that starts with one of Claude Code's tags
+    /// (`<task-notification>`, `<command-name>`) or a reply that starts with
+    /// any tag is never one; "<Button> won't render" a person typed is
+    /// (card #489).
+    fn doing(&self, key: &str, input: &OverviewInput) -> Line {
+        if let Some(l) = input.spawned.get(key)
+            && !l.r#ref.is_empty()
         {
             return Line {
-                r#ref: agent_ref(key),
-                text: clip_line(&hide_messages(
-                    &self.inner.opts.scrub.string(&t.prompt),
-                    HIDE_ALL,
-                    key,
-                )),
-                at: t.started_at,
+                text: clip_line(&l.text),
+                ..l.clone()
             };
         }
-        if let Some(l) = current.get(key)
+        let f = self.inner.read();
+        if let Some(t) = f.open.get(&open_key(key, ""))
+            && matches!(t.origin.as_str(), "" | "human")
+        {
+            let text = clip_line(&hide_messages(
+                &self.inner.opts.scrub.string(&t.prompt),
+                HIDE_ALL,
+                key,
+            ));
+            if !text.is_empty() && !starts_with_harness_tag(&text) {
+                return Line {
+                    r#ref: agent_ref(key),
+                    text,
+                    at: t.started_at,
+                };
+            }
+        }
+        if let Some(l) = input.current.get(key)
             && !l.r#ref.is_empty()
         {
             return Line {
@@ -280,6 +301,7 @@ impl Capture {
         for t in f.turns.get(key).map(Vec::as_slice).unwrap_or(&[]) {
             if t.turn.agent_id.is_empty()
                 && !crate::jsonx::trim_space(&t.turn.reply).is_empty()
+                && !starts_with_tag(&first_line(&t.turn.reply))
                 && last.is_none_or(|l| gotime::after(&t.turn.started_at, &l.turn.started_at))
             {
                 last = Some(t);
