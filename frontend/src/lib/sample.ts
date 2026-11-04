@@ -115,6 +115,7 @@ export function sampleRoster(now: Date) {
             repoKey: s.repoKey,
             permissionMode: s.mode,
             offersCards: !!s.offers,
+            here: true,
           })
       )
 

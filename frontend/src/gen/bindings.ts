@@ -368,6 +368,11 @@ export type AgentCard = {
 	offersCards: boolean,
 	/**  Irori started it for a card. */
 	spawned: boolean,
+	/**
+	 *  It runs on this device, so its "Offer it cards" is set here (card
+	 *  #492): another device's agent shows its switch read-only.
+	 */
+	here: boolean,
 };
 
 /**

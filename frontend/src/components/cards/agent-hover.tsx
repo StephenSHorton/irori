@@ -206,7 +206,11 @@ function AgentSummary({
       {!gone && !who.offline && who.live && (
         <>
           {live && !spawned && (
-            <OfferCards who={who} on={!!live.offersCards} />
+            <OfferCards
+              who={who}
+              on={!!live.offersCards}
+              elsewhere={live.here === false ? device || "another device" : ""}
+            />
           )}
           <StopAgent who={who} />
         </>
@@ -217,8 +221,17 @@ function AgentSummary({
 
 // OfferCards is the person's "Offer it cards" on a terminal agent (card
 // #453). The switch shows the change at once; roster:changed confirms it,
-// and an error puts it back.
-function OfferCards({ who, on }: { who: AgentRef; on: boolean }) {
+// and an error puts it back. Each device decides for its own agents (card
+// #492): for an agent elsewhere it only shows what that device chose.
+function OfferCards({
+  who,
+  on,
+  elsewhere,
+}: {
+  who: AgentRef
+  on: boolean
+  elsewhere: string
+}) {
   const [want, setWant] = useState<boolean | null>(null)
   const [error, setError] = useState("")
   // The roster caught up: show it again.
@@ -240,14 +253,16 @@ function OfferCards({ who, on }: { who: AgentRef; on: boolean }) {
             Offer it cards
           </label>
           <span id={`${id}-hint`} className="text-xs text-muted-foreground">
-            Irori hands it unheld cards, asks and threads when it's idle.
-            Off: it works only on what you give it.
+            {elsewhere
+              ? `It runs on ${plainLine(elsewhere)}: turn this on or off there.`
+              : "Irori hands it unheld cards, asks and threads when it's idle. Off: it works only on what you give it."}
           </span>
         </span>
         <Switch
           id={id}
           size="sm"
           checked={want ?? on}
+          disabled={!!elsewhere}
           aria-describedby={`${id}-hint`}
           onCheckedChange={(v) => set(v)}
           className="mt-0.5"

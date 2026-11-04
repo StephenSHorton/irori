@@ -245,6 +245,9 @@ export type LiveAgent = {
   // Card #453: the person's "Offer it cards", and whether Irori started it.
   offersCards?: boolean
   spawned?: boolean
+  // Card #492: it runs on this device, so its "Offer it cards" is set
+  // here; another device's agent shows the switch read-only.
+  here?: boolean
 }
 export const LiveRoster = createContext<ReadonlyMap<string, LiveAgent>>(
   new Map()

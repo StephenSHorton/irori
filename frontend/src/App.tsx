@@ -126,6 +126,7 @@ export function App() {
             lastTool: a.lastTool,
             offersCards: a.offersCards,
             spawned: a.spawned,
+            here: a.here,
           },
         ])
       ),
