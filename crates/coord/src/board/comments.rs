@@ -169,6 +169,13 @@ impl Fold {
                 }
             }
             BLOCKED_ON_VERSION => {
+                // A board's log keeps no device.started rows (card #485):
+                // without a hook to the person's own, it could never close.
+                if self.on_board && self.device_version.is_none() {
+                    return Err(invalid(
+                        "a version wait goes on a card on your own board; on a shared board, wait on external or the person",
+                    ));
+                }
                 out.reference = self.check_version_wait(&out.reference)?;
             }
             _ => {
