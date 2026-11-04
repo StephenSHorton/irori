@@ -439,7 +439,7 @@ function sampleThreads(boardId = ""): ThreadSummary[] {
       at: c.updatedAt,
       updatedAt: last?.at ?? c.updatedAt,
       agentsNow: sampleThreadAgentsNow.get(c.id) ?? true,
-      starting: c.id === "sample-thread-5" ? "This PC" : undefined,
+      starting: c.id === "sample-thread-5" ? "Macbook Pro (this one)" : undefined,
     })
   })
   const t = (s: ThreadSummary) => Date.parse(s.updatedAt) || 0

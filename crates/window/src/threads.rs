@@ -392,13 +392,7 @@ impl Window {
                 starting: t
                     .spawn_request()
                     .filter(|sp| sp.pending() && state == THREAD_WAITING)
-                    .map(|sp| {
-                        if sp.device == self.core.device_id() {
-                            "This PC".to_string()
-                        } else {
-                            "another device".to_string()
-                        }
-                    })
+                    .map(|sp| p.where_(&sp.device))
                     .unwrap_or_default(),
                 cant_start: t
                     .spawn_request()

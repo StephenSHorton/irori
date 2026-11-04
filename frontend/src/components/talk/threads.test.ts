@@ -98,10 +98,10 @@ describe("a thread Irori starts an agent for (card #470)", () => {
   test("says its agent is starting, not to turn on Offer it cards", () => {
     expect(
       stateLine(
-        { ...waiting, starting: "This PC" },
+        { ...waiting, starting: "Macbook Pro (this one)" },
         "No agent takes offered work"
       )
-    ).toBe("starting an agent on this PC")
+    ).toBe("starting an agent on Macbook Pro (this one)")
   })
   test("says why one can't start", () => {
     expect(stateLine({ ...waiting, cantStart: "not trusted: /r on mac" })).toBe(
