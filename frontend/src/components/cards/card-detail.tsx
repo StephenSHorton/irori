@@ -65,6 +65,7 @@ import {
   blockerChip,
   blockerTone,
   heardLine,
+  isWait,
   LiveRoster,
   StartAgentOn,
 } from "@/lib/thread"
@@ -361,7 +362,7 @@ export function CardPage({
                     <ToldLine told={answered.told} raiser={answered.to} />
                   </div>
                 )}
-                {blockers.map((b) => (
+                {blockers.filter((b) => !isWait(b)).map((b) => (
                   <BlockerItem
                     key={b.id}
                     cardId={detail.id}
@@ -377,6 +378,9 @@ export function CardPage({
                       })
                     }
                   />
+                ))}
+                {blockers.filter(isWait).map((b) => (
+                  <WaitItem key={b.id} blocker={b} onOpen={onOpen} />
                 ))}
               </Section>
             )}
@@ -2072,6 +2076,52 @@ function People({ detail, gone }: { detail: CardDetail; gone: GoneSession[] }) {
       {waits.map((w) => (
         <WaitRow key={w.id} wait={w} />
       ))}
+    </div>
+  )
+}
+
+// WaitItem is a blocker that waits on other work (card #481): a card, a
+// lease, an agent or something outside. It ends by itself or by whoever
+// does that work, so it is a grey line naming what it waits on, linked
+// when it's a card, with nothing to answer and outside the red count.
+function WaitItem({
+  blocker: b,
+  onOpen,
+}: {
+  blocker: CardBlocker
+  onOpen?: (id: string) => void
+}) {
+  const w = b.waitsOn
+  if (!w) return null
+  const card = w.taskId
+  return (
+    <div
+      className="grid gap-0.5 rounded-lg border border-border bg-muted/30 px-3 py-2"
+      aria-label={`Waiting on ${w.label}`}
+    >
+      <div className="text-[13px] text-muted-foreground">
+        Waiting on{" "}
+        {card ? (
+          <button
+            type="button"
+            className="text-ink underline-offset-2 hover:underline disabled:no-underline"
+            disabled={!onOpen}
+            onClick={() => onOpen?.(card)}
+          >
+            <span className="font-mono">{plainLine(w.label)}</span>
+            {w.title && <> {plainLine(w.title)}</>}
+          </button>
+        ) : (
+          <span className="text-ink">
+            <RichLine text={w.label} />
+          </span>
+        )}
+      </div>
+      {b.question && (
+        <div className="text-xs text-muted-foreground">
+          {plainLine(b.question)}
+        </div>
+      )}
     </div>
   )
 }

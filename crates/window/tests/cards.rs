@@ -1162,6 +1162,103 @@ fn what_waits_on_the_person_says_so() {
     assert_eq!(summary(&after.id).wait_you, "");
 }
 
+/// Card #481: a wait on another card (#394's "Waits on Talk 4 (#392)")
+/// is drawn as a wait with what it waits on, never as a question, and is
+/// never counted as a decision; one filed on a card with options is still
+/// the person's question (card #347).
+#[test]
+fn a_wait_on_a_card_is_never_a_question() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let talk4 = co
+        .create_task(
+            &me(&r),
+            coord::NewTask {
+                title: "Talk 4: Spaces".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let t = held_task(&r);
+    let on = |kind: &str, reference: &str| {
+        Some(coord::BlockedBy {
+            kind: kind.into(),
+            reference: reference.into(),
+        })
+    };
+    let (_, b1) = co
+        .raise(
+            &r.key_a,
+            &t.id,
+            coord::NewBlocker {
+                question: format!("Waits on Talk 4 ({})", talk4.short_ref()),
+                blocked_by: on(coord::BLOCKED_ON_TASK, &talk4.id),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let (_, b2) = co
+        .raise(
+            &r.key_a,
+            &t.id,
+            coord::NewBlocker {
+                question: "after beta".into(),
+                blocked_by: on(coord::BLOCKED_ON_AGENT, &r.key_b),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let d = r.w.card(&t.id).unwrap();
+    let w = blocker(&d, &b1.id).waits_on.clone().expect("a wait");
+    assert_eq!(
+        (
+            w.kind.as_str(),
+            w.label.clone(),
+            w.task_id.as_str(),
+            w.title.as_str()
+        ),
+        (
+            coord::BLOCKED_ON_TASK,
+            talk4.short_ref(),
+            talk4.id.as_str(),
+            "Talk 4: Spaces"
+        )
+    );
+    let w = blocker(&d, &b2.id).waits_on.clone().expect("a wait");
+    assert_eq!(w.kind, coord::BLOCKED_ON_AGENT);
+    assert!(
+        !w.label.is_empty() && w.label != r.key_b,
+        "named, not a key: {}",
+        w.label
+    );
+    assert_eq!((d.summary.open_blockers, d.summary.waiting_on), (0, 2));
+    assert_eq!(r.w.decide_count(), 0);
+
+    // With options it is the person's to decide, whatever it's filed on.
+    let (_, b3) = co
+        .raise(
+            &r.key_a,
+            &t.id,
+            coord::NewBlocker {
+                question: "Wait for Talk 4, or ship without it?".into(),
+                options: ["Wait", "Ship"]
+                    .iter()
+                    .map(|a| coord::BlockerOption {
+                        answer: (*a).into(),
+                        ..Default::default()
+                    })
+                    .collect(),
+                blocked_by: on(coord::BLOCKED_ON_TASK, &talk4.id),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let d = r.w.card(&t.id).unwrap();
+    assert!(blocker(&d, &b3.id).waits_on.is_none());
+    assert_eq!((d.summary.open_blockers, d.summary.waiting_on), (1, 2));
+    assert_eq!(r.w.decide_count(), 1);
+}
+
 /// Card #138: clearing done cards takes them out of Closed (by id, by age
 /// or all); they stay in the log, and a reopened one is back on the grid.
 #[test]

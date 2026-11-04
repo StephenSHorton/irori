@@ -1251,12 +1251,15 @@ function sampleResolve(
 }
 
 // sampleRecount is cardSummary's counts: answered items wait on an agent,
-// the rest of the open ones on the person.
+// waits on other work and another member's questions are waits (card
+// #481), the rest of the open ones on the person.
 function sampleRecount(c: CardDetail) {
   const open = c.blockers.filter((x) => !x.resolved)
-  const needs = open.filter((x) => x.state !== BlockerState.Answered)
+  const asked = open.filter((x) => x.state !== BlockerState.Answered)
+  const needs = asked.filter((x) => !x.waitsOn && !x.decider)
   c.openBlockers = needs.length
-  c.waiting = open.length - needs.length
+  c.waiting = open.length - asked.length
+  c.waitingOn = asked.length - needs.length || undefined
   c.blockerQuestion = needs[0]?.question ?? ""
   c.ready = needs.some((x) => x.doneCheck) || undefined
 }

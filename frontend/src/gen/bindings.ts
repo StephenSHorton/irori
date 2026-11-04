@@ -729,6 +729,14 @@ export type CardBlocker = {
 	 *  None when it's this person's.
 	 */
 	decider?: AgentRef | null,
+	/**
+	 *  What a wait on other work waits on (card #481): a card, a lease, an
+	 *  agent or something outside. It ends by itself or by whoever does
+	 *  that work, so it is never the person's to answer and never counts
+	 *  as a decision. None for a question for a person (one filed on
+	 *  other work with options is still the person's, card #347).
+	 */
+	waitsOn?: CardWaitOn | null,
 	thread: CardThreadItem[],
 };
 
@@ -1065,6 +1073,21 @@ export type CardWait = {
 	who: AgentRef,
 	text: string,
 	onThis: boolean,
+};
+
+/**  What a wait item waits on (card #481), as the card page links it. */
+export type CardWaitOn = {
+	kind: BlockerKind,
+	/**
+	 *  How the window names it: "#392" for a card ("a card" when this
+	 *  device can't see it), the agent's name, the resource, or the
+	 *  outside thing as raised.
+	 */
+	label: string,
+	/**  The card it waits on, by id, for a task wait. */
+	taskId?: string,
+	/**  That card's title, when this device can see it. */
+	title?: string,
 };
 
 /**  Where a card's work is (card #137), as its holder's device last saw it. */

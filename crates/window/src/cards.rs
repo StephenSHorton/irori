@@ -486,7 +486,35 @@ pub struct CardBlocker {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub decider: Option<AgentRef>,
+    /// What a wait on other work waits on (card #481): a card, a lease, an
+    /// agent or something outside. It ends by itself or by whoever does
+    /// that work, so it is never the person's to answer and never counts
+    /// as a decision. None for a question for a person (one filed on
+    /// other work with options is still the person's, card #347).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub waits_on: Option<CardWaitOn>,
     pub thread: Vec<CardThreadItem>,
+}
+
+/// What a wait item waits on (card #481), as the card page links it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CardWaitOn {
+    #[specta(type = ts::BlockerKind)]
+    pub kind: String,
+    /// How the window names it: "#392" for a card ("a card" when this
+    /// device can't see it), the agent's name, the resource, or the
+    /// outside thing as raised.
+    pub label: String,
+    /// The card it waits on, by id, for a task wait.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub task_id: String,
+    /// That card's title, when this device can see it.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub title: String,
 }
 
 /// One reviewer's review of a private card (#88).
@@ -1108,6 +1136,32 @@ fn waits_by_itself(kind: &str) -> bool {
             | coord::BLOCKED_ON_AGENT
             | coord::BLOCKED_ON_EXTERNAL
     )
+}
+
+/// What a wait item waits on, named as the summary names its first wait
+/// (card #481): "#392" and its title for a card, the agent's name, else
+/// the resource or outside thing as raised.
+fn wait_on_of(co: &coord::Coord, p: &People, on: &coord::BlockedBy) -> CardWaitOn {
+    let mut w = CardWaitOn {
+        kind: on.kind.clone(),
+        label: on.reference.clone(),
+        ..CardWaitOn::default()
+    };
+    match on.kind.as_str() {
+        coord::BLOCKED_ON_TASK => {
+            w.task_id = on.reference.clone();
+            match co.get_task(&on.reference) {
+                Some(k) => {
+                    w.label = k.short_ref();
+                    w.title = k.title.clone();
+                }
+                None => w.label = "a card".into(),
+            }
+        }
+        coord::BLOCKED_ON_AGENT => w.label = p.ref_(&on.reference).name,
+        _ => {}
+    }
+    w
 }
 
 /// A person blocker for another member of a shared board (card #264). The
@@ -2020,6 +2074,11 @@ impl Window {
                     .as_ref()
                     .filter(|on| for_another(&on.kind, &on.reference))
                     .map(|on| p.ref_(&on.reference)),
+                waits_on: bl
+                    .on
+                    .as_ref()
+                    .filter(|on| waits_by_itself(&on.kind) && bl.options.is_empty())
+                    .map(|on| wait_on_of(&co, &p, on)),
                 thread: by_blocker.remove(&bl.id).unwrap_or_default(),
                 links: bl.links.clone(),
                 attachments: bl.attachments.clone(),
