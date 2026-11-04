@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils"
 import { WindDownDialog } from "@/components/wind-down-dialog"
 import { MessageDialog } from "@/components/cards/message-dialog"
 import { TalkPage, needsYou } from "@/components/talk/talk-page"
-import { talkApi, unreadDms, useConversations } from "@/lib/conversations"
+import { talkApi, talkWaiting as talkWaitingIn, useConversations } from "@/lib/conversations"
 import { AgentCards } from "@/components/cards/agent-hover"
 import { AskBox } from "@/components/cards/ask-box"
 import { NeedsYou } from "@/components/cards/needs-you"
@@ -567,7 +567,7 @@ export function App() {
   // the bottom, and an open conversation is the whole screen, its own
   // header carrying Back.
   const narrow = useNarrow()
-  const talkWaiting = threadList.filter(needsYou).length + unreadDms(conversations)
+  const talkWaiting = threadList.filter(needsYou).length + talkWaitingIn(conversations, liveRoster)
   const fullScreen = narrow && !open && section.kind === "talk" && !!section.id
 
   return (
