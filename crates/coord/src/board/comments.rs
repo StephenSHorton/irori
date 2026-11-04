@@ -168,9 +168,12 @@ impl Fold {
                     out.reference = names.join(" ");
                 }
             }
+            BLOCKED_ON_VERSION => {
+                out.reference = self.check_version_wait(&out.reference)?;
+            }
             _ => {
                 return Err(invalid(format!(
-                    "blocker kind {} (lease|task|person|agent|external)",
+                    "blocker kind {} (lease|task|person|agent|external|version)",
                     quote(&bb.kind)
                 )));
             }
@@ -1237,6 +1240,15 @@ impl Fold {
                         why.push(w);
                     }
                 }
+                BLOCKED_ON_VERSION if self.version_behind(&on.reference).is_empty() => {
+                    let (min, devs) = super::version_wait::parse_version_wait(&on.reference);
+                    ids.push(b.id.clone());
+                    why.push(if devs.len() > 1 {
+                        format!("{min} or later running on all {} devices", devs.len())
+                    } else {
+                        format!("{min} or later running")
+                    });
+                }
                 BLOCKED_ON_EXTERNAL if self.outside_wait_gone(&t.id, b) => {
                     ids.push(b.id.clone());
                     why.push("leases released".to_string());
@@ -1280,6 +1292,7 @@ impl Fold {
         let viewer = trim_space(&f.viewer).to_string();
         let agent_viewer = !viewer.is_empty() && !self.is_owner(&viewer);
         let mut blocks: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let rs = self.roster_status();
         for t in self.tasks.values() {
             if !f.repo_key.is_empty() && t.repo_key != f.repo_key {
                 continue;
@@ -1287,6 +1300,7 @@ impl Fold {
             let mut card = Card {
                 task: t.clone(),
                 overlaps: self.overlaps_of(t, &now),
+                stranded: self.stranded_in(t, &rs),
                 ..Card::default()
             };
             if let Some(last) = self.by_task.get(&t.id).and_then(|ids| ids.last()) {

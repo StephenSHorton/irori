@@ -392,6 +392,9 @@ impl tools::Backend for ToolsView {
         }
         out
     }
+    fn device_labels(&self) -> std::collections::BTreeMap<String, String> {
+        self.0.device_labels()
+    }
     fn avatar(&self, name: &str) -> String {
         self.0.faces.get(name)
     }
@@ -2688,24 +2691,7 @@ impl Core {
     /// computer's name when it joined), else this device's own name.
     /// Removed devices keep their name, so old lines still read.
     pub fn device_labels(&self) -> std::collections::BTreeMap<String, String> {
-        let mut out: std::collections::BTreeMap<String, String> = self
-            .s
-            .chain
-            .devices()
-            .into_iter()
-            .map(|d| (d.cert.device_id, d.cert.label))
-            .collect();
-        let me = &self.s.device;
-        let mine = out.entry(me.id.clone()).or_default();
-        if mine.is_empty() {
-            *mine = me.name.clone();
-        }
-        for (id, name) in self.s.device_names.chosen() {
-            if let Some(l) = out.get_mut(&id) {
-                *l = name;
-            }
-        }
-        out
+        self.s.device_labels()
     }
 
     /// The person's renames alone, by device id (card #184).
@@ -2965,6 +2951,29 @@ fn revive_for_ask(rv: &Mutex<Option<ReviveFn>>, me: &str, target: &str) -> Resul
     match target.split_once('/') {
         Some((dev, session)) if dev == me => f(session).map(|_| ()),
         _ => Err(format!("{target} is not a session on this device")),
+    }
+}
+
+impl Services {
+    /// See [`Core::device_labels`].
+    pub(crate) fn device_labels(&self) -> std::collections::BTreeMap<String, String> {
+        let mut out: std::collections::BTreeMap<String, String> = self
+            .chain
+            .devices()
+            .into_iter()
+            .map(|d| (d.cert.device_id, d.cert.label))
+            .collect();
+        let me = &self.device;
+        let mine = out.entry(me.id.clone()).or_default();
+        if mine.is_empty() {
+            *mine = me.name.clone();
+        }
+        for (id, name) in self.device_names.chosen() {
+            if let Some(l) = out.get_mut(&id) {
+                *l = name;
+            }
+        }
+        out
     }
 }
 

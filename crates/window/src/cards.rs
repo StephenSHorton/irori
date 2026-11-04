@@ -1147,6 +1147,7 @@ fn waits_by_itself(kind: &str) -> bool {
             | coord::BLOCKED_ON_LEASE
             | coord::BLOCKED_ON_AGENT
             | coord::BLOCKED_ON_EXTERNAL
+            | coord::BLOCKED_ON_VERSION
     )
 }
 
