@@ -2,6 +2,7 @@ import type { CSSProperties } from "react"
 import { UserIcon } from "lucide-react"
 import { minidenticon } from "minidenticons"
 import { AgentHover } from "@/components/cards/agent-hover"
+import { agentStatus } from "@/lib/agent-status"
 import { Avatar, AvatarBadge } from "@/components/ui/avatar"
 import { deviceVar, displayName, type AgentRef } from "@/lib/cards"
 import { cn } from "@/lib/utils"
@@ -41,13 +42,13 @@ export function Face({
   // A face that isn't answering is amber, as #407's faces were.
   const quiet = !person && !watching && who.status === "unresponsive"
   const name = displayName(who)
+  // How it stands, as everywhere else (card #489); idle goes unsaid.
+  const said = agentStatus(who).text
   const title = [
     name,
     who.where,
     who.device && `on ${who.device}`,
-    gone && "gone",
-    who.status === "unresponsive" && "isn't answering",
-    who.offline && "offline",
+    said !== "idle" && said,
     who.conflict && `lease conflict on ${who.conflict}`,
   ]
     .filter(Boolean)

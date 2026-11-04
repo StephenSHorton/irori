@@ -53,6 +53,30 @@ pub(crate) fn current(ts: &[Task]) -> HashMap<String, capture::Line> {
     out
 }
 
+/// Each of `keys` Irori started for a card: "on #N <title>" (ref
+/// `task:<id>`), the doing line capture puts ahead of any prompt, so a
+/// spawned agent never reads as its boot prompt (card #489).
+pub fn spawned_lines(
+    co: &coord::Coord,
+    keys: impl IntoIterator<Item = String>,
+) -> HashMap<String, capture::Line> {
+    keys.into_iter()
+        .filter_map(|k| {
+            let t = co.get_task(&co.spawned_card(&k)?)?;
+            let line = capture::Line {
+                r#ref: search::make_ref(Kind::Task, &t.id),
+                text: format!(
+                    "on {} {}",
+                    t.short_ref(),
+                    one_line(&t.title, MAX_CARD_TITLE)
+                ),
+                at: t.updated_at,
+            };
+            Some((k, line))
+        })
+        .collect()
+}
+
 fn task_overview_line(t: &Task, n: &Names<'_>) -> capture::Line {
     let mut text = format!(
         "{} [{}] {}",
@@ -117,6 +141,7 @@ impl Inner {
         });
         input.board_count = all.len() as i64;
         input.current = current(&all);
+        input.spawned = spawned_lines(co, n.cards.keys().cloned());
         let v = self.board_view(&repo, key, 1);
         let mut tasks = vec![];
         for cd in &v.needs_you {

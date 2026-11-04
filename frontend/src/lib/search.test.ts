@@ -3,15 +3,30 @@ import { describe, expect, test } from "bun:test"
 import { AgentRef, CardAsk, CardHolder, CardSummary } from "./models"
 import { cardMatches, matching, queryWords } from "./search"
 
-const heron = AgentRef({ key: "dev/heron-key", name: "sample-heron", status: "busy", live: true, where: "This PC" })
-const wren = AgentRef({ key: "dev/wren-key", name: "sample-wren", status: "idle", live: true, where: "This PC" })
+const heron = AgentRef({
+  key: "dev/heron-key",
+  name: "sample-heron",
+  status: "busy",
+  live: true,
+  where: "Macbook Pro (this one)",
+  here: true,
+})
+const wren = AgentRef({
+  key: "dev/wren-key",
+  name: "sample-wren",
+  status: "idle",
+  live: true,
+  where: "Macbook Pro (this one)",
+  here: true,
+})
 
 const card = CardSummary({
   id: "a",
   short: "12",
   title: "Fix the boat clipping through the dock",
   blockerQuestion: "Clamp the roll at 30°?",
-  searchText: "Boats stop sinking into the pier\nNo clipping in the test scene\nTune the hull collider\nYou",
+  searchText:
+    "Boats stop sinking into the pier\nNo clipping in the test scene\nTune the hull collider\nYou",
   working: [heron],
   watching: [wren],
   holder: CardHolder({ who: heron }),
@@ -51,7 +66,13 @@ describe("cardMatches", () => {
     expect(cardMatches(card, "willow")).toBe(false)
   })
   test("a card that is an ask matches its taker", () => {
-    const ask = CardSummary({ ...card, working: [], watching: [], holder: CardHolder(), ask: CardAsk({ taker: AgentRef({ ...wren, name: "willow" }) }) })
+    const ask = CardSummary({
+      ...card,
+      working: [],
+      watching: [],
+      holder: CardHolder(),
+      ask: CardAsk({ taker: AgentRef({ ...wren, name: "willow" }) }),
+    })
     expect(cardMatches(ask, "willow")).toBe(true)
   })
   test("a # word is the card's ref, exactly", () => {
@@ -65,7 +86,12 @@ describe("cardMatches", () => {
     expect(cardMatches(card, "12")).toBe(true)
   })
   test("a shared card matches tag#short and the short it had", () => {
-    const shared = CardSummary({ ...card, tag: "mlg", short: "3", shortWas: "12" })
+    const shared = CardSummary({
+      ...card,
+      tag: "mlg",
+      short: "3",
+      shortWas: "12",
+    })
     expect(cardMatches(shared, "mlg#3")).toBe(true)
     expect(cardMatches(shared, "MLG#3")).toBe(true)
     expect(cardMatches(shared, "#3")).toBe(true)
@@ -81,7 +107,11 @@ describe("cardMatches", () => {
 
 describe("matching", () => {
   test("keeps order, and every card with no query", () => {
-    const other = CardSummary({ id: "b", short: "7", title: "Boat physics pass" })
+    const other = CardSummary({
+      id: "b",
+      short: "7",
+      title: "Boat physics pass",
+    })
     expect(matching([card, other], "boat").map((c) => c.id)).toEqual(["a", "b"])
     expect(matching([card, other], "dock").map((c) => c.id)).toEqual(["a"])
     expect(matching([card, other], "").length).toBe(2)
