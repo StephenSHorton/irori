@@ -1548,6 +1548,11 @@ impl Services {
             // hasn't reached an agent, and close their connections.
             self.hold_from_gone(b);
             self.recheck_board_mesh(&b.id);
+            // The person left it on another device: its channels leave
+            // Talk here too (card #461).
+            if self.board_leaving(b) && self.talk.drop_space(&b.id) {
+                self.hub.publish(crate::events::CoreEvent::Talk);
+            }
         }
         if ev.seq == 0 {
             if let Ok(ids) = b.task_ids() {
@@ -1565,7 +1570,9 @@ impl Services {
         } else if ev.kind == kinds::AGENT_CARD {
             b.fold_card(ev);
         }
-        if ev.seq == 0 {
+        if self.board_leaving(b) {
+            // A space the person left: its channels stay out of Talk.
+        } else if ev.seq == 0 {
             // The space's channels fold again with everything else.
             let _ = self.talk.load();
             self.hub.publish(crate::events::CoreEvent::Talk);

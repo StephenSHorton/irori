@@ -606,6 +606,48 @@ fn a_space_channel_without_spaces_is_refused() {
     );
 }
 
+/// Card #461: a space forgotten or left here takes its channels, members
+/// and posts out of the fold, Personal stays, and the space's rows fold
+/// back in whole when it returns (the post ids left the dedupe set).
+#[test]
+fn dropping_a_space_takes_its_channels_out() {
+    let (e, sp) = (Env::new(), Env::on("dev-a"));
+    let space = std::sync::Arc::new(FakeSpace {
+        st: sp.st.clone(),
+        ready: true.into(),
+    });
+    let t = talk(&e);
+    t.set_spaces(space.clone());
+    let mine = t.create_channel(USER, "notes", "").unwrap();
+    post(&t, &mine.id, USER, "personal");
+    let c = t.create_channel_in(USER, "netcode", "", "s1").unwrap();
+    let p = post(&t, &c.id, USER, "hello space");
+    assert!(!t.members(&c.id).is_empty());
+
+    assert!(t.drop_space("s1"));
+    assert!(t.channel(&c.id).is_none());
+    assert!(t.posts(&c.id).is_empty());
+    assert!(t.members(&c.id).is_empty());
+    assert!(!t.has_post(&p.post_id));
+    assert!(t.channel(&mine.id).is_some(), "the Personal channel went");
+    assert_eq!(t.posts(&mine.id).len(), 1);
+    assert!(!t.drop_space("s1"), "nothing left to drop");
+    assert!(
+        !t.drop_space(talk::PERSONAL_SPACE),
+        "Personal is never dropped"
+    );
+    assert!(t.channel(&mine.id).is_some());
+
+    // The space comes back (a re-invite): its rows fold in again.
+    for ev in talk::SpaceLogs::rows(&*space) {
+        t.apply(&ev);
+    }
+    assert_eq!(t.channel(&c.id).unwrap().space_id, "s1");
+    let ps = t.posts(&c.id);
+    assert_eq!(ps.len(), 1);
+    assert_eq!(ps[0].text, "hello space");
+}
+
 /// Any number of spaces over one log: each row carries its spaceId.
 struct ManySpaces {
     st: std::sync::Arc<store::Store>,

@@ -1512,3 +1512,120 @@ fn a_second_board_and_a_channel_in_a_space_reach_bob() {
         .unwrap();
     close(alice.drain(..).chain(bob.drain(..)));
 }
+
+/// Whether `d`'s Talk lists conversation `conv`.
+fn talk_lists(d: &Dev, conv: &str) -> bool {
+    d.core
+        .talk_conversations(&d.user())
+        .is_ok_and(|cs| cs.iter().any(|c| c.conv_id == conv))
+}
+
+/// Alice's space with Bob on every device in `bobs` reading spaces, and a
+/// channel in it with one post of Alice's that each of Bob's devices
+/// lists. Returns the space and the channel's id.
+fn space_with_a_channel(a1: &Dev, bobs: &[&Dev]) -> (String, String) {
+    let space = invited(a1, bobs[0]);
+    for d in &bobs[1..] {
+        wait_for(WAIT, "bob's other device opens the space", || {
+            d.core
+                .board_list()
+                .iter()
+                .any(|s| s.board_id == space && s.ready)
+        });
+        // No relay or LAN lookup between people here: the invite link
+        // gave only b1's addresses, so Alice and Bob's other device are
+        // told each other's.
+        let addrs = |x: &Dev| x.core.net().endpoint().expect("bound").bound_sockets();
+        d.core.board_addr_hint(a1.core.device_id(), addrs(a1));
+        a1.core.board_addr_hint(d.core.device_id(), addrs(d));
+        d.core.kick_board(&space);
+    }
+    wait_for(WAIT, "alice hears bob read spaces", || {
+        a1.core.space_not_ready(&space).unwrap().is_empty()
+    });
+    let ch = a1
+        .core
+        .talk_channel_create_in(&a1.user(), "netcode", "", &space)
+        .unwrap();
+    a1.core
+        .talk_post(
+            &a1.core.user_sender(),
+            &ch.id,
+            "hello bob",
+            &[],
+            false,
+            None,
+        )
+        .unwrap();
+    a1.core.kick_board(&space);
+    for d in bobs {
+        wait_for(WAIT, "bob's device lists the channel", || {
+            talk_lists(d, &ch.id)
+        });
+    }
+    (space, ch.id)
+}
+
+/// Card #461: Bob leaves Alice's space. Its channel goes from Talk on both
+/// his devices without a reload (b1 at once, b2 from the synced `left`
+/// row), and stays gone once Alice holds the leave and his devices forget
+/// the space; his Personal channel stays, and Alice keeps the channel and
+/// its post.
+#[test]
+fn leaving_a_space_drops_its_channels_from_talk_live() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 2);
+    let (a1, b1, b2) = (&alice[0], &bob[0], &bob[1]);
+    let (space, ch) = space_with_a_channel(a1, &[b1, b2]);
+    let notes = b1
+        .core
+        .talk_channel_create(&b1.user(), "notes", "")
+        .unwrap();
+
+    // Alice is offline, so neither device can forget the space yet: b2
+    // drops the channel from the synced `left` row alone.
+    a1.core.close_board_net(&space);
+    b1.core.leave_board(&space).unwrap();
+    assert!(!talk_lists(b1, &ch), "b1's Talk still lists the channel");
+    assert!(b1.core.talk().channel(&ch).is_none());
+    assert!(b1.core.talk_posts(&b1.user(), &ch, None, 50).is_err());
+    wait_for(WAIT, "b2 drops the channel too", || !talk_lists(b2, &ch));
+    assert!(
+        b1.core.talk().channel(&notes.id).is_some(),
+        "bob's Personal channel went"
+    );
+    assert!(b2.core.boards().contains(&space), "b2 forgot, not left");
+
+    // Alice comes back and holds the leave; Bob's devices forget the
+    // space, and the channel stays gone.
+    a1.core.reopen_board_net(&space).unwrap();
+    for d in [b1, b2] {
+        wait_for(WAIT, "bob's device forgets the space", || {
+            !d.core.boards().contains(&space)
+        });
+        assert!(!talk_lists(d, &ch), "the channel came back");
+        assert!(d.core.talk().channel(&ch).is_none());
+    }
+    assert!(b1.core.talk().channel(&notes.id).is_some());
+    let ps = a1.core.talk_posts(&a1.user(), &ch, None, 50).unwrap();
+    assert_eq!(ps.len(), 1, "alice lost the post");
+    assert!(talk_lists(a1, &ch), "alice lost the channel");
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// Card #461: Bob leaves Alice's space and forgets it at once; its
+/// channel is gone from his Talk straight away.
+#[test]
+fn leaving_and_forgetting_a_space_drops_its_channels_at_once() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let (space, ch) = space_with_a_channel(a1, &[b1]);
+    b1.core.leave_board(&space).unwrap();
+    b1.core.forget_left_board(&space).unwrap();
+    assert!(!b1.core.boards().contains(&space));
+    assert!(b1.core.talk().channel(&ch).is_none());
+    assert!(!talk_lists(b1, &ch));
+    assert!(a1.core.talk().channel(&ch).is_some());
+    close(alice.drain(..).chain(bob.drain(..)));
+}

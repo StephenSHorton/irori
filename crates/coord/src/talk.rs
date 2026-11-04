@@ -409,6 +409,34 @@ impl Talk {
         fold(&mut self.lock(), ev)
     }
 
+    /// Drops space `space`'s channels, with their members and posts, from
+    /// the fold: the space was forgotten or left here (card #461). Reports
+    /// whether anything Talk shows changed. The posts' ids leave the
+    /// dedupe set, so a re-invite folds them back; read cursors and
+    /// talk.card links stay (private log). Personal is never dropped.
+    pub fn drop_space(&self, space: &str) -> bool {
+        if space == PERSONAL_SPACE {
+            return false;
+        }
+        let mut s = self.lock();
+        let gone: Vec<String> = s
+            .channels
+            .iter()
+            .filter(|(_, c)| c.space_id == space)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in &gone {
+            s.channels.remove(id);
+            s.members.remove(id);
+            if let Some(ps) = s.posts.remove(id) {
+                for p in ps {
+                    s.ids.remove(&p.post_id);
+                }
+            }
+        }
+        !gone.is_empty()
+    }
+
     /// Appends a row to `space`'s log (empty: the private log) and folds it.
     fn write<P: Serialize>(
         &self,

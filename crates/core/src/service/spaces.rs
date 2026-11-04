@@ -334,6 +334,9 @@ impl Services {
 
     /// Folds space `b`'s talk.* rows into Talk (a space just opened here).
     pub(crate) fn fold_space_talk(&self, b: &super::boards::BoardLog) {
+        if self.board_leaving(b) {
+            return; // left: out of Talk until it's forgotten (card #461)
+        }
         let mut changed = false;
         let f = Filter {
             kinds: SPACE_TALK_KINDS.iter().map(|k| k.to_string()).collect(),
@@ -444,7 +447,8 @@ impl coord::talk::SpaceLogs for SpaceTalk {
             return Vec::new();
         };
         let mut out = Vec::new();
-        for b in s.boards.list() {
+        // Not a space the person left (card #461).
+        for b in s.shown_boards() {
             let f = Filter {
                 kinds: SPACE_TALK_KINDS.iter().map(|k| k.to_string()).collect(),
                 ..Default::default()
