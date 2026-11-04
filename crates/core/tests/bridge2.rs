@@ -817,3 +817,49 @@ fn a_persons_avatar_reaches_the_other_side() {
         bobs(t.a()).is_some_and(|(a, _)| a.is_empty())
     });
 }
+
+/// Card #472: a new agent's word is never one another member's live agent
+/// on a shared board has. Bob runs a "kestrel" and shares it on the board;
+/// a seed whose first word is kestrel gives Alice's next agent kestrel
+/// before Bob's card reaches her, and another word once it has.
+#[test]
+fn a_new_agents_word_differs_from_a_friends_agent_on_a_shared_board() {
+    const SESS_K: &str = "dddddddd-4444-4444-8444-000000000004";
+    let t = two_people();
+    let seed = (0..100_000)
+        .map(|i| format!("seed-{i}"))
+        .find(|s| coord::names::pick(s, None) == "kestrel")
+        .unwrap();
+    assert_eq!(
+        t.a().pick_agent_name(&seed),
+        "kestrel",
+        "nobody Alice knows of is kestrel yet"
+    );
+    let work = tempfile::tempdir().unwrap();
+    common::write_session(
+        &t.rb.claude.join("sessions"),
+        "900009.json",
+        SESS_K,
+        "kestrel",
+        work.path(),
+    );
+    let bobs = format!("{}/{SESS_K}", t.b().device_id());
+    wait_for(60, "bob's kestrel is live", || {
+        t.b().local_agents().iter().any(|c| c.key == bobs)
+    });
+    t.b().board_key(&t.board, &bobs).unwrap();
+    wait_for(60, "alice sees bob's kestrel on the board", || {
+        t.sync();
+        t.a()
+            .board_agents()
+            .iter()
+            .any(|a| a.name == "kestrel" && a.status != "gone")
+    });
+    assert!(
+        t.a().mesh_agents().iter().all(|a| a.name != "kestrel"),
+        "kestrel is only Bob's"
+    );
+    let got = t.a().pick_agent_name(&seed);
+    assert_ne!(got, "kestrel", "Bob's agent has it");
+    assert!(coord::names::WORDS.contains(&got.as_str()), "{got}");
+}
