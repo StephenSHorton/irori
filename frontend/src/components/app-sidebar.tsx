@@ -419,7 +419,7 @@ export function AppSidebar({
           folded={folded}
           count={held}
           countTone="warning"
-          countTitle="Messages Irori's wake policy held"
+          countTitle="Messages Irori is holding back"
           onClick={onHeld}
         />
 

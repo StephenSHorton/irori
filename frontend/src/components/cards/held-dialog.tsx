@@ -14,18 +14,21 @@ import {
   allowLifts,
   errorText,
   holdText,
+  HoldReason,
   State,
   SystemKey,
   talk,
+  useRepoNames,
   type Delivery,
   type HeldState,
 } from "@/lib/talk"
 
 export type HeldTab = "waiting" | "history"
 
-// HeldDialog is the Held list: every message Irori's wake policy kept
-// from an agent and is waiting on the person (Pause all's too), with
-// Release, Dismiss and Allow sender & deliver; and its History, the ones
+// HeldDialog is the Held list: every message Irori is holding back until
+// the person decides (Pause all's too), each saying why in plain words
+// (card #488), with Release, Dismiss and Allow sender & deliver, or Start
+// an agent for their own message to a repo nobody is in; and its History, the ones
 // already decided, with who decided and when, where a dismissed one can
 // still be released. from, when set, shows only that sender's (a held
 // notification's Open). cardLabel names the card a message is about
@@ -55,11 +58,14 @@ export function HeldDialog({
 }) {
   const [busy, setBusy] = useState("")
   const [error, setError] = useState<string | null>(null)
+  const [said, setSaid] = useState("")
+  const repo = useRepoNames()
 
   const act = async (id: string, fn: () => Promise<void>) => {
     if (busy) return
     setBusy(id)
     setError(null)
+    setSaid("")
     try {
       await fn()
       await state.reload()
@@ -89,9 +95,8 @@ export function HeldDialog({
         <DialogHeader>
           <DialogTitle>Held messages</DialogTitle>
           <DialogDescription>
-            Messages Irori's wake policy kept from an agent until you decide.
-            Release delivers one; Dismiss closes it, and History can still
-            release it.
+            Messages Irori is holding back until you say, and why. Release
+            delivers one; Dismiss drops it, and History can still release it.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-wrap items-center gap-1">
@@ -153,12 +158,14 @@ export function HeldDialog({
                 d={d}
                 from={sender(d)}
                 name={name}
+                repo={repo}
                 cardLabel={cardLabel}
                 onCard={onCard}
                 now={now}
                 busy={busy === d.id}
                 disabled={!!busy}
                 onAct={(fn) => void act(d.id, fn)}
+                onStarted={setSaid}
               />
             ))}
           </ul>
@@ -173,6 +180,11 @@ export function HeldDialog({
                 : "No past held messages."}
           </p>
         )}
+        {said && !error && (
+          <p role="status" className="text-xs text-muted-foreground">
+            {said}
+          </p>
+        )}
         {(error || state.error) && (
           <p className="text-xs text-destructive">{error || state.error}</p>
         )}
@@ -185,29 +197,36 @@ function HeldRow({
   d,
   from,
   name,
+  repo,
   cardLabel,
   onCard,
   now,
   busy,
   disabled,
   onAct,
+  onStarted,
 }: {
   d: Delivery
   from: string
   name: (key: string) => string
+  repo: (key: string) => string
   cardLabel: (ref: string) => string
   onCard: (id: string) => void
   now: Date
   busy: boolean
   disabled: boolean
   onAct: (fn: () => Promise<void>) => void
+  onStarted: (said: string) => void
 }) {
   const held = d.state === State.Held
   const to = d.to.startsWith("user:")
     ? "you"
     : d.to
       ? name(d.to)
-      : `repo ${plainLine(d.repoKey ?? "")}`
+      : plainLine(repo(d.repoKey ?? "")) || "a repo"
+  const unowned = d.hold === HoldReason.HoldUnowned && !d.to
+  const mine = d.message.from.key.startsWith("user:")
+  const where = plainLine(repo(d.repoKey ?? "")) || "its repo"
   const sent = parseTime(d.message.sentAt)
   const ref = d.message.ref ?? ""
   const card = ref.startsWith("task:") ? cardLabel(ref) : ""
@@ -248,19 +267,39 @@ function HeldRow({
           {relativeTime(sent, now)}
         </time>
       </div>
-      <p className="text-xs text-muted-foreground">{plainLine(holdText(d))}</p>
+      <p className="text-xs text-muted-foreground">{plainLine(holdText(d, { name, repo }))}</p>
       <p className="line-clamp-4 text-[12.5px] whitespace-pre-wrap text-ink-2">
         {plainBlock(d.message.text)}
       </p>
       {held ? (
         <div className="flex flex-wrap gap-1.5 pt-0.5">
-          <Button
-            size="xs"
-            disabled={disabled}
-            onClick={() => onAct(() => talk.release(d.id))}
-          >
-            {busy ? "Working…" : "Release"}
-          </Button>
+          {unowned ? (
+            // Card #488: Release can't deliver it (nobody is there); the
+            // person's own message can start an agent there instead, and
+            // an agent's goes on by itself once one arrives.
+            mine && (
+              <Button
+                size="xs"
+                disabled={disabled}
+                onClick={() =>
+                  onAct(async () => {
+                    const ref = await talk.startAgent(d.id)
+                    onStarted(`Started an agent in ${where} on ${ref}, with your message.`)
+                  })
+                }
+              >
+                {busy ? "Working…" : `Start an agent in ${where}`}
+              </Button>
+            )
+          ) : (
+            <Button
+              size="xs"
+              disabled={disabled}
+              onClick={() => onAct(() => talk.release(d.id))}
+            >
+              {busy ? "Working…" : "Release"}
+            </Button>
+          )}
           <Button
             size="xs"
             variant="outline"

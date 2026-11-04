@@ -45,6 +45,23 @@ fn err(e: inbox::Error) -> String {
     e.to_string()
 }
 
+/// A repo key as a person reads it (card #488): for a local repo
+/// (root:<sha>) its checkout folder's name when `root` gives one, else
+/// "local repo 5a3c1e0"; for a hosted one its last part without .git
+/// ("remote:github.com/o/ww-multiplayer.git" is "ww-multiplayer").
+pub fn repo_short_name(key: &str, root: Option<&str>) -> String {
+    let folder = root
+        .filter(|_| key.starts_with("root:"))
+        .map(|r| r.trim_end_matches(['/', '\\']))
+        .and_then(|r| r.rsplit(['/', '\\']).next())
+        .filter(|f| !f.is_empty());
+    match folder {
+        Some(f) => f.to_string(),
+        None => inbox::watch::repo_short(key),
+    }
+}
+
+
 impl Window {
     /// InboxService.List: recent deliveries, newest first.
     pub fn inbox_list(&self, limit: i64) -> Vec<Delivery> {
@@ -230,6 +247,79 @@ impl Window {
         self.acted(r)
     }
 
+    /// InboxService.StartAgent (card #488): "Start an agent in <repo>" on
+    /// the person's own message that no agent in its repo can take yet.
+    /// Release can't deliver it (there is nobody to deliver to), so the
+    /// message becomes a card in that repo, with its text as the
+    /// objective, and an agent is started for it (spawning on), else the
+    /// card is handed to a free agent as New card does. The held message
+    /// is then dismissed: the card carries it. The answer is the card's
+    /// ref ("#12").
+    pub fn inbox_start_agent(&self, id: &str) -> Result<String, String> {
+        let ib = self.core.inbox();
+        let Some(d) = ib.get(trim(id)) else {
+            return Err(inbox::ErrorKind::NotFound.text().into());
+        };
+        if d.state != st::HELD || d.hold != inbox::hold::UNOWNED || d.repo_key.is_empty() {
+            return Err(format!(
+                "{}: only a message waiting for an agent in its repo starts one",
+                inbox::ErrorKind::BadState.text()
+            ));
+        }
+        let me = self.core.user_sender();
+        if d.message.from.key != me.key && !d.message.from.key.starts_with("user:") {
+            return Err(format!(
+                "{}: only your own message starts an agent",
+                inbox::ErrorKind::BadState.text()
+            ));
+        }
+        let name = self.repo_name(&d.repo_key);
+        let co = self.core.coord().clone();
+        let t = co
+            .create_task(
+                &me.key,
+                coord::NewTask {
+                    title: format!("Your message for {name}"),
+                    objective: d.message.text.clone(),
+                    repo_key: d.repo_key.clone(),
+                    ..coord::NewTask::default()
+                },
+            )
+            .map_err(|e| e.to_string())?;
+        if co.spawning() {
+            self.core.start_agent(&t.id, "")?;
+        } else {
+            let n = co
+                .offer_card(&me.key, &t.id, &self.core.ask_agents())
+                .map_err(|e| e.to_string())?;
+            self.tell_from(&inbox::system_sender(), &n);
+        }
+        let r = ib.dismiss(&d.id, &self.by()).map_err(err);
+        self.acted(r)?;
+        Ok(co.get_task(&t.id).unwrap_or(t).short_ref())
+    }
+
+    /// InboxService.RepoNames (card #488): every repo this device has a
+    /// checkout of, by its short name: the checkout folder's name for a
+    /// local repo (root:<sha>), the repo's own name for a hosted one.
+    pub fn inbox_repo_names(&self) -> Vec<ts::RepoName> {
+        self.core
+            .capture()
+            .repos()
+            .into_iter()
+            .map(|(key, roots)| ts::RepoName {
+                name: repo_short_name(&key, roots.first().map(String::as_str)),
+                repo_key: key,
+            })
+            .collect()
+    }
+
+    /// The short name of repo `key` here (see [`repo_short_name`]).
+    pub(crate) fn repo_name(&self, key: &str) -> String {
+        let roots = self.core.capture().repo_roots(key);
+        repo_short_name(key, roots.first().map(String::as_str))
+    }
+
     /// InboxService.AllowAndRelease: "Allow sender & deliver".
     pub fn inbox_allow_and_release(&self, id: &str) -> Result<(), String> {
         let ib = self.core.inbox();
@@ -339,5 +429,28 @@ impl Window {
     /// inbox's subscription (a policy write that re-queues nothing).
     fn nudge_inbox(&self) {
         self.inbox_kick.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::repo_short_name;
+
+    #[test]
+    fn repo_short_names() {
+        let k = "root:5a3c1e0b9d7f2a4c6e8b";
+        assert_eq!(
+            repo_short_name(k, Some("/Users/s/projects/ww-multiplayer")),
+            "ww-multiplayer"
+        );
+        assert_eq!(
+            repo_short_name(k, Some("C:\\Users\\s\\ww-multiplayer\\")),
+            "ww-multiplayer"
+        );
+        assert_eq!(repo_short_name(k, None), "local repo 5a3c1e0");
+        assert_eq!(
+            repo_short_name("remote:github.com/o/irori.git", Some("/x/fork")),
+            "irori"
+        );
     }
 }

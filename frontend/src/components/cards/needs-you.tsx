@@ -36,6 +36,7 @@ import {
   holdText,
   HoldReason,
   talk,
+  useRepoNames,
   type Delivery,
 } from "@/lib/talk"
 
@@ -56,6 +57,7 @@ export function NeedsYou({
 }) {
   // The quiet line (card #488) is held messages that don't ask the person
   // one by one: it isn't counted, and alone it isn't "something waits".
+  const repo = useRepoNames()
   const rows = needs.filter((n) => n.kind !== "heldQuiet")
   const quiet = needs.find((n) => n.kind === "heldQuiet")
   return (
@@ -82,7 +84,7 @@ export function NeedsYou({
               ) : n.kind === "review" ? (
                 <ReviewNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "held" ? (
-                <HeldNeed d={n.delivery} now={now} name={name} />
+                <HeldNeed d={n.delivery} now={now} name={name} repo={repo} />
               ) : null}
             </li>
           ))}
@@ -583,44 +585,69 @@ const at = (s: string) => {
   return Number.isNaN(t) ? 0 : t
 }
 
-// HeldNeed is a message Irori held from an agent: Release, Dismiss, or
-// Allow sender (only for the holds allowing them lifts). Held's History
-// stays in the Held list.
+// HeldNeed is a held message that asks the person (asksPerson, card
+// #488): their own message no agent in its repo can take yet (Start an
+// agent there, since Release has nobody to deliver to), or one from
+// another person (Release, Dismiss, or Allow sender where allowing them
+// lifts it). Held's History stays in the Held list.
 function HeldNeed({
   d,
   now,
   name,
+  repo,
 }: {
   d: Delivery
   now: Date
   name: (key: string) => string
+  repo: (key: string) => string
 }) {
   const act = useAct()
-  const to = d.to ? name(d.to) : "a repo"
+  const unowned = d.hold === HoldReason.HoldUnowned && !d.to
+  const mine = d.message.from.key.startsWith("user:")
+  const where = plainLine(repo(d.repoKey ?? "")) || "its repo"
+  const to = d.to ? plainLine(name(d.to)) || "an agent" : where
   return (
     <Row
       kind="held"
       where={
         <>
-          {sender(d)} → {plainLine(to) || "an agent"}
+          {mine ? "You" : sender(d)} → {to}
         </>
       }
       at={at(d.createdAt)}
       now={now}
-      title={`Irori held a message: ${holdText(d)}`}
+      title={holdText(d, { name, repo })}
     >
       <p className="line-clamp-3 text-sm break-words whitespace-pre-line">
         {d.message.text}
       </p>
       {!act.done && (
         <span className="flex flex-wrap gap-1.5">
-          <Button
-            size="sm"
-            disabled={act.busy}
-            onClick={() => void act.run(() => talk.release(d.id), "Released.")}
-          >
-            Release
-          </Button>
+          {unowned ? (
+            mine && (
+              <Button
+                size="sm"
+                disabled={act.busy}
+                title={`Makes your message a card in ${where} and starts an agent on it`}
+                onClick={() =>
+                  void act.run(
+                    () => talk.startAgent(d.id),
+                    `Started an agent in ${where} with your message.`
+                  )
+                }
+              >
+                Start an agent in {where}
+              </Button>
+            )
+          ) : (
+            <Button
+              size="sm"
+              disabled={act.busy}
+              onClick={() => void act.run(() => talk.release(d.id), "Released.")}
+            >
+              Release
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"

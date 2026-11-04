@@ -209,23 +209,40 @@ fn card_held(d: &Delivery) -> bool {
     d.state == st::HELD && d.hold != hold::PAUSED && d.hold != hold::EDITING
 }
 
-/// A hold in the person's words.
+/// A hold in the person's words (card #488: no internal reasons; the
+/// window's own sentences, frontend/src/lib/talk.ts holdText, also name
+/// who).
 pub fn hold_reason(h: &str) -> String {
     match h {
         hold::BLOCKED => "the sender is on your block list",
         hold::NOT_ALLOWED => "the sender isn't on your allow list",
-        hold::BYPASS_RECEIVER => "the recipient runs without permission prompts",
-        hold::HOP_LIMIT => "it is too many hops down a chain of agent messages",
-        hold::UNOWNED => "no agent in that repo can take it yet",
-        hold::PAUSED => "wakes are paused",
+        hold::BYPASS_RECEIVER => "an older Irori held it, by a rule that's gone now",
+        hold::HOP_LIMIT => "these agents kept messaging each other without stopping",
+        hold::UNOWNED => "no agent is working in that repo to take it yet",
+        hold::PAUSED => "you paused wakes",
         hold::MEMBER_WAKE => "another person asked to wake your agent, and your receive setting for that board asks you first",
         hold::CROSS_PERSON => "it comes from another person on a shared board, and your receive setting for that board asks you first",
         hold::MEMBER_LEASE => "another person asks your agent to give up a lease",
         hold::MEMBER_REMOVED => "it comes from a person who is no longer on that board",
         hold::EDITING => "you are editing it",
-        other => other,
+        _ => "Irori held it",
     }
     .to_string()
+}
+
+/// A repo key in a notification (card #488): its last part ("irori" for
+/// remote:github.com/o/irori), or "local repo 5a3c1e0" for a root-commit
+/// key, never the whole key. The window names a local repo by its folder.
+pub fn repo_short(key: &str) -> String {
+    if let Some(sha) = key.strip_prefix("root:") {
+        return format!("local repo {}", sha.get(..7).unwrap_or(sha));
+    }
+    let k = key.trim_end_matches('/');
+    let k = k.strip_suffix(".git").unwrap_or(k);
+    match k.rfind(['/', ':', '\\']) {
+        Some(i) if i < k.len() - 1 => k[i + 1..].to_string(),
+        _ => k.to_string(),
+    }
 }
 
 /// Text on one line, cut to what two card lines hold (160 runes).
@@ -557,7 +574,7 @@ impl Watcher {
 
     fn held_to(&self, d: &Delivery) -> String {
         if d.to.is_empty() && !d.repo_key.is_empty() {
-            return format!("repo {}", d.repo_key);
+            return repo_short(&d.repo_key);
         }
         if d.to != self.user {
             return self.name(&d.to);

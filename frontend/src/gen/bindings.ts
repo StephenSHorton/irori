@@ -29,6 +29,8 @@ export const commands = {
 	inboxMarkRead: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_mark_read", { deliveryId }),
 	inboxRelease: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_release", { deliveryId }),
 	inboxDismiss: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_dismiss", { deliveryId }),
+	inboxStartAgent: (deliveryId: string) => __TAURI_INVOKE<string>("inbox_start_agent", { deliveryId }),
+	inboxRepoNames: () => __TAURI_INVOKE<RepoName[]>("inbox_repo_names"),
 	inboxAllowAndRelease: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_allow_and_release", { deliveryId }),
 	inboxPolicy: () => __TAURI_INVOKE<Policy>("inbox_policy"),
 	inboxSetPolicy: (p: PolicyInput) => __TAURI_INVOKE<null>("inbox_set_policy", { p }),
@@ -1726,6 +1728,15 @@ export type RelayView = {
 	credentialUrl?: string,
 	state: string,
 	detail?: string,
+};
+
+/**
+ *  A repo this device has a checkout of, by its short name (card #488):
+ *  what a held message to a repo names instead of its key.
+ */
+export type RepoName = {
+	repoKey: string,
+	name: string,
 };
 
 /**  coord.Resolution. */

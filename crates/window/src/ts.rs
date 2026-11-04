@@ -275,6 +275,15 @@ pub struct Mention {
     pub gone: bool,
 }
 
+/// A repo this device has a checkout of, by its short name (card #488):
+/// what a held message to a repo names instead of its key.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoName {
+    pub repo_key: String,
+    pub name: String,
+}
+
 /// inbox.Delivery.
 #[derive(Serialize, Type)]
 #[serde(rename_all = "camelCase")]

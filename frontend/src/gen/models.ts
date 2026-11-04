@@ -99,6 +99,7 @@ export type Policy = B.Policy
 export type PolicyInput = B.PolicyInput
 export type RefTarget = B.RefTarget
 export type RelayView = B.RelayView
+export type RepoName = B.RepoName
 export type Resolution = B.Resolution
 export type Returned = B.Returned
 export type ReviewPr = B.ReviewPr
@@ -572,6 +573,11 @@ export function RefTarget(p: Partial<B.RefTarget> = {}): B.RefTarget {
 /** RelayView with Go's zero values for every field left out. */
 export function RelayView(p: Partial<B.RelayView> = {}): B.RelayView {
   return { "state": "", ...p } as B.RelayView
+}
+
+/** RepoName with Go's zero values for every field left out. */
+export function RepoName(p: Partial<B.RepoName> = {}): B.RepoName {
+  return { "repoKey": "", "name": "", ...p } as B.RepoName
 }
 
 /** Resolution with Go's zero values for every field left out. */
