@@ -62,8 +62,6 @@ export function NeedsYou({
                 <CardNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "trust" ? (
                 <TrustRow need={n} now={now} onOpen={onOpenCard} />
-              ) : n.kind === "review" ? (
-                <ReviewNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "held" ? (
                 <HeldNeed d={n.delivery} now={now} name={name} />
               ) : null}
@@ -78,7 +76,6 @@ export function NeedsYou({
 const kinds = {
   check: { label: "Done check", variant: "success" },
   decision: { label: "Decision", variant: "destructive" },
-  review: { label: "Review", variant: "warning" },
   trust: { label: "Trust", variant: "warning" },
   message: { label: "Message", variant: "info" },
   held: { label: "Held", variant: "warning" },
@@ -218,46 +215,6 @@ function waitsOnYou(b: CardBlocker): boolean {
     !b.decider &&
     answerable(b.state || BlockerState.Open) &&
     b.state !== BlockerState.Answered
-  )
-}
-
-// ReviewNeed is a PR waiting on the person's review (card #347): once,
-// with every card that waits on it, and the PR one click away.
-function ReviewNeed({
-  need,
-  now,
-  onOpen,
-}: {
-  need: Extract<Need, { kind: "review" }>
-  now: Date
-  onOpen: (id: string) => void
-}) {
-  const { pr, cards } = need
-  const where = <span className="font-mono">{pr.repo}</span>
-  return (
-    <Row kind="review" where={where} at={need.at} now={now} title={`Review PR #${pr.number}`}>
-      <p className="text-sm break-words text-muted-foreground">
-        {cards.length === 1 ? "A card waits" : `${cards.length} cards wait`} on it:{" "}
-        {cards.map((c, i) => (
-          <span key={c.id}>
-            {i > 0 && ", "}
-            <button
-              type="button"
-              className="font-mono tabular-nums underline-offset-2 hover:underline"
-              title={plainLine(c.title)}
-              onClick={() => onOpen(c.id)}
-            >
-              {cardRef(c)}
-            </button>
-          </span>
-        ))}
-      </p>
-      <span className="flex flex-wrap gap-1.5">
-        <Button size="sm" onClick={() => void cardsApi.openURL(pr.url)} title={pr.url}>
-          Open PR #{pr.number}
-        </Button>
-      </span>
-    </Row>
   )
 }
 

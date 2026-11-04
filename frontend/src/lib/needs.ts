@@ -17,7 +17,6 @@ import {
   TaskState,
   workLabel,
   type CardSummary,
-  type ReviewPr,
 } from "./cards"
 import { parseTime, plainLine } from "./irori"
 import { State, type Delivery } from "./talk"
@@ -64,11 +63,11 @@ export function rowState(
   }
   if (openAsk(c) && c.ask) return { state: "waiting", line: askLine(c.ask) }
   if (c.paused) return { state: "waiting", line: "Paused" }
-  // Card #347: the person's review of the PR it's on, or what its wait
-  // on another card comes down to for them.
-  if (c.reviewPr) return { state: "needs", line: `Review PR #${c.reviewPr.number}` }
+  // Card #471: a card on a PR waits on the PR (agents merge it, another
+  // member's agents approve it), never on the person; its chip links it.
   if (c.state === TaskState.InReview) return { state: "waiting", line: "In review" }
   if (c.subtaskBlocked) return { state: "waiting", line: "A subtask needs a call" }
+  // Card #347: what its wait on another card comes down to for them.
   if (c.waitingOn && c.waitYou) return { state: "needs", line: `Waits on ${c.waitYou}` }
   if (c.waitingOn)
     return {
@@ -108,6 +107,23 @@ export function rowState(
 // because its repo isn't trusted for agents on that device (card #449).
 export const NOT_TRUSTED = "not trusted: "
 
+// prChip is the small "waits on PR #N" chip an in-review card shows on
+// itself (card #471), with the PR's link and who it waits on: agents merge
+// it, and where the repo wants an approval another member's agents give
+// it. Never the person, so it is never a Needs you row.
+export function prChip(c: CardSummary): { text: string; title: string; url: string } | null {
+  const pr = c.waitPr
+  if (!pr || over(c)) return null
+  const who = pr.approval
+    ? "another member's agents approve it, then it merges"
+    : "an agent merges it once its checks pass"
+  return {
+    text: `waits on PR #${pr.number}`,
+    title: `Waits on PR #${pr.number} in ${pr.repo}: ${who}. Opens ${pr.url}`,
+    url: pr.url,
+  }
+}
+
 // waitsOnTrust says the card's agent can't start until the person trusts
 // its repo: a Trust and start row in Needs you.
 export function waitsOnTrust(c: CardSummary): boolean {
@@ -117,7 +133,6 @@ export function waitsOnTrust(c: CardSummary): boolean {
 export type Need =
   | { kind: "check" | "decision"; id: string; at: number; card: CardSummary }
   | { kind: "trust"; id: string; at: number; card: CardSummary }
-  | { kind: "review"; id: string; at: number; pr: ReviewPr; cards: CardSummary[] }
   | { kind: "held"; id: string; at: number; delivery: Delivery }
 
 // toPerson says the delivery is an agent's message to the person, still
@@ -136,9 +151,9 @@ export function toPerson(d: Delivery): boolean {
 const time = (s: string | undefined) => parseTime(s ?? "")?.getTime() ?? 0
 
 // needsOf is the Needs you list, newest first: every card waiting on the
-// person (a done check, else a decision, else its repo's trust: card #449), each PR waiting on their review
-// once with every card on it (card #347), and every message Irori held for
-// them. An agent's message to the person is a DM in Talk now (card #390,
+// person (a done check, else a decision, else its repo's trust: card #449)
+// and every message Irori held for them. A PR is never theirs to review
+// (card #471): its card shows a small chip instead. An agent's message to the person is a DM in Talk now (card #390,
 // design b1), not a row here. held is the Held list.
 export function needsOf(cards: CardSummary[], held: Delivery[]): Need[] {
   const out: Need[] = []
@@ -156,25 +171,6 @@ export function needsOf(cards: CardSummary[], held: Delivery[]): Need[] {
     if (!waitsOnTrust(c) || needsYou(c)) continue
     out.push({ kind: "trust", id: c.id, at: time(c.updatedAt), card: c })
   }
-  const reviews = new Map<string, Extract<Need, { kind: "review" }>>()
-  for (const c of cards) {
-    if (!c.reviewPr || over(c) || needsYou(c)) continue
-    const r = reviews.get(c.reviewPr.url)
-    const at = time(c.updatedAt)
-    if (r) {
-      r.cards.push(c)
-      r.at = Math.max(r.at, at)
-      continue
-    }
-    reviews.set(c.reviewPr.url, {
-      kind: "review",
-      id: c.reviewPr.url,
-      at,
-      pr: c.reviewPr,
-      cards: [c],
-    })
-  }
-  out.push(...reviews.values())
   const seen = new Set<string>()
   for (const d of held) {
     if (seen.has(d.id)) continue

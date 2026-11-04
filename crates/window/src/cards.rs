@@ -353,6 +353,11 @@ pub struct WaitPr {
     pub repo: String,
     pub number: i64,
     pub url: String,
+    /// GitHub says the PR needs an approval before it merges: it waits on
+    /// another member's agents, never the person's or their own agents'.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub approval: bool,
 }
 
 /// Where a card's work is (card #137), as its holder's device last saw it.
@@ -2442,15 +2447,14 @@ fn wait_pr(co: &coord::Coord, t: &Task) -> Option<WaitPr> {
     let heard = co.pr_states(&t.id);
     t.links.iter().find_map(|l| {
         let (repo, number) = coord::pr_link(l)?;
-        let st = heard
-            .iter()
-            .find(|h| h.pr == l.reference)
-            .map(|h| h.state.as_str())
-            .unwrap_or_default();
+        let h = heard.iter().find(|h| h.pr == l.reference);
+        let st = h.map(|h| h.state.as_str()).unwrap_or_default();
+        let approval = h.is_some_and(|h| h.review == coord::PR_REVIEW_REQUIRED);
         (st.is_empty() || st == coord::PR_OPEN).then(|| WaitPr {
             repo,
             number,
             url: l.reference.clone(),
+            approval,
         })
     })
 }

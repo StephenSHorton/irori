@@ -368,14 +368,15 @@ export function sampleCards(now: Date): CardDetail[] {
       state: TaskState.InReview,
       working: [otter],
       updatedAt: at(3),
-      // Card #347: no agent was asked, so it waits on the person's review.
-      reviewPr: {
+      // Card #471: it waits on its PR, which agents merge; a small chip
+      // on the card links it, and nothing goes to Needs you.
+      waitPr: {
         repo: "sample-org/example-app",
         number: 212,
         url: "https://github.com/sample-org/example-app/pull/212",
       },
     }),
-    // Card #347: a wait on that card ends at the person's review.
+    // A wait on that card waits on its PR, not on the person (card #471).
     card({
       id: "sample-card-after-review",
       short: "17",
@@ -386,7 +387,6 @@ export function sampleCards(now: Date): CardDetail[] {
       waitingOn: 1,
       waitOn: "#16",
       waitQuestion: "After the convert steps land",
-      waitYou: "your review of PR #212 (#16)",
       updatedAt: at(4),
     }),
     card({

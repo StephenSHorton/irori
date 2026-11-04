@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import { TaskState, withLive, workingNow, type AgentRef, type CardSummary } from "./cards"
-import { IDLE_LINE, needsOf, needsYou, rowState, toPerson, waitsOnTrust } from "./needs"
+import { IDLE_LINE, needsOf, needsYou, prChip, rowState, toPerson, waitsOnTrust } from "./needs"
 import { State, type Delivery } from "./talk"
 
 const card = (c: Partial<CardSummary>): CardSummary =>
@@ -191,42 +191,52 @@ describe("needsOf", () => {
 })
 
 // Card #347: "Waiting" that is really the person's says so and sits under
-// Needs you. Today's board: #330 and #334 in review on PR #96, #329
-// waiting on #334, #290's question filed on an external wait.
-describe("what waits on the person (card #347)", () => {
+// Needs you. Card #471: a PR never does; nobody but agents merges it, and
+// its card shows a small chip instead. Today's board: #330 and #334 in
+// review on PR #96, #329 waiting on #334, #290's question on an external
+// wait.
+describe("what waits on the person (cards #347, #471)", () => {
   const pr = { repo: "StephenSHorton/suzuri", number: 96, url: "https://github.com/StephenSHorton/suzuri/pull/96" }
-  test("a card in review on the person's PR reads Review PR #N", () => {
-    expect(rowState(card({ state: TaskState.InReview, reviewPr: pr }))).toEqual({
-      state: "needs",
-      line: "Review PR #96",
+  test("a card in review on its PR waits, it doesn't need the person", () => {
+    expect(rowState(card({ state: TaskState.InReview, waitPr: pr }))).toEqual({
+      state: "waiting",
+      line: "In review",
     })
-    // An agent's review (no reviewPr) still reads In review.
-    expect(rowState(card({ state: TaskState.InReview })).state).toBe("waiting")
   })
-  test("a wait whose chain ends at the person names it", () => {
+  test("a wait whose chain ends at the person's answer names it", () => {
     const c = card({
       state: TaskState.Blocked,
       waitingOn: 1,
-      waitOn: "#334",
-      waitYou: "your review of PR #96 (#334)",
+      waitOn: "#290",
+      waitYou: "your answer on #290",
     })
-    expect(rowState(c)).toEqual({ state: "needs", line: "Waits on your review of PR #96 (#334)" })
-    // A chain that ends at an agent stays Waiting on #N.
-    expect(rowState({ ...c, waitYou: undefined })).toEqual({ state: "waiting", line: "Waiting on #334" })
+    expect(rowState(c)).toEqual({ state: "needs", line: "Waits on your answer on #290" })
+    // A chain that ends at an agent or a PR stays Waiting on #N.
+    expect(rowState({ ...c, waitOn: "#334", waitYou: undefined })).toEqual({
+      state: "waiting",
+      line: "Waiting on #334",
+    })
   })
-  test("one Review PR #N for every card on it, beside a decision", () => {
+  test("Needs you has no PR rows, only the decision", () => {
     const cs = [
-      card({ id: "330", state: TaskState.InReview, reviewPr: pr, updatedAt: "2026-11-03T17:12:00Z" }),
-      card({ id: "334", state: TaskState.InReview, reviewPr: pr, updatedAt: "2026-11-03T18:36:00Z" }),
+      card({ id: "330", state: TaskState.InReview, waitPr: pr, updatedAt: "2026-11-03T17:12:00Z" }),
+      card({ id: "334", state: TaskState.InReview, waitPr: pr, updatedAt: "2026-11-03T18:36:00Z" }),
       card({ id: "290", state: TaskState.Blocked, openBlockers: 1, updatedAt: "2026-11-03T15:14:00Z" }),
-      card({ id: "329", state: TaskState.Blocked, waitingOn: 1, waitYou: "your review of PR #96 (#334)" }),
-      card({ id: "old", state: TaskState.Completed, reviewPr: pr }),
+      card({ id: "329", state: TaskState.Blocked, waitingOn: 1, waitOn: "#334" }),
     ]
-    const got = needsOf(cs, [], [])
-    expect(got.map((n) => `${n.kind}:${n.id}`)).toEqual([`review:${pr.url}`, "decision:290"])
-    const r = got[0]
-    expect(r.kind === "review" && r.cards.map((c) => c.id)).toEqual(["330", "334"])
-    expect(r.at).toBe(Date.parse("2026-11-03T18:36:00Z"))
+    expect(needsOf(cs, []).map((n) => `${n.kind}:${n.id}`)).toEqual(["decision:290"])
+  })
+  test("the PR chip names the PR, links it and says who it waits on", () => {
+    expect(prChip(card({ state: TaskState.InReview, waitPr: pr }))).toEqual({
+      text: "waits on PR #96",
+      title: "Waits on PR #96 in StephenSHorton/suzuri: an agent merges it once its checks pass. Opens https://github.com/StephenSHorton/suzuri/pull/96",
+      url: pr.url,
+    })
+    expect(prChip(card({ state: TaskState.InReview, waitPr: { ...pr, approval: true } }))?.title).toContain(
+      "another member's agents approve it"
+    )
+    expect(prChip(card({ state: TaskState.InReview }))).toBeNull()
+    expect(prChip(card({ state: TaskState.Completed, waitPr: pr }))).toBeNull()
   })
 })
 
