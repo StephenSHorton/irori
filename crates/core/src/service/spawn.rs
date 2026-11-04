@@ -29,6 +29,10 @@ use crate::logf;
 /// Irori's own key on the Board.
 const SWEEPER: &str = "irori";
 
+/// How much earlier than its request a spawned session may say it started
+/// (clocks and Claude Code's own start stamp) and still be bound to it.
+const BIND_SLACK: Duration = Duration::from_secs(60);
+
 fn before(a: &GoTime, b: &GoTime) -> bool {
     a.unix_nano() < b.unix_nano()
 }
@@ -1121,13 +1125,17 @@ impl Services {
                 continue;
             };
             // By the spawn record's name: a word (card #472) no other live
-            // agent had when it was picked. A session already bound to a
-            // card is never bound to another.
+            // agent had when it was picked, held in names.json while it
+            // starts. A session already bound to a card is never bound to
+            // another, and one that started well before the request (a
+            // terminal someone named the same word) isn't its agent.
+            let since = s.at.unix_nano() - BIND_SLACK.as_nanos() as i64;
             let Some(a) = live.iter().find(|a| {
                 !s.name.is_empty()
                     && a.name == s.name
                     && a.status != "gone"
                     && !self.coord.is_spawned(&a.key)
+                    && (a.started_at.is_zero() || a.started_at.unix_nano() >= since)
             }) else {
                 continue;
             };

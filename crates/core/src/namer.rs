@@ -19,6 +19,13 @@ use serde::Serialize;
 use crate::reset::write_private;
 
 pub const NAMES_FILE: &str = "names.json";
+/// The names.json key prefix of a word held for an agent Irori is
+/// starting (card #472), not a session id.
+pub const SPAWN_PREFIX: &str = "spawn:";
+/// Another person's agent whose device hasn't been seen this long no longer
+/// holds its word against a new pick (it still counts as used): a friend
+/// gone for good doesn't keep a word forever.
+pub const OTHERS_STALE: Duration = Duration::from_secs(7 * 24 * 3600);
 /// A name stays reserved this long for a session that isn't running.
 pub const NAMES_KEEP: Duration = Duration::from_secs(30 * 24 * 3600);
 /// A session whose name was in use this recently holds it against new picks.
@@ -156,14 +163,25 @@ impl Namer {
     /// A fresh name for an agent Irori is about to start (card #472), from
     /// `seed` (random per start, so a card's next agent gets another word):
     /// one no live agent of any member has, nobody here used lately, and
-    /// `taken` doesn't refuse (names other starts already asked for). It
-    /// isn't kept in names.json: the agent is started under it and keeps it
-    /// as its own name.
+    /// `taken` doesn't refuse (names other starts already asked for). It is
+    /// held in names.json under `spawn:<seed>` for [`NAMES_BUSY`], so a
+    /// terminal session named while the agent starts never gets it; the
+    /// agent itself keeps it as its own (`--name`) name.
     pub fn pick_new(&self, seed: &str, taken: &dyn Fn(&str) -> bool) -> String {
         let (cards, others) = (self.cards(), self.others());
         let now = self.now();
-        let m = self.lock();
-        self.pick_with(&m, seed, &cards, &others, &now, taken)
+        let mut m = self.lock();
+        let name = self.pick_with(&m, seed, &cards, &others, &now, taken);
+        m.insert(
+            format!("{SPAWN_PREFIX}{seed}"),
+            NameEntry {
+                name: name.clone(),
+                at: now,
+                gave: vec![],
+            },
+        );
+        self.save_locked(&m);
+        name
     }
 
     /// The name session `id` was given, or `""`.
@@ -185,6 +203,12 @@ impl Namer {
     /// Gives session `id` a name if it has none: the word its id hashes to,
     /// or the next one no live agent on any device is called.
     pub fn assign(&self, id: &str) -> String {
+        // Presence asks on every scan: a named session costs one lookup,
+        // not a read of every shared board (card #472).
+        let had = self.assigned(id);
+        if !had.is_empty() {
+            return had;
+        }
         let (cards, others) = (self.cards(), self.others());
         let now = self.now();
         let mut m = self.lock();
@@ -238,8 +262,15 @@ impl Namer {
         let mut recent = HashSet::new();
         let mut known = HashSet::new();
         for c in others {
-            if c.status != "gone" && !c.name.is_empty() {
+            if c.name.is_empty() {
+                continue;
+            }
+            let stale = c.device_state == coord::roster::OFFLINE
+                && (c.device_seen.is_zero() || since(now, &c.device_seen) > nanos(OTHERS_STALE));
+            if c.status != "gone" && !stale {
                 taken.insert(fold(&c.name));
+            } else {
+                known.insert(fold(&c.name));
             }
         }
         for c in cards {
