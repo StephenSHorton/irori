@@ -180,7 +180,8 @@ pub const DIRECT_WINDOW: Duration = Duration::from_secs(10 * 60);
 /// The runaway-loop guard: a message this many replies down one chain of
 /// agent messages is held (card #71 raised it from Go's 6, which held
 /// ordinary back-and-forth; the per-pair rate limit bounds a two-agent
-/// loop long before this).
+/// loop long before this). A chain starts counting again once either agent
+/// in it makes progress (card #488, progress.rs).
 pub const MAX_HOP: i64 = 50;
 pub const UNENGAGED_LIMIT: Duration = Duration::from_secs(10 * 60);
 /// How long a wake item may wait on an idle agent before Irori counts the
