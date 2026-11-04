@@ -11,7 +11,6 @@ fn input(scope: &str, text: &str) -> NoteInput {
         kind: "rule".into(),
         text: text.into(),
         tags: vec!["everywhere".into()],
-        ..NoteInput::default()
     }
 }
 
