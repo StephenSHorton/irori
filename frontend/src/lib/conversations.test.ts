@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { agentsNowFor, fromPost, listed, unreadDms, type Conversation } from "./conversations"
+import { agentsNowFor, fromPost, listed, readAll, talkApi, unreadDms, type Conversation } from "./conversations"
 import { TalkConversation } from "./models"
 
 const conv = (p: Partial<Conversation>): Conversation => TalkConversation(p)
@@ -50,5 +50,20 @@ describe("Make a card from a message (design §4, card #390)", () => {
     const f = fromPost("x".repeat(200), "a DM")
     expect(f.title.length).toBe(80)
     expect(f.title.endsWith("…")).toBe(true)
+  })
+})
+
+describe("the Archive's Mark all read (card #473)", () => {
+  test("reads each unread DM given up to its newest post, on the sample", async () => {
+    const before = await talkApi.conversations()
+    const one = before.filter((c) => c.convId === "sample-dm-gone-new")
+    expect(one[0]?.unread).toBe(1)
+    await readAll(one)
+    const after = await talkApi.conversations()
+    expect(after.find((c) => c.convId === "sample-dm-gone-new")?.unread).toBe(0)
+    // Only the ones given are read.
+    expect(after.find((c) => c.convId === "sample-dm-heron")?.unread).toBe(
+      before.find((c) => c.convId === "sample-dm-heron")?.unread
+    )
   })
 })
