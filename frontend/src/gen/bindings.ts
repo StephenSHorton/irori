@@ -183,9 +183,19 @@ export const commands = {
 	agentsTrustNeed: (taskId: string) => __TAURI_INVOKE<TrustNeed | null>("agents_trust_need", { taskId }),
 	/**
 	 *  The person's Trust and start: trusts the card's repo for agents on this
-	 *  device, then starts its agent. The only path that writes trust.
+	 *  device, then starts its agent. One of the two paths that write trust.
 	 */
 	agentsTrustAndStart: (taskId: string) => __TAURI_INVOKE<TrustStarted>("agents_trust_and_start", { taskId }),
+	/**
+	 *  This device's repos and whether each is trusted for agents (card #456,
+	 *  Settings › Agents).
+	 */
+	agentsTrusted: () => __TAURI_INVOKE<TrustedRepo[]>("agents_trusted"),
+	/**
+	 *  The person's confirmed Trust… on one of this device's repos in
+	 *  Settings › Agents (card #456); the other path that writes trust.
+	 */
+	agentsTrustRepo: (repoKey: string) => __TAURI_INVOKE<TrustedRepo[]>("agents_trust_repo", { repoKey }),
 	/**  A board's agent permissions (card #449): `""` is the private board. */
 	agentsPermissions: (boardId: string) => __TAURI_INVOKE<AgentPermissions>("agents_permissions", { boardId }),
 	/**  The person sets a board's agent permissions, from Settings › Agents. */
@@ -451,9 +461,9 @@ export type AgentsSettings = {
 	 *  The idle limit in minutes (card #456, sa-6): how long a spawned
 	 *  agent waits on an unanswered question before it hands off and goes.
 	 */
-	idleMins: number | null,
+	idleMins: number,
 	/**  The idle limits Settings › Agents offers, in minutes. */
-	idleChoices: (number | null)[],
+	idleChoices: number[],
 };
 
 /**  Answer's reply: the card after the answer, and who heard. */
@@ -2117,6 +2127,24 @@ export type TrustStarted = {
 	folder: string,
 	/**  It was already trusted (another window got there first). */
 	already: boolean,
+};
+
+/**
+ *  One repo of Settings › Agents' "Trusted repos for agents" (card #456,
+ *  sa-6): a repo with a checkout on this device and whether Claude Code
+ *  trusts it, so an agent Irori starts for its cards can run there.
+ */
+export type TrustedRepo = {
+	repoKey: string,
+	label: string,
+	/**
+	 *  The folder trust is recorded for: the repo's main root, the one the
+	 *  spawner starts its agents in.
+	 */
+	folder: string,
+	trusted: boolean,
+	/**  What trusting does, in the words the confirm shows. */
+	what: string,
 };
 
 /**  An unheld card nobody has been handed, and why. */
