@@ -16,7 +16,8 @@ pub const MERGED_NOTE: &str = "merged into a newer update on the card";
 
 /// The kind of a next-turn reading (card #391, `coord.NoticeReading`):
 /// what an agent hasn't read in a conversation. Each is whole, so a newer
-/// one replaces one still waiting (same ref, same sender).
+/// one replaces one still waiting for the same conversation (same ref),
+/// whoever's post prompted either.
 pub const NOTICE_READING: &str = "reading";
 
 /// The skip note on a reading a newer one replaced.
@@ -76,7 +77,7 @@ pub fn route_notice(
             (text, earlier) = merge_watched(ib, from, to, n, &merge);
         }
         if n.kind == NOTICE_READING && md == mode::NEXT_TURN {
-            earlier = waiting_reading(ib, from, to, n);
+            earlier = waiting_reading(ib, to, n);
         }
         // The person's text in a notice may be far longer than a wake
         // carries: clip it with a pointer to the whole (card #265).
@@ -139,8 +140,8 @@ fn merge_watched(
 }
 
 /// A reading still waiting for `to`'s next turn that n replaces (`""`
-/// for none).
-fn waiting_reading(ib: &Inbox, from: &Sender, to: &str, n: &Notice) -> String {
+/// for none): the same conversation's, from anyone.
+fn waiting_reading(ib: &Inbox, to: &str, n: &Notice) -> String {
     ib.for_agent(to, false, 0)
         .into_iter()
         .find(|d| {
@@ -150,7 +151,6 @@ fn waiting_reading(ib: &Inbox, from: &Sender, to: &str, n: &Notice) -> String {
                 && m.notice
                 && m.reason == NOTICE_READING
                 && m.ref_ == n.ref_
-                && m.from.key == from.key
         })
         .map(|d| d.id.clone())
         .unwrap_or_default()
