@@ -1352,6 +1352,16 @@ impl Core {
         });
         let _ = svc_cell.set(Arc::downgrade(&s));
         let _ = services_cell.set(Arc::downgrade(&s));
+        // A new name never takes a word another member's live agent on a
+        // shared board has (card #472).
+        {
+            let w = Arc::downgrade(&s);
+            s.names.set_others(move || {
+                w.upgrade()
+                    .map(|s| s.board_others().into_iter().map(|a| a.card).collect())
+                    .unwrap_or_default()
+            });
+        }
         // A space's channels go in its log (card #392).
         s.talk
             .set_spaces(Arc::new(spaces::SpaceTalk(Arc::downgrade(&s))));
@@ -2288,6 +2298,13 @@ impl Core {
     /// routing, the tools and the window.
     pub fn mesh_agents(&self) -> Vec<AgentCard> {
         self.s.roster.agents()
+    }
+
+    /// The word a new agent started from `seed` would get now (card #472):
+    /// the name pick a spawn makes, for tests.
+    #[doc(hidden)]
+    pub fn pick_agent_name(&self, seed: &str) -> String {
+        self.s.names.pick_new(seed, &|_| false)
     }
 
     /// An agent key's name: its card's in the mesh roster, else the last
