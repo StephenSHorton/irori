@@ -1561,6 +1561,12 @@ impl Fold {
                 n.to.push(h);
             }
         }
+        // A gone agent hears nothing (card #485): on a card nobody holds,
+        // the answer goes to the agent Irori starts for it instead.
+        if t.holders.is_empty() && t.co_holders.is_empty() {
+            let rs = self.roster_status();
+            n.to.retain(|k| !self.key_gone_in(k, &rs));
+        }
         // A mentioned raiser or holder hears this notice itself, woken
         // (mention_into), not a plain mention without the question.
         if !a.resolve {
@@ -1611,6 +1617,11 @@ impl Fold {
             let mut ns = vec![n];
             ns.extend(mn);
             if self.is_owner(&by) {
+                // An agent it was handed to that is gone keeps it from going
+                // out again (card #485).
+                if t.holders.is_empty() && t.co_holders.is_empty() {
+                    self.drop_gone_assigned(&by, id)?;
+                }
                 self.back_on_board(&by, id, "the person answered and nobody is on it")?;
             }
             return Ok((self.tasks[id].clone(), ns));
