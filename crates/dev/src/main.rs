@@ -29,6 +29,11 @@
 //!       with spaces does (card #392), so the move can be checked on real
 //!       data first.
 //!
+//!   irori-dev spawn-fold --home <copy> --person <id> --root <device> --out <dir> --now <rfc3339>
+//!   irori-dev compact-spawn --home <copy> --floor <device>=<seq|top> ... [--dry-run] [--no-vacuum]
+//!       card #467: time the Board fold, and delete the superseded
+//!       task.spawn rows of v0.11.0's spawn loop (spawn_rows.rs).
+//!
 //! Output is counts and row keys, never payloads, keys or tokens.
 
 mod agent_check;
@@ -36,6 +41,7 @@ mod boards_live;
 mod http;
 mod probe;
 mod replay;
+mod spawn_rows;
 mod verify;
 
 use std::process::ExitCode;
@@ -47,7 +53,9 @@ const USAGE: &str = "usage: irori-dev verify --home <copy of a data dir> [--go-h
        irori-dev agent-check --home <empty dir> --claude <empty dir> --work <empty dir> --irori <exe> --mod <copy of mod/> [--claude-bin <claude>] [--model <m>] [--turn-wait <secs>] [--only 1,2,3]
        irori-dev boards-live host --home <empty dir> --claude <empty dir> [--link-out <file>] [--step-wait <secs>]
        irori-dev boards-live guest --home <empty dir> --claude <empty dir> --link <irori-invite:...> [--step-wait <secs>]
-       irori-dev migrate-spaces --home <copy of a data dir>";
+       irori-dev migrate-spaces --home <copy of a data dir>
+       irori-dev spawn-fold --home <copy of a data dir> --person <personId> --root <rootDeviceId> --out <dir> --now <rfc3339>
+       irori-dev compact-spawn --home <copy of a data dir> --floor <device>=<seq|top> ... [--dry-run] [--no-vacuum]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -104,6 +112,27 @@ fn main() -> ExitCode {
         },
         Some("boards-live") => match boards_live::Opts::parse(&args[1..]) {
             Ok(o) => boards_live::run(&o),
+            Err(e) => {
+                eprintln!("irori-dev: {e}\n{USAGE}");
+                ExitCode::from(2)
+            }
+        },
+        Some("spawn-fold") => match spawn_rows::FoldOpts::parse(&args[1..]) {
+            Ok(o) => spawn_rows::fold(&o),
+            Err(e) => {
+                eprintln!("irori-dev: {e}\n{USAGE}");
+                ExitCode::from(2)
+            }
+        },
+        Some("reconnect-sim") => match spawn_rows::SimOpts::parse(&args[1..]) {
+            Ok(o) => spawn_rows::sim(&o),
+            Err(e) => {
+                eprintln!("irori-dev: {e}\n{USAGE}");
+                ExitCode::from(2)
+            }
+        },
+        Some("compact-spawn") => match spawn_rows::CompactOpts::parse(&args[1..]) {
+            Ok(o) => spawn_rows::compact(&o),
             Err(e) => {
                 eprintln!("irori-dev: {e}\n{USAGE}");
                 ExitCode::from(2)

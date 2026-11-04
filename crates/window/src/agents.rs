@@ -55,7 +55,15 @@ pub struct AgentsSettings {
     pub efforts: Vec<String>,
     pub default_model: String,
     pub default_effort: String,
+    /// The idle limit in minutes (card #456, sa-6): how long a spawned
+    /// agent waits on an unanswered question before it hands off and goes.
+    pub idle_mins: u32,
+    /// The idle limits Settings › Agents offers, in minutes.
+    pub idle_choices: Vec<u32>,
 }
+
+/// The idle limits offered, in minutes; 30 is the default.
+pub const IDLE_CHOICES: [u32; 5] = [10, 30, 60, 120, 240];
 
 /// The person's change: the fields left `None` keep what is stored.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
@@ -69,6 +77,8 @@ pub struct AgentsChange {
     pub model: Option<String>,
     #[serde(default)]
     pub effort: Option<String>,
+    #[serde(default)]
+    pub idle_mins: Option<u32>,
 }
 
 pub(crate) fn view(s: &SpawnSetting, chosen: bool) -> AgentsSettings {
@@ -82,6 +92,8 @@ pub(crate) fn view(s: &SpawnSetting, chosen: bool) -> AgentsSettings {
         efforts: spawn::EFFORTS.iter().map(|e| (*e).into()).collect(),
         default_model: spawn::DEFAULT_MODEL.into(),
         default_effort: spawn::DEFAULT_EFFORT.into(),
+        idle_mins: (s.idle_limit().as_secs() / 60) as u32,
+        idle_choices: IDLE_CHOICES.to_vec(),
     }
 }
 
@@ -96,7 +108,22 @@ pub(crate) fn apply(mut s: SpawnSetting, c: AgentsChange) -> SpawnSetting {
     if let Some(e) = c.effort {
         s.effort = e;
     }
+    if let Some(m) = c.idle_mins {
+        // The default is stored as 0, so a later default change reaches it.
+        let def = (spawn::IDLE_LIMIT.as_secs() / 60) as u32;
+        s.idle_mins = if m == def { 0 } else { i64::from(m) };
+    }
     s
+}
+
+/// The person's choice of idle limit: one of [`IDLE_CHOICES`].
+fn valid_idle(c: &AgentsChange) -> Result<(), String> {
+    match c.idle_mins {
+        Some(m) if !IDLE_CHOICES.contains(&m) => Err(format!(
+            "an idle limit is one of {IDLE_CHOICES:?} minutes, not {m}"
+        )),
+        _ => Ok(()),
+    }
 }
 
 impl Window {
@@ -117,6 +144,50 @@ impl Window {
             return Err("End it from the device it runs on".into());
         }
         self.core.end_spawned(key)
+    }
+
+    /// A spawned agent's key, checked: Irori started it and it runs on
+    /// this device. Its card's id and its session id.
+    fn spawned_here(&self, key: &str) -> Result<(String, String), String> {
+        let (dev, session) = key.split_once('/').unwrap_or(("", key));
+        if dev != self.core.device_id() {
+            return Err("Open it from the device it runs on".into());
+        }
+        let sp = self
+            .core
+            .coord()
+            .spawned(key)
+            .ok_or_else(|| format!("{key} wasn't started by Irori"))?;
+        Ok((sp.task_id, session.to_string()))
+    }
+
+    /// Logs on an agent Irori started (card #456, sa-2): its recent
+    /// terminal output, read only.
+    pub fn agents_logs(&self, key: &str) -> Result<String, String> {
+        let (_, session) = self.spawned_here(key)?;
+        crate::spawn::logs(&session)
+    }
+
+    /// Attach on an agent Irori started (card #456, sa-2): a new tab in its
+    /// card's terminal running `claude attach <id>`, so typing there talks
+    /// to it. The agent stays spawned; closing the tab detaches.
+    pub fn agents_attach(&self, key: &str, cols: u16, rows: u16) -> Result<term::TermInfo, String> {
+        let (task_id, session) = self.spawned_here(key)?;
+        let argv = crate::spawn::attach_argv(&session)?;
+        let cwd = self
+            .core
+            .mesh_agents()
+            .into_iter()
+            .find(|a| a.key == key)
+            .map(|a| a.cwd)
+            .filter(|d| !d.is_empty() && std::path::Path::new(d).is_dir());
+        self.core.terms().open(term::OpenSpec {
+            scope: term::Scope::Card(task_id),
+            cols,
+            rows,
+            cwd,
+            command: Some(argv),
+        })
     }
 
     /// Every agent Irori started that is still running, and every card an
@@ -195,6 +266,7 @@ impl Window {
 
     /// The person changes a board's switch, model or effort.
     pub fn agents_set(&self, c: AgentsChange) -> Result<AgentsSettings, String> {
+        valid_idle(&c)?;
         let board_id = c.board_id.clone();
         let s = apply(self.core.spawn_setting(&board_id), c);
         self.core.set_spawn_setting(s)?;
@@ -224,6 +296,21 @@ mod tests {
             (s.on, s.model.as_str(), s.effort.as_str()),
             (true, "opus", "high")
         );
+    }
+
+    #[test]
+    fn the_idle_limit_is_one_of_the_choices_and_30_is_stored_as_the_default() {
+        let c = |m| AgentsChange {
+            idle_mins: Some(m),
+            ..AgentsChange::default()
+        };
+        assert!(valid_idle(&c(7)).is_err());
+        assert!(valid_idle(&c(60)).is_ok());
+        let s = apply(SpawnSetting::default(), c(60));
+        assert_eq!((s.idle_mins, view(&s, true).idle_mins), (60, 60));
+        let s = apply(s, c(30));
+        assert_eq!((s.idle_mins, view(&s, true).idle_mins), (0, 30));
+        assert_eq!(view(&SpawnSetting::default(), false).idle_mins, 30);
     }
 
     #[test]

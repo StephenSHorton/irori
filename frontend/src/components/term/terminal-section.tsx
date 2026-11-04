@@ -22,6 +22,8 @@ import {
   rememberFolder,
 } from "@/lib/term"
 
+import { TermOpened, type TermOpenedDetail } from "@/lib/agents"
+
 import { Terminal } from "./terminal"
 
 // The size a shell starts at, before the view measures its box.
@@ -57,6 +59,20 @@ function CardTerminals({ cardId }: { cardId: string }) {
     return () => {
       live = false
     }
+  }, [cardId])
+
+  // Attach on an agent Irori started (card #456) opened a tab here.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<TermOpenedDetail>).detail
+      if (d?.cardId !== cardId) return
+      setTerms((ts) =>
+        ts?.some((t) => t.id === d.term.id) ? ts : [...(ts ?? []), d.term]
+      )
+      setShown(d.term.id)
+    }
+    window.addEventListener(TermOpened, on)
+    return () => window.removeEventListener(TermOpened, on)
   }, [cardId])
 
   const start = (cwd: string) => {

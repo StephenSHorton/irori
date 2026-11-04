@@ -26,6 +26,7 @@ fn card(id: &str, cwd: &std::path::Path) -> OpenSpec {
         cols: 80,
         rows: 24,
         cwd: Some(cwd.to_string_lossy().into_owned()),
+        command: None,
     }
 }
 

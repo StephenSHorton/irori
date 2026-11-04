@@ -46,7 +46,7 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
         end: Arc::new(move |sess: &str| {
             b.ended.lock().unwrap().push(sess.to_string());
             let _ = std::fs::remove_file(s2.join("900003.json"));
-            Ok(())
+            Ok(String::new())
         }),
         trusted: Arc::new(|_| true),
         list: None,
@@ -151,7 +151,7 @@ fn a_thread_nobody_takes_gets_a_background_agent_that_answers_it() {
     let reqs = fake.started.lock().unwrap().clone();
     assert_eq!(reqs.len(), 1, "one spawn: {reqs:?}");
     let req = &reqs[0];
-    assert!(req.name.starts_with("thread-"), "{req:?}");
+    assert!(!req.name.is_empty() && !req.name.contains('-'), "a word name (#472): {req:?}");
     assert_eq!(
         Path::new(&req.folder).canonicalize().unwrap(),
         dir,

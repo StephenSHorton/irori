@@ -245,6 +245,9 @@ impl Inbox {
                 self.catch_up(); // the store's resync signal
                 continue;
             }
+            // Any device's row, this one's too: an agent's progress
+            // restarts its message chains (card #488).
+            self.note_progress(&ev);
             let dev = self.read(|b| b.dev.clone());
             if ev.device_id == dev || !REPLAY_KINDS.contains(&ev.kind.as_str()) {
                 continue;

@@ -242,7 +242,8 @@ fn message_schema() -> Schema {
     Schema::object(f)
 }
 
-pub(crate) fn decode_message(payload: &[u8]) -> std::result::Result<Message, json::Error> {
+/// A message.sent row's payload, read as Go's json.Unmarshal would.
+pub fn decode_message(payload: &[u8]) -> std::result::Result<Message, json::Error> {
     let o = json::unmarshal(payload, &message_schema())?;
     let sub = |name: &str| o.get(name).cloned().unwrap_or(Out::Struct(vec![]));
     let from = sub("from");
@@ -652,6 +653,12 @@ pub(crate) struct Inner {
     pub known: BTreeMap<String, String>,
     pub pol: Policy,
     pub running: BTreeMap<String, TurnRow>,
+    /// When each agent (by inbox key) last made progress: ticked a step,
+    /// set a card's state or committed (card #488). Not folded: it only
+    /// resets the hop of messages sent from now on.
+    pub progress: HashMap<String, GoTime>,
+    /// Commits already counted as progress, by sha (a relink isn't new).
+    pub progress_shas: HashSet<String>,
     pub pairs: HashMap<String, Vec<GoTime>>,
     /// receive.set rows by (boardId, personId).
     pub receive: BTreeMap<(String, String), crate::bridge::Setting<crate::ReceiveSetting>>,
@@ -788,6 +795,8 @@ impl Inbox {
             known: BTreeMap::new(),
             pol: Policy::default(),
             running: BTreeMap::new(),
+            progress: HashMap::new(),
+            progress_shas: HashSet::new(),
             pairs: HashMap::new(),
             receive: BTreeMap::new(),
             autonomy: BTreeMap::new(),

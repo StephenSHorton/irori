@@ -111,7 +111,9 @@ function DeviceRow({
           }}
         />
       ) : (
-        <span className="min-w-0 truncate">
+        // Wraps rather than ending in "…": on a phone the buttons beside it
+        // left no room for "seen 3h ago" (card #479).
+        <span className="min-w-0 [overflow-wrap:anywhere]">
           <span className={cn("text-ink", d.revoked && "line-through")}>
             {plainLine(d.name) || d.deviceId}
           </span>{" "}

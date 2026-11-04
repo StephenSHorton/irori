@@ -29,12 +29,16 @@ export const commands = {
 	inboxMarkRead: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_mark_read", { deliveryId }),
 	inboxRelease: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_release", { deliveryId }),
 	inboxDismiss: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_dismiss", { deliveryId }),
+	inboxStartAgent: (deliveryId: string) => __TAURI_INVOKE<StartedAgent>("inbox_start_agent", { deliveryId }),
+	inboxRepoNames: () => __TAURI_INVOKE<RepoName[]>("inbox_repo_names"),
 	inboxAllowAndRelease: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_allow_and_release", { deliveryId }),
 	inboxPolicy: () => __TAURI_INVOKE<Policy>("inbox_policy"),
 	inboxSetPolicy: (p: PolicyInput) => __TAURI_INVOKE<null>("inbox_set_policy", { p }),
 	inboxSetPaused: (paused: boolean) => __TAURI_INVOKE<null>("inbox_set_paused", { paused }),
 	boardCards: () => __TAURI_INVOKE<CardSummary[]>("board_cards"),
 	boardCard: (id: string) => __TAURI_INVOKE<CardDetail>("board_card", { id }),
+	/**  Several cards in one call, each with its card or why not (card #468). */
+	boardCardsById: (ids: string[]) => __TAURI_INVOKE<CardRead[]>("board_cards_by_id", { ids }),
 	boardDoneCards: (limit: number, before: string) => __TAURI_INVOKE<DonePage>("board_done_cards", { limit, before }),
 	/**
 	 *  One scope's live cards (card #161): "" every card, "own" the private
@@ -82,6 +86,8 @@ export const commands = {
 	boardAskAgain: (id: string) => __TAURI_INVOKE<null>("board_ask_again", { id }),
 	/**  "Start an agent with this" on the person's comment (card #452). */
 	boardStartAgent: (id: string, note: string) => __TAURI_INVOKE<null>("board_start_agent", { id, note }),
+	/**  "Hand to an agent" on an item whose agent is gone (card #485). */
+	boardHandOn: (id: string) => __TAURI_INVOKE<string>("board_hand_on", { id }),
 	boardAskRepos: () => __TAURI_INVOKE<AskRepo[]>("board_ask_repos"),
 	boardMentionCandidates: () => __TAURI_INVOKE<MentionCandidate[]>("board_mention_candidates"),
 	boardCloseAsk: (id: string, note: string) => __TAURI_INVOKE<Task>("board_close_ask", { id, note }),
@@ -168,6 +174,8 @@ export const commands = {
 	boardsSetThreads: (boardId: string, mode: string) => __TAURI_INVOKE<BoardSettings>("boards_set_threads", { boardId, mode }),
 	boardsSetReviewer: (boardId: string, agent: string, repo: string) => __TAURI_INVOKE<BoardSettings>("boards_set_reviewer", { boardId, agent, repo }),
 	notesList: (scope: string, removed: boolean) => __TAURI_INVOKE<NoteView[]>("notes_list", { scope, removed }),
+	/**  The sidebar's Notes count: notes waiting on the person's look (card #468). */
+	notesWaiting: () => __TAURI_INVOKE<number>("notes_waiting"),
 	noteNew: (note: NoteInput) => __TAURI_INVOKE<NoteView>("note_new", { note }),
 	noteAccept: (id: string) => __TAURI_INVOKE<NoteView>("note_accept", { id }),
 	noteEdit: (id: string, edit: NoteEditInput) => __TAURI_INVOKE<NoteView>("note_edit", { id, edit }),
@@ -179,9 +187,19 @@ export const commands = {
 	agentsTrustNeed: (taskId: string) => __TAURI_INVOKE<TrustNeed | null>("agents_trust_need", { taskId }),
 	/**
 	 *  The person's Trust and start: trusts the card's repo for agents on this
-	 *  device, then starts its agent. The only path that writes trust.
+	 *  device, then starts its agent. One of the two paths that write trust.
 	 */
 	agentsTrustAndStart: (taskId: string) => __TAURI_INVOKE<TrustStarted>("agents_trust_and_start", { taskId }),
+	/**
+	 *  This device's repos and whether each is trusted for agents (card #456,
+	 *  Settings › Agents).
+	 */
+	agentsTrusted: () => __TAURI_INVOKE<TrustedRepo[]>("agents_trusted"),
+	/**
+	 *  The person's confirmed Trust… on one of this device's repos in
+	 *  Settings › Agents (card #456); the other path that writes trust.
+	 */
+	agentsTrustRepo: (repoKey: string) => __TAURI_INVOKE<TrustedRepo[]>("agents_trust_repo", { repoKey }),
 	/**  A board's agent permissions (card #449): `""` is the private board. */
 	agentsPermissions: (boardId: string) => __TAURI_INVOKE<AgentPermissions>("agents_permissions", { boardId }),
 	/**  The person sets a board's agent permissions, from Settings › Agents. */
@@ -286,6 +304,13 @@ export const commands = {
 	agentsOfferSet: (key: string, on: boolean) => __TAURI_INVOKE<null>("agents_offer_set", { key, on }),
 	/**  The person ends an agent Irori started: its hand-off, then stop and rm. */
 	agentsEnd: (key: string) => __TAURI_INVOKE<null>("agents_end", { key }),
+	/**  Logs on an agent Irori started (card #456): its recent output, read only. */
+	agentsLogs: (key: string) => __TAURI_INVOKE<string>("agents_logs", { key }),
+	/**
+	 *  Attach on an agent Irori started (card #456): a tab in its card's
+	 *  terminal running `claude attach`.
+	 */
+	agentsAttach: (key: string, cols: number, rows: number) => __TAURI_INVOKE<TermInfo>("agents_attach", { key, cols, rows }),
 	/**  Every agent Irori started that is still running, or is starting. */
 	agentsRunning: () => __TAURI_INVOKE<RunningAgent[]>("agents_running"),
 	/**  Every merge desk in the person's log. */
@@ -413,6 +438,7 @@ export type AgentsChange = {
 	on?: boolean | null,
 	model?: string | null,
 	effort?: string | null,
+	idleMins?: number | null,
 };
 
 /**  What Settings › Agents shows for one board. */
@@ -435,6 +461,13 @@ export type AgentsSettings = {
 	efforts: string[],
 	defaultModel: string,
 	defaultEffort: string,
+	/**
+	 *  The idle limit in minutes (card #456, sa-6): how long a spawned
+	 *  agent waits on an unanswered question before it hands off and goes.
+	 */
+	idleMins: number,
+	/**  The idle limits Settings › Agents offers, in minutes. */
+	idleChoices: number[],
 };
 
 /**  Answer's reply: the card after the answer, and who heard. */
@@ -509,7 +542,9 @@ export type Blocker = {
 };
 
 /**  coord.BlockerKind. */
-export type BlockerKind = "lease" | "task" | "person" | "agent" | "external";
+export type BlockerKind = "lease" | "task" | "person" | "agent" | "external" | 
+/**  A least app version on named devices (card #485). */
+"version";
 
 /**  coord.Option: one recommended answer. */
 export type BlockerOption = {
@@ -700,7 +735,28 @@ export type CardBlocker = {
 	 *  None when it's this person's.
 	 */
 	decider?: AgentRef | null,
+	/**
+	 *  What a wait on other work waits on (card #481): a card, a lease, an
+	 *  agent or something outside. It ends by itself or by whoever does
+	 *  that work, so it is never the person's to answer and never counts
+	 *  as a decision. None for a question for a person (one filed on
+	 *  other work with options is still the person's, card #347).
+	 */
+	waitsOn?: CardWaitOn | null,
+	/**
+	 *  The agent this open item waits on, or that raised it and would hear
+	 *  the answer, when that agent is gone and nobody holds the card (card
+	 *  #485): drawn amber, "Waiting on kestrel (gone)", with "Hand to an
+	 *  agent".
+	 */
+	goneAgent?: AgentRef | null,
 	thread: CardThreadItem[],
+	/**
+	 *  A done check's previous round (card #476): the check the person
+	 *  sent back before this one, so this one shows their reason, the
+	 *  agent's answer and the proof it replaces.
+	 */
+	previous?: CardRound | null,
 };
 
 /**  The shared board a card lives on (v0.5 §8). */
@@ -813,6 +869,18 @@ export type CardProgress = {
 	total: number,
 };
 
+/**
+ *  One card of [`Window::cards_by_id`]: the card, or why it couldn't be
+ *  read (gone, or not this device's to read).
+ */
+export type CardRead = {
+	/**  The id as asked. */
+	id: string,
+	card: CardDetail | null,
+	/**  "" when card is there. */
+	error: string,
+};
+
 /**  Another card: a subtask's parent. */
 export type CardRef = {
 	id: string,
@@ -841,6 +909,25 @@ export type CardReview = {
 	pr: string,
 	/**  The verdict comment's text, once there is one. */
 	text: string,
+};
+
+/**  The done check the person sent back before this one (card #476). */
+export type CardRound = {
+	/**  The earlier check's id. */
+	id: string,
+	/**  This check's round: 2 for the first one after a Not done. */
+	round: number,
+	/**  The proof the person sent back. */
+	proof: string,
+	/**
+	 *  Their reason when no comment on the thread carries it (a card from
+	 *  before #476, whose late Not done only resolved the check).
+	 */
+	answer: string,
+	/**  The earlier check's thread: their reason and the agent's answers. */
+	thread: CardThreadItem[],
+	/**  The new proof is the one they sent back, word for word. */
+	sameProof: boolean,
 };
 
 /**  One row of a parent's subtask list. */
@@ -899,14 +986,27 @@ export type CardSummary = {
 	mainRed?: string,
 	/**
 	 *  Where the first wait's chain of cards ends at the person (card
-	 *  #347): "your review of PR #96 (#334)" or "your answer on #12".
+	 *  #347): "your answer on #12". A PR never waits on the person (card
+	 *  #471): agents merge it, or another member's agents approve it.
 	 */
 	waitYou?: string,
 	/**
-	 *  An in-review card waiting on the person's review of a PR it links
-	 *  (card #347): no agent was asked to review it.
+	 *  The cards this one waits on each other with (card #481), itself
+	 *  among them, in wait order: none of them can move until someone
+	 *  drops a wait. Every card of the loop carries the same list, so
+	 *  Home's Needs you shows it once.
 	 */
-	reviewPr?: ReviewPr | null,
+	waitLoop?: CardRef[],
+	/**
+	 *  The card this one's waits end at that nobody holds and nothing
+	 *  will hand out (card #481).
+	 */
+	waitStuck?: CardRef | null,
+	/**
+	 *  The open PR an in-review card waits on (card #471): the card shows
+	 *  a small "waits on PR #N" chip with its link, never a Needs you row.
+	 */
+	waitPr?: WaitPr | null,
 	working: AgentRef[],
 	watching: AgentRef[],
 	holder: CardHolder,
@@ -1024,6 +1124,23 @@ export type CardWait = {
 	who: AgentRef,
 	text: string,
 	onThis: boolean,
+};
+
+/**  What a wait item waits on (card #481), as the card page links it. */
+export type CardWaitOn = {
+	kind: BlockerKind,
+	/**
+	 *  How the window names it: "#392" for a card ("a card" when this
+	 *  device can't see it), the agent's name, the resource, or the
+	 *  outside thing as raised.
+	 */
+	label: string,
+	/**  The card it waits on, by id, for a task wait. */
+	taskId?: string,
+	/**  That card's title, when this device can see it. */
+	title?: string,
+	/**  A wait on an agent that is gone (card #485). */
+	gone?: boolean,
 };
 
 /**  Where a card's work is (card #137), as its holder's device last saw it. */
@@ -1486,19 +1603,13 @@ export type NoteEventView = {
 	text: string,
 };
 
-/**  What New note and Keep as note write. */
+/**  What New note writes. */
 export type NoteInput = {
 	/**  `mine` (the default), or a board's tag or id. */
 	scope?: string,
 	kind?: string,
 	text?: string,
 	tags?: string[],
-	/**  Where it came from, as in [`NoteView::source`]. */
-	source?: string,
-	/**  The source's card, comment and blocker, when it has them. */
-	taskId?: string,
-	commentId?: string,
-	blockerId?: string,
 };
 
 /**  A note as the Notes page shows it. */
@@ -1687,6 +1798,15 @@ export type RelayView = {
 	detail?: string,
 };
 
+/**
+ *  A repo this device has a checkout of, by its short name (card #488):
+ *  what a held message to a repo names instead of its key.
+ */
+export type RepoName = {
+	repoKey: string,
+	name: string,
+};
+
 /**  coord.Resolution. */
 export type Resolution = {
 	answer: string,
@@ -1703,13 +1823,6 @@ export type Returned = {
 	at: string,
 	row?: string,
 	person?: boolean,
-};
-
-/**  A PR an in-review card waits on the person to review (card #347). */
-export type ReviewPr = {
-	repo: string,
-	number: number,
-	url: string,
 };
 
 /**  One of this person's live agents, to pick a reviewer from. */
@@ -1815,6 +1928,19 @@ export type SpaceBoard = {
 	boardId: string,
 	name: string,
 	tag: string,
+};
+
+/**
+ *  What "Start an agent in <repo>" did with a held message (card #488):
+ *  the card it became, and whether an agent is starting for it (spawning
+ *  on), it was handed to a free agent, or it waits for one.
+ */
+export type StartedAgent = {
+	cardRef: string,
+	/**  The repo's short name. */
+	repo: string,
+	started: boolean,
+	offered: boolean,
 };
 
 /**  inbox.State. */
@@ -2092,6 +2218,24 @@ export type TrustStarted = {
 	already: boolean,
 };
 
+/**
+ *  One repo of Settings › Agents' "Trusted repos for agents" (card #456,
+ *  sa-6): a repo with a checkout on this device and whether Claude Code
+ *  trusts it, so an agent Irori starts for its cards can run there.
+ */
+export type TrustedRepo = {
+	repoKey: string,
+	label: string,
+	/**
+	 *  The folder trust is recorded for: the repo's main root, the one the
+	 *  spawner starts its agents in.
+	 */
+	folder: string,
+	trusted: boolean,
+	/**  What trusting does, in the words the confirm shows. */
+	what: string,
+};
+
 /**  An unheld card nobody has been handed, and why. */
 export type UnofferedCard = {
 	id: string,
@@ -2162,6 +2306,18 @@ export type VoiceStatus = {
 	fix: string,
 	/**  The model download's size in bytes (for "needs-model"). */
 	modelBytes: number,
+};
+
+/**  The open PR an in-review card waits on (card #471). */
+export type WaitPr = {
+	repo: string,
+	number: number,
+	url: string,
+	/**
+	 *  GitHub says the PR needs an approval before it merges: it waits on
+	 *  another member's agents, never the person's or their own agents'.
+	 */
+	approval?: boolean,
 };
 
 /**

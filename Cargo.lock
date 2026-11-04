@@ -3404,6 +3404,7 @@ dependencies = [
  "irori-sys",
  "irori-tools",
  "irori-window",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",

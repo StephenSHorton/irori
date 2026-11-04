@@ -78,16 +78,12 @@ export type Note = {
   stale?: string
 }
 
-// NewNote is New note and Keep as note: what note_new takes.
+// NewNote is New note: what note_new takes.
 export type NewNote = {
   scope: string
   kind: NoteKind
   text: string
   tags: string[]
-  source?: string
-  taskId?: string
-  commentId?: string
-  blockerId?: string
 }
 
 export type NoteEdit = { kind?: NoteKind; text?: string; tags?: string[] }
@@ -193,18 +189,7 @@ export function cleanTags(input: string[]): { tags: string[]; bad: string[] } {
   return { tags, bad }
 }
 
-// guessTags is Keep as note's starting tags (§5): the card's board and
-// repo; with neither, everywhere.
-export function guessTags(
-  card: { repoKey?: string; board?: { tag: string } | null } | null
-): string[] {
-  const out: string[] = []
-  if (card?.board?.tag) out.push(`board:${card.board.tag.toLowerCase()}`)
-  if (card?.repoKey) out.push(`repo:${card.repoKey}`)
-  return out.length ? out : ["everywhere"]
-}
-
-// noteProblem is why New note or Keep as note can't send yet, the same
+// noteProblem is why New note or Edit can't send yet, the same
 // checks the write makes (§11), or "".
 export function noteProblem(n: {
   kind: string
@@ -220,16 +205,6 @@ export function noteProblem(n: {
     return `Not a tag Irori knows: ${bad.join(", ")}. Use everywhere, repo:, path:, board:, machine: or topic:.`
   if (!tags.length) return "Say where it applies: at least one tag."
   return ""
-}
-
-// noteFromText is Keep as note's starting text: the source's words on one
-// paragraph, cut to the limit at a word.
-export function noteFromText(text: string): string {
-  const one = text.replace(/\s+/g, " ").trim()
-  if ([...one].length <= NoteMaxChars) return one
-  const cut = [...one].slice(0, NoteMaxChars - 1).join("")
-  const sp = cut.lastIndexOf(" ")
-  return (sp > NoteMaxChars / 2 ? cut.slice(0, sp) : cut) + "…"
 }
 
 // isPerson reports whether a key is a person's (user: here, person: on a
@@ -299,8 +274,6 @@ export const notes = {
       kind: n.kind,
       text: n.text.trim(),
       tags,
-      source: n.source,
-      taskId: n.taskId,
       by: "user:sample",
       byPerson: true,
       at: now,
@@ -390,14 +363,20 @@ export function useNotes(scope: string): {
 } {
   const load = useCallback(() => notes.list(scope), [scope])
   const { value, loading, error, reload } = useLatest<Note[]>(load, [])
+  useNotesFresh(reload)
+  return { notes: value, loading, error, reload }
+}
+
+// useNotesFresh reloads on every notes change: one made here, or (note
+// rows fold into the board's changes) board:changed for a note proposed,
+// accepted, edited or removed, here or synced.
+function useNotesFresh(reload: () => Promise<void>) {
   useEffect(() => {
     void reload()
     listeners.add(reloadFn)
     function reloadFn() {
       void reload()
     }
-    // Note rows fold into the board's changes: board:changed covers a
-    // note proposed, accepted, edited or removed, here or synced.
     const off = inWails()
       ? Events.On(EventBoardChanged, () => void reload())
       : () => {}
@@ -406,14 +385,19 @@ export function useNotes(scope: string): {
       off()
     }
   }, [reload])
-  return { notes: value, loading, error, reload }
 }
 
 // useNotesWaiting is the sidebar's Notes count: notes in Mine and every
-// board waiting on the person's look.
+// board waiting on the person's look. It reads notes_waiting, a count,
+// not every note with its Still true? checks (card #468).
 export function useNotesWaiting(): number {
-  const { notes: all } = useNotes("")
-  return all.filter(needsLook).length
+  const load = useCallback(async (): Promise<number> => {
+    if (hostNotes()) return NotesService.Waiting()
+    return (await notes.list("")).filter(needsLook).length
+  }, [])
+  const { value, reload } = useLatest<number>(load, 0)
+  useNotesFresh(reload)
+  return value
 }
 
 // wakeNotes is what card_wake_notes says the card's agents got on wake

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { effortLabel, modelLabel, runningSince } from "./agents"
+import { effortLabel, idleLabel, modelLabel, runningSince } from "./agents"
 
 describe("Settings › Agents labels", () => {
   test("the default is marked, the rest named", () => {
@@ -8,6 +8,12 @@ describe("Settings › Agents labels", () => {
     expect(modelLabel("opus", "sonnet")).toBe("Opus")
     expect(effortLabel("xhigh", "medium")).toBe("Extra high")
     expect(effortLabel("medium", "medium")).toBe("Medium (default)")
+  })
+  test("idle limits in minutes or hours, 30 marked", () => {
+    expect(idleLabel(10)).toBe("10 minutes")
+    expect(idleLabel(30)).toBe("30 minutes (default)")
+    expect(idleLabel(60)).toBe("1 hour")
+    expect(idleLabel(240)).toBe("4 hours")
   })
   test("an unknown value shows as itself", () => {
     expect(modelLabel("fable", "sonnet")).toBe("fable")

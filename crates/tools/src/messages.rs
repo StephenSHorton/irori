@@ -193,6 +193,13 @@ impl Inner {
                 hold::PAUSED => {
                     b += "held because the person paused all wakes; it goes out when they unpause. Don't resend it."
                 }
+                // Card #488: say what the loop guard saw, and what resets it.
+                hold::HOP_LIMIT => {
+                    b += &format!(
+                        "held: this is message {} in a back-and-forth between agents with no progress in between. It waits until the person releases it. Don't resend it; make progress instead (tick a step, set a card's state or commit), and your next message starts counting again.",
+                        d.message.hop
+                    )
+                }
                 h => {
                     b += &format!(
                         "held by the recipient's wake policy ({h}); it waits until the person releases it. Don't resend it."
