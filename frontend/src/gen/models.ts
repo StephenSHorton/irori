@@ -170,7 +170,7 @@ export function AgentsChange(p: Partial<B.AgentsChange> = {}): B.AgentsChange {
 
 /** AgentsSettings with Go's zero values for every field left out. */
 export function AgentsSettings(p: Partial<B.AgentsSettings> = {}): B.AgentsSettings {
-  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", ...p } as B.AgentsSettings
+  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "idleMins": null, "idleChoices": [], ...p } as B.AgentsSettings
 }
 
 /** AnswerResult with Go's zero values for every field left out. */

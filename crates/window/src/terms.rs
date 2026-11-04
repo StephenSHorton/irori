@@ -106,6 +106,7 @@ impl Window {
             cols,
             rows,
             cwd,
+            command: None,
         })
     }
 }

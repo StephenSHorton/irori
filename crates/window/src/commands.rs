@@ -1328,6 +1328,21 @@ pub async fn agents_end(w: W<'_>, key: String) -> R<()> {
     blocking(&w, move |w| w.agents_end(&key)).await
 }
 
+/// Logs on an agent Irori started (card #456): its recent output, read only.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_logs(w: W<'_>, key: String) -> R<String> {
+    blocking(&w, move |w| w.agents_logs(&key)).await
+}
+
+/// Attach on an agent Irori started (card #456): a tab in its card's
+/// terminal running `claude attach`.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_attach(w: W<'_>, key: String, cols: u16, rows: u16) -> R<term::TermInfo> {
+    blocking(&w, move |w| w.agents_attach(&key, cols, rows)).await
+}
+
 // ---- merge desks (card #417) ----------------------------------------------
 
 /// Every merge desk in the person's log.
@@ -1632,6 +1647,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             agents_set,
             agents_offer_set,
             agents_end,
+            agents_logs,
+            agents_attach,
             agents_running,
             desk_list,
             desk_set,

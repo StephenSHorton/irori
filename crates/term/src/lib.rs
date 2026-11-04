@@ -64,6 +64,9 @@ pub struct OpenSpec {
     pub rows: u16,
     /// The folder; `None` is the home folder.
     pub cwd: Option<String>,
+    /// A program to run instead of the person's shell, as argv (card
+    /// #456: `claude attach <id>` in a card's tab). `None` runs the shell.
+    pub command: Option<Vec<String>>,
 }
 
 /// Everything a view gets besides frames, as JSON. The shapes follow
