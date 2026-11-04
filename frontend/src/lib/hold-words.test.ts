@@ -31,10 +31,10 @@ const repo = (k: string) => (k === "root:5a3c1e0b9d7f" ? "ww-multiplayer" : repo
 describe("holdText", () => {
   test("a chain between two agents names them and counts", () => {
     expect(holdText(held({ hold: HoldReason.HoldHopLimit }, undefined, 8), { name, repo })).toBe(
-      "Otter and heron have messaged each other 8 times without stopping."
+      "otter and heron have messaged each other 8 times without stopping."
     )
     expect(holdText(held({ hold: HoldReason.HoldHopLimit }), { name })).toBe(
-      "Otter and heron kept messaging each other without stopping."
+      "otter and heron kept messaging each other without stopping."
     )
   })
   test("your message to a repo nobody is in names the repo, never its key", () => {
@@ -49,10 +49,10 @@ describe("holdText", () => {
   test("Pause all, the lists, and an older Irori's rule", () => {
     expect(holdText(held({ hold: HoldReason.HoldPaused }))).toBe("You paused wakes.")
     expect(holdText(held({ hold: HoldReason.HoldNotAllowed }), { name })).toBe(
-      "Otter isn't on your allow list."
+      "otter isn't on your allow list."
     )
     expect(holdText(held({ hold: HoldReason.HoldBlocked }), { name })).toBe(
-      "Otter is on your block list."
+      "otter is on your block list."
     )
     expect(holdText(held({ hold: HoldReason.HoldBypassReceiver }))).not.toContain("permission")
   })

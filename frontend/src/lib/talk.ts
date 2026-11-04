@@ -60,20 +60,23 @@ export function holdText(d: Delivery, w: HoldWords = {}): string {
     d.message.from.key.startsWith("user:")
       ? "you"
       : named(d.message.from.key) || d.message.from.name || "an agent"
+  // An agent's name starts the sentence as it is ("sample-otter"): it's
+  // a handle, not a word to capitalize.
+  const lead = from === "you" ? "You" : from
   const to = d.to?.startsWith("user:") ? "you" : named(d.to) || "the other agent"
   const repo = d.repoKey ? (w.repo ?? repoShort)(d.repoKey) : "its repo"
   switch (h) {
     case HoldReason.HoldBlocked:
-      return `${upper(from)} is on your block list.`
+      return `${lead} is on your block list.`
     case HoldReason.HoldNotAllowed:
-      return `${upper(from)} isn't on your allow list.`
+      return `${lead} isn't on your allow list.`
     case HoldReason.HoldBypassReceiver:
       return "An older Irori held it, by a rule that's gone now. Release delivers it."
     case HoldReason.HoldHopLimit: {
       const n = d.message.hop
       return n > 1
-        ? `${upper(from)} and ${to} have messaged each other ${n} times without stopping.`
-        : `${upper(from)} and ${to} kept messaging each other without stopping.`
+        ? `${lead} and ${to} have messaged each other ${n} times without stopping.`
+        : `${lead} and ${to} kept messaging each other without stopping.`
     }
     case HoldReason.HoldUnowned:
       return from === "you"
@@ -96,8 +99,6 @@ export function holdText(d: Delivery, w: HoldWords = {}): string {
   }
 }
 
-const upper = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s)
-
 // repoShort is a repo key as a person reads it when no checkout here names
 // it (card #488): "example-app" for a hosted repo, "local repo 5a3c1e0"
 // for a root-commit key. useRepoNames gives the checkout folder's name.
@@ -108,14 +109,12 @@ export function repoShort(key: string): string {
   return i >= 0 && i < k.length - 1 ? k.slice(i + 1) : k
 }
 
-// allowLifts mirrors InboxService.AllowAndRelease: allowing the sender
-// lifts only these holds.
+// allowLifts says Allow sender & deliver is offered: allowing the sender
+// lifts a not-on-your-allow-list hold. InboxService.AllowAndRelease also
+// takes an older Irori's retired bypass hold, but there allowing changes
+// nothing a plain Release doesn't, so it isn't offered (card #488).
 export function allowLifts(d: Delivery): boolean {
-  return (
-    d.state === State.Held &&
-    (d.hold === HoldReason.HoldNotAllowed ||
-      d.hold === HoldReason.HoldBypassReceiver)
-  )
+  return d.state === State.Held && d.hold === HoldReason.HoldNotAllowed
 }
 
 // errorText reads a failed call: Wails rejects with an Error or with an
