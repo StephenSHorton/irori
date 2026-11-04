@@ -762,9 +762,7 @@ impl Inbox {
                 let Some(m) = b.msgs.get(&d.d.message_id) else {
                     continue;
                 };
-                if !m.notice
-                    || !m.ref_.starts_with(prefix)
-                    || !reasons.contains(&m.reason.as_str())
+                if !m.notice || !m.ref_.starts_with(prefix) || !reasons.contains(&m.reason.as_str())
                 {
                     continue;
                 }

@@ -60,6 +60,19 @@ describe("a card's blocker as it stands now", () => {
       resolved: CardResolution({ answer: "the far dock clips", option: -1, by: you }),
     })
     expect(blockerOutcome(back)).toBe("Sent back by you: “the far dock clips”")
+    // Card #476: the agent's next check replaced it; the reason is yours.
+    const again = CardBlocker({
+      doneCheck: true,
+      resolved: CardResolution({
+        answer: "the far dock clips",
+        option: -1,
+        by: civet,
+        note: "asked again: ready for the person",
+      }),
+    })
+    expect(blockerOutcome(again)).toBe(
+      "You sent it back: “the far dock clips”; civet asked again"
+    )
     const picked = CardBlocker({
       resolved: CardResolution({ answer: "Wintun", option: 0, by: civet }),
     })

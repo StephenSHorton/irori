@@ -246,6 +246,17 @@ fn a_late_not_done_starts_a_fresh_agent_with_his_words() {
         brief.contains("the save still 500s on the second tab"),
         "{brief}"
     );
+    // Card #476: it answers him on the check he sent back, by id, then
+    // brings proof that says what changed.
+    let check =
+        s.r.core
+            .coord()
+            .sent_back(&s.t.id)
+            .expect("the check he sent back")
+            .id;
+    assert!(brief.contains(&format!("blocker_id={check}")), "{brief}");
+    assert!(brief.contains("Answer them on it first"), "{brief}");
+    assert!(brief.contains("what changed"), "{brief}");
     let me = s.r.core.device_id().to_string();
     let second = format!("{me}/{}", sess(2));
     wait_for(60, "the fresh agent bound", || {

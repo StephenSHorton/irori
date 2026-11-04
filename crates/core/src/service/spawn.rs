@@ -454,9 +454,8 @@ pub(crate) fn build_brief(
     if !hand.trim().is_empty() {
         fence(&mut b, "Where the work is", "irori", hand.trim());
     }
-    let quoted_below = |a: &str| {
-        sent_back.is_some_and(|sb| !sb.answered && sb.reason.text.trim() == a.trim())
-    };
+    let quoted_below =
+        |a: &str| sent_back.is_some_and(|sb| !sb.answered && sb.reason.text.trim() == a.trim());
     if let Some(a) = answer.filter(|a| !a.trim().is_empty() && !quoted_below(a)) {
         fence(&mut b, "The person's answer for you", "the person", a);
     }

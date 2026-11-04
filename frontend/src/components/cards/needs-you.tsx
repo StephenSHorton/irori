@@ -29,6 +29,7 @@ import {
   talk,
   type Delivery,
 } from "@/lib/talk"
+import { EarlierRound } from "./done-rounds"
 
 export function NeedsYou({
   needs,
@@ -438,6 +439,7 @@ export function BlockerAnswer({
   return (
     <div className="grid min-w-0 gap-1.5">
       {!b.doneCheck && <p className="text-sm break-words">{question}</p>}
+      {b.doneCheck && <EarlierRound blocker={b} compact />}
       {b.context && (
         <p className="line-clamp-3 text-[13px] break-words text-muted-foreground">
           {plainLine(b.context)}

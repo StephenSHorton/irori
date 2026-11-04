@@ -18,10 +18,10 @@ use super::util::{
     cut_show, deeper, multiline, new_id, remove_str, runes,
 };
 use super::{
-    ASKED_AGAIN, DONE_ANSWER, DONE_CONTEXT, DONE_QUESTION, KEEP_RESOLVED, MAX_ANSWER, MAX_ATTACHMENTS,
-    MAX_BLOCKER_LINKS, MAX_COMMENT, MAX_CONTEXT, MAX_LEFT_OFF, MAX_MISSING, MAX_MISSING_TEXT,
-    MAX_OBJECTIVE, MAX_OPEN_BLOCKERS, MAX_OPTIONS, MAX_OWN_ANSWER, MAX_QUESTION, MAX_STEP_TEXT,
-    MAX_STEPS, MAX_WHY, NEEDS_PROOF,
+    ASKED_AGAIN, DONE_ANSWER, DONE_CONTEXT, DONE_QUESTION, KEEP_RESOLVED, MAX_ANSWER,
+    MAX_ATTACHMENTS, MAX_BLOCKER_LINKS, MAX_COMMENT, MAX_CONTEXT, MAX_LEFT_OFF, MAX_MISSING,
+    MAX_MISSING_TEXT, MAX_OBJECTIVE, MAX_OPEN_BLOCKERS, MAX_OPTIONS, MAX_OWN_ANSWER, MAX_QUESTION,
+    MAX_STEP_TEXT, MAX_STEPS, MAX_WHY, NEEDS_PROOF,
 };
 use crate::names::trim_space;
 
@@ -1655,8 +1655,7 @@ impl Fold {
                 ));
                 s.push_str(&deeper(id));
                 n.text = s;
-                let mut mn =
-                    self.mention_notice(&by, id, &ms, &text, &format!("task:{id}"), "")?;
+                let mut mn = self.mention_notice(&by, id, &ms, &text, &format!("task:{id}"), "")?;
                 super::mention::mention_into(&mut n, &mut mn);
                 let mut ns = vec![n];
                 ns.extend(mn);

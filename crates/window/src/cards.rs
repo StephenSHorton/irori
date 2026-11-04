@@ -881,7 +881,10 @@ impl Window {
             .ref_notices("task:", &[coord::NOTICE_ANSWERED], HEARD_NOTICES)
         {
             if let Some(id) = d.message.ref_.strip_prefix("task:") {
-                p.answers_heard.entry(id.to_string()).or_default().push((d, read));
+                p.answers_heard
+                    .entry(id.to_string())
+                    .or_default()
+                    .push((d, read));
             }
         }
         // The Chain's rule, never coord's lock: `around` in person_comment runs

@@ -69,6 +69,7 @@ import {
   StartAgentOn,
 } from "@/lib/thread"
 import { endAgent } from "@/lib/agents"
+import { EarlierRound, SentBackSigns } from "./done-rounds"
 import { cn } from "@/lib/utils"
 import {
   AskLine,
@@ -1734,7 +1735,13 @@ function BlockerItem({
           </Badge>
         )}
       </div>
+      {b.doneCheck && <EarlierRound blocker={b} />}
       {b.doneCheck && <AttachmentList attachments={b.attachments ?? []} />}
+      {b.doneCheck && b.previous && b.context && (
+        <span className="text-[11.5px] font-medium text-muted-foreground">
+          New proof
+        </span>
+      )}
       {b.context && (
         <RichText text={b.context} className="text-[12.5px] text-ink-2" />
       )}
@@ -1760,6 +1767,7 @@ function BlockerItem({
         {b.decider && !r && ` · for ${name(b.decider)} to decide`}
         {by && ` · ${by}`}
       </div>
+      <SentBackSigns blocker={b} />
       {b.thread.length > 0 ? (
         <Thread
           compact

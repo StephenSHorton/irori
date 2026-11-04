@@ -141,8 +141,10 @@ fn not_done_goes_back_and_a_new_check_replaces_it() {
             && n.text.contains("the login page still 500s")),
         "{ns:?}"
     );
-    // The agent fixes it and says done again: the answered check gives
-    // way to a fresh one, so only one waits on the person.
+    // The agent answers them on the check (card #476), fixes it and says
+    // done again: the answered check gives way to a fresh one, so only one
+    // waits on the person.
+    reply(&e, &t.id, &first, "found it: the session cookie; fixing");
     let again =
         e.c.set_task_state(BOB, &t.id, COMPLETED, "fixed the 500")
             .unwrap();
@@ -443,4 +445,201 @@ fn an_old_windows_open_done_closes_without_working() {
     assert_eq!(closed.state, COMPLETED);
     assert!(done_checks(&closed).is_empty());
     assert_eq!(e.rows(kinds::BLOCKER_RESOLVED).len(), resolved_before);
+}
+
+fn reply(e: &Env, id: &str, bid: &str, text: &str) -> Comment {
+    e.c.comment_on(
+        BOB,
+        id,
+        CommentInput {
+            text: text.into(),
+            blocker_id: bid.into(),
+            ..CommentInput::default()
+        },
+    )
+    .unwrap()
+    .0
+}
+
+fn not_done(e: &Env, id: &str, bid: &str, text: &str) {
+    e.c.answer(
+        USER,
+        id,
+        bid,
+        BlockerAnswer {
+            text: text.into(),
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+}
+
+/// Card #476: a Not done is answered on its check before the next one,
+/// and the next one brings changed proof; the exchange stays on the old
+/// check's thread.
+#[test]
+fn after_not_done_the_agent_answers_on_the_check_before_asking_again() {
+    let e = env();
+    let t = claimed(&e);
+    let got =
+        e.c.set_task_state(BOB, &t.id, COMPLETED, "PR merged")
+            .unwrap();
+    let first = done_checks(&got)[0].id.clone();
+    not_done(
+        &e,
+        &t.id,
+        &first,
+        "the others haven't been told the next steps",
+    );
+    let sb = e.c.sent_back(&t.id).expect("sent back");
+    assert_eq!(sb.id, first);
+    assert!(!sb.answered);
+    assert_eq!(sb.proof, "PR merged");
+
+    // Asking again without answering them is refused, and names the check.
+    let err =
+        e.c.set_task_state(BOB, &t.id, COMPLETED, "PR merged, team told")
+            .unwrap_err()
+            .to_string();
+    assert!(err.contains(&format!("blocker_id={first}")), "{err}");
+    assert!(err.contains("the others haven't been told"), "{err}");
+    assert_eq!(done_checks(&e.c.get_task(&t.id).unwrap())[0].id, first);
+
+    // The answer goes on the check's thread.
+    reply(
+        &e,
+        &t.id,
+        &first,
+        "posted the next steps in #team and made #108",
+    );
+    assert!(e.c.sent_back(&t.id).unwrap().answered);
+
+    // The same proof again is refused: it must say what changed.
+    let err =
+        e.c.set_task_state(BOB, &t.id, COMPLETED, "PR merged")
+            .unwrap_err()
+            .to_string();
+    assert!(err.contains("what changed"), "{err}");
+
+    let again =
+        e.c.set_task_state(BOB, &t.id, COMPLETED, "PR merged; next steps posted, #108")
+            .unwrap();
+    let checks = done_checks(&again);
+    assert_eq!(checks.len(), 1);
+    assert_ne!(checks[0].id, first);
+    // The old check is resolved, its exchange kept in order on its thread.
+    let old = again.blockers.iter().find(|b| b.id == first).unwrap();
+    assert!(!old.open());
+    let thread: Vec<(bool, String)> =
+        e.c.comments(&t.id)
+            .unwrap()
+            .into_iter()
+            .filter(|c| c.blocker_id == first)
+            .map(|c| (c.by == USER, c.text))
+            .collect();
+    assert_eq!(
+        thread,
+        vec![
+            (
+                true,
+                "the others haven't been told the next steps".to_string()
+            ),
+            (
+                false,
+                "posted the next steps in #team and made #108".to_string()
+            ),
+        ]
+    );
+    // The new check isn't sent back: nothing holds the next completed.
+    assert!(e.c.sent_back(&t.id).is_none());
+}
+
+/// Card #476: the Not done notice tells the agent to answer on the check,
+/// not to revise it with new options.
+#[test]
+fn the_not_done_notice_says_answer_on_the_check() {
+    let e = env();
+    let t = claimed(&e);
+    let got = e.c.set_task_state(BOB, &t.id, COMPLETED, "done").unwrap();
+    let bid = done_checks(&got)[0].id.clone();
+    let (_, ns) =
+        e.c.answer(
+            USER,
+            &t.id,
+            &bid,
+            BlockerAnswer {
+                text: "also the docs".into(),
+                ..BlockerAnswer::default()
+            },
+        )
+        .unwrap();
+    let n = ns.iter().find(|n| n.kind == NOTICE_ANSWERED).unwrap();
+    assert!(n.text.contains(&format!("blocker_id={bid}")), "{}", n.text);
+    assert!(n.text.contains("what changed"), "{}", n.text);
+    assert!(!n.text.contains("board_block"), "{}", n.text);
+}
+
+/// Card #476: once the next check (or the Board) closed the sent-back
+/// check, the agent can still answer on it; any other resolved blocker
+/// stays closed to replies.
+#[test]
+fn a_closed_sent_back_check_still_takes_the_agents_answer() {
+    let e = env();
+    let t = claimed(&e);
+    let got = e.c.set_task_state(BOB, &t.id, COMPLETED, "done").unwrap();
+    let bid = done_checks(&got)[0].id.clone();
+    not_done(&e, &t.id, &bid, "also the docs");
+    // The person (or the Board) closes it.
+    e.c.answer(
+        USER,
+        &t.id,
+        &bid,
+        BlockerAnswer {
+            resolve: true,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    assert!(
+        !e.c.get_task(&t.id)
+            .unwrap()
+            .blockers
+            .iter()
+            .any(|b| b.id == bid && b.open())
+    );
+    reply(&e, &t.id, &bid, "docs updated in the same PR");
+    assert!(e.c.sent_back(&t.id).unwrap().answered);
+
+    let b = e.c.block(BOB, &t.id, "which port?", None).unwrap();
+    let q = b
+        .blockers
+        .iter()
+        .find(|b| b.open() && !b.done_check)
+        .unwrap()
+        .id
+        .clone();
+    e.c.answer(
+        BOB,
+        &t.id,
+        &q,
+        BlockerAnswer {
+            text: "dropped".into(),
+            resolve: true,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    let err =
+        e.c.comment_on(
+            BOB,
+            &t.id,
+            CommentInput {
+                text: "late".into(),
+                blocker_id: q.clone(),
+                ..CommentInput::default()
+            },
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("already resolved"), "{err}");
 }
