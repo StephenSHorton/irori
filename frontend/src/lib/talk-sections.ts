@@ -1,9 +1,9 @@
 // Talk's list sections (card #463): the list once held every DM in one tall
 // Direct messages group, hundreds deep with agent↔agent conversations. It
-// now splits DMs into sections that fold, folded by default except Threads
-// and Channels, and remembers each fold per device. A folded section still
-// shows what needs the person: its DMs with something unread and the one
-// open now.
+// now splits DMs into sections that fold and remembers each fold per
+// device. A folded section lists no rows at all (card #484): only its name,
+// its count and how many have something new. Keeping its unread rows
+// showing half-collapsed it, rows under a folded heading.
 
 import { useCallback, useState } from "react"
 
@@ -15,7 +15,9 @@ export type SectionKey = "threads" | "channels" | "dms" | "gone" | "agents"
 export const foldedByDefault: Record<SectionKey, boolean> = {
   threads: false,
   channels: false,
-  dms: true,
+  // Unfolded (card #484): a folded section shows no rows, so folding the
+  // person's live DMs by default would hide what waits on them.
+  dms: false,
   gone: true,
   agents: true,
 }
@@ -61,31 +63,17 @@ export function archived(
   return c.convId !== keep && gone(c)
 }
 
-// bareWhenFolded are the sections that list nothing at all when folded,
-// only their name, count and unread: the Archive, whose gone agents leave
-// many unread DMs, would otherwise half-collapse (Stephen, on #473).
-export const bareWhenFolded: ReadonlySet<SectionKey> = new Set(["gone"])
-
-// needsLook is whether a conversation shows even in a folded section: it is
-// open, or it is the person's and has something unread or mentions them.
-export function needsLook(c: Conversation, open: string): boolean {
-  if (c.convId === open) return true
-  return !c.readOnly && (c.unread > 0 || c.mentions > 0)
-}
-
-// sectionRows is what a section lists: everything when unfolded (capped at
-// shownAtOnce unless all), only what needsLook when folded. hidden is how
-// many it leaves out.
+// sectionRows is what a section lists: nothing when folded, every section
+// alike (card #484; the Archive first, on #473), and everything when
+// unfolded (capped at shownAtOnce unless all, keeping the open one). hidden
+// is how many it leaves out.
 export function sectionRows(
   items: readonly Conversation[],
   folded: boolean,
   open: string,
   all: boolean
 ): { rows: Conversation[]; hidden: number } {
-  if (folded) {
-    const rows = items.filter((c) => needsLook(c, open))
-    return { rows, hidden: items.length - rows.length }
-  }
+  if (folded) return { rows: [], hidden: items.length }
   if (all || items.length <= shownAtOnce) return { rows: [...items], hidden: 0 }
   const rows = items.slice(0, shownAtOnce)
   const at = items.findIndex((c) => c.convId === open)

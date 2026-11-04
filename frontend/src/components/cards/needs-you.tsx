@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { byRecommendation } from "@/components/cards/card-detail"
-import { cardRef } from "@/components/cards/bits"
+import { Asker, cardRef } from "@/components/cards/bits"
 import {
   BlockerState,
   cards as cardsApi,
@@ -87,8 +87,6 @@ export function NeedsYou({
                 <CardNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "trust" ? (
                 <TrustRow need={n} now={now} onOpen={onOpenCard} />
-              ) : n.kind === "review" ? (
-                <ReviewNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "loop" || n.kind === "stuck" ? (
                 <StuckNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "held" ? (
@@ -119,7 +117,6 @@ export function NeedsYou({
 const kinds = {
   check: { label: "Done check", variant: "success" },
   decision: { label: "Decision", variant: "destructive" },
-  review: { label: "Review", variant: "warning" },
   trust: { label: "Trust", variant: "warning" },
   // Card #456 (sa-7): a spawned agent stopped on a permission prompt, and
   // a card whose agents crashed twice.
@@ -269,46 +266,6 @@ function waitsOnYou(b: CardBlocker): boolean {
     !b.waitsOn &&
     answerable(b.state || BlockerState.Open) &&
     b.state !== BlockerState.Answered
-  )
-}
-
-// ReviewNeed is a PR waiting on the person's review (card #347): once,
-// with every card that waits on it, and the PR one click away.
-function ReviewNeed({
-  need,
-  now,
-  onOpen,
-}: {
-  need: Extract<Need, { kind: "review" }>
-  now: Date
-  onOpen: (id: string) => void
-}) {
-  const { pr, cards } = need
-  const where = <span className="font-mono">{pr.repo}</span>
-  return (
-    <Row kind="review" where={where} at={need.at} now={now} title={`Review PR #${pr.number}`}>
-      <p className="text-sm break-words text-muted-foreground">
-        {cards.length === 1 ? "A card waits" : `${cards.length} cards wait`} on it:{" "}
-        {cards.map((c, i) => (
-          <span key={c.id}>
-            {i > 0 && ", "}
-            <button
-              type="button"
-              className="font-mono tabular-nums underline-offset-2 hover:underline"
-              title={plainLine(c.title)}
-              onClick={() => onOpen(c.id)}
-            >
-              {cardRef(c)}
-            </button>
-          </span>
-        ))}
-      </p>
-      <span className="flex flex-wrap gap-1.5">
-        <Button size="sm" onClick={() => void cardsApi.openURL(pr.url)} title={pr.url}>
-          Open PR #{pr.number}
-        </Button>
-      </span>
-    </Row>
   )
 }
 
@@ -582,7 +539,12 @@ export function BlockerAnswer({
   const replied = b.state === BlockerState.Replied
   return (
     <div className="grid min-w-0 gap-1.5">
-      {!b.doneCheck && <p className="text-sm break-words">{question}</p>}
+      {!b.doneCheck && (
+        <div className="grid gap-0.5">
+          <Asker who={b.raisedBy} />
+          <p className="text-sm break-words">{question}</p>
+        </div>
+      )}
       {b.context && (
         <p className="line-clamp-3 text-[13px] break-words text-muted-foreground">
           {plainLine(b.context)}

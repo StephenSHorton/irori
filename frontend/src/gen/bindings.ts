@@ -961,7 +961,8 @@ export type CardSummary = {
 	mainRed?: string,
 	/**
 	 *  Where the first wait's chain of cards ends at the person (card
-	 *  #347): "your review of PR #96 (#334)" or "your answer on #12".
+	 *  #347): "your answer on #12". A PR never waits on the person (card
+	 *  #471): agents merge it, or another member's agents approve it.
 	 */
 	waitYou?: string,
 	/**
@@ -977,10 +978,10 @@ export type CardSummary = {
 	 */
 	waitStuck?: CardRef | null,
 	/**
-	 *  An in-review card waiting on the person's review of a PR it links
-	 *  (card #347): no agent was asked to review it.
+	 *  The open PR an in-review card waits on (card #471): the card shows
+	 *  a small "waits on PR #N" chip with its link, never a Needs you row.
 	 */
-	reviewPr?: ReviewPr | null,
+	waitPr?: WaitPr | null,
 	working: AgentRef[],
 	watching: AgentRef[],
 	holder: CardHolder,
@@ -1805,13 +1806,6 @@ export type Returned = {
 	person?: boolean,
 };
 
-/**  A PR an in-review card waits on the person to review (card #347). */
-export type ReviewPr = {
-	repo: string,
-	number: number,
-	url: string,
-};
-
 /**  One of this person's live agents, to pick a reviewer from. */
 export type ReviewerChoice = {
 	agent: string,
@@ -2289,6 +2283,18 @@ export type VoiceStatus = {
 	fix: string,
 	/**  The model download's size in bytes (for "needs-model"). */
 	modelBytes: number,
+};
+
+/**  The open PR an in-review card waits on (card #471). */
+export type WaitPr = {
+	repo: string,
+	number: number,
+	url: string,
+	/**
+	 *  GitHub says the PR needs an approval before it merges: it waits on
+	 *  another member's agents, never the person's or their own agents'.
+	 */
+	approval?: boolean,
 };
 
 /**

@@ -47,6 +47,7 @@ unchanged.
 | `/?loop=1` | a wait loop (card #481): Home's Needs you has one Stuck row, "#70, #72 and #71 wait on each other", with Open #70/#72/#71; `&open=board:task:sample-card-loop-71` shows a wait as a grey "Waiting on #70 Talk 4: Spaces" line with Stop waiting and no answer box; `sample-card-loop-72` shows it beside a red question |
 | `/?gone=1` | items whose agent is gone on cards nobody holds (card #485): `&open=board:task:sample-card-gone-73` shows an amber "Waiting on kestrel (gone)" wait with Hand to an agent beside Stop waiting; `sample-card-gone-74` shows piranha's done check with the amber "Waiting on piranha (gone)" line and Hand to an agent |
 | `/?red=1` | main is red (card #436): Home leads with "Main is red: attach_exe fails on clean main; 2 cards wait on #60", and the line opens #60 |
+| `/?winddown` | a finished Wind down (card #484): Home's one line "Wound down 43 agents, 23 confirmed · Pause all is on", which opens the dialog with each agent's answer; × dismisses it until the next run. No DM is opened per agent |
 | `/?spawn=first` | spawned agents' first-run notice (card #448): Home leads with "Irori now starts an agent for each card…", Keep it on / Turn it off / Settings › Agents |
 | `/?spawn=states` | spawned agents' card lines (card #448): #65 "Starting an agent on this PC", #66 "Waiting: this PC is at its cap", #67 "Can't start: no checkout…"; #64's page shows End for the agent Irori started, and its hover "Irori started it for #64" |
 | `/?spawn=states` on Home | spawned agents in Needs you (card #456, sa-7): #58 "Permission", sample-thyme stopped on a prompt, with Attach, Logs and Add to allow-list; #62 "Crashed", its agents crashed twice, with Start another agent |
@@ -55,7 +56,7 @@ unchanged.
 | `/?settings=agents` | Settings › Agents: the spawning switch, model and effort (#448), and the permissions (#449) |
 | `/?idle=gap` | Home's idle line as a dispatch gap: idle agents and two cards nobody was handed, with why (card #341); `/` alone shows the shortage line, "N agents idle, no open work" |
 | `/#notifications` | The Notifications page (card #377): unread items, a done check and a decision with their live buttons, an agent's ask; `/?notifications=all#notifications` shows All, with a resolved blocker's outcome and read items; `?notifications=none` an empty history |
-| `/?filter=review` | the In review chip's cards: #16 waits on its PR's review, its agent free (card #191) |
+| `/?filter=review` | the In review chip's cards: #16 waits on its PR, its agent free (card #191), with a small "waits on PR #212" chip that opens it; Needs you shows no PR row (card #471) |
 | `/?open=inbox:sample-delivery-1` | a message Irori held (Release, Dismiss) |
 | `/?open=inbox:sample-delivery-6` | a message an agent sent you (Reply) |
 | `/?open=held` | the Held list: three held (one by Pause all), and History with a dismissed one to release |
@@ -91,6 +92,23 @@ unchanged.
 `?devices`, `?boards`, `?share`, `?settings`, `?update`, `?from` and `?filter` live in `src/lib/preview.ts`; `?slow` in `src/lib/cards.ts`. An open
 card's page is `#card/<id>` in the address (`/#card/sample-card-4` opens it
 too); its Back, Esc and the browser's back return to the grid.
+
+## Phone width (390 px)
+
+With the preview running, `bun run check:phone` opens each main page (Home,
+the card pages, Notes, Notifications, Held, Settings, Talk, Boards, New card)
+as a 390 x 844 phone (touch, no hover) in a headless Chrome. It fails when the
+page or anything on it reaches past the right edge, warns about text cut short
+or ending in "…", and saves a PNG of each page to `frontend/preview-shots/phone/`
+(card #479). `bun run check:phone home card-1` checks only those; `PREVIEW_URL`
+points it at another port, `PHONE_HEIGHT=2600` shows more of a long page.
+
+Don't shoot a phone width with `--window-size=390,…` (as `preview-shots.sh`
+does for desktop sizes): Chrome won't make a headless window narrower than
+500 px, so the page lays out at 500 and the PNG is cropped to 390, and Boards
+and the right-hand buttons look cut off when they aren't. `check:phone` sets
+the width through DevTools' device emulation and fails if the page doesn't
+see 390.
 
 ## Screenshots
 

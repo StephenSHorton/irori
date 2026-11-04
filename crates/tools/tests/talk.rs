@@ -321,3 +321,53 @@ fn channel_members_read_at_their_next_turn() {
     assert_eq!(ds[0].message.from.key, inbox::SYSTEM_KEY, "{ds:?}");
     assert_eq!(ds[0].message.trust, inbox::trust::UNTRUSTED, "{ds:?}");
 }
+
+/// The person's Wind down reaches every agent but opens no DM, and a
+/// "wound down" sent back as a message (as before card #307) stays out of
+/// the DMs too, so nothing waits unread (card #484). An ordinary message
+/// to the same agent still shows.
+#[test]
+fn a_wind_down_and_its_replies_open_no_dm() {
+    let h = new_harness();
+    let me = inbox::Sender::new(USER, "you", "user");
+    let to = |k: &str| inbox::Address::new(inbox::addr::AGENT, k);
+    let wd = || inbox::SendOptions {
+        mode: WAKE.into(),
+        reason: inbox::REASON_WIND_DOWN.into(),
+        ..inbox::SendOptions::default()
+    };
+    let (ma, _) =
+        h.b.ib
+            .send_with(&me, &to(KEY_A), "Wind down", wd())
+            .unwrap();
+    h.b.ib
+        .send_with(&me, &to(KEY_B), "Wind down", wd())
+        .unwrap();
+    // Alpha answers the old way: a message back, replying to it.
+    h.b.ib
+        .send_with(
+            &call_a().sender,
+            &inbox::Address::new(inbox::addr::REPLY, &ma.id),
+            "Wound down. No cards held.",
+            inbox::SendOptions::default(),
+        )
+        .unwrap();
+    let mine_a = ct::dm_id(KEY_A, USER);
+    let mine_b = ct::dm_id(KEY_B, USER);
+    let cs = tools::talk::conversations(&*h.b, USER).unwrap();
+    assert!(
+        !cs.iter()
+            .any(|c| c.conv_id == mine_a || c.conv_id == mine_b),
+        "{cs:?}"
+    );
+    assert!(cs.iter().all(|c| c.unread == 0), "{cs:?}");
+    assert!(tools::talk::posts(&*h.b, USER, &mine_a).unwrap().is_empty());
+
+    // An ordinary message to alpha is a DM again, with only that in it.
+    h.b.ib
+        .send_with(&me, &to(KEY_A), "how's #3?", inbox::SendOptions::default())
+        .unwrap();
+    let ps = tools::talk::posts(&*h.b, USER, &mine_a).unwrap();
+    let texts: Vec<&str> = ps.iter().map(|p| p.text.as_str()).collect();
+    assert_eq!(texts, ["how's #3?"]);
+}

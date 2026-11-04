@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button"
 import { Face } from "@/components/cards/faces"
 import { type ThreadSummary } from "@/lib/cards"
 import {
+  dmGone,
   dmWith,
   listed,
   readAll,
@@ -38,7 +39,6 @@ import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import {
   archived,
-  bareWhenFolded,
   dmSections,
   sectionRows,
   unreadIn,
@@ -121,10 +121,7 @@ export function TalkPage({
   const { channels, dms } = listed(conversations.filter((c) => convMatches(c, query)))
   const [adding, setAdding] = useState<"" | "channel" | "dm">("")
   const liveRoster = useContext(LiveRoster)
-  const goneDm = (c: Conv) => {
-    const other = dmWith(c)
-    return other.length > 0 && other.every((m) => statusOf(m, liveRoster) === "gone")
-  }
+  const goneDm = (c: Conv) => dmGone(c, liveRoster)
   // The DM opened from the main list stays there while it is open, though
   // reading it would archive it (card #473); one opened from the Archive
   // stays in the Archive.
@@ -145,9 +142,7 @@ export function TalkPage({
   const folded = (k: SectionKey) => !searching && isFolded(k)
   const [allShown, setAllShown] = useState<Partial<Record<SectionKey, boolean>>>({})
   const convRows = (k: SectionKey, items: Conv[]) =>
-    folded(k) && bareWhenFolded.has(k)
-      ? { rows: [], hidden: items.length }
-      : sectionRows(items, folded(k), open, searching || !!allShown[k])
+    sectionRows(items, folded(k), open, searching || !!allShown[k])
   const [marking, setMarking] = useState(false)
   const convSection = (k: SectionKey, label: string, items: Conv[], empty: string, extra?: ReactNode, add?: { onAdd: () => void; label: string }, markAll?: boolean) => {
     const { rows, hidden } = convRows(k, items)
@@ -189,9 +184,8 @@ export function TalkPage({
       </Group>
     )
   }
-  const liveThreads = folded("threads")
-    ? live.filter((t) => t.id === open || needsYou(t))
-    : live
+  // Folded, Threads lists no rows either, as every section (card #484).
+  const liveThreads = folded("threads") ? [] : live
 
   const list = (
     <nav
