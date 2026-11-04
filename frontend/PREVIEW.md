@@ -36,6 +36,7 @@ unchanged.
 | `/#talk/sample-dm-gone-3` | an archived DM open (card #473): gone agents' DMs, read or not, sit in the Archive at the bottom, which folded lists no rows, only its count, how many are new and Mark all read |
 | `/#talk/sample-dm-spencer` | a DM with another member's agent on a shared board (card #478): "BillingEng1 · Spencer", "Spencer's agent · idle", never its `board:<board>/<card>` key; with your DMs, not the Archive |
 | `/#talk/sample-dm-spencer-2` | another member's agent whose state this device doesn't know (card #478): "an agent of Spencer's", only "Spencer's agent" under it, no live dot, not gone |
+| `/#talk/sample-dm-owl-3` | Agents talking (card #486): sample-owl's message to 16 agents is one row, "sample-owl → 15 agents", unfolded to its recipients because one of them is open; tansy answered, so its DM is its own row. Every row says its last line, with the time beside the name; the section lists the newest 8, up to 50 with Show more |
 | `/?open=board:task:sample-card-7` | a parent card's page: its subtasks, one blocked, and the steps done before the split |
 | `/?open=board:task:sample-card-9` | a subtask's page, with "Part of #7" under the title |
 | `/?open=board:task:sample-card-1` | a card's page with blockers, a PR and a long thread |

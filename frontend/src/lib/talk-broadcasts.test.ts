@@ -73,6 +73,20 @@ describe("Agents talking: broadcasts (card #486)", () => {
     expect(shape(rows)).toEqual([later.convId, "dev/owl → 2", fromHeron.convId])
   })
 
+  test("a broadcast keeps its id while copies come in and recipients answer", () => {
+    const before = agentRows(newestFirst([copy("a0", 0), copy("a1", 2), copy("a2", 4)]))
+    const answered = { ...copy("a2", 4), lastText: "Done.", lastBy: "dev/a2", lastAt: iso(t0 + 60_000) }
+    const after = agentRows(newestFirst([copy("a0", 0), copy("a1", 2), answered, copy("a3", 6)]))
+    const ids = (rows: AgentRow[]) => rows.flatMap((r) => (r.kind === "broadcast" ? [r.b.id] : []))
+    expect(ids(after)).toEqual(ids(before))
+  })
+
+  test("two long messages that only start alike are two rows", () => {
+    const head = "Stephen asked the Mac agents to test and finish. ".repeat(8)
+    const rows = agentRows(newestFirst([copy("a0", 0, `${head}take #470`), copy("a1", 2, `${head}take #471`)]))
+    expect(rows.every((r) => r.kind === "dm")).toBe(true)
+  })
+
   test("a lone copy, the person's own DMs and rows without a last line stay DMs", () => {
     const mine = { ...copy("a1", 1), readOnly: false }
     const blank = { ...copy("a2", 2), lastText: "" }

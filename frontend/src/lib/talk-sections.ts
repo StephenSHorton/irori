@@ -99,7 +99,8 @@ export function sectionRows(
 // identical rows. It is one row now, "owl → 10 agents", that unfolds to the
 // DMs it went to.
 export type Broadcast = {
-  // "broadcast:" and its newest DM's id.
+  // "broadcast:", the sender and the text: it stays the same while copies
+  // come in or a recipient answers, so the row keeps its fold.
   id: string
   // The sender's key, the text, and when the newest copy went.
   by: string
@@ -149,7 +150,7 @@ export function agentRows(items: readonly Conversation[]): AgentRow[] {
       b.convs.push(c)
       continue
     }
-    const nb: Broadcast = { id: `broadcast:${c.convId}`, by, text, lastAt: c.lastAt, convs: [c] }
+    const nb: Broadcast = { id: `broadcast:${key}`, by, text, lastAt: c.lastAt, convs: [c] }
     growing.set(key, nb)
     out.push({ kind: "broadcast", b: nb })
   }

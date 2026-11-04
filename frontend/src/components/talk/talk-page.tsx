@@ -196,7 +196,9 @@ export function TalkPage({
   }
   // Agents talking (card #486): a message sent to many agents is one row,
   // newest first, at most agentsCap of them; search finds the rest.
+  // A broadcast holding the open DM starts unfolded; its chevron still folds it.
   const [unfolded, setUnfolded] = useState<Record<string, boolean>>({})
+  const isUnfolded = (b: Broadcast) => unfolded[b.id] ?? b.convs.some((c) => c.convId === open)
   const agentsSection = () => {
     const all = agentRows(sections.agents)
     const { rows, hidden, capped } = agentSectionRows(all, folded("agents"), open, !!allShown.agents, searching)
@@ -216,8 +218,8 @@ export function TalkPage({
               b={r.b}
               now={now}
               open={open}
-              unfolded={!!unfolded[r.b.id] || r.b.convs.some((c) => c.convId === open)}
-              onToggle={() => setUnfolded({ ...unfolded, [r.b.id]: !unfolded[r.b.id] })}
+              unfolded={isUnfolded(r.b)}
+              onToggle={() => setUnfolded({ ...unfolded, [r.b.id]: !isUnfolded(r.b) })}
               onOpen={onOpen}
             />
           )

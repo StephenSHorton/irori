@@ -382,8 +382,10 @@ fn last_at(posts: &[Post]) -> GoTime {
     posts.last().map(|p| p.at).unwrap_or_default()
 }
 
-/// How many runes of the newest post a conversation carries (card #486).
-pub const LAST_TEXT: usize = 280;
+/// How many runes of the newest post a conversation carries (card #486):
+/// the list shows one line of it, and compares it whole to tell one
+/// message sent to many agents from two that only start alike.
+pub const LAST_TEXT: usize = 2000;
 
 /// The newest post's text on one line, and who wrote it.
 fn last_line(posts: &[Post]) -> (String, String) {
