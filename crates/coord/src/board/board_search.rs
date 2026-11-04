@@ -364,6 +364,10 @@ impl Fold {
                 let state = match &bl.resolved {
                     Some(r) if r.closed => {
                         let mut s = format!("closed by {}", r.by);
+                        // Card #481: why, then the person's answer.
+                        if !r.note.is_empty() {
+                            let _ = write!(s, ": {}; the answer", r.note);
+                        }
                         if !r.answer.is_empty() {
                             let _ = write!(s, ": {}", r.answer);
                         }

@@ -310,7 +310,7 @@ fn picked_line(opt: i64, rec_by: &str, rec: bool) -> String {
 
 /// The person's latest answer on item bid since its question was last
 /// replaced.
-fn last_answer(f: &Fold, t: &Task, bid: &str) -> Option<Comment> {
+pub(crate) fn last_answer(f: &Fold, t: &Task, bid: &str) -> Option<Comment> {
     let asked = blocker_index(t, bid)
         .map(|i| t.blockers[i].asked.clone())
         .unwrap_or_default();
@@ -585,6 +585,8 @@ impl Fold {
                 b.attachments = capped(add_files(Vec::new(), &br.attachments), MAX_ATTACHMENTS);
                 b.asked = pos;
                 let (id, q) = (b.id.clone(), b.question.clone());
+                // Asking on the card again, it's back on it (card #481).
+                t.left.retain(|w| w != &p.by);
                 refresh_blocker(&self.comments, self.by_task.get(&t.id), t, &id);
                 if br.revise {
                     return Folded {
@@ -636,6 +638,9 @@ impl Fold {
             if br.revise {
                 nb.options_at = pos;
             }
+            // An agent that asks on a card it left is back on it: its
+            // answer has someone to go to (card #481).
+            t.left.retain(|w| w != &p.by);
             t.blockers.push(nb);
             return Folded::raised(format!("raised a blocker: {}", br.question), &br.id);
         }

@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::offers::offerable;
+use super::offers::{offerable, on_work};
 use super::types::*;
 
 /// How many cards a walk looks at before it stops.
@@ -165,7 +165,9 @@ fn stuck_end(t: &Task) -> bool {
         && t.state != INPUT_REQUIRED
         && !t.spawn_pending()
         && !offerable(t)
-        && t.blockers
-            .iter()
-            .all(|b| !b.open() || b.status == BLOCKER_ANSWERED)
+        && t.blockers.iter().all(|b| {
+            !b.open()
+                || (b.status == BLOCKER_ANSWERED
+                    && !b.on.as_ref().is_some_and(|on| on_work(&on.kind)))
+        })
 }

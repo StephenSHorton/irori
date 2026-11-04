@@ -2089,7 +2089,13 @@ impl Window {
                 waits_on: bl
                     .on
                     .as_ref()
-                    .filter(|on| waits_by_itself(&on.kind) && bl.options.is_empty())
+                    // Once someone replied on it, it keeps its thread and
+                    // reply box (the review of #481).
+                    .filter(|on| {
+                        waits_by_itself(&on.kind)
+                            && bl.options.is_empty()
+                            && (bl.status.is_empty() || bl.status == coord::BLOCKER_OPEN)
+                    })
                     .map(|on| wait_on_of(&co, &p, on)),
                 thread: by_blocker.remove(&bl.id).unwrap_or_default(),
                 links: bl.links.clone(),
@@ -2624,8 +2630,14 @@ fn family_of(co: &coord::Coord, t: &Task, s: &mut CardSummary) {
         };
         let ch = coord::wait_chain(&|id: &str| co.get_task(id), &t.id);
         s.wait_loop = ch.loop_ids.iter().filter_map(|id| card(id)).collect();
-        // A chain that ends at the person is theirs to answer already.
-        if s.wait_you.is_empty() && !ch.stuck.is_empty() {
+        // A chain that ends at the person's review is theirs already;
+        // wait_you follows only the first wait, so any other end shows.
+        if !ch.stuck.is_empty()
+            && !(!s.wait_you.is_empty()
+                && co
+                    .get_task(&ch.stuck)
+                    .is_some_and(|k| review_pr(co, &k).is_some()))
+        {
             s.wait_stuck = card(&ch.stuck);
         }
     }

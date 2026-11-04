@@ -1262,6 +1262,19 @@ function sampleRecount(c: CardDetail) {
   c.openBlockers = needs.length
   c.waiting = open.length - asked.length
   c.waitingOn = asked.length - needs.length || undefined
+  // What the first wait is on, and the loop once a wait in it closed.
+  const wait = asked.find((x) => x.waitsOn)
+  c.waitOn = wait?.waitsOn?.label
+  c.waitQuestion = wait?.question
+  c.waitTask = wait?.waitsOn?.taskId
+  if (!asked.some((x) => x.waitsOn?.taskId)) {
+    const ring = c.waitLoop
+    c.waitLoop = undefined
+    c.waitStuck = undefined
+    if (ring?.length)
+      for (const o of sampleState())
+        if (o.waitLoop?.some((r) => r.id === c.id)) o.waitLoop = undefined
+  }
   c.blockerQuestion = needs[0]?.question ?? ""
   c.ready = needs.some((x) => x.doneCheck) || undefined
 }

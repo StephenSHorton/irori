@@ -72,7 +72,26 @@ fn writes(e: &Env) -> usize {
 fn closed_by_irori(e: &Env, id: &str, bid: &str) {
     let b = item(e, id, bid);
     let r = b.resolved.as_ref().expect("closed");
-    assert!(r.closed && r.by == "irori" && r.answer == WHY, "{r:?}");
+    // The person's answer stands; why Irori closed it is the note.
+    assert!(
+        r.closed && r.by == "irori" && r.answer == "8080" && r.note == WHY,
+        "{r:?}"
+    );
+}
+
+/// The review of #481: an agent that left and then asks on the card from
+/// outside is back on it; its answered item stays open.
+#[test]
+fn an_agent_asking_after_it_left_keeps_its_item() {
+    let e = Env::new();
+    let t = e.c.create_task(ALICE, nt("ship it", false)).unwrap();
+    e.c.claim_task(CAROL, &t.id).unwrap();
+    e.c.leave(CAROL, &t.id, CAROL).unwrap();
+    e.c.claim_task(BOB, &t.id).unwrap();
+    let bid = ask(&e, CAROL, &t.id, "which port?");
+    say(&e, &t.id, &bid, "8080");
+    e.c.sweep_notices().unwrap();
+    assert!(item(&e, &t.id, &bid).open());
 }
 
 /// BOB's card, blocked on a question the person answered.

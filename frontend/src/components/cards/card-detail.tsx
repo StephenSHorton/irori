@@ -222,7 +222,9 @@ export function CardPage({
     detail.prs.map((pr) => `${LinkKind.LinkURL}:${pr.url}`)
   )
   for (const b of open) {
-    for (const l of b.links ?? []) shownLinks.add(`${l.kind}:${l.ref}`)
+    // A wait's line shows no links: they stay in the side list.
+    if (!isWait(b))
+      for (const l of b.links ?? []) shownLinks.add(`${l.kind}:${l.ref}`)
     for (const o of b.options)
       if (o.link) shownLinks.add(`${o.link.kind}:${o.link.ref}`)
   }
@@ -2135,6 +2137,11 @@ function WaitItem({
       {b.question && (
         <div className="min-w-0 text-xs text-muted-foreground">
           {plainLine(b.question)}
+        </div>
+      )}
+      {b.context && (
+        <div className="col-span-2 min-w-0 text-xs text-muted-foreground">
+          <RichLine text={b.context} />
         </div>
       )}
     </div>
