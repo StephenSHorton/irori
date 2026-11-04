@@ -229,6 +229,12 @@ pub trait Backend: Send + Sync {
     fn known_names(&self) -> std::collections::BTreeMap<String, String> {
         std::collections::BTreeMap::new()
     }
+    /// What each of the person's devices is called, by device id (card
+    /// #485: a version wait names devices); empty when the backend keeps
+    /// none.
+    fn device_labels(&self) -> std::collections::BTreeMap<String, String> {
+        std::collections::BTreeMap::new()
+    }
     /// Capture serves timeline, why, search, show, overview, commits and
     /// prs; `None` makes them answer "capture is off".
     fn capture(&self) -> Option<&capture::Capture> {

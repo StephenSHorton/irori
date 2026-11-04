@@ -4,17 +4,22 @@ import { TaskState, withLive, workingNow, type AgentRef, type CardSummary } from
 import { readFileSync } from "node:fs"
 
 import {
+  asksPerson,
   CRASHED_QUESTION,
+  HELD_QUIET,
   IDLE_LINE,
+  loopLine,
   needsOf,
   needsYou,
+  prChip,
   rowState,
   spawnNeed,
+  stuckLine,
   toPerson,
   WAITING_PERMISSION,
   waitsOnTrust,
 } from "./needs"
-import { State, type Delivery } from "./talk"
+import { HoldReason, State, type Delivery } from "./talk"
 
 const card = (c: Partial<CardSummary>): CardSummary =>
   ({
@@ -193,9 +198,57 @@ describe("needsOf", () => {
       card({ id: "b", ready: true, openBlockers: 1, updatedAt: "2026-11-02T10:05:00Z" }),
       card({ id: "c" }),
     ]
-    const held = delivery({ id: "h", to: "dev/agent2", state: State.Held, createdAt: "2026-11-02T10:02:00Z" })
+    const held = delivery({
+      id: "h",
+      to: "",
+      repoKey: "root:5a3c",
+      state: State.Held,
+      hold: HoldReason.HoldUnowned,
+      createdAt: "2026-11-02T10:02:00Z",
+    })
+    held.message.from = { key: "user:dev", name: "you", kind: "user" }
     const got = needsOf(cs, [held, held]).map((n) => `${n.kind}:${n.id}`)
     expect(got).toEqual(["check:b", "held:h", "decision:a"])
+  })
+  test("holds between agents and Pause all's are one line, last and uncounted (card #488)", () => {
+    const cs = [card({ id: "a", openBlockers: 1, updatedAt: "2026-11-02T10:00:00Z" })]
+    const hop = delivery({ id: "hop", to: "dev/heron", state: State.Held, hold: HoldReason.HoldHopLimit, createdAt: "2026-11-02T10:09:00Z" })
+    const old = delivery({ id: "old", to: "dev/heron", state: State.Held, hold: HoldReason.HoldBypassReceiver })
+    const listed = delivery({ id: "allow", to: "dev/heron", state: State.Held, hold: HoldReason.HoldNotAllowed })
+    const paused = delivery({ id: "p", to: "dev/heron", state: State.Held, hold: HoldReason.HoldPaused })
+    // An agent's message to a repo nobody is in is between agents too.
+    const agentRepo = delivery({ id: "ar", to: "", repoKey: "root:5a3c", state: State.Held, hold: HoldReason.HoldUnowned })
+    const mine = delivery({ id: "mine", to: "", repoKey: "root:5a3c", state: State.Held, hold: HoldReason.HoldUnowned })
+    mine.message.from = { key: "user:dev", name: "you", kind: "user" }
+    // Your own message held by your Pause all is quiet too.
+    const minePaused = delivery({ id: "mp", to: "dev/heron", state: State.Held, hold: HoldReason.HoldPaused })
+    minePaused.message.from = { key: "user:dev", name: "you", kind: "user" }
+    const person = delivery({ id: "pal", to: "dev/heron", state: State.Held, hold: HoldReason.HoldCrossPerson })
+    person.message.from = { key: "board:b1/p2", name: "Sam", kind: "board" }
+    const got = needsOf(cs, [hop, old, listed, paused, agentRepo, mine, minePaused, person])
+    expect(got.map((n) => `${n.kind}:${n.id}`)).toEqual([
+      "decision:a",
+      "held:mine",
+      "held:pal",
+      `heldQuiet:${HELD_QUIET}`,
+    ])
+    const quiet = got.at(-1)
+    expect(quiet?.kind === "heldQuiet" && quiet.deliveries.map((d) => d.id)).toEqual([
+      "hop",
+      "old",
+      "allow",
+      "p",
+      "ar",
+      "mp",
+    ])
+    expect(asksPerson(hop)).toBe(false)
+    // An agent's message to you, held by your allow list, is yours to decide.
+    const toYou = delivery({ id: "ty", to: "user:dev", state: State.Held, hold: HoldReason.HoldNotAllowed })
+    expect(asksPerson(toYou)).toBe(true)
+    expect(asksPerson({ ...toYou, hold: HoldReason.HoldPaused })).toBe(false)
+    expect(asksPerson(mine)).toBe(true)
+    expect(asksPerson({ ...mine, state: State.Queued })).toBe(false)
+    expect(needsOf([], [hop]).map((n) => n.kind)).toEqual(["heldQuiet"])
   })
   test("toPerson: open messages to a user key only", () => {
     expect(toPerson(delivery({}))).toBe(true)
@@ -205,42 +258,99 @@ describe("needsOf", () => {
 })
 
 // Card #347: "Waiting" that is really the person's says so and sits under
-// Needs you. Today's board: #330 and #334 in review on PR #96, #329
-// waiting on #334, #290's question filed on an external wait.
-describe("what waits on the person (card #347)", () => {
+// Needs you. Card #471: a PR never does; nobody but agents merges it, and
+// its card shows a small chip instead. Today's board: #330 and #334 in
+// review on PR #96, #329 waiting on #334, #290's question on an external
+// wait.
+describe("what waits on the person (cards #347, #471)", () => {
   const pr = { repo: "StephenSHorton/suzuri", number: 96, url: "https://github.com/StephenSHorton/suzuri/pull/96" }
-  test("a card in review on the person's PR reads Review PR #N", () => {
-    expect(rowState(card({ state: TaskState.InReview, reviewPr: pr }))).toEqual({
-      state: "needs",
-      line: "Review PR #96",
+  test("a card in review on its PR waits, it doesn't need the person", () => {
+    expect(rowState(card({ state: TaskState.InReview, waitPr: pr }))).toEqual({
+      state: "waiting",
+      line: "In review",
     })
-    // An agent's review (no reviewPr) still reads In review.
-    expect(rowState(card({ state: TaskState.InReview })).state).toBe("waiting")
   })
-  test("a wait whose chain ends at the person names it", () => {
+  test("a wait whose chain ends at the person's answer names it", () => {
     const c = card({
       state: TaskState.Blocked,
       waitingOn: 1,
-      waitOn: "#334",
-      waitYou: "your review of PR #96 (#334)",
+      waitOn: "#290",
+      waitYou: "your answer on #290",
     })
-    expect(rowState(c)).toEqual({ state: "needs", line: "Waits on your review of PR #96 (#334)" })
-    // A chain that ends at an agent stays Waiting on #N.
-    expect(rowState({ ...c, waitYou: undefined })).toEqual({ state: "waiting", line: "Waiting on #334" })
+    expect(rowState(c)).toEqual({ state: "needs", line: "Waits on your answer on #290" })
+    // A chain that ends at an agent or a PR stays Waiting on #N.
+    expect(rowState({ ...c, waitOn: "#334", waitYou: undefined })).toEqual({
+      state: "waiting",
+      line: "Waiting on #334",
+    })
   })
-  test("one Review PR #N for every card on it, beside a decision", () => {
+  test("Needs you has no PR rows, only the decision", () => {
     const cs = [
-      card({ id: "330", state: TaskState.InReview, reviewPr: pr, updatedAt: "2026-11-03T17:12:00Z" }),
-      card({ id: "334", state: TaskState.InReview, reviewPr: pr, updatedAt: "2026-11-03T18:36:00Z" }),
+      card({ id: "330", state: TaskState.InReview, waitPr: pr, updatedAt: "2026-11-03T17:12:00Z" }),
+      card({ id: "334", state: TaskState.InReview, waitPr: pr, updatedAt: "2026-11-03T18:36:00Z" }),
       card({ id: "290", state: TaskState.Blocked, openBlockers: 1, updatedAt: "2026-11-03T15:14:00Z" }),
-      card({ id: "329", state: TaskState.Blocked, waitingOn: 1, waitYou: "your review of PR #96 (#334)" }),
-      card({ id: "old", state: TaskState.Completed, reviewPr: pr }),
+      card({ id: "329", state: TaskState.Blocked, waitingOn: 1, waitOn: "#334" }),
     ]
-    const got = needsOf(cs, [], [])
-    expect(got.map((n) => `${n.kind}:${n.id}`)).toEqual([`review:${pr.url}`, "decision:290"])
-    const r = got[0]
-    expect(r.kind === "review" && r.cards.map((c) => c.id)).toEqual(["330", "334"])
-    expect(r.at).toBe(Date.parse("2026-11-03T18:36:00Z"))
+    expect(needsOf(cs, []).map((n) => `${n.kind}:${n.id}`)).toEqual(["decision:290"])
+  })
+  test("the PR chip names the PR, links it and says who it waits on", () => {
+    expect(prChip(card({ state: TaskState.InReview, waitPr: pr }))).toEqual({
+      text: "waits on PR #96",
+      title: "Waits on PR #96 in StephenSHorton/suzuri: an agent merges it once its checks pass. Opens https://github.com/StephenSHorton/suzuri/pull/96",
+      url: pr.url,
+    })
+    expect(prChip(card({ state: TaskState.InReview, waitPr: { ...pr, approval: true } }))?.title).toContain(
+      "another member's agents approve it"
+    )
+    expect(prChip(card({ state: TaskState.InReview }))).toBeNull()
+    expect(prChip(card({ state: TaskState.Completed, waitPr: pr }))).toBeNull()
+  })
+})
+
+describe("waits nothing will end (card #481)", () => {
+  const ring = [
+    { id: "t392", short: "392", title: "Talk 4" },
+    { id: "t396", short: "396", title: "Talk 8" },
+    { id: "t394", short: "394", title: "Talk 6" },
+  ]
+  test("three cards that wait on each other are one Needs you item", () => {
+    const cs = ring.map((r, i) =>
+      card({
+        id: r.id,
+        short: r.short,
+        state: TaskState.Blocked,
+        waitingOn: 1,
+        waitOn: `#${ring[(i + 1) % 3].short}`,
+        waitLoop: ring,
+        updatedAt: `2026-11-03T1${i}:00:00Z`,
+      })
+    )
+    const got = needsOf(cs, [])
+    expect(got.map((n) => `${n.kind}:${n.id}`)).toEqual(["loop:t392,t396,t394"])
+    const n = got[0]
+    expect(n.kind === "loop" && n.cards.map((c) => c.id)).toEqual(["t392", "t396", "t394"])
+    expect(n.at).toBe(Date.parse("2026-11-03T12:00:00Z"))
+    expect(loopLine(ring)).toBe("#392, #396 and #394 wait on each other")
+    expect(rowState(cs[0])).toEqual({ state: "needs", line: "#392, #396 and #394 wait on each other" })
+  })
+  test("a wait on a card is no decision", () => {
+    const c = card({ id: "t394", state: TaskState.Blocked, openBlockers: 0, waitingOn: 1, waitOn: "#392" })
+    expect(needsOf([c], [])).toEqual([])
+  })
+  test("cards waiting on one nobody is on are one item", () => {
+    const end = { id: "t34", short: "34", title: "Vendor" }
+    const cs = ["12", "13"].map((s) =>
+      card({ id: `t${s}`, short: s, state: TaskState.Blocked, waitingOn: 1, waitOn: "#34", waitStuck: end })
+    )
+    const got = needsOf(cs, [])
+    expect(got.map((n) => `${n.kind}:${n.id}`)).toEqual(["stuck:t34"])
+    const n = got[0]
+    expect(n.kind === "stuck" && stuckLine(n.end, n.cards)).toBe("#12 and #13 wait on #34, which nobody is on")
+    expect(rowState(cs[0]).line).toBe("Waits on #34, which nobody is on")
+  })
+  test("a done card leaves the loop item", () => {
+    const c = card({ id: "t392", state: TaskState.Completed, waitLoop: ring })
+    expect(needsOf([c], [])).toEqual([])
   })
 })
 

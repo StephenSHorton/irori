@@ -56,7 +56,7 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
         end: Arc::new(move |sess: &str| {
             b.ended.lock().unwrap().push(sess.to_string());
             let _ = std::fs::remove_file(s2.join("900004.json"));
-            Ok(())
+            Ok(String::new())
         }),
         trusted: Arc::new(|_| true),
         list: None,

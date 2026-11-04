@@ -16,11 +16,11 @@ import {
   runningJobNow,
   TaskState,
   workLabel,
+  type CardRef,
   type CardSummary,
-  type ReviewPr,
 } from "./cards"
 import { parseTime, plainLine } from "./irori"
-import { State, type Delivery } from "./talk"
+import { HoldReason, State, type Delivery } from "./talk"
 
 // RowState is one of the states a person acts on (finding 05): Needs you
 // (a decision, a done check, a question), Working (an agent is on it right
@@ -64,12 +64,16 @@ export function rowState(
   }
   if (openAsk(c) && c.ask) return { state: "waiting", line: askLine(c.ask) }
   if (c.paused) return { state: "waiting", line: "Paused" }
-  // Card #347: the person's review of the PR it's on, or what its wait
-  // on another card comes down to for them.
-  if (c.reviewPr) return { state: "needs", line: `Review PR #${c.reviewPr.number}` }
+  // Card #471: a card on a PR waits on the PR (agents merge it, another
+  // member's agents approve it), never on the person; its chip links it.
   if (c.state === TaskState.InReview) return { state: "waiting", line: "In review" }
   if (c.subtaskBlocked) return { state: "waiting", line: "A subtask needs a call" }
+  // Card #347: what its wait on another card comes down to for them.
   if (c.waitingOn && c.waitYou) return { state: "needs", line: `Waits on ${c.waitYou}` }
+  // Card #481: waits nothing will end.
+  if (c.waitLoop?.length) return { state: "needs", line: loopLine(c.waitLoop) }
+  if (c.waitStuck)
+    return { state: "needs", line: `Waits on ${refOf(c.waitStuck)}, which nobody is on` }
   if (c.waitingOn)
     return {
       state: "waiting",
@@ -108,6 +112,23 @@ export function rowState(
 // because its repo isn't trusted for agents on that device (card #449).
 export const NOT_TRUSTED = "not trusted: "
 
+// prChip is the small "waits on PR #N" chip an in-review card shows on
+// itself (card #471), with the PR's link and who it waits on: agents merge
+// it, and where the repo wants an approval another member's agents give
+// it. Never the person, so it is never a Needs you row.
+export function prChip(c: CardSummary): { text: string; title: string; url: string } | null {
+  const pr = c.waitPr
+  if (!pr || over(c)) return null
+  const who = pr.approval
+    ? "another member's agents approve it, then it merges"
+    : "an agent merges it once its checks pass"
+  return {
+    text: `waits on PR #${pr.number}`,
+    title: `Waits on PR #${pr.number} in ${pr.repo}: ${who}. Opens ${pr.url}`,
+    url: pr.url,
+  }
+}
+
 // waitsOnTrust says the card's agent can't start until the person trusts
 // its repo: a Trust and start row in Needs you.
 export function waitsOnTrust(c: CardSummary): boolean {
@@ -132,11 +153,62 @@ export function spawnNeed(c: CardSummary): "permission" | "crashed" | null {
   return null
 }
 
+// refOf names another card as the person reads it: "#392".
+export function refOf(r: CardRef): string {
+  return r.short ? `#${plainLine(r.short)}` : plainLine(r.title) || "a card"
+}
+
+// andList joins names as a sentence does: "a", "a and b", "a, b and c".
+export function andList(xs: string[]): string {
+  if (xs.length < 2) return xs.join("")
+  return `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`
+}
+
+// loopLine is a wait loop's line (card #481): "#392, #396 and #394 wait
+// on each other".
+export function loopLine(ring: CardRef[]): string {
+  return `${andList(ring.map(refOf))} wait on each other`
+}
+
+// stuckLine is a chain's that ends at a card nobody is on (card #481):
+// "#12 waits on #34, which nobody is on".
+export function stuckLine(end: CardRef, cards: CardSummary[]): string {
+  const who = andList(cards.map((c) => (c.short ? `#${plainLine(c.short)}` : plainLine(c.title))))
+  return `${who} ${cards.length === 1 ? "waits" : "wait"} on ${refOf(end)}, which nobody is on`
+}
+
 export type Need =
   | { kind: "check" | "decision"; id: string; at: number; card: CardSummary }
   | { kind: "trust"; id: string; at: number; card: CardSummary }
-  | { kind: "review"; id: string; at: number; pr: ReviewPr; cards: CardSummary[] }
   | { kind: "held"; id: string; at: number; delivery: Delivery }
+  | { kind: "heldQuiet"; id: string; at: number; deliveries: Delivery[] }
+  // Card #481: cards that wait on each other, once for the whole loop,
+  // and cards whose waits end at a card nobody is on, once per card.
+  | { kind: "loop"; id: string; at: number; ring: CardRef[]; cards: CardSummary[] }
+  | { kind: "stuck"; id: string; at: number; end: CardRef; cards: CardSummary[] }
+
+// HELD_QUIET is the id of Needs you's one line for the holds that don't
+// need the person one by one (card #488).
+export const HELD_QUIET = "held-quiet"
+
+// asksPerson says a held message is the person's to decide on its own
+// row in Needs you (card #488): their own message no agent in its repo
+// can take yet, one from another person on a shared board, or an agent's
+// message to them. Holds between agents (a long chain of messages, the
+// allow or block list, an older Irori's rule) and the person's own Pause
+// all wait behind one "N held" line instead.
+export function asksPerson(d: Delivery): boolean {
+  if (d.state !== State.Held) return false
+  if (d.hold === HoldReason.HoldPaused) return false
+  if (d.to?.startsWith("user:")) return true
+  if (d.message.from.kind === "board") return true
+  return d.hold === HoldReason.HoldUnowned && fromPerson(d)
+}
+
+// fromPerson says the person at this app sent d.
+export function fromPerson(d: Delivery): boolean {
+  return d.message.from.kind === "user" || d.message.from.key.startsWith("user:")
+}
 
 // toPerson says the delivery is an agent's message to the person, still
 // unanswered: sent to a user key (the person's, on any of their devices)
@@ -154,10 +226,12 @@ export function toPerson(d: Delivery): boolean {
 const time = (s: string | undefined) => parseTime(s ?? "")?.getTime() ?? 0
 
 // needsOf is the Needs you list, newest first: every card waiting on the
-// person (a done check, else a decision, else its repo's trust: card #449), each PR waiting on their review
-// once with every card on it (card #347), and every message Irori held for
-// them. An agent's message to the person is a DM in Talk now (card #390,
-// design b1), not a row here. held is the Held list.
+// person (a done check, else a decision, else its repo's trust: card #449)
+// and every message Irori held for them. A PR is never theirs to review
+// (card #471): its card shows a small chip instead. An agent's message to the person is a DM in Talk now (card #390,
+// design b1), not a row here. held is the Held list: only the holds that
+// ask the person (asksPerson) are rows; the rest are one heldQuiet line,
+// always last (card #488).
 export function needsOf(cards: CardSummary[], held: Delivery[]): Need[] {
   const out: Need[] = []
   for (const c of cards) {
@@ -174,30 +248,46 @@ export function needsOf(cards: CardSummary[], held: Delivery[]): Need[] {
     if (!waitsOnTrust(c) || needsYou(c)) continue
     out.push({ kind: "trust", id: c.id, at: time(c.updatedAt), card: c })
   }
-  const reviews = new Map<string, Extract<Need, { kind: "review" }>>()
+  const loops = new Map<string, Extract<Need, { kind: "loop" | "stuck" }>>()
   for (const c of cards) {
-    if (!c.reviewPr || over(c) || needsYou(c)) continue
-    const r = reviews.get(c.reviewPr.url)
+    if (over(c)) continue
+    const ring = c.waitLoop ?? []
+    const end = c.waitStuck
+    if (!ring.length && !end) continue
+    const id = ring.length ? ring.map((r) => r.id).join(",") : end!.id
     const at = time(c.updatedAt)
-    if (r) {
-      r.cards.push(c)
-      r.at = Math.max(r.at, at)
+    const n = loops.get(id)
+    if (n) {
+      n.cards.push(c)
+      n.at = Math.max(n.at, at)
       continue
     }
-    reviews.set(c.reviewPr.url, {
-      kind: "review",
-      id: c.reviewPr.url,
-      at,
-      pr: c.reviewPr,
-      cards: [c],
-    })
+    loops.set(
+      id,
+      ring.length
+        ? { kind: "loop", id, at, ring, cards: [c] }
+        : { kind: "stuck", id, at, end: end!, cards: [c] }
+    )
   }
-  out.push(...reviews.values())
+  out.push(...loops.values())
   const seen = new Set<string>()
+  const quiet: Delivery[] = []
   for (const d of held) {
     if (seen.has(d.id)) continue
     seen.add(d.id)
+    if (!asksPerson(d)) {
+      quiet.push(d)
+      continue
+    }
     out.push({ kind: "held", id: d.id, at: time(d.createdAt), delivery: d })
   }
-  return out.sort((a, b) => b.at - a.at)
+  out.sort((a, b) => b.at - a.at)
+  if (quiet.length)
+    out.push({
+      kind: "heldQuiet",
+      id: HELD_QUIET,
+      at: Math.max(...quiet.map((d) => time(d.createdAt))),
+      deliveries: quiet,
+    })
+  return out
 }
