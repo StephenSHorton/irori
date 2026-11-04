@@ -853,6 +853,13 @@ pub async fn notes_list(w: W<'_>, scope: String, removed: bool) -> R<Vec<crate::
     blocking(&w, move |w| w.notes_list(&scope, removed)).await
 }
 
+/// The sidebar's Notes count: notes waiting on the person's look (card #468).
+#[tauri::command]
+#[specta::specta]
+pub async fn notes_waiting(w: W<'_>) -> R<u32> {
+    blocking(&w, move |w| w.notes_waiting().map(|n| n as u32)).await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn note_new(w: W<'_>, note: crate::notes::NoteInput) -> R<crate::notes::NoteView> {
@@ -1531,6 +1538,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_set_threads,
             boards_set_reviewer,
             notes_list,
+            notes_waiting,
             note_new,
             note_accept,
             note_edit,

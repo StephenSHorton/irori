@@ -180,3 +180,115 @@ fn a_cards_wake_notes_reach_the_window() {
     let v = serde_json::to_value(&got[0]).unwrap();
     assert!(v.get("noteId").is_some() && v.get("at").is_some(), "{v}");
 }
+
+/// Card #468: the sidebar's count, without notes_list's views and Still
+/// true? checks: an agent's proposal and an agent's pending edit of a
+/// live note wait; a person's note and a kept one don't.
+#[test]
+fn notes_waiting_counts_what_new_shows() {
+    let r = Rig::new();
+    let w = &r.w;
+    assert_eq!(w.notes_waiting().unwrap(), 0);
+    let p = w
+        .core
+        .propose_note(
+            &r.key_a,
+            "mine",
+            coord::NewNote {
+                kind: "gotcha".into(),
+                text: "An agent's proposal waits.".into(),
+                tags: vec!["everywhere".into()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    w.note_new(input("mine", "A person's note is live at once."))
+        .unwrap();
+    assert_eq!(w.notes_waiting().unwrap(), 1);
+    w.note_accept(&format!("note:{}", p.note.id)).unwrap();
+    assert_eq!(w.notes_waiting().unwrap(), 0);
+    w.core
+        .edit_note(
+            &r.key_a,
+            &p.note.id,
+            coord::NoteEdit {
+                text: Some("A pending edit waits too.".into()),
+                ..Default::default()
+            },
+            "clearer",
+        )
+        .unwrap();
+    assert_eq!(w.notes_waiting().unwrap(), 1);
+    // The same count the Notes page's New shows from notes_list.
+    let listed = w.notes_list("", false).unwrap();
+    let waiting = listed
+        .iter()
+        .filter(|n| n.state == "proposed" || (n.state == "accepted" && n.pending.is_some()))
+        .count();
+    assert_eq!(waiting, 1);
+}
+
+/// Card #468's numbers: what the sidebar's count cost per board:changed
+/// before (notes_list(""): every note's view and its Still true? checks,
+/// each path: tag a stat in every checkout) and after (notes_waiting).
+/// `cargo test -p irori-window --test notes -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn notes_waiting_against_notes_list_timing() {
+    let r = Rig::new();
+    let w = &r.w;
+    let root = tempfile::tempdir().unwrap();
+    let repo = "remote:example.com/perf/repo";
+    w.core
+        .capture()
+        .emit_row(
+            "irori",
+            capture::KIND_REPO_SEEN,
+            &capture::RepoSeen {
+                repo_key: repo.into(),
+                root: root.path().to_string_lossy().into(),
+                at: gocompat::time::GoTime::default(),
+            },
+        )
+        .unwrap();
+    assert_eq!(w.core.capture().repo_roots(repo).len(), 1);
+    const N: usize = 300;
+    for i in 0..N {
+        let p = root.path().join(format!("src/f{i}.rs"));
+        if i % 2 == 0 {
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, "").unwrap();
+        }
+        w.core
+            .propose_note(
+                &r.key_a,
+                "mine",
+                coord::NewNote {
+                    kind: "gotcha".into(),
+                    text: format!("Note {i} about src/f{i}.rs."),
+                    tags: vec![format!("path:{repo}:src/f{i}.rs"), "topic:perf".into()],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+    let list = w.notes_list("", false).unwrap();
+    assert_eq!(list.len(), N);
+    assert_eq!(list.iter().filter(|n| !n.stale.is_empty()).count(), N / 2);
+    let best = |f: &dyn Fn() -> usize| {
+        let mut best = std::time::Duration::MAX;
+        for _ in 0..20 {
+            let t = std::time::Instant::now();
+            std::hint::black_box(f());
+            best = best.min(t.elapsed());
+        }
+        best
+    };
+    // What the IPC reply carried: the views as JSON.
+    let before = best(&|| serde_json::to_vec(&w.notes_list("", false).unwrap()).unwrap().len());
+    let bytes = serde_json::to_vec(&list).unwrap().len();
+    let after = best(&|| w.notes_waiting().unwrap());
+    eprintln!(
+        "card #468, {N} notes with path: tags: notes_list(\"\") + JSON {before:?} ({bytes} bytes); notes_waiting {after:?} (a number)"
+    );
+}
