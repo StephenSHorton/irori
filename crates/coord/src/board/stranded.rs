@@ -12,10 +12,10 @@ use store::kinds;
 
 use super::error::{Result, bad_state, not_allowed, not_found};
 use super::fold::{Fold, LEFT_GONE};
+use super::rows::{TaskCommentRow, TaskMemberRow};
+use super::types::*;
 use super::util::SWEEPER;
 use crate::names::trim_space;
-use super::rows::TaskMemberRow;
-use super::types::*;
 
 /// An open blocker whose agent is gone, on a card nobody holds.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -34,12 +34,9 @@ pub(crate) type RosterStatus = Option<HashMap<String, String>>;
 
 impl Fold {
     pub(crate) fn roster_status(&self) -> RosterStatus {
-        self.roster.as_ref().map(|r| {
-            r.agents()
-                .into_iter()
-                .map(|a| (a.key, a.status))
-                .collect()
-        })
+        self.roster
+            .as_ref()
+            .map(|r| r.agents().into_iter().map(|a| (a.key, a.status)).collect())
     }
 
     /// Whether agent `key` is gone: its session ended here (agent.gone),
@@ -99,7 +96,10 @@ impl Fold {
                 }
                 continue;
             }
-            if matches!(kind, BLOCKED_ON_TASK | BLOCKED_ON_LEASE | BLOCKED_ON_VERSION) {
+            if matches!(
+                kind,
+                BLOCKED_ON_TASK | BLOCKED_ON_LEASE | BLOCKED_ON_VERSION
+            ) {
                 continue;
             }
             // The agent that would hear the person's answer: the one it
@@ -178,19 +178,64 @@ impl Fold {
                 t.short_ref()
             )));
         }
+        // What back_on_board would refuse, said before anything is written.
+        let why = if t.shared || self.on_board {
+            "a card on a shared board isn't handed out; take it with an agent of yours (board_join)"
+        } else if t.open_ask().is_some() {
+            "it has an open ask"
+        } else if !t.subtasks.is_empty() {
+            "it has subtasks; hand those on instead"
+        } else if t.state == SUBMITTED || t.state == WORKING {
+            "it is already on the Board"
+        } else {
+            ""
+        };
+        if !why.is_empty() {
+            return Err(bad_state(format!("{}: {why}", t.short_ref())));
+        }
         self.drop_gone_assigned(&by, id)?;
-        let names: Vec<String> = st
-            .iter()
-            .map(|s| s.agent.clone())
-            .fold(Vec::new(), |mut v, k| {
-                if !v.contains(&k) {
-                    v.push(k);
-                }
-                v
-            })
-            .iter()
-            .map(|k| self.named(k))
-            .collect();
+        let mut names: Vec<String> = Vec::new();
+        for s in &st {
+            let n = self.named(&s.agent);
+            if !names.contains(&n) {
+                names.push(n);
+            }
+        }
+        // The items close as the card goes back: say on the card what they
+        // were, so the agent that takes it reads them in its brief.
+        let mut text = format!(
+            "The person handed this card to a new agent: {} {} gone. What was open:",
+            names.join(", "),
+            if names.len() > 1 { "are" } else { "is" }
+        );
+        for s in &st {
+            let Some(b) = t.blockers.iter().find(|b| b.id == s.blocker_id) else {
+                continue;
+            };
+            let who = self.named(&s.agent);
+            let how = if s.waited_on {
+                format!("waited on {who}")
+            } else {
+                format!("raised by {who}")
+            };
+            text.push_str(&format!("\n- {} {} ({how})", b.id, quote(&b.question)));
+            if !b.context.is_empty() {
+                text.push_str(&format!(": {}", super::util::cut(&b.context, 600)));
+            }
+        }
+        text.push_str("\nPick up from there: what is already done is on the card and its thread.");
+        let at = self.stamp();
+        self.write_comment(
+            SWEEPER,
+            TaskCommentRow {
+                task_id: id.into(),
+                comment_id: super::util::new_id(&at),
+                by: SWEEPER.into(),
+                text,
+                at,
+                ..TaskCommentRow::default()
+            },
+        )?;
         let moved = self.back_on_board(
             &by,
             id,
@@ -200,14 +245,10 @@ impl Fold {
             ),
         )?;
         if !moved {
-            let why = if t.open_ask().is_some() {
-                "it has an open ask"
-            } else if !t.subtasks.is_empty() {
-                "it has subtasks; hand those on instead"
-            } else {
-                "it can't go back on the Board now"
-            };
-            return Err(bad_state(format!("{}: {why}", t.short_ref())));
+            return Err(bad_state(format!(
+                "{}: it can't go back on the Board now",
+                t.short_ref()
+            )));
         }
         Ok((t, st))
     }

@@ -506,6 +506,13 @@ pub struct CardBlocker {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub waits_on: Option<CardWaitOn>,
+    /// The agent this open item waits on, or that raised it and would hear
+    /// the answer, when that agent is gone and nobody holds the card (card
+    /// #485): drawn amber, "Waiting on kestrel (gone)", with "Hand to an
+    /// agent".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub gone_agent: Option<AgentRef>,
     pub thread: Vec<CardThreadItem>,
 }
 
@@ -527,6 +534,10 @@ pub struct CardWaitOn {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub title: String,
+    /// A wait on an agent that is gone (card #485).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub gone: bool,
 }
 
 /// One reviewer's review of a private card (#88).
@@ -1171,7 +1182,28 @@ fn wait_on_of(co: &coord::Coord, p: &People, on: &coord::BlockedBy) -> CardWaitO
                 None => w.label = "a card".into(),
             }
         }
-        coord::BLOCKED_ON_AGENT => w.label = p.ref_(&on.reference).name,
+        coord::BLOCKED_ON_AGENT => {
+            let r = p.ref_(&on.reference);
+            w.gone = r.status == "gone";
+            w.label = r.name;
+        }
+        // "0.11.0 on Stephens-MacBook-Pro-2.local and DESKTOP-STEPHEN"
+        // (card #485).
+        coord::BLOCKED_ON_VERSION => {
+            let (min, devs) = coord::parse_version_wait(&on.reference);
+            let names: Vec<String> = devs
+                .iter()
+                .map(|d| match p.names.get(d) {
+                    Some(n) if !n.is_empty() => n.clone(),
+                    _ => d.chars().take(8).collect(),
+                })
+                .collect();
+            w.label = match names.as_slice() {
+                [] => format!("Irori {min}"),
+                [one] => format!("Irori {min} on {one}"),
+                [rest @ .., last] => format!("Irori {min} on {} and {last}", rest.join(", ")),
+            };
+        }
         _ => {}
     }
     w
@@ -1333,9 +1365,14 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
             .collect();
         s.working.push(r);
     }
+    // A watcher that is gone is left out (card #485): #446 listed six,
+    // every one a raw key.
     for w in &t.watchers {
         if !t.holders.contains(w) && !t.co_holders.contains(w) {
-            s.watching.push(p.ref_(w));
+            let r = p.ref_(w);
+            if r.status != "gone" {
+                s.watching.push(r);
+            }
         }
     }
     s.holder = holder_line(&s.working);
@@ -2066,6 +2103,7 @@ impl Window {
                 ..CardBlocker::default()
             });
         }
+        let stranded = co.stranded(&t.id);
         for bl in &t.blockers {
             let mut cb = CardBlocker {
                 id: bl.id.clone(),
@@ -2098,6 +2136,10 @@ impl Window {
                             && (bl.status.is_empty() || bl.status == coord::BLOCKER_OPEN)
                     })
                     .map(|on| wait_on_of(&co, &p, on)),
+                gone_agent: stranded
+                    .iter()
+                    .find(|s| s.blocker_id == bl.id)
+                    .map(|s| p.ref_(&s.agent)),
                 thread: by_blocker.remove(&bl.id).unwrap_or_default(),
                 links: bl.links.clone(),
                 attachments: bl.attachments.clone(),

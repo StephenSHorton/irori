@@ -102,7 +102,11 @@ impl Fold {
             .unwrap_or_default();
         evs.first()
             .and_then(|ev| serde_json::from_slice::<serde_json::Value>(&ev.payload).ok())
-            .and_then(|v| v.get("version").and_then(|x| x.as_str()).map(str::to_string))
+            .and_then(|v| {
+                v.get("version")
+                    .and_then(|x| x.as_str())
+                    .map(str::to_string)
+            })
             .filter(|v| v.len() <= 40)
             .unwrap_or_default()
     }
@@ -140,7 +144,12 @@ impl Fold {
             )));
         }
         for d in &devs {
-            if d.is_empty() || d.len() > super::MAX_KEY || !d.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+            if d.is_empty()
+                || d.len() > super::MAX_KEY
+                || !d
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            {
                 return Err(invalid(format!(
                     "blocked on a version: {} is not a device id",
                     quote(d)
