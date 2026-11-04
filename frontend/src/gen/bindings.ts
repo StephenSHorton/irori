@@ -35,6 +35,8 @@ export const commands = {
 	inboxSetPaused: (paused: boolean) => __TAURI_INVOKE<null>("inbox_set_paused", { paused }),
 	boardCards: () => __TAURI_INVOKE<CardSummary[]>("board_cards"),
 	boardCard: (id: string) => __TAURI_INVOKE<CardDetail>("board_card", { id }),
+	/**  Several cards in one call, each with its card or why not (card #468). */
+	boardCardsById: (ids: string[]) => __TAURI_INVOKE<CardRead[]>("board_cards_by_id", { ids }),
 	boardDoneCards: (limit: number, before: string) => __TAURI_INVOKE<DonePage>("board_done_cards", { limit, before }),
 	/**
 	 *  One scope's live cards (card #161): "" every card, "own" the private
@@ -168,6 +170,8 @@ export const commands = {
 	boardsSetThreads: (boardId: string, mode: string) => __TAURI_INVOKE<BoardSettings>("boards_set_threads", { boardId, mode }),
 	boardsSetReviewer: (boardId: string, agent: string, repo: string) => __TAURI_INVOKE<BoardSettings>("boards_set_reviewer", { boardId, agent, repo }),
 	notesList: (scope: string, removed: boolean) => __TAURI_INVOKE<NoteView[]>("notes_list", { scope, removed }),
+	/**  The sidebar's Notes count: notes waiting on the person's look (card #468). */
+	notesWaiting: () => __TAURI_INVOKE<number>("notes_waiting"),
 	noteNew: (note: NoteInput) => __TAURI_INVOKE<NoteView>("note_new", { note }),
 	noteAccept: (id: string) => __TAURI_INVOKE<NoteView>("note_accept", { id }),
 	noteEdit: (id: string, edit: NoteEditInput) => __TAURI_INVOKE<NoteView>("note_edit", { id, edit }),
@@ -179,9 +183,19 @@ export const commands = {
 	agentsTrustNeed: (taskId: string) => __TAURI_INVOKE<TrustNeed | null>("agents_trust_need", { taskId }),
 	/**
 	 *  The person's Trust and start: trusts the card's repo for agents on this
-	 *  device, then starts its agent. The only path that writes trust.
+	 *  device, then starts its agent. One of the two paths that write trust.
 	 */
 	agentsTrustAndStart: (taskId: string) => __TAURI_INVOKE<TrustStarted>("agents_trust_and_start", { taskId }),
+	/**
+	 *  This device's repos and whether each is trusted for agents (card #456,
+	 *  Settings › Agents).
+	 */
+	agentsTrusted: () => __TAURI_INVOKE<TrustedRepo[]>("agents_trusted"),
+	/**
+	 *  The person's confirmed Trust… on one of this device's repos in
+	 *  Settings › Agents (card #456); the other path that writes trust.
+	 */
+	agentsTrustRepo: (repoKey: string) => __TAURI_INVOKE<TrustedRepo[]>("agents_trust_repo", { repoKey }),
 	/**  A board's agent permissions (card #449): `""` is the private board. */
 	agentsPermissions: (boardId: string) => __TAURI_INVOKE<AgentPermissions>("agents_permissions", { boardId }),
 	/**  The person sets a board's agent permissions, from Settings › Agents. */
@@ -286,6 +300,13 @@ export const commands = {
 	agentsOfferSet: (key: string, on: boolean) => __TAURI_INVOKE<null>("agents_offer_set", { key, on }),
 	/**  The person ends an agent Irori started: its hand-off, then stop and rm. */
 	agentsEnd: (key: string) => __TAURI_INVOKE<null>("agents_end", { key }),
+	/**  Logs on an agent Irori started (card #456): its recent output, read only. */
+	agentsLogs: (key: string) => __TAURI_INVOKE<string>("agents_logs", { key }),
+	/**
+	 *  Attach on an agent Irori started (card #456): a tab in its card's
+	 *  terminal running `claude attach`.
+	 */
+	agentsAttach: (key: string, cols: number, rows: number) => __TAURI_INVOKE<TermInfo>("agents_attach", { key, cols, rows }),
 	/**  Every agent Irori started that is still running, or is starting. */
 	agentsRunning: () => __TAURI_INVOKE<RunningAgent[]>("agents_running"),
 	/**  Every merge desk in the person's log. */
@@ -413,6 +434,7 @@ export type AgentsChange = {
 	on?: boolean | null,
 	model?: string | null,
 	effort?: string | null,
+	idleMins?: number | null,
 };
 
 /**  What Settings › Agents shows for one board. */
@@ -435,6 +457,13 @@ export type AgentsSettings = {
 	efforts: string[],
 	defaultModel: string,
 	defaultEffort: string,
+	/**
+	 *  The idle limit in minutes (card #456, sa-6): how long a spawned
+	 *  agent waits on an unanswered question before it hands off and goes.
+	 */
+	idleMins: number,
+	/**  The idle limits Settings › Agents offers, in minutes. */
+	idleChoices: number[],
 };
 
 /**  Answer's reply: the card after the answer, and who heard. */
@@ -811,6 +840,18 @@ export type CardPR = {
 export type CardProgress = {
 	done: number,
 	total: number,
+};
+
+/**
+ *  One card of [`Window::cards_by_id`]: the card, or why it couldn't be
+ *  read (gone, or not this device's to read).
+ */
+export type CardRead = {
+	/**  The id as asked. */
+	id: string,
+	card: CardDetail | null,
+	/**  "" when card is there. */
+	error: string,
 };
 
 /**  Another card: a subtask's parent. */
@@ -2080,6 +2121,24 @@ export type TrustStarted = {
 	folder: string,
 	/**  It was already trusted (another window got there first). */
 	already: boolean,
+};
+
+/**
+ *  One repo of Settings › Agents' "Trusted repos for agents" (card #456,
+ *  sa-6): a repo with a checkout on this device and whether Claude Code
+ *  trusts it, so an agent Irori starts for its cards can run there.
+ */
+export type TrustedRepo = {
+	repoKey: string,
+	label: string,
+	/**
+	 *  The folder trust is recorded for: the repo's main root, the one the
+	 *  spawner starts its agents in.
+	 */
+	folder: string,
+	trusted: boolean,
+	/**  What trusting does, in the words the confirm shows. */
+	what: string,
 };
 
 /**  An unheld card nobody has been handed, and why. */

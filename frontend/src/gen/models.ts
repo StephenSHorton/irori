@@ -37,6 +37,7 @@ export type CardMessage = B.CardMessage
 export type CardOption = B.CardOption
 export type CardPR = B.CardPR
 export type CardProgress = B.CardProgress
+export type CardRead = B.CardRead
 export type CardRef = B.CardRef
 export type CardResolution = B.CardResolution
 export type CardReview = B.CardReview
@@ -130,6 +131,7 @@ export type Told = B.Told
 export type Trust = B.Trust
 export type TrustNeed = B.TrustNeed
 export type TrustStarted = B.TrustStarted
+export type TrustedRepo = B.TrustedRepo
 export type UnofferedCard = B.UnofferedCard
 export type UpdateStatus = B.UpdateStatus
 export type UploadFile = B.UploadFile
@@ -169,7 +171,7 @@ export function AgentsChange(p: Partial<B.AgentsChange> = {}): B.AgentsChange {
 
 /** AgentsSettings with Go's zero values for every field left out. */
 export function AgentsSettings(p: Partial<B.AgentsSettings> = {}): B.AgentsSettings {
-  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", ...p } as B.AgentsSettings
+  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "idleMins": 0, "idleChoices": [], ...p } as B.AgentsSettings
 }
 
 /** AnswerResult with Go's zero values for every field left out. */
@@ -295,6 +297,11 @@ export function CardPR(p: Partial<B.CardPR> = {}): B.CardPR {
 /** CardProgress with Go's zero values for every field left out. */
 export function CardProgress(p: Partial<B.CardProgress> = {}): B.CardProgress {
   return { "done": 0, "total": 0, ...p } as B.CardProgress
+}
+
+/** CardRead with Go's zero values for every field left out. */
+export function CardRead(p: Partial<B.CardRead> = {}): B.CardRead {
+  return { "id": "", "card": null, "error": "", ...p } as B.CardRead
 }
 
 /** CardRef with Go's zero values for every field left out. */
@@ -690,6 +697,11 @@ export function ThreadSummary(p: Partial<B.ThreadSummary> = {}): B.ThreadSummary
 /** Told with Go's zero values for every field left out. */
 export function Told(p: Partial<B.Told> = {}): B.Told {
   return { "to": [], ...p } as B.Told
+}
+
+/** TrustedRepo with Go's zero values for every field left out. */
+export function TrustedRepo(p: Partial<B.TrustedRepo> = {}): B.TrustedRepo {
+  return { "repoKey": "", "label": "", "folder": "", "trusted": false, "what": "", ...p } as B.TrustedRepo
 }
 
 /** TrustNeed with Go's zero values for every field left out. */

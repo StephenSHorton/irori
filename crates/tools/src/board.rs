@@ -902,6 +902,11 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
                     t = nt;
                 }
             }
+            // A card with no repo has no checkout to start in (card #467:
+            // v0.11.0 looped on one), so say so instead of promising one.
+            Ok(_) if co.spawning() && t.repo_key.is_empty() && t.where_.is_none() => {
+                out += " It names no repo, so Irori has no checkout to start an agent in: take it up with board_join, or post it again with repo set.";
+            }
             Ok(_) if co.spawning() => {
                 out += " Irori starts an agent for it.";
             }

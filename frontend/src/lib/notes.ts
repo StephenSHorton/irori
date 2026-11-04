@@ -390,14 +390,20 @@ export function useNotes(scope: string): {
 } {
   const load = useCallback(() => notes.list(scope), [scope])
   const { value, loading, error, reload } = useLatest<Note[]>(load, [])
+  useNotesFresh(reload)
+  return { notes: value, loading, error, reload }
+}
+
+// useNotesFresh reloads on every notes change: one made here, or (note
+// rows fold into the board's changes) board:changed for a note proposed,
+// accepted, edited or removed, here or synced.
+function useNotesFresh(reload: () => Promise<void>) {
   useEffect(() => {
     void reload()
     listeners.add(reloadFn)
     function reloadFn() {
       void reload()
     }
-    // Note rows fold into the board's changes: board:changed covers a
-    // note proposed, accepted, edited or removed, here or synced.
     const off = inWails()
       ? Events.On(EventBoardChanged, () => void reload())
       : () => {}
@@ -406,14 +412,19 @@ export function useNotes(scope: string): {
       off()
     }
   }, [reload])
-  return { notes: value, loading, error, reload }
 }
 
 // useNotesWaiting is the sidebar's Notes count: notes in Mine and every
-// board waiting on the person's look.
+// board waiting on the person's look. It reads notes_waiting, a count,
+// not every note with its Still true? checks (card #468).
 export function useNotesWaiting(): number {
-  const { notes: all } = useNotes("")
-  return all.filter(needsLook).length
+  const load = useCallback(async (): Promise<number> => {
+    if (hostNotes()) return NotesService.Waiting()
+    return (await notes.list("")).filter(needsLook).length
+  }, [])
+  const { value, reload } = useLatest<number>(load, 0)
+  useNotesFresh(reload)
+  return value
 }
 
 // wakeNotes is what card_wake_notes says the card's agents got on wake

@@ -14,13 +14,21 @@ import { cardRef } from "@/components/cards/bits"
 import {
   BlockerState,
   cards as cardsApi,
+  displayName,
   useCard,
   type CardBlocker,
   type CardSummary,
 } from "@/lib/cards"
 import { inWails, plainLine, relativeTime } from "@/lib/irori"
 import { AgentsService } from "@/lib/host"
-import { NOT_TRUSTED, type Need } from "@/lib/needs"
+import {
+  NOT_TRUSTED,
+  spawnNeed,
+  WAITING_PERMISSION,
+  type Need,
+} from "@/lib/needs"
+import { SpawnedActions } from "@/components/cards/spawned-actions"
+import { openSettings } from "@/components/settings/settings-menu"
 import { answerable } from "@/lib/thread"
 import {
   allowLifts,
@@ -77,6 +85,10 @@ const kinds = {
   check: { label: "Done check", variant: "success" },
   decision: { label: "Decision", variant: "destructive" },
   trust: { label: "Trust", variant: "warning" },
+  // Card #456 (sa-7): a spawned agent stopped on a permission prompt, and
+  // a card whose agents crashed twice.
+  permission: { label: "Permission", variant: "warning" },
+  crashed: { label: "Crashed", variant: "destructive" },
   message: { label: "Message", variant: "info" },
   held: { label: "Held", variant: "warning" },
 } as const
@@ -90,7 +102,7 @@ function Row({
   title,
   children,
 }: {
-  kind: Need["kind"]
+  kind: keyof typeof kinds
   where: ReactNode
   at: number
   now: Date
@@ -319,11 +331,20 @@ function CardNeed({
 }) {
   const c = need.card
   const { detail } = useCard(c.id)
-  const blockers = detail ? detail.blockers.filter(waitsOnYou) : []
+  const spawn = need.kind === "decision" ? spawnNeed(c) : null
+  // The permission wait is answered at the agent's prompt, not here.
+  const blockers = detail
+    ? detail.blockers.filter(
+        (b) => waitsOnYou(b) && !(spawn === "permission" && b.question.startsWith(WAITING_PERMISSION)),
+      )
+    : []
   const where = <Where card={c} />
   return (
-    <Row kind={need.kind} where={where} at={need.at} now={now} title={plainLine(c.title)}>
-      {blockers.length === 0 ? (
+    <Row kind={spawn ?? need.kind} where={where} at={need.at} now={now} title={plainLine(c.title)}>
+      {spawn === "permission" ? (
+        <PermissionWait card={c} onOpen={onOpen} />
+      ) : null}
+      {spawn === "permission" && blockers.length === 0 ? null : blockers.length === 0 ? (
         <>
           {c.blockerQuestion && (
             <p className="text-sm break-words">{plainLine(c.blockerQuestion)}</p>
@@ -355,6 +376,45 @@ function CardNeed({
         </Button>
       )}
     </Row>
+  )
+}
+
+// PermissionWait is "Waiting for your permission" (card #456, sa-7): the
+// agent Irori started for the card stopped on a permission prompt and
+// nobody is attached. Attach answers it at the prompt; Logs shows what it
+// was doing; the board's allow list (Settings › Agents) lets the next one
+// run the command without asking.
+function PermissionWait({
+  card: c,
+  onOpen,
+}: {
+  card: CardSummary
+  onOpen: (id: string) => void
+}) {
+  const who = c.working.find((w) => w.spawned && !w.assigned)
+  return (
+    <div className="grid min-w-0 gap-1.5">
+      <p className="text-sm break-words">
+        {who ? displayName(who) : "Its agent"} is stopped on a permission
+        prompt nobody is there to answer.
+      </p>
+      <div className="flex min-w-0 flex-wrap items-start gap-1.5">
+        {who && (
+          <SpawnedActions
+            who={who}
+            cardId={c.id}
+            onOpenCard={onOpen}
+            only={["attach", "logs"]}
+          />
+        )}
+        <Button size="xs" variant="outline" onClick={() => openSettings("agents")}>
+          Add to allow-list…
+        </Button>
+        <Button size="xs" variant="ghost" onClick={() => onOpen(c.id)}>
+          Open card
+        </Button>
+      </div>
+    </div>
   )
 }
 

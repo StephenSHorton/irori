@@ -68,7 +68,7 @@ import {
   LiveRoster,
   StartAgentOn,
 } from "@/lib/thread"
-import { endAgent } from "@/lib/agents"
+import { SpawnedActions } from "@/components/cards/spawned-actions"
 import { cn } from "@/lib/utils"
 import {
   AskLine,
@@ -2047,15 +2047,23 @@ function People({ detail, gone }: { detail: CardDetail; gone: GoneSession[] }) {
                   </span>
                 )
               ) : (
-                <>
-                  <PersonStatus card={detail} who={w} />
-                  {w.spawned && <EndAgent who={w} />}
-                </>
+                <PersonStatus card={detail} who={w} />
               )
             ) : (
               <span>watching</span>
             )}
           </span>
+          {role === "working" && w.spawned && !w.assigned && w.status !== "gone" && (
+            // Card #456 (sa-2): an agent Irori started for this card, with
+            // its device and Attach, Logs, Stop, End. No Revive: a fresh
+            // agent picks the card up from Where and Left off.
+            <div className="col-span-3 grid gap-1 pl-[30px]">
+              <span className="text-xs text-muted-foreground">
+                Irori started it for this card
+              </span>
+              {!over(detail) && <SpawnedActions who={w} cardId={detail.id} />}
+            </div>
+          )}
           {role === "working" && w.assigned && w.handoff && (
             <p className="col-span-3 pl-[30px] text-xs break-words whitespace-pre-wrap text-muted-foreground">
               Hand-off note: {w.handoff}
@@ -2104,32 +2112,6 @@ function PersonStatus({ card, who }: { card: CardDetail; who: AgentRef }) {
     )
   if (over(card)) return null
   return <span>on it</span>
-}
-
-// EndAgent ends an agent Irori started for this card (card #448, sa-2):
-// it writes its hand-off on the card first, then Irori stops and removes
-// it. Only on the device it runs on, until part 11.
-function EndAgent({ who }: { who: AgentRef }) {
-  const [done, setDone] = useState(false)
-  if (done) return <span>ending</span>
-  if (who.where !== "This PC")
-    return <span title="End it from the device it runs on">started by Irori</span>
-  return (
-    <ConfirmButton
-      label="End"
-      question={
-        <>
-          End {name(who)}? It writes where it left off on this card first,
-          then Irori stops it and removes its session.
-        </>
-      }
-      confirmLabel="End"
-      onConfirm={async () => {
-        await endAgent(who.key)
-        setDone(true)
-      }}
-    />
-  )
 }
 
 // Revive runs claude --bg --resume for a gone agent's session after a

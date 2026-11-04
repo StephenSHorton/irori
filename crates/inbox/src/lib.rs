@@ -56,7 +56,7 @@ pub use fence::{batch, fence, fence_prompt, is_wind_down};
 pub use ids::IdGen;
 pub use messages::clip_show;
 pub use pr::normalize_pr;
-pub use state::{Inbox, Subscription};
+pub use state::{Inbox, Subscription, decode_message};
 
 // ---- errors ---------------------------------------------------------------
 

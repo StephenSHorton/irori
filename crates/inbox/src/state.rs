@@ -242,7 +242,8 @@ fn message_schema() -> Schema {
     Schema::object(f)
 }
 
-pub(crate) fn decode_message(payload: &[u8]) -> std::result::Result<Message, json::Error> {
+/// A message.sent row's payload, read as Go's json.Unmarshal would.
+pub fn decode_message(payload: &[u8]) -> std::result::Result<Message, json::Error> {
     let o = json::unmarshal(payload, &message_schema())?;
     let sub = |name: &str| o.get(name).cloned().unwrap_or(Out::Struct(vec![]));
     let from = sub("from");

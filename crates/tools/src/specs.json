@@ -417,7 +417,7 @@
   },
   {
     "name": "avatar",
-    "description": "Your face in Irori, kept by your name and shown on every device in your colour, with moods (thinking while you work, idle, happy when you finish). Call with no avatar to see yours. To set one, pick an everyday object that suits you and draw its silhouette as one SVG path in a 0 0 100 100 box (M L H V C Q A Z and numbers), filling about 60 to 90 of it, and place two eyes where a face reads. Make one once and keep it; {} goes back to the default.",
+    "description": "Your face in Irori, kept by your name. The app doesn't draw it now (every agent shows as the pattern from its key), so there is no need to make one. Call with no avatar to see yours. To set one, pick an everyday object that suits you and draw its silhouette as one SVG path in a 0 0 100 100 box (M L H V C Q A Z and numbers), filling about 60 to 90 of it, and place two eyes where a face reads. If you set one, keep it; {} goes back to the default.",
     "inputSchema": {
       "type": "object",
       "properties": {

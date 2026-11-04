@@ -1,7 +1,23 @@
 import { describe, expect, test } from "bun:test"
 
 import { TaskState, withLive, workingNow, type AgentRef, type CardSummary } from "./cards"
+<<<<<<< HEAD
 import { IDLE_LINE, needsOf, needsYou, prChip, rowState, toPerson, waitsOnTrust } from "./needs"
+=======
+import { readFileSync } from "node:fs"
+
+import {
+  CRASHED_QUESTION,
+  IDLE_LINE,
+  needsOf,
+  needsYou,
+  rowState,
+  spawnNeed,
+  toPerson,
+  WAITING_PERMISSION,
+  waitsOnTrust,
+} from "./needs"
+>>>>>>> origin/main
 import { State, type Delivery } from "./talk"
 
 const card = (c: Partial<CardSummary>): CardSummary =>
@@ -255,5 +271,26 @@ describe("trust (card #449)", () => {
   test("a closed card has no trust row", () => {
     const t = card({ id: "t", cantStart: "not trusted: /r on d", state: TaskState.Completed })
     expect(needsOf([t], [])).toEqual([])
+  })
+})
+
+describe("spawned agents' own decisions (card #456, sa-7)", () => {
+  // The words come from the Rust sweep; read them there so a change on
+  // either side fails here.
+  const rust = (f: string) =>
+    readFileSync(new URL(`../../../crates/${f}`, import.meta.url), "utf8")
+  test("the constants match the Rust ones", () => {
+    expect(rust("core/src/service/spawn_waiting.rs")).toContain(
+      `pub const WAITING_PERMISSION: &str = "${WAITING_PERMISSION}";`,
+    )
+    expect(rust("coord/src/board/spawn.rs")).toContain(
+      `pub const CRASHED_QUESTION: &str = "${CRASHED_QUESTION}";`,
+    )
+  })
+  test("a permission wait, a crash, anything else", () => {
+    const q = (blockerQuestion: string) => card({ openBlockers: 1, blockerQuestion })
+    expect(spawnNeed(q("Waiting for your permission: thyme is stopped on a prompt"))).toBe("permission")
+    expect(spawnNeed(q(CRASHED_QUESTION))).toBe("crashed")
+    expect(spawnNeed(q("Ship today?"))).toBeNull()
   })
 })

@@ -225,18 +225,25 @@ fn thread_members(t: &Task) -> Vec<Member> {
 }
 
 /// The DMs mirrored from messages: by DM id, its two parties and posts.
+/// Whether a message can show as a DM ([`mirrored`]): one an agent or the
+/// person sent, not a notice, a stop, Irori's own or a mention's wake. The
+/// Core tells the window Talk changed only for these (card #468).
+pub fn mirrors(m: &inbox::Message) -> bool {
+    !(m.notice
+        || m.stop
+        || m.from.kind == "irori"
+        || m.reason == inbox::REASON_MENTIONED
+        || m.from.key.is_empty())
+}
+
 fn mirrored(b: &dyn Backend, talk: &Talk) -> BTreeMap<String, (Vec<Member>, Vec<Post>)> {
     let ids = talk.post_ids();
     let mut seen = std::collections::HashSet::new();
     let mut out: BTreeMap<String, (Vec<Member>, Vec<Post>)> = BTreeMap::new();
     for d in b.inbox().list(usize::MAX) {
         let m = &d.message;
-        if m.notice
-            || m.stop
-            || m.from.kind == "irori"
-            || m.reason == inbox::REASON_MENTIONED
+        if !mirrors(m)
             || d.to.is_empty()
-            || m.from.key.is_empty()
             || ct::canon(&m.from.key) == ct::canon(&d.to)
             || ids.contains(&m.id)
             || !seen.insert(m.id.clone())
