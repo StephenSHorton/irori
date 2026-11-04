@@ -126,13 +126,17 @@ export function TalkPage({
   // The DM opened from the main list stays there while it is open, though
   // reading it would archive it (card #473); one opened from the Archive
   // stays in the Archive.
-  const keptFor = (id: string) => {
+  // null: not decided yet, as the list hasn't loaded the open one (a reload
+  // or a link straight to a DM); it is decided once the list has it.
+  const keptFor = (id: string): string | null => {
     const c = conversations.find((x) => x.convId === id)
-    return c && c.kind === "dm" && !c.readOnly && !archived(c, goneDm) ? id : ""
+    if (!c) return null
+    return c.kind === "dm" && !c.readOnly && !archived(c, goneDm) ? id : ""
   }
   const [kept, setKept] = useState(() => ({ open, keep: keptFor(open) }))
-  if (kept.open !== open) setKept({ open, keep: keptFor(open) })
-  const sections = dmSections(dms, goneDm, kept.open === open ? kept.keep : keptFor(open))
+  const keep = kept.open === open && kept.keep !== null ? kept.keep : keptFor(open)
+  if (kept.open !== open || kept.keep !== keep) setKept({ open, keep })
+  const sections = dmSections(dms, goneDm, keep ?? "")
   const [isFolded, toggleFold] = useFolds()
   // Search looks through everything, folded or not.
   const searching = !!query.trim()
