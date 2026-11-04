@@ -369,6 +369,17 @@ impl Fold {
                 let a = t.ask.as_mut().expect("checked");
                 let was = a.taker.clone();
                 let was_handed = a.handed;
+                // An agent Irori started for this ask went away holding it
+                // (card #470): it crashed, as a card's does; the person
+                // asking again starts the count over.
+                let gone_was = cmp_or_dev(&p.was, &was).to_string();
+                if p.reason == TAKE_GONE
+                    && self.spawned.get(&gone_was).is_some_and(|m| m.task_id == p.task_id)
+                {
+                    t.spawn_crashes += 1;
+                } else if p.reason == TAKE_REOPENED {
+                    t.spawn_crashes = 0;
+                }
                 a.taker = p.taker.clone();
                 a.handed = p.handed && !p.taker.is_empty();
                 a.reason = p.reason.clone();
@@ -1369,6 +1380,12 @@ impl Fold {
                 let t = self.tasks[id].clone();
                 let a = t.ask.clone().unwrap_or_default();
                 if !a.taker.is_empty() {
+                    continue;
+                }
+                // An agent Irori starts for it is on its way (card #470):
+                // nobody else is handed it meanwhile, as for a card.
+                if t.spawn_pending() {
+                    again.remove(id);
                     continue;
                 }
                 // Posted on another device and left to this one (card
