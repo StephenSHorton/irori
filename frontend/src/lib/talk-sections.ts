@@ -49,18 +49,22 @@ export function dmSections(
 }
 
 // archived is whether one of the person's DMs goes in the Archive: its
-// agents have gone and nothing in it is new. A gone agent's DM with
-// something unread, or that mentions the person, stays with yours until it
-// is read. keep is the one the person opened from yours: it stays there
-// while open, so reading it does not move it out from under them.
+// agents have gone, read or not. Its unread show beside "Archive" and in
+// the Archive, marked unread, not in the main list (Stephen, on #473).
+// keep is the one the person opened from yours: it stays there while open,
+// so its agent going does not move it out from under them.
 export function archived(
   c: Conversation,
   gone: (c: Conversation) => boolean,
   keep = ""
 ): boolean {
-  if (c.convId === keep || c.unread > 0 || c.mentions > 0) return false
-  return gone(c)
+  return c.convId !== keep && gone(c)
 }
+
+// bareWhenFolded are the sections that list nothing at all when folded,
+// only their name, count and unread: the Archive, whose gone agents leave
+// many unread DMs, would otherwise half-collapse (Stephen, on #473).
+export const bareWhenFolded: ReadonlySet<SectionKey> = new Set(["gone"])
 
 // needsLook is whether a conversation shows even in a folded section: it is
 // open, or it is the person's and has something unread or mentions them.

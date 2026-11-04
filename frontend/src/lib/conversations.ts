@@ -62,6 +62,21 @@ export function unreadDms(convs: readonly Conversation[]): number {
   return convs.filter((c) => c.kind === "dm" && !c.readOnly && c.unread > 0).length
 }
 
+// readAll marks each conversation with something unread read up to its
+// newest post: the Archive's Mark all read (card #473). One that fails is
+// left unread; the rest still go.
+export async function readAll(convs: readonly Conversation[]): Promise<void> {
+  await Promise.allSettled(
+    convs
+      .filter((c) => !c.readOnly && c.unread > 0)
+      .map(async (c) => {
+        const posts = await talkApi.posts(c.convId)
+        const last = posts[posts.length - 1]?.postId
+        if (last) await talkApi.read(c.convId, last)
+      })
+  )
+}
+
 export const talkApi = {
   conversations: (): Promise<Conversation[]> =>
     inWails() ? TalkService.Conversations() : Promise.resolve(sampleConvs()),
@@ -227,8 +242,8 @@ function sampleState(): SampleConv[] {
       readUpTo: `${id}-p1`,
     })
   }
-  // One gone agent left a message the person hasn't read: it stays up top
-  // until it is read, then joins the Archive (card #473).
+  // One gone agent left a message the person hasn't read: it waits in the
+  // Archive, marked unread, and counts beside "Archive" (card #473).
   sample.push({
     ...TalkConversation({ convId: "sample-dm-gone-new", kind: "dm", name: "sample-gone-new", members: [you, a("sample-gone-new", "wren")] }),
     posts: [
