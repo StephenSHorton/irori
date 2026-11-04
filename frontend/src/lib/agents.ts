@@ -23,7 +23,7 @@ export type { AgentsSettings, RunningAgent }
 export function sampleAgents(): AgentsSettings {
   return {
     boardId: "",
-    on: true,
+    on: previewFlag("spawn") !== "off",
     chosen: previewFlag("spawn") !== "first",
     model: "sonnet",
     effort: "medium",

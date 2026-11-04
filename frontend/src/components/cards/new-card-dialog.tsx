@@ -27,6 +27,9 @@ import {
 import type { BoardSummary } from "@/lib/boards"
 import { plainLine } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
+import { effortLabel, modelLabel, useAgents } from "@/lib/agents"
+import { openSettings } from "@/components/settings/settings-menu"
+import { ZapIcon } from "lucide-react"
 
 // NewCardDialog is New card (card #116): the person makes a card straight
 // from the header, no ask. Title is all it needs; goal, done-when and the
@@ -36,13 +39,18 @@ import { errorText } from "@/lib/talk"
 // the form, or a screenshot pasted in any field; they go on the card as
 // its first comment and with the hand-out. onMade gets the new card's id.
 // From a board's page (card #126) it goes on that board, where anyone on
-// it can take it up.
+// it can take it up. On your own board with spawning on (card #456,
+// spawned agents §10, sa-5) nobody picked is "A fresh agent": Irori starts
+// one for the card with the board's model and effort; "Any free agent"
+// shows only when spawning is off. Agents Irori started for other cards
+// aren't offered: one never takes a second card.
 export function NewCardDialog({
   open,
   onClose,
   onMade,
   board,
   from,
+  spawned,
 }: {
   open: boolean
   onClose: () => void
@@ -51,6 +59,8 @@ export function NewCardDialog({
   board?: BoardSummary
   // A Talk message it's made from (card #390): the form starts filled.
   from?: { title: string; objective: string }
+  // Agents Irori started for a card, left out of the picker.
+  spawned?: Set<string>
 }) {
   const [title, setTitle] = useState("")
   const [objective, setObjective] = useState("")
@@ -62,8 +72,11 @@ export function NewCardDialog({
   const [error, setError] = useState<string | null>(null)
   const attach = useFileAttach(busy)
   const agents = useMentionCandidates(open).filter(
-    (c) => c.who.live && !c.board
+    (c) => c.who.live && !c.board && !spawned?.has(c.who.key)
   )
+  // Spawning is the private board's (shared boards come with part 11).
+  const { settings: spawn } = useAgents(open && !board)
+  const fresh = !board && !!spawn?.on
 
   // A message's Make a card fills the form as it opens (once per message).
   const [filled, setFilled] = useState<typeof from>(undefined)
@@ -132,7 +145,9 @@ export function NewCardDialog({
             <DialogDescription>
               {board
                 ? `Goes on ${plainLine(board.tag)}#, visible to ${board.people.map(plainLine).join(", ")}. Nobody picked: it waits there for someone on the board to take it up.`
-                : "Work for an agent to pick up. Nobody picked: Irori hands it to the free agent idle longest."}
+                : fresh
+                  ? "Work for an agent. Irori starts a fresh one for it, unless you give it to one of yours."
+                  : "Work for an agent to pick up. Nobody picked: Irori hands it to the free agent idle longest."}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-1.5">
@@ -185,7 +200,10 @@ export function NewCardDialog({
               onValueChange={setAssignTo}
               className="w-full"
               choices={[
-                { value: "", label: board ? "Nobody yet" : "Any free agent" },
+                {
+                  value: "",
+                  label: board ? "Nobody yet" : fresh ? "A fresh agent" : "Any free agent",
+                },
                 ...agents.map((c) => ({
                   value: c.who.key,
                   label: c.repo
@@ -195,6 +213,27 @@ export function NewCardDialog({
               ]}
             />
           </div>
+          {fresh && spawn && assignTo === "" && (
+            <p className="flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-[12.5px] text-muted-foreground">
+              <ZapIcon className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden />
+              <span>
+                A fresh agent starts for this card with{" "}
+                <span className="text-ink">
+                  {modelLabel(spawn.model, "")} · {effortLabel(spawn.effort, "").toLowerCase()}
+                </span>{" "}
+                and ends when it's done.{" "}
+                <Button
+                  type="button"
+                  variant="link"
+                  size="xs"
+                  className="h-auto px-0 align-baseline"
+                  onClick={() => openSettings("agents")}
+                >
+                  Change in Settings › Agents
+                </Button>
+              </span>
+            </p>
+          )}
           <PendingFiles
             attach={attach}
             disabled={busy}
