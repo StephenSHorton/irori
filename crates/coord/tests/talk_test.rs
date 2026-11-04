@@ -470,3 +470,145 @@ fn only_mentions_and_dms_notify() {
         "two agents' DM"
     );
 }
+
+// ---- a space's channels (card #392) ----------------------------------------
+
+/// A space log that takes rows only while `ready` (the Core's version
+/// gate), keeping keys as written.
+struct FakeSpace {
+    st: std::sync::Arc<store::Store>,
+    ready: std::sync::atomic::AtomicBool,
+}
+
+impl talk::SpaceLogs for FakeSpace {
+    fn append(
+        &self,
+        space: &str,
+        _by: &str,
+        kind: &str,
+        payload: serde_json::Value,
+    ) -> Result<store::Event, String> {
+        assert_eq!(space, "s1");
+        if !self.ready.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err("every device in the space must run an Irori with spaces first; waiting on Bob/abc123".into());
+        }
+        self.st
+            .append("irori", kind, &payload)
+            .map_err(|e| e.to_string())
+    }
+
+    fn rows(&self) -> Vec<store::Event> {
+        self.st
+            .list(&store::Filter {
+                kinds: vec!["talk.".into()],
+                ..Default::default()
+            })
+            .unwrap()
+    }
+}
+
+fn kinds_in(st: &store::Store) -> Vec<String> {
+    st.list(&store::Filter {
+        kinds: vec!["talk.".into()],
+        ..Default::default()
+    })
+    .unwrap()
+    .into_iter()
+    .map(|e| e.kind)
+    .collect()
+}
+
+#[test]
+fn a_space_channel_goes_in_the_space_log_behind_the_gate() {
+    let (e, sp) = (Env::new(), Env::on("dev-a"));
+    let space = std::sync::Arc::new(FakeSpace {
+        st: sp.st.clone(),
+        ready: false.into(),
+    });
+    let t = talk(&e);
+    t.set_spaces(space.clone());
+
+    // Not ready: refused with the devices it waits on, and nothing written.
+    let err = want(
+        t.create_channel_in(USER, "netcode", "", "s1"),
+        ErrorKind::NotAllowed,
+    );
+    assert!(err.to_string().contains("waiting on Bob/abc123"), "{err}");
+    assert!(t.channel_named("netcode").is_none());
+    assert!(kinds_in(&sp.st).is_empty());
+    // Personal channels and DMs are never gated.
+    let mine = t.create_channel(USER, "notes", "").unwrap();
+    post(&t, &mine.id, USER, "personal");
+    let dm = t
+        .open_dm(&Member::of(USER), &Member::of(ALICE), USER)
+        .unwrap();
+    post(&t, &dm, USER, "a dm");
+
+    space.ready.store(true, std::sync::atomic::Ordering::SeqCst);
+    let c = t
+        .create_channel_in(USER, "netcode", "rollback", "s1")
+        .unwrap();
+    assert_eq!(c.space_id, "s1");
+    let p = post(&t, &c.id, USER, "hello space");
+    t.mark_read(&c.id, &p.post_id, USER).unwrap();
+    // The channel, its member and post rows are the space's; the read
+    // cursor stays in the private log.
+    assert_eq!(
+        kinds_in(&sp.st),
+        [
+            kinds::TALK_CHANNEL_CREATED,
+            kinds::TALK_MEMBER,
+            kinds::TALK_POST
+        ]
+    );
+    let private = kinds_in(&e.st);
+    assert!(private.contains(&kinds::TALK_READ.to_string()));
+    let created = private
+        .iter()
+        .filter(|k| *k == kinds::TALK_CHANNEL_CREATED)
+        .count();
+    assert_eq!(created, 1, "only the Personal channel's");
+
+    // A later post waits again while a device isn't ready.
+    space
+        .ready
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    want(
+        t.post(NewPost {
+            conv_id: c.id.clone(),
+            text: "too soon".into(),
+            by: USER.into(),
+            ..NewPost::default()
+        }),
+        ErrorKind::NotAllowed,
+    );
+    assert_eq!(t.posts(&c.id).len(), 1);
+
+    // A fresh fold (a start, or a resync of the private log) reads the
+    // space's rows too.
+    let again = Talk::new(Some(e.st.clone()), Some(e.clk.func()));
+    again.set_spaces(space);
+    again.load().unwrap();
+    let c2 = again.channel(&c.id).unwrap();
+    assert_eq!(c2.space_id, "s1");
+    assert_eq!(again.posts(&c.id)[0].text, "hello space");
+    assert_eq!(again.cursor(USER, &c.id), Some(p.post_id));
+    assert_eq!(again.channels().len(), 2);
+}
+
+#[test]
+fn a_space_channel_without_spaces_is_refused() {
+    let e = Env::new();
+    let t = talk(&e);
+    want(
+        t.create_channel_in(USER, "x", "", "s1"),
+        ErrorKind::NotAllowed,
+    );
+}
+
+#[test]
+fn another_person_is_a_person() {
+    assert_eq!(Member::of("person:abc").kind, talk::PERSON);
+    assert_eq!(talk::canon("person:abc"), "person:abc", "not this person");
+    assert_eq!(Member::of("dev-a/x").kind, talk::AGENT);
+}

@@ -1295,3 +1295,188 @@ fn a_board_ask_reaches_bob() {
     });
     close(alice.drain(..).chain(bob.drain(..)));
 }
+
+/// Card #392 (Spaces s5): Alice's space is the board Bob joined. Once
+/// Alice has heard Bob's device read space rows, a second board and a card
+/// on it reach Bob, and so does a channel made in the space and its posts,
+/// both ways, through Talk's read model. Read cursors never leave the
+/// private log. Then Bob certifies a device that never runs (an Irori that
+/// has never said it reads spaces): Alice's space refuses a new channel and
+/// a post in the space's channel, naming that device, while a Personal
+/// channel still goes.
+#[test]
+fn a_second_board_and_a_channel_in_a_space_reach_bob() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let space = invited(a1, b1);
+    wait_for(WAIT, "alice hears bob read spaces", || {
+        a1.core.space_not_ready(&space).unwrap().is_empty()
+    });
+
+    // A second board, and a card on it.
+    let net = a1
+        .core
+        .create_space_board(&space, "Netcode", "net")
+        .unwrap();
+    wait_for(WAIT, "bob gets the second board", || {
+        b1.core
+            .space_boards(&space)
+            .is_ok_and(|bs| bs.iter().any(|b| b.board_id == net && b.tag == "net"))
+    });
+    let t = a1
+        .core
+        .board_coord(&space)
+        .unwrap()
+        .create_task(
+            &a1.person_actor(),
+            coord::NewTask {
+                title: "rollback".into(),
+                board: net.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "bob gets the card on net", || {
+        card_on(b1, &space, &t.id).is_some_and(|x| x.board == net)
+    });
+
+    // A channel in the space, and a post in it.
+    let ch = a1
+        .core
+        .talk_channel_create_in(&a1.user(), "netcode", "rollback talk", &space)
+        .unwrap();
+    assert_eq!(ch.space_id, space);
+    a1.core
+        .talk_post(
+            &a1.core.user_sender(),
+            &ch.id,
+            "hello bob",
+            &[],
+            false,
+            None,
+        )
+        .unwrap();
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "bob's Talk lists the channel", || {
+        b1.core
+            .talk_conversations(&b1.user())
+            .is_ok_and(|cs| cs.iter().any(|c| c.conv_id == ch.id && c.unread == 1))
+    });
+    let theirs = b1.core.talk().channel(&ch.id).unwrap();
+    assert_eq!(
+        (theirs.space_id.as_str(), theirs.name.as_str()),
+        (space.as_str(), "netcode")
+    );
+    assert_eq!(theirs.topic, "rollback talk");
+    let ps = b1.core.talk_posts(&b1.user(), &ch.id, None, 50).unwrap();
+    assert_eq!(ps.len(), 1);
+    assert_eq!(ps[0].text, "hello bob");
+    assert_eq!(ps[0].by, a1.person_actor(), "alice is a person to bob");
+    let conv = b1
+        .core
+        .talk_conversations(&b1.user())
+        .unwrap()
+        .into_iter()
+        .find(|c| c.conv_id == ch.id)
+        .unwrap();
+    let alice_in = conv
+        .members
+        .iter()
+        .find(|m| m.key == a1.person_actor())
+        .expect("alice is a member");
+    assert_eq!(alice_in.kind, coord::talk::PERSON);
+    assert!(!conv.joined, "bob hasn't joined yet");
+
+    // Bob answers: alice sees him as a person, and he sees his own post as
+    // his own.
+    let reply = b1
+        .core
+        .talk_post(&b1.core.user_sender(), &ch.id, "hi alice", &[], false, None)
+        .unwrap();
+    b1.core.kick_board(&space);
+    wait_for(WAIT, "alice gets bob's reply", || {
+        a1.core
+            .talk_posts(&a1.user(), &ch.id, None, 50)
+            .is_ok_and(|ps| ps.len() == 2)
+    });
+    let ps = a1.core.talk_posts(&a1.user(), &ch.id, None, 50).unwrap();
+    assert_eq!(ps[1].by, b1.person_actor());
+    assert_eq!(ps[0].by, a1.user(), "alice's own post is hers");
+    assert!(
+        b1.core.talk().is_member(&ch.id, &b1.user()),
+        "posting joined bob"
+    );
+    let mine = b1.core.talk_posts(&b1.user(), &ch.id, None, 50).unwrap();
+    assert_eq!(mine[1].by, b1.user());
+    assert_eq!(mine[1].post_id, reply.post.post_id);
+
+    // Reading is the reader's own: the cursor goes in the private log.
+    a1.core
+        .talk_mark_read(&ch.id, &reply.post.post_id, &a1.user())
+        .unwrap();
+    let talk_kinds = |st: &store::Store| -> Vec<String> {
+        st.list(&Filter {
+            kinds: vec!["talk.".into()],
+            ..Default::default()
+        })
+        .unwrap()
+        .into_iter()
+        .map(|e| e.kind)
+        .collect()
+    };
+    let in_space = talk_kinds(&a1.core.board_store(&space).unwrap());
+    assert!(in_space.contains(&kinds::TALK_POST.to_string()));
+    assert!(!in_space.contains(&kinds::TALK_READ.to_string()));
+    assert!(talk_kinds(a1.core.store()).contains(&kinds::TALK_READ.to_string()));
+    assert!(
+        !talk_kinds(a1.core.store()).contains(&kinds::TALK_POST.to_string()),
+        "the space's posts stay out of the private log"
+    );
+
+    // Bob certifies a device that never runs Irori with spaces.
+    let dev_pub = hex::encode(
+        ed25519_dalek::SigningKey::from_bytes(&[9u8; 32])
+            .verifying_key()
+            .to_bytes(),
+    );
+    let add = b1
+        .core
+        .identity()
+        .cert_for(
+            "phantom-old",
+            &dev_pub,
+            "old laptop",
+            irori_identity::ROLE_DESKTOP,
+            presence::now_local(),
+        )
+        .unwrap();
+    b1.core
+        .store()
+        .append("irori", kinds::PERSON_DEVICE_ADDED, &add)
+        .unwrap();
+    wait_for(WAIT, "alice's space waits on bob's old device", || {
+        a1.core
+            .space_not_ready(&space)
+            .unwrap()
+            .iter()
+            .any(|d| d.ends_with("/phanto"))
+    });
+    let e = a1
+        .core
+        .talk_channel_create_in(&a1.user(), "later", "", &space)
+        .unwrap_err();
+    assert!(e.contains("waiting on") && e.contains("phanto"), "{e}");
+    let e = a1
+        .core
+        .talk_post(&a1.core.user_sender(), &ch.id, "too soon", &[], false, None)
+        .unwrap_err();
+    assert!(e.contains("waiting on") && e.contains("phanto"), "{e}");
+    assert_eq!(a1.core.talk().posts(&ch.id).len(), 2, "nothing written");
+    // Personal channels are never gated.
+    a1.core
+        .talk_channel_create(&a1.user(), "notes", "")
+        .unwrap();
+    close(alice.drain(..).chain(bob.drain(..)));
+}

@@ -251,8 +251,11 @@ export const commands = {
 	talkLinkCard: (postId: string, taskId: string) => __TAURI_INVOKE<null>("talk_link_card", { postId, taskId }),
 	/**  The person has read `conv_id` up to post `up_to`. */
 	talkRead: (convId: string, upTo: string) => __TAURI_INVOKE<null>("talk_read", { convId, upTo }),
-	/**  Makes a channel; returns its conv id. */
-	talkChannelCreate: (name: string, topic: string | null) => __TAURI_INVOKE<string>("talk_channel_create", { name, topic }),
+	/**
+	 *  Makes a channel; returns its conv id. `space_id` puts it in that
+	 *  space, where its members see it (card #392); none is Personal.
+	 */
+	talkChannelCreate: (name: string, topic: string | null, spaceId: string | null) => __TAURI_INVOKE<string>("talk_channel_create", { name, topic, spaceId }),
 	/**  The person's DM with an agent, opened if new; returns its conv id. */
 	talkDm: (member: TalkMemberRef) => __TAURI_INVOKE<string>("talk_dm", { member }),
 	talkJoin: (convId: string, member: TalkMemberRef) => __TAURI_INVOKE<null>("talk_join", { convId, member }),

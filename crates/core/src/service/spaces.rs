@@ -527,4 +527,50 @@ mod tests {
             ]
         );
     }
+
+    /// The version gate (card #392): no device waiting, no refusal; any
+    /// waiting, a refusal naming each one.
+    #[test]
+    fn the_gate_names_every_device_it_waits_on() {
+        assert_eq!(gate_refusal(&[]), None);
+        let why = gate_refusal(&["Bob/abc123".into(), "Bob/def456".into()]).unwrap();
+        assert!(why.contains("run an Irori with spaces"), "{why}");
+        assert!(why.ends_with("waiting on Bob/abc123, Bob/def456"), "{why}");
+    }
+
+    /// A space's talk row's keys: `by` and a member's key must map, a
+    /// mention that doesn't is dropped, and other fields stay.
+    #[test]
+    fn talk_keys_map_into_a_space_and_back() {
+        let to_space = |k: &str| match k {
+            "user:dev-a" => Some("person:p1".to_string()),
+            "dev-a/s1" => Some("agent:c1".to_string()),
+            k if k.starts_with("person:") || k.starts_with("agent:") => Some(k.to_string()),
+            _ => None,
+        };
+        let mut post = serde_json::json!({
+            "postId": "post_1", "convId": "ch_1", "text": "hi",
+            "mentions": ["dev-a/s1", "nobody", "agent:c9"], "by": "user:dev-a"
+        });
+        map_talk_keys(&mut post, to_space).unwrap();
+        assert_eq!(post["by"], "person:p1");
+        assert_eq!(
+            post["mentions"],
+            serde_json::json!(["agent:c1", "agent:c9"])
+        );
+        assert_eq!(post["text"], "hi");
+
+        let mut member = serde_json::json!({
+            "convId": "ch_1", "member": {"kind": "agent", "key": "dev-a/s1"},
+            "op": "join", "by": "user:dev-a"
+        });
+        map_talk_keys(&mut member, to_space).unwrap();
+        assert_eq!(member["member"]["key"], "agent:c1");
+
+        let mut bad = serde_json::json!({"by": "someone"});
+        assert!(map_talk_keys(&mut bad, to_space).is_err());
+        let mut bad = serde_json::json!({"member": {"key": "nobody"}, "by": "user:dev-a"});
+        assert!(map_talk_keys(&mut bad, to_space).is_err());
+        assert!(map_talk_keys(&mut serde_json::json!([]), to_space).is_err());
+    }
 }

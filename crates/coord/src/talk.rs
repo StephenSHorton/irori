@@ -547,7 +547,10 @@ impl Talk {
         if self.card_of(post_id).as_deref() == Some(task_id) {
             return Ok(false);
         }
+        // The link stays on this person's devices, even for a post in a
+        // space's channel: the card may be private (card #392).
         self.write(
+            PERSONAL_SPACE,
             by,
             kinds::TALK_CARD,
             &CardRow {
