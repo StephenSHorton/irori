@@ -846,3 +846,76 @@ fn a_space_talk_writes_by_board_keys() {
     assert_eq!(rows[1].actor, "person:stephen");
     assert_eq!(joined["member"]["key"], "person:stephen");
 }
+
+/// A row a space's log carried (tagged with its spaceId by the Core) only
+/// touches that space's channels: never a Personal channel, a DM or another
+/// space's channel, and a channel never moves space (card #461).
+#[test]
+fn a_space_row_only_touches_its_own_spaces_channels() {
+    let t = Talk::new(None, None);
+    let t0 = hlc_at(fixed_now());
+    let ev = |seq: i64, kind: &str, p: serde_json::Value| {
+        row("dev-b", seq, t0 + seq as u64, "user", kind, &p)
+    };
+    let made = |seq, id: &str, space: Option<&str>| {
+        let mut p = serde_json::json!({"channelId": id, "name": id, "by": "user:dev-b"});
+        if let Some(sp) = space {
+            p["spaceId"] = sp.into();
+        }
+        ev(seq, kinds::TALK_CHANNEL_CREATED, p)
+    };
+    let post = |seq, conv: &str, space: &str| {
+        ev(
+            seq,
+            kinds::TALK_POST,
+            serde_json::json!({"postId": format!("p{seq}"), "convId": conv, "by": "user:dev-b", "text": "hi", "spaceId": space}),
+        )
+    };
+    assert!(t.apply(&made(10, "ch_mine", None)));
+    assert!(t.apply(&made(11, "ch_s1", Some("s1"))));
+
+    assert!(t.apply(&post(20, "ch_s1", "s1")), "its own space's channel");
+    assert!(!t.apply(&post(21, "ch_mine", "s1")), "a Personal channel");
+    assert!(
+        !t.apply(&post(22, "ch_s1", "s2")),
+        "another space's channel"
+    );
+    assert!(!t.apply(&post(23, "dm:a|b", "s1")), "a DM");
+    assert!(t.posts("ch_mine").is_empty() && t.posts("dm:a|b").is_empty());
+    assert_eq!(t.posts("ch_s1").len(), 1);
+
+    let join = ev(
+        30,
+        kinds::TALK_MEMBER,
+        serde_json::json!({"convId": "ch_mine", "member": {"kind": "agent", "key": BOB}, "op": "join", "by": "user:dev-b", "spaceId": "s1"}),
+    );
+    assert!(!t.apply(&join), "a member into a Personal channel");
+    assert!(!t.is_member("ch_mine", BOB));
+    let edit = ev(
+        31,
+        kinds::TALK_CHANNEL_EDITED,
+        serde_json::json!({"channelId": "ch_mine", "name": "taken", "spaceId": "s1"}),
+    );
+    assert!(!t.apply(&edit));
+    // An older copy of ch_mine "made in s1" doesn't move it there.
+    assert!(!t.apply(&made(1, "ch_mine", Some("s1"))));
+    let c = t.channel("ch_mine").unwrap();
+    assert_eq!((c.name.as_str(), c.space_id.as_str()), ("ch_mine", ""));
+    // A card link from s1 onto ch_mine's post doesn't land either.
+    let mine = row(
+        "dev-a",
+        40,
+        t0 + 40,
+        "user",
+        kinds::TALK_POST,
+        &serde_json::json!({"postId": "pm", "convId": "ch_mine", "by": USER, "text": "mine"}),
+    );
+    assert!(t.apply(&mine));
+    let card = ev(
+        41,
+        kinds::TALK_CARD,
+        serde_json::json!({"postId": "pm", "taskId": "t1", "spaceId": "s1"}),
+    );
+    assert!(!t.apply(&card));
+    assert!(t.posts("ch_mine")[0].card.is_none());
+}

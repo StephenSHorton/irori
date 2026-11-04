@@ -322,9 +322,9 @@ impl Services {
         }
         let mut v: serde_json::Value = serde_json::from_slice(&ev.payload).ok()?;
         map_talk_keys(&mut v, |k| Some(self.private_key(k))).ok()?;
-        if ev.kind == kinds::TALK_CHANNEL_CREATED
-            && let Some(o) = v.as_object_mut()
-        {
+        // Every row says which space carried it: a channel is made there,
+        // and the rest may only touch that space's channels (card #461).
+        if let Some(o) = v.as_object_mut() {
             o.insert("spaceId".into(), space_id.into());
         }
         let mut out = ev.clone();

@@ -872,8 +872,44 @@ impl Talk {
 }
 
 /// Folds one row into `s`; whether it changed anything.
+/// The space a row came in from, when a space's log carried it: the Core
+/// tags each such row with `spaceId` (card #461). None for this person's
+/// own log.
+fn row_space(ev: &Event) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_slice(&ev.payload).ok()?;
+    v.get("spaceId")?.as_str().map(str::to_string)
+}
+
+/// Whether a row from space `space`'s log may touch conversation `conv`:
+/// only that space's channels, never a DM or another space's (or
+/// Personal's) channel, so one space's members can't write into the rest
+/// of this person's Talk (card #461). A channel not folded yet may be.
+fn space_may_touch(s: &State, space: &str, conv: &str) -> bool {
+    is_channel(conv)
+        && s.channels
+            .get(conv)
+            .is_none_or(|c| c.id.is_empty() || c.space_id == space)
+}
+
 fn fold(s: &mut State, ev: &Event) -> bool {
     let at = ord_of(ev);
+    if ev.kind != kinds::TALK_CHANNEL_CREATED
+        && let Some(space) = row_space(ev)
+    {
+        let conv = serde_json::from_slice::<serde_json::Value>(&ev.payload)
+            .ok()
+            .and_then(|v| {
+                v.get("convId")
+                    .or_else(|| v.get("channelId"))
+                    .and_then(|x| x.as_str())
+                    .map(str::to_string)
+            });
+        if let Some(conv) = conv
+            && !space_may_touch(s, &space, &conv)
+        {
+            return false;
+        }
+    }
     match ev.kind.as_str() {
         kinds::TALK_CHANNEL_CREATED => {
             let Ok(r) = serde_json::from_slice::<ChannelCreatedRow>(&ev.payload) else {
@@ -883,8 +919,10 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 return false;
             }
             let c = s.channels.entry(r.channel_id.clone()).or_default();
-            if !c.id.is_empty() && c.created <= at {
-                return false; // folded before, or an older copy wins
+            if !c.id.is_empty() && (c.created <= at || c.space_id != r.space_id) {
+                // Folded before, or an older copy wins; and a channel never
+                // moves to another space (card #461).
+                return false;
             }
             c.id = r.channel_id;
             c.space_id = r.space_id;
@@ -1010,6 +1048,17 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 return false;
             };
             if r.post_id.is_empty() || r.task_id.is_empty() {
+                return false;
+            }
+            // From a space's log: only onto a post in that space's channels.
+            if let Some(space) = row_space(ev)
+                && let Some(conv) = s
+                    .posts
+                    .iter()
+                    .find(|(_, ps)| ps.iter().any(|p| p.post_id == r.post_id))
+                    .map(|(c, _)| c.clone())
+                && !space_may_touch(s, &space, &conv)
+            {
                 return false;
             }
             for ps in s.posts.values_mut() {
