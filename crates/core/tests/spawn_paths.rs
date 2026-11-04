@@ -58,8 +58,7 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
         }),
         end: Arc::new(move |s: &str| {
             b.ended.lock().unwrap().push(s.to_string());
-            if b
-                .fail
+            if b.fail
                 .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
                 .is_ok()
             {
