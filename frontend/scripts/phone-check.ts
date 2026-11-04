@@ -9,7 +9,7 @@
 //
 // PREVIEW_URL (default http://127.0.0.1:9246/), BROWSER_EXE, PHONE_WIDTH
 // (390), PHONE_HEIGHT (844; taller shows more of a long page), PHONE_DPR (1),
-// PHONE_OUT (the folder), PHONE_MOBILE=0 for a narrow desktop window instead.
+// PHONE_OUT (the folder), PHONE_TRACE=1 (where a cut sits), PHONE_MOBILE=0 for a narrow desktop window instead.
 //
 // Why not `preview-shots.sh` with --window-size=390,…: Chrome won't make a
 // headless window narrower than 500 px, so the page lays out at 500 and the
@@ -18,6 +18,7 @@
 // DevTools' device emulation, and the run fails if the page doesn't see it.
 //
 // Only Chrome's DevTools protocol over a WebSocket: no extra packages.
+/* eslint-disable @typescript-eslint/no-explicit-any -- DevTools replies are untyped JSON */
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -135,7 +136,8 @@ const PROBE = `(() => {
       continue
     }
     if (c && !c.scrolls && r.right > cr.right + 1 && (el.matches(press) || ownText(el)))
-      cut.push({ el: label(el), right: Math.round(r.right), box: Math.round(cr.right), top: Math.round(r.top) })
+      cut.push({ el: label(el), right: Math.round(r.right), box: Math.round(cr.right), top: Math.round(r.top),
+        path: [el.parentElement, el.parentElement?.parentElement, c.p].map((x) => x && x.tagName.toLowerCase() + '.' + (x.getAttribute('class') || '').slice(0, 70)).join(' < ') })
     const s = getComputedStyle(el)
     if (s.textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth + 1)
       ellipsis.push({ el: label(el), top: Math.round(r.top) })
@@ -198,7 +200,7 @@ async function main() {
       const warn = v.cut.length + v.ellipsis.length
       console.log(`${ok ? "ok  " : "FAIL"} ${name.padEnd(20)}${warn ? ` ${warn} warning(s)` : ""}`)
       for (const p of problems.slice(0, 20)) console.log(`       ${p}`)
-      for (const o of v.cut.slice(0, 12)) console.log(`       warn cut at ${o.box} (right ${o.right}, y ${o.top}): ${o.el}`)
+      for (const o of v.cut.slice(0, 12)) console.log(`       warn cut at ${o.box} (right ${o.right}, y ${o.top}): ${o.el}${process.env.PHONE_TRACE ? `\n         in ${o.path}` : ""}`)
       for (const o of v.ellipsis.slice(0, 12)) console.log(`       warn ends in … (y ${o.top}): ${o.el}`)
     }
     ws.close()

@@ -294,7 +294,7 @@ function PostRow({
       <div className="ml-9 flex min-w-0 items-center gap-1.5 rounded-md border border-border/70 px-2 py-1 text-[12px] text-muted-foreground">
         <MessageSquareTextIcon className="size-3.5 shrink-0" aria-hidden />
         <span className="shrink-0">{name} started a thread:</span>
-        <RichText text={post.text} className="min-w-0 truncate text-ink-2" />
+        <RichText text={post.text} className="min-w-0 grid-cols-[minmax(0,1fr)] truncate text-ink-2" />
         <span className="shrink-0">· in Threads</span>
       </div>
     )
