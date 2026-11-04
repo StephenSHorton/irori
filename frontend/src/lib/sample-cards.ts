@@ -723,19 +723,28 @@ export function sampleCards(now: Date): CardDetail[] {
           id: "b1",
           question: "Ship today, or wait for the two-PC temple check?",
           context:
-            "Every automated check passes on main d48bc2f. The co-op check needs both PCs, with the game closed on the second one; it was last blocked 20 minutes ago because another game was running. Shipping now means the release notes say temple co-op is untested.",
+            "Every automated check passes. The co-op check needs both PCs, with the game closed on the second one; it was last blocked 20 minutes ago because another game was running. Shipping now means the release notes say temple co-op is untested.",
           raisedBy: otter,
           at: at(18),
+          // Card #491: the person clicks an option, so each one says who
+          // acts ("sample-otter ships…", "I'll…" = the person) or the
+          // outcome, never the agent's "I".
           options: [
             CardOption({
-              answer: "Wait for the check, ship tonight",
+              answer: "Wait for the check; sample-otter ships tonight",
               why: "The temple is the release's headline feature; an untested headline is worse than a short delay.",
               by: otter,
               at: at(18),
               recommended: true,
             }),
             CardOption({
-              answer: "Ship now, mark temple co-op as experimental",
+              answer: "I'll close the game on the second PC now",
+              why: "The check runs as soon as it's closed, and sample-otter ships when it passes.",
+              by: otter,
+              at: at(18),
+            }),
+            CardOption({
+              answer: "Ship now, with temple co-op marked experimental",
               why: "Players get the boat and log fixes today; a 0.6.1 can follow the check.",
               by: heron,
               at: at(15),

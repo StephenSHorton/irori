@@ -128,7 +128,9 @@ export function SettingsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         initialFocus={currentRef}
-        className="h-[min(640px,calc(100dvh-2rem))] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] gap-0 p-0 sm:h-[min(640px,calc(100vh-4rem))] sm:max-w-3xl sm:grid-cols-[13rem_minmax(0,1fr)] sm:grid-rows-[minmax(0,1fr)]"
+        // Under 768 px it takes the whole screen, inside the phone's insets
+        // (card #479); from 768 a 640-high panel over the window.
+        className="h-dvh max-w-none grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] gap-0 p-0 pt-[var(--safe-top)] pr-[var(--safe-right)] pb-[var(--safe-bottom)] pl-[var(--safe-left)] sm:max-w-none sm:grid-cols-[13rem_minmax(0,1fr)] sm:grid-rows-[minmax(0,1fr)] md:h-[min(640px,calc(100vh-4rem))] md:max-w-3xl md:p-0 max-md:[&>[data-slot=dialog-close]]:top-[calc(var(--safe-top)+0.75rem)] max-md:[&>[data-slot=dialog-close]]:right-[calc(var(--safe-right)+0.75rem)]"
       >
         <nav
           aria-label="Settings sections"
