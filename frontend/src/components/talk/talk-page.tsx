@@ -26,6 +26,7 @@ import { type ThreadSummary } from "@/lib/cards"
 import {
   dmWith,
   listed,
+  readAll,
   talkApi,
   type Conversation as Conv,
 } from "@/lib/conversations"
@@ -37,6 +38,7 @@ import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import {
   archived,
+  bareWhenFolded,
   dmSections,
   sectionRows,
   unreadIn,
@@ -143,18 +145,30 @@ export function TalkPage({
   const folded = (k: SectionKey) => !searching && isFolded(k)
   const [allShown, setAllShown] = useState<Partial<Record<SectionKey, boolean>>>({})
   const convRows = (k: SectionKey, items: Conv[]) =>
-    sectionRows(items, folded(k), open, searching || !!allShown[k])
-  const convSection = (k: SectionKey, label: string, items: Conv[], empty: string, extra?: ReactNode, add?: { onAdd: () => void; label: string }) => {
+    folded(k) && bareWhenFolded.has(k)
+      ? { rows: [], hidden: items.length }
+      : sectionRows(items, folded(k), open, searching || !!allShown[k])
+  const [marking, setMarking] = useState(false)
+  const convSection = (k: SectionKey, label: string, items: Conv[], empty: string, extra?: ReactNode, add?: { onAdd: () => void; label: string }, markAll?: boolean) => {
     const { rows, hidden } = convRows(k, items)
+    const unread = unreadIn(items)
     return (
       <Group
         label={label}
         count={items.length}
-        unread={unreadIn(items)}
+        unread={unread}
         folded={folded(k)}
         onToggle={searching ? undefined : () => toggleFold(k)}
         onAdd={add?.onAdd}
         addLabel={add?.label}
+        onMarkRead={
+          markAll && unread > 0 && !marking
+            ? () => {
+                setMarking(true)
+                void readAll(items).finally(() => setMarking(false))
+              }
+            : undefined
+        }
       >
         {extra}
         {items.length === 0 && !extra && !folded(k) && (
@@ -264,7 +278,7 @@ export function TalkPage({
       {sections.agents.length > 0 &&
         convSection("agents", "Agents talking", sections.agents, "")}
       {sections.gone.length > 0 &&
-        convSection("gone", "Archive", sections.gone, "")}
+        convSection("gone", "Archive", sections.gone, "", undefined, undefined, true)}
       {resolved.length > 0 && (
         <div className="mt-auto grid grid-cols-[minmax(0,1fr)] gap-0.5 pt-3">
           <button
@@ -357,6 +371,7 @@ function Group({
   unread = 0,
   folded = false,
   onToggle,
+  onMarkRead,
 }: {
   label: string
   children: ReactNode
@@ -366,6 +381,8 @@ function Group({
   unread?: number
   folded?: boolean
   onToggle?: () => void
+  // Mark all read (the Archive, card #473): shown while something is new.
+  onMarkRead?: () => void
 }) {
   const Chevron = folded ? ChevronRightIcon : ChevronDownIcon
   const name = (
@@ -409,6 +426,16 @@ function Group({
             className="ml-auto rounded p-0.5 hover:bg-secondary hover:text-ink"
           >
             <PlusIcon className="size-3.5" aria-hidden />
+          </button>
+        )}
+        {onMarkRead && (
+          <button
+            type="button"
+            onClick={onMarkRead}
+            title="Mark every conversation here read"
+            className="ml-auto shrink-0 rounded px-1 text-[10px] font-normal normal-case tracking-normal hover:bg-secondary hover:text-ink"
+          >
+            Mark all read
           </button>
         )}
       </h2>
