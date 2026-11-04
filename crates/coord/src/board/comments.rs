@@ -28,6 +28,9 @@ use super::{
 use crate::gotime;
 use crate::names::trim_space;
 
+/// Why the sweep closes an answered item whose agent left (card #481).
+const ANSWERED_LEFT: &str = "the agent it went to left the card";
+
 /// Validates a block reason or unblock note (trimmed).
 pub(crate) fn check_reason(s: &str, required: bool) -> Result<()> {
     if required && s.is_empty() {
@@ -1172,7 +1175,31 @@ impl Fold {
         self.outside_waits.borrow().contains(&key)
     }
 
-    /// The open items of a blocked task whose lease or task went away.
+    /// Whether open item b of t was answered and waits on an agent that
+    /// left the card since (card #481): nobody is left to act on the
+    /// answer. Only an agent that held the card and left counts, not one
+    /// that raised it from outside; and only this device of the raiser's
+    /// person closes it, so the row folds everywhere (card #242).
+    fn answered_left(&self, t: &Task, b: &Blocker) -> bool {
+        if !b.open() || b.status != BLOCKER_ANSWERED {
+            return false;
+        }
+        if !b.sent_to.is_empty() && b.sent_to != b.raised_by {
+            return false;
+        }
+        let tgt = &b.raised_by;
+        !tgt.is_empty()
+            && tgt != SWEEPER
+            && !self.is_owner(tgt)
+            && contains(&t.left, tgt)
+            && !contains(&t.holders, tgt)
+            && !contains(&t.co_holders, tgt)
+            && !contains(&t.assigned, tgt)
+            && self.may_write(tgt, &self.dev)
+    }
+
+    /// The open items of a blocked task whose lease or task went away, or
+    /// whose answer went to an agent that left the card.
     pub(crate) fn gone_away(&self, t: &Task, now: &GoTime) -> (Vec<String>, Vec<String>) {
         let mut ids = Vec::new();
         let mut why = Vec::new();
@@ -1180,6 +1207,11 @@ impl Fold {
             return (ids, why);
         }
         for b in &t.blockers {
+            if self.answered_left(t, b) {
+                ids.push(b.id.clone());
+                why.push(ANSWERED_LEFT.to_string());
+                continue;
+            }
             let Some(on) = b.on.as_ref().filter(|_| b.open()) else {
                 continue;
             };
@@ -1435,10 +1467,11 @@ impl Fold {
                 out.push(self.close_blocker(SWEEPER, &id, &why[0], now)?);
                 continue;
             }
+            // An agent that left the card (card #481) isn't told.
             let raisers: Vec<String> = t
                 .blockers
                 .iter()
-                .filter(|b| ids.contains(&b.id))
+                .filter(|b| ids.contains(&b.id) && !self.answered_left(&t, b))
                 .map(|b| b.raised_by.clone())
                 .collect();
             for (i, bid) in ids.iter().enumerate() {

@@ -734,6 +734,9 @@ impl Fold {
                     what = "joined".into();
                 } else {
                     t.holders = remove_str(&t.holders, &p.who);
+                    if !contains(&t.left, &p.who) {
+                        t.left.push(p.who.clone());
+                    }
                     if t.holders.is_empty() {
                         t.let_go = Some((p.who.clone(), at(p.at)));
                     }
@@ -2134,6 +2137,8 @@ pub(crate) fn add_holder(t: &mut Task, who: &str) {
 /// Keeps holder = holders[0] and assigned a subset of holders.
 pub(crate) fn sync_holder(t: &mut Task) {
     let holders = t.holders.clone();
+    // One that came back on the card is no longer gone from it (card #481).
+    t.left.retain(|w| !holders.contains(w));
     t.assigned.retain(|a| holders.contains(a));
     let offered = t.assigned.clone();
     t.handoffs.retain(|k, _| offered.contains(k));
