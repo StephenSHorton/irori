@@ -45,6 +45,7 @@ unchanged.
 | `/?open=board:task:sample-card-job` | a holder between turns with a background job running (card #431): the page and Home say "running a background job", not "not working on it now" |
 | `/?open=board:task:sample-card-named` | the same wait named as a blocker on another agent: Home reads "Waiting on agent sample-kestrel" (card #305) |
 | `/?red=1` | main is red (card #436): Home leads with "Main is red: attach_exe fails on clean main; 2 cards wait on #60", and the line opens #60 |
+| `/?winddown` | a finished Wind down (card #484): Home's one line "Wound down 43 agents, 23 confirmed · Pause all is on", which opens the dialog with each agent's answer; × dismisses it until the next run. No DM is opened per agent |
 | `/?spawn=first` | spawned agents' first-run notice (card #448): Home leads with "Irori now starts an agent for each card…", Keep it on / Turn it off / Settings › Agents |
 | `/?spawn=states` | spawned agents' card lines (card #448): #65 "Starting an agent on this PC", #66 "Waiting: this PC is at its cap", #67 "Can't start: no checkout…"; #64's page shows End for the agent Irori started, and its hover "Irori started it for #64" |
 | `/?spawn=states` on Home | spawned agents in Needs you (card #456, sa-7): #58 "Permission", sample-thyme stopped on a prompt, with Attach, Logs and Add to allow-list; #62 "Crashed", its agents crashed twice, with Start another agent |
