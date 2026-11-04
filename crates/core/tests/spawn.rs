@@ -469,3 +469,88 @@ fn the_private_board_spawns_by_default_in_the_app() {
     assert!(r.core.spawn_switch_set(""));
     assert!(!r.core.spawn_setting("").on, "his off wins");
 }
+
+/// Card #467: v0.11.0 asked again for a card with no checkout here on every
+/// sweep, two rows a time (3.4M rows on the Mac). Now its one failed
+/// request stands: past the retry wait, kicks write no more task.spawn
+/// rows, and nothing is started.
+#[test]
+fn a_card_with_no_checkout_fails_once_and_is_not_asked_again() {
+    let skew = Arc::new(AtomicI64::new(0));
+    let sk = skew.clone();
+    let r = Rig::with(move |o| {
+        o.now = Some(Arc::new(move || {
+            let d = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap();
+            gocompat::time::GoTime::unix(
+                d.as_secs() as i64 + sk.load(Ordering::SeqCst),
+                i64::from(d.subsec_nanos()),
+            )
+        }));
+    });
+    let fake = Arc::new(Fake::default());
+    let me = r.core.device_id().to_string();
+    let person = format!("user:{me}");
+    let co = r.core.coord();
+    let spawn_rows = || {
+        r.core
+            .store()
+            .list(&store::Filter {
+                kinds: vec![store::kinds::TASK_SPAWN.into()],
+                ..Default::default()
+            })
+            .unwrap()
+            .len()
+    };
+    r.core
+        .set_spawn_setting(SpawnSetting {
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    // No repo and no Where: no folder to start in.
+    let t = co
+        .create_task(
+            &person,
+            NewTask {
+                title: "A card with no repo".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    r.core
+        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
+    wait_for(60, "the request failed", || {
+        co.get_task(&t.id)
+            .and_then(|t| t.spawn_request().cloned())
+            .is_some_and(|s| s.op == coord::SPAWN_FAILED)
+    });
+    let sr = co
+        .get_task(&t.id)
+        .unwrap()
+        .spawn_request()
+        .cloned()
+        .unwrap();
+    assert!(sr.reason.starts_with("no checkout of"), "{sr:?}");
+    assert_eq!(sr.generation, 1);
+    let rows = spawn_rows();
+    assert_eq!(rows, 2, "one requested and one failed");
+
+    // Past the retry wait, the sweep looks again and leaves it.
+    skew.fetch_add(coord::SPAWN_RETRY.as_secs() as i64 + 10, Ordering::SeqCst);
+    for _ in 0..5 {
+        r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    assert_eq!(spawn_rows(), rows, "no new task.spawn rows");
+    let after = co
+        .get_task(&t.id)
+        .unwrap()
+        .spawn_request()
+        .cloned()
+        .unwrap();
+    assert_eq!(after.generation, 1, "{after:?}");
+    assert!(fake.started.lock().unwrap().is_empty(), "nothing started");
+}
