@@ -143,3 +143,20 @@ fn a_blocker_is_kept_once_read_and_survives_a_restart() {
     assert_eq!(back[1].posted.blocker_id, b);
     again.close().unwrap();
 }
+
+/// Card #483: the name a returned card's notification gives its agent
+/// comes from the same source as `agent_name`, which keeps the last name
+/// an agent went by once it has left the roster (a returned card's agent
+/// always has).
+#[test]
+fn a_gone_agent_keeps_its_name() {
+    let r = Rig::new();
+    wait_for(10, "alpha by name", || {
+        r.core.agent_name(&r.key_a) == "alpha"
+    });
+    std::fs::remove_file(r.claude.join("sessions").join("900001.json")).unwrap();
+    wait_for(30, "alpha leaves the roster", || {
+        r.core.mesh_agents().iter().all(|a| a.key != r.key_a)
+    });
+    assert_eq!(r.core.agent_name(&r.key_a), "alpha");
+}

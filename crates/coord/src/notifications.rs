@@ -226,6 +226,38 @@ fn older(ev: &store::Event, cur: &Item) -> bool {
     ev.seq < cur.seq
 }
 
+/// The body of a returned card's notification (card #483): the agent that
+/// went away by its name, or "Its agent" when no name is known. Never an
+/// agent key: the watcher posts it and the Notifications page rebuilds a
+/// stored row's body with it.
+pub fn returned_body(name: Option<&str>) -> String {
+    let who = name
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .unwrap_or("Its agent");
+    format!("{who} went away, so it's open again. Assign it to an agent, or close it.")
+}
+
+/// `name` when it is a name for agent `key` and not the key itself (a
+/// resolver's fallback): `None` for empty or the key (card #483).
+pub fn agent_name_of(key: &str, name: &str) -> Option<String> {
+    let n = name.trim();
+    (!n.is_empty() && n != key.trim()).then(|| n.to_string())
+}
+
+/// The name of agent `key` from task `t`'s spawn records: the name the
+/// card's agent was started with (card #483).
+pub fn spawned_name(t: &crate::Task, key: &str) -> Option<String> {
+    if key.is_empty() {
+        return None;
+    }
+    t.spawns
+        .iter()
+        .rev()
+        .filter(|s| s.key == key)
+        .find_map(|s| agent_name_of(key, &s.name))
+}
+
 /// The key for what a notification is about: the same thing gets the
 /// same key on every device. Empty when it is only itself.
 pub fn key_of(r: &PostedRow) -> String {

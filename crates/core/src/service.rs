@@ -1427,14 +1427,10 @@ impl Core {
                     Arc::new(move |k: &str| ch.is_owner(k))
                 }),
                 name: Some({
-                    let r = s.roster.clone();
-                    Arc::new(move |key: &str| {
-                        r.agents()
-                            .into_iter()
-                            .find(|a| a.key == key)
-                            .map(|a| a.name)
-                            .unwrap_or_default()
-                    })
+                    // A gone agent keeps the last name it went by (cards
+                    // #98, #483): a returned card's agent has left the roster.
+                    let s = s.clone();
+                    Arc::new(move |key: &str| s.agent_name(key))
                 }),
                 room: Some(Arc::new(WatchRoom(s.clone()))),
                 file: Some({
@@ -2284,16 +2280,7 @@ impl Core {
     /// name it went by (gone agents, Grok members after a restart; card
     /// #98), or `""`.
     pub fn agent_name(&self, key: &str) -> String {
-        let live = self
-            .mesh_agents()
-            .into_iter()
-            .find(|a| a.key == key)
-            .map(|a| a.name)
-            .unwrap_or_default();
-        if !live.is_empty() {
-            return live;
-        }
-        self.s.agent_names.get(key)
+        self.s.agent_name(key)
     }
 
     /// Every agent key → the last name it went by, gone ones included
@@ -2969,6 +2956,23 @@ fn revive_for_ask(rv: &Mutex<Option<ReviveFn>>, me: &str, target: &str) -> Resul
 }
 
 impl Services {
+    /// An agent key's name: its card's in the mesh roster, else the last
+    /// name it went by (gone agents, Grok members after a restart; cards
+    /// #98, #483), or `""`.
+    fn agent_name(&self, key: &str) -> String {
+        let live = self
+            .roster
+            .agents()
+            .into_iter()
+            .find(|a| a.key == key)
+            .map(|a| a.name)
+            .unwrap_or_default();
+        if !live.trim().is_empty() {
+            return live;
+        }
+        self.agent_names.get(key)
+    }
+
     /// Records the names on the mesh roster in the name book (card #98).
     fn note_agent_names(&self) {
         self.agent_names

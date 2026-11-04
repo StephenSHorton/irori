@@ -137,6 +137,78 @@ fn board_cards_and_answers() {
     assert_eq!(r.w.cards().len(), 1);
 }
 
+/// Card #483: a returned row kept before the fix carries the agent's key
+/// in its body; the Notifications page says it by name, or "Its agent"
+/// when only the key is known, and never shows the key.
+#[test]
+fn stored_returned_rows_never_show_a_key() {
+    use coord::notifications::{self as history, PostedRow};
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let t = co
+        .create_task(
+            &r.key_a,
+            coord::NewTask {
+                title: "Spawned agents part 9".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let gone = "devzz/ffffffff-9999-4999-8999-999999999999";
+    for (from, instance) in [(r.key_a.as_str(), "dev1:1"), (gone, "dev1:2")] {
+        let mut row = PostedRow {
+            kind: history::KIND_RETURNED.into(),
+            task_id: t.id.clone(),
+            instance: instance.into(),
+            from: from.into(),
+            title: "Nobody is on “Spawned agents part 9” (#1)".into(),
+            body: format!(
+                "{from} went away, so it's open again. Assign it to an agent, or close it."
+            ),
+            level: "warn".into(),
+            at: gocompat::time::GoTime::from_system(std::time::SystemTime::now()),
+            ..PostedRow::default()
+        };
+        row.key = history::key_of(&row);
+        r.w.core
+            .store()
+            .append("irori", history::POSTED, &row)
+            .unwrap();
+    }
+    wait("both rows are in the history", || {
+        r.w.notifications().len() == 2
+    });
+    let ns = r.w.notifications();
+    for n in &ns {
+        assert!(
+            !n.body.contains('/') && !n.body.contains(gone) && !n.body.contains(&r.key_a),
+            "{n:?}"
+        );
+        if let Some(f) = &n.from {
+            assert!(!f.name.contains('/'), "{n:?}");
+        }
+    }
+    let by = |from: &str| {
+        ns.iter()
+            .find(|n| {
+                n.key
+                    .ends_with(if from == gone { "dev1:2" } else { "dev1:1" })
+            })
+            .unwrap_or_else(|| panic!("no row for {from}: {ns:?}"))
+            .clone()
+    };
+    assert_eq!(
+        by(&r.key_a).body,
+        "alpha went away, so it's open again. Assign it to an agent, or close it."
+    );
+    let g = by(gone);
+    assert_eq!(
+        g.body,
+        "Its agent went away, so it's open again. Assign it to an agent, or close it."
+    );
+    assert!(g.from.is_none(), "an unnamed agent's key isn't sent: {g:?}");
+}
+
 #[test]
 fn done_cards_page() {
     let r = Rig::new();
