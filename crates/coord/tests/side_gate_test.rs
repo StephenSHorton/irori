@@ -86,7 +86,10 @@ fn an_agents_own_cross_side_assign_is_refused() {
     // To itself, and to another agent on its own Personal-only device.
     refused(e.c.assign_task(ALICE, &t.id, ALICE));
     let msg = refused(e.c.assign_task(ALICE, &t.id, BOB));
-    assert!(msg.contains(BOB), "{msg}");
+    assert!(
+        msg.contains("that agent's device") && msg.contains("To hand it there"),
+        "{msg}"
+    );
     refused(e.c.hand_off(ALICE, &t.id, BOB, "yours"));
     assert!(e.c.get_task(&t.id).unwrap().assigned.is_empty());
 }
@@ -248,7 +251,15 @@ fn irori_itself_is_not_held_to_a_side() {
 fn cards_on_a_side_the_device_runs_and_unsided_cards_are_as_before() {
     let e = Env::new();
     e.c.set_device_sides(&sides(&["Personal"])).unwrap();
-    let own = e.c.create_task(USER, NewTask { title: "Mine".into(), ..NewTask::default() }).unwrap();
+    let own =
+        e.c.create_task(
+            USER,
+            NewTask {
+                title: "Mine".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
     assert_eq!(own.side, "Personal");
     e.c.claim_task(ALICE, &own.id).unwrap();
     // With no pin at all, every card is free to take.
@@ -283,4 +294,29 @@ fn a_card_already_held_stays_held_after_a_pin() {
     e.c.set_device_sides(&sides(&["Personal"])).unwrap();
     // Claiming again is a no-op, not a refusal.
     e.c.claim_task(ALICE, &t.id).unwrap();
+}
+
+#[test]
+fn the_board_view_tells_an_agent_its_devices_side() {
+    let (e, _) = env_with_work_card(false);
+    let v = e.c.board(&BoardFilter {
+        viewer: ALICE.into(),
+        ..BoardFilter::default()
+    });
+    assert_eq!(
+        v.side_line,
+        "This device runs the Personal side. Cards on Work are only read here, never taken: don't claim, join or assign them unless the person asks you to (they assign it to you, start an agent on it, or @-mention you on it); Irori refuses it otherwise."
+    );
+    assert_eq!(e.c.side_line("dev-a"), v.side_line);
+    // dev-b runs Work: its agents hear the other way round.
+    assert!(
+        e.c.side_line("dev-b")
+            .starts_with("This device runs the Work side. Cards on Personal"),
+        "{}",
+        e.c.side_line("dev-b")
+    );
+    // A device with no pin runs every side and is told nothing.
+    let e = Env::new();
+    let v = e.c.board(&BoardFilter::default());
+    assert_eq!(v.side_line, "");
 }

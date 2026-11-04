@@ -510,14 +510,14 @@ impl Coord {
 
     /// Every side named anywhere: on a device's pin or on a card.
     pub fn side_names(&self) -> Vec<String> {
+        self.lock().side_names()
+    }
+
+    /// What an agent on `device` is told about sides (card #496); empty
+    /// when it runs every side.
+    pub fn side_line(&self, device: &str) -> String {
         let f = self.lock();
-        let mut out = f.sides.names();
-        for t in f.tasks.values() {
-            if !t.side.is_empty() && !out.iter().any(|o| crate::sides::same(o, &t.side)) {
-                out.push(t.side.clone());
-            }
-        }
-        out
+        crate::sides::agent_line(f.sides.of(device), &f.side_names())
     }
 
     // ---- tasks ----

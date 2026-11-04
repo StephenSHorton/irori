@@ -563,6 +563,9 @@ pub(crate) fn map_err(err: impl Into<ToolErr>) -> String {
                 err_text(&format!(
                     "{e}. The board and leases tools show what exists."
                 ))
+            } else if ce.is(C::NotAllowed) && e.to_string().contains(coord::ASK_THE_PERSON) {
+                // A card on another side (card #496): the refusal says what to do.
+                err_text(&e)
             } else if ce.is(C::NotAllowed) {
                 err_text(&format!(
                     "{e}. show #<n> (or task:<id>) lists its holders and creator; comment on it or message them instead."

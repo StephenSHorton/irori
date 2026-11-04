@@ -1748,7 +1748,9 @@ mod tests {
         t.side = "Personal".into();
         let b = build_brief(&t, &[], &named, &|_| None, None, None, &line);
         assert!(
-            b.text.contains("This device runs the Personal side. Cards on Work are only read here, never taken"),
+            b.text.contains(
+                "This device runs the Personal side. Cards on Work are only read here, never taken"
+            ),
             "{}",
             b.text
         );

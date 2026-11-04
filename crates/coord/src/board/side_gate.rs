@@ -31,6 +31,19 @@ use super::util::{SWEEPER, contains};
 pub const ASK_THE_PERSON: &str = "ask the person";
 
 impl Fold {
+    /// Every side named anywhere: on a device's pin or on a card.
+    pub(crate) fn side_names(&self) -> Vec<String> {
+        let mut out = self.sides.names();
+        let mut cards: Vec<&Task> = self.tasks.values().filter(|t| !t.side.is_empty()).collect();
+        cards.sort_by(|a, b| a.id.cmp(&b.id));
+        for t in cards {
+            if !out.iter().any(|o| crate::sides::same(o, &t.side)) {
+                out.push(t.side.clone());
+            }
+        }
+        out
+    }
+
     /// Refuses agent `by` taking card t (claim or join) when its device
     /// doesn't run t's side and the person didn't ask it to.
     pub(crate) fn check_side_take(&self, by: &str, t: &Task) -> Result<()> {
@@ -41,7 +54,13 @@ impl Fold {
         if self.sides.runs(dev, &t.side) {
             return Ok(());
         }
-        Err(self.side_refusal(t, dev, "your device", "they can assign it to you from the app, start an agent on it, or @-mention you on it"))
+        Err(self.side_refusal(
+            t,
+            dev,
+            "your device",
+            "To take it",
+            "they can assign it to you from the app, start an agent on it, or @-mention you on it",
+        ))
     }
 
     /// Refuses agent `by` assigning card t to `to` when `to`'s device
@@ -61,9 +80,26 @@ impl Fold {
         let whose = if to == by {
             "your device".to_string()
         } else {
-            format!("{to}'s device")
+            let name = self
+                .roster
+                .as_ref()
+                .and_then(|r| r.agents().into_iter().find(|a| a.key == to))
+                .map(|a| a.name)
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or_else(|| "that agent".into());
+            format!("{name}'s device")
         };
-        Err(self.side_refusal(t, dev, &whose, "they can assign it from the app"))
+        Err(self.side_refusal(
+            t,
+            dev,
+            &whose,
+            if to == by {
+                "To take it"
+            } else {
+                "To hand it there"
+            },
+            "they can assign it from the app",
+        ))
     }
 
     /// The person, and Irori itself, aren't held to a side here.
@@ -93,7 +129,7 @@ impl Fold {
         })
     }
 
-    fn side_refusal(&self, t: &Task, dev: &str, whose: &str, how: &str) -> Error {
+    fn side_refusal(&self, t: &Task, dev: &str, whose: &str, lead: &str, how: &str) -> Error {
         let runs = self
             .sides
             .of(dev)
@@ -102,7 +138,7 @@ impl Fold {
         Error::raw(
             ErrorKind::NotAllowed,
             format!(
-                "coord: {} is on the {} side, and {whose} runs only {runs}. Cards on another side are only read here, never taken, unless the person asks: {ASK_THE_PERSON} ({how}).",
+                "coord: {} is on the {} side, and {whose} runs only {runs}: cards on another side are only read here, never taken unless the person asks. {lead}, {ASK_THE_PERSON}: {how}.",
                 t.short_ref(),
                 t.side,
             ),

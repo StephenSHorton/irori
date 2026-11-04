@@ -1410,6 +1410,11 @@ impl Fold {
             gotime::cmp(&a.lease.until, &b.lease.until)
                 .then_with(|| a.lease.resource.cmp(&b.lease.resource))
         });
+        let dev = match irori_identity::owner::device_of(&viewer) {
+            "" => self.dev.as_str(),
+            d => d,
+        };
+        v.side_line = crate::sides::agent_line(self.sides.of(dev), &self.side_names());
         v
     }
 
