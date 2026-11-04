@@ -520,6 +520,36 @@ fn a_leftover_job_of_an_ended_agent_is_removed() {
     assert_eq!(gone_rows(&s, &s.first()), 1);
 }
 
+/// Card #474: an agent the log says Irori ended but that still runs (the
+/// old build's ends all failed, and it went on working) is never stopped
+/// by the reaper.
+#[test]
+fn the_reaper_leaves_a_running_agent_alone() {
+    let s = at_done_check();
+    s.fake.fail.store(usize::MAX, Ordering::SeqCst);
+    past_grace(&s);
+    let tries = irori_core::spawn::END_TRIES as usize;
+    for n in 1..=tries {
+        wait_for(60, "a try", || ends(&s) >= n);
+        skew_by(&s, irori_core::spawn::END_RETRY);
+    }
+    s.fake.fail.store(0, Ordering::SeqCst);
+    let mut sp = spawner(&s.fake, s.r.claude.join("sessions"));
+    let running = sess(1);
+    sp.list = Some(Arc::new(move || {
+        Ok(vec![ClaudeAgent {
+            session_id: running.clone(),
+            live: true,
+        }])
+    }));
+    s.r.core.set_spawner(Some(sp));
+    for _ in 0..2 {
+        skew_by(&s, irori_core::spawn::REAP_EVERY);
+        std::thread::sleep(Duration::from_millis(700));
+    }
+    assert_eq!(ends(&s), tries, "a running agent was stopped");
+}
+
 /// A card the person posts that gets no spawned agent of its own (shared),
 /// for a card to wait on.
 fn other_card(s: &Setup) -> Task {

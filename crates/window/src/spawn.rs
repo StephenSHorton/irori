@@ -319,8 +319,10 @@ fn list_agents_with(bin: &Path) -> Result<Vec<ListedAgent>, String> {
 }
 
 /// Parses `claude agents --json --all`: an array of agents, each with a
-/// `sessionId`; a `--bg` one has an `id` (its job), a running one a `pid`,
-/// and a finished `--bg` one a `state` of done or failed.
+/// `sessionId`; a `--bg` one has an `id` (its job), and a running one a
+/// `pid`. A `state` of done with a `pid` is a session still running, idle
+/// after its turn (card #474: card-396-2 sat like that holding its card),
+/// so only the `pid` says whether it runs.
 pub fn parse_agents(json: &str) -> Result<Vec<ListedAgent>, String> {
     let v: serde_json::Value =
         serde_json::from_str(json.trim()).map_err(|e| format!("claude agents: {e}"))?;
@@ -337,9 +339,7 @@ pub fn parse_agents(json: &str) -> Result<Vec<ListedAgent>, String> {
         .iter()
         .filter_map(|a| {
             let session_id = a.get("sessionId")?.as_str()?.to_string();
-            let state = a.get("state").and_then(|s| s.as_str()).unwrap_or("");
-            let live =
-                a.get("pid").is_some_and(|p| !p.is_null()) && !matches!(state, "done" | "failed");
+            let live = a.get("pid").is_some_and(|p| !p.is_null());
             let job_id = a
                 .get("id")
                 .and_then(|s| s.as_str())
@@ -606,6 +606,7 @@ mod tests {
   {"pid":12301,"cwd":"/h","kind":"interactive","startedAt":2,"sessionId":"e0e01949-5ac0-4312-a44c-85938569a94e","name":"salvia","status":"idle"},
   {"pid":12302,"kind":"background","sessionId":"aa","state":"working","status":"busy"},
   {"kind":"background","sessionId":"bb","state":"done"},
+  {"pid":34422,"id":"28b6946e","kind":"background","sessionId":"cc","status":"idle","state":"done"},
   {"name":"no session"}
 ]"#,
         )
@@ -621,6 +622,8 @@ mod tests {
                 ("e0e01949-5ac0-4312-a44c-85938569a94e", "", true),
                 ("aa", "", true),
                 ("bb", "", false),
+                // Done, but still running, idle: not to be stopped.
+                ("cc", "28b6946e", true),
             ]
         );
         assert_eq!(job_id("6fa86d9b-cbdd-4fd2-9cc1-3252d7f87606"), "6fa86d9b");
