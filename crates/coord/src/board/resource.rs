@@ -104,6 +104,21 @@ pub fn parse_resource(s: &str) -> Result<Resource, Error> {
     ))
 }
 
+/// The prefix of a merge desk's lease (merge-desk.md §5, card #418).
+pub const DESK_PREFIX: &str = "desk/";
+
+/// The merge desk lease for a GitHub repo `owner/name`:
+/// `desk/<owner>/<name>`, lowercased, since a named lease allows no
+/// uppercase.
+pub fn desk_resource(owner_name: &str) -> String {
+    format!("{DESK_PREFIX}{}", trim_space(owner_name).to_lowercase())
+}
+
+/// Whether a canonical lease name is a merge desk's lease.
+pub fn is_desk(name: &str) -> bool {
+    name.starts_with(DESK_PREFIX)
+}
+
 /// `strconv.Atoi`: an optional sign then decimal digits, fitting an int.
 pub(crate) fn go_atoi(s: &str) -> Option<i64> {
     let digits = s.strip_prefix(['+', '-']).unwrap_or(s);

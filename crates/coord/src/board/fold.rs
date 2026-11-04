@@ -67,6 +67,8 @@ pub const REASON_STOLEN: &str = "stolen";
 pub const REASON_HOLDER_GONE: &str = "holder_gone";
 pub const REASON_EXPIRED: &str = "expired";
 pub const REASON_CONFLICT: &str = "conflict";
+/// A desk lease released because the person named another desk holder.
+pub const REASON_DESK_HOLDER_CHANGED: &str = "desk_holder_changed";
 
 /// A task.left reason: Irori took a holder that went away off the card.
 pub const LEFT_GONE: &str = "gone";

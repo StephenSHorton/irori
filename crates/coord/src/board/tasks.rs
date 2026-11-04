@@ -16,7 +16,8 @@ use super::fold::{
 };
 use super::links::{MAX_LINKS, parse_link};
 use super::resource::{
-    RESOURCE_NAMED, check_repo_key, conflicts, normalize_glob, normalize_resource, parse_resource,
+    RESOURCE_NAMED, check_repo_key, conflicts, is_desk, normalize_glob, normalize_resource,
+    parse_resource,
 };
 use super::rows::*;
 use super::types::*;
@@ -581,6 +582,10 @@ impl Fold {
             return Err(invalid("no holder"));
         }
         let res = parse_resource(resource)?;
+        let desk = is_desk(&res.name);
+        if desk {
+            self.desk_may_take(&holder, &res.name, steal)?;
+        }
         let ttl = if ttl.is_zero() { DEFAULT_TTL } else { ttl }.min(MAX_TTL);
         let now = self.stamp();
         self.prune(&now);
@@ -608,10 +613,15 @@ impl Fold {
         if !victims.is_empty() && !steal {
             let v = &victims[0];
             let e = held(format!(
-                "{} is leased by {} until {} (pass steal to take it)",
+                "{} is leased by {} until {}{}",
                 v.0,
                 v.1,
-                v.2.format_rfc3339()
+                v.2.format_rfc3339(),
+                if desk {
+                    " (a merge desk runs one PR at a time; wait for its release)"
+                } else {
+                    " (pass steal to take it)"
+                }
             ));
             let vs: Vec<(String, String, GoTime)> = victims
                 .iter()

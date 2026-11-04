@@ -18,10 +18,11 @@ use gocompat::time::GoTime;
 use serde::Serialize;
 use store::{Event, kinds};
 
-use super::error::{Result, invalid, not_allowed};
+use super::error::{Result, invalid, not_allowed, not_found};
 use super::fold::Fold;
-use super::resource::check_repo_key;
-use super::rows::row;
+use super::fold::REASON_DESK_HOLDER_CHANGED;
+use super::resource::{check_repo_key, desk_resource};
+use super::rows::{LeaseReleasedRow, row};
 use super::util::{SWEEPER, caller};
 use crate::gojson::omit;
 use crate::names::trim_space;
@@ -270,10 +271,13 @@ impl Fold {
                 let Some(p) = row::<DeskRunRow>(&ev.payload) else {
                     return;
                 };
-                // Slice 4 checks the holder and the lease; here, any
-                // non-person row is kept as the latest run.
+                // Only the desk holder's run counts (slice 4); its lease is
+                // checked when the run is read ([`Fold::desk_view`]).
                 let k = p.repo_key.clone();
-                self.desks.entry(k).or_default().run = Some(p);
+                let d = self.desks.entry(k).or_default();
+                if !d.settings.holder.is_empty() && p.by == d.settings.holder {
+                    d.run = Some(p);
+                }
             }
             _ => {}
         }
@@ -318,9 +322,161 @@ impl Fold {
                 return Err(invalid("a check line needs a command"));
             }
         }
+        d.holder = trim_space(&d.holder).to_string();
+        let old = self
+            .desks
+            .get(&d.repo_key)
+            .map(|x| x.settings.holder.clone())
+            .unwrap_or_default();
         d.by = by.clone();
         d.at = self.stamp();
-        self.write(&by, kinds::REPO_DESK, &d)
+        let (repo_key, holder) = (d.repo_key.clone(), d.holder.clone());
+        self.write(&by, kinds::REPO_DESK, &d)?;
+        if old != holder {
+            self.release_desk_lease(&repo_key, &holder)?;
+        }
+        Ok(())
+    }
+
+    /// The desk lease name for a desk's repo, `None` off GitHub.
+    pub(crate) fn desk_lease_of(repo_key: &str) -> Option<String> {
+        github_repo(repo_key).map(|r| desk_resource(&r))
+    }
+
+    /// The desk whose lease is `name`.
+    fn desk_by_lease(&self, name: &str) -> Option<&Desk> {
+        self.desks
+            .values()
+            .find(|d| Fold::desk_lease_of(&d.settings.repo_key).as_deref() == Some(name))
+    }
+
+    /// A merge desk lease is the desk holder's alone, taken while the desk
+    /// is on and not paused, and never stolen (merge-desk.md §5).
+    pub(crate) fn desk_may_take(&self, holder: &str, name: &str, steal: bool) -> Result<()> {
+        if steal {
+            return Err(not_allowed(format!(
+                "{name} is a merge desk's lease and can't be stolen: only the desk holder takes it, one PR at a time"
+            )));
+        }
+        let Some(d) = self.desk_by_lease(name) else {
+            return Err(not_allowed(format!(
+                "{name} is a merge desk lease, and no merge desk is set up for that repo: the person sets one up in the app"
+            )));
+        };
+        if !d.on() {
+            return Err(not_allowed(format!(
+                "{name}: the merge desk is off (the person turns it on in Merge desk settings)"
+            )));
+        }
+        if d.pause.as_ref().is_some_and(|p| p.paused) {
+            return Err(not_allowed(format!(
+                "{name}: the merge desk is paused; the holder takes no lease until the person resumes it"
+            )));
+        }
+        match d.settings.holder.as_str() {
+            "" => Err(not_allowed(format!(
+                "{name}: the merge desk is unheld; the person names a holder in Merge desk settings"
+            ))),
+            h if h == holder => Ok(()),
+            h => Err(not_allowed(format!(
+                "{name} is the merge desk's lease and {} is its holder: only the holder takes it",
+                self.named(h)
+            ))),
+        }
+    }
+
+    /// Releases a desk's live lease held by anyone but `keep` (the holder
+    /// changed: the old holder's run ends).
+    fn release_desk_lease(&mut self, repo_key: &str, keep: &str) -> Result<()> {
+        let Some(name) = Fold::desk_lease_of(repo_key) else {
+            return Ok(());
+        };
+        let now = self.stamp();
+        let Some(l) = self
+            .held
+            .get(&name)
+            .filter(|l| self.live(l, &now) && l.lease.holder != keep)
+            .cloned()
+        else {
+            return Ok(());
+        };
+        if !self.lease_local(&l) {
+            return self.steal(SWEEPER, &l.lease);
+        }
+        self.write(
+            SWEEPER,
+            kinds::LEASE_RELEASED,
+            &LeaseReleasedRow {
+                resource: name,
+                holder: l.lease.holder,
+                reason: REASON_DESK_HOLDER_CHANGED.into(),
+                by: SWEEPER.into(),
+                at: now,
+            },
+        )
+    }
+
+    /// The holder records the PR it runs under the desk lease (`desk.run`):
+    /// it must hold the desk's lease now.
+    pub(crate) fn record_desk_run(
+        &mut self,
+        by: &str,
+        repo_key: &str,
+        pr: i64,
+        head_sha: &str,
+        base_sha: &str,
+    ) -> Result<()> {
+        let by = caller(by)?;
+        let Some(name) = Fold::desk_lease_of(repo_key) else {
+            return Err(invalid(format!("{repo_key} isn't a GitHub repo")));
+        };
+        let now = self.stamp();
+        if !self
+            .held
+            .get(&name)
+            .is_some_and(|l| self.live(l, &now) && l.lease.holder == by)
+        {
+            return Err(not_found(format!(
+                "take the lease {name} first: a merge run is recorded under it"
+            )));
+        }
+        if pr <= 0 {
+            return Err(invalid("pr is the PR's number"));
+        }
+        let head_sha = trim_space(head_sha);
+        if head_sha.is_empty() {
+            return Err(invalid("give head_sha: the PR head the run checks"));
+        }
+        self.write(
+            &by,
+            kinds::DESK_RUN,
+            &DeskRunRow {
+                repo_key: repo_key.into(),
+                pr,
+                head_sha: head_sha.into(),
+                base_sha: trim_space(base_sha).into(),
+                by: by.clone(),
+                at: now,
+            },
+        )
+    }
+
+    /// A desk as the app and tools read it: its run only while the run's
+    /// agent still holds the desk lease (Merging ends with the lease).
+    pub(crate) fn desk_view(&self, d: &Desk) -> Desk {
+        let mut d = d.clone();
+        let now = self.stamp();
+        let live = |run: &DeskRunRow| {
+            Fold::desk_lease_of(&d.settings.repo_key).is_some_and(|name| {
+                self.held
+                    .get(&name)
+                    .is_some_and(|l| self.live(l, &now) && l.lease.holder == run.by)
+            })
+        };
+        if d.run.as_ref().is_some_and(|r| !live(r)) {
+            d.run = None;
+        }
+        d
     }
 
     /// Records the open PRs the poller heard for `repo_key`: writes a
