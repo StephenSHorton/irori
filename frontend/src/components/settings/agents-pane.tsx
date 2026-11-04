@@ -1,8 +1,9 @@
 // AgentsPane is Settings › Agents (card #448, docs/design/spawned-agents.md
 // §10, mockup sa-6), as much of it as part 4 needs: your own board's
 // switch for agents Irori starts per card, and the model and effort they
-// start with. Only you set these, here; no agent's tool can. The rest of
-// sa-6 (permissions, caps, limits, cost) arrives with parts 5, 6 and 12.
+// start with, the idle limit (card #456) and the agents running now. Only
+// you set these, here; no agent's tool can. Caps, the daily limit and
+// today's count and cost wait on part 6 (card #450).
 
 import { useId, useState } from "react"
 
@@ -20,6 +21,8 @@ import {
   type RunningAgent,
 } from "@/lib/agents"
 import { ConfirmButton } from "@/components/common/confirm-button"
+import { SpawnedActions } from "@/components/cards/spawned-actions"
+import { AgentRef } from "@/lib/models"
 
 export function AgentsPane({ open }: { open: boolean }) {
   const { settings: s, error, set } = useAgents(open)
@@ -87,11 +90,35 @@ export function AgentsPane({ open }: { open: boolean }) {
           />
         </div>
       </section>
+      <section className="grid gap-2">
+        <h3 className="text-sm font-medium text-ink">Idle limit</h3>
+        <p className="text-[12.5px] text-muted-foreground">
+          An agent Irori started that waits this long on a question for you
+          writes where it left off and goes. Your answer starts a fresh one.
+        </p>
+        <ChoiceSelect
+          label="Idle limit"
+          size="sm"
+          value={String(s.idleMins)}
+          choices={s.idleChoices.map((m) => ({
+            value: String(m),
+            label: idleLabel(m),
+          }))}
+          onValueChange={(v) => set({ idleMins: Number(v) })}
+          className="w-48 text-[13px]"
+        />
+      </section>
       <RunningSection open={open} />
       <PermissionsSection open={open} />
       {error && <p className="text-[12.5px] text-destructive">{error}</p>}
     </div>
   )
+}
+
+// idleLabel names an idle limit in minutes; 30 is the default.
+export function idleLabel(m: number): string {
+  const n = m % 60 === 0 ? `${m / 60} hour${m === 60 ? "" : "s"}` : `${m} minutes`
+  return m === 30 ? `${n} (default)` : n
 }
 
 // RunningSection lists every agent Irori started that is still running,
@@ -164,6 +191,12 @@ function RunningRow({
       {ending ? (
         <span className="text-xs text-muted-foreground">ending</span>
       ) : starting ? null : r.here ? (
+        <span className="flex items-center gap-1.5">
+        <SpawnedActions
+          who={AgentRef({ key: r.key, name: r.name, status: r.status, live: true, where: "This PC" })}
+          cardId={r.cardId}
+          only={["logs"]}
+        />
         <ConfirmButton
           label="End"
           question={
@@ -179,6 +212,7 @@ function RunningRow({
             onEnded()
           }}
         />
+        </span>
       ) : (
         <span className="text-xs text-muted-foreground" title="End it from the device it runs on">
           on {r.device}
