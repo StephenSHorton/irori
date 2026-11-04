@@ -406,6 +406,9 @@ pub const HANDOFF_WAIT: Duration = Duration::from_secs(120);
 /// card back on the Board and a fresh agent starts with his words.
 pub const DONE_GRACE: Duration = Duration::from_secs(300);
 
+/// Why an ask's agents stopped starting (card #470).
+pub const ASK_CRASHED: &str = "its agent crashed twice in a row: ask again to start another";
+
 /// The line Irori leaves when an agent ends without a hand-off.
 pub const NO_HANDOFF: &str = "The agent Irori started for this card ended without a hand-off: read the thread and Where for what it did.";
 
@@ -848,6 +851,7 @@ impl Services {
         self.end_finished();
         self.sweep_ending();
         self.sweep_permission_waits();
+        self.say_ask_crashes();
         if self.inbox.policy().paused {
             return;
         }
@@ -871,6 +875,32 @@ impl Services {
                 Ok(true) => running += 1,
                 Ok(false) => {}
                 Err(e) => logf(format_args!("spawn {}: {e}", t.short_ref())),
+            }
+        }
+    }
+
+    /// An open ask here whose agents crashed twice in a row (card #470)
+    /// gets no more: its last request is marked failed with why, so the
+    /// thread says it rather than waiting in silence (an open ask can't
+    /// carry a card's crash question). The person asking it
+    /// again starts the count over.
+    fn say_ask_crashes(&self) {
+        let me = self.device.id.as_str();
+        for t in self.open_cards() {
+            let Some(a) = t.open_ask() else {
+                continue;
+            };
+            if a.owner != me || t.spawn_crashes < coord::MAX_SPAWN_CRASHES {
+                continue;
+            }
+            let Some(s) = t.spawn_request().filter(|s| s.op != SPAWN_FAILED) else {
+                continue;
+            };
+            if let Err(e) =
+                self.coord
+                    .end_spawn(SWEEPER, &t.id, s.generation, SPAWN_FAILED, ASK_CRASHED)
+            {
+                logf(format_args!("spawn {}: {e}", t.short_ref()));
             }
         }
     }
@@ -1074,18 +1104,19 @@ impl Services {
                 .unix_nano()
                 .cmp(&a.last_activity.unix_nano())
         });
+        // That agent's own main checkout first: another checkout of the
+        // same repo may never have been trusted.
         live.into_iter().find_map(|a| {
-            let root = self
-                .capture
-                .repo_roots(&a.repo_key)
-                .into_iter()
-                .next()
-                .map(PathBuf::from)
+            let cwd = Path::new(&a.cwd);
+            let root = (!a.cwd.is_empty() && cwd.is_dir())
+                .then(|| crate::helpertree::main_root(cwd))
+                .flatten()
                 .or_else(|| {
-                    let cwd = Path::new(&a.cwd);
-                    (!a.cwd.is_empty() && cwd.is_dir())
-                        .then(|| crate::helpertree::main_root(cwd))
-                        .flatten()
+                    self.capture
+                        .repo_roots(&a.repo_key)
+                        .into_iter()
+                        .next()
+                        .map(PathBuf::from)
                 })?;
             Some((a.repo_key, root.to_string_lossy().into_owned()))
         })
@@ -1273,11 +1304,14 @@ impl Services {
             // limit (§2): it hands off and goes; his answer on the
             // holderless card brings a fresh agent with the answer.
             let limit = self.spawn_setting("").idle_limit();
-            // A thread's agent (card #470): its answer leaves nobody
-            // holding the thread, but it stays for the person's follow-ups
-            // until they resolve it or it has been quiet past the idle
-            // limit; another agent taking the thread over ends it.
-            if let Some(ask) = t.open_ask().filter(|q| q.thread)
+            // An open ask's or thread's agent (card #470). A thread's
+            // answer leaves nobody holding it, but its agent stays for the
+            // person's follow-ups; a plain ask's agent holds it until it is
+            // closed. Either goes once it is idle and the ask has been
+            // quiet past the idle limit (the person's reply, or asking
+            // again, brings a fresh one), or when the ask went to someone
+            // else.
+            if let Some(ask) = t.open_ask()
                 && !coord::is_terminal(&t.state)
             {
                 let quiet_since = self
@@ -1286,11 +1320,16 @@ impl Services {
                     .unwrap_or_default()
                     .iter()
                     .map(|c| c.at)
-                    .chain(std::iter::once(m.at))
+                    .chain([m.at, a.last_activity])
                     .max_by_key(|at| at.unix_nano())
                     .unwrap_or(m.at);
-                let other = !ask.taker.is_empty() && ask.taker != a.key;
-                if other || at_least(&now, &quiet_since, limit) {
+                let lost = if ask.thread {
+                    !ask.taker.is_empty() && ask.taker != a.key
+                } else {
+                    ask.taker != a.key
+                };
+                let quiet = a.status == "idle" && at_least(&now, &quiet_since, limit);
+                if lost || quiet {
                     self.begin_end(&a.key);
                 }
                 continue;
@@ -1341,9 +1380,14 @@ impl Services {
             Some(a) if a.thread => format!(
                 "Irori is ending you: the thread {short} is resolved or has gone quiet. If there's anything the person should still know, say it in the thread (board_comment {short}). Then stop."
             ),
-            Some(a) if a.is_open() || t.as_ref().is_some_and(|t| coord::is_terminal(&t.state)) => {
+            // Closed as a card, it is card work: the card's hand-off below.
+            Some(a)
+                if a.outcome
+                    .as_ref()
+                    .is_none_or(|o| o.kind != coord::OUTCOME_CARD) =>
+            {
                 format!(
-                    "Irori is ending you: the ask {short} is closed. If you haven't, leave a closing comment on {short} (board_comment) with what it became. Then stop."
+                    "Irori is ending you: your part in the ask {short} is done (it was closed, went to another agent, or has gone quiet). If you haven't, leave a closing comment on {short} (board_comment) with where it stands. Then stop."
                 )
             }
             _ => format!(

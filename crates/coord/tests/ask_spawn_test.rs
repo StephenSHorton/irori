@@ -155,6 +155,21 @@ fn an_opted_in_idle_agent_still_takes_it_first() {
 }
 
 #[test]
+fn an_agent_offered_cards_after_it_was_listed_still_takes_it_first() {
+    let mut e = Env::new();
+    let r = rig(&mut e, &[]);
+    let agents = vec![idle(BOB, 20)];
+    let tk = post(&e, "Is CI green?", true, &agents);
+    assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&tk.id));
+    // Bob turns "Offer it cards" on before the spawn pass asks for one.
+    r.offered.write().unwrap().insert(BOB.into());
+    e.c.sweep_asks(&agents).unwrap();
+    assert_eq!(ask_of(&e, &tk.id).taker, BOB);
+    assert!(e.c.cards_to_spawn().is_empty());
+    assert_eq!(e.c.request_spawn(SWEEPER_KEY, sask(&tk.id)).unwrap(), None);
+}
+
+#[test]
 fn a_plain_ask_spawned_for_is_closed_by_its_agent() {
     let mut e = Env::new();
     let _r = rig(&mut e, &[]);
@@ -267,4 +282,33 @@ fn a_crashing_agent_stops_its_asks_spawns_after_two() {
         e.c.sweep_asks(&[]).unwrap();
     }
     assert!(e.c.cards_to_spawn().is_empty(), "crashed twice: stops");
+}
+
+#[test]
+fn an_agent_irori_ended_is_no_crash_and_the_ask_waits_for_the_person() {
+    let mut e = Env::new();
+    let _r = rig(&mut e, &[]);
+    let tk = post(&e, "Should we drop Windows 10?", false, &[]);
+    let g =
+        e.c.request_spawn(SWEEPER_KEY, sask(&tk.id))
+            .unwrap()
+            .unwrap();
+    let key = "dev-a/spawned-1";
+    e.ros.set(key, "idle");
+    assert!(e.c.bind_spawn(&tk.id, g, key).unwrap());
+    e.c.sweep_asks(&[]).unwrap();
+    // Irori ends it (it went quiet), then it is gone from presence.
+    e.c.mark_ended(key, fixed_now());
+    e.ros.set(key, "");
+    e.c.sweep_asks(&[]).unwrap();
+    e.clk.add(mins(10));
+    e.c.sweep_asks(&[]).unwrap();
+    let t = e.c.get_task(&tk.id).unwrap();
+    assert!(t.ask.as_ref().unwrap().taker.is_empty(), "{t:?}");
+    assert_eq!(t.spawn_crashes, 0, "ended by Irori, not crashed");
+    assert!(e.c.cards_to_spawn().is_empty(), "waits for the person");
+    // The person writes on it: a fresh agent.
+    e.c.add_comment(USER, &tk.id, "Any thoughts?", false)
+        .unwrap();
+    assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&tk.id));
 }

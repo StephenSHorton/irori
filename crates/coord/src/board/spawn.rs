@@ -483,6 +483,30 @@ impl Fold {
         self.spawning.as_ref().is_some_and(|f| f())
     }
 
+    /// Whether ask t waits for the person before Irori starts another
+    /// agent for it (card #470): Irori ended the last one it started (it
+    /// went quiet, or the app restarted under it), and the person hasn't
+    /// written on it or asked again since. Without this an ask nobody
+    /// answers would get a fresh agent every idle limit.
+    pub(crate) fn ask_resting(&self, t: &Task) -> bool {
+        let Some(a) = t.open_ask() else {
+            return false;
+        };
+        let Some(s) = t.spawn_request() else {
+            return false;
+        };
+        if s.key.is_empty() || !self.ended_by_irori.contains(&s.key) {
+            return false;
+        }
+        if a.reason == super::asks::TAKE_REOPENED {
+            return false;
+        }
+        !self
+            .comments
+            .values()
+            .any(|c| c.task_id == t.id && self.is_person(&c.by) && !gotime::before(&c.at, &s.at))
+    }
+
     /// The cards this device hands out that need an agent and have none
     /// starting, oldest first; none while the board doesn't spawn.
     pub(crate) fn cards_to_spawn(&self) -> Vec<Task> {
@@ -497,6 +521,7 @@ impl Fold {
                 (super::offers::needs_agent(t) && self.hands_out(t)) || self.ask_needs_agent(t)
             })
             .filter(|t| t.spawn_crashes < MAX_SPAWN_CRASHES)
+            .filter(|t| !self.ask_resting(t))
             .filter(|t| !self.waits_for_lead(t))
             .filter(|t| {
                 t.spawn_request()

@@ -370,14 +370,16 @@ impl Fold {
                 let was = a.taker.clone();
                 let was_handed = a.handed;
                 // An agent Irori started for this ask went away holding it
-                // (card #470): it crashed, as a card's does; the person
-                // asking again starts the count over.
+                // (card #470): it crashed, as a card's does, unless Irori
+                // ended it (finished, as LEFT_FINISHED is for a card); the
+                // person asking again starts the count over.
                 let gone_was = cmp_or_dev(&p.was, &was).to_string();
                 if p.reason == TAKE_GONE
                     && self
                         .spawned
                         .get(&gone_was)
                         .is_some_and(|m| m.task_id == p.task_id)
+                    && !self.ended_by_irori.contains(&gone_was)
                 {
                     t.spawn_crashes += 1;
                 } else if p.reason == TAKE_REOPENED {
@@ -1387,7 +1389,9 @@ impl Fold {
                 }
                 // An agent Irori starts for it is on its way (card #470):
                 // nobody else is handed it meanwhile, as for a card.
-                if t.spawn_pending() {
+                if t.spawn_request()
+                    .is_some_and(|s| s.pending() && !s.stale(&now))
+                {
                     again.remove(id);
                     continue;
                 }
