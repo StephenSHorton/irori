@@ -279,6 +279,11 @@ impl Fold {
         if engaged(t, &who) && t.state != SUBMITTED {
             return Ok(t.clone());
         }
+        // The person may add anyone; an agent joining on its own keeps to
+        // its device's sides (card #496).
+        if by == who {
+            self.check_side_take(&who, t)?;
+        }
         let at = self.stamp();
         self.write(
             &by,

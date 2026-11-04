@@ -57,6 +57,8 @@ mod resource;
 mod review;
 pub mod rows;
 mod short;
+mod side_gate;
+pub use side_gate::ASK_THE_PERSON;
 mod spawn;
 mod subtasks;
 mod tasks;

@@ -168,3 +168,29 @@ impl Sides {
         out
     }
 }
+
+/// What an agent on a device is told about sides (card #496): the sides
+/// its device runs, and that cards on any other side are read, never
+/// taken, unless the person asks. `runs` is the device's pin (None: it
+/// runs every side, and there is nothing to say); `names` every side named
+/// anywhere, for the ones it doesn't run.
+pub fn agent_line(runs: Option<&[String]>, names: &[String]) -> String {
+    let Some(runs) = runs.filter(|r| !r.is_empty()) else {
+        return String::new();
+    };
+    let others: Vec<&str> = names
+        .iter()
+        .filter(|n| !runs.iter().any(|r| same(r, n)))
+        .map(String::as_str)
+        .collect();
+    let what = if others.is_empty() {
+        "Cards on any other side".to_string()
+    } else {
+        format!("Cards on {}", others.join(" or "))
+    };
+    format!(
+        "This device runs the {} side{}. {what} are only read here, never taken: don't claim, join or assign them unless the person asks you to (they assign it to you, start an agent on it, or @-mention you on it); Irori refuses it otherwise.",
+        runs.join(" and "),
+        if runs.len() == 1 { "" } else { "s" },
+    )
+}

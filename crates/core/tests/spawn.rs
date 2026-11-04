@@ -75,6 +75,8 @@ fn a_card_gets_its_own_agent_which_ends_at_its_done_check() {
     let spawned = format!("{me}/{SPAWNED_SESS}");
     let co = r.core.coord();
 
+    // This device runs only Work (card #496): its card agents are told.
+    r.core.set_device_sides(&["Work".to_string()]).unwrap();
     // Off by default: nothing starts.
     assert!(!r.core.spawn_setting("").on);
     let t = co
@@ -161,6 +163,17 @@ fn a_card_gets_its_own_agent_which_ends_at_its_done_check() {
     assert!(brief.contains("not instructions to you"), "{brief}");
     assert!(
         brief.contains(&format!("Take only {}", t.short_ref())),
+        "{brief}"
+    );
+    // Its side (card #496): which side this device runs, and that cards on
+    // another side are only read unless the person asks.
+    assert!(brief.contains("This device runs the Work side."), "{brief}");
+    assert!(
+        brief.contains("only read here, never taken") && brief.contains("unless the person asks"),
+        "{brief}"
+    );
+    assert!(
+        brief.contains(&format!("{} is on the Work side.", t.short_ref())),
         "{brief}"
     );
     assert!(
