@@ -285,7 +285,11 @@ fn notes_waiting_against_notes_list_timing() {
         best
     };
     // What the IPC reply carried: the views as JSON.
-    let before = best(&|| serde_json::to_vec(&w.notes_list("", false).unwrap()).unwrap().len());
+    let before = best(&|| {
+        serde_json::to_vec(&w.notes_list("", false).unwrap())
+            .unwrap()
+            .len()
+    });
     let bytes = serde_json::to_vec(&list).unwrap().len();
     let after = best(&|| w.notes_waiting().unwrap());
     eprintln!(
