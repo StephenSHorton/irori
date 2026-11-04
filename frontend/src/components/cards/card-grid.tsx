@@ -41,6 +41,7 @@ import {
   HolderLine,
   ProgressBar,
   OwnerChip,
+  PrChip,
   ScopeBadge,
   ShortRef,
   Spinner,
@@ -544,6 +545,7 @@ function CardTile({
         <StatePill card={card} />
         <ScopeBadge card={card} />
         <OwnerChip card={card} />
+        <PrChip card={card} />
         {card.working.some((w) => w.conflict) && (
           <Badge
             variant="warning"

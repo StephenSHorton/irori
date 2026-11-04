@@ -5,12 +5,18 @@
 
 import { useCallback, useEffect, useState } from "react"
 
-import type { AgentsChange, AgentsSettings, RunningAgent } from "../gen/bindings"
+import type {
+  AgentsChange,
+  AgentsSettings,
+  RunningAgent,
+  TermInfo,
+  TrustedRepo,
+} from "../gen/bindings"
 import { AgentsService } from "./host"
 import { inWails } from "./irori"
 import { previewFlag } from "./preview"
 
-export type { AgentsSettings, RunningAgent }
+export type { AgentsSettings, RunningAgent, TrustedRepo }
 
 // sampleAgents is the preview's private board: chosen and on, or with
 // ?spawn=first on by default and not yet chosen, so Home shows the
@@ -18,7 +24,7 @@ export type { AgentsSettings, RunningAgent }
 export function sampleAgents(): AgentsSettings {
   return {
     boardId: "",
-    on: true,
+    on: previewFlag("spawn") !== "off",
     chosen: previewFlag("spawn") !== "first",
     model: "sonnet",
     effort: "medium",
@@ -26,6 +32,8 @@ export function sampleAgents(): AgentsSettings {
     efforts: ["low", "medium", "high", "xhigh", "max"],
     defaultModel: "sonnet",
     defaultEffort: "medium",
+    idleMins: 30,
+    idleChoices: [10, 30, 60, 120, 240],
   }
 }
 
@@ -58,6 +66,13 @@ export const modelLabel = (v: string, def: string) =>
 export const effortLabel = (v: string, def: string) =>
   choiceLabel(v, effortNames, def)
 
+// idleLabel names an idle limit in minutes, marking the default.
+export function idleLabel(m: number, def = 30): string {
+  const n =
+    m % 60 === 0 ? `${m / 60} hour${m === 60 ? "" : "s"}` : `${m} minutes`
+  return m === def ? `${n} (default)` : n
+}
+
 // useAgents loads a board's settings while open and saves a change,
 // keeping the last good settings when a save fails.
 export function useAgents(open: boolean, boardId = "") {
@@ -83,6 +98,7 @@ export function useAgents(open: boolean, boardId = "") {
         on: c.on ?? null,
         model: c.model ?? null,
         effort: c.effort ?? null,
+        idleMins: c.idleMins ?? null,
       }
       if (!inWails()) {
         setS((x) =>
@@ -93,6 +109,7 @@ export function useAgents(open: boolean, boardId = "") {
                 chosen: x.chosen || c.on != null,
                 model: c.model ?? x.model,
                 effort: c.effort ?? x.effort,
+                idleMins: c.idleMins ?? x.idleMins,
               }
             : x,
         )
@@ -106,6 +123,52 @@ export function useAgents(open: boolean, boardId = "") {
     [boardId],
   )
   return { settings: s, error, set }
+}
+
+// sampleTrusted is the preview's repos on this computer, one not trusted.
+export function sampleTrusted(): TrustedRepo[] {
+  const row = (label: string, trusted: boolean): TrustedRepo => {
+    const folder = `C:/Users/you/projects/${label}`
+    return {
+      repoKey: `remote:github.com/sample-org/${label}`,
+      label,
+      folder,
+      trusted,
+      what: `Claude Code will run agents in ${folder} on this computer without asking you first. It's the trust Claude Code asks for the first time you open a folder.`,
+    }
+  }
+  return [row("app-repo", false), row("game-repo", true)]
+}
+
+// useTrusted loads this computer's repos and whether each is trusted for
+// agents (card #456, sa-6) while open; trust records one after the
+// person's confirm, and throws its error for the confirm to show.
+export function useTrusted(open: boolean) {
+  const [rows, setRows] = useState<TrustedRepo[]>(() =>
+    inWails() ? [] : sampleTrusted(),
+  )
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    AgentsService.Trusted().then(
+      (v) => live && (setRows(v), setError("")),
+      (e: Error) => live && setError(e.message),
+    )
+    return () => {
+      live = false
+    }
+  }, [open])
+  const trust = useCallback(async (repoKey: string) => {
+    if (!inWails()) {
+      setRows((rs) =>
+        rs.map((r) => (r.repoKey === repoKey ? { ...r, trusted: true } : r)),
+      )
+      return
+    }
+    setRows(await AgentsService.TrustRepo(repoKey))
+  }, [])
+  return { rows, error, trust }
 }
 
 // endAgent ends an agent Irori started (card #448): its hand-off on the
@@ -122,6 +185,39 @@ export async function setAgentOffer(key: string, on: boolean): Promise<void> {
   if (!inWails()) return
   await AgentsService.OfferSet(key, on)
 }
+
+// TermOpened is the event Attach raises once a card's terminal has a new
+// tab (card #456): the card page's Terminal section shows it.
+export const TermOpened = "irori:term-opened"
+export type TermOpenedDetail = { cardId: string; term: TermInfo }
+
+// attachAgent opens a tab in the agent's card terminal running `claude
+// attach` (card #456, sa-2): typing there talks to it, and it stays
+// spawned. The preview has no terminals, so it only says what would open.
+export async function attachAgent(key: string, cardId: string): Promise<void> {
+  if (!inWails()) return
+  const term = await AgentsService.Attach(key, 100, 24)
+  window.dispatchEvent(
+    new CustomEvent<TermOpenedDetail>(TermOpened, { detail: { cardId, term } }),
+  )
+}
+
+// agentLogs is a spawned agent's recent terminal output, read only.
+export async function agentLogs(key: string): Promise<string> {
+  if (!inWails()) return sampleLogs
+  return AgentsService.Logs(key)
+}
+
+const sampleLogs = [
+  "● Read src/world/lantern.rs (212 lines)",
+  "● The flicker comes from two timers: tick_light() and the dock's day/night fade both write alpha.",
+  "● Update(src/world/lantern.rs)",
+  "  ⎿ Updated with 9 additions and 14 removals",
+  "● Bash(cargo test -p game lantern)",
+  "  ⎿ test result: ok. 12 passed; 0 failed",
+  "● irori - board_step (MCP)(task_id: 58, step: 3, state: done)",
+  "✻ Checking the night scene for the second flicker…",
+].join("\n")
 
 // sampleRunning is the preview's Running agents list: two working, one
 // on another device, one starting.

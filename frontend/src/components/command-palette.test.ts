@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { BoardSummary, CardSummary } from "@/lib/models"
+import { AgentCard, AgentRef, BoardSummary, CardSummary } from "@/lib/models"
 import { buildItems, isRef, paletteOpenKey, results } from "./command-palette"
 
 const noop = () => {}
@@ -45,6 +45,41 @@ describe("results", () => {
     const seen: string[] = []
     for (const g of groups) if (seen.at(-1) !== g) seen.push(g)
     expect(new Set(seen).size).toBe(seen.length)
+  })
+})
+
+describe("agents on cards (card #456)", () => {
+  const opened: string[] = []
+  const rows = buildItems({
+    commands: [],
+    cards: [
+      CardSummary({
+        id: "c58",
+        short: "58",
+        title: "Lantern flicker on the dock",
+        working: [AgentRef({ key: "pc/thyme", name: "thyme", status: "busy", spawned: true })],
+      }),
+    ],
+    boards: [],
+    agents: [
+      AgentCard({ key: "pc/thyme", name: "thyme", status: "busy" }),
+      AgentCard({ key: "pc/juniper", name: "juniper", status: "idle" }),
+    ],
+    onCard: (id) => opened.push(id),
+    onBoard: noop,
+    onAgent: noop,
+  })
+  test("a spawned agent sits under its card and opens it", () => {
+    const t = rows.find((i) => i.key === "agent:pc/thyme")!
+    expect([t.group, t.hint]).toEqual(["Agents on cards", "on #58 Lantern flicker on the dock"])
+    t.run()
+    expect(opened).toEqual(["c58"])
+  })
+  test("a terminal agent stays in Agents", () => {
+    expect(rows.find((i) => i.title === "juniper")?.group).toBe("Agents")
+  })
+  test("its card's ref finds it", () => {
+    expect(results(rows, "lantern", []).map((i) => i.key)).toContain("agent:pc/thyme")
   })
 })
 

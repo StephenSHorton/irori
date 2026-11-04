@@ -65,10 +65,13 @@ import {
   blockerChip,
   blockerTone,
   heardLine,
+  isWait,
   LiveRoster,
   StartAgentOn,
 } from "@/lib/thread"
-import { endAgent } from "@/lib/agents"
+import { SpawnedActions } from "@/components/cards/spawned-actions"
+import { AskedAgain, blockerOutcome } from "@/lib/notifications"
+import { EarlierRound, SentBackSigns } from "./done-rounds"
 import { cn } from "@/lib/utils"
 import {
   AskLine,
@@ -76,11 +79,13 @@ import {
   HolderLine,
   ProgressBar,
   OwnerChip,
+  PrChip,
   ScopeBadge,
   ShortRef,
   Spinner,
   StatePill,
   waitLabel,
+  Asker,
 } from "./bits"
 import { WakeNotes } from "@/components/notes/parts"
 import { Face, LiveDot } from "./faces"
@@ -221,7 +226,9 @@ export function CardPage({
     detail.prs.map((pr) => `${LinkKind.LinkURL}:${pr.url}`)
   )
   for (const b of open) {
-    for (const l of b.links ?? []) shownLinks.add(`${l.kind}:${l.ref}`)
+    // A wait's line shows no links: they stay in the side list.
+    if (!isWait(b))
+      for (const l of b.links ?? []) shownLinks.add(`${l.kind}:${l.ref}`)
     for (const o of b.options)
       if (o.link) shownLinks.add(`${o.link.kind}:${o.link.ref}`)
   }
@@ -358,7 +365,7 @@ export function CardPage({
                     <ToldLine told={answered.told} raiser={answered.to} />
                   </div>
                 )}
-                {blockers.map((b) => (
+                {blockers.filter((b) => !isWait(b)).map((b) => (
                   <BlockerItem
                     key={b.id}
                     cardId={detail.id}
@@ -374,6 +381,9 @@ export function CardPage({
                       })
                     }
                   />
+                ))}
+                {blockers.filter(isWait).map((b) => (
+                  <WaitItem key={b.id} cardId={detail.id} blocker={b} onOpen={onOpen} />
                 ))}
               </Section>
             )}
@@ -802,6 +812,7 @@ function PageHeader({
         {spinning && <Spinner />}
         <ScopeBadge card={card} />
         <OwnerChip card={card} />
+        <PrChip card={card} />
         {card.repoKey && (
           <span className="font-mono" title={card.repoKey}>
             {shortRepo(card.repoKey)}
@@ -1609,7 +1620,9 @@ function BlockerItem({
             replying
               ? "Say more, or describe another option"
               : b.doneCheck
-                ? "Or say why it isn't done; it goes back to the agent"
+                ? b.goneAgent
+                  ? "Or say why it isn't done; the next agent on it gets it"
+                  : "Or say why it isn't done; it goes back to the agent"
                 : b.options.length
                   ? "Or answer in your own words"
                   : "Answer in your own words"
@@ -1646,7 +1659,9 @@ function BlockerItem({
   ) : null
 
   const by = r
-    ? r.closed
+    ? b.doneCheck && r.note === AskedAgain
+      ? blockerOutcome(b)
+      : r.closed
       ? `closed by ${name(r.by)}${r.answer ? `: “${gist(r.answer)}”` : ""}`
       : r.note
         ? `resolved by ${name(r.by)}: “${gist(r.note)}”`
@@ -1687,6 +1702,7 @@ function BlockerItem({
           "border-border bg-muted/50 opacity-85"
       )}
     >
+      {!b.doneCheck && <Asker who={b.raisedBy} className="-mb-1.5" />}
       <div className="flex flex-wrap items-center gap-1.5 text-[13.5px] font-semibold text-ink">
         {r && (
           <Button
@@ -1716,7 +1732,13 @@ function BlockerItem({
           </Badge>
         )}
       </div>
+      {b.doneCheck && <EarlierRound blocker={b} />}
       {b.doneCheck && <AttachmentList attachments={b.attachments ?? []} />}
+      {b.doneCheck && b.previous && b.context && (
+        <span className="text-[11.5px] font-medium text-muted-foreground">
+          New proof
+        </span>
+      )}
       {b.context && (
         <RichText text={b.context} className="text-[12.5px] text-ink-2" />
       )}
@@ -1732,8 +1754,11 @@ function BlockerItem({
         </div>
       )}
       {!b.doneCheck && <AttachmentList attachments={b.attachments ?? []} />}
+      {!r && b.goneAgent && <GoneRaiser cardId={cardId} who={b.goneAgent} />}
       <div className="text-[11.5px] text-muted-foreground">
-        Raised by {name(b.raisedBy)} ·{" "}
+        {/* A question names its asker above it (Asker); a done check
+            says here who raised it. */}
+        {b.doneCheck && <>Raised by {name(b.raisedBy)} · </>}
         <time dateTime={raised?.toISOString()} title={raised?.toLocaleString()}>
           {relativeTime(raised, now)}
         </time>
@@ -1741,6 +1766,7 @@ function BlockerItem({
         {b.decider && !r && ` · for ${name(b.decider)} to decide`}
         {by && ` · ${by}`}
       </div>
+      <SentBackSigns blocker={b} />
       {b.thread.length > 0 ? (
         <Thread
           compact
@@ -2026,15 +2052,23 @@ function People({ detail, gone }: { detail: CardDetail; gone: GoneSession[] }) {
                   </span>
                 )
               ) : (
-                <>
-                  <PersonStatus card={detail} who={w} />
-                  {w.spawned && <EndAgent who={w} />}
-                </>
+                <PersonStatus card={detail} who={w} />
               )
             ) : (
               <span>watching</span>
             )}
           </span>
+          {role === "working" && w.spawned && !w.assigned && w.status !== "gone" && (
+            // Card #456 (sa-2): an agent Irori started for this card, with
+            // its device and Attach, Logs, Stop, End. No Revive: a fresh
+            // agent picks the card up from Where and Left off.
+            <div className="col-span-3 grid gap-1 pl-[30px]">
+              <span className="text-xs text-muted-foreground">
+                Irori started it for this card
+              </span>
+              {!over(detail) && <SpawnedActions who={w} cardId={detail.id} />}
+            </div>
+          )}
           {role === "working" && w.assigned && w.handoff && (
             <p className="col-span-3 pl-[30px] text-xs break-words whitespace-pre-wrap text-muted-foreground">
               Hand-off note: {w.handoff}
@@ -2045,6 +2079,120 @@ function People({ detail, gone }: { detail: CardDetail; gone: GoneSession[] }) {
       {waits.map((w) => (
         <WaitRow key={w.id} wait={w} />
       ))}
+    </div>
+  )
+}
+
+// WaitItem is a blocker that waits on other work (card #481): a card, a
+// lease, an agent or something outside. It ends by itself or by whoever
+// does that work, so it is a grey line naming what it waits on, linked
+// when it's a card, with nothing to answer and outside the red count.
+// Stop waiting closes it, for a wait that will never end (a loop of
+// cards waiting on each other, or one nobody is on).
+function WaitItem({
+  cardId,
+  blocker: b,
+  onOpen,
+}: {
+  cardId: string
+  blocker: CardBlocker
+  onOpen?: (id: string) => void
+}) {
+  const w = b.waitsOn
+  if (!w) return null
+  const card = w.taskId
+  // The agent it waits on is gone and nobody holds the card (card #485):
+  // nothing moves it, so it is amber and can be handed to a new agent.
+  const gone = !!b.goneAgent
+  return (
+    <div
+      className={cn(
+        "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-0.5 rounded-lg border px-3 py-2",
+        gone ? "border-warning/40 bg-warning/10" : "border-border bg-muted/30",
+      )}
+      aria-label={`Waiting on ${w.label}${gone ? " (gone)" : ""}`}
+    >
+      <div className="min-w-0 text-[13px] text-muted-foreground">
+        Waiting on{" "}
+        {card ? (
+          <button
+            type="button"
+            className="text-ink underline-offset-2 hover:underline disabled:no-underline"
+            disabled={!onOpen}
+            onClick={() => onOpen?.(card)}
+          >
+            <span className="font-mono">{plainLine(w.label)}</span>
+            {w.title && <> {plainLine(w.title)}</>}
+          </button>
+        ) : (
+          <span className="text-ink">
+            <RichLine text={w.label} />
+          </span>
+        )}
+        {gone && <span className="font-medium text-warning"> (gone)</span>}
+      </div>
+      <span className="row-span-2 flex items-start gap-1.5">
+        {b.goneAgent && <HandOnButton cardId={cardId} who={b.goneAgent} />}
+        <ConfirmButton
+          label="Stop waiting"
+          variant="outline"
+          question={`Stop waiting on ${plainLine(w.label)}? The card no longer waits on it, and whoever is on it hears.`}
+          confirmLabel="Stop waiting"
+          onConfirm={async () => {
+            await cards.resolveBlocker(cardId, b.id, `Stopped waiting on ${plainLine(w.label)}`)
+          }}
+        />
+      </span>
+      {b.question && (
+        <div className="min-w-0 text-xs text-muted-foreground">
+          {plainLine(b.question)}
+        </div>
+      )}
+      {b.context && (
+        <div className="col-span-2 min-w-0 text-xs text-muted-foreground">
+          <RichLine text={b.context} />
+        </div>
+      )}
+      {gone && (
+        <div className="col-span-2 min-w-0 text-xs text-muted-foreground">
+          Nobody holds this card, so nothing will move it.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// HandOnButton is "Hand to an agent" (card #485) on an item whose agent is
+// gone, on a card nobody holds: the card goes back on the Board with what
+// was open said on it, and Irori starts an agent for it.
+function HandOnButton({ cardId, who }: { cardId: string; who: AgentRef }) {
+  return (
+    <ConfirmButton
+      label="Hand to an agent"
+      variant="outline"
+      question={`Hand this card to a new agent? ${displayName(who)} is gone. Its open items close and are said on the card, and Irori starts an agent for it, or the next free agent takes it.`}
+      confirmLabel="Hand to an agent"
+      onConfirm={() => cards.handOn(cardId)}
+    />
+  )
+}
+
+// GoneRaiser is the amber line under an item whose agent is gone on a card
+// nobody holds (card #485): an answer still reaches someone, the agent the
+// card goes to next.
+function GoneRaiser({ cardId, who }: { cardId: string; who: AgentRef }) {
+  return (
+    <div
+      className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[12.5px] text-foreground"
+      role="status"
+    >
+      <span className="min-w-0">
+        <span className="font-medium text-warning">
+          Waiting on {displayName(who)} (gone)
+        </span>
+        . Nobody holds this card: your answer goes to the agent it goes to next.
+      </span>
+      <HandOnButton cardId={cardId} who={who} />
     </div>
   )
 }
@@ -2083,32 +2231,6 @@ function PersonStatus({ card, who }: { card: CardDetail; who: AgentRef }) {
     )
   if (over(card)) return null
   return <span>on it</span>
-}
-
-// EndAgent ends an agent Irori started for this card (card #448, sa-2):
-// it writes its hand-off on the card first, then Irori stops and removes
-// it. Only on the device it runs on, until part 11.
-function EndAgent({ who }: { who: AgentRef }) {
-  const [done, setDone] = useState(false)
-  if (done) return <span>ending</span>
-  if (who.where !== "This PC")
-    return <span title="End it from the device it runs on">started by Irori</span>
-  return (
-    <ConfirmButton
-      label="End"
-      question={
-        <>
-          End {name(who)}? It writes where it left off on this card first,
-          then Irori stops it and removes its session.
-        </>
-      }
-      confirmLabel="End"
-      onConfirm={async () => {
-        await endAgent(who.key)
-        setDone(true)
-      }}
-    />
-  )
 }
 
 // Revive runs claude --bg --resume for a gone agent's session after a

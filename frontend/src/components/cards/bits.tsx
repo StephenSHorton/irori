@@ -1,4 +1,4 @@
-import { UserIcon } from "lucide-react"
+import { ExternalLinkIcon, UserIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { useBoards } from "@/lib/boards"
@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import {
   askLine,
   AskState,
+  cards as cardsApi,
   displayName,
   Holding,
   idleUnnamed,
@@ -20,6 +21,7 @@ import {
   type CardSummary,
 } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
+import { prChip } from "@/lib/needs"
 import { cardOwner, type OwnerCard } from "@/lib/owners"
 
 // Tone is a card's status colour, shared by its state chip and its progress
@@ -226,7 +228,9 @@ export function holderText(h: CardHolder): string {
     case Holding.HoldOffline:
       return `${who}${more} · its device is offline`
     case Holding.HoldGone:
-      return `${who}${more} · gone`
+      // An agent Irori started ends when its work is done (card #456,
+      // spawned agents §10): finished, not lost.
+      return h.who.spawned ? `${who}${more} · agent finished` : `${who}${more} · gone`
   }
   return who
 }
@@ -245,10 +249,11 @@ export function HolderLine({
   returned?: AgentRef | null
   className?: string
 }) {
+  const finished = holder.state === Holding.HoldGone && !!holder.who.spawned
   const warn =
-    !!returned ||
+    (!!returned && !returned.spawned) ||
     holder.state === Holding.HoldWaiting ||
-    holder.state === Holding.HoldGone ||
+    (holder.state === Holding.HoldGone && !finished) ||
     holder.state === Holding.HoldSilent ||
     holder.state === Holding.HoldOffline
   return (
@@ -267,7 +272,9 @@ export function HolderLine({
       )}
       <span className="truncate">
         {returned && holder.state === Holding.HoldNobody
-          ? `Nobody on it: ${displayName(returned)} went away`
+          ? returned.spawned
+            ? `Nobody on it: ${displayName(returned)} finished`
+            : `Nobody on it: ${displayName(returned)} went away`
           : holderText(holder)}
       </span>
     </span>
@@ -321,6 +328,39 @@ export function ScopeBadge({ card }: { card: CardSummary }) {
   return (
     <Badge variant="outline" className="font-normal text-muted-foreground">
       {plainLine(card.scopeLabel) || "My devices"}
+    </Badge>
+  )
+}
+
+// PrChip is the small "waits on PR #N" an in-review card shows on itself
+// (card #471): one click opens the PR. Tiles and rows are buttons, so it is
+// a link-role span that keeps its click to itself.
+export function PrChip({ card }: { card: CardSummary }) {
+  const c = prChip(card)
+  if (!c) return null
+  const open = () => void cardsApi.openURL(c.url)
+  return (
+    <Badge
+      variant="warning"
+      role="link"
+      tabIndex={0}
+      data-pr={c.url}
+      title={c.title}
+      className="cursor-pointer gap-1 font-normal hover:underline"
+      onClick={(e) => {
+        e.stopPropagation()
+        e.preventDefault()
+        open()
+      }}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return
+        e.stopPropagation()
+        e.preventDefault()
+        open()
+      }}
+    >
+      {c.text}
+      <ExternalLinkIcon aria-hidden />
     </Badge>
   )
 }
@@ -420,4 +460,15 @@ export function waitLabel(card: {
   const n = card.waitingOn ?? 0
   const on = card.waitOn ? `Waiting on ${plainLine(card.waitOn)}` : "Waiting"
   return n > 1 ? `${on} +${n - 1}` : on
+}
+
+// Asker names who asks a blocker's question, above it (card #491): the
+// person clicks its options, so "sample-otter asks:" keeps the agent's
+// words from reading as their own.
+export function Asker({ who, className }: { who: AgentRef; className?: string }) {
+  return (
+    <p className={cn("text-[11.5px] text-muted-foreground", className)}>
+      <span className="font-medium text-ink-2">{displayName(who)}</span> asks:
+    </p>
+  )
 }
