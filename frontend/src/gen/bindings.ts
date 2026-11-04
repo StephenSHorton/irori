@@ -84,6 +84,8 @@ export const commands = {
 	boardAskAgain: (id: string) => __TAURI_INVOKE<null>("board_ask_again", { id }),
 	/**  "Start an agent with this" on the person's comment (card #452). */
 	boardStartAgent: (id: string, note: string) => __TAURI_INVOKE<null>("board_start_agent", { id, note }),
+	/**  "Hand to an agent" on an item whose agent is gone (card #485). */
+	boardHandOn: (id: string) => __TAURI_INVOKE<string>("board_hand_on", { id }),
 	boardAskRepos: () => __TAURI_INVOKE<AskRepo[]>("board_ask_repos"),
 	boardMentionCandidates: () => __TAURI_INVOKE<MentionCandidate[]>("board_mention_candidates"),
 	boardCloseAsk: (id: string, note: string) => __TAURI_INVOKE<Task>("board_close_ask", { id, note }),
@@ -538,7 +540,9 @@ export type Blocker = {
 };
 
 /**  coord.BlockerKind. */
-export type BlockerKind = "lease" | "task" | "person" | "agent" | "external";
+export type BlockerKind = "lease" | "task" | "person" | "agent" | "external" | 
+/**  A least app version on named devices (card #485). */
+"version";
 
 /**  coord.Option: one recommended answer. */
 export type BlockerOption = {
@@ -729,6 +733,21 @@ export type CardBlocker = {
 	 *  None when it's this person's.
 	 */
 	decider?: AgentRef | null,
+	/**
+	 *  What a wait on other work waits on (card #481): a card, a lease, an
+	 *  agent or something outside. It ends by itself or by whoever does
+	 *  that work, so it is never the person's to answer and never counts
+	 *  as a decision. None for a question for a person (one filed on
+	 *  other work with options is still the person's, card #347).
+	 */
+	waitsOn?: CardWaitOn | null,
+	/**
+	 *  The agent this open item waits on, or that raised it and would hear
+	 *  the answer, when that agent is gone and nobody holds the card (card
+	 *  #485): drawn amber, "Waiting on kestrel (gone)", with "Hand to an
+	 *  agent".
+	 */
+	goneAgent?: AgentRef | null,
 	thread: CardThreadItem[],
 };
 
@@ -944,6 +963,18 @@ export type CardSummary = {
 	 */
 	waitYou?: string,
 	/**
+	 *  The cards this one waits on each other with (card #481), itself
+	 *  among them, in wait order: none of them can move until someone
+	 *  drops a wait. Every card of the loop carries the same list, so
+	 *  Home's Needs you shows it once.
+	 */
+	waitLoop?: CardRef[],
+	/**
+	 *  The card this one's waits end at that nobody holds and nothing
+	 *  will hand out (card #481).
+	 */
+	waitStuck?: CardRef | null,
+	/**
 	 *  An in-review card waiting on the person's review of a PR it links
 	 *  (card #347): no agent was asked to review it.
 	 */
@@ -1065,6 +1096,23 @@ export type CardWait = {
 	who: AgentRef,
 	text: string,
 	onThis: boolean,
+};
+
+/**  What a wait item waits on (card #481), as the card page links it. */
+export type CardWaitOn = {
+	kind: BlockerKind,
+	/**
+	 *  How the window names it: "#392" for a card ("a card" when this
+	 *  device can't see it), the agent's name, the resource, or the
+	 *  outside thing as raised.
+	 */
+	label: string,
+	/**  The card it waits on, by id, for a task wait. */
+	taskId?: string,
+	/**  That card's title, when this device can see it. */
+	title?: string,
+	/**  A wait on an agent that is gone (card #485). */
+	gone?: boolean,
 };
 
 /**  Where a card's work is (card #137), as its holder's device last saw it. */

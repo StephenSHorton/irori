@@ -47,6 +47,14 @@ describe("a card's blocker as it stands now", () => {
     expect(blockerOpen(CardBlocker({ id: "b1", state: "replied" }))).toBe(true)
     expect(blockerOpen(CardBlocker({ id: "b1", state: "open", decider: civet }))).toBe(false)
   })
+  test("a wait on another card has no buttons (card #481)", () => {
+    const wait = CardBlocker({
+      id: "b1",
+      state: "open",
+      waitsOn: { kind: "task", label: "#392", taskId: "t392", title: "Talk 4" },
+    })
+    expect(blockerOpen(wait)).toBe(false)
+  })
   test("resolved by anyone: no buttons, the outcome and who", () => {
     const done = CardBlocker({
       doneCheck: true,
