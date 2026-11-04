@@ -307,8 +307,18 @@ fn answer_leaves_blocker_open() {
         })
         .collect();
     assert_eq!(lines.len(), 3, "lines {lines:?}");
-    assert!(lines[1].contains(&format!("answered blocker {}", bl.id)));
-    assert!(lines[2].contains(&format!("replied on blocker {}", bl.id)));
+    // Card #490: the person reads the question, never the blocker's id.
+    assert!(lines[1].ends_with("answered “Which DB?”"), "{lines:?}");
+    assert!(lines[2].ends_with("replied on “Which DB?”"), "{lines:?}");
+    assert!(lines.iter().all(|l| !l.contains(&bl.id)), "{lines:?}");
+    let gists: Vec<&str> = d
+        .thread
+        .iter()
+        .filter(|i| i.blocker_id == bl.id)
+        .skip(1)
+        .map(|i| i.blocker_gist.as_str())
+        .collect();
+    assert_eq!(gists, ["Which DB?", "Which DB?"]);
     assert_eq!(r.w.decide_count(), 1, "a replied item is a decision");
 
     co.answer(
@@ -430,12 +440,20 @@ fn resolve_blocker_by_person() {
     assert_eq!(rs.answer, "whatever is free");
     assert_eq!(rs.note, "I'll pick one myself later.");
     assert_eq!(res.card.summary.state, coord::WORKING);
+    let twice = r.w.resolve_blocker(&t.id, &b2.id, "", &[]).unwrap_err();
     assert!(
-        r.w.resolve_blocker(&t.id, &b2.id, "", &[])
-            .unwrap_err()
-            .starts_with(coord::ErrorKind::BadState.text()),
+        twice.starts_with(coord::ErrorKind::BadState.text()),
         "resolved twice"
     );
+    // Card #490: the person reads the question, not "blocker b2".
+    assert!(
+        twice.contains("“Which port?”") && !twice.contains(&format!("blocker {}", b2.id)),
+        "{twice}"
+    );
+    let again =
+        r.w.answer(&t.id, &b2.id, -1, "late", false, &[])
+            .unwrap_err();
+    assert!(!again.contains(&format!("blocker {}", b2.id)), "{again}");
 }
 
 /// Go TestCardsPinnedFirst and TestBoardActions' movePin: pinned cards
@@ -565,7 +583,8 @@ fn revised_blocker_shows_in_its_thread() {
     assert!(rev.revised && rev.kind == THREAD_EVENT, "{rev:?}");
     assert_eq!(rev.who.key, r.key_a);
     assert!(
-        rev.text.contains("revised blocker")
+        rev.text.contains("revised it: asks now")
+            && !rev.text.contains(&bl.id)
             && rev.text.contains("Postgres on the small plan?")
             && rev
                 .text

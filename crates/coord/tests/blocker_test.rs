@@ -189,9 +189,11 @@ fn test_blocker_states() {
     );
     let acts = e.c.activity(&task.id).unwrap();
     assert!(
-        acts[0].what == "answered blocker b1"
+        acts[0].what == "answered “Which adapter?”"
             && acts[0].blocker_id == "b1"
-            && acts[1].what == "replied on blocker b1"
+            && acts[0].blocker_gist == "Which adapter?"
+            && acts[1].what == "replied on “Which adapter?”",
+        "{acts:?}"
     );
     let sh = search::Source::search_show(
         &e.c,

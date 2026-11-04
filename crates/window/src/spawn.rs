@@ -725,7 +725,7 @@ mod tests {
     #[test]
     fn spec_checks() {
         let ok = SpawnSpec {
-            name: "card-445".into(),
+            name: "pawpaw".into(),
             permission_mode: "acceptEdits".into(),
             model: Some("sonnet".into()),
             brief_dir: PathBuf::from("/tmp/briefs"),
@@ -739,7 +739,7 @@ mod tests {
                 "/tmp/briefs",
                 "--bg",
                 "--name",
-                "card-445",
+                "pawpaw",
                 "--permission-mode",
                 "acceptEdits",
                 "--model",
@@ -856,7 +856,7 @@ mod tests {
         }
         let spec = SpawnSpec {
             cwd: repo.clone(),
-            name: "card-445".into(),
+            name: "pawpaw".into(),
             brief: brief.clone(),
             permission_mode: "acceptEdits".into(),
             effort: Some("low".into()),
@@ -890,7 +890,7 @@ mod tests {
             [
                 "--bg",
                 "--name",
-                "card-445",
+                "pawpaw",
                 "--permission-mode",
                 "acceptEdits",
                 "--effort",
@@ -913,8 +913,8 @@ mod tests {
 
         // The roster then has the session under its name and id prefix.
         let cards = vec![
-            card("card-445", "99999999-0000-4000-8000-000000000001"),
-            card("card-445", "0a1b2c3d-1111-4111-8111-000000000002"),
+            card("pawpaw", "99999999-0000-4000-8000-000000000001"),
+            card("pawpaw", "0a1b2c3d-1111-4111-8111-000000000002"),
         ];
         let c = find_session(&cards, &got.name, &got.short_id).unwrap();
         assert_eq!(c.session_id, "0a1b2c3d-1111-4111-8111-000000000002");
@@ -960,12 +960,12 @@ mod tests {
         std::fs::create_dir_all(repo.join(".git")).unwrap();
         let briefs = base.join("core-briefs");
         std::fs::create_dir_all(&briefs).unwrap();
-        let f = briefs.join("card-446.md");
+        let f = briefs.join("quince.md");
         std::fs::write(&f, "written by the Core").unwrap();
         let bin = fake_claude(&base);
         let spec = SpawnSpec {
             cwd: repo.clone(),
-            name: "card-446".into(),
+            name: "quince".into(),
             permission_mode: "default".into(),
             brief_file: Some(f.clone()),
             prompt: Some(format!("Read {} and do what it says.", f.display())),
@@ -1125,13 +1125,13 @@ echo 'test result: ok'
     #[test]
     fn finds_session_by_name_and_prefix() {
         let cards = vec![
-            card("card-445", "aaaaaaaa-0000-4000-8000-000000000001"),
+            card("pawpaw", "aaaaaaaa-0000-4000-8000-000000000001"),
             card("other", "f517b512-0000-4000-8000-000000000002"),
-            card("card-445", "f517b512-7b0d-48ec-a73f-d6f5ef31b3c5"),
+            card("pawpaw", "f517b512-7b0d-48ec-a73f-d6f5ef31b3c5"),
         ];
-        let c = find_session(&cards, "card-445", "F517B512").unwrap();
+        let c = find_session(&cards, "pawpaw", "F517B512").unwrap();
         assert_eq!(c.session_id, "f517b512-7b0d-48ec-a73f-d6f5ef31b3c5");
-        assert!(find_session(&cards, "card-446", "f517b512").is_none());
-        assert!(find_session(&cards, "card-445", "f517").is_none());
+        assert!(find_session(&cards, "quince", "f517b512").is_none());
+        assert!(find_session(&cards, "pawpaw", "f517").is_none());
     }
 }

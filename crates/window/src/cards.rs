@@ -401,6 +401,27 @@ pub struct CardLeftOff {
     pub at: GoTime,
 }
 
+/// An activity line as the person reads it (card #490): a revision's
+/// "revised blocker b2" (agents keep the id) says "revised it" under its
+/// blocker, or quotes the question it asked in the card's own thread.
+fn person_what(a: &Activity, under: bool) -> String {
+    if !a.revised {
+        return a.what.clone();
+    }
+    let head = format!("revised blocker {}", a.blocker_id);
+    let Some(rest) = a.what.strip_prefix(&head) else {
+        return a.what.clone();
+    };
+    let said = if under {
+        "revised it".to_string()
+    } else if a.blocker_gist.is_empty() {
+        "revised a blocker".to_string()
+    } else {
+        format!("revised “{}”", a.blocker_gist)
+    };
+    format!("{said}{rest}")
+}
+
 /// A card's spot on the Board's canvas, in canvas pixels (card #93).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Type)]
 pub struct CanvasPos {
@@ -646,6 +667,11 @@ pub struct CardThreadItem {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub blocker_id: String,
+    /// The question of that blocker, cut short (card #490): what the
+    /// person reads in place of its id.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub blocker_gist: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[specta(optional)]
     pub missing: Vec<String>,
@@ -2434,6 +2460,7 @@ fn build_thread(
             files: cm.files,
             attachments: cm.attachments.clone(),
             blocker_id: cm.blocker_id.clone(),
+            blocker_gist: cm.blocker_gist.clone(),
             missing: cm.missing.clone(),
             unheard: cm.unheard,
             mentions: card_mentions(&cm.mentions, p),
@@ -2483,6 +2510,8 @@ fn build_thread(
             seen.insert(id.clone(), 1);
         }
         let who = p.ref_(&a.by);
+        let under = a.revised && kept.contains(a.blocker_id.as_str());
+        let what = person_what(a, under);
         let ev = (
             ThreadPos {
                 hlc: a.hlc,
@@ -2494,8 +2523,9 @@ fn build_thread(
                 kind: THREAD_EVENT.into(),
                 at: a.at,
                 device: p.chip(&a.device),
-                text: format!("{} {}", who.name, p.named(&a.what)),
+                text: format!("{} {}", who.name, p.named(&what)),
                 blocker_id: a.blocker_id.clone(),
+                blocker_gist: a.blocker_gist.clone(),
                 revised: a.revised,
                 made: a.kind == coord::MADE_KIND,
                 who,
@@ -2503,7 +2533,7 @@ fn build_thread(
             },
         );
         // A revision goes under its blocker, after the reply it answers.
-        if a.revised && kept.contains(a.blocker_id.as_str()) {
+        if under {
             mine.push(ev);
             continue;
         }

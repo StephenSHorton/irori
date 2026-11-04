@@ -78,7 +78,6 @@ unchanged.
 | `/?notes` | Notes (card #413): Mine, with New from agents at the top (two proposals and an agent's proposed edit, each with Keep / Accept, Edit, Remove), the kind chips, and the live notes with their tags, source chip, author and who kept them; one says Still true? |
 | `/?notes=mlg` | Notes on the MLG board's tab: kite's proposal waits on anyone's Accept |
 | `/?open=board:task:sample-card-4` | (Notes) under Who's on it: the notes sample-heron got on wake and the tag that matched each |
-| `/?open=board:task:sample-card-12` | Keep as note under the done proof; comments and blocker answers have it too, on hover |
 | `/?empty` | no cards yet |
 | `/?theme=hearth` | a theme without saving it (`blue`, the default, `hearth`, `midnight`, `forest`, `sakura`, `mono`; card #275); add it to any row above |
 | `/?mode=light` | light (or `dark`, `system`) without saving it (dark is the default); add it to any row above |

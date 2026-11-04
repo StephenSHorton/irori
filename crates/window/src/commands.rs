@@ -232,6 +232,18 @@ pub async fn inbox_dismiss(w: W<'_>, delivery_id: String) -> R<()> {
 
 #[tauri::command]
 #[specta::specta]
+pub async fn inbox_start_agent(w: W<'_>, delivery_id: String) -> R<ts::StartedAgent> {
+    blocking(&w, move |w| w.inbox_start_agent(&delivery_id)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn inbox_repo_names(w: W<'_>) -> R<Vec<ts::RepoName>> {
+    Ok(w.inbox_repo_names())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn inbox_allow_and_release(w: W<'_>, delivery_id: String) -> R<()> {
     w.inbox_allow_and_release(&delivery_id)
 }
@@ -1527,6 +1539,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             inbox_mark_read,
             inbox_release,
             inbox_dismiss,
+            inbox_start_agent,
+            inbox_repo_names,
             inbox_allow_and_release,
             inbox_policy,
             inbox_set_policy,
