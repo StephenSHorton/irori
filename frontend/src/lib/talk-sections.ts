@@ -93,6 +93,109 @@ export function sectionRows(
   return { rows, hidden: items.length - rows.length }
 }
 
+// A broadcast (card #486) is one message an agent sent to many agents. Irori
+// sends it as one message per agent, so each copy lands in its own
+// agent↔agent DM, and the list once showed owl's "WIND DOWN NOW" as ten
+// identical rows. It is one row now, "owl → 10 agents", that unfolds to the
+// DMs it went to.
+export type Broadcast = {
+  // "broadcast:" and its newest DM's id.
+  id: string
+  // The sender's key, the text, and when the newest copy went.
+  by: string
+  text: string
+  lastAt: string
+  // The DMs it went to, newest first.
+  convs: Conversation[]
+}
+
+// AgentRow is one row of Agents talking: a DM, or a broadcast.
+export type AgentRow =
+  | { kind: "dm"; c: Conversation }
+  | { kind: "broadcast"; b: Broadcast }
+
+// broadcastWindow is how far apart one sender's copies of the same text may
+// be and still be one broadcast. Irori sends them a second or two apart, and
+// the same text a day later is a new message.
+export const broadcastWindow = 10 * 60_000
+
+// agentsCap is the most rows Agents talking lists, even after "Show more",
+// because the live db has thousands of agent↔agent messages. Search still
+// finds the older ones.
+export const agentsCap = 50
+
+const ms = (s: string) => {
+  const t = Date.parse(s)
+  return Number.isNaN(t) ? 0 : t
+}
+
+// agentRows groups read-only DMs (newest first) whose newest post has the
+// same sender and text, each copy within broadcastWindow of the next, into
+// one broadcast row where its newest DM was. A DM that someone answered has
+// a different last line, so it stays its own row.
+export function agentRows(items: readonly Conversation[]): AgentRow[] {
+  const out: AgentRow[] = []
+  const growing = new Map<string, Broadcast>()
+  for (const c of items) {
+    const text = c.lastText ?? ""
+    const by = c.lastBy ?? ""
+    if (!c.readOnly || !text || !by || !c.members.some((m) => m.key === by)) {
+      out.push({ kind: "dm", c })
+      continue
+    }
+    const key = `${by}\u0000${text}`
+    const b = growing.get(key)
+    if (b && ms(b.convs[b.convs.length - 1].lastAt) - ms(c.lastAt) <= broadcastWindow) {
+      b.convs.push(c)
+      continue
+    }
+    const nb: Broadcast = { id: `broadcast:${c.convId}`, by, text, lastAt: c.lastAt, convs: [c] }
+    growing.set(key, nb)
+    out.push({ kind: "broadcast", b: nb })
+  }
+  return out.map((r) =>
+    r.kind === "broadcast" && r.b.convs.length === 1 ? { kind: "dm", c: r.b.convs[0] } : r
+  )
+}
+
+// broadcastTo is who a broadcast went to: each DM's other side.
+export function broadcastTo(b: Broadcast): Conversation["members"] {
+  return b.convs.map((c) => c.members.find((m) => m.key !== b.by) ?? c.members[0])
+}
+
+// agentRowHas is whether a row holds conversation id.
+export function agentRowHas(r: AgentRow, id: string): boolean {
+  if (!id) return false
+  return r.kind === "dm" ? r.c.convId === id : r.b.convs.some((c) => c.convId === id)
+}
+
+// agentSectionRows is what Agents talking lists. Folded, it lists only the
+// row with the open conversation. Unfolded, it lists the newest
+// shownAtOnce, or up to agentsCap after "Show more", plus the open one's
+// row wherever it is. Search lists every match. hidden is how many more
+// "Show more" would list. capped is how many lie past agentsCap.
+export function agentSectionRows(
+  rows: readonly AgentRow[],
+  folded: boolean,
+  open: string,
+  all: boolean,
+  searching = false
+): { rows: AgentRow[]; hidden: number; capped: number } {
+  const i = rows.findIndex((r) => agentRowHas(r, open))
+  if (folded) return { rows: i < 0 ? [] : [rows[i]], hidden: 0, capped: 0 }
+  if (searching) return { rows: [...rows], hidden: 0, capped: 0 }
+  const limit = all ? agentsCap : shownAtOnce
+  const shown = rows.slice(0, limit)
+  if (i >= limit) shown.push(rows[i])
+  const reach = Math.min(rows.length, agentsCap)
+  const beyond = i >= agentsCap ? 1 : 0
+  return {
+    rows: shown,
+    hidden: reach - (shown.length - beyond),
+    capped: Math.max(0, rows.length - agentsCap - beyond),
+  }
+}
+
 // unreadIn counts a section's conversations with something new for the
 // person, shown beside a folded section's name.
 export function unreadIn(items: readonly Conversation[]): number {

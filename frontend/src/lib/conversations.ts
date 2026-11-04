@@ -298,6 +298,29 @@ function sampleState(): SampleConv[] {
       readUpTo: "",
     })
   }
+  // One agent's message to many (card #486): a copy in each agent↔agent
+  // DM, seconds apart. The list shows it as one row, "sample-owl → 15
+  // agents"; the one that answered keeps its own row.
+  const owl = "sample-device/sample04-synthetic-session"
+  const wind = "sample-owl, for you: WIND DOWN NOW, usage is nearly out. Start no new work; save your branch, tick your step, leave the card."
+  const names = ["alder", "cove", "fern", "heath", "ivy", "juniper", "kestrel", "linden", "moss", "nettle", "oak", "pine", "quill", "reed", "sorrel", "tansy"]
+  names.forEach((n, i) => {
+    const id = `sample-dm-owl-${i + 1}`
+    const x = `sample-owl-to-${i + 1}`
+    const posts = [post(id, 1, owl, 3 + i / 30, wind)]
+    if (n === "tansy") posts.push(post(id, 2, x, 2, "Saved WIP at 4f2a91c and left #412. Going idle."))
+    sample!.push({
+      ...TalkConversation({
+        convId: id,
+        kind: "dm",
+        name: `sample-owl ↔ ${n}`,
+        members: [a(owl, "sample-owl"), a(x, n)],
+        readOnly: true,
+      }),
+      posts,
+      readUpTo: "",
+    })
+  })
   return sample
 }
 
@@ -311,6 +334,8 @@ function counted(c: SampleConv): Conversation {
     unread: fresh.length,
     mentions: fresh.filter((p) => p.mentions.includes(me)).length,
     lastAt: posts[posts.length - 1]?.at ?? "",
+    lastText: (posts[posts.length - 1]?.text ?? "").replace(/\s+/g, " ").trim(),
+    lastBy: posts[posts.length - 1]?.by ?? "",
   }
 }
 
