@@ -306,7 +306,7 @@ impl Fold {
         if github_repo(&d.repo_key).is_none() {
             return Err(invalid(format!(
                 "{} isn't a GitHub repo: the merge desk reads PRs from GitHub",
-                d.repo_key
+                ledger::repo_name(&d.repo_key)
             )));
         }
         d.poll_device = trim_space(&d.poll_device).to_string();
@@ -433,7 +433,10 @@ impl Fold {
     ) -> Result<()> {
         let by = caller(by)?;
         let Some(name) = Fold::desk_lease_of(repo_key) else {
-            return Err(invalid(format!("{repo_key} isn't a GitHub repo")));
+            return Err(invalid(format!(
+                "{} isn't a GitHub repo",
+                ledger::repo_name(repo_key)
+            )));
         };
         let now = self.stamp();
         if !self
@@ -496,7 +499,10 @@ impl Fold {
         let repo_key = ledger::canonical_repo_key(repo_key);
         let repo_key = repo_key.as_str();
         if !self.desks.get(repo_key).is_some_and(|d| d.on()) {
-            return Err(invalid(format!("{repo_key} has no merge desk")));
+            return Err(invalid(format!(
+                "{} has no merge desk",
+                ledger::repo_name(repo_key)
+            )));
         }
         prs.sort_by_key(|p| p.number);
         let unchanged = self

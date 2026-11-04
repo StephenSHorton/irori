@@ -245,7 +245,7 @@ describe("what waits on the person (card #347)", () => {
 describe("trust (card #449)", () => {
   test("a card whose agent can't start for trust is a Trust row", () => {
     const t = card({ id: "t", cantStart: "not trusted: /r/api on dev1", state: TaskState.Submitted })
-    const other = card({ id: "o", cantStart: "no checkout of remote:x on dev1" })
+    const other = card({ id: "o", cantStart: "no copy of x on Desktop Computer" })
     expect(waitsOnTrust(t)).toBe(true)
     expect(waitsOnTrust(other)).toBe(false)
     expect(needsOf([t, other], []).map((n) => `${n.kind}:${n.id}`)).toEqual(["trust:t"])

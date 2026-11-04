@@ -3542,7 +3542,10 @@ impl Services {
             .iter()
             .any(|d| coord::same_repo_key(&d.settings.repo_key, repo_key))
         {
-            return Err(format!("this device doesn't poll {repo_key}'s merge desk"));
+            return Err(format!(
+                "this device doesn't poll {}'s merge desk",
+                coord::repo_name(repo_key)
+            ));
         }
         let repo = coord::github_repo(repo_key).unwrap_or_default();
         let limit = crate::deskwatch::LIMIT;

@@ -1128,6 +1128,25 @@ pub(crate) fn name_wait(s: &mut CardSummary, refr: &dyn Fn(&str) -> String) {
     s.wait_on = if r.is_empty() { "a card".into() } else { r };
 }
 
+/// A failed spawn's reason for the card line (card #480). A missing
+/// checkout is said in today's words from the card and the device's name,
+/// whatever the stored row says: rows from before #480 read "no checkout of
+/// remote:github.com/StephenSHorton/irori on 05f1844a…".
+fn cant_start_text(t: &Task, sp: &coord::Spawn, p: &People) -> String {
+    if !irori_core::spawn_stop::no_folder_reason(&sp.reason) {
+        return sp.reason.clone();
+    }
+    let dev = match p.names.get(&sp.device) {
+        Some(n) if !n.trim().is_empty() => n.clone(),
+        _ => p.where_(&sp.device),
+    };
+    if t.repo_key.is_empty() {
+        format!("this card names no repo, and {dev} has no folder for it")
+    } else {
+        format!("no copy of {} on {dev}", coord::repo_name(&t.repo_key))
+    }
+}
+
 pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
     let (d, n) = t.progress();
     let mut s = CardSummary {
@@ -1149,7 +1168,7 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
         cant_start: t
             .spawn_request()
             .filter(|sp| sp.op == coord::SPAWN_FAILED)
-            .map(|sp| sp.reason.clone())
+            .map(|sp| cant_start_text(t, sp, p))
             .unwrap_or_default(),
         starting: t
             .spawn_request()
@@ -2658,6 +2677,46 @@ mod tests {
         assert_eq!(holder_line(&[r("gone", false)]).state, Holding::Gone);
         assert_eq!(holder_line(&[r("person", false)]).state, Holding::Person);
         assert_eq!(holder_line(&[r("busy", false)]).state, Holding::Active);
+    }
+
+    /// Card #480: a failed row from before #480 names the key and the
+    /// device id; the card line says it with names.
+    #[test]
+    fn old_no_checkout_reasons_read_with_names() {
+        let mut p = People {
+            self_id: "3dc30c94".into(),
+            ..People::default()
+        };
+        p.names.insert("05f1844a".into(), "Desktop Computer".into());
+        let t = Task {
+            repo_key: "remote:github.com/stephenshorton/irori".into(),
+            ..Task::default()
+        };
+        let sp = coord::Spawn {
+            op: coord::SPAWN_FAILED.into(),
+            device: "05f1844a".into(),
+            reason: "no checkout of remote:github.com/StephenSHorton/irori on 05f1844a".into(),
+            ..coord::Spawn::default()
+        };
+        assert_eq!(
+            cant_start_text(&t, &sp, &p),
+            "no copy of irori on Desktop Computer"
+        );
+        let none = Task::default();
+        let sp = coord::Spawn {
+            reason: "no checkout of  on 05f1844a".into(),
+            ..sp
+        };
+        assert_eq!(
+            cant_start_text(&none, &sp, &p),
+            "this card names no repo, and Desktop Computer has no folder for it"
+        );
+        // Other reasons pass through (the trust row parses its own).
+        let sp = coord::Spawn {
+            reason: "not trusted: /r on 05f1844a".into(),
+            ..sp
+        };
+        assert_eq!(cant_start_text(&t, &sp, &p), "not trusted: /r on 05f1844a");
     }
 
     #[test]

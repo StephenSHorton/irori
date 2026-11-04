@@ -557,7 +557,7 @@ impl Watcher {
 
     fn held_to(&self, d: &Delivery) -> String {
         if d.to.is_empty() && !d.repo_key.is_empty() {
-            return format!("repo {}", d.repo_key);
+            return format!("repo {}", ledger::repo_name(&d.repo_key));
         }
         if d.to != self.user {
             return self.name(&d.to);

@@ -20,8 +20,8 @@ describe("spawnLine (card #448)", () => {
     expect(spawnLine({ cantStart: "couldn't start: claude not found" })?.text).toBe(
       "can't start: claude not found",
     )
-    expect(spawnLine({ cantStart: "no checkout of remote:a/b on pc" })?.text).toBe(
-      "can't start: no checkout of remote:a/b on pc",
+    expect(spawnLine({ cantStart: "no copy of irori on Desktop Computer" })?.text).toBe(
+      "can't start: no copy of irori on Desktop Computer",
     )
   })
   test("at its cap", () => {

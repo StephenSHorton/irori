@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { parseTime, plainBlock, plainLine, relativeTime } from "@/lib/irori"
+import { parseTime, plainBlock, plainLine, relativeTime, shortRepo } from "@/lib/irori"
 import {
   allowLifts,
   errorText,
@@ -207,7 +207,7 @@ function HeldRow({
     ? "you"
     : d.to
       ? name(d.to)
-      : `repo ${plainLine(d.repoKey ?? "")}`
+      : `repo ${plainLine(shortRepo(d.repoKey ?? ""))}`
   const sent = parseTime(d.message.sentAt)
   const ref = d.message.ref ?? ""
   const card = ref.startsWith("task:") ? cardLabel(ref) : ""

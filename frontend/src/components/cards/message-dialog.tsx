@@ -16,7 +16,7 @@ import {
   useFileAttach,
 } from "@/components/attachments"
 import { MentionTextarea } from "@/components/common/mention-textarea"
-import { parseTime, plainBlock, plainLine, relativeTime } from "@/lib/irori"
+import { parseTime, plainBlock, plainLine, relativeTime, shortRepo } from "@/lib/irori"
 import { notDelivered, type Mention } from "@/lib/mentions"
 import { errorText, holdText, State, talk, type Delivery } from "@/lib/talk"
 
@@ -109,7 +109,7 @@ export function MessageDialog({
       ? "you"
       : d.to
         ? name(d.to)
-        : `repo ${plainLine(d.repoKey ?? "")}`
+        : `repo ${plainLine(shortRepo(d.repoKey ?? ""))}`
   const held = d?.state === State.Held
   const forYou =
     !!d &&
