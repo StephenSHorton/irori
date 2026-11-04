@@ -414,7 +414,12 @@ impl Fold {
                 for f in &bl.attachments {
                     let _ = writeln!(b, "  file: {}", describe(f));
                 }
-                if bl.open() && bl.options_aside {
+                if bl.open() && bl.options_aside && bl.done_check {
+                    let _ = writeln!(
+                        b,
+                        "  Not done: the person said why; answer them in its thread (board_comment blocker_id), then set completed again with proof that says what changed"
+                    );
+                } else if bl.open() && bl.options_aside {
                     let _ = writeln!(
                         b,
                         "  options set aside: the person answered in their own words; revise with board_block blocker_id for new ones (the earlier ones follow)"

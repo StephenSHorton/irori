@@ -4,7 +4,7 @@
 # because every scenario is a real Claude session and spends API tokens.
 #
 #   sh scripts/agent-check.sh            every scenario
-#   sh scripts/agent-check.sh --only 2   just one (1 to 6; comma list)
+#   sh scripts/agent-check.sh --only 2   just one (1 to 7; comma list)
 #
 # `irori-dev agent-check` (crates/dev/src/agent_check.rs) hosts a real
 # Core on a throwaway IRORI_HOME, acts as the person through the window's
@@ -22,7 +22,10 @@
 #     (card #207);
 #   6 the person presses Wind down all while a busy agent holds a card and
 #     a lease: it hands the card back with a hand-off, releases the lease
-#     and answers (card #220).
+#     and answers (card #220);
+#   7 the person says Not done with a reason on the agent's done check:
+#     the agent answers on that check's thread, and any new check shows
+#     that round with changed proof (card #476).
 # It prints PASS or FAIL per scenario and exits non-zero on any failure.
 #
 # Needs `claude` signed in (or CLAUDE_BIN). AGENT_CHECK_MODEL picks the

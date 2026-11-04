@@ -600,11 +600,13 @@ impl Window {
             pick: option + 1,
             text: text.into(),
             wake,
-            // An item whose agent is gone on a card nobody holds (card
-            // #485) isn't resolved in place: the answer goes on its thread
-            // and the card back on the Board, so the agent Irori starts
-            // for it reads it in its brief.
-            resolve: self.nobody_can_act(&t, &bl.raised_by)
+            // A Not done stays on the done check's thread even with its
+            // agent gone (card #476), and so does an item whose agent is
+            // gone on a card nobody holds (card #485): the answer goes on
+            // its thread and the card back on the Board, so the agent Irori
+            // starts for it reads it in its brief and answers it there.
+            resolve: !bl.done_check
+                && self.nobody_can_act(&t, &bl.raised_by)
                 && !co.stranded(task_id).iter().any(|s| s.blocker_id == bl.id),
             mentions: plan.log.clone(),
             files: Vec::new(),

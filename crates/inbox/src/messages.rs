@@ -737,6 +737,18 @@ impl Inbox {
     /// (card #159). A dismissed, moved or rejected one is left out; one
     /// Irori closed unread (gone, stale) stays, unread.
     pub fn comment_notices(&self, reasons: &[&str], limit: usize) -> Vec<(Delivery, bool)> {
+        self.ref_notices("comment:", reasons, limit)
+    }
+
+    /// As [`Self::comment_notices`], for notices whose ref starts with
+    /// `prefix` (card #476: a blocker answer's notice is about its card,
+    /// `task:<id>`).
+    pub fn ref_notices(
+        &self,
+        prefix: &str,
+        reasons: &[&str],
+        limit: usize,
+    ) -> Vec<(Delivery, bool)> {
         self.read(|b| {
             let mut out = Vec::new();
             for id in b.order.iter().rev() {
@@ -750,9 +762,7 @@ impl Inbox {
                 let Some(m) = b.msgs.get(&d.d.message_id) else {
                     continue;
                 };
-                if !m.notice
-                    || !m.ref_.starts_with("comment:")
-                    || !reasons.contains(&m.reason.as_str())
+                if !m.notice || !m.ref_.starts_with(prefix) || !reasons.contains(&m.reason.as_str())
                 {
                     continue;
                 }
