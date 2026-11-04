@@ -244,10 +244,11 @@ pub fn mirrors(m: &inbox::Message) -> bool {
 
 /// Whether `m` answers a Wind down (`wind_downs` holds their ids): a
 /// "wound down" sent as a message, as replies were before card #307. It
-/// stays out of the DMs with the Wind down itself (card #484).
+/// stays out of the DMs with the Wind down itself (card #484). Only a
+/// reply counts: parent_id also links whatever an agent sends in the turn
+/// the Wind down woke (a hand-off, a failure report), and those still show.
 fn answers_wind_down(m: &inbox::Message, wind_downs: &std::collections::HashSet<String>) -> bool {
-    (!m.reply_to.is_empty() && wind_downs.contains(&m.reply_to))
-        || (!m.parent_id.is_empty() && wind_downs.contains(&m.parent_id))
+    !m.reply_to.is_empty() && wind_downs.contains(&m.reply_to)
 }
 
 fn mirrored(b: &dyn Backend, talk: &Talk) -> BTreeMap<String, (Vec<Member>, Vec<Post>)> {

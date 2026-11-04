@@ -11,6 +11,8 @@ export function windDownLine(st: WindDownStatus): string {
   if (!st.id || st.rows.length === 0) return ""
   const n = st.rows.length
   const done = st.rows.filter((r) => r.state === "done").length
+  // Every send failed: the run never starts, so it never finishes either.
+  if (st.rows.every((r) => !r.deliveryId)) return `Wind down reached none of ${agents(n)}`
   if (!st.finished) return `Winding down ${agents(n)}, ${done} confirmed so far`
   const tail = st.paused ? " · Pause all is on" : ""
   return `Wound down ${agents(n)}, ${done} confirmed${tail}`

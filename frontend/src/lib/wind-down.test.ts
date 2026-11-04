@@ -41,6 +41,13 @@ describe("Home's Wind down line (card #484)", () => {
     expect(windDownLine(run(["done"]))).toBe("Wound down 1 agent, 1 confirmed")
   })
 
+  test("a run none of whose sends went out says so, not 'Winding down' for ever", () => {
+    const failed = { ...row("no_answer"), deliveryId: "", error: "no route" }
+    expect(windDownLine({ ...run([]), finished: false, rows: [failed, failed] })).toBe(
+      "Wind down reached none of 2 agents"
+    )
+  })
+
   test("no run, no line", () => {
     expect(windDownLine(run([], { id: "" }))).toBe("")
     expect(windDownLine(run([]))).toBe("")
