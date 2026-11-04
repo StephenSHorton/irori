@@ -150,8 +150,26 @@ export function buildItems({
       run: () => onBoard(b.boardId),
       others: [b.tag, "board"],
     })
+  // Agents Irori started for a card (card #456, spawned agents §10) are
+  // listed under their card: its ref and title as the hint, and Enter
+  // opens the card. Terminal agents keep "cards with this agent".
+  const spawned = spawnedCards(cards)
   const seen = new Set<string>()
   for (const a of agents) {
+    const c = spawned.get(a.key)
+    if (c && a.status !== "gone") {
+      const ref = cardRefText(c)
+      out.push({
+        kind: "agent",
+        key: `agent:${a.key}`,
+        title: a.name || a.key,
+        hint: `on ${ref} ${c.title}`,
+        group: "Agents on cards",
+        run: () => onCard(c.id),
+        others: [ref, `#${c.short}`, c.title, "agent"],
+      })
+      continue
+    }
     if (!a.name || seen.has(a.name)) continue
     seen.add(a.name)
     out.push({
@@ -169,7 +187,25 @@ export function buildItems({
 
 // groupOrder is the order groups show in; any other group comes after
 // Commands.
-const groupOrder = ["Recent", "Go to", "Cards", "Boards", "Commands", "Agents"]
+const groupOrder = [
+  "Recent",
+  "Go to",
+  "Cards",
+  "Boards",
+  "Commands",
+  "Agents",
+  "Agents on cards",
+]
+
+// spawnedCards maps each agent Irori started for a card to that card: a
+// working row marked spawned. The first card wins for a stale second row.
+export function spawnedCards(cards: CardSummary[]): Map<string, CardSummary> {
+  const m = new Map<string, CardSummary>()
+  for (const c of cards)
+    for (const w of c.working)
+      if (w.spawned && !m.has(w.key)) m.set(w.key, c)
+  return m
+}
 
 function groupIndex(g: string): number {
   const i = groupOrder.indexOf(g)
