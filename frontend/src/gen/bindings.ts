@@ -168,6 +168,8 @@ export const commands = {
 	boardsSetThreads: (boardId: string, mode: string) => __TAURI_INVOKE<BoardSettings>("boards_set_threads", { boardId, mode }),
 	boardsSetReviewer: (boardId: string, agent: string, repo: string) => __TAURI_INVOKE<BoardSettings>("boards_set_reviewer", { boardId, agent, repo }),
 	notesList: (scope: string, removed: boolean) => __TAURI_INVOKE<NoteView[]>("notes_list", { scope, removed }),
+	/**  The sidebar's Notes count: notes waiting on the person's look (card #468). */
+	notesWaiting: () => __TAURI_INVOKE<number>("notes_waiting"),
 	noteNew: (note: NoteInput) => __TAURI_INVOKE<NoteView>("note_new", { note }),
 	noteAccept: (id: string) => __TAURI_INVOKE<NoteView>("note_accept", { id }),
 	noteEdit: (id: string, edit: NoteEditInput) => __TAURI_INVOKE<NoteView>("note_edit", { id, edit }),

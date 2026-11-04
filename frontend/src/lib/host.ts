@@ -261,6 +261,7 @@ export const TalkService = {
 // card_wake_notes (card #412).
 export const NotesService = {
   List: (scope: string, removed = false) => call(commands.notesList(scope, removed)),
+  Waiting: () => call(commands.notesWaiting()),
   New: (note: B.NoteInput) => call(commands.noteNew(note)),
   Accept: (id: string) => call(commands.noteAccept(id)),
   Edit: (id: string, edit: B.NoteEditInput) => call(commands.noteEdit(id, edit)),
