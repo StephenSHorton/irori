@@ -1878,7 +1878,6 @@ impl Window {
         (out, tasks)
     }
 
-    /// BoardService.Card: one card opened.
     /// Several cards at once, in the order asked (card #468): the window's
     /// card hooks (a Notifications row's, a Needs you row's, a thread's,
     /// the open card's) share one read per change instead of one each.
@@ -1899,6 +1898,7 @@ impl Window {
             .collect()
     }
 
+    /// BoardService.Card: one card opened.
     pub fn card(&self, id: &str) -> Result<CardDetail, String> {
         let id = crate::trim(id);
         let co = self.read(id);
