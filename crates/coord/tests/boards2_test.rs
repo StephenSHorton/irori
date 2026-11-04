@@ -615,6 +615,9 @@ fn a_review_request_reaches_the_other_persons_reviewer() {
     assert!(e.is(ErrorKind::NotFound), "{e}");
     let e = a.c.request_review(CARD1, &t.id, PR, CARD1).unwrap_err();
     assert!(e.is(ErrorKind::NotAllowed), "{e}");
+    // Card #471: an agent no member owns is nobody else's either.
+    let e = a.c.request_review(CARD1, &t.id, PR, "agent:nobody").unwrap_err();
+    assert!(e.is(ErrorKind::NotAllowed), "an unknown agent: {e}");
     let e =
         a.c.request_review(CARD1, &t.id, "https://github.com/a/b/pull/8", CARD2)
             .unwrap_err();
