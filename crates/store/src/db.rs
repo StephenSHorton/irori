@@ -1456,7 +1456,19 @@ impl Inner {
 
     fn vector(&self) -> Result<Vector> {
         let mut v = self.read(|c| {
-            let mut st = c.prepare("SELECT device_id, MAX(seq) FROM events GROUP BY device_id")?;
+            // Each device's MAX(seq) by skip-scanning the (device_id, seq)
+            // key: a few seeks per device, where GROUP BY read every row
+            // (card #467: 0.44 s on a 3.6M-row log, paid by every sync
+            // batch and every ack).
+            let mut st = c.prepare_cached(
+                "WITH RECURSIVE d(id) AS (
+                   SELECT (SELECT min(device_id) FROM events)
+                   UNION ALL
+                   SELECT (SELECT min(device_id) FROM events WHERE device_id > d.id)
+                   FROM d WHERE d.id IS NOT NULL)
+                 SELECT id, (SELECT max(seq) FROM events WHERE device_id = d.id)
+                 FROM d WHERE id IS NOT NULL",
+            )?;
             let rows = st.query_map([], |r| Ok((text_of(r.get_ref(0)?), r.get::<_, i64>(1)?)))?;
             let mut v = Vector::new();
             for r in rows {
