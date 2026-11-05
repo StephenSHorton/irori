@@ -175,6 +175,12 @@ now leads), on a loaded PC. Fold on same-moment copies went from 53.3 s to 3.7 s
 with `spawn-fold` views identical for all 554 cards. The whole outage was about
 2 min 40 s.
 
+Afterwards the Mac held the PC's marker rows (seq 536,187 and 536,188, written after
+the swap). The phone's card page wouldn't load, and its data can't be read, so the
+proof came from its own row: a `notification.read` for a blocker that was raised and
+resolved in PC rows above the swap (536,258). A device only marks what it has folded,
+and ingest is gapless, so that row proves the seqs below it too.
+
 What differs on Windows:
 
 - **There is no scripted quit.** Only the tray's Quit ends the app: closing hides
