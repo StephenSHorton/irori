@@ -44,7 +44,7 @@ fn main() {
         v.done_total
     );
     version_waits(&co, &st, &f);
-    let mut ms: Vec<f64> = (0..30)
+    let mut ms: Vec<f64> = (0..300)
         .map(|_| {
             let t = Instant::now();
             std::hint::black_box(co.board(&f));
@@ -52,9 +52,10 @@ fn main() {
         })
         .collect();
     println!(
-        "view alone: p50 {:.2} ms, p95 {:.2} ms",
+        "view alone: p50 {:.2} ms, p95 {:.2} ms, max {:.2} ms",
         pct(&mut ms, 0.5),
-        pct(&mut ms, 0.95)
+        pct(&mut ms, 0.95),
+        pct(&mut ms, 1.0)
     );
 
     let stop = Arc::new(AtomicBool::new(false));
@@ -92,8 +93,7 @@ fn main() {
 
 /// The version waits on open cards, and what one lookup costs through the
 /// app's own store path.
-#[allow(dead_code)]
-pub fn version_waits(co: &Coord, st: &Store, f: &BoardFilter) {
+fn version_waits(co: &Coord, st: &Store, f: &BoardFilter) {
     let v = co.board(f);
     let mut n = 0;
     let mut devs = std::collections::BTreeSet::new();

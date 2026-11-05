@@ -24,6 +24,8 @@ use store::Store;
 const KEY_A: &str = "dev1/aaaaaaaa-1111-4111-8111-111111111111";
 const KEY_B: &str = "dev1/bbbbbbbb-2222-4222-8222-222222222222";
 const USER: &str = "user:dev1";
+/// Long enough for a paced Board reconcile to have run and posted.
+const QUIET: Duration = Duration::from_millis(350);
 
 /// Both services' roster: key -> name.
 #[derive(Default)]
@@ -426,12 +428,61 @@ fn watch_board_a_burst_costs_few_views_and_ends_right() {
     r.fake.wait_gone(&needs_id(&gone.id));
     std::thread::sleep(notify::watch::BOARD_EVERY * 2); // nothing still to come
     let views = r.views.load(Ordering::SeqCst) - before;
-    // One at once, one per interval the burst ran, one after its last row.
-    let paced = (took.as_millis() / notify::watch::BOARD_EVERY.as_millis()) as usize + 2;
+    // One at once, one per interval the burst ran, one for the lane card it
+    // answered, one after its last row.
+    let paced = (took.as_millis() / notify::watch::BOARD_EVERY.as_millis()) as usize + 3;
     assert!(
         views <= paced && views < BURST / 10,
         "{views} views for {BURST} changes in {took:?}"
     );
+}
+
+/// Card #554: answered and asked back inside one interval, a card that
+/// left the lane and came back is still a new question.
+#[test]
+fn watch_board_an_ask_back_right_after_the_answer_posts_again() {
+    let r = rig();
+    let t = r.co.create_task(KEY_A, new_task("quick")).unwrap();
+    r.co.claim_task(KEY_A, &t.id).unwrap();
+    r.block_on_person(KEY_A, &t.id, "blue or green?");
+    let id = needs_id(&t.id);
+    r.fake.wait_post(&id);
+    let b = r.co.get_task(&t.id).unwrap().open_blockers()[0].id.clone();
+    r.co.answer(
+        USER,
+        &t.id,
+        &b,
+        coord::BlockerAnswer {
+            text: "blue".into(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    r.fake.wait_gone(&id);
+    r.co.comment_on(
+        KEY_A,
+        &t.id,
+        coord::CommentInput {
+            text: "which blue?".into(),
+            blocker_id: b,
+            missing: vec!["the shade".into()],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    r.fake.wait_post(&id);
+}
+
+/// Card #554: a change still waiting for its reconcile at stop gets it. The
+/// next start seeds quietly, so it would never get a card.
+#[test]
+fn watch_board_a_stop_reads_what_was_waiting() {
+    let mut r = rig();
+    let t = r.co.create_task(KEY_A, new_task("last moment")).unwrap();
+    r.co.claim_task(KEY_A, &t.id).unwrap();
+    r.block_on_person(KEY_A, &t.id, "still there?");
+    r.handle.take().unwrap().stop();
+    r.fake.wait_post(&needs_id(&t.id));
 }
 
 /// A lone change isn't held back for the pace of a burst.
@@ -458,7 +509,7 @@ fn watch_board_needs_you() {
         r.co.create_task(KEY_A, new_task("ship the release"))
             .unwrap();
     r.co.claim_task(KEY_A, &task.id).unwrap();
-    r.fake.no_post(Duration::from_millis(100)); // working, not on the person
+    r.fake.no_post(QUIET); // working, not on the person
     r.block_on_person(KEY_A, &task.id, "which version number?");
     let id = needs_id(&task.id);
     r.fake.wait_post(&id);
@@ -473,11 +524,11 @@ fn watch_board_needs_you() {
     // A comment while it is still blocked doesn't pop it up again.
     r.co.add_comment(KEY_B, &task.id, "I think 0.4", false)
         .unwrap();
-    r.fake.no_post(Duration::from_millis(100));
+    r.fake.no_post(QUIET);
 
     // A new reason while still in the lane: no repost.
     r.block_on_person(KEY_A, &task.id, "still need the number");
-    r.fake.no_post(Duration::from_millis(80));
+    r.fake.no_post(QUIET);
     // Posted again here to see it go: unblocked clears it.
     r.n.post(notify::Note {
         id: id.clone(),
@@ -511,7 +562,7 @@ fn watch_board_a_wait_on_a_pr_asks_the_person_to_merge() {
         }),
     )
     .unwrap();
-    r.fake.no_post(Duration::from_millis(100));
+    r.fake.no_post(QUIET);
 
     let pr = "https://github.com/a/b/pull/41";
     let task = r.co.create_task(KEY_A, new_task("part 10")).unwrap();
@@ -554,7 +605,7 @@ fn watch_board_a_wait_on_a_gone_agent_says_so() {
         }),
     )
     .unwrap();
-    r.fake.no_post(Duration::from_millis(100));
+    r.fake.no_post(QUIET);
     r.ros.drop_key(KEY_B);
     r.co.leave(KEY_A, &task.id, KEY_A).unwrap();
     let id = needs_id(&task.id);
@@ -590,7 +641,7 @@ fn watch_board_a_gone_wait_on_the_persons_own_card_pops_up() {
         }),
     )
     .unwrap();
-    r.fake.no_post(Duration::from_millis(100));
+    r.fake.no_post(QUIET);
     r.ros.drop_key(KEY_B);
     r.co.leave(KEY_A, &task.id, KEY_A).unwrap();
     let id = needs_id(&task.id);
@@ -668,7 +719,7 @@ fn watch_board_finished_is_ready_to_review() {
         r.co.get_task(&task.id)
             .is_some_and(|t| t.state == coord::COMPLETED && t.open_blockers().is_empty())
     });
-    r.fake.no_post(Duration::from_millis(100)); // closed: it doesn't come back
+    r.fake.no_post(QUIET); // closed: it doesn't come back
 }
 
 /// Card #140: new proof while the card is still up re-posts it in place
@@ -803,7 +854,7 @@ fn watch_board_ignores_the_persons_own_moves() {
         ..Default::default()
     });
     assert!(v.needs_you.len() >= 2, "both cards in Needs you");
-    r.fake.no_post(Duration::from_millis(150));
+    r.fake.no_post(QUIET);
 
     // An agent handing the person a card still pops one.
     let handed = r.co.create_task(KEY_A, new_task("review the PR")).unwrap();
@@ -882,7 +933,7 @@ fn watch_unclaimed_ask() {
     // Later only dismisses: the ask stays open, nothing is requested, and
     // nothing reposts it while it waits.
     r.co.sweep_asks(&[]).unwrap();
-    r.fake.no_post(Duration::from_millis(150));
+    r.fake.no_post(QUIET);
     assert_eq!(requests(&r), before);
     let still = r.co.get_task(&ask.id).unwrap();
     assert!(still.state != coord::CANCELED && still.ask.unwrap().is_open());

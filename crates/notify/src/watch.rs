@@ -19,8 +19,9 @@
 //! A Board reconcile reads the whole Board under coord's lock, so a burst
 //! of changes shares them: a lone change reconciles at once, the rest at
 //! most once per [`BOARD_EVERY`], and always once more after the last
-//! change (card #554). Only the state a reconcile finds counts: a card
-//! that came and went between two of them gets no card.
+//! change (card #554). A change to a card in the Needs you lane never
+//! waits: answered and asked back inside one interval, it would look as if
+//! it never left, and the new question would get no card.
 //!
 //! The Go select loop runs on its own thread over a current-thread tokio
 //! runtime that awaits the three subscriber queues and the cards' presses.
@@ -319,7 +320,13 @@ async fn run(
             }
         };
         match ev {
-            Ev::Stop => return,
+            Ev::Stop => {
+                // The next start seeds quietly: what waits gets its card now.
+                if due.is_some() || cch.as_ref().is_some_and(|q| !q.is_empty()) {
+                    w.board(true);
+                }
+                return;
+            }
             Ev::Ask(None) => ach = None,
             Ev::Ask(Some(id)) => w.ask(&id),
             Ev::Inbox(None) => ich = None,
@@ -336,8 +343,10 @@ async fn run(
                     w.board(true); // the changes that were waiting for it
                 }
             }
-            Ev::Board(Some(_)) if due.is_some() => {} // its reconcile reads this too
-            Ev::Board(Some(_)) if last.elapsed() < BOARD_EVERY => due = Some(last + BOARD_EVERY),
+            Ev::Board(Some(c)) if due.is_some() && !w.in_lane(&c.task_id) => {} // it reads this too
+            Ev::Board(Some(c)) if last.elapsed() < BOARD_EVERY && !w.in_lane(&c.task_id) => {
+                due = Some(last + BOARD_EVERY);
+            }
             Ev::Board(Some(_)) | Ev::BoardDue => {
                 due = None;
                 // The view is read after this, so what is queued now needs
@@ -560,6 +569,11 @@ impl State {
             room: &self.s.room,
             file: &self.s.file,
         }
+    }
+
+    /// Whether card `id` was in the Needs you lane at the last reconcile.
+    fn in_lane(&self, id: &str) -> bool {
+        self.needs.iter().any(|k| k.split('#').next() == Some(id))
     }
 
     fn board(&mut self, post: bool) {
