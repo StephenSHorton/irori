@@ -1435,12 +1435,14 @@ impl Services {
         let lead_here = p.where_.as_ref().filter(|w| {
             irori_identity::owner::device_of(&w.who) == self.device.id && !w.cwd.is_empty()
         });
+        // Only a root that exists on this device: repo_roots can name
+        // another device's checkout (a Mac path on the PC).
         let root = self
             .capture
             .repo_roots(repo_key)
             .into_iter()
-            .next()
             .map(PathBuf::from)
+            .find(|p| p.is_dir())
             .or_else(|| lead_here.and_then(|w| crate::helpertree::main_root(Path::new(&w.cwd))));
         let Some(root) = root else {
             logf(format_args!(
