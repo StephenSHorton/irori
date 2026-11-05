@@ -28,7 +28,8 @@ export function FriendInvite() {
       setBusy(false)
     }
   }
-  if (invite) {
+  // An invite's ended event can land after Close: "" state is none.
+  if (invite && invite.state !== "") {
     return (
       <div className="rounded-md border border-border/60 p-3">
         <InvitePanel s={invite} onClose={() => setInvite(null)} />
