@@ -60,7 +60,8 @@ fn is_start_failed(b: &Blocker) -> bool {
 }
 
 /// Whether Irori itself acts on an answer to b (card #531): its "no copy"
-/// and "couldn't start" asks. Its other items only tell the person.
+/// and "couldn't start" asks, which the sweep reads. Its crash question is
+/// left out: answered in the window, it starts nothing yet.
 pub fn irori_acts_on(b: &Blocker) -> bool {
     is_no_copy(b) || is_start_failed(b)
 }
@@ -116,9 +117,12 @@ fn rooted(f: &str) -> bool {
 }
 
 /// Whether f was meant as a path, not words to Irori: "i don't understand
-/// this blocker" or "where is that?" is no bad path (card #531).
+/// this blocker" or "where is that?" is no bad path (card #531), nor is
+/// "what does folder/repo mean": a relative path with a space reads as
+/// words, as most replies with both are.
 fn reads_as_path(f: &str) -> bool {
-    !f.ends_with('?') && (rooted(f) || f.contains(['/', '\\']))
+    !f.ends_with('?')
+        && (rooted(f) || (f.contains(['/', '\\']) && !f.contains(char::is_whitespace)))
 }
 
 /// Why a reply wasn't used as the card's folder.
@@ -129,9 +133,10 @@ fn not_a_folder_line(reply: &str, dev: &str) -> String {
             "{} doesn't name a folder, so Irori can't start the agent yet and is asking again.",
             quoted(reply)
         )
-    } else if rooted(&f) {
+    } else if rooted(&f) && !Path::new(&f).is_dir() {
         format!("{} isn't a folder on {dev}.", quoted(reply))
     } else {
+        // Relative, or a real folder named without its drive on Windows.
         format!("{} isn't a full path on {dev}.", quoted(reply))
     }
 }
@@ -516,6 +521,19 @@ mod tests {
         );
     }
 
+    /// A real folder named without its drive is there, but not a full path.
+    #[cfg(windows)]
+    #[test]
+    fn a_folder_without_its_drive_is_not_a_full_path() {
+        let cwd = std::env::current_dir().unwrap();
+        let s = cwd.to_string_lossy();
+        let line = not_a_folder_line(&s[2..], "Desktop Computer");
+        assert!(
+            line.ends_with("isn't a full path on Desktop Computer."),
+            "{line}"
+        );
+    }
+
     /// Card #531: words to Irori aren't called a bad path.
     #[test]
     fn a_question_is_not_a_bad_path() {
@@ -524,6 +542,7 @@ mod tests {
             "I'll clone it later",
             "what folder?",
             "is it /Users/me/irori?",
+            "what does folder/repo mean",
             "huh",
         ] {
             let line = not_a_folder_line(r, "Macbook Pro");

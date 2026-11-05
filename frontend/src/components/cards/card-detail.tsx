@@ -2018,7 +2018,9 @@ function ToldLine({
           ? "Done: the card is closed."
           : irori
             ? "Sent to Irori: it starts the agent, or asks again."
-            : "Resolved: nobody is running to act on it."}
+            : told.to.length
+              ? "Resolved: the agent on the card gets your answer."
+              : "Resolved: nobody is running to act on it."}
       </p>
     )
   if (sent === false)

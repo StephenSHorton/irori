@@ -6,6 +6,7 @@
 
 mod common;
 
+use base64::Engine;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -132,6 +133,40 @@ fn a_reply_that_is_no_folder_comes_back_quoted_and_a_path_starts_the_agent() {
         .filter(|b| b.open() && is_no_copy(b))
         .collect();
     assert!(open.is_empty(), "{open:?}");
+}
+
+/// An answer with a file puts the card back on the Board before it can be
+/// resolved: that closes the blocker, and it is no error.
+#[test]
+fn a_reply_with_a_file_is_taken() {
+    let t = rig();
+    let c = t.card("");
+    let b = t.asked(&c.id, "");
+    let file = irori_window::board::UploadFile {
+        name: "where.txt".into(),
+        data: base64::engine::general_purpose::STANDARD.encode(b"here"),
+    };
+    let res = t
+        .w()
+        .answer_files(&c.id, &b.id, -1, "see this file", true, &[], &[file])
+        .unwrap();
+    assert!(res.irori_acts);
+    let b2 = t.asked(&c.id, &b.id);
+    assert!(b2.question.contains("“see this file”"), "{b2:?}");
+}
+
+/// A card someone took while it waited is theirs: Irori won't start one.
+#[test]
+fn a_card_with_a_holder_does_not_promise_an_agent() {
+    let t = rig();
+    let c = t.card("");
+    let b = t.asked(&c.id, "");
+    t.w().core.coord().claim_task(&t.r.key_a, &c.id).unwrap();
+    let res = t
+        .w()
+        .answer(&c.id, &b.id, -1, "any folder", true, &[])
+        .unwrap();
+    assert!(!res.irori_acts);
 }
 
 /// A path that isn't there is still told as one, and each reply gets its
