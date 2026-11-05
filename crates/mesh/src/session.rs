@@ -653,6 +653,7 @@ impl Session {
                 (evs, r)
             })
             .await;
+            self.n.heard_rows(&dev, &evs[..applied], &self.conn.id());
             if let Err(e) = r {
                 self.refusal(&dev, &evs[applied..], &e).await;
             }
@@ -733,6 +734,9 @@ impl Session {
                 (ev, r)
             })
             .await;
+            if res.is_ok() {
+                n.heard_rows(&ev.device_id, std::slice::from_ref(&ev), &self.conn.id());
+            }
             if ev.device_id == n.self_id && res.is_ok() && self.pass_own_check(ev.seq) {
                 // The peer's copy of my last row is mine: the rows after it
                 // are my own history, held until now.
@@ -826,6 +830,7 @@ impl Session {
             if applied > 0 {
                 any = true;
             }
+            self.n.heard_rows(&dev, &evs[..applied], &self.conn.id());
             if let Err(e) = r {
                 self.refusal(&dev, &evs[applied..], &e).await;
             }

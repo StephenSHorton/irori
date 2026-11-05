@@ -378,6 +378,11 @@ export type AgentCard = {
 	/**  The tool the session is running now (card #299). */
 	lastTool?: string,
 	deviceState?: string,
+	/**
+	 *  The device its rows come through while there is no session with it
+	 *  (card #544).
+	 */
+	deviceVia?: string,
 	/**  When the current status began, omitted when unknown (card #489). */
 	statusSince?: string,
 	/**
@@ -448,6 +453,8 @@ export type AgentRef = {
 	deviceId?: string,
 	color?: string,
 	offline?: boolean,
+	/**  The device its rows come through (card #544). */
+	deviceVia?: string,
 	conflict?: string,
 	/**
 	 *  While it's idle: its last transcript activity, about when its turn
@@ -1434,6 +1441,12 @@ export type DeviceView = {
 	action?: string,
 	/**  Zero (omitted): never heard from, or this device. */
 	lastSeen?: string,
+	/**
+	 *  The device its rows come through while there is no session with it
+	 *  (card #544): an id from the mesh, its name by the time the window
+	 *  reads it.
+	 */
+	via?: string,
 	color?: string,
 	/**
 	 *  The work/personal sides it runs, the first its new cards' (card
