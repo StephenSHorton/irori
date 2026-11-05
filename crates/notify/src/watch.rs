@@ -344,13 +344,20 @@ async fn run(
 }
 
 /// How long until `at` (coord's clock, the system's), and a second more
-/// so coord's own look then finds it past.
+/// so coord's own look then finds it past; at most [`HELD_LOOK_EVERY`],
+/// since a hold can also end with no row (the device paused, or its cap
+/// filled).
 fn until(at: GoTime) -> std::time::Duration {
-    at.to_system()
+    (at.to_system()
         .duration_since(std::time::SystemTime::now())
         .unwrap_or_default()
-        + std::time::Duration::from_secs(1)
+        + std::time::Duration::from_secs(1))
+    .min(HELD_LOOK_EVERY)
 }
+
+/// The longest Watch waits between looks while it holds a "Nobody took"
+/// card back (card #518).
+const HELD_LOOK_EVERY: std::time::Duration = std::time::Duration::from_secs(10);
 
 async fn recv<T>(q: Option<&Queue<T>>) -> Option<T> {
     match q {

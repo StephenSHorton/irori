@@ -797,42 +797,48 @@ fn session_of(key: &str) -> &str {
 }
 
 impl Services {
-    /// Whether this device's sweep starts an agent at its next pass: not
-    /// paused, a spawner installed, and under its cap (`sweep_spawns`).
-    fn spawns_now(&self) -> bool {
-        !self.inbox.policy().paused
-            && self
+    /// The cards this device's sweep starts an agent for at its next pass,
+    /// as `sweep_spawns` picks them: none while paused or with no spawner,
+    /// else `cards_to_spawn` oldest first, as many as its cap leaves room
+    /// for.
+    fn starts_next(&self) -> std::collections::HashSet<String> {
+        if self.inbox.policy().paused
+            || self
                 .spawn
                 .spawner
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .is_some()
-            && self.spawned_here() < self.spawn_cap(&self.device.id)
+                .is_none()
+        {
+            return Default::default();
+        }
+        let room = (self.spawn_cap(&self.device.id) - self.spawned_here()).max(0) as usize;
+        self.coord
+            .cards_to_spawn()
+            .into_iter()
+            .take(room)
+            .map(|t| t.id)
+            .collect()
     }
 
     /// Coord's [`coord::Coord::ask_starting`] (card #518), less a hold on
-    /// a request this device's own sweep won't write now: it is paused,
-    /// has no spawner, or is at its cap, so nobody took it after all.
+    /// a request this device's own sweep won't write at its next pass
+    /// (paused, no spawner, or its cap taken by older cards): nobody took
+    /// it after all.
     pub(crate) fn ask_starting(&self, id: &str) -> Option<coord::AskStart> {
         let s = self.coord.ask_starting(id)?;
-        self.keeps_start(&s).then_some(s)
+        (s.requested || s.device != self.device.id || self.starts_next().contains(id)).then_some(s)
     }
 
     /// [`Self::ask_starting`] for every open ask, by card id.
     pub(crate) fn asks_starting(&self) -> std::collections::HashMap<String, coord::AskStart> {
         let mut all = self.coord.asks_starting();
-        if all
-            .values()
-            .any(|s| !s.requested && s.device == self.device.id)
-            && !self.spawns_now()
-        {
-            all.retain(|_, s| s.requested || s.device != self.device.id);
+        let mine = |s: &coord::AskStart| !s.requested && s.device == self.device.id;
+        if all.values().any(mine) {
+            let next = self.starts_next();
+            all.retain(|id, s| !mine(s) || next.contains(id));
         }
         all
-    }
-
-    fn keeps_start(&self, s: &coord::AskStart) -> bool {
-        s.requested || s.device != self.device.id || self.spawns_now()
     }
 
     /// The window's spawner; `None` spawns nothing.
