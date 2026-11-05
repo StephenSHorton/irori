@@ -6,7 +6,7 @@ use toast::config::{class_prefix_for, contrast, mix};
 use toast::layout::*;
 use toast::note::*;
 use toast::sound::*;
-use toast::{Config, DARK, Kind, LIGHT, Palette, hex, rgb};
+use toast::{Config, DARK, Kind, LIGHT, Palette, Scheme, hex, rgb};
 
 fn t0() -> Instant {
     Instant::now()
@@ -378,7 +378,13 @@ fn scale_wav_halves_samples() {
 fn default_config() {
     let c = Config::default();
     assert!(
-        c.app_name == "Toast" && c.palette == DARK && c.corner_radius == 0.0 && c.capture_exclude
+        c.app_name == "Toast"
+            && c.dark == DARK
+            && c.light == LIGHT
+            && c.scheme == Scheme::Dark
+            && c.corner_radius == 0.0
+            && c.glass == 1.0
+            && c.capture_exclude
     );
     let n = c.normalized();
     assert_eq!(n.class_prefix, "Toast");
@@ -434,10 +440,63 @@ fn config_normalized() {
         assert_eq!(got, want, "radius {inp}");
     }
     let zero = Config {
-        palette: Palette::default(),
+        light: Palette::default(),
+        dark: Palette::default(),
         ..Config::default()
-    };
-    assert_eq!(zero.normalized().palette, DARK, "zero palette is Dark");
+    }
+    .normalized();
+    assert_eq!(zero.dark, DARK.resolved(), "zero dark palette is Dark");
+    assert_eq!(zero.light, LIGHT.resolved(), "zero light palette is Light");
+    assert_eq!(zero.palette(true), zero.dark);
+    assert_eq!(zero.palette(false), zero.light);
+    assert_eq!(
+        zero.dark.tint, zero.dark.background,
+        "tint defaults to background"
+    );
+    for (inp, want) in [
+        (0.0, None),
+        (-1.0, None),
+        (f64::NAN, None),
+        (1.0, None),
+        (2.0, None),
+        (0.62, Some(0.62)),
+    ] {
+        let c = Config {
+            glass: inp,
+            ..Config::default()
+        }
+        .normalized();
+        assert_eq!(c.glass_alpha(), want, "glass {inp}");
+    }
+    let c = Config::default();
+    assert!(
+        !Config {
+            scheme: Scheme::Light,
+            ..c.clone()
+        }
+        .is_dark(true)
+    );
+    assert!(
+        Config {
+            scheme: Scheme::Dark,
+            ..c.clone()
+        }
+        .is_dark(false)
+    );
+    assert!(
+        Config {
+            scheme: Scheme::System,
+            ..c.clone()
+        }
+        .is_dark(true)
+    );
+    assert!(
+        !Config {
+            scheme: Scheme::System,
+            ..c
+        }
+        .is_dark(false)
+    );
 }
 
 #[test]
