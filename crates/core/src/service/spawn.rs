@@ -544,16 +544,18 @@ impl Default for BriefMore<'_> {
 
 /// The `#name` channel tokens in `text` (card #454): `#` then a letter,
 /// then letters, digits, `-` or `_`, at the start or after anything but a
-/// letter, digit, `-`, `_` or `#` (so `**#x**`, `` `#x` `` and `(#x)` count,
-/// `mlg#3` and `a#b` don't). Card refs (`#12`) start with a digit, so never
+/// letter, digit, `-`, `_`, `#`, or a URL's `/`, `.`, `&` or `=` (so
+/// `**#x**`, `` `#x` `` and `(#x)` count, `mlg#3`, `a#b` and
+/// `…/main.rs#L12` don't). Card refs (`#12`) start with a digit, so never
 /// match.
 pub(crate) fn channel_tokens(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let cs: Vec<char> = text.chars().collect();
     let mut i = 0;
     while i < cs.len() {
-        let after_gap =
-            i == 0 || !(cs[i - 1].is_alphanumeric() || matches!(cs[i - 1], '-' | '_' | '#'));
+        let after_gap = i == 0
+            || !(cs[i - 1].is_alphanumeric()
+                || matches!(cs[i - 1], '-' | '_' | '#' | '/' | '.' | '&' | '='));
         if cs[i] == '#' && after_gap && cs.get(i + 1).is_some_and(|c| c.is_alphabetic()) {
             let mut j = i + 1;
             while j < cs.len() && (cs[j].is_alphanumeric() || cs[j] == '-' || cs[j] == '_') {
@@ -2178,6 +2180,7 @@ mod tests {
             channel_tokens("**#a** `#b` [#c] \"#d\" #e. ##f"),
             ["a", "b", "c", "d", "e"]
         );
+        assert!(channel_tokens("https://github.com/a/b/blob/main/x.rs#L12 /p#q").is_empty());
         assert!(channel_tokens("no channels # here, #, ##").is_empty());
     }
 
