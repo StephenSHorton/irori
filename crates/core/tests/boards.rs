@@ -1768,9 +1768,24 @@ fn a_board_card_reaches_an_idle_agent_not_on_the_board() {
         sender: inbox::Sender::new(key, "alpha", "claude"),
         path: String::new(),
     };
+    let on_board = |k: &str| {
+        c.board_roster(&b1)
+            .iter()
+            .any(|a| c.private_key(&a.key) == k)
+    };
     // alpha posts it, so alpha is on the board and never gets its own card;
     // beta has never touched the board. Beta takes offered cards (#453).
     c.set_agent_offer(&r.key_b, true).unwrap();
+    // Card #504: check beta is off the board before the card exists, not
+    // after. The hand-out is the Core's own and runs on its threads: the
+    // asks kick set_agent_offer just sent, a roster change, or the coord
+    // sweep's tick can put beta on and hand it wind#1 any moment after
+    // board_create, so a check there raced them under load. With no card
+    // on the board nothing puts beta on it.
+    assert!(
+        !on_board(&r.key_b),
+        "beta is on the board before any hand-out"
+    );
     let out = c
         .tools()
         .call(
@@ -1781,15 +1796,6 @@ fn a_board_card_reaches_an_idle_agent_not_on_the_board() {
         )
         .unwrap();
     assert!(out.contains("Created wind#1"), "{out}");
-    let on_board = |k: &str| {
-        c.board_roster(&b1)
-            .iter()
-            .any(|a| c.private_key(&a.key) == k)
-    };
-    assert!(
-        !on_board(&r.key_b),
-        "beta is on the board before any hand-out"
-    );
     wait_for(10, "beta is handed wind#1", || {
         c.sweep_coord().ok();
         r.notices_to(&r.key_b).iter().any(|d| {
