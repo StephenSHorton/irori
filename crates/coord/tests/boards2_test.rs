@@ -2456,3 +2456,185 @@ fn my_spawned_agent_is_never_offered_another_persons_card() {
     sync(&a, &b);
     assert_eq!(a.c.spawned(CARD1).map(|m| m.task_id), Some(mine.id.clone()));
 }
+
+// Card #573: a card another person gives you. p2 made it on dev-b and gives
+// it to p1, on dev-a.
+
+fn given(a: &Side, b: &Side) -> Task {
+    let t = b.c.create_task(P2, nt("Their card", "")).unwrap();
+    b.c.assign(P2, &t.id, P1).unwrap();
+    sync(a, b);
+    assert_eq!(a.c.given_to_ask().len(), 1, "p1 is to be asked");
+    a.c.ask_given(P1, &t.id, "p2 gave you this card.").unwrap();
+    sync(a, b);
+    a.c.get_task(&t.id).unwrap()
+}
+
+fn given_question(t: &Task) -> Blocker {
+    t.blockers
+        .iter()
+        .find(|b| b.question == GIVEN_QUESTION)
+        .expect("asked")
+        .clone()
+}
+
+fn say(a: &Side, by: &str, t: &Task, pick: i64) {
+    let q = given_question(t);
+    a.c.answer(
+        by,
+        &t.id,
+        &q.id,
+        BlockerAnswer {
+            pick,
+            resolve: true,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_given_card_is_asked_once_and_nothing_starts_before_the_yes() {
+    let (a, b) = two_people_shared();
+    let t = given(&a, &b);
+    assert!(a.c.given_to_ask().is_empty(), "asked once");
+    assert!(b.c.given_to_ask().is_empty(), "never the giver's to ask");
+    assert!(a.c.given_to_spawn().is_empty());
+    assert!(
+        a.c.request_spawn(P1, spawn_ask(&t.id, "dev-a"))
+            .unwrap()
+            .is_none(),
+        "no request before the yes"
+    );
+    // A request forced past that check doesn't fold on either side.
+    let ev =
+        a.st.append(
+            "irori",
+            kinds::TASK_SPAWN,
+            &spawn_row(&t.id, "dev-a", "irori", a.clk.now()),
+        )
+        .unwrap();
+    a.c.fold_live(&[ev]);
+    sync(&a, &b);
+    assert!(!a.c.get_task(&t.id).unwrap().spawn_pending());
+    assert!(!b.c.get_task(&t.id).unwrap().spawn_pending());
+    assert!(a.c.spawns_here().is_empty());
+}
+
+#[test]
+fn the_giver_writes_no_spawn_rows_for_a_card_they_gave_away() {
+    let (a, b) = two_people_shared();
+    let t = given(&a, &b);
+    say(&a, P1, &t, 1);
+    sync(&a, &b);
+    // The yes is p1's: p2's device still can't ask, even naming dev-a.
+    for (actor, by) in [(P2, P2), ("irori", "irori")] {
+        let ev =
+            b.st.append(
+                actor,
+                kinds::TASK_SPAWN,
+                &spawn_row(&t.id, "dev-a", by, b.clk.now()),
+            )
+            .unwrap();
+        b.c.fold_live(&[ev]);
+    }
+    sync(&a, &b);
+    assert!(!a.c.get_task(&t.id).unwrap().spawn_pending());
+    assert!(a.c.spawns_here().is_empty());
+}
+
+#[test]
+fn a_request_from_before_the_card_was_given_starts_nothing() {
+    let (a, b) = two_people_shared();
+    let t = b.c.create_task(P2, nt("Their card", "")).unwrap();
+    // p2's Irori asks for its own card, naming dev-a, then gives it away.
+    let ev =
+        b.st.append(
+            "irori",
+            kinds::TASK_SPAWN,
+            &spawn_row(&t.id, "dev-a", "irori", b.clk.now()),
+        )
+        .unwrap();
+    b.c.fold_live(&[ev]);
+    b.c.assign(P2, &t.id, P1).unwrap();
+    sync(&a, &b);
+    assert!(a.c.spawns_here().is_empty(), "{:?}", a.c.spawns_here());
+}
+
+#[test]
+fn only_the_persons_own_yes_counts() {
+    let (a, b) = two_people_shared();
+    // An agent's pick is a close, never a yes, and it isn't asked again.
+    let t = given(&a, &b);
+    say(&a, CARD1, &t, 1);
+    sync(&a, &b);
+    let got = a.c.get_task(&t.id).unwrap();
+    assert!(!got.given_said.as_ref().unwrap().yes, "{:?}", got.given_said);
+    assert!(a.c.given_to_spawn().is_empty());
+    assert!(a.c.given_to_ask().is_empty());
+    // Nor does the giver's answer count.
+    let t = given(&a, &b);
+    let q = given_question(&t);
+    b.c.answer(
+        P2,
+        &t.id,
+        &q.id,
+        BlockerAnswer {
+            pick: 1,
+            resolve: true,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    sync(&a, &b);
+    assert!(a.c.given_to_spawn().is_empty());
+    // The person's own Not now is a no too.
+    let t = given(&a, &b);
+    say(&a, P1, &t, 2);
+    sync(&a, &b);
+    assert!(a.c.given_to_spawn().is_empty());
+    assert!(a.c.given_to_ask().is_empty());
+}
+
+#[test]
+fn the_yes_is_the_persons_device_and_one_yes_starts_one_agent() {
+    let (a, b) = two_people_shared();
+    let t = given(&a, &b);
+    say(&a, P1, &t, 1);
+    sync(&a, &b);
+    let ids: Vec<String> = a.c.given_to_spawn().into_iter().map(|t| t.id).collect();
+    assert_eq!(ids, vec![t.id.clone()]);
+    assert!(b.c.given_to_spawn().is_empty());
+    let g =
+        a.c.request_spawn("irori", spawn_ask(&t.id, "dev-a"))
+            .unwrap()
+            .expect("the yes lets it through");
+    sync(&a, &b);
+    assert!(b.c.get_task(&t.id).unwrap().spawn_pending(), "p2 folds it");
+    assert!(a.c.given_to_spawn().is_empty(), "one is starting");
+    assert!(a.c.bind_spawn(&t.id, g, CARD1).unwrap());
+    sync(&a, &b);
+    assert_eq!(
+        b.c.spawned(CARD1).map(|m| m.task_id),
+        Some(t.id.clone()),
+        "p2's fold marks the agent, so its hand-out skips it"
+    );
+    assert!(
+        b.c.get_task(&t.id).unwrap().holders.iter().any(|h| h == CARD1),
+        "the bind's assignment folds on p2's side"
+    );
+    assert!(a.c.given_to_ask().is_empty(), "the agent has it");
+    assert!(a.c.given_to_spawn().is_empty());
+}
+
+#[test]
+fn a_card_i_assign_to_myself_or_a_private_card_is_not_given() {
+    let (a, b) = two_people_shared();
+    let t = a.c.create_task(P1, nt("Mine", "")).unwrap();
+    a.c.assign(P1, &t.id, P1).unwrap();
+    let theirs = b.c.create_task(P2, nt("Theirs", "")).unwrap();
+    b.c.assign(P2, &theirs.id, P2).unwrap();
+    sync(&a, &b);
+    assert!(a.c.given_to_ask().is_empty());
+    assert!(b.c.given_to_ask().is_empty());
+}
