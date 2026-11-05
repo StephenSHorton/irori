@@ -5,8 +5,10 @@
 // a slow device logging each read would rotate the 4 MiB log away.
 //
 // A minute with nothing to say writes no line: no signal came and no read
-// ended, or the page itself wasn't running. Signals with no reads after
-// them mean a read that hasn't answered.
+// ended, or the page itself wasn't running. A window started hidden on a
+// Mac wrote no line in 3.5 minutes, so no lines there say nothing about
+// signals. Signals with no reads after them mean a read that hasn't
+// answered.
 
 import { WindowLog, Events } from "./host"
 import { inWails } from "./irori"
