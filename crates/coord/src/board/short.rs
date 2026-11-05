@@ -475,6 +475,18 @@ impl Fold {
         if tag.is_empty() && !self.on_board && hits.iter().any(|t| t.board.is_empty()) {
             return hits.into_iter().filter(|t| t.board.is_empty()).collect();
         }
+        // And one that left it keeps that ref (card #563), or `home#3`
+        // would take over the `#3` a moved card's links still say.
+        if tag.is_empty()
+            && !self.on_board
+            && let Ok(n) = short_num(short).parse::<i64>()
+            && let Some(ids) = self.short_hist.get(&(String::new(), n))
+        {
+            let old: Vec<&Task> = ids.iter().filter_map(|id| self.tasks.get(id)).collect();
+            if !old.is_empty() {
+                return old;
+            }
+        }
         hits
     }
 

@@ -240,3 +240,29 @@ fn boards_and_refs_survive_a_reopen() {
     assert_eq!(gate.short_ref(), "home#2");
     c.close().unwrap();
 }
+
+/// Card #563: Personal moves and deletes like a space, with no gate, and
+/// its default board has no tag, so a card back on it is a bare number.
+#[test]
+fn a_private_card_moves_and_a_deleted_personal_board_empties_onto_the_default() {
+    let r = Rig::new();
+    let home = r.core.create_personal_board("House", "home").unwrap();
+    let by = r.core.user_sender().key;
+    let a = card(&r, "", "one");
+    let b = card(&r, &home, "two");
+    let t = r.core.coord().move_task(&by, &a.id, &home).unwrap();
+    assert_eq!(t.short_ref(), "home#2");
+    assert_eq!(r.core.task_ref("#1").unwrap(), a.id, "its old ref");
+
+    let t = r.core.coord().move_task(&by, &b.id, PERSONAL_BOARD).unwrap();
+    assert_eq!((t.board.as_str(), t.short_ref().as_str()), ("", "#2"));
+    assert_eq!(r.core.task_ref("home#1").unwrap(), b.id);
+
+    r.core.delete_personal_board(&home).unwrap();
+    assert_eq!(r.core.personal_boards().unwrap().len(), 1);
+    let t = r.core.coord().get_task(&a.id).unwrap();
+    assert_eq!((t.board.as_str(), t.short_ref().as_str()), ("", "#3"));
+    assert_eq!(r.core.task_ref("home#2").unwrap(), a.id);
+    let e = r.core.delete_personal_board(PERSONAL_BOARD).unwrap_err();
+    assert!(matches!(&e, BoardError::Coord(c) if c.kind() == CK::NotAllowed));
+}

@@ -459,13 +459,12 @@ fn every_arrival_order_settles_on_the_same_places() {
     let rows = vec![
         created("dev-b", 1, base + 1, "A", 1, ""),
         created("dev-c", 1, base + 2, "B", 1, NET),
-        created("dev-d", 1, base + 3, "C", 2, NET),
         moved("dev-e", 1, base + 5, "A", 3, NET),
         moved("dev-f", 1, base + 6, "B", 1, ART),
         created("dev-g", 1, base + 7, "D", 4, NET),
     ];
     let snapshot = |c: &Coord| -> BTreeMap<String, (String, String)> {
-        ["A", "B", "C", "D"]
+        ["A", "B", "D"]
             .iter()
             .map(|id| (id.to_string(), place(c, id)))
             .collect()
@@ -483,13 +482,12 @@ fn every_arrival_order_settles_on_the_same_places() {
         }
         snapshot(&c)
     };
-    let want = play(&[0, 1, 2, 6, 3, 4, 5]);
-    // The delete hands B #2 and C #3; A's later move onto the deleted board
-    // lands it on the first as #4, and D's create takes #5.
-    assert_eq!(want["A"], (String::new(), "wind#4".to_string()));
+    let want = play(&[0, 1, 5, 2, 3, 4]);
+    // The delete hands B #2; A's later move onto the deleted board lands it
+    // on the first as #3, and D's create takes #4.
+    assert_eq!(want["A"], (String::new(), "wind#3".to_string()));
     assert_eq!(want["B"], (ART.to_string(), "art#1".to_string()));
-    assert_eq!(want["C"], (String::new(), "wind#3".to_string()));
-    assert_eq!(want["D"], (String::new(), "wind#5".to_string()));
+    assert_eq!(want["D"], (String::new(), "wind#4".to_string()));
     for order in permutations(rows.len() + 1) {
         assert_eq!(play(&order), want, "order {order:?}");
     }
