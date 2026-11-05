@@ -97,6 +97,61 @@ fn the_holders_device_asks_github_and_a_merge_reaches_the_holder() {
     );
 }
 
+/// A device with no gh.
+#[derive(Default)]
+struct NoGh {
+    calls: Mutex<u32>,
+}
+
+impl PrChecker for NoGh {
+    fn check(&self, url: &str) -> PrCheck {
+        *self.calls.lock().unwrap() += 1;
+        PrCheck {
+            pr: url.into(),
+            error: "gh isn't installed here".into(),
+            ..PrCheck::default()
+        }
+    }
+
+    fn ready(&self) -> bool {
+        false
+    }
+}
+
+/// Card #542: a device that can't ask GitHub asks about nothing and writes
+/// no row, even for a merge wait, which any of the person's devices polls.
+#[test]
+fn a_device_with_no_gh_asks_nothing_and_writes_nothing() {
+    let gh = Arc::new(NoGh::default());
+    let g2 = gh.clone();
+    let r = Rig::with(move |o| o.pr_checker = Some(g2));
+    let co = r.core.coord();
+    let t = co
+        .create_task(
+            "otherdevice/sess",
+            NewTask {
+                title: "part 10".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.claim_task("otherdevice/sess", &t.id).unwrap();
+    co.block(
+        "otherdevice/sess",
+        &t.id,
+        "Review and merge PR #12",
+        Some(coord::BlockedBy {
+            kind: coord::BLOCKED_ON_EXTERNAL.into(),
+            reference: PR.into(),
+        }),
+    )
+    .unwrap();
+
+    r.core.check_prs();
+    assert_eq!(*gh.calls.lock().unwrap(), 0);
+    assert!(co.pr_state(&t.id, PR).is_none());
+}
+
 /// Card #509: a wait on a PR's merge is asked about even when nobody here
 /// holds its card (its agent may be gone), so the person's Needs you
 /// drops it once the PR merges.
