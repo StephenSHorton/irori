@@ -508,7 +508,9 @@ export function sampleCards(now: Date): CardDetail[] {
             title: "Add a retry to the upload step",
             goal: "Uploads over 50 MB retry twice before failing.",
             scope: "board",
-            scopeLabel: "Friends",
+            scopeLabel: "MLG",
+            board: "sample-board-mlg",
+            ours: true,
             working: [],
             blockers: [
               CardBlocker({

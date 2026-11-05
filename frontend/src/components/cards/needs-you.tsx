@@ -23,6 +23,7 @@ import {
 import { inWails, plainLine, relativeTime } from "@/lib/irori"
 import { AgentsService } from "@/lib/host"
 import {
+  GIVEN_QUESTION,
   goneTitle,
   loopLine,
   mergeLine,
@@ -693,7 +694,8 @@ export function BlockerAnswer({
     <div className="grid min-w-0 gap-1.5">
       {!b.doneCheck && (
         <div className="grid gap-0.5">
-          <Asker who={b.raisedBy} />
+          {/* Irori asks this one in the person's own name (card #573). */}
+          {b.question !== GIVEN_QUESTION && <Asker who={b.raisedBy} />}
           <p className="text-sm break-words">{question}</p>
         </div>
       )}
