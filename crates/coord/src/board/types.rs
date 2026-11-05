@@ -363,6 +363,14 @@ pub struct Task {
     /// The board in its space (card #392): empty for the space's own board.
     #[serde(skip_serializing_if = "omit")]
     pub board: String,
+    /// The work/personal side it's on (card #494): only devices that run
+    /// this side pick it up on their own. Empty: any side.
+    #[serde(skip_serializing_if = "omit")]
+    pub side: String,
+    /// The side its task.created gave it: `side` while it has no parent;
+    /// a subtask's `side` is its parent's (relink).
+    #[serde(skip)]
+    pub own_side: String,
     #[serde(skip_serializing_if = "omit")]
     pub withdrawn: bool,
     pub title: String,
@@ -617,6 +625,10 @@ pub struct NewTask {
     /// "Up to N agents" (spawned agents §3): 0 for the board's Agents per
     /// card, 1 for the lead alone.
     pub agents: i64,
+    /// The work/personal side (card #494). Empty: a subtask's parent's,
+    /// else the side of this device (the first it runs), else none.
+    /// Ignored on a shared board.
+    pub side: String,
 }
 
 /// Narrows `list_tasks`; zero values mean any.

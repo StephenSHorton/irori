@@ -556,6 +556,9 @@ pub struct Task {
     pub short_was: String,
     #[specta(optional)]
     pub tag: String,
+    /// The work/personal side (card #494).
+    #[specta(optional)]
+    pub side: String,
     #[specta(optional)]
     pub withdrawn: bool,
     pub title: String,

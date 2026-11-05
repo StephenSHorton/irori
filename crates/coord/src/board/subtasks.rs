@@ -100,9 +100,18 @@ impl Fold {
             } else {
                 Some(self.rollup(&self.tasks[&id], &ks))
             };
-            let t = self.tasks.get_mut(&id).expect("listed");
             let new_parent = parent_of.get(&id).cloned().unwrap_or_default();
-            let changed = t.parent != new_parent || t.subtasks != ks || t.rollup != rollup;
+            // A subtask runs on its parent's side (card #494), also when
+            // it was adopted or an ask was made part of a card; out of its
+            // parent it has its own again.
+            let side = match self.tasks.get(&new_parent) {
+                Some(p) if !new_parent.is_empty() => p.own_side.clone(),
+                _ => self.tasks[&id].own_side.clone(),
+            };
+            let t = self.tasks.get_mut(&id).expect("listed");
+            let changed =
+                t.parent != new_parent || t.subtasks != ks || t.rollup != rollup || t.side != side;
+            t.side = side;
             t.parent = new_parent;
             t.subtasks = ks;
             t.rollup = rollup;
@@ -362,6 +371,8 @@ impl Fold {
                 clean_new(&by, nt).map_err(|e: Error| e.prefixed(format!("subtask {}", i + 1)))?;
             ct.parent = id.into();
             ct.spawn = marks[i];
+            // A part runs on its parent's side (card #494).
+            ct.side = t.side.clone();
             cleaned.push(ct);
         }
         let mut adopt_ids: Vec<String> = Vec::new();

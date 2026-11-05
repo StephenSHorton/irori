@@ -26,6 +26,7 @@ pub mod names;
 pub mod notifications;
 pub mod person_avatar;
 pub mod roster;
+pub mod sides;
 pub mod talk;
 
 pub use board::*;

@@ -215,6 +215,10 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub board: String,
+    /// The work/personal side it's on (card #494); empty for any side.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub side: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub tag: String,
@@ -1417,6 +1421,7 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
         title: t.title.clone(),
         state: coord::effective_state(t).to_string(),
         repo_key: t.repo_key.clone(),
+        side: t.side.clone(),
         scope: SCOPE_MINE.into(),
         scope_label: SCOPE_MINE_LABEL.into(),
         progress: CardProgress { done: d, total: n },

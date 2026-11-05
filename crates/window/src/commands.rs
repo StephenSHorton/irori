@@ -1068,6 +1068,20 @@ pub async fn devices_set_person_avatar(w: W<'_>, avatar: String) -> R<()> {
     w.set_person_avatar(&avatar)
 }
 
+/// Every work/personal side named on a device or a card (card #494).
+#[tauri::command]
+#[specta::specta]
+pub async fn devices_side_names(w: W<'_>) -> R<Vec<String>> {
+    Ok(w.side_names())
+}
+
+/// Pins the sides this device runs, the first its new cards' (card #494).
+#[tauri::command]
+#[specta::specta]
+pub async fn devices_set_device_sides(w: W<'_>, sides: Vec<String>) -> R<Vec<String>> {
+    w.set_device_sides(&sides)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn devices_rename_device(w: W<'_>, device_id: String, name: String) -> R<String> {
@@ -1630,6 +1644,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             devices_person_avatar,
             devices_set_person_avatar,
             devices_rename_device,
+            devices_side_names,
+            devices_set_device_sides,
             devices_add_device,
             devices_join_with_code,
             devices_confirm_words,

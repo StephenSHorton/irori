@@ -213,6 +213,10 @@ kinds! {
     PERSON_AVATAR = "person.avatar" => Replicated, Refuses;
     // devname (card #184)
     DEVICE_NAME = "device.name" => Replicated, Refuses;
+    /// `{deviceId, sides, atDevice}`, actor `user`: the work/personal
+    /// sides a device runs, the first its new cards' (card #494). Counts
+    /// only when the signing device is `deviceId`; no row, every side.
+    DEVICE_SIDES = "device.sides" => Replicated, Refuses;
     // v0.5 shared boards: board logs only
     BOARD_CREATED = "board.created" => Replicated, Accepts;
     BOARD_RENAMED = "board.renamed" => Replicated, Accepts;

@@ -399,6 +399,8 @@ export const DevicesService = {
     done(commands.devicesSetPersonAvatar(avatar)),
   RenameDevice: (deviceId: string, name: string) =>
     call(commands.devicesRenameDevice(deviceId, name)),
+  SideNames: () => call(commands.devicesSideNames()),
+  SetDeviceSides: (sides: string[]) => call(commands.devicesSetDeviceSides(sides)),
   AddDevice: (role: string) => call(commands.devicesAddDevice(role)),
   JoinWithCode: (code: string, server: string) =>
     call(commands.devicesJoinWithCode(code, server)),
