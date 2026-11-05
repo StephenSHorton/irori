@@ -128,7 +128,8 @@ impl Services {
             }
             let host = hosts.get(id);
             let phone = r.os == ANDROID || host.is_some_and(|h| h.os == ANDROID);
-            let computer = r.role.is_empty() || r.role == ROLE_DESKTOP;
+            // This device knows what it can do; of another, its role says.
+            let computer = *id == me || r.role.is_empty() || r.role == ROLE_DESKTOP;
             if phone || !computer {
                 cant.insert(id.clone());
                 continue;
