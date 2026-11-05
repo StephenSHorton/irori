@@ -983,6 +983,16 @@ export type CardSummary = {
 	 *  a card, the agent's name, the resource or the outside thing.
 	 */
 	waitOn?: string,
+	/**
+	 *  What kind of thing the first wait is on (card #487): "task",
+	 *  "lease", "agent" or "external", so Home can name a lease plainly.
+	 */
+	waitKind?: string,
+	/**
+	 *  The first wait is on an agent that is gone (card #487): nothing
+	 *  will end it by itself, so Home files the card under Stuck.
+	 */
+	waitGone?: boolean,
 	waitQuestion?: string,
 	/**
 	 *  The card the first wait is on, by id (Home counts the cards that

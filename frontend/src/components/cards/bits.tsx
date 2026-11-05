@@ -23,6 +23,7 @@ import {
 } from "@/lib/cards"
 import { agentStatus } from "@/lib/agent-status"
 import { plainLine } from "@/lib/irori"
+import { waitLine } from "@/lib/wait-name"
 import { LiveRoster } from "@/lib/thread"
 import { prChip } from "@/lib/needs"
 import { cardOwner, type OwnerCard } from "@/lib/owners"
@@ -474,13 +475,15 @@ export function Spinner({
   )
 }
 
-// waitLabel: what a card waits on that isn't you (card #158).
+// waitLabel: what a card waits on that isn't you (card #158), a lease in
+// plain words (card #487: "Waiting for a free Dolphin slot").
 export function waitLabel(card: {
   waitingOn?: number
   waitOn?: string
+  waitKind?: string
 }): string {
   const n = card.waitingOn ?? 0
-  const on = card.waitOn ? `Waiting on ${plainLine(card.waitOn)}` : "Waiting"
+  const on = card.waitOn ? waitLine(card) : "Waiting"
   return n > 1 ? `${on} +${n - 1}` : on
 }
 

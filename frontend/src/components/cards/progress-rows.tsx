@@ -1,7 +1,8 @@
 // ProgressRows is Home's agent progress under Needs you (card #261): one
-// compact row per card, with one of four states (Needs you, Working,
-// Waiting, Done; #259's finding 05), the line that says why, its board
-// only when it isn't yours, and its progress.
+// compact row per card, with its state (needs.ts RowState: Needs you,
+// Stuck, Working, Waiting, Idle, Done), the line that says why, its board
+// only when it isn't yours, and its progress. Grouped (card #487), the
+// rows come in one headed list per state, in that order.
 
 import { Badge } from "@/components/ui/badge"
 import { cardRef, PrChip, Spinner } from "@/components/cards/bits"
@@ -9,11 +10,12 @@ import { useContext } from "react"
 import { percent, withLive, type CardSummary } from "@/lib/cards"
 import { LiveRoster } from "@/lib/thread"
 import { plainLine } from "@/lib/irori"
-import { rowState, rowStateLabel, type RowState } from "@/lib/needs"
+import { groupRows, rowState, rowStateLabel, type RowLine, type RowState } from "@/lib/needs"
 import { cn } from "@/lib/utils"
 
 const stateVariant: Record<RowState, "destructive" | "info" | "slate" | "warning" | "success"> = {
   needs: "destructive",
+  stuck: "warning",
   working: "info",
   waiting: "slate",
   idle: "warning",
@@ -22,6 +24,7 @@ const stateVariant: Record<RowState, "destructive" | "info" | "slate" | "warning
 
 const barTone: Record<RowState, string> = {
   needs: "bg-destructive",
+  stuck: "bg-warning",
   working: "bg-info",
   waiting: "bg-muted-foreground",
   idle: "bg-warning",
@@ -33,37 +36,56 @@ export function ProgressRows({
   cards,
   selected,
   onOpen,
+  grouped = false,
 }: {
   label: string
   cards: CardSummary[]
   selected: string
   onOpen: (id: string) => void
+  grouped?: boolean
 }) {
+  // The live roster's status over the card's (card #317): the card page
+  // reads busy the same way, so the two never disagree.
+  const live = useContext(LiveRoster)
   if (!cards.length) return null
-  return (
-    <ul aria-label={label} className="glass-panel grid min-w-0 overflow-hidden">
-      {cards.map((c) => (
+  const rows = cards.map((c) => ({ c, r: rowState(withLive(c, live)) }))
+  const list = (name: string, rs: typeof rows) => (
+    <ul aria-label={name} className="glass-panel grid min-w-0 overflow-hidden">
+      {rs.map(({ c, r }) => (
         <li key={c.id} className="min-w-0 border-b border-border/60 last:border-b-0">
-          <ProgressRow card={c} selected={c.id === selected} onOpen={onOpen} />
+          <ProgressRow card={c} row={r} selected={c.id === selected} onOpen={onOpen} />
         </li>
       ))}
     </ul>
+  )
+  if (!grouped) return list(label, rows)
+  return (
+    <div className="grid min-w-0 gap-3">
+      {groupRows(rows, (x) => x.r.state).map((g) => (
+        <section key={g.state} className="grid min-w-0 gap-1.5">
+          <h3 className="flex items-center gap-2 px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            {rowStateLabel[g.state]}
+            <span className="tabular-nums">{g.rows.length}</span>
+          </h3>
+          {list(`${label}: ${rowStateLabel[g.state]}`, g.rows)}
+        </section>
+      ))}
+    </div>
   )
 }
 
 function ProgressRow({
   card: c,
+  row,
   selected,
   onOpen,
 }: {
   card: CardSummary
+  row: RowLine
   selected: boolean
   onOpen: (id: string) => void
 }) {
-  // The live roster's status over the card's (card #317): the card page
-  // reads busy the same way, so the two never disagree.
-  const live = useContext(LiveRoster)
-  const { state, line } = rowState(withLive(c, live))
+  const { state, line, spin } = row
   const p = percent(c.progress)
   const board = c.scope === "board" ? plainLine(c.scopeLabel) : ""
   return (
@@ -89,8 +111,11 @@ function ProgressRow({
         )}
       </span>
       <span className="col-span-3 col-start-2 row-start-2 flex min-w-0 items-center gap-1.5 text-[12.5px] text-muted-foreground sm:col-span-1 sm:col-start-3 sm:row-start-1">
-        {state === "working" && <Spinner className="size-3" />}
-        <span className={cn("truncate", state === "idle" && "text-warning")} title={line}>
+        {spin && <Spinner className="size-3" />}
+        <span
+          className={cn("truncate", (state === "idle" || state === "stuck") && "text-warning")}
+          title={line}
+        >
           {line}
         </span>
         <PrChip card={c} />

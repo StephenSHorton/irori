@@ -12,9 +12,11 @@ import { readFileSync } from "node:fs"
 import {
   asksPerson,
   CRASHED_QUESTION,
+  groupRows,
   HELD_QUIET,
   IDLE_LINE,
   loopLine,
+  nobodyTook,
   needsOf,
   needsYou,
   prChip,
@@ -96,8 +98,11 @@ describe("idle with no reason given", () => {
       ...c,
     })
 
-  test("calm Waiting at first, Idle after ten minutes", () => {
-    expect(rowState(held(), at("2026-11-02T10:10:00Z")).state).toBe("waiting")
+  test("Working between turns at first, Idle after ten minutes", () => {
+    expect(rowState(held(), at("2026-11-02T10:10:00Z"))).toEqual({
+      state: "working",
+      line: "orca, between turns",
+    })
     expect(rowState(held(), at("2026-11-02T10:15:00Z"))).toEqual({
       state: "idle",
       line: `${IDLE_LINE} (orca)`,
@@ -105,7 +110,7 @@ describe("idle with no reason given", () => {
   })
   test("counts from the later of the card's change and the holder's idle", () => {
     const c = held({ updatedAt: "2026-11-02T10:12:00Z" })
-    expect(rowState(c, at("2026-11-02T10:16:00Z")).state).toBe("waiting")
+    expect(rowState(c, at("2026-11-02T10:16:00Z")).state).toBe("working")
     expect(rowState(c, at("2026-11-02T10:22:00Z")).state).toBe("idle")
   })
   test("a named wait, a busy, gone or offline holder is not idle-unnamed", () => {
@@ -118,10 +123,15 @@ describe("idle with no reason given", () => {
       rowState(held({ openBlockers: 1, blockerQuestion: "Which?" }), late).state
     ).toBe("needs")
     expect(rowState(held({}, { status: "busy" }), late).state).toBe("working")
-    expect(
-      rowState(held({}, { status: "gone", live: false }), late).state
-    ).toBe("waiting")
-    expect(rowState(held({}, { offline: true }), late).state).toBe("waiting")
+    // Card #487: a holder that went away or is offline leaves it Stuck.
+    expect(rowState(held({}, { status: "gone", live: false }), late)).toEqual({
+      state: "stuck",
+      line: "orca went away",
+    })
+    expect(rowState(held({}, { offline: true }), late)).toEqual({
+      state: "stuck",
+      line: "orca is on an offline device",
+    })
     expect(rowState(held({ state: TaskState.InReview }), late).state).toBe(
       "waiting"
     )
@@ -160,14 +170,15 @@ describe("a holder running a background job", () => {
     expect(rowState(held(), late)).toEqual({
       state: "working",
       line: "wonton running a job",
+      spin: true,
     })
   })
-  test("idle: still not working on it now", () => {
+  test("idle: between turns, still on it", () => {
     expect(
       rowState(held({}, { status: "idle" }), Date.parse("2026-11-02T10:06:00Z"))
     ).toEqual({
-      state: "waiting",
-      line: "wonton, not working on it now",
+      state: "working",
+      line: "wonton, between turns",
     })
   })
   test("a card waiting on the person, or in review, says that instead", () => {
@@ -200,7 +211,7 @@ describe("rowState", () => {
     expect(rowState(card({ ready: true, openBlockers: 1 })).state).toBe("needs")
     expect(rowState(card({ state: TaskState.Completed })).state).toBe("done")
     expect(rowState(card({ state: TaskState.InReview })).line).toBe("In review")
-    expect(rowState(card({})).state).toBe("waiting")
+    expect(rowState(card({})).state).toBe("stuck")
   })
   test("Agent progress and the card page agree, by the live roster (card #317)", () => {
     const oak = {
@@ -572,5 +583,170 @@ describe("spawned agents' own decisions (card #456, sa-7)", () => {
     ).toBe("permission")
     expect(spawnNeed(q(CRASHED_QUESTION))).toBe("crashed")
     expect(spawnNeed(q("Ship today?"))).toBeNull()
+  })
+})
+
+// Card #487: Home groups its rows by what the card really waits on, and
+// the idle line counts the ones nobody took.
+describe("Home's groups (card #487)", () => {
+  const heron = {
+    key: "d/heron",
+    name: "heron",
+    status: "idle",
+    live: true,
+    where: "This PC",
+  }
+  const ask = (a: Record<string, unknown>) =>
+    card({
+      state: TaskState.Submitted,
+      ask: { state: "open", told: 3, ...a } as CardSummary["ask"],
+    })
+  const offered = (waiting: boolean) =>
+    card({
+      state: TaskState.Submitted,
+      working: [
+        { ...heron, assigned: true, waiting },
+      ] as CardSummary["working"],
+      holder: {
+        state: waiting ? "waiting" : "assigned",
+        who: heron,
+        others: 0,
+      } as CardSummary["holder"],
+    })
+
+  test("nobody took it: Stuck, and the idle line counts it", () => {
+    for (const [c, line] of [
+      [card({ state: TaskState.Submitted }), "Nobody has it yet"],
+      [offered(true), "Not picked up"],
+      [offered(false), "Offered, not taken up yet"],
+      [ask({}), "Told 3 agents; nobody took it yet"],
+      [ask({ state: "unclaimed" }), "Nobody took this yet"],
+    ] as const) {
+      expect(rowState(c)).toEqual({ state: "stuck", line })
+      expect(nobodyTook(c)).toBe(true)
+    }
+  })
+  test("someone on it, or starting: Working, not counted", () => {
+    const taken = ask({ state: "taken", taker: heron })
+    expect(rowState(taken)).toEqual({ state: "working", line: "heron took it" })
+    expect(nobodyTook(taken)).toBe(false)
+    const starting = card({ state: TaskState.Submitted, starting: "This PC" })
+    expect(rowState(starting)).toEqual({
+      state: "working",
+      line: "Starting an agent on This PC",
+    })
+    expect(nobodyTook(starting)).toBe(false)
+  })
+  test("a wait with a name: Waiting; a wait on a gone agent: Stuck", () => {
+    expect(rowState(card({ waiting: 1 }))).toEqual({
+      state: "waiting",
+      line: "Your answer is with the agent",
+    })
+    const lease = card({
+      state: TaskState.Blocked,
+      waitingOn: 1,
+      waitKind: "lease",
+      waitOn:
+        "ww/dolphin-slot-1 ww/dolphin-slot-2 ww/dolphin-slot-3 ww/dolphin-slot-4",
+    })
+    expect(rowState(lease)).toEqual({
+      state: "waiting",
+      line: "Waiting for a free Dolphin slot",
+    })
+    const gone = card({
+      state: TaskState.Blocked,
+      waitingOn: 1,
+      waitKind: "agent",
+      waitOn: "kestrel",
+      waitGone: true,
+    })
+    expect(rowState(gone)).toEqual({
+      state: "stuck",
+      line: "Waiting on kestrel, who is gone",
+    })
+    expect(nobodyTook(gone)).toBe(false)
+  })
+  test("a holder that went away is Stuck but someone took it", () => {
+    const c = card({
+      returned: { ...heron, status: "gone", live: false } as AgentRef,
+    })
+    expect(rowState(c)).toEqual({
+      state: "stuck",
+      line: "Nobody on it: heron went away",
+    })
+    expect(nobodyTook(c)).toBe(false)
+  })
+  test("one holder still there carries it; a gone co-holder doesn't make it Stuck", () => {
+    const gone = {
+      ...heron,
+      key: "d/a",
+      name: "a",
+      status: "gone",
+      live: false,
+    }
+    const c = card({
+      working: [gone, heron] as CardSummary["working"],
+      holder: { state: "gone", who: gone, others: 1 } as CardSummary["holder"],
+    })
+    expect(rowState(c, Date.parse("2026-11-02T10:01:00Z"))).toEqual({
+      state: "working",
+      line: "heron, between turns",
+    })
+  })
+  test("a step owner carries it: not nobody", () => {
+    const c = card({
+      working: [{ ...heron, steps: ["write tests"] }] as CardSummary["working"],
+      holder: {
+        state: "nobody",
+        who: { key: "", name: "" },
+        others: 0,
+      } as CardSummary["holder"],
+    })
+    expect(rowState(c, Date.parse("2026-11-02T10:01:00Z")).state).toBe(
+      "working"
+    )
+    expect(nobodyTook(c)).toBe(false)
+  })
+  test("a parent nobody holds waits on its subtasks, not counted", () => {
+    const c = card({ subtasks: 2 })
+    expect(rowState(c)).toEqual({
+      state: "waiting",
+      line: "Waiting on its subtasks",
+    })
+    expect(nobodyTook(c)).toBe(false)
+  })
+  test("an ask whose taker went away is Stuck, but someone took it", () => {
+    const oak = { ...heron, key: "d/oak", name: "oak", offline: true }
+    const c = card({
+      ask: { state: "taken", told: 2, taker: oak } as CardSummary["ask"],
+      working: [oak] as CardSummary["working"],
+      holder: {
+        state: "offline",
+        who: oak,
+        others: 0,
+      } as CardSummary["holder"],
+    })
+    expect(rowState(c)).toEqual({
+      state: "stuck",
+      line: "oak is on an offline device",
+    })
+    expect(nobodyTook(c)).toBe(false)
+  })
+  test("groups come in order, each in the order given, empty ones left out", () => {
+    const rows = [
+      { id: "a", s: "waiting" },
+      { id: "b", s: "stuck" },
+      { id: "c", s: "working" },
+      { id: "d", s: "stuck" },
+      { id: "e", s: "needs" },
+    ] as const
+    expect(
+      groupRows(rows, (r) => r.s).map((g) => [g.state, g.rows.map((r) => r.id)])
+    ).toEqual([
+      ["needs", ["e"]],
+      ["stuck", ["b", "d"]],
+      ["working", ["c"]],
+      ["waiting", ["a"]],
+    ])
   })
 })

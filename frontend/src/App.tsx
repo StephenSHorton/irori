@@ -27,7 +27,8 @@ import {
 import { AgentCards } from "@/components/cards/agent-hover"
 import { AskBox } from "@/components/cards/ask-box"
 import { NeedsYou } from "@/components/cards/needs-you"
-import { needsOf } from "@/lib/needs"
+import { nobodyTook, needsOf } from "@/lib/needs"
+import { cardRef } from "@/components/cards/bits"
 import { idleLine, whyWaiting } from "@/lib/agent-counts"
 import { mainRedText, mainReds, type MainRed } from "@/lib/main-red"
 import {
@@ -53,6 +54,7 @@ import {
   useDoneCards,
   useIdleReport,
   useThreads,
+  withLive,
 } from "@/lib/cards"
 import { useBoards } from "@/lib/boards"
 import { FocusComment, LiveRoster } from "@/lib/thread"
@@ -480,6 +482,24 @@ export function App() {
           .map((n) => n.id)
       ),
     [needs]
+  )
+  // The cards Home files under Stuck because nobody took them (card
+  // #487): the idle line counts them, so it never says "no open work"
+  // over them.
+  const homeCards = useMemo(
+    () => spaceCards.filter((c) => inScope(c, homeScope)),
+    [spaceCards, homeScope]
+  )
+  const homeIds = useMemo(
+    () => new Set(homeCards.map((c) => c.id)),
+    [homeCards]
+  )
+  const untaken = useMemo(
+    () =>
+      homeCards
+        .filter((c) => nobodyTook(withLive(c, liveRoster), now.getTime()))
+        .map((c) => ({ id: c.id, short: cardRef(c) })),
+    [homeCards, liveRoster, now]
   )
   // cardLabel names the card a held message is about: "#28", else "a card"
   // (one not on this board, or not loaded).
@@ -911,7 +931,7 @@ export function App() {
                         onThread={startedThread}
                         board={threadsSpace(space)}
                       />
-                      <IdleLine text={idleLine(idle)} />
+                      <IdleLine text={idleLine(idle, untaken, homeIds)} />
                     </>
                   }
                   lead={

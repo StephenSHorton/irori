@@ -463,6 +463,7 @@ export function BoardView({
                 cards={shown.filter((c) => !inPinned.has(c.id))}
                 selected={selected}
                 onOpen={onOpen}
+                grouped
               />
             </>
           ) : shown.length ? (
