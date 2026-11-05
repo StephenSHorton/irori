@@ -334,7 +334,10 @@ fn a_device_reached_only_through_another_shows_as_reachable() {
     let now = gocompat::time::GoTime::from_system(std::time::SystemTime::now());
     let phrase =
         coord::roster::device_phrase(&got.device_state, &got.device_seen, &got.device_via, &now);
-    assert!(phrase.starts_with("reachable through Phone, seen "), "{phrase}");
+    assert!(
+        phrase.starts_with("reachable through Phone, seen "),
+        "{phrase}"
+    );
 }
 
 #[test]
