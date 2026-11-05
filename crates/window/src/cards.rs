@@ -2085,7 +2085,7 @@ impl Window {
                 ..Default::default()
             })
             .iter()
-            .filter(|t| card_summary(t, &p).open_blockers > 0 || merge_pr(&co, t).is_some())
+            .filter(|t| card_summary(t, &p).open_blockers > 0 || merge_pr(co, t).is_some())
             .count();
         private
             + self
