@@ -688,5 +688,6 @@ fn spawner() -> irori_core::spawn::Spawner {
                     .collect()
             })
         })),
+        ready: Some(Arc::new(spawn::claude_installed)),
     }
 }

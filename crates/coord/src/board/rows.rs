@@ -474,6 +474,16 @@ crate::go_struct! {
 }
 
 crate::go_struct! {
+    /// An ask's owner gives it to `owner` (card #541).
+    #[derive(Debug, Clone, Default, PartialEq)]
+    pub struct AskMovedRow {
+        pub task_id: String = "taskId",
+        pub owner: String = "owner",
+        pub at: GoTime = "at",
+    }
+}
+
+crate::go_struct! {
     #[derive(Debug, Clone, Default, PartialEq)]
     pub struct TakeStateRow {
         pub task_id: String = "taskId",

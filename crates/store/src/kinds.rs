@@ -133,6 +133,8 @@ kinds! {
     TASK_EDITED = "task.edited" => Replicated, Refuses;
     TAKE_REQUESTED = "take.requested" => Replicated, Refuses;
     TAKE_STATE = "take.state" => Replicated, Refuses;
+    /// An ask's owner hands it to a device that can run agents (card #541).
+    ASK_MOVED = "ask.moved" => Replicated, Refuses;
     /// A card's parent is a card on the same board (closure checks it).
     TASK_PARENT = "task.parent" => Replicated, Accepts;
     /// The person's own card order in their window.
@@ -259,6 +261,8 @@ kinds! {
     BOARD_ASK_REQUESTED = "board.ask.requested" => Replicated, Accepts;
     /// An ask's take lock, written by the asking device (`take.state`).
     BOARD_ASK_STATE = "board.ask.state" => Replicated, Accepts;
+    /// [`ASK_MOVED`] in a board's log.
+    BOARD_ASK_MOVED = "board.ask.moved" => Replicated, Accepts;
     /// An ask's outcome edit of a card (`task.edited`).
     BOARD_ASK_EDITED = "board.ask.edited" => Replicated, Accepts;
     REVIEW_REQUESTED = "review.requested" => Replicated, Accepts;

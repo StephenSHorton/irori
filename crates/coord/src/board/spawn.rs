@@ -624,6 +624,28 @@ impl Fold {
         !me.is_empty() && kp(&t.created_by) == me && (s.by == SWEEPER || kp(&s.by) == me)
     }
 
+    /// Whether card t waits for an agent Irori starts for it, wherever it
+    /// would start (card #541): nobody has it and none is starting. Unlike
+    /// [`Self::ask_needs_agent`] it doesn't ask who owns an ask or whether
+    /// the hand-out ran, so the device the person posted on can tell them.
+    pub(crate) fn waits_for_agent(&self, t: &Task) -> bool {
+        if !self.spawning_on() || t.spawn_pending() {
+            return false;
+        }
+        match t.open_ask() {
+            Some(a) => {
+                (!self.on_board || a.thread)
+                    && !is_terminal(&t.state)
+                    && !t.withdrawn
+                    && !t.shared
+                    && a.taker.is_empty()
+                    && (a.thread || a.mentions.is_empty())
+                    && (!a.thread || a.wake)
+            }
+            None => super::offers::needs_agent(t),
+        }
+    }
+
     /// The cards this device hands out that need an agent and have none
     /// starting, oldest first; none while the board doesn't spawn.
     pub(crate) fn cards_to_spawn(&self) -> Vec<Task> {
@@ -635,7 +657,7 @@ impl Fold {
             .tasks
             .values()
             .filter(|t| {
-                (super::offers::needs_agent(t) && self.hands_out(t)) || self.ask_needs_agent(t)
+                (super::offers::needs_agent(t) && self.spawns_out(t)) || self.ask_needs_agent(t)
             })
             // Only on a device that runs the card's side (card #495),
             // unless the person asked for an agent on it here.

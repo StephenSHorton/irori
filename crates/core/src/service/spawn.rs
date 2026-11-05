@@ -149,6 +149,8 @@ pub struct ClaudeAgent {
 }
 
 /// Lists Claude Code's agents on this device, finished ones included.
+/// Whether this device has what it takes to run an agent now.
+pub type ReadyFn = Arc<dyn Fn() -> bool + Send + Sync>;
 pub type ListFn = Arc<dyn Fn() -> Result<Vec<ClaudeAgent>, String> + Send + Sync>;
 
 /// The window's spawner (part 1). The headless Core has none, and spawns
@@ -161,6 +163,8 @@ pub struct Spawner {
     /// `claude agents --json --all`, for the cleanup after a restart; `None`
     /// skips it.
     pub list: Option<ListFn>,
+    /// Whether the `claude` command is here now (card #541); `None`: it is.
+    pub ready: Option<ReadyFn>,
 }
 
 /// The line on a card whose spawned agent was found gone at start.
@@ -179,6 +183,12 @@ pub enum SpawnRefusal {
         folder: String,
         device: String,
     },
+    /// This device can't run agents (card #541): a request reached it
+    /// anyway, from a device that hadn't heard yet.
+    CantRun { device: String },
+    /// A thread or ask that names no repo, on a computer with no trusted
+    /// folder to start its agent in.
+    NoHome { device: String },
     /// This device has no checkout of the card's repo. `device` is the
     /// device's name as the person knows it, not its id (card #480).
     NoFolder { repo_key: String, device: String },
@@ -191,6 +201,12 @@ impl fmt::Display for SpawnRefusal {
         match self {
             SpawnRefusal::NotTrusted { folder, device, .. } => {
                 write!(f, "not trusted: {folder} on {device}")
+            }
+            SpawnRefusal::CantRun { device } => {
+                write!(f, "Claude Code isn't installed on {device}")
+            }
+            SpawnRefusal::NoHome { device } => {
+                write!(f, "{device} has no trusted folder to start an agent in")
             }
             // Read by people on the card line: the repo's short name and
             // the device's name (card #480). spawn_stop::no_folder_reason
@@ -815,6 +831,13 @@ pub(crate) fn build_ask_brief(
 #[derive(Default)]
 pub(crate) struct SpawnState {
     pub spawner: Mutex<Option<Spawner>>,
+    /// Which devices can run agents (card #541): read by the coords'
+    /// hand-out under their locks, so kept here by the sweep.
+    pub agents: Arc<RwLock<coord::AgentDevices>>,
+    /// Why no computer can start an agent now; empty while one can.
+    pub no_agent: RwLock<String>,
+    /// Cards the person was told no agent can start for.
+    pub no_agent_told: Mutex<std::collections::HashSet<String>>,
     /// The boards' switches, by board id (`""` the private board); read by
     /// the coords' hand-out under their locks, so never the store.
     pub on: Arc<RwLock<HashMap<String, SpawnSetting>>>,
@@ -862,6 +885,12 @@ pub(crate) struct SpawnState {
 }
 
 impl SpawnState {
+    /// The coords' view of which devices can run agents (card #541).
+    pub fn agent_devices_fn(&self) -> coord::AgentDevicesFn {
+        let agents = self.agents.clone();
+        Arc::new(move || agents.read().unwrap_or_else(|e| e.into_inner()).clone())
+    }
+
     /// The private board's switch, for its coord's `Options::spawning`.
     pub fn switch(
         on: &Arc<RwLock<HashMap<String, SpawnSetting>>>,
@@ -1193,17 +1222,24 @@ impl Services {
         if self.inbox.policy().paused {
             return;
         }
-        let Some(sp) = self
+        let sp = self
             .spawn
             .spawner
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .clone()
-        else {
+            .clone();
+        // Every device says whether it can run agents, and a device that
+        // can't still gives its work away and tells the person (card
+        // #541), so this comes before the spawner check.
+        self.publish_host(sp.as_ref());
+        self.refresh_agent_devices();
+        self.move_asks();
+        self.say_no_agent();
+        let Some(sp) = sp else {
             return;
         };
+        let ready = self.can_run_here();
         self.lift_no_copy(&sp);
-        self.publish_host(&sp);
         self.serve_start_requests();
         let me = self.device.id.clone();
         let cap = self.spawn_cap(&me);
@@ -1230,11 +1266,15 @@ impl Services {
             }
         }
         // This person's own cards on shared boards whose switch is on.
-        self.sweep_board_spawns(&sp, cap, &mut running);
+        if ready {
+            self.sweep_board_spawns(&sp, cap, &mut running);
+        }
         // What another device asked this one to start, and sessions
         // started for a request that is no longer the card's.
         self.start_requested(&sp, &mut running);
-        self.end_superseded(&sp);
+        if ready {
+            self.end_superseded(&sp);
+        }
     }
 
     /// An open ask here whose agents crashed twice in a row (card #470)
@@ -1493,6 +1533,23 @@ impl Services {
         folder: Option<Option<String>>,
     ) -> Result<bool, String> {
         let me = self.device.id.clone();
+        // The one way in to the spawner: nothing starts on a device that
+        // can't run agents, and it's said before anything about trust.
+        if sp.ready.as_ref().is_some_and(|f| !f()) {
+            log.co
+                .end_spawn(
+                    SWEEPER,
+                    &t.id,
+                    g,
+                    SPAWN_FAILED,
+                    &SpawnRefusal::CantRun {
+                        device: self.this_device_name(),
+                    }
+                    .to_string(),
+                )
+                .map_err(|e| e.to_string())?;
+            return Ok(false);
+        }
         let name = name.to_string();
         let private = log.board_id.is_empty();
         // A board thread names no repo: it starts where a private one
@@ -1574,6 +1631,13 @@ impl Services {
             Ok(false)
         };
         let Some(folder) = folder else {
+            // An ask has no repo to be wrong about and can't carry a
+            // question: only a card asks for a folder.
+            if repo_key.is_empty() && t.open_ask().is_some() {
+                return refuse(SpawnRefusal::NoHome {
+                    device: self.this_device_name(),
+                });
+            }
             let r = refuse(SpawnRefusal::NoFolder {
                 repo_key: repo_key.clone(),
                 device: self.this_device_name(),
@@ -1719,13 +1783,39 @@ impl Services {
     /// of the repo the agent here active most recently works in, which
     /// Claude Code trusts since that agent runs there. Its repo key and
     /// folder.
+    ///
+    /// With no agent live here, the repo the agent here last worked in, or
+    /// failing that any trusted checkout (card #541): a computer with no
+    /// agent running is exactly the one a phone's thread needs.
     pub(crate) fn ask_home(&self) -> Option<(String, String)> {
+        self.home_of_agents(true)
+            .or_else(|| self.home_of_agents(false))
+            .or_else(|| self.trusted_home())
+    }
+
+    /// The first trusted checkout this device published.
+    fn trusted_home(&self) -> Option<(String, String)> {
+        let h = self.hosts().remove(&self.device.id)?;
+        h.repos
+            .into_iter()
+            .find(|r| r.trusted)
+            .map(|r| (r.repo_key, r.folder))
+    }
+
+    fn home_of_agents(&self, live_only: bool) -> Option<(String, String)> {
         let me = self.device.id.as_str();
+        let trusted = self
+            .spawn
+            .spawner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|s| s.trusted.clone());
         let mut live: Vec<_> = self
             .presence
             .snapshot()
             .into_iter()
-            .filter(|a| a.status != "gone" && !a.repo_key.is_empty())
+            .filter(|a| (!live_only || a.status != "gone") && !a.repo_key.is_empty())
             .filter(|a| {
                 let dev = if a.device_id.is_empty() {
                     irori_identity::owner::device_of(&a.key)
@@ -1754,6 +1844,10 @@ impl Services {
                         .next()
                         .map(PathBuf::from)
                 })?;
+            // A live agent's checkout is trusted, since it runs there.
+            if !live_only && !trusted.as_ref().is_some_and(|f| f(&root)) {
+                return None;
+            }
             Some((a.repo_key, root.to_string_lossy().into_owned()))
         })
     }
@@ -1845,6 +1939,11 @@ impl Services {
         else {
             return;
         };
+        // With no `claude` there's nothing to list (card #524's line every
+        // second, on a computer too); it runs once Claude Code is there.
+        if !self.can_run_here() {
+            return;
+        }
         if self.spawn.cleaned.swap(true, Ordering::SeqCst) {
             return;
         }

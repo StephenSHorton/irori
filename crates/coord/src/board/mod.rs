@@ -232,6 +232,19 @@ pub type OffersFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 pub type BoardTagFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 /// See [`Options::device_version`].
+pub type AgentDevicesFn = Arc<dyn Fn() -> AgentDevices + Send + Sync>;
+
+/// Which of the person's devices can run agents (card #541).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AgentDevices {
+    /// The computers work goes to, best first; one without Claude Code
+    /// comes after every one with it, so what waits there starts once it
+    /// is installed.
+    pub homes: Vec<String>,
+    /// The devices that can't run agents.
+    pub cant: std::collections::HashSet<String>,
+}
+
 pub type DeviceVersionFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
 
 /// Configures a [`Coord`] (Go `coord.Options`).
@@ -292,6 +305,10 @@ pub struct Options {
     /// the app only. Read when the hand-out runs. `None` or false: idle
     /// agents, as before.
     pub spawning: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    /// Which of the person's devices can run agents (card #541). Read
+    /// under the coord's lock, so never the store. `None`: every device
+    /// can, as before.
+    pub agent_devices: Option<AgentDevicesFn>,
     /// Whether an agent Irori didn't start (a terminal agent, spawned
     /// agents §5) takes work Irori hands out: unheld cards, asks and
     /// threads (card #453). Only when the person turned on "Offer it
@@ -1341,11 +1358,21 @@ impl Coord {
     pub fn hand_on(&self, by: &str, id: &str) -> Result<(Task, Vec<Stranded>)> {
         self.lock().hand_on(by, id)
     }
-    /// Whether this device runs card `id`'s hand-out (it made the card):
-    /// only then does its own sweep start or offer the card's agent.
+    /// Whether this device starts card `id`'s agent: it made the card and
+    /// can run agents, it stands in for a device that can't, or it owns
+    /// the ask (card #541).
     pub fn hands_out_here(&self, id: &str) -> bool {
         let f = self.lock();
-        f.tasks.get(id).is_some_and(|t| f.hands_out(t))
+        f.tasks.get(id).is_some_and(|t| f.spawns_out(t))
+    }
+    /// Hands this device's open asks nobody has to a device that can run
+    /// agents, when this one can't (card #541).
+    pub fn move_asks(&self) -> Result<()> {
+        self.lock().move_asks()
+    }
+    /// Whether card t waits for an agent to start for it (card #541).
+    pub fn waits_for_agent(&self, t: &Task) -> bool {
+        self.lock().waits_for_agent(t)
     }
     /// The spawned_for mark on agent `key`.
     pub fn spawned(&self, key: &str) -> Option<Spawned> {

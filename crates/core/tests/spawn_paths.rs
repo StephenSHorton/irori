@@ -37,6 +37,7 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
     let (a, b) = (f.clone(), f.clone());
     let s2 = sessions.clone();
     Spawner {
+        ready: None,
         spawn: Arc::new(move |r: &SpawnReq| {
             let n = {
                 let mut v = a.started.lock().unwrap();

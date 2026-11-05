@@ -114,6 +114,9 @@ impl Services {
                 self.notification_task(r)
                     .is_some_and(|t| card_resolved(&t, r))
             }
+            history::KIND_NO_AGENT => self.notification_task(r).is_none_or(|t| {
+                coord::is_terminal(&t.state) || !self.coord.waits_for_agent(&t)
+            }),
             history::KIND_ASK => self
                 .asks
                 .get(&r.ask_id)

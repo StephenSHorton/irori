@@ -241,6 +241,8 @@ pub struct Fold {
     pub(crate) sides: crate::sides::Sides,
     /// See [`super::Options::spawning`].
     pub(crate) spawning: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    /// See [`super::Options::agent_devices`].
+    pub(crate) agent_devices: Option<super::AgentDevicesFn>,
     /// See [`super::Options::offers`].
     pub(crate) offers: Option<super::OffersFn>,
     /// See [`super::Options::agents_per_card`].
@@ -420,6 +422,7 @@ impl Fold {
             key_person: o.key_person,
             sides: crate::sides::Sides::new(),
             spawning: o.spawning,
+            agent_devices: o.agent_devices,
             offers: o.offers,
             agents_per_card: o.agents_per_card,
             outside_leases: o.outside_leases,
@@ -988,6 +991,7 @@ impl Fold {
             | kinds::BOARD_ASK_REQUESTED
             | kinds::BOARD_ASK_STATE
             | kinds::BOARD_ASK_EDITED => self.apply_take(ev, &at),
+            kinds::ASK_MOVED | kinds::BOARD_ASK_MOVED => self.apply_ask_moved(ev),
             kinds::LEASE_REFUSED => {
                 let Some(mut r) = row::<Refusal>(&ev.payload) else {
                     return;

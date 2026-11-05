@@ -162,6 +162,7 @@ impl Fold {
             kinds::TAKE_REQUESTED => kinds::BOARD_ASK_REQUESTED,
             kinds::TAKE_STATE => kinds::BOARD_ASK_STATE,
             kinds::TASK_EDITED => kinds::BOARD_ASK_EDITED,
+            kinds::ASK_MOVED => kinds::BOARD_ASK_MOVED,
             k => k,
         }
     }
@@ -1037,7 +1038,7 @@ impl Fold {
             .filter(|a| self.takes_handout(&a.key))
             .filter(|a| self.sides.runs(&dev_of(a), side))
             .collect();
-        if roster.iter().any(|a| dev_of(a) == self.dev) {
+        if roster.iter().any(|a| dev_of(a) == self.dev) && self.can_run(&self.dev) {
             return self.dev.clone();
         }
         let mut devs: BTreeMap<String, (u8, usize)> = BTreeMap::new();
@@ -1061,9 +1062,76 @@ impl Fold {
             e.0 = e.0.min(rank);
             e.1 += 1;
         }
-        devs.into_iter()
+        let pick = devs
+            .into_iter()
+            .filter(|(d, _)| self.can_run(d))
             .min_by(|(x, (rx, nx)), (y, (ry, ny))| rx.cmp(ry).then(ny.cmp(nx)).then(x.cmp(y)))
-            .map_or_else(|| self.dev.clone(), |(d, _)| d)
+            .map_or_else(|| self.dev.clone(), |(d, _)| d);
+        // A device that can't run agents never keeps an ask (card #541):
+        // with no agent offered anywhere, a computer starts one.
+        if self.can_run(&pick) {
+            return pick;
+        }
+        self.agent_home(side).unwrap_or(pick)
+    }
+
+    /// Hands this device's open asks nobody has to a computer, when this
+    /// device can't run agents (card #541): one posted before it knew of a
+    /// computer, or by an older Irori. Only the owner may, so one row moves
+    /// it and no two devices ever both think it is theirs.
+    pub(crate) fn move_asks(&mut self) -> Result<()> {
+        if self.can_run(&self.dev) {
+            return Ok(());
+        }
+        let mine: Vec<(String, String)> = self
+            .tasks
+            .values()
+            .filter(|t| !is_terminal(&t.state))
+            .filter(|t| {
+                t.open_ask()
+                    .is_some_and(|a| a.owner == self.dev && a.taker.is_empty())
+            })
+            .map(|t| (t.id.clone(), t.side.clone()))
+            .collect();
+        for (id, side) in mine {
+            let Some(home) = self.agent_home(&side).filter(|h| *h != self.dev) else {
+                continue;
+            };
+            let row = AskMovedRow {
+                task_id: id,
+                owner: home,
+                at: self.stamp(),
+            };
+            self.write_as(SWEEPER, self.ask_kind(kinds::ASK_MOVED), &row)?;
+        }
+        Ok(())
+    }
+
+    /// An `ask.moved` row: only the ask's owner gives it away, to another
+    /// of the same person's devices.
+    pub(crate) fn apply_ask_moved(&mut self, ev: &Event) {
+        let Some(p) = row::<AskMovedRow>(&ev.payload) else {
+            return;
+        };
+        if p.owner.is_empty() || !self.same_person_dev(&p.owner, &ev.device_id) {
+            return;
+        }
+        let Some(a) = self.tasks.get_mut(&p.task_id).and_then(|t| t.ask.as_mut()) else {
+            return;
+        };
+        if a.owner != ev.device_id {
+            self.ignore(&ev.device_id);
+            return;
+        }
+        a.owner = p.owner;
+        // Rows are ordered within one device's log: the new owner's seqs
+        // start over.
+        self.asks.state_seq.remove(&p.task_id);
+        self.note(Change {
+            kind: TASK_CHANGED.into(),
+            task_id: p.task_id,
+            ..Change::default()
+        });
     }
 
     /// Whether devices a and b are the same person's: on the private log

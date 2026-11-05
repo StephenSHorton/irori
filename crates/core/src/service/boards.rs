@@ -1377,6 +1377,7 @@ impl Services {
                             s.busy_outside(&agent, Some(&b.id))
                         })
                     }),
+                    agent_devices: Some(self.spawn.agent_devices_fn()),
                     // The person's spawning switch for this board (card
                     // #455): set in the app only, off unless they set it.
                     spawning: Some({

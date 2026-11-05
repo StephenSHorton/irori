@@ -63,6 +63,10 @@ pub struct SpawnHost {
     pub os: String,
     #[serde(default)]
     pub repos: Vec<HostRepo>,
+    /// It can't run agents (card #541): a phone, or a computer without
+    /// Claude Code. Older rows have no such field and could.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_agents: bool,
     #[serde(default)]
     pub at: GoTime,
 }
@@ -144,7 +148,7 @@ pub(crate) struct RemoteState {
     /// When this device last looked at what it can start agents in, and
     /// what it last published.
     host_at: Mutex<Option<GoTime>>,
-    host_last: Mutex<Option<(String, Vec<HostRepo>)>>,
+    host_last: Mutex<Option<(String, Vec<HostRepo>, bool)>>,
     /// Devices asked to start a card's agent, and when: the next request
     /// names another device first (§9 "the next device that has the repo").
     tried: Mutex<HashMap<String, HashMap<String, GoTime>>>,
@@ -178,7 +182,7 @@ impl Services {
 
     /// Publishes what this device can start agents in, when it changed
     /// since it last did (never on a timer: card #467's row flood).
-    pub(crate) fn publish_host(&self, sp: &Spawner) {
+    pub(crate) fn publish_host(&self, sp: Option<&Spawner>) {
         let now = (self.now)();
         {
             let mut at = self
@@ -193,11 +197,13 @@ impl Services {
             *at = Some(now);
         }
         let os = std::env::consts::OS.to_string();
+        let no_agents = !self.can_run_here();
         let mut repos: Vec<HostRepo> = self
             .capture
             .repos()
             .into_keys()
             .filter_map(|k| {
+                let sp = sp?;
                 let folder = self.checkout_here(&k)?;
                 let trusted = (sp.trusted)(Path::new(&folder));
                 Some(HostRepo {
@@ -220,19 +226,20 @@ impl Services {
             *last = self
                 .hosts()
                 .remove(&self.device.id)
-                .map(|h| (h.os, h.repos));
+                .map(|h| (h.os, h.repos, h.no_agents));
         }
-        if last.as_ref() == Some(&(os.clone(), repos.clone())) {
+        if last.as_ref() == Some(&(os.clone(), repos.clone(), no_agents)) {
             return;
         }
         let row = SpawnHost {
             device: self.device.id.clone(),
             os: os.clone(),
             repos: repos.clone(),
+            no_agents,
             at: now,
         };
         match self.store.append(SWEEPER, kinds::SPAWN_HOST, &row) {
-            Ok(_) => *last = Some((os, repos)),
+            Ok(_) => *last = Some((os, repos, no_agents)),
             Err(e) => logf(format_args!("spawn host: {e}")),
         }
     }
@@ -338,13 +345,16 @@ impl Services {
     /// goes last, so the next request names the next device; a card that
     /// needs a machine never moves off it. Asks and helpers start here,
     /// and so does a card no other device can take (no repo named, nobody
-    /// published one), as before.
+    /// published one), as before. Never a device that can't run agents
+    /// (card #541): this one waits instead, and is left out of the choice.
     pub(crate) fn spawn_device(&self, t: &Task) -> Option<String> {
         let me = self.device.id.clone();
+        let here = self.can_run_here();
         if t.open_ask().is_some() || (t.spawn && !t.parent.is_empty()) || t.repo_key.is_empty() {
-            return Some(me);
+            return here.then_some(me);
         }
         let hosts = self.hosts();
+        let cant = self.cant_run_devices();
         let need = coord::machine_needed(t);
         let rows = self.mesh.node.devices(false);
         // (may start agents, is online)
@@ -387,7 +397,7 @@ impl Services {
                 continue;
             };
             let (usable, online) = state(dev);
-            if !usable {
+            if !usable || cant.contains(dev) {
                 continue;
             }
             // Only a device that runs the card's side (its device.sides
@@ -446,7 +456,7 @@ impl Services {
             {
                 return None;
             }
-            return Some(me);
+            return here.then_some(me);
         };
         // The best device was asked lately (it failed, or never answered
         // and the request went stale): wait for the retry rather than ask

@@ -68,6 +68,7 @@ mod notifications;
 pub mod spaces;
 pub mod spawn;
 pub mod spawn_boards;
+pub mod spawn_capable;
 pub mod spawn_permissions;
 pub mod spawn_remote;
 pub mod spawn_stop;
@@ -1079,6 +1080,7 @@ impl Core {
                         let def = spawn_state.private_default.clone();
                         Arc::new(move || spawn::SpawnState::switch(&on, &def, ""))
                     }),
+                    agent_devices: Some(spawn_state.agent_devices_fn()),
                     // A terminal agent takes unheld cards, asks and threads
                     // only with the person's "Offer it cards" on (card
                     // #453); a spawned agent's rule is the coord's.
@@ -2476,7 +2478,9 @@ impl Core {
         if !self.s.coord.hands_out_here(id) {
             let dev = irori_identity::owner::device_of(&t.created_by).to_string();
             let mut name = self.device_label(&dev);
-            if name.is_empty() {
+            if self.s.cant_run_devices().contains(&dev) {
+                name = "one of your computers".into();
+            } else if name.is_empty() {
                 name = "the device that made it".into();
             }
             return Ok(format!(

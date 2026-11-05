@@ -573,6 +573,11 @@ pub fn trusted(dir: &Path) -> Result<(), String> {
     trusted_in(&TrustSet::load(), dir)
 }
 
+/// Whether this computer has the `claude` command (card #541).
+pub fn claude_installed() -> bool {
+    find_claude().is_ok()
+}
+
 /// [`trusted`] as a yes or no, for the Core's `Spawner { trusted }` seam
 /// (card #446): the Core checks before it spawns and writes the reason.
 pub fn trust_ok(dir: &Path) -> bool {

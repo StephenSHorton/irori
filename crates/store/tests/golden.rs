@@ -77,6 +77,7 @@ fn board_name(b: Board) -> &'static str {
 const SINCE_GO: [&str; 24] = [
     kinds::BOARD_ASK_REQUESTED,
     kinds::BOARD_ASK_STATE,
+    kinds::BOARD_ASK_MOVED,
     kinds::BOARD_ASK_EDITED,
     kinds::WAIT_CREATED,
     kinds::WAIT_FIRED,
