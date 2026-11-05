@@ -74,6 +74,9 @@ pub struct Status {
     pub misses: u32,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub error: String,
+    /// A friend invite (card #517): the board is the pair's friend space.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub friend: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -261,6 +264,8 @@ pub struct Host {
     ident: Arc<Identity>,
     boards: Arc<dyn InviteBoards>,
     board_id: String,
+    /// A friend invite (card #517): the friend joins as an owner.
+    friend: bool,
     code: String,
     room: irori_meshseam::Secret,
     timing: Timing,
@@ -299,6 +304,7 @@ impl Host {
             ident,
             boards,
             board_id: board_id.into(),
+            friend: false,
             code,
             room,
             timing,
@@ -311,6 +317,18 @@ impl Host {
             changed,
             decided: Notify::new(),
         })
+    }
+
+    /// Makes this a friend invite (card #517): the link says so, and the
+    /// friend joins the space as an owner, so either can make boards in
+    /// it with the other.
+    pub fn friend(mut self) -> Host {
+        self.friend = true;
+        let mut g = lock(&self.state);
+        g.st.friend = true;
+        self.changed.send_replace(g.st.clone());
+        drop(g);
+        self
     }
 
     pub fn code(&self) -> &str {
@@ -343,6 +361,7 @@ impl Host {
             fingerprint: my_fingerprint(&self.ident),
             board_id: self.board_id.clone(),
             board_name: lock(&self.state).st.board_name.clone(),
+            friend: self.friend,
         }
     }
 
@@ -494,6 +513,11 @@ impl Host {
             &self.board_id,
             &guest.pin(),
             &guest.name,
+            if self.friend {
+                irori_identity::membership::BOARD_OWNER
+            } else {
+                irori_identity::membership::BOARD_MEMBER
+            },
         )
         .map_err(fail)?;
         let rows = std::mem::take(&mut bundle.rows);
@@ -564,6 +588,7 @@ impl Guest {
             board_name: ticket.board_name.clone(),
             peer_fingerprint: ticket.fingerprint.clone(),
             my_fingerprint: my_fingerprint(&ident),
+            friend: ticket.friend,
             ..Default::default()
         };
         let (changed, _) = watch::channel(st.clone());

@@ -58,6 +58,11 @@ pub struct BoardSummary {
     /// The boards in this space (card #392, decision 46), its own first:
     /// a card's `board` names one of them (empty: the space's own).
     pub boards: Vec<SpaceBoard>,
+    /// The pair's hidden friend space (card #517): left out wherever
+    /// spaces are listed; the boards made in it show as usual.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub friend: bool,
 }
 
 /// One board of a space (card #392).
@@ -142,6 +147,7 @@ impl From<irori_core::BoardSummary> for BoardSummary {
             done_week: s.done_week,
             last_at: s.last_at,
             ready: s.ready,
+            friend: s.friend,
             tag_clash: s.tag_clash,
             leaving: s.leaving,
             warnings: s.warnings,

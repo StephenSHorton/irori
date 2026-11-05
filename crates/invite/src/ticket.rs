@@ -46,7 +46,13 @@ pub struct Ticket {
     pub fingerprint: String,
     pub board_id: String,
     pub board_name: String,
+    /// A friend invite (card #517): the board is the pair's hidden friend
+    /// space, not a board the inviter named.
+    pub friend: bool,
 }
+
+/// The ticket's `k` for a friend invite.
+const KIND_FRIEND: &str = "friend";
 
 fn is_zero(n: &u16) -> bool {
     *n == 0
@@ -69,6 +75,8 @@ struct Wire {
     b: String,
     #[serde(default)]
     n: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    k: String,
 }
 
 /// Why a link didn't parse. The text is what the join screen shows.
@@ -104,6 +112,11 @@ impl Ticket {
             f: self.fingerprint.clone(),
             b: self.board_id.clone(),
             n: self.board_name.clone(),
+            k: if self.friend {
+                KIND_FRIEND.into()
+            } else {
+                String::new()
+            },
         };
         let body = serde_json::to_vec(&w).expect("a ticket always marshals");
         format!(
@@ -161,6 +174,7 @@ impl Ticket {
             fingerprint: w.f,
             board_id: w.b,
             board_name: w.n,
+            friend: w.k == KIND_FRIEND,
         })
     }
 }

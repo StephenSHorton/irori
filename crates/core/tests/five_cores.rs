@@ -713,7 +713,6 @@ fn a_non_member_is_refused() {
     let a_addrs = a1.core.net().endpoint().expect("bound").bound_sockets();
     c1.core.board_addr_hint(a1.core.device_id(), a_addrs);
     c1.core.kick_board(&board);
-    std::thread::sleep(Duration::from_secs(5));
     let c_dev = c1.core.device_id().to_string();
     assert!(
         a1.core
@@ -1933,5 +1932,123 @@ fn forgetting_a_space_drops_its_channels_at_once() {
         assert!(a1.core.talk().channel(&ch.id).is_none());
         assert!(!talk_lists(a1, &ch.id), "the channel stayed in Talk");
     }
+    close(alice.drain(..));
+}
+
+/// Card #517: Alice invites Bob as a friend once (a link and five words,
+/// no board). Both get the hidden friend space, both as owners. Alice then
+/// makes a board with Bob picked under "Who's on it?", and Bob gets it
+/// through that space with no second invite; so does Alice, the other way.
+#[test]
+fn a_friend_gets_a_new_board_with_no_invite() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let (alice_id, bob_id) = (a1.core.person().id, b1.core.person().id);
+
+    // The friend invite: tied to no board the person named.
+    let ra = a1.core.pairing_runtime().clone();
+    let st = ra.block_on(a1.core.friend_invite()).unwrap();
+    assert!(st.status.friend, "the inviter's screen says friend");
+    let friends = st.status.board_id.clone();
+    assert!(irori_invite::ticket::Ticket::parse(&st.link).unwrap().friend);
+    let rb = b1.core.pairing_runtime().clone();
+    let gs = rb.block_on(b1.core.join_invite(&st.link)).unwrap();
+    assert!(gs.status.friend, "the invitee's screen says friend");
+    wait_for(WAIT, "both screens show the words", || {
+        a1.core.invite_status().status.state == "words"
+            && b1.core.invite_status().status.state == "words"
+    });
+    let words = b1.core.invite_status().status.words.join(" ");
+    a1.core.confirm_invite_words(&words).unwrap();
+    wait_for(WAIT, "the friend invite is done on both sides", || {
+        a1.core.invite_status().status.state == "done"
+            && b1.core.invite_status().status.state == "done"
+    });
+
+    // Both hold the friend space, marked so, and both own it.
+    for (d, who) in [(a1, "alice"), (b1, "bob")] {
+        wait_for(WAIT, &format!("{who} lists the friend space"), || {
+            d.core
+                .board_list()
+                .iter()
+                .any(|s| s.board_id == friends && s.friend && s.owner && s.members.len() == 2)
+        });
+    }
+    eprintln!("DEBUG not ready: {:?}", a1.core.space_not_ready(&friends));
+    eprintln!("DEBUG a list: {:?}", a1.core.board_list().iter().map(|s| (&s.board_id, s.friend, s.owner, &s.people, &s.warnings, s.ready)).collect::<Vec<_>>());
+    eprintln!("DEBUG b list: {:?}", b1.core.board_list().iter().map(|s| (&s.board_id, s.friend, s.owner, &s.people, &s.warnings, s.ready)).collect::<Vec<_>>());
+    wait_for(WAIT, "alice hears bob read spaces", || {
+        a1.core.space_not_ready(&friends).unwrap().is_empty()
+    });
+    assert_eq!(
+        a1.core.space_of_exactly(std::slice::from_ref(&bob_id)),
+        Some(friends.clone())
+    );
+    assert_eq!(
+        b1.core.space_of_exactly(std::slice::from_ref(&alice_id)),
+        Some(friends.clone())
+    );
+
+    // Who's on it? Bob: the board goes into the friend space.
+    let invites_before = b1.core.invite_status();
+    let (space, net) = a1
+        .core
+        .create_board_with("Netcode", "net", std::slice::from_ref(&bob_id))
+        .unwrap();
+    assert_eq!(space, friends);
+    wait_for(WAIT, "bob gets the board with no invite", || {
+        b1.core
+            .space_boards(&friends)
+            .is_ok_and(|bs| bs.iter().any(|b| b.board_id == net && b.tag == "net"))
+    });
+    assert_eq!(
+        b1.core.invite_status(),
+        invites_before,
+        "no second invite ran"
+    );
+
+    // And Bob, an owner too, makes one with Alice.
+    wait_for(WAIT, "bob hears alice read spaces", || {
+        b1.core.space_not_ready(&friends).unwrap().is_empty()
+    });
+    let (_, art) = b1
+        .core
+        .create_board_with("Art", "art", std::slice::from_ref(&alice_id))
+        .unwrap();
+    wait_for(WAIT, "alice gets bob's board", || {
+        a1.core
+            .space_boards(&friends)
+            .is_ok_and(|bs| bs.iter().any(|b| b.board_id == art))
+    });
+
+    // Just me is a private board, as before.
+    let (solo, solo_board) = a1.core.create_board_with("Notes", "notes", &[]).unwrap();
+    assert_eq!(solo, solo_board);
+    assert!(!b1.core.boards().contains(&solo));
+
+    // People Alice shares no space with: refused, nothing made.
+    assert!(
+        a1.core
+            .create_board_with("Party", "party", &[bob_id, "nobody".into()])
+            .is_err()
+    );
+
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// Card #517: a friend invite nobody takes leaves no empty friend space.
+#[test]
+fn a_canceled_friend_invite_leaves_no_space() {
+    let mut alice = person("alice", 1);
+    let a1 = &alice[0];
+    let ra = a1.core.pairing_runtime().clone();
+    let st = ra.block_on(a1.core.friend_invite()).unwrap();
+    let id = st.status.board_id.clone();
+    assert!(a1.core.boards().contains(&id));
+    a1.core.cancel_invite();
+    wait_for(WAIT, "the empty friend space goes", || {
+        !a1.core.boards().contains(&id)
+    });
     close(alice.drain(..));
 }

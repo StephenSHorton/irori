@@ -235,6 +235,60 @@ impl Services {
         Ok(id)
     }
 
+    /// New board's "Who's on it?" (card #517): with nobody picked, a
+    /// private board as before; with friends picked, a board in the space
+    /// whose active members are exactly this person and them (the pair's
+    /// friend space first, then one this person owns), so they get it
+    /// with that space and need no invite. Returns (space, board).
+    pub(crate) fn create_board_with(
+        self: &std::sync::Arc<Self>,
+        name: &str,
+        tag: &str,
+        people: &[String],
+    ) -> Result<(String, String)> {
+        if people.is_empty() {
+            let id = self.create_board(name, tag)?;
+            return Ok((id.clone(), id));
+        }
+        let space = self.space_of_exactly(people).ok_or_else(|| {
+            Error::coord(
+                CK::NotAllowed,
+                "there's no space with exactly those people yet: pick one friend, or invite them as friends first",
+            )
+        })?;
+        let id = self.create_space_board(&space, name, tag)?;
+        Ok((space, id))
+    }
+
+    /// The shown space whose active members are exactly this person and
+    /// `people`: a friend space first, then one this person owns, then
+    /// the lowest id. None when there's none.
+    pub(crate) fn space_of_exactly(&self, people: &[String]) -> Option<String> {
+        let me = self.person_id();
+        let mut want: std::collections::BTreeSet<String> = people.iter().cloned().collect();
+        want.insert(me.clone());
+        let friends = self.friend_spaces();
+        let mut found: Vec<(bool, bool, String)> = self
+            .shown_boards()
+            .iter()
+            .filter_map(|b| {
+                let m = b.verifier.membership();
+                if !m.created {
+                    return None;
+                }
+                let have: std::collections::BTreeSet<String> = m
+                    .members
+                    .iter()
+                    .filter(|p| m.active(&p.person_id))
+                    .map(|p| p.person_id.clone())
+                    .collect();
+                (have == want).then(|| (!friends.contains(&b.id), !m.owner(&me), b.id.clone()))
+            })
+            .collect();
+        found.sort();
+        found.into_iter().next().map(|(_, _, id)| id)
+    }
+
     /// The board (a space's own, or one inside a space) already using
     /// `tag` on this device, if any.
     pub(crate) fn board_tag_holder(&self, tag: &str) -> Option<String> {
@@ -491,6 +545,23 @@ impl super::Core {
     /// reads space rows.
     pub fn create_space_board(&self, space_id: &str, name: &str, tag: &str) -> Result<String> {
         self.s.create_space_board(space_id, name, tag)
+    }
+
+    /// New board's "Who's on it?" (card #517): `people` are person ids;
+    /// none makes a private board. Returns (space, board).
+    pub fn create_board_with(
+        &self,
+        name: &str,
+        tag: &str,
+        people: &[String],
+    ) -> Result<(String, String)> {
+        self.s.create_board_with(name, tag, people)
+    }
+
+    /// The space whose active members are exactly this person and
+    /// `people` (card #517), if any.
+    pub fn space_of_exactly(&self, people: &[String]) -> Option<String> {
+        self.s.space_of_exactly(people)
     }
 }
 

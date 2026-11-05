@@ -53,6 +53,10 @@ pub struct InviteStatus {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub error: String,
+    /// A friend invite (card #517): "Become friends with …", not a board.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub friend: bool,
 }
 
 impl InviteStatus {
@@ -80,6 +84,7 @@ pub fn invite_status(s: irori_core::InviteStatus) -> InviteStatus {
         my_fingerprint: s.status.my_fingerprint,
         misses: s.status.misses.into(),
         error: s.status.error,
+        friend: s.status.friend,
     }
 }
 
@@ -101,6 +106,9 @@ impl CoreInvites {
 impl crate::seams::Invites for CoreInvites {
     fn invite(&self, board_id: &str) -> Result<InviteStatus, String> {
         self.run(self.core.invite(board_id)).map(invite_status)
+    }
+    fn friend_invite(&self) -> Result<InviteStatus, String> {
+        self.run(self.core.friend_invite()).map(invite_status)
     }
     fn join(&self, link: &str) -> Result<InviteStatus, String> {
         self.run(self.core.join_invite(link.trim()))

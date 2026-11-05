@@ -48,7 +48,16 @@ pub(crate) struct BoardJoinedRow {
     pub tag: String,
     pub creator: MemberPin,
     pub at: GoTime,
+    /// [`KIND_FRIEND`] for the pair's hidden friend space (card #517),
+    /// else "". Only the person's own log carries it: board.created is
+    /// signed over its fields, so a new one there would fail older
+    /// readers' check.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub kind: String,
 }
+
+/// A friend space's board.joined kind (card #517).
+pub(crate) const KIND_FRIEND: &str = "friend";
 
 impl BoardJoinedRow {
     pub(crate) fn decode(payload: &[u8]) -> Option<BoardJoinedRow> {
@@ -69,6 +78,7 @@ impl BoardJoinedRow {
             tag: s("tag"),
             creator,
             at: GoTime::default(),
+            kind: s("kind"),
         })
     }
 }
@@ -156,6 +166,10 @@ pub struct BoardSummary {
     /// The boards in this space (card #392), its own first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub boards: Vec<super::spaces::SpaceBoard>,
+    /// The pair's hidden friend space (card #517): the window leaves it
+    /// out wherever spaces are listed, and shows the boards made in it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub friend: bool,
 }
 
 /// One current member of a board, as its summary lists them (card #268).
@@ -503,6 +517,7 @@ impl Services {
     /// Every board on this device, by name.
     pub(crate) fn board_list(&self) -> Vec<BoardSummary> {
         let me = self.person_id();
+        let friends = self.friend_spaces();
         let mut out: Vec<BoardSummary> = self
             .shown_boards()
             .iter()
@@ -519,6 +534,7 @@ impl Services {
                     leaving: self.board_leaving(b),
                     warnings: self.board_status(b),
                     boards: self.space_boards(&b.id).unwrap_or_default(),
+                    friend: friends.contains(&b.id),
                     ..Default::default()
                 };
                 if s.name.is_empty() {
@@ -567,6 +583,28 @@ impl Services {
             s.tag_clash = tags.get(&s.tag).copied().unwrap_or(0) > 1;
         }
         out.sort_by_key(|s| s.name.to_lowercase());
+        out
+    }
+
+    /// The person's friend spaces (card #517): the boards whose
+    /// board.joined says [`KIND_FRIEND`], made or joined by any of their
+    /// devices.
+    pub(crate) fn friend_spaces(&self) -> std::collections::HashSet<String> {
+        let mut out = std::collections::HashSet::new();
+        let _ = each_row(
+            &self.store,
+            Filter {
+                kinds: vec![kinds::BOARD_JOINED.into()],
+                ..Default::default()
+            },
+            |ev| {
+                if let Some(r) = BoardJoinedRow::decode(&ev.payload)
+                    && r.kind == KIND_FRIEND
+                {
+                    out.insert(r.board_id);
+                }
+            },
+        );
         out
     }
 

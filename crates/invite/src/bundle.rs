@@ -20,7 +20,6 @@ use std::time::SystemTime;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
 use gocompat::time::GoTime;
-use irori_identity::membership::BOARD_MEMBER;
 use irori_identity::{
     BoardCreated, BoardSecrets, BoardVerifier, Identity, MemberPin, ROLE_DESKTOP, decode, kinds,
 };
@@ -115,6 +114,7 @@ pub fn admit(
     board_id: &str,
     pin: &MemberPin,
     name: &str,
+    role: &str,
 ) -> Result<Bundle, String> {
     let st = boards
         .board_store(board_id)
@@ -135,7 +135,7 @@ pub fn admit(
     }
     let epoch = ver.epoch(&me.id);
     let row = ident
-        .board_member_added_row(epoch, pin, name, BOARD_MEMBER, now())
+        .board_member_added_row(epoch, pin, name, role, now())
         .map_err(|e| e.to_string())?;
     st.append(&person_actor(&me.id), kinds::BOARD_MEMBER_ADDED, &row)
         .map_err(|e| e.to_string())?;

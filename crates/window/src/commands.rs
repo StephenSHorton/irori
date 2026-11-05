@@ -989,6 +989,13 @@ pub async fn boards_invite(w: W<'_>, board_id: String) -> R<InviteStatus> {
     blocking(&w, move |w| w.seams.invites.invite(&board_id)).await
 }
 
+/// Profile → "+ Invite a friend" (card #517): one link and five words.
+#[tauri::command]
+#[specta::specta]
+pub async fn friends_invite(w: W<'_>) -> R<InviteStatus> {
+    blocking(&w, move |w| w.seams.invites.friend_invite()).await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_join_invite(w: W<'_>, link: String) -> R<InviteStatus> {
@@ -1617,6 +1624,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             agents_permissions_set,
             card_wake_notes,
             boards_invite,
+            friends_invite,
             boards_join_invite,
             boards_confirm_invite_words,
             boards_invite_status,

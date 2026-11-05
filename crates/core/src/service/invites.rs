@@ -232,15 +232,59 @@ impl Core {
     /// Opens an invite to board `board_id` (owners): a fresh code and the
     /// link to send, good for an hour or one invitee.
     pub async fn invite(&self, board_id: &str) -> Result<InviteStatus, String> {
+        self.invite_kind(board_id, false).await
+    }
+
+    /// Opens a friend invite (card #517): one link and five words, tied
+    /// to no board the person named. It makes the pair's hidden friend
+    /// space here first and invites to it, so the friend joins it as an
+    /// owner. If the invite ends without them, the empty space goes.
+    pub async fn friend_invite(&self) -> Result<InviteStatus, String> {
+        self.s.invites.free()?;
+        let mut name = self.s.ident.current().name;
+        if name.trim().is_empty() {
+            name = "Friends".into();
+        }
+        let name: String = name
+            .chars()
+            .take(irori_identity::membership::MAX_BOARD_NAME)
+            .collect();
+        let mut tag = String::from("fr-");
+        for _ in 0..12 {
+            let t = format!("fr-{}", &super::boards::new_board_id().map_err(|e| e.to_string())?[..8]);
+            if self.s.tag_holder(&t).is_empty() {
+                tag = t;
+                break;
+            }
+        }
+        let id = self
+            .s
+            .create_board_kind(&name, &tag, super::boards_own::KIND_FRIEND)
+            .map_err(|e| e.to_string())?;
+        match self.invite_kind(&id, true).await {
+            Ok(st) => Ok(st),
+            Err(e) => {
+                if let Err(le) = self.s.leave_board(&id) {
+                    crate::log(&format!("invite: friend space {id}: {le}"));
+                }
+                Err(e)
+            }
+        }
+    }
+
+    async fn invite_kind(&self, board_id: &str, friend: bool) -> Result<InviteStatus, String> {
         let inv = &self.s.invites;
         inv.free()?;
-        let host = Host::new(
+        let mut host = Host::new(
             self.s.ident.clone(),
             self.invite_boards(),
             board_id,
             inv.timing(),
         )
         .map_err(|e| e.0)?;
+        if friend {
+            host = host.friend();
+        }
         let host = Arc::new(host);
         let net = self.s.mesh.net.clone();
         self.set_hosting(true);
@@ -300,7 +344,7 @@ impl Core {
                 if h.run(c).await.is_ok()
                     && let Some(s) = s.upgrade()
                 {
-                    s.invite_joined(&board, &peer, Vec::new()).await;
+                    s.invite_joined(&board, &peer, Vec::new(), false).await;
                 }
             });
         });
@@ -360,8 +404,13 @@ impl Core {
             if g.run(c).await.is_ok()
                 && let Some(s) = s.upgrade()
             {
-                s.invite_joined(&g.ticket().board_id, &peer, to.direct.clone())
-                    .await;
+                s.invite_joined(
+                    &g.ticket().board_id,
+                    &peer,
+                    to.direct.clone(),
+                    g.ticket().friend,
+                )
+                .await;
             }
         });
         Ok(inv.status())
@@ -483,7 +532,8 @@ impl Core {
         let (s, net) = (Arc::downgrade(&self.s), self.s.mesh.net.clone());
         self.s.pairing.handle.spawn(async move {
             loop {
-                let end = ended(&rx.borrow_and_update());
+                let st = rx.borrow_and_update().clone();
+                let end = ended(&st);
                 let Some(sv) = s.upgrade() else { return };
                 sv.invites.tell(serial);
                 if end {
@@ -499,6 +549,17 @@ impl Core {
                         if let Some(h) = &sv.home {
                             h.kick();
                         }
+                        // A friend invite nobody took leaves no empty
+                        // friend space behind (card #517).
+                        if st.friend
+                            && st.state != irori_invite::flow::STATE_DONE
+                            && let Err(e) = sv.leave_board(&st.board_id)
+                        {
+                            crate::log(&format!(
+                                "invite: friend space {}: {e}",
+                                st.board_id
+                            ));
+                        }
                     }
                     return;
                 }
@@ -513,7 +574,7 @@ impl Core {
 
 impl Services {
     /// Writes the private board.joined row for a board joined by invite.
-    fn board_joined(&self, b: &super::boards::BoardLog) {
+    fn board_joined(&self, b: &super::boards::BoardLog, friend: bool) {
         let m = b.verifier.membership();
         let Some(creator) = m.pins.get(&m.creator).cloned() else {
             crate::log(&format!("invite: board {}: no creator to pin", b.id));
@@ -525,6 +586,11 @@ impl Services {
             tag: m.tag,
             creator,
             at: (self.now)(),
+            kind: if friend {
+                super::boards_own::KIND_FRIEND.into()
+            } else {
+                String::new()
+            },
         };
         if let Err(e) = self
             .store
@@ -541,6 +607,7 @@ impl Services {
         board_id: &str,
         peer: &str,
         addrs: Vec<std::net::SocketAddr>,
+        friend: bool,
     ) {
         let b = match self.board(board_id) {
             Ok(b) => b,
@@ -560,7 +627,7 @@ impl Services {
             // The invitee: its other devices open the board from the
             // private log (§4.1 step 7), pinned to the creator, and this
             // device certifies them in the board now its rows are in.
-            self.board_joined(&b);
+            self.board_joined(&b, friend);
             if let Err(e) = self.keep_current(&b) {
                 crate::log(&format!("invite: board {board_id}: identity rows: {e}"));
             }

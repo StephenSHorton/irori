@@ -62,7 +62,12 @@ pub trait Invites: Send + Sync {
     /// Boards → a board → Invite (owners): opens the invite window; the
     /// status carries the link to send.
     fn invite(&self, board_id: &str) -> Result<InviteStatus, String>;
-    /// Boards → Join with an invite: the pasted link.
+    /// Profile → Invite a friend (card #517): a friend invite, tied to no
+    /// board; it makes the pair's hidden friend space.
+    fn friend_invite(&self) -> Result<InviteStatus, String> {
+        Err("Friend invites aren't available here.".into())
+    }
+    /// The pasted link (a friend invite, or an older board invite).
     fn join(&self, link: &str) -> Result<InviteStatus, String>;
     /// The inviter types the five words the invitee reads out.
     fn confirm_words(&self, typed: &str) -> Result<InviteStatus, String>;

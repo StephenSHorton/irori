@@ -967,6 +967,17 @@ impl Services {
     /// board's first secret is made with it (§6.1). `tag` is its short
     /// handle in refs (`mlg#12`, B3), unique among the person's boards.
     pub(crate) fn create_board(self: &Arc<Self>, name: &str, tag: &str) -> Result<String> {
+        self.create_board_kind(name, tag, "")
+    }
+
+    /// [`Self::create_board`], with its private board.joined `kind`
+    /// ([`super::boards_own::KIND_FRIEND`] for a friend space, card #517).
+    pub(crate) fn create_board_kind(
+        self: &Arc<Self>,
+        name: &str,
+        tag: &str,
+        kind: &str,
+    ) -> Result<String> {
         let name = trim(name);
         if !irori_identity::membership::valid_board_name(name) {
             return Err(Error::coord(
@@ -1033,6 +1044,7 @@ impl Services {
             tag: tag.into(),
             creator: pin,
             at: (self.now)(),
+            kind: kind.into(),
         };
         if let Err(e) = self.store.append("irori", kinds::BOARD_JOINED, &joined) {
             return fail(e.into());
