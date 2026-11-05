@@ -507,6 +507,13 @@ export type AnswerResult = {
 	told: Told,
 	/**  What each mention came to (card #77). */
 	mentioned?: MentionOutcome[],
+	/**
+	 *  Irori itself acts on this answer (card #531): its "no copy" and
+	 *  "couldn't start" asks on a card nobody holds resolve like any item
+	 *  nobody runs for, but the sweep reads the answer, so the window
+	 *  doesn't say nobody will.
+	 */
+	iroriActs?: boolean,
 };
 
 /**  coord.Ask. */
@@ -1058,6 +1065,13 @@ export type CardSummary = {
 	 *  or closed.
 	 */
 	mergePr?: WaitPr | null,
+	/**
+	 *  A wait no agent will end (card #520): on a card nobody holds, an
+	 *  item waits on an agent that is gone, or an outside wait (not a PR's
+	 *  merge) was raised by one. A Needs you row with Hand to an agent,
+	 *  until it is handed on, the card is stopped or someone takes it.
+	 */
+	goneWait?: GoneWait | null,
 	working: AgentRef[],
 	watching: AgentRef[],
 	holder: CardHolder,
@@ -1484,6 +1498,29 @@ export type GoneSession = {
 	reason: string,
 	transcript: boolean,
 	trusted: boolean,
+};
+
+/**
+ *  A card's first wait whose agent is gone, on a card nobody holds (card
+ *  #520): "#73 waits on kestrel (gone)".
+ */
+export type GoneWait = {
+	/**  The item's id on the card. */
+	blockerId: string,
+	/**  The agent that is gone: the one waited on, else the raiser. */
+	agent: AgentRef,
+	/**  The item waits on that agent; else it raised an outside wait. */
+	waitedOn?: boolean,
+	/**  What an outside wait is on, as raised ("CI on the release"). */
+	on?: string,
+	question: string,
+	/**  More such items on the card, beyond this one. */
+	more?: number,
+	/**
+	 *  Why Hand to an agent can't move the card (a shared board's card,
+	 *  an open ask, subtasks): the row says it and offers only Open.
+	 */
+	noHandOn?: string,
 };
 
 /**  inbox.HoldReason. */
