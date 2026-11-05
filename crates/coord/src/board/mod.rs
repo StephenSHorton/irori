@@ -1370,10 +1370,6 @@ impl Coord {
     }
     /// Writes card `a.task_id`'s next spawn request; Ok(None) when one is
     /// pending already or the card no longer needs an agent.
-    /// Whether this board's spawned agents are switched on.
-    pub fn spawning_on(&self) -> bool {
-        self.lock().spawning_on()
-    }
     pub fn request_spawn(&self, by: &str, a: SpawnAsk) -> Result<Option<i64>> {
         self.lock().request_spawn(by, a)
     }

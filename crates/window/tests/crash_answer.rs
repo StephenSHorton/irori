@@ -241,17 +241,23 @@ fn another_open_item_does_not_hold_the_agent_back() {
     t.wait_started(3);
 }
 
-/// With spawning off nothing starts one, so the window doesn't promise it.
+/// A card split into subtasks gets no agent of its own: none is promised.
 #[test]
-fn spawning_off_promises_no_agent() {
+fn a_card_with_subtasks_promises_no_agent() {
     let t = rig();
     let (c, q) = t.crashed_card();
+    let person = format!("user:{}", t.w().core.device_id());
     t.w()
         .core
-        .set_spawn_setting(SpawnSetting {
-            on: false,
-            ..SpawnSetting::default()
-        })
+        .coord()
+        .create_task(
+            &person,
+            NewTask {
+                title: "A part of it".into(),
+                parent: c.id.clone(),
+                ..NewTask::default()
+            },
+        )
         .unwrap();
     let res = t.w().answer(&c.id, &q.id, 0, "", true, &[]).unwrap();
     assert!(!res.irori_acts);
