@@ -4,7 +4,7 @@
 
 ## 1. The short answer
 
-- **No server removes this wait, and moves and deletes don't need one.** A server can't change what an older Irori does with a row. But the wait exists only because the plan was to write two *new* row kinds. Written as rows every current Irori already stores, a move needs no wait at all, and a delete waits no more than adding a board does today.
+- **No server removes this wait, and moves and deletes don't need one.** A server can't change what an older Irori does with a row. But the wait exists only because the plan was to write two *new* row kinds. Written as rows every current Irori already stores, a move adds no wait of its own, and a delete waits no more than adding a board does today. (A move needs a board to move to, and adding that board waits at today's gate.)
 - **The server is the always-on PC, with two new jobs.** It stays on the newest Irori, and it tells you which devices are behind. Nothing else we could build does more for this wait, and the alternatives cost a lot more (§4).
 - **What a server can do for this wait, plainly:** it can help track which version each device runs, and it can help get devices updated sooner. It can't make an older device read a new row.
 
@@ -32,28 +32,47 @@ A move is an edit of the card, so it uses the edit row:
 
 `board.ask.edited {taskId, board, num, by, at}`, or `task.edited` with the same fields in Personal.
 
-- Board logs have accepted this kind since v0.10.2 or earlier. It's what `edit_card` writes on a board (`asks.rs:157-167`).
+- Board logs have accepted this kind since v0.7.1 at the latest. It's what `edit_task` (`cards.rs:2375`) writes on a board, under the name `ask_kind` gives it (`asks.rs:157-167`).
 - **No gate.** `space_not_ready` is called only from adding a board, space Talk and notes, not from edits.
-- `edit_gate` (`asks.rs:716`) already decides who may write it, and it keeps an open ask's take lock.
-- Decoders drop fields they don't know (`gocompat/src/json/lenient.rs`), so an older device stores the row, adds one "edited the card" line, and leaves the card where it was. The new fold says "moved it to net" instead, and rebuilds history on the next start.
-- `board` and `num` are safe names. A new field must not reuse one of that row's existing fields, even by case (`from`, `to`, `by`, `note`, `parent`).
+- `edit_gate` (`asks.rs:716`) decides whether the row folds. It doesn't lock: a person's row always folds, and a non-taker agent's row waits and lands when the ask closes.
+- Decoders drop fields they don't know (`gocompat/src/json/lenient.rs`), so an older device stores the row and leaves the card where it was. It adds one "edited the card" line, which watchers and the parent's holders get as a next-turn digest. It wakes nobody, and it bumps the card's updated time. The new fold says "moved it to net" instead, and rebuilds history on the next start.
+- `board` and `num` are safe names. A new field must not reuse, even by case, a field of `TaskEditedRow` (`rows.rs:497`) or of the store's closure decoder (`store/src/board.rs:97`).
+- **It needs its own write path.** `edit_task` refuses an edit with no title, objective or done-when, and writes nothing if nothing changed (`cards.rs:2380-2384`, `2413-2418`). The store and fold have no such rule. #563 adds a move path, adds `board` and `num` to `TaskEditedRow`, refuses an open ask as `edit_task` does (`cards.rs:2407`), and checks the move landed.
+- **A move carries its subtasks.** The writer writes one row per subtask, parent first, and a subtask can't move alone while it has a parent. Otherwise `relink` leaves a parent and its subtasks on different boards.
+
+Tested on main, v0.11.0 and v0.10.2: this row, signed and inserted into a board store, folds as "edited the card" and the card stays put.
 
 ### 3.2 A board delete
 
 `space.board.renamed {boardId, name: "", tag: "", deleted: true, by, at}`
 
 - On an older device it's a stored no-op: `fold_space_boards` ignores `deleted`, and empty names change nothing (`spaces.rs:74-79`). `name` and `tag` must be present, even empty: they have no serde default, so a row without them is skipped.
-- Accepted since v0.11.0, the first release with `space.board.*`. So it sits behind the same gate as adding a board. **A delete waits exactly as an add does today, no worse, and §5 fixes that wait.**
+- Accepted since v0.11.0, the first release with `space.board.*`; v0.10.2 refuses it. So it sits behind the same gate as adding a board. **A delete waits exactly as an add does today, no worse, and §5 shortens that wait.**
+- Tested on main and v0.11.0: the row is stored and the board stays as it was. A row without `name` and `tag` is stored and skipped.
 - Its cards move to the default board in the fold, taking numbers there, as agreed on #558 (b4). No row is written per card.
 
 ### 3.3 What the new fold must do
 
-1. **A delete wins whatever the arrival order.** A later rename, a repeat create or a move onto that board doesn't bring it back.
-2. **A card that names a deleted board lands on the default board.** An older device, or a newer one a moment before the delete arrived, can still make one. Signed rows can't be rewritten, so the fold maps it.
-3. **Re-tag live.** `Task.tag` is set only at create (`fold.rs:1143`), so a move would otherwise show the old tag until a restart.
-4. **A deleted board's tag is never reused,** so old refs keep finding their cards (spaces-boards.md §2).
-5. **A delete needs a check on who wrote it.** `fold_space_boards` sees only the kind and payload, so it has to take the writer too: an active member, per b4's "any member".
-6. **The first board can't be deleted, nor a space's last board.** Older folds skip the space's own id anyway.
+Replay gives the right answer in every order tried, but the live fold doesn't by itself: it applies edits in arrival order. In a test on main, two concurrent edits showed the older one live and the newer after a restart. So #563 needs all of these. Most come from spaces-boards.md §2, and they still apply though `task.board` is gone.
+
+**Moves**
+
+1. **The last move wins by RowPos, not by arrival.** The fold keeps each card's newest move position and ignores a move at an earlier one.
+2. **A move that arrives before its card is kept and applied after,** as `links` does (`subtasks.rs:35-44`). Boards already set such a row aside; the private log drops it.
+3. **A move claims a number.** `claim_short` ignores a card that has already claimed (`short.rs:90`), so this is a new claim on (board, number) at the row's position. A clash takes letters as creates do, the losing claim is dropped, and both boards settle. The "renumbered it" line gets its own wording.
+
+**Deletes**
+
+4. **A delete wins whatever the arrival order.** A later rename, a repeat create or a move onto that board doesn't bring it back.
+5. **A card that names a deleted board lands on the default board.** An older device, or a newer one a moment before the delete arrived, can still make one. Signed rows can't be rewritten, so the fold maps it.
+6. **Its numbers come from RowPos over all rows,** recomputed in `renumber`, never at arrival, so every device gets the same ones.
+7. **A delete needs a check on who wrote it.** `fold_space_boards` sees only the kind and payload, so it has to take the writer too: an active member, per b4's "any member".
+8. **The first board can't be deleted, nor a space's last board.** Older folds skip the space's own id anyway.
+
+**Both**
+
+9. **Derive a card's board and tag; don't store them at create.** `Task.tag` is set only at create (`fold.rs:1143`), from the create row, so today a moved card would keep its old tag for good, even after a restart. And the fold never hears `space.board.*`: `space.` must join `FOLLOW_KINDS`, and a card's board and tag come from its newest move plus the board list. A board the log doesn't hold yet isn't final, so re-derive when it arrives. Personal needs its own lookup, since `board_tag` returns None there (`fold.rs:1984`).
+10. **Old refs keep working.** Each card keeps a history of (tag, number), `task_ref_locked` reads it, and `has_tag` reads every tag the log has named. A deleted board's tag is never reused, and a number a card moved away from stays claimed.
 
 ### 3.4 What this costs
 
@@ -63,7 +82,9 @@ While devices are mixed, an older device shows the old state until it updates:
 - A deleted board still shows there. Someone can add a card to it, and that card lands on the default board after the update.
 - An agent on an older device can keep working a moved card. Comments, claims and status key on the task id, so they land on the right card wherever it now sits.
 
-All of it comes right when the device updates, because the rows are stored and replayed at each start. Nobody's access changes, since a space is one log with one secret. Phones run no agents, and desktops fetch updates by themselves, so the mixed window for agents should be short. Phones lag longest, and the phone is where someone would see a card in its old place.
+All of it comes right when the device updates, because the rows are stored and replayed at each start. Nobody's access changes, since a space is one log with one secret.
+
+Phones run no agents, and they lag longest, so a phone is where someone would see a card in its old place. Desktops download an update at launch but install it only when someone presses Install or quits, and a PC left running doesn't look again. So until §4.2 ships, the window for agents can be weeks, on the machine most likely to run them.
 
 ### 3.5 Making this the last time: a tolerant reader
 
@@ -84,10 +105,10 @@ It only helps from the release that ships it, so it can't serve moves and delete
 | | Stores rows? | Helps a sleeping device? | Who runs it |
 |---|---|---|---|
 | **n0 public relays** (decision 43) | No. Forwards sealed QUIC; a packet for an offline device is dropped | No | n0 |
-| **Home server** (`crates/home`, decision 33) | No. The same relay code, plus port mapping and `node.addr`/`board.server` | No | Each person, a switch on one of their devices |
+| **Home server** (`crates/home`, decision 33) | No. The same relay code, plus port mapping and `node.addr`/`board.server` | No | Each person, a per-device switch, off by default |
 | **Always-on PC** | Yes, as every member device does | Yes, by staying awake | Each person |
 
-Store-and-forward isn't a feature in the code. Every member device holds the whole log and serves it to any admitted device (`mesh/src/boards.rs:99-126`). The always-on PC forwards because it's awake and holds what everyone holds. Either person's PC serves the other's devices. The only difference from a laptop is the home server, the keep-awake hold, and being on.
+Store-and-forward isn't a feature in the code. Every member device holds the whole log and serves it to any admitted device (`mesh/src/boards.rs:99-126`). The always-on PC forwards because it's awake and holds what everyone holds. Either person's PC serves the other's devices. The only difference from a laptop is the home server, the keep-awake hold, and being on. Decision 43 credits home servers with store-and-forward; that's loose wording, since the member device stores and the home crate only relays. Files are the exception: a device serves one only if it holds it, and they're fetched on demand.
 
 So anything that stores rows for a sleeping device has to be a member device, which is what decision 35 (B5) already says. The always-on PC is that device.
 
@@ -95,7 +116,9 @@ So anything that stores rows for a sleeping device has to be a member device, wh
 
 Each person runs it on their own machine, as decisions 30 and 33 say. Nothing new to install, and no new trust. It gains two jobs:
 
-**1. It stays on the newest Irori.** Today the tray app looks for updates only at start or from Settings, so a PC up for weeks can fall behind a phone, and an older PC is the worst forwarder (§2). The device with the home server on checks every few hours, downloads, and installs when no agent turn is running; it raises a notification if that doesn't happen within a day. Other desktops keep today's behaviour. (`serve --headless` never updates itself, so it can't take this role until that changes.)
+**1. It stays on the newest Irori.** Today the tray app looks for updates only at start or from Settings, so a PC up for weeks can fall behind a phone, and an older PC is the worst forwarder (§2). A new per-device setting, **Keep this device up to date**, makes it check every few hours and download. It's on by default where the home server is on, and any desktop can turn it on; the home switch alone isn't enough, since decision 43 lets an always-on PC run with it off. Other desktops keep today's behaviour. (`serve --headless` never updates itself, so it can't take this role until that changes.)
+
+The open question is the restart. Today Irori asks first (releasing.md, the Install / Later card). The recommended pick is that a device with this setting restarts by itself when no agent turn is running, and shows the card if that hasn't happened within a day. That's a change to how updates are approved, so it's choice 4 in §7. `architecture.md:433` and `releasing.md:7` change with it. The start-only check on #533 described the code; it wasn't a decision.
 
 **2. It tells you who's behind.** Every device writes what it reads into the space, and the window shows it (§5). The always-on PC isn't special in this: a signed row each device writes about itself beats one machine's memory, since that machine only knows what it heard while it was up, and it can't vouch for another device. Its part is carrying those rows to devices that were asleep, which it already does.
 
@@ -109,31 +132,42 @@ Each person runs it on their own machine, as decisions 30 and 33 say. Nothing ne
 
 It does nothing more for this wait than the PC does.
 
-**A service Irori runs for everyone.** A relay of our own is cheap and allowed (public-relays.md, "Not done here"), but it stores nothing. A service that stores rows is a non-member carrying boards, which brings back board-log encryption under B5, a new key scheme, and a new way to check members. It couldn't hear hellos either, so it couldn't even track versions. Decision 32 already rejected this for good reason. It would make sense only if Irori wants offline delivery with no always-on PC at all. That's a separate question, also behind #538's mailbox follow-up, and this design leaves room for it.
+**A service Irori runs for everyone.** A relay of our own is cheap and allowed (public-relays.md, "Not done here"), but it stores nothing. A service that stores rows is a non-member carrying boards, which brings back board-log encryption under B5, a new key scheme, and a new way to check members. It couldn't hear hellos either, so it couldn't even track versions. No decision has ruled on this. Decision 35 (B5) assumes only members' devices carry a board, and says encryption returns if that changes. It would make sense only if Irori wants offline delivery with no always-on PC at all. That's a separate question, also behind #538's mailbox follow-up, and this design leaves room for it.
 
 ## 5. Which devices block, and how we know
 
-The gate stays for rows that need it (adding, renaming or deleting a board, space Talk, notes, and spawns). Two changes.
+The gate stays for adding or deleting a board, space Talk and notes. Three changes.
 
-**Remember what each device reads: a signed row each device writes.**
+**Keep the last hello on disk.** Each device saves the last hello it heard from each device, per space. Without this a restart forgets a device known to be too old.
 
-- Every device writes `board.server` with a new `reads {spaces, spawns, …}` and `version`, into each space, whenever they change. It's the one row already bound to the device that signs it (`identity/board.rs:1109-1116`), and older decoders drop the extra fields, so nothing stalls.
-- Phones don't write `board.server` today. They'd write it with `public: null`, which relays ignore (`meshnode.rs:207`). Every reader of `board_servers` has to be checked first, so a phone isn't taken for a home server.
+**Each device says what it reads, in a signed row.**
+
+- Every device writes `board.server` with new `reads {spaces, spawns, …}` and `version` fields, into each space, whenever they change. It's the one row already bound to the device that signs it (`identity/board.rs:1109-1116`), and older decoders keep working, so nothing stalls.
+- Only a device whose home server has run writes this row today, so the writer needs a path that doesn't depend on the home server, with one builder for the row. `reads` and `version` are fields on `BoardServer`, so the on-change compare sees them.
+- `reads` absent means no word, not level 0, or every older home server would read as too old.
+- A phone's row has `public: null`. The only production reader skips those (`meshnode.rs:207`), so a phone isn't taken for a home server.
 - A live hello beats the row, which covers a downgrade.
-- Now a restart loses nothing, and a device can know about a phone it never met directly. The Devices page and the warnings read the same rows, fixing two gaps: the out-of-date warning skips your own devices, and it keeps only a person's newest version, so Blake's laptop hides Blake's old phone (`boards_status.rs:136-145`).
+- What it's for: a device can know about a device it never met, and the Devices page and warnings can show who's behind, on any device. That fixes two gaps: the out-of-date warning skips your own devices, and it keeps only a person's newest version, so Blake's laptop hides Blake's old phone (`boards_status.rs:136-145`). It also means a future level can name a sleeping device correctly.
+- What it isn't for: an older build writes no `reads`, and every build that does is past today's levels. So at today's levels these rows only ever say ready. They don't themselves remove the wait; the next change does.
 
 **Block only on a device known to be too old.** Today a device nobody has heard from blocks. Instead:
 
-- A device blocks if its latest word (live hello, else row) is below the level the row needs.
-- A device nobody has any word from doesn't block. It gets a line in the warnings, naming it.
-- #538 already needs this rule for a hidden log's first write, so it's one rule rather than two.
+- A device blocks if its latest word (live hello, saved hello, else row) is below the level the row needs.
+- A device with no word doesn't block. It gets a line in the warnings, naming it.
+- If the space has no mesh, the writer has no word on anyone, so the same rule applies.
 
-The cost: a really old device nobody has heard from can wake up and stall until it updates. That heals (§2), and the warnings name it. What it buys: no sleeping or forgotten device can refuse a write. A device known to be too old still blocks, and the refusal keeps naming it. Keep "waiting on" in the text; tests pin it (`spaces.rs:553`, `five_cores.rs:1335`).
+What it buys: a device nobody has any word from can't refuse a write. A device known to be too old still can, until it updates or its owner revokes it, so a new level would still carry the §2 risk. The refusal keeps naming it. Keep "waiting on" in the text; tests pin it (`spaces.rs:553`, `five_cores.rs:1335`).
+
+The cost: any device on a build before this one that nobody has heard since its last start can wake and stall until it updates. It heals, but until then §2's worst case applies: if that writer's stream holds a removal or a revoke behind the stall, that device keeps admitting the person. The gap is small and shrinks: it needs a device from before v0.11.0 that also goes unheard, and §4.2 keeps the always-on PC, the device where it matters most, from being that one. Stephen should accept this knowingly, so it's choice 3 in §7.
+
+#538 uses the same test for a hidden log's first write, but it's safe there because an older device is never handed the log. A space has no such check, which is the cost above.
+
+**Spawns keep today's rule, every device heard.** Their gate is silent, automatic and on the busiest stream, so failing open would cost most there. Their wait refuses nobody; agents just don't start. Only the saved hello changes for them.
 
 ## 6. Order of work
 
 1. **#563 as amended:** the move and delete of §3, in the fold and window. Its objective and spaces-boards.md §3 name `task.board`, `space.board.deleted` and `SPACES_PROTOCOL` 2; this replaces those.
-2. **Version rows and the new gate rule (§5).** A delete benefits at once, and so do adding a board, Talk and notes.
+2. **Saved hellos, version rows and the new gate rule (§5).** A delete benefits at once, and so do adding a board, Talk and notes.
 3. **The always-on PC's updates (§4.2).**
 4. **The tolerant reader (§3.5).**
 
@@ -146,3 +180,4 @@ Raised on #562. Recommended picks are the ones written above.
 1. **Moves and deletes:** carry them in rows every current device reads (§3), or new row kinds behind a level 2 gate, which any device that never updates can block.
 2. **The server:** a role on the always-on PC (§4.2), or a rented machine as well (§4.3).
 3. **Which devices block:** only those known to be too old (§5), or everyone not yet heard from, as today, but remembered across restarts.
+4. **The always-on PC's restart:** by itself when no agent is working (§4.2), or keep the Install / Later card and only check and download on a timer.
