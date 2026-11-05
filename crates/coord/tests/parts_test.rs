@@ -208,6 +208,182 @@ fn a_part_waiting_on_a_gone_lead_is_not_stranded_while_a_lead_is_coming() {
 }
 
 #[test]
+fn a_parent_waiting_on_the_person_gets_its_lead_with_their_answer() {
+    let e = spawning();
+    let (p, made) = led(&e, vec![sub("a", true)]);
+    let (_, b) =
+        e.c.raise(
+            LEAD,
+            &p.id,
+            NewBlocker {
+                question: "Which way?".into(),
+                ..NewBlocker::default()
+            },
+        )
+        .unwrap();
+    e.c.leave(LEAD, &p.id, LEAD).unwrap();
+    e.c.set_task_state(HELPERS[0], &made[0].id, COMPLETED, "on my branch")
+        .unwrap();
+    assert!(
+        !spawn_ids(&e.c).contains(&p.id),
+        "Irori would end a lead on an open question at once"
+    );
+    e.c.answer(
+        USER,
+        &p.id,
+        &b.id,
+        BlockerAnswer {
+            text: "left".into(),
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    assert!(spawn_ids(&e.c).contains(&p.id));
+}
+
+#[test]
+fn a_parents_wait_on_its_own_part_doesnt_keep_the_next_lead_away() {
+    let e = spawning();
+    let (p, made) = led(&e, vec![sub("a", true)]);
+    e.c.raise(
+        LEAD,
+        &p.id,
+        NewBlocker {
+            question: "Waiting on part a".into(),
+            blocked_by: Some(BlockedBy {
+                kind: BLOCKED_ON_TASK.into(),
+                reference: made[0].id.clone(),
+            }),
+            ..NewBlocker::default()
+        },
+    )
+    .unwrap();
+    e.c.leave(LEAD, &p.id, LEAD).unwrap();
+    e.c.set_task_state(HELPERS[0], &made[0].id, COMPLETED, "on my branch")
+        .unwrap();
+    assert!(spawn_ids(&e.c).contains(&p.id));
+}
+
+/// A lead Irori started on `id` drops off, as an idle session does.
+fn lead_drops(e: &Env, id: &str, key: &str) {
+    let g =
+        e.c.request_spawn(
+            "irori",
+            SpawnAsk {
+                task_id: id.into(),
+                device: "dev-a".into(),
+                folder: "/repo".into(),
+                permission_mode: "bypassPermissions".into(),
+                name: "lead".into(),
+                ..SpawnAsk::default()
+            },
+        )
+        .unwrap()
+        .unwrap();
+    e.ros.set(key, "busy");
+    assert!(e.c.bind_spawn(id, g, key).unwrap());
+    e.c.claim_task(key, id).unwrap();
+    e.ros.set(key, "");
+    e.c.sweep_notices().unwrap();
+    e.clk.add(HOLDER_GRACE + std::time::Duration::from_secs(1));
+    e.c.sweep_notices().unwrap();
+    assert!(e.c.get_task(id).unwrap().holders.is_empty());
+}
+
+#[test]
+fn the_persons_answer_to_crashed_twice_brings_the_next_lead() {
+    let e = spawning();
+    let p =
+        e.c.create_task(
+            USER,
+            NewTask {
+                title: "big card".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    let lead = "dev-a/first-lead";
+    let g =
+        e.c.request_spawn(
+            "irori",
+            SpawnAsk {
+                task_id: p.id.clone(),
+                device: "dev-a".into(),
+                folder: "/repo".into(),
+                permission_mode: "bypassPermissions".into(),
+                name: "lead".into(),
+                ..SpawnAsk::default()
+            },
+        )
+        .unwrap()
+        .unwrap();
+    e.ros.set(lead, "busy");
+    assert!(e.c.bind_spawn(&p.id, g, lead).unwrap());
+    e.c.claim_task(lead, &p.id).unwrap();
+    let (_, made) =
+        e.c.split(lead, &p.id, vec![sub("a", true), sub("b", true)], vec![])
+            .unwrap();
+    e.ros.set(HELPERS[0], "busy");
+    e.ros.set(HELPERS[1], "busy");
+    e.c.claim_task(HELPERS[0], &made[0].id).unwrap();
+    e.c.claim_task(HELPERS[1], &made[1].id).unwrap();
+    e.ros.set(lead, "");
+    e.c.sweep_notices().unwrap();
+    e.clk.add(HOLDER_GRACE + std::time::Duration::from_secs(1));
+    e.c.sweep_notices().unwrap();
+    e.c.set_task_state(HELPERS[0], &made[0].id, COMPLETED, "on my branch")
+        .unwrap();
+    assert!(spawn_ids(&e.c).contains(&p.id));
+    lead_drops(&e, &p.id, "dev-a/second-lead");
+    let t = e.c.get_task(&p.id).unwrap();
+    assert_eq!(t.spawn_crashes, 2);
+    let q = t
+        .blockers
+        .iter()
+        .find(|b| b.open() && b.question == CRASHED_QUESTION)
+        .expect("asked once")
+        .clone();
+    assert!(!spawn_ids(&e.c).contains(&p.id));
+    e.c.answer(
+        USER,
+        &p.id,
+        &q.id,
+        BlockerAnswer {
+            text: CRASHED_START.into(),
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(e.c.get_task(&p.id).unwrap().spawn_crashes, 0);
+    assert!(spawn_ids(&e.c).contains(&p.id));
+    e.c.set_task_state(HELPERS[1], &made[1].id, COMPLETED, "on my branch")
+        .unwrap();
+    assert_eq!(done_checks(&e.c, &made[1].id), 0);
+}
+
+#[test]
+fn a_part_waiting_on_irori_shows_once_no_lead_can_come() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let on = Arc::new(AtomicBool::new(true));
+    let switch = on.clone();
+    let mut e = env();
+    e.c = e.reopen_with(Options {
+        done_check: true,
+        spawning: Some(Arc::new(move || switch.load(Ordering::SeqCst))),
+        ..e.opts()
+    });
+    let (p, made) = led(&e, vec![sub("a", true)]);
+    e.c.leave(LEAD, &p.id, LEAD).unwrap();
+    e.c.set_task_state(HELPERS[0], &made[0].id, COMPLETED, "on my branch")
+        .unwrap();
+    e.c.leave(HELPERS[0], &made[0].id, HELPERS[0]).unwrap();
+    assert!(e.c.stranded(&made[0].id).is_empty(), "a lead is coming");
+    on.store(false, Ordering::SeqCst);
+    assert_eq!(e.c.stranded(&made[0].id).len(), 1);
+}
+
+#[test]
 fn a_marked_step_moves_its_mark_to_the_subtask_and_marks_stay() {
     let e = env();
     let t =

@@ -2108,9 +2108,19 @@ impl Services {
                     &now,
                     limit,
                 );
+            // A helper's finished part, past the idle limit (§3): its
+            // branch is on the card and it holds a device slot, which the
+            // lead that merges it may need.
+            let part_waits = t.blockers.iter().any(|b| {
+                b.open()
+                    && b.question == coord::PART_QUESTION
+                    && b.raised_by == a.key
+                    && at_least(&now, &b.at, limit)
+            });
             if done_check
                 || waiting
                 || parked
+                || part_waits
                 || coord::is_terminal(&t.state)
                 || !t.holders.contains(&a.key)
             {

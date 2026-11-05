@@ -787,6 +787,7 @@ impl Fold {
                 let Some(p) = row::<BlockerResolvedRow>(&ev.payload) else {
                     return;
                 };
+                let person = self.person_row(ev, &p.by);
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
@@ -800,6 +801,11 @@ impl Fold {
                     opt = -1;
                 }
                 let q = t.blockers[i].question.clone();
+                // A parent's state can't be set, so closing this is the
+                // person's say that clears its run of crashes (#451).
+                if person && q == super::spawn::CRASHED_QUESTION {
+                    t.spawn_crashes = 0;
+                }
                 t.blockers[i].resolved = Some(Resolution {
                     answer: p.answer.clone(),
                     option: opt,
@@ -1485,9 +1491,11 @@ impl Fold {
             || t.state == SUBMITTED
             || t.state == WORKING
             || t.open_ask().is_some()
-            || !t.subtasks.is_empty()
         {
             return Ok(false);
+        }
+        if !t.subtasks.is_empty() {
+            return self.lead_again(by, id);
         }
         let at = self.stamp();
         self.write(
@@ -1502,6 +1510,33 @@ impl Fold {
                 ..TaskStateRow::default()
             },
         )?;
+        Ok(true)
+    }
+
+    /// back_on_board for a parent, whose state follows its subtasks: the
+    /// person's answer to "crashed twice" closes it, which lets the next
+    /// lead start. Anything else on a parent stays as it is.
+    fn lead_again(&mut self, by: &str, id: &str) -> Result<bool> {
+        let t = &self.tasks[id];
+        let Some(b) = t
+            .blockers
+            .iter()
+            .find(|b| b.open() && b.question == super::spawn::CRASHED_QUESTION)
+            .filter(|_| self.is_owner(by))
+        else {
+            return Ok(false);
+        };
+        let row = BlockerResolvedRow {
+            task_id: id.into(),
+            blocker_id: b.id.clone(),
+            answer: super::spawn::CRASHED_START.into(),
+            option: -1,
+            by: by.into(),
+            restored: self.restore_for(t).into(),
+            at: self.stamp(),
+            ..BlockerResolvedRow::default()
+        };
+        self.write(by, kinds::BLOCKER_RESOLVED, &row)?;
         Ok(true)
     }
 

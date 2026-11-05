@@ -40,6 +40,9 @@ pub(crate) const SPAWN_REFUSED: &str =
 /// A helper's question to its lead when it says its part is done.
 pub const PART_QUESTION: &str = "Part done: merge it and accept?";
 
+/// Who a part's wait on Irori is shown waiting on once no lead is coming.
+pub(crate) const NO_LEAD: &str = "its lead";
+
 /// The context when the helper gave no proof.
 const PART_CONTEXT: &str = "The helper says its part is done. Merge its branch into the card's branch, then accept with board_status completed on this subtask, or say what is missing on its thread.";
 
@@ -95,11 +98,21 @@ impl Fold {
     /// Whether led card t lost its lead and has work for the next: nobody
     /// is on it or starting, and a helper's part says it is done. Not before
     /// that: a fresh lead with nothing to merge would only idle out again.
+    /// Nor while t waits on anything but its own parts: on the person, Irori
+    /// would end the new lead at once and start another, so it comes with
+    /// their answer. A wait on a part only closes through a lead.
     pub(crate) fn needs_lead(&self, t: &Task) -> bool {
+        let on_a_part = |b: &Blocker| {
+            b.on.as_ref()
+                .is_some_and(|on| on.kind == BLOCKED_ON_TASK && t.subtasks.contains(&on.reference))
+        };
         t.assigned.is_empty()
             && !t.withdrawn
             && t.open_ask().is_none()
-            && !super::offers::waits_on_work(t)
+            && t.blockers
+                .iter()
+                .filter(|b| b.open())
+                .all(|b| b.status == BLOCKER_ANSWERED || on_a_part(b))
             && t.subtasks
                 .iter()
                 .filter_map(|id| self.tasks.get(id))
