@@ -8,13 +8,15 @@
 //! person's own words count, and it is short and capped: every brief and
 //! wake pays for it.
 
+use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 
 use gocompat::time::GoTime;
 
+use super::asks::ASK_FILES_NOTE;
 use super::fold::{Fold, card_refs};
 use super::spawn::CRASHED_START;
-use super::types::{BLOCKED_ON_TASK, Task};
+use super::types::{BLOCKED_ON_TASK, Comment, Task, WORKING};
 
 /// How many of the person's lines one brief or wake carries.
 pub const SAID_MAX: usize = 5;
@@ -105,45 +107,119 @@ impl Fold {
 
     /// What the person said in the last [`SAID_DAYS`] on the cards around
     /// `id`, newest first, at most [`SAID_MAX`] lines and [`SAID_PER_CARD`]
-    /// from one card. The person's words only: an agent's comment, or
-    /// another member's on a shared board, never counts. The card's own
-    /// thread isn't here: a brief quotes it already.
+    /// from one card. When there is more than fits, a line on a subtask or
+    /// one naming the card goes first, then its parent's and siblings',
+    /// then the rest. The card's own thread isn't here: a brief quotes it.
     pub(crate) fn said_near(&self, id: &str) -> Vec<Said> {
         let Some(t) = self.tasks.get(id) else {
             return Vec::new();
         };
-        let since = self.stamp().unix_nano() - SAID_DAYS * DAY_NANOS;
-        let near = self.near(t, since);
+        let since = self.said_since();
+        let family = |task: &str| {
+            !t.parent.is_empty()
+                && self
+                    .tasks
+                    .get(task)
+                    .is_some_and(|o| o.id == t.parent || o.parent == t.parent)
+        };
+        self.said_lines(&self.near(t, since), since, |c| {
+            if t.subtasks.contains(&c.task_id) || names(&c.text, t) {
+                2
+            } else {
+                u8::from(family(&c.task_id))
+            }
+        })
+    }
+
+    /// [`Self::said_near`] for `id`'s subtasks alone: `show` on a parent,
+    /// where nothing else nearby may crowd them out.
+    pub(crate) fn said_on_subtasks(&self, id: &str) -> Vec<Said> {
+        let Some(t) = self.tasks.get(id) else {
+            return Vec::new();
+        };
+        let subs: HashSet<String> = t.subtasks.iter().cloned().collect();
+        self.said_lines(&subs, self.said_since(), |_| 0)
+    }
+
+    /// The card to tell `key` about and what the person said around it,
+    /// for a wake: the first of `refs` (`task:<id>`, `comment:<id>`) that
+    /// is `key`'s card, or with `working` the card it works now. `key` is
+    /// this log's form of the agent's key. None when it has no such card.
+    pub(crate) fn said_for(
+        &self,
+        key: &str,
+        refs: &[String],
+        working: bool,
+    ) -> Option<(String, Vec<Said>)> {
+        let has = |l: &[String]| l.iter().any(|k| k == key);
+        let held = |t: &Task| has(&t.holders) || has(&t.co_holders);
+        let mine =
+            |t: &Task| held(t) || has(&t.assigned) || t.offer.as_ref().is_some_and(|o| o.to == key);
+        let named = refs.iter().find_map(|r| {
+            let id = match r.strip_prefix("comment:") {
+                Some(c) => self.comments.get(c)?.task_id.as_str(),
+                None => r.strip_prefix("task:").unwrap_or(r),
+            };
+            // A bridged notice's ref: task:<id>/comment:<id>.
+            let id = id.split('/').next().unwrap_or(id);
+            self.tasks.get(id).filter(|t| mine(t))
+        });
+        let t = named.or_else(|| {
+            self.tasks
+                .values()
+                .filter(|t| working && t.state == WORKING && held(t))
+                .max_by_key(|t| t.updated_at.unix_nano())
+        })?;
+        Some((t.short_ref(), self.said_near(&t.id)))
+    }
+
+    fn said_since(&self) -> i64 {
+        self.stamp().unix_nano() - SAID_DAYS * DAY_NANOS
+    }
+
+    /// The person's own lines on `cards` since `since`, highest `rank`
+    /// first and then newest, within the caps, returned newest first.
+    /// Their own: the row's `by` is only what its writer claimed, so a line
+    /// must also have folded as theirs (`person`; a mirrored message is
+    /// checked when it is recorded). A picked blocker option is left out:
+    /// the agent wrote that text, the person only clicked it.
+    fn said_lines(
+        &self,
+        cards: &HashSet<String>,
+        since: i64,
+        rank: impl Fn(&Comment) -> u8,
+    ) -> Vec<Said> {
         let mut lines: Vec<_> = self
             .comments
             .values()
-            .filter(|c| near.contains(&c.task_id) && self.is_owner(&c.by))
-            .filter(|c| c.at.unix_nano() >= since && !c.held)
-            .filter(|c| !c.text.trim().is_empty() && c.text != CRASHED_START)
+            .filter(|c| cards.contains(&c.task_id) && self.is_owner(&c.by))
+            .filter(|c| c.person || !c.msg_id.is_empty())
+            .filter(|c| c.at.unix_nano() >= since && !c.held && c.pick == 0)
+            .filter(|c| !c.text.trim().is_empty())
+            .filter(|c| c.text != CRASHED_START && c.text != ASK_FILES_NOTE)
             .collect();
-        lines.sort_by_key(|c| std::cmp::Reverse((c.at.unix_nano(), c.hlc, c.seq)));
+        lines.sort_by_key(|c| Reverse((rank(c), c.at.unix_nano(), c.hlc, c.seq)));
         let mut per_card: HashMap<&str, usize> = HashMap::new();
-        let mut out = Vec::new();
+        let mut kept: Vec<&Comment> = Vec::new();
         for c in lines {
             let n = per_card.entry(c.task_id.as_str()).or_default();
-            if *n >= SAID_PER_CARD {
-                continue;
-            }
-            let Some(on) = self.tasks.get(&c.task_id) else {
-                continue;
-            };
-            *n += 1;
-            out.push(Said {
-                comment_id: c.id.clone(),
-                task_id: on.id.clone(),
-                card: on.short_ref(),
-                text: clip(c.text.trim(), SAID_CHARS),
-                at: c.at,
-            });
-            if out.len() == SAID_MAX {
-                break;
+            if *n < SAID_PER_CARD && self.tasks.contains_key(&c.task_id) {
+                *n += 1;
+                kept.push(c);
+                if kept.len() == SAID_MAX {
+                    break;
+                }
             }
         }
-        out
+        kept.sort_by_key(|c| Reverse((c.at.unix_nano(), c.hlc, c.seq)));
+        kept.into_iter()
+            .map(|c| Said {
+                comment_id: c.id.clone(),
+                task_id: c.task_id.clone(),
+                card: self.tasks[&c.task_id].short_ref(),
+                text: clip(c.text.trim(), SAID_CHARS),
+                at: c.at,
+            })
+            .collect()
     }
 }

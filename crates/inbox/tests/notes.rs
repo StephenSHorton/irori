@@ -8,6 +8,7 @@ mod common;
 use std::sync::{Arc, Mutex};
 
 use common::*;
+use inbox::{REATTACH_GRACE, path};
 
 /// Each Notes hook call: the agent and the refs it got.
 type Calls = Arc<Mutex<Vec<(String, Vec<String>)>>>;
@@ -234,4 +235,62 @@ fn a_wake_carries_the_persons_words_once_and_capped() {
     let w2 = h.wake(KEY_A);
     assert!(w2.said.iter().all(|s| !w.said.contains(s)), "{:?}", w2.said);
     assert!(told > 0);
+}
+
+/// Card #555: an edited line goes out again; one on a wake the sweep took
+/// back was never told, so it goes out too.
+#[test]
+fn an_edited_or_reclaimed_line_is_told_again() {
+    let text: Arc<Mutex<String>> = Arc::new(Mutex::new("first words".to_string()));
+    let t = text.clone();
+    let h = Harness::with(Hooks {
+        notes: Some(Arc::new(move |_: &str, _: &[String]| inbox::WakeNotes {
+            said_for: "#418".into(),
+            said: vec![inbox::WakeSaid {
+                id: "c1".into(),
+                card: "#416".into(),
+                text: t.lock().unwrap().clone(),
+            }],
+            ..inbox::WakeNotes::default()
+        })),
+        ..Hooks::default()
+    });
+    h.abc();
+    let o = inbox::SendOptions {
+        ref_: "task:T1".into(),
+        ..inbox::SendOptions::default()
+    };
+    let finish = |h: &Harness, w: &inbox::Wake, turn: &str| {
+        h.ib.mark_delivered(KEY_A, &w.token).unwrap();
+        h.ib.mark_engaged(KEY_A, &w.token, turn).unwrap();
+        h.ib.turn_ended(KEY_A, &w.token, turn).unwrap();
+    };
+    h.send_with(&claude(KEY_B, "beta"), &to(KEY_A), "one", o.clone());
+    let w = h.wake(KEY_A);
+    assert_eq!(w.said.len(), 1);
+    finish(&h, &w, "t1");
+
+    h.send_with(&claude(KEY_B, "beta"), &to(KEY_A), "two", o.clone());
+    let w = h.wake(KEY_A);
+    assert!(w.said.is_empty(), "same words: {:?}", w.said);
+    finish(&h, &w, "t2");
+
+    *text.lock().unwrap() = "corrected words".to_string();
+    h.send_with(&claude(KEY_B, "beta"), &to(KEY_A), "three", o.clone());
+    let w = h.wake(KEY_A);
+    assert_eq!(w.said[0].text, "corrected words");
+    finish(&h, &w, "t3");
+
+    // This wake never reaches the agent, and the sweep takes it back.
+    *text.lock().unwrap() = "words on a lost wake".to_string();
+    h.send_with(&claude(KEY_B, "beta"), &to(KEY_A), "four", o.clone());
+    let lost = h.wake(KEY_A);
+    assert_eq!(lost.said.len(), 1);
+    h.ib.set_reachable(KEY_A, path::MOD, false);
+    h.clk.advance(REATTACH_GRACE + secs(1));
+    h.sweep();
+    h.ib.set_reachable(KEY_A, path::MOD, true);
+    let again = h.wake(KEY_A);
+    assert_ne!(again.id, lost.id, "a new wake");
+    assert_eq!(again.said, lost.said, "still to tell");
 }

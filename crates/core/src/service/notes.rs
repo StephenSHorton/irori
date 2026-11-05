@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use coord::{Coord, ErrorKind as CK};
+use store::kinds::AGENT_ACTOR_PREFIX;
 
 use super::Services;
 use super::boards::{Error, trim};
@@ -382,7 +383,8 @@ impl Services {
         let me = self.roster.agents().into_iter().rfind(|a| a.key == agent);
         // The card, and the board log it is on (None: the private log).
         let mut card: Option<(coord::Task, Option<NoteLog>)> = None;
-        for r in refs {
+        // A comment: ref is for the person's words below, not for notes.
+        for r in refs.iter().filter(|r| r.starts_with("task:")) {
             let id = r.strip_prefix("task:").unwrap_or(r);
             if let Some(t) = self.coord.get_task(id) {
                 card = Some((t, None));
@@ -517,40 +519,31 @@ impl Services {
     /// #555), and that card's short ref. Its card is the one the wake is
     /// about when that is the agent's own, else the card it works now: a
     /// wake about a card it only watches says nothing about that card's
-    /// neighbours. Same locks as [`Self::wake_notes`].
+    /// neighbours. Runs under the inbox lock, so it never waits on a board:
+    /// a board coord's write takes the inbox lock under its own (`hop_of`).
+    /// A busy board is skipped, and its words go in a later wake.
     fn wake_said(&self, agent: &str, refs: &[String]) -> (String, Vec<inbox::WakeSaid>) {
-        let logs: Vec<Arc<coord::Coord>> = std::iter::once(self.coord.clone())
-            .chain(self.shown_boards().iter().map(|b| b.coord().clone()))
-            .collect();
-        let mine = |t: &coord::Task| {
-            let has = |l: &[String]| l.iter().any(|k| k == agent);
-            has(&t.holders)
-                || has(&t.co_holders)
-                || has(&t.assigned)
-                || t.offer.as_ref().is_some_and(|o| o.to == agent)
-        };
-        let named = refs.iter().find_map(|r| {
-            let id = r.strip_prefix("task:").unwrap_or(r);
-            logs.iter()
-                .find_map(|co| co.get_task(id).filter(&mine).map(|t| (t, co)))
-        });
-        let working = || {
-            logs.iter().find_map(|co| {
-                co.list_tasks(&coord::TaskFilter {
-                    holder: agent.to_string(),
-                    open: true,
-                    ..Default::default()
+        let boards = self.shown_boards();
+        let read = |working: bool| {
+            self.coord.said_for(agent, refs, working).or_else(|| {
+                boards.iter().find_map(|b| {
+                    // Board logs hold agent:<cardId>, not the session key.
+                    let id = b
+                        .maps
+                        .try_lock()
+                        .ok()?
+                        .keys
+                        .get(agent.strip_prefix("api:").unwrap_or(agent))?
+                        .clone();
+                    let key = format!("{AGENT_ACTOR_PREFIX}{id}");
+                    b.coord().try_said_for(&key, refs, working).flatten()
                 })
-                .into_iter()
-                .find(|t| t.state == coord::WORKING)
-                .map(|t| (t, co))
             })
         };
-        let Some((t, co)) = named.or_else(working) else {
+        let Some((card, said)) = read(false).or_else(|| read(true)) else {
             return Default::default();
         };
-        let said: Vec<inbox::WakeSaid> = co
-            .said_near(&t.id)
+        let said = said
             .into_iter()
             .map(|s| inbox::WakeSaid {
                 id: s.comment_id,
@@ -558,7 +551,7 @@ impl Services {
                 text: s.text,
             })
             .collect();
-        (t.short_ref(), said)
+        (card, said)
     }
 
     /// This device's name as the person sees it (`machine:` tags).

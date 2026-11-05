@@ -495,11 +495,7 @@ impl Fold {
         }
         // Card #555: what the person says on a subtask stays in view on its
         // parent, so a slice doesn't carry on with an old premise.
-        let subs: Vec<_> = self
-            .said_near(&t.id)
-            .into_iter()
-            .filter(|s| t.subtasks.contains(&s.task_id))
-            .collect();
+        let subs = self.said_on_subtasks(&t.id);
         if !subs.is_empty() {
             b.push_str("\nthe person, on its subtasks (newest; show a comment for all of it):\n");
             for s in subs {

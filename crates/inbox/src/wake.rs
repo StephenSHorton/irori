@@ -281,7 +281,8 @@ impl Inner {
         let mut refs: Vec<String> = Vec::new();
         for d in msgs {
             let r = trim(&d.message.ref_);
-            if r.starts_with("task:") && !refs.iter().any(|x| x == r) {
+            let about = r.starts_with("task:") || r.starts_with("comment:");
+            if about && !refs.iter().any(|x| x == r) {
                 refs.push(r.to_string());
             }
         }
@@ -304,20 +305,28 @@ impl Inner {
         if out.notes.is_empty() {
             out.task.clear();
         }
-        // The person's words near its card (card #555): once each, and not
-        // a line this very wake already brings it as a message.
-        let told: std::collections::HashSet<&str> = self
+        // The person's words near its card (card #555): once each as they
+        // read now, so an edit goes out again, and not a line this very wake
+        // brings as a message. A wake the sweep took back told nobody: its
+        // deliveries no longer name it.
+        let reached = |w: &WakeRec| {
+            w.w.delivery_ids
+                .iter()
+                .any(|id| self.dels.get(id).is_some_and(|d| d.d.wake_id == w.w.id))
+        };
+        let told: std::collections::HashSet<(&str, &str)> = self
             .wakes
             .values()
-            .filter(|w| w.w.to == agent)
-            .flat_map(|w| w.w.said.iter().map(|s| s.id.as_str()))
+            .filter(|w| w.w.to == agent && !w.w.said.is_empty() && reached(w))
+            .flat_map(|w| w.w.said.iter().map(|s| (s.id.as_str(), s.text.as_str())))
             .collect();
         let here = |id: &str| {
-            msgs.iter()
-                .any(|d| trim(&d.message.ref_).strip_prefix("comment:") == Some(id))
+            msgs.iter().any(|d| {
+                d.message.id == id || trim(&d.message.ref_).strip_prefix("comment:") == Some(id)
+            })
         };
         out.said
-            .retain(|s| !told.contains(s.id.as_str()) && !here(&s.id));
+            .retain(|s| !told.contains(&(s.id.as_str(), s.text.as_str())) && !here(&s.id));
         while said_section(&out).len() > crate::MAX_SAID_BYTES {
             out.said.pop();
         }

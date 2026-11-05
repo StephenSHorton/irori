@@ -424,3 +424,70 @@ fn the_persons_words_count_on_a_shared_board_too() {
     assert_eq!(got.len(), 1, "{got:?}");
     assert_eq!(got[0].card, one.short_ref());
 }
+
+/// Card #555: on a shared board the agent's key there is agent:<cardId>,
+/// so its wake finds its card through the board's map.
+#[test]
+fn a_wake_on_a_shared_board_carries_the_persons_words() {
+    let r = Rig::new();
+    let c = &r.core;
+    let b = c.create_board("MLG", "mlg").unwrap();
+    let co = c.board_coord(&b).unwrap();
+    let person = format!("{}{}", store::kinds::PERSON_ACTOR_PREFIX, c.person().id);
+    let alpha = tools::Caller {
+        sender: inbox::Sender::new(&r.key_a, "alpha", "claude"),
+        path: inbox::path::MOD.into(),
+    };
+    let beta = tools::Caller {
+        sender: inbox::Sender::new(&r.key_b, "beta", "claude"),
+        path: inbox::path::MOD.into(),
+    };
+    let tool = |cl: &tools::Caller, name: &str, args: serde_json::Value| -> String {
+        c.tools()
+            .call(cl, name, &serde_json::to_vec(&args).unwrap())
+            .unwrap()
+    };
+    let new = |title: &str, parent: &str| {
+        co.create_task(
+            &person,
+            coord::NewTask {
+                title: title.into(),
+                parent: parent.into(),
+                ..coord::NewTask::default()
+            },
+        )
+        .unwrap()
+    };
+    let p = new("Parent", "");
+    let one = new("One", &p.short_ref());
+    let two = new("Two", &p.short_ref());
+    let out = tool(
+        &alpha,
+        "board_join",
+        serde_json::json!({"task_id": format!("task:{}", two.id)}),
+    );
+    assert!(out.contains("You hold"), "board_join = {out}");
+    while let Some(w) = c.inbox().next_wake(&r.key_a, inbox::path::MOD).unwrap() {
+        c.inbox().mark_delivered(&r.key_a, &w.token).unwrap();
+        c.inbox().mark_engaged(&r.key_a, &w.token, "t0").unwrap();
+        c.inbox().turn_ended(&r.key_a, &w.token, "t0").unwrap();
+    }
+    co.person_comment(&person, &one.id, "Said on the board", false, &[], None)
+        .unwrap();
+    let out = tool(
+        &beta,
+        "send",
+        serde_json::json!({"to": "alpha", "text": "about your card"}),
+    );
+    assert!(out.starts_with("Sent"), "send = {out}");
+    let w = c
+        .inbox()
+        .next_wake(&r.key_a, inbox::path::MOD)
+        .unwrap()
+        .expect("alpha has the message");
+    assert!(
+        w.prompt.contains("Said on the board") && w.said_for == two.short_ref(),
+        "{}",
+        w.prompt
+    );
+}

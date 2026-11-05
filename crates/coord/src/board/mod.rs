@@ -975,6 +975,34 @@ impl Coord {
     pub fn said_near(&self, id: &str) -> Vec<Said> {
         self.lock().said_near(id)
     }
+    /// The card to tell `key` about on a wake and what the person said
+    /// around it (card #555): the first of `refs` that is its card, or
+    /// with `working` the card it works now.
+    pub fn said_for(
+        &self,
+        key: &str,
+        refs: &[String],
+        working: bool,
+    ) -> Option<(String, Vec<Said>)> {
+        self.lock().said_for(key, refs, working)
+    }
+    /// [`Self::said_for`] that never waits: `None` when the log is busy.
+    /// For a caller under the inbox lock: a board coord's write takes the
+    /// inbox's lock under its own (`hop_of`), so waiting here could
+    /// deadlock.
+    pub fn try_said_for(
+        &self,
+        key: &str,
+        refs: &[String],
+        working: bool,
+    ) -> Option<Option<(String, Vec<Said>)>> {
+        let f = match self.f.try_lock() {
+            Ok(f) => f,
+            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return None,
+        };
+        Some(f.said_for(key, refs, working))
+    }
     pub fn comments(&self, id: &str) -> Option<Vec<Comment>> {
         self.lock().list_comments(id)
     }
