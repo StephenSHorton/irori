@@ -2037,7 +2037,9 @@ impl Fold {
             // Or, for a PR an external wait is on (card #509), from a device
             // of the person whose agent raised the wait: its poller asks
             // whoever holds the card.
-            kinds::PR_STATE => self.tasks.get(&p.task_id).is_some_and(|t| {
+            // A row ahead of its card waits beside it (card #542): rows come
+            // device by device, and nothing writes a settled PR's row again.
+            kinds::PR_STATE => self.tasks.get(&p.task_id).is_none_or(|t| {
                 t.holders
                     .iter()
                     .chain(&t.co_holders)

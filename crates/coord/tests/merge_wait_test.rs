@@ -207,6 +207,73 @@ fn a_known_state_beats_an_error_row_that_arrived_first() {
     assert_eq!(lane(&e, USER, &t.id), (false, true));
 }
 
+/// A merge can't be undone: a device that asked just before it may still
+/// write OPEN with a later time, and that row must lose.
+#[test]
+fn a_stale_open_never_replaces_a_merge() {
+    let e = Env::new();
+    let t = claimed(&e, "part 10");
+    external(&e, &t.id, PR, &[]);
+    let merged_at = e.clk.now();
+    let later = plus(merged_at, mins(5));
+    e.remote(
+        "pc",
+        1,
+        hlc_at(merged_at),
+        "irori",
+        kinds::PR_STATE,
+        &pr_row(&t.id, PR_MERGED, "", merged_at),
+    );
+    e.remote(
+        "mac",
+        1,
+        hlc_at(later),
+        "irori",
+        kinds::PR_STATE,
+        &pr_row(&t.id, PR_OPEN, "", later),
+    );
+    assert_eq!(e.c.pr_state(&t.id, PR).unwrap().state, PR_MERGED);
+    assert_eq!(lane(&e, USER, &t.id), (false, true));
+
+    // The writer agrees: no row, and no "wasn't taken" error at each poll.
+    let rows = e.rows("pr.").len();
+    e.c.record_pr_state(
+        &t.id,
+        PrCheck {
+            pr: PR.into(),
+            state: PR_OPEN.into(),
+            ..PrCheck::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(e.rows("pr.").len(), rows);
+}
+
+/// A phone hears a merge only as another device's row, so that row has to
+/// tell the window: nothing else redraws Needs you.
+#[test]
+fn another_devices_merge_tells_subscribers() {
+    let e = Env::new();
+    let t = claimed(&e, "part 10");
+    external(&e, &t.id, PR, &[]);
+    let q = e.c.subscribe();
+    let at = e.clk.now();
+    e.remote(
+        "mac",
+        1,
+        hlc_at(at),
+        "irori",
+        kinds::PR_STATE,
+        &pr_row(&t.id, PR_MERGED, "", at),
+    );
+    let ch = q.recv_timeout(std::time::Duration::from_secs(2));
+    let ch = ch.unwrap().expect("a change");
+    assert_eq!(
+        (ch.kind.as_str(), ch.task_id.as_str()),
+        (TASK_CHANGED, t.id.as_str())
+    );
+}
+
 #[test]
 fn a_closed_wait_no_longer_counts() {
     let e = Env::new();

@@ -83,6 +83,17 @@ pub struct PrCheck {
 /// The PR states by card, then by PR URL.
 pub(crate) type PrStates = BTreeMap<String, BTreeMap<String, PrState>>;
 
+/// How far a row's state can be trusted over another's (card #542): an
+/// error says nothing about the PR, and a merge can't be undone, while
+/// GitHub can reopen a closed PR.
+fn certainty(state: &str) -> u8 {
+    match state {
+        "" => 0,
+        PR_MERGED => 2,
+        _ => 1,
+    }
+}
+
 impl Fold {
     pub(crate) fn fold_pr_state(&mut self, ev: &Event) {
         let Some(p) = row::<PrStateRow>(&ev.payload) else {
@@ -92,15 +103,11 @@ impl Fold {
             return;
         }
         let by_pr = self.pr_states.entry(p.task_id.clone()).or_default();
-        // Card #542: a known state beats an error whatever their times, so
-        // every device ends on the same row in whatever order they arrive.
+        // Card #542: the stronger row wins whatever their times, so every
+        // device ends on the same one in whatever order they arrive.
         if let Some(old) = by_pr.get(&p.pr) {
-            let keep = match (old.state.is_empty(), p.state.is_empty()) {
-                (false, true) => true,
-                (true, false) => false,
-                _ => crate::gotime::before(&p.at, &old.at),
-            };
-            if keep {
+            let (new, was) = (certainty(&p.state), certainty(&old.state));
+            if new < was || new == was && crate::gotime::before(&p.at, &old.at) {
                 return;
             }
         }
@@ -115,6 +122,12 @@ impl Fold {
                 at: p.at,
             },
         );
+        // A phone hears a merge only through this row: Needs you must redraw.
+        self.note(Change {
+            kind: TASK_CHANGED.into(),
+            task_id: p.task_id,
+            ..Change::default()
+        });
     }
 
     /// The states of the PRs `t` links, in link order; a linked PR not yet
@@ -218,16 +231,17 @@ impl Fold {
             .and_then(|m| m.get(&c.pr))
             .cloned()
             .unwrap_or_default();
-        let unchanged = if c.error.is_empty() {
-            old.error.is_empty()
-                && old.state == c.state
-                && old.review == c.review
-                && !old.at.is_zero()
-        } else {
-            // Said once: a later failure stays quiet until it is heard
-            // again. Over a known state the fold wouldn't take it (#542).
-            !old.error.is_empty() || !old.state.is_empty()
-        };
+        // What the fold wouldn't take isn't written: it would only repeat.
+        let unchanged = certainty(&c.state) < certainty(&old.state)
+            || if c.error.is_empty() {
+                old.error.is_empty()
+                    && old.state == c.state
+                    && old.review == c.review
+                    && !old.at.is_zero()
+            } else {
+                // Said once: a later failure stays quiet until it is heard again.
+                !old.error.is_empty()
+            };
         if unchanged {
             return Ok((t, Vec::new()));
         }

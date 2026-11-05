@@ -154,7 +154,8 @@ fn an_error_over_a_known_state_writes_nothing() {
     for state in [PR_OPEN, PR_MERGED, PR_CLOSED] {
         let e = Env::new();
         let t = held_with_pr(&e);
-        e.c.record_pr_state(&t.id, check(state, "APPROVED")).unwrap();
+        e.c.record_pr_state(&t.id, check(state, "APPROVED"))
+            .unwrap();
         let before = e.c.pr_states(&t.id);
         let rows = e.rows("pr.").len();
 
@@ -165,7 +166,8 @@ fn an_error_over_a_known_state_writes_nothing() {
         assert_eq!(e.rows("pr.").len(), rows, "{state}");
 
         // The next good answer is no change either.
-        e.c.record_pr_state(&t.id, check(state, "APPROVED")).unwrap();
+        e.c.record_pr_state(&t.id, check(state, "APPROVED"))
+            .unwrap();
         assert_eq!(e.rows("pr.").len(), rows, "{state}");
     }
 }
