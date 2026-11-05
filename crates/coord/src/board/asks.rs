@@ -1736,11 +1736,17 @@ impl Fold {
                     )?;
                 }
                 let taker = a.taker.clone();
-                // Nobody holds it (the person made an answered thread, or an
-                // ask nobody took, into a card; card #454): it goes out as a
-                // new card, so it gets its own agent instead of sitting in
-                // working with no one on it.
-                let held = !taker.is_empty() && !self.is_owner(&taker);
+                // A thread's agent answers; a card made from the thread is a
+                // new card with its own agent (§4, card #454): one still
+                // holding the thread lets go first, and goes like any
+                // agent whose thread closed.
+                if a.thread && !taker.is_empty() && a.owner == self.dev {
+                    self.write_thread_answered(id, &a)?;
+                }
+                // Nobody holds it (a thread, or an ask nobody took): it goes
+                // out as a new card, so it gets its own agent instead of
+                // sitting in working with no one on it.
+                let held = !a.thread && !taker.is_empty() && !self.is_owner(&taker);
                 self.write(
                     &by,
                     kinds::TASK_STATUS,
@@ -1758,7 +1764,7 @@ impl Fold {
                         ..TaskStateRow::default()
                     },
                 )?;
-                if !taker.is_empty() && !self.is_owner(&taker) && by == taker {
+                if held && by == taker {
                     self.write(
                         &by,
                         kinds::TASK_CLAIMED,

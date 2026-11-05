@@ -486,3 +486,27 @@ fn a_private_thread_about_a_shared_board_spawns_too() {
     assert!(a.unclaimed, "{a:?}");
     assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&tk.id));
 }
+
+#[test]
+fn a_thread_made_a_card_before_its_agent_answers_goes_out_as_a_new_card() {
+    let mut e = Env::new();
+    let _r = rig(&mut e, &[]);
+    let tk = post(&e, "Can we cache the board?", true, &[idle(BOB, 20)]);
+    spawn_bound(&e, &tk.id);
+    assert_eq!(ask_of(&e, &tk.id).taker, SPAWNED);
+    let t =
+        e.c.ask_close(
+            USER,
+            &tk.id,
+            AskOutcome {
+                kind: OUTCOME_CARD.into(),
+                title: "Cache the board".into(),
+                ..AskOutcome::default()
+            },
+        )
+        .unwrap();
+    // The thread's agent lets go: the card is a new card, unheld, and its
+    // agent (a card's) is started afresh; the thread's goes.
+    assert_eq!(t.state, SUBMITTED, "{t:?}");
+    assert!(t.holders.is_empty(), "{t:?}");
+}

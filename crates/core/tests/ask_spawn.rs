@@ -328,3 +328,66 @@ fn a_thread_from_a_repo_channel_starts_its_agent_in_that_repo_with_the_channel()
             .any(|m| m.key == spawned)
     );
 }
+
+#[test]
+fn a_thread_the_person_makes_a_card_gets_a_card_agent_in_the_threads_home() {
+    let r = Rig::new();
+    let (_repo, dir) = agent_in_repo(&r);
+    let fake = Arc::new(Fake::default());
+    let me = r.core.device_id().to_string();
+    let person = format!("user:{me}");
+    let spawned = format!("{me}/{SPAWNED_SESS}");
+    let co = r.core.coord();
+    r.core
+        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
+    spawning_on(&r);
+    let tk = thread(&r, "Can the board sort by age?");
+    wait_for(60, "the thread's agent took it", || {
+        co.get_task(&tk.id)
+            .and_then(|t| t.ask)
+            .is_some_and(|a| a.taker == spawned)
+    });
+    co.add_comment(&spawned, &tk.id, "Not yet; it's small.", false)
+        .unwrap();
+    wait_for(60, "the thread answered", || {
+        co.get_task(&tk.id)
+            .and_then(|t| t.ask)
+            .is_some_and(|a| a.reason == coord::TAKE_ANSWERED)
+    });
+    co.ask_close(
+        &person,
+        &tk.id,
+        coord::AskOutcome {
+            kind: coord::OUTCOME_CARD.into(),
+            title: "Sort the board by age".into(),
+            ..coord::AskOutcome::default()
+        },
+    )
+    .unwrap();
+    // The thread's agent goes; the card, naming no repo, gets a card's
+    // agent where the thread's started, not a "no copy" blocker.
+    wait_for(60, "the thread's agent ended", || {
+        !fake.ended.lock().unwrap().is_empty()
+    });
+    wait_for(60, "a card agent asked for", || {
+        r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+        fake.started.lock().unwrap().len() == 2
+    });
+    let reqs = fake.started.lock().unwrap().clone();
+    assert_eq!(
+        Path::new(&reqs[1].folder).canonicalize().unwrap(),
+        dir,
+        "the thread's home"
+    );
+    let brief = std::fs::read_to_string(&reqs[1].brief_path).unwrap();
+    assert!(
+        brief.contains("Irori started you to work card") && brief.contains("Sort the board by age"),
+        "a card's brief: {brief}"
+    );
+    let t = co.get_task(&tk.id).unwrap();
+    assert!(
+        t.blockers.iter().all(|b| !b.open()),
+        "no blocker: {:?}",
+        t.blockers
+    );
+}
