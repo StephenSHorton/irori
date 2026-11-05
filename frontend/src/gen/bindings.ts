@@ -210,7 +210,6 @@ export const commands = {
 	agentsPermissions: (boardId: string) => __TAURI_INVOKE<AgentPermissions>("agents_permissions", { boardId }),
 	/**  The person sets a board's agent permissions, from Settings › Agents. */
 	agentsPermissionsSet: (permissions: AgentPermissions) => __TAURI_INVOKE<AgentPermissions>("agents_permissions_set", { permissions }),
-	cardWakeNotes: (taskId: string) => __TAURI_INVOKE<WakeNoteView[]>("card_wake_notes", { taskId }),
 	boardsInvite: (boardId: string) => __TAURI_INVOKE<InviteStatus>("boards_invite", { boardId }),
 	boardsJoinInvite: (link: string) => __TAURI_INVOKE<InviteStatus>("boards_join_invite", { link }),
 	boardsConfirmInviteWords: (words: string) => __TAURI_INVOKE<InviteStatus>("boards_confirm_invite_words", { words }),
@@ -2466,23 +2465,6 @@ export type WaitPr = {
 	 *  another member's agents, never the person's or their own agents'.
 	 */
 	approval?: boolean,
-};
-
-/**
- *  A note an agent got on wake for a card, and the tag that matched
- *  (card #412): the card page's "notes this agent got".
- */
-export type WakeNoteView = {
-	noteId: string,
-	/**  rule, gotcha, decision, pointer or preference. */
-	kind: string,
-	text: string,
-	/**  The tag that matched, e.g. `repo:<repoKey>`. */
-	tag: string,
-	/**  The agent's key. */
-	agent: string,
-	/**  When the wake went out. */
-	at: string,
 };
 
 /**  One agent in a run. */
