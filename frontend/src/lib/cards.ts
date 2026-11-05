@@ -748,6 +748,7 @@ function summary(c: CardDetail): CardSummary {
     starting: c.starting,
     atCap: c.atCap,
     waitPr: c.waitPr,
+    mergePr: c.mergePr,
     working: c.working,
     watching: c.watching,
     holder: c.holder,

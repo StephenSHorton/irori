@@ -1150,6 +1150,58 @@ fn a_merged_pr_on_a_board_card_tells_the_holder_once() {
     assert!(ns.is_empty(), "a merged PR is told once");
 }
 
+/// Card #509: on a board, an agent's external wait on a PR is its own
+/// person's merge, not every member's. Their device's poller hears the
+/// PR even after the agent left the card, and its row folds everywhere.
+#[test]
+fn a_merge_wait_on_a_board_is_its_raisers_persons() {
+    const PR: &str = "https://github.com/a/b/pull/41";
+    let (a, b, _) = two_people();
+    let t = a.c.create_task(P1, nt("part 10", "")).unwrap();
+    sync(&a, &b);
+    b.c.claim_task(CARD2, &t.id).unwrap();
+    b.c.block(
+        CARD2,
+        &t.id,
+        "Review and merge PR #41",
+        Some(BlockedBy {
+            kind: BLOCKED_ON_EXTERNAL.into(),
+            reference: PR.into(),
+        }),
+    )
+    .unwrap();
+    b.c.leave(CARD2, &t.id, CARD2).unwrap();
+    sync(&a, &b);
+    let needs = |s: &Side, viewer: &str| {
+        s.c.board(&BoardFilter {
+            viewer: viewer.into(),
+            ..BoardFilter::default()
+        })
+        .needs_you
+        .iter()
+        .any(|c| c.task.id == t.id)
+    };
+    assert!(!needs(&a, P1), "p2's agent's wait isn't p1's merge");
+    assert!(a.c.merge_waits(&t.id).is_empty());
+    assert!(needs(&b, P2), "p2's merge");
+    assert_eq!(b.c.merge_waits(&t.id), vec![PR.to_string()]);
+
+    // p2's device hears it merged, though nobody holds the card: it folds
+    // on both sides and the wait no longer needs p2.
+    let merged = PrCheck {
+        pr: PR.into(),
+        state: PR_MERGED.into(),
+        ..PrCheck::default()
+    };
+    assert!(a.c.record_pr_state(&t.id, merged.clone()).is_err());
+    b.c.record_pr_state(&t.id, merged).unwrap();
+    sync(&a, &b);
+    for s in [&a, &b] {
+        assert_eq!(s.c.pr_state(&t.id, PR).unwrap().state, PR_MERGED);
+    }
+    assert!(!needs(&b, P2));
+}
+
 /// #230: a board card in review links a merged PR as context and its own
 /// PR, still open. The context PR's merge is told once, without a wake
 /// and without asking for completed; heard again it says nothing; the own

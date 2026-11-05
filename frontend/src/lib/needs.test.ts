@@ -445,7 +445,7 @@ describe("what waits on the person (cards #347, #471)", () => {
     expect(prChip(card({ state: TaskState.InReview, waitPr: pr }))).toEqual({
       text: "waits on PR #96",
       title:
-        "Waits on PR #96 in StephenSHorton/suzuri: an agent merges it once its checks pass. Opens https://github.com/StephenSHorton/suzuri/pull/96",
+        "Waits on PR #96 in StephenSHorton/suzuri: an agent asks you to merge it, then merges it. Opens https://github.com/StephenSHorton/suzuri/pull/96",
       url: pr.url,
     })
     expect(
@@ -455,6 +455,60 @@ describe("what waits on the person (cards #347, #471)", () => {
     ).toContain("another member's agents approve it")
     expect(prChip(card({ state: TaskState.InReview }))).toBeNull()
     expect(prChip(card({ state: TaskState.Completed, waitPr: pr }))).toBeNull()
+  })
+})
+
+describe("an agent's wait on a PR's merge is the person's (card #509)", () => {
+  const pr = {
+    repo: "StephenSHorton/irori",
+    number: 41,
+    url: "https://github.com/StephenSHorton/irori/pull/41",
+  }
+  const merge = card({
+    id: "454",
+    state: TaskState.Blocked,
+    waitingOn: 1,
+    waitKind: "external",
+    waitOn: pr.url,
+    mergePr: pr,
+    updatedAt: "2026-11-05T06:23:00Z",
+  })
+  test("its row needs the person and names the PR", () => {
+    expect(rowState(merge)).toEqual({ state: "needs", line: "Merge PR #41" })
+  })
+  test("it is a merge row in Needs you, beside the decisions", () => {
+    const cs = [
+      merge,
+      card({
+        id: "290",
+        state: TaskState.Blocked,
+        openBlockers: 1,
+        updatedAt: "2026-11-05T05:00:00Z",
+      }),
+      // A wait on CI, or on a PR in review, stays off it.
+      card({
+        id: "500",
+        state: TaskState.Blocked,
+        waitingOn: 1,
+        waitKind: "external",
+        waitOn: "CI on the release",
+      }),
+      card({ id: "330", state: TaskState.InReview, waitPr: pr }),
+    ]
+    const ns = needsOf(cs, [])
+    expect(ns.map((n) => `${n.kind}:${n.id}`)).toEqual([
+      "merge:454",
+      "decision:290",
+    ])
+    expect(ns[0].kind === "merge" && ns[0].pr).toEqual(pr)
+  })
+  test("a card with a decision too is one decision row; a finished one none", () => {
+    expect(
+      needsOf([{ ...merge, openBlockers: 1 }], []).map((n) => n.kind)
+    ).toEqual(["decision"])
+    expect(
+      needsOf([{ ...merge, state: TaskState.Completed }], []).map((n) => n.kind)
+    ).toEqual([])
   })
 })
 

@@ -193,6 +193,32 @@ fn a_spawned_agent_is_never_offered_a_second_card() {
     want_err(e.c.claim_task(SPAWNED, &other.id), ErrorKind::NotAllowed);
 }
 
+/// Card #509: a spawned agent whose work is ready starts a merge card for
+/// it and the other ready work, waits on it from its own card, and takes
+/// it; it still can't take a card someone else made.
+#[test]
+fn a_spawned_agent_may_take_the_merge_card_it_made() {
+    let e = Env::new();
+    let t = e.c.create_task(USER, nt("Its card")).unwrap();
+    let g = e.c.request_spawn(SWEEPER_KEY, ask(&t.id)).unwrap().unwrap();
+    e.c.bind_spawn(&t.id, g, SPAWNED).unwrap();
+    e.c.claim_task(SPAWNED, &t.id).unwrap();
+    let merge = e.c.create_task(SPAWNED, nt("Merge: #1 and #2")).unwrap();
+    e.c.block(
+        SPAWNED,
+        &t.id,
+        "lands with the merge card",
+        Some(BlockedBy {
+            kind: BLOCKED_ON_TASK.into(),
+            reference: merge.id.clone(),
+        }),
+    )
+    .unwrap();
+    e.c.claim_task(SPAWNED, &merge.id).unwrap();
+    let other = e.c.create_task(ALICE, nt("Another card")).unwrap();
+    want_err(e.c.claim_task(SPAWNED, &other.id), ErrorKind::NotAllowed);
+}
+
 #[test]
 fn a_spawned_agent_may_take_its_own_cards_subtasks() {
     let e = Env::new();

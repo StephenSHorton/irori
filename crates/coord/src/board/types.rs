@@ -234,6 +234,22 @@ impl Blocker {
     pub fn open(&self) -> bool {
         self.resolved.is_none()
     }
+
+    /// The GitHub pull request an open external wait is on (card #509):
+    /// its ref when that is a PR URL, else the first PR among its links.
+    /// Such a wait is the person's merge, so it counts in Needs you.
+    pub fn merge_wait(&self) -> Option<String> {
+        let on = self.on.as_ref()?;
+        if !self.open() || on.kind != BLOCKED_ON_EXTERNAL {
+            return None;
+        }
+        let from_ref = super::links::parse_link(&on.reference).ok();
+        from_ref
+            .iter()
+            .chain(self.links.iter())
+            .find(|l| super::links::pr_link(l).is_some())
+            .map(|l| l.reference.clone())
+    }
 }
 
 crate::go_struct! {

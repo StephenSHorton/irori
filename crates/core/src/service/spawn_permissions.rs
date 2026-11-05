@@ -152,6 +152,11 @@ fn allow_rules(p: &BoardPermissions, spawn: Spawn) -> Vec<String> {
     .collect();
     if spawn.merge == MergePolicy::PullRequest {
         out.push("Bash(gh pr create:*)".into());
+        // Card #509: the lead merges its PR itself once the person says
+        // Merge it on its "Can I merge…?"; a prompt here would sit unseen.
+        if spawn.lead {
+            out.push("Bash(gh pr merge:*)".into());
+        }
     }
     for r in &p.allow {
         let r = r.trim();
@@ -277,6 +282,28 @@ mod tests {
         assert!(list(&s, "allow").is_empty());
         assert!(list(&s, "deny").contains(&"Bash(rm -rf:*)".to_string()));
         assert!(!s.counts_as_bypass());
+    }
+
+    #[test]
+    fn a_pr_repos_lead_may_merge_its_pr() {
+        let b = board(Choice::Limited);
+        let merges = |spawn| {
+            list(&spawn_permissions(&b, spawn), "allow")
+                .contains(&"Bash(gh pr merge:*)".to_string())
+        };
+        assert!(merges(Spawn {
+            lead: true,
+            ..Default::default()
+        }));
+        assert!(!merges(Spawn::default()), "a helper");
+        assert!(
+            !merges(Spawn {
+                lead: true,
+                merge: MergePolicy::StraightToMain,
+                ..Default::default()
+            }),
+            "a straight-to-main repo has no PR"
+        );
     }
 
     #[test]
