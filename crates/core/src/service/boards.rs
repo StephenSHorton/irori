@@ -77,7 +77,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 impl Error {
     pub(crate) fn no_board(id: &str) -> Error {
-        Error::NoBoard(format!("core: no such board on this device: {id}"))
+        Error::NoBoard(format!("core: no such space on this device: {id}"))
     }
     pub(crate) fn coord(kind: CK, detail: impl std::fmt::Display) -> Error {
         Error::Coord(coord::Error::new(kind, detail))
@@ -977,7 +977,7 @@ impl Services {
             return Err(Error::coord(
                 CK::Invalid,
                 format_args!(
-                    "a board name is 1 to {} characters",
+                    "a space name is 1 to {} characters",
                     irori_identity::membership::MAX_BOARD_NAME
                 ),
             ));
@@ -1096,7 +1096,7 @@ impl Services {
             return Err(Error::coord(
                 CK::Invalid,
                 format_args!(
-                    "a board name is 1 to {} characters",
+                    "a space name is 1 to {} characters",
                     irori_identity::membership::MAX_BOARD_NAME
                 ),
             ));
@@ -1106,14 +1106,14 @@ impl Services {
         if !b.verifier.membership().owner(&me) {
             return Err(Error::coord(
                 CK::NotAllowed,
-                format_args!("only an owner renames board {board_id}"),
+                format_args!("only an owner renames this space"),
             ));
         }
         let epoch = b.verifier.epoch(&me);
         if epoch != self.ident.current().epoch {
             return Err(Error::coord(
                 CK::NotAllowed,
-                "this device's person key isn't the board's newest yet",
+                "this device's person key isn't the space's newest yet",
             ));
         }
         let row = self.ident.board_renamed_row(epoch, name, (self.now)())?;
@@ -1740,7 +1740,7 @@ impl Services {
             return Err(Error::coord(
                 CK::NotAllowed,
                 format_args!(
-                    "{} is not a person on this board",
+                    "{} is not a person in this space",
                     gocompat::quote::quote(key)
                 ),
             ));
@@ -2174,7 +2174,7 @@ impl Services {
         if !input.repo_key.trim().is_empty() {
             return Err(Error::coord(
                 CK::Invalid,
-                "a board ask goes to every member's free agents; leave the repo out",
+                "a space ask goes to every member's free agents; leave the repo out",
             ));
         }
         let b = self.board(board_id)?;
@@ -2502,7 +2502,7 @@ impl super::Core {
             let br = b.coord().idle_report(&s.board_ask_agents(&b));
             for mut u in br.unoffered {
                 if br.idle == 0 {
-                    u.why = "nobody on this board takes offered cards".into();
+                    u.why = "nobody in this space takes offered cards".into();
                 }
                 r.unoffered.push(u);
             }

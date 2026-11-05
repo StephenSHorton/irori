@@ -44,7 +44,7 @@ impl Services {
         Err(Error::coord(
             CK::NotAllowed,
             format_args!(
-                "every device on the board must run an Irori with notes first; waiting on {}. Keep it in Mine for now",
+                "every device in the space must run an Irori with notes first; waiting on {}. Keep it in Mine for now",
                 waiting.join(", ")
             ),
         )
@@ -480,7 +480,7 @@ impl Services {
                 return if mine {
                     "the person".into()
                 } else {
-                    "a person on the board".into()
+                    "a person in the space".into()
                 };
             }
             match names.get(key).filter(|n| !n.trim().is_empty()) {

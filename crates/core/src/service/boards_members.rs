@@ -42,7 +42,7 @@ impl Services {
         if !b.verifier.membership().owner(&me) {
             return Err(Error::coord(
                 CK::NotAllowed,
-                format_args!("only an owner {what} on board {}", b.id),
+                format_args!("only an owner {what} in this space"),
             ));
         }
         self.newest_epoch(b)
@@ -53,7 +53,7 @@ impl Services {
         if epoch != self.ident.current().epoch {
             return Err(Error::coord(
                 CK::NotAllowed,
-                "this device's person key isn't the board's newest yet",
+                "this device's person key isn't the space's newest yet",
             ));
         }
         Ok(epoch)
@@ -98,13 +98,13 @@ impl Services {
         if person_id == self.person_id() {
             return Err(Error::coord(
                 CK::Invalid,
-                "you can't remove yourself: leave the board instead",
+                "you can't remove yourself: leave the space instead",
             ));
         }
         if !b.verifier.membership().active(person_id) {
             return Err(Error::coord(
                 CK::NotFound,
-                format_args!("{person_id} isn't on board {board_id}"),
+                format_args!("{person_id} isn't in this space"),
             ));
         }
         if b.verifier.membership().owner(person_id) {
@@ -160,7 +160,7 @@ impl Services {
         let Some(p) = m.person(person_id).filter(|p| m.active(&p.person_id)) else {
             return Err(Error::coord(
                 CK::NotFound,
-                format_args!("{person_id} isn't on board {board_id}"),
+                format_args!("{person_id} isn't in this space"),
             ));
         };
         if p.role == role {
@@ -211,7 +211,7 @@ impl Services {
         if m.owner(&me) && m.members.iter().filter(|p| m.owner(&p.person_id)).count() <= 1 {
             return Err(Error::coord(
                 CK::NotAllowed,
-                "you're this board's only owner: make someone else an owner before you leave",
+                "you're this space's only owner: make someone else an owner before you leave",
             ));
         }
         let epoch = self.newest_epoch(&b)?;
