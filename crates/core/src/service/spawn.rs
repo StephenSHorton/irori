@@ -1664,29 +1664,16 @@ impl Services {
     /// The person's newest answer on one of card t's items since its last
     /// agent was asked for (card #447): a "Not done" on its done check, a
     /// blocker answer, or their words on the crash question. Whichever way
-    /// it was given (window, API, phone), the fresh agent reads it. The
-    /// window resolves the crash question with the answer, so that answer
-    /// is on no comment (card #540).
+    /// it was given (window, API, phone), the fresh agent reads it.
     fn answer_on_card(&self, t: &Task, comments: &[coord::Comment]) -> Option<String> {
         let since = t.spawn_request().map(|s| s.at);
-        let new = |at: &GoTime| since.as_ref().is_none_or(|s| !before(at, s));
-        let words = |s: &str| s != coord::CRASHED_START && !s.trim().is_empty();
-        let said = comments
+        comments
             .iter()
             .filter(|c| !c.blocker_id.is_empty() && self.chain.is_owner(&c.by))
-            .filter(|c| new(&c.at) && words(&c.text))
-            .map(|c| (c.at.unix_nano(), &c.text));
-        let resolved = t
-            .blockers
-            .iter()
-            .filter(|b| coord::is_crash_question(b))
-            .filter_map(|b| b.resolved.as_ref())
-            .filter(|r| !r.closed && self.chain.is_owner(&r.by))
-            .filter(|r| new(&r.at) && words(&r.answer))
-            .map(|r| (r.at.unix_nano(), &r.answer));
-        said.chain(resolved)
-            .max_by_key(|(at, _)| *at)
-            .map(|(_, text)| text.clone())
+            .filter(|c| since.as_ref().is_none_or(|s| !before(&c.at, s)))
+            .filter(|c| c.text != coord::CRASHED_START && !c.text.trim().is_empty())
+            .max_by_key(|c| c.at.unix_nano())
+            .map(|c| c.text.clone())
     }
 
     /// The folder card t's agent starts in: the card's own checkout here,

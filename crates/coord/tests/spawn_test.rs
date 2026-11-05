@@ -391,8 +391,9 @@ fn two_crashes_in_a_row_stop_spawning_and_ask_the_person() {
     assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&t.id));
 }
 
-/// Card #540: the window answers the crash question with a resolve, not an
-/// answer on its thread. Either way the run clears and the card spawns.
+/// Card #540: the window sends its answer to the crash question as a
+/// resolve. It still goes on the thread, where every brief reads it, and
+/// puts the card back on the Board.
 #[test]
 fn resolving_the_crash_question_clears_the_run() {
     for (pick, text, said) in [
@@ -423,8 +424,8 @@ fn resolving_the_crash_question_clears_the_run() {
         let got = e.c.get_task(&t.id).unwrap();
         assert_eq!(got.state, SUBMITTED, "{got:?}");
         assert_eq!(got.spawn_crashes, 0);
-        let r = got.blockers.iter().find(|b| b.id == q.id).unwrap();
-        assert_eq!(r.resolved.as_ref().unwrap().answer, said);
+        let cs = e.c.comments(&t.id).unwrap();
+        assert!(cs.iter().any(|c| c.blocker_id == q.id && c.text == said));
         assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&t.id));
         // A replay agrees.
         let c = e.reopen_with(Options {
@@ -434,6 +435,39 @@ fn resolving_the_crash_question_clears_the_run() {
         assert_eq!(c.get_task(&t.id).unwrap().spawn_crashes, 0);
         assert_eq!(ids(&c.cards_to_spawn()), std::slice::from_ref(&t.id));
     }
+}
+
+/// A card someone took while it waited stays theirs, and the resolve stands:
+/// the run still clears, so the card can spawn once they let it go.
+#[test]
+fn resolving_the_crash_question_on_a_held_card_clears_the_run() {
+    let mut e = Env::new();
+    let on = Arc::new(AtomicBool::new(true));
+    e.c = spawning(&e, &on);
+    let t = e.c.create_task(USER, nt("Kills its agent")).unwrap();
+    spawn_and_crash(&e, &t.id, "dev-a/first");
+    spawn_and_crash(&e, &t.id, "dev-a/second");
+    let q = crash_question(&e.c.get_task(&t.id).unwrap())
+        .expect("the person is asked")
+        .clone();
+    e.ros.set("dev-a/third", "idle");
+    e.c.claim_task("dev-a/third", &t.id).unwrap();
+    e.c.answer(
+        USER,
+        &t.id,
+        &q.id,
+        BlockerAnswer {
+            pick: 1,
+            resolve: true,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    let got = e.c.get_task(&t.id).unwrap();
+    assert_eq!(got.spawn_crashes, 0);
+    assert!(got.holders.contains(&"dev-a/third".to_string()), "{got:?}");
+    let b = got.blockers.iter().find(|b| b.id == q.id).unwrap();
+    assert_eq!(b.resolved.as_ref().unwrap().answer, CRASHED_START);
 }
 
 /// Only the person's answer does: an agent resolving the question isn't
