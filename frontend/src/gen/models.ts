@@ -155,7 +155,7 @@ export function Address(p: Partial<B.Address> = {}): B.Address {
 
 /** AgentCard with Go's zero values for every field left out. */
 export function AgentCard(p: Partial<B.AgentCard> = {}): B.AgentCard {
-  return { "key": "", "deviceId": "", "agent": "", "sessionId": "", "pid": 0, "name": "", "title": "", "cwd": "", "status": "", "sessionKind": "", "entrypoint": "", "version": "", "peerFeatures": null, "startedAt": "", "updatedAt": "", "lastActivity": "", "lastText": "", "transcript": "", "repoKey": "", "permissionMode": "", "offersCards": false, "spawned": false, ...p } as B.AgentCard
+  return { "key": "", "deviceId": "", "agent": "", "sessionId": "", "pid": 0, "name": "", "title": "", "cwd": "", "status": "", "sessionKind": "", "entrypoint": "", "version": "", "peerFeatures": null, "startedAt": "", "updatedAt": "", "lastActivity": "", "lastText": "", "transcript": "", "repoKey": "", "permissionMode": "", "offersCards": false, "spawned": false, "here": false, ...p } as B.AgentCard
 }
 
 /** AgentPermissions with Go's zero values for every field left out. */
@@ -730,7 +730,7 @@ export function TrustedRepo(p: Partial<B.TrustedRepo> = {}): B.TrustedRepo {
 
 /** TrustNeed with Go's zero values for every field left out. */
 export function TrustNeed(p: Partial<B.TrustNeed> = {}): B.TrustNeed {
-  return { "taskId": "", "folder": "", "device": "", "here": false, "what": "", ...p } as B.TrustNeed
+  return { "taskId": "", "folder": "", "device": "", "here": false, "what": "", "askedBy": null, ...p } as B.TrustNeed
 }
 
 /** TrustStarted with Go's zero values for every field left out. */

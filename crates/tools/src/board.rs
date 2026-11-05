@@ -182,6 +182,10 @@ impl Inner {
         if !t.parent.is_empty() {
             b += &format!("; part of {}", self.short_of(&t.parent));
         }
+        // Its work/personal side (card #494, #496).
+        if !t.side.is_empty() {
+            b += &format!("; {} side", one_line(&t.side, 40));
+        }
         if t.pinned {
             b += "; pinned by the person";
         }
@@ -220,6 +224,10 @@ impl Inner {
         }
         if t.shared {
             b += "; shared";
+        }
+        // A card on a side its device doesn't run waits (card #495).
+        if !t.side_wait.is_empty() {
+            b += &format!("; waits: {}", one_line(&t.side_wait, 80));
         }
         if !t.links.is_empty() {
             let ls: Vec<String> = t.links.iter().map(|l| one_line(&l.label, 60)).collect();
@@ -544,6 +552,10 @@ pub(crate) fn board(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let n = s.roster();
     let now = s.now();
     let mut b = format!("{head}. {}\n", untrusted());
+    // Card #496: which side this device runs; other sides' cards are read.
+    if !v.side_line.is_empty() {
+        let _ = writeln!(b, "{}", v.side_line);
+    }
     // Card #436: a red main holds every landing; it goes first.
     for r in coord::main_reds(&v) {
         let who = if r.task.holders.is_empty() {

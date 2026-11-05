@@ -78,6 +78,7 @@ function sampleList(): DeviceView[] {
       this: true,
       state: "this",
       color: "teal",
+      sides: ["Personal"],
     }),
     DeviceView({
       deviceId: "sample-mac",
@@ -86,6 +87,7 @@ function sampleList(): DeviceView[] {
       color: "orange",
       state: "connected",
       lastSeen: new Date().toISOString(),
+      sides: ["Work"],
     }),
     DeviceView({
       deviceId: "sample-node",
@@ -212,6 +214,15 @@ const sample = {
     const d = sampleList().find((x) => x.deviceId === id)
     if (d) d.color = color || DeviceColors[0]
     for (const fn of sampleListeners) fn()
+  },
+  setSides(sides: string[]): string[] {
+    const d = sampleList().find((x) => x.this)
+    if (!d) throw new Error("no device here")
+    const kept = cleanSides(sides)
+    d.sides = kept.length ? kept : undefined
+    for (const s of kept) if (!sampleSideNames.some((n) => sameSide(n, s))) sampleSideNames.push(s)
+    for (const fn of sampleListeners) fn()
+    return kept
   },
   rename(id: string, name: string): string {
     const d = sampleList().find((x) => x.deviceId === id)
@@ -370,6 +381,18 @@ export const devices = {
     if (inWails()) return DevicesService.SetPersonAvatar(avatar)
     samplePersonAvatar = avatar
   },
+  // sideNames is every work/personal side named on a device or a card
+  // (card #494), for this device's pin to choose from.
+  async sideNames(): Promise<string[]> {
+    if (inWails()) return (await DevicesService.SideNames()) ?? []
+    return [...sampleSideNames]
+  },
+  // setSides pins the sides this device runs, the first the one its new
+  // cards take; [] runs every side again (card #494). Returns them as kept.
+  async setSides(sides: string[]): Promise<string[]> {
+    if (inWails()) return (await DevicesService.SetDeviceSides(sides)) ?? []
+    return sample.setSides(sides)
+  },
   // rename is the person's name for a device (card #184); "" goes back to
   // the computer's name. Returns the name as kept.
   async rename(deviceId: string, name: string): Promise<string> {
@@ -390,6 +413,40 @@ export function cleanDeviceName(name: string): string {
   const one = name.replace(/\s+/g, " ").trim()
   return [...one].slice(0, MaxDeviceName).join("")
 }
+
+// MaxSide and MaxSides mirror coord::sides::MAX_LEN and MAX_SIDES.
+export const MaxSide = 40
+export const MaxSides = 8
+
+// cleanSide is coord::sides::clean: one line, trimmed, at most MaxSide
+// characters; "" is no side.
+export function cleanSide(side: string): string {
+  return cleanDeviceName(side)
+}
+
+// sameSide is coord::sides::same: case doesn't count.
+export function sameSide(a: string, b: string): boolean {
+  return cleanSide(a).toLowerCase() === cleanSide(b).toLowerCase()
+}
+
+// uniqueSides is each side cleaned, empty ones and repeats (any case)
+// dropped, order kept: every side there is to offer.
+export function uniqueSides(sides: string[]): string[] {
+  const out: string[] = []
+  for (const s of sides) {
+    const c = cleanSide(s)
+    if (c && !out.some((o) => sameSide(o, c))) out.push(c)
+  }
+  return out
+}
+
+// cleanSides is coord::sides::clean_list: uniqueSides, at most MaxSides:
+// a device's pin.
+export function cleanSides(sides: string[]): string[] {
+  return uniqueSides(sides).slice(0, MaxSides)
+}
+
+const sampleSideNames: string[] = ["Personal", "Work"]
 
 // The sample devices' computer names, for a rename back to "".
 const sampleHostNames: Record<string, string> = {}

@@ -1,0 +1,149 @@
+//! An agent keeps to its device's sides (card #496, work-personal-separation
+//! §7.5): on its own it never claims, joins or assigns a card on a side its
+//! device doesn't run. The person's own moves go through, and so does an
+//! agent the person asked.
+//!
+//! "The person asked" is recognised on the card, from what the log already
+//! holds:
+//! - the person is the actor (`user:<device>` on any of their devices);
+//! - Irori itself (its sweep, a spawn's bind): its picks keep to the side
+//!   by themselves (#495);
+//! - the agent is assigned the card: only the person or Irori can put an
+//!   agent on a card across the line, since an agent's own assign is
+//!   checked here too;
+//! - the agent was started for the card (Start an agent, or the spawn
+//!   sweep) or for its parent;
+//! - the person @-mentioned the agent on the card, or sent it a message
+//!   that names the card.
+//!
+//! A message from the person that names no card leaves nothing on the
+//! card, so it doesn't count: the agent asks them to assign it instead.
+
+use irori_identity::owner;
+
+use super::error::{Error, ErrorKind, Result};
+use super::fold::Fold;
+use super::types::Task;
+use super::util::{SWEEPER, contains};
+
+/// The part of every side refusal that says how the line is crossed;
+/// tools and tests look for it.
+pub const ASK_THE_PERSON: &str = "ask the person";
+
+impl Fold {
+    /// Every side named anywhere: on a device's pin or on a card.
+    pub(crate) fn side_names(&self) -> Vec<String> {
+        let mut out = self.sides.names();
+        let mut cards: Vec<&Task> = self.tasks.values().filter(|t| !t.side.is_empty()).collect();
+        cards.sort_by(|a, b| a.id.cmp(&b.id));
+        for t in cards {
+            if !out.iter().any(|o| crate::sides::same(o, &t.side)) {
+                out.push(t.side.clone());
+            }
+        }
+        out
+    }
+
+    /// Refuses agent `by` taking card t (claim or join) when its device
+    /// doesn't run t's side and the person didn't ask it to.
+    pub(crate) fn check_side_take(&self, by: &str, t: &Task) -> Result<()> {
+        if self.free_of_sides(by) || self.person_asked(by, t) {
+            return Ok(());
+        }
+        let dev = owner::device_of(by);
+        if self.sides.runs(dev, &t.side) {
+            return Ok(());
+        }
+        Err(self.side_refusal(
+            t,
+            dev,
+            "your device",
+            "To take it",
+            "they can assign it to you from the app, start an agent on it, or @-mention you on it",
+        ))
+    }
+
+    /// Refuses agent `by` assigning card t to `to` (or giving `to` one of
+    /// its steps) when `to`'s device doesn't run t's side. An agent the
+    /// person asked may take it itself, but not hand it to another agent
+    /// across the line: that agent waits for the person too. Handing it to
+    /// the person is always fine.
+    pub(crate) fn check_side_assign(&self, by: &str, t: &Task, to: &str) -> Result<()> {
+        if self.free_of_sides(by) || self.free_of_sides(to) {
+            return Ok(());
+        }
+        let dev = owner::device_of(to);
+        if self.sides.runs(dev, &t.side) {
+            return Ok(());
+        }
+        if to == by && self.person_asked(by, t) {
+            return Ok(());
+        }
+        let whose = if to == by {
+            "your device".to_string()
+        } else {
+            let name = self
+                .roster
+                .as_ref()
+                .and_then(|r| r.agents().into_iter().find(|a| a.key == to))
+                .map(|a| a.name)
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or_else(|| "that agent".into());
+            format!("{name}'s device")
+        };
+        Err(self.side_refusal(
+            t,
+            dev,
+            &whose,
+            if to == by {
+                "To take it"
+            } else {
+                "To hand it there"
+            },
+            "they can assign it from the app",
+        ))
+    }
+
+    /// The person, and Irori itself, aren't held to a side here.
+    fn free_of_sides(&self, by: &str) -> bool {
+        by == SWEEPER || self.is_owner(by)
+    }
+
+    /// Whether the card shows the person asked agent `key` to take it.
+    pub(crate) fn person_asked(&self, key: &str, t: &Task) -> bool {
+        if contains(&t.assigned, key) {
+            return true;
+        }
+        if self
+            .spawned_for(key)
+            .is_some_and(|s| s.task_id == t.id || (!t.parent.is_empty() && t.parent == s.task_id))
+        {
+            return true;
+        }
+        let Some(ids) = self.by_task.get(&t.id) else {
+            return false;
+        };
+        ids.iter().filter_map(|id| self.comments.get(id)).any(|c| {
+            c.person
+                && !c.gone
+                && (c.mentions.iter().any(|m| m.key == key)
+                    || (c.to == key && !c.msg_id.is_empty()))
+        })
+    }
+
+    fn side_refusal(&self, t: &Task, dev: &str, whose: &str, lead: &str, how: &str) -> Error {
+        let runs = self
+            .sides
+            .of(dev)
+            .map(|s| s.join(" and "))
+            .unwrap_or_default();
+        Error::raw(
+            ErrorKind::NotAllowed,
+            format!(
+                "coord: {} is on the {} side, and {whose} runs only {runs}: cards on another side are only read here, never taken unless the person asks. {lead}, {ASK_THE_PERSON}: {how}.",
+                t.short_ref(),
+                t.side,
+            ),
+        )
+    }
+}

@@ -74,7 +74,7 @@ fn board_name(b: Board) -> &'static str {
 
 /// Kinds added after the Go port (shared boards stage 2, waits on card
 /// #87), which Go's table can't list: board logs accept them.
-const SINCE_GO: [&str; 22] = [
+const SINCE_GO: [&str; 24] = [
     kinds::BOARD_ASK_REQUESTED,
     kinds::BOARD_ASK_STATE,
     kinds::BOARD_ASK_EDITED,
@@ -103,17 +103,24 @@ const SINCE_GO: [&str; 22] = [
     kinds::SPACE_BOARD_RENAMED,
     // A shared card's owner changing hands (card #432).
     kinds::TASK_OWNER,
+    // A board card's spawned agent (card #455): its request and mark live
+    // in the board log.
+    kinds::TASK_SPAWN,
+    kinds::TASK_SPAWNED,
 ];
 
 /// Kinds added after the Go port that board logs refuse: the person's own
 /// rows (device names, card #184; a card's pause, card #207; Talk read
 /// cursors, card #389; agents' faces, card #407; the merge desk's rows,
 /// card #415; the person's picture, card #393; the notification
-/// history, card #377; spawned agents, card #446).
-const SINCE_GO_REFUSED: [&str; 20] = [
+/// history, card #377; spawned agents, card #446; the sides a device
+/// runs, card #494; spawning across the person's devices, card #455).
+const SINCE_GO_REFUSED: [&str; 23] = [
     kinds::AGENT_OFFER,
-    kinds::TASK_SPAWN,
-    kinds::TASK_SPAWNED,
+    kinds::SPAWN_HOST,
+    kinds::SPAWN_END_REQUESTED,
+    kinds::SPAWN_START_REQUESTED,
+    kinds::TRUST_REQUESTED,
     kinds::SPAWN_SET,
     kinds::SPAWN_CAP,
     kinds::AGENT_AVATAR,
@@ -131,6 +138,7 @@ const SINCE_GO_REFUSED: [&str; 20] = [
     kinds::DESK_RUN,
     kinds::NOTIFICATION_POSTED,
     kinds::NOTIFICATION_READ,
+    kinds::DEVICE_SIDES,
 ];
 
 #[test]

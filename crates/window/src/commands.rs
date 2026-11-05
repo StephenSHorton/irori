@@ -956,6 +956,15 @@ pub async fn agents_trust_and_start(
     blocking(&w, move |w| w.agents_trust_and_start(&task_id)).await
 }
 
+/// The person asks the device a card's agent must start on to trust its
+/// repo there (part 11); that device asks them in its own window. Writes
+/// no trust. The device's name.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_trust_request(w: W<'_>, task_id: String) -> R<String> {
+    blocking(&w, move |w| w.agents_trust_request(&task_id)).await
+}
+
 /// This device's repos and whether each is trusted for agents (card #456,
 /// Settings › Agents).
 #[tauri::command]
@@ -1066,6 +1075,20 @@ pub async fn devices_person_avatar(w: W<'_>) -> R<String> {
 #[specta::specta]
 pub async fn devices_set_person_avatar(w: W<'_>, avatar: String) -> R<()> {
     w.set_person_avatar(&avatar)
+}
+
+/// Every work/personal side named on a device or a card (card #494).
+#[tauri::command]
+#[specta::specta]
+pub async fn devices_side_names(w: W<'_>) -> R<Vec<String>> {
+    Ok(w.side_names())
+}
+
+/// Pins the sides this device runs, the first its new cards' (card #494).
+#[tauri::command]
+#[specta::specta]
+pub async fn devices_set_device_sides(w: W<'_>, sides: Vec<String>) -> R<Vec<String>> {
+    w.set_device_sides(&sides)
 }
 
 #[tauri::command]
@@ -1459,6 +1482,20 @@ pub async fn talk_post(
     )
 }
 
+/// The person asks about channel `conv_id`'s post `post_id` in a new
+/// thread (card #454): it records the channel and its repo, and the
+/// channel gets a pointer to it.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_thread_from(
+    w: W<'_>,
+    conv_id: String,
+    post_id: String,
+    text: String,
+) -> R<TaskResult> {
+    w.talk_thread_from(&conv_id, &post_id, &text)
+}
+
 /// The person made card `task_id` from post `post_id` (card #390).
 #[tauri::command]
 #[specta::specta]
@@ -1611,6 +1648,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             note_remove,
             agents_trust_need,
             agents_trust_and_start,
+            agents_trust_request,
             agents_trusted,
             agents_trust_repo,
             agents_permissions,
@@ -1630,6 +1668,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             devices_person_avatar,
             devices_set_person_avatar,
             devices_rename_device,
+            devices_side_names,
+            devices_set_device_sides,
             devices_add_device,
             devices_join_with_code,
             devices_confirm_words,
@@ -1669,6 +1709,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             talk_posts,
             talk_post,
             talk_link_card,
+            talk_thread_from,
             talk_read,
             talk_channel_create,
             talk_dm,

@@ -369,7 +369,9 @@ function MergeNeed({
 // TrustRow is a card whose agent can't start because its repo isn't
 // trusted for agents on that device (card #449, spawned agents §7 "The
 // pre-trust flow"): it says what trusting does, and Trust and start
-// records it (from this window only) and starts the agent.
+// records it (from this window only) and starts the agent. When the agent
+// starts on another device, Ask asks that device to trust it (part 11),
+// and there the row says who asked.
 function TrustRow({
   need,
   now,
@@ -412,11 +414,25 @@ function TrustRow({
         {info ? (info.here ? " on this computer" : ` on ${info.device}`) : ""}.
         {info?.what ? ` ${info.what}` : ""}
       </p>
+      {info?.here && info.askedBy && (
+        <p className="text-[12.5px] text-muted-foreground">
+          {info.askedBy} asked you to trust this.
+        </p>
+      )}
       <span className="flex flex-wrap items-center gap-1.5">
         {info && !info.here ? (
-          <span className="text-[12.5px] text-muted-foreground">
-            Open Irori on {info.device} to trust it there.
-          </span>
+          <Button
+            size="sm"
+            disabled={act.busy || !!act.done}
+            onClick={() =>
+              void act.run(
+                () => AgentsService.TrustRequest(c.id),
+                (d) => `Asked ${d}: confirm it there.`
+              )
+            }
+          >
+            {act.busy ? "Asking…" : `Ask ${info.device} to trust it`}
+          </Button>
         ) : (
           <Button
             size="sm"
@@ -437,7 +453,14 @@ function TrustRow({
   )
 }
 
-type TrustInfo = { folder: string; device: string; here: boolean; what: string }
+type TrustInfo = {
+  folder: string
+  device: string
+  here: boolean
+  what: string
+  // The device that asked this one to trust it (part 11).
+  askedBy?: string | null
+}
 
 // trustFromReason reads `not trusted: <folder> on <device>` (the failed
 // spawn's reason) when the host can't be asked.

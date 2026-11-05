@@ -41,6 +41,8 @@ pub struct TrustNeed {
     pub here: bool,
     /// What trusting does, in the words the confirm shows.
     pub what: String,
+    /// The device that asked this one to trust it (part 11), by name.
+    pub asked_by: Option<String>,
 }
 
 /// After Trust and start.
@@ -168,10 +170,14 @@ impl Window {
         let device = if here {
             "this computer".to_string()
         } else {
-            match self.core.device_label(&sp.device) {
-                l if l.is_empty() => sp.device.chars().take(8).collect(),
-                l => l,
-            }
+            self.device_label(&sp.device)
+        };
+        let asked_by = if here {
+            self.core
+                .trust_asked_by(&t.id)
+                .map(|d| self.device_label(&d))
+        } else {
+            None
         };
         Ok(Some(TrustNeed {
             task_id: t.id.clone(),
@@ -179,7 +185,27 @@ impl Window {
             folder,
             device,
             here,
+            asked_by,
         }))
+    }
+
+    /// A device's name, or the start of its id when it has none.
+    fn device_label(&self, id: &str) -> String {
+        match self.core.device_label(id) {
+            l if l.is_empty() => id.chars().take(8).collect(),
+            l => l,
+        }
+    }
+
+    /// The person, on this device, asks the device a card's agent must
+    /// start on to trust its repo there (part 11): that device asks the
+    /// person in its own window. Nothing here writes trust. The device's
+    /// name.
+    pub fn agents_trust_request(&self, task_id: &str) -> Result<String, String> {
+        let co = self.core.coord();
+        let id = co.task_ref(task_id).unwrap_or_else(|_| task_id.to_string());
+        let dev = self.core.request_trust(&id)?;
+        Ok(self.device_label(&dev))
     }
 
     /// A board's agent permissions.

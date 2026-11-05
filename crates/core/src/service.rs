@@ -67,7 +67,9 @@ pub mod notes;
 mod notifications;
 pub mod spaces;
 pub mod spawn;
+pub mod spawn_boards;
 pub mod spawn_permissions;
+pub mod spawn_remote;
 pub mod spawn_stop;
 mod spawn_waiting;
 pub use mirror::BoardReviewer;
@@ -1026,6 +1028,13 @@ impl Core {
                         .unwrap_or_default()
                 })
             }),
+            off_side: Some({
+                let c = coord_cell.clone();
+                Arc::new(move |m: &inbox::Message, to: &str| {
+                    c.get()
+                        .is_some_and(|co| co.off_side(&m.reason, &m.ref_, to))
+                })
+            }),
             notes: Some({
                 let c = services_cell.clone();
                 Arc::new(move |agent: &str, refs: &[String]| {
@@ -1370,6 +1379,9 @@ impl Core {
                     .unwrap_or_default()
             });
         }
+        // The requests naming this device its log holds before any sync
+        // are never started (card #455).
+        s.hold_requests_at_start();
         // A space's channels go in its log (card #392).
         s.talk
             .set_spaces(Arc::new(spaces::SpaceTalk(Arc::downgrade(&s))));
@@ -1770,6 +1782,13 @@ impl Core {
                         // A rename from this device was folded when it was
                         // written; the window still hears it here.
                         s.device_names.apply(&ev);
+                        s.hub.publish(CoreEvent::Devices);
+                    } else if ev.kind == coord::sides::KIND {
+                        // The sides a device runs (card #494): folded
+                        // into the coord now, so Settings → Devices reads
+                        // them when it hears this; its follow loop folding
+                        // the row again changes nothing.
+                        s.coord.apply_sides(&ev);
                         s.hub.publish(CoreEvent::Devices);
                     }
                 }
@@ -2489,6 +2508,31 @@ impl Core {
         self.s.cancel_spawn(id)
     }
 
+    /// The person's End on spawned agent `key` from any of their devices
+    /// (card #455): ended here when it runs here, else a replicated request
+    /// the device it runs on acts on. App only.
+    pub fn request_end(&self, key: &str) -> Result<(), String> {
+        self.s.request_end(key)
+    }
+
+    /// The person asks the device card `id`'s agent must start on to trust
+    /// its repo (card #455): that device asks them in its own window. The
+    /// device's id. App only; nothing here writes trust.
+    pub fn request_trust(&self, id: &str) -> Result<String, String> {
+        self.s.request_trust(id)
+    }
+
+    /// The device that asked this one to trust card `id`'s repo, if any.
+    pub fn trust_asked_by(&self, id: &str) -> Option<String> {
+        self.s.trust_asked_by(id)
+    }
+
+    /// What each of the person's devices can start agents in, by device
+    /// (card #455).
+    pub fn spawn_hosts(&self) -> std::collections::HashMap<String, spawn_remote::SpawnHost> {
+        self.s.hosts()
+    }
+
     /// Log rows appended or replicated from now on, with a resync signal
     /// (`Event::is_resync`) when the reader fell behind (Go
     /// `SubscribeEvents`; 256 slots, store.md §3.9).
@@ -2800,6 +2844,31 @@ impl Core {
         // folding it again is a no-op.
         self.s.device_names.apply(&ev);
         Ok(name)
+    }
+
+    /// The work/personal sides each pinned device runs (card #494), by
+    /// device id; a device not in it runs every side.
+    pub fn device_sides(&self) -> std::collections::BTreeMap<String, Vec<String>> {
+        self.s.coord.device_sides()
+    }
+
+    /// Every side named on a device's pin or a card (card #494).
+    pub fn side_names(&self) -> Vec<String> {
+        self.s.coord.side_names()
+    }
+
+    /// Pins the sides this device runs, the first the one its new cards
+    /// take; empty runs every side (card #494). Only this device: a pin
+    /// one device writes for another counts nowhere. Only the window
+    /// calls it.
+    pub fn set_device_sides(&self, sides: &[String]) -> Result<Vec<String>, String> {
+        let sides = self
+            .s
+            .coord
+            .set_device_sides(sides)
+            .map_err(|e| e.to_string())?;
+        self.s.hub.publish(CoreEvent::Devices);
+        Ok(sides)
     }
 
     /// Marks this device for Reset at its next start.

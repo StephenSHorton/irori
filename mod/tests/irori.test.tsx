@@ -761,6 +761,17 @@ describe('held cards (GitHub #3)', () => {
     expect(got.additionalContext?.join('\n')).toContain('board_block')
   })
 
+  test('a prompt names the side this device runs (card #496)', OPTIONS, async ($, on) => {
+    const sideLine = 'This device runs the Work side. Cards on Personal are only read here, never taken.'
+    const w = world(on, { board: { sideLine } })
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line(hello))
+    await until(() => w.registered.length === 2, 'hello')
+    const got = await $.classic.UserPromptSubmit({ prompt: 'hi' } as never)
+    expect(got.additionalContext ?? []).toEqual([`Irori: ${sideLine}`])
+  })
+
   test('no card held, no reminder', OPTIONS, async ($, on) => {
     const w = world(on, { board: { working: [{ short: '68', holders: ['dev-b/other'] }] } })
     await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })

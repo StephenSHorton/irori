@@ -33,6 +33,9 @@ pub struct RosterAgent {
     pub card: coord::roster::AgentCard,
     pub offers_cards: bool,
     pub spawned: bool,
+    /// It runs on this device, so its "Offer it cards" is set here: each
+    /// device decides for its own agents (card #492).
+    pub here: bool,
 }
 
 /// A recently gone Claude Code session the person may revive.
@@ -118,12 +121,14 @@ impl Window {
     /// RosterService.Agents: the live agents on every one of the person's
     /// devices.
     pub fn agents(&self) -> Vec<RosterAgent> {
+        let me = self.core.device_id().to_string();
         self.core
             .mesh_agents()
             .into_iter()
             .map(|card| RosterAgent {
                 offers_cards: self.core.agent_offered(&card.key),
                 spawned: self.core.agent_spawned(&card.key),
+                here: irori_identity::owner::device_of(&card.key) == me,
                 card,
             })
             .collect()

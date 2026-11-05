@@ -599,3 +599,67 @@ fn releasing_dismissed_repo_work_with_no_desk_says_so() {
     want_err(h.ib.release(&d.id, USER), ErrorKind::BadState);
     h.want_state(&d.id, st::DISMISSED);
 }
+
+/// Card #495: a hand-out Irori made for a card on a side this device
+/// doesn't run is held as off_side, both when this device sends it and
+/// when another device queued it for an agent here (the host's re-check,
+/// whatever the sender decided). A delivery the hook doesn't name, or one
+/// not about a card, goes through as before.
+#[test]
+fn an_off_side_pick_is_held_here_whoever_sent_it() {
+    let h = Harness::with(Hooks {
+        off_side: Some(Arc::new(|m: &Message, to: &str| {
+            m.reason == "offer" && m.ref_ == "task:work-card" && to == KEY_A
+        })),
+        ..owners2()
+    });
+    h.abc();
+    h.ros.put(&[card(KEY_R, "mac", "", "")]);
+    let _fo = follow(&h);
+    let mut f = Foreign { h: &h, seq: 0 };
+    let mut queue = |id: &str, reason: &str, r: &str| {
+        let mid = format!("msg_{id}");
+        let m = json!({
+            "id": mid, "from": {"key": "irori", "name": "Irori", "kind": "irori"},
+            "to": {"kind": "agent", "value": KEY_A}, "text": format!("take {id}"), "hop": 0,
+            "trust": "trusted", "sentAt": h.clk.now().format_rfc3339_nano(),
+            "reason": reason, "ref": r, "notice": true,
+        });
+        f.row("irori", kinds::MESSAGE_SENT, m);
+        f.row("irori", kinds::DELIVERY_STATE, json!({"deliveryId": format!("dlv_{id}"), "messageId": mid, "to": KEY_A, "state": "queued", "by": "irori"}));
+    };
+    queue("work", "offer", "task:work-card");
+    queue("home", "offer", "task:home-card");
+    queue("note", "comment", "task:work-card");
+    eventually("the host holds the off-side hand-out", || {
+        h.ib.get("dlv_work")
+            .is_some_and(|d| d.state == st::HELD && d.hold == hold::OFF_SIDE)
+    });
+    for id in ["dlv_home", "dlv_note"] {
+        eventually(&format!("{id} through"), || {
+            h.ib.get(id).is_some_and(|d| d.state == st::QUEUED)
+        });
+        assert!(h.ib.get(id).unwrap().hold.is_empty(), "{id}");
+    }
+    // Sent from this device: held at once.
+    let (_, d) =
+        h.ib.send_with(
+            &inbox::system_sender(),
+            &inbox::Address {
+                kind: "agent".into(),
+                value: KEY_A.into(),
+            },
+            "take it",
+            SendOptions {
+                reason: "offer".into(),
+                ref_: "task:work-card".into(),
+                notice: true,
+                ..SendOptions::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        (d.state.as_str(), d.hold.as_str()),
+        (st::HELD, hold::OFF_SIDE)
+    );
+}

@@ -296,6 +296,10 @@ export const TalkService = {
   Read: (convId: string, upTo: string) => done(commands.talkRead(convId, upTo)),
   LinkCard: (postId: string, taskId: string) =>
     done(commands.talkLinkCard(postId, taskId)),
+  // A thread about a channel's message (#454): it records the channel and
+  // its repo, and the channel gets the one-line pointer.
+  ThreadFrom: (convId: string, postId: string, text: string) =>
+    call(commands.talkThreadFrom(convId, postId, text)),
   // spaceId puts the channel in a space, where its members see it (#392).
   ChannelCreate: (
     name: string,
@@ -338,6 +342,9 @@ export const AgentsService = {
   Running: () => call(commands.agentsRunning()),
   TrustNeed: (taskId: string) => call(commands.agentsTrustNeed(taskId)),
   TrustAndStart: (taskId: string) => call(commands.agentsTrustAndStart(taskId)),
+  // Asks the device the agent starts on to trust it there (part 11);
+  // writes no trust. That device's name.
+  TrustRequest: (taskId: string) => call(commands.agentsTrustRequest(taskId)),
   Trusted: () => call(commands.agentsTrusted()),
   TrustRepo: (repoKey: string) => call(commands.agentsTrustRepo(repoKey)),
   Permissions: (boardId: string) => call(commands.agentsPermissions(boardId)),
@@ -399,6 +406,8 @@ export const DevicesService = {
     done(commands.devicesSetPersonAvatar(avatar)),
   RenameDevice: (deviceId: string, name: string) =>
     call(commands.devicesRenameDevice(deviceId, name)),
+  SideNames: () => call(commands.devicesSideNames()),
+  SetDeviceSides: (sides: string[]) => call(commands.devicesSetDeviceSides(sides)),
   AddDevice: (role: string) => call(commands.devicesAddDevice(role)),
   JoinWithCode: (code: string, server: string) =>
     call(commands.devicesJoinWithCode(code, server)),

@@ -1,5 +1,6 @@
 //! Attach and Logs on an agent Irori started (card #456, sa-2): only for a
-//! spawned agent, and only on the device it runs on.
+//! spawned agent, and only on the device it runs on. End works from any of
+//! the person's devices (part 11): elsewhere it asks the device it runs on.
 
 mod common;
 
@@ -18,6 +19,10 @@ fn attach_and_logs_refuse_an_agent_irori_didnt_start_or_another_devices() {
     ] {
         assert!(e.contains("device it runs on"), "{e}");
     }
+    // End isn't refused for the device: only because Irori didn't start it.
+    let e = w.agents_end(elsewhere).unwrap_err();
+    assert!(!e.contains("device it runs on"), "{e}");
+    assert!(e.contains("wasn't started by Irori"), "{e}");
 
     // A terminal agent here (the rig's alpha) wasn't started by Irori.
     for e in [

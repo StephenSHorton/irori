@@ -114,6 +114,12 @@ impl Inner {
         {
             return hold::PAUSED;
         }
+        // A pick across the work/personal line (card #495): checked again
+        // here, on the device that runs the recipient, whatever the sender
+        // decided.
+        if self.off_side.as_ref().is_some_and(|f| f(m, recipient)) {
+            return hold::OFF_SIDE;
+        }
         ""
     }
 

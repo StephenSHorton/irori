@@ -31,6 +31,7 @@ import {
   takeEvents,
   titleToSet,
   heldReminder,
+  sideReminder,
   applyPause,
   pausedFromBoard,
   pausedRefusal,
@@ -663,9 +664,10 @@ async function withHeld<R extends { additionalContext?: string[] }>($: EngineInt
     if (view.status !== 'attached' || !view.agentKey) return result
     const board = await callCore($, 'GET', '/v1/board?done=1')
     if (!board.ok) return result
-    const text = heldReminder(board.body as BoardLists, view.agentKey)
-    if (!text) return result
-    return { ...result, additionalContext: [...(result?.additionalContext ?? []), text] }
+    // Which side this device runs (card #496), then the cards it holds.
+    const texts = [sideReminder(board.body as BoardLists), heldReminder(board.body as BoardLists, view.agentKey)].filter(Boolean)
+    if (!texts.length) return result
+    return { ...result, additionalContext: [...(result?.additionalContext ?? []), ...texts] }
   } catch {
     return result
   }

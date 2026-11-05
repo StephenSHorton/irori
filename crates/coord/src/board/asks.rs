@@ -216,6 +216,9 @@ impl Fold {
         let mut s = self.stale.write().unwrap_or_else(|e| e.into_inner());
         s.stale.clear();
         s.closed.clear();
+        // A refold rebuilds both (card #495).
+        s.sides.clear();
+        s.runs = crate::sides::Sides::new();
     }
 
     /// Sets up t's ask from its task.created row: only the person's row
@@ -256,6 +259,11 @@ impl Fold {
                 String::new()
             } else {
                 a.board.clone()
+            },
+            channel: if self.on_board || !a.thread {
+                String::new()
+            } else {
+                clean_channel(&a.channel)
             },
             ..Ask::default()
         });
@@ -803,7 +811,10 @@ impl Fold {
         // A device with no agents of its own (the phone) leaves the ask to
         // one of the person's computers (card #408): its roster may be
         // hours old when it posts, and it sleeps right after.
-        let owner = self.ask_owner(agents);
+        // The side of the device it's typed on (card #494); its owner is a
+        // device that runs that side (card #495).
+        let side = self.new_side("", "");
+        let owner = self.ask_owner(agents, &side);
         let delegated = owner != self.dev;
         self.write(
             &by,
@@ -830,7 +841,13 @@ impl Fold {
                         input.board.trim().to_string()
                     },
                     owner: if delegated { owner } else { String::new() },
+                    channel: if self.on_board || !input.thread {
+                        String::new()
+                    } else {
+                        clean_channel(&input.channel)
+                    },
                 }),
+                side,
                 by: by.clone(),
                 at,
                 ..TaskCreatedRow::default()
@@ -1008,8 +1025,9 @@ impl Fold {
     /// The device that hands out an ask posted here (card #408): this one
     /// when it runs agents; otherwise another of the person's devices that
     /// does, connected first, then the one with the most agents. With none
-    /// known, this one, as before.
-    fn ask_owner(&self, roster: &[AgentCard]) -> String {
+    /// known, this one, as before. Only a device that runs the ask's
+    /// `side` (card #495): with none, this one, and the ask waits.
+    fn ask_owner(&self, roster: &[AgentCard], side: &str) -> String {
         let dev_of = |a: &AgentCard| cmp_or_dev(&a.device_id, owner::device_of(&a.key)).to_string();
         // A spawned agent runs only its own card (card #446), and a
         // terminal agent takes asks only with "Offer it cards" on (card
@@ -1017,6 +1035,7 @@ impl Fold {
         let roster: Vec<&AgentCard> = roster
             .iter()
             .filter(|a| self.takes_handout(&a.key))
+            .filter(|a| self.sides.runs(&dev_of(a), side))
             .collect();
         if roster.iter().any(|a| dev_of(a) == self.dev) {
             return self.dev.clone();
@@ -1108,6 +1127,10 @@ impl Fold {
                 && !ask.repo_key.is_empty()
                 && !ledger::same_repo_key(&a.repo_key, &ask.repo_key)
             {
+                continue;
+            }
+            // Only an agent on a device that runs the ask's side (card #495).
+            if !self.sides.runs(dev, &t.side) {
                 continue;
             }
             if skip.contains(&a.key) || out.contains(&a.key) {
@@ -1544,6 +1567,12 @@ impl Fold {
         by: &str,
         id: &str,
     ) -> Result<std::result::Result<ClaimResult, usize>> {
+        // An ask on a side this agent's device doesn't run is taken only
+        // when Irori hands it over or the person asks (card #496).
+        let t0 = self.open_task(id)?.clone();
+        if !t0.open_ask().is_some_and(|a| a.taker == by && a.handed) {
+            self.check_side_take(by, &t0)?;
+        }
         let t = self.open_task(id)?;
         let Some(a) = t.open_ask() else {
             return Err(bad_state(format!("{} isn't an open ask", t.short_ref())));
@@ -1692,6 +1721,11 @@ impl Fold {
             }
             let pid = self.task_ref_locked(&o.parent)?;
             self.check_parent(&pid, "")?;
+            // The card it becomes runs on its parent's side: an agent puts
+            // it there only on a side it may take (card #496).
+            if !person && let Some(pt) = self.tasks.get(&pid).cloned() {
+                self.check_side_take(&by, &pt)?;
+            }
             parent = pid;
         }
         let opt = |s: &str| (!s.is_empty()).then(|| s.to_string());
@@ -1726,12 +1760,23 @@ impl Fold {
                     )?;
                 }
                 let taker = a.taker.clone();
+                // A thread's agent answers; a card made from the thread is a
+                // new card with its own agent (§4, card #454): one still
+                // holding the thread lets go first, and goes like any
+                // agent whose thread closed.
+                if a.thread && !taker.is_empty() && a.owner == self.dev {
+                    self.write_thread_answered(id, &a)?;
+                }
+                // Nobody holds it (a thread, or an ask nobody took): it goes
+                // out as a new card, so it gets its own agent instead of
+                // sitting in working with no one on it.
+                let held = !a.thread && !taker.is_empty() && !self.is_owner(&taker);
                 self.write(
                     &by,
                     kinds::TASK_STATUS,
                     &TaskStateRow {
                         task_id: id.into(),
-                        state: WORKING.into(),
+                        state: if held { WORKING } else { SUBMITTED }.into(),
                         note: note.clone(),
                         by: by.clone(),
                         at: now,
@@ -1743,7 +1788,7 @@ impl Fold {
                         ..TaskStateRow::default()
                     },
                 )?;
-                if !taker.is_empty() && !self.is_owner(&taker) && by == taker {
+                if held && by == taker {
                     self.write(
                         &by,
                         kinds::TASK_CLAIMED,
@@ -1983,5 +2028,15 @@ fn set_or_cleared(field: &str, to: &str) -> String {
         format!("cleared {field}")
     } else {
         format!("set {field} to “{}”", cut(to, MAX_LOG_QUOTE))
+    }
+}
+
+/// A thread's Talk channel (card #454): a `ch_` id, else nothing.
+fn clean_channel(c: &str) -> String {
+    let c = c.trim();
+    if crate::talk::is_channel(c) && c.len() <= 64 && !c.contains(char::is_whitespace) {
+        c.to_string()
+    } else {
+        String::new()
     }
 }

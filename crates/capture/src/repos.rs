@@ -46,6 +46,7 @@ impl Inner {
         self.load_cursors(rs);
         rs.repo_deadline = Instant::now() + self.opts.repo_budget;
         self.note_live_roots(cancel);
+        self.note_roots_also_here(rs);
         let mut roots: Vec<RepoSeen> = self.read().repo_roots.values().cloned().collect();
         roots.sort_by(|a, b| a.root.cmp(&b.root));
         for r in &roots {
@@ -59,6 +60,37 @@ impl Inner {
         }
         self.save_cursors(rs);
         self.link_unlinked();
+    }
+
+    /// Notes, as this device's own, a root a linked device has seen when
+    /// a checkout sits at the same path here (card #493). Before #493 the
+    /// fold counted every device's `repo.seen` as this device's, and
+    /// `note_root` wrote no row for a path a peer had already logged, so a
+    /// device may hold no row of its own for a checkout it really has.
+    /// `note_root` resolves the key here and writes this device's row; a
+    /// path that is no repo here stays a peer's. Each path once per start.
+    pub(crate) fn note_roots_also_here(&self, rs: &mut RunState) {
+        let todo: Vec<String> = {
+            let f = self.read();
+            let mut v: Vec<String> = f
+                .roots_elsewhere
+                .values()
+                .flat_map(|rows| rows.iter())
+                .filter(|(n, _)| !f.repo_roots.contains_key(*n))
+                .map(|(_, r)| r.root.clone())
+                .collect();
+            v.sort();
+            v.dedup();
+            v
+        };
+        for root in todo {
+            if !rs.elsewhere_checked.insert(norm_root(&root)) {
+                continue;
+            }
+            if crate::roots::dir_exists(&root) {
+                self.note_root(&root);
+            }
+        }
     }
 
     /// Notes the worktree roots live agents work in.

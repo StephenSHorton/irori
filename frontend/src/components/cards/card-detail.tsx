@@ -85,6 +85,7 @@ import {
   OwnerChip,
   PrChip,
   ScopeBadge,
+  SideBadge,
   ShortRef,
   Spinner,
   StatePill,
@@ -843,6 +844,7 @@ function PageHeader({
         <StatePill card={card} />
         {spinning && <Spinner />}
         <ScopeBadge card={card} />
+        <SideBadge card={card} />
         <OwnerChip card={card} />
         <PrChip card={card} />
         {card.repoKey && (

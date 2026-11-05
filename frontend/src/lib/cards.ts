@@ -513,7 +513,7 @@ export const threads = {
     sampleThreadAgentsNow.set(id, agentsNow ?? agentsNowDefault(mentions))
     sampleChanged()
     return TaskResult({
-      task: { id } as TaskResult["task"],
+      task: { id, short: String(top + 1) } as TaskResult["task"],
       told: Told({ to: [], mode: "wake" }),
     })
   },

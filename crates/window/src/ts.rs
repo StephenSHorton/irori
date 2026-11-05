@@ -98,6 +98,9 @@ pub struct AgentCard {
     pub offers_cards: bool,
     /// Irori started it for a card.
     pub spawned: bool,
+    /// It runs on this device, so its "Offer it cards" is set here (card
+    /// #492): another device's agent shows its switch read-only.
+    pub here: bool,
 }
 
 /// presence.ChangeKind.
@@ -553,6 +556,12 @@ pub struct Task {
     pub short_was: String,
     #[specta(optional)]
     pub tag: String,
+    /// The work/personal side (card #494).
+    #[specta(optional)]
+    pub side: String,
+    /// Why it waits on its side (card #495).
+    #[specta(optional)]
+    pub side_wait: String,
     #[specta(optional)]
     pub withdrawn: bool,
     pub title: String,

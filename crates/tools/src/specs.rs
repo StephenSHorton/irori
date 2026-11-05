@@ -66,6 +66,7 @@ pub const BOARD_INSTRUCTIONS: &str = concat!(
     "When what is left is the person's choice or action, raise a board_block for it instead of setting completed. ",
     "Post new work unheld and let Irori hand it out, one free agent at a time; ",
     "don't pick someone off the roster, and hold one card in progress at a time (board_join refuses a second). ",
+    "Take only cards on a side your device runs. ",
     "board_assign only when one agent is clearly right: the person chose it, or it built the piece being changed. ",
     "If Irori hands you a card, board_join it and start, or board_leave it so it goes on. ",
     "Anything the person posts or asks for is work to start now, never backlog. ",

@@ -7,6 +7,7 @@ mod common;
 
 use std::time::Duration;
 
+use common::pair::{dev, free_udp, paired};
 use common::{Rig, wait_for};
 use coord::ErrorKind as CK;
 use irori_core::{BoardError, Core, SPACES_DIR as BOARDS_DIR, valid_board_id};
@@ -1007,111 +1008,6 @@ fn task_ref_across_logs() {
 
 // ---- two devices of one person (Go pairedCores, newHCore) ----------------------
 
-/// One device of the pair: its Core and its one live session.
-struct Dev {
-    core: Core,
-    agent: String,
-    data: std::path::PathBuf,
-    _dirs: Vec<tempfile::TempDir>,
-}
-
-impl Dev {
-    fn user(&self) -> String {
-        self.core.user_sender().key
-    }
-}
-
-fn free_udp() -> std::net::SocketAddr {
-    std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-        .unwrap()
-        .local_addr()
-        .unwrap()
-}
-
-/// A Core with one live session `name`/`sess`, whose mesh runs on loopback
-/// iroh with a LAN lookup unicast to `to` (as tests/pair.rs).
-fn dev(
-    data: tempfile::TempDir,
-    name: &str,
-    sess: &str,
-    lan: std::net::SocketAddr,
-    to: std::net::SocketAddr,
-) -> Dev {
-    let (cl, w) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let sessions = cl.path().join("sessions");
-    std::fs::create_dir_all(&sessions).unwrap();
-    common::write_session(&sessions, "900001.json", sess, name, w.path());
-    let mut o = common::options(data.path(), cl.path());
-    o.pair_net = Some(std::sync::Arc::new(move |ident, chain, guests| {
-        let mut nc = irori_core::devices::default_net_config(ident, chain, guests);
-        nc.ip = irori_net::endpoint::IpMode::Loopback;
-        let lc = nc.lan_config.as_mut().expect("a LAN lookup");
-        lc.bind = Some(lan);
-        lc.targets = Some(std::sync::Arc::new(move || vec![to]));
-        lc.every = Duration::from_millis(200);
-        irori_net::transport::IrohNet::new(nc)
-    }));
-    let core = Core::start(o).unwrap();
-    let agent = format!("{}/{sess}", core.device_id());
-    wait_for(10, "presence lists the session", || {
-        core.local_agents().iter().any(|a| a.key == agent)
-    });
-    Dev {
-        core,
-        agent,
-        data: data.path().to_path_buf(),
-        _dirs: vec![data, cl, w],
-    }
-}
-
-/// Two Cores of one person, B certified by A as pairing does, waiting
-/// until each owns the other's user key.
-fn paired() -> (Dev, Dev) {
-    let (la, lb) = (free_udp(), free_udp());
-    let (da, db) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let a = dev(da, "alpha", "aaaaaaaa-1111-4111-8111-00000000000a", la, lb);
-    std::fs::copy(
-        a.data.join(irori_identity::PERSON_FILE),
-        db.path().join(irori_identity::PERSON_FILE),
-    )
-    .unwrap();
-    let b = dev(db, "beta", "bbbbbbbb-2222-4222-8222-00000000000b", lb, la);
-    let add = a
-        .core
-        .identity()
-        .cert_for(
-            b.core.device_id(),
-            &hex::encode(b.core.identity().device_pub()),
-            "mac",
-            irori_identity::ROLE_DESKTOP,
-            presence::now_local(),
-        )
-        .unwrap();
-    a.core
-        .store()
-        .append("irori", kinds::PERSON_DEVICE_ADDED, &add)
-        .unwrap();
-    let person = a
-        .core
-        .store()
-        .list(&Filter {
-            kinds: vec!["person.".into()],
-            ..Default::default()
-        })
-        .unwrap();
-    for _ in 0..2 {
-        for ev in &person {
-            let _ = b.core.chain().learn(ev.into());
-        }
-    }
-    b.core.mesh().kick();
-    wait_for(45, "a and b pair", || {
-        a.core.is_owner(&format!("user:{}", b.core.device_id()))
-            && b.core.is_owner(&format!("user:{}", a.core.device_id()))
-    });
-    (a, b)
-}
-
 /// Boards stage 2 (card #44 step 5, boards2-transport.md §4): a board's
 /// secret reaches the person's other devices on the private mesh as
 /// `board.secret`, sealed under the mesh key. A board A makes opens on B
@@ -1872,9 +1768,24 @@ fn a_board_card_reaches_an_idle_agent_not_on_the_board() {
         sender: inbox::Sender::new(key, "alpha", "claude"),
         path: String::new(),
     };
+    let on_board = |k: &str| {
+        c.board_roster(&b1)
+            .iter()
+            .any(|a| c.private_key(&a.key) == k)
+    };
     // alpha posts it, so alpha is on the board and never gets its own card;
     // beta has never touched the board. Beta takes offered cards (#453).
     c.set_agent_offer(&r.key_b, true).unwrap();
+    // Card #504: check beta is off the board before the card exists, not
+    // after. The hand-out is the Core's own and runs on its threads: the
+    // asks kick set_agent_offer just sent, a roster change, or the coord
+    // sweep's tick can put beta on and hand it wind#1 any moment after
+    // board_create, so a check there raced them under load. With no card
+    // on the board nothing puts beta on it.
+    assert!(
+        !on_board(&r.key_b),
+        "beta is on the board before any hand-out"
+    );
     let out = c
         .tools()
         .call(
@@ -1885,15 +1796,6 @@ fn a_board_card_reaches_an_idle_agent_not_on_the_board() {
         )
         .unwrap();
     assert!(out.contains("Created wind#1"), "{out}");
-    let on_board = |k: &str| {
-        c.board_roster(&b1)
-            .iter()
-            .any(|a| c.private_key(&a.key) == k)
-    };
-    assert!(
-        !on_board(&r.key_b),
-        "beta is on the board before any hand-out"
-    );
     wait_for(10, "beta is handed wind#1", || {
         c.sweep_coord().ok();
         r.notices_to(&r.key_b).iter().any(|d| {

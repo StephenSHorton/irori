@@ -167,6 +167,8 @@ impl Fold {
                 "{test} passes on clean main (a fresh worktree of origin/main), the fix is on main, and check.sh is green."
             ),
             repo_key: src.repo_key.clone(),
+            // It runs on the reporting card's side (card #494).
+            side: src.side.clone(),
             scope: vec![scope],
             ..CleanTask::default()
         };
