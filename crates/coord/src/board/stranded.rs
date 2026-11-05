@@ -156,6 +156,10 @@ impl Fold {
     }
 
     pub(crate) fn gone_waits(&self, t: &Task) -> Vec<Stranded> {
+        // A held or finished card has none: skip the roster for it.
+        if is_terminal(&t.state) || !t.holders.is_empty() || !t.co_holders.is_empty() {
+            return Vec::new();
+        }
         self.gone_waits_in(t, &self.roster_status())
     }
 
@@ -190,6 +194,23 @@ impl Fold {
         Ok(())
     }
 
+    /// Why "Hand to an agent" can't move card `t` (what back_on_board
+    /// would refuse), said before anything is written; "" when it can.
+    /// Home's Needs you row (card #520) says it instead of offering it.
+    pub(crate) fn hand_on_refusal(&self, t: &Task) -> &'static str {
+        if t.shared || self.on_board {
+            "a card on a shared board isn't handed out; take it with an agent of yours (board_join)"
+        } else if t.open_ask().is_some() {
+            "it has an open ask"
+        } else if !t.subtasks.is_empty() {
+            "it has subtasks; hand those on instead"
+        } else if t.state == SUBMITTED || t.state == WORKING {
+            "it is already on the Board"
+        } else {
+            ""
+        }
+    }
+
     /// "Hand to an agent" (card #485): the person moves a card whose items
     /// wait on gone agents back on the Board, so Irori starts an agent for
     /// it (or hands it to a free one). Its open items close as it goes, as
@@ -213,18 +234,7 @@ impl Fold {
                 t.short_ref()
             )));
         }
-        // What back_on_board would refuse, said before anything is written.
-        let why = if t.shared || self.on_board {
-            "a card on a shared board isn't handed out; take it with an agent of yours (board_join)"
-        } else if t.open_ask().is_some() {
-            "it has an open ask"
-        } else if !t.subtasks.is_empty() {
-            "it has subtasks; hand those on instead"
-        } else if t.state == SUBMITTED || t.state == WORKING {
-            "it is already on the Board"
-        } else {
-            ""
-        };
+        let why = self.hand_on_refusal(&t);
         if !why.is_empty() {
             return Err(bad_state(format!("{}: {why}", t.short_ref())));
         }

@@ -1342,6 +1342,15 @@ impl Coord {
         let f = self.lock();
         f.tasks.get(id).map(|t| f.gone_waits(t)).unwrap_or_default()
     }
+    /// Why "Hand to an agent" can't move card `id` (a shared board's card,
+    /// an open ask, subtasks, already on the Board); "" when it can.
+    pub fn hand_on_refusal(&self, id: &str) -> String {
+        let f = self.lock();
+        f.tasks
+            .get(id)
+            .map(|t| f.hand_on_refusal(t).to_string())
+            .unwrap_or_default()
+    }
     /// "Hand to an agent" (card #485): the person puts a card whose items
     /// wait on gone agents back on the Board, taking those agents off it.
     /// Returns the card as it was and those items.

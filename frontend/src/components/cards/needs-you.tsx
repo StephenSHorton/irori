@@ -410,21 +410,28 @@ function GoneNeed({
         Nobody holds the card, so nothing will move it
         {g.more ? ` (${g.more} more like it)` : ""}.
       </p>
+      {g.noHandOn && (
+        <p className="text-[12.5px] text-muted-foreground">
+          It can't be handed to an agent from here: {plainLine(g.noHandOn)}.
+        </p>
+      )}
       <span className="flex flex-wrap gap-1.5">
-        <ConfirmDialog
-          question={`Hand ${ref} to a new agent? ${name} is gone. Its open items close and are said on the card, and Irori starts an agent for it, or the next free agent takes it.`}
-          confirmLabel="Hand to an agent"
-          variant="default"
-          open={asking}
-          onOpenChange={setAsking}
-          onConfirm={() => run(() => cardsApi.handOn(c.id), (r) => r)}
-          onError={() => {}}
-          trigger={
-            <Button size="sm" onClick={() => setAsking(true)}>
-              Hand to an agent
-            </Button>
-          }
-        />
+        {!g.noHandOn && (
+          <ConfirmDialog
+            question={`Hand ${ref} to a new agent? ${name} is gone. Its open items close and are said on the card, and Irori starts an agent for it, or the next free agent takes it.`}
+            confirmLabel="Hand to an agent"
+            variant="default"
+            open={asking}
+            onOpenChange={setAsking}
+            onConfirm={() => run(() => cardsApi.handOn(c.id), (r) => r)}
+            onError={() => {}}
+            trigger={
+              <Button size="sm" onClick={() => setAsking(true)}>
+                Hand to an agent
+              </Button>
+            }
+          />
+        )}
         <Button size="sm" variant="outline" onClick={() => onOpen(c.id)}>
           Open {ref}
         </Button>

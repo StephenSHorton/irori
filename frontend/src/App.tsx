@@ -463,7 +463,10 @@ export function App() {
   // its decisions show on Home as one line per board.
   const boardDecide = spaceCards.filter(
     // Card #509: a wait on a PR's merge is theirs too, as the tray counts it.
-    (c) => c.scope === "board" && (c.openBlockers > 0 || !!c.mergePr)
+    // Card #520: and a wait no agent will end.
+    (c) =>
+      c.scope === "board" &&
+      (c.openBlockers > 0 || !!c.mergePr || !!c.goneWait)
   )
   // Needs you leads Home (card #261): its cards and held messages. An
   // agent's message to you is a DM in Talk (card #390). Held ones are

@@ -1703,6 +1703,7 @@ fn a_wait_on_a_gone_agent_is_the_persons() {
     assert_eq!(g.on, "");
     assert_eq!(g.question, "Waiting on kestrel's no-daemon GUI spawn");
     assert_eq!(g.more, 0);
+    assert_eq!(g.no_hand_on, "", "Hand to an agent can move it");
     assert_eq!(r.w.decide_count(), 1);
 
     let t75 = wait(

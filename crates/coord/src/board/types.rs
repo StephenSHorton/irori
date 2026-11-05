@@ -873,6 +873,9 @@ pub struct Card {
     /// Open items whose agent is gone, on a card nobody holds (card #485).
     /// Not part of the Go shape: the tools and the window read it.
     pub stranded: Vec<super::stranded::Stranded>,
+    /// Of those, the waits only Needs you shows (card #520): on a gone
+    /// agent, or outside waits (not a PR's merge) a gone agent raised.
+    pub gone_waits: Vec<super::stranded::Stranded>,
 }
 
 impl Serialize for Card {

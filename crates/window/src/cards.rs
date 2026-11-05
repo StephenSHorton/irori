@@ -418,6 +418,11 @@ pub struct GoneWait {
     #[serde(skip_serializing_if = "is_zero")]
     #[specta(optional)]
     pub more: i64,
+    /// Why Hand to an agent can't move the card (a shared board's card,
+    /// an open ask, subtasks): the row says it and offers only Open.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub no_hand_on: String,
 }
 
 /// The open PR an in-review card waits on (card #471).
@@ -2962,6 +2967,7 @@ fn gone_wait(co: &coord::Coord, p: &People, t: &Task) -> Option<GoneWait> {
         },
         question: b.question.clone(),
         more: (gw.len() - 1) as i64,
+        no_hand_on: co.hand_on_refusal(&t.id),
     })
 }
 

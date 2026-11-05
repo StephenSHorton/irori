@@ -199,3 +199,34 @@ fn handing_it_on_or_stopping_the_card_takes_it_out() {
     assert!(e.c.gone_waits(&u.id).is_empty());
     assert!(!lane(&e, USER, &u.id).0, "stopped");
 }
+
+#[test]
+fn a_card_hand_on_would_refuse_says_why_and_still_counts() {
+    let e = Env::new();
+    let t = card(&e, ALICE);
+    wait(&e, &t.id, "Waiting on bob", BLOCKED_ON_AGENT, BOB);
+    e.c.leave(ALICE, &t.id, ALICE).unwrap();
+    e.ros.set(BOB, "gone");
+    assert_eq!(e.c.hand_on_refusal(&t.id), "");
+    // A subtask under it: Hand to an agent would refuse, so Home says why.
+    e.c.create_task(
+        USER,
+        NewTask {
+            title: "a part".into(),
+            parent: t.id.clone(),
+            ..NewTask::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        e.c.hand_on_refusal(&t.id),
+        "it has subtasks; hand those on instead"
+    );
+    assert!(e.c.hand_on(USER, &t.id).is_err());
+    // It still needs the person (Open, then Stop waiting or stop the card).
+    assert!(lane(&e, USER, &t.id).0);
+    // The board view carries the gone waits for the notifier.
+    let v = e.c.board(&BoardFilter::default());
+    let c = v.needs_you.iter().find(|c| c.task.id == t.id).unwrap();
+    assert_eq!(c.gone_waits.len(), 1);
+}

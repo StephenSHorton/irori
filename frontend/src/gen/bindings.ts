@@ -1489,6 +1489,11 @@ export type GoneWait = {
 	question: string,
 	/**  More such items on the card, beyond this one. */
 	more?: number,
+	/**
+	 *  Why Hand to an agent can't move the card (a shared board's card,
+	 *  an open ask, subtasks): the row says it and offers only Open.
+	 */
+	noHandOn?: string,
 };
 
 /**  inbox.HoldReason. */
