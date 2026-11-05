@@ -146,12 +146,12 @@ fn failed() -> PrCheck {
     }
 }
 
-/// Card #542: a device that can't ask GitHub says nothing about a PR whose
-/// state is known, so no row is written and the two sides can't keep
+/// Card #542: a device that can't ask GitHub says nothing about a PR known
+/// merged or closed, so no row is written and the two sides can't keep
 /// rewriting each other.
 #[test]
-fn an_error_over_a_known_state_writes_nothing() {
-    for state in [PR_OPEN, PR_MERGED, PR_CLOSED] {
+fn an_error_over_a_settled_state_writes_nothing() {
+    for state in [PR_MERGED, PR_CLOSED] {
         let e = Env::new();
         let t = held_with_pr(&e);
         e.c.record_pr_state(&t.id, check(state, "APPROVED"))
@@ -170,6 +170,124 @@ fn an_error_over_a_known_state_writes_nothing() {
             .unwrap();
         assert_eq!(e.rows("pr.").len(), rows, "{state}");
     }
+}
+
+/// Card #548: gh breaking on a PR known open keeps OPEN and shows why,
+/// once. Completed stays refused, as one failed gh mustn't let open work
+/// through, and the refusal says what is wrong. A good answer clears it.
+#[test]
+fn gh_failing_on_an_open_pr_keeps_it_open_and_says_why() {
+    let e = Env::new();
+    let t = held_with_pr(&e);
+    e.c.record_pr_state(&t.id, check(PR_OPEN, "APPROVED"))
+        .unwrap();
+    let rows = e.rows("pr.").len();
+
+    e.clk.add(secs(60));
+    let (_, ns) = e.c.record_pr_state(&t.id, failed()).unwrap();
+    assert!(ns.is_empty(), "a failure tells nobody");
+    let st = e.c.pr_state(&t.id, PR).unwrap();
+    assert_eq!(
+        (st.state.as_str(), st.review.as_str(), st.error.as_str()),
+        (PR_OPEN, "APPROVED", "gh is not installed")
+    );
+    assert_eq!(e.rows("pr.").len(), rows + 1);
+
+    // Said once.
+    e.clk.add(secs(60));
+    e.c.record_pr_state(&t.id, failed()).unwrap();
+    assert_eq!(e.rows("pr.").len(), rows + 1);
+
+    let err =
+        e.c.set_task_state(ALICE, &t.id, COMPLETED, "done")
+            .unwrap_err();
+    assert!(
+        err.to_string().contains("gh is not installed") && err.to_string().contains(PR),
+        "{err}"
+    );
+    let shown = search::Source::search_show(&e.c, &format!("task:{}", t.id), &search::ShowOptions::default())
+        .unwrap()
+        .text;
+    assert!(
+        shown.contains("GitHub: open, approved; not asked since: gh is not installed"),
+        "{shown}"
+    );
+
+    // gh works again: the error goes, and a merge is heard as a merge.
+    e.clk.add(secs(60));
+    e.c.record_pr_state(&t.id, check(PR_OPEN, "APPROVED"))
+        .unwrap();
+    assert!(e.c.pr_state(&t.id, PR).unwrap().error.is_empty());
+    e.clk.add(secs(60));
+    e.c.record_pr_state(&t.id, failed()).unwrap();
+    e.clk.add(secs(60));
+    let (_, ns) = e.c.record_pr_state(&t.id, check(PR_MERGED, "")).unwrap();
+    assert_eq!(ns.len(), 1);
+    assert!(ns[0].text.contains("was merged"), "{}", ns[0].text);
+    assert!(e.c.pr_state(&t.id, PR).unwrap().error.is_empty());
+}
+
+/// Card #548: GitHub reopens a closed PR. The holder hears it without a
+/// wake, completed is refused again, and the merge is told as ever.
+#[test]
+fn a_reopened_pr_is_open_again_and_the_holder_hears() {
+    let e = Env::new();
+    let t = held_with_pr(&e);
+    e.c.record_pr_state(&t.id, check(PR_OPEN, "")).unwrap();
+    e.clk.add(secs(60));
+    let (_, ns) = e.c.record_pr_state(&t.id, check(PR_CLOSED, "")).unwrap();
+    assert_eq!(ns.len(), 1);
+
+    // Still closed, a review changing on it says nothing.
+    e.clk.add(secs(60));
+    let (_, ns) =
+        e.c.record_pr_state(&t.id, check(PR_CLOSED, PR_CHANGES_REQUESTED))
+            .unwrap();
+    assert!(ns.is_empty(), "{ns:?}");
+
+    e.clk.add(secs(60));
+    let (_, ns) = e.c.record_pr_state(&t.id, check(PR_OPEN, "")).unwrap();
+    assert_eq!(ns.len(), 1);
+    assert!(ns[0].text.contains("was reopened"), "{}", ns[0].text);
+    assert!(!ns[0].wake);
+    assert!(
+        e.c.set_task_state(ALICE, &t.id, COMPLETED, "done").is_err(),
+        "open again"
+    );
+
+    e.clk.add(secs(60));
+    let (_, ns) = e.c.record_pr_state(&t.id, check(PR_MERGED, "")).unwrap();
+    assert_eq!(ns.len(), 1);
+    assert!(ns[0].wake);
+}
+
+/// Card #548: a merge wait on a closed PR leaves the person's merges but
+/// is still asked about, and comes back when GitHub reopens it.
+#[test]
+fn a_closed_merge_wait_is_still_polled_and_comes_back_on_a_reopen() {
+    let e = Env::new();
+    let t = held_with_pr(&e);
+    e.c.block(
+        ALICE,
+        &t.id,
+        "Review and merge PR #7",
+        Some(BlockedBy {
+            kind: BLOCKED_ON_EXTERNAL.into(),
+            reference: PR.into(),
+        }),
+    )
+    .unwrap();
+    e.c.record_pr_state(&t.id, check(PR_CLOSED, "")).unwrap();
+    assert!(e.c.merge_waits(&t.id).is_empty());
+    assert_eq!(e.c.polled_waits(&t.id), vec![PR.to_string()]);
+
+    e.clk.add(secs(60));
+    e.c.record_pr_state(&t.id, check(PR_OPEN, "")).unwrap();
+    assert_eq!(e.c.merge_waits(&t.id), vec![PR.to_string()]);
+
+    e.clk.add(secs(60));
+    e.c.record_pr_state(&t.id, check(PR_MERGED, "")).unwrap();
+    assert!(e.c.polled_waits(&t.id).is_empty(), "a merge is final");
 }
 
 #[test]

@@ -1160,6 +1160,223 @@ fn a_merge_heard_before_its_card_waits_for_it() {
     assert_eq!(c.c.pr_state(&t.id, PR).unwrap().state, PR_MERGED);
 }
 
+/// Card #548: rows come device by device, so a pr.state row can arrive
+/// where its card is known but the holder's row isn't yet. It is kept and
+/// folds when the holder's does; nothing would write a merged PR's row
+/// again.
+#[test]
+fn a_pr_row_ahead_of_its_holder_folds_when_the_holder_does() {
+    const PR: &str = "https://github.com/a/b/pull/7";
+    let (a, b, owners) = two_people();
+    let b2 = side_with("dev-b2", P2, &owners, false);
+    let far = side_with("dev-a2", P1, &owners, false);
+    pull(&a, &b2);
+    pull(&b, &b2);
+    pull(&a, &far);
+    pull(&b, &far);
+
+    let t = a.c.create_task(P1, nt("ship it", "")).unwrap();
+    pull(&a, &far);
+    pull(&a, &b);
+    b.c.claim_task(CARD2, &t.id).unwrap();
+    b.c.add_link(CARD2, &t.id, PR).unwrap();
+    pull(&a, &b2);
+    pull(&b, &b2);
+    b2.clk.add(Duration::from_secs(60));
+    b2.c.record_pr_state(
+        &t.id,
+        PrCheck {
+            pr: PR.into(),
+            state: PR_MERGED.into(),
+            ..PrCheck::default()
+        },
+    )
+    .unwrap();
+
+    // dev-b2's row first: `far` knows the card, not that p2's agent holds it.
+    let ahead: Vec<_> =
+        b2.st
+            .missing(&far.st.vector().unwrap(), 1000)
+            .unwrap()
+            .into_iter()
+            .filter(|r| r.device_id == "dev-b2")
+            .collect();
+    assert!(ahead.iter().any(|r| r.kind == kinds::PR_STATE));
+    let (_, r) = far.st.insert_batch(&ahead);
+    r.unwrap();
+    far.c.fold_live(&ahead);
+    assert!(far.c.get_task(&t.id).is_some());
+    assert!(far.c.pr_state(&t.id, PR).is_none());
+
+    pull(&b, &far);
+    assert_eq!(far.c.pr_state(&t.id, PR).unwrap().state, PR_MERGED);
+}
+
+/// Card #548: the same for a wait, raised on one device of the person and
+/// polled from another, and a row that never earns its place stays out.
+#[test]
+fn a_pr_row_ahead_of_its_wait_folds_when_the_wait_does() {
+    const PR: &str = "https://github.com/a/b/pull/41";
+    let (a, b, owners) = two_people();
+    let b2 = side_with("dev-b2", P2, &owners, false);
+    pull(&a, &b2);
+    pull(&b, &b2);
+
+    let t = a.c.create_task(P1, nt("part 10", "")).unwrap();
+    sync(&a, &b);
+    pull(&a, &b2);
+    b.c.claim_task(CARD2, &t.id).unwrap();
+    b.c.block(
+        CARD2,
+        &t.id,
+        "Review and merge PR #41",
+        Some(BlockedBy {
+            kind: BLOCKED_ON_EXTERNAL.into(),
+            reference: PR.into(),
+        }),
+    )
+    .unwrap();
+    b.c.leave(CARD2, &t.id, CARD2).unwrap();
+    pull(&b, &b2);
+    b2.clk.add(Duration::from_secs(60));
+    let merged = PrCheck {
+        pr: PR.into(),
+        state: PR_MERGED.into(),
+        ..PrCheck::default()
+    };
+    b2.c.record_pr_state(&t.id, merged.clone()).unwrap();
+
+    let ahead: Vec<_> =
+        b2.st
+            .missing(&a.st.vector().unwrap(), 1000)
+            .unwrap()
+            .into_iter()
+            .filter(|r| r.device_id == "dev-b2")
+            .collect();
+    let (_, r) = a.st.insert_batch(&ahead);
+    r.unwrap();
+    a.c.fold_live(&ahead);
+    assert!(a.c.pr_state(&t.id, PR).is_none());
+    pull(&b, &a);
+    assert_eq!(a.c.pr_state(&t.id, PR).unwrap().state, PR_MERGED);
+}
+
+/// Card #548: what each device owes its own agents, as the fold has it:
+/// the same on every device whatever order two writers' rows came in,
+/// naming both, and one mark for a merge however many heard it.
+#[test]
+fn pr_news_names_every_writer_and_one_mark_per_change() {
+    const PR: &str = "https://github.com/a/b/pull/7";
+    let (a, b, owners) = two_people();
+    let b2 = side_with("dev-b2", P2, &owners, false);
+    let a2 = side_with("dev-a2", P1, &owners, false);
+    for s in [&b2, &a2] {
+        pull(&a, s);
+        pull(&b, s);
+    }
+    let t = a.c.create_task(P1, nt("ship it", "")).unwrap();
+    pull(&a, &b);
+    b.c.claim_task(CARD2, &t.id).unwrap();
+    b.c.add_link(CARD2, &t.id, PR).unwrap();
+    for s in [&a, &b2, &a2] {
+        pull(&a, s);
+        pull(&b, s);
+    }
+    let heard = |state: &str, review: &str| PrCheck {
+        pr: PR.into(),
+        state: state.into(),
+        review: review.into(),
+        ..PrCheck::default()
+    };
+
+    // An open PR is nobody's news.
+    b.clk.add(Duration::from_secs(60));
+    b.c.record_pr_state(&t.id, heard(PR_OPEN, "")).unwrap();
+    pull(&b, &a);
+    assert!(a.c.pr_news().is_empty());
+
+    // Both of p2's devices hear the merge before either's row crosses,
+    // with different reviews, and the two sides take them in either order.
+    pull(&b, &b2);
+    b.clk.add(Duration::from_secs(60));
+    b2.clk.add(Duration::from_secs(90));
+    b.c.record_pr_state(&t.id, heard(PR_MERGED, "APPROVED"))
+        .unwrap();
+    b2.c.record_pr_state(&t.id, heard(PR_MERGED, "")).unwrap();
+    pull(&b, &a);
+    pull(&b2, &a);
+    pull(&b2, &a2);
+    pull(&b, &a2);
+    let (n1, n2) = (a.c.pr_news(), a2.c.pr_news());
+    assert_eq!((n1.len(), n2.len()), (1, 1));
+    assert_eq!(n1[0].mark, n2[0].mark);
+    let mut w: Vec<_> = n1[0].writers.clone();
+    w.sort();
+    assert_eq!(w, vec!["dev-b", "dev-b2"]);
+    let mut w: Vec<_> = n2[0].writers.clone();
+    w.sort();
+    assert_eq!(w, vec!["dev-b", "dev-b2"]);
+    assert_eq!(n1[0].notice.to, vec![CARD2.to_string()]);
+    assert!(n1[0].notice.wake);
+    assert!(n1[0].notice.text.contains("was merged"));
+
+    // A card done is nobody's news either.
+    a.c.set_task_state(P1, &t.id, COMPLETED, "done").unwrap();
+    assert!(a.c.pr_news().is_empty());
+}
+
+/// Card #548: a closed PR can come round again, so each closing and the
+/// reopen between them are news of their own; a device's error on the
+/// same state isn't, and doesn't count as hearing it.
+#[test]
+fn pr_news_tells_each_closing_and_a_reopen_apart() {
+    const PR: &str = "https://github.com/a/b/pull/7";
+    let (a, b, _) = two_people();
+    let t = a.c.create_task(P1, nt("ship it", "")).unwrap();
+    sync(&a, &b);
+    b.c.claim_task(CARD2, &t.id).unwrap();
+    b.c.add_link(CARD2, &t.id, PR).unwrap();
+    sync(&a, &b);
+    let heard = |state: &str| PrCheck {
+        pr: PR.into(),
+        state: state.into(),
+        ..PrCheck::default()
+    };
+    let step = |state: &str| {
+        b.clk.add(Duration::from_secs(60));
+        b.c.record_pr_state(&t.id, heard(state)).unwrap();
+        sync(&a, &b);
+        a.c.pr_news()
+    };
+    let first = step(PR_CLOSED);
+    assert_eq!(first.len(), 1);
+    assert!(first[0].notice.text.contains("closed without merging"));
+    let reopened = step(PR_OPEN);
+    assert_eq!(reopened.len(), 1);
+    assert!(reopened[0].notice.text.contains("was reopened"));
+    assert!(!reopened[0].notice.wake);
+    assert_ne!(first[0].mark, reopened[0].mark);
+
+    // gh failing here on the open PR changes nothing the agents hear.
+    b.clk.add(Duration::from_secs(60));
+    b.c.record_pr_state(
+        &t.id,
+        PrCheck {
+            pr: PR.into(),
+            error: "gh broke".into(),
+            ..PrCheck::default()
+        },
+    )
+    .unwrap();
+    sync(&a, &b);
+    let same = a.c.pr_news();
+    assert_eq!(same[0].mark, reopened[0].mark);
+    assert_eq!(a.c.pr_state(&t.id, PR).unwrap().error, "gh broke");
+
+    let second = step(PR_CLOSED);
+    assert_ne!(first[0].mark, second[0].mark);
+}
+
 /// Card #210: the PR poller's pr.state row (actor irori) folds on a board
 /// when a device of the holder's person writes it, so a merge wakes the
 /// holder once, not at every poll. Any other device's row counts nowhere.

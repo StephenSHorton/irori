@@ -565,6 +565,153 @@ fn a_mention_of_their_agent_follows_their_receive_setting() {
     assert_eq!(d.hold, "", "{d:?}");
 }
 
+/// A shared card both people's agents hold, linking [`PR`]: Alice's alpha
+/// and Bob's alpha. Returns Alice's and Bob's coords and the card.
+fn held_by_both(t: &Two) -> (Arc<coord::Coord>, Arc<coord::Coord>, coord::Task) {
+    let a1 = t.a().board_key(&t.board, &t.ra.key_a).unwrap();
+    let b1 = t.b().board_key(&t.board, &t.rb.key_a).unwrap();
+    let co_a = t.a().board_coord(&t.board).unwrap();
+    let co_b = t.b().board_coord(&t.board).unwrap();
+    let card = co_a
+        .create_task(
+            &a1,
+            coord::NewTask {
+                title: "Ship the loader".into(),
+                objective: "ship it".into(),
+                shared: true,
+                ..coord::NewTask::default()
+            },
+        )
+        .unwrap();
+    co_a.claim_task(&a1, &card.id).unwrap();
+    co_a.add_link(&a1, &card.id, PR).unwrap();
+    t.sync();
+    wait_for(10, "bob sees the card", || {
+        co_b.get_task(&card.id).is_some_and(|c| !c.links.is_empty())
+    });
+    co_b.claim_task(&b1, &card.id).unwrap();
+    t.sync();
+    wait_for(10, "alice sees bob's agent on it", || {
+        co_a.get_task(&card.id)
+            .is_some_and(|c| c.holders.contains(&b1) || c.co_holders.contains(&b1))
+    });
+    (co_a, co_b, card)
+}
+
+fn heard(state: &str, review: &str) -> coord::PrCheck {
+    coord::PrCheck {
+        pr: PR.into(),
+        state: state.into(),
+        review: review.into(),
+        ..coord::PrCheck::default()
+    }
+}
+
+/// Card #548: Alice's device hears the merge first. Bob's device folds the
+/// row and its poller skips a merged PR, so Bob's holding agent hears it
+/// from his own device's tick, woken, once, however often the tick runs.
+#[test]
+fn a_merge_heard_on_another_persons_device_reaches_the_holder_once() {
+    let t = two_people();
+    let (co_a, co_b, card) = held_by_both(&t);
+    let (_, ns) = co_a
+        .record_pr_state(&card.id, heard(coord::PR_MERGED, ""))
+        .unwrap();
+    // Bob's agent is in `to`, but only Alice's own stays on her device.
+    t.a().route_notices(&inbox::system_sender(), &ns).unwrap();
+    t.sync();
+    wait_for(10, "bob folds the merge", || {
+        co_b.pr_state(&card.id, PR).is_some()
+    });
+
+    t.b().check_prs();
+    let ds = wait_bridged(t.b(), &t.rb.key_a, 1);
+    let (d, m) = (&ds[0], &ds[0].message);
+    assert_eq!(d.mode, mode::WAKE, "{d:?}");
+    assert_eq!(m.ref_, format!("task:{}", card.id));
+    assert!(
+        m.text.contains("was merged") && m.text.contains("state=completed"),
+        "{}",
+        m.text
+    );
+    assert!(m.text.contains("bob") || m.text.contains("Heard on"), "{}", m.text);
+    assert!(bridged(t.b(), &t.rb.key_b).is_empty(), "beta holds nothing");
+
+    for _ in 0..3 {
+        t.b().check_prs();
+    }
+    t.sync();
+    settle_bridged(t.b(), &t.rb.key_a, 1);
+
+    // Alice's device wrote it: her agent heard it from the notice alone.
+    t.a().check_prs();
+    settle_bridged(t.a(), &t.ra.key_a, 0);
+}
+
+/// Card #548: both devices hear the merge before either's row crosses.
+/// Each told its own agent as it wrote, so neither tick tells it again.
+#[test]
+fn a_merge_both_people_heard_is_not_told_again() {
+    let t = two_people();
+    let (co_a, co_b, card) = held_by_both(&t);
+    co_a.record_pr_state(&card.id, heard(coord::PR_MERGED, ""))
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(5));
+    co_b.record_pr_state(&card.id, heard(coord::PR_MERGED, ""))
+        .unwrap();
+    t.sync();
+    wait_for(10, "both fold both rows", || {
+        [&co_a, &co_b]
+            .iter()
+            .all(|c| c.pr_news().first().is_some_and(|n| n.writers.len() == 2))
+    });
+    t.a().check_prs();
+    t.b().check_prs();
+    settle_bridged(t.a(), &t.ra.key_a, 0);
+    settle_bridged(t.b(), &t.rb.key_a, 0);
+}
+
+/// Card #548: it crosses as a comment does: under Ask me the wake is held
+/// for Bob, as only Alice's device vouches for it. Changes requested and
+/// a closing come the same way.
+#[test]
+fn pr_news_from_another_person_follows_the_receive_setting() {
+    let t = two_people();
+    let (co_a, co_b, card) = held_by_both(&t);
+    set_receive(t.b(), &t.board, receive::ASK);
+    co_a.record_pr_state(&card.id, heard(coord::PR_OPEN, coord::PR_CHANGES_REQUESTED))
+        .unwrap();
+    t.sync();
+    wait_for(10, "bob folds it", || {
+        co_b.pr_state(&card.id, PR).is_some()
+    });
+    t.b().check_prs();
+    let ds = wait_bridged(t.b(), &t.rb.key_a, 1);
+    assert_eq!(ds[0].hold, hold::MEMBER_WAKE, "{:?}", ds[0]);
+    assert!(
+        ds[0].message.text.contains("changes requested"),
+        "{}",
+        ds[0].message.text
+    );
+
+    set_receive(t.b(), &t.board, receive::OPEN);
+    std::thread::sleep(Duration::from_millis(5));
+    co_a.record_pr_state(&card.id, heard(coord::PR_CLOSED, ""))
+        .unwrap();
+    t.sync();
+    wait_for(10, "bob folds the closing", || {
+        co_b.pr_state(&card.id, PR)
+            .is_some_and(|p| p.state == coord::PR_CLOSED)
+    });
+    t.b().check_prs();
+    let ds = wait_bridged(t.b(), &t.rb.key_a, 2);
+    assert!(
+        ds.iter()
+            .any(|d| d.message.text.contains("closed without merging")),
+        "{ds:?}"
+    );
+}
+
 /// Card #174, since 0.11.1: an open card Alice makes on the board never
 /// goes to Bob's agents, however often the sweep runs; there is no
 /// setting for it any more (her own background agents serve her).

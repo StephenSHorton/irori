@@ -5,9 +5,10 @@
 //! Only the device whose agent holds a card asks about its PRs, with the
 //! person's own `gh`; the rows it writes reach the other devices like any
 //! other. An open PR is asked about again every [`OPEN_EVERY`]; one that
-//! couldn't be asked about every [`ERROR_EVERY`]; a merged or closed one
-//! never again. A device that can't ask (no gh, card #542) asks about
-//! nothing and writes nothing.
+//! couldn't be asked about every [`ERROR_EVERY`]; a closed one, which
+//! GitHub can reopen, every [`CLOSED_EVERY`]; a merged one never again. A
+//! device that can't ask (no gh, card #542) asks about nothing and writes
+//! nothing.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -23,6 +24,8 @@ pub const TICK: Duration = Duration::from_secs(30);
 pub const OPEN_EVERY: Duration = Duration::from_secs(180);
 /// How often a PR GitHub couldn't be asked about is tried again.
 pub const ERROR_EVERY: Duration = Duration::from_secs(1800);
+/// How often a closed PR is asked about, in case it is reopened (card #548).
+pub const CLOSED_EVERY: Duration = Duration::from_secs(1800);
 /// How long one `gh` call may take.
 const GH_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -150,6 +153,10 @@ pub(crate) fn run_gh(gh: &PathBuf, args: &[&str], fail: &str) -> Result<serde_js
 #[derive(Default)]
 pub(crate) struct PrWatch {
     asked: Mutex<HashMap<String, Instant>>,
+    /// The PRs gh last failed on here, by the same key. Another device's
+    /// good row clears the error in the fold, but this gh is still broken
+    /// (card #548): it mustn't write the error back every [`OPEN_EVERY`].
+    failed: Mutex<HashSet<String>>,
 }
 
 /// One card's PR that is due, and the log it lives in.
@@ -159,10 +166,24 @@ pub(crate) struct Due {
     pub url: String,
 }
 
+fn pr_key(task_id: &str, url: &str) -> String {
+    format!("{task_id}\x00{url}")
+}
+
 impl PrWatch {
+    /// Notes how asking about `url` went on this device.
+    pub(crate) fn answered(&self, task_id: &str, url: &str, ok: bool) {
+        let mut failed = self.failed.lock().unwrap_or_else(|e| e.into_inner());
+        if ok {
+            failed.remove(&pr_key(task_id, url));
+        } else {
+            failed.insert(pr_key(task_id, url));
+        }
+    }
+
     /// The PRs to ask about now: on a card in `coords` that isn't done and
-    /// that an agent in `local` holds, not yet merged or closed, and not
-    /// asked about too recently. Marks them asked.
+    /// that an agent in `local` holds, not yet merged, and not asked about
+    /// too recently. Marks them asked.
     pub(crate) fn due(
         &self,
         coords: &[Arc<Coord>],
@@ -171,6 +192,7 @@ impl PrWatch {
         now: Instant,
     ) -> Vec<Due> {
         let mut asked = self.asked.lock().unwrap_or_else(|e| e.into_inner());
+        let failed = self.failed.lock().unwrap_or_else(|e| e.into_inner());
         let mut out = Vec::new();
         for co in coords {
             let tasks = co.list_tasks(&coord::TaskFilter {
@@ -186,7 +208,7 @@ impl PrWatch {
                 // Card #509: a wait on a PR's merge is asked about whoever
                 // holds the card (often nobody), so it leaves the person's
                 // Needs you once the PR merges.
-                let waits = co.merge_waits(&t.id);
+                let waits = co.polled_waits(&t.id);
                 if !ours && waits.is_empty() {
                     continue;
                 }
@@ -207,15 +229,17 @@ impl PrWatch {
                 for url in prs {
                     let heard = co.pr_state(&t.id, &url);
                     let k = heard.as_ref();
-                    if k.is_some_and(|p| p.state == PR_MERGED || p.state == PR_CLOSED) {
+                    if k.is_some_and(|p| p.state == PR_MERGED) {
                         continue;
                     }
-                    let every = if k.is_some_and(|p| !p.error.is_empty()) {
+                    let key = pr_key(&t.id, &url);
+                    let every = if k.is_some_and(|p| p.state == PR_CLOSED) {
+                        CLOSED_EVERY
+                    } else if failed.contains(&key) || k.is_some_and(|p| !p.error.is_empty()) {
                         ERROR_EVERY
                     } else {
                         OPEN_EVERY
                     };
-                    let key = format!("{}\x00{}", t.id, url);
                     if asked
                         .get(&key)
                         .is_some_and(|at| now.duration_since(*at) < every)

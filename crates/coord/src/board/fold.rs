@@ -366,6 +366,8 @@ pub struct Fold {
     pub(crate) review_before_block: HashSet<String>,
     /// Each card's linked PRs as GitHub last said they stand (card #208).
     pub(crate) pr_states: super::prstate::PrStates,
+    /// pr.state rows waiting on their card's holder or wait (card #548).
+    pub(crate) pr_ahead: Vec<Event>,
     /// Merge desks by repo key (card #415).
     pub(crate) desks: BTreeMap<String, super::desk::Desk>,
 }
@@ -491,6 +493,7 @@ impl Fold {
             deleted: HashSet::new(),
             review_before_block: HashSet::new(),
             pr_states: Default::default(),
+            pr_ahead: Vec::new(),
             desks: BTreeMap::new(),
         }
     }
@@ -634,6 +637,7 @@ impl Fold {
         self.fold(ev);
         if let Some(p) = row::<TaskIdRow>(&ev.payload) {
             self.sync_offer_stale(&p.task_id);
+            self.retry_pr_ahead(Some(&p.task_id));
         }
         self.fold_deferred();
         self.retry_aside();
@@ -645,6 +649,7 @@ impl Fold {
     pub(crate) fn fold(&mut self, ev: &Event) {
         if !self.writer_ok(ev) {
             self.ignore(&ev.device_id);
+            self.hold_pr_row(ev);
             return;
         }
         if !self.aside_gate(ev) {
@@ -2018,7 +2023,7 @@ impl Fold {
         p == kp(&t.created_by) || self.board_owner.as_ref().is_some_and(|f| f(&p, at))
     }
 
-    fn sweeper_ok(&self, ev: &Event) -> bool {
+    pub(crate) fn sweeper_ok(&self, ev: &Event) -> bool {
         let Some(p) = row::<TaskIdRow>(&ev.payload) else {
             return false;
         };
@@ -2039,6 +2044,8 @@ impl Fold {
             // whoever holds the card.
             // A row ahead of its card waits beside it (card #542): rows come
             // device by device, and nothing writes a settled PR's row again.
+            // One ahead of the card's holder or wait is kept and looked at
+            // again (card #548, `hold_pr_row`).
             kinds::PR_STATE => self.tasks.get(&p.task_id).is_none_or(|t| {
                 t.holders
                     .iter()

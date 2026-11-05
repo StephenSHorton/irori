@@ -485,12 +485,16 @@ impl Fold {
                 let _ = write!(b, "- {}: {}", l.label, l.reference);
                 // Card #208: how GitHub last said a linked PR stands.
                 if let Some(s) = heard.and_then(|m| m.get(&l.reference)) {
-                    if !s.error.is_empty() {
+                    if s.state.is_empty() {
                         let _ = write!(b, " (GitHub not asked: {})", s.error);
                     } else {
                         let _ = write!(b, " (GitHub: {}", s.state.to_lowercase());
                         if !s.review.is_empty() {
                             let _ = write!(b, ", {}", s.review.to_lowercase().replace('_', " "));
+                        }
+                        // Card #548: the last it said, and why nothing since.
+                        if !s.error.is_empty() {
+                            let _ = write!(b, "; not asked since: {}", s.error);
                         }
                         b.push(')');
                     }
