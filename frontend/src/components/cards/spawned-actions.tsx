@@ -3,8 +3,8 @@
 // opens it in the card's terminal tab, Logs shows its output so far, Stop
 // cuts its turn and End hands off and removes it. The agent hover, Who's
 // on it and the "Waiting for your permission" row in Needs you share it.
-// Attach, Logs and End work on the device the agent runs on; elsewhere the
-// row says where.
+// Attach and Logs work on the device the agent runs on; elsewhere the row
+// says where, and End asks that device to end it (part 11).
 
 import { useEffect, useState } from "react"
 import {
@@ -29,7 +29,7 @@ import { inWails, plainLine } from "@/lib/irori"
 import { errorText, talk } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
-// here says the agent runs on this device, where Attach, Logs and End work;
+// here says the agent runs on this device, where Attach and Logs work;
 // `where` is only for reading (card #489).
 export function spawnedHere(who: AgentRef): boolean {
   return !!who.here
@@ -55,19 +55,27 @@ export function SpawnedActions({
   const [ended, setEnded] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
   const [busy, setBusy] = useState(false)
-  const show = (k: "attach" | "logs" | "stop" | "end") =>
+  const here = spawnedHere(who)
+  const where = plainLine(who.where)
+  const wanted = (k: "attach" | "logs" | "stop" | "end") =>
     !only || only.includes(k)
+  // Attach and Logs only where it runs; Stop and End from any device.
+  const show = (k: "attach" | "logs" | "stop" | "end") =>
+    wanted(k) && (here || k === "stop" || k === "end")
   const name = displayName(who)
   if (ended)
     return (
       <p className="text-xs text-muted-foreground">
-        Ending: it writes where it left off first.
+        {here
+          ? "Ending: it writes where it left off first."
+          : `Asked ${where} to end it: it writes where it left off first.`}
       </p>
     )
-  if (!spawnedHere(who))
+  const elsewhere = !here && (wanted("attach") || wanted("logs"))
+  if (!here && !show("stop") && !show("end"))
     return (
       <p className={cn("text-xs text-muted-foreground", className)}>
-        Runs on {plainLine(who.where)}: Attach, Logs and End are there.
+        Attach and Logs are on {where}.
       </p>
     )
   const attach = async () => {
@@ -144,9 +152,9 @@ export function SpawnedActions({
             variant="destructive"
             question={
               <>
-                End {name}? It writes where it left off on this card first, then
-                Irori stops it and removes its session. The card stays open and
-                unheld.
+                End {name}? {here ? "" : `Irori asks ${where} to end it. `}It
+                writes where it left off on this card first, then Irori stops it
+                and removes its session. The card stays open and unheld.
               </>
             }
             confirmLabel="End"
@@ -157,6 +165,11 @@ export function SpawnedActions({
           />
         )}
       </div>
+      {elsewhere && (
+        <p className="text-xs text-muted-foreground">
+          Attach and Logs are on {where}.
+        </p>
+      )}
       {line && (
         <p
           className={

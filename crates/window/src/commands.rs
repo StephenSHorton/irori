@@ -956,6 +956,15 @@ pub async fn agents_trust_and_start(
     blocking(&w, move |w| w.agents_trust_and_start(&task_id)).await
 }
 
+/// The person asks the device a card's agent must start on to trust its
+/// repo there (part 11); that device asks them in its own window. Writes
+/// no trust. The device's name.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_trust_request(w: W<'_>, task_id: String) -> R<String> {
+    blocking(&w, move |w| w.agents_trust_request(&task_id)).await
+}
+
 /// This device's repos and whether each is trusted for agents (card #456,
 /// Settings › Agents).
 #[tauri::command]
@@ -1611,6 +1620,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             note_remove,
             agents_trust_need,
             agents_trust_and_start,
+            agents_trust_request,
             agents_trusted,
             agents_trust_repo,
             agents_permissions,

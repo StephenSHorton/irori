@@ -206,26 +206,37 @@ function RunningRow({
       </span>
       {ending ? (
         <span className="text-xs text-muted-foreground">ending</span>
-      ) : starting ? null : r.here ? (
+      ) : starting ? null : (
         <span className="flex items-center gap-1.5">
-          <SpawnedActions
-            who={AgentRef({
-              key: r.key,
-              name: r.name,
-              status: r.status,
-              live: true,
-              where: r.device,
-              here: true,
-            })}
-            cardId={r.cardId}
-            only={["logs"]}
-          />
+          {r.here ? (
+            <SpawnedActions
+              who={AgentRef({
+                key: r.key,
+                name: r.name,
+                status: r.status,
+                live: true,
+                where: r.device,
+                here: true,
+              })}
+              cardId={r.cardId}
+              only={["logs"]}
+            />
+          ) : (
+            <span
+              className="text-xs text-muted-foreground"
+              title="Logs are on the device it runs on"
+            >
+              on {r.device}
+            </span>
+          )}
           <ConfirmButton
             label="End"
             question={
               <>
-                End {r.name} on {r.cardShort}? It writes where it left off on
-                the card first, then Irori stops it and removes its session.
+                End {r.name} on {r.cardShort}?{" "}
+                {r.here ? "" : `Irori asks ${r.device} to end it. `}It writes
+                where it left off on the card first, then Irori stops it and
+                removes its session.
               </>
             }
             confirmLabel="End"
@@ -235,13 +246,6 @@ function RunningRow({
               onEnded()
             }}
           />
-        </span>
-      ) : (
-        <span
-          className="text-xs text-muted-foreground"
-          title="End it from the device it runs on"
-        >
-          on {r.device}
         </span>
       )}
     </li>
