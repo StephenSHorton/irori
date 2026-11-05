@@ -675,7 +675,9 @@ impl Ctx<'_> {
                 continue;
             }
             needs.insert(key);
-            if post && self.agent_moved(&c.task) {
+            // Card #520: a wait no agent will end is news even on the
+            // person's own card, which has no agent left to name.
+            if post && (self.agent_moved(&c.task) || !c.gone_waits.is_empty()) {
                 self.n.post(self.needs_note(c));
             }
         }
@@ -946,15 +948,37 @@ impl Ctx<'_> {
         }
         // Card #509: a wait on a PR's merge, with nothing else to answer,
         // says which PR is the person's to merge.
-        let merge = t.blockers.iter().find_map(|b| b.merge_wait()).filter(|_| {
-            !t.blockers.iter().any(|b| {
-                b.open()
-                    && b.merge_wait().is_none()
-                    && b.on
-                        .as_ref()
-                        .is_none_or(|on| on.kind == coord::BLOCKED_ON_PERSON)
-            })
+        // Card #520: a PR wait coord counts as a gone wait (its PR merged
+        // or closed, or answered) is not a merge.
+        let gone_ids: Vec<&str> = c.gone_waits.iter().map(|s| s.blocker_id.as_str()).collect();
+        let merge = t
+            .blockers
+            .iter()
+            .filter(|b| !gone_ids.contains(&b.id.as_str()))
+            .find_map(|b| b.merge_wait())
+            .filter(|_| {
+                !t.blockers.iter().any(|b| {
+                    b.open()
+                        && b.merge_wait().is_none()
+                        && b.on
+                            .as_ref()
+                            .is_none_or(|on| on.kind == coord::BLOCKED_ON_PERSON)
+                })
+            });
+        // Card #520: nobody holds it and its wait's agent is gone, with
+        // nothing else to answer (an answered item waits on its agent, as
+        // coord counts it): say so, not "blocked on you".
+        let asks = t.blockers.iter().any(|b| {
+            b.open()
+                && b.status != coord::BLOCKER_ANSWERED
+                && b.on
+                    .as_ref()
+                    .is_none_or(|on| on.kind == coord::BLOCKED_ON_PERSON)
         });
+        let gone = c
+            .gone_waits
+            .first()
+            .filter(|_| merge.is_none() && !asks && t.state != coord::INPUT_REQUIRED);
         let (mut title, body) = if t.state == coord::BLOCKED {
             let mut body = t.reason.clone();
             if !t.title.is_empty() && t.title != t.reason {
@@ -964,9 +988,18 @@ impl Ctx<'_> {
                 .as_deref()
                 .and_then(|u| coord::parse_link(u).ok())
                 .and_then(|l| coord::pr_link(&l));
-            match pr {
-                Some((_, n)) => (format!("{agent} waits on you to merge PR #{n}"), body),
-                None => (format!("{agent} is blocked on you"), body),
+            match (pr, gone) {
+                (Some((_, n)), _) => (format!("{agent} waits on you to merge PR #{n}"), body),
+                (None, Some(s)) => {
+                    let who = self.name(&s.agent);
+                    let title = if s.waited_on {
+                        format!("Nobody holds it, and {who}, whom it waits on, is gone")
+                    } else {
+                        format!("Nobody holds it, and {who}, who raised its wait, is gone")
+                    };
+                    (title, body)
+                }
+                (None, None) => (format!("{agent} is blocked on you"), body),
             }
         } else if t.state == coord::INPUT_REQUIRED {
             let mut body = t.title.clone();
@@ -992,7 +1025,11 @@ impl Ctx<'_> {
             level: Level::Warn,
             sticky: true,
             actions: vec![
-                Action::new("Answer", move || open2()),
+                // Card #520: nothing to answer on a gone wait; the card
+                // has Hand to an agent.
+                Action::new(if gone.is_some() { "Open" } else { "Answer" }, move || {
+                    open2()
+                }),
                 Action::close("Later"),
             ],
             on_click: Some(open),
