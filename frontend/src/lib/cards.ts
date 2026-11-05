@@ -440,7 +440,8 @@ function sampleThreads(boardId = ""): ThreadSummary[] {
       at: c.updatedAt,
       updatedAt: last?.at ?? c.updatedAt,
       agentsNow: sampleThreadAgentsNow.get(c.id) ?? true,
-      starting: c.id === "sample-thread-5" ? "Macbook Pro (this one)" : undefined,
+      starting:
+        c.id === "sample-thread-5" ? "Macbook Pro (this one)" : undefined,
     })
   })
   const t = (s: ThreadSummary) => Date.parse(s.updatedAt) || 0
@@ -747,6 +748,9 @@ function summary(c: CardDetail): CardSummary {
     cantStart: c.cantStart,
     starting: c.starting,
     atCap: c.atCap,
+    queuePlace: c.queuePlace,
+    usageLimit: c.usageLimit,
+    dailyLimit: c.dailyLimit,
     waitPr: c.waitPr,
     working: c.working,
     watching: c.watching,

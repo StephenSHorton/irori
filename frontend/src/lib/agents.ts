@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react"
 
 import type {
   AgentsChange,
+  AgentsLimits,
   AgentsSettings,
   RunningAgent,
   TermInfo,
@@ -16,7 +17,7 @@ import { AgentsService } from "./host"
 import { inWails } from "./irori"
 import { previewFlag } from "./preview"
 
-export type { AgentsSettings, RunningAgent, TrustedRepo }
+export type { AgentsLimits, AgentsSettings, RunningAgent, TrustedRepo }
 
 // sampleAgents is the preview's private board: chosen and on, or with
 // ?spawn=first on by default and not yet chosen, so Home shows the
@@ -34,6 +35,7 @@ export function sampleAgents(): AgentsSettings {
     defaultEffort: "medium",
     idleMins: 30,
     idleChoices: [10, 30, 60, 120, 240],
+    dailyLimit: 0,
   }
 }
 
@@ -99,6 +101,7 @@ export function useAgents(open: boolean, boardId = "") {
         model: c.model ?? null,
         effort: c.effort ?? null,
         idleMins: c.idleMins ?? null,
+        dailyLimit: c.dailyLimit ?? null,
       }
       if (!inWails()) {
         setS((x) =>
@@ -110,6 +113,7 @@ export function useAgents(open: boolean, boardId = "") {
                 model: c.model ?? x.model,
                 effort: c.effort ?? x.effort,
                 idleMins: c.idleMins ?? x.idleMins,
+                dailyLimit: c.dailyLimit ?? x.dailyLimit,
               }
             : x
         )
@@ -312,6 +316,103 @@ export function useRunning(open: boolean) {
   }, [open, tick])
   const refresh = useCallback(() => setTick((t) => t + 1), [])
   return { rows, error, refresh }
+}
+
+// DAILY_CHOICES are the daily limits Settings › Agents offers (card #450);
+// 0 is none.
+export const DAILY_CHOICES = [0, 10, 20, 40, 80]
+
+// dailyLabel names a daily limit.
+export function dailyLabel(n: number): string {
+  return n === 0 ? "No limit (default)" : `${n} agents a day`
+}
+
+// costLabel says what today's agents used at API prices: "$1.24",
+// "under $0.01", "$0".
+export function costLabel(usd: number | null | undefined): string {
+  const n = usd ?? 0
+  if (n <= 0) return "$0"
+  if (n < 0.01) return "under $0.01"
+  return `$${n.toFixed(2)}`
+}
+
+// sampleLimits is the preview's caps and today (sa-6): this Mac at 6 of
+// 12, the PC at its default, 14 agents today. ?spawn=limit holds the
+// queue on a usage limit.
+function sampleLimits(): AgentsLimits {
+  return {
+    devices: [
+      {
+        device: "mac",
+        name: "Macbook Pro (this one)",
+        here: true,
+        cap: 12,
+        chosen: false,
+        running: 6,
+      },
+      {
+        device: "pc",
+        name: "Desktop Computer",
+        here: false,
+        cap: 6,
+        chosen: true,
+        running: 1,
+      },
+    ],
+    maxCap: 200,
+    today: 14,
+    todayHere: 11,
+    costUsd: 3.42,
+    dailyLimit: 0,
+    dailyReached: false,
+    heldUntil:
+      previewFlag("spawn") === "limit" ? Date.now() + 90 * 60_000 : null,
+    queued: 2,
+  }
+}
+
+// useLimits loads Settings › Agents' caps and today's count and cost,
+// refreshed every few seconds while open, and sets a device's cap.
+export function useLimits(open: boolean) {
+  const [l, setL] = useState<AgentsLimits | null>(() =>
+    inWails() ? null : sampleLimits()
+  )
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    const load = () =>
+      AgentsService.Limits().then(
+        (v) => live && (setL(v), setError("")),
+        (e: Error) => live && setError(e.message)
+      )
+    void load()
+    const id = window.setInterval(load, 4000)
+    return () => {
+      live = false
+      window.clearInterval(id)
+    }
+  }, [open])
+  const setCap = useCallback((device: string, cap: number) => {
+    if (!inWails()) {
+      setL((x) =>
+        x
+          ? {
+              ...x,
+              devices: x.devices.map((d) =>
+                d.device === device ? { ...d, cap, chosen: true } : d
+              ),
+            }
+          : x
+      )
+      return
+    }
+    AgentsService.CapSet(device, cap).then(
+      (v) => (setL(v), setError("")),
+      (e: Error) => setError(e.message)
+    )
+  }, [])
+  return { limits: l, error, setCap }
 }
 
 // runningSince says how long ago an agent was asked for: "just now",

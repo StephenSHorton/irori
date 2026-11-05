@@ -73,6 +73,7 @@ import {
   blockerItemId,
 } from "@/lib/thread"
 import { SpawnedActions } from "@/components/cards/spawned-actions"
+import { spawnLine, usageResets } from "@/lib/spawn-line"
 import { agentStatus } from "@/lib/agent-status"
 import { AskedAgain, blockerOutcome } from "@/lib/notifications"
 import { EarlierRound, SentBackSigns } from "./done-rounds"
@@ -573,7 +574,7 @@ function WorkingRow({ card }: { card: CardSummary }) {
   const busyNow = workingNow(card)
   // Card #431: between turns, but a background job it started still runs.
   const who = busyNow.length ? busyNow : runningJobNow(card)
-  if (!who.length) return null
+  if (!who.length) return <QueueRow card={card} />
   const names = namesLine(who.map(displayName))
   // Card #489: a job reads as on the hover card, with how long one has run.
   const doing = busyNow.length
@@ -592,6 +593,52 @@ function WorkingRow({ card }: { card: CardSummary }) {
         <span className="font-semibold">{names}</span>{" "}
         {who.length > 1 ? "are" : "is"} {doing}
       </span>
+    </p>
+  )
+}
+
+// QueueRow is the card page's top line while nobody is on it and Irori is
+// getting it an agent (spawned-agents §10, card #450): starting, its place
+// in a device's queue, held on a usage limit until its reset, waiting past
+// the daily limit (with Start an agent), or why one can't start. Nothing
+// otherwise.
+function QueueRow({ card }: { card: CardSummary }) {
+  const [asked, setAsked] = useState("")
+  const line = spawnLine(card)
+  if (!line) return null
+  const resets = card.usageLimit ? usageResets(card.usageLimit) : ""
+  return (
+    <p
+      role="status"
+      className={cn(
+        "flex min-w-0 flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-[13px] text-ink",
+        line.tone === "warn"
+          ? "border-warning/40 bg-warning/10"
+          : "border-border bg-muted/40"
+      )}
+    >
+      <span className="min-w-0">
+        {line.text.charAt(0).toUpperCase() + line.text.slice(1)}
+        {resets && ` (${resets})`}
+      </span>
+      {!!card.dailyLimit && !card.starting && (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!!asked}
+          title="Starts this card's agent now, past today's limit"
+          onClick={() => {
+            setAsked("Starting…")
+            cards.startAgent(card.id, "").then(
+              () => setAsked("Asked: an agent starts in a moment."),
+              (e: Error) => setAsked(errorText(e))
+            )
+          }}
+        >
+          Start an agent
+        </Button>
+      )}
+      {asked && <span className="text-muted-foreground">{asked}</span>}
     </p>
   )
 }

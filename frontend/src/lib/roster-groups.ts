@@ -14,6 +14,10 @@ type Card = {
   working: { key: string; spawned?: boolean; status: string }[]
   starting?: string
   atCap?: string
+  queuePlace?: number
+  usageLimit?: string | null
+  dailyLimit?: number
+  cantStart?: string
 }
 
 export type OnCard<A> = {
@@ -26,11 +30,14 @@ export type OnCard<A> = {
 export type RosterGroups<A> = {
   yours: A[]
   onCards: OnCard<A>[]
-  // Agents on cards, cards starting one, and cards waiting for a slot.
+  // Agents on cards, cards starting one, and cards queued for one (a
+  // slot, a usage limit's reset or the person, card #450).
   spawned: number
   starting: number
-  atCap: number
+  queued: number
 }
+
+import { queued as isQueued } from "./spawn-line"
 
 // rosterGroups sorts the live roster into Yours and On cards. Cards keep
 // the order they're given; an agent spawned for two cards (a stale row)
@@ -44,10 +51,10 @@ export function rosterGroups<A extends Agent>(
   const placed = new Set<string>()
   const onCards: OnCard<A>[] = []
   let starting = 0
-  let atCap = 0
+  let queued = 0
   for (const c of cards) {
     if (c.starting) starting++
-    else if (c.atCap) atCap++
+    else if (isQueued(c)) queued++
     const here: A[] = []
     for (const w of c.working) {
       if (!w.spawned || placed.has(w.key)) continue
@@ -57,14 +64,19 @@ export function rosterGroups<A extends Agent>(
       here.push(a)
     }
     if (here.length)
-      onCards.push({ cardId: c.id, short: c.short, title: c.title, agents: here })
+      onCards.push({
+        cardId: c.id,
+        short: c.short,
+        title: c.title,
+        agents: here,
+      })
   }
   return {
     yours: live.filter((a) => !placed.has(a.key)),
     onCards,
     spawned: placed.size,
     starting,
-    atCap,
+    queued,
   }
 }
 
