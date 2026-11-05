@@ -3,8 +3,9 @@
 // switch for agents Irori starts per card, and the model and effort they
 // start with, the idle limit, the agents running now, what they may do
 // and how each repo's work reaches main, and which of this computer's
-// repos are trusted for agents (card #456). Only you set these, here; no
-// agent's tool can. Caps, the daily limit and today's count and cost wait
+// repos are trusted for agents (card #456), and whether your agents may
+// start agents (card #575). Only you set these, here; no agent's tool can.
+// Caps, the daily limit and today's count and cost wait
 // on part 6 (card #450); agents per card on part 7 (card #451).
 
 import { useContext, useId, useState } from "react"
