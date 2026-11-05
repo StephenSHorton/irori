@@ -3,6 +3,7 @@
 // picker, faces and the card holder line all read it, so a `shell` agent
 // reads "running a job" everywhere instead of "idle", "shell" or "gone".
 import { runningSince } from "./agents"
+import { plainLine } from "./irori"
 
 // StatusTone is how the text is coloured: working and job are the live
 // green, warn the amber, idle and muted the grey.
@@ -58,4 +59,10 @@ function jobFor(
   const at = typeof since === "number" ? since : Date.parse(since)
   if (!Number.isFinite(at) || at <= 0 || now - at < 60_000) return ""
   return ` · ${runningSince(at, now)}`
+}
+
+// throughLine says a device has no link of its own here, only rows coming
+// through another one (card #544), the same words on every surface.
+export function throughLine(via: string): string {
+  return `through ${plainLine(via)}`
 }

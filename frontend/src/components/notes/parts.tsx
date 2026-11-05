@@ -1,6 +1,5 @@
-// The Notes pieces other pages use too (card #413): the kind badge, the
-// note form (New note, Edit), and the card page's "Notes its agent got"
-// list.
+// The Notes pieces other pages use too (card #413): the kind badge and the
+// note form (New note, Edit).
 
 import { useState } from "react"
 import { LockIcon, UsersIcon } from "lucide-react"
@@ -26,7 +25,6 @@ import {
   NoteMaxChars,
   noteProblem,
   tagLabel,
-  useWakeNotes,
   type NewNote,
   type Note,
   type NoteKind,
@@ -284,48 +282,5 @@ function NoteFormBody({
         </Button>
       </DialogFooter>
     </>
-  )
-}
-
-// WakeNotes is the card page's "Notes its agent got": which notes each
-// agent got on its latest wake for this card, and the tag that matched
-// (card #412). Nothing when none did.
-export function WakeNotes({ cardId, who }: { cardId: string; who: Who }) {
-  const got = useWakeNotes(cardId)
-  if (!got.length) return null
-  const agents = [...new Set(got.map((g) => g.agent))]
-  return (
-    <div className="grid gap-2">
-      {agents.map((a) => (
-        <div key={a} className="grid gap-1">
-          <p className="text-[12px] text-ink-2">
-            {who(a)} got{" "}
-            {got.filter((g) => g.agent === a).length === 1
-              ? "this note"
-              : "these notes"}{" "}
-            on wake:
-          </p>
-          <ul className="grid gap-1" aria-label={`Notes ${who(a)} got`}>
-            {got
-              .filter((g) => g.agent === a)
-              .map((g) => (
-                <li
-                  key={g.noteId}
-                  className="flex items-start gap-2 text-[12.5px]"
-                >
-                  <KindBadge k={g.kind} />
-                  <span className="flex-1 leading-snug text-ink">{g.text}</span>
-                  <span
-                    className="shrink-0 text-[11px] text-muted-foreground"
-                    title={g.tag}
-                  >
-                    {tagLabel(g.tag)}
-                  </span>
-                </li>
-              ))}
-          </ul>
-        </div>
-      ))}
-    </div>
   )
 }
