@@ -154,13 +154,24 @@ pub struct BoardSecretFrame {
 /// people share, so `board_id` names the hidden DM space, not that space.
 /// `body` is opaque here: invite depends on mesh, so its Bundle can't be
 /// named.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DmFrame {
     pub board_id: String,
     pub step: String,
     #[serde(default)]
     pub body: serde_json::Value,
+}
+
+/// Leaves `body` out: an `offer`'s holds the space's secret, as `Bundle`'s
+/// own `Debug` knows.
+impl std::fmt::Debug for DmFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DmFrame")
+            .field("board_id", &self.board_id)
+            .field("step", &self.step)
+            .finish_non_exhaustive()
+    }
 }
 
 /// The least time between two gossip announcements of one board (kicks
@@ -1798,6 +1809,11 @@ mod tests {
             panic!("not a dm")
         };
         assert!(ask.body.is_null());
+        let offer = DmFrame {
+            body: serde_json::json!({"bundle": {"secret": "c2VjcmV0"}}),
+            ..f
+        };
+        assert!(!format!("{offer:?}").contains("c2VjcmV0"), "{offer:?}");
         assert!(serde_json::from_slice::<Wire>(br#"{"type":"dm","step":"ask"}"#).is_err());
         assert!(serde_json::from_slice::<Wire>(br#"{"type":"dm.later","x":1}"#).is_err());
     }
