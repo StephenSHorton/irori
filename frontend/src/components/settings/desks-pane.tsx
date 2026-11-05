@@ -38,7 +38,10 @@ function list(s: string): string[] {
 // githubKey makes "owner/name", a GitHub URL or a repo key into the repo
 // key a desk is stored under, or "" when it isn't a GitHub repo.
 export function githubKey(s: string): string {
-  const t = s.trim().replace(/\.git$/, "").replace(/\/$/, "")
+  const t = s
+    .trim()
+    .replace(/\.git$/, "")
+    .replace(/\/$/, "")
   const m =
     t.match(/^remote:github\.com\/([^/\s]+\/[^/\s]+)$/) ||
     t.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/\s]+\/[^/\s]+)$/) ||
@@ -47,13 +50,25 @@ export function githubKey(s: string): string {
   return m ? `remote:github.com/${m[1]}` : ""
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string
+  hint?: string
+  children: React.ReactNode
+}) {
   return (
     <div className="grid gap-1 py-1.5 sm:grid-cols-[130px_1fr] sm:gap-3">
-      <span className="pt-1.5 text-[12.5px] text-muted-foreground">{label}</span>
+      <span className="pt-1.5 text-[12.5px] text-muted-foreground">
+        {label}
+      </span>
       <div className="grid min-w-0 gap-1">
         {children}
-        {hint && <span className="text-[11.5px] text-muted-foreground">{hint}</span>}
+        {hint && (
+          <span className="text-[11.5px] text-muted-foreground">{hint}</span>
+        )}
       </div>
     </div>
   )
@@ -95,11 +110,24 @@ function DeskEditor({
     }
   }
   return (
-    <div className="grid gap-0.5 border-t border-border pt-2" data-desk-editor={d.repoKey}>
-      <Field label="Takes PRs" hint="Off for a repo whose work merges straight to main: it gets no desk.">
-        <Switch checked={d.takesPrs} onCheckedChange={(v) => set({ takesPrs: v })} aria-label="Takes PRs" />
+    <div
+      className="grid gap-0.5 border-t border-border pt-2"
+      data-desk-editor={d.repoKey}
+    >
+      <Field
+        label="Takes PRs"
+        hint="Off for a repo whose work merges straight to main: it gets no desk."
+      >
+        <Switch
+          checked={d.takesPrs}
+          onCheckedChange={(v) => set({ takesPrs: v })}
+          aria-label="Takes PRs"
+        />
       </Field>
-      <Field label="Holder" hint="One of your agents merges for this repo. If it goes, the desk shows unheld and nothing merges.">
+      <Field
+        label="Holder"
+        hint="One of your agents merges for this repo. If it goes, the desk shows unheld and nothing merges."
+      >
         <ChoiceSelect
           label="Holder"
           size="sm"
@@ -108,7 +136,10 @@ function DeskEditor({
           choices={[{ value: NONE, label: "Nobody (unheld)" }, ...agents]}
         />
       </Field>
-      <Field label="Polls GitHub from" hint="One device asks GitHub for the open PRs every 3 minutes; it stays put when the holder changes.">
+      <Field
+        label="Polls GitHub from"
+        hint="One device asks GitHub for the open PRs every 3 minutes; it stays put when the holder changes."
+      >
         <ChoiceSelect
           label="Poll device"
           size="sm"
@@ -117,11 +148,20 @@ function DeskEditor({
           choices={[{ value: NONE, label: "Pick a device" }, ...devices]}
         />
       </Field>
-      <Field label="Check lines" hint="The first line with no paths always runs. A line with paths runs only when the diff touches them; a runner or device says where.">
+      <Field
+        label="Check lines"
+        hint="The first line with no paths always runs. A line with paths runs only when the diff touches them; a runner or device says where."
+      >
         {d.checks.map((c, i) => (
-          <div key={i} className="grid gap-1 rounded-md border border-border p-2" data-check={i + 1}>
+          <div
+            key={i}
+            className="grid gap-1 rounded-md border border-border p-2"
+            data-check={i + 1}
+          >
             <div className="flex items-center gap-2">
-              <span className="w-4 text-[12px] text-muted-foreground">{i + 1}</span>
+              <span className="w-4 text-[12px] text-muted-foreground">
+                {i + 1}
+              </span>
               <Input
                 className="h-8 font-mono text-[12px]"
                 placeholder="cargo test --workspace"
@@ -133,7 +173,9 @@ function DeskEditor({
                 size="icon-sm"
                 variant="ghost"
                 aria-label={`Remove check line ${i + 1}`}
-                onClick={() => set({ checks: d.checks.filter((_, j) => j !== i) })}
+                onClick={() =>
+                  set({ checks: d.checks.filter((_, j) => j !== i) })
+                }
               >
                 <Trash2Icon />
               </Button>
@@ -150,14 +192,20 @@ function DeskEditor({
                 label={`Runner for line ${i + 1}`}
                 size="sm"
                 value={c.runner || NONE}
-                onValueChange={(v) => setCheck(i, { runner: v === NONE ? undefined : v })}
+                onValueChange={(v) =>
+                  setCheck(i, { runner: v === NONE ? undefined : v })
+                }
                 choices={[{ value: NONE, label: "the holder" }, ...agents]}
               />
               <ChoiceSelect
                 label={`Device for line ${i + 1}`}
                 size="sm"
                 value={c.device || NONE}
-                onValueChange={(v) => setCheck(i, { device: v === NONE ? undefined : (v as CheckLine["device"]) })}
+                onValueChange={(v) =>
+                  setCheck(i, {
+                    device: v === NONE ? undefined : (v as CheckLine["device"]),
+                  })
+                }
                 choices={[
                   { value: NONE, label: "any OS" },
                   { value: "mac", label: "Mac" },
@@ -190,7 +238,10 @@ function DeskEditor({
           ]}
         />
       </Field>
-      <Field label="Trusted authors" hint="GitHub logins whose PRs the desk acts on, besides your agents'. Anyone else's PR waits for your OK on its queue line.">
+      <Field
+        label="Trusted authors"
+        hint="GitHub logins whose PRs the desk acts on, besides your agents'. Anyone else's PR waits for your OK on its queue line."
+      >
         <Input
           className="h-8 text-[12.5px]"
           placeholder="your-login, a-collaborator"
@@ -199,8 +250,15 @@ function DeskEditor({
           aria-label="Trusted GitHub logins"
         />
       </Field>
-      <Field label="OK each PR" hint="Off: the holder merges a trusted PR once its checks pass. On: it asks you on the queue line first.">
-        <Switch checked={d.perPrOk} onCheckedChange={(v) => set({ perPrOk: v })} aria-label="OK each PR" />
+      <Field
+        label="OK each PR"
+        hint="Off: the holder merges a trusted PR once its checks pass. On: it asks you on the queue line first."
+      >
+        <Switch
+          checked={d.perPrOk}
+          onCheckedChange={(v) => set({ perPrOk: v })}
+          aria-label="OK each PR"
+        />
       </Field>
       {error && (
         <p className="text-[12px] text-destructive" role="alert">
@@ -234,10 +292,14 @@ export function DesksPane({ open }: { open: boolean }) {
     [roster.agents]
   )
   const deviceChoices = useMemo(
-    () => devices.filter((v) => !v.revoked).map((v) => ({ value: v.deviceId, label: v.name || v.deviceId })),
+    () =>
+      devices
+        .filter((v) => !v.revoked)
+        .map((v) => ({ value: v.deviceId, label: v.name || v.deviceId })),
     [devices]
   )
-  const nameOf = (key?: string) => (key ? (agents.find((a) => a.value === key)?.label ?? unknownAgent) : "")
+  const nameOf = (key?: string) =>
+    key ? (agents.find((a) => a.value === key)?.label ?? unknownAgent) : ""
   const here = roster.device?.id ?? ""
   const add = () => {
     const key = githubKey(adding)
@@ -256,9 +318,9 @@ export function DesksPane({ open }: { open: boolean }) {
   return (
     <div className="grid gap-3">
       <p className="text-[12.5px] text-muted-foreground">
-        One desk per repo, set once. Open PRs come from GitHub; one agent merges them in turn under the
-        repo&apos;s checks. Only you change these: agents can&apos;t. Tags and releases are never the
-        desk&apos;s.
+        One desk per repo, set once. Open PRs come from GitHub; one agent merges
+        them in turn under the repo&apos;s checks. Only you change these: agents
+        can&apos;t. Tags and releases are never the desk&apos;s.
       </p>
       {shown.map((d) => {
         const s = d.settings
@@ -269,12 +331,16 @@ export function DesksPane({ open }: { open: boolean }) {
             key={s.repoKey}
             className={cn(
               "grid gap-1 rounded-xl border px-4 py-2.5",
-              on ? "border-border bg-card" : "border-dashed border-border opacity-85"
+              on
+                ? "border-border bg-card"
+                : "border-dashed border-border opacity-85"
             )}
           >
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <GitMergeIcon className="size-4 text-ink" />
-              <span className="font-mono text-[13.5px] text-ink">{ownerName(s.repoKey)}</span>
+              <span className="font-mono text-[13.5px] text-ink">
+                {ownerName(s.repoKey)}
+              </span>
               <span className="text-[12px] text-muted-foreground">
                 {!s.takesPrs
                   ? "No desk: this repo takes no PRs."
@@ -286,7 +352,11 @@ export function DesksPane({ open }: { open: boolean }) {
               </span>
               <span className="ml-auto flex items-center gap-2 text-[12.5px] text-ink-2">
                 {!open && (
-                  <Button size="xs" variant="ghost" onClick={() => setEditing(s.repoKey)}>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => setEditing(s.repoKey)}
+                  >
                     Edit
                   </Button>
                 )}
@@ -297,14 +367,24 @@ export function DesksPane({ open }: { open: boolean }) {
                   aria-label={`Desk for ${ownerName(s.repoKey)}`}
                   onCheckedChange={(v) =>
                     deskActions
-                      .setDesk({ ...s, enabled: v, pollDevice: s.pollDevice || here })
+                      .setDesk({
+                        ...s,
+                        enabled: v,
+                        pollDevice: s.pollDevice || here,
+                      })
                       .catch((e: unknown) => setError(errorText(e)))
                   }
                 />
               </span>
             </div>
             {open && (
-              <DeskEditor key={s.at ?? "new"} start={s} agents={agents} devices={deviceChoices} onDone={() => setEditing("")} />
+              <DeskEditor
+                key={s.at ?? "new"}
+                start={s}
+                agents={agents}
+                devices={deviceChoices}
+                onDone={() => setEditing("")}
+              />
             )}
           </section>
         )

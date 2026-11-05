@@ -73,7 +73,10 @@ export function StateChip({ s }: { s: DeskState }) {
       )
     case "outside":
       return (
-        <Badge variant="outline" className="border-destructive/60 text-destructive">
+        <Badge
+          variant="outline"
+          className="border-destructive/60 text-destructive"
+        >
           <ShieldAlertIcon />
           {label}
         </Badge>
@@ -95,7 +98,9 @@ function timeOf(at: string | undefined, now: Date): string {
 
 function clock(at: string | undefined): string {
   const t = parseTime(at ?? "")
-  return t ? t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"
+  return t
+    ? t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "—"
 }
 
 // QueueLineRow is one PR: its number (to GitHub), title, author, author
@@ -116,11 +121,23 @@ function QueueLineRow({
   const [holding, setHolding] = useState(false)
   const [note, setNote] = useState("")
   const dim = l.state === "draft" || l.state === "merged"
-  const run = (p: Promise<void>) => p.catch((e: unknown) => onError(errorText(e)))
+  const run = (p: Promise<void>) =>
+    p.catch((e: unknown) => onError(errorText(e)))
   const canHold = l.state !== "merged" && l.state !== "merging"
   return (
-    <div className={cn("group grid rounded-md", l.state === "merging" && "bg-info-foreground/50")} data-pr={l.pr}>
-      <div className={cn("flex items-center gap-2 px-2 py-1 text-[12.5px]", dim && "opacity-60")}>
+    <div
+      className={cn(
+        "group grid rounded-md",
+        l.state === "merging" && "bg-info-foreground/50"
+      )}
+      data-pr={l.pr}
+    >
+      <div
+        className={cn(
+          "flex items-center gap-2 px-2 py-1 text-[12.5px]",
+          dim && "opacity-60"
+        )}
+      >
         {l.state === "draft" ? (
           <GitPullRequestDraftIcon className="size-4 shrink-0 text-muted-foreground" />
         ) : l.state === "merged" ? (
@@ -133,16 +150,24 @@ function QueueLineRow({
             type="button"
             className="w-10 shrink-0 text-left font-mono text-primary hover:underline"
             title="Open on GitHub"
-            onClick={() => void cards.openURL(l.url).catch((e: unknown) => onError(errorText(e)))}
+            onClick={() =>
+              void cards
+                .openURL(l.url)
+                .catch((e: unknown) => onError(errorText(e)))
+            }
           >
             #{l.pr}
           </button>
         ) : (
           <span className="w-10 shrink-0 font-mono text-primary">#{l.pr}</span>
         )}
-        <span className="min-w-0 flex-1 truncate font-medium text-ink">{l.title}</span>
+        <span className="min-w-0 flex-1 truncate font-medium text-ink">
+          {l.title}
+        </span>
         <span className="hidden shrink-0 text-[11.5px] text-ink-2 sm:inline">
-          {l.author.name || (l.author.agent && nameOf(l.author.agent)) || (l.login && `@${l.login}`)}
+          {l.author.name ||
+            (l.author.agent && nameOf(l.author.agent)) ||
+            (l.login && `@${l.login}`)}
         </span>
         {l.author.card && l.author.cardRef && (
           <button
@@ -172,7 +197,11 @@ function QueueLineRow({
             </Button>
           )}
           {l.state === "held" ? (
-            <Button size="xs" variant="ghost" onClick={() => run(deskActions.hold(repoKey, l.pr, "", true))}>
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => run(deskActions.hold(repoKey, l.pr, "", true))}
+            >
               Unhold
             </Button>
           ) : (
@@ -211,7 +240,12 @@ function QueueLineRow({
           <Button size="xs" type="submit">
             Hold
           </Button>
-          <Button size="xs" variant="ghost" type="button" onClick={() => setHolding(false)}>
+          <Button
+            size="xs"
+            variant="ghost"
+            type="button"
+            onClick={() => setHolding(false)}
+          >
             Cancel
           </Button>
         </form>
@@ -225,7 +259,9 @@ function QueueHead({ count, right }: { count: ReactNode; right?: ReactNode }) {
     <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-[12px]">
       <span className="font-medium text-ink">Queue</span>
       <span className="text-muted-foreground">{count}</span>
-      <span className="ml-auto flex items-center gap-2 text-muted-foreground">{right}</span>
+      <span className="ml-auto flex items-center gap-2 text-muted-foreground">
+        {right}
+      </span>
     </div>
   )
 }
@@ -268,12 +304,15 @@ export function DeskPanel({
         }
       />
       {down && (
-        <div className="flex items-start gap-2 px-3 pt-2.5 text-[12px] text-warning" role="status">
+        <div
+          className="flex items-start gap-2 px-3 pt-2.5 text-[12px] text-warning"
+          role="status"
+        >
           <CloudOffIcon className="mt-0.5 size-4 shrink-0" />
           <span>
             GitHub unreachable since {clock(down)}.{" "}
-            {snap ? `Showing the ${clock(snap.at)} list; ` : ""}never an empty queue while GitHub
-            can&apos;t be asked.
+            {snap ? `Showing the ${clock(snap.at)} list; ` : ""}never an empty
+            queue while GitHub can&apos;t be asked.
           </span>
         </div>
       )}
@@ -296,9 +335,12 @@ export function DeskPanel({
       ) : lines.length === 0 ? (
         <div className="grid justify-items-center gap-1 px-4 py-6 text-center">
           <CircleCheckIcon className="size-6 text-success" />
-          <div className="text-[13.5px] font-medium text-ink">No open PRs on GitHub</div>
+          <div className="text-[13.5px] font-medium text-ink">
+            No open PRs on GitHub
+          </div>
           <div className="text-[11.5px] text-muted-foreground">
-            Last poll {clock(lastPoll)} · <span className="font-mono">gh pr list --repo {repo}</span> returned
+            Last poll {clock(lastPoll)} ·{" "}
+            <span className="font-mono">gh pr list --repo {repo}</span> returned
             none
           </div>
         </div>
@@ -346,28 +388,43 @@ function DeskHeader({
               held by <span className="text-ink-2">{nameOf(holder)}</span>
             </>
           ) : (
-            <span className="text-warning">unheld: nothing merges until you pick a holder</span>
+            <span className="text-warning">
+              unheld: nothing merges until you pick a holder
+            </span>
           )}
         </span>
         <span className="ml-auto flex items-center gap-1.5">
           <Button
             size="sm"
             variant={p ? "default" : "outline"}
-            title={p ? "Let the holder take the desk lease again" : "The holder takes no lease; the queue keeps following GitHub"}
-            onClick={() => deskActions.pause(desk.settings.repoKey, !p).catch((e: unknown) => setError(errorText(e)))}
+            title={
+              p
+                ? "Let the holder take the desk lease again"
+                : "The holder takes no lease; the queue keeps following GitHub"
+            }
+            onClick={() =>
+              deskActions
+                .pause(desk.settings.repoKey, !p)
+                .catch((e: unknown) => setError(errorText(e)))
+            }
           >
             {p ? <PlayIcon /> : <PauseIcon />}
             {p ? "Resume desk" : "Pause desk"}
           </Button>
-          <Button size="sm" variant="ghost" title="Merge desk settings" onClick={onSettings}>
+          <Button
+            size="sm"
+            variant="ghost"
+            title="Merge desk settings"
+            onClick={onSettings}
+          >
             <SettingsIcon />
           </Button>
         </span>
       </div>
       {p && (
         <p className="text-[12px] text-warning">
-          Paused{desk.pause?.at ? ` ${clock(desk.pause.at)}` : ""}: the holder takes no lease; the queue still follows
-          GitHub.
+          Paused{desk.pause?.at ? ` ${clock(desk.pause.at)}` : ""}: the holder
+          takes no lease; the queue still follows GitHub.
         </p>
       )}
       {error && (
@@ -401,9 +458,12 @@ export function DeskPage({
   const desk = on.find((d) => d.settings.repoKey === open) ?? on[0]
   if (!desk) {
     return (
-      <div className="glass-panel grid justify-items-start gap-2 p-5 text-[13px] text-ink-2">
-        <span className="text-[15px] font-medium text-ink">No merge desks yet</span>
-        A merge desk lists a repo&apos;s open PRs from GitHub and lets one agent merge them in turn.
+      <div className="grid justify-items-start gap-2 p-5 text-[13px] text-ink-2 glass-panel">
+        <span className="text-[15px] font-medium text-ink">
+          No merge desks yet
+        </span>
+        A merge desk lists a repo&apos;s open PRs from GitHub and lets one agent
+        merge them in turn.
         <Button size="sm" onClick={onSettings}>
           Set one up in Settings
         </Button>
@@ -413,7 +473,10 @@ export function DeskPage({
   return (
     <div className="flex min-h-0 flex-1 gap-4">
       {on.length > 1 && (
-        <nav className="hidden w-[220px] shrink-0 content-start gap-0.5 md:grid" aria-label="Merge desks">
+        <nav
+          className="hidden w-[220px] shrink-0 content-start gap-0.5 md:grid"
+          aria-label="Merge desks"
+        >
           {on.map((d) => {
             const n = d.prs?.prs.length
             const here = d === desk
@@ -423,11 +486,15 @@ export function DeskPage({
                 type="button"
                 className={cn(
                   "grid rounded-md px-2.5 py-1.5 text-left",
-                  here ? "bg-secondary text-ink" : "text-ink-2 hover:bg-secondary/60"
+                  here
+                    ? "bg-secondary text-ink"
+                    : "text-ink-2 hover:bg-secondary/60"
                 )}
                 onClick={() => onOpen(d.settings.repoKey)}
               >
-                <span className="truncate font-mono text-[13px]">{ownerName(d.settings.repoKey)}</span>
+                <span className="truncate font-mono text-[13px]">
+                  {ownerName(d.settings.repoKey)}
+                </span>
                 <span className="text-[11.5px] text-muted-foreground">
                   {d.settings.holder ? nameOf(d.settings.holder) : "unheld"}
                   {n !== undefined && ` · ${n} open`}
@@ -440,10 +507,16 @@ export function DeskPage({
       )}
       <div className="grid min-w-0 flex-1 content-start gap-3 overflow-y-auto pb-6">
         <DeskHeader desk={desk} nameOf={nameOf} onSettings={onSettings} />
-        <DeskPanel desk={desk} now={now} nameOf={nameOf} onOpenCard={onOpenCard} />
+        <DeskPanel
+          desk={desk}
+          now={now}
+          nameOf={nameOf}
+          onOpenCard={onOpenCard}
+        />
         <p className="text-[11.5px] text-muted-foreground">
-          Order: Merging, then Waiting on desk oldest first, then the rest. Each PR&apos;s thread is its
-          author&apos;s card. Holds, pause and OKs are yours alone; agents can&apos;t write them.
+          Order: Merging, then Waiting on desk oldest first, then the rest. Each
+          PR&apos;s thread is its author&apos;s card. Holds, pause and OKs are
+          yours alone; agents can&apos;t write them.
         </p>
       </div>
     </div>

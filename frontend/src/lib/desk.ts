@@ -65,23 +65,65 @@ export type RepoDesk = {
   at?: string
 }
 
-export type DeskHold = { repoKey: string; pr: number; note?: string; cleared?: boolean; by: string; at: string }
-export type DeskPause = { repoKey: string; paused: boolean; by: string; at: string }
-export type DeskOk = { repoKey: string; pr: number; headSha: string; by: string; at: string }
-export type DeskRun = { repoKey: string; pr: number; headSha: string; baseSha: string; by: string; at: string }
+export type DeskHold = {
+  repoKey: string
+  pr: number
+  note?: string
+  cleared?: boolean
+  by: string
+  at: string
+}
+export type DeskPause = {
+  repoKey: string
+  paused: boolean
+  by: string
+  at: string
+}
+export type DeskOk = {
+  repoKey: string
+  pr: number
+  headSha: string
+  by: string
+  at: string
+}
+export type DeskRun = {
+  repoKey: string
+  pr: number
+  headSha: string
+  baseSha: string
+  by: string
+  at: string
+}
 
 // The holder's own outcome on a PR's head (slices 4-6): its trial squash
 // failed, its checks are running, or they failed.
-export type DeskCheck = { pr: number; headSha: string; state: "rebase" | "running" | "failed"; note?: string }
+export type DeskCheck = {
+  pr: number
+  headSha: string
+  state: "rebase" | "running" | "failed"
+  note?: string
+}
 
 // Where a PR's thread is (slice 2): the author card, and the agent behind
 // it when the author is one of the person's own agents.
 // outside is slice 2's verdict (Core::desk_verdicts), which also counts
 // the trusted list and the person's OKs; without it the page judges by
 // the trusted list and OKs alone.
-export type PrAuthor = { card?: string; cardRef?: string; agent?: string; name?: string; outside?: boolean }
+export type PrAuthor = {
+  card?: string
+  cardRef?: string
+  agent?: string
+  name?: string
+  outside?: boolean
+}
 
-export type MergedPr = { pr: number; title: string; sha: string; at: string; card?: string }
+export type MergedPr = {
+  pr: number
+  title: string
+  sha: string
+  at: string
+  card?: string
+}
 
 export type DeskState =
   | "outside"
@@ -137,19 +179,28 @@ export type DeskInputs = {
 // activeHolds is the latest hold row per PR, dropping cleared ones.
 export function activeHolds(holds: DeskHold[]): Map<number, DeskHold> {
   const last = new Map<number, DeskHold>()
-  for (const h of [...holds].sort((a, b) => a.at.localeCompare(b.at))) last.set(h.pr, h)
+  for (const h of [...holds].sort((a, b) => a.at.localeCompare(b.at)))
+    last.set(h.pr, h)
   for (const [pr, h] of last) if (h.cleared) last.delete(pr)
   return last
 }
 
 // trusted: one of the person's own agents is behind it, its login is on
 // the desk's list, or Stephen okayed this very head (§5 Trust).
-function isTrusted(p: SnapPr, a: PrAuthor, desk: RepoDesk | undefined, oks: DeskOk[]): boolean {
+function isTrusted(
+  p: SnapPr,
+  a: PrAuthor,
+  desk: RepoDesk | undefined,
+  oks: DeskOk[]
+): boolean {
   if (a.outside !== undefined) return !a.outside
   if (a.agent) return true
   const login = (p.author ?? "").toLowerCase()
-  if (login && desk?.trusted?.some((t) => t.toLowerCase() === login)) return true
-  return oks.some((o) => o.pr === p.number && !!p.headRefOid && o.headSha === p.headRefOid)
+  if (login && desk?.trusted?.some((t) => t.toLowerCase() === login))
+    return true
+  return oks.some(
+    (o) => o.pr === p.number && !!p.headRefOid && o.headSha === p.headRefOid
+  )
 }
 
 // deskQueue is the queue panel's lines in order: Merging first, then
@@ -196,11 +247,16 @@ export function deskQueue(inp: DeskInputs): QueueLine[] {
           : `GitHub: ${p.mergeable === "CONFLICTING" ? "CONFLICTING" : p.mergeStateStatus}`
     } else if (gh === "pending" || mine?.state === "running") {
       state = "running"
-      note = mine?.state === "running" ? mine.note || "the holder's checks" : "GitHub checks running"
+      note =
+        mine?.state === "running"
+          ? mine.note || "the holder's checks"
+          : "GitHub checks running"
     } else if (gh === "failure" || mine?.state === "failed") {
       state = "failed"
       note =
-        mine?.state === "failed" ? mine.note || "the holder's checks failed" : "GitHub checks failed"
+        mine?.state === "failed"
+          ? mine.note || "the holder's checks failed"
+          : "GitHub checks failed"
     } else {
       state = "waiting"
       note = author.card ? "ready for the desk" : "no author card yet"
@@ -220,7 +276,8 @@ export function deskQueue(inp: DeskInputs): QueueLine[] {
     })
   }
   const open = new Set(lines.map((l) => l.pr))
-  const byAge = (a: QueueLine, b: QueueLine) => a.createdAt.localeCompare(b.createdAt) || a.pr - b.pr
+  const byAge = (a: QueueLine, b: QueueLine) =>
+    a.createdAt.localeCompare(b.createdAt) || a.pr - b.pr
   const rank = (s: DeskState) => (s === "merging" ? 0 : s === "waiting" ? 1 : 2)
   lines.sort((a, b) => rank(a.state) - rank(b.state) || byAge(a, b))
   for (const m of inp.merged ?? []) {
@@ -262,7 +319,9 @@ export function short(sha: string): string {
 export function queueCount(snap: DeskSnapshot | null | undefined): string {
   if (!snap) return "not polled yet"
   const n = snap.prs.length
-  return snap.truncated ? `showing the first ${n}; GitHub has more` : `${n} open on GitHub`
+  return snap.truncated
+    ? `showing the first ${n}; GitHub has more`
+    : `${n} open on GitHub`
 }
 
 // ---- the gateway ------------------------------------------------------------
@@ -359,13 +418,36 @@ export function fromHost(v: DeskView): Desk {
         }
       : null,
     holds: Object.fromEntries(
-      v.holds.map((h) => [h.pr, { repoKey, pr: h.pr, note: h.note || undefined, by: h.by, at: h.at }])
+      v.holds.map((h) => [
+        h.pr,
+        { repoKey, pr: h.pr, note: h.note || undefined, by: h.by, at: h.at },
+      ])
     ),
-    pause: v.paused ? { repoKey, paused: true, by: v.paused.by, at: v.paused.at } : null,
-    oks: Object.fromEntries(v.oks.map((o) => [o.pr, { repoKey, pr: o.pr, headSha: o.headSha, by: o.by, at: o.at }])),
-    run: v.run ? { repoKey, pr: v.run.pr, headSha: v.run.headSha, baseSha: v.run.note, by: v.run.by, at: v.run.at } : null,
+    pause: v.paused
+      ? { repoKey, paused: true, by: v.paused.by, at: v.paused.at }
+      : null,
+    oks: Object.fromEntries(
+      v.oks.map((o) => [
+        o.pr,
+        { repoKey, pr: o.pr, headSha: o.headSha, by: o.by, at: o.at },
+      ])
+    ),
+    run: v.run
+      ? {
+          repoKey,
+          pr: v.run.pr,
+          headSha: v.run.headSha,
+          baseSha: v.run.note,
+          by: v.run.by,
+          at: v.run.at,
+        }
+      : null,
     poll: v.poll.here
-      ? { at: time(v.poll.lastPollAt), unreachableSince: time(v.poll.unreachableSince), device: st.pollDevice }
+      ? {
+          at: time(v.poll.lastPollAt),
+          unreachableSince: time(v.poll.unreachableSince),
+          device: st.pollDevice,
+        }
       : undefined,
     authors: Object.fromEntries(
       (v.authors ?? []).map((a) => [
@@ -390,7 +472,12 @@ function toHost(d: RepoDesk) {
     holder: d.holder ?? "",
     pollDevice: d.pollDevice,
     trusted: d.trusted,
-    checks: d.checks.map((c) => ({ command: c.command, paths: c.paths ?? [], runner: c.runner ?? "", device: c.device ?? "" })),
+    checks: d.checks.map((c) => ({
+      command: c.command,
+      paths: c.paths ?? [],
+      runner: c.runner ?? "",
+      device: c.device ?? "",
+    })),
     mergeMethod: d.mergeMethod,
     perPrOk: d.perPrOk,
     by: "",
@@ -428,28 +515,55 @@ export const deskActions = {
     if (inWails()) return DeskService.Set(toHost(d)).then(refresh)
     const list = sampleState()
     const i = list.findIndex((x) => x.settings.repoKey === d.repoKey)
-    if (i >= 0) list[i] = { ...list[i], settings: { ...d, by: "user:you", at: now() } }
-    else list.push({ settings: { ...d, by: "user:you", at: now() }, holds: {}, oks: {} })
+    if (i >= 0)
+      list[i] = { ...list[i], settings: { ...d, by: "user:you", at: now() } }
+    else
+      list.push({
+        settings: { ...d, by: "user:you", at: now() },
+        holds: {},
+        oks: {},
+      })
     changed()
   },
-  async hold(repoKey: string, pr: number, note: string, cleared: boolean): Promise<void> {
-    if (inWails()) return DeskService.Hold(repoKey, pr, note, cleared).then(refresh)
+  async hold(
+    repoKey: string,
+    pr: number,
+    note: string,
+    cleared: boolean
+  ): Promise<void> {
+    if (inWails())
+      return DeskService.Hold(repoKey, pr, note, cleared).then(refresh)
     const d = sampleDesk(repoKey)
     const holds = { ...d.holds }
     if (cleared) delete holds[pr]
-    else holds[pr] = { repoKey, pr, note: note || undefined, by: "user:you", at: now() }
+    else
+      holds[pr] = {
+        repoKey,
+        pr,
+        note: note || undefined,
+        by: "user:you",
+        at: now(),
+      }
     d.holds = holds
     changed()
   },
   async pause(repoKey: string, on: boolean): Promise<void> {
     if (inWails()) return DeskService.Pause(repoKey, on).then(refresh)
-    sampleDesk(repoKey).pause = { repoKey, paused: on, by: "user:you", at: now() }
+    sampleDesk(repoKey).pause = {
+      repoKey,
+      paused: on,
+      by: "user:you",
+      at: now(),
+    }
     changed()
   },
   async ok(repoKey: string, pr: number, headSha: string): Promise<void> {
     if (inWails()) return DeskService.Ok(repoKey, pr, headSha).then(refresh)
     const d = sampleDesk(repoKey)
-    d.oks = { ...d.oks, [pr]: { repoKey, pr, headSha, by: "user:you", at: now() } }
+    d.oks = {
+      ...d.oks,
+      [pr]: { repoKey, pr, headSha, by: "user:you", at: now() },
+    }
     changed()
   },
 }
