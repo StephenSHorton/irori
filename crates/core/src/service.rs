@@ -1101,6 +1101,22 @@ impl Core {
                             cell.get()?.upgrade()?.busy_outside(agent, None)
                         })
                     }),
+                    // Personal's boards (card #558), read from this log as
+                    // a space's are from its own.
+                    board_tag: Some({
+                        let st = Arc::downgrade(&st);
+                        Arc::new(move |board: &str| {
+                            let st = st.upgrade()?;
+                            spaces::board_tag_in(&st, board)
+                        })
+                    }),
+                    board_tags: Some({
+                        let st = Arc::downgrade(&st);
+                        Arc::new(move || {
+                            st.upgrade()
+                                .map_or_else(Vec::new, |st| spaces::board_tags_in(&st))
+                        })
+                    }),
                     ..Default::default()
                 },
             )

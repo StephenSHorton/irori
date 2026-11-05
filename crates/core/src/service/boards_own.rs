@@ -302,6 +302,10 @@ impl Services {
                 self.fold_card_key(&ev);
             } else if ev.kind == kinds::PERSON_PROFILE {
                 self.follow_person_name();
+            } else if ev.kind == kinds::SPACE_BOARD_CREATED || ev.kind == kinds::SPACE_BOARD_RENAMED
+            {
+                // Personal's boards, from another of the person's devices.
+                self.boards.moved();
             }
         }
     }
@@ -696,7 +700,17 @@ impl Services {
         let coords: Vec<Arc<Coord>> = if !tag.is_empty() {
             // A tag two boards share (made on two devices apart) names a
             // card only when one of them has it, like a bare number (B3).
-            let tagged = self.boards_by_tag(&tag);
+            let mut tagged: Vec<Arc<Coord>> = self
+                .boards_by_tag(&tag)
+                .iter()
+                .map(|b| b.coord().clone())
+                .collect();
+            if self
+                .personal_boards()
+                .is_ok_and(|bs| bs.iter().any(|b| b.tag == tag))
+            {
+                tagged.push(self.coord.clone());
+            }
             match tagged.len() {
                 0 => {
                     return Err(coord::Error::new(
@@ -704,8 +718,8 @@ impl Services {
                         format_args!("no board here is tagged {}", q(&tag)),
                     ));
                 }
-                1 => return tagged[0].coord().task_ref(v),
-                _ => tagged.iter().map(|b| b.coord().clone()).collect(),
+                1 => return tagged[0].task_ref(v),
+                _ => tagged,
             }
         } else {
             std::iter::once(self.coord.clone())

@@ -1992,13 +1992,10 @@ impl Fold {
         }
     }
 
-    /// The tag of board `id` in this space (card #392); None when the space
-    /// holds no such board.
+    /// The tag of board `id` in this space (card #392), Personal included
+    /// (card #558); None when the space holds no such board.
     pub(crate) fn board_tag(&self, id: &str) -> Option<String> {
-        match (&self.board_tag_fn, self.on_board) {
-            (Some(f), true) => f(id),
-            _ => None,
-        }
+        self.board_tag_fn.as_ref().and_then(|f| f(id))
     }
 
     /// The tag a card on board `board` (empty: the space's own) shows.
@@ -2013,10 +2010,10 @@ impl Fold {
     /// inside it: a board with no cards has its tag all the same.
     pub(crate) fn has_tag(&self, tag: &str) -> bool {
         tag == self.tag()
-            || match (&self.board_tags_fn, self.on_board) {
-                (Some(f), true) => f().iter().any(|t| t == tag),
-                _ => false,
-            }
+            || self
+                .board_tags_fn
+                .as_ref()
+                .is_some_and(|f| f().iter().any(|t| t == tag))
     }
 
     /// A cancel on a shared card counts only from a device of the card

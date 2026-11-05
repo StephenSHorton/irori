@@ -237,14 +237,23 @@ impl Fold {
     /// The cards `short` names, across the space's boards or only among
     /// those showing `tag`: a bare number also names the lettered cards
     /// that share it.
+    ///
+    /// Personal's default board has no tag, so a bare number is its cards'
+    /// whole ref: it means them first, or `home#3` would leave private
+    /// card `#3` with nothing that names it (card #558).
     pub(crate) fn short_hits(&self, tag: &str, short: &str) -> Vec<&Task> {
         let bare = short_num(short) == short;
-        self.short_idx
+        let hits: Vec<&Task> = self
+            .short_idx
             .iter()
             .filter(|((_, s), _)| s == short || (bare && short_num(s) == short))
             .filter_map(|(_, id)| self.tasks.get(id))
             .filter(|t| tag.is_empty() || t.tag == tag)
-            .collect()
+            .collect();
+        if tag.is_empty() && !self.on_board && hits.iter().any(|t| t.board.is_empty()) {
+            return hits.into_iter().filter(|t| t.board.is_empty()).collect();
+        }
+        hits
     }
 
     /// Resolves what someone typed for a card to its task id.

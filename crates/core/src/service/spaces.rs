@@ -10,6 +10,11 @@
 //! row of the writer's stream then waits on the gap. So a space writes no
 //! space-only row until every member device has said, in its board hello,
 //! that it reads them (`irori_mesh::boardmesh::SPACES_PROTOCOL`).
+//!
+//! Personal is a space too (card #558): private, no invites, and its log is
+//! the private log. `space.board.*` rows go there with no gate, since an
+//! older device stores them and folds past them. Its default board is
+//! implicit, with no tag, so every private card stays on it as `#N`.
 
 use std::collections::BTreeMap;
 
@@ -19,6 +24,14 @@ use store::{Filter, kinds};
 
 use super::Services;
 use super::boards::{Error, Result};
+
+/// The id of Personal's default board, in `space.board.renamed` rows and
+/// the window. A card's row names only an inner board, so no card carries
+/// it; [`super::boards::new_board_id`] makes hex, so no board has it either.
+pub const PERSONAL_BOARD: &str = "personal";
+
+/// Personal's default board, before any rename.
+const PERSONAL_NAME: &str = "Personal";
 
 /// One board of a space.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -219,12 +232,7 @@ impl Services {
         }
         let (name, tag) = (name.trim(), tag.trim());
         check_board_name(name)?;
-        if !irori_identity::membership::valid_board_tag(tag) {
-            return Err(Error::coord(
-                CK::Invalid,
-                "a board tag is a lowercase letter, then up to 15 lowercase letters, digits or '-'",
-            ));
-        }
+        check_board_tag(tag)?;
         let b = self.board(space_id)?;
         let me = self.person_id();
         if !b.verifier.membership().active(&me) {
@@ -234,13 +242,7 @@ impl Services {
             ));
         }
         if let Some(other) = self.board_tag_holder(tag) {
-            return Err(Error::coord(
-                CK::Invalid,
-                format_args!(
-                    "the tag {} is already board {other}'s",
-                    gocompat::quote::quote(tag)
-                ),
-            ));
+            return Err(tag_taken(tag, &other));
         }
         if let Some(why) = gate_refusal(&self.space_not_ready(space_id)?) {
             return Err(Error::coord(CK::NotAllowed, why));
@@ -309,12 +311,93 @@ impl Services {
         Ok(())
     }
 
-    /// The board (a space's own, or one inside a space) already using
-    /// `tag` on this device, if any.
+    /// Personal's boards (card #558), its default first.
+    pub(crate) fn personal_boards(&self) -> Result<Vec<SpaceBoard>> {
+        let own = SpaceBoard {
+            board_id: PERSONAL_BOARD.to_string(),
+            name: PERSONAL_NAME.to_string(),
+            tag: String::new(),
+        };
+        let rows = space_board_rows(&self.store).map_err(Error::from)?;
+        Ok(fold_space_boards(own, &rows))
+    }
+
+    /// Adds board `name` (tag `tag`) to Personal and returns its id. It is
+    /// the person's own log, so no gate and no membership: only the tag has
+    /// to be free among every space here.
+    pub(crate) fn create_personal_board(&self, name: &str, tag: &str) -> Result<String> {
+        let (name, tag) = (name.trim(), tag.trim());
+        check_board_name(name)?;
+        check_board_tag(tag)?;
+        if let Some(other) = self.board_tag_holder(tag) {
+            return Err(tag_taken(tag, &other));
+        }
+        let id = super::boards::new_board_id()?;
+        self.append_personal(
+            kinds::SPACE_BOARD_CREATED,
+            SpaceBoardRow {
+                board_id: id.clone(),
+                name: name.to_string(),
+                tag: tag.to_string(),
+                ..Default::default()
+            },
+        )?;
+        Ok(id)
+    }
+
+    /// Renames one of Personal's boards, its default ([`PERSONAL_BOARD`])
+    /// too. Only the name changes, so no ref does.
+    pub(crate) fn rename_personal_board(&self, board_id: &str, name: &str) -> Result<()> {
+        let name = name.trim();
+        check_board_name(name)?;
+        if !self
+            .personal_boards()?
+            .iter()
+            .any(|x| x.board_id == board_id)
+        {
+            return Err(Error::coord(
+                CK::NotFound,
+                format_args!("no board {board_id} in Personal"),
+            ));
+        }
+        self.append_personal(
+            kinds::SPACE_BOARD_RENAMED,
+            SpaceBoardRow {
+                board_id: board_id.to_string(),
+                name: name.to_string(),
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Writes a `space.board.*` row to the private log, as the person on
+    /// this device.
+    fn append_personal(&self, kind: &str, row: SpaceBoardRow) -> Result<()> {
+        let row = SpaceBoardRow {
+            by: format!("user:{}", self.device.id),
+            at: (self.now)().format_rfc3339_nano(),
+            ..row
+        };
+        self.store.append("user", kind, &row)?;
+        self.boards.moved();
+        Ok(())
+    }
+
+    /// The board (a space's own, one inside a space, or one of Personal's)
+    /// already using `tag` on this device, if any.
     pub(crate) fn board_tag_holder(&self, tag: &str) -> Option<String> {
         let own = self.tag_holder(tag);
         if !own.is_empty() {
             return Some(own);
+        }
+        if let Some(x) = self
+            .personal_boards()
+            .unwrap_or_default()
+            .into_iter()
+            .skip(1)
+            .find(|x| x.tag == tag)
+        {
+            return Some(x.board_id);
         }
         for b in self.shown_boards() {
             if let Ok(bs) = self.space_boards(&b.id)
@@ -342,6 +425,26 @@ fn check_board_name(name: &str) -> Result<()> {
             irori_identity::membership::MAX_BOARD_NAME
         ),
     ))
+}
+
+fn check_board_tag(tag: &str) -> Result<()> {
+    if irori_identity::membership::valid_board_tag(tag) {
+        return Ok(());
+    }
+    Err(Error::coord(
+        CK::Invalid,
+        "a board tag is a lowercase letter, then up to 15 lowercase letters, digits or '-'",
+    ))
+}
+
+fn tag_taken(tag: &str, other: &str) -> Error {
+    Error::coord(
+        CK::Invalid,
+        format_args!(
+            "the tag {} is already board {other}'s",
+            gocompat::quote::quote(tag)
+        ),
+    )
 }
 
 /// The version gate's answer (card #392, spaces.md §4): why a space may
@@ -585,6 +688,22 @@ impl super::Core {
     /// space rows.
     pub fn rename_space_board(&self, space_id: &str, board_id: &str, name: &str) -> Result<()> {
         self.s.rename_space_board(space_id, board_id, name)
+    }
+
+    /// Personal's boards, its default first (card #558).
+    pub fn personal_boards(&self) -> Result<Vec<SpaceBoard>> {
+        self.s.personal_boards()
+    }
+
+    /// Adds a board to Personal and returns its id.
+    pub fn create_personal_board(&self, name: &str, tag: &str) -> Result<String> {
+        self.s.create_personal_board(name, tag)
+    }
+
+    /// Renames one of Personal's boards, its default ([`PERSONAL_BOARD`])
+    /// too.
+    pub fn rename_personal_board(&self, board_id: &str, name: &str) -> Result<()> {
+        self.s.rename_personal_board(board_id, name)
     }
 }
 
