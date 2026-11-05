@@ -487,7 +487,7 @@ export function sampleCards(now: Date): CardDetail[] {
                 question:
                   "Waiting for your permission: sample-thyme is stopped on a prompt",
                 context:
-                  "sample-thyme, the agent Irori started for #58, is waiting for a permission nobody is there to give. Attach to it to answer the prompt, or add the command to the board's allow list in Settings › Agents and start a fresh agent.",
+                  "sample-thyme, the agent Irori started for #58, is waiting for a permission nobody is there to give. Attach to it to answer the prompt, or add the command to the space's allow list in Settings › Agents and start a fresh agent.",
                 raisedBy: AgentRef({
                   key: "irori",
                   name: "Irori",

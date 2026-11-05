@@ -87,13 +87,13 @@ export function holdText(d: Delivery, w: HoldWords = {}): string {
     case HoldReason.HoldPaused:
       return "You paused wakes."
     case HoldReason.HoldMemberWake:
-      return "Another person asked to wake your agent, and your receive setting for that board asks you first."
+      return "Another person asked to wake your agent, and your receive setting for that space asks you first."
     case HoldReason.HoldCrossPerson:
-      return "It comes from another person on a shared board, and your receive setting for that board asks you first."
+      return "It comes from another person in a shared space, and your receive setting for that space asks you first."
     case HoldReason.HoldMemberLease:
       return "Another person asks your agent to give up a lease."
     case "member_removed":
-      return "It comes from a person who is no longer on that board."
+      return "It comes from a person who is no longer in that space."
     case "editing":
       return "You are editing it."
     case "off_side":

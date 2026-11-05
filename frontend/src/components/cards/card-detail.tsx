@@ -740,7 +740,7 @@ function SharedToBar({
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 glass-panel">
       <span className="min-w-48 flex-1 text-[13px] text-muted-foreground">
-        Shared to {plainLine(s.boardName) || "a board"} as{" "}
+        Shared to {plainLine(s.boardName) || "a space"} as{" "}
         <span className="font-mono text-ink">{plainLine(s.ref)}</span>. Work it
         there; this private card is closed.
       </span>
@@ -1447,7 +1447,7 @@ export function CommentBox({
 // SharedNoFiles is why a shared board's card takes no files from the
 // window: a board row may name only files offered on that board.
 const SharedNoFiles =
-  "Files don't go on a shared board's cards from the app yet; an agent can attach them for you."
+  "Files don't go on a shared space's cards from the app yet; an agent can attach them for you."
 // NoteNoFiles is why the card's question takes none: its answer is a
 // line on the card, not a comment.
 const NoteNoFiles =

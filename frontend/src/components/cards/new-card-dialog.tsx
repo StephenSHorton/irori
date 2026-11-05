@@ -141,11 +141,11 @@ export function NewCardDialog({
         >
           <DialogHeader>
             <DialogTitle>
-              {board ? `New card on ${plainLine(board.name)}` : "New card"}
+              {board ? `New card in ${plainLine(board.name)}` : "New card"}
             </DialogTitle>
             <DialogDescription>
               {board
-                ? `Goes on ${plainLine(board.tag)}#, visible to ${board.people.map(plainLine).join(", ")}. Nobody picked: it waits there for someone on the board to take it up.`
+                ? `Goes on ${plainLine(board.tag)}#, visible to ${board.people.map(plainLine).join(", ")}. Nobody picked: it waits there for someone in the space to take it up.`
                 : fresh
                   ? "Work for an agent. Irori starts a fresh one for it, unless you give it to one of yours."
                   : "Work for an agent to pick up. Nobody picked: Irori hands it to an idle agent with Offer it cards on."}
