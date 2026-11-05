@@ -183,6 +183,7 @@ fn json_matches_go() {
         last_tool: String::new(),
         device_state: "recent".into(),
         device_seen: Default::default(),
+        device_via: String::new(),
         // Rust-only (card #489) and omitted when zero.
         status_since: GoTime::default(),
     };

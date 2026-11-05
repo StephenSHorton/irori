@@ -211,7 +211,12 @@ impl Fold {
             .map(|k| match agents.iter().find(|a| &a.key == k) {
                 Some(a) => format!(
                     "{k} (device {})",
-                    crate::roster::device_phrase(&a.device_state, &a.device_seen, &now)
+                    crate::roster::device_phrase(
+                        &a.device_state,
+                        &a.device_seen,
+                        &a.device_via,
+                        &now
+                    )
                 ),
                 None => k.clone(),
             })
