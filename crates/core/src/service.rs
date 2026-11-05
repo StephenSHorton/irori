@@ -450,6 +450,9 @@ impl tools::TaskRouter for ToolsView {
     fn task_ref(&self, r: &str) -> Result<String, coord::Error> {
         self.0.task_ref(r)
     }
+    fn private_key(&self, key: &str) -> String {
+        self.0.private_key(key)
+    }
     fn mirror_acquire(
         &self,
         key: &str,

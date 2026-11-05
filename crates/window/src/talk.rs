@@ -66,8 +66,9 @@ pub struct TalkConversation {
     /// channel or DM, whose composer starts from the default for what the
     /// text names.
     pub agents_now: bool,
-    /// The shared space a channel is in (card #461); absent for Personal,
-    /// DMs and threads. Matches the switcher's space id (its first board's).
+    /// The shared space a channel or thread is in (card #461, #558); absent
+    /// for Personal and DMs. Matches the switcher's space id (its first
+    /// board's).
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub space_id: String,
