@@ -140,6 +140,9 @@ pub struct DeskView {
     /// The device that saw the repo last: the poll device unless the
     /// person picks another; "" never seen.
     pub seen_on: String,
+    /// The poll device follows `seen_on` (the default, or a saved row that
+    /// left it blank); a save keeps it blank so it keeps following.
+    pub follows_seen: bool,
     #[specta(optional)]
     pub prs: Option<DeskSnapshotView>,
     pub holds: Vec<DeskMark>,
@@ -251,6 +254,7 @@ impl Window {
                     authors,
                     is_default: d.is_default(),
                     seen_on: d.seen_on.clone(),
+                    follows_seen: d.is_default() || d.follow_poll,
                     settings: settings_of(d.settings),
                     prs: d.prs.map(|s| DeskSnapshotView {
                         truncated: s.truncated,

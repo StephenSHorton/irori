@@ -22,6 +22,50 @@ fn seen_here(e: &Env, repo: &str) {
     e.c.handle(&ev).unwrap();
 }
 
+#[test]
+fn rows_seen_at_the_same_moment_pick_the_same_device_in_any_order() {
+    let at = hlc_at(plus(fixed_now(), mins(5)));
+    let one = Env::new();
+    one.remote("dev-b", 1, at, "irori", kinds::REPO_SEEN, &seen(REPO_A));
+    one.remote("dev-c", 1, at, "irori", kinds::REPO_SEEN, &seen(REPO_A));
+    let two = Env::new();
+    two.remote("dev-c", 1, at, "irori", kinds::REPO_SEEN, &seen(REPO_A));
+    two.remote("dev-b", 1, at, "irori", kinds::REPO_SEEN, &seen(REPO_A));
+    let poll = |c: &Coord| c.desk(REPO_A).unwrap().settings.poll_device;
+    assert_eq!(poll(&one.c), poll(&two.c));
+    assert_eq!(poll(&one.c), poll(&one.reopen()), "and on replay");
+}
+
+#[test]
+fn a_revoked_device_never_polls_a_desk() {
+    let e = Env::new();
+    let at = |m: u64| hlc_at(plus(fixed_now(), mins(m)));
+    seen_here(&e, REPO_A);
+    e.remote("dev-b", 1, at(60), "irori", kinds::REPO_SEEN, &seen(REPO_A));
+    assert_eq!(e.c.desk(REPO_A).unwrap().settings.poll_device, "dev-b");
+    let revoked: KeyFn = std::sync::Arc::new(|d: &str| d == "dev-b");
+    let c = e.reopen_with(Options {
+        revoked: Some(revoked),
+        ..e.opts()
+    });
+    let d = c.desk(REPO_A).unwrap();
+    assert_eq!(d.settings.poll_device, "dev-a", "back to the device left");
+    assert_eq!(d.seen_on, "dev-a");
+}
+
+#[test]
+fn a_resync_folds_this_devices_own_repo_seen_it_missed() {
+    let e = Env::new();
+    // Appended, but the live row never reached coord (a full subscription).
+    e.st.append("irori", kinds::REPO_SEEN, &seen(REPO_A))
+        .unwrap();
+    assert!(e.c.desk(REPO_A).is_none());
+    e.c.catch_up().unwrap();
+    let d = e.c.desk(REPO_A).expect("the desk after the resync");
+    assert!(d.on() && d.is_default());
+    assert_eq!(d.settings.poll_device, "dev-a");
+}
+
 fn pr(n: i64) -> DeskPr {
     DeskPr {
         number: n,

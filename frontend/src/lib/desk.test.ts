@@ -174,6 +174,7 @@ describe("the window's DeskView (card #417)", () => {
       },
       isDefault: false,
       seenOn: "",
+      followsSeen: false,
       prs: { truncated: false, at: "2026-11-03T10:00:00Z", prs: [], viewer: "" },
       holds: [{ pr: 7, note: "", headSha: "", by: "user:pc", at: "2026-11-03T10:00:00Z" }],
       oks: [],

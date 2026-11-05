@@ -344,9 +344,10 @@ export function DesksPane({ open }: { open: boolean }) {
         const s = d.settings
         const on = s.enabled && s.takesPrs
         const open = editing === s.repoKey
-        // A default desk's poll device follows where the repo was seen
-        // last; saving it leaves it blank so it keeps following.
-        const start = d.isDefault ? { ...s, pollDevice: "" } : s
+        // A poll device that follows where the repo was seen last (the
+        // default's, or a saved blank one) is saved blank so it keeps
+        // following.
+        const start = d.isDefault || d.followsSeen ? { ...s, pollDevice: "" } : s
         const follow = d.seenOn ? deviceName(d.seenOn) : ""
         return (
           <section

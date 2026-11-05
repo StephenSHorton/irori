@@ -1393,6 +1393,11 @@ export type DeskView = {
 	 *  person picks another; "" never seen.
 	 */
 	seenOn: string,
+	/**
+	 *  The poll device follows `seen_on` (the default, or a saved row that
+	 *  left it blank); a save keeps it blank so it keeps following.
+	 */
+	followsSeen: boolean,
 	prs?: DeskSnapshotView | null,
 	holds: DeskMark[],
 	paused?: DeskMark | null,

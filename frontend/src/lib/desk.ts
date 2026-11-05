@@ -389,6 +389,9 @@ export type Desk = {
   isDefault?: boolean
   // The device that saw the repo last ("" never seen).
   seenOn?: string
+  // The poll device follows seenOn (the default, or a saved row that left
+  // it blank): a save keeps it blank.
+  followsSeen?: boolean
 }
 
 // inputsOf is what deskQueue needs from one desk.
@@ -441,6 +444,7 @@ export function fromHost(v: DeskView): Desk {
   return {
     isDefault: v.isDefault,
     seenOn: v.seenOn || undefined,
+    followsSeen: v.followsSeen,
     settings: {
       repoKey,
       enabled: st.enabled,

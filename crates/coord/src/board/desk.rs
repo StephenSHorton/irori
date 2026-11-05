@@ -173,14 +173,18 @@ pub struct Desk {
     /// holder, polled from the device that saw the repo last. `by` is
     /// empty while it is the default.
     pub settings: RepoDeskRow,
-    /// The device whose `repo.seen` for this repo is the latest; "" none.
+    /// The device whose `repo.seen` for this repo is the latest, among
+    /// devices not revoked; "" none.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub seen_on: String,
+    /// Each device's latest `repo.seen` for this repo. The latest wins by
+    /// the log's own order, (hlc, device), so every device and a replay
+    /// pick the same one whatever order the rows arrive in.
     #[serde(skip)]
-    pub(crate) seen_at: GoTime,
+    pub(crate) seen: BTreeMap<String, hlc::Timestamp>,
     /// The person's row left the poll device blank: it follows `seen_on`.
     #[serde(skip)]
-    pub(crate) follow_poll: bool,
+    pub follow_poll: bool,
     /// The latest snapshot; `None` before the first poll.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prs: Option<DeskPrsRow>,
@@ -209,8 +213,17 @@ impl Desk {
     /// Fills the settings from where the repo was seen: the whole default
     /// until the person writes a row, then only a poll device the row left
     /// blank. A poll device the person picked is never moved.
-    fn settle(&mut self, repo_key: &str) {
-        if self.seen_on.is_empty() {
+    /// `revoked` says whether a device was revoked: its rows never name
+    /// the poll device, so a desk moves off a device that is gone.
+    fn settle(&mut self, repo_key: &str, revoked: &dyn Fn(&str) -> bool) {
+        self.seen_on = self
+            .seen
+            .iter()
+            .filter(|(dev, _)| !revoked(dev))
+            .max_by(|a, b| (a.1, a.0).cmp(&(b.1, b.0)))
+            .map(|(dev, _)| dev.clone())
+            .unwrap_or_default();
+        if self.seen.is_empty() {
             return;
         }
         if self.is_default() {
@@ -266,10 +279,11 @@ impl Fold {
                 let k = ledger::canonical_repo_key(&p.repo_key);
                 let mut p = p;
                 p.repo_key = k.clone();
+                let revoked = self.revoked_fn();
                 let d = self.desks.entry(k.clone()).or_default();
                 d.follow_poll = trim_space(&p.poll_device).is_empty();
                 d.settings = p;
-                d.settle(&k);
+                d.settle(&k, &revoked);
             }
             kinds::REPO_SEEN => {
                 // Every GitHub repo an agent works in has a desk, on by
@@ -285,14 +299,12 @@ impl Fold {
                 if github_repo(&k).is_none() {
                     return;
                 }
-                let wall = crate::gotime::hlc_wall(ev.hlc);
+                let revoked = self.revoked_fn();
                 let d = self.desks.entry(k.clone()).or_default();
-                if !d.seen_on.is_empty() && crate::gotime::before(&wall, &d.seen_at) {
-                    return;
-                }
-                d.seen_on = ev.device_id.clone();
-                d.seen_at = wall;
-                d.settle(&k);
+                let at = d.seen.entry(ev.device_id.clone()).or_default();
+                // Folding a row twice (a resync re-reads them) changes nothing.
+                *at = (*at).max(ev.hlc);
+                d.settle(&k, &revoked);
             }
             kinds::DESK_PRS => {
                 let Some(p) = row::<DeskPrsRow>(&ev.payload) else {
@@ -562,7 +574,18 @@ impl Fold {
         if d.run.as_ref().is_some_and(|r| !live(r)) {
             d.run = None;
         }
+        // A device revoked since the repo was seen there no longer polls.
+        if !d.seen.is_empty() {
+            let k = d.settings.repo_key.clone();
+            d.settle(&k, &self.revoked_fn());
+        }
         d
+    }
+
+    /// Whether a device was revoked, as the fold was told.
+    pub(crate) fn revoked_fn(&self) -> impl Fn(&str) -> bool + use<> {
+        let r = self.revoked.clone();
+        move |dev: &str| r.as_ref().is_some_and(|f| f(dev))
     }
 
     /// Records the open PRs the poller heard for `repo_key`: writes a

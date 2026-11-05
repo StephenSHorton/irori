@@ -475,7 +475,7 @@ export function DeskPage({
     <div className="flex min-h-0 flex-1 gap-4">
       {on.length > 1 && (
         <nav
-          className="hidden w-[220px] shrink-0 content-start gap-0.5 md:grid"
+          className="hidden min-h-0 w-[220px] shrink-0 content-start gap-0.5 overflow-y-auto pb-6 md:grid"
           aria-label="Merge desks"
         >
           {on.map((d) => {
