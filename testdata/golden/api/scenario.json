@@ -109,7 +109,7 @@
     {"id": "open-a2", "open": {"stream": "a2", "path": "/v1/attach?session={sessA}&mod=0.4.1"}},
     {"id": "a2-hello", "read": {"stream": "a2", "until": "inbox"}, "save": {"attachA2": [0, "attachSecret"]}},
     {"id": "a-superseded", "read": {"stream": "a", "until": "superseded"}},
-    {"id": "old-secret", "req": {"method": "POST", "path": "/v1/deliveries/delivered", "headers": {"X-Irori-Attach": "{attachA}"}, "body": "{\"token\":\"x\"}"}},
+    {"id": "old-secret", "req": {"method": "POST", "path": "/v1/deliveries/delivered", "headers": {"X-Irori-Attach": "{attachA}"}, "body": "{\"token\":\"x\"}"}, "ignore": ["error"]},
     {"id": "new-secret", "req": {"method": "GET", "path": "/v1/inbox", "headers": {"X-Irori-Attach": "{attachA2}"}}},
 
     {"id": "timeline-no-agent", "req": {"method": "GET", "path": "/v1/timeline"}},

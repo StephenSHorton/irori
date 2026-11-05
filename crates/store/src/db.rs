@@ -205,6 +205,21 @@ fn query_events(c: &Connection, sql: &str, args: &[Value]) -> Result<Vec<Event>>
     Ok(out)
 }
 
+/// Whether `f` asks for one device's newest rows of one exact kind. Left to
+/// itself SQLite can take the primary key here, which reads and sorts every
+/// row that device ever wrote to return one: about 190 MB of a 170k-row
+/// device, on every Board view while a card waits on a version (card #554).
+/// The kind index reads a few pages.
+fn newest_of_a_device(f: &Filter) -> bool {
+    f.desc
+        && !f.device_id.is_empty()
+        && f.kinds.len() == 1
+        && !f.kinds[0].ends_with('.')
+        && f.after_seq == 0
+        && f.after_hlc.0 == 0
+        && f.after.is_zero()
+}
+
 /// Whether `f` reads one device's rows along the primary key. Within a device
 /// hlc rises with seq (`insert_one` refuses anything else), so seq order is
 /// `(hlc, device_id, seq)` order without reading the device's whole tail to
@@ -1613,6 +1628,9 @@ impl Inner {
         .min(MAX_LIST_LIMIT);
         let table = if f.local { "local_events" } else { "events" };
         let mut q = format!("SELECT {COLS} FROM {table}");
+        if newest_of_a_device(f) {
+            q.push_str(&format!(" INDEXED BY {table}_kind"));
+        }
         if !wh.is_empty() {
             q.push_str(" WHERE ");
             q.push_str(&wh.join(" AND "));
@@ -1699,6 +1717,27 @@ mod tests {
         }
     }
 
+    /// `INDEXED BY` the kind index under `ORDER BY seq` would sort every row
+    /// of the kind: no read may take both rules.
+    #[test]
+    fn the_kind_index_and_seq_order_never_meet() {
+        let kinds: [&[&str]; 4] = [&[], &["device.started"], &["device."], &["a", "b"]];
+        for k in kinds {
+            for after_seq in [0, 3] {
+                for desc in [false, true] {
+                    let f = Filter {
+                        kinds: k.iter().map(|s| s.to_string()).collect(),
+                        device_id: "dev".into(),
+                        after_seq,
+                        desc,
+                        ..Filter::default()
+                    };
+                    assert!(!(newest_of_a_device(&f) && one_device_by_seq(&f)), "{f:?}");
+                }
+            }
+        }
+    }
+
     /// The plan is the point of [`one_device_by_seq`], and it is SQLite's to
     /// change: a catch-up page and a newest-row read must walk the key.
     #[test]
@@ -1726,6 +1765,39 @@ mod tests {
             let plan = plan.join("; ");
             assert!(plan.contains("PRIMARY KEY"), "{what}: {plan}");
             assert!(!plan.contains("TEMP B-TREE"), "{what}: {plan}");
+        }
+    }
+
+    #[test]
+    fn only_one_kinds_newest_of_a_device_takes_the_kind_index() {
+        let f = || Filter {
+            kinds: vec!["device.started".into()],
+            device_id: "dev".into(),
+            desc: true,
+            limit: 1,
+            ..Filter::default()
+        };
+        assert!(newest_of_a_device(&f()));
+        for other in [
+            Filter { desc: false, ..f() },
+            Filter {
+                device_id: String::new(),
+                ..f()
+            },
+            Filter {
+                kinds: vec!["device.".into()],
+                ..f()
+            },
+            Filter {
+                kinds: vec!["a".into(), "b".into()],
+                ..f()
+            },
+            Filter {
+                after_seq: 3,
+                ..f()
+            },
+        ] {
+            assert!(!newest_of_a_device(&other), "{:?}", other.kinds);
         }
     }
 

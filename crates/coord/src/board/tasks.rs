@@ -11,8 +11,8 @@ use super::cards::{block_question, check_steps, new_steps};
 use super::comments::check_reason;
 use super::error::{Result, bad_state, held, invalid, not_allowed, not_found, subtask};
 use super::fold::{
-    Fold, REASON_EXPIRED, REASON_HOLDER_GONE, REASON_RELEASED, engaged, is_holder,
-    restore_state, stolen_key,
+    Fold, REASON_EXPIRED, REASON_HOLDER_GONE, REASON_RELEASED, engaged, is_holder, restore_state,
+    stolen_key,
 };
 use super::links::{MAX_LINKS, parse_link};
 use super::resource::{
