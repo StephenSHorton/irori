@@ -86,9 +86,7 @@ export function stateLine(t: ThreadSummary, why = ""): string {
       // An agent Irori starts for it, or why it can't (card #470).
       return (
         spawnLine(t)?.text ??
-        (t.told.length
-          ? `Waiting for ${t.told.map(displayName).join(", ")}; after 45s, an agent with Offer it cards on answers`
-          : why || "Waiting for a free agent")
+        (why || "Waiting for an agent")
       )
   }
 }
@@ -207,7 +205,7 @@ export function ThreadView({
         compact
         empty={
           t.state === "waiting" && t.agentsNow
-            ? "No answer yet. If nobody answers in 45s, an agent with Offer it cards on picks it up."
+            ? "No answer yet. Irori starts an agent to answer it."
             : t.agentsNow
               ? "No answer yet."
               : "No answer yet. Agents answer now is off: agents in it read it at their next turn."

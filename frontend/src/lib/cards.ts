@@ -331,7 +331,7 @@ function sampleThread(
 }
 
 // sampleThreadSeed is the preview's threads: one sample-heron answered,
-// one still in its quiet spell, one handed to an idle agent, one resolved.
+// one its named agent heard, one handed to an idle agent, one resolved.
 function sampleThreadSeed(now: Date): CardDetail[] {
   const ago = (s: number) => new Date(now.getTime() - s * 1000).toISOString()
   return [
@@ -465,8 +465,8 @@ export const threads = {
   },
 
   // start is the header box's message as a thread: the agents on the
-  // cards it names (#12) and the ones it @mentions hear it first; after
-  // 45s with no answer, one idle agent gets it.
+  // cards it names (#12) and the ones it @mentions hear it, and at once
+  // one idle agent or Irori's own agent gets it (card #512).
   // files (picked, dropped or pasted) go on it as an ask's do (card
   // #124). boardId starts it on that shared board (card #134): no
   // mentions or files there. agentsNow is the box's "Agents answer now"

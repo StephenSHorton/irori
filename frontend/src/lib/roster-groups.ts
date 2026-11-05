@@ -14,6 +14,8 @@ type Card = {
   working: { key: string; spawned?: boolean; status: string }[]
   starting?: string
   atCap?: string
+  // Open blockers on the card (card #512): its agents are blocked.
+  openBlockers?: number
 }
 
 export type OnCard<A> = {
@@ -30,7 +32,13 @@ export type RosterGroups<A> = {
   spawned: number
   starting: number
   atCap: number
+  // Live agents that are blocked (card #512): on a permission prompt
+  // ("waiting"), or working on a card with an open blocker.
+  blocked: Set<string>
 }
+
+// The roster status of an agent on a permission prompt (card #445).
+export const OnPrompt = "waiting"
 
 // rosterGroups sorts the live roster into Yours and On cards. Cards keep
 // the order they're given; an agent spawned for two cards (a stale row)
@@ -45,9 +53,14 @@ export function rosterGroups<A extends Agent>(
   const onCards: OnCard<A>[] = []
   let starting = 0
   let atCap = 0
+  const blocked = new Set(
+    live.filter((a) => a.status === OnPrompt).map((a) => a.key)
+  )
   for (const c of cards) {
     if (c.starting) starting++
     else if (c.atCap) atCap++
+    if ((c.openBlockers ?? 0) > 0)
+      for (const w of c.working) if (byKey.has(w.key)) blocked.add(w.key)
     const here: A[] = []
     for (const w of c.working) {
       if (!w.spawned || placed.has(w.key)) continue
@@ -65,6 +78,7 @@ export function rosterGroups<A extends Agent>(
     spawned: placed.size,
     starting,
     atCap,
+    blocked,
   }
 }
 
