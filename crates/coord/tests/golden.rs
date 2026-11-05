@@ -232,8 +232,7 @@ fn coord_of_empty(c: &Value) -> Coord {
     if o.board {
         o.tag = Some(Arc::new(|| "mlg".to_string()));
     }
-    let co = Coord::from_rows(s(&c["device"]), &[], None, o);
-    co
+    Coord::from_rows(s(&c["device"]), &[], None, o)
 }
 
 mod common;
