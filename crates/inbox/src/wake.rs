@@ -539,46 +539,6 @@ impl Inbox {
         })
     }
 
-    /// The notes wakes carried for card `task` (`task:<id>`, card #412):
-    /// each agent's latest such wake, newest first, as (agent, issued at,
-    /// notes).
-    pub fn task_note_wakes(&self, task: &str) -> Vec<(String, GoTime, Vec<crate::WakeNote>)> {
-        let task = trim(task);
-        let task = if task.starts_with("task:") {
-            task.to_string()
-        } else {
-            format!("task:{task}")
-        };
-        self.read(|b| {
-            let mut best: std::collections::BTreeMap<String, &WakeRec> = Default::default();
-            for w in b.wakes.values() {
-                if w.w.notes_task != task || w.w.notes.is_empty() {
-                    continue;
-                }
-                match best.get(&w.w.to) {
-                    Some(cur) if !crate::tm::before(&cur.issued_at, &w.issued_at) => {}
-                    _ => {
-                        best.insert(w.w.to.clone(), w);
-                    }
-                }
-            }
-            let mut out: Vec<(String, GoTime, Vec<crate::WakeNote>)> = best
-                .into_values()
-                .map(|w| (w.w.to.clone(), w.issued_at, w.w.notes.clone()))
-                .collect();
-            out.sort_by(|x, y| {
-                if crate::tm::before(&y.1, &x.1) {
-                    std::cmp::Ordering::Less
-                } else if crate::tm::before(&x.1, &y.1) {
-                    std::cmp::Ordering::Greater
-                } else {
-                    std::cmp::Ordering::Equal
-                }
-            });
-            out
-        })
-    }
-
     /// The wake whose turn agent is in now, or `""`.
     pub fn running_wake(&self, agent: &str) -> String {
         self.read(|b| {
