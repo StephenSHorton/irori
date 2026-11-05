@@ -20,6 +20,8 @@ dm.space.joined {boardId, creator: MemberPin, with: <personId>, at}
 
 It plays `board.joined`'s part (other devices of the person open the space from it) and says the space is hidden. It is written **before** the space opens or takes rows, so no row folds before the marker is there.
 
+`DmSpaces` on `Services` holds the markers by space id. It fills before `talk.load` and `open_boards`, again before `talk.load` on a resync, and in every `reconcile_boards` pass before a space opens; `write_dm_marker` fills it as it writes. A marker without a sound creator, a valid id and `with` counts for nothing. A marker stays in the cache after its space is forgotten, so files that outlive a forget can't come back as a plain space. Whether a space is live is `board(id)`'s to say, and the limit of 4 live spaces counts that way.
+
 **Conversation id:** `pair_dm_id(a, b)` is `dm:` and 16 hex digits of SHA-256 over a domain prefix and the two sorted `person:<id>` keys. It is never `canon`ed: `dm_id` turns your own key into `user`, so the two sides would disagree. `dm_id` stays for agent DMs.
 
 **Both write first:** two logs, one conversation. Talk folds both under the same `convId`. A writer uses the lowest space id whose other person has a counted cert, otherwise its own lowest pending log.
@@ -46,7 +48,9 @@ KeyProof {firstPub, rotations: [MemberKeyRotated]}
 
 **The joiner checks `offer` before anything touches disk,** folding the bundle in a throwaway verifier: `board.created` verifies, `verify_key_proof` passes for its creator, the sender's S cert belongs to that creator, the members are exactly the two, and the pin is this device under the current key. A held id must already be this pair's. A person can have at most 4 live DM spaces with one other person, so S's members can't fill a disk.
 
-**Then, in this order:** marker, `open_board`, secret, rows, cert and profile (role from this device's own chain, not `ROLE_DESKTOP`), `keep_current`, `done`. A failure after the marker forgets the space.
+**Then, in this order:** marker, `open_board`, secret, rows, cert and profile (role from this device's own chain, not `ROLE_DESKTOP`), `keep_current`, `done`. A failure after the marker forgets the space. `bundle::check_offer` does the fold, the two-member check, the pin and the secret's shape; the caller adds the proof, the S cert and the held id. The fold walks rows as `insert_board_rows` does (signatures, a run stops at a refused row or a gap), not bare `observe`, so a row the store won't keep can't change the answer.
+
+**A second `join` writes nothing.** If `done` is lost, the founder offers again. `join` skips a cert and profile it already holds and returns this device's rows from seq 1, because fresh rows alone would sit past a `Gap` in the founder's store and the space would stay pending. `join` also folds the bundle before it opens anything, so a refused invite leaves no secret behind now that the secret goes in first.
 
 **The whole log goes in the offer.** A store refuses a row past a seq gap (`Gap`), and the founder's posts come before its `board.member.added`, so the offer can't be trimmed to identity rows. New posts on a pending log are refused past half of `MAX_MESSAGE`, which is what an offer can carry.
 
