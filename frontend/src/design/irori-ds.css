@@ -43,7 +43,16 @@ html[data-ds="irori"] {
     transparent
   );
   --card: var(--glass-bg);
-  --popover: var(--glass-bg);
+  /* Menus, pickers and other popups float over busy content (the sidebar,
+     a board), so they are nearly solid instead of glass (card #506): at the
+     glass alpha the text behind them stays readable wherever the backdrop
+     blur doesn't render. Cards and the sidebar keep --glass-bg. */
+  --popover-alpha: 94%;
+  --popover: color-mix(
+    in oklch,
+    var(--glass-tint) var(--popover-alpha),
+    transparent
+  );
   --sidebar: var(--glass-bg);
 
   --fs: 1;
@@ -203,11 +212,37 @@ html[data-ds="irori"]
     .glass-panel
   ) {
   background: var(--glass-sheen), var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  /* -webkit- first, standard last (card #506): with the standard one first,
+     the production CSS minifier folds the pair into the -webkit- form alone,
+     which Chromium ignores, and the built app had no blur at all.
+     src/design/backdrop-order.test.ts keeps it so. */
   -webkit-backdrop-filter: blur(var(--glass-blur))
     saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow);
+}
+
+/* Popups keep the glass rim, shadow and blur but take the nearly solid
+   --popover fill (card #506): at the glass fill (62%, 30% under Clear) the
+   spaces menu showed the sidebar's text through it, and a menu has to read
+   cleanly even where the blur is weak or missing. */
+html[data-ds="irori"]
+  :is(
+    [data-slot="popover-content"],
+    [data-slot="dropdown-menu-content"],
+    [data-slot="dropdown-menu-sub-content"],
+    [data-slot="select-content"],
+    [data-slot="context-menu-content"],
+    [data-slot="context-menu-sub-content"],
+    [data-slot="combobox-content"],
+    [data-slot="menubar-content"],
+    [data-slot="menubar-sub-content"],
+    [data-slot="hover-card-content"],
+    [data-slot="tooltip-content"],
+    [data-slot="navigation-menu-content"]
+  ) {
+  background: var(--glass-sheen), var(--popover);
 }
 
 /* The dot grid (card #325, from agility-platform's glass theme): 1px dots

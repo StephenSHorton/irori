@@ -83,9 +83,11 @@ html.is-apple {
 @utility glass-panel {
   background: var(--glass-bg);
   /* Toru's .frost. Unprefixed too: WebView2 is Chromium, which ignores
-   * the -webkit- form, so without it nothing behind a panel would blur. */
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+   * the -webkit- form, so without it nothing behind a panel would blur.
+   * Keep -webkit- first: the other way round the build's minifier keeps
+   * only the -webkit- line (card #506). */
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow);
 }
