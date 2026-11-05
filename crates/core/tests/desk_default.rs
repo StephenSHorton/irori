@@ -80,7 +80,9 @@ fn a_github_repo_an_agent_works_in_shows_its_open_prs_within_one_poll() {
     let (r, gh) = rig();
     *gh.answer.lock().unwrap() = vec![pr(7, "StephenSHorton"), pr(8, "a-stranger")];
     agent_works_in(&r, REPO);
-    wait_for(10, "the default desk", || r.core.coord().desk(REPO).is_some());
+    wait_for(10, "the default desk", || {
+        r.core.coord().desk(REPO).is_some()
+    });
     assert_eq!(desk_rows(&r), 0, "no repo.desk row");
     let d = r.core.coord().desk(REPO).unwrap();
     assert!(d.on() && d.is_default());
@@ -89,10 +91,7 @@ fn a_github_repo_an_agent_works_in_shows_its_open_prs_within_one_poll() {
 
     r.core.check_desks();
     let s = r.core.coord().desk(REPO).unwrap().prs.expect("one poll");
-    assert_eq!(
-        s.prs.iter().map(|p| p.number).collect::<Vec<_>>(),
-        [7, 8]
-    );
+    assert_eq!(s.prs.iter().map(|p| p.number).collect::<Vec<_>>(), [7, 8]);
     assert_eq!(s.viewer, "StephenSHorton");
 
     // The person's own login is trusted; a stranger's PR is Outside.
@@ -106,7 +105,9 @@ fn a_github_repo_an_agent_works_in_shows_its_open_prs_within_one_poll() {
 fn turning_the_desk_off_hides_it_and_stops_polling() {
     let (r, gh) = rig();
     agent_works_in(&r, REPO);
-    wait_for(10, "the default desk", || r.core.coord().desk(REPO).is_some());
+    wait_for(10, "the default desk", || {
+        r.core.coord().desk(REPO).is_some()
+    });
     r.core.check_desks();
     assert_eq!(*gh.calls.lock().unwrap(), 1);
 
@@ -142,5 +143,9 @@ fn a_repo_with_no_github_remote_gets_no_desk() {
         .collect();
     assert_eq!(keys, [REPO]);
     r.core.check_desks();
-    assert_eq!(*gh.calls.lock().unwrap(), 1, "only the GitHub repo is polled");
+    assert_eq!(
+        *gh.calls.lock().unwrap(),
+        1,
+        "only the GitHub repo is polled"
+    );
 }

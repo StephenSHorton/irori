@@ -50,7 +50,9 @@ fn a_github_repo_an_agent_works_in_has_a_desk_with_no_desk_row() {
     );
     // And comes back the same on a restart (replay).
     let again = e.reopen();
-    let d = again.desk(REPO_A).expect("the default desk after a restart");
+    let d = again
+        .desk(REPO_A)
+        .expect("the default desk after a restart");
     assert!(d.on() && d.is_default());
     assert_eq!(d.settings.poll_device, "dev-a");
     assert_eq!(d.prs.unwrap().viewer, "you");

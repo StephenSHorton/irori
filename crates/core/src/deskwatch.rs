@@ -78,7 +78,11 @@ impl PrLister for GhLister {
         let Some(gh) = gh_path() else {
             return Err("gh (the GitHub CLI) isn't installed here".into());
         };
-        let v = run_gh(&gh, &["api", "user"], "gh couldn't say who it is signed in as")?;
+        let v = run_gh(
+            &gh,
+            &["api", "user"],
+            "gh couldn't say who it is signed in as",
+        )?;
         Ok(v["login"].as_str().unwrap_or_default().to_string())
     }
 }

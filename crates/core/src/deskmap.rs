@@ -264,7 +264,12 @@ pub fn opened_card(o: &Opened, tasks: &[Task], now_ms: i64) -> Option<String> {
 /// login when the person OK'd it at this head (a new push needs a new OK).
 pub fn desk_logins(desk: &coord::Desk, p: &coord::DeskPr) -> Vec<String> {
     let mut logins = desk.settings.trusted.clone();
-    if let Some(v) = desk.prs.as_ref().map(|s| s.viewer.trim()).filter(|v| !v.is_empty()) {
+    if let Some(v) = desk
+        .prs
+        .as_ref()
+        .map(|s| s.viewer.trim())
+        .filter(|v| !v.is_empty())
+    {
         logins.push(v.to_string());
     }
     let ok = desk
