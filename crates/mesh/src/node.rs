@@ -903,9 +903,13 @@ impl Node {
         let Ok(v) = self.o.store.vector() else {
             return;
         };
-        let newest = v
-            .get(dev)
-            .and_then(|seq| self.try_row_at(dev, *seq).ok().flatten());
+        let newest = match v.get(dev) {
+            Some(seq) => match self.try_row_at(dev, *seq) {
+                Ok(ev) => ev,
+                Err(_) => return, // the next read tries again
+            },
+            None => None,
+        };
         let now = self.now();
         let mut g = self.lock();
         let r = g.rows.entry(dev.to_string()).or_default();

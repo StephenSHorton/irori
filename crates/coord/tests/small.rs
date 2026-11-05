@@ -197,6 +197,7 @@ impl Rig {
             local: None,
             liveness: None,
             seen: None,
+            via: None,
             revoked: None,
         }
     }

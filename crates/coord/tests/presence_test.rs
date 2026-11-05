@@ -207,4 +207,25 @@ fn back_through_another_device_says_so() {
         ns[0].text
     );
     assert!(!ns[0].text.contains("online"), "{}", ns[0].text);
+
+    // It goes quiet and comes back, as a relayed idle device does: nobody
+    // is told or woken again.
+    for i in 1..4u64 {
+        let t = plus(t1, mins(15 * i));
+        let quiet = agents(OFFLINE, t);
+        assert!(e.c.sweep_presence_at(&quiet, &t, &here).is_empty());
+        let t = plus(t, mins(5));
+        assert!(e.c.sweep_presence_at(&quiet, &t, &here).is_empty());
+        let mut again = agents(coord::roster::RECENT, t);
+        for a in &mut again {
+            a.device_via = "Phone".into();
+        }
+        assert!(e.c.sweep_presence_at(&again, &t, &here).is_empty());
+    }
+
+    // A link of its own at last: said once.
+    let t2 = plus(t1, mins(90));
+    let ns = e.c.sweep_presence_at(&agents(CONNECTED, t2), &t2, &here);
+    assert_eq!(ns.len(), 1, "{ns:?}");
+    assert!(ns[0].text.contains("back online"), "{}", ns[0].text);
 }
