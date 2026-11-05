@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react"
 
 import type {
   AgentsChange,
+  AgentStartsView,
   AgentsSettings,
   RunningAgent,
   TermInfo,
@@ -16,7 +17,7 @@ import { AgentsService } from "./host"
 import { inWails } from "./irori"
 import { previewFlag } from "./preview"
 
-export type { AgentsSettings, RunningAgent, TrustedRepo }
+export type { AgentStartsView, AgentsSettings, RunningAgent, TrustedRepo }
 
 // sampleAgents is the preview's private board: chosen and on, or with
 // ?spawn=first on by default and not yet chosen, so Home shows the
@@ -71,6 +72,44 @@ export function idleLabel(m: number, def = 30): string {
   const n =
     m % 60 === 0 ? `${m / 60} hour${m === 60 ? "" : "s"}` : `${m} minutes`
   return m === def ? `${n} (default)` : n
+}
+
+// "My agents may start agents on my cards" (card #575): the person's own
+// limit, on all their devices. Only this pane changes it; no agent's tool can.
+const sampleStarts: AgentStartsView = {
+  on: previewFlag("agentstarts") !== "off",
+  max: 100,
+  used: previewFlag("agentstarts") === "full" ? 100 : 3,
+  ceiling: 1000,
+}
+
+export function useAgentStarts(open: boolean) {
+  const [s, setS] = useState<AgentStartsView | null>(
+    inWails() ? null : sampleStarts
+  )
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    AgentsService.Starts().then(
+      (v) => live && (setS(v), setError("")),
+      (e: Error) => live && setError(e.message)
+    )
+    return () => {
+      live = false
+    }
+  }, [open])
+  const set = (on: boolean, max: number) => {
+    if (!inWails()) {
+      setS((p) => p && { ...p, on, max })
+      return
+    }
+    AgentsService.SetStarts(on, max).then(
+      (v) => (setS(v), setError("")),
+      (e: Error) => setError(e.message)
+    )
+  }
+  return { starts: s, error, set }
 }
 
 // The preview's settings by board; a space's switch starts off, as it does

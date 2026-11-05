@@ -15,7 +15,7 @@ use specta::Type;
 use tauri::State;
 
 use crate::Window;
-use crate::agents::{AgentsChange, AgentsSettings, RunningAgent};
+use crate::agents::{AgentStartsView, AgentsChange, AgentsSettings, RunningAgent};
 use crate::attachments::AttachmentInfo;
 use crate::board::{AnswerResult, AskRepo, CommentResult, TaskResult, UploadFile};
 use crate::boards::{BoardSettings, BoardSummary, SharePreview};
@@ -1354,6 +1354,20 @@ pub async fn agents_settings(w: W<'_>, board_id: String) -> R<AgentsSettings> {
     Ok(w.agents_settings(&board_id))
 }
 
+/// "My agents may start agents on my cards" and its maximum (card #575).
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_starts(w: W<'_>) -> R<AgentStartsView> {
+    Ok(w.agents_starts())
+}
+
+/// The person changes it: the app only, never a tool.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_starts_set(w: W<'_>, on: bool, max: u32) -> R<AgentStartsView> {
+    w.agents_starts_set(on, max)
+}
+
 /// The person changes them: the app only, never a tool.
 #[tauri::command]
 #[specta::specta]
@@ -1724,6 +1738,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             term_list,
             agents_settings,
             agents_set,
+            agents_starts,
+            agents_starts_set,
             agents_offer_set,
             agents_end,
             agents_logs,

@@ -830,6 +830,43 @@ fn a_card_given_by_another_person_asks_first_and_starts_only_on_the_yes() {
         Some(s.person_actor().as_str()),
         "the question is Stephen's"
     );
+    // His agent can't say yes for him, on a card given to him or on Bob's
+    // own (card #575).
+    let agent_start = |id: &str| {
+        let c = tools::Caller {
+            sender: inbox::Sender::new(&format!("{s_dev}/{SESS_A}"), "alpha", "claude"),
+            path: inbox::path::MOD.into(),
+        };
+        let args = serde_json::json!({ "task_id": id }).to_string();
+        s.core
+            .tools()
+            .call(&c, "agent_start", args.as_bytes())
+            .unwrap()
+    };
+    let out = agent_start(&declined.id);
+    assert!(out.contains("own yes"), "{out}");
+    let bobs = bco
+        .create_task(
+            &b.person_actor(),
+            NewTask {
+                title: "Bob's own card".into(),
+                repo_key: REPO.into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    wait_for(WAIT, "Stephen sees Bob's own card", || {
+        sco.get_task(&bobs.id).is_some()
+    });
+    let out = agent_start(&bobs.id);
+    assert!(out.starts_with("Error: "), "{out}");
+    assert!(
+        !fs.started
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.task_id == bobs.id)
+    );
     wait_for(WAIT, "Bob's device sees the question", || {
         bco.get_task(&declined.id)
             .is_some_and(|t| t.blockers.iter().any(|b| b.id == q.id))

@@ -12,6 +12,7 @@ import { FolderIcon, ShieldAlertIcon, ShieldCheckIcon } from "lucide-react"
 
 import { ChoiceSelect } from "@/components/common/choice-select"
 import { PermissionsSection } from "@/components/settings/agent-permissions"
+import { AgentStartsSection } from "@/components/settings/agent-starts"
 import { SpaceAgentSwitch } from "@/components/settings/space-agents"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
@@ -120,6 +121,7 @@ export function AgentsPane({ open }: { open: boolean }) {
           className="w-48 text-[13px]"
         />
       </section>
+      <AgentStartsSection open={open} />
       <RunningSection open={open} />
       <PermissionsSection open={open} />
       <TrustedSection open={open} />

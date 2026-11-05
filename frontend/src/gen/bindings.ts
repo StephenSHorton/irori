@@ -312,6 +312,10 @@ export const commands = {
 	agentsSettings: (boardId: string) => __TAURI_INVOKE<AgentsSettings>("agents_settings", { boardId }),
 	/**  The person changes them: the app only, never a tool. */
 	agentsSet: (change: AgentsChange) => __TAURI_INVOKE<AgentsSettings>("agents_set", { change }),
+	/**  "My agents may start agents on my cards" and its maximum (card #575). */
+	agentsStarts: () => __TAURI_INVOKE<AgentStartsView>("agents_starts"),
+	/**  The person changes it: the app only, never a tool. */
+	agentsStartsSet: (on: boolean, max: number) => __TAURI_INVOKE<AgentStartsView>("agents_starts_set", { on, max }),
 	/**
 	 *  The person's "Offer it cards" on one of their terminal agents (card
 	 *  #453): the app only, never a tool. Spawned agents are refused.
@@ -467,6 +471,20 @@ export type AgentRef = {
 	 *  the default for its name.
 	 */
 	avatar?: string,
+};
+
+/**
+ *  "My agents may start agents on my cards" (card #575): the person's, on
+ *  all their devices, set here and never by a tool.
+ */
+export type AgentStartsView = {
+	on: boolean,
+	/**  The most agents their agents may have started at once. */
+	max: number,
+	/**  How many count toward it now. */
+	used: number,
+	/**  The highest maximum the app accepts. */
+	ceiling: number,
 };
 
 /**  The person's change: the fields left `None` keep what is stored. */
