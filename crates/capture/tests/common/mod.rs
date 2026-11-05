@@ -136,6 +136,13 @@ pub fn tempdir() -> (tempfile::TempDir, String) {
     (d, p)
 }
 
+impl Drop for Rig {
+    fn drop(&mut self) {
+        // Tasks and threads may still hold the store: close it so its files can go.
+        let _ = self.st.close();
+    }
+}
+
 impl Rig {
     pub fn new(modify: impl FnOnce(&mut Options)) -> Rig {
         let (d1, data) = tempdir();

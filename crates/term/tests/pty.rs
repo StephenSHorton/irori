@@ -30,6 +30,14 @@ fn card(id: &str, cwd: &std::path::Path) -> OpenSpec {
     }
 }
 
+/// A killed shell may stay in its folder for a moment, and Windows can't
+/// delete a folder in use. TempDir's own drop would give up at once.
+fn remove_when_free(dir: tempfile::TempDir) {
+    wait_for("the shell to leave its folder", || {
+        std::fs::remove_dir_all(dir.path()).is_ok()
+    });
+}
+
 #[test]
 fn a_card_terminal_runs_a_shell_and_outlives_its_view() {
     let dir = tempfile::tempdir().unwrap();
@@ -118,6 +126,7 @@ fn a_card_terminal_runs_a_shell_and_outlives_its_view() {
     assert!(!terms.in_scope(&Scope::Card("t1".into()))[0].running);
     terms.close(info.id).unwrap();
     assert!(terms.list().is_empty());
+    remove_when_free(dir);
 }
 
 #[test]
@@ -149,4 +158,5 @@ fn a_closed_view_is_forgotten() {
     );
     terms.close_all();
     assert!(terms.list().is_empty());
+    remove_when_free(dir);
 }

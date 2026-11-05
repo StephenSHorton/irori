@@ -418,7 +418,7 @@ fn test_default_owner_is_this_device() {
         )
         .unwrap(),
     );
-    let b = Book::start(Options::new(st, "dev1")).unwrap();
+    let b = Book::start(Options::new(st.clone(), "dev1")).unwrap();
     let a = b
         .post(Ask {
             by: AGENT1.into(),
@@ -433,6 +433,8 @@ fn test_default_owner_is_this_device() {
         Err(Error::NotPerson)
     ));
     b.answer(&a.id, "Ok", "user:dev1").unwrap();
+    // Book::start's thread keeps the store: close it so the dir can go.
+    st.close().unwrap();
 }
 
 #[test]

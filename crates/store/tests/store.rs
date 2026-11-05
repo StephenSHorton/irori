@@ -576,3 +576,27 @@ fn event_json_has_no_sig() {
         r#"{"deviceId":"","seq":0,"hlc":0,"actor":"","kind":"","payload":null}"#
     );
 }
+
+/// Close waits for reads already running, so the log's folder can go as soon
+/// as it returns. Windows can't delete a file a read still has open, and a
+/// background thread's read would leave the folder behind (card #556).
+#[test]
+fn close_waits_for_running_reads() {
+    for _ in 0..20 {
+        let dir = tempdir();
+        let s = Arc::new(open_test(dir.path(), "dev-a"));
+        must_append(&s, "agent.seen", &serde_json::json!({"key": "a"}));
+        let readers: Vec<_> = (0..4)
+            .map(|_| {
+                let s = s.clone();
+                std::thread::spawn(move || while s.list(&Filter::default()).is_ok() {})
+            })
+            .collect();
+        std::thread::sleep(Duration::from_millis(5));
+        s.close().unwrap();
+        std::fs::remove_dir_all(dir.path()).expect("the log's files are all closed");
+        for r in readers {
+            r.join().unwrap();
+        }
+    }
+}

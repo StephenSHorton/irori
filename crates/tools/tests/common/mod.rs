@@ -201,6 +201,13 @@ pub struct Harness {
     pub _dir: tempfile::TempDir,
 }
 
+impl Drop for Harness {
+    fn drop(&mut self) {
+        // Tasks and threads may still hold the store: close it so its files can go.
+        let _ = self.b.st.close();
+    }
+}
+
 pub fn card(key: &str, name: &str, repo: &str, mode: &str) -> presence::AgentCard {
     let sess = key.split_once('/').map(|(_, s)| s).unwrap_or("");
     presence::AgentCard {

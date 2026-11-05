@@ -139,6 +139,8 @@ impl Drop for Dev {
         if let Some(c) = self.stop.take() {
             c.cancel();
         }
+        // Tasks and threads may still hold the store: close it so its files can go.
+        let _ = self.st.close();
     }
 }
 

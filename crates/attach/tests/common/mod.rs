@@ -24,6 +24,7 @@ pub struct Host {
     pub server: irori_api::Server,
     stop: CancellationToken,
     served: Option<tokio::task::JoinHandle<std::io::Result<()>>>,
+    core: Arc<Core>,
 }
 
 impl Host {
@@ -48,6 +49,7 @@ impl Host {
             server,
             stop,
             served,
+            core,
         }
     }
 
@@ -63,6 +65,8 @@ impl Host {
 impl Drop for Host {
     fn drop(&mut self) {
         self.stop.cancel();
+        // Tasks and threads may still hold the store: close it so its files can go.
+        let _ = self.core.close();
     }
 }
 

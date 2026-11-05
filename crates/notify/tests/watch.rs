@@ -198,6 +198,8 @@ impl Drop for Rig {
         if let Some(h) = self.handle.take() {
             h.stop();
         }
+        // Tasks and threads may still hold the store: close it so its files can go.
+        let _ = self.st.close();
     }
 }
 
