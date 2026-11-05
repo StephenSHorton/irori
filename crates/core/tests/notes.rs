@@ -344,9 +344,11 @@ fn send_about(r: &Rig, task_id: &str, text: &str) {
 
 /// Alpha's wake, issued on another thread while this one holds `_held`: a
 /// wait on what it holds fails here instead of hanging the run.
-fn wake_while_held(r: &Rig, _held: impl Sized) -> inbox::Wake {
+fn wake_while_held(r: &Rig, held: impl Sized) -> inbox::Wake {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::scope(|s| {
+        // In here, so a failure lets go before the scope joins the thread.
+        let _held = held;
         s.spawn(|| {
             let w = r.core.inbox().next_wake(&r.key_a, inbox::path::MOD);
             let _ = tx.send(w);
