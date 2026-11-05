@@ -108,7 +108,7 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
     check_reason(&reason, false)?;
     if !(0..=super::MAX_AGENTS_PER_CARD).contains(&nt.agents) {
         return Err(invalid(format!(
-            "agents is 1 to {} (0 for the board's Agents per card)",
+            "agents is 1 to {} (0 for the space's Agents per card)",
             super::MAX_AGENTS_PER_CARD
         )));
     }
