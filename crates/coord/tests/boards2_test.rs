@@ -2081,6 +2081,58 @@ fn a_version_wait_on_a_board_is_refused() {
     assert!(err.to_string().contains("your own board"), "{err}");
 }
 
+/// Card #540: on a board too the person's answer to the crash question,
+/// sent as a resolve, goes on its thread under their board key, where the
+/// next agent's brief reads it, and clears the run.
+#[test]
+fn a_board_cards_crash_answer_goes_on_its_thread() {
+    let ra = TestRoster::new(&[CARD1]);
+    let (a, _b, _) = two_people_with(Some(ra.clone()), None);
+    let t = a.c.create_task(P1, nt("kills its agent", REPO_A)).unwrap();
+    for _ in 0..MAX_SPAWN_CRASHES {
+        ra.set(CARD1, "idle");
+        a.c.sweep_notices().unwrap();
+        let g =
+            a.c.request_spawn("irori", spawn_ask(&t.id, "dev-a"))
+                .unwrap()
+                .unwrap();
+        assert!(a.c.bind_spawn(&t.id, g, CARD1).unwrap());
+        a.c.claim_task(CARD1, &t.id).unwrap();
+        ra.set(CARD1, "");
+        a.c.sweep_notices().unwrap();
+        a.clk.add(HOLDER_GRACE + std::time::Duration::from_secs(1));
+        a.c.sweep_notices().unwrap();
+    }
+    let got = a.c.get_task(&t.id).unwrap();
+    assert_eq!(got.spawn_crashes, MAX_SPAWN_CRASHES, "{got:?}");
+    let q = got
+        .blockers
+        .iter()
+        .find(|b| b.open() && is_crash_question(b))
+        .expect("the person is asked")
+        .clone();
+    a.c.answer(
+        P1,
+        &t.id,
+        &q.id,
+        BlockerAnswer {
+            text: "try the smaller fixture".into(),
+            resolve: true,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    let got = a.c.get_task(&t.id).unwrap();
+    assert_eq!(got.state, SUBMITTED, "{got:?}");
+    assert_eq!(got.spawn_crashes, 0);
+    let cs = a.c.comments(&t.id).unwrap();
+    assert!(
+        cs.iter()
+            .any(|c| c.by == P1 && c.text == "try the smaller fixture"),
+        "{cs:?}"
+    );
+}
+
 /// Card #512: a thread in a board's own log gets its own agent at once,
 /// on the poster's device only, like a board card on the device that made
 /// it (#455). It names a card both people's agents hold: they are woken,

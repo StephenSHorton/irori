@@ -639,8 +639,10 @@ impl Window {
                 irori_acts: false,
             });
         }
-        // A card someone holds is theirs: the sweep leaves it alone.
+        // A card someone holds is theirs: the sweep leaves it alone. A card
+        // with subtasks gets no agent of its own.
         let irori_acts = irori_core::spawn_stop::irori_acts_on(bl)
+            && t.subtasks.is_empty()
             && t.holders.is_empty()
             && t.co_holders.is_empty()
             && t.assigned.is_empty();

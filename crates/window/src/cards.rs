@@ -88,6 +88,10 @@ pub struct AgentRef {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     #[specta(optional)]
     pub offline: bool,
+    /// The device its rows come through (card #544).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub device_via: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub conflict: String,
@@ -1309,6 +1313,7 @@ impl People {
             r.status = a.status.clone();
             r.live = a.status != "gone";
             r.offline = a.device_state == "offline";
+            r.device_via = a.device_via.clone();
             if a.status == "idle" {
                 r.idle_since = a.last_activity;
             }
