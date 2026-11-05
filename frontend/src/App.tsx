@@ -611,10 +611,10 @@ export function App() {
     },
     {
       id: "nav.boards",
-      title: "Boards",
+      title: "Spaces",
       group: "Go to",
       order: 2,
-      keywords: ["shared", "projects"],
+      keywords: ["shared", "projects", "boards"],
       run: () => goTo({ kind: "boards" }),
     },
     {
@@ -637,7 +637,9 @@ export function App() {
       id: "card.new",
       title:
         section.kind === "board" && !open
-          ? "New card on this board"
+          ? section.board
+            ? "New card on this board"
+            : "New card in this space"
           : "New card",
       order: 1,
       keywords: ["create", "add", "task"],
@@ -647,7 +649,7 @@ export function App() {
       id: "board.new",
       title: "New space",
       order: 2,
-      keywords: ["create", "add", "join", "invite"],
+      keywords: ["create", "add", "join", "invite", "board"],
       run: () => {
         goTo({ kind: "boards" })
         setNewBoard(true)
@@ -709,7 +711,7 @@ export function App() {
     setDrawer(false)
   }
 
-  // A phone (card #395, mockup talk-5): Home, Talk and Boards are tabs at
+  // A phone (card #395, mockup talk-5): Home, Talk and Spaces are tabs at
   // the bottom, and an open conversation is the whole screen, its own
   // header carrying Back.
   const narrow = useNarrow()
@@ -1065,7 +1067,7 @@ function BoardsNeedYou({
   if (!by.size) return null
   return (
     <p className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[12.5px] text-muted-foreground">
-      <span>Waiting on you on your boards:</span>
+      <span>Waiting on you in your spaces:</span>
       {[...by].map(([id, n]) => (
         <button
           key={id}
@@ -1073,7 +1075,7 @@ function BoardsNeedYou({
           className="text-destructive underline-offset-2 hover:underline"
           onClick={() => go({ kind: "board", id })}
         >
-          {boards.find((b) => b.boardId === id)?.name || "a board"} ({n})
+          {boards.find((b) => b.boardId === id)?.name || "a space"} ({n})
         </button>
       ))}
     </p>
