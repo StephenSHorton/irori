@@ -160,6 +160,7 @@ export const commands = {
 	boardsRename: (boardId: string, name: string) => __TAURI_INVOKE<BoardSummary>("boards_rename", { boardId, name }),
 	boardsLeave: (boardId: string) => __TAURI_INVOKE<null>("boards_leave", { boardId }),
 	boardsAddToSpace: (spaceId: string, name: string, tag: string) => __TAURI_INVOKE<BoardSummary>("boards_add_to_space", { spaceId, name, tag }),
+	boardsRenameInSpace: (spaceId: string, boardId: string, name: string) => __TAURI_INVOKE<BoardSummary>("boards_rename_in_space", { spaceId, boardId, name }),
 	boardsForgetNow: (boardId: string) => __TAURI_INVOKE<null>("boards_forget_now", { boardId }),
 	boardsRemoveMember: (boardId: string, personId: string) => __TAURI_INVOKE<BoardSettings>("boards_remove_member", { boardId, personId }),
 	boardsSetRole: (boardId: string, personId: string, role: string) => __TAURI_INVOKE<BoardSettings>("boards_set_role", { boardId, personId, role }),
@@ -798,9 +799,13 @@ export type CardBlocker = {
 
 /**  The shared board a card lives on (v0.5 §8). */
 export type CardBoard = {
+	/**  The space's id. */
 	id: string,
 	name: string,
+	/**  The tag of the board it's on, which is the card's. */
 	tag: string,
+	/**  The board in the space it's on (see [`CardSummary::space_board`]). */
+	spaceBoard: string,
 	visibleTo: string[],
 	canWithdraw: boolean,
 	/**
@@ -988,7 +993,13 @@ export type CardSummary = {
 	repoKey: string,
 	scope: string,
 	scopeLabel: string,
+	/**  The space it's in, by id (the space's first board has this id too). */
 	board?: string,
+	/**
+	 *  The board in that space it's on (card #558): the space's id for the
+	 *  first board, or a board this device hasn't heard of yet.
+	 */
+	spaceBoard?: string,
 	/**  The work/personal side it's on (card #494); empty for any side. */
 	side?: string,
 	/**  Why it waits on its side (card #495): "no device here runs Work". */
@@ -1685,6 +1696,11 @@ export type NewCardInput = {
 	 *  from its page. "": the person's own board.
 	 */
 	board?: string,
+	/**
+	 *  The board inside that space it goes on (card #558), by id: "" or
+	 *  the space's own id for its first board.
+	 */
+	spaceBoard?: string,
 	/**
 	 *  Files pasted, dropped or picked in the form (card #124): they go on
 	 *  the card as the person's first comment, and with the hand-out.

@@ -23,6 +23,9 @@ pub struct NewCardInput {
     /// A shared board's id (card #126): the card goes on that board, made
     /// from its page. "": the person's own board.
     pub board: String,
+    /// The board inside that space it goes on (card #558), by id: "" or
+    /// the space's own id for its first board.
+    pub space_board: String,
     /// Files pasted, dropped or picked in the form (card #124): they go on
     /// the card as the person's first comment, and with the hand-out.
     pub files: Vec<UploadFile>,
@@ -125,6 +128,8 @@ impl Window {
             .core
             .board_key(board, &self.core.user_sender().key)
             .map_err(|e| e.to_string())?;
+        // A card's row names only an inner board: the first has no id there.
+        let inner = crate::trim(&input.space_board);
         let t = co
             .create_task(
                 &me,
@@ -133,6 +138,7 @@ impl Window {
                     objective: crate::trim(&input.objective).into(),
                     done_criteria: crate::trim(&input.done_when).into(),
                     repo_key: crate::trim(&input.repo_key).into(),
+                    board: if inner == board { "" } else { inner }.into(),
                     ..NewTask::default()
                 },
             )

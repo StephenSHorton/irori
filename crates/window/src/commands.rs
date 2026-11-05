@@ -759,6 +759,17 @@ pub async fn boards_add_to_space(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn boards_rename_in_space(
+    w: W<'_>,
+    space_id: String,
+    board_id: String,
+    name: String,
+) -> R<BoardSummary> {
+    w.boards_rename_in_space(&space_id, &board_id, &name)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn boards_rename(w: W<'_>, board_id: String, name: String) -> R<BoardSummary> {
     w.boards_rename(&board_id, &name)
 }
@@ -1621,6 +1632,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_rename,
             boards_leave,
             boards_add_to_space,
+            boards_rename_in_space,
             boards_forget_now,
             boards_remove_member,
             boards_set_role,

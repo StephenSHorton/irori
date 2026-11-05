@@ -225,6 +225,99 @@ fn new_card_on_a_board() {
     );
 }
 
+/// Card #558: a card made on a board inside a space shows that board's tag
+/// and id everywhere the window names it, and `board` stays the space's id.
+/// A first board's card carries the space's id, asked for either way.
+#[test]
+fn a_card_shows_the_board_it_is_on_inside_its_space() {
+    use irori_window::new_card::NewCardInput;
+    let r = Rig::new();
+    let w = &r.w;
+    let wind = w.boards_create("Wind", "wind").unwrap();
+    let net = w
+        .boards_add_to_space(&wind.board_id, "Netcode", "net")
+        .unwrap()
+        .boards[1]
+        .board_id
+        .clone();
+    let make = |title: &str, space_board: &str| {
+        w.create_card(NewCardInput {
+            title: title.into(),
+            board: wind.board_id.clone(),
+            space_board: space_board.into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .task
+    };
+    let on_net = make("rollback", &net);
+    let on_first = make("sails", "");
+    let on_first_by_id = make("oars", &wind.board_id);
+    assert_eq!(on_net.short_ref(), "net#1");
+    assert_eq!(on_first.short_ref(), "wind#1");
+    assert_eq!(on_first_by_id.short_ref(), "wind#2");
+    assert_eq!(on_first_by_id.board, "");
+
+    let grid = w.cards();
+    let card = |id: &str| grid.iter().find(|c| c.id == id).unwrap();
+    let c = card(&on_net.id);
+    assert_eq!(
+        (c.board.as_str(), c.tag.as_str(), c.space_board.as_str()),
+        (wind.board_id.as_str(), "net", net.as_str())
+    );
+    let c = card(&on_first.id);
+    assert_eq!(
+        (c.board.as_str(), c.tag.as_str(), c.space_board.as_str()),
+        (wind.board_id.as_str(), "wind", wind.board_id.as_str())
+    );
+
+    let d = w.card(&on_net.id).unwrap();
+    assert_eq!(d.summary.board, wind.board_id);
+    assert_eq!(d.summary.tag, "net");
+    assert_eq!(d.summary.space_board, net);
+    let on = d.on_board.unwrap();
+    assert_eq!(
+        (on.id.as_str(), on.tag.as_str(), on.space_board.as_str()),
+        (wind.board_id.as_str(), "net", net.as_str())
+    );
+    let on = w.card(&on_first.id).unwrap().on_board.unwrap();
+    assert_eq!(
+        (on.tag.as_str(), on.space_board.as_str()),
+        ("wind", wind.board_id.as_str())
+    );
+
+    // A board the space doesn't hold is refused, not put on the first.
+    let e = w
+        .create_card(NewCardInput {
+            title: "x".into(),
+            board: wind.board_id.clone(),
+            space_board: "nope".into(),
+            ..Default::default()
+        })
+        .unwrap_err();
+    assert!(e.contains("no board"), "{e}");
+}
+
+/// Card #558: Rename in a space names one board, and leaves the space's
+/// name alone even when that board is the first.
+#[test]
+fn renaming_a_board_in_a_space_from_the_window() {
+    let r = Rig::new();
+    let w = &r.w;
+    let wind = w.boards_create("Wind", "wind").unwrap();
+    let id = wind.board_id;
+    let s = w.boards_add_to_space(&id, "Netcode", "net").unwrap();
+    let net = s.boards[1].board_id.clone();
+    let s = w.boards_rename_in_space(&id, &net, "Sockets").unwrap();
+    assert_eq!(s.boards[1].name, "Sockets");
+    assert_eq!(s.boards[1].tag, "net");
+    let s = w.boards_rename_in_space(&id, &id, "Tasks").unwrap();
+    assert_eq!(s.boards[0].name, "Tasks");
+    assert_eq!(s.name, "Wind");
+    let e = w.boards_rename_in_space(&id, "nope", "x").unwrap_err();
+    assert!(e.contains("no board"), "{e}");
+}
+
 /// A Rig on loopback iroh with no LAN lookup (the invite tests).
 fn on_loopback() -> Rig {
     Rig::with(|o| {

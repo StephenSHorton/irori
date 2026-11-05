@@ -1177,7 +1177,7 @@ fn a_second_board_and_a_channel_in_a_space_reach_bob() {
 
     // Bob isn't an owner, and any member renames a board (card #558): the
     // first board too, while the space's name stays Alice's to change.
-    let joined = |c: &Core| c.board_list().into_iter().find(|s| s.board_id == space);
+    let joined = |c: &irori_core::Core| c.board_list().into_iter().find(|s| s.board_id == space);
     let space_name = joined(&a1.core).unwrap().name;
     b1.core.rename_space_board(&space, &net, "Sockets").unwrap();
     b1.core.rename_space_board(&space, &space, "Tasks").unwrap();

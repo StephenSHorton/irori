@@ -311,7 +311,22 @@ impl Window {
         self.boards_find(space_id)
     }
 
-    /// BoardsService.Rename (owners).
+    /// Renames a board of space `space_id`, its first (the space's id) too
+    /// (card #558): any member may, and the space keeps its own name.
+    /// Refused, like adding one, until every member device reads spaces.
+    pub fn boards_rename_in_space(
+        &self,
+        space_id: &str,
+        board_id: &str,
+        name: &str,
+    ) -> Result<BoardSummary, String> {
+        self.core
+            .rename_space_board(space_id, board_id, name)
+            .map_err(text)?;
+        self.boards_find(space_id)
+    }
+
+    /// BoardsService.Rename (owners): the space's own name.
     pub fn boards_rename(&self, board_id: &str, name: &str) -> Result<BoardSummary, String> {
         self.core.rename_board(board_id, name).map_err(text)?;
         self.boards_find(board_id)
@@ -412,7 +427,9 @@ impl Window {
             d.summary.scope = SCOPE_BOARD.into();
             d.summary.scope_label = s.name.clone();
             d.summary.board = s.board_id.clone();
-            d.summary.tag = s.tag.clone();
+            let (tag, space_board) = crate::cards::card_place(t, &s);
+            d.summary.tag = tag.clone();
+            d.summary.space_board = space_board.clone();
             // The fold takes a cancel only from the creator's person or an
             // owner (§5.3); with one person on the board that is always
             // them.
@@ -420,7 +437,8 @@ impl Window {
             d.on_board = Some(CardBoard {
                 id: s.board_id,
                 name: s.name,
-                tag: s.tag,
+                tag,
+                space_board,
                 visible_to: s.people,
                 can_withdraw: !t.withdrawn
                     && (s.owner || t.created_by.starts_with("user:") || t.created_by == user),

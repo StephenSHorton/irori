@@ -212,9 +212,15 @@ pub struct CardSummary {
     pub repo_key: String,
     pub scope: String,
     pub scope_label: String,
+    /// The space it's in, by id (the space's first board has this id too).
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub board: String,
+    /// The board in that space it's on (card #558): the space's id for the
+    /// first board, or a board this device hasn't heard of yet.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub space_board: String,
     /// The work/personal side it's on (card #494); empty for any side.
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
@@ -807,9 +813,13 @@ pub struct CardMessage {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CardBoard {
+    /// The space's id.
     pub id: String,
     pub name: String,
+    /// The tag of the board it's on, which is the card's.
     pub tag: String,
+    /// The board in the space it's on (see [`CardSummary::space_board`]).
+    pub space_board: String,
     pub visible_to: Vec<String>,
     pub can_withdraw: bool,
     /// Card #432: Transfer ownership… is offered (the owner hands it to
@@ -1456,6 +1466,15 @@ fn cant_start_text(t: &Task, sp: &coord::Spawn, p: &People) -> String {
     } else {
         format!("no copy of {} on {dev}", coord::repo_name(&t.repo_key))
     }
+}
+
+/// Where card `t` of space `s` sits: its tag (a card folded with none has
+/// the space's) and the board in the space it's on (card #558).
+pub(crate) fn card_place(t: &Task, s: &irori_core::BoardSummary) -> (String, String) {
+    let tag = if t.tag.is_empty() { &s.tag } else { &t.tag };
+    let known = s.boards.iter().any(|b| b.board_id == t.board);
+    let board = if known { &t.board } else { &s.board_id };
+    (tag.clone(), board.clone())
 }
 
 pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
@@ -2110,7 +2129,7 @@ impl Window {
                     s.scope = crate::boards::SCOPE_BOARD.into();
                     s.scope_label = b.name.clone();
                     s.board = b.board_id.clone();
-                    s.tag = b.tag.clone();
+                    (s.tag, s.space_board) = card_place(&t, b);
                     self.board_owner(&b.board_id, &t, &mut s);
                     s
                 }
@@ -2198,7 +2217,7 @@ impl Window {
                 cs.scope = crate::boards::SCOPE_BOARD.into();
                 cs.scope_label = s.name.clone();
                 cs.board = s.board_id.clone();
-                cs.tag = s.tag.clone();
+                (cs.tag, cs.space_board) = card_place(&t, &s);
                 self.board_owner(&s.board_id, &t, &mut cs);
                 let mut last = t.updated_at;
                 if let Some(acts) = co.activity(&t.id)

@@ -260,7 +260,7 @@ export function CardBlocker(p: Partial<B.CardBlocker> = {}): B.CardBlocker {
 
 /** CardBoard with Go's zero values for every field left out. */
 export function CardBoard(p: Partial<B.CardBoard> = {}): B.CardBoard {
-  return { "id": "", "name": "", "tag": "", "visibleTo": [], "canWithdraw": false, "canTransfer": false, ...p } as B.CardBoard
+  return { "id": "", "name": "", "tag": "", "spaceBoard": "", "visibleTo": [], "canWithdraw": false, "canTransfer": false, ...p } as B.CardBoard
 }
 
 /** CardDetail with Go's zero values for every field left out. */
