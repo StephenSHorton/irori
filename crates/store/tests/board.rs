@@ -114,6 +114,7 @@ fn board_refuses_kinds() {
         "node.addr",
         "ask.posted",
         "board.joined",
+        "dm.space.joined",
         "receive.set",
         "board.sharedcopy",
         "board.cardof",

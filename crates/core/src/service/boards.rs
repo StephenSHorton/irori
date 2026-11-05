@@ -2604,6 +2604,25 @@ impl super::Core {
     pub fn reconcile_boards(&self) {
         self.s.reconcile_boards();
     }
+
+    /// Whether `id` is a hidden DM space by this person's markers (tests;
+    /// card #538).
+    #[doc(hidden)]
+    pub fn is_dm_space(&self, id: &str) -> bool {
+        self.s.is_dm_space(id)
+    }
+
+    /// DM space `id`'s creator and other person (tests; card #538).
+    #[doc(hidden)]
+    pub fn dm_space(&self, id: &str) -> Option<(MemberPin, String)> {
+        self.s.dm_spaces.get(id).map(|d| (d.creator, d.with))
+    }
+
+    /// Writes a DM space's private marker (tests; card #538).
+    #[doc(hidden)]
+    pub fn write_dm_marker(&self, id: &str, creator: &MemberPin, with: &str) -> Result<()> {
+        self.s.write_dm_marker(id, creator, with)
+    }
 }
 
 /// An agent.card's status (§2.4) for a session's presence status, `None`

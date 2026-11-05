@@ -114,8 +114,9 @@ const SINCE_GO: [&str; 24] = [
 /// cursors, card #389; agents' faces, card #407; the merge desk's rows,
 /// card #415; the person's picture, card #393; the notification
 /// history, card #377; spawned agents, card #446; the sides a device
-/// runs, card #494; spawning across the person's devices, card #455).
-const SINCE_GO_REFUSED: [&str; 23] = [
+/// runs, card #494; spawning across the person's devices, card #455; a
+/// hidden DM space's marker, card #538).
+const SINCE_GO_REFUSED: [&str; 24] = [
     kinds::AGENT_OFFER,
     kinds::SPAWN_HOST,
     kinds::SPAWN_END_REQUESTED,
@@ -139,6 +140,7 @@ const SINCE_GO_REFUSED: [&str; 23] = [
     kinds::NOTIFICATION_POSTED,
     kinds::NOTIFICATION_READ,
     kinds::DEVICE_SIDES,
+    kinds::DM_SPACE_JOINED,
 ];
 
 #[test]

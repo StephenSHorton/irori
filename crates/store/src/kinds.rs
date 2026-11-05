@@ -305,6 +305,10 @@ kinds! {
     // v0.5 private-log rows, never in a board log
     BOARD_JOINED = "board.joined" => Replicated, Refuses;
     BOARD_FORGOT = "board.forgot" => Replicated, Refuses;
+    /// `{boardId, creator, with, at}`: a hidden two-person DM space (card
+    /// #538). It plays board.joined's part and says the space is hidden;
+    /// an older device stores it and ignores it, so it never opens one.
+    DM_SPACE_JOINED = "dm.space.joined" => Replicated, Refuses;
     RECEIVE_SET = "receive.set" => Replicated, Refuses;
     AUTONOMY_SET = "autonomy.set" => Replicated, Refuses;
     /// The person's threads on a shared board: shared with every member,

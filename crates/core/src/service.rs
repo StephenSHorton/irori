@@ -290,6 +290,8 @@ struct Services {
     mesh: Arc<crate::meshnode::Mesh>,
     /// The shared boards (Go `c.boards`).
     boards: Arc<Boards>,
+    /// The hidden DM spaces' markers (card #538).
+    dm_spaces: Arc<boards_own::DmSpaces>,
     /// The open board invite (card #44).
     invites: invites::Invites,
 }
@@ -1176,6 +1178,11 @@ impl Core {
             let now = now.clone();
             Some(Arc::new(move || now().utc()))
         }));
+        // Before Talk folds a row and before any space opens (card #538).
+        let dm_spaces = Arc::new(boards_own::DmSpaces::default());
+        if let Err(e) = dm_spaces.load(&st) {
+            logf(format_args!("dm spaces: load: {e}"));
+        }
         if let Err(e) = talk.load() {
             logf(format_args!("talk: load: {e}"));
         }
@@ -1365,6 +1372,7 @@ impl Core {
             revoke: Some(opts.revoke.clone().unwrap_or_else(|| mesh.revoke_fn())),
             mesh,
             boards: board_set,
+            dm_spaces,
             invites,
         });
         let _ = svc_cell.set(Arc::downgrade(&s));
@@ -1727,6 +1735,11 @@ impl Core {
                         s.settle_notifications();
                         s.hub.publish(CoreEvent::Devices);
                         s.hub.publish(CoreEvent::Notifications);
+                        // Card #538: this thread doesn't wait for the
+                        // reconcile, which reads the markers too.
+                        if let Err(e) = s.dm_spaces.load(&s.store) {
+                            logf(format_args!("dm spaces: load: {e}"));
+                        }
                         let _ = s.talk.load();
                         s.hub.publish(CoreEvent::Talk);
                     } else if coord::talk::KINDS.contains(&ev.kind.as_str()) {
