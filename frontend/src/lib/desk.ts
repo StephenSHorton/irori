@@ -14,6 +14,7 @@ import { inWails, parseTime } from "./irori"
 import type { DeskView } from "./models"
 import { previewFlag } from "./preview"
 import { sampleDesks } from "./sample-desk"
+import { AllSpaces, Personal } from "./spaces"
 
 // A PR as the poller keeps it (coord DeskPr, slice 1): gh pr list's
 // fields, with statusCheckRollup summed up in checks: "" (none),
@@ -324,6 +325,48 @@ export function queueCount(snap: DeskSnapshot | null | undefined): string {
     : `${n} open on GitHub`
 }
 
+// TalkDesk is a merge desk as Talk › Channels lists it (card #521): every
+// desk that is on, under the repo's owner/name, its open PRs in the
+// subtitle and its Outside PRs as what needs you.
+export type TalkDesk = {
+  repoKey: string
+  name: string
+  sub: string
+  needYou: number
+}
+
+// talkDesks is the desks Talk › Channels lists for the picked space and
+// search. Desks live in the person's own log (§7 Scope), so a shared
+// space lists none.
+export function talkDesks(
+  desks: Desk[],
+  space: string,
+  query = ""
+): TalkDesk[] {
+  if (space !== AllSpaces && space !== Personal) return []
+  const q = query.trim().toLowerCase()
+  return desks
+    .filter((d) => deskOn(d) && d.settings.repoKey)
+    .map((d) => ({
+      repoKey: d.settings.repoKey,
+      name: ownerName(d.settings.repoKey),
+      sub: deskSub(d.prs),
+      needYou: deskQueue(inputsOf(d)).filter((l) => l.state === "outside")
+        .length,
+    }))
+    .filter(
+      (t) => !q || t.name.toLowerCase().includes(q) || "merge desk".includes(q)
+    )
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+// deskSub is a desk's line under its name in Talk.
+export function deskSub(snap: DeskSnapshot | null | undefined): string {
+  if (snap && snap.prs.length === 0 && !snap.truncated)
+    return "No open PRs on GitHub"
+  return `merge desk · ${queueCount(snap)}`
+}
+
 // ---- the gateway ------------------------------------------------------------
 //
 // Desk is one repo's desk as the Core folds it (coord Desk, slice 1),
@@ -341,6 +384,11 @@ export type Desk = {
   authors?: Record<number, PrAuthor>
   checks?: DeskCheck[]
   merged?: MergedPr[]
+  // The settings are the default every GitHub repo an agent works in gets
+  // (card #521): on, held by nobody, polled where the repo was seen last.
+  isDefault?: boolean
+  // The device that saw the repo last ("" never seen).
+  seenOn?: string
 }
 
 // inputsOf is what deskQueue needs from one desk.
@@ -391,6 +439,8 @@ export function fromHost(v: DeskView): Desk {
   const st = v.settings
   const repoKey = st.repoKey
   return {
+    isDefault: v.isDefault,
+    seenOn: v.seenOn || undefined,
     settings: {
       repoKey,
       enabled: st.enabled,

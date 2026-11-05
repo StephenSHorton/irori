@@ -463,9 +463,10 @@ export function DeskPage({
           No merge desks yet
         </span>
         A merge desk lists a repo&apos;s open PRs from GitHub and lets one agent
-        merge them in turn.
+        merge them in turn. Every GitHub repo gets one by itself once an agent
+        works in it.
         <Button size="sm" onClick={onSettings}>
-          Set one up in Settings
+          Merge desk settings
         </Button>
       </div>
     )

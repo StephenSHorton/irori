@@ -1,8 +1,10 @@
 // DesksPane is Settings › Merge desks (card #417, docs/design/
-// merge-desk.md §7, mockup desk-6): one repo.desk row per repo, set once.
-// Each desk names its holder, the device that polls GitHub, the logins it
-// trusts besides your agents, its check lines and merge method. Agents
-// can't write any of this: only you, here.
+// merge-desk.md §7, mockup desk-6). Every GitHub repo an agent works in
+// has a desk by itself (card #521): on, held by nobody so nothing merges,
+// polled from the device that saw the repo last. Here the person turns a
+// desk off, names its holder, the device that polls GitHub, the logins it
+// trusts besides their agents and their own, its check lines and merge
+// method. Agents can't write any of this: only you, here.
 
 import { useMemo, useState } from "react"
 import { GitMergeIcon, PlusIcon, Trash2Icon } from "lucide-react"
@@ -80,11 +82,15 @@ function DeskEditor({
   start,
   agents,
   devices,
+  follow,
   onDone,
 }: {
   start: RepoDesk
   agents: Choice[]
   devices: Choice[]
+  // The device that saw the repo last, by name: a blank poll device
+  // follows it (card #521). "" when no device has seen the repo.
+  follow: string
   onDone: () => void
 }) {
   const [d, setD] = useState<RepoDesk>(start)
@@ -145,7 +151,15 @@ function DeskEditor({
           size="sm"
           value={d.pollDevice || NONE}
           onValueChange={(v) => set({ pollDevice: v === NONE ? "" : v })}
-          choices={[{ value: NONE, label: "Pick a device" }, ...devices]}
+          choices={[
+            {
+              value: NONE,
+              label: follow
+                ? `Where agents last worked in it (${follow})`
+                : "Pick a device",
+            },
+            ...devices,
+          ]}
         />
       </Field>
       <Field
@@ -298,6 +312,8 @@ export function DesksPane({ open }: { open: boolean }) {
         .map((v) => ({ value: v.deviceId, label: v.name || v.deviceId })),
     [devices]
   )
+  const deviceName = (id: string) =>
+    deviceChoices.find((c) => c.value === id)?.label ?? "another device"
   const nameOf = (key?: string) =>
     key ? (agents.find((a) => a.value === key)?.label ?? unknownAgent) : ""
   const here = roster.device?.id ?? ""
@@ -318,14 +334,20 @@ export function DesksPane({ open }: { open: boolean }) {
   return (
     <div className="grid gap-3">
       <p className="text-[12.5px] text-muted-foreground">
-        One desk per repo, set once. Open PRs come from GitHub; one agent merges
-        them in turn under the repo&apos;s checks. Only you change these: agents
-        can&apos;t. Tags and releases are never the desk&apos;s.
+        Every GitHub repo your agents work in has a desk: its open PRs come from
+        GitHub. Nobody holds a new desk, so nothing merges until you name a
+        holder; then it merges them in turn under the repo&apos;s checks. Only
+        you change these: agents can&apos;t. Tags and releases are never the
+        desk&apos;s.
       </p>
       {shown.map((d) => {
         const s = d.settings
         const on = s.enabled && s.takesPrs
         const open = editing === s.repoKey
+        // A default desk's poll device follows where the repo was seen
+        // last; saving it leaves it blank so it keeps following.
+        const start = d.isDefault ? { ...s, pollDevice: "" } : s
+        const follow = d.seenOn ? deviceName(d.seenOn) : ""
         return (
           <section
             key={s.repoKey}
@@ -345,10 +367,13 @@ export function DesksPane({ open }: { open: boolean }) {
                 {!s.takesPrs
                   ? "No desk: this repo takes no PRs."
                   : [
+                      d.isDefault && "on by itself",
                       s.holder ? `held by ${nameOf(s.holder)}` : "unheld",
                       `${s.checks.length} check line${s.checks.length === 1 ? "" : "s"}`,
                       s.mergeMethod,
-                    ].join(" · ")}
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
               </span>
               <span className="ml-auto flex items-center gap-2 text-[12.5px] text-ink-2">
                 {!open && (
@@ -368,9 +393,9 @@ export function DesksPane({ open }: { open: boolean }) {
                   onCheckedChange={(v) =>
                     deskActions
                       .setDesk({
-                        ...s,
+                        ...start,
                         enabled: v,
-                        pollDevice: s.pollDevice || here,
+                        pollDevice: start.pollDevice || (d.seenOn ? "" : here),
                       })
                       .catch((e: unknown) => setError(errorText(e)))
                   }
@@ -380,9 +405,10 @@ export function DesksPane({ open }: { open: boolean }) {
             {open && (
               <DeskEditor
                 key={s.at ?? "new"}
-                start={s}
+                start={start}
                 agents={agents}
                 devices={deviceChoices}
+                follow={follow}
                 onDone={() => setEditing("")}
               />
             )}
