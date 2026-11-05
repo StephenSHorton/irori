@@ -87,7 +87,10 @@ impl Fold {
             let kind = b.on.as_ref().map(|on| on.kind.as_str()).unwrap_or("");
             if kind == BLOCKED_ON_AGENT {
                 let k = &b.on.as_ref().unwrap().reference;
-                if self.key_gone_in(k, rs) {
+                // A part waiting on a gone lead goes to the next lead.
+                let led = b.question == super::parts::PART_QUESTION
+                    && (self.lead_coming(t) || !self.lead_of(t).is_empty());
+                if !led && self.key_gone_in(k, rs) {
                     out.push(Stranded {
                         blocker_id: b.id.clone(),
                         agent: k.clone(),

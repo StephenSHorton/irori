@@ -125,6 +125,88 @@ fn a_part_with_no_lead_asks_the_person() {
     assert_eq!(done_checks(&e.c, &made[0].id), 1);
 }
 
+/// An env on a spawning board.
+fn spawning() -> Env {
+    use std::sync::Arc;
+    let mut e = env();
+    e.c = e.reopen_with(Options {
+        done_check: true,
+        spawning: Some(Arc::new(|| true)),
+        ..e.opts()
+    });
+    e
+}
+
+/// #498's run: the lead's session drops off while the helpers work.
+fn lead_lost() -> (Env, Task, Vec<Task>) {
+    let e = spawning();
+    let (p, made) = led(&e, vec![sub("a", true), sub("b", true), sub("c", true)]);
+    e.c.leave(LEAD, &p.id, LEAD).unwrap();
+    (e, p, made)
+}
+
+fn spawn_ids(c: &Coord) -> Vec<String> {
+    c.cards_to_spawn().into_iter().map(|t| t.id).collect()
+}
+
+#[test]
+fn a_part_whose_lead_went_waits_for_the_next_lead() {
+    let (e, p, made) = lead_lost();
+    assert!(
+        !spawn_ids(&e.c).contains(&p.id),
+        "nothing to merge yet: a fresh lead would only idle out"
+    );
+    for (k, h) in made.iter().zip(HELPERS) {
+        e.c.set_task_state(h, &k.id, COMPLETED, "on my branch")
+            .unwrap();
+        assert_eq!(done_checks(&e.c, &k.id), 0, "not the person's to answer");
+    }
+    assert!(spawn_ids(&e.c).contains(&p.id));
+    assert!(!is_terminal(&e.c.get_task(&p.id).unwrap().state));
+}
+
+#[test]
+fn the_next_lead_accepts_the_parts_and_the_card_asks_once() {
+    let (e, p, made) = lead_lost();
+    for (k, h) in made.iter().zip(HELPERS) {
+        e.c.set_task_state(h, &k.id, COMPLETED, "on my branch")
+            .unwrap();
+    }
+    let next = "dev-a/next-lead";
+    e.c.claim_task(next, &p.id).unwrap();
+    assert!(!spawn_ids(&e.c).contains(&p.id), "it has its lead");
+    for k in &made {
+        e.c.set_task_state(next, &k.id, COMPLETED, "merged")
+            .unwrap();
+        assert_eq!(done_checks(&e.c, &k.id), 0);
+    }
+    e.c.set_task_state(next, &p.id, COMPLETED, "merged and landed")
+        .unwrap();
+    assert_eq!(done_checks(&e.c, &p.id), 1);
+}
+
+#[test]
+fn a_part_done_before_the_lead_goes_still_brings_a_new_lead() {
+    let e = spawning();
+    let (p, made) = led(&e, vec![sub("a", true)]);
+    e.c.set_task_state(HELPERS[0], &made[0].id, COMPLETED, "on my branch")
+        .unwrap();
+    e.c.leave(LEAD, &p.id, LEAD).unwrap();
+    assert!(spawn_ids(&e.c).contains(&p.id));
+    assert_eq!(done_checks(&e.c, &made[0].id), 0);
+}
+
+#[test]
+fn a_part_waiting_on_a_gone_lead_is_not_stranded_while_a_lead_is_coming() {
+    let e = spawning();
+    let (p, made) = led(&e, vec![sub("a", true)]);
+    e.c.set_task_state(HELPERS[0], &made[0].id, COMPLETED, "on my branch")
+        .unwrap();
+    e.c.leave(LEAD, &p.id, LEAD).unwrap();
+    e.c.leave(HELPERS[0], &made[0].id, HELPERS[0]).unwrap();
+    assert!(e.c.stranded(&made[0].id).is_empty());
+}
+
 #[test]
 fn a_marked_step_moves_its_mark_to_the_subtask_and_marks_stay() {
     let e = env();
