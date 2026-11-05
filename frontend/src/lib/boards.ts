@@ -272,6 +272,18 @@ export const boards = {
     return b
   },
 
+  // deleteFromSpace deletes a board (card #563): its cards go to the space's
+  // first board with new numbers there, and their old refs still find them.
+  // Any member may. The first board can't go, and it's refused, naming the
+  // devices, until every member device runs an Irori that reads spaces.
+  async deleteFromSpace(spaceId: string, boardId: string): Promise<BoardSummary> {
+    if (inWails()) return BoardsService.DeleteInSpace(spaceId, boardId)
+    const b = sampleFind(spaceId)
+    b.boards = b.boards.filter((x) => x.boardId !== boardId)
+    sampleMoved()
+    return b
+  },
+
   async rename(id: string, name: string): Promise<BoardSummary> {
     if (inWails()) return BoardsService.Rename(id, name)
     const b = sampleFind(id)

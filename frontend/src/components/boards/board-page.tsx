@@ -133,7 +133,8 @@ export function BoardPage({
         empty={
           open ? (
             <p className="px-1 text-[12.5px] text-muted-foreground">
-              No cards on this board yet. Make one with New card.
+              No cards on this board yet. Make one with New card, or move one
+              here from its page.
             </p>
           ) : (
             <SpaceBoards space={b} cards={cards} now={now} />

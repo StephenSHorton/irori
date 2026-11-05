@@ -1,12 +1,13 @@
 // A space's boards (card #558): a space is a group of people, a board is a
 // list of tasks. SpaceBoards is what a space opens on: a tile per board,
 // each opening that board's list, and Add board. ListHeaderBar is the
-// header over one open board: which space it's in, and renaming the
-// board. Leave, Invite and Space settings stay on the space.
+// header over one open board: which space it's in, and renaming or
+// deleting the board. Leave, Invite and Space settings stay on the space.
 
 import { useState, type FormEvent } from "react"
 import { ChevronRightIcon, EllipsisIcon } from "lucide-react"
 
+import { ConfirmDialog } from "@/components/common/confirm-button"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -212,8 +213,12 @@ export function PersonalBoards({ cards }: { cards: CardSummary[]; now: Date }) {
 }
 
 // ListHeaderBar is the header over one board's list: the space it's in
-// (back to the space's page), its name and tag, and Rename.
+// (back to the space's page), its name and tag, and Rename and Delete. The
+// default board can't be deleted.
 export function ListHeaderBar({ space: b, list: x }: { space: BoardSummary; list: SpaceBoard }) {
+  const [asking, setAsking] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const isDefault = boardsOf(b)[0]?.boardId === x.boardId
   return (
     <div className="flex min-w-0 flex-1 items-center gap-x-1.5">
       <Button variant="ghost" size="sm" className="px-1.5" onClick={() => go({ kind: "board", id: b.boardId })}>
@@ -224,6 +229,7 @@ export function ListHeaderBar({ space: b, list: x }: { space: BoardSummary; list
         <span className="truncate">{plainLine(x.name) || "(unnamed)"}</span>
         <span className="font-mono text-sm font-normal text-muted-foreground">{plainLine(x.tag)}#</span>
       </h1>
+      {error && <span className="truncate text-xs text-destructive">{plainLine(error)}</span>}
       <span className="ml-auto flex shrink-0 items-center gap-1.5">
         <Button variant="ghost" size="sm" className="hidden sm:inline-flex">
           Rename
@@ -234,7 +240,7 @@ export function ListHeaderBar({ space: b, list: x }: { space: BoardSummary; list
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="sm:hidden"
+                className={isDefault ? "sm:hidden" : undefined}
                 aria-label="Board actions"
                 title="Board actions"
               />
@@ -243,10 +249,37 @@ export function ListHeaderBar({ space: b, list: x }: { space: BoardSummary; list
             <EllipsisIcon aria-hidden />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-auto">
-            <DropdownMenuItem>Rename</DropdownMenuItem>
+            <DropdownMenuItem className="sm:hidden">Rename</DropdownMenuItem>
+            {!isDefault && (
+              <DropdownMenuItem variant="destructive" onClick={() => setAsking(true)}>
+                Delete this board
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </span>
+      {asking && (
+        <ConfirmDialog
+          variant="destructive"
+          confirmLabel="Delete the board"
+          question={
+            <>
+              Delete <b>{plainLine(x.name)}</b>? Its cards move to <b>{plainLine(boardsOf(b)[0]?.name ?? "")}</b>,
+              the default board, and take new numbers there.
+            </>
+          }
+          onConfirm={async () => {
+            await actions.deleteFromSpace(b.boardId, x.boardId)
+            await reloadBoards()
+            go({ kind: "board", id: b.boardId })
+          }}
+          open
+          onOpenChange={(open) => {
+            if (!open) setAsking(false)
+          }}
+          onError={setError}
+        />
+      )}
     </div>
   )
 }

@@ -985,6 +985,14 @@ function sampleDelete(id: string) {
   sampleChanged()
 }
 
+// sampleMoveBoard is BoardService.Move on the sample: the card shows the
+// new board at once, and the sample keeps no numbers per board.
+function sampleMoveBoard(id: string, board: string) {
+  const c = sampleCard(id)
+  c.spaceBoard = board
+  sampleChanged()
+}
+
 // sampleReopen is BoardService.Reopen on the sample: working again when
 // someone holds it, else open.
 function sampleReopen(id: string) {
@@ -1758,6 +1766,16 @@ export const cards = {
       return
     }
     sampleDelete(id)
+  },
+
+  // move puts a card on another board in its space (card #563), with its
+  // subtasks. It takes the next number there; its old ref still finds it.
+  async move(id: string, board: string): Promise<void> {
+    if (inWails()) {
+      await BoardService.Move(id, board)
+      return
+    }
+    sampleMoveBoard(id, board)
   },
 
   // clearDoneCount is how many done cards a clear by age would take
