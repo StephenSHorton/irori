@@ -873,6 +873,9 @@ pub struct Card {
     /// Open items whose agent is gone, on a card nobody holds (card #485).
     /// Not part of the Go shape: the tools and the window read it.
     pub stranded: Vec<super::stranded::Stranded>,
+    /// Of those, the waits only Needs you shows (card #520): on a gone
+    /// agent, or outside waits (not a PR's merge) a gone agent raised.
+    pub gone_waits: Vec<super::stranded::Stranded>,
 }
 
 impl Serialize for Card {
@@ -1033,7 +1036,8 @@ pub struct NewAsk {
     /// Set: the ask goes only to these agents, woken.
     pub mentions: Vec<Mention>,
     /// A thread (card #116): the agents on the cards it names and the ones
-    /// it mentions hear it first; one idle agent after a quiet spell.
+    /// it mentions hear it, and at once one idle agent or its own spawned
+    /// agent (card #512).
     pub thread: bool,
     /// A private thread about this shared board (card #185); private log
     /// only.

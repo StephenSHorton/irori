@@ -47,6 +47,11 @@ pub const CRASHED_QUESTION: &str = "Its agent crashed twice in a row: start anot
 /// The person's way on from it (their own words go into the next brief).
 pub const CRASHED_START: &str = "Start another agent";
 
+/// Whether b is Irori's crash question.
+pub fn is_crash_question(b: &Blocker) -> bool {
+    b.raised_by == SWEEPER && b.question == CRASHED_QUESTION
+}
+
 /// The permission modes a spawn may pass (§7). One is always passed.
 pub const PERMISSION_MODES: [&str; 4] = ["bypassPermissions", "acceptEdits", "default", "plan"];
 
@@ -483,7 +488,11 @@ impl Fold {
             // not handed: a fresh agent's first turn may end before it
             // replies, and only its going away moves the ask on.
             if let Some(a) = t.open_ask() {
-                if a.taker.is_empty() && a.owner == self.dev {
+                // A thread another agent answered while this one started
+                // (card #512: nobody waits on its named agents) stays
+                // answered: taking it would reopen it for a second answer.
+                let answered = a.thread && a.reason == super::threads::TAKE_ANSWERED;
+                if a.taker.is_empty() && a.owner == self.dev && !answered {
                     let mut heard = a.heard.clone();
                     if !heard.iter().any(|h| h == key) {
                         heard.push(key.to_string());

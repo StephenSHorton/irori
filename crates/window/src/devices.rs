@@ -43,6 +43,12 @@ pub struct DeviceView {
     #[serde(skip_serializing_if = "GoTime::is_zero")]
     #[specta(optional, type = ts::Time)]
     pub last_seen: GoTime,
+    /// The device its rows come through while there is no session with it
+    /// (card #544): an id from the mesh, its name by the time the window
+    /// reads it.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub via: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub color: String,
@@ -184,6 +190,9 @@ impl Window {
             if let Some(n) = names.get(&d.device_id).filter(|n| !n.is_empty()) {
                 d.name = n.clone();
             }
+            if let Some(n) = names.get(&d.via).filter(|n| !n.is_empty()) {
+                d.via = n.clone();
+            }
         }
         out
     }
@@ -321,6 +330,7 @@ pub fn device_view(r: mesh::DeviceRow) -> DeviceView {
         warning: r.warning,
         action: r.action,
         last_seen: r.last_seen.unwrap_or_default(),
+        via: r.via,
         color: String::new(),
         sides: Vec::new(),
     }

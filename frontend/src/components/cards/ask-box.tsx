@@ -18,9 +18,10 @@ import { errorText } from "@/lib/talk"
 
 // AskBox is the box over the grid that starts a thread (cards #116, #134):
 // a question or a conversation with the room, not a card. The agents on
-// the cards it names (#12) and the agents it @mentions hear it first,
-// woken; if none answers within 45s, one free agent gets it (idle, with
-// Offer it cards on: card #453). It shows in
+// the cards it names (#12) and the agents it @mentions hear it, woken,
+// and nobody waits on them (card #512): at once an idle agent with Offer
+// it cards on gets it, or with none free Irori starts its own agent (on a
+// shared board, on the poster's device). It shows in
 // the Threads panel, where the person replies and resolves it. Enter
 // sends, Shift+Enter is a new line. Files go with it (card #124): pick them
 // with the clip, drop them on the box, or paste a screenshot. On a shared
@@ -82,16 +83,20 @@ export function AskBox({
       // On a board the other people's agents are told by their own
       // devices: count every agent the thread's round names.
       const n = onBoard ? (res.task.ask?.told ?? 0) : (res.told.to?.length ?? 0)
+      // Handed at once to an idle agent with Offer it cards on: no agent
+      // starts for it.
+      const handed = !!res.task.ask?.taker
+      const more = handed
+        ? ""
+        : " An idle agent with Offer it cards on picks it up, or Irori starts one when spawning is on."
       setLine({
         text: !now
           ? "Sent. Agents answer now was off: no agent was woken or handed it."
-          : onBoard
-            ? n === 0
-              ? "Sent. No agent is free yet: it goes to the first idle agent with Offer it cards on, or, on a board whose threads are private to you, Irori starts one when spawning is on."
-              : `Sent to ${n === 1 ? "1 agent" : `${n} agents`}. If nobody answers in 45s, an agent with Offer it cards on picks it up.`
+          : handed && n <= 1
+            ? "Sent. An agent with Offer it cards on has it."
             : n === 0
-              ? "Sent. No agent with Offer it cards on is free: Irori starts one for it when spawning is on."
-              : `Sent to ${n === 1 ? "1 agent" : `${n} agents`}. If nobody answers in 45s, an idle agent with Offer it cards on picks it up, or Irori starts one.`,
+              ? `Sent.${more}`
+              : `Sent to ${n === 1 ? "1 agent" : `${n} agents`}.${more}`,
       })
       setText("")
       setMentions([])

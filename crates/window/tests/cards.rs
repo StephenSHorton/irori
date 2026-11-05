@@ -912,6 +912,10 @@ fn files_with_a_thread_a_reply_and_a_new_card() {
     assert_eq!(files_on(&r, &res.task.id), vec!["crash.txt"]);
     assert_eq!(heard(&r), vec![vec!["crash.txt".to_string()]]);
 
+    // The thread went at once to the other free agent (card #512: nobody
+    // waits on alpha); resolved, it frees that agent for the card below.
+    r.w.resolve_thread(&id).unwrap();
+
     // Nobody picked: Irori offers it to a free agent, files and all.
     let res =
         r.w.create_card(irori_window::new_card::NewCardInput {
@@ -1649,4 +1653,95 @@ fn hand_on_a_wait_on_a_gone_agent() {
     let d = r.w.card(&t.id).unwrap();
     assert_eq!(d.summary.state, coord::SUBMITTED);
     assert!(d.blockers.iter().all(|b| b.gone_agent.is_none()));
+}
+
+/// Card #520: a wait no agent will end is a Needs you row (goneWait) and
+/// counts in the tray: #73 waits on kestrel (gone), #75's outside wait
+/// was raised by piranha (gone). A wait on a PR stays #509's merge row,
+/// once. Handed on, it leaves.
+#[test]
+fn a_wait_on_a_gone_agent_is_the_persons() {
+    const PR: &str = "https://github.com/a/irori/pull/41";
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let kestrel = format!("{}/kestrel-session", r.w.core.device_id());
+    let piranha = format!("{}/piranha-session", r.w.core.device_id());
+    let summary = |id: &str| r.w.cards().into_iter().find(|c| c.id == id).unwrap();
+    let wait = |by: &str, title: &str, kind: &str, on: &str, q: &str| {
+        let t = co
+            .create_task(
+                &me(&r),
+                coord::NewTask {
+                    title: title.into(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        co.claim_task(by, &t.id).unwrap();
+        co.block(
+            by,
+            &t.id,
+            q,
+            Some(coord::BlockedBy {
+                kind: kind.into(),
+                reference: on.into(),
+            }),
+        )
+        .unwrap();
+        t
+    };
+    let t73 = wait(
+        &r.key_a,
+        "the spawner",
+        coord::BLOCKED_ON_AGENT,
+        &kestrel,
+        "Waiting on kestrel's no-daemon GUI spawn",
+    );
+    // Alpha holds it: its wait is alpha's to drop, not the person's.
+    assert!(summary(&t73.id).gone_wait.is_none());
+    assert_eq!(r.w.decide_count(), 0);
+    co.leave(&r.key_a, &t73.id, &r.key_a).unwrap();
+    let g = summary(&t73.id).gone_wait.expect("a gone wait");
+    assert_eq!(g.agent.key, kestrel);
+    assert!(g.waited_on);
+    assert_eq!(g.on, "");
+    assert_eq!(g.question, "Waiting on kestrel's no-daemon GUI spawn");
+    assert_eq!(g.more, 0);
+    assert_eq!(g.no_hand_on, "", "Hand to an agent can move it");
+    assert_eq!(r.w.decide_count(), 1);
+
+    let t75 = wait(
+        &piranha,
+        "release",
+        coord::BLOCKED_ON_EXTERNAL,
+        "CI on the release",
+        "Waiting on CI",
+    );
+    co.leave(&piranha, &t75.id, &piranha).unwrap();
+    let g = summary(&t75.id)
+        .gone_wait
+        .expect("a gone raiser's outside wait");
+    assert_eq!(g.agent.key, piranha);
+    assert!(!g.waited_on);
+    assert_eq!(g.on, "CI on the release");
+    assert_eq!(r.w.decide_count(), 2);
+
+    // A wait on a PR is one merge row, not a gone wait too.
+    let t76 = wait(
+        &piranha,
+        "part 10",
+        coord::BLOCKED_ON_EXTERNAL,
+        PR,
+        "Merge PR #41",
+    );
+    co.leave(&piranha, &t76.id, &piranha).unwrap();
+    let s = summary(&t76.id);
+    assert!(s.merge_pr.is_some());
+    assert!(s.gone_wait.is_none());
+    assert_eq!(r.w.decide_count(), 3, "counted once");
+
+    // Handed on, it leaves Needs you and the tray.
+    r.w.hand_on(&t73.id).unwrap();
+    assert!(summary(&t73.id).gone_wait.is_none());
+    assert_eq!(r.w.decide_count(), 2);
 }

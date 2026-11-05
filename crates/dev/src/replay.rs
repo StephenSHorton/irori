@@ -251,6 +251,7 @@ fn dump(home: &Path, out: &Path, now: Option<&str>) -> Result<(), String> {
         local: None,
         liveness: None,
         seen: None,
+        via: None,
         revoked: Some(revoked.clone()),
     })
     .map_err(|e| format!("roster: {e}"))?;

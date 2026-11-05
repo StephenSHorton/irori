@@ -13,7 +13,8 @@ use serde::Serialize;
 use store::{Event, Filter, MAX_LIST_LIMIT};
 
 use crate::node::{
-    CONNECTED_WITHIN, Node, PeerInfo, RECENT_WITHIN, STATE_ERROR, STATE_ON, STATE_REMOVED, within,
+    CONNECTED_WITHIN, Node, PeerInfo, RECENT_WITHIN, RowsHeard, STATE_ERROR, STATE_ON,
+    STATE_REMOVED, within,
 };
 
 fn is_zero(n: &i64) -> bool {
@@ -50,6 +51,12 @@ pub struct PeerState {
     pub last_ping: Option<GoTime>,
     #[serde(rename = "lastSync", skip_serializing_if = "Option::is_none")]
     pub last_sync: Option<GoTime>,
+    /// When its newest row here was written, however it came (card #544).
+    #[serde(rename = "lastRows", skip_serializing_if = "Option::is_none")]
+    pub last_rows: Option<GoTime>,
+    /// The device its rows come through while there is no session with it.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub via: String,
     /// Nanoseconds.
     #[serde(skip_serializing_if = "is_zero")]
     pub skew: i64,
@@ -122,8 +129,60 @@ pub struct DeviceRow {
     pub action: String,
     #[serde(rename = "lastSeen", skip_serializing_if = "Option::is_none")]
     pub last_seen: Option<GoTime>,
+    /// The device id its rows come through (`PeerState::via`).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub via: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<PeerState>,
+}
+
+/// How another device reads from here (card #544): the one rule behind
+/// `status`, `liveness` and `last_seen`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DeviceRead {
+    /// connected, recent or offline.
+    pub state: &'static str,
+    /// When it was last heard: a session with it, or the newest row of its
+    /// that reached this device. `None`: never.
+    pub seen: Option<SystemTime>,
+    /// The device id its rows come through, while it reads recent with no
+    /// session of its own; "" otherwise.
+    pub via: String,
+}
+
+/// "connected" when a ping arrived within 45 s on a live connection;
+/// "recent" when it synced, or wrote a row that reached this device, within
+/// 10 minutes; else "offline". A removed device's rows count for nothing.
+fn read_of(now: SystemTime, k: &PeerInfo, rows: &RowsHeard, up: bool, revoked: bool) -> DeviceRead {
+    let at = if revoked { None } else { rows.at };
+    let seen = [k.last_ping, k.last_sync, at].into_iter().flatten().max();
+    if up
+        && k.last_ping
+            .is_some_and(|t| within(now, t, CONNECTED_WITHIN))
+    {
+        return DeviceRead {
+            state: "connected",
+            seen,
+            via: String::new(),
+        };
+    }
+    let fresh = |t: Option<SystemTime>| t.is_some_and(|t| within(now, t, RECENT_WITHIN));
+    let state = if fresh(k.last_sync) || fresh(at) {
+        "recent"
+    } else {
+        "offline"
+    };
+    // A session newer than the rows says more than they do.
+    let relayed = !up && fresh(at) && at > k.last_sync;
+    DeviceRead {
+        state,
+        seen,
+        via: if relayed {
+            rows.via.clone()
+        } else {
+            String::new()
+        },
+    }
 }
 
 impl Node {
@@ -143,15 +202,19 @@ impl Node {
         if st.state == STATE_ON && st.topics == 0 && !st.detail.is_empty() {
             st.state = STATE_ERROR.into();
         }
-        let (known, ahead): (BTreeMap<String, PeerInfo>, BTreeMap<String, bool>) = {
+        let devices = self.o.chain.devices();
+        for d in &devices {
+            self.seed_rows(&d.cert.device_id);
+        }
+        let (known, rows, ahead) = {
             let g = self.lock();
             let ahead = g
                 .ahead
                 .iter()
                 .filter(|(_, t)| within(now, **t, 2 * self.iv.vector))
                 .map(|(d, _)| (d.clone(), true))
-                .collect();
-            (g.known.clone(), ahead)
+                .collect::<BTreeMap<String, bool>>();
+            (g.known.clone(), g.rows.clone(), ahead)
         };
         let stopped = self.stopped_map();
         let ignored = self.o.ignored.as_ref().map(|f| f()).unwrap_or_default();
@@ -162,12 +225,13 @@ impl Node {
             st.restoring.clear();
         }
         let mut peers = Vec::new();
-        for d in self.o.chain.devices() {
+        for d in devices {
             let id = d.cert.device_id.clone();
             if id == self.self_id {
                 continue;
             }
             let k = known.get(&id).cloned().unwrap_or_default();
+            let heard = rows.get(&id).cloned().unwrap_or_default();
             let mut ps = PeerState {
                 device_id: id.clone(),
                 label: d.cert.label.clone(),
@@ -176,6 +240,7 @@ impl Node {
                 epoch: k.epoch,
                 last_ping: go_time(k.last_ping),
                 last_sync: go_time(k.last_sync),
+                last_rows: go_time(heard.at.filter(|_| !d.revoked)),
                 skew: k.skew,
                 refused: k.refused,
                 stopped: stopped.get(&id).cloned().unwrap_or_default(),
@@ -195,14 +260,9 @@ impl Node {
                     ps.held += s.held_count() as i64;
                 }
             }
-            if k.last_ping
-                .is_some_and(|t| within(now, t, CONNECTED_WITHIN))
-                && !ps.path.is_empty()
-            {
-                ps.state = "connected".into();
-            } else if k.last_sync.is_some_and(|t| within(now, t, RECENT_WITHIN)) {
-                ps.state = "recent".into();
-            }
+            let p = read_of(now, &k, &heard, !ps.path.is_empty(), d.revoked);
+            ps.state = p.state.into();
+            ps.via = p.via;
             peers.push(ps);
         }
         if !peers.is_empty() {
@@ -211,37 +271,31 @@ impl Node {
         st
     }
 
-    /// Go `Liveness`: "connected" when a ping arrived within 45 s on a live
-    /// connection, "recent" when it synced within 10 minutes, else
-    /// "offline".
-    pub fn liveness(&self, dev: &str) -> &'static str {
+    /// Device `dev` as this one reads it ([`read_of`]).
+    pub fn device_read(&self, dev: &str) -> DeviceRead {
+        self.seed_rows(dev);
         let now = self.now();
         let up = self.connected_to(dev);
-        let (ping, sync) = {
+        let revoked = self.o.chain.cut(dev).is_some();
+        let (k, rows) = {
             let g = self.lock();
-            g.known
-                .get(dev)
-                .map(|k| (k.last_ping, k.last_sync))
-                .unwrap_or_default()
+            (
+                g.known.get(dev).cloned().unwrap_or_default(),
+                g.rows.get(dev).cloned().unwrap_or_default(),
+            )
         };
-        if up && ping.is_some_and(|t| within(now, t, CONNECTED_WITHIN)) {
-            "connected"
-        } else if sync.is_some_and(|t| within(now, t, RECENT_WITHIN)) {
-            "recent"
-        } else {
-            "offline"
-        }
+        read_of(now, &k, &rows, up, revoked)
     }
 
-    /// When another of the person's devices was last heard: its newer last
-    /// ping or last sync, as Settings → Devices shows it; `None` never.
+    /// Go `Liveness`: [`Node::device_read`]'s state.
+    pub fn liveness(&self, dev: &str) -> &'static str {
+        self.device_read(dev).state
+    }
+
+    /// When another of the person's devices was last heard, as Settings →
+    /// Devices shows it; `None` never.
     pub fn last_seen(&self, dev: &str) -> Option<SystemTime> {
-        let g = self.lock();
-        let k = g.known.get(dev)?;
-        match (k.last_ping, k.last_sync) {
-            (Some(p), Some(s)) => Some(p.max(s)),
-            (p, s) => p.or(s),
-        }
+        self.device_read(dev).seen
     }
 
     /// Go `Devices`: the person's devices, this one first; `detail` fills
@@ -292,12 +346,13 @@ impl Node {
                 state: p.state.clone(),
                 revoked: p.revoked,
                 last_seen: p.last_ping,
+                via: p.via.clone(),
                 ..DeviceRow::default()
             };
-            if let Some(s) = p.last_sync
-                && r.last_seen.is_none_or(|l| s.unix_nano() > l.unix_nano())
-            {
-                r.last_seen = Some(s);
+            for s in [p.last_sync, p.last_rows].into_iter().flatten() {
+                if r.last_seen.is_none_or(|l| s.unix_nano() > l.unix_nano()) {
+                    r.last_seen = Some(s);
+                }
             }
             if p.revoked && p.pending < p.remaining {
                 r.warning = format!(
@@ -435,5 +490,113 @@ impl Node {
             Ok(o) if o.get_str("os").len() <= 20 => o.get_str("os").to_string(),
             _ => String::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod read_tests {
+    use super::*;
+    use std::time::Duration;
+
+    const NOW: u64 = 1_000_000;
+
+    fn ago(s: u64) -> SystemTime {
+        SystemTime::UNIX_EPOCH + Duration::from_secs(NOW - s)
+    }
+
+    fn now() -> SystemTime {
+        ago(0)
+    }
+
+    fn rows(s: u64, via: &str) -> RowsHeard {
+        RowsHeard {
+            at: Some(ago(s)),
+            via: via.into(),
+            seeded: true,
+        }
+    }
+
+    fn peer(ping: Option<u64>, sync: Option<u64>) -> PeerInfo {
+        PeerInfo {
+            last_ping: ping.map(ago),
+            last_sync: sync.map(ago),
+            ..PeerInfo::default()
+        }
+    }
+
+    #[test]
+    fn rows_through_another_device_read_recent_and_name_it() {
+        let r = read_of(now(), &PeerInfo::default(), &rows(5, "phone"), false, false);
+        assert_eq!(r.state, "recent");
+        assert_eq!(r.seen, Some(ago(5)));
+        assert_eq!(r.via, "phone");
+    }
+
+    #[test]
+    fn old_rows_arriving_now_do_not_read_fresh() {
+        let r = read_of(
+            now(),
+            &PeerInfo::default(),
+            &rows(3600, "phone"),
+            false,
+            false,
+        );
+        assert_eq!(r.state, "offline");
+        assert_eq!(r.seen, Some(ago(3600)), "still heard from, at that time");
+        assert_eq!(r.via, "");
+    }
+
+    #[test]
+    fn a_live_link_wins_over_a_relay() {
+        let r = read_of(
+            now(),
+            &peer(Some(1), Some(1)),
+            &rows(0, "phone"),
+            true,
+            false,
+        );
+        assert_eq!((r.state, r.via.as_str()), ("connected", ""));
+    }
+
+    #[test]
+    fn a_session_newer_than_the_rows_names_no_relay() {
+        let r = read_of(
+            now(),
+            &peer(Some(60), Some(60)),
+            &rows(90, "phone"),
+            false,
+            false,
+        );
+        assert_eq!((r.state, r.via.as_str()), ("recent", ""));
+    }
+
+    #[test]
+    fn a_link_lost_and_rows_still_coming_names_the_relay() {
+        let r = read_of(
+            now(),
+            &peer(Some(300), Some(300)),
+            &rows(5, "phone"),
+            false,
+            false,
+        );
+        assert_eq!((r.state, r.via.as_str()), ("recent", "phone"));
+    }
+
+    #[test]
+    fn rows_of_a_removed_device_count_for_nothing() {
+        let r = read_of(now(), &PeerInfo::default(), &rows(5, "phone"), false, true);
+        assert_eq!((r.state, r.seen, r.via.as_str()), ("offline", None, ""));
+    }
+
+    #[test]
+    fn a_device_never_heard_reads_so() {
+        let r = read_of(
+            now(),
+            &PeerInfo::default(),
+            &RowsHeard::default(),
+            false,
+            false,
+        );
+        assert_eq!((r.state, r.seen), ("offline", None));
     }
 }

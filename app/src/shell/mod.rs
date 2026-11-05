@@ -29,7 +29,7 @@ pub mod tray;
 pub mod tray_text;
 mod update;
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use irori_window::{Config, Window, attachments};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
@@ -266,8 +266,48 @@ pub fn run(args: &[String]) -> Result<(), String> {
         })
         .build(context())
         .map_err(|e| e.to_string());
+    // Everything the app does on its way out, once. After run_return is
+    // too late on macOS (card #535): an Apple Event or the app menu's Quit
+    // goes through -[NSApplication terminate:], which calls exit() itself
+    // and never returns from the loop, so there it runs on RunEvent::Exit.
+    let shut_down = {
+        let done: Arc<OnceLock<Result<(), String>>> = Arc::default();
+        let probe = probe.clone();
+        move || {
+            done.get_or_init(|| {
+                probe.note("exiting");
+                // A Core still starting finishes first, so it closes cleanly.
+                if let Some(h) = starting.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                    let _ = h.join();
+                }
+                // Go OnShutdown(InstallOnExit): a ready update installs
+                // silently and leaves Irori closed (/NORELAUNCH).
+                updater.install_on_exit();
+                pumps_stop.cancel();
+                let closed = match hosted.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                    Some((h, window)) => {
+                        // Free the speech model before exit (#240: Metal
+                        // asserts otherwise).
+                        window.voice_shutdown();
+                        h.core.set_reviver(None);
+                        h.core.set_spawner(None);
+                        h.close()
+                    }
+                    None => Ok(()),
+                };
+                if let Err(e) = &closed {
+                    irori_core::log(&format!("irori: closing: {e}"));
+                }
+                probe.note("closed");
+                closed
+            })
+            .clone()
+        }
+    };
+    #[cfg(target_os = "macos")]
+    let on_exit = shut_down.clone();
     let res = app.map(|app| {
-        app.run_return(|_app, ev| {
+        app.run_return(move |_app, ev| {
             // The tray keeps Irori running with no window open: only Quit
             // (an explicit exit code) ends it.
             match ev {
@@ -278,30 +318,16 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 // Go build on the Mac).
                 #[cfg(target_os = "macos")]
                 RunEvent::Reopen { .. } => show(_app),
+                #[cfg(target_os = "macos")]
+                RunEvent::Exit => {
+                    let _ = on_exit();
+                }
 
                 _ => {}
             }
         })
     });
-    probe.note("exiting");
-    // A Core still starting finishes first, so it closes cleanly.
-    if let Some(h) = starting.lock().unwrap_or_else(|e| e.into_inner()).take() {
-        let _ = h.join();
-    }
-    // Go OnShutdown(InstallOnExit): a ready update installs silently and
-    // leaves Irori closed (/NORELAUNCH).
-    updater.install_on_exit();
-    pumps_stop.cancel();
-    let closed = match hosted.lock().unwrap_or_else(|e| e.into_inner()).take() {
-        Some((h, window)) => {
-            // Free the speech model before exit (#240: Metal asserts otherwise).
-            window.voice_shutdown();
-            h.core.set_reviver(None);
-            h.core.set_spawner(None);
-            h.close()
-        }
-        None => Ok(()),
-    };
+    let closed = shut_down();
     res.map(|_| ()).and(closed)
 }
 
@@ -368,6 +394,11 @@ fn start_core(
             None => Err("Irori is closing".into()),
         })));
     }
+    // A phone runs no agents (card #524): with no spawner its sweep never
+    // lists `claude` agents, so it doesn't log "spawn cleanup: can't find
+    // the claude command" every second. Its switch's default is unchanged:
+    // the coord's offers and its "starts an agent" lines read it.
+    #[cfg(desktop)]
     core.set_spawner(Some(spawner()));
     // Spawning is on by default for the private board where agents can
     // start (card #448, decision 1 (a)); his own switch wins.
@@ -432,6 +463,11 @@ fn start_core(
             probe.cutover_on_scratch_key();
             probe.spawn_from_gui();
             probe.watch_quit(&app);
+            #[cfg(target_os = "macos")]
+            {
+                probe.watch_terminate(&app);
+                probe.watch_voice(&window);
+            }
             probe.note(&format!("version {}", version()));
             probe.note(&format!("api-port {api_port}"));
             probe.note("ready");
@@ -647,6 +683,7 @@ impl irori_window::seams::LoginItem for ShellLogin {
 /// The Core's spawner (spawned agents part 1 and 2, cards #445 and #446):
 /// `claude --bg` from this GUI process, with no console window, its trust
 /// check, and `claude stop` then `claude rm` to end one.
+#[cfg(desktop)]
 fn spawner() -> irori_core::spawn::Spawner {
     use irori_core::spawn::{SpawnReq, SpawnStarted, Spawner};
     use irori_window::spawn;

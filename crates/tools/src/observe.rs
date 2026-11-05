@@ -90,7 +90,7 @@ pub(crate) fn agents(s: &Inner, c: &Caller, raw: &[u8]) -> String {
 /// One device's presence for an agent's line (card #372).
 pub(crate) fn device_line(c: &presence::AgentCard, now: &GoTime) -> String {
     one_line(
-        &coord::roster::device_phrase(&c.device_state, &c.device_seen, now),
+        &coord::roster::device_phrase(&c.device_state, &c.device_seen, &c.device_via, now),
         120,
     )
 }

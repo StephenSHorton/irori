@@ -766,6 +766,7 @@ pub(super) fn roster_of(s: &Services, b: &BoardLog) -> Vec<AgentCard> {
                         a.device_id = l.device_id.clone();
                         a.device_state = l.device_state.clone();
                         a.device_seen = l.device_seen;
+                        a.device_via = l.device_via.clone();
                         placed = true;
                     }
                     _ => {}
@@ -790,6 +791,7 @@ pub(super) fn roster_of(s: &Services, b: &BoardLog) -> Vec<AgentCard> {
             a.device_id = dev;
             a.device_state = p.state;
             a.device_seen = p.seen;
+            a.device_via = p.via;
         }
         out
     }
@@ -1540,11 +1542,21 @@ impl Services {
                 b.stop.on_cancel(move || q.close())
             };
             let s = Arc::downgrade(self);
+            let co = Arc::downgrade(b.coord());
             b.spawn("changes", move || {
                 let _reg = reg;
                 while let Some(ch) = q.recv() {
                     match s.upgrade() {
                         Some(s) => {
+                            // A board thread goes out, and starts its
+                            // agent, at once (card #512): its rows kick the
+                            // hand-out as the private log's do.
+                            if co.upgrade().is_some_and(|c| {
+                                c.get_task(&ch.task_id)
+                                    .is_some_and(|t| t.open_ask().is_some())
+                            }) {
+                                s.asks_kick.kick();
+                            }
                             s.boards.tell(ch);
                             // A shared card's blocker resolved (card #482).
                             s.settle_notifications();

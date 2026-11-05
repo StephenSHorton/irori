@@ -141,7 +141,7 @@ fn the_person_turns_it_off_and_on() {
     );
     let t = e.c.set_agents_now(USER, &tk.id, false).unwrap();
     assert!(!t.ask.unwrap().wake);
-    // Off: past the quiet spell, no hand-out; a waking post wakes nobody.
+    // Off: a minute on, no hand-out; a waking post wakes nobody.
     e.clk.add(secs(60));
     assert!(e.c.sweep_asks(&agents(&e)).unwrap().is_empty());
     let (cm, ns) =

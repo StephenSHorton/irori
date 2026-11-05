@@ -938,8 +938,9 @@ fn idle(key: &str, dev: &str) -> coord::roster::AgentCard {
 }
 
 /// A thread on a shared board (card #134): the agents on the board's card
-/// it names hear it first; another member's comment is a person's, not an
-/// answer; after the quiet spell one idle agent of any member gets it; the
+/// it names hear it, woken; another member's comment is a person's, not an
+/// answer; nobody waits on the named agents (card #512), so at once one
+/// idle agent of any member gets it, or it is unclaimed; the
 /// person's follow-up goes to the agent that answered, on both sides; only
 /// the member who started it resolves it.
 #[test]
@@ -970,15 +971,20 @@ fn a_board_thread_among_two_people() {
     assert_eq!(b.c.thread_to(&tk.id), [CARD1, CARD2]);
 
     // p2 (a person) comments: not an answer, so it is still unanswered.
+    // Nobody waits on the named agents (card #512): the first sweep finds
+    // no agent free, so it is unclaimed (p1's device starts its agent when
+    // spawning is on).
     b.c.person_comment(P2, &tk.id, "I'd like to know too.", false, &[], None)
         .unwrap();
     sync(&a, &b);
     a.c.sweep_asks(&[]).unwrap();
-    assert_eq!(a.c.get_task(&tk.id).unwrap().ask.unwrap().reason, "posted");
+    let ask = a.c.get_task(&tk.id).unwrap().ask.unwrap();
+    assert!(
+        ask.reason == "unclaimed" && ask.unclaimed && ask.taker.is_empty(),
+        "{ask:?}"
+    );
 
-    // Quiet: one idle agent of either person gets it; here p2's card3.
-    a.clk.add(Duration::from_secs(46));
-    b.clk.add(Duration::from_secs(46));
+    // One idle agent of either person gets it, at once; here p2's card3.
     let ns = a.c.sweep_asks(&[idle(CARD3, "dev-b")]).unwrap();
     assert!(
         ns.len() == 1 && ns[0].to == [CARD3] && ns[0].text.contains("handed it to you"),
@@ -1740,7 +1746,7 @@ fn a_board_thread_naming_only_a_person_wakes_no_agent() {
         assert!(ask.thread && !ask.wake && ask.taker.is_empty(), "{ask:?}");
     }
 
-    // Past the quiet spell an idle agent is free, but it isn't handed out.
+    // Minutes on an idle agent is free, but it isn't handed out.
     a.clk.add(Duration::from_secs(120));
     b.clk.add(Duration::from_secs(120));
     assert!(a.c.sweep_asks(&[idle(CARD3, "dev-b")]).unwrap().is_empty());
@@ -2073,6 +2079,130 @@ fn a_version_wait_on_a_board_is_refused() {
         .unwrap_err();
     assert!(err.is(ErrorKind::Invalid), "{err}");
     assert!(err.to_string().contains("your own board"), "{err}");
+}
+
+/// Card #540: on a board too the person's answer to the crash question,
+/// sent as a resolve, goes on its thread under their board key, where the
+/// next agent's brief reads it, and clears the run.
+#[test]
+fn a_board_cards_crash_answer_goes_on_its_thread() {
+    let ra = TestRoster::new(&[CARD1]);
+    let (a, _b, _) = two_people_with(Some(ra.clone()), None);
+    let t = a.c.create_task(P1, nt("kills its agent", REPO_A)).unwrap();
+    for _ in 0..MAX_SPAWN_CRASHES {
+        ra.set(CARD1, "idle");
+        a.c.sweep_notices().unwrap();
+        let g =
+            a.c.request_spawn("irori", spawn_ask(&t.id, "dev-a"))
+                .unwrap()
+                .unwrap();
+        assert!(a.c.bind_spawn(&t.id, g, CARD1).unwrap());
+        a.c.claim_task(CARD1, &t.id).unwrap();
+        ra.set(CARD1, "");
+        a.c.sweep_notices().unwrap();
+        a.clk.add(HOLDER_GRACE + std::time::Duration::from_secs(1));
+        a.c.sweep_notices().unwrap();
+    }
+    let got = a.c.get_task(&t.id).unwrap();
+    assert_eq!(got.spawn_crashes, MAX_SPAWN_CRASHES, "{got:?}");
+    let q = got
+        .blockers
+        .iter()
+        .find(|b| b.open() && is_crash_question(b))
+        .expect("the person is asked")
+        .clone();
+    a.c.answer(
+        P1,
+        &t.id,
+        &q.id,
+        BlockerAnswer {
+            text: "try the smaller fixture".into(),
+            resolve: true,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    let got = a.c.get_task(&t.id).unwrap();
+    assert_eq!(got.state, SUBMITTED, "{got:?}");
+    assert_eq!(got.spawn_crashes, 0);
+    let cs = a.c.comments(&t.id).unwrap();
+    assert!(
+        cs.iter()
+            .any(|c| c.by == P1 && c.text == "try the smaller fixture"),
+        "{cs:?}"
+    );
+}
+
+/// Card #512: a thread in a board's own log gets its own agent at once,
+/// on the poster's device only, like a board card on the device that made
+/// it (#455). It names a card both people's agents hold: they are woken,
+/// and nobody waits on them. One with "Agents answer now" off never spawns.
+#[test]
+fn a_board_thread_spawns_on_the_posters_device_at_once() {
+    let (a, b, owners) = two_people();
+    let card = shared_card(&a, &b);
+    let on = || Options {
+        spawning: Some(Arc::new(|| true)),
+        ..Options::default()
+    };
+    let a = side_reopen_with(a, P1, &owners, on());
+    let b = side_reopen_with(b, P2, &owners, on());
+    let thread = |text: &str, quiet: bool| {
+        a.c.post_ask(
+            P1,
+            NewAsk {
+                text: text.into(),
+                thread: true,
+                quiet,
+                ..NewAsk::default()
+            },
+            &[],
+        )
+        .unwrap()
+        .0
+    };
+    let tk = thread(&format!("Is #{} still moving?", card.short), false);
+    let off = thread(&format!("A note on #{}", card.short), true);
+    sync(&a, &b);
+    assert_eq!(
+        b.c.get_task(&tk.id).unwrap().ask.unwrap().heard,
+        [CARD1, CARD2]
+    );
+    // The first sweep, with no clock advance: nobody free, so unclaimed,
+    // and listed on p1's device only.
+    a.c.sweep_asks(&[]).unwrap();
+    b.c.sweep_asks(&[]).unwrap();
+    sync(&a, &b);
+    assert_eq!(ids(&a.c.cards_to_spawn()), std::slice::from_ref(&tk.id));
+    assert!(
+        b.c.cards_to_spawn().is_empty(),
+        "{:?}",
+        b.c.cards_to_spawn()
+    );
+    // p2's device can't ask for it either.
+    assert_eq!(
+        b.c.request_spawn("irori", spawn_ask(&tk.id, "dev-b")).ok(),
+        Some(None)
+    );
+
+    // p1's device starts it, and its agent takes the thread on both sides.
+    let g =
+        a.c.request_spawn("irori", spawn_ask(&tk.id, "dev-a"))
+            .unwrap()
+            .unwrap();
+    assert!(a.c.bind_spawn(&tk.id, g, CARD1).unwrap());
+    sync(&a, &b);
+    for s in [&a, &b] {
+        let ask = s.c.get_task(&tk.id).unwrap().ask.unwrap();
+        assert!(ask.taker == CARD1 && ask.reason == TAKE_TAKEN, "{ask:?}");
+        assert!(s.c.cards_to_spawn().is_empty());
+    }
+    // Agents answer now off: never handed out, never spawned for.
+    assert!(
+        !ids(&a.c.cards_to_spawn()).contains(&off.id),
+        "{:?}",
+        a.c.get_task(&off.id).unwrap().ask
+    );
 }
 
 /// Card #477 (docs/design/work-personal-separation.md §3): on one space,

@@ -430,6 +430,8 @@ There is no CI (no workflow builds or checks anything): `release.yml` is replace
 
 The Go updater design ports as is: GitHub `releases/latest`, `SHA256SUMS`, NSIS silent install or `.app` swap, and the phases and card (surface.md §3 "Updater rules"). `tauri-plugin-updater` is not used, because it expects its own signed manifest and the first Rust release must install through the **Go** updater. That first release needs a version above the Go `v0.5.x` line under Go's `isNewer` (surface.md §3), for example `v0.6.0` (D11).
 
+The app checks for a release only at start or from Settings > Check for updates, so an app left open isn't offered a new release until then.
+
 ---
 
 ## 8. Milestones

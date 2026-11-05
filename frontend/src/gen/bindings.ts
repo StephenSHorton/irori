@@ -210,7 +210,6 @@ export const commands = {
 	agentsPermissions: (boardId: string) => __TAURI_INVOKE<AgentPermissions>("agents_permissions", { boardId }),
 	/**  The person sets a board's agent permissions, from Settings › Agents. */
 	agentsPermissionsSet: (permissions: AgentPermissions) => __TAURI_INVOKE<AgentPermissions>("agents_permissions_set", { permissions }),
-	cardWakeNotes: (taskId: string) => __TAURI_INVOKE<WakeNoteView[]>("card_wake_notes", { taskId }),
 	boardsInvite: (boardId: string) => __TAURI_INVOKE<InviteStatus>("boards_invite", { boardId }),
 	boardsJoinInvite: (link: string) => __TAURI_INVOKE<InviteStatus>("boards_join_invite", { link }),
 	boardsConfirmInviteWords: (words: string) => __TAURI_INVOKE<InviteStatus>("boards_confirm_invite_words", { words }),
@@ -381,6 +380,11 @@ export type AgentCard = {
 	/**  The tool the session is running now (card #299). */
 	lastTool?: string,
 	deviceState?: string,
+	/**
+	 *  The device its rows come through while there is no session with it
+	 *  (card #544).
+	 */
+	deviceVia?: string,
 	/**  When the current status began, omitted when unknown (card #489). */
 	statusSince?: string,
 	/**
@@ -451,6 +455,8 @@ export type AgentRef = {
 	deviceId?: string,
 	color?: string,
 	offline?: boolean,
+	/**  The device its rows come through (card #544). */
+	deviceVia?: string,
 	conflict?: string,
 	/**
 	 *  While it's idle: its last transcript activity, about when its turn
@@ -509,6 +515,13 @@ export type AnswerResult = {
 	told: Told,
 	/**  What each mention came to (card #77). */
 	mentioned?: MentionOutcome[],
+	/**
+	 *  Irori itself acts on this answer (card #531): its "no copy" and
+	 *  "couldn't start" asks on a card nobody holds resolve like any item
+	 *  nobody runs for, but the sweep reads the answer, so the window
+	 *  doesn't say nobody will.
+	 */
+	iroriActs?: boolean,
 };
 
 /**  coord.Ask. */
@@ -1099,6 +1112,13 @@ export type CardSummary = {
 	 *  or closed.
 	 */
 	mergePr?: WaitPr | null,
+	/**
+	 *  A wait no agent will end (card #520): on a card nobody holds, an
+	 *  item waits on an agent that is gone, or an outside wait (not a PR's
+	 *  merge) was raised by one. A Needs you row with Hand to an agent,
+	 *  until it is handed on, the card is stopped or someone takes it.
+	 */
+	goneWait?: GoneWait | null,
 	working: AgentRef[],
 	watching: AgentRef[],
 	holder: CardHolder,
@@ -1413,12 +1433,32 @@ export type DeskSettings = {
 export type DeskSnapshotView = {
 	truncated: boolean,
 	prs: DeskPrView[],
+	/**
+	 *  The person's own GitHub login, as the poll's gh heard it; "" not
+	 *  known yet. The desk trusts it (card #521).
+	 */
+	viewer: string,
 	at: string,
 };
 
 /**  One repo's desk. */
 export type DeskView = {
 	settings: DeskSettings,
+	/**
+	 *  The settings are the default a GitHub repo an agent works in gets
+	 *  (card #521), not ones the person saved.
+	 */
+	isDefault: boolean,
+	/**
+	 *  The device that saw the repo last: the poll device unless the
+	 *  person picks another; "" never seen.
+	 */
+	seenOn: string,
+	/**
+	 *  The poll device follows `seen_on` (the default, or a saved row that
+	 *  left it blank); a save keeps it blank so it keeps following.
+	 */
+	followsSeen: boolean,
 	prs?: DeskSnapshotView | null,
 	holds: DeskMark[],
 	paused?: DeskMark | null,
@@ -1442,6 +1482,12 @@ export type DeviceView = {
 	action?: string,
 	/**  Zero (omitted): never heard from, or this device. */
 	lastSeen?: string,
+	/**
+	 *  The device its rows come through while there is no session with it
+	 *  (card #544): an id from the mesh, its name by the time the window
+	 *  reads it.
+	 */
+	via?: string,
 	color?: string,
 	/**
 	 *  The work/personal sides it runs, the first its new cards' (card
@@ -1505,6 +1551,29 @@ export type GoneSession = {
 	reason: string,
 	transcript: boolean,
 	trusted: boolean,
+};
+
+/**
+ *  A card's first wait whose agent is gone, on a card nobody holds (card
+ *  #520): "#73 waits on kestrel (gone)".
+ */
+export type GoneWait = {
+	/**  The item's id on the card. */
+	blockerId: string,
+	/**  The agent that is gone: the one waited on, else the raiser. */
+	agent: AgentRef,
+	/**  The item waits on that agent; else it raised an outside wait. */
+	waitedOn?: boolean,
+	/**  What an outside wait is on, as raised ("CI on the release"). */
+	on?: string,
+	question: string,
+	/**  More such items on the card, beyond this one. */
+	more?: number,
+	/**
+	 *  Why Hand to an agent can't move the card (a shared board's card,
+	 *  an open ask, subtasks): the row says it and offers only Open.
+	 */
+	noHandOn?: string,
 };
 
 /**  inbox.HoldReason. */
@@ -2450,23 +2519,6 @@ export type WaitPr = {
 	 *  another member's agents, never the person's or their own agents'.
 	 */
 	approval?: boolean,
-};
-
-/**
- *  A note an agent got on wake for a card, and the tag that matched
- *  (card #412): the card page's "notes this agent got".
- */
-export type WakeNoteView = {
-	noteId: string,
-	/**  rule, gotcha, decision, pointer or preference. */
-	kind: string,
-	text: string,
-	/**  The tag that matched, e.g. `repo:<repoKey>`. */
-	tag: string,
-	/**  The agent's key. */
-	agent: string,
-	/**  When the wake went out. */
-	at: string,
 };
 
 /**  One agent in a run. */

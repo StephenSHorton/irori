@@ -267,6 +267,8 @@ export type LiveAgent = {
   // When the current status began, and its device's state (card #489).
   statusSince?: string
   deviceState?: string
+  // The device its rows come through, with no link of its own (card #544).
+  deviceVia?: string
   lastTool?: string
   // Card #453: the person's "Offer it cards", and whether Irori started it.
   offersCards?: boolean

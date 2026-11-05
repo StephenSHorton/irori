@@ -36,7 +36,7 @@ import { SettingsMenu } from "@/components/settings/settings-menu"
 import { SpaceSwitcher } from "@/components/space-switcher"
 import { Badge } from "@/components/ui/badge"
 import { agentCounts } from "@/lib/agent-counts"
-import { agentStatus } from "@/lib/agent-status"
+import { agentStatus, throughLine } from "@/lib/agent-status"
 import { rosterGroups } from "@/lib/roster-groups"
 import { AgentStrip, OnCards } from "@/components/cards/agent-strip"
 import { CheckSlots } from "@/components/cards/check-slots"
@@ -230,16 +230,22 @@ export function AppSidebar({
   ])
   const { device, version, agents } = roster
   // Yours (terminal agents) and On cards (the ones Irori started), card
-  // #456: the counts and "free" are terminal agents only, since a spawned
-  // agent is never handed a second card.
+  // #456. Card #512: no "free" count (a thread gets its own agent); a
+  // blocked agent counts as blocked, not working or on cards.
   const groups = rosterGroups(agents, cards)
-  const n = agentCounts(groups.yours)
+  const n = agentCounts(groups.yours, groups.blocked)
+  const blockedOnCards = groups.onCards
+    .flatMap((g) => g.agents)
+    .filter((a) => groups.blocked.has(a.key)).length
+  const onCardsNow = groups.spawned - blockedOnCards
+  const blockedNow = n.blocked + blockedOnCards
   const onCardLine = (
     cardId: string,
     a: {
       key: string
       status: string
       deviceState?: string | null
+      deviceVia?: string | null
       statusSince?: string
     }
   ) => {
@@ -248,7 +254,8 @@ export function AppSidebar({
       ?.working.find((r) => r.key === a.key)
     // The same words as everywhere else (card #489).
     const doing = agentStatus(a, a.statusSince).text
-    return [w?.where, doing].filter(Boolean).join(" · ")
+    const via = a.deviceVia && throughLine(a.deviceVia)
+    return [w?.where, doing, via].filter(Boolean).join(" · ")
   }
   const pinnedBoards = boardsInSpace(boards, space)
     .filter((b) => b.pinned)
@@ -480,26 +487,27 @@ export function AppSidebar({
             <div
               className="flex flex-wrap gap-1 px-2.5"
               title={[
-                groups.spawned > 0 &&
-                  `${groups.spawned} started by Irori for a card, each ends when its card is Done`,
+                onCardsNow > 0 &&
+                  `${onCardsNow} started by Irori for a card, each ends when its card is Done`,
                 groups.starting > 0 &&
                   `${groups.starting} cards starting an agent`,
                 groups.atCap > 0 &&
                   `${groups.atCap} cards waiting for a device to have a slot`,
                 `${n.total} of yours`,
                 `${n.working} working${n.running ? ` (${n.running} running a job)` : ""}`,
-                `${n.free} free: idle with Offer it cards on, so a thread or card can go to them`,
-                n.ownWork &&
-                  `${n.ownWork} idle, working only on what you give them`,
+                blockedNow > 0 &&
+                  `${blockedNow} blocked: on a permission prompt, or on a card waiting for you`,
+                n.free + n.ownWork > 0 &&
+                  `${n.free + n.ownWork} idle`,
                 n.silent && `${n.silent} idle but not answering`,
                 n.offline && `${n.offline} on an offline device`,
               ]
                 .filter(Boolean)
                 .join("\n")}
             >
-              {groups.spawned > 0 && (
+              {onCardsNow > 0 && (
                 <Badge variant="info" className="normal-case tabular-nums">
-                  {groups.spawned} on cards
+                  {onCardsNow} on cards
                 </Badge>
               )}
               {groups.starting > 0 && (
@@ -517,9 +525,11 @@ export function AppSidebar({
                   {n.working} working
                 </Badge>
               )}
-              <Badge variant="slate" className="normal-case tabular-nums">
-                {n.free} free
-              </Badge>
+              {blockedNow > 0 && (
+                <Badge variant="warning" className="normal-case tabular-nums">
+                  {blockedNow} blocked
+                </Badge>
+              )}
               {n.silent > 0 && (
                 <Badge variant="warning" className="normal-case tabular-nums">
                   {n.silent} not answering

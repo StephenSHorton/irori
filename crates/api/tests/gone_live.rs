@@ -157,6 +157,7 @@ fn others_list(rig: &common::Rig, key: &str) -> bool {
         local: None,
         liveness: None,
         seen: None,
+        via: None,
         revoked: None,
     })
     .unwrap()
