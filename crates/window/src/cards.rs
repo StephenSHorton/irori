@@ -215,6 +215,14 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub board: String,
+    /// The work/personal side it's on (card #494); empty for any side.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub side: String,
+    /// Why it waits on its side (card #495): "no device here runs Work".
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub side_wait: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub tag: String,
@@ -284,6 +292,12 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub wait_pr: Option<WaitPr>,
+    /// The PR an agent's open external wait asks the person to merge (card
+    /// #509): a Needs you row with the PR's link, until it is known merged
+    /// or closed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub merge_pr: Option<WaitPr>,
     pub working: Vec<AgentRef>,
     pub watching: Vec<AgentRef>,
     pub holder: CardHolder,
@@ -1417,6 +1431,8 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
         title: t.title.clone(),
         state: coord::effective_state(t).to_string(),
         repo_key: t.repo_key.clone(),
+        side: t.side.clone(),
+        side_wait: t.side_wait.clone(),
         scope: SCOPE_MINE.into(),
         scope_label: SCOPE_MINE_LABEL.into(),
         progress: CardProgress { done: d, total: n },
@@ -2071,22 +2087,22 @@ impl Window {
     /// The cards waiting on a decision (the tray's number).
     pub fn decide_count(&self) -> usize {
         let p = People::default();
-        let private = self
-            .core
-            .coord()
+        let co = self.core.coord();
+        // Card #509: a wait on a PR's merge is the person's too.
+        let private = co
             .list_tasks(&coord::TaskFilter {
                 open: true,
                 ..Default::default()
             })
             .iter()
-            .filter(|t| card_summary(t, &p).open_blockers > 0)
+            .filter(|t| card_summary(t, &p).open_blockers > 0 || merge_pr(co, t).is_some())
             .count();
         private
             + self
                 .board_cards(&p, self.now_ms(), None)
                 .0
                 .iter()
-                .filter(|s| s.open_blockers > 0)
+                .filter(|s| s.open_blockers > 0 || s.merge_pr.is_some())
                 .count()
     }
 
@@ -2874,6 +2890,22 @@ fn wait_pr(co: &coord::Coord, t: &Task) -> Option<WaitPr> {
     })
 }
 
+/// The PR a blocked card's open external wait is on (card #509): the
+/// person's merge, as coord's Needs you counts it, until GitHub is heard
+/// to call it merged or closed.
+/// On a shared board, only this person's own agents' waits.
+fn merge_pr(co: &coord::Coord, t: &Task) -> Option<WaitPr> {
+    co.merge_waits(&t.id).into_iter().find_map(|url| {
+        let (repo, number) = coord::pr_link(&coord::parse_link(&url).ok()?)?;
+        Some(WaitPr {
+            repo,
+            number,
+            url,
+            approval: false,
+        })
+    })
+}
+
 /// How many cards a wait chain follows before it stops looking.
 const CHAIN_DEPTH: usize = 8;
 
@@ -2919,6 +2951,7 @@ fn wait_you(co: &coord::Coord, first: &str) -> String {
 /// board card).
 fn family_of(co: &coord::Coord, t: &Task, s: &mut CardSummary) {
     s.wait_pr = wait_pr(co, t);
+    s.merge_pr = merge_pr(co, t);
     s.wait_you = wait_you(co, &s.wait_task);
     if !coord::is_terminal(&t.state) && !coord::task_waits(t).is_empty() {
         let card = |id: &str| {

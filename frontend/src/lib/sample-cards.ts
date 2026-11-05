@@ -646,6 +646,26 @@ export function sampleCards(now: Date): CardDetail[] {
         url: "https://github.com/sample-org/example-app/pull/212",
       },
     }),
+    // Card #509: an older wait on a PR's merge is the person's merge, a
+    // Needs you row that opens the PR.
+    card({
+      id: "sample-card-merge",
+      short: "18",
+      title: "Asks and Talk threads get their own agent",
+      goal: "Each ask and Talk thread gets its own background agent that goes when the thread closes.",
+      state: TaskState.Blocked,
+      working: [],
+      waitingOn: 1,
+      waitKind: "external",
+      waitOn: "https://github.com/sample-org/example-app/pull/41",
+      waitQuestion: "Review and merge PR #41 so it lands on main",
+      updatedAt: at(2),
+      mergePr: {
+        repo: "sample-org/example-app",
+        number: 41,
+        url: "https://github.com/sample-org/example-app/pull/41",
+      },
+    }),
     // A wait on that card waits on its PR, not on the person (card #471).
     card({
       id: "sample-card-after-review",
@@ -729,6 +749,7 @@ export function sampleCards(now: Date): CardDetail[] {
       id: "sample-card-1",
       title: "Ship example-app v0.6.0",
       repoKey: "remote:github.com/sample-org/example-app",
+      side: "Work",
       goal: "Tagged release with final notes and an installer on the release page.",
       working: [otter],
       watching: [heron],
@@ -982,6 +1003,7 @@ export function sampleCards(now: Date): CardDetail[] {
       id: "sample-card-2",
       title: "Replace the third-party VPN with a built-in LAN link",
       repoKey: "remote:github.com/sample-org/example-net",
+      side: "Work",
       goal: "Two users on different networks can play LAN games together without the third-party VPN.",
       working: [badger],
       watching: [wren, lark],
@@ -1053,10 +1075,22 @@ export function sampleCards(now: Date): CardDetail[] {
         }),
       ],
     }),
+    // A Work card made on a device that runs only Personal (card #495): it
+    // waits, and is never handed to another device.
+    card({
+      id: "sample-card-side-wait",
+      title: "Rotate the staging API keys",
+      repoKey: "remote:github.com/sample-org/example-app",
+      side: "Work",
+      sideWait: "no device here runs Work",
+      goal: "New keys in the vault, old ones revoked.",
+      updatedAt: at(2),
+    }),
     card({
       id: "sample-card-3",
       title: "Two-PC lobby join for the multiplayer build",
       repoKey: "remote:github.com/sample-org/example-game",
+      side: "Personal",
       goal: "Two machines join the same lobby and see each other's animals.",
       working: [heron, wren],
       updatedAt: at(6),

@@ -45,7 +45,6 @@ import {
   type Post,
 } from "@/lib/conversations"
 import { AgentRef } from "@/lib/models"
-import { threads as threadsApi } from "@/lib/cards"
 import { composing, MentionBoard, type Mention } from "@/lib/mentions"
 import { useAgentsNow } from "@/lib/agents-now"
 import { parseTime, plainLine } from "@/lib/irori"
@@ -533,11 +532,11 @@ function ThreadFrom({
         setBusy(true)
         setError(null)
         try {
-          const res = await threadsApi.start(
+          await talkApi.threadFrom(
+            channel.convId,
+            post.postId,
             threadText(text, author, post.text, channel.name)
           )
-          const ref = res.task.short ? `#${res.task.short}` : res.task.id
-          await talkApi.post(channel.convId, ref, false, post.postId)
           onDone()
         } catch (err) {
           setError(errorText(err))

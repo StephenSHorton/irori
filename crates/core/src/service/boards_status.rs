@@ -309,6 +309,7 @@ mod tests {
             at_ms: NOW,
             advanced_ms: vector.iter().map(|(d, _)| (d.to_string(), NOW)).collect(),
             spaces: 0,
+            spawns: 0,
         }
     }
 

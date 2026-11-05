@@ -162,13 +162,36 @@ kinds! {
     /// `{taskId, gen, step?, subtask?, op: requested|failed|canceled,
     /// device, repoKey, folder, worktree?, model, effort, permissionMode,
     /// name, reason?, by, at}`. The newest `gen` per card (and part) wins;
-    /// a pending request keeps the card out of hand-out. The private log
-    /// only until shared boards spawn (slice 11).
-    TASK_SPAWN = "task.spawn" => Replicated, Refuses;
+    /// a pending request keeps the card out of hand-out. `device` is the
+    /// device that starts it, which may be another of the person's
+    /// (card #455); on a shared board only the card's author's devices
+    /// write it.
+    TASK_SPAWN = "task.spawn" => Replicated, Accepts;
     /// The spawned_for mark (card #446): `{taskId, key, gen, step?,
     /// subtask?, device, by, at}`. Agent `key` was started for card
-    /// `taskId` and is never offered another; kept after it goes.
-    TASK_SPAWNED = "task.spawned" => Replicated, Refuses;
+    /// `taskId` and is never offered another; kept after it goes. On a
+    /// shared board `key` is the agent's `agent:<cardId>` (card #455).
+    TASK_SPAWNED = "task.spawned" => Replicated, Accepts;
+    /// What a device can start agents in (card #455): `{device, os,
+    /// repos: [{repoKey, folder, trusted}], at}`, actor `irori`, written by
+    /// that device only when it changes. The device that hands a card out
+    /// picks where its agent starts from these (decision 7 (a)); a device
+    /// with none is never picked.
+    SPAWN_HOST = "spawn.host" => Replicated, Refuses;
+    /// The person asks another of their devices to end a spawned agent it
+    /// runs (card #455): `{key, taskId, by, atDevice, at}`, actor `user`.
+    /// Only the device the agent runs on acts on it.
+    SPAWN_END_REQUESTED = "spawn.end.requested" => Replicated, Refuses;
+    /// The person asks for a card's agent now, from any of their devices
+    /// (card #455): `{taskId, note?, by, atDevice, at}`, actor `user`. The
+    /// device that hands the card out acts on it, with the note in the brief.
+    SPAWN_START_REQUESTED = "spawn.start.requested" => Replicated, Refuses;
+    /// The person asks the device a card's agent must start on to trust
+    /// its repo (card #455): `{taskId, gen, device, repoKey, folder, by,
+    /// atDevice, at}`, actor `user`. That device only asks the person in
+    /// its own window; trust is written by their confirm there, never by
+    /// this row.
+    TRUST_REQUESTED = "trust.requested" => Replicated, Refuses;
     /// A board's spawned-agent settings (card #446): `{boardId, on, by,
     /// at}`, actor `user`; `""` is the private board. Set in the app only.
     SPAWN_SET = "spawn.set" => Replicated, Refuses;
@@ -213,6 +236,10 @@ kinds! {
     PERSON_AVATAR = "person.avatar" => Replicated, Refuses;
     // devname (card #184)
     DEVICE_NAME = "device.name" => Replicated, Refuses;
+    /// `{deviceId, sides, atDevice}`, actor `user`: the work/personal
+    /// sides a device runs, the first its new cards' (card #494). Counts
+    /// only when the signing device is `deviceId`; no row, every side.
+    DEVICE_SIDES = "device.sides" => Replicated, Refuses;
     // v0.5 shared boards: board logs only
     BOARD_CREATED = "board.created" => Replicated, Accepts;
     BOARD_RENAMED = "board.renamed" => Replicated, Accepts;

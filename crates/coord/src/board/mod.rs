@@ -47,7 +47,9 @@ mod placed;
 mod presence;
 mod prstate;
 mod threads;
-pub use offers::{IdleReport, OFFER_HANDED, OFFER_PASSED, OFFER_WAITING, Unoffered};
+pub use offers::{
+    IdleReport, OFFER_HANDED, OFFER_PASSED, OFFER_WAITING, Unoffered, machine_needed,
+};
 pub use parts::{DEFAULT_AGENTS_PER_CARD, MAX_AGENTS_PER_CARD, PART_QUESTION};
 pub use spawn::{
     CRASHED_QUESTION, CRASHED_START, MAX_SPAWN_CRASHES, PERMISSION_MODES, SPAWN_CANCELED,
@@ -57,6 +59,8 @@ mod resource;
 mod review;
 pub mod rows;
 mod short;
+mod side_gate;
+pub use side_gate::ASK_THE_PERSON;
 mod spawn;
 mod subtasks;
 mod tasks;
@@ -453,6 +457,75 @@ impl Coord {
         f.busy_with(key, "").map(Fold::busy_text)
     }
 
+    // ---- sides (card #494) ----
+
+    /// Pins the work/personal sides this device runs, the first the one
+    /// its new cards take; empty runs every side again. Written as the
+    /// person on this device, so it counts here and nowhere else.
+    pub fn set_device_sides(&self, sides: &[String]) -> Result<Vec<String>> {
+        let mut f = self.lock();
+        if f.on_board {
+            return Err(error::not_allowed("a shared board carries no sides"));
+        }
+        let sides = crate::sides::clean_list(sides);
+        let dev = f.dev.clone();
+        f.write_as(
+            "user",
+            crate::sides::KIND,
+            &crate::sides::SidesRow {
+                device_id: dev.clone(),
+                sides: sides.clone(),
+                at_device: dev,
+            },
+        )?;
+        Ok(sides)
+    }
+
+    /// Folds a `device.sides` row now, before the follow loop reaches it,
+    /// so a reader woken by it sees it (the fold keeps the newest per
+    /// device, so folding it twice changes nothing).
+    pub fn apply_sides(&self, ev: &Event) -> bool {
+        let mut f = self.lock();
+        let changed = !f.on_board && f.sides.apply(ev);
+        if changed {
+            f.index_runs();
+        }
+        changed
+    }
+
+    /// The sides `device` runs; None when it runs every side.
+    pub fn sides_of(&self, device: &str) -> Option<Vec<String>> {
+        self.lock().sides.of(device).map(<[String]>::to_vec)
+    }
+
+    /// Whether `device` runs a card on `side` (no side, or no pin: yes).
+    pub fn runs_side(&self, device: &str, side: &str) -> bool {
+        self.lock().sides.runs(device, side)
+    }
+
+    /// The side a new card typed on this device takes ("" for none).
+    pub fn home_side(&self) -> String {
+        let f = self.lock();
+        f.sides.home(&f.dev)
+    }
+
+    /// Every pinned device's sides, by device id.
+    pub fn device_sides(&self) -> std::collections::BTreeMap<String, Vec<String>> {
+        self.lock().sides.all()
+    }
+
+    /// Every side named anywhere: on a device's pin or on a card.
+    pub fn side_names(&self) -> Vec<String> {
+        self.lock().side_names()
+    }
+
+    /// What an agent on `device` is told about sides (card #496); empty
+    /// when it runs every side.
+    pub fn side_line(&self, device: &str) -> String {
+        let f = self.lock();
+        crate::sides::agent_line(f.sides.of(device), &f.side_names())
+    }
+
     // ---- tasks ----
 
     pub fn create_task(&self, by: &str, t: NewTask) -> Result<Task> {
@@ -462,7 +535,8 @@ impl Coord {
         self.lock().list_tasks(f)
     }
     pub fn get_task(&self, id: &str) -> Option<Task> {
-        self.lock().tasks.get(id).cloned()
+        let f = self.lock();
+        f.tasks.get(id).map(|t| f.shown(t))
     }
     /// Makes `by` the holder; ErrHeld if another live holder has it.
     pub fn claim_task(&self, by: &str, id: &str) -> Result<Task> {
@@ -1315,6 +1389,29 @@ impl Coord {
     pub fn cards_to_spawn(&self) -> Vec<Task> {
         self.lock().cards_to_spawn()
     }
+    /// The requests naming this device it may start an agent for now
+    /// (card #455): another of the person's devices chose it, or it chose
+    /// itself. See [`Fold::spawns_here`].
+    pub fn spawns_here(&self) -> Vec<(Task, Spawn)> {
+        self.lock().spawns_here()
+    }
+    /// Marks agent `key` as started for card `task_id` of another log
+    /// (card #455). See [`Fold::mark_spawned_elsewhere`].
+    pub fn mark_spawned_elsewhere(
+        &self,
+        key: &str,
+        task_id: &str,
+        generation: i64,
+        device: &str,
+        board: &str,
+    ) -> Result<()> {
+        self.lock()
+            .mark_spawned_elsewhere(key, task_id, generation, device, board)
+    }
+    /// This log's device id.
+    pub fn device_id(&self) -> String {
+        self.lock().dev.clone()
+    }
     /// The inbox's Stale hook for a card Irori handed out (card #82): the
     /// note to close a hand-out notice to `to` with once the card went to
     /// someone else, was taken or closed, or `""`. Never takes coord's lock.
@@ -1328,6 +1425,23 @@ impl Coord {
             Some((false, why)) => why.clone(),
             _ => String::new(),
         }
+    }
+    /// The inbox's off-side hold (card #495): whether a notice of `kind`
+    /// about card `r` (`task:<id>`) to agent `to` is a pick Irori made on
+    /// its own for a device that doesn't run the card's side. Only a
+    /// hand-out (`offer`), a review request, or an ask the person didn't
+    /// name `to` in counts.
+    /// Best effort on the receiving device: coord and the inbox follow the
+    /// store on their own threads, so a card this fold hasn't indexed yet
+    /// reads as no side and passes. The sender's own pick filters
+    /// (free_for, free_agents, cards_to_spawn) are the first guard.
+    /// Never takes coord's lock.
+    pub fn off_side(&self, kind: &str, r: &str, to: &str) -> bool {
+        let Some(id) = r.strip_prefix("task:") else {
+            return false;
+        };
+        let s = self.stale.read().unwrap_or_else(|e| e.into_inner());
+        offers::off_side_in(&s, kind, id, to)
     }
     /// The inbox's Stale hook: never takes coord's lock.
     pub fn stale_notice(&self, r: &str, to: &str) -> String {
@@ -1453,6 +1567,23 @@ impl Coord {
         f.tasks
             .get(id)
             .map(|t| f.pr_states_of(t))
+            .unwrap_or_default()
+    }
+
+    /// How PR `pr` on card `id` stood when last heard, whether the card
+    /// links it or only a wait is on it (card #509).
+    pub fn pr_state(&self, id: &str, pr: &str) -> Option<PrState> {
+        self.lock().pr_states.get(id)?.get(pr).cloned()
+    }
+
+    /// The PRs card `id`'s open external waits ask this person to merge,
+    /// not yet known merged or closed (card #509); on a shared board only
+    /// their own agents' waits.
+    pub fn merge_waits(&self, id: &str) -> Vec<String> {
+        let f = self.lock();
+        f.tasks
+            .get(id)
+            .map(|t| f.merge_waits(t))
             .unwrap_or_default()
     }
 

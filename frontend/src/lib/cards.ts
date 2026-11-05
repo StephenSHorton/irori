@@ -513,7 +513,7 @@ export const threads = {
     sampleThreadAgentsNow.set(id, agentsNow ?? agentsNowDefault(mentions))
     sampleChanged()
     return TaskResult({
-      task: { id } as TaskResult["task"],
+      task: { id, short: String(top + 1) } as TaskResult["task"],
       told: Told({ to: [], mode: "wake" }),
     })
   },
@@ -748,6 +748,7 @@ function summary(c: CardDetail): CardSummary {
     starting: c.starting,
     atCap: c.atCap,
     waitPr: c.waitPr,
+    mergePr: c.mergePr,
     working: c.working,
     watching: c.watching,
     holder: c.holder,

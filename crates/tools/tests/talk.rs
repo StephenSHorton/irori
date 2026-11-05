@@ -1075,3 +1075,56 @@ fn a_wind_down_and_its_replies_open_no_dm() {
     let texts: Vec<&str> = ps.iter().map(|p| p.text.as_str()).collect();
     assert_eq!(texts, ["how's #3?"]);
 }
+
+/// Card #454 (spawned-agents.md §4 "Channels"): an agent Irori started
+/// posts in a channel without joining it, so it gets no next-turn
+/// readings; any other agent's post joins it, as before.
+#[test]
+fn a_spawned_agent_posts_without_joining() {
+    let h = new_harness();
+    let (a, c) = (call_a(), call_c());
+    let ch = h.b.talk.create_channel(USER, "game-repo", "").unwrap();
+    let t =
+        h.b.co
+            .create_task(
+                USER,
+                coord::NewTask {
+                    title: "Fix the save test".into(),
+                    ..coord::NewTask::default()
+                },
+            )
+            .unwrap();
+    let g =
+        h.b.co
+            .request_spawn(
+                "irori",
+                coord::SpawnAsk {
+                    task_id: t.id.clone(),
+                    device: "dev1".into(),
+                    folder: "/repo".into(),
+                    name: "otter".into(),
+                    permission_mode: "default".into(),
+                    ..coord::SpawnAsk::default()
+                },
+            )
+            .unwrap()
+            .unwrap();
+    assert!(h.b.co.bind_spawn(&t.id, g, KEY_A).unwrap());
+    assert!(h.b.co.is_spawned(KEY_A));
+    has(
+        &h.okj(
+            &a,
+            "talk_post",
+            json!({"conv": "#game-repo", "text": "main is green again"}),
+        ),
+        &["Posted post_"],
+    );
+    assert_eq!(h.b.talk.posts(&ch.id).len(), 1);
+    assert!(!h.b.talk.is_member(&ch.id, KEY_A), "spawned: not a member");
+    h.okj(
+        &c,
+        "talk_post",
+        json!({"conv": "#game-repo", "text": "thanks"}),
+    );
+    assert!(h.b.talk.is_member(&ch.id, KEY_C), "a terminal agent joins");
+}

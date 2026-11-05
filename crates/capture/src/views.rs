@@ -385,7 +385,7 @@ impl Capture {
         hit.map(CommitRec::view)
     }
 
-    /// The repo keys seen, with their known roots (sorted).
+    /// The repo keys seen on this device, with their roots here (sorted).
     pub fn repos(&self) -> BTreeMap<String, Vec<String>> {
         let f = self.inner.read();
         let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();

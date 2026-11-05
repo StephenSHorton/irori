@@ -355,6 +355,29 @@ export function ScopeBadge({ card }: { card: CardSummary }) {
   )
 }
 
+// SideBadge is the work/personal side a card is on (card #494): only the
+// devices that run that side take it up. None for a card on any side.
+// With sideWait set (card #495) the device that picks an agent for it
+// doesn't run that side, so the card waits: the badge says so.
+export function SideBadge({ card }: { card: CardSummary }) {
+  const side = plainLine(card.side ?? "")
+  if (!side) return null
+  const wait = plainLine(card.sideWait ?? "")
+  return (
+    <Badge
+      variant={wait ? "outline" : "secondary"}
+      className="font-normal"
+      title={
+        wait
+          ? `Waits: ${wait}. It is never handed to another device.`
+          : `On the ${side} side: devices that run ${side} take it up`
+      }
+    >
+      {wait ? `${side}: waits, ${wait}` : side}
+    </Badge>
+  )
+}
+
 // PrChip is the small "waits on PR #N" an in-review card shows on itself
 // (card #471): one click opens the PR. Tiles and rows are buttons, so it is
 // a link-role span that keeps its click to itself.

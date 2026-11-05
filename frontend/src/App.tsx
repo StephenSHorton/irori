@@ -152,6 +152,7 @@ export function App() {
             lastTool: a.lastTool,
             offersCards: a.offersCards,
             spawned: a.spawned,
+            here: a.here,
           },
         ])
       ),
@@ -461,7 +462,8 @@ export function App() {
   // Home is your own cards; a board's live on its page (card #96), and
   // its decisions show on Home as one line per board.
   const boardDecide = spaceCards.filter(
-    (c) => c.scope === "board" && c.openBlockers > 0
+    // Card #509: a wait on a PR's merge is theirs too, as the tray counts it.
+    (c) => c.scope === "board" && (c.openBlockers > 0 || !!c.mergePr)
   )
   // Needs you leads Home (card #261): its cards and held messages. An
   // agent's message to you is a DM in Talk (card #390). Held ones are
@@ -478,7 +480,10 @@ export function App() {
     () =>
       new Set(
         needs
-          .filter((n) => n.kind === "check" || n.kind === "decision")
+          .filter(
+            (n) =>
+              n.kind === "check" || n.kind === "decision" || n.kind === "merge"
+          )
           .map((n) => n.id)
       ),
     [needs]

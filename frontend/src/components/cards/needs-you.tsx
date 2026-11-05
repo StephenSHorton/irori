@@ -23,6 +23,7 @@ import { inWails, plainLine, relativeTime } from "@/lib/irori"
 import { AgentsService } from "@/lib/host"
 import {
   loopLine,
+  mergeLine,
   NOT_TRUSTED,
   refOf,
   spawnNeed,
@@ -86,6 +87,8 @@ export function NeedsYou({
             <li key={`${n.kind}:${n.id}`} className="min-w-0">
               {n.kind === "check" || n.kind === "decision" ? (
                 <CardNeed need={n} now={now} onOpen={onOpenCard} />
+              ) : n.kind === "merge" ? (
+                <MergeNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "trust" ? (
                 <TrustRow need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "loop" || n.kind === "stuck" ? (
@@ -118,6 +121,8 @@ export function NeedsYou({
 const kinds = {
   check: { label: "Done check", variant: "success" },
   decision: { label: "Decision", variant: "destructive" },
+  // Card #509: an agent waits on the person to merge its PR.
+  merge: { label: "Merge", variant: "warning" },
   trust: { label: "Trust", variant: "warning" },
   // Card #456 (sa-7): a spawned agent stopped on a permission prompt, and
   // a card whose agents crashed twice.
@@ -316,10 +321,57 @@ function StuckNeed({
   )
 }
 
+// MergeNeed is a card whose agent waits on the person to merge a PR (card
+// #509): such waits sat in Blocked, unseen, for days. It names the PR and
+// opens it on GitHub; the wait ends when Irori hears the PR merged, or on
+// the card. New work asks "Can I merge…?" instead, a decision row.
+function MergeNeed({
+  need,
+  now,
+  onOpen,
+}: {
+  need: Extract<Need, { kind: "merge" }>
+  now: Date
+  onOpen: (id: string) => void
+}) {
+  const c = need.card
+  const { error, done, run } = useAct()
+  const said = plainLine(c.waitQuestion ?? "")
+  return (
+    <Row
+      kind="merge"
+      where={<Where card={c} />}
+      at={need.at}
+      now={now}
+      title={plainLine(c.title)}
+    >
+      <p className="text-sm break-words text-muted-foreground">
+        {mergeLine(need.pr)} in {need.pr.repo}: its agent waits on you to merge
+        it.{said ? ` “${said}”` : ""}
+      </p>
+      <span className="flex flex-wrap gap-1.5">
+        <Button
+          size="sm"
+          title={need.pr.url}
+          onClick={() => run(() => cardsApi.openURL(need.pr.url), "")}
+        >
+          Open PR #{need.pr.number}
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => onOpen(c.id)}>
+          Open card
+        </Button>
+      </span>
+      <Said error={error} done={done} />
+    </Row>
+  )
+}
+
 // TrustRow is a card whose agent can't start because its repo isn't
 // trusted for agents on that device (card #449, spawned agents §7 "The
 // pre-trust flow"): it says what trusting does, and Trust and start
-// records it (from this window only) and starts the agent.
+// records it (from this window only) and starts the agent. When the agent
+// starts on another device, Ask asks that device to trust it (part 11),
+// and there the row says who asked.
 function TrustRow({
   need,
   now,
@@ -362,11 +414,25 @@ function TrustRow({
         {info ? (info.here ? " on this computer" : ` on ${info.device}`) : ""}.
         {info?.what ? ` ${info.what}` : ""}
       </p>
+      {info?.here && info.askedBy && (
+        <p className="text-[12.5px] text-muted-foreground">
+          {info.askedBy} asked you to trust this.
+        </p>
+      )}
       <span className="flex flex-wrap items-center gap-1.5">
         {info && !info.here ? (
-          <span className="text-[12.5px] text-muted-foreground">
-            Open Irori on {info.device} to trust it there.
-          </span>
+          <Button
+            size="sm"
+            disabled={act.busy || !!act.done}
+            onClick={() =>
+              void act.run(
+                () => AgentsService.TrustRequest(c.id),
+                (d) => `Asked ${d}: confirm it there.`
+              )
+            }
+          >
+            {act.busy ? "Asking…" : `Ask ${info.device} to trust it`}
+          </Button>
         ) : (
           <Button
             size="sm"
@@ -387,7 +453,14 @@ function TrustRow({
   )
 }
 
-type TrustInfo = { folder: string; device: string; here: boolean; what: string }
+type TrustInfo = {
+  folder: string
+  device: string
+  here: boolean
+  what: string
+  // The device that asked this one to trust it (part 11).
+  askedBy?: string | null
+}
 
 // trustFromReason reads `not trusted: <folder> on <device>` (the failed
 // spawn's reason) when the host can't be asked.

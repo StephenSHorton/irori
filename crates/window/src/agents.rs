@@ -136,14 +136,10 @@ impl Window {
     }
 
     /// The person's End on an agent Irori started (card #448, sa-2): its
-    /// hand-off, then stop and rm. Only on the device it runs on until
-    /// part 11 sends end requests across devices.
+    /// hand-off, then stop and rm. From any of the person's devices: one
+    /// that doesn't run it asks the device that does (part 11).
     pub fn agents_end(&self, key: &str) -> Result<(), String> {
-        let dev = key.split_once('/').map_or("", |(d, _)| d);
-        if dev != self.core.device_id() {
-            return Err("End it from the device it runs on".into());
-        }
-        self.core.end_spawned(key)
+        self.core.request_end(key)
     }
 
     /// A spawned agent's key, checked: Irori started it and it runs on

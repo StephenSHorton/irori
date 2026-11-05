@@ -88,7 +88,7 @@ const CLOCK_SKEW: Duration = Duration::from_secs(120);
 pub const SUB_BUFFER: usize = 64;
 
 /// The row prefixes coord folds.
-pub const FOLLOW_KINDS: [&str; 10] = [
+pub const FOLLOW_KINDS: [&str; 11] = [
     "task.",
     "lease.",
     "blocker.",
@@ -100,6 +100,9 @@ pub const FOLLOW_KINDS: [&str; 10] = [
     // The merge desk (card #415).
     "repo.desk",
     "desk.",
+    // The sides each device runs (card #494): the exact kind, not
+    // "device.", which would pull in names and colours.
+    kinds::DEVICE_SIDES,
 ];
 
 /// Whether coord folds `kind`.
@@ -173,6 +176,19 @@ pub(crate) struct StaleMap {
     /// Unheld cards Irori hands out (card #82), by id: (live, the agent it
     /// went to while live, or why it no longer goes out).
     pub offers: HashMap<String, (bool, String)>,
+    /// Each card on a side (card #495), by id, and the sides each device
+    /// runs: what the inbox's off-side hold reads, without coord's lock.
+    pub sides: HashMap<String, SideCard>,
+    pub runs: crate::sides::Sides,
+}
+
+/// A card's side as the inbox's off-side hold reads it (card #495).
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(crate) struct SideCard {
+    pub side: String,
+    /// The agents the person's ask names: they hear it, any side.
+    pub named: Vec<String>,
+    pub thread: bool,
 }
 
 /// The bits of a task `touch` needs, so a handler can touch while it
@@ -219,6 +235,8 @@ pub struct Fold {
     pub(crate) on_board: bool,
     pub(crate) done_check: bool,
     pub(crate) person: String,
+    /// The sides each device runs (card #494), from `device.sides` rows.
+    pub(crate) sides: crate::sides::Sides,
     /// See [`super::Options::spawning`].
     pub(crate) spawning: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     /// See [`super::Options::offers`].
@@ -398,6 +416,7 @@ impl Fold {
             done_check: o.done_check,
             person,
             key_person: o.key_person,
+            sides: crate::sides::Sides::new(),
             spawning: o.spawning,
             offers: o.offers,
             agents_per_card: o.agents_per_card,
@@ -637,6 +656,12 @@ impl Fold {
         let at = |t: GoTime| if t.is_zero() { wall } else { t };
         match ev.kind.as_str() {
             kinds::TASK_CREATED => self.fold_created(ev, &at),
+            kinds::DEVICE_SIDES => {
+                // Private log only: a board log never carries one.
+                if !self.on_board && self.sides.apply(ev) {
+                    self.index_runs();
+                }
+            }
             kinds::TASK_CLAIMED => {
                 let Some(p) = row::<TaskClaimedRow>(&ev.payload) else {
                     return;
@@ -1114,6 +1139,8 @@ impl Fold {
             links,
             tag: self.tag_of(&p.board),
             board: p.board.clone(),
+            side: crate::sides::clean(&p.side),
+            own_side: crate::sides::clean(&p.side),
             from: p.from.clone(),
             agents: p.agents.clamp(0, super::MAX_AGENTS_PER_CARD),
             ..Task::default()
@@ -2001,11 +2028,20 @@ impl Fold {
             // person whose agent holds the card: the PR poller runs there
             // (card #208). Without it the row never folded on a board and
             // every poll heard "newly merged" again (#210).
+            // Or, for a PR an external wait is on (card #509), from a device
+            // of the person whose agent raised the wait: its poller asks
+            // whoever holds the card.
             kinds::PR_STATE => self.tasks.get(&p.task_id).is_some_and(|t| {
                 t.holders
                     .iter()
                     .chain(&t.co_holders)
                     .any(|h| self.may_write(h, &ev.device_id))
+                    || row::<PrStateRow>(&ev.payload).is_some_and(|r| {
+                        t.blockers.iter().any(|b| {
+                            b.merge_wait().as_deref() == Some(r.pr.as_str())
+                                && self.may_write(&b.raised_by, &ev.device_id)
+                        })
+                    })
             }),
             // A wait that ended by itself (a lease released, card #339)
             // closes from a device of the person whose agent raised it:
@@ -2015,6 +2051,26 @@ impl Fold {
                     .iter()
                     .any(|b| b.open() && self.may_write(&b.raised_by, &ev.device_id))
             }),
+            // A spawned agent's request and mark (card #455): from a device
+            // of the card's author, which spawn_writer_ok checks itself.
+            kinds::TASK_SPAWN | kinds::TASK_SPAWNED => true,
+            // Binding a spawned agent assigns the card to it: from a device
+            // of the card's author, and only to the agent marked as started
+            // for this card in this log.
+            kinds::TASK_ASSIGNED => {
+                let Some(a) = row::<TaskAssignedRow>(&ev.payload) else {
+                    return false;
+                };
+                let (Some(kp), Some(dp)) = (&self.key_person, &self.dev_person) else {
+                    return false;
+                };
+                self.tasks.get(&p.task_id).is_some_and(|t| {
+                    let author = kp(&t.created_by);
+                    !author.is_empty()
+                        && author == dp(&ev.device_id)
+                        && self.spawned.get(&a.to).is_some_and(|s| s.task_id == t.id)
+                })
+            }
             kinds::BLOCKER_RESOLVED if self.raiser_closes(ev) => true,
             kinds::TASK_STATUS | kinds::BLOCKER_RESOLVED => match self.tasks.get(&p.task_id) {
                 None => true,

@@ -196,6 +196,12 @@ export const commands = {
 	 */
 	agentsTrustAndStart: (taskId: string) => __TAURI_INVOKE<TrustStarted>("agents_trust_and_start", { taskId }),
 	/**
+	 *  The person asks the device a card's agent must start on to trust its
+	 *  repo there (part 11); that device asks them in its own window. Writes
+	 *  no trust. The device's name.
+	 */
+	agentsTrustRequest: (taskId: string) => __TAURI_INVOKE<string>("agents_trust_request", { taskId }),
+	/**
 	 *  This device's repos and whether each is trusted for agents (card #456,
 	 *  Settings › Agents).
 	 */
@@ -227,6 +233,10 @@ export const commands = {
 	devicesPersonAvatar: () => __TAURI_INVOKE<string>("devices_person_avatar"),
 	devicesSetPersonAvatar: (avatar: string) => __TAURI_INVOKE<null>("devices_set_person_avatar", { avatar }),
 	devicesRenameDevice: (deviceId: string, name: string) => __TAURI_INVOKE<string>("devices_rename_device", { deviceId, name }),
+	/**  Every work/personal side named on a device or a card (card #494). */
+	devicesSideNames: () => __TAURI_INVOKE<string[]>("devices_side_names"),
+	/**  Pins the sides this device runs, the first its new cards' (card #494). */
+	devicesSetDeviceSides: (sides: string[]) => __TAURI_INVOKE<string[]>("devices_set_device_sides", { sides }),
 	devicesAddDevice: (role: string) => __TAURI_INVOKE<PairStatus>("devices_add_device", { role }),
 	devicesJoinWithCode: (code: string, server: string) => __TAURI_INVOKE<PairStatus>("devices_join_with_code", { code, server }),
 	devicesConfirmWords: (words: string) => __TAURI_INVOKE<null>("devices_confirm_words", { words }),
@@ -272,6 +282,12 @@ export const commands = {
 	talkPost: (convId: string, text: string, mentions: string[], agentsNow: boolean, threadFrom: string | null) => __TAURI_INVOKE<string>("talk_post", { convId, text, mentions, agentsNow, threadFrom }),
 	/**  The person made card `task_id` from post `post_id` (card #390). */
 	talkLinkCard: (postId: string, taskId: string) => __TAURI_INVOKE<null>("talk_link_card", { postId, taskId }),
+	/**
+	 *  The person asks about channel `conv_id`'s post `post_id` in a new
+	 *  thread (card #454): it records the channel and its repo, and the
+	 *  channel gets a pointer to it.
+	 */
+	talkThreadFrom: (convId: string, postId: string, text: string) => __TAURI_INVOKE<TaskResult>("talk_thread_from", { convId, postId, text }),
 	/**  The person has read `conv_id` up to post `up_to`. */
 	talkRead: (convId: string, upTo: string) => __TAURI_INVOKE<null>("talk_read", { convId, upTo }),
 	/**
@@ -379,6 +395,11 @@ export type AgentCard = {
 	offersCards: boolean,
 	/**  Irori started it for a card. */
 	spawned: boolean,
+	/**
+	 *  It runs on this device, so its "Offer it cards" is set here (card
+	 *  #492): another device's agent shows its switch read-only.
+	 */
+	here: boolean,
 };
 
 /**
@@ -974,6 +995,10 @@ export type CardSummary = {
 	scope: string,
 	scopeLabel: string,
 	board?: string,
+	/**  The work/personal side it's on (card #494); empty for any side. */
+	side?: string,
+	/**  Why it waits on its side (card #495): "no device here runs Work". */
+	sideWait?: string,
 	tag?: string,
 	progress: CardProgress,
 	openBlockers: number,
@@ -1039,6 +1064,12 @@ export type CardSummary = {
 	 *  a small "waits on PR #N" chip with its link, never a Needs you row.
 	 */
 	waitPr?: WaitPr | null,
+	/**
+	 *  The PR an agent's open external wait asks the person to merge (card
+	 *  #509): a Needs you row with the PR's link, until it is known merged
+	 *  or closed.
+	 */
+	mergePr?: WaitPr | null,
 	working: AgentRef[],
 	watching: AgentRef[],
 	holder: CardHolder,
@@ -1383,6 +1414,11 @@ export type DeviceView = {
 	/**  Zero (omitted): never heard from, or this device. */
 	lastSeen?: string,
 	color?: string,
+	/**
+	 *  The work/personal sides it runs, the first its new cards' (card
+	 *  #494). Empty (omitted): every side.
+	 */
+	sides?: string[],
 };
 
 /**  One page of the Done tab. */
@@ -2125,6 +2161,10 @@ export type Task = {
 	short?: string,
 	shortWas?: string,
 	tag?: string,
+	/**  The work/personal side (card #494). */
+	side?: string,
+	/**  Why it waits on its side (card #495). */
+	sideWait?: string,
 	withdrawn?: boolean,
 	title: string,
 	objective: string,
@@ -2272,6 +2312,8 @@ export type TrustNeed = {
 	here: boolean,
 	/**  What trusting does, in the words the confirm shows. */
 	what: string,
+	/**  The device that asked this one to trust it (part 11), by name. */
+	askedBy: string | null,
 };
 
 /**  After Trust and start. */

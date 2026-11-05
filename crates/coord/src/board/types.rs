@@ -234,6 +234,22 @@ impl Blocker {
     pub fn open(&self) -> bool {
         self.resolved.is_none()
     }
+
+    /// The GitHub pull request an open external wait is on (card #509):
+    /// its ref when that is a PR URL, else the first PR among its links.
+    /// Such a wait is the person's merge, so it counts in Needs you.
+    pub fn merge_wait(&self) -> Option<String> {
+        let on = self.on.as_ref()?;
+        if !self.open() || on.kind != BLOCKED_ON_EXTERNAL {
+            return None;
+        }
+        let from_ref = super::links::parse_link(&on.reference).ok();
+        from_ref
+            .iter()
+            .chain(self.links.iter())
+            .find(|l| super::links::pr_link(l).is_some())
+            .map(|l| l.reference.clone())
+    }
 }
 
 crate::go_struct! {
@@ -316,6 +332,10 @@ pub struct Ask {
     /// person's own log, heard only by their own agents.
     #[serde(skip_serializing_if = "omit")]
     pub board: String,
+    /// The Talk channel a thread was started from (a message there, card
+    /// #454): its `ch_` id. Its newest lines go in a spawned agent's brief.
+    #[serde(skip_serializing_if = "omit")]
+    pub channel: String,
 }
 
 impl Ask {
@@ -363,6 +383,19 @@ pub struct Task {
     /// The board in its space (card #392): empty for the space's own board.
     #[serde(skip_serializing_if = "omit")]
     pub board: String,
+    /// The work/personal side it's on (card #494): only devices that run
+    /// this side pick it up on their own. Empty: any side.
+    #[serde(skip_serializing_if = "omit")]
+    pub side: String,
+    /// The side its task.created gave it: `side` while it has no parent;
+    /// a subtask's `side` is its parent's (relink).
+    #[serde(skip)]
+    pub own_side: String,
+    /// Why it waits on its side (card #495): "no device here runs Work"
+    /// while the device that picks an agent for it doesn't run its side.
+    /// Set when read (get_task, list_tasks, board), never folded.
+    #[serde(skip_serializing_if = "omit")]
+    pub side_wait: String,
     #[serde(skip_serializing_if = "omit")]
     pub withdrawn: bool,
     pub title: String,
@@ -617,6 +650,10 @@ pub struct NewTask {
     /// "Up to N agents" (spawned agents §3): 0 for the board's Agents per
     /// card, 1 for the lead alone.
     pub agents: i64,
+    /// The work/personal side (card #494). Empty: a subtask's parent's,
+    /// else the side of this device (the first it runs), else none.
+    /// Ignored on a shared board.
+    pub side: String,
 }
 
 /// Narrows `list_tasks`; zero values mean any.
@@ -889,6 +926,11 @@ pub struct BoardView {
     pub done: Vec<Card>,
     pub done_total: i64,
     pub leases: Vec<LeaseCard>,
+    /// What an agent here is told about sides (card #496): the sides this
+    /// device runs, and that other sides' cards are only read. Empty when
+    /// it runs every side.
+    #[serde(skip_serializing_if = "omit")]
+    pub side_line: String,
 }
 
 /// One line of what happened on a card.
@@ -999,6 +1041,9 @@ pub struct NewAsk {
     /// A thread with "Agents answer now" off (card #391): no agent is woken
     /// or handed it; the agents it names hear it at their next turn.
     pub quiet: bool,
+    /// A thread started from a message in this Talk channel (its `ch_` id,
+    /// card #454); private log only.
+    pub channel: String,
 }
 
 /// ask_claim's answer.

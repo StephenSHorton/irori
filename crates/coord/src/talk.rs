@@ -332,6 +332,10 @@ pub struct NewPost {
     pub agents_now: bool,
     pub thread_from: Option<String>,
     pub by: String,
+    /// Post without joining the channel (card #454): an agent Irori
+    /// started for a card or a thread is a member of no channel
+    /// (spawned-agents.md §4 "Channels"), so it gets no next-turn readings.
+    pub stay_out: bool,
 }
 
 /// The `talk.*` fold, and the writes that append and fold a row. Safe for
@@ -631,7 +635,7 @@ impl Talk {
     /// Posts to a channel or a DM. The text is trimmed and must not be
     /// empty: at most [`MAX_COMMENT`] characters from an agent, and
     /// [`MAX_PERSON_TEXT`] bytes from the person, as comments. A post in a
-    /// channel joins its writer.
+    /// channel joins its writer, unless it stays out (`stay_out`).
     pub fn post(&self, p: NewPost) -> Result<Post> {
         let by = need_by(&p.by)?.to_string();
         let conv = p.conv_id.trim().to_string();
@@ -686,7 +690,7 @@ impl Talk {
         if self.lock().ids.contains(&post_id) {
             return Err(invalid(format!("post {post_id} already exists")));
         }
-        if is_channel(&conv) {
+        if is_channel(&conv) && !p.stay_out {
             self.join(&conv, &Member::of(&by), &by)?;
         }
         self.write(

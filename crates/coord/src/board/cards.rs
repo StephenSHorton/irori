@@ -1981,13 +1981,18 @@ impl Fold {
             // A mark stays once set (spawned agents §3); only the card's
             // owner's side adds one.
             let had = t.steps.iter().any(|o| o.id == sid && o.spawn);
+            // A new step owner co-holds the card: kept to its side (card #496).
+            let owner = self.check_owner(&s.owner)?;
+            if !owner.is_empty() && !t.steps.iter().any(|o| o.id == sid && o.owner == owner) {
+                self.check_side_assign(&by, &t, &owner)?;
+            }
             out.push(Step {
                 spawn: had || (s.spawn && may_spawn),
                 id: sid,
                 text: s.text.clone(),
                 done: s.done,
                 doing: s.doing,
-                owner: self.check_owner(&s.owner)?,
+                owner,
             });
         }
         if out == t.steps {
@@ -2200,6 +2205,10 @@ impl Fold {
         };
         if s.owner == owner {
             return Ok((t, Vec::new()));
+        }
+        // A step owner co-holds the card: kept to its side (card #496).
+        if !owner.is_empty() {
+            self.check_side_assign(&by, &t, &owner)?;
         }
         let at = self.stamp();
         self.write(

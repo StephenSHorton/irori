@@ -24,6 +24,9 @@ crate::go_struct! {
         /// the one that posted it: a phone, which runs no agents and sleeps,
         /// names one of the person's computers.
         pub owner: String = "owner" "omit",
+        /// A thread started from a message in this Talk channel (card
+        /// #454): its `ch_` id.
+        pub channel: String = "channel" "omit",
     }
 }
 
@@ -50,6 +53,10 @@ crate::go_struct! {
         /// The board in a space it's on (card #392): a `space.board.created`
         /// id; empty for the space's own board (and every older card).
         pub board: String = "board" "omit",
+        /// The work/personal side it's on (card #494): the side of the
+        /// device it was typed on, or its parent's; empty for any side
+        /// (and every older card). Private log only.
+        pub side: String = "side" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
     }
@@ -656,6 +663,9 @@ crate::go_struct! {
         pub permission_mode: String = "permissionMode",
         pub name: String = "name" "omit",
         pub reason: String = "reason" "omit",
+        /// The person's words for the agent's brief, carried to the
+        /// device that starts it (card #455).
+        pub note: String = "note" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
     }
@@ -672,6 +682,9 @@ crate::go_struct! {
         pub step: String = "step" "omit",
         pub subtask: String = "subtask" "omit",
         pub device: String = "device",
+        /// The shared board whose card it is, on the person's own mark for
+        /// a board card's agent (card #455); empty for this log's card.
+        pub board: String = "board" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
     }

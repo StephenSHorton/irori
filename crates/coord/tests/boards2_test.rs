@@ -795,6 +795,11 @@ fn a_done_check_closes_on_a_shared_board() {
 
 /// A new coord over side s's store with the done check on.
 fn side_reopen(s: Side, person: &str, owners: &Owners) -> Side {
+    side_reopen_with(s, person, owners, Options::default())
+}
+
+/// side_reopen, taking anything else from `more` (its spawning switch).
+fn side_reopen_with(s: Side, person: &str, owners: &Owners, more: Options) -> Side {
     let me = person.to_string();
     let o2 = owners.clone();
     let o = Options {
@@ -811,7 +816,7 @@ fn side_reopen(s: Side, person: &str, owners: &Owners) -> Side {
                 who == p && at.map_or(*until == u64::MAX, |at| *from < at.hlc && at.hlc < *until)
             })
         })),
-        ..Options::default()
+        ..more
     };
     let c = Coord::new(s.st.clone(), None, o).unwrap();
     Side { c, ..s }
@@ -1148,6 +1153,58 @@ fn a_merged_pr_on_a_board_card_tells_the_holder_once() {
     b.clk.add(Duration::from_secs(180));
     let (_, ns) = b.c.record_pr_state(&t.id, merged()).unwrap();
     assert!(ns.is_empty(), "a merged PR is told once");
+}
+
+/// Card #509: on a board, an agent's external wait on a PR is its own
+/// person's merge, not every member's. Their device's poller hears the
+/// PR even after the agent left the card, and its row folds everywhere.
+#[test]
+fn a_merge_wait_on_a_board_is_its_raisers_persons() {
+    const PR: &str = "https://github.com/a/b/pull/41";
+    let (a, b, _) = two_people();
+    let t = a.c.create_task(P1, nt("part 10", "")).unwrap();
+    sync(&a, &b);
+    b.c.claim_task(CARD2, &t.id).unwrap();
+    b.c.block(
+        CARD2,
+        &t.id,
+        "Review and merge PR #41",
+        Some(BlockedBy {
+            kind: BLOCKED_ON_EXTERNAL.into(),
+            reference: PR.into(),
+        }),
+    )
+    .unwrap();
+    b.c.leave(CARD2, &t.id, CARD2).unwrap();
+    sync(&a, &b);
+    let needs = |s: &Side, viewer: &str| {
+        s.c.board(&BoardFilter {
+            viewer: viewer.into(),
+            ..BoardFilter::default()
+        })
+        .needs_you
+        .iter()
+        .any(|c| c.task.id == t.id)
+    };
+    assert!(!needs(&a, P1), "p2's agent's wait isn't p1's merge");
+    assert!(a.c.merge_waits(&t.id).is_empty());
+    assert!(needs(&b, P2), "p2's merge");
+    assert_eq!(b.c.merge_waits(&t.id), vec![PR.to_string()]);
+
+    // p2's device hears it merged, though nobody holds the card: it folds
+    // on both sides and the wait no longer needs p2.
+    let merged = PrCheck {
+        pr: PR.into(),
+        state: PR_MERGED.into(),
+        ..PrCheck::default()
+    };
+    assert!(a.c.record_pr_state(&t.id, merged.clone()).is_err());
+    b.c.record_pr_state(&t.id, merged).unwrap();
+    sync(&a, &b);
+    for s in [&a, &b] {
+        assert_eq!(s.c.pr_state(&t.id, PR).unwrap().state, PR_MERGED);
+    }
+    assert!(!needs(&b, P2));
 }
 
 /// #230: a board card in review links a merged PR as context and its own
@@ -2016,4 +2073,213 @@ fn a_version_wait_on_a_board_is_refused() {
         .unwrap_err();
     assert!(err.is(ErrorKind::Invalid), "{err}");
     assert!(err.to_string().contains("your own board"), "{err}");
+}
+
+/// Card #477 (docs/design/work-personal-separation.md §3): on one space,
+/// p2's card is never p1's to start, and the reverse. Both sides turn
+/// spawning on here: each lists only its own person's card. Since #455 a
+/// board log takes `task.spawn` rows, but only the card author's devices'
+/// count: p1's sweep and p1's agent asking for p2's card change nothing
+/// on either side, and no device is asked to start it.
+#[test]
+fn another_persons_card_is_never_spawned_on_your_side() {
+    let (a, b, owners) = two_people();
+    let theirs = b.c.create_task(P2, nt("Work card", "")).unwrap();
+    let mine = a.c.create_task(P1, nt("Personal card", "")).unwrap();
+    sync(&a, &b);
+    let on = || Options {
+        spawning: Some(Arc::new(|| true)),
+        ..Options::default()
+    };
+    let a = side_reopen_with(a, P1, &owners, on());
+    let b = side_reopen_with(b, P2, &owners, on());
+    assert_eq!(ids(&a.c.cards_to_spawn()), std::slice::from_ref(&mine.id));
+    assert_eq!(ids(&b.c.cards_to_spawn()), std::slice::from_ref(&theirs.id));
+    // p1's sweep asks for an agent for p2's card anyway.
+    let _ = a.c.request_spawn(
+        "irori",
+        SpawnAsk {
+            task_id: theirs.id.clone(),
+            device: "dev-a".into(),
+            folder: "/work".into(),
+            permission_mode: "default".into(),
+            name: "for-theirs".into(),
+            ..SpawnAsk::default()
+        },
+    );
+    // One of p1's agents writing it straight to the log.
+    let row = coord::rows::TaskSpawnRow {
+        task_id: theirs.id.clone(),
+        generation: 1,
+        op: "requested".into(),
+        device: "dev-a".into(),
+        permission_mode: "default".into(),
+        by: CARD1.into(),
+        at: fixed_now(),
+        ..Default::default()
+    };
+    if let Ok(ev) = a.st.append(CARD1, kinds::TASK_SPAWN, &row) {
+        a.c.fold_live(&[ev]);
+    }
+    sync(&a, &b);
+    for s in [&a, &b] {
+        let t = s.c.get_task(&theirs.id).unwrap();
+        assert!(t.spawn_request().is_none(), "{:?}", t.spawn_request());
+        assert!(s.c.spawns_here().is_empty(), "{:?}", s.c.spawns_here());
+    }
+    assert!(!ids(&a.c.cards_to_spawn()).contains(&theirs.id));
+    assert_eq!(ids(&b.c.cards_to_spawn()), std::slice::from_ref(&theirs.id));
+}
+
+// Card #455 (spawned agents §7, §9, part 11): who may start an agent on a
+// shared board. p1 is Stephen on dev-a, p2 is a second person on dev-b.
+
+fn spawn_ask(id: &str, device: &str) -> SpawnAsk {
+    SpawnAsk {
+        task_id: id.into(),
+        device: device.into(),
+        permission_mode: "acceptEdits".into(),
+        name: "otter".into(),
+        ..SpawnAsk::default()
+    }
+}
+
+fn spawn_row(id: &str, device: &str, by: &str, at: GoTime) -> coord::rows::TaskSpawnRow {
+    coord::rows::TaskSpawnRow {
+        task_id: id.into(),
+        generation: 1,
+        op: SPAWN_REQUESTED.into(),
+        device: device.into(),
+        permission_mode: "acceptEdits".into(),
+        name: "otter".into(),
+        by: by.into(),
+        at,
+        ..Default::default()
+    }
+}
+
+/// The second person's request naming Stephen's device is never one his
+/// device acts on: not on their own card (it folds there, as their own
+/// card's request, but names a device that isn't theirs), and not on his
+/// card (refused by the writer check).
+#[test]
+fn another_persons_spawn_request_never_starts_an_agent_on_my_device() {
+    let (a, b) = two_people_shared();
+    let theirs = b.c.create_task(P2, nt("Their card", "")).unwrap();
+    let mine = a.c.create_task(P1, nt("My card", "")).unwrap();
+    sync(&a, &b);
+    // Their request on their own card, naming dev-a, from their device.
+    assert!(
+        b.c.request_spawn(P2, spawn_ask(&theirs.id, "dev-a"))
+            .unwrap()
+            .is_some()
+    );
+    // Their request on my card, naming dev-a: as them, and as Irori on
+    // their device.
+    for (actor, by) in [(P2, P2), ("irori", "irori")] {
+        let ev =
+            b.st.append(
+                actor,
+                kinds::TASK_SPAWN,
+                &spawn_row(&mine.id, "dev-a", by, b.clk.now()),
+            )
+            .unwrap();
+        b.c.fold_live(&[ev]);
+    }
+    sync(&a, &b);
+    assert!(
+        a.c.spawns_here().is_empty(),
+        "nothing for dev-a to start: {:?}",
+        a.c.spawns_here()
+    );
+    assert!(!a.c.get_task(&mine.id).unwrap().spawn_pending());
+    // My own request on my card naming my device is mine to start, and
+    // their device never starts it.
+    assert!(
+        a.c.request_spawn(P1, spawn_ask(&mine.id, "dev-a"))
+            .unwrap()
+            .is_some()
+    );
+    sync(&a, &b);
+    let here: Vec<String> = a.c.spawns_here().into_iter().map(|(t, _)| t.id).collect();
+    assert_eq!(here, vec![mine.id.clone()]);
+    assert!(b.c.spawns_here().is_empty());
+}
+
+/// A request from Stephen's other device (dev-a2, his Irori) naming dev-a
+/// is dev-a's to start.
+#[test]
+fn my_other_devices_request_naming_this_device_is_mine_to_start() {
+    let (a, _b) = two_people_shared();
+    let t = a.c.create_task(P1, nt("Mac repo", "")).unwrap();
+    let ev = Event {
+        device_id: "dev-a2".into(),
+        seq: 1,
+        hlc: hlc::Timestamp(((a.clk.now().unix_milli_value() as u64) << 16) + 1),
+        actor: "irori".into(),
+        kind: kinds::TASK_SPAWN.into(),
+        payload: gocompat::json::marshal(&spawn_row(&t.id, "dev-a", "irori", a.clk.now())).unwrap(),
+        sig: Vec::new(),
+    };
+    let (_, r) = a.st.insert_batch(std::slice::from_ref(&ev));
+    r.unwrap();
+    a.c.fold_live(&[ev]);
+    assert_eq!(a.c.spawns_here().len(), 1);
+    assert_eq!(a.c.spawns_here()[0].1.device, "dev-a");
+}
+
+/// Stephen's spawned agent bound to his board card carries its mark on
+/// the second person's device too, and their hand-out never offers it
+/// their card, even when it is idle there.
+#[test]
+fn my_spawned_agent_is_never_offered_another_persons_card() {
+    let (a, b) = two_people_shared();
+    let mine = a.c.create_task(P1, nt("My card", "")).unwrap();
+    let g =
+        a.c.request_spawn("irori", spawn_ask(&mine.id, "dev-a"))
+            .unwrap()
+            .unwrap();
+    assert!(a.c.bind_spawn(&mine.id, g, CARD1).unwrap());
+    let theirs = b.c.create_task(P2, nt("Their card", "")).unwrap();
+    sync(&a, &b);
+    for s in [&a, &b] {
+        assert_eq!(
+            s.c.spawned(CARD1).map(|m| m.task_id),
+            Some(mine.id.clone()),
+            "the mark folds on {}",
+            s.c.device_id()
+        );
+        assert!(
+            s.c.get_task(&mine.id)
+                .unwrap()
+                .holders
+                .iter()
+                .any(|h| h == CARD1),
+            "bound on {}",
+            s.c.device_id()
+        );
+    }
+    let (ns, r) = b.c.sweep_asks_partial(&roster(&[CARD1]));
+    r.unwrap();
+    assert!(ns.is_empty(), "{ns:?}");
+    assert!(
+        b.c.get_task(&theirs.id)
+            .unwrap()
+            .live_offer()
+            .is_none_or(|o| o.to != CARD1)
+    );
+    // Their Irori can't mark my agent as started for their card.
+    let ev =
+        b.st.append(
+            "irori",
+            kinds::TASK_SPAWNED,
+            &raw(&format!(
+                r#"{{"taskId":"{}","key":"{CARD1}","gen":1,"device":"dev-a","by":"irori","at":"2026-10-26T12:00:00Z"}}"#,
+                theirs.id
+            )),
+        )
+        .unwrap();
+    b.c.fold_live(&[ev]);
+    sync(&a, &b);
+    assert_eq!(a.c.spawned(CARD1).map(|m| m.task_id), Some(mine.id.clone()));
 }

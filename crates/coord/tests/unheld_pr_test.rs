@@ -1,6 +1,6 @@
 //! Card #471: a card in review on an open PR that nobody holds any more
 //! isn't left silent (#467 and #468 sat that way): the sweep puts it back
-//! on the Board, so an agent merges it once its checks pass. One that
+//! on the Board, so an agent asks to merge it and merges it on yes. One that
 //! waits on another member (GitHub wants an approval) stays where it is.
 
 mod common;
@@ -64,7 +64,7 @@ fn an_open_pr_whose_agent_went_goes_back_on_the_board() {
     assert!(got.holders.is_empty());
     assert_eq!(
         got.note,
-        "back on the Board: its PR #7 is still open and nobody is on it: merge it once its checks pass, or complete the card if it merged"
+        "back on the Board: its PR #7 is still open and nobody is on it: ask the person “Can I merge…?” and merge it on their yes, or complete the card if it merged"
     );
 }
 

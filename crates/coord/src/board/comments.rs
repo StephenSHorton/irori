@@ -279,6 +279,11 @@ impl Fold {
         if engaged(t, &who) && t.state != SUBMITTED {
             return Ok(t.clone());
         }
+        // The person may add anyone; an agent joining on its own keeps to
+        // its device's sides (card #496).
+        if by == who {
+            self.check_side_take(&who, t)?;
+        }
         let at = self.stamp();
         self.write(
             &by,
@@ -1149,7 +1154,7 @@ impl Fold {
 
     /// Whether blocker b is one of this person's agents' on a board, so
     /// this device sees the private leases it may wait on (card #339).
-    fn own_on_board(&self, b: &Blocker) -> bool {
+    pub(crate) fn own_on_board(&self, b: &Blocker) -> bool {
         let mine = self.person_of(&self.person);
         self.on_board && !mine.is_empty() && self.person_of(&b.raised_by) == mine
     }
@@ -1307,7 +1312,7 @@ impl Fold {
                 continue;
             }
             let mut card = Card {
-                task: t.clone(),
+                task: self.shown(t),
                 overlaps: self.overlaps_of(t, &now),
                 stranded: self.stranded_in(t, &rs),
                 ..Card::default()
@@ -1405,6 +1410,11 @@ impl Fold {
             gotime::cmp(&a.lease.until, &b.lease.until)
                 .then_with(|| a.lease.resource.cmp(&b.lease.resource))
         });
+        let dev = match irori_identity::owner::device_of(&viewer) {
+            "" => self.dev.as_str(),
+            d => d,
+        };
+        v.side_line = crate::sides::agent_line(self.sides.of(dev), &self.side_names());
         v
     }
 
@@ -1450,6 +1460,12 @@ impl Fold {
             {
                 return true;
             }
+        }
+        // Card #509: an external wait on a GitHub PR waits on the person's
+        // merge (agents waited on theirs for days, unseen), until the PR is
+        // known merged or closed. On a board, only their own agents' waits.
+        if (viewer.is_empty() || self.is_owner(viewer)) && !self.merge_waits(t).is_empty() {
+            return true;
         }
         if viewer.is_empty() {
             return false;

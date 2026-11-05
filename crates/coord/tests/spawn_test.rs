@@ -193,6 +193,32 @@ fn a_spawned_agent_is_never_offered_a_second_card() {
     want_err(e.c.claim_task(SPAWNED, &other.id), ErrorKind::NotAllowed);
 }
 
+/// Card #509: a spawned agent whose work is ready starts a merge card for
+/// it and the other ready work, waits on it from its own card, and takes
+/// it; it still can't take a card someone else made.
+#[test]
+fn a_spawned_agent_may_take_the_merge_card_it_made() {
+    let e = Env::new();
+    let t = e.c.create_task(USER, nt("Its card")).unwrap();
+    let g = e.c.request_spawn(SWEEPER_KEY, ask(&t.id)).unwrap().unwrap();
+    e.c.bind_spawn(&t.id, g, SPAWNED).unwrap();
+    e.c.claim_task(SPAWNED, &t.id).unwrap();
+    let merge = e.c.create_task(SPAWNED, nt("Merge: #1 and #2")).unwrap();
+    e.c.block(
+        SPAWNED,
+        &t.id,
+        "lands with the merge card",
+        Some(BlockedBy {
+            kind: BLOCKED_ON_TASK.into(),
+            reference: merge.id.clone(),
+        }),
+    )
+    .unwrap();
+    e.c.claim_task(SPAWNED, &merge.id).unwrap();
+    let other = e.c.create_task(ALICE, nt("Another card")).unwrap();
+    want_err(e.c.claim_task(SPAWNED, &other.id), ErrorKind::NotAllowed);
+}
+
 #[test]
 fn a_spawned_agent_may_take_its_own_cards_subtasks() {
     let e = Env::new();
@@ -519,4 +545,70 @@ fn a_helpers_where_keeps_to_its_own_worktree() {
     );
     let got = e.c.get_task(&part.id).unwrap().where_.unwrap();
     assert_eq!(got.worktree, own_wt);
+}
+
+// Card #455 (§9): a request another of the person's devices wrote naming
+// this one is this device's to start, while it is the card's newest and
+// fresh; a device back online with an older request starts nothing.
+
+fn remote_request(e: &Env, id: &str, seq: i64, generation: i64, device: &str) {
+    let row = TaskSpawnRow {
+        task_id: id.into(),
+        generation,
+        op: SPAWN_REQUESTED.into(),
+        device: device.into(),
+        permission_mode: "acceptEdits".into(),
+        name: format!("for-{generation}"),
+        by: SWEEPER_KEY.into(),
+        at: e.clk.now(),
+        ..TaskSpawnRow::default()
+    };
+    e.remote(
+        "dev-b",
+        seq,
+        hlc_at(e.clk.now()) + seq as u64,
+        SWEEPER_KEY,
+        kinds::TASK_SPAWN,
+        &row,
+    );
+}
+
+#[test]
+fn a_request_from_another_device_naming_this_one_is_this_ones_to_start() {
+    let e = Env::new();
+    let t = e.c.create_task("user:dev-b", nt("Mac repo")).unwrap();
+    remote_request(&e, &t.id, 1, 1, "dev-a");
+    let here = e.c.spawns_here();
+    assert_eq!(here.len(), 1);
+    assert_eq!(here[0].0.id, t.id);
+    assert_eq!(here[0].1.generation, 1);
+    // It isn't this device's card: its own sweep never asks for it.
+    let on = Arc::new(AtomicBool::new(true));
+    let c = spawning(&e, &on);
+    assert!(c.cards_to_spawn().is_empty());
+}
+
+#[test]
+fn a_request_naming_another_device_or_superseded_or_stale_starts_nothing_here() {
+    let e = Env::new();
+    let t = e.c.create_task("user:dev-b", nt("Mac repo")).unwrap();
+    remote_request(&e, &t.id, 1, 1, "dev-c");
+    assert!(e.c.spawns_here().is_empty(), "names dev-c");
+    // gen 2 names this device, then gen 3 moves on to dev-c.
+    remote_request(&e, &t.id, 2, 2, "dev-a");
+    assert_eq!(e.c.spawns_here().len(), 1);
+    remote_request(&e, &t.id, 3, 3, "dev-c");
+    assert!(e.c.spawns_here().is_empty(), "superseded by gen 3");
+    // An older generation arriving late changes nothing.
+    remote_request(&e, &t.id, 4, 2, "dev-a");
+    assert!(e.c.spawns_here().is_empty(), "gen 2 after gen 3");
+    // Staleness is the card's device's call (its clock, not this one's):
+    // past the grace here the request is still listed until the next
+    // generation arrives. The Core never starts one it held at its start.
+    let u = e.c.create_task("user:dev-b", nt("Other")).unwrap();
+    remote_request(&e, &u.id, 5, 1, "dev-a");
+    e.clk.add(SPAWN_GRACE);
+    assert_eq!(e.c.spawns_here().len(), 1);
+    remote_request(&e, &u.id, 6, 2, "dev-c");
+    assert!(e.c.spawns_here().is_empty(), "moved on to dev-c");
 }

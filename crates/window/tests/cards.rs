@@ -1197,6 +1197,65 @@ fn what_waits_on_the_person_says_so() {
     assert!(summary(&pr.id).wait_pr.is_none());
 }
 
+/// Card #509: an agent's external wait on a PR (#454's "Review and merge
+/// PR #41") is the person's merge: the card carries the PR for Home's
+/// Needs you and counts in the tray, until the PR is heard merged. A wait
+/// on CI stays a wait.
+#[test]
+fn a_wait_on_a_prs_merge_is_the_persons() {
+    const PR: &str = "https://github.com/a/irori/pull/41";
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let summary = |id: &str| r.w.cards().into_iter().find(|c| c.id == id).unwrap();
+    let wait = |title: &str, on: &str| {
+        let t = co
+            .create_task(
+                &r.key_a,
+                coord::NewTask {
+                    title: title.into(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        co.claim_task(&r.key_a, &t.id).unwrap();
+        co.block(
+            &r.key_a,
+            &t.id,
+            "Review and merge PR #41 so part 10 lands on main",
+            Some(coord::BlockedBy {
+                kind: coord::BLOCKED_ON_EXTERNAL.into(),
+                reference: on.into(),
+            }),
+        )
+        .unwrap()
+    };
+    let ci = wait("release", "CI on the release");
+    assert!(summary(&ci.id).merge_pr.is_none());
+    assert_eq!(r.w.decide_count(), 0, "a wait on CI is no decision");
+
+    let t = wait("part 10", PR);
+    let s = summary(&t.id);
+    let m = s.merge_pr.expect("the person's merge");
+    assert_eq!(
+        (m.repo.as_str(), m.number, m.url.as_str()),
+        ("a/irori", 41, PR)
+    );
+    assert_eq!((s.open_blockers, s.waiting_on), (0, 1));
+    assert_eq!(r.w.decide_count(), 1);
+
+    co.record_pr_state(
+        &t.id,
+        coord::PrCheck {
+            pr: PR.into(),
+            state: coord::PR_MERGED.into(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(summary(&t.id).merge_pr.is_none(), "merged");
+    assert_eq!(r.w.decide_count(), 0);
+}
+
 /// Card #481: a wait on another card (#394's "Waits on Talk 4 (#392)")
 /// is drawn as a wait with what it waits on, never as a question, and is
 /// never counted as a decision; one filed on a card with options is still

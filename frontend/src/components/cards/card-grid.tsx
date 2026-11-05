@@ -43,6 +43,7 @@ import {
   OwnerChip,
   PrChip,
   ScopeBadge,
+  SideBadge,
   ShortRef,
   Spinner,
   StatePill,
@@ -544,6 +545,7 @@ function CardTile({
         {card.parent && <PartOf parent={card.parent} />}
         <StatePill card={card} />
         <ScopeBadge card={card} />
+        <SideBadge card={card} />
         <OwnerChip card={card} />
         <PrChip card={card} />
         {card.working.some((w) => w.conflict) && (

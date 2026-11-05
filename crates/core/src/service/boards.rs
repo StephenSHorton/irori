@@ -206,6 +206,11 @@ pub(crate) struct BoardCard {
     /// default. Readers keep it only after coord::avatar::check.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub avatar: String,
+    /// Irori started this agent for a card (spawned agents §9, card
+    /// #455): it serves that card only, and no member's device offers it
+    /// another. Written by the person's own device with the card.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub spawned: bool,
     /// The device that wrote its newest row: the session's host, as only
     /// that device writes a card's status (card #372). Never in the row.
     #[serde(skip)]
@@ -1384,6 +1389,16 @@ impl Services {
                             s.busy_outside(&agent, Some(&b.id))
                         })
                     }),
+                    // The person's spawning switch for this board (card
+                    // #455): set in the app only, off unless they set it.
+                    spawning: Some({
+                        let (on, def, id) = (
+                            self.spawn.on.clone(),
+                            self.spawn.private_default.clone(),
+                            b.id.clone(),
+                        );
+                        Arc::new(move || super::spawn::SpawnState::switch(&on, &def, &id))
+                    }),
                     outside_leases: Some({
                         let s = Arc::downgrade(self);
                         Arc::new(move || {
@@ -1407,9 +1422,13 @@ impl Services {
                             let Some(card) = key.strip_prefix(AGENT_ACTOR_PREFIX) else {
                                 return true;
                             };
-                            let Some(agent) = lock(&b.maps).by_id.get(card).cloned() else {
-                                return true;
+                            let maps = lock(&b.maps);
+                            let Some(agent) = maps.by_id.get(card).cloned() else {
+                                // Another member's agent: never one their
+                                // Irori started for a card (card #455).
+                                return !maps.cards.get(card).is_some_and(|c| c.spawned);
                             };
+                            drop(maps);
                             !s.coord.is_spawned(&agent) && s.agent_offered(&agent)
                         })
                     }),
@@ -1773,6 +1792,7 @@ impl Services {
             person_id: self.person_id(),
             status: card_status(Some(&card.status)).into(),
             avatar: self.faces.get(&card.name),
+            spawned: self.coord.is_spawned(agent),
             device_id: self.device.id.clone(),
         };
         // The mapping first: a card whose session nobody knows is worse
@@ -1823,12 +1843,14 @@ impl Services {
                 };
                 // The agent's face travels with its card (card #407).
                 let avatar = self.faces.get(&card.name);
-                if card.status == status && card.avatar == avatar {
+                let spawned = self.coord.is_spawned(&agent);
+                if card.status == status && card.avatar == avatar && card.spawned == spawned {
                     continue;
                 }
                 let row = BoardCard {
                     status: status.into(),
                     avatar,
+                    spawned,
                     ..card.clone()
                 };
                 match b.store.append(

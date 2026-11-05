@@ -44,6 +44,8 @@ pub(crate) struct CleanTask {
     pub from: String,
     /// The board in its space (card #392).
     pub board: String,
+    /// The work/personal side (card #494); private log only.
+    pub side: String,
     pub scope: Vec<String>,
     pub links: Vec<Link>,
     pub shared: bool,
@@ -129,6 +131,7 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
         agents: nt.agents,
         from: String::new(),
         board: String::new(),
+        side: String::new(),
     })
 }
 
@@ -147,12 +150,34 @@ impl Fold {
             self.check_parent(&pid, "")?;
             ct.parent = pid;
         }
+        ct.side = self.new_side(&nt.side, &ct.parent);
         // A subtask comes from its parent, not a thread, unless named.
         if nt.parent.is_empty() || !nt.from.trim().is_empty() {
             ct.from = self.thread_from(&ct.by, &nt.from)?;
         }
         let by = ct.by.clone();
         self.create_locked(&by, ct)
+    }
+
+    /// The side a new private card takes (card #494): the one asked for,
+    /// else its parent's, else this device's first. A shared board's
+    /// cards carry none.
+    pub(crate) fn new_side(&self, asked: &str, parent: &str) -> String {
+        if self.on_board {
+            return String::new();
+        }
+        let asked = crate::sides::clean(asked);
+        if !asked.is_empty() {
+            return asked;
+        }
+        if !parent.is_empty() {
+            return self
+                .tasks
+                .get(parent)
+                .map(|t| t.own_side.clone())
+                .unwrap_or_default();
+        }
+        self.sides.home(&self.dev)
     }
 
     /// Writes a checked task's rows.
@@ -189,6 +214,7 @@ impl Fold {
                 agents: ct.agents,
                 from: ct.from.clone(),
                 board: ct.board.clone(),
+                side: ct.side.clone(),
                 by: by.into(),
                 at,
                 ask: None,
@@ -247,7 +273,7 @@ impl Fold {
                     || !f.holder.is_empty() && !is_holder(t, &f.holder)
                     || f.open && is_terminal(effective_state(t)))
             })
-            .cloned()
+            .map(|t| self.shown(t))
             .collect();
         out.sort_by(|a, b| {
             gotime::cmp(&a.created_at, &b.created_at)
@@ -266,6 +292,9 @@ impl Fold {
         if engaged(&t, &by) && t.state != SUBMITTED {
             return Ok(t);
         }
+        // A card on a side this agent's device doesn't run waits for the
+        // person to ask (card #496).
+        self.check_side_take(&by, &t)?;
         // One card at a time: an agent busy on a working card leaves this
         // one for a free agent (card #82).
         self.check_free(&by, &t)?;
@@ -314,6 +343,9 @@ impl Fold {
         if is_holder(&t, &to) {
             return Ok((t, false));
         }
+        // An agent hands a card only to a device that runs its side, unless
+        // the person asked (card #496).
+        self.check_side_assign(&by, &t, &to)?;
         let at = self.stamp();
         self.write(
             &by,
@@ -965,6 +997,8 @@ impl Fold {
         self.links.clear();
         self.pins.clear();
         self.archived.clear();
+        // Pins from rows the cut moved out go too (card #494).
+        self.sides = crate::sides::Sides::new();
         self.replay_store()?;
         for (id, was) in shorts {
             if was.is_empty() {

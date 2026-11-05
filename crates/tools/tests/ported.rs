@@ -594,6 +594,15 @@ fn test_specs() {
             "add a link on the card",
             "set it completed with proof: what changed, how you checked it",
             "Coordinate about a card on the card",
+            // Card #509: ready work asks to merge, batched, and the agent
+            // merges on yes; it never waits on a PR the person can't see.
+            "land it together so the checks run once",
+            "board_block your card on task #M (the merge card)",
+            "closes the PRs it replaces",
+            "“Can I merge PR #N (covers #a, #b)?”",
+            "options Merge it (recommended) and Not yet",
+            "merge it yourself",
+            "Never sit on an external wait for a merge",
         ],
     );
     has(&desc("reply"), &["also goes on that card's thread"]);

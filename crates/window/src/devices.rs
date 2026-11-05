@@ -46,6 +46,11 @@ pub struct DeviceView {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub color: String,
+    /// The work/personal sides it runs, the first its new cards' (card
+    /// #494). Empty (omitted): every side.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[specta(optional)]
+    pub sides: Vec<String>,
 }
 
 /// The Home server section of Devices.
@@ -170,9 +175,11 @@ impl Window {
     pub fn devices(&self) -> Vec<DeviceView> {
         let colors = self.core.device_colors();
         let names = self.core.device_labels();
+        let sides = self.core.device_sides();
         let mut out = self.seams.mesh.devices();
         for d in &mut out {
             d.color = colors.get(&d.device_id).cloned().unwrap_or_default();
+            d.sides = sides.get(&d.device_id).cloned().unwrap_or_default();
             // The person's name for it, when they gave one (card #184).
             if let Some(n) = names.get(&d.device_id).filter(|n| !n.is_empty()) {
                 d.name = n.clone();
@@ -185,6 +192,19 @@ impl Window {
     /// devices (`""` goes back to the computer's name); the name as kept.
     pub fn rename_device(&self, device_id: &str, name: &str) -> Result<String, String> {
         self.core.set_device_name(device_id, name)
+    }
+
+    /// DevicesService.SideNames: every work/personal side named on a
+    /// device or a card (card #494), for Settings to offer.
+    pub fn side_names(&self) -> Vec<String> {
+        self.core.side_names()
+    }
+
+    /// DevicesService.SetDeviceSides: the sides this device runs, the
+    /// first its new cards'; empty runs every side (card #494). The sides
+    /// as kept.
+    pub fn set_device_sides(&self, sides: &[String]) -> Result<Vec<String>, String> {
+        self.core.set_device_sides(sides)
     }
 
     /// DevicesService.SetDeviceColor ("" goes back to the default).
@@ -302,6 +322,7 @@ pub fn device_view(r: mesh::DeviceRow) -> DeviceView {
         action: r.action,
         last_seen: r.last_seen.unwrap_or_default(),
         color: String::new(),
+        sides: Vec::new(),
     }
 }
 
