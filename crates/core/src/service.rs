@@ -67,6 +67,7 @@ pub mod notes;
 mod notifications;
 pub mod spaces;
 pub mod spawn;
+pub mod spawn_limits;
 pub mod spawn_permissions;
 pub mod spawn_stop;
 mod spawn_waiting;
@@ -2427,6 +2428,40 @@ impl Core {
     /// The person sets this device's cap: the app only.
     pub fn set_spawn_cap(&self, cap: i64) -> Result<(), String> {
         self.s.set_spawn_cap(&self.s.device.id.clone(), cap)
+    }
+
+    /// Device `device`'s cap (card #450): his pick, else the default.
+    pub fn spawn_cap_of(&self, device: &str) -> i64 {
+        self.s.spawn_cap(device)
+    }
+
+    /// Whether he picked device `device`'s cap himself.
+    pub fn spawn_cap_set(&self, device: &str) -> bool {
+        self.s.spawn.caps.read().unwrap_or_else(|e| e.into_inner()).contains_key(device)
+    }
+
+    /// The person sets device `device`'s cap from Settings › Agents, on any
+    /// of his devices (the row replicates; each device reads its own).
+    pub fn set_spawn_cap_of(&self, device: &str, cap: i64) -> Result<(), String> {
+        if device.trim().is_empty() {
+            return Err("spawn: no device given".into());
+        }
+        if !(0..=spawn::MAX_CAP).contains(&cap) {
+            return Err(format!("a cap is 0 to {}, not {cap}", spawn::MAX_CAP));
+        }
+        self.s.set_spawn_cap(device, cap)
+    }
+
+    /// Where the spawn queue stands here (card #450): each waiting card's
+    /// place, a usage-limit hold, the daily limit reached.
+    pub fn spawn_queue(&self) -> spawn_limits::SpawnQueue {
+        self.s.spawn_queue()
+    }
+
+    /// The agents Irori started today for the private board, every
+    /// device's, oldest first: their keys and marks (card #450).
+    pub fn spawned_today(&self) -> Vec<(String, coord::Spawned)> {
+        self.s.spawned_today()
     }
 
     /// The person's End on an agent Irori started: its hand-off, then

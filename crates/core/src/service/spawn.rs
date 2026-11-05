@@ -27,7 +27,7 @@ use super::Services;
 use crate::logf;
 
 /// Irori's own key on the Board.
-const SWEEPER: &str = "irori";
+pub(crate) const SWEEPER: &str = "irori";
 
 fn before(a: &GoTime, b: &GoTime) -> bool {
     a.unix_nano() < b.unix_nano()
@@ -247,7 +247,15 @@ pub struct SpawnSetting {
     /// [`DEFAULT_EFFORT`].
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub effort: String,
+    /// The daily limit (§6, card #450): once this many agents started
+    /// today, a card waits until the person starts its agent (ask first).
+    /// 0 is no limit.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub daily_limit: i64,
 }
+
+/// The most a daily limit may be.
+pub const MAX_DAILY_LIMIT: i64 = 1000;
 
 fn is_zero(n: &i64) -> bool {
     *n == 0
@@ -364,6 +372,12 @@ impl SpawnSetting {
     /// Refuses a model or effort Settings › Agents doesn't offer, so a bad
     /// row never reaches `claude`'s command line.
     pub fn check(&self) -> Result<(), String> {
+        if !(0..=MAX_DAILY_LIMIT).contains(&self.daily_limit) {
+            return Err(format!(
+                "a daily limit is 0 (none) to {MAX_DAILY_LIMIT}, not {}",
+                self.daily_limit
+            ));
+        }
         if !self.model.is_empty() && !MODELS.contains(&self.model.as_str()) {
             return Err(format!(
                 "unknown model {:?}: pick one of {}",
@@ -416,6 +430,9 @@ pub struct SpawnCap {
     #[serde(default)]
     pub at: GoTime,
 }
+
+/// The highest cap Settings › Agents takes.
+pub const MAX_CAP: i64 = 200;
 
 /// The cap a device starts with (§6): 6 on Windows, 12 elsewhere.
 pub fn default_cap() -> i64 {
@@ -704,6 +721,11 @@ pub(crate) struct SpawnState {
     /// Spawner failures in a row, by card id (card #480): at
     /// [`super::spawn_stop::SPAWN_TRIES`] the card asks the person.
     pub start_fails: Mutex<HashMap<String, u32>>,
+    /// New spawns wait until then on a Claude usage limit (card #450).
+    pub usage_hold: Mutex<Option<GoTime>>,
+    /// Each spawned agent's status and last words when the usage-limit
+    /// pass last read them, so a session is read again only on a change.
+    pub limit_seen: Mutex<HashMap<String, String>>,
 }
 
 impl SpawnState {
@@ -778,6 +800,7 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
                 if r.s.check().is_err() {
                     r.s.model.clear();
                     r.s.effort.clear();
+                    r.s.daily_limit = 0;
                 }
                 on.insert(r.s.board_id.clone(), r.s);
             }
@@ -950,6 +973,7 @@ impl Services {
         load_spawn(rows, &self.spawn);
         self.clean_after_start();
         self.bind_spawns();
+        self.sweep_usage_limits();
         self.end_finished();
         self.sweep_ending();
         self.reap_ended();
@@ -968,17 +992,33 @@ impl Services {
             return;
         };
         self.lift_no_copy(&sp);
+        // A usage limit holds every start until it resets (card #450).
+        if self.usage_held().is_some() {
+            return;
+        }
         let me = self.device.id.clone();
         let cap = self.spawn_cap(&me);
         let mut running = self.spawned_here();
+        let mut today = self.spawned_today().len() as i64;
+        // In queue order (§6): what the person asked for, helpers, the rest.
         for t in self.coord.cards_to_spawn() {
             if running >= cap {
                 break;
             }
+            // The daily limit reached: only what the person starts himself.
+            if self.daily_stops(&t, today) {
+                continue;
+            }
             match self.spawn_for(&sp, &t) {
-                Ok(true) => running += 1,
+                Ok(true) => {
+                    running += 1;
+                    today += 1;
+                }
                 Ok(false) => {}
                 Err(e) => logf(format_args!("spawn {}: {e}", t.short_ref())),
+            }
+            if self.usage_held().is_some() {
+                break;
             }
         }
     }
@@ -1170,11 +1210,28 @@ impl Services {
                 self.note_started(&t.id);
                 Ok(true)
             }
-            Err(e) => {
-                let r = refuse(SpawnRefusal::Failed(e.clone()));
-                self.note_start_failed(t, &e);
-                r
-            }
+            // A usage limit isn't a failure (card #450): the card waits in
+            // the queue for the reset, and nothing counts toward its tries.
+            Err(e) => match super::spawn_limits::limit_in_text(&e, &(self.now)()) {
+                Some(l) => {
+                    let until = self.hold_usage(&l);
+                    self.coord
+                        .end_spawn(
+                            SWEEPER,
+                            &t.id,
+                            g,
+                            SPAWN_FAILED,
+                            &super::spawn_limits::usage_reason(&until),
+                        )
+                        .map_err(|e| e.to_string())?;
+                    Ok(false)
+                }
+                None => {
+                    let r = refuse(SpawnRefusal::Failed(e.clone()));
+                    self.note_start_failed(t, &e);
+                    r
+                }
+            },
         }
     }
 
@@ -1750,7 +1807,7 @@ impl Services {
     /// `claude stop` and `rm` for spawned agent `key`. A worktree `rm`
     /// kept (unpushed work) is said once on its card, with what `rm` said,
     /// so the person knows where the work is.
-    fn remove_job(&self, key: &str) -> Result<(), String> {
+    pub(crate) fn remove_job(&self, key: &str) -> Result<(), String> {
         let end = self
             .spawn
             .spawner
