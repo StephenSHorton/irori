@@ -1,7 +1,11 @@
 //! The merge desk's rows (docs/design/merge-desk.md §3, §7; card #415).
 //!
-//! A repo has a desk when the person writes an enabled `repo.desk` row
-//! for it. One device, the row's `pollDevice`, asks GitHub for the repo's
+//! Every GitHub repo an agent works in has a desk by itself (card #521):
+//! a `repo.seen` row for a `remote:github.com/...` key gives it default
+//! settings (on, nobody holding it so nothing merges, polled from the
+//! device whose `repo.seen` is the latest). The person's `repo.desk` row,
+//! once written, replaces the default: it turns the desk off, names a
+//! holder or sets check lines. One device, `pollDevice`, asks GitHub for the repo's
 //! open PRs (`gh pr list`, the Core's desk poller) and hands the list to
 //! [`Fold::record_desk_prs`], which writes a `desk.prs` snapshot only when
 //! the list changed. coord never shells out.
@@ -94,8 +98,19 @@ crate::go_struct! {
         pub repo_key: String = "repoKey",
         pub truncated: bool = "truncated" "omit",
         pub prs: Vec<DeskPr> = "prs",
+        /// The GitHub login the polling device's gh is signed in as: the
+        /// person's own login, which the desk trusts (card #521).
+        pub viewer: String = "viewer" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
+    }
+}
+
+crate::go_struct! {
+    /// `repo.seen`, as capture writes it: a repo an agent works in.
+    #[derive(Debug, Clone, Default, PartialEq, Eq)]
+    struct RepoSeenRow {
+        pub repo_key: String = "repoKey",
     }
 }
 
@@ -153,8 +168,23 @@ crate::go_struct! {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Desk {
-    /// The person's latest `repo.desk` row.
+    /// The person's latest `repo.desk` row; before they write one, the
+    /// default a GitHub repo an agent works in gets (card #521): on, no
+    /// holder, polled from the device that saw the repo last. `by` is
+    /// empty while it is the default.
     pub settings: RepoDeskRow,
+    /// The device whose `repo.seen` for this repo is the latest, among
+    /// devices not revoked; "" none.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub seen_on: String,
+    /// Each device's latest `repo.seen` for this repo. The latest wins by
+    /// the log's own order, (hlc, device), so every device and a replay
+    /// pick the same one whatever order the rows arrive in.
+    #[serde(skip)]
+    pub(crate) seen: BTreeMap<String, hlc::Timestamp>,
+    /// The person's row left the poll device blank: it follows `seen_on`.
+    #[serde(skip)]
+    pub follow_poll: bool,
     /// The latest snapshot; `None` before the first poll.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prs: Option<DeskPrsRow>,
@@ -173,6 +203,34 @@ impl Desk {
     /// Whether the desk is on: enabled and the repo takes PRs.
     pub fn on(&self) -> bool {
         self.settings.enabled && self.settings.takes_prs
+    }
+
+    /// Whether the settings are the default, not a row the person wrote.
+    pub fn is_default(&self) -> bool {
+        self.settings.by.is_empty()
+    }
+
+    /// Fills the settings from where the repo was seen: the whole default
+    /// until the person writes a row, then only a poll device the row left
+    /// blank. A poll device the person picked is never moved.
+    /// `revoked` says whether a device was revoked: its rows never name
+    /// the poll device, so a desk moves off a device that is gone.
+    fn settle(&mut self, repo_key: &str, revoked: &dyn Fn(&str) -> bool) {
+        self.seen_on = self
+            .seen
+            .iter()
+            .filter(|(dev, _)| !revoked(dev))
+            .max_by(|a, b| (a.1, a.0).cmp(&(b.1, b.0)))
+            .map(|(dev, _)| dev.clone())
+            .unwrap_or_default();
+        if self.seen.is_empty() {
+            return;
+        }
+        if self.is_default() {
+            self.settings = new_desk(repo_key, &self.seen_on);
+        } else if self.follow_poll {
+            self.settings.poll_device = self.seen_on.clone();
+        }
     }
 }
 
@@ -193,7 +251,8 @@ pub fn github_repo(repo_key: &str) -> Option<String> {
 }
 
 /// The settings a new desk starts from; the person changes them in the
-/// app. The holder's device polls unless another is named.
+/// app. Nobody holds it, so nothing merges until the person names a
+/// holder (card #521).
 pub fn new_desk(repo_key: &str, poll_device: &str) -> RepoDeskRow {
     RepoDeskRow {
         repo_key: repo_key.into(),
@@ -220,7 +279,32 @@ impl Fold {
                 let k = ledger::canonical_repo_key(&p.repo_key);
                 let mut p = p;
                 p.repo_key = k.clone();
-                self.desks.entry(k).or_default().settings = p;
+                let revoked = self.revoked_fn();
+                let d = self.desks.entry(k.clone()).or_default();
+                d.follow_poll = trim_space(&p.poll_device).is_empty();
+                d.settings = p;
+                d.settle(&k, &revoked);
+            }
+            kinds::REPO_SEEN => {
+                // Every GitHub repo an agent works in has a desk, on by
+                // default, polled from the device that saw it last (card
+                // #521). Desks live in the person's own log, never a board's.
+                if self.on_board {
+                    return;
+                }
+                let Some(p) = row::<RepoSeenRow>(&ev.payload) else {
+                    return;
+                };
+                let k = ledger::canonical_repo_key(&p.repo_key);
+                if github_repo(&k).is_none() {
+                    return;
+                }
+                let revoked = self.revoked_fn();
+                let d = self.desks.entry(k.clone()).or_default();
+                let at = d.seen.entry(ev.device_id.clone()).or_default();
+                // Folding a row twice (a resync re-reads them) changes nothing.
+                *at = (*at).max(ev.hlc);
+                d.settle(&k, &revoked);
             }
             kinds::DESK_PRS => {
                 let Some(p) = row::<DeskPrsRow>(&ev.payload) else {
@@ -310,7 +394,13 @@ impl Fold {
             )));
         }
         d.poll_device = trim_space(&d.poll_device).to_string();
-        if d.enabled && d.poll_device.is_empty() {
+        // A blank poll device follows the device that saw the repo last
+        // (card #521); a repo no device has seen needs one named.
+        let seen = self
+            .desks
+            .get(&d.repo_key)
+            .is_some_and(|x| !x.seen_on.is_empty());
+        if d.enabled && d.poll_device.is_empty() && !seen {
             return Err(invalid("a desk needs a device that polls GitHub"));
         }
         if d.merge_method.is_empty() {
@@ -365,7 +455,7 @@ impl Fold {
         }
         let Some(d) = self.desk_by_lease(name) else {
             return Err(not_allowed(format!(
-                "{name} is a merge desk lease, and no merge desk is set up for that repo: the person sets one up in the app"
+                "{name} is a merge desk lease, and that repo has no merge desk: a GitHub repo gets one once an agent works in it"
             )));
         };
         if !d.on() {
@@ -484,7 +574,18 @@ impl Fold {
         if d.run.as_ref().is_some_and(|r| !live(r)) {
             d.run = None;
         }
+        // A device revoked since the repo was seen there no longer polls.
+        if !d.seen.is_empty() {
+            let k = d.settings.repo_key.clone();
+            d.settle(&k, &self.revoked_fn());
+        }
         d
+    }
+
+    /// Whether a device was revoked, as the fold was told.
+    pub(crate) fn revoked_fn(&self) -> impl Fn(&str) -> bool + use<> {
+        let r = self.revoked.clone();
+        move |dev: &str| r.as_ref().is_some_and(|f| f(dev))
     }
 
     /// Records the open PRs the poller heard for `repo_key`: writes a
@@ -495,6 +596,7 @@ impl Fold {
         repo_key: &str,
         mut prs: Vec<DeskPr>,
         truncated: bool,
+        viewer: &str,
     ) -> Result<bool> {
         let repo_key = ledger::canonical_repo_key(repo_key);
         let repo_key = repo_key.as_str();
@@ -505,11 +607,15 @@ impl Fold {
             )));
         }
         prs.sort_by_key(|p| p.number);
-        let unchanged = self
-            .desks
-            .get(repo_key)
-            .and_then(|d| d.prs.as_ref())
-            .is_some_and(|old| old.prs == prs && old.truncated == truncated);
+        let old = self.desks.get(repo_key).and_then(|d| d.prs.as_ref());
+        // A poll that couldn't learn the login keeps the one heard before.
+        let viewer = match trim_space(viewer) {
+            "" => old.map(|o| o.viewer.clone()).unwrap_or_default(),
+            v => v.to_string(),
+        };
+        let unchanged = old.is_some_and(|old| {
+            old.prs == prs && old.truncated == truncated && old.viewer == viewer
+        });
         if unchanged {
             return Ok(false);
         }
@@ -521,6 +627,7 @@ impl Fold {
                 repo_key: repo_key.into(),
                 truncated,
                 prs,
+                viewer,
                 by: SWEEPER.into(),
                 at,
             },

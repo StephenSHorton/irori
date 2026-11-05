@@ -36,6 +36,12 @@ pub const DESK_FIELDS: &str = "number,url,title,author,isDraft,headRefName,headR
 /// Asks GitHub for one repo's open PRs (`owner/name`), at most `limit`.
 pub trait PrLister: Send + Sync {
     fn list(&self, repo: &str, limit: usize) -> Result<Vec<DeskPr>, String>;
+
+    /// The GitHub login this gh is signed in as: the person's own, which
+    /// the desk trusts beside their agents (card #521). "" when unknown.
+    fn viewer(&self) -> Result<String, String> {
+        Ok(String::new())
+    }
 }
 
 /// The person's own `gh`: `gh pr list --repo <owner/name> --state open
@@ -65,6 +71,19 @@ impl PrLister for GhLister {
             "gh couldn't list this repo's PRs",
         )?;
         parse_pr_list(&v)
+    }
+
+    /// `gh api user`'s login.
+    fn viewer(&self) -> Result<String, String> {
+        let Some(gh) = gh_path() else {
+            return Err("gh (the GitHub CLI) isn't installed here".into());
+        };
+        let v = run_gh(
+            &gh,
+            &["api", "user"],
+            "gh couldn't say who it is signed in as",
+        )?;
+        Ok(v["login"].as_str().unwrap_or_default().to_string())
     }
 }
 
@@ -172,9 +191,29 @@ pub(crate) struct DeskWatch {
     /// The (PR, head) each desk's holder was last woken for (card #418),
     /// so a poll that finds the same PR still waiting doesn't wake it again.
     woke: Mutex<HashMap<String, (i64, String)>>,
+    /// The login this device's gh is signed in as, once learned (card
+    /// #521); asked again after a failure, never after a success.
+    viewer: Mutex<Option<String>>,
 }
 
 impl DeskWatch {
+    /// The person's GitHub login as `lister` says, asked once per run.
+    /// "" while it can't be learned.
+    pub(crate) fn viewer(&self, lister: &dyn PrLister) -> String {
+        let mut v = self.viewer.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(login) = v.as_ref() {
+            return login.clone();
+        }
+        match lister.viewer() {
+            Ok(login) if !login.trim().is_empty() => {
+                let login = login.trim().to_string();
+                *v = Some(login.clone());
+                login
+            }
+            _ => String::new(),
+        }
+    }
+
     /// Whether the holder of `repo_key`'s desk should be woken for `pr` at
     /// `head`: true once per (PR, head), recording it.
     pub(crate) fn first_wake(&self, repo_key: &str, pr: i64, head: &str) -> bool {

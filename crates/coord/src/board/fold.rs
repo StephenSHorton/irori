@@ -88,7 +88,7 @@ const CLOCK_SKEW: Duration = Duration::from_secs(120);
 pub const SUB_BUFFER: usize = 64;
 
 /// The row prefixes coord folds.
-pub const FOLLOW_KINDS: [&str; 11] = [
+pub const FOLLOW_KINDS: [&str; 12] = [
     "task.",
     "lease.",
     "blocker.",
@@ -103,6 +103,8 @@ pub const FOLLOW_KINDS: [&str; 11] = [
     // The sides each device runs (card #494): the exact kind, not
     // "device.", which would pull in names and colours.
     kinds::DEVICE_SIDES,
+    // A GitHub repo an agent works in has a desk by itself (card #521).
+    kinds::REPO_SEEN,
 ];
 
 /// Whether coord folds `kind`.
@@ -1078,7 +1080,8 @@ impl Fold {
             | kinds::DESK_HOLD
             | kinds::DESK_PAUSE
             | kinds::DESK_OK
-            | kinds::DESK_RUN => self.fold_desk(ev),
+            | kinds::DESK_RUN
+            | kinds::REPO_SEEN => self.fold_desk(ev),
             kinds::LEASE_RELEASED => {
                 let Some(p) = row::<LeaseReleasedRow>(&ev.payload) else {
                     return;

@@ -80,6 +80,9 @@ pub struct DeskPrView {
 pub struct DeskSnapshotView {
     pub truncated: bool,
     pub prs: Vec<DeskPrView>,
+    /// The person's own GitHub login, as the poll's gh heard it; "" not
+    /// known yet. The desk trusts it (card #521).
+    pub viewer: String,
     #[specta(type = ts::Time)]
     pub at: gocompat::time::GoTime,
 }
@@ -131,6 +134,15 @@ pub struct DeskAuthorView {
 #[serde(rename_all = "camelCase")]
 pub struct DeskView {
     pub settings: DeskSettings,
+    /// The settings are the default a GitHub repo an agent works in gets
+    /// (card #521), not ones the person saved.
+    pub is_default: bool,
+    /// The device that saw the repo last: the poll device unless the
+    /// person picks another; "" never seen.
+    pub seen_on: String,
+    /// The poll device follows `seen_on` (the default, or a saved row that
+    /// left it blank); a save keeps it blank so it keeps following.
+    pub follows_seen: bool,
     #[specta(optional)]
     pub prs: Option<DeskSnapshotView>,
     pub holds: Vec<DeskMark>,
@@ -240,9 +252,13 @@ impl Window {
                     .collect();
                 DeskView {
                     authors,
+                    is_default: d.is_default(),
+                    seen_on: d.seen_on.clone(),
+                    follows_seen: d.is_default() || d.follow_poll,
                     settings: settings_of(d.settings),
                     prs: d.prs.map(|s| DeskSnapshotView {
                         truncated: s.truncated,
+                        viewer: s.viewer,
                         at: s.at,
                         prs: s
                             .prs

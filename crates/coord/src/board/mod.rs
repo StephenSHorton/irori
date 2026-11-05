@@ -1477,6 +1477,13 @@ impl Coord {
         if ev.is_resync() {
             return f.catch_up();
         }
+        // repo.seen is capture's row, never coord's own write, so this
+        // device's ones are folded here (card #521: a GitHub repo an agent
+        // works in has a desk by itself).
+        if ev.device_id == f.dev && ev.kind == store::kinds::REPO_SEEN {
+            f.fold_desk(ev);
+            return Ok(());
+        }
         if ev.device_id == f.dev || !followed(&ev.kind) {
             if f.on_board {
                 f.retry_aside();
@@ -1508,7 +1515,21 @@ impl Coord {
         prs: Vec<DeskPr>,
         truncated: bool,
     ) -> Result<bool> {
-        self.lock().record_desk_prs(repo_key, prs, truncated)
+        self.lock().record_desk_prs(repo_key, prs, truncated, "")
+    }
+
+    /// [`Coord::record_desk_prs`], with the GitHub login the poll's gh is
+    /// signed in as (`viewer`: the person's own, which the desk trusts;
+    /// card #521). An empty `viewer` keeps the one heard before.
+    pub fn record_desk_snapshot(
+        &self,
+        repo_key: &str,
+        prs: Vec<DeskPr>,
+        truncated: bool,
+        viewer: &str,
+    ) -> Result<bool> {
+        self.lock()
+            .record_desk_prs(repo_key, prs, truncated, viewer)
     }
 
     /// The desk holder records the PR it runs under the desk lease
