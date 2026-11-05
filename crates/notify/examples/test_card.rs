@@ -194,7 +194,8 @@ fn shot(name: &str) {
 
 #[cfg(windows)]
 fn win_shot(path: &std::path::Path) -> Result<(), String> {
-    let (w, h, rgba) = toast::win32::capture_cards(40).ok_or("no card on screen")?;
+    let (w, h, rgba) =
+        toast::win32::capture_cards(40).ok_or("no card up, or can't read the screen")?;
     let f = std::fs::File::create(path).map_err(|e| e.to_string())?;
     let mut enc = png::Encoder::new(std::io::BufWriter::new(f), w, h);
     enc.set_color(png::ColorType::Rgba);

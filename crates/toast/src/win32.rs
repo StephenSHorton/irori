@@ -50,15 +50,14 @@ use windows_sys::Win32::Graphics::Dwm::{
 use windows_sys::Win32::Graphics::Gdi::{
     AC_SRC_ALPHA, AC_SRC_OVER, ANTIALIASED_QUALITY, BI_RGB, BITMAPINFO, BITMAPINFOHEADER,
     BLENDFUNCTION, BeginPaint, BitBlt, CAPTUREBLT, CLEARTYPE_QUALITY, CreateCompatibleBitmap,
-    CreateCompatibleDC, CreateDIBSection,
-    CreateFontIndirectW, CreatePen, CreateRoundRectRgn, CreateSolidBrush, DIB_RGB_COLORS,
-    DT_CALCRECT, DT_CENTER, DT_EDITCONTROL, DT_END_ELLIPSIS, DT_NOCLIP, DT_NOPREFIX, DT_SINGLELINE,
-    DT_VCENTER, DT_WORDBREAK, DeleteDC, DeleteObject, DrawTextW, EndPaint, FillRect, FrameRect,
-    GdiFlush, GetDC, GetMonitorInfoW, GetStockObject, HALFTONE, HBITMAP, HDC, HGDIOBJ, InvalidateRect,
-    LOGFONTW, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromRect,
-    MonitorFromWindow, NULL_BRUSH, PAINTSTRUCT, PS_SOLID, ReleaseDC, RoundRect, SRCCOPY,
-    SelectClipRgn, SelectObject, SetBkMode, SetBrushOrgEx, SetStretchBltMode, SetTextColor,
-    SetWindowRgn, StretchDIBits, TRANSPARENT,
+    CreateCompatibleDC, CreateDIBSection, CreateFontIndirectW, CreatePen, CreateRoundRectRgn,
+    CreateSolidBrush, DIB_RGB_COLORS, DT_CALCRECT, DT_CENTER, DT_EDITCONTROL, DT_END_ELLIPSIS,
+    DT_NOCLIP, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DT_WORDBREAK, DeleteDC, DeleteObject,
+    DrawTextW, EndPaint, FillRect, FrameRect, GdiFlush, GetDC, GetMonitorInfoW, GetStockObject,
+    HALFTONE, HBITMAP, HDC, HGDIOBJ, InvalidateRect, LOGFONTW, MONITOR_DEFAULTTONEAREST,
+    MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromRect, MonitorFromWindow, NULL_BRUSH,
+    PAINTSTRUCT, PS_SOLID, ReleaseDC, RoundRect, SRCCOPY, SelectClipRgn, SelectObject, SetBkMode,
+    SetBrushOrgEx, SetStretchBltMode, SetTextColor, SetWindowRgn, StretchDIBits, TRANSPARENT,
 };
 use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
@@ -69,8 +68,9 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect,
-    GetForegroundWindow, GetMessageW, GetWindowRect, HWND_MESSAGE, HWND_TOPMOST, IDC_ARROW, IDC_HAND, KillTimer,
-    LWA_ALPHA, LoadCursorW, MA_NOACTIVATE, MSG, PostMessageW, RegisterClassExW,
+    GetForegroundWindow, GetMessageW, GetSystemMetrics, GetWindowRect, HWND_MESSAGE, HWND_TOPMOST,
+    IDC_ARROW, IDC_HAND, KillTimer, LWA_ALPHA, LoadCursorW, MA_NOACTIVATE, MSG, PostMessageW,
+    RegisterClassExW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
     SPI_GETCLIENTAREAANIMATION, SPI_SETWORKAREA, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOZORDER,
     SetCursor, SetLayeredWindowAttributes, SetTimer, SetWindowDisplayAffinity, SetWindowPos,
     ShowWindow, SystemParametersInfoW, TranslateMessage, ULW_ALPHA, UpdateLayeredWindow,
@@ -1129,15 +1129,18 @@ fn paint(h: HWND) {
     });
     let mut ps: PAINTSTRUCT = unsafe { std::mem::zeroed() };
     let dc = unsafe { BeginPaint(h, &mut ps) };
-    if let Some(look) = look.filter(|l| !glass || paint_glass(dc, l).is_none()) {
-        // Solid, or glass without its bitmaps: the card below is opaque.
+    if let Some(look) = look.as_ref().filter(|_| glass) {
+        // Without its bitmaps it keeps the last frame: the solid paint has
+        // no alpha, which over a live accent is the blown-out additive look.
+        paint_glass(dc, look);
+    } else if let Some(look) = look {
         unsafe {
             let mem = CreateCompatibleDC(dc);
             if !mem.is_null() {
                 let bmp = CreateCompatibleBitmap(dc, look.w, look.h);
                 if !bmp.is_null() {
                     let old = SelectObject(mem, bmp);
-                    draw_card(mem, &look, false);
+                    draw_card(mem, &look, None);
                     BitBlt(dc, 0, 0, look.w, look.h, mem, 0, 0, SRCCOPY);
                     SelectObject(mem, old);
                     DeleteObject(bmp);
@@ -1214,9 +1217,12 @@ impl Drop for Dib {
 
 /// Recovers a premultiplied image, in `black`, from the same content drawn
 /// over black and over white. GDI leaves the alpha byte alone, but a pixel
-/// with coverage a shows c*a over black and c*a + 255*(1-a) over white, so
-/// the two differ by exactly what the content let through, and the black
-/// one is already premultiplied.
+/// with coverage a shows c*a over black and about c*a + 255*(1-a) over
+/// white, so the two differ by what the content let through, and the black
+/// one is already premultiplied. Only about: GDI's greyscale text blends
+/// weaker over white, which reads as too little coverage on a saturated
+/// glyph's edge. The black pass is exact, and no premultiplied channel can
+/// exceed alpha, so its brightest channel is alpha's floor.
 fn premultiply(black: &mut [u32], white: &[u32]) {
     for (b, w) in black.iter_mut().zip(white) {
         let through = (0..3)
@@ -1226,29 +1232,30 @@ fn premultiply(black: &mut [u32], white: &[u32]) {
             })
             .max()
             .unwrap_or(0);
-        let a = 255 - through;
-        let c = |i: u32| ((*b >> (8 * i)) & 255).min(a);
-        *b = a << 24 | c(2) << 16 | c(1) << 8 | c(0);
+        let c = |i: u32| (*b >> (8 * i)) & 255;
+        let a = (255 - through).max(c(0)).max(c(1)).max(c(2));
+        *b = a << 24 | (*b & 0x00FF_FFFF);
     }
 }
 
-/// Paints a glass card: its content, with real alpha, over the accent.
-/// `None` when the bitmaps can't be had (nothing was drawn). The window's
-/// `LWA_ALPHA` fade applies on top as it does to a solid card.
-fn paint_glass(dc: HDC, look: &Look) -> Option<()> {
-    let mut black = Dib::new(look.w, look.h)?;
-    let mut white = Dib::new(look.w, look.h)?;
+/// Paints a glass card: its content, with real alpha, over the accent. It
+/// draws nothing when the bitmaps can't be had. The window's `LWA_ALPHA`
+/// fade applies on top as it does to a solid card.
+fn paint_glass(dc: HDC, look: &Look) {
+    let (Some(mut black), Some(mut white)) = (Dib::new(look.w, look.h), Dib::new(look.w, look.h))
+    else {
+        return;
+    };
     white.pixels().fill(0x00FF_FFFF);
     GRAY_TEXT.with(|g| g.set(true));
-    draw_card(black.dc, look, true);
-    draw_card(white.dc, look, true);
+    draw_card(black.dc, look, Some(crate::rgb(0, 0, 0)));
+    draw_card(white.dc, look, Some(crate::rgb(255, 255, 255)));
     GRAY_TEXT.with(|g| g.set(false));
     // GDI batches: its drawing must land before the bits are read.
     unsafe { GdiFlush() };
     let over_white = white.pixels().to_vec();
     premultiply(black.pixels(), &over_white);
     unsafe { BitBlt(dc, 0, 0, look.w, look.h, black.dc, 0, 0, SRCCOPY) };
-    Some(())
 }
 
 fn cref(c: Color) -> COLORREF {
@@ -1329,8 +1336,9 @@ fn rect_of(r: Rect) -> RECT {
     win_rect(r)
 }
 
-/// img's pixels as top-down BGRX for a DIB, blended over bg (the card's
-/// window is opaque: its fade is whole-window alpha, not per pixel).
+/// img's pixels as top-down BGRX for a DIB, blended over bg: the card's
+/// background, or on glass the pass's colour, so paint_glass recovers the
+/// image's own alpha.
 fn bgrx_over(img: &Image, bg: Color) -> Vec<u8> {
     let (br, bgg, bb) = bg.rgb();
     let mix = |c: u8, b: u8, a: u32| ((c as u32 * a + b as u32 * (255 - a) + 127) / 255) as u8;
@@ -1402,10 +1410,12 @@ fn draw_thumb(dc: HDC, img: &Image, r: RECT, bg: Color, border: Color, radius: i
     boxed(dc, r, Color(0), border, radius);
 }
 
-/// Draws the card. With glass it leaves the background alone (the accent
-/// is the background) and the edge to DWM's border, which only a rounded
-/// window has.
-fn draw_card(dc: HDC, cw: &Look, glass: bool) {
+/// Draws the card. `pass` is a glass pass's colour, what the bitmap is
+/// filled with: glass leaves the background alone (the accent is the
+/// background) and the edge to DWM's border, which only a rounded window
+/// has.
+fn draw_card(dc: HDC, cw: &Look, pass: Option<Color>) {
+    let glass = pass.is_some();
     let sc = cw.scale;
     let pal = cw.palette;
     let p = |dip: f64| px(dip, sc);
@@ -1503,7 +1513,8 @@ fn draw_card(dc: HDC, cw: &Look, glass: bool) {
     // smaller radius.
     let inner = cw.radius * 6 / 10;
     if let Some((img, r)) = &cw.image {
-        draw_thumb(dc, img, rect_of(*r), pal.background, pal.border, inner);
+        let under = pass.unwrap_or(pal.background);
+        draw_thumb(dc, img, rect_of(*r), under, pal.border, inner);
     }
     let mut xc = x_idle;
     if cw.hot == Part::Close {
@@ -1591,8 +1602,9 @@ pub const MSG_LBUTTONDOWN: u32 = WM_LBUTTONDOWN;
 pub const MSG_LBUTTONUP: u32 = WM_LBUTTONUP;
 
 /// The screen around the cards, as top-down RGBA with its width and height:
-/// their bounding box plus margin px (test programs; a card left out of
-/// capture shows as what is behind it).
+/// their bounding box plus margin px, kept on the screen (test programs; a
+/// card left out of capture shows as what is behind it). `None` with no card
+/// up or the screen unreadable (locked, or a secure desktop).
 pub fn capture_cards(margin: i32) -> Option<(u32, u32, Vec<u8>)> {
     let rects: Vec<RECT> = card_windows()
         .into_iter()
@@ -1601,16 +1613,31 @@ pub fn capture_cards(margin: i32) -> Option<(u32, u32, Vec<u8>)> {
             (unsafe { GetWindowRect(h as HWND, &mut r) } != 0).then_some(r)
         })
         .collect();
-    let l = rects.iter().map(|r| r.left).min()? - margin;
-    let t = rects.iter().map(|r| r.top).min()? - margin;
-    let w = rects.iter().map(|r| r.right).max()? + margin - l;
-    let h = rects.iter().map(|r| r.bottom).max()? + margin - t;
+    let (sl, st, sw, sh) = unsafe {
+        (
+            GetSystemMetrics(SM_XVIRTUALSCREEN),
+            GetSystemMetrics(SM_YVIRTUALSCREEN),
+            GetSystemMetrics(SM_CXVIRTUALSCREEN),
+            GetSystemMetrics(SM_CYVIRTUALSCREEN),
+        )
+    };
+    let l = (rects.iter().map(|r| r.left).min()? - margin).max(sl);
+    let t = (rects.iter().map(|r| r.top).min()? - margin).max(st);
+    let w = (rects.iter().map(|r| r.right).max()? + margin).min(sl + sw) - l;
+    let h = (rects.iter().map(|r| r.bottom).max()? + margin).min(st + sh) - t;
     let mut d = Dib::new(w, h)?;
-    unsafe {
+    let ok = unsafe {
         let screen = GetDC(null_mut());
-        BitBlt(d.dc, 0, 0, w, h, screen, l, t, SRCCOPY | CAPTUREBLT);
+        if screen.is_null() {
+            return None;
+        }
+        let ok = BitBlt(d.dc, 0, 0, w, h, screen, l, t, SRCCOPY | CAPTUREBLT) != 0;
         ReleaseDC(null_mut(), screen);
         GdiFlush();
+        ok
+    };
+    if !ok {
+        return None;
     }
     let rgba = d
         .pixels()
@@ -1648,6 +1675,15 @@ mod tests {
         assert_eq!(black[0], 0x0000_0000);
         assert_eq!(black[1], 0xFFFF_0000);
         assert_eq!(black[2], 0x8080_8080);
+    }
+
+    #[test]
+    fn premultiply_keeps_a_saturated_glyph_edge() {
+        // A blue icon's edge as GDI really draws it: over white it nearly
+        // vanishes, but the black pass holds its true coverage.
+        let mut black = [0x001F_4667];
+        premultiply(&mut black, &[0x00F5_FAFE]);
+        assert_eq!(black[0], 0x671F_4667);
     }
 
     #[test]
