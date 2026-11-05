@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+	<dict>
+		<!-- Voice (crates/voice) records through Core Audio in this process.
+		     Under the hardened runtime that takes this key: without it there
+		     is no prompt and the mic gives silence. It is the only exception
+		     Irori needs; add another only when a signed build shows the need. -->
+		<key>com.apple.security.device.audio-input</key>
+		<true/>
+	</dict>
+</plist>
