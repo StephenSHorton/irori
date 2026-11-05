@@ -391,6 +391,79 @@ fn two_crashes_in_a_row_stop_spawning_and_ask_the_person() {
     assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&t.id));
 }
 
+/// Card #540: the window answers the crash question with a resolve, not an
+/// answer on its thread. Either way the run clears and the card spawns.
+#[test]
+fn resolving_the_crash_question_clears_the_run() {
+    for (pick, text, said) in [
+        (1, "", CRASHED_START),
+        (0, "try the smaller fixture", "try the smaller fixture"),
+    ] {
+        let mut e = Env::new();
+        let on = Arc::new(AtomicBool::new(true));
+        e.c = spawning(&e, &on);
+        let t = e.c.create_task(USER, nt("Kills its agent")).unwrap();
+        spawn_and_crash(&e, &t.id, "dev-a/first");
+        spawn_and_crash(&e, &t.id, "dev-a/second");
+        let q = crash_question(&e.c.get_task(&t.id).unwrap())
+            .expect("the person is asked")
+            .clone();
+        e.c.answer(
+            USER,
+            &t.id,
+            &q.id,
+            BlockerAnswer {
+                pick,
+                text: text.into(),
+                resolve: true,
+                ..BlockerAnswer::default()
+            },
+        )
+        .unwrap();
+        let got = e.c.get_task(&t.id).unwrap();
+        assert_eq!(got.state, SUBMITTED, "{got:?}");
+        assert_eq!(got.spawn_crashes, 0);
+        let r = got.blockers.iter().find(|b| b.id == q.id).unwrap();
+        assert_eq!(r.resolved.as_ref().unwrap().answer, said);
+        assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&t.id));
+        // A replay agrees.
+        let c = e.reopen_with(Options {
+            spawning: Some(Arc::new(|| true)),
+            ..e.opts()
+        });
+        assert_eq!(c.get_task(&t.id).unwrap().spawn_crashes, 0);
+        assert_eq!(ids(&c.cards_to_spawn()), std::slice::from_ref(&t.id));
+    }
+}
+
+/// Only the person's answer does: an agent resolving the question isn't
+/// their say that another may start.
+#[test]
+fn an_agent_resolving_the_crash_question_keeps_the_run() {
+    let mut e = Env::new();
+    let on = Arc::new(AtomicBool::new(true));
+    e.c = spawning(&e, &on);
+    let t = e.c.create_task(USER, nt("Kills its agent")).unwrap();
+    spawn_and_crash(&e, &t.id, "dev-a/first");
+    spawn_and_crash(&e, &t.id, "dev-a/second");
+    let q = crash_question(&e.c.get_task(&t.id).unwrap())
+        .expect("the person is asked")
+        .clone();
+    e.c.answer(
+        "dev-a/other",
+        &t.id,
+        &q.id,
+        BlockerAnswer {
+            text: "looks fine".into(),
+            resolve: true,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(e.c.get_task(&t.id).unwrap().spawn_crashes, MAX_SPAWN_CRASHES);
+    assert!(e.c.cards_to_spawn().is_empty());
+}
+
 #[test]
 fn a_finished_agent_between_crashes_breaks_the_run() {
     let mut e = Env::new();

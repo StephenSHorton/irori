@@ -787,6 +787,7 @@ impl Fold {
                 let Some(p) = row::<BlockerResolvedRow>(&ev.payload) else {
                     return;
                 };
+                let person = self.person_row(ev, &p.by);
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
@@ -794,6 +795,12 @@ impl Fold {
                 else {
                     return;
                 };
+                // The window resolves the crash question with the answer
+                // (card #540): their say clears the run, as it does when
+                // an answer puts the card back on the Board.
+                if person && super::spawn::is_crash_question(&t.blockers[i]) {
+                    t.spawn_crashes = 0;
+                }
                 let when = at(p.at);
                 let mut opt = p.option;
                 if opt < -1 || opt >= t.blockers[i].options.len() as i64 {

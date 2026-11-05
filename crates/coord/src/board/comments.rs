@@ -1815,8 +1815,9 @@ impl Fold {
 impl Fold {
     /// On a card whose spawned agents crashed [`MAX_SPAWN_CRASHES`] times
     /// in a row, stops its spawning by asking the person (§2 "Crash", card
-    /// #447): a card that kills its agent doesn't loop. Their answer puts
-    /// it back on the Board (back_on_board) and clears the run.
+    /// #447): a card that kills its agent doesn't loop. Their answer clears
+    /// the run, whether it puts the card back on the Board (back_on_board)
+    /// or resolves the question, as the window does (card #540).
     pub(crate) fn stop_crashed_spawns(&mut self, id: &str, now: &GoTime) -> Result<()> {
         let Some(t) = self.tasks.get(id).cloned() else {
             return Ok(());
