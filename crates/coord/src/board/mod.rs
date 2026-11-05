@@ -356,9 +356,8 @@ pub fn under_inbox_lock() -> bool {
 /// Runs an inbox hook that the inbox calls under its lock, and marks the
 /// thread for that long (card #561). A board coord's write takes the inbox
 /// lock under its own ([`Options::hop_of`]), so nothing there may wait on a
-/// board coord, or on a lock held while one is waited on: in a debug build
-/// that wait panics, so any test reaching it fails rather than hanging one
-/// time in a thousand.
+/// board coord: in a debug build that wait panics in [`Coord`]'s lock, so
+/// any test reaching it fails rather than hanging one time in a thousand.
 pub fn with_inbox_lock_held<R>(f: impl FnOnce() -> R) -> R {
     struct Restore(bool);
     impl Drop for Restore {
