@@ -491,15 +491,15 @@ fn the_board_tool_lists_shared_boards() {
     has(
         &out,
         &[
-            "Shared boards you may post on",
-            "- mlg \"MLG farming\": Stephen, Blake; your autonomy there: trusted",
+            "Spaces you may post on",
+            "- \"MLG farming\": Stephen, Blake; your autonomy there: trusted\n  boards: mlg \"MLG farming\"",
         ],
     );
     r.h.failsj(
         &call_a(),
         "board_create",
         json!({"title": "x", "board": "nope"}),
-        &["no shared board \"nope\"", "Yours: mlg."],
+        &["no board \"nope\" in a shared space", "Yours: mlg."],
     );
 }
 
@@ -596,7 +596,7 @@ fn a_reply_to_a_bridged_message_goes_on_the_card() {
         &call_a(),
         "send",
         json!({"to": "board:b0/cBlake", "text": "hi", "task_id": p}),
-        &["isn't on that person's board"],
+        &["isn't in a space with that person"],
     );
 }
 
@@ -650,7 +650,7 @@ fn mentions_on_a_shared_card_name_other_people_and_their_agents() {
     );
     has(
         &out,
-        &["Mentioned: blake (on the board), mlg-lead (on the board), gamma (woke)."],
+        &["Mentioned: blake (in the space), mlg-lead (in the space), gamma (woke)."],
     );
     has_not(&out, &["Not delivered"]);
     // The comment row names them by board key. (Board rows keep their
@@ -684,7 +684,7 @@ fn mentions_on_a_shared_card_name_other_people_and_their_agents() {
         "board_comment",
         json!({"task_id": id, "text": "see above", "mention": ["agent:cb1", "Blake"]}),
     );
-    has(&out, &["mlg-lead (on the board)", "Blake (on the board)"]);
+    has(&out, &["mlg-lead (in the space)", "Blake (in the space)"]);
     // Ambiguous and unknown, as on the private board.
     let out = r.h.okj(
         &call_a(),
@@ -705,7 +705,7 @@ fn mentions_on_a_shared_card_name_other_people_and_their_agents() {
         "board_comment",
         json!({"task_id": pid, "text": "@Blake?"}),
     );
-    has_not(&out, &["Blake (on the board)"]);
+    has_not(&out, &["Blake (in the space)"]);
 }
 
 /// Card #189: show opens a shared board's card and its comments, which live

@@ -1440,7 +1440,7 @@ fn board_create_and_the_bridge_on_the_core() {
     assert_eq!(co.list_tasks(&coord::TaskFilter::default()).len(), 1);
     let out = call(&r.key_a, "board", serde_json::json!({}));
     assert!(
-        out.contains("Shared boards you may post on") && out.contains("- mlg "),
+        out.contains("Spaces you may post on") && out.contains("boards: mlg "),
         "{out}"
     );
     // beta, assigned, hears alpha's comment as a notice, never as a bridged

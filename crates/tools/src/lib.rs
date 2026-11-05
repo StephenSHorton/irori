@@ -167,7 +167,7 @@ pub trait TaskRouter: Send + Sync {
         let _ = (by, why);
         Err(coord::Error::new(
             coord::ErrorKind::NotFound,
-            format_args!("no shared board holds a lease on {resource}"),
+            format_args!("no shared space holds a lease on {resource}"),
         ))
     }
     /// The shared board's coord holding comment `id`, or `None` when no

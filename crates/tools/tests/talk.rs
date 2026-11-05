@@ -478,7 +478,7 @@ fn a_channel_name_resolves_in_its_space_only() {
         &a,
         "talk_read",
         json!({"conv": "#general", "space": "nope"}),
-        &["no shared board"],
+        &["in a shared space"],
     );
 
     // talk_list tells the three #generals apart.
@@ -712,7 +712,7 @@ fn a_space_channel_mention_names_the_other_persons_agent_by_board_key() {
         "talk_post",
         json!({"conv": mlg.id, "text": "@bobbot @Bob is rollback ready?"}),
     );
-    has(&out, &["bobbot (on the space)", "Bob (on the space)"]);
+    has(&out, &["bobbot (in the space)", "Bob (in the space)"]);
     has_not(&out, &["Not delivered"]);
     let ps = t.posts(&mlg.id);
     let last = ps.last().unwrap();
@@ -823,7 +823,7 @@ fn a_space_channel_name_tie_names_this_persons_own_agent() {
         "talk_post",
         json!({"conv": mlg.id, "text": "@beta over to you", "mention": ["agent:cBeta"]}),
     );
-    has(&out, &["(on the space)"]);
+    has(&out, &["(in the space)"]);
     let last = t.posts(&mlg.id).pop().unwrap();
     assert_eq!(last.mentions, vec!["agent:cBeta".to_string()], "{last:?}");
 }

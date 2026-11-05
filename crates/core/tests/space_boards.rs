@@ -141,6 +141,47 @@ fn the_tools_name_a_first_board_the_same_everywhere() {
     assert!(out.contains("on Tasks (wind)"), "from board_of(): {out}");
 }
 
+/// The board tool shows a space once, with its people and autonomy, and
+/// its boards under it; a card's result names the space an inner board is
+/// in (card #558).
+#[test]
+fn the_board_tool_shows_spaces_with_their_boards() {
+    let r = Rig::new();
+    let (id, _) = wind_and_net(&r.core);
+    r.core.create_board("Lemmings", "lem").unwrap();
+    r.core.rename_space_board(&id, &id, "Tasks").unwrap();
+    let caller = tools::Caller {
+        sender: inbox::Sender::new(&r.key_a, "alpha", "claude"),
+        path: String::new(),
+    };
+    let call = |tool: &str, args: serde_json::Value| {
+        let args = serde_json::to_vec(&args).unwrap();
+        r.core.tools().call(&caller, tool, &args).unwrap()
+    };
+    let out = call("board", serde_json::json!({}));
+    assert!(out.contains("Spaces you may post on"), "{out}");
+    let wind = out
+        .lines()
+        .position(|l| l.starts_with("- \"Wind Waker Multiplayer\": "))
+        .expect(&out);
+    assert_eq!(
+        out.lines().nth(wind + 1),
+        Some("  boards: wind \"Tasks\", net \"Netcode\""),
+        "{out}"
+    );
+    assert_eq!(out.matches("your autonomy there").count(), 2, "{out}");
+    assert!(out.contains("  boards: lem \"Lemmings\""), "{out}");
+
+    let out = call(
+        "board_create",
+        serde_json::json!({"title": "decomp", "board": "net"}),
+    );
+    assert!(
+        out.contains("on Netcode (net) in Wind Waker Multiplayer"),
+        "{out}"
+    );
+}
+
 /// A board nobody has put a card on has its tag, through the real hook.
 #[test]
 fn a_ref_to_a_board_with_no_cards_is_not_on_another_board() {

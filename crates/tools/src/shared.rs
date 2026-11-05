@@ -35,6 +35,9 @@ pub struct BoardInfo {
     /// A board inside a space (card #392): its id there, while `board_id`
     /// is the space's (the log it lives in). Empty for a space's own board.
     pub space_board: String,
+    /// The space's own name, which its first board's `name` may not be.
+    /// Empty: the same as `name`.
+    pub space_name: String,
 }
 
 impl BoardInfo {
@@ -43,8 +46,20 @@ impl BoardInfo {
         format!("Visible to: {}", self.people.join(", "))
     }
 
+    fn space(&self) -> &str {
+        if self.space_name.is_empty() {
+            &self.name
+        } else {
+            &self.space_name
+        }
+    }
+
     fn label(&self) -> String {
-        format!("{} ({})", one_line(&self.name, 80), self.tag)
+        let board = format!("{} ({})", one_line(&self.name, 80), self.tag);
+        if self.space() == self.name {
+            return board;
+        }
+        format!("{board} in {}", one_line(self.space(), 80))
     }
 }
 
@@ -190,7 +205,7 @@ impl Inner {
     pub(crate) fn find_board(&self, v: &str) -> Result<BoardInfo, String> {
         let Some(sb) = self.shared() else {
             return Err(err_text(
-                "shared boards aren't on here; leave out board for a private card.",
+                "shared spaces aren't on here; leave out board for a private card.",
             ));
         };
         let v = trim(v).trim_start_matches('#');
@@ -208,10 +223,10 @@ impl Inner {
             [] => {
                 let list: Vec<String> = all.iter().map(|b| b.tag.clone()).collect();
                 Err(err_text(&format!(
-                    "no shared board {}. {}",
+                    "no board {} in a shared space. {}",
                     crate::format::q(v),
                     if list.is_empty() {
-                        "You aren't on any shared board.".to_string()
+                        "You aren't in any shared space.".to_string()
                     } else {
                         format!("Yours: {}.", list.join(", "))
                     }
@@ -221,7 +236,11 @@ impl Inner {
                 "more than one board has the tag {}: give its boardId ({}).",
                 crate::format::q(v),
                 hits.iter()
-                    .map(|b| b.board_id.as_str())
+                    .map(|b| if b.space_board.is_empty() {
+                        b.board_id.as_str()
+                    } else {
+                        b.space_board.as_str()
+                    })
                     .collect::<Vec<_>>()
                     .join(", ")
             ))),
@@ -276,23 +295,33 @@ impl Inner {
         format!("{out}\n{}", b.visible_to())
     }
 
-    /// The board tool's list of shared boards, with who sees each and the
-    /// agents' autonomy there.
+    /// The board tool's list of spaces, each with who sees it, the agents'
+    /// autonomy there and its boards (card #558).
     fn boards_section(&self) -> Option<String> {
         let all = self.shared()?.boards();
         if all.is_empty() {
             return None;
         }
         let mut s = String::from(
-            "Shared boards you may post on (board_create board=<tag>; anything there is seen by everyone on it):",
+            "Spaces you may post on (board_create board=<board tag>; anything there is seen by everyone in the space):",
         );
+        let mut seen: Vec<&str> = Vec::new();
         for b in &all {
+            if seen.contains(&b.board_id.as_str()) {
+                continue;
+            }
+            seen.push(&b.board_id);
+            let boards: Vec<String> = all
+                .iter()
+                .filter(|x| x.board_id == b.board_id)
+                .map(|x| format!("{} {}", x.tag, crate::format::q(&one_line(&x.name, 80))))
+                .collect();
             s += &format!(
-                "\n- {} {}: {}; your autonomy there: {}",
-                b.tag,
-                crate::format::q(&one_line(&b.name, 80)),
+                "\n- {}: {}; your autonomy there: {}\n  boards: {}",
+                crate::format::q(&one_line(b.space(), 80)),
                 b.people.join(", "),
-                self.b.inbox().autonomy(&b.board_id)
+                self.b.inbox().autonomy(&b.board_id),
+                boards.join(", ")
             );
         }
         Some(s)
@@ -306,7 +335,7 @@ impl Inner {
         task: NewTask,
         assign_to: &str,
     ) -> Result<String, String> {
-        let sb = self.shared().ok_or("shared boards aren't on here")?;
+        let sb = self.shared().ok_or("shared spaces aren't on here")?;
         let (co, keys) = sb
             .board_coord(&b.board_id, &[agent.to_string(), assign_to.to_string()])
             .map_err(|e| map_err(e).trim_start_matches("Error: ").to_string())?;
@@ -473,14 +502,14 @@ pub(crate) fn board_share(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Err(m) => return m,
     };
     if trim(a.str("board")).is_empty() {
-        return err_text("say which shared board: board = its tag (the board tool lists them).");
+        return err_text("say which shared space: board = its tag (the board tool lists them).");
     }
     let b = match s.find_board(a.str("board")) {
         Ok(b) => b,
         Err(e) => return e,
     };
     let Some(sb) = s.shared() else {
-        return err_text("shared boards aren't on here.");
+        return err_text("shared spaces aren't on here.");
     };
     if let Some(on) = sb.board_of(&id) {
         return err_text(&format!("that card is already on {}.", on.label()));
@@ -635,7 +664,7 @@ pub(crate) fn request_resolved(s: &Inner, a: &coord::approvals::Ask) -> bool {
                         format!("Your person said Share for {card}, but it failed: {e}")
                     }
                     None => format!(
-                        "Your person said Share for {card}, but shared boards are off here."
+                        "Your person said Share for {card}, but shared spaces are off here."
                     ),
                 },
                 (true, CHOICE_REVIEW) => format!(
@@ -656,7 +685,7 @@ pub(crate) fn request_resolved(s: &Inner, a: &coord::approvals::Ask) -> bool {
             }
             let text = match s.shared().map(|sb| sb.withdraw(&shared_id)) {
                 Some(Ok(())) => format!(
-                    "Your person withdrew {shared_ref} from {}: the private card is back and yours; the others on the board keep what they already have.",
+                    "Your person withdrew {shared_ref} from {}: the private card is back and yours; the others in the space keep what they already have.",
                     board.label()
                 ),
                 Some(Err(e)) => {
@@ -746,7 +775,7 @@ pub(crate) fn reply_on_card(s: &Inner, c: &Caller, did: &str, text: &str) -> Opt
     let card = card_of(&d);
     if card.is_empty() {
         return Some(err_text(
-            "that message came from a shared board but names no card; answer on the card with board_comment.",
+            "that message came from a shared space but names no card; answer on the card with board_comment.",
         ));
     }
     let (cm, told) = match comment_on_card(s, c, &card, text) {
@@ -762,7 +791,7 @@ pub(crate) fn reply_on_card(s: &Inner, c: &Caller, did: &str, text: &str) -> Opt
     }
     let (rest, visible) = split_visible(&told);
     let mut out = format!(
-        "Replied on {} (comment:{cm}): it came from a shared board, so your answer went on the card, not as a private message. Delivery {} is now answered.{rest}",
+        "Replied on {} (comment:{cm}): it came from a shared space, so your answer went on the card, not as a private message. Delivery {} is now answered.{rest}",
         s.short_of(&card),
         one_line(did, 80)
     );
@@ -848,13 +877,13 @@ pub(crate) fn send_to_board(
     }
     if card.is_empty() {
         return Some(err_text(
-            "that is another person or their agent on a shared board, and nothing says which card: give task_id, the card to say it on. Everyone on the board sees it there.",
+            "that is another person or their agent in a shared space, and nothing says which card: give task_id, the card to say it on. Everyone in the space sees it there.",
         ));
     }
     let on = s.shared().and_then(|sb| sb.board_of(&card));
     if !on.as_ref().is_some_and(|b| b.board_id == board) {
         return Some(err_text(&format!(
-            "{} isn't on that person's board: a message to another person goes on a card of the board you share with them.",
+            "{} isn't in a space with that person: a message to another person goes on a card of the space you share with them.",
             s.short_of(&card)
         )));
     }
@@ -862,7 +891,7 @@ pub(crate) fn send_to_board(
         Ok((cm, told)) => {
             let (rest, visible) = split_visible(&told);
             Some(format!(
-                "Said on {} (comment:{cm}): {} is another person or their agent on a shared board, so it went on the card, not as a private message.{rest}{visible}",
+                "Said on {} (comment:{cm}): {} is another person or their agent in a shared space, so it went on the card, not as a private message.{rest}{visible}",
                 s.short_of(&card),
                 one_line(to, 120)
             ))
@@ -951,7 +980,7 @@ pub(crate) fn board_review(s: &Inner, c: &Caller, raw: &[u8]) -> String {
 fn own_review(s: &Inner, c: &Caller, id: &str, pr: &str, to: &str) -> String {
     if to.is_empty() {
         return err_text(
-            "give to: the agent to review it, by name or key (see the agents tool). On your own board nobody reviews by default.",
+            "give to: the agent to review it, by name or key (see the agents tool). On a private card nobody reviews by default.",
         );
     }
     let to = match s.assignee(to) {
