@@ -3685,7 +3685,7 @@ impl Services {
     /// Asks GitHub about the PRs that are due (card #208) and routes what
     /// coord says changed.
     fn check_prs(self: &Arc<Self>) {
-        let Some(checker) = self.pr_checker.clone() else {
+        let Some(checker) = self.pr_checker.clone().filter(|c| c.ready()) else {
             return;
         };
         let local: std::collections::HashSet<String> = self
