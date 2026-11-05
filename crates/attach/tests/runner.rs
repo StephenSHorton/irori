@@ -175,9 +175,17 @@ async fn standby_waits_for_the_session_to_come_free() {
         o.standby_poll = Duration::from_millis(50);
     });
     tokio::time::sleep(Duration::from_millis(500)).await; // several asks
-    assert_eq!(standby.out.text(), "", "standby while the session is held");
+    assert_eq!(
+        standby.out.text(),
+        "{\"type\":\"standby\"}\n",
+        "said once while the session is held"
+    );
     assert!(
-        !holder.out.events().iter().any(|e| e["type"] == "superseded"),
+        !holder
+            .out
+            .events()
+            .iter()
+            .any(|e| e["type"] == "superseded"),
         "standby took the session: {}",
         holder.out.text()
     );
@@ -196,6 +204,39 @@ async fn standby_waits_for_the_session_to_come_free() {
     );
     standby.stop.cancel();
     standby.exited().await;
+}
+
+/// GitHub #57: a wait that follows an outage says so again, or the mod would
+/// go on saying Irori isn't running while another attach holds the session.
+#[tokio::test(flavor = "multi_thread")]
+async fn standby_says_so_again_after_an_outage() {
+    let r = Rig::new().await;
+    let holder = start_runner(&r.data, SESS_B);
+    holder.out.wait("hello", 1).await;
+    // Slower to retry than the holder, so the holder gets back first (were
+    // the standby copy first, the holder would supersede it, which is told).
+    let standby = start_runner_with(&r.data, SESS_B, |o| {
+        o.standby = true;
+        o.standby_poll = Duration::from_millis(50);
+        o.min_backoff = Duration::from_secs(1);
+        o.max_backoff = Duration::from_secs(1);
+    });
+    standby.out.wait("standby", 1).await;
+    let r = r.restart().await;
+    holder.out.wait("hello", 2).await;
+    standby.out.wait("standby", 2).await;
+    let evs = standby.out.events();
+    assert_eq!(
+        evs.last().unwrap()["type"],
+        "standby",
+        "{}",
+        standby.out.text()
+    );
+    holder.stop.cancel();
+    holder.exited().await;
+    standby.stop.cancel();
+    standby.exited().await;
+    drop(r);
 }
 
 /// GitHub #57: hello offers standby only to a mod that can use it, so an
@@ -222,7 +263,11 @@ async fn two_standby_copies_settle_on_one() {
     a.out.wait("hello", 1).await;
     let b = start_runner_with(&r.data, SESS_B, quick);
     tokio::time::sleep(Duration::from_millis(500)).await;
-    assert_eq!(b.out.text(), "", "the second copy waits");
+    assert_eq!(
+        b.out.text(),
+        "{\"type\":\"standby\"}\n",
+        "the second copy waits"
+    );
     assert!(
         !a.out.events().iter().any(|e| e["type"] == "superseded"),
         "{}",

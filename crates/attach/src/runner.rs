@@ -143,8 +143,13 @@ pub async fn run(mut o: Options) -> Result<(), String> {
     let mut outage = false; // the "Irori isn't running" line went out
     // Since when the Core has answered 404, and whether that was said.
     let mut off_roster: Option<(std::time::Instant, bool)> = None;
+    // The `standby` line went out for this wait.
+    let mut waiting = false;
     loop {
         let (connected, end) = attach_once(&mut o).await;
+        if !matches!(&end, End::Failed(Error::Status(se)) if se.code == 409) {
+            waiting = false;
+        }
         if connected {
             backoff = o.min_backoff;
             outage = false;
@@ -171,10 +176,20 @@ pub async fn run(mut o: Options) -> Result<(), String> {
             End::Canceled => return Ok(()),
             End::Stdout(e) => return Err(format!("attach: stdout closed: {e}")),
             _ if o.cancel.is_cancelled() => return Ok(()),
-            // Waiting its turn is no outage: nothing to say, no backoff.
+            // Waiting its turn is no outage and takes no backoff. Said once
+            // per wait: whatever the mod last heard (an outage, a dropped
+            // stream) is no longer why this session has no attach.
             End::Failed(Error::Status(se)) if se.code == 409 => {
                 outage = false;
                 backoff = o.min_backoff;
+                if !waiting {
+                    waiting = true;
+                    let line = gocompat::json::marshal(&Event::of(p::TYPE_STANDBY))
+                        .expect("attach event marshals");
+                    if let Err(e) = write_line(&mut o.stdout, &line) {
+                        return Err(format!("attach: stdout closed: {e}"));
+                    }
+                }
                 tokio::select! {
                     _ = o.cancel.cancelled() => return Ok(()),
                     _ = tokio::time::sleep(o.standby_poll) => {}

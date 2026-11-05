@@ -491,6 +491,13 @@ async function handleEvent($: EngineInterface, e: AttachEvent): Promise<'superse
       attachSecret = ''
       await setView($, { status: 'connecting', error: e.message })
       return
+    case 'standby':
+      // Another attach holds this session: that, not an outage or a dropped
+      // stream, is why it has none (GitHub #57).
+      api = null
+      attachSecret = ''
+      await setView($, { status: 'superseded', error: undefined })
+      return
     case 'superseded':
       return 'superseded'
   }

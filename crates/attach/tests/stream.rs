@@ -125,7 +125,9 @@ async fn agents_says_when_a_session_is_cut_off() {
         str_of(&v, "text").to_string()
     };
     let beta = |text: &str| {
-        let at = text.find("- beta").unwrap_or_else(|| panic!("no beta in {text}"));
+        let at = text
+            .find("- beta")
+            .unwrap_or_else(|| panic!("no beta in {text}"));
         let rest = &text[at..];
         rest[..rest.find("\n\n").unwrap_or(rest.len())].to_string()
     };
@@ -138,7 +140,10 @@ async fn agents_says_when_a_session_is_cut_off() {
     // Attached: online, like the session asking.
     let (b, _) = r.attach(SESS_B).await;
     let out = beta(&agents().await);
-    assert!(out.contains("device: online") && !out.contains(CUT_OFF), "{out}");
+    assert!(
+        out.contains("device: online") && !out.contains(CUT_OFF),
+        "{out}"
+    );
 
     // Its stream went and its process didn't: cut off again.
     b.close();

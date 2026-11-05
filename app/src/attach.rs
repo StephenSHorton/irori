@@ -331,10 +331,7 @@ mod tests {
                 ..Flags::default()
             })
         );
-        assert_eq!(
-            parse(&args(&["--standby=false"])),
-            Ok(Flags::default())
-        );
+        assert_eq!(parse(&args(&["--standby=false"])), Ok(Flags::default()));
         assert_eq!(parse(&args(&["--", "-x"])), Ok(Flags::default()));
         assert_eq!(
             parse(&args(&["-x"])),

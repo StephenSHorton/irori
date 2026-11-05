@@ -459,6 +459,27 @@ ${prompt}`, turnId: 'turn-1' })
     expect([sent.headers.authorization, sent.headers['X-Irori-Attach']]).toEqual(['Bearer bearer-2', 'secret-2'])
   })
 
+  test('a standby copy says it waits again after an outage, not that Irori is down (GitHub #57)', OPTIONS, async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world(on)
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line({ ...hello, v: 3 }) + line({ type: 'superseded' }))
+    w.children[0]!.end()
+    await clock.settle()
+    await clock.advance(1_000)
+    await until(() => w.children.length === 2, 'standby attach')
+    w.children[1]!.write(line({ type: 'error', message: "Irori isn't running." }))
+    await pause(50)
+    // The Core is back and the other copy got there first.
+    w.children[1]!.write(line({ type: 'standby' }))
+    await pause(50)
+    const band = await $.ui.mount({ plugin: 'irori', surface: 'terminal', component: 'AbovePrompt', props: {} } as never)
+    expect(await band.find({ type: 'Text', text: 'irori · attached in another window' })).toBeDefined()
+    await band.unmount()
+    expect(w.children.length).toBe(2)
+  })
+
   test('session.end stops a standby copy for good, with no attach left behind (GitHub #57)', OPTIONS, async ($, on) => {
     const clock = mock.clock(on)
     const w = world(on)

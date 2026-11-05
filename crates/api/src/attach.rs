@@ -32,6 +32,9 @@ pub const TYPE_HELD: &str = "held";
 pub const TYPE_MOVED: &str = "moved";
 pub const TYPE_INBOX: &str = "inbox";
 pub const TYPE_SUPERSEDED: &str = "superseded";
+/// From `irori attach --standby`, never the Core: another attach holds the
+/// session, so this one waits (GitHub #57).
+pub const TYPE_STANDBY: &str = "standby";
 pub const TYPE_ERROR: &str = "error";
 
 /// AttachSecret from hello (mod).
