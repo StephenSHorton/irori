@@ -555,6 +555,7 @@ fn a_thread_naming_a_busy_agent_spawns_at_once_and_the_agent_can_still_answer() 
     e.c.add_comment(SPAWNED, &tk.id, "It merged an hour ago.", false)
         .unwrap();
     e.c.sweep_asks(&agents).unwrap();
+    e.clk.add(secs(5));
     e.c.add_comment(ALICE, &tk.id, "And the docs are in too.", false)
         .unwrap();
     e.c.sweep_asks(&agents).unwrap();
