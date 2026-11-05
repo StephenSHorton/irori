@@ -333,7 +333,8 @@ fn send_about(r: &Rig, task_id: &str, text: &str) {
         sender: inbox::Sender::new(&r.key_b, "beta", "claude"),
         path: inbox::path::MOD.into(),
     };
-    let args = serde_json::json!({"to": "alpha", "text": text, "task_id": format!("task:{task_id}")});
+    let args =
+        serde_json::json!({"to": "alpha", "text": text, "task_id": format!("task:{task_id}")});
     let out = r
         .core
         .tools()
@@ -410,18 +411,34 @@ fn a_wake_never_waits_on_a_busy_board() {
     assert!(w.prompt.contains("BOARD-NOTE"), "{}", w.prompt);
 }
 
-/// Card #561: `route` holds the boards list while it reads board coords, so
-/// a wake must not wait on the list either.
+/// Card #561: a board's coord holder may wait on the boards list, and a
+/// wake waits on it under the inbox lock, so `route` must not keep the list
+/// while it waits on a busy board.
 #[test]
-fn a_wake_never_waits_on_the_boards_list() {
+fn route_never_keeps_the_boards_list_while_a_board_is_busy() {
     let r = Rig::new();
-    a_message_about_a_board_card(&r);
-    let w = wake_while_held(&r, r.core.hold_boards_list());
-    assert!(w.prompt.contains("MINE-NOTE"), "{}", w.prompt);
-    assert!(!w.prompt.contains("BOARD-NOTE"), "{}", w.prompt);
+    let c = &r.core;
+    let b = c.create_board("MLG", "mlg").unwrap();
+    let co = c.board_coord(&b).unwrap();
+    let held = co.hold_lock();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::scope(|s| {
+        let _held = held;
+        // An id in no log: it reads every board's coord, and waits here.
+        s.spawn(|| {
+            let _ = c.route("no-such-card");
+        });
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        s.spawn(move || {
+            drop(c.hold_boards_list());
+            let _ = tx.send(());
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(10))
+            .expect("route kept the boards list while it waited on a board coord");
+    });
 }
 
-/// The check every test runs under: a blocking board read in an inbox hook
+/// The check every test runs under: a blocking board coord read in an inbox hook
 /// panics in a debug build, whether or not the board happens to be busy.
 #[cfg(debug_assertions)]
 #[test]

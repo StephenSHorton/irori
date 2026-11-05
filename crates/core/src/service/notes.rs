@@ -378,10 +378,11 @@ impl Services {
     /// at most.
     ///
     /// Runs under the inbox lock, so it never calls the inbox and never
-    /// waits on a board (card #561): a board coord's write takes the inbox
-    /// lock under its own (`hop_of`), and `route` holds the boards list
-    /// while it reads board coords. Both are only tried. A busy board reads
-    /// as no card and no notes here: a note left out goes in a later wake.
+    /// waits on a board coord (card #561): a board coord's write takes the
+    /// inbox lock under its own (`hop_of`). Boards are only tried. A busy
+    /// board reads as no card and no notes here: a note left out goes in a
+    /// later wake. The boards list it may wait on: nothing waits on a coord
+    /// while holding that ([`Services::route`]).
     pub(crate) fn wake_notes(&self, agent: &str, refs: &[String]) -> inbox::WakeNotes {
         let me = self.roster.agents().into_iter().rfind(|a| a.key == agent);
         // The card, and the board log it is on (None: the private log).
@@ -393,7 +394,7 @@ impl Services {
                 break;
             }
             if let Some((t, b)) = self
-                .try_shown_boards()
+                .shown_boards()
                 .into_iter()
                 .find_map(|b| b.coord().try_get_task(id).flatten().map(|t| (t, b)))
             {
