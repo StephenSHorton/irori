@@ -1714,7 +1714,7 @@ impl Services {
     /// of the repo the agent here active most recently works in, which
     /// Claude Code trusts since that agent runs there. Its repo key and
     /// folder.
-    fn ask_home(&self) -> Option<(String, String)> {
+    pub(crate) fn ask_home(&self) -> Option<(String, String)> {
         let me = self.device.id.as_str();
         let mut live: Vec<_> = self
             .presence

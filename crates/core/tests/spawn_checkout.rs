@@ -242,10 +242,12 @@ fn no_checkout_asks_once_in_plain_words_then_starts_in_the_folder_named() {
     let b2 = t.no_copy_blockers(&c.id)[0].clone();
     assert!(
         b2.context
-            .starts_with("“I'll clone it later” isn't a full path on"),
+            .starts_with("“I'll clone it later” doesn't name a folder"),
         "{}",
         b2.context
     );
+    assert!(b2.question.contains("“I'll clone it later”"), "{b2:?}");
+    t.plain(&b2.question);
     t.plain(&b2.context);
 
     // The folder's path: the agent starts there and the blocker closes.
@@ -330,6 +332,92 @@ fn a_card_with_no_repo_asks_for_a_folder() {
     let sr = t.get(&c.id).spawn_request().cloned().unwrap();
     assert!(sr.reason.starts_with("this card names no repo"), "{sr:?}");
     t.plain(&sr.reason);
+}
+
+/// Card #531: the close that going back on the Board writes carries the
+/// person's name and Irori's words. It is no reply: the question comes
+/// back plain, quoting nothing.
+#[test]
+fn going_back_on_the_board_is_no_reply() {
+    let t = rig();
+    let c = t.card("A card with no repo", "");
+    t.start();
+    let b = t.wait_blocked(&c.id);
+    let co = t.r.core.coord();
+    assert!(co.back_on_board(&t.person, &c.id, "put back").unwrap());
+    let closed = t.get(&c.id).blockers.into_iter().find(|x| x.id == b.id);
+    assert!(closed.unwrap().resolved.unwrap().closed);
+    wait_for(60, "asked again", || {
+        t.r.core.set_spawn_cap(t.r.core.spawn_cap()).unwrap();
+        let bs = t.no_copy_blockers(&c.id);
+        bs.len() == 1 && bs[0].id != b.id
+    });
+    let b2 = t.no_copy_blockers(&c.id)[0].clone();
+    assert_eq!(b2.question, b.question);
+    assert_eq!(b2.context, b.context);
+}
+
+/// Card #531: a card with no repo is offered where this device's agents
+/// work, and picking it starts the agent there.
+#[test]
+fn a_card_with_no_repo_is_offered_the_folder_agents_work_in() {
+    let t = rig();
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().canonicalize().unwrap();
+    let git = |args: &[&str]| {
+        let ok = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?}");
+    };
+    git(&["init", "-q"]);
+    git(&["commit", "-q", "--allow-empty", "-m", "first"]);
+    let sess = "eeeeeeee-5555-4555-8555-000000000005";
+    write_session(
+        &t.r.claude.join("sessions"),
+        "900005.json",
+        sess,
+        "gamma",
+        &dir,
+    );
+    let key = format!("{}/{sess}", t.r.core.device_id());
+    wait_for(60, "the agent listed with its repo", || {
+        t.r.core
+            .local_agents()
+            .iter()
+            .any(|a| a.key == key && !a.repo_key.is_empty())
+    });
+    let c = t.card("A card with no repo", "");
+    t.start();
+    let b = t.wait_blocked(&c.id);
+    assert_eq!(b.options.len(), 1, "{b:?}");
+    assert_eq!(Path::new(&b.options[0].answer).canonicalize().unwrap(), dir);
+    assert!(b.context.contains("Pick the folder"), "{}", b.context);
+
+    // As the window answers an Irori ask: picked, and resolved with it.
+    t.r.core
+        .coord()
+        .answer(
+            &t.person,
+            &c.id,
+            &b.id,
+            BlockerAnswer {
+                pick: 1,
+                resolve: true,
+                ..BlockerAnswer::default()
+            },
+        )
+        .unwrap();
+    wait_for(60, "its agent started", || {
+        t.r.core.set_spawn_cap(t.r.core.spawn_cap()).unwrap();
+        !t.fake.started.lock().unwrap().is_empty()
+    });
+    let req = t.fake.started.lock().unwrap()[0].clone();
+    assert_eq!(Path::new(&req.folder).canonicalize().unwrap(), dir);
 }
 
 #[test]

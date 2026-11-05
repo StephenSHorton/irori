@@ -59,6 +59,7 @@ pub struct CommentResult {
 
 /// Answer's reply: the card after the answer, and who heard.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct AnswerResult {
     pub card: CardDetail,
     pub told: Told,
@@ -66,6 +67,12 @@ pub struct AnswerResult {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[specta(optional)]
     pub mentioned: Vec<MentionOutcome>,
+    /// Irori itself acts on this answer (card #531): its "no copy" and
+    /// "couldn't start" asks resolve like any item nobody runs for, but the
+    /// sweep reads the answer, so the window doesn't say nobody will.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub irori_acts: bool,
 }
 
 /// One choice on the ask box's repo chip.
@@ -628,8 +635,10 @@ impl Window {
                 card: self.card(task_id)?,
                 told,
                 mentioned,
+                irori_acts: false,
             });
         }
+        let irori_acts = irori_core::spawn_stop::irori_acts_on(bl);
         let files: Vec<coord::FileRef> = self
             .store_uploads(files)?
             .iter()
@@ -687,6 +696,7 @@ impl Window {
             card: self.card(&t.id)?,
             told,
             mentioned,
+            irori_acts,
         })
     }
 
@@ -752,6 +762,7 @@ impl Window {
             card: self.card(&t.id)?,
             told,
             mentioned,
+            irori_acts: false,
         })
     }
 
@@ -804,6 +815,7 @@ impl Window {
             card: self.card(id)?,
             told,
             mentioned,
+            irori_acts: false,
         })
     }
 
