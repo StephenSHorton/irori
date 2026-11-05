@@ -901,6 +901,11 @@ pub struct BoardView {
     pub done: Vec<Card>,
     pub done_total: i64,
     pub leases: Vec<LeaseCard>,
+    /// What an agent here is told about sides (card #496): the sides this
+    /// device runs, and that other sides' cards are only read. Empty when
+    /// it runs every side.
+    #[serde(skip_serializing_if = "omit")]
+    pub side_line: String,
 }
 
 /// One line of what happened on a card.

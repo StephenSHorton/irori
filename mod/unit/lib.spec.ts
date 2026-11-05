@@ -14,6 +14,7 @@ import {
   describePolicy,
   editPolicy,
   heldReminder,
+  sideReminder,
   nextBackoff,
   titleToSet,
   parseArgs,
@@ -258,5 +259,18 @@ describe('Pause (card #207)', () => {
     expect(pausedFromBoard(board, me, [{ ref: '#7', by: 'Stephen' }])).toEqual([{ ref: '#7', by: 'Stephen' }])
     expect(pausedFromBoard(board, me)).toEqual([{ ref: '#7', by: 'The person' }])
     expect(pausedFromBoard(undefined, me)).toEqual([])
+  })
+})
+
+describe('sideReminder', () => {
+  test('names the sides this device runs, from the board view', () => {
+    const r = sideReminder({ sideLine: 'This device runs the Work side. Cards on Personal are only read here, never taken.' })
+    expect(r).toBe('Irori: This device runs the Work side. Cards on Personal are only read here, never taken.')
+  })
+
+  test('says nothing when the device runs every side', () => {
+    expect(sideReminder({})).toBe('')
+    expect(sideReminder({ sideLine: '  ' })).toBe('')
+    expect(sideReminder(undefined)).toBe('')
   })
 })

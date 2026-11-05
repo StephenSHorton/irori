@@ -292,6 +292,9 @@ impl Fold {
         if engaged(&t, &by) && t.state != SUBMITTED {
             return Ok(t);
         }
+        // A card on a side this agent's device doesn't run waits for the
+        // person to ask (card #496).
+        self.check_side_take(&by, &t)?;
         // One card at a time: an agent busy on a working card leaves this
         // one for a free agent (card #82).
         self.check_free(&by, &t)?;
@@ -340,6 +343,9 @@ impl Fold {
         if is_holder(&t, &to) {
             return Ok((t, false));
         }
+        // An agent hands a card only to a device that runs its side, unless
+        // the person asked (card #496).
+        self.check_side_assign(&by, &t, &to)?;
         let at = self.stamp();
         self.write(
             &by,

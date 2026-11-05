@@ -267,7 +267,17 @@ export function titleToSet(
 
 /** A Board card as GET /v1/board lists it: only what heldReminder reads. */
 export type BoardCard = { short?: string; title?: string; state?: string; holders?: string[]; paused?: boolean }
-export type BoardLists = { needsYou?: BoardCard[]; blocked?: BoardCard[]; working?: BoardCard[]; open?: BoardCard[] }
+export type BoardLists = { needsYou?: BoardCard[]; blocked?: BoardCard[]; working?: BoardCard[]; open?: BoardCard[]; sideLine?: string }
+
+/**
+ * The sides this device runs (card #496), as the Core words it on the board
+ * view: an agent here reads other sides' cards but takes them only when the
+ * person asks. Empty when the device runs every side.
+ */
+export function sideReminder(board: BoardLists | undefined): string {
+  const line = (board?.sideLine ?? '').trim()
+  return line ? `Irori: ${line}` : ''
+}
 
 /**
  * The reminder a person's prompt carries while this session holds cards

@@ -1546,6 +1546,12 @@ impl Fold {
         by: &str,
         id: &str,
     ) -> Result<std::result::Result<ClaimResult, usize>> {
+        // An ask on a side this agent's device doesn't run is taken only
+        // when Irori hands it over or the person asks (card #496).
+        let t0 = self.open_task(id)?.clone();
+        if !t0.open_ask().is_some_and(|a| a.taker == by && a.handed) {
+            self.check_side_take(by, &t0)?;
+        }
         let t = self.open_task(id)?;
         let Some(a) = t.open_ask() else {
             return Err(bad_state(format!("{} isn't an open ask", t.short_ref())));
@@ -1694,6 +1700,11 @@ impl Fold {
             }
             let pid = self.task_ref_locked(&o.parent)?;
             self.check_parent(&pid, "")?;
+            // The card it becomes runs on its parent's side: an agent puts
+            // it there only on a side it may take (card #496).
+            if !person && let Some(pt) = self.tasks.get(&pid).cloned() {
+                self.check_side_take(&by, &pt)?;
+            }
             parent = pid;
         }
         let opt = |s: &str| (!s.is_empty()).then(|| s.to_string());

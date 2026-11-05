@@ -279,6 +279,11 @@ impl Fold {
         if engaged(t, &who) && t.state != SUBMITTED {
             return Ok(t.clone());
         }
+        // The person may add anyone; an agent joining on its own keeps to
+        // its device's sides (card #496).
+        if by == who {
+            self.check_side_take(&who, t)?;
+        }
         let at = self.stamp();
         self.write(
             &by,
@@ -1405,6 +1410,11 @@ impl Fold {
             gotime::cmp(&a.lease.until, &b.lease.until)
                 .then_with(|| a.lease.resource.cmp(&b.lease.resource))
         });
+        let dev = match irori_identity::owner::device_of(&viewer) {
+            "" => self.dev.as_str(),
+            d => d,
+        };
+        v.side_line = crate::sides::agent_line(self.sides.of(dev), &self.side_names());
         v
     }
 
