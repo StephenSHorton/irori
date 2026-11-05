@@ -402,6 +402,8 @@ cargo xtask no-third-party                           # fails on presets::N0, Rel
 
 As built (`scripts/check.sh`): the frontend steps, fmt, clippy, the workspace tests and the single-threaded capture run as above; `no-third-party` is `scripts/no-third-party.sh` (there is no xtask crate yet); `bindings --check` waits for the M6 bindings, and until then the shim's table is checked by `gen-compat-table.ts --check`.
 
+Each crate's integration tests are one binary, `tests/it/main.rs` with a module per file (#566): a file in `tests/` would be its own binary, with its own link and copy of the crate's debug info. New tests go in `tests/it/`, and `scripts/one-test-binary.sh` fails check.sh otherwise. Run one with `cargo test -p <crate> --test it <module>::`. Tests in a crate share a process, so one that changes the environment or the working directory, or counts this process's sockets, stays outside `it` and is listed in that script (`capture/tests/repo_git_env.rs`, `core/tests/no_public_contact.rs`). A test that re-runs its own binary names its helper with the module (`--exact proc::helper_sleep`). The dev profile keeps line tables only: panics and backtraces show file and line, but a debugger shows no variables; put `debug = true` back locally to use one.
+
 ### 7.2 Release workflow
 
 There is no CI (no workflow builds or checks anything): `release.yml` is replaced by local scripts, `scripts/release.ps1` on the PC and `scripts/release-mac.sh` on the Mac, each with a dry run (the default) and `--publish` to a draft release that is published once both platforms' assets and `SHA256SUMS` are up (docs/releasing.md). `pages.yml` (deploys `site/` to GitHub Pages on pushes to `main` that touch `site/**`, I:.github/workflows/pages.yml:1-9) carries over unchanged.
