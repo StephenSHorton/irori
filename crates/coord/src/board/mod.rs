@@ -52,8 +52,9 @@ pub use offers::{
 };
 pub use parts::{DEFAULT_AGENTS_PER_CARD, MAX_AGENTS_PER_CARD, PART_QUESTION};
 pub use spawn::{
-    CRASHED_QUESTION, CRASHED_START, MAX_SPAWN_CRASHES, PERMISSION_MODES, SPAWN_CANCELED,
-    SPAWN_FAILED, SPAWN_GRACE, SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk, SpawnHold, Spawned,
+    CRASHED_QUESTION, CRASHED_START, GIVEN_NOT_NOW, GIVEN_QUESTION, GIVEN_START,
+    MAX_SPAWN_CRASHES, PERMISSION_MODES, SPAWN_CANCELED, SPAWN_FAILED, SPAWN_GRACE,
+    SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk, SpawnHold, Spawned,
     is_crash_question,
 };
 mod resource;
@@ -1438,6 +1439,24 @@ impl Coord {
             .get(id)
             .map(|t| f.card_origin(t))
             .unwrap_or_default()
+    }
+    /// Whether this device's person serves card t on a shared board: they
+    /// made it, or it was given to them (card #573).
+    pub fn mine_to_serve(&self, t: &Task) -> bool {
+        self.lock().mine_to_serve(t)
+    }
+    /// The cards given to this person that wait on "OK to start an agent
+    /// on this?" (card #573). See [`Fold::given_to_ask`].
+    pub fn given_to_ask(&self) -> Vec<Task> {
+        self.lock().given_to_ask()
+    }
+    /// The given cards with a yes this device starts now (card #573).
+    pub fn given_to_spawn(&self) -> Vec<Task> {
+        self.lock().given_to_spawn()
+    }
+    /// Asks the person `by` about card `id` given to them (card #573).
+    pub fn ask_given(&self, by: &str, id: &str, context: &str) -> Result<()> {
+        self.lock().ask_given(by, id, context)
     }
     /// The requests naming this device it may start an agent for now
     /// (card #455): another of the person's devices chose it, or it chose

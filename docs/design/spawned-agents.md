@@ -249,11 +249,23 @@ Spike problem 5: `-w` was not tested, because no repo could be trusted without t
 **Across devices.** The origin device writes `spawn.requested` naming the target; the target spawns, records `agent.seen` with `spawned_for`, and Irori on the origin binds the card when presence on the target lists the session. If the target is offline, the request waits (the card says so) and, after the sweep's grace, the origin writes a new request with the next `gen` naming the next device that has the repo. **Before spawning, a target checks that its request is the card's current one** (same `gen`), so a target that comes back online and finds an older request does nothing; if two sessions start anyway, Irori keeps the one bound to the card and Ends the other. Stop, End and Remove from the other device go the same way, as a replicated request acted on by the host.
 
 **Shared boards** (decision 35's boards):
-- Spawning applies only to cards Stephen's own device made, using his own agents.
+- Spawning applies only to cards Stephen's own device made, using his own agents, under his per-space switch (off by default). The one exception is a card given to him, below. Accepting another member's cards unasked (option B) and a trusted space (option C) are left for later (#572).
 - The spawned agent must be put on the board (`card_for`, `boards.rs:2152`) before it can `board_join`.
 - Cards other people made are served by their devices, under their own settings. Blake's Irori spawns Blake's agents.
+- **The switch** (#573) is in Settings › Agents under Spaces, one per space, and in the space's own settings. While it's off the space says so, with Turn on, and the new-card dialog says Irori won't start an agent.
 - `offer_pool` limits a card to its author's agents only when the board's `open_cards_any` is off (`offers.rs:471-487`). With it on, another member's device would offer Stephen's finished agent its cards through `sweep_offers`/`offer_pool`. `card_idle_agents` (`boards.rs:2131-2160`) only puts this device's own idle agents on a board, so it isn't the leak. The board key `agent:<cardId>` has no device (`comments.rs:1597-1601`), so **the `spawned_for` mark must be on the board's agent card (`BoardCard`)**, and `offer_pool` on every member's device must skip marked agents.
 - A board's spawning switch is per person: each member decides for the cards they make.
+
+**A card given to you** (decided on #572, built on #573). Blake gives Stephen a card by assigning it to Stephen's `person:` key: `board_assign` or `assign_to` with a member's name, or Give to in the new-card dialog. It uses the existing `task.assigned` row. An owner transfer (#432) is a different act and asks nothing.
+
+- **Irori stops and asks.** Stephen's Irori raises "OK to start an agent on this?" in his Needs you, in his own name, with who gave it, what it asks, and Start an agent / Not now. It's an ordinary blocker on the card, so it adds no row kind, and Blake sees the card waiting on Stephen.
+- **The switch doesn't matter.** It governs the cards you made. With it off he is still asked; with it on nothing starts without the yes.
+- **Who may say yes.** Only Stephen, as himself, from his own device (`person_row`), on the question he raised. Decision 19 still lets anyone close the blocker, but an agent's close counts as a no, and it isn't asked again.
+- **One person serves a card** (`serving_person`): who it was given to, else its author. Spawn rows and the bind's assignment count only from that person's devices, so Blake's devices can write nothing for a card he gave away. A request also needs an unspent yes, checked in every member's fold.
+- **One yes starts one agent.** It starts on the device he said yes on, or after `SPAWN_GRACE` on another of his (a phone runs no agents), under his model, permissions and cap. If that agent goes with the card unfinished he is asked again. Not now stands until the card is given again.
+- **The card's own text** was written by someone else, and it is the work, so it stays in the brief, fenced and attributed to Blake. The brief says it is Blake's request and can't widen what the agent may do, and that anything outside the card's work is a reason to raise a blocker. It counts as other people's text for permissions (`others_text`). Other members' comments stay counted, not quoted, and bypass is never used.
+- **The card stays Blake's** to decide: its owner still answers Done and the agent's questions (#429), unless he transfers it.
+- **Older members.** An Irori before this ignores the rows from Stephen's device for a card Blake made, without stalling, so it shows no agent on the card until it updates.
 
 ## 10. What he sees
 

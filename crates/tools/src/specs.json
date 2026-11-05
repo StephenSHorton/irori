@@ -498,7 +498,7 @@
         },
         "assign_to": {
           "type": "string",
-          "description": "Optional: hand it to this agent (name or key); they hear at their next turn."
+          "description": "Optional: hand it to this agent (name or key); they hear at their next turn. On a shared board, also another member (their name or person: key): the card is given to them, and their Irori asks them before it starts an agent."
         },
         "parent": {
           "type": "string",
@@ -1215,7 +1215,7 @@
         },
         "to": {
           "type": "string",
-          "description": "The agent's name or key from the agents tool."
+          "description": "The agent's name or key from the agents tool. On a shared card, also another member by name or person: key: their Irori asks them before it starts an agent."
         },
         "note": {
           "type": "string",

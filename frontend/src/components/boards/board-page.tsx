@@ -45,6 +45,7 @@ import { go } from "@/lib/nav"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
+import { SpaceAgentsOff } from "@/components/settings/space-agents"
 import { BoardSettingsPanel, InviteHow, InvitePanel, useInviteReach } from "./parts"
 
 export function BoardPage({
@@ -104,6 +105,7 @@ export function BoardPage({
     <>
       <BoardNotes board={b} />
       <SpaceBoards board={b} picked={inSpace} onPick={setInSpace} />
+      <SpaceAgentsOff boardId={boardId} />
       <BoardView
         scope={boardId}
         cards={shown}

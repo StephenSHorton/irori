@@ -17,7 +17,7 @@ use irori_identity::owner;
 use store::{Event, kinds};
 
 use super::error::{Result, bad_state};
-use super::fold::Fold;
+use super::fold::{Fold, is_holder};
 use super::rows::*;
 use super::types::*;
 use super::util::{SWEEPER, caller, contains};
@@ -51,6 +51,16 @@ pub const CRASHED_START: &str = "Start another agent";
 pub fn is_crash_question(b: &Blocker) -> bool {
     b.raised_by == SWEEPER && b.question == CRASHED_QUESTION
 }
+
+/// What a person is asked about a card another person gave them (card
+/// #573): Irori stops there, and nothing starts until they say yes.
+pub const GIVEN_QUESTION: &str = "OK to start an agent on this?";
+
+/// The answer that starts it.
+pub const GIVEN_START: &str = "Start an agent";
+
+/// The answer that leaves the card theirs, with no agent.
+pub const GIVEN_NOT_NOW: &str = "Not now";
 
 /// The permission modes a spawn may pass (§7). One is always passed.
 pub const PERMISSION_MODES: [&str; 4] = ["bypassPermissions", "acceptEdits", "default", "plan"];
@@ -205,7 +215,7 @@ impl Fold {
     /// start an agent here (§7): Irori's own sweep, the person, or one of
     /// the person's agents writing from its own device; on a shared board
     /// only the card's author's person.
-    pub(crate) fn spawn_writer_ok(&self, ev: &Event, by: &str, task_id: &str) -> bool {
+    pub(crate) fn spawn_writer_ok(&self, ev: &Event, by: &str, task_id: &str, op: &str) -> bool {
         if by.is_empty() {
             return false;
         }
@@ -228,15 +238,21 @@ impl Fold {
         let Some(t) = self.tasks.get(task_id) else {
             return false;
         };
-        let author = kp(&t.created_by);
-        !author.is_empty() && author == dp(&ev.device_id) && (by == SWEEPER || kp(by) == author)
+        // One person serves a card: its author, or the person it was given
+        // to, and then only on their yes (card #573). The author's devices
+        // write nothing for a card they gave away.
+        let serves = self.serving_person(t);
+        !serves.is_empty()
+            && serves == dp(&ev.device_id)
+            && (by == SWEEPER || kp(by) == serves)
+            && (op != SPAWN_REQUESTED || self.given_person(t).is_none() || self.yes_unspent(t))
     }
 
     pub(crate) fn fold_spawn(&mut self, ev: &Event, at: &dyn Fn(GoTime) -> GoTime) {
         let Some(p) = row::<TaskSpawnRow>(&ev.payload) else {
             return;
         };
-        if !self.spawn_writer_ok(ev, &p.by, &p.task_id) {
+        if !self.spawn_writer_ok(ev, &p.by, &p.task_id, &p.op) {
             self.ignore(&ev.device_id);
             return;
         }
@@ -291,15 +307,16 @@ impl Fold {
         let Some(p) = row::<TaskSpawnedRow>(&ev.payload) else {
             return;
         };
-        if p.key.is_empty() || !self.spawn_writer_ok(ev, &p.by, &p.task_id) {
+        if p.key.is_empty() || !self.spawn_writer_ok(ev, &p.by, &p.task_id, "") {
             self.ignore(&ev.device_id);
             return;
         }
         // An agent is started for one card, once: a later mark never moves
-        // it to another card. On a shared board the agent must be the card
-        // author's own: another member's Irori can't mark this person's
-        // agent as started for their card, which would let their hand-out
-        // reach it (card #455).
+        // it to another card. On a shared board the agent must be the card's
+        // own person's (its author, or who it was given to, card #573):
+        // another member's Irori can't mark this person's agent as started
+        // for their card, which would let their hand-out reach it (card
+        // #455).
         if self
             .spawned
             .get(&p.key)
@@ -312,12 +329,12 @@ impl Fold {
             let Some(kp) = &self.key_person else {
                 return;
             };
-            let author = self
+            let serves = self
                 .tasks
                 .get(&p.task_id)
-                .map(|t| kp(&t.created_by))
+                .map(|t| self.serving_person(t))
                 .unwrap_or_default();
-            if author.is_empty() || kp(&p.key) != author {
+            if serves.is_empty() || kp(&p.key) != serves {
                 self.ignore(&ev.device_id);
                 return;
             }
@@ -381,7 +398,11 @@ impl Fold {
             return Ok(None);
         }
         let card = a.step.is_empty() && a.subtask.is_empty();
-        if card && !super::offers::needs_agent(t) && !self.ask_needs_agent(t) && !self.needs_lead(t)
+        if card
+            && !super::offers::needs_agent(t)
+            && !self.ask_needs_agent(t)
+            && !self.needs_lead(t)
+            && !self.given_starts(t)
         {
             return Ok(None);
         }
@@ -628,7 +649,10 @@ impl Fold {
             .tasks
             .values()
             .filter(|t| {
-                super::offers::needs_agent(t) || self.ask_needs_agent(t) || self.needs_lead(t)
+                super::offers::needs_agent(t)
+                    || self.ask_needs_agent(t)
+                    || self.needs_lead(t)
+                    || self.given_starts(t)
             })
             .filter_map(|t| {
                 let s = t.spawn_request()?;
@@ -642,8 +666,9 @@ impl Fold {
 
     /// Whether this device's person may have it start card t's request s
     /// (§7, card #455): always on the private log, which only their own
-    /// devices write; on a shared board only for a card they made, asked
-    /// for by them (or Irori on their device).
+    /// devices write; on a shared board only for a card they serve, asked
+    /// for by them (or Irori on their device), and on a card given to them
+    /// only a request made since their yes (card #573).
     pub(crate) fn mine_to_start(&self, t: &Task, s: &Spawn) -> bool {
         if !self.on_board {
             return true;
@@ -652,7 +677,220 @@ impl Fold {
             return false;
         };
         let me = kp(&self.person);
-        !me.is_empty() && kp(&t.created_by) == me && (s.by == SWEEPER || kp(&s.by) == me)
+        !me.is_empty()
+            && self.serving_person(t) == me
+            && (s.by == SWEEPER || kp(&s.by) == me)
+            && (self.given_person(t).is_none()
+                || t.given_said
+                    .as_ref()
+                    .is_some_and(|y| y.yes && !gotime::before(&s.at, &y.at)))
+    }
+
+    /// The person card t was given to (card #573): a member another
+    /// person assigned it to, who still has it. None off a board, and for
+    /// a card someone assigned to themselves.
+    pub(crate) fn given_person(&self, t: &Task) -> Option<String> {
+        let kp = self.key_person.as_ref().filter(|_| self.on_board)?;
+        t.given.iter().find_map(|(to, by)| {
+            let p = kp(to);
+            (!p.is_empty() && kp(by) != p && is_holder(t, to)).then_some(p)
+        })
+    }
+
+    /// The person whose Irori serves card t on a shared board: who it was
+    /// given to, else its author. Only theirs may start its agent.
+    pub(crate) fn serving_person(&self, t: &Task) -> String {
+        if let Some(p) = self.given_person(t) {
+            return p;
+        }
+        self.key_person
+            .as_ref()
+            .map(|kp| kp(&t.created_by))
+            .unwrap_or_default()
+    }
+
+    /// Whether this device's person serves card t.
+    pub(crate) fn mine_to_serve(&self, t: &Task) -> bool {
+        let Some(kp) = &self.key_person else {
+            return false;
+        };
+        let me = kp(&self.person);
+        !me.is_empty() && self.serving_person(t) == me
+    }
+
+    /// Whether a person's `task.assigned` row gives a card to another
+    /// person: to a `person:` key, by someone else, written from a device
+    /// of the person it names as the giver.
+    pub(crate) fn gave_to_person(&self, ev: &Event, p: &TaskAssignedRow) -> bool {
+        let (true, Some(kp), Some(dp)) = (self.on_board, &self.key_person, &self.dev_person) else {
+            return false;
+        };
+        let (to, by) = (kp(&p.to), kp(&p.by));
+        p.to.starts_with(kinds::PERSON_ACTOR_PREFIX)
+            && !to.is_empty()
+            && !by.is_empty()
+            && to != by
+            && by == dp(&ev.device_id)
+    }
+
+    /// What a `blocker.resolved` row says on the card's "OK to start an
+    /// agent on this?", if it is one: yes only from the person it was
+    /// given to, as themselves (`person`: never an agent's unblock), on
+    /// the question they raised. Any other end to it is a no, so it isn't
+    /// asked again.
+    pub(crate) fn given_say(
+        &self,
+        ev: &Event,
+        p: &BlockerResolvedRow,
+        person: bool,
+        at: GoTime,
+    ) -> Option<GivenSaid> {
+        let t = self.tasks.get(&p.task_id)?;
+        let b = t.blockers.iter().find(|b| b.id == p.blocker_id)?;
+        if b.question != GIVEN_QUESTION || !b.open() {
+            return None;
+        }
+        let who = self.given_person(t)?;
+        let kp = self.key_person.as_ref()?;
+        Some(GivenSaid {
+            yes: person
+                && !p.closed
+                && p.answer == GIVEN_START
+                && kp(&p.by) == who
+                && kp(&b.raised_by) == who,
+            person: who,
+            device: ev.device_id.clone(),
+            at,
+        })
+    }
+
+    /// Whether card t, given to someone, is free for an agent: nobody but
+    /// people on it, and nothing else in the way.
+    fn given_free(&self, t: &Task) -> bool {
+        // Their answer on the card takes it up, so it reads working with
+        // only them on it.
+        self.given_person(t).is_some()
+            && (t.state == SUBMITTED || t.state == WORKING)
+            && !t.withdrawn
+            && t.open_ask().is_none()
+            && t.subtasks.is_empty()
+            && !super::offers::waits_on_work(t)
+            && t.holders
+                .iter()
+                .all(|h| h.starts_with(kinds::PERSON_ACTOR_PREFIX))
+    }
+
+    /// Whether the card's yes hasn't started an agent yet. One yes starts
+    /// one agent: a later one is asked for again.
+    pub(crate) fn yes_unspent(&self, t: &Task) -> bool {
+        t.given_said.as_ref().is_some_and(|y| {
+            y.yes
+                && Some(&y.person) == self.given_person(t).as_ref()
+                && t.spawn_request()
+                    .is_none_or(|s| s.key.is_empty() || gotime::before(&s.at, &y.at))
+        })
+    }
+
+    /// Whether card t was given to someone who said yes, and may have its
+    /// agent now.
+    pub(crate) fn given_starts(&self, t: &Task) -> bool {
+        self.given_free(t) && self.yes_unspent(t)
+    }
+
+    /// The cards given to this device's person that wait on their say:
+    /// not asked yet, or asked and the agent their yes started has gone
+    /// with the card unfinished. A Not now stays until it's given again.
+    pub(crate) fn given_to_ask(&self) -> Vec<Task> {
+        let mut v: Vec<Task> = self
+            .tasks
+            .values()
+            .filter(|t| self.mine_to_serve(t) && self.given_free(t))
+            .filter(|t| t.spawn_crashes < MAX_SPAWN_CRASHES)
+            .filter(|t| t.given_said.as_ref().is_none_or(|y| y.yes) && !self.yes_unspent(t))
+            .cloned()
+            .collect();
+        v.sort_by(|a, b| gotime::cmp(&a.created_at, &b.created_at).then_with(|| a.id.cmp(&b.id)));
+        v
+    }
+
+    /// The given cards this device starts an agent for now: the person's
+    /// yes, said here, or said on a device that hasn't started it after
+    /// [`SPAWN_GRACE`] (a phone runs no agents).
+    pub(crate) fn given_to_spawn(&self) -> Vec<Task> {
+        let now = self.stamp();
+        let mut v: Vec<Task> = self
+            .tasks
+            .values()
+            .filter(|t| self.mine_to_serve(t) && self.given_starts(t))
+            .filter(|t| self.runs_here(t))
+            .filter(|t| t.spawn_crashes < MAX_SPAWN_CRASHES)
+            .filter(|t| {
+                t.given_said.as_ref().is_some_and(|y| {
+                    y.device == self.dev || gotime::at_least(&now, &y.at, SPAWN_GRACE)
+                })
+            })
+            .filter(|t| self.spawn_due(t, &now))
+            .cloned()
+            .collect();
+        v.sort_by(|a, b| gotime::cmp(&a.created_at, &b.created_at).then_with(|| a.id.cmp(&b.id)));
+        v
+    }
+
+    /// Asks the person about card `id` given to them, in their own name:
+    /// a person's row, so every member's fold takes it from their device.
+    pub(crate) fn ask_given(&mut self, by: &str, id: &str, context: &str) -> Result<()> {
+        let t = self.open_task(id)?.clone();
+        let Some(p) = self.given_person(&t) else {
+            return Ok(());
+        };
+        let now = self.stamp();
+        let opt = |answer: &str, why: &str, recommended: bool| BlockerOption {
+            answer: answer.into(),
+            why: why.into(),
+            by: by.to_string(),
+            at: now,
+            recommended,
+            link: None,
+        };
+        self.raise_locked(
+            by,
+            &t,
+            GIVEN_QUESTION,
+            GIVEN_QUESTION,
+            context,
+            vec![
+                opt(
+                    GIVEN_START,
+                    "It starts here, under your own settings and cap.",
+                    false,
+                ),
+                opt(GIVEN_NOT_NOW, "The card stays yours, with no agent.", false),
+            ],
+            Some(BlockedBy {
+                kind: BLOCKED_ON_PERSON.into(),
+                reference: format!("{}{p}", kinds::PERSON_ACTOR_PREFIX),
+            }),
+            false,
+            now,
+            Vec::new(),
+            Vec::new(),
+            false,
+            false,
+        )?;
+        Ok(())
+    }
+
+    /// Whether card t's last request lets a new one go now: none is
+    /// pending, and a failed one here has waited or the card changed.
+    fn spawn_due(&self, t: &Task, now: &GoTime) -> bool {
+        t.spawn_request().is_none_or(|s| {
+            (!s.pending() || s.stale(now))
+                && (s.op != SPAWN_FAILED
+                    || s.device != self.dev
+                    || self.spawn_now.contains(&t.id)
+                    || gotime::at_least(now, &s.at, SPAWN_RETRY)
+                    || gotime::before(&s.at, &t.updated_at))
+        })
     }
 
     /// The cards this device hands out that need an agent and have none
@@ -728,19 +966,7 @@ impl Fold {
             .filter(|t| t.spawn_crashes < MAX_SPAWN_CRASHES)
             .filter(|t| !self.ask_resting(t))
             .filter(|t| !self.waits_for_lead(t))
-            .filter(|t| {
-                t.spawn_request()
-                    .is_none_or(|s| !s.pending() || s.stale(&now))
-            })
-            .filter(|t| {
-                t.spawn_request().is_none_or(|s| {
-                    s.op != SPAWN_FAILED
-                        || s.device != self.dev
-                        || self.spawn_now.contains(&t.id)
-                        || gotime::at_least(&now, &s.at, SPAWN_RETRY)
-                        || gotime::before(&s.at, &t.updated_at)
-                })
-            })
+            .filter(|t| self.spawn_due(t, &now))
             .cloned()
             .collect();
         v.sort_by(|a, b| gotime::cmp(&a.created_at, &b.created_at).then_with(|| a.id.cmp(&b.id)));

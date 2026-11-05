@@ -215,7 +215,8 @@ impl Fold {
             wake: self.idle(&to),
             ..Notice::default()
         };
-        if !self.is_owner(&to) && to != by {
+        // A person isn't a mailbox: their Irori asks them (card #573).
+        if !self.is_owner(&to) && to != by && !to.starts_with(kinds::PERSON_ACTOR_PREFIX) {
             n.to = vec![to.clone()];
         }
         let mut b = format!(

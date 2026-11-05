@@ -134,6 +134,18 @@ crate::go_struct! {
     }
 }
 
+/// A person's last say on "OK to start an agent on this?" (card #573).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct GivenSaid {
+    /// The person the card was given to, by person id.
+    pub person: String,
+    /// They said Start an agent, as themselves, from their own device.
+    pub yes: bool,
+    /// The device they said it on: that one starts the agent.
+    pub device: String,
+    pub at: GoTime,
+}
+
 /// How a blocker item was resolved.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Resolution {
@@ -417,6 +429,13 @@ pub struct Task {
     /// haven't taken it up (card #85).
     #[serde(skip_serializing_if = "omit")]
     pub handoffs: BTreeMap<String, String>,
+    /// On a shared board, who gave the card to each person it was assigned
+    /// to (card #573): their `person:` key to the key that gave it.
+    #[serde(skip_serializing_if = "omit")]
+    pub given: BTreeMap<String, String>,
+    /// The last say on "OK to start an agent on this?", since it was given.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub given_said: Option<GivenSaid>,
     /// Agents that own an open step and don't hold the card: they hear it
     /// like a holder until their steps are done (card #86). Derived.
     #[serde(skip_serializing_if = "omit")]

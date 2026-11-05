@@ -710,6 +710,41 @@ fn mentions_on_a_shared_card_name_other_people_and_their_agents() {
 
 /// Card #189: show opens a shared board's card and its comments, which live
 /// in the board's log (capture indexes only the private one).
+/// Card #573: on a shared card a member can be named: the card is given to
+/// their `person:` key, and a name that is no member's or agent's fails.
+#[test]
+fn a_shared_card_can_be_given_to_a_member_by_name() {
+    let r = rig();
+    r.autonomy("trusted");
+    let id = created_id(&r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Loader", "board": "mlg", "assign_to": "blake"}),
+    ));
+    let t = r.fake.co.get_task(&id).unwrap();
+    assert_eq!(t.assigned, vec!["person:pBlake".to_string()]);
+    let id = created_id(&r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Saver", "board": "mlg"}),
+    ));
+    r.h.okj(
+        &call_a(),
+        "board_assign",
+        json!({"task_id": id, "to": "person:pBlake"}),
+    );
+    assert_eq!(
+        r.fake.co.get_task(&id).unwrap().assigned,
+        vec!["person:pBlake".to_string()]
+    );
+    r.h.failsj(
+        &call_a(),
+        "board_assign",
+        json!({"task_id": id, "to": "nobody-here"}),
+        &["nobody-here"],
+    );
+}
+
 #[test]
 fn show_opens_a_shared_card_and_its_comments() {
     let r = rig();

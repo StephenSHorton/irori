@@ -75,9 +75,12 @@ export function NewCardDialog({
   const agents = useMentionCandidates(open).filter(
     (c) => c.who.live && !c.board && !spawned?.has(c.who.key)
   )
-  // Spawning is the private board's (shared boards come with part 11).
-  const { settings: spawn } = useAgents(open && !board)
-  const fresh = !board && !!spawn?.on
+  // Each space has its own switch, off by default (card #573). The other
+  // members can be given the card: their Irori asks them first.
+  const { settings: spawn } = useAgents(open, board?.boardId ?? "")
+  const fresh = !!spawn?.on
+  const members = board?.members.filter((m) => !m.me) ?? []
+  const giving = assignTo.startsWith("person:")
 
   // A message's Make a card fills the form as it opens (once per message).
   const [filled, setFilled] = useState<typeof from>(undefined)
@@ -195,7 +198,7 @@ export function NewCardDialog({
               ]}
             />
             <ChoiceSelect
-              label="Agent"
+              label={board ? "Give to" : "Agent"}
               showLabel
               value={assignTo}
               onValueChange={setAssignTo}
@@ -203,8 +206,12 @@ export function NewCardDialog({
               choices={[
                 {
                   value: "",
-                  label: board ? "Nobody yet" : fresh ? "A fresh agent" : "Any free agent",
+                  label: fresh ? "A fresh agent" : board ? "Nobody yet" : "Any free agent",
                 },
+                ...members.map((m) => ({
+                  value: `person:${m.personId}`,
+                  label: plainLine(m.name) || "A member",
+                })),
                 ...agents.map((c) => ({
                   value: c.who.key,
                   label: c.repo
@@ -214,6 +221,27 @@ export function NewCardDialog({
               ]}
             />
           </div>
+          {giving && (
+            <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[12.5px] text-muted-foreground">
+              It's theirs to pick up. Their Irori asks them before it starts an
+              agent on it.
+            </p>
+          )}
+          {board && spawn && !spawn.on && assignTo === "" && (
+            <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[12.5px] text-muted-foreground">
+              Irori won't start an agent for this card: your agents are off in
+              this space.{" "}
+              <Button
+                type="button"
+                variant="link"
+                size="xs"
+                className="h-auto px-0 align-baseline"
+                onClick={() => openSettings("agents")}
+              >
+                Turn them on in Settings › Agents
+              </Button>
+            </p>
+          )}
           {fresh && spawn && assignTo === "" && (
             <p className="flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-[12.5px] text-muted-foreground">
               <ZapIcon className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden />

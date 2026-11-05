@@ -706,9 +706,14 @@ impl Fold {
                 if p.to.is_empty() {
                     return;
                 }
+                let gave = self.gave_to_person(ev, &p);
                 let Some(mut t) = self.tasks.remove(&p.task_id) else {
                     return;
                 };
+                if gave {
+                    t.given.insert(p.to.clone(), p.by.clone());
+                    t.given_said = None;
+                }
                 let engaged = is_holder(&t, &p.to) && !contains(&t.assigned, &p.to);
                 add_holder(&mut t, &p.to);
                 if !engaged && !contains(&t.assigned, &p.to) {
@@ -2063,22 +2068,23 @@ impl Fold {
                     .any(|b| b.open() && self.may_write(&b.raised_by, &ev.device_id))
             }),
             // A spawned agent's request and mark (card #455): from a device
-            // of the card's author, which spawn_writer_ok checks itself.
+            // of the person it serves, which spawn_writer_ok checks itself.
             kinds::TASK_SPAWN | kinds::TASK_SPAWNED => true,
             // Binding a spawned agent assigns the card to it: from a device
-            // of the card's author, and only to the agent marked as started
+            // of the person it serves (the card's author, or who it was
+            // given to, card #573), and only to the agent marked as started
             // for this card in this log.
             kinds::TASK_ASSIGNED => {
                 let Some(a) = row::<TaskAssignedRow>(&ev.payload) else {
                     return false;
                 };
-                let (Some(kp), Some(dp)) = (&self.key_person, &self.dev_person) else {
+                let Some(dp) = &self.dev_person else {
                     return false;
                 };
                 self.tasks.get(&p.task_id).is_some_and(|t| {
-                    let author = kp(&t.created_by);
-                    !author.is_empty()
-                        && author == dp(&ev.device_id)
+                    let serves = self.serving_person(t);
+                    !serves.is_empty()
+                        && serves == dp(&ev.device_id)
                         && self.spawned.get(&a.to).is_some_and(|s| s.task_id == t.id)
                 })
             }
