@@ -19,6 +19,9 @@ pub(crate) enum Got {
     /// Another person or their agent on a shared board (card #186): the
     /// mention is on the card, and their own devices tell them.
     Board,
+    /// The same in a space's channel (card #461): the post names them, and
+    /// their own devices wake them.
+    Space,
 }
 
 /// The roster as coord's resolver reads it.
@@ -243,6 +246,7 @@ pub(crate) fn mention_line(got: &[(Mention, Got)], misses: &[Miss], n: &Names<'_
             Got::Failed(e) => not.push(format!("{who}: not sent: {}", one_line(e, 160))),
             Got::Gone => not.push(format!("{who} is gone")),
             Got::Board => ok.push(format!("{who} (on the board)")),
+            Got::Space => ok.push(format!("{who} (on the space)")),
         }
     }
     not.extend(misses.iter().map(|m| miss_text(m, n)));

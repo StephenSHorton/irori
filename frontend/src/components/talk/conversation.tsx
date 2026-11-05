@@ -46,7 +46,7 @@ import {
 } from "@/lib/conversations"
 import { AgentRef } from "@/lib/models"
 import { threads as threadsApi } from "@/lib/cards"
-import { composing, type Mention } from "@/lib/mentions"
+import { composing, MentionBoard, type Mention } from "@/lib/mentions"
 import { useAgentsNow } from "@/lib/agents-now"
 import { parseTime, plainLine } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
@@ -630,7 +630,9 @@ export function Members({
                   gone && "text-muted-foreground line-through"
                 )}
               >
-                {m.kind === "person" && m.name === "you" ? "You" : memberName(m)}
+                {m.kind === "person" && m.name === "you"
+                  ? "You"
+                  : memberName(m)}
               </span>
               <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
                 {memberStatus(m, live)}
@@ -663,7 +665,13 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
     setError(null)
     try {
       const now = channel ? agentsNow.on : agentsNowFor(mentionKinds(mentions))
-      await talkApi.post(conv.convId, body, now)
+      await talkApi.post(
+        conv.convId,
+        body,
+        now,
+        null,
+        mentions.map((m) => m.key)
+      )
       setText("")
       setMentions([])
       agentsNow.reset()
@@ -683,27 +691,30 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
       onSubmit={(e) => void submit(e)}
     >
       <div className="flex items-start gap-2 p-1.5 glass-panel">
-        <MentionTextarea
-          autoSize
-          rows={1}
-          value={text}
-          mentions={mentions}
-          onChange={(v, ms) => {
-            setText(v)
-            setMentions(ms)
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !composing(e)) {
-              e.preventDefault()
-              e.currentTarget.form?.requestSubmit()
-            }
-          }}
-          placeholder={placeholder}
-          aria-label={placeholder}
-          className="max-h-40 min-h-9 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent"
-          readOnly={busy}
-          aria-busy={busy}
-        />
+        {/* A space's channel offers its other people's agents too (#461). */}
+        <MentionBoard.Provider value={conv.spaceId ?? ""}>
+          <MentionTextarea
+            autoSize
+            rows={1}
+            value={text}
+            mentions={mentions}
+            onChange={(v, ms) => {
+              setText(v)
+              setMentions(ms)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && !composing(e)) {
+                e.preventDefault()
+                e.currentTarget.form?.requestSubmit()
+              }
+            }}
+            placeholder={placeholder}
+            aria-label={placeholder}
+            className="max-h-40 min-h-9 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent"
+            readOnly={busy}
+            aria-busy={busy}
+          />
+        </MentionBoard.Provider>
         <div className="flex h-9 shrink-0 items-center gap-2">
           {channel && (
             <AgentsNowToggle

@@ -346,6 +346,488 @@ fn channel_members_read_at_their_next_turn() {
     assert_eq!(ds[0].message.trust, inbox::trust::UNTRUSTED, "{ds:?}");
 }
 
+/// Two shared spaces, mlg and wind, as the tools see them (card #461).
+struct TwoSpaces;
+
+impl tools::SharedBoards for TwoSpaces {
+    fn boards(&self) -> Vec<tools::BoardInfo> {
+        let b = |id: &str, tag: &str| tools::BoardInfo {
+            board_id: id.into(),
+            tag: tag.into(),
+            name: tag.into(),
+            ..Default::default()
+        };
+        vec![b("sp_mlg", "mlg"), b("sp_wind", "wind")]
+    }
+    fn board_of(&self, _task_id: &str) -> Option<tools::BoardInfo> {
+        None
+    }
+    fn board_coord(
+        &self,
+        _board_id: &str,
+        _keys: &[String],
+    ) -> Result<(std::sync::Arc<coord::Coord>, Vec<String>), coord::Error> {
+        Err(coord::Error::raw(coord::ErrorKind::NotFound, "no board"))
+    }
+    fn share(&self, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
+        Err("no".into())
+    }
+    fn withdraw(&self, _: &str) -> Result<(), String> {
+        Err("no".into())
+    }
+}
+
+/// The spaces' logs: one store, each row carrying its spaceId.
+struct SpaceRows(std::sync::Arc<store::Store>);
+
+impl ct::SpaceLogs for SpaceRows {
+    fn append(
+        &self,
+        _space: &str,
+        _by: &str,
+        kind: &str,
+        payload: serde_json::Value,
+    ) -> Result<store::Event, String> {
+        self.0
+            .append("irori", kind, &payload)
+            .map_err(|e| e.to_string())
+    }
+    fn rows(&self) -> Vec<store::Event> {
+        Vec::new()
+    }
+}
+
+#[test]
+fn a_channel_name_resolves_in_its_space_only() {
+    let h = new_harness_setup(None, |b, _| {
+        let _ = b.shared.set(std::sync::Arc::new(TwoSpaces));
+        b.talk
+            .set_spaces(std::sync::Arc::new(SpaceRows(b.st.clone())));
+    });
+    let a = call_a();
+    let t = &h.b.talk;
+    let mine = t.create_channel(USER, "general", "").unwrap();
+    let mlg = t.create_channel_in(USER, "general", "", "sp_mlg").unwrap();
+    let wind = t.create_channel_in(USER, "general", "", "sp_wind").unwrap();
+    let net = t.create_channel_in(USER, "netcode", "", "sp_mlg").unwrap();
+
+    // No space is Personal; space picks that space's #general.
+    has(
+        &h.okj(&a, "talk_join", json!({"conv": "#general"})),
+        &[&format!("Joined #general ({})", mine.id)],
+    );
+    has(
+        &h.okj(&a, "talk_join", json!({"conv": "#general", "space": "mlg"})),
+        &[&format!("Joined #general ({})", mlg.id)],
+    );
+    has(
+        &h.okj(
+            &a,
+            "talk_join",
+            json!({"conv": "general", "space": "sp_wind"}),
+        ),
+        &[&format!("Joined #general ({})", wind.id)],
+    );
+    has(
+        &h.okj(
+            &a,
+            "talk_post",
+            json!({"conv": "#general", "space": "MLG", "text": "in mlg"}),
+        ),
+        &[&format!("to {}", mlg.id)],
+    );
+    assert_eq!(t.posts(&mlg.id).len(), 1);
+    assert!(t.posts(&mine.id).is_empty() && t.posts(&wind.id).is_empty());
+    has(
+        &h.okj(
+            &a,
+            "talk_read",
+            json!({"conv": "#general", "space": "personal"}),
+        ),
+        &["No posts in"],
+    );
+
+    // A name only another space has is refused with where it is, never
+    // followed there.
+    let out = h.failsj(
+        &a,
+        "talk_post",
+        json!({"conv": "#netcode", "text": "x"}),
+        &[
+            "no channel #netcode in Personal",
+            "space mlg",
+            &net.id,
+            "pass space=mlg",
+        ],
+    );
+    has_not(&out, &["Posted"]);
+    h.failsj(
+        &a,
+        "talk_join",
+        json!({"conv": "#netcode", "space": "wind"}),
+        &["no channel #netcode in space wind", "pass space=mlg"],
+    );
+    assert!(t.posts(&net.id).is_empty());
+    assert!(!t.is_member(&net.id, KEY_A));
+    // Its id works from anywhere; an unknown space is an error.
+    has(
+        &h.okj(&a, "talk_join", json!({"conv": net.id})),
+        &["Joined #netcode"],
+    );
+    h.failsj(
+        &a,
+        "talk_read",
+        json!({"conv": "#general", "space": "nope"}),
+        &["no shared board"],
+    );
+
+    // talk_list tells the three #generals apart.
+    has(
+        &h.okj(&a, "talk_list", json!({})),
+        &[
+            &format!("#general (channel, conv={})", mine.id),
+            &format!("#general (channel in space mlg, conv={})", mlg.id),
+            &format!("#general (channel in space wind, conv={})", wind.id),
+        ],
+    );
+}
+
+/// Each channel in the list carries its space (card #461), so the window's
+/// switcher can filter Talk: empty for Personal, the space's id otherwise;
+/// a DM and a thread are always Personal's.
+#[test]
+fn conversations_carry_their_space() {
+    let h = new_harness_setup(None, |b, _| {
+        let _ = b.shared.set(std::sync::Arc::new(TwoSpaces));
+        b.talk
+            .set_spaces(std::sync::Arc::new(SpaceRows(b.st.clone())));
+    });
+    let a = call_a();
+    let t = &h.b.talk;
+    let mine = t.create_channel(USER, "general", "").unwrap();
+    let mlg = t.create_channel_in(USER, "general", "", "sp_mlg").unwrap();
+    let wind = t.create_channel_in(USER, "general", "", "sp_wind").unwrap();
+    h.okj(&a, "talk_post", json!({"conv": "person", "text": "hello"}));
+    let dm = ct::dm_id(KEY_A, USER);
+    let (th, _) =
+        h.b.co
+            .post_ask(
+                USER,
+                coord::NewAsk {
+                    text: "why is the build slow?".into(),
+                    thread: true,
+                    ..Default::default()
+                },
+                &[],
+            )
+            .unwrap();
+
+    let cs = tools::talk::conversations(&*h.b, USER).unwrap();
+    let space = |id: &str| {
+        cs.iter()
+            .find(|x| x.conv_id == id)
+            .unwrap_or_else(|| panic!("{id} listed: {cs:?}"))
+            .space_id
+            .as_str()
+    };
+    assert_eq!(space(&mine.id), "");
+    assert_eq!(space(&mlg.id), "sp_mlg");
+    assert_eq!(space(&wind.id), "sp_wind");
+    assert_eq!(space(&dm), "");
+    assert_eq!(space(&th.id), "");
+}
+
+/// Two spaces, one tagged `personal` and one sharing its tag `art` with
+/// another board, as the tools see them (card #461).
+struct OddSpaces;
+
+impl tools::SharedBoards for OddSpaces {
+    fn boards(&self) -> Vec<tools::BoardInfo> {
+        let b = |id: &str, tag: &str, space_board: &str| tools::BoardInfo {
+            board_id: id.into(),
+            tag: tag.into(),
+            name: tag.into(),
+            space_board: space_board.into(),
+            ..Default::default()
+        };
+        vec![
+            b("sp_p", "personal", ""),
+            b("sp_art", "art", ""),
+            b("sp_p", "art", "bd_p_art"),
+        ]
+    }
+    fn board_of(&self, _task_id: &str) -> Option<tools::BoardInfo> {
+        None
+    }
+    fn board_coord(
+        &self,
+        _board_id: &str,
+        _keys: &[String],
+    ) -> Result<(std::sync::Arc<coord::Coord>, Vec<String>), coord::Error> {
+        Err(coord::Error::raw(coord::ErrorKind::NotFound, "no board"))
+    }
+    fn share(&self, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
+        Err("no".into())
+    }
+    fn withdraw(&self, _: &str) -> Result<(), String> {
+        Err("no".into())
+    }
+}
+
+/// The refusal for a name in another space only offers a `space` that
+/// names that space, leaves out spaces this person no longer has, and a
+/// name two Cores made at once in one space is refused with both ids.
+#[test]
+fn a_channel_name_refusal_names_only_what_resolves() {
+    let h = new_harness_setup(None, |b, _| {
+        let _ = b.shared.set(std::sync::Arc::new(OddSpaces));
+        b.talk
+            .set_spaces(std::sync::Arc::new(SpaceRows(b.st.clone())));
+    });
+    let a = call_a();
+    let t = &h.b.talk;
+    let p = t.create_channel_in(USER, "netcode", "", "sp_p").unwrap();
+    let art = t.create_channel_in(USER, "ops", "", "sp_art").unwrap();
+    // A space that is gone from this person's boards (left, or not ready).
+    let gone = t.create_channel_in(USER, "lore", "", "sp_gone").unwrap();
+
+    // A space tagged personal is named by its id: space=personal is Personal.
+    let out = h.failsj(
+        &a,
+        "talk_post",
+        json!({"conv": "#netcode", "text": "x"}),
+        &["no channel #netcode in Personal", &p.id, "pass space=sp_p"],
+    );
+    has_not(&out, &["pass space=personal"]);
+    has(
+        &h.okj(
+            &a,
+            "talk_join",
+            json!({"conv": "#netcode", "space": "sp_p"}),
+        ),
+        &[&format!("Joined #netcode ({})", p.id)],
+    );
+    // A tag two boards share is named by the space's id too.
+    let out = h.failsj(
+        &a,
+        "talk_join",
+        json!({"conv": "#ops"}),
+        &["no channel #ops in Personal", "pass space=sp_art"],
+    );
+    has_not(&out, &["pass space=art"]);
+    has(
+        &h.okj(&a, "talk_join", json!({"conv": "#ops", "space": "sp_art"})),
+        &[&format!("Joined #ops ({})", art.id)],
+    );
+    // A gone space isn't offered: the name is just not found.
+    let out = h.failsj(&a, "talk_read", json!({"conv": "#lore"}), &["#lore"]);
+    has_not(&out, &["sp_gone", &gone.id]);
+
+    // Another Core of the space made #ops too before it heard of ours.
+    let twin = h
+        .b
+        .st
+        .append(
+            "irori",
+            store::kinds::TALK_CHANNEL_CREATED,
+            &json!({"channelId": "ch_twin", "spaceId": "sp_art", "name": "ops", "by": "user:dev2"}),
+        )
+        .unwrap();
+    assert!(t.apply(&twin));
+    h.failsj(
+        &a,
+        "talk_post",
+        json!({"conv": "#ops", "space": "sp_art", "text": "x"}),
+        &["more than one #ops", &art.id, "ch_twin"],
+    );
+    assert!(t.posts(&art.id).is_empty() && t.posts("ch_twin").is_empty());
+}
+
+/// Space mlg with another person, Bob, and his agent bobbot on it, as the
+/// tools see them (card #461).
+struct BobsSpace;
+
+impl tools::SharedBoards for BobsSpace {
+    fn boards(&self) -> Vec<tools::BoardInfo> {
+        vec![tools::BoardInfo {
+            board_id: "sp_mlg".into(),
+            tag: "mlg".into(),
+            name: "mlg".into(),
+            ..Default::default()
+        }]
+    }
+    fn board_of(&self, _task_id: &str) -> Option<tools::BoardInfo> {
+        None
+    }
+    fn board_coord(
+        &self,
+        _board_id: &str,
+        _keys: &[String],
+    ) -> Result<(std::sync::Arc<coord::Coord>, Vec<String>), coord::Error> {
+        Err(coord::Error::raw(coord::ErrorKind::NotFound, "no board"))
+    }
+    fn share(&self, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
+        Err("no".into())
+    }
+    fn withdraw(&self, _: &str) -> Result<(), String> {
+        Err("no".into())
+    }
+    fn board_mentionables(&self, board_id: &str) -> Vec<coord::roster::AgentCard> {
+        if board_id != "sp_mlg" {
+            return Vec::new();
+        }
+        let c = |key: &str, name: &str| coord::roster::AgentCard {
+            key: key.into(),
+            name: name.into(),
+            status: "idle".into(),
+            ..Default::default()
+        };
+        // Bob's other agent shares a name with this person's beta.
+        vec![
+            c("person:pBob", "Bob"),
+            c("agent:cBob", "bobbot"),
+            c("agent:cBeta", "beta"),
+        ]
+    }
+}
+
+/// In a space's channel @name reaches the space's other people and their
+/// agents by board key (card #461): nothing is routed here for them (their
+/// own Core wakes them from the row), the result says so, Bob himself
+/// doesn't join, and a Personal channel never resolves them.
+#[test]
+fn a_space_channel_mention_names_the_other_persons_agent_by_board_key() {
+    let h = new_harness_setup(None, |b, _| {
+        let _ = b.shared.set(std::sync::Arc::new(BobsSpace));
+        b.talk
+            .set_spaces(std::sync::Arc::new(SpaceRows(b.st.clone())));
+    });
+    let a = call_a();
+    let t = &h.b.talk;
+    let mlg = t.create_channel_in(USER, "netcode", "", "sp_mlg").unwrap();
+    let mine = t.create_channel(USER, "general", "").unwrap();
+    h.okj(&a, "talk_join", json!({"conv": mlg.id}));
+    let out = h.okj(
+        &a,
+        "talk_post",
+        json!({"conv": mlg.id, "text": "@bobbot @Bob is rollback ready?"}),
+    );
+    has(&out, &["bobbot (on the space)", "Bob (on the space)"]);
+    has_not(&out, &["Not delivered"]);
+    let ps = t.posts(&mlg.id);
+    let last = ps.last().unwrap();
+    assert!(
+        last.mentions.contains(&"agent:cBob".to_string()),
+        "{last:?}"
+    );
+    assert!(
+        last.mentions.contains(&"person:pBob".to_string()),
+        "{last:?}"
+    );
+    // Bob's agent joins on the space; Bob joins himself, if he will.
+    assert!(t.is_member(&mlg.id, "agent:cBob"));
+    assert!(!t.is_member(&mlg.id, "person:pBob"));
+    assert!(h.notices("agent:cBob").is_empty(), "nothing routed here");
+    // A later post doesn't give Bob's agent a reading here either.
+    h.okj(&a, "talk_post", json!({"conv": mlg.id, "text": "anyone?"}));
+    assert!(h.notices("agent:cBob").is_empty(), "no reading here");
+
+    // A Personal channel never names them.
+    h.okj(&a, "talk_join", json!({"conv": mine.id}));
+    let out = h.okj(
+        &a,
+        "talk_post",
+        json!({"conv": mine.id, "text": "@bobbot hello"}),
+    );
+    has(&out, &["Not delivered", "bobbot"]);
+}
+
+/// A reply to a space channel's mention bridged from another person goes
+/// in the channel and answers the delivery (card #461).
+#[test]
+fn a_reply_to_a_bridged_talk_mention_posts_in_the_channel() {
+    let h = new_harness_setup(None, |b, _| {
+        let _ = b.shared.set(std::sync::Arc::new(BobsSpace));
+        b.talk
+            .set_spaces(std::sync::Arc::new(SpaceRows(b.st.clone())));
+    });
+    let t = &h.b.talk;
+    let mlg = t.create_channel_in(USER, "netcode", "", "sp_mlg").unwrap();
+    let ds =
+        h.b.ib
+            .bridge(&inbox::BridgeRow {
+                from: inbox::BoardFrom {
+                    board_id: "sp_mlg".into(),
+                    tag: "mlg".into(),
+                    person_id: "pBob".into(),
+                    card_id: "cBob".into(),
+                    row: "devB/9".into(),
+                    kind: inbox::row_kind::COMMENT.into(),
+                    wake: true,
+                },
+                name: "Bob's agent bobbot".into(),
+                to: vec![KEY_A.into()],
+                text: "is rollback ready?".into(),
+                ref_: format!("talk:{}", mlg.id),
+                hop: 1,
+                attachments: vec![],
+            })
+            .unwrap();
+    assert_eq!(ds.len(), 1, "{ds:?}");
+    let did = ds[0].id.clone();
+    let out = h.okj(
+        &call_a(),
+        "reply",
+        json!({"delivery_id": did, "text": "it is ready"}),
+    );
+    has(&out, &["Replied in #netcode", "is now answered"]);
+    let ps = t.posts(&mlg.id);
+    assert!(
+        ps.iter().any(|p| p.text == "it is ready" && p.by == KEY_A),
+        "{ps:?}"
+    );
+    assert_eq!(
+        h.b.ib.get(&did).unwrap().state,
+        inbox::st::ANSWERED,
+        "answered"
+    );
+}
+
+/// An @name this person's agent and Bob's agent both answer to in a space
+/// channel names this person's own (card #461), as before the space's
+/// agents could be named; Bob's is named by its key, as the picker passes
+/// it.
+#[test]
+fn a_space_channel_name_tie_names_this_persons_own_agent() {
+    let h = new_harness_setup(None, |b, _| {
+        let _ = b.shared.set(std::sync::Arc::new(BobsSpace));
+        b.talk
+            .set_spaces(std::sync::Arc::new(SpaceRows(b.st.clone())));
+    });
+    let a = call_a();
+    let t = &h.b.talk;
+    let mlg = t.create_channel_in(USER, "netcode", "", "sp_mlg").unwrap();
+    h.okj(&a, "talk_join", json!({"conv": mlg.id}));
+    let out = h.okj(
+        &a,
+        "talk_post",
+        json!({"conv": mlg.id, "text": "@beta is rollback ready?"}),
+    );
+    has_not(&out, &["Not delivered", "ambiguous"]);
+    let last = t.posts(&mlg.id).pop().unwrap();
+    assert_eq!(last.mentions, vec![KEY_B.to_string()], "{last:?}");
+    assert!(!h.notices(KEY_B).is_empty(), "this person's beta hears it");
+
+    let out = h.okj(
+        &a,
+        "talk_post",
+        json!({"conv": mlg.id, "text": "@beta over to you", "mention": ["agent:cBeta"]}),
+    );
+    has(&out, &["(on the space)"]);
+    let last = t.posts(&mlg.id).pop().unwrap();
+    assert_eq!(last.mentions, vec!["agent:cBeta".to_string()], "{last:?}");
+}
+
 /// A blocker row bridged from a shared board (card #478): Spencer's
 /// agent raised it on a card two of my agents hold and watch.
 fn spencer_blocker(h: &Harness, row: &str) -> Vec<inbox::Delivery> {

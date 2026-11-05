@@ -107,14 +107,17 @@ export const talkApi = {
     inWails()
       ? TalkService.Posts(convId, before, PostsPage)
       : Promise.resolve(samplePosts(convId)),
+  // mentions are the picker's keys: the agent picked, another person's in
+  // a space too, whatever else answers to its name (#461).
   post: (
     convId: string,
     text: string,
     agentsNow: boolean,
-    threadFrom: string | null = null
+    threadFrom: string | null = null,
+    mentions: string[] = []
   ) =>
     inWails()
-      ? TalkService.Post(convId, text, agentsNow, threadFrom)
+      ? TalkService.Post(convId, text, mentions, agentsNow, threadFrom)
       : Promise.resolve(samplePost(convId, text, agentsNow, threadFrom)),
   // linkCard marks the card made from a post (Make a card): its chip.
   linkCard: (postId: string, taskId: string): Promise<void> =>
@@ -125,10 +128,16 @@ export const talkApi = {
     inWails()
       ? TalkService.Read(convId, upTo)
       : Promise.resolve(sampleRead(convId)),
-  createChannel: (name: string, topic: string | null): Promise<string> =>
+  // createChannel makes a channel in a shared space (its id), or in
+  // Personal with none (card #461).
+  createChannel: (
+    name: string,
+    topic: string | null,
+    spaceId: string | null = null
+  ): Promise<string> =>
     inWails()
-      ? TalkService.ChannelCreate(name, topic)
-      : Promise.resolve(sampleChannel(name, topic)),
+      ? TalkService.ChannelCreate(name, topic, spaceId)
+      : Promise.resolve(sampleChannel(name, topic, spaceId)),
   dm: (member: MemberRef): Promise<string> =>
     inWails() ? TalkService.Dm(member) : Promise.resolve(sampleDm(member)),
   join: (convId: string, member: MemberRef): Promise<void> =>
@@ -314,6 +323,26 @@ function sampleState(): SampleConv[] {
       [you, a(badger, "sample-badger")],
       []
     ),
+    // A channel in the MLG space (card #461): ?space=sample-board-mlg shows it alone.
+    {
+      ...ch(
+        "sample-ch-netcode",
+        "netcode",
+        "Rollback and the lobby",
+        [you, a(otter, "sample-otter")],
+        [
+          post(
+            "sample-ch-netcode",
+            1,
+            otter,
+            60,
+            "Rollback holds at 8 frames on the LAN test."
+          ),
+        ],
+        1
+      ),
+      spaceId: "sample-board-mlg",
+    },
     {
       ...TalkConversation({
         convId: "sample-dm-heron",
@@ -636,7 +665,10 @@ export function fromPost(
 ): { title: string; objective: string } {
   const first = text.trim().split(/\r?\n/)[0] ?? ""
   const title = first.length > 80 ? `${first.slice(0, 79).trimEnd()}…` : first
-  return { title, objective: `${text.trim()}\n\n(From a message in ${where}.)` }
+  return {
+    title,
+    objective: `${text.trim()}\n\n(From a message in ${where}.)`,
+  }
 }
 
 function sampleRead(convId: string) {
@@ -648,8 +680,13 @@ function sampleRead(convId: string) {
   sampleChanged()
 }
 
-function sampleChannel(name: string, topic: string | null): string {
-  const id = `sample-ch-${name}`
+function sampleChannel(
+  name: string,
+  topic: string | null,
+  spaceId: string | null = null
+): string {
+  // Names are per space (card #461), so the id carries the space.
+  const id = spaceId ? `sample-ch-${spaceId}-${name}` : `sample-ch-${name}`
   if (!sampleState().some((c) => c.convId === id)) {
     sampleState().push({
       ...TalkConversation({
@@ -658,6 +695,7 @@ function sampleChannel(name: string, topic: string | null): string {
         name,
         topic,
         members: [{ kind: "person", key: me, name: "you" }],
+        ...(spaceId ? { spaceId } : {}),
       }),
       posts: [],
       readUpTo: "",

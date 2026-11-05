@@ -269,7 +269,7 @@ fn rows_from_other_devices_fold_in_log_order() {
     let c = t.channel("ch_1").unwrap();
     assert_eq!((c.name.as_str(), c.archived), ("renamed", true));
     assert_eq!(c.space_id, "sp_1", "another space's id is kept");
-    assert!(t.channel_named("renamed").is_none(), "archived");
+    assert!(t.channel_named_in("renamed", "sp_1").is_none(), "archived");
 
     // Posts sort by their rows, not by arrival.
     for (seq, at, id) in [(4, 40, "p2"), (3, 30, "p1"), (5, 50, "p3")] {
@@ -534,7 +534,7 @@ fn a_space_channel_goes_in_the_space_log_behind_the_gate() {
         ErrorKind::NotAllowed,
     );
     assert!(err.to_string().contains("waiting on Bob/abc123"), "{err}");
-    assert!(t.channel_named("netcode").is_none());
+    assert!(t.channel_named_in("netcode", "s1").is_none());
     assert!(kinds_in(&sp.st).is_empty());
     // Personal channels and DMs are never gated.
     let mine = t.create_channel(USER, "notes", "").unwrap();
@@ -604,6 +604,123 @@ fn a_space_channel_without_spaces_is_refused() {
         t.create_channel_in(USER, "x", "", "s1"),
         ErrorKind::NotAllowed,
     );
+}
+
+/// Card #461: a space forgotten or left here takes its channels, members
+/// and posts out of the fold, Personal stays, and the space's rows fold
+/// back in whole when it returns (the post ids left the dedupe set).
+#[test]
+fn dropping_a_space_takes_its_channels_out() {
+    let (e, sp) = (Env::new(), Env::on("dev-a"));
+    let space = std::sync::Arc::new(FakeSpace {
+        st: sp.st.clone(),
+        ready: true.into(),
+    });
+    let t = talk(&e);
+    t.set_spaces(space.clone());
+    let mine = t.create_channel(USER, "notes", "").unwrap();
+    post(&t, &mine.id, USER, "personal");
+    let c = t.create_channel_in(USER, "netcode", "", "s1").unwrap();
+    let p = post(&t, &c.id, USER, "hello space");
+    assert!(!t.members(&c.id).is_empty());
+
+    assert!(t.drop_space("s1"));
+    assert!(t.channel(&c.id).is_none());
+    assert!(t.posts(&c.id).is_empty());
+    assert!(t.members(&c.id).is_empty());
+    assert!(!t.has_post(&p.post_id));
+    assert!(t.channel(&mine.id).is_some(), "the Personal channel went");
+    assert_eq!(t.posts(&mine.id).len(), 1);
+    assert!(!t.drop_space("s1"), "nothing left to drop");
+    assert!(
+        !t.drop_space(talk::PERSONAL_SPACE),
+        "Personal is never dropped"
+    );
+    assert!(t.channel(&mine.id).is_some());
+
+    // The space comes back (a re-invite): its rows fold in again.
+    for ev in talk::SpaceLogs::rows(&*space) {
+        t.apply(&ev);
+    }
+    assert_eq!(t.channel(&c.id).unwrap().space_id, "s1");
+    let ps = t.posts(&c.id);
+    assert_eq!(ps.len(), 1);
+    assert_eq!(ps[0].text, "hello space");
+}
+
+/// Any number of spaces over one log: each row carries its spaceId.
+struct ManySpaces {
+    st: std::sync::Arc<store::Store>,
+}
+
+impl talk::SpaceLogs for ManySpaces {
+    fn append(
+        &self,
+        _space: &str,
+        _by: &str,
+        kind: &str,
+        payload: serde_json::Value,
+    ) -> Result<store::Event, String> {
+        self.st
+            .append("irori", kind, &payload)
+            .map_err(|e| e.to_string())
+    }
+
+    fn rows(&self) -> Vec<store::Event> {
+        self.st
+            .list(&store::Filter {
+                kinds: vec!["talk.".into()],
+                ..Default::default()
+            })
+            .unwrap()
+    }
+}
+
+#[test]
+fn channel_names_are_unique_per_space() {
+    let (e, sp) = (Env::new(), Env::on("dev-a"));
+    let t = talk(&e);
+    t.set_spaces(std::sync::Arc::new(ManySpaces { st: sp.st.clone() }));
+
+    // The same name in two spaces and in Personal (card #461).
+    let s1 = t.create_channel_in(USER, "general", "", "s1").unwrap();
+    let s2 = t.create_channel_in(USER, "#General", "", "s2").unwrap();
+    let mine = t.create_channel(USER, "general", "").unwrap();
+    assert_ne!(s1.id, s2.id);
+    // Twice in one space is refused, any case.
+    let err = want(
+        t.create_channel_in(USER, "GENERAL", "", "s1"),
+        ErrorKind::Invalid,
+    );
+    assert!(err.to_string().contains("in this space"), "{err}");
+    want(t.create_channel(USER, "#general", ""), ErrorKind::Invalid);
+
+    // Each lookup stays in its space; no space is Personal.
+    let id = |c: Option<talk::Channel>| c.map(|c| c.id);
+    assert_eq!(
+        id(t.channel_named_in("#general", "s1")),
+        Some(s1.id.clone())
+    );
+    assert_eq!(
+        id(t.channel_named_in("general", " s2 ")),
+        Some(s2.id.clone())
+    );
+    assert_eq!(id(t.channel_named_in("general", "")), Some(mine.id.clone()));
+    assert_eq!(id(t.channel_named("general")), Some(mine.id.clone()));
+    assert!(t.channel_named_in("general", "s3").is_none());
+    let only = t.create_channel_in(USER, "netcode", "", "s1").unwrap();
+    assert!(
+        t.channel_named("netcode").is_none(),
+        "s1's isn't Personal's"
+    );
+    assert_eq!(id(t.channel_named_in("netcode", "s1")), Some(only.id));
+    // Where a name lives, every space.
+    let all: Vec<String> = t
+        .channels_named("general")
+        .into_iter()
+        .map(|c| c.space_id)
+        .collect();
+    assert_eq!(all, ["", "s1", "s2"]);
 }
 
 #[test]
@@ -728,4 +845,77 @@ fn a_space_talk_writes_by_board_keys() {
     let joined: serde_json::Value = serde_json::from_slice(&rows[1].payload).unwrap();
     assert_eq!(rows[1].actor, "person:stephen");
     assert_eq!(joined["member"]["key"], "person:stephen");
+}
+
+/// A row a space's log carried (tagged with its spaceId by the Core) only
+/// touches that space's channels: never a Personal channel, a DM or another
+/// space's channel, and a channel never moves space (card #461).
+#[test]
+fn a_space_row_only_touches_its_own_spaces_channels() {
+    let t = Talk::new(None, None);
+    let t0 = hlc_at(fixed_now());
+    let ev = |seq: i64, kind: &str, p: serde_json::Value| {
+        row("dev-b", seq, t0 + seq as u64, "user", kind, &p)
+    };
+    let made = |seq, id: &str, space: Option<&str>| {
+        let mut p = serde_json::json!({"channelId": id, "name": id, "by": "user:dev-b"});
+        if let Some(sp) = space {
+            p["spaceId"] = sp.into();
+        }
+        ev(seq, kinds::TALK_CHANNEL_CREATED, p)
+    };
+    let post = |seq, conv: &str, space: &str| {
+        ev(
+            seq,
+            kinds::TALK_POST,
+            serde_json::json!({"postId": format!("p{seq}"), "convId": conv, "by": "user:dev-b", "text": "hi", "spaceId": space}),
+        )
+    };
+    assert!(t.apply(&made(10, "ch_mine", None)));
+    assert!(t.apply(&made(11, "ch_s1", Some("s1"))));
+
+    assert!(t.apply(&post(20, "ch_s1", "s1")), "its own space's channel");
+    assert!(!t.apply(&post(21, "ch_mine", "s1")), "a Personal channel");
+    assert!(
+        !t.apply(&post(22, "ch_s1", "s2")),
+        "another space's channel"
+    );
+    assert!(!t.apply(&post(23, "dm:a|b", "s1")), "a DM");
+    assert!(t.posts("ch_mine").is_empty() && t.posts("dm:a|b").is_empty());
+    assert_eq!(t.posts("ch_s1").len(), 1);
+
+    let join = ev(
+        30,
+        kinds::TALK_MEMBER,
+        serde_json::json!({"convId": "ch_mine", "member": {"kind": "agent", "key": BOB}, "op": "join", "by": "user:dev-b", "spaceId": "s1"}),
+    );
+    assert!(!t.apply(&join), "a member into a Personal channel");
+    assert!(!t.is_member("ch_mine", BOB));
+    let edit = ev(
+        31,
+        kinds::TALK_CHANNEL_EDITED,
+        serde_json::json!({"channelId": "ch_mine", "name": "taken", "spaceId": "s1"}),
+    );
+    assert!(!t.apply(&edit));
+    // An older copy of ch_mine "made in s1" doesn't move it there.
+    assert!(!t.apply(&made(1, "ch_mine", Some("s1"))));
+    let c = t.channel("ch_mine").unwrap();
+    assert_eq!((c.name.as_str(), c.space_id.as_str()), ("ch_mine", ""));
+    // A card link from s1 onto ch_mine's post doesn't land either.
+    let mine = row(
+        "dev-a",
+        40,
+        t0 + 40,
+        "user",
+        kinds::TALK_POST,
+        &serde_json::json!({"postId": "pm", "convId": "ch_mine", "by": USER, "text": "mine"}),
+    );
+    assert!(t.apply(&mine));
+    let card = ev(
+        41,
+        kinds::TALK_CARD,
+        serde_json::json!({"postId": "pm", "taskId": "t1", "spaceId": "s1"}),
+    );
+    assert!(!t.apply(&card));
+    assert!(t.posts("ch_mine")[0].card.is_none());
 }

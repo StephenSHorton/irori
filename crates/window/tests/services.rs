@@ -861,10 +861,10 @@ fn talk_through_the_window() {
     let ch = w
         .talk_channel_create("general", Some("the room"), None)
         .unwrap();
-    let p = w.talk_post(&ch, "hello room", true, None).unwrap();
-    assert!(w.talk_post(&ch, "  ", true, None).is_err());
+    let p = w.talk_post(&ch, "hello room", &[], true, None).unwrap();
+    assert!(w.talk_post(&ch, "  ", &[], true, None).is_err());
     let from = w
-        .talk_post(&ch, "about that", false, Some(p.clone()))
+        .talk_post(&ch, "about that", &[], false, Some(p.clone()))
         .unwrap();
     let posts = w.talk_posts(&ch, None, 0).unwrap();
     assert_eq!(posts.len(), 2);
@@ -879,7 +879,7 @@ fn talk_through_the_window() {
     };
     let dm = w.talk_dm(&agent).unwrap();
     assert_eq!(w.talk_dm(&agent).unwrap(), dm, "one DM per pair");
-    let id = w.talk_post(&dm, "got a minute?", true, None).unwrap();
+    let id = w.talk_post(&dm, "got a minute?", &[], true, None).unwrap();
     let ds = w.core.inbox().for_agent(&r.key_a, false, 10);
     assert!(ds.iter().any(|d| d.message_id == id), "{ds:?}");
 
@@ -897,7 +897,7 @@ fn talk_through_the_window() {
             &[],
         )
         .unwrap();
-    let cid = w.talk_post(&t.id, "still slow", false, None).unwrap();
+    let cid = w.talk_post(&t.id, "still slow", &[], false, None).unwrap();
     let tp = w.talk_posts(&t.id, None, 50).unwrap();
     assert_eq!(tp.len(), 2);
     assert_eq!(tp[1].post_id, cid);
@@ -920,6 +920,21 @@ fn talk_through_the_window() {
     check_shape(&src, "TalkConversation", &j(c));
     check_shape(&src, "TalkMember", &j(&c.members[0]));
     check_shape(&src, "TalkPost", &j(&posts[1]));
+
+    // A channel in a shared space carries its spaceId (card #461); a
+    // Personal one leaves it out.
+    let space = w.core.create_board("one", "one").unwrap();
+    let sc = w
+        .talk_channel_create("general", None, Some(&space))
+        .unwrap();
+    let cs = w.talk_conversations().unwrap();
+    let s = cs.iter().find(|c| c.conv_id == sc).expect("space channel");
+    assert_eq!(s.space_id, space);
+    let sj = j(s);
+    assert_eq!(sj["spaceId"], space.as_str());
+    check_shape(&src, "TalkConversation", &sj);
+    let pc = cs.iter().find(|c| c.conv_id == ch).unwrap();
+    assert!(j(pc).get("spaceId").is_none(), "Personal: no spaceId");
 }
 
 /// Card #417: Settings › Merge desks sets a repo's desk once, and the desk

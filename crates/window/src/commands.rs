@@ -1446,12 +1446,14 @@ pub async fn talk_post(
     w: W<'_>,
     conv_id: String,
     text: String,
+    mentions: Vec<String>,
     agents_now: bool,
     thread_from: Option<String>,
 ) -> R<String> {
     w.talk_post(
         &conv_id,
         &text,
+        &mentions,
         agents_now,
         thread_from.filter(|t| !t.is_empty()),
     )

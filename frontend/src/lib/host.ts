@@ -51,7 +51,11 @@ export type HostEvent<T> = { name: string; data: T }
 // first is applied when it does.
 export const Events = {
   // listening, when given, runs once the subscription is live.
-  On<T = unknown>(name: string, callback: (ev: HostEvent<T>) => void, listening?: () => void): () => void {
+  On<T = unknown>(
+    name: string,
+    callback: (ev: HostEvent<T>) => void,
+    listening?: () => void
+  ): () => void {
     let off: (() => void) | null = null
     let cancelled = false
     listen<T>(name, (e) => callback({ name, data: e.payload }))
@@ -140,9 +144,11 @@ export const InboxService = {
   Dismiss: (deliveryId: string) => done(commands.inboxDismiss(deliveryId)),
   // Card #488: "Start an agent in <repo>" on your message nobody there can
   // take yet; the answer is the card it became ("#12").
-  StartAgent: (deliveryId: string) => call(commands.inboxStartAgent(deliveryId)),
+  StartAgent: (deliveryId: string) =>
+    call(commands.inboxStartAgent(deliveryId)),
   RepoNames: () => call(commands.inboxRepoNames()),
-  AllowAndRelease: (deliveryId: string) => done(commands.inboxAllowAndRelease(deliveryId)),
+  AllowAndRelease: (deliveryId: string) =>
+    done(commands.inboxAllowAndRelease(deliveryId)),
   Policy: () => call(commands.inboxPolicy()),
   SetPolicy: (p: B.PolicyInput) => done(commands.inboxSetPolicy(p)),
   SetPaused: (paused: boolean) => done(commands.inboxSetPaused(paused)),
@@ -151,7 +157,8 @@ export const InboxService = {
 // Wind down all (card #220): every agent saves its place, hands back its
 // cards and stops; Pause all turns on after, if asked.
 export const WindDownService = {
-  All: (scope: string, pauseAfter: boolean) => call(commands.windDownAll(scope, pauseAfter)),
+  All: (scope: string, pauseAfter: boolean) =>
+    call(commands.windDownAll(scope, pauseAfter)),
   Status: () => call(commands.windDownStatus()),
   Stop: (key: string) => done(commands.windDownStop(key)),
 }
@@ -170,14 +177,16 @@ export const BoardService = {
   IdleReport: () => call(commands.boardIdleReport()),
   Card: (id: string) => call(commands.boardCard(id)),
   CardsById: (ids: string[]) => call(commands.boardCardsById(ids)),
-  DoneCards: (limit: number, before: string) => call(commands.boardDoneCards(limit, before)),
+  DoneCards: (limit: number, before: string) =>
+    call(commands.boardDoneCards(limit, before)),
   DoneCardsIn: (limit: number, before: string, scope: string) =>
     call(commands.boardDoneCardsIn(limit, before, scope)),
   ClearDoneCount: (olderThanSecs: number, scope: string) =>
     call(commands.boardClearDoneCount(olderThanSecs, scope)),
   ClearDone: (olderThanSecs: number, ids: string[], scope: string) =>
     call(commands.boardClearDone(olderThanSecs, ids, scope)),
-  Message: (taskId: string, msgId: string) => call(commands.boardMessage(taskId, msgId)),
+  Message: (taskId: string, msgId: string) =>
+    call(commands.boardMessage(taskId, msgId)),
   Comment: (id: string, text: string, tell: string, mentions: B.Mention[]) =>
     call(commands.boardComment(id, text, tell, mentions)),
   CommentWithFiles: (
@@ -187,7 +196,14 @@ export const BoardService = {
     mentions: B.Mention[],
     files: B.UploadFile[]
   ) => call(commands.boardCommentWithFiles(id, text, tell, mentions, files)),
-  Answer: (taskId: string, blockerId: string, option: number, text: string, wake: boolean, mentions: B.Mention[]) =>
+  Answer: (
+    taskId: string,
+    blockerId: string,
+    option: number,
+    text: string,
+    wake: boolean,
+    mentions: B.Mention[]
+  ) =>
     call(commands.boardAnswer(taskId, blockerId, option, text, wake, mentions)),
   AnswerWithFiles: (
     taskId: string,
@@ -199,25 +215,42 @@ export const BoardService = {
     files: B.UploadFile[]
   ) =>
     call(
-      commands.boardAnswerWithFiles(taskId, blockerId, option, text, wake, mentions, files)
+      commands.boardAnswerWithFiles(
+        taskId,
+        blockerId,
+        option,
+        text,
+        wake,
+        mentions,
+        files
+      )
     ),
-  ResolveBlocker: (taskId: string, blockerId: string, note: string, mentions: B.Mention[]) =>
-    call(commands.boardResolveBlocker(taskId, blockerId, note, mentions)),
+  ResolveBlocker: (
+    taskId: string,
+    blockerId: string,
+    note: string,
+    mentions: B.Mention[]
+  ) => call(commands.boardResolveBlocker(taskId, blockerId, note, mentions)),
   MentionCandidates: () => call(commands.boardMentionCandidates()),
   AskAgain: (id: string) => done(commands.boardAskAgain(id)),
   // "Start an agent with this" (card #452).
-  StartAgent: (id: string, note: string) => done(commands.boardStartAgent(id, note)),
+  StartAgent: (id: string, note: string) =>
+    done(commands.boardStartAgent(id, note)),
   HandOn: (id: string) => call(commands.boardHandOn(id)),
   AskRepos: () => call(commands.boardAskRepos()),
-  CloseAsk: (id: string, note: string) => call(commands.boardCloseAsk(id, note)),
-  Close: (id: string, state: string, note: string) => call(commands.boardClose(id, state, note)),
+  CloseAsk: (id: string, note: string) =>
+    call(commands.boardCloseAsk(id, note)),
+  Close: (id: string, state: string, note: string) =>
+    call(commands.boardClose(id, state, note)),
   Delete: (id: string) => done(commands.boardDelete(id)),
   Pin: (id: string, pinned: boolean) => done(commands.boardPin(id, pinned)),
   // Pause / Resume (card #207): who was told.
   Pause: (id: string, paused: boolean, note: string) =>
     call(commands.boardPause(id, paused, note)),
-  MovePin: (id: string, before: string) => done(commands.boardMovePin(id, before)),
-  Place: (id: string, x: number, y: number) => done(commands.boardPlace(id, x, y)),
+  MovePin: (id: string, before: string) =>
+    done(commands.boardMovePin(id, before)),
+  Place: (id: string, x: number, y: number) =>
+    done(commands.boardPlace(id, x, y)),
   Create: (input: B.NewCardInput) => call(commands.boardCreate(input)),
   StartThread: (
     text: string,
@@ -230,7 +263,8 @@ export const BoardService = {
     mentions: B.Mention[],
     files: B.UploadFile[],
     agentsNow: boolean | null
-  ) => call(commands.boardStartThreadWithFiles(text, mentions, files, agentsNow)),
+  ) =>
+    call(commands.boardStartThreadWithFiles(text, mentions, files, agentsNow)),
   ThreadAgentsNow: (id: string, on: boolean) =>
     done(commands.boardThreadAgentsNow(id, on)),
   Threads: (boardId: string) => call(commands.boardThreads(boardId)),
@@ -251,26 +285,40 @@ export const TalkService = {
   Conversations: () => call(commands.talkConversations()),
   Posts: (convId: string, before: string | null, limit: number) =>
     call(commands.talkPosts(convId, before, limit)),
-  Post: (convId: string, text: string, agentsNow: boolean, threadFrom: string | null) =>
-    call(commands.talkPost(convId, text, agentsNow, threadFrom)),
+  // mentions: the keys the composer's picker recorded (#461).
+  Post: (
+    convId: string,
+    text: string,
+    mentions: string[],
+    agentsNow: boolean,
+    threadFrom: string | null
+  ) => call(commands.talkPost(convId, text, mentions, agentsNow, threadFrom)),
   Read: (convId: string, upTo: string) => done(commands.talkRead(convId, upTo)),
-  LinkCard: (postId: string, taskId: string) => done(commands.talkLinkCard(postId, taskId)),
+  LinkCard: (postId: string, taskId: string) =>
+    done(commands.talkLinkCard(postId, taskId)),
   // spaceId puts the channel in a space, where its members see it (#392).
-  ChannelCreate: (name: string, topic: string | null, spaceId: string | null = null) =>
-    call(commands.talkChannelCreate(name, topic, spaceId)),
+  ChannelCreate: (
+    name: string,
+    topic: string | null,
+    spaceId: string | null = null
+  ) => call(commands.talkChannelCreate(name, topic, spaceId)),
   Dm: (member: B.TalkMemberRef) => call(commands.talkDm(member)),
-  Join: (convId: string, member: B.TalkMemberRef) => done(commands.talkJoin(convId, member)),
-  Leave: (convId: string, member: B.TalkMemberRef) => done(commands.talkLeave(convId, member)),
+  Join: (convId: string, member: B.TalkMemberRef) =>
+    done(commands.talkJoin(convId, member)),
+  Leave: (convId: string, member: B.TalkMemberRef) =>
+    done(commands.talkLeave(convId, member)),
 }
 
 // NotesService is the window's notes_* commands (card #411) and
 // card_wake_notes (card #412).
 export const NotesService = {
-  List: (scope: string, removed = false) => call(commands.notesList(scope, removed)),
+  List: (scope: string, removed = false) =>
+    call(commands.notesList(scope, removed)),
   Waiting: () => call(commands.notesWaiting()),
   New: (note: B.NoteInput) => call(commands.noteNew(note)),
   Accept: (id: string) => call(commands.noteAccept(id)),
-  Edit: (id: string, edit: B.NoteEditInput) => call(commands.noteEdit(id, edit)),
+  Edit: (id: string, edit: B.NoteEditInput) =>
+    call(commands.noteEdit(id, edit)),
   Remove: (id: string, why: string) => call(commands.noteRemove(id, why)),
   CardWakeNotes: (taskId: string) => call(commands.cardWakeNotes(taskId)),
 }
@@ -282,7 +330,8 @@ export const AgentsService = {
   Settings: (boardId: string) => call(commands.agentsSettings(boardId)),
   Set: (change: B.AgentsChange) => call(commands.agentsSet(change)),
   End: (key: string) => done(commands.agentsEnd(key)),
-  OfferSet: (key: string, on: boolean) => done(commands.agentsOfferSet(key, on)),
+  OfferSet: (key: string, on: boolean) =>
+    done(commands.agentsOfferSet(key, on)),
   Logs: (key: string) => call(commands.agentsLogs(key)),
   Attach: (key: string, cols: number, rows: number) =>
     call(commands.agentsAttach(key, cols, rows)),
@@ -292,16 +341,19 @@ export const AgentsService = {
   Trusted: () => call(commands.agentsTrusted()),
   TrustRepo: (repoKey: string) => call(commands.agentsTrustRepo(repoKey)),
   Permissions: (boardId: string) => call(commands.agentsPermissions(boardId)),
-  SetPermissions: (p: B.AgentPermissions) => call(commands.agentsPermissionsSet(p)),
+  SetPermissions: (p: B.AgentPermissions) =>
+    call(commands.agentsPermissionsSet(p)),
 }
 
 export const BoardsService = {
   List: () => call(commands.boardsList()),
   Create: (name: string, tag: string) => call(commands.boardsCreate(name, tag)),
-  Rename: (boardId: string, name: string) => call(commands.boardsRename(boardId, name)),
+  Rename: (boardId: string, name: string) =>
+    call(commands.boardsRename(boardId, name)),
   AddToSpace: (spaceId: string, name: string, tag: string) =>
     call(commands.boardsAddToSpace(spaceId, name, tag)),
-  Pin: (boardId: string, pinned: boolean) => done(commands.boardsPin(boardId, pinned)),
+  Pin: (boardId: string, pinned: boolean) =>
+    done(commands.boardsPin(boardId, pinned)),
   Leave: (boardId: string) => done(commands.boardsLeave(boardId)),
   Forget: (boardId: string) => done(commands.boardsForget(boardId)),
   ForgetNow: (boardId: string) => done(commands.boardsForgetNow(boardId)),
@@ -309,20 +361,26 @@ export const BoardsService = {
     call(commands.boardsRemoveMember(boardId, personId)),
   SetRole: (boardId: string, personId: string, role: string) =>
     call(commands.boardsSetRole(boardId, personId, role)),
-  SharePreview: (taskId: string, boardId: string) => call(commands.boardsSharePreview(taskId, boardId)),
-  Share: (taskId: string, boardId: string, hash: string) => call(commands.boardsShare(taskId, boardId, hash)),
+  SharePreview: (taskId: string, boardId: string) =>
+    call(commands.boardsSharePreview(taskId, boardId)),
+  Share: (taskId: string, boardId: string, hash: string) =>
+    call(commands.boardsShare(taskId, boardId, hash)),
   Withdraw: (taskId: string) => call(commands.boardsWithdraw(taskId)),
-  TransferOwner: (taskId: string, to: string) => call(commands.boardsTransferOwner(taskId, to)),
+  TransferOwner: (taskId: string, to: string) =>
+    call(commands.boardsTransferOwner(taskId, to)),
   Settings: (boardId: string) => call(commands.boardsSettings(boardId)),
   SetReceive: (boardId: string, preset: string, people: string[]) =>
     call(commands.boardsSetReceive(boardId, preset, people)),
-  SetAutonomy: (boardId: string, preset: string) => call(commands.boardsSetAutonomy(boardId, preset)),
-  SetThreads: (boardId: string, mode: string) => call(commands.boardsSetThreads(boardId, mode)),
+  SetAutonomy: (boardId: string, preset: string) =>
+    call(commands.boardsSetAutonomy(boardId, preset)),
+  SetThreads: (boardId: string, mode: string) =>
+    call(commands.boardsSetThreads(boardId, mode)),
   SetReviewer: (boardId: string, agent: string, repo: string) =>
     call(commands.boardsSetReviewer(boardId, agent, repo)),
   Invite: (boardId: string) => call(commands.boardsInvite(boardId)),
   JoinInvite: (link: string) => call(commands.boardsJoinInvite(link)),
-  ConfirmInviteWords: (words: string) => call(commands.boardsConfirmInviteWords(words)),
+  ConfirmInviteWords: (words: string) =>
+    call(commands.boardsConfirmInviteWords(words)),
   InviteStatus: () => call(commands.boardsInviteStatus()),
   CancelInvite: () => done(commands.boardsCancelInvite()),
 }
@@ -330,36 +388,46 @@ export const BoardsService = {
 export const DevicesService = {
   Devices: () => call(commands.devicesDevices()),
   Colors: () => call(commands.devicesColors()),
-  SetDeviceColor: (deviceId: string, color: string) => done(commands.devicesSetDeviceColor(deviceId, color)),
+  SetDeviceColor: (deviceId: string, color: string) =>
+    done(commands.devicesSetDeviceColor(deviceId, color)),
   PersonColor: () => call(commands.devicesPersonColor()),
-  SetPersonColor: (color: string) => done(commands.devicesSetPersonColor(color)),
+  SetPersonColor: (color: string) =>
+    done(commands.devicesSetPersonColor(color)),
   AgentAvatars: () => call(commands.devicesAgentAvatars()),
   PersonAvatar: () => call(commands.devicesPersonAvatar()),
-  SetPersonAvatar: (avatar: string) => done(commands.devicesSetPersonAvatar(avatar)),
-  RenameDevice: (deviceId: string, name: string) => call(commands.devicesRenameDevice(deviceId, name)),
+  SetPersonAvatar: (avatar: string) =>
+    done(commands.devicesSetPersonAvatar(avatar)),
+  RenameDevice: (deviceId: string, name: string) =>
+    call(commands.devicesRenameDevice(deviceId, name)),
   AddDevice: (role: string) => call(commands.devicesAddDevice(role)),
-  JoinWithCode: (code: string, server: string) => call(commands.devicesJoinWithCode(code, server)),
+  JoinWithCode: (code: string, server: string) =>
+    call(commands.devicesJoinWithCode(code, server)),
   ConfirmWords: (words: string) => done(commands.devicesConfirmWords(words)),
   ConfirmKey: (key: string) => done(commands.devicesConfirmKey(key)),
   PairingStatus: () => call(commands.devicesPairingStatus()),
   CancelPairing: () => done(commands.devicesCancelPairing()),
-  RemoveDevice: (deviceId: string) => done(commands.devicesRemoveDevice(deviceId)),
+  RemoveDevice: (deviceId: string) =>
+    done(commands.devicesRemoveDevice(deviceId)),
   ResetDevice: () => done(commands.devicesResetDevice()),
   HomeServer: () => call(commands.devicesHomeServer()),
   SetHomeServer: (on: boolean, outside: boolean, publicAddr: string) =>
     call(commands.devicesSetHomeServer(on, outside, publicAddr)),
-  SetHomeServerAwake: (on: boolean) => call(commands.devicesSetHomeServerAwake(on)),
+  SetHomeServerAwake: (on: boolean) =>
+    call(commands.devicesSetHomeServerAwake(on)),
   SetPublicRelays: (on: boolean) => call(commands.devicesSetPublicRelays(on)),
   Relay: () => call(commands.devicesRelay()),
-  SetRelay: (credentialUrl: string) => call(commands.devicesSetRelay(credentialUrl)),
+  SetRelay: (credentialUrl: string) =>
+    call(commands.devicesSetRelay(credentialUrl)),
 }
 
 export const SettingsService = {
   GetNotifications: () => call(commands.settingsGetNotifications()),
-  SetNotifications: (o: B.NotifyOptions) => call(commands.settingsSetNotifications(o)),
+  SetNotifications: (o: B.NotifyOptions) =>
+    call(commands.settingsSetNotifications(o)),
   TestNotification: () => done(commands.settingsTestNotification()),
   GetLaunchAtLogin: () => call(commands.settingsGetLaunchAtLogin()),
-  SetLaunchAtLogin: (enabled: boolean) => done(commands.settingsSetLaunchAtLogin(enabled)),
+  SetLaunchAtLogin: (enabled: boolean) =>
+    done(commands.settingsSetLaunchAtLogin(enabled)),
   GetYourName: () => call(commands.settingsGetYourName()),
   SetYourName: (name: string) => call(commands.settingsSetYourName(name)),
 }
@@ -428,6 +496,8 @@ export const DeskService = {
   Set: (s: B.DeskSettings) => done(commands.deskSet(s)),
   Hold: (repoKey: string, pr: number, note: string, cleared: boolean) =>
     done(commands.deskHold(repoKey, pr, note, cleared)),
-  Pause: (repoKey: string, paused: boolean) => done(commands.deskPause(repoKey, paused)),
-  Ok: (repoKey: string, pr: number, headSha: string) => done(commands.deskOk(repoKey, pr, headSha)),
+  Pause: (repoKey: string, paused: boolean) =>
+    done(commands.deskPause(repoKey, paused)),
+  Ok: (repoKey: string, pr: number, headSha: string) =>
+    done(commands.deskOk(repoKey, pr, headSha)),
 }

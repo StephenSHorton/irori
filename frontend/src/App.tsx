@@ -77,6 +77,7 @@ import {
   AllSpaces,
   Personal,
   cardInSpace,
+  convInSpace,
   threadsSpace,
   useSpace,
 } from "@/lib/spaces"
@@ -681,9 +682,13 @@ export function App() {
   // the bottom, and an open conversation is the whole screen, its own
   // header carrying Back.
   const narrow = useNarrow()
+  // The badge counts what Talk lists in the picked space (card #461).
   const talkWaiting =
     threadList.filter(needsYou).length +
-    talkWaitingIn(conversations, liveRoster)
+    talkWaitingIn(
+      conversations.filter((c) => convInSpace(c, space)),
+      liveRoster
+    )
   const fullScreen = narrow && !open && section.kind === "talk" && !!section.id
 
   return (
@@ -811,6 +816,7 @@ export function App() {
                     roster.agents.filter((a) => !spawned.has(a.key))
                   )}
                   board={threadsSpace(space)}
+                  space={space}
                 />
               ) : section.kind === "notes" ? (
                 <Scroll>
