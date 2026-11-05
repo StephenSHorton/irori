@@ -89,22 +89,35 @@ impl Window {
             .into_iter()
             .take(MAX_LISTED)
             .map(|it| {
-                let r = it.posted;
-                let card = if r.task_id.is_empty() {
+                let mut r = it.posted;
+                let task = if r.task_id.is_empty() {
                     None
                 } else {
-                    let t = co.get_task(&r.task_id).or_else(|| {
+                    co.get_task(&r.task_id).or_else(|| {
                         (!r.board_id.is_empty())
                             .then(|| self.core.board_coord(&r.board_id).ok())
                             .flatten()
                             .and_then(|c| c.get_task(&r.task_id))
-                    });
-                    t.map(|t| NotificationCard {
-                        id: t.id.clone(),
-                        short: t.short.clone(),
-                        title: t.title.clone(),
                     })
                 };
+                let card = task.as_ref().map(|t| NotificationCard {
+                    id: t.id.clone(),
+                    short: t.short.clone(),
+                    title: t.title.clone(),
+                });
+                let mut from = (!r.from.is_empty()).then(|| p.ref_(&r.from));
+                if r.kind == coord::notifications::KIND_RETURNED {
+                    // A row kept before card #483 names the agent by its
+                    // key: say it again by name, never the key.
+                    let name = returned_name(from.as_ref(), task.as_ref(), &r.from)
+                        .or_else(|| coord::notifications::returned_name_in(&r.body, &r.from));
+                    r.body = coord::notifications::returned_body(name.as_deref());
+                    match (&mut from, name) {
+                        (Some(f), Some(n)) => f.name = n,
+                        (f, None) => *f = None,
+                        _ => {}
+                    }
+                }
                 let ask = if r.kind == coord::notifications::KIND_ASK && !r.ask_id.is_empty() {
                     asks.get(&r.ask_id).map(|a| NotificationAsk {
                         open: !a.resolved && a.until.unix_nano() > now.unix_nano(),
@@ -129,7 +142,7 @@ impl Window {
                     comment_id: r.comment_id,
                     delivery_id: r.delivery_id,
                     board_id: r.board_id,
-                    from: (!r.from.is_empty()).then(|| p.ref_(&r.from)),
+                    from,
                     card,
                     ask,
                 }
@@ -172,4 +185,12 @@ impl Window {
         asks.answer(ask_id, choice, &self.core.user_sender().key)
             .map_err(|e| e.to_string())
     }
+}
+
+/// The name a returned card's gone agent went by (card #483): its name as
+/// the window knows it (live, or the last it went by), then the card's
+/// spawn record; `None` when only its key is known.
+fn returned_name(from: Option<&AgentRef>, task: Option<&coord::Task>, key: &str) -> Option<String> {
+    from.and_then(|f| coord::notifications::agent_name_of(key, &f.name))
+        .or_else(|| task.and_then(|t| coord::notifications::spawned_name(t, key)))
 }

@@ -631,6 +631,19 @@ impl Ctx<'_> {
         key.to_string()
     }
 
+    /// The name a gone agent went by (card #483): the name source (the
+    /// roster, then the names agents went by), then the card's spawn
+    /// record for it; never its key.
+    fn gone_name(&self, t: &Task, key: &str) -> Option<String> {
+        if key.is_empty() {
+            return None;
+        }
+        self.name
+            .as_ref()
+            .and_then(|f| history::agent_name_of(key, &f(key)))
+            .or_else(|| history::spawned_name(t, key))
+    }
+
     /// Whether key is the person's (`is_owner`, else `user`).
     fn owner(&self, key: &str) -> bool {
         match self.is_owner {
@@ -694,9 +707,16 @@ impl Ctx<'_> {
 
     /// A card for each card that came back to the person because the agent
     /// on it went away, cleared once someone is on it again or it ends.
+    /// Not while it waits on the person (its Needs you lane, card #483):
+    /// "assign it" means nothing on a card waiting for their Done or their
+    /// answer, and once that leaves it with nobody on it the card comes.
     fn returned_cards(&self, v: &BoardView, post: bool, returned: &mut HashMap<String, String>) {
         let mut now = HashSet::new();
+        let waits: HashSet<&str> = v.needs_you.iter().map(|c| c.task.id.as_str()).collect();
         for c in Self::lanes(v) {
+            if waits.contains(c.task.id.as_str()) {
+                continue;
+            }
             let Some(r) = &c.task.returned else { continue };
             if !r.person || !c.task.holders.is_empty() {
                 continue;
@@ -754,10 +774,7 @@ impl Ctx<'_> {
             id: returned_id(&t.id),
             about: Some(about),
             title,
-            body: format!(
-                "{} went away, so it's open again. Assign it to an agent, or close it.",
-                self.name(&was)
-            ),
+            body: history::returned_body(self.gone_name(t, &was).as_deref()),
             level: Level::Warn,
             sticky: true,
             on_click: Some(self.opener(t)),

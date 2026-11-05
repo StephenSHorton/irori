@@ -137,6 +137,73 @@ fn board_cards_and_answers() {
     assert_eq!(r.w.cards().len(), 1);
 }
 
+/// Card #483: a returned row kept before the fix carries the agent's key
+/// in its body; the Notifications page says it by name, or "Its agent"
+/// when only the key is known, and never shows the key.
+#[test]
+fn stored_returned_rows_never_show_a_key() {
+    use coord::notifications::{self as history, PostedRow};
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let t = co
+        .create_task(
+            &r.key_a,
+            coord::NewTask {
+                title: "Spawned agents part 9".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let gone = "devzz/ffffffff-9999-4999-8999-999999999999";
+    let named = "devzz/eeeeeeee-8888-4888-8888-888888888888";
+    let tail = " went away, so it's open again. Assign it to an agent, or close it.";
+    // (from, who the stored body says, what the page must say)
+    let rows = [
+        (r.key_a.clone(), r.key_a.clone(), "alpha"),
+        (gone.to_string(), gone.to_string(), "Its agent"),
+        // Nothing knows it any more, but the toast named it: keep that.
+        (named.to_string(), "Bing Bong".to_string(), "Bing Bong"),
+    ];
+    for (i, (from, who, _)) in rows.iter().enumerate() {
+        let mut row = PostedRow {
+            kind: history::KIND_RETURNED.into(),
+            task_id: t.id.clone(),
+            instance: format!("dev1:{i}"),
+            from: from.clone(),
+            title: "Nobody is on “Spawned agents part 9” (#1)".into(),
+            body: format!("{who}{tail}"),
+            level: "warn".into(),
+            at: gocompat::time::GoTime::from_system(std::time::SystemTime::now()),
+            ..PostedRow::default()
+        };
+        row.key = history::key_of(&row);
+        r.w.core
+            .store()
+            .append("irori", history::POSTED, &row)
+            .unwrap();
+    }
+    wait("the rows are in the history", || {
+        r.w.notifications().len() == rows.len()
+    });
+    let ns = r.w.notifications();
+    for n in &ns {
+        assert!(!n.body.contains('/'), "{n:?}");
+        if let Some(f) = &n.from {
+            assert!(!f.name.contains('/'), "{n:?}");
+        }
+    }
+    for (i, (from, _, want)) in rows.iter().enumerate() {
+        let n = ns
+            .iter()
+            .find(|n| n.key.ends_with(&format!("dev1:{i}")))
+            .unwrap_or_else(|| panic!("no row for {from}: {ns:?}"));
+        assert_eq!(n.body, format!("{want}{tail}"), "{n:?}");
+        if *want == "Its agent" {
+            assert!(n.from.is_none(), "an unnamed agent's key isn't sent: {n:?}");
+        }
+    }
+}
+
 #[test]
 fn done_cards_page() {
     let r = Rig::new();
