@@ -54,6 +54,7 @@ pub use parts::{DEFAULT_AGENTS_PER_CARD, MAX_AGENTS_PER_CARD, PART_QUESTION};
 pub use spawn::{
     CRASHED_QUESTION, CRASHED_START, MAX_SPAWN_CRASHES, PERMISSION_MODES, SPAWN_CANCELED,
     SPAWN_FAILED, SPAWN_GRACE, SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk, Spawned,
+    is_crash_question,
 };
 mod resource;
 mod review;
