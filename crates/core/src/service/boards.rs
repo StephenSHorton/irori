@@ -1612,11 +1612,19 @@ impl Services {
         } else if ev.kind == kinds::AGENT_CARD {
             b.fold_card(ev);
         }
+        let hidden = self.is_dm_space(&b.id);
         if self.board_leaving(b) {
             // A space the person left: its channels stay out of Talk.
         } else if ev.seq == 0 {
             // The space's channels fold again with everything else.
             let _ = self.talk.load();
+            self.hub.publish(crate::events::CoreEvent::Talk);
+        } else if hidden && irori_identity::kinds::is_membership_kind(&ev.kind) {
+            // A late row can change what a hidden space's rows fold to (card
+            // #538): its board.created, or a third member, which ends the
+            // DM. So they fold again, whichever way that goes.
+            self.talk.drop_space(&b.id);
+            self.fold_space_talk(b);
             self.hub.publish(crate::events::CoreEvent::Talk);
         } else if ev.kind == kinds::BOARD_MEMBER_ADDED {
             // Re-added while still "Leaving…" (card #461): the channels
@@ -1627,8 +1635,16 @@ impl Services {
             // folded when it was written; the window still hears it.
             self.talk.apply(&row);
             self.hub.publish(crate::events::CoreEvent::Talk);
+            // A DM from the other person rings here (card #538); the
+            // private log's follower never sees this row.
+            if hidden && row.kind == kinds::TALK_POST && ev.actor != self.person_actor() {
+                self.talk_note(&row);
+            }
         }
-        self.bridge_row(b, ev);
+        // Nothing in a hidden space reaches an agent (card #538).
+        if !hidden {
+            self.bridge_row(b, ev);
+        }
         if summary_row(ev) {
             self.boards.moved();
         }

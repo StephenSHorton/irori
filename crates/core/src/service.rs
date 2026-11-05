@@ -61,6 +61,7 @@ mod boards_own;
 pub mod boards_presence;
 pub mod boards_status;
 mod bridge;
+mod dm_spaces;
 mod liveness;
 mod mirror;
 pub mod notes;
@@ -292,6 +293,8 @@ struct Services {
     boards: Arc<Boards>,
     /// The hidden DM spaces' markers (card #538).
     dm_spaces: Arc<boards_own::DmSpaces>,
+    /// The DM hand-offs' work (card #538).
+    dms: dm_spaces::Dms,
     /// The open board invite (card #44).
     invites: invites::Invites,
 }
@@ -1373,6 +1376,7 @@ impl Core {
             mesh,
             boards: board_set,
             dm_spaces,
+            dms: dm_spaces::Dms::default(),
             invites,
         });
         let _ = svc_cell.set(Arc::downgrade(&s));
@@ -1407,6 +1411,14 @@ impl Core {
         s.mesh
             .node
             .set_own_boards(Some(Arc::new(invites::OwnBoardSecrets(Arc::downgrade(&s)))));
+        // Before any space opens: every mesh carries the DM hooks (card #538).
+        {
+            let w = Arc::downgrade(&s);
+            s.mesh.set_dms(
+                Arc::new(dm_spaces::DmBridge(w.clone())),
+                Arc::new(move |id: &str| w.upgrade().is_some_and(|s| s.is_dm_space(id))),
+            );
+        }
         // A pairing window starts the home server at once (Go Notify).
         if let Some(h) = s.home.clone() {
             s.pairing
@@ -1599,6 +1611,19 @@ impl Core {
                     t.elapsed().as_millis()
                 ));
                 s.follow_own_boards(&sub);
+            });
+        }
+
+        // The DM hand-offs (card #538): the mesh's hooks only queue work.
+        {
+            let s = s.clone();
+            let reg = self.stop.on_cancel({
+                let s = s.clone();
+                move || s.dms.close()
+            });
+            self.spawn("dms", move || {
+                let _reg = reg;
+                s.run_dm_jobs();
             });
         }
 
@@ -3161,7 +3186,7 @@ impl Services {
     /// the last few minutes, becomes a notification here (card #395,
     /// design §8); a plain channel post only bumps the unread count. A
     /// tap opens the conversation.
-    fn talk_note(&self, ev: &Event) {
+    pub(crate) fn talk_note(&self, ev: &Event) {
         const FRESH: Duration = Duration::from_secs(10 * 60);
         let Ok(r) = serde_json::from_slice::<coord::talk::PostRow>(&ev.payload) else {
             return;

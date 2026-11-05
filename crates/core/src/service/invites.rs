@@ -139,7 +139,7 @@ impl Invites {
 }
 
 /// The Core's boards as the invite needs them.
-struct CoreBoards(Weak<Services>);
+pub(super) struct CoreBoards(pub(super) Weak<Services>);
 
 impl CoreBoards {
     fn s(&self) -> Option<Arc<Services>> {

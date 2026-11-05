@@ -163,6 +163,24 @@ impl DmSpaces {
         let by_id = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
         by_id.get(id).map(|(s, _)| s.clone())
     }
+
+    /// Every marked space with `person`, lowest id first, live or not.
+    pub(crate) fn of(&self, person: &str) -> Vec<(String, DmSpace)> {
+        let by_id = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
+        let mut out: Vec<(String, DmSpace)> = by_id
+            .iter()
+            .filter(|(_, (s, _))| s.with == person)
+            .map(|(id, (s, _))| (id.clone(), s.clone()))
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    /// Everyone a marker names.
+    pub(crate) fn people(&self) -> Vec<String> {
+        let by_id = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
+        by_id.values().map(|(s, _)| s.with.clone()).collect()
+    }
 }
 
 /// The private board.forgot row: Leave, on every device.

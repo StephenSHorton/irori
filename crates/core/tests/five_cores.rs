@@ -1723,3 +1723,78 @@ fn forgetting_a_space_drops_its_channels_at_once() {
     }
     close(alice.drain(..));
 }
+
+// ---- person-to-person DMs (card #538, docs/design/talk-dms.md) ---------------
+
+/// `d`'s DM with `other`, opened: nothing is written.
+fn dm_with(d: &Dev, other: &Dev) -> String {
+    d.core
+        .talk_open_dm(
+            &coord::talk::Member::of(&d.user()),
+            &coord::talk::Member::of(&other.person_actor()),
+            &d.user(),
+        )
+        .unwrap()
+}
+
+fn dm_post(d: &Dev, conv: &str, text: &str) {
+    d.core
+        .talk_post(&d.core.user_sender(), conv, text, &[], false, None)
+        .unwrap();
+}
+
+fn dm_holds(d: &Dev, conv: &str, text: &str) -> bool {
+    d.core
+        .talk_posts(&d.user(), conv, None, 50)
+        .is_ok_and(|ps| ps.iter().any(|p| p.text == text))
+}
+
+fn board_linked(a: &Dev, b: &Dev, board: &str) {
+    let peer = b.core.device_id().to_string();
+    wait_for(WAIT, "the two devices connect on their space", || {
+        a.core
+            .net()
+            .board_conns(board)
+            .iter()
+            .any(|c| c.peer == peer)
+    });
+}
+
+/// §8: Bob is connected before the DM exists, so no hello will come; making
+/// the space walks the live peers of the space they share.
+#[test]
+fn a_dm_starts_with_bob_already_connected() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+
+    let dm = dm_with(a1, b1);
+    assert_eq!(dm, dm_with(b1, a1), "both sides name one conversation");
+    assert_eq!(a1.core.boards().len(), 1, "opening a DM writes nothing");
+    assert!(
+        a1.core
+            .talk_conversations(&a1.user())
+            .unwrap()
+            .iter()
+            .any(|c| c.conv_id == dm),
+        "an opened DM is listed"
+    );
+
+    dm_post(a1, &dm, "hi bob");
+    wait_for(WAIT, "bob reads alice's DM", || dm_holds(b1, &dm, "hi bob"));
+    dm_post(b1, &dm, "hi alice");
+    wait_for(WAIT, "alice reads bob's reply", || {
+        dm_holds(a1, &dm, "hi alice")
+    });
+
+    // One space, the two of them, and nothing of it on the space they share.
+    let spaces = a1.core.dm_spaces_with(&b1.core.person().id);
+    assert_eq!(spaces.len(), 1, "{spaces:?}");
+    assert_eq!(b1.core.dm_spaces_with(&a1.core.person().id), spaces);
+    assert!(!a1.core.dm_pending(&spaces[0]));
+    assert_eq!(a1.core.board_info(&spaces[0]).unwrap().members.len(), 2);
+    assert!(a1.core.board_rows(&board, kinds::TALK_POST).is_empty());
+    close(alice.drain(..).chain(bob.drain(..)));
+}

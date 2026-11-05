@@ -870,7 +870,10 @@ fn a_dm_marker_opens_its_space_and_forget_covers_it() {
     assert_eq!(c.dm_space(DM), Some((pin.clone(), "bob".to_string())));
     assert!(!c.is_dm_space(&plain), "a plain board has no marker");
     c.reconcile_boards();
-    assert!(c.board_coord(DM).is_ok(), "the marker didn't open the space");
+    assert!(
+        c.board_coord(DM).is_ok(),
+        "the marker didn't open the space"
+    );
     let s = c.board_list().into_iter().find(|s| s.board_id == DM);
     let s = s.expect("the space isn't filtered yet");
     assert_eq!((s.name.as_str(), s.tag.as_str()), ("dm", "~dm"));
@@ -906,7 +909,10 @@ fn board_forgot_beats_an_older_dm_marker_and_a_restart_keeps_the_cache() {
     let pin = my_pin(c);
     c.write_dm_marker(DM, &pin, "bob").unwrap();
     c.reconcile_boards();
-    assert!(c.board_coord(DM).is_ok(), "the marker didn't open the space");
+    assert!(
+        c.board_coord(DM).is_ok(),
+        "the marker didn't open the space"
+    );
     c.store()
         .append(
             "irori",

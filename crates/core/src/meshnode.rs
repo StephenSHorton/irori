@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex};
 use irori_identity::{Chain, Identity};
 use irori_net::book::{ServerAddrs, feed};
 use irori_net::transport::IrohNet;
-use mesh::boardmesh::{BoardMesh, BoardMeshOpts};
+use mesh::boardmesh::{BoardMesh, BoardMeshOpts, DmHooks};
 use store::Store;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
@@ -58,7 +58,14 @@ pub(crate) struct Mesh {
     /// This device's home server, once the Core made it (B1: it writes
     /// `board.server` into each board).
     home: std::sync::OnceLock<home::Server>,
+    /// Who hears about DM hand-offs on every board's connections, and which
+    /// boards are hidden DM spaces (card #538). Set once, before any board
+    /// opens.
+    dms: std::sync::OnceLock<(Arc<dyn DmHooks>, HiddenFn)>,
 }
+
+/// Whether a board is a hidden DM space (card #538).
+pub(crate) type HiddenFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 /// How often the address book is fed again with nothing else happening:
 /// a home server's public address moves without a row here.
@@ -151,7 +158,23 @@ impl Mesh {
             boards: Mutex::new(std::collections::BTreeMap::new()),
             board_hints: Mutex::new(std::collections::BTreeMap::new()),
             home: std::sync::OnceLock::new(),
+            dms: std::sync::OnceLock::new(),
         })
+    }
+
+    /// Sets the DM hooks every board's mesh carries (card #538).
+    pub(crate) fn set_dms(&self, hooks: Arc<dyn DmHooks>, hidden: HiddenFn) {
+        let _ = self.dms.set((hooks, hidden));
+    }
+
+    fn hidden(&self, board_id: &str) -> bool {
+        self.dms.get().is_some_and(|(_, h)| h(board_id))
+    }
+
+    /// Feeds the address book again now: a board's members moved outside a
+    /// pull.
+    pub(crate) fn refeed(&self) {
+        self.refeed.notify_one();
     }
 
     /// Home's `on_relay`: the port this device's own relay serves on and
@@ -275,9 +298,27 @@ impl Mesh {
         self.net.recheck();
         let boards = self.board_list();
         self.write_board_servers(&boards);
+        let by_board: Vec<_> = boards.iter().map(|m| Self::board_relays(m)).collect();
+        // A hidden space's relays come from the person's other spaces (card
+        // #538): its log has no board.server of a person until they can
+        // connect, and they can't connect without one.
+        let mut shared: std::collections::BTreeMap<String, Vec<_>> = Default::default();
+        for (m, by_person) in boards.iter().zip(&by_board) {
+            if self.hidden(m.board_id()) {
+                continue;
+            }
+            for (person, specs) in by_person {
+                shared
+                    .entry(person.clone())
+                    .or_default()
+                    .extend(specs.iter().cloned());
+            }
+        }
         let mut relays = Vec::new();
-        for m in &boards {
-            let by_person = Self::board_relays(m);
+        for (m, mut by_person) in boards.iter().zip(by_board) {
+            if self.hidden(m.board_id()) {
+                merge_relays(&mut by_person, &shared, m);
+            }
             self.feed_board(m, &by_person);
             m.recheck();
             relays.push(irori_net::board::BoardRelays {
@@ -395,7 +436,7 @@ impl Mesh {
             transport: Arc::new(self.net.clone()),
             own_devices: Some(own),
             files: self.files.clone(),
-            dms: None,
+            dms: self.dms.get().map(|(hooks, _)| hooks.clone()),
         }));
         m.set_log(Arc::new(|l: &str| crate::log(l)));
         {
@@ -499,6 +540,26 @@ impl Mesh {
             m.close();
         }
         self.net.close().await;
+    }
+}
+
+/// Adds to a hidden board's relays what `shared` holds for its own member
+/// devices' people, and for nobody else (card #538).
+fn merge_relays(
+    by_person: &mut std::collections::BTreeMap<String, Vec<irori_net::endpoint::RelaySpec>>,
+    shared: &std::collections::BTreeMap<String, Vec<irori_net::endpoint::RelaySpec>>,
+    m: &BoardMesh,
+) {
+    for d in m.member_devices() {
+        let Some(specs) = shared.get(&d.person_id) else {
+            continue;
+        };
+        let have = by_person.entry(d.person_id).or_default();
+        for s in specs {
+            if !have.iter().any(|h| h.url == s.url) {
+                have.push(s.clone());
+            }
+        }
     }
 }
 
