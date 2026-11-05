@@ -507,6 +507,13 @@ export type AnswerResult = {
 	told: Told,
 	/**  What each mention came to (card #77). */
 	mentioned?: MentionOutcome[],
+	/**
+	 *  Irori itself acts on this answer (card #531): its "no copy" and
+	 *  "couldn't start" asks on a card nobody holds resolve like any item
+	 *  nobody runs for, but the sweep reads the answer, so the window
+	 *  doesn't say nobody will.
+	 */
+	iroriActs?: boolean,
 };
 
 /**  coord.Ask. */
