@@ -2468,7 +2468,19 @@ mod tests {
         let names = vec!["Work".to_string(), "Personal".to_string()];
         let mut t = card();
         t.side = "Personal".into();
-        let b = build_brief(&t, &[], &named, &|_| None, None, None, BriefMore { runs: Some(&runs), side_names: &names, ..BriefMore::default() });
+        let b = build_brief(
+            &t,
+            &[],
+            &named,
+            &|_| None,
+            None,
+            None,
+            BriefMore {
+                runs: Some(&runs),
+                side_names: &names,
+                ..BriefMore::default()
+            },
+        );
         assert!(
             b.text.contains(
                 "This device runs the Personal side. Cards on Work are only read here, never taken"
@@ -2481,7 +2493,19 @@ mod tests {
         // The person started it for a card on another side: the brief says
         // that card is still its to take.
         t.side = "Work".into();
-        let b = build_brief(&t, &[], &named, &|_| None, None, None, BriefMore { runs: Some(&runs), side_names: &names, ..BriefMore::default() });
+        let b = build_brief(
+            &t,
+            &[],
+            &named,
+            &|_| None,
+            None,
+            None,
+            BriefMore {
+                runs: Some(&runs),
+                side_names: &names,
+                ..BriefMore::default()
+            },
+        );
         assert!(
             b.text.contains(
                 "#7 is on the Work side: the person started you for it, so it is yours to take."
@@ -2490,7 +2514,19 @@ mod tests {
             b.text
         );
         // A device that runs every side says nothing about sides.
-        let b = build_brief(&card(), &[], &named, &|_| None, None, None, BriefMore { runs: None, side_names: &names, ..BriefMore::default() });
+        let b = build_brief(
+            &card(),
+            &[],
+            &named,
+            &|_| None,
+            None,
+            None,
+            BriefMore {
+                runs: None,
+                side_names: &names,
+                ..BriefMore::default()
+            },
+        );
         assert!(!b.text.contains("side"), "{}", b.text);
     }
 
@@ -2534,7 +2570,7 @@ mod tests {
             None,
             BriefMore {
                 channels: &chans,
-                idle: IDLE_LIMIT,
+                ..BriefMore::default()
             },
         );
         assert!(

@@ -20,7 +20,7 @@ use irori_identity::owner::device_of;
 
 use super::Services;
 use super::boards::BoardLog;
-use super::spawn::{Spawner, build_brief, spawn_permissions};
+use super::spawn::{BriefMore, Spawner, build_brief, spawn_permissions};
 use crate::logf;
 
 const SWEEPER: &str = "irori";
@@ -158,7 +158,15 @@ impl Services {
         let comments = log.co.comments(&t.id).unwrap_or_default();
         let named = |k: &str| (log.named)(k);
         let others = |k: &str| (log.others)(k);
-        let brief = build_brief(t, &comments, &named, &others, None, None);
+        let brief = build_brief(
+            t,
+            &comments,
+            &named,
+            &others,
+            None,
+            None,
+            BriefMore::default(),
+        );
         let setting = self.spawn_setting(&b.id);
         let perms = spawn_permissions(&setting, &b.id, &t.repo_key, &brief);
         let ask = SpawnAsk {

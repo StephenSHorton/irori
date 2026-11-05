@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use store::{Event, Filter, kinds};
 
 use super::Services;
-use super::spawn::{NOT_TRUSTED_PREFIX, Spawner, build_brief, spawn_permissions};
+use super::spawn::{BriefMore, NOT_TRUSTED_PREFIX, Spawner, build_brief, spawn_permissions};
 use crate::logf;
 
 const SWEEPER: &str = "irori";
@@ -473,7 +473,15 @@ impl Services {
             let n = self.roster.name_of(k);
             if n.is_empty() { k.to_string() } else { n }
         };
-        let brief = build_brief(t, &comments, &named, &|_| None, None, None);
+        let brief = build_brief(
+            t,
+            &comments,
+            &named,
+            &|_| None,
+            None,
+            None,
+            BriefMore::default(),
+        );
         let perms = spawn_permissions(&setting, "", &t.repo_key, &brief);
         // The person's words for its brief go with the request: the device
         // that starts it has no other way to them (card #455).
