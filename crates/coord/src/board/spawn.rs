@@ -84,6 +84,8 @@ pub struct Spawn {
     pub reason: String,
     /// The person's words for the agent's brief (card #455).
     pub note: String,
+    /// It counts toward "My agents may start agents" (card #575).
+    pub counted: bool,
     pub by: String,
     pub at: GoTime,
     /// The agent bound to this request, once presence listed it.
@@ -117,6 +119,9 @@ pub struct Spawned {
     /// The shared board whose card it is, for a mark kept in the person's
     /// own log for a board card's agent (card #455); empty otherwise.
     pub board: String,
+    /// It counts toward "My agents may start agents" (card #575), and so
+    /// does whatever it goes on to start.
+    pub counted: bool,
     pub at: GoTime,
 }
 
@@ -137,6 +142,8 @@ pub struct SpawnAsk {
     /// The person's words for the agent's brief, for the device that
     /// starts it (card #455).
     pub note: String,
+    /// It counts toward "My agents may start agents" (card #575).
+    pub counted: bool,
 }
 
 /// What the card itself says about getting an agent (card #574): what
@@ -274,6 +281,7 @@ impl Fold {
             name: p.name,
             reason: p.reason,
             note: p.note,
+            counted: p.counted,
             by: p.by,
             at: at(p.at),
             key: String::new(),
@@ -284,12 +292,11 @@ impl Fold {
                 if s.generation > o.generation
                     || (s.generation == o.generation && s.op != SPAWN_REQUESTED) =>
             {
-                let key = if s.generation == o.generation {
-                    o.key.clone()
-                } else {
-                    String::new()
-                };
-                *o = Spawn { key, ..s };
+                let same = s.generation == o.generation;
+                let key = if same { o.key.clone() } else { String::new() };
+                // A request's end doesn't repeat that it counts (card #575).
+                let counted = s.counted || (same && o.counted);
+                *o = Spawn { key, counted, ..s };
             }
             Some(_) => return,
             None => t.spawns.push(s),
@@ -352,6 +359,7 @@ impl Fold {
                 subtask: p.subtask.clone(),
                 device: p.device.clone(),
                 board: p.board.clone(),
+                counted: p.counted,
                 at: at(p.at),
             },
         );
@@ -431,6 +439,7 @@ impl Fold {
                 name: a.name,
                 reason: String::new(),
                 note: a.note,
+                counted: a.counted,
                 by,
                 at: now,
             },
@@ -521,6 +530,7 @@ impl Fold {
                 step: s.step.clone(),
                 subtask: s.subtask.clone(),
                 device: s.device.clone(),
+                counted: s.counted,
                 by: SWEEPER.into(),
                 at: now,
                 ..TaskSpawnedRow::default()
@@ -584,6 +594,7 @@ impl Fold {
         generation: i64,
         device: &str,
         board: &str,
+        counted: bool,
     ) -> Result<()> {
         if self.spawned.get(key).is_some_and(|m| m.task_id == task_id) {
             return Ok(());
@@ -598,12 +609,61 @@ impl Fold {
                 generation,
                 device: device.into(),
                 board: board.into(),
+                counted,
                 by: SWEEPER.into(),
                 at: now,
                 ..TaskSpawnedRow::default()
             },
         )?;
         Ok(())
+    }
+
+    /// Whether card t's next agent counts toward "My agents may start
+    /// agents" (card #575) with no new ask: the card's last request did,
+    /// or an agent that counts made the card. That is the chain: an agent
+    /// started by an agent can't get past the limit by posting a card, or
+    /// by splitting one for helpers.
+    pub(crate) fn in_chain(&self, t: &Task) -> bool {
+        t.spawn_request().is_some_and(|s| s.counted)
+            || self.spawned.get(&t.created_by).is_some_and(|m| m.counted)
+    }
+
+    /// The agents that count toward the limit and haven't gone, by key:
+    /// on any of the person's devices, since marks replicate. An agent on
+    /// a device that's off still counts, so the count never reads low.
+    pub(crate) fn counted_live(&self) -> Vec<String> {
+        let mut v: Vec<String> = self
+            .spawned
+            .iter()
+            .filter(|(k, m)| {
+                m.counted && !self.gone_rows.contains_key(*k) && !self.ended_by_irori.contains(*k)
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
+        v.sort();
+        v
+    }
+
+    /// Whether agent `key`, marked as started by Irori, hasn't gone.
+    pub(crate) fn spawned_live(&self, key: &str) -> bool {
+        self.spawned.contains_key(key)
+            && !self.gone_rows.contains_key(key)
+            && !self.ended_by_irori.contains(key)
+    }
+
+    /// The counted requests of this log still waiting for their agent,
+    /// oldest first: (when, card id).
+    pub(crate) fn counted_pending(&self) -> Vec<(GoTime, String)> {
+        let mut v: Vec<(GoTime, String)> = self
+            .tasks
+            .values()
+            .filter(|t| !is_terminal(&t.state))
+            .flat_map(|t| t.spawns.iter().map(move |s| (t, s)))
+            .filter(|(_, s)| s.counted && s.pending())
+            .map(|(t, s)| (s.at, t.id.clone()))
+            .collect();
+        v.sort_by(|a, b| gotime::cmp(&a.0, &b.0).then_with(|| a.1.cmp(&b.1)));
+        v
     }
 
     /// Whether this log spawns an agent per card (the board's switch).

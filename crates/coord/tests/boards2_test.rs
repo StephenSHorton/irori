@@ -2569,7 +2569,11 @@ fn only_the_persons_own_yes_counts() {
     say(&a, CARD1, &t, 1);
     sync(&a, &b);
     let got = a.c.get_task(&t.id).unwrap();
-    assert!(!got.given_said.as_ref().unwrap().yes, "{:?}", got.given_said);
+    assert!(
+        !got.given_said.as_ref().unwrap().yes,
+        "{:?}",
+        got.given_said
+    );
     assert!(a.c.given_to_spawn().is_empty());
     assert!(a.c.given_to_ask().is_empty());
     // Nor does the giver's answer count.
@@ -2620,7 +2624,11 @@ fn the_yes_is_the_persons_device_and_one_yes_starts_one_agent() {
         "p2's fold marks the agent, so its hand-out skips it"
     );
     assert!(
-        b.c.get_task(&t.id).unwrap().holders.iter().any(|h| h == CARD1),
+        b.c.get_task(&t.id)
+            .unwrap()
+            .holders
+            .iter()
+            .any(|h| h == CARD1),
         "the bind's assignment folds on p2's side"
     );
     assert!(a.c.given_to_ask().is_empty(), "the agent has it");

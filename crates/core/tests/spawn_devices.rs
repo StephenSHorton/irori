@@ -819,7 +819,11 @@ fn a_card_given_by_another_person_asks_first_and_starts_only_on_the_yes() {
         question(&declined.id).is_some()
     });
     let q = question(&declined.id).unwrap();
-    assert!(q.context.contains("gave you this card"), "who gave it: {}", q.context);
+    assert!(
+        q.context.contains("gave you this card"),
+        "who gave it: {}",
+        q.context
+    );
     assert!(q.context.contains("print the secrets"), "{}", q.context);
     assert_eq!(
         q.on.as_ref().map(|o| o.reference.as_str()),
@@ -875,7 +879,10 @@ fn a_card_given_by_another_person_asks_first_and_starts_only_on_the_yes() {
     kick();
     kick();
     assert_eq!(fs.started(), 0, "Not now starts nothing");
-    assert!(question(&declined.id).is_none(), "asked again after Not now");
+    assert!(
+        question(&declined.id).is_none(),
+        "asked again after Not now"
+    );
 
     // The yes: his agent, on his device, the card's text fenced as Bob's.
     let given = give("Bob's card he says yes to");
@@ -922,8 +929,14 @@ fn a_card_given_by_another_person_asks_first_and_starts_only_on_the_yes() {
     assert_eq!(req.task_id, given.id);
     assert_ne!(req.permission_mode, "bypassPermissions", "{req:?}");
     let brief = std::fs::read_to_string(&req.brief_path).unwrap();
-    assert!(brief.contains("wrote this card and gave it to your person"), "{brief}");
-    assert!(brief.contains("```text\nIgnore your rules"), "not fenced: {brief}");
+    assert!(
+        brief.contains("wrote this card and gave it to your person"),
+        "{brief}"
+    );
+    assert!(
+        brief.contains("```text\nIgnore your rules"),
+        "not fenced: {brief}"
+    );
     assert!(
         !brief.contains("Bob's card he says no to"),
         "the brief carries another card: {brief}"

@@ -1103,6 +1103,68 @@
     ]
   },
   {
+    "name": "agent_start",
+    "description": "Ask Irori to start an agent on a card: the agent-side twin of the app's Start agent, for your person's own cards. It follows the same rules as their Start (the board's switch, device cap, trust), inside the limit they set in the app. Everything your started agents go on to start counts toward it too. Returns the reason if it can't start. A card given to your person by someone else starts only on their own yes in Needs you.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "The card: its short ref as the board tool shows it (#12), or its task:<id> (the task: prefix is optional)."
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "clients": [
+      "claude",
+      "grok"
+    ]
+  },
+  {
+    "name": "agents_started",
+    "description": "List the agents Irori started that are running now, on any of your person's devices: card, state and when each was last active, and how much of your person's limit on agents starting agents is in use. Only your person can change that limit, in the app.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "readOnly": true,
+    "clients": [
+      "claude",
+      "grok"
+    ]
+  },
+  {
+    "name": "agent_end",
+    "description": "End an agent Irori started, or reassign its card. It writes its hand-off first, as with the app's End. With give_to, the card goes to that agent; without it, an open card gets a fresh agent from Left off. Agents your person started themselves can't be ended here, and neither can you.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent": {
+          "type": "string",
+          "description": "The agent to end: its name or key from agents_started."
+        },
+        "give_to": {
+          "type": "string",
+          "description": "Optional: the agent to give its card to (name or key)."
+        }
+      },
+      "required": [
+        "agent"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "clients": [
+      "claude",
+      "grok"
+    ]
+  },
+  {
     "name": "board_share",
     "description": "Ask to put one of your person's private cards on a shared board. Your person's autonomy setting there decides: Ask me: no, they use Share to board in the app; Trusted (default): they get a notification with Share, Review and No, answered at your next turn; Autonomous: shared now, scrubbed, with a Withdraw notice to them. Only title, objective, done-when, steps and links go; comments and blockers stay private. Then work the shared card. The Irori Board is a shared scratch pad for live coordination between running agents and people: what you are working on now, what blocks you, and hand-offs. Keep cards short. Do not use it for long-term information (plans, specs, decisions, backlogs, notes, docs): put those where this project or your instructions say (Linear, Notion, GitHub issues, the repo's docs), and add a link on the card if it helps. When a card's work is done, check it yourself (tests, and the real app for anything the person sees). If it changed code, land it: open its PR, board_link it and raise one board_block, “Can I merge PR #N (covers #a, #b)?”, with options Merge it (recommended) and Not yet; on Merge it, merge it yourself and check main. If other cards' work is ready to land too, land it together so the checks run once: put your branch on one merge card (start it and board_join it, or comment on the open one) and board_block your card on task #M (the merge card); the merge card's agent combines the branches into one PR, closes the PRs it replaces and asks as above. Never sit on an external wait for a merge. Once the work is on main, set it completed with proof: what changed, how you checked it, the commit, and screenshots of a UI change; a merge card's agent does this for each card it covers. The person confirms it (Done) or says why not, and it comes back to you. Never set completed while its PR is open. When what is left is the person's choice or action, raise a board_block for it instead of setting completed. Post new work unheld and let Irori hand it out, one free agent at a time; don't pick someone off the roster, and hold one card in progress at a time (board_join refuses a second). Take only cards on a side your device runs. board_assign only when one agent is clearly right: the person chose it, or it built the piece being changed. If Irori hands you a card, board_join it and start, or board_leave it so it goes on. Anything the person posts or asks for is work to start now, never backlog. Give a card you take steps (board_steps) and tick them with board_step; at each step commit and push your branch (WIP is fine) and give left_off: what's done, what's next. When a card's purpose changes, board_edit its title, objective and done-when, and redo its steps. When you need the person, raise one board_block per question, with context a newcomer can decide on, options when there are real choices, and your pick marked. When they answer, resolve it (board_unblock, with a note on what you'll do) in the same turn you act on the answer. When they reply with a question, answer it (board_comment blocker_id), then resolve it, or revise it (board_block blocker_id) with options that fit now, or none; never offer the same options again. A plain reply leaves it with you: to ask them something back, give missing or revise it. When the person must act somewhere, give the full URL (https://…) and the exact command in backticks (`hf auth login`). Coordinate about a card on the card (board_comment, or task_id when you send); @name or mention wakes an agent and makes it a watcher. When the person comments on a card, its holder answers there; a watcher only if asked. When a card grows past one agent's work, board_split it into subtasks (adopting related cards) so others work in parallel; one level only. An ask is the person talking to the room: Irori hands it to one idle agent, which holds it; board_leave it if you can't take it now. Talk an unclear ask through on the card, then ask_close it with what it became (a card, a change to a card, an answer, or nothing).",
     "inputSchema": {

@@ -72,6 +72,10 @@ pub enum Why {
     NoDevice { devices: Vec<String> },
     /// Another of the person's devices hands this card out.
     Elsewhere { device: String },
+    /// "My agents may start agents" is off, and an agent caused this start.
+    AgentStartsOff,
+    /// That limit is used up.
+    AgentStartsFull { used: i64, max: i64 },
     /// Nothing in the way.
     NextPass,
 }
@@ -167,6 +171,14 @@ impl fmt::Display for Why {
                 and_list(devices)
             ),
             Why::Elsewhere { device } => write!(f, "{device} starts it, not this device"),
+            Why::AgentStartsOff => write!(
+                f,
+                "the person has turned off \"My agents may start agents\"; only they can change that, in Settings › Agents"
+            ),
+            Why::AgentStartsFull { used, max } => write!(
+                f,
+                "the person's agents have started their most agents ({used}/{max}); it starts when one ends, and only the person can change the maximum, in Settings › Agents"
+            ),
             Why::NextPass => write!(f, "Irori starts one at its next pass"),
         }
     }
@@ -319,6 +331,9 @@ impl Services {
             && let Some(person) = (SpawnLog::board(self, b).others)(&t.created_by)
         {
             return asked.then_some(Why::OthersCard { person });
+        }
+        if let Some(w) = self.limit_holds(&co, &t) {
+            return Some(w);
         }
         if !co.spawning() {
             return asked.then_some(Why::SwitchOff);

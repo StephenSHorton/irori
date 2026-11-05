@@ -175,6 +175,10 @@ impl Services {
     }
 
     fn spawn_board_card(&self, sp: &Spawner, b: &Arc<BoardLog>, t: &Task) -> Result<bool, String> {
+        // An agent's start past the person's limit waits (card #575).
+        if self.limit_holds(b.coord(), t).is_some() {
+            return Ok(false);
+        }
         // Only a card this person serves (they made it, or it was given to
         // them, and they said yes); a thread, only one they started.
         if !b.coord().mine_to_serve(t) {
@@ -242,6 +246,7 @@ impl Services {
             name: name.clone(),
             model: setting.model().into(),
             effort: setting.effort().into(),
+            counted: self.start_counts(&log.co, t),
             ..SpawnAsk::default()
         };
         let Some(g) = log
@@ -251,6 +256,7 @@ impl Services {
         else {
             return Ok(false);
         };
+        self.settle_ask(&t.id);
         self.start_in(sp, &log, t, g, &name, Some(folder))
     }
 
@@ -298,7 +304,7 @@ impl Services {
             };
             if let Err(e) =
                 self.coord
-                    .mark_spawned_elsewhere(&a.key, &t.id, s.generation, me, &b.id)
+                    .mark_spawned_elsewhere(&a.key, &t.id, s.generation, me, &b.id, s.counted)
             {
                 logf(format_args!("spawn {}: mark {}: {e}", t.short_ref(), a.key));
                 continue;

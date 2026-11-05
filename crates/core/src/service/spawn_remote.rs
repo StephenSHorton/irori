@@ -112,6 +112,10 @@ pub struct StartRequest {
     pub generation: i64,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub note: String,
+    /// An agent asked, not the person (card #575): the Core wrote the row
+    /// after its own checks, and the start counts toward their limit.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent: bool,
     pub by: String,
     #[serde(default)]
     pub at_device: String,
@@ -508,6 +512,7 @@ impl Services {
             model: setting.model().into(),
             effort: setting.effort().into(),
             note,
+            counted: self.start_counts(&self.coord, t),
             ..SpawnAsk::default()
         };
         let out = self
@@ -515,6 +520,7 @@ impl Services {
             .request_spawn(SWEEPER, ask)
             .map_err(|e| e.to_string())?;
         if out.is_some() {
+            self.settle_ask(&t.id);
             self.note_tried(&t.id, dev);
             self.spawn
                 .answers
@@ -792,6 +798,16 @@ impl Services {
     /// The person asks for card `id`'s agent now from a device that
     /// doesn't hand it out: the card's own device acts on it.
     pub(crate) fn request_start(&self, id: &str, note: &str) -> Result<(), String> {
+        self.write_start_request(id, note, false)
+    }
+
+    /// An agent's ask, passed to the device that hands the card out, after
+    /// [`Services::agent_start`]'s checks (card #575).
+    pub(crate) fn request_agent_start(&self, id: &str) -> Result<(), String> {
+        self.write_start_request(id, "", true)
+    }
+
+    fn write_start_request(&self, id: &str, note: &str, agent: bool) -> Result<(), String> {
         let generation = self
             .coord
             .get_task(id)
@@ -801,6 +817,7 @@ impl Services {
             task_id: id.into(),
             generation,
             note: note.trim().to_string(),
+            agent,
             by: format!("user:{}", self.device.id),
             at_device: self.device.id.clone(),
             at: (self.now)(),
@@ -837,6 +854,11 @@ impl Services {
             }
             if !r.note.is_empty() {
                 self.set_brief_answer(&t.id, &r.note);
+            }
+            if r.agent {
+                self.note_agent_ask(&t);
+            } else {
+                self.note_person_ask(&t.id);
             }
             self.coord.spawn_now(&t.id);
             self.asks_kick.kick();

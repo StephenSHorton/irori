@@ -52,10 +52,9 @@ pub use offers::{
 };
 pub use parts::{DEFAULT_AGENTS_PER_CARD, MAX_AGENTS_PER_CARD, PART_QUESTION};
 pub use spawn::{
-    CRASHED_QUESTION, CRASHED_START, GIVEN_NOT_NOW, GIVEN_QUESTION, GIVEN_START,
-    MAX_SPAWN_CRASHES, PERMISSION_MODES, SPAWN_CANCELED, SPAWN_FAILED, SPAWN_GRACE,
-    SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk, SpawnHold, Spawned,
-    is_crash_question,
+    CRASHED_QUESTION, CRASHED_START, GIVEN_NOT_NOW, GIVEN_QUESTION, GIVEN_START, MAX_SPAWN_CRASHES,
+    PERMISSION_MODES, SPAWN_CANCELED, SPAWN_FAILED, SPAWN_GRACE, SPAWN_REQUESTED, SPAWN_RETRY,
+    Spawn, SpawnAsk, SpawnHold, Spawned, is_crash_question,
 };
 mod resource;
 mod review;
@@ -1473,9 +1472,33 @@ impl Coord {
         generation: i64,
         device: &str,
         board: &str,
+        counted: bool,
     ) -> Result<()> {
         self.lock()
-            .mark_spawned_elsewhere(key, task_id, generation, device, board)
+            .mark_spawned_elsewhere(key, task_id, generation, device, board, counted)
+    }
+    /// Whether card t's next agent counts toward "My agents may start
+    /// agents" with no new ask (card #575). See [`Fold::in_chain`].
+    pub fn in_chain(&self, t: &Task) -> bool {
+        self.lock().in_chain(t)
+    }
+    /// Whether card t was given to this device's person (card #573): it
+    /// starts only on their own yes.
+    pub fn given_to_me(&self, t: &Task) -> bool {
+        let f = self.lock();
+        f.given_person(t).is_some() && f.mine_to_serve(t)
+    }
+    /// Whether agent `key`, started by Irori, hasn't gone (card #575).
+    pub fn spawned_live(&self, key: &str) -> bool {
+        self.lock().spawned_live(key)
+    }
+    /// The live agents that count toward that limit, by key (card #575).
+    pub fn counted_live(&self) -> Vec<String> {
+        self.lock().counted_live()
+    }
+    /// This log's counted requests still starting, oldest first (card #575).
+    pub fn counted_pending(&self) -> Vec<(GoTime, String)> {
+        self.lock().counted_pending()
     }
     /// This log's device id.
     pub fn device_id(&self) -> String {

@@ -67,6 +67,7 @@ pub mod notes;
 mod notifications;
 pub mod spaces;
 pub mod spawn;
+pub mod spawn_agents;
 pub mod spawn_boards;
 pub mod spawn_permissions;
 pub mod spawn_remote;
@@ -401,6 +402,20 @@ impl tools::Backend for ToolsView {
     }
     fn device_labels(&self) -> std::collections::BTreeMap<String, String> {
         self.0.device_labels()
+    }
+    fn agent_start(&self, caller: &str, task_id: &str) -> Result<String, String> {
+        self.0.agent_start(caller, task_id)
+    }
+    fn agent_end(&self, caller: &str, key: &str) -> Result<String, String> {
+        self.0.agent_end(caller, key)
+    }
+    fn agent_limit(&self) -> Option<tools::AgentLimit> {
+        let u = self.0.agent_starts_use();
+        Some(tools::AgentLimit {
+            on: u.on,
+            max: u.max,
+            used: u.used,
+        })
     }
     fn spawn_wait(&self, task_id: &str, asked: bool) -> String {
         self.0.spawn_wait(task_id, asked)
@@ -2480,6 +2495,16 @@ impl Core {
 
     /// The person asks for an agent on card `id` now, with `note` (their
     /// comment) in its brief: "Start an agent with this" (§4). App only.
+    /// "My agents may start agents on my cards" (card #575).
+    pub fn agent_starts(&self) -> spawn_agents::AgentStartsUse {
+        self.s.agent_starts_use()
+    }
+
+    /// The person sets it, from the app only: no tool reaches this.
+    pub fn set_agent_starts(&self, on: bool, max: i64) -> Result<(), String> {
+        self.s.set_agent_starts(on, max)
+    }
+
     pub fn start_agent(&self, id: &str, note: &str) -> Result<(), String> {
         self.s.start_agent(id, note)
     }
