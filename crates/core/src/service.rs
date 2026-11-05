@@ -1002,7 +1002,12 @@ impl Core {
                             }
                             Ok(tid)
                         }
-                        None => Err(inbox::Error::sentinel(inbox::ErrorKind::NoCard)),
+                        // A comment or blocker bridged from a shared board
+                        // is on that board's card already (card #478): it
+                        // closes there, never moved to the person, where
+                        // each agent's copy showed as a DM.
+                        None => tools::notice::closed_on_board(m)
+                            .ok_or_else(|| inbox::Error::sentinel(inbox::ErrorKind::NoCard)),
                     }
                 })
             }),
@@ -3106,7 +3111,11 @@ impl Services {
                     self.agent_names.all().remove(&p.by)
                 })
                 .filter(|n| !n.trim().is_empty())
-                .unwrap_or_else(|| p.by.clone())
+                // Another person or their agent in a space's channel; a
+                // key never stands in for a name (card #478).
+                .or_else(|| self.space_names().remove(&p.by))
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or_else(|| "An agent".to_string())
         };
         let title = match self.talk.channel(&p.conv_id) {
             Some(c) => format!("{who} in #{}", c.name),

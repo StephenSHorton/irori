@@ -56,6 +56,7 @@ import {
 } from "./threads"
 import { agentStatus } from "@/lib/agent-status"
 import { ConversationView, memberStatus, statusOf } from "./conversation"
+import { memberName, nameOr } from "@/lib/names"
 
 // talkMatches is whether a thread fits the list's search: its title, what
 // was asked, its #ref, or the newest reply.
@@ -494,7 +495,7 @@ function Group({
 
 // ConvItem is a channel or a DM in the list, with its unread count (a red
 // @ when it mentions you).
-function ConvItem({
+export function ConvItem({
   c,
   current,
   onClick,
@@ -514,9 +515,9 @@ function ConvItem({
       <Face
         who={AgentRef({
           key: other[0].key,
-          name: other[0].name ?? other[0].key,
+          name: memberName(other[0]),
           status: statusOf(other[0], live),
-          live: statusOf(other[0], live) !== "gone",
+          live: !["gone", "unknown"].includes(statusOf(other[0], live)),
         })}
         className="size-4 shrink-0"
         noHover
@@ -525,8 +526,7 @@ function ConvItem({
   const label =
     c.kind === "channel"
       ? plainLine(c.name)
-      : other.map((m) => plainLine(m.name ?? m.key)).join(" ↔ ") ||
-        plainLine(c.name)
+      : other.map((m) => memberName(m)).join(" ↔ ") || nameOr(c.name)
   const sub =
     c.kind === "channel"
       ? c.topic

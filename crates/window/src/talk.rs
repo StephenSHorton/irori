@@ -16,9 +16,18 @@ pub struct TalkMember {
     /// `person` or `agent`.
     pub kind: String,
     pub key: String,
-    /// What it goes by ("you" for the person).
+    /// What it goes by ("you" for the person). Never a key (card #478):
+    /// "BillingEng1 · Spencer" for another member's agent, "unknown agent"
+    /// when nothing names it.
     #[serde(default)]
     pub name: String,
+    /// Another member's agent's board status (`busy`, `idle`, `gone`); ""
+    /// when this device knows none, which isn't gone.
+    #[serde(default)]
+    pub status: String,
+    /// Whose agent it is when it is another member's ("Spencer"), else "".
+    #[serde(default)]
+    pub owner: String,
 }
 
 /// Who to add to or take out of a conversation.
@@ -106,6 +115,8 @@ impl Window {
                         kind: m.kind,
                         key: m.key,
                         name: m.name,
+                        status: m.status,
+                        owner: m.owner,
                     })
                     .collect(),
                 last_at: c.last_at,

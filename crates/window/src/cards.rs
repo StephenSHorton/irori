@@ -1121,6 +1121,45 @@ impl People {
     }
 
     fn ref_plain(&self, key: &str) -> AgentRef {
+        // A message bridged from a shared board comes from
+        // board:<boardId>/<cardId> or board:<boardId>/person:<personId>
+        // (v0.5 §7.1): the board's own agent:<cardId> / person:<personId>
+        // name it (card #478), and the key it came as stays the key.
+        if let Some((_, who)) = key.strip_prefix("board:").and_then(|r| r.split_once('/')) {
+            let person = who.starts_with(store::kinds::PERSON_ACTOR_PREFIX);
+            let as_board = if person {
+                who.to_string()
+            } else {
+                format!("{}{who}", store::kinds::AGENT_ACTOR_PREFIX)
+            };
+            if !self.board.contains_key(&as_board)
+                && !self.persons.contains_key(&as_board)
+                && !self.known.contains_key(&as_board)
+            {
+                // A board's agent or person this device no longer knows:
+                // not one of this person's agents, and not gone either.
+                return AgentRef {
+                    key: key.into(),
+                    name: if person {
+                        "Another person".into()
+                    } else {
+                        "unknown agent".into()
+                    },
+                    status: if person { "person" } else { "unknown" }.into(),
+                    live: person,
+                    where_: if person {
+                        "On the board".into()
+                    } else {
+                        "Another person's agent".into()
+                    },
+                    ..AgentRef::default()
+                };
+            }
+            return AgentRef {
+                key: key.into(),
+                ..self.ref_plain(&as_board)
+            };
+        }
         if key == "irori" {
             return AgentRef {
                 key: key.into(),
@@ -1183,9 +1222,11 @@ impl People {
             .map(|(d, _)| d)
             .unwrap_or("")
             .to_string();
+        // A key is never a name (card #478): one nothing names is an
+        // unknown agent.
         let mut r = AgentRef {
             key: key.into(),
-            name: key.into(),
+            name: "unknown agent".into(),
             status: "gone".into(),
             conflict: self.conflicts.get(key).cloned().unwrap_or_default(),
             ..AgentRef::default()
@@ -1216,6 +1257,8 @@ impl People {
             // gone; where is whose agent it is.
             if !a.name.is_empty() {
                 r.name = a.name.clone();
+            } else if !a.person.is_empty() {
+                r.name = format!("an agent of {}'s", a.person);
             }
             r.status = if a.status.is_empty() {
                 "idle".into()

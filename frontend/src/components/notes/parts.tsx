@@ -31,6 +31,7 @@ import {
   type Note,
   type NoteKind,
 } from "@/lib/notes"
+import { unknownAgent } from "@/lib/names"
 import { cn } from "@/lib/utils"
 
 const kindTone: Record<
@@ -74,7 +75,7 @@ export function useWho(roster: Roster, boards: BoardSummary[]): Who {
     }
     const a = roster.agents.find((x) => x.key === key)
     if (a && plainLine(a.name)) return plainLine(a.name)
-    return key.split("/").pop() || key
+    return unknownAgent
   }
 }
 

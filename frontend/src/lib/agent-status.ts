@@ -25,6 +25,9 @@ export function agentStatus(
   now = Date.now()
 ): AgentStatusText {
   const s = a.status
+  // Another member's agent whose state this device doesn't know (card
+  // #478): no word, rather than gone or not running.
+  if (s === "unknown") return { text: "", tone: "muted" }
   if (s === "gone") return { text: "gone", tone: "muted" }
   if (a.offline || a.deviceState === "offline")
     return { text: "device offline", tone: "muted" }
