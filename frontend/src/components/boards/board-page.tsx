@@ -42,13 +42,16 @@ import {
 import { useThreads, type CardSummary, type DoneState } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
 import { go } from "@/lib/nav"
+import { boardsOf } from "@/lib/spaces"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
 import { BoardSettingsPanel, InviteHow, InvitePanel, useInviteReach } from "./parts"
+import { cardsOnBoard, ListHeaderBar, SpaceBoards } from "./space-boards"
 
 export function BoardPage({
   boardId,
+  list,
   cards,
   done,
   filter,
@@ -62,6 +65,8 @@ export function BoardPage({
   now,
 }: {
   boardId: string
+  // The board open in the space (card #558); none is the space's page.
+  list?: string
   cards: CardSummary[]
   done: DoneState
   filter: Filter
@@ -85,8 +90,6 @@ export function BoardPage({
   // The thread unfolded in the panel, and whether the person hid it.
   const [thread, setThread] = useState("")
   const [threadsHidden, setThreadsHidden] = useState(false)
-  // The board in the space whose cards show (card #392); "" is all.
-  const [inSpace, setInSpace] = useState("")
   const b = boards.find((x) => x.boardId === boardId)
   if (!b)
     return (
@@ -99,16 +102,17 @@ export function BoardPage({
     )
   // The same board view as Home (card #161), over this board's cards,
   // with who is on it beside them.
-  const shown = cardsOnBoard(b, cards, inSpace)
+  const open = list ? boardsOf(b).find((x) => x.boardId === list) : undefined
+  const shown = open ? cardsOnBoard(b, cards, open.tag) : []
   return (
     <>
       <BoardNotes board={b} />
-      <SpaceBoards board={b} picked={inSpace} onPick={setInSpace} />
       <BoardView
         scope={boardId}
+        plain={!open}
         cards={shown}
         done={done}
-        filter={filter}
+        filter={open ? filter : "all"}
         onFilter={onFilter}
         view={view}
         onView={onView}
@@ -127,10 +131,14 @@ export function BoardPage({
           />
         }
         empty={
-          <p className="px-1 text-[12.5px] text-muted-foreground">
-            No cards on this board yet. Make one with New card, or share a card
-            to it from its page.
-          </p>
+          open ? (
+            <p className="px-1 text-[12.5px] text-muted-foreground">
+              No cards on this board yet. Make one with New card, or move one
+              here from its page.
+            </p>
+          ) : (
+            <SpaceBoards space={b} cards={cards} now={now} />
+          )
         }
         nothingDecide="Nothing on this board waits on you."
         threads={{
@@ -149,7 +157,7 @@ function BackToBoards() {
   return (
     <Button variant="ghost" size="sm" className="w-fit px-1.5" onClick={() => go({ kind: "boards" })}>
       <ArrowLeftIcon aria-hidden />
-      Boards
+      Spaces
     </Button>
   )
 }
@@ -158,7 +166,7 @@ function BackToBoards() {
 // name and tag, its cards and people, and the actions on the board itself:
 // Pin to the sidebar and Rename (owners) in the open; Leave and Forget here
 // in its ⋯ menu (card #211).
-export function BoardHeaderBar({ boardId }: { boardId: string }) {
+export function BoardHeaderBar({ boardId, list }: { boardId: string; list?: string }) {
   const { boards, reload } = useBoards()
   const b = boards.find((x) => x.boardId === boardId)
   const [renaming, setRenaming] = useState(false)
@@ -218,6 +226,8 @@ export function BoardHeaderBar({ boardId }: { boardId: string }) {
     }
   }
   const ok = b.ready && !b.warnings?.length
+  const open = list ? boardsOf(b).find((x) => x.boardId === list) : undefined
+  if (open) return <ListHeaderBar space={b} list={open} />
   return (
     <div className="flex min-w-0 flex-1 items-center gap-x-3">
       {renaming ? (
@@ -226,7 +236,7 @@ export function BoardHeaderBar({ boardId }: { boardId: string }) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={MaxBoardName}
-            aria-label="Board name"
+            aria-label="Space name"
             className="h-8 w-40 sm:w-64"
             autoFocus
           />
@@ -241,12 +251,11 @@ export function BoardHeaderBar({ boardId }: { boardId: string }) {
         <h1 className="flex min-w-0 items-baseline gap-2 text-lg font-semibold text-ink">
           <span className={cn("size-2 shrink-0 self-center rounded-full", ok ? "bg-success" : "bg-warning")} aria-hidden />
           <span className="truncate">{plainLine(b.name) || "(unnamed)"}</span>
-          <span className="font-mono text-sm font-normal text-muted-foreground">{plainLine(b.tag)}#</span>
         </h1>
       )}
       <span className="hidden min-w-0 truncate text-xs text-muted-foreground lg:inline">
         {b.ready
-          ? `${b.cards === 1 ? "1 card" : `${b.cards} cards`} · visible to ${b.people.map(plainLine).join(", ")}`
+          ? `${boardsOf(b).length === 1 ? "1 board" : `${boardsOf(b).length} boards`} · ${b.people.map(plainLine).join(", ")}`
           : "Its cards are still arriving from your other device"}
       </span>
       {error && <span className="truncate text-xs text-destructive">{error}</span>}
@@ -308,8 +317,8 @@ function BoardSettingsButton({ board: b, reload }: { board: BoardSummary; reload
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label="Board settings"
-        title="Board settings"
+        aria-label="Space settings"
+        title="Space settings"
         onClick={() => setOpen(true)}
       >
         <SettingsIcon aria-hidden />
@@ -323,7 +332,7 @@ function BoardSettingsButton({ board: b, reload }: { board: BoardSummary; reload
       >
         <DialogContent className="max-h-[85vh] gap-3 overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Board settings</DialogTitle>
+            <DialogTitle>Space settings</DialogTitle>
             <DialogDescription>
               {plainLine(b.name) || "(unnamed)"}: who is on it, what reaches your agents and what they may do here.
             </DialogDescription>
@@ -356,7 +365,7 @@ function BoardActionsMenu({
   const asks: Record<"leave" | "forgetHere", ConfirmAsk> = {
     leave: {
       variant: "destructive",
-      confirmLabel: "Leave the board",
+      confirmLabel: "Leave the space",
       question:
         b.people.length > 1 ? (
           <>
@@ -367,7 +376,7 @@ function BoardActionsMenu({
         ) : (
           <>
             Leave <b>{plainLine(b.name)}</b>? It goes from every one of your devices, with its cards.
-            Coming back needs a new board.
+            Coming back needs a new space.
           </>
         ),
       onConfirm: async () => {
@@ -395,7 +404,7 @@ function BoardActionsMenu({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger
-          render={<Button variant="ghost" size="icon-sm" aria-label="Board actions" title="Board actions" />}
+          render={<Button variant="ghost" size="icon-sm" aria-label="Space actions" title="Space actions" />}
         >
           <EllipsisIcon aria-hidden />
         </DropdownMenuTrigger>
@@ -406,7 +415,7 @@ function BoardActionsMenu({
             </DropdownMenuItem>
           )}
           <DropdownMenuItem variant="destructive" onClick={() => setAsking("leave")}>
-            Leave
+            Leave the space
           </DropdownMenuItem>
           <DropdownMenuItem variant="destructive" onClick={() => setAsking("forgetHere")}>
             Forget here
@@ -424,114 +433,6 @@ function BoardActionsMenu({
         />
       )}
     </>
-  )
-}
-
-// cardsOnBoard is the space's cards on board `tag` (card #392): "" is every
-// board; the space's own board also has the cards from before spaces,
-// which carry its tag.
-export function cardsOnBoard(b: BoardSummary, cards: CardSummary[], tag: string): CardSummary[] {
-  if (!tag) return cards
-  return cards.filter((c) => (c.tag || b.tag) === tag)
-}
-
-// SpaceBoards is the row of boards in this space (card #392, decision 46):
-// one invite and one set of people share them all. A chip shows one
-// board's cards; Add board puts another in the space. Shown once a space
-// has a second board, or while one is being added.
-function SpaceBoards({
-  board: b,
-  picked,
-  onPick,
-}: {
-  board: BoardSummary
-  picked: string
-  onPick: (tag: string) => void
-}) {
-  const [adding, setAdding] = useState(false)
-  const [name, setName] = useState("")
-  const [tag, setTag] = useState("")
-  const [error, setError] = useState<string | null>(null)
-  const list = b.boards.length ? b.boards : [{ boardId: b.boardId, name: b.name, tag: b.tag }]
-  const add = async (e: FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    try {
-      await actions.addToSpace(b.boardId, name, tag)
-      setAdding(false)
-      setName("")
-      setTag("")
-      await reloadBoards()
-    } catch (err) {
-      setError(errorText(err))
-    }
-  }
-  const chip = (key: string, label: string, title: string) => (
-    <Button
-      key={key || "all"}
-      size="sm"
-      variant={picked === key ? "secondary" : "ghost"}
-      aria-pressed={picked === key}
-      className="h-7 px-2.5 text-[12.5px]"
-      title={title}
-      onClick={() => onPick(key)}
-    >
-      {label}
-    </Button>
-  )
-  return (
-    <div className="grid gap-1.5" aria-label="Boards in this space">
-      <div className="flex flex-wrap items-center gap-1">
-        {list.length > 1 && chip("", "All boards", "Every board in this space")}
-        {list.length > 1 &&
-          list.map((x) =>
-            chip(x.tag, `${plainLine(x.name)} ${plainLine(x.tag)}#`, `Only ${plainLine(x.name)}'s cards`)
-          )}
-        {b.ready && !adding && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 px-2.5 text-[12.5px] text-muted-foreground"
-            title="Another board for the same people: one invite shares them all"
-            onClick={() => setAdding(true)}
-          >
-            + Board
-          </Button>
-        )}
-      </div>
-      {adding && (
-        <form className="flex flex-wrap items-center gap-1.5" onSubmit={add}>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={MaxBoardName}
-            placeholder="Board name"
-            aria-label="New board's name"
-            className="h-8 w-48"
-            autoFocus
-          />
-          <Input
-            value={tag}
-            onChange={(e) => setTag(e.target.value.toLowerCase())}
-            maxLength={16}
-            placeholder="tag"
-            aria-label="New board's tag (its card refs: tag#12)"
-            className="h-8 w-24 font-mono"
-          />
-          <Button type="submit" size="sm" className="h-8" disabled={!name.trim() || !tag.trim()}>
-            Add board
-          </Button>
-          <Button type="button" variant="ghost" size="sm" className="h-8" onClick={() => setAdding(false)}>
-            Cancel
-          </Button>
-          {error && (
-            <p className="basis-full text-xs text-destructive" role="alert">
-              {plainLine(error)}
-            </p>
-          )}
-        </form>
-      )}
-    </div>
   )
 }
 
@@ -589,7 +490,7 @@ function BoardInvite({ board: b, onChanged }: { board: BoardSummary; onChanged: 
         <>
           {!b.owner ? (
             <p className="text-xs text-muted-foreground">
-              Only an owner can invite people to this board: ask one of them.
+              Only an owner can invite people to this space: ask one of them.
             </p>
           ) : !b.ready ? (
             <p className="text-xs text-muted-foreground">

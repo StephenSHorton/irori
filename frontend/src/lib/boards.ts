@@ -14,6 +14,7 @@ import { errorText } from "./talk"
 
 export { BoardSettings, BoardSummary, InviteStatus, SharePreview }
 export type { SummaryMember }
+export type SpaceBoard = BoardSummary["boards"][number]
 
 // presenceLine says how a member is on a board (card #371): "online",
 // "seen 5m ago" (heard within ten minutes) or "offline · seen 2h ago",
@@ -161,6 +162,7 @@ function boardsState(): BoardSummary[] {
       boards: [
         { boardId: "sample-board-mlg", name: "MLG", tag: "mlg" },
         { boardId: "sample-board-mlg-net", name: "Netcode", tag: "net" },
+        { boardId: "sample-board-mlg-art", name: "Art", tag: "art" },
       ],
     }),
     BoardSummary({

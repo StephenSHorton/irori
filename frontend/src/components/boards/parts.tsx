@@ -183,7 +183,7 @@ export function NewBoardDialog({
     >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{t === "make" ? "New board" : "Join a board"}</DialogTitle>
+          <DialogTitle>{t === "make" ? "New space" : "Join a space"}</DialogTitle>
           <DialogDescription>
             {t === "make"
               ? "One board per project. Only the people you invite see it."

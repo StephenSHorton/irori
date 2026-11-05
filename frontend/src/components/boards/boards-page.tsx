@@ -8,13 +8,14 @@ import { cardTone, type Tone } from "@/components/cards/bits"
 import { Face } from "@/components/cards/faces"
 import { Button } from "@/components/ui/button"
 import { useBoards, useInvite, type BoardSummary } from "@/lib/boards"
-import { AllSpaces, Personal, boardsInSpace } from "@/lib/spaces"
+import { AllSpaces, Personal, boardsInSpace, boardsOf } from "@/lib/spaces"
 import { TaskState, type CardSummary } from "@/lib/cards"
 import { plainLine, relativeTime } from "@/lib/irori"
 import { go } from "@/lib/nav"
 import { cn } from "@/lib/utils"
 
 import { InvitePanel, NewBoardDialog } from "./parts"
+import { PersonalBoards } from "./space-boards"
 
 export function BoardsPage({
   cards,
@@ -37,14 +38,12 @@ export function BoardsPage({
   const inviting = !!invite && invite.state !== ""
   return (
     <div className="grid gap-4">
-      <div className="grid gap-1">
-        <h1 className="text-lg font-semibold text-ink">Boards</h1>
+      {space !== Personal && (
         <p className="max-w-2xl text-[13px] text-muted-foreground">
-          A board is a project you share: its cards, the people on it and
-          their agents. Make one per project; anyone can be on as many as
-          they like. Boards are private: only the people you invite see them.
+          A space is a group of people: their boards, Talk and agents. Spaces
+          are private: only the people you invite see them.
         </p>
-      </div>
+      )}
       {error && <p className="text-xs text-destructive">{error}</p>}
       {/* An open invite sits over the list, never in its place (card
           #103): your boards stay one click away while it waits. */}
@@ -60,14 +59,11 @@ export function BoardsPage({
         </div>
       )}
       {space === Personal ? (
-        <p className="max-w-2xl text-[13px] text-muted-foreground">
-          Personal holds no shared boards: your own cards are on Home. Pick
-          All spaces or a shared space in the sidebar to see its boards.
-        </p>
+        <PersonalBoards cards={cards} now={now} />
       ) : boards.length > 0 ? (
         <ul
           className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]"
-          aria-label="Your boards"
+          aria-label="Your spaces"
         >
           {boards.map((b) => (
             <BoardTile key={b.boardId} board={b} cards={cards} now={now} />
@@ -76,11 +72,11 @@ export function BoardsPage({
       ) : (
         <div className="grid justify-items-start gap-2">
           <p className="text-[13px] text-muted-foreground">
-            No boards yet. Make one for a project, then invite people to it;
-            or join one with an invite link someone sent you.
+            No spaces yet. Make one, then invite people to it; or join one
+            with an invite link someone sent you.
           </p>
           <Button size="sm" onClick={() => onNewBoard(true)}>
-            + New board
+            + New space
           </Button>
         </div>
       )}
@@ -132,7 +128,7 @@ export function boardSegs(mine: CardSummary[], doneWeek: number): Seg[] {
 
 // StateBar is the tile's thin bar of card counts by state, with the
 // counts spelled out under it.
-function StateBar({ segs }: { segs: Seg[] }) {
+export function StateBar({ segs }: { segs: Seg[] }) {
   const total = segs.reduce((n, s) => n + s.n, 0)
   const shown = segs.filter((s) => s.n > 0)
   const text = shown.map((s) => `${s.n} ${s.label}`).join(" · ")
@@ -159,7 +155,34 @@ function StateBar({ segs }: { segs: Seg[] }) {
   )
 }
 
-// BoardTile is one board on the Boards page: name, tag, who is on it, a
+// RecentCards is a tile's few most recently active cards, with their
+// holders' faces.
+export function RecentCards({ cards }: { cards: CardSummary[] }) {
+  if (cards.length === 0) return null
+  return (
+    <ul className="grid gap-1" aria-label="Recently active cards">
+      {cards.map((c) => (
+        <li key={c.id} className="flex min-w-0 items-center gap-2 text-[12.5px]">
+          {c.holder.who.key ? (
+            <Face who={c.holder.who} noHover noDot className="size-5" />
+          ) : (
+            <span
+              className="size-5 shrink-0 border border-dashed border-muted-foreground/40"
+              title="Nobody holds it"
+              aria-label="Nobody holds it"
+            />
+          )}
+          <span className="font-mono text-[11px] text-muted-foreground">
+            {c.tag ?? ""}#{c.short}
+          </span>
+          <span className="min-w-0 truncate text-ink-2">{plainLine(c.title)}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+// BoardTile is one space on the Spaces page: name, tag, who is on it, a
 // bar of its cards by state, its three most recently active cards with
 // their holders' faces, when it last had activity, and how many cards wait
 // on you (card #126); it opens the board's page.
@@ -192,7 +215,6 @@ function BoardTile({
           <span className="min-w-0 truncate text-sm font-medium text-ink">
             {plainLine(b.name) || "(unnamed)"}
           </span>
-          <span className="font-mono text-xs text-muted-foreground">{plainLine(b.tag)}#</span>
           {b.owner && (
             <span className="ml-auto rounded bg-muted px-1 text-[11px] text-muted-foreground">owner</span>
           )}
@@ -200,28 +222,13 @@ function BoardTile({
         <span className="text-xs text-muted-foreground">
           {b.ready ? b.people.map(plainLine).join(", ") : "Arriving from your other device"}
         </span>
-        {b.ready && <StateBar segs={boardSegs(mine, b.doneWeek ?? 0)} />}
-        {recent.length > 0 && (
-          <ul className="grid gap-1" aria-label="Recently active cards">
-            {recent.map((c) => (
-              <li key={c.id} className="flex min-w-0 items-center gap-2 text-[12.5px]">
-                {c.holder.who.key ? (
-                  <Face who={c.holder.who} noHover noDot className="size-5" />
-                ) : (
-                  <span
-                    className="size-5 shrink-0 border border-dashed border-muted-foreground/40"
-                    title="Nobody holds it"
-                    aria-label="Nobody holds it"
-                  />
-                )}
-                <span className="font-mono text-[11px] text-muted-foreground">
-                  {c.tag ?? ""}#{c.short}
-                </span>
-                <span className="min-w-0 truncate text-ink-2">{plainLine(c.title)}</span>
-              </li>
-            ))}
-          </ul>
+        {b.ready && (
+          <span className="truncate text-xs text-ink-2">
+            {boardsOf(b).map((x) => plainLine(x.name)).join(" · ")}
+          </span>
         )}
+        {b.ready && <StateBar segs={boardSegs(mine, b.doneWeek ?? 0)} />}
+        <RecentCards cards={recent} />
         <span className="flex flex-wrap items-center gap-x-2 text-xs">
           {last && (
             <span className="text-muted-foreground">

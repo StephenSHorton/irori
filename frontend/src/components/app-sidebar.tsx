@@ -417,12 +417,12 @@ export function AppSidebar({
           />
           <NavItem
             icon={LayoutGridIcon}
-            label="Boards"
+            label="Spaces"
             folded={folded}
             current={here({ kind: "boards" })}
             count={boardsNeedYou}
             countTone="destructive"
-            countTitle="Cards on your boards waiting on you"
+            countTitle="Cards in your spaces waiting on you"
             onClick={() => go({ kind: "boards" })}
           />
           <NavItem
@@ -446,7 +446,7 @@ export function AppSidebar({
           />
 
           {pinnedBoards.length > 0 && (
-            <Group label="Pinned boards" folded={folded}>
+            <Group label="Pinned spaces" folded={folded}>
               {pinnedBoards.map((b) => (
                 <PinRow
                   key={b.boardId}

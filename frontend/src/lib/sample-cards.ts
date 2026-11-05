@@ -1846,13 +1846,13 @@ export function sampleCards(now: Date): CardDetail[] {
     }),
     card({
       id: "sample-board-2",
-      short: "2",
+      short: "1",
       title: "Pick the race map for the demo",
       goal: "One map everyone tests on this week.",
       scope: "board",
-      scopeLabel: "MLG",
+      scopeLabel: "MLG · Netcode",
       board: "sample-board-mlg",
-      tag: "mlg",
+      tag: "net",
       onBoard: CardBoard({
         id: "sample-board-mlg",
         name: "MLG",

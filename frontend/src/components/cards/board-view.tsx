@@ -170,6 +170,7 @@ export function BoardView({
   lead,
   rows = false,
   listed,
+  plain = false,
 }: {
   scope: string
   cards: CardSummary[]
@@ -203,6 +204,9 @@ export function BoardView({
   // listed are the cards lead already shows; All leaves them out of the
   // rows.
   listed?: ReadonlySet<string>
+  // plain: no filters, only empty and the threads (a space's page, card
+  // #558, which shows boards rather than cards).
+  plain?: boolean
 }) {
   const mine = cards.filter((c) => inScope(c, scope))
   const chips = deviceChips(mine)
@@ -344,12 +348,14 @@ export function BoardView({
         {header}
         {withThreads(
           <>
-            <FilterBar
-              filter={filter}
-              onFilter={onFilter}
-              decide={0}
-              only={["all", "done"]}
-            />
+            {!plain && (
+              <FilterBar
+                filter={filter}
+                onFilter={onFilter}
+                decide={0}
+                only={["all", "done"]}
+              />
+            )}
             {threadsBtn && (
               <span className="flex justify-end">{threadsBtn}</span>
             )}

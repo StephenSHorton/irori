@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 
-import type { BoardSummary } from "./boards"
+import type { BoardSummary, SpaceBoard } from "./boards"
 import type { CardSummary } from "./cards"
 import { previewFlag } from "./preview"
 
@@ -40,6 +40,16 @@ export function spacesOf(boards: BoardSummary[]): Space[] {
     { id: Personal, name: "Personal", others: [] },
     ...shared,
   ]
+}
+
+// boardsOf is a space's boards, its default board first (card #558). A
+// joined space that isn't ready yet can have an empty name on its first
+// board, so each field falls back to the space's.
+export function boardsOf(s: BoardSummary): SpaceBoard[] {
+  if (!s.boards.length) return [{ boardId: s.boardId, name: s.name, tag: s.tag }]
+  return s.boards.map((x, i) =>
+    i === 0 ? { ...x, name: x.name || s.name, tag: x.tag || s.tag } : x
+  )
 }
 
 // withLine is "with Blake", "with Blake and Casey", "with Blake +2"; "" alone.

@@ -85,11 +85,11 @@ export function AppHeader({
             <Button
               size="sm"
               onClick={onNewBoard}
-              aria-label="New board"
+              aria-label="New space"
               title="Make a board for a project, or join one with an invite"
             >
               <PlusIcon aria-hidden className="sm:hidden" />
-              <span className="hidden sm:inline">+ New board</span>
+              <span className="hidden sm:inline">+ New space</span>
             </Button>
           ) : (
             section && (

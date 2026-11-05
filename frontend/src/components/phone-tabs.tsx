@@ -17,7 +17,7 @@ export function phoneTab(s: Section): PhoneTab {
 const tabs: { tab: PhoneTab; label: string; to: Section; Icon: typeof HouseIcon }[] = [
   { tab: "home", label: "Home", to: { kind: "home" }, Icon: HouseIcon },
   { tab: "talk", label: "Talk", to: { kind: "talk", id: "" }, Icon: MessagesSquareIcon },
-  { tab: "boards", label: "Boards", to: { kind: "boards" }, Icon: LayoutGridIcon },
+  { tab: "boards", label: "Spaces", to: { kind: "boards" }, Icon: LayoutGridIcon },
 ]
 
 // PhoneTabs is the phone's bottom bar (design §8): Home, Talk and Boards,

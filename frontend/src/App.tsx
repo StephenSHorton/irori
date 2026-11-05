@@ -645,7 +645,7 @@ export function App() {
     },
     {
       id: "board.new",
-      title: "New board",
+      title: "New space",
       order: 2,
       keywords: ["create", "add", "join", "invite"],
       run: () => {
@@ -771,7 +771,9 @@ export function App() {
                   open
                     ? "Card"
                     : section.kind === "boards"
-                      ? "Boards"
+                      ? space === Personal
+                        ? "Personal"
+                        : "Spaces"
                       : section.kind === "talk"
                         ? "Talk"
                         : section.kind === "notes"
@@ -786,7 +788,7 @@ export function App() {
                 }
                 bar={
                   !open && section.kind === "board" ? (
-                    <BoardHeaderBar key={section.id} boardId={section.id} />
+                    <BoardHeaderBar key={section.id} boardId={section.id} list={section.board} />
                   ) : undefined
                 }
                 onNewCard={() => setNewCard(true)}
@@ -902,8 +904,9 @@ export function App() {
                 </Scroll>
               ) : section.kind === "board" ? (
                 <BoardPage
-                  key={section.id}
+                  key={`${section.id}/${section.board ?? ""}`}
                   boardId={section.id}
+                  list={section.board}
                   cards={cards}
                   done={done}
                   filter={boardFilter}

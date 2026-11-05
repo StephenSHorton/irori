@@ -103,7 +103,8 @@ import { useDraft, useMentionsDraft } from "@/lib/drafts"
 import { composing, MentionBoard, useMissed } from "@/lib/mentions"
 import { useBoards, type BoardSummary } from "@/lib/boards"
 import { previewFlag } from "@/lib/preview"
-import { ShareButton, TransferButton, WithdrawButton } from "./share-dialog"
+import { MoveBoardButton, ShareButton, TransferButton, WithdrawButton } from "./share-dialog"
+import { boardsOf } from "@/lib/spaces"
 import { cardOwner, sharedBoard } from "@/lib/owners"
 
 // Answered is a note answer the person just sent: the note item leaves the
@@ -780,6 +781,14 @@ function BoardActions({
             owner={cardOwner(detail, boards)}
             members={shared.members ?? []}
             initialOpen={previewFlag("transfer") === detail.id}
+          />
+        )}
+        {shared && !detail.parent && boardsOf(shared).length > 1 && (
+          <MoveBoardButton
+            boards={boardsOf(shared)}
+            tag={detail.tag ?? ""}
+            family={(detail.subtasks ?? 0) > 0}
+            initialOpen={previewFlag("move") === detail.id}
           />
         )}
         {/* The private card the work carries on in, else back to the grid:
