@@ -183,7 +183,7 @@ describe('attach', () => {
       await band.unmount()
     }
     const ran = await $.command.run(irori(''))
-    expect(ran.text).toContain('irori mod 0.5.0')
+    expect(ran.text).toContain('irori mod 0.6.0')
     expect(ran.text).toContain('set iroriPath')
   })
 
@@ -191,7 +191,7 @@ describe('attach', () => {
     const w = world(on)
     await $.session.start({ cwd: 'C:/work/api', surface: 'terminal', isInteractive: true })
     await until(() => w.children.length === 1, 'spawn')
-    expect(w.spawned[0]).toEqual([IRORI, 'attach', '--session', SESSION, '--cwd', 'C:/work/api', '--mod-version', '0.5.0'])
+    expect(w.spawned[0]).toEqual([IRORI, 'attach', '--session', SESSION, '--cwd', 'C:/work/api', '--mod-version', '0.6.0'])
 
     // hello split across two pieces, a blank keepalive, and a stray log line.
     const h = line(hello)
@@ -382,7 +382,7 @@ ${prompt}`, turnId: 'turn-1' })
     expect(posts(w.calls, '/v1/deliveries/engaged')).toEqual([])
   })
 
-  test('a child that exits is restarted with backoff; a superseded one is not', OPTIONS, async ($, on) => {
+  test('a child that exits is restarted with backoff; on a Core with no standby a superseded one is not', OPTIONS, async ($, on) => {
     const clock = mock.clock(on)
     const w = world(on)
     await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
@@ -400,6 +400,111 @@ ${prompt}`, turnId: 'turn-1' })
     await clock.advance(60_000)
     await pause(50)
     expect(w.children.length).toBe(2)
+  })
+
+  test('superseded waits in standby and attaches again once the newer attach left (GitHub #57)', OPTIONS, async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world(on)
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line({ ...hello, v: 3 }))
+    await until(() => w.registered.length === 2, 'tools registered')
+    w.children[0]!.write(line({ type: 'superseded' }))
+    w.children[0]!.end()
+    await clock.settle()
+    // Within seconds, and asking to wait: it must not kick a live copy.
+    await clock.advance(1_000)
+    await until(() => w.children.length === 2, 'standby attach')
+    expect(w.spawned[1]).toEqual([...w.spawned[0]!, '--standby'])
+    // Tools say what happened, and send no dead secret.
+    const waiting = await $.tool.call({ tool: 'mcp__irori__send', to: 'bob', text: 'hi' } as never)
+    expect(String((waiting as { result?: unknown }).result)).toContain('A newer attach for this session took over')
+    expect(posts(w.calls, '/v1/tools/send').length).toBe(0)
+    const band = await $.ui.mount({ plugin: 'irori', surface: 'terminal', component: 'AbovePrompt', props: {} } as never)
+    expect(await band.find({ type: 'Text', text: 'irori · attached in another window' })).toBeDefined()
+    await band.unmount()
+    // irori attach holds off until the session is free, then says hello.
+    w.children[1]!.write(line({ ...hello, v: 3, attachSecret: 'secret-2' }))
+    await pause(50)
+    const ran = await $.tool.call({ tool: 'mcp__irori__send', to: 'bob', text: 'hi' } as never)
+    expect(String((ran as { result?: unknown }).result)).toBe('Sent: msg_01 to bob.')
+    expect(posts(w.calls, '/v1/tools/send')[0]!.headers['X-Irori-Attach']).toBe('secret-2')
+    // Back in charge, so a child that dies is an ordinary restart.
+    w.children[1]!.end()
+    await clock.settle()
+    await clock.advance(1_000)
+    await until(() => w.children.length === 3, 'restart')
+    expect(w.spawned[2]).toEqual(w.spawned[0]!)
+  })
+
+  test('a Core restart under a standby copy keeps it waiting, and its hello attaches it (GitHub #57)', OPTIONS, async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world(on)
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line({ ...hello, v: 3 }) + line({ type: 'superseded' }))
+    w.children[0]!.end()
+    await clock.settle()
+    await clock.advance(1_000)
+    await until(() => w.children.length === 2, 'standby attach')
+    // The Core went away: irori attach says so, and stays standby.
+    w.children[1]!.write(line({ type: 'error', message: "Irori isn't running." }))
+    await pause(50)
+    expect(w.children.length).toBe(2)
+    w.children[1]!.write(line({ ...hello, v: 3, api: { url: API, token: 'bearer-2' }, attachSecret: 'secret-2' }))
+    await pause(50)
+    const ran = await $.tool.call({ tool: 'mcp__irori__send', to: 'bob', text: 'hi' } as never)
+    expect(String((ran as { result?: unknown }).result)).toBe('Sent: msg_01 to bob.')
+    const sent = posts(w.calls, '/v1/tools/send')[0]!
+    expect([sent.headers.authorization, sent.headers['X-Irori-Attach']]).toEqual(['Bearer bearer-2', 'secret-2'])
+  })
+
+  test('a standby copy says it waits again after an outage, not that Irori is down (GitHub #57)', OPTIONS, async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world(on)
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line({ ...hello, v: 3 }) + line({ type: 'superseded' }))
+    w.children[0]!.end()
+    await clock.settle()
+    await clock.advance(1_000)
+    await until(() => w.children.length === 2, 'standby attach')
+    w.children[1]!.write(line({ type: 'error', message: "Irori isn't running." }))
+    await pause(50)
+    // The Core is back and the other copy got there first.
+    w.children[1]!.write(line({ type: 'standby' }))
+    await pause(50)
+    const band = await $.ui.mount({ plugin: 'irori', surface: 'terminal', component: 'AbovePrompt', props: {} } as never)
+    expect(await band.find({ type: 'Text', text: 'irori · attached in another window' })).toBeDefined()
+    await band.unmount()
+    expect(w.children.length).toBe(2)
+  })
+
+  test('session.end stops a standby copy for good, with no attach left behind (GitHub #57)', OPTIONS, async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world(on)
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line({ ...hello, v: 3 }) + line({ type: 'superseded' }))
+    w.children[0]!.end()
+    await clock.settle()
+    await $.session.end({ reason: 'other' } as never)
+    await clock.advance(60_000)
+    await pause(50)
+    expect(w.children.length).toBe(1)
+  })
+
+  test('a tool call on a reload that brought no session.start attaches (GitHub #57)', OPTIONS, async ($, on) => {
+    const w = world(on)
+    on('clock.sleep', async ($, e) => {
+      await pause(Math.min(Number((e as { ms?: unknown }).ms ?? 0), 50))
+      return { value: undefined } as never
+    })
+    const running = $.tool.call({ tool: 'mcp__irori__send', to: 'bob', text: 'hi' } as never)
+    await until(() => w.children.length === 1, 'attach')
+    w.children[0]!.write(line(hello))
+    const ran = await running
+    expect(String((ran as { result?: unknown }).result)).toBe('Sent: msg_01 to bob.')
   })
 })
 
@@ -664,8 +769,57 @@ describe('tools', () => {
 
   test('before hello a tool call says the session is not attached', OPTIONS, async ($, on) => {
     world(on)
+    on('clock.sleep', async () => ({ value: undefined }) as never)
     const ran = await $.tool.call({ tool: 'mcp__irori__send', to: 'bob', text: 'hi' } as never)
     expect(String((ran as { result?: unknown }).result)).toMatch(/^Error: this session isn't attached to Irori/)
+  })
+})
+
+describe('/irori reconnect (GitHub #57)', () => {
+  test('takes the session back at once from a superseded copy, without standby', OPTIONS, async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world(on)
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line({ ...hello, v: 3 }) + line({ type: 'superseded' }))
+    w.children[0]!.end()
+    await clock.settle()
+    const running = $.command.run(irori('reconnect'))
+    await until(() => w.children.length === 2, 'reconnect attach')
+    expect(w.spawned[1]).toEqual(w.spawned[0]!)
+    w.children[1]!.write(line({ ...hello, v: 3, attachSecret: 'secret-2' }))
+    await pause(20)
+    await clock.advance(250)
+    expect((await running).text).toContain('Attached as api work')
+  })
+
+  test('brings back a session that stopped on a Core with no standby, and one that ended', OPTIONS, async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world(on)
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line(hello) + line({ type: 'superseded' }))
+    w.children[0]!.end()
+    await clock.settle()
+    const first = $.command.run(irori('reconnect'))
+    await until(() => w.children.length === 2, 'reconnect attach')
+    w.children[1]!.write(line({ ...hello, attachSecret: 'secret-2' }))
+    await pause(20)
+    await clock.advance(250)
+    await first
+    await $.session.end({ reason: 'other' } as never)
+    const second = $.command.run(irori('reconnect'))
+    await until(() => w.children.length === 3, 'reconnect after end')
+    w.children[2]!.write(line({ ...hello, attachSecret: 'secret-3' }))
+    await pause(20)
+    await clock.advance(250)
+    expect((await second).text).toContain('Attached as api work')
+  })
+
+  test('says when there is no iroriPath', async ($, on) => {
+    const w = world(on)
+    expect((await $.command.run(irori('reconnect'))).text).toContain('set iroriPath')
+    expect(w.spawned).toEqual([])
   })
 })
 
@@ -682,7 +836,7 @@ describe('/irori', () => {
     }
     expect(w.calls.filter(c => c.url.endsWith('/v1/policy'))).toEqual([])
     const status = await $.command.run(irori(''))
-    expect(status.text).toContain('irori mod 0.5.0')
+    expect(status.text).toContain('irori mod 0.6.0')
     expect(status.text).toContain('Attached as api work')
   })
 
