@@ -661,6 +661,8 @@ export type AgentCard = {
   /**  The tool the session is running now (card #299). */
   lastTool?: string
   deviceState?: string
+  /**  When the current status began, omitted when unknown (card #489). */
+  statusSince?: string
   /**
    *  The person's "Offer it cards": Irori hands it unheld cards, asks and
    *  threads when it's idle (card #453).
@@ -696,8 +698,16 @@ export type AgentRef = {
   /**  The roster's status, "gone" without a live card, or "person". */
   status: string
   live: boolean
-  /**  "This PC", or the other device's name. */
+  /**
+   *  This device's own name with " (this one)" (e.g. "Macbook Pro (this
+   *  one)"), or the other device's name (card #489).
+   */
   where: string
+  /**
+   *  It is on this device, so what only works here (Attach, Logs, End)
+   *  shows; `where` is only for reading (card #489).
+   */
+  here?: boolean
   assigned?: boolean
   waiting?: boolean
   /**
@@ -1341,8 +1351,9 @@ export type CardSummary = {
    */
   cantStart?: string
   /**
-   *  The device an agent is starting on for this card ("This PC" or its
-   *  name), while Irori's spawn request waits for it (card #448).
+   *  The device an agent is starting on for this card ("<its own name>
+   *  (this one)" or the other device's name, card #489), while Irori's
+   *  spawn request waits for it (card #448).
    */
   starting?: string
   /**
@@ -1383,6 +1394,11 @@ export type CardThreadItem = {
   device?: string
   text: string
   blockerId?: string
+  /**
+   *  The question of that blocker, cut short (card #490): what the
+   *  person reads in place of its id.
+   */
+  blockerGist?: string
   missing?: string[]
   /**
    *  An event that revised its blocker (card #50): what it asks now and
@@ -1923,19 +1939,13 @@ export type NoteEventView = {
   text: string
 }
 
-/**  What New note and Keep as note write. */
+/**  What New note writes. */
 export type NoteInput = {
   /**  `mine` (the default), or a board's tag or id. */
   scope?: string
   kind?: string
   text?: string
   tags?: string[]
-  /**  Where it came from, as in [`NoteView::source`]. */
-  source?: string
-  /**  The source's card, comment and blocker, when it has them. */
-  taskId?: string
-  commentId?: string
-  blockerId?: string
 }
 
 /**  A note as the Notes page shows it. */
@@ -2187,7 +2197,7 @@ export type RunningAgent = {
   /**  `#N`. */
   cardShort: string
   cardTitle: string
-  /**  "This PC" or the device's name. */
+  /**  "<its own name> (this one)" or the other device's name (card #489). */
   device: string
   /**  It runs here, so End works from this window. */
   here: boolean
@@ -2342,6 +2352,13 @@ export type TalkConversation = {
   members: TalkMember[]
   /**  The newest post's time (the zero time when it has none). */
   lastAt: string
+  /**
+   *  The newest post's text on one line, clipped (card #486): the list's
+   *  subtitle. "" when it has none.
+   */
+  lastText: string
+  /**  Who wrote the newest post: a member's key, "" when none. */
+  lastBy: string
   /**  A DM between two agents: the person reads it only. */
   readOnly: boolean
   /**
@@ -2362,8 +2379,19 @@ export type TalkMember = {
   /**  `person` or `agent`. */
   kind: string
   key: string
-  /**  What it goes by ("you" for the person). */
+  /**
+   *  What it goes by ("you" for the person). Never a key (card #478):
+   *  "BillingEng1 · Spencer" for another member's agent, "unknown agent"
+   *  when nothing names it.
+   */
   name?: string
+  /**
+   *  Another member's agent's board status (`busy`, `idle`, `gone`); ""
+   *  when this device knows none, which isn't gone.
+   */
+  status?: string
+  /**  Whose agent it is when it is another member's ("Spencer"), else "". */
+  owner?: string
 }
 
 /**  Who to add to or take out of a conversation. */
@@ -2565,6 +2593,10 @@ export type ThreadSummary = {
    *  handed it, and its agents read it at their next turn.
    */
   agentsNow: boolean
+  /**  An agent Irori starts for it (card #470): where, while it starts. */
+  starting?: string
+  /**  Why one couldn't start (the failed request's reason). */
+  cantStart?: string
 }
 
 /**  Who an action's notice went to. */

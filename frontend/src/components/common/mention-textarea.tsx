@@ -17,7 +17,13 @@ import { Face } from "@/components/cards/faces"
 import { Popover, PopoverContent } from "@/components/ui/popover"
 import { Textarea } from "@/components/ui/textarea"
 import { RefDot } from "@/components/common/rich-text"
-import { cardStatus, deviceVar, useMentionCandidates, type RefStatus } from "@/lib/cards"
+import {
+  cardStatus,
+  deviceVar,
+  useMentionCandidates,
+  type RefStatus,
+} from "@/lib/cards"
+import { agentStatus } from "@/lib/agent-status"
 import { plainLine } from "@/lib/irori"
 import {
   addMention,
@@ -110,7 +116,10 @@ export function MentionTextarea({
   // #452): picking it mentions whoever holds that card now.
   const cands = useMemo(() => {
     const own = boardRows(all, board)
-    return [...own, ...boardRows(agentOnRows(ctx?.cards ?? [], own, card), board)]
+    return [
+      ...own,
+      ...boardRows(agentOnRows(ctx?.cards ?? [], own, card), board),
+    ]
   }, [all, board, ctx?.cards, card])
   const names = useMemo(() => cands.map(rowName), [cands])
   const cardCands = useMemo<(CardCandidate & { status: RefStatus })[]>(
@@ -131,7 +140,11 @@ export function MentionTextarea({
     focused && !disabledMentions ? tokenAt(value, caret, names) : null
   const cardToken: Token | null =
     focused && !agentToken && cardCands.length
-      ? cardTokenAt(value, caret, cardCands.map((c) => c.title))
+      ? cardTokenAt(
+          value,
+          caret,
+          cardCands.map((c) => c.title)
+        )
       : null
   const token: Token | null = agentToken ?? cardToken
   const forCards = !agentToken && !!cardToken
@@ -140,11 +153,13 @@ export function MentionTextarea({
   if (dismissed !== null && token?.start !== dismissed) setDismissed(null)
   const open = !!token && token.start !== dismissed
   const agentRows = useMemo(
-    () => (open && !forCards && token ? filterCandidates(cands, token.query) : []),
+    () =>
+      open && !forCards && token ? filterCandidates(cands, token.query) : [],
     [open, forCards, token?.query, cands] // eslint-disable-line react-hooks/exhaustive-deps
   )
   const cardRows = useMemo(
-    () => (open && forCards && token ? filterCards(cardCands, token.query) : []),
+    () =>
+      open && forCards && token ? filterCards(cardCands, token.query) : [],
     [open, forCards, token?.query, cardCands] // eslint-disable-line react-hooks/exhaustive-deps
   )
   const rows: unknown[] = forCards ? cardRows : agentRows
@@ -365,76 +380,82 @@ export function MentionTextarea({
           className="w-80 gap-0 p-1"
         >
           {forCards ? (
-          <div
-            role="listbox"
-            id={listId}
-            aria-label="Cards to mention"
-            className="grid max-h-72 overflow-y-auto"
-          >
-            {cardRows.length === 0 ? (
-              <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                {token?.query ? `No card matches ${plainLine(token.query)}` : "No cards"}
-              </p>
-            ) : (
-              cardRows.map((c, i) => (
-                <div
-                  key={c.id}
-                  id={`${listId}-${i}`}
-                  role="option"
-                  aria-selected={i === shown}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => pickCard(c)}
-                  className={cn(
-                    "flex min-w-0 cursor-pointer items-center gap-2 px-2 py-1.5 text-[13px]",
-                    i === shown &&
-                      (i === highlight ? "bg-accent ring-1 ring-ring ring-inset" : "bg-muted/60"),
-                    i !== shown && "hover:bg-muted/40"
-                  )}
-                >
-                  <RefDot status={c.status} />
-                  <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{c.ref}</span>
-                  <span className="min-w-0 truncate text-ink">{c.title}</span>
-                  <span className="ml-auto shrink-0 text-[11px] text-muted-foreground tabular-nums">
-                    {c.status.label}
-                    {c.status.progress &&
-                      ` · ${c.status.progress.done}/${c.status.progress.total}`}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
+            <div
+              role="listbox"
+              id={listId}
+              aria-label="Cards to mention"
+              className="grid max-h-72 overflow-y-auto"
+            >
+              {cardRows.length === 0 ? (
+                <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                  {token?.query
+                    ? `No card matches ${plainLine(token.query)}`
+                    : "No cards"}
+                </p>
+              ) : (
+                cardRows.map((c, i) => (
+                  <div
+                    key={c.id}
+                    id={`${listId}-${i}`}
+                    role="option"
+                    aria-selected={i === shown}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pickCard(c)}
+                    className={cn(
+                      "flex min-w-0 cursor-pointer items-center gap-2 px-2 py-1.5 text-[13px]",
+                      i === shown &&
+                        (i === highlight
+                          ? "bg-accent ring-1 ring-ring ring-inset"
+                          : "bg-muted/60"),
+                      i !== shown && "hover:bg-muted/40"
+                    )}
+                  >
+                    <RefDot status={c.status} />
+                    <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                      {c.ref}
+                    </span>
+                    <span className="min-w-0 truncate text-ink">{c.title}</span>
+                    <span className="ml-auto shrink-0 text-[11px] text-muted-foreground tabular-nums">
+                      {c.status.label}
+                      {c.status.progress &&
+                        ` · ${c.status.progress.done}/${c.status.progress.total}`}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
           ) : (
-          <div
-            role="listbox"
-            id={listId}
-            aria-label="Agents to mention"
-            className="grid max-h-72 overflow-y-auto"
-          >
-            {capped && (
-              <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                At most {MaxMentions} mentions
-              </p>
-            )}
-            {rows.length === 0 ? (
-              <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                {token?.query
-                  ? `No agent named ${plainLine(token.query)}`
-                  : "No agents to mention"}
-              </p>
-            ) : (
-              agentRows.map((c, i) => (
-                <MentionRow
-                  key={`${c.card ?? ""}@${c.who.key}`}
-                  id={`${listId}-${i}`}
-                  row={c}
-                  active={i === shown}
-                  explicit={i === highlight}
-                  disabled={capped && !taken(c)}
-                  onPick={() => pick(c)}
-                />
-              ))
-            )}
-          </div>
+            <div
+              role="listbox"
+              id={listId}
+              aria-label="Agents to mention"
+              className="grid max-h-72 overflow-y-auto"
+            >
+              {capped && (
+                <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                  At most {MaxMentions} mentions
+                </p>
+              )}
+              {rows.length === 0 ? (
+                <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                  {token?.query
+                    ? `No agent named ${plainLine(token.query)}`
+                    : "No agents to mention"}
+                </p>
+              ) : (
+                agentRows.map((c, i) => (
+                  <MentionRow
+                    key={`${c.card ?? ""}@${c.who.key}`}
+                    id={`${listId}-${i}`}
+                    row={c}
+                    active={i === shown}
+                    explicit={i === highlight}
+                    disabled={capped && !taken(c)}
+                    onPick={() => pick(c)}
+                  />
+                ))
+              )}
+            </div>
           )}
         </PopoverContent>
       </Popover>
@@ -521,19 +542,15 @@ function MentionRow({
         {gone
           ? "gone"
           : row.card
-            ? [plainLine(who.name), statusWord(who.status)].filter(Boolean).join(" · ")
-            : [statusWord(who.status), plainLine(place)].filter(Boolean).join(" · ")}
+            ? [plainLine(who.name), agentStatus(who).text]
+                .filter(Boolean)
+                .join(" · ")
+            : [agentStatus(who).text, plainLine(place)]
+                .filter(Boolean)
+                .join(" · ")}
       </span>
     </div>
   )
-}
-
-// statusWord is how an agent stands in the picker (card #390: the @ picker
-// shows each agent's status): working or idle.
-function statusWord(status: string): string {
-  if (status === "busy" || status === "working") return "working"
-  if (status === "idle") return "idle"
-  return ""
 }
 
 // endsMention is a character that ends a typed name: whitespace or

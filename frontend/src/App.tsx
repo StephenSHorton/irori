@@ -143,6 +143,10 @@ export function App() {
           {
             status: a.status,
             updatedAt: a.updatedAt,
+            // When its status began, for "running a job · 12 min", and its
+            // device's state, for "device offline" (card #489).
+            statusSince: a.statusSince,
+            deviceState: a.deviceState,
             lastTool: a.lastTool,
             offersCards: a.offersCards,
             spawned: a.spawned,
@@ -416,7 +420,9 @@ export function App() {
           return
         }
         // A Talk notification (card #395): that channel or DM.
-        if (target.tab === "talk" && ref) {
+        // Without a ref (card #482): Talk's list, where the messages that
+        // waited for you are (the "N messages waited for you" card).
+        if (target.tab === "talk" || (target.tab === "inbox" && !ref)) {
           go({ kind: "talk", id: ref })
           return
         }

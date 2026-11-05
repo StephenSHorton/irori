@@ -338,7 +338,7 @@ impl Fold {
         // agent. A shared card keeps its state for whoever joins next.
         let t = &self.tasks[id];
         if t.holders.is_empty() && t.state == WORKING && t.subtasks.is_empty() && !t.shared {
-            let note = format!("nobody is on it: {} left it", self.named(&who));
+            let note = format!("{}: {} left it", super::fold::NOBODY_NOTE, self.named(&who));
             self.write(
                 SWEEPER,
                 kinds::TASK_STATUS,
@@ -410,8 +410,10 @@ impl Fold {
                     &TaskStateRow {
                         task_id: id.clone(),
                         state: SUBMITTED.into(),
-                        note: "nobody is on it: the person whose agent worked it left the board"
-                            .into(),
+                        note: format!(
+                            "{}: the person whose agent worked it left the board",
+                            super::fold::NOBODY_NOTE
+                        ),
                         by: by.clone(),
                         at,
                         ..TaskStateRow::default()
@@ -1301,7 +1303,7 @@ impl Fold {
         let mut blocks: BTreeMap<String, Vec<String>> = BTreeMap::new();
         let rs = self.roster_status();
         for t in self.tasks.values() {
-            if !f.repo_key.is_empty() && t.repo_key != f.repo_key {
+            if !f.repo_key.is_empty() && !ledger::same_repo_key(&t.repo_key, &f.repo_key) {
                 continue;
             }
             let mut card = Card {
@@ -1386,7 +1388,7 @@ impl Fold {
             if !f.repo_key.is_empty()
                 && bl.is_empty()
                 && l.res.kind == RESOURCE_PATH
-                && l.res.repo_key != f.repo_key
+                && !ledger::same_repo_key(&l.res.repo_key, &f.repo_key)
             {
                 continue;
             }
@@ -1749,7 +1751,10 @@ impl Fold {
                         &TaskStateRow {
                             task_id: id.clone(),
                             state: SUBMITTED.into(),
-                            note: format!("nobody is on it: the agent working it {went}"),
+                            note: format!(
+                                "{}: the agent working it {went}",
+                                super::fold::NOBODY_NOTE
+                            ),
                             by: SWEEPER.into(),
                             at: *now,
                             ..TaskStateRow::default()

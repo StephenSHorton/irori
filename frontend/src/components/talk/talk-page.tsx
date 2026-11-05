@@ -39,9 +39,13 @@ import { useNarrow } from "@/lib/media"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import {
+  agentRows,
+  agentSectionRows,
   archived,
+  broadcastTo,
   dmSections,
   sectionRows,
+  type Broadcast,
   unreadIn,
   useFolds,
   type SectionKey,
@@ -55,7 +59,9 @@ import {
   stateBadges,
   stateLine,
 } from "./threads"
-import { ConversationView, statusOf, statusWord } from "./conversation"
+import { agentStatus } from "@/lib/agent-status"
+import { ConversationView, memberStatus, statusOf } from "./conversation"
+import { memberName, nameOr } from "@/lib/names"
 
 // talkMatches is whether a thread fits the list's search: its title, what
 // was asked, its #ref, or the newest reply.
@@ -78,9 +84,12 @@ export function needsYou(t: Pick<ThreadSummary, "state">): boolean {
 export function convMatches(c: Conv, query: string): boolean {
   const q = query.trim().toLowerCase()
   if (!q) return true
-  return [c.name, c.topic ?? "", ...c.members.map((m) => m.name ?? "")].some(
-    (s) => s.toLowerCase().includes(q)
-  )
+  return [
+    c.name,
+    c.topic ?? "",
+    c.lastText ?? "",
+    ...c.members.map((m) => m.name ?? ""),
+  ].some((s) => s.toLowerCase().includes(q))
 }
 
 export function TalkPage({
@@ -195,6 +204,7 @@ export function TalkPage({
           <ConvItem
             key={c.convId}
             c={c}
+            now={now}
             current={c.convId === open}
             onClick={() => onOpen(c.convId)}
           />
@@ -207,6 +217,68 @@ export function TalkPage({
           >
             Show {hidden} more
           </button>
+        )}
+      </Group>
+    )
+  }
+  // Agents talking (card #486): a message sent to many agents is one row,
+  // newest first, at most agentsCap of them; search finds the rest.
+  // A broadcast holding the open DM starts unfolded; its chevron still folds it.
+  const [unfolded, setUnfolded] = useState<Record<string, boolean>>({})
+  const isUnfolded = (b: Broadcast) =>
+    unfolded[b.id] ?? b.convs.some((c) => c.convId === open)
+  const agentsSection = () => {
+    const all = agentRows(sections.agents)
+    const { rows, hidden, capped } = agentSectionRows(
+      all,
+      folded("agents"),
+      open,
+      !!allShown.agents,
+      searching
+    )
+    return (
+      <Group
+        label="Agents talking"
+        count={all.length}
+        folded={folded("agents")}
+        onToggle={searching ? undefined : () => toggleFold("agents")}
+      >
+        {rows.map((r) =>
+          r.kind === "dm" ? (
+            <ConvItem
+              key={r.c.convId}
+              c={r.c}
+              now={now}
+              current={r.c.convId === open}
+              onClick={() => onOpen(r.c.convId)}
+            />
+          ) : (
+            <BroadcastItem
+              key={r.b.id}
+              b={r.b}
+              now={now}
+              open={open}
+              unfolded={isUnfolded(r.b)}
+              onToggle={() =>
+                setUnfolded({ ...unfolded, [r.b.id]: !isUnfolded(r.b) })
+              }
+              onOpen={onOpen}
+            />
+          )
+        )}
+        {hidden > 0 && !folded("agents") && (
+          <button
+            type="button"
+            className="px-2 py-0.5 text-left text-[11px] text-muted-foreground hover:text-ink"
+            onClick={() => setAllShown({ ...allShown, agents: true })}
+          >
+            Show {hidden} more
+          </button>
+        )}
+        {capped > 0 && !folded("agents") && hidden === 0 && (
+          <p className="px-2 py-0.5 text-[11px] text-muted-foreground">
+            {capped} older not listed. Search finds them.
+          </p>
         )}
       </Group>
     )
@@ -308,8 +380,7 @@ export function TalkPage({
           label: "New direct message",
         }
       )}
-      {sections.agents.length > 0 &&
-        convSection("agents", "Agents talking", sections.agents, "")}
+      {sections.agents.length > 0 && agentsSection()}
       {sections.gone.length > 0 &&
         convSection(
           "gone",
@@ -500,14 +571,16 @@ function Group({
 
 // ConvItem is a channel or a DM in the list, with its unread count (a red
 // @ when it mentions you).
-function ConvItem({
+export function ConvItem({
   c,
   current,
   onClick,
+  now = new Date(),
 }: {
   c: Conv
   current: boolean
   onClick: () => void
+  now?: Date
 }) {
   const live = useContext(LiveRoster)
   const other = c.kind === "dm" ? dmWith(c) : []
@@ -520,9 +593,9 @@ function ConvItem({
       <Face
         who={AgentRef({
           key: other[0].key,
-          name: other[0].name ?? other[0].key,
+          name: memberName(other[0]),
           status: statusOf(other[0], live),
-          live: statusOf(other[0], live) !== "gone",
+          live: !["gone", "unknown"].includes(statusOf(other[0], live)),
         })}
         className="size-4 shrink-0"
         noHover
@@ -531,17 +604,20 @@ function ConvItem({
   const label =
     c.kind === "channel"
       ? plainLine(c.name)
-      : other.map((m) => plainLine(m.name ?? m.key)).join(" ↔ ") ||
-        plainLine(c.name)
+      : other.map((m) => memberName(m)).join(" ↔ ") || nameOr(c.name)
+  const last =
+    c.kind === "dm" &&
+    (c.readOnly || (!!other[0] && statusOf(other[0], live) === "gone"))
+  const { line, when } = last ? lastLine(c, now) : { line: "", when: "" }
   const sub =
     c.kind === "channel"
       ? c.topic
         ? plainLine(c.topic)
         : ""
-      : c.readOnly
-        ? "agents talking · read-only"
+      : last
+        ? line
         : other[0]
-          ? statusWord(statusOf(other[0], live))
+          ? memberStatus(other[0], live)
           : ""
   return (
     <button
@@ -556,10 +632,16 @@ function ConvItem({
     >
       {icon}
       <span className="grid min-w-0 flex-1">
-        <span
-          className={cn("truncate", c.unread > 0 && "font-medium text-ink")}
-        >
-          {label}
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate",
+              c.unread > 0 && "font-medium text-ink"
+            )}
+          >
+            {label}
+          </span>
+          {when && <When text={when} />}
         </span>
         {sub && (
           <span className="truncate text-[11px] text-muted-foreground">
@@ -580,6 +662,93 @@ function ConvItem({
         </span>
       ) : null}
     </button>
+  )
+}
+
+// lastLine is what a DM row says (card #486): its newest post on one line,
+// "owl: Rebased onto yours" for agents talking, and when ("5m ago"), so the
+// row says what it is about and when, not which section it is in.
+export function lastLine(c: Conv, now: Date): { line: string; when: string } {
+  const text = plainLine(c.lastText ?? "")
+  const at = parseTime(c.lastAt)
+  const when = at ? relativeTime(at, now) : ""
+  if (!text) return { line: "", when }
+  const by = c.lastBy ? c.members.find((m) => m.key === c.lastBy) : undefined
+  const who =
+    c.readOnly && by
+      ? `${memberName(by)}: `
+      : by?.kind === "person"
+        ? "You: "
+        : ""
+  return { line: `${who}${text}`, when }
+}
+
+// When is a row's time beside its name; it never truncates.
+function When({ text }: { text: string }) {
+  return (
+    <span className="shrink-0 text-[10.5px] whitespace-nowrap text-muted-foreground tabular-nums">
+      {text}
+    </span>
+  )
+}
+
+// BroadcastItem is one message an agent sent to many agents (card #486):
+// "owl → 16 agents", its text and when. It unfolds to the DMs it went to.
+function BroadcastItem({
+  b,
+  now,
+  open,
+  unfolded,
+  onToggle,
+  onOpen,
+}: {
+  b: Broadcast
+  now: Date
+  open: string
+  unfolded: boolean
+  onToggle: () => void
+  onOpen: (id: string) => void
+}) {
+  const from = b.convs[0].members.find((m) => m.key === b.by)
+  const to = broadcastTo(b)
+  const when = parseTime(b.lastAt)
+  const Chevron = unfolded ? ChevronDownIcon : ChevronRightIcon
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)]">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={unfolded}
+        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-muted-foreground hover:bg-secondary/60"
+      >
+        <EyeIcon className="size-4 shrink-0" aria-hidden />
+        <span className="grid min-w-0 flex-1">
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className="min-w-0 flex-1 truncate">
+              {from ? memberName(from) : "an agent"} → {to.length} agents
+            </span>
+            {when && <When text={relativeTime(when, now)} />}
+          </span>
+          <span className="truncate text-[11px]">{plainLine(b.text)}</span>
+        </span>
+        <Chevron className="size-3 shrink-0" aria-hidden />
+      </button>
+      {unfolded &&
+        b.convs.map((c, i) => (
+          <button
+            key={c.convId}
+            type="button"
+            onClick={() => onOpen(c.convId)}
+            aria-current={c.convId === open ? "page" : undefined}
+            className={cn(
+              "truncate rounded-md py-1 pr-2 pl-8 text-left text-[12px] text-muted-foreground hover:bg-secondary/60",
+              c.convId === open && "bg-secondary text-ink-2"
+            )}
+          >
+            → {memberName(to[i])}
+          </button>
+        ))}
+    </div>
   )
 }
 
@@ -679,7 +848,7 @@ function NewDm({
           />
           <span className="min-w-0 flex-1 truncate">{plainLine(a.name)}</span>
           <span className="shrink-0 text-[11px] text-muted-foreground">
-            {statusWord(a.status)}
+            {agentStatus(a).text}
           </span>
         </button>
       ))}

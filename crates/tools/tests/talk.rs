@@ -197,6 +197,30 @@ fn agents_messages_mirror_as_dms() {
 }
 
 #[test]
+fn a_conversation_carries_its_last_line_and_who_wrote_it() {
+    // Card #486: Talk's list shows the newest post, not the section's name.
+    let h = new_harness();
+    let a = call_a();
+    h.send_to(&a, KEY_C, "first\n\tthing");
+    h.send_to(&a, KEY_C, "the ports clash\non 8080");
+    let long = "x".repeat(tools::talk::LAST_TEXT + 40);
+    h.send_to(&a, KEY_B, &long);
+    let cs = tools::talk::conversations(&*h.b, USER).unwrap();
+    let ac = cs
+        .iter()
+        .find(|x| x.conv_id == ct::dm_id(KEY_A, KEY_C))
+        .unwrap();
+    assert_eq!(ac.last_text, "the ports clash on 8080");
+    assert_eq!(ac.last_by, KEY_A);
+    let ab = cs
+        .iter()
+        .find(|x| x.conv_id == ct::dm_id(KEY_A, KEY_B))
+        .unwrap();
+    assert_eq!(ab.last_text.chars().count(), tools::talk::LAST_TEXT);
+    assert!(ab.last_text.ends_with('…'));
+}
+
+#[test]
 fn threads_read_and_post_as_comments() {
     let h = new_harness();
     let a = call_a();
@@ -802,6 +826,204 @@ fn a_space_channel_name_tie_names_this_persons_own_agent() {
     has(&out, &["(on the space)"]);
     let last = t.posts(&mlg.id).pop().unwrap();
     assert_eq!(last.mentions, vec!["agent:cBeta".to_string()], "{last:?}");
+}
+
+/// A blocker row bridged from a shared board (card #478): Spencer's
+/// agent raised it on a card two of my agents hold and watch.
+fn spencer_blocker(h: &Harness, row: &str) -> Vec<inbox::Delivery> {
+    spencer_row(
+        h,
+        row,
+        inbox::row_kind::BLOCKER,
+        &[KEY_A, KEY_B],
+        "spencer's agent BillingEng1 raised a blocker on \"ENG-6452\": rehearse first?",
+    )
+}
+
+fn spencer_row(
+    h: &Harness,
+    row: &str,
+    kind: &str,
+    to: &[&str],
+    text: &str,
+) -> Vec<inbox::Delivery> {
+    h.b.ib
+        .bridge(&inbox::BridgeRow {
+            from: inbox::BoardFrom {
+                board_id: "b3f5".into(),
+                tag: "billing".into(),
+                person_id: "pSpencer".into(),
+                card_id: "cBilling".into(),
+                row: row.into(),
+                kind: kind.into(),
+                wake: false,
+            },
+            name: "spencer's agent BillingEng1".into(),
+            to: to.iter().map(|k| k.to_string()).collect(),
+            text: text.into(),
+            ref_: "task:T1".into(),
+            hop: 1,
+            attachments: vec![],
+        })
+        .unwrap()
+}
+
+fn board_dms(cs: &[tools::talk::Conversation]) -> Vec<String> {
+    cs.iter()
+        .filter(|c| c.members.iter().any(|m| m.key.starts_with("board:")))
+        .map(|c| format!("{} {:?}", c.name, c.members))
+        .collect()
+}
+
+#[test]
+fn board_notices_never_show_as_dms() {
+    // Card #478: each copy of one Board notice showed as a DM from a
+    // board:<board>/<card> key, ten times over, once the agents it went
+    // to had gone and the inbox handed every copy to the person.
+    let h = new_harness();
+    let ds = spencer_blocker(&h, "devS/7");
+    assert_eq!(ds.len(), 2, "{ds:?}");
+    for reader in [USER, KEY_A, KEY_B] {
+        let cs = tools::talk::conversations(&*h.b, reader).unwrap();
+        assert!(board_dms(&cs).is_empty(), "{reader}: {:?}", board_dms(&cs));
+    }
+
+    // Both agents end; past the grace the sweep closes each copy on the
+    // card instead of moving it to the person.
+    h.b.roster.remove(KEY_A);
+    h.b.roster.remove(KEY_B);
+    for _ in 0..4 {
+        h.b.ib.sweep().unwrap();
+        h.clk.advance(std::time::Duration::from_secs(10 * 60));
+    }
+    h.b.ib.sweep().unwrap();
+    for d in &ds {
+        let d = h.b.ib.get(&d.id).unwrap();
+        assert_eq!(
+            (d.state.as_str(), d.note.as_str()),
+            (inbox::st::SKIPPED, "recipient gone; on task:T1"),
+        );
+    }
+    let to_person: Vec<_> =
+        h.b.ib
+            .list(usize::MAX)
+            .into_iter()
+            .filter(|d| d.to.starts_with("user") && d.message.from.key.starts_with("board:"))
+            .collect();
+    assert!(to_person.is_empty(), "{to_person:?}");
+    let cs = tools::talk::conversations(&*h.b, USER).unwrap();
+    assert!(board_dms(&cs).is_empty(), "{:?}", board_dms(&cs));
+}
+
+#[test]
+fn board_work_for_an_agent_that_has_gone_still_reaches_the_person() {
+    // Card #478's review: only comments and blockers, which every holder
+    // and watcher hears, close on the shared card. Work assigned to one
+    // agent that has gone still reaches the person, as before, and it is
+    // still no DM.
+    let h = new_harness();
+    let ds = spencer_row(
+        &h,
+        "devS/9",
+        inbox::row_kind::ASSIGN,
+        &[KEY_A],
+        "spencer's agent BillingEng1 assigned you \"ENG-6569\".",
+    );
+    h.b.roster.remove(KEY_A);
+    for _ in 0..4 {
+        h.b.ib.sweep().unwrap();
+        h.clk.advance(std::time::Duration::from_secs(10 * 60));
+    }
+    h.b.ib.sweep().unwrap();
+    let d = h.b.ib.get(&ds[0].id).unwrap();
+    assert_eq!(d.state, inbox::st::MOVED, "{d:?}");
+    let to_person =
+        h.b.ib
+            .list(usize::MAX)
+            .into_iter()
+            .filter(|x| x.to.starts_with("user") && x.message.id == ds[0].message.id)
+            .count();
+    assert_eq!(to_person, 1);
+    let cs = tools::talk::conversations(&*h.b, USER).unwrap();
+    assert!(board_dms(&cs).is_empty(), "{:?}", board_dms(&cs));
+}
+
+#[test]
+fn other_members_agents_go_by_name_never_their_key() {
+    // Card #478: a DM with another member's agent named it
+    // "board:b3f5.../f052..."; it is "BillingEng1 · Spencer".
+    let h = new_harness();
+    h.b.board_agents.lock().unwrap().push(tools::BoardAgent {
+        board: "billing".into(),
+        person: "Spencer".into(),
+        card: presence::AgentCard {
+            key: "agent:cBilling".into(),
+            name: "BillingEng1".into(),
+            status: "idle".into(),
+            ..presence::AgentCard::default()
+        },
+    });
+    let me = ct::Member::of(USER);
+    let say = |other: &str, text: &str| {
+        let o = ct::Member::of(other);
+        let id = h.b.talk.open_dm(&me, &o, USER).unwrap();
+        h.b.talk
+            .post(ct::NewPost {
+                conv_id: id.clone(),
+                text: text.into(),
+                by: USER.into(),
+                ..ct::NewPost::default()
+            })
+            .unwrap();
+        id
+    };
+    let named = say("board:b3f5/cBilling", "hi");
+    let unknown = say("board:b3f5/cGoneLongAgo", "hi");
+    let person = say("board:b3f5/person:pSpencer", "hi");
+    // Opened from a notice and never written in: not listed.
+    let empty =
+        h.b.talk
+            .open_dm(&me, &ct::Member::of("board:b3f5/cOther"), USER)
+            .unwrap();
+
+    let cs = tools::talk::conversations(&*h.b, USER).unwrap();
+    let get = |id: &str| cs.iter().find(|c| c.conv_id == id);
+    let c = get(&named).expect("named DM");
+    assert_eq!(c.name, "BillingEng1 · Spencer");
+    let m = c
+        .members
+        .iter()
+        .find(|m| m.key.starts_with("board:"))
+        .unwrap();
+    assert_eq!(
+        (
+            m.kind.as_str(),
+            m.name.as_str(),
+            m.status.as_str(),
+            m.owner.as_str()
+        ),
+        ("agent", "BillingEng1 · Spencer", "idle", "Spencer")
+    );
+    let c = get(&unknown).expect("unknown agent's DM");
+    assert_eq!(c.name, tools::talk::UNKNOWN_AGENT);
+    assert!(c.members.iter().all(|m| m.status.is_empty()));
+    let c = get(&person).expect("person's DM");
+    assert_eq!(c.name, tools::talk::UNKNOWN_PERSON);
+    assert!(
+        c.members.iter().all(|m| m.kind == "person"),
+        "{:?}",
+        c.members
+    );
+    assert!(get(&empty).is_none());
+    // No name anywhere is a key.
+    for c in &cs {
+        for n in std::iter::once(&c.name).chain(c.members.iter().map(|m| &m.name)) {
+            assert!(
+                !n.contains("board:") && !n.contains("agent:") && !n.contains("person:"),
+                "{n}"
+            );
+        }
+    }
 }
 
 /// The person's Wind down reaches every agent but opens no DM, and a

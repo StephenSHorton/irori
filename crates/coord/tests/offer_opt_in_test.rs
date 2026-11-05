@@ -110,7 +110,7 @@ fn spawn_ask(id: &str) -> SpawnAsk {
         device: "dev-a".into(),
         folder: "/repo".into(),
         permission_mode: "acceptEdits".into(),
-        name: "card-1".into(),
+        name: "pawpaw".into(),
         ..SpawnAsk::default()
     }
 }

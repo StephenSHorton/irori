@@ -136,7 +136,7 @@ impl Fold {
                     return;
                 }
                 let pos = RowPos::of(ev);
-                let key = (person, p.repo_key);
+                let key = (person, ledger::canonical_repo_key(&p.repo_key));
                 if self
                     .reviewers
                     .get(&key)
@@ -663,7 +663,7 @@ impl Fold {
                 "{reviewer} isn't one of your agents on this board"
             )));
         }
-        let repo = trim_space(repo).to_string();
+        let repo = ledger::canonical_repo_key(repo);
         if !repo.is_empty() {
             super::resource::check_repo_key(&repo)?;
         }

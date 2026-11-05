@@ -78,16 +78,12 @@ export type Note = {
   stale?: string
 }
 
-// NewNote is New note and Keep as note: what note_new takes.
+// NewNote is New note: what note_new takes.
 export type NewNote = {
   scope: string
   kind: NoteKind
   text: string
   tags: string[]
-  source?: string
-  taskId?: string
-  commentId?: string
-  blockerId?: string
 }
 
 export type NoteEdit = { kind?: NoteKind; text?: string; tags?: string[] }
@@ -193,18 +189,7 @@ export function cleanTags(input: string[]): { tags: string[]; bad: string[] } {
   return { tags, bad }
 }
 
-// guessTags is Keep as note's starting tags (§5): the card's board and
-// repo; with neither, everywhere.
-export function guessTags(
-  card: { repoKey?: string; board?: { tag: string } | null } | null
-): string[] {
-  const out: string[] = []
-  if (card?.board?.tag) out.push(`board:${card.board.tag.toLowerCase()}`)
-  if (card?.repoKey) out.push(`repo:${card.repoKey}`)
-  return out.length ? out : ["everywhere"]
-}
-
-// noteProblem is why New note or Keep as note can't send yet, the same
+// noteProblem is why New note or Edit can't send yet, the same
 // checks the write makes (§11), or "".
 export function noteProblem(n: {
   kind: string
@@ -220,16 +205,6 @@ export function noteProblem(n: {
     return `Not a tag Irori knows: ${bad.join(", ")}. Use everywhere, repo:, path:, board:, machine: or topic:.`
   if (!tags.length) return "Say where it applies: at least one tag."
   return ""
-}
-
-// noteFromText is Keep as note's starting text: the source's words on one
-// paragraph, cut to the limit at a word.
-export function noteFromText(text: string): string {
-  const one = text.replace(/\s+/g, " ").trim()
-  if ([...one].length <= NoteMaxChars) return one
-  const cut = [...one].slice(0, NoteMaxChars - 1).join("")
-  const sp = cut.lastIndexOf(" ")
-  return (sp > NoteMaxChars / 2 ? cut.slice(0, sp) : cut) + "…"
 }
 
 // isPerson reports whether a key is a person's (user: here, person: on a
@@ -299,8 +274,6 @@ export const notes = {
       kind: n.kind,
       text: n.text.trim(),
       tags,
-      source: n.source,
-      taskId: n.taskId,
       by: "user:sample",
       byPerson: true,
       at: now,

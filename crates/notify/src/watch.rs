@@ -631,6 +631,19 @@ impl Ctx<'_> {
         key.to_string()
     }
 
+    /// The name a gone agent went by (card #483): the name source (the
+    /// roster, then the names agents went by), then the card's spawn
+    /// record for it; never its key.
+    fn gone_name(&self, t: &Task, key: &str) -> Option<String> {
+        if key.is_empty() {
+            return None;
+        }
+        self.name
+            .as_ref()
+            .and_then(|f| history::agent_name_of(key, &f(key)))
+            .or_else(|| history::spawned_name(t, key))
+    }
+
     /// Whether key is the person's (`is_owner`, else `user`).
     fn owner(&self, key: &str) -> bool {
         match self.is_owner {
@@ -694,9 +707,16 @@ impl Ctx<'_> {
 
     /// A card for each card that came back to the person because the agent
     /// on it went away, cleared once someone is on it again or it ends.
+    /// Not while it waits on the person (its Needs you lane, card #483):
+    /// "assign it" means nothing on a card waiting for their Done or their
+    /// answer, and once that leaves it with nobody on it the card comes.
     fn returned_cards(&self, v: &BoardView, post: bool, returned: &mut HashMap<String, String>) {
         let mut now = HashSet::new();
+        let waits: HashSet<&str> = v.needs_you.iter().map(|c| c.task.id.as_str()).collect();
         for c in Self::lanes(v) {
+            if waits.contains(c.task.id.as_str()) {
+                continue;
+            }
             let Some(r) = &c.task.returned else { continue };
             if !r.person || !c.task.holders.is_empty() {
                 continue;
@@ -754,10 +774,7 @@ impl Ctx<'_> {
             id: returned_id(&t.id),
             about: Some(about),
             title,
-            body: format!(
-                "{} went away, so it's open again. Assign it to an agent, or close it.",
-                self.name(&was)
-            ),
+            body: history::returned_body(self.gone_name(t, &was).as_deref()),
             level: Level::Warn,
             sticky: true,
             on_click: Some(self.opener(t)),
@@ -900,6 +917,17 @@ impl Ctx<'_> {
             (history::KIND_BLOCKER, String::new())
         };
         let mut about = about(kind, t, &self.needs_key(t));
+        // The agent asked back on the person's answer (card #482): Irori
+        // read the answered item for them, so the ask-back is its own.
+        let instance = if instance.is_empty()
+            && t.blockers
+                .iter()
+                .any(|b| b.id == about.blocker_id && b.open() && b.status == coord::BLOCKER_REPLIED)
+        {
+            format!("replied:{}", t.updated_at.format_rfc3339_nano())
+        } else {
+            instance
+        };
         // A question without a blocker item (an older card): which time.
         if about.blocker_id.is_empty() || !instance.is_empty() {
             about.instance = if instance.is_empty() {
@@ -1037,6 +1065,17 @@ fn finished_shot(t: &Task) -> Option<&str> {
 /// its delivery; a held card is its newest held message, so the same
 /// messages posted again stay one item and a new one is news.
 fn inbox_about(note: &inbox::watch::Note) -> Option<PostedRow> {
+    // The one card for several that waited (card #482): every message it
+    // stands for, keyed by the newest so the same set stays one item.
+    if note.id == inbox::watch::WAITING_ID {
+        let newest = note.ids.iter().max()?.clone();
+        return Some(PostedRow {
+            kind: history::KIND_WAITED.into(),
+            delivery_id: newest,
+            delivery_ids: note.ids.clone(),
+            ..PostedRow::default()
+        });
+    }
     if let Some(d) = note.id.strip_prefix("msg:") {
         return Some(PostedRow {
             kind: history::KIND_MESSAGE.into(),

@@ -47,9 +47,15 @@ pub struct AgentRef {
     /// The roster's status, "gone" without a live card, or "person".
     pub status: String,
     pub live: bool,
-    /// "This PC", or the other device's name.
+    /// This device's own name with " (this one)" (e.g. "Macbook Pro (this
+    /// one)"), or the other device's name (card #489).
     #[serde(rename = "where")]
     pub where_: String,
+    /// It is on this device, so what only works here (Attach, Logs, End)
+    /// shows; `where` is only for reading (card #489).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub here: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     #[specta(optional)]
     pub assigned: bool,
@@ -321,8 +327,9 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub cant_start: String,
-    /// The device an agent is starting on for this card ("This PC" or its
-    /// name), while Irori's spawn request waits for it (card #448).
+    /// The device an agent is starting on for this card ("<its own name>
+    /// (this one)" or the other device's name, card #489), while Irori's
+    /// spawn request waits for it (card #448).
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub starting: String,
@@ -395,6 +402,27 @@ pub struct CardLeftOff {
     pub by: AgentRef,
     #[specta(type = ts::Time)]
     pub at: GoTime,
+}
+
+/// An activity line as the person reads it (card #490): a revision's
+/// "revised blocker b2" (agents keep the id) says "revised it" under its
+/// blocker, or quotes the question it asked in the card's own thread.
+fn person_what(a: &Activity, under: bool) -> String {
+    if !a.revised {
+        return a.what.clone();
+    }
+    let head = format!("revised blocker {}", a.blocker_id);
+    let Some(rest) = a.what.strip_prefix(&head) else {
+        return a.what.clone();
+    };
+    let said = if under {
+        "revised it".to_string()
+    } else if a.blocker_gist.is_empty() {
+        "revised a blocker".to_string()
+    } else {
+        format!("revised “{}”", a.blocker_gist)
+    };
+    format!("{said}{rest}")
 }
 
 /// A card's spot on the Board's canvas, in canvas pixels (card #93).
@@ -642,6 +670,11 @@ pub struct CardThreadItem {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub blocker_id: String,
+    /// The question of that blocker, cut short (card #490): what the
+    /// person reads in place of its id.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub blocker_gist: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[specta(optional)]
     pub missing: Vec<String>,
@@ -1005,10 +1038,32 @@ impl Window {
 }
 
 impl People {
-    /// The device a key lives on: "This PC" for this one, else its label.
+    /// Whether `dev` is this device: empty, unknown here, or this one.
+    fn is_here(&self, dev: &str) -> bool {
+        dev.is_empty() || self.self_id.is_empty() || dev == self.self_id
+    }
+
+    /// This device as the window names it: its own name with " (this one)",
+    /// e.g. "Macbook Pro (this one)", without the hostname's ".local"; "This
+    /// device" with no name (card #489).
+    pub(crate) fn this_device(&self) -> String {
+        let n = self
+            .names
+            .get(&self.self_id)
+            .map(|n| n.trim())
+            .unwrap_or("");
+        let n = n.strip_suffix(".local").unwrap_or(n).trim();
+        if n.is_empty() {
+            return "This device".into();
+        }
+        format!("{n} (this one)")
+    }
+
+    /// The device a key lives on: "<its own name> (this one)" for this one
+    /// (card #489), else its label.
     pub(crate) fn where_(&self, dev: &str) -> String {
-        if dev.is_empty() || self.self_id.is_empty() || dev == self.self_id {
-            return "This PC".into();
+        if self.is_here(dev) {
+            return self.this_device();
         }
         match self.names.get(dev) {
             Some(n) if !n.is_empty() => n.clone(),
@@ -1066,13 +1121,53 @@ impl People {
     }
 
     fn ref_plain(&self, key: &str) -> AgentRef {
+        // A message bridged from a shared board comes from
+        // board:<boardId>/<cardId> or board:<boardId>/person:<personId>
+        // (v0.5 §7.1): the board's own agent:<cardId> / person:<personId>
+        // name it (card #478), and the key it came as stays the key.
+        if let Some((_, who)) = key.strip_prefix("board:").and_then(|r| r.split_once('/')) {
+            let person = who.starts_with(store::kinds::PERSON_ACTOR_PREFIX);
+            let as_board = if person {
+                who.to_string()
+            } else {
+                format!("{}{who}", store::kinds::AGENT_ACTOR_PREFIX)
+            };
+            if !self.board.contains_key(&as_board)
+                && !self.persons.contains_key(&as_board)
+                && !self.known.contains_key(&as_board)
+            {
+                // A board's agent or person this device no longer knows:
+                // not one of this person's agents, and not gone either.
+                return AgentRef {
+                    key: key.into(),
+                    name: if person {
+                        "Another person".into()
+                    } else {
+                        "unknown agent".into()
+                    },
+                    status: if person { "person" } else { "unknown" }.into(),
+                    live: person,
+                    where_: if person {
+                        "On the board".into()
+                    } else {
+                        "Another person's agent".into()
+                    },
+                    ..AgentRef::default()
+                };
+            }
+            return AgentRef {
+                key: key.into(),
+                ..self.ref_plain(&as_board)
+            };
+        }
         if key == "irori" {
             return AgentRef {
                 key: key.into(),
                 name: "Irori".into(),
                 status: "irori".into(),
                 live: true,
-                where_: "This PC".into(),
+                where_: self.this_device(),
+                here: true,
                 ..AgentRef::default()
             };
         }
@@ -1091,6 +1186,7 @@ impl People {
                 status: "person".into(),
                 live: true,
                 where_: self.where_(dev),
+                here: self.is_here(dev),
                 device: self.chip(dev),
                 color: if self.paired {
                     self.colors.get(dev).cloned().unwrap_or_default()
@@ -1126,9 +1222,11 @@ impl People {
             .map(|(d, _)| d)
             .unwrap_or("")
             .to_string();
+        // A key is never a name (card #478): one nothing names is an
+        // unknown agent.
         let mut r = AgentRef {
             key: key.into(),
-            name: key.into(),
+            name: "unknown agent".into(),
             status: "gone".into(),
             conflict: self.conflicts.get(key).cloned().unwrap_or_default(),
             ..AgentRef::default()
@@ -1159,6 +1257,8 @@ impl People {
             // gone; where is whose agent it is.
             if !a.name.is_empty() {
                 r.name = a.name.clone();
+            } else if !a.person.is_empty() {
+                r.name = format!("an agent of {}'s", a.person);
             }
             r.status = if a.status.is_empty() {
                 "idle".into()
@@ -1176,6 +1276,7 @@ impl People {
             return r;
         }
         r.where_ = self.where_(&dev);
+        r.here = self.is_here(&dev);
         r.device = self.chip(&dev);
         if self.paired {
             r.color = self.colors.get(&dev).cloned().unwrap_or_default();
@@ -1273,6 +1374,30 @@ pub(crate) fn name_wait(s: &mut CardSummary, refr: &dyn Fn(&str) -> String) {
     s.wait_on = if r.is_empty() { "a card".into() } else { r };
 }
 
+/// A failed spawn's reason for the card line (card #480). A missing
+/// checkout is said in today's words from the card and the device's name,
+/// whatever the stored row says: rows from before #480 read "no checkout of
+/// remote:github.com/StephenSHorton/irori on 05f1844a…".
+fn cant_start_text(t: &Task, sp: &coord::Spawn, p: &People) -> String {
+    if !irori_core::spawn_stop::no_folder_reason(&sp.reason) {
+        return sp.reason.clone();
+    }
+    // Mid-sentence, so where_'s "This PC" and "Another device" go lowercase.
+    let dev = match p.names.get(&sp.device) {
+        Some(n) if !n.trim().is_empty() => n.clone(),
+        _ => match p.where_(&sp.device).as_str() {
+            "This PC" => "this PC".into(),
+            "Another device" => "another device".into(),
+            w => w.to_string(),
+        },
+    };
+    if t.repo_key.is_empty() {
+        format!("this card names no repo, and {dev} has no folder for it")
+    } else {
+        format!("no copy of {} on {dev}", coord::repo_name(&t.repo_key))
+    }
+}
+
 pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
     let (d, n) = t.progress();
     let mut s = CardSummary {
@@ -1294,7 +1419,7 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
         cant_start: t
             .spawn_request()
             .filter(|sp| sp.op == coord::SPAWN_FAILED)
-            .map(|sp| sp.reason.clone())
+            .map(|sp| cant_start_text(t, sp, p))
             .unwrap_or_default(),
         starting: t
             .spawn_request()
@@ -2429,6 +2554,7 @@ fn build_thread(
             files: cm.files,
             attachments: cm.attachments.clone(),
             blocker_id: cm.blocker_id.clone(),
+            blocker_gist: cm.blocker_gist.clone(),
             missing: cm.missing.clone(),
             unheard: cm.unheard,
             mentions: card_mentions(&cm.mentions, p),
@@ -2478,6 +2604,8 @@ fn build_thread(
             seen.insert(id.clone(), 1);
         }
         let who = p.ref_(&a.by);
+        let under = a.revised && kept.contains(a.blocker_id.as_str());
+        let what = person_what(a, under);
         let ev = (
             ThreadPos {
                 hlc: a.hlc,
@@ -2489,8 +2617,9 @@ fn build_thread(
                 kind: THREAD_EVENT.into(),
                 at: a.at,
                 device: p.chip(&a.device),
-                text: format!("{} {}", who.name, p.named(&a.what)),
+                text: format!("{} {}", who.name, p.named(&what)),
                 blocker_id: a.blocker_id.clone(),
+                blocker_gist: a.blocker_gist.clone(),
                 revised: a.revised,
                 made: a.kind == coord::MADE_KIND,
                 who,
@@ -2498,7 +2627,7 @@ fn build_thread(
             },
         );
         // A revision goes under its blocker, after the reply it answers.
-        if a.revised && kept.contains(a.blocker_id.as_str()) {
+        if under {
             mine.push(ev);
             continue;
         }
@@ -2914,6 +3043,55 @@ mod tests {
         assert_eq!(holder_line(&[r("busy", false)]).state, Holding::Active);
     }
 
+    /// Card #480: a failed row from before #480 names the key and the
+    /// device id; the card line says it with names.
+    #[test]
+    fn old_no_checkout_reasons_read_with_names() {
+        let mut p = People {
+            self_id: "3dc30c94".into(),
+            ..People::default()
+        };
+        p.names.insert("05f1844a".into(), "Desktop Computer".into());
+        let t = Task {
+            repo_key: "remote:github.com/stephenshorton/irori".into(),
+            ..Task::default()
+        };
+        let sp = coord::Spawn {
+            op: coord::SPAWN_FAILED.into(),
+            device: "05f1844a".into(),
+            reason: "no checkout of remote:github.com/StephenSHorton/irori on 05f1844a".into(),
+            ..coord::Spawn::default()
+        };
+        assert_eq!(
+            cant_start_text(&t, &sp, &p),
+            "no copy of irori on Desktop Computer"
+        );
+        let none = Task::default();
+        let sp = coord::Spawn {
+            reason: "no checkout of  on 05f1844a".into(),
+            ..sp
+        };
+        assert_eq!(
+            cant_start_text(&none, &sp, &p),
+            "this card names no repo, and Desktop Computer has no folder for it"
+        );
+        // A device it can't name reads as a phrase, not a title.
+        let unknown = coord::Spawn {
+            device: "ffff".into(),
+            ..sp.clone()
+        };
+        assert_eq!(
+            cant_start_text(&none, &unknown, &p),
+            "this card names no repo, and another device has no folder for it"
+        );
+        // Other reasons pass through (the trust row parses its own).
+        let sp = coord::Spawn {
+            reason: "not trusted: /r on 05f1844a".into(),
+            ..sp
+        };
+        assert_eq!(cant_start_text(&t, &sp, &p), "not trusted: /r on 05f1844a");
+    }
+
     #[test]
     fn where_names_devices() {
         let mut p = People {
@@ -2921,11 +3099,27 @@ mod tests {
             ..People::default()
         };
         p.names.insert("mac".into(), "Mac".into());
-        assert_eq!(p.where_(""), "This PC");
-        assert_eq!(p.where_("me"), "This PC");
+        // No name for this device yet (card #489).
+        assert_eq!(p.where_("me"), "This device");
+        assert_eq!(p.this_device(), "This device");
+        // The hostname fallback loses its ".local".
+        p.names
+            .insert("me".into(), "Stephens-MacBook-Pro-2.local".into());
+        assert_eq!(p.where_("me"), "Stephens-MacBook-Pro-2 (this one)");
+        p.names.insert("me".into(), "Macbook Pro".into());
+        assert_eq!(p.where_(""), "Macbook Pro (this one)");
+        assert_eq!(p.where_("me"), "Macbook Pro (this one)");
         assert_eq!(p.where_("mac"), "Mac");
         assert_eq!(p.where_("x"), "Another device");
         assert_eq!(p.chip("mac"), "");
+        // `here` follows the same test as `where` (card #489).
+        let irori = p.ref_("irori");
+        assert_eq!(irori.where_, "Macbook Pro (this one)");
+        assert!(irori.here);
+        assert!(p.ref_("me/a").here);
+        assert_eq!(p.ref_("me/a").where_, "Macbook Pro (this one)");
+        assert!(!p.ref_("mac/a").here);
+        assert_eq!(p.ref_("mac/a").where_, "Mac");
         p.paired = true;
         assert_eq!(p.chip("mac"), "Mac");
     }

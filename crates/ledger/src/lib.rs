@@ -21,7 +21,7 @@ use gocompat::time::GoTime;
 use serde::Serialize;
 
 pub use bash::{BashRef, BashResult, from_bash};
-pub use keys::{key, repo_from_key, repo_key};
+pub use keys::{canonical_repo_key, key, repo_from_key, repo_key, repo_name, same_repo_key};
 pub use refs::{Ref, RefOptions, extract_refs, parse_target};
 pub use store::Ledger;
 

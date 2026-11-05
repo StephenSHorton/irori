@@ -48,6 +48,14 @@ pub struct ConvMember {
     pub kind: String,
     pub key: String,
     pub name: String,
+    /// Another member's agent on a shared board (card #478): its board
+    /// card's status (`busy`, `idle`, `gone`), "" when this device knows
+    /// none. The window reads an agent missing from its own roster as
+    /// gone only when this says so.
+    pub status: String,
+    /// Whose agent it is, when it is another member's ("Spencer"); ""
+    /// for the person's own agents.
+    pub owner: String,
 }
 
 /// One conversation in a reader's list.
@@ -64,6 +72,12 @@ pub struct Conversation {
     pub members: Vec<ConvMember>,
     /// The newest post's time (zero: none yet).
     pub last_at: GoTime,
+    /// The newest post's text on one line, clipped to [`LAST_TEXT`] runes
+    /// (card #486): the list's subtitle, and how it sees one message sent
+    /// to many agents.
+    pub last_text: String,
+    /// Who wrote the newest post ("" when none).
+    pub last_by: String,
     /// The reader is in it (a channel they joined, their own DM, a thread
     /// they're on). The person also sees agents' DMs, read-only.
     pub joined: bool,
@@ -132,10 +146,47 @@ fn cards(b: &dyn Backend) -> Vec<coord::roster::AgentCard> {
         .collect()
 }
 
-/// Names for keys: the roster's, else the last name an agent went by.
+/// Names for keys: the roster's, else another member's agent on a shared
+/// board, else the last name an agent went by. A key never stands in for
+/// a name (card #478): one nobody can name is "unknown agent".
 struct Book {
     cards: HashMap<String, String>,
+    /// Other members' agents, by board card id: name, owner, status.
+    board: HashMap<String, (String, String, String)>,
     known: BTreeMap<String, String>,
+}
+
+/// What a name says when nothing names the key (card #478).
+pub const UNKNOWN_AGENT: &str = "unknown agent";
+/// What another person on a board is called when the board doesn't say.
+pub const UNKNOWN_PERSON: &str = "another person";
+
+/// The board card id a key names: `agent:<cardId>` as a board writes it,
+/// or `board:<boardId>/<cardId>` as the bridge sends from it.
+fn board_card(key: &str) -> Option<&str> {
+    if let Some(id) = key.strip_prefix(store::kinds::AGENT_ACTOR_PREFIX) {
+        return Some(id);
+    }
+    let (_, rest) = key.strip_prefix("board:")?.split_once('/')?;
+    (!rest.starts_with(store::kinds::PERSON_ACTOR_PREFIX)).then_some(rest)
+}
+
+/// The person a `board:<boardId>/person:<personId>` key names, as
+/// `person:<personId>`.
+fn board_person(key: &str) -> Option<&str> {
+    let (_, rest) = key.strip_prefix("board:")?.split_once('/')?;
+    rest.starts_with(store::kinds::PERSON_ACTOR_PREFIX)
+        .then_some(rest)
+}
+
+/// "BillingEng1 · Spencer"; "an agent of Spencer's" without a name.
+pub fn board_agent_name(name: &str, owner: &str) -> String {
+    match (name.trim(), owner.trim()) {
+        ("", "") => UNKNOWN_AGENT.into(),
+        ("", o) => format!("an agent of {o}'s"),
+        (n, "") => n.into(),
+        (n, o) => format!("{n} · {o}"),
+    }
 }
 
 impl Book {
@@ -146,27 +197,64 @@ impl Book {
                 .into_iter()
                 .map(|a| (a.key.clone(), a.name))
                 .collect(),
+            board: b
+                .board_agents()
+                .into_iter()
+                .filter_map(|a| {
+                    let id = board_card(&a.card.key)?.to_string();
+                    Some((id, (a.card.name, a.person, a.card.status)))
+                })
+                .collect(),
             known: b.known_names(),
         }
+    }
+
+    fn known(&self, key: &str) -> Option<String> {
+        self.known
+            .get(key)
+            .filter(|n| !n.trim().is_empty())
+            .cloned()
     }
 
     fn name(&self, key: &str) -> String {
         if ct::is_person_key(key) {
             return "you".into();
         }
-        self.cards
-            .get(key)
-            .or_else(|| self.known.get(key))
-            .filter(|n| !n.trim().is_empty())
-            .cloned()
-            .unwrap_or_else(|| key.to_string())
+        if let Some(n) = self.cards.get(key).filter(|n| !n.trim().is_empty()) {
+            return n.clone();
+        }
+        if let Some(p) = board_person(key) {
+            return self.known(p).unwrap_or_else(|| UNKNOWN_PERSON.into());
+        }
+        if ct::is_other_person_key(key) {
+            return self.known(key).unwrap_or_else(|| UNKNOWN_PERSON.into());
+        }
+        if let Some(id) = board_card(key) {
+            let last = || self.known(&format!("{}{id}", store::kinds::AGENT_ACTOR_PREFIX));
+            if let Some((n, owner, _)) = self.board.get(id) {
+                let n = if n.trim().is_empty() {
+                    last().unwrap_or_default()
+                } else {
+                    n.clone()
+                };
+                return board_agent_name(&n, owner);
+            }
+            return last().unwrap_or_else(|| UNKNOWN_AGENT.into());
+        }
+        self.known(key).unwrap_or_else(|| UNKNOWN_AGENT.into())
     }
 
     fn member(&self, m: &Member) -> ConvMember {
+        let (status, owner) = board_card(&m.key)
+            .and_then(|id| self.board.get(id))
+            .map(|(_, o, s)| (s.clone(), o.clone()))
+            .unwrap_or_default();
         ConvMember {
             kind: m.kind.clone(),
             key: m.key.clone(),
             name: self.name(&m.key),
+            status,
+            owner,
         }
     }
 }
@@ -232,15 +320,19 @@ fn thread_members(t: &Task) -> Vec<Member> {
     out
 }
 
-/// The DMs mirrored from messages: by DM id, its two parties and posts.
 /// Whether a message can show as a DM ([`mirrored`]): one an agent or the
 /// person sent, not a notice, a stop, Irori's own, a mention's wake or a
 /// Wind down (card #484). The Core tells the window Talk changed only for
-/// these (card #468).
+/// these (card #468). A row bridged from a shared board (card #478) isn't
+/// one either: it is the card's, shown on the card, and every holder's and
+/// watcher's copy would show again ("raised a blocker on ..." ten times
+/// over).
 pub fn mirrors(m: &inbox::Message) -> bool {
     !(m.notice
         || m.stop
         || m.from.kind == "irori"
+        || m.from.kind == inbox::BOARD_KIND
+        || m.from.key.starts_with("board:")
         || m.reason == inbox::REASON_MENTIONED
         || inbox::is_wind_down(m)
         || m.from.key.is_empty())
@@ -255,6 +347,7 @@ fn answers_wind_down(m: &inbox::Message, wind_downs: &std::collections::HashSet<
     !m.reply_to.is_empty() && wind_downs.contains(&m.reply_to)
 }
 
+/// The DMs mirrored from messages: by DM id, its two parties and posts.
 fn mirrored(b: &dyn Backend, talk: &Talk) -> BTreeMap<String, (Vec<Member>, Vec<Post>)> {
     let ids = talk.post_ids();
     let mut seen = std::collections::HashSet::new();
@@ -315,6 +408,19 @@ fn last_at(posts: &[Post]) -> GoTime {
     posts.last().map(|p| p.at).unwrap_or_default()
 }
 
+/// How many runes of the newest post a conversation carries (card #486):
+/// the list shows one line of it, and compares it whole to tell one
+/// message sent to many agents from two that only start alike.
+pub const LAST_TEXT: usize = 2000;
+
+/// The newest post's text on one line, and who wrote it.
+fn last_line(posts: &[Post]) -> (String, String) {
+    posts
+        .last()
+        .map(|p| (one_line(&p.text, LAST_TEXT), p.by.clone()))
+        .unwrap_or_default()
+}
+
 /// `reader`'s conversations: the person sees every open channel, every
 /// DM (agents' own read-only) and every open thread; an agent sees the
 /// channels it joined, its DMs and the open threads it is on. Newest
@@ -333,6 +439,7 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
         }
         let ps = talk.posts(&c.id);
         let (unread, mentions) = counts(talk, &ps, reader, &c.id);
+        let (last_text, last_by) = last_line(&ps);
         out.push(Conversation {
             conv_id: c.id.clone(),
             kind: ct::KIND_CHANNEL.into(),
@@ -346,6 +453,8 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
                 .map(|m| names.member(m))
                 .collect(),
             last_at: last_at(&ps),
+            last_text,
+            last_by,
             joined,
             space_id: c.space_id.clone(),
             ..Conversation::default()
@@ -363,6 +472,12 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
             continue;
         }
         let ps = dm_posts(talk, mirror.get(&id), &id);
+        // A DM opened with a shared board's sender (from a Board notice)
+        // and never written in lists nothing (card #478): what that
+        // sender wrote is on the card, not here.
+        if ps.is_empty() && parties.iter().any(|m| m.key.starts_with("board:")) {
+            continue;
+        }
         let (unread, mentions) = if mine {
             counts(talk, &ps, reader, &id)
         } else {
@@ -373,6 +488,7 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
             .filter(|m| ct::canon(&m.key) != me)
             .map(|m| names.name(&m.key))
             .collect();
+        let (last_text, last_by) = last_line(&ps);
         out.push(Conversation {
             conv_id: id.clone(),
             kind: ct::KIND_DM.into(),
@@ -381,6 +497,8 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
             mentions,
             members: parties.iter().map(|m| names.member(m)).collect(),
             last_at: last_at(&ps),
+            last_text,
+            last_by,
             joined: mine,
             read_only: !mine,
             ..Conversation::default()
@@ -401,6 +519,7 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
             continue;
         }
         let (unread, mentions) = counts(talk, &ps, reader, &t.id);
+        let (last_text, last_by) = last_line(&ps);
         out.push(Conversation {
             conv_id: t.id.clone(),
             kind: ct::KIND_THREAD.into(),
@@ -409,6 +528,8 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
             mentions,
             members: members.iter().map(|m| names.member(m)).collect(),
             last_at: last_at(&ps),
+            last_text,
+            last_by,
             joined: on || person,
             short: t.short.clone(),
             agents_now: t.ask.as_ref().is_some_and(|a| a.wake),

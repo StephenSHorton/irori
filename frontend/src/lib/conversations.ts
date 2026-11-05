@@ -455,6 +455,76 @@ function sampleState(): SampleConv[] {
     ],
     readUpTo: "sample-dm-gone-new-p1",
   })
+  // Another member's agent on a shared board (card #478): named "BillingEng1
+  // · Spencer" from the board's roster, never its board:<board>/<card> key,
+  // and with the yours, not the Archive: it isn't on this roster, that's
+  // all. One whose state this device doesn't know says only whose it is.
+  const spencer =
+    "board:b3f5895439ea36e68e99533be49d066b/f052f6f42153dfb4f70ff159e3830ce2"
+  const spencer2 =
+    "board:b3f5895439ea36e68e99533be49d066b/0d1e5c0a7f2b4c6e9a8b3d2f1e0c9b8a"
+  sample.push(
+    {
+      ...TalkConversation({
+        convId: "sample-dm-spencer",
+        kind: "dm",
+        name: "BillingEng1 · Spencer",
+        members: [
+          you,
+          {
+            kind: "agent",
+            key: spencer,
+            name: "BillingEng1 · Spencer",
+            status: "idle",
+            owner: "Spencer",
+          },
+        ],
+      }),
+      posts: [
+        post(
+          "sample-dm-spencer",
+          1,
+          me,
+          30,
+          "Is the ZZ rehearsal on dev first?"
+        ),
+        post(
+          "sample-dm-spencer",
+          2,
+          spencer,
+          28,
+          "Yes: no prod writes for ZZ until the dev rehearsal passes. The two questions for you are blockers on #2258."
+        ),
+      ],
+      readUpTo: "sample-dm-spencer-p1",
+    },
+    {
+      ...TalkConversation({
+        convId: "sample-dm-spencer-2",
+        kind: "dm",
+        name: "an agent of Spencer's",
+        members: [
+          you,
+          {
+            kind: "agent",
+            key: spencer2,
+            name: "an agent of Spencer's",
+            owner: "Spencer",
+          },
+        ],
+      }),
+      posts: [
+        post(
+          "sample-dm-spencer-2",
+          1,
+          me,
+          300,
+          "Thanks for the restatement list."
+        ),
+      ],
+      readUpTo: "sample-dm-spencer-2-p1",
+    }
+  )
   sample.push({
     ...TalkConversation({
       convId: "sample-dm-gone-new2",
@@ -488,6 +558,50 @@ function sampleState(): SampleConv[] {
       readUpTo: "",
     })
   }
+  // One agent's message to many (card #486): a copy in each agent↔agent
+  // DM, seconds apart. The list shows it as one row, "sample-owl → 15
+  // agents"; the one that answered keeps its own row.
+  const owl = "sample-device/sample04-synthetic-session"
+  const wind =
+    "sample-owl, for you: WIND DOWN NOW, usage is nearly out. Start no new work; save your branch, tick your step, leave the card."
+  const names = [
+    "alder",
+    "cove",
+    "fern",
+    "heath",
+    "ivy",
+    "juniper",
+    "kestrel",
+    "linden",
+    "moss",
+    "nettle",
+    "oak",
+    "pine",
+    "quill",
+    "reed",
+    "sorrel",
+    "tansy",
+  ]
+  names.forEach((n, i) => {
+    const id = `sample-dm-owl-${i + 1}`
+    const x = `sample-owl-to-${i + 1}`
+    const posts = [post(id, 1, owl, 3 + i / 30, wind)]
+    if (n === "tansy")
+      posts.push(
+        post(id, 2, x, 2, "Saved WIP at 4f2a91c and left #412. Going idle.")
+      )
+    sample!.push({
+      ...TalkConversation({
+        convId: id,
+        kind: "dm",
+        name: `sample-owl ↔ ${n}`,
+        members: [a(owl, "sample-owl"), a(x, n)],
+        readOnly: true,
+      }),
+      posts,
+      readUpTo: "",
+    })
+  })
   return sample
 }
 
@@ -501,6 +615,8 @@ function counted(c: SampleConv): Conversation {
     unread: fresh.length,
     mentions: fresh.filter((p) => p.mentions.includes(me)).length,
     lastAt: posts[posts.length - 1]?.at ?? "",
+    lastText: (posts[posts.length - 1]?.text ?? "").replace(/\s+/g, " ").trim(),
+    lastBy: posts[posts.length - 1]?.by ?? "",
   }
 }
 
@@ -549,7 +665,10 @@ export function fromPost(
 ): { title: string; objective: string } {
   const first = text.trim().split(/\r?\n/)[0] ?? ""
   const title = first.length > 80 ? `${first.slice(0, 79).trimEnd()}…` : first
-  return { title, objective: `${text.trim()}\n\n(From a message in ${where}.)` }
+  return {
+    title,
+    objective: `${text.trim()}\n\n(From a message in ${where}.)`,
+  }
 }
 
 function sampleRead(convId: string) {

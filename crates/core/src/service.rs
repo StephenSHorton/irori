@@ -68,6 +68,7 @@ mod notifications;
 pub mod spaces;
 pub mod spawn;
 pub mod spawn_permissions;
+pub mod spawn_stop;
 mod spawn_waiting;
 pub use mirror::BoardReviewer;
 pub mod invites;
@@ -512,6 +513,7 @@ fn presence_card(c: AgentCard) -> presence::AgentCard {
         device_state: c.device_state,
         waiting_for: c.waiting_for,
         device_seen: c.device_seen,
+        status_since: c.status_since,
     }
 }
 
@@ -546,6 +548,7 @@ fn roster_card(c: presence::AgentCard) -> AgentCard {
         device_state: c.device_state,
         waiting_for: c.waiting_for,
         device_seen: c.device_seen,
+        status_since: c.status_since,
     }
 }
 
@@ -999,7 +1002,12 @@ impl Core {
                             }
                             Ok(tid)
                         }
-                        None => Err(inbox::Error::sentinel(inbox::ErrorKind::NoCard)),
+                        // A comment or blocker bridged from a shared board
+                        // is on that board's card already (card #478): it
+                        // closes there, never moved to the person, where
+                        // each agent's copy showed as a DM.
+                        None => tools::notice::closed_on_board(m)
+                            .ok_or_else(|| inbox::Error::sentinel(inbox::ErrorKind::NoCard)),
                     }
                 })
             }),
@@ -1352,6 +1360,16 @@ impl Core {
         });
         let _ = svc_cell.set(Arc::downgrade(&s));
         let _ = services_cell.set(Arc::downgrade(&s));
+        // A new name never takes a word another member's live agent on a
+        // shared board has (card #472).
+        {
+            let w = Arc::downgrade(&s);
+            s.names.set_others(move || {
+                w.upgrade()
+                    .map(|s| s.board_others().into_iter().map(|a| a.card).collect())
+                    .unwrap_or_default()
+            });
+        }
         // A space's channels go in its log (card #392).
         s.talk
             .set_spaces(Arc::new(spaces::SpaceTalk(Arc::downgrade(&s))));
@@ -1430,14 +1448,10 @@ impl Core {
                     Arc::new(move |k: &str| ch.is_owner(k))
                 }),
                 name: Some({
-                    let r = s.roster.clone();
-                    Arc::new(move |key: &str| {
-                        r.agents()
-                            .into_iter()
-                            .find(|a| a.key == key)
-                            .map(|a| a.name)
-                            .unwrap_or_default()
-                    })
+                    // A gone agent keeps the last name it went by (cards
+                    // #98, #483): a returned card's agent has left the roster.
+                    let s = s.clone();
+                    Arc::new(move |key: &str| s.agent_name(key))
                 }),
                 repo_name: Some({
                     let s = s.clone();
@@ -1698,6 +1712,7 @@ impl Core {
                         s.follow_person_name();
                         s.notifications.reset();
                         load_notifications(&s.store, &s.notifications);
+                        s.settle_notifications();
                         s.hub.publish(CoreEvent::Devices);
                         s.hub.publish(CoreEvent::Notifications);
                         let _ = s.talk.load();
@@ -1727,6 +1742,11 @@ impl Core {
                         // folding again changes nothing.
                         if s.notifications.apply(&ev) {
                             s.hub.publish(CoreEvent::Notifications);
+                            // Another device kept one this one can see is
+                            // already resolved.
+                            if ev.kind == coord::notifications::POSTED {
+                                s.settle_notifications();
+                            }
                         }
                     } else if ev.kind == coord::devcolor::KIND {
                         s.colors.apply(&ev);
@@ -1920,6 +1940,8 @@ impl Core {
                 let _reg = reg;
                 while let Some(ch) = sub.recv() {
                     s.hub.publish(CoreEvent::Inbox(ch));
+                    // A message replied to, read or released (card #482).
+                    s.settle_notifications();
                 }
             });
         }
@@ -1931,6 +1953,9 @@ impl Core {
             // Core's life, as the window's Board pump does in Go's GUI.
             self.spawn("feed-board", move || {
                 let _reg = reg;
+                // What was resolved while Irori was off reads now (card
+                // #482).
+                s2.settle_notifications();
                 while let Some(ch) = q.recv() {
                     if s2
                         .coord
@@ -1940,6 +1965,8 @@ impl Core {
                         s2.asks_kick.kick();
                     }
                     s2.hub.publish(CoreEvent::Board(ch));
+                    // A blocker answered or a done check marked, by anyone.
+                    s2.settle_notifications();
                 }
             });
         }
@@ -1965,6 +1992,7 @@ impl Core {
                 let _reg = reg;
                 while let Some(id) = q.recv() {
                     s.hub.publish(CoreEvent::Asks(id));
+                    s.settle_notifications();
                 }
             });
         }
@@ -2290,20 +2318,18 @@ impl Core {
         self.s.roster.agents()
     }
 
+    /// The word a new agent started from `seed` would get now (card #472):
+    /// the name pick a spawn makes, for tests.
+    #[doc(hidden)]
+    pub fn pick_agent_name(&self, seed: &str) -> String {
+        self.s.names.pick_new(seed, &|_| false)
+    }
+
     /// An agent key's name: its card's in the mesh roster, else the last
     /// name it went by (gone agents, Grok members after a restart; card
     /// #98), or `""`.
     pub fn agent_name(&self, key: &str) -> String {
-        let live = self
-            .mesh_agents()
-            .into_iter()
-            .find(|a| a.key == key)
-            .map(|a| a.name)
-            .unwrap_or_default();
-        if !live.is_empty() {
-            return live;
-        }
-        self.s.agent_names.get(key)
+        self.s.agent_name(key)
     }
 
     /// Every agent key → the last name it went by, gone ones included
@@ -2999,6 +3025,23 @@ fn revive_for_ask(rv: &Mutex<Option<ReviveFn>>, me: &str, target: &str) -> Resul
 }
 
 impl Services {
+    /// An agent key's name: its card's in the mesh roster, else the last
+    /// name it went by (gone agents, Grok members after a restart; cards
+    /// #98, #483), or `""`.
+    fn agent_name(&self, key: &str) -> String {
+        let live = self
+            .roster
+            .agents()
+            .into_iter()
+            .find(|a| a.key == key)
+            .map(|a| a.name)
+            .unwrap_or_default();
+        if !live.trim().is_empty() {
+            return live;
+        }
+        self.agent_names.get(key)
+    }
+
     /// See [`Core::device_labels`].
     pub(crate) fn device_labels(&self) -> std::collections::BTreeMap<String, String> {
         let mut out: std::collections::BTreeMap<String, String> = self
@@ -3068,7 +3111,11 @@ impl Services {
                     self.agent_names.all().remove(&p.by)
                 })
                 .filter(|n| !n.trim().is_empty())
-                .unwrap_or_else(|| p.by.clone())
+                // Another person or their agent in a space's channel; a
+                // key never stands in for a name (card #478).
+                .or_else(|| self.space_names().remove(&p.by))
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or_else(|| "An agent".to_string())
         };
         let title = match self.talk.channel(&p.conv_id) {
             Some(c) => format!("{who} in #{}", c.name),
@@ -3609,9 +3656,12 @@ impl Services {
         if !self
             .polled_desks()
             .iter()
-            .any(|d| d.settings.repo_key == repo_key)
+            .any(|d| coord::same_repo_key(&d.settings.repo_key, repo_key))
         {
-            return Err(format!("this device doesn't poll {repo_key}'s merge desk"));
+            return Err(format!(
+                "this device doesn't poll {}'s merge desk",
+                coord::repo_name(repo_key)
+            ));
         }
         let repo = coord::github_repo(repo_key).unwrap_or_default();
         let limit = crate::deskwatch::LIMIT;

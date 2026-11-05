@@ -367,6 +367,7 @@ impl Inner {
             peer_features: s.peer_features.clone(),
             started_at: s.started_at,
             updated_at: s.updated_at,
+            status_since: s.status_since,
             repo_key: self.repo_key(st, &s.cwd),
             ..AgentCard::default()
         };
@@ -559,6 +560,8 @@ impl Inner {
             let mut old = p.cards[k].clone();
             old.status = "gone".into();
             old.updated_at = now;
+            // The "gone" status begins now too (card #489).
+            old.status_since = now;
             changes.push(Change {
                 kind: ChangeKind::Removed,
                 card: old,
@@ -625,6 +628,7 @@ pub fn changed(a: &AgentCard, b: &AgentCard) -> bool {
         || a.peer_features != b.peer_features
         || !a.started_at.equal(&b.started_at)
         || !a.updated_at.equal(&b.updated_at)
+        || !a.status_since.equal(&b.status_since)
         || a.last_text != b.last_text
         || a.transcript != b.transcript
         || a.repo_key != b.repo_key

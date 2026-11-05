@@ -121,6 +121,29 @@ pub fn record_gone(co: &Coord, m: &Message, to: &str) -> inbox::Result<String> {
     }
 }
 
+/// The shared board's card a row bridged from that board is closed on
+/// once the agent it went to has gone (card #478), for the rows that go to
+/// every holder, watcher and assignee of the card: a comment, a blocker
+/// raised, answered or closed. Each is already on the shared card, where
+/// the person reads it; handing every agent's copy to the person put them
+/// in Talk as DMs from the board ("raised a blocker on ..." ten times
+/// over). `None` for anything else, which still reaches the person: work
+/// assigned, a review or release request, a handed card or an ask went to
+/// that one agent and nobody else hears it.
+pub fn closed_on_board(m: &Message) -> Option<String> {
+    if m.from.kind != inbox::BOARD_KIND || m.board.board_id.is_empty() {
+        return None;
+    }
+    if !matches!(
+        m.board.kind.as_str(),
+        inbox::row_kind::COMMENT | inbox::row_kind::BLOCKER
+    ) {
+        return None;
+    }
+    let id = m.ref_.strip_prefix("task:").map(trim).unwrap_or_default();
+    (!id.is_empty()).then(|| id.to_string())
+}
+
 /// Spawned agents part 8 (card #452, spawned-agents.md §4 "Reaching an
 /// agent that has gone"): `m` went to `to`, a spawned agent that has
 /// finished, and names no card of its own. It goes on the card `to` was

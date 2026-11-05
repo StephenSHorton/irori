@@ -94,6 +94,15 @@ pub struct AgentCard {
     /// statusUpdatedAt/updatedAt from the session file.
     #[serde(rename = "updatedAt")]
     pub updated_at: GoTime,
+    /// When the current status began: the session file's statusUpdatedAt
+    /// (updatedAt when that is absent); `now` when the card goes. Rust-only
+    /// and omitted when zero, so Go's golden JSON still holds (card #489).
+    #[serde(
+        rename = "statusSince",
+        default,
+        skip_serializing_if = "GoTime::is_zero"
+    )]
+    pub status_since: GoTime,
     /// The newest transcript row timestamp.
     #[serde(rename = "lastActivity")]
     pub last_activity: GoTime,

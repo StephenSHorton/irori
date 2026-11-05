@@ -14,6 +14,7 @@ irori-blob.workspace = true
 irori-gocompat.workspace = true
 irori-hlc.workspace = true
 irori-identity.workspace = true
+irori-ledger.workspace = true
 irori-scrub.workspace = true
 irori-search.workspace = true
 irori-store.workspace = true
