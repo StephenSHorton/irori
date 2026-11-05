@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
+import { waitLabel, waitTip } from "@/components/cards/bits"
+
 import { leaseNames, waitLine, waitName } from "./wait-name"
 
 // Card #487: a lease wait in plain words, not the raw names.
@@ -53,5 +55,31 @@ describe("waitName", () => {
       "Waiting for a free Dolphin slot"
     )
     expect(waitLine({})).toBe("Waiting on something else")
+  })
+})
+
+// Card #553: a version wait's pill names the version, its tooltip the
+// devices too.
+describe("a version wait", () => {
+  const card = {
+    waitingOn: 1,
+    waitKind: "version",
+    waitOn: "Irori 0.12.4",
+    waitFull: "Irori 0.12.4 on Desktop and another device",
+  }
+  test("the pill says the version", () => {
+    expect(waitLabel(card)).toBe("Waiting on Irori 0.12.4")
+    expect(waitLabel({ ...card, waitingOn: 2 })).toBe("Waiting on Irori 0.12.4 +1")
+  })
+  test("the tooltip names the devices, then the question", () => {
+    expect(waitTip(card)).toBe("Waiting on Irori 0.12.4 on Desktop and another device")
+    expect(waitTip({ ...card, waitQuestion: "After the update" })).toBe(
+      "Waiting on Irori 0.12.4 on Desktop and another device: After the update"
+    )
+  })
+  test("any other wait's tooltip is its label and question", () => {
+    expect(waitTip({ waitingOn: 1, waitKind: "agent", waitOn: "kestrel", waitQuestion: "Soon" })).toBe(
+      "Waiting on kestrel: Soon"
+    )
   })
 })

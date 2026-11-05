@@ -463,6 +463,11 @@ impl Fold {
             let l = l.clone();
             return self.ask_lead(&by, &t, &l, &note, files);
         }
+        // Its lead went away (#451): the part waits for the next one, who
+        // merges it, rather than asking the person.
+        if s == COMPLETED && self.is_agent_key(&by) && lead.is_empty() && self.lead_coming(&t) {
+            return self.ask_lead(&by, &t, "", &note, files);
+        }
         if s == COMPLETED && self.done_check && self.is_agent_key(&by) && lead.is_empty() {
             return self.ask_done(&by, &t, &note, files, need_proof);
         }
@@ -995,6 +1000,7 @@ impl Fold {
         self.asks = super::asks::AskBook::default();
         self.reset_stale();
         self.links.clear();
+        self.pr_states.clear();
         self.pins.clear();
         self.archived.clear();
         // Pins from rows the cut moved out go too (card #494).
