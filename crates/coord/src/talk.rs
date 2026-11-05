@@ -5,20 +5,24 @@
 //! A channel lives where its `spaceId` says: empty is Personal (the
 //! private log); otherwise the space's log, so it replicates to the
 //! space's members. Its `talk.member` and `talk.post` rows go to the same
-//! log. DMs and read cursors stay in the private log. The Core writes and
-//! reads a space's rows through [`SpaceLogs`], which turns this device's
-//! keys into the space's (`person:<id>`, `agent:<cardId>`) and back, and
-//! refuses a write until every device in the space reads `talk.*` rows.
+//! log. DMs with an agent and read cursors stay in the private log; a DM
+//! between two people rides on a hidden two-person space (card #538,
+//! docs/design/talk-dms.md). The Core writes and reads a space's rows
+//! through [`SpaceLogs`], which turns this device's keys into the space's
+//! (`person:<id>`, `agent:<cardId>`) and back, and refuses a write until
+//! every device in the space reads `talk.*` rows.
 //!
 //! Three kinds of conversation share one shape (a `convId` and its posts):
 //!
 //! - a **channel**: `convId` is its `channelId` (`ch_<id>`); permanent,
 //!   with members who joined or were added (`talk.member`). Whoever makes
 //!   a channel joins it, and so does anyone who posts in it.
-//! - a **DM**: `convId` is [`dm_id`] of its two parties, so both sides
-//!   (and every device of the person) name the same conversation without
-//!   a row to agree on it. The first post writes a join for each party,
-//!   which is how the list knows who a DM is between.
+//! - a **DM**: `convId` is [`dm_id`] of its two parties, or [`pair_dm_id`]
+//!   for two people, so both sides (and every device of the person) name
+//!   the same conversation without a row to agree on it. The first post
+//!   writes a join for each party, which is how the list knows who a DM
+//!   is between. Opening a DM with a person writes nothing: it waits as a
+//!   draft in this fold until the first post.
 //! - a **thread**: `convId` is its task id. Its rows stay the ask's and the
 //!   card's comments (the Core maps them into posts); nothing here writes
 //!   them.
@@ -32,12 +36,13 @@
 //! only) names the newest post its reader has seen; the last one written
 //! wins.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use gocompat::time::GoTime;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use store::kinds::PERSON_ACTOR_PREFIX;
 use store::{Event, Filter, Store, kinds};
 
 use crate::board::{Error, ErrorKind, MAX_COMMENT, MAX_MENTIONS, MAX_PERSON_TEXT, Result, new_id};
@@ -67,6 +72,9 @@ pub const KIND_THREAD: &str = "thread";
 
 /// A DM's `convId` starts with this.
 pub const DM_PREFIX: &str = "dm:";
+/// What [`pair_dm_id`] hashes before the two keys, so its ids never meet
+/// [`dm_id`]'s.
+pub const PAIR_DM_DOMAIN: &str = "irori.dm.pair.1";
 /// A channel's `convId` starts with this.
 pub const CHANNEL_PREFIX: &str = "ch_";
 /// The space every Talk 1 channel is in: empty is Personal (the private
@@ -91,6 +99,23 @@ pub trait SpaceLogs: Send + Sync {
     /// Every `talk.*` row of every open space log, keys in this device's
     /// form.
     fn rows(&self) -> Vec<Event>;
+    /// This person's id. `None`: this Core has no person DMs, and a
+    /// `person:` key is a member like any other.
+    fn person_id(&self) -> Option<String> {
+        None
+    }
+    /// The space a DM with `other` (`person:<id>`) is written to now: the
+    /// one in use, or a new hidden one (card #538). Refused when this
+    /// person shares no space with `other`.
+    fn dm_for(&self, other: &str) -> std::result::Result<String, String> {
+        Err(format!("no DM space for {other} here"))
+    }
+    /// The other person (`person:<id>`) of person DM `conv`, by the hidden
+    /// spaces this device holds. A device that holds a DM's space may not
+    /// have folded any of its rows yet.
+    fn dm_route(&self, _conv: &str) -> Option<String> {
+        None
+    }
 }
 
 /// The longest channel name and topic, in characters.
@@ -131,6 +156,17 @@ pub fn dm_id(a: &str, b: &str) -> String {
     let (a, b) = (canon(a), canon(b));
     let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
     let sum = Sha256::digest(format!("{lo}|{hi}").as_bytes());
+    format!("{DM_PREFIX}{}", &hex::encode(sum)[..16])
+}
+
+/// The DM between two people (card #538): `dm:` and the first 16 hex
+/// digits of the SHA-256 of [`PAIR_DM_DOMAIN`] and the two `person:<id>`
+/// keys, sorted, joined by `|`. Both people's Cores compute the same id, so
+/// its keys are never [`canon`]ed: that would turn each side's own key
+/// into `user`, and the two would disagree.
+pub fn pair_dm_id(a: &str, b: &str) -> String {
+    let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+    let sum = Sha256::digest(format!("{PAIR_DM_DOMAIN}|{lo}|{hi}").as_bytes());
     format!("{DM_PREFIX}{}", &hex::encode(sum)[..16])
 }
 
@@ -294,6 +330,10 @@ pub struct Post {
     /// from elsewhere its time.
     #[serde(skip)]
     pub ord: Ord3,
+    /// The space whose log holds it; empty for the private log. A person
+    /// DM can be in two logs, and only one may go (card #538).
+    #[serde(skip)]
+    pub space: String,
 }
 
 #[derive(Debug, Clone)]
@@ -317,6 +357,12 @@ struct State {
     ids: HashSet<String>,
     reads: HashMap<(String, String), Cursor>,
     cards: HashMap<String, String>,
+    /// The spaces each person DM has rows in (card #538): both people can
+    /// write first, so one conversation can span two logs.
+    dm_logs: HashMap<String, BTreeSet<String>>,
+    /// Person DMs opened but not written in yet, with their two sides. Not
+    /// in any log, so this device's alone; a refold keeps them.
+    drafts: BTreeMap<String, [Member; 2]>,
 }
 
 /// What to post.
@@ -413,6 +459,7 @@ impl Talk {
             }
             let mut s = self.lock();
             if self.drops.load(Ordering::SeqCst) == seen {
+                fresh.drafts = std::mem::take(&mut s.drafts);
                 *s = fresh;
                 return Ok(());
             }
@@ -435,6 +482,9 @@ impl Talk {
     /// whether anything Talk shows changed. The posts' ids leave the
     /// dedupe set, so a re-invite folds them back; read cursors and
     /// talk.card links stay (private log). Personal is never dropped.
+    ///
+    /// A person DM (card #538) loses that log's posts, and goes when its
+    /// last log does.
     pub fn drop_space(&self, space: &str) -> bool {
         if space == PERSONAL_SPACE {
             return false;
@@ -456,7 +506,34 @@ impl Talk {
                 }
             }
         }
-        !gone.is_empty()
+        let dms: Vec<String> = s
+            .dm_logs
+            .iter()
+            .filter(|(_, logs)| logs.contains(space))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in &dms {
+            let (kept, lost): (Vec<Post>, Vec<Post>) = s
+                .posts
+                .remove(id)
+                .unwrap_or_default()
+                .into_iter()
+                .partition(|p| p.space != space);
+            for p in lost {
+                s.ids.remove(&p.post_id);
+            }
+            if !kept.is_empty() {
+                s.posts.insert(id.clone(), kept);
+            }
+            let logs = s.dm_logs.get_mut(id).expect("just listed");
+            logs.remove(space);
+            if logs.is_empty() {
+                s.dm_logs.remove(id);
+                s.members.remove(id);
+                s.drafts.remove(id);
+            }
+        }
+        !gone.is_empty() || !dms.is_empty()
     }
 
     /// Appends a row to `space`'s log (empty: the private log) and folds it.
@@ -562,6 +639,12 @@ impl Talk {
         let by = need_by(by)?;
         let conv = conv.trim();
         let mut space = String::new();
+        let pair = self.pair_other(conv);
+        if pair.is_some() && op == LEAVE {
+            return Err(not_allowed(
+                "a DM with a person is left by leaving it, not by a member row",
+            ));
+        }
         if is_channel(conv) {
             match self.channel(conv) {
                 None => return Err(not_found(format!("no channel {conv}"))),
@@ -575,6 +658,9 @@ impl Talk {
         let m = clean_member(m)?;
         if self.is_member(conv, &m.key) == (op == JOIN) {
             return Ok(false);
+        }
+        if let Some(other) = &pair {
+            space = self.dm_space(other)?;
         }
         self.write(
             &space,
@@ -619,12 +705,80 @@ impl Talk {
         Ok(true)
     }
 
+    /// This person's `person:<id>`, where person DMs exist.
+    fn person_key(&self) -> Option<String> {
+        let id = self.spaces.get()?.person_id()?;
+        Some(format!("{PERSON_ACTOR_PREFIX}{id}"))
+    }
+
+    /// Whether `key` is another person, as a person DM names them: a plain
+    /// `person:<id>`, not the board form a shared board's notice carries.
+    fn other_person(&self, key: &str) -> bool {
+        key.starts_with(PERSON_ACTOR_PREFIX) && self.person_key().is_some_and(|me| me != key)
+    }
+
+    /// The DM between keys `a` and `b`: [`pair_dm_id`] for this person and
+    /// another, else [`dm_id`].
+    pub fn dm_of(&self, a: &str, b: &str) -> String {
+        match self.person_key() {
+            Some(me) if is_person_key(a) && self.other_person(b) => pair_dm_id(&me, b),
+            Some(me) if is_person_key(b) && self.other_person(a) => pair_dm_id(&me, a),
+            _ => dm_id(a, b),
+        }
+    }
+
+    /// The other person of person DM `conv` (`person:<id>`), from its
+    /// members or a draft, else from the hidden spaces this device holds.
+    /// `None`: `conv` isn't a person DM.
+    pub fn pair_other(&self, conv: &str) -> Option<String> {
+        let me = self.person_key()?;
+        if !is_dm(conv) {
+            return None;
+        }
+        let known = {
+            let s = self.lock();
+            let drafted = s.drafts.get(conv).into_iter().flatten().cloned();
+            let joined = s
+                .members
+                .get(conv)
+                .into_iter()
+                .flatten()
+                .map(|m| m.member.clone());
+            joined
+                .chain(drafted)
+                .map(|m| m.key)
+                .find(|k| k.starts_with(PERSON_ACTOR_PREFIX) && pair_dm_id(&me, k) == conv)
+        };
+        known.or_else(|| self.spaces.get()?.dm_route(conv))
+    }
+
+    /// The space a person DM with `other` writes to now.
+    fn dm_space(&self, other: &str) -> Result<String> {
+        let Some(sp) = self.spaces.get() else {
+            return Err(not_allowed("this Core keeps no spaces"));
+        };
+        sp.dm_for(other).map_err(not_allowed)
+    }
+
     /// The DM between `a` and `b`, with both joined (written the first
-    /// time). `by` is whoever opens it.
+    /// time). `by` is whoever opens it. A DM with another person writes
+    /// nothing here: it is listed as a draft until the first post (card
+    /// #538), and an agent has no such DM.
     pub fn open_dm(&self, a: &Member, b: &Member, by: &str) -> Result<String> {
         let (a, b) = (clean_member(a)?, clean_member(b)?);
         if a.same(&b) {
             return Err(invalid("a DM needs two different parties"));
+        }
+        if self.other_person(&a.key) || self.other_person(&b.key) {
+            if !is_person_key(&a.key) && !is_person_key(&b.key) {
+                return Err(not_allowed("agents don't DM other people"));
+            }
+            let id = self.dm_of(&a.key, &b.key);
+            let mut s = self.lock();
+            if !s.members.contains_key(&id) {
+                s.drafts.insert(id.clone(), [a, b]);
+            }
+            return Ok(id);
         }
         let id = dm_id(&a.key, &b.key);
         self.join(&id, &a, by)?;
@@ -641,6 +795,7 @@ impl Talk {
         let conv = p.conv_id.trim().to_string();
         let text = check_text(&by, &p.text)?;
         let mut space = String::new();
+        let pair = self.pair_other(&conv);
         if is_channel(&conv) {
             match self.channel(&conv) {
                 None => return Err(not_found(format!("no channel {conv}"))),
@@ -653,6 +808,10 @@ impl Talk {
             return Err(invalid(format!(
                 "{conv} isn't a channel or a DM (a thread's posts are its comments)"
             )));
+        } else if pair.is_some() {
+            if !is_person_key(&by) {
+                return Err(not_allowed("agents don't DM other people"));
+            }
         } else if !self.is_member(&conv, &by) {
             return Err(Error::raw(
                 ErrorKind::NotAllowed,
@@ -665,6 +824,10 @@ impl Talk {
             if !m.is_empty() && canon(m) != canon(&by) && !mentions.iter().any(|x| x == m) {
                 mentions.push(m.to_string());
             }
+        }
+        if pair.is_some() {
+            // Nobody is woken through a DM with a person (card #538).
+            mentions.clear();
         }
         if mentions.len() > MAX_MENTIONS {
             return Err(invalid(format!("mention at most {MAX_MENTIONS} agents")));
@@ -693,6 +856,10 @@ impl Talk {
         if is_channel(&conv) && !p.stay_out {
             self.join(&conv, &Member::of(&by), &by)?;
         }
+        if let Some(other) = &pair {
+            space = self.dm_space(other)?;
+            self.join_log(&conv, &space, &by, other)?;
+        }
         self.write(
             &space,
             &by,
@@ -714,6 +881,34 @@ impl Talk {
             .get(&conv)
             .and_then(|ps| ps.iter().find(|x| x.post_id == post_id).cloned())
             .ok_or_else(|| Error::raw(ErrorKind::Store, "talk: the post didn't fold"))
+    }
+
+    /// Writes both people's joins into `space`, the first time this person
+    /// DM uses that log: a log carries its own members, so the DM outlives
+    /// the other log it may share the conversation with.
+    fn join_log(&self, conv: &str, space: &str, by: &str, other: &str) -> Result<()> {
+        if self
+            .lock()
+            .dm_logs
+            .get(conv)
+            .is_some_and(|l| l.contains(space))
+        {
+            return Ok(());
+        }
+        for key in [by, other] {
+            self.write(
+                space,
+                by,
+                kinds::TALK_MEMBER,
+                &MemberRow {
+                    conv_id: conv.into(),
+                    member: Member::of(key),
+                    op: JOIN.into(),
+                    by: by.into(),
+                },
+            )?;
+        }
+        Ok(())
     }
 
     /// Records that `by` has read conversation `conv` up to post `up_to`.
@@ -787,7 +982,8 @@ impl Talk {
         out
     }
 
-    /// Who is in `conv` now, in the order they joined.
+    /// Who is in `conv` now, in the order they joined. A draft's two sides
+    /// count until its first row folds.
     pub fn members(&self, conv: &str) -> Vec<Member> {
         let s = self.lock();
         let mut ms: Vec<&MemberState> = s
@@ -795,6 +991,11 @@ impl Talk {
             .get(conv)
             .map(|v| v.iter().filter(|m| m.joined).collect())
             .unwrap_or_default();
+        if ms.is_empty()
+            && let Some(sides) = s.drafts.get(conv)
+        {
+            return sides.to_vec();
+        }
         ms.sort_by(|a, b| a.at.cmp(&b.at));
         ms.into_iter().map(|m| m.member.clone()).collect()
     }
@@ -803,21 +1004,27 @@ impl Talk {
     /// `conv`.
     pub fn is_member(&self, conv: &str, key: &str) -> bool {
         let k = canon(key);
-        self.lock()
-            .members
-            .get(conv)
-            .is_some_and(|v| v.iter().any(|m| m.joined && canon(&m.member.key) == k))
+        let s = self.lock();
+        match s.members.get(conv) {
+            Some(v) => v.iter().any(|m| m.joined && canon(&m.member.key) == k),
+            None => s
+                .drafts
+                .get(conv)
+                .is_some_and(|d| d.iter().any(|m| canon(&m.key) == k)),
+        }
     }
 
-    /// Every DM with a member row, and who it's between.
+    /// Every DM with a member row or a draft, and who it's between.
     pub fn dms(&self) -> Vec<(String, Vec<Member>)> {
-        let ids: Vec<String> = self
-            .lock()
+        let s = self.lock();
+        let ids: BTreeSet<String> = s
             .members
             .keys()
+            .chain(s.drafts.keys())
             .filter(|k| is_dm(k))
             .cloned()
             .collect();
+        drop(s);
         ids.into_iter()
             .map(|id| {
                 let ms = self.members(&id);
@@ -889,10 +1096,18 @@ fn row_space(ev: &Event) -> Option<String> {
 }
 
 /// Whether a row from space `space`'s log may touch conversation `conv`:
-/// only that space's channels, never a DM or another space's (or
-/// Personal's) channel, so one space's members can't write into the rest
-/// of this person's Talk (card #461). A channel not folded yet may be.
-fn space_may_touch(s: &State, space: &str, conv: &str) -> bool {
+/// only that space's channels, never another space's (or Personal's)
+/// channel, so one space's members can't write into the rest of this
+/// person's Talk (card #461). A channel not folded yet may be.
+///
+/// A DM has one door (card #538): `dm_conv`, the `dmConv` the Core stamps
+/// on a row of a hidden space once every check of talk-dms.md §4 holds.
+/// It strips one a row arrived with, so no row of any log can say it
+/// itself.
+fn space_may_touch(s: &State, space: &str, conv: &str, dm_conv: Option<&str>) -> bool {
+    if is_dm(conv) {
+        return dm_conv == Some(conv);
+    }
     is_channel(conv)
         && s.channels
             .get(conv)
@@ -904,18 +1119,20 @@ fn fold(s: &mut State, ev: &Event) -> bool {
     if ev.kind != kinds::TALK_CHANNEL_CREATED
         && let Some(space) = row_space(ev)
     {
-        let conv = serde_json::from_slice::<serde_json::Value>(&ev.payload)
-            .ok()
-            .and_then(|v| {
-                v.get("convId")
-                    .or_else(|| v.get("channelId"))
-                    .and_then(|x| x.as_str())
-                    .map(str::to_string)
-            });
-        if let Some(conv) = conv
-            && !space_may_touch(s, &space, &conv)
-        {
-            return false;
+        let v = serde_json::from_slice::<serde_json::Value>(&ev.payload).ok();
+        let field = |k: &str| v.as_ref()?.get(k)?.as_str();
+        let conv = field("convId").or_else(|| field("channelId"));
+        let dm_conv = field("dmConv");
+        if let Some(conv) = conv {
+            if !space_may_touch(s, &space, conv, dm_conv) {
+                return false;
+            }
+            if dm_conv.is_some() {
+                s.dm_logs
+                    .entry(conv.to_string())
+                    .or_default()
+                    .insert(space.clone());
+            }
         }
     }
     match ev.kind.as_str() {
@@ -1031,6 +1248,7 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 thread_from: r.thread_from,
                 at: r.at,
                 ord: at,
+                space: row_space(ev).unwrap_or_default(),
             };
             let v = s.posts.entry(r.conv_id).or_default();
             let i = v.partition_point(|x| x.ord <= p.ord);
@@ -1065,7 +1283,7 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                     .iter()
                     .find(|(_, ps)| ps.iter().any(|p| p.post_id == r.post_id))
                     .map(|(c, _)| c.clone())
-                && !space_may_touch(s, &space, &conv)
+                && !space_may_touch(s, &space, &conv, None)
             {
                 return false;
             }
@@ -1134,6 +1352,10 @@ pub fn sort_posts(posts: &mut [Post]) {
 
 fn invalid(detail: impl std::fmt::Display) -> Error {
     Error::raw(ErrorKind::Invalid, format!("talk: {detail}"))
+}
+
+fn not_allowed(detail: impl std::fmt::Display) -> Error {
+    Error::raw(ErrorKind::NotAllowed, format!("talk: {detail}"))
 }
 
 fn not_found(detail: impl std::fmt::Display) -> Error {
@@ -1241,5 +1463,17 @@ mod tests {
         assert_eq!(dm_id("user:dev-a", "x"), dm_id("x", "user:dev-b"));
         assert!(dm_id("a", "b").starts_with(DM_PREFIX));
         assert_eq!(dm_id("a", "b").len(), DM_PREFIX.len() + 16);
+    }
+
+    /// Card #538: both people's Cores reach one id, it isn't [`dm_id`]'s,
+    /// and it isn't canon'd: each side's own key is a `person:` key here.
+    #[test]
+    fn pair_dm_id_is_one_per_pair_and_never_canons() {
+        let (a, b, c) = ("person:a", "person:b", "person:c");
+        assert_eq!(pair_dm_id(a, b), pair_dm_id(b, a));
+        assert_ne!(pair_dm_id(a, b), pair_dm_id(a, c));
+        assert_ne!(pair_dm_id(a, b), dm_id(a, b));
+        assert!(is_dm(&pair_dm_id(a, b)));
+        assert_eq!(pair_dm_id(a, b).len(), DM_PREFIX.len() + 16);
     }
 }

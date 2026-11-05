@@ -90,7 +90,8 @@ pub struct Conversation {
     pub agents_now: bool,
     /// The space a channel is in (card #461): a shared space's id (its
     /// first board's), empty for Personal. DMs and threads are always empty:
-    /// DMs are you and your agents, and these threads are the private log's.
+    /// a DM shows under every space, even when its rows ride on a hidden
+    /// space (card #538), and these threads are the private log's.
     pub space_id: String,
 }
 
@@ -842,9 +843,13 @@ pub fn post(
             let other = match other {
                 Some(o) => o.clone(),
                 None => talk
-                    .members(id)
-                    .into_iter()
-                    .find(|m| ct::canon(&m.key) != ct::canon(&by))
+                    .pair_other(id)
+                    .map(|k| Member::of(&k))
+                    .or_else(|| {
+                        talk.members(id)
+                            .into_iter()
+                            .find(|m| ct::canon(&m.key) != ct::canon(&by))
+                    })
                     .ok_or_else(|| {
                         "that DM has no one in it yet: name the other side, conv=@agent or conv=person"
                             .to_string()
@@ -853,7 +858,15 @@ pub fn post(
             if ct::canon(&other.key) == ct::canon(&by) {
                 return Err("that's you: a DM needs another agent or the person".into());
             }
-            if ct::dm_id(&by, &other.key) != *id {
+            // Agents don't DM other people, and people don't DM other
+            // people's agents (card #538, talk-dms.md §4).
+            if ct::is_other_person_key(&other.key) && !ct::is_person_key(&by) {
+                return Err("agents don't DM other people".into());
+            }
+            if other.key.starts_with(store::kinds::AGENT_ACTOR_PREFIX) && ct::is_person_key(&by) {
+                return Err("people don't DM other people's agents".into());
+            }
+            if talk.dm_of(&by, &other.key) != *id {
                 return Err("that DM isn't yours".into());
             }
             talk.open_dm(&Member::of(&by), &other, &by)
@@ -887,6 +900,11 @@ pub fn post(
                 let skip = other.key.clone();
                 out.told = tell_mentions(b, from, &out.post, &live, &skip, "your DM");
                 return Ok(out);
+            }
+            // Nobody is woken through a DM with a person (card #538).
+            if talk.pair_other(id).is_some() {
+                live.clear();
+                out.mentions.clear();
             }
             (id.clone(), "a DM".to_string())
         }
