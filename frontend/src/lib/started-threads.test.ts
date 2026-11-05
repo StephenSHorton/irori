@@ -72,6 +72,17 @@ describe("a just-started thread in a slow window (card #551)", () => {
     expect(startedRow(TaskResult({ task: quiet }))).toMatchObject({
       state: "waiting",
       agentsNow: false,
+      private: false,
     })
+  })
+
+  test("a private thread about a shared board keeps its badge", () => {
+    const task = {
+      id: "t2",
+      title: "Mine",
+      objective: "Only my agents",
+      ask: { board: "b-mlg" },
+    } as TaskResult["task"]
+    expect(startedRow(TaskResult({ task })).private).toBe(true)
   })
 })

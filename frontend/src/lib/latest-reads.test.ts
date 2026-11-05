@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import { latestReads, StuckReadMs, type Answer } from "./talk"
+import type { ReadReport } from "./window-log"
 
 // Card #551: useLatest's rule, with reads finished by hand. A read here is
 // a promise the test settles, so "slow" means "not settled yet".
@@ -156,6 +157,79 @@ describe("latestReads: the list changes (another board or conversation)", () => 
     await settled()
     expect(r.values()).toEqual(["new board"])
     expect(r.reads).toHaveLength(2)
+  })
+})
+
+describe("latestReads: a read left behind ending late", () => {
+  test("doesn't let a second read start beside the running one", async () => {
+    const r = rig()
+    void r.read(r.load)
+    r.clock.now += StuckReadMs
+    void r.read(r.load)
+    r.reads[0].resolve("older")
+    await settled()
+    void r.read(r.load)
+    expect(r.reads).toHaveLength(2)
+    r.reads[1].resolve("newer")
+    await settled()
+    expect(r.reads).toHaveLength(3)
+  })
+
+  test("doesn't start the re-run waiting on the running read early", async () => {
+    const r = rig()
+    void r.read(r.load)
+    r.clock.now += StuckReadMs
+    void r.read(r.load)
+    void r.read(r.load)
+    r.reads[0].resolve("older")
+    await settled()
+    expect(r.reads).toHaveLength(2)
+  })
+
+  test("the old list's read ending doesn't free the new list's", async () => {
+    const r = rig()
+    void r.read(r.load)
+    void r.read(r.other)
+    r.reads[0].resolve("old board")
+    await settled()
+    void r.read(r.other)
+    expect(r.reads).toHaveLength(2)
+  })
+
+  test("a rescue read gets its own 15 s", async () => {
+    const r = rig()
+    void r.read(r.load)
+    r.clock.now += StuckReadMs
+    void r.read(r.load)
+    r.clock.now += 1000
+    void r.read(r.load)
+    expect(r.reads).toHaveLength(2)
+  })
+})
+
+describe("latestReads: what it reports (irori.log, card #551)", () => {
+  test("how long a read took, how many reloads it answered, if it was dropped", async () => {
+    const clock = { now: 0 }
+    const seen: ReadReport[] = []
+    const reads: ((v: string) => void)[] = []
+    const load = () => new Promise<string>((res) => reads.push(res))
+    const other = () => new Promise<string>((res) => reads.push(res))
+    const read = latestReads<string>(
+      () => {},
+      () => clock.now,
+      (r) => seen.push(r)
+    )
+    void read(load)
+    void read(other)
+    clock.now = 2300
+    reads[0]("old board")
+    await settled()
+    reads[1]("new board")
+    await settled()
+    expect(seen).toEqual([
+      { ms: 2300, dropped: true, reloads: 1 },
+      { ms: 2300, dropped: false, reloads: 1 },
+    ])
   })
 })
 

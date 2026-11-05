@@ -1542,10 +1542,34 @@ pub async fn talk_leave(w: W<'_>, conv_id: String, member: TalkMemberRef) -> R<(
     w.talk_leave(&conv_id, &member)
 }
 
+/// The most of a window line that reaches the log.
+const WINDOW_LOG_MAX: usize = 500;
+
+/// A line from the window as `irori.log` takes it: one line, of bounded
+/// length, marked as the window's.
+fn window_log_line(line: &str) -> String {
+    let flat: String = line
+        .chars()
+        .take(WINDOW_LOG_MAX)
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    format!("window: {flat}")
+}
+
+/// Writes the window's own line to `irori.log` (card #551): what its lists
+/// read and which signals reached it, which the Core can't see from here.
+#[tauri::command]
+#[specta::specta]
+pub async fn window_log(line: String) -> R<()> {
+    irori_core::log(&window_log_line(&line));
+    Ok(())
+}
+
 /// Every command, plus the event payload types the frontend listens for.
 pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(tauri_specta::collect_commands![
+            window_log,
             core_ready,
             roster_agents,
             roster_device,
@@ -1882,4 +1906,17 @@ pub async fn term_list(w: W<'_>, card: String) -> R<Vec<term::TermInfo>> {
 #[specta::specta]
 pub async fn term_folders(w: W<'_>, card: String) -> R<Vec<crate::terms::Folder>> {
     blocking(&w, move |w| w.term_folders(&card)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_window_line_stays_one_bounded_line() {
+        assert_eq!(window_log_line("a\nb\tc"), "window: a b c");
+        let long = "é".repeat(WINDOW_LOG_MAX + 10);
+        let line = window_log_line(&long);
+        assert_eq!(line.chars().count(), "window: ".len() + WINDOW_LOG_MAX);
+    }
 }

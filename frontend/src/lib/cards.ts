@@ -732,6 +732,7 @@ export function startedRow(res: TaskResult): ThreadSummary {
     state: t.ask?.taker ? "handed" : "waiting",
     at: t.createdAt,
     updatedAt: t.updatedAt,
+    private: !!t.ask?.board,
     agentsNow: !!t.ask?.wake,
   })
 }
@@ -765,10 +766,11 @@ export function useThreads(boardId = ""): {
     const asOf = startedSeq
     return { rows: await threads.list(boardId), asOf }
   }, [boardId])
-  const { value, error, reload } = useLatest(load, {
-    rows: [] as ThreadSummary[],
-    asOf: startedSeq,
-  })
+  const { value, error, reload } = useLatest(
+    load,
+    { rows: [] as ThreadSummary[], asOf: startedSeq },
+    "threads"
+  )
   useFresh(reload, error, true)
   const started = useSyncExternalStore(onStarted, () => startedThreads)
   const list = useMemo(
@@ -2033,7 +2035,8 @@ export type CardsState = {
 export function useCards(): CardsState {
   const { value, loading, error, reload } = useLatest<CardSummary[]>(
     loadCards,
-    []
+    [],
+    "cards"
   )
   useFresh(reload, error)
   return { cards: value, loading, error }
@@ -2046,9 +2049,12 @@ export function useCards(): CardsState {
 export function useIdleReport(
   agents: { status: string; deviceState?: string | null }[]
 ) {
-  const sampleIdle = agents.filter(
-    (a) => a.status === "idle" && a.deviceState !== "offline"
-  ).length
+  // 0 in the app: a load that changed with the count would read beside the
+  // running one and drop its answer (card #551).
+  const sampleIdle = inWails()
+    ? 0
+    : agents.filter((a) => a.status === "idle" && a.deviceState !== "offline")
+        .length
   const load = useCallback(
     async (): Promise<IdleReport> =>
       inWails() ? BoardService.IdleReport() : sampleIdleReport(sampleIdle),

@@ -519,6 +519,9 @@ pub struct Ask {
     pub outcome: Outcome,
     #[specta(optional)]
     pub mentions: Vec<Mention>,
+    /// A private thread about this shared board (card #185).
+    #[specta(optional)]
+    pub board: String,
 }
 
 /// coord.Returned.

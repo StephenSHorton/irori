@@ -22,6 +22,7 @@ import { inWails, parseTime } from "./irori"
 import { checkUploads, uploadOf } from "./uploads"
 import { sampleTalk, type SampleTalk } from "./sample-talk"
 import { nameOr } from "./names"
+import { noteRead, type ReadReport } from "./window-log"
 
 export type { Delivery, GoneSession, Policy }
 export { HoldReason, Mode, State }
@@ -368,9 +369,10 @@ export const talk = {
 
 // ---- hooks ------------------------------------------------------------------
 
-// StuckReadMs is how long a read may run before a reload stops waiting for
-// it and reads beside it: a read that never answers must not freeze its
-// list for good.
+// StuckReadMs is how long a read may run before the next reload stops
+// waiting for it and reads beside it, so a read that never answers doesn't
+// hold its list past the next event. There is no timer: reloads already
+// waiting on it end with that next reload's read.
 export const StuckReadMs = 15_000
 
 export type Answer<T> = { value: T } | { error: unknown }
@@ -389,7 +391,8 @@ export type Answer<T> = { value: T } | { error: unknown }
 // older than the last shown is dropped.
 export function latestReads<T>(
   show: (answer: Answer<T>) => void,
-  now: () => number = Date.now
+  now: () => number = Date.now,
+  report: (r: ReadReport) => void = () => {}
 ): (load: () => Promise<T>) => Promise<void> {
   let started = 0
   let landed = 0
@@ -403,14 +406,17 @@ export function latestReads<T>(
     const n = ++started
     const covered = waiting
     waiting = []
-    running = { n, load, since: now() }
+    const since = now()
+    running = { n, load, since }
     let answer: Answer<T>
     try {
       answer = { value: await load() }
     } catch (error) {
       answer = { error }
     }
-    if (load === newest && n > landed) {
+    const shows = load === newest && n > landed
+    report({ ms: now() - since, dropped: !shows, reloads: covered.length })
+    if (shows) {
       landed = n
       show(answer)
     }
@@ -437,7 +443,12 @@ export function latestReads<T>(
 // answer equal to the one shown keeps the state as it is (0.11.1): App
 // reloads several lists on every board or inbox change, several times a
 // second while agents work, and each new array re-rendered the whole window.
-export function useLatest<T>(load: () => Promise<T>, initial: T) {
+// name is what irori.log calls this list (window-log.ts).
+export function useLatest<T>(
+  load: () => Promise<T>,
+  initial: T,
+  name = "a list"
+) {
   const [state, setState] = useState<{
     value: T
     loading: boolean
@@ -456,27 +467,31 @@ export function useLatest<T>(load: () => Promise<T>, initial: T) {
   const reads = useRef<ReturnType<typeof latestReads<T>> | null>(null)
 
   const reload = useCallback(() => {
-    reads.current ??= latestReads<T>((answer) => {
-      if (!mounted.current) return
-      if ("error" in answer) {
-        shown.current = null
-        setState((s) => ({
-          ...s,
-          loading: false,
-          error: message(answer.error),
-        }))
-        return
-      }
-      const { value } = answer
-      const same = sameAs(shown, value)
-      setState((s) =>
-        same && !s.loading && s.error === null
-          ? s
-          : { value, loading: false, error: null }
-      )
-    })
+    reads.current ??= latestReads<T>(
+      (answer) => {
+        if (!mounted.current) return
+        if ("error" in answer) {
+          shown.current = null
+          setState((s) => ({
+            ...s,
+            loading: false,
+            error: message(answer.error),
+          }))
+          return
+        }
+        const { value } = answer
+        const same = sameAs(shown, value)
+        setState((s) =>
+          same && !s.loading && s.error === null
+            ? s
+            : { value, loading: false, error: null }
+        )
+      },
+      Date.now,
+      (r) => noteRead(name, r)
+    )
     return reads.current(load)
-  }, [load])
+  }, [load, name])
 
   return { ...state, reload }
 }
@@ -531,10 +546,11 @@ async function loadInbox(): Promise<InboxValue> {
 // useInbox loads recent deliveries and the policy, and re-reads on every
 // inbox:changed (which the Go side already coalesces to 4 a second).
 export function useInbox(): InboxState {
-  const { value, loading, error, reload } = useLatest<InboxValue>(loadInbox, {
-    deliveries: [],
-    policy: null,
-  })
+  const { value, loading, error, reload } = useLatest<InboxValue>(
+    loadInbox,
+    { deliveries: [], policy: null },
+    "inbox"
+  )
 
   useEffect(() => {
     void reload()
