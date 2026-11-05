@@ -395,6 +395,7 @@ impl Mesh {
             transport: Arc::new(self.net.clone()),
             own_devices: Some(own),
             files: self.files.clone(),
+            dms: None,
         }));
         m.set_log(Arc::new(|l: &str| crate::log(l)));
         {

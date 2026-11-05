@@ -11,8 +11,9 @@
 //! - `sync` carries JSON frames tagged by `type`: `hello` ([`BoardHello`],
 //!   first, each way; a `v` other than [`BOARD_PROTOCOL`] closes `version`),
 //!   `vector` (the sender's board vector; one ahead of ours pulls now),
-//!   `ping`/`pong`, and `board.secret` ([`BoardSecretFrame`], a newer
-//!   epoch's secret sealed under this connection's epoch key).
+//!   `ping`/`pong`, `board.secret` ([`BoardSecretFrame`], a newer epoch's
+//!   secret sealed under this connection's epoch key), and `dm`
+//!   ([`DmFrame`], a step of a DM hand-off, handed to [`DmHooks`]).
 //! - Rows move on `board/<boardId>` pull streams ([`crate::boards`]).
 //! - Files on the board's cards move on `blob/<16 hex>` streams, as on the
 //!   private mesh (v0.5 §5.5): served only to a counted member device, and
@@ -83,6 +84,11 @@ pub const SPACES_PROTOCOL: i64 = 1;
 /// board's cards only once every member device has said at least this.
 pub const SPAWNS_PROTOCOL: i64 = 1;
 
+/// The hand-off of a person-to-person DM this build speaks (`dm` frames,
+/// card #538): a board hello's `dms`. Built like [`SPAWNS_PROTOCOL`]: an
+/// older Irori skips the frame and says 0, so its device is never asked.
+pub const DMS_PROTOCOL: i64 = 1;
+
 /// The frame that hands a board secret to a device: on the private mesh
 /// `sync` channel to your own devices (sealed under the mesh epoch's
 /// person-secret key, as `person.secret`), and after a rotation on each
@@ -121,6 +127,10 @@ pub struct BoardHello {
     /// (absent) from an Irori before them.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub spawns: i64,
+    /// The DM hand-off the sender speaks ([`DMS_PROTOCOL`]); 0 (absent)
+    /// from an Irori before it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub dms: i64,
 }
 
 fn is_zero(n: &i64) -> bool {
@@ -137,6 +147,20 @@ pub struct BoardSecretFrame {
     pub board_epoch: i64,
     pub maker: String,
     pub sealed: String,
+}
+
+/// `dm {boardId, step, body}`: one step of a DM hand-off (card #538,
+/// docs/design/talk-dms.md §2). It rides on a connection of a space both
+/// people share, so `board_id` names the hidden DM space, not that space.
+/// `body` is opaque here: invite depends on mesh, so its Bundle can't be
+/// named.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DmFrame {
+    pub board_id: String,
+    pub step: String,
+    #[serde(default)]
+    pub body: serde_json::Value,
 }
 
 /// The least time between two gossip announcements of one board (kicks
@@ -309,10 +333,43 @@ pub struct BoardMeshOpts {
     /// This device's attachment store: files on the board's cards are
     /// served from it and fetched into it. `None`: no files on this board.
     pub files: Option<Arc<blob::Files>>,
+    /// Who hears about DM hand-offs on this board's connections. `None`:
+    /// `dm` frames are dropped.
+    pub dms: Option<Arc<dyn DmHooks>>,
 }
 
 /// This person's other devices (see [`BoardMeshOpts::own_devices`]).
 pub type OwnDevicesFn = Arc<dyn Fn() -> Vec<MemberDevice> + Send + Sync>;
+
+/// What a board's connections tell the Core for DMs (card #538). `via` is
+/// the board whose connection it was. Each call runs on that connection's
+/// own task, so it must return at once: a Core that folds a bundle or
+/// touches a store queues the work, or the connection stalls.
+pub trait DmHooks: Send + Sync {
+    /// `peer` said hello, whatever it said about `dms`: a device that
+    /// doesn't speak the hand-off is told apart from one not heard at all.
+    fn hello(&self, via: &str, peer: &LivePeer);
+    /// A vector tick on `peer`'s connection. A hello goes once per
+    /// connection, so a pending hand-off retries here.
+    fn tick(&self, via: &str, peer: &LivePeer);
+    /// `peer` sent `frame`. It comes only from a device `via`'s verifier
+    /// admits now: one of this person's devices that isn't certified there
+    /// has nothing to say in a hand-off.
+    fn frame(&self, via: &str, peer: &LivePeer, frame: DmFrame);
+}
+
+/// A device with a live connection that said hello.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LivePeer {
+    pub device_id: String,
+    /// The key its handshake proved, hex.
+    pub device_pub: String,
+    /// The person the board's verifier certifies it to (this person, for
+    /// an own device it doesn't count yet). Never its hello's word.
+    pub person_id: String,
+    /// The `dms` its last hello said.
+    pub dms: i64,
+}
 
 /// One counted member device of a board (a dial target).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -337,6 +394,8 @@ enum Wire {
     Pong {},
     #[serde(rename = "board.secret")]
     Secret(BoardSecretFrame),
+    #[serde(rename = "dm")]
+    Dm(DmFrame),
 }
 
 type LogFn = Arc<dyn Fn(&str) + Send + Sync>;
@@ -362,6 +421,8 @@ pub struct PeerHeard {
     pub spaces: i64,
     /// The `spawns` its last hello said (card #455).
     pub spawns: i64,
+    /// The `dms` its last hello said (card #538).
+    pub dms: i64,
 }
 
 /// One board connection.
@@ -607,6 +668,61 @@ impl BoardMesh {
                     .is_none_or(|h| h.spawns < SPAWNS_PROTOCOL)
             })
             .collect()
+    }
+
+    /// The member devices heard saying they don't read space rows (card
+    /// #538). [`not_ready_for_spaces`](Self::not_ready_for_spaces) counts a
+    /// device not heard yet too, which a DM's new log could never get past:
+    /// here only a device known to be too old holds it back.
+    pub fn said_too_old(&self) -> Vec<MemberDevice> {
+        let heard = self.s.heard.lock().expect("heard");
+        self.s
+            .member_devices()
+            .into_iter()
+            .filter(|d| {
+                heard
+                    .get(&d.device_id)
+                    .is_some_and(|h| h.spaces < SPACES_PROTOCOL)
+            })
+            .collect()
+    }
+
+    /// The devices connected now that said hello, each once, by device id.
+    pub fn live_peers(&self) -> Vec<LivePeer> {
+        let mut out: BTreeMap<String, LivePeer> = BTreeMap::new();
+        for p in self.s.peer_list() {
+            if p.hello.load(Ordering::SeqCst)
+                && p.conn.err().is_none()
+                && let Some(l) = self.s.live(&p)
+            {
+                out.insert(l.device_id.clone(), l);
+            }
+        }
+        out.into_values().collect()
+    }
+
+    /// Sends `frame` to `device` alone (card #538), on its connection of
+    /// the newest epoch. Refused when it isn't connected, its cert no longer
+    /// counts here, or it never said it speaks [`DMS_PROTOCOL`], so a device
+    /// that doesn't say it is never asked.
+    pub async fn send_to(&self, device: &str, frame: DmFrame) -> Result<(), String> {
+        let s = &self.s;
+        let p = s
+            .live_peer(device)
+            .ok_or_else(|| format!("{device} isn't connected"))?;
+        if !admitted(&s.opts.verifier, device, &p.conn.pub_key()) {
+            return Err(format!("{device} isn't a member device here"));
+        }
+        let said = s
+            .heard
+            .lock()
+            .expect("heard")
+            .get(device)
+            .map_or(0, |h| h.dms);
+        if said < DMS_PROTOCOL {
+            return Err(format!("{device} doesn't speak the DM hand-off"));
+        }
+        s.send(&p, &Wire::Dm(frame)).await
     }
 
     pub fn heard(&self) -> Vec<PeerHeard> {
@@ -941,6 +1057,41 @@ impl Shared {
             .map(|(_, p)| p.clone())
     }
 
+    /// `p` as the DM hooks see it; `None` once the board no longer admits
+    /// it. The person comes from the verifier: a hello's is the peer's word.
+    fn live(&self, p: &Peer) -> Option<LivePeer> {
+        let (id, key) = (p.conn.id(), p.conn.pub_key());
+        let v = &self.opts.verifier;
+        let person_id = if admitted(v, id, &key) {
+            v.person_of(id)?
+        } else if admits(v, &self.opts.own_devices, id, &key) {
+            self.opts.person_id.clone()
+        } else {
+            return None;
+        };
+        let dms = self
+            .heard
+            .lock()
+            .expect("heard")
+            .get(id)
+            .map_or(0, |h| h.dms);
+        Some(LivePeer {
+            device_id: id.to_string(),
+            device_pub: hex::encode(key),
+            person_id,
+            dms,
+        })
+    }
+
+    /// Tells the DM hooks about `p`: `f` gets them, this board and the peer.
+    fn tell_dms(&self, p: &Peer, f: impl FnOnce(&dyn DmHooks, &str, &LivePeer)) {
+        if let Some(h) = &self.opts.dms
+            && let Some(l) = self.live(p)
+        {
+            f(h.as_ref(), &self.opts.board_id, &l);
+        }
+    }
+
     /// This device's `attach.offered` for `r` in the board's log, once.
     fn offer(&self, r: &FileRef) -> Result<(), String> {
         let held = holders_in(&self.opts.log, &r.sha256).map_err(|e| e.to_string())?;
@@ -1270,6 +1421,7 @@ impl Shared {
             schema: 1,
             spaces: SPACES_PROTOCOL,
             spawns: SPAWNS_PROTOCOL,
+            dms: DMS_PROTOCOL,
             vector: self.opts.log.vector().unwrap_or_default(),
             wall_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1339,14 +1491,11 @@ impl Shared {
                     p.said_epoch
                         .store(h.board_epoch.max(p.epoch), Ordering::SeqCst);
                     p.hello.store(true, Ordering::SeqCst);
-                    self.hear(
-                        p.conn.id(),
-                        Some((&h.person_id, &h.core_version, h.spaces, h.spawns)),
-                        &h.vector,
-                    );
+                    self.hear(p.conn.id(), Some(&h), &h.vector);
                     if self.behind(&h.vector) {
                         p.wake.notify_one();
                     }
+                    self.tell_dms(&p, |d, via, l| d.hello(via, l));
                     self.share_secrets(&p).await;
                     if self.maybe_settle() {
                         let s = self.clone();
@@ -1372,26 +1521,27 @@ impl Shared {
                 }
                 Wire::Pong {} => {}
                 Wire::Secret(f) => self.take_secret(&p, f).await,
+                Wire::Dm(f) => {
+                    if admitted(&self.opts.verifier, p.conn.id(), &p.conn.pub_key()) {
+                        self.tell_dms(&p, |d, via, l| d.frame(via, l, f));
+                    }
+                }
             }
         }
     }
 
-    /// Records what member device `dev` said (`hello`: its person and core
-    /// version).
-    fn hear(
-        &self,
-        dev: &str,
-        hello: Option<(&str, &str, i64, i64)>,
-        vector: &BTreeMap<String, i64>,
-    ) {
+    /// Records what member device `dev` said (`hello`: its person, core
+    /// version and what it reads).
+    fn hear(&self, dev: &str, hello: Option<&BoardHello>, vector: &BTreeMap<String, i64>) {
         let mut heard = self.heard.lock().expect("heard");
         let h = heard.entry(dev.to_string()).or_default();
         h.device_id = dev.to_string();
-        if let Some((person, version, spaces, spawns)) = hello {
-            h.person_id = person.to_string();
-            h.core_version = version.to_string();
-            h.spaces = spaces;
-            h.spawns = spawns;
+        if let Some(said) = hello {
+            h.person_id = said.person_id.clone();
+            h.core_version = said.core_version.clone();
+            h.spaces = said.spaces;
+            h.spawns = said.spawns;
+            h.dms = said.dms;
         }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1452,7 +1602,10 @@ impl Shared {
             loop {
                 tokio::select! {
                     _ = ctx.cancelled() => return,
-                    _ = tick.tick() => break,
+                    _ = tick.tick() => {
+                        self.tell_dms(&p, |d, via, l| d.tick(via, l));
+                        break;
+                    }
                     _ = p.wake.notified() => break,
                     _ = pings.tick() => {
                         let _ = self.send(&p, &Wire::Ping {}).await;
@@ -1590,5 +1743,62 @@ mod tests {
         assert_eq!(ours["v"], 1, "v stays 1: older Irori keeps syncing");
         let none = serde_json::to_value(Wire::Hello(BoardHello::default())).unwrap();
         assert!(none.get("spaces").is_none(), "0 isn't sent");
+    }
+
+    /// Card #538: `dms` is built like `spawns`. An older hello parses as 0,
+    /// ours round-trips, 0 isn't sent, and `v` stays 1.
+    #[test]
+    fn hello_says_it_speaks_dms() {
+        let old: Wire = serde_json::from_str(
+            r#"{"type":"hello","v":1,"deviceId":"d","personId":"p","boardId":"b","boardEpoch":1,"coreVersion":"0.10.2","schema":1,"vector":{},"wallMs":0,"spaces":1,"spawns":1}"#,
+        )
+        .unwrap();
+        let Wire::Hello(h) = old else {
+            panic!("not a hello")
+        };
+        assert_eq!(h.dms, 0);
+        let ours = BoardHello {
+            v: BOARD_PROTOCOL,
+            dms: DMS_PROTOCOL,
+            ..Default::default()
+        };
+        let b = serde_json::to_vec(&Wire::Hello(ours.clone())).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&b).unwrap();
+        assert_eq!(v["dms"], DMS_PROTOCOL);
+        assert_eq!(v["v"], 1, "v stays 1: older Irori keeps syncing");
+        let Wire::Hello(back) = serde_json::from_slice(&b).unwrap() else {
+            panic!("not a hello")
+        };
+        assert_eq!(back, ours);
+        let none = serde_json::to_value(Wire::Hello(BoardHello::default())).unwrap();
+        assert!(none.get("dms").is_none(), "0 isn't sent");
+    }
+
+    /// A `dm` frame's shape, and what its reader does with the rest: an
+    /// unknown type, or a `dm` that lacks a field, doesn't parse, and
+    /// `Shared::read` skips what doesn't parse.
+    #[test]
+    fn a_dm_frame_is_tagged_and_keeps_its_body() {
+        let f = DmFrame {
+            board_id: "dm-space".into(),
+            step: "pin".into(),
+            body: serde_json::json!({"pin": {"personId": "p"}, "big": u64::MAX}),
+        };
+        let b = serde_json::to_vec(&Wire::Dm(f.clone())).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&b).unwrap();
+        assert_eq!(v["type"], "dm");
+        assert_eq!(v["boardId"], "dm-space");
+        let Wire::Dm(back) = serde_json::from_slice(&b).unwrap() else {
+            panic!("not a dm")
+        };
+        assert_eq!(back, f);
+        let Wire::Dm(ask) =
+            serde_json::from_str(r#"{"type":"dm","boardId":"b","step":"ask"}"#).unwrap()
+        else {
+            panic!("not a dm")
+        };
+        assert!(ask.body.is_null());
+        assert!(serde_json::from_slice::<Wire>(br#"{"type":"dm","step":"ask"}"#).is_err());
+        assert!(serde_json::from_slice::<Wire>(br#"{"type":"dm.later","x":1}"#).is_err());
     }
 }

@@ -202,6 +202,12 @@ impl mesh::ownboards::OwnBoards for OwnBoardSecrets {
                 .insert((board_id.to_string(), maker.to_string()));
         }
     }
+
+    /// A hidden DM space's secret goes as `dm.secret`, so an older device
+    /// of this person never opens its log (card #538).
+    fn is_dm(&self, board_id: &str) -> bool {
+        self.0.upgrade().is_some_and(|s| s.is_dm_space(board_id))
+    }
 }
 
 /// Where the link says the inviter is.
