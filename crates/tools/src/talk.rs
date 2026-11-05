@@ -72,6 +72,12 @@ pub struct Conversation {
     pub members: Vec<ConvMember>,
     /// The newest post's time (zero: none yet).
     pub last_at: GoTime,
+    /// The newest post's text on one line, clipped to [`LAST_TEXT`] runes
+    /// (card #486): the list's subtitle, and how it sees one message sent
+    /// to many agents.
+    pub last_text: String,
+    /// Who wrote the newest post ("" when none).
+    pub last_by: String,
     /// The reader is in it (a channel they joined, their own DM, a thread
     /// they're on). The person also sees agents' DMs, read-only.
     pub joined: bool,
@@ -398,6 +404,19 @@ fn last_at(posts: &[Post]) -> GoTime {
     posts.last().map(|p| p.at).unwrap_or_default()
 }
 
+/// How many runes of the newest post a conversation carries (card #486):
+/// the list shows one line of it, and compares it whole to tell one
+/// message sent to many agents from two that only start alike.
+pub const LAST_TEXT: usize = 2000;
+
+/// The newest post's text on one line, and who wrote it.
+fn last_line(posts: &[Post]) -> (String, String) {
+    posts
+        .last()
+        .map(|p| (one_line(&p.text, LAST_TEXT), p.by.clone()))
+        .unwrap_or_default()
+}
+
 /// `reader`'s conversations: the person sees every open channel, every
 /// DM (agents' own read-only) and every open thread; an agent sees the
 /// channels it joined, its DMs and the open threads it is on. Newest
@@ -416,6 +435,7 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
         }
         let ps = talk.posts(&c.id);
         let (unread, mentions) = counts(talk, &ps, reader, &c.id);
+        let (last_text, last_by) = last_line(&ps);
         out.push(Conversation {
             conv_id: c.id.clone(),
             kind: ct::KIND_CHANNEL.into(),
@@ -429,6 +449,8 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
                 .map(|m| names.member(m))
                 .collect(),
             last_at: last_at(&ps),
+            last_text,
+            last_by,
             joined,
             ..Conversation::default()
         });
@@ -461,6 +483,7 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
             .filter(|m| ct::canon(&m.key) != me)
             .map(|m| names.name(&m.key))
             .collect();
+        let (last_text, last_by) = last_line(&ps);
         out.push(Conversation {
             conv_id: id.clone(),
             kind: ct::KIND_DM.into(),
@@ -469,6 +492,8 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
             mentions,
             members: parties.iter().map(|m| names.member(m)).collect(),
             last_at: last_at(&ps),
+            last_text,
+            last_by,
             joined: mine,
             read_only: !mine,
             ..Conversation::default()
@@ -489,6 +514,7 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
             continue;
         }
         let (unread, mentions) = counts(talk, &ps, reader, &t.id);
+        let (last_text, last_by) = last_line(&ps);
         out.push(Conversation {
             conv_id: t.id.clone(),
             kind: ct::KIND_THREAD.into(),
@@ -497,6 +523,8 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
             mentions,
             members: members.iter().map(|m| names.member(m)).collect(),
             last_at: last_at(&ps),
+            last_text,
+            last_by,
             joined: on || person,
             short: t.short.clone(),
             agents_now: t.ask.as_ref().is_some_and(|a| a.wake),

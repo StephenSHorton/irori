@@ -2022,6 +2022,13 @@ export type TalkConversation = {
 	members: TalkMember[],
 	/**  The newest post's time (the zero time when it has none). */
 	lastAt: string,
+	/**
+	 *  The newest post's text on one line, clipped (card #486): the list's
+	 *  subtitle. "" when it has none.
+	 */
+	lastText: string,
+	/**  Who wrote the newest post: a member's key, "" when none. */
+	lastBy: string,
 	/**  A DM between two agents: the person reads it only. */
 	readOnly: boolean,
 	/**

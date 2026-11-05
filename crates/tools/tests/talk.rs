@@ -197,6 +197,30 @@ fn agents_messages_mirror_as_dms() {
 }
 
 #[test]
+fn a_conversation_carries_its_last_line_and_who_wrote_it() {
+    // Card #486: Talk's list shows the newest post, not the section's name.
+    let h = new_harness();
+    let a = call_a();
+    h.send_to(&a, KEY_C, "first\n\tthing");
+    h.send_to(&a, KEY_C, "the ports clash\non 8080");
+    let long = "x".repeat(tools::talk::LAST_TEXT + 40);
+    h.send_to(&a, KEY_B, &long);
+    let cs = tools::talk::conversations(&*h.b, USER).unwrap();
+    let ac = cs
+        .iter()
+        .find(|x| x.conv_id == ct::dm_id(KEY_A, KEY_C))
+        .unwrap();
+    assert_eq!(ac.last_text, "the ports clash on 8080");
+    assert_eq!(ac.last_by, KEY_A);
+    let ab = cs
+        .iter()
+        .find(|x| x.conv_id == ct::dm_id(KEY_A, KEY_B))
+        .unwrap();
+    assert_eq!(ab.last_text.chars().count(), tools::talk::LAST_TEXT);
+    assert!(ab.last_text.ends_with('…'));
+}
+
+#[test]
 fn threads_read_and_post_as_comments() {
     let h = new_harness();
     let a = call_a();
