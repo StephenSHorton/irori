@@ -807,7 +807,7 @@ impl Fold {
         }
         let at = self.stamp();
         let id = new_id(&at);
-        let num = self.next_short();
+        let num = self.next_short("");
         // A device with no agents of its own (the phone) leaves the ask to
         // one of the person's computers (card #408): its roster may be
         // hours old when it posts, and it sleeps right after.

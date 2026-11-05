@@ -180,8 +180,9 @@ impl Fold {
         self.sides.home(&self.dev)
     }
 
-    /// Writes a checked task's rows.
-    pub(crate) fn create_locked(&mut self, by: &str, ct: CleanTask) -> Result<Task> {
+    /// Writes a checked task's rows. A subtask goes on its parent's board
+    /// (card #558), whichever path made it.
+    pub(crate) fn create_locked(&mut self, by: &str, mut ct: CleanTask) -> Result<Task> {
         // "irori" names no person, so a board counts its task.created for
         // nothing (sweeper_ok): refuse it rather than write a dead row.
         if self.on_board && by == SWEEPER {
@@ -189,13 +190,16 @@ impl Fold {
                 "Irori itself can't create a card on a shared board: a person or an agent creates it",
             ));
         }
+        if let Some(p) = self.tasks.get(&ct.parent) {
+            ct.board = p.board.clone();
+        }
         let mut bb = None;
         if !ct.reason.is_empty() {
             bb = self.check_blocker(ct.blocked_by.as_ref(), "")?;
         }
         let at = self.stamp();
         let id = new_id(&at);
-        let num = self.next_short();
+        let num = self.next_short(&ct.board);
         self.write(
             by,
             kinds::TASK_CREATED,

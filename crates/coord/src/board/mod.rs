@@ -230,6 +230,8 @@ pub type OffersFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 /// The tag of another board in a space, by id (card #392); None for an id
 /// the space doesn't hold.
 pub type BoardTagFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+/// Every tag a space's log has named for a board inside it (card #558).
+pub type BoardTagsFn = Arc<dyn Fn() -> Vec<String> + Send + Sync>;
 
 /// See [`Options::device_version`].
 pub type DeviceVersionFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
@@ -272,6 +274,9 @@ pub struct Options {
     /// On a space (card #392): the tag of another board in it, by id;
     /// None for an id the space doesn't hold.
     pub board_tag: Option<BoardTagFn>,
+    /// On a space (card #558): every tag its log has named for a board
+    /// inside it, for a ref to a board that holds no card.
+    pub board_tags: Option<BoardTagsFn>,
     /// A person who owned the board just before the row at that place,
     /// or now when there is no row (the cancel rule reads the owners at
     /// the row's time, v0.5 §5.3).

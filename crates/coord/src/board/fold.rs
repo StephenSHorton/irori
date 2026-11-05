@@ -149,6 +149,10 @@ pub(crate) struct ShortClaim {
     pub id: String,
     pub at: RowPos,
     pub num: i64,
+    /// The board the card claimed on, as its row says: empty for the
+    /// space's first. Raw, so a row that arrives before its
+    /// `space.board.created` numbers the same on every device.
+    pub board: String,
 }
 
 #[derive(Debug, Clone)]
@@ -263,6 +267,7 @@ pub struct Fold {
     pub(crate) dev_person: Option<StrFn>,
     pub(crate) tag_fn: Option<Arc<dyn Fn() -> String + Send + Sync>>,
     pub(crate) board_tag_fn: Option<super::BoardTagFn>,
+    pub(crate) board_tags_fn: Option<super::BoardTagsFn>,
     pub(crate) board_owner: Option<super::OwnerAtFn>,
     pub(crate) hop_of: Option<super::HopFn>,
     pub(crate) holds_file: Option<KeyFn>,
@@ -318,9 +323,14 @@ pub struct Fold {
 
     pub(crate) claims: Vec<ShortClaim>,
     pub(crate) claimed: HashSet<String>,
-    pub(crate) short_groups: BTreeMap<i64, Vec<ShortClaim>>,
-    pub(crate) short_idx: HashMap<String, String>,
-    pub(crate) short_top: i64,
+    /// Each board has its own run (card #558): claims by (board, number).
+    pub(crate) short_groups: BTreeMap<(String, i64), Vec<ShortClaim>>,
+    /// Card ids by (board, short ref).
+    pub(crate) short_idx: BTreeMap<(String, String), String>,
+    /// Each board's highest number seen. Not cleared by a refold, as the
+    /// one run's top never was: a number a cut card held isn't given out
+    /// again here.
+    pub(crate) short_tops: HashMap<String, i64>,
     pub(crate) short_moved: HashMap<String, GoTime>,
 
     pub(crate) subs: Vec<Sub>,
@@ -430,6 +440,7 @@ impl Fold {
             dev_person: o.device_person,
             tag_fn: o.tag,
             board_tag_fn: o.board_tag,
+            board_tags_fn: o.board_tags,
             board_owner: o.board_owner,
             hop_of: o.hop_of,
             holds_file: o.holds_file,
@@ -463,8 +474,8 @@ impl Fold {
             claims: Vec::new(),
             claimed: HashSet::new(),
             short_groups: BTreeMap::new(),
-            short_idx: HashMap::new(),
-            short_top: 0,
+            short_idx: BTreeMap::new(),
+            short_tops: HashMap::new(),
             short_moved: HashMap::new(),
             subs: Vec::new(),
             pending: Vec::new(),
@@ -1165,7 +1176,7 @@ impl Fold {
         if !p.parent.is_empty() {
             self.fold_parent(&p.task_id, &p.parent, ev);
         }
-        self.claim_short(&p.task_id, RowPos::of(ev), p.num);
+        self.claim_short(&p.task_id, RowPos::of(ev), p.num, &p.board);
         let ti = Touch::of(&self.tasks[&p.task_id]);
         match self.tasks.get(&p.parent).filter(|_| !p.parent.is_empty()) {
             Some(pt) => {
@@ -1996,9 +2007,14 @@ impl Fold {
         self.board_tag(board).unwrap_or_else(|| self.tag())
     }
 
-    /// Whether `tag` names this space's own board or one inside it.
+    /// Whether `tag` names this space's own board or any the log has named
+    /// inside it: a board with no cards has its tag all the same.
     pub(crate) fn has_tag(&self, tag: &str) -> bool {
-        tag == self.tag() || self.tasks.values().any(|t| t.tag == tag)
+        tag == self.tag()
+            || match (&self.board_tags_fn, self.on_board) {
+                (Some(f), true) => f().iter().any(|t| t == tag),
+                _ => false,
+            }
     }
 
     /// A cancel on a shared card counts only from a device of the card
