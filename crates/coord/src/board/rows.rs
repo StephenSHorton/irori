@@ -586,6 +586,9 @@ crate::go_struct! {
         pub note: String = "note" "omit",
         pub at: GoTime = "at",
         pub expires: GoTime = "expires",
+        pub board: String = "board" "omit",
+        pub card: String = "card" "omit",
+        pub title: String = "title" "omit",
     }
 }
 

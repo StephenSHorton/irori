@@ -139,3 +139,53 @@ fn test_wait_on_a_branch() {
     assert_eq!(ws[0].refs.len(), 2);
     has(&h.okj(&b, "waits", json!({})), &["branch main"]);
 }
+
+/// Card #574: an agent that asks for an agent hears why none has started,
+/// and `board` and `show` say the same.
+#[test]
+fn why_no_agent_shows_after_asking_and_on_the_card() {
+    let h = new_harness();
+    let a = call_a();
+    let id = h.new_card(&a, json!({"title": "Needs hands"}));
+    *h.b.spawn_why.lock().unwrap() = "Mac is at its cap (2/2); it starts when one ends".into();
+    const LINE: &str = "no agent yet: Mac is at its cap (2/2)";
+
+    h.b.spawn_asked.lock().unwrap().clear();
+    let out = h.okj(
+        &a,
+        "board_steps",
+        json!({"task_id": id, "steps": [{"text": "do it", "spawn": true}]}),
+    );
+    has(&out, &[LINE, "(spawn)"]);
+    assert_eq!(
+        *h.b.spawn_asked.lock().unwrap(),
+        vec![true],
+        "asked is said"
+    );
+
+    has(&h.okj(&a, "board", json!({"repo": "*"})), &[LINE]);
+
+    h.b.spawn_asked.lock().unwrap().clear();
+    let plain = h.okj(
+        &a,
+        "board_steps",
+        json!({"task_id": id, "steps": [{"text": "no mark"}]}),
+    );
+    assert!(!plain.contains(LINE), "{plain}");
+
+    let out = h.okj(
+        &a,
+        "board_split",
+        json!({"task_id": id, "subtasks": [{"title": "part", "spawn": true, "steps": ["s2"]}]}),
+    );
+    has(&out, &["(spawn)", LINE]);
+}
+
+#[test]
+fn a_card_with_no_reason_shows_no_line() {
+    let h = new_harness();
+    let a = call_a();
+    h.new_card(&a, json!({"title": "Quiet"}));
+    let board = h.okj(&a, "board", json!({"repo": "*"}));
+    assert!(!board.contains("no agent yet"), "{board}");
+}

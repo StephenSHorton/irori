@@ -67,6 +67,15 @@ impl Inner {
         }
     }
 
+    /// "  no agent yet: why\n" for card `id`, or "" (card #574).
+    pub(crate) fn no_agent_line(&self, id: &str, asked: bool) -> String {
+        let why = self.b.spawn_wait(id, asked);
+        if why.is_empty() {
+            return String::new();
+        }
+        format!("  no agent yet: {}\n", one_line(&why, MAX_FIELD_RUNES))
+    }
+
     /// The card `id` names, in whichever log holds it.
     pub(crate) fn task(&self, id: &str) -> Option<Task> {
         let (co, _) = self.on(id, &[]).ok()?;
@@ -256,6 +265,20 @@ impl Inner {
                 .filter(|w| w.task_id == t.id)
                 .map(|w| format!("{} (until {})", n.who(&w.by), coord::until_text(&w.until)))
                 .collect();
+            // A wait on a shared card is in the waiter's own log (card #574).
+            let on_it: Vec<String> = on_it
+                .into_iter()
+                .chain(
+                    (!Arc::ptr_eq(&co, self.b.coord()))
+                        .then(|| self.b.coord().waits(""))
+                        .unwrap_or_default()
+                        .iter()
+                        .filter(|w| w.task_id == t.id)
+                        .map(|w| {
+                            format!("{} (until {})", n.who(&w.by), coord::until_text(&w.until))
+                        }),
+                )
+                .collect();
             if !on_it.is_empty() {
                 b += &format!("; waited on by {}", on_it.join(", "));
             }
@@ -278,6 +301,7 @@ impl Inner {
             }
         }
         b += &format!("; updated {}\n", ago(now, &t.updated_at));
+        b += &self.no_agent_line(&t.id, false);
         if let Some(r) = &t.rollup {
             let mut ks = vec![];
             if let Ok((co, _)) = self.on(&t.id, &[]) {
@@ -1913,6 +1937,9 @@ pub(crate) fn board_steps(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     {
         b.push_str(SPAWN_REFUSED_TOOL);
     }
+    if !asked.is_empty() {
+        b.push_str(&s.no_agent_line(&id, true));
+    }
     for st in &t.steps {
         let mark = if st.done {
             "[x]"
@@ -2685,6 +2712,7 @@ pub(crate) fn board_split(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     );
     if made.iter().zip(&asked).any(|(k, a)| *a && !k.spawn) {
         b += &format!("\n{}", SPAWN_REFUSED_TOOL.trim_end());
+        b += s.no_agent_line(&id, true).trim_end();
     }
     for (i, k) in made.iter().enumerate() {
         b += &format!(
@@ -2693,6 +2721,9 @@ pub(crate) fn board_split(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             quoted(&one_line(&k.title, MAX_CARD_TITLE), MAX_CARD_TITLE),
             if k.spawn { " (spawn)" } else { "" }
         );
+        if k.spawn {
+            b += &format!("\n{}", s.no_agent_line(&k.id, true).trim_end());
+        }
         if to.get(i).is_none_or(|t| t.is_empty()) {
             continue;
         }

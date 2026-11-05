@@ -1016,7 +1016,7 @@
   },
   {
     "name": "wait",
-    "description": "Be woken once when something you depend on happens, instead of polling: a card on your Board reaching a state (task_id, until), or a git branch moving (branch, repo). The wake says what happened. A wait ends when it fires, after a day, or when your session ends; not on your own card. For a shared board's card use board_watch. Branch waits read this device's refs (local and origin), so a push elsewhere shows once fetched. waits lists yours; wait_cancel drops one.",
+    "description": "Be woken once when something you depend on happens, instead of polling: a card on your Board or a shared board reaching a state (task_id, until), or a git branch moving (branch, repo). The wake says what happened. A wait ends when it fires, after a day, or when your session ends; not on your own card. Branch waits read this device's refs (local and origin), so a push elsewhere shows once fetched. waits lists yours; wait_cancel drops one.",
     "inputSchema": {
       "type": "object",
       "properties": {

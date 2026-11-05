@@ -131,6 +131,9 @@ pub struct TestBackend {
     /// Shared boards (stage 2 tests); unset: private only.
     pub router: OnceLock<Arc<dyn tools::TaskRouter>>,
     pub shared: OnceLock<Arc<dyn tools::SharedBoards>>,
+    /// What spawn_wait says for every card, and the `asked` it was given.
+    pub spawn_why: Mutex<String>,
+    pub spawn_asked: Mutex<Vec<bool>>,
     pub book: OnceLock<Arc<coord::approvals::Book>>,
     /// Talk's fold over the same store (card #389).
     pub talk: Arc<coord::talk::Talk>,
@@ -168,6 +171,10 @@ impl Backend for TestBackend {
     }
     fn notifier(&self) -> Option<&dyn tools::Notifier> {
         self.notifier.as_deref()
+    }
+    fn spawn_wait(&self, _task_id: &str, asked: bool) -> String {
+        self.spawn_asked.lock().unwrap().push(asked);
+        self.spawn_why.lock().unwrap().clone()
     }
     fn capture(&self) -> Option<&capture::Capture> {
         self.cp.get()
@@ -358,6 +365,8 @@ pub fn new_harness_setup(
         attacher: OnceLock::new(),
         router: OnceLock::new(),
         shared: OnceLock::new(),
+        spawn_why: Mutex::default(),
+        spawn_asked: Mutex::default(),
         book: OnceLock::new(),
     });
     setup(&b, &clk);

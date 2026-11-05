@@ -1471,11 +1471,7 @@ fn cant_start_text(t: &Task, sp: &coord::Spawn, p: &People) -> String {
             w => w.to_string(),
         },
     };
-    if t.repo_key.is_empty() {
-        format!("this card names no repo, and {dev} has no folder for it")
-    } else {
-        format!("no copy of {} on {dev}", coord::repo_name(&t.repo_key))
-    }
+    irori_core::spawn_stop::no_folder_words(&t.repo_key, &dev)
 }
 
 pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
@@ -2323,7 +2319,20 @@ impl Window {
             });
         }
         let refr = |id: &str| co.get_task(id).map(|x| x.short_ref()).unwrap_or_default();
-        if !co.is_board() {
+        // A wait on a shared card is in the waiter's own log (card #574).
+        if co.is_board() {
+            for w in self.core.coord().waits("") {
+                if w.task_id != t.id {
+                    continue;
+                }
+                d.waits.push(CardWait {
+                    id: w.id.clone(),
+                    who: p.ref_(&w.by),
+                    text: format!("until {}", coord::until_text(&w.until)),
+                    on_this: true,
+                });
+            }
+        } else {
             for w in co.waits("") {
                 let on_this = w.task_id == t.id;
                 if !on_this && (!t.holders.contains(&w.by) || coord::is_terminal(&t.state)) {

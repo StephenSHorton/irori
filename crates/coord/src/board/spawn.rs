@@ -129,6 +129,29 @@ pub struct SpawnAsk {
     pub note: String,
 }
 
+/// What the card itself says about getting an agent (card #574): what
+/// [`Fold::cards_to_spawn`] looks at, as a reason. The core adds the switch,
+/// the devices and the cap.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpawnHold {
+    /// Nothing on the card is in the way.
+    Clear,
+    /// It doesn't want an agent: done, withdrawn, held, offered, a parent.
+    NoNeed,
+    /// A shared card: agents join it themselves.
+    Joinable,
+    /// It waits on a blocker.
+    Blocked,
+    /// Its agents crashed twice in a row.
+    Crashed,
+    /// On a side this device doesn't run: why, in the card's words.
+    OffSide(String),
+    /// An unmarked subtask of a card with a lead.
+    ForLead,
+    /// Its parent has this many agents, its most.
+    AtLimit(usize),
+}
+
 impl Task {
     /// The card's own spawn request (no step or subtask), if any.
     pub fn spawn_request(&self) -> Option<&Spawn> {
@@ -634,6 +657,59 @@ impl Fold {
 
     /// The cards this device hands out that need an agent and have none
     /// starting, oldest first; none while the board doesn't spawn.
+    /// See [`SpawnHold`]; the order is the order the card clears them in.
+    pub(crate) fn spawn_hold(&self, t: &Task) -> SpawnHold {
+        if is_terminal(&t.state) || t.withdrawn {
+            return SpawnHold::NoNeed;
+        }
+        let wanted = super::offers::needs_agent(t) || self.needs_lead(t) || self.ask_needs_agent(t);
+        if !wanted {
+            let unheld = t.holders.is_empty() && t.assigned.is_empty();
+            return if !unheld || !t.subtasks.is_empty() || t.open_ask().is_some() {
+                SpawnHold::NoNeed
+            } else if t.shared {
+                SpawnHold::Joinable
+            } else if t.state == BLOCKED
+                || t.state == INPUT_REQUIRED
+                || super::offers::waits_on_work(t)
+            {
+                SpawnHold::Blocked
+            } else {
+                SpawnHold::NoNeed
+            };
+        }
+        if t.spawn_crashes >= MAX_SPAWN_CRASHES {
+            return SpawnHold::Crashed;
+        }
+        if !self.runs_here(t) && !self.spawn_now.contains(&t.id) {
+            let why = self.side_wait(t);
+            return SpawnHold::OffSide(if why.is_empty() {
+                "it's on a side no device here runs".into()
+            } else {
+                why
+            });
+        }
+        if self.ask_resting(t) {
+            return SpawnHold::NoNeed;
+        }
+        if self.waits_for_lead(t) {
+            return SpawnHold::ForLead;
+        }
+        if self.within_limits(vec![t.clone()]).is_empty() {
+            let limit = self.tasks.get(&t.parent).map_or(0, |p| self.agent_limit(p));
+            return SpawnHold::AtLimit(limit);
+        }
+        SpawnHold::Clear
+    }
+
+    /// The device that hands card t out, so whose sweep starts its agent.
+    pub(crate) fn card_origin(&self, t: &Task) -> String {
+        if self.on_board {
+            return self.origin.get(&t.id).cloned().unwrap_or_default();
+        }
+        owner::device_of(&t.created_by).to_string()
+    }
+
     pub(crate) fn cards_to_spawn(&self) -> Vec<Task> {
         if !self.spawning_on() {
             return Vec::new();

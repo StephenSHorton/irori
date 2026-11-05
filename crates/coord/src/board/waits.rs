@@ -4,6 +4,10 @@
 //! wait is open) and in the sweep (a state that already holds, or held
 //! while this device was off). Branch waits are checked by the core,
 //! which reads the refs and calls `fire_wait`: the coord never reads git.
+//! A wait on a shared board's card (card #574) works the same way: it lives
+//! in the waiter's own log, not the board's, so the board's other members
+//! never see it and an older Irori there has nothing new to read, and the
+//! core reads the card from the board's coord each sweep.
 //! A wait fires from its waiter's own device only: the `wait.fired` row
 //! first, then a wake, so a crash between the two can't wake twice.
 //! The sweep cancels a wait whose waiter's session is gone, or that is a
@@ -121,8 +125,14 @@ impl Fold {
         let mut until: Vec<String> = Vec::new();
         let mut from_state = String::new();
         if task {
-            let t = self.any_task(&spec.task_id)?;
-            if t.holders.len() == 1 && t.holders[0] == by {
+            let (own, state) = match &spec.on_board {
+                Some(c) => (c.own, c.state.clone()),
+                None => {
+                    let t = self.any_task(&spec.task_id)?;
+                    (t.holders.len() == 1 && t.holders[0] == by, t.state.clone())
+                }
+            };
+            if own {
                 return Err(invalid(
                     "that is your own card: you'll know when it changes. Wait on someone else's card",
                 ));
@@ -145,7 +155,7 @@ impl Fold {
             if until.is_empty() {
                 until.push(UNTIL_CHANGED.into());
             }
-            from_state = t.state.clone();
+            from_state = state;
         } else if spec.refs.is_empty() {
             return Err(invalid(
                 "a branch wait needs the branch's refs as they are now",
@@ -159,6 +169,7 @@ impl Fold {
         }
         let at = self.stamp();
         let id = new_id(&at);
+        let on_board = spec.on_board.unwrap_or_default();
         self.write(
             &by,
             kinds::WAIT_CREATED,
@@ -175,6 +186,9 @@ impl Fold {
                 note: spec.note,
                 at,
                 expires: gotime::add(&at, WAIT_TTL),
+                board: on_board.board,
+                card: on_board.card,
+                title: on_board.title,
             },
         )?;
         self.waits
@@ -214,6 +228,31 @@ impl Fold {
         }
     }
 
+    /// Whether board wait `id` should fire now the card is in state `cur`
+    /// (card #574), as the sweep decides for a card in this log: `Some`
+    /// with the state it moved from. The core reads the state and calls
+    /// `fire_wait`, since this log has no such card.
+    pub(crate) fn board_wait_moved(&mut self, id: &str, cur: &str) -> Option<String> {
+        let w = self.waits.get(id)?;
+        let seen = self
+            .wait_seen
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| w.from_state.clone());
+        let moved = seen != cur && w.until.iter().any(|u| matches(u, &seen, cur));
+        let fire = moved || w.until.iter().any(|u| holds(u, cur));
+        self.wait_seen.insert(id.into(), cur.into());
+        fire.then_some(seen)
+    }
+
+    /// Board wait `id`'s card is gone from its board: the sweep ends the
+    /// wait and says so.
+    pub(crate) fn board_wait_lost(&mut self, id: &str) {
+        if self.waits.contains_key(id) {
+            self.waits_lost.insert(id.into());
+        }
+    }
+
     // ---- reads ----
 
     /// Open waits, oldest first; `by` empty for every waiter.
@@ -235,6 +274,21 @@ impl Fold {
             .into_iter()
             .filter(|w| !w.branch.is_empty() && self.local_key(&w.by))
             .collect()
+    }
+
+    /// Open waits on shared boards' cards whose waiter lives on this
+    /// device: the core reads those cards.
+    pub(crate) fn board_waits(&self) -> Vec<Wait> {
+        self.waits_of("")
+            .into_iter()
+            .filter(|w| !w.board.is_empty() && self.local_key(&w.by))
+            .collect()
+    }
+
+    /// "#12 “Title” is now completed (was working): note", for a wait in
+    /// another log (card #574).
+    pub(crate) fn wait_what(&self, id: &str, was: &str, now: &str) -> String {
+        self.state_what(id, was, now)
     }
 
     // ---- fold ----
@@ -261,6 +315,9 @@ impl Fold {
                     note: p.note,
                     at: p.at,
                     expires: p.expires,
+                    board: p.board,
+                    card: p.card,
+                    title: p.title,
                 };
                 if !self.replaying
                     && let Some(t) = self.tasks.get(&w.task_id)
@@ -278,6 +335,7 @@ impl Fold {
                 if let Some(p) = row::<WaitFiredRow>(&ev.payload) {
                     self.waits.remove(&p.id);
                     self.wait_seen.remove(&p.id);
+                    self.waits_lost.remove(&p.id);
                     self.waits_done.insert(p.id);
                 }
             }
@@ -285,6 +343,7 @@ impl Fold {
                 if let Some(p) = row::<WaitCanceledRow>(&ev.payload) {
                     self.waits.remove(&p.id);
                     self.wait_seen.remove(&p.id);
+                    self.waits_lost.remove(&p.id);
                     self.waits_done.insert(p.id);
                 }
             }
@@ -356,7 +415,11 @@ impl Fold {
                 WAIT_GONE
             } else if !w.expires.is_zero() && gotime::before(&w.expires, now) {
                 WAIT_EXPIRED
-            } else if !w.task_id.is_empty() && !self.tasks.contains_key(&w.task_id) {
+            } else if self.waits_lost.contains(&w.id)
+                || (w.board.is_empty()
+                    && !w.task_id.is_empty()
+                    && !self.tasks.contains_key(&w.task_id))
+            {
                 WAIT_CARD_GONE
             } else {
                 ""
@@ -389,6 +452,10 @@ impl Fold {
                     n.wake = false;
                     out.push(n);
                 }
+                continue;
+            }
+            // A board card's state is the core's to read (card #574).
+            if !w.board.is_empty() {
                 continue;
             }
             let Some(cur) = self.tasks.get(&w.task_id).map(|t| t.state.clone()) else {
@@ -448,6 +515,7 @@ impl Fold {
             .tasks
             .get(&w.task_id)
             .map(|t| t.refs())
+            .or_else(|| (!w.card.is_empty()).then(|| w.card.clone()))
             .unwrap_or_else(|| format!("task:{}", w.task_id));
         wait_line(w, &r)
     }
@@ -457,6 +525,7 @@ impl Fold {
             .tasks
             .get(&w.task_id)
             .map(|t| t.title.clone())
+            .or_else(|| (!w.title.is_empty()).then(|| w.title.clone()))
             .unwrap_or_else(|| format!("branch {}", w.branch));
         Notice {
             kind: NOTICE_WAIT.into(),

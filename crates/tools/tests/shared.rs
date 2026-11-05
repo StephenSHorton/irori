@@ -816,3 +816,75 @@ fn a_question_is_for_whoever_for_names() {
         &["leave for out"],
     );
 }
+
+/// Card #574: a wait on a shared card lives in the waiter's own log, so
+/// nothing of it reaches the board, and it lists and cancels like any wait.
+#[test]
+fn a_wait_on_a_shared_card_stays_off_the_board() {
+    let r = rig();
+    let a = call_a();
+    let t = r
+        .fake
+        .co
+        .create_task(
+            ME,
+            NewTask {
+                title: "Ship it".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    let rows = || r.fake.st.list(&store::Filter::default()).unwrap().len();
+    let before = rows();
+    let out = r.h.okj(
+        &a,
+        "wait",
+        json!({"task_id": t.id, "until": ["done", "unblocked"], "note": "the API I build on"}),
+    );
+    has(
+        &out,
+        &[
+            "woken once when mlg#1 is done or unblocked",
+            "Only you see this wait",
+        ],
+    );
+    assert!(!out.contains("Visible to"), "{out}");
+    assert_eq!(
+        rows(),
+        before + 1,
+        "only the agent's card went to the board"
+    );
+    let ws = r.h.b.co.waits("");
+    assert_eq!(ws.len(), 1, "{ws:?}");
+    assert_eq!(ws[0].board, "b0");
+    assert_eq!(ws[0].title, "Ship it");
+    assert_eq!(ws[0].from_state, t.state);
+    assert!(r.fake.co.waits("").is_empty(), "nothing in the board's log");
+    has(
+        &r.h.okj(&a, "waits", json!({})),
+        &["mlg#1 until done or unblocked"],
+    );
+    has(
+        &r.h.okj(&a, "wait_cancel", json!({"id": ws[0].id})),
+        &["Canceled your wait on mlg#1"],
+    );
+}
+
+#[test]
+fn your_own_shared_card_is_no_wait() {
+    let r = rig();
+    let a = call_a();
+    let t = r
+        .fake
+        .co
+        .create_task(
+            ME,
+            NewTask {
+                title: "Mine".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    r.h.okj(&a, "board_join", json!({"task_id": t.id}));
+    r.h.failsj(&a, "wait", json!({"task_id": t.id}), &["your own card"]);
+}
