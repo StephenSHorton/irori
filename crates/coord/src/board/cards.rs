@@ -106,6 +106,22 @@ pub(crate) fn say_done_open(t: &mut Task, by: &str, at: GoTime) {
 }
 
 /// Keeps the newest KEEP_RESOLVED resolved items.
+/// Whether an answer can put t back on the Board ([`Fold::back_on_board`]).
+fn can_go_back(t: &Task) -> bool {
+    nobody_on(t) && t.subtasks.is_empty()
+}
+
+/// Whether open card t waits with nobody on it or coming to it.
+fn nobody_on(t: &Task) -> bool {
+    t.holders.is_empty()
+        && t.co_holders.is_empty()
+        && t.assigned.is_empty()
+        && !is_terminal(&t.state)
+        && t.state != SUBMITTED
+        && t.state != WORKING
+        && t.open_ask().is_none()
+}
+
 fn trim_resolved(t: &mut Task) {
     let n = t.blockers.len() - count_open(t);
     if n <= KEEP_RESOLVED {
@@ -795,6 +811,11 @@ impl Fold {
                 else {
                     return;
                 };
+                // Their say on the crash question clears the run on a card
+                // no answer can put back on the Board too (card #540).
+                if person && super::spawn::is_crash_question(&t.blockers[i]) {
+                    t.spawn_crashes = 0;
+                }
                 let when = at(p.at);
                 let mut opt = p.option;
                 if opt < -1 || opt >= t.blockers[i].options.len() as i64 {
@@ -1481,19 +1502,9 @@ impl Fold {
     /// board, starts a fresh agent); the answer stays in the blocker's
     /// thread and Left off is kept, for whoever picks it up.
     pub(crate) fn back_on_board(&mut self, by: &str, id: &str, why: &str) -> Result<bool> {
-        let Some(t) = self.tasks.get(id) else {
+        let Some(t) = self.tasks.get(id).filter(|t| nobody_on(t)) else {
             return Ok(false);
         };
-        if !t.holders.is_empty()
-            || !t.co_holders.is_empty()
-            || !t.assigned.is_empty()
-            || is_terminal(&t.state)
-            || t.state == SUBMITTED
-            || t.state == WORKING
-            || t.open_ask().is_some()
-        {
-            return Ok(false);
-        }
         if !t.subtasks.is_empty() {
             return self.lead_again(by, id);
         }
@@ -1599,6 +1610,16 @@ impl Fold {
                 _ => {}
             }
         }
+        // The person's say on the crash question goes on its thread and
+        // puts the card back on the Board, whichever way it came (card
+        // #540): the window resolves Irori's asks, and only the thread
+        // reaches the next agent's brief on any device, board or retry.
+        let say = a.pick > 0 || !text.is_empty();
+        let crash = self.is_owner(&by) && super::spawn::is_crash_question(&b);
+        let a = BlockerAnswer {
+            resolve: a.resolve && !(crash && say && can_go_back(&t)),
+            ..a
+        };
         let last = if a.resolve {
             last_answer(self, &t, &b.id)
         } else {

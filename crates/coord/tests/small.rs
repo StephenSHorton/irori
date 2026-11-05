@@ -197,6 +197,7 @@ impl Rig {
             local: None,
             liveness: None,
             seen: None,
+            via: None,
             revoked: None,
         }
     }
@@ -546,4 +547,42 @@ fn person_avatar_folds_newest_and_ignores_non_person_writers() {
     assert_eq!(p.chosen(), a);
     assert!(p.apply(&row("", 5, "user")));
     assert_eq!(p.chosen(), "");
+}
+
+// Card #544: what the agents tool says of a device only reached through
+// another one, and that only a device with nothing heard reads "never".
+#[test]
+fn device_phrase_names_the_device_it_comes_through() {
+    let now = GoTime::unix(1_000_000, 0);
+    let seen = GoTime::unix(1_000_000 - 90, 0);
+    assert_eq!(
+        roster::device_phrase(roster::RECENT, &seen, "Phone", &now),
+        "reachable through Phone, seen 1m ago"
+    );
+    assert_eq!(
+        roster::device_phrase(roster::RECENT, &seen, "", &now),
+        "recent, seen 1m ago"
+    );
+    assert_eq!(
+        roster::device_phrase(roster::OFFLINE, &GoTime::default(), "", &now),
+        "offline, never heard from here"
+    );
+    assert!(roster::device_phrase(roster::OFFLINE, &seen, "", &now).starts_with("offline since "));
+}
+
+#[test]
+fn the_roster_carries_the_device_it_comes_through() {
+    let mut g = Rig::new();
+    g.card("dev2", card(A2, "", ""));
+    let mut o = g.opts();
+    o.liveness = Some(Arc::new(|_: &str| roster::RECENT.to_string()));
+    o.via = Some(Arc::new(|dev: &str| {
+        if dev == "dev2" {
+            "Phone".into()
+        } else {
+            String::new()
+        }
+    }));
+    let r = Roster::new(o).unwrap();
+    assert_eq!(r.remote()[0].device_via, "Phone");
 }
