@@ -28,10 +28,12 @@ import {
   readNotifications,
   shown,
   unreadCount,
+  waitedSummary,
   type Notification,
   type NotificationFilter,
 } from "@/lib/notifications"
 import { talk, type Delivery } from "@/lib/talk"
+import { go } from "@/lib/nav"
 import { cn } from "@/lib/utils"
 
 // PageSize is how many items show before "Show more".
@@ -252,6 +254,15 @@ function Live({
 }): ReactNode {
   if (asksOnCard(n)) return <CardLive n={n} now={now} onOpen={onOpenCard} />
   if (n.kind === Kind.Ask && n.ask) return <AskLive n={n} />
+  // Several messages that waited: they're DMs, so Talk's list (card #482).
+  if (waitedSummary(n))
+    return (
+      <span className="flex flex-wrap gap-1.5">
+        <Button size="sm" variant="outline" onClick={() => go({ kind: "talk", id: "" })}>
+          Open messages
+        </Button>
+      </span>
+    )
   if ((n.kind === Kind.Message || n.kind === Kind.Held) && n.deliveryId)
     return <DeliveryLive n={n} now={now} onOpen={onOpenMessage} />
   if (n.taskId) return n.card ? <OpenCard onOpen={onOpenCard} /> : <Outcome line="The card is gone" now={now} />

@@ -917,6 +917,17 @@ impl Ctx<'_> {
             (history::KIND_BLOCKER, String::new())
         };
         let mut about = about(kind, t, &self.needs_key(t));
+        // The agent asked back on the person's answer (card #482): Irori
+        // read the answered item for them, so the ask-back is its own.
+        let instance = if instance.is_empty()
+            && t.blockers
+                .iter()
+                .any(|b| b.id == about.blocker_id && b.open() && b.status == coord::BLOCKER_REPLIED)
+        {
+            format!("replied:{}", t.updated_at.format_rfc3339_nano())
+        } else {
+            instance
+        };
         // A question without a blocker item (an older card): which time.
         if about.blocker_id.is_empty() || !instance.is_empty() {
             about.instance = if instance.is_empty() {
@@ -1054,6 +1065,17 @@ fn finished_shot(t: &Task) -> Option<&str> {
 /// its delivery; a held card is its newest held message, so the same
 /// messages posted again stay one item and a new one is news.
 fn inbox_about(note: &inbox::watch::Note) -> Option<PostedRow> {
+    // The one card for several that waited (card #482): every message it
+    // stands for, keyed by the newest so the same set stays one item.
+    if note.id == inbox::watch::WAITING_ID {
+        let newest = note.ids.iter().max()?.clone();
+        return Some(PostedRow {
+            kind: history::KIND_WAITED.into(),
+            delivery_id: newest,
+            delivery_ids: note.ids.clone(),
+            ..PostedRow::default()
+        });
+    }
     if let Some(d) = note.id.strip_prefix("msg:") {
         return Some(PostedRow {
             kind: history::KIND_MESSAGE.into(),

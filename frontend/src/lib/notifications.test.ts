@@ -17,7 +17,16 @@ import {
   deliveryOutcome,
   shown,
   unreadCount,
+  waitedSummary,
 } from "./notifications"
+
+describe("the messages that waited (card #482)", () => {
+  test("the summary card is one row for several messages, old rows too", () => {
+    expect(waitedSummary(Notification({ kind: "waited", deliveryId: "d2" }))).toBe(true)
+    expect(waitedSummary(Notification({ kind: "message", deliveryId: "waiting" }))).toBe(true)
+    expect(waitedSummary(Notification({ kind: "message", deliveryId: "d1" }))).toBe(false)
+  })
+})
 
 const you = AgentRef({ key: "user:dev", name: "You" })
 const civet = AgentRef({ key: "dev/abc", name: "civet" })

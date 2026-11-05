@@ -1707,6 +1707,7 @@ impl Core {
                         s.follow_person_name();
                         s.notifications.reset();
                         load_notifications(&s.store, &s.notifications);
+                        s.settle_notifications();
                         s.hub.publish(CoreEvent::Devices);
                         s.hub.publish(CoreEvent::Notifications);
                         let _ = s.talk.load();
@@ -1736,6 +1737,11 @@ impl Core {
                         // folding again changes nothing.
                         if s.notifications.apply(&ev) {
                             s.hub.publish(CoreEvent::Notifications);
+                            // Another device kept one this one can see is
+                            // already resolved.
+                            if ev.kind == coord::notifications::POSTED {
+                                s.settle_notifications();
+                            }
                         }
                     } else if ev.kind == coord::devcolor::KIND {
                         s.colors.apply(&ev);
@@ -1929,6 +1935,8 @@ impl Core {
                 let _reg = reg;
                 while let Some(ch) = sub.recv() {
                     s.hub.publish(CoreEvent::Inbox(ch));
+                    // A message replied to, read or released (card #482).
+                    s.settle_notifications();
                 }
             });
         }
@@ -1940,6 +1948,9 @@ impl Core {
             // Core's life, as the window's Board pump does in Go's GUI.
             self.spawn("feed-board", move || {
                 let _reg = reg;
+                // What was resolved while Irori was off reads now (card
+                // #482).
+                s2.settle_notifications();
                 while let Some(ch) = q.recv() {
                     if s2
                         .coord
@@ -1949,6 +1960,8 @@ impl Core {
                         s2.asks_kick.kick();
                     }
                     s2.hub.publish(CoreEvent::Board(ch));
+                    // A blocker answered or a done check marked, by anyone.
+                    s2.settle_notifications();
                 }
             });
         }
@@ -1974,6 +1987,7 @@ impl Core {
                 let _reg = reg;
                 while let Some(id) = q.recv() {
                     s.hub.publish(CoreEvent::Asks(id));
+                    s.settle_notifications();
                 }
             });
         }

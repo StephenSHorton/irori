@@ -1525,7 +1525,11 @@ impl Services {
                 let _reg = reg;
                 while let Some(ch) = q.recv() {
                     match s.upgrade() {
-                        Some(s) => s.boards.tell(ch),
+                        Some(s) => {
+                            s.boards.tell(ch);
+                            // A shared card's blocker resolved (card #482).
+                            s.settle_notifications();
+                        }
                         None => return,
                     }
                 }
