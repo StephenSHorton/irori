@@ -596,7 +596,9 @@ fn test_specs() {
             "Coordinate about a card on the card",
             // Card #509: ready work asks to merge, batched, and the agent
             // merges on yes; it never waits on a PR the person can't see.
-            "one merge card that combines them into one branch and PR",
+            "land it together so the checks run once",
+            "board_block your card on task #M (the merge card)",
+            "closes the PRs it replaces",
             "“Can I merge PR #N (covers #a, #b)?”",
             "options Merge it (recommended) and Not yet",
             "merge it yourself",

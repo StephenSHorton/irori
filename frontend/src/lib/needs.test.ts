@@ -445,7 +445,7 @@ describe("what waits on the person (cards #347, #471)", () => {
     expect(prChip(card({ state: TaskState.InReview, waitPr: pr }))).toEqual({
       text: "waits on PR #96",
       title:
-        "Waits on PR #96 in StephenSHorton/suzuri: an agent merges it once its checks pass. Opens https://github.com/StephenSHorton/suzuri/pull/96",
+        "Waits on PR #96 in StephenSHorton/suzuri: an agent asks you to merge it, then merges it. Opens https://github.com/StephenSHorton/suzuri/pull/96",
       url: pr.url,
     })
     expect(

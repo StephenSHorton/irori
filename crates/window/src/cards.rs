@@ -2883,30 +2883,17 @@ fn wait_pr(co: &coord::Coord, t: &Task) -> Option<WaitPr> {
 /// The PR a blocked card's open external wait is on (card #509): the
 /// person's merge, as coord's Needs you counts it, until GitHub is heard
 /// to call it merged or closed.
+/// On a shared board, only this person's own agents' waits.
 fn merge_pr(co: &coord::Coord, t: &Task) -> Option<WaitPr> {
-    if t.state != coord::BLOCKED {
-        return None;
-    }
-    t.blockers
-        .iter()
-        .filter(|b| b.status != coord::BLOCKER_ANSWERED)
-        .find_map(|b| {
-            let url = b.merge_wait()?;
-            let st = co
-                .pr_state(&t.id, &url)
-                .map(|h| h.state)
-                .unwrap_or_default();
-            if st == coord::PR_MERGED || st == coord::PR_CLOSED {
-                return None;
-            }
-            let (repo, number) = coord::pr_link(&coord::parse_link(&url).ok()?)?;
-            Some(WaitPr {
-                repo,
-                number,
-                url,
-                approval: false,
-            })
+    co.merge_waits(&t.id).into_iter().find_map(|url| {
+        let (repo, number) = coord::pr_link(&coord::parse_link(&url).ok()?)?;
+        Some(WaitPr {
+            repo,
+            number,
+            url,
+            approval: false,
         })
+    })
 }
 
 /// How many cards a wait chain follows before it stops looking.

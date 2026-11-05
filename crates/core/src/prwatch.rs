@@ -174,7 +174,7 @@ impl PrWatch {
                 // Card #509: a wait on a PR's merge is asked about whoever
                 // holds the card (often nobody), so it leaves the person's
                 // Needs you once the PR merges.
-                let waits: Vec<String> = t.blockers.iter().filter_map(|b| b.merge_wait()).collect();
+                let waits = co.merge_waits(&t.id);
                 if !ours && waits.is_empty() {
                     continue;
                 }

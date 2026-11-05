@@ -126,6 +126,27 @@ impl Fold {
             .is_some_and(|p| p.state == PR_MERGED || p.state == PR_CLOSED)
     }
 
+    /// The PRs t's open, unanswered external waits ask this person to
+    /// merge (card #509), not yet known merged or closed. On a shared
+    /// board only their own agents' waits: another member's is theirs.
+    pub(crate) fn merge_waits(&self, t: &Task) -> Vec<String> {
+        if t.state != BLOCKED {
+            return Vec::new();
+        }
+        let mut out: Vec<String> = Vec::new();
+        for b in &t.blockers {
+            if b.status == BLOCKER_ANSWERED || self.on_board && !self.own_on_board(b) {
+                continue;
+            }
+            if let Some(pr) = b.merge_wait().filter(|pr| !self.pr_settled(&t.id, pr))
+                && !out.contains(&pr)
+            {
+                out.push(pr);
+            }
+        }
+        out
+    }
+
     /// Refuses an agent's completed while a PR its card links is known to
     /// be open (card #208). A PR GitHub couldn't be asked about doesn't
     /// count: the rules without it apply.
@@ -140,7 +161,7 @@ impl Fold {
             return Ok(());
         }
         Err(invalid(format!(
-            "{} links a pull request that is still open ({}): set board_status in_review while it waits; Irori checks GitHub and wakes you when it merges",
+            "{} links a pull request that is still open ({}): ask the person “Can I merge…?” with board_block and merge it yourself on their yes; Irori checks GitHub and tells you when it merges",
             t.short_ref(),
             open.join(", ")
         )))
@@ -348,7 +369,7 @@ impl Fold {
                 SWEEPER,
                 &id,
                 &format!(
-                    "its {n} is still open and nobody is on it: merge it once its checks pass, or complete the card if it merged"
+                    "its {n} is still open and nobody is on it: ask the person “Can I merge…?” and merge it on their yes, or complete the card if it merged"
                 ),
             )?;
         }

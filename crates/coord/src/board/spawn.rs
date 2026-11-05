@@ -156,10 +156,12 @@ impl Fold {
         }
     }
 
+    /// Also a card it made itself: the merge card that lands its work
+    /// with other ready work (card #509).
     pub(crate) fn spawned_may_take(&self, key: &str, t: &Task) -> bool {
         match self.spawned_for(key) {
             None => true,
-            Some(s) => s.task_id == t.id || t.parent == s.task_id,
+            Some(s) => s.task_id == t.id || t.parent == s.task_id || t.created_by == key,
         }
     }
 

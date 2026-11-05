@@ -271,7 +271,7 @@ export function prChip(
   if (!pr || over(c)) return null
   const who = pr.approval
     ? "another member's agents approve it, then it merges"
-    : "an agent merges it once its checks pass"
+    : "an agent asks you to merge it, then merges it"
   return {
     text: `waits on PR #${pr.number}`,
     title: `Waits on PR #${pr.number} in ${pr.repo}: ${who}. Opens ${pr.url}`,
