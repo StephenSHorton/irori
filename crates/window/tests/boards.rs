@@ -318,6 +318,51 @@ fn renaming_a_board_in_a_space_from_the_window() {
     assert!(e.contains("no board"), "{e}");
 }
 
+/// Card #563: Move and Delete from the window. The grid shows each card on
+/// its new board, and deleting a board leaves every card on the first.
+#[test]
+fn moving_a_card_and_deleting_a_board_from_the_window() {
+    use irori_window::new_card::NewCardInput;
+    let r = Rig::new();
+    let w = &r.w;
+    let wind = w.boards_create("Wind", "wind").unwrap();
+    let id = wind.board_id;
+    let s = w.boards_add_to_space(&id, "Netcode", "net").unwrap();
+    let net = s.boards[1].board_id.clone();
+    let make = |title: &str, space_board: &str| {
+        w.create_card(NewCardInput {
+            title: title.into(),
+            board: id.clone(),
+            space_board: space_board.into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .task
+    };
+    let a = make("sails", "");
+    let b = make("rollback", &net);
+    let t = w.move_card(&a.id, &net).unwrap();
+    assert_eq!(t.short_ref(), "net#2");
+    let grid = w.cards();
+    let c = grid.iter().find(|c| c.id == a.id).unwrap();
+    assert_eq!((c.tag.as_str(), c.space_board.as_str()), ("net", net.as_str()));
+
+    let t = w.move_card(&a.id, &id).unwrap();
+    assert_eq!(t.short_ref(), "wind#2");
+    w.move_card(&a.id, &net).unwrap();
+
+    let e = w.boards_delete_in_space(&id, &id).unwrap_err();
+    assert!(e.contains("first board"), "{e}");
+    let s = w.boards_delete_in_space(&id, &net).unwrap();
+    assert_eq!(s.boards.len(), 1);
+    let grid = w.cards();
+    for card in [&a, &b] {
+        let c = grid.iter().find(|c| c.id == card.id).unwrap();
+        assert_eq!(c.tag, "wind", "no card lost: {c:?}");
+        assert_eq!(c.space_board, id);
+    }
+}
+
 /// A Rig on loopback iroh with no LAN lookup (the invite tests).
 /// Personal from the window (card #558): its boards listed, added and
 /// renamed; a card made on one shows its tag and board, numbered from 1,
