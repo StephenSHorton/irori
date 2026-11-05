@@ -382,7 +382,14 @@ impl SpawnSetting {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+/// A `spawn.set` row. Since card #492 each device has its own
+/// (docs/design/work-personal-separation.md §7.4): a row counts only on
+/// the device that signed it (`Event.device_id`), and names it in
+/// `device`. A row without `device` is from before that, when the newest
+/// row from any device served every device; a device with no per-device
+/// row yet takes that newest row once and writes it as its own, so the
+/// upgrade changes nothing.
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SpawnSetRow {
     #[serde(flatten)]
@@ -391,6 +398,10 @@ struct SpawnSetRow {
     by: String,
     #[serde(default)]
     at: GoTime,
+    /// The device this row is for (the one that signed it); `""` in a row
+    /// from before card #492.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    device: String,
 }
 
 /// An `agent.offer` row (card #453): the person's "Offer it cards" on one
@@ -747,9 +758,14 @@ impl SpawnState {
     }
 }
 
-/// Reads every `spawn.set` and `spawn.cap` row the person wrote.
+/// Reads every `spawn.set`, `spawn.cap` and `agent.offer` row the person
+/// wrote, as this device counts them (card #492): a board's setting from
+/// this device's own `spawn.set` rows only, and an agent's "Offer it
+/// cards" only from rows its own device signed. A board this device has
+/// no per-device row for yet (the upgrade) takes the newest row from any
+/// device, the one an older build ran on, and keeps it as its own.
 pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
-    let f = Filter {
+    let mut f = Filter {
         kinds: vec![
             kinds::SPAWN_SET.into(),
             kinds::SPAWN_CAP.into(),
@@ -758,9 +774,29 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
         limit: store::MAX_LIST_LIMIT,
         ..Filter::default()
     };
+    let me = st.device_id().to_string();
     let _rows = s.rows.lock().unwrap_or_else(|e| e.into_inner());
-    let Ok(evs) = st.list(&f) else { return };
-    let mut on = HashMap::new();
+    // Every row, page by page: a seed past the first page must be seen, or
+    // it would be written again on every load.
+    let mut evs = Vec::new();
+    loop {
+        let Ok(page) = st.list(&f) else { return };
+        let full = page.len() as i64 >= f.limit;
+        if let Some(last) = page.last() {
+            f.after = last.cursor();
+        }
+        evs.extend(page);
+        if !full {
+            break;
+        }
+    }
+    // Rows come oldest first, so a later one replaces an earlier one.
+    // own: this device's newest row per board; newest: the newest row per
+    // board from any device, what an older build runs on.
+    let mut own: HashMap<String, SpawnSetRow> = HashMap::new();
+    let mut newest: HashMap<String, SpawnSetRow> = HashMap::new();
+    // The boards this device has written a per-device row for.
+    let mut upgraded = std::collections::HashSet::new();
     let mut caps = HashMap::new();
     let mut offers = HashMap::new();
     for ev in evs {
@@ -768,8 +804,10 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
             continue;
         }
         if ev.kind == kinds::AGENT_OFFER {
+            // Only the agent's own device says whether it is offered cards.
             if let Ok(r) = serde_json::from_slice::<AgentOffer>(&ev.payload)
                 && !r.key.is_empty()
+                && irori_identity::owner::device_of(&r.key) == ev.device_id
             {
                 offers.insert(r.key, r.on);
             }
@@ -779,13 +817,47 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
                     r.s.model.clear();
                     r.s.effort.clear();
                 }
-                on.insert(r.s.board_id.clone(), r.s);
+                let board = r.s.board_id.clone();
+                newest.insert(board.clone(), r.clone());
+                // Another device's row is its setting, not ours, once this
+                // device has one of its own.
+                if ev.device_id == me {
+                    if !r.device.is_empty() {
+                        upgraded.insert(board.clone());
+                    }
+                    own.insert(board, r);
+                }
             }
         } else if let Ok(r) = serde_json::from_slice::<SpawnCap>(&ev.payload)
             && !r.device.is_empty()
         {
             caps.insert(r.device, r.cap);
         }
+    }
+    let mut on: HashMap<String, SpawnSetting> = own
+        .into_iter()
+        .filter(|(board, _)| upgraded.contains(board))
+        .map(|(board, r)| (board, r.s))
+        .collect();
+    // A board this device has no per-device row for ran on the newest row
+    // from any device before card #492 (an older build reads them all):
+    // keep that, written as this device's own. A refused append is tried
+    // again on the next load; the setting holds meanwhile.
+    for (board, r) in newest {
+        if upgraded.contains(&board) {
+            continue;
+        }
+        let seed = SpawnSetRow {
+            by: format!("user:{me}"),
+            device: me.clone(),
+            ..r.clone()
+        };
+        if let Err(e) = st.append("user", kinds::SPAWN_SET, &seed) {
+            logf(format_args!(
+                "spawn: keep board {board:?}'s setting as this device's: {e}"
+            ));
+        }
+        on.insert(board, r.s);
     }
     *s.on.write().unwrap_or_else(|e| e.into_inner()) = on;
     *s.caps.write().unwrap_or_else(|e| e.into_inner()) = caps;
@@ -818,6 +890,7 @@ impl Services {
             s: s.clone(),
             by: format!("user:{}", self.device.id),
             at: (self.now)(),
+            device: self.device.id.clone(),
         };
         let rows = self.spawn.rows.lock().unwrap_or_else(|e| e.into_inner());
         self.store
@@ -921,6 +994,13 @@ impl Services {
             return Err(
                 "spawn: Irori started this agent for its card; it is never offered other cards"
                     .into(),
+            );
+        }
+        // Card #492: each device decides for its own agents, so a personal
+        // device can't offer a work agent cards, nor the other way round.
+        if irori_identity::owner::device_of(key) != self.device.id {
+            return Err(
+                "spawn: this agent runs on another device; set Offer it cards there".into(),
             );
         }
         let row = AgentOffer {
