@@ -151,7 +151,10 @@ fn a_thread_nobody_takes_gets_a_background_agent_that_answers_it() {
     let reqs = fake.started.lock().unwrap().clone();
     assert_eq!(reqs.len(), 1, "one spawn: {reqs:?}");
     let req = &reqs[0];
-    assert!(!req.name.is_empty() && !req.name.contains('-'), "a word name (#472): {req:?}");
+    assert!(
+        !req.name.is_empty() && !req.name.contains('-'),
+        "a word name (#472): {req:?}"
+    );
     assert_eq!(
         Path::new(&req.folder).canonicalize().unwrap(),
         dir,
