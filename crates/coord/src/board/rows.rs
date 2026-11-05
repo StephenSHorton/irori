@@ -24,6 +24,9 @@ crate::go_struct! {
         /// the one that posted it: a phone, which runs no agents and sleeps,
         /// names one of the person's computers.
         pub owner: String = "owner" "omit",
+        /// A thread started from a message in this Talk channel (card
+        /// #454): its `ch_` id.
+        pub channel: String = "channel" "omit",
     }
 }
 

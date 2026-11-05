@@ -216,3 +216,115 @@ fn an_agent_with_offer_it_cards_on_takes_a_thread_first() {
     std::thread::sleep(Duration::from_millis(500));
     assert!(fake.started.lock().unwrap().is_empty(), "no agent started");
 }
+
+// Card #454 (spawned-agents.md §4, §14 part 10): a thread started from a
+// message in a Talk channel. It names its channel and the channel's repo;
+// its agent starts in that repo (not the repo of the agent here active
+// last), and its brief carries the channel's newest lines as data, the
+// idle limit, and the note to propose.
+
+/// A second repo, with a GitHub remote, that capture knows (as it would
+/// from an agent that worked there) but that no agent here works in now:
+/// so the repo of the agent here active last is another one.
+fn known_repo(r: &Rig, name: &str) -> (tempfile::TempDir, PathBuf, String) {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().canonicalize().unwrap();
+    git(&dir, &["init", "-q"]);
+    git(&dir, &["commit", "-q", "--allow-empty", "-m", "first"]);
+    let repo_key = format!("remote:github.com/t/{name}");
+    r.core
+        .capture()
+        .emit_row(
+            "irori",
+            capture::KIND_REPO_SEEN,
+            &capture::RepoSeen {
+                repo_key: repo_key.clone(),
+                root: dir.to_string_lossy().into_owned(),
+                at: gocompat::time::GoTime::unix(1_790_000_000, 0),
+            },
+        )
+        .unwrap();
+    assert!(!r.core.capture().repo_roots(&repo_key).is_empty());
+    (d, dir, repo_key)
+}
+
+#[test]
+fn a_thread_from_a_repo_channel_starts_its_agent_in_that_repo_with_the_channel() {
+    let r = Rig::new();
+    let (_game, game_dir, game_key) = known_repo(&r, "game-repo");
+    let (_repo, _dir) = agent_in_repo(&r);
+    let fake = Arc::new(Fake::default());
+    let me = r.core.device_id().to_string();
+    let person = format!("user:{me}");
+    let spawned = format!("{me}/{SPAWNED_SESS}");
+    let co = r.core.coord();
+
+    // The person's Personal channel about the game repo, with a few lines.
+    let ch = r
+        .core
+        .talk_channel_create(&person, "game-repo", "the game")
+        .unwrap();
+    for (by, text) in [
+        (person.as_str(), "main is red after #212"),
+        (r.key_a.as_str(), "the save test times out on Windows"),
+    ] {
+        r.core
+            .talk()
+            .post(coord::talk::NewPost {
+                conv_id: ch.id.clone(),
+                text: text.into(),
+                by: by.into(),
+                ..coord::talk::NewPost::default()
+            })
+            .unwrap();
+    }
+
+    r.core
+        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
+    spawning_on(&r);
+    let (tk, _) = co
+        .post_ask(
+            &person,
+            coord::NewAsk {
+                text: "Why is main red?\n\n> main is red after #212\n(you, in #game-repo)".into(),
+                thread: true,
+                channel: ch.id.clone(),
+                repo_key: game_key.clone(),
+                ..coord::NewAsk::default()
+            },
+            &r.core.ask_agents(),
+        )
+        .unwrap();
+    wait_for(60, "the spawned agent took the thread", || {
+        co.get_task(&tk.id)
+            .and_then(|t| t.ask)
+            .is_some_and(|a| a.taker == spawned)
+    });
+    let reqs = fake.started.lock().unwrap().clone();
+    assert_eq!(reqs.len(), 1, "one spawn: {reqs:?}");
+    let req = &reqs[0];
+    assert_eq!(
+        Path::new(&req.folder).canonicalize().unwrap(),
+        game_dir,
+        "the channel's repo, not the repo of the agent active last"
+    );
+    let brief = std::fs::read_to_string(&req.brief_path).unwrap();
+    assert!(
+        brief.contains("The newest lines in #game-repo")
+            && brief.contains("the save test times out on Windows")
+            && brief.contains("doesn't make you one"),
+        "the channel's lines, as data: {brief}"
+    );
+    assert!(
+        brief.contains("notes_propose") && brief.contains("quiet for 30 minutes"),
+        "{brief}"
+    );
+    // Its agent isn't made a member of the channel.
+    assert!(
+        !r.core
+            .talk()
+            .members(&ch.id)
+            .iter()
+            .any(|m| m.key == spawned)
+    );
+}

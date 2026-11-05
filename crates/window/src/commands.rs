@@ -1459,6 +1459,20 @@ pub async fn talk_post(
     )
 }
 
+/// The person asks about channel `conv_id`'s post `post_id` in a new
+/// thread (card #454): it records the channel and its repo, and the
+/// channel gets a pointer to it.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_thread_from(
+    w: W<'_>,
+    conv_id: String,
+    post_id: String,
+    text: String,
+) -> R<TaskResult> {
+    w.talk_thread_from(&conv_id, &post_id, &text)
+}
+
 /// The person made card `task_id` from post `post_id` (card #390).
 #[tauri::command]
 #[specta::specta]
@@ -1669,6 +1683,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             talk_posts,
             talk_post,
             talk_link_card,
+            talk_thread_from,
             talk_read,
             talk_channel_create,
             talk_dm,

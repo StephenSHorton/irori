@@ -342,3 +342,147 @@ fn an_agent_irori_ended_is_no_crash_and_the_ask_waits_for_the_person() {
         .unwrap();
     assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&tk.id));
 }
+
+// Card #454 (spawned-agents.md §4, §14 part 10).
+
+fn spawn_bound(e: &Env, id: &str) {
+    let g = e.c.request_spawn(SWEEPER_KEY, sask(id)).unwrap().unwrap();
+    assert!(e.c.bind_spawn(id, g, SPAWNED).unwrap());
+}
+
+#[test]
+fn a_thread_keeps_the_channel_it_was_started_from() {
+    let mut e = Env::new();
+    let _r = rig(&mut e, &[]);
+    let ask = |text: &str, thread: bool, channel: &str| {
+        e.c.post_ask(
+            USER,
+            NewAsk {
+                text: text.into(),
+                thread,
+                channel: channel.into(),
+                ..NewAsk::default()
+            },
+            &[],
+        )
+        .unwrap()
+        .0
+    };
+    let t = ask("Why is main red?", true, " ch_01ABC ");
+    assert_eq!(ask_of(&e, &t.id).channel, "ch_01ABC");
+    // Not a channel id, or not a thread: nothing kept.
+    let t = ask("Why is main red?", true, "#irori");
+    assert_eq!(ask_of(&e, &t.id).channel, "");
+    let t = ask("Tidy the README", false, "ch_01ABC");
+    assert_eq!(ask_of(&e, &t.id).channel, "");
+    // It survives a reload (the fold reads it from the row).
+    let t = ask("Is CI green?", true, "ch_02DEF");
+    e.c = e.reopen_with(e.opts());
+    assert_eq!(ask_of(&e, &t.id).channel, "ch_02DEF");
+}
+
+#[test]
+fn an_ask_its_agent_makes_a_card_keeps_that_agent() {
+    let mut e = Env::new();
+    let _r = rig(&mut e, &[]);
+    let tk = post(&e, "The export button is broken", false, &[idle(BOB, 20)]);
+    spawn_bound(&e, &tk.id);
+    let t =
+        e.c.ask_close(
+            SPAWNED,
+            &tk.id,
+            AskOutcome {
+                kind: OUTCOME_CARD.into(),
+                title: "Fix the export button".into(),
+                note: "a card".into(),
+                ..AskOutcome::default()
+            },
+        )
+        .unwrap();
+    // The ask is the card, under the same id: the agent carries on as its
+    // agent, and nothing else is started for it.
+    assert_eq!(t.state, WORKING, "{t:?}");
+    assert_eq!(t.holders, [SPAWNED]);
+    assert_eq!(e.c.spawned_card(SPAWNED), Some(tk.id.clone()));
+    assert!(e.c.cards_to_spawn().is_empty());
+}
+
+#[test]
+fn a_thread_the_person_makes_a_card_after_its_answer_gets_its_own_agent() {
+    let mut e = Env::new();
+    let r = rig(&mut e, &[]);
+    let tk = post(&e, "Can the board sort by age?", true, &[idle(BOB, 20)]);
+    spawn_bound(&e, &tk.id);
+    e.c.add_comment(SPAWNED, &tk.id, "Not yet; it's a small change.", false)
+        .unwrap();
+    e.c.sweep_asks(&[idle(BOB, 20)]).unwrap();
+    let a = ask_of(&e, &tk.id);
+    assert!(a.taker.is_empty() && a.reason == TAKE_ANSWERED, "{a:?}");
+    let t =
+        e.c.ask_close(
+            USER,
+            &tk.id,
+            AskOutcome {
+                kind: OUTCOME_CARD.into(),
+                title: "Sort the board by age".into(),
+                ..AskOutcome::default()
+            },
+        )
+        .unwrap();
+    // Nobody holds it: it goes out as a new card, not stuck in working.
+    assert_eq!(t.state, SUBMITTED, "{t:?}");
+    assert!(t.holders.is_empty(), "{t:?}");
+    assert!(t.open_ask().is_none());
+    // The spawn pass sees it once its last agent's request is settled, as
+    // any card needing an agent: switch on, it is listed.
+    r.on.store(true, Ordering::SeqCst);
+    let listed = ids(&e.c.cards_to_spawn());
+    assert!(
+        listed.contains(&tk.id) || e.c.get_task(&tk.id).unwrap().spawn_pending(),
+        "{listed:?}"
+    );
+}
+
+#[test]
+fn an_ask_the_person_makes_a_card_while_its_agent_holds_it_stays_with_it() {
+    let mut e = Env::new();
+    let _r = rig(&mut e, &[]);
+    let tk = post(&e, "Rename the app", false, &[idle(BOB, 20)]);
+    spawn_bound(&e, &tk.id);
+    let t =
+        e.c.ask_close(
+            USER,
+            &tk.id,
+            AskOutcome {
+                kind: OUTCOME_CARD.into(),
+                title: "Rename the app".into(),
+                ..AskOutcome::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(t.state, WORKING, "{t:?}");
+    assert_eq!(t.holders, [SPAWNED]);
+    assert!(e.c.cards_to_spawn().is_empty());
+}
+
+#[test]
+fn a_private_thread_about_a_shared_board_spawns_too() {
+    let mut e = Env::new();
+    let _r = rig(&mut e, &[]);
+    let (tk, _) =
+        e.c.post_ask(
+            USER,
+            NewAsk {
+                text: "What's left on the launch board?".into(),
+                thread: true,
+                board: "brd_launch".into(),
+                ..NewAsk::default()
+            },
+            &[idle(BOB, 20)],
+        )
+        .unwrap();
+    let a = ask_of(&e, &tk.id);
+    assert_eq!(a.board, "brd_launch");
+    assert!(a.unclaimed, "{a:?}");
+    assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&tk.id));
+}

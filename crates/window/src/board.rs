@@ -317,6 +317,7 @@ impl Window {
                     thread: false,
                     quiet: false,
                     board: String::new(),
+                    channel: String::new(),
                 },
                 &agents,
             )

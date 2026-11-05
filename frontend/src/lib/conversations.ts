@@ -15,6 +15,7 @@ import {
 } from "./models"
 import { inWails } from "./irori"
 import { useLatest } from "./talk"
+import { threads } from "./cards"
 
 export type Conversation = TalkConversation
 export type Post = TalkPost
@@ -119,6 +120,23 @@ export const talkApi = {
     inWails()
       ? TalkService.Post(convId, text, mentions, agentsNow, threadFrom)
       : Promise.resolve(samplePost(convId, text, agentsNow, threadFrom)),
+  // threadFrom asks about channel convId's post postId in a new thread
+  // whose ask is text (design b2): the thread records the channel, and in
+  // a channel named after a repo it starts there (#454); the channel gets
+  // a one-line pointer to it.
+  threadFrom: async (
+    convId: string,
+    postId: string,
+    text: string
+  ): Promise<void> => {
+    if (inWails()) {
+      await TalkService.ThreadFrom(convId, postId, text)
+      return
+    }
+    const res = await threads.start(text)
+    const ref = res.task.short ? `#${res.task.short}` : res.task.id
+    samplePost(convId, ref, false, postId)
+  },
   // linkCard marks the card made from a post (Make a card): its chip.
   linkCard: (postId: string, taskId: string): Promise<void> =>
     inWails()

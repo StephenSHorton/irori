@@ -257,6 +257,11 @@ impl Fold {
             } else {
                 a.board.clone()
             },
+            channel: if self.on_board || !a.thread {
+                String::new()
+            } else {
+                clean_channel(&a.channel)
+            },
             ..Ask::default()
         });
     }
@@ -830,6 +835,11 @@ impl Fold {
                         input.board.trim().to_string()
                     },
                     owner: if delegated { owner } else { String::new() },
+                    channel: if self.on_board || !input.thread {
+                        String::new()
+                    } else {
+                        clean_channel(&input.channel)
+                    },
                 }),
                 by: by.clone(),
                 at,
@@ -1726,12 +1736,17 @@ impl Fold {
                     )?;
                 }
                 let taker = a.taker.clone();
+                // Nobody holds it (the person made an answered thread, or an
+                // ask nobody took, into a card; card #454): it goes out as a
+                // new card, so it gets its own agent instead of sitting in
+                // working with no one on it.
+                let held = !taker.is_empty() && !self.is_owner(&taker);
                 self.write(
                     &by,
                     kinds::TASK_STATUS,
                     &TaskStateRow {
                         task_id: id.into(),
-                        state: WORKING.into(),
+                        state: if held { WORKING } else { SUBMITTED }.into(),
                         note: note.clone(),
                         by: by.clone(),
                         at: now,
@@ -1983,5 +1998,15 @@ fn set_or_cleared(field: &str, to: &str) -> String {
         format!("cleared {field}")
     } else {
         format!("set {field} to “{}”", cut(to, MAX_LOG_QUOTE))
+    }
+}
+
+/// A thread's Talk channel (card #454): a `ch_` id, else nothing.
+fn clean_channel(c: &str) -> String {
+    let c = c.trim();
+    if crate::talk::is_channel(c) && c.len() <= 64 && !c.contains(char::is_whitespace) {
+        c.to_string()
+    } else {
+        String::new()
     }
 }

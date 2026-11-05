@@ -1063,3 +1063,63 @@ fn a_late_not_done_stays_on_the_checks_thread() {
     assert_eq!(sb.id, check);
     assert!(!sb.answered);
 }
+
+/// Card #454: "Start a thread" on a channel message. The thread records
+/// the channel, and in a channel named after a repo with a checkout here
+/// it is that repo's thread (so the agent Irori starts for it starts
+/// there); the channel gets the one-line pointer. Two repos of that name,
+/// or none, name no repo.
+#[test]
+fn a_thread_from_a_repo_channel_names_its_channel_and_repo() {
+    let r = Rig::new();
+    let w = &r.w;
+    let d = tempfile::tempdir().unwrap();
+    let seen = |key: &str, root: &std::path::Path| {
+        w.core
+            .capture()
+            .emit_row(
+                "irori",
+                capture::KIND_REPO_SEEN,
+                &capture::RepoSeen {
+                    repo_key: key.into(),
+                    root: root.to_string_lossy().into_owned(),
+                    at: gocompat::time::GoTime::unix(1_790_000_000, 0),
+                },
+            )
+            .unwrap();
+    };
+    let game = d.path().join("game-repo");
+    std::fs::create_dir_all(&game).unwrap();
+    seen("remote:github.com/t/game-repo", &game);
+    let ch = w.talk_channel_create("Game-Repo", None, None).unwrap();
+    let p = w
+        .talk_post(&ch, "main is red after #212", &[], true, None)
+        .unwrap();
+    assert_eq!(w.channel_repo(&ch), "remote:github.com/t/game-repo");
+    let other = w.talk_channel_create("general", None, None).unwrap();
+    assert_eq!(w.channel_repo(&other), "");
+    assert_eq!(w.channel_repo(""), "");
+
+    let res = w.talk_thread_from(&ch, &p, "Why is main red?").unwrap();
+    let t = w.core.coord().get_task(&res.task.id).unwrap();
+    let a = t.ask.clone().unwrap();
+    assert!(a.thread, "{a:?}");
+    assert_eq!(a.channel, ch);
+    assert_eq!(a.repo_key, "remote:github.com/t/game-repo");
+    assert_eq!(t.repo_key, "remote:github.com/t/game-repo");
+    let posts = w.talk_posts(&ch, None, 0).unwrap();
+    assert_eq!(posts.len(), 2);
+    assert_eq!(posts[1].text, format!("#{}", t.short));
+    assert_eq!(posts[1].thread_from.as_deref(), Some(p.as_str()));
+    assert!(w.talk_thread_from(&ch, "post_nope", "Why?").is_err());
+    assert!(w.talk_thread_from(&t.id, &p, "Why?").is_err());
+
+    // A second repo by that name: no repo, the thread still starts.
+    let fork = d.path().join("fork");
+    std::fs::create_dir_all(&fork).unwrap();
+    seen("remote:github.com/someone/game-repo", &fork);
+    assert_eq!(w.channel_repo(&ch), "");
+    let res = w.talk_thread_from(&ch, &p, "And now?").unwrap();
+    let a = w.core.coord().get_task(&res.task.id).unwrap().ask.unwrap();
+    assert_eq!((a.channel.as_str(), a.repo_key.as_str()), (ch.as_str(), ""));
+}
