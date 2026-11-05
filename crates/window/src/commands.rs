@@ -699,6 +699,13 @@ pub async fn board_threads(w: W<'_>, board_id: String) -> R<Vec<crate::threads::
     Ok(w.threads(&board_id))
 }
 
+/// Every thread on this device, each with its space (card #558).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_threads_all(w: W<'_>) -> R<Vec<crate::threads::ThreadSummary>> {
+    blocking(&w, move |w| Ok(w.threads_all())).await
+}
+
 /// Resolve on a thread: the person is done with it.
 #[tauri::command]
 #[specta::specta]
@@ -1606,6 +1613,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_start_thread,
             board_start_thread_with_files,
             board_threads,
+            board_threads_all,
             board_card_ref,
             board_resolve_thread,
             board_reopen_thread,

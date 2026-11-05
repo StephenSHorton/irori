@@ -1010,6 +1010,54 @@ fn a_private_thread_from_a_space_channel_leaves_no_pointer() {
     assert!(listed.iter().any(|x| x.id == res.task.id && x.private));
 }
 
+/// Card #558: All spaces lists every thread: your own, a space's, and your
+/// private one about a space, each with its space. A space's resolved
+/// threads aren't crowded out by another log's. Leaving a space keeps your
+/// private threads about it, in Personal, and its shared ones go.
+#[test]
+fn every_thread_lists_with_its_space() {
+    let r = Rig::new();
+    let w = &r.w;
+    let b = w.boards_create("MLG", "mlg").unwrap();
+    let mine = w.start_thread("Just me", &[], &[], "").unwrap().task.id;
+    let shared = w.start_thread("All of us", &[], &[], &b.board_id).unwrap();
+    let shared = shared.task.id;
+    w.boards_set_threads(&b.board_id, "private").unwrap();
+    let about = w.start_thread("Quietly", &[], &[], &b.board_id).unwrap();
+    let about = about.task.id;
+
+    let all = w.threads_all();
+    let got = |id: &str| all.iter().find(|t| t.id == id).expect("listed");
+    assert_eq!(all.len(), 3, "{all:?}");
+    assert!(got(&mine).space_id.is_empty() && !got(&mine).private);
+    assert!(got(&shared).space_id == b.board_id && !got(&shared).private);
+    assert!(got(&about).space_id == b.board_id && got(&about).private);
+    assert!(
+        w.threads(&b.board_id)
+            .iter()
+            .all(|t| t.space_id == b.board_id)
+    );
+
+    // Open first, and each log keeps its own newest resolved ones.
+    for i in 0..21 {
+        let t = w.start_thread(&format!("Old {i}"), &[], &[], "").unwrap();
+        w.resolve_thread(&t.task.id).unwrap();
+    }
+    w.resolve_thread(&shared).unwrap();
+    let all = w.threads_all();
+    assert!(all.iter().any(|t| t.id == shared), "not crowded out");
+    let first_done = all.iter().position(|t| t.state == "resolved").unwrap();
+    assert!(all[first_done..].iter().all(|t| t.state == "resolved"));
+    assert_eq!(all.iter().filter(|t| t.state == "resolved").count(), 21);
+
+    w.boards_leave(&b.board_id).unwrap();
+    let all = w.threads_all();
+    assert!(all.iter().all(|t| t.id != shared), "gone with the space");
+    let kept = all.iter().find(|t| t.id == about).expect("still yours");
+    assert!(kept.private && kept.space_id.is_empty(), "{kept:?}");
+    assert!(w.threads(&b.board_id).iter().any(|t| t.id == about));
+}
+
 /// Card #135: a board pins to the sidebar in the person's own log, and
 /// unpins; a board that isn't here is refused; card pins are untouched.
 #[test]
