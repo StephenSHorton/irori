@@ -205,9 +205,13 @@ fn gh_failing_on_an_open_pr_keeps_it_open_and_says_why() {
         err.to_string().contains("gh is not installed") && err.to_string().contains(PR),
         "{err}"
     );
-    let shown = search::Source::search_show(&e.c, &format!("task:{}", t.id), &search::ShowOptions::default())
-        .unwrap()
-        .text;
+    let shown = search::Source::search_show(
+        &e.c,
+        &format!("task:{}", t.id),
+        &search::ShowOptions::default(),
+    )
+    .unwrap()
+    .text;
     assert!(
         shown.contains("GitHub: open, approved; not asked since: gh is not installed"),
         "{shown}"

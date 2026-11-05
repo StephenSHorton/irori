@@ -3714,9 +3714,17 @@ impl Services {
             .pr_watch
             .due(&coords, &local, &|k| self.private_key(k), now);
         for d in due {
+            let state = |co: &coord::Coord| co.pr_state(&d.task_id, &d.url).map(|p| p.state);
+            let before = state(&d.co);
             let c = checker.check(&d.url);
-            self.pr_watch
+            let again = self
+                .pr_watch
                 .answered(&d.task_id, &d.url, c.error.is_empty());
+            // Said already, or overtaken while gh answered (card #548): an
+            // OPEN from before a closing that just folded is no reopen.
+            if again || state(&d.co) != before {
+                continue;
+            }
             match d.co.record_pr_state(&d.task_id, c) {
                 Ok((_, ns)) => {
                     for n in ns {

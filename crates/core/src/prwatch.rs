@@ -155,7 +155,7 @@ pub(crate) struct PrWatch {
     asked: Mutex<HashMap<String, Instant>>,
     /// The PRs gh last failed on here, by the same key. Another device's
     /// good row clears the error in the fold, but this gh is still broken
-    /// (card #548): it mustn't write the error back every [`OPEN_EVERY`].
+    /// (card #548): it asks every [`ERROR_EVERY`] and doesn't write it back.
     failed: Mutex<HashSet<String>>,
 }
 
@@ -171,13 +171,15 @@ fn pr_key(task_id: &str, url: &str) -> String {
 }
 
 impl PrWatch {
-    /// Notes how asking about `url` went on this device.
-    pub(crate) fn answered(&self, task_id: &str, url: &str, ok: bool) {
+    /// Notes how asking about `url` went on this device. True when it
+    /// failed here again: said once, whatever another device wrote since.
+    pub(crate) fn answered(&self, task_id: &str, url: &str, ok: bool) -> bool {
         let mut failed = self.failed.lock().unwrap_or_else(|e| e.into_inner());
         if ok {
             failed.remove(&pr_key(task_id, url));
+            false
         } else {
-            failed.insert(pr_key(task_id, url));
+            !failed.insert(pr_key(task_id, url))
         }
     }
 
@@ -235,7 +237,9 @@ impl PrWatch {
                     let key = pr_key(&t.id, &url);
                     let every = if k.is_some_and(|p| p.state == PR_CLOSED) {
                         CLOSED_EVERY
-                    } else if failed.contains(&key) || k.is_some_and(|p| !p.error.is_empty()) {
+                    } else if failed.contains(&key)
+                        || k.is_some_and(|p| p.state.is_empty() && !p.error.is_empty())
+                    {
                         ERROR_EVERY
                     } else {
                         OPEN_EVERY

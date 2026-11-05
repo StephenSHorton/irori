@@ -19,8 +19,9 @@
 //! error never replaces a known state, in the fold or at the writer. A
 //! device with no gh doesn't ask at all, but older phones still write
 //! these rows, in any order against the rows that know better. When gh
-//! fails on a PR known to be open, the row keeps OPEN and carries the
-//! error beside it (card #548): the card shows it and the poller slows.
+//! fails on a PR known to be open, the error shows beside OPEN (card
+//! #548), and the row still says nothing about the PR: it can't undo a
+//! closing it hadn't heard of.
 //!
 //! An agent's completed is refused while a PR its card links is known to
 //! be open ([`Fold::open_pr_refusal`]), and the refusal says when GitHub
@@ -77,16 +78,75 @@ pub struct PrState {
     pub error: String,
     /// When it was heard.
     pub at: GoTime,
-    /// The devices that wrote what this row says, whatever their times
-    /// (card #548): each told its own person's agents as it wrote.
+    /// When `error` was written, beside a known state (card #548).
     #[serde(skip)]
-    pub writers: Vec<String>,
-    /// When GitHub first said it: the earliest row saying the same.
+    pub error_at: GoTime,
+    /// Everything GitHub was heard to say of it, oldest first, whatever
+    /// order the rows came in (card #548): [`PrState::news`] reads it.
     #[serde(skip)]
-    pub since: GoTime,
-    /// The state before this one, to hear a reopen by.
-    #[serde(skip)]
-    pub was: String,
+    pub heard: Vec<PrHeard>,
+}
+
+/// One thing GitHub was heard to say about a PR, and on which device.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PrHeard {
+    at: GoTime,
+    device: String,
+    state: String,
+    review: String,
+}
+
+impl PrState {
+    fn note_heard(&mut self, h: PrHeard) {
+        if !self.heard.contains(&h) {
+            self.heard.push(h);
+            self.heard.sort_by(|a, b| {
+                crate::gotime::cmp(&a.at, &b.at).then_with(|| a.device.cmp(&b.device))
+            });
+        }
+    }
+
+    /// What the holders should have heard of this PR by now: the change,
+    /// a name for it and the devices that heard it. Read from the sorted
+    /// rows, so it comes out the same in any arrival order and after a
+    /// replay. Rows in a run that say the same are one piece of news,
+    /// numbered by its run: a row that comes late to a run changes nothing.
+    fn news(&self) -> Option<(PrChange, String, Vec<String>)> {
+        let devices = |rows: &mut dyn Iterator<Item = &PrHeard>| {
+            let mut v: Vec<String> = rows.map(|h| h.device.clone()).collect();
+            v.sort();
+            v.dedup();
+            v
+        };
+        let merged = devices(&mut self.heard.iter().filter(|h| h.state == PR_MERGED));
+        if !merged.is_empty() {
+            return Some((PrChange::Merged, PR_MERGED.into(), merged));
+        }
+        // A review means nothing once a PR is closed.
+        let says = |h: &PrHeard| {
+            let review = if h.state == PR_OPEN { &h.review } else { "" };
+            (h.state.clone(), review.to_string())
+        };
+        let runs: Vec<&[PrHeard]> = self.heard.chunk_by(|a, b| says(a) == says(b)).collect();
+        let now = *runs.last()?;
+        let was = runs.len().checked_sub(2).and_then(|i| runs[i].last());
+        let (state, review) = says(&now[0]);
+        let change = if state == PR_CLOSED {
+            PrChange::Closed
+        } else if state != PR_OPEN {
+            return None;
+        } else if review == PR_CHANGES_REQUESTED
+            && !was.is_some_and(|w| w.review == PR_CHANGES_REQUESTED)
+        {
+            PrChange::ChangesRequested
+        } else if was.is_some_and(|w| w.state == PR_CLOSED) {
+            PrChange::Reopened
+        } else {
+            return None;
+        };
+        let name = format!("{state}/{review}#{}", runs.len());
+        Some((change, name, devices(&mut now.iter())))
+    }
 }
 
 /// What the poller heard about one PR.
@@ -138,12 +198,6 @@ fn certainty(state: &str) -> u8 {
     }
 }
 
-/// Whether a row tells a PR's holders what `old` told them. A review can
-/// still change after a merge, and that says nothing new.
-fn same_news(state: &str, review: &str, old: &PrState) -> bool {
-    state == old.state && (state == PR_MERGED || review == old.review)
-}
-
 impl Fold {
     pub(crate) fn fold_pr_state(&mut self, ev: &Event) {
         let Some(p) = row::<PrStateRow>(&ev.payload) else {
@@ -153,18 +207,33 @@ impl Fold {
             return;
         }
         let by_pr = self.pr_states.entry(p.task_id.clone()).or_default();
-        // An error is nothing GitHub said, so it counts as nobody's word.
-        let heard = p.error.is_empty() && !p.state.is_empty();
-        let (mut writers, mut since, mut was) = (Vec::new(), p.at, String::new());
+        // An error is nothing GitHub said.
+        let heard = (p.error.is_empty() && !p.state.is_empty()).then(|| PrHeard {
+            at: p.at,
+            device: ev.device_id.clone(),
+            state: p.state.clone(),
+            review: p.review.clone(),
+        });
+        let mut next = PrState::default();
         if let Some(old) = by_pr.get_mut(&p.pr) {
-            let same = same_news(&p.state, &p.review, old);
-            if same {
-                if heard && !old.writers.contains(&ev.device_id) {
-                    old.writers.push(ev.device_id.clone());
+            if let Some(h) = heard.clone() {
+                old.note_heard(h);
+            } else if old.state == PR_OPEN {
+                // Card #548: gh failing on a PR known open shows beside it,
+                // unless GitHub has been heard since.
+                if crate::gotime::before(&p.at, &old.at)
+                    || crate::gotime::before(&p.at, &old.error_at)
+                {
+                    return;
                 }
-                if crate::gotime::before(&p.at, &old.since) {
-                    old.since = p.at;
-                }
+                old.error = p.error;
+                old.error_at = p.at;
+                self.note(Change {
+                    kind: TASK_CHANGED.into(),
+                    task_id: p.task_id,
+                    ..Change::default()
+                });
+                return;
             }
             // Card #542: the stronger row wins whatever their times, so every
             // device ends on the same one in whatever order they arrive.
@@ -172,14 +241,17 @@ impl Fold {
             if new < known || new == known && crate::gotime::before(&p.at, &old.at) {
                 return;
             }
-            if same {
-                (writers, since, was) = (old.writers.clone(), old.since, old.was.clone());
-            } else {
-                was = old.state.clone();
+            next.heard = std::mem::take(&mut old.heard);
+            // A good row older than the error doesn't answer it.
+            if p.state == PR_OPEN
+                && old.state == PR_OPEN
+                && crate::gotime::before(&p.at, &old.error_at)
+            {
+                next.error_at = old.error_at;
+                next.error = old.error.clone();
             }
-        }
-        if heard && !writers.contains(&ev.device_id) {
-            writers.push(ev.device_id.clone());
+        } else if let Some(h) = heard {
+            next.note_heard(h);
         }
         by_pr.insert(
             p.pr.clone(),
@@ -188,11 +260,14 @@ impl Fold {
                 state: p.state,
                 review: p.review,
                 merged_at: p.merged_at,
-                error: p.error,
+                error: if next.error.is_empty() {
+                    p.error
+                } else {
+                    next.error
+                },
                 at: p.at,
-                writers,
-                since,
-                was,
+                error_at: next.error_at,
+                heard: next.heard,
             },
         );
         // A phone hears a merge only through this row: Needs you must redraw.
@@ -304,7 +379,7 @@ impl Fold {
     /// on what changed (module doc). Nothing is written when nothing
     /// changed, when GitHub still can't be asked (that is said once), or
     /// when it can't be asked about a PR known merged or closed. Failing
-    /// on a PR known open, the row keeps OPEN and adds the error.
+    /// on a PR known open is said once, beside OPEN.
     /// Returns the card and the notices to route.
     pub(crate) fn record_pr_state(&mut self, id: &str, c: PrCheck) -> Result<(Task, Vec<Notice>)> {
         let Some(t) = self.tasks.get(id).cloned() else {
@@ -332,18 +407,9 @@ impl Fold {
             .and_then(|m| m.get(&c.pr))
             .cloned()
             .unwrap_or_default();
-        // Card #548: gh failing on a PR known open keeps what it last said.
-        let c = if !c.error.is_empty() && old.state == PR_OPEN {
-            PrCheck {
-                state: old.state.clone(),
-                review: old.review.clone(),
-                ..c
-            }
-        } else {
-            c
-        };
         // What the fold wouldn't take isn't written: it would only repeat.
-        let unchanged = certainty(&c.state) < certainty(&old.state)
+        let beside_open = !c.error.is_empty() && old.state == PR_OPEN;
+        let unchanged = !beside_open && certainty(&c.state) < certainty(&old.state)
             || if c.error.is_empty() {
                 old.error.is_empty()
                     && old.state == c.state
@@ -377,7 +443,7 @@ impl Fold {
             .pr_states
             .get(id)
             .and_then(|m| m.get(&c.pr))
-            .is_some_and(|p| p.at == at);
+            .is_some_and(|p| p.at == at || p.error_at == at);
         if !took {
             return Err(invalid(format!(
                 "{}: the pr.state row for {} wasn't taken here",
@@ -490,37 +556,32 @@ impl Fold {
         self.retry_pr_ahead(None);
         let mut out = Vec::new();
         for (id, by_pr) in &self.pr_states {
-            let Some(t) = self.tasks.get(id).filter(|t| !is_terminal(&t.state)) else {
+            // A card waiting on the person's Done is past hearing it.
+            let Some(t) = self.tasks.get(id).filter(|t| {
+                !is_terminal(&t.state) && !t.blockers.iter().any(|b| b.open() && b.done_check)
+            }) else {
                 continue;
             };
             for (pr, p) in by_pr {
-                let change = match (p.state.as_str(), p.review.as_str()) {
-                    (PR_MERGED, _) => PrChange::Merged,
-                    (PR_CLOSED, _) => PrChange::Closed,
-                    (PR_OPEN, PR_CHANGES_REQUESTED) => PrChange::ChangesRequested,
-                    (PR_OPEN, _) if p.was == PR_CLOSED => PrChange::Reopened,
-                    _ => continue,
+                // A PR the card let go of is nobody's news.
+                let on_card = t
+                    .links
+                    .iter()
+                    .any(|l| l.reference == *pr && pr_link(l).is_some())
+                    || t.blockers
+                        .iter()
+                        .any(|b| b.merge_wait().is_some_and(|w| w == *pr));
+                let Some((change, name, writers)) = p.news().filter(|_| on_card) else {
+                    continue;
                 };
                 let notice = self.change_notice(t, pr, change);
-                if notice.to.is_empty() || p.writers.is_empty() {
-                    continue;
+                if !notice.to.is_empty() {
+                    out.push(PrNews {
+                        mark: format!("pr:{id}/{pr}/{name}"),
+                        writers,
+                        notice,
+                    });
                 }
-                // A merge is final; the others can come round again.
-                let mark = if change == PrChange::Merged {
-                    format!("pr:{id}/{pr}/{PR_MERGED}")
-                } else {
-                    format!(
-                        "pr:{id}/{pr}/{}/{}@{}",
-                        p.state,
-                        p.review,
-                        p.since.unix_nano()
-                    )
-                };
-                out.push(PrNews {
-                    mark,
-                    writers: p.writers.clone(),
-                    notice,
-                });
             }
         }
         out
@@ -528,9 +589,10 @@ impl Fold {
 
     /// Keeps a pr.state row a board refused (card #548): its holder's or
     /// wait's row may be on its way from another device, and nothing
-    /// writes a settled PR's row again. The newest per PR and device.
+    /// writes a settled PR's row again. The newest per PR and device. Not
+    /// this device's own: the holder left, and its next poll writes again.
     pub(crate) fn hold_pr_row(&mut self, ev: &Event) {
-        if !self.on_board || ev.kind != kinds::PR_STATE {
+        if !self.on_board || ev.kind != kinds::PR_STATE || ev.device_id == self.dev {
             return;
         }
         let Some(p) = row::<PrStateRow>(&ev.payload) else {
@@ -553,8 +615,8 @@ impl Fold {
             return;
         }
         for ev in std::mem::take(&mut self.pr_ahead) {
-            let named = id
-                .is_none_or(|id| row::<PrStateRow>(&ev.payload).is_some_and(|r| r.task_id == id));
+            let named =
+                id.is_none_or(|id| row::<PrStateRow>(&ev.payload).is_some_and(|r| r.task_id == id));
             if named && self.sweeper_ok(&ev) {
                 self.fold(&ev);
             } else {

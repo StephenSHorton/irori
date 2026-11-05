@@ -1194,13 +1194,13 @@ fn a_pr_row_ahead_of_its_holder_folds_when_the_holder_does() {
     .unwrap();
 
     // dev-b2's row first: `far` knows the card, not that p2's agent holds it.
-    let ahead: Vec<_> =
-        b2.st
-            .missing(&far.st.vector().unwrap(), 1000)
-            .unwrap()
-            .into_iter()
-            .filter(|r| r.device_id == "dev-b2")
-            .collect();
+    let ahead: Vec<_> = b2
+        .st
+        .missing(&far.st.vector().unwrap(), 1000)
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.device_id == "dev-b2")
+        .collect();
     assert!(ahead.iter().any(|r| r.kind == kinds::PR_STATE));
     let (_, r) = far.st.insert_batch(&ahead);
     r.unwrap();
@@ -1246,13 +1246,13 @@ fn a_pr_row_ahead_of_its_wait_folds_when_the_wait_does() {
     };
     b2.c.record_pr_state(&t.id, merged.clone()).unwrap();
 
-    let ahead: Vec<_> =
-        b2.st
-            .missing(&a.st.vector().unwrap(), 1000)
-            .unwrap()
-            .into_iter()
-            .filter(|r| r.device_id == "dev-b2")
-            .collect();
+    let ahead: Vec<_> = b2
+        .st
+        .missing(&a.st.vector().unwrap(), 1000)
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.device_id == "dev-b2")
+        .collect();
     let (_, r) = a.st.insert_batch(&ahead);
     r.unwrap();
     a.c.fold_live(&ahead);
@@ -1375,6 +1375,149 @@ fn pr_news_tells_each_closing_and_a_reopen_apart() {
 
     let second = step(PR_CLOSED);
     assert_ne!(first[0].mark, second[0].mark);
+}
+
+/// Card #548, from the review: a device that couldn't sync or reach GitHub
+/// fails on a PR it still thinks open, after another device heard it
+/// closed. Its later error row must not undo the closing on any device.
+#[test]
+fn a_stale_error_row_never_undoes_a_closing() {
+    const PR: &str = "https://github.com/a/b/pull/7";
+    let (a, b, owners) = two_people();
+    let b2 = side_with("dev-b2", P2, &owners, false);
+    pull(&a, &b2);
+    pull(&b, &b2);
+    let t = a.c.create_task(P1, nt("ship it", "")).unwrap();
+    sync(&a, &b);
+    b.c.claim_task(CARD2, &t.id).unwrap();
+    b.c.add_link(CARD2, &t.id, PR).unwrap();
+    let heard = |state: &str| PrCheck {
+        pr: PR.into(),
+        state: state.into(),
+        ..PrCheck::default()
+    };
+    b.clk.add(Duration::from_secs(60));
+    b.c.record_pr_state(&t.id, heard(PR_OPEN)).unwrap();
+    pull(&a, &b2);
+    pull(&b, &b2);
+
+    b.clk.add(Duration::from_secs(60));
+    b.c.record_pr_state(&t.id, heard(PR_CLOSED)).unwrap();
+    b2.clk.add(Duration::from_secs(300));
+    b2.c.record_pr_state(
+        &t.id,
+        PrCheck {
+            pr: PR.into(),
+            error: "gh: no network".into(),
+            ..PrCheck::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(b2.c.pr_state(&t.id, PR).unwrap().error, "gh: no network");
+
+    sync(&b, &b2);
+    pull(&b2, &a);
+    pull(&b, &a);
+    for s in [&a, &b, &b2] {
+        let st = s.c.pr_state(&t.id, PR).unwrap();
+        assert_eq!(st.state, PR_CLOSED);
+        assert!(st.error.is_empty(), "{st:?}");
+    }
+    let news = a.c.pr_news();
+    assert_eq!(news.len(), 1);
+    assert_eq!(news[0].writers, vec!["dev-b"], "an error is nobody's word");
+}
+
+/// Card #548, from the review: a row that comes late to a run of the same
+/// news moves nothing, so a tick between the two doesn't tell it twice,
+/// and a device folding the same rows the other way round agrees.
+#[test]
+fn a_late_row_of_the_same_news_keeps_its_mark() {
+    const PR: &str = "https://github.com/a/b/pull/7";
+    let (a, b, owners) = two_people();
+    let b2 = side_with("dev-b2", P2, &owners, false);
+    let a2 = side_with("dev-a2", P1, &owners, false);
+    for s in [&b2, &a2] {
+        pull(&a, s);
+        pull(&b, s);
+    }
+    let t = a.c.create_task(P1, nt("ship it", "")).unwrap();
+    pull(&a, &b);
+    b.c.claim_task(CARD2, &t.id).unwrap();
+    b.c.add_link(CARD2, &t.id, PR).unwrap();
+    for s in [&a, &b2, &a2] {
+        pull(&a, s);
+        pull(&b, s);
+    }
+    let closed = PrCheck {
+        pr: PR.into(),
+        state: PR_CLOSED.into(),
+        ..PrCheck::default()
+    };
+    b.clk.add(Duration::from_secs(60));
+    b2.clk.add(Duration::from_secs(90));
+    b.c.record_pr_state(&t.id, closed.clone()).unwrap();
+    b2.c.record_pr_state(&t.id, closed).unwrap();
+
+    // The later row first: the tick sees it, then the earlier one lands.
+    pull(&b2, &a);
+    let first = a.c.pr_news();
+    pull(&b, &a);
+    let after = a.c.pr_news();
+    pull(&b, &a2);
+    pull(&b2, &a2);
+    let other = a2.c.pr_news();
+    assert_eq!(first[0].mark, after[0].mark);
+    assert_eq!(first[0].mark, other[0].mark);
+    assert_eq!(after[0].writers, vec!["dev-b", "dev-b2"]);
+}
+
+/// Card #548, from the review: a closed PR's review changing says nothing
+/// new, a PR reopened with its old review is a reopen, not a new request,
+/// and a PR the card let go of, or a card waiting on Done, is nobody's news.
+#[test]
+fn pr_news_skips_what_says_nothing_new() {
+    const PR: &str = "https://github.com/a/b/pull/7";
+    const OTHER: &str = "https://github.com/a/b/pull/8";
+    let (a, b, _) = two_people();
+    let t = a.c.create_task(P1, nt("ship it", "")).unwrap();
+    sync(&a, &b);
+    b.c.claim_task(CARD2, &t.id).unwrap();
+    b.c.add_link(CARD2, &t.id, PR).unwrap();
+    b.c.add_link(CARD2, &t.id, OTHER).unwrap();
+    sync(&a, &b);
+    let step = |pr: &str, state: &str, review: &str| {
+        b.clk.add(Duration::from_secs(60));
+        b.c.record_pr_state(
+            &t.id,
+            PrCheck {
+                pr: pr.into(),
+                state: state.into(),
+                review: review.into(),
+                ..PrCheck::default()
+            },
+        )
+        .unwrap();
+        sync(&a, &b);
+        a.c.pr_news()
+    };
+    step(PR, PR_OPEN, PR_CHANGES_REQUESTED);
+    let closed = step(PR, PR_CLOSED, PR_CHANGES_REQUESTED);
+    let moved = step(PR, PR_CLOSED, "APPROVED");
+    assert_eq!(closed[0].mark, moved[0].mark);
+    step(PR, PR_CLOSED, PR_CHANGES_REQUESTED);
+    let back = step(PR, PR_OPEN, PR_CHANGES_REQUESTED);
+    assert!(back[0].notice.text.contains("was reopened"));
+    assert!(!back[0].notice.wake);
+
+    // Merged, then unlinked: gone. The other PR's merge still counts.
+    let merged = step(OTHER, PR_MERGED, "");
+    assert_eq!(merged.len(), 2);
+    b.c.remove_link(CARD2, &t.id, OTHER).unwrap();
+    sync(&a, &b);
+    let news = a.c.pr_news();
+    assert_eq!(news.len(), 1);
+    assert!(!news[0].mark.contains(OTHER), "{}", news[0].mark);
 }
 
 /// Card #210: the PR poller's pr.state row (actor irori) folds on a board

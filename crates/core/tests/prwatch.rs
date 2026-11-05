@@ -160,8 +160,13 @@ fn gh_failing_on_an_open_pr_shows_and_slows_down() {
     r.core.check_prs_at(start + OPEN_EVERY * 3 + tick * 3);
     assert_eq!(calls(), 2, "this device's gh still failed last");
 
-    r.core.check_prs_at(start + OPEN_EVERY + ERROR_EVERY + tick * 2);
+    r.core
+        .check_prs_at(start + OPEN_EVERY + ERROR_EVERY + tick * 2);
     assert_eq!(calls(), 3);
+    assert!(
+        co.pr_state(&t.id, PR).unwrap().error.is_empty(),
+        "said once: the two devices don't rewrite each other"
+    );
 
     *gh.state.lock().unwrap() = PR_OPEN.into();
     gh.error.lock().unwrap().clear();
@@ -201,7 +206,9 @@ fn a_closed_pr_is_asked_about_slowly_and_a_reopen_is_heard() {
     let heard = r.notices_to(&r.key_a);
     assert_eq!(heard.len(), before + 1);
     assert!(
-        heard.iter().any(|d| d.message.text.contains("was reopened")),
+        heard
+            .iter()
+            .any(|d| d.message.text.contains("was reopened")),
         "{heard:?}"
     );
 
@@ -210,6 +217,45 @@ fn a_closed_pr_is_asked_about_slowly_and_a_reopen_is_heard() {
     assert_eq!(calls(), 4);
     r.core.check_prs_at(later + CLOSED_EVERY * 4);
     assert_eq!(calls(), 4, "a merge is final");
+}
+
+/// Card #548: a merge wait on a closed PR is asked about too, whoever
+/// holds the card, so a reopen brings it back to the person.
+#[test]
+fn a_closed_merge_wait_nobody_here_holds_is_still_asked_about() {
+    let gh = Arc::new(FakeGh::default());
+    *gh.state.lock().unwrap() = PR_CLOSED.into();
+    let g2 = gh.clone();
+    let r = Rig::with(move |o| o.pr_checker = Some(g2));
+    let co = r.core.coord();
+    let t = co
+        .create_task(
+            "otherdevice/sess",
+            NewTask {
+                title: "part 10".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.claim_task("otherdevice/sess", &t.id).unwrap();
+    co.block(
+        "otherdevice/sess",
+        &t.id,
+        "Review and merge PR #12",
+        Some(coord::BlockedBy {
+            kind: coord::BLOCKED_ON_EXTERNAL.into(),
+            reference: PR.into(),
+        }),
+    )
+    .unwrap();
+    r.core.check_prs();
+    assert!(co.merge_waits(&t.id).is_empty());
+
+    *gh.state.lock().unwrap() = PR_OPEN.into();
+    r.core
+        .check_prs_at(Instant::now() + CLOSED_EVERY + Duration::from_secs(1));
+    assert_eq!(gh.calls.lock().unwrap().len(), 2);
+    assert_eq!(co.merge_waits(&t.id), vec![PR.to_string()]);
 }
 
 /// A device with no gh.

@@ -634,7 +634,11 @@ fn a_merge_heard_on_another_persons_device_reaches_the_holder_once() {
         "{}",
         m.text
     );
-    assert!(m.text.contains("bob") || m.text.contains("Heard on"), "{}", m.text);
+    assert!(
+        m.text.contains("bob") || m.text.contains("Heard on"),
+        "{}",
+        m.text
+    );
     assert!(bridged(t.b(), &t.rb.key_b).is_empty(), "beta holds nothing");
 
     for _ in 0..3 {
@@ -682,9 +686,7 @@ fn pr_news_from_another_person_follows_the_receive_setting() {
     co_a.record_pr_state(&card.id, heard(coord::PR_OPEN, coord::PR_CHANGES_REQUESTED))
         .unwrap();
     t.sync();
-    wait_for(10, "bob folds it", || {
-        co_b.pr_state(&card.id, PR).is_some()
-    });
+    wait_for(10, "bob folds it", || co_b.pr_state(&card.id, PR).is_some());
     t.b().check_prs();
     let ds = wait_bridged(t.b(), &t.rb.key_a, 1);
     assert_eq!(ds[0].hold, hold::MEMBER_WAKE, "{:?}", ds[0]);
