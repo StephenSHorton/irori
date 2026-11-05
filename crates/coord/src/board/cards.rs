@@ -2436,6 +2436,71 @@ impl Fold {
     }
 }
 
+impl Fold {
+    /// Moves card `id` to `board` (`""`: the space's first), with its
+    /// subtasks (card #563): parent first, one row each, each claiming the
+    /// next number there. A subtask can't move alone, or `relink` would
+    /// leave a family across two boards.
+    pub(crate) fn move_task(&mut self, by: &str, id: &str, board: &str) -> Result<Task> {
+        let by = trim_space(by).to_string();
+        if by.is_empty() {
+            return Err(invalid("by is required"));
+        }
+        let board = self.own_board(trim_space(board));
+        let t = self.open_task(id)?.clone();
+        if t.open_ask().is_some() {
+            return Err(bad_state(format!(
+                "{} is an open ask: ask_close it with outcome card and the title it should have",
+                t.short_ref()
+            )));
+        }
+        if !t.parent.is_empty() {
+            return Err(bad_state(format!(
+                "{} is a subtask of {}: move its parent and it goes along",
+                t.short_ref(),
+                self.short_of(&t.parent)
+            )));
+        }
+        if !board.is_empty() && self.board_tag(&board).is_none() {
+            return Err(not_found(format!("board {}", quote(&board))));
+        }
+        if t.board == board {
+            return Ok(t);
+        }
+        let mut family = vec![id.to_string()];
+        let mut kids: Vec<&Task> = self.tasks.values().filter(|k| k.parent == id).collect();
+        kids.sort_by(|a, b| a.id.cmp(&b.id));
+        family.extend(kids.iter().map(|k| k.id.clone()));
+        for task_id in &family {
+            let (num, at) = (self.next_short(&board), self.stamp());
+            self.write(
+                &by,
+                self.ask_kind(kinds::TASK_EDITED),
+                &TaskEditedRow {
+                    task_id: task_id.clone(),
+                    board: Some(board.clone()),
+                    num,
+                    by: by.clone(),
+                    at,
+                    ..TaskEditedRow::default()
+                },
+            )?;
+        }
+        // The fold may hold an edit back (card #318): say so, never "Moved".
+        let now = &self.tasks[id];
+        if now.board != board {
+            return Err(super::error::Error::raw(
+                super::error::ErrorKind::BadState,
+                format!(
+                    "coord: move {}: the change didn't apply, so the card is still where it was; tell the person on the card",
+                    now.short_ref()
+                ),
+            ));
+        }
+        Ok(now.clone())
+    }
+}
+
 /// Trims and checks a raise's options.
 fn clean_options(input: &[BlockerOption], by: &str, at: GoTime) -> Result<Vec<BlockerOption>> {
     if input.len() > MAX_OPTIONS {

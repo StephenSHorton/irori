@@ -474,11 +474,17 @@ impl Fold {
                     .tasks
                     .get(&p.from)
                     .is_some_and(|f| f.ask.as_ref().is_some_and(|a| a.thread));
+                // Before the card is looked up: a move that comes first is
+                // kept, and counts once the card lands (card #563).
+                let moved = p.board.as_ref().and_then(|b| {
+                    self.fold_move(&p.task_id, RowPos::of(ev), b, p.num)
+                        .then(|| self.moved_line(b))
+                });
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
                 // What changed, from what it was: the thread is the card's log.
-                let mut changed: Vec<String> = Vec::new();
+                let mut changed: Vec<String> = moved.into_iter().collect();
                 if let Some(title) = &p.title
                     && !trim_space(title).is_empty()
                 {

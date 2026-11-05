@@ -505,6 +505,11 @@ crate::go_struct! {
         /// A thread's "Agents answer now" (card #391): set only by the
         /// person, on a thread.
         pub agents_now: Option<bool> = "agentsNow" "omit",
+        /// A move (card #563): the board the card goes to, `""` for the
+        /// space's first, and the number it claims there. An older device
+        /// drops both and folds an edit that changes nothing.
+        pub board: Option<String> = "board" "omit",
+        pub num: i64 = "num" "omit",
         pub at: GoTime = "at",
     }
 }

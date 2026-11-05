@@ -233,6 +233,20 @@ pub type BoardTagFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 /// Every tag a space's log has named for a board inside it (card #558).
 pub type BoardTagsFn = Arc<dyn Fn() -> Vec<String> + Send + Sync>;
 
+/// What the fold needs from a space's board list (card #563): the writer
+/// checks and the rule that a delete wins live where the list is folded.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BoardList {
+    /// The first board's id, which a row may name instead of `""`.
+    pub own: String,
+    /// Each deleted board, with its first valid delete's place.
+    pub deleted: Vec<(String, RowPos)>,
+    /// Every (tag, board) the log has named, deleted boards' too.
+    pub tags: Vec<(String, String)>,
+}
+/// See [`Options::board_view`].
+pub type BoardViewFn = Arc<dyn Fn() -> BoardList + Send + Sync>;
+
 /// See [`Options::device_version`].
 pub type DeviceVersionFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
 
@@ -280,6 +294,9 @@ pub struct Options {
     /// On a space (card #558): every tag its log has named for a board
     /// inside it, for a ref to a board that holds no card.
     pub board_tags: Option<BoardTagsFn>,
+    /// On a space or Personal (card #563): its board list, for moves and
+    /// deletes. Read again whenever a board or member row lands.
+    pub board_view: Option<BoardViewFn>,
     /// A person who owned the board just before the row at that place,
     /// or now when there is no row (the cancel rule reads the owners at
     /// the row's time, v0.5 §5.3).
@@ -788,6 +805,10 @@ impl Coord {
         f.mention_notice(&by, id, &ms, text, &format!("task:{id}"), "")
     }
     /// Renames a card or changes its objective or done-when (board_edit).
+    pub fn move_task(&self, by: &str, id: &str, board: &str) -> Result<Task> {
+        self.lock().move_task(by, id, board)
+    }
+
     pub fn edit_task(&self, by: &str, id: &str, e: TaskEdit) -> Result<Task> {
         self.lock().edit_task(by, id, e)
     }
@@ -1499,7 +1520,13 @@ impl Coord {
     pub fn handle(&self, ev: &Event) -> Result<()> {
         let mut f = self.lock();
         if ev.is_resync() {
-            return f.catch_up();
+            f.catch_up()?;
+            f.refresh_boards();
+            return Ok(());
+        }
+        // Core writes these itself, so this device's reach the fold here.
+        if ev.kind.starts_with("space.board.") || ev.kind.starts_with("board.member.") {
+            f.refresh_boards();
         }
         // repo.seen is capture's row, never coord's own write, so this
         // device's ones are folded here (card #521: a GitHub repo an agent

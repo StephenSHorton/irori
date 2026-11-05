@@ -995,6 +995,9 @@ impl Fold {
         self.origin.clear();
         self.short_groups.clear();
         self.short_idx.clear();
+        self.short_hist.clear();
+        self.any_moves = false;
+        self.walked_to = None;
         self.last.clear();
         self.conflicts.clear();
         self.stolen.clear();

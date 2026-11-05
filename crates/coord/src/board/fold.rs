@@ -88,7 +88,7 @@ const CLOCK_SKEW: Duration = Duration::from_secs(120);
 pub const SUB_BUFFER: usize = 64;
 
 /// The row prefixes coord folds.
-pub const FOLLOW_KINDS: [&str; 12] = [
+pub const FOLLOW_KINDS: [&str; 14] = [
     "task.",
     "lease.",
     "blocker.",
@@ -105,6 +105,10 @@ pub const FOLLOW_KINDS: [&str; 12] = [
     kinds::DEVICE_SIDES,
     // A GitHub repo an agent works in has a desk by itself (card #521).
     kinds::REPO_SEEN,
+    // A card's board and tag come from the board list (card #563), and who
+    // may delete a board from the members at the row's place.
+    "space.board.",
+    "board.member.",
 ];
 
 /// Whether coord folds `kind`.
@@ -153,6 +157,10 @@ pub(crate) struct ShortClaim {
     /// space's first. Raw, so a row that arrives before its
     /// `space.board.created` numbers the same on every device.
     pub board: String,
+    /// A move's claim, not a create's (card #563).
+    pub moved: bool,
+    /// Given by the walk to a card whose board was deleted: no row says it.
+    pub displaced: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -268,6 +276,9 @@ pub struct Fold {
     pub(crate) tag_fn: Option<Arc<dyn Fn() -> String + Send + Sync>>,
     pub(crate) board_tag_fn: Option<super::BoardTagFn>,
     pub(crate) board_tags_fn: Option<super::BoardTagsFn>,
+    pub(crate) board_view_fn: Option<super::BoardViewFn>,
+    /// The last [`super::BoardList`] read (card #563).
+    pub(crate) board_view: super::BoardList,
     pub(crate) no_cards_fn: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     pub(crate) board_owner: Option<super::OwnerAtFn>,
     pub(crate) hop_of: Option<super::HopFn>,
@@ -332,6 +343,13 @@ pub struct Fold {
     /// one run's top never was: a number a cut card held isn't given out
     /// again here.
     pub(crate) short_tops: HashMap<String, i64>,
+    /// Numbers cards moved away from (card #563): each stays claimed, and
+    /// its old ref still finds the card unless a card holds it now.
+    pub(crate) short_hist: BTreeMap<(String, i64), Vec<String>>,
+    /// Whether any move has folded, and how far the last walk went: a claim
+    /// past it can't change what the walk gave.
+    pub(crate) any_moves: bool,
+    pub(crate) walked_to: Option<RowPos>,
     pub(crate) short_moved: HashMap<String, GoTime>,
 
     pub(crate) subs: Vec<Sub>,
@@ -442,6 +460,8 @@ impl Fold {
             tag_fn: o.tag,
             board_tag_fn: o.board_tag,
             board_tags_fn: o.board_tags,
+            board_view_fn: o.board_view,
+            board_view: super::BoardList::default(),
             no_cards_fn: o.no_cards,
             board_owner: o.board_owner,
             hop_of: o.hop_of,
@@ -478,6 +498,9 @@ impl Fold {
             short_groups: BTreeMap::new(),
             short_idx: BTreeMap::new(),
             short_tops: HashMap::new(),
+            short_hist: BTreeMap::new(),
+            any_moves: false,
+            walked_to: None,
             short_moved: HashMap::new(),
             subs: Vec::new(),
             pending: Vec::new(),
@@ -599,6 +622,7 @@ impl Fold {
     }
 
     pub(crate) fn end_replay(&mut self) {
+        self.read_board_view();
         self.renumber();
         self.relink();
         self.replaying = false;
@@ -1154,7 +1178,7 @@ impl Fold {
             shared: p.shared,
             links,
             tag: self.tag_of(&p.board),
-            board: p.board.clone(),
+            board: self.own_board(&p.board),
             side: crate::sides::clean(&p.side),
             own_side: crate::sides::clean(&p.side),
             from: p.from.clone(),
