@@ -58,9 +58,14 @@ pub struct AskStart {
     /// The device it starts on: its request's, or the ask's owner (the
     /// device whose sweep requests it) before the request is written.
     pub device: String,
-    /// [`SPAWN_GRACE`] after the ask opened: past it no agent is coming any
-    /// more, however often the sweep asks again.
+    /// When it stops counting as coming unless a row changes it: its
+    /// request going stale, or [`SPAWN_GRACE`] after the ask opened while
+    /// no request is written yet or the sweep asks again over a stale one.
     pub until: GoTime,
+    /// Its request is written. Before that the hold rests on the owner's
+    /// sweep requesting one, which the Core can rule out on its own device
+    /// (paused, no spawner, at its cap).
+    pub requested: bool,
 }
 
 /// A card's newest spawn request for one part (the card itself when
@@ -84,6 +89,9 @@ pub struct Spawn {
     pub at: GoTime,
     /// The agent bound to this request, once presence listed it.
     pub key: String,
+    /// Requested over a request still waiting for its agent (gone stale):
+    /// the sweep asking again, not something new happening (card #518).
+    pub retry: bool,
 }
 
 impl Spawn {
@@ -235,6 +243,7 @@ impl Fold {
             by: p.by,
             at: at(p.at),
             key: String::new(),
+            retry: false,
         };
         match t.spawns.iter_mut().find(|o| o.part() == s.part()) {
             // Only a newer generation moves a request on; its own generation may end it.
@@ -242,12 +251,12 @@ impl Fold {
                 if s.generation > o.generation
                     || (s.generation == o.generation && s.op != SPAWN_REQUESTED) =>
             {
-                let key = if s.generation == o.generation {
-                    o.key.clone()
+                let (key, retry) = if s.generation == o.generation {
+                    (o.key.clone(), o.retry)
                 } else {
-                    String::new()
+                    (String::new(), s.op == SPAWN_REQUESTED && o.pending())
                 };
-                *o = Spawn { key, ..s };
+                *o = Spawn { key, retry, ..s };
             }
             Some(_) => return,
             None => t.spawns.push(s),
@@ -526,10 +535,13 @@ impl Fold {
     /// stale, or none is pending and its owner's sweep would request one
     /// now ([`Fold::ask_needs_agent_anywhere`]: the unclaimed row folds
     /// before the request row does, and on the person's other devices
-    /// before that row reaches them). A failed request means none is coming, even one
-    /// the sweep tries again later. Only within [`SPAWN_GRACE`] of the ask
-    /// opening (its `since`): an agent that never binds is asked for again
-    /// each grace, and the ask must not wait in silence through all of them.
+    /// before that row reaches them). A request that failed in this
+    /// opening means none is coming. The sweep's own retries over a stale
+    /// request count only within [`SPAWN_GRACE`] of the ask opening (its
+    /// `since`): an agent that never binds is asked for again each grace,
+    /// and the ask must not wait in silence through all of them. The Core
+    /// rules out an unwritten request its own sweep won't write
+    /// (`requested` false).
     pub(crate) fn ask_starting(&self, t: &Task) -> Option<AskStart> {
         let a = t.open_ask()?;
         if !self.spawning_on()
@@ -542,22 +554,45 @@ impl Fold {
             return None;
         }
         let now = self.stamp();
-        let until = gotime::add(&a.since, SPAWN_GRACE);
-        if !gotime::before(&now, &until) {
-            return None;
-        }
-        let device = match t.spawn_request() {
+        // The ask's own grace: from its opening, not from any request.
+        let opened = gotime::add(&a.since, SPAWN_GRACE);
+        let within = |until: GoTime| gotime::before(&now, &until).then_some(until);
+        match t.spawn_request() {
+            // A request waiting for its agent: until it goes stale. One the
+            // sweep wrote over a stale one only within the ask's grace,
+            // or the ask would wait in silence through every retry. A
+            // request the person asked for later (Start, Trust and start,
+            // spawning turned on) is new and has its own grace.
             Some(s) if s.pending() => {
-                if s.stale(&now) {
-                    return None;
-                }
-                s.device.clone()
+                let stale = gotime::add(&s.at, SPAWN_GRACE);
+                let until = if s.retry { opened } else { stale };
+                within(until)
+                    .filter(|_| !s.stale(&now))
+                    .map(|until| AskStart {
+                        device: s.device.clone(),
+                        until,
+                        requested: true,
+                    })
             }
-            Some(s) if s.op == SPAWN_FAILED => return None,
-            _ if self.ask_needs_agent_anywhere(t) => a.owner.clone(),
-            _ => return None,
-        };
-        Some(AskStart { device, until })
+            // Failed in this opening: none is coming, even if the sweep
+            // tries again later (a new request then is shown as it comes).
+            // A failure from an earlier opening, or one the person asked to
+            // start again, is retried at once, as cards_to_spawn does.
+            Some(s)
+                if s.op == SPAWN_FAILED
+                    && !gotime::before(&s.at, &a.since)
+                    && !self.spawn_now.contains(&t.id) =>
+            {
+                None
+            }
+            // None yet: the owner's sweep requests one at its next pass.
+            _ if self.ask_needs_agent_anywhere(t) => within(opened).map(|until| AskStart {
+                device: a.owner.clone(),
+                until,
+                requested: false,
+            }),
+            _ => None,
+        }
     }
 
     /// The cards this device hands out that need an agent and have none

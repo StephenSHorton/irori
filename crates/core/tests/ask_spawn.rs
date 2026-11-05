@@ -216,3 +216,34 @@ fn an_agent_with_offer_it_cards_on_takes_a_thread_first() {
     std::thread::sleep(Duration::from_millis(500));
     assert!(fake.started.lock().unwrap().is_empty(), "no agent started");
 }
+
+/// Card #518: an unclaimed ask counts as having an agent coming only while
+/// this device's sweep would start one. With no spawner it won't, so the
+/// Core drops coord's hold and "Nobody took" shows at once.
+#[test]
+fn an_ask_has_no_agent_coming_while_this_device_cannot_start_one() {
+    let r = Rig::new();
+    spawning_on(&r);
+    let person = format!("user:{}", r.core.device_id());
+    let tk = r
+        .core
+        .coord()
+        .post_ask(
+            &person,
+            coord::NewAsk {
+                text: "anyone?".into(),
+                thread: true,
+                wake: true,
+                ..coord::NewAsk::default()
+            },
+            &[],
+        )
+        .unwrap()
+        .0;
+    let held = r.core.coord().ask_starting(&tk.id).expect("coord holds it");
+    assert!(!held.requested && held.device == r.core.device_id());
+    assert!(
+        !r.core.asks_starting().contains_key(&tk.id),
+        "no spawner: nothing is coming"
+    );
+}

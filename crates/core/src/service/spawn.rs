@@ -797,6 +797,44 @@ fn session_of(key: &str) -> &str {
 }
 
 impl Services {
+    /// Whether this device's sweep starts an agent at its next pass: not
+    /// paused, a spawner installed, and under its cap (`sweep_spawns`).
+    fn spawns_now(&self) -> bool {
+        !self.inbox.policy().paused
+            && self
+                .spawn
+                .spawner
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_some()
+            && self.spawned_here() < self.spawn_cap(&self.device.id)
+    }
+
+    /// Coord's [`coord::Coord::ask_starting`] (card #518), less a hold on
+    /// a request this device's own sweep won't write now: it is paused,
+    /// has no spawner, or is at its cap, so nobody took it after all.
+    pub(crate) fn ask_starting(&self, id: &str) -> Option<coord::AskStart> {
+        let s = self.coord.ask_starting(id)?;
+        self.keeps_start(&s).then_some(s)
+    }
+
+    /// [`Self::ask_starting`] for every open ask, by card id.
+    pub(crate) fn asks_starting(&self) -> std::collections::HashMap<String, coord::AskStart> {
+        let mut all = self.coord.asks_starting();
+        if all
+            .values()
+            .any(|s| !s.requested && s.device == self.device.id)
+            && !self.spawns_now()
+        {
+            all.retain(|_, s| s.requested || s.device != self.device.id);
+        }
+        all
+    }
+
+    fn keeps_start(&self, s: &coord::AskStart) -> bool {
+        s.requested || s.device != self.device.id || self.spawns_now()
+    }
+
     /// The window's spawner; `None` spawns nothing.
     pub(crate) fn set_spawner(&self, s: Option<Spawner>) {
         // A spawner installed (the app's start) cleans up once (card #447).

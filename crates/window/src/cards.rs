@@ -1037,7 +1037,7 @@ impl Window {
             if c.spawn_setting("").on && running >= cap {
                 p.at_cap = co.cards_to_spawn().into_iter().map(|t| t.id).collect();
             }
-            p.ask_starting = co
+            p.ask_starting = c
                 .asks_starting()
                 .into_iter()
                 .map(|(id, s)| (id, s.device))

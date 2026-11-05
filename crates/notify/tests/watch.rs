@@ -1284,16 +1284,72 @@ fn watch_unclaimed_ask_held_until_the_grace() {
     assert!(posted(&f, &unclaimed_id(&ask.id)));
 }
 
-/// A "Nobody took" card already up comes down once an agent starts for the
-/// ask (spawning turned on after it went up).
+/// A "Nobody took" card already up stays while an agent the person started
+/// later (spawning turned on minutes after) is starting: the tile says it
+/// is starting, and the card goes once that agent takes the ask.
 #[test]
-fn watch_unclaimed_card_clears_when_an_agent_starts() {
+fn watch_unclaimed_card_stays_until_a_late_agent_takes_it() {
     let s = spawning_rig();
     s.on.store(false, Ordering::SeqCst);
     let ask = post_thread(&s.r, "anyone?");
     let id = unclaimed_id(&ask.id);
     s.r.fake.wait_post(&id);
+    s.advance(coord::SPAWN_GRACE * 2);
     s.on.store(true, Ordering::SeqCst);
-    start_agent(&s.r, &ask.id).unwrap();
+    // Past the ask's grace nothing is coming until a request is written.
+    assert!(s.r.co.ask_starting(&ask.id).is_none());
+    let g = start_agent(&s.r, &ask.id).unwrap();
+    // A new request has its own grace: the tile shows it starting.
+    let st =
+        s.r.co
+            .ask_starting(&ask.id)
+            .expect("a late start is coming");
+    assert!(st.requested);
+    s.r.fake.no_post(Duration::from_millis(150));
+    assert!(s.r.fake.is_live(&id), "the card stays while it starts");
+    s.r.co.bind_spawn(&ask.id, g, KEY_B).unwrap();
     s.r.fake.wait_gone(&id);
+}
+
+/// A spawn that failed in an earlier opening doesn't speak for a new one:
+/// the person's Wake them opens it again, the sweep starts an agent at
+/// once (as cards_to_spawn does), and no new "Nobody took" comes.
+#[test]
+fn watch_unclaimed_ask_reopened_after_an_old_failure_waits_again() {
+    let s = spawning_rig();
+    let r = &s.r;
+    let ask = post_thread(r, "anyone?");
+    let id = unclaimed_id(&ask.id);
+    let g = start_agent(r, &ask.id).unwrap();
+    r.co.end_spawn("irori", &ask.id, g, coord::SPAWN_FAILED, "couldn't start")
+        .unwrap();
+    r.fake.wait_post(&id);
+    let first = r.fake.post_count();
+    s.advance(Duration::from_secs(30));
+    r.co.ask_again(USER, &ask.id).unwrap();
+    r.co.sweep_asks(&[]).unwrap();
+    let a = r.co.get_task(&ask.id).unwrap().ask.unwrap();
+    assert!(a.reason == coord::TAKE_REOPENED && a.unclaimed, "{a:?}");
+    assert!(
+        r.co.ask_starting(&ask.id).is_some(),
+        "the old failure is past"
+    );
+    r.fake.no_post(Duration::from_millis(150));
+    assert_eq!(r.fake.post_count(), first, "no second Nobody took");
+}
+
+/// The sweep asking again over a stale request is no new start: only the
+/// ask's grace counts, so it doesn't hold the card through every retry.
+#[test]
+fn watch_unclaimed_retry_over_a_stale_request_is_not_held() {
+    let s = spawning_rig();
+    let r = &s.r;
+    let ask = post_thread(r, "anyone?");
+    start_agent(r, &ask.id).unwrap();
+    s.advance(coord::SPAWN_GRACE + Duration::from_secs(1));
+    start_agent(r, &ask.id).unwrap();
+    let sp = r.co.get_task(&ask.id).unwrap();
+    assert!(sp.spawn_request().unwrap().retry);
+    assert!(r.co.ask_starting(&ask.id).is_none());
+    r.fake.wait_post(&unclaimed_id(&ask.id));
 }

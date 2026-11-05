@@ -200,6 +200,22 @@ pub struct Core {
 /// window's Done does (card #140).
 struct WatchRoom(Arc<Services>);
 
+/// The Board Watch reads (card #518): coord's, with the Core's say on
+/// whether an ask's agent is really coming from this device.
+struct WatchBoard(Arc<Services>);
+
+impl notify::watch::BoardSource for WatchBoard {
+    fn subscribe(&self) -> Arc<gocompat::sub::Queue<coord::Change>> {
+        self.0.coord.subscribe()
+    }
+    fn board(&self, f: &coord::BoardFilter) -> coord::BoardView {
+        self.0.coord.board(f)
+    }
+    fn ask_starting(&self, id: &str) -> Option<coord::AskStart> {
+        self.0.ask_starting(id)
+    }
+}
+
 impl notify::watch::RoomSource for WatchRoom {
     fn ask_again(&self, by: &str, id: &str) -> Result<(), String> {
         notify::watch::RoomSource::ask_again(&*self.0.coord, by, id)
@@ -1440,7 +1456,7 @@ impl Core {
             &s.notifier.0,
             notify::Sources {
                 inbox: Some(s.inbox.clone()),
-                board: Some(s.coord.clone()),
+                board: Some(Arc::new(WatchBoard(s.clone()))),
                 asks: Some(s.asks.clone()),
                 user: s.user_sender().key,
                 is_owner: Some({
@@ -2398,6 +2414,12 @@ impl Core {
     /// This device's cap on spawned agents.
     pub fn spawn_cap(&self) -> i64 {
         self.s.spawn_cap(&self.s.device.id)
+    }
+
+    /// The open asks an agent is starting for, or about to (card #518), by
+    /// card id: coord's rule less what this device's sweep won't start now.
+    pub fn asks_starting(&self) -> std::collections::HashMap<String, coord::AskStart> {
+        self.s.asks_starting()
     }
 
     /// This device's spawned agents (live, and starting) and its cap, for

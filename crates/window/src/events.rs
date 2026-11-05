@@ -224,6 +224,34 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
         }));
     }
     {
+        // Card #518: an ask's "Starting an agent" ends at its grace with no
+        // row to say so, so the cards are read again once one has ended.
+        // Ten seconds at most between looks; a look is one pass under
+        // coord's lock.
+        let (w, stop) = (w.clone(), stop.clone());
+        out.push(spawn("irori-window-ask-starting", move || {
+            let mut held: Vec<String> = Vec::new();
+            loop {
+                let now = std::time::SystemTime::now();
+                let all = w.core.asks_starting();
+                if held.iter().any(|id| !all.contains_key(id)) {
+                    w.emit(EVENT_BOARD_CHANGED, &Empty {});
+                }
+                held = all.keys().cloned().collect();
+                let next = all
+                    .values()
+                    .filter_map(|s| s.until.to_system().duration_since(now).ok())
+                    .min()
+                    .map_or(ASK_LOOK_EVERY, |d| {
+                        (d + std::time::Duration::from_secs(1)).min(ASK_LOOK_EVERY)
+                    });
+                if stop.sleep(next) {
+                    return;
+                }
+            }
+        }));
+    }
+    {
         // Talk (card #389): a channel, DM, post or read cursor changed,
         // here or synced, or an agent's message may show as a DM.
         let (w, stop) = (w.clone(), stop.clone());
@@ -266,6 +294,10 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
 fn is_board_pin(ev: &CoreEvent) -> bool {
     matches!(ev, CoreEvent::Board(ch) if ch.kind == coord::BOARD_PIN_CHANGED)
 }
+
+/// The longest the window waits between looks at the asks an agent is
+/// starting for (card #518).
+const ASK_LOOK_EVERY: std::time::Duration = std::time::Duration::from_secs(10);
 
 fn spawn(name: &str, f: impl FnOnce() + Send + 'static) -> JoinHandle<()> {
     std::thread::Builder::new()

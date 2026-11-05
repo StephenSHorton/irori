@@ -829,7 +829,7 @@ impl Ctx<'_> {
     /// (card #518): that agent takes it seconds later, so the card waits
     /// until none is coming (spawning off, the spawn failed, the agents
     /// crashed out, the ask rests, or its agent didn't bind within the
-    /// grace). One already up comes down when an agent starts for it.
+    /// grace). One already up stays until the ask is taken or closed.
     /// Returns the soonest a held card stops being held.
     fn unclaimed_asks(
         &self,
@@ -847,6 +847,13 @@ impl Ctx<'_> {
             if let Some(s) = self.board.as_ref().and_then(|b| b.ask_starting(&c.task.id)) {
                 if due.is_none_or(|d| s.until.unix_nano() < d.unix_nano()) {
                     due = Some(s.until);
+                }
+                // One already up stays: it was true when it came, and an
+                // agent starting later takes it within seconds (taking it
+                // clears the card). Clearing it here would toast again on
+                // each retry that fails.
+                if unclaimed.contains_key(&c.task.id) {
+                    now.insert(c.task.id.clone());
                 }
                 continue;
             }
