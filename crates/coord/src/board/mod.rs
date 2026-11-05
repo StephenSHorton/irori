@@ -231,7 +231,7 @@ pub type OffersFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 /// the space doesn't hold.
 pub type BoardTagFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
-/// See [`Options::device_version`].
+/// See [`Options::agent_devices`].
 pub type AgentDevicesFn = Arc<dyn Fn() -> AgentDevices + Send + Sync>;
 
 /// Which of the person's devices can run agents (card #541).
@@ -245,6 +245,7 @@ pub struct AgentDevices {
     pub cant: std::collections::HashSet<String>,
 }
 
+/// See [`Options::device_version`].
 pub type DeviceVersionFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
 
 /// Configures a [`Coord`] (Go `coord.Options`).

@@ -456,6 +456,11 @@ impl Services {
             {
                 return None;
             }
+            // Only computers without Claude Code have the repo: it waits
+            // for them, and says so, rather than fail here for no copy.
+            if !self.repo_waits_on(t).is_empty() {
+                return None;
+            }
             return here.then_some(me);
         };
         // The best device was asked lately (it failed, or never answered

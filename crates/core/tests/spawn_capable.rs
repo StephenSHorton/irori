@@ -106,10 +106,9 @@ impl Rig {
     }
 
     fn mac_spawner(&self) {
-        self.mac.core.set_spawner(Some(spawner(
-            &self.fake,
-            self.mac.claude.join("sessions"),
-        )));
+        self.mac
+            .core
+            .set_spawner(Some(spawner(&self.fake, self.mac.claude.join("sessions"))));
     }
 
     /// The phone knows the Mac's host row, and says it can't run agents.
@@ -244,10 +243,13 @@ fn with_the_mac_offline_the_phone_says_so_and_the_thread_starts_when_it_is_back(
     r.mac.core.close().unwrap();
     let t = r.thread("Is the build green?");
     wait_for(WAIT, "the phone says why", || {
-        let (line, ids) = r.phone.core.no_agent();
-        ids.contains(&t.id) && line.contains(&label) && line.contains("offline")
+        r.phone
+            .core
+            .no_agent()
+            .get(&t.id)
+            .is_some_and(|l| l.contains(&label) && l.contains("offline"))
     });
-    let (line, _) = r.phone.core.no_agent();
+    let line = r.phone.core.no_agent().remove(&t.id).unwrap();
     assert!(!line.contains('?') && !line.contains("repo"), "{line}");
     assert!(line.contains("starts by itself"), "{line}");
     // After NO_AGENT_AFTER, on real clocks: a phone clock run ahead would
@@ -269,7 +271,7 @@ fn with_the_mac_offline_the_phone_says_so_and_the_thread_starts_when_it_is_back(
         .set_spawner(Some(spawner(&fake, mac.claude.join("sessions"))));
     wait_for(WAIT, "the agent starts on the Mac", || fake.started() == 1);
     wait_for(WAIT, "the phone stops saying it", || {
-        phone.core.no_agent().0.is_empty()
+        phone.core.no_agent().is_empty()
     });
     phone.core.close().unwrap();
     mac.core.close().unwrap();
@@ -293,8 +295,11 @@ fn a_computer_without_claude_starts_nothing_until_it_is_installed() {
     });
     let t = r.thread("Why is the sync stuck?");
     wait_for(WAIT, "the phone says why", || {
-        let (line, ids) = r.phone.core.no_agent();
-        ids.contains(&t.id) && line.contains("Claude Code isn't installed")
+        r.phone
+            .core
+            .no_agent()
+            .get(&t.id)
+            .is_some_and(|l| l.contains("Claude Code isn't installed"))
     });
     assert_eq!(r.fake.started(), 0, "nothing is tried without claude");
     r.fake.missing.store(false, Ordering::SeqCst);
@@ -305,45 +310,101 @@ fn a_computer_without_claude_starts_nothing_until_it_is_installed() {
     r.close();
 }
 
-/// A computer whose Claude Code went away after it last said so: another
-/// computer's request reaches it, and it's refused in plain words, not as a
-/// trust or folder problem, and never tried.
+/// A computer whose Claude Code went away after it last said so: a request
+/// another device wrote before it heard reaches it, and it's refused in
+/// plain words, not as a trust or folder problem, and never tried. The PC
+/// writes the request itself: its own sweep would hear first and not ask.
 #[test]
 fn a_request_reaching_a_computer_without_claude_is_refused_plainly() {
     let r = Rig::new();
-    let pc = Arc::new(Fake::default());
+    r.fake.missing.store(true, Ordering::SeqCst);
+    r.mac_spawner();
+    let t = r.thread_held_back("Rename the API's handlers");
+    let (pc, mac) = (r.phone_id(), r.mac_id());
+    wait_for(WAIT, "the Mac has the card", || {
+        r.mac.core.coord().get_task(&t.id).is_some()
+    });
     r.phone
         .core
-        .set_spawner(Some(spawner(&pc, r.phone.claude.join("sessions"))));
-    r.mac_spawner();
-    let mac = r.mac_id();
-    wait_for(WAIT, "the PC has the Mac's spawn.host", || {
-        r.phone
-            .core
-            .spawn_hosts()
-            .get(&mac)
-            .is_some_and(|h| h.repo(REPO).is_some() && !h.no_agents)
-    });
-    wait_for(WAIT, "the PC sees the Mac online", || {
-        r.phone
-            .core
-            .mesh()
-            .devices(false)
-            .iter()
-            .any(|d| d.device_id == mac && d.state != "offline")
-    });
-    r.fake.missing.store(true, Ordering::SeqCst);
-    let t = r.card("Rename the API's handlers");
-    std::thread::sleep(std::time::Duration::from_secs(20)); eprintln!("DBG pc {:?}\n mac {:?}\n hosts {:?}\n cant {:?}", r.phone.core.coord().get_task(&t.id).map(|t| (t.state.clone(), t.spawns.clone(), t.holders.clone())), r.mac.core.coord().get_task(&t.id).map(|t| t.spawns.clone()), r.phone.core.spawn_hosts().keys().collect::<Vec<_>>(), r.phone.core.cant_run_devices());
+        .coord()
+        .request_spawn(
+            &format!("user:{pc}"),
+            coord::SpawnAsk {
+                task_id: t.id.clone(),
+                device: mac,
+                repo_key: REPO.into(),
+                name: "stale".into(),
+                permission_mode: "acceptEdits".into(),
+                ..coord::SpawnAsk::default()
+            },
+        )
+        .unwrap();
     wait_for(WAIT, "the Mac says why", || {
-        r.mac
+        r.phone
             .core
             .coord()
             .get_task(&t.id)
             .and_then(|t| t.spawn_request().cloned())
             .is_some_and(|s| s.reason.contains("Claude Code isn't installed"))
     });
-    assert_eq!(r.fake.started(), 0);
+    assert_eq!(r.fake.started(), 0, "nothing is tried without claude");
+    r.close();
+}
+
+/// The only computer with the repo has no Claude Code, and the one that has
+/// it has no copy: the card waits and says so, rather than blaming a folder
+/// on the computer that could run it. It starts once Claude Code is there.
+#[test]
+fn a_repo_only_on_a_computer_without_claude_waits_and_says_so() {
+    let r = Rig::new();
+    let pc = Arc::new(Fake::default());
+    r.phone
+        .core
+        .set_spawner(Some(spawner(&pc, r.phone.claude.join("sessions"))));
+    r.fake.missing.store(true, Ordering::SeqCst);
+    r.mac_spawner();
+    let mac = r.mac_id();
+    wait_for(
+        WAIT,
+        "the PC knows the Mac has the repo and no Claude Code",
+        || {
+            r.phone.core.cant_run_devices().contains(&mac)
+                && r.phone
+                    .core
+                    .spawn_hosts()
+                    .get(&mac)
+                    .is_some_and(|h| h.repo(REPO).is_some())
+        },
+    );
+    let t = r.card("Rename the API's handlers");
+    let label = r.phone.core.device_label(&mac);
+    wait_for(WAIT, "the PC says why", || {
+        r.phone
+            .core
+            .no_agent()
+            .get(&t.id)
+            .is_some_and(|l| l.contains("Claude Code isn't installed") && l.contains(&label))
+    });
+    let t2 = r.phone.core.coord().get_task(&t.id).unwrap();
+    assert!(
+        t2.spawn_request().is_none(),
+        "no folder failure on the PC: {:?}",
+        t2.spawns
+    );
+    r.fake.missing.store(false, Ordering::SeqCst);
+    r.mac.core.set_spawn_cap(r.mac.core.spawn_cap()).unwrap();
+    wait_for(WAIT, "it starts on the Mac", || r.fake.started() == 1);
     assert_eq!(pc.started(), 0, "the PC has no copy of the repo");
     r.close();
+}
+
+impl Rig {
+    /// A card nobody's sweep starts: spawning is off on the PC.
+    fn thread_held_back(&self, title: &str) -> Task {
+        self.phone
+            .core
+            .set_spawn_setting(SpawnSetting::default())
+            .unwrap();
+        self.card(title)
+    }
 }

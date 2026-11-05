@@ -1103,6 +1103,11 @@ export type CardSummary = {
 	 */
 	cantStart?: string,
 	/**
+	 *  Why no agent can start for this card now, by device, and what
+	 *  happens next (card #541): shown in Needs you until one can.
+	 */
+	noAgent?: string,
+	/**
 	 *  The device an agent is starting on for this card ("<its own name>
 	 *  (this one)" or the other device's name, card #489), while Irori's
 	 *  spawn request waits for it (card #448).
@@ -2329,6 +2334,11 @@ export type ThreadSummary = {
 	starting?: string,
 	/**  Why one couldn't start (the failed request's reason). */
 	cantStart?: string,
+	/**
+	 *  Why no agent can start now, by device, and what happens next (card
+	 *  #541): it needs the person to know, not to answer.
+	 */
+	noAgent?: string,
 };
 
 /**  Who an action's notice went to. */

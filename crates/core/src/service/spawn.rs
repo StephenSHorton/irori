@@ -148,9 +148,9 @@ pub struct ClaudeAgent {
     pub live: bool,
 }
 
-/// Lists Claude Code's agents on this device, finished ones included.
 /// Whether this device has what it takes to run an agent now.
 pub type ReadyFn = Arc<dyn Fn() -> bool + Send + Sync>;
+/// Lists Claude Code's agents on this device, finished ones included.
 pub type ListFn = Arc<dyn Fn() -> Result<Vec<ClaudeAgent>, String> + Send + Sync>;
 
 /// The window's spawner (part 1). The headless Core has none, and spawns

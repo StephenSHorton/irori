@@ -33,6 +33,15 @@ pub fn no_agent_id(id: &str) -> String {
     format!("{}{id}", notify::NO_AGENT_PREFIX)
 }
 
+/// A device's name for the person.
+fn device_name(labels: &std::collections::BTreeMap<String, String>, id: &str) -> String {
+    labels
+        .get(id)
+        .filter(|n| !n.trim().is_empty())
+        .cloned()
+        .unwrap_or_else(|| "a computer".to_string())
+}
+
 /// `a`, `a and b`, `a, b and c`.
 fn and_list(names: &[String]) -> String {
     match names {
@@ -137,13 +146,7 @@ impl Services {
             }
         }
         ranked.sort();
-        let name = |id: &str| {
-            labels
-                .get(id)
-                .filter(|n| !n.trim().is_empty())
-                .cloned()
-                .unwrap_or_else(|| "a computer".to_string())
-        };
+        let name = |id: &str| device_name(&labels, id);
         let can_now = ranked.iter().any(|(no, tier, _)| !no && *tier == 0);
         let text = if can_now {
             String::new()
@@ -160,11 +163,7 @@ impl Services {
                 .collect();
             no_agent_text(&offline, &no_claude)
         };
-        *self
-            .spawn
-            .agents
-            .write()
-            .unwrap_or_else(|e| e.into_inner()) = AgentDevices {
+        *self.spawn.agents.write().unwrap_or_else(|e| e.into_inner()) = AgentDevices {
             homes: ranked.into_iter().map(|(_, _, d)| d).collect(),
             cant,
         };
@@ -183,6 +182,50 @@ impl Services {
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
+    }
+
+    /// Names of the computers without Claude Code that card t waits on:
+    /// they alone have its repo. Empty when one that can run agents has it,
+    /// or when nobody published it, which is a folder question.
+    pub(crate) fn repo_waits_on(&self, t: &coord::Task) -> Vec<String> {
+        if t.repo_key.is_empty() || t.open_ask().is_some() {
+            return Vec::new();
+        }
+        let cant = self.cant_run_devices();
+        let need = coord::machine_needed(t);
+        let hosts = self.hosts();
+        let holders: Vec<&String> = hosts
+            .iter()
+            .filter(|(_, h)| h.repo(&t.repo_key).is_some())
+            .filter(|(_, h)| need.is_empty() || h.machine() == need)
+            .map(|(d, _)| d)
+            .collect();
+        if holders.iter().any(|d| !cant.contains(*d)) {
+            return Vec::new();
+        }
+        let labels = self.device_labels();
+        let mut names: Vec<String> = holders
+            .into_iter()
+            .map(|d| device_name(&labels, d))
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// Why no agent can start for card t now; empty when one can.
+    pub(crate) fn no_agent_for(&self, t: &coord::Task) -> String {
+        if !self.coord.waits_for_agent(t) {
+            return String::new();
+        }
+        let line = self.no_agent_line();
+        if !line.is_empty() {
+            return line;
+        }
+        let names = self.repo_waits_on(t);
+        if names.is_empty() {
+            return String::new();
+        }
+        no_agent_text(&[], &names)
     }
 
     /// The devices that can't run agents, for the window's words.
@@ -213,7 +256,6 @@ impl Services {
     /// off, the phone is the only one awake to say it. The row reaches their
     /// other devices' history; it settles by itself ([`Self::resolved`]).
     pub(crate) fn say_no_agent(&self) {
-        let text = self.no_agent_line();
         let me = self.device.id.clone();
         let now = (self.now)();
         let open = self.coord.list_tasks(&coord::TaskFilter {
@@ -225,15 +267,15 @@ impl Services {
             .no_agent_told
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let waiting: Vec<&coord::Task> = open
+        let waiting: Vec<(&coord::Task, String)> = open
             .iter()
-            .filter(|t| !text.is_empty() && self.coord.waits_for_agent(t))
             .filter(|t| {
-                device_of(&t.created_by) == me
-                    || t.open_ask().is_some_and(|a| a.owner == me)
+                device_of(&t.created_by) == me || t.open_ask().is_some_and(|a| a.owner == me)
             })
+            .map(|t| (t, self.no_agent_for(t)))
+            .filter(|(_, line)| !line.is_empty())
             .collect();
-        let still: HashSet<&str> = waiting.iter().map(|t| t.id.as_str()).collect();
+        let still: HashSet<&str> = waiting.iter().map(|(t, _)| t.id.as_str()).collect();
         told.retain(|id| {
             let keep = still.contains(id.as_str());
             if !keep {
@@ -241,7 +283,7 @@ impl Services {
             }
             keep
         });
-        for t in waiting {
+        for (t, text) in waiting {
             if told.contains(&t.id) || !waited(&now, &t.created_at) {
                 continue;
             }
@@ -278,8 +320,7 @@ impl Services {
 }
 
 fn waited(now: &GoTime, since: &GoTime) -> bool {
-    i128::from(now.unix_nano()) - i128::from(since.unix_nano())
-        >= NO_AGENT_AFTER.as_nanos() as i128
+    i128::from(now.unix_nano()) - i128::from(since.unix_nano()) >= NO_AGENT_AFTER.as_nanos() as i128
 }
 
 #[cfg(test)]

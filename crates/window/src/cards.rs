@@ -931,8 +931,8 @@ type OwnerFn = Box<dyn Fn(&str) -> bool>;
 /// Resolves keys against the roster once per call (Go `people`).
 #[derive(Default)]
 pub(crate) struct People {
-    /// Why no computer can start an agent, and what's waiting (card #541).
-    pub(crate) no_agent: (String, std::collections::HashSet<String>),
+    /// Why no agent can start, by the card that waits (card #541).
+    pub(crate) no_agent: HashMap<String, String>,
     /// The devices that can't run agents (card #541).
     pub(crate) cant_run: std::collections::HashSet<String>,
     by_key: HashMap<String, coord::roster::AgentCard>,
@@ -1112,11 +1112,7 @@ impl People {
     /// Why no agent can start for card `id`; empty when one can or it
     /// doesn't wait for one.
     pub(crate) fn no_agent_for(&self, id: &str) -> String {
-        if self.no_agent.1.contains(id) {
-            self.no_agent.0.clone()
-        } else {
-            String::new()
-        }
+        self.no_agent.get(id).cloned().unwrap_or_default()
     }
 
     /// Whether `dev` is this device: empty, unknown here, or this one.
@@ -3191,8 +3187,6 @@ mod tests {
     #[test]
     fn old_no_checkout_reasons_read_with_names() {
         let mut p = People {
-            no_agent: Default::default(),
-            cant_run: Default::default(),
             self_id: "3dc30c94".into(),
             ..People::default()
         };
@@ -3240,8 +3234,6 @@ mod tests {
     #[test]
     fn where_names_devices() {
         let mut p = People {
-            no_agent: Default::default(),
-            cant_run: Default::default(),
             self_id: "me".into(),
             ..People::default()
         };

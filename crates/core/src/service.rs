@@ -2439,25 +2439,21 @@ impl Core {
         self.s.coord.is_spawned(key)
     }
 
-    /// Why no computer can start an agent now, and the open cards and
-    /// threads waiting for one (card #541); empty while one can.
-    pub fn no_agent(&self) -> (String, std::collections::HashSet<String>) {
-        let line = self.s.no_agent_line();
-        if line.is_empty() {
-            return (line, Default::default());
-        }
-        let ids = self
-            .s
+    /// The open cards and threads no agent can start for now, each with
+    /// why (card #541).
+    pub fn no_agent(&self) -> std::collections::HashMap<String, String> {
+        self.s
             .coord
             .list_tasks(&coord::TaskFilter {
                 open: true,
                 ..coord::TaskFilter::default()
             })
             .into_iter()
-            .filter(|t| self.s.coord.waits_for_agent(t))
-            .map(|t| t.id)
-            .collect();
-        (line, ids)
+            .filter_map(|t| {
+                let line = self.s.no_agent_for(&t);
+                (!line.is_empty()).then_some((t.id, line))
+            })
+            .collect()
     }
 
     /// The devices that can't run agents (card #541).

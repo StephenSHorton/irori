@@ -421,7 +421,7 @@ impl Window {
                 cant_start: t
                     .spawn_request()
                     .filter(|sp| sp.op == coord::SPAWN_FAILED && state == THREAD_WAITING)
-                    .map(|sp| crate::cards::cant_start_text(t, sp, &p))
+                    .map(|sp| crate::cards::cant_start_text(&t, sp, &p))
                     .unwrap_or_default(),
                 no_agent: if state == THREAD_WAITING {
                     p.no_agent_for(&t.id)
