@@ -235,6 +235,12 @@ pub trait Backend: Send + Sync {
     fn device_labels(&self) -> std::collections::BTreeMap<String, String> {
         std::collections::BTreeMap::new()
     }
+    /// What card `task_id` waits on for an agent (card #574), one line, or
+    /// `""` when it doesn't. `asked`: the caller just asked for one, so
+    /// it's said even where the board's list would leave it out.
+    fn spawn_wait(&self, _task_id: &str, _asked: bool) -> String {
+        String::new()
+    }
     /// Capture serves timeline, why, search, show, overview, commits and
     /// prs; `None` makes them answer "capture is off".
     fn capture(&self) -> Option<&capture::Capture> {

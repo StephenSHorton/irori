@@ -1135,6 +1135,17 @@ pub struct Wait {
     pub note: String,
     pub at: GoTime,
     pub expires: GoTime,
+    /// The shared board whose card this waits on (card #574); empty for a
+    /// card in this log or a branch. The wait lives in the waiter's own log
+    /// and the core reads the card's state for it.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub board: String,
+    /// A board card's refs and title as they were when the wait began: this
+    /// log has no such card to read them from.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub card: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub title: String,
 }
 
 /// What a new wait waits on (the `wait` tool's arguments, resolved).
@@ -1149,6 +1160,21 @@ pub struct WaitSpec {
     /// when the ref doesn't exist yet.
     pub refs: Vec<String>,
     pub note: String,
+    /// A card on a shared board (card #574): this log can't read it, so
+    /// what the wait needs comes from the caller.
+    pub on_board: Option<BoardCard>,
+}
+
+/// A shared board's card as a wait in the private log needs it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BoardCard {
+    pub board: String,
+    /// Its refs, as a list line gives them.
+    pub card: String,
+    pub title: String,
+    pub state: String,
+    /// The waiter is the card's only holder.
+    pub own: bool,
 }
 
 /// Where a card's work is (card #137): the holder's session as its device

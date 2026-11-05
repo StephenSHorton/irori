@@ -186,6 +186,8 @@ A spawn request over the cap waits in a queue, ordered by: cards Stephen assigne
 
 **Pause.** Pause all spawns nothing and holds the queue (`ask_agents`, `service.rs:2766-2778`; shared boards `boards.rs:2061-2076`). Pausing a card stops its agents' turns (`stop.rs:39+`); they stay until he unpauses or ends them.
 
+*Card #574 (GitHub #66), 2026-11-05:* an overseer marked six shared cards `spawn: true`; the call succeeded and nothing started or said why. `crates/core/src/service/spawn_why.rs` walks what the sweep walks and gives the first thing in the way as one line: after a `spawn: true` on `board_steps` or `board_split`, and as `no agent yet:` in `board` and `show`. A failed request's reason is read from its row, so a new `SpawnRefusal` shows with no change there. On its own a card says this only with a mark or a request, or on a board that starts agents; someone else's card or a board with its switch off is ordinary otherwise. **A `spawn` mark on a step starts nothing by itself**: no request names a step, and only a marked subtask gets a helper (the mark moves to one with `board_split`); an unheld card gets its agent as a card, marked or not.
+
 ## 7. Trust, permissions and who may start an agent
 
 **Who may start an agent.** A spawned agent has shell access on his machine, so starting one is treated like a revive. `request_revive` is person-only (`is_owner(by)`, `crates/coord/src/approvals.rs:667-669`) and the host turns it into an ask the person answers (`approvals.rs:531-560`). The rules for spawning:

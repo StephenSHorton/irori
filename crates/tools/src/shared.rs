@@ -103,7 +103,6 @@ const CARD_WRITES: &[&str] = &[
     "board_split",
     "board_watch",
     "board_unwatch",
-    "wait",
 ];
 
 /// Arguments that name things rather than say them: not scrubbed.

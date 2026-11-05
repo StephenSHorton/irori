@@ -53,7 +53,7 @@ pub use offers::{
 pub use parts::{DEFAULT_AGENTS_PER_CARD, MAX_AGENTS_PER_CARD, PART_QUESTION};
 pub use spawn::{
     CRASHED_QUESTION, CRASHED_START, MAX_SPAWN_CRASHES, PERMISSION_MODES, SPAWN_CANCELED,
-    SPAWN_FAILED, SPAWN_GRACE, SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk, Spawned,
+    SPAWN_FAILED, SPAWN_GRACE, SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk, SpawnHold, Spawned,
     is_crash_question,
 };
 mod resource;
@@ -865,6 +865,24 @@ impl Coord {
     pub fn fire_wait(&self, id: &str, what: &str) {
         self.lock().fire_wait(id, what)
     }
+    /// Open waits on shared boards' cards with their waiter on this device
+    /// (card #574).
+    pub fn board_waits(&self) -> Vec<Wait> {
+        self.lock().board_waits()
+    }
+    /// See [`Fold::board_wait_moved`].
+    pub fn board_wait_moved(&self, id: &str, cur: &str) -> Option<String> {
+        self.lock().board_wait_moved(id, cur)
+    }
+    /// See [`Fold::board_wait_lost`].
+    pub fn board_wait_lost(&self, id: &str) {
+        self.lock().board_wait_lost(id)
+    }
+    /// What a wait says happened to card `id` of this log, for a wait kept
+    /// in another log.
+    pub fn wait_what(&self, id: &str, was: &str, now: &str) -> String {
+        self.lock().wait_what(id, was, now)
+    }
     /// A task's newest activity lines, newest first (`None`: no such task).
     pub fn activity(&self, id: &str) -> Option<Vec<Activity>> {
         self.lock().activity_of(id)
@@ -1405,6 +1423,21 @@ impl Coord {
     /// none starting (or one starting past [`SPAWN_GRACE`]), oldest first.
     pub fn cards_to_spawn(&self) -> Vec<Task> {
         self.lock().cards_to_spawn()
+    }
+    /// What card `id` itself says about getting an agent (card #574).
+    pub fn spawn_hold(&self, id: &str) -> SpawnHold {
+        let f = self.lock();
+        f.tasks
+            .get(id)
+            .map_or(SpawnHold::NoNeed, |t| f.spawn_hold(t))
+    }
+    /// The device that hands card `id` out; `""` when this log can't say.
+    pub fn card_origin(&self, id: &str) -> String {
+        let f = self.lock();
+        f.tasks
+            .get(id)
+            .map(|t| f.card_origin(t))
+            .unwrap_or_default()
     }
     /// The requests naming this device it may start an agent for now
     /// (card #455): another of the person's devices chose it, or it chose

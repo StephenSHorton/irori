@@ -72,6 +72,7 @@ pub mod spawn_permissions;
 pub mod spawn_remote;
 pub mod spawn_stop;
 mod spawn_waiting;
+pub mod spawn_why;
 pub use mirror::BoardReviewer;
 pub mod invites;
 mod talk;
@@ -397,6 +398,9 @@ impl tools::Backend for ToolsView {
     }
     fn device_labels(&self) -> std::collections::BTreeMap<String, String> {
         self.0.device_labels()
+    }
+    fn spawn_wait(&self, task_id: &str, asked: bool) -> String {
+        self.0.spawn_wait(task_id, asked)
     }
     fn avatar(&self, name: &str) -> String {
         self.0.faces.get(name)
@@ -2432,6 +2436,12 @@ impl Core {
 
     /// This device's spawned agents (live, and starting) and its cap, for
     /// the card line "waiting: the PC is at its cap" (card #448).
+    /// What card `id` waits on for an agent (card #574); `asked`: the caller
+    /// just asked for one.
+    pub fn why_no_agent(&self, id: &str, asked: bool) -> Option<spawn_why::Why> {
+        self.s.why_no_agent(id, asked)
+    }
+
     pub fn spawn_slots(&self) -> (i64, i64) {
         (self.s.spawned_here(), self.s.spawn_cap(&self.s.device.id))
     }
@@ -3800,8 +3810,30 @@ impl Services {
         }
     }
 
+    /// Waits on shared boards' cards (card #574): the wait is in this log
+    /// and the card in the board's, so its state is read here, as a branch
+    /// wait's refs are. A board that isn't open here leaves the wait to its
+    /// day's end.
+    fn check_board_waits(&self) {
+        for w in self.coord.board_waits() {
+            let Ok(b) = self.board(&w.board) else {
+                continue;
+            };
+            let co = b.coord();
+            let Some(t) = co.get_task(&w.task_id) else {
+                self.coord.board_wait_lost(&w.id);
+                continue;
+            };
+            if let Some(was) = self.coord.board_wait_moved(&w.id, &t.state) {
+                let what = co.wait_what(&t.id, &was, &t.state);
+                self.coord.fire_wait(&w.id, &what);
+            }
+        }
+    }
+
     fn sweep_coord(self: &Arc<Self>) -> Result<(), String> {
         check_branch_waits(&self.coord);
+        self.check_board_waits();
         self.sweep_where();
         self.sweep_builds();
         let (ns, err) = self.coord.sweep_notices_partial();

@@ -318,6 +318,8 @@ pub struct Fold {
     /// The state each open task wait last saw, so the sweep catches a
     /// move that came by another path than task.status (or while off).
     pub(crate) wait_seen: HashMap<String, String>,
+    /// Board waits whose card the core found gone (card #574).
+    pub(crate) waits_lost: HashSet<String>,
 
     pub(crate) claims: Vec<ShortClaim>,
     pub(crate) claimed: HashSet<String>,
@@ -463,6 +465,7 @@ impl Fold {
             waitq: Vec::new(),
             waits_done: HashSet::new(),
             wait_seen: HashMap::new(),
+            waits_lost: HashSet::new(),
             claims: Vec::new(),
             claimed: HashSet::new(),
             short_groups: BTreeMap::new(),

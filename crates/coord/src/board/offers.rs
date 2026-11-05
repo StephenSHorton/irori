@@ -117,7 +117,7 @@ impl Fold {
 /// blocked). A task or lease blocker closes by itself when the work is
 /// done, the others when someone resolves them, and the card then goes out
 /// once, as if just posted.
-fn waits_on_work(t: &Task) -> bool {
+pub(crate) fn waits_on_work(t: &Task) -> bool {
     t.blockers
         .iter()
         .any(|b| b.open() && b.on.as_ref().is_some_and(|on| on_work(&on.kind)))
