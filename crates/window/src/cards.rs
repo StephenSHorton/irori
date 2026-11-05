@@ -302,6 +302,13 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub merge_pr: Option<WaitPr>,
+    /// A wait no agent will end (card #520): on a card nobody holds, an
+    /// item waits on an agent that is gone, or an outside wait (not a PR's
+    /// merge) was raised by one. A Needs you row with Hand to an agent,
+    /// until it is handed on, the card is stopped or someone takes it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub gone_wait: Option<GoneWait>,
     pub working: Vec<AgentRef>,
     pub watching: Vec<AgentRef>,
     pub holder: CardHolder,
@@ -391,6 +398,35 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub owner: String,
+}
+
+/// A card's first wait whose agent is gone, on a card nobody holds (card
+/// #520): "#73 waits on kestrel (gone)".
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GoneWait {
+    /// The item's id on the card.
+    pub blocker_id: String,
+    /// The agent that is gone: the one waited on, else the raiser.
+    pub agent: AgentRef,
+    /// The item waits on that agent; else it raised an outside wait.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub waited_on: bool,
+    /// What an outside wait is on, as raised ("CI on the release").
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub on: String,
+    pub question: String,
+    /// More such items on the card, beyond this one.
+    #[serde(skip_serializing_if = "is_zero")]
+    #[specta(optional)]
+    pub more: i64,
+    /// Why Hand to an agent can't move the card (a shared board's card,
+    /// an open ask, subtasks): the row says it and offers only Open.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub no_hand_on: String,
 }
 
 /// The open PR an in-review card waits on (card #471).
@@ -1847,7 +1883,7 @@ impl Window {
             }
             s.stale = s.subtasks == 0 && stale(&s, &last, now);
             s.talking = talking(&co.comments(&t.id).unwrap_or_default(), &p, now);
-            family_of(co, t, &mut s);
+            family_of(co, &p, t, &mut s);
             out.push(s);
         }
         // Every board's: "All" includes them (v0.5 §8).
@@ -2093,21 +2129,26 @@ impl Window {
     pub fn decide_count(&self) -> usize {
         let p = People::default();
         let co = self.core.coord();
-        // Card #509: a wait on a PR's merge is the person's too.
+        // Card #509: a wait on a PR's merge is the person's too, and card
+        // #520: a wait on an agent that is gone.
         let private = co
             .list_tasks(&coord::TaskFilter {
                 open: true,
                 ..Default::default()
             })
             .iter()
-            .filter(|t| card_summary(t, &p).open_blockers > 0 || merge_pr(co, t).is_some())
+            .filter(|t| {
+                card_summary(t, &p).open_blockers > 0
+                    || merge_pr(co, t).is_some()
+                    || !co.gone_waits(&t.id).is_empty()
+            })
             .count();
         private
             + self
                 .board_cards(&p, self.now_ms(), None)
                 .0
                 .iter()
-                .filter(|s| s.open_blockers > 0 || s.merge_pr.is_some())
+                .filter(|s| s.open_blockers > 0 || s.merge_pr.is_some() || s.gone_wait.is_some())
                 .count()
     }
 
@@ -2181,7 +2222,7 @@ impl Window {
                     cs.pinned = true;
                     cs.pin_rank = *r;
                 }
-                family_of(&co, &t, &mut cs);
+                family_of(&co, p, &t, &mut cs);
                 out.push(cs);
                 tasks.push(t);
             }
@@ -2244,7 +2285,7 @@ impl Window {
             let board = d.summary.board.clone();
             self.board_owner(&board, raw, &mut d.summary);
         }
-        family_of(&co, &t, &mut d.summary);
+        family_of(&co, &p, &t, &mut d.summary);
         for kid in &t.subtasks {
             let Some(mut k) = co.get_task(kid) else {
                 continue;
@@ -2911,6 +2952,30 @@ fn merge_pr(co: &coord::Coord, t: &Task) -> Option<WaitPr> {
     })
 }
 
+/// A card's first wait no agent will end (card #520), as coord's Needs
+/// you counts it: on a gone agent, or an outside wait a gone agent raised,
+/// while nobody holds the card. Waits on a PR's merge are #509's row.
+fn gone_wait(co: &coord::Coord, p: &People, t: &Task) -> Option<GoneWait> {
+    let gw = co.gone_waits(&t.id);
+    let first = gw.first()?;
+    let b = t.blockers.iter().find(|b| b.id == first.blocker_id)?;
+    Some(GoneWait {
+        blocker_id: b.id.clone(),
+        agent: p.ref_(&first.agent),
+        waited_on: first.waited_on,
+        on: if first.waited_on {
+            String::new()
+        } else {
+            b.on.as_ref()
+                .map(|on| on.reference.clone())
+                .unwrap_or_default()
+        },
+        question: b.question.clone(),
+        more: (gw.len() - 1) as i64,
+        no_hand_on: co.hand_on_refusal(&t.id),
+    })
+}
+
 /// How many cards a wait chain follows before it stops looking.
 const CHAIN_DEPTH: usize = 8;
 
@@ -2954,9 +3019,10 @@ fn wait_you(co: &coord::Coord, first: &str) -> String {
 /// A card summary's family fields (its parent, the subtask a decision
 /// waits on), from the log the card lives in (card #161: a board's for a
 /// board card).
-fn family_of(co: &coord::Coord, t: &Task, s: &mut CardSummary) {
+fn family_of(co: &coord::Coord, p: &People, t: &Task, s: &mut CardSummary) {
     s.wait_pr = wait_pr(co, t);
     s.merge_pr = merge_pr(co, t);
+    s.gone_wait = gone_wait(co, p, t);
     s.wait_you = wait_you(co, &s.wait_task);
     if !coord::is_terminal(&t.state) && !coord::task_waits(t).is_empty() {
         let card = |id: &str| {

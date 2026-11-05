@@ -457,6 +457,72 @@ fn watch_board_a_wait_on_a_pr_asks_the_person_to_merge() {
     );
 }
 
+/// Card #520: a card nobody holds whose wait's agent is gone pops up as
+/// such, never "blocked on you", with Open (nothing to answer on it).
+#[test]
+fn watch_board_a_wait_on_a_gone_agent_says_so() {
+    let r = rig();
+    let task = r.co.create_task(KEY_A, new_task("the spawner")).unwrap();
+    r.co.claim_task(KEY_A, &task.id).unwrap();
+    r.co.block(
+        KEY_A,
+        &task.id,
+        "Waiting on beta's GUI spawn",
+        Some(coord::BlockedBy {
+            kind: coord::BLOCKED_ON_AGENT.into(),
+            reference: KEY_B.into(),
+        }),
+    )
+    .unwrap();
+    r.fake.no_post(Duration::from_millis(100));
+    r.ros.drop_key(KEY_B);
+    r.co.leave(KEY_A, &task.id, KEY_A).unwrap();
+    let id = needs_id(&task.id);
+    r.fake.wait_post(&id);
+    let c = r.fake.card(&id);
+    assert!(
+        c.title.starts_with("Nobody holds it, and ")
+            && c.title.ends_with(", whom it waits on, is gone (#1)"),
+        "{:?}",
+        c.title
+    );
+    assert!(
+        c.body.starts_with("Waiting on beta's GUI spawn"),
+        "{:?}",
+        c.body
+    );
+}
+
+/// Card #520: on the person's own card there is no agent left to name,
+/// but a wait no agent will end still pops up.
+#[test]
+fn watch_board_a_gone_wait_on_the_persons_own_card_pops_up() {
+    let r = rig();
+    let task = r.co.create_task(USER, new_task("the spawner")).unwrap();
+    r.co.claim_task(KEY_A, &task.id).unwrap();
+    r.co.block(
+        KEY_A,
+        &task.id,
+        "Waiting on beta's GUI spawn",
+        Some(coord::BlockedBy {
+            kind: coord::BLOCKED_ON_AGENT.into(),
+            reference: KEY_B.into(),
+        }),
+    )
+    .unwrap();
+    r.fake.no_post(Duration::from_millis(100));
+    r.ros.drop_key(KEY_B);
+    r.co.leave(KEY_A, &task.id, KEY_A).unwrap();
+    let id = needs_id(&task.id);
+    r.fake.wait_post(&id);
+    let c = r.fake.card(&id);
+    assert!(
+        c.title.contains("whom it waits on, is gone"),
+        "{:?}",
+        c.title
+    );
+}
+
 /// Card #130: an agent's completed waits on the person's Done (card
 /// #112). Its card is good news: green, "finished", Open and Mark Done,
 /// and Mark Done closes the card. A blocked card still warns.
