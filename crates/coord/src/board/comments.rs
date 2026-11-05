@@ -1154,7 +1154,7 @@ impl Fold {
 
     /// Whether blocker b is one of this person's agents' on a board, so
     /// this device sees the private leases it may wait on (card #339).
-    fn own_on_board(&self, b: &Blocker) -> bool {
+    pub(crate) fn own_on_board(&self, b: &Blocker) -> bool {
         let mine = self.person_of(&self.person);
         self.on_board && !mine.is_empty() && self.person_of(&b.raised_by) == mine
     }
@@ -1460,6 +1460,12 @@ impl Fold {
             {
                 return true;
             }
+        }
+        // Card #509: an external wait on a GitHub PR waits on the person's
+        // merge (agents waited on theirs for days, unseen), until the PR is
+        // known merged or closed. On a board, only their own agents' waits.
+        if (viewer.is_empty() || self.is_owner(viewer)) && !self.merge_waits(t).is_empty() {
+            return true;
         }
         if viewer.is_empty() {
             return false;

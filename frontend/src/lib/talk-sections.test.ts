@@ -5,6 +5,7 @@ import {
   archived,
   dmSections,
   foldedByDefault,
+  sectionHeader,
   sectionRows,
   shownAtOnce,
   unreadIn,
@@ -48,7 +49,9 @@ describe("Talk list sections (card #463)", () => {
     const c = dm("back")
     expect(archived(c, () => true)).toBe(true)
     expect(archived(c, () => false)).toBe(false)
-    expect(dmSections([c], () => false).yours.map((x) => x.convId)).toEqual(["back"])
+    expect(dmSections([c], () => false).yours.map((x) => x.convId)).toEqual([
+      "back",
+    ])
   })
 
   test("the Archive and Agents talking start folded; your DMs, Threads and Channels don't", () => {
@@ -86,6 +89,38 @@ describe("Talk list sections (card #463)", () => {
     const all = sectionRows(items, false, "", true)
     expect(all.rows.length).toBe(20)
     expect(all.hidden).toBe(0)
+  })
+
+  test("the folded Archive shows only its count: no new pill, no Mark all read (card #514)", () => {
+    const items = [dm("a", { unread: 1 }), dm("b", { unread: 4 }), dm("c")]
+    expect(sectionHeader("gone", true, items)).toEqual({
+      unread: 0,
+      markAll: false,
+    })
+    // Opened, its rows keep their marks and Mark all read is there.
+    expect(sectionHeader("gone", false, items)).toEqual({
+      unread: 2,
+      markAll: true,
+    })
+    // Nothing new, nothing to mark.
+    expect(sectionHeader("gone", false, [dm("c")])).toEqual({
+      unread: 0,
+      markAll: false,
+    })
+  })
+
+  test("other sections keep their new pill folded and never offer Mark all read", () => {
+    const items = [dm("a", { unread: 1 }), dm("b", { unread: 4 }), dm("c")]
+    for (const k of ["threads", "channels", "dms", "agents"] as const) {
+      expect(sectionHeader(k, true, items)).toEqual({
+        unread: 2,
+        markAll: false,
+      })
+      expect(sectionHeader(k, false, items)).toEqual({
+        unread: 2,
+        markAll: false,
+      })
+    }
   })
 
   test("the unread count leaves out read-only agent↔agent DMs", () => {

@@ -2,7 +2,8 @@
 // Direct messages group, hundreds deep with agent↔agent conversations. It
 // now splits DMs into sections that fold and remembers each fold per
 // device. A folded section lists no rows at all (card #484): only its name,
-// its count and how many have something new. Keeping its unread rows
+// its count and how many have something new (the Archive only its count,
+// #514). Keeping its unread rows
 // showing half-collapsed it, rows under a folded heading.
 
 import { useCallback, useState } from "react"
@@ -203,6 +204,24 @@ export function agentSectionRows(
 // person, shown beside a folded section's name.
 export function unreadIn(items: readonly Conversation[]): number {
   return items.filter((c) => !c.readOnly && c.unread > 0).length
+}
+
+// sectionHeader is what a section's name shows besides its count: how
+// many have something new (the pill a folded section shows) and whether it
+// offers Mark all read. The Archive is there to put gone agents' DMs out of
+// the way, so folded it is only "Archive · N": no pill inviting a look, no
+// Mark all read (Stephen, #513). Opened, its rows keep their unread marks
+// and Mark all read shows while something is new. Mark all read is the
+// Archive's alone (card #473).
+export function sectionHeader(
+  k: SectionKey,
+  folded: boolean,
+  items: readonly Conversation[]
+): { unread: number; markAll: boolean } {
+  const unread = unreadIn(items)
+  if (k !== "gone") return { unread, markAll: false }
+  if (folded) return { unread: 0, markAll: false }
+  return { unread, markAll: unread > 0 }
 }
 
 const foldsKey = "irori.talk.folds"

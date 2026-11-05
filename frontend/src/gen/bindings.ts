@@ -1052,6 +1052,12 @@ export type CardSummary = {
 	 *  a small "waits on PR #N" chip with its link, never a Needs you row.
 	 */
 	waitPr?: WaitPr | null,
+	/**
+	 *  The PR an agent's open external wait asks the person to merge (card
+	 *  #509): a Needs you row with the PR's link, until it is known merged
+	 *  or closed.
+	 */
+	mergePr?: WaitPr | null,
 	working: AgentRef[],
 	watching: AgentRef[],
 	holder: CardHolder,

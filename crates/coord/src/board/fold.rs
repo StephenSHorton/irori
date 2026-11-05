@@ -2028,11 +2028,20 @@ impl Fold {
             // person whose agent holds the card: the PR poller runs there
             // (card #208). Without it the row never folded on a board and
             // every poll heard "newly merged" again (#210).
+            // Or, for a PR an external wait is on (card #509), from a device
+            // of the person whose agent raised the wait: its poller asks
+            // whoever holds the card.
             kinds::PR_STATE => self.tasks.get(&p.task_id).is_some_and(|t| {
                 t.holders
                     .iter()
                     .chain(&t.co_holders)
                     .any(|h| self.may_write(h, &ev.device_id))
+                    || row::<PrStateRow>(&ev.payload).is_some_and(|r| {
+                        t.blockers.iter().any(|b| {
+                            b.merge_wait().as_deref() == Some(r.pr.as_str())
+                                && self.may_write(&b.raised_by, &ev.device_id)
+                        })
+                    })
             }),
             // A wait that ended by itself (a lease released, card #339)
             // closes from a device of the person whose agent raised it:

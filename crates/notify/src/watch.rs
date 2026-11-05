@@ -936,12 +936,30 @@ impl Ctx<'_> {
                 instance
             };
         }
+        // Card #509: a wait on a PR's merge, with nothing else to answer,
+        // says which PR is the person's to merge.
+        let merge = t.blockers.iter().find_map(|b| b.merge_wait()).filter(|_| {
+            !t.blockers.iter().any(|b| {
+                b.open()
+                    && b.merge_wait().is_none()
+                    && b.on
+                        .as_ref()
+                        .is_none_or(|on| on.kind == coord::BLOCKED_ON_PERSON)
+            })
+        });
         let (mut title, body) = if t.state == coord::BLOCKED {
             let mut body = t.reason.clone();
             if !t.title.is_empty() && t.title != t.reason {
                 body += &format!(" · {}", t.title);
             }
-            (format!("{agent} is blocked on you"), body)
+            let pr = merge
+                .as_deref()
+                .and_then(|u| coord::parse_link(u).ok())
+                .and_then(|l| coord::pr_link(&l));
+            match pr {
+                Some((_, n)) => (format!("{agent} waits on you to merge PR #{n}"), body),
+                None => (format!("{agent} is blocked on you"), body),
+            }
         } else if t.state == coord::INPUT_REQUIRED {
             let mut body = t.title.clone();
             if !t.note.is_empty() {
