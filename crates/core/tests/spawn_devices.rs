@@ -37,6 +37,8 @@ struct Fake {
     started: Mutex<Vec<SpawnReq>>,
     ended: Mutex<Vec<String>>,
     untrusted: AtomicBool,
+    /// While set, a spawn fails with this (what `claude --bg` printed).
+    fail: Mutex<Option<String>>,
 }
 
 impl Fake {
@@ -54,6 +56,9 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf, sess: &'static str) -> Spawner {
     let s2 = sessions.clone();
     Spawner {
         spawn: Arc::new(move |r: &SpawnReq| {
+            if let Some(e) = a.fail.lock().unwrap().clone() {
+                return Err(e);
+            }
             a.started.lock().unwrap().push(r.clone());
             write_session(
                 &sessions,
@@ -749,4 +754,82 @@ fn a_shared_board_card_gets_its_makers_agent_and_never_another_members() {
     assert!(t.holders.is_empty(), "{:?}", t.holders);
     s.core.close().unwrap();
     b.core.close().unwrap();
+}
+
+/// The limits across devices (card #576): a card bound for the Mac takes no
+/// place in the PC's queue however full the PC is, and the PC's daily limit
+/// stops a card it would send to the Mac, not only one it starts itself.
+#[test]
+fn the_daily_limit_and_the_queue_follow_a_card_to_the_mac() {
+    let t2 = Two::new();
+    let b_id = t2.b_id();
+    t2.spawner_b();
+    t2.spawner_a();
+    t2.a_sees_b_host(true);
+    t2.a.core.set_spawn_cap(0).unwrap();
+    t2.a.core
+        .set_spawn_setting(SpawnSetting {
+            on: true,
+            daily_limit: 1,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    let t = t2.card("Goes to the Mac");
+    wait_for(WAIT, "A's request names B", || {
+        t2.on_a(&t.id)
+            .spawn_request()
+            .is_some_and(|s| s.device == b_id)
+    });
+    let over = t2.card("Over the daily limit");
+    t2.kick();
+    assert!(
+        t2.on_a(&over.id).spawn_request().is_none(),
+        "the daily limit stopped it being sent"
+    );
+    let q = t2.a.core.spawn_queue();
+    assert_eq!(q.daily_reached, Some(1));
+    assert!(q.places.is_empty(), "{:?}", q.places);
+
+    // A cap set for B on A reaches B, with no restart there.
+    t2.a.core.set_spawn_cap_of(&b_id, 3).unwrap();
+    wait_for(WAIT, "B has A's cap for it", || {
+        t2.b.core.set_spawn_cap_of("nobody", 1).unwrap();
+        t2.b.core.spawn_cap() == 3
+    });
+    assert_eq!(t2.a.core.spawn_cap_of(&b_id), 3);
+    t2.close();
+}
+
+/// A device held on a Claude usage limit says so on its host row (card
+/// #576): the request it had goes back to the queue as a usage limit, and
+/// the card's device doesn't ask it again until the hold ends.
+#[test]
+fn a_device_held_on_a_usage_limit_is_not_asked() {
+    let t2 = Two::new();
+    let b_id = t2.b_id();
+    t2.spawner_b();
+    t2.spawner_a();
+    t2.a_sees_b_host(true);
+    *t2.fb.fail.lock().unwrap() =
+        Some("Claude usage limit reached. Your limit will reset at 3pm".into());
+    let t = t2.card("Meets the limit on the Mac");
+    t2.spawning_on_a();
+    wait_for(WAIT, "the request ended on the usage limit", || {
+        t2.on_a(&t.id)
+            .spawn_request()
+            .is_some_and(coord::usage_limited)
+    });
+    wait_for(WAIT, "A sees B's hold", || {
+        t2.a.core
+            .spawn_hosts()
+            .get(&b_id)
+            .is_some_and(|h| h.held_until.is_some())
+    });
+    let g = t2.on_a(&t.id).spawn_request().unwrap().generation;
+    let other = t2.card("Waits while the Mac is held");
+    t2.kick();
+    assert_eq!(t2.on_a(&t.id).spawn_request().unwrap().generation, g);
+    assert!(t2.on_a(&other.id).spawn_request().is_none());
+    assert_eq!(t2.fb.started(), 0);
+    t2.close();
 }

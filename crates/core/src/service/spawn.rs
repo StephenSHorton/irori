@@ -252,10 +252,26 @@ pub struct SpawnSetting {
     /// 0 is no limit.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub daily_limit: i64,
+    /// Agents per card (§3, card #576): how many may work one card at
+    /// once, lead and helpers, unless the card sets its own. 0 is
+    /// [`coord::DEFAULT_AGENTS_PER_CARD`].
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub agents_per_card: i64,
+    /// How many of a card's agents may crash in a row before Irori stops
+    /// and asks the person (§2, card #576). 0 is
+    /// [`coord::MAX_SPAWN_CRASHES`].
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub crash_limit: i64,
+    /// How many failed starts in a row before Irori stops and asks the
+    /// person (card #576). 0 is [`super::spawn_stop::SPAWN_TRIES`].
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub start_tries: i64,
 }
 
 /// The most a daily limit may be.
 pub const MAX_DAILY_LIMIT: i64 = 1000;
+/// The most tries Settings › Agents takes, crashes or failed starts.
+pub const MAX_TRIES: i64 = 20;
 
 fn is_zero(n: &i64) -> bool {
     *n == 0
@@ -377,6 +393,17 @@ impl SpawnSetting {
                 "a daily limit is 0 (none) to {MAX_DAILY_LIMIT}, not {}",
                 self.daily_limit
             ));
+        }
+        if !(0..=MAX_CAP).contains(&self.agents_per_card) {
+            return Err(format!(
+                "agents per card is 1 to {MAX_CAP}, not {}",
+                self.agents_per_card
+            ));
+        }
+        for n in [self.crash_limit, self.start_tries] {
+            if !(0..=MAX_TRIES).contains(&n) {
+                return Err(format!("tries are 1 to {MAX_TRIES}, not {n}"));
+            }
         }
         if !self.model.is_empty() && !MODELS.contains(&self.model.as_str()) {
             return Err(format!(
@@ -520,6 +547,15 @@ pub const DONE_GRACE: Duration = Duration::from_secs(300);
 
 /// Why an ask's agents stopped starting (card #470).
 pub const ASK_CRASHED: &str = "its agent crashed twice in a row: ask again to start another";
+
+/// [`ASK_CRASHED`] at a crash limit of `n` (card #576).
+fn ask_crashed(n: u32) -> String {
+    match n {
+        1 => "its agent crashed: ask again to start another".into(),
+        coord::MAX_SPAWN_CRASHES => ASK_CRASHED.into(),
+        n => format!("its agent crashed {n} times in a row: ask again to start another"),
+    }
+}
 
 /// The start of the line Irori leaves when `claude rm` kept an ended
 /// agent's worktree (card #474); what `rm` said follows.
@@ -953,6 +989,27 @@ impl SpawnState {
             })
     }
 
+    /// What the coords read for one of the limits in a [`SpawnSetting`]
+    /// (card #576): the board's own, else the private board's, else 0 (the
+    /// default). It reads the live map, so a change holds at once, and
+    /// never the store: the hand-out calls it under the coord's lock.
+    pub(crate) fn limit_fn(
+        &self,
+        board_id: &str,
+        pick: fn(&SpawnSetting) -> i64,
+    ) -> Arc<dyn Fn() -> i64 + Send + Sync> {
+        let on = self.on.clone();
+        let board = board_id.to_string();
+        Arc::new(move || {
+            let m = on.read().unwrap_or_else(|e| e.into_inner());
+            m.get(&board)
+                .map(pick)
+                .filter(|n| *n > 0)
+                .or_else(|| m.get("").map(pick))
+                .unwrap_or(0)
+        })
+    }
+
     /// Whether he has set board `board_id`'s switch himself (else it is
     /// the default, which the first-run notice explains).
     pub fn switch_set(&self, board_id: &str) -> bool {
@@ -1023,6 +1080,9 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
                     r.s.model.clear();
                     r.s.effort.clear();
                     r.s.daily_limit = 0;
+                    r.s.agents_per_card = 0;
+                    r.s.crash_limit = 0;
+                    r.s.start_tries = 0;
                 }
                 let board = r.s.board_id.clone();
                 newest.insert(board.clone(), r.clone());
@@ -1317,27 +1377,39 @@ impl Services {
         self.end_superseded(&sp);
     }
 
-    /// An open ask here whose agents crashed twice in a row (card #470)
-    /// gets no more: its last request is marked failed with why, so the
-    /// thread says it rather than waiting in silence (an open ask can't
-    /// carry a card's crash question). The person asking it
-    /// again starts the count over.
+    /// An open ask here whose agents crashed up to the crash limit (card
+    /// #470) gets no more: its last request is marked failed with why, so
+    /// the thread says it rather than waiting in silence (an open ask can't
+    /// carry a card's crash question). The person asking it again starts
+    /// the count over. A card already past a limit he lowered asks him now
+    /// rather than wait unsaid (card #576).
     fn say_ask_crashes(&self) {
         let me = self.device.id.as_str();
+        let limit = self.coord.crash_limit();
         for t in self.open_cards() {
             let Some(a) = t.open_ask() else {
+                if t.spawn_crashes >= limit
+                    && t.holders.is_empty()
+                    && !t.spawn_request().is_some_and(|s| s.pending())
+                    && let Err(e) = self.coord.stop_crashed(&t.id)
+                {
+                    logf(format_args!("spawn {}: {e}", t.short_ref()));
+                }
                 continue;
             };
-            if a.owner != me || t.spawn_crashes < coord::MAX_SPAWN_CRASHES {
+            if a.owner != me || t.spawn_crashes < limit {
                 continue;
             }
             let Some(s) = t.spawn_request().filter(|s| s.op != SPAWN_FAILED) else {
                 continue;
             };
-            if let Err(e) =
-                self.coord
-                    .end_spawn(SWEEPER, &t.id, s.generation, SPAWN_FAILED, ASK_CRASHED)
-            {
+            if let Err(e) = self.coord.end_spawn(
+                SWEEPER,
+                &t.id,
+                s.generation,
+                SPAWN_FAILED,
+                &ask_crashed(limit),
+            ) {
                 logf(format_args!("spawn {}: {e}", t.short_ref()));
             }
         }

@@ -485,6 +485,9 @@ export type AgentsChange = {
 	idleMins?: number | null,
 	/**  0 turns the daily limit off. */
 	dailyLimit?: number | null,
+	agentsPerCard?: number | null,
+	crashLimit?: number | null,
+	startTries?: number | null,
 };
 
 /**
@@ -545,6 +548,22 @@ export type AgentsSettings = {
 	 *  cards wait for the person to start theirs. 0 is none.
 	 */
 	dailyLimit: number,
+	/**
+	 *  Agents per card (card #576): how many may work one card at once,
+	 *  its lead and helpers.
+	 */
+	agentsPerCard: number,
+	/**
+	 *  How many of a card's agents may crash in a row before Irori stops
+	 *  and asks (card #576).
+	 */
+	crashLimit: number,
+	/**  How many failed starts in a row before Irori stops and asks. */
+	startTries: number,
+	/**  Their defaults, for the choices' labels. */
+	defaultAgentsPerCard: number,
+	defaultCrashLimit: number,
+	defaultStartTries: number,
 };
 
 /**  Answer's reply: the card after the answer, and who heard. */
@@ -1497,9 +1516,8 @@ export type DeviceCap = {
 	name: string,
 	here: boolean,
 	/**
-	 *  The cap: his pick, or for this device its default. 0 for another
-	 *  device he hasn't set: it uses its own default (6 on a Windows PC,
-	 *  12 on a Mac).
+	 *  The cap: his pick, else its default (6 on a Windows PC, 12 on a
+	 *  Mac). 0 is his: that device starts none.
 	 */
 	cap: number,
 	/**  He picked it. */

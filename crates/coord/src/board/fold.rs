@@ -248,6 +248,8 @@ pub struct Fold {
     pub(crate) offers: Option<super::OffersFn>,
     /// See [`super::Options::agents_per_card`].
     pub(crate) agents_per_card: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
+    /// See [`super::Options::crash_limit`].
+    pub(crate) crash_limit: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
     /// See [`super::Options::outside_leases`].
     pub(crate) outside_leases: Option<Arc<dyn Fn() -> Vec<String> + Send + Sync>>,
     /// See [`super::Options::device_version`].
@@ -427,6 +429,7 @@ impl Fold {
             spawning: o.spawning,
             offers: o.offers,
             agents_per_card: o.agents_per_card,
+            crash_limit: o.crash_limit,
             outside_leases: o.outside_leases,
             device_version: o.device_version,
             outside_waits: Default::default(),

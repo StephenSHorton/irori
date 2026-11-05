@@ -1093,6 +1093,14 @@ impl Core {
                         let def = spawn_state.private_default.clone();
                         Arc::new(move || spawn::SpawnState::switch(&on, &def, ""))
                     }),
+                    // The limits the coord reads (card #576): from the
+                    // same map, so a change holds at once.
+                    agents_per_card: Some(spawn::SpawnState::limit_fn(&spawn_state, "", |s| {
+                        s.agents_per_card
+                    })),
+                    crash_limit: Some(spawn::SpawnState::limit_fn(&spawn_state, "", |s| {
+                        s.crash_limit
+                    })),
                     // A terminal agent takes unheld cards, asks and threads
                     // only with the person's "Offer it cards" on (card
                     // #453); a spawned agent's rule is the coord's.
@@ -2465,9 +2473,9 @@ impl Core {
         PathBuf::from(self.s.presence.claude_dir())
     }
 
-    /// Device `device`'s cap (card #450): his pick, else the default.
+    /// Device `device`'s cap (card #450): his pick, else its OS's default.
     pub fn spawn_cap_of(&self, device: &str) -> i64 {
-        self.s.spawn_cap(device)
+        self.s.cap_on(device, self.s.hosts().get(device))
     }
 
     /// Whether he picked device `device`'s cap himself.

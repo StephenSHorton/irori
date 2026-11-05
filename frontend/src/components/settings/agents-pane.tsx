@@ -3,12 +3,13 @@
 // switch for agents Irori starts per card, and the model and effort they
 // start with, the idle limit, the agents running now, what they may do
 // and how each repo's work reaches main, and which of this computer's
-// repos are trusted for agents (card #456); and (card #450, part 6) how
-// many may run on each device, the daily limit, today's count and cost,
-// and a Claude usage limit holding the queue. Only you set these, here; no
-// agent's tool can. Agents per card wait on part 7 (card #451).
+// repos are trusted for agents (card #456); and every limit on them (cards
+// #450, #576): how many may run on each device, the daily limit, agents per
+// card, the idle limit and the crashes and failed starts before Irori asks,
+// with today's count and cost and a Claude usage limit holding the queue.
+// Only you set these, here; no agent's tool can.
 
-import { useContext, useId, useState } from "react"
+import { useContext, useId, useState, type ReactNode } from "react"
 import { FolderIcon, ShieldAlertIcon, ShieldCheckIcon } from "lucide-react"
 
 import { ChoiceSelect } from "@/components/common/choice-select"
@@ -17,7 +18,10 @@ import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import {
   DAILY_CHOICES,
+  PER_CARD_CHOICES,
+  TRIES_CHOICES,
   costLabel,
+  countLabel,
   dailyLabel,
   effortLabel,
   endAgent,
@@ -28,6 +32,8 @@ import {
   useAgents,
   useRunning,
   useTrusted,
+  withChoice,
+  type AgentsChange,
   type AgentsSettings,
   type RunningAgent,
   type TrustedRepo,
@@ -105,29 +111,7 @@ export function AgentsPane({ open }: { open: boolean }) {
           />
         </div>
       </section>
-      <section className="grid gap-2">
-        <h3 className="text-sm font-medium text-ink">Idle limit</h3>
-        <p className="text-[12.5px] text-muted-foreground">
-          An agent Irori started that waits this long on a question for you
-          writes where it left off and goes. Your answer starts a fresh one.
-        </p>
-        <ChoiceSelect
-          label="Idle limit"
-          size="sm"
-          value={String(s.idleMins)}
-          choices={s.idleChoices.map((m) => ({
-            value: String(m),
-            label: idleLabel(m),
-          }))}
-          onValueChange={(v) => set({ idleMins: Number(v) })}
-          className="w-48 text-[13px]"
-        />
-      </section>
-      <LimitsSection
-        open={open}
-        settings={s}
-        onDaily={(n) => set({ dailyLimit: n })}
-      />
+      <LimitsSection open={open} settings={s} set={set} />
       <RunningSection open={open} />
       <PermissionsSection open={open} />
       <TrustedSection open={open} />
@@ -136,27 +120,52 @@ export function AgentsPane({ open }: { open: boolean }) {
   )
 }
 
-// CAP_CHOICES are the caps offered; a device's own number is added when
-// it isn't one of them.
-const CAP_CHOICES = [1, 2, 3, 4, 6, 8, 10, 12, 16, 20, 24, 32, 48]
+// CAP_CHOICES are the caps offered; 0 starts none there. A device's own
+// number is added when it isn't one of them.
+const CAP_CHOICES = [
+  0, 1, 2, 3, 4, 6, 8, 10, 12, 16, 20, 24, 32, 48, 64, 100, 200,
+]
 
-// LimitsSection is how many agents run at once on each device, the daily
-// limit, today's count and cost, and a usage limit holding the queue
-// (card #450, sa-6). Over a device's cap a card queues and says its place;
-// a Claude usage limit queues every card until it resets.
+// LimitRow is one limit: what it is, what it does, and its control. Every
+// limit on agents is one row here (card #576), so a new one is one more
+// row in LimitsSection's list; "My agents may start agents" (card #575)
+// goes there too.
+function LimitRow({
+  title,
+  hint,
+  children,
+}: {
+  title: string
+  hint: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+      <span className="flex min-w-0 flex-1 basis-56 flex-col">
+        <span className="truncate text-[13px] text-ink">{title}</span>
+        <span className="text-xs text-muted-foreground">{hint}</span>
+      </span>
+      {children}
+    </li>
+  )
+}
+
+// LimitsSection is every limit on the agents Irori starts: how many run at
+// once on each device, and below that the limits on a day and a card, with
+// today's count and cost and a usage limit holding the queue (cards #450,
+// #576, sa-6). Over a device's cap a card queues and says its place; a
+// Claude usage limit queues every card until it resets. A change holds from
+// the next start, with no restart; agents already running keep going.
 function LimitsSection({
   open,
   settings: s,
-  onDaily,
+  set,
 }: {
   open: boolean
   settings: AgentsSettings
-  onDaily: (n: number) => void
+  set: (c: Omit<AgentsChange, "boardId">) => void
 }) {
   const { limits: l, error, setCap } = useLimits(open)
-  const daily = DAILY_CHOICES.includes(s.dailyLimit)
-    ? DAILY_CHOICES
-    : [...DAILY_CHOICES, s.dailyLimit].sort((a, b) => a - b)
   return (
     <section className="grid gap-2">
       <h3 className="text-sm font-medium text-ink">Limits</h3>
@@ -181,46 +190,38 @@ function LimitsSection({
             >
               A Claude usage limit is holding new agents (
               {usageResets(new Date(l.heldUntil).toISOString())}). Queued cards
-              start then; agents that stopped on it aren't counted as crashes.
+              start then; agents that stopped on it aren&apos;t counted as
+              crashes.
             </p>
           )}
           <ul className="grid divide-y divide-border rounded-md border border-border">
-            {l.devices.map((d) => {
-              const choices =
-                d.cap === 0 || CAP_CHOICES.includes(d.cap)
-                  ? CAP_CHOICES
-                  : [...CAP_CHOICES, d.cap].sort((a, b) => a - b)
-              return (
-                <li
-                  key={d.device}
-                  className="flex flex-wrap items-center justify-between gap-2 px-3 py-2"
-                >
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate text-[13px] text-ink">
-                      {d.name}
-                    </span>
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {d.cap > 0
-                        ? `${d.running} of ${d.cap} running`
-                        : `${d.running} running · its own default`}
-                    </span>
+            {l.devices.map((d) => (
+              <LimitRow
+                key={d.device}
+                title={d.name}
+                hint={
+                  <span className="tabular-nums">
+                    {d.cap > 0
+                      ? `${d.running} of ${d.cap} running`
+                      : `${d.running} running · starts no more`}
                   </span>
-                  <ChoiceSelect
-                    label={`At most on ${d.name}`}
-                    size="sm"
-                    value={d.cap > 0 ? String(d.cap) : ""}
-                    choices={choices
-                      .filter((n) => n <= l.maxCap)
-                      .map((n) => ({
-                        value: String(n),
-                        label: `${n} at once`,
-                      }))}
-                    onValueChange={(v) => setCap(d.device, Number(v))}
-                    className="w-36 text-[13px]"
-                  />
-                </li>
-              )
-            })}
+                }
+              >
+                <ChoiceSelect
+                  label={`At most on ${d.name}`}
+                  size="sm"
+                  value={String(d.cap)}
+                  choices={withChoice(CAP_CHOICES, d.cap)
+                    .filter((n) => n <= l.maxCap)
+                    .map((n) => ({
+                      value: String(n),
+                      label: n === 0 ? "None" : `${n} at once`,
+                    }))}
+                  onValueChange={(v) => setCap(d.device, Number(v))}
+                  className="w-36 text-[13px]"
+                />
+              </LimitRow>
+            ))}
           </ul>
         </>
       ) : (
@@ -228,27 +229,94 @@ function LimitsSection({
           {error ? `Could not load: ${error}` : "Loading…"}
         </p>
       )}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="flex flex-col">
-          <span className="text-[13px] text-ink">Daily limit</span>
-          <span className="text-xs text-muted-foreground">
-            Once this many agents started today, new cards wait for you to start
-            theirs.
-            {l?.dailyReached && " Today's are started."}
-          </span>
-        </span>
-        <ChoiceSelect
-          label="Daily limit"
-          size="sm"
-          value={String(s.dailyLimit)}
-          choices={daily.map((n) => ({
-            value: String(n),
-            label: dailyLabel(n),
-          }))}
-          onValueChange={(v) => onDaily(Number(v))}
-          className="w-48 text-[13px]"
-        />
-      </div>
+      <ul className="grid divide-y divide-border rounded-md border border-border">
+        <LimitRow
+          title="Daily limit"
+          hint={
+            <>
+              Once this many agents started today, on all your computers, cards
+              this computer hands out wait for you to start theirs.
+              {l?.dailyReached && " Today's are started."}
+            </>
+          }
+        >
+          <ChoiceSelect
+            label="Daily limit"
+            size="sm"
+            value={String(s.dailyLimit)}
+            choices={withChoice(DAILY_CHOICES, s.dailyLimit).map((n) => ({
+              value: String(n),
+              label: dailyLabel(n),
+            }))}
+            onValueChange={(v) => set({ dailyLimit: Number(v) })}
+            className="w-44 text-[13px]"
+          />
+        </LimitRow>
+        <LimitRow
+          title="Agents per card"
+          hint="How many may work one card at once: its lead and the helpers it asks for."
+        >
+          <ChoiceSelect
+            label="Agents per card"
+            size="sm"
+            value={String(s.agentsPerCard)}
+            choices={withChoice(PER_CARD_CHOICES, s.agentsPerCard).map((n) => ({
+              value: String(n),
+              label: countLabel(n, s.defaultAgentsPerCard, "agent", "agents"),
+            }))}
+            onValueChange={(v) => set({ agentsPerCard: Number(v) })}
+            className="w-44 text-[13px]"
+          />
+        </LimitRow>
+        <LimitRow
+          title="Idle limit"
+          hint="An agent that waits this long on a question for you writes where it left off and goes. Your answer starts a fresh one."
+        >
+          <ChoiceSelect
+            label="Idle limit"
+            size="sm"
+            value={String(s.idleMins)}
+            choices={s.idleChoices.map((m) => ({
+              value: String(m),
+              label: idleLabel(m),
+            }))}
+            onValueChange={(v) => set({ idleMins: Number(v) })}
+            className="w-44 text-[13px]"
+          />
+        </LimitRow>
+        <LimitRow
+          title="Crashes in a row"
+          hint="After this many of a card's agents go away before finishing, Irori asks you before starting another."
+        >
+          <ChoiceSelect
+            label="Crashes in a row"
+            size="sm"
+            value={String(s.crashLimit)}
+            choices={withChoice(TRIES_CHOICES, s.crashLimit).map((n) => ({
+              value: String(n),
+              label: countLabel(n, s.defaultCrashLimit, "crash", "crashes"),
+            }))}
+            onValueChange={(v) => set({ crashLimit: Number(v) })}
+            className="w-44 text-[13px]"
+          />
+        </LimitRow>
+        <LimitRow
+          title="Failed starts in a row"
+          hint="After this many tries that couldn't start an agent for a card, Irori asks you before trying again."
+        >
+          <ChoiceSelect
+            label="Failed starts in a row"
+            size="sm"
+            value={String(s.startTries)}
+            choices={withChoice(TRIES_CHOICES, s.startTries).map((n) => ({
+              value: String(n),
+              label: countLabel(n, s.defaultStartTries, "try", "tries"),
+            }))}
+            onValueChange={(v) => set({ startTries: Number(v) })}
+            className="w-44 text-[13px]"
+          />
+        </LimitRow>
+      </ul>
       {error && l && <p className="text-[12.5px] text-destructive">{error}</p>}
     </section>
   )

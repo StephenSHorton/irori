@@ -14,10 +14,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::*;
-use coord::{NewTask, Task, Where};
+use coord::{NewSubtask, NewTask, Task, Where};
 use gocompat::time::GoTime;
-use irori_core::spawn::{SpawnReq, SpawnSetting, SpawnStarted, Spawner};
+use irori_core::spawn::{SpawnCap, SpawnReq, SpawnSetting, SpawnStarted, Spawner};
 use irori_core::spawn_limits::USAGE_STOPPED;
+use irori_core::spawn_stop::START_FAILED;
+use store::kinds;
 
 /// The session id of the fake's nth spawn (1-based).
 fn sess(n: usize) -> String {
@@ -450,4 +452,123 @@ fn a_daily_limit_is_checked() {
     s.r.core.set_spawn_cap_of("other-device", 12).unwrap();
     assert_eq!(s.r.core.spawn_cap_of("other-device"), 12);
     assert!(s.r.core.spawn_cap_set("other-device"));
+}
+
+/// Every limit in Settings › Agents holds from the next pass, with no
+/// restart (card #576): a lower cap stops the next start, and agents per
+/// card reaches the coord that hands helpers out.
+#[test]
+fn a_changed_limit_holds_without_a_restart() {
+    let s = Setup::new();
+    let co = s.r.core.coord();
+    s.r.core.set_spawn_cap(0).unwrap();
+    let lead = s.r.key_a.clone();
+    let p = s.card(&s.person, "big card");
+    co.claim_task(&lead, &p.id).unwrap();
+    let subs = (0..6)
+        .map(|i| NewSubtask {
+            title: format!("part {i}"),
+            spawn: true,
+            ..NewSubtask::default()
+        })
+        .collect();
+    co.split(&lead, &p.id, subs, vec![]).unwrap();
+    assert_eq!(co.cards_to_spawn().len(), 3, "the default 4: lead and 3");
+    let limit = |n: i64| {
+        let mut set = s.r.core.spawn_setting("");
+        set.agents_per_card = n;
+        s.r.core.set_spawn_setting(set).unwrap();
+    };
+    limit(2);
+    assert_eq!(co.cards_to_spawn().len(), 1);
+    limit(6);
+    assert_eq!(co.cards_to_spawn().len(), 5);
+
+    // A cap of 0 starts nothing, and raising it starts one, untouched.
+    let plain = s.card(&s.person, "a card with a folder");
+    s.install();
+    s.settle(0);
+    s.r.core.set_spawn_cap(1).unwrap();
+    wait_for(60, "one starts", || s.started().len() == 1);
+    assert_eq!(s.started(), vec![plain.id.clone()]);
+    s.settle(1);
+}
+
+/// The person's number of failed starts before Irori asks (card #576).
+#[test]
+fn failed_starts_ask_at_the_persons_number() {
+    let s = Setup::new();
+    s.r.core
+        .set_spawn_setting(SpawnSetting {
+            on: true,
+            start_tries: 1,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    *s.fake.fail.lock().unwrap() = Some("claude: not logged in".into());
+    let t = s.card(&s.person, "can't start");
+    s.install();
+    wait_for(60, "the first failure asks", || {
+        s.r.core
+            .coord()
+            .get_task(&t.id)
+            .unwrap()
+            .blockers
+            .iter()
+            .any(|b| b.open() && b.question == START_FAILED)
+    });
+}
+
+/// Limits past what Settings offers are refused, and a stored row with one
+/// falls back to the defaults (card #576).
+#[test]
+fn the_new_limits_are_checked() {
+    let s = Setup::new();
+    let set = |f: fn(&mut SpawnSetting)| {
+        let mut v = SpawnSetting {
+            on: true,
+            ..SpawnSetting::default()
+        };
+        f(&mut v);
+        s.r.core.set_spawn_setting(v)
+    };
+    assert!(set(|v| v.agents_per_card = -1).is_err());
+    assert!(set(|v| v.agents_per_card = 201).is_err());
+    assert!(set(|v| v.crash_limit = 21).is_err());
+    assert!(set(|v| v.start_tries = -1).is_err());
+    set(|v| v.agents_per_card = 200).unwrap();
+    set(|v| v.crash_limit = 20).unwrap();
+}
+
+/// Decision 23: a limit is the person's. A `spawn.cap` or `spawn.set` row
+/// written as anything but the app's "user" is ignored.
+#[test]
+fn an_agent_cant_change_a_limit() {
+    let s = Setup::new();
+    s.r.core.set_spawn_cap(2).unwrap();
+    let me = s.r.core.device_id().to_string();
+    let agent = s.r.key_a.clone();
+    let st = s.r.core.store();
+    st.append(
+        &agent,
+        kinds::SPAWN_CAP,
+        &SpawnCap {
+            device: me,
+            cap: 50,
+            by: agent.clone(),
+            at: GoTime::unix(1_790_000_000, 0),
+        },
+    )
+    .unwrap();
+    st.append(
+        &agent,
+        kinds::SPAWN_SET,
+        &serde_json::json!({ "on": true, "dailyLimit": 900, "agentsPerCard": 100 }),
+    )
+    .unwrap();
+    s.kick();
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(s.r.core.spawn_cap(), 2);
+    let set = s.r.core.spawn_setting("");
+    assert_eq!((set.daily_limit, set.agents_per_card), (0, 0));
 }

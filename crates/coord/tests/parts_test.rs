@@ -600,3 +600,40 @@ fn the_spawn_queue_puts_the_persons_cards_then_helpers_then_the_rest() {
     let l = ids(&e.c.cards_to_spawn());
     assert_eq!(&l[..2], [mine.id.clone(), later_agents.id.clone()]);
 }
+
+/// Agents per card is the person's (card #576): read at each pass, and past
+/// the ceiling on one card's own Up to N.
+#[test]
+fn agents_per_card_is_read_live_and_may_pass_the_cards_own_ceiling() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicI64, Ordering};
+    let n = Arc::new(AtomicI64::new(2));
+    let mut e = env();
+    let read = n.clone();
+    e.c = e.reopen_with(Options {
+        done_check: true,
+        spawning: Some(Arc::new(|| true)),
+        agents_per_card: Some(Arc::new(move || read.load(Ordering::SeqCst))),
+        ..e.opts()
+    });
+    let p =
+        e.c.create_task(
+            USER,
+            NewTask {
+                title: "big card".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    e.c.claim_task(LEAD, &p.id).unwrap();
+    let parts = 20;
+    let subs = (0..parts).map(|i| sub(&format!("p{i}"), true)).collect();
+    let (_, made) = e.c.split(LEAD, &p.id, subs, vec![]).unwrap();
+    assert_eq!(listed(&e, &made), 1);
+    n.store(4, Ordering::SeqCst);
+    assert_eq!(listed(&e, &made), 3);
+    n.store(MAX_AGENTS_PER_CARD + 4, Ordering::SeqCst);
+    assert_eq!(listed(&e, &made), MAX_AGENTS_PER_CARD as usize + 3);
+    n.store(0, Ordering::SeqCst);
+    assert_eq!(listed(&e, &made), DEFAULT_AGENTS_PER_CARD as usize - 1);
+}

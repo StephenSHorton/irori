@@ -337,9 +337,10 @@ impl Services {
             if !held && self.daily_stops(&t, today) {
                 continue;
             }
-            // Bound for another device: it takes no slot here, and isn't
-            // queued for this one (card #455's routing, as the sweep does).
-            if !held && self.spawn_device(&t).is_some_and(|d| d != me) {
+            // Bound for another device, or waiting for one: it takes no
+            // slot here and isn't queued for this one (card #455's routing,
+            // as the sweep does).
+            if !held && self.spawn_device(&t).as_ref() != Some(&me) {
                 continue;
             }
             if free > 0 {

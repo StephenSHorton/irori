@@ -17,7 +17,13 @@ import { AgentsService } from "./host"
 import { inWails } from "./irori"
 import { previewFlag } from "./preview"
 
-export type { AgentsLimits, AgentsSettings, RunningAgent, TrustedRepo }
+export type {
+  AgentsChange,
+  AgentsLimits,
+  AgentsSettings,
+  RunningAgent,
+  TrustedRepo,
+}
 
 // sampleAgents is the preview's private board: chosen and on, or with
 // ?spawn=first on by default and not yet chosen, so Home shows the
@@ -36,6 +42,12 @@ export function sampleAgents(): AgentsSettings {
     idleMins: 30,
     idleChoices: [10, 30, 60, 120, 240],
     dailyLimit: 0,
+    agentsPerCard: 4,
+    crashLimit: 2,
+    startTries: 3,
+    defaultAgentsPerCard: 4,
+    defaultCrashLimit: 2,
+    defaultStartTries: 3,
   }
 }
 
@@ -102,6 +114,9 @@ export function useAgents(open: boolean, boardId = "") {
         effort: c.effort ?? null,
         idleMins: c.idleMins ?? null,
         dailyLimit: c.dailyLimit ?? null,
+        agentsPerCard: c.agentsPerCard ?? null,
+        crashLimit: c.crashLimit ?? null,
+        startTries: c.startTries ?? null,
       }
       if (!inWails()) {
         setS((x) =>
@@ -114,6 +129,9 @@ export function useAgents(open: boolean, boardId = "") {
                 effort: c.effort ?? x.effort,
                 idleMins: c.idleMins ?? x.idleMins,
                 dailyLimit: c.dailyLimit ?? x.dailyLimit,
+                agentsPerCard: c.agentsPerCard ?? x.agentsPerCard,
+                crashLimit: c.crashLimit ?? x.crashLimit,
+                startTries: c.startTries ?? x.startTries,
               }
             : x
         )
@@ -321,6 +339,28 @@ export function useRunning(open: boolean) {
 // DAILY_CHOICES are the daily limits Settings › Agents offers (card #450);
 // 0 is none.
 export const DAILY_CHOICES = [0, 10, 20, 40, 80]
+
+// PER_CARD_CHOICES are the agents per card offered (card #576), and
+// TRIES_CHOICES the crashes or failed starts before Irori asks you. A
+// number set some other way is added to the list where it's shown.
+export const PER_CARD_CHOICES = [1, 2, 3, 4, 6, 8, 12, 16, 24]
+export const TRIES_CHOICES = [1, 2, 3, 5, 10, 20]
+
+// withChoice is the choices with n among them, in order.
+export function withChoice(choices: number[], n: number): number[] {
+  return choices.includes(n) ? choices : [...choices, n].sort((a, b) => a - b)
+}
+
+// countLabel names a number with its unit, marking the default.
+export function countLabel(
+  n: number,
+  def: number,
+  one: string,
+  many: string
+): string {
+  const s = `${n} ${n === 1 ? one : many}`
+  return n === def ? `${s} (default)` : s
+}
 
 // dailyLabel names a daily limit.
 export function dailyLabel(n: number): string {

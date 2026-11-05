@@ -30,7 +30,8 @@ use super::util::{SWEEPER, cut};
 /// A card's agents at once, lead and helpers, when neither the card nor
 /// the board says (decision 12).
 pub const DEFAULT_AGENTS_PER_CARD: i64 = 4;
-/// The most a card may ask for: the Mac's device cap (decision 11).
+/// The most one card's own "Up to N" may ask for: the Mac's device cap
+/// (decision 11). The board's Agents per card isn't held to it.
 pub const MAX_AGENTS_PER_CARD: i64 = 12;
 
 /// The thread line's tail when a row's marks were set aside.
@@ -91,7 +92,7 @@ impl Fold {
                 !is_terminal(&p.state)
                     && p.holders.is_empty()
                     && !p.shared
-                    && p.spawn_crashes < super::spawn::MAX_SPAWN_CRASHES
+                    && p.spawn_crashes < self.crash_limit()
             })
     }
 
@@ -134,8 +135,14 @@ impl Fold {
             .map(|f| f())
             .filter(|n| *n >= 1)
             .unwrap_or(DEFAULT_AGENTS_PER_CARD);
-        let n = if t.agents >= 1 { t.agents } else { board };
-        n.clamp(1, MAX_AGENTS_PER_CARD) as usize
+        // The board's number is the person's, from Settings › Agents, and
+        // has its own bound there (card #576).
+        let n = if t.agents >= 1 {
+            t.agents.min(MAX_AGENTS_PER_CARD)
+        } else {
+            board
+        };
+        n.max(1) as usize
     }
 
     /// The agents on card t now, and those starting: its holders and step

@@ -49,7 +49,22 @@ pub const CRASHED_START: &str = "Start another agent";
 
 /// Whether b is Irori's crash question.
 pub fn is_crash_question(b: &Blocker) -> bool {
-    b.raised_by == SWEEPER && b.question == CRASHED_QUESTION
+    b.raised_by == SWEEPER && is_crash_text(&b.question)
+}
+
+/// Whether `q` is [`crash_question`]'s, at any limit (card #576).
+pub(crate) fn is_crash_text(q: &str) -> bool {
+    q.starts_with("Its agent crashed") && q.ends_with(": start another?")
+}
+
+/// The question at a crash limit of `n`: [`CRASHED_QUESTION`] at the
+/// default, so rows and older devices read it as before.
+pub fn crash_question(n: u32) -> String {
+    match n {
+        0 | 1 => "Its agent crashed: start another?".into(),
+        MAX_SPAWN_CRASHES => CRASHED_QUESTION.into(),
+        n => format!("Its agent crashed {n} times in a row: start another?"),
+    }
 }
 
 /// The permission modes a spawn may pass (§7). One is always passed.
@@ -652,7 +667,7 @@ impl Fold {
             // Only on a device that runs the card's side (card #495),
             // unless the person asked for an agent on it here.
             .filter(|t| self.runs_here(t) || self.spawn_now.contains(&t.id))
-            .filter(|t| t.spawn_crashes < MAX_SPAWN_CRASHES)
+            .filter(|t| t.spawn_crashes < self.crash_limit())
             .filter(|t| !self.ask_resting(t))
             .filter(|t| !self.waits_for_lead(t))
             .filter(|t| {
@@ -705,6 +720,19 @@ impl Fold {
             .collect();
         v.sort_by(|a, b| gotime::cmp(&a.1.at, &b.1.at).then_with(|| a.0.cmp(&b.0)));
         v
+    }
+}
+
+impl Fold {
+    /// How many of a card's agents may crash in a row before Irori stops
+    /// and asks the person (card #576): the board's setting, else
+    /// [`MAX_SPAWN_CRASHES`].
+    pub(crate) fn crash_limit(&self) -> u32 {
+        self.crash_limit
+            .as_ref()
+            .map(|f| f())
+            .filter(|n| *n >= 1)
+            .map_or(MAX_SPAWN_CRASHES, |n| n as u32)
     }
 }
 

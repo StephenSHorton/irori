@@ -88,6 +88,9 @@ impl SpawnHost {
     }
 }
 
+/// What a `spawn.host` row last said: the OS, repos and usage hold.
+type HostShown = (String, Vec<HostRepo>, Option<GoTime>);
+
 /// A `spawn.end.requested` row.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -148,7 +151,7 @@ pub(crate) struct RemoteState {
     /// When this device last looked at what it can start agents in, and
     /// what it last published.
     host_at: Mutex<Option<GoTime>>,
-    host_last: Mutex<Option<(String, Vec<HostRepo>, Option<GoTime>)>>,
+    host_last: Mutex<Option<HostShown>>,
     /// Devices asked to start a card's agent, and when: the next request
     /// names another device first (§9 "the next device that has the repo").
     tried: Mutex<HashMap<String, HashMap<String, GoTime>>>,
