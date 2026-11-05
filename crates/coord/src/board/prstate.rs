@@ -117,6 +117,15 @@ impl Fold {
             .collect()
     }
 
+    /// Whether PR `pr` on card `id` is known merged or closed (card #509):
+    /// a wait on it no longer needs the person.
+    pub(crate) fn pr_settled(&self, id: &str, pr: &str) -> bool {
+        self.pr_states
+            .get(id)
+            .and_then(|by_pr| by_pr.get(pr))
+            .is_some_and(|p| p.state == PR_MERGED || p.state == PR_CLOSED)
+    }
+
     /// Refuses an agent's completed while a PR its card links is known to
     /// be open (card #208). A PR GitHub couldn't be asked about doesn't
     /// count: the rules without it apply.
@@ -152,10 +161,15 @@ impl Fold {
         let Some(t) = self.tasks.get(id).cloned() else {
             return Err(not_found(format!("task {}", quote(id))));
         };
+        // Card #509: or a PR an open external wait is on.
         if !t
             .links
             .iter()
             .any(|l| l.reference == c.pr && pr_link(l).is_some())
+            && !t
+                .blockers
+                .iter()
+                .any(|b| b.merge_wait().is_some_and(|w| w == c.pr))
         {
             return Err(invalid(format!(
                 "{} links no pull request {}",

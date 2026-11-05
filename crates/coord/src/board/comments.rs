@@ -1451,6 +1451,19 @@ impl Fold {
                 return true;
             }
         }
+        // Card #509: an external wait on a GitHub PR waits on the person's
+        // merge (agents waited on theirs for days, unseen), until the PR is
+        // known merged or closed.
+        if (viewer.is_empty() || self.is_owner(viewer))
+            && t.state == BLOCKED
+            && t.blockers.iter().any(|b| {
+                b.status != BLOCKER_ANSWERED
+                    && b.merge_wait()
+                        .is_some_and(|pr| !self.pr_settled(&t.id, &pr))
+            })
+        {
+            return true;
+        }
         if viewer.is_empty() {
             return false;
         }

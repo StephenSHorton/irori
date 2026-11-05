@@ -1456,6 +1456,12 @@ impl Coord {
             .unwrap_or_default()
     }
 
+    /// How PR `pr` on card `id` stood when last heard, whether the card
+    /// links it or only a wait is on it (card #509).
+    pub fn pr_state(&self, id: &str, pr: &str) -> Option<PrState> {
+        self.lock().pr_states.get(id)?.get(pr).cloned()
+    }
+
     pub fn tick(&self) {
         self.lock().holder_duties();
     }

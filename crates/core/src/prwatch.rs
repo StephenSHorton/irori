@@ -171,16 +171,30 @@ impl PrWatch {
                     .iter()
                     .chain(&t.co_holders)
                     .any(|h| local.contains(&private_key(h)));
-                if !ours {
+                // Card #509: a wait on a PR's merge is asked about whoever
+                // holds the card (often nobody), so it leaves the person's
+                // Needs you once the PR merges.
+                let waits: Vec<String> = t.blockers.iter().filter_map(|b| b.merge_wait()).collect();
+                if !ours && waits.is_empty() {
                     continue;
                 }
-                let known: HashMap<String, coord::PrState> = co
-                    .pr_states(&t.id)
-                    .into_iter()
-                    .map(|p| (p.pr.clone(), p))
-                    .collect();
-                for l in t.links.iter().filter(|l| coord::pr_link(l).is_some()) {
-                    let k = known.get(&l.reference);
+                let mut prs: Vec<String> = if ours {
+                    t.links
+                        .iter()
+                        .filter(|l| coord::pr_link(l).is_some())
+                        .map(|l| l.reference.clone())
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                for w in waits {
+                    if !prs.contains(&w) {
+                        prs.push(w);
+                    }
+                }
+                for url in prs {
+                    let heard = co.pr_state(&t.id, &url);
+                    let k = heard.as_ref();
                     if k.is_some_and(|p| p.state == PR_MERGED || p.state == PR_CLOSED) {
                         continue;
                     }
@@ -189,7 +203,7 @@ impl PrWatch {
                     } else {
                         OPEN_EVERY
                     };
-                    let key = format!("{}\x00{}", t.id, l.reference);
+                    let key = format!("{}\x00{}", t.id, url);
                     if asked
                         .get(&key)
                         .is_some_and(|at| now.duration_since(*at) < every)
@@ -200,7 +214,7 @@ impl PrWatch {
                     out.push(Due {
                         co: co.clone(),
                         task_id: t.id.clone(),
-                        url: l.reference.clone(),
+                        url,
                     });
                 }
             }

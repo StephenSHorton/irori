@@ -478,7 +478,10 @@ export function App() {
     () =>
       new Set(
         needs
-          .filter((n) => n.kind === "check" || n.kind === "decision")
+          .filter(
+            (n) =>
+              n.kind === "check" || n.kind === "decision" || n.kind === "merge"
+          )
           .map((n) => n.id)
       ),
     [needs]

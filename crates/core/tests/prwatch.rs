@@ -96,3 +96,51 @@ fn the_holders_device_asks_github_and_a_merge_reaches_the_holder() {
         last.message.text
     );
 }
+
+/// Card #509: a wait on a PR's merge is asked about even when nobody here
+/// holds its card (its agent may be gone), so the person's Needs you
+/// drops it once the PR merges.
+#[test]
+fn a_merge_wait_is_asked_about_whoever_holds_the_card() {
+    let gh = Arc::new(FakeGh::default());
+    *gh.state.lock().unwrap() = PR_OPEN.into();
+    let g2 = gh.clone();
+    let r = Rig::with(move |o| o.pr_checker = Some(g2));
+    let co = r.core.coord();
+    let t = co
+        .create_task(
+            "otherdevice/sess",
+            NewTask {
+                title: "part 10".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.claim_task("otherdevice/sess", &t.id).unwrap();
+    co.block(
+        "otherdevice/sess",
+        &t.id,
+        "Review and merge PR #12",
+        Some(coord::BlockedBy {
+            kind: coord::BLOCKED_ON_EXTERNAL.into(),
+            reference: PR.into(),
+        }),
+    )
+    .unwrap();
+    let needs = || {
+        co.board(&coord::BoardFilter::default())
+            .needs_you
+            .iter()
+            .any(|c| c.task.id == t.id)
+    };
+    assert!(needs());
+
+    r.core.check_prs();
+    assert_eq!(*gh.calls.lock().unwrap(), vec![PR.to_string()]);
+    assert_eq!(co.pr_state(&t.id, PR).unwrap().state, PR_OPEN);
+    assert!(needs(), "still open");
+
+    *gh.state.lock().unwrap() = PR_MERGED.into();
+    co.record_pr_state(&t.id, gh.check(PR)).unwrap();
+    assert!(!needs(), "merged: no longer the person's");
+}

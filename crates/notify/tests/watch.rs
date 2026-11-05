@@ -413,6 +413,50 @@ fn watch_board_needs_you() {
     r.fake.wait_post(&id);
 }
 
+/// Card #509: an agent's external wait on a PR is the person's merge. It
+/// used to sit in Blocked, unseen; now it pops up and names the PR, and a
+/// wait on CI stays quiet.
+#[test]
+fn watch_board_a_wait_on_a_pr_asks_the_person_to_merge() {
+    let r = rig();
+    let ci = r.co.create_task(KEY_A, new_task("wait on CI")).unwrap();
+    r.co.claim_task(KEY_A, &ci.id).unwrap();
+    r.co.block(
+        KEY_A,
+        &ci.id,
+        "CI on the release",
+        Some(coord::BlockedBy {
+            kind: coord::BLOCKED_ON_EXTERNAL.into(),
+            reference: "CI on the release".into(),
+        }),
+    )
+    .unwrap();
+    r.fake.no_post(Duration::from_millis(100));
+
+    let pr = "https://github.com/a/b/pull/41";
+    let task = r.co.create_task(KEY_A, new_task("part 10")).unwrap();
+    r.co.claim_task(KEY_A, &task.id).unwrap();
+    r.co.block(
+        KEY_A,
+        &task.id,
+        "Review and merge PR #41",
+        Some(coord::BlockedBy {
+            kind: coord::BLOCKED_ON_EXTERNAL.into(),
+            reference: pr.into(),
+        }),
+    )
+    .unwrap();
+    let id = needs_id(&task.id);
+    r.fake.wait_post(&id);
+    let c = r.fake.card(&id);
+    assert_eq!(c.title, "alpha waits on you to merge PR #41 (#2)");
+    assert!(
+        c.body.starts_with("Review and merge PR #41"),
+        "{:?}",
+        c.body
+    );
+}
+
 /// Card #130: an agent's completed waits on the person's Done (card
 /// #112). Its card is good news: green, "finished", Open and Mark Done,
 /// and Mark Done closes the card. A blocked card still warns.
