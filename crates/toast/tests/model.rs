@@ -620,3 +620,18 @@ fn thumbnails_fit_the_slot() {
     assert!(Image::new(2, 2, vec![0u8; 15]).is_none());
     assert!(Image::new(0, 2, vec![]).is_none());
 }
+
+// Card #527: a rounded card's stripe is an inset pill; a square one runs
+// down the whole left edge, as Toru drew it.
+#[test]
+fn stripe_follows_the_corners() {
+    let (r, rad) = stripe_rect(94, 0, 1.0);
+    assert_eq!((r.l, r.t, r.r, r.b, rad), (0, 0, 3, 94, 0));
+    let (r, rad) = stripe_rect(94, 14, 1.0);
+    assert_eq!((r.l, r.t, r.r, r.b), (6, 11, 9, 82));
+    assert_eq!(rad, 1);
+    let (r, _) = stripe_rect(141, 21, 1.5);
+    assert_eq!((r.l, r.r - r.l), (9, 5), "scales with dpi");
+    let (r, _) = stripe_rect(10, 14, 1.0);
+    assert!(r.t <= r.b, "never inside out");
+}

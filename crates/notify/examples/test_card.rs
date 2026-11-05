@@ -18,7 +18,9 @@
 //! With `cycle` after the seconds and IRORI_CARD_LOOK_DIR=<dir>, it posts
 //! a sticky copy of the test card and then every 2.5 s applies the next
 //! `*.json` look in the dir (sorted, wrapping), printing each name, so one
-//! run shows cards on screen restyling live.
+//! run shows cards on screen restyling live. On macOS, IRORI_CARD_SHOTS=<dir>
+//! also saves a picture of the screen's top-right corner after each look
+//! (`<look>.png`, or `card.png` for the plain test card).
 
 fn main() {
     let Some(home) = std::env::var_os("IRORI_HOME") else {
@@ -94,7 +96,7 @@ fn main() {
         let n = n.clone();
         std::thread::spawn(move || {
             for f in files.iter().cycle() {
-                std::thread::sleep(std::time::Duration::from_millis(2500));
+                std::thread::sleep(std::time::Duration::from_millis(1500));
                 let name = f.file_name().unwrap_or_default().to_string_lossy();
                 match read_look(f) {
                     Ok(l) => {
@@ -105,6 +107,8 @@ fn main() {
                     }
                     Err(e) => eprintln!("{e}"),
                 }
+                std::thread::sleep(std::time::Duration::from_millis(1000));
+                shot(name.trim_end_matches(".json"));
             }
         });
     } else if std::env::args().nth(2).as_deref() == Some("kinds") {
@@ -131,6 +135,11 @@ fn main() {
     } else if let Err(e) = n.post_test() {
         eprintln!("{e}");
         std::process::exit(1);
+    } else {
+        std::thread::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            shot("card");
+        });
     }
     if let Some(path) = std::env::args()
         .nth(2)
@@ -154,6 +163,113 @@ fn main() {
         });
     }
     toast::run_for(std::time::Duration::from_secs(secs));
+}
+
+/// IRORI_CARD_SHOTS=<dir> (macOS): a picture of the top-right corner of
+/// the main display, taken from inside this process. A process may always
+/// capture its own windows, so this works where the terminal has no
+/// Screen Recording permission (other apps' windows then show as the
+/// desktop, which is what the glass blurs). Elsewhere it does nothing.
+fn shot(name: &str) {
+    let Some(dir) = std::env::var_os("IRORI_CARD_SHOTS") else {
+        return;
+    };
+    let path = std::path::Path::new(&dir).join(format!("{name}.png"));
+    #[cfg(target_os = "macos")]
+    match mac_shot::grab(&path, 460.0, 220.0) {
+        Ok(()) => println!("shot {}", path.display()),
+        Err(e) => eprintln!("shot {name}: {e}"),
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = path;
+}
+
+#[cfg(target_os = "macos")]
+mod mac_shot {
+    use std::ffi::c_void;
+    use std::os::unix::ffi::OsStrExt;
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGRect {
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+    }
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGMainDisplayID() -> u32;
+        fn CGDisplayBounds(d: u32) -> CGRect;
+        fn CGWindowListCreateImage(r: CGRect, opt: u32, id: u32, img: u32) -> *mut c_void;
+        fn CGImageRelease(i: *mut c_void);
+    }
+    #[link(name = "ImageIO", kind = "framework")]
+    unsafe extern "C" {
+        fn CGImageDestinationCreateWithURL(
+            url: *const c_void,
+            ty: *const c_void,
+            count: usize,
+            opts: *const c_void,
+        ) -> *mut c_void;
+        fn CGImageDestinationAddImage(d: *mut c_void, i: *mut c_void, p: *const c_void);
+        fn CGImageDestinationFinalize(d: *mut c_void) -> bool;
+    }
+    #[link(name = "CoreFoundation", kind = "framework")]
+    unsafe extern "C" {
+        fn CFURLCreateFromFileSystemRepresentation(
+            a: *const c_void,
+            buf: *const u8,
+            len: isize,
+            dir: bool,
+        ) -> *const c_void;
+        fn CFStringCreateWithCString(a: *const c_void, s: *const i8, enc: u32) -> *const c_void;
+        fn CFRelease(p: *const c_void);
+    }
+
+    /// The w x h pt top-right corner of the main display, as a PNG.
+    pub fn grab(path: &std::path::Path, w: f64, h: f64) -> Result<(), String> {
+        unsafe {
+            let b = CGDisplayBounds(CGMainDisplayID());
+            let r = CGRect {
+                x: b.x + b.w - w,
+                y: b.y,
+                w,
+                h,
+            };
+            // kCGWindowListOptionOnScreenOnly, kCGNullWindowID, default.
+            let img = CGWindowListCreateImage(r, 1, 0, 0);
+            if img.is_null() {
+                return Err("no image".into());
+            }
+            let p = path.as_os_str().as_bytes();
+            let url = CFURLCreateFromFileSystemRepresentation(
+                std::ptr::null(),
+                p.as_ptr(),
+                p.len() as isize,
+                false,
+            );
+            let ty =
+                CFStringCreateWithCString(std::ptr::null(), c"public.png".as_ptr(), 0x0800_0100);
+            let dest = CGImageDestinationCreateWithURL(url, ty, 1, std::ptr::null());
+            let ok = !dest.is_null() && {
+                CGImageDestinationAddImage(dest, img, std::ptr::null());
+                CGImageDestinationFinalize(dest)
+            };
+            if !dest.is_null() {
+                CFRelease(dest);
+            }
+            CFRelease(ty);
+            CFRelease(url);
+            CGImageRelease(img);
+            if ok {
+                Ok(())
+            } else {
+                Err("can't write the PNG".into())
+            }
+        }
+    }
 }
 
 fn read_look(path: &std::path::Path) -> Result<notify::CardLook, String> {

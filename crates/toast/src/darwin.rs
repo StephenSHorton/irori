@@ -68,7 +68,7 @@ use crate::config::{Color, Config, Kind};
 use crate::engine::{Look, Mouse, Surface, TICK_MS};
 use crate::layout::{
     BODY_GAP_DIP, BODY_SIZE_DIP, BUTTON_SIZE_DIP, ICON_LEFT_DIP, ICON_SIZE_DIP, PAD_TOP_DIP, Part,
-    Rect, STRIPE_DIP, TEXT_LEFT_DIP, TEXT_RIGHT_DIP, TITLE_DIP, TITLE_RIGHT_DIP, TITLE_SIZE_DIP,
+    Rect, TEXT_LEFT_DIP, TEXT_RIGHT_DIP, TITLE_DIP, TITLE_RIGHT_DIP, TITLE_SIZE_DIP, stripe_rect,
 };
 use crate::note::Image;
 
@@ -925,10 +925,14 @@ fn draw_card(all: NSRect, l: &Look, glass: Option<f64>) {
     }
     shape.addClip();
     accent.setFill();
-    NSRectFillUsingOperation(
-        NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(STRIPE_DIP, h)),
-        NSCompositingOperation::SourceOver,
-    );
+    // A rounded card's stripe is an inset pill (layout::stripe_rect).
+    let (sr, sradius) = stripe_rect(h as i32, l.radius, 1.0);
+    NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
+        ns_rect(sr),
+        sradius as f64,
+        sradius as f64,
+    )
+    .fill();
     if let Some(c) = &ctx {
         c.restoreGraphicsState();
     }

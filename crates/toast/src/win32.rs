@@ -74,8 +74,8 @@ use crate::config::{Color, Config, Kind};
 use crate::engine::{Look, Mouse, Surface, TICK_MS};
 use crate::layout::{
     BODY_GAP_DIP, BODY_LINE_DIP, BODY_SIZE_DIP, BUTTON_SIZE_DIP, ICON_LEFT_DIP, ICON_SIZE_DIP,
-    PAD_TOP_DIP, Part, Rect, STRIPE_DIP, TEXT_LEFT_DIP, TEXT_RIGHT_DIP, TITLE_DIP, TITLE_RIGHT_DIP,
-    TITLE_SIZE_DIP, px,
+    PAD_TOP_DIP, Part, Rect, TEXT_LEFT_DIP, TEXT_RIGHT_DIP, TITLE_DIP, TITLE_RIGHT_DIP,
+    TITLE_SIZE_DIP, px, stripe_rect,
 };
 use crate::note::Image;
 
@@ -1122,22 +1122,18 @@ fn draw_card(dc: HDC, cw: &Look) {
         right: w,
         bottom: h,
     };
-    let stripe = RECT {
-        left: 0,
-        top: 0,
-        right: p(STRIPE_DIP),
-        bottom: h,
-    };
+    let (sr, sradius) = stripe_rect(h, cw.radius, sc);
+    let stripe = rect_of(sr);
     let accent = pal.accent.for_kind(cw.kind);
     if cw.radius <= 0 {
         fill(dc, all, pal.background);
         frame(dc, all, pal.border);
         fill(dc, stripe, accent);
     } else {
-        // The window region clips the corners; the stripe goes under the
-        // rounded border so the curve stays clean.
+        // The window region clips the corners; a rounded card's stripe is
+        // an inset pill (layout::stripe_rect).
         fill(dc, all, pal.background);
-        fill(dc, stripe, accent);
+        boxed(dc, stripe, accent, accent, sradius);
         boxed(dc, all, Color(0), pal.border, cw.radius);
     }
 
