@@ -2439,6 +2439,32 @@ impl Core {
         self.s.coord.is_spawned(key)
     }
 
+    /// Why no computer can start an agent now, and the open cards and
+    /// threads waiting for one (card #541); empty while one can.
+    pub fn no_agent(&self) -> (String, std::collections::HashSet<String>) {
+        let line = self.s.no_agent_line();
+        if line.is_empty() {
+            return (line, Default::default());
+        }
+        let ids = self
+            .s
+            .coord
+            .list_tasks(&coord::TaskFilter {
+                open: true,
+                ..coord::TaskFilter::default()
+            })
+            .into_iter()
+            .filter(|t| self.s.coord.waits_for_agent(t))
+            .map(|t| t.id)
+            .collect();
+        (line, ids)
+    }
+
+    /// The devices that can't run agents (card #541).
+    pub fn cant_run_devices(&self) -> std::collections::HashSet<String> {
+        self.s.cant_run_devices()
+    }
+
     /// The person's "Offer it cards" on one of their terminal agents: the
     /// app only, never a tool (card #453).
     pub fn set_agent_offer(&self, key: &str, on: bool) -> Result<(), String> {

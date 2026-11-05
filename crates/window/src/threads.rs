@@ -76,6 +76,11 @@ pub struct ThreadSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub cant_start: String,
+    /// Why no agent can start now, by device, and what happens next (card
+    /// #541): it needs the person to know, not to answer.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub no_agent: String,
 }
 
 /// What a #ref in text names (card #144): a card or a thread, live or
@@ -416,8 +421,13 @@ impl Window {
                 cant_start: t
                     .spawn_request()
                     .filter(|sp| sp.op == coord::SPAWN_FAILED && state == THREAD_WAITING)
-                    .map(|sp| sp.reason.clone())
+                    .map(|sp| crate::cards::cant_start_text(t, sp, &p))
                     .unwrap_or_default(),
+                no_agent: if state == THREAD_WAITING {
+                    p.no_agent_for(&t.id)
+                } else {
+                    String::new()
+                },
             };
             if resolved {
                 done.push(s);

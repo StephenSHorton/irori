@@ -246,6 +246,8 @@ impl Services {
                 continue;
             }
             told.insert(t.id.clone());
+            // "Nobody took it" would say someone still might.
+            self.notifier.0.clear(&notify::unclaimed_id(&t.id));
             let (n, target) = (self.notifier.0.clone(), format!("task:{}", t.id));
             let title = format!("No agent for {}", t.short_ref());
             self.notifier.0.post(notify::Note {

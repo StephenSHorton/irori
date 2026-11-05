@@ -745,6 +745,7 @@ function summary(c: CardDetail): CardSummary {
     waitStuck: c.waitStuck,
     mainRed: c.mainRed,
     cantStart: c.cantStart,
+    noAgent: c.noAgent,
     starting: c.starting,
     atCap: c.atCap,
     waitPr: c.waitPr,
