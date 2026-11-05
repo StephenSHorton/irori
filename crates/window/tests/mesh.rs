@@ -289,6 +289,54 @@ fn two_devices_live_state_files_ignored_rows_and_the_home_server() {
     }
 }
 
+// Card #544: a and c can't reach each other, only the hub, as the Mac and
+// the PC reach only the phone. a's rows come to c through the hub, and the
+// window and the roster the agents tool reads say so.
+#[test]
+fn a_device_reached_only_through_another_shows_as_reachable() {
+    let (la, lc, lh) = (free_udp(), free_udp(), free_udp());
+    let hub = dev(lh, vec![la, lc], false);
+    let a = dev(la, vec![lh], false);
+    let c = dev(lc, vec![lh], false);
+    pair(&hub, &a);
+    pair(&hub, &c);
+    let (ai, hi) = (a.id(), hub.id());
+    wait("c knows a", || c.row(&ai).is_some());
+    wait("c has the hub", || c.state_of(&hi) == "connected");
+    c.w.rename_device(&hi, "Phone").unwrap();
+
+    let card = coord::roster::AgentCard {
+        key: format!("{ai}/11111111-1111-4111-8111-111111111111"),
+        device_id: ai.clone(),
+        name: "lead".into(),
+        status: "busy".into(),
+        ..Default::default()
+    };
+    a.core()
+        .store()
+        .append("irori", store::kinds::AGENT_SEEN, &card)
+        .unwrap();
+    wait("a's row reaches c through the hub", || {
+        c.row(&ai).is_some_and(|d| !d.via.is_empty())
+    });
+
+    let row = c.row(&ai).unwrap();
+    assert_eq!(row.state, "recent", "{row:?}");
+    assert_eq!(row.via, "Phone", "{row:?}");
+    assert!(!row.last_seen.is_zero(), "{row:?}");
+    wait("the roster has a's agent", || {
+        c.core().roster().agents().iter().any(|x| x.key == card.key)
+    });
+    let agents = c.core().roster().agents();
+    let got = agents.iter().find(|x| x.key == card.key).unwrap();
+    assert_eq!(got.device_state, "recent");
+    assert_eq!(got.device_via, "Phone");
+    let now = gocompat::time::GoTime::from_system(std::time::SystemTime::now());
+    let phrase =
+        coord::roster::device_phrase(&got.device_state, &got.device_seen, &got.device_via, &now);
+    assert!(phrase.starts_with("reachable through Phone, seen "), "{phrase}");
+}
+
 #[test]
 fn three_devices_each_see_the_other_two() {
     let l = lans(3);
