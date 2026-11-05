@@ -442,6 +442,7 @@ function sampleThreads(boardId: string | null = ""): ThreadSummary[] {
       at: c.updatedAt,
       updatedAt: last?.at ?? c.updatedAt,
       agentsNow: sampleThreadAgentsNow.get(c.id) ?? true,
+      spaceId: sampleThreadBoard.get(c.id),
       starting: c.id === "sample-thread-5" ? "Macbook Pro (this one)" : undefined,
     })
   })
