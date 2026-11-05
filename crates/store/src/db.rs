@@ -1537,85 +1537,161 @@ impl Inner {
     }
 
     fn list(&self, f: &Filter) -> Result<Vec<Event>> {
-        let mut wh: Vec<String> = Vec::new();
-        let mut args: Vec<Value> = Vec::new();
-        if !f.kinds.is_empty() {
-            let mut or = Vec::new();
-            for k in &f.kinds {
-                if let Some(stem) = k.strip_suffix('.') {
-                    // A range, so the kind index applies: "agent." <= kind < "agent/".
-                    or.push("(kind >= ? AND kind < ?)");
-                    args.push(Value::Text(k.clone()));
-                    args.push(Value::Text(format!("{stem}/")));
-                } else {
-                    or.push("kind = ?");
-                    args.push(Value::Text(k.clone()));
-                }
+        let Some((q, args)) = list_query(f) else {
+            return Ok(Vec::new());
+        };
+        self.read(|c| query_events(c, &q, &args))
+    }
+}
+
+/// The SQL and arguments of `f`, or `None` when a cursor is past anything
+/// stored.
+fn list_query(f: &Filter) -> Option<(String, Vec<Value>)> {
+    let mut wh: Vec<String> = Vec::new();
+    let mut args: Vec<Value> = Vec::new();
+    if !f.kinds.is_empty() {
+        let mut or = Vec::new();
+        for k in &f.kinds {
+            if let Some(stem) = k.strip_suffix('.') {
+                // A range, so the kind index applies: "agent." <= kind < "agent/".
+                or.push("(kind >= ? AND kind < ?)");
+                args.push(Value::Text(k.clone()));
+                args.push(Value::Text(format!("{stem}/")));
+            } else {
+                or.push("kind = ?");
+                args.push(Value::Text(k.clone()));
             }
-            wh.push(format!("({})", or.join(" OR ")));
         }
-        if !f.device_id.is_empty() {
-            wh.push("device_id = ?".into());
-            args.push(Value::Text(f.device_id.clone()));
+        wh.push(format!("({})", or.join(" OR ")));
+    }
+    if !f.device_id.is_empty() {
+        // One exact kind and a device: the unary + keeps SQLite off the
+        // (device_id, seq) key, which would read and sort every row the
+        // device wrote, payloads and all, to return a few. events_kind
+        // ends in (hlc, device_id, seq), so it hands rows over in order
+        // and LIMIT stops the walk (card #559: `device.started`, limit
+        // 1, took 114 ms on a 169k-row device against 0.08 ms this way,
+        // and ran per card and per version wait). With `after_seq` the
+        // key is the right one: that's a catch-up from a known seq.
+        let one_kind = matches!(&f.kinds[..], [k] if !k.ends_with('.'));
+        wh.push(if one_kind && f.after_seq <= 0 {
+            "+device_id = ?".into()
+        } else {
+            "device_id = ?".into()
+        });
+        args.push(Value::Text(f.device_id.clone()));
+    }
+    if f.after_seq > 0 {
+        wh.push("seq > ?".into());
+        args.push(Value::Integer(f.after_seq));
+    }
+    if f.after_hlc.0 != 0 {
+        if f.after_hlc.0 > i64::MAX as u64 {
+            return None; // nothing is stored past int64
         }
-        if f.after_seq > 0 {
-            wh.push("seq > ?".into());
-            args.push(Value::Integer(f.after_seq));
+        wh.push("hlc > ?".into());
+        args.push(Value::Integer(f.after_hlc.as_i64()));
+    }
+    if !f.after.is_zero() {
+        if f.after.hlc.0 > i64::MAX as u64 {
+            return None;
         }
-        if f.after_hlc.0 != 0 {
-            if f.after_hlc.0 > i64::MAX as u64 {
-                return Ok(Vec::new()); // nothing is stored past int64
-            }
-            wh.push("hlc > ?".into());
-            args.push(Value::Integer(f.after_hlc.as_i64()));
-        }
-        if !f.after.is_zero() {
-            if f.after.hlc.0 > i64::MAX as u64 {
-                return Ok(Vec::new());
-            }
-            let h = f.after.hlc.as_i64();
-            // `hlc >= ?` is implied by the cursor, but SQLite can't seek on
-            // an OR: without it every page of a replay rescans and re-sorts
-            // all the rows left (card #232: 36 s → 1.2 s for the inbox's
-            // replay of a 92k-row log).
-            wh.push(
+        let h = f.after.hlc.as_i64();
+        // `hlc >= ?` is implied by the cursor, but SQLite can't seek on
+        // an OR: without it every page of a replay rescans and re-sorts
+        // all the rows left (card #232: 36 s → 1.2 s for the inbox's
+        // replay of a 92k-row log).
+        wh.push(
                 "hlc >= ? AND (hlc > ? OR (hlc = ? AND (device_id > ? OR (device_id = ? AND seq > ?))))"
                     .into(),
             );
-            args.push(Value::Integer(h));
-            args.push(Value::Integer(h));
-            args.push(Value::Integer(h));
-            args.push(Value::Text(f.after.device_id.clone()));
-            args.push(Value::Text(f.after.device_id.clone()));
-            args.push(Value::Integer(f.after.seq));
-        }
-        let limit = if f.limit <= 0 {
-            DEFAULT_LIST_LIMIT
-        } else {
-            f.limit
-        }
-        .min(MAX_LIST_LIMIT);
-        let table = if f.local { "local_events" } else { "events" };
-        let mut q = format!("SELECT {COLS} FROM {table}");
-        if !wh.is_empty() {
-            q.push_str(" WHERE ");
-            q.push_str(&wh.join(" AND "));
-        }
-        // device_id, seq break HLC ties so the order is total and repeatable.
-        if f.desc {
-            q.push_str(" ORDER BY hlc DESC, device_id DESC, seq DESC");
-        } else {
-            q.push_str(" ORDER BY hlc, device_id, seq");
-        }
-        q.push_str(" LIMIT ?");
-        args.push(Value::Integer(limit));
-        self.read(|c| query_events(c, &q, &args))
+        args.push(Value::Integer(h));
+        args.push(Value::Integer(h));
+        args.push(Value::Integer(h));
+        args.push(Value::Text(f.after.device_id.clone()));
+        args.push(Value::Text(f.after.device_id.clone()));
+        args.push(Value::Integer(f.after.seq));
     }
+    let limit = if f.limit <= 0 {
+        DEFAULT_LIST_LIMIT
+    } else {
+        f.limit
+    }
+    .min(MAX_LIST_LIMIT);
+    let table = if f.local { "local_events" } else { "events" };
+    let mut q = format!("SELECT {COLS} FROM {table}");
+    if !wh.is_empty() {
+        q.push_str(" WHERE ");
+        q.push_str(&wh.join(" AND "));
+    }
+    // device_id, seq break HLC ties so the order is total and repeatable.
+    if f.desc {
+        q.push_str(" ORDER BY hlc DESC, device_id DESC, seq DESC");
+    } else {
+        q.push_str(" ORDER BY hlc, device_id, seq");
+    }
+    q.push_str(" LIMIT ?");
+    args.push(Value::Integer(limit));
+    Some((q, args))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Card #559: the newest row of a kind from one device walks the kind
+    /// index in order, instead of reading and sorting all the device's
+    /// rows; a catch-up from a seq keeps the key. Rows are the same.
+    #[test]
+    fn list_of_a_kind_from_a_device_uses_the_kind_index() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(MIGRATION_V1).unwrap();
+        c.execute_batch(MIGRATION_V2).unwrap();
+        for seq in 1..=300i64 {
+            for dev in ["dev-a", "dev-b"] {
+                let kind = if seq % 50 == 0 {
+                    "device.started"
+                } else {
+                    "x.y"
+                };
+                c.execute(
+                    "INSERT INTO events (device_id, seq, hlc, actor, kind) VALUES (?1, ?2, ?3, '', ?4)",
+                    params![dev, seq, seq * 10, kind],
+                )
+                .unwrap();
+            }
+        }
+        let plan = |f: &Filter| -> String {
+            let (q, args) = list_query(f).unwrap();
+            let mut st = c.prepare(&format!("EXPLAIN QUERY PLAN {q}")).unwrap();
+            st.query_map(rusqlite::params_from_iter(args), |r| r.get::<_, String>(3))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect::<Vec<_>>()
+                .join("; ")
+        };
+        let newest = Filter {
+            kinds: vec!["device.started".into()],
+            device_id: "dev-a".into(),
+            desc: true,
+            limit: 1,
+            ..Filter::default()
+        };
+        let p = plan(&newest);
+        assert!(p.contains("events_kind"), "{p}");
+        assert!(!p.contains("TEMP B-TREE"), "{p}");
+        let (q, args) = list_query(&newest).unwrap();
+        let got = query_events(&c, &q, &args).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!((&got[0].device_id[..], got[0].seq), ("dev-a", 300));
+
+        let catch_up = Filter {
+            after_seq: 290,
+            ..newest.clone()
+        };
+        let p = plan(&catch_up);
+        assert!(p.contains("PRIMARY KEY"), "{p}");
+    }
 
     #[test]
     fn empty_bytes_bind_null() {
