@@ -494,7 +494,10 @@ fn an_agent_resolving_the_crash_question_keeps_the_run() {
         },
     )
     .unwrap();
-    assert_eq!(e.c.get_task(&t.id).unwrap().spawn_crashes, MAX_SPAWN_CRASHES);
+    assert_eq!(
+        e.c.get_task(&t.id).unwrap().spawn_crashes,
+        MAX_SPAWN_CRASHES
+    );
     assert!(e.c.cards_to_spawn().is_empty());
 }
 

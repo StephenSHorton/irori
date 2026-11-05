@@ -120,9 +120,7 @@ impl T {
             self.get(&c.id).blockers.iter().any(|b| b.open())
         });
         let asked = self.get(&c.id).blockers[0].id.clone();
-        self.w()
-            .answer(&c.id, &asked, -1, &dir, true, &[])
-            .unwrap();
+        self.w().answer(&c.id, &asked, -1, &dir, true, &[]).unwrap();
         for n in 1..=MAX_SPAWN_CRASHES as usize {
             self.wait_started(n);
             let last = n == MAX_SPAWN_CRASHES as usize;
