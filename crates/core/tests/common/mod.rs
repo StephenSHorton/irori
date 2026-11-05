@@ -4,6 +4,8 @@
 //! here opens a socket.
 #![allow(dead_code)]
 
+pub mod mesh;
+
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 

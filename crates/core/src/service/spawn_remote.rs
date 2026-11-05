@@ -393,8 +393,10 @@ impl Services {
             if !need.is_empty() && h.machine() != need {
                 continue;
             }
+            // Offline: the card waits for it (its request moves to it once
+            // it is back) rather than start where there is no copy.
             if !online {
-                waits_for_machine |= !need.is_empty();
+                waits_for_machine = true;
                 continue;
             }
             let free = self.spawned_on(dev) < self.cap_on(dev, Some(h));
