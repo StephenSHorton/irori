@@ -198,6 +198,11 @@ pub trait BoardViewer: Send + Sync {
 pub trait Backend: Send + Sync {
     /// This device's roster (presence plus Grok members).
     fn agents(&self) -> Vec<presence::AgentCard>;
+    /// Whether this device's session `key` has a live attach stream
+    /// (GitHub #57); `None` when this backend can't tell.
+    fn attached(&self, _key: &str) -> Option<bool> {
+        None
+    }
     /// The agents Irori hands an unheld card to (#82): every device's, as
     /// asks go out, without this device's while Pause all is on. The
     /// default is [`Backend::agents`].
