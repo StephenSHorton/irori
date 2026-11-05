@@ -68,9 +68,10 @@ pub struct VoiceDownload {
 #[derive(Default)]
 pub(crate) struct VoiceSlot {
     inner: Mutex<SlotInner>,
-    /// Held while a session starts, so [`Window::voice_shutdown`] waits for
-    /// a model that is loading right now and can free it too.
-    opening: Mutex<()>,
+    /// Held while a session starts or stops, so [`Window::voice_shutdown`]
+    /// waits for a model loading right now, or a session still finishing,
+    /// and nothing holds the model when it frees it.
+    changing: Mutex<()>,
 }
 
 #[derive(Default)]
@@ -188,7 +189,7 @@ impl Window {
         self: &Arc<Window>,
         open: impl FnOnce(voice::Sink) -> Result<voice::Session, voice::StartError>,
     ) -> Result<u32, String> {
-        let _opening = self.voice.opening.lock().map_err(|e| e.to_string())?;
+        let _changing = self.voice.changing.lock().map_err(|e| e.to_string())?;
         let old = {
             let mut s = self.voice.inner.lock().map_err(|e| e.to_string())?;
             if s.closed {
@@ -221,6 +222,7 @@ impl Window {
     /// Ends `session` if it is still the current one, after it finalizes
     /// what was said. Blocking.
     pub fn voice_stop(&self, session: u32) -> Result<(), String> {
+        let _changing = self.voice.changing.lock().map_err(|e| e.to_string())?;
         let taken = {
             let mut s = self.voice.inner.lock().map_err(|e| e.to_string())?;
             match &s.current {
@@ -236,9 +238,14 @@ impl Window {
 
     /// Ends any session and frees the speech model: the shell calls it as
     /// the app exits (macOS's Metal backend asserts at exit otherwise). A
-    /// session still starting is waited for and ended, and none starts after.
+    /// session still starting or stopping is waited for, and none starts
+    /// after.
     pub fn voice_shutdown(&self) {
-        let _opening = self.voice.opening.lock().unwrap_or_else(|e| e.into_inner());
+        let _changing = self
+            .voice
+            .changing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let current = {
             let mut s = self.voice.inner.lock().unwrap_or_else(|e| e.into_inner());
             s.closed = true;
