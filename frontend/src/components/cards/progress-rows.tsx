@@ -5,7 +5,7 @@
 // rows come in one headed list per state, in that order.
 
 import { Badge } from "@/components/ui/badge"
-import { cardRef, Spinner } from "@/components/cards/bits"
+import { cardRef, PrChip, Spinner } from "@/components/cards/bits"
 import { useContext } from "react"
 import { percent, withLive, type CardSummary } from "@/lib/cards"
 import { LiveRoster } from "@/lib/thread"
@@ -102,10 +102,12 @@ function ProgressRow({
       <span className="font-mono text-xs text-muted-foreground tabular-nums">
         {cardRef(c)}
       </span>
-      <span className="min-w-0 truncate text-sm font-medium" title={plainLine(c.title)}>
-        {plainLine(c.title)}
+      {/* The title gives way, not the board's tag: inside the title's
+          ellipsis a phone cut "MLG" off (card #479). */}
+      <span className="flex min-w-0 items-baseline gap-2 text-sm font-medium" title={plainLine(c.title)}>
+        <span className="min-w-0 truncate">{plainLine(c.title)}</span>
         {board && (
-          <span className="ml-2 text-xs font-normal text-muted-foreground">{board}</span>
+          <span className="shrink-0 text-xs font-normal text-muted-foreground">{board}</span>
         )}
       </span>
       <span className="col-span-3 col-start-2 row-start-2 flex min-w-0 items-center gap-1.5 text-[12.5px] text-muted-foreground sm:col-span-1 sm:col-start-3 sm:row-start-1">
@@ -116,6 +118,7 @@ function ProgressRow({
         >
           {line}
         </span>
+        <PrChip card={c} />
       </span>
       <span className="col-start-3 row-start-1 justify-self-end sm:col-start-4">
         <Badge variant={stateVariant[state]}>{rowStateLabel[state]}</Badge>

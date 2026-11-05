@@ -29,6 +29,8 @@ export const commands = {
 	inboxMarkRead: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_mark_read", { deliveryId }),
 	inboxRelease: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_release", { deliveryId }),
 	inboxDismiss: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_dismiss", { deliveryId }),
+	inboxStartAgent: (deliveryId: string) => __TAURI_INVOKE<StartedAgent>("inbox_start_agent", { deliveryId }),
+	inboxRepoNames: () => __TAURI_INVOKE<RepoName[]>("inbox_repo_names"),
 	inboxAllowAndRelease: (deliveryId: string) => __TAURI_INVOKE<null>("inbox_allow_and_release", { deliveryId }),
 	inboxPolicy: () => __TAURI_INVOKE<Policy>("inbox_policy"),
 	inboxSetPolicy: (p: PolicyInput) => __TAURI_INVOKE<null>("inbox_set_policy", { p }),
@@ -84,6 +86,8 @@ export const commands = {
 	boardAskAgain: (id: string) => __TAURI_INVOKE<null>("board_ask_again", { id }),
 	/**  "Start an agent with this" on the person's comment (card #452). */
 	boardStartAgent: (id: string, note: string) => __TAURI_INVOKE<null>("board_start_agent", { id, note }),
+	/**  "Hand to an agent" on an item whose agent is gone (card #485). */
+	boardHandOn: (id: string) => __TAURI_INVOKE<string>("board_hand_on", { id }),
 	boardAskRepos: () => __TAURI_INVOKE<AskRepo[]>("board_ask_repos"),
 	boardMentionCandidates: () => __TAURI_INVOKE<MentionCandidate[]>("board_mention_candidates"),
 	boardCloseAsk: (id: string, note: string) => __TAURI_INVOKE<Task>("board_close_ask", { id, note }),
@@ -258,7 +262,7 @@ export const commands = {
 	/**  Up to `limit` posts before `before` (none: the newest), oldest first. */
 	talkPosts: (convId: string, before: string | null, limit: number) => __TAURI_INVOKE<TalkPost[]>("talk_posts", { convId, before, limit }),
 	/**  Posts as the person; returns the post's id (a thread's: the comment's). */
-	talkPost: (convId: string, text: string, agentsNow: boolean, threadFrom: string | null) => __TAURI_INVOKE<string>("talk_post", { convId, text, agentsNow, threadFrom }),
+	talkPost: (convId: string, text: string, mentions: string[], agentsNow: boolean, threadFrom: string | null) => __TAURI_INVOKE<string>("talk_post", { convId, text, mentions, agentsNow, threadFrom }),
 	/**  The person made card `task_id` from post `post_id` (card #390). */
 	talkLinkCard: (postId: string, taskId: string) => __TAURI_INVOKE<null>("talk_link_card", { postId, taskId }),
 	/**  The person has read `conv_id` up to post `up_to`. */
@@ -359,6 +363,8 @@ export type AgentCard = {
 	/**  The tool the session is running now (card #299). */
 	lastTool?: string,
 	deviceState?: string,
+	/**  When the current status began, omitted when unknown (card #489). */
+	statusSince?: string,
 	/**
 	 *  The person's "Offer it cards": Irori hands it unheld cards, asks and
 	 *  threads when it's idle (card #453).
@@ -394,8 +400,16 @@ export type AgentRef = {
 	/**  The roster's status, "gone" without a live card, or "person". */
 	status: string,
 	live: boolean,
-	/**  "This PC", or the other device's name. */
+	/**
+	 *  This device's own name with " (this one)" (e.g. "Macbook Pro (this
+	 *  one)"), or the other device's name (card #489).
+	 */
 	where: string,
+	/**
+	 *  It is on this device, so what only works here (Attach, Logs, End)
+	 *  shows; `where` is only for reading (card #489).
+	 */
+	here?: boolean,
 	assigned?: boolean,
 	waiting?: boolean,
 	/**
@@ -538,7 +552,9 @@ export type Blocker = {
 };
 
 /**  coord.BlockerKind. */
-export type BlockerKind = "lease" | "task" | "person" | "agent" | "external";
+export type BlockerKind = "lease" | "task" | "person" | "agent" | "external" | 
+/**  A least app version on named devices (card #485). */
+"version";
 
 /**  coord.Option: one recommended answer. */
 export type BlockerOption = {
@@ -729,7 +745,28 @@ export type CardBlocker = {
 	 *  None when it's this person's.
 	 */
 	decider?: AgentRef | null,
+	/**
+	 *  What a wait on other work waits on (card #481): a card, a lease, an
+	 *  agent or something outside. It ends by itself or by whoever does
+	 *  that work, so it is never the person's to answer and never counts
+	 *  as a decision. None for a question for a person (one filed on
+	 *  other work with options is still the person's, card #347).
+	 */
+	waitsOn?: CardWaitOn | null,
+	/**
+	 *  The agent this open item waits on, or that raised it and would hear
+	 *  the answer, when that agent is gone and nobody holds the card (card
+	 *  #485): drawn amber, "Waiting on kestrel (gone)", with "Hand to an
+	 *  agent".
+	 */
+	goneAgent?: AgentRef | null,
 	thread: CardThreadItem[],
+	/**
+	 *  A done check's previous round (card #476): the check the person
+	 *  sent back before this one, so this one shows their reason, the
+	 *  agent's answer and the proof it replaces.
+	 */
+	previous?: CardRound | null,
 };
 
 /**  The shared board a card lives on (v0.5 §8). */
@@ -884,6 +921,25 @@ export type CardReview = {
 	text: string,
 };
 
+/**  The done check the person sent back before this one (card #476). */
+export type CardRound = {
+	/**  The earlier check's id. */
+	id: string,
+	/**  This check's round: 2 for the first one after a Not done. */
+	round: number,
+	/**  The proof the person sent back. */
+	proof: string,
+	/**
+	 *  Their reason when no comment on the thread carries it (a card from
+	 *  before #476, whose late Not done only resolved the check).
+	 */
+	answer: string,
+	/**  The earlier check's thread: their reason and the agent's answers. */
+	thread: CardThreadItem[],
+	/**  The new proof is the one they sent back, word for word. */
+	sameProof: boolean,
+};
+
 /**  One row of a parent's subtask list. */
 export type CardSubtask = {
 	id: string,
@@ -950,14 +1006,27 @@ export type CardSummary = {
 	mainRed?: string,
 	/**
 	 *  Where the first wait's chain of cards ends at the person (card
-	 *  #347): "your review of PR #96 (#334)" or "your answer on #12".
+	 *  #347): "your answer on #12". A PR never waits on the person (card
+	 *  #471): agents merge it, or another member's agents approve it.
 	 */
 	waitYou?: string,
 	/**
-	 *  An in-review card waiting on the person's review of a PR it links
-	 *  (card #347): no agent was asked to review it.
+	 *  The cards this one waits on each other with (card #481), itself
+	 *  among them, in wait order: none of them can move until someone
+	 *  drops a wait. Every card of the loop carries the same list, so
+	 *  Home's Needs you shows it once.
 	 */
-	reviewPr?: ReviewPr | null,
+	waitLoop?: CardRef[],
+	/**
+	 *  The card this one's waits end at that nobody holds and nothing
+	 *  will hand out (card #481).
+	 */
+	waitStuck?: CardRef | null,
+	/**
+	 *  The open PR an in-review card waits on (card #471): the card shows
+	 *  a small "waits on PR #N" chip with its link, never a Needs you row.
+	 */
+	waitPr?: WaitPr | null,
 	working: AgentRef[],
 	watching: AgentRef[],
 	holder: CardHolder,
@@ -989,8 +1058,9 @@ export type CardSummary = {
 	 */
 	cantStart?: string,
 	/**
-	 *  The device an agent is starting on for this card ("This PC" or its
-	 *  name), while Irori's spawn request waits for it (card #448).
+	 *  The device an agent is starting on for this card ("<its own name>
+	 *  (this one)" or the other device's name, card #489), while Irori's
+	 *  spawn request waits for it (card #448).
 	 */
 	starting?: string,
 	/**
@@ -1031,6 +1101,11 @@ export type CardThreadItem = {
 	device?: string,
 	text: string,
 	blockerId?: string,
+	/**
+	 *  The question of that blocker, cut short (card #490): what the
+	 *  person reads in place of its id.
+	 */
+	blockerGist?: string,
 	missing?: string[],
 	/**
 	 *  An event that revised its blocker (card #50): what it asks now and
@@ -1075,6 +1150,23 @@ export type CardWait = {
 	who: AgentRef,
 	text: string,
 	onThis: boolean,
+};
+
+/**  What a wait item waits on (card #481), as the card page links it. */
+export type CardWaitOn = {
+	kind: BlockerKind,
+	/**
+	 *  How the window names it: "#392" for a card ("a card" when this
+	 *  device can't see it), the agent's name, the resource, or the
+	 *  outside thing as raised.
+	 */
+	label: string,
+	/**  The card it waits on, by id, for a task wait. */
+	taskId?: string,
+	/**  That card's title, when this device can see it. */
+	title?: string,
+	/**  A wait on an agent that is gone (card #485). */
+	gone?: boolean,
 };
 
 /**  Where a card's work is (card #137), as its holder's device last saw it. */
@@ -1537,19 +1629,13 @@ export type NoteEventView = {
 	text: string,
 };
 
-/**  What New note and Keep as note write. */
+/**  What New note writes. */
 export type NoteInput = {
 	/**  `mine` (the default), or a board's tag or id. */
 	scope?: string,
 	kind?: string,
 	text?: string,
 	tags?: string[],
-	/**  Where it came from, as in [`NoteView::source`]. */
-	source?: string,
-	/**  The source's card, comment and blocker, when it has them. */
-	taskId?: string,
-	commentId?: string,
-	blockerId?: string,
 };
 
 /**  A note as the Notes page shows it. */
@@ -1738,6 +1824,15 @@ export type RelayView = {
 	detail?: string,
 };
 
+/**
+ *  A repo this device has a checkout of, by its short name (card #488):
+ *  what a held message to a repo names instead of its key.
+ */
+export type RepoName = {
+	repoKey: string,
+	name: string,
+};
+
 /**  coord.Resolution. */
 export type Resolution = {
 	answer: string,
@@ -1754,13 +1849,6 @@ export type Returned = {
 	at: string,
 	row?: string,
 	person?: boolean,
-};
-
-/**  A PR an in-review card waits on the person to review (card #347). */
-export type ReviewPr = {
-	repo: string,
-	number: number,
-	url: string,
 };
 
 /**  One of this person's live agents, to pick a reviewer from. */
@@ -1799,7 +1887,7 @@ export type RunningAgent = {
 	/**  `#N`. */
 	cardShort: string,
 	cardTitle: string,
-	/**  "This PC" or the device's name. */
+	/**  "<its own name> (this one)" or the other device's name (card #489). */
 	device: string,
 	/**  It runs here, so End works from this window. */
 	here: boolean,
@@ -1868,6 +1956,19 @@ export type SpaceBoard = {
 	tag: string,
 };
 
+/**
+ *  What "Start an agent in <repo>" did with a held message (card #488):
+ *  the card it became, and whether an agent is starting for it (spawning
+ *  on), it was handed to a free agent, or it waits for one.
+ */
+export type StartedAgent = {
+	cardRef: string,
+	/**  The repo's short name. */
+	repo: string,
+	started: boolean,
+	offered: boolean,
+};
+
 /**  inbox.State. */
 export type State = "queued" | "held" | "delivered" | "engaged" | "answered" | "deferred" | "skipped" | "rejected" | "dismissed" | "moved";
 
@@ -1931,6 +2032,13 @@ export type TalkConversation = {
 	members: TalkMember[],
 	/**  The newest post's time (the zero time when it has none). */
 	lastAt: string,
+	/**
+	 *  The newest post's text on one line, clipped (card #486): the list's
+	 *  subtitle. "" when it has none.
+	 */
+	lastText: string,
+	/**  Who wrote the newest post: a member's key, "" when none. */
+	lastBy: string,
 	/**  A DM between two agents: the person reads it only. */
 	readOnly: boolean,
 	/**
@@ -1939,6 +2047,11 @@ export type TalkConversation = {
 	 *  text names.
 	 */
 	agentsNow: boolean,
+	/**
+	 *  The shared space a channel is in (card #461); absent for Personal,
+	 *  DMs and threads. Matches the switcher's space id (its first board's).
+	 */
+	spaceId?: string,
 };
 
 /**  One side of a conversation. */
@@ -1946,8 +2059,19 @@ export type TalkMember = {
 	/**  `person` or `agent`. */
 	kind: string,
 	key: string,
-	/**  What it goes by ("you" for the person). */
+	/**
+	 *  What it goes by ("you" for the person). Never a key (card #478):
+	 *  "BillingEng1 · Spencer" for another member's agent, "unknown agent"
+	 *  when nothing names it.
+	 */
 	name?: string,
+	/**
+	 *  Another member's agent's board status (`busy`, `idle`, `gone`); ""
+	 *  when this device knows none, which isn't gone.
+	 */
+	status?: string,
+	/**  Whose agent it is when it is another member's ("Spencer"), else "". */
+	owner?: string,
 };
 
 /**  Who to add to or take out of a conversation. */
@@ -2104,6 +2228,10 @@ export type ThreadSummary = {
 	 *  handed it, and its agents read it at their next turn.
 	 */
 	agentsNow: boolean,
+	/**  An agent Irori starts for it (card #470): where, while it starts. */
+	starting?: string,
+	/**  Why one couldn't start (the failed request's reason). */
+	cantStart?: string,
 };
 
 /**  Who an action's notice went to. */
@@ -2227,6 +2355,18 @@ export type VoiceStatus = {
 	fix: string,
 	/**  The model download's size in bytes (for "needs-model"). */
 	modelBytes: number,
+};
+
+/**  The open PR an in-review card waits on (card #471). */
+export type WaitPr = {
+	repo: string,
+	number: number,
+	url: string,
+	/**
+	 *  GitHub says the PR needs an approval before it merges: it waits on
+	 *  another member's agents, never the person's or their own agents'.
+	 */
+	approval?: boolean,
 };
 
 /**

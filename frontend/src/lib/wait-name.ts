@@ -10,11 +10,13 @@ import { plainLine } from "./irori"
 
 // A lease family member: a name ending in -<n>, -<lo>..<hi>, -N, -n or -*
 // (coord names_lease reads the same shorthand).
-const MEMBER = /^([a-z0-9][a-z0-9._-]*?(?:\/[a-z0-9._-]+)*?)-(\d+(?:\.\.\d+)?|[nN*])$/
+const MEMBER =
+  /^([a-z0-9][a-z0-9._-]*?(?:\/[a-z0-9._-]+)*?)-(\d+(?:\.\.\d+)?|[nN*])$/
 // The same, found inside free text: a range or -N/-n/-* family anywhere,
 // a single numbered name only when the text says it is a lease (so a URL
 // or a region like aws/us-east-1 keeps its words).
-const IN_TEXT = /\b([a-z0-9][a-z0-9._-]*(?:\/[a-z0-9._-]+)+)-(\d+\.\.\d+|\d+|[nN*])(?![a-z0-9._/-])/i
+const IN_TEXT =
+  /\b([a-z0-9][a-z0-9._-]*(?:\/[a-z0-9._-]+)+)-(\d+\.\.\d+|\d+|[nN*])(?![a-z0-9._/-])/i
 
 function leaseIn(text: string): RegExpExecArray | null {
   const m = IN_TEXT.exec(text)
@@ -40,8 +42,10 @@ function family(stem: string): string {
 // repoName is a repoKey as people say it: "irori" for
 // remote:github.com/sh/irori, a short id for root:<sha>.
 function repoName(key: string): string {
-  if (key.startsWith("remote:")) return key.slice("remote:".length).split("/").pop() || key
-  if (key.startsWith("root:")) return `repo ${key.slice("root:".length, "root:".length + 7)}`
+  if (key.startsWith("remote:"))
+    return key.slice("remote:".length).split("/").pop() || key
+  if (key.startsWith("root:"))
+    return `repo ${key.slice("root:".length, "root:".length + 7)}`
   return key
 }
 
@@ -80,7 +84,8 @@ export function leaseNames(names: readonly string[]): string {
   }
   const first = names[0]
   const m = MEMBER.exec(first)
-  const said = m && (stems.get(m[1]) ?? 0) > 1 ? `a free ${family(m[1])}` : one(first)
+  const said =
+    m && (stems.get(m[1]) ?? 0) > 1 ? `a free ${family(m[1])}` : one(first)
   const others = stems.size - 1
   return others > 0 ? `${said} and ${others} more` : said
 }
@@ -96,7 +101,9 @@ export function waitName(c: { waitKind?: string; waitOn?: string }): string {
   const m = leaseIn(on)
   if (m) {
     const f = m[1].toLowerCase()
-    return m[2].includes("..") || /^[nN*]$/.test(m[2]) ? `a free ${family(f)}` : member(f, m[2])
+    return m[2].includes("..") || /^[nN*]$/.test(m[2])
+      ? `a free ${family(f)}`
+      : member(f, m[2])
   }
   return on.replace(/^external\s+/i, "")
 }
@@ -108,6 +115,8 @@ export function waitLine(c: { waitKind?: string; waitOn?: string }): string {
   if (!n) return "Waiting on something else"
   const lease =
     c.waitKind === "lease" ||
-    (c.waitKind !== "agent" && c.waitKind !== "task" && !!leaseIn(plainLine(c.waitOn ?? "")))
+    (c.waitKind !== "agent" &&
+      c.waitKind !== "task" &&
+      !!leaseIn(plainLine(c.waitOn ?? "")))
   return lease ? `Waiting for ${n}` : `Waiting on ${n}`
 }

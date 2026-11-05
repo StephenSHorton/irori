@@ -19,7 +19,11 @@ import { cn } from "@/lib/utils"
 import { WindDownDialog } from "@/components/wind-down-dialog"
 import { MessageDialog } from "@/components/cards/message-dialog"
 import { TalkPage, needsYou } from "@/components/talk/talk-page"
-import { talkApi, unreadDms, useConversations } from "@/lib/conversations"
+import {
+  talkApi,
+  talkWaiting as talkWaitingIn,
+  useConversations,
+} from "@/lib/conversations"
 import { AgentCards } from "@/components/cards/agent-hover"
 import { AskBox } from "@/components/cards/ask-box"
 import { NeedsYou } from "@/components/cards/needs-you"
@@ -27,7 +31,12 @@ import { nobodyTook, needsOf } from "@/lib/needs"
 import { cardRef } from "@/components/cards/bits"
 import { idleLine, whyWaiting } from "@/lib/agent-counts"
 import { mainRedText, mainReds, type MainRed } from "@/lib/main-red"
-import { asFilter, EmptyCards, matches, type Filter } from "@/components/cards/card-grid"
+import {
+  asFilter,
+  EmptyCards,
+  matches,
+  type Filter,
+} from "@/components/cards/card-grid"
 import {
   BoardView,
   inScope,
@@ -57,6 +66,7 @@ import { deskOn, deskQueue, inputsOf, useDesks } from "@/lib/desk"
 import { DeskPage } from "@/components/desk/desk-page"
 import { openSettings } from "@/components/settings/settings-menu"
 import { SpawnNotice } from "@/components/home/spawn-notice"
+import { WindDownLine } from "@/components/home/wind-down-line"
 import { UpdateBanner } from "@/updater"
 import { useBoardView } from "@/components/canvas/switch"
 import { BoardHeaderBar, BoardPage } from "@/components/boards/board-page"
@@ -65,11 +75,22 @@ import { NotesPage } from "@/components/notes/notes-page"
 import { useNotesWaiting } from "@/lib/notes"
 import { ProfilePage } from "@/components/profile/profile-page"
 import { useMe } from "@/lib/profile"
-import { AllSpaces, Personal, cardInSpace, threadsSpace, useSpace } from "@/lib/spaces"
+import {
+  AllSpaces,
+  Personal,
+  cardInSpace,
+  convInSpace,
+  threadsSpace,
+  useSpace,
+} from "@/lib/spaces"
 import { NotificationsPage } from "@/components/notifications-page"
 import { useNotifications, useUnreadNotifications } from "@/lib/notifications"
 import { go, Home, sameSection, sectionFromHash, type Section } from "@/lib/nav"
-import { CommandPalette, PaletteJump, paletteOpenKey } from "@/components/command-palette"
+import {
+  CommandPalette,
+  PaletteJump,
+  paletteOpenKey,
+} from "@/components/command-palette"
 import { isMac, useCommands } from "@/lib/commands"
 import { spawnedKeys } from "@/lib/roster-groups"
 
@@ -124,6 +145,10 @@ export function App() {
           {
             status: a.status,
             updatedAt: a.updatedAt,
+            // When its status began, for "running a job · 12 min", and its
+            // device's state, for "device offline" (card #489).
+            statusSince: a.statusSince,
+            deviceState: a.deviceState,
             lastTool: a.lastTool,
             offersCards: a.offersCards,
             spawned: a.spawned,
@@ -141,7 +166,10 @@ export function App() {
   // Boards show it. All spaces, the default, is everything.
   const [space, setSpace] = useSpace(boards)
   const shared = space !== AllSpaces && space !== Personal
-  const spaceCards = useMemo(() => cards.filter((c) => cardInSpace(c, space)), [cards, space])
+  const spaceCards = useMemo(
+    () => cards.filter((c) => cardInSpace(c, space)),
+    [cards, space]
+  )
   // Agents Irori started for a card are never free for other work (§6).
   const spawned = useMemo(() => spawnedKeys(cards), [cards])
   // Home's own scope: your cards, or a shared space's.
@@ -181,7 +209,9 @@ export function App() {
     if (previewFlag("talk") !== null) return { kind: "talk", id: "" }
     const notesTab = previewFlag("notes")
     if (notesTab !== null) return { kind: "notes", tab: notesTab }
-    return previewFlag("boards") !== null ? { kind: "boards" } : sectionFromHash(window.location.hash)
+    return previewFlag("boards") !== null
+      ? { kind: "boards" }
+      : sectionFromHash(window.location.hash)
   })
   const notesWaiting = useNotesWaiting()
   // A board page's own tab (All, Needs a decision, Closed).
@@ -252,10 +282,9 @@ export function App() {
   }, [inbox.deliveries])
   const name = nameLookup(
     roster.agents.map((a): [string, string] => [a.key, a.name]),
-    [...held.held, ...held.history, ...inbox.deliveries].map((d): [string, string] => [
-      d.message.from.key,
-      d.message.from.name,
-    ])
+    [...held.held, ...held.history, ...inbox.deliveries].map(
+      (d): [string, string] => [d.message.from.key, d.message.from.name]
+    )
   )
   const openHeld = useCallback((from: string) => {
     setHeldFrom(from)
@@ -393,7 +422,9 @@ export function App() {
           return
         }
         // A Talk notification (card #395): that channel or DM.
-        if (target.tab === "talk" && ref) {
+        // Without a ref (card #482): Talk's list, where the messages that
+        // waited for you are (the "N messages waited for you" card).
+        if (target.tab === "talk" || (target.tab === "inbox" && !ref)) {
           go({ kind: "talk", id: ref })
           return
         }
@@ -402,7 +433,9 @@ export function App() {
           return
         }
         if (target.tab === "inbox" && ref) {
-          const from = deliveriesNow.current.find((d) => d.id === ref)?.message.from.key ?? ""
+          const from =
+            deliveriesNow.current.find((d) => d.id === ref)?.message.from.key ??
+            ""
           if (!from || from.startsWith("user:") || from === SystemKey) {
             setMessage(ref)
             return
@@ -427,16 +460,27 @@ export function App() {
 
   // Home is your own cards; a board's live on its page (card #96), and
   // its decisions show on Home as one line per board.
-  const boardDecide = spaceCards.filter((c) => c.scope === "board" && c.openBlockers > 0)
+  const boardDecide = spaceCards.filter(
+    (c) => c.scope === "board" && c.openBlockers > 0
+  )
   // Needs you leads Home (card #261): its cards and held messages. An
   // agent's message to you is a DM in Talk (card #390). Held ones are
   // yours, not a shared space's (card #393).
   const needs = useMemo(
-    () => needsOf(spaceCards.filter((c) => inScope(c, homeScope)), shared ? [] : held.held),
+    () =>
+      needsOf(
+        spaceCards.filter((c) => inScope(c, homeScope)),
+        shared ? [] : held.held
+      ),
     [spaceCards, homeScope, shared, held.held]
   )
   const needCards = useMemo(
-    () => new Set(needs.filter((n) => n.kind === "check" || n.kind === "decision").map((n) => n.id)),
+    () =>
+      new Set(
+        needs
+          .filter((n) => n.kind === "check" || n.kind === "decision")
+          .map((n) => n.id)
+      ),
     [needs]
   )
   // The cards Home files under Stuck because nobody took them (card
@@ -446,7 +490,10 @@ export function App() {
     () => spaceCards.filter((c) => inScope(c, homeScope)),
     [spaceCards, homeScope]
   )
-  const homeIds = useMemo(() => new Set(homeCards.map((c) => c.id)), [homeCards])
+  const homeIds = useMemo(
+    () => new Set(homeCards.map((c) => c.id)),
+    [homeCards]
+  )
   const untaken = useMemo(
     () =>
       homeCards
@@ -527,15 +574,60 @@ export function App() {
   )
   const onList = !open && (section.kind === "home" || section.kind === "board")
   useCommands([
-    { id: "nav.home", title: "Home", group: "Go to", order: 1, keywords: ["my cards", "start"], run: () => goTo(Home) },
-    { id: "nav.talk", title: "Talk", group: "Go to", order: 2, keywords: ["threads", "asks", "conversations", "messages"], run: () => goTo({ kind: "talk", id: "" }) },
-    { id: "nav.notes", title: "Notes", group: "Go to", order: 2, keywords: ["rules", "gotchas", "decisions", "knowledge", "memory"], run: () => goTo({ kind: "notes", tab: "" }) },
-    { id: "nav.boards", title: "Boards", group: "Go to", order: 2, keywords: ["shared", "projects"], run: () => goTo({ kind: "boards" }) },
-    { id: "nav.notifications", title: "Notifications", group: "Go to", order: 3, keywords: ["mentions", "history", "alerts"], run: () => goTo({ kind: "notifications" }) },
-    { id: "nav.held", title: "Held messages", group: "Go to", order: 3, keywords: ["inbox", "waiting", "history"], run: () => openHeld("") },
+    {
+      id: "nav.home",
+      title: "Home",
+      group: "Go to",
+      order: 1,
+      keywords: ["my cards", "start"],
+      run: () => goTo(Home),
+    },
+    {
+      id: "nav.talk",
+      title: "Talk",
+      group: "Go to",
+      order: 2,
+      keywords: ["threads", "asks", "conversations", "messages"],
+      run: () => goTo({ kind: "talk", id: "" }),
+    },
+    {
+      id: "nav.notes",
+      title: "Notes",
+      group: "Go to",
+      order: 2,
+      keywords: ["rules", "gotchas", "decisions", "knowledge", "memory"],
+      run: () => goTo({ kind: "notes", tab: "" }),
+    },
+    {
+      id: "nav.boards",
+      title: "Boards",
+      group: "Go to",
+      order: 2,
+      keywords: ["shared", "projects"],
+      run: () => goTo({ kind: "boards" }),
+    },
+    {
+      id: "nav.notifications",
+      title: "Notifications",
+      group: "Go to",
+      order: 3,
+      keywords: ["mentions", "history", "alerts"],
+      run: () => goTo({ kind: "notifications" }),
+    },
+    {
+      id: "nav.held",
+      title: "Held messages",
+      group: "Go to",
+      order: 3,
+      keywords: ["inbox", "waiting", "history"],
+      run: () => openHeld(""),
+    },
     {
       id: "card.new",
-      title: section.kind === "board" && !open ? "New card on this board" : "New card",
+      title:
+        section.kind === "board" && !open
+          ? "New card on this board"
+          : "New card",
       order: 1,
       keywords: ["create", "add", "task"],
       run: () => setNewCard(true),
@@ -550,9 +642,28 @@ export function App() {
         setNewBoard(true)
       },
     },
-    { id: "view.list", title: "Switch to List", keywords: ["grid", "view"], when: () => onList && view === "canvas", run: () => setView("list") },
-    { id: "view.canvas", title: "Switch to Canvas", keywords: ["flow", "chart", "view"], when: () => onList && view === "list", run: () => setView("canvas") },
-    { id: "card.back", title: "Back to the cards", shortcut: "Esc", keywords: ["close", "leave"], when: () => !!open, run: back },
+    {
+      id: "view.list",
+      title: "Switch to List",
+      keywords: ["grid", "view"],
+      when: () => onList && view === "canvas",
+      run: () => setView("list"),
+    },
+    {
+      id: "view.canvas",
+      title: "Switch to Canvas",
+      keywords: ["flow", "chart", "view"],
+      when: () => onList && view === "list",
+      run: () => setView("canvas"),
+    },
+    {
+      id: "card.back",
+      title: "Back to the cards",
+      shortcut: "Esc",
+      keywords: ["close", "leave"],
+      when: () => !!open,
+      run: back,
+    },
     // The header's Wind down (card #220), from the palette (card #228); like
     // the header's button, not on the sample roster.
     {
@@ -566,14 +677,21 @@ export function App() {
   ])
 
   const agentCards = useMemo(
-    () => ({ cards, onOpen: openCard, threads: threadList, onOpenThread: openThread }),
+    () => ({
+      cards,
+      onOpen: openCard,
+      threads: threadList,
+      onOpenThread: openThread,
+    }),
     [cards, openCard, threadList, openThread]
   )
 
   // The nav drawer on a narrow window (card #227): it closes when you go
   // somewhere, as a phone's drawer does.
   const [drawer, setDrawer] = useState(false)
-  const where = open ? `card:${open}` : `${section.kind}:${section.kind === "board" ? section.id : ""}`
+  const where = open
+    ? `card:${open}`
+    : `${section.kind}:${section.kind === "board" ? section.id : ""}`
   const [drawerAt, setDrawerAt] = useState(where)
   if (drawerAt !== where) {
     setDrawerAt(where)
@@ -584,293 +702,333 @@ export function App() {
   // the bottom, and an open conversation is the whole screen, its own
   // header carrying Back.
   const narrow = useNarrow()
-  const talkWaiting = threadList.filter(needsYou).length + unreadDms(conversations)
+  // The badge counts what Talk lists in the picked space (card #461).
+  const talkWaiting =
+    threadList.filter(needsYou).length +
+    talkWaitingIn(
+      conversations.filter((c) => convInSpace(c, space)),
+      liveRoster
+    )
   const fullScreen = narrow && !open && section.kind === "talk" && !!section.id
 
   return (
     <AgentCards.Provider value={agentCards}>
-    <LiveRoster.Provider value={liveRoster}>
-    {/* No background of its own: the body paints the backdrop the glass
+      <LiveRoster.Provider value={liveRoster}>
+        {/* No background of its own: the body paints the backdrop the glass
         shows (design/irori-ds.css, #266). */}
-    <div className="flex h-svh overflow-hidden">
-      {/* The sidebar is the nav (card #135); the header is the page's. */}
-      <AppSidebar
-        roster={roster}
-        held={held.held.length}
-        talk={talkWaiting}
-        desks={{
-          on: desks.desks.filter(deskOn).length,
-          needYou: desks.desks
-            .filter(deskOn)
-            .reduce((n, d) => n + deskQueue(inputsOf(d)).filter((l) => l.state === "outside").length, 0),
-        }}
-        onHeld={() => openHeld("")}
-        unread={unreadNotifications}
-        section={open ? null : section}
-        notesWaiting={notesWaiting}
-        boardsNeedYou={boardDecide.length}
-        boards={boards}
-        cards={spaceCards}
-        openCard={open}
-        onOpenCard={openCard}
-        drawer={drawer}
-        onDrawer={setDrawer}
-        space={space}
-        onSpace={setSpace}
-        me={me}
-      />
-      <div className="flex min-w-0 flex-1 flex-col">
-      {fullScreen ? (
-        <div aria-hidden className="shrink-0 pt-[var(--safe-top)]" />
-      ) : (
-      <AppHeader
-        onMenu={() => setDrawer(true)}
-        roster={roster}
-        title={
-          open
-            ? "Card"
-            : section.kind === "boards"
-              ? "Boards"
-              : section.kind === "talk"
-                ? "Talk"
-                : section.kind === "notes"
-                  ? "Notes"
-                : section.kind === "profile"
-                  ? "Profile"
-                : section.kind === "desk"
-                  ? "Merge desks"
-                : section.kind === "notifications"
-                  ? "Notifications"
-                  : "Home"
-        }
-        bar={
-          !open && section.kind === "board" ? (
-            <BoardHeaderBar key={section.id} boardId={section.id} />
-          ) : undefined
-        }
-        onNewCard={() => setNewCard(true)}
-        onNewBoard={() => setNewBoard(true)}
-        onWindDown={() => setWindDown(true)}
-        section={open ? null : section}
-      />
-      )}
-      <main
-        className={cn(
-          "mx-auto flex min-h-0 w-full max-w-[1920px] flex-1 flex-col gap-3.5 sm:px-6",
-          fullScreen ? "px-0 pt-0" : "px-4 pt-[18px]",
-          !narrow && "pb-[var(--safe-bottom)]"
-        )}
-      >
-        <UpdateBanner />
-        {error && (
-          <p className="glass-panel border-destructive/50! px-3 py-2 text-sm text-destructive" role="alert">
-            Could not load the cards: {error}
-          </p>
-        )}
-        {open ? (
-          <Scroll>
-          <FocusComment.Provider
-            value={focus && focus.card === open ? focus.comment : ""}
-          >
-          <CardPage
-            key={open}
-            summary={
-              cards.find((c) => c.id === open) ??
-              done.cards.find((c) => c.id === open)
-            }
-            detail={detail}
-            error={detailError}
-            gone={gone}
-            now={now}
-            onBack={back}
-            onOpen={openCard}
-          />
-          </FocusComment.Provider>
-          </Scroll>
-        ) : section.kind === "talk" ? (
-          <TalkPage
-            threads={threadList}
-            conversations={conversations}
-            agents={roster.agents.map((a) => ({ key: a.key, name: a.name, status: a.status }))}
-            open={section.id}
-            onOpen={(id) => go({ kind: "talk", id })}
-            now={now}
-            why={whyWaiting(roster.agents.filter((a) => !spawned.has(a.key)))}
-            board={threadsSpace(space)}
-          />
-        ) : section.kind === "notes" ? (
-          <Scroll>
-            <NotesPage
-              tab={section.tab}
-              boards={boards}
-              roster={roster}
-              onTab={(tab) => go({ kind: "notes", tab })}
-              onOpen={openCard}
-              now={now}
-            />
-          </Scroll>
-        ) : section.kind === "profile" ? (
-          <Scroll>
-            <ProfilePage
-              boards={boards}
-              agents={roster.agents.length}
-              space={space}
-              onSpace={setSpace}
-            />
-          </Scroll>
-        ) : section.kind === "desk" ? (
-          <DeskPage
-            desks={desks.desks}
-            open={section.repo}
-            onOpen={(repo) => go({ kind: "desk", repo })}
-            onOpenCard={openCard}
-            onSettings={() => openSettings("desks")}
-            nameOf={name}
-            now={now}
-          />
-        ) : section.kind === "boards" ? (
-          <Scroll>
-            <BoardsPage
-              space={space}
-              cards={cards}
-              now={now}
-              newBoard={newBoard}
-              onNewBoard={setNewBoard}
-            />
-          </Scroll>
-        ) : section.kind === "notifications" ? (
-          <Scroll>
-            <NotificationsLive
-              unreadTotal={unreadNotifications}
-              now={now}
-              onOpenCard={openCard}
-              onOpenMessage={setMessage}
-            />
-          </Scroll>
-        ) : section.kind === "board" ? (
-          <BoardPage
-            key={section.id}
-            boardId={section.id}
-            cards={cards}
-            done={done}
-            filter={boardFilter}
-            onFilter={setBoardFilter}
-            view={view}
-            onView={setView}
-            query={query}
-            onQuery={setQuery}
-            selected={last}
-            onOpen={openCard}
-            now={now}
-          />
-        ) : loading && cards.length === 0 ? (
-          <p className="px-1 text-sm text-muted-foreground">Loading cards…</p>
-        ) : (
-          <BoardView
-            key={homeScope}
-            scope={homeScope}
+        <div className="flex h-svh overflow-hidden">
+          {/* The sidebar is the nav (card #135); the header is the page's. */}
+          <AppSidebar
+            roster={roster}
+            held={held.held.length}
+            talk={talkWaiting}
+            desks={{
+              on: desks.desks.filter(deskOn).length,
+              needYou: desks.desks
+                .filter(deskOn)
+                .reduce(
+                  (n, d) =>
+                    n +
+                    deskQueue(inputsOf(d)).filter((l) => l.state === "outside")
+                      .length,
+                  0
+                ),
+            }}
+            onHeld={() => openHeld("")}
+            unread={unreadNotifications}
+            section={open ? null : section}
+            notesWaiting={notesWaiting}
+            boardsNeedYou={boardDecide.length}
+            boards={boards}
             cards={spaceCards}
-            done={done}
-            filter={filter}
-            onFilter={pickHomeFilter}
-            view={view}
-            onView={setView}
-            query={query}
-            onQuery={setQuery}
-            selected={last}
-            onOpen={openCard}
-            now={now}
-            header={
-              <>
-                <MainRedLines reds={mainReds(cards)} onOpen={openCard} />
-                <SpawnNotice />
-                <AskBox onThread={startedThread} board={threadsSpace(space)} />
-                <IdleLine text={idleLine(idle, untaken, homeIds)} />
-              </>
-            }
-            lead={
-              <NeedsYou
-                needs={needs}
-                now={now}
-                name={name}
-                onOpenCard={openCard}
-              />
-            }
-            rows
-            listed={needCards}
-            notice={<BoardsNeedYou cards={boardDecide.filter((c) => !c.ours)} boards={boards} />}
-            empty={<EmptyCards />}
+            openCard={open}
+            onOpenCard={openCard}
+            drawer={drawer}
+            onDrawer={setDrawer}
+            space={space}
+            onSpace={setSpace}
+            me={me}
           />
-        )}
-      </main>
-      {narrow && (
-        <PhoneTabs at={phoneTab(section)} talk={talkWaiting} onGo={goTo} />
-      )}
-      </div>
-      {windDown && (
-        <WindDownDialog
-          agents={{
-            here: roster.agents.filter((a) => a.deviceId === roster.device?.id).length,
-            all: roster.agents.length,
-          }}
-          onClose={() => setWindDown(false)}
-        />
-      )}
-      <NewCardDialog
-        open={newCard}
-        onClose={() => setNewCard(false)}
-        onMade={openCard}
-        spawned={spawned}
-        board={
-          section.kind === "board" && !open
-            ? boards.find((b) => b.boardId === section.id)
-            : // Home in a shared space makes its cards there (card #393).
-              !open && shared && section.kind === "home"
-              ? boards.find((b) => b.boardId === space)
-              : undefined
-        }
-      />
-      {heldOpen && (
-        <HeldDialog
-          state={held}
-          tab={heldTab}
-          onTab={setHeldTab}
-          from={heldFrom}
-          onFrom={setHeldFrom}
-          name={name}
-          cardLabel={cardLabel}
-          onCard={(id) => {
-            setHeldOpen(false)
-            openCard(id)
-          }}
-          now={now}
-          onClose={() => setHeldOpen(false)}
-        />
-      )}
-      {palette && (
-        <CommandPalette
-          open
-          onOpenChange={setPalette}
-          cards={cards}
-          boards={boards}
-          agents={roster.agents}
-          onCard={openCard}
-          onBoard={onPaletteBoard}
-          onAgent={onPaletteAgent}
-          onThread={openThread}
-        />
-      )}
-      {message && (
-        <MessageDialog
-          key={message}
-          id={message}
-          name={name}
-          now={now}
-          onClose={() => setMessage("")}
-        />
-      )}
-    </div>
-    </LiveRoster.Provider>
+          <div className="flex min-w-0 flex-1 flex-col">
+            {fullScreen ? (
+              <div aria-hidden className="shrink-0 pt-[var(--safe-top)]" />
+            ) : (
+              <AppHeader
+                onMenu={() => setDrawer(true)}
+                roster={roster}
+                title={
+                  open
+                    ? "Card"
+                    : section.kind === "boards"
+                      ? "Boards"
+                      : section.kind === "talk"
+                        ? "Talk"
+                        : section.kind === "notes"
+                          ? "Notes"
+                          : section.kind === "profile"
+                            ? "Profile"
+                            : section.kind === "desk"
+                              ? "Merge desks"
+                              : section.kind === "notifications"
+                                ? "Notifications"
+                                : "Home"
+                }
+                bar={
+                  !open && section.kind === "board" ? (
+                    <BoardHeaderBar key={section.id} boardId={section.id} />
+                  ) : undefined
+                }
+                onNewCard={() => setNewCard(true)}
+                onNewBoard={() => setNewBoard(true)}
+                onWindDown={() => setWindDown(true)}
+                section={open ? null : section}
+              />
+            )}
+            <main
+              className={cn(
+                "mx-auto flex min-h-0 w-full max-w-[1920px] flex-1 flex-col gap-3.5 sm:px-6",
+                fullScreen ? "px-0 pt-0" : "px-4 pt-[18px]",
+                !narrow && "pb-[var(--safe-bottom)]"
+              )}
+            >
+              <UpdateBanner />
+              {error && (
+                <p
+                  className="border-destructive/50! px-3 py-2 text-sm text-destructive glass-panel"
+                  role="alert"
+                >
+                  Could not load the cards: {error}
+                </p>
+              )}
+              {open ? (
+                <Scroll>
+                  <FocusComment.Provider
+                    value={focus && focus.card === open ? focus.comment : ""}
+                  >
+                    <CardPage
+                      key={open}
+                      summary={
+                        cards.find((c) => c.id === open) ??
+                        done.cards.find((c) => c.id === open)
+                      }
+                      detail={detail}
+                      error={detailError}
+                      gone={gone}
+                      now={now}
+                      onBack={back}
+                      onOpen={openCard}
+                    />
+                  </FocusComment.Provider>
+                </Scroll>
+              ) : section.kind === "talk" ? (
+                <TalkPage
+                  threads={threadList}
+                  conversations={conversations}
+                  agents={roster.agents.map((a) => ({
+                    key: a.key,
+                    name: a.name,
+                    status: a.status,
+                  }))}
+                  open={section.id}
+                  onOpen={(id) => go({ kind: "talk", id })}
+                  now={now}
+                  why={whyWaiting(
+                    roster.agents.filter((a) => !spawned.has(a.key))
+                  )}
+                  board={threadsSpace(space)}
+                  space={space}
+                />
+              ) : section.kind === "notes" ? (
+                <Scroll>
+                  <NotesPage
+                    tab={section.tab}
+                    boards={boards}
+                    roster={roster}
+                    onTab={(tab) => go({ kind: "notes", tab })}
+                    onOpen={openCard}
+                    now={now}
+                  />
+                </Scroll>
+              ) : section.kind === "profile" ? (
+                <Scroll>
+                  <ProfilePage
+                    boards={boards}
+                    agents={roster.agents.length}
+                    space={space}
+                    onSpace={setSpace}
+                  />
+                </Scroll>
+              ) : section.kind === "desk" ? (
+                <DeskPage
+                  desks={desks.desks}
+                  open={section.repo}
+                  onOpen={(repo) => go({ kind: "desk", repo })}
+                  onOpenCard={openCard}
+                  onSettings={() => openSettings("desks")}
+                  nameOf={name}
+                  now={now}
+                />
+              ) : section.kind === "boards" ? (
+                <Scroll>
+                  <BoardsPage
+                    space={space}
+                    cards={cards}
+                    now={now}
+                    newBoard={newBoard}
+                    onNewBoard={setNewBoard}
+                  />
+                </Scroll>
+              ) : section.kind === "notifications" ? (
+                <Scroll>
+                  <NotificationsLive
+                    unreadTotal={unreadNotifications}
+                    now={now}
+                    onOpenCard={openCard}
+                    onOpenMessage={setMessage}
+                  />
+                </Scroll>
+              ) : section.kind === "board" ? (
+                <BoardPage
+                  key={section.id}
+                  boardId={section.id}
+                  cards={cards}
+                  done={done}
+                  filter={boardFilter}
+                  onFilter={setBoardFilter}
+                  view={view}
+                  onView={setView}
+                  query={query}
+                  onQuery={setQuery}
+                  selected={last}
+                  onOpen={openCard}
+                  now={now}
+                />
+              ) : loading && cards.length === 0 ? (
+                <p className="px-1 text-sm text-muted-foreground">
+                  Loading cards…
+                </p>
+              ) : (
+                <BoardView
+                  key={homeScope}
+                  scope={homeScope}
+                  cards={spaceCards}
+                  done={done}
+                  filter={filter}
+                  onFilter={pickHomeFilter}
+                  view={view}
+                  onView={setView}
+                  query={query}
+                  onQuery={setQuery}
+                  selected={last}
+                  onOpen={openCard}
+                  now={now}
+                  header={
+                    <>
+                      <MainRedLines reds={mainReds(cards)} onOpen={openCard} />
+                      <SpawnNotice />
+                      <WindDownLine onOpen={() => setWindDown(true)} />
+                      <AskBox
+                        onThread={startedThread}
+                        board={threadsSpace(space)}
+                      />
+                      <IdleLine text={idleLine(idle, untaken, homeIds)} />
+                    </>
+                  }
+                  lead={
+                    <NeedsYou
+                      needs={needs}
+                      now={now}
+                      name={name}
+                      onOpenCard={openCard}
+                      onHeld={() => openHeld("")}
+                    />
+                  }
+                  rows
+                  listed={needCards}
+                  notice={
+                    <BoardsNeedYou
+                      cards={boardDecide.filter((c) => !c.ours)}
+                      boards={boards}
+                    />
+                  }
+                  empty={<EmptyCards />}
+                />
+              )}
+            </main>
+            {narrow && (
+              <PhoneTabs
+                at={phoneTab(section)}
+                talk={talkWaiting}
+                onGo={goTo}
+              />
+            )}
+          </div>
+          {windDown && (
+            <WindDownDialog
+              agents={{
+                here: roster.agents.filter(
+                  (a) => a.deviceId === roster.device?.id
+                ).length,
+                all: roster.agents.length,
+              }}
+              onClose={() => setWindDown(false)}
+            />
+          )}
+          <NewCardDialog
+            open={newCard}
+            onClose={() => setNewCard(false)}
+            onMade={openCard}
+            spawned={spawned}
+            board={
+              section.kind === "board" && !open
+                ? boards.find((b) => b.boardId === section.id)
+                : // Home in a shared space makes its cards there (card #393).
+                  !open && shared && section.kind === "home"
+                  ? boards.find((b) => b.boardId === space)
+                  : undefined
+            }
+          />
+          {heldOpen && (
+            <HeldDialog
+              state={held}
+              tab={heldTab}
+              onTab={setHeldTab}
+              from={heldFrom}
+              onFrom={setHeldFrom}
+              name={name}
+              cardLabel={cardLabel}
+              onCard={(id) => {
+                setHeldOpen(false)
+                openCard(id)
+              }}
+              now={now}
+              onClose={() => setHeldOpen(false)}
+            />
+          )}
+          {palette && (
+            <CommandPalette
+              open
+              onOpenChange={setPalette}
+              cards={cards}
+              boards={boards}
+              agents={roster.agents}
+              onCard={openCard}
+              onBoard={onPaletteBoard}
+              onAgent={onPaletteAgent}
+              onThread={openThread}
+            />
+          )}
+          {message && (
+            <MessageDialog
+              key={message}
+              id={message}
+              name={name}
+              now={now}
+              onClose={() => setMessage("")}
+            />
+          )}
+        </div>
+      </LiveRoster.Provider>
     </AgentCards.Provider>
   )
 }
@@ -886,7 +1044,8 @@ function BoardsNeedYou({
   boards: { boardId: string; name: string }[]
 }) {
   const by = new Map<string, number>()
-  for (const c of cards) if (c.board) by.set(c.board, (by.get(c.board) ?? 0) + 1)
+  for (const c of cards)
+    if (c.board) by.set(c.board, (by.get(c.board) ?? 0) + 1)
   if (!by.size) return null
   return (
     <p className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[12.5px] text-muted-foreground">
@@ -908,7 +1067,13 @@ function BoardsNeedYou({
 // MainRedLines lead Home while a test fails on clean main (card #436): one
 // card owns each red test and every card that hit it waits on that card,
 // so the person sees the bottleneck before anything else.
-function MainRedLines({ reds, onOpen }: { reds: MainRed[]; onOpen: (id: string) => void }) {
+function MainRedLines({
+  reds,
+  onOpen,
+}: {
+  reds: MainRed[]
+  onOpen: (id: string) => void
+}) {
   if (reds.length === 0) return null
   return (
     <div className="flex flex-col gap-1" role="status">
@@ -917,7 +1082,7 @@ function MainRedLines({ reds, onOpen }: { reds: MainRed[]; onOpen: (id: string) 
           key={r.id}
           type="button"
           onClick={() => onOpen(r.id)}
-          className="glass-panel border-destructive/50! px-3 py-2 text-left text-sm text-destructive hover:underline underline-offset-2"
+          className="border-destructive/50! px-3 py-2 text-left text-sm text-destructive underline-offset-2 glass-panel hover:underline"
         >
           {mainRedText(r)}
         </button>
@@ -949,8 +1114,13 @@ function Scroll({ children }: { children: ReactNode }) {
 // NotificationsLive is the Notifications page with its list, read only
 // while the page is open (0.11.1: the sidebar's badge reads a count).
 function NotificationsLive(
-  props: Omit<Parameters<typeof NotificationsPage>[0], "list" | "loading" | "error">
+  props: Omit<
+    Parameters<typeof NotificationsPage>[0],
+    "list" | "loading" | "error"
+  >
 ) {
   const { list, loading, error } = useNotifications()
-  return <NotificationsPage {...props} list={list} loading={loading} error={error} />
+  return (
+    <NotificationsPage {...props} list={list} loading={loading} error={error} />
+  )
 }

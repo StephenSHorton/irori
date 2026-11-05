@@ -41,7 +41,7 @@ fn an_untrusted_repo_waits_on_the_person_then_starts() {
                 prefix: "dddddddd".into(),
             })
         }),
-        end: Arc::new(|_| Ok(())),
+        end: Arc::new(|_| Ok(String::new())),
         trusted: Arc::new(move |dir: &Path| {
             claude_trust::is_trusted(&f2, &trust_folder(&dir.to_string_lossy()))
         }),

@@ -38,6 +38,13 @@ pub const KIND_ASK: &str = "ask";
 pub const KIND_MESSAGE: &str = "message";
 pub const KIND_HELD: &str = "held";
 pub const KIND_AGENT: &str = "agent";
+/// The one quiet card for several messages that waited while Irori was
+/// off (#364): `delivery_ids` names them, `delivery_id` the newest.
+pub const KIND_WAITED: &str = "waited";
+
+/// A read row's `why` when Irori wrote it because the thing the item is
+/// about was resolved, by the person or anyone (card #482).
+pub const WHY_RESOLVED: &str = "resolved";
 
 crate::go_struct! {
     /// The `notification.posted` payload.
@@ -52,6 +59,8 @@ crate::go_struct! {
         pub blocker_id: String = "blockerId" "omit",
         pub ask_id: String = "askId" "omit",
         pub delivery_id: String = "deliveryId" "omit",
+        /// Every delivery a `waited` item stands for.
+        pub delivery_ids: Vec<String> = "deliveryIds" "omit",
         pub board_id: String = "boardId" "omit",
         pub comment_id: String = "commentId" "omit",
         /// Which time it happened, when the same thing can happen again
@@ -68,6 +77,9 @@ crate::go_struct! {
     #[derive(Debug, Clone, Default, PartialEq)]
     pub struct ReadRow {
         pub keys: Vec<String> = "keys",
+        /// Why it was read when the person didn't read it: `resolved`
+        /// (Irori, actor `irori`) once the thing it is about was settled.
+        pub why: String = "why" "omit",
         pub at: GoTime = "at",
     }
 }
@@ -147,10 +159,14 @@ impl History {
                 );
                 true
             }
-            READ if ev.actor == "user" => {
+            READ if ev.actor == "user" || ev.actor == "irori" => {
                 let Some(r) = decode::<ReadRow>(&ev.payload) else {
                     return false;
                 };
+                // Irori reads only what it settled, and says so.
+                if ev.actor == "irori" && r.why != WHY_RESOLVED {
+                    return false;
+                }
                 let mut st = self.lock();
                 let mut changed = false;
                 for k in r.keys {
@@ -201,6 +217,16 @@ impl History {
             .collect()
     }
 
+    /// Every unread item, in no order.
+    pub fn unread_items(&self) -> Vec<Item> {
+        self.lock()
+            .items
+            .values()
+            .filter(|i| !i.read)
+            .cloned()
+            .collect()
+    }
+
     /// Every unread item's key.
     pub fn unread_keys(&self) -> Vec<String> {
         let st = self.lock();
@@ -224,6 +250,52 @@ fn older(ev: &store::Event, cur: &Item) -> bool {
         return ev.device_id < cur.device;
     }
     ev.seq < cur.seq
+}
+
+/// The body of a returned card's notification (card #483): the agent that
+/// went away by its name, or "Its agent" when no name is known. Never an
+/// agent key: the watcher posts it and the Notifications page rebuilds a
+/// stored row's body with it.
+pub fn returned_body(name: Option<&str>) -> String {
+    let who = name
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .unwrap_or(RETURNED_NOBODY);
+    format!("{who}{RETURNED_TAIL}")
+}
+
+const RETURNED_TAIL: &str = " went away, so it's open again. Assign it to an agent, or close it.";
+const RETURNED_NOBODY: &str = "Its agent";
+
+/// The name a stored returned row's body gave agent `key`, when it gave
+/// one and not the key (rows before card #483 named it by key): what the
+/// page falls back to once nothing else knows the name.
+pub fn returned_name_in(body: &str, key: &str) -> Option<String> {
+    let who = body.strip_suffix(RETURNED_TAIL)?.trim();
+    if who == RETURNED_NOBODY || who.contains('/') {
+        return None;
+    }
+    agent_name_of(key, who)
+}
+
+/// `name` when it is a name for agent `key` and not the key itself (a
+/// resolver's fallback): `None` for empty or the key (card #483).
+pub fn agent_name_of(key: &str, name: &str) -> Option<String> {
+    let n = name.trim();
+    (!n.is_empty() && n != key.trim()).then(|| n.to_string())
+}
+
+/// The name of agent `key` from task `t`'s spawn records: the name the
+/// card's agent was started with (card #483).
+pub fn spawned_name(t: &crate::Task, key: &str) -> Option<String> {
+    if key.is_empty() {
+        return None;
+    }
+    t.spawns
+        .iter()
+        .rev()
+        .filter(|s| s.key == key)
+        .find_map(|s| agent_name_of(key, &s.name))
 }
 
 /// The key for what a notification is about: the same thing gets the
@@ -306,11 +378,11 @@ mod tests {
         // A read from the phone, before the post it names reaches here.
         let read = ReadRow {
             keys: vec!["blocker:T2/b1".into()],
-            at: GoTime::default(),
+            ..ReadRow::default()
         };
         let p = String::from_utf8(gocompat::json::marshal(&read).unwrap()).unwrap();
         assert!(!h.apply(&row("phone", 1, 40, "user", READ, p.clone())));
-        // Only the person reads.
+        // Only the person reads, or Irori once the thing was resolved.
         assert!(!h.apply(&row("phone", 2, 41, "irori", READ, p)));
         let mut r2 = posted("mac", 6, 50, "other", "2026-11-03T10:00:05Z");
         r2.payload = String::from_utf8(r2.payload.clone())
@@ -324,6 +396,17 @@ mod tests {
         assert!(l[0].read, "the early read counts");
         assert_eq!(h.unread(), 1);
         assert_eq!(h.unread_keys(), vec!["blocker:T1/b1".to_string()]);
+
+        // Irori reads what it settled.
+        let settled = ReadRow {
+            keys: vec!["blocker:T1/b1".into()],
+            why: WHY_RESOLVED.into(),
+            ..ReadRow::default()
+        };
+        let sp = String::from_utf8(gocompat::json::marshal(&settled).unwrap()).unwrap();
+        assert!(h.apply(&row("pc", 3, 52, "irori", READ, sp)));
+        assert_eq!(h.unread(), 0, "a resolved item is read");
+        assert!(h.unread_items().is_empty());
 
         // A post without a key is its own item.
         let agent = PostedRow {

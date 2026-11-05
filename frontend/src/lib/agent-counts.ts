@@ -32,7 +32,7 @@ export type AgentCounts = {
   total: number
   // Busy, or waiting on their own command ("shell"), or any other status.
   working: number
-  // Of working: the ones waiting on a command they started.
+  // Of working: the ones running a job ("shell"), card #489.
   running: number
   // Idle on an online device with "Offer it cards" on: who a thread or
   // ask goes to.
@@ -99,7 +99,7 @@ export function whyWaiting(agents: Agent[], repoKey = ""): string {
   if (c.working > 0)
     parts.push(
       c.running > 0
-        ? `${c.working} working (${c.running} waiting on a command they started)`
+        ? `${c.working} working (${c.running} running a job)`
         : `${c.working} working`
     )
   if (c.ownWork > 0) parts.push(`${c.ownWork} idle, not taking offered work`)
@@ -147,14 +147,19 @@ export function idleLine(
   }))
   const listed = new Set(untaken.map((u) => u.id))
   for (const u of r.unoffered)
-    if (!listed.has(u.id) && !homeIds.has(u.id)) cards.push({ short: u.short, why: u.why })
+    if (!listed.has(u.id) && !homeIds.has(u.id))
+      cards.push({ short: u.short, why: u.why })
   const k = cards.length
-  if (k === 0) return r.idle > 0 ? `${n(r.idle, "agent", "agents")} idle, no open work.` : ""
+  if (k === 0)
+    return r.idle > 0
+      ? `${n(r.idle, "agent", "agents")} idle, no open work.`
+      : ""
   const shown = cards
     .slice(0, IdleLineShown)
     .map((u) => (u.why ? `${u.short} (${u.why})` : u.short))
     .join(", ")
   const more = k > IdleLineShown ? `, and ${k - IdleLineShown} more` : ""
-  const who = r.idle > 0 ? `${n(r.idle, "agent", "agents")} idle` : "No agent is free"
+  const who =
+    r.idle > 0 ? `${n(r.idle, "agent", "agents")} idle` : "No agent is free"
   return `${who}; ${n(k, "card", "cards")} nobody took: ${shown}${more}.`
 }

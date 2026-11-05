@@ -10,7 +10,11 @@
 //!   as DMs between the two, read-only for the person; so do messages
 //!   between the person and an agent. They are mirrored when read, never
 //!   written as posts. A message that is itself a post (a DM to an agent
-//!   goes out as a message whose id is the post's) shows once.
+//!   goes out as a message whose id is the post's) shows once. The
+//!   person's Wind down (reason wind_down) and any reply to it are not
+//!   mirrored (card #484): one Wind down reaches every agent, so it would
+//!   open a DM per agent, and its "wound down" answers belong to the Wind
+//!   down dialog and Home's summary line, not to unread DMs.
 //! - A mention in a channel or a DM wakes the mentioned agent with a
 //!   mention notice, and an agent mentioned in a channel joins it. A post
 //!   to a DM with an agent goes to it as a message that wakes it.
@@ -44,6 +48,14 @@ pub struct ConvMember {
     pub kind: String,
     pub key: String,
     pub name: String,
+    /// Another member's agent on a shared board (card #478): its board
+    /// card's status (`busy`, `idle`, `gone`), "" when this device knows
+    /// none. The window reads an agent missing from its own roster as
+    /// gone only when this says so.
+    pub status: String,
+    /// Whose agent it is, when it is another member's ("Spencer"); ""
+    /// for the person's own agents.
+    pub owner: String,
 }
 
 /// One conversation in a reader's list.
@@ -60,6 +72,12 @@ pub struct Conversation {
     pub members: Vec<ConvMember>,
     /// The newest post's time (zero: none yet).
     pub last_at: GoTime,
+    /// The newest post's text on one line, clipped to [`LAST_TEXT`] runes
+    /// (card #486): the list's subtitle, and how it sees one message sent
+    /// to many agents.
+    pub last_text: String,
+    /// Who wrote the newest post ("" when none).
+    pub last_by: String,
     /// The reader is in it (a channel they joined, their own DM, a thread
     /// they're on). The person also sees agents' DMs, read-only.
     pub joined: bool,
@@ -70,6 +88,10 @@ pub struct Conversation {
     /// A thread's "Agents answer now" (card #391); false for a channel or
     /// DM, whose posts each carry their own.
     pub agents_now: bool,
+    /// The space a channel is in (card #461): a shared space's id (its
+    /// first board's), empty for Personal. DMs and threads are always empty:
+    /// DMs are you and your agents, and these threads are the private log's.
+    pub space_id: String,
 }
 
 /// What a post came to.
@@ -124,10 +146,47 @@ fn cards(b: &dyn Backend) -> Vec<coord::roster::AgentCard> {
         .collect()
 }
 
-/// Names for keys: the roster's, else the last name an agent went by.
+/// Names for keys: the roster's, else another member's agent on a shared
+/// board, else the last name an agent went by. A key never stands in for
+/// a name (card #478): one nobody can name is "unknown agent".
 struct Book {
     cards: HashMap<String, String>,
+    /// Other members' agents, by board card id: name, owner, status.
+    board: HashMap<String, (String, String, String)>,
     known: BTreeMap<String, String>,
+}
+
+/// What a name says when nothing names the key (card #478).
+pub const UNKNOWN_AGENT: &str = "unknown agent";
+/// What another person on a board is called when the board doesn't say.
+pub const UNKNOWN_PERSON: &str = "another person";
+
+/// The board card id a key names: `agent:<cardId>` as a board writes it,
+/// or `board:<boardId>/<cardId>` as the bridge sends from it.
+fn board_card(key: &str) -> Option<&str> {
+    if let Some(id) = key.strip_prefix(store::kinds::AGENT_ACTOR_PREFIX) {
+        return Some(id);
+    }
+    let (_, rest) = key.strip_prefix("board:")?.split_once('/')?;
+    (!rest.starts_with(store::kinds::PERSON_ACTOR_PREFIX)).then_some(rest)
+}
+
+/// The person a `board:<boardId>/person:<personId>` key names, as
+/// `person:<personId>`.
+fn board_person(key: &str) -> Option<&str> {
+    let (_, rest) = key.strip_prefix("board:")?.split_once('/')?;
+    rest.starts_with(store::kinds::PERSON_ACTOR_PREFIX)
+        .then_some(rest)
+}
+
+/// "BillingEng1 · Spencer"; "an agent of Spencer's" without a name.
+pub fn board_agent_name(name: &str, owner: &str) -> String {
+    match (name.trim(), owner.trim()) {
+        ("", "") => UNKNOWN_AGENT.into(),
+        ("", o) => format!("an agent of {o}'s"),
+        (n, "") => n.into(),
+        (n, o) => format!("{n} · {o}"),
+    }
 }
 
 impl Book {
@@ -138,27 +197,64 @@ impl Book {
                 .into_iter()
                 .map(|a| (a.key.clone(), a.name))
                 .collect(),
+            board: b
+                .board_agents()
+                .into_iter()
+                .filter_map(|a| {
+                    let id = board_card(&a.card.key)?.to_string();
+                    Some((id, (a.card.name, a.person, a.card.status)))
+                })
+                .collect(),
             known: b.known_names(),
         }
+    }
+
+    fn known(&self, key: &str) -> Option<String> {
+        self.known
+            .get(key)
+            .filter(|n| !n.trim().is_empty())
+            .cloned()
     }
 
     fn name(&self, key: &str) -> String {
         if ct::is_person_key(key) {
             return "you".into();
         }
-        self.cards
-            .get(key)
-            .or_else(|| self.known.get(key))
-            .filter(|n| !n.trim().is_empty())
-            .cloned()
-            .unwrap_or_else(|| key.to_string())
+        if let Some(n) = self.cards.get(key).filter(|n| !n.trim().is_empty()) {
+            return n.clone();
+        }
+        if let Some(p) = board_person(key) {
+            return self.known(p).unwrap_or_else(|| UNKNOWN_PERSON.into());
+        }
+        if ct::is_other_person_key(key) {
+            return self.known(key).unwrap_or_else(|| UNKNOWN_PERSON.into());
+        }
+        if let Some(id) = board_card(key) {
+            let last = || self.known(&format!("{}{id}", store::kinds::AGENT_ACTOR_PREFIX));
+            if let Some((n, owner, _)) = self.board.get(id) {
+                let n = if n.trim().is_empty() {
+                    last().unwrap_or_default()
+                } else {
+                    n.clone()
+                };
+                return board_agent_name(&n, owner);
+            }
+            return last().unwrap_or_else(|| UNKNOWN_AGENT.into());
+        }
+        self.known(key).unwrap_or_else(|| UNKNOWN_AGENT.into())
     }
 
     fn member(&self, m: &Member) -> ConvMember {
+        let (status, owner) = board_card(&m.key)
+            .and_then(|id| self.board.get(id))
+            .map(|(_, o, s)| (s.clone(), o.clone()))
+            .unwrap_or_default();
         ConvMember {
             kind: m.kind.clone(),
             key: m.key.clone(),
             name: self.name(&m.key),
+            status,
+            owner,
         }
     }
 }
@@ -224,25 +320,48 @@ fn thread_members(t: &Task) -> Vec<Member> {
     out
 }
 
-/// The DMs mirrored from messages: by DM id, its two parties and posts.
 /// Whether a message can show as a DM ([`mirrored`]): one an agent or the
-/// person sent, not a notice, a stop, Irori's own or a mention's wake. The
-/// Core tells the window Talk changed only for these (card #468).
+/// person sent, not a notice, a stop, Irori's own, a mention's wake or a
+/// Wind down (card #484). The Core tells the window Talk changed only for
+/// these (card #468). A row bridged from a shared board (card #478) isn't
+/// one either: it is the card's, shown on the card, and every holder's and
+/// watcher's copy would show again ("raised a blocker on ..." ten times
+/// over).
 pub fn mirrors(m: &inbox::Message) -> bool {
     !(m.notice
         || m.stop
         || m.from.kind == "irori"
+        || m.from.kind == inbox::BOARD_KIND
+        || m.from.key.starts_with("board:")
         || m.reason == inbox::REASON_MENTIONED
+        || inbox::is_wind_down(m)
         || m.from.key.is_empty())
 }
 
+/// Whether `m` answers a Wind down (`wind_downs` holds their ids): a
+/// "wound down" sent as a message, as replies were before card #307. It
+/// stays out of the DMs with the Wind down itself (card #484). Only a
+/// reply counts: parent_id also links whatever an agent sends in the turn
+/// the Wind down woke (a hand-off, a failure report), and those still show.
+fn answers_wind_down(m: &inbox::Message, wind_downs: &std::collections::HashSet<String>) -> bool {
+    !m.reply_to.is_empty() && wind_downs.contains(&m.reply_to)
+}
+
+/// The DMs mirrored from messages: by DM id, its two parties and posts.
 fn mirrored(b: &dyn Backend, talk: &Talk) -> BTreeMap<String, (Vec<Member>, Vec<Post>)> {
     let ids = talk.post_ids();
     let mut seen = std::collections::HashSet::new();
     let mut out: BTreeMap<String, (Vec<Member>, Vec<Post>)> = BTreeMap::new();
-    for d in b.inbox().list(usize::MAX) {
+    let all = b.inbox().list(usize::MAX);
+    let wind_downs: std::collections::HashSet<String> = all
+        .iter()
+        .filter(|d| inbox::is_wind_down(&d.message))
+        .map(|d| d.message.id.clone())
+        .collect();
+    for d in all {
         let m = &d.message;
         if !mirrors(m)
+            || answers_wind_down(m, &wind_downs)
             || d.to.is_empty()
             || ct::canon(&m.from.key) == ct::canon(&d.to)
             || ids.contains(&m.id)
@@ -289,6 +408,19 @@ fn last_at(posts: &[Post]) -> GoTime {
     posts.last().map(|p| p.at).unwrap_or_default()
 }
 
+/// How many runes of the newest post a conversation carries (card #486):
+/// the list shows one line of it, and compares it whole to tell one
+/// message sent to many agents from two that only start alike.
+pub const LAST_TEXT: usize = 2000;
+
+/// The newest post's text on one line, and who wrote it.
+fn last_line(posts: &[Post]) -> (String, String) {
+    posts
+        .last()
+        .map(|p| (one_line(&p.text, LAST_TEXT), p.by.clone()))
+        .unwrap_or_default()
+}
+
 /// `reader`'s conversations: the person sees every open channel, every
 /// DM (agents' own read-only) and every open thread; an agent sees the
 /// channels it joined, its DMs and the open threads it is on. Newest
@@ -307,6 +439,7 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
         }
         let ps = talk.posts(&c.id);
         let (unread, mentions) = counts(talk, &ps, reader, &c.id);
+        let (last_text, last_by) = last_line(&ps);
         out.push(Conversation {
             conv_id: c.id.clone(),
             kind: ct::KIND_CHANNEL.into(),
@@ -320,7 +453,10 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
                 .map(|m| names.member(m))
                 .collect(),
             last_at: last_at(&ps),
+            last_text,
+            last_by,
             joined,
+            space_id: c.space_id.clone(),
             ..Conversation::default()
         });
     }
@@ -336,6 +472,12 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
             continue;
         }
         let ps = dm_posts(talk, mirror.get(&id), &id);
+        // A DM opened with a shared board's sender (from a Board notice)
+        // and never written in lists nothing (card #478): what that
+        // sender wrote is on the card, not here.
+        if ps.is_empty() && parties.iter().any(|m| m.key.starts_with("board:")) {
+            continue;
+        }
         let (unread, mentions) = if mine {
             counts(talk, &ps, reader, &id)
         } else {
@@ -346,6 +488,7 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
             .filter(|m| ct::canon(&m.key) != me)
             .map(|m| names.name(&m.key))
             .collect();
+        let (last_text, last_by) = last_line(&ps);
         out.push(Conversation {
             conv_id: id.clone(),
             kind: ct::KIND_DM.into(),
@@ -354,6 +497,8 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
             mentions,
             members: parties.iter().map(|m| names.member(m)).collect(),
             last_at: last_at(&ps),
+            last_text,
+            last_by,
             joined: mine,
             read_only: !mine,
             ..Conversation::default()
@@ -374,6 +519,7 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
             continue;
         }
         let (unread, mentions) = counts(talk, &ps, reader, &t.id);
+        let (last_text, last_by) = last_line(&ps);
         out.push(Conversation {
             conv_id: t.id.clone(),
             kind: ct::KIND_THREAD.into(),
@@ -382,6 +528,8 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
             mentions,
             members: members.iter().map(|m| names.member(m)).collect(),
             last_at: last_at(&ps),
+            last_text,
+            last_by,
             joined: on || person,
             short: t.short.clone(),
             agents_now: t.ask.as_ref().is_some_and(|a| a.wake),
@@ -399,8 +547,11 @@ fn coord_cmp(a: &GoTime, b: &GoTime) -> std::cmp::Ordering {
 
 /// What `conv` names for `me`: a channel or DM id, `#name` (a channel)
 /// or `#12` / `task:<id>` (a thread or card), `@name` or an agent's key
-/// (the DM with it), or `person` (the DM with the person).
-pub fn resolve(b: &dyn Backend, me: &str, conv: &str) -> Result<Target, String> {
+/// (the DM with it), or `person` (the DM with the person). A channel's
+/// name is looked up in space `space` only (empty: Personal); a name that
+/// lives in another space is refused with where it is, never followed
+/// there (card #461).
+pub fn resolve(b: &dyn Backend, me: &str, conv: &str, space: &str) -> Result<Target, String> {
     let talk = talk_of(b)?;
     let conv = trim(conv);
     if conv.is_empty() {
@@ -425,9 +576,9 @@ pub fn resolve(b: &dyn Backend, me: &str, conv: &str) -> Result<Target, String> 
         return Ok(Target::Dm(ct::dm_id(me, &p.key), Some(p)));
     }
     if let Some(name) = conv.strip_prefix('#')
-        && let Some(c) = talk.channel_named(name)
+        && let Some(id) = named_in(talk, name, space)?
     {
-        return Ok(Target::Channel(c.id));
+        return Ok(Target::Channel(id));
     }
     let co = b.coord();
     if let Ok(id) = co.task_ref(conv)
@@ -440,8 +591,18 @@ pub fn resolve(b: &dyn Backend, me: &str, conv: &str) -> Result<Target, String> 
     {
         return Ok(Target::Thread(trim(id).to_string()));
     }
-    if let Some(c) = talk.channel_named(conv) {
-        return Ok(Target::Channel(c.id));
+    if let Some(id) = named_in(talk, conv, space)? {
+        return Ok(Target::Channel(id));
+    }
+    // Only spaces this person still has can be named back (a space being
+    // left, or not ready yet, isn't one).
+    let elsewhere: Vec<ct::Channel> = talk
+        .channels_named(conv)
+        .into_iter()
+        .filter(|c| c.space_id.is_empty() || space_known(b, &c.space_id))
+        .collect();
+    if !elsewhere.is_empty() {
+        return Err(elsewhere_text(b, conv, space, &elsewhere));
     }
     let name = conv.trim_start_matches('@');
     let r = coord::mentions::resolve(&cards(b), me, "", &[name.to_string()]);
@@ -461,6 +622,118 @@ pub fn resolve(b: &dyn Backend, me: &str, conv: &str) -> Result<Target, String> 
         "{} is no channel, thread or agent here. talk_list shows your conversations; the agents tool lists agents.",
         one_line(conv, 80)
     ))
+}
+
+/// The id of the open channel named `name` in space `space`, if one is.
+/// Names are unique per space where a channel is made, but two Cores of a
+/// space can each make one before they hear of the other's: then the name
+/// is refused with both ids, never one picked (card #461).
+fn named_in(talk: &Talk, name: &str, space: &str) -> Result<Option<String>, String> {
+    let space = space.trim();
+    let hits: Vec<ct::Channel> = talk
+        .channels_named(name)
+        .into_iter()
+        .filter(|c| c.space_id == space)
+        .collect();
+    match hits.as_slice() {
+        [] => Ok(None),
+        [one] => Ok(Some(one.id.clone())),
+        _ => Err(format!(
+            "more than one #{} is here: give its conv ({}).",
+            one_line(name.trim_start_matches('#'), 80),
+            hits.iter()
+                .map(|c| c.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
+/// Whether shared space `id` is one this person has now (its own board is
+/// listed, so a `space` argument can name it).
+fn space_known(b: &dyn Backend, id: &str) -> bool {
+    b.shared_boards().is_some_and(|sb| {
+        sb.boards()
+            .iter()
+            .any(|x| x.board_id == id && x.space_board.is_empty())
+    })
+}
+
+/// The refusal for channel name `conv` looked up in `space` but found only
+/// in other spaces: where each one is, and how to name it.
+fn elsewhere_text(b: &dyn Backend, conv: &str, space: &str, chs: &[ct::Channel]) -> String {
+    let name = one_line(conv.trim_start_matches('#'), 80);
+    let here = if space.is_empty() {
+        "Personal".to_string()
+    } else {
+        format!("space {}", space_tag(b, space))
+    };
+    let at: Vec<String> = chs
+        .iter()
+        .map(|c| {
+            if c.space_id.is_empty() {
+                format!("in Personal (conv={}): leave out space", c.id)
+            } else {
+                let tag = space_tag(b, &c.space_id);
+                format!(
+                    "in space {tag} (conv={}): pass space={}",
+                    c.id,
+                    space_name_arg(b, &c.space_id)
+                )
+            }
+        })
+        .collect();
+    format!(
+        "no channel #{name} in {here}. #{name} is {}, or give that conv.",
+        at.join("; ")
+    )
+}
+
+/// Space `id`'s tag as the tools show it (its own board's), else the id.
+pub(crate) fn space_tag(b: &dyn Backend, id: &str) -> String {
+    b.shared_boards()
+        .and_then(|sb| {
+            sb.boards()
+                .into_iter()
+                .find(|x| x.board_id == id && x.space_board.is_empty())
+        })
+        .map(|x| x.tag)
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| id.to_string())
+}
+
+/// What to pass as `space` to name shared space `id`: its tag when that
+/// names it alone, else its id (a tag `personal`, or one two boards share,
+/// would name something else).
+fn space_name_arg(b: &dyn Backend, id: &str) -> String {
+    let tag = space_tag(b, id);
+    let all = b.shared_boards().map(|sb| sb.boards()).unwrap_or_default();
+    let alone = all
+        .iter()
+        .filter(|x| x.tag.eq_ignore_ascii_case(&tag))
+        .count()
+        == 1;
+    if tag == id || tag.eq_ignore_ascii_case("personal") || !alone {
+        id.to_string()
+    } else {
+        tag
+    }
+}
+
+/// The space a tool's `space` argument names, as the id channels carry:
+/// empty (or `personal`) is Personal, else a shared space by tag or id
+/// (card #461). The error is the tool's text.
+fn space_arg(s: &Inner, v: &str) -> Result<String, String> {
+    let v = trim(v);
+    if v.is_empty() || v.eq_ignore_ascii_case("personal") {
+        return Ok(ct::PERSONAL_SPACE.to_string());
+    }
+    if s.b.shared_boards().is_none() {
+        return Err(err_text(
+            "shared spaces aren't on here; leave out space for a Personal channel.",
+        ));
+    }
+    s.find_board(v).map(|x| x.board_id)
 }
 
 /// Every post of `conv` (oldest first) as `reader` may read it: anyone
@@ -523,7 +796,19 @@ pub fn post(
         .filter(|g| !is_person_mention(g))
         .cloned()
         .collect();
-    let res: Resolved = coord::mentions::resolve(&cards(b), &by, &text_ok, &agents_given);
+    // In a space's channel the space's other people and their agents may
+    // be named too, by board key (card #461): their own Cores wake them.
+    let local = cards(b);
+    let mut agents = local.clone();
+    if let Target::Channel(id) = target
+        && let Some(c) = talk.channel(id)
+        && !c.space_id.is_empty()
+        && let Some(sb) = b.shared_boards()
+    {
+        agents.extend(sb.board_mentionables(&c.space_id));
+    }
+    let mut res: Resolved = coord::mentions::resolve(&agents, &by, &text_ok, &agents_given);
+    prefer_own(&mut res, &local);
     let mut live: Vec<String> = res
         .mentions
         .iter()
@@ -617,8 +902,12 @@ pub fn post(
         })
         .map_err(|e| e.to_string())?;
     if ct::is_channel(&conv) {
-        for k in live.iter().filter(|k| !ct::is_person_key(k)) {
-            // An agent mentioned in a channel joins it (§3).
+        for k in live
+            .iter()
+            .filter(|k| !ct::is_person_key(k) && !ct::is_other_person_key(k))
+        {
+            // An agent mentioned in a channel joins it (§3); another
+            // person joins their space's channels themselves.
             let _ = talk.join(&conv, &Member::of(k), &by);
         }
     }
@@ -653,7 +942,9 @@ fn tell_readers(
     let mut out = Vec::new();
     for m in talk.members(conv) {
         let k = &m.key;
+        // Another person's agent (a board key) reads on its own Core.
         if m.kind != ct::AGENT
+            || coord::board_form(k)
             || ct::canon(k) == ct::canon(&p.by)
             || woken.iter().any(|w| ct::canon(w) == ct::canon(k))
         {
@@ -729,7 +1020,9 @@ fn tell_mentions(
 ) -> Vec<NoticeResult> {
     let to: Vec<String> = keys
         .iter()
-        .filter(|k| k.as_str() != skip && !ct::is_person_key(k))
+        // A board key is another person or their agent in a space: their
+        // own Core wakes them from the row (card #461).
+        .filter(|k| k.as_str() != skip && !ct::is_person_key(k) && !coord::board_form(k))
         .cloned()
         .collect();
     if to.is_empty() {
@@ -765,7 +1058,12 @@ fn me(c: &Caller) -> &str {
     &c.sender.key
 }
 
-const POST_ARGS: &[(&str, Ty)] = &[("conv", Ty::Str), ("text", Ty::Str), ("mention", Ty::Strs)];
+const POST_ARGS: &[(&str, Ty)] = &[
+    ("conv", Ty::Str),
+    ("text", Ty::Str),
+    ("mention", Ty::Strs),
+    ("space", Ty::Str),
+];
 
 pub(crate) fn talk_post(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let a = match decode(raw, POST_ARGS) {
@@ -773,7 +1071,11 @@ pub(crate) fn talk_post(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Err(e) => return e,
     };
     let b = s.b.as_ref();
-    let target = match resolve(b, me(c), a.str("conv")) {
+    let space = match space_arg(s, a.str("space")) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let target = match resolve(b, me(c), a.str("conv"), &space) {
         Ok(t) => t,
         Err(e) => return err_text(&e),
     };
@@ -801,15 +1103,56 @@ pub(crate) fn talk_post(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             if let Some(d) = &p.sent {
                 out += &s.outcome(d);
             }
-            let got = crate::mention::outcomes(&p.mentions, &p.told);
-            out += &crate::mention::mention_line(&got, &p.misses, &n);
+            out += &crate::mention::mention_line(&outcomes(&p), &p.misses, &n);
             out
         }
         Err(e) => err_text(&e),
     }
 }
 
-const READ_ARGS: &[(&str, Ty)] = &[("conv", Ty::Str), ("since", Ty::Str)];
+/// An `@name` both this person's agent and another person's in the space
+/// answer to names this person's own (card #461), as it did before the
+/// space's agents could be named; the other one is named by its key (the
+/// window's picker passes it).
+fn prefer_own(res: &mut Resolved, local: &[coord::roster::AgentCard]) {
+    let mut keep = Vec::new();
+    for m in std::mem::take(&mut res.misses) {
+        let own: Vec<&String> = m
+            .candidates
+            .iter()
+            .filter(|k| local.iter().any(|a| &a.key == *k))
+            .collect();
+        if m.reason == coord::mentions::MISS_AMBIGUOUS
+            && own.len() == 1
+            && res.mentions.len() < coord::MAX_MENTIONS
+        {
+            if !res.mentions.iter().any(|x| &x.key == own[0]) {
+                res.mentions.push(Mention {
+                    key: own[0].clone(),
+                    name: m.name.clone(),
+                    gone: false,
+                });
+            }
+            continue;
+        }
+        keep.push(m);
+    }
+    res.misses = keep;
+}
+
+/// What each of a post's mentions came to: another person's agent named
+/// by board key is on the space, its own Core wakes it (card #461).
+pub(crate) fn outcomes(p: &Posted) -> Vec<(Mention, crate::mention::Got)> {
+    crate::mention::outcomes(&p.mentions, &p.told)
+        .into_iter()
+        .map(|(m, g)| match g {
+            crate::mention::Got::Board => (m, crate::mention::Got::Space),
+            g => (m, g),
+        })
+        .collect()
+}
+
+const READ_ARGS: &[(&str, Ty)] = &[("conv", Ty::Str), ("since", Ty::Str), ("space", Ty::Str)];
 
 pub(crate) fn talk_read(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let a = match decode(raw, READ_ARGS) {
@@ -820,7 +1163,11 @@ pub(crate) fn talk_read(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let Some(talk) = b.talk() else {
         return err_text("Talk is off on this Core");
     };
-    let target = match resolve(b, me(c), a.str("conv")) {
+    let space = match space_arg(s, a.str("space")) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let target = match resolve(b, me(c), a.str("conv"), &space) {
         Ok(t) => t,
         Err(e) => return err_text(&e),
     };
@@ -911,7 +1258,12 @@ pub(crate) fn talk_list(s: &Inner, c: &Caller, _: &[u8]) -> String {
     }
     for x in &cs {
         let what = match x.kind.as_str() {
-            ct::KIND_CHANNEL => format!("#{} (channel, conv={})", one_line(&x.name, 80), x.conv_id),
+            ct::KIND_CHANNEL => format!(
+                "#{} (channel{}, conv={})",
+                one_line(&x.name, 80),
+                in_space(b, talk, &x.conv_id),
+                x.conv_id
+            ),
             ct::KIND_DM => {
                 let other: Vec<String> = x
                     .members
@@ -951,7 +1303,14 @@ pub(crate) fn talk_list(s: &Inner, c: &Caller, _: &[u8]) -> String {
         .channels()
         .into_iter()
         .filter(|ch| !ch.archived && !talk.is_member(&ch.id, me(c)))
-        .map(|ch| format!("#{} ({})", one_line(&ch.name, 80), ch.id))
+        .map(|ch| {
+            format!(
+                "#{} ({}{})",
+                one_line(&ch.name, 80),
+                ch.id,
+                in_space(b, talk, &ch.id)
+            )
+        })
         .collect();
     if !others.is_empty() {
         out += &format!(
@@ -962,13 +1321,23 @@ pub(crate) fn talk_list(s: &Inner, c: &Caller, _: &[u8]) -> String {
     out + untrusted()
 }
 
-const CONV_ARGS: &[(&str, Ty)] = &[("conv", Ty::Str)];
+/// " in space <tag>" for a space's channel, so two channels of one name
+/// tell apart in talk_list (card #461); empty for a Personal one.
+fn in_space(b: &dyn Backend, talk: &Talk, conv: &str) -> String {
+    match talk.channel(conv) {
+        Some(c) if !c.space_id.is_empty() => format!(" in space {}", space_tag(b, &c.space_id)),
+        _ => String::new(),
+    }
+}
+
+const CONV_ARGS: &[(&str, Ty)] = &[("conv", Ty::Str), ("space", Ty::Str)];
 
 fn channel_arg(s: &Inner, c: &Caller, raw: &[u8]) -> Result<(Arc<Talk>, String, String), String> {
     let a = decode(raw, CONV_ARGS)?;
     let b = s.b.as_ref();
     let talk = talk_of(b).map_err(|e| err_text(&e))?.clone();
-    match resolve(b, me(c), a.str("conv")) {
+    let space = space_arg(s, a.str("space"))?;
+    match resolve(b, me(c), a.str("conv"), &space) {
         Ok(Target::Channel(id)) => {
             let name = talk.channel(&id).map(|ch| ch.name).unwrap_or_default();
             Ok((talk, id, name))

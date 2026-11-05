@@ -16,9 +16,18 @@ pub struct TalkMember {
     /// `person` or `agent`.
     pub kind: String,
     pub key: String,
-    /// What it goes by ("you" for the person).
+    /// What it goes by ("you" for the person). Never a key (card #478):
+    /// "BillingEng1 · Spencer" for another member's agent, "unknown agent"
+    /// when nothing names it.
     #[serde(default)]
     pub name: String,
+    /// Another member's agent's board status (`busy`, `idle`, `gone`); ""
+    /// when this device knows none, which isn't gone.
+    #[serde(default)]
+    pub status: String,
+    /// Whose agent it is when it is another member's ("Spencer"), else "".
+    #[serde(default)]
+    pub owner: String,
 }
 
 /// Who to add to or take out of a conversation.
@@ -46,12 +55,22 @@ pub struct TalkConversation {
     /// The newest post's time (the zero time when it has none).
     #[specta(type = ts::Time)]
     pub last_at: gocompat::time::GoTime,
+    /// The newest post's text on one line, clipped (card #486): the list's
+    /// subtitle. "" when it has none.
+    pub last_text: String,
+    /// Who wrote the newest post: a member's key, "" when none.
+    pub last_by: String,
     /// A DM between two agents: the person reads it only.
     pub read_only: bool,
     /// A thread's "Agents answer now" (card #391): its toggle. False for a
     /// channel or DM, whose composer starts from the default for what the
     /// text names.
     pub agents_now: bool,
+    /// The shared space a channel is in (card #461); absent for Personal,
+    /// DMs and threads. Matches the switcher's space id (its first board's).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub space_id: String,
 }
 
 /// One post.
@@ -106,11 +125,16 @@ impl Window {
                         kind: m.kind,
                         key: m.key,
                         name: m.name,
+                        status: m.status,
+                        owner: m.owner,
                     })
                     .collect(),
                 last_at: c.last_at,
+                last_text: c.last_text,
+                last_by: c.last_by,
                 read_only: c.read_only,
                 agents_now: c.agents_now,
+                space_id: c.space_id,
             })
             .collect())
     }
@@ -150,11 +174,14 @@ impl Window {
     /// Posts as the person; returns the post's id. A thread's post is a
     /// comment on it (agents woken when `agents_now`, else told at their
     /// next turn); a channel's or DM's is a `talk.post` (a DM with an agent
-    /// wakes it, an @name in the text wakes that agent).
+    /// wakes it, an @name in the text wakes that agent). `mentions` are
+    /// the keys the composer's picker recorded: one names exactly the agent
+    /// picked, another person's in a space too (card #461).
     pub fn talk_post(
         &self,
         conv: &str,
         text: &str,
+        mentions: &[String],
         agents_now: bool,
         thread_from: Option<String>,
     ) -> Result<String, String> {
@@ -171,7 +198,7 @@ impl Window {
             &self.core.user_sender(),
             conv,
             text,
-            &[],
+            mentions,
             agents_now,
             thread_from,
         )?;

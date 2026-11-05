@@ -164,7 +164,13 @@ fn completing_from_in_review_after_github_merges_the_pr() {
     let e = Env::new();
     let t = held_card(&e);
     e.c.add_link(ALICE, &t.id, pr).unwrap();
-    e.c.request_review(ALICE, &t.id, "", BOB).unwrap();
+    // Card #471: none of the person's own agents reviews their PR; the
+    // card waits on the PR itself.
+    want_err(
+        e.c.request_review(ALICE, &t.id, "", BOB),
+        ErrorKind::NotAllowed,
+    );
+    e.c.set_task_state(ALICE, &t.id, IN_REVIEW, "").unwrap();
     assert_eq!(state(&e, &t.id), IN_REVIEW);
     let heard = |s: &str| PrCheck {
         pr: pr.into(),

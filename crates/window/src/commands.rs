@@ -232,6 +232,18 @@ pub async fn inbox_dismiss(w: W<'_>, delivery_id: String) -> R<()> {
 
 #[tauri::command]
 #[specta::specta]
+pub async fn inbox_start_agent(w: W<'_>, delivery_id: String) -> R<ts::StartedAgent> {
+    blocking(&w, move |w| w.inbox_start_agent(&delivery_id)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn inbox_repo_names(w: W<'_>) -> R<Vec<ts::RepoName>> {
+    Ok(w.inbox_repo_names())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn inbox_allow_and_release(w: W<'_>, delivery_id: String) -> R<()> {
     w.inbox_allow_and_release(&delivery_id)
 }
@@ -489,6 +501,13 @@ pub async fn board_mention_candidates(w: W<'_>) -> R<Vec<MentionCandidate>> {
 #[specta::specta]
 pub async fn board_start_agent(w: W<'_>, id: String, note: String) -> R<()> {
     w.start_agent(&id, &note)
+}
+
+/// "Hand to an agent" on an item whose agent is gone (card #485).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_hand_on(w: W<'_>, id: String) -> R<String> {
+    w.hand_on(&id)
 }
 
 #[tauri::command]
@@ -1427,12 +1446,14 @@ pub async fn talk_post(
     w: W<'_>,
     conv_id: String,
     text: String,
+    mentions: Vec<String>,
     agents_now: bool,
     thread_from: Option<String>,
 ) -> R<String> {
     w.talk_post(
         &conv_id,
         &text,
+        &mentions,
         agents_now,
         thread_from.filter(|t| !t.is_empty()),
     )
@@ -1506,6 +1527,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             inbox_mark_read,
             inbox_release,
             inbox_dismiss,
+            inbox_start_agent,
+            inbox_repo_names,
             inbox_allow_and_release,
             inbox_policy,
             inbox_set_policy,
@@ -1534,6 +1557,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_ask_with_files,
             board_ask_again,
             board_start_agent,
+            board_hand_on,
             board_ask_repos,
             board_mention_candidates,
             board_close_ask,

@@ -110,6 +110,7 @@ impl coord::roster::Agents for CoordRoster {
                 device_state: c.device_state,
                 waiting_for: c.waiting_for,
                 device_seen: c.device_seen,
+                status_since: c.status_since,
             })
             .collect()
     }
@@ -132,6 +133,8 @@ pub struct TestBackend {
     pub book: OnceLock<Arc<coord::approvals::Book>>,
     /// Talk's fold over the same store (card #389).
     pub talk: Arc<coord::talk::Talk>,
+    /// Other members' agents on shared boards (card #478); empty: none.
+    pub board_agents: Mutex<Vec<tools::BoardAgent>>,
 }
 
 impl TestBackend {
@@ -182,6 +185,9 @@ impl Backend for TestBackend {
     }
     fn talk(&self) -> Option<&Arc<coord::talk::Talk>> {
         Some(&self.talk)
+    }
+    fn board_agents(&self) -> Vec<tools::BoardAgent> {
+        self.board_agents.lock().unwrap().clone()
     }
 }
 
@@ -271,7 +277,13 @@ pub fn new_harness_setup(
     let gone = {
         let cell = co_cell.clone();
         Arc::new(move |m: &inbox::Message, to: &str| {
-            tools::notice::record_gone(cell.get().expect("coord"), m, to)
+            // As the Core's: a comment or blocker bridged from a shared
+            // board closes on that card (card #478).
+            match tools::notice::record_gone(cell.get().expect("coord"), m, to) {
+                Err(e) if e.is(inbox::ErrorKind::NoCard) => tools::notice::closed_on_board(m)
+                    .ok_or_else(|| inbox::Error::sentinel(inbox::ErrorKind::NoCard)),
+                r => r,
+            }
         })
     };
     let passed = {
@@ -336,6 +348,7 @@ pub fn new_harness_setup(
     let b = Arc::new(TestBackend {
         roster,
         talk,
+        board_agents: Mutex::new(Vec::new()),
         st,
         ib,
         co,

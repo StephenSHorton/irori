@@ -1,5 +1,5 @@
 //! The Notes page's commands (decision 45, card #401, docs/design/notes.md
-//! §11): list, New note and Keep as note, accept, edit and remove, each
+//! §11): list, New note, accept, edit and remove, each
 //! through the Core's notes API, which routes a note to Mine (the private
 //! log) or a board's log and gates board writes (#411).
 
@@ -94,7 +94,7 @@ pub struct NoteView {
     pub stale: String,
 }
 
-/// What New note and Keep as note write.
+/// What New note writes.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, Type)]
 #[serde(rename_all = "camelCase", default)]
 pub struct NoteInput {
@@ -103,12 +103,6 @@ pub struct NoteInput {
     pub kind: String,
     pub text: String,
     pub tags: Vec<String>,
-    /// Where it came from, as in [`NoteView::source`].
-    pub source: String,
-    /// The source's card, comment and blocker, when it has them.
-    pub task_id: String,
-    pub comment_id: String,
-    pub blocker_id: String,
 }
 
 /// An edit: each given field replaces the note's.
@@ -196,7 +190,7 @@ impl Window {
                     .iter()
                     .any(|r| std::path::Path::new(r).join(path).exists())
                 {
-                    return format!("{path} is gone from {repo}");
+                    return format!("{path} is gone from {}", coord::repo_name(repo));
                 }
                 break;
             }
@@ -238,7 +232,7 @@ impl Window {
         Ok(ns.iter().filter(|s| needs_look(&s.note)).count())
     }
 
-    /// New note, and Keep as note: written by the person, so live at once.
+    /// New note: written by the person, so live at once.
     pub fn note_new(&self, n: NoteInput) -> Result<NoteView, String> {
         let me = self.user_key();
         let s = self
@@ -250,10 +244,7 @@ impl Window {
                     kind: n.kind,
                     text: n.text,
                     tags: n.tags,
-                    source: n.source,
-                    task_id: crate::trim(&n.task_id).into(),
-                    comment_id: crate::trim(&n.comment_id).into(),
-                    blocker_id: crate::trim(&n.blocker_id).into(),
+                    ..Default::default()
                 },
             )
             .map_err(|e| e.to_string())?;

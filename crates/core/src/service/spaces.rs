@@ -322,9 +322,9 @@ impl Services {
         }
         let mut v: serde_json::Value = serde_json::from_slice(&ev.payload).ok()?;
         map_talk_keys(&mut v, |k| Some(self.private_key(k))).ok()?;
-        if ev.kind == kinds::TALK_CHANNEL_CREATED
-            && let Some(o) = v.as_object_mut()
-        {
+        // Every row says which space carried it: a channel is made there,
+        // and the rest may only touch that space's channels (card #461).
+        if let Some(o) = v.as_object_mut() {
             o.insert("spaceId".into(), space_id.into());
         }
         let mut out = ev.clone();
@@ -334,6 +334,9 @@ impl Services {
 
     /// Folds space `b`'s talk.* rows into Talk (a space just opened here).
     pub(crate) fn fold_space_talk(&self, b: &super::boards::BoardLog) {
+        if self.board_leaving(b) {
+            return; // left: out of Talk until it's forgotten (card #461)
+        }
         let mut changed = false;
         let f = Filter {
             kinds: SPACE_TALK_KINDS.iter().map(|k| k.to_string()).collect(),
@@ -380,6 +383,17 @@ impl Services {
             }
         })
         .map_err(|e| bad.clone().unwrap_or(e))?;
+        // A post carries the writer's hop, as a board row does (§7.1): the
+        // other person's Core wakes their agent at it, so MAX_HOP stops two
+        // people's agents naming each other back and forth (card #461).
+        if kind == kinds::TALK_POST
+            && let Some(o) = payload.as_object_mut()
+        {
+            let hop = self.board_hop(&actor);
+            if hop > 0 {
+                o.insert("hop".into(), hop.into());
+            }
+        }
         if kind == kinds::TALK_CHANNEL_CREATED
             && let Some(o) = payload.as_object_mut()
         {
@@ -444,7 +458,8 @@ impl coord::talk::SpaceLogs for SpaceTalk {
             return Vec::new();
         };
         let mut out = Vec::new();
-        for b in s.boards.list() {
+        // Not a space the person left (card #461).
+        for b in s.shown_boards() {
             let f = Filter {
                 kinds: SPACE_TALK_KINDS.iter().map(|k| k.to_string()).collect(),
                 ..Default::default()

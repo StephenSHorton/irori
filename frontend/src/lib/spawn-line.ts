@@ -14,14 +14,10 @@ export const NOT_TRUSTED = "not trusted: "
 
 export type SpawnLine = { text: string; tone: "quiet" | "warn" }
 
-function place(where: string): string {
-  return where === "This PC" ? "this PC" : where
-}
-
 // spawnLine is the card's spawn state in words, or null when it has none.
 export function spawnLine(c: SpawnState): SpawnLine | null {
   if (c.starting) {
-    return { text: `starting an agent on ${place(c.starting)}`, tone: "quiet" }
+    return { text: `starting an agent on ${c.starting}`, tone: "quiet" }
   }
   if (c.cantStart) {
     if (c.cantStart.startsWith(NOT_TRUSTED)) {
@@ -31,7 +27,7 @@ export function spawnLine(c: SpawnState): SpawnLine | null {
     return { text: `can't start: ${why}`, tone: "warn" }
   }
   if (c.atCap) {
-    return { text: `waiting: ${place(c.atCap)} is at its cap`, tone: "quiet" }
+    return { text: `waiting: ${c.atCap} is at its cap`, tone: "quiet" }
   }
   return null
 }

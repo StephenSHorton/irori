@@ -67,6 +67,14 @@ pub struct ThreadSummary {
     /// Its "Agents answer now" (card #391): off, no agent is woken or
     /// handed it, and its agents read it at their next turn.
     pub agents_now: bool,
+    /// An agent Irori starts for it (card #470): where, while it starts.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub starting: String,
+    /// Why one couldn't start (the failed request's reason).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub cant_start: String,
 }
 
 /// What a #ref in text names (card #144): a card or a thread, live or
@@ -381,6 +389,16 @@ impl Window {
                 updated_at: t.updated_at,
                 private,
                 agents_now: t.ask.as_ref().is_some_and(|a| a.wake),
+                starting: t
+                    .spawn_request()
+                    .filter(|sp| sp.pending() && state == THREAD_WAITING)
+                    .map(|sp| p.where_(&sp.device))
+                    .unwrap_or_default(),
+                cant_start: t
+                    .spawn_request()
+                    .filter(|sp| sp.op == coord::SPAWN_FAILED && state == THREAD_WAITING)
+                    .map(|sp| sp.reason.clone())
+                    .unwrap_or_default(),
             };
             if resolved {
                 done.push(s);

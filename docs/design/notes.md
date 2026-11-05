@@ -29,7 +29,7 @@ A note is a short fact that an agent should know before it acts. It has these pa
 - **Kind:** rule, gotcha, decision, pointer or preference.
 - **Text:** one or two sentences, a few hundred characters at most. Notes are not documents; long material stays in the repo's docs.
 - **Applies to:** tags that say where the note is relevant. A tag can be `everywhere`, a board, a repo, paths in a repo, a machine (`on the PC`) or a topic.
-- **Source:** where it came from. That can be a card, a comment, a blocker answer or a done proof, and the note links back to it.
+- **Source:** where it came from, when the agent that proposed it names one. That can be a card, a comment, a blocker answer or a done proof, and the note links back to it.
 - **Who:** the author (person or agent) and, once accepted, who accepted it.
 - **State:** proposed, accepted or removed. The note's history is kept.
 
@@ -46,8 +46,8 @@ A note is a short fact that an agent should know before it acts. It has these pa
 
 ## 5. Capture
 
-- **Keep as note** appears on any blocker answer, comment or done proof. It opens prefilled from the text, with tags guessed from the card (board, repo), and links back to its source. A blocker answer is often already a decision.
-- Agents propose notes with a tool, the way they raise blockers. A wrong note costs only a review, since nothing goes live unaccepted.
+- Agents propose notes with a tool, the way they raise blockers: on their own, or when the person asks for one in a comment. A wrong note costs only a review, since nothing goes live unaccepted.
+- There is no Keep as note button on comments, blocker answers or done proofs. It was built (#413) and taken out (#475): the person does not save notes by hand from a card, and the button showed everywhere it was irrelevant.
 - **New note** is on the Notes page. Nothing becomes a note by itself: the board is still scratch (decision 27). A note exists only because a person, or an agent's proposal plus a person's accept, made it.
 
 ## 6. Recall
@@ -71,11 +71,11 @@ When the paths, flags or versions a note names have changed since it was accepte
 
 - On a shared board, a note is another person's agent's words that reach yours. The review step, together with the data framing in §6, keeps such notes from steering agents. One accept by any person makes a board note live, so the board's Notes page shows newly accepted notes, and any member can remove one.
 - Mine notes never go into a board log. A note that applies to a shared board, written in Mine, stays in the private log.
-- The refusals already used for attachments apply to note text: no credentials, keys or `.env` content. Things that must never be shared in practice include home IPs, key and notary names, private paths and personal finances. These stay in Mine, and the Keep-as-note form defaults to Mine.
+- The refusals already used for attachments apply to note text: no credentials, keys or `.env` content. Things that must never be shared in practice include home IPs, key and notary names, private paths and personal finances. These stay in Mine, and the New note form offers Mine first.
 
 ## 9. Where it lives in the app
 
-**Notes** is a sidebar item next to **Talk** (#382, which has its own design round). The page has one tab for Mine and one per shared board. **New from agents** sits at the top, with Keep or Accept, Edit and Remove. Below it is the list, filtered by kind, where each row shows its tags, its source chip, its author and accepter, and how often it was read. Keep as note sits on blocker answers, comments and done proofs.
+**Notes** is a sidebar item next to **Talk** (#382, which has its own design round). The page has one tab for Mine and one per shared board. **New from agents** sits at the top, with Keep or Accept, Edit and Remove. Below it is the list, filtered by kind, where each row shows its tags, its source chip, its author and accepter, and how often it was read.
 
 ## 10. Not in scope
 
@@ -119,7 +119,7 @@ A wake takes the accepted notes of every log the agent reads: Mine for the perso
 
 **Scopes and routing** (`crates/core/src/service/notes.rs`): `mine`, or a board's tag or id. A Mine note never enters a board log, whatever its tags name (`crates/core/tests/notes.rs`). Core API: `propose_note(by, scope, NewNote)`, `accept_note(by, id)`, `edit_note(by, id, NoteEdit, why)`, `remove_note(by, id, why)`, `notes(scope, removed)`, `search_notes(q, live_only)`. Each returns `ScopedNote {scope, boardId?, ...note}`. Ids may carry `note:`.
 
-**Window commands** (`crates/window/src/notes.rs`, #411): `notes_list {scope, removed}` returns `NoteView[]` (an empty scope lists Mine and every board), `note_new {note: {scope, kind, text, tags, source, taskId, commentId, blockerId}}` (New note and Keep as note), `note_accept {id}`, `note_edit {id, edit: {kind?, text?, tags?}}` and `note_remove {id, why}`, all as the person. A `NoteView` carries `pending` (an agent's edit, or `remove: true`), `history`, `byPerson` and `stale`. Keep as note defaults to Mine (§8), prefilled from the source's text, with tags guessed from its card (board, `repo:`).
+**Window commands** (`crates/window/src/notes.rs`, #411): `notes_list {scope, removed}` returns `NoteView[]` (an empty scope lists Mine and every board), `note_new {note: {scope, kind, text, tags}}` (New note), `note_accept {id}`, `note_edit {id, edit: {kind?, text?, tags?}}` and `note_remove {id, why}`, all as the person. A `NoteView` carries `pending` (an agent's edit, or `remove: true`), `history`, `byPerson` and `stale`.
 
 **Board writes are gated** (#411): an older Irori refuses an unknown kind, and every later row of that writer's stream then fails its gap check, so one `note.*` row would stall this device's stream on any member device that predates notes. The note kinds landed on main before the board hello's `spaces` field (#392), so a device heard to read space rows reads note rows too: `Services::board_notes_ready` (applied by `Services::write_gate`) refuses a board-scope write while `space_not_ready` names any member device, with "every device on the board must run an Irori with notes first; waiting on …". Mine writes never wait. A later kind that older notes-reading devices don't know needs its own hello level.
 

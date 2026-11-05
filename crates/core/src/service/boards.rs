@@ -1525,7 +1525,11 @@ impl Services {
                 let _reg = reg;
                 while let Some(ch) = q.recv() {
                     match s.upgrade() {
-                        Some(s) => s.boards.tell(ch),
+                        Some(s) => {
+                            s.boards.tell(ch);
+                            // A shared card's blocker resolved (card #482).
+                            s.settle_notifications();
+                        }
                         None => return,
                     }
                 }
@@ -1538,6 +1542,15 @@ impl Services {
     /// board secret when a membership or identity row moves the epoch.
     fn follow_board_row(&self, b: &BoardLog, ev: &Event) {
         self.boards.kick(); // the board's member devices pull it now
+        // One of this person's agents ticked a step or set a card's state
+        // on the board: its message chains start counting again (card
+        // #488). Another member's agent keeps its board key and is skipped.
+        if let Some((inbox::ProgressBy::Actor(a), at)) = inbox::progress_of(ev) {
+            let key = self.private_key(&a);
+            if !key.starts_with(AGENT_ACTOR_PREFIX) {
+                self.inbox.progressed(&key, at);
+            }
+        }
         if (ev.seq == 0 || kinds::is_board_identity_kind(&ev.kind))
             && let Err(e) = self.rotate_secret(b)
         {
@@ -1548,6 +1561,11 @@ impl Services {
             // hasn't reached an agent, and close their connections.
             self.hold_from_gone(b);
             self.recheck_board_mesh(&b.id);
+            // The person left it on another device: its channels leave
+            // Talk here too (card #461).
+            if self.board_leaving(b) && self.talk.drop_space(&b.id) {
+                self.hub.publish(crate::events::CoreEvent::Talk);
+            }
         }
         if ev.seq == 0 {
             if let Ok(ids) = b.task_ids() {
@@ -1565,10 +1583,16 @@ impl Services {
         } else if ev.kind == kinds::AGENT_CARD {
             b.fold_card(ev);
         }
-        if ev.seq == 0 {
+        if self.board_leaving(b) {
+            // A space the person left: its channels stay out of Talk.
+        } else if ev.seq == 0 {
             // The space's channels fold again with everything else.
             let _ = self.talk.load();
             self.hub.publish(crate::events::CoreEvent::Talk);
+        } else if ev.kind == kinds::BOARD_MEMBER_ADDED {
+            // Re-added while still "Leaving…" (card #461): the channels
+            // drop_space took out fold back; a no-op for anyone else's add.
+            self.fold_space_talk(b);
         } else if let Some(row) = self.space_talk_row(&b.id, ev) {
             // A space's channel row (card #392). One this device wrote was
             // folded when it was written; the window still hears it.

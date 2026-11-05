@@ -493,6 +493,11 @@ impl Services {
             b.stop_threads();
             let _ = b.store.close();
         }
+        // Its channels leave Talk now (card #461); after the threads
+        // stop, so no late row folds them back.
+        if self.talk.drop_space(id) {
+            self.hub.publish(crate::events::CoreEvent::Talk);
+        }
     }
 
     /// Every board on this device, by name.

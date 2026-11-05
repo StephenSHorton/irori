@@ -13,7 +13,9 @@ import {
 import type { WindDownRow, WindDownStatus } from "@/gen/bindings"
 import { Events, WindDownService } from "@/lib/host"
 import { inWails, plainBlock, plainLine } from "@/lib/irori"
+import { nameOr } from "@/lib/names"
 import { errorText, useLatest } from "@/lib/talk"
+import { windDownSample } from "@/lib/wind-down"
 
 // EventWindDown is windDown:changed: a run's status moved.
 export const EventWindDown = "windDown:changed"
@@ -55,7 +57,7 @@ export function WindDownDialog({
   onClose: () => void
 }) {
   const loadStatus = useCallback(
-    async () => (inWails() ? WindDownService.Status() : empty),
+    async () => (inWails() ? WindDownService.Status() : (windDownSample() ?? empty)),
     []
   )
   const live = useLatest<WindDownStatus>(loadStatus, empty)
@@ -162,7 +164,7 @@ export function WindDownDialog({
                   className="glass-panel flex flex-col gap-1 px-3 py-2 text-sm"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="min-w-0 truncate font-medium">{plainLine(r.name) || r.key}</span>
+                    <span className="min-w-0 truncate font-medium">{nameOr(r.name)}</span>
                     {r.device && (
                       <span className="text-xs text-muted-foreground">{plainLine(r.device)}</span>
                     )}

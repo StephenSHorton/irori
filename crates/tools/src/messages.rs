@@ -30,6 +30,8 @@ pub(crate) fn send(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Err(e) => return e,
     };
     let (to, repo) = (trim_opt(&a.opt_str("to")), trim_opt(&a.opt_str("repo")));
+    // The agents' spelling, so a repo given in any case reaches them (#480).
+    let repo = coord::canonical_repo_key(&repo);
     if let Some(out) = crate::shared::send_to_board(s, c, &to, a.str("task_id"), a.str("text")) {
         return out;
     }
@@ -192,6 +194,13 @@ impl Inner {
                 }
                 hold::PAUSED => {
                     b += "held because the person paused all wakes; it goes out when they unpause. Don't resend it."
+                }
+                // Card #488: say what the loop guard saw, and what resets it.
+                hold::HOP_LIMIT => {
+                    b += &format!(
+                        "held: this is message {} in a back-and-forth between agents with no progress in between. It waits until the person releases it. Don't resend it; make progress instead (tick a step, set a card's state or commit), and your next message starts counting again.",
+                        d.message.hop
+                    )
                 }
                 h => {
                     b += &format!(
