@@ -46,7 +46,7 @@ import {
   dmSections,
   sectionRows,
   type Broadcast,
-  unreadIn,
+  sectionHeader,
   useFolds,
   type SectionKey,
 } from "@/lib/talk-sections"
@@ -173,11 +173,10 @@ export function TalkPage({
     items: Conv[],
     empty: string,
     extra?: ReactNode,
-    add?: { onAdd: () => void; label: string },
-    markAll?: boolean
+    add?: { onAdd: () => void; label: string }
   ) => {
     const { rows, hidden } = convRows(k, items)
-    const unread = unreadIn(items)
+    const { unread, markAll } = sectionHeader(k, folded(k), items)
     return (
       <Group
         label={label}
@@ -188,7 +187,7 @@ export function TalkPage({
         onAdd={add?.onAdd}
         addLabel={add?.label}
         onMarkRead={
-          markAll && unread > 0 && !marking
+          markAll && !marking
             ? () => {
                 setMarking(true)
                 void readAll(items).finally(() => setMarking(false))
@@ -382,15 +381,7 @@ export function TalkPage({
       )}
       {sections.agents.length > 0 && agentsSection()}
       {sections.gone.length > 0 &&
-        convSection(
-          "gone",
-          "Archive",
-          sections.gone,
-          "",
-          undefined,
-          undefined,
-          true
-        )}
+        convSection("gone", "Archive", sections.gone, "")}
       {resolved.length > 0 && (
         <div className="mt-auto grid grid-cols-[minmax(0,1fr)] gap-0.5 pt-3">
           <button
