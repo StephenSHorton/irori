@@ -529,6 +529,46 @@ fn watch_posts_waiting_messages_at_start() {
     );
 }
 
+/// Card #488: the person's own message to a repo nobody is in. Release
+/// could only fail, so the card offers Start an agent there (it opens the
+/// Held list, where that button is), and names the repo by its folder.
+#[test]
+fn watch_your_unowned_message_offers_start_an_agent() {
+    let mut r = Rig::new();
+    r.w = Watcher::new(USER, None, None).with_repo_name(Some(Arc::new(|k: &str| {
+        if k == "root:5a3c1e0b9d7f" {
+            "ww-multiplayer".to_string()
+        } else {
+            String::new()
+        }
+    })));
+    r.w.start(&*r.h.ib, &mut r.sink);
+    let (_, d) =
+        r.h.ib
+            .send(
+                &person(),
+                &to_repo("root:5a3c1e0b9d7f"),
+                "the config moved",
+                "",
+            )
+            .unwrap();
+    assert!(d.state == st::HELD && d.hold == hold::UNOWNED);
+    r.pump();
+    let id = held_id(USER);
+    let c = r.sink.card(&id);
+    assert!(c.title.contains("ww-multiplayer"), "{}", c.title);
+    assert!(!c.title.contains("root:"), "{}", c.title);
+    let labels: Vec<&str> = c.actions.iter().map(|a| a.label.as_str()).collect();
+    assert_eq!(labels, ["Start an agent in ww-multiplayer", "Dismiss"]);
+    assert_eq!(
+        c.actions[0].run,
+        Some(CardAct::Open(Target {
+            tab: TAB_HELD.into(),
+            ref_: USER.into(),
+        }))
+    );
+}
+
 #[test]
 fn watch_held_release_failure_keeps_the_card() {
     let mut r = Rig::new();

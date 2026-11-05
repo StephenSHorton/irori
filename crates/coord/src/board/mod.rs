@@ -30,6 +30,14 @@ pub use main_red::{
     MAIN_RED_SCOPE, MainRed, main_red_scope, main_red_test, main_reds, parse_main_red,
 };
 mod mention;
+mod stranded;
+mod version_wait;
+mod wait_chain;
+pub use stranded::Stranded;
+pub use version_wait::{
+    MAX_VERSION_DEVICES, cmp_version, parse_version_wait, valid_version, version_meets,
+};
+pub use wait_chain::{WaitChain, task_waits, wait_chain};
 mod mirror;
 mod notes;
 mod offers;
@@ -69,7 +77,7 @@ pub use asks::{
     TAKE_RELEASED, TAKE_REOPEN, TAKE_REOPENED, TAKE_TAKEN, TAKE_UNCLAIMED, ask_title,
 };
 pub use board_search::{DEFAULT_DOC_PAGE, SHOW_COMMENT_CUT, SHOW_COMMENTS};
-pub use cards::{merge_watch, watch_text};
+pub use cards::{SentBack, merge_watch, watch_text};
 pub use desk::{
     DESK_LIMIT, Desk, DeskCheck, DeskHoldRow, DeskOkRow, DeskPauseRow, DeskPr, DeskPrsRow,
     DeskRunRow, MERGE_MERGE, MERGE_REBASE, MERGE_SQUASH, RepoDeskRow, github_repo, new_desk,
@@ -77,6 +85,7 @@ pub use desk::{
 pub use desk_person::DESK_NOTE_MAX;
 pub use desk_run::{DESK_NEVER, DeskWake, NOTICE_DESK, desk_notice, desk_run_text};
 pub use error::{Error, ErrorKind, Result};
+pub use fold::blocker_gist;
 pub use fold::{
     FOLLOW_KINDS, Fold, LEFT_FINISHED, LEFT_GONE, LEFT_REMOVED, MADE_KIND, REASON_CONFLICT,
     REASON_DESK_HOLDER_CHANGED, REASON_EXPIRED, REASON_HOLDER_GONE, REASON_RELEASED, REASON_STOLEN,
@@ -94,7 +103,8 @@ pub use owner::{OWNER_ACCEPT, OWNER_DECLINE};
 pub use placed::MAX_PLACE;
 pub use presence::{NOTICE_PRESENCE, PRESENCE_GRACE};
 pub use prstate::{
-    NOTICE_PR, PR_CHANGES_REQUESTED, PR_CLOSED, PR_MERGED, PR_OPEN, PrCheck, PrState,
+    NOTICE_PR, PR_CHANGES_REQUESTED, PR_CLOSED, PR_MERGED, PR_OPEN, PR_REVIEW_REQUIRED, PrCheck,
+    PrState,
 };
 pub use resource::{
     DESK_PREFIX, RESOURCE_NAMED, RESOURCE_PATH, RESOURCE_PORT, Resource, check_repo_key,
@@ -171,6 +181,9 @@ pub const DONE_QUESTION: &str = "Is this done?";
 pub const DONE_ANSWER: &str = "Done";
 /// Why an agent's completed without proof is refused (card #140).
 pub const NEEDS_PROOF: &str = "completed needs proof: give proof with what changed, how you checked it (tests run, and what you saw in the real app), the commit or branch, and any caveats; attach screenshots of a UI change. The person reads it to decide Done";
+/// How an agent's next completed resolves the done check it replaces
+/// (card #112): the window doesn't count it as the agent's answer.
+pub const ASKED_AGAIN: &str = "asked again: ready for the person";
 pub const DONE_CONTEXT: &str =
     "The agent says the work is done. Mark it done, or say why it isn't and it goes back to them.";
 pub const MAX_ANSWER: usize = 200;
@@ -213,6 +226,9 @@ pub type OffersFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 /// The tag of another board in a space, by id (card #392); None for an id
 /// the space doesn't hold.
 pub type BoardTagFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
+/// See [`Options::device_version`].
+pub type DeviceVersionFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
 
 /// Configures a [`Coord`] (Go `coord.Options`).
 #[derive(Clone, Default)]
@@ -290,6 +306,11 @@ pub struct Options {
     /// them is held. Read under this coord's lock; it must never wait on a
     /// board coord. `None`: no such waits.
     pub outside_leases: Option<Arc<dyn Fn() -> Vec<String> + Send + Sync>>,
+    /// The app version a device last started with (card #485), for waits
+    /// on a version: its newest `device.started` row's `version`, or "".
+    /// `None` reads this coord's own log (a board's keeps none, so a board
+    /// passes its person's private log).
+    pub device_version: Option<DeviceVersionFn>,
 }
 
 /// The board rows that carry their writer's hop across the bridge.
@@ -877,6 +898,13 @@ impl Coord {
     pub fn comments(&self, id: &str) -> Option<Vec<Comment>> {
         self.lock().list_comments(id)
     }
+    /// The done check the person sent back on card `id` (card #476), if
+    /// its newest done check ends on their Not done.
+    pub fn sent_back(&self, id: &str) -> Option<SentBack> {
+        let f = self.lock();
+        let t = f.tasks.get(id)?;
+        cards::sent_back(&f, t)
+    }
     pub fn get_comment(&self, id: &str) -> Option<Comment> {
         self.lock().comments.get(id).cloned()
     }
@@ -1211,11 +1239,39 @@ impl Coord {
         f.gone_rows.insert(key.to_string(), at);
         f.ended_by_irori.insert(key.to_string());
     }
+    /// Whether Irori ended agent `key` (its own `agent.gone` "finished",
+    /// replayed from the log): it is never ended a second time (card #474).
+    pub fn ended_by_irori(&self, key: &str) -> bool {
+        self.lock().ended_by_irori.contains(key)
+    }
     /// Puts holderless card `id` back on the Board for an agent (card
     /// #447's transition): Ok(false) when it is held, assigned, closed,
     /// working, an open ask or a parent.
     pub fn back_on_board(&self, by: &str, id: &str, why: &str) -> Result<bool> {
         self.lock().back_on_board(by, id, why)
+    }
+    /// Whether agent `key` is gone (card #485): its session ended, or the
+    /// roster says gone or no longer lists it.
+    pub fn key_gone(&self, key: &str) -> bool {
+        self.lock().key_gone(key)
+    }
+    /// Card `id`'s open items whose agent is gone while nobody holds it
+    /// (card #485).
+    pub fn stranded(&self, id: &str) -> Vec<Stranded> {
+        let f = self.lock();
+        f.tasks.get(id).map(|t| f.stranded(t)).unwrap_or_default()
+    }
+    /// "Hand to an agent" (card #485): the person puts a card whose items
+    /// wait on gone agents back on the Board, taking those agents off it.
+    /// Returns the card as it was and those items.
+    pub fn hand_on(&self, by: &str, id: &str) -> Result<(Task, Vec<Stranded>)> {
+        self.lock().hand_on(by, id)
+    }
+    /// Whether this device runs card `id`'s hand-out (it made the card):
+    /// only then does its own sweep start or offer the card's agent.
+    pub fn hands_out_here(&self, id: &str) -> bool {
+        let f = self.lock();
+        f.tasks.get(id).is_some_and(|t| f.hands_out(t))
     }
     /// The spawned_for mark on agent `key`.
     pub fn spawned(&self, key: &str) -> Option<Spawned> {
@@ -1386,7 +1442,9 @@ impl Coord {
     /// One repo's merge desk, if it has one.
     pub fn desk(&self, repo_key: &str) -> Option<Desk> {
         let f = self.lock();
-        f.desks.get(repo_key).map(|d| f.desk_view(d))
+        f.desks
+            .get(&ledger::canonical_repo_key(repo_key))
+            .map(|d| f.desk_view(d))
     }
 
     /// The states of the PRs card `id` links, as last heard (card #208).

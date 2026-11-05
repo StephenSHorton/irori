@@ -69,6 +69,7 @@ use std::sync::{Arc, Mutex, Weak};
 use gocompat::time::GoTime;
 
 pub use attachments::Attacher;
+pub use explore::spawned_lines;
 pub use format::{clip, clip_mcp, one_line};
 pub use notes::{NotesBackend, ToolNote};
 pub use notify::{Action, Note, Notifier};
@@ -226,6 +227,12 @@ pub trait Backend: Send + Sync {
     /// Every agent key → the last name it went by, gone agents included
     /// (card #98); empty when the backend keeps none.
     fn known_names(&self) -> std::collections::BTreeMap<String, String> {
+        std::collections::BTreeMap::new()
+    }
+    /// What each of the person's devices is called, by device id (card
+    /// #485: a version wait names devices); empty when the backend keeps
+    /// none.
+    fn device_labels(&self) -> std::collections::BTreeMap<String, String> {
         std::collections::BTreeMap::new()
     }
     /// Capture serves timeline, why, search, show, overview, commits and

@@ -41,6 +41,7 @@ import {
   HolderLine,
   ProgressBar,
   OwnerChip,
+  PrChip,
   ScopeBadge,
   ShortRef,
   Spinner,
@@ -544,6 +545,7 @@ function CardTile({
         <StatePill card={card} />
         <ScopeBadge card={card} />
         <OwnerChip card={card} />
+        <PrChip card={card} />
         {card.working.some((w) => w.conflict) && (
           <Badge
             variant="warning"
@@ -655,10 +657,10 @@ function CardTile({
             <Faces who={card.working} max={FACES_MAX} />
             {label && <span>{label}</span>}
           </>
-        ) : closed ? null : openAsk(card) ? (
-          <span>you asked the room</span>
-        ) : spawnLine(card) ? (
+        ) : closed ? null : spawnLine(card) ? (
           <SpawnText line={spawnLine(card)!} />
+        ) : openAsk(card) ? (
+          <span>you asked the room</span>
         ) : card.returned ? (
           <span>nobody on it: {displayName(card.returned)} went away</span>
         ) : (

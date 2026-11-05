@@ -20,6 +20,7 @@ import {
   usePermissions,
 } from "@/lib/agent-permissions"
 import { cards, type AskRepo } from "@/lib/cards"
+import { shortRepo } from "@/lib/irori"
 
 const mergeChoices = [
   { value: MERGE_PR, label: "Opens a PR" },
@@ -50,7 +51,7 @@ export function PermissionsSection({ open, boardId = "" }: { open: boolean; boar
   const deny = denyDraft ?? p.deny.join("\n")
   const dirty = allow !== p.allow.join("\n") || deny !== p.deny.join("\n")
   const keys = new Set([...repos.map((r) => r.repoKey), ...Object.keys(p.merge)])
-  const label = (k: string) => repos.find((r) => r.repoKey === k)?.label || k
+  const label = (k: string) => repos.find((r) => r.repoKey === k)?.label || shortRepo(k)
   return (
     <section className="grid gap-2" aria-labelledby={`${id}-h`}>
       <h3 id={`${id}-h`} className="text-sm font-medium text-ink">

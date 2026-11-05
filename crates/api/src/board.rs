@@ -312,6 +312,8 @@ pub fn overview_input(
     if let Some(c) = cards.iter().find(|c| c.key == key) {
         input.repo_key = c.repo_key.clone();
     }
+    // A spawned agent reads as its card, never its boot prompt (card #489).
+    input.spawned = tools::spawned_lines(co, cards.iter().map(|c| c.key.clone()));
 
     let open = ib.for_agent(key, false, COUNT_LIMIT); // newest first
     input.inbox_open = open.len() as i64;

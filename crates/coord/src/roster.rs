@@ -105,6 +105,10 @@ crate::go_struct! {
         /// When its device was last heard from (card #372): set beside
         /// `device_state` on read, never written.
         pub device_seen: GoTime = "deviceSeen" "omit_zero_time",
+        /// When the current status began (presence's `status_since`), so
+        /// the window can say "running a job · 12 min". Rust-only and
+        /// omitted when zero, so Go's JSON still holds (card #489).
+        pub status_since: GoTime = "statusSince" "omit_zero_time",
     }
 }
 

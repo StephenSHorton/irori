@@ -1542,6 +1542,15 @@ impl Services {
     /// board secret when a membership or identity row moves the epoch.
     fn follow_board_row(&self, b: &BoardLog, ev: &Event) {
         self.boards.kick(); // the board's member devices pull it now
+        // One of this person's agents ticked a step or set a card's state
+        // on the board: its message chains start counting again (card
+        // #488). Another member's agent keeps its board key and is skipped.
+        if let Some((inbox::ProgressBy::Actor(a), at)) = inbox::progress_of(ev) {
+            let key = self.private_key(&a);
+            if !key.starts_with(AGENT_ACTOR_PREFIX) {
+                self.inbox.progressed(&key, at);
+            }
+        }
         if (ev.seq == 0 || kinds::is_board_identity_kind(&ev.kind))
             && let Err(e) = self.rotate_secret(b)
         {

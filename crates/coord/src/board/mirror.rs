@@ -64,7 +64,9 @@ impl Fold {
         self.tasks
             .values()
             .filter(|t| {
-                !is_terminal(&t.state) && t.repo_key == res.repo_key && (all || is_holder(t, card))
+                !is_terminal(&t.state)
+                    && ledger::same_repo_key(&t.repo_key, &res.repo_key)
+                    && (all || is_holder(t, card))
             })
             .map(|t| t.id.clone())
             .collect()

@@ -79,6 +79,31 @@ pub(crate) fn needs_agent(t: &Task) -> bool {
         && !waits_on_work(t)
 }
 
+impl Fold {
+    /// Whether ask t needs an agent Irori starts for it (card #470): open,
+    /// not withdrawn, handed out here (this device owns its take lock),
+    /// nobody has it, and the hand-out ran and found nobody free
+    /// (`unclaimed`), so an idle agent with "Offer it cards" on still takes
+    /// it first. A plain ask that names agents goes to them alone; a
+    /// thread waits out its named agents' quiet spell, and one with
+    /// "Agents answer now" off is never handed out, so neither is
+    /// unclaimed then.
+    pub(crate) fn ask_needs_agent(&self, t: &Task) -> bool {
+        let Some(a) = t.open_ask() else {
+            return false;
+        };
+        !is_terminal(&t.state)
+            && !t.withdrawn
+            && !t.shared
+            && a.board.is_empty()
+            && a.owner == self.dev
+            && a.taker.is_empty()
+            && a.unclaimed
+            && (a.thread || a.mentions.is_empty())
+            && (!a.thread || a.wake)
+    }
+}
+
 /// Whether t has an open blocker on other work: another task, a lease, an
 /// agent or something outside (cards #397, #423). Nobody can start it
 /// until that is done, so Irori doesn't hand it out (an open ask can't be
@@ -92,10 +117,14 @@ fn waits_on_work(t: &Task) -> bool {
 }
 
 /// Whether a blocker of this kind waits on work rather than a person.
-fn on_work(kind: &str) -> bool {
+pub(crate) fn on_work(kind: &str) -> bool {
     matches!(
         kind,
-        BLOCKED_ON_TASK | BLOCKED_ON_LEASE | BLOCKED_ON_AGENT | BLOCKED_ON_EXTERNAL
+        BLOCKED_ON_TASK
+            | BLOCKED_ON_LEASE
+            | BLOCKED_ON_AGENT
+            | BLOCKED_ON_EXTERNAL
+            | BLOCKED_ON_VERSION
     )
 }
 
@@ -254,7 +283,10 @@ impl Fold {
             {
                 continue;
             }
-            if !t.repo_key.is_empty() && !a.repo_key.is_empty() && a.repo_key != t.repo_key {
+            if !t.repo_key.is_empty()
+                && !a.repo_key.is_empty()
+                && !ledger::same_repo_key(&a.repo_key, &t.repo_key)
+            {
                 continue;
             }
             if skip.contains(&a.key)
@@ -322,11 +354,11 @@ impl Fold {
                 } else if !self.free_for(t, &pool, &skip).is_empty() {
                     "a free agent is there: the next sweep hands it out".to_string()
                 } else if !t.repo_key.is_empty()
-                    && idle
-                        .iter()
-                        .all(|a| !a.repo_key.is_empty() && a.repo_key != t.repo_key)
+                    && idle.iter().all(|a| {
+                        !a.repo_key.is_empty() && !ledger::same_repo_key(&a.repo_key, &t.repo_key)
+                    })
                 {
-                    format!("no free agent works in {}", t.repo_key)
+                    format!("no free agent works in {}", ledger::repo_name(&t.repo_key))
                 } else if idle.iter().all(|a| heard.contains(&a.key)) {
                     "every free agent passed it".to_string()
                 } else {
@@ -710,7 +742,7 @@ fn repo_devices(t: &Task, roster: &[AgentCard]) -> HashSet<String> {
         return out;
     }
     for a in roster {
-        if a.repo_key == t.repo_key {
+        if ledger::same_repo_key(&a.repo_key, &t.repo_key) {
             out.insert(device_of(a).to_string());
         }
     }

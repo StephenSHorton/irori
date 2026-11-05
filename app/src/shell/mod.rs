@@ -670,12 +670,15 @@ fn spawner() -> irori_core::spawn::Spawner {
                 prefix: got.short_id,
             })
         }),
-        end: Arc::new(|id: &str| spawn::end(id).map(|_| ())),
+        end: Arc::new(|id: &str| spawn::end(id)),
         trusted: Arc::new(|p: &std::path::Path| spawn::trust_ok(p)),
         list: Some(Arc::new(|| {
             spawn::list_agents().map(|v| {
                 v.into_iter()
-                    .map(|(session_id, live)| irori_core::spawn::ClaudeAgent { session_id, live })
+                    .map(|a| irori_core::spawn::ClaudeAgent {
+                        session_id: a.session_id,
+                        live: a.live,
+                    })
                     .collect()
             })
         })),

@@ -101,6 +101,10 @@ const who = (name: string | undefined) => {
   return !n ? "someone" : n === "You" ? "you" : n
 }
 
+// How an agent's next done check resolves the one it replaces (coord's
+// ASKED_AGAIN).
+export const AskedAgain = "asked again: ready for the person"
+
 // blockerOutcome is how a resolved blocker or done check ended, in the
 // card page's words: "" while it still waits on the person.
 export function blockerOutcome(b: CardBlocker): string {
@@ -113,6 +117,12 @@ export function blockerOutcome(b: CardBlocker): string {
   const note = r.note?.trim()
   if (r.closed) return `Closed by ${by}${note ? `: ${note}` : ""}`
   const answer = (r.answer ?? "").trim()
+  // The agent's next done check replaced this one (card #476): the reason
+  // on it is the person's, not the agent's.
+  if (b.doneCheck && note === AskedAgain)
+    return answer && answer !== AskedAgain
+      ? `You sent it back: “${answer}”; ${by} asked again`
+      : `${by} asked again`
   if (b.doneCheck)
     return r.option >= 0
       ? `Marked done by ${by}`
@@ -122,11 +132,13 @@ export function blockerOutcome(b: CardBlocker): string {
 }
 
 // blockerOpen: the blocker still waits on this person (open, or replied
-// back to them, and not another member's question, as Needs you counts).
+// back to them, and not another member's question nor a wait on other
+// work (card #481), as Needs you counts).
 export function blockerOpen(b: CardBlocker): boolean {
   return (
     !b.resolved &&
     !b.decider &&
+    !b.waitsOn &&
     (b.state === "" || b.state === "open" || b.state === "replied")
   )
 }

@@ -76,6 +76,10 @@ pub struct ReviewRequest {
 /// newest row's place and agent.
 pub(crate) type Reviewers = BTreeMap<(String, String), (RowPos, String)>;
 
+/// Why an agent on the person's own board can't be asked to review a card
+/// that links a PR (card #471).
+pub const OWN_PR_REVIEW: &str = "a PR of your person's is never reviewed by their own agents: merge it yourself once its checks pass (or let the merge desk), and where the repo needs an approval it comes from another member's agents on a shared board";
+
 impl Fold {
     pub(crate) fn fold_review(&mut self, ev: &Event, at: &dyn Fn(GoTime) -> GoTime) {
         match ev.kind.as_str() {
@@ -90,7 +94,10 @@ impl Fold {
                 // board it never asks its own person's agents to approve;
                 // on its own board it names one of them (#88).
                 let theirs = if self.on_board {
-                    p.to.is_empty() || self.person_of(&p.to) != self.person_of(&p.from)
+                    p.to.is_empty() || {
+                        let to = self.person_of(&p.to);
+                        !to.is_empty() && to != self.person_of(&p.from)
+                    }
                 } else {
                     self.is_agent_key(&p.to) && p.to != p.from
                 };
@@ -129,7 +136,7 @@ impl Fold {
                     return;
                 }
                 let pos = RowPos::of(ev);
-                let key = (person, p.repo_key);
+                let key = (person, ledger::canonical_repo_key(&p.repo_key));
                 if self
                     .reviewers
                     .get(&key)
@@ -241,6 +248,13 @@ impl Fold {
                 "{to} is one of your own person's agents: they can comment, but a review comes from another person's agent"
             )));
         }
+        // Card #471: an agent nobody on the board knows is no other
+        // person's.
+        if !to.is_empty() && self.person_of(&to).is_empty() {
+            return Err(not_allowed(format!(
+                "{to} isn't a member's agent on this board: a review comes from another person's agent"
+            )));
+        }
         let mut rcpt = self.review_recipients(&by, &to, &t.repo_key);
         if rcpt.is_empty() {
             rcpt = self.open_reviewer(&t, &by).into_iter().collect();
@@ -303,6 +317,13 @@ impl Fold {
         pr: &str,
         to: &str,
     ) -> Result<(Vec<ReviewRequest>, Notice)> {
+        // Card #471: every agent on the person's own board is theirs, and
+        // a PR of the person's is never reviewed or approved by their own
+        // agents. It merges once its checks pass; where the repo wants an
+        // approval, another member's agents give it.
+        if !pr.is_empty() || t.links.iter().any(|l| pr_link(l).is_some()) {
+            return Err(not_allowed(OWN_PR_REVIEW));
+        }
         if to.is_empty() {
             return Err(invalid(
                 "name the agent to review it in to: on your own board nobody is the reviewer by default",
@@ -642,7 +663,7 @@ impl Fold {
                 "{reviewer} isn't one of your agents on this board"
             )));
         }
-        let repo = trim_space(repo).to_string();
+        let repo = ledger::canonical_repo_key(repo);
         if !repo.is_empty() {
             super::resource::check_repo_key(&repo)?;
         }

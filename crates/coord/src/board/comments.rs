@@ -28,6 +28,9 @@ use super::{
 use crate::gotime;
 use crate::names::trim_space;
 
+/// Why the sweep closes an answered item whose agent left (card #481).
+const ANSWERED_LEFT: &str = "the agent it went to left the card";
+
 /// Validates a block reason or unblock note (trimmed).
 pub(crate) fn check_reason(s: &str, required: bool) -> Result<()> {
     if required && s.is_empty() {
@@ -165,9 +168,19 @@ impl Fold {
                     out.reference = names.join(" ");
                 }
             }
+            BLOCKED_ON_VERSION => {
+                // A board's log keeps no device.started rows (card #485):
+                // without a hook to the person's own, it could never close.
+                if self.on_board && self.device_version.is_none() {
+                    return Err(invalid(
+                        "a version wait goes on a card on your own board; on a shared board, wait on external or the person",
+                    ));
+                }
+                out.reference = self.check_version_wait(&out.reference)?;
+            }
             _ => {
                 return Err(invalid(format!(
-                    "blocker kind {} (lease|task|person|agent|external)",
+                    "blocker kind {} (lease|task|person|agent|external|version)",
                     quote(&bb.kind)
                 )));
             }
@@ -325,7 +338,7 @@ impl Fold {
         // agent. A shared card keeps its state for whoever joins next.
         let t = &self.tasks[id];
         if t.holders.is_empty() && t.state == WORKING && t.subtasks.is_empty() && !t.shared {
-            let note = format!("nobody is on it: {} left it", self.named(&who));
+            let note = format!("{}: {} left it", super::fold::NOBODY_NOTE, self.named(&who));
             self.write(
                 SWEEPER,
                 kinds::TASK_STATUS,
@@ -397,8 +410,10 @@ impl Fold {
                     &TaskStateRow {
                         task_id: id.clone(),
                         state: SUBMITTED.into(),
-                        note: "nobody is on it: the person whose agent worked it left the board"
-                            .into(),
+                        note: format!(
+                            "{}: the person whose agent worked it left the board",
+                            super::fold::NOBODY_NOTE
+                        ),
                         by: by.clone(),
                         at,
                         ..TaskStateRow::default()
@@ -1172,7 +1187,33 @@ impl Fold {
         self.outside_waits.borrow().contains(&key)
     }
 
-    /// The open items of a blocked task whose lease or task went away.
+    /// Whether open item b of t was answered and waits on an agent that
+    /// left the card since (card #481): nobody is left to act on the
+    /// answer. Only an agent that held the card and left counts, not one
+    /// that raised it from outside; and only this device of the raiser's
+    /// person closes it, so the row folds everywhere (card #242).
+    fn answered_left(&self, t: &Task, b: &Blocker) -> bool {
+        // A done check or an ownership change is the person's to close,
+        // never Irori's.
+        if !b.open() || b.status != BLOCKER_ANSWERED || b.done_check || b.transfer {
+            return false;
+        }
+        if !b.sent_to.is_empty() && b.sent_to != b.raised_by {
+            return false;
+        }
+        let tgt = &b.raised_by;
+        !tgt.is_empty()
+            && tgt != SWEEPER
+            && !self.is_owner(tgt)
+            && contains(&t.left, tgt)
+            && !contains(&t.holders, tgt)
+            && !contains(&t.co_holders, tgt)
+            && !contains(&t.assigned, tgt)
+            && self.may_write(tgt, &self.dev)
+    }
+
+    /// The open items of a blocked task whose lease or task went away, or
+    /// whose answer went to an agent that left the card.
     pub(crate) fn gone_away(&self, t: &Task, now: &GoTime) -> (Vec<String>, Vec<String>) {
         let mut ids = Vec::new();
         let mut why = Vec::new();
@@ -1180,6 +1221,11 @@ impl Fold {
             return (ids, why);
         }
         for b in &t.blockers {
+            if self.answered_left(t, b) {
+                ids.push(b.id.clone());
+                why.push(ANSWERED_LEFT.to_string());
+                continue;
+            }
             let Some(on) = b.on.as_ref().filter(|_| b.open()) else {
                 continue;
             };
@@ -1202,6 +1248,15 @@ impl Fold {
                         ids.push(b.id.clone());
                         why.push(w);
                     }
+                }
+                BLOCKED_ON_VERSION if self.version_behind(&on.reference).is_empty() => {
+                    let (min, devs) = super::version_wait::parse_version_wait(&on.reference);
+                    ids.push(b.id.clone());
+                    why.push(if devs.len() > 1 {
+                        format!("{min} or later running on all {} devices", devs.len())
+                    } else {
+                        format!("{min} or later running")
+                    });
                 }
                 BLOCKED_ON_EXTERNAL if self.outside_wait_gone(&t.id, b) => {
                     ids.push(b.id.clone());
@@ -1246,13 +1301,15 @@ impl Fold {
         let viewer = trim_space(&f.viewer).to_string();
         let agent_viewer = !viewer.is_empty() && !self.is_owner(&viewer);
         let mut blocks: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let rs = self.roster_status();
         for t in self.tasks.values() {
-            if !f.repo_key.is_empty() && t.repo_key != f.repo_key {
+            if !f.repo_key.is_empty() && !ledger::same_repo_key(&t.repo_key, &f.repo_key) {
                 continue;
             }
             let mut card = Card {
                 task: t.clone(),
                 overlaps: self.overlaps_of(t, &now),
+                stranded: self.stranded_in(t, &rs),
                 ..Card::default()
             };
             if let Some(last) = self.by_task.get(&t.id).and_then(|ids| ids.last()) {
@@ -1331,7 +1388,7 @@ impl Fold {
             if !f.repo_key.is_empty()
                 && bl.is_empty()
                 && l.res.kind == RESOURCE_PATH
-                && l.res.repo_key != f.repo_key
+                && !ledger::same_repo_key(&l.res.repo_key, &f.repo_key)
             {
                 continue;
             }
@@ -1420,6 +1477,7 @@ impl Fold {
     fn sweep_rest(&mut self, now: &GoTime, out: &mut Vec<Notice>) -> Result<()> {
         let now = *now;
         self.return_gone(&now, out)?;
+        self.return_unheld_prs()?;
         self.tell_not_answering(out)?;
         self.tell_idle_holders(out);
         let todo: Vec<String> = self
@@ -1431,31 +1489,60 @@ impl Fold {
         for id in todo {
             let t = self.tasks[&id].clone();
             let (ids, why) = self.gone_away(&t, &now);
-            if ids.len() == count_open(&t) {
+            // An answered item keeps the person's answer, so it goes one
+            // by one, never through the close of the whole card.
+            let left: Vec<bool> = ids
+                .iter()
+                .map(|bid| {
+                    t.blockers
+                        .iter()
+                        .find(|b| &b.id == bid)
+                        .is_some_and(|b| self.answered_left(&t, b))
+                })
+                .collect();
+            if ids.len() == count_open(&t) && !left.contains(&true) {
                 out.push(self.close_blocker(SWEEPER, &id, &why[0], now)?);
                 continue;
             }
+            // An agent that left the card (card #481) isn't told.
             let raisers: Vec<String> = t
                 .blockers
                 .iter()
-                .filter(|b| ids.contains(&b.id))
+                .filter(|b| ids.contains(&b.id) && !self.answered_left(&t, b))
                 .map(|b| b.raised_by.clone())
                 .collect();
             for (i, bid) in ids.iter().enumerate() {
+                // The person's answer stands, with why Irori closed it.
+                let (answer, option, note) = match left[i]
+                    .then(|| super::cards::last_answer(self, &t, bid))
+                    .flatten()
+                {
+                    Some(a) => (a.text.clone(), a.pick - 1, why[i].clone()),
+                    None => (why[i].clone(), -1, String::new()),
+                };
                 self.write(
                     SWEEPER,
                     kinds::BLOCKER_RESOLVED,
                     &BlockerResolvedRow {
                         task_id: id.clone(),
                         blocker_id: bid.clone(),
-                        answer: why[i].clone(),
-                        option: -1,
+                        answer,
+                        option,
+                        note,
                         by: SWEEPER.into(),
                         closed: true,
                         at: now,
                         ..BlockerResolvedRow::default()
                     },
                 )?;
+            }
+            // Nobody holds it (its spawned agent went while it waited on
+            // other work, card #474) and what is still open the person
+            // answered: it goes back on the Board, as when its agent goes
+            // after his answer (return_gone), and a fresh agent reads it.
+            let held = &self.tasks[&id];
+            if held.holders.is_empty() && held.assigned.is_empty() && held.all_answered() {
+                self.back_on_board(SWEEPER, &id, "what it waited on went away")?;
             }
             let nt = self.tasks[&id].clone();
             let mut n = Notice {
@@ -1664,7 +1751,10 @@ impl Fold {
                         &TaskStateRow {
                             task_id: id.clone(),
                             state: SUBMITTED.into(),
-                            note: format!("nobody is on it: the agent working it {went}"),
+                            note: format!(
+                                "{}: the agent working it {went}",
+                                super::fold::NOBODY_NOTE
+                            ),
                             by: SWEEPER.into(),
                             at: *now,
                             ..TaskStateRow::default()
