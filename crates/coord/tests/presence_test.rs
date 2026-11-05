@@ -183,3 +183,28 @@ fn card_show_says_where_each_holders_device_is() {
         sh.text
     );
 }
+
+// Card #544: a device back through another one has no link of its own, so
+// the notice doesn't say online.
+#[test]
+fn back_through_another_device_says_so() {
+    let e = Env::new();
+    shared_card(&e);
+    let t0 = e.clk.now();
+    let off = agents(OFFLINE, t0);
+    assert!(e.c.sweep_presence_at(&off, &t0, &here).is_empty());
+    let t1 = plus(t0, mins(5));
+    assert_eq!(e.c.sweep_presence_at(&off, &t1, &here).len(), 1);
+    let mut back = agents(coord::roster::RECENT, t1);
+    for a in &mut back {
+        a.device_via = "Phone".into();
+    }
+    let ns = e.c.sweep_presence_at(&back, &t1, &here);
+    assert_eq!(ns.len(), 1, "{ns:?}");
+    assert!(
+        ns[0].text.contains("reachable again, through Phone"),
+        "{}",
+        ns[0].text
+    );
+    assert!(!ns[0].text.contains("online"), "{}", ns[0].text);
+}

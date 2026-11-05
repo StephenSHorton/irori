@@ -132,13 +132,21 @@ impl Fold {
             if gone || a.told.is_empty() {
                 continue;
             }
+            // Its rows coming through another device isn't a link of its own
+            // (card #544).
+            let via = by_key.get(k.as_str()).map_or("", |c| c.device_via.as_str());
+            let back = if via.is_empty() {
+                "back online".to_string()
+            } else {
+                format!("reachable again, through {via}")
+            };
             out.push(Notice {
                 kind: NOTICE_PRESENCE.into(),
                 reference: agent_ref(&k),
                 title: format!("{} is back", self.named(&k)),
                 by: SWEEPER.into(),
                 to: a.told.into_iter().collect(),
-                text: format!("{}'s device is back online.", self.named(&k)),
+                text: format!("{}'s device is {back}.", self.named(&k)),
                 ..Notice::default()
             });
         }
@@ -162,7 +170,8 @@ impl Fold {
             .collect();
         for x in due {
             let card = by_key[x.as_str()];
-            let phrase = device_phrase(&card.device_state, &card.device_seen, now);
+            let phrase =
+                device_phrase(&card.device_state, &card.device_seen, &card.device_via, now);
             for ((w, wx), tie) in &ties {
                 if *wx != x
                     || !hosted(w)
@@ -201,7 +210,7 @@ impl Fold {
                     by: SWEEPER.into(),
                     to: vec![w.clone()],
                     text: format!(
-                        "{}'s device is {phrase}. {} Messages to it wait until it's back; you'll hear when it is.",
+                        "{}'s device is {phrase}. {} Messages to it wait until it's heard from again; you'll hear when it is.",
                         self.named(&x),
                         why.join(" ")
                     ),

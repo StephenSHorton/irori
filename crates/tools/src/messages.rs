@@ -172,6 +172,26 @@ pub(crate) fn reply(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     )
 }
 
+/// What the recipient's device adds to a queued message's wait (card
+/// #544). Messages ride rows, so a device reached through another one
+/// still gets them, only later; an offline one gets them when it's heard
+/// from again.
+fn device_delay(c: Option<&presence::AgentCard>) -> String {
+    let Some(c) = c else {
+        return String::new();
+    };
+    if c.device_state == coord::roster::OFFLINE {
+        " Their device is offline, so it reaches them once it's heard from again.".into()
+    } else if !c.device_via.is_empty() {
+        format!(
+            " Their device is reached through {}, so it can take longer, and stops while that device sleeps.",
+            one_line(&c.device_via, 80)
+        )
+    } else {
+        String::new()
+    }
+}
+
 impl Inner {
     /// Where a just-sent message went and what happens next.
     pub(crate) fn outcome(&self, d: &Delivery) -> String {
@@ -213,6 +233,7 @@ impl Inner {
                     b += &self.not_running(d, &n);
                 } else {
                     b += "queued; they are woken with it, and their reply comes back to you as a message.";
+                    b += &device_delay(n.cards.get(d.to.as_str()));
                 }
             }
             other => b += &format!("{other}."),
@@ -519,4 +540,30 @@ fn pass_handed_ask(s: &Inner, c: &Caller, did: &str) -> Option<(String, bool)> {
     }
     co.leave(&as_[0], &id, &as_[0]).ok()?;
     Some((t.short_ref(), true))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::device_delay;
+
+    fn card(state: &str, via: &str) -> presence::AgentCard {
+        presence::AgentCard {
+            device_state: state.into(),
+            device_via: via.into(),
+            ..Default::default()
+        }
+    }
+
+    // Card #544: a message rides rows, so it arrives through another device,
+    // and the sender is told the wait rather than that the device is gone.
+    #[test]
+    fn the_sender_hears_what_the_device_adds_to_the_wait() {
+        assert_eq!(device_delay(None), "");
+        assert_eq!(device_delay(Some(&card("connected", ""))), "");
+        assert_eq!(device_delay(Some(&card("recent", ""))), "");
+        let through = device_delay(Some(&card("recent", "Phone")));
+        assert!(through.contains("reached through Phone"), "{through}");
+        let offline = device_delay(Some(&card("offline", "")));
+        assert!(offline.contains("once it's heard from again"), "{offline}");
+    }
 }
