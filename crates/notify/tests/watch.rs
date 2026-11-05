@@ -1106,3 +1106,194 @@ fn ask_cards_answer_and_clear() {
     );
     h.stop();
 }
+
+// ---- card #518: no "Nobody took" while Irori starts an agent for the ask ----
+
+/// A rig whose board spawns while `on` is set, on a clock the test moves.
+struct Spawning {
+    r: Rig,
+    on: Arc<AtomicBool>,
+    clock: Arc<Mutex<GoTime>>,
+}
+
+fn spawning_rig() -> Spawning {
+    let on = Arc::new(AtomicBool::new(true));
+    let clock = Arc::new(Mutex::new(GoTime::from_system(SystemTime::now()).utc()));
+    let (f, c) = (on.clone(), clock.clone());
+    let r = rig_with(
+        None,
+        coord::Options {
+            spawning: Some(Arc::new(move || f.load(Ordering::SeqCst))),
+            now: Some(Arc::new(move || *c.lock().unwrap())),
+            ..Default::default()
+        },
+    );
+    Spawning { r, on, clock }
+}
+
+fn later(t: &GoTime, d: Duration) -> GoTime {
+    GoTime::from_system(t.to_system() + d).utc()
+}
+
+impl Spawning {
+    fn advance(&self, d: Duration) {
+        let mut c = self.clock.lock().unwrap();
+        *c = later(&c, d);
+    }
+}
+
+/// A new thread, with no agent free to take it.
+fn post_thread(r: &Rig, text: &str) -> Task {
+    r.co.post_ask(
+        USER,
+        NewAsk {
+            text: text.into(),
+            thread: true,
+            wake: true,
+            ..NewAsk::default()
+        },
+        &[],
+    )
+    .unwrap()
+    .0
+}
+
+/// The request the owner's sweep writes when it starts the ask's agent.
+fn start_agent(r: &Rig, id: &str) -> Option<i64> {
+    r.co.request_spawn(
+        "irori",
+        coord::SpawnAsk {
+            task_id: id.into(),
+            device: "dev1".into(),
+            folder: "/repo".into(),
+            permission_mode: "bypassPermissions".into(),
+            name: "thread-1".into(),
+            ..coord::SpawnAsk::default()
+        },
+    )
+    .unwrap()
+}
+
+#[test]
+fn watch_unclaimed_ask_waits_for_the_agent_irori_starts() {
+    let s = spawning_rig();
+    let r = &s.r;
+    let ask = post_thread(r, "what did we ship today?");
+    let id = unclaimed_id(&ask.id);
+    assert!(r.co.get_task(&ask.id).unwrap().ask.unwrap().unclaimed);
+    // Unclaimed, its request not written yet: an agent is about to start
+    // (the unclaimed row folds before the request row).
+    let st = r.co.ask_starting(&ask.id).expect("an agent is coming");
+    assert_eq!(st.device, "dev1");
+    r.fake.no_post(Duration::from_millis(150));
+    // Requested: still coming.
+    let g = start_agent(r, &ask.id).unwrap();
+    assert!(r.co.ask_starting(&ask.id).is_some());
+    r.fake.no_post(Duration::from_millis(150));
+    // It binds and takes the ask: no "Nobody took" was ever shown.
+    assert!(r.co.bind_spawn(&ask.id, g, KEY_B).unwrap());
+    assert_eq!(r.co.get_task(&ask.id).unwrap().ask.unwrap().taker, KEY_B);
+    r.fake.no_post(Duration::from_millis(150));
+    assert!(!posted(&r.fake, &id));
+    assert!(r.co.ask_starting(&ask.id).is_none(), "taken");
+}
+
+#[test]
+fn watch_unclaimed_ask_when_spawning_is_off() {
+    let s = spawning_rig();
+    s.on.store(false, Ordering::SeqCst);
+    let ask = post_thread(&s.r, "anyone?");
+    assert!(s.r.co.ask_starting(&ask.id).is_none());
+    s.r.fake.wait_post(&unclaimed_id(&ask.id));
+}
+
+#[test]
+fn watch_unclaimed_ask_when_its_spawn_fails() {
+    let s = spawning_rig();
+    let r = &s.r;
+    let ask = post_thread(r, "anyone?");
+    let id = unclaimed_id(&ask.id);
+    let g = start_agent(r, &ask.id).unwrap();
+    r.fake.no_post(Duration::from_millis(150));
+    r.co.end_spawn(
+        "irori",
+        &ask.id,
+        g,
+        coord::SPAWN_FAILED,
+        "couldn't start: no folder",
+    )
+    .unwrap();
+    r.fake.wait_post(&id);
+    assert!(r.fake.card(&id).title.contains("Nobody took"));
+    // A failed request means none is coming, though the sweep may try
+    // again later.
+    s.advance(Duration::from_secs(5));
+    assert!(r.co.ask_starting(&ask.id).is_none());
+}
+
+#[test]
+fn watch_unclaimed_ask_when_its_agent_never_binds() {
+    let s = spawning_rig();
+    let r = &s.r;
+    let ask = post_thread(r, "anyone?");
+    let id = unclaimed_id(&ask.id);
+    start_agent(r, &ask.id).unwrap();
+    r.fake.no_post(Duration::from_millis(150));
+    // Past the grace the sweep asks again (a fresh pending request), but
+    // the ask has waited long enough: the card comes.
+    s.advance(coord::SPAWN_GRACE + Duration::from_secs(1));
+    assert!(
+        start_agent(r, &ask.id).is_some(),
+        "a stale request is replaced"
+    );
+    assert!(r.co.ask_starting(&ask.id).is_none());
+    r.fake.wait_post(&id);
+}
+
+/// The grace running out writes no row: BoardCards says when to look again
+/// (the loop sleeps until then), and that look posts the card.
+#[test]
+fn watch_unclaimed_ask_held_until_the_grace() {
+    let s = spawning_rig();
+    let ask = post_thread(&s.r, "anyone?");
+    let f = Fake::new();
+    let n = notifier(&f);
+    let mut w = BoardCards::new(
+        &n,
+        &Sources {
+            board: Some(s.r.co.clone()),
+            room: Some(s.r.co.clone()),
+            user: USER.into(),
+            ..Sources::default()
+        },
+    );
+    let view = || {
+        s.r.co.board(&coord::BoardFilter {
+            viewer: USER.into(),
+            ..Default::default()
+        })
+    };
+    let since = s.r.co.get_task(&ask.id).unwrap().ask.unwrap().since;
+    let due = w
+        .view(&view(), true)
+        .expect("held, with a time to look again");
+    assert!(due.equal(&later(&since, coord::SPAWN_GRACE)), "{due:?}");
+    assert!(!posted(&f, &unclaimed_id(&ask.id)));
+    s.advance(coord::SPAWN_GRACE);
+    assert_eq!(w.view(&view(), true), None);
+    assert!(posted(&f, &unclaimed_id(&ask.id)));
+}
+
+/// A "Nobody took" card already up comes down once an agent starts for the
+/// ask (spawning turned on after it went up).
+#[test]
+fn watch_unclaimed_card_clears_when_an_agent_starts() {
+    let s = spawning_rig();
+    s.on.store(false, Ordering::SeqCst);
+    let ask = post_thread(&s.r, "anyone?");
+    let id = unclaimed_id(&ask.id);
+    s.r.fake.wait_post(&id);
+    s.on.store(true, Ordering::SeqCst);
+    start_agent(&s.r, &ask.id).unwrap();
+    s.r.fake.wait_gone(&id);
+}
