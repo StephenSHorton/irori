@@ -632,12 +632,7 @@ fn quote_channels(b: &mut String, named: &dyn Fn(&str) -> String, channels: &[Br
 /// brief (card #555): their own words, each with its card's ref, and the
 /// agent has to say whether they change its card. Without this a card
 /// keeps a premise the person has dropped on its sibling.
-fn quote_said(
-    b: &mut String,
-    named: &dyn Fn(&str) -> String,
-    short: &str,
-    said: &[coord::Said],
-) {
+fn quote_said(b: &mut String, named: &dyn Fn(&str) -> String, short: &str, said: &[coord::Said]) {
     if said.is_empty() {
         return;
     }
@@ -2541,6 +2536,56 @@ mod tests {
             BriefMore::default(),
         );
         assert!(!mine.others_text);
+    }
+
+    #[test]
+    fn the_brief_quotes_the_persons_words_nearby_and_asks_if_they_change_it() {
+        let named = |k: &str| k.to_string();
+        let said = [coord::Said {
+            comment_id: "c1".into(),
+            task_id: "t2".into(),
+            card: "#416".into(),
+            text: "a place to talk ``` about PRs".into(),
+            ..coord::Said::default()
+        }];
+        let b = build_brief(
+            &card(),
+            &[],
+            &named,
+            &|_| None,
+            None,
+            None,
+            BriefMore {
+                said: &said,
+                ..BriefMore::default()
+            },
+        );
+        assert!(
+            b.text.contains(
+                "On #416 (comment:c1) (by the person):\n```text\na place to talk ''' about PRs\n```"
+            ),
+            "{}",
+            b.text
+        );
+        assert!(
+            b.text
+                .contains("say in one line on #7 (board_comment) whether any of these change it"),
+            "{}",
+            b.text
+        );
+        // The person's own words: they never cost the spawn its bypass.
+        assert!(!b.others_text);
+        // Nothing near it, nothing added.
+        let bare = build_brief(
+            &card(),
+            &[],
+            &named,
+            &|_| None,
+            None,
+            None,
+            BriefMore::default(),
+        );
+        assert!(!bare.text.contains("said lately"), "{}", bare.text);
     }
 
     #[test]

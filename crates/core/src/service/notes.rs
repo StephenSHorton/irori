@@ -524,7 +524,10 @@ impl Services {
             .collect();
         let mine = |t: &coord::Task| {
             let has = |l: &[String]| l.iter().any(|k| k == agent);
-            has(&t.holders) || has(&t.co_holders) || has(&t.assigned)
+            has(&t.holders)
+                || has(&t.co_holders)
+                || has(&t.assigned)
+                || t.offer.as_ref().is_some_and(|o| o.to == agent)
         };
         let named = refs.iter().find_map(|r| {
             let id = r.strip_prefix("task:").unwrap_or(r);

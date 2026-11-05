@@ -369,6 +369,15 @@ fn decode_wake(payload: &[u8]) -> std::result::Result<WakeRow, json::Error> {
     f.push(("overflow", Schema::Slice(Box::new(Schema::String))));
     f.push(("at", Schema::Time));
     f.push(("notesTask", Schema::String));
+    f.push(("saidFor", Schema::String));
+    f.push((
+        "said",
+        Schema::Slice(Box::new(Schema::object(vec![
+            ("id", Schema::String),
+            ("card", Schema::String),
+            ("text", Schema::String),
+        ]))),
+    ));
     f.push((
         "notes",
         Schema::Slice(Box::new(Schema::object(vec![

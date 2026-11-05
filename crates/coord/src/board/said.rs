@@ -121,7 +121,7 @@ impl Fold {
             .filter(|c| c.at.unix_nano() >= since && !c.held)
             .filter(|c| !c.text.trim().is_empty() && c.text != CRASHED_START)
             .collect();
-        lines.sort_by(|a, b| (b.at.unix_nano(), &b.id).cmp(&(a.at.unix_nano(), &a.id)));
+        lines.sort_by_key(|c| std::cmp::Reverse((c.at.unix_nano(), c.hlc, c.seq)));
         let mut per_card: HashMap<&str, usize> = HashMap::new();
         let mut out = Vec::new();
         for c in lines {
@@ -138,7 +138,7 @@ impl Fold {
                 task_id: on.id.clone(),
                 card: on.short_ref(),
                 text: clip(c.text.trim(), SAID_CHARS),
-                at: c.at.clone(),
+                at: c.at,
             });
             if out.len() == SAID_MAX {
                 break;
