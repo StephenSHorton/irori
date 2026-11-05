@@ -149,6 +149,19 @@ fn person_key(id: &str) -> String {
     format!("{PERSON_ACTOR_PREFIX}{id}")
 }
 
+/// §4's rules on hidden space `d` itself: `me` is this person's id.
+fn dm_sound(me: &str, d: &DmSpace, m: &Membership) -> bool {
+    // 1. A marker, whose creator is board.created's.
+    m.created
+        && m.creator == d.creator.person_id
+        && m.pins.get(&m.creator) == Some(&d.creator)
+        // 2. Nobody ever on it but the two of them.
+        && d.with != me
+        && m.members
+            .iter()
+            .all(|p| p.person_id == me || p.person_id == d.with)
+}
+
 /// §4's rules on one row of hidden space `d`, as written in the log (keys
 /// in board form): the DM it may fold into, or `None` for a row that folds
 /// to nothing. `me` is this person's id.
@@ -160,17 +173,7 @@ pub(crate) fn dm_conv_of(
     kind: &str,
     row: &Value,
 ) -> Option<String> {
-    // 1. A marker, whose creator is board.created's.
-    if !m.created || m.creator != d.creator.person_id || m.pins.get(&m.creator) != Some(&d.creator)
-    {
-        return None;
-    }
-    // 2. Nobody ever on it but the two of them.
-    if d.with == me
-        || m.members
-            .iter()
-            .any(|p| p.person_id != me && p.person_id != d.with)
-    {
+    if !dm_sound(me, d, m) {
         return None;
     }
     // 3. The pair's own conversation.
@@ -362,16 +365,20 @@ impl Services {
 
     /// The space a DM with `other` is written to now (§1): the lowest whose
     /// other person has a counted cert, otherwise this person's own lowest
-    /// pending log. A log `other` left isn't one: a later DM offers a new
-    /// space, which is how that person hears from this one again.
+    /// pending log. A log `other` left isn't one, nor one that broke §4's
+    /// rules: a later DM offers a new space, which is how that person hears
+    /// from this one again.
     fn dm_writer(&self, other: &str) -> Option<String> {
         let (me, dev) = (self.person_id(), self.device.id.clone());
         let can: Vec<(Arc<BoardLog>, DmSpace)> = self
             .dm_live(other)
             .into_iter()
-            .filter(|(b, _)| {
+            .filter(|(b, d)| {
                 let m = b.verifier.membership();
-                m.active(&me) && b.verifier.cert(&dev).is_some() && b.verifier.cut(&dev).is_none()
+                dm_sound(&me, d, &m)
+                    && m.active(&me)
+                    && b.verifier.cert(&dev).is_some()
+                    && b.verifier.cut(&dev).is_none()
             })
             .collect();
         if let Some((b, _)) = can.iter().find(|(b, _)| Self::dm_counted(b, other)) {
@@ -432,6 +439,15 @@ impl Services {
     fn found_dm_space(self: &Arc<Self>, other: &str) -> Result<String> {
         let id = new_board_id()?;
         let pin = self.ident.board_pin();
+        // A rotation from before v0.5 can't be proven (§2): no offer would
+        // ever be taken, so no space is made.
+        if self
+            .chain
+            .key_proof(pin.person_epoch, &pin.person_pub)
+            .is_none()
+        {
+            return Err(Error::other("this person's key can't be proven"));
+        }
         self.write_dm_marker(&id, &pin, other)?;
         let made = (|| {
             let b = self.open_board(&id, true, Some(&pin))?;
@@ -777,6 +793,24 @@ impl Services {
         self.dm_connect(id);
         self.boards.moved();
         Ok(())
+    }
+
+    /// Hidden space `b`'s rows fold again: a late row can change what they
+    /// fold to (§4), its board.created or a third member, which ends the
+    /// DM. Only a space that broke its rules is dropped first: folding
+    /// again adds what is missing, so a post just written stays in view.
+    pub(crate) fn dm_refold(&self, b: &BoardLog) {
+        let m = b.verifier.membership();
+        let me = self.person_id();
+        if !self
+            .dm_spaces
+            .get(&b.id)
+            .is_some_and(|d| dm_sound(&me, &d, &m))
+        {
+            self.talk.drop_space(&b.id);
+        }
+        self.fold_space_talk(b);
+        self.hub.publish(crate::events::CoreEvent::Talk);
     }
 
     /// Whether `b`'s other person has no counted cert yet: it is a hidden

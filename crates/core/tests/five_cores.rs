@@ -1798,3 +1798,594 @@ fn a_dm_starts_with_bob_already_connected() {
     assert!(a1.core.board_rows(&board, kinds::TALK_POST).is_empty());
     close(alice.drain(..).chain(bob.drain(..)));
 }
+
+/// §8: Bob is away when Alice writes. Her post waits in a pending log, and
+/// the hand-off runs when he comes back: his hello on the space they share.
+#[test]
+fn a_dm_to_an_offline_friend_lands_later() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    b1.core.close_board_net(&board);
+
+    let dm = dm_with(a1, b1);
+    dm_post(a1, &dm, "when you're back");
+    dm_post(a1, &dm, "no rush");
+    let bob_id = b1.core.person().id.clone();
+    let spaces = a1.core.dm_spaces_with(&bob_id);
+    assert_eq!(spaces.len(), 1, "{spaces:?}");
+    assert!(a1.core.dm_pending(&spaces[0]));
+    assert!(
+        dm_holds(a1, &dm, "no rush"),
+        "her own posts read back at once"
+    );
+
+    b1.core.reopen_board_net(&board).unwrap();
+    wait_for(WAIT, "bob's device gets the waiting posts", || {
+        dm_holds(b1, &dm, "when you're back") && dm_holds(b1, &dm, "no rush")
+    });
+    wait_for(WAIT, "the space stops being pending", || {
+        !a1.core.dm_pending(&spaces[0])
+    });
+    dm_post(b1, &dm, "back");
+    wait_for(WAIT, "alice reads him", || dm_holds(a1, &dm, "back"));
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §8: a device of Alice's that is asleep can't hold a DM's first row
+/// back: the hidden log counts only devices heard to be too old.
+#[test]
+fn a_two_device_person_can_start_a_dm_with_a_phone_asleep() {
+    let mut alice = person("alice", 2);
+    let mut bob = person("bob", 1);
+    let board = invited(&alice[0], &bob[0]);
+    wait_for(WAIT, "the phone opens the space", || {
+        alice[1].core.boards().contains(&board)
+    });
+    let phone = alice.pop().unwrap();
+    phone.core.close().unwrap();
+
+    let (a1, b1) = (&alice[0], &bob[0]);
+    board_linked(a1, b1, &board);
+    let dm = dm_with(a1, b1);
+    dm_post(a1, &dm, "the phone can sleep");
+    wait_for(WAIT, "bob reads it", || {
+        dm_holds(b1, &dm, "the phone can sleep")
+    });
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §8: once one of Bob's devices holds the space, the other follows on the
+/// marker and `dm.secret`, is certified, and reads and writes the DM too.
+#[test]
+fn a_second_device_gets_the_dm() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 2);
+    let (a1, b1, b2) = (&alice[0], &bob[0], &bob[1]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    let dm = dm_with(a1, b1);
+    dm_post(a1, &dm, "to both of bob");
+    wait_for(WAIT, "b1 reads it", || dm_holds(b1, &dm, "to both of bob"));
+    wait_for(WAIT, "b2 reads it", || dm_holds(b2, &dm, "to both of bob"));
+
+    let alice_id = a1.core.person().id.clone();
+    let id = b1.core.dm_spaces_with(&alice_id)[0].clone();
+    wait_for(WAIT, "b2 has the space's secret", || {
+        b2.core.board_secrets(&id).is_some_and(|s| s.epoch() >= 1)
+    });
+    let b2_dev = b2.core.device_id().to_string();
+    wait_for(WAIT, "the space certifies b2", || {
+        b2.core
+            .board_verifier(&id)
+            .is_some_and(|v| v.cert(&b2_dev).is_some())
+    });
+    assert!(b2.core.is_dm_space(&id), "b2 knows what the space is");
+
+    dm_post(b2, &dm, "from the other device");
+    wait_for(WAIT, "alice reads b2", || {
+        dm_holds(a1, &dm, "from the other device")
+    });
+    wait_for(WAIT, "b1 reads b2", || {
+        dm_holds(b1, &dm, "from the other device")
+    });
+    assert_eq!(b2.core.dm_spaces_with(&alice_id), vec![id]);
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §8: both write before either hears the other. Two logs, one
+/// conversation, and from then on both write to the same log.
+#[test]
+fn both_first_messages_make_one_conversation() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    a1.core.close_board_net(&board);
+    b1.core.close_board_net(&board);
+
+    let dm = dm_with(a1, b1);
+    assert_eq!(dm_with(b1, a1), dm);
+    dm_post(a1, &dm, "alice first");
+    dm_post(b1, &dm, "bob first");
+    a1.core.reopen_board_net(&board).unwrap();
+    b1.core.reopen_board_net(&board).unwrap();
+    for d in [a1, b1] {
+        wait_for(WAIT, "each side reads both", || {
+            dm_holds(d, &dm, "alice first") && dm_holds(d, &dm, "bob first")
+        });
+    }
+    let (alice_id, bob_id) = (a1.core.person().id.clone(), b1.core.person().id.clone());
+    let spaces = a1.core.dm_spaces_with(&bob_id);
+    assert_eq!(spaces.len(), 2, "{spaces:?}");
+    assert_eq!(b1.core.dm_spaces_with(&alice_id), spaces);
+    for d in [a1, b1] {
+        let listed = d.core.talk_conversations(&d.user()).unwrap();
+        assert_eq!(listed.iter().filter(|c| c.conv_id == dm).count(), 1);
+    }
+    wait_for(WAIT, "both spaces stop being pending", || {
+        spaces
+            .iter()
+            .all(|id| !a1.core.dm_pending(id) && !b1.core.dm_pending(id))
+    });
+    let from = |d: &Dev, text: &str| {
+        d.core
+            .talk_post(&d.core.user_sender(), &dm, text, &[], false, None)
+            .unwrap()
+            .post
+            .space
+    };
+    assert_eq!(from(a1, "settled"), spaces[0], "the lowest counted log");
+    assert_eq!(from(b1, "settled too"), spaces[0]);
+    wait_for(WAIT, "each reads the other", || {
+        dm_holds(a1, &dm, "settled too") && dm_holds(b1, &dm, "settled")
+    });
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §8: a DM comes back from disk on both sides and carries on. (Hiding it
+/// from the switcher is §5's: that check goes here with it.)
+#[test]
+fn a_dm_survives_a_restart() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let board = invited(&alice[0], &bob[0]);
+    board_linked(&alice[0], &bob[0], &board);
+    let dm = dm_with(&alice[0], &bob[0]);
+    dm_post(&alice[0], &dm, "before the restart");
+    wait_for(WAIT, "bob reads it", || {
+        dm_holds(&bob[0], &dm, "before the restart")
+    });
+    let bob_id = bob[0].core.person().id.clone();
+    let id = alice[0].core.dm_spaces_with(&bob_id)[0].clone();
+
+    let a1 = restart(alice.pop().unwrap());
+    let b1 = restart(bob.pop().unwrap());
+    wait_for(WAIT, "the DM is back on both sides", || {
+        dm_holds(&a1, &dm, "before the restart") && dm_holds(&b1, &dm, "before the restart")
+    });
+    assert!(a1.core.is_dm_space(&id) && b1.core.is_dm_space(&id));
+    // This harness has no relay: only the invite's addresses cross people,
+    // and those moved with the restart.
+    let direct = |d: &Dev| {
+        let rt = d.core.pairing_runtime().clone();
+        rt.block_on(d.core.net().invite_addr()).unwrap().direct
+    };
+    b1.core.board_addr_hint(a1.core.device_id(), direct(&a1));
+    dm_post(&b1, &dm, "after the restart");
+    wait_for(WAIT, "alice reads it", || {
+        dm_holds(&a1, &dm, "after the restart")
+    });
+    assert_eq!(a1.core.dm_spaces_with(&bob_id), vec![id]);
+    close([a1, b1]);
+}
+
+/// The Core's boards for `bundle::admit` in a test.
+struct TestBoards<'a>(&'a Dev);
+
+impl irori_invite::InviteBoards for TestBoards<'_> {
+    fn open_board(&self, _: &str, _: Option<irori_identity::MemberPin>) -> Result<(), String> {
+        Ok(())
+    }
+    fn board_store(&self, id: &str) -> Option<Arc<store::Store>> {
+        self.0.core.board_store(id)
+    }
+    fn board_verifier(&self, id: &str) -> Option<Arc<irori_identity::BoardVerifier>> {
+        self.0.core.board_verifier(id)
+    }
+    fn board_secrets(&self, id: &str) -> Option<Arc<irori_identity::BoardSecrets>> {
+        self.0.core.board_secrets(id)
+    }
+}
+
+/// `d` as a connection shows it, S saying it is `person`.
+fn live(d: &Dev, person: &str) -> mesh::boardmesh::LivePeer {
+    mesh::boardmesh::LivePeer {
+        device_id: d.core.device_id().to_string(),
+        device_pub: hex::encode(d.core.identity().device_pub()),
+        person_id: person.to_string(),
+        dms: mesh::boardmesh::DMS_PROTOCOL,
+    }
+}
+
+fn frame(id: &str, step: &str, body: serde_json::Value) -> mesh::boardmesh::DmFrame {
+    mesh::boardmesh::DmFrame {
+        board_id: id.to_string(),
+        step: step.to_string(),
+        body,
+    }
+}
+
+/// The proof of `d`'s current key.
+fn proof_of(d: &Dev) -> irori_identity::KeyProof {
+    let pin = d.core.identity().board_pin();
+    d.core
+        .chain()
+        .key_proof(pin.person_epoch, &pin.person_pub)
+        .unwrap()
+}
+
+/// `signer`'s cert for `d`'s device.
+fn cert_by(signer: &Dev, d: &Dev) -> irori_identity::MemberDeviceAdded {
+    let pin = signer.core.identity().board_pin();
+    signer
+        .core
+        .identity()
+        .member_cert_for(
+            pin.person_epoch,
+            d.core.device_id(),
+            &hex::encode(d.core.identity().device_pub()),
+            irori_identity::ROLE_DESKTOP,
+            presence::now_local(),
+        )
+        .unwrap()
+}
+
+/// §8: M, an owner of some space, lists a device of hers as "Bob" there, so
+/// S's word says that device is Bob. Neither her own key nor a replay of
+/// Bob's real pin and chain gets her added; and listed as Alice, her offer
+/// opens nothing on Bob's side.
+#[test]
+fn a_hostile_owner_cant_read_or_forge_a_dm() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let mut mallory = person("mallory", 1);
+    let (a1, b1, m1) = (&alice[0], &bob[0], &mallory[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    b1.core.close_board_net(&board);
+    let (alice_id, bob_id) = (a1.core.person().id.clone(), b1.core.person().id.clone());
+    let dm = dm_with(a1, b1);
+    dm_post(a1, &dm, "for bob only");
+    let id = a1.core.dm_spaces_with(&bob_id)[0].clone();
+
+    let as_bob = live(m1, &bob_id);
+    let real_pin = b1.core.identity().board_pin();
+    let re_rooted = irori_identity::MemberPin {
+        root_device_id: m1.core.device_id().to_string(),
+        ..real_pin.clone()
+    };
+    let m_pin = irori_identity::MemberPin {
+        person_id: bob_id.clone(),
+        ..m1.core.identity().board_pin()
+    };
+    let mut m_cert_as_bob = cert_by(m1, m1);
+    m_cert_as_bob.cert.person_id = bob_id.clone();
+    let mut sig_replayed = cert_by(b1, b1);
+    sig_replayed.cert.device_id = as_bob.device_id.clone();
+    sig_replayed.cert.device_pub = as_bob.device_pub.clone();
+    let tries = [
+        // Her own key, under Bob's id.
+        (m_pin, proof_of(m1), m_cert_as_bob),
+        // Bob's real pin and chain, replayed whole.
+        (real_pin, proof_of(b1), cert_by(b1, b1)),
+        // Re-rooted at her device: the cert still names Bob's.
+        (re_rooted.clone(), proof_of(b1), cert_by(b1, b1)),
+        // Bob's signature moved onto a cert for her device.
+        (re_rooted, proof_of(b1), sig_replayed),
+    ];
+    for (pin, proof, cert) in tries {
+        a1.core.dm_take_frame(
+            &board,
+            &as_bob,
+            frame(
+                &id,
+                "pin",
+                serde_json::json!({"pin": pin, "proof": proof, "cert": cert}),
+            ),
+        );
+        assert!(
+            a1.core
+                .board_rows(&id, kinds::BOARD_MEMBER_ADDED)
+                .is_empty(),
+            "a forged pin was added"
+        );
+    }
+    // Bob's own device, with the same pin, is what those were missing.
+    let good = serde_json::json!({
+        "pin": b1.core.identity().board_pin(),
+        "proof": proof_of(b1),
+        "cert": cert_by(b1, b1),
+    });
+    a1.core
+        .dm_take_frame(&board, &live(b1, &bob_id), frame(&id, "pin", good));
+    assert_eq!(a1.core.board_rows(&id, kinds::BOARD_MEMBER_ADDED).len(), 1);
+
+    // A space M founded, Bob on it, offered with S saying M's device is
+    // Alice: its creator isn't the sender S names.
+    let hers = m1.core.create_board("friendly", "dm-ish").unwrap();
+    let boards = TestBoards(m1);
+    let pin = b1.core.identity().board_pin();
+    let offer =
+        irori_invite::bundle::admit(&boards, m1.core.identity(), &hers, &pin, "bob").unwrap();
+    b1.core.dm_take_frame(
+        &board,
+        &live(m1, &alice_id),
+        frame(
+            &hers,
+            "offer",
+            serde_json::json!({"bundle": offer, "proof": proof_of(m1)}),
+        ),
+    );
+    assert!(!b1.core.boards().contains(&hers), "bob opened a forged DM");
+    assert!(!b1.core.is_dm_space(&hers));
+    assert!(!dm_holds(b1, &dm, "for bob only"));
+    close(
+        alice
+            .drain(..)
+            .chain(bob.drain(..))
+            .chain(mallory.drain(..)),
+    );
+}
+
+/// §8: an offer that fails a check touches nothing: no marker, no log, no
+/// secret. The same offer with the proof it needs goes through, so it is
+/// the check that stopped it.
+#[test]
+fn a_refused_offer_leaves_nothing_on_disk() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let mut mallory = person("mallory", 1);
+    let (a1, b1, m1) = (&alice[0], &bob[0], &mallory[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    b1.core.close_board_net(&board);
+    let (alice_id, bob_id) = (a1.core.person().id.clone(), b1.core.person().id.clone());
+    let dm = dm_with(a1, b1);
+    dm_post(a1, &dm, "an offer");
+    let id = a1.core.dm_spaces_with(&bob_id)[0].clone();
+    let boards = TestBoards(a1);
+    let pin = b1.core.identity().board_pin();
+    let offer = irori_invite::bundle::admit(&boards, a1.core.identity(), &id, &pin, "bob").unwrap();
+    let from_alice = live(a1, &alice_id);
+
+    let files = |b: &Dev| {
+        std::fs::read_dir(b.data.join("spaces"))
+            .map(|d| {
+                d.flatten()
+                    .filter(|e| e.file_name().to_string_lossy().starts_with(&id))
+                    .count()
+            })
+            .unwrap_or(0)
+    };
+    let refused = |body: serde_json::Value| {
+        b1.core
+            .dm_take_frame(&board, &from_alice, frame(&id, "offer", body));
+        assert_eq!(files(b1), 0, "a refused offer left a file");
+        assert!(!b1.core.boards().contains(&id));
+        assert!(!b1.core.is_dm_space(&id), "a refused offer left a marker");
+    };
+    // Another person's proof, no proof, and a secret cut short.
+    refused(serde_json::json!({"bundle": offer, "proof": proof_of(m1)}));
+    refused(serde_json::json!({"bundle": offer}));
+    let mut short = serde_json::to_value(&offer).unwrap();
+    short["secret"] = "c2hvcnQ=".into();
+    refused(serde_json::json!({"bundle": short, "proof": proof_of(a1)}));
+    // Sent by a device this space doesn't certify, though S says it's Alice.
+    b1.core.dm_take_frame(
+        &board,
+        &live(m1, &alice_id),
+        frame(
+            &id,
+            "offer",
+            serde_json::json!({"bundle": offer, "proof": proof_of(a1)}),
+        ),
+    );
+    assert_eq!(files(b1), 0);
+
+    b1.core.dm_take_frame(
+        &board,
+        &from_alice,
+        frame(
+            &id,
+            "offer",
+            serde_json::json!({"bundle": offer, "proof": proof_of(a1)}),
+        ),
+    );
+    assert!(b1.core.boards().contains(&id), "the good offer didn't open");
+    assert!(b1.core.is_dm_space(&id));
+    wait_for(WAIT, "bob reads the post the offer carried", || {
+        dm_holds(b1, &dm, "an offer")
+    });
+    close(
+        alice
+            .drain(..)
+            .chain(bob.drain(..))
+            .chain(mallory.drain(..)),
+    );
+}
+
+/// §8: Alice owns the space, so she can add someone to it. That breaks the
+/// pair: the space's rows stop folding on both sides, whoever writes them,
+/// and the next DM goes in a new space.
+#[test]
+fn a_third_member_cant_touch_a_dm() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let mut carol = person("carol", 1);
+    let (a1, b1, c1) = (&alice[0], &bob[0], &carol[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    let dm = dm_with(a1, b1);
+    dm_post(a1, &dm, "just us");
+    wait_for(WAIT, "bob reads it", || dm_holds(b1, &dm, "just us"));
+    let bob_id = b1.core.person().id.clone();
+    let id = a1.core.dm_spaces_with(&bob_id)[0].clone();
+
+    let boards = TestBoards(a1);
+    let pin = c1.core.identity().board_pin();
+    irori_invite::bundle::admit(&boards, a1.core.identity(), &id, &pin, "carol").unwrap();
+    wait_for(WAIT, "alice's side stops folding it", || {
+        !dm_holds(a1, &dm, "just us")
+    });
+    wait_for(WAIT, "bob's side stops folding it", || {
+        !dm_holds(b1, &dm, "just us")
+    });
+    let t = b1.core.talk_post(
+        &b1.core.user_sender(),
+        &dm,
+        "this goes elsewhere",
+        &[],
+        false,
+        None,
+    );
+    let t = t.unwrap();
+    assert_ne!(t.post.space, id, "the broken space took a post");
+    close(alice.drain(..).chain(bob.drain(..)).chain(carol.drain(..)));
+}
+
+/// §4: what wouldn't fold is refused before the append, so nothing stays
+/// in the log: an agent's post, a leave, an agent as a member.
+#[test]
+fn a_dm_refuses_what_wouldnt_fold_before_it_writes() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    let dm = dm_with(a1, b1);
+    dm_post(a1, &dm, "hello");
+    let id = a1.core.dm_spaces_with(&b1.core.person().id)[0].clone();
+    let count = || {
+        let rows = |k| a1.core.board_rows(&id, k).len();
+        (
+            rows(kinds::TALK_POST),
+            rows(kinds::TALK_MEMBER),
+            rows(kinds::AGENT_CARD),
+        )
+    };
+    let before = count();
+    let user = a1.user();
+    let bob_key = coord::talk::Member::of(&b1.person_actor());
+    let agent = coord::talk::Member::of(&a1.agent);
+    assert!(a1.core.talk_leave(&dm, &bob_key, &user).is_err(), "a leave");
+    assert!(
+        a1.core.talk_join(&dm, &agent, &user).is_err(),
+        "an agent as a member"
+    );
+    let as_agent = inbox::Sender::new(&a1.agent, "agent", "claude");
+    assert!(
+        a1.core
+            .talk_post(&as_agent, &dm, "psst", &[], false, None)
+            .is_err(),
+        "an agent's post"
+    );
+    let out = a1.tool("talk_post", serde_json::json!({"conv": dm, "text": "psst"}));
+    assert!(out.starts_with("Error"), "the tool: {out}");
+    assert_eq!(count(), before, "a refused row stayed in the log");
+
+    // A mention is dropped, and mints no card for the agent it names.
+    a1.core
+        .talk_post(
+            &a1.core.user_sender(),
+            &dm,
+            "see this",
+            std::slice::from_ref(&a1.agent),
+            true,
+            None,
+        )
+        .unwrap();
+    assert_eq!(count().2, before.2, "a mention minted a card");
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §2: an offer carries the whole log, so a pending log stops at what a
+/// frame can carry; the hand-off still goes through with what it holds.
+#[test]
+fn a_pending_dm_stops_at_what_an_offer_can_carry() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    b1.core.close_board_net(&board);
+    let dm = dm_with(a1, b1);
+    let long = "x".repeat(coord::MAX_PERSON_TEXT);
+    let me = a1.core.user_sender();
+    let mut sent = 0;
+    let why = loop {
+        match a1.core.talk_post(&me, &dm, &long, &[], false, None) {
+            Ok(_) => sent += 1,
+            Err(e) => break e,
+        }
+        assert!(sent < 1000, "a pending log took everything");
+    };
+    assert!(why.contains("can't hold more"), "{why}");
+    assert!(sent > 0);
+    b1.core.reopen_board_net(&board).unwrap();
+    wait_for(WAIT, "the big offer lands", || {
+        b1.core
+            .talk_posts(&b1.user(), &dm, None, 200)
+            .is_ok_and(|ps| ps.len() == sent)
+    });
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §2: one person holds at most 4 live DM spaces with another, so the
+/// members of a space can't fill a disk. A space it already holds can be
+/// offered again; a fifth new one can't.
+#[test]
+fn a_person_holds_at_most_four_dm_spaces_with_one_other() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    let (alice_id, bob_id) = (a1.core.person().id.clone(), b1.core.person().id.clone());
+    let from_alice = live(a1, &alice_id);
+    let boards = TestBoards(a1);
+    let pin = b1.core.identity().board_pin();
+    let creator = a1.core.identity().board_pin();
+    let offer_one = |n: usize| {
+        let id = a1
+            .core
+            .create_board(&format!("dm {n}"), &format!("dm-{n}"))
+            .unwrap();
+        a1.core.write_dm_marker(&id, &creator, &bob_id).unwrap();
+        let offer =
+            irori_invite::bundle::admit(&boards, a1.core.identity(), &id, &pin, "bob").unwrap();
+        let body = serde_json::json!({"bundle": offer, "proof": proof_of(a1)});
+        b1.core
+            .dm_take_frame(&board, &from_alice, frame(&id, "offer", body.clone()));
+        (id, body)
+    };
+    let mut first = None;
+    for n in 0..4 {
+        let (id, body) = offer_one(n);
+        assert!(b1.core.boards().contains(&id), "offer {n} was refused");
+        first.get_or_insert((id, body));
+    }
+    let (id, _) = offer_one(4);
+    assert!(!b1.core.boards().contains(&id), "a fifth space was taken");
+    assert!(!b1.core.is_dm_space(&id));
+    assert_eq!(b1.core.dm_spaces_with(&alice_id).len(), 4);
+
+    let (id, body) = first.unwrap();
+    b1.core
+        .dm_take_frame(&board, &from_alice, frame(&id, "offer", body));
+    assert!(b1.core.boards().contains(&id), "a held space was dropped");
+    close(alice.drain(..).chain(bob.drain(..)));
+}

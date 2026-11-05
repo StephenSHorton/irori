@@ -464,10 +464,9 @@ impl Services {
             if self.dm_pending(&b, d)
                 && Services::dm_offer_size(&b)? > super::dm_spaces::MAX_PENDING_LOG
             {
-                return Err(format!(
-                    "this DM hasn't reached {} yet, and can't hold more until it does",
-                    d.with
-                ));
+                return Err(
+                    "this DM hasn't reached them yet, and can't hold more until it does".into(),
+                );
             }
         }
         // A post carries the writer's hop, as a board row does (§7.1): the

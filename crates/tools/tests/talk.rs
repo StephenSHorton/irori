@@ -1128,3 +1128,31 @@ fn a_spawned_agent_posts_without_joining() {
     );
     assert!(h.b.talk.is_member(&ch.id, KEY_C), "a terminal agent joins");
 }
+
+/// Card #538: agents don't DM other people, and people don't DM other
+/// people's agents.
+#[test]
+fn a_dm_crosses_people_only_person_to_person() {
+    let h = new_harness_setup(None, |_, _| {});
+    let user = inbox::Sender::new(USER, "you", "user");
+    let agent = inbox::Sender::new(KEY_A, "agent", "claude");
+    let post = |from: &inbox::Sender, key: &str| {
+        let other = ct::Member::of(key);
+        let id = ct::dm_id(&from.key, key);
+        tools::talk::post(
+            &*h.b,
+            from,
+            &tools::talk::Target::Dm(id, Some(other)),
+            "hi",
+            &[],
+            false,
+            None,
+        )
+        .map(|_| ())
+        .unwrap_err()
+    };
+    assert!(post(&agent, "person:p1").contains("agents don't DM"));
+    assert!(post(&agent, "board:b1/person:p1").contains("agents don't DM"));
+    assert!(post(&user, "agent:c1").contains("other people's agents"));
+    assert!(post(&user, "board:b1/c1").contains("other people's agents"));
+}

@@ -1620,12 +1620,7 @@ impl Services {
             let _ = self.talk.load();
             self.hub.publish(crate::events::CoreEvent::Talk);
         } else if hidden && irori_identity::kinds::is_membership_kind(&ev.kind) {
-            // A late row can change what a hidden space's rows fold to (card
-            // #538): its board.created, or a third member, which ends the
-            // DM. So they fold again, whichever way that goes.
-            self.talk.drop_space(&b.id);
-            self.fold_space_talk(b);
-            self.hub.publish(crate::events::CoreEvent::Talk);
+            self.dm_refold(b);
         } else if ev.kind == kinds::BOARD_MEMBER_ADDED {
             // Re-added while still "Leaving…" (card #461): the channels
             // drop_space took out fold back; a no-op for anyone else's add.

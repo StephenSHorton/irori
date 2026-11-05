@@ -18,6 +18,9 @@
 //! - A mention in a channel or a DM wakes the mentioned agent with a
 //!   mention notice, and an agent mentioned in a channel joins it. A post
 //!   to a DM with an agent goes to it as a message that wakes it.
+//! - A DM with another person rides on a hidden space (card #538): it wakes
+//!   nobody, agents can't read or write it, and a person can't DM another
+//!   person's agent.
 //! - "Agents answer now" is stored on each post; what it changes is card
 //!   #391's.
 
@@ -863,7 +866,7 @@ pub fn post(
             if ct::is_other_person_key(&other.key) && !ct::is_person_key(&by) {
                 return Err("agents don't DM other people".into());
             }
-            if other.key.starts_with(store::kinds::AGENT_ACTOR_PREFIX) && ct::is_person_key(&by) {
+            if board_card(&other.key).is_some() && ct::is_person_key(&by) {
                 return Err("people don't DM other people's agents".into());
             }
             if talk.dm_of(&by, &other.key) != *id {
