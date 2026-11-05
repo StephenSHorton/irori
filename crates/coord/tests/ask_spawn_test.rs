@@ -606,3 +606,102 @@ fn a_thread_answered_while_its_agent_starts_stays_answered() {
     );
     assert!(e.c.cards_to_spawn().is_empty());
 }
+
+/// Card #541's words: what a person is told waits for an agent is only what
+/// would really start one. An answered thread needs nobody until they
+/// reply, and a stale request is no agent starting.
+#[test]
+fn waits_for_agent_is_only_work_that_would_start() {
+    let mut e = Env::on("dev-a");
+    let _r = rig(&mut e, &[]);
+    let (t, _) =
+        e.c.post_ask(
+            "user:dev-a",
+            NewAsk {
+                text: "Why?".into(),
+                thread: true,
+                ..NewAsk::default()
+            },
+            &[],
+        )
+        .unwrap();
+    assert!(e.c.waits_for_agent(&e.c.get_task(&t.id).unwrap()));
+    e.c.request_spawn(SWEEPER_KEY, sask(&t.id)).unwrap();
+    assert!(
+        !e.c.waits_for_agent(&e.c.get_task(&t.id).unwrap()),
+        "a fresh request is starting"
+    );
+    e.clk.add(SPAWN_GRACE + secs(1));
+    assert!(
+        e.c.waits_for_agent(&e.c.get_task(&t.id).unwrap()),
+        "past its grace it isn't"
+    );
+}
+
+/// Two computers take one ask at once: every device ends on the same one,
+/// whatever order the rows reach it in, and a later take beats both.
+#[test]
+fn an_ask_taken_twice_settles_the_same_on_every_device() {
+    fn moved(dev: &str, moves: i64) -> serde_json::Value {
+        serde_json::json!({ "taskId": "", "owner": dev, "moves": moves })
+    }
+    let owner_after = |rows: &[(&str, i64)]| {
+        let mut e = Env::on("phone");
+        let _r = rig(&mut e, &[]);
+        let (t, _) =
+            e.c.post_ask(
+                "user:phone",
+                NewAsk {
+                    text: "Why?".into(),
+                    thread: true,
+                    ..NewAsk::default()
+                },
+                &[],
+            )
+            .unwrap();
+        for (dev, moves) in rows {
+            let mut row = moved(dev, *moves);
+            row["taskId"] = t.id.clone().into();
+            e.remote(dev, 1, 1, SWEEPER_KEY, store::kinds::ASK_MOVED, &row);
+        }
+        e.c.get_task(&t.id).unwrap().ask.unwrap().owner
+    };
+    assert_eq!(owner_after(&[("mac", 1), ("pc", 1)]), "mac");
+    assert_eq!(owner_after(&[("pc", 1), ("mac", 1)]), "mac");
+    assert_eq!(owner_after(&[("mac", 1), ("pc", 2)]), "pc");
+    assert_eq!(owner_after(&[("pc", 2), ("mac", 1)]), "pc");
+}
+
+/// Two computers both ask for one card's agent at the same generation: the
+/// lowest device id keeps it on every device, whatever the order.
+#[test]
+fn one_generation_on_two_computers_settles_the_same_on_every_device() {
+    let spawn_of = |rows: &[&str]| {
+        let mut e = Env::on("phone");
+        let _r = rig(&mut e, &[]);
+        let t =
+            e.c.create_task(
+                "user:phone",
+                NewTask {
+                    title: "Rename".into(),
+                    ..NewTask::default()
+                },
+            )
+            .unwrap();
+        for dev in rows {
+            let row = serde_json::json!({
+                "taskId": t.id, "op": SPAWN_REQUESTED, "gen": 1, "device": dev,
+                "by": "irori", "permissionMode": "acceptEdits", "name": "a",
+            });
+            e.remote(dev, 1, 1, SWEEPER_KEY, store::kinds::TASK_SPAWN, &row);
+        }
+        e.c.get_task(&t.id)
+            .unwrap()
+            .spawn_request()
+            .unwrap()
+            .device
+            .clone()
+    };
+    assert_eq!(spawn_of(&["mac", "pc"]), "mac");
+    assert_eq!(spawn_of(&["pc", "mac"]), "mac");
+}

@@ -237,12 +237,13 @@ pub type AgentDevicesFn = Arc<dyn Fn() -> AgentDevices + Send + Sync>;
 /// Which of the person's devices can run agents (card #541).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AgentDevices {
-    /// The computers work goes to, best first; one without Claude Code
-    /// comes after every one with it, so what waits there starts once it
-    /// is installed.
+    /// The computers that can run agents, best first: work goes to the
+    /// first. Offline ones count, so work can wait for one.
     pub homes: Vec<String>,
     /// The devices that can't run agents.
     pub cant: std::collections::HashSet<String>,
+    /// The devices not connected now.
+    pub away: std::collections::HashSet<String>,
 }
 
 /// See [`Options::device_version`].
@@ -1382,14 +1383,22 @@ impl Coord {
         let f = self.lock();
         f.tasks.get(id).is_some_and(|t| f.spawns_out(t))
     }
-    /// Hands this device's open asks nobody has to a device that can run
-    /// agents, when this one can't (card #541).
-    pub fn move_asks(&self) -> Result<()> {
-        self.lock().move_asks()
+    /// Takes to this device the waiting asks whose owner can't serve them,
+    /// when work goes here (card #541).
+    pub fn pull_asks(&self) -> Result<()> {
+        self.lock().pull_asks()
     }
     /// Whether card t waits for an agent to start for it (card #541).
     pub fn waits_for_agent(&self, t: &Task) -> bool {
         self.lock().waits_for_agent(t)
+    }
+    /// Whether card t was made on this device (card #541).
+    pub fn made_here(&self, t: &Task) -> bool {
+        self.lock().hands_out(t)
+    }
+    /// The computer agent work on `side` goes to (card #541).
+    pub fn agent_home(&self, side: &str) -> Option<String> {
+        self.lock().agent_home(side)
     }
     /// The spawned_for mark on agent `key`.
     pub fn spawned(&self, key: &str) -> Option<Spawned> {

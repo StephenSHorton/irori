@@ -415,7 +415,7 @@ impl Window {
                 agents_now: t.ask.as_ref().is_some_and(|a| a.wake),
                 starting: t
                     .spawn_request()
-                    .filter(|sp| sp.pending() && state == THREAD_WAITING)
+                    .filter(|sp| sp.pending() && !sp.stale(&p.now) && state == THREAD_WAITING)
                     .map(|sp| p.where_(&sp.device))
                     .unwrap_or_default(),
                 cant_start: t

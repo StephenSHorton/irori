@@ -559,6 +559,13 @@ impl Fold {
             .is_none_or(|f| !f().cant.contains(dev))
     }
 
+    /// Whether device `dev` isn't connected now (card #541).
+    pub(crate) fn is_away(&self, dev: &str) -> bool {
+        self.agent_devices
+            .as_ref()
+            .is_some_and(|f| f().away.contains(dev))
+    }
+
     /// The device agent work on `side` goes to when it lands on one that
     /// can't run agents: the first of the person's computers that runs
     /// the side (card #541).
@@ -580,6 +587,8 @@ impl Fold {
             && !self.can_run(&made)
             && self.same_person_dev(&made, &self.dev)
             && self.agent_home(&t.side).as_deref() == Some(self.dev.as_str())
+            // The phone's hand-out already gave it to an idle agent.
+            && t.live_offer().is_none()
     }
 
     /// Whether this device starts card t's agent (card #541): the ask's

@@ -400,6 +400,8 @@ fn start_core(
     // the coord's offers and its "starts an agent" lines read it.
     #[cfg(desktop)]
     core.set_spawner(Some(spawner()));
+    #[cfg(not(desktop))]
+    core.set_runs_no_agents();
     // Spawning is on by default for the private board where agents can
     // start (card #448, decision 1 (a)); his own switch wins.
     core.set_spawn_default_on(true);

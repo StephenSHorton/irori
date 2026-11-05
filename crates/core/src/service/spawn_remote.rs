@@ -182,7 +182,7 @@ impl Services {
 
     /// Publishes what this device can start agents in, when it changed
     /// since it last did (never on a timer: card #467's row flood).
-    pub(crate) fn publish_host(&self, sp: Option<&Spawner>) {
+    pub(crate) fn publish_host(&self, sp: Option<&Spawner>, ready: bool) {
         let now = (self.now)();
         {
             let mut at = self
@@ -197,7 +197,7 @@ impl Services {
             *at = Some(now);
         }
         let os = std::env::consts::OS.to_string();
-        let no_agents = !self.can_run_here();
+        let no_agents = !ready;
         let mut repos: Vec<HostRepo> = self
             .capture
             .repos()
@@ -458,7 +458,7 @@ impl Services {
             }
             // Only computers without Claude Code have the repo: it waits
             // for them, and says so, rather than fail here for no copy.
-            if !self.repo_waits_on(t).is_empty() {
+            if !self.repo_waits_on(t).1.is_empty() {
                 return None;
             }
             return here.then_some(me);
@@ -660,7 +660,9 @@ impl Services {
                 .and_then(|t| t.spawn_request().cloned());
             let mine: Option<&Spawn> = current
                 .as_ref()
-                .filter(|s| s.generation == generation && s.op == coord::SPAWN_REQUESTED);
+                .filter(|s| s.generation == generation && s.op == coord::SPAWN_REQUESTED)
+                // Another computer took the same generation (card #541).
+                .filter(|s| s.device.is_empty() || s.device == self.device.id);
             let session = live
                 .iter()
                 .find(|a| a.name == name && a.status != "gone")

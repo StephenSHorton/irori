@@ -167,6 +167,13 @@ pub struct Spawner {
     pub ready: Option<ReadyFn>,
 }
 
+impl Spawner {
+    /// Whether this device can run an agent now (card #541).
+    pub(crate) fn is_ready(&self) -> bool {
+        self.ready.as_ref().is_none_or(|f| f())
+    }
+}
+
 /// The line on a card whose spawned agent was found gone at start.
 pub const RESTARTED: &str = "The agent Irori started for this card stopped with the restart. Irori starts a fresh one from Where and Left off.";
 
@@ -831,6 +838,10 @@ pub(crate) fn build_ask_brief(
 #[derive(Default)]
 pub(crate) struct SpawnState {
     pub spawner: Mutex<Option<Spawner>>,
+    /// Whether this device knows what it can run: a spawner is installed,
+    /// or it said it runs none. Before that, and as it closes, it speaks
+    /// for nobody (card #541).
+    pub decided: std::sync::atomic::AtomicBool,
     /// Which devices can run agents (card #541): read by the coords'
     /// hand-out under their locks, so kept here by the sweep.
     pub agents: Arc<RwLock<coord::AgentDevices>>,
@@ -838,6 +849,8 @@ pub(crate) struct SpawnState {
     pub no_agent: RwLock<String>,
     /// Cards the person was told no agent can start for.
     pub no_agent_told: Mutex<std::collections::HashSet<String>>,
+    /// Since when no computer can start one, in this run.
+    pub no_agent_since: Mutex<Option<GoTime>>,
     /// The boards' switches, by board id (`""` the private board); read by
     /// the coords' hand-out under their locks, so never the store.
     pub on: Arc<RwLock<HashMap<String, SpawnSetting>>>,
@@ -855,6 +868,8 @@ pub(crate) struct SpawnState {
     /// When the sweep last looked for jobs Irori ended that Claude Code
     /// still lists (card #474).
     pub reaped: Mutex<Option<GoTime>>,
+    /// When the cleanup after a start last failed to list.
+    pub clean_failed: Mutex<Option<GoTime>>,
     /// Agents whose end finished in this run (stop and rm worked, or were
     /// given up), so end_finished leaves them alone.
     pub removed: Mutex<std::collections::HashSet<String>>,
@@ -1048,8 +1063,26 @@ impl Services {
         self.spawn
             .cleaned
             .store(false, std::sync::atomic::Ordering::SeqCst);
+        // Installed, this device knows what it can do. Taken away, it is
+        // closing: that says nothing of what it can run, so it says nothing
+        // (card #541).
+        let installed = s.is_some();
+        self.spawn
+            .decided
+            .store(installed, std::sync::atomic::Ordering::SeqCst);
         *self.spawn.spawner.lock().unwrap_or_else(|e| e.into_inner()) = s;
         // What this device can start agents in is looked at again now.
+        if installed {
+            self.republish_host();
+        }
+    }
+
+    /// This device never runs agents (a phone, card #541): said outright,
+    /// since a computer has no spawner either until the app installs it.
+    pub(crate) fn set_runs_no_agents(&self) {
+        self.spawn
+            .decided
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         self.republish_host();
     }
 
@@ -1219,26 +1252,36 @@ impl Services {
         self.reap_ended();
         self.sweep_permission_waits();
         self.say_ask_crashes();
-        if self.inbox.policy().paused {
-            return;
-        }
         let sp = self
             .spawn
             .spawner
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
-        // Every device says whether it can run agents, and a device that
-        // can't still gives its work away and tells the person (card
-        // #541), so this comes before the spawner check.
-        self.publish_host(sp.as_ref());
-        self.refresh_agent_devices();
-        self.move_asks();
-        self.say_no_agent();
+        let decided = self.spawn.decided.load(std::sync::atomic::Ordering::SeqCst);
+        // Read once: a spawner taken away as the app closes mid-sweep isn't
+        // this device losing Claude Code.
+        let ready = sp.as_ref().is_some_and(Spawner::is_ready);
+        // Every device says whether it can run agents, and one that can't
+        // still tells the person (card #541), so this comes before the
+        // spawner check; what it knows stays true while paused.
+        if decided {
+            self.publish_host(sp.as_ref(), ready);
+            self.refresh_agent_devices(ready);
+        }
+        if self.inbox.policy().paused {
+            return;
+        }
+        if decided {
+            self.lift_cant_run_no_copy();
+            self.say_no_agent();
+        }
         let Some(sp) = sp else {
             return;
         };
-        let ready = self.can_run_here();
+        if decided && ready {
+            self.pull_asks();
+        }
         self.lift_no_copy(&sp);
         self.serve_start_requests();
         let me = self.device.id.clone();
@@ -1535,7 +1578,7 @@ impl Services {
         let me = self.device.id.clone();
         // The one way in to the spawner: nothing starts on a device that
         // can't run agents, and it's said before anything about trust.
-        if sp.ready.as_ref().is_some_and(|f| !f()) {
+        if !sp.is_ready() {
             log.co
                 .end_spawn(
                     SWEEPER,
@@ -1945,14 +1988,31 @@ impl Services {
         if !self.can_run_here() {
             return;
         }
+        let now = (self.now)();
+        let retry = *self
+            .spawn
+            .clean_failed
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if retry.is_some_and(|at| !at_least(&now, &at, REAP_EVERY)) {
+            return;
+        }
         if self.spawn.cleaned.swap(true, Ordering::SeqCst) {
             return;
         }
         let agents = match list() {
             Ok(a) => a,
             Err(e) => {
+                // A Claude Code here that can't list: tried again later, not
+                // each sweep (card #524's line every second, and a process
+                // each time).
                 logf(format_args!("spawn cleanup: claude agents: {e}"));
                 self.spawn.cleaned.store(false, Ordering::SeqCst);
+                *self
+                    .spawn
+                    .clean_failed
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = Some(now);
                 return;
             }
         };
@@ -2429,6 +2489,9 @@ impl Services {
         else {
             return;
         };
+        if !self.can_run_here() {
+            return;
+        }
         let agents = match list() {
             Ok(a) => a,
             Err(e) => {

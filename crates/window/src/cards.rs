@@ -933,6 +933,8 @@ type OwnerFn = Box<dyn Fn(&str) -> bool>;
 pub(crate) struct People {
     /// Why no agent can start, by the card that waits (card #541).
     pub(crate) no_agent: HashMap<String, String>,
+    /// When this list was read, for a request past its grace.
+    pub(crate) now: gocompat::time::GoTime,
     /// The devices that can't run agents (card #541).
     pub(crate) cant_run: std::collections::HashSet<String>,
     by_key: HashMap<String, coord::roster::AgentCard>,
@@ -1023,6 +1025,7 @@ impl Window {
         let c = &self.core;
         let mut p = People {
             no_agent: self.core.no_agent(),
+            now: GoTime::from_system(std::time::SystemTime::now()),
             cant_run: self.core.cant_run_devices(),
             user: c.user_sender().key,
             self_id: c.device_id().to_string(),
@@ -1508,9 +1511,11 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
             .map(|sp| cant_start_text(t, sp, p))
             .unwrap_or_default(),
         no_agent: p.no_agent_for(&t.id),
+        // A request past its grace isn't starting: its device went away,
+        // and no_agent says so (card #541).
         starting: t
             .spawn_request()
-            .filter(|sp| sp.pending())
+            .filter(|sp| sp.pending() && !sp.stale(&p.now))
             .map(|sp| p.where_(&sp.device))
             .unwrap_or_default(),
         at_cap: if p.at_cap.contains(&t.id) {

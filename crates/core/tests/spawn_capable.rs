@@ -81,6 +81,7 @@ impl Rig {
                 },
             )
             .unwrap();
+        phone.core.set_runs_no_agents();
         let r = Rig {
             phone,
             mac,
@@ -407,4 +408,152 @@ impl Rig {
             .unwrap();
         self.card(title)
     }
+}
+
+/// Two computers, both away: the thread goes to one, the other comes back
+/// first, and it takes the thread rather than wait for the first (found by
+/// #541's audit: an ask's owner was fixed once).
+#[test]
+fn a_thread_starts_on_whichever_computer_comes_back() {
+    let mut devs = person("stephen", 3);
+    let (b, a, phone) = (
+        devs.pop().unwrap(),
+        devs.pop().unwrap(),
+        devs.pop().unwrap(),
+    );
+    phone.core.set_runs_no_agents();
+    for d in [&phone, &a, &b] {
+        d.core
+            .set_spawn_setting(SpawnSetting {
+                on: true,
+                ..SpawnSetting::default()
+            })
+            .unwrap();
+    }
+    let (fa, fb) = (Arc::new(Fake::default()), Arc::new(Fake::default()));
+    let folder = tempfile::tempdir().unwrap();
+    for d in [&a, &b] {
+        d.core
+            .capture()
+            .emit_row(
+                "irori",
+                capture::KIND_REPO_SEEN,
+                &capture::RepoSeen {
+                    repo_key: REPO.into(),
+                    root: folder.path().to_string_lossy().into_owned(),
+                    at: gocompat::time::GoTime::unix(1_790_000_000, 0),
+                },
+            )
+            .unwrap();
+    }
+    a.core
+        .set_spawner(Some(spawner(&fa, a.claude.join("sessions"))));
+    b.core
+        .set_spawner(Some(spawner(&fb, b.claude.join("sessions"))));
+    let (ia, ib) = (
+        a.core.device_id().to_string(),
+        b.core.device_id().to_string(),
+    );
+    wait_for(WAIT, "the phone knows both computers", || {
+        let h = phone.core.spawn_hosts();
+        h.contains_key(&ia) && h.contains_key(&ib)
+    });
+    // The computer that gets it first goes away for good; the other one
+    // comes back.
+    let (first, other, fother) = if ia < ib { (a, b, fb) } else { (b, a, fa) };
+    let other = {
+        let other_closed = other;
+        other_closed.core.close().unwrap();
+        other_closed
+    };
+    first.core.close().unwrap();
+    let t = phone
+        .core
+        .coord()
+        .post_ask(
+            &format!("user:{}", phone.core.device_id()),
+            coord::NewAsk {
+                text: "Is the build green?".into(),
+                thread: true,
+                ..coord::NewAsk::default()
+            },
+            &phone.core.ask_agents(),
+        )
+        .unwrap()
+        .0;
+    let other = restart(other);
+    other
+        .core
+        .set_spawner(Some(spawner(&fother, other.claude.join("sessions"))));
+    wait_for(WAIT, "the computer that's back starts it", || {
+        fother.started() == 1
+    });
+    let id = other.core.device_id().to_string();
+    wait_for(WAIT, "the phone hears who has it", || {
+        phone
+            .core
+            .coord()
+            .get_task(&t.id)
+            .and_then(|t| t.ask)
+            .is_some_and(|a| a.owner == id)
+    });
+    phone.core.close().unwrap();
+    other.core.close().unwrap();
+}
+
+/// An ask the phone still owns, from before it knew a computer or from an
+/// older Irori: the Mac takes it, the phone hears, and it survives a
+/// restart of the phone (the row is folded, not only written).
+#[test]
+fn the_mac_takes_a_thread_the_phone_still_owns() {
+    let r = Rig::new();
+    let t = r.thread("Why is the sync stuck?");
+    assert_eq!(t.ask.as_ref().unwrap().owner, r.phone_id());
+    r.mac_spawner();
+    wait_for(WAIT, "an agent starts on the Mac", || r.fake.started() == 1);
+    let mac = r.mac_id();
+    wait_for(WAIT, "the phone hears the Mac has it", || {
+        r.phone
+            .core
+            .coord()
+            .get_task(&t.id)
+            .and_then(|t| t.ask)
+            .is_some_and(|a| a.owner == mac)
+    });
+    let Rig {
+        phone,
+        mac: m,
+        _checkout,
+        ..
+    } = r;
+    let phone = restart(phone);
+    let t2 = phone.core.coord().get_task(&t.id).unwrap();
+    assert_eq!(t2.ask.unwrap().owner, mac, "kept after a restart");
+    phone.core.close().unwrap();
+    m.core.close().unwrap();
+}
+
+/// A computer between start and its spawner, or closing, says nothing about
+/// what it can run: no row calling it Claude-less, no ask given away. Found
+/// by #541's audit: "no spawner" read as "no Claude" at every launch.
+#[test]
+fn a_computer_without_its_spawner_yet_speaks_for_nobody() {
+    let r = Rig::new();
+    let mac = r.mac_id();
+    r.mac_spawner();
+    wait_for(WAIT, "the phone has the Mac's row", || {
+        r.phone
+            .core
+            .spawn_hosts()
+            .get(&mac)
+            .is_some_and(|h| !h.no_agents && h.repo(REPO).is_some())
+    });
+    // As the app quits.
+    r.mac.core.set_spawner(None);
+    r.mac.core.set_spawn_cap(r.mac.core.spawn_cap()).unwrap();
+    std::thread::sleep(std::time::Duration::from_secs(8));
+    let h = r.mac.core.spawn_hosts().remove(&mac).unwrap();
+    assert!(!h.no_agents, "closing isn't losing Claude Code");
+    assert!(h.repo(REPO).is_some(), "nor its checkouts");
+    r.close();
 }

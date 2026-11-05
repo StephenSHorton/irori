@@ -2440,20 +2440,15 @@ impl Core {
     }
 
     /// The open cards and threads no agent can start for now, each with
-    /// why (card #541).
+    /// why (card #541), on the private board and the shared ones.
     pub fn no_agent(&self) -> std::collections::HashMap<String, String> {
-        self.s
-            .coord
-            .list_tasks(&coord::TaskFilter {
-                open: true,
-                ..coord::TaskFilter::default()
-            })
-            .into_iter()
-            .filter_map(|t| {
-                let line = self.s.no_agent_for(&t);
-                (!line.is_empty()).then_some((t.id, line))
-            })
-            .collect()
+        self.s.no_agent_all()
+    }
+
+    /// This device never runs agents (a phone, card #541).
+    pub fn set_runs_no_agents(&self) {
+        self.s.set_runs_no_agents();
+        self.s.asks_kick.kick();
     }
 
     /// The devices that can't run agents (card #541).
@@ -2497,6 +2492,9 @@ impl Core {
         self.s.start_agent(id, "")?;
         // The device that made the card runs its hand-out (card #485: the
         // PC's cards go out from the PC).
+        if let Some(why) = self.s.no_agent_all().remove(id) {
+            return Ok(format!("{} is back on the Board. {why}", t.short_ref()));
+        }
         if !self.s.coord.hands_out_here(id) {
             let dev = irori_identity::owner::device_of(&t.created_by).to_string();
             let mut name = self.device_label(&dev);

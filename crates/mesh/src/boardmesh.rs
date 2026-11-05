@@ -83,6 +83,12 @@ pub const SPACES_PROTOCOL: i64 = 1;
 /// board's cards only once every member device has said at least this.
 pub const SPAWNS_PROTOCOL: i64 = 1;
 
+/// The `board.ask.moved` row this build reads (card #541): a board hello's
+/// `moves`. As with [`SPAWNS_PROTOCOL`], an older Irori refuses it and the
+/// writer's stream waits on the gap, so a computer takes a board's ask only
+/// once every member device has said at least this.
+pub const MOVES_PROTOCOL: i64 = 1;
+
 /// The frame that hands a board secret to a device: on the private mesh
 /// `sync` channel to your own devices (sealed under the mesh epoch's
 /// person-secret key, as `person.secret`), and after a rotation on each
@@ -121,6 +127,10 @@ pub struct BoardHello {
     /// (absent) from an Irori before them.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub spawns: i64,
+    /// The ask moves the sender reads ([`MOVES_PROTOCOL`]); 0 (absent)
+    /// from an Irori before them.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub moves: i64,
 }
 
 fn is_zero(n: &i64) -> bool {
@@ -362,6 +372,8 @@ pub struct PeerHeard {
     pub spaces: i64,
     /// The `spawns` its last hello said (card #455).
     pub spawns: i64,
+    /// The `moves` its last hello said (card #541).
+    pub moves: i64,
 }
 
 /// One board connection.
@@ -605,6 +617,21 @@ impl BoardMesh {
                 heard
                     .get(&d.device_id)
                     .is_none_or(|h| h.spawns < SPAWNS_PROTOCOL)
+            })
+            .collect()
+    }
+
+    /// The member devices not yet heard to read ask moves (card #541):
+    /// until there are none, no computer takes this board's asks.
+    pub fn not_ready_for_moves(&self) -> Vec<MemberDevice> {
+        let heard = self.s.heard.lock().expect("heard");
+        self.s
+            .member_devices()
+            .into_iter()
+            .filter(|d| {
+                heard
+                    .get(&d.device_id)
+                    .is_none_or(|h| h.moves < MOVES_PROTOCOL)
             })
             .collect()
     }
@@ -1270,6 +1297,7 @@ impl Shared {
             schema: 1,
             spaces: SPACES_PROTOCOL,
             spawns: SPAWNS_PROTOCOL,
+            moves: MOVES_PROTOCOL,
             vector: self.opts.log.vector().unwrap_or_default(),
             wall_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1341,7 +1369,7 @@ impl Shared {
                     p.hello.store(true, Ordering::SeqCst);
                     self.hear(
                         p.conn.id(),
-                        Some((&h.person_id, &h.core_version, h.spaces, h.spawns)),
+                        Some((&h.person_id, &h.core_version, h.spaces, h.spawns, h.moves)),
                         &h.vector,
                     );
                     if self.behind(&h.vector) {
@@ -1381,17 +1409,18 @@ impl Shared {
     fn hear(
         &self,
         dev: &str,
-        hello: Option<(&str, &str, i64, i64)>,
+        hello: Option<(&str, &str, i64, i64, i64)>,
         vector: &BTreeMap<String, i64>,
     ) {
         let mut heard = self.heard.lock().expect("heard");
         let h = heard.entry(dev.to_string()).or_default();
         h.device_id = dev.to_string();
-        if let Some((person, version, spaces, spawns)) = hello {
+        if let Some((person, version, spaces, spawns, moves)) = hello {
             h.person_id = person.to_string();
             h.core_version = version.to_string();
             h.spaces = spaces;
             h.spawns = spawns;
+            h.moves = moves;
         }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

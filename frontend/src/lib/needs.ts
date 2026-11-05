@@ -368,6 +368,8 @@ export type Need =
   | { kind: "merge"; id: string; at: number; card: CardSummary; pr: WaitPr }
   // Card #520: a wait no agent will end, on a card nobody holds.
   | { kind: "gone"; id: string; at: number; card: CardSummary; wait: GoneWait }
+  // Card #541: no computer can start its agent, and nothing to decide.
+  | { kind: "noAgent"; id: string; at: number; card: CardSummary }
   | { kind: "trust"; id: string; at: number; card: CardSummary }
   | { kind: "held"; id: string; at: number; delivery: Delivery }
   | { kind: "heldQuiet"; id: string; at: number; deliveries: Delivery[] }
@@ -440,6 +442,11 @@ export function needsOf(cards: CardSummary[], held: Delivery[]): Need[] {
   for (const c of cards) {
     if (!needsYou(c)) continue
     const check = !!c.ready && c.openBlockers <= 1
+    // Card #541: nothing to decide, so it never reads as a decision.
+    if (c.noAgent && !check && !c.openBlockers) {
+      out.push({ kind: "noAgent", id: c.id, at: time(c.updatedAt), card: c })
+      continue
+    }
     out.push({
       kind: check ? "check" : "decision",
       id: c.id,

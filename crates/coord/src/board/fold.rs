@@ -88,7 +88,7 @@ const CLOCK_SKEW: Duration = Duration::from_secs(120);
 pub const SUB_BUFFER: usize = 64;
 
 /// The row prefixes coord folds.
-pub const FOLLOW_KINDS: [&str; 12] = [
+pub const FOLLOW_KINDS: [&str; 13] = [
     "task.",
     "lease.",
     "blocker.",
@@ -105,6 +105,8 @@ pub const FOLLOW_KINDS: [&str; 12] = [
     kinds::DEVICE_SIDES,
     // A GitHub repo an agent works in has a desk by itself (card #521).
     kinds::REPO_SEEN,
+    // A computer takes an ask (card #541).
+    kinds::ASK_MOVED,
 ];
 
 /// Whether coord folds `kind`.
@@ -2027,6 +2029,8 @@ impl Fold {
             kinds::LEASE_RELEASED => true,
             // The take lock: its fold counts only the asking device's.
             kinds::BOARD_ASK_STATE => true,
+            // Its fold checks who may take the ask (card #541).
+            kinds::BOARD_ASK_MOVED => true,
             // A hand-out counts from the device that runs it: the one that
             // made the card (card #174).
             kinds::TASK_OFFERED => self.origin.get(&p.task_id) == Some(&ev.device_id),

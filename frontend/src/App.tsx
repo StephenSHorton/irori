@@ -488,7 +488,8 @@ export function App() {
               n.kind === "check" ||
               n.kind === "decision" ||
               n.kind === "merge" ||
-              n.kind === "gone"
+              n.kind === "gone" ||
+              n.kind === "noAgent"
           )
           .map((n) => n.id)
       ),

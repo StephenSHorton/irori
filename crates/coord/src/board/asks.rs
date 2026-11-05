@@ -85,11 +85,18 @@ pub(crate) struct TakeMark {
     pub taker: String,
 }
 
+/// How long an ask waits for an owner that's away before a connected
+/// computer takes it (card #541): a link that dropped for a moment doesn't
+/// move anything.
+pub const ASK_AWAY: Duration = Duration::from_secs(30);
+
 /// The take lock's fold beside the tasks.
 #[derive(Debug, Default)]
 pub(crate) struct AskBook {
     pub reqs: HashMap<String, Vec<TakeReq>>,
     pub state_seq: HashMap<String, i64>,
+    /// Asks that moved (card #541): how many times, and who has them.
+    pub moved: HashMap<String, (i64, String)>,
     pub seen: HashMap<String, BTreeMap<String, i64>>,
     pub notices: Vec<Notice>,
     pub again: BTreeMap<String, AskAgain>,
@@ -361,7 +368,11 @@ impl Fold {
                     return;
                 };
                 if ev.device_id != owner_dev {
-                    self.ignore(&ev.device_id);
+                    // A former owner's row in flight as the ask moved isn't
+                    // a device writing what it mustn't (card #541).
+                    if !self.asks.moved.contains_key(&p.task_id) {
+                        self.ignore(&ev.device_id);
+                    }
                     return;
                 }
                 self.asks.mark(&p.task_id, RowPos::of(ev), &p.taker);
@@ -1075,55 +1086,80 @@ impl Fold {
         self.agent_home(side).unwrap_or(pick)
     }
 
-    /// Hands this device's open asks nobody has to a computer, when this
-    /// device can't run agents (card #541): one posted before it knew of a
-    /// computer, or by an older Irori. Only the owner may, so one row moves
-    /// it and no two devices ever both think it is theirs.
-    pub(crate) fn move_asks(&mut self) -> Result<()> {
-        if self.can_run(&self.dev) {
+    /// Takes to this device the waiting asks whose owner can't serve them
+    /// (card #541), when this is the computer such work goes to: the owner
+    /// can't run agents, or has been away for [`ASK_AWAY`]. The computer
+    /// pulls rather than the owner giving: a phone asleep or a computer
+    /// with its lid shut writes nothing, and all the rows that follow
+    /// (take lock, spawn) are this device's own, in order.
+    pub(crate) fn pull_asks(&mut self) -> Result<()> {
+        if !self.can_run(&self.dev) {
             return Ok(());
         }
-        let mine: Vec<(String, String)> = self
+        let now = self.stamp();
+        let lost: Vec<(String, i64)> = self
             .tasks
             .values()
-            .filter(|t| !is_terminal(&t.state))
+            .filter(|t| self.waits_for_agent(t))
             .filter(|t| {
-                t.open_ask()
-                    .is_some_and(|a| a.owner == self.dev && a.taker.is_empty())
+                t.open_ask().is_some_and(|a| {
+                    a.owner != self.dev
+                        && self.same_person_dev(&a.owner, &self.dev)
+                        && (!self.can_run(&a.owner)
+                            || (self.is_away(&a.owner)
+                                && gotime::at_least(&now, &t.created_at, ASK_AWAY)))
+                })
             })
-            .map(|t| (t.id.clone(), t.side.clone()))
+            .filter(|t| self.agent_home(&t.side).as_deref() == Some(self.dev.as_str()))
+            .map(|t| {
+                let moves = self.asks.moved.get(&t.id).map_or(0, |m| m.0);
+                (t.id.clone(), moves + 1)
+            })
             .collect();
-        for (id, side) in mine {
-            let Some(home) = self.agent_home(&side).filter(|h| *h != self.dev) else {
-                continue;
-            };
+        for (id, moves) in lost {
             let row = AskMovedRow {
                 task_id: id,
-                owner: home,
-                at: self.stamp(),
+                owner: self.dev.clone(),
+                moves,
+                at: now,
             };
             self.write_as(SWEEPER, self.ask_kind(kinds::ASK_MOVED), &row)?;
         }
         Ok(())
     }
 
-    /// An `ask.moved` row: only the ask's owner gives it away, to another
-    /// of the same person's devices.
+    /// An `ask.moved` row: a device of the same person takes the ask. The
+    /// most moves wins, then the lowest device id, whatever order the rows
+    /// arrive in, so two computers taking one ask at once agree on which.
     pub(crate) fn apply_ask_moved(&mut self, ev: &Event) {
         let Some(p) = row::<AskMovedRow>(&ev.payload) else {
             return;
         };
-        if p.owner.is_empty() || !self.same_person_dev(&p.owner, &ev.device_id) {
-            return;
-        }
-        let Some(a) = self.tasks.get_mut(&p.task_id).and_then(|t| t.ask.as_mut()) else {
+        let Some(owner) = self
+            .tasks
+            .get(&p.task_id)
+            .and_then(|t| t.ask.as_ref())
+            .map(|a| a.owner.clone())
+        else {
             return;
         };
-        if a.owner != ev.device_id {
+        if p.owner != ev.device_id || !self.same_person_dev(&owner, &ev.device_id) {
             self.ignore(&ev.device_id);
             return;
         }
-        a.owner = p.owner;
+        let wins =
+            self.asks.moved.get(&p.task_id).is_none_or(|(moves, dev)| {
+                p.moves > *moves || (p.moves == *moves && p.owner < *dev)
+            });
+        if !wins {
+            return;
+        }
+        self.asks
+            .moved
+            .insert(p.task_id.clone(), (p.moves, p.owner.clone()));
+        if let Some(a) = self.tasks.get_mut(&p.task_id).and_then(|t| t.ask.as_mut()) {
+            a.owner = p.owner;
+        }
         // Rows are ordered within one device's log: the new owner's seqs
         // start over.
         self.asks.state_seq.remove(&p.task_id);

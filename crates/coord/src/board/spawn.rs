@@ -247,6 +247,16 @@ impl Fold {
                 };
                 *o = Spawn { key, ..s };
             }
+            // Two computers took one card at once (card #541): the lowest
+            // device id keeps it, whatever order the rows arrive in. The
+            // other one's session ends as superseded.
+            Some(o)
+                if s.generation == o.generation
+                    && o.op == SPAWN_REQUESTED
+                    && s.device < o.device =>
+            {
+                *o = s;
+            }
             Some(_) => return,
             None => t.spawns.push(s),
         }
@@ -625,11 +635,20 @@ impl Fold {
     }
 
     /// Whether card t waits for an agent Irori starts for it, wherever it
-    /// would start (card #541): nobody has it and none is starting. Unlike
-    /// [`Self::ask_needs_agent`] it doesn't ask who owns an ask or whether
-    /// the hand-out ran, so the device the person posted on can tell them.
+    /// would start (card #541): nobody has it, none is starting, and it's
+    /// no agent's turn to end. Unlike [`Self::ask_needs_agent`] it doesn't
+    /// ask who owns an ask or whether the hand-out ran, so the device the
+    /// person posted on can tell them. A request past its grace isn't
+    /// starting: the device it named went away.
     pub(crate) fn waits_for_agent(&self, t: &Task) -> bool {
-        if !self.spawning_on() || t.spawn_pending() {
+        let now = self.stamp();
+        if !self.spawning_on()
+            || t.spawn_request()
+                .is_some_and(|s| s.pending() && !s.stale(&now))
+            || t.spawn_crashes >= MAX_SPAWN_CRASHES
+            || self.ask_resting(t)
+            || self.waits_for_lead(t)
+        {
             return false;
         }
         match t.open_ask() {
@@ -639,6 +658,7 @@ impl Fold {
                     && !t.withdrawn
                     && !t.shared
                     && a.taker.is_empty()
+                    && a.reason != super::threads::TAKE_ANSWERED
                     && (a.thread || a.mentions.is_empty())
                     && (!a.thread || a.wake)
             }
