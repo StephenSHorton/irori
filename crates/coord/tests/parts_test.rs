@@ -548,3 +548,55 @@ fn up_to_n_is_checked() {
     );
     want_err(r, ErrorKind::Invalid);
 }
+
+/// The spawn queue's order (card #450, §6): what the person made or asked
+/// for, then a lead's helper parts, then agents' cards, each oldest first,
+/// whatever their age across the groups.
+#[test]
+fn the_spawn_queue_puts_the_persons_cards_then_helpers_then_the_rest() {
+    let (e, _, made) = limited(0, None, 2);
+    let at = |i: u64| {
+        e.clk.add(std::time::Duration::from_secs(i));
+    };
+    at(1);
+    let agents_card =
+        e.c.create_task(
+            "dev-a/some-agent",
+            NewTask {
+                title: "an agent's card".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    at(1);
+    let mine =
+        e.c.create_task(
+            USER,
+            NewTask {
+                title: "my card".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    at(1);
+    let later_agents =
+        e.c.create_task(
+            "dev-a/some-agent",
+            NewTask {
+                title: "a later agent card".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    let mut want = vec![mine.id.clone()];
+    let mut parts: Vec<String> = made.iter().map(|k| k.id.clone()).collect();
+    parts.sort();
+    want.extend(parts);
+    want.push(agents_card.id.clone());
+    want.push(later_agents.id.clone());
+    assert_eq!(ids(&e.c.cards_to_spawn()), want);
+    // His "Start an agent" on an agent's card moves it to the front group.
+    e.c.spawn_now(&later_agents.id);
+    let l = ids(&e.c.cards_to_spawn());
+    assert_eq!(&l[..2], [mine.id.clone(), later_agents.id.clone()]);
+}

@@ -94,7 +94,13 @@ impl Services {
     /// The shared boards' spawning pass: bind started agents, then start
     /// agents for this person's own cards on boards whose switch is on,
     /// under this device's cap.
-    pub(crate) fn sweep_board_spawns(&self, sp: &Spawner, cap: i64, running: &mut i64) {
+    pub(crate) fn sweep_board_spawns(
+        &self,
+        sp: &Spawner,
+        cap: i64,
+        running: &mut i64,
+        today: &mut i64,
+    ) {
         for b in self.shown_boards() {
             self.bind_board_spawns(&b);
             let co = b.coord().clone();
@@ -102,8 +108,15 @@ impl Services {
                 continue;
             }
             for t in co.cards_to_spawn() {
-                if *running >= cap {
+                // A usage limit holds starts here on every board (card
+                // #450), and the cap counts them all.
+                if *running >= cap || self.usage_held().is_some() {
                     break;
+                }
+                // The daily limit counts every agent the person's devices
+                // start: past it, only what they start themselves.
+                if self.daily_reached(*today) && !co.spawn_asked_now(&t.id) {
+                    continue;
                 }
                 // A plain board ask is served by the members' idle agents,
                 // as before; a board thread gets its own agent on the
@@ -112,7 +125,10 @@ impl Services {
                     continue;
                 }
                 match self.spawn_board_card(sp, &b, &t) {
-                    Ok(true) => *running += 1,
+                    Ok(true) => {
+                        *running += 1;
+                        *today += 1;
+                    }
                     Ok(false) => {}
                     Err(e) => logf(format_args!("spawn {} on {}: {e}", t.short_ref(), b.id)),
                 }
@@ -197,7 +213,7 @@ impl Services {
         else {
             return Ok(false);
         };
-        self.start_in(sp, &log, t, g, &name, Some(folder))
+        self.start_in(sp, &log, t, g, &name, Some(folder), asked_now)
     }
 
     /// Binds each board card's agent started here once presence lists it:

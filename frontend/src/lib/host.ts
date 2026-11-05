@@ -338,6 +338,9 @@ export const AgentsService = {
   Attach: (key: string, cols: number, rows: number) =>
     call(commands.agentsAttach(key, cols, rows)),
   Running: () => call(commands.agentsRunning()),
+  Limits: () => call(commands.agentsLimits()),
+  CapSet: (device: string, cap: number) =>
+    call(commands.agentsCapSet(device, cap)),
   TrustNeed: (taskId: string) => call(commands.agentsTrustNeed(taskId)),
   TrustAndStart: (taskId: string) => call(commands.agentsTrustAndStart(taskId)),
   // Asks the device the agent starts on to trust it there (part 11);

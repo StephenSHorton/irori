@@ -3,9 +3,10 @@
 // switch for agents Irori starts per card, and the model and effort they
 // start with, the idle limit, the agents running now, what they may do
 // and how each repo's work reaches main, and which of this computer's
-// repos are trusted for agents (card #456). Only you set these, here; no
-// agent's tool can. Caps, the daily limit and today's count and cost wait
-// on part 6 (card #450); agents per card on part 7 (card #451).
+// repos are trusted for agents (card #456); and (card #450, part 6) how
+// many may run on each device, the daily limit, today's count and cost,
+// and a Claude usage limit holding the queue. Only you set these, here; no
+// agent's tool can. Agents per card wait on part 7 (card #451).
 
 import { useContext, useId, useState } from "react"
 import { FolderIcon, ShieldAlertIcon, ShieldCheckIcon } from "lucide-react"
@@ -15,17 +16,23 @@ import { PermissionsSection } from "@/components/settings/agent-permissions"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import {
+  DAILY_CHOICES,
+  costLabel,
+  dailyLabel,
   effortLabel,
   endAgent,
   idleLabel,
+  useLimits,
   modelLabel,
   runningSince,
   useAgents,
   useRunning,
   useTrusted,
+  type AgentsSettings,
   type RunningAgent,
   type TrustedRepo,
 } from "@/lib/agents"
+import { usageResets } from "@/lib/spawn-line"
 import { ConfirmButton } from "@/components/common/confirm-button"
 import { SpawnedActions } from "@/components/cards/spawned-actions"
 import { agentStatus } from "@/lib/agent-status"
@@ -116,11 +123,134 @@ export function AgentsPane({ open }: { open: boolean }) {
           className="w-48 text-[13px]"
         />
       </section>
+      <LimitsSection
+        open={open}
+        settings={s}
+        onDaily={(n) => set({ dailyLimit: n })}
+      />
       <RunningSection open={open} />
       <PermissionsSection open={open} />
       <TrustedSection open={open} />
       {error && <p className="text-[12.5px] text-destructive">{error}</p>}
     </div>
+  )
+}
+
+// CAP_CHOICES are the caps offered; a device's own number is added when
+// it isn't one of them.
+const CAP_CHOICES = [1, 2, 3, 4, 6, 8, 10, 12, 16, 20, 24, 32, 48]
+
+// LimitsSection is how many agents run at once on each device, the daily
+// limit, today's count and cost, and a usage limit holding the queue
+// (card #450, sa-6). Over a device's cap a card queues and says its place;
+// a Claude usage limit queues every card until it resets.
+function LimitsSection({
+  open,
+  settings: s,
+  onDaily,
+}: {
+  open: boolean
+  settings: AgentsSettings
+  onDaily: (n: number) => void
+}) {
+  const { limits: l, error, setCap } = useLimits(open)
+  const daily = DAILY_CHOICES.includes(s.dailyLimit)
+    ? DAILY_CHOICES
+    : [...DAILY_CHOICES, s.dailyLimit].sort((a, b) => a - b)
+  return (
+    <section className="grid gap-2">
+      <h3 className="text-sm font-medium text-ink">Limits</h3>
+      {l ? (
+        <>
+          <p className="text-[12.5px] text-muted-foreground">
+            {l.today === 0
+              ? "No agents started today."
+              : `${l.today} agent${l.today === 1 ? "" : "s"} started today${
+                  l.todayHere !== l.today
+                    ? `, ${l.todayHere} on this computer`
+                    : ""
+                }, using about ${costLabel(l.costUsd)} at API prices${
+                  l.todayHere !== l.today ? " here" : ""
+                }. On a Claude plan that is plan usage, not a bill.`}
+            {l.queued > 0 && ` ${l.queued} queued for a slot.`}
+          </p>
+          {l.heldUntil != null && (
+            <p
+              role="status"
+              className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[12.5px] text-ink"
+            >
+              A Claude usage limit is holding new agents (
+              {usageResets(new Date(l.heldUntil).toISOString())}). Queued cards
+              start then; agents that stopped on it aren't counted as crashes.
+            </p>
+          )}
+          <ul className="grid divide-y divide-border rounded-md border border-border">
+            {l.devices.map((d) => {
+              const choices =
+                d.cap === 0 || CAP_CHOICES.includes(d.cap)
+                  ? CAP_CHOICES
+                  : [...CAP_CHOICES, d.cap].sort((a, b) => a - b)
+              return (
+                <li
+                  key={d.device}
+                  className="flex flex-wrap items-center justify-between gap-2 px-3 py-2"
+                >
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate text-[13px] text-ink">
+                      {d.name}
+                    </span>
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {d.cap > 0
+                        ? `${d.running} of ${d.cap} running`
+                        : `${d.running} running · its own default`}
+                    </span>
+                  </span>
+                  <ChoiceSelect
+                    label={`At most on ${d.name}`}
+                    size="sm"
+                    value={d.cap > 0 ? String(d.cap) : ""}
+                    choices={choices
+                      .filter((n) => n <= l.maxCap)
+                      .map((n) => ({
+                        value: String(n),
+                        label: `${n} at once`,
+                      }))}
+                    onValueChange={(v) => setCap(d.device, Number(v))}
+                    className="w-36 text-[13px]"
+                  />
+                </li>
+              )
+            })}
+          </ul>
+        </>
+      ) : (
+        <p className="text-[12.5px] text-muted-foreground">
+          {error ? `Could not load: ${error}` : "Loading…"}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="flex flex-col">
+          <span className="text-[13px] text-ink">Daily limit</span>
+          <span className="text-xs text-muted-foreground">
+            Once this many agents started today, new cards wait for you to start
+            theirs.
+            {l?.dailyReached && " Today's are started."}
+          </span>
+        </span>
+        <ChoiceSelect
+          label="Daily limit"
+          size="sm"
+          value={String(s.dailyLimit)}
+          choices={daily.map((n) => ({
+            value: String(n),
+            label: dailyLabel(n),
+          }))}
+          onValueChange={(v) => onDaily(Number(v))}
+          className="w-48 text-[13px]"
+        />
+      </div>
+      {error && l && <p className="text-[12.5px] text-destructive">{error}</p>}
+    </section>
   )
 }
 

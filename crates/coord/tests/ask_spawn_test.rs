@@ -606,3 +606,29 @@ fn a_thread_answered_while_its_agent_starts_stays_answered() {
     );
     assert!(e.c.cards_to_spawn().is_empty());
 }
+
+/// An ask whose agent Irori ended on a Claude usage limit (card #450) is
+/// no crash and doesn't wait for the person: it is spawned for again (the
+/// Core holds the start until the reset).
+#[test]
+fn an_ask_whose_agent_hit_the_usage_limit_spawns_again() {
+    let mut e = Env::new();
+    let _r = rig(&mut e, &[]);
+    let tk = post(&e, "What's left on the release?", false, &[]);
+    let g =
+        e.c.request_spawn(SWEEPER_KEY, sask(&tk.id))
+            .unwrap()
+            .unwrap();
+    let key = "dev-a/spawned-1";
+    e.ros.set(key, "idle");
+    assert!(e.c.bind_spawn(&tk.id, g, key).unwrap());
+    e.c.sweep_asks(&[]).unwrap();
+    e.c.mark_usage_limited(key, fixed_now());
+    e.ros.set(key, "");
+    e.c.sweep_asks(&[]).unwrap();
+    e.clk.add(mins(10));
+    e.c.sweep_asks(&[]).unwrap();
+    let t = e.c.get_task(&tk.id).unwrap();
+    assert_eq!(t.spawn_crashes, 0, "a usage limit is no crash");
+    assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&tk.id));
+}

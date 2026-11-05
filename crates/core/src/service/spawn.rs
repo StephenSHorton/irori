@@ -27,7 +27,7 @@ use super::Services;
 use crate::logf;
 
 /// Irori's own key on the Board.
-const SWEEPER: &str = "irori";
+pub(crate) const SWEEPER: &str = "irori";
 
 fn before(a: &GoTime, b: &GoTime) -> bool {
     a.unix_nano() < b.unix_nano()
@@ -247,7 +247,15 @@ pub struct SpawnSetting {
     /// [`DEFAULT_EFFORT`].
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub effort: String,
+    /// The daily limit (§6, card #450): once this many agents started
+    /// today, a card waits until the person starts its agent (ask first).
+    /// 0 is no limit.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub daily_limit: i64,
 }
+
+/// The most a daily limit may be.
+pub const MAX_DAILY_LIMIT: i64 = 1000;
 
 fn is_zero(n: &i64) -> bool {
     *n == 0
@@ -364,6 +372,12 @@ impl SpawnSetting {
     /// Refuses a model or effort Settings › Agents doesn't offer, so a bad
     /// row never reaches `claude`'s command line.
     pub fn check(&self) -> Result<(), String> {
+        if !(0..=MAX_DAILY_LIMIT).contains(&self.daily_limit) {
+            return Err(format!(
+                "a daily limit is 0 (none) to {MAX_DAILY_LIMIT}, not {}",
+                self.daily_limit
+            ));
+        }
         if !self.model.is_empty() && !MODELS.contains(&self.model.as_str()) {
             return Err(format!(
                 "unknown model {:?}: pick one of {}",
@@ -427,6 +441,9 @@ pub struct SpawnCap {
     #[serde(default)]
     pub at: GoTime,
 }
+
+/// The highest cap Settings › Agents takes.
+pub const MAX_CAP: i64 = 200;
 
 /// The cap a device starts with (§6): 6 on Windows, 12 elsewhere.
 pub fn default_cap() -> i64 {
@@ -899,6 +916,11 @@ pub(crate) struct SpawnState {
     /// not start the request another's spawn_for just wrote and is still
     /// starting (two sessions for one generation).
     pub sweeping: Mutex<()>,
+    /// New spawns wait until then on a Claude usage limit (card #450).
+    pub usage_hold: Mutex<Option<GoTime>>,
+    /// Each spawned agent's status and last words when the usage-limit
+    /// pass last read them, so a session is read again only on a change.
+    pub limit_seen: Mutex<HashMap<String, String>>,
 }
 
 impl SpawnState {
@@ -1000,6 +1022,7 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
                 if r.s.check().is_err() {
                     r.s.model.clear();
                     r.s.effort.clear();
+                    r.s.daily_limit = 0;
                 }
                 let board = r.s.board_id.clone();
                 newest.insert(board.clone(), r.clone());
@@ -1225,6 +1248,7 @@ impl Services {
         // devices (card #455): acted on even while paused.
         self.serve_end_requests();
         self.serve_trust_requests();
+        self.sweep_usage_limits();
         self.end_finished();
         self.sweep_ending();
         self.reap_ended();
@@ -1248,15 +1272,28 @@ impl Services {
         let me = self.device.id.clone();
         let cap = self.spawn_cap(&me);
         let mut running = self.spawned_here();
+        let mut today = self.started_today();
+        // In queue order (§6): what the person asked for, helpers, the rest.
+        // A usage limit holds every start here until it resets (card #450).
         for t in self.coord.cards_to_spawn() {
+            if self.usage_held().is_some() {
+                break;
+            }
+            // The daily limit reached: only what the person starts himself,
+            // wherever it would start.
+            if self.daily_stops(&t, today) {
+                continue;
+            }
             // Which of the person's devices starts it (card #455, decision
             // 7 (a)); None waits for the machine it needs or for the retry.
             let Some(dev) = self.spawn_device(&t) else {
                 continue;
             };
             if dev != me {
-                if let Err(e) = self.request_on(&t, &dev) {
-                    logf(format_args!("spawn {}: on {dev}: {e}", t.short_ref()));
+                match self.request_on(&t, &dev) {
+                    Ok(true) => today += 1,
+                    Ok(false) => {}
+                    Err(e) => logf(format_args!("spawn {}: on {dev}: {e}", t.short_ref())),
                 }
                 continue;
             }
@@ -1264,13 +1301,16 @@ impl Services {
                 continue;
             }
             match self.spawn_for(&sp, &t) {
-                Ok(true) => running += 1,
+                Ok(true) => {
+                    running += 1;
+                    today += 1;
+                }
                 Ok(false) => {}
                 Err(e) => logf(format_args!("spawn {}: {e}", t.short_ref())),
             }
         }
         // This person's own cards on shared boards whose switch is on.
-        self.sweep_board_spawns(&sp, cap, &mut running);
+        self.sweep_board_spawns(&sp, cap, &mut running, &mut today);
         // What another device asked this one to start, and sessions
         // started for a request that is no longer the card's.
         self.start_requested(&sp, &mut running);
@@ -1341,7 +1381,7 @@ impl Services {
         live + starting + on_boards
     }
 
-    fn open_cards(&self) -> Vec<Task> {
+    pub(crate) fn open_cards(&self) -> Vec<Task> {
         self.coord.list_tasks(&TaskFilter {
             open: true,
             ..TaskFilter::default()
@@ -1500,14 +1540,15 @@ impl Services {
             return Ok(false);
         };
         self.note_tried(&t.id, &me);
-        self.start_here(sp, t, g, &name, Some(folder))
+        self.start_here(sp, t, g, &name, Some(folder), asked_now)
     }
 
     /// Starts request `g` (named `name`) of card t on this device: its
     /// folder, trust, brief and permissions worked out here, from the card
     /// as this device has it (card #455: the request may come from another
     /// of the person's devices). A refusal ends the request as failed with
-    /// its reason. `folder` when the caller already found it.
+    /// its reason. `folder` when the caller already found it; `asked` when
+    /// this request came from the person's "Start an agent".
     pub(crate) fn start_here(
         &self,
         sp: &Spawner,
@@ -1515,15 +1556,17 @@ impl Services {
         g: i64,
         name: &str,
         folder: Option<Option<String>>,
+        asked: bool,
     ) -> Result<bool, String> {
         let log = super::spawn_boards::SpawnLog::private(self);
-        self.start_in(sp, &log, t, g, name, folder)
+        self.start_in(sp, &log, t, g, name, folder, asked)
     }
 
     /// [`Self::start_here`] for a card of `log`: the private board's or a
     /// shared board's (card #455). On a shared board the board's own
     /// setting is used, its other members' lines are left out of the brief
     /// and bypass is never passed (§7).
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn start_in(
         &self,
         sp: &Spawner,
@@ -1532,6 +1575,7 @@ impl Services {
         g: i64,
         name: &str,
         folder: Option<Option<String>>,
+        asked: bool,
     ) -> Result<bool, String> {
         let me = self.device.id.clone();
         let name = name.to_string();
@@ -1674,13 +1718,34 @@ impl Services {
                 self.note_started(&t.id);
                 Ok(true)
             }
-            Err(e) => {
-                let r = refuse(SpawnRefusal::Failed(e.clone()));
-                if private {
-                    self.note_start_failed(t, &e);
+            // A usage limit isn't a failure (card #450): the card waits in
+            // the queue for the reset, and nothing counts toward its tries.
+            Err(e) => match super::spawn_limits::limit_in_text(&e, &(self.now)()) {
+                Some(l) => {
+                    let until = self.hold_usage(&l);
+                    // His "Start an agent" still stands after the reset.
+                    if asked {
+                        log.co.spawn_now(&t.id);
+                    }
+                    log.co
+                        .end_spawn(
+                            SWEEPER,
+                            &t.id,
+                            g,
+                            SPAWN_FAILED,
+                            &super::spawn_limits::usage_reason(&until),
+                        )
+                        .map_err(|e| e.to_string())?;
+                    Ok(false)
                 }
-                r
-            }
+                None => {
+                    let r = refuse(SpawnRefusal::Failed(e.clone()));
+                    if private {
+                        self.note_start_failed(t, &e);
+                    }
+                    r
+                }
+            },
         }
     }
 
@@ -2332,7 +2397,7 @@ impl Services {
     /// `claude stop` and `rm` for spawned agent `key`. A worktree `rm`
     /// kept (unpushed work) is said once on its card, with what `rm` said,
     /// so the person knows where the work is.
-    fn remove_job(&self, key: &str) -> Result<(), String> {
+    pub(crate) fn remove_job(&self, key: &str) -> Result<(), String> {
         let end = self
             .spawn
             .spawner

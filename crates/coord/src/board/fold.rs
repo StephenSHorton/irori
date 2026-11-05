@@ -293,6 +293,8 @@ pub struct Fold {
     /// Spawned agents Irori ended itself (End, or done): they leave their
     /// card as finished, not gone (a crash).
     pub(crate) ended_by_irori: HashSet<String>,
+    /// Of those, the ones it ended on a Claude usage limit (card #450).
+    pub(crate) usage_limited: HashSet<String>,
     /// (agent, card) pairs already told that the agent isn't answering
     /// (card #110), while it still isn't.
     pub(crate) mute_told: HashSet<(String, String)>,
@@ -449,6 +451,7 @@ impl Fold {
             spawned: HashMap::new(),
             spawned_keys: Arc::new(RwLock::new(HashSet::new())),
             ended_by_irori: HashSet::new(),
+            usage_limited: HashSet::new(),
             mute_told: HashSet::new(),
             idle_told: HashMap::new(),
             comments: HashMap::new(),
@@ -560,6 +563,10 @@ impl Fold {
                 }
                 if ev.kind == kinds::AGENT_GONE && r.reason == "finished" {
                     self.ended_by_irori.insert(k.clone());
+                }
+                if ev.kind == kinds::AGENT_GONE && r.reason == super::spawn::GONE_USAGE_LIMIT {
+                    self.ended_by_irori.insert(k.clone());
+                    self.usage_limited.insert(k.clone());
                 }
                 if ev.kind == kinds::AGENT_GONE {
                     self.gone_rows.insert(k, gotime::hlc_wall(ev.hlc));

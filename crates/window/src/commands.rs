@@ -15,7 +15,7 @@ use specta::Type;
 use tauri::State;
 
 use crate::Window;
-use crate::agents::{AgentsChange, AgentsSettings, RunningAgent};
+use crate::agents::{AgentsChange, AgentsLimits, AgentsSettings, RunningAgent};
 use crate::attachments::AttachmentInfo;
 use crate::board::{AnswerResult, AskRepo, CommentResult, TaskResult, UploadFile};
 use crate::boards::{BoardSettings, BoardSummary, SharePreview};
@@ -1361,6 +1361,21 @@ pub async fn agents_set(w: W<'_>, change: AgentsChange) -> R<AgentsSettings> {
     w.agents_set(change)
 }
 
+/// Settings › Agents' caps per device, today's count and cost, and any
+/// usage-limit hold (card #450).
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_limits(w: W<'_>) -> R<AgentsLimits> {
+    blocking(&w, move |w| Ok(w.agents_limits())).await
+}
+
+/// The person sets a device's cap: the app only, never a tool.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_cap_set(w: W<'_>, device: String, cap: u32) -> R<AgentsLimits> {
+    blocking(&w, move |w| w.agents_cap_set(&device, cap)).await
+}
+
 /// The person's "Offer it cards" on one of their terminal agents (card
 /// #453): the app only, never a tool. Spawned agents are refused.
 #[tauri::command]
@@ -1724,6 +1739,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             term_list,
             agents_settings,
             agents_set,
+            agents_limits,
+            agents_cap_set,
             agents_offer_set,
             agents_end,
             agents_logs,

@@ -491,8 +491,8 @@ export function AppSidebar({
                   `${onCardsNow} started by Irori for a card, each ends when its card is Done`,
                 groups.starting > 0 &&
                   `${groups.starting} cards starting an agent`,
-                groups.atCap > 0 &&
-                  `${groups.atCap} cards waiting for a device to have a slot`,
+                groups.queued > 0 &&
+                  `${groups.queued} cards queued for an agent: a device's free slot, a usage limit's reset, or you (the daily limit)`,
                 `${n.total} of yours`,
                 `${n.working} working${n.running ? ` (${n.running} running a job)` : ""}`,
                 blockedNow > 0 &&
@@ -515,9 +515,9 @@ export function AppSidebar({
                   {groups.starting} starting
                 </Badge>
               )}
-              {groups.atCap > 0 && (
+              {groups.queued > 0 && (
                 <Badge variant="warning" className="normal-case tabular-nums">
-                  {groups.atCap} waiting
+                  {groups.queued} queued
                 </Badge>
               )}
               {n.working > 0 && (

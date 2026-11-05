@@ -65,6 +65,10 @@ pub struct SpawnHost {
     pub repos: Vec<HostRepo>,
     #[serde(default)]
     pub at: GoTime,
+    /// A Claude usage limit holds starts on this device until then (card
+    /// #450): it isn't asked to start anything meanwhile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held_until: Option<GoTime>,
 }
 
 impl SpawnHost {
@@ -144,7 +148,7 @@ pub(crate) struct RemoteState {
     /// When this device last looked at what it can start agents in, and
     /// what it last published.
     host_at: Mutex<Option<GoTime>>,
-    host_last: Mutex<Option<(String, Vec<HostRepo>)>>,
+    host_last: Mutex<Option<(String, Vec<HostRepo>, Option<GoTime>)>>,
     /// Devices asked to start a card's agent, and when: the next request
     /// names another device first (§9 "the next device that has the repo").
     tried: Mutex<HashMap<String, HashMap<String, GoTime>>>,
@@ -220,9 +224,10 @@ impl Services {
             *last = self
                 .hosts()
                 .remove(&self.device.id)
-                .map(|h| (h.os, h.repos));
+                .map(|h| (h.os, h.repos, h.held_until));
         }
-        if last.as_ref() == Some(&(os.clone(), repos.clone())) {
+        let held = self.usage_held();
+        if last.as_ref() == Some(&(os.clone(), repos.clone(), held)) {
             return;
         }
         let row = SpawnHost {
@@ -230,9 +235,10 @@ impl Services {
             os: os.clone(),
             repos: repos.clone(),
             at: now,
+            held_until: held,
         };
         match self.store.append(SWEEPER, kinds::SPAWN_HOST, &row) {
-            Ok(_) => *last = Some((os, repos)),
+            Ok(_) => *last = Some((os, repos, held)),
             Err(e) => logf(format_args!("spawn host: {e}")),
         }
     }
@@ -405,7 +411,8 @@ impl Services {
                 waits_for_machine = true;
                 continue;
             }
-            let free = self.spawned_on(dev) < self.cap_on(dev, Some(h));
+            let held = *dev != me && h.held_until.is_some_and(|u| u.secs > now.secs);
+            let free = !held && self.spawned_on(dev) < self.cap_on(dev, Some(h));
             // A full device elsewhere isn't asked: the card waits for a
             // free slot rather than for a request that goes stale.
             if !free && *dev != me {
@@ -573,7 +580,20 @@ impl Services {
                 *running += 1;
                 continue;
             }
-            match self.start_here(sp, &t, s.generation, &s.name, None) {
+            // A usage limit holds starts here (card #450): the request goes
+            // back to the queue, not left to go stale. The asking device
+            // sees the hold on this device's host row and asks elsewhere.
+            if let Some(until) = self.usage_held() {
+                let why = super::spawn_limits::usage_reason(&until);
+                if let Err(e) =
+                    self.coord
+                        .end_spawn(SWEEPER, &t.id, s.generation, coord::SPAWN_FAILED, &why)
+                {
+                    logf(format_args!("spawn {}: {e}", t.short_ref()));
+                }
+                continue;
+            }
+            match self.start_here(sp, &t, s.generation, &s.name, None, false) {
                 Ok(true) => {
                     *running += 1;
                     n += 1;

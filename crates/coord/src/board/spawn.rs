@@ -579,7 +579,10 @@ impl Fold {
         let Some(s) = t.spawn_request() else {
             return false;
         };
-        if s.key.is_empty() || !self.ended_by_irori.contains(&s.key) {
+        if s.key.is_empty()
+            || !self.ended_by_irori.contains(&s.key)
+            || self.usage_limited.contains(&s.key)
+        {
             return false;
         }
         if a.reason == super::asks::TAKE_REOPENED {
@@ -660,6 +663,7 @@ impl Fold {
                 t.spawn_request().is_none_or(|s| {
                     s.op != SPAWN_FAILED
                         || s.device != self.dev
+                        || usage_limited(s)
                         || self.spawn_now.contains(&t.id)
                         || gotime::at_least(&now, &s.at, SPAWN_RETRY)
                         || gotime::before(&s.at, &t.updated_at)
@@ -667,7 +671,55 @@ impl Fold {
             })
             .cloned()
             .collect();
-        v.sort_by(|a, b| gotime::cmp(&a.created_at, &b.created_at).then_with(|| a.id.cmp(&b.id)));
+        v.sort_by(|a, b| {
+            self.queue_class(a)
+                .cmp(&self.queue_class(b))
+                .then_with(|| gotime::cmp(&a.created_at, &b.created_at))
+                .then_with(|| a.id.cmp(&b.id))
+        });
         self.within_limits(v)
     }
+
+    /// Where card t goes in the spawn queue (§6, card #450): first what
+    /// the person asked for (a card or ask they made, which New card on a
+    /// spawning board gives "a fresh agent", or their "Start an agent"),
+    /// then a lead's helper parts, then the rest (agents' cards) by age.
+    pub(crate) fn queue_class(&self, t: &Task) -> u8 {
+        if self.spawn_now.contains(&t.id) || (t.parent.is_empty() && self.is_owner(&t.created_by)) {
+            0
+        } else if t.spawn && !t.parent.is_empty() {
+            1
+        } else {
+            2
+        }
+    }
+
+    /// The spawned_for marks written at or after `since` (card #450:
+    /// today's count and the daily limit), with their agents' keys.
+    pub(crate) fn spawned_since(&self, since: &GoTime) -> Vec<(String, Spawned)> {
+        let mut v: Vec<(String, Spawned)> = self
+            .spawned
+            .iter()
+            .filter(|(_, s)| !gotime::before(&s.at, since))
+            .map(|(k, s)| (k.clone(), s.clone()))
+            .collect();
+        v.sort_by(|a, b| gotime::cmp(&a.1.at, &b.1.at).then_with(|| a.0.cmp(&b.0)));
+        v
+    }
 }
+
+/// How the reason on a request that a Claude usage limit stopped starts
+/// (card #450): it isn't a failure, so it waits for the limit's reset (the
+/// Core's hold), not [`SPAWN_RETRY`], and the card reads "queued: usage
+/// limit" rather than "can't start".
+pub const USAGE_LIMIT: &str = "usage limit";
+
+/// Whether request s ended on a Claude usage limit.
+pub fn usage_limited(s: &Spawn) -> bool {
+    s.op == SPAWN_FAILED && s.reason.starts_with(USAGE_LIMIT)
+}
+
+/// The `agent.gone` reason Irori writes for an agent it ended on a usage
+/// limit (card #450): ended by Irori, so no crash, and an ask it served
+/// starts again after the reset instead of waiting for the person.
+pub const GONE_USAGE_LIMIT: &str = "usage limit";
