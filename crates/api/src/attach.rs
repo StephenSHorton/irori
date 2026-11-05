@@ -8,17 +8,20 @@
 
 use serde::Serialize;
 
-/// Protocol version carried in hello's `v`. 2 adds the append event; 3 adds
-/// `standby=1` on `/v1/attach` (GitHub #57).
-pub const VERSION: i64 = 3;
+/// Protocol version carried in hello's `v`. 2 adds the append event.
+pub const VERSION: i64 = 2;
+/// hello's `v` for a mod at [`RECOVERS_SINCE`] or later: `standby=1` on
+/// `/v1/attach` works here (GitHub #57). Nothing else sees it, so every
+/// older client reads the wire it always did.
+pub const VERSION_STANDBY: i64 = 3;
 
 /// The first mod version (the `mod=` query) that handles append events.
 pub const APPEND_SINCE: &str = "0.4.0";
 
 /// The first mod version that gets a lost attach back by itself: a dead
 /// secret (card #111), a session that went on after session.end (card
-/// #244), a superseding attach that left (GitHub #57). An older one stays
-/// cut off until its session restarts, so its attach is logged.
+/// #244), a superseding attach that left (GitHub #57). An older one can
+/// stay cut off until its session restarts, so its attach is logged.
 pub const RECOVERS_SINCE: &str = "0.6.0";
 
 pub const TYPE_HELLO: &str = "hello";

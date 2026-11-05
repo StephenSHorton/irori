@@ -78,9 +78,11 @@ pub(crate) fn attach(h: &Handler) -> Resp {
             return http::error(409, "another attach holds this session");
         }
         let mod_version = q.get("mod");
-        if !mod_version.is_empty() && !attach::mod_at_least(&mod_version, attach::RECOVERS_SINCE) {
+        if attach::mod_at_least(&mod_version, attach::RECOVERS_SINCE) {
+            hello.v = attach::VERSION_STANDBY;
+        } else if !mod_version.is_empty() {
             crate::logf(format_args!(
-                "attach {key}: mod {} can't reattach by itself; update it with: claude plugin update irori",
+                "attach {key}: mod {} may not get a lost attach back by itself; update it with: claude plugin update irori",
                 gocompat::quote::quote(&mod_version)
             ));
         }

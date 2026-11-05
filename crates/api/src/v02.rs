@@ -65,7 +65,7 @@ pub(crate) fn forbidden(h: &Handler) -> Resp {
     // An attach secret that is sent but dead: a current mod reattaches on
     // this answer and never shows it, so only a mod too old to do that says
     // it (GitHub #57). A mod knows this answer by the header's name in it.
-    let hint = if h.r.has_header(HEADER_ATTACH) {
+    let hint = if h.r.has_header(HEADER_ATTACH) && !h.r.has_header(HEADER_MEMBER) {
         ". If this keeps happening, this session's Irori mod is too old to reattach by itself: run `claude plugin update irori`, then restart the session"
     } else {
         ""

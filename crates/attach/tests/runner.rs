@@ -198,6 +198,17 @@ async fn standby_waits_for_the_session_to_come_free() {
     standby.exited().await;
 }
 
+/// GitHub #57: hello offers standby only to a mod that can use it, so an
+/// older one reads the wire it always did.
+#[tokio::test(flavor = "multi_thread")]
+async fn hello_offers_standby_to_a_mod_that_can_use_it() {
+    let r = Rig::new().await;
+    let (_old, h) = r.attach_mod(SESS_A, "0.5.0").await;
+    assert_eq!(h["v"], 2, "hello {h}");
+    let (_new, h) = r.attach_mod(SESS_B, "0.6.0").await;
+    assert_eq!(h["v"], 3, "hello {h}");
+}
+
 /// GitHub #57: two copies that both wait never kick each other; the first
 /// to ask takes a free session and the other goes on waiting.
 #[tokio::test(flavor = "multi_thread")]

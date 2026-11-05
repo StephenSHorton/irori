@@ -95,7 +95,7 @@ fn cut_off(s: &Inner, c: &presence::AgentCard) -> bool {
     c.agent == "claude"
         && c.device_state.is_empty()
         && c.status != "gone"
-        && !s.b.inbox().reachable(&c.key).0
+        && s.b.attached(&c.key) == Some(false)
 }
 
 /// One device's presence for an agent's line (card #372).

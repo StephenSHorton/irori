@@ -104,6 +104,55 @@ async fn two_sessions_talk() {
     );
 }
 
+/// GitHub #57: `agents` doesn't call a live session online while it has no
+/// attach: its tools and wakes can't reach it.
+#[tokio::test(flavor = "multi_thread")]
+async fn agents_says_when_a_session_is_cut_off() {
+    let r = Rig::new().await;
+    let (_a, ha) = r.attach(SESS_A).await;
+    let secret = str_of(&ha, "attachSecret").to_string();
+    let agents = || async {
+        let (code, raw) = r
+            .do_(
+                "POST",
+                "/v1/tools/agents",
+                &[(HEADER_ATTACH, &secret)],
+                Some(json!({"args": {}})),
+            )
+            .await;
+        assert_eq!(code, 200, "{raw}");
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        str_of(&v, "text").to_string()
+    };
+    let beta = |text: &str| {
+        let at = text.find("- beta").unwrap_or_else(|| panic!("no beta in {text}"));
+        let rest = &text[at..];
+        rest[..rest.find("\n\n").unwrap_or(rest.len())].to_string()
+    };
+    const CUT_OFF: &str = "isn't attached to Irori: its tools and wakes can't reach it";
+
+    // Never attached.
+    let out = beta(&agents().await);
+    assert!(out.contains(CUT_OFF) && !out.contains("online"), "{out}");
+
+    // Attached: online, like the session asking.
+    let (b, _) = r.attach(SESS_B).await;
+    let out = beta(&agents().await);
+    assert!(out.contains("device: online") && !out.contains(CUT_OFF), "{out}");
+
+    // Its stream went and its process didn't: cut off again.
+    b.close();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let out = beta(&agents().await);
+        if out.contains(CUT_OFF) {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "{out}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn supersede() {
     let r = Rig::new().await;
@@ -238,7 +287,7 @@ async fn auth() {
             assert_eq!(code, 403, "{path} with {hdr:?}: {raw}");
             if path.starts_with("/v1/deliveries") {
                 // A dead attach secret also says what to do (GitHub #57).
-                let hint = if hdr.iter().any(|(k, _)| *k == HEADER_ATTACH) {
+                let hint = if hdr.len() == 1 && hdr[0].0 == HEADER_ATTACH {
                     ". If this keeps happening, this session's Irori mod is too old to reattach by itself: run `claude plugin update irori`, then restart the session"
                 } else {
                     ""
