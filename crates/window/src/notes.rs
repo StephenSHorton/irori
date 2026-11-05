@@ -37,24 +37,6 @@ pub struct NoteEventView {
     pub text: String,
 }
 
-/// A note an agent got on wake for a card, and the tag that matched
-/// (card #412): the card page's "notes this agent got".
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct WakeNoteView {
-    pub note_id: String,
-    /// rule, gotcha, decision, pointer or preference.
-    pub kind: String,
-    pub text: String,
-    /// The tag that matched, e.g. `repo:<repoKey>`.
-    pub tag: String,
-    /// The agent's key.
-    pub agent: String,
-    /// When the wake went out.
-    #[specta(type = crate::ts::Time)]
-    pub at: GoTime,
-}
-
 /// A note as the Notes page shows it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -286,22 +268,5 @@ impl Window {
             .remove_note(&self.user_key(), crate::trim(id), crate::trim(why))
             .map_err(|e| e.to_string())?;
         Ok(self.note_view(s))
-    }
-
-    /// The notes each of the card's agents got on its latest wake that
-    /// carried notes for it, newest first.
-    pub fn card_wake_notes(&self, task_id: &str) -> Vec<WakeNoteView> {
-        self.core
-            .card_wake_notes(crate::trim(task_id))
-            .into_iter()
-            .map(|n| WakeNoteView {
-                note_id: n.note_id,
-                kind: n.kind,
-                text: n.text,
-                tag: n.tag,
-                agent: n.agent,
-                at: n.at,
-            })
-            .collect()
     }
 }
