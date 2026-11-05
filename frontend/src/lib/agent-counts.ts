@@ -43,9 +43,15 @@ export type AgentCounts = {
   silent: number
   // On a device that is offline.
   offline: number
+  // Blocked (card #512): on a permission prompt, or on a card with an open
+  // blocker, from roster-groups. Neither working nor free.
+  blocked: number
 }
 
-export function agentCounts(agents: Agent[]): AgentCounts {
+export function agentCounts(
+  agents: (Agent & { key?: string })[],
+  blocked: Set<string> = new Set()
+): AgentCounts {
   const c: AgentCounts = {
     total: 0,
     working: 0,
@@ -54,11 +60,13 @@ export function agentCounts(agents: Agent[]): AgentCounts {
     ownWork: 0,
     silent: 0,
     offline: 0,
+    blocked: 0,
   }
   for (const a of agents) {
     if (a.status === "gone") continue
     c.total++
     if (a.deviceState === "offline") c.offline++
+    else if (a.key !== undefined && blocked.has(a.key)) c.blocked++
     else if (a.status === NotAnswering) c.silent++
     else if (a.status === "idle") {
       if (takesOffers(a)) c.free++
@@ -89,7 +97,7 @@ export function whyWaiting(agents: Agent[], repoKey = ""): string {
   const c = agentCounts(agents)
   if (c.total === 0) return "No agents are running."
   if (!agents.some((a) => a.status !== "gone" && takesOffers(a)))
-    return "No agent takes offered work: Irori starts one on boards with spawning on, or turn on Offer it cards for an agent."
+    return "No agent takes offered work: Irori starts one for it when spawning is on."
   if (c.free > 0) {
     if (repoKey && freeIn(agents, repoKey) === 0)
       return `${n(c.free, "agent is", "agents are")} idle, but none works in ${repoKey}.`
@@ -105,7 +113,7 @@ export function whyWaiting(agents: Agent[], repoKey = ""): string {
   if (c.ownWork > 0) parts.push(`${c.ownWork} idle, not taking offered work`)
   if (c.silent > 0) parts.push(`${c.silent} idle but not answering`)
   if (c.offline > 0) parts.push(`${c.offline} on an offline device`)
-  return `Nobody is free: ${parts.join(", ")}. The first agent with Offer it cards on to go idle answers it.`
+  return `Nobody is free: ${parts.join(", ")}. Irori starts an agent for it when spawning is on.`
 }
 
 function n(k: number, one: string, many: string): string {

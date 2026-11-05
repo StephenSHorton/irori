@@ -105,9 +105,10 @@ impl Services {
                 if *running >= cap {
                     break;
                 }
-                // Board asks and threads are served by idle agents, as
-                // before (part 10 covers the private board's).
-                if t.open_ask().is_some() {
+                // A plain board ask is served by the members' idle agents,
+                // as before; a board thread gets its own agent on the
+                // poster's device (card #512).
+                if t.open_ask().is_some_and(|a| !a.thread) {
                     continue;
                 }
                 match self.spawn_board_card(sp, &b, &t) {
@@ -121,7 +122,7 @@ impl Services {
 
     fn spawn_board_card(&self, sp: &Spawner, b: &Arc<BoardLog>, t: &Task) -> Result<bool, String> {
         // Only a card this person made (its device hands it out, and its
-        // author is this person).
+        // author is this person); a thread, only one this person started.
         if b.verifier.key_person(&t.created_by) != self.person_id() {
             return Ok(false);
         }
@@ -133,7 +134,16 @@ impl Services {
         let log = SpawnLog::board(self, b);
         let me = self.device.id.clone();
         let generation = t.spawn_request().map_or(0, |s| s.generation) + 1;
-        let folder = self.checkout_here(&t.repo_key);
+        // A board thread names no repo (a board ask never does): its agent
+        // starts where a private thread's does (card #512).
+        let (repo_key, folder) = if t.repo_key.is_empty() && t.open_ask().is_some() {
+            match self.ask_home() {
+                Some((k, f)) => (k, Some(f)),
+                None => (String::new(), None),
+            }
+        } else {
+            (t.repo_key.clone(), self.checkout_here(&t.repo_key))
+        };
         // No copy here, or not trusted, and its last request failed for
         // that: it waits (card #467's rule) until that changes or the
         // person asks again.
@@ -168,11 +178,11 @@ impl Services {
             BriefMore::default(),
         );
         let setting = self.spawn_setting(&b.id);
-        let perms = spawn_permissions(&setting, &b.id, &t.repo_key, &brief);
+        let perms = spawn_permissions(&setting, &b.id, &repo_key, &brief);
         let ask = SpawnAsk {
             task_id: t.id.clone(),
             device: me,
-            repo_key: t.repo_key.clone(),
+            repo_key,
             folder: folder.clone().unwrap_or_default(),
             permission_mode: perms.mode,
             name: name.clone(),

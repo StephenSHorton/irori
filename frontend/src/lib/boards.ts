@@ -17,7 +17,7 @@ export type { SummaryMember }
 
 // presenceLine says how a member is on a board (card #371): "online",
 // "seen 5m ago" (heard within ten minutes) or "offline · seen 2h ago",
-// then how many of their agents on the board are working or free. An
+// then how many of their agents on the board are working. An
 // offline person's agent counts are left out: only their own device writes
 // an agent's status, so the last ones it wrote may be stale.
 export function presenceLine(m: SummaryMember, now: Date): string {
@@ -26,10 +26,9 @@ export function presenceLine(m: SummaryMember, now: Date): string {
   if (m.presence !== "online" && m.presence !== "recent")
     return at ? `offline · seen ${relativeTime(at, now)}` : "offline"
   const head = m.presence === "online" ? "online" : at ? `seen ${relativeTime(at, now)}` : "seen recently"
-  const parts: string[] = []
-  if (m.working > 0) parts.push(`${m.working} working`)
-  if (m.free > 0) parts.push(`${m.free} free`)
-  return parts.length ? `${head} · ${parts.join(", ")}` : `${head} · no agents`
+  // Card #512: no "free" count; idle agents just aren't working.
+  if (m.working > 0) return `${head} · ${m.working} working`
+  return m.free > 0 ? head : `${head} · no agents`
 }
 
 // PresenceReload is how often a board page reads presence again while
