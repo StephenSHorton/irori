@@ -59,6 +59,11 @@ const PAGES: Array<[name: string, query: string]> = [
   ["board-mlg", "#board/sample-board-mlg"],
   ["new-card", "?newcard"],
   ["done", "?filter=done"],
+  ["later-home", "?later=only"],
+  ["later-board", "?later=board#board/sample-board-mlg"],
+  ["later-card", "?later=1&open=board:task:sample-card-later-90"],
+  ["later-order", "?later=1&open=board:task:sample-card-order-82"],
+  ["later-dialog", "?later=dialog&open=board:task:sample-card-1"],
 ]
 
 function findBrowser(): string {

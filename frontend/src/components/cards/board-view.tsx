@@ -8,6 +8,8 @@
 // notification's Open); the cards are every live card, and BoardView
 // keeps the scope's; Closed comes in already scoped (useDoneCards).
 
+import { OrderPanel } from "@/components/cards/order"
+import { laterOf } from "@/lib/later"
 import { useState, type ReactNode } from "react"
 
 import {
@@ -445,6 +447,7 @@ export function BoardView({
             <BoardCanvas cards={shown} onOpen={onOpen} fill={fill} />
           ) : shown.length && rows ? (
             <>
+              <OrderPanel cards={shown} onOpen={onOpen} />
               {pinnedGroup.length > 0 && (
                 <h3 className="px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
                   Pinned
@@ -468,6 +471,7 @@ export function BoardView({
             </>
           ) : shown.length ? (
             <>
+              <OrderPanel cards={shown} onOpen={onOpen} />
               {pinnedGroup.length > 0 && (
                 <>
                   <h2 className="px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
@@ -487,11 +491,28 @@ export function BoardView({
                 </>
               )}
               <CardGrid
-                cards={shown.filter((c) => !inPinned.has(c.id))}
+                cards={shown.filter((c) => !inPinned.has(c.id) && !laterOf(c))}
                 context={context}
                 selected={selected}
                 onSelect={onOpen}
               />
+              {shown.some((c) => laterOf(c)) && (
+                <>
+                  <h2 className="flex items-center gap-2 px-1 pt-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                    Later
+                    <span className="tabular-nums">
+                      {shown.filter((c) => laterOf(c)).length}
+                    </span>
+                  </h2>
+                  <CardGrid
+                    label="Later"
+                    cards={shown.filter((c) => laterOf(c))}
+                    context={context}
+                    selected={selected}
+                    onSelect={onOpen}
+                  />
+                </>
+              )}
             </>
           ) : (
             <p className="px-1 text-[12.5px] text-muted-foreground">

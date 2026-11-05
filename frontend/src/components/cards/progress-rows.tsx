@@ -19,6 +19,7 @@ const stateVariant: Record<RowState, "destructive" | "info" | "slate" | "warning
   working: "info",
   waiting: "slate",
   idle: "warning",
+  later: "slate",
   done: "success",
 }
 
@@ -28,6 +29,7 @@ const barTone: Record<RowState, string> = {
   working: "bg-info",
   waiting: "bg-muted-foreground",
   idle: "bg-warning",
+  later: "bg-muted-foreground",
   done: "bg-success",
 }
 

@@ -1,3 +1,5 @@
+import { LaterButton, LaterItem, OrderList } from "@/components/cards/order"
+import { chainOf, laterOf } from "@/lib/later"
 import { useContext, useState, type FormEvent, type ReactNode } from "react"
 import {
   ArrowLeftIcon,
@@ -278,6 +280,7 @@ export function CardPage({
                 onOpen={onOpen}
                 onBack={onBack}
               />
+              <LaterButton card={detail} />
               {!detail.onBoard && <PauseButton card={detail} />}
               {!detail.onBoard && (
                 <DeleteButton detail={detail} onDeleted={onBack} />
@@ -350,7 +353,17 @@ export function CardPage({
                   )}
                 </Section>
               )}
-              {hasBlockers && (
+              {laterOf(detail) && (
+                <Section title="Later">
+                  <LaterItem card={detail} />
+                </Section>
+              )}
+              {chainOf(detail) && (
+                <Section title="Order">
+                  <OrderList card={detail} onOpen={onOpen} />
+                </Section>
+              )}
+              {hasBlockers && !laterOf(detail) && (
                 <Section title="Blockers" last>
                   {legacy && (
                     <div className="grid gap-1.5 rounded-lg border border-destructive/50 bg-destructive/10 p-3">
@@ -1033,7 +1046,9 @@ function ProgressLine({ detail }: { detail: CardDetail }) {
         {detail.openBlockers} waiting on a decision
       </span>
     )
-  if (detail.waitingOn)
+  const parked = laterOf(detail)
+  if (parked) parts.push(<span key="o">{parked.line}</span>)
+  else if (detail.waitingOn)
     parts.push(
       <span key="o">{waitLabel(detail).replace(/^Waiting/, "waiting")}</span>
     )

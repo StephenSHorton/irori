@@ -1,3 +1,4 @@
+import { laterOf } from "@/lib/later"
 import { useContext } from "react"
 import { ExternalLinkIcon, UserIcon } from "lucide-react"
 
@@ -92,6 +93,13 @@ export function ProgressBar({
 // blockers, waiting on an agent to act on the person's answers, else in
 // progress.
 export function StatePill({ card }: { card: CardSummary }) {
+  // Parked (card #570): not for now, so it reads calm.
+  if (laterOf(card))
+    return (
+      <Badge variant="slate" className="rounded-full">
+        Later
+      </Badge>
+    )
   // An ask: the person's prompt to the room, before it is a card.
   if (openAsk(card))
     return (

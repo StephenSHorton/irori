@@ -1,3 +1,5 @@
+import { ListOrderedIcon } from "lucide-react"
+import { laterOf, orderLine } from "@/lib/later"
 import { LayersIcon, PinIcon, UserIcon } from "lucide-react"
 import {
   useContext,
@@ -510,6 +512,8 @@ function CardTile({
   const blocked = card.openBlockers > 0
   const title = plainLine(card.title) || "(untitled)"
   const label = workLabel(withLive(card, live))
+  const parked = laterOf(card)
+  const place = orderLine(card)
   return (
     <button
       type="button"
@@ -608,7 +612,19 @@ function CardTile({
           Left off: {plainLine(card.leftOff.text)}
         </span>
       )}
-      {!blocked && !!card.waitingOn && (
+      {parked && (
+        <span className="grid gap-0.5 text-xs text-muted-foreground">
+          <span className="line-clamp-2">{plainLine(parked.why)}</span>
+          <span className="text-ink/80">{parked.line}</span>
+        </span>
+      )}
+      {!parked && place && (
+        <span className="flex gap-1.5 text-xs text-muted-foreground">
+          <ListOrderedIcon aria-hidden className="mt-px size-3 shrink-0" />
+          <span className="line-clamp-2">{place}</span>
+        </span>
+      )}
+      {!parked && !place && !blocked && !!card.waitingOn && (
         <span className="flex gap-1.5 text-xs text-muted-foreground">
           <span aria-hidden>●</span>
           <span className="line-clamp-2">{waitTip(card)}</span>
@@ -622,7 +638,7 @@ function CardTile({
       )}
       {card.ask && (openAsk(card) || closed) ? (
         <AskLine ask={card.ask} />
-      ) : closed && p === null ? null : p === null ? (
+      ) : parked || (closed && p === null) ? null : p === null ? (
         <HolderLine holder={card.holder} returned={card.returned} />
       ) : (
         <>
@@ -640,7 +656,12 @@ function CardTile({
           )}
         </>
       )}
-      <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+      <span
+        className={cn(
+          "flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground",
+          parked && "hidden"
+        )}
+      >
         {p !== null && (
           <>
             <span className="tabular-nums">
