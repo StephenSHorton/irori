@@ -123,20 +123,35 @@ export function cardLook(a: Appearance): CardLook {
 }
 
 let lastSent = ""
+// One send at a time, in order; while one is out only the newest waits
+// (a colour-picker drag sends many), so the cards end on the last look.
+let inflight = false
+let pending: Appearance | null = null
 
 // sendCardLook passes the look to the host when it changed. Only the
 // window has a host; the browser preview's ?theme= flags never reach it.
 // It never throws: a card in the old look is no reason to break the page.
 export async function sendCardLook(a: Appearance): Promise<void> {
   if (!inHost()) return
+  pending = a
+  if (inflight) return
+  inflight = true
   try {
-    const look = cardLook(a)
-    const json = JSON.stringify(look)
-    if (json === lastSent) return
-    lastSent = json
-    await commands.settingsSetCardLook(look)
-  } catch (err) {
-    lastSent = ""
-    console.error("irori: couldn't send the notification cards' look", err)
+    while (pending) {
+      const next = pending
+      pending = null
+      try {
+        const look = cardLook(next)
+        const json = JSON.stringify(look)
+        if (json === lastSent) continue
+        lastSent = json
+        await commands.settingsSetCardLook(look)
+      } catch (err) {
+        lastSent = ""
+        console.error("irori: couldn't send the notification cards' look", err)
+      }
+    }
+  } finally {
+    inflight = false
   }
 }

@@ -309,6 +309,8 @@ struct State {
     opts: Options,
     /// The cards' look the window last sent (or the saved one).
     look: Option<CardLook>,
+    /// `look` is what settings.json holds.
+    look_saved: bool,
     live: HashMap<String, Entry>,
     generation: u64,
     opener: Option<Opener>,
@@ -364,6 +366,7 @@ impl Notifier {
                 capture_exclude: !capture,
                 st: Mutex::new(State {
                     opts,
+                    look_saved: look.is_some(),
                     look,
                     live: HashMap::new(),
                     generation: 0,
@@ -436,21 +439,26 @@ impl Notifier {
     /// #527). The window sends it at startup and on every change; an
     /// unchanged look neither reconfigures nor writes.
     pub fn set_look(&self, l: CardLook) -> Result<(), String> {
-        {
-            // Configured under the lock, so two sends land in order.
-            let mut st = self.lock();
-            if st.look.as_ref() == Some(&l) {
-                return Ok(());
-            }
-            st.look = Some(l.clone());
-            if let Some(t) = &self.inner.t {
-                t.configure(config_for(Some(&l), self.inner.capture_exclude));
-            }
+        // Configured and saved under the lock, so two sends land in the
+        // same order on screen and in settings.json.
+        let mut st = self.lock();
+        if st.look.as_ref() == Some(&l) && st.look_saved {
+            return Ok(());
         }
-        match &self.inner.dir {
+        if st.look.as_ref() != Some(&l)
+            && let Some(t) = &self.inner.t
+        {
+            t.configure(config_for(Some(&l), self.inner.capture_exclude));
+        }
+        let saved = match &self.inner.dir {
             Some(d) => save_look(d, &l),
             None => Ok(()),
-        }
+        };
+        // A failed save keeps the live look but is tried again on the
+        // next send of it.
+        st.look_saved = saved.is_ok();
+        st.look = Some(l);
+        saved
     }
 
     /// Registers f for every [`Notifier::set_options`] (the window

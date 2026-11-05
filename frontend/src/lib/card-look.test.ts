@@ -149,4 +149,35 @@ describe("sendCardLook", () => {
       g.window = had
     }
   })
+
+  test("one send at a time; a burst ends on its last look", async () => {
+    const had = g.window
+    const sent: string[] = []
+    const gates: Array<() => void> = []
+    try {
+      g.window = {
+        __TAURI_INTERNALS__: {
+          invoke: (_cmd, args) =>
+            new Promise((done) => {
+              sent.push((args as { look: { theme: string } }).look.theme)
+              gates.push(() => done(null))
+            }),
+        },
+      }
+      const first = sendCardLook({ theme: "blue", mode: "dark", glass: "milk" })
+      // A drag while the first is out: only the newest is kept.
+      void sendCardLook({ theme: "hearth", mode: "dark", glass: "milk" })
+      void sendCardLook({ theme: "midnight", mode: "dark", glass: "milk" })
+      void sendCardLook({ theme: "mono", mode: "dark", glass: "milk" })
+      expect(sent).toEqual(["blue"])
+      gates.shift()!()
+      await new Promise((r) => setTimeout(r, 0))
+      expect(sent).toEqual(["blue", "mono"])
+      gates.shift()!()
+      await first
+      expect(sent).toEqual(["blue", "mono"])
+    } finally {
+      g.window = had
+    }
+  })
 })

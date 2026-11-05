@@ -151,26 +151,66 @@ fn setup() {
         },
     );
     // Posted (distributed, to every app) after the defaults key changed.
-    // The engine asks os_dark on every sync while the scheme is "system"
-    // and restyles when the answer changes; the later syncs catch a
-    // defaults cache that is a beat behind the notification.
-    observe(
-        &NSDistributedNotificationCenter::defaultCenter(),
-        &NSString::from_str("AppleInterfaceThemeChangedNotification"),
-        || {
-            wake();
-            for ms in [250, 1000] {
-                let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(ms))
-                    .unwrap_or(dispatch2::DispatchTime::NOW);
-                let _ = DispatchQueue::main().after(when, wake);
-            }
-        },
-    );
+    // AppKit holds distributed notifications back while the app isn't
+    // active, which is when cards are usually up, so this one asks for
+    // immediate delivery (only the selector form can).
+    if let Some(mtm) = MainThreadMarker::new() {
+        let obs = ThemeObserver::new(mtm);
+        unsafe {
+            NSDistributedNotificationCenter::defaultCenter()
+                .addObserver_selector_name_object_suspensionBehavior(
+                    &obs,
+                    objc2::sel!(themeChanged:),
+                    Some(&NSString::from_str(
+                        "AppleInterfaceThemeChangedNotification",
+                    )),
+                    None,
+                    objc2_foundation::NSNotificationSuspensionBehavior::DeliverImmediately,
+                );
+        }
+        // The center doesn't retain observers; this one lives as long as
+        // the process.
+        std::mem::forget(obs);
+    }
     observe(
         &NSWorkspace::sharedWorkspace().notificationCenter(),
         unsafe { NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification },
         restyle_all,
     );
+}
+
+/// The OS switched light/dark. The engine asks os_dark on every sync
+/// while the scheme is "system" and restyles when the answer changes; the
+/// later syncs catch a defaults cache that is a beat behind the
+/// notification.
+fn theme_changed() {
+    wake();
+    for ms in [250, 1000] {
+        let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(ms))
+            .unwrap_or(dispatch2::DispatchTime::NOW);
+        let _ = DispatchQueue::main().after(when, wake);
+    }
+}
+
+define_class!(
+    /// Hears AppleInterfaceThemeChangedNotification (see setup).
+    #[unsafe(super(objc2_foundation::NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "IroriToastThemeObserver"]
+    struct ThemeObserver;
+
+    impl ThemeObserver {
+        #[unsafe(method(themeChanged:))]
+        fn theme_changed_(&self, _n: Option<&objc2_foundation::NSNotification>) {
+            theme_changed();
+        }
+    }
+);
+
+impl ThemeObserver {
+    fn new(mtm: MainThreadMarker) -> Retained<ThemeObserver> {
+        unsafe { msg_send![ThemeObserver::alloc(mtm), init] }
+    }
 }
 
 /// Runs f on the main queue on each `name` from `center`, for the life of
@@ -345,37 +385,6 @@ fn style(c: &Card, look: &Look) {
     // Draw now so the shadow is worked out from the new rounded shape.
     c.panel.display();
     c.panel.invalidateShadow();
-    snapshot(c);
-}
-
-/// With IRORI_TOAST_SNAPSHOT=<dir> (test runs only), writes the card as
-/// drawn to `<dir>/card-NNN.png` after each restyle: proof of the shape,
-/// colours and text where screen capture isn't allowed. The behind-window
-/// blur is composited by the window server, so it isn't in the picture.
-fn snapshot(c: &Card) {
-    static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-    let Some(dir) = std::env::var_os("IRORI_TOAST_SNAPSHOT") else {
-        return;
-    };
-    let Some(root) = c.panel.contentView() else {
-        return;
-    };
-    let b = root.bounds();
-    let Some(rep) = root.bitmapImageRepForCachingDisplayInRect(b) else {
-        return;
-    };
-    root.cacheDisplayInRect_toBitmapImageRep(b, &rep);
-    let png = unsafe {
-        rep.representationUsingType_properties(
-            objc2_app_kit::NSBitmapImageFileType::PNG,
-            &NSDictionary::new(),
-        )
-    };
-    if let Some(png) = png {
-        let n = N.fetch_add(1, Ordering::Relaxed);
-        let path = std::path::Path::new(&dir).join(format!("card-{n:03}.png"));
-        let _ = std::fs::write(path, png.to_vec());
-    }
 }
 
 impl Surface for MacSurface {
