@@ -893,3 +893,17 @@ describe("Home's groups (card #487)", () => {
     ])
   })
 })
+
+describe("no agent can start (card #541)", () => {
+  const line = "No agent can start: Mac is offline. It starts by itself when it's back."
+  const c = { id: "c1", title: "Fix it", openBlockers: 0, noAgent: line } as CardSummary
+
+  test("it's a row of its own, never a decision", () => {
+    expect(needsOf([c], []).map((n) => n.kind)).toEqual(["noAgent"])
+  })
+
+  test("a real question on the card still reads as one", () => {
+    const asked = { ...c, openBlockers: 1 }
+    expect(needsOf([asked], []).map((n) => n.kind)).toEqual(["decision"])
+  })
+})

@@ -458,15 +458,11 @@ fn a_thread_starts_on_whichever_computer_comes_back() {
         let h = phone.core.spawn_hosts();
         h.contains_key(&ia) && h.contains_key(&ib)
     });
-    // The computer that gets it first goes away for good; the other one
-    // comes back.
-    let (first, other, fother) = if ia < ib { (a, b, fb) } else { (b, a, fa) };
-    let other = {
-        let other_closed = other;
-        other_closed.core.close().unwrap();
-        other_closed
-    };
-    first.core.close().unwrap();
+    a.core.close().unwrap();
+    b.core.close().unwrap();
+    wait_for(WAIT, "the phone would send work to a computer", || {
+        phone.core.coord().agent_home("").is_some()
+    });
     let t = phone
         .core
         .coord()
@@ -481,6 +477,10 @@ fn a_thread_starts_on_whichever_computer_comes_back() {
         )
         .unwrap()
         .0;
+    // The one it went to stays away; the other one comes back.
+    let owner = t.ask.as_ref().unwrap().owner.clone();
+    assert!(owner == ia || owner == ib, "it went to a computer");
+    let (other, fother) = if owner == ia { (b, fb) } else { (a, fa) };
     let other = restart(other);
     other
         .core
@@ -548,12 +548,46 @@ fn a_computer_without_its_spawner_yet_speaks_for_nobody() {
             .get(&mac)
             .is_some_and(|h| !h.no_agents && h.repo(REPO).is_some())
     });
-    // As the app quits.
+    // Installing lifts publish_host's once-a-minute limit, so a sweep with
+    // no spawner would publish at once; then the app quits.
+    r.mac_spawner();
     r.mac.core.set_spawner(None);
-    r.mac.core.set_spawn_cap(r.mac.core.spawn_cap()).unwrap();
     std::thread::sleep(std::time::Duration::from_secs(8));
     let h = r.mac.core.spawn_hosts().remove(&mac).unwrap();
     assert!(!h.no_agents, "closing isn't losing Claude Code");
     assert!(h.repo(REPO).is_some(), "nor its checkouts");
     r.close();
+}
+
+/// A shared board's thread from the phone with no computer anywhere: the
+/// person is told as on the private board. Found by #541's audit.
+#[test]
+fn a_shared_boards_thread_says_why_too() {
+    let mut devs = person("stephen", 1);
+    let phone = devs.pop().unwrap();
+    phone.core.set_runs_no_agents();
+    let id = phone.core.create_board("Team", "team").unwrap();
+    phone
+        .core
+        .set_spawn_setting(SpawnSetting {
+            board_id: id.clone(),
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    let (t, _) = phone
+        .core
+        .board_ask(
+            &id,
+            coord::NewAsk {
+                text: "Why is the sync stuck?".into(),
+                thread: true,
+                ..coord::NewAsk::default()
+            },
+        )
+        .unwrap();
+    wait_for(WAIT, "the phone says why", || {
+        phone.core.no_agent().contains_key(&t.id)
+    });
+    phone.core.close().unwrap();
 }

@@ -636,6 +636,19 @@ fn waits_for_agent_is_only_work_that_would_start() {
         e.c.waits_for_agent(&e.c.get_task(&t.id).unwrap()),
         "past its grace it isn't"
     );
+    // The normal end of a thread: answered, its agent wound down, nobody
+    // holds it. It waits on the person, not on an agent.
+    e.write_raw(
+        SWEEPER_KEY,
+        store::kinds::TAKE_STATE,
+        &serde_json::json!({ "taskId": t.id, "reason": TAKE_ANSWERED }),
+    );
+    let t2 = e.c.get_task(&t.id).unwrap();
+    assert!(t2.open_ask().is_some(), "still open");
+    assert!(
+        !e.c.waits_for_agent(&t2),
+        "an answered thread needs no agent"
+    );
 }
 
 /// Two computers take one ask at once: every device ends on the same one,
