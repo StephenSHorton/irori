@@ -5,8 +5,9 @@
 ## 1. The short answer
 
 - **No server removes this wait, and moves and deletes don't need one.** A server can't change what an older Irori does with a row. But the wait exists only because the plan was to write two *new* row kinds. Written as rows every current Irori already stores, a move adds no wait of its own, and a delete waits no more than adding a board does today. (A move needs a board to move to, and adding that board waits at today's gate.)
-- **The server is the always-on PC, with two new jobs.** It stays on the newest Irori, and it tells you which devices are behind. Nothing else we could build does more for this wait, and the alternatives cost a lot more (§4).
-- **What a server can do for this wait, plainly:** it can help track which version each device runs, and it can help get devices updated sooner. It can't make an older device read a new row.
+- **The server is a hosted mailbox that Irori runs for everyone (§4.3).** Devices leave sealed rows there, and a sleeping device collects them when it wakes, with no always-on PC needed. It can't read what it holds. That needs new key work, so it's the biggest job here, and moves and deletes don't wait on it.
+- **The always-on PC stays, with two new jobs (§4.2).** It stays on the newest Irori, and it carries the rows that show which devices are behind. It's still where agents run.
+- **What a server can do for this wait, plainly:** it can help track which version each device runs, and it can help get devices updated sooner. It can't make an older device read a new row, and a mailbox that can't read rows can't even hold one back from an older device.
 
 ## 2. What the wait really is
 
@@ -110,11 +111,11 @@ It only helps from the release that ships it, so it can't serve moves and delete
 
 Store-and-forward isn't a feature in the code. Every member device holds the whole log and serves it to any admitted device (`mesh/src/boards.rs:99-126`). The always-on PC forwards because it's awake and holds what everyone holds. Either person's PC serves the other's devices. The only difference from a laptop is the home server, the keep-awake hold, and being on. Decision 43 credits home servers with store-and-forward; that's loose wording, since the member device stores and the home crate only relays. Files are the exception: a device serves one only if it holds it, and they're fetched on demand.
 
-So anything that stores rows for a sleeping device has to be a member device, which is what decision 35 (B5) already says. The always-on PC is that device.
+So today, anything that stores rows for a sleeping device is a member device, as decision 35 (B5) assumes. A non-member can hold rows only if it can't read them, which is what §4.3 builds.
 
-### 4.2 Recommended: the server is a role the always-on PC takes on
+### 4.2 The always-on PC: two new jobs
 
-Each person runs it on their own machine, as decisions 30 and 33 say. Nothing new to install, and no new trust. It gains two jobs:
+Each person runs it on their own machine, as decisions 30 and 33 say. Agents run here, and the mailbox doesn't change that. It gains two jobs, which are small and don't wait on §4.3:
 
 **1. It stays on the newest Irori.** Today the tray app looks for updates only at start or from Settings, so a PC up for weeks can fall behind a phone, and an older PC is the worst forwarder (§2). A new per-device setting, **Keep this device up to date**, makes it check every few hours and download. It's on by default where the home server is on, and any desktop can turn it on; the home switch alone isn't enough, since decision 43 lets an always-on PC run with it off. Other desktops keep today's behaviour. (`serve --headless` never updates itself, so it can't take this role until that changes.)
 
@@ -122,17 +123,64 @@ The open question is the restart. Today Irori asks first (releasing.md, the Inst
 
 **2. It tells you who's behind.** Every device writes what it reads into the space, and the window shows it (§5). The always-on PC isn't special in this: a signed row each device writes about itself beats one machine's memory, since that machine only knows what it heard while it was up, and it can't vouch for another device. Its part is carrying those rows to devices that were asleep, which it already does.
 
-### 4.3 Not recommended now
+### 4.3 The hosted mailbox (decided, b2)
 
-**A rented machine you own (a VPS as one of your devices).** Always on and off your home network, so it would serve a space when your PC is down. As things stand it would need:
+**What it is.** A small Linux server program that holds rows sealed by devices. It has no keys, can't read or check what it holds, and runs no board logic. To a device it's one more peer that's always awake.
 
-- A Linux build. There's no Linux target; the app links Tauri and its web view.
-- A headless updater and a way to switch on the home server. Both are window-only or missing.
-- A key store. Off Windows and macOS, keys sit in a plain file, and every device holds the person secret, so the host can act as you on every space.
+**What it does.**
 
-It does nothing more for this wait than the PC does.
+- A writes a row and pushes it. B's phone wakes hours later and pulls it. A and B never have to be online together, and neither needs an always-on PC.
+- It closes #538's mailbox follow-up: a DM reaches someone whose devices are all asleep.
+- The mesh stays as it is, and the mailbox is added beside it. If the service is down or switched off, everything works as today.
 
-**A service Irori runs for everyone.** A relay of our own is cheap and allowed (public-relays.md, "Not done here"), but it stores nothing. A service that stores rows is a non-member carrying boards, which brings back board-log encryption under B5, a new key scheme, and a new way to check members. It couldn't hear hellos either, so it couldn't even track versions. No decision has ruled on this. Decision 35 (B5) assumes only members' devices carry a board, and says encryption returns if that changes. It would make sense only if Irori wants offline delivery with no always-on PC at all. That's a separate question, also behind #538's mailbox follow-up, and this design leaves room for it.
+**What it doesn't do.**
+
+- **It doesn't remove the wait.** It can't see a row's kind, so it can't filter one or hold one back. An older device that used it would refuse the same row. It adds nothing to §3 or §5.
+- **It doesn't track versions by itself.** The signed rows of §5 ride through it sealed. It only makes them reach sleeping devices sooner.
+- **It doesn't replace agents' machines.** It can't run agents, hand out asks or hold leases, since it can't read cards. Those stay on devices.
+- **Files aren't in the first version.** They stay fetched on demand from a device that holds them.
+
+**Sealing.**
+
+- A new log key per space and epoch: `logKey = HKDF(boardSecret(epoch), salt "irori/log/1", info boardId || epoch)`. The board secret isn't a log key today (v0.5 §6.1).
+- A device seals each whole row, signature included, before pushing. Only the mailbox copy is sealed: the local log, the mesh and all row formats stay as they are, so there's no migration.
+- A pull opens the row and hands it to the same `insert_board_rows` as a mesh pull, so `check_shape`, signature, cert and gap checks all apply. A row the mailbox altered or invented fails to open.
+- The mailbox numbers what it receives, and a device pulls "everything after N". It sees no writer, seq or kind.
+- A device pushes only its own rows, in order. That gives per-writer order, and a device that fell behind catches up from any source. A row pulled twice is already held.
+
+**Rotation is the hard part.**
+
+- The board secret rotates on every removal, leave and device revoke (v0.5 §6.1), which gives a new log key and a new mailbox address, so a removed person can't read new rows.
+- Today the new secret goes only over live connections, sealed under the *old* board key. That can't go in a mailbox: the removed person holds the old key.
+- So a rotation has to be sealed to each remaining device separately, with a per-device key, and left in the mailbox. A device can then wake and find the new secret with nobody else online. Devices have signing keys today; this needs an encryption key per device, published in the cert rows or derived from the signing key.
+- A person's private log needs the same, under the person secret. **Spaces come first, Personal second.**
+- A new member gets the whole log in the invite bundle, so never needs old mailbox epochs.
+
+**Who may use a mailbox.** Access is a proof from a key derived from `logKey`, so only someone holding the epoch's secret can push or pull. The service stores a public key per mailbox and knows no people. The next epoch's mailbox is registered with a proof from the last, so nobody can take its address first.
+
+**What the operator sees and can do.**
+
+- Sees: IP addresses, mailbox ids, row sizes, times, and which addresses use the same mailbox. That's about what n0 sees (decision 43), plus how much each space holds.
+- Can: drop rows, or refuse service. A member notices only through the mesh. Can't: read, forge or reorder a row without it being caught.
+- A later leak of a space's secret opens anything still held from that epoch. Retention limits that.
+
+**Keeping it small.**
+
+- It's a mailbox, not an archive. Rows go after a fixed time, 30 days to start with. A device asleep longer catches up from any peer.
+- Each mailbox has a size limit. One release once wrote about 3.4M `task.spawn` rows (`crates/dev/src/spawn_rows.rs`), so a limit isn't theoretical. When a mailbox is full, new pushes are refused and the mesh carries on.
+- With no accounts, creating a mailbox costs a small proof of work, and addresses are rate limited.
+
+**How it's built.**
+
+- A separate binary with no Tauri, so it needs no desktop libraries and can run on any Linux host. It's the first Linux target, and it holds no keys, so a rented host is fine.
+- Devices reach it on its own iroh protocol (`irori/mailbox/1`) with the server's key pinned, as home relays are.
+- The address is a setting, so anyone can run their own, like the relay list.
+
+**This reverses part of decisions 32 and 35.** B5 says row encryption "returns only if non-members ever carry boards". This is that case, and it applies to the mailbox copy only. It needs its own decision row.
+
+### 4.4 Not planned
+
+**A rented machine as one of your own devices.** It would need a Linux build of the whole app, a headless updater and a key store, since off Windows and macOS keys sit in a plain file and every device holds the person secret. The host could act as you. The mailbox gives most of the benefit with none of that exposure.
 
 ## 5. Which devices block, and how we know
 
@@ -170,14 +218,21 @@ The cost: any device on a build before this one that nobody has heard since its 
 2. **Saved hellos, version rows and the new gate rule (§5).** A delete benefits at once, and so do adding a board, Talk and notes.
 3. **The always-on PC's updates (§4.2).**
 4. **The tolerant reader (§3.5).**
+5. **The hosted mailbox (§4.3), in this order:** the key work (log key, per-device sealing, rotation through the mailbox) as a spike first, since the rest depends on it; then the server program; then the device side for spaces; then Personal; then running it.
 
-Steps 2 to 4 are separate cards, and #563 doesn't wait on them: a delete works with today's gate, only with today's wait.
+Steps 2 to 5 are separate cards, and #563 doesn't wait on them: a delete works with today's gate, only with today's wait.
 
 ## 7. Choices for Stephen
 
-Raised on #562. Recommended picks are the ones written above.
+Decided on #562:
 
-1. **Moves and deletes:** decided (b1): carry them in rows every current device reads (§3), and build it now.
-2. **The server:** a role on the always-on PC (§4.2), or a rented machine as well (§4.3).
-3. **Which devices block:** only those known to be too old (§5), or everyone not yet heard from, as today, but remembered across restarts.
-4. **The always-on PC's restart:** by itself when no agent is working (§4.2), or keep the Install / Later card and only check and download on a timer.
+1. **Moves and deletes (b1):** carry them in rows every current device reads (§3), and build it now.
+2. **The server (b2):** a hosted service Irori runs for everyone (§4.3).
+3. **Which devices block (b3):** only those known to be too old; unheard ones get a warning (§5).
+
+Still open:
+
+4. **The always-on PC's restart (b4):** by itself when no agent is working (§4.2), or keep the Install / Later card and only check and download on a timer.
+5. **Can the service read what it holds?** Sealed (§4.3), or readable.
+6. **Who runs it and pays?**
+7. **Is it on by default?**
