@@ -6,8 +6,9 @@
 //! thumbnail (card #149).
 //!
 //! It refuses to run without IRORI_HOME (never the live data dir), keeps
-//! the card visible to screen capture so it can be screenshotted, turns
-//! the sound off in that scratch home, and exits after the given seconds
+//! the card visible to screen capture so it can be screenshotted (unless
+//! IRORI_CARD_HIDDEN is set, to check it stays out of capture as in the
+//! app), turns the sound off in that scratch home, and exits after the given seconds
 //! (default 8). With `kinds` after the seconds it shows one card of each
 //! kind instead (info, success, warn, error; card #175).
 //! IRORI_CONFETTI=1 turns "Confetti on good news" on, so a success card
@@ -18,9 +19,10 @@
 //! With `cycle` after the seconds and IRORI_CARD_LOOK_DIR=<dir>, it posts
 //! a sticky copy of the test card and then every 2.5 s applies the next
 //! `*.json` look in the dir (sorted, wrapping), printing each name, so one
-//! run shows cards on screen restyling live. On macOS, IRORI_CARD_SHOTS=<dir>
-//! also saves a picture of the screen's top-right corner after each look
-//! (`<look>.png`, or `card.png` for the plain test card).
+//! run shows cards on screen restyling live. IRORI_CARD_SHOTS=<dir> also
+//! saves a picture after each look (`<look>.png`, or `card.png` for the
+//! plain test card): the screen's top-right corner on macOS, the cards and
+//! what is around them on Windows.
 
 fn main() {
     let Some(home) = std::env::var_os("IRORI_HOME") else {
@@ -35,7 +37,7 @@ fn main() {
     toast::win32::set_dpi_aware();
     let n = notify::Notifier::new(notify::Config {
         dir: Some(home.into()),
-        capture_visible: true,
+        capture_visible: std::env::var_os("IRORI_CARD_HIDDEN").is_none(),
         ..notify::Config::default()
     });
     let (_, err) = n.set_options(notify::Options {
@@ -165,11 +167,12 @@ fn main() {
     toast::run_for(std::time::Duration::from_secs(secs));
 }
 
-/// IRORI_CARD_SHOTS=<dir> (macOS): a picture of the top-right corner of
-/// the main display, taken from inside this process. A process may always
-/// capture its own windows, so this works where the terminal has no
-/// Screen Recording permission (other apps' windows then show as the
-/// desktop, which is what the glass blurs). Elsewhere it does nothing.
+/// IRORI_CARD_SHOTS=<dir>: a picture of the cards. On macOS the top-right
+/// corner of the main display, taken from inside this process: a process
+/// may always capture its own windows, so this works where the terminal
+/// has no Screen Recording permission (other apps' windows then show as
+/// the desktop, which is what the glass blurs). On Windows the cards plus a
+/// margin, wherever they landed. Elsewhere it does nothing.
 fn shot(name: &str) {
     let Some(dir) = std::env::var_os("IRORI_CARD_SHOTS") else {
         return;
@@ -180,8 +183,24 @@ fn shot(name: &str) {
         Ok(()) => println!("shot {}", path.display()),
         Err(e) => eprintln!("shot {name}: {e}"),
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    match win_shot(&path) {
+        Ok(()) => println!("shot {}", path.display()),
+        Err(e) => eprintln!("shot {name}: {e}"),
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     let _ = path;
+}
+
+#[cfg(windows)]
+fn win_shot(path: &std::path::Path) -> Result<(), String> {
+    let (w, h, rgba) = toast::win32::capture_cards(40).ok_or("no card on screen")?;
+    let f = std::fs::File::create(path).map_err(|e| e.to_string())?;
+    let mut enc = png::Encoder::new(std::io::BufWriter::new(f), w, h);
+    enc.set_color(png::ColorType::Rgba);
+    enc.set_depth(png::BitDepth::Eight);
+    let mut out = enc.write_header().map_err(|e| e.to_string())?;
+    out.write_image_data(&rgba).map_err(|e| e.to_string())
 }
 
 #[cfg(target_os = "macos")]
