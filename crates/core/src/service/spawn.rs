@@ -999,7 +999,7 @@ impl Services {
         let me = self.device.id.clone();
         let cap = self.spawn_cap(&me);
         let mut running = self.spawned_here();
-        let mut today = self.spawned_today().len() as i64;
+        let mut today = self.started_today();
         // In queue order (§6): what the person asked for, helpers, the rest.
         for t in self.coord.cards_to_spawn() {
             if running >= cap {
@@ -1069,7 +1069,7 @@ impl Services {
         live + starting
     }
 
-    fn open_cards(&self) -> Vec<Task> {
+    pub(crate) fn open_cards(&self) -> Vec<Task> {
         self.coord.list_tasks(&TaskFilter {
             open: true,
             ..TaskFilter::default()

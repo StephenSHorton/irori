@@ -163,10 +163,13 @@ pub fn limit_in_transcript(path: &str, now: &GoTime) -> Option<UsageLimit> {
         if v.get("apiError").and_then(|e| e.as_str()) != Some("usage_limit_reached") {
             return None;
         }
-        let resets = ["/apiErrorParams/rate_limit_info/resetsAt", "/quotaLimits/resetsAt"]
-            .iter()
-            .find_map(|p| v.pointer(p).and_then(|r| r.as_i64()))
-            .map(|s| GoTime::unix(s, 0).with_offset(now.offset));
+        let resets = [
+            "/apiErrorParams/rate_limit_info/resetsAt",
+            "/quotaLimits/resetsAt",
+        ]
+        .iter()
+        .find_map(|p| v.pointer(p).and_then(|r| r.as_i64()))
+        .map(|s| GoTime::unix(s, 0).with_offset(now.offset));
         return Some(match resets {
             Some(r) => UsageLimit { resets: Some(r) },
             None => {
@@ -244,6 +247,22 @@ impl Services {
         self.coord.spawned_since(&local_midnight(&now))
     }
 
+    /// How many agents count toward today's limit: those started today,
+    /// and the requests still waiting for theirs (bound later, their mark
+    /// would come too late for the same pass).
+    pub(crate) fn started_today(&self) -> i64 {
+        let midnight = local_midnight(&(self.now)());
+        let pending = self
+            .open_cards()
+            .iter()
+            .filter(|t| {
+                t.spawn_request()
+                    .is_some_and(|s| s.pending() && s.at.secs >= midnight.secs)
+            })
+            .count();
+        (self.spawned_today().len() + pending) as i64
+    }
+
     /// Whether the daily limit stops card t starting by itself now: the
     /// limit, when today's spawns reached it and the person hasn't asked
     /// for t's agent.
@@ -260,7 +279,7 @@ impl Services {
         let me = self.device.id.clone();
         let cap = self.spawn_cap(&me);
         let running = self.spawned_here();
-        let today = self.spawned_today().len() as i64;
+        let today = self.started_today();
         let limit = self.spawn_setting("").daily_limit;
         let mut q = SpawnQueue {
             held_until: self.usage_held(),
@@ -279,7 +298,11 @@ impl Services {
             })
             .collect();
         let held = q.held_until.is_some();
-        let mut free = if held { 0 } else { (cap - running).max(0) as usize };
+        let mut free = if held {
+            0
+        } else {
+            (cap - running).max(0) as usize
+        };
         let mut place = 0;
         for t in waiting {
             if !held && self.daily_stops(&t, today) {
@@ -403,7 +426,10 @@ mod tests {
         assert_eq!(l.resets.unwrap().secs, at("2026-11-02T09:00:00-07:00").secs);
         let l = limit_in_text("You've hit your weekly limit", &now).unwrap();
         assert_eq!(l.resets, None);
-        assert_eq!(l.hold_until(&now).secs, now.secs + USAGE_WAIT.as_secs() as i64);
+        assert_eq!(
+            l.hold_until(&now).secs,
+            now.secs + USAGE_WAIT.as_secs() as i64
+        );
     }
 
     #[test]
@@ -425,11 +451,17 @@ mod tests {
         let past = UsageLimit {
             resets: Some(at("2026-11-01T13:00:00Z")),
         };
-        assert_eq!(past.hold_until(&now).secs, now.secs + USAGE_WAIT.as_secs() as i64);
+        assert_eq!(
+            past.hold_until(&now).secs,
+            now.secs + USAGE_WAIT.as_secs() as i64
+        );
         let far = UsageLimit {
             resets: Some(at("2027-01-01T00:00:00Z")),
         };
-        assert_eq!(far.hold_until(&now).secs, now.secs + USAGE_WAIT.as_secs() as i64);
+        assert_eq!(
+            far.hold_until(&now).secs,
+            now.secs + USAGE_WAIT.as_secs() as i64
+        );
     }
 
     #[test]
@@ -451,6 +483,9 @@ mod tests {
     #[test]
     fn midnight_is_in_the_times_own_offset() {
         let now = at("2026-11-04T19:09:00-07:00");
-        assert_eq!(local_midnight(&now).secs, at("2026-11-04T00:00:00-07:00").secs);
+        assert_eq!(
+            local_midnight(&now).secs,
+            at("2026-11-04T00:00:00-07:00").secs
+        );
     }
 }

@@ -60,6 +60,9 @@ pub struct AgentsSettings {
     pub idle_mins: u32,
     /// The idle limits Settings › Agents offers, in minutes.
     pub idle_choices: Vec<u32>,
+    /// The daily limit (card #450): once this many agents started today,
+    /// cards wait for the person to start theirs. 0 is none.
+    pub daily_limit: u32,
 }
 
 /// The idle limits offered, in minutes; 30 is the default.
@@ -79,6 +82,9 @@ pub struct AgentsChange {
     pub effort: Option<String>,
     #[serde(default)]
     pub idle_mins: Option<u32>,
+    /// 0 turns the daily limit off.
+    #[serde(default)]
+    pub daily_limit: Option<u32>,
 }
 
 pub(crate) fn view(s: &SpawnSetting, chosen: bool) -> AgentsSettings {
@@ -94,6 +100,7 @@ pub(crate) fn view(s: &SpawnSetting, chosen: bool) -> AgentsSettings {
         default_effort: spawn::DEFAULT_EFFORT.into(),
         idle_mins: (s.idle_limit().as_secs() / 60) as u32,
         idle_choices: IDLE_CHOICES.to_vec(),
+        daily_limit: s.daily_limit.clamp(0, i64::from(u32::MAX)) as u32,
     }
 }
 
@@ -113,8 +120,58 @@ pub(crate) fn apply(mut s: SpawnSetting, c: AgentsChange) -> SpawnSetting {
         let def = (spawn::IDLE_LIMIT.as_secs() / 60) as u32;
         s.idle_mins = if m == def { 0 } else { i64::from(m) };
     }
+    if let Some(n) = c.daily_limit {
+        s.daily_limit = i64::from(n);
+    }
     s
 }
+
+/// One device's cap in Settings › Agents (card #450, sa-6).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceCap {
+    pub device: String,
+    /// "<its own name> (this one)" or the other device's name.
+    pub name: String,
+    pub here: bool,
+    /// The cap: his pick, or for this device its default. 0 for another
+    /// device he hasn't set: it uses its own default (6 on a Windows PC,
+    /// 12 on a Mac).
+    pub cap: u32,
+    /// He picked it.
+    pub chosen: bool,
+    /// Agents Irori started that run there now, and those starting.
+    pub running: u32,
+}
+
+/// Settings › Agents' limits (card #450, sa-6): caps per device, today's
+/// count and cost, and a usage-limit hold.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentsLimits {
+    pub devices: Vec<DeviceCap>,
+    /// The highest cap offered.
+    pub max_cap: u32,
+    /// Agents Irori started today for the private board, every device's.
+    pub today: u32,
+    /// Of those, the ones on this device, which are costed.
+    pub today_here: u32,
+    /// What today's agents here used, in dollars at API prices (on a Claude
+    /// plan that is plan usage, not a bill).
+    pub cost_usd: f64,
+    /// The daily limit, 0 for none, and whether today reached it.
+    pub daily_limit: u32,
+    pub daily_reached: bool,
+    /// While a Claude usage limit holds new spawns here: until when, in ms.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional, type = f64)]
+    pub held_until: Option<i64>,
+    /// Cards queued here for a slot.
+    pub queued: u32,
+}
+
+static COSTS: std::sync::LazyLock<crate::spawn_cost::CostCache> =
+    std::sync::LazyLock::new(Default::default);
 
 /// The person's choice of idle limit: one of [`IDLE_CHOICES`].
 fn valid_idle(c: &AgentsChange) -> Result<(), String> {
@@ -262,6 +319,88 @@ impl Window {
         }
         out.sort_by_key(|r| std::cmp::Reverse(r.started_at));
         out
+    }
+
+    /// Settings › Agents' caps, today's count and cost, and any usage-limit
+    /// hold (card #450).
+    pub fn agents_limits(&self) -> AgentsLimits {
+        let p = self.people();
+        let co = self.core.coord();
+        let me = self.core.device_id().to_string();
+        let q = self.core.spawn_queue();
+        let today = self.core.spawned_today();
+        let claude = self.core.claude_dir();
+        let mut cost = 0.0;
+        let mut here = 0;
+        for (key, m) in &today {
+            if m.device != me {
+                continue;
+            }
+            here += 1;
+            let session = key.rsplit_once('/').map_or(key.as_str(), |(_, s)| s);
+            cost += COSTS.session(&claude, session).0;
+        }
+        // Running and starting, per device.
+        let mut running: std::collections::HashMap<String, u32> = Default::default();
+        for a in self.core.mesh_agents() {
+            if a.status != "gone" && co.is_spawned(&a.key) {
+                *running.entry(a.device_id.clone()).or_default() += 1;
+            }
+        }
+        for t in co.list_tasks(&coord::TaskFilter {
+            open: true,
+            ..coord::TaskFilter::default()
+        }) {
+            if let Some(r) = t.spawn_request().filter(|r| r.pending()) {
+                *running.entry(r.device.clone()).or_default() += 1;
+            }
+        }
+        let mut ids: Vec<String> = self.core.device_labels().into_keys().collect();
+        if !ids.contains(&me) {
+            ids.push(me.clone());
+        }
+        let u = |n: i64| n.clamp(0, i64::from(u32::MAX)) as u32;
+        let mut devices: Vec<DeviceCap> = ids
+            .into_iter()
+            .map(|d| {
+                let is_here = d == me;
+                let chosen = self.core.spawn_cap_set(&d);
+                DeviceCap {
+                    name: p.where_(&d),
+                    here: is_here,
+                    cap: if chosen || is_here {
+                        u(self.core.spawn_cap_of(&d))
+                    } else {
+                        0
+                    },
+                    chosen,
+                    running: if is_here {
+                        u(q.running)
+                    } else {
+                        running.get(&d).copied().unwrap_or(0)
+                    },
+                    device: d,
+                }
+            })
+            .collect();
+        devices.sort_by(|a, b| b.here.cmp(&a.here).then_with(|| a.name.cmp(&b.name)));
+        AgentsLimits {
+            devices,
+            max_cap: u(irori_core::spawn::MAX_CAP),
+            today: today.len() as u32,
+            today_here: here,
+            cost_usd: cost,
+            daily_limit: u(self.core.spawn_setting("").daily_limit),
+            daily_reached: q.daily_reached.is_some(),
+            held_until: q.held_until.map(|h| h.unix_milli_value()),
+            queued: q.places.len() as u32,
+        }
+    }
+
+    /// The person sets a device's cap (card #450): the app only.
+    pub fn agents_cap_set(&self, device: &str, cap: u32) -> Result<AgentsLimits, String> {
+        self.core.set_spawn_cap_of(device, i64::from(cap))?;
+        Ok(self.agents_limits())
     }
 
     /// The person changes a board's switch, model or effort.

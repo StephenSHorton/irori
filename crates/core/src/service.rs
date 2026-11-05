@@ -2430,6 +2430,11 @@ impl Core {
         self.s.set_spawn_cap(&self.s.device.id.clone(), cap)
     }
 
+    /// Claude Code's folder (its `projects/` holds the transcripts).
+    pub fn claude_dir(&self) -> PathBuf {
+        PathBuf::from(self.s.presence.claude_dir())
+    }
+
     /// Device `device`'s cap (card #450): his pick, else the default.
     pub fn spawn_cap_of(&self, device: &str) -> i64 {
         self.s.spawn_cap(device)
@@ -2437,7 +2442,12 @@ impl Core {
 
     /// Whether he picked device `device`'s cap himself.
     pub fn spawn_cap_set(&self, device: &str) -> bool {
-        self.s.spawn.caps.read().unwrap_or_else(|e| e.into_inner()).contains_key(device)
+        self.s
+            .spawn
+            .caps
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(device)
     }
 
     /// The person sets device `device`'s cap from Settings › Agents, on any
