@@ -812,6 +812,7 @@ function summary(c: CardDetail): CardSummary {
     waiting: c.waiting,
     waitingOn: c.waitingOn,
     waitOn: c.waitOn,
+    waitFull: c.waitFull,
     waitQuestion: c.waitQuestion,
     waitYou: c.waitYou,
     waitTask: c.waitTask,

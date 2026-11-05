@@ -82,10 +82,8 @@ fn a_full_wake_carries_its_notes_once() {
     h.reopen();
     let (again, _) = h.ib.outstanding_wake(KEY_A).expect("still outstanding");
     assert_eq!(again.prompt, w.prompt);
-    let by_card = h.ib.task_note_wakes("T1");
-    assert_eq!(by_card.len(), 1);
-    assert_eq!(by_card[0].0, KEY_A);
-    assert_eq!(by_card[0].2.len(), 2);
+    assert_eq!(again.notes_task, "task:T1");
+    assert_eq!(again.notes, w.notes);
 
     // The next wake about the card doesn't repeat them.
     h.ib.mark_delivered(KEY_A, &w.token).unwrap();

@@ -215,7 +215,6 @@ export const commands = {
 	agentsPermissions: (boardId: string) => __TAURI_INVOKE<AgentPermissions>("agents_permissions", { boardId }),
 	/**  The person sets a board's agent permissions, from Settings › Agents. */
 	agentsPermissionsSet: (permissions: AgentPermissions) => __TAURI_INVOKE<AgentPermissions>("agents_permissions_set", { permissions }),
-	cardWakeNotes: (taskId: string) => __TAURI_INVOKE<WakeNoteView[]>("card_wake_notes", { taskId }),
 	boardsInvite: (boardId: string) => __TAURI_INVOKE<InviteStatus>("boards_invite", { boardId }),
 	boardsJoinInvite: (link: string) => __TAURI_INVOKE<InviteStatus>("boards_join_invite", { link }),
 	boardsConfirmInviteWords: (words: string) => __TAURI_INVOKE<InviteStatus>("boards_confirm_invite_words", { words }),
@@ -384,6 +383,11 @@ export type AgentCard = {
 	/**  The tool the session is running now (card #299). */
 	lastTool?: string,
 	deviceState?: string,
+	/**
+	 *  The device its rows come through while there is no session with it
+	 *  (card #544).
+	 */
+	deviceVia?: string,
 	/**  When the current status began, omitted when unknown (card #489). */
 	statusSince?: string,
 	/**
@@ -454,6 +458,8 @@ export type AgentRef = {
 	deviceId?: string,
 	color?: string,
 	offline?: boolean,
+	/**  The device its rows come through (card #544). */
+	deviceVia?: string,
 	conflict?: string,
 	/**
 	 *  While it's idle: its last transcript activity, about when its turn
@@ -1023,8 +1029,15 @@ export type CardSummary = {
 	 */
 	waitOn?: string,
 	/**
+	 *  The first wait in full where wait_on is the short form (card #553):
+	 *  "Irori 0.12.4 on Mac and PC" for wait_on's "Irori 0.12.4". The
+	 *  state pill's tooltip says it.
+	 */
+	waitFull?: string,
+	/**
 	 *  What kind of thing the first wait is on (card #487): "task",
-	 *  "lease", "agent" or "external", so Home can name a lease plainly.
+	 *  "lease", "agent", "version" or "external", so Home can name a lease
+	 *  plainly.
 	 */
 	waitKind?: string,
 	/**
@@ -1442,6 +1455,12 @@ export type DeviceView = {
 	action?: string,
 	/**  Zero (omitted): never heard from, or this device. */
 	lastSeen?: string,
+	/**
+	 *  The device its rows come through while there is no session with it
+	 *  (card #544): an id from the mesh, its name by the time the window
+	 *  reads it.
+	 */
+	via?: string,
 	color?: string,
 	/**
 	 *  The work/personal sides it runs, the first its new cards' (card
@@ -2473,23 +2492,6 @@ export type WaitPr = {
 	 *  another member's agents, never the person's or their own agents'.
 	 */
 	approval?: boolean,
-};
-
-/**
- *  A note an agent got on wake for a card, and the tag that matched
- *  (card #412): the card page's "notes this agent got".
- */
-export type WakeNoteView = {
-	noteId: string,
-	/**  rule, gotcha, decision, pointer or preference. */
-	kind: string,
-	text: string,
-	/**  The tag that matched, e.g. `repo:<repoKey>`. */
-	tag: string,
-	/**  The agent's key. */
-	agent: string,
-	/**  When the wake went out. */
-	at: string,
 };
 
 /**  One agent in a run. */

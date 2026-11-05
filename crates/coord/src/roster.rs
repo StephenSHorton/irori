@@ -29,8 +29,9 @@ pub const NOT_ANSWERING: &str = "unresponsive";
 /// How an agent's device reads to other agents (card #372): "online",
 /// "recent, seen 3m ago", "offline since 2026-11-03T14:02:00Z (2h ago)",
 /// "offline, never heard from here". A card with no state is this
-/// device's own: "online, this device".
-pub fn device_phrase(state: &str, seen: &GoTime, now: &GoTime) -> String {
+/// device's own: "online, this device". `via` names the device its rows
+/// come through (card #544): "reachable through Phone, seen 5s ago".
+pub fn device_phrase(state: &str, seen: &GoTime, via: &str, now: &GoTime) -> String {
     let ago = || {
         let s = (crate::gotime::since(now, seen) / 1_000_000_000).max(0) as i64;
         match s {
@@ -44,6 +45,10 @@ pub fn device_phrase(state: &str, seen: &GoTime, now: &GoTime) -> String {
     match state {
         "" => "online, this device".into(),
         CONNECTED => "online".into(),
+        RECENT if !via.is_empty() => {
+            let via: String = via.chars().filter(|c| !c.is_control()).take(40).collect();
+            format!("reachable through {via}, seen {}", ago())
+        }
         RECENT if seen.is_zero() => "recent".into(),
         RECENT => format!("recent, seen {}", ago()),
         OFFLINE if seen.is_zero() => "offline, never heard from here".into(),
@@ -105,6 +110,9 @@ crate::go_struct! {
         /// When its device was last heard from (card #372): set beside
         /// `device_state` on read, never written.
         pub device_seen: GoTime = "deviceSeen" "omit_zero_time",
+        /// The name of the device its rows come through while there is no
+        /// session with it (card #544): set on read, never written.
+        pub device_via: String = "deviceVia" "omit",
         /// When the current status began (presence's `status_since`), so
         /// the window can say "running a job · 12 min". Rust-only and
         /// omitted when zero, so Go's JSON still holds (card #489).
@@ -144,6 +152,9 @@ pub struct Options {
     /// When another device was last heard from (card #372); `None`, or a
     /// zero time, for never.
     pub seen: Option<DeviceFn<GoTime>>,
+    /// The name of the device another one's rows come through (card #544),
+    /// "" when it needs none; `None` for nobody.
+    pub via: Option<DeviceFn<String>>,
     /// A removed device: its cards are left out. `None` revokes nobody.
     pub revoked: Option<DeviceFn<bool>>,
 }
@@ -262,7 +273,7 @@ impl Roster {
     pub fn remote(&self) -> Vec<AgentCard> {
         let mut remote: Vec<AgentCard> = self.lock().cards.values().cloned().collect();
         remote.sort_by(|a, b| a.key.cmp(&b.key));
-        let mut state: HashMap<String, (String, GoTime)> = HashMap::new();
+        let mut state: HashMap<String, (String, GoTime, String)> = HashMap::new();
         let mut out = Vec::with_capacity(remote.len());
         for mut c in remote {
             if let Some(rev) = &self.o.revoked
@@ -281,10 +292,14 @@ impl Roster {
                         Some(f) => f(&c.device_id),
                         None => GoTime::default(),
                     };
-                    (st, seen)
+                    let via = match &self.o.via {
+                        Some(f) => f(&c.device_id),
+                        None => String::new(),
+                    };
+                    (st, seen, via)
                 })
                 .clone();
-            (c.device_state, c.device_seen) = s;
+            (c.device_state, c.device_seen, c.device_via) = s;
             out.push(c);
         }
         out

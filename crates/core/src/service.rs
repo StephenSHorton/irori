@@ -266,7 +266,7 @@ struct Services {
     /// The person's own avatar on shared spaces (card #393).
     person_avatar: coord::person_avatar::PersonAvatar,
     /// The person's names for their devices (card #184).
-    device_names: coord::devname::Names,
+    device_names: Arc<coord::devname::Names>,
     /// Talk's channels, DMs and read cursors (card #389).
     talk: Arc<coord::talk::Talk>,
     /// The person's notification history (card #377).
@@ -515,6 +515,7 @@ fn presence_card(c: AgentCard) -> presence::AgentCard {
         device_state: c.device_state,
         waiting_for: c.waiting_for,
         device_seen: c.device_seen,
+        device_via: c.device_via,
         status_since: c.status_since,
     }
 }
@@ -550,6 +551,7 @@ fn roster_card(c: presence::AgentCard) -> AgentCard {
         device_state: c.device_state,
         waiting_for: c.waiting_for,
         device_seen: c.device_seen,
+        device_via: c.device_via,
         status_since: c.status_since,
     }
 }
@@ -916,6 +918,8 @@ impl Core {
         // its liveness is read per call, offline until it exists.
         let roster_sub = Arc::new(st.subscribe());
         let node_cell: Arc<OnceLock<Arc<mesh::Node>>> = Arc::new(OnceLock::new());
+        let device_names = Arc::new(coord::devname::Names::new());
+        load_device_names(&st, &device_names);
         let roster = Roster::new(coord::roster::Options {
             store: st.clone(),
             self_id: me.clone(),
@@ -934,6 +938,15 @@ impl Core {
                         .and_then(|n| n.last_seen(dev))
                         .map(gocompat::time::GoTime::from_system)
                         .unwrap_or_default()
+                })
+            }),
+            via: Some({
+                let cell = node_cell.clone();
+                let chain = chain.clone();
+                let names = device_names.clone();
+                Arc::new(move |dev: &str| {
+                    let via = cell.get().map(|n| n.device_read(dev).via);
+                    via_name(&chain, &names, &via.unwrap_or_default())
                 })
             }),
             revoked: Some(revoked.clone()),
@@ -1170,8 +1183,6 @@ impl Core {
         let person_avatar = coord::person_avatar::PersonAvatar::new();
         let colors_sub = Arc::new(st.subscribe());
         load_colors(&st, &colors, &person_color, &faces, &person_avatar);
-        let device_names = coord::devname::Names::new();
-        load_device_names(&st, &device_names);
         let talk = Arc::new(coord::talk::Talk::new(Some(st.clone()), {
             let now = now.clone();
             Some(Arc::new(move || now().utc()))
@@ -3030,6 +3041,22 @@ fn load_notifications(st: &Store, h: &coord::notifications::History) {
     }
 }
 
+/// What the device `id` a row came through is called (card #544): the
+/// person's name for it, else the computer's, else its id's first letters.
+pub(crate) fn via_name(chain: &Chain, names: &coord::devname::Names, id: &str) -> String {
+    if id.is_empty() {
+        return String::new();
+    }
+    if let Some(n) = names.chosen().remove(id).filter(|n| !n.is_empty()) {
+        return n;
+    }
+    chain
+        .cert(id)
+        .map(|c| c.label)
+        .filter(|l| !l.is_empty())
+        .unwrap_or_else(|| id.chars().take(8).collect())
+}
+
 fn load_device_names(st: &Store, names: &coord::devname::Names) {
     let mut f = Filter {
         kinds: vec![coord::devname::KIND.into()],
@@ -3658,7 +3685,7 @@ impl Services {
     /// Asks GitHub about the PRs that are due (card #208) and routes what
     /// coord says changed.
     fn check_prs(self: &Arc<Self>) {
-        let Some(checker) = self.pr_checker.clone() else {
+        let Some(checker) = self.pr_checker.clone().filter(|c| c.ready()) else {
             return;
         };
         let local: std::collections::HashSet<String> = self
@@ -3908,6 +3935,7 @@ impl Services {
         card.transcript.clear();
         card.pid = 0;
         card.device_state.clear();
+        card.device_via.clear();
         card.ai_title.clear();
         card.title = self.scrubber.string(&card.title);
         card
