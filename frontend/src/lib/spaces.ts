@@ -77,7 +77,10 @@ export function convInSpace(c: { spaceId?: string }, space: string): boolean {
 
 // boardsInSpace is the Boards page in the picked space: every shared space
 // under All spaces, none under Personal, else that one.
-export function boardsInSpace(boards: BoardSummary[], space: string): BoardSummary[] {
+export function boardsInSpace(
+  boards: BoardSummary[],
+  space: string
+): BoardSummary[] {
   if (space === AllSpaces) return boards
   if (space === Personal) return []
   return boards.filter((b) => b.boardId === space)
@@ -105,7 +108,9 @@ function readSpace(): string {
 
 // useSpace is the picked space on this device, kept between starts; every
 // user of it follows a pick made anywhere in the window.
-export function useSpace(boards: BoardSummary[]): [string, (id: string) => void] {
+export function useSpace(
+  boards: BoardSummary[]
+): [string, (id: string) => void] {
   const [raw, setRaw] = useState(readSpace)
   useEffect(() => {
     const on = () => setRaw(readSpace())
@@ -123,5 +128,8 @@ export function useSpace(boards: BoardSummary[]): [string, (id: string) => void]
     window.dispatchEvent(new Event(SpaceEvent))
   }, [])
   // Until the boards load, a shared pick can't be checked: keep it.
-  return [boards.length === 0 && raw !== Personal ? raw : known(raw, boards), pick]
+  return [
+    boards.length === 0 && raw !== Personal ? raw : known(raw, boards),
+    pick,
+  ]
 }

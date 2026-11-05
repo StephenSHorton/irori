@@ -19,12 +19,31 @@ const mlg = BoardSummary({
   name: "MLG",
   tag: "mlg",
   members: [
-    { personId: "me", name: "Stephen", me: true, presence: "online", working: 0, free: 0 },
-    { personId: "p1", name: "Blake", me: false, presence: "online", working: 0, free: 0 },
+    {
+      personId: "me",
+      name: "Stephen",
+      me: true,
+      presence: "online",
+      working: 0,
+      free: 0,
+    },
+    {
+      personId: "p1",
+      name: "Blake",
+      me: false,
+      presence: "online",
+      working: 0,
+      free: 0,
+    },
   ],
 })
 const iro = BoardSummary({ boardId: "b-iro", name: "Irori", tag: "iro" })
-const gone = BoardSummary({ boardId: "b-gone", name: "Gone", tag: "gone", leaving: true })
+const gone = BoardSummary({
+  boardId: "b-gone",
+  name: "Gone",
+  tag: "gone",
+  leaving: true,
+})
 
 describe("spaces (card #393)", () => {
   test("the switcher lists All spaces, Personal, then shared spaces by name", () => {
@@ -50,7 +69,9 @@ describe("spaces (card #393)", () => {
   test("cards: Personal is the private ones, a space its own", () => {
     const priv = CardSummary({ id: "a" })
     const onMlg = CardSummary({ id: "b", board: "b-mlg", scope: "board" })
-    expect(cardInSpace(priv, AllSpaces) && cardInSpace(onMlg, AllSpaces)).toBe(true)
+    expect(cardInSpace(priv, AllSpaces) && cardInSpace(onMlg, AllSpaces)).toBe(
+      true
+    )
     expect(cardInSpace(priv, Personal)).toBe(true)
     expect(cardInSpace(onMlg, Personal)).toBe(false)
     expect(cardInSpace(onMlg, "b-mlg")).toBe(true)
@@ -68,10 +89,15 @@ describe("spaces (card #393)", () => {
 
   test("channels and DMs follow the pick", () => {
     const mine = TalkConversation({ convId: "c1", kind: "channel" })
-    const onMlg = TalkConversation({ convId: "c2", kind: "channel", spaceId: "b-mlg" })
+    const onMlg = TalkConversation({
+      convId: "c2",
+      kind: "channel",
+      spaceId: "b-mlg",
+    })
     const dm = TalkConversation({ convId: "d1", kind: "dm" })
     const all = [mine, onMlg, dm]
-    const ids = (space: string) => all.filter((c) => convInSpace(c, space)).map((c) => c.convId)
+    const ids = (space: string) =>
+      all.filter((c) => convInSpace(c, space)).map((c) => c.convId)
     expect(ids(AllSpaces)).toEqual(["c1", "c2", "d1"])
     expect(ids(Personal)).toEqual(["c1", "d1"])
     expect(ids("b-mlg")).toEqual(["c2"])

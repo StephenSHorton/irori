@@ -59,9 +59,15 @@ export function dmWith(c: Conversation): Member[] {
 // dmGone is whether a DM's agents have all gone: none is on the live
 // roster (by key, its status), or the roster calls it gone. Such a DM goes
 // in Talk's Archive (card #473).
-export function dmGone(c: Conversation, live: ReadonlyMap<string, { status: string }>): boolean {
+export function dmGone(
+  c: Conversation,
+  live: ReadonlyMap<string, { status: string }>
+): boolean {
   const other = dmWith(c)
-  return other.length > 0 && other.every((m) => (live.get(m.key)?.status ?? "gone") === "gone")
+  return (
+    other.length > 0 &&
+    other.every((m) => (live.get(m.key)?.status ?? "gone") === "gone")
+  )
 }
 
 // talkWaiting counts the conversations that wait on the person (card
@@ -115,21 +121,33 @@ export const talkApi = {
       : Promise.resolve(samplePost(convId, text, agentsNow, threadFrom)),
   // linkCard marks the card made from a post (Make a card): its chip.
   linkCard: (postId: string, taskId: string): Promise<void> =>
-    inWails() ? TalkService.LinkCard(postId, taskId) : Promise.resolve(sampleLink(postId, taskId)),
+    inWails()
+      ? TalkService.LinkCard(postId, taskId)
+      : Promise.resolve(sampleLink(postId, taskId)),
   read: (convId: string, upTo: string): Promise<void> =>
-    inWails() ? TalkService.Read(convId, upTo) : Promise.resolve(sampleRead(convId)),
+    inWails()
+      ? TalkService.Read(convId, upTo)
+      : Promise.resolve(sampleRead(convId)),
   // createChannel makes a channel in a shared space (its id), or in
   // Personal with none (card #461).
-  createChannel: (name: string, topic: string | null, spaceId: string | null = null): Promise<string> =>
+  createChannel: (
+    name: string,
+    topic: string | null,
+    spaceId: string | null = null
+  ): Promise<string> =>
     inWails()
       ? TalkService.ChannelCreate(name, topic, spaceId)
       : Promise.resolve(sampleChannel(name, topic, spaceId)),
   dm: (member: MemberRef): Promise<string> =>
     inWails() ? TalkService.Dm(member) : Promise.resolve(sampleDm(member)),
   join: (convId: string, member: MemberRef): Promise<void> =>
-    inWails() ? TalkService.Join(convId, member) : Promise.resolve(sampleJoin(convId, member)),
+    inWails()
+      ? TalkService.Join(convId, member)
+      : Promise.resolve(sampleJoin(convId, member)),
   leave: (convId: string, member: MemberRef): Promise<void> =>
-    inWails() ? TalkService.Leave(convId, member) : Promise.resolve(sampleLeave(convId, member)),
+    inWails()
+      ? TalkService.Leave(convId, member)
+      : Promise.resolve(sampleLeave(convId, member)),
 }
 
 // useTalkFresh reloads on every Talk change, on focus, and on the sample's.
@@ -194,19 +212,44 @@ type SampleConv = Conversation & { posts: Post[]; readUpTo: string }
 
 let sample: SampleConv[] | null = null
 
-function post(convId: string, n: number, by: string, min: number, text: string, extra: Partial<Post> = {}): Post {
-  return TalkPost({ postId: `${convId}-p${n}`, convId, by, text, at: ago(min), ...extra })
+function post(
+  convId: string,
+  n: number,
+  by: string,
+  min: number,
+  text: string,
+  extra: Partial<Post> = {}
+): Post {
+  return TalkPost({
+    postId: `${convId}-p${n}`,
+    convId,
+    by,
+    text,
+    at: ago(min),
+    ...extra,
+  })
 }
 
 function sampleState(): SampleConv[] {
   if (sample) return sample
-  const ch = (id: string, name: string, topic: string, members: Member[], posts: Post[], read = 0): SampleConv => ({
+  const ch = (
+    id: string,
+    name: string,
+    topic: string,
+    members: Member[],
+    posts: Post[],
+    read = 0
+  ): SampleConv => ({
     ...TalkConversation({ convId: id, kind: "channel", name, topic, members }),
     posts,
     readUpTo: posts[read - 1]?.postId ?? "",
   })
   const you: Member = { kind: "person", key: me, name: "you" }
-  const a = (key: string, name: string): Member => ({ kind: "agent", key, name })
+  const a = (key: string, name: string): Member => ({
+    kind: "agent",
+    key,
+    name,
+  })
   sample = [
     ch(
       "sample-ch-suzuri",
@@ -214,11 +257,38 @@ function sampleState(): SampleConv[] {
       "The terminal move",
       [you, a(heron, "sample-heron"), a(otter, "sample-otter")],
       [
-        post("sample-ch-suzuri", 1, otter, 300, "Windows installer now takes over Go's install: #3 is on it."),
-        post("sample-ch-suzuri", 2, me, 40, "Is anything still blocking the move? @sample-heron", { mentions: [heron] }),
-        post("sample-ch-suzuri", 3, heron, 38, "Only the live PC transfer. It needs one Firewall click from you, or we wait for #8's install."),
-        post("sample-ch-suzuri", 5, me, 36, "#20", { threadFrom: "sample-ch-suzuri-p3" }),
-        post("sample-ch-suzuri", 4, me, 30, "Let's tag 0.10.0 the moment #8 merges, not before."),
+        post(
+          "sample-ch-suzuri",
+          1,
+          otter,
+          300,
+          "Windows installer now takes over Go's install: #3 is on it."
+        ),
+        post(
+          "sample-ch-suzuri",
+          2,
+          me,
+          40,
+          "Is anything still blocking the move? @sample-heron",
+          { mentions: [heron] }
+        ),
+        post(
+          "sample-ch-suzuri",
+          3,
+          heron,
+          38,
+          "Only the live PC transfer. It needs one Firewall click from you, or we wait for #8's install."
+        ),
+        post("sample-ch-suzuri", 5, me, 36, "#20", {
+          threadFrom: "sample-ch-suzuri-p3",
+        }),
+        post(
+          "sample-ch-suzuri",
+          4,
+          me,
+          30,
+          "Let's tag 0.10.0 the moment #8 merges, not before."
+        ),
       ],
       2
     ),
@@ -228,12 +298,31 @@ function sampleState(): SampleConv[] {
       "",
       [you, a(otter, "sample-otter")],
       [
-        post("sample-ch-releases", 1, me, 90, "0.10.2 looked good on the phone."),
-        post("sample-ch-releases", 2, otter, 12, "Released 0.10.2; the PC and the phone report it. @you", { mentions: [me] }),
+        post(
+          "sample-ch-releases",
+          1,
+          me,
+          90,
+          "0.10.2 looked good on the phone."
+        ),
+        post(
+          "sample-ch-releases",
+          2,
+          otter,
+          12,
+          "Released 0.10.2; the PC and the phone report it. @you",
+          { mentions: [me] }
+        ),
       ],
       1
     ),
-    ch("sample-ch-irori", "irori", "Irori itself", [you, a(badger, "sample-badger")], []),
+    ch(
+      "sample-ch-irori",
+      "irori",
+      "Irori itself",
+      [you, a(badger, "sample-badger")],
+      []
+    ),
     // A channel in the MLG space (card #461): ?space=sample-board-mlg shows it alone.
     {
       ...ch(
@@ -241,17 +330,48 @@ function sampleState(): SampleConv[] {
         "netcode",
         "Rollback and the lobby",
         [you, a(otter, "sample-otter")],
-        [post("sample-ch-netcode", 1, otter, 60, "Rollback holds at 8 frames on the LAN test.")],
+        [
+          post(
+            "sample-ch-netcode",
+            1,
+            otter,
+            60,
+            "Rollback holds at 8 frames on the LAN test."
+          ),
+        ],
         1
       ),
       spaceId: "sample-board-mlg",
     },
     {
-      ...TalkConversation({ convId: "sample-dm-heron", kind: "dm", name: "sample-heron", members: [you, a(heron, "sample-heron")] }),
+      ...TalkConversation({
+        convId: "sample-dm-heron",
+        kind: "dm",
+        name: "sample-heron",
+        members: [you, a(heron, "sample-heron")],
+      }),
       posts: [
-        post("sample-dm-heron", 1, me, 200, "How would you feel about dropping the workspace panel altogether?"),
-        post("sample-dm-heron", 2, heron, 199, "Happy to. It's the only thing that needs Go's binary. I'd make it a card so others see it."),
-        post("sample-dm-heron", 3, heron, 5, "The panel's gone and the PC check passed. Anything else before I go idle?"),
+        post(
+          "sample-dm-heron",
+          1,
+          me,
+          200,
+          "How would you feel about dropping the workspace panel altogether?"
+        ),
+        post(
+          "sample-dm-heron",
+          2,
+          heron,
+          199,
+          "Happy to. It's the only thing that needs Go's binary. I'd make it a card so others see it."
+        ),
+        post(
+          "sample-dm-heron",
+          3,
+          heron,
+          5,
+          "The panel's gone and the PC check passed. Anything else before I go idle?"
+        ),
       ],
       readUpTo: "sample-dm-heron-p2",
     },
@@ -264,7 +384,13 @@ function sampleState(): SampleConv[] {
         readOnly: true,
       }),
       posts: [
-        post("sample-dm-otter-badger", 1, otter, 25, "Can you take the docs half of #4? I'm deep in the parser."),
+        post(
+          "sample-dm-otter-badger",
+          1,
+          otter,
+          25,
+          "Can you take the docs half of #4? I'm deep in the parser."
+        ),
         post("sample-dm-otter-badger", 2, badger, 24, "On it."),
       ],
       readUpTo: "sample-dm-otter-badger-p2",
@@ -295,7 +421,12 @@ function sampleState(): SampleConv[] {
     const id = `sample-dm-gone-${i + 1}`
     const key = `sample-gone-${i + 1}`
     sample!.push({
-      ...TalkConversation({ convId: id, kind: "dm", name: key, members: [you, a(key, `card-${n}-1`)] }),
+      ...TalkConversation({
+        convId: id,
+        kind: "dm",
+        name: key,
+        members: [you, a(key, `card-${n}-1`)],
+      }),
       posts: [
         post(id, 1, me, 460 + i * 95, `How's #${n} going?`),
         post(id, 2, key, 400 + i * 95, text),
@@ -306,17 +437,39 @@ function sampleState(): SampleConv[] {
   // Two gone agents left messages the person hasn't read: they wait in the
   // Archive, marked unread, and count beside "Archive" (card #473).
   sample.push({
-    ...TalkConversation({ convId: "sample-dm-gone-new", kind: "dm", name: "sample-gone-new", members: [you, a("sample-gone-new", "card-474-1")] }),
+    ...TalkConversation({
+      convId: "sample-dm-gone-new",
+      kind: "dm",
+      name: "sample-gone-new",
+      members: [you, a("sample-gone-new", "card-474-1")],
+    }),
     posts: [
       post("sample-dm-gone-new", 1, me, 50, "Is #474 on main?"),
-      post("sample-dm-gone-new", 2, "sample-gone-new", 40, "Merged as #474. My session ends here."),
+      post(
+        "sample-dm-gone-new",
+        2,
+        "sample-gone-new",
+        40,
+        "Merged as #474. My session ends here."
+      ),
     ],
     readUpTo: "sample-dm-gone-new-p1",
   })
   sample.push({
-    ...TalkConversation({ convId: "sample-dm-gone-new2", kind: "dm", name: "sample-gone-new2", members: [you, a("sample-gone-new2", "card-475-1")] }),
+    ...TalkConversation({
+      convId: "sample-dm-gone-new2",
+      kind: "dm",
+      name: "sample-gone-new2",
+      members: [you, a("sample-gone-new2", "card-475-1")],
+    }),
     posts: [
-      post("sample-dm-gone-new2", 1, "sample-gone-new2", 25, "The PC check found a second copy of the bug in the phone tabs; I fixed both."),
+      post(
+        "sample-dm-gone-new2",
+        1,
+        "sample-gone-new2",
+        25,
+        "The PC check found a second copy of the bug in the phone tabs; I fixed both."
+      ),
     ],
     readUpTo: "",
   })
@@ -359,10 +512,18 @@ function samplePosts(convId: string): Post[] {
   return sampleState().find((c) => c.convId === convId)?.posts ?? []
 }
 
-function samplePost(convId: string, text: string, agentsNow: boolean, threadFrom: string | null): string {
+function samplePost(
+  convId: string,
+  text: string,
+  agentsNow: boolean,
+  threadFrom: string | null
+): string {
   const c = sampleState().find((x) => x.convId === convId)
   if (!c) throw new Error(`talk: no conversation ${convId}`)
-  const p = post(convId, c.posts.length + 1, me, 0, text, { agentsNow, threadFrom })
+  const p = post(convId, c.posts.length + 1, me, 0, text, {
+    agentsNow,
+    threadFrom,
+  })
   c.posts.push(p)
   c.readUpTo = p.postId
   sampleChanged()
@@ -382,7 +543,10 @@ function sampleLink(postId: string, taskId: string) {
 
 // fromPost is the New card form a message fills (Make a card): its first
 // line as the title, the message and where it was said as the objective.
-export function fromPost(text: string, where: string): { title: string; objective: string } {
+export function fromPost(
+  text: string,
+  where: string
+): { title: string; objective: string } {
   const first = text.trim().split(/\r?\n/)[0] ?? ""
   const title = first.length > 80 ? `${first.slice(0, 79).trimEnd()}…` : first
   return { title, objective: `${text.trim()}\n\n(From a message in ${where}.)` }
@@ -397,7 +561,11 @@ function sampleRead(convId: string) {
   sampleChanged()
 }
 
-function sampleChannel(name: string, topic: string | null, spaceId: string | null = null): string {
+function sampleChannel(
+  name: string,
+  topic: string | null,
+  spaceId: string | null = null
+): string {
   // Names are per space (card #461), so the id carries the space.
   const id = spaceId ? `sample-ch-${spaceId}-${name}` : `sample-ch-${name}`
   if (!sampleState().some((c) => c.convId === id)) {
@@ -420,7 +588,12 @@ function sampleChannel(name: string, topic: string | null, spaceId: string | nul
 
 function sampleDm(member: MemberRef): string {
   const id = `sample-dm-${member.key}`
-  const found = sampleState().find((c) => c.kind === "dm" && c.members.some((m) => m.key === member.key) && !c.readOnly)
+  const found = sampleState().find(
+    (c) =>
+      c.kind === "dm" &&
+      c.members.some((m) => m.key === member.key) &&
+      !c.readOnly
+  )
   if (found) return found.convId
   sampleState().push({
     ...TalkConversation({
