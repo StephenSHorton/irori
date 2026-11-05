@@ -444,8 +444,10 @@ impl Fold {
                             self.wait_target(w),
                             if reason == WAIT_EXPIRED {
                                 "it was a day old"
-                            } else {
+                            } else if w.board.is_empty() {
                                 "the card was deleted"
+                            } else {
+                                "the card was withdrawn, or you left its board"
                             }
                         ),
                     );

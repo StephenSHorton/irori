@@ -189,3 +189,29 @@ fn a_card_with_no_reason_shows_no_line() {
     let board = h.okj(&a, "board", json!({"repo": "*"}));
     assert!(!board.contains("no agent yet"), "{board}");
 }
+
+#[test]
+fn an_assigned_part_gets_no_line_and_an_empty_why_adds_no_blank_line() {
+    let h = new_harness();
+    let (a, b) = (call_a(), call_b());
+    let id = h.new_card(&a, json!({"title": "Parts"}));
+    h.okj(&a, "board_join", json!({"task_id": id}));
+    let out = h.okj(
+        &a,
+        "board_split",
+        json!({"task_id": id, "subtasks": [{"title": "part", "spawn": true}]}),
+    );
+    assert!(!out.contains("\n\n"), "{out}");
+
+    let id = h.new_card(&b, json!({"title": "More parts"}));
+    h.okj(&b, "board_join", json!({"task_id": id}));
+    *h.b.spawn_why.lock().unwrap() = "Irori starts one at its next pass".into();
+    let out = h.okj(
+        &b,
+        "board_split",
+        json!({"task_id": id, "subtasks": [{"title": "part", "spawn": true, "assign_to": "gamma"}]}),
+    );
+    let made = out.lines().find(|l| l.starts_with("Created")).unwrap();
+    assert!(made.contains("Assigned to"), "{out}");
+    assert!(!out.contains("next pass Assigned"), "{out}");
+}

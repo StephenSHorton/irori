@@ -2341,7 +2341,9 @@ impl Window {
                 let text = if on_this {
                     format!("until {}", coord::until_text(&w.until))
                 } else {
-                    coord::wait_line(&w, &refr(&w.task_id))
+                    // A shared card's wait kept its refs: no such card here.
+                    let r = refr(&w.task_id);
+                    coord::wait_line(&w, if r.is_empty() { &w.card } else { &r })
                 };
                 d.waits.push(CardWait {
                     id: w.id.clone(),

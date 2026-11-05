@@ -12,8 +12,12 @@
 //! does, and a mark on a step moves to one with `board_split`
 //! ([`Why::StepOnly`]). An unheld card gets its agent as a card, marked or
 //! not.
+//!
+//! It reads like the sweep but doesn't run it, and the sweep has the last
+//! word: the first try can still fail, and then the failed row says why.
 
 use std::fmt;
+use std::path::Path;
 
 use coord::{SPAWN_FAILED, Spawn, SpawnHold, Task};
 use irori_identity::kinds::PERSON_ACTOR_PREFIX;
@@ -50,6 +54,8 @@ pub enum Why {
     Blocked,
     /// Its agents crashed twice in a row.
     Crashed,
+    /// A thread whose last agent Irori ended.
+    Resting,
     /// It's on a side no device here runs: the card's own words.
     OffSide(String),
     /// A subtask of a card with a lead, with no mark of its own.
@@ -68,10 +74,21 @@ pub enum Why {
         running: i64,
         cap: i64,
     },
+    /// The device has room, but older cards take it first.
+    Queued {
+        device: String,
+        running: i64,
+        cap: i64,
+        ahead: i64,
+    },
     /// Nothing that has its repo can take it now.
     NoDevice { devices: Vec<String> },
     /// Another of the person's devices hands this card out.
     Elsewhere { device: String },
+    /// The device that hands it out was removed.
+    DeviceRemoved { device: String },
+    /// No device hands this card out (Irori made it, say).
+    NoOrigin,
     /// Nothing in the way.
     NextPass,
 }
@@ -120,7 +137,7 @@ impl fmt::Display for Why {
             ),
             Why::StepOnly => write!(
                 f,
-                "a mark on a step starts nothing by itself; board_split the step into a subtask and its mark asks for a helper"
+                "for its marked step: a mark on a step starts nothing by itself; board_split the step into a subtask and its mark asks for a helper"
             ),
             Why::Joinable => write!(
                 f,
@@ -130,6 +147,10 @@ impl fmt::Display for Why {
             Why::Crashed => write!(
                 f,
                 "its agents crashed twice in a row; the person decides on the card"
+            ),
+            Why::Resting => write!(
+                f,
+                "Irori ended its last agent; another starts when the person writes on it"
             ),
             Why::OffSide(why) => write!(f, "{why}"),
             Why::ForLead => write!(
@@ -158,6 +179,15 @@ impl fmt::Display for Why {
                 f,
                 "{device} is at its cap ({running}/{cap}); it starts when one ends"
             ),
+            Why::Queued {
+                device,
+                running,
+                cap,
+                ahead,
+            } => write!(
+                f,
+                "{device} runs {running} of {cap}, and {ahead} older cards go first"
+            ),
             Why::NoDevice { devices } if devices.is_empty() => {
                 write!(f, "no device can take it now; it starts when one can")
             }
@@ -167,9 +197,27 @@ impl fmt::Display for Why {
                 and_list(devices)
             ),
             Why::Elsewhere { device } => write!(f, "{device} starts it, not this device"),
+            Why::DeviceRemoved { device } => write!(
+                f,
+                "{device} hands this card out and was removed: take it up with board_join"
+            ),
+            Why::NoOrigin => write!(
+                f,
+                "no device hands this card out: take it up with board_join"
+            ),
             Why::NextPass => write!(f, "Irori starts one at its next pass"),
         }
     }
+}
+
+/// Whether the older cards ahead fill the slots a device has left.
+fn queued(device: String, running: i64, cap: i64, ahead: i64) -> Option<Why> {
+    (running + ahead >= cap).then_some(Why::Queued {
+        device,
+        running,
+        cap,
+        ahead,
+    })
 }
 
 /// Whether an open step of t asks for a helper.
@@ -204,25 +252,22 @@ impl Services {
         }
     }
 
-    /// Whether `dev` is a phone or another device that never runs agents.
-    fn never_runs(&self, dev: &str) -> bool {
-        self.mesh
-            .node
-            .devices(false)
-            .iter()
-            .find(|r| r.device_id == dev)
-            .is_some_and(|r| !r.role.is_empty() && r.role != ROLE_DESKTOP)
-    }
-
-    /// The device that starts card t, and what stands in its way there.
-    fn device_why(&self, t: &Task, origin: &str, private: bool) -> Why {
+    /// What card t waits on for the device that starts it, when nothing on
+    /// the card itself is in the way.
+    fn device_why(&self, co: &coord::Coord, t: &Task, private: bool) -> Why {
         let me = self.device.id.clone();
-        if !origin.is_empty() && origin != me {
-            let device = self.named_device(origin);
-            return if self.never_runs(origin) {
-                Why::CantRun { device }
-            } else {
-                Why::Elsewhere { device }
+        let origin = co.card_origin(&t.id);
+        if origin.is_empty() {
+            return Why::NoOrigin;
+        }
+        if origin != me {
+            let device = self.named_device(&origin);
+            let rows = self.mesh.node.devices(false);
+            let row = rows.iter().find(|r| r.device_id == origin);
+            return match row {
+                Some(r) if r.revoked => Why::DeviceRemoved { device },
+                Some(r) if !r.role.is_empty() && r.role != ROLE_DESKTOP => Why::CantRun { device },
+                _ => Why::Elsewhere { device },
             };
         }
         if self.inbox.policy().paused {
@@ -230,17 +275,17 @@ impl Services {
                 device: self.this_device_name(),
             };
         }
-        let started = self
+        let spawner = self
             .spawn
             .spawner
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .is_some();
-        if !started {
+            .clone();
+        let Some(sp) = spawner else {
             return Why::CantRun {
                 device: self.this_device_name(),
             };
-        }
+        };
         let dev = if private {
             self.spawn_device(t)
         } else {
@@ -249,38 +294,107 @@ impl Services {
         let Some(dev) = dev else {
             return self.no_device_why(t);
         };
-        let hosts = self.hosts();
-        let (running, cap) = if dev == me {
-            (self.spawned_here(), self.spawn_cap(&me))
-        } else {
-            (self.spawned_on(&dev), self.cap_on(&dev, hosts.get(&dev)))
-        };
+        if dev != me {
+            return self.remote_why(t, &dev);
+        }
+        let (running, cap) = (self.spawned_here(), self.spawn_cap(&me));
         if running >= cap {
             return Why::AtCap {
-                device: self.named_device(&dev),
+                device: self.named_device(&me),
                 running,
                 cap,
             };
         }
-        Why::NextPass
+        if let Some(why) = self.folder_why(t, private, &|f| (sp.trusted)(Path::new(f))) {
+            return why;
+        }
+        // The sweep takes the private board's cards first, oldest first.
+        let queue = co.cards_to_spawn();
+        let mut ahead = queue.iter().take_while(|k| k.id != t.id).count() as i64;
+        if !private {
+            ahead += self.coord.cards_to_spawn().len() as i64;
+        }
+        queued(self.named_device(&me), running, cap, ahead).unwrap_or(Why::NextPass)
     }
 
-    /// `spawn_device` found nowhere to start card t now: a device full, or
-    /// those with its repo away.
-    fn no_device_why(&self, t: &Task) -> Why {
+    /// What the sweep's first try here would refuse on: no folder, or one
+    /// that isn't trusted. A helper's worktree is made only at its start,
+    /// so its part isn't looked at. Creates nothing.
+    fn folder_why(&self, t: &Task, private: bool, trusted: &dyn Fn(&str) -> bool) -> Option<Why> {
+        if t.spawn && !t.parent.is_empty() {
+            return None;
+        }
+        let folder = if private {
+            self.card_folder(t)
+        } else if t.repo_key.is_empty() && t.open_ask().is_some() {
+            self.ask_home().map(|(_, f)| f)
+        } else {
+            self.checkout_here(&t.repo_key)
+        };
+        let device = self.this_device_name();
+        match folder {
+            None => Some(Why::NoFolder(no_folder_words(&t.repo_key, &device))),
+            Some(folder) if !trusted(&folder) => Some(Why::NeedsTrust { folder, device }),
+            Some(_) => None,
+        }
+    }
+
+    /// `spawn_device` named another device: what its host row says.
+    fn remote_why(&self, t: &Task, dev: &str) -> Why {
         let hosts = self.hosts();
-        let mut names = Vec::new();
-        for (dev, h) in hosts.iter().filter(|(_, h)| h.repo(&t.repo_key).is_some()) {
+        let host = hosts.get(dev);
+        let device = self.named_device(dev);
+        let (running, cap) = (self.spawned_on(dev), self.cap_on(dev, host));
+        if running >= cap {
+            return Why::AtCap {
+                device,
+                running,
+                cap,
+            };
+        }
+        match host.and_then(|h| h.repo(&t.repo_key)) {
+            Some(r) if !r.trusted => Why::NeedsTrust {
+                folder: r.folder.clone(),
+                device,
+            },
+            _ => Why::NextPass,
+        }
+    }
+
+    /// `spawn_device` found nowhere to start card t now, of the devices it
+    /// would use: one full, or those with its repo away.
+    fn no_device_why(&self, t: &Task) -> Why {
+        let need = coord::machine_needed(t);
+        let rows = self.mesh.node.devices(false);
+        let hosts = self.hosts();
+        let mut devs: Vec<_> = hosts
+            .iter()
+            .filter(|(_, h)| h.repo(&t.repo_key).is_some())
+            .filter(|(_, h)| need.is_empty() || h.machine() == need)
+            .filter(|(d, _)| self.coord.runs_side(d, &t.side))
+            .filter(|(d, _)| {
+                rows.iter()
+                    .find(|r| r.device_id == **d)
+                    .is_none_or(|r| !r.revoked && (r.role.is_empty() || r.role == ROLE_DESKTOP))
+            })
+            .collect();
+        devs.sort_by_key(|(d, _)| d.as_str());
+        let online = |d: &str| {
+            rows.iter()
+                .find(|r| r.device_id == d)
+                .is_some_and(|r| r.this || r.state != "offline")
+        };
+        for (dev, h) in &devs {
             let (running, cap) = (self.spawned_on(dev), self.cap_on(dev, Some(h)));
-            if running >= cap {
+            if online(dev) && running >= cap {
                 return Why::AtCap {
                     device: self.named_device(dev),
                     running,
                     cap,
                 };
             }
-            names.push(self.named_device(dev));
         }
+        let mut names: Vec<String> = devs.iter().map(|(d, _)| self.named_device(d)).collect();
         names.sort();
         Why::NoDevice { devices: names }
     }
@@ -290,25 +404,30 @@ impl Services {
     /// list leaves out is said. On its own a card says only when it has a
     /// mark or a request, or is on a board that starts agents: someone
     /// else's card or a board with the switch off is ordinary there.
+    ///
+    /// What no setting can change comes before what the person could
+    /// change, so the line never points at a fix that does nothing.
     pub fn why_no_agent(&self, id: &str, asked: bool) -> Option<Why> {
         let (board_id, co) = self.route(id).ok()?;
         let t = co.get_task(id)?;
+        if coord::is_terminal(&t.state) || t.withdrawn {
+            return None;
+        }
         let hold = co.spawn_hold(id);
         let private = board_id.is_empty();
         let request = t.spawn_request();
-        let marked = t.spawn || step_marked(&t);
-        let asked = asked || marked || request.is_some();
+        let asked = asked || t.spawn || step_marked(&t) || request.is_some();
         if hold == SpawnHold::NoNeed {
-            return (!t.holders.is_empty() && step_marked(&t) && t.subtasks.is_empty())
-                .then_some(Why::StepOnly);
+            return (step_marked(&t) && t.open_ask().is_none()).then_some(Why::StepOnly);
         }
-        if let Some(s) = request.filter(|s| s.pending()) {
-            let device = self.named_device(&s.device);
-            return Some(if s.stale(&(self.now)()) {
-                Why::NoShow { device }
-            } else {
-                Why::Starting { device }
+        let stale = request.filter(|s| s.pending() && s.stale(&(self.now)()));
+        if let Some(s) = request.filter(|s| s.pending() && !s.stale(&(self.now)())) {
+            return Some(Why::Starting {
+                device: self.named_device(&s.device),
             });
+        }
+        if hold == SpawnHold::Joinable {
+            return asked.then_some(Why::Joinable);
         }
         let board = if private {
             None
@@ -320,36 +439,29 @@ impl Services {
         {
             return asked.then_some(Why::OthersCard { person });
         }
+        let fixed = match &hold {
+            SpawnHold::Crashed => Some(Why::Crashed),
+            SpawnHold::Resting => Some(Why::Resting),
+            SpawnHold::OffSide(why) => Some(Why::OffSide(why.clone())),
+            SpawnHold::ForLead => Some(Why::ForLead),
+            _ => None,
+        };
+        if let Some(why) = fixed {
+            return (asked || co.spawning()).then_some(why);
+        }
         if !co.spawning() {
             return asked.then_some(Why::SwitchOff);
         }
-        let why = match hold {
-            SpawnHold::Joinable => Why::Joinable,
-            SpawnHold::Crashed => Why::Crashed,
-            SpawnHold::OffSide(why) => Why::OffSide(why),
-            SpawnHold::ForLead => Why::ForLead,
-            SpawnHold::AtLimit(limit) => Why::AtLimit { limit },
-            SpawnHold::Blocked | SpawnHold::Clear | SpawnHold::NoNeed => {
-                match request.filter(|s| s.op == SPAWN_FAILED) {
-                    Some(s) => self.failed_why(&t, s),
-                    None if hold == SpawnHold::Blocked => Why::Blocked,
-                    None => self.clear_why(&t, board.as_deref(), &co, private),
-                }
-            }
-        };
-        (asked || why != Why::NextPass).then_some(why)
-    }
-
-    /// Nothing on the card itself stands in the way: what's left is the
-    /// board's members and the device.
-    fn clear_why(
-        &self,
-        t: &Task,
-        board: Option<&super::boards::BoardLog>,
-        co: &coord::Coord,
-        private: bool,
-    ) -> Why {
-        if let Some(b) = board
+        if let Some(s) = request.filter(|s| s.op == SPAWN_FAILED) {
+            return Some(self.failed_why(&t, s));
+        }
+        if hold == SpawnHold::Blocked {
+            return Some(Why::Blocked);
+        }
+        if let SpawnHold::AtLimit(limit) = hold {
+            return Some(Why::AtLimit { limit });
+        }
+        if let Some(b) = &board
             && !self.board_spawns_ready(b)
         {
             let names = self.space_names();
@@ -364,9 +476,16 @@ impl Services {
                 .collect();
             people.sort();
             people.dedup();
-            return Why::OlderMember { people };
+            return Some(Why::OlderMember { people });
         }
-        self.device_why(t, &co.card_origin(&t.id), private)
+        let why = self.device_why(&co, &t, private);
+        match (why, stale) {
+            (Why::NextPass, Some(s)) => Some(Why::NoShow {
+                device: self.named_device(&s.device),
+            }),
+            (Why::NextPass, None) => asked.then_some(Why::NextPass),
+            (why, _) => Some(why),
+        }
     }
 
     /// The line for a card's agent, for the tools; `""` when there's none.
@@ -380,6 +499,14 @@ impl Services {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn older_cards_fill_the_slots_first() {
+        let q = |running, cap, ahead| queued("Mac".into(), running, cap, ahead);
+        assert_eq!(q(0, 2, 1), None, "one slot left for it");
+        assert!(q(1, 2, 1).is_some(), "the last slot is the older card's");
+        assert!(q(0, 1, 1).is_some());
+    }
 
     #[test]
     fn every_reason_says_what_is_in_the_way() {
@@ -406,6 +533,18 @@ mod tests {
             (Why::Joinable, "shared card"),
             (Why::Blocked, "blocked"),
             (Why::Crashed, "crashed twice"),
+            (Why::Resting, "writes on it"),
+            (
+                Why::Queued {
+                    device: dev(),
+                    running: 1,
+                    cap: 2,
+                    ahead: 1,
+                },
+                "1 older cards go first",
+            ),
+            (Why::DeviceRemoved { device: dev() }, "was removed"),
+            (Why::NoOrigin, "no device hands"),
             (Why::ForLead, "lead"),
             (Why::AtLimit { limit: 4 }, "(4)"),
             (

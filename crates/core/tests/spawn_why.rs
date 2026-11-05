@@ -223,6 +223,118 @@ fn a_full_device_says_n_of_m_and_pause_all_says_so() {
     }
 }
 
+/// A card with no checkout here, or an untrusted one, says so whether the
+/// sweep has tried yet (the line looks for itself) or not (its failed row
+/// says the same).
+#[test]
+fn a_card_hears_folder_and_trust_with_or_without_a_try() {
+    let r = Rig::new();
+    switch(&r, true);
+    let mut sp = idle_spawner();
+    sp.trusted = Arc::new(|_: &Path| false);
+    r.core.set_spawner(Some(sp));
+    let t = card(&r, "No copy here");
+    match r.core.why_no_agent(&t.id, true) {
+        Some(Why::NoFolder(w)) => assert!(w.starts_with("no copy of api on "), "{w}"),
+        other => panic!("{other:?}"),
+    }
+
+    let d = tempfile::tempdir().unwrap();
+    const OTHER: &str = "remote:github.com/stephen/seen";
+    r.core
+        .capture()
+        .emit_row(
+            "irori",
+            capture::KIND_REPO_SEEN,
+            &capture::RepoSeen {
+                repo_key: OTHER.into(),
+                root: d.path().to_string_lossy().into_owned(),
+                at: gocompat::time::GoTime::unix(1_790_000_000, 0),
+            },
+        )
+        .unwrap();
+    let person = format!("user:{}", r.core.device_id());
+    let t = r
+        .core
+        .coord()
+        .create_task(
+            &person,
+            NewTask {
+                title: "Not trusted here".into(),
+                repo_key: OTHER.into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    wait_for(60, "the folder is named as untrusted", || {
+        matches!(
+            r.core.why_no_agent(&t.id, true),
+            Some(Why::NeedsTrust { .. })
+        )
+    });
+}
+
+#[test]
+fn a_shared_card_says_so_whatever_the_switch() {
+    let r = Rig::new();
+    let person = format!("user:{}", r.core.device_id());
+    let t = r
+        .core
+        .coord()
+        .create_task(
+            &person,
+            NewTask {
+                title: "Join it".into(),
+                shared: true,
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(r.core.why_no_agent(&t.id, true), Some(Why::Joinable));
+    assert_eq!(r.core.why_no_agent(&t.id, false), None, "not asked");
+}
+
+#[test]
+fn a_card_no_device_hands_out_says_to_take_it_up() {
+    let r = Rig::new();
+    switch(&r, true);
+    r.core.set_spawner(Some(idle_spawner()));
+    let t = r
+        .core
+        .coord()
+        .create_task(
+            "irori",
+            NewTask {
+                title: "Irori made this".into(),
+                repo_key: REPO.into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(r.core.why_no_agent(&t.id, true), Some(Why::NoOrigin));
+}
+
+#[test]
+fn a_closed_card_says_nothing() {
+    let r = Rig::new();
+    let t = card(&r, "A card");
+    let co = r.core.coord();
+    co.claim_task(&r.key_a, &t.id).unwrap();
+    co.set_steps_notice(
+        &r.key_a,
+        &t.id,
+        vec![coord::Step {
+            text: "a part".into(),
+            spawn: true,
+            ..coord::Step::default()
+        }],
+    )
+    .unwrap();
+    co.set_task_state(&r.key_a, &t.id, coord::CANCELED, "")
+        .unwrap();
+    assert_eq!(r.core.why_no_agent(&t.id, true), None);
+}
+
 #[test]
 fn a_step_mark_on_a_held_card_says_to_split_it() {
     let r = Rig::new();

@@ -3812,12 +3812,17 @@ impl Services {
 
     /// Waits on shared boards' cards (card #574): the wait is in this log
     /// and the card in the board's, so its state is read here, as a branch
-    /// wait's refs are. A board that isn't open here leaves the wait to its
-    /// day's end.
+    /// wait's refs are. It sees the state at each sweep, so a move and
+    /// back between two sweeps goes unseen. A card that's gone or withdrawn,
+    /// or a board this person left, ends the wait.
     fn check_board_waits(&self) {
         for w in self.coord.board_waits() {
-            let Ok(b) = self.board(&w.board) else {
-                continue;
+            let b = match self.board(&w.board) {
+                Ok(b) if !self.board_leaving(&b) => b,
+                _ => {
+                    self.coord.board_wait_lost(&w.id);
+                    continue;
+                }
             };
             let co = b.coord();
             let Some(t) = co.get_task(&w.task_id) else {
@@ -3827,6 +3832,8 @@ impl Services {
             if let Some(was) = self.coord.board_wait_moved(&w.id, &t.state) {
                 let what = co.wait_what(&t.id, &was, &t.state);
                 self.coord.fire_wait(&w.id, &what);
+            } else if t.withdrawn {
+                self.coord.board_wait_lost(&w.id);
             }
         }
     }

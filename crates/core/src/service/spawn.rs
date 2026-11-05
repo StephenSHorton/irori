@@ -1730,6 +1730,12 @@ impl Services {
         {
             return self.helper_folder(t, &p);
         }
+        self.card_folder(t)
+    }
+
+    /// [`Self::spawn_folder`] for a card that isn't a helper's part. Makes
+    /// nothing, so it may be asked just to look (card #574).
+    pub(crate) fn card_folder(&self, t: &Task) -> Option<String> {
         if let Some(w) = &t.where_
             && irori_identity::owner::device_of(&w.who) == self.device.id
             && !w.cwd.is_empty()
