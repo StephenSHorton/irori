@@ -205,6 +205,21 @@ fn query_events(c: &Connection, sql: &str, args: &[Value]) -> Result<Vec<Event>>
     Ok(out)
 }
 
+/// Whether `f` asks for one device's newest rows of one exact kind. Left to
+/// itself SQLite can take the primary key here, which reads and sorts every
+/// row that device ever wrote to return one: about 190 MB of a 170k-row
+/// device, on every Board view while a card waits on a version (card #554).
+/// The kind index reads a few pages.
+fn newest_of_a_device(f: &Filter) -> bool {
+    f.desc
+        && !f.device_id.is_empty()
+        && f.kinds.len() == 1
+        && !f.kinds[0].ends_with('.')
+        && f.after_seq == 0
+        && f.after_hlc.0 == 0
+        && f.after.is_zero()
+}
+
 fn query_one(c: &Connection, table: &str, dev: &str, seq: i64) -> Result<Option<Event>> {
     Ok(c.query_row(
         &format!("SELECT {COLS} FROM {table} WHERE device_id = ?1 AND seq = ?2"),
@@ -1597,6 +1612,9 @@ impl Inner {
         .min(MAX_LIST_LIMIT);
         let table = if f.local { "local_events" } else { "events" };
         let mut q = format!("SELECT {COLS} FROM {table}");
+        if newest_of_a_device(f) {
+            q.push_str(&format!(" INDEXED BY {table}_kind"));
+        }
         if !wh.is_empty() {
             q.push_str(" WHERE ");
             q.push_str(&wh.join(" AND "));
@@ -1616,6 +1634,39 @@ impl Inner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_one_kinds_newest_of_a_device_takes_the_kind_index() {
+        let f = || Filter {
+            kinds: vec!["device.started".into()],
+            device_id: "dev".into(),
+            desc: true,
+            limit: 1,
+            ..Filter::default()
+        };
+        assert!(newest_of_a_device(&f()));
+        for other in [
+            Filter { desc: false, ..f() },
+            Filter {
+                device_id: String::new(),
+                ..f()
+            },
+            Filter {
+                kinds: vec!["device.".into()],
+                ..f()
+            },
+            Filter {
+                kinds: vec!["a".into(), "b".into()],
+                ..f()
+            },
+            Filter {
+                after_seq: 3,
+                ..f()
+            },
+        ] {
+            assert!(!newest_of_a_device(&other), "{:?}", other.kinds);
+        }
+    }
 
     #[test]
     fn empty_bytes_bind_null() {
