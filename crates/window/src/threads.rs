@@ -164,8 +164,8 @@ impl Window {
 
     /// [`Self::start_thread_with`] from a message in Talk channel `channel`
     /// (its `ch_` id; "" none, card #454): the thread records the channel,
-    /// and in a channel named after a repo here it is that repo's thread,
-    /// so the agent Irori starts for it starts in that repo.
+    /// and in your own log, in a channel named after a repo here it is that
+    /// repo's thread, so the agent Irori starts for it starts in that repo.
     pub(crate) fn start_thread_in(
         &self,
         text: &str,
@@ -180,7 +180,7 @@ impl Window {
         let private = !board_id.is_empty()
             && self.core.inbox().threads_mode(board_id) == inbox::threads_mode::PRIVATE;
         let (t, n) = if private {
-            self.private_board_thread(text, mentions, files, board_id, quiet)?
+            self.private_board_thread(text, mentions, files, board_id, quiet, channel)?
         } else if board_id.is_empty() {
             let plan = self.plan_mentions("", mentions);
             let refs = self.store_uploads(files)?;
@@ -218,6 +218,9 @@ impl Window {
                         mentions: self.plan_mentions_on(board_id, mentions).log,
                         thread: true,
                         quiet,
+                        // No repo: another member's device has its own
+                        // checkouts, and a board ask names none.
+                        channel: channel.into(),
                         ..Default::default()
                     },
                 )
@@ -260,6 +263,7 @@ impl Window {
         files: &[UploadFile],
         board_id: &str,
         quiet: bool,
+        channel: &str,
     ) -> Result<(Task, coord::Notice), String> {
         let bc = self.core.board_coord(board_id).map_err(|e| e.to_string())?;
         let theirs = |k: &str| {
@@ -312,6 +316,8 @@ impl Window {
                     thread: true,
                     board: board_id.into(),
                     quiet,
+                    channel: channel.into(),
+                    repo_key: self.channel_repo(channel),
                     ..Default::default()
                 },
                 &self.core.ask_agents(),

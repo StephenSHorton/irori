@@ -206,9 +206,15 @@ impl Window {
     }
 
     /// The person asks about channel `conv`'s post `post_id` in a new
-    /// thread (design b2, card #454): the thread records the channel (and
-    /// its repo, [`Window::channel_repo`]), and the channel gets a one-line
-    /// pointer to it. `text` is the thread's whole ask.
+    /// thread (design b2, card #454): the thread records the channel (and,
+    /// in your own log, its repo, [`Window::channel_repo`]), and the channel
+    /// gets a one-line pointer to it. `text` is the thread's whole ask.
+    ///
+    /// A space's channel starts it in the space's log, so its members and
+    /// their agents get it, and the pointer carries the tag, as a bare #N
+    /// reads across every log (card #558). With your threads in that space
+    /// set to private it stays in your own log, and the channel gets no
+    /// pointer: nobody else could open it.
     pub fn talk_thread_from(
         &self,
         conv: &str,
@@ -216,9 +222,10 @@ impl Window {
         text: &str,
     ) -> Result<crate::board::TaskResult, String> {
         let (conv, post_id) = (crate::trim(conv), crate::trim(post_id));
-        if !coord::talk::is_channel(conv) || self.core.talk().channel(conv).is_none() {
-            return Err(format!("no channel {conv}"));
-        }
+        let channel = coord::talk::is_channel(conv)
+            .then(|| self.core.talk().channel(conv))
+            .flatten()
+            .ok_or_else(|| format!("no channel {conv}"))?;
         if !self
             .core
             .talk()
@@ -228,13 +235,19 @@ impl Window {
         {
             return Err(format!("no post {post_id} in that channel"));
         }
-        let r = self.start_thread_in(text, &[], &[], "", None, conv)?;
-        let pointer = if r.task.short.is_empty() {
-            r.task.id.clone()
-        } else {
-            format!("#{}", r.task.short)
-        };
-        self.talk_post(conv, &pointer, &[], false, Some(post_id.to_string()))?;
+        let space = channel.space_id.as_str();
+        let private = !space.is_empty()
+            && self.core.inbox().threads_mode(space) == inbox::threads_mode::PRIVATE;
+        // The pointer is refused while a device can't read the space's rows:
+        // refuse first, or the thread would start with nothing to show for it.
+        if !space.is_empty() && !private {
+            self.core.space_gate(space)?;
+        }
+        let r = self.start_thread_in(text, &[], &[], space, None, conv)?;
+        if !private {
+            let pointer = r.task.short_ref();
+            self.talk_post(conv, &pointer, &[], false, Some(post_id.to_string()))?;
+        }
         Ok(r)
     }
 
