@@ -399,12 +399,12 @@ function sampleThreadSeed(now: Date): CardDetail[] {
   ]
 }
 
-// sampleThreads is BoardService.Threads on the sample.
-function sampleThreads(boardId = ""): ThreadSummary[] {
+// sampleThreads is BoardService.Threads on the sample; null is ThreadsAll.
+function sampleThreads(boardId: string | null = ""): ThreadSummary[] {
   const all = sampleState().filter(
     (c) =>
       sampleThreadIds.has(c.id) &&
-      (sampleThreadBoard.get(c.id) ?? "") === boardId
+      (boardId === null || (sampleThreadBoard.get(c.id) ?? "") === boardId)
   )
   const rows = all.map((c) => {
     const replies = c.thread.filter((it) => it.kind === "comment")
@@ -464,6 +464,13 @@ export const threads = {
   async list(boardId = ""): Promise<ThreadSummary[]> {
     if (inWails()) return (await BoardService.Threads(boardId)) ?? []
     return sampleThreads(boardId)
+  },
+
+  // listAll is every thread on this device, each with its spaceId (card
+  // #558): Talk filters them by the pick, as it does channels.
+  async listAll(): Promise<ThreadSummary[]> {
+    if (inWails()) return (await BoardService.ThreadsAll()) ?? []
+    return sampleThreads(null)
   },
 
   // start is the header box's message as a thread: the agents on the
@@ -703,6 +710,17 @@ export function useThreads(boardId = ""): {
   error: string | null
 } {
   const load = useCallback(() => threads.list(boardId), [boardId])
+  const { value, error, reload } = useLatest<ThreadSummary[]>(load, [])
+  useFresh(reload, error, true)
+  return { threads: value, error }
+}
+
+// useAllThreads is every thread on this device, fresh on every card change.
+export function useAllThreads(): {
+  threads: ThreadSummary[]
+  error: string | null
+} {
+  const load = useCallback(() => threads.listAll(), [])
   const { value, error, reload } = useLatest<ThreadSummary[]>(load, [])
   useFresh(reload, error, true)
   return { threads: value, error }

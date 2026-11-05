@@ -592,8 +592,16 @@ impl Talk {
 
     /// Links post `post_id` to the card made from it (card #390, "Make a
     /// card"): the post shows the card's chip. Linking it again to the same
-    /// card is a no-op (false).
+    /// card is a no-op (false). The link stays on this person's devices.
     pub fn link_card(&self, post_id: &str, task_id: &str, by: &str) -> Result<bool> {
+        self.link_card_in(post_id, task_id, by, PERSONAL_SPACE)
+    }
+
+    /// [`Self::link_card`] for a card in `log` (empty: the private log). A
+    /// post in that space's channel links in the space, so its members see
+    /// the chip (card #558); a card they can't open stays this person's
+    /// link, as does one the space won't take yet.
+    pub fn link_card_in(&self, post_id: &str, task_id: &str, by: &str, log: &str) -> Result<bool> {
         let by = need_by(by)?;
         let (post_id, task_id) = (post_id.trim(), task_id.trim());
         if task_id.is_empty() {
@@ -605,17 +613,14 @@ impl Talk {
         if self.card_of(post_id).as_deref() == Some(task_id) {
             return Ok(false);
         }
-        // The link stays on this person's devices, even for a post in a
-        // space's channel: the card may be private (card #392).
-        self.write(
-            PERSONAL_SPACE,
-            by,
-            kinds::TALK_CARD,
-            &CardRow {
-                post_id: post_id.into(),
-                task_id: task_id.into(),
-            },
-        )?;
+        let row = CardRow {
+            post_id: post_id.into(),
+            task_id: task_id.into(),
+        };
+        let in_space = !log.is_empty() && self.post_space(post_id).as_deref() == Some(log);
+        if !in_space || self.write(log, by, kinds::TALK_CARD, &row).is_err() {
+            self.write(PERSONAL_SPACE, by, kinds::TALK_CARD, &row)?;
+        }
         Ok(true)
     }
 
@@ -838,6 +843,17 @@ impl Talk {
     /// Whether a `talk.post` has id `id`.
     pub fn has_post(&self, id: &str) -> bool {
         self.lock().ids.contains(id)
+    }
+
+    /// The space of the channel post `id` is in ("": Personal); None when
+    /// it is in no channel here.
+    fn post_space(&self, id: &str) -> Option<String> {
+        let s = self.lock();
+        let (conv, _) = s
+            .posts
+            .iter()
+            .find(|(_, ps)| ps.iter().any(|p| p.post_id == id))?;
+        s.channels.get(conv).map(|c| c.space_id.clone())
     }
 
     /// Every post id (the Core leaves these messages out of a DM's

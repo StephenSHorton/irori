@@ -87,6 +87,16 @@ describe("spaces (card #393)", () => {
     expect(threadsSpace("b-mlg")).toBe("b-mlg")
   })
 
+  test("All spaces lists every thread, a pick only its own (#558)", () => {
+    const threads = [{ id: "mine" }, { id: "on", spaceId: "b-mlg" }]
+    const ids = (space: string) =>
+      threads.filter((t) => convInSpace(t, space)).map((t) => t.id)
+    expect(ids(AllSpaces)).toEqual(["mine", "on"])
+    expect(ids(Personal)).toEqual(["mine"])
+    expect(ids("b-mlg")).toEqual(["on"])
+    expect(ids("b-iro")).toEqual([])
+  })
+
   test("channels and DMs follow the pick", () => {
     const mine = TalkConversation({ convId: "c1", kind: "channel" })
     const onMlg = TalkConversation({

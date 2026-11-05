@@ -53,7 +53,7 @@ import {
   useCards,
   useDoneCards,
   useIdleReport,
-  useThreads,
+  useAllThreads,
   withLive,
 } from "@/lib/cards"
 import { useBoards } from "@/lib/boards"
@@ -269,7 +269,9 @@ export function App() {
   const [newBoard, setNewBoard] = useState(false)
   // Threads (card #116) live on the Talk page (card #390): a new thread
   // from Home's ask box opens there, as does a thread's #ref.
-  const { threads: threadList } = useThreads(threadsSpace(space))
+  // Every log's (card #558): the picked space's are listed, and one past
+  // the pick still opens, as a channel does.
+  const { threads: allThreads } = useAllThreads()
   // Channels and DMs (Talk 1, #389): Talk's list, and its count.
   const { conversations } = useConversations()
   const startedThread = (id: string) => go({ kind: "talk", id })
@@ -528,14 +530,14 @@ export function App() {
   // as a card's page instead.
   const openThread = useCallback(
     (id: string) => {
-      if (!threadList.some((t) => t.id === id)) {
+      if (!allThreads.some((t) => t.id === id)) {
         openCard(id)
         return
       }
       const to: Section = { kind: "talk", id }
       if (open || !sameSection(section, to)) go(to)
     },
-    [threadList, openCard, open, section]
+    [allThreads, openCard, open, section]
   )
   // The command palette (card #213): Cmd/Ctrl+K or P from anywhere, over a
   // card's page and other dialogs too; Cmd+P no longer prints. Capture, so
@@ -691,10 +693,10 @@ export function App() {
     () => ({
       cards,
       onOpen: openCard,
-      threads: threadList,
+      threads: allThreads,
       onOpenThread: openThread,
     }),
-    [cards, openCard, threadList, openThread]
+    [cards, openCard, allThreads, openThread]
   )
 
   // The nav drawer on a narrow window (card #227): it closes when you go
@@ -715,7 +717,7 @@ export function App() {
   const narrow = useNarrow()
   // The badge counts what Talk lists in the picked space (card #461).
   const talkWaiting =
-    threadList.filter(needsYou).length +
+    allThreads.filter((t) => convInSpace(t, space) && needsYou(t)).length +
     talkWaitingIn(
       conversations.filter((c) => convInSpace(c, space)),
       liveRoster
@@ -835,7 +837,7 @@ export function App() {
                 </Scroll>
               ) : section.kind === "talk" ? (
                 <TalkPage
-                  threads={threadList}
+                  threads={allThreads}
                   conversations={conversations}
                   agents={roster.agents.map((a) => ({
                     key: a.key,

@@ -1279,6 +1279,43 @@ fn a_space_thread_reaches_the_other_members_agent_talk_tools() {
             .talk_posts(&a1.user(), &t.id, None, 50)
             .is_ok_and(|ps| ps.iter().any(|p| p.text == "the build"))
     });
+
+    // A card made from a post: in the space, its chip reaches Bob; a private
+    // one stays Alice's link.
+    let post = |text: &str| {
+        a1.core
+            .talk_post(&a1.core.user_sender(), &ch.id, text, &[], false, None)
+            .unwrap()
+            .post
+            .post_id
+    };
+    let (shared_post, private_post) = (post("make a card"), post("mine alone"));
+    let on_space = a1
+        .core
+        .board_coord(&space)
+        .unwrap()
+        .create_task(&a1.person_actor(), new_task("from the channel"))
+        .unwrap();
+    let private = a1
+        .core
+        .coord()
+        .create_task(&a1.user(), new_task("private"))
+        .unwrap();
+    a1.core
+        .talk_link_card(&shared_post, &on_space.id, &a1.user())
+        .unwrap();
+    a1.core
+        .talk_link_card(&private_post, &private.id, &a1.user())
+        .unwrap();
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "bob sees the card's chip", || {
+        b1.core.talk().card_of(&shared_post).as_deref() == Some(on_space.id.as_str())
+    });
+    assert_eq!(b1.core.talk().card_of(&private_post), None);
+    assert_eq!(
+        a1.core.talk().card_of(&private_post).as_deref(),
+        Some(private.id.as_str())
+    );
     close(alice.drain(..).chain(bob.drain(..)));
 }
 

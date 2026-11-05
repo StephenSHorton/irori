@@ -28,6 +28,7 @@ import { Face } from "@/components/cards/faces"
 import { AgentCards } from "@/components/cards/agent-hover"
 import { NewCardDialog } from "@/components/cards/new-card-dialog"
 import { Button } from "@/components/ui/button"
+import { useBoards } from "@/lib/boards"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -142,6 +143,7 @@ export function ConversationView({
   )
   // Make a card (design §4): the post it's made from, while the form is up.
   const [making, setMaking] = useState<Post | null>(null)
+  const { boards } = useBoards()
   const where = conv.kind === "channel" ? `#${conv.name}` : `a DM`
   const prefill = useMemo(
     () => (making ? fromPost(making.text, where) : undefined),
@@ -307,6 +309,8 @@ export function ConversationView({
       )}
       <NewCardDialog
         open={!!making}
+        // A space's channel makes its cards in the space (card #558).
+        board={boards.find((b) => b.boardId === conv.spaceId)}
         from={prefill}
         onClose={() => setMaking(null)}
         onMade={(id) => {

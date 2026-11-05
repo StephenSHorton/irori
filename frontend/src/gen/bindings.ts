@@ -137,6 +137,8 @@ export const commands = {
 	 *  board's, or with `board_id` that shared board's (card #134).
 	 */
 	boardThreads: (boardId: string) => __TAURI_INVOKE<ThreadSummary[]>("board_threads", { boardId }),
+	/**  Every thread on this device, each with its space (card #558). */
+	boardThreadsAll: () => __TAURI_INVOKE<ThreadSummary[]>("board_threads_all"),
 	/**  What a #ref in text names (card #144), or null. */
 	boardCardRef: (r: string) => __TAURI_INVOKE<RefTarget | null>("board_card_ref", { r }),
 	/**  Resolve on a thread: the person is done with it. */
@@ -2140,8 +2142,9 @@ export type TalkConversation = {
 	 */
 	agentsNow: boolean,
 	/**
-	 *  The shared space a channel is in (card #461); absent for Personal,
-	 *  DMs and threads. Matches the switcher's space id (its first board's).
+	 *  The shared space a channel or thread is in (card #461, #558); absent
+	 *  for Personal and DMs. Matches the switcher's space id (its first
+	 *  board's).
 	 */
 	spaceId?: string,
 };
@@ -2328,6 +2331,11 @@ export type ThreadSummary = {
 	starting?: string,
 	/**  Why one couldn't start (the failed request's reason). */
 	cantStart?: string,
+	/**
+	 *  The shared space it is in, or a private thread is about (card #558);
+	 *  absent for Personal. Matches the switcher's space id.
+	 */
+	spaceId?: string,
 };
 
 /**  Who an action's notice went to. */
