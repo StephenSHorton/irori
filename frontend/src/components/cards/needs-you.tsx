@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { byRecommendation } from "@/components/cards/card-detail"
-import { cardRef } from "@/components/cards/bits"
+import { Asker, cardRef } from "@/components/cards/bits"
 import {
   BlockerState,
   cards as cardsApi,
@@ -37,52 +37,79 @@ import {
   allowLifts,
   errorText,
   holdText,
+  HoldReason,
   talk,
+  startedLine,
+  useRepoNames,
   type Delivery,
 } from "@/lib/talk"
+import { EarlierRound } from "./done-rounds"
 
 export function NeedsYou({
   needs,
   now,
   name,
   onOpenCard,
+  onHeld,
 }: {
   needs: Need[]
   now: Date
   // name is an agent's name by key (a held message's addressee).
   name: (key: string) => string
   onOpenCard: (id: string) => void
+  // onHeld opens the Held list (the quiet line's See them).
+  onHeld: () => void
 }) {
+  // The quiet line (card #488) is held messages that don't ask the person
+  // one by one: it isn't counted, and alone it isn't "something waits".
+  const repo = useRepoNames()
+  // Start an agent's outcome: its row goes as the message becomes a card.
+  const [started, setStarted] = useState("")
+  const rows = needs.filter((n) => n.kind !== "heldQuiet")
+  const quiet = needs.find((n) => n.kind === "heldQuiet")
   return (
     <section aria-labelledby="needs-you" className="grid min-w-0 gap-2.5">
       <h2 id="needs-you" className="px-1 text-base font-semibold">
         Needs you
-        {needs.length > 0 && (
-          <span className="font-medium text-muted-foreground"> · {needs.length}</span>
+        {rows.length > 0 && (
+          <span className="font-medium text-muted-foreground"> · {rows.length}</span>
         )}
       </h2>
-      {needs.length === 0 ? (
+      {rows.length === 0 && (
         <p className="px-1 text-[12.5px] text-muted-foreground">
           Nothing waits on you right now.
         </p>
-      ) : (
+      )}
+      {rows.length > 0 && (
         <ul className="grid min-w-0 gap-2.5" aria-label="What needs you">
-          {needs.map((n) => (
+          {rows.map((n) => (
             <li key={`${n.kind}:${n.id}`} className="min-w-0">
               {n.kind === "check" || n.kind === "decision" ? (
                 <CardNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "trust" ? (
                 <TrustRow need={n} now={now} onOpen={onOpenCard} />
-              ) : n.kind === "review" ? (
-                <ReviewNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "loop" || n.kind === "stuck" ? (
                 <StuckNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "held" ? (
-                <HeldNeed d={n.delivery} now={now} name={name} />
+                <HeldNeed
+                  d={n.delivery}
+                  now={now}
+                  name={name}
+                  repo={repo}
+                  onStarted={setStarted}
+                />
               ) : null}
             </li>
           ))}
         </ul>
+      )}
+      {started && (
+        <p role="status" className="px-1 text-[12.5px] text-muted-foreground">
+          {started}
+        </p>
+      )}
+      {quiet?.kind === "heldQuiet" && (
+        <HeldQuiet deliveries={quiet.deliveries} onHeld={onHeld} />
       )}
     </section>
   )
@@ -91,7 +118,6 @@ export function NeedsYou({
 const kinds = {
   check: { label: "Done check", variant: "success" },
   decision: { label: "Decision", variant: "destructive" },
-  review: { label: "Review", variant: "warning" },
   trust: { label: "Trust", variant: "warning" },
   // Card #456 (sa-7): a spawned agent stopped on a permission prompt, and
   // a card whose agents crashed twice.
@@ -143,13 +169,14 @@ export function useAct() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState("")
-  const run = async (fn: () => Promise<unknown>, said: string) => {
+  // said is the outcome's words, or made from fn's answer.
+  const run = async <T,>(fn: () => Promise<T>, said: string | ((r: T) => string)) => {
     if (busy) return
     setBusy(true)
     setError(null)
     try {
-      await fn()
-      setDone(said)
+      const r = await fn()
+      setDone(typeof said === "function" ? said(r) : said)
     } catch (err) {
       setError(errorText(err))
     } finally {
@@ -240,46 +267,6 @@ function waitsOnYou(b: CardBlocker): boolean {
     !b.waitsOn &&
     answerable(b.state || BlockerState.Open) &&
     b.state !== BlockerState.Answered
-  )
-}
-
-// ReviewNeed is a PR waiting on the person's review (card #347): once,
-// with every card that waits on it, and the PR one click away.
-function ReviewNeed({
-  need,
-  now,
-  onOpen,
-}: {
-  need: Extract<Need, { kind: "review" }>
-  now: Date
-  onOpen: (id: string) => void
-}) {
-  const { pr, cards } = need
-  const where = <span className="font-mono">{pr.repo}</span>
-  return (
-    <Row kind="review" where={where} at={need.at} now={now} title={`Review PR #${pr.number}`}>
-      <p className="text-sm break-words text-muted-foreground">
-        {cards.length === 1 ? "A card waits" : `${cards.length} cards wait`} on it:{" "}
-        {cards.map((c, i) => (
-          <span key={c.id}>
-            {i > 0 && ", "}
-            <button
-              type="button"
-              className="font-mono tabular-nums underline-offset-2 hover:underline"
-              title={plainLine(c.title)}
-              onClick={() => onOpen(c.id)}
-            >
-              {cardRef(c)}
-            </button>
-          </span>
-        ))}
-      </p>
-      <span className="flex flex-wrap gap-1.5">
-        <Button size="sm" onClick={() => void cardsApi.openURL(pr.url)} title={pr.url}>
-          Open PR #{pr.number}
-        </Button>
-      </span>
-    </Row>
   )
 }
 
@@ -553,7 +540,13 @@ export function BlockerAnswer({
   const replied = b.state === BlockerState.Replied
   return (
     <div className="grid min-w-0 gap-1.5">
-      {!b.doneCheck && <p className="text-sm break-words">{question}</p>}
+      {!b.doneCheck && (
+        <div className="grid gap-0.5">
+          <Asker who={b.raisedBy} />
+          <p className="text-sm break-words">{question}</p>
+        </div>
+      )}
+      {b.doneCheck && <EarlierRound blocker={b} compact />}
       {b.context && (
         <p className="line-clamp-3 text-[13px] break-words text-muted-foreground">
           {plainLine(b.context)}
@@ -629,44 +622,76 @@ const at = (s: string) => {
   return Number.isNaN(t) ? 0 : t
 }
 
-// HeldNeed is a message Irori held from an agent: Release, Dismiss, or
-// Allow sender (only for the holds allowing them lifts). Held's History
-// stays in the Held list.
+// HeldNeed is a held message that asks the person (asksPerson, card
+// #488): their own message no agent in its repo can take yet (Start an
+// agent there, since Release has nobody to deliver to), or one from
+// another person (Release, Dismiss, or Allow sender where allowing them
+// lifts it). Held's History stays in the Held list.
 function HeldNeed({
   d,
   now,
   name,
+  repo,
+  onStarted,
 }: {
   d: Delivery
   now: Date
   name: (key: string) => string
+  repo: (key: string) => string
+  // onStarted keeps Start an agent's outcome where the person can read it.
+  onStarted: (said: string) => void
 }) {
   const act = useAct()
-  const to = d.to ? name(d.to) : "a repo"
+  const unowned = d.hold === HoldReason.HoldUnowned && !d.to
+  const mine = d.message.from.key.startsWith("user:")
+  const where = plainLine(repo(d.repoKey ?? "")) || "its repo"
+  const to = d.to ? plainLine(name(d.to)) || "an agent" : where
   return (
     <Row
       kind="held"
       where={
         <>
-          {sender(d)} → {plainLine(to) || "an agent"}
+          {mine ? "You" : sender(d)} → {to}
         </>
       }
       at={at(d.createdAt)}
       now={now}
-      title={`Irori held a message: ${holdText(d)}`}
+      title={holdText(d, { name, repo })}
     >
       <p className="line-clamp-3 text-sm break-words whitespace-pre-line">
         {d.message.text}
       </p>
       {!act.done && (
         <span className="flex flex-wrap gap-1.5">
-          <Button
-            size="sm"
-            disabled={act.busy}
-            onClick={() => void act.run(() => talk.release(d.id), "Released.")}
-          >
-            Release
-          </Button>
+          {unowned ? (
+            mine && (
+              <Button
+                size="sm"
+                disabled={act.busy}
+                title={`Makes your message a card in ${where} and gets an agent on it`}
+                onClick={() =>
+                  void act.run(
+                    () => talk.startAgent(d.id),
+                    (s) => {
+                      const said = startedLine(s)
+                      onStarted(said)
+                      return said
+                    }
+                  )
+                }
+              >
+                Start an agent in {where}
+              </Button>
+            )
+          ) : (
+            <Button
+              size="sm"
+              disabled={act.busy}
+              onClick={() => void act.run(() => talk.release(d.id), "Released.")}
+            >
+              Release
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -694,5 +719,88 @@ function HeldNeed({
       )}
       <Said error={act.error} done={act.done} />
     </Row>
+  )
+}
+
+// HeldQuiet is Needs you's one line for the held messages that don't ask
+// the person one by one (card #488): ones between agents, and ones their
+// own Pause all held. Release all delivers every one that can go now (a
+// message to a repo with no agent there yet stays held); See them opens
+// the Held list, where each can be released or dismissed alone.
+function HeldQuiet({
+  deliveries,
+  onHeld,
+}: {
+  deliveries: Delivery[]
+  onHeld: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [said, setSaid] = useState("")
+  // Ones the person's block or allow list holds aren't released in bulk:
+  // they chose to stop that sender, so each waits for its own Release (or
+  // Allow sender) in the Held list.
+  const listed = (d: Delivery) =>
+    d.hold === HoldReason.HoldBlocked || d.hold === HoldReason.HoldNotAllowed
+  const bulk = deliveries.filter((d) => !listed(d))
+  const lists = deliveries.length - bulk.length
+  const paused = bulk.filter((d) => d.hold === HoldReason.HoldPaused).length
+  const between = bulk.length - paused
+  const parts = [
+    between ? `${between} between agents` : "",
+    paused ? `${paused} while wakes were paused` : "",
+    lists ? `${lists} from senders your lists hold back` : "",
+  ].filter(Boolean)
+  const n = bulk.length
+  const releaseAll = async () => {
+    if (busy) return
+    setBusy(true)
+    setSaid("")
+    let left = 0
+    for (const d of bulk) {
+      try {
+        await talk.release(d.id)
+      } catch {
+        left++
+      }
+    }
+    setBusy(false)
+    setSaid(
+      left === 0
+        ? n === 1
+          ? "Released."
+          : `Released all ${n}.`
+        : `Released ${n - left}; ${left} can't go yet (See them says why).`
+    )
+  }
+  return (
+    <div
+      role="group"
+      aria-label="Held messages"
+      className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-1 text-[12.5px] text-muted-foreground"
+    >
+      <span className="min-w-0">
+        <span className="font-medium text-ink">{deliveries.length} held</span>
+        {parts.length > 0 && <>: {parts.join(", ")}</>}
+      </span>
+      {n > 0 && (
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={busy}
+          title={lists ? "Leaves the ones your block or allow list holds" : undefined}
+          onClick={() => void releaseAll()}
+        >
+          {busy ? "Releasing…" : "Release all"}
+        </Button>
+      )}
+      <Button size="xs" variant="ghost" onClick={onHeld}>
+        See them
+      </Button>
+      {said && (
+        <span role="status" className="basis-full">
+          {said}
+        </span>
+      )}
+    </div>
   )
 }

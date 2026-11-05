@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "preview:look": "vite --host 127.0.0.1 --port 9246 --strictPort",
+    "check:phone": "bun scripts/phone-check.ts",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,tsx}\"",

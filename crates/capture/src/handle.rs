@@ -32,6 +32,70 @@ pub(crate) fn first_line(s: &str) -> String {
     crate::jsonx::trim_space(s).to_string()
 }
 
+/// A line that opens with a markup tag (`<task-notification>`,
+/// `</summary>`, `<command-name>`): a harness's text, not a person's
+/// (card #489).
+static TAG_LINE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    gocompat::regex::from_go(r"^\s*</?[A-Za-z][\w:.-]*(\s[^<>]*)?/?>").expect("tag line pattern")
+});
+/// A line that is nothing but tags.
+static ONLY_TAGS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    gocompat::regex::from_go(r"^(\s*</?[A-Za-z][\w:.-]*(\s[^<>]*)?/?>)+\s*$")
+        .expect("only tags pattern")
+});
+/// A line that opens with one of Claude Code's own tags: what it writes
+/// into a prompt, never what a person types ("<Button> won't render" is a
+/// person's; card #489).
+static HARNESS_TAG: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    gocompat::regex::from_go(
+        r"^\s*</?(task-notification|command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat|system-reminder|user-prompt-submit-hook|bash-input|bash-stdout|bash-stderr)[\s>/]",
+    )
+    .expect("harness tag pattern")
+});
+/// A `<summary>`'s text, as a `<task-notification>` carries it.
+static SUMMARY: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    gocompat::regex::from_go(r"(?s)<summary>(.*?)</summary>").expect("summary pattern")
+});
+
+/// Whether `s` starts with a markup tag (card #489).
+pub(crate) fn starts_with_tag(s: &str) -> bool {
+    TAG_LINE.is_match(s)
+}
+
+/// Whether `s` starts with one of Claude Code's own tags (card #489).
+pub(crate) fn starts_with_harness_tag(s: &str) -> bool {
+    HARNESS_TAG.is_match(s)
+}
+
+/// The first non-blank line of `s`, trimmed, as its text: a prompt that
+/// opens with a line of only tags (`<task-notification>`) reads as its
+/// `<summary>`, else its first line that doesn't open with a tag, else its
+/// first that isn't only tags ("" when none is), never its tags (card #489).
+pub(crate) fn first_text_line(s: &str) -> String {
+    let lines = || {
+        s.split('\n')
+            .map(crate::jsonx::trim_space)
+            .filter(|l| !l.is_empty())
+    };
+    let Some(first) = lines().next() else {
+        return String::new();
+    };
+    if !ONLY_TAGS.is_match(first) {
+        return first.to_string();
+    }
+    if let Some(c) = SUMMARY.captures(s) {
+        let t = first_line(&c[1]);
+        if !t.is_empty() {
+            return t;
+        }
+    }
+    lines()
+        .find(|l| !starts_with_tag(l))
+        .or_else(|| lines().find(|l| !ONLY_TAGS.is_match(l)))
+        .unwrap_or("")
+        .to_string()
+}
+
 impl Inner {
     /// Turns parser items into rows; stops at the first failed append.
     pub(crate) fn handle(

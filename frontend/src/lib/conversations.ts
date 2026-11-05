@@ -56,10 +56,27 @@ export function dmWith(c: Conversation): Member[] {
   return c.members.filter((m) => m.kind !== "person")
 }
 
-// unreadDms counts DMs with something new: Talk's count adds them to the
-// threads waiting on the person, as Home's MESSAGE cards once did.
-export function unreadDms(convs: readonly Conversation[]): number {
-  return convs.filter((c) => c.kind === "dm" && !c.readOnly && c.unread > 0).length
+// dmGone is whether a DM's agents have all gone: none is on the live
+// roster (by key, its status), or the roster calls it gone. Such a DM goes
+// in Talk's Archive (card #473).
+export function dmGone(c: Conversation, live: ReadonlyMap<string, { status: string }>): boolean {
+  const other = dmWith(c)
+  return other.length > 0 && other.every((m) => (live.get(m.key)?.status ?? "gone") === "gone")
+}
+
+// talkWaiting counts the conversations that wait on the person (card
+// #484): their DMs with something new, except with agents that have gone
+// (those wait in the Archive, not on them), and the channels that mention
+// them. Talk's count adds it to the threads waiting on the person, on the
+// sidebar and the phone's tab alike.
+export function talkWaiting(
+  convs: readonly Conversation[],
+  live: ReadonlyMap<string, { status: string }>
+): number {
+  return convs.filter((c) => {
+    if (c.kind === "channel") return c.mentions > 0
+    return c.kind === "dm" && !c.readOnly && c.unread > 0 && !dmGone(c, live)
+  }).length
 }
 
 // readAll marks each conversation with something unread read up to its

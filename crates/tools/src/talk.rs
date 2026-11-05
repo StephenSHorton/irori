@@ -10,7 +10,11 @@
 //!   as DMs between the two, read-only for the person; so do messages
 //!   between the person and an agent. They are mirrored when read, never
 //!   written as posts. A message that is itself a post (a DM to an agent
-//!   goes out as a message whose id is the post's) shows once.
+//!   goes out as a message whose id is the post's) shows once. The
+//!   person's Wind down (reason wind_down) and any reply to it are not
+//!   mirrored (card #484): one Wind down reaches every agent, so it would
+//!   open a DM per agent, and its "wound down" answers belong to the Wind
+//!   down dialog and Home's summary line, not to unread DMs.
 //! - A mention in a channel or a DM wakes the mentioned agent with a
 //!   mention notice, and an agent mentioned in a channel joins it. A post
 //!   to a DM with an agent goes to it as a message that wakes it.
@@ -307,11 +311,12 @@ fn thread_members(t: &Task) -> Vec<Member> {
 }
 
 /// Whether a message can show as a DM ([`mirrored`]): one an agent or the
-/// person sent, not a notice, a stop, Irori's own or a mention's wake. The
-/// Core tells the window Talk changed only for these (card #468). A row
-/// bridged from a shared board (card #478) isn't one either: it is the
-/// card's, shown on the card, and every holder's and watcher's copy would
-/// show again ("raised a blocker on ..." ten times over).
+/// person sent, not a notice, a stop, Irori's own, a mention's wake or a
+/// Wind down (card #484). The Core tells the window Talk changed only for
+/// these (card #468). A row bridged from a shared board (card #478) isn't
+/// one either: it is the card's, shown on the card, and every holder's and
+/// watcher's copy would show again ("raised a blocker on ..." ten times
+/// over).
 pub fn mirrors(m: &inbox::Message) -> bool {
     !(m.notice
         || m.stop
@@ -319,7 +324,17 @@ pub fn mirrors(m: &inbox::Message) -> bool {
         || m.from.kind == inbox::BOARD_KIND
         || m.from.key.starts_with("board:")
         || m.reason == inbox::REASON_MENTIONED
+        || inbox::is_wind_down(m)
         || m.from.key.is_empty())
+}
+
+/// Whether `m` answers a Wind down (`wind_downs` holds their ids): a
+/// "wound down" sent as a message, as replies were before card #307. It
+/// stays out of the DMs with the Wind down itself (card #484). Only a
+/// reply counts: parent_id also links whatever an agent sends in the turn
+/// the Wind down woke (a hand-off, a failure report), and those still show.
+fn answers_wind_down(m: &inbox::Message, wind_downs: &std::collections::HashSet<String>) -> bool {
+    !m.reply_to.is_empty() && wind_downs.contains(&m.reply_to)
 }
 
 /// The DMs mirrored from messages: by DM id, its two parties and posts.
@@ -327,9 +342,16 @@ fn mirrored(b: &dyn Backend, talk: &Talk) -> BTreeMap<String, (Vec<Member>, Vec<
     let ids = talk.post_ids();
     let mut seen = std::collections::HashSet::new();
     let mut out: BTreeMap<String, (Vec<Member>, Vec<Post>)> = BTreeMap::new();
-    for d in b.inbox().list(usize::MAX) {
+    let all = b.inbox().list(usize::MAX);
+    let wind_downs: std::collections::HashSet<String> = all
+        .iter()
+        .filter(|d| inbox::is_wind_down(&d.message))
+        .map(|d| d.message.id.clone())
+        .collect();
+    for d in all {
         let m = &d.message;
         if !mirrors(m)
+            || answers_wind_down(m, &wind_downs)
             || d.to.is_empty()
             || ct::canon(&m.from.key) == ct::canon(&d.to)
             || ids.contains(&m.id)

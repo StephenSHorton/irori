@@ -202,8 +202,8 @@ export function NotesPage({
               {query || kind !== "all"
                 ? "No notes match."
                 : board
-                  ? `No notes on ${scopeLabel} yet. Keep one from a blocker answer, a comment or a done proof, or write one with New note.`
-                  : "No notes yet. Keep one from a blocker answer, a comment or a done proof, or write one with New note."}
+                  ? `No notes on ${scopeLabel} yet. Agents propose them here, or write one with New note.`
+                  : "No notes yet. Agents propose them here, or write one with New note."}
             </p>
           )
         )}

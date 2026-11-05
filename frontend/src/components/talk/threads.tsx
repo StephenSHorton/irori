@@ -12,6 +12,7 @@ import { CommentBox } from "@/components/cards/card-detail"
 import { AgentCards } from "@/components/cards/agent-hover"
 import { Face } from "@/components/cards/faces"
 import { Thread } from "@/components/cards/thread"
+import { spawnLine } from "@/lib/spawn-line"
 import {
   displayName,
   threads as threadsApi,
@@ -82,9 +83,13 @@ export function stateLine(t: ThreadSummary, why = ""): string {
     case "resolved":
       return "Resolved"
     default:
-      return t.told.length
-        ? `Waiting for ${t.told.map(displayName).join(", ")}; after 45s, an agent with Offer it cards on answers`
-        : why || "Waiting for a free agent"
+      // An agent Irori starts for it, or why it can't (card #470).
+      return (
+        spawnLine(t)?.text ??
+        (t.told.length
+          ? `Waiting for ${t.told.map(displayName).join(", ")}; after 45s, an agent with Offer it cards on answers`
+          : why || "Waiting for a free agent")
+      )
   }
 }
 
@@ -172,7 +177,10 @@ export function ThreadView({
   return (
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1 text-[12.5px]">
-        <RichText text={t.text} className="text-ink-2 [overflow-wrap:anywhere]" />
+        <RichText
+          text={t.text}
+          className="[overflow-wrap:anywhere] text-ink-2"
+        />
         {t.told.length > 0 && (
           <span className="flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
             {t.state === "waiting" ? "Asked first:" : "Told:"}

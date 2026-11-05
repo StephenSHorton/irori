@@ -3,10 +3,8 @@ import { describe, expect, test } from "bun:test"
 import { TalkConversation } from "@/lib/models"
 import {
   archived,
-  bareWhenFolded,
   dmSections,
   foldedByDefault,
-  needsLook,
   sectionRows,
   shownAtOnce,
   unreadIn,
@@ -53,42 +51,30 @@ describe("Talk list sections (card #463)", () => {
     expect(dmSections([c], () => false).yours.map((x) => x.convId)).toEqual(["back"])
   })
 
-  test("the Archive folds by default and, folded, lists no rows at all", () => {
-    expect(foldedByDefault.gone).toBe(true)
-    expect(bareWhenFolded.has("gone")).toBe(true)
-    // Every other section still shows its unread and open rows when folded.
-    expect(bareWhenFolded.has("dms")).toBe(false)
-    expect(bareWhenFolded.has("agents")).toBe(false)
-  })
-
-  test("Agents talking, folded, shows only the open one: never its unread", () => {
-    const items = [dm("a", { readOnly: true, unread: 4 }), dm("b", { readOnly: true }), dm("c", { readOnly: true, mentions: 1 })]
-    expect(sectionRows(items, true, "", false).rows).toEqual([])
-    expect(sectionRows(items, true, "b", false).rows.map((c) => c.convId)).toEqual(["b"])
-  })
-
-  test("only Threads and Channels start unfolded", () => {
+  test("the Archive and Agents talking start folded; your DMs, Threads and Channels don't", () => {
     expect(foldedByDefault).toEqual({
       threads: false,
       channels: false,
-      dms: true,
+      dms: false,
       gone: true,
       agents: true,
     })
   })
 
-  test("a folded section still shows the open one and unread DMs, never an agent↔agent DM's unread", () => {
+  test("a folded section lists no rows at all: not its unread, mentions or the open one (card #484)", () => {
     const items = [
       dm("quiet"),
       dm("new", { unread: 2 }),
-      dm("named", { mentions: 1 }),
+      dm("named", { mentions: 1, unread: 1 }),
       dm("open"),
       dm("watched", { readOnly: true, unread: 9 }),
     ]
     const { rows, hidden } = sectionRows(items, true, "open", false)
-    expect(rows.map((c) => c.convId)).toEqual(["new", "named", "open"])
-    expect(hidden).toBe(2)
-    expect(needsLook(dm("watched", { readOnly: true }), "watched")).toBe(true)
+    expect(rows).toEqual([])
+    expect(hidden).toBe(5)
+    // What it hides still counts beside its name.
+    expect(unreadIn(items)).toBe(2)
+    expect(sectionRows(items, true, "", true).rows).toEqual([])
   })
 
   test("an unfolded section lists the newest few, keeps the open one, and Show more lists all", () => {

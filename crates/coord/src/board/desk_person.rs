@@ -30,9 +30,12 @@ impl Fold {
                 "only the person {what} on a merge desk, in the app"
             )));
         }
-        let repo = trim_space(repo_key).to_string();
+        let repo = ledger::canonical_repo_key(repo_key);
         if !self.desks.get(&repo).is_some_and(|d| d.on()) {
-            return Err(invalid(format!("{repo} has no merge desk")));
+            return Err(invalid(format!(
+                "{} has no merge desk",
+                ledger::repo_name(&repo)
+            )));
         }
         Ok((by, repo))
     }

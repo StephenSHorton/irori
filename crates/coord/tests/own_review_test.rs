@@ -120,3 +120,35 @@ fn the_asker_hears_a_verdict_even_when_not_holding() {
     to.sort();
     assert_eq!(to, vec![ALICE.to_string(), CAROL.to_string()]);
 }
+
+/// Card #471: on the person's own board every agent is theirs, so none of
+/// them is asked to review a card that links a PR of the person's; the
+/// card's own work with no PR can still get a second pair of eyes.
+#[test]
+fn your_own_agents_never_review_your_pr() {
+    let e = Env::new();
+    let t = held_card(&e);
+    const PR: &str = "https://github.com/a/b/pull/9";
+    e.c.add_link(ALICE, &t.id, PR).unwrap();
+
+    let err = e.c.request_review(ALICE, &t.id, PR, BOB).unwrap_err();
+    assert!(err.is(ErrorKind::NotAllowed), "{err}");
+    assert!(
+        err.to_string()
+            .contains("never reviewed by their own agents"),
+        "{err}"
+    );
+    // Leaving pr out doesn't get round it: the card links one.
+    want_err(
+        e.c.request_review(ALICE, &t.id, "", BOB),
+        ErrorKind::NotAllowed,
+    );
+    assert!(e.c.reviews_of(&t.id).is_empty());
+    assert_ne!(e.c.get_task(&t.id).unwrap().state, IN_REVIEW);
+
+    // A card with no PR still can.
+    e.c.leave(ALICE, &t.id, ALICE).unwrap();
+    let u = held_card(&e);
+    e.c.request_review(ALICE, &u.id, "", BOB).unwrap();
+    assert_eq!(e.c.reviews_of(&u.id).len(), 1);
+}

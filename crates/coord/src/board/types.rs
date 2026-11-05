@@ -695,6 +695,9 @@ pub struct Comment {
     pub files: i64,
     #[serde(skip_serializing_if = "omit")]
     pub blocker_id: String,
+    /// The question of the blocker it answers, cut short (card #490).
+    #[serde(skip)]
+    pub blocker_gist: String,
     #[serde(skip_serializing_if = "omit")]
     pub pick: i64,
     #[serde(skip_serializing_if = "omit")]
@@ -902,6 +905,10 @@ pub struct Activity {
     /// The line of a blocker revision: it belongs in the blocker's thread.
     #[serde(skip)]
     pub revised: bool,
+    /// The blocker's question, cut short, when the line is about one
+    /// (card #490): the person reads it in place of the blocker's id.
+    #[serde(skip)]
+    pub blocker_gist: String,
     #[serde(skip)]
     pub hlc: u64,
     #[serde(skip)]

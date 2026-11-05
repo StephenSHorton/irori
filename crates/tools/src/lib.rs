@@ -69,6 +69,7 @@ use std::sync::{Arc, Mutex, Weak};
 use gocompat::time::GoTime;
 
 pub use attachments::Attacher;
+pub use explore::spawned_lines;
 pub use format::{clip, clip_mcp, one_line};
 pub use notes::{NotesBackend, ToolNote};
 pub use notify::{Action, Note, Notifier};

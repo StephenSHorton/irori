@@ -15,6 +15,7 @@ import {
   CardPR,
   CardRef,
   CardResolution,
+  CardRound,
   CardSubtask,
   CardThreadItem,
   CardWhere,
@@ -36,7 +37,9 @@ function agent(session: string, name: string, status: string): AgentRef {
     name,
     status,
     live: status !== "gone",
-    where: "This PC",
+    // This device by its own name, and here (card #489).
+    where: "Macbook Pro (this one)",
+    here: true,
     deviceId: dev,
     color: "teal",
   })
@@ -50,13 +53,14 @@ export const sampleAgents = {
   // (Claude Code's "shell", card #431). Not in the sample roster, so the
   // card keeps this status.
   mink: agent("sample05-synthetic-session", "sample-mink", "shell"),
-  // sample-wren is on the sample's paired MacBook, which is offline, so its
+  // sample-wren is on the sample's paired Desktop Computer, which is offline, so its
   // face shows the device chip greyed.
   wren: AgentRef({
     ...agent("sample04-synthetic-session", "sample-wren", "idle"),
     key: "sample-macbook/sample04-synthetic-session",
-    where: "MacBook",
-    device: "MacBook",
+    where: "Desktop Computer",
+    here: false,
+    device: "Desktop Computer",
     deviceId: "sample-macbook",
     color: "orange",
     offline: true,
@@ -70,7 +74,8 @@ export const sampleYou = AgentRef({
   name: "You",
   status: "person",
   live: true,
-  where: "This PC",
+  where: "Macbook Pro (this one)",
+  here: true,
   deviceId: dev,
   color: "teal",
 })
@@ -105,11 +110,13 @@ export function sampleHolder(working: AgentRef[]): CardHolder {
           ? Holding.HoldAssigned
           : who.status === "gone"
             ? Holding.HoldGone
-            : who.offline
-              ? Holding.HoldOffline
-              : who.status === "idle"
-                ? Holding.HoldIdle
-                : Holding.HoldActive
+            : who.status === "unresponsive"
+              ? Holding.HoldSilent
+              : who.offline
+                ? Holding.HoldOffline
+                : who.status === "idle"
+                  ? Holding.HoldIdle
+                  : Holding.HoldActive
   return CardHolder({ who, state, others: working.length - 1 })
 }
 
@@ -128,17 +135,25 @@ function steps(seeds: StepSeed[]): Step[] {
 }
 
 // eventsOf is a thread made of a card's Recent lines (newest first), for
-// the sample cards that seed no thread of their own.
-function eventsOf(recent: CardActivity[]): CardThreadItem[] {
-  return [...recent].reverse().map((a, i) =>
-    CardThreadItem({
+// the sample cards that seed no thread of their own. A line that quotes a
+// blocker's question carries that blocker, as the Rust thread does (card
+// #490), so it links to it.
+function eventsOf(
+  recent: CardActivity[],
+  blockers: CardBlocker[] = []
+): CardThreadItem[] {
+  return [...recent].reverse().map((a, i) => {
+    const b = blockers.find((b) => a.text.includes(`“${b.question}”`))
+    return CardThreadItem({
       id: `sample-event-${i}`,
       kind: "event",
       at: a.at,
       who: a.who,
       text: a.text,
+      blockerId: b?.id,
+      blockerGist: b?.question,
     })
-  )
+  })
 }
 
 export function sampleCards(now: Date): CardDetail[] {
@@ -167,7 +182,7 @@ export function sampleCards(now: Date): CardDetail[] {
       watching: [],
       short: (c.id ?? "").replace("sample-card-", ""),
       ...c,
-      thread: c.thread ?? eventsOf(c.recent ?? []),
+      thread: c.thread ?? eventsOf(c.recent ?? [], c.blockers ?? []),
       steps: st,
       blockers: c.blockers ?? [],
       // A parent's bar counts its subtasks, as cardSummary does.
@@ -263,7 +278,7 @@ export function sampleCards(now: Date): CardDetail[] {
   })
 
   // Card #431: held, its holder between turns with a background job
-  // running (Home: "sample-mink running a background job").
+  // running (Home: "sample-mink running a job").
   const runningJob = card({
     id: "sample-card-job",
     short: "54",
@@ -295,7 +310,8 @@ export function sampleCards(now: Date): CardDetail[] {
           card({
             id: `sample-card-red-wait-${n}`,
             short: n,
-            title: n === "61" ? "Talk 3: agents answer now" : "Merge desk slice 2",
+            title:
+              n === "61" ? "Talk 3: agents answer now" : "Merge desk slice 2",
             goal: "Waiting on main going green.",
             state: TaskState.Blocked,
             working: [idleHolder],
@@ -304,7 +320,7 @@ export function sampleCards(now: Date): CardDetail[] {
             waitTask: "sample-card-red",
             waitQuestion: "attach_exe fails on clean main",
             updatedAt: at(2),
-          }),
+          })
         ),
       ]
     : []
@@ -326,7 +342,11 @@ export function sampleCards(now: Date): CardDetail[] {
   const ring = [
     { id: "sample-card-loop-70", short: "70", title: "Talk 4: Spaces" },
     { id: "sample-card-loop-72", short: "72", title: "Talk 8: release Talk" },
-    { id: "sample-card-loop-71", short: "71", title: "Talk 6: person-to-person DMs" },
+    {
+      id: "sample-card-loop-71",
+      short: "71",
+      title: "Talk 6: person-to-person DMs",
+    },
   ]
   const loop = new URLSearchParams(window.location.search).has("loop")
     ? [
@@ -377,7 +397,8 @@ export function sampleCards(now: Date): CardDetail[] {
           blockers: [
             CardBlocker({
               id: "b2",
-              question: "Ship this release without person-to-person DMs (#71), or wait for it?",
+              question:
+                "Ship this release without person-to-person DMs (#71), or wait for it?",
               raisedBy: heron,
               at: at(60),
               resolved: null,
@@ -429,7 +450,7 @@ export function sampleCards(now: Date): CardDetail[] {
             goal: "Starting an agent.",
             state: TaskState.Submitted,
             working: [],
-            starting: "This PC",
+            starting: "Macbook Pro (this one)",
             updatedAt: at(1),
           }),
           card({
@@ -439,7 +460,7 @@ export function sampleCards(now: Date): CardDetail[] {
             goal: "Waiting for a slot.",
             state: TaskState.Submitted,
             working: [],
-            atCap: "This PC",
+            atCap: "Macbook Pro (this one)",
             updatedAt: at(1),
           }),
           // Card #456 (sa-7): Irori's own decisions on spawned cards.
@@ -452,17 +473,26 @@ export function sampleCards(now: Date): CardDetail[] {
             goal: "One writer for the lantern's alpha.",
             working: [
               AgentRef({
-                ...agent("sample06-synthetic-session", "sample-thyme", "waiting"),
+                ...agent(
+                  "sample06-synthetic-session",
+                  "sample-thyme",
+                  "waiting"
+                ),
                 spawned: true,
               }),
             ],
             blockers: [
               CardBlocker({
                 id: "b-perm",
-                question: "Waiting for your permission: sample-thyme is stopped on a prompt",
+                question:
+                  "Waiting for your permission: sample-thyme is stopped on a prompt",
                 context:
                   "sample-thyme, the agent Irori started for #58, is waiting for a permission nobody is there to give. Attach to it to answer the prompt, or add the command to the board's allow list in Settings › Agents and start a fresh agent.",
-                raisedBy: AgentRef({ key: "irori", name: "Irori", status: "person" }),
+                raisedBy: AgentRef({
+                  key: "irori",
+                  name: "Irori",
+                  status: "person",
+                }),
                 at: at(2),
                 options: [],
                 resolved: null,
@@ -483,13 +513,21 @@ export function sampleCards(now: Date): CardDetail[] {
                 question: "Its agent crashed twice in a row: start another?",
                 context:
                   "The last two agents started for this card went away before finishing. Irori won't start another until you say so: start one, or say in your own words what to try, and it goes in the next agent's brief.",
-                raisedBy: AgentRef({ key: "irori", name: "Irori", status: "person" }),
+                raisedBy: AgentRef({
+                  key: "irori",
+                  name: "Irori",
+                  status: "person",
+                }),
                 at: at(9),
                 options: [
                   CardOption({
                     answer: "Start another agent",
                     why: "A fresh agent picks it up from Where and Left off.",
-                    by: AgentRef({ key: "irori", name: "Irori", status: "person" }),
+                    by: AgentRef({
+                      key: "irori",
+                      name: "Irori",
+                      status: "person",
+                    }),
                     at: at(9),
                     recommended: true,
                   }),
@@ -507,7 +545,7 @@ export function sampleCards(now: Date): CardDetail[] {
             goal: "No checkout here.",
             state: TaskState.Submitted,
             working: [],
-            cantStart: "no checkout of remote:github.com/you/app-repo on sample-device",
+            cantStart: "no copy of app-repo on Sample Mac",
             updatedAt: at(1),
           }),
         ]
@@ -600,14 +638,15 @@ export function sampleCards(now: Date): CardDetail[] {
       state: TaskState.InReview,
       working: [otter],
       updatedAt: at(3),
-      // Card #347: no agent was asked, so it waits on the person's review.
-      reviewPr: {
+      // Card #471: it waits on its PR, which agents merge; a small chip
+      // on the card links it, and nothing goes to Needs you.
+      waitPr: {
         repo: "sample-org/example-app",
         number: 212,
         url: "https://github.com/sample-org/example-app/pull/212",
       },
     }),
-    // Card #347: a wait on that card ends at the person's review.
+    // A wait on that card waits on its PR, not on the person (card #471).
     card({
       id: "sample-card-after-review",
       short: "17",
@@ -618,7 +657,6 @@ export function sampleCards(now: Date): CardDetail[] {
       waitingOn: 1,
       waitOn: "#16",
       waitQuestion: "After the convert steps land",
-      waitYou: "your review of PR #212 (#16)",
       updatedAt: at(4),
     }),
     card({
@@ -641,7 +679,7 @@ export function sampleCards(now: Date): CardDetail[] {
       ask: CardAsk({
         state: "open",
         told: 3,
-        owner: "This PC",
+        owner: "Macbook Pro (this one)",
         wake: false,
         taker: null,
         outcome: null,
@@ -681,7 +719,7 @@ export function sampleCards(now: Date): CardDetail[] {
       ask: CardAsk({
         state: "taken",
         told: 3,
-        owner: "This PC",
+        owner: "Macbook Pro (this one)",
         wake: false,
         taker: heron,
         outcome: null,
@@ -722,19 +760,28 @@ export function sampleCards(now: Date): CardDetail[] {
           id: "b1",
           question: "Ship today, or wait for the two-PC temple check?",
           context:
-            "Every automated check passes on main d48bc2f. The co-op check needs both PCs, with the game closed on the second one; it was last blocked 20 minutes ago because another game was running. Shipping now means the release notes say temple co-op is untested.",
+            "Every automated check passes. The co-op check needs both PCs, with the game closed on the second one; it was last blocked 20 minutes ago because another game was running. Shipping now means the release notes say temple co-op is untested.",
           raisedBy: otter,
           at: at(18),
+          // Card #491: the person clicks an option, so each one says who
+          // acts ("sample-otter ships…", "I'll…" = the person) or the
+          // outcome, never the agent's "I".
           options: [
             CardOption({
-              answer: "Wait for the check, ship tonight",
+              answer: "Wait for the check; sample-otter ships tonight",
               why: "The temple is the release's headline feature; an untested headline is worse than a short delay.",
               by: otter,
               at: at(18),
               recommended: true,
             }),
             CardOption({
-              answer: "Ship now, mark temple co-op as experimental",
+              answer: "I'll close the game on the second PC now",
+              why: "The check runs as soon as it's closed, and sample-otter ships when it passes.",
+              by: otter,
+              at: at(18),
+            }),
+            CardOption({
+              answer: "Ship now, with temple co-op marked experimental",
               why: "Players get the boat and log fixes today; a 0.6.1 can follow the check.",
               by: heron,
               at: at(15),
@@ -884,7 +931,8 @@ export function sampleCards(now: Date): CardDetail[] {
               name: "Irori",
               status: "irori",
               live: true,
-              where: "This PC",
+              where: "Macbook Pro (this one)",
+              here: true,
             }),
             at: at(110),
             closed: true,
@@ -911,12 +959,12 @@ export function sampleCards(now: Date): CardDetail[] {
         CardActivity({
           at: at(30),
           who: otter,
-          text: "sample-otter replied on blocker b2",
+          text: "sample-otter replied on “What goes in the release notes' known-issues list?”",
         }),
         CardActivity({
           at: at(38),
           who: sampleYou,
-          text: "You answered blocker b2",
+          text: "You answered “What goes in the release notes' known-issues list?”",
         }),
         CardActivity({
           at: at(40),
@@ -991,7 +1039,7 @@ export function sampleCards(now: Date): CardDetail[] {
         CardActivity({
           at: at(4),
           who: sampleYou,
-          text: "You answered blocker b1",
+          text: "You answered “Which virtual adapter should the LAN build install?”",
         }),
         CardActivity({
           at: at(9),
@@ -1046,7 +1094,7 @@ export function sampleCards(now: Date): CardDetail[] {
       ],
       // The thread: what happened, the person's and agents' comments, and
       // messages about the card between agents, one from the paired
-      // MacBook, one whose recipient had ended and one the policy held.
+      // Desktop Computer, one whose recipient had ended and one the policy held.
       // This card opens first, so a plain-browser run shows them.
       thread: [
         CardThreadItem({
@@ -1061,7 +1109,7 @@ export function sampleCards(now: Date): CardDetail[] {
           kind: "event",
           at: at(64),
           who: wren,
-          device: "MacBook",
+          device: "Desktop Computer",
           text: "sample-wren joined",
         }),
         CardThreadItem({
@@ -1069,7 +1117,7 @@ export function sampleCards(now: Date): CardDetail[] {
           kind: "comment",
           at: at(50),
           who: sampleYou,
-          text: "Test the join with the MacBook as the second machine.",
+          text: "Test the join with the Desktop Computer as the second machine.",
           pending: ["sample-badger read it"],
         }),
         CardThreadItem({
@@ -1078,8 +1126,8 @@ export function sampleCards(now: Date): CardDetail[] {
           at: at(34),
           who: wren,
           to: heron,
-          device: "MacBook",
-          text: "Lobby join works from the MacBook build.\nAnimals spawn, but their positions lag by about a second; the capture is attached.",
+          device: "Desktop Computer",
+          text: "Lobby join works from the Desktop Computer build.\nAnimals spawn, but their positions lag by about a second; the capture is attached.",
           files: 1,
         }),
         CardThreadItem({
@@ -1103,7 +1151,7 @@ export function sampleCards(now: Date): CardDetail[] {
           kind: "comment",
           at: at(14),
           who: wren,
-          device: "MacBook",
+          device: "Desktop Computer",
           text: "The lag goes away with a 20 Hz sync tick. Pushed to the PR.",
         }),
         // The person asks a busy agent (card #159): it hears it when its
@@ -1145,7 +1193,7 @@ export function sampleCards(now: Date): CardDetail[] {
           kind: "event",
           at: at(6),
           who: wren,
-          device: "MacBook",
+          device: "Desktop Computer",
           text: "sample-wren linked GitHub #88",
         }),
         CardThreadItem({
@@ -1250,6 +1298,144 @@ export function sampleCards(now: Date): CardDetail[] {
         }),
       ],
     }),
+    // Card #476: a done check you sent back, and the one the agent raised
+    // after it. The new one opens with that round: your reason, the
+    // agent's answer, and the proof it replaces.
+    (() => {
+      const reason = CardThreadItem({
+        id: "sample-round-reason",
+        kind: "comment",
+        at: at(42),
+        who: sampleYou,
+        to: heron,
+        text: "Not done: the others haven't been told the next steps.",
+        blockerId: "b1",
+        heardBy: [heron.key],
+      })
+      const answer = CardThreadItem({
+        id: "sample-round-answer",
+        kind: "comment",
+        at: at(30),
+        who: heron,
+        text: "Right: I posted the next steps in #game-team, and the prod check is its own card now, #108, so it doesn't rely on someone remembering.",
+        blockerId: "b1",
+      })
+      const oldProof =
+        "PR #2225 merged as 5d804f5; the feed skips legacy campaigns by default; a test in the PR covers it."
+      return card({
+        id: "sample-card-31",
+        title: "Turn off the legacy feed for migrated clients",
+        repoKey: "remote:github.com/sample-org/example-game",
+        goal: "Migrated clients' legacy campaigns stop showing in the delivery feed.",
+        working: [heron],
+        updatedAt: at(6),
+        steps: steps([
+          ["Skip legacy campaigns", true],
+          ["PR, review, merge", true],
+          ["Tell the team the next steps", true],
+        ]),
+        blockers: [
+          CardBlocker({
+            id: "b2",
+            question: "Is this done?",
+            context:
+              "PR #2225 merged as 5d804f5; the feed skips legacy campaigns by default; a test in the PR covers it.\nSince you sent it back: the next steps are posted in #game-team, and the prod deploy check is its own card, #108.",
+            raisedBy: heron,
+            at: at(6),
+            doneCheck: true,
+            options: [
+              CardOption({
+                answer: "Done",
+                why: "Closes the card.",
+                by: heron,
+                at: at(6),
+                recommended: true,
+              }),
+            ],
+            resolved: null,
+            state: "open",
+            thread: [],
+            previous: CardRound({
+              id: "b1",
+              round: 2,
+              proof: oldProof,
+              thread: [reason, answer],
+            }),
+          }),
+          CardBlocker({
+            id: "b1",
+            question: "Is this done?",
+            context: oldProof,
+            raisedBy: heron,
+            at: at(50),
+            doneCheck: true,
+            options: [
+              CardOption({
+                answer: "Done",
+                why: "Closes the card.",
+                by: heron,
+                at: at(50),
+                recommended: true,
+              }),
+            ],
+            resolved: CardResolution({
+              answer: reason.text,
+              option: -1,
+              by: heron,
+              at: at(6),
+              note: "asked again: ready for the person",
+            }),
+            state: "resolved",
+            thread: [reason, answer],
+          }),
+        ],
+      })
+    })(),
+    // Card #476: you sent a done check back; the agent read it but hasn't
+    // answered yet.
+    card({
+      id: "sample-card-32",
+      title: "Pin the save format before the beta",
+      repoKey: "remote:github.com/sample-org/example-game",
+      goal: "Old saves load after the format change.",
+      working: [otter],
+      updatedAt: at(3),
+      blockers: [
+        CardBlocker({
+          id: "b1",
+          question: "Is this done?",
+          context: "Save format v3 with a migration from v2; cargo test green.",
+          raisedBy: otter,
+          at: at(20),
+          doneCheck: true,
+          options: [
+            CardOption({
+              answer: "Done",
+              why: "Closes the card.",
+              by: otter,
+              at: at(20),
+              recommended: true,
+            }),
+          ],
+          resolved: null,
+          state: "answered",
+          sentTo: otter,
+          optionsAside: true,
+          thread: [
+            CardThreadItem({
+              id: "sample-sent-back",
+              kind: "comment",
+              at: at(3),
+              who: sampleYou,
+              to: otter,
+              text: "Not done: a v1 save from the demo still crashes on load.",
+              blockerId: "b1",
+              heardBy: [otter.key],
+            }),
+          ],
+        }),
+      ],
+    }),
     card({
       id: "sample-card-4",
       // Where its work is and where it left off (card #137).
@@ -1276,7 +1462,7 @@ export function sampleCards(now: Date): CardDetail[] {
       // step is done (card #86).
       working: [otter, AgentRef({ ...heron, steps: ["s3"] })],
       watching: [badger],
-      // sample-otter and sample-wren (on the MacBook) are messaging each
+      // sample-otter and sample-wren (on the Desktop Computer) are messaging each
       // other about it: the tile's talk bubble (card #22).
       talking: [otter, wren],
       updatedAt: at(3),
@@ -1717,7 +1903,7 @@ export function sampleCards(now: Date): CardDetail[] {
       ask: CardAsk({
         state: "closed",
         told: 3,
-        owner: "This PC",
+        owner: "Macbook Pro (this one)",
         wake: false,
         taker: otter,
         outcome: {

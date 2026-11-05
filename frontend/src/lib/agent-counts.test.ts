@@ -5,7 +5,12 @@ import { agentCounts, freeIn, idleLine, whyWaiting } from "./agent-counts"
 // An agent that takes offered work (card #453) unless extra says otherwise.
 const a = (
   status: string,
-  extra: { deviceState?: string; repoKey?: string; offersCards?: boolean; spawned?: boolean } = {}
+  extra: {
+    deviceState?: string
+    repoKey?: string
+    offersCards?: boolean
+    spawned?: boolean
+  } = {}
 ) => ({
   status,
   offersCards: true,
@@ -48,7 +53,12 @@ describe("agentCounts (card #172)", () => {
   })
 
   test("free matches who a thread goes to: idle on an online device", () => {
-    const agents = [a("idle"), a("idle", { deviceState: "offline" }), a("shell"), a("unresponsive")]
+    const agents = [
+      a("idle"),
+      a("idle", { deviceState: "offline" }),
+      a("shell"),
+      a("unresponsive"),
+    ]
     expect(agentCounts(agents).free).toBe(freeIn(agents))
     expect(freeIn(agents)).toBe(1)
   })
@@ -57,7 +67,7 @@ describe("agentCounts (card #172)", () => {
 describe("whyWaiting (card #172)", () => {
   test("everyone working, some on their own commands", () => {
     expect(whyWaiting([a("busy"), a("shell"), a("shell")])).toBe(
-      "Nobody is free: 3 working (2 waiting on a command they started). The first agent with Offer it cards on to go idle answers it."
+      "Nobody is free: 3 working (2 running a job). The first agent with Offer it cards on to go idle answers it."
     )
   })
   test("idle but not answering", () => {
@@ -71,16 +81,24 @@ describe("whyWaiting (card #172)", () => {
     )
   })
   test("idle, but none in the repo", () => {
-    expect(whyWaiting([a("idle", { repoKey: "mlg" }), a("idle", { repoKey: "mlg" })], "irori")).toBe(
-      "2 agents are idle, but none works in irori."
-    )
+    expect(
+      whyWaiting(
+        [a("idle", { repoKey: "mlg" }), a("idle", { repoKey: "mlg" })],
+        "irori"
+      )
+    ).toBe("2 agents are idle, but none works in irori.")
   })
   test("someone free: no reason", () => {
     expect(whyWaiting([a("idle"), a("busy")])).toBe("")
     expect(whyWaiting([a("idle", { repoKey: "irori" })], "irori")).toBe("")
   })
   test("nobody takes offered work (card #453)", () => {
-    expect(whyWaiting([a("idle", { offersCards: false }), a("busy", { spawned: true })])).toBe(
+    expect(
+      whyWaiting([
+        a("idle", { offersCards: false }),
+        a("busy", { spawned: true }),
+      ])
+    ).toBe(
       "No agent takes offered work: Irori starts one on boards with spawning on, or turn on Offer it cards for an agent."
     )
   })
@@ -95,10 +113,19 @@ describe("whyWaiting (card #172)", () => {
 })
 
 describe("idleLine (card #341)", () => {
-  const u = (short: string, why: string) => ({ id: short, short, title: short, why })
+  const u = (short: string, why: string) => ({
+    id: short,
+    short,
+    title: short,
+    why,
+  })
   test("idle agents and nothing to hand out: a work shortage", () => {
-    expect(idleLine({ idle: 20, unoffered: [] })).toBe("20 agents idle, no open work.")
-    expect(idleLine({ idle: 1, unoffered: [] })).toBe("1 agent idle, no open work.")
+    expect(idleLine({ idle: 20, unoffered: [] })).toBe(
+      "20 agents idle, no open work."
+    )
+    expect(idleLine({ idle: 1, unoffered: [] })).toBe(
+      "1 agent idle, no open work."
+    )
   })
   test("nobody idle and nothing waiting says nothing", () => {
     expect(idleLine({ idle: 0, unoffered: [] })).toBe("")
@@ -119,7 +146,9 @@ describe("idleLine (card #341)", () => {
     )
   })
   test("cards waiting with nobody idle", () => {
-    expect(idleLine({ idle: 0, unoffered: [u("#5", "no agent is free")] })).toBe(
+    expect(
+      idleLine({ idle: 0, unoffered: [u("#5", "no agent is free")] })
+    ).toBe(
       "No agent is free, 1 card not handed out yet: #5 (no agent is free)."
     )
   })

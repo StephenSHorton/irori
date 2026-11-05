@@ -385,7 +385,9 @@ impl Inner {
                 for f in &bl.attachments {
                     b += &format!("    file: {} (attachment_get)\n", describe_coord(f));
                 }
-                if bl.options_aside {
+                if bl.options_aside && bl.done_check {
+                    b += "    Not done: the person said why; answer them in the thread (board_comment blocker_id), then set completed again with proof that says what changed\n";
+                } else if bl.options_aside {
                     b += "    options set aside: the person answered in their own words; answer in the thread, then revise with board_block blocker_id\n";
                 }
                 let opts = if bl.options_aside { &[][..] } else { opts };
@@ -502,7 +504,7 @@ pub(crate) fn board(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Err(e) => return e,
     };
     let done = a.bool("done");
-    let mut repo = trim(a.str("repo")).to_string();
+    let mut repo = coord::canonical_repo_key(trim(a.str("repo")));
     match repo.as_str() {
         "*" | "all" => repo.clear(),
         "" => repo = s.caller_repo(c),
@@ -807,7 +809,7 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     if trim(a.str("title")).is_empty() {
         return err_text("give the card a title: what is being worked on now.");
     }
-    let mut repo = trim(a.str("repo")).to_string();
+    let mut repo = coord::canonical_repo_key(trim(a.str("repo")));
     if repo.is_empty() {
         repo = s.caller_repo(c);
     }
@@ -1030,6 +1032,18 @@ pub(crate) fn board_comment(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     if !bid.is_empty() {
         // A reply on a blocker tells nobody: the person is the audience.
         let b = one_line(&bid, 20);
+        // A done check (card #476): the reply is the agent's answer to a
+        // Not done; completed with new proof replaces the check, never
+        // board_unblock or board_block.
+        if s.task(&id)
+            .is_some_and(|t| t.blockers.iter().any(|x| x.id == bid && x.done_check))
+        {
+            return format!(
+                "Answered the person on done check {b} of {}{}. When the work is done, set completed again with proof that says what changed since they sent it back; that check replaces this one.{mline}",
+                s.short_of(&id),
+                attached_line(&files)
+            );
+        }
         // After the person's answer, a reply without missing acts on it
         // (card #204): the blocker waits on the agent, which resolves it.
         let acted = s.task(&id).is_some_and(|t| {
@@ -2090,6 +2104,17 @@ pub(crate) fn board_join(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             ". Picking up where it was:{handover}\nWork from that branch (fetch it if it's pushed), not a fresh one"
         );
     }
+    // Card #476: the person sent its last done check back and nobody has
+    // answered them yet.
+    if let Some(sb) = co.sent_back(&t.id).filter(|sb| !sb.answered) {
+        out += &format!(
+            ". The person sent done check {} back: {}. Answer them on it first (board_comment task_id={} blocker_id={}), then set completed again with proof that says what changed",
+            sb.id,
+            quoted(&sb.reason.text, coord::MAX_ANSWER),
+            t.short_ref(),
+            sb.id
+        );
+    }
     s.note_where(&c.sender.key, &t);
     let t = co.get_task(&t.id).unwrap_or(t);
     format!(
@@ -2272,10 +2297,12 @@ pub(crate) fn board_status(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     {
         {
             return format!(
-                "{} waits on the person to confirm it's done (done check {}{}). Their Done closes it; if they say why it isn't done, you hear it as an answered blocker: fix it, then set completed again. Keep holding it until then.\n{}",
+                "{} waits on the person to confirm it's done (done check {}{}). Their Done closes it; if they say why it isn't done, you hear it as an answered blocker: answer them on it first (board_comment task_id={} blocker_id={}), so they see you heard them, then fix it and set completed again with proof that says what changed. Keep holding it until then.\n{}",
                 t.short_ref(),
                 one_line(&b.id, 20),
                 attached_line(&files),
+                t.short_ref(),
+                one_line(&b.id, 20),
                 s.line(&t)
             );
         }

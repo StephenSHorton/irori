@@ -180,10 +180,10 @@ impl DeskWatch {
     pub(crate) fn first_wake(&self, repo_key: &str, pr: i64, head: &str) -> bool {
         let mut w = self.woke.lock().unwrap_or_else(|e| e.into_inner());
         let k = (pr, head.to_string());
-        if w.get(repo_key) == Some(&k) {
+        if w.get(&coord::canonical_repo_key(repo_key)) == Some(&k) {
             return false;
         }
-        w.insert(repo_key.to_string(), k);
+        w.insert(coord::canonical_repo_key(repo_key), k);
         true
     }
 
@@ -191,7 +191,7 @@ impl DeskWatch {
     pub(crate) fn due(&self, repo_key: &str, now: Instant) -> bool {
         let slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
         slots
-            .get(repo_key)
+            .get(&coord::canonical_repo_key(repo_key))
             .and_then(|s| s.next)
             .is_none_or(|n| now >= n)
     }
@@ -199,7 +199,9 @@ impl DeskWatch {
     /// Records a poll's outcome and schedules the next one.
     pub(crate) fn heard(&self, repo_key: &str, ok: Result<(), String>, now: Instant, at: GoTime) {
         let mut slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
-        let s = slots.entry(repo_key.to_string()).or_default();
+        let s = slots
+            .entry(coord::canonical_repo_key(repo_key))
+            .or_default();
         match ok {
             Ok(()) => {
                 s.poll.last_poll_at = at;
@@ -222,7 +224,7 @@ impl DeskWatch {
     pub(crate) fn poll(&self, repo_key: &str) -> DeskPoll {
         let slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
         slots
-            .get(repo_key)
+            .get(&coord::canonical_repo_key(repo_key))
             .map(|s| s.poll.clone())
             .unwrap_or_default()
     }

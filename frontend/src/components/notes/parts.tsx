@@ -1,9 +1,9 @@
 // The Notes pieces other pages use too (card #413): the kind badge, the
-// note form (New note, Keep as note, Edit), Keep as note's button, and the
-// card page's "Notes its agent got" list.
+// note form (New note, Edit), and the card page's "Notes its agent got"
+// list.
 
-import { createContext, useContext, useState } from "react"
-import { BookOpenIcon, LinkIcon, LockIcon, UsersIcon } from "lucide-react"
+import { useState } from "react"
+import { LockIcon, UsersIcon } from "lucide-react"
 
 import { ChoiceSelect } from "@/components/common/choice-select"
 import { Badge } from "@/components/ui/badge"
@@ -18,16 +18,13 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { useBoards, type BoardSummary } from "@/lib/boards"
+import { type BoardSummary } from "@/lib/boards"
 import { plainLine, type Roster } from "@/lib/irori"
 import {
   MineScope,
   NoteKinds,
   NoteMaxChars,
-  guessTags,
-  noteFromText,
   noteProblem,
-  notes,
   tagLabel,
   useWakeNotes,
   type NewNote,
@@ -101,7 +98,7 @@ export type NoteDraft = {
   tags: string[]
 }
 
-// NoteForm is New note, Keep as note and Edit: kind, text, where it
+// NoteForm is New note and Edit: kind, text, where it
 // applies, and (for a new note) Mine or a board, Mine first (§8).
 export function NoteForm(props: {
   open: boolean
@@ -113,14 +110,6 @@ export function NoteForm(props: {
   // Edit: the note stays where it is.
   fixedScope?: boolean
   save?: string
-  // Keep as note: what it links back to.
-  source?: {
-    label: string
-    source: string
-    taskId?: string
-    commentId?: string
-    blockerId?: string
-  }
   onSave: (n: NewNote) => Promise<void>
 }) {
   const [busy, setBusy] = useState(false)
@@ -147,7 +136,6 @@ function NoteFormBody({
   boards,
   fixedScope,
   save = "Keep",
-  source,
   onSave,
   busy,
   setBusy,
@@ -177,10 +165,6 @@ function NoteFormBody({
         kind: draft.kind,
         text: draft.text,
         tags,
-        source: source?.source,
-        taskId: source?.taskId,
-        commentId: source?.commentId,
-        blockerId: source?.blockerId,
       })
       onOpenChange(false)
     } catch (e) {
@@ -285,12 +269,6 @@ function NoteFormBody({
           </>
         )}
       </div>
-      {source && (
-        <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
-          <LinkIcon className="size-3" aria-hidden /> Links back to{" "}
-          {source.label}
-        </p>
-      )}
       {error && <p className="text-xs text-destructive">{error}</p>}
       <DialogFooter>
         <Button
@@ -305,75 +283,6 @@ function NoteFormBody({
           {busy ? "Saving…" : save}
         </Button>
       </DialogFooter>
-    </>
-  )
-}
-
-// NoteCard is the card a page shows, for Keep as note's guessed tags
-// and source (CardPage provides it; null elsewhere, and no button shows).
-export type NoteCardInfo = {
-  id: string
-  repoKey?: string
-  board?: { tag: string } | null
-}
-export const NoteCard = createContext<NoteCardInfo | null>(null)
-
-// useNoteCard is the card Keep as note belongs to, or null.
-export function useNoteCard(): NoteCardInfo | null {
-  return useContext(NoteCard)
-}
-
-// KeepAsNote is the button on a blocker answer, a comment or a done
-// proof (§5): the form prefilled from the text, tags guessed from the
-// card, Mine by default, linked back to its source.
-export function KeepAsNote({
-  text,
-  card,
-  source,
-  className,
-}: {
-  text: string
-  card: { id: string; repoKey?: string; board?: { tag: string } | null }
-  source: {
-    label: string
-    source: string
-    commentId?: string
-    blockerId?: string
-  }
-  className?: string
-}) {
-  const [open, setOpen] = useState(false)
-  const [kept, setKept] = useState(false)
-  const { boards } = useBoards()
-  return (
-    <>
-      <Button
-        variant="ghost"
-        size="xs"
-        className={cn("gap-1 text-[11.5px] text-muted-foreground", className)}
-        title="Keep it as a note: agents get it on wake once it's kept"
-        onClick={() => setOpen(true)}
-      >
-        <BookOpenIcon className="size-3" aria-hidden />
-        {kept ? "Kept as note" : "Keep as note"}
-      </Button>
-      <NoteForm
-        open={open}
-        onOpenChange={setOpen}
-        title="Keep as note"
-        boards={boards}
-        initial={{
-          scope: MineScope,
-          kind: source.blockerId ? "decision" : "gotcha",
-          text: noteFromText(text),
-          tags: guessTags(card),
-        }}
-        source={{ ...source, taskId: card.id }}
-        onSave={async (n) => {
-          await notes.create(n)
-          setKept(true)
-        }}
-      />
     </>
   )
 }

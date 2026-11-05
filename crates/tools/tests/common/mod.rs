@@ -110,6 +110,7 @@ impl coord::roster::Agents for CoordRoster {
                 device_state: c.device_state,
                 waiting_for: c.waiting_for,
                 device_seen: c.device_seen,
+                status_since: c.status_since,
             })
             .collect()
     }

@@ -439,7 +439,7 @@ impl Services {
             // The agent's cwd as a path, when it works in the card's repo
             // below the root.
             if !a.cwd.is_empty()
-                && a.repo_key == cx.repo_key
+                && coord::same_repo_key(&a.repo_key, &cx.repo_key)
                 && let Some(root) = repo_root(&a.cwd)
                 && let Ok(rel) = std::path::Path::new(&a.cwd).strip_prefix(&root)
             {

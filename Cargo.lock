@@ -3331,6 +3331,7 @@ dependencies = [
  "irori-gocompat",
  "irori-hlc",
  "irori-identity",
+ "irori-ledger",
  "irori-scrub",
  "irori-search",
  "irori-store",

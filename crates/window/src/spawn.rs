@@ -150,12 +150,48 @@ pub(crate) fn spawn_in(bin: &Path, spec: &SpawnSpec, t: &TrustSet) -> Result<Spa
 }
 
 /// Ends a spawned session (card #446's `EndFn`): `claude stop`, then
-/// `claude rm`, which removes its `-w` worktree only when that is clean and
-/// otherwise keeps it and says why. Right after `stop` the worktree's lock can
-/// still name the exiting process, so `rm` is retried for a few seconds.
-/// `Ok` carries what `rm` printed ("kept …" when it kept the worktree).
+/// `claude rm`, which removes its worktree (`-w`, or one it entered) only
+/// when nothing in it is unpushed, and otherwise keeps it and says why.
+/// Right after `stop` the worktree's lock can still name the exiting
+/// process, so `rm` is retried for a few seconds. `Ok` carries what `rm`
+/// printed ("kept …" when it kept the worktree).
+///
+/// `id` is the session id Irori knows the agent by, but `stop` and `rm`
+/// take the job's short id (card #474: given the session id they said "No
+/// job matching", and the end was tried again every sweep for hours), so it
+/// is looked up in `claude agents --json --all`. A session that list no
+/// longer has was removed already: that is an end, not a failure.
 pub fn end(id: &str) -> Result<String, String> {
-    end_with(&find_claude()?, id, Duration::from_secs(8))
+    let bin = find_claude()?;
+    let job = match list_agents_with(&bin) {
+        Ok(list) => match list.iter().find(|a| a.session_id == id.trim()) {
+            Some(a) if !a.job_id.is_empty() => a.job_id.clone(),
+            Some(_) => job_id(id),
+            None => return Ok(format!("{GONE_JOB} {}", id.trim())),
+        },
+        Err(_) => job_id(id),
+    };
+    end_with(&bin, &job, Duration::from_secs(8))
+}
+
+/// How [`end`] starts its report for a job Claude Code no longer has.
+pub const GONE_JOB: &str = "no job for";
+
+/// The job id `claude stop`, `rm`, `logs` and `attach` take for session
+/// `id`: Claude Code names a `--bg` job by its session id's first 8 hex
+/// digits, and says "No job matching" to the full session id (card #474).
+/// Anything that isn't a full session id is passed on as it is.
+pub fn job_id(id: &str) -> String {
+    let id = id.trim();
+    match id.split_once('-') {
+        Some((head, _)) if id.len() == 36 && head.len() == 8 => head.to_string(),
+        _ => id.to_string(),
+    }
+}
+
+/// Whether `claude stop` or `rm` said it has no such job.
+fn no_job(text: &str) -> bool {
+    text.contains("No job matching")
 }
 
 /// A session id as it may go on a command line: 8+ hex digits and dashes,
@@ -176,7 +212,8 @@ pub fn logs(id: &str) -> Result<String, String> {
 }
 
 pub(crate) fn logs_with(bin: &Path, id: &str) -> Result<String, String> {
-    let id = session_arg(id)?;
+    let job = job_id(session_arg(id)?);
+    let id = job.as_str();
     let mut cmd = std::process::Command::new(bin);
     cmd.args(["logs", id])
         .stdin(std::process::Stdio::null())
@@ -199,7 +236,8 @@ pub fn attach_argv(id: &str) -> Result<Vec<String>, String> {
 }
 
 pub(crate) fn attach_argv_with(bin: &Path, id: &str) -> Result<Vec<String>, String> {
-    let id = session_arg(id)?;
+    let job = job_id(session_arg(id)?);
+    let id = job.as_str();
     let b = bin.to_string_lossy().into_owned();
     let batch = bin
         .extension()
@@ -235,6 +273,10 @@ pub(crate) fn end_with(bin: &Path, id: &str, patience: Duration) -> Result<Strin
         if !locked && text.contains("kept") {
             return Ok(text);
         }
+        if !ok && no_job(&text) {
+            // Removed already (by hand, or an earlier end): nothing left.
+            return Ok(format!("{GONE_JOB} {id}"));
+        }
         if !ok && !locked {
             return Err(format!("claude rm {id}: {text} (stop said: {stopped})"));
         }
@@ -248,8 +290,23 @@ pub(crate) fn end_with(bin: &Path, id: &str, patience: Duration) -> Result<Strin
 /// Claude Code's agents on this device, finished ones included (card
 /// #447's restart cleanup): `claude agents --json --all`. Each is its
 /// session id and whether it still runs.
-pub fn list_agents() -> Result<Vec<(String, bool)>, String> {
-    let mut cmd = std::process::Command::new(find_claude()?);
+pub fn list_agents() -> Result<Vec<ListedAgent>, String> {
+    list_agents_with(&find_claude()?)
+}
+
+/// One of Claude Code's agents as `claude agents --json --all` lists it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ListedAgent {
+    pub session_id: String,
+    /// The short id `claude stop` and `rm` take; `""` for an interactive
+    /// session, which has none.
+    pub job_id: String,
+    /// Whether it still runs.
+    pub live: bool,
+}
+
+fn list_agents_with(bin: &Path) -> Result<Vec<ListedAgent>, String> {
+    let mut cmd = std::process::Command::new(bin);
     cmd.args(["agents", "--json", "--all"])
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
@@ -262,9 +319,11 @@ pub fn list_agents() -> Result<Vec<(String, bool)>, String> {
 }
 
 /// Parses `claude agents --json --all`: an array of agents, each with a
-/// `sessionId`; a running one has a `pid`, and a finished `--bg` one a
-/// `state` of done or failed.
-pub fn parse_agents(json: &str) -> Result<Vec<(String, bool)>, String> {
+/// `sessionId`; a `--bg` one has an `id` (its job), and a running one a
+/// `pid`. A `state` of done with a `pid` is a session still running, idle
+/// after its turn (card #474: card-396-2 sat like that holding its card),
+/// so only the `pid` says whether it runs.
+pub fn parse_agents(json: &str) -> Result<Vec<ListedAgent>, String> {
     let v: serde_json::Value =
         serde_json::from_str(json.trim()).map_err(|e| format!("claude agents: {e}"))?;
     let list = match &v {
@@ -279,11 +338,18 @@ pub fn parse_agents(json: &str) -> Result<Vec<(String, bool)>, String> {
     Ok(list
         .iter()
         .filter_map(|a| {
-            let id = a.get("sessionId")?.as_str()?.to_string();
-            let state = a.get("state").and_then(|s| s.as_str()).unwrap_or("");
-            let live =
-                a.get("pid").is_some_and(|p| !p.is_null()) && !matches!(state, "done" | "failed");
-            Some((id, live))
+            let session_id = a.get("sessionId")?.as_str()?.to_string();
+            let live = a.get("pid").is_some_and(|p| !p.is_null());
+            let job_id = a
+                .get("id")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(ListedAgent {
+                session_id,
+                job_id,
+                live,
+            })
         })
         .collect())
 }
@@ -540,19 +606,28 @@ mod tests {
   {"pid":12301,"cwd":"/h","kind":"interactive","startedAt":2,"sessionId":"e0e01949-5ac0-4312-a44c-85938569a94e","name":"salvia","status":"idle"},
   {"pid":12302,"kind":"background","sessionId":"aa","state":"working","status":"busy"},
   {"kind":"background","sessionId":"bb","state":"done"},
+  {"pid":34422,"id":"28b6946e","kind":"background","sessionId":"cc","status":"idle","state":"done"},
   {"name":"no session"}
 ]"#,
         )
         .unwrap();
+        let got: Vec<(&str, &str, bool)> = got
+            .iter()
+            .map(|a| (a.session_id.as_str(), a.job_id.as_str(), a.live))
+            .collect();
         assert_eq!(
             got,
             [
-                ("31d4b3cd-ded7-4c48-8f15-a7bbd8b90af9".to_string(), false),
-                ("e0e01949-5ac0-4312-a44c-85938569a94e".to_string(), true),
-                ("aa".to_string(), true),
-                ("bb".to_string(), false),
+                ("31d4b3cd-ded7-4c48-8f15-a7bbd8b90af9", "31d4b3cd", false),
+                ("e0e01949-5ac0-4312-a44c-85938569a94e", "", true),
+                ("aa", "", true),
+                ("bb", "", false),
+                // Done, but still running, idle: not to be stopped.
+                ("cc", "28b6946e", true),
             ]
         );
+        assert_eq!(job_id("6fa86d9b-cbdd-4fd2-9cc1-3252d7f87606"), "6fa86d9b");
+        assert_eq!(job_id("0a1b2c3d"), "0a1b2c3d");
         assert!(parse_agents("not json").is_err());
     }
     use super::*;
@@ -650,7 +725,7 @@ mod tests {
     #[test]
     fn spec_checks() {
         let ok = SpawnSpec {
-            name: "card-445".into(),
+            name: "pawpaw".into(),
             permission_mode: "acceptEdits".into(),
             model: Some("sonnet".into()),
             brief_dir: PathBuf::from("/tmp/briefs"),
@@ -664,7 +739,7 @@ mod tests {
                 "/tmp/briefs",
                 "--bg",
                 "--name",
-                "card-445",
+                "pawpaw",
                 "--permission-mode",
                 "acceptEdits",
                 "--model",
@@ -781,7 +856,7 @@ mod tests {
         }
         let spec = SpawnSpec {
             cwd: repo.clone(),
-            name: "card-445".into(),
+            name: "pawpaw".into(),
             brief: brief.clone(),
             permission_mode: "acceptEdits".into(),
             effort: Some("low".into()),
@@ -815,7 +890,7 @@ mod tests {
             [
                 "--bg",
                 "--name",
-                "card-445",
+                "pawpaw",
                 "--permission-mode",
                 "acceptEdits",
                 "--effort",
@@ -838,8 +913,8 @@ mod tests {
 
         // The roster then has the session under its name and id prefix.
         let cards = vec![
-            card("card-445", "99999999-0000-4000-8000-000000000001"),
-            card("card-445", "0a1b2c3d-1111-4111-8111-000000000002"),
+            card("pawpaw", "99999999-0000-4000-8000-000000000001"),
+            card("pawpaw", "0a1b2c3d-1111-4111-8111-000000000002"),
         ];
         let c = find_session(&cards, &got.name, &got.short_id).unwrap();
         assert_eq!(c.session_id, "0a1b2c3d-1111-4111-8111-000000000002");
@@ -885,12 +960,12 @@ mod tests {
         std::fs::create_dir_all(repo.join(".git")).unwrap();
         let briefs = base.join("core-briefs");
         std::fs::create_dir_all(&briefs).unwrap();
-        let f = briefs.join("card-446.md");
+        let f = briefs.join("quince.md");
         std::fs::write(&f, "written by the Core").unwrap();
         let bin = fake_claude(&base);
         let spec = SpawnSpec {
             cwd: repo.clone(),
-            name: "card-446".into(),
+            name: "quince".into(),
             permission_mode: "default".into(),
             brief_file: Some(f.clone()),
             prompt: Some(format!("Read {} and do what it says.", f.display())),
@@ -943,6 +1018,21 @@ mod tests {
             end_with(&bin, "--help", Duration::ZERO).is_err(),
             "never a flag"
         );
+    }
+
+    /// Card #474: a job Claude Code no longer has ("No job matching" from
+    /// stop and rm) is ended, not a failure to try again.
+    #[cfg(unix)]
+    #[test]
+    fn end_of_a_job_already_removed_is_an_end() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let base = plain(std::fs::canonicalize(tmp.path()).unwrap());
+        let bin = base.join("claude");
+        std::fs::write(&bin, "#!/bin/sh\necho \"No job matching '$2'\"\nexit 1\n").unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let out = end_with(&bin, "6fa86d9b", Duration::from_secs(5)).unwrap();
+        assert!(out.starts_with(GONE_JOB), "{out}");
     }
 
     #[test]
@@ -1006,6 +1096,15 @@ echo 'test result: ok'
             attach_argv_with(Path::new("/usr/bin/claude"), "0a1b2c3d").unwrap(),
             ["/usr/bin/claude", "attach", "0a1b2c3d"]
         );
+        // A full session id goes on as its job id (card #474).
+        assert_eq!(
+            attach_argv_with(
+                Path::new("/usr/bin/claude"),
+                "6fa86d9b-cbdd-4fd2-9cc1-3252d7f87606"
+            )
+            .unwrap(),
+            ["/usr/bin/claude", "attach", "6fa86d9b"]
+        );
         assert_eq!(
             attach_argv_with(Path::new("C:/npm/claude.CMD"), "0a1b2c3d").unwrap(),
             ["cmd.exe", "/c", "C:/npm/claude.CMD", "attach", "0a1b2c3d"]
@@ -1026,13 +1125,13 @@ echo 'test result: ok'
     #[test]
     fn finds_session_by_name_and_prefix() {
         let cards = vec![
-            card("card-445", "aaaaaaaa-0000-4000-8000-000000000001"),
+            card("pawpaw", "aaaaaaaa-0000-4000-8000-000000000001"),
             card("other", "f517b512-0000-4000-8000-000000000002"),
-            card("card-445", "f517b512-7b0d-48ec-a73f-d6f5ef31b3c5"),
+            card("pawpaw", "f517b512-7b0d-48ec-a73f-d6f5ef31b3c5"),
         ];
-        let c = find_session(&cards, "card-445", "F517B512").unwrap();
+        let c = find_session(&cards, "pawpaw", "F517B512").unwrap();
         assert_eq!(c.session_id, "f517b512-7b0d-48ec-a73f-d6f5ef31b3c5");
-        assert!(find_session(&cards, "card-446", "f517b512").is_none());
-        assert!(find_session(&cards, "card-445", "f517").is_none());
+        assert!(find_session(&cards, "quince", "f517b512").is_none());
+        assert!(find_session(&cards, "pawpaw", "f517").is_none());
     }
 }

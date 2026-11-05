@@ -137,6 +137,73 @@ fn board_cards_and_answers() {
     assert_eq!(r.w.cards().len(), 1);
 }
 
+/// Card #483: a returned row kept before the fix carries the agent's key
+/// in its body; the Notifications page says it by name, or "Its agent"
+/// when only the key is known, and never shows the key.
+#[test]
+fn stored_returned_rows_never_show_a_key() {
+    use coord::notifications::{self as history, PostedRow};
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let t = co
+        .create_task(
+            &r.key_a,
+            coord::NewTask {
+                title: "Spawned agents part 9".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let gone = "devzz/ffffffff-9999-4999-8999-999999999999";
+    let named = "devzz/eeeeeeee-8888-4888-8888-888888888888";
+    let tail = " went away, so it's open again. Assign it to an agent, or close it.";
+    // (from, who the stored body says, what the page must say)
+    let rows = [
+        (r.key_a.clone(), r.key_a.clone(), "alpha"),
+        (gone.to_string(), gone.to_string(), "Its agent"),
+        // Nothing knows it any more, but the toast named it: keep that.
+        (named.to_string(), "Bing Bong".to_string(), "Bing Bong"),
+    ];
+    for (i, (from, who, _)) in rows.iter().enumerate() {
+        let mut row = PostedRow {
+            kind: history::KIND_RETURNED.into(),
+            task_id: t.id.clone(),
+            instance: format!("dev1:{i}"),
+            from: from.clone(),
+            title: "Nobody is on “Spawned agents part 9” (#1)".into(),
+            body: format!("{who}{tail}"),
+            level: "warn".into(),
+            at: gocompat::time::GoTime::from_system(std::time::SystemTime::now()),
+            ..PostedRow::default()
+        };
+        row.key = history::key_of(&row);
+        r.w.core
+            .store()
+            .append("irori", history::POSTED, &row)
+            .unwrap();
+    }
+    wait("the rows are in the history", || {
+        r.w.notifications().len() == rows.len()
+    });
+    let ns = r.w.notifications();
+    for n in &ns {
+        assert!(!n.body.contains('/'), "{n:?}");
+        if let Some(f) = &n.from {
+            assert!(!f.name.contains('/'), "{n:?}");
+        }
+    }
+    for (i, (from, _, want)) in rows.iter().enumerate() {
+        let n = ns
+            .iter()
+            .find(|n| n.key.ends_with(&format!("dev1:{i}")))
+            .unwrap_or_else(|| panic!("no row for {from}: {ns:?}"));
+        assert_eq!(n.body, format!("{want}{tail}"), "{n:?}");
+        if *want == "Its agent" {
+            assert!(n.from.is_none(), "an unnamed agent's key isn't sent: {n:?}");
+        }
+    }
+}
+
 #[test]
 fn done_cards_page() {
     let r = Rig::new();
@@ -740,6 +807,44 @@ fn not_done_goes_back_to_the_agent() {
     let cards = r.w.cards();
     assert_eq!(cards.len(), 1);
     assert!(!cards[0].ready, "answered: it is back with the agent");
+    // Card #476: the agent answers on the check, then asks again with new
+    // proof. The new check opens with that round: his reason, its answer,
+    // the proof he sent back.
+    co.comment_on(
+        &r.key_a,
+        &t.id,
+        coord::CommentInput {
+            text: "fixed the flaky login test".into(),
+            blocker_id: check.clone(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    co.set_task_state(&r.key_a, &t.id, coord::COMPLETED, "tests green on CI")
+        .unwrap();
+    let d = r.w.card(&t.id).unwrap();
+    let now = d
+        .blockers
+        .iter()
+        .find(|b| b.done_check && b.resolved.is_none())
+        .unwrap();
+    let p = now.previous.as_ref().expect("the round he sent back");
+    assert_eq!(p.id, check);
+    assert_eq!(p.round, 2);
+    assert!(!p.same_proof);
+    let said: Vec<(&str, &str)> = p
+        .thread
+        .iter()
+        .filter(|it| it.kind == "comment")
+        .map(|it| (it.who.status.as_str(), it.text.as_str()))
+        .collect();
+    assert_eq!(said.len(), 2, "{said:?}");
+    assert_eq!(said[0], ("person", "the tests still fail"));
+    assert_eq!(said[1].1, "fixed the flaky login test");
+    // The old check keeps its thread too, folded under Blockers.
+    let old = d.blockers.iter().find(|b| b.id == check).unwrap();
+    assert!(old.resolved.is_some());
+    assert!(old.previous.is_none());
 }
 
 /// Talk (card #389) through the window: a channel, a post, a DM with an
@@ -897,4 +1002,49 @@ fn start_agent_with_a_comment() {
     let e = r.w.start_agent(&t.id, "again").unwrap_err();
     assert!(e.contains("has an agent on it"), "{e}");
     assert!(r.w.start_agent("no-such-card", "").is_err());
+}
+
+/// Card #476: a Not done after the agent has gone still goes on the done
+/// check's thread (it used to resolve the check with no comment), so the
+/// next agent finds his reason there and answers it.
+#[test]
+fn a_late_not_done_stays_on_the_checks_thread() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let ghost = format!("{}/gone-session", r.w.core.device_id());
+    let t = co
+        .create_task(
+            &ghost,
+            coord::NewTask {
+                title: "Ship it".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    co.claim_task(&ghost, &t.id).unwrap();
+    co.set_task_state(&ghost, &t.id, coord::COMPLETED, "merged")
+        .unwrap();
+    let check = co
+        .get_task(&t.id)
+        .unwrap()
+        .blockers
+        .iter()
+        .find(|b| b.done_check)
+        .unwrap()
+        .id
+        .clone();
+    r.w.answer(&t.id, &check, -1, "the docs still say v1", false, &[])
+        .unwrap();
+    let d = r.w.card(&t.id).unwrap();
+    let b = d.blockers.iter().find(|b| b.id == check).unwrap();
+    assert!(
+        b.thread
+            .iter()
+            .any(|it| it.who.status == "person" && it.text == "the docs still say v1"),
+        "{:?}",
+        b.thread
+    );
+    let sb = co.sent_back(&t.id).expect("sent back");
+    assert_eq!(sb.id, check);
+    assert!(!sb.answered);
 }

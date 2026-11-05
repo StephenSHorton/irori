@@ -538,6 +538,44 @@ impl Window {
         mentions: &[ts::Mention],
         files: &[UploadFile],
     ) -> Result<AnswerResult, String> {
+        self.answer_files_as(task_id, blocker_id, option, text, wake, mentions, files)
+            .map_err(|e| self.blocker_words(task_id, blocker_id, e))
+    }
+
+    /// A coord error as the person reads it (card #490): "blocker b2"
+    /// becomes the blocker's question, quoted.
+    fn blocker_words(&self, task_id: &str, blocker_id: &str, e: String) -> String {
+        let (task_id, blocker_id) = (trim(task_id), trim(blocker_id));
+        let id = format!("blocker {blocker_id}");
+        if blocker_id.is_empty() || !e.contains(&id) {
+            return e;
+        }
+        let q = self
+            .on(task_id, &[])
+            .ok()
+            .and_then(|(co, _)| co.get_task(task_id))
+            .and_then(|t| t.blockers.into_iter().find(|b| b.id == blocker_id))
+            .map(|b| coord::blocker_gist(&b.question))
+            .unwrap_or_default();
+        let said = if q.is_empty() {
+            "that question".to_string()
+        } else {
+            format!("“{q}”")
+        };
+        e.replace(&id, &said)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn answer_files_as(
+        &self,
+        task_id: &str,
+        blocker_id: &str,
+        option: i64,
+        text: &str,
+        wake: bool,
+        mentions: &[ts::Mention],
+        files: &[UploadFile],
+    ) -> Result<AnswerResult, String> {
         if option < -1 {
             return Err(invalid("option is an index or -1"));
         }
@@ -600,11 +638,13 @@ impl Window {
             pick: option + 1,
             text: text.into(),
             wake,
-            // An item whose agent is gone on a card nobody holds (card
-            // #485) isn't resolved in place: the answer goes on its thread
-            // and the card back on the Board, so the agent Irori starts
-            // for it reads it in its brief.
-            resolve: self.nobody_can_act(&t, &bl.raised_by)
+            // A Not done stays on the done check's thread even with its
+            // agent gone (card #476), and so does an item whose agent is
+            // gone on a card nobody holds (card #485): the answer goes on
+            // its thread and the card back on the Board, so the agent Irori
+            // starts for it reads it in its brief and answers it there.
+            resolve: !bl.done_check
+                && self.nobody_can_act(&t, &bl.raised_by)
                 && !co.stranded(task_id).iter().any(|s| s.blocker_id == bl.id),
             mentions: plan.log.clone(),
             files: Vec::new(),
@@ -666,6 +706,17 @@ impl Window {
     /// BoardService.ResolveBlocker: "Mark resolved" on an item. The note's
     /// `mentions` wake those agents, as an answer's do.
     pub fn resolve_blocker(
+        &self,
+        task_id: &str,
+        blocker_id: &str,
+        note: &str,
+        mentions: &[ts::Mention],
+    ) -> Result<AnswerResult, String> {
+        self.resolve_blocker_as(task_id, blocker_id, note, mentions)
+            .map_err(|e| self.blocker_words(task_id, blocker_id, e))
+    }
+
+    fn resolve_blocker_as(
         &self,
         task_id: &str,
         blocker_id: &str,

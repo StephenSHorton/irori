@@ -260,8 +260,13 @@ fn tag_score(tag: &str, cx: &NoteContext) -> u32 {
         if cx.repo_key.is_empty() {
             return 0;
         }
+        // A tag copied from a pre-#480 card may spell the key in capitals;
+        // the path keeps its own case.
+        let key = ledger::canonical_repo_key(&cx.repo_key);
         let Some(path) = r
-            .strip_prefix(cx.repo_key.as_str())
+            .get(..key.len())
+            .filter(|h| h.eq_ignore_ascii_case(&key))
+            .and(r.get(key.len()..))
             .and_then(|p| p.strip_prefix(':'))
         else {
             return 0;
@@ -275,7 +280,7 @@ fn tag_score(tag: &str, cx: &NoteContext) -> u32 {
         return if hit { 5 } else { 0 };
     }
     if let Some(r) = tag.strip_prefix(TAG_REPO) {
-        return if !cx.repo_key.is_empty() && r == cx.repo_key {
+        return if !cx.repo_key.is_empty() && ledger::same_repo_key(r, &cx.repo_key) {
             4
         } else {
             0
@@ -710,5 +715,34 @@ impl Fold {
         out.sort_by_key(|m| std::cmp::Reverse(m.score));
         out.truncate(NOTES_PER_WAKE);
         out
+    }
+}
+
+#[cfg(test)]
+mod repo_case_tests {
+    use super::*;
+
+    /// Card #480: a tag copied from a pre-#480 card spells the key in
+    /// capitals, while the card's key now reads back lowercase.
+    #[test]
+    fn mixed_case_repo_and_path_tags_still_match() {
+        let cx = NoteContext {
+            repo_key: "remote:github.com/stephenshorton/irori".into(),
+            paths: vec!["src/x.rs".into()],
+            ..NoteContext::default()
+        };
+        assert_eq!(
+            tag_score("repo:remote:github.com/StephenSHorton/irori", &cx),
+            4
+        );
+        assert_eq!(
+            tag_score("path:remote:github.com/StephenSHorton/irori:src/x.rs", &cx),
+            5
+        );
+        assert_eq!(
+            tag_score("path:remote:github.com/StephenSHorton/irori:src/Y.rs", &cx),
+            0
+        );
+        assert_eq!(tag_score("repo:remote:github.com/a/suzuri", &cx), 0);
     }
 }

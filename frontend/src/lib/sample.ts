@@ -81,6 +81,21 @@ const seeds: Seed[] = [
     repoKey: "",
     mode: "",
   },
+  {
+    // Between turns with a background job running (Claude Code's
+    // "shell"): "running a job · 12 min" (card #489).
+    session: "sample05-synthetic-session",
+    name: "sample-mink",
+    title: "",
+    cwd: "/home/sample/src/placeholder-service",
+    status: "shell",
+    kind: "interactive",
+    entry: "cli",
+    agoSec: 60 * 12,
+    text: "Sample text. Started the made-up migration in the background.",
+    repoKey: "github.com/sample-org/example-app",
+    mode: "bypassPermissions",
+  },
 ]
 
 // sampleRoster builds the synthetic roster with activity relative to now so
@@ -91,31 +106,31 @@ export function sampleRoster(now: Date) {
 
   const agents = empty
     ? []
-    : seeds.map(
-        (s, i) =>
-          AgentCard({
-            key: `${deviceId}/${s.session}`,
-            deviceId,
-            agent: "claude",
-            sessionId: s.session,
-            pid: 10001 + i,
-            name: s.name,
-            title: s.title,
-            cwd: s.cwd,
-            status: s.status,
-            sessionKind: s.kind,
-            entrypoint: s.entry,
-            version: "0.0.0-sample",
-            peerFeatures: [],
-            startedAt: at(s.agoSec + 3600).toISOString(),
-            updatedAt: at(s.agoSec).toISOString(),
-            lastActivity: at(s.agoSec).toISOString(),
-            lastText: s.text,
-            transcript: "",
-            repoKey: s.repoKey,
-            permissionMode: s.mode,
-            offersCards: !!s.offers,
-          })
+    : seeds.map((s, i) =>
+        AgentCard({
+          key: `${deviceId}/${s.session}`,
+          deviceId,
+          agent: "claude",
+          sessionId: s.session,
+          pid: 10001 + i,
+          name: s.name,
+          title: s.title,
+          cwd: s.cwd,
+          status: s.status,
+          sessionKind: s.kind,
+          entrypoint: s.entry,
+          version: "0.0.0-sample",
+          peerFeatures: [],
+          startedAt: at(s.agoSec + 3600).toISOString(),
+          updatedAt: at(s.agoSec).toISOString(),
+          statusSince: at(s.agoSec).toISOString(),
+          lastActivity: at(s.agoSec).toISOString(),
+          lastText: s.text,
+          transcript: "",
+          repoKey: s.repoKey,
+          permissionMode: s.mode,
+          offersCards: !!s.offers,
+        })
       )
 
   const hlc = (agoSec: number) => at(agoSec).getTime() * 65536
@@ -147,16 +162,15 @@ export function sampleRoster(now: Date) {
   const recent = empty
     ? []
     : rows
-        .map(
-          ([kind, ago, payload], i) =>
-            LogEvent({
-              deviceId,
-              seq: i + 1,
-              hlc: hlc(ago),
-              actor: "irori",
-              kind,
-              payload: payload as LogEvent["payload"],
-            })
+        .map(([kind, ago, payload], i) =>
+          LogEvent({
+            deviceId,
+            seq: i + 1,
+            hlc: hlc(ago),
+            actor: "irori",
+            kind,
+            payload: payload as LogEvent["payload"],
+          })
         )
         .sort((a, b) => b.hlc - a.hlc)
 

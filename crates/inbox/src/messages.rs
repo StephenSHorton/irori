@@ -195,6 +195,15 @@ impl Inner {
             m.parent_id = r.id.clone();
             m.hop = r.hop + 1;
         }
+        // Card #488: once either agent made progress since the message
+        // this one follows (a step ticked, a card's state set, a commit),
+        // the chain is getting somewhere and its hop count starts again.
+        if m.hop > 0
+            && let Some(p) = self.msgs.get(&m.parent_id)
+            && self.chain_progressed(&[&from.key, &recipient, &p.from.key], &p.sent_at)
+        {
+            m.hop = 0;
+        }
 
         // The sender becomes addressable by the name it sent under.
         let al = norm_alias(&from.name);
@@ -737,6 +746,18 @@ impl Inbox {
     /// (card #159). A dismissed, moved or rejected one is left out; one
     /// Irori closed unread (gone, stale) stays, unread.
     pub fn comment_notices(&self, reasons: &[&str], limit: usize) -> Vec<(Delivery, bool)> {
+        self.ref_notices("comment:", reasons, limit)
+    }
+
+    /// As [`Self::comment_notices`], for notices whose ref starts with
+    /// `prefix` (card #476: a blocker answer's notice is about its card,
+    /// `task:<id>`).
+    pub fn ref_notices(
+        &self,
+        prefix: &str,
+        reasons: &[&str],
+        limit: usize,
+    ) -> Vec<(Delivery, bool)> {
         self.read(|b| {
             let mut out = Vec::new();
             for id in b.order.iter().rev() {
@@ -750,9 +771,7 @@ impl Inbox {
                 let Some(m) = b.msgs.get(&d.d.message_id) else {
                     continue;
                 };
-                if !m.notice
-                    || !m.ref_.starts_with("comment:")
-                    || !reasons.contains(&m.reason.as_str())
+                if !m.notice || !m.ref_.starts_with(prefix) || !reasons.contains(&m.reason.as_str())
                 {
                     continue;
                 }
