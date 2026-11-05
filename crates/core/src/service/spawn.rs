@@ -1215,6 +1215,10 @@ impl Services {
             Err(e) => match super::spawn_limits::limit_in_text(&e, &(self.now)()) {
                 Some(l) => {
                     let until = self.hold_usage(&l);
+                    // His "Start an agent" still stands after the reset.
+                    if asked_now {
+                        self.coord.spawn_now(&t.id);
+                    }
                     self.coord
                         .end_spawn(
                             SWEEPER,

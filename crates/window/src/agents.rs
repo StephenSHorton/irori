@@ -387,7 +387,7 @@ impl Window {
         AgentsLimits {
             devices,
             max_cap: u(irori_core::spawn::MAX_CAP),
-            today: today.len() as u32,
+            today: u(q.today),
             today_here: here,
             cost_usd: cost,
             daily_limit: u(self.core.spawn_setting("").daily_limit),

@@ -14,7 +14,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::SystemTime;
 
 /// Dollars per million tokens: input, output, cache read, cache write for
 /// 5 minutes, cache write for an hour. A snapshot of Anthropic's API
@@ -79,8 +78,15 @@ pub struct Usage {
 }
 
 impl Usage {
+    /// The row's price, at its prompt's tier: Haiku 5.5 costs more past
+    /// 100K prompt tokens.
     pub fn cost(&self) -> f64 {
-        let p = price_of(&self.model);
+        let prompt = self.input + self.cache_read + self.write_5m + self.write_1h;
+        let p = if self.model.starts_with("claude-haiku-5-5") && prompt > 100_000 {
+            price(0.50, 2.50, 0.05)
+        } else {
+            price_of(&self.model)
+        };
         let m = |n: u64, d: f64| n as f64 * d / 1_000_000.0;
         m(self.input, p.input)
             + m(self.output, p.output)
@@ -90,119 +96,172 @@ impl Usage {
     }
 }
 
-/// The cost of one transcript file's assistant rows, once per message.
-pub fn file_cost(path: &Path) -> f64 {
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return 0.0;
-    };
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut total = 0.0;
-    for line in text.lines() {
-        // Cheap filter before parsing: only rows with usage.
-        if !line.contains("\"usage\"") {
-            continue;
-        }
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
-            continue;
-        };
-        if v.get("type").and_then(|t| t.as_str()) != Some("assistant") {
-            continue;
-        }
-        let Some(msg) = v.get("message") else {
-            continue;
-        };
-        if let Some(id) = msg.get("id").and_then(|i| i.as_str())
-            && !seen.insert(id.to_string())
-        {
-            continue;
-        }
-        let Some(u) = msg.get("usage") else { continue };
-        let n = |p: &str| u.pointer(p).and_then(|x| x.as_u64()).unwrap_or(0);
-        let creation = n("/cache_creation_input_tokens");
-        let (w5, w1) = match u.get("cache_creation") {
-            Some(_) => (
-                n("/cache_creation/ephemeral_5m_input_tokens"),
-                n("/cache_creation/ephemeral_1h_input_tokens"),
-            ),
-            None => (creation, 0),
-        };
-        // A split that doesn't add up: the rest is priced as 5-minute.
-        let w5 = w5 + creation.saturating_sub(w5 + w1);
-        total += Usage {
-            input: n("/input_tokens"),
-            output: n("/output_tokens"),
-            cache_read: n("/cache_read_input_tokens"),
-            write_5m: w5,
-            write_1h: w1,
-            model: msg
-                .get("model")
-                .and_then(|m| m.as_str())
-                .unwrap_or_default()
-                .to_string(),
-        }
-        .cost();
-    }
-    total
+/// How far one transcript file has been read: its byte offset (always at
+/// a line's end), the cost so far, and the messages already priced.
+#[derive(Debug, Clone, Default)]
+pub struct FileState {
+    pub offset: u64,
+    pub total: f64,
+    seen: HashSet<String>,
 }
 
-/// Session `id`'s transcript and its subagents' under `claude_dir`, if
-/// found (the project folder's name is the agent's cwd, lossily, so every
-/// one is looked in).
-pub fn transcripts(claude_dir: &Path, id: &str) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    if id.is_empty() || id.contains(['/', '\\', '.']) {
-        return out;
+/// The cost of one transcript line, if it is an assistant row not priced
+/// yet (once per `message.id`).
+fn line_cost(line: &str, seen: &mut HashSet<String>) -> f64 {
+    // Cheap filter before parsing: only rows with usage.
+    if !line.contains("\"usage\"") {
+        return 0.0;
     }
-    let Ok(dirs) = std::fs::read_dir(claude_dir.join("projects")) else {
-        return out;
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+        return 0.0;
     };
-    for d in dirs.flatten() {
-        let main = d.path().join(format!("{id}.jsonl"));
-        if !main.is_file() {
-            continue;
-        }
-        out.push(main);
-        if let Ok(subs) = std::fs::read_dir(d.path().join(id).join("subagents")) {
-            out.extend(
-                subs.flatten()
-                    .map(|e| e.path())
-                    .filter(|p| p.extension().is_some_and(|x| x == "jsonl")),
-            );
-        }
-        break;
+    if v.get("type").and_then(|t| t.as_str()) != Some("assistant") {
+        return 0.0;
+    }
+    let Some(msg) = v.get("message") else {
+        return 0.0;
+    };
+    if let Some(id) = msg.get("id").and_then(|i| i.as_str())
+        && !seen.insert(id.to_string())
+    {
+        return 0.0;
+    }
+    let Some(u) = msg.get("usage") else {
+        return 0.0;
+    };
+    let n = |p: &str| u.pointer(p).and_then(|x| x.as_u64()).unwrap_or(0);
+    let creation = n("/cache_creation_input_tokens");
+    let (w5, w1) = match u.get("cache_creation") {
+        Some(_) => (
+            n("/cache_creation/ephemeral_5m_input_tokens"),
+            n("/cache_creation/ephemeral_1h_input_tokens"),
+        ),
+        None => (creation, 0),
+    };
+    // A split that doesn't add up: the rest is priced as 5-minute.
+    let w5 = w5 + creation.saturating_sub(w5 + w1);
+    Usage {
+        input: n("/input_tokens"),
+        output: n("/output_tokens"),
+        cache_read: n("/cache_read_input_tokens"),
+        write_5m: w5,
+        write_1h: w1,
+        model: msg
+            .get("model")
+            .and_then(|m| m.as_str())
+            .unwrap_or_default()
+            .to_string(),
+    }
+    .cost()
+}
+
+/// Reads what `path` gained since `st`: only whole lines past its offset
+/// (a line still being written waits for the next read). A file that got
+/// shorter is read again from the start.
+pub fn read_more(path: &Path, st: &mut FileState) {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return;
+    };
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    if len < st.offset {
+        *st = FileState::default();
+    }
+    if len == st.offset || f.seek(SeekFrom::Start(st.offset)).is_err() {
+        return;
+    }
+    let mut buf = Vec::new();
+    if f.read_to_end(&mut buf).is_err() {
+        return;
+    }
+    let Some(end) = buf.iter().rposition(|&b| b == b'\n') else {
+        return;
+    };
+    for line in String::from_utf8_lossy(&buf[..end]).lines() {
+        st.total += line_cost(line, &mut st.seen);
+    }
+    st.offset += end as u64 + 1;
+}
+
+/// The cost of one whole transcript file.
+pub fn file_cost(path: &Path) -> f64 {
+    let mut st = FileState::default();
+    read_more(path, &mut st);
+    st.total
+}
+
+/// Session `id`'s project folder under `claude_dir`, if found (the
+/// folder's name is the agent's cwd, lossily, so every one is looked in).
+fn project_of(claude_dir: &Path, id: &str) -> Option<PathBuf> {
+    if id.is_empty() || id.contains(['/', '\\', '.']) {
+        return None;
+    }
+    std::fs::read_dir(claude_dir.join("projects"))
+        .ok()?
+        .flatten()
+        .map(|d| d.path())
+        .find(|d| d.join(format!("{id}.jsonl")).is_file())
+}
+
+/// Session `id`'s transcript and its subagents' in project folder `dir`.
+fn files_in(dir: &Path, id: &str) -> Vec<PathBuf> {
+    let mut out = vec![dir.join(format!("{id}.jsonl"))];
+    if let Ok(subs) = std::fs::read_dir(dir.join(id).join("subagents")) {
+        out.extend(
+            subs.flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|x| x == "jsonl")),
+        );
     }
     out
 }
 
-/// Costs by file, kept while the file's size and time are unchanged, so
-/// Settings › Agents polling reads only what grew.
+/// Session `id`'s transcript and its subagents' under `claude_dir`.
+pub fn transcripts(claude_dir: &Path, id: &str) -> Vec<PathBuf> {
+    project_of(claude_dir, id)
+        .map(|d| files_in(&d, id))
+        .unwrap_or_default()
+}
+
+/// What each transcript cost so far, read on from where it was left, and
+/// each session's project folder, so Settings › Agents polling reads only
+/// what was added.
 #[derive(Default)]
 pub struct CostCache {
-    files: Mutex<HashMap<PathBuf, (u64, Option<SystemTime>, f64)>>,
+    files: Mutex<HashMap<PathBuf, FileState>>,
+    dirs: Mutex<HashMap<String, PathBuf>>,
 }
 
 impl CostCache {
     /// Session `id`'s cost in dollars, and whether any transcript was found.
     pub fn session(&self, claude_dir: &Path, id: &str) -> (f64, bool) {
-        let files = transcripts(claude_dir, id);
-        let found = !files.is_empty();
-        let mut total = 0.0;
-        let mut cache = self.files.lock().unwrap_or_else(|e| e.into_inner());
-        for f in files {
-            let meta = std::fs::metadata(&f).ok();
-            let len = meta.as_ref().map_or(0, |m| m.len());
-            let at = meta.and_then(|m| m.modified().ok());
-            let cost = match cache.get(&f) {
-                Some((l, t, c)) if *l == len && *t == at => *c,
-                _ => {
-                    let c = file_cost(&f);
-                    cache.insert(f.clone(), (len, at, c));
-                    c
+        let dir = {
+            let mut dirs = self.dirs.lock().unwrap_or_else(|e| e.into_inner());
+            match dirs
+                .get(id)
+                .filter(|d| d.join(format!("{id}.jsonl")).is_file())
+            {
+                Some(d) => Some(d.clone()),
+                None => {
+                    let d = project_of(claude_dir, id);
+                    if let Some(d) = &d {
+                        dirs.insert(id.to_string(), d.clone());
+                    }
+                    d
                 }
-            };
-            total += cost;
+            }
+        };
+        let Some(dir) = dir else {
+            return (0.0, false);
+        };
+        let mut files = self.files.lock().unwrap_or_else(|e| e.into_inner());
+        let mut total = 0.0;
+        for f in files_in(&dir, id) {
+            let st = files.entry(f.clone()).or_default();
+            read_more(&f, st);
+            total += st.total;
         }
-        (total, found)
+        (total, true)
     }
 }
 
@@ -233,6 +292,44 @@ mod tests {
         assert!((cost - 28.20).abs() < 1e-9, "{cost}");
         assert_eq!(c.session(dir.path(), "nope"), (0.0, false));
         assert_eq!(c.session(dir.path(), "../s1"), (0.0, false));
+    }
+
+    #[test]
+    fn a_growing_file_is_read_on_from_where_it_was() {
+        let dir = tempfile::tempdir().unwrap();
+        let proj = dir.path().join("projects").join("C--repo");
+        std::fs::create_dir_all(&proj).unwrap();
+        let p = proj.join("s2.jsonl");
+        let row = |id: &str| {
+            format!(
+                r#"{{"type":"assistant","message":{{"id":"{id}","model":"claude-opus-5-5","usage":{{"input_tokens":0,"output_tokens":1000000}}}}}}"#
+            )
+        };
+        std::fs::write(&p, format!("{}\n", row("a"))).unwrap();
+        let c = CostCache::default();
+        assert!((c.session(dir.path(), "s2").0 - 20.0).abs() < 1e-9);
+        // A line still being written isn't counted yet; once whole it is,
+        // and a repeat of a message already priced isn't.
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new().append(true).open(&p).unwrap();
+        let b = row("b");
+        write!(f, "{}\n{}", row("a"), &b[..20]).unwrap();
+        f.flush().unwrap();
+        assert!((c.session(dir.path(), "s2").0 - 20.0).abs() < 1e-9);
+        writeln!(f, "{}", &b[20..]).unwrap();
+        f.flush().unwrap();
+        assert!((c.session(dir.path(), "s2").0 - 40.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn haiku_5_5_past_100k_prompt_tokens_costs_more() {
+        let u = |input: u64| Usage {
+            input,
+            model: "claude-haiku-5-5".into(),
+            ..Usage::default()
+        };
+        assert!((u(100_000).cost() - 0.01).abs() < 1e-12);
+        assert!((u(200_000).cost() - 0.10).abs() < 1e-12);
     }
 
     #[test]

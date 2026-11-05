@@ -121,7 +121,10 @@ fn clock_time(s: &str, now: &GoTime) -> Option<GoTime> {
     }
     let midnight = local_midnight(now);
     let mut at = midnight.secs + h * 3600 + m * 60;
-    if at <= now.secs {
+    // Claude rounds the reset to the minute: one just past (or a clock a
+    // little off) is today's, which hold_until reads as USAGE_WAIT. Only
+    // a time well past is tomorrow's.
+    if at <= now.secs - 3600 {
         at += 86_400;
     }
     Some(GoTime::unix(at, 0).with_offset(now.offset))
@@ -200,6 +203,8 @@ pub struct SpawnQueue {
     /// The board's daily limit, when today's spawns reached it: then a
     /// waiting card starts only when the person asks (ask first).
     pub daily_reached: Option<i64>,
+    /// Today's starts as the daily limit counts them.
+    pub today: i64,
     /// The spawned agents live here and starting, and the cap.
     pub running: i64,
     pub cap: i64,
@@ -284,6 +289,7 @@ impl Services {
         let mut q = SpawnQueue {
             held_until: self.usage_held(),
             daily_reached: (limit > 0 && today >= limit).then_some(limit),
+            today,
             running,
             cap,
             ..SpawnQueue::default()
@@ -293,8 +299,11 @@ impl Services {
             .cards_to_spawn()
             .into_iter()
             .filter(|t| {
-                t.spawn_request()
-                    .is_none_or(|s| s.op != SPAWN_FAILED || coord::usage_limited(s))
+                t.spawn_request().is_none_or(|s| {
+                    s.op != SPAWN_FAILED
+                        || coord::usage_limited(s)
+                        || self.coord.spawn_asked_now(&t.id)
+                })
             })
             .collect();
         let held = q.held_until.is_some();
@@ -355,10 +364,38 @@ impl Services {
             };
             let Some(l) = found else { continue };
             let until = self.hold_usage(&l);
+            // One waiting on a done check, a review or the person, or on a
+            // closed card, ends the usual way; the hold still applies.
+            if !self.works_its_card(&a.key) {
+                continue;
+            }
             if let Err(e) = self.end_usage_limited(&a.key, &until) {
                 logf(format_args!("spawn usage limit {}: {e}", a.key));
+                self.spawn
+                    .limit_seen
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&a.key);
             }
         }
+    }
+
+    /// Whether spawned agent `key` is working its card or ask: it holds an
+    /// open card that is working or waiting for an agent, or has taken an
+    /// open ask.
+    fn works_its_card(&self, key: &str) -> bool {
+        let Some(t) = self
+            .coord
+            .spawned(key)
+            .and_then(|m| self.coord.get_task(&m.task_id))
+        else {
+            return false;
+        };
+        if let Some(a) = t.open_ask() {
+            return a.taker == key;
+        }
+        t.holders.iter().any(|h| h == key)
+            && (t.state == coord::WORKING || t.state == coord::SUBMITTED)
     }
 
     /// Ends spawned agent `key`, stopped on a usage limit held until
@@ -387,7 +424,26 @@ impl Services {
             )
             .map_err(|e| e.to_string())?;
         self.coord.mark_usage_limited(key, (self.now)());
-        self.remove_job(key)
+        match self.remove_job(key) {
+            Ok(()) => {
+                self.spawn
+                    .removed
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(key.to_string());
+            }
+            // Its agent.gone is written: sweep_ending tries stop and rm
+            // again, a few times (card #474).
+            Err(e) => {
+                logf(format_args!("spawn usage limit {key}: {e}"));
+                self.spawn
+                    .ending
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(key.to_string(), GoTime::unix(0, 0));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -424,6 +480,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(l.resets.unwrap().secs, at("2026-11-02T09:00:00-07:00").secs);
+        // Rounded to the minute and just past: today's, so a short wait,
+        // never tomorrow's.
+        let l = limit_in_text("You've hit your 5-hour limit · resets 1:59pm", &now).unwrap();
+        assert_eq!(l.resets.unwrap().secs, at("2026-11-01T13:59:00-07:00").secs);
+        assert_eq!(
+            l.hold_until(&now).secs,
+            now.secs + USAGE_WAIT.as_secs() as i64
+        );
         let l = limit_in_text("You've hit your weekly limit", &now).unwrap();
         assert_eq!(l.resets, None);
         assert_eq!(
