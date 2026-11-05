@@ -1016,8 +1016,15 @@ export type CardSummary = {
 	 */
 	waitOn?: string,
 	/**
+	 *  The first wait in full where wait_on is the short form (card #553):
+	 *  "Irori 0.12.4 on Mac and PC" for wait_on's "Irori 0.12.4". The
+	 *  state pill's tooltip says it.
+	 */
+	waitFull?: string,
+	/**
 	 *  What kind of thing the first wait is on (card #487): "task",
-	 *  "lease", "agent" or "external", so Home can name a lease plainly.
+	 *  "lease", "agent", "version" or "external", so Home can name a lease
+	 *  plainly.
 	 */
 	waitKind?: string,
 	/**
