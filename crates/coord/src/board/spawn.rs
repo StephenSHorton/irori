@@ -523,9 +523,10 @@ impl Fold {
     /// Whether an agent Irori starts is coming for open ask t (card #518),
     /// so nothing says nobody took it: spawning is on, nobody has it, it
     /// isn't resting or crashed out, and its request is pending and not
-    /// stale, or none is pending and the sweep would request one now
-    /// ([`Fold::ask_needs_agent`]: the unclaimed row folds before the
-    /// request row does). A failed request means none is coming, even one
+    /// stale, or none is pending and its owner's sweep would request one
+    /// now ([`Fold::ask_needs_agent_anywhere`]: the unclaimed row folds
+    /// before the request row does, and on the person's other devices
+    /// before that row reaches them). A failed request means none is coming, even one
     /// the sweep tries again later. Only within [`SPAWN_GRACE`] of the ask
     /// opening (its `since`): an agent that never binds is asked for again
     /// each grace, and the ask must not wait in silence through all of them.
@@ -553,7 +554,7 @@ impl Fold {
                 s.device.clone()
             }
             Some(s) if s.op == SPAWN_FAILED => return None,
-            _ if self.ask_needs_agent(t) => a.owner.clone(),
+            _ if self.ask_needs_agent_anywhere(t) => a.owner.clone(),
             _ => return None,
         };
         Some(AskStart { device, until })

@@ -844,11 +844,7 @@ impl Ctx<'_> {
             if !a.is_open() || !a.unclaimed || !a.taker.is_empty() {
                 continue;
             }
-            if let Some(s) = self
-                .board
-                .as_ref()
-                .and_then(|b| b.ask_starting(&c.task.id))
-            {
+            if let Some(s) = self.board.as_ref().and_then(|b| b.ask_starting(&c.task.id)) {
                 if due.is_none_or(|d| s.until.unix_nano() < d.unix_nano()) {
                     due = Some(s.until);
                 }

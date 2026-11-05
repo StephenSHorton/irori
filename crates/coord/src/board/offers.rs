@@ -89,6 +89,13 @@ impl Fold {
     /// "Agents answer now" off is never handed out, so neither is
     /// unclaimed then.
     pub(crate) fn ask_needs_agent(&self, t: &Task) -> bool {
+        t.open_ask().is_some_and(|a| a.owner == self.dev) && self.ask_needs_agent_anywhere(t)
+    }
+
+    /// [`Fold::ask_needs_agent`] on whichever device owns the ask (card
+    /// #518): another of the person's devices knows its owner's sweep will
+    /// start one before that request row reaches it.
+    pub(crate) fn ask_needs_agent_anywhere(&self, t: &Task) -> bool {
         let Some(a) = t.open_ask() else {
             return false;
         };
@@ -96,7 +103,6 @@ impl Fold {
             && !t.withdrawn
             && !t.shared
             && a.board.is_empty()
-            && a.owner == self.dev
             && a.taker.is_empty()
             && a.unclaimed
             && (a.thread || a.mentions.is_empty())
