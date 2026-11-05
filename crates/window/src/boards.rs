@@ -64,7 +64,8 @@ pub struct BoardSummary {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SpaceBoard {
-    /// Its id: the space's own id for its first board.
+    /// Its id: the space's own id for its first board, and
+    /// [`irori_core::PERSONAL_BOARD`] for Personal's default.
     pub board_id: String,
     pub name: String,
     pub tag: String,
@@ -147,15 +148,17 @@ impl From<irori_core::BoardSummary> for BoardSummary {
             warnings: s.warnings,
             pinned: false,
             pin_rank: 0.0,
-            boards: s
-                .boards
-                .into_iter()
-                .map(|b| SpaceBoard {
-                    board_id: b.board_id,
-                    name: b.name,
-                    tag: b.tag,
-                })
-                .collect(),
+            boards: s.boards.into_iter().map(SpaceBoard::from).collect(),
+        }
+    }
+}
+
+impl From<irori_core::SpaceBoard> for SpaceBoard {
+    fn from(b: irori_core::SpaceBoard) -> Self {
+        Self {
+            board_id: b.board_id,
+            name: b.name,
+            tag: b.tag,
         }
     }
 }
@@ -324,6 +327,34 @@ impl Window {
             .rename_space_board(space_id, board_id, name)
             .map_err(text)?;
         self.boards_find(space_id)
+    }
+
+    /// Personal's boards (card #558), its default first: the private log
+    /// holds them, so no [`BoardSummary`] does.
+    pub fn boards_personal(&self) -> Result<Vec<SpaceBoard>, String> {
+        let bs = self.core.personal_boards().map_err(text)?;
+        Ok(bs.into_iter().map(SpaceBoard::from).collect())
+    }
+
+    /// Adds board `name` (tag `tag`) to Personal, and returns its boards.
+    pub fn boards_add_to_personal(&self, name: &str, tag: &str) -> Result<Vec<SpaceBoard>, String> {
+        self.core
+            .create_personal_board(name, &crate::trim(tag).to_lowercase())
+            .map_err(text)?;
+        self.boards_personal()
+    }
+
+    /// Renames one of Personal's boards, its default
+    /// ([`irori_core::PERSONAL_BOARD`]) too, and returns its boards.
+    pub fn boards_rename_in_personal(
+        &self,
+        board_id: &str,
+        name: &str,
+    ) -> Result<Vec<SpaceBoard>, String> {
+        self.core
+            .rename_personal_board(board_id, name)
+            .map_err(text)?;
+        self.boards_personal()
     }
 
     /// BoardsService.Rename (owners): the space's own name.

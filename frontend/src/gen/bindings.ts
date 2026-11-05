@@ -161,6 +161,9 @@ export const commands = {
 	boardsLeave: (boardId: string) => __TAURI_INVOKE<null>("boards_leave", { boardId }),
 	boardsAddToSpace: (spaceId: string, name: string, tag: string) => __TAURI_INVOKE<BoardSummary>("boards_add_to_space", { spaceId, name, tag }),
 	boardsRenameInSpace: (spaceId: string, boardId: string, name: string) => __TAURI_INVOKE<BoardSummary>("boards_rename_in_space", { spaceId, boardId, name }),
+	boardsPersonal: () => __TAURI_INVOKE<SpaceBoard[]>("boards_personal"),
+	boardsAddToPersonal: (name: string, tag: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_add_to_personal", { name, tag }),
+	boardsRenameInPersonal: (boardId: string, name: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_rename_in_personal", { boardId, name }),
 	boardsForgetNow: (boardId: string) => __TAURI_INVOKE<null>("boards_forget_now", { boardId }),
 	boardsRemoveMember: (boardId: string, personId: string) => __TAURI_INVOKE<BoardSettings>("boards_remove_member", { boardId, personId }),
 	boardsSetRole: (boardId: string, personId: string, role: string) => __TAURI_INVOKE<BoardSettings>("boards_set_role", { boardId, personId, role }),
@@ -997,7 +1000,8 @@ export type CardSummary = {
 	board?: string,
 	/**
 	 *  The board in that space it's on (card #558): the space's id for the
-	 *  first board, or a board this device hasn't heard of yet.
+	 *  first board, or a board this device hasn't heard of yet. Personal's
+	 *  default is [`irori_core::PERSONAL_BOARD`], `board` staying empty.
 	 */
 	spaceBoard?: string,
 	/**  The work/personal side it's on (card #494); empty for any side. */
@@ -1698,7 +1702,8 @@ export type NewCardInput = {
 	board?: string,
 	/**
 	 *  The board inside that space it goes on (card #558), by id: "" or
-	 *  the space's own id for its first board.
+	 *  the space's own id for its first board. With `board` empty, one of
+	 *  Personal's, whose default is "" or [`irori_core::PERSONAL_BOARD`].
 	 */
 	spaceBoard?: string,
 	/**
@@ -2058,7 +2063,10 @@ export type SharedCopy = {
 
 /**  One board of a space (card #392). */
 export type SpaceBoard = {
-	/**  Its id: the space's own id for its first board. */
+	/**
+	 *  Its id: the space's own id for its first board, and
+	 *  [`irori_core::PERSONAL_BOARD`] for Personal's default.
+	 */
 	boardId: string,
 	name: string,
 	tag: string,

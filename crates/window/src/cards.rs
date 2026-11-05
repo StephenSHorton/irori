@@ -217,7 +217,8 @@ pub struct CardSummary {
     #[specta(optional)]
     pub board: String,
     /// The board in that space it's on (card #558): the space's id for the
-    /// first board, or a board this device hasn't heard of yet.
+    /// first board, or a board this device hasn't heard of yet. Personal's
+    /// default is [`irori_core::PERSONAL_BOARD`], `board` staying empty.
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub space_board: String,
@@ -1486,6 +1487,14 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
         title: t.title.clone(),
         state: coord::effective_state(t).to_string(),
         repo_key: t.repo_key.clone(),
+        // Off a space, where `card_place` sets these again: no tag is
+        // Personal's default, or a board not heard of yet.
+        tag: t.tag.clone(),
+        space_board: if t.tag.is_empty() {
+            irori_core::PERSONAL_BOARD.into()
+        } else {
+            t.board.clone()
+        },
         side: t.side.clone(),
         side_wait: t.side_wait.clone(),
         scope: SCOPE_MINE.into(),

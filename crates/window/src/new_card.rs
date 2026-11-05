@@ -24,7 +24,8 @@ pub struct NewCardInput {
     /// from its page. "": the person's own board.
     pub board: String,
     /// The board inside that space it goes on (card #558), by id: "" or
-    /// the space's own id for its first board.
+    /// the space's own id for its first board. With `board` empty, one of
+    /// Personal's, whose default is "" or [`irori_core::PERSONAL_BOARD`].
     pub space_board: String,
     /// Files pasted, dropped or picked in the form (card #124): they go on
     /// the card as the person's first comment, and with the hand-out.
@@ -60,6 +61,8 @@ impl Window {
             .collect();
         let co = self.core.coord().clone();
         let me = self.core.user_sender().key;
+        // As on a space: a card's row names only an inner board.
+        let inner = crate::trim(&input.space_board);
         let t = co
             .create_task(
                 &me,
@@ -68,6 +71,12 @@ impl Window {
                     objective: crate::trim(&input.objective).into(),
                     done_criteria: crate::trim(&input.done_when).into(),
                     repo_key: crate::trim(&input.repo_key).into(),
+                    board: if inner == irori_core::PERSONAL_BOARD {
+                        ""
+                    } else {
+                        inner
+                    }
+                    .into(),
                     ..NewTask::default()
                 },
             )

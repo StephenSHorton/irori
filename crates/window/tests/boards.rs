@@ -319,6 +319,62 @@ fn renaming_a_board_in_a_space_from_the_window() {
 }
 
 /// A Rig on loopback iroh with no LAN lookup (the invite tests).
+/// Personal from the window (card #558): its boards listed, added and
+/// renamed; a card made on one shows its tag and board, numbered from 1,
+/// while the cards already there stay on the default board as `#N`.
+#[test]
+fn personal_boards_from_the_window() {
+    let r = Rig::new();
+    let w = &r.w;
+    let old = create(&r, "already here");
+    assert_eq!(old.short_ref(), "#1");
+    let bs = w.boards_personal().unwrap();
+    assert_eq!(bs.len(), 1, "{bs:?}");
+    assert_eq!(bs[0].board_id, irori_core::PERSONAL_BOARD);
+    assert_eq!((bs[0].name.as_str(), bs[0].tag.as_str()), ("Personal", ""));
+
+    let bs = w.boards_add_to_personal("Home jobs", "HOME").unwrap();
+    assert_eq!(bs.len(), 2, "{bs:?}");
+    assert_eq!(bs[1].tag, "home");
+    let home = bs[1].board_id.clone();
+
+    let on = |board: &str, title: &str| {
+        w.create_card(irori_window::new_card::NewCardInput {
+            title: title.into(),
+            space_board: board.into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .task
+    };
+    let fence = on(&home, "Fix the fence");
+    assert_eq!(fence.short_ref(), "home#1");
+    let next = on(irori_core::PERSONAL_BOARD, "On the default board");
+    assert_eq!(next.short_ref(), "#2");
+
+    let cards = w.cards();
+    let card = |id: &str| cards.iter().find(|c| c.id == id).unwrap();
+    let c = card(&fence.id);
+    assert_eq!((c.tag.as_str(), c.space_board.as_str()), ("home", &*home));
+    assert_eq!(c.board, "", "Home keeps it: it is in no shared space");
+    assert_eq!(c.scope, SCOPE_MINE);
+    let c = card(&old.id);
+    assert_eq!(c.tag, "");
+    assert_eq!(c.space_board, irori_core::PERSONAL_BOARD);
+    assert_eq!(w.card(&fence.id).unwrap().summary.space_board, home);
+
+    let bs = w
+        .boards_rename_in_personal(irori_core::PERSONAL_BOARD, "Inbox")
+        .unwrap();
+    assert_eq!(bs[0].name, "Inbox");
+    let bs = w.boards_rename_in_personal(&home, "House").unwrap();
+    assert_eq!((bs[1].name.as_str(), bs[1].tag.as_str()), ("House", "home"));
+    let e = w.boards_rename_in_personal("nope", "x").unwrap_err();
+    assert!(e.contains("no board"), "{e}");
+    let e = w.boards_add_to_personal("Again", "home").unwrap_err();
+    assert!(e.contains("already board"), "{e}");
+}
+
 fn on_loopback() -> Rig {
     Rig::with(|o| {
         o.no_home = true;
