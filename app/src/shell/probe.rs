@@ -3,9 +3,16 @@
 //!
 //! With `IRORI_DEV_SHELL_LOG=<file>` set, the window role appends one line
 //! per shell event to that file (`ready`, `second-instance`, `show`,
-//! `page-load <scheme>://<host>`, `api-port <port>`, `exiting`), never puts the
+//! `page-load <scheme>://<host>`, `api-port <port>`, `exiting`, `closed`), never puts the
 //! window on screen, installs no tray icon, skips the real launch-at-login
 //! cutover and the auto-update, and quits once `<file>.quit` exists.
+//!
+//! On macOS it also drives what the shell's exit depends on (card #535):
+//! `<file>.terminate` quits through AppKit, as an Apple Event or the app
+//! menu does (`menu` in the file picks the app menu's own Quit item), and
+//! `<file>.voice` loads the speech model through a session on silence,
+//! left running if the file says `session`, otherwise stopped with the
+//! model still loaded; it notes `voice-loaded`.
 //!
 //! A debug build honours the variable alone. A release build honours it
 //! only together with `IRORI_DEV_OFFLINE=1` (a Core with no network), so
@@ -135,6 +142,103 @@ impl Probe {
             }
             app.exit(0);
         });
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Probe {
+    /// A file beside the log, `<file>.<ext>`.
+    fn beside(&self, ext: &str) -> Option<PathBuf> {
+        let mut p = self.0.as_ref()?.as_os_str().to_owned();
+        p.push(".");
+        p.push(ext);
+        Some(PathBuf::from(p))
+    }
+
+    /// Quits through `-[NSApplication terminate:]` once `<file>.terminate`
+    /// exists. AppKit then calls exit() itself: `run_return` never returns.
+    pub fn watch_terminate(&self, app: &tauri::AppHandle) {
+        let Some(f) = self.beside("terminate") else {
+            return;
+        };
+        let app = app.clone();
+        std::thread::spawn(move || {
+            while !f.exists() {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            let menu = std::fs::read_to_string(&f).is_ok_and(|s| s.trim() == "menu");
+            let _ = app.run_on_main_thread(move || terminate(menu));
+        });
+    }
+
+    /// Loads the speech model once `<file>.voice` exists (see the module
+    /// docs). The model is the data dir's, as for a real session.
+    pub fn watch_voice(&self, window: &Arc<irori_window::Window>) {
+        let Some(f) = self.beside("voice") else {
+            return;
+        };
+        let probe = self.clone();
+        let window = window.clone();
+        std::thread::spawn(move || {
+            while !f.exists() {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            let keep = std::fs::read_to_string(&f).is_ok_and(|s| s.trim() == "session");
+            match window.voice_start_with_samples(Vec::new()) {
+                Ok(id) => {
+                    if !keep {
+                        let _ = window.voice_stop(id);
+                    }
+                    probe.note("voice-loaded");
+                }
+                Err(e) => probe.note(&format!("voice error: {e}")),
+            }
+        });
+    }
+}
+
+/// Sends `terminate:` to the app from the run loop, or the action of the
+/// app menu's Quit item (the one on Command-Q) when `menu`. From the run
+/// loop because that is where an Apple Event or a menu click arrives:
+/// straight from here it would run inside tao's event callback, and tao
+/// would wait on itself to deliver the exit.
+#[cfg(target_os = "macos")]
+fn terminate(menu: bool) {
+    use objc2::rc::Retained;
+    use objc2::runtime::{AnyClass, AnyObject, Sel};
+    use objc2::{msg_send, sel};
+    use objc2_foundation::NSString;
+
+    let Some(class) = AnyClass::get(c"NSApplication") else {
+        return;
+    };
+    // SAFETY: AppKit's documented selectors with their documented types,
+    // on the main thread (run_on_main_thread).
+    unsafe {
+        let ns_app: Retained<AnyObject> = msg_send![class, sharedApplication];
+        let mut action = sel!(terminate:);
+        if menu {
+            let bar: Option<Retained<AnyObject>> = msg_send![&*ns_app, mainMenu];
+            let Some(bar) = bar else { return };
+            let q = NSString::from_str("q");
+            let n: isize = msg_send![&*bar, numberOfItems];
+            let found = (0..n).find_map(|i| {
+                let item: Retained<AnyObject> = msg_send![&*bar, itemAtIndex: i];
+                let sub: Option<Retained<AnyObject>> = msg_send![&*item, submenu];
+                let sub = sub?;
+                let m: isize = msg_send![&*sub, numberOfItems];
+                (0..m).find_map(|j| {
+                    let it: Retained<AnyObject> = msg_send![&*sub, itemAtIndex: j];
+                    let key: Retained<NSString> = msg_send![&*it, keyEquivalent];
+                    let a: Option<Sel> = msg_send![&*it, action];
+                    (*key == *q).then_some(a).flatten()
+                })
+            });
+            let Some(a) = found else { return };
+            action = a;
+        }
+        let none: Option<&AnyObject> = None;
+        let () = msg_send![&*ns_app, performSelector: action, withObject: none, afterDelay: 0.0f64];
     }
 }
 
