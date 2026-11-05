@@ -262,7 +262,9 @@ impl Window {
             .into_iter()
             .filter(|(k, roots)| {
                 k.starts_with("remote:")
-                    && !roots.is_empty()
+                    // A root on this device: roots can name another
+                    // device's checkout (a Mac path on the PC).
+                    && roots.iter().any(|r| std::path::Path::new(r).is_dir())
                     && ledger::repo_name(k).to_lowercase() == name
             })
             .map(|(k, _)| ledger::canonical_repo_key(&k))

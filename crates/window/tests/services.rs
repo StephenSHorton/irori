@@ -1114,6 +1114,14 @@ fn a_thread_from_a_repo_channel_names_its_channel_and_repo() {
     assert!(w.talk_thread_from(&ch, "post_nope", "Why?").is_err());
     assert!(w.talk_thread_from(&t.id, &p, "Why?").is_err());
 
+    // A same-named repo seen only on another device (no folder here)
+    // doesn't count.
+    seen(
+        "remote:github.com/elsewhere/game-repo",
+        &d.path().join("not-on-this-device"),
+    );
+    assert_eq!(w.channel_repo(&ch), "remote:github.com/t/game-repo");
+
     // A second repo by that name: no repo, the thread still starts.
     let fork = d.path().join("fork");
     std::fs::create_dir_all(&fork).unwrap();
