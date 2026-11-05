@@ -1530,7 +1530,13 @@ function BlockerItem({
       // Marked resolved: the check says it all.
       const after = res.card.blockers.find((x) => x.id === b.id)
       setTold(
-        own === null ? null : { told: res.told, resolved: !!after?.resolved }
+        own === null
+          ? null
+          : {
+              told: res.told,
+              resolved: !!after?.resolved,
+              irori: !!res.iroriActs,
+            }
       )
       setMissed(res.mentioned)
       setText("")
@@ -1881,6 +1887,7 @@ function BlockerItem({
             raiser={b.raisedBy}
             sent={b.id === NoteItem ? undefined : told.resolved}
             done={!!b.doneCheck}
+            irori={told.irori}
           />
         )}
       {missed && <p className="text-xs text-destructive">{missed}</p>}
@@ -1962,22 +1969,25 @@ export function byRecommendation(
 }
 
 // Sent is what an answer did: who heard, and whether the item resolved.
-type Sent = { told: Told; resolved: boolean }
+type Sent = { told: Told; resolved: boolean; irori: boolean }
 
 // ToldLine says who heard the answer and how. For a blocker item (sent
 // set), it says whether the answer left it open with the raiser or
-// resolved it because nobody is running to act on it.
+// resolved it because nobody is running to act on it. Irori's own asks
+// (irori) resolve too, but Irori reads the answer itself (card #531).
 function ToldLine({
   told,
   raiser,
   sent,
   done,
+  irori,
 }: {
   told: Told
   raiser: AgentRef
   sent?: boolean
   // A done check (card #112): resolved means you said Done.
   done?: boolean
+  irori?: boolean
 }) {
   if (told.error)
     return (
@@ -1990,7 +2000,11 @@ function ToldLine({
       <p className="text-xs text-success">
         {done
           ? "Done: the card is closed."
-          : "Resolved: nobody is running to act on it."}
+          : irori
+            ? "Sent to Irori: it starts the agent, or asks again."
+            : told.to.length
+              ? "Resolved: the agent on the card gets your answer."
+              : "Resolved: nobody is running to act on it."}
       </p>
     )
   if (sent === false)

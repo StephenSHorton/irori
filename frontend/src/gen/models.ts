@@ -70,6 +70,7 @@ export type Event = B.Event
 export type FileRef = B.FileRef
 export type Folder = B.Folder
 export type GoneSession = B.GoneSession
+export type GoneWait = B.GoneWait
 export type HoldReason = B.HoldReason
 export type Holding = B.Holding
 export type HomeServerView = B.HomeServerView
@@ -450,6 +451,11 @@ export function Folder(p: Partial<B.Folder> = {}): B.Folder {
 /** GoneSession with Go's zero values for every field left out. */
 export function GoneSession(p: Partial<B.GoneSession> = {}): B.GoneSession {
   return { "key": "", "sessionId": "", "name": "", "title": "", "cwd": "", "repoKey": "", "goneAt": "", "reason": "", "transcript": false, "trusted": false, ...p } as B.GoneSession
+}
+
+/** GoneWait with Go's zero values for every field left out. */
+export function GoneWait(p: Partial<B.GoneWait> = {}): B.GoneWait {
+  return { "blockerId": "", "agent": AgentRef(), "question": "", ...p } as B.GoneWait
 }
 
 /** HomeServerView with Go's zero values for every field left out. */
