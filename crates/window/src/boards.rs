@@ -283,7 +283,7 @@ impl Window {
         self.boards_list()
             .into_iter()
             .find(|b| b.board_id == id)
-            .ok_or_else(|| format!("core: no such board on this device: {id}"))
+            .ok_or_else(|| format!("core: no such space on this device: {id}"))
     }
 
     /// BoardsService.Create: a board between this person's own devices,

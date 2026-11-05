@@ -61,7 +61,7 @@ impl Services {
                         context: format!(
                             "{name}, the agent Irori started for {}, is waiting for a permission \
                              nobody is there to give. Attach to it to answer the prompt, or add \
-                             the command to the board's allow list in Settings › Agents and \
+                             the command to the space's allow list in Settings › Agents and \
                              start a fresh agent.",
                             t.short_ref()
                         ),

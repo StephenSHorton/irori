@@ -726,7 +726,7 @@ impl BoardVerifier {
         if let Some(old) = old {
             if old != p {
                 return Err(format!(
-                    "identity: {} is already pinned on this board with another key or root",
+                    "identity: {} is already pinned in this space with another key or root",
                     p.person_id
                 ));
             }

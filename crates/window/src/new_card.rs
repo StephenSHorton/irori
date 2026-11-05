@@ -42,7 +42,7 @@ impl Window {
         if !board.is_empty() {
             if !input.files.is_empty() {
                 return Err(format!(
-                    "{}: files on a shared board's new card aren't supported yet; add them in a comment",
+                    "{}: files on a shared space's new card aren't supported yet; add them in a comment",
                     coord::ErrorKind::Invalid.text()
                 ));
             }
