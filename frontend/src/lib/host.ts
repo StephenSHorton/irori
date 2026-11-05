@@ -296,6 +296,10 @@ export const TalkService = {
   Read: (convId: string, upTo: string) => done(commands.talkRead(convId, upTo)),
   LinkCard: (postId: string, taskId: string) =>
     done(commands.talkLinkCard(postId, taskId)),
+  // A thread about a channel's message (#454): it records the channel and
+  // its repo, and the channel gets the one-line pointer.
+  ThreadFrom: (convId: string, postId: string, text: string) =>
+    call(commands.talkThreadFrom(convId, postId, text)),
   // spaceId puts the channel in a space, where its members see it (#392).
   ChannelCreate: (
     name: string,

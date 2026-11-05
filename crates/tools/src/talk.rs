@@ -880,6 +880,7 @@ pub fn post(
                         agents_now,
                         thread_from: thread_from.clone(),
                         by: by.clone(),
+                        stay_out: false,
                     })
                     .map_err(|e| e.to_string())?;
                 out.post = p;
@@ -898,6 +899,8 @@ pub fn post(
             agents_now,
             thread_from,
             by: by.clone(),
+            // An agent Irori started posts without joining (card #454).
+            stay_out: b.coord().is_spawned(&by),
             ..NewPost::default()
         })
         .map_err(|e| e.to_string())?;

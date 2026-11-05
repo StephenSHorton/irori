@@ -316,6 +316,10 @@ pub struct Ask {
     /// person's own log, heard only by their own agents.
     #[serde(skip_serializing_if = "omit")]
     pub board: String,
+    /// The Talk channel a thread was started from (a message there, card
+    /// #454): its `ch_` id. Its newest lines go in a spawned agent's brief.
+    #[serde(skip_serializing_if = "omit")]
+    pub channel: String,
 }
 
 impl Ask {
@@ -1021,6 +1025,9 @@ pub struct NewAsk {
     /// A thread with "Agents answer now" off (card #391): no agent is woken
     /// or handed it; the agents it names hear it at their next turn.
     pub quiet: bool,
+    /// A thread started from a message in this Talk channel (its `ch_` id,
+    /// card #454); private log only.
+    pub channel: String,
 }
 
 /// ask_claim's answer.

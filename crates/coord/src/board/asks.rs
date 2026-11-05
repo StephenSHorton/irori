@@ -260,6 +260,11 @@ impl Fold {
             } else {
                 a.board.clone()
             },
+            channel: if self.on_board || !a.thread {
+                String::new()
+            } else {
+                clean_channel(&a.channel)
+            },
             ..Ask::default()
         });
     }
@@ -836,6 +841,11 @@ impl Fold {
                         input.board.trim().to_string()
                     },
                     owner: if delegated { owner } else { String::new() },
+                    channel: if self.on_board || !input.thread {
+                        String::new()
+                    } else {
+                        clean_channel(&input.channel)
+                    },
                 }),
                 side,
                 by: by.clone(),
@@ -1750,12 +1760,23 @@ impl Fold {
                     )?;
                 }
                 let taker = a.taker.clone();
+                // A thread's agent answers; a card made from the thread is a
+                // new card with its own agent (§4, card #454): one still
+                // holding the thread lets go first, and goes like any
+                // agent whose thread closed.
+                if a.thread && !taker.is_empty() && a.owner == self.dev {
+                    self.write_thread_answered(id, &a)?;
+                }
+                // Nobody holds it (a thread, or an ask nobody took): it goes
+                // out as a new card, so it gets its own agent instead of
+                // sitting in working with no one on it.
+                let held = !a.thread && !taker.is_empty() && !self.is_owner(&taker);
                 self.write(
                     &by,
                     kinds::TASK_STATUS,
                     &TaskStateRow {
                         task_id: id.into(),
-                        state: WORKING.into(),
+                        state: if held { WORKING } else { SUBMITTED }.into(),
                         note: note.clone(),
                         by: by.clone(),
                         at: now,
@@ -1767,7 +1788,7 @@ impl Fold {
                         ..TaskStateRow::default()
                     },
                 )?;
-                if !taker.is_empty() && !self.is_owner(&taker) && by == taker {
+                if held && by == taker {
                     self.write(
                         &by,
                         kinds::TASK_CLAIMED,
@@ -2007,5 +2028,15 @@ fn set_or_cleared(field: &str, to: &str) -> String {
         format!("cleared {field}")
     } else {
         format!("set {field} to “{}”", cut(to, MAX_LOG_QUOTE))
+    }
+}
+
+/// A thread's Talk channel (card #454): a `ch_` id, else nothing.
+fn clean_channel(c: &str) -> String {
+    let c = c.trim();
+    if crate::talk::is_channel(c) && c.len() <= 64 && !c.contains(char::is_whitespace) {
+        c.to_string()
+    } else {
+        String::new()
     }
 }

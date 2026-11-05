@@ -60,7 +60,7 @@ pub struct Unoffered {
 }
 
 /// Whether card t is one Irori hands out now: open, unheld, unassigned,
-/// private, not an ask and not a parent, and not waiting on other work
+/// private, not an open ask and not a parent, and not waiting on other work
 /// (card #397).
 pub(crate) fn offerable(t: &Task) -> bool {
     needs_agent(t) && !t.spawn_pending()
@@ -74,7 +74,8 @@ pub(crate) fn needs_agent(t: &Task) -> bool {
         && t.assigned.is_empty()
         && !t.shared
         && !t.withdrawn
-        && t.ask.is_none()
+        // An ask made into a card is a card from then on (card #454).
+        && t.open_ask().is_none()
         && t.subtasks.is_empty()
         && !waits_on_work(t)
 }
@@ -87,15 +88,17 @@ impl Fold {
     /// it first. A plain ask that names agents goes to them alone; a
     /// thread waits out its named agents' quiet spell, and one with
     /// "Agents answer now" off is never handed out, so neither is
-    /// unclaimed then.
+    /// unclaimed then. A private thread about a shared board (`a.board`,
+    /// card #185) lives in the person's own log, so it spawns too (card
+    /// #454); threads in a board's own log are part 11's.
     pub(crate) fn ask_needs_agent(&self, t: &Task) -> bool {
         let Some(a) = t.open_ask() else {
             return false;
         };
-        !is_terminal(&t.state)
+        !self.on_board
+            && !is_terminal(&t.state)
             && !t.withdrawn
             && !t.shared
-            && a.board.is_empty()
             && a.owner == self.dev
             && a.taker.is_empty()
             && a.unclaimed

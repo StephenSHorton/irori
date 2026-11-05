@@ -158,6 +158,22 @@ impl Window {
         board_id: &str,
         agents_now: Option<bool>,
     ) -> Result<TaskResult, String> {
+        self.start_thread_in(text, mentions, files, board_id, agents_now, "")
+    }
+
+    /// [`Self::start_thread_with`] from a message in Talk channel `channel`
+    /// (its `ch_` id; "" none, card #454): the thread records the channel,
+    /// and in a channel named after a repo here it is that repo's thread,
+    /// so the agent Irori starts for it starts in that repo.
+    pub(crate) fn start_thread_in(
+        &self,
+        text: &str,
+        mentions: &[ts::Mention],
+        files: &[UploadFile],
+        board_id: &str,
+        agents_now: Option<bool>,
+        channel: &str,
+    ) -> Result<TaskResult, String> {
         let quiet = !agents_now.unwrap_or_else(|| agents_now_default(mentions));
         let board_id = crate::trim(board_id);
         let private = !board_id.is_empty()
@@ -177,6 +193,8 @@ impl Window {
                         files: refs.iter().map(crate::coord_ref).collect(),
                         thread: true,
                         quiet,
+                        channel: channel.into(),
+                        repo_key: self.channel_repo(channel),
                         ..Default::default()
                     },
                     &self.core.ask_agents(),

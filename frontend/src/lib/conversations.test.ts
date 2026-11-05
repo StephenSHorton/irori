@@ -135,3 +135,21 @@ describe("the Archive's Mark all read (card #473)", () => {
     )
   })
 })
+
+describe("Start a thread on a channel message (card #454)", () => {
+  test("the thread starts and the channel gets its one-line pointer", async () => {
+    const before = await talkApi.posts("sample-ch-suzuri")
+    const [about, n] = [before[0], before.length]
+    await talkApi.threadFrom(
+      "sample-ch-suzuri",
+      about.postId,
+      "Why is that?\n\n> quoted\n(you, in #suzuri)"
+    )
+    const after = await talkApi.posts("sample-ch-suzuri")
+    expect(after.length).toBe(n + 1)
+    const pointer = after[after.length - 1]
+    expect(pointer.threadFrom).toBe(about.postId)
+    expect(pointer.text).toMatch(/^#\d+$/)
+    expect(pointer.agentsNow).toBe(false)
+  })
+})

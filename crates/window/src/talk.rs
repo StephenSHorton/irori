@@ -205,6 +205,78 @@ impl Window {
         Ok(p.post.post_id)
     }
 
+    /// The person asks about channel `conv`'s post `post_id` in a new
+    /// thread (design b2, card #454): the thread records the channel (and
+    /// its repo, [`Window::channel_repo`]), and the channel gets a one-line
+    /// pointer to it. `text` is the thread's whole ask.
+    pub fn talk_thread_from(
+        &self,
+        conv: &str,
+        post_id: &str,
+        text: &str,
+    ) -> Result<crate::board::TaskResult, String> {
+        let (conv, post_id) = (crate::trim(conv), crate::trim(post_id));
+        if !coord::talk::is_channel(conv) || self.core.talk().channel(conv).is_none() {
+            return Err(format!("no channel {conv}"));
+        }
+        if !self
+            .core
+            .talk()
+            .posts(conv)
+            .iter()
+            .any(|p| p.post_id == post_id)
+        {
+            return Err(format!("no post {post_id} in that channel"));
+        }
+        let r = self.start_thread_in(text, &[], &[], "", None, conv)?;
+        let pointer = if r.task.short.is_empty() {
+            r.task.id.clone()
+        } else {
+            format!("#{}", r.task.short)
+        };
+        self.talk_post(conv, &pointer, &[], false, Some(post_id.to_string()))?;
+        Ok(r)
+    }
+
+    /// The repo a Talk channel is about (card #454): the one repo with a
+    /// checkout on this device whose name is the channel's ("irori" for
+    /// `remote:github.com/a/irori`), any case. "" when none or several
+    /// match, or `conv` isn't a channel: its thread then starts where an
+    /// ask naming no repo does.
+    pub fn channel_repo(&self, conv: &str) -> String {
+        let conv = crate::trim(conv);
+        if conv.is_empty() {
+            return String::new();
+        }
+        let Some(c) = self.core.talk().channel(conv) else {
+            return String::new();
+        };
+        let name = c.name.trim().trim_start_matches('#').to_lowercase();
+        if name.is_empty() {
+            return String::new();
+        }
+        let hits: Vec<String> = self
+            .core
+            .capture()
+            .repos()
+            .into_iter()
+            .filter(|(k, roots)| {
+                k.starts_with("remote:")
+                    // A root on this device: roots can name another
+                    // device's checkout (a Mac path on the PC).
+                    && roots.iter().any(|r| std::path::Path::new(r).is_dir())
+                    && ledger::repo_name(k).to_lowercase() == name
+            })
+            .map(|(k, _)| ledger::canonical_repo_key(&k))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        match hits.as_slice() {
+            [k] => k.clone(),
+            _ => String::new(),
+        }
+    }
+
     /// The person made card `task_id` from post `post_id` (card #390,
     /// "Make a card"): the post shows the card's chip.
     pub fn talk_link_card(&self, post_id: &str, task_id: &str) -> Result<(), String> {

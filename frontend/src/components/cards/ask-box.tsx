@@ -87,7 +87,7 @@ export function AskBox({
           ? "Sent. Agents answer now was off: no agent was woken or handed it."
           : onBoard
             ? n === 0
-              ? "Sent. No agent is free yet: it goes to the first idle agent with Offer it cards on."
+              ? "Sent. No agent is free yet: it goes to the first idle agent with Offer it cards on, or, on a board whose threads are private to you, Irori starts one when spawning is on."
               : `Sent to ${n === 1 ? "1 agent" : `${n} agents`}. If nobody answers in 45s, an agent with Offer it cards on picks it up.`
             : n === 0
               ? "Sent. No agent with Offer it cards on is free: Irori starts one for it when spawning is on."

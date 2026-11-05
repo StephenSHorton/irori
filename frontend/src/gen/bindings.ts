@@ -275,6 +275,12 @@ export const commands = {
 	talkPost: (convId: string, text: string, mentions: string[], agentsNow: boolean, threadFrom: string | null) => __TAURI_INVOKE<string>("talk_post", { convId, text, mentions, agentsNow, threadFrom }),
 	/**  The person made card `task_id` from post `post_id` (card #390). */
 	talkLinkCard: (postId: string, taskId: string) => __TAURI_INVOKE<null>("talk_link_card", { postId, taskId }),
+	/**
+	 *  The person asks about channel `conv_id`'s post `post_id` in a new
+	 *  thread (card #454): it records the channel and its repo, and the
+	 *  channel gets a pointer to it.
+	 */
+	talkThreadFrom: (convId: string, postId: string, text: string) => __TAURI_INVOKE<TaskResult>("talk_thread_from", { convId, postId, text }),
 	/**  The person has read `conv_id` up to post `up_to`. */
 	talkRead: (convId: string, upTo: string) => __TAURI_INVOKE<null>("talk_read", { convId, upTo }),
 	/**
