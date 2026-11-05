@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react"
 
 import { ConfirmButton } from "@/components/common/confirm-button"
+import { SpaceAgentSwitch } from "@/components/settings/space-agents"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -558,6 +559,7 @@ export function BoardSettingsPanel({
   const autonomyHint = AutonomyPresets.find((p) => p.value === s.autonomy)?.hint
   return (
     <div className="grid gap-3 text-xs">
+      <SpaceAgentSwitch boardId={boardId} name="Start an agent for each card you make" open />
       <section className="grid gap-1" aria-label="Members">
         <span className="font-semibold text-ink">Members</span>
         <ul className="grid gap-0.5">

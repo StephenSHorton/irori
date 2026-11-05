@@ -445,6 +445,19 @@ impl Inner {
         b
     }
 
+    /// The `person:` key of board `board_id`'s other member `want` names
+    /// (their profile name, or their key), to give them a card (card #573).
+    pub(crate) fn member_key(&self, board_id: &str, want: &str) -> Option<String> {
+        let sb = self.b.shared_boards()?;
+        let lower = gocompat::text::to_lower_str;
+        let want = lower(trim(want));
+        sb.board_mentionables(board_id)
+            .into_iter()
+            .filter(|c| c.key.starts_with(store::kinds::PERSON_ACTOR_PREFIX))
+            .find(|c| lower(&c.key) == want || lower(trim(&c.name)) == want)
+            .map(|c| c.key)
+    }
+
     /// An agent name or key (live or gone, the caller too), or a person's
     /// "user:*" key passed through.
     pub(crate) fn assignee(&self, v: &str) -> Result<String, inbox::Error> {
@@ -828,9 +841,13 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let mut to = String::new();
     let v = trim(a.str("assign_to"));
     if !v.is_empty() {
-        match s.assignee(v) {
-            Ok(k) => to = k,
-            Err(e) => return map_err(e),
+        let board = s.find_board(trim(a.str("board"))).ok();
+        match board.and_then(|b| s.member_key(&b.board_id, v)) {
+            Some(k) => to = k,
+            None => match s.assignee(v) {
+                Ok(k) => to = k,
+                Err(e) => return map_err(e),
+            },
         }
     }
     let waits = match waits_on(s, a.str("waits_on")) {
@@ -2180,9 +2197,19 @@ pub(crate) fn board_assign(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     if want.is_empty() {
         return err_text("give to: the agent's name or key (see the agents tool).");
     }
-    let to = match s.assignee(want) {
-        Ok(k) => k,
-        Err(e) => return map_err(e),
+    // On a shared card `to` may be another member: the card is given to
+    // them, and their Irori asks them before it starts anything (card #573).
+    let member = s
+        .b
+        .shared_boards()
+        .and_then(|sb| sb.board_of(&id))
+        .and_then(|b| s.member_key(&b.board_id, want));
+    let to = match member {
+        Some(k) => k,
+        None => match s.assignee(want) {
+            Ok(k) => k,
+            Err(e) => return map_err(e),
+        },
     };
     let (co, as_) = match s.on(&id, &[c.sender.key.clone(), to.clone()]) {
         Ok(v) => v,

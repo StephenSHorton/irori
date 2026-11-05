@@ -134,6 +134,9 @@ const kinds = {
   // a card whose agents crashed twice.
   permission: { label: "Permission", variant: "warning" },
   crashed: { label: "Crashed", variant: "destructive" },
+  // Card #573: another person gave them the card; nothing starts without
+  // their yes.
+  given: { label: "Given to you", variant: "info" },
   message: { label: "Message", variant: "info" },
   held: { label: "Held", variant: "warning" },
   // Card #481: waits nothing will end.

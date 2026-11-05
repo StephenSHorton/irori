@@ -77,7 +77,8 @@ export function idleLabel(m: number, def = 30): string {
 // keeping the last good settings when a save fails.
 export function useAgents(open: boolean, boardId = "") {
   const [s, setS] = useState<AgentsSettings | null>(() =>
-    inWails() ? null : { ...sampleAgents(), boardId }
+    // A space's switch starts off, as it does in the app.
+    inWails() ? null : { ...sampleAgents(), boardId, on: !boardId && sampleAgents().on }
   )
   const [error, setError] = useState("")
   useEffect(() => {

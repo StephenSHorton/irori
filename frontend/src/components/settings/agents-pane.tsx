@@ -12,6 +12,7 @@ import { FolderIcon, ShieldAlertIcon, ShieldCheckIcon } from "lucide-react"
 
 import { ChoiceSelect } from "@/components/common/choice-select"
 import { PermissionsSection } from "@/components/settings/agent-permissions"
+import { SpaceAgentSwitch } from "@/components/settings/space-agents"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -29,6 +30,8 @@ import {
 import { ConfirmButton } from "@/components/common/confirm-button"
 import { SpawnedActions } from "@/components/cards/spawned-actions"
 import { agentStatus } from "@/lib/agent-status"
+import { useBoards } from "@/lib/boards"
+import { plainLine } from "@/lib/irori"
 import { LiveRoster } from "@/lib/thread"
 import { AgentRef } from "@/lib/models"
 
@@ -63,6 +66,7 @@ export function AgentsPane({ open }: { open: boolean }) {
           className="mt-0.5"
         />
       </div>
+      <SpacesSection open={open} />
       <section className="grid gap-2">
         <h3 className="text-sm font-medium text-ink">
           What a new agent starts with
@@ -121,6 +125,34 @@ export function AgentsPane({ open }: { open: boolean }) {
       <TrustedSection open={open} />
       {error && <p className="text-[12.5px] text-destructive">{error}</p>}
     </div>
+  )
+}
+
+// SpacesSection is each shared space's own switch (card #573): off until
+// the person turns it on, and only for cards they make there.
+function SpacesSection({ open }: { open: boolean }) {
+  const { boards } = useBoards()
+  if (boards.length === 0) return null
+  return (
+    <section className="grid gap-2" aria-label="Spaces">
+      <h3 className="text-sm font-medium text-ink">Spaces</h3>
+      <p className="text-[12.5px] text-muted-foreground">
+        Each space has its own switch, off until you turn it on. It runs your
+        agents on your computers, for the cards you make there. A card someone
+        gives you always asks you first, whatever the switch says.
+      </p>
+      <ul className="grid gap-2">
+        {boards.map((b) => (
+          <li key={b.boardId}>
+            <SpaceAgentSwitch
+              boardId={b.boardId}
+              name={plainLine(b.name) || "(unnamed)"}
+              open={open}
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

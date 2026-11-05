@@ -804,6 +804,7 @@ impl Fold {
                     return;
                 };
                 let person = self.person_row(ev, &p.by);
+                let said = self.given_say(ev, &p, person, at(p.at));
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
@@ -811,6 +812,9 @@ impl Fold {
                 else {
                     return;
                 };
+                if said.is_some() {
+                    t.given_said = said;
+                }
                 // Their say on the crash question clears the run on a card
                 // no answer can put back on the Board too (card #540).
                 if person && super::spawn::is_crash_question(&t.blockers[i]) {
