@@ -3744,9 +3744,11 @@ impl Services {
         match heard {
             Ok(prs) => {
                 let truncated = prs.len() >= limit;
+                // The person's own login, which the desk trusts (card #521).
+                let viewer = self.desk_watch.viewer(lister.as_ref());
                 let wrote = self
                     .coord
-                    .record_desk_prs(repo_key, prs, truncated)
+                    .record_desk_snapshot(repo_key, prs, truncated, &viewer)
                     .map_err(|e| e.to_string());
                 self.desk_watch.heard(
                     repo_key,

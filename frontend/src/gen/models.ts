@@ -415,12 +415,12 @@ export function DeskSettings(p: Partial<B.DeskSettings> = {}): B.DeskSettings {
 
 /** DeskSnapshotView with Go's zero values for every field left out. */
 export function DeskSnapshotView(p: Partial<B.DeskSnapshotView> = {}): B.DeskSnapshotView {
-  return { "truncated": false, "prs": [], "at": "", ...p } as B.DeskSnapshotView
+  return { "truncated": false, "prs": [], "viewer": "", "at": "", ...p } as B.DeskSnapshotView
 }
 
 /** DeskView with Go's zero values for every field left out. */
 export function DeskView(p: Partial<B.DeskView> = {}): B.DeskView {
-  return { "settings": DeskSettings(), "holds": [], "oks": [], "poll": DeskPollView(), "authors": [], ...p } as B.DeskView
+  return { "settings": DeskSettings(), "isDefault": false, "seenOn": "", "followsSeen": false, "holds": [], "oks": [], "poll": DeskPollView(), "authors": [], ...p } as B.DeskView
 }
 
 /** DeviceView with Go's zero values for every field left out. */

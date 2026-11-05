@@ -1,6 +1,16 @@
 import { describe, expect, test } from "bun:test"
 
-import { deskQueue, inputsOf as inputsOfDesk, leaseRepo, queueCount, type RepoDesk, type SnapPr } from "./desk"
+import {
+  deskQueue,
+  deskSub,
+  inputsOf as inputsOfDesk,
+  leaseRepo,
+  queueCount,
+  talkDesks,
+  type Desk,
+  type RepoDesk,
+  type SnapPr,
+} from "./desk"
 
 const REPO = "remote:github.com/StephenSHorton/Game-Repo"
 
@@ -162,7 +172,10 @@ describe("the window's DeskView (card #417)", () => {
         checks: [{ command: "cargo test", paths: [], runner: "", device: "" }],
         mergeMethod: "", perPrOk: false, by: "user:pc", at: Z,
       },
-      prs: { truncated: false, at: "2026-11-03T10:00:00Z", prs: [] },
+      isDefault: false,
+      seenOn: "",
+      followsSeen: false,
+      prs: { truncated: false, at: "2026-11-03T10:00:00Z", prs: [], viewer: "" },
       holds: [{ pr: 7, note: "", headSha: "", by: "user:pc", at: "2026-11-03T10:00:00Z" }],
       oks: [],
       poll: { here: true, lastPollAt: "2026-11-03T10:01:00Z", unreachableSince: Z, error: "" },
@@ -174,6 +187,46 @@ describe("the window's DeskView (card #417)", () => {
     expect(d.settings.checks[0]).toEqual({ command: "cargo test", paths: undefined, runner: undefined, device: undefined })
     expect(d.poll).toEqual({ at: "2026-11-03T10:01:00Z", unreachableSince: undefined, device: "pc" })
     expect(d.holds[7].note).toBeUndefined()
+    expect(d.isDefault).toBe(false)
+    expect(d.seenOn).toBeUndefined()
     expect(deskQueue(inputsOfDesk(d))).toEqual([])
+  })
+})
+
+describe("desks in Talk › Channels (card #521)", () => {
+  const snap = (prs: SnapPr[]) => ({ repoKey: REPO, at: "2026-11-05T10:00:00Z", truncated: false, prs })
+  const one = (over: Partial<Desk> = {}): Desk => ({
+    settings: { ...desk, holder: undefined, trusted: [], checks: [] },
+    holds: {},
+    oks: {},
+    isDefault: true,
+    seenOn: "pc",
+    ...over,
+  })
+
+  test("a default desk is listed, held by nobody", () => {
+    const [d] = talkDesks([one({ prs: snap([pr()]) })], "")
+    expect(d.name).toBe("StephenSHorton/Game-Repo")
+    expect(d.sub).toBe("merge desk · 1 open on GitHub")
+  })
+
+  test("an empty desk reads No open PRs on GitHub", () => {
+    expect(talkDesks([one({ prs: snap([]) })], "")[0].sub).toBe("No open PRs on GitHub")
+    expect(deskSub(null)).toBe("merge desk · not polled yet")
+  })
+
+  test("a desk turned off is hidden", () => {
+    const off = one({ isDefault: false, settings: { ...desk, enabled: false } })
+    expect(talkDesks([off], "")).toEqual([])
+  })
+
+  test("desks live in the person's own log: Personal lists them, a shared space doesn't", () => {
+    expect(talkDesks([one()], "personal")).toHaveLength(1)
+    expect(talkDesks([one()], "board-abc")).toEqual([])
+  })
+
+  test("search finds a desk by its repo", () => {
+    expect(talkDesks([one()], "", "game")).toHaveLength(1)
+    expect(talkDesks([one()], "", "kowhai")).toEqual([])
   })
 })
