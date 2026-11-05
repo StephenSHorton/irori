@@ -122,7 +122,9 @@ New board asks **Who's on it?**: *Just me*, or one or more friends (`boards_crea
   4. `joined {space, rows}`: the friend's device opens the space as an invitee does (`bundle::join`, which checks the maker owns it and lists the friend under the key it proved), writes its own `board.joined`, and sends back its device cert and profile. Both sides open the space on the network.
 - **Waiting friends.** The maker's private log keeps a `space.offered {spaceId, personId}` row per friend (board logs refuse it). An offer waits until the friend is on the space, and any of the maker's devices sends it once one of the friend's devices is connected (every 2 s, at most every 10 s per friend), so a friend whose devices are all offline gets it when one comes back.
 - **Older Irori.** A device before #517 skips the unknown frame, so the offer waits for it to update.
-- Friends accept on their own: they're already trusted (b3). Declining or leaving is the ordinary Leave on the board.
+- Friends accept on their own: they're already trusted (b3). Declining or leaving is the ordinary Leave on the board. An offer is waiting only while the friend has never been on the space, or was added but has no device certified there (the bundle was lost: the same pin gets the rows again). Someone who left or was removed is never offered it again.
+- **Checks.** The maker takes a pin only under the key the shared space has for the friend now (a rotation counts once it reaches that space). The friend's device answers only the person who offered, and opens the bundle only if its `board.created` names that person. Steps run one at a time per device.
+- **Known limits.** A friend who learned a space's id (another member of it) could offer a copy of their own under that id to a second friend first, and the real one would then wait. Friends are trusted (b3), so this isn't guarded further. A friend invite whose end fails after the friend was added keeps the friend space, since the friend may be joining it.
 
 ### 10.4 Board invites leave the normal UI
 

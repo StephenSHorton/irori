@@ -21,6 +21,14 @@
 //! The maker's private log keeps a `space.offered` row per friend, so the
 //! offer waits for a friend whose devices are all offline, and goes out
 //! from any of the maker's devices once one of the friend's says hello.
+//! It is waiting while the friend has never been on the space, or was
+//! added but no device of theirs is certified there yet (the bundle was
+//! lost); once they were on it and left or were removed, it is over.
+//!
+//! The friend's device answers only the person who offered (its copy of
+//! the space must be made by them), and the maker takes only a pin under
+//! the key the shared space has for the friend now. Steps run one at a
+//! time per device.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
@@ -98,8 +106,11 @@ impl PinWire {
 pub(crate) struct Offers {
     /// Maker: when each (space, person) offer last went out.
     sent: Mutex<HashMap<(String, String), Instant>>,
-    /// Friend: the spaces this device accepted, and who offered each.
-    accepted: Mutex<HashMap<String, String>>,
+    /// Friend: the (space, offerer) pairs this device accepted.
+    accepted: Mutex<std::collections::HashSet<(String, String)>>,
+    /// One step at a time: a resent offer or a second accept never runs
+    /// beside the first.
+    step: Mutex<()>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -146,8 +157,10 @@ impl Services {
     }
 
     /// The offers still waiting: (space, person) with a `space.offered`
-    /// row, where the space is open here, this person still owns it and
-    /// the person isn't on it yet.
+    /// row, where the space is open here, this person still owns it, and
+    /// the person was never on it, or was added and has no device
+    /// certified there yet. Someone who left or was removed isn't offered
+    /// it again.
     pub(crate) fn pending_offers(&self) -> Vec<(String, String)> {
         let mut rows: Vec<(String, String)> = Vec::new();
         let _ = each_row(
@@ -170,7 +183,13 @@ impl Services {
         rows.retain(|(space, person)| {
             self.board(space).is_ok_and(|b| {
                 let m = b.verifier.membership();
-                m.created && m.owner(&me) && !m.active(person) && !self.board_leaving(&b)
+                let waiting = match m.person(person) {
+                    None => true,
+                    Some(_) => {
+                        m.active(person) && !b.verifier.devices(person).iter().any(|d| !d.revoked)
+                    }
+                };
+                m.created && m.owner(&me) && waiting && !self.board_leaving(&b)
             })
         });
         rows
@@ -269,6 +288,7 @@ impl Services {
         let Some(mesh) = self.mesh.board(carrier) else {
             return;
         };
+        let _one = lock(&self.offers.step);
         let r = match step.step.as_str() {
             STEP_OFFER => self.offered(&step, &from, mesh, dev),
             STEP_ACCEPT => self.accepted(&step, &from, carrier, mesh, dev),
@@ -296,10 +316,15 @@ impl Services {
         if !super::boards::valid_board_id(&step.space) {
             return Err("not a space id".into());
         }
-        if self.board(&step.space).is_ok() {
-            return Ok(()); // already here
+        // Already here, with this device certified: nothing to do. A copy
+        // whose join failed half way takes the offer again.
+        if self
+            .board(&step.space)
+            .is_ok_and(|b| b.verifier.cert(&self.device.id).is_some())
+        {
+            return Ok(());
         }
-        lock(&self.offers.accepted).insert(step.space.clone(), from.to_string());
+        lock(&self.offers.accepted).insert((step.space.clone(), from.to_string()));
         let p = self.ident.current();
         let body = Step {
             step: STEP_ACCEPT.into(),
@@ -338,14 +363,15 @@ impl Services {
         if pin.person_id != from || pin.root_device_id != dev {
             return Err("the pin isn't the sending device's person".into());
         }
-        // The key must be the one the carrier pins for them, or a newer
-        // epoch of it.
+        // The key must be the one the carrier has for them now: a newer
+        // key counts once its rotation reaches the carrier.
         let cb = self.board(carrier).map_err(|e| e.to_string())?;
-        let known = cb.verifier.pinned(from).ok_or("they aren't pinned there")?;
-        if pin.person_epoch < known.person_epoch
-            || (pin.person_epoch == known.person_epoch && pin.person_pub != known.person_pub)
-        {
-            return Err("the pin's key isn't theirs".into());
+        let (epoch, key) = cb
+            .verifier
+            .newest_key(from)
+            .ok_or("they aren't pinned there")?;
+        if pin.person_epoch != epoch || pin.person_pub != key {
+            return Err("the pin's key isn't the one the shared space has for them".into());
         }
         let name = if step.name.trim().is_empty() {
             cb.verifier.profile(from).unwrap_or_default()
@@ -353,7 +379,18 @@ impl Services {
             step.name.clone()
         };
         let boards = super::invites::core_boards(Arc::downgrade(self));
-        let bundle = irori_invite::bundle::admit(&*boards, &self.ident, &step.space, &pin, &name)?;
+        let sb = self.board(&step.space).map_err(|e| e.to_string())?;
+        let m = sb.verifier.membership();
+        let bundle = match m.person(from) {
+            // Added before, the bundle lost: the same device, its rows again.
+            Some(p) if m.active(from) => {
+                if p.pin != pin {
+                    return Err("they're on it under another device's pin".into());
+                }
+                bundle_of(&sb)?
+            }
+            _ => irori_invite::bundle::admit(&*boards, &self.ident, &step.space, &pin, &name)?,
+        };
         let body = Step {
             step: STEP_BUNDLE.into(),
             space: step.space.clone(),
@@ -373,14 +410,25 @@ impl Services {
         mesh: Arc<mesh::boardmesh::BoardMesh>,
         dev: &str,
     ) -> Result<(), String> {
-        let offered_by = lock(&self.offers.accepted).get(&step.space).cloned();
-        if offered_by.as_deref() != Some(from) {
+        let key = (step.space.clone(), from.to_string());
+        if !lock(&self.offers.accepted).contains(&key) {
             return Err("this device didn't accept that space from them".into());
         }
         let bundle = step.bundle.as_ref().ok_or("no bundle")?;
+        // The space must be the offerer's own: its board.created names them.
+        let maker = bundle
+            .rows
+            .iter()
+            .map(WireRow::event)
+            .filter(|e| e.kind == kinds::BOARD_CREATED)
+            .find_map(|e| irori_identity::decode::<irori_identity::BoardCreated>(&e.payload))
+            .map(|c| c.creator.person_id);
+        if maker.as_deref() != Some(from) {
+            return Err("the space isn't the offerer's".into());
+        }
         let boards = super::invites::core_boards(Arc::downgrade(self));
         let evs = irori_invite::bundle::join(&*boards, &self.ident, &step.space, from, bundle)?;
-        lock(&self.offers.accepted).remove(&step.space);
+        lock(&self.offers.accepted).remove(&key);
         let body = Step {
             step: STEP_JOINED.into(),
             space: step.space.clone(),
@@ -412,6 +460,31 @@ impl Services {
         });
         Ok(())
     }
+}
+
+/// Space `b`'s rows and current secret as an invite's bundle sends them,
+/// with no new member row (the friend is on it already).
+fn bundle_of(b: &super::boards::BoardLog) -> Result<irori_invite::bundle::Bundle, String> {
+    use base64::Engine as _;
+    let m = b.verifier.membership();
+    let epoch = b.secrets.epoch();
+    let (secret, maker) = b
+        .secrets
+        .secret(epoch)
+        .ok_or("this device has no secret for the space's epoch")?;
+    let rows = irori_invite::bundle::all_rows(&b.store)?
+        .iter()
+        .map(WireRow::of)
+        .collect();
+    Ok(irori_invite::bundle::Bundle {
+        board_id: b.id.clone(),
+        name: m.name,
+        tag: m.tag,
+        board_epoch: epoch,
+        maker,
+        secret: base64::engine::general_purpose::STANDARD.encode(&*secret),
+        rows,
+    })
 }
 
 /// Tries pending offers every [`PUMP_EVERY`] until the Core goes.

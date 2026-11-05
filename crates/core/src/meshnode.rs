@@ -173,6 +173,13 @@ impl Mesh {
         self.refeed.notify_one();
     }
 
+    /// Feeds the endpoint every board's member devices again now (a member
+    /// device was just certified: card #517's offered space), rather than
+    /// at the next [`REFEED_EVERY`].
+    pub(crate) fn refeed_now(&self) {
+        self.refeed.notify_one();
+    }
+
     /// This device's home server (set once, after the Core makes it).
     pub(crate) fn set_home(&self, h: home::Server) {
         let _ = self.home.set(h);

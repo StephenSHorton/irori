@@ -10,6 +10,7 @@ description = "The Core: one data dir's store and services, their loops and time
 name = "irori_core"
 
 [dependencies]
+base64.workspace = true
 irori-blob.workspace = true
 irori-capture.workspace = true
 irori-coord.workspace = true

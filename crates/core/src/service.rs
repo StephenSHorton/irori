@@ -1395,12 +1395,12 @@ impl Core {
         // connection, and a pump for the ones still waiting.
         {
             let w = Arc::downgrade(&s);
-            let rt = s.pairing.handle.clone();
             s.mesh.set_on_offer(Arc::new(
                 move |board: &str, dev: &str, _person: &str, body| {
                     // Off the connection's reader: a bundle opens a space.
+                    // A plain thread, so closing the Core never waits on it.
                     let (w, board, dev) = (w.clone(), board.to_string(), dev.to_string());
-                    rt.spawn_blocking(move || {
+                    std::thread::spawn(move || {
                         if let Some(s) = w.upgrade() {
                             s.take_offer_step(&board, &dev, body);
                         }

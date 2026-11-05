@@ -561,9 +561,16 @@ impl Core {
                             h.kick();
                         }
                         // A friend invite nobody took leaves no empty
-                        // friend space behind (card #517).
+                        // friend space behind (card #517). Once the friend
+                        // was added (the words matched and the bundle went
+                        // out, even if the end then failed) it stays: they
+                        // may be joining it.
+                        let empty = sv
+                            .board(&st.board_id)
+                            .is_ok_and(|b| b.verifier.membership().members.len() <= 1);
                         if st.friend
                             && st.state != irori_invite::flow::STATE_DONE
+                            && empty
                             && let Err(e) = sv.leave_board(&st.board_id)
                         {
                             crate::log(&format!("invite: friend space {}: {e}", st.board_id));
@@ -657,6 +664,9 @@ impl Services {
             m.recheck();
             m.kick();
         }
+        // The new member device is a dial target now, not at the next
+        // refeed (an offered space has no link addresses to hint with).
+        self.mesh.refeed_now();
         self.boards.moved();
     }
 }

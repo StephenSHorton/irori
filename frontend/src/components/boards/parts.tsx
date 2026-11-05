@@ -112,7 +112,11 @@ export function NewBoard({ taken, onMade }: { taken: string[]; onMade: () => Pro
     setBusy(true)
     setError(null)
     try {
-      await actions.createWith(name, t, people.filter((p) => friends.some((f) => f.personId === p)))
+      // A pick that left the list isn't dropped quietly: the board would
+      // be made as Just me.
+      if (people.some((p) => !friends.some((f) => f.personId === p)))
+        throw new Error("A friend you picked isn't in your friends any more. Pick again.")
+      await actions.createWith(name, t, people)
       setName("")
       setTag("")
       setTypedTag(false)

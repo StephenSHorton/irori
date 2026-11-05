@@ -713,6 +713,7 @@ fn a_non_member_is_refused() {
     let a_addrs = a1.core.net().endpoint().expect("bound").bound_sockets();
     c1.core.board_addr_hint(a1.core.device_id(), a_addrs);
     c1.core.kick_board(&board);
+    std::thread::sleep(Duration::from_secs(5));
     let c_dev = c1.core.device_id().to_string();
     assert!(
         a1.core
@@ -2030,6 +2031,16 @@ fn a_friend_gets_a_new_board_with_no_invite() {
         card_on(a1, &net, &t.id).is_some()
     });
 
+    // Bob leaves it: the offer is over, and he isn't pulled back in.
+    b1.core.leave_board(&net).unwrap();
+    wait_for(WAIT, "alice hears bob left", || lists_with(a1, &net, 1));
+    wait_for(WAIT, "bob's devices forget it", || {
+        !b1.core.boards().contains(&net)
+    });
+    std::thread::sleep(Duration::from_secs(5));
+    assert!(a1.core.pending_offers(&net).is_empty(), "offered again");
+    assert!(!b1.core.boards().contains(&net), "pulled back in");
+
     // Bob, a plain member of the friend space, makes one with Alice.
     let art = b1
         .core
@@ -2069,7 +2080,7 @@ fn a_friends_other_device_takes_the_offer() {
     let bob_id = bob[0].core.person().id;
     let (friends, at) = befriend(a1, &bob[0]);
     // Where Alice is, as a relay would tell Bob's second device.
-    bob[1].core.board_hint(a1.core.device_id(), at);
+    bob[1].core.board_addr_hint(a1.core.device_id(), at);
     wait_for(WAIT, "bob's second device opens the friend space", || {
         lists_with(&bob[1], &friends, 2)
     });

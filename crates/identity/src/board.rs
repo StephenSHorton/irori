@@ -945,6 +945,19 @@ impl BoardVerifier {
         self.lock().valid.get(device_id).cloned()
     }
 
+    /// A member's newest accepted person key: (epoch, public key hex), the
+    /// pinned one until a rotation counts. None when not pinned.
+    pub fn newest_key(&self, person_id: &str) -> Option<(i64, String)> {
+        let st = self.lock();
+        match st.members.get(person_id).and_then(|m| m.keys.last()) {
+            Some(k) => Some((k.epoch, k.pub_hex.clone())),
+            None => st
+                .eff
+                .get(person_id)
+                .map(|p| (p.person_epoch, p.person_pub.clone())),
+        }
+    }
+
     /// A member's newest accepted epoch (0 when not pinned).
     pub fn epoch(&self, person_id: &str) -> i64 {
         let st = self.lock();

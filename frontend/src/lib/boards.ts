@@ -569,7 +569,8 @@ export async function reloadBoards(): Promise<void> {
   try {
     next = { boards: await boards.list(), error: null }
   } catch (err) {
-    next = { ...listState.value, error: errorText(err) }
+    // Keep the last full list (friend spaces too); value is its filter.
+    next = { ...listState.all, error: errorText(err) }
   }
   if (n !== listState.req) return
   listState.all = next

@@ -555,13 +555,6 @@ impl super::Core {
             .unwrap_or_default()
     }
 
-    /// Direct addresses for another member's device, for every board it
-    /// is on (what an invite link gives the invitee; tests give it where a
-    /// relay would).
-    pub fn board_hint(&self, device_id: &str, addrs: Vec<std::net::SocketAddr>) {
-        self.s.mesh.board_hint(device_id, addrs);
-    }
-
     /// The friends a space is still offered to and who aren't on it yet.
     pub fn pending_offers(&self, space_id: &str) -> Vec<String> {
         self.s
