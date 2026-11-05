@@ -285,7 +285,11 @@ mod tests {
             format!("{row}\n{row}\n{{\"type\":\"user\"}}\n"),
         )
         .unwrap();
-        std::fs::write(proj.join("s1").join("subagents").join("agent-a.jsonl"), sub).unwrap();
+        std::fs::write(
+            proj.join("s1").join("subagents").join("agent-a.jsonl"),
+            format!("{sub}\n"),
+        )
+        .unwrap();
         let c = CostCache::default();
         let (cost, found) = c.session(dir.path(), "s1");
         assert!(found);
