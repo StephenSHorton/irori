@@ -1348,7 +1348,7 @@ impl Fold {
             let state = effective_state(t);
             if is_terminal(state) {
                 v.done.push(card);
-            } else if self.needs_you(t, &viewer, agent_viewer) {
+            } else if self.needs_you(t, &viewer, agent_viewer, &rs) {
                 v.needs_you.push(card);
             } else if state == BLOCKED && !t.all_answered() {
                 v.blocked.push(card);
@@ -1419,7 +1419,13 @@ impl Fold {
     }
 
     /// The NeedsYou rule (coord.md §3.15).
-    fn needs_you(&self, t: &Task, viewer: &str, agent_viewer: bool) -> bool {
+    fn needs_you(
+        &self,
+        t: &Task,
+        viewer: &str,
+        agent_viewer: bool,
+        rs: &super::stranded::RosterStatus,
+    ) -> bool {
         let mut ons: Vec<&BlockedBy> = Vec::new();
         let mut asks: Vec<&BlockedBy> = Vec::new();
         if t.state == BLOCKED {
@@ -1465,6 +1471,12 @@ impl Fold {
         // merge (agents waited on theirs for days, unseen), until the PR is
         // known merged or closed. On a board, only their own agents' waits.
         if (viewer.is_empty() || self.is_owner(viewer)) && !self.merge_waits(t).is_empty() {
+            return true;
+        }
+        // Card #520: a wait on an agent that is gone, or an outside wait its
+        // gone agent raised, on a card nobody holds: nothing ends it but
+        // the person (Hand to an agent, or stop the card).
+        if (viewer.is_empty() || self.is_owner(viewer)) && !self.gone_waits_in(t, rs).is_empty() {
             return true;
         }
         if viewer.is_empty() {

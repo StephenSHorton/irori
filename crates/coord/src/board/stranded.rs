@@ -124,6 +124,41 @@ impl Fold {
         self.stranded_in(t, &self.roster_status())
     }
 
+    /// The stranded waits of `t` that only Needs you can show (card #520):
+    /// a wait on a gone agent, or an outside wait whose gone agent raised
+    /// it, on a card nobody holds. A question or done check already counts
+    /// as a decision, and a wait on a PR's merge as #509's merge row, so
+    /// those are left out and nothing shows twice. On a shared board only
+    /// the person's own agents' waits.
+    pub(crate) fn gone_waits_in(&self, t: &Task, rs: &RosterStatus) -> Vec<Stranded> {
+        let st = self.stranded_in(t, rs);
+        if st.is_empty() {
+            return st;
+        }
+        let merges = self.merge_waits(t);
+        st.into_iter()
+            .filter(|s| {
+                let Some(b) = t.blockers.iter().find(|b| b.id == s.blocker_id) else {
+                    return false;
+                };
+                if self.on_board && !self.own_on_board(b) {
+                    return false;
+                }
+                match b.on.as_ref().map(|on| on.kind.as_str()) {
+                    Some(BLOCKED_ON_AGENT) => true,
+                    Some(BLOCKED_ON_EXTERNAL) => {
+                        !b.merge_wait().is_some_and(|pr| merges.contains(&pr))
+                    }
+                    _ => false,
+                }
+            })
+            .collect()
+    }
+
+    pub(crate) fn gone_waits(&self, t: &Task) -> Vec<Stranded> {
+        self.gone_waits_in(t, &self.roster_status())
+    }
+
     /// Takes the gone agents a card was handed to off it (task.left
     /// "gone"), so it can go out again.
     pub(crate) fn drop_gone_assigned(&mut self, by: &str, id: &str) -> Result<()> {

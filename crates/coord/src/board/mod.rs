@@ -1335,6 +1335,13 @@ impl Coord {
         let f = self.lock();
         f.tasks.get(id).map(|t| f.stranded(t)).unwrap_or_default()
     }
+    /// Card `id`'s stranded waits that only Needs you shows (card #520):
+    /// waits on a gone agent, and outside waits (not a PR's merge) whose
+    /// gone agent raised them, while nobody holds it.
+    pub fn gone_waits(&self, id: &str) -> Vec<Stranded> {
+        let f = self.lock();
+        f.tasks.get(id).map(|t| f.gone_waits(t)).unwrap_or_default()
+    }
     /// "Hand to an agent" (card #485): the person puts a card whose items
     /// wait on gone agents back on the Board, taking those agents off it.
     /// Returns the card as it was and those items.
