@@ -1495,7 +1495,9 @@ impl Services {
         let me = self.device.id.clone();
         let name = name.to_string();
         let private = log.board_id.is_empty();
-        let repo_key = if private {
+        // A board thread names no repo: it starts where a private one
+        // does (card #512).
+        let repo_key = if private || t.open_ask().is_some() {
             self.spawn_repo(t)
         } else {
             t.repo_key.clone()
@@ -1503,6 +1505,9 @@ impl Services {
         let folder = match folder {
             Some(f) => f,
             None if private => self.spawn_folder(t),
+            None if t.repo_key.is_empty() && t.open_ask().is_some() => {
+                self.ask_home().map(|(_, f)| f)
+            }
             None => self.checkout_here(&repo_key),
         };
         let comments = log.co.comments(&t.id).unwrap_or_default();
@@ -1702,7 +1707,7 @@ impl Services {
 
     /// The repo card t's agent works in: the card's own, or for an ask
     /// that names none, [`Self::ask_home`]'s.
-    fn spawn_repo(&self, t: &Task) -> String {
+    pub(crate) fn spawn_repo(&self, t: &Task) -> String {
         if !t.repo_key.is_empty() || t.ask.is_none() {
             return t.repo_key.clone();
         }
@@ -1714,7 +1719,7 @@ impl Services {
     /// of the repo the agent here active most recently works in, which
     /// Claude Code trusts since that agent runs there. Its repo key and
     /// folder.
-    fn ask_home(&self) -> Option<(String, String)> {
+    pub(crate) fn ask_home(&self) -> Option<(String, String)> {
         let me = self.device.id.as_str();
         let mut live: Vec<_> = self
             .presence
@@ -1946,6 +1951,34 @@ impl Services {
             let Some(t) = self.coord.get_task(&m.task_id) else {
                 // A shared board's card (card #455): it goes when its work
                 // there is done for it.
+                if let Some((co, t, k)) = self.spawn_card_of(&a.key)
+                    && let Some(ask) = t.open_ask().filter(|_| !coord::is_terminal(&t.state))
+                {
+                    // A board thread's agent (card #512), as a private
+                    // thread's below: its answer leaves nobody holding the
+                    // thread, so it stays for follow-ups until it is idle
+                    // and the thread quiet past the idle limit, or another
+                    // agent took the thread.
+                    let quiet_since = co
+                        .comments(&t.id)
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|c| c.at)
+                        .chain([m.at, a.last_activity])
+                        .max_by_key(|at| at.unix_nano())
+                        .unwrap_or(m.at);
+                    let lost = !ask.taker.is_empty() && ask.taker != k;
+                    let quiet = a.status == "idle"
+                        && at_least(
+                            &(self.now)(),
+                            &quiet_since,
+                            self.spawn_setting(&m.board).idle_limit(),
+                        );
+                    if lost || quiet {
+                        self.begin_end(&a.key);
+                    }
+                    continue;
+                }
                 if let Some((_, t, k)) = self.spawn_card_of(&a.key)
                     && (coord::is_terminal(&t.state)
                         || !t.holders.contains(&k)

@@ -797,7 +797,8 @@ impl Ctx<'_> {
         let mut now = HashSet::new();
         for c in Self::lanes(v) {
             let Some(a) = &c.task.ask else { continue };
-            if !a.is_open() || !a.unclaimed || !a.taker.is_empty() {
+            // Irori is starting its agent (card #470): nobody to wake.
+            if !a.is_open() || !a.unclaimed || !a.taker.is_empty() || c.task.spawn_pending() {
                 continue;
             }
             now.insert(c.task.id.clone());
@@ -836,7 +837,14 @@ impl Ctx<'_> {
         let woken = a.reason == coord::TAKE_REOPENED;
         // Nobody free: waking again would only reopen it and post this card
         // again. A waiting ask goes out by itself when an agent goes idle.
-        let body = if a.told > 0 {
+        let body = if a.told > 0 && a.thread {
+            // A thread goes out at once (card #512): the agents it names
+            // were woken, and nobody waits on them.
+            format!(
+                "{} agents it names were woken, and no agent with Offer it cards on is free.",
+                a.told
+            )
+        } else if a.told > 0 {
             format!("{} agents were told; none took it.", a.told)
         } else if woken {
             "You woke them, but nobody is free. It goes to the first agent that is.".to_string()

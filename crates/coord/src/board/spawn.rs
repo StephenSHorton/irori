@@ -483,7 +483,11 @@ impl Fold {
             // not handed: a fresh agent's first turn may end before it
             // replies, and only its going away moves the ask on.
             if let Some(a) = t.open_ask() {
-                if a.taker.is_empty() && a.owner == self.dev {
+                // A thread another agent answered while this one started
+                // (card #512: nobody waits on its named agents) stays
+                // answered: taking it would reopen it for a second answer.
+                let answered = a.thread && a.reason == super::threads::TAKE_ANSWERED;
+                if a.taker.is_empty() && a.owner == self.dev && !answered {
                     let mut heard = a.heard.clone();
                     if !heard.iter().any(|h| h == key) {
                         heard.push(key.to_string());

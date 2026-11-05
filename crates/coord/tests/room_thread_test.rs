@@ -1,6 +1,7 @@
 //! Threads (card #116): the person's conversation with the room. The
-//! agents on the cards it names hear it first; after a quiet spell one
-//! idle agent gets it; once answered nobody holds it, follow-ups go to the
+//! agents on the cards it names hear it, woken, and nobody waits on them
+//! (card #512): it goes out at once to one idle agent, or with none free
+//! it is unclaimed (and Irori starts its agent); once answered nobody holds it, follow-ups go to the
 //! agents that answered, and only the person resolves it.
 
 mod common;
@@ -58,13 +59,24 @@ fn a_thread_goes_to_the_cards_it_names_first() {
     );
     assert!(tk.holders.is_empty(), "nobody holds a thread");
     assert!(
-        n.to == [ALICE] && n.wake && n.text.contains("started a thread") && n.text.contains("45s"),
+        n.to == [ALICE]
+            && n.wake
+            && n.text.contains("started a thread")
+            && n.text.contains("Nobody waits on you"),
         "{n:?}"
     );
 
-    // Inside the quiet spell nobody else hears it.
-    e.clk.add(secs(30));
+    // Nobody waits on alice (card #512): the first sweep hands it out at
+    // once, and with nobody free it is unclaimed, so Irori starts its own
+    // agent. Alice still heard it.
+    e.ros.set(BOB, "busy");
+    e.ros.set(CAROL, "busy");
     assert!(e.c.sweep_asks(&agents(&e)).unwrap().is_empty());
+    let a = ask_of(&e.c, &tk.id);
+    assert!(
+        a.unclaimed && a.taker.is_empty() && a.heard == [ALICE],
+        "{a:?}"
+    );
 
     // Alice answers: answered, still nobody holds it, and no hand-out.
     e.c.add_comment(
@@ -76,7 +88,10 @@ fn a_thread_goes_to_the_cards_it_names_first() {
     .unwrap();
     assert!(e.c.sweep_asks(&agents(&e)).unwrap().is_empty());
     let a = ask_of(&e.c, &tk.id);
-    assert!(a.reason == "answered" && a.taker.is_empty(), "{a:?}");
+    assert!(
+        a.reason == "answered" && a.taker.is_empty() && !a.unclaimed,
+        "{a:?}"
+    );
     e.clk.add(secs(60));
     assert!(e.c.sweep_asks(&agents(&e)).unwrap().is_empty());
     assert!(e.c.get_task(&tk.id).unwrap().holders.is_empty());
@@ -109,12 +124,12 @@ fn a_thread_goes_to_the_cards_it_names_first() {
 }
 
 #[test]
-fn nobody_answers_so_an_idle_agent_gets_it() {
+fn an_idle_agent_gets_it_at_once_besides_the_cards_it_names() {
     let e = Env::new();
     let card = alices_card(&e);
     let (tk, _) = thread(&e, &format!("Did #{} finish?", card.short));
     e.ros.set(CAROL, "busy");
-    e.clk.add(secs(46));
+    // No quiet spell (card #512): the next sweep, at once.
     let ns = e.c.sweep_asks(&agents(&e)).unwrap();
     assert!(
         ns.len() == 1
@@ -147,8 +162,8 @@ fn a_thread_naming_nothing_goes_to_an_idle_agent_at_once() {
     assert_eq!(ask_of(&e.c, &tk.id).taker, BOB);
 }
 
-/// Card #124: a thread handed out after the quiet spell still brings the
-/// files the person posted with it.
+/// Card #124: a thread handed out by the sweep (not at post) still brings
+/// the files the person posted with it.
 #[test]
 fn a_thread_handed_later_brings_its_files() {
     let e = Env::new();
@@ -177,7 +192,6 @@ fn a_thread_handed_later_brings_its_files() {
         "alice hears it with the file"
     );
     e.ros.set(CAROL, "busy");
-    e.clk.add(secs(46));
     let ns = e.c.sweep_asks(&agents(&e)).unwrap();
     assert!(ns.len() == 1 && ns[0].to == [BOB], "{ns:?}");
     assert_eq!(ns[0].attachments, vec![file]);
