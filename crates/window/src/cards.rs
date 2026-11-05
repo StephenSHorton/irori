@@ -909,6 +909,9 @@ pub(crate) struct People {
     spawned: std::collections::HashSet<String>,
     /// Cards that need an agent while this device is at its cap.
     at_cap: std::collections::HashSet<String>,
+    /// Open asks Irori is starting an agent for, or is about to, by card id:
+    /// the device it starts on (card #518). Only this device's log spawns.
+    ask_starting: HashMap<String, String>,
 }
 
 /// The other people's colours on this screen (card #385): every person
@@ -1034,6 +1037,11 @@ impl Window {
             if c.spawn_setting("").on && running >= cap {
                 p.at_cap = co.cards_to_spawn().into_iter().map(|t| t.id).collect();
             }
+            p.ask_starting = co
+                .asks_starting()
+                .into_iter()
+                .map(|(id, s)| (id, s.device))
+                .collect();
         }
         let mut live = 0;
         p.names = c.device_labels().into_iter().collect();
@@ -1048,6 +1056,26 @@ impl Window {
 }
 
 impl People {
+    /// Where an agent is starting for card t (card #448), as the window
+    /// names the device. An open ask goes by coord's rule (card #518): from
+    /// the moment it is unclaimed with spawning on, before its request row
+    /// is written, and no longer once that request failed or its agent
+    /// didn't bind within the grace, so the tile, Home and the "Nobody
+    /// took" toast agree.
+    pub(crate) fn starting(&self, t: &Task) -> String {
+        if t.open_ask().is_some() {
+            return self
+                .ask_starting
+                .get(&t.id)
+                .map(|d| self.where_(d))
+                .unwrap_or_default();
+        }
+        t.spawn_request()
+            .filter(|sp| sp.pending())
+            .map(|sp| self.where_(&sp.device))
+            .unwrap_or_default()
+    }
+
     /// Whether `dev` is this device: empty, unknown here, or this one.
     fn is_here(&self, dev: &str) -> bool {
         dev.is_empty() || self.self_id.is_empty() || dev == self.self_id
@@ -1431,11 +1459,7 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
             .filter(|sp| sp.op == coord::SPAWN_FAILED)
             .map(|sp| cant_start_text(t, sp, p))
             .unwrap_or_default(),
-        starting: t
-            .spawn_request()
-            .filter(|sp| sp.pending())
-            .map(|sp| p.where_(&sp.device))
-            .unwrap_or_default(),
+        starting: p.starting(t),
         at_cap: if p.at_cap.contains(&t.id) {
             p.where_(&p.self_id)
         } else {

@@ -51,7 +51,7 @@ pub use offers::{IdleReport, OFFER_HANDED, OFFER_PASSED, OFFER_WAITING, Unoffere
 pub use parts::{DEFAULT_AGENTS_PER_CARD, MAX_AGENTS_PER_CARD, PART_QUESTION};
 pub use spawn::{
     CRASHED_QUESTION, CRASHED_START, MAX_SPAWN_CRASHES, PERMISSION_MODES, SPAWN_CANCELED,
-    SPAWN_FAILED, SPAWN_GRACE, SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk, Spawned,
+    AskStart, SPAWN_FAILED, SPAWN_GRACE, SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk, Spawned,
 };
 mod resource;
 mod review;
@@ -1309,6 +1309,24 @@ impl Coord {
     /// card assigned to it.
     pub fn bind_spawn(&self, id: &str, generation: i64, key: &str) -> Result<bool> {
         self.lock().bind_spawn(id, generation, ("", ""), key)
+    }
+    /// The agent Irori is starting, or about to start, for open ask `id`
+    /// while one is coming (card #518): the toast, the tile and Home hold
+    /// "nobody took it" until then.
+    pub fn ask_starting(&self, id: &str) -> Option<AskStart> {
+        let f = self.lock();
+        let t = f.tasks.get(id)?;
+        f.ask_starting(t)
+    }
+    /// [`Coord::ask_starting`] for every open ask that has one coming, by
+    /// card id, under one lock (the window's cards and threads).
+    pub fn asks_starting(&self) -> std::collections::HashMap<String, AskStart> {
+        let f = self.lock();
+        f.tasks
+            .values()
+            .filter(|t| t.open_ask().is_some())
+            .filter_map(|t| f.ask_starting(t).map(|s| (t.id.clone(), s)))
+            .collect()
     }
     /// The cards this device hands out that need an agent now and have
     /// none starting (or one starting past [`SPAWN_GRACE`]), oldest first.

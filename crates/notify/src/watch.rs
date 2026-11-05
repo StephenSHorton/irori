@@ -60,6 +60,11 @@ impl InboxFeed for inbox::Inbox {
 pub trait BoardSource: Send + Sync {
     fn subscribe(&self) -> Arc<Queue<coord::Change>>;
     fn board(&self, f: &BoardFilter) -> BoardView;
+    /// The agent Irori is starting, or about to start, for open ask `id`
+    /// (card #518): its "Nobody took" card waits while one is coming.
+    fn ask_starting(&self, _id: &str) -> Option<coord::AskStart> {
+        None
+    }
 }
 
 impl BoardSource for Coord {
@@ -68,6 +73,9 @@ impl BoardSource for Coord {
     }
     fn board(&self, f: &BoardFilter) -> BoardView {
         Coord::board(self, f)
+    }
+    fn ask_starting(&self, id: &str) -> Option<coord::AskStart> {
+        Coord::ask_starting(self, id)
     }
 }
 
@@ -212,7 +220,10 @@ pub fn watch(n: &Notifier, s: Sources) -> Option<WatchHandle> {
     let thread = std::thread::Builder::new()
         .name("notify-watch".into())
         .spawn(move || {
-            let rt = match tokio::runtime::Builder::new_current_thread().build() {
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+            {
                 Ok(rt) => rt,
                 Err(e) => {
                     eprintln!("irori: notifications: watch: {e}");
@@ -254,6 +265,7 @@ async fn run(
         asks: HashSet::new(),
         unclaimed: HashMap::new(),
         returned: HashMap::new(),
+        wake_at: None,
         s,
     };
 
@@ -282,6 +294,8 @@ async fn run(
             Board(Option<coord::Change>),
             Ask(Option<String>),
             Press(CardAct),
+            // A held "Nobody took" card's grace ran out (card #518).
+            Due,
             Stop,
         }
         let ev = {
@@ -290,16 +304,19 @@ async fn run(
                 .map(|s: &inbox::Subscription| s.queue().clone());
             let cq = cch.clone();
             let aq = ach.clone();
+            let due = w.wake_at.map(until);
             tokio::select! {
                 _ = cancel.cancelled() => Ev::Stop,
                 c = recv(iq.as_deref()), if iq.is_some() => Ev::Inbox(c),
                 c = recv(cq.as_deref()), if cq.is_some() => Ev::Board(c),
                 c = recv(aq.as_deref()), if aq.is_some() => Ev::Ask(c),
                 Some(p) = prx.recv() => Ev::Press(p),
+                _ = tokio::time::sleep(due.unwrap_or_default()), if due.is_some() => Ev::Due,
             }
         };
         match ev {
             Ev::Stop => return,
+            Ev::Due => w.board(true),
             Ev::Ask(None) => ach = None,
             Ev::Ask(Some(id)) => w.ask(&id),
             Ev::Inbox(None) => ich = None,
@@ -324,6 +341,15 @@ async fn run(
             }
         }
     }
+}
+
+/// How long until `at` (coord's clock, the system's), and a second more
+/// so coord's own look then finds it past.
+fn until(at: GoTime) -> std::time::Duration {
+    at.to_system()
+        .duration_since(std::time::SystemTime::now())
+        .unwrap_or_default()
+        + std::time::Duration::from_secs(1)
 }
 
 async fn recv<T>(q: Option<&Queue<T>>) -> Option<T> {
@@ -420,6 +446,10 @@ struct State {
     unclaimed: HashMap<String, Opening>,
     /// Cards that came back to the person, by the row that returned them.
     returned: HashMap<String, String>,
+    /// When the first held "Nobody took" card's agent stops counting as
+    /// coming (card #518): the Board is looked at again then, since that
+    /// moment writes no row.
+    wake_at: Option<GoTime>,
 }
 
 /// The Board half of the watcher, also usable without the loop (tests).
@@ -430,6 +460,7 @@ pub struct BoardCards {
     name: Option<NameFn>,
     room: Option<Arc<dyn RoomSource>>,
     file: Option<FileFn>,
+    board: Option<Arc<dyn BoardSource>>,
     needs: HashSet<String>,
     unclaimed: HashMap<String, Opening>,
     returned: HashMap<String, String>,
@@ -444,6 +475,7 @@ impl BoardCards {
             name: s.name.clone(),
             room: s.room.clone(),
             file: s.file.clone(),
+            board: s.board.clone(),
             needs: HashSet::new(),
             unclaimed: HashMap::new(),
             returned: HashMap::new(),
@@ -451,35 +483,28 @@ impl BoardCards {
     }
 
     /// Reconciles the cards with one Board view (`post` false seeds).
-    pub fn view(&mut self, v: &BoardView, post: bool) {
-        let st = Ctx {
-            n: &self.n,
-            user: &self.user,
-            is_owner: &self.is_owner,
-            name: &self.name,
-            room: &self.room,
-            file: &self.file,
-        };
-        st.board(
-            v,
-            post,
-            &mut self.needs,
-            &mut self.unclaimed,
-            &mut self.returned,
+    /// Returns when a held "Nobody took" card is due a look again (card
+    /// #518), while one is held.
+    pub fn view(&mut self, v: &BoardView, post: bool) -> Option<GoTime> {
+        let (mut needs, mut unclaimed, mut returned) = (
+            std::mem::take(&mut self.needs),
+            std::mem::take(&mut self.unclaimed),
+            std::mem::take(&mut self.returned),
         );
+        let due = self
+            .ctx()
+            .board(v, post, &mut needs, &mut unclaimed, &mut returned);
+        self.needs = needs;
+        self.unclaimed = unclaimed;
+        self.returned = returned;
+        due
     }
 
     /// Go `returnedCards` alone.
     pub fn returned(&mut self, v: &BoardView, post: bool) {
-        let st = Ctx {
-            n: &self.n,
-            user: &self.user,
-            is_owner: &self.is_owner,
-            name: &self.name,
-            room: &self.room,
-            file: &self.file,
-        };
-        st.returned_cards(v, post, &mut self.returned);
+        let mut returned = std::mem::take(&mut self.returned);
+        self.ctx().returned_cards(v, post, &mut returned);
+        self.returned = returned;
     }
 
     /// Whether a task's move into Needs you is news to the person.
@@ -500,6 +525,7 @@ impl BoardCards {
             name: &self.name,
             room: &self.room,
             file: &self.file,
+            board: &self.board,
         }
     }
 }
@@ -512,6 +538,7 @@ struct Ctx<'a> {
     name: &'a Option<NameFn>,
     room: &'a Option<Arc<dyn RoomSource>>,
     file: &'a Option<FileFn>,
+    board: &'a Option<Arc<dyn BoardSource>>,
 }
 
 impl State {
@@ -523,6 +550,7 @@ impl State {
             name: &self.s.name,
             room: &self.s.room,
             file: &self.s.file,
+            board: &self.s.board,
         }
     }
 
@@ -540,7 +568,8 @@ impl State {
             std::mem::take(&mut self.unclaimed),
             std::mem::take(&mut self.returned),
         );
-        self.ctx()
+        self.wake_at = self
+            .ctx()
             .board(&v, post, &mut needs, &mut unclaimed, &mut returned);
         self.needs = needs;
         self.unclaimed = unclaimed;
@@ -653,7 +682,8 @@ impl Ctx<'_> {
     }
 
     /// Reconciles the Needs you lane with the cards: a task that entered it
-    /// gets a card (when post), one that left has its card cleared.
+    /// gets a card (when post), one that left has its card cleared. Returns
+    /// when a held "Nobody took" card is due a look again (card #518).
     fn board(
         &self,
         v: &BoardView,
@@ -661,7 +691,7 @@ impl Ctx<'_> {
         needs: &mut HashSet<String>,
         unclaimed: &mut HashMap<String, Opening>,
         returned: &mut HashMap<String, String>,
-    ) {
+    ) -> Option<GoTime> {
         // A card's key is its id, plus its done check while that is all it
         // waits on (card #140): new proof, or the last other question
         // closing, changes the key and posts the card again in place.
@@ -691,10 +721,13 @@ impl Ctx<'_> {
                 self.n.clear(&needs_id(id));
             }
         }
-        if self.room.is_some() {
-            self.unclaimed_asks(v, post, unclaimed);
-        }
+        let due = if self.room.is_some() {
+            self.unclaimed_asks(v, post, unclaimed)
+        } else {
+            None
+        };
         self.returned_cards(v, post, returned);
+        due
     }
 
     fn lanes(v: &BoardView) -> impl Iterator<Item = &Card> {
@@ -792,12 +825,33 @@ impl Ctx<'_> {
     }
 
     /// A card for each open ask nobody took, cleared once it is taken or
-    /// closed.
-    fn unclaimed_asks(&self, v: &BoardView, post: bool, unclaimed: &mut HashMap<String, Opening>) {
+    /// closed. Not while Irori is starting an agent for it, or is about to
+    /// (card #518): that agent takes it seconds later, so the card waits
+    /// until none is coming (spawning off, the spawn failed, the agents
+    /// crashed out, the ask rests, or its agent didn't bind within the
+    /// grace). One already up comes down when an agent starts for it.
+    /// Returns the soonest a held card stops being held.
+    fn unclaimed_asks(
+        &self,
+        v: &BoardView,
+        post: bool,
+        unclaimed: &mut HashMap<String, Opening>,
+    ) -> Option<GoTime> {
         let mut now = HashSet::new();
+        let mut due: Option<GoTime> = None;
         for c in Self::lanes(v) {
             let Some(a) = &c.task.ask else { continue };
             if !a.is_open() || !a.unclaimed || !a.taker.is_empty() {
+                continue;
+            }
+            if let Some(s) = self
+                .board
+                .as_ref()
+                .and_then(|b| b.ask_starting(&c.task.id))
+            {
+                if due.is_none_or(|d| s.until.unix_nano() < d.unix_nano()) {
+                    due = Some(s.until);
+                }
                 continue;
             }
             now.insert(c.task.id.clone());
@@ -825,6 +879,7 @@ impl Ctx<'_> {
             unclaimed.remove(&id);
             self.n.clear(&unclaimed_id(&id));
         }
+        due
     }
 
     fn unclaimed_note(&self, t: &Task) -> Note {

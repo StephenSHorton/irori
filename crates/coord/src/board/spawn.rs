@@ -50,6 +50,19 @@ pub const CRASHED_START: &str = "Start another agent";
 /// The permission modes a spawn may pass (§7). One is always passed.
 pub const PERMISSION_MODES: [&str; 4] = ["bypassPermissions", "acceptEdits", "default", "plan"];
 
+/// An agent Irori is starting, or is about to start, for an open ask nobody
+/// has taken (card #518): where it starts, and until when the ask counts as
+/// having one coming.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AskStart {
+    /// The device it starts on: its request's, or the ask's owner (the
+    /// device whose sweep requests it) before the request is written.
+    pub device: String,
+    /// [`SPAWN_GRACE`] after the ask opened: past it no agent is coming any
+    /// more, however often the sweep asks again.
+    pub until: GoTime,
+}
+
 /// A card's newest spawn request for one part (the card itself when
 /// `step` and `subtask` are empty).
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -505,6 +518,45 @@ impl Fold {
             .comments
             .values()
             .any(|c| c.task_id == t.id && self.is_person(&c.by) && !gotime::before(&c.at, &s.at))
+    }
+
+    /// Whether an agent Irori starts is coming for open ask t (card #518),
+    /// so nothing says nobody took it: spawning is on, nobody has it, it
+    /// isn't resting or crashed out, and its request is pending and not
+    /// stale, or none is pending and the sweep would request one now
+    /// ([`Fold::ask_needs_agent`]: the unclaimed row folds before the
+    /// request row does). A failed request means none is coming, even one
+    /// the sweep tries again later. Only within [`SPAWN_GRACE`] of the ask
+    /// opening (its `since`): an agent that never binds is asked for again
+    /// each grace, and the ask must not wait in silence through all of them.
+    pub(crate) fn ask_starting(&self, t: &Task) -> Option<AskStart> {
+        let a = t.open_ask()?;
+        if !self.spawning_on()
+            || is_terminal(&t.state)
+            || t.withdrawn
+            || !a.taker.is_empty()
+            || t.spawn_crashes >= MAX_SPAWN_CRASHES
+            || self.ask_resting(t)
+        {
+            return None;
+        }
+        let now = self.stamp();
+        let until = gotime::add(&a.since, SPAWN_GRACE);
+        if !gotime::before(&now, &until) {
+            return None;
+        }
+        let device = match t.spawn_request() {
+            Some(s) if s.pending() => {
+                if s.stale(&now) {
+                    return None;
+                }
+                s.device.clone()
+            }
+            Some(s) if s.op == SPAWN_FAILED => return None,
+            _ if self.ask_needs_agent(t) => a.owner.clone(),
+            _ => return None,
+        };
+        Some(AskStart { device, until })
     }
 
     /// The cards this device hands out that need an agent and have none
