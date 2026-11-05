@@ -1,7 +1,7 @@
 //! Port of I:internal/coord/subscribe_test.go. The expiry timer (Go's
 //! armExpiry) is the core crate's (irori_core::timers), and coord.md §6
 //! "expiry timer fires without a row" runs as a behaviour test there
-//! (crates/core/tests/expiry.rs); here its two halves are checked:
+//! (crates/core/tests/it/expiry.rs); here its two halves are checked:
 //! `next_expiry` (when to fire) and `expire` (what firing does). Dropping
 //! the queue is Go's cancel.
 #![allow(clippy::type_complexity)]
