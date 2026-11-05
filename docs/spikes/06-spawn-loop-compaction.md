@@ -168,6 +168,30 @@ When scripting this, quitting Irori may end the agent running it, so launch the
 script detached. `irori attach` helpers outlive the app and share its binary
 path, so wait on the app's pid, not on a process-name match.
 
+**The run on the PC, 2026-11-05 (#536).** Same floors as the Mac. 3,887,753 of
+4,131,874 rows went, 111 task.spawn stayed, and 2,557 MB became 331 MB. Core
+ready went from 37.9 s to 12.5 s (coord 32.5 s to 2.6 s; the inbox step, 8.3 s,
+now leads), on a loaded PC. Fold on same-moment copies went from 53.3 s to 3.7 s,
+with `spawn-fold` views identical for all 554 cards. The whole outage was about
+2 min 40 s.
+
+What differs on Windows:
+
+- **There is no scripted quit.** Only the tray's Quit ends the app: closing hides
+  the window, so a plain `taskkill` should only hide it (read in the code, not run). `taskkill /F` on the
+  app's pid is safe for the log, because WAL keeps every committed row, and it
+  skips `install_on_exit`. A Quit with an update ready starts the installer.
+- **Copy after the app is down, `irori.db` and `irori.db-wal` both.** A copy from
+  before the kill loses rows, and the device then reuses their seqs: a fork.
+  After a kill, take a plain file copy and let SQLite recover the WAL in the copy.
+- **Build `irori-dev` from the tag the app runs**, so the tool can't migrate the
+  copy past what the app reads.
+- **Detach with Task Scheduler** (interactive logon), and restart through
+  `explorer.exe <irori.exe>`, so the app lands in the desktop session.
+- **Rolling back after Irori has run needs the new rows.** Moving the old DB back
+  drops them, and the seqs get reused. Copy the rows above the old vector from
+  `events` and `local_events` onto the old DB first.
+
 Letting peers skip the rows instead of pulling them needs a sync protocol that accepts
 holes (a signed "compacted to N" row, gap-tolerant ingest), with every peer
 upgraded before any device compacts. That is not built.
