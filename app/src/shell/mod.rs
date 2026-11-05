@@ -368,10 +368,16 @@ fn start_core(
             None => Err("Irori is closing".into()),
         })));
     }
-    core.set_spawner(Some(spawner()));
-    // Spawning is on by default for the private board where agents can
-    // start (card #448, decision 1 (a)); his own switch wins.
-    core.set_spawn_default_on(true);
+    // A phone runs no agents (card #524): with no spawner its sweep never
+    // lists `claude` agents, so it doesn't log "spawn cleanup: can't find
+    // the claude command" every second, and its spawn switch stays off.
+    #[cfg(desktop)]
+    {
+        core.set_spawner(Some(spawner()));
+        // Spawning is on by default for the private board where agents can
+        // start (card #448, decision 1 (a)); his own switch wins.
+        core.set_spawn_default_on(true);
+    }
     app.manage(core.clone());
     app.manage(window.clone());
     wire_window(app, &window);
@@ -647,6 +653,7 @@ impl irori_window::seams::LoginItem for ShellLogin {
 /// The Core's spawner (spawned agents part 1 and 2, cards #445 and #446):
 /// `claude --bg` from this GUI process, with no console window, its trust
 /// check, and `claude stop` then `claude rm` to end one.
+#[cfg(desktop)]
 fn spawner() -> irori_core::spawn::Spawner {
     use irori_core::spawn::{SpawnReq, SpawnStarted, Spawner};
     use irori_window::spawn;
