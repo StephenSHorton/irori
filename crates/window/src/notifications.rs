@@ -189,8 +189,10 @@ impl Window {
 
 /// The name a returned card's gone agent went by (card #483): its name as
 /// the window knows it (live, or the last it went by), then the card's
-/// spawn record; `None` when only its key is known.
+/// spawn record; `None` when only its key is known. "unknown agent" is
+/// what the window calls a key nothing names (card #478), not a name.
 fn returned_name(from: Option<&AgentRef>, task: Option<&coord::Task>, key: &str) -> Option<String> {
-    from.and_then(|f| coord::notifications::agent_name_of(key, &f.name))
+    from.filter(|f| f.name != "unknown agent")
+        .and_then(|f| coord::notifications::agent_name_of(key, &f.name))
         .or_else(|| task.and_then(|t| coord::notifications::spawned_name(t, key)))
 }
