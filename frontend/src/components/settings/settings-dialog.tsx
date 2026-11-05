@@ -72,9 +72,9 @@ export const settingsSections: {
   },
   {
     id: "people",
-    label: "People and invites",
+    label: "People and friends",
     icon: UsersIcon,
-    hint: "Who is on your boards, and joining someone else's.",
+    hint: "Who is on your boards, and a friend link someone sent you.",
   },
   {
     id: "agents",
@@ -259,9 +259,9 @@ function NotificationsPane({ open }: { open: boolean }) {
   )
 }
 
-// PeoplePane is everyone on your boards, board by board, with Invite
-// someone on the board's own page (an invite is always to one board), and
-// Join with an invite someone sent you.
+// PeoplePane is everyone on your boards, board by board, and the friend
+// link someone sent you (card #517: friends are invited once, from the
+// profile, and picked under Who's on it? when a board is made).
 function PeoplePane({ onOpenBoard }: { onOpenBoard: () => void }) {
   const { boards, error, reload } = useBoards()
   const { invite, setInvite } = useInvite(true)
@@ -272,7 +272,7 @@ function PeoplePane({ onOpenBoard }: { onOpenBoard: () => void }) {
       {error && <p className="text-xs text-destructive">{error}</p>}
       {boards.length === 0 ? (
         <p className="text-[13px] text-muted-foreground">
-          No boards yet. Make one on the Boards page, then invite people to it.
+          No boards yet. Make one on the Boards page, and pick the friends who are on it.
         </p>
       ) : (
         <ul className="grid gap-1.5" aria-label="People on your boards">
@@ -300,7 +300,7 @@ function PeoplePane({ onOpenBoard }: { onOpenBoard: () => void }) {
                   go({ kind: "board", id: b.boardId })
                 }}
               >
-                {b.owner ? "Invite…" : "Open"}
+                Open
               </Button>
             </li>
           ))}

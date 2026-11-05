@@ -86,7 +86,7 @@ export function AppHeader({
               size="sm"
               onClick={onNewBoard}
               aria-label="New board"
-              title="Make a board for a project, or join one with an invite"
+              title="Make a board for a project, with the friends you pick"
             >
               <PlusIcon aria-hidden className="sm:hidden" />
               <span className="hidden sm:inline">+ New board</span>

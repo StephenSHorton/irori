@@ -52,6 +52,8 @@ pub(crate) struct Mesh {
     pub(crate) hubs: Mutex<std::collections::BTreeMap<String, Hub>>,
     /// Open shared boards' meshes, by board id.
     boards: Mutex<std::collections::BTreeMap<String, Arc<BoardMesh>>>,
+    /// Where each board mesh hands its `space.offer` frames (card #517).
+    on_offer: Mutex<Option<mesh::boardmesh::OfferFn>>,
     /// Direct addresses heard for other members' devices (an invite's
     /// ticket, #44), by device id.
     board_hints: Mutex<std::collections::BTreeMap<String, Vec<std::net::SocketAddr>>>,
@@ -150,6 +152,7 @@ impl Mesh {
             hubs: Mutex::new(std::collections::BTreeMap::new()),
             boards: Mutex::new(std::collections::BTreeMap::new()),
             board_hints: Mutex::new(std::collections::BTreeMap::new()),
+            on_offer: Mutex::new(None),
             home: std::sync::OnceLock::new(),
         })
     }
@@ -397,6 +400,14 @@ impl Mesh {
             files: self.files.clone(),
         }));
         m.set_log(Arc::new(|l: &str| crate::log(l)));
+        if let Some(f) = self
+            .on_offer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+        {
+            m.on_offer(f);
+        }
         {
             // Rows from a member may move the membership: refeed.
             let r = self.refeed.clone();
@@ -434,6 +445,12 @@ impl Mesh {
         }
         self.net.board_members().remove(board_id);
         let _ = self.net.drop_board(board_id, why);
+    }
+
+    /// Where every board mesh opened from now on hands `space.offer`
+    /// frames (card #517). Set once at start, before any board opens.
+    pub(crate) fn set_on_offer(&self, f: mesh::boardmesh::OfferFn) {
+        *self.on_offer.lock().unwrap_or_else(|e| e.into_inner()) = Some(f);
     }
 
     /// Direct addresses for another member's device (an invite ticket's),

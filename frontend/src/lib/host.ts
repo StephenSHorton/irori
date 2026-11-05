@@ -348,6 +348,8 @@ export const AgentsService = {
 export const BoardsService = {
   List: () => call(commands.boardsList()),
   Create: (name: string, tag: string) => call(commands.boardsCreate(name, tag)),
+  CreateWith: (name: string, tag: string, people: string[]) =>
+    call(commands.boardsCreateWith(name, tag, people)),
   Rename: (boardId: string, name: string) =>
     call(commands.boardsRename(boardId, name)),
   AddToSpace: (spaceId: string, name: string, tag: string) =>
@@ -378,6 +380,7 @@ export const BoardsService = {
   SetReviewer: (boardId: string, agent: string, repo: string) =>
     call(commands.boardsSetReviewer(boardId, agent, repo)),
   Invite: (boardId: string) => call(commands.boardsInvite(boardId)),
+  FriendInvite: () => call(commands.friendsInvite()),
   JoinInvite: (link: string) => call(commands.boardsJoinInvite(link)),
   ConfirmInviteWords: (words: string) =>
     call(commands.boardsConfirmInviteWords(words)),

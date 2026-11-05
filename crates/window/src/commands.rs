@@ -746,6 +746,19 @@ pub async fn boards_create(w: W<'_>, name: String, tag: String) -> R<BoardSummar
     w.boards_create(&name, &tag)
 }
 
+/// New board with "Who's on it?" (card #517): `people` are friends' person
+/// ids; empty is Just me.
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_create_with(
+    w: W<'_>,
+    name: String,
+    tag: String,
+    people: Vec<String>,
+) -> R<BoardSummary> {
+    blocking(&w, move |w| w.boards_create_with(&name, &tag, &people)).await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_add_to_space(
@@ -1594,6 +1607,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_list,
             boards_pin,
             boards_create,
+            boards_create_with,
             boards_rename,
             boards_leave,
             boards_add_to_space,

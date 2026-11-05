@@ -157,6 +157,11 @@ export const commands = {
 	/**  Pins a board to the sidebar, or unpins it (card #135). */
 	boardsPin: (boardId: string, pinned: boolean) => __TAURI_INVOKE<null>("boards_pin", { boardId, pinned }),
 	boardsCreate: (name: string, tag: string) => __TAURI_INVOKE<BoardSummary>("boards_create", { name, tag }),
+	/**
+	 *  New board with "Who's on it?" (card #517): `people` are friends' person
+	 *  ids; empty is Just me.
+	 */
+	boardsCreateWith: (name: string, tag: string, people: string[]) => __TAURI_INVOKE<BoardSummary>("boards_create_with", { name, tag, people }),
 	boardsRename: (boardId: string, name: string) => __TAURI_INVOKE<BoardSummary>("boards_rename", { boardId, name }),
 	boardsLeave: (boardId: string) => __TAURI_INVOKE<null>("boards_leave", { boardId }),
 	boardsAddToSpace: (spaceId: string, name: string, tag: string) => __TAURI_INVOKE<BoardSummary>("boards_add_to_space", { spaceId, name, tag }),
@@ -206,6 +211,8 @@ export const commands = {
 	agentsPermissionsSet: (permissions: AgentPermissions) => __TAURI_INVOKE<AgentPermissions>("agents_permissions_set", { permissions }),
 	cardWakeNotes: (taskId: string) => __TAURI_INVOKE<WakeNoteView[]>("card_wake_notes", { taskId }),
 	boardsInvite: (boardId: string) => __TAURI_INVOKE<InviteStatus>("boards_invite", { boardId }),
+	/**  Profile → "+ Invite a friend" (card #517): one link and five words. */
+	friendsInvite: () => __TAURI_INVOKE<InviteStatus>("friends_invite"),
 	boardsJoinInvite: (link: string) => __TAURI_INVOKE<InviteStatus>("boards_join_invite", { link }),
 	boardsConfirmInviteWords: (words: string) => __TAURI_INVOKE<InviteStatus>("boards_confirm_invite_words", { words }),
 	boardsInviteStatus: () => __TAURI_INVOKE<InviteStatus>("boards_invite_status"),
@@ -673,6 +680,11 @@ export type BoardSummary = {
 	 *  a card's `board` names one of them (empty: the space's own).
 	 */
 	boards: SpaceBoard[],
+	/**
+	 *  The pair's hidden friend space (card #517): left out wherever
+	 *  spaces are listed; the boards made in it show as usual.
+	 */
+	friend?: boolean,
 };
 
 /**  A card's spot on the Board's canvas, in canvas pixels (card #93). */
@@ -1510,6 +1522,8 @@ export type InviteStatus = {
 	/**  Wrong words typed so far (two end the invite). */
 	misses: number,
 	error?: string,
+	/**  A friend invite (card #517): "Become friends with …", not a board. */
+	friend?: boolean,
 };
 
 /**  coord.Link. */

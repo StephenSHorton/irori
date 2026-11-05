@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Face } from "@/components/profile/face"
 import { Input } from "@/components/ui/input"
 import {
   AutonomyPresets,
@@ -19,20 +20,23 @@ import {
   inviteOpen,
   MaxBoardName,
   suggestTag,
+  useAllBoards,
   validTag,
   type BoardSettings,
   type InviteStatus,
 } from "@/lib/boards"
 import { copyText } from "@/lib/clipboard"
 import { devices, type HomeServerView } from "@/lib/devices"
+import { friendLine, friendsOf } from "@/lib/friends"
 import { plainLine, shortRepo } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
 // The pieces of the Boards pages (card #96; design/v0.5-shared-boards.md
-// §8): the New board dialog (make one, or join with an invite), an open invite either side, how an
-// invite works, and a board's settings (members, what reaches my agents,
-// what my agents may do, reviewers).
+// §8): the New board dialog (a name, a tag, and Who's on it?, card #517),
+// an open invite either side (a friend invite, or an older board one), how
+// an invite works, and a board's settings (members, what reaches my
+// agents, what my agents may do, reviewers).
 
 // useInviteReach says why an invite link from this device may not reach
 // someone away from your home, or "" when it should (card #107). With
@@ -70,41 +74,49 @@ export function inviteReachLine(h: HomeServerView): string {
   return `Your home server can't be reached from outside your home yet, so the link only works for someone on your network. ${fix}`
 }
 
-// InviteHow says once, under the boards, what an invite does, and why the
-// link may not reach far (card #96).
+// InviteHow says once, under the boards, what a friend invite does, and
+// why the link may not reach far (cards #96, #517).
 export function InviteHow({ reach }: { reach: string }) {
   return (
     <div className="grid gap-1 border-l-2 border-primary/60 pl-2.5 text-xs text-muted-foreground">
       <p>
-        <span className="text-ink">How an invite works:</span> you invite a
-        person, not a device. Send them the one-use link (good for an hour),
-        then they give you the five words their screen shows to check it's
-        them. Their other devices follow once they're in.
+        <span className="text-ink">How sharing works:</span> invite a person
+        as a friend once, from your profile. Send them the one-use link (good
+        for an hour), then they give you the five words their screen shows
+        to check it's them. After that, pick them under Who's on it? when you
+        make a board, and it reaches them with no invite.
       </p>
       {reach && <p className="text-warning">{reach}</p>}
     </div>
   )
 }
 
-// NewBoard makes a board: a name, and the short tag its cards' refs carry
-// ("tag#12"), suggested from the name until it is typed.
+// NewBoard makes a board: a name, the short tag its cards' refs carry
+// ("tag#12"), suggested from the name until it is typed, and Who's on it?
+// (card #517): just you, or friends. With friends the board gets a space
+// of its own, offered to them; they join with no invite.
 export function NewBoard({ taken, onMade }: { taken: string[]; onMade: () => Promise<void> }) {
   const [name, setName] = useState("")
   const [tag, setTag] = useState("")
   const [typedTag, setTypedTag] = useState(false)
+  const [people, setPeople] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const friends = friendsOf(useAllBoards())
   const t = (typedTag ? tag : suggestTag(name)).trim().toLowerCase()
   const clash = taken.includes(t)
+  const pick = (id: string) =>
+    setPeople((ps) => (ps.includes(id) ? ps.filter((p) => p !== id) : [...ps, id]))
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      await actions.create(name, t)
+      await actions.createWith(name, t, people.filter((p) => friends.some((f) => f.personId === p)))
       setName("")
       setTag("")
       setTypedTag(false)
+      setPeople([])
       await onMade()
     } catch (err) {
       setError(errorText(err))
@@ -146,95 +158,93 @@ export function NewBoard({ taken, onMade }: { taken: string[]; onMade: () => Pro
             ? "A tag is a lowercase letter, then letters, digits or '-' (16 at most)."
             : `Its cards are ${t || "tag"}#1, ${t || "tag"}#2, …`}
       </p>
+      <fieldset className="grid gap-1.5">
+        <legend className="pb-1 text-xs font-medium text-ink">Who's on it?</legend>
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Who's on it?">
+          <Button
+            type="button"
+            size="sm"
+            variant={people.length === 0 ? "secondary" : "ghost"}
+            aria-pressed={people.length === 0}
+            onClick={() => setPeople([])}
+            className="h-7"
+          >
+            Just me
+          </Button>
+          {friends.map((f) => {
+            const on = people.includes(f.personId)
+            return (
+              <Button
+                key={f.personId}
+                type="button"
+                size="sm"
+                variant={on ? "secondary" : "ghost"}
+                aria-pressed={on}
+                title={plainLine(friendLine(f))}
+                onClick={() => pick(f.personId)}
+                className="h-7 gap-1.5"
+              >
+                <Face name={f.name} color={f.color} avatar={f.avatar} size="sm" />
+                {plainLine(f.name)}
+              </Button>
+            )
+          })}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {friends.length === 0
+            ? "No friends yet. Invite one from your profile, then pick them here."
+            : people.length === 0
+              ? "Only you and your agents see it."
+              : "It gets a space of its own with them. They're friends, so it reaches them with no invite."}
+        </p>
+      </fieldset>
       {error && <p className="text-xs text-destructive">{error}</p>}
     </form>
   )
 }
 
-// NewBoardDialog is the header's New board on Boards (card #126): make a
-// board, or join one with an invite someone sent, as two tabs. Joining
-// closes it; the invite then runs over the Boards list. join is false
-// while an invite is open: one at a time.
+// NewBoardDialog is the header's New board on Boards (card #126). Joining
+// with a board invite left it (card #517): friends get boards with no
+// invite, and a friend link is pasted on the profile.
 export function NewBoardDialog({
   open,
   onClose,
   taken,
   onMade,
-  join,
-  onJoined,
 }: {
   open: boolean
   onClose: () => void
   taken: string[]
   onMade: () => Promise<void>
-  join: boolean
-  onJoined: (s: InviteStatus) => void
 }) {
-  const [tab, setTab] = useState<"make" | "join">("make")
-  const t = join ? tab : "make"
   return (
     <Dialog
       open={open}
       onOpenChange={(o) => {
-        if (o) return
-        setTab("make")
-        onClose()
+        if (!o) onClose()
       }}
     >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{t === "make" ? "New board" : "Join a board"}</DialogTitle>
+          <DialogTitle>New board</DialogTitle>
           <DialogDescription>
-            {t === "make"
-              ? "One board per project. Only the people you invite see it."
-              : "Paste the invite link someone sent you."}
+            One board per project. Only you, and the friends you pick, see it.
           </DialogDescription>
         </DialogHeader>
-        {join && (
-          <div className="flex gap-1" role="tablist" aria-label="New board or join one">
-            {(
-              [
-                ["make", "Make a board"],
-                ["join", "Join with an invite"],
-              ] as const
-            ).map(([k, label]) => (
-              <Button
-                key={k}
-                type="button"
-                size="sm"
-                role="tab"
-                aria-selected={t === k}
-                variant={t === k ? "secondary" : "ghost"}
-                onClick={() => setTab(k)}
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
-        )}
-        {t === "make" ? (
-          <NewBoard
-            taken={taken}
-            onMade={async () => {
-              await onMade()
-              onClose()
-            }}
-          />
-        ) : (
-          <JoinInvite
-            onJoined={(s) => {
-              onJoined(s)
-              setTab("make")
-              onClose()
-            }}
-          />
-        )}
+        <NewBoard
+          taken={taken}
+          onMade={async () => {
+            await onMade()
+            onClose()
+          }}
+        />
       </DialogContent>
     </Dialog>
   )
 }
 
-// JoinInvite is Join with an invite: the irori-invite: link someone sent.
+// JoinInvite takes the irori-invite: link someone sent: a friend link
+// (card #517), or an older board invite.
 export function JoinInvite({ onJoined }: { onJoined: (s: InviteStatus) => void }) {
   const [link, setLink] = useState("")
   const [busy, setBusy] = useState(false)
@@ -260,7 +270,7 @@ export function JoinInvite({ onJoined }: { onJoined: (s: InviteStatus) => void }
           autoFocus
           onChange={(e) => setLink(e.target.value)}
           placeholder="irori-invite:…"
-          aria-label="The invite link someone sent you"
+          aria-label="The friend link someone sent you"
           className="h-8 min-w-0 flex-1 font-mono text-[13px]"
         />
         <Button type="submit" size="sm" className="h-8" disabled={busy || !link.trim()}>
@@ -283,11 +293,23 @@ export function InvitePanel({ s, onClose }: { s: InviteStatus; onClose: () => vo
   const host = s.role === "host"
   const board = plainLine(s.boardName) || "the board"
   const peer = plainLine(s.peerName) || "them"
+  const title = s.friend
+    ? host
+      ? s.peerName
+        ? `Becoming friends with ${peer}`
+        : "Inviting a friend"
+      : `Becoming friends with ${board}`
+    : host
+      ? `Inviting someone to ${board}`
+      : `Joining ${board}`
+  const done = s.friend
+    ? `You and ${host ? peer : board} are friends. Pick them under Who's on it? when you make a board.`
+    : host
+      ? `${peer} joined ${board}.`
+      : `You joined ${board}.`
   return (
     <section className="grid grid-cols-[minmax(0,1fr)] gap-3 text-[13px]" aria-label="Invite">
-      <p className="font-semibold text-ink">
-        {host ? `Inviting someone to ${board}` : `Joining ${board}`}
-      </p>
+      <p className="font-semibold text-ink">{title}</p>
       {host && s.state === InviteState.Waiting && <SendLink s={s} />}
       {s.state === InviteState.Words && (
         <>
@@ -298,11 +320,7 @@ export function InvitePanel({ s, onClose }: { s: InviteStatus; onClose: () => vo
       {s.state === InviteState.Joining && (
         <p className="text-muted-foreground">The words match. Joining…</p>
       )}
-      {s.state === InviteState.Done && (
-        <p className="text-ink">
-          {host ? `${peer} joined ${board}.` : `You joined ${board}.`}
-        </p>
-      )}
+      {s.state === InviteState.Done && <p className="text-ink">{done}</p>}
       {s.state === InviteState.Failed && (
         <p className="text-destructive">{plainLine(s.error ?? "") || "The invite ended."}</p>
       )}
@@ -335,7 +353,7 @@ function SendLink({ s }: { s: InviteStatus }) {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-2">
       <p className="text-muted-foreground">
-        Send this link to the person you're inviting. It works once{until ? `, until ${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}.
+        Send this link to {s.friend ? "your friend" : "the person you're inviting"}. It works once{until ? `, until ${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}.
       </p>
       <div className="flex gap-1.5">
         <code

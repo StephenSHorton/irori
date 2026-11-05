@@ -219,9 +219,15 @@ fn invite_addr(t: &Ticket) -> Result<InviteAddr, String> {
     })
 }
 
+/// The Core's boards as an invite's bundle needs them (card #517's
+/// offers use them too).
+pub(super) fn core_boards(s: Weak<Services>) -> Arc<dyn InviteBoards> {
+    Arc::new(CoreBoards(s))
+}
+
 impl Core {
     fn invite_boards(&self) -> Arc<dyn InviteBoards> {
-        Arc::new(CoreBoards(Arc::downgrade(&self.s)))
+        core_boards(Arc::downgrade(&self.s))
     }
 
     /// Shortens the invite's steps (tests).
@@ -251,7 +257,10 @@ impl Core {
             .collect();
         let mut tag = String::from("fr-");
         for _ in 0..12 {
-            let t = format!("fr-{}", &super::boards::new_board_id().map_err(|e| e.to_string())?[..8]);
+            let t = format!(
+                "fr-{}",
+                &super::boards::new_board_id().map_err(|e| e.to_string())?[..8]
+            );
             if self.s.tag_holder(&t).is_empty() {
                 tag = t;
                 break;
@@ -344,7 +353,8 @@ impl Core {
                 if h.run(c).await.is_ok()
                     && let Some(s) = s.upgrade()
                 {
-                    s.invite_joined(&board, &peer, Vec::new(), false).await;
+                    s.invite_joined(&board, &peer, Vec::new(), false, false)
+                        .await;
                 }
             });
         });
@@ -408,6 +418,7 @@ impl Core {
                     &g.ticket().board_id,
                     &peer,
                     to.direct.clone(),
+                    true,
                     g.ticket().friend,
                 )
                 .await;
@@ -555,10 +566,7 @@ impl Core {
                             && st.state != irori_invite::flow::STATE_DONE
                             && let Err(e) = sv.leave_board(&st.board_id)
                         {
-                            crate::log(&format!(
-                                "invite: friend space {}: {e}",
-                                st.board_id
-                            ));
+                            crate::log(&format!("invite: friend space {}: {e}", st.board_id));
                         }
                     }
                     return;
@@ -601,12 +609,15 @@ impl Services {
     }
 
     /// Both sides once the bundle is in: the board opens on the network,
-    /// and the invitee dials the inviter at the link's addresses.
-    async fn invite_joined(
+    /// and the invitee (`invitee`) dials the inviter at `addrs` (an
+    /// invite link's; none for a space offered to a friend, card #517,
+    /// whose device is already reachable).
+    pub(super) async fn invite_joined(
         self: &Arc<Self>,
         board_id: &str,
         peer: &str,
         addrs: Vec<std::net::SocketAddr>,
+        invitee: bool,
         friend: bool,
     ) {
         let b = match self.board(board_id) {
@@ -623,7 +634,7 @@ impl Services {
             verifier: b.verifier.clone(),
             secrets: b.secrets.clone(),
         };
-        if !addrs.is_empty() {
+        if invitee {
             // The invitee: its other devices open the board from the
             // private log (§4.1 step 7), pinned to the creator, and this
             // device certifies them in the board now its rows are in.
@@ -631,7 +642,9 @@ impl Services {
             if let Err(e) = self.keep_current(&b) {
                 crate::log(&format!("invite: board {board_id}: identity rows: {e}"));
             }
-            self.mesh.board_hint(peer, addrs);
+            if !addrs.is_empty() {
+                self.mesh.board_hint(peer, addrs);
+            }
         }
         if let Err(e) = self.mesh.open_board(parts).await {
             crate::log(&format!(

@@ -278,6 +278,9 @@ kinds! {
     // v0.5 private-log rows, never in a board log
     BOARD_JOINED = "board.joined" => Replicated, Refuses;
     BOARD_FORGOT = "board.forgot" => Replicated, Refuses;
+    /// `{spaceId, personId, at}`: a new space offered to a friend, with no
+    /// invite (card #517); waits until they are on it.
+    SPACE_OFFERED = "space.offered" => Replicated, Refuses;
     RECEIVE_SET = "receive.set" => Replicated, Refuses;
     AUTONOMY_SET = "autonomy.set" => Replicated, Refuses;
     /// The person's threads on a shared board: shared with every member,

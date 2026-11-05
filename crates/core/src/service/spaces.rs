@@ -235,58 +235,43 @@ impl Services {
         Ok(id)
     }
 
-    /// New board's "Who's on it?" (card #517): with nobody picked, a
-    /// private board as before; with friends picked, a board in the space
-    /// whose active members are exactly this person and them (the pair's
-    /// friend space first, then one this person owns), so they get it
-    /// with that space and need no invite. Returns (space, board).
+    /// New board's "Who's on it?" (card #517, Stephen's b2: a fresh space
+    /// for every board): a new space, its own board the one being made,
+    /// offered to each picked friend over a space both are already on, so
+    /// they join it with no invite. With nobody picked it stays private.
+    /// `people` are person ids, each someone this person shares a space
+    /// with (b3). Returns the new space's id.
     pub(crate) fn create_board_with(
         self: &std::sync::Arc<Self>,
         name: &str,
         tag: &str,
         people: &[String],
-    ) -> Result<(String, String)> {
-        if people.is_empty() {
-            let id = self.create_board(name, tag)?;
-            return Ok((id.clone(), id));
-        }
-        let space = self.space_of_exactly(people).ok_or_else(|| {
-            Error::coord(
-                CK::NotAllowed,
-                "there's no space with exactly those people yet: pick one friend, or invite them as friends first",
-            )
-        })?;
-        let id = self.create_space_board(&space, name, tag)?;
-        Ok((space, id))
-    }
-
-    /// The shown space whose active members are exactly this person and
-    /// `people`: a friend space first, then one this person owns, then
-    /// the lowest id. None when there's none.
-    pub(crate) fn space_of_exactly(&self, people: &[String]) -> Option<String> {
+    ) -> Result<String> {
+        let friends = self.friend_ids();
         let me = self.person_id();
-        let mut want: std::collections::BTreeSet<String> = people.iter().cloned().collect();
-        want.insert(me.clone());
-        let friends = self.friend_spaces();
-        let mut found: Vec<(bool, bool, String)> = self
-            .shown_boards()
-            .iter()
-            .filter_map(|b| {
-                let m = b.verifier.membership();
-                if !m.created {
-                    return None;
-                }
-                let have: std::collections::BTreeSet<String> = m
-                    .members
-                    .iter()
-                    .filter(|p| m.active(&p.person_id))
-                    .map(|p| p.person_id.clone())
-                    .collect();
-                (have == want).then(|| (!friends.contains(&b.id), !m.owner(&me), b.id.clone()))
-            })
-            .collect();
-        found.sort();
-        found.into_iter().next().map(|(_, _, id)| id)
+        let mut picked: Vec<String> = Vec::new();
+        for p in people {
+            if *p == me || picked.contains(p) {
+                continue;
+            }
+            if !friends.contains(p) {
+                return Err(Error::coord(
+                    CK::NotAllowed,
+                    format_args!(
+                        "{} isn't a friend yet: invite them as a friend first",
+                        gocompat::quote::quote(p)
+                    ),
+                ));
+            }
+            picked.push(p.clone());
+        }
+        let id = self.create_board(name, tag)?;
+        for p in &picked {
+            if let Err(e) = self.offer_space(&id, p) {
+                crate::log(&format!("board {id}: offer to {p}: {e}"));
+            }
+        }
+        Ok(id)
     }
 
     /// The board (a space's own, or one inside a space) already using
@@ -547,21 +532,44 @@ impl super::Core {
         self.s.create_space_board(space_id, name, tag)
     }
 
-    /// New board's "Who's on it?" (card #517): `people` are person ids;
-    /// none makes a private board. Returns (space, board).
-    pub fn create_board_with(
-        &self,
-        name: &str,
-        tag: &str,
-        people: &[String],
-    ) -> Result<(String, String)> {
+    /// New board's "Who's on it?" (card #517): a new space, offered to
+    /// each of `people` (person ids, friends) with no invite; none makes a
+    /// private board. Returns its id.
+    pub fn create_board_with(&self, name: &str, tag: &str, people: &[String]) -> Result<String> {
         self.s.create_board_with(name, tag, people)
     }
 
-    /// The space whose active members are exactly this person and
-    /// `people` (card #517), if any.
-    pub fn space_of_exactly(&self, people: &[String]) -> Option<String> {
-        self.s.space_of_exactly(people)
+    /// The people this person shares a space with (card #517's friends),
+    /// by person id.
+    pub fn friend_ids(&self) -> Vec<String> {
+        self.s.friend_ids().into_iter().collect()
+    }
+
+    /// The devices space `space_id`'s mesh has a live connection to (they
+    /// said hello), by device id.
+    pub fn board_peers(&self, space_id: &str) -> Vec<String> {
+        self.s
+            .mesh
+            .board(space_id)
+            .map(|m| m.peers().into_iter().map(|(_, d)| d).collect())
+            .unwrap_or_default()
+    }
+
+    /// Direct addresses for another member's device, for every board it
+    /// is on (what an invite link gives the invitee; tests give it where a
+    /// relay would).
+    pub fn board_hint(&self, device_id: &str, addrs: Vec<std::net::SocketAddr>) {
+        self.s.mesh.board_hint(device_id, addrs);
+    }
+
+    /// The friends a space is still offered to and who aren't on it yet.
+    pub fn pending_offers(&self, space_id: &str) -> Vec<String> {
+        self.s
+            .pending_offers()
+            .into_iter()
+            .filter(|(s, _)| s == space_id)
+            .map(|(_, p)| p)
+            .collect()
     }
 }
 

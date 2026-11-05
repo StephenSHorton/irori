@@ -206,7 +206,18 @@ mod tests {
             fingerprint: irori_pair::fingerprint(&[7u8; 32]),
             board_id: "b-0123".into(),
             board_name: "MLG & co".into(),
+            friend: false,
         }
+    }
+
+    #[test]
+    fn a_friend_link_says_so_and_an_older_one_doesnt() {
+        let f = Ticket {
+            friend: true,
+            ..sample()
+        };
+        assert!(Ticket::parse(&f.to_link()).unwrap().friend);
+        assert!(!Ticket::parse(&sample().to_link()).unwrap().friend);
     }
 
     #[test]
@@ -285,6 +296,7 @@ mod tests {
             f: irori_pair::fingerprint(&[7u8; 32]),
             b: "b".into(),
             n: String::new(),
+            k: String::new(),
         };
         let link = format!(
             "{SCHEME}{}",

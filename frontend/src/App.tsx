@@ -636,7 +636,7 @@ export function App() {
       id: "board.new",
       title: "New board",
       order: 2,
-      keywords: ["create", "add", "join", "invite"],
+      keywords: ["create", "add", "friends", "share"],
       run: () => {
         goTo({ kind: "boards" })
         setNewBoard(true)

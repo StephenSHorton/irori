@@ -72,6 +72,7 @@ pub mod spawn_stop;
 mod spawn_waiting;
 pub use mirror::BoardReviewer;
 pub mod invites;
+mod offers;
 mod talk;
 
 use boards::Boards;
@@ -290,6 +291,8 @@ struct Services {
     boards: Arc<Boards>,
     /// The open board invite (card #44).
     invites: invites::Invites,
+    /// Spaces offered to friends in flight (card #517).
+    offers: offers::Offers,
 }
 
 /// The notify crate's [`notify::Notifier`] as the tools' seam
@@ -1357,6 +1360,7 @@ impl Core {
             mesh,
             boards: board_set,
             invites,
+            offers: offers::Offers::default(),
         });
         let _ = svc_cell.set(Arc::downgrade(&s));
         let _ = services_cell.set(Arc::downgrade(&s));
@@ -1387,6 +1391,24 @@ impl Core {
         s.mesh
             .node
             .set_own_boards(Some(Arc::new(invites::OwnBoardSecrets(Arc::downgrade(&s)))));
+        // Spaces offered to friends (card #517): frames on any board's
+        // connection, and a pump for the ones still waiting.
+        {
+            let w = Arc::downgrade(&s);
+            let rt = s.pairing.handle.clone();
+            s.mesh.set_on_offer(Arc::new(
+                move |board: &str, dev: &str, _person: &str, body| {
+                    // Off the connection's reader: a bundle opens a space.
+                    let (w, board, dev) = (w.clone(), board.to_string(), dev.to_string());
+                    rt.spawn_blocking(move || {
+                        if let Some(s) = w.upgrade() {
+                            s.take_offer_step(&board, &dev, body);
+                        }
+                    });
+                },
+            ));
+            offers::start_pump(&s);
+        }
         // A pairing window starts the home server at once (Go Notify).
         if let Some(h) = s.home.clone() {
             s.pairing

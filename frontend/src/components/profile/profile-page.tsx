@@ -3,17 +3,20 @@
 // colour (#385) and avatar, set once and carried on your member.profile
 // into every space; the people you share spaces with; and your spaces,
 // each with its boards and people. The sidebar's switcher picks among the
-// same spaces.
+// same spaces. Friends (card #517) are everyone you share a space with;
+// "+ Invite a friend" makes one with a link and five words, no board.
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react"
 import { ImageIcon, LayoutGridIcon, Trash2Icon } from "lucide-react"
 
 import { Face } from "@/components/profile/face"
+import { FriendInvite } from "@/components/profile/friend-invite"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { shrinkAvatar } from "@/lib/avatar"
-import type { BoardSummary } from "@/lib/boards"
+import { useAllBoards, type BoardSummary } from "@/lib/boards"
 import { DeviceColors, devices, useDevices } from "@/lib/devices"
+import { friendLine, friendsOf } from "@/lib/friends"
 import { plainLine } from "@/lib/irori"
 import { go } from "@/lib/nav"
 import { meChanged } from "@/lib/profile"
@@ -22,45 +25,13 @@ import { Personal, withLine } from "@/lib/spaces"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
-// Friend is another person you share a space with, and the spaces.
-export type Friend = {
-  personId: string
-  name: string
-  color: string
-  avatar: string
-  spaces: string[]
-}
-
-// friendsOf is everyone else in your spaces, once each, by name: their
-// newest name, colour and avatar as the spaces list them.
-export function friendsOf(boards: BoardSummary[]): Friend[] {
-  const by = new Map<string, Friend>()
-  for (const b of boards) {
-    if (b.leaving) continue
-    for (const m of b.members) {
-      if (m.me) continue
-      const f = by.get(m.personId) ?? {
-        personId: m.personId,
-        name: m.name,
-        color: m.color ?? "",
-        avatar: m.avatar ?? "",
-        spaces: [],
-      }
-      f.color ||= m.color ?? ""
-      f.avatar ||= m.avatar ?? ""
-      f.spaces.push(b.name || b.tag)
-      by.set(m.personId, f)
-    }
-  }
-  return [...by.values()].sort((a, b) => a.name.localeCompare(b.name))
-}
-
 export function ProfilePage({
   boards,
   agents,
   space,
   onSpace,
 }: {
+  // The spaces the window lists (friend spaces left out).
   boards: BoardSummary[]
   // How many agents the person runs, for the "6 agents" line.
   agents: number
@@ -126,7 +97,7 @@ export function ProfilePage({
   }
   const me = name ?? ""
   const live = devs.filter((d) => !d.revoked).length
-  const friends = friendsOf(boards)
+  const friends = friendsOf(useAllBoards())
   const shared = [...boards]
     .filter((b) => !b.leaving)
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -230,7 +201,7 @@ export function ProfilePage({
           <div className="glass-panel grid gap-1 p-3">
             {friends.length === 0 ? (
               <p className="px-1 text-xs text-muted-foreground">
-                Nobody yet. Invite someone to a board and they show here.
+                Nobody yet. Invite a friend once, then pick them under Who's on it? when you make a board.
               </p>
             ) : (
               friends.map((f) => (
@@ -240,18 +211,12 @@ export function ProfilePage({
                     {plainLine(f.name)}
                   </span>
                   <span className="truncate text-xs text-muted-foreground">
-                    in {f.spaces.map(plainLine).join(", ")}
+                    {plainLine(friendLine(f))}
                   </span>
                 </div>
               ))
             )}
-            <button
-              type="button"
-              onClick={() => go({ kind: "boards" })}
-              className="justify-self-start px-1 pt-1 text-xs text-primary hover:underline"
-            >
-              + Invite a friend
-            </button>
+            <FriendInvite />
           </div>
         </Column>
       </div>
@@ -297,7 +262,7 @@ export function ProfilePage({
               note={
                 b.members.length > 1
                   ? `Shared ${withLine(b.members.filter((m) => !m.me).map((m) => plainLine(m.name)))}. Who's in, and what reaches your agents from them, is set once here, not per board.`
-                  : "Only you so far. Invite someone from its board page."
+                  : "Only you so far. Pick friends under Who's on it? when you make a board."
               }
             />
           ))}

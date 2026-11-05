@@ -319,9 +319,11 @@ impl Host {
         })
     }
 
-    /// Makes this a friend invite (card #517): the link says so, and the
-    /// friend joins the space as an owner, so either can make boards in
-    /// it with the other.
+    /// Makes this a friend invite (card #517): the link and both screens
+    /// say so, and the invitee marks the space as the pair's friend space.
+    /// The friend joins as a member: an owner's device would mint its own
+    /// first secret while the bundle's rows land, before the inviter's
+    /// arrives, and the two would sit in different rooms.
     pub fn friend(mut self) -> Host {
         self.friend = true;
         let mut g = lock(&self.state);
@@ -513,11 +515,6 @@ impl Host {
             &self.board_id,
             &guest.pin(),
             &guest.name,
-            if self.friend {
-                irori_identity::membership::BOARD_OWNER
-            } else {
-                irori_identity::membership::BOARD_MEMBER
-            },
         )
         .map_err(fail)?;
         let rows = std::mem::take(&mut bundle.rows);

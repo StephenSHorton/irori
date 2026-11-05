@@ -302,6 +302,23 @@ impl Window {
         self.boards_find(&id)
     }
 
+    /// New board's "Who's on it?" (card #517): `people` are friends'
+    /// person ids. None makes a private board, as [`Self::boards_create`];
+    /// with friends, the board gets a fresh space offered to each of them,
+    /// which they join with no invite.
+    pub fn boards_create_with(
+        &self,
+        name: &str,
+        tag: &str,
+        people: &[String],
+    ) -> Result<BoardSummary, String> {
+        let id = self
+            .core
+            .create_board_with(name, &crate::trim(tag).to_lowercase(), people)
+            .map_err(text)?;
+        self.boards_find(&id)
+    }
+
     /// Adds board `name` (tag `tag`) to space `space_id` (card #392). Until
     /// every member device runs an Irori that reads spaces, it's refused
     /// with the devices it waits on.

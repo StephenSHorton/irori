@@ -1,6 +1,6 @@
 // BoardPage is one board as its own page (card #96): the board's cards
 // (List or Canvas, with Needs a decision and Closed) on the left, and on
-// the right who is on it and Invite someone (owners). Rename, the board's
+// the right who is on it. Rename, the board's
 // settings (a cog opening a dialog, card #312), Leave and Forget sit by
 // its name. The box over the
 // cards starts a thread on this board (card #134), listed in the board's
@@ -36,7 +36,6 @@ import {
   PresenceReload,
   reloadBoards,
   useBoards,
-  useInvite,
   type BoardSummary,
 } from "@/lib/boards"
 import { useThreads, type CardSummary, type DoneState } from "@/lib/cards"
@@ -45,7 +44,7 @@ import { go } from "@/lib/nav"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
-import { BoardSettingsPanel, InviteHow, InvitePanel, useInviteReach } from "./parts"
+import { BoardSettingsPanel } from "./parts"
 
 export function BoardPage({
   boardId,
@@ -328,7 +327,7 @@ function BoardSettingsButton({ board: b, reload }: { board: BoardSummary; reload
               {plainLine(b.name) || "(unnamed)"}: who is on it, what reaches your agents and what they may do here.
             </DialogDescription>
           </DialogHeader>
-          {open && <BoardInvite board={b} onChanged={changed} />}
+          {open && <BoardPeopleNote />}
           {open && <BoardSettingsPanel boardId={b.boardId} onChanged={changed} />}
         </DialogContent>
       </Dialog>
@@ -362,7 +361,7 @@ function BoardActionsMenu({
           <>
             Leave <b>{plainLine(b.name)}</b>? It goes from every one of your devices now, and nothing
             you write there counts after it. The others hear that you left when their Irori next
-            reaches one of your devices. Coming back needs a new invite.
+            reaches one of your devices. Coming back needs someone on it to make you a new board.
           </>
         ) : (
           <>
@@ -436,7 +435,7 @@ export function cardsOnBoard(b: BoardSummary, cards: CardSummary[], tag: string)
 }
 
 // SpaceBoards is the row of boards in this space (card #392, decision 46):
-// one invite and one set of people share them all. A chip shows one
+// one set of people shares them all. A chip shows one
 // board's cards; Add board puts another in the space. Shown once a space
 // has a second board, or while one is being added.
 function SpaceBoards({
@@ -492,7 +491,7 @@ function SpaceBoards({
             size="sm"
             variant="ghost"
             className="h-7 px-2.5 text-[12.5px] text-muted-foreground"
-            title="Another board for the same people: one invite shares them all"
+            title="Another board for the same people"
             onClick={() => setAdding(true)}
           >
             + Board
@@ -555,69 +554,15 @@ function BoardNotes({ board: b }: { board: BoardSummary }) {
   )
 }
 
-// inviteError is a failed Invite in plain words: the mesh's own errors
-// ("mesh: transport closed") mean Irori isn't online to make a link.
-function inviteError(err: unknown): string {
-  const t = errorText(err)
-  if (/^mesh:|transport closed|not connected|no relay/i.test(t))
-    return "Irori couldn't make an invite link: this device isn't connected right now. Check your network (or that Irori is running), then try Invite again."
-  return t
-}
-
-// BoardInvite is how to get more people on the board, in its settings
-// (card #371 moved it there from a People panel beside the cards; who is
-// on it and online shows on the member chips): Invite someone (an owner,
-// once the board is ready) with how an invite works, else why there is no
-// Invite. An open invite stands in for the Invite button until it ends
-// (card #103).
-function BoardInvite({ board: b, onChanged }: { board: BoardSummary; onChanged: () => Promise<void> }) {
-  const { invite, setInvite } = useInvite(true)
-  const reach = useInviteReach(true)
-  const [error, setError] = useState<string | null>(null)
-  const inviting = !!invite && invite.state !== ""
+// BoardPeopleNote says how people get on a board now (card #517): board
+// invites left the normal screens. Friends are picked under Who's on it?
+// when a board is made, and join it with no invite.
+function BoardPeopleNote() {
   return (
-    <section className="grid gap-2 text-xs" aria-label="Invite people">
-      {inviting ? (
-        <InvitePanel
-          s={invite}
-          onClose={() => {
-            setInvite(null)
-            void onChanged()
-          }}
-        />
-      ) : (
-        <>
-          {!b.owner ? (
-            <p className="text-xs text-muted-foreground">
-              Only an owner can invite people to this board: ask one of them.
-            </p>
-          ) : !b.ready ? (
-            <p className="text-xs text-muted-foreground">
-              You can invite people once its cards have arrived from your other device.
-            </p>
-          ) : (
-            (
-              <div className="grid gap-2">
-                <Button
-                  className="w-fit"
-                  onClick={async () => {
-                    setError(null)
-                    try {
-                      setInvite(await actions.invite(b.boardId))
-                    } catch (err) {
-                      setError(inviteError(err))
-                    }
-                  }}
-                >
-                  Invite someone
-                </Button>
-                <InviteHow reach={reach} />
-              </div>
-            )
-          )}
-          {error && <p className="text-xs text-destructive">{error}</p>}
-        </>
-      )}
-    </section>
+    <p className="border-l-2 border-primary/60 pl-2.5 text-xs text-muted-foreground">
+      The friends picked when it was made are on it. To share with someone
+      new, invite them as a friend from your profile, then make a board with
+      them under Who's on it?.
+    </p>
   )
 }

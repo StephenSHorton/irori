@@ -245,6 +245,30 @@ export const boards = {
     return b
   },
 
+  // createWith is New board's "Who's on it?" (card #517): `people` are
+  // friends' person ids. None makes a private board, as create; with
+  // friends, the board gets a fresh space offered to each of them, which
+  // they join with no invite.
+  async createWith(name: string, tag: string, people: string[]): Promise<BoardSummary> {
+    if (inWails()) return BoardsService.CreateWith(name, tag, people)
+    const b = await boards.create(name, tag)
+    if (people.length) {
+      const known = new Map(
+        boardsState().flatMap((x) => x.members.filter((m) => !m.me).map((m) => [m.personId, m] as const))
+      )
+      b.members = [
+        { personId: "me", name: "Stephen", me: true, presence: "online", working: 0, free: 0 },
+        ...people.flatMap((p) => {
+          const m = known.get(p)
+          return m ? [{ ...m }] : []
+        }),
+      ]
+      b.people = b.members.map((m) => m.name)
+      sampleMoved()
+    }
+    return b
+  },
+
   // pin puts a board in the sidebar's Pinned boards, or takes it out (card
   // #135): a pin in your own log, so it follows you to your other devices.
   async pin(id: string, pinned: boolean): Promise<void> {
@@ -453,6 +477,23 @@ export const boards = {
     )
   },
 
+  // friendInvite opens a friend invite (card #517): one link and five
+  // words, tied to no board. It makes the pair's hidden friend space.
+  async friendInvite(): Promise<InviteStatus> {
+    if (inWails()) return BoardsService.FriendInvite()
+    if (inviteOpen(sampleInvite)) throw new Error("an invite is already open")
+    return setSampleInvite(
+      InviteStatus({
+        role: "host",
+        state: InviteState.Waiting,
+        friend: true,
+        link: "irori-invite:" + "SAMPLE0".repeat(30),
+        expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+        myFingerprint: "3f2a 91c0 7be4 d018",
+      })
+    )
+  },
+
   // joinInvite takes a pasted irori-invite: link.
   async joinInvite(link: string): Promise<InviteStatus> {
     if (inWails()) return BoardsService.JoinInvite(link)
@@ -462,7 +503,8 @@ export const boards = {
       InviteStatus({
         role: "guest",
         state: InviteState.Words,
-        boardName: "Sample board",
+        friend: true,
+        boardName: "Sam",
         words: ["sample", "words", "to", "give", "them"],
         peerName: "Sam",
         peerFingerprint: "3f2a 91c0 7be4 d018",
@@ -499,7 +541,11 @@ export const boards = {
 export type BoardsList = { boards: BoardSummary[]; error: string | null }
 
 const listState = {
+  // The boards and spaces the window lists: every one but the hidden
+  // friend spaces (card #517).
   value: { boards: [], error: null } as BoardsList,
+  // Every one, friend spaces too: the Friends list reads it.
+  all: { boards: [], error: null } as BoardsList,
   readers: new Set<() => void>(),
   off: null as (() => void) | null,
   req: 0,
@@ -526,7 +572,8 @@ export async function reloadBoards(): Promise<void> {
     next = { ...listState.value, error: errorText(err) }
   }
   if (n !== listState.req) return
-  listState.value = next
+  listState.all = next
+  listState.value = { ...next, boards: next.boards.filter((b) => !b.friend) }
   for (const fn of listState.readers) fn()
 }
 
@@ -546,9 +593,21 @@ export function subscribeBoards(reader: () => void): () => void {
   }
 }
 
-// boardsNow is the shared list as last read.
+// boardsNow is the shared list as last read, without friend spaces.
 export function boardsNow(): BoardsList {
   return listState.value
+}
+
+// allBoardsNow is the shared list with the hidden friend spaces (card
+// #517), for the Friends list.
+export function allBoardsNow(): BoardsList {
+  return listState.all
+}
+
+// useAllBoards is useBoards with the hidden friend spaces (card #517):
+// only the Friends list and the New board picker read it.
+export function useAllBoards(): BoardSummary[] {
+  return useSyncExternalStore(subscribeBoards, allBoardsNow, allBoardsNow).boards
 }
 
 // useBoards is the boards on this device: the shared list, kept current.

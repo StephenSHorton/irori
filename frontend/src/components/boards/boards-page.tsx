@@ -1,8 +1,9 @@
 // BoardsPage is where boards live (card #96): each board a project (say
-// ww-multiplayer) you share with people you invite. A board opens as its
-// own page; here you see them all. The header's New board (card #126)
-// makes a new one, or joins one with an invite someone sent. Everything
-// is private: only invited people see a board.
+// ww-multiplayer) you share with the friends you pick (card #517). A
+// board opens as its own page; here you see them all. The header's New
+// board (card #126) makes a new one. Everything is private: only the
+// people on a board see it. An invite still open from an older board
+// invite shows over the list.
 
 import { cardTone, type Tone } from "@/components/cards/bits"
 import { Face } from "@/components/cards/faces"
@@ -41,8 +42,8 @@ export function BoardsPage({
         <h1 className="text-lg font-semibold text-ink">Boards</h1>
         <p className="max-w-2xl text-[13px] text-muted-foreground">
           A board is a project you share: its cards, the people on it and
-          their agents. Make one per project; anyone can be on as many as
-          they like. Boards are private: only the people you invite see them.
+          their agents. Make one per project, and pick the friends who are
+          on it. Boards are private: only the people on one see it.
         </p>
       </div>
       {error && <p className="text-xs text-destructive">{error}</p>}
@@ -76,8 +77,8 @@ export function BoardsPage({
       ) : (
         <div className="grid justify-items-start gap-2">
           <p className="text-[13px] text-muted-foreground">
-            No boards yet. Make one for a project, then invite people to it;
-            or join one with an invite link someone sent you.
+            No boards yet. Make one for a project, and pick the friends who
+            are on it. Invite friends once, from your profile.
           </p>
           <Button size="sm" onClick={() => onNewBoard(true)}>
             + New board
@@ -89,9 +90,6 @@ export function BoardsPage({
         onClose={() => onNewBoard(false)}
         taken={all.map((b) => b.tag)}
         onMade={reload}
-        // One invite at a time: joining waits until this one ends.
-        join={!inviting}
-        onJoined={setInvite}
       />
     </div>
   )

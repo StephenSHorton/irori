@@ -11,8 +11,10 @@
 //! - `sync` carries JSON frames tagged by `type`: `hello` ([`BoardHello`],
 //!   first, each way; a `v` other than [`BOARD_PROTOCOL`] closes `version`),
 //!   `vector` (the sender's board vector; one ahead of ours pulls now),
-//!   `ping`/`pong`, and `board.secret` ([`BoardSecretFrame`], a newer
-//!   epoch's secret sealed under this connection's epoch key).
+//!   `ping`/`pong`, `board.secret` ([`BoardSecretFrame`], a newer
+//!   epoch's secret sealed under this connection's epoch key), and
+//!   `space.offer` ([`OfferFrame`], card #517: one step of offering
+//!   another space to the device at the other end, handed to the Core).
 //! - Rows move on `board/<boardId>` pull streams ([`crate::boards`]).
 //! - Files on the board's cards move on `blob/<16 hex>` streams, as on the
 //!   private mesh (v0.5 §5.5): served only to a counted member device, and
@@ -82,6 +84,21 @@ pub const SPACES_PROTOCOL: i64 = 1;
 /// board connection to current member devices (sealed under that
 /// connection's board epoch key).
 pub const FRAME_BOARD_SECRET: &str = "board.secret";
+/// The `space.offer` frame type (card #517).
+pub const FRAME_SPACE_OFFER: &str = "space.offer";
+
+/// `space.offer {body}` (card #517): one step of offering a new space to a
+/// person this board's member devices already trust, between two devices.
+/// The mesh carries `body` as is; the Core reads it, and checks the sender
+/// against the board's verifier. An Irori before #517 skips the frame.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct OfferFrame {
+    pub body: serde_json::Value,
+}
+
+/// Told of each `space.offer` that arrives: (board, from device, the
+/// person its hello named, body).
+pub type OfferFn = Arc<dyn Fn(&str, &str, &str, serde_json::Value) + Send + Sync>;
 
 /// How long a connection the verifier no longer admits stays open after
 /// our last vector: long enough for the peer to pull the row that shut it
@@ -326,6 +343,8 @@ enum Wire {
     Pong {},
     #[serde(rename = "board.secret")]
     Secret(BoardSecretFrame),
+    #[serde(rename = "space.offer")]
+    Offer(OfferFrame),
 }
 
 type LogFn = Arc<dyn Fn(&str) + Send + Sync>;
@@ -389,6 +408,7 @@ struct Shared {
     started: AtomicBool,
     log: Mutex<Option<LogFn>>,
     on_rows: Mutex<Option<RowsFn>>,
+    on_offer: Mutex<Option<OfferFn>>,
     /// Every joined epoch's gossip topic, readable without the async lock.
     gossips: Mutex<BTreeMap<i64, Arc<dyn BoardGossip>>>,
     /// Wakes the announcer ([`BoardMesh::kick`]).
@@ -438,6 +458,7 @@ impl BoardMesh {
                 started: AtomicBool::new(false),
                 log: Mutex::new(None),
                 on_rows: Mutex::new(None),
+                on_offer: Mutex::new(None),
                 gossips: Mutex::new(BTreeMap::new()),
                 announce: Notify::new(),
                 last_dial: Mutex::new(None),
@@ -462,6 +483,28 @@ impl BoardMesh {
     /// Core refeeds the board's peers and its views).
     pub fn on_rows(&self, f: RowsFn) {
         *self.s.on_rows.lock().expect("on_rows") = Some(f);
+    }
+
+    /// Called with each `space.offer` frame another device sends here
+    /// (card #517).
+    pub fn on_offer(&self, f: OfferFn) {
+        *self.s.on_offer.lock().expect("on_offer") = Some(f);
+    }
+
+    /// Sends a `space.offer` frame to device `device_id` on a connection
+    /// that said hello (card #517). Err when none is up.
+    pub async fn send_offer(&self, device_id: &str, body: serde_json::Value) -> Result<(), String> {
+        let p = self
+            .s
+            .peers
+            .lock()
+            .expect("peers")
+            .iter()
+            .filter(|((_, d), p)| d == device_id && p.hello.load(Ordering::SeqCst))
+            .max_by_key(|((e, _), _)| *e)
+            .map(|(_, p)| p.clone())
+            .ok_or_else(|| format!("no connection to {device_id}"))?;
+        self.s.send(&p, &Wire::Offer(OfferFrame { body })).await
     }
 
     pub fn board_id(&self) -> &str {
@@ -1341,6 +1384,19 @@ impl Shared {
                 }
                 Wire::Pong {} => {}
                 Wire::Secret(f) => self.take_secret(&p, f).await,
+                Wire::Offer(f) => {
+                    let cb = self.on_offer.lock().expect("on_offer").clone();
+                    let person = self
+                        .heard
+                        .lock()
+                        .expect("heard")
+                        .get(p.conn.id())
+                        .map(|h| h.person_id.clone())
+                        .unwrap_or_default();
+                    if let Some(cb) = cb {
+                        cb(&self.opts.board_id, p.conn.id(), &person, f.body);
+                    }
+                }
             }
         }
     }
