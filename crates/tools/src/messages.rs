@@ -184,7 +184,7 @@ fn device_delay(c: Option<&presence::AgentCard>) -> String {
         " Their device is offline, so it reaches them once it's heard from again.".into()
     } else if !c.device_via.is_empty() {
         format!(
-            " Their device is reached through {}, so it can take longer, and stops while that device sleeps.",
+            " Their device is reached through {}, so it can take minutes, and waits while that device sleeps.",
             one_line(&c.device_via, 80)
         )
     } else {
