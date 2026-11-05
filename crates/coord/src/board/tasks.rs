@@ -187,7 +187,7 @@ impl Fold {
         // nothing (sweeper_ok): refuse it rather than write a dead row.
         if self.on_board && by == SWEEPER {
             return Err(not_allowed(
-                "Irori itself can't create a card on a shared board: a person or an agent creates it",
+                "Irori itself can't create a card in a shared space: a person or an agent creates it",
             ));
         }
         if self.no_cards_fn.as_ref().is_some_and(|f| f()) {

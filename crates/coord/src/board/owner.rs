@@ -125,7 +125,7 @@ impl Fold {
     ) -> Result<(Task, Blocker)> {
         let by = trim_space(by).to_string();
         if !self.on_board {
-            return Err(invalid("only a card on a shared board changes owner"));
+            return Err(invalid("only a card in a shared space changes owner"));
         }
         if !self.is_owner(&by) {
             return Err(not_allowed("only a person offers a card or asks for it"));

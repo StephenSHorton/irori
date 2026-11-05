@@ -2078,7 +2078,7 @@ fn a_version_wait_on_a_board_is_refused() {
         )
         .unwrap_err();
     assert!(err.is(ErrorKind::Invalid), "{err}");
-    assert!(err.to_string().contains("your own board"), "{err}");
+    assert!(err.to_string().contains("a private card"), "{err}");
 }
 
 /// Card #512: a thread in a board's own log gets its own agent at once,

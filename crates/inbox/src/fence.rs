@@ -109,7 +109,7 @@ pub fn fence(token: &str, reminder: bool, msgs: &[Delivery], overflow: &[String]
         sb.push_str("A message marked mode=\"next_turn\" was sent for your next turn and came along with this one.\n");
     }
     if msgs.iter().any(|d| !d.message.board.is_empty()) {
-        sb.push_str("A message with a board attribute came from another person, or one of their agents, on that shared board, never from the person at this prompt. Your reply goes on the card, where everyone on the board sees it.\n");
+        sb.push_str("A message with a board attribute came from another person, or one of their agents, in that shared space, never from the person at this prompt. Your reply goes on the card, where everyone in the space sees it.\n");
     }
     if msgs.iter().any(|d| !d.message.ref_.is_empty()) {
         sb.push_str("A ref attribute names what the message is about: call the irori show tool with it for the detail.\n");
