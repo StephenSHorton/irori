@@ -150,7 +150,7 @@ fn where_(t: &ToolNote) -> String {
     if t.scope == "mine" {
         "Mine".into()
     } else {
-        format!("board {}", one_line(&t.scope, 80))
+        format!("space {}", one_line(&t.scope, 80))
     }
 }
 

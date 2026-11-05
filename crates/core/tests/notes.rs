@@ -291,8 +291,8 @@ fn an_agents_board_note_goes_through_the_gate_and_waits_for_a_person() {
         .unwrap();
     assert!(
         out.starts_with("Proposed note:")
-            && out.contains("in board mlg")
-            && out.contains("until a person on the board accepts it"),
+            && out.contains("in space mlg")
+            && out.contains("until a person in the space accepts it"),
         "{out}"
     );
     let found = c.search_notes("BOARD-AGENT", false);

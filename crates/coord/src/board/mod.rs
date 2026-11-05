@@ -490,7 +490,7 @@ impl Coord {
     pub fn set_device_sides(&self, sides: &[String]) -> Result<Vec<String>> {
         let mut f = self.lock();
         if f.on_board {
-            return Err(error::not_allowed("a shared board carries no sides"));
+            return Err(error::not_allowed("a shared space carries no sides"));
         }
         let sides = crate::sides::clean_list(sides);
         let dev = f.dev.clone();
@@ -1714,7 +1714,7 @@ impl Fold {
         let note = crate::names::trim_space(note).to_string();
         if !self.on_board {
             return Err(error::invalid(
-                "only a card on a shared board is withdrawn; cancel a private card instead",
+                "only a card in a shared space is withdrawn; cancel a private card instead",
             ));
         }
         if util::runes(&note) > MAX_OBJECTIVE {

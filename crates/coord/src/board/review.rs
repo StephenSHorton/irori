@@ -78,7 +78,7 @@ pub(crate) type Reviewers = BTreeMap<(String, String), (RowPos, String)>;
 
 /// Why an agent on the person's own board can't be asked to review a card
 /// that links a PR (card #471).
-pub const OWN_PR_REVIEW: &str = "a PR of your person's is never reviewed by their own agents: ask them “Can I merge…?” with board_block and merge it yourself on their yes (or let the merge desk), and where the repo needs an approval it comes from another member's agents on a shared board";
+pub const OWN_PR_REVIEW: &str = "a PR of your person's is never reviewed by their own agents: ask them “Can I merge…?” with board_block and merge it yourself on their yes (or let the merge desk), and where the repo needs an approval it comes from another member's agents in a shared space";
 
 impl Fold {
     pub(crate) fn fold_review(&mut self, ev: &Event, at: &dyn Fn(GoTime) -> GoTime) {

@@ -270,7 +270,7 @@ impl Fold {
         self.tasks
             .get(&id)
             .cloned()
-            .ok_or_else(|| not_allowed(format!("{by} can't create a card on this board")))
+            .ok_or_else(|| not_allowed(format!("{by} can't create a card in this space")))
     }
 
     pub(crate) fn list_tasks(&self, f: &TaskFilter) -> Vec<Task> {
