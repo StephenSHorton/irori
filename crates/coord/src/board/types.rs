@@ -1033,7 +1033,8 @@ pub struct NewAsk {
     /// Set: the ask goes only to these agents, woken.
     pub mentions: Vec<Mention>,
     /// A thread (card #116): the agents on the cards it names and the ones
-    /// it mentions hear it first; one idle agent after a quiet spell.
+    /// it mentions hear it, and at once one idle agent or its own spawned
+    /// agent (card #512).
     pub thread: bool,
     /// A private thread about this shared board (card #185); private log
     /// only.

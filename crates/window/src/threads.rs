@@ -1,7 +1,8 @@
 //! Threads (card #116): the header box starts a conversation with the
 //! room, shown in the Threads panel beside the Board, not in the grid.
 //! The agents on the cards it names (#12) and the agents it @mentions hear
-//! it first; after a quiet spell one idle agent gets it (coord's threads).
+//! it, and at once one idle agent or its own spawned agent gets it (card
+//! #512; coord's threads).
 //! The person replies with the card comment box (BoardService.Comment) and
 //! resolves it here. A shared board's page starts its threads on that
 //! board (card #134): they live in its log, only its members' agents hear
