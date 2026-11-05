@@ -754,7 +754,7 @@ impl Fold {
         }
         if ask.is_empty() {
             let Some(t) = self.tasks.get(&p.task_id) else {
-                return (false, String::new());
+                return (p.board.is_some(), String::new());
             };
             // Any agent may edit any card (card #320). A card that was an
             // ask edits like any card once the ask is closed (board_edit).

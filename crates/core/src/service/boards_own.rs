@@ -675,10 +675,9 @@ impl Services {
         self.shown_boards()
             .into_iter()
             .filter(|b| {
+                // A deleted board's tag too: its old refs still work.
                 b.verifier.membership().tag == tag
-                    || self
-                        .space_boards(&b.id)
-                        .is_ok_and(|bs| bs.iter().skip(1).any(|x| x.tag == tag))
+                    || super::spaces::board_tags_in(&b.store).iter().any(|t| t == tag)
             })
             .collect()
     }
@@ -705,9 +704,9 @@ impl Services {
                 .iter()
                 .map(|b| b.coord().clone())
                 .collect();
-            if self
-                .personal_boards()
-                .is_ok_and(|bs| bs.iter().any(|b| b.tag == tag))
+            if super::spaces::board_tags_in(&self.store)
+                .iter()
+                .any(|t| *t == tag)
             {
                 tagged.push(self.coord.clone());
             }
