@@ -2105,8 +2105,7 @@ fn my_other_devices_request_naming_this_device_is_mine_to_start() {
         hlc: hlc::Timestamp(((a.clk.now().unix_milli_value() as u64) << 16) + 1),
         actor: "irori".into(),
         kind: kinds::TASK_SPAWN.into(),
-        payload: gocompat::json::marshal(&spawn_row(&t.id, "dev-a", "irori", a.clk.now()))
-            .unwrap(),
+        payload: gocompat::json::marshal(&spawn_row(&t.id, "dev-a", "irori", a.clk.now())).unwrap(),
         sig: Vec::new(),
     };
     let (_, r) = a.st.insert_batch(std::slice::from_ref(&ev));
@@ -2123,11 +2122,10 @@ fn my_other_devices_request_naming_this_device_is_mine_to_start() {
 fn my_spawned_agent_is_never_offered_another_persons_card() {
     let (a, b) = two_people_shared();
     let mine = a.c.create_task(P1, nt("My card", "")).unwrap();
-    let g = a
-        .c
-        .request_spawn("irori", spawn_ask(&mine.id, "dev-a"))
-        .unwrap()
-        .unwrap();
+    let g =
+        a.c.request_spawn("irori", spawn_ask(&mine.id, "dev-a"))
+            .unwrap()
+            .unwrap();
     assert!(a.c.bind_spawn(&mine.id, g, CARD1).unwrap());
     let theirs = b.c.create_task(P2, nt("Their card", "")).unwrap();
     sync(&a, &b);
@@ -2170,8 +2168,5 @@ fn my_spawned_agent_is_never_offered_another_persons_card() {
         .unwrap();
     b.c.fold_live(&[ev]);
     sync(&a, &b);
-    assert_eq!(
-        a.c.spawned(CARD1).map(|m| m.task_id),
-        Some(mine.id.clone())
-    );
+    assert_eq!(a.c.spawned(CARD1).map(|m| m.task_id), Some(mine.id.clone()));
 }

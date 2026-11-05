@@ -33,6 +33,11 @@ fn before(a: &GoTime, b: &GoTime) -> bool {
     a.unix_nano() < b.unix_nano()
 }
 
+/// Whether a is before b.
+pub(crate) fn before_time(a: &GoTime, b: &GoTime) -> bool {
+    before(a, b)
+}
+
 /// Whether blocker b waits on a person (not on other work, which ends by
 /// itself).
 fn on_person(b: &coord::Blocker) -> bool {
@@ -701,6 +706,8 @@ pub(crate) struct SpawnState {
     /// (a reload, or the person's write): a sweep that listed the rows
     /// before his write must not put the old setting back after it.
     pub rows: Mutex<()>,
+    /// Spawning across the person's devices (card #455).
+    pub remote: super::spawn_remote::RemoteState,
     /// Spawner failures in a row, by card id (card #480): at
     /// [`super::spawn_stop::SPAWN_TRIES`] the card asks the person.
     pub start_fails: Mutex<HashMap<String, u32>>,
@@ -950,6 +957,10 @@ impl Services {
         load_spawn(rows, &self.spawn);
         self.clean_after_start();
         self.bind_spawns();
+        // The person's End and trust requests from another of their
+        // devices (card #455): acted on even while paused.
+        self.serve_end_requests();
+        self.serve_trust_requests();
         self.end_finished();
         self.sweep_ending();
         self.reap_ended();
@@ -968,12 +979,25 @@ impl Services {
             return;
         };
         self.lift_no_copy(&sp);
+        self.publish_host(&sp);
+        self.serve_start_requests();
         let me = self.device.id.clone();
         let cap = self.spawn_cap(&me);
         let mut running = self.spawned_here();
         for t in self.coord.cards_to_spawn() {
+            // Which of the person's devices starts it (card #455, decision
+            // 7 (a)); None waits for the machine it needs or for the retry.
+            let Some(dev) = self.spawn_device(&t) else {
+                continue;
+            };
+            if dev != me {
+                if let Err(e) = self.request_on(&t, &dev) {
+                    logf(format_args!("spawn {}: on {dev}: {e}", t.short_ref()));
+                }
+                continue;
+            }
             if running >= cap {
-                break;
+                continue;
             }
             match self.spawn_for(&sp, &t) {
                 Ok(true) => running += 1,
@@ -981,6 +1005,10 @@ impl Services {
                 Err(e) => logf(format_args!("spawn {}: {e}", t.short_ref())),
             }
         }
+        // What another device asked this one to start, and sessions
+        // started for a request that is no longer the card's.
+        self.start_requested(&sp);
+        self.end_superseded(&sp);
     }
 
     /// An open ask here whose agents crashed twice in a row (card #470)
@@ -1079,23 +1107,7 @@ impl Services {
             let n = self.roster.name_of(k);
             if n.is_empty() { k.to_string() } else { n }
         };
-        let answer = self
-            .spawn
-            .answers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&t.id)
-            .cloned()
-            .or_else(|| self.answer_on_card(t, &comments));
-        let sent = self.coord.sent_back(&t.id);
-        let brief = build_brief(
-            t,
-            &comments,
-            &named,
-            &|_| None,
-            answer.as_deref(),
-            sent.as_ref(),
-        );
+        let brief = build_brief(t, &comments, &named, &|_| None, None, None);
         let setting = self.spawn_setting("");
         let perms = spawn_permissions(&setting, "", &repo_key, &brief);
         let ask = SpawnAsk {
@@ -1116,6 +1128,54 @@ impl Services {
         else {
             return Ok(false);
         };
+        self.note_tried(&t.id, &me);
+        self.start_here(sp, t, g, &name, Some(folder))
+    }
+
+    /// Starts request `g` (named `name`) of card t on this device: its
+    /// folder, trust, brief and permissions worked out here, from the card
+    /// as this device has it (card #455: the request may come from another
+    /// of the person's devices). A refusal ends the request as failed with
+    /// its reason. `folder` when the caller already found it.
+    pub(crate) fn start_here(
+        &self,
+        sp: &Spawner,
+        t: &Task,
+        g: i64,
+        name: &str,
+        folder: Option<Option<String>>,
+    ) -> Result<bool, String> {
+        let me = self.device.id.clone();
+        let name = name.to_string();
+        let repo_key = self.spawn_repo(t);
+        let folder = match folder {
+            Some(f) => f,
+            None => self.spawn_folder(t),
+        };
+        let comments = self.coord.comments(&t.id).unwrap_or_default();
+        let named = |k: &str| {
+            let n = self.roster.name_of(k);
+            if n.is_empty() { k.to_string() } else { n }
+        };
+        let answer = self
+            .spawn
+            .answers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&t.id)
+            .cloned()
+            .or_else(|| self.answer_on_card(t, &comments));
+        let sent = self.coord.sent_back(&t.id);
+        let brief = build_brief(
+            t,
+            &comments,
+            &named,
+            &|_| None,
+            answer.as_deref(),
+            sent.as_ref(),
+        );
+        let setting = self.spawn_setting("");
+        let perms = spawn_permissions(&setting, "", &repo_key, &brief);
         let refuse = |r: SpawnRefusal| -> Result<bool, String> {
             self.coord
                 .end_spawn(SWEEPER, &t.id, g, SPAWN_FAILED, &r.to_string())
@@ -1160,8 +1220,10 @@ impl Services {
             ),
             brief_path,
         };
+        let started_name = req.name.clone();
         match (sp.spawn)(&req) {
             Ok(_) => {
+                self.note_started_as(&t.id, g, &started_name);
                 self.spawn
                     .answers
                     .lock()
@@ -1185,7 +1247,7 @@ impl Services {
     /// shared boards) nor by another card's agent still starting. The card
     /// shows on the agent's card link and doing line, not in its name;
     /// nothing reads the card from the name (the spawn record binds it).
-    fn spawn_name(&self, t: &Task, generation: i64) -> String {
+    pub(crate) fn spawn_name(&self, t: &Task, generation: i64) -> String {
         let starting: std::collections::HashSet<String> = self
             .open_cards()
             .iter()
@@ -1877,6 +1939,12 @@ impl Services {
                 .back_on_board(&person, id, "the person asked for an agent")
                 .map_err(|e| e.to_string())?;
         }
+        // Another of his devices hands this card out (card #455): it is
+        // asked there, with his words for the brief.
+        if !self.coord.hands_out_here(id) {
+            self.request_start(id, note)?;
+        }
+        self.republish_host();
         self.asks_kick.kick();
         Ok(())
     }

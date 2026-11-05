@@ -2032,10 +2032,7 @@ impl Fold {
                     let author = kp(&t.created_by);
                     !author.is_empty()
                         && author == dp(&ev.device_id)
-                        && self
-                            .spawned
-                            .get(&a.to)
-                            .is_some_and(|s| s.task_id == t.id)
+                        && self.spawned.get(&a.to).is_some_and(|s| s.task_id == t.id)
                 })
             }
             kinds::BLOCKER_RESOLVED if self.raiser_closes(ev) => true,

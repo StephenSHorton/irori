@@ -1,0 +1,884 @@
+//! Spawned agents across the person's devices (docs/design/spawned-agents.md
+//! §7, §9, decision 7 (a); card #455).
+//!
+//! The device that hands a card out (the one it was made on) picks the
+//! device its agent starts on and writes the `task.spawn` request naming
+//! it. Each device publishes what it can start agents in (`spawn.host`:
+//! its checkouts, which of them Claude Code trusts, its OS), only when that
+//! changes, so the choice can see the others; a device that never published
+//! one (an older Irori, the phone, a home server) is never picked. The
+//! named device starts the agent only for its own person's card and only
+//! while the request is the card's newest and fresh
+//! ([`coord::Coord::spawns_here`]); one that comes back online with an older
+//! request starts nothing, because the card's device has moved on to the
+//! next one after the grace. If two sessions start anyway, the one bound to
+//! the card stays and the other is ended.
+//!
+//! Three person-only requests travel the private log too: End for an agent
+//! another of their devices runs, "start an agent now" from a device that
+//! doesn't hand the card out (with the person's words for its brief), and
+//! "trust this repo" for the device the agent must start on, which only
+//! asks the person in that device's own window. None of them is written by
+//! a tool, and each is acted on only by the device it is for, only when its
+//! writer is the person on one of their own devices.
+
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+use std::sync::Mutex;
+use std::time::Duration;
+
+use coord::roster::Agents;
+use coord::{SPAWN_FAILED, Spawn, SpawnAsk, Task};
+use gocompat::time::GoTime;
+use irori_identity::owner::device_of;
+use serde::{Deserialize, Serialize};
+use store::{Event, Filter, kinds};
+
+use super::Services;
+use super::spawn::{NOT_TRUSTED_PREFIX, Spawner, before_time, build_brief, spawn_permissions};
+use crate::logf;
+
+const SWEEPER: &str = "irori";
+
+/// How often a device looks again at what it can start agents in.
+pub const HOST_EVERY: Duration = Duration::from_secs(60);
+
+/// One repo a device can start agents in.
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostRepo {
+    pub repo_key: String,
+    pub folder: String,
+    #[serde(default)]
+    pub trusted: bool,
+}
+
+/// A `spawn.host` row: what device `device` can start agents in.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpawnHost {
+    pub device: String,
+    /// `std::env::consts::OS` there: "windows", "macos", "linux".
+    #[serde(default)]
+    pub os: String,
+    #[serde(default)]
+    pub repos: Vec<HostRepo>,
+    #[serde(default)]
+    pub at: GoTime,
+}
+
+impl SpawnHost {
+    /// "pc" or "mac", as a card's `needs:` hint names them; "" otherwise.
+    pub fn machine(&self) -> &'static str {
+        match self.os.as_str() {
+            "windows" => "pc",
+            "macos" => "mac",
+            _ => "",
+        }
+    }
+
+    pub fn repo(&self, repo_key: &str) -> Option<&HostRepo> {
+        self.repos
+            .iter()
+            .find(|r| coord::canonical_repo_key(&r.repo_key) == coord::canonical_repo_key(repo_key))
+    }
+}
+
+/// A `spawn.end.requested` row.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EndRequest {
+    pub key: String,
+    #[serde(default)]
+    pub task_id: String,
+    pub by: String,
+    #[serde(default)]
+    pub at_device: String,
+    #[serde(default)]
+    pub at: GoTime,
+}
+
+/// A `spawn.start.requested` row.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartRequest {
+    pub task_id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+    pub by: String,
+    #[serde(default)]
+    pub at_device: String,
+    #[serde(default)]
+    pub at: GoTime,
+}
+
+/// A `trust.requested` row.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrustRequest {
+    pub task_id: String,
+    #[serde(rename = "gen")]
+    pub generation: i64,
+    pub device: String,
+    #[serde(default)]
+    pub repo_key: String,
+    #[serde(default)]
+    pub folder: String,
+    pub by: String,
+    #[serde(default)]
+    pub at_device: String,
+    #[serde(default)]
+    pub at: GoTime,
+}
+
+/// What the Services keep for spawning across devices.
+#[derive(Default)]
+pub(crate) struct RemoteState {
+    /// When this device last looked at what it can start agents in, and
+    /// what it last published.
+    host_at: Mutex<Option<GoTime>>,
+    host_last: Mutex<Option<(String, Vec<HostRepo>)>>,
+    /// Devices asked to start a card's agent, and when: the next request
+    /// names another device first (§9 "the next device that has the repo").
+    tried: Mutex<HashMap<String, HashMap<String, GoTime>>>,
+    /// Requests started on this device, by (card, generation): the name it
+    /// was started with. Dropped once bound, or ended when superseded.
+    started: Mutex<HashMap<(String, i64), String>>,
+    /// Request rows (end, start, trust) already acted on, by (device, seq).
+    seen: Mutex<HashSet<(String, i64)>>,
+    /// Cards another device asked this one to trust the repo of, and which
+    /// device asked.
+    trust_asked: Mutex<HashMap<String, String>>,
+}
+
+fn at_least(now: &GoTime, at: &GoTime, d: Duration) -> bool {
+    i128::from(now.unix_nano()) - i128::from(at.unix_nano()) >= d.as_nanos() as i128
+}
+
+/// The cap a device starts with when the person hasn't set one (§6): 6 on
+/// Windows, 12 elsewhere, by that device's OS.
+fn default_cap_for(os: &str) -> i64 {
+    if os == "windows" { 6 } else { 12 }
+}
+
+impl Services {
+    // ---- What this device can start agents in ------------------------
+
+    /// Publishes what this device can start agents in, when it changed
+    /// since it last did (never on a timer: card #467's row flood).
+    pub(crate) fn publish_host(&self, sp: &Spawner) {
+        let now = (self.now)();
+        {
+            let mut at = self
+                .spawn
+                .remote
+                .host_at
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if at.as_ref().is_some_and(|a| !at_least(&now, a, HOST_EVERY)) {
+                return;
+            }
+            *at = Some(now);
+        }
+        let os = std::env::consts::OS.to_string();
+        let mut repos: Vec<HostRepo> = self
+            .capture
+            .repos()
+            .into_keys()
+            .filter_map(|k| {
+                let folder = self.checkout_here(&k)?;
+                let trusted = (sp.trusted)(Path::new(&folder));
+                Some(HostRepo {
+                    repo_key: coord::canonical_repo_key(&k),
+                    folder,
+                    trusted,
+                })
+            })
+            .collect();
+        repos.sort();
+        repos.dedup_by(|a, b| a.repo_key == b.repo_key);
+        let mut last = self
+            .spawn
+            .remote
+            .host_last
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if last.is_none() {
+            // After a restart: what this device published before.
+            *last = self
+                .hosts()
+                .remove(&self.device.id)
+                .map(|h| (h.os, h.repos));
+        }
+        if last.as_ref() == Some(&(os.clone(), repos.clone())) {
+            return;
+        }
+        let row = SpawnHost {
+            device: self.device.id.clone(),
+            os: os.clone(),
+            repos: repos.clone(),
+            at: now,
+        };
+        match self.store.append(SWEEPER, kinds::SPAWN_HOST, &row) {
+            Ok(_) => *last = Some((os, repos)),
+            Err(e) => logf(format_args!("spawn host: {e}")),
+        }
+    }
+
+    /// Looks again at what this device can start agents in at the next
+    /// sweep (the person trusted a repo, or the spawner changed).
+    pub(crate) fn republish_host(&self) {
+        *self
+            .spawn
+            .remote
+            .host_at
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    /// The newest `spawn.host` of each of the person's devices, by device.
+    pub(crate) fn hosts(&self) -> HashMap<String, SpawnHost> {
+        let evs = self
+            .store
+            .list(&Filter {
+                kinds: vec![kinds::SPAWN_HOST.into()],
+                desc: true,
+                limit: store::MAX_LIST_LIMIT,
+                ..Filter::default()
+            })
+            .unwrap_or_default();
+        let mut out: HashMap<String, SpawnHost> = HashMap::new();
+        for ev in evs {
+            if ev.actor != SWEEPER || out.contains_key(&ev.device_id) {
+                continue;
+            }
+            let Ok(h) = serde_json::from_slice::<SpawnHost>(&ev.payload) else {
+                continue;
+            };
+            // Only a device's own row about itself, from one of the
+            // person's devices.
+            if h.device != ev.device_id || !self.chain.is_owner(&format!("user:{}", h.device)) {
+                continue;
+            }
+            out.insert(ev.device_id.clone(), h);
+        }
+        out
+    }
+
+    /// Device `dev`'s cap: the person's, else its OS's default.
+    pub(crate) fn cap_on(&self, dev: &str, host: Option<&SpawnHost>) -> i64 {
+        if let Some(c) = self
+            .spawn
+            .caps
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(dev)
+        {
+            return *c;
+        }
+        if dev == self.device.id {
+            return super::spawn::default_cap();
+        }
+        default_cap_for(host.map(|h| h.os.as_str()).unwrap_or(""))
+    }
+
+    /// Spawned agents live on device `dev` and requests starting there.
+    pub(crate) fn spawned_on(&self, dev: &str) -> i64 {
+        if dev == self.device.id {
+            return self.spawned_here();
+        }
+        let live = self
+            .roster
+            .agents()
+            .into_iter()
+            .filter(|a| {
+                let d = if a.device_id.is_empty() {
+                    device_of(&a.key)
+                } else {
+                    a.device_id.as_str()
+                };
+                d == dev && a.status != "gone" && self.coord.is_spawned(&a.key)
+            })
+            .count() as i64;
+        let starting = self
+            .coord
+            .list_tasks(&coord::TaskFilter {
+                open: true,
+                ..coord::TaskFilter::default()
+            })
+            .iter()
+            .filter(|t| {
+                t.spawn_request()
+                    .is_some_and(|s| s.pending() && s.device == dev)
+            })
+            .count() as i64;
+        live + starting
+    }
+
+    // ---- Choosing the device (decision 7 (a)) -------------------------
+
+    /// The device card t's next agent starts on, or None to wait (§9,
+    /// decision 7 (a)): among the person's devices that published a
+    /// checkout of its repo and aren't offline, the one the card needs
+    /// (`needs:mac`/`needs:pc`); then one with the repo trusted; one below
+    /// its cap; the one with the card's own checkout (its Where); the PC,
+    /// which stays on; this device. A device asked lately for this card
+    /// goes last, so the next request names the next device; a card that
+    /// needs a machine never moves off it. Asks and helpers start here,
+    /// and so does a card no other device can take (no repo named, nobody
+    /// published one), as before.
+    pub(crate) fn spawn_device(&self, t: &Task) -> Option<String> {
+        let me = self.device.id.clone();
+        if t.open_ask().is_some() || (t.spawn && !t.parent.is_empty()) || t.repo_key.is_empty() {
+            return Some(me);
+        }
+        let hosts = self.hosts();
+        let need = coord::machine_needed(t);
+        let rows = self.mesh.node.devices(false);
+        // (may start agents, is online)
+        let state = |d: &str| -> (bool, bool) {
+            match rows.iter().find(|r| r.device_id == d) {
+                Some(r) => (
+                    !r.revoked
+                        && (r.role.is_empty() || r.role == irori_identity::objects::ROLE_DESKTOP),
+                    r.this || r.state != "offline",
+                ),
+                None => (d == me, d == me),
+            }
+        };
+        let now = (self.now)();
+        let tried = self
+            .spawn
+            .remote
+            .tried
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&t.id)
+            .cloned()
+            .unwrap_or_default();
+        let lately = |d: &str| {
+            tried
+                .get(d)
+                .is_some_and(|at| !at_least(&now, at, coord::SPAWN_RETRY))
+        };
+        let where_dev = t
+            .where_
+            .as_ref()
+            .map(|w| device_of(&w.who).to_string())
+            .unwrap_or_default();
+        let mut cands: Vec<(Vec<bool>, String)> = Vec::new();
+        let mut waits_for_machine = false;
+        for (dev, h) in &hosts {
+            let Some(r) = h.repo(&t.repo_key) else {
+                continue;
+            };
+            let (usable, online) = state(dev);
+            if !usable {
+                continue;
+            }
+            if !need.is_empty() && h.machine() != need {
+                continue;
+            }
+            if !online {
+                waits_for_machine |= !need.is_empty();
+                continue;
+            }
+            let free = self.spawned_on(dev) < self.cap_on(dev, Some(h));
+            let key = vec![
+                need.is_empty() && lately(dev),
+                !r.trusted,
+                !free,
+                *dev != where_dev,
+                h.machine() != "pc",
+                *dev != me,
+            ];
+            cands.push((key, dev.clone()));
+        }
+        cands.sort();
+        let Some((_, dev)) = cands.into_iter().next() else {
+            if waits_for_machine {
+                return None;
+            }
+            return Some(me);
+        };
+        // Every device was asked lately and the last ask failed: wait for
+        // the retry rather than ask again at every sweep. A request that
+        // only went stale (the device didn't answer) may be asked again.
+        let failed = t.spawn_request().is_some_and(|s| s.op == SPAWN_FAILED);
+        if dev != me && lately(&dev) && failed && !self.coord.spawn_asked_now(&t.id) {
+            return None;
+        }
+        Some(dev)
+    }
+
+    pub(crate) fn note_tried(&self, id: &str, dev: &str) {
+        self.spawn
+            .remote
+            .tried
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(id.to_string())
+            .or_default()
+            .insert(dev.to_string(), (self.now)());
+    }
+
+    /// Asks device `dev` to start card t's agent: the request names it,
+    /// and that device does the rest ([`Self::start_requested`]).
+    pub(crate) fn request_on(&self, t: &Task, dev: &str) -> Result<bool, String> {
+        let generation = t.spawn_request().map_or(0, |s| s.generation) + 1;
+        let name = self.spawn_name(t, generation);
+        let setting = self.spawn_setting("");
+        let comments = self.coord.comments(&t.id).unwrap_or_default();
+        let named = |k: &str| {
+            let n = self.roster.name_of(k);
+            if n.is_empty() { k.to_string() } else { n }
+        };
+        let brief = build_brief(t, &comments, &named, &|_| None, None, None);
+        let perms = spawn_permissions(&setting, "", &t.repo_key, &brief);
+        let ask = SpawnAsk {
+            task_id: t.id.clone(),
+            device: dev.to_string(),
+            repo_key: t.repo_key.clone(),
+            permission_mode: perms.mode,
+            name,
+            model: setting.model().into(),
+            effort: setting.effort().into(),
+            ..SpawnAsk::default()
+        };
+        let out = self
+            .coord
+            .request_spawn(SWEEPER, ask)
+            .map_err(|e| e.to_string())?;
+        if out.is_some() {
+            self.note_tried(&t.id, dev);
+        }
+        Ok(out.is_some())
+    }
+
+    // ---- The device a request names ----------------------------------
+
+    /// Starts the agents another of the person's devices asked this one
+    /// for, under this device's cap. The count started.
+    pub(crate) fn start_requested(&self, sp: &Spawner) -> usize {
+        let cap = self.spawn_cap(&self.device.id);
+        let mut running = self.live_spawned_here();
+        let mut n = 0;
+        let names: HashSet<String> = self
+            .presence
+            .snapshot()
+            .into_iter()
+            .filter(|a| a.status != "gone")
+            .map(|a| a.name)
+            .collect();
+        for (t, s) in self.coord.spawns_here() {
+            if self.was_started(&t.id, s.generation) || names.contains(&s.name) {
+                continue;
+            }
+            if running >= cap {
+                break;
+            }
+            match self.start_here(sp, &t, s.generation, &s.name, None) {
+                Ok(true) => {
+                    running += 1;
+                    n += 1;
+                }
+                Ok(false) => {}
+                Err(e) => logf(format_args!("spawn {}: {e}", t.short_ref())),
+            }
+        }
+        n
+    }
+
+    fn live_spawned_here(&self) -> i64 {
+        self.presence
+            .snapshot()
+            .into_iter()
+            .filter(|a| a.status != "gone" && self.coord.is_spawned(&a.key))
+            .count() as i64
+    }
+
+    pub(crate) fn was_started(&self, id: &str, generation: i64) -> bool {
+        self.spawn
+            .remote
+            .started
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(&(id.to_string(), generation))
+    }
+
+    pub(crate) fn note_started_as(&self, id: &str, generation: i64, name: &str) {
+        self.spawn
+            .remote
+            .started
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert((id.to_string(), generation), name.to_string());
+    }
+
+    /// Sessions this device started for a request that is no longer the
+    /// card's (a newer generation named another device, or it was
+    /// canceled) and never bound: ended, so the card keeps one agent
+    /// (§9 "if two sessions start anyway").
+    pub(crate) fn end_superseded(&self, sp: &Spawner) {
+        let started: Vec<((String, i64), String)> = self
+            .spawn
+            .remote
+            .started
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        if started.is_empty() {
+            return;
+        }
+        let live = self.presence.snapshot();
+        for ((id, generation), name) in started {
+            let current = self
+                .coord
+                .get_task(&id)
+                .and_then(|t| t.spawn_request().cloned());
+            let mine: Option<&Spawn> = current
+                .as_ref()
+                .filter(|s| s.generation == generation && s.op == coord::SPAWN_REQUESTED);
+            let session = live
+                .iter()
+                .find(|a| a.name == name && a.status != "gone")
+                .map(|a| a.key.clone());
+            match (mine, session) {
+                // Still the card's and not bound yet: wait for presence.
+                (Some(s), _) if s.key.is_empty() => continue,
+                // Bound: nothing more to watch.
+                (Some(_), _) => {}
+                // No longer the card's and running unbound: end it.
+                (None, Some(key)) if !self.coord.is_spawned(&key) => {
+                    let sess = key.rsplit_once('/').map_or(key.as_str(), |(_, s)| s);
+                    match (sp.end)(sess) {
+                        Ok(_) => logf(format_args!(
+                            "spawn {id}: ended {key}, started for request {generation} which is no longer the card's"
+                        )),
+                        Err(e) => {
+                            logf(format_args!("spawn {id}: end superseded {key}: {e}"));
+                            continue;
+                        }
+                    }
+                }
+                (None, Some(_)) => {}
+                // Failed or canceled before it showed: nothing runs.
+                (None, None) => {}
+            }
+            self.spawn
+                .remote
+                .started
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&(id, generation));
+        }
+    }
+
+    // ---- End, start-now and trust requests -----------------------------
+
+    /// Request rows of `kind` this device hasn't acted on yet, oldest
+    /// first.
+    fn unseen_requests(&self, kind: &str) -> Vec<Event> {
+        let evs = self
+            .store
+            .list(&Filter {
+                kinds: vec![kind.into()],
+                desc: true,
+                limit: 200,
+                ..Filter::default()
+            })
+            .unwrap_or_default();
+        let seen = self
+            .spawn
+            .remote
+            .seen
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let mut v: Vec<Event> = evs
+            .into_iter()
+            .filter(|ev| !seen.contains(&(ev.device_id.clone(), ev.seq)))
+            .collect();
+        v.reverse();
+        v
+    }
+
+    fn mark_seen(&self, ev: &Event) {
+        self.spawn
+            .remote
+            .seen
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert((ev.device_id.clone(), ev.seq));
+    }
+
+    /// Whether request row ev, naming `by`, came from the person on one of
+    /// their own devices (§7): actor `user`, `by` exactly the writing
+    /// device's person key, and a device of their chain. Anything else is
+    /// ignored and logged.
+    fn from_person(&self, ev: &Event, by: &str) -> bool {
+        let ok =
+            ev.actor == "user" && by == format!("user:{}", ev.device_id) && self.chain.is_owner(by);
+        if !ok {
+            logf(format_args!(
+                "spawn: ignored {} {}#{} by {by:?} (actor {:?}): not the person on one of their devices",
+                ev.kind, ev.device_id, ev.seq, ev.actor
+            ));
+        }
+        ok
+    }
+
+    /// The person's End on spawned agent `key`, from any of their devices:
+    /// ended here when it runs here, else asked of the device it runs on.
+    pub(crate) fn request_end(&self, key: &str) -> Result<(), String> {
+        let m = self
+            .coord
+            .spawned(key)
+            .ok_or_else(|| format!("{key} wasn't started by Irori"))?;
+        let dev = device_of(key);
+        if dev.is_empty() || dev == self.device.id {
+            return self.end_spawned(key);
+        }
+        let row = EndRequest {
+            key: key.into(),
+            task_id: m.task_id,
+            by: format!("user:{}", self.device.id),
+            at_device: self.device.id.clone(),
+            at: (self.now)(),
+        };
+        self.store
+            .append("user", kinds::SPAWN_END_REQUESTED, &row)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Ends the agents this device runs that the person asked another of
+    /// their devices to end.
+    pub(crate) fn serve_end_requests(&self) {
+        let me = self.device.id.clone();
+        for ev in self.unseen_requests(kinds::SPAWN_END_REQUESTED) {
+            self.mark_seen(&ev);
+            let Ok(r) = serde_json::from_slice::<EndRequest>(&ev.payload) else {
+                continue;
+            };
+            if device_of(&r.key) != me || ev.device_id == me || !self.from_person(&ev, &r.by) {
+                continue;
+            }
+            let Some(m) = self.coord.spawned(&r.key) else {
+                continue;
+            };
+            if (!r.task_id.is_empty() && r.task_id != m.task_id)
+                || self.coord.ended_by_irori(&r.key)
+                || before_time(&r.at, &m.at)
+            {
+                continue;
+            }
+            if let Err(e) = self.end_spawned(&r.key) {
+                logf(format_args!(
+                    "spawn: end {} for {}: {e}",
+                    r.key, ev.device_id
+                ));
+            }
+        }
+    }
+
+    /// The person asks for card `id`'s agent now from a device that
+    /// doesn't hand it out: the card's own device acts on it.
+    pub(crate) fn request_start(&self, id: &str, note: &str) -> Result<(), String> {
+        let row = StartRequest {
+            task_id: id.into(),
+            note: note.trim().to_string(),
+            by: format!("user:{}", self.device.id),
+            at_device: self.device.id.clone(),
+            at: (self.now)(),
+        };
+        self.store
+            .append("user", kinds::SPAWN_START_REQUESTED, &row)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Start-now requests for cards this device hands out.
+    pub(crate) fn serve_start_requests(&self) {
+        for ev in self.unseen_requests(kinds::SPAWN_START_REQUESTED) {
+            let Ok(r) = serde_json::from_slice::<StartRequest>(&ev.payload) else {
+                self.mark_seen(&ev);
+                continue;
+            };
+            let Some(t) = self.coord.get_task(&r.task_id) else {
+                // The card hasn't reached this device yet: next sweep.
+                continue;
+            };
+            self.mark_seen(&ev);
+            if ev.device_id == self.device.id
+                || !self.coord.hands_out_here(&t.id)
+                || !self.from_person(&ev, &r.by)
+            {
+                continue;
+            }
+            // Asked before the card's newest request: already served.
+            if t.spawn_request()
+                .is_some_and(|s| !before_time(&s.at, &r.at))
+            {
+                continue;
+            }
+            if !r.note.is_empty() {
+                self.set_brief_answer(&t.id, &r.note);
+            }
+            self.coord.spawn_now(&t.id);
+            self.asks_kick.kick();
+        }
+    }
+
+    /// The person, on another device, asks the device card `id`'s agent
+    /// must start on to trust its repo there: only when the card's newest
+    /// request failed there as not trusted. The device's name.
+    pub(crate) fn request_trust(&self, id: &str) -> Result<String, String> {
+        let t = self
+            .coord
+            .get_task(id)
+            .ok_or_else(|| format!("no card {id}"))?;
+        let s = t
+            .spawn_request()
+            .filter(|s| s.op == SPAWN_FAILED && s.reason.starts_with(NOT_TRUSTED_PREFIX))
+            .ok_or_else(|| format!("{} isn't waiting on trust", t.short_ref()))?;
+        if s.device == self.device.id {
+            return Err("its agent starts on this computer: trust it here".into());
+        }
+        let row = TrustRequest {
+            task_id: t.id.clone(),
+            generation: s.generation,
+            device: s.device.clone(),
+            repo_key: s.repo_key.clone(),
+            folder: not_trusted_folder(&s.reason),
+            by: format!("user:{}", self.device.id),
+            at_device: self.device.id.clone(),
+            at: (self.now)(),
+        };
+        self.store
+            .append("user", kinds::TRUST_REQUESTED, &row)
+            .map_err(|e| e.to_string())?;
+        Ok(s.device.clone())
+    }
+
+    /// Trust requests for this device: the person is asked in this
+    /// device's own window (a notification that opens the card, whose
+    /// Needs you row has Trust and start). Nothing here writes trust.
+    pub(crate) fn serve_trust_requests(&self) {
+        let me = self.device.id.clone();
+        for ev in self.unseen_requests(kinds::TRUST_REQUESTED) {
+            let Ok(r) = serde_json::from_slice::<TrustRequest>(&ev.payload) else {
+                self.mark_seen(&ev);
+                continue;
+            };
+            let Some(t) = self.coord.get_task(&r.task_id) else {
+                continue;
+            };
+            self.mark_seen(&ev);
+            if r.device != me || ev.device_id == me || !self.from_person(&ev, &r.by) {
+                continue;
+            }
+            let waits = t.spawn_request().is_some_and(|s| {
+                s.generation == r.generation
+                    && s.device == me
+                    && s.op == SPAWN_FAILED
+                    && s.reason.starts_with(NOT_TRUSTED_PREFIX)
+            });
+            if waits {
+                self.ask_trust_here(&t, &r, &ev.device_id);
+            }
+        }
+    }
+
+    fn ask_trust_here(&self, t: &Task, r: &TrustRequest, from: &str) {
+        let from_name = self
+            .device_labels()
+            .remove(from)
+            .filter(|n| !n.trim().is_empty())
+            .unwrap_or_else(|| "Another of your devices".into());
+        let what = if r.repo_key.is_empty() {
+            r.folder.clone()
+        } else {
+            coord::repo_name(&r.repo_key)
+        };
+        let n = self.notifier.0.clone();
+        let id = t.id.clone();
+        let shown = self.notifier.0.post(notify::Note {
+            id: format!("trust-{}-{}", t.id, r.generation),
+            title: format!("Trust {what} for agents here?"),
+            body: format!(
+                "{from_name} asked: {}'s agent can't start on this computer until Claude Code trusts {}. Open the card to choose.",
+                t.short_ref(),
+                r.folder
+            ),
+            sticky: true,
+            on_click: Some(std::sync::Arc::new(move || {
+                n.open(notify::Target {
+                    tab: notify::TAB_BOARD.into(),
+                    ref_: id.clone(),
+                })
+            })),
+            ..notify::Note::default()
+        });
+        self.spawn
+            .remote
+            .trust_asked
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(t.id.clone(), from.to_string());
+        logf(format_args!(
+            "spawn {}: {from} asked to trust {} here (shown: {shown})",
+            t.short_ref(),
+            r.folder
+        ));
+    }
+
+    /// The device that asked this one to trust card `id`'s repo, if one
+    /// did (the window says so beside Trust and start).
+    pub(crate) fn trust_asked_by(&self, id: &str) -> Option<String> {
+        self.spawn
+            .remote
+            .trust_asked
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .cloned()
+    }
+}
+
+/// The folder a "not trusted: <folder> on <device>" reason names.
+pub fn not_trusted_folder(reason: &str) -> String {
+    let rest = reason.strip_prefix(NOT_TRUSTED_PREFIX).unwrap_or(reason);
+    match rest.rfind(" on ") {
+        Some(i) => rest[..i].to_string(),
+        None => rest.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_folder_a_not_trusted_reason_names() {
+        assert_eq!(
+            not_trusted_folder("not trusted: /Users/s/projects/irori on Stephen's Mac"),
+            "/Users/s/projects/irori"
+        );
+        assert_eq!(not_trusted_folder("not trusted: C:\\r on pc"), "C:\\r");
+    }
+
+    #[test]
+    fn machines_and_caps_by_os() {
+        let h = |os: &str| SpawnHost {
+            os: os.into(),
+            ..SpawnHost::default()
+        };
+        assert_eq!(h("windows").machine(), "pc");
+        assert_eq!(h("macos").machine(), "mac");
+        assert_eq!(h("linux").machine(), "");
+        assert_eq!(default_cap_for("windows"), 6);
+        assert_eq!(default_cap_for("macos"), 12);
+    }
+}
