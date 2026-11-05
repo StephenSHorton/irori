@@ -250,8 +250,15 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub wait_on: String,
+    /// The first wait in full where wait_on is the short form (card #553):
+    /// "Irori 0.12.4 on Mac and PC" for wait_on's "Irori 0.12.4". The
+    /// state pill's tooltip says it.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub wait_full: String,
     /// What kind of thing the first wait is on (card #487): "task",
-    /// "lease", "agent" or "external", so Home can name a lease plainly.
+    /// "lease", "agent", "version" or "external", so Home can name a lease
+    /// plainly.
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub wait_kind: String,
@@ -1399,26 +1406,34 @@ fn wait_on_of(co: &coord::Coord, p: &People, on: &coord::BlockedBy) -> CardWaitO
             w.gone = r.status == "gone";
             w.label = r.name;
         }
-        // "0.11.0 on Stephens-MacBook-Pro-2.local and DESKTOP-STEPHEN"
-        // (card #485).
-        coord::BLOCKED_ON_VERSION => {
-            let (min, devs) = coord::parse_version_wait(&on.reference);
-            let names: Vec<String> = devs
-                .iter()
-                .map(|d| match p.names.get(d) {
-                    Some(n) if !n.is_empty() => n.clone(),
-                    _ => d.chars().take(8).collect(),
-                })
-                .collect();
-            w.label = match names.as_slice() {
-                [] => format!("Irori {min}"),
-                [one] => format!("Irori {min} on {one}"),
-                [rest @ .., last] => format!("Irori {min} on {} and {last}", rest.join(", ")),
-            };
-        }
+        coord::BLOCKED_ON_VERSION => w.label = version_wait_names(p, &on.reference).1,
         _ => {}
     }
     w
+}
+
+/// A version wait in words: "Irori 0.11.0" for the pill, and with its
+/// devices for the wait row and the tooltip, "Irori 0.11.0 on
+/// Stephens-MacBook-Pro-2.local and DESKTOP-STEPHEN" (card #485). A device
+/// this one has no name for is "another device", never its id (card #553).
+fn version_wait_names(p: &People, reference: &str) -> (String, String) {
+    let (min, devs) = coord::parse_version_wait(reference);
+    let mut names: Vec<String> = devs
+        .iter()
+        .filter_map(|d| p.names.get(d).filter(|n| !n.trim().is_empty()).cloned())
+        .collect();
+    match devs.len() - names.len() {
+        0 => {}
+        1 => names.push("another device".into()),
+        n => names.push(format!("{n} other devices")),
+    }
+    let short = format!("Irori {min}");
+    let full = match names.as_slice() {
+        [] => short.clone(),
+        [one] => format!("{short} on {one}"),
+        [rest @ .., last] => format!("{short} on {} and {last}", rest.join(", ")),
+    };
+    (short, full)
 }
 
 /// A person blocker for another member of a shared board (card #264). The
@@ -1553,6 +1568,9 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
                             let r = p.ref_(&on.reference);
                             s.wait_gone = r.status == "gone";
                             s.wait_on = r.name;
+                        }
+                        coord::BLOCKED_ON_VERSION => {
+                            (s.wait_on, s.wait_full) = version_wait_names(p, &on.reference);
                         }
                         _ => s.wait_on = on.reference.clone(),
                     }
@@ -3399,6 +3417,59 @@ mod tests {
         let agent = card_summary(&on(coord::BLOCKED_ON_AGENT, "dev/kestrel"), &p);
         assert_eq!(agent.wait_kind, "agent");
         assert!(agent.wait_gone, "{agent:?}");
+    }
+
+    // Card #553: a version wait's pill names the version, its tooltip and
+    // wait row the devices, and no device id shows, named or not.
+    #[test]
+    fn a_version_wait_names_the_version_and_never_a_device_id() {
+        let mut p = People::default();
+        p.names.insert("05f1844a00".into(), "Desktop".into());
+        p.names.insert("3dc30c9400".into(), "Macbook".into());
+        p.names.insert("blank00000".into(), " ".into());
+        let card = |reference: &str| Task {
+            state: coord::BLOCKED.into(),
+            blockers: vec![{
+                let mut b = coord::Blocker::default();
+                b.id = "b1".into();
+                b.question = "After the update".into();
+                b.on = Some(coord::BlockedBy {
+                    kind: coord::BLOCKED_ON_VERSION.into(),
+                    reference: reference.into(),
+                });
+                b
+            }],
+            ..Task::default()
+        };
+
+        let both = card_summary(&card("0.12.4 05f1844a00 3dc30c9400"), &p);
+        assert_eq!(both.wait_kind, "version");
+        assert_eq!(both.wait_on, "Irori 0.12.4");
+        assert_eq!(both.wait_full, "Irori 0.12.4 on Desktop and Macbook");
+        assert_eq!(both.waiting_on, 1);
+
+        for (reference, full) in [
+            ("0.12.4", "Irori 0.12.4"),
+            ("0.12.4 3dc30c9400", "Irori 0.12.4 on Macbook"),
+            ("0.12.4 feedface00", "Irori 0.12.4 on another device"),
+            ("0.12.4 blank00000", "Irori 0.12.4 on another device"),
+            (
+                "0.12.4 05f1844a00 feedface00",
+                "Irori 0.12.4 on Desktop and another device",
+            ),
+            (
+                "0.12.4 feedface00 deadbeef00",
+                "Irori 0.12.4 on 2 other devices",
+            ),
+            (
+                "0.12.4 05f1844a00 3dc30c9400 feedface00 deadbeef00",
+                "Irori 0.12.4 on Desktop, Macbook and 2 other devices",
+            ),
+        ] {
+            let s = card_summary(&card(reference), &p);
+            assert_eq!(s.wait_on, "Irori 0.12.4", "{reference}");
+            assert_eq!(s.wait_full, full, "{reference}");
+        }
     }
 
     // Card #264: on a shared board a question counts under Needs a decision

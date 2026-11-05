@@ -104,6 +104,10 @@ fn warm_exe() {
 
 impl Exe {
     fn spawn(home: &Path, session: &str) -> Exe {
+        Exe::spawn_with(home, session, &[])
+    }
+
+    fn spawn_with(home: &Path, session: &str, extra: &[&str]) -> Exe {
         warm_exe();
         let mut child = Command::new(env!("CARGO_BIN_EXE_irori"))
             .args([
@@ -115,6 +119,7 @@ impl Exe {
                 "--mod-version",
                 "0.4.1",
             ])
+            .args(extra)
             .env("IRORI_HOME", home)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -375,4 +380,52 @@ async fn the_mods_spawn_against_a_rust_core() {
         "{err}"
     );
     drop(host);
+}
+
+/// GitHub #57, with real processes on a private IRORI_HOME: a copy waiting
+/// in standby leaves the holder alone, and attaches within seconds of the
+/// holder being killed outright.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_standby_copy_takes_over_when_the_holder_is_killed() {
+    let (data, claude, work) = (
+        tempfile::tempdir().unwrap(),
+        tempfile::tempdir().unwrap(),
+        tempfile::tempdir().unwrap(),
+    );
+    let sessions = claude.path().join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    write_session(&sessions, "900002.json", SESS_B, "api work", work.path());
+    let core = Arc::new(
+        tokio::task::block_in_place(|| {
+            irori_core::Core::start(irori_core::Options {
+                data_dir: data.path().to_path_buf(),
+                claude_dir: claude.path().to_path_buf(),
+                version: "0.2.0-test".into(),
+                headless: true,
+                keystore: Some(Box::new(irori_identity::keystore::FileKeystore)),
+                ..irori_core::Options::default()
+            })
+        })
+        .unwrap(),
+    );
+    let _host = Host::start(core.clone()).await;
+
+    let mut holder = Exe::spawn(data.path(), SESS_B);
+    holder.next("hello");
+    let standby = Exe::spawn_with(data.path(), SESS_B, &["--standby"]);
+    // It says it waits, once, and leaves the holder alone.
+    standby.next("standby");
+    std::thread::sleep(Duration::from_secs(5));
+    assert!(standby.lines.try_recv().is_err(), "standby said more");
+    while let Ok(l) = holder.lines.try_recv() {
+        assert!(!l.contains("superseded"), "standby kicked the holder: {l}");
+    }
+
+    holder.child.kill().unwrap();
+    holder.child.wait().unwrap();
+    let killed = std::time::Instant::now();
+    standby.next("hello");
+    let took = killed.elapsed();
+    eprintln!("standby attached {took:?} after the holder was killed");
+    assert!(took < Duration::from_secs(10), "took {took:?}");
 }

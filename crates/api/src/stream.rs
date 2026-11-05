@@ -70,6 +70,22 @@ pub(crate) fn attach(h: &Handler) -> Resp {
                 ),
             );
         };
+        // GitHub #57: a copy told `superseded` waits for the session to come
+        // free instead of taking it back, so two live copies can't keep
+        // kicking each other off. Two asking at once both pass; the later
+        // one wins and the earlier is superseded, which ends the same way.
+        if q.get("standby") == "1" && s.streams.lock().by_key.contains_key(&key) {
+            return http::error(409, "another attach holds this session");
+        }
+        let mod_version = q.get("mod");
+        if attach::mod_at_least(&mod_version, attach::RECOVERS_SINCE) {
+            hello.v = attach::VERSION_STANDBY;
+        } else if !mod_version.is_empty() {
+            crate::logf(format_args!(
+                "attach {key}: mod {} may not get a lost attach back by itself; update it with: claude plugin update irori",
+                gocompat::quote::quote(&mod_version)
+            ));
+        }
         let secret = attach_secret();
         hello.session = session.clone();
         hello.agent_key = key.clone();
@@ -129,6 +145,11 @@ fn run(s: &Arc<Shared>, ib: &Arc<Inbox>, st: Arc<Stream>, hello: Event, out: Sin
         if let Some(old) = reg.by_key.remove(&st.key) {
             old.kicked.store(true, Ordering::SeqCst);
             reg.secrets.remove(&old.secret);
+            // GitHub #57: who took over from whom couldn't be told afterwards.
+            crate::logf(format_args!(
+                "attach {}: stream {} supersedes stream {}",
+                st.key, st.id, old.id
+            ));
         }
         reg.by_key.insert(st.key.clone(), st.clone());
         if !st.secret.is_empty() {
