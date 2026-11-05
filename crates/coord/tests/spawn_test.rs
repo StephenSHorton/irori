@@ -576,14 +576,13 @@ fn a_request_naming_another_device_or_superseded_or_stale_starts_nothing_here() 
     // An older generation arriving late changes nothing.
     remote_request(&e, &t.id, 4, 2, "dev-a");
     assert!(e.c.spawns_here().is_empty(), "gen 2 after gen 3");
-    // A fresh request naming this device, then this device is away past
-    // the grace: back online it starts nothing (the card's device moves
-    // on to the next one).
+    // Staleness is the card's device's call (its clock, not this one's):
+    // past the grace here the request is still listed until the next
+    // generation arrives. The Core never starts one it held at its start.
     let u = e.c.create_task("user:dev-b", nt("Other")).unwrap();
     remote_request(&e, &u.id, 5, 1, "dev-a");
-    assert_eq!(e.c.spawns_here().len(), 1);
     e.clk.add(SPAWN_GRACE);
-    assert!(e.c.spawns_here().is_empty(), "stale");
-    let replay = e.reopen();
-    assert!(replay.spawns_here().is_empty(), "stale after a restart too");
+    assert_eq!(e.c.spawns_here().len(), 1);
+    remote_request(&e, &u.id, 6, 2, "dev-c");
+    assert!(e.c.spawns_here().is_empty(), "moved on to dev-c");
 }

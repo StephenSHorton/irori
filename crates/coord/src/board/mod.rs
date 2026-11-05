@@ -1331,9 +1331,10 @@ impl Coord {
         task_id: &str,
         generation: i64,
         device: &str,
+        board: &str,
     ) -> Result<()> {
         self.lock()
-            .mark_spawned_elsewhere(key, task_id, generation, device)
+            .mark_spawned_elsewhere(key, task_id, generation, device, board)
     }
     /// This log's device id.
     pub fn device_id(&self) -> String {

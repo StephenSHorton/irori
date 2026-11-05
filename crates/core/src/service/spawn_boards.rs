@@ -125,11 +125,36 @@ impl Services {
         if b.verifier.key_person(&t.created_by) != self.person_id() {
             return Ok(false);
         }
+        // Every member device must read the spawn rows first: an older
+        // Irori refuses them and its sync of this board would stall.
+        if !self.board_spawns_ready(b) {
+            return Ok(false);
+        }
         let log = SpawnLog::board(self, b);
         let me = self.device.id.clone();
         let generation = t.spawn_request().map_or(0, |s| s.generation) + 1;
-        let name = self.spawn_name(t, generation);
         let folder = self.checkout_here(&t.repo_key);
+        // No copy here, or not trusted, and its last request failed for
+        // that: it waits (card #467's rule) until that changes or the
+        // person asks again.
+        let asked_now = log.co.spawn_asked_now(&t.id);
+        let failed_here = |no_folder: bool| {
+            t.spawn_request().is_some_and(|s| {
+                s.op == coord::SPAWN_FAILED
+                    && s.device == me
+                    && super::spawn_stop::no_folder_reason(&s.reason) == no_folder
+                    && (no_folder || s.reason.starts_with(super::spawn::NOT_TRUSTED_PREFIX))
+            })
+        };
+        if !asked_now
+            && (folder.is_none() && failed_here(true)
+                || folder
+                    .as_ref()
+                    .is_some_and(|f| failed_here(false) && !(sp.trusted)(std::path::Path::new(f))))
+        {
+            return Ok(false);
+        }
+        let name = self.spawn_name(t, generation);
         let comments = log.co.comments(&t.id).unwrap_or_default();
         let named = |k: &str| (log.named)(k);
         let others = |k: &str| (log.others)(k);
@@ -163,6 +188,9 @@ impl Services {
     /// board (`card_for`, marked on its agent card), then the board's mark
     /// and the card assigned to its `agent:<cardId>` (§9).
     fn bind_board_spawns(&self, b: &Arc<BoardLog>) {
+        if !self.board_spawns_ready(b) {
+            return;
+        }
         let me = self.device.id.as_str();
         let co = b.coord();
         let live = self.presence.snapshot();
@@ -171,9 +199,19 @@ impl Services {
             ..TaskFilter::default()
         });
         for t in open {
+            // Only this person's own card and request: another member's
+            // request naming this device never binds (or marks) a session
+            // here (§7).
+            if b.verifier.key_person(&t.created_by) != self.person_id() {
+                continue;
+            }
             let Some(s) = t
                 .spawn_request()
-                .filter(|s| s.pending() && s.device == me)
+                .filter(|s| {
+                    s.pending()
+                        && s.device == me
+                        && (s.by == SWEEPER || b.verifier.key_person(&s.by) == self.person_id())
+                })
                 .cloned()
             else {
                 continue;
@@ -186,9 +224,9 @@ impl Services {
             }) else {
                 continue;
             };
-            if let Err(e) = self
-                .coord
-                .mark_spawned_elsewhere(&a.key, &t.id, s.generation, me)
+            if let Err(e) =
+                self.coord
+                    .mark_spawned_elsewhere(&a.key, &t.id, s.generation, me, &b.id)
             {
                 logf(format_args!("spawn {}: mark {}: {e}", t.short_ref(), a.key));
                 continue;
@@ -215,18 +253,34 @@ impl Services {
     /// with the agent's key there (`agent:<cardId>` on a board).
     pub(crate) fn spawn_card_of(&self, key: &str) -> Option<(Arc<Coord>, Task, String)> {
         let m = self.coord.spawned(key)?;
-        if let Some(t) = self.coord.get_task(&m.task_id) {
+        if m.board.is_empty() {
+            let t = self.coord.get_task(&m.task_id)?;
             return Some((self.coord.clone(), t, key.to_string()));
         }
+        // The board the mark names, only; its card there must be this
+        // person's, and the agent already on that board (no card minted).
         if device_of(key) != self.device.id {
             return None;
         }
-        for b in self.shown_boards() {
-            if let Some(t) = b.coord().get_task(&m.task_id) {
-                let k = self.board_key(&b.id, key).ok()?;
-                return Some((b.coord().clone(), t, k));
-            }
+        let b = self.board(&m.board).ok()?;
+        let t = b.coord().get_task(&m.task_id)?;
+        if b.verifier.key_person(&t.created_by) != self.person_id() {
+            return None;
         }
-        None
+        let id = super::boards::lock(&b.maps).keys.get(key).cloned()?;
+        Some((
+            b.coord().clone(),
+            t,
+            format!("{}{id}", store::kinds::AGENT_ACTOR_PREFIX),
+        ))
+    }
+
+    /// Whether every member device of board b reads the spawn rows
+    /// (`spawns` in its board hello, card #455). No mesh for it (stopped,
+    /// or no network): not ready.
+    pub(crate) fn board_spawns_ready(&self, b: &BoardLog) -> bool {
+        self.mesh
+            .board(&b.id)
+            .is_some_and(|m| m.not_ready_for_spawns().is_empty())
     }
 }

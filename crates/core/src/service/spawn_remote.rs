@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use store::{Event, Filter, kinds};
 
 use super::Services;
-use super::spawn::{NOT_TRUSTED_PREFIX, Spawner, before_time, build_brief, spawn_permissions};
+use super::spawn::{NOT_TRUSTED_PREFIX, Spawner, build_brief, spawn_permissions};
 use crate::logf;
 
 const SWEEPER: &str = "irori";
@@ -91,6 +91,10 @@ pub struct EndRequest {
     pub key: String,
     #[serde(default)]
     pub task_id: String,
+    /// The mark's generation the person saw: an older one is ignored
+    /// (compared by generation, not by two devices' clocks).
+    #[serde(default, rename = "gen")]
+    pub generation: i64,
     pub by: String,
     #[serde(default)]
     pub at_device: String,
@@ -103,6 +107,9 @@ pub struct EndRequest {
 #[serde(rename_all = "camelCase")]
 pub struct StartRequest {
     pub task_id: String,
+    /// The card's newest request the person saw: a newer one serves it.
+    #[serde(default, rename = "gen")]
+    pub generation: i64,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub note: String,
     pub by: String,
@@ -149,6 +156,11 @@ pub(crate) struct RemoteState {
     /// Cards another device asked this one to trust the repo of, and which
     /// device asked.
     trust_asked: Mutex<HashMap<String, String>>,
+    /// The requests naming this device its log held when the Core started
+    /// (before any sync): never started (one may already have been, before
+    /// the restart, and one from before an absence is the card's device's
+    /// to replace with the next generation).
+    held_at_start: Mutex<Option<HashSet<(String, i64)>>>,
 }
 
 fn at_least(now: &GoTime, at: &GoTime, d: Duration) -> bool {
@@ -368,6 +380,8 @@ impl Services {
             .unwrap_or_default();
         let mut cands: Vec<(Vec<bool>, String)> = Vec::new();
         let mut waits_for_machine = false;
+        let mut remote_full = false;
+        let asked_now = self.coord.spawn_asked_now(&t.id);
         for (dev, h) in &hosts {
             let Some(r) = h.repo(&t.repo_key) else {
                 continue;
@@ -384,6 +398,19 @@ impl Services {
                 continue;
             }
             let free = self.spawned_on(dev) < self.cap_on(dev, Some(h));
+            // A full device elsewhere isn't asked: the card waits for a
+            // free slot rather than for a request that goes stale.
+            if !free && *dev != me {
+                remote_full = true;
+                continue;
+            }
+            // Its newest request failed on this device for a reason its
+            // host row still shows (the repo untrusted, or no copy there):
+            // not asked again until that changes or the person asks
+            // (card #467's rule, across devices).
+            if *dev != me && !asked_now && failed_for_reason(t, dev, r) {
+                continue;
+            }
             let key = vec![
                 need.is_empty() && lately(dev),
                 !r.trusted,
@@ -396,16 +423,27 @@ impl Services {
         }
         cands.sort();
         let Some((_, dev)) = cands.into_iter().next() else {
-            if waits_for_machine {
+            if waits_for_machine || remote_full {
+                return None;
+            }
+            // Its newest request failed on another device that is the only
+            // one with the repo: it waits there, as on one device.
+            if t.spawn_request()
+                .is_some_and(|s| s.op == SPAWN_FAILED && s.device != me)
+                && !asked_now
+                && hosts
+                    .values()
+                    .any(|h| h.repo(&t.repo_key).is_some() && h.device != me)
+                && hosts.get(&me).is_none_or(|h| h.repo(&t.repo_key).is_none())
+            {
                 return None;
             }
             return Some(me);
         };
-        // Every device was asked lately and the last ask failed: wait for
-        // the retry rather than ask again at every sweep. A request that
-        // only went stale (the device didn't answer) may be asked again.
-        let failed = t.spawn_request().is_some_and(|s| s.op == SPAWN_FAILED);
-        if dev != me && lately(&dev) && failed && !self.coord.spawn_asked_now(&t.id) {
+        // The best device was asked lately (it failed, or never answered
+        // and the request went stale): wait for the retry rather than ask
+        // it again every grace (card #467's row flood).
+        if dev != me && lately(&dev) && !asked_now {
             return None;
         }
         Some(dev)
@@ -435,6 +473,16 @@ impl Services {
         };
         let brief = build_brief(t, &comments, &named, &|_| None, None, None);
         let perms = spawn_permissions(&setting, "", &t.repo_key, &brief);
+        // The person's words for its brief go with the request: the device
+        // that starts it has no other way to them (card #455).
+        let note = self
+            .spawn
+            .answers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&t.id)
+            .cloned()
+            .unwrap_or_default();
         let ask = SpawnAsk {
             task_id: t.id.clone(),
             device: dev.to_string(),
@@ -443,6 +491,7 @@ impl Services {
             name,
             model: setting.model().into(),
             effort: setting.effort().into(),
+            note,
             ..SpawnAsk::default()
         };
         let out = self
@@ -451,6 +500,11 @@ impl Services {
             .map_err(|e| e.to_string())?;
         if out.is_some() {
             self.note_tried(&t.id, dev);
+            self.spawn
+                .answers
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&t.id);
         }
         Ok(out.is_some())
     }
@@ -459,9 +513,8 @@ impl Services {
 
     /// Starts the agents another of the person's devices asked this one
     /// for, under this device's cap. The count started.
-    pub(crate) fn start_requested(&self, sp: &Spawner) -> usize {
+    pub(crate) fn start_requested(&self, sp: &Spawner, running: &mut i64) -> usize {
         let cap = self.spawn_cap(&self.device.id);
-        let mut running = self.live_spawned_here();
         let mut n = 0;
         let names: HashSet<String> = self
             .presence
@@ -470,16 +523,43 @@ impl Services {
             .filter(|a| a.status != "gone")
             .map(|a| a.name)
             .collect();
-        for (t, s) in self.coord.spawns_here() {
-            if self.was_started(&t.id, s.generation) || names.contains(&s.name) {
+        let here = self.coord.spawns_here();
+        // Each requested name is held here too, so no terminal session
+        // started meanwhile is given it (and then bound as the agent).
+        let now = (self.now)();
+        for (t, s) in &here {
+            self.names.set_entry(
+                &format!("{}{}/{}", crate::namer::SPAWN_PREFIX, t.id, s.generation),
+                &s.name,
+                now,
+            );
+        }
+        let held = self
+            .spawn
+            .remote
+            .held_at_start
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .unwrap_or_default();
+        let todo: Vec<(Task, Spawn)> = here
+            .into_iter()
+            .filter(|(t, s)| {
+                !self.was_started(&t.id, s.generation)
+                    && !names.contains(&s.name)
+                    && !held.contains(&(t.id.clone(), s.generation))
+            })
+            .collect();
+        // `running` already counts these as starting here.
+        *running -= todo.len() as i64;
+        for (t, s) in todo {
+            if *running >= cap {
+                *running += 1;
                 continue;
-            }
-            if running >= cap {
-                break;
             }
             match self.start_here(sp, &t, s.generation, &s.name, None) {
                 Ok(true) => {
-                    running += 1;
+                    *running += 1;
                     n += 1;
                 }
                 Ok(false) => {}
@@ -489,12 +569,21 @@ impl Services {
         n
     }
 
-    fn live_spawned_here(&self) -> i64 {
-        self.presence
-            .snapshot()
+    /// Notes the requests naming this device its log holds now, as the
+    /// Core starts: none of them is ever started here.
+    pub(crate) fn hold_requests_at_start(&self) {
+        let held = self
+            .coord
+            .spawns_here()
             .into_iter()
-            .filter(|a| a.status != "gone" && self.coord.is_spawned(&a.key))
-            .count() as i64
+            .map(|(t, s)| (t.id, s.generation))
+            .collect();
+        *self
+            .spawn
+            .remote
+            .held_at_start
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(held);
     }
 
     pub(crate) fn was_started(&self, id: &str, generation: i64) -> bool {
@@ -642,6 +731,7 @@ impl Services {
         }
         let row = EndRequest {
             key: key.into(),
+            generation: m.generation,
             task_id: m.task_id,
             by: format!("user:{}", self.device.id),
             at_device: self.device.id.clone(),
@@ -670,7 +760,7 @@ impl Services {
             };
             if (!r.task_id.is_empty() && r.task_id != m.task_id)
                 || self.coord.ended_by_irori(&r.key)
-                || before_time(&r.at, &m.at)
+                || r.generation != m.generation
             {
                 continue;
             }
@@ -686,8 +776,14 @@ impl Services {
     /// The person asks for card `id`'s agent now from a device that
     /// doesn't hand it out: the card's own device acts on it.
     pub(crate) fn request_start(&self, id: &str, note: &str) -> Result<(), String> {
+        let generation = self
+            .coord
+            .get_task(id)
+            .and_then(|t| t.spawn_request().map(|s| s.generation))
+            .unwrap_or(0);
         let row = StartRequest {
             task_id: id.into(),
+            generation,
             note: note.trim().to_string(),
             by: format!("user:{}", self.device.id),
             at_device: self.device.id.clone(),
@@ -719,7 +815,7 @@ impl Services {
             }
             // Asked before the card's newest request: already served.
             if t.spawn_request()
-                .is_some_and(|s| !before_time(&s.at, &r.at))
+                .is_some_and(|s| s.generation > r.generation)
             {
                 continue;
             }
@@ -845,6 +941,18 @@ impl Services {
             .get(id)
             .cloned()
     }
+}
+
+/// Whether card t's newest request failed on device `dev` for a reason
+/// its host row `r` (its copy of the repo) still shows: not trusted
+/// there and still untrusted.
+fn failed_for_reason(t: &Task, dev: &str, r: &HostRepo) -> bool {
+    t.spawn_request().is_some_and(|s| {
+        s.op == SPAWN_FAILED
+            && s.device == dev
+            && s.reason.starts_with(NOT_TRUSTED_PREFIX)
+            && !r.trusted
+    })
 }
 
 /// The folder a "not trusted: <folder> on <device>" reason names.

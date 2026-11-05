@@ -1372,6 +1372,9 @@ impl Core {
                     .unwrap_or_default()
             });
         }
+        // The requests naming this device its log holds before any sync
+        // are never started (card #455).
+        s.hold_requests_at_start();
         // A space's channels go in its log (card #392).
         s.talk
             .set_spaces(Arc::new(spaces::SpaceTalk(Arc::downgrade(&s))));

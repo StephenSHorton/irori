@@ -67,6 +67,8 @@ pub struct Spawn {
     pub permission_mode: String,
     pub name: String,
     pub reason: String,
+    /// The person's words for the agent's brief (card #455).
+    pub note: String,
     pub by: String,
     pub at: GoTime,
     /// The agent bound to this request, once presence listed it.
@@ -97,6 +99,9 @@ pub struct Spawned {
     pub step: String,
     pub subtask: String,
     pub device: String,
+    /// The shared board whose card it is, for a mark kept in the person's
+    /// own log for a board card's agent (card #455); empty otherwise.
+    pub board: String,
     pub at: GoTime,
 }
 
@@ -114,6 +119,9 @@ pub struct SpawnAsk {
     pub effort: String,
     pub permission_mode: String,
     pub name: String,
+    /// The person's words for the agent's brief, for the device that
+    /// starts it (card #455).
+    pub note: String,
 }
 
 impl Task {
@@ -219,6 +227,7 @@ impl Fold {
             permission_mode: p.permission_mode,
             name: p.name,
             reason: p.reason,
+            note: p.note,
             by: p.by,
             at: at(p.at),
             key: String::new(),
@@ -295,6 +304,7 @@ impl Fold {
                 step: p.step.clone(),
                 subtask: p.subtask.clone(),
                 device: p.device.clone(),
+                board: p.board.clone(),
                 at: at(p.at),
             },
         );
@@ -368,6 +378,7 @@ impl Fold {
                 permission_mode: a.permission_mode,
                 name: a.name,
                 reason: String::new(),
+                note: a.note,
                 by,
                 at: now,
             },
@@ -460,6 +471,7 @@ impl Fold {
                 device: s.device.clone(),
                 by: SWEEPER.into(),
                 at: now,
+                ..TaskSpawnedRow::default()
             },
         )?;
         if s.step.is_empty() && s.subtask.is_empty() {
@@ -515,6 +527,7 @@ impl Fold {
         task_id: &str,
         generation: i64,
         device: &str,
+        board: &str,
     ) -> Result<()> {
         if self.spawned.get(key).is_some_and(|m| m.task_id == task_id) {
             return Ok(());
@@ -528,6 +541,7 @@ impl Fold {
                 key: key.into(),
                 generation,
                 device: device.into(),
+                board: board.into(),
                 by: SWEEPER.into(),
                 at: now,
                 ..TaskSpawnedRow::default()
@@ -566,22 +580,22 @@ impl Fold {
     }
 
     /// The requests naming this device that it may start an agent for now
-    /// (card #455): the card's newest, still requested, unbound, not past
-    /// [`SPAWN_GRACE`] (a device back online with an older request starts
-    /// nothing: the card's own device has moved on to the next one), for a
-    /// card that still needs an agent. On a shared board only cards this
+    /// (card #455): the card's newest, still requested and unbound, for a
+    /// card that still needs an agent. Whether a request went stale is the
+    /// card's own device's call, by its own clock: it then writes the next
+    /// generation, which supersedes this one here (and the Core never
+    /// starts a request it already held when it started). On a shared board only cards this
     /// device's own person made, asked for by them or Irori on one of
     /// their devices: another member's request naming this device, even on
     /// their own card, is never acted on (§7). Oldest first.
     pub(crate) fn spawns_here(&self) -> Vec<(Task, Spawn)> {
-        let now = self.stamp();
         let mut v: Vec<(Task, Spawn)> = self
             .tasks
             .values()
             .filter(|t| super::offers::needs_agent(t) || self.ask_needs_agent(t))
             .filter_map(|t| {
                 let s = t.spawn_request()?;
-                (s.pending() && !s.stale(&now) && s.device == self.dev && self.mine_to_start(t, s))
+                (s.pending() && s.device == self.dev && self.mine_to_start(t, s))
                     .then(|| (t.clone(), s.clone()))
             })
             .collect();

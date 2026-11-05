@@ -33,11 +33,6 @@ fn before(a: &GoTime, b: &GoTime) -> bool {
     a.unix_nano() < b.unix_nano()
 }
 
-/// Whether a is before b.
-pub(crate) fn before_time(a: &GoTime, b: &GoTime) -> bool {
-    before(a, b)
-}
-
 /// Whether blocker b waits on a person (not on other work, which ends by
 /// itself).
 fn on_person(b: &coord::Blocker) -> bool {
@@ -1009,7 +1004,7 @@ impl Services {
         self.sweep_board_spawns(&sp, cap, &mut running);
         // What another device asked this one to start, and sessions
         // started for a request that is no longer the card's.
-        self.start_requested(&sp);
+        self.start_requested(&sp, &mut running);
         self.end_superseded(&sp);
     }
 
@@ -1056,7 +1051,25 @@ impl Services {
                     .is_some_and(|s| s.pending() && s.device == me)
             })
             .count() as i64;
-        live + starting
+        // Shared boards' cards starting here (card #455).
+        let on_boards: i64 = self
+            .shown_boards()
+            .iter()
+            .map(|b| {
+                b.coord()
+                    .list_tasks(&TaskFilter {
+                        open: true,
+                        ..TaskFilter::default()
+                    })
+                    .iter()
+                    .filter(|t| {
+                        t.spawn_request()
+                            .is_some_and(|s| s.pending() && s.device == me)
+                    })
+                    .count() as i64
+            })
+            .sum();
+        live + starting + on_boards
     }
 
     fn open_cards(&self) -> Vec<Task> {
@@ -1179,6 +1192,14 @@ impl Services {
         };
         let comments = log.co.comments(&t.id).unwrap_or_default();
         let named = |k: &str| (log.named)(k);
+        // The person's words: kept here, or carried on the request from
+        // the card's own device (card #455), or their answer on the card.
+        let carried = log
+            .co
+            .get_task(&t.id)
+            .and_then(|c| c.spawn_request().cloned())
+            .filter(|s| s.generation == g && !s.note.trim().is_empty())
+            .map(|s| s.note);
         let answer = self
             .spawn
             .answers
@@ -1186,9 +1207,15 @@ impl Services {
             .unwrap_or_else(|e| e.into_inner())
             .get(&t.id)
             .cloned()
+            .or(carried)
             .or_else(|| self.answer_on_card(t, &comments));
-        let sent = log.co.sent_back(&t.id);
         let others = |by: &str| (log.others)(by);
+        // A done check sent back by anyone but this person (another member
+        // on a shared board) isn't put in the brief as their words (§7).
+        let sent = log
+            .co
+            .sent_back(&t.id)
+            .filter(|sb| others(&sb.reason.by).is_none());
         let brief = build_brief(
             t,
             &comments,
@@ -1250,7 +1277,11 @@ impl Services {
         let started_name = req.name.clone();
         match (sp.spawn)(&req) {
             Ok(_) => {
-                self.note_started_as(&t.id, g, &started_name);
+                // Only the private board's: a board card keeps one agent
+                // by its own log's generation and binding.
+                if private {
+                    self.note_started_as(&t.id, g, &started_name);
+                }
                 self.spawn
                     .answers
                     .lock()
@@ -1694,7 +1725,8 @@ impl Services {
         let Some(m) = self.coord.spawned(key) else {
             return;
         };
-        let t = self.coord.get_task(&m.task_id);
+        // The card from whichever log holds it (a shared board's, #455).
+        let t = self.spawn_card_of(key).map(|(_, t, _)| t);
         let short = t.as_ref().map(|t| t.short_ref()).unwrap_or_default();
         let text = match t.as_ref().and_then(|t| t.ask.as_ref()) {
             // An ask or a thread (card #470): no branch to hand off.
@@ -1878,15 +1910,14 @@ impl Services {
         let said = end(session_of(key))?;
         if said.contains("kept") {
             logf(format_args!("spawn end {key}: {said}"));
-            if let Some(m) = self.coord.spawned(key) {
+            if let Some((co, t, _)) = self.spawn_card_of(key) {
                 let line = format!("{KEPT_WORKTREE}{}", said.trim());
-                let told = self
-                    .coord
-                    .comments(&m.task_id)
+                let told = co
+                    .comments(&t.id)
                     .unwrap_or_default()
                     .iter()
                     .any(|c| c.by == SWEEPER && c.text == line);
-                if !told && let Err(e) = self.coord.add_comment(SWEEPER, &m.task_id, &line, false) {
+                if !told && let Err(e) = co.add_comment(SWEEPER, &t.id, &line, false) {
                     logf(format_args!("spawn end {key}: {e}"));
                 }
             }
@@ -1980,7 +2011,9 @@ impl Services {
         if !t.holders.is_empty() {
             return Err(format!("{} has an agent on it", t.short_ref()));
         }
-        if !note.trim().is_empty() {
+        // His words wait for the brief on the device that hands the card
+        // out; another device's request carries them there (card #455).
+        if !note.trim().is_empty() && self.coord.hands_out_here(id) {
             self.set_brief_answer(id, note);
         }
         // His ask skips a failed spawn's wait (card #464).
