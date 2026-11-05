@@ -5,9 +5,9 @@
 mod common;
 
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use common::*;
 use coord::roster::{AgentCard as CoordCard, Agents};
@@ -85,6 +85,22 @@ impl Agents for Roster {
     }
 }
 
+/// The Board, counting the views Watch takes of it.
+struct Counted {
+    co: Arc<Coord>,
+    views: Arc<AtomicUsize>,
+}
+
+impl notify::watch::BoardSource for Counted {
+    fn subscribe(&self) -> Arc<gocompat::sub::Queue<coord::Change>> {
+        self.co.subscribe()
+    }
+    fn board(&self, f: &coord::BoardFilter) -> coord::BoardView {
+        self.views.fetch_add(1, Ordering::SeqCst);
+        self.co.board(f)
+    }
+}
+
 fn open_store(dir: &std::path::Path) -> Arc<Store> {
     let clock = hlc::Clock::new();
     Arc::new(Store::open(dir.join("irori.db"), "dev1", Arc::new(clock)).unwrap())
@@ -104,6 +120,7 @@ struct Rig {
     n: Notifier,
     opened: mpsc::Receiver<Target>,
     handle: Option<WatchHandle>,
+    views: Arc<AtomicUsize>,
 }
 
 type Wrap = Arc<dyn Fn(&str, &str) -> String + Send + Sync>;
@@ -160,11 +177,15 @@ fn rig_with(wrap: Option<Wrap>, opts: coord::Options) -> Rig {
     let shot = dir.path().join("shot.png");
     std::fs::write(&shot, tiny_png()).unwrap();
     let file: notify::FileFn = Arc::new(move |sha: &str| (sha == LOCAL_SHOT).then(|| shot.clone()));
+    let views = Arc::new(AtomicUsize::new(0));
     let handle = watch(
         &n,
         Sources {
             inbox: Some(ib.clone()),
-            board: Some(co.clone()),
+            board: Some(Arc::new(Counted {
+                co: co.clone(),
+                views: views.clone(),
+            })),
             user: USER.into(),
             name: Some(name),
             room: Some(co.clone()),
@@ -185,6 +206,7 @@ fn rig_with(wrap: Option<Wrap>, opts: coord::Options) -> Rig {
         n,
         opened,
         handle,
+        views,
     }
 }
 
@@ -370,6 +392,64 @@ fn watch_catches_up_after_dropped_changes() {
 }
 
 // ---- the Board ----
+
+/// Card #554: a burst of changes shares its Board views, and the view after
+/// the last change still posts and clears what the burst left.
+#[test]
+fn watch_board_a_burst_costs_few_views_and_ends_right() {
+    const BURST: usize = 300;
+    let r = rig();
+    let gone =
+        r.co.create_task(KEY_A, new_task("answered in the burst"))
+            .unwrap();
+    r.co.claim_task(KEY_A, &gone.id).unwrap();
+    r.block_on_person(KEY_A, &gone.id, "still there?");
+    r.fake.wait_post(&needs_id(&gone.id));
+    let busy = r.co.create_task(KEY_A, new_task("a busy card")).unwrap();
+    let kept =
+        r.co.create_task(KEY_A, new_task("blocked in the burst"))
+            .unwrap();
+    r.co.claim_task(KEY_A, &kept.id).unwrap();
+    std::thread::sleep(notify::watch::BOARD_EVERY * 2); // the setup's views are done
+
+    let before = r.views.load(Ordering::SeqCst);
+    let start = Instant::now();
+    for i in 0..BURST {
+        r.co.add_comment(KEY_B, &busy.id, &format!("change {i}"), false)
+            .unwrap();
+    }
+    r.co.unblock(USER, &gone.id, "yes").unwrap();
+    r.block_on_person(KEY_A, &kept.id, "the last change");
+    let took = start.elapsed();
+
+    r.fake.wait_post(&needs_id(&kept.id));
+    r.fake.wait_gone(&needs_id(&gone.id));
+    std::thread::sleep(notify::watch::BOARD_EVERY * 2); // nothing still to come
+    let views = r.views.load(Ordering::SeqCst) - before;
+    // One at once, one per interval the burst ran, one after its last row.
+    let paced = (took.as_millis() / notify::watch::BOARD_EVERY.as_millis()) as usize + 2;
+    assert!(
+        views <= paced && views < BURST / 10,
+        "{views} views for {BURST} changes in {took:?}"
+    );
+}
+
+/// A lone change isn't held back for the pace of a burst.
+#[test]
+fn watch_board_a_lone_change_reconciles_at_once() {
+    let r = rig();
+    let t = r.co.create_task(KEY_A, new_task("alone")).unwrap();
+    r.co.claim_task(KEY_A, &t.id).unwrap();
+    std::thread::sleep(notify::watch::BOARD_EVERY * 2);
+    let start = Instant::now();
+    r.block_on_person(KEY_A, &t.id, "now?");
+    r.fake.wait_post(&needs_id(&t.id));
+    assert!(
+        start.elapsed() < notify::watch::BOARD_EVERY,
+        "{:?}",
+        start.elapsed()
+    );
+}
 
 #[test]
 fn watch_board_needs_you() {

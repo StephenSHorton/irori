@@ -97,9 +97,17 @@ pub fn version_waits(co: &Coord, st: &Store, f: &BoardFilter) {
     let v = co.board(f);
     let mut n = 0;
     let mut devs = std::collections::BTreeSet::new();
-    for c in v.needs_you.iter().chain(&v.blocked).chain(&v.working).chain(&v.open) {
+    for c in v
+        .needs_you
+        .iter()
+        .chain(&v.blocked)
+        .chain(&v.working)
+        .chain(&v.open)
+    {
         for b in &c.task.blockers {
-            let Some(on) = b.on.as_ref().filter(|_| b.open()) else { continue };
+            let Some(on) = b.on.as_ref().filter(|_| b.open()) else {
+                continue;
+            };
             if on.kind == "version" {
                 n += 1;
                 println!("  {} wait: {:?}", c.task.short_ref(), on.reference);
