@@ -67,6 +67,7 @@ pub mod notes;
 mod notifications;
 pub mod spaces;
 pub mod spawn;
+pub mod spawn_boards;
 pub mod spawn_permissions;
 pub mod spawn_remote;
 pub mod spawn_stop;

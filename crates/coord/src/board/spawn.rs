@@ -505,6 +505,37 @@ impl Fold {
         Ok(true)
     }
 
+    /// Marks agent `key` as started by Irori for card `task_id` of another
+    /// log (a shared board's, card #455), in this one: the person's own
+    /// hand-out never offers it a card here, and their devices know it as
+    /// spawned. The card isn't in this log; the mark is all it carries.
+    pub(crate) fn mark_spawned_elsewhere(
+        &mut self,
+        key: &str,
+        task_id: &str,
+        generation: i64,
+        device: &str,
+    ) -> Result<()> {
+        if self.spawned.get(key).is_some_and(|m| m.task_id == task_id) {
+            return Ok(());
+        }
+        let now = self.stamp();
+        self.write_as(
+            SWEEPER,
+            kinds::TASK_SPAWNED,
+            &TaskSpawnedRow {
+                task_id: task_id.into(),
+                key: key.into(),
+                generation,
+                device: device.into(),
+                by: SWEEPER.into(),
+                at: now,
+                ..TaskSpawnedRow::default()
+            },
+        )?;
+        Ok(())
+    }
+
     /// Whether this log spawns an agent per card (the board's switch).
     pub(crate) fn spawning_on(&self) -> bool {
         self.spawning.as_ref().is_some_and(|f| f())

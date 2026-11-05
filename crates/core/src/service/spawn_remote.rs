@@ -617,7 +617,7 @@ impl Services {
     /// their own devices (§7): actor `user`, `by` exactly the writing
     /// device's person key, and a device of their chain. Anything else is
     /// ignored and logged.
-    fn from_person(&self, ev: &Event, by: &str) -> bool {
+    fn by_person(&self, ev: &Event, by: &str) -> bool {
         let ok =
             ev.actor == "user" && by == format!("user:{}", ev.device_id) && self.chain.is_owner(by);
         if !ok {
@@ -662,7 +662,7 @@ impl Services {
             let Ok(r) = serde_json::from_slice::<EndRequest>(&ev.payload) else {
                 continue;
             };
-            if device_of(&r.key) != me || ev.device_id == me || !self.from_person(&ev, &r.by) {
+            if device_of(&r.key) != me || ev.device_id == me || !self.by_person(&ev, &r.by) {
                 continue;
             }
             let Some(m) = self.coord.spawned(&r.key) else {
@@ -713,7 +713,7 @@ impl Services {
             self.mark_seen(&ev);
             if ev.device_id == self.device.id
                 || !self.coord.hands_out_here(&t.id)
-                || !self.from_person(&ev, &r.by)
+                || !self.by_person(&ev, &r.by)
             {
                 continue;
             }
@@ -776,7 +776,7 @@ impl Services {
                 continue;
             };
             self.mark_seen(&ev);
-            if r.device != me || ev.device_id == me || !self.from_person(&ev, &r.by) {
+            if r.device != me || ev.device_id == me || !self.by_person(&ev, &r.by) {
                 continue;
             }
             let waits = t.spawn_request().is_some_and(|s| {

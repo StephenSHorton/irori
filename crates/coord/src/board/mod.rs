@@ -1323,6 +1323,18 @@ impl Coord {
     pub fn spawns_here(&self) -> Vec<(Task, Spawn)> {
         self.lock().spawns_here()
     }
+    /// Marks agent `key` as started for card `task_id` of another log
+    /// (card #455). See [`Fold::mark_spawned_elsewhere`].
+    pub fn mark_spawned_elsewhere(
+        &self,
+        key: &str,
+        task_id: &str,
+        generation: i64,
+        device: &str,
+    ) -> Result<()> {
+        self.lock()
+            .mark_spawned_elsewhere(key, task_id, generation, device)
+    }
     /// This log's device id.
     pub fn device_id(&self) -> String {
         self.lock().dev.clone()

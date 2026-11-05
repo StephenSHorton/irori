@@ -1005,6 +1005,8 @@ impl Services {
                 Err(e) => logf(format_args!("spawn {}: {e}", t.short_ref())),
             }
         }
+        // This person's own cards on shared boards whose switch is on.
+        self.sweep_board_spawns(&sp, cap, &mut running);
         // What another device asked this one to start, and sessions
         // started for a request that is no longer the card's.
         self.start_requested(&sp);
@@ -1145,18 +1147,38 @@ impl Services {
         name: &str,
         folder: Option<Option<String>>,
     ) -> Result<bool, String> {
+        let log = super::spawn_boards::SpawnLog::private(self);
+        self.start_in(sp, &log, t, g, name, folder)
+    }
+
+    /// [`Self::start_here`] for a card of `log`: the private board's or a
+    /// shared board's (card #455). On a shared board the board's own
+    /// setting is used, its other members' lines are left out of the brief
+    /// and bypass is never passed (§7).
+    pub(crate) fn start_in(
+        &self,
+        sp: &Spawner,
+        log: &super::spawn_boards::SpawnLog,
+        t: &Task,
+        g: i64,
+        name: &str,
+        folder: Option<Option<String>>,
+    ) -> Result<bool, String> {
         let me = self.device.id.clone();
         let name = name.to_string();
-        let repo_key = self.spawn_repo(t);
+        let private = log.board_id.is_empty();
+        let repo_key = if private {
+            self.spawn_repo(t)
+        } else {
+            t.repo_key.clone()
+        };
         let folder = match folder {
             Some(f) => f,
-            None => self.spawn_folder(t),
+            None if private => self.spawn_folder(t),
+            None => self.checkout_here(&repo_key),
         };
-        let comments = self.coord.comments(&t.id).unwrap_or_default();
-        let named = |k: &str| {
-            let n = self.roster.name_of(k);
-            if n.is_empty() { k.to_string() } else { n }
-        };
+        let comments = log.co.comments(&t.id).unwrap_or_default();
+        let named = |k: &str| (log.named)(k);
         let answer = self
             .spawn
             .answers
@@ -1165,19 +1187,20 @@ impl Services {
             .get(&t.id)
             .cloned()
             .or_else(|| self.answer_on_card(t, &comments));
-        let sent = self.coord.sent_back(&t.id);
+        let sent = log.co.sent_back(&t.id);
+        let others = |by: &str| (log.others)(by);
         let brief = build_brief(
             t,
             &comments,
             &named,
-            &|_| None,
+            &others,
             answer.as_deref(),
             sent.as_ref(),
         );
-        let setting = self.spawn_setting("");
-        let perms = spawn_permissions(&setting, "", &repo_key, &brief);
+        let setting = self.spawn_setting(&log.board_id);
+        let perms = spawn_permissions(&setting, &log.board_id, &repo_key, &brief);
         let refuse = |r: SpawnRefusal| -> Result<bool, String> {
-            self.coord
+            log.co
                 .end_spawn(SWEEPER, &t.id, g, SPAWN_FAILED, &r.to_string())
                 .map_err(|e| e.to_string())?;
             Ok(false)
@@ -1187,10 +1210,14 @@ impl Services {
                 repo_key: repo_key.clone(),
                 device: self.this_device_name(),
             });
-            self.stop_no_copy(t);
+            if private {
+                self.stop_no_copy(t);
+            }
             return r;
         };
-        self.resolve_no_copy(t, &folder, (sp.trusted)(Path::new(&folder)));
+        if private {
+            self.resolve_no_copy(t, &folder, (sp.trusted)(Path::new(&folder)));
+        }
         if !(sp.trusted)(Path::new(&folder)) {
             return refuse(SpawnRefusal::NotTrusted {
                 repo_key: repo_key.clone(),
@@ -1234,7 +1261,9 @@ impl Services {
             }
             Err(e) => {
                 let r = refuse(SpawnRefusal::Failed(e.clone()));
-                self.note_start_failed(t, &e);
+                if private {
+                    self.note_start_failed(t, &e);
+                }
                 r
             }
         }
@@ -1545,6 +1574,20 @@ impl Services {
                 continue;
             }
             let Some(t) = self.coord.get_task(&m.task_id) else {
+                // A shared board's card (card #455): it goes when its work
+                // there is done for it.
+                if let Some((_, t, k)) = self.spawn_card_of(&a.key)
+                    && (coord::is_terminal(&t.state)
+                        || !t.holders.contains(&k)
+                        || t.blockers.iter().any(|b| {
+                            b.open()
+                                && b.done_check
+                                && b.raised_by == k
+                                && at_least(&(self.now)(), &b.at, DONE_GRACE)
+                        }))
+                {
+                    self.begin_end(&a.key);
+                }
                 continue;
             };
             // Its done check waits on the person, unanswered, past the
@@ -1694,9 +1737,12 @@ impl Services {
         let Some(m) = self.coord.spawned(key) else {
             return false;
         };
-        let Some(t) = self.coord.get_task(&m.task_id) else {
+        // The card's log and the agent's key there (a shared board's
+        // agent:<cardId>, card #455).
+        let Some((co, t, key)) = self.spawn_card_of(key) else {
             return false;
         };
+        let key = key.as_str();
         // Its done check's proof, or a helper's proof to its lead (§3).
         if t.blockers.iter().any(|b| {
             (b.done_check || b.question == coord::PART_QUESTION)
@@ -1705,8 +1751,7 @@ impl Services {
         }) {
             return true;
         }
-        self.coord
-            .comments(&m.task_id)
+        co.comments(&m.task_id)
             .unwrap_or_default()
             .iter()
             .any(|c| c.by == key && !before(&c.at, &m.at))
@@ -1782,12 +1827,19 @@ impl Services {
     /// are tried (card #474).
     fn end_now(&self, key: &str, given: bool) -> Result<(), String> {
         if !self.coord.ended_by_irori(key) {
-            if let Some(m) = self.coord.spawned(key)
+            let card = self.spawn_card_of(key);
+            if let Some((co, t, _)) = &card
                 && !given
             {
-                self.coord
-                    .add_comment(SWEEPER, &m.task_id, NO_HANDOFF, false)
+                co.add_comment(SWEEPER, &t.id, NO_HANDOFF, false)
                     .map_err(|e| e.to_string())?;
+            }
+            // On a shared board its agent:<cardId> leaves the card as
+            // ended by Irori too (card #455).
+            if let Some((co, _, k)) = &card
+                && k != key
+            {
+                co.mark_ended(k, (self.now)());
             }
             #[derive(Serialize)]
             struct Gone<'a> {
