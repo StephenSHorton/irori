@@ -854,6 +854,11 @@ pub(crate) struct SpawnState {
     /// Spawner failures in a row, by card id (card #480): at
     /// [`super::spawn_stop::SPAWN_TRIES`] the card asks the person.
     pub start_fails: Mutex<HashMap<String, u32>>,
+    /// Held for a whole [`Services::sweep_spawns`]: the ask hand-out and
+    /// the coord sweep both run it, and one sweep's start_requested must
+    /// not start the request another's spawn_for just wrote and is still
+    /// starting (two sessions for one generation).
+    pub sweeping: Mutex<()>,
 }
 
 impl SpawnState {
@@ -1167,6 +1172,11 @@ impl Services {
     /// The private board's spawning pass: bind started agents, end the
     /// ones whose work is done, start agents for the cards that need one.
     pub(crate) fn sweep_spawns(&self) {
+        let _one = self
+            .spawn
+            .sweeping
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let rows = self.store.as_ref();
         load_spawn(rows, &self.spawn);
         self.clean_after_start();
