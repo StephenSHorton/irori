@@ -1838,10 +1838,11 @@ impl Services {
                 .then(|| crate::helpertree::main_root(cwd))
                 .flatten()
                 .or_else(|| {
+                    // Seen roots stay listed after they are removed.
                     self.capture
                         .repo_roots(&a.repo_key)
                         .into_iter()
-                        .next()
+                        .find(|r| Path::new(r).is_dir())
                         .map(PathBuf::from)
                 })?;
             // A live agent's checkout is trusted, since it runs there.

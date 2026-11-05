@@ -139,6 +139,70 @@ fn second_launch_hands_off_and_quit_closes_the_core() {
     );
 }
 
+/// One AppKit quit of a probe run (card #535): `-[NSApplication terminate:]`
+/// exits inside the event loop, so the shell's shutdown must not wait for
+/// `run_return`. `model` is the speech model to link into the home and what
+/// `<log>.voice` says; `how` is what `<log>.terminate` says.
+#[cfg(target_os = "macos")]
+fn appkit_quit(model: Option<(&Path, &str)>, how: &str) {
+    let tmp = Scratch(tempfile::tempdir().unwrap());
+    let home = tmp.path().join("home");
+    let claude = tmp.path().join("claude");
+    std::fs::create_dir_all(home.join("voice")).unwrap();
+    std::fs::create_dir_all(&claude).unwrap();
+    let log: PathBuf = tmp.path().join("shell.log");
+    if let Some((m, _)) = model {
+        std::os::unix::fs::symlink(m, home.join("voice").join(m.file_name().unwrap())).unwrap();
+    }
+    let child = irori(&home, &claude, &log)
+        .arg("--startup")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn irori --startup");
+    let mut child = Kill(child);
+    wait_for("the app to be ready", Duration::from_secs(120), || {
+        lines(&log).iter().any(|l| l == "ready")
+    });
+    if let Some((_, voice)) = model {
+        std::fs::write(tmp.path().join("shell.log.voice"), voice).unwrap();
+        wait_for("the model to load", Duration::from_secs(60), || {
+            lines(&log).iter().any(|l| l.starts_with("voice"))
+        });
+        assert!(lines(&log).iter().any(|l| l == "voice-loaded"));
+    }
+    std::fs::write(tmp.path().join("shell.log.terminate"), how).unwrap();
+    let st = wait_exit(&mut child.0, Duration::from_secs(60));
+    assert!(st.success(), "{how:?} quit: {st}");
+    assert!(lines(&log).iter().any(|l| l == "closed"));
+    assert!(
+        irori_core::lockfile::read(&home).is_err(),
+        "lockfile left behind"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn appkit_quit_closes_the_core() {
+    appkit_quit(None, "");
+    appkit_quit(None, "menu");
+}
+
+/// The abort itself needs the speech model (148 MB, not in the repo): set
+/// IRORI_TEST_VOICE_MODEL to a ggml-base.en.bin to run this.
+#[cfg(target_os = "macos")]
+#[test]
+fn appkit_quit_frees_the_speech_model() {
+    let Some(model) = std::env::var_os("IRORI_TEST_VOICE_MODEL") else {
+        return;
+    };
+    let model = Path::new(&model);
+    for voice in ["kept", "session"] {
+        appkit_quit(Some((model, voice)), "");
+        appkit_quit(Some((model, voice)), "menu");
+    }
+}
+
 #[test]
 fn role_dispatch_texts() {
     let tmp = tempfile::tempdir().unwrap();

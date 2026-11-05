@@ -20,6 +20,7 @@ import {
   workLabel,
   type CardRef,
   type CardSummary,
+  type GoneWait,
   type WaitPr,
 } from "./cards"
 import { parseTime, plainLine } from "./irori"
@@ -137,6 +138,8 @@ function row(c: CardSummary, now: number): Row {
   if (c.paused) return { state: "waiting", line: "Paused" }
   // Card #509: an agent's wait on a PR's merge is the person's merge.
   if (c.mergePr) return { state: "needs", line: mergeLine(c.mergePr) }
+  // Card #520: a wait no agent will end, on a card nobody holds.
+  if (c.goneWait) return { state: "needs", line: goneLine(c.goneWait) }
   // Card #471: a card on a PR waits on the PR (agents merge it, another
   // member's agents approve it), never on the person; its chip links it.
   if (c.state === TaskState.InReview)
@@ -292,6 +295,22 @@ export function mergeLine(pr: WaitPr): string {
   return `Merge PR #${pr.number}`
 }
 
+// goneLine is a gone wait's line (card #520): "Waits on kestrel (gone)",
+// or for an outside wait its gone agent raised, "Waits on CI on the
+// release; piranha (gone) raised it".
+export function goneLine(g: GoneWait): string {
+  const who = `${displayName(g.agent)} (gone)`
+  if (g.waitedOn || !g.on) return `Waits on ${who}`
+  return `Waits on ${plainLine(g.on)}; ${who} raised it`
+}
+
+// goneTitle is a gone wait's Needs you title (card #520): "#73 waits on
+// kestrel (gone)".
+export function goneTitle(c: CardSummary, g: GoneWait): string {
+  const ref = c.short ? `#${plainLine(c.short)}` : plainLine(c.title)
+  return `${ref} waits on ${displayName(g.agent)} (gone)`
+}
+
 // waitsOnTrust says the card's agent can't start until the person trusts
 // its repo: a Trust and start row in Needs you.
 export function waitsOnTrust(c: CardSummary): boolean {
@@ -347,6 +366,8 @@ export type Need =
   | { kind: "check" | "decision"; id: string; at: number; card: CardSummary }
   // Card #509: an agent waits on the person to merge a PR.
   | { kind: "merge"; id: string; at: number; card: CardSummary; pr: WaitPr }
+  // Card #520: a wait no agent will end, on a card nobody holds.
+  | { kind: "gone"; id: string; at: number; card: CardSummary; wait: GoneWait }
   | { kind: "trust"; id: string; at: number; card: CardSummary }
   | { kind: "held"; id: string; at: number; delivery: Delivery }
   | { kind: "heldQuiet"; id: string; at: number; deliveries: Delivery[] }
@@ -434,6 +455,16 @@ export function needsOf(cards: CardSummary[], held: Delivery[]): Need[] {
       at: time(c.updatedAt),
       card: c,
       pr: c.mergePr,
+    })
+  }
+  for (const c of cards) {
+    if (!c.goneWait || c.mergePr || over(c) || needsYou(c)) continue
+    out.push({
+      kind: "gone",
+      id: c.id,
+      at: time(c.updatedAt),
+      card: c,
+      wait: c.goneWait,
     })
   }
   for (const c of cards) {
