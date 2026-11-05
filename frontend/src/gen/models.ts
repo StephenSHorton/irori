@@ -144,7 +144,6 @@ export type VoiceDownload = B.VoiceDownload
 export type VoiceEvent = B.VoiceEvent
 export type VoiceStatus = B.VoiceStatus
 export type WaitPr = B.WaitPr
-export type WakeNoteView = B.WakeNoteView
 export type WindDownRow = B.WindDownRow
 export type WindDownStatus = B.WindDownStatus
 
@@ -771,11 +770,6 @@ export function VoiceStatus(p: Partial<B.VoiceStatus> = {}): B.VoiceStatus {
 /** WaitPr with Go's zero values for every field left out. */
 export function WaitPr(p: Partial<B.WaitPr> = {}): B.WaitPr {
   return { "repo": "", "number": 0, "url": "", ...p } as B.WaitPr
-}
-
-/** WakeNoteView with Go's zero values for every field left out. */
-export function WakeNoteView(p: Partial<B.WakeNoteView> = {}): B.WakeNoteView {
-  return { "noteId": "", "kind": "", "text": "", "tag": "", "agent": "", "at": "", ...p } as B.WakeNoteView
 }
 
 /** WindDownRow with Go's zero values for every field left out. */

@@ -88,18 +88,6 @@ export type NewNote = {
 
 export type NoteEdit = { kind?: NoteKind; text?: string; tags?: string[] }
 
-// WakeNote is one note an agent got on wake, and the tag that matched
-// (card #412's card_wake_notes: the latest wake of each agent that got
-// notes for the card, newest first).
-export type WakeNote = {
-  noteId: string
-  kind: NoteKind
-  text: string
-  tag: string
-  agent: string
-  at: string
-}
-
 // ---- tags (§11) ------------------------------------------------------------
 
 export type TagShape =
@@ -400,50 +388,10 @@ export function useNotesWaiting(): number {
   return value
 }
 
-// wakeNotes is what card_wake_notes says the card's agents got on wake
-// (card #412).
-export async function wakeNotes(taskId: string): Promise<WakeNote[]> {
-  if (inWails()) {
-    return (await NotesService.CardWakeNotes(taskId)) as WakeNote[]
-  }
-  return sampleWake(taskId)
-}
-
-// useWakeNotes is wakeNotes for the open card, re-read when notes change.
-export function useWakeNotes(taskId: string): WakeNote[] {
-  const load = useCallback(() => wakeNotes(taskId), [taskId])
-  const { value, reload } = useLatest<WakeNote[]>(load, [])
-  useEffect(() => {
-    void reload()
-  }, [reload])
-  return value
-}
-
 // ---- sample mode -----------------------------------------------------------
 
 function sampleBoardId(scope: string): string {
   return scope === "mlg" ? "sample-board-mlg" : scope
-}
-
-function sampleWake(taskId: string): WakeNote[] {
-  if (taskId !== "sample-card-4" && taskId !== "sample-card-1") return []
-  const at = new Date(Date.now() - 20 * 60 * 1000).toISOString()
-  const pick = (id: string, tag: string): WakeNote => {
-    const n = sampleNotes().find((x) => x.id === id)!
-    return {
-      noteId: n.id,
-      kind: n.kind,
-      text: n.text,
-      tag,
-      agent: "sample-device/sample-heron",
-      at,
-    }
-  }
-  return [
-    pick("sample-note-1", "everywhere"),
-    pick("sample-note-3", "machine:the pc"),
-    pick("sample-note-2", "repo:remote:github.com/StephenSHorton/irori"),
-  ]
 }
 
 let sample: Note[] | null = null

@@ -92,7 +92,6 @@ import {
   waitLabel,
   Asker,
 } from "./bits"
-import { WakeNotes } from "@/components/notes/parts"
 import { Face, LiveDot } from "./faces"
 import { Thread } from "./thread"
 import { TerminalSection } from "@/components/term/terminal-section"
@@ -466,21 +465,6 @@ export function CardPage({
                 }
               >
                 <People detail={now_} gone={gone} />
-                <WakeNotes
-                  cardId={detail.id}
-                  who={(k) =>
-                    displayName(
-                      [
-                        ...detail.working,
-                        ...(detail.holder ? [detail.holder.who] : []),
-                      ].find((a) => a.key === k) ??
-                        ({
-                          key: k,
-                          name: "",
-                        } as AgentRef)
-                    )
-                  }
-                />
               </Section>
 
               {detail.reviews.length > 0 && (
