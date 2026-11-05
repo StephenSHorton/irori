@@ -4,7 +4,7 @@
 // plain browser everything runs on the sample in sample-talk.ts (actions
 // change that sample in memory so the buttons can be tried).
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { Events, InboxService, RosterService } from "./host"
 import {
@@ -16,10 +16,12 @@ import {
   type Mention,
   type MentionOutcome,
   type Policy,
+  type StartedAgent,
 } from "./models"
-import { inWails, parseTime, sessionShort } from "./irori"
+import { inWails, parseTime } from "./irori"
 import { checkUploads, uploadOf } from "./uploads"
 import { sampleTalk, type SampleTalk } from "./sample-talk"
+import { nameOr } from "./names"
 
 export type { Delivery, GoneSession, Policy }
 export { HoldReason, Mode, State }
@@ -41,38 +43,88 @@ export const HeldHistoryLimit = 100
 // SystemKey mirrors inbox.SystemKey: Irori itself (an unpause, the sweep).
 export const SystemKey = "irori"
 
-// holdReasons mirror notify.HoldReason: why Irori held a message.
-export const holdReasons: Record<string, string> = {
-  [HoldReason.HoldBlocked]: "The sender is on your block list.",
-  [HoldReason.HoldNotAllowed]: "The sender isn't on your allow list.",
-  [HoldReason.HoldBypassReceiver]:
-    "An older Irori held it because the recipient runs without permission prompts; that rule is gone, so release it.",
-  [HoldReason.HoldHopLimit]:
-    "It is too many hops down a chain of agent messages.",
-  [HoldReason.HoldUnowned]: "No agent in that repo can take it yet.",
-  [HoldReason.HoldPaused]: "Wakes are paused.",
-  [HoldReason.HoldMemberWake]:
-    "Another person asked to wake your agent, and your receive setting for that board asks you first.",
-  [HoldReason.HoldCrossPerson]:
-    "It comes from another person on a shared board, and your receive setting for that board asks you first.",
-  [HoldReason.HoldMemberLease]:
-    "Another person asks your agent to give up a lease.",
+// HoldWords names what a hold's sentence mentions (card #488): an agent
+// by key, and a repo by key (its short name, never the raw key).
+export type HoldWords = {
+  name?: (key: string) => string
+  repo?: (key: string) => string
 }
 
-// holdText is why d was (or is) held, in plain words.
-export function holdText(d: Delivery): string {
-  const h = d.hold || d.heldFor || ""
-  return holdReasons[h] ?? h
+// holdText is why d was (or is) held, in plain words that name who is
+// involved (card #488): "otter and heron have messaged each other 8 times
+// without stopping", not an internal reason. Unknown reasons read as a
+// plain "Irori held it." rather than their code.
+export function holdText(d: Delivery, w: HoldWords = {}): string {
+  // A string: the inbox also has holds the window's enum doesn't list.
+  const h: string = d.hold || d.heldFor || ""
+  const named = (key: string) => (key ? (w.name?.(key) ?? "") : "")
+  const from =
+    d.message.from.key.startsWith("user:")
+      ? "you"
+      : named(d.message.from.key) || d.message.from.name || "an agent"
+  // An agent's name starts the sentence as it is ("sample-otter"): it's
+  // a handle, not a word to capitalize.
+  const lead = from === "you" ? "You" : from
+  const to = d.to?.startsWith("user:") ? "you" : named(d.to) || "the other agent"
+  const repo = d.repoKey ? (w.repo ?? repoShort)(d.repoKey) : "its repo"
+  switch (h) {
+    case HoldReason.HoldBlocked:
+      return `${lead} is on your block list.`
+    case HoldReason.HoldNotAllowed:
+      return `${lead} isn't on your allow list.`
+    case HoldReason.HoldBypassReceiver:
+      return "An older Irori held it, by a rule that's gone now. Release delivers it."
+    case HoldReason.HoldHopLimit: {
+      const n = d.message.hop
+      return n > 1
+        ? `${lead} and ${to} have messaged each other ${n} times without stopping.`
+        : `${lead} and ${to} kept messaging each other without stopping.`
+    }
+    case HoldReason.HoldUnowned:
+      return from === "you"
+        ? `No agent is working in ${repo} to take your message.`
+        : `No agent is working in ${repo} to take it yet.`
+    case HoldReason.HoldPaused:
+      return "You paused wakes."
+    case HoldReason.HoldMemberWake:
+      return "Another person asked to wake your agent, and your receive setting for that board asks you first."
+    case HoldReason.HoldCrossPerson:
+      return "It comes from another person on a shared board, and your receive setting for that board asks you first."
+    case HoldReason.HoldMemberLease:
+      return "Another person asks your agent to give up a lease."
+    case "member_removed":
+      return "It comes from a person who is no longer on that board."
+    case "editing":
+      return "You are editing it."
+    default:
+      return h ? "Irori held it." : ""
+  }
 }
 
-// allowLifts mirrors InboxService.AllowAndRelease: allowing the sender
-// lifts only these holds.
+// startedLine is what Start an agent did, in the person's words (card
+// #488): an agent starting, a free agent handed it, or a card waiting.
+export function startedLine(s: StartedAgent): string {
+  if (s.started) return `Starting an agent in ${s.repo} on ${s.cardRef}, with your message.`
+  if (s.offered) return `Your message is card ${s.cardRef} in ${s.repo}, handed to a free agent.`
+  return `Your message is card ${s.cardRef} in ${s.repo}; it waits for a free agent.`
+}
+
+// repoShort is a repo key as a person reads it when no checkout here names
+// it (card #488): "example-app" for a hosted repo, "local repo 5a3c1e0"
+// for a root-commit key. useRepoNames gives the checkout folder's name.
+export function repoShort(key: string): string {
+  if (key.startsWith("root:")) return `local repo ${key.slice(5, 12)}`
+  const k = key.replace(/\/+$/, "").replace(/\.git$/, "")
+  const i = Math.max(k.lastIndexOf("/"), k.lastIndexOf(":"), k.lastIndexOf("\\"))
+  return i >= 0 && i < k.length - 1 ? k.slice(i + 1) : k
+}
+
+// allowLifts says Allow sender & deliver is offered: allowing the sender
+// lifts a not-on-your-allow-list hold. InboxService.AllowAndRelease also
+// takes an older Irori's retired bypass hold, but there allowing changes
+// nothing a plain Release doesn't, so it isn't offered (card #488).
 export function allowLifts(d: Delivery): boolean {
-  return (
-    d.state === State.Held &&
-    (d.hold === HoldReason.HoldNotAllowed ||
-      d.hold === HoldReason.HoldBypassReceiver)
-  )
+  return d.state === State.Held && d.hold === HoldReason.HoldNotAllowed
 }
 
 // errorText reads a failed call: Wails rejects with an Error or with an
@@ -88,8 +140,9 @@ export function errorText(err: unknown): string {
 const message = errorText
 
 // Names turns agent keys into labels: "you" for the person, the live
-// roster name, else a name seen on a message or a gone session, else a
-// short session id. Callers pass every source they have.
+// roster name, else a name seen on a message or a gone session, else
+// "unknown agent", never a key (card #478). Callers pass every source
+// they have.
 export function nameLookup(
   ...sources: Array<Iterable<[string, string]>>
 ): (key: string) => string {
@@ -100,7 +153,7 @@ export function nameLookup(
   return (key: string) => {
     if (!key) return ""
     if (key.startsWith("user:")) return "you"
-    return names.get(key) || `agent ${sessionShort(key)}`
+    return nameOr(names.get(key))
   }
 }
 
@@ -268,6 +321,19 @@ export const talk = {
     if (inWails()) return InboxService.Dismiss(id)
     sampleDelivery(id)
     sampleSetState(id, State.Dismissed)
+  },
+
+  // startAgent is "Start an agent in <repo>" (card #488) on the person's
+  // message no agent in its repo can take yet: it becomes a card there,
+  // an agent is started for it, and the held message closes. The answer
+  // says which card and what happened (startedLine words it).
+  async startAgent(id: string): Promise<StartedAgent> {
+    if (inWails()) return InboxService.StartAgent(id)
+    const d = sampleDelivery(id)
+    if (d.state !== State.Held || d.hold !== HoldReason.HoldUnowned)
+      throw new Error("inbox: not allowed in the delivery's current state")
+    sampleSetState(id, State.Dismissed)
+    return { cardRef: "#99", repo: "ww-multiplayer", started: true, offered: false }
   },
 
   async allowAndRelease(id: string): Promise<void> {
@@ -461,6 +527,32 @@ export function useHeld(history: boolean): HeldState {
   }, [reload])
 
   return { ...value, error, reload }
+}
+
+// sampleRepoNames are the sample checkouts' folder names.
+const sampleRepoNames: Array<[string, string]> = [
+  ["root:5a3c1e0b9d7f2a4c6e8b0d1f3a5c7e9b1d3f5a7c", "ww-multiplayer"],
+]
+
+async function loadRepoNames(): Promise<Array<[string, string]>> {
+  if (!inWails()) return sampleRepoNames
+  return ((await InboxService.RepoNames()) ?? []).map((r): [string, string] => [r.repoKey, r.name])
+}
+
+// useRepoNames names repo keys (card #488): the checkout folder's name for
+// a repo this device has one of ("ww-multiplayer"), else repoShort. Read
+// once a held message to a repo shows, and again on each inbox change.
+export function useRepoNames(): (key: string) => string {
+  const { value, reload } = useLatest<Array<[string, string]>>(loadRepoNames, [])
+  useEffect(() => {
+    void reload()
+    if (!inWails()) return
+    return Events.On(EventInboxChanged, () => void reload())
+  }, [reload])
+  return useMemo(() => {
+    const names = new Map(value)
+    return (key: string) => names.get(key) || repoShort(key)
+  }, [value])
 }
 
 async function loadGone(): Promise<GoneSession[]> {

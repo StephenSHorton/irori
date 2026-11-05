@@ -45,7 +45,7 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
         end: Arc::new(move |sess: &str| {
             b.ended.lock().unwrap().push(sess.to_string());
             let _ = std::fs::remove_file(s2.join("900003.json"));
-            Ok(())
+            Ok(String::new())
         }),
         trusted: Arc::new(|_| true),
         list: None,
@@ -121,6 +121,18 @@ fn a_card_gets_its_own_agent_which_ends_at_its_done_check() {
     let reqs = fake.started.lock().unwrap().clone();
     assert_eq!(reqs.len(), 1, "one spawn: {reqs:?}");
     let req = &reqs[0];
+    // A word name like a terminal session's (card #472), not card-N-G,
+    // and none a live agent here has (alpha and beta are taken).
+    assert!(
+        coord::names::WORDS.contains(&req.name.as_str()),
+        "{:?}",
+        req.name
+    );
+    assert!(!["alpha", "beta"].contains(&req.name.as_str()));
+    assert_eq!(
+        co.get_task(&t.id).unwrap().spawn_request().unwrap().name,
+        req.name
+    );
     assert_eq!(req.permission_mode, "bypassPermissions");
     // No model picked: Sonnet at medium effort (#448), on the request row
     // too.
@@ -532,7 +544,7 @@ fn a_card_with_no_checkout_fails_once_and_is_not_asked_again() {
         .spawn_request()
         .cloned()
         .unwrap();
-    assert!(sr.reason.starts_with("no checkout of"), "{sr:?}");
+    assert!(sr.reason.starts_with("this card names no repo"), "{sr:?}");
     assert_eq!(sr.generation, 1);
     let rows = spawn_rows();
     assert_eq!(rows, 2, "one requested and one failed");
@@ -617,11 +629,7 @@ fn a_card_whose_repo_isnt_on_this_device_is_refused_not_spawned() {
         .cloned()
         .unwrap();
     assert_eq!(s.device, me, "asked for here only");
-    assert!(
-        s.reason
-            .contains("no checkout of remote:github.com/work-org/work-repo"),
-        "{s:?}"
-    );
+    assert!(s.reason.contains("no copy of work-repo on "), "{s:?}");
     std::thread::sleep(std::time::Duration::from_millis(300));
     assert!(fake.started.lock().unwrap().is_empty(), "nothing started");
     let t = co.get_task(&t.id).unwrap();

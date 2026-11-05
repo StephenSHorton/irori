@@ -35,6 +35,8 @@ export const Kind = {
   Message: "message",
   Held: "held",
   Agent: "agent",
+  // The one card for several messages that waited (card #482).
+  Waited: "waited",
 } as const
 
 export const kindLabel: Record<string, string> = {
@@ -49,6 +51,7 @@ export const kindLabel: Record<string, string> = {
   message: "Message",
   held: "Held",
   agent: "Agent",
+  waited: "Messages",
 }
 
 export const kindTone: Record<
@@ -66,6 +69,7 @@ export const kindTone: Record<
   message: "info",
   held: "warning",
   agent: "secondary",
+  waited: "info",
 }
 
 // onCard: the item is about a card's blocker, done check or question.
@@ -74,6 +78,13 @@ export function asksOnCard(n: Notification): boolean {
     !!n.taskId &&
     (n.kind === Kind.Blocker || n.kind === Kind.DoneCheck || n.kind === Kind.Input)
   )
+}
+
+// waitedSummary: the item is the "N messages waited for you" card, which
+// stands for several messages, not one (card #482). Before #482 it was a
+// message about delivery "waiting".
+export function waitedSummary(n: Notification): boolean {
+  return n.kind === Kind.Waited || (n.kind === Kind.Message && n.deliveryId === "waiting")
 }
 
 // shown is the list a filter shows, newest first as it comes.
@@ -90,6 +101,10 @@ const who = (name: string | undefined) => {
   return !n ? "someone" : n === "You" ? "you" : n
 }
 
+// How an agent's next done check resolves the one it replaces (coord's
+// ASKED_AGAIN).
+export const AskedAgain = "asked again: ready for the person"
+
 // blockerOutcome is how a resolved blocker or done check ended, in the
 // card page's words: "" while it still waits on the person.
 export function blockerOutcome(b: CardBlocker): string {
@@ -102,6 +117,12 @@ export function blockerOutcome(b: CardBlocker): string {
   const note = r.note?.trim()
   if (r.closed) return `Closed by ${by}${note ? `: ${note}` : ""}`
   const answer = (r.answer ?? "").trim()
+  // The agent's next done check replaced this one (card #476): the reason
+  // on it is the person's, not the agent's.
+  if (b.doneCheck && note === AskedAgain)
+    return answer && answer !== AskedAgain
+      ? `You sent it back: “${answer}”; ${by} asked again`
+      : `${by} asked again`
   if (b.doneCheck)
     return r.option >= 0
       ? `Marked done by ${by}`

@@ -598,13 +598,21 @@ impl Inbox {
     }
 
     /// The hop a board row agent writes now carries: one more than the
-    /// message its running turn woke on, 0 outside a woken turn (§7.1).
+    /// message its running turn woke on, 0 outside a woken turn (§7.1),
+    /// and 0 again once the agent or that message's sender made progress
+    /// since it was sent (card #488).
     pub fn current_hop(&self, agent: &str) -> i64 {
         self.read(|b| {
             b.running
                 .get(agent)
                 .and_then(|run| b.newest_in(&run.wake_id))
-                .map_or(0, |m| m.hop + 1)
+                .map_or(0, |m| {
+                    if b.chain_progressed(&[agent, &m.from.key], &m.sent_at) {
+                        0
+                    } else {
+                        m.hop + 1
+                    }
+                })
         })
     }
 

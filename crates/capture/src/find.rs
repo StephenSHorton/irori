@@ -24,7 +24,7 @@ use gocompat::time::GoTime;
 use search::{Doc, Error, Hit, Kind, Query, ShowOptions, Shown, Source};
 
 use crate::gotime;
-use crate::handle::first_line;
+use crate::handle::first_text_line;
 use crate::rows::{EditRow, TurnRow};
 use crate::service::{Capture, CommitRec, lock};
 
@@ -230,7 +230,8 @@ pub(crate) fn turn_doc(r: &TurnRow) -> Doc {
         kind: Kind::Turn,
         at: r.turn.started_at,
         updated: GoTime::ZERO,
-        title: first_line(&prompt),
+        // Its text, not a harness tag like <task-notification> (card #489).
+        title: first_text_line(&prompt),
         body,
         agent: r.key.clone(),
         repo_key: r.repo_key.clone(),

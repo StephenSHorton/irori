@@ -819,6 +819,170 @@ fn watch_returned_again_in_one_tick() {
     assert_eq!(f.drain(), 1, "a return in the same tick posts again");
 }
 
+/// A returned card's Board view for the BoardCards harness (card #483).
+fn returned_view(lane: &str, was: &str, spawns: Vec<coord::Spawn>) -> BoardView {
+    let card = Card {
+        task: Task {
+            id: "t1".into(),
+            short: "453".into(),
+            title: "Spawned agents part 9".into(),
+            returned: Some(Returned {
+                was: was.into(),
+                at: GoTime::from_system(SystemTime::now()),
+                person: true,
+                row: "dev1:5".into(),
+            }),
+            spawns,
+            ..Task::default()
+        },
+        ..Card::default()
+    };
+    if lane == "needs_you" {
+        BoardView {
+            needs_you: vec![card],
+            ..BoardView::default()
+        }
+    } else {
+        BoardView {
+            open: vec![card],
+            ..BoardView::default()
+        }
+    }
+}
+
+fn posted(f: &Fake, id: &str) -> bool {
+    f.lock().posts.iter().any(|n| n.id == id)
+}
+
+/// Card #483: no key in a returned card. A name source that knows nothing
+/// (""), or one that falls back to the key, gives "Its agent"; the card's
+/// spawn record names the agent it started.
+#[test]
+fn watch_returned_card_never_names_a_key() {
+    let id = returned_id("t1");
+    let names: [inbox::watch::NameFn; 2] = [
+        Arc::new(|_: &str| String::new()),
+        Arc::new(|k: &str| k.to_string()),
+    ];
+    for name in names {
+        let f = Fake::new();
+        let n = notifier(&f);
+        let mut w = BoardCards::new(
+            &n,
+            &Sources {
+                name: Some(name.clone()),
+                ..Sources::default()
+            },
+        );
+        w.returned(&returned_view("open", KEY_A, vec![]), true);
+        assert_eq!(f.drain(), 1);
+        let body = f.card(&id).body;
+        assert_eq!(
+            body,
+            "Its agent went away, so it's open again. Assign it to an agent, or close it."
+        );
+        assert!(!body.contains(KEY_A) && !body.contains('/'), "{body}");
+
+        // The card's spawn record bound to that key names it.
+        let f = Fake::new();
+        let n = notifier(&f);
+        let mut w = BoardCards::new(
+            &n,
+            &Sources {
+                name: Some(name),
+                ..Sources::default()
+            },
+        );
+        let spawns = vec![
+            coord::Spawn {
+                key: KEY_B.into(),
+                name: "Someone else".into(),
+                ..coord::Spawn::default()
+            },
+            coord::Spawn {
+                key: KEY_A.into(),
+                name: "Bing Bong".into(),
+                ..coord::Spawn::default()
+            },
+        ];
+        w.returned(&returned_view("open", KEY_A, spawns), true);
+        assert_eq!(f.drain(), 1);
+        let body = f.card(&id).body;
+        assert!(body.starts_with("Bing Bong went away"), "{body}");
+    }
+
+    // No key at all: still "Its agent".
+    let f = Fake::new();
+    let n = notifier(&f);
+    let mut w = BoardCards::new(&n, &Sources::default());
+    w.returned(&returned_view("open", "", vec![]), true);
+    assert_eq!(f.drain(), 1);
+    assert!(f.card(&id).body.starts_with("Its agent went away"));
+}
+
+/// Card #483: a returned card waiting on the person (Needs you: their Done
+/// or their answer) gets no "assign it" card, and one already up clears;
+/// once it stops waiting with nobody on it, the card comes.
+#[test]
+fn watch_returned_card_not_while_it_waits_on_the_person() {
+    let f = Fake::new();
+    let n = notifier(&f);
+    let mut w = BoardCards::new(
+        &n,
+        &Sources {
+            name: Some(Arc::new(|_: &str| "alpha".to_string())),
+            ..Sources::default()
+        },
+    );
+    let id = returned_id("t1");
+    w.returned(&returned_view("needs_you", KEY_A, vec![]), true);
+    assert_eq!(f.drain(), 0, "it waits on the person: no card");
+    assert!(!posted(&f, &id));
+
+    w.returned(&returned_view("open", KEY_A, vec![]), true);
+    assert_eq!(f.drain(), 1, "it stopped waiting, nobody on it: the card");
+    assert!(f.card(&id).body.starts_with("alpha went away"));
+
+    w.returned(&returned_view("needs_you", KEY_A, vec![]), true);
+    f.wait_gone(&id);
+}
+
+/// Card #453's state: an agent finished a card that waits on the person's
+/// Done, then went away. No "assign it" card while that Done is open.
+#[test]
+fn watch_returned_card_waiting_on_done() {
+    let r = rig_with(
+        None,
+        coord::Options {
+            done_check: true,
+            holder_grace: Duration::from_millis(20),
+            ..coord::Options::default()
+        },
+    );
+    let tk =
+        r.co.create_task(USER, new_task("Spawned agents part 9"))
+            .unwrap();
+    r.co.claim_task(KEY_A, &tk.id).unwrap();
+    let got =
+        r.co.set_task_state(KEY_A, &tk.id, coord::COMPLETED, "Shipped it.")
+            .unwrap();
+    assert_eq!(got.state, coord::BLOCKED, "a done check, not closed");
+    r.fake.wait_post(&needs_id(&tk.id));
+    r.ros.drop_key(KEY_A);
+    wait_for("the gone holder is taken off", || {
+        r.co.sweep_notices().unwrap();
+        r.co.get_task(&tk.id)
+            .unwrap()
+            .returned
+            .is_some_and(|t| t.person)
+    });
+    let t = r.co.get_task(&tk.id).unwrap();
+    assert!(t.holders.is_empty(), "{t:?}");
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(!posted(&r.fake, &returned_id(&tk.id)), "no assign-it card");
+    assert!(r.fake.is_live(&needs_id(&tk.id)), "its Done is still up");
+}
+
 // ---- owner_test.go ----
 
 /// The person is one person on every device: a card they moved from

@@ -32,15 +32,20 @@ import {
   type Conversation as Conv,
 } from "@/lib/conversations"
 import { AgentRef } from "@/lib/models"
+import { AllSpaces, convInSpace } from "@/lib/spaces"
 import { LiveRoster } from "@/lib/thread"
 import { parseTime, plainLine, relativeTime } from "@/lib/irori"
 import { useNarrow } from "@/lib/media"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import {
+  agentRows,
+  agentSectionRows,
   archived,
+  broadcastTo,
   dmSections,
   sectionRows,
+  type Broadcast,
   unreadIn,
   useFolds,
   type SectionKey,
@@ -54,7 +59,9 @@ import {
   stateBadges,
   stateLine,
 } from "./threads"
-import { ConversationView, statusOf, statusWord } from "./conversation"
+import { agentStatus } from "@/lib/agent-status"
+import { ConversationView, memberStatus, statusOf } from "./conversation"
+import { memberName, nameOr } from "@/lib/names"
 
 // talkMatches is whether a thread fits the list's search: its title, what
 // was asked, its #ref, or the newest reply.
@@ -77,9 +84,12 @@ export function needsYou(t: Pick<ThreadSummary, "state">): boolean {
 export function convMatches(c: Conv, query: string): boolean {
   const q = query.trim().toLowerCase()
   if (!q) return true
-  return [c.name, c.topic ?? "", ...c.members.map((m) => m.name ?? "")].some((s) =>
-    s.toLowerCase().includes(q)
-  )
+  return [
+    c.name,
+    c.topic ?? "",
+    c.lastText ?? "",
+    ...c.members.map((m) => m.name ?? ""),
+  ].some((s) => s.toLowerCase().includes(q))
 }
 
 export function TalkPage({
@@ -91,6 +101,7 @@ export function TalkPage({
   now,
   why = "",
   board = "",
+  space = AllSpaces,
 }: {
   threads: ThreadSummary[]
   // Channels and DMs (Talk 1, #389).
@@ -104,8 +115,10 @@ export function TalkPage({
   // Why nobody is free to take a waiting thread (card #172).
   why?: string
   // The shared space the sidebar picked (card #393): new threads start
-  // there, beside the ones listed.
+  // there, beside the ones listed, and so do new channels.
   board?: string
+  // The picked space itself (card #461): the channels and DMs listed.
+  space?: string
 }) {
   const narrow = useNarrow()
   const [query, setQuery] = useState("")
@@ -115,10 +128,17 @@ export function TalkPage({
   const shown = threads.filter((t) => talkMatches(t, query))
   const live = shown.filter((t) => t.state !== "resolved")
   const resolved = shown.filter((t) => t.state === "resolved")
-  const showResolved = resolvedShown(showResolvedPick, open, threads) || !!query.trim()
+  const showResolved =
+    resolvedShown(showResolvedPick, open, threads) || !!query.trim()
   const current = threads.find((t) => t.id === open)
-  const conv = current ? undefined : conversations.find((c) => c.convId === open)
-  const { channels, dms } = listed(conversations.filter((c) => convMatches(c, query)))
+  // The open one is looked up in all of them, so a link to another space's
+  // channel still opens; the list shows the picked space's (card #461).
+  const conv = current
+    ? undefined
+    : conversations.find((c) => c.convId === open)
+  const { channels, dms } = listed(
+    conversations.filter((c) => convInSpace(c, space) && convMatches(c, query))
+  )
   const [adding, setAdding] = useState<"" | "channel" | "dm">("")
   const liveRoster = useContext(LiveRoster)
   const goneDm = (c: Conv) => dmGone(c, liveRoster)
@@ -133,18 +153,29 @@ export function TalkPage({
     return c.kind === "dm" && !c.readOnly && !archived(c, goneDm) ? id : ""
   }
   const [kept, setKept] = useState(() => ({ open, keep: keptFor(open) }))
-  const keep = kept.open === open && kept.keep !== null ? kept.keep : keptFor(open)
+  const keep =
+    kept.open === open && kept.keep !== null ? kept.keep : keptFor(open)
   if (kept.open !== open || kept.keep !== keep) setKept({ open, keep })
   const sections = dmSections(dms, goneDm, keep ?? "")
   const [isFolded, toggleFold] = useFolds()
   // Search looks through everything, folded or not.
   const searching = !!query.trim()
   const folded = (k: SectionKey) => !searching && isFolded(k)
-  const [allShown, setAllShown] = useState<Partial<Record<SectionKey, boolean>>>({})
+  const [allShown, setAllShown] = useState<
+    Partial<Record<SectionKey, boolean>>
+  >({})
   const convRows = (k: SectionKey, items: Conv[]) =>
     sectionRows(items, folded(k), open, searching || !!allShown[k])
   const [marking, setMarking] = useState(false)
-  const convSection = (k: SectionKey, label: string, items: Conv[], empty: string, extra?: ReactNode, add?: { onAdd: () => void; label: string }, markAll?: boolean) => {
+  const convSection = (
+    k: SectionKey,
+    label: string,
+    items: Conv[],
+    empty: string,
+    extra?: ReactNode,
+    add?: { onAdd: () => void; label: string },
+    markAll?: boolean
+  ) => {
     const { rows, hidden } = convRows(k, items)
     const unread = unreadIn(items)
     return (
@@ -170,7 +201,13 @@ export function TalkPage({
           <p className="px-2 py-1 text-[12px] text-muted-foreground">{empty}</p>
         )}
         {rows.map((c) => (
-          <ConvItem key={c.convId} c={c} current={c.convId === open} onClick={() => onOpen(c.convId)} />
+          <ConvItem
+            key={c.convId}
+            c={c}
+            now={now}
+            current={c.convId === open}
+            onClick={() => onOpen(c.convId)}
+          />
         ))}
         {hidden > 0 && !folded(k) && (
           <button
@@ -180,6 +217,68 @@ export function TalkPage({
           >
             Show {hidden} more
           </button>
+        )}
+      </Group>
+    )
+  }
+  // Agents talking (card #486): a message sent to many agents is one row,
+  // newest first, at most agentsCap of them; search finds the rest.
+  // A broadcast holding the open DM starts unfolded; its chevron still folds it.
+  const [unfolded, setUnfolded] = useState<Record<string, boolean>>({})
+  const isUnfolded = (b: Broadcast) =>
+    unfolded[b.id] ?? b.convs.some((c) => c.convId === open)
+  const agentsSection = () => {
+    const all = agentRows(sections.agents)
+    const { rows, hidden, capped } = agentSectionRows(
+      all,
+      folded("agents"),
+      open,
+      !!allShown.agents,
+      searching
+    )
+    return (
+      <Group
+        label="Agents talking"
+        count={all.length}
+        folded={folded("agents")}
+        onToggle={searching ? undefined : () => toggleFold("agents")}
+      >
+        {rows.map((r) =>
+          r.kind === "dm" ? (
+            <ConvItem
+              key={r.c.convId}
+              c={r.c}
+              now={now}
+              current={r.c.convId === open}
+              onClick={() => onOpen(r.c.convId)}
+            />
+          ) : (
+            <BroadcastItem
+              key={r.b.id}
+              b={r.b}
+              now={now}
+              open={open}
+              unfolded={isUnfolded(r.b)}
+              onToggle={() =>
+                setUnfolded({ ...unfolded, [r.b.id]: !isUnfolded(r.b) })
+              }
+              onOpen={onOpen}
+            />
+          )
+        )}
+        {hidden > 0 && !folded("agents") && (
+          <button
+            type="button"
+            className="px-2 py-0.5 text-left text-[11px] text-muted-foreground hover:text-ink"
+            onClick={() => setAllShown({ ...allShown, agents: true })}
+          >
+            Show {hidden} more
+          </button>
+        )}
+        {capped > 0 && !folded("agents") && hidden === 0 && (
+          <p className="px-2 py-0.5 text-[11px] text-muted-foreground">
+            {capped} older not listed. Search finds them.
+          </p>
         )}
       </Group>
     )
@@ -196,7 +295,10 @@ export function TalkPage({
       )}
     >
       <div className="mx-1 flex items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-[12.5px]">
-        <SearchIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        <SearchIcon
+          className="size-3.5 shrink-0 text-muted-foreground"
+          aria-hidden
+        />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -245,19 +347,25 @@ export function TalkPage({
         searching ? "No channel matches." : "No channels yet. Make one with +.",
         adding === "channel" ? (
           <NewChannel
+            space={board}
             onDone={(id) => {
               setAdding("")
               if (id) onOpen(id)
             }}
           />
         ) : undefined,
-        { onAdd: () => setAdding(adding === "channel" ? "" : "channel"), label: "New channel" }
+        {
+          onAdd: () => setAdding(adding === "channel" ? "" : "channel"),
+          label: "New channel",
+        }
       )}
       {convSection(
         "dms",
         "Direct messages",
         sections.yours,
-        searching ? "No direct message matches." : "No direct messages. Start one with +.",
+        searching
+          ? "No direct message matches."
+          : "No direct messages. Start one with +.",
         adding === "dm" ? (
           <NewDm
             agents={agents}
@@ -267,12 +375,22 @@ export function TalkPage({
             }}
           />
         ) : undefined,
-        { onAdd: () => setAdding(adding === "dm" ? "" : "dm"), label: "New direct message" }
+        {
+          onAdd: () => setAdding(adding === "dm" ? "" : "dm"),
+          label: "New direct message",
+        }
       )}
-      {sections.agents.length > 0 &&
-        convSection("agents", "Agents talking", sections.agents, "")}
+      {sections.agents.length > 0 && agentsSection()}
       {sections.gone.length > 0 &&
-        convSection("gone", "Archive", sections.gone, "", undefined, undefined, true)}
+        convSection(
+          "gone",
+          "Archive",
+          sections.gone,
+          "",
+          undefined,
+          undefined,
+          true
+        )}
       {resolved.length > 0 && (
         <div className="mt-auto grid grid-cols-[minmax(0,1fr)] gap-0.5 pt-3">
           <button
@@ -313,20 +431,31 @@ export function TalkPage({
       onResolved={() => onOpen(openAfterResolve(open, current.id))}
     />
   ) : conv ? (
-    <ConversationView key={conv.convId} conv={conv} now={now} narrow={narrow} onBack={() => onOpen("")} />
+    <ConversationView
+      key={conv.convId}
+      conv={conv}
+      now={now}
+      narrow={narrow}
+      onBack={() => onOpen("")}
+    />
   ) : (
     <div className="grid min-w-0 flex-1 content-start gap-3 p-4">
       <h2 className="flex items-center gap-2 text-[13px] font-medium text-ink">
         {narrow && threads.length > 0 && (
-          <Button size="icon-xs" variant="ghost" aria-label="Back to Talk" onClick={() => setComposing(false)}>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Back to Talk"
+            onClick={() => setComposing(false)}
+          >
             <ChevronLeftIcon />
           </Button>
         )}
         Start a thread
       </h2>
       <p className="text-[12.5px] text-muted-foreground">
-        Ask the room about anything. An agent on the cards you name answers,
-        or an idle one does. It stays in Threads until you resolve it.
+        Ask the room about anything. An agent on the cards you name answers, or
+        an idle one does. It stays in Threads until you resolve it.
       </p>
       <AskBox
         board={board}
@@ -347,7 +476,7 @@ export function TalkPage({
       </div>
     )
   return (
-    <div className="glass-panel flex min-h-0 flex-1 overflow-hidden mb-4">
+    <div className="mb-4 flex min-h-0 flex-1 overflow-hidden glass-panel">
       {list}
       {conversation}
     </div>
@@ -384,11 +513,13 @@ function Group({
       {onToggle && <Chevron className="size-3 shrink-0" aria-hidden />}
       <span className="truncate">{label}</span>
       {count !== undefined && count > 0 && (
-        <span className="shrink-0 font-normal whitespace-nowrap tabular-nums normal-case">· {count}</span>
+        <span className="shrink-0 font-normal whitespace-nowrap normal-case tabular-nums">
+          · {count}
+        </span>
       )}
       {folded && unread > 0 && (
         <span
-          className="shrink-0 rounded-full bg-primary px-1.5 text-[10px] font-semibold whitespace-nowrap text-primary-foreground tabular-nums normal-case"
+          className="shrink-0 rounded-full bg-primary px-1.5 text-[10px] font-semibold whitespace-nowrap text-primary-foreground normal-case tabular-nums"
           title={`${unread} with something new`}
         >
           {unread} new
@@ -427,7 +558,7 @@ function Group({
             type="button"
             onClick={onMarkRead}
             title="Mark every conversation here read"
-            className="ml-auto shrink-0 rounded px-1 text-[10px] font-normal normal-case tracking-normal hover:bg-secondary hover:text-ink"
+            className="ml-auto shrink-0 rounded px-1 text-[10px] font-normal tracking-normal normal-case hover:bg-secondary hover:text-ink"
           >
             Mark all read
           </button>
@@ -440,7 +571,17 @@ function Group({
 
 // ConvItem is a channel or a DM in the list, with its unread count (a red
 // @ when it mentions you).
-function ConvItem({ c, current, onClick }: { c: Conv; current: boolean; onClick: () => void }) {
+export function ConvItem({
+  c,
+  current,
+  onClick,
+  now = new Date(),
+}: {
+  c: Conv
+  current: boolean
+  onClick: () => void
+  now?: Date
+}) {
   const live = useContext(LiveRoster)
   const other = c.kind === "dm" ? dmWith(c) : []
   const icon =
@@ -452,9 +593,9 @@ function ConvItem({ c, current, onClick }: { c: Conv; current: boolean; onClick:
       <Face
         who={AgentRef({
           key: other[0].key,
-          name: other[0].name ?? other[0].key,
+          name: memberName(other[0]),
           status: statusOf(other[0], live),
-          live: statusOf(other[0], live) !== "gone",
+          live: !["gone", "unknown"].includes(statusOf(other[0], live)),
         })}
         className="size-4 shrink-0"
         noHover
@@ -463,16 +604,20 @@ function ConvItem({ c, current, onClick }: { c: Conv; current: boolean; onClick:
   const label =
     c.kind === "channel"
       ? plainLine(c.name)
-      : other.map((m) => plainLine(m.name ?? m.key)).join(" ↔ ") || plainLine(c.name)
+      : other.map((m) => memberName(m)).join(" ↔ ") || nameOr(c.name)
+  const last =
+    c.kind === "dm" &&
+    (c.readOnly || (!!other[0] && statusOf(other[0], live) === "gone"))
+  const { line, when } = last ? lastLine(c, now) : { line: "", when: "" }
   const sub =
     c.kind === "channel"
       ? c.topic
         ? plainLine(c.topic)
         : ""
-      : c.readOnly
-        ? "agents talking · read-only"
+      : last
+        ? line
         : other[0]
-          ? statusWord(statusOf(other[0], live))
+          ? memberStatus(other[0], live)
           : ""
   return (
     <button
@@ -487,8 +632,22 @@ function ConvItem({ c, current, onClick }: { c: Conv; current: boolean; onClick:
     >
       {icon}
       <span className="grid min-w-0 flex-1">
-        <span className={cn("truncate", c.unread > 0 && "font-medium text-ink")}>{label}</span>
-        {sub && <span className="truncate text-[11px] text-muted-foreground">{sub}</span>}
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate",
+              c.unread > 0 && "font-medium text-ink"
+            )}
+          >
+            {label}
+          </span>
+          {when && <When text={when} />}
+        </span>
+        {sub && (
+          <span className="truncate text-[11px] text-muted-foreground">
+            {sub}
+          </span>
+        )}
       </span>
       {c.mentions > 0 ? (
         <span
@@ -506,6 +665,93 @@ function ConvItem({ c, current, onClick }: { c: Conv; current: boolean; onClick:
   )
 }
 
+// lastLine is what a DM row says (card #486): its newest post on one line,
+// "owl: Rebased onto yours" for agents talking, and when ("5m ago"), so the
+// row says what it is about and when, not which section it is in.
+export function lastLine(c: Conv, now: Date): { line: string; when: string } {
+  const text = plainLine(c.lastText ?? "")
+  const at = parseTime(c.lastAt)
+  const when = at ? relativeTime(at, now) : ""
+  if (!text) return { line: "", when }
+  const by = c.lastBy ? c.members.find((m) => m.key === c.lastBy) : undefined
+  const who =
+    c.readOnly && by
+      ? `${memberName(by)}: `
+      : by?.kind === "person"
+        ? "You: "
+        : ""
+  return { line: `${who}${text}`, when }
+}
+
+// When is a row's time beside its name; it never truncates.
+function When({ text }: { text: string }) {
+  return (
+    <span className="shrink-0 text-[10.5px] whitespace-nowrap text-muted-foreground tabular-nums">
+      {text}
+    </span>
+  )
+}
+
+// BroadcastItem is one message an agent sent to many agents (card #486):
+// "owl → 16 agents", its text and when. It unfolds to the DMs it went to.
+function BroadcastItem({
+  b,
+  now,
+  open,
+  unfolded,
+  onToggle,
+  onOpen,
+}: {
+  b: Broadcast
+  now: Date
+  open: string
+  unfolded: boolean
+  onToggle: () => void
+  onOpen: (id: string) => void
+}) {
+  const from = b.convs[0].members.find((m) => m.key === b.by)
+  const to = broadcastTo(b)
+  const when = parseTime(b.lastAt)
+  const Chevron = unfolded ? ChevronDownIcon : ChevronRightIcon
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)]">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={unfolded}
+        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-muted-foreground hover:bg-secondary/60"
+      >
+        <EyeIcon className="size-4 shrink-0" aria-hidden />
+        <span className="grid min-w-0 flex-1">
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className="min-w-0 flex-1 truncate">
+              {from ? memberName(from) : "an agent"} → {to.length} agents
+            </span>
+            {when && <When text={relativeTime(when, now)} />}
+          </span>
+          <span className="truncate text-[11px]">{plainLine(b.text)}</span>
+        </span>
+        <Chevron className="size-3 shrink-0" aria-hidden />
+      </button>
+      {unfolded &&
+        b.convs.map((c, i) => (
+          <button
+            key={c.convId}
+            type="button"
+            onClick={() => onOpen(c.convId)}
+            aria-current={c.convId === open ? "page" : undefined}
+            className={cn(
+              "truncate rounded-md py-1 pr-2 pl-8 text-left text-[12px] text-muted-foreground hover:bg-secondary/60",
+              c.convId === open && "bg-secondary text-ink-2"
+            )}
+          >
+            → {memberName(to[i])}
+          </button>
+        ))}
+    </div>
+  )
+}
+
 // NewChannel names a new channel (lowercase, no spaces or #) and opens it.
 export function channelName(raw: string): string {
   return raw
@@ -516,7 +762,14 @@ export function channelName(raw: string): string {
     .replace(/^-+|-+$/g, "")
 }
 
-function NewChannel({ onDone }: { onDone: (id: string) => void }) {
+// It goes in the picked shared space, else Personal (card #461).
+function NewChannel({
+  space,
+  onDone,
+}: {
+  space: string
+  onDone: (id: string) => void
+}) {
   const [name, setName] = useState("")
   const [error, setError] = useState("")
   const clean = channelName(name)
@@ -527,7 +780,7 @@ function NewChannel({ onDone }: { onDone: (id: string) => void }) {
         e.preventDefault()
         if (!clean) return
         try {
-          onDone(await talkApi.createChannel(clean, null))
+          onDone(await talkApi.createChannel(clean, null, space || null))
         } catch (err) {
           setError(errorText(err))
         }
@@ -558,8 +811,16 @@ function NewDm({
   const [error, setError] = useState("")
   const live = agents.filter((a) => a.status !== "gone")
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)] gap-0.5 rounded-md border border-border bg-card/60 p-1" role="listbox" aria-label="Message an agent">
-      {live.length === 0 && <p className="px-2 py-1 text-[12px] text-muted-foreground">No agents are running.</p>}
+    <div
+      className="grid grid-cols-[minmax(0,1fr)] gap-0.5 rounded-md border border-border bg-card/60 p-1"
+      role="listbox"
+      aria-label="Message an agent"
+    >
+      {live.length === 0 && (
+        <p className="px-2 py-1 text-[12px] text-muted-foreground">
+          No agents are running.
+        </p>
+      )}
       {live.map((a) => (
         <button
           key={a.key}
@@ -575,12 +836,25 @@ function NewDm({
             }
           }}
         >
-          <Face who={AgentRef({ key: a.key, name: a.name, status: a.status, live: true })} className="size-4" noHover />
+          <Face
+            who={AgentRef({
+              key: a.key,
+              name: a.name,
+              status: a.status,
+              live: true,
+            })}
+            className="size-4"
+            noHover
+          />
           <span className="min-w-0 flex-1 truncate">{plainLine(a.name)}</span>
-          <span className="shrink-0 text-[11px] text-muted-foreground">{statusWord(a.status)}</span>
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {agentStatus(a).text}
+          </span>
         </button>
       ))}
-      {error && <span className="px-2 text-[11px] text-destructive">{error}</span>}
+      {error && (
+        <span className="px-2 text-[11px] text-destructive">{error}</span>
+      )}
     </div>
   )
 }
@@ -607,7 +881,10 @@ function ThreadItem({
         current && "bg-secondary"
       )}
     >
-      <MessageSquareTextIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <MessageSquareTextIcon
+        className="size-4 shrink-0 text-muted-foreground"
+        aria-hidden
+      />
       <span className="grid min-w-0 flex-1">
         <span className={cn("truncate", needsYou(t) && "font-medium text-ink")}>
           {plainLine(t.title)}
@@ -656,11 +933,19 @@ function Conversation({
     >
       <header className="flex min-w-0 items-center gap-2">
         {narrow && (
-          <Button size="icon-xs" variant="ghost" aria-label="Back to Talk" onClick={onBack}>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Back to Talk"
+            onClick={onBack}
+          >
             <ChevronLeftIcon />
           </Button>
         )}
-        <MessageSquareTextIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        <MessageSquareTextIcon
+          className="size-4 shrink-0 text-muted-foreground"
+          aria-hidden
+        />
         {t.short && (
           <span className="shrink-0 text-[12px] text-muted-foreground tabular-nums">
             #{plainLine(t.short)}
@@ -679,7 +964,10 @@ function Conversation({
           </Badge>
         )}
         {badge && (
-          <Badge variant={badge.variant} className="h-4 shrink-0 px-1.5 text-[10.5px]">
+          <Badge
+            variant={badge.variant}
+            className="h-4 shrink-0 px-1.5 text-[10.5px]"
+          >
             {badge.label}
           </Badge>
         )}

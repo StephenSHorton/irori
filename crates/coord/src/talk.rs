@@ -118,6 +118,10 @@ pub fn is_person_key(key: &str) -> bool {
 /// back as `user:<deviceId>` ([`SpaceLogs`]).
 pub fn is_other_person_key(key: &str) -> bool {
     key.starts_with("person:")
+        || key
+            .strip_prefix("board:")
+            .and_then(|r| r.split_once('/'))
+            .is_some_and(|(_, who)| who.starts_with("person:"))
 }
 
 /// The DM between `a` and `b`: `dm:` and the first 16 hex digits of the
@@ -337,6 +341,9 @@ pub struct Talk {
     spaces: std::sync::OnceLock<Arc<dyn SpaceLogs>>,
     now: Arc<dyn Fn() -> GoTime + Send + Sync>,
     s: Mutex<State>,
+    /// Counts drop_space calls, so a load that raced one folds again
+    /// instead of bringing the dropped space back (card #461).
+    drops: std::sync::atomic::AtomicU64,
 }
 
 impl std::fmt::Debug for Talk {
@@ -356,6 +363,7 @@ impl Talk {
                 Arc::new(|| GoTime::from_system(std::time::SystemTime::now()).utc())
             }),
             s: Mutex::new(State::default()),
+            drops: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -375,29 +383,38 @@ impl Talk {
         let Some(st) = self.st.clone() else {
             return Ok(());
         };
-        let mut f = Filter {
-            kinds: KINDS.iter().map(|k| k.to_string()).collect(),
-            limit: store::MAX_LIST_LIMIT,
-            ..Filter::default()
-        };
-        let mut fresh = State::default();
+        use std::sync::atomic::Ordering;
         loop {
-            let evs = st.list(&f)?;
-            for ev in &evs {
-                fold(&mut fresh, ev);
+            let seen = self.drops.load(Ordering::SeqCst);
+            let mut f = Filter {
+                kinds: KINDS.iter().map(|k| k.to_string()).collect(),
+                limit: store::MAX_LIST_LIMIT,
+                ..Filter::default()
+            };
+            let mut fresh = State::default();
+            loop {
+                let evs = st.list(&f)?;
+                for ev in &evs {
+                    fold(&mut fresh, ev);
+                }
+                if (evs.len() as i64) < f.limit {
+                    break;
+                }
+                f.after = evs[evs.len() - 1].cursor();
             }
-            if (evs.len() as i64) < f.limit {
-                break;
+            if let Some(sp) = self.spaces.get() {
+                for ev in sp.rows() {
+                    fold(&mut fresh, &ev);
+                }
             }
-            f.after = evs[evs.len() - 1].cursor();
+            let mut s = self.lock();
+            if self.drops.load(Ordering::SeqCst) == seen {
+                *s = fresh;
+                return Ok(());
+            }
+            // A space was dropped while this fold was read: its caller
+            // already hid it from rows(), so fold again without it.
         }
-        if let Some(sp) = self.spaces.get() {
-            for ev in sp.rows() {
-                fold(&mut fresh, &ev);
-            }
-        }
-        *self.lock() = fresh;
-        Ok(())
     }
 
     /// Folds one row; reports whether anything Talk shows changed. Rows of
@@ -407,6 +424,35 @@ impl Talk {
             return false;
         }
         fold(&mut self.lock(), ev)
+    }
+
+    /// Drops space `space`'s channels, with their members and posts, from
+    /// the fold: the space was forgotten or left here (card #461). Reports
+    /// whether anything Talk shows changed. The posts' ids leave the
+    /// dedupe set, so a re-invite folds them back; read cursors and
+    /// talk.card links stay (private log). Personal is never dropped.
+    pub fn drop_space(&self, space: &str) -> bool {
+        if space == PERSONAL_SPACE {
+            return false;
+        }
+        let mut s = self.lock();
+        self.drops.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let gone: Vec<String> = s
+            .channels
+            .iter()
+            .filter(|(_, c)| c.space_id == space)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in &gone {
+            s.channels.remove(id);
+            s.members.remove(id);
+            if let Some(ps) = s.posts.remove(id) {
+                for p in ps {
+                    s.ids.remove(&p.post_id);
+                }
+            }
+        }
+        !gone.is_empty()
     }
 
     /// Appends a row to `space`'s log (empty: the private log) and folds it.
@@ -447,15 +493,16 @@ impl Talk {
 
     // ---- writes ---------------------------------------------------------
 
-    /// Makes a Personal channel named `name` (unique among open channels,
-    /// any case); `by` joins it.
+    /// Makes a Personal channel named `name` (unique among Personal's open
+    /// channels, any case); `by` joins it.
     pub fn create_channel(&self, by: &str, name: &str, topic: &str) -> Result<Channel> {
         self.create_channel_in(by, name, topic, PERSONAL_SPACE)
     }
 
     /// Makes a channel named `name` in space `space` (empty: Personal);
     /// `by` joins it. A space's channel, and its members and posts, go in
-    /// the space's log ([`SpaceLogs`]).
+    /// the space's log ([`SpaceLogs`]). The name is unique within the
+    /// space only: two spaces may each have a #general (card #461).
     pub fn create_channel_in(
         &self,
         by: &str,
@@ -467,8 +514,15 @@ impl Talk {
         let space = space.trim();
         let name = clean_name(name)?;
         let topic = clean_topic(topic)?;
-        if self.channel_named(&name).is_some() {
-            return Err(invalid(format!("there's already a channel named {name}")));
+        if self.channel_named_in(&name, space).is_some() {
+            return Err(invalid(format!(
+                "there's already a channel named {name} {}",
+                if space.is_empty() {
+                    "in Personal"
+                } else {
+                    "in this space"
+                }
+            )));
         }
         let id = format!("{CHANNEL_PREFIX}{}", new_id(&(self.now)()));
         self.write(
@@ -696,14 +750,37 @@ impl Talk {
         self.lock().channels.get(id.trim()).cloned()
     }
 
-    /// The open channel named `name` (any case, a leading `#` dropped).
+    /// The open Personal channel named `name` (any case, a leading `#`
+    /// dropped). A space's channel is found with [`Talk::channel_named_in`].
     pub fn channel_named(&self, name: &str) -> Option<Channel> {
-        let want = name.trim().trim_start_matches('#').to_lowercase();
+        self.channel_named_in(name, PERSONAL_SPACE)
+    }
+
+    /// The open channel named `name` in space `space` (empty: Personal).
+    /// Names are unique per space, so a lookup never crosses into another
+    /// space (card #461).
+    pub fn channel_named_in(&self, name: &str, space: &str) -> Option<Channel> {
+        let (want, space) = (fold_name(name), space.trim());
         self.lock()
             .channels
             .values()
-            .find(|c| !c.archived && c.name.to_lowercase() == want)
+            .find(|c| !c.archived && c.space_id == space && c.name.to_lowercase() == want)
             .cloned()
+    }
+
+    /// Every open channel named `name`, in any space, sorted by space: for
+    /// telling a caller where a name it looked up in one space lives.
+    pub fn channels_named(&self, name: &str) -> Vec<Channel> {
+        let want = fold_name(name);
+        let mut out: Vec<Channel> = self
+            .lock()
+            .channels
+            .values()
+            .filter(|c| !c.archived && c.name.to_lowercase() == want)
+            .cloned()
+            .collect();
+        out.sort_by(|a, b| a.space_id.cmp(&b.space_id).then_with(|| a.id.cmp(&b.id)));
+        out
     }
 
     /// Who is in `conv` now, in the order they joined.
@@ -799,8 +876,44 @@ impl Talk {
 }
 
 /// Folds one row into `s`; whether it changed anything.
+/// The space a row came in from, when a space's log carried it: the Core
+/// tags each such row with `spaceId` (card #461). None for this person's
+/// own log.
+fn row_space(ev: &Event) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_slice(&ev.payload).ok()?;
+    v.get("spaceId")?.as_str().map(str::to_string)
+}
+
+/// Whether a row from space `space`'s log may touch conversation `conv`:
+/// only that space's channels, never a DM or another space's (or
+/// Personal's) channel, so one space's members can't write into the rest
+/// of this person's Talk (card #461). A channel not folded yet may be.
+fn space_may_touch(s: &State, space: &str, conv: &str) -> bool {
+    is_channel(conv)
+        && s.channels
+            .get(conv)
+            .is_none_or(|c| c.id.is_empty() || c.space_id == space)
+}
+
 fn fold(s: &mut State, ev: &Event) -> bool {
     let at = ord_of(ev);
+    if ev.kind != kinds::TALK_CHANNEL_CREATED
+        && let Some(space) = row_space(ev)
+    {
+        let conv = serde_json::from_slice::<serde_json::Value>(&ev.payload)
+            .ok()
+            .and_then(|v| {
+                v.get("convId")
+                    .or_else(|| v.get("channelId"))
+                    .and_then(|x| x.as_str())
+                    .map(str::to_string)
+            });
+        if let Some(conv) = conv
+            && !space_may_touch(s, &space, &conv)
+        {
+            return false;
+        }
+    }
     match ev.kind.as_str() {
         kinds::TALK_CHANNEL_CREATED => {
             let Ok(r) = serde_json::from_slice::<ChannelCreatedRow>(&ev.payload) else {
@@ -810,8 +923,10 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 return false;
             }
             let c = s.channels.entry(r.channel_id.clone()).or_default();
-            if !c.id.is_empty() && c.created <= at {
-                return false; // folded before, or an older copy wins
+            if !c.id.is_empty() && (c.created <= at || c.space_id != r.space_id) {
+                // Folded before, or an older copy wins; and a channel never
+                // moves to another space (card #461).
+                return false;
             }
             c.id = r.channel_id;
             c.space_id = r.space_id;
@@ -939,6 +1054,17 @@ fn fold(s: &mut State, ev: &Event) -> bool {
             if r.post_id.is_empty() || r.task_id.is_empty() {
                 return false;
             }
+            // From a space's log: only onto a post in that space's channels.
+            if let Some(space) = row_space(ev)
+                && let Some(conv) = s
+                    .posts
+                    .iter()
+                    .find(|(_, ps)| ps.iter().any(|p| p.post_id == r.post_id))
+                    .map(|(c, _)| c.clone())
+                && !space_may_touch(s, &space, &conv)
+            {
+                return false;
+            }
             for ps in s.posts.values_mut() {
                 if let Some(p) = ps.iter_mut().find(|p| p.post_id == r.post_id) {
                     p.card = Some(r.task_id.clone());
@@ -1040,6 +1166,12 @@ pub fn clean_name(name: &str) -> Result<String> {
         )));
     }
     Ok(n)
+}
+
+/// `name` as channel names compare: trimmed, a leading `#` dropped, any
+/// case.
+fn fold_name(name: &str) -> String {
+    name.trim().trim_start_matches('#').to_lowercase()
 }
 
 fn clean_topic(topic: &str) -> Result<String> {

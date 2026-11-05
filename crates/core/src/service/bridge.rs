@@ -14,7 +14,9 @@
 //!   to one free agent at a time, and the one it names hears it here;
 //! - a review request (§10), to the agent it names or, without one, to
 //!   this person's dedicated reviewer for the card's repo or the board;
-//! - a lease release request (§5.4), to the lease's holder only.
+//! - a lease release request (§5.4), to the lease's holder only;
+//! - a post in a space's channel naming one of this person's agents (card
+//!   #461), woken with `ref` `talk:<conv>` so a reply goes in the channel.
 //!
 //! The person's own rows don't cross here: the tool that wrote one already
 //! routed its notice. Rows met on a resync aren't bridged either, so a
@@ -107,6 +109,10 @@ impl Services {
             self.ask_mention(b, ev);
             return;
         }
+        if ev.kind == kinds::TALK_POST {
+            self.talk_post_bridge(b, ev);
+            return;
+        }
         let bridged = matches!(
             ev.kind.as_str(),
             kinds::TASK_COMMENT
@@ -188,6 +194,12 @@ impl Services {
     /// Hands one plan to the inbox's bridge, for the agents this device
     /// hosts among its `to`.
     fn send_plan(&self, b: &BoardLog, t: &Task, person: &str, who: &str, ev: &Event, p: Plan) {
+        self.send_ref(b, person, who, ev, p, format!("task:{}", t.id));
+    }
+
+    /// [`Services::send_plan`] for a row whose message refers to `ref_`
+    /// (a card's `task:<id>`, a channel's `talk:<conv>`).
+    fn send_ref(&self, b: &BoardLog, person: &str, who: &str, ev: &Event, p: Plan, ref_: String) {
         let to: Vec<String> =
             p.to.iter()
                 .filter(|k| k.starts_with(AGENT_ACTOR_PREFIX))
@@ -226,13 +238,79 @@ impl Services {
             name,
             to,
             text,
-            ref_: format!("task:{}", t.id),
+            ref_,
             hop: coord::row_hop(&ev.payload),
             attachments: vec![],
         };
         if let Err(e) = self.inbox.bridge(&r) {
             logf(format_args!("board {}: bridge {}: {e}", b.id, r.from.row));
         }
+    }
+
+    /// A post in a space's channel that names this person's agents (card
+    /// #461): each is woken as a comment mention is, its message referring
+    /// to the channel (`talk:<conv>`), so the receive setting, holds, rate
+    /// limit and the bridged-once set apply. Read from the raw row, whose
+    /// mentions are still board keys. With "Agents answer now" off nobody
+    /// is woken, as on the poster's side.
+    fn talk_post_bridge(&self, b: &BoardLog, ev: &Event) {
+        let Ok(r) = serde_json::from_slice::<coord::talk::PostRow>(&ev.payload) else {
+            return;
+        };
+        if !r.agents_now || r.conv_id.is_empty() {
+            return;
+        }
+        let Some(person) = b.verifier.person_of(&ev.device_id) else {
+            return;
+        };
+        if person.is_empty() || person == self.person_id() {
+            return;
+        }
+        let to: Vec<String> = r
+            .mentions
+            .iter()
+            .filter(|k| k.starts_with(AGENT_ACTOR_PREFIX))
+            .cloned()
+            .collect();
+        if to.is_empty() {
+            return;
+        }
+        // Folded just before; none when the space is leaving Talk here. A
+        // post names only a live channel of the space whose log holds it:
+        // a row naming another space's channel wakes nobody (card #461).
+        let Some(ch) = self
+            .talk
+            .channel(&r.conv_id)
+            .filter(|c| c.space_id == b.id && !c.archived)
+        else {
+            return;
+        };
+        let card_id = ev
+            .actor
+            .strip_prefix(AGENT_ACTOR_PREFIX)
+            .unwrap_or_default()
+            .to_string();
+        if card_id.is_empty() && !ev.actor.starts_with(PERSON_ACTOR_PREFIX) {
+            return;
+        }
+        let who = self.board_person_name(b, &person);
+        let (conv, text, chan) = (r.conv_id.clone(), r.text, ch.name);
+        let p = Plan {
+            kind: row_kind::COMMENT,
+            card_id,
+            to,
+            row: format!("{}/{}", ev.device_id, ev.seq),
+            wake: true,
+            text: Box::new(move |name| {
+                format!(
+                    "{name} mentioned you in #{chan} (Talk, conv={conv}):
+{text}
+
+Answer there with talk_post conv={conv} (or reply to this message) if you have something to add; talk_read conv={conv} shows the rest."
+                )
+            }),
+        };
+        self.send_ref(b, &person, &who, ev, p, format!("talk:{}", r.conv_id));
     }
 
     /// A board thread or ask that names this person (card #187): the same

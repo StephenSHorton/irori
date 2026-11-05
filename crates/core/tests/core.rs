@@ -1108,6 +1108,30 @@ fn test_unnamed_session_gets_a_name_and_a_rename_wins() {
     });
 }
 
+/// Card #489: a live session's card in the mesh roster (what the window's
+/// roster sends) carries when its status began, as "statusSince".
+#[test]
+fn test_mesh_roster_carries_status_since() {
+    let r = Rig::new();
+    let sessions = r.claude.join("sessions");
+    let cwd = tempfile::tempdir().unwrap();
+    write_session(&sessions, "900001.json", SESS_A, "Kit", cwd.path());
+    let mut card = None;
+    wait_for(10, "the session's card in the mesh roster", || {
+        card = r
+            .core
+            .mesh_agents()
+            .into_iter()
+            .find(|c| c.key == r.key_a && !c.status_since.is_zero());
+        card.is_some()
+    });
+    let json = serde_json::to_value(card.unwrap()).unwrap();
+    assert!(
+        json["statusSince"].as_str().is_some_and(|s| !s.is_empty()),
+        "card JSON {json}"
+    );
+}
+
 /// Card #87: a branch wait fires when the core's sweep sees the branch's
 /// ref move, and wakes the waiter once with the new tip.
 #[test]

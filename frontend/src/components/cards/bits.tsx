@@ -1,4 +1,5 @@
-import { UserIcon } from "lucide-react"
+import { useContext } from "react"
+import { ExternalLinkIcon, UserIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { useBoards } from "@/lib/boards"
@@ -6,6 +7,7 @@ import { cn } from "@/lib/utils"
 import {
   askLine,
   AskState,
+  cards as cardsApi,
   displayName,
   Holding,
   idleUnnamed,
@@ -19,7 +21,10 @@ import {
   type CardHolder,
   type CardSummary,
 } from "@/lib/cards"
+import { agentStatus } from "@/lib/agent-status"
 import { plainLine } from "@/lib/irori"
+import { LiveRoster } from "@/lib/thread"
+import { prChip } from "@/lib/needs"
 import { cardOwner, type OwnerCard } from "@/lib/owners"
 
 // Tone is a card's status colour, shared by its state chip and its progress
@@ -204,8 +209,15 @@ export function StatePill({ card }: { card: CardSummary }) {
 }
 
 // holderText is the holder line's words: who holds the card and what that
-// agent is up to, or who it waits for.
-export function holderText(h: CardHolder): string {
+// agent is up to, or who it waits for. An active, idle or silent holder
+// reads its status as everywhere else (card #489): "· running a job · 12
+// min" for a shell, not "· active"; since is when that status began and
+// status the live roster's, which wins over the card's (card #317).
+export function holderText(
+  h: CardHolder,
+  since?: string,
+  status?: string
+): string {
   const who = h.who.key ? displayName(h.who) : ""
   const more = h.others > 0 ? ` (+${h.others} more)` : ""
   switch (h.state) {
@@ -218,17 +230,18 @@ export function holderText(h: CardHolder): string {
     case Holding.HoldAssigned:
       return `Offered to ${who}${more}, not taken up yet`
     case Holding.HoldActive:
-      return `${who}${more} · active`
     case Holding.HoldIdle:
-      return `${who}${more} · idle`
     case Holding.HoldSilent:
-      return `${who}${more} · isn't answering`
+      // The state already weighed gone and offline; say the status.
+      return `${who}${more} · ${agentStatus({ status: status || h.who.status }, since).text}`
     case Holding.HoldOffline:
       return `${who}${more} · its device is offline`
     case Holding.HoldGone:
       // An agent Irori started ends when its work is done (card #456,
       // spawned agents §10): finished, not lost.
-      return h.who.spawned ? `${who}${more} · agent finished` : `${who}${more} · gone`
+      return h.who.spawned
+        ? `${who}${more} · agent finished`
+        : `${who}${more} · gone`
   }
   return who
 }
@@ -248,11 +261,22 @@ export function HolderLine({
   className?: string
 }) {
   const finished = holder.state === Holding.HoldGone && !!holder.who.spawned
+  // The live roster's status and when it began, as the hover card and
+  // Who's on it read them (cards #317, #489).
+  const live = useContext(LiveRoster).get(holder.who.key)
+  const since = live?.statusSince
+  const status = live?.status
+  const tone =
+    holder.state === Holding.HoldActive ||
+    holder.state === Holding.HoldIdle ||
+    holder.state === Holding.HoldSilent
+      ? agentStatus({ status: status || holder.who.status }).tone
+      : null
   const warn =
     (!!returned && !returned.spawned) ||
     holder.state === Holding.HoldWaiting ||
     (holder.state === Holding.HoldGone && !finished) ||
-    holder.state === Holding.HoldSilent ||
+    tone === "warn" ||
     holder.state === Holding.HoldOffline
   return (
     <span
@@ -262,7 +286,7 @@ export function HolderLine({
         className
       )}
     >
-      {holder.state === Holding.HoldActive && (
+      {(tone === "working" || tone === "job") && (
         <span
           className="inline-block size-[7px] shrink-0 rounded-full bg-success"
           aria-hidden
@@ -273,7 +297,7 @@ export function HolderLine({
           ? returned.spawned
             ? `Nobody on it: ${displayName(returned)} finished`
             : `Nobody on it: ${displayName(returned)} went away`
-          : holderText(holder)}
+          : holderText(holder, since, status)}
       </span>
     </span>
   )
@@ -326,6 +350,39 @@ export function ScopeBadge({ card }: { card: CardSummary }) {
   return (
     <Badge variant="outline" className="font-normal text-muted-foreground">
       {plainLine(card.scopeLabel) || "My devices"}
+    </Badge>
+  )
+}
+
+// PrChip is the small "waits on PR #N" an in-review card shows on itself
+// (card #471): one click opens the PR. Tiles and rows are buttons, so it is
+// a link-role span that keeps its click to itself.
+export function PrChip({ card }: { card: CardSummary }) {
+  const c = prChip(card)
+  if (!c) return null
+  const open = () => void cardsApi.openURL(c.url)
+  return (
+    <Badge
+      variant="warning"
+      role="link"
+      tabIndex={0}
+      data-pr={c.url}
+      title={c.title}
+      className="cursor-pointer gap-1 font-normal hover:underline"
+      onClick={(e) => {
+        e.stopPropagation()
+        e.preventDefault()
+        open()
+      }}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return
+        e.stopPropagation()
+        e.preventDefault()
+        open()
+      }}
+    >
+      {c.text}
+      <ExternalLinkIcon aria-hidden />
     </Badge>
   )
 }
@@ -430,7 +487,13 @@ export function waitLabel(card: {
 // Asker names who asks a blocker's question, above it (card #491): the
 // person clicks its options, so "sample-otter asks:" keeps the agent's
 // words from reading as their own.
-export function Asker({ who, className }: { who: AgentRef; className?: string }) {
+export function Asker({
+  who,
+  className,
+}: {
+  who: AgentRef
+  className?: string
+}) {
   return (
     <p className={cn("text-[11.5px] text-muted-foreground", className)}>
       <span className="font-medium text-ink-2">{displayName(who)}</span> asks:

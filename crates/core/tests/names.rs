@@ -80,6 +80,82 @@ fn test_namer_skips_names_live_agents_have() {
     assert!(!n.assign("s9").is_empty());
 }
 
+/// Card #472: another person's live agent on a shared board holds its word
+/// against a new terminal session's name and a spawn's pick, but never
+/// moves a name this person's agents already have.
+#[test]
+fn test_namer_skips_names_of_other_peoples_agents() {
+    let first = pick("s1", None);
+    let mine: Cards = Arc::default();
+    let (_d, n) = test_namer("pc", &mine);
+    let theirs: Cards = Arc::new(Mutex::new(vec![AgentCard {
+        key: "agent:friend-card".into(),
+        name: first.clone(),
+        status: "idle".into(),
+        ..AgentCard::default()
+    }]));
+    let th = theirs.clone();
+    n.set_others(move || th.lock().unwrap().clone());
+    assert_ne!(
+        fold(&n.assign("s1")),
+        fold(&first),
+        "a friend's agent has it"
+    );
+    assert_ne!(fold(&n.pick_new("s1", &|_| false)), fold(&first));
+    // The spawn's own refusals count too.
+    let second = n.pick_new("s1", &|_| false);
+    assert_ne!(n.pick_new("s1", &|w| w == second), second);
+    // Gone, it is no longer taken, only used: it comes out once every
+    // unused word is refused.
+    theirs.lock().unwrap()[0].status = "gone".into();
+    assert_eq!(n.pick_new("s1", &|w| w != first), first);
+}
+
+/// Card #472: a word picked for an agent Irori is starting is held, so a
+/// terminal session named before the agent shows never gets it.
+#[test]
+fn test_a_spawns_word_is_held_while_it_starts() {
+    let cards: Cards = Arc::default();
+    let (_d, n) = test_namer("pc", &cards);
+    let w = n.pick_new("s1", &|_| false);
+    assert_eq!(w, pick("s1", None));
+    assert_ne!(n.assign("s1"), w, "the starting agent holds it");
+}
+
+/// Card #472: a friend's agent whose device has been offline for weeks no
+/// longer holds its word against a new pick.
+#[test]
+fn test_a_long_offline_friends_agent_frees_its_word() {
+    let first = pick("s1", None);
+    let cards: Cards = Arc::default();
+    let (_d, n) = test_namer("pc", &cards);
+    n.set_now(t0);
+    let theirs: Cards = Arc::new(Mutex::new(vec![AgentCard {
+        key: "agent:friend-card".into(),
+        name: first.clone(),
+        status: "idle".into(),
+        device_state: coord::roster::OFFLINE.into(),
+        device_seen: minus(t0(), Duration::from_secs(3600)),
+        ..AgentCard::default()
+    }]));
+    let th = theirs.clone();
+    n.set_others(move || th.lock().unwrap().clone());
+    let seed = (0..100_000)
+        .map(|i| format!("x{i}"))
+        .find(|s| pick(s, None) == first)
+        .unwrap();
+    // Offline an hour: still held.
+    assert_ne!(n.pick_new(&seed, &|_| false), first, "offline an hour");
+    // Offline past OTHERS_STALE: no longer taken; only "used" (it can
+    // still come out once every unused word is gone).
+    theirs.lock().unwrap()[0].device_seen = minus(
+        t0(),
+        irori_core::namer::OTHERS_STALE + Duration::from_secs(60),
+    );
+    let only = |w: &str| w != first;
+    assert_eq!(n.pick_new(&seed, &only), first, "free again");
+}
+
 #[test]
 fn test_namer_skips_names_other_local_sessions_hold() {
     let cards: Cards = Arc::default();

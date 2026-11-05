@@ -307,8 +307,18 @@ fn answer_leaves_blocker_open() {
         })
         .collect();
     assert_eq!(lines.len(), 3, "lines {lines:?}");
-    assert!(lines[1].contains(&format!("answered blocker {}", bl.id)));
-    assert!(lines[2].contains(&format!("replied on blocker {}", bl.id)));
+    // Card #490: the person reads the question, never the blocker's id.
+    assert!(lines[1].ends_with("answered “Which DB?”"), "{lines:?}");
+    assert!(lines[2].ends_with("replied on “Which DB?”"), "{lines:?}");
+    assert!(lines.iter().all(|l| !l.contains(&bl.id)), "{lines:?}");
+    let gists: Vec<&str> = d
+        .thread
+        .iter()
+        .filter(|i| i.blocker_id == bl.id)
+        .skip(1)
+        .map(|i| i.blocker_gist.as_str())
+        .collect();
+    assert_eq!(gists, ["Which DB?", "Which DB?"]);
     assert_eq!(r.w.decide_count(), 1, "a replied item is a decision");
 
     co.answer(
@@ -430,12 +440,20 @@ fn resolve_blocker_by_person() {
     assert_eq!(rs.answer, "whatever is free");
     assert_eq!(rs.note, "I'll pick one myself later.");
     assert_eq!(res.card.summary.state, coord::WORKING);
+    let twice = r.w.resolve_blocker(&t.id, &b2.id, "", &[]).unwrap_err();
     assert!(
-        r.w.resolve_blocker(&t.id, &b2.id, "", &[])
-            .unwrap_err()
-            .starts_with(coord::ErrorKind::BadState.text()),
+        twice.starts_with(coord::ErrorKind::BadState.text()),
         "resolved twice"
     );
+    // Card #490: the person reads the question, not "blocker b2".
+    assert!(
+        twice.contains("“Which port?”") && !twice.contains(&format!("blocker {}", b2.id)),
+        "{twice}"
+    );
+    let again =
+        r.w.answer(&t.id, &b2.id, -1, "late", false, &[])
+            .unwrap_err();
+    assert!(!again.contains(&format!("blocker {}", b2.id)), "{again}");
 }
 
 /// Go TestCardsPinnedFirst and TestBoardActions' movePin: pinned cards
@@ -565,7 +583,8 @@ fn revised_blocker_shows_in_its_thread() {
     assert!(rev.revised && rev.kind == THREAD_EVENT, "{rev:?}");
     assert_eq!(rev.who.key, r.key_a);
     assert!(
-        rev.text.contains("revised blocker")
+        rev.text.contains("revised it: asks now")
+            && !rev.text.contains(&bl.id)
             && rev.text.contains("Postgres on the small plan?")
             && rev
                 .text
@@ -1066,10 +1085,10 @@ fn a_wait_on_another_card_is_no_decision() {
 }
 
 /// Card #347: what waits on the person says so. A question with options is
-/// a decision whatever it's filed on (#290 was "on external"); a card in
-/// review on an open PR nobody else reviews waits on the person's review
-/// (#334); a card waiting on such a card names it (#329), and so does one
-/// waiting on a card with the person's question.
+/// a decision whatever it's filed on (#290 was "on external"); a card
+/// waiting on a card with the person's question names it. Card #471: a card
+/// in review on an open PR waits on that PR, never on the person's review,
+/// and a card waiting on it doesn't name the person either.
 #[test]
 fn what_waits_on_the_person_says_so() {
     const PR: &str = "https://github.com/a/suzuri/pull/96";
@@ -1140,12 +1159,12 @@ fn what_waits_on_the_person_says_so() {
     co.set_task_state(&r.key_b, &pr.id, coord::IN_REVIEW, "")
         .unwrap();
     let s = summary(&pr.id);
-    let rp = s.review_pr.expect("waits on the person's review");
-    assert_eq!((rp.number, rp.url.as_str()), (96, PR));
-    let s = summary(&after.id);
+    let wp = s.wait_pr.expect("waits on its PR");
+    assert_eq!((wp.number, wp.url.as_str()), (96, PR));
     assert_eq!(
-        s.wait_you,
-        format!("your review of PR #96 ({})", pr.short_ref())
+        summary(&after.id).wait_you,
+        "",
+        "a PR never waits on the person"
     );
 
     // A card waiting on #290's question names the person's answer.
@@ -1156,10 +1175,26 @@ fn what_waits_on_the_person_says_so() {
         format!("your answer on {}", ext.short_ref())
     );
 
-    // An agent asked to review it: that's the agent's review, not theirs.
-    co.request_review(&r.key_b, &pr.id, PR, &r.key_a).unwrap();
-    assert!(summary(&pr.id).review_pr.is_none());
+    // None of the person's own agents may review it: it still waits on
+    // the PR.
+    let e = co
+        .request_review(&r.key_b, &pr.id, PR, &r.key_a)
+        .unwrap_err();
+    assert!(e.is(coord::ErrorKind::NotAllowed), "{e}");
+    assert_eq!(summary(&pr.id).wait_pr.map(|p| p.number), Some(96));
     assert_eq!(summary(&after.id).wait_you, "");
+
+    // Merged: nothing to wait on.
+    co.record_pr_state(
+        &pr.id,
+        coord::PrCheck {
+            pr: PR.into(),
+            state: coord::PR_MERGED.into(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(summary(&pr.id).wait_pr.is_none());
 }
 
 /// Card #481: a wait on another card (#394's "Waits on Talk 4 (#392)")

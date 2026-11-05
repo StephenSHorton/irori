@@ -4,7 +4,7 @@
 // only when it isn't yours, and its progress.
 
 import { Badge } from "@/components/ui/badge"
-import { cardRef, Spinner } from "@/components/cards/bits"
+import { cardRef, PrChip, Spinner } from "@/components/cards/bits"
 import { useContext } from "react"
 import { percent, withLive, type CardSummary } from "@/lib/cards"
 import { LiveRoster } from "@/lib/thread"
@@ -93,6 +93,7 @@ function ProgressRow({
         <span className={cn("truncate", state === "idle" && "text-warning")} title={line}>
           {line}
         </span>
+        <PrChip card={c} />
       </span>
       <span className="col-start-3 row-start-1 justify-self-end sm:col-start-4">
         <Badge variant={stateVariant[state]}>{rowStateLabel[state]}</Badge>

@@ -63,10 +63,25 @@ pub fn helper_path(repo: &Path, branch: &str) -> PathBuf {
 }
 
 fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(args)
+    // A path from another device (a Mac's /Users/... on the PC) is no
+    // checkout here: refuse it before spawning anything.
+    if !repo.is_dir() {
+        return Err(format!(
+            "git {}: no folder {} on this device",
+            args.join(" "),
+            repo.display()
+        ));
+    }
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(repo).args(args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: Irori is a GUI app, so without it every call
+        // flashes a console window up on the person's screen.
+        cmd.creation_flags(0x0800_0000);
+    }
+    let out = cmd
         .output()
         .map_err(|e| format!("git {}: {e}", args.join(" ")))?;
     if !out.status.success() {

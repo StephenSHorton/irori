@@ -2,12 +2,13 @@ import { describe, expect, test } from "bun:test"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 
-import type { ThreadCard } from "@/gen/models"
+import type { ThreadCard, ThreadSummary } from "@/gen/models"
 import {
   ThreadCards,
   openAfterResolve,
   resolvedShown,
   resolvedToggle,
+  stateLine,
 } from "./threads"
 
 const threads = [
@@ -75,5 +76,39 @@ describe("an open thread stays inside the column (card #215)", () => {
     )
     expect(html).toMatch(/^<div class="[^"]*\bmin-w-0\b/)
     expect(html).toMatch(/<span class="truncate">Lobby list/)
+  })
+})
+
+describe("a thread Irori starts an agent for (card #470)", () => {
+  const waiting = {
+    id: "t",
+    short: "27",
+    title: "What did we ship?",
+    text: "What did we ship?",
+    state: "waiting",
+    told: [],
+    answeredBy: [],
+    replies: 0,
+    cards: [],
+    at: "",
+    updatedAt: "",
+    private: false,
+    agentsNow: true,
+  } as unknown as ThreadSummary
+  test("says its agent is starting, not to turn on Offer it cards", () => {
+    expect(
+      stateLine(
+        { ...waiting, starting: "Macbook Pro (this one)" },
+        "No agent takes offered work"
+      )
+    ).toBe("starting an agent on Macbook Pro (this one)")
+  })
+  test("says why one can't start", () => {
+    expect(stateLine({ ...waiting, cantStart: "not trusted: /r on mac" })).toBe(
+      "can't start: its repo isn't trusted here"
+    )
+  })
+  test("without a spawn it reads as before", () => {
+    expect(stateLine(waiting, "")).toBe("Waiting for a free agent")
   })
 })

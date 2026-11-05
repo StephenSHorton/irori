@@ -263,8 +263,8 @@ impl Window {
         let row = self
             .trusted_repos_in(file)
             .into_iter()
-            .find(|r| r.repo_key == repo_key)
-            .ok_or_else(|| format!("no checkout of {repo_key} on this computer"))?;
+            .find(|r| coord::same_repo_key(&r.repo_key, repo_key))
+            .ok_or_else(|| format!("no copy of {} on this computer", coord::repo_name(repo_key)))?;
         if !row.trusted {
             claude_trust::record_trust(file, &row.folder).map_err(|e| e.to_string())?;
             if !claude_trust::is_trusted(file, &row.folder) {
