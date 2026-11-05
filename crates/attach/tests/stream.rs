@@ -237,9 +237,17 @@ async fn auth() {
                 .await;
             assert_eq!(code, 403, "{path} with {hdr:?}: {raw}");
             if path.starts_with("/v1/deliveries") {
+                // A dead attach secret also says what to do (GitHub #57).
+                let hint = if hdr.iter().any(|(k, _)| *k == HEADER_ATTACH) {
+                    ". If this keeps happening, this session's Irori mod is too old to reattach by itself: run `claude plugin update irori`, then restart the session"
+                } else {
+                    ""
+                };
                 assert_eq!(
                     raw,
-                    "{\"error\":\"this route needs a current X-Irori-Attach or X-Irori-Member secret\"}\n"
+                    format!(
+                        "{{\"error\":\"this route needs a current X-Irori-Attach or X-Irori-Member secret{hint}\"}}\n"
+                    )
                 );
             }
         }

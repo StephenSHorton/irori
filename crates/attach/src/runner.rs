@@ -44,6 +44,9 @@ pub const IDLE_TIMEOUT: Duration = Duration::from_secs(45);
 /// How long 404s ("not on the roster yet") go unreported.
 pub const ROSTER_GRACE: Duration = Duration::from_secs(20);
 
+/// How often a standby attach asks whether the session came free.
+pub const STANDBY_POLL: Duration = Duration::from_secs(2);
+
 pub const MIN_BACKOFF: Duration = Duration::from_secs(1);
 pub const MAX_BACKOFF: Duration = Duration::from_secs(16);
 
@@ -59,6 +62,9 @@ pub struct Options {
     /// Informational (logs).
     pub cwd: String,
     pub mod_version: String,
+    /// Never take the session from a live attach: wait, quietly, until it
+    /// is free (GitHub #57). What a copy that was superseded runs.
+    pub standby: bool,
     /// Where the lockfile is.
     pub data_dir: PathBuf,
     /// Event lines only.
@@ -73,6 +79,8 @@ pub struct Options {
     pub open_timeout: Duration,
     pub idle_timeout: Duration,
     pub roster_grace: Duration,
+    /// Zero means [`STANDBY_POLL`].
+    pub standby_poll: Duration,
 }
 
 impl Default for Options {
@@ -81,6 +89,7 @@ impl Default for Options {
             session: String::new(),
             cwd: String::new(),
             mod_version: String::new(),
+            standby: false,
             data_dir: PathBuf::new(),
             stdout: Box::new(std::io::sink()),
             log: Box::new(|_| {}),
@@ -90,6 +99,7 @@ impl Default for Options {
             open_timeout: Duration::ZERO,
             idle_timeout: Duration::ZERO,
             roster_grace: Duration::ZERO,
+            standby_poll: Duration::ZERO,
         }
     }
 }
@@ -126,6 +136,9 @@ pub async fn run(mut o: Options) -> Result<(), String> {
     if o.roster_grace.is_zero() {
         o.roster_grace = ROSTER_GRACE;
     }
+    if o.standby_poll.is_zero() {
+        o.standby_poll = STANDBY_POLL;
+    }
     let mut backoff = o.min_backoff;
     let mut outage = false; // the "Irori isn't running" line went out
     // Since when the Core has answered 404, and whether that was said.
@@ -158,6 +171,16 @@ pub async fn run(mut o: Options) -> Result<(), String> {
             End::Canceled => return Ok(()),
             End::Stdout(e) => return Err(format!("attach: stdout closed: {e}")),
             _ if o.cancel.is_cancelled() => return Ok(()),
+            // Waiting its turn is no outage: nothing to say, no backoff.
+            End::Failed(Error::Status(se)) if se.code == 409 => {
+                outage = false;
+                backoff = o.min_backoff;
+                tokio::select! {
+                    _ = o.cancel.cancelled() => return Ok(()),
+                    _ = tokio::time::sleep(o.standby_poll) => {}
+                }
+                continue;
+            }
             End::Ended => (o.log)("attach: stream ended; reconnecting"),
             End::Failed(Error::Status(se)) if se.code == 404 => {
                 (o.log)(&format!(
@@ -228,6 +251,9 @@ async fn attach_inner(o: &mut Options) -> (bool, End) {
     let mut pairs = vec![("session", o.session.as_str())];
     if !o.mod_version.is_empty() {
         pairs.push(("mod", o.mod_version.as_str()));
+    }
+    if o.standby {
+        pairs.push(("standby", "1"));
     }
     let opened = tokio::time::timeout(o.open_timeout, c.open_stream(&client::encode_query(&pairs)))
         .await

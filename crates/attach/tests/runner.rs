@@ -162,6 +162,90 @@ async fn attach_command() {
     p2.exited().await;
 }
 
+/// GitHub #57: a superseded copy waits in standby. It takes nothing from the
+/// live attach, says nothing while it waits, and attaches within seconds of
+/// that attach going.
+#[tokio::test(flavor = "multi_thread")]
+async fn standby_waits_for_the_session_to_come_free() {
+    let r = Rig::new().await;
+    let holder = start_runner(&r.data, SESS_B);
+    holder.out.wait("hello", 1).await;
+    let standby = start_runner_with(&r.data, SESS_B, |o| {
+        o.standby = true;
+        o.standby_poll = Duration::from_millis(50);
+    });
+    tokio::time::sleep(Duration::from_millis(500)).await; // several asks
+    assert_eq!(standby.out.text(), "", "standby while the session is held");
+    assert!(
+        !holder.out.events().iter().any(|e| e["type"] == "superseded"),
+        "standby took the session: {}",
+        holder.out.text()
+    );
+
+    // The holder goes, as a process that dies does.
+    let gone = std::time::Instant::now();
+    holder.stop.cancel();
+    holder.exited().await;
+    standby.out.wait("hello", 1).await;
+    let took = gone.elapsed();
+    assert!(took < Duration::from_secs(3), "took over after {took:?}");
+    assert!(
+        !standby.out.events().iter().any(|e| e["type"] == "error"),
+        "{}",
+        standby.out.text()
+    );
+    standby.stop.cancel();
+    standby.exited().await;
+}
+
+/// GitHub #57: two copies that both wait never kick each other; the first
+/// to ask takes a free session and the other goes on waiting.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_standby_copies_settle_on_one() {
+    let r = Rig::new().await;
+    let quick = |o: &mut Options| {
+        o.standby = true;
+        o.standby_poll = Duration::from_millis(50);
+    };
+    let a = start_runner_with(&r.data, SESS_B, quick);
+    a.out.wait("hello", 1).await;
+    let b = start_runner_with(&r.data, SESS_B, quick);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(b.out.text(), "", "the second copy waits");
+    assert!(
+        !a.out.events().iter().any(|e| e["type"] == "superseded"),
+        "{}",
+        a.out.text()
+    );
+    a.stop.cancel();
+    a.exited().await;
+    b.out.wait("hello", 1).await;
+    b.stop.cancel();
+    b.exited().await;
+}
+
+/// GitHub #57: a copy that came back through standby attaches to the new
+/// Core after a restart, like any other.
+#[tokio::test(flavor = "multi_thread")]
+async fn standby_survives_the_core_restarting() {
+    let r = Rig::new().await;
+    let holder = start_runner(&r.data, SESS_B);
+    holder.out.wait("hello", 1).await;
+    let standby = start_runner_with(&r.data, SESS_B, |o| {
+        o.standby = true;
+        o.standby_poll = Duration::from_millis(50);
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    holder.stop.cancel();
+    holder.exited().await;
+    let first = standby.out.wait("hello", 1).await;
+    let _r = r.restart().await;
+    let second = standby.out.wait("hello", 2).await;
+    assert_ne!(first["attachSecret"], second["attachSecret"]);
+    standby.stop.cancel();
+    standby.exited().await;
+}
+
 /// A session presence doesn't list yet is a 404: retried quietly (no
 /// error line), and attached once its card appears.
 #[tokio::test(flavor = "multi_thread")]
