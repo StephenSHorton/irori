@@ -1404,6 +1404,10 @@ impl Coord {
     /// its own for a device that doesn't run the card's side. Only a
     /// hand-out (`offer`), a review request, or an ask the person didn't
     /// name `to` in counts.
+    /// Best effort on the receiving device: coord and the inbox follow the
+    /// store on their own threads, so a card this fold hasn't indexed yet
+    /// reads as no side and passes. The sender's own pick filters
+    /// (free_for, free_agents, cards_to_spawn) are the first guard.
     /// Never takes coord's lock.
     pub fn off_side(&self, kind: &str, r: &str, to: &str) -> bool {
         let Some(id) = r.strip_prefix("task:") else {
