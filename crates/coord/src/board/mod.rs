@@ -369,6 +369,13 @@ impl Drop for Locked<'_> {
 
 /// Tasks, leases, comments and asks. Safe for concurrent use.
 pub struct Coord {
+    /// One catch-up at a time, taken before `f`, never with it held. A pass
+    /// lets go of `f` between pages (card #567), and a refold must not land
+    /// between a page's read and its fold: the page may hold rows a cut moved
+    /// away. It blocks, never tries: a caller relies on the rows committed
+    /// before its call being folded when it returns, and a running pass may
+    /// have read its vector too early to cover them.
+    catching: Mutex<()>,
     f: Mutex<Fold>,
     stale: Arc<RwLock<fold::StaleMap>>,
     spawned: Arc<RwLock<std::collections::HashSet<String>>>,
@@ -412,6 +419,21 @@ impl Coord {
         }
     }
 
+    /// Folds rows as a catch-up does, `page` at a time, with no store: for
+    /// checks that the page size changes nothing.
+    #[doc(hidden)]
+    pub fn fold_pages(&self, rows: &[Event], page: usize) {
+        for evs in rows.chunks(page) {
+            self.lock().fold_page(evs);
+        }
+    }
+
+    /// How far `dev`'s rows are folded.
+    #[doc(hidden)]
+    pub fn folded_to(&self, dev: &str) -> i64 {
+        self.lock().last.get(dev).copied().unwrap_or(0)
+    }
+
     /// The board's set-aside gate alone (Go's `impl.asideGate`): `true`
     /// means the row would fold now. For tests of the cap.
     #[doc(hidden)]
@@ -424,6 +446,7 @@ impl Coord {
         let spawned = f.spawned_keys.clone();
         let board = f.on_board;
         Coord {
+            catching: Mutex::new(()),
             f: Mutex::new(f),
             stale,
             spawned,
@@ -1490,10 +1513,11 @@ impl Coord {
 
     /// One row from the store's subscription (Go Follow's body).
     pub fn handle(&self, ev: &Event) -> Result<()> {
-        let mut f = self.lock();
+        // Before the lock: `catching` comes first.
         if ev.is_resync() {
-            return f.catch_up();
+            return self.catch_up();
         }
+        let mut f = self.lock();
         // repo.seen is capture's row, never coord's own write, so this
         // device's ones are folded here (card #521: a GitHub repo an agent
         // works in has a desk by itself).
@@ -1632,6 +1656,7 @@ impl Coord {
     /// Rebuilds the fold when the log holds fewer of some device's rows
     /// than were folded (a revoke's cut moved them to refused_events).
     pub fn refold_if_cut(&self, vec: &store::Vector) -> Result<()> {
+        let _one = self.catching.lock().unwrap_or_else(|e| e.into_inner());
         self.lock().refold_if_cut(vec)
     }
 
@@ -1641,9 +1666,92 @@ impl Coord {
         self.lock().moved_since(id, since)
     }
 
-    /// Re-reads other devices' rows after a store resync signal.
+    /// After a store resync signal: refold if cut, then page each other
+    /// device's rows past what was folded. Readers and writers get in between
+    /// pages, so a catch-up of thousands of rows never holds the lock for
+    /// more than one (card #567). When it returns, every followed row
+    /// committed before the call is folded.
     pub fn catch_up(&self) -> Result<()> {
-        self.lock().catch_up()
+        self.catch_up_by(store::MAX_LIST_LIMIT)
+    }
+
+    /// [`Coord::catch_up`] in pages of `limit` rows.
+    #[doc(hidden)]
+    pub fn catch_up_by(&self, limit: i64) -> Result<()> {
+        let _one = self.catching.lock().unwrap_or_else(|e| e.into_inner());
+        // In one hold: a vector read apart from `last` could sit below a row
+        // folded since, which reads as a cut.
+        let (st, vec, me, on_board) = {
+            let mut f = self.lock();
+            let Some(st) = f.st.clone() else {
+                return Ok(());
+            };
+            let vec = st.vector()?;
+            f.refold_if_cut(&vec)?;
+            (st, vec, f.dev.clone(), f.on_board)
+        };
+        for (dev, top) in vec.iter().filter(|(d, _)| **d != me) {
+            self.catch_up_device(&st, dev, *top, limit)?;
+        }
+        if !on_board {
+            self.catch_up_own_seen(&st, &me, limit)?;
+        }
+        self.lock().holder_duties();
+        Ok(())
+    }
+
+    /// Pages `dev`'s rows up to `top`, each read outside the lock. The last
+    /// page moves `last` to `top`, past the unfollowed rows at the device's
+    /// tail, so the next catch-up doesn't read them again: every followed
+    /// row up to `top` was committed before the read.
+    fn catch_up_device(&self, st: &Store, dev: &str, top: i64, limit: i64) -> Result<()> {
+        let mut after = self.lock().last.get(dev).copied().unwrap_or(0);
+        while after < top {
+            let evs = st.list(&store::Filter {
+                device_id: dev.to_string(),
+                after_seq: after,
+                kinds: FOLLOW_KINDS.iter().map(|k| k.to_string()).collect(),
+                limit,
+                ..store::Filter::default()
+            })?;
+            let more = evs.len() as i64 == limit;
+            let mut f = self.lock();
+            f.fold_page(&evs);
+            let last = f.last.entry(dev.to_string()).or_default();
+            if !more {
+                *last = top.max(*last);
+            }
+            // From `last`, not the page: a live row may have passed it.
+            after = *last;
+        }
+        Ok(())
+    }
+
+    /// This device's repo.seen rows are capture's, not coord's own writes,
+    /// so they reach the fold only live ([`Coord::handle`]); one a full
+    /// subscription dropped, or one written between the startup replay and
+    /// Follow subscribing, is read here. There is one per worktree root,
+    /// and folding one twice changes nothing (card #521).
+    fn catch_up_own_seen(&self, st: &Store, me: &str, limit: i64) -> Result<()> {
+        let mut after = 0;
+        loop {
+            let evs = st.list(&store::Filter {
+                device_id: me.to_string(),
+                after_seq: after,
+                kinds: vec![store::kinds::REPO_SEEN.to_string()],
+                limit,
+                ..store::Filter::default()
+            })?;
+            let mut f = self.lock();
+            for ev in &evs {
+                f.fold_desk(ev);
+            }
+            drop(f);
+            match evs.last() {
+                Some(l) if evs.len() as i64 == limit => after = l.seq,
+                _ => return Ok(()),
+            }
+        }
     }
 
     /// When the expiry timer should fire: the soonest Until of this

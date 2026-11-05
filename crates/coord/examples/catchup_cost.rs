@@ -2,10 +2,11 @@
 //! (card #567).
 //!
 //! `cargo run --release -p irori-coord --example catchup_cost -- <copy of
-//! irori.db> <this device> <other device> <followed rows behind> [views]`
+//! irori.db> <this device> <other device> <followed rows behind> [views|notify]`
 //!
 //! With `views` a second reader runs whole Board views through the catch-up;
-//! each holds the lock itself, so leave it out to see the catch-up alone.
+//! with `notify` one runs a view per Change, as notify-watch does. Each view
+//! holds the lock itself, so leave them out to see the catch-up alone.
 //!
 //! Point it at a fresh copy each run: it moves the other device's newest
 //! rows aside, replays, puts them back and catches up, and the fold's duties
@@ -94,6 +95,7 @@ fn main() {
     let (db, me, other) = (&a[1], &a[2], &a[3]);
     let behind: i64 = a[4].parse().unwrap();
     let with_views = a.get(5).is_some_and(|s| s == "views");
+    let notify = a.get(5).is_some_and(|s| s == "notify");
     let wall = newest_wall(db);
     stash(db, other, behind);
     let st = Arc::new(Store::open(db, me, Arc::new(hlc::Clock::new())).unwrap());
@@ -148,12 +150,17 @@ fn main() {
         })
     };
     let drain = {
-        let (q, stop) = (changes.clone(), stop.clone());
+        let (q, stop, co, f) = (changes.clone(), stop.clone(), co.clone(), f.clone());
         std::thread::spawn(move || {
             let mut seen: BTreeMap<String, u64> = BTreeMap::new();
             loop {
                 match q.try_recv() {
-                    TryRecv::Item(c) => *seen.entry(c.kind).or_default() += 1,
+                    TryRecv::Item(c) => {
+                        *seen.entry(c.kind).or_default() += 1;
+                        if notify {
+                            std::hint::black_box(co.board(&f));
+                        }
+                    }
                     _ if stop.load(Ordering::Relaxed) => return seen,
                     _ => std::thread::sleep(Duration::from_micros(200)),
                 }
